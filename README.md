@@ -20,7 +20,7 @@
 
 ## 技术栈
 
-**Go 1.25** · Wails v2（WebView2 壳）· gin · GORM + SQLite（WAL + FTS5）· Viper · slog · gorilla/websocket（原生 CDP）
+**Go 1.24+** · Wails v2（WebView2 壳）· gin · GORM + SQLite（WAL + FTS5）· Viper · slog · gorilla/websocket（原生 CDP）
 **Vue 3 + TypeScript + Vite** · Element Plus · Pinia · Tailwind 4 设计 token
 
 ## 架构：单进程双主机
