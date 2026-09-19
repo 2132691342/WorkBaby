@@ -99,7 +99,7 @@ function applyPreset(name: string): void {
   if (draft.value.name === '') draft.value.name = preset.name
   draft.value.kind = preset.kind
   draft.value.base_url = preset.base_url
-  if (preset.models.length > 0) draft.value.model = preset.models[0]!
+  if (preset.models?.length) draft.value.model = preset.models[0]!
 }
 
 function startEditProvider(p: AiProvider): void {
@@ -374,7 +374,7 @@ defineExpose({ load })
             <span class="badge b-neutral">{{ p.kind }}</span>
           </div>
           <div class="fs11 muted mono ellipsis">{{ p.base_url }}</div>
-          <div v-if="p.models[0]" class="fs11 muted ellipsis">{{ p.models[0] }}</div>
+          <div v-if="p.models?.[0]" class="fs11 muted ellipsis">{{ p.models?.[0] }}</div>
           <div class="fs11 primary mt4">{{ t('settings.onboardUse') }} →</div>
         </button>
       </div>

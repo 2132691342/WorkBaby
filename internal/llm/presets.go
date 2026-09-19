@@ -25,8 +25,17 @@ var providerPresets = []ProviderPreset{
 }
 
 // ProviderPresets 返回内置预设（api 层直出，前端「新增模型」一键预填）。
+//
+// Models 统一归一化为非 nil 切片：nil slice 会被 JSON 序列化成 null，
+// 前端按数组下标访问（p.models[0]）会抛 TypeError 并导致整页渲染失败。
+// 本机预设（Ollama / LM Studio）不预置模型名，这里补成空切片而非删除字段。
 func ProviderPresets() []ProviderPreset {
 	out := make([]ProviderPreset, len(providerPresets))
 	copy(out, providerPresets)
+	for i := range out {
+		if out[i].Models == nil {
+			out[i].Models = []string{}
+		}
+	}
 	return out
 }
