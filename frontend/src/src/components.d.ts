@@ -31,6 +31,7 @@ declare module 'vue' {
     DashboardTrendExec: typeof import('./components/dashboard/DashboardTrendExec.vue')['default']
     DashboardView: typeof import('./components/dashboard/DashboardView.vue')['default']
     DiffView: typeof import('./components/chat/DiffView.vue')['default']
+    DocPreviewPane: typeof import('./components/knowledge/DocPreviewPane.vue')['default']
     DocsView: typeof import('./components/docs/DocsView.vue')['default']
     EmptyState: typeof import('./components/common/EmptyState.vue')['default']
     Field: typeof import('./components/common/Field.vue')['default']

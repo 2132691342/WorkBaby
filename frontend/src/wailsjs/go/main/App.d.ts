@@ -110,6 +110,8 @@ export function GetHealth():Promise<domain.HealthInfo>;
 
 export function GetKnowledgeDoc(arg1:string):Promise<domain.KnowledgeDocRESP>;
 
+export function GetKnowledgeFile(arg1:string):Promise<Array<number>>;
+
 export function GetMcpRaw():Promise<domain.McpRawRESP>;
 
 export function GetMemoryOverview():Promise<domain.MemoryOverviewRESP>;

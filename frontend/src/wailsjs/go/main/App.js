@@ -210,6 +210,10 @@ export function GetKnowledgeDoc(arg1) {
   return window['go']['main']['App']['GetKnowledgeDoc'](arg1);
 }
 
+export function GetKnowledgeFile(arg1) {
+  return window['go']['main']['App']['GetKnowledgeFile'](arg1);
+}
+
 export function GetMcpRaw() {
   return window['go']['main']['App']['GetMcpRaw']();
 }
