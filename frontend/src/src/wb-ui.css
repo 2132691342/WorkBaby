@@ -648,6 +648,18 @@ body {
   border-radius: var(--wb-radius-lg, 20px);
   padding: 18px;
   box-shadow: var(--wb-shadow), var(--wb-glass-inset, inset 0 1px 0 rgb(255 255 255 / 0.7));
+  /* 卡片悬浮：微微抬升 + 蓝调阴影加深 + 边框提亮，与 .qb-card 的抬升动作统一 */
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
+}
+.card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--wb-primary) 18%, transparent);
+  box-shadow:
+    0 6px 18px -6px color-mix(in srgb, var(--wb-primary) 26%, transparent),
+    var(--wb-glass-inset, inset 0 1px 0 rgb(255 255 255 / 0.7));
 }
 .card.p-sm {
   padding: 11px;
