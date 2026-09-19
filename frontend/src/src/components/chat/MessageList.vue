@@ -235,11 +235,11 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
     <!-- 空状态：克制卡片（实底 + 细边框，无渐变扫光）+ 4 个一键示例 prompt。 -->
     <div v-if="messages.length === 0 && !streaming" class="flex h-full items-center justify-center px-4">
       <div class="w-full max-w-xl">
-        <div class="card-pop p-8 text-center">
-          <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-wb-primary/10 text-wb-primary">
-            <Sparkles class="h-6 w-6" />
+        <div class="hero-card p-8 text-center">
+          <div class="hero-badge mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl">
+            <Sparkles class="h-7 w-7" />
           </div>
-          <h3 class="text-base font-semibold text-wb-ink">{{ t('chat.emptyTitle') }}</h3>
+          <h3 class="text-lg font-semibold tracking-tight text-wb-ink">{{ t('chat.emptyTitle') }}</h3>
           <p class="mt-2 text-sm text-wb-muted">{{ t('chat.emptyPrompt') }}</p>
           <p class="mt-1 text-xs text-wb-muted/70">{{ t('chat.emptyHint') }}</p>
           <!-- 无可用模型：直达设置页引导 -->

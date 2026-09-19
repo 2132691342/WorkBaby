@@ -14,12 +14,15 @@
 
 /* ---- light：蓝调渐变 + 白玻璃 ---- */
 [data-theme='light'] {
-  --wb-bg: #e8f1fd;
+  --wb-bg: #e3eefc;
+  /* 纵深：三层彩色柔光（左上蓝 / 右上青 / 右下紫）+ 中部提亮 + 斜向底色。
+   * 提高柔光 Alpha 并加深底色，避免整屏发灰发白、玻璃卡失去「透光」参照。 */
   --wb-page-gradient:
-    radial-gradient(1200px 620px at 8% -12%, rgba(96, 165, 250, 0.34), transparent 62%),
-    radial-gradient(1000px 560px at 104% 8%, rgba(56, 189, 248, 0.24), transparent 60%),
-    radial-gradient(900px 640px at 78% 112%, rgba(129, 140, 248, 0.20), transparent 62%),
-    linear-gradient(168deg, #cfe1f9 0%, #dfecfb 26%, #eef5fe 60%, #fafcff 100%);
+    radial-gradient(1180px 640px at 6% -14%, rgba(56, 132, 255, 0.50), transparent 62%),
+    radial-gradient(1020px 580px at 104% 6%, rgba(34, 183, 245, 0.34), transparent 60%),
+    radial-gradient(940px 680px at 76% 114%, rgba(122, 90, 248, 0.28), transparent 64%),
+    radial-gradient(820px 560px at 42% 44%, rgba(255, 255, 255, 0.60), transparent 72%),
+    linear-gradient(168deg, #c6daf7 0%, #d9e9fc 26%, #eaf3fe 60%, #f8fbff 100%);
 
   /* 玻璃底：卡片与容器 */
   --wb-surface: rgba(255, 255, 255, 0.74);
@@ -58,8 +61,8 @@
   /* 玻璃参数：blur + 白边高光 + 内阴影 */
   --wb-glass-blur: 20px;
   --wb-glass-saturate: 1.5;
-  --wb-glass-border: rgba(255, 255, 255, 0.72);
-  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --wb-glass-border: rgba(255, 255, 255, 0.92);
+  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.95);
   --wb-glass-opacity: 0.74;
 
   /* 品牌渐变（标题 / 强调数字 / 主按钮） */

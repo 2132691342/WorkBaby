@@ -185,6 +185,28 @@ body {
   min-height: 0;
 }
 
+/* 聊天空态 hero：品牌色顶部柔光 + 渐变徽标，避免「通用白卡」观感 */
+.hero-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--wb-radius-lg, 20px);
+  background:
+    radial-gradient(120% 82% at 50% -18%, color-mix(in srgb, var(--wb-primary) 17%, transparent), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 42%),
+    var(--wb-surface);
+  border: 1px solid var(--wb-glass-border, var(--wb-border));
+  -webkit-backdrop-filter: blur(var(--wb-glass-blur, 20px)) saturate(var(--wb-glass-saturate, 1.4));
+  backdrop-filter: blur(var(--wb-glass-blur, 20px)) saturate(var(--wb-glass-saturate, 1.4));
+  box-shadow: var(--wb-shadow-lg), var(--wb-glass-inset, inset 0 1px 0 rgb(255 255 255 / 0.7));
+}
+.hero-badge {
+  background: var(--wb-grad-brand);
+  color: #fff;
+  box-shadow:
+    0 12px 28px -10px color-mix(in srgb, var(--wb-primary) 68%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+}
+
 /* ================= 侧栏 ================= */
 .side {
   width: 256px;
@@ -586,7 +608,9 @@ body {
 }
 /* 玻璃卡：页面底色与光晕透过半透明卡面（--wb-surface + backdrop-blur） */
 .card {
-  background: var(--wb-surface);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 36%),
+    var(--wb-surface);
   -webkit-backdrop-filter: blur(var(--wb-glass-blur, 20px)) saturate(var(--wb-glass-saturate, 1.4));
   backdrop-filter: blur(var(--wb-glass-blur, 20px)) saturate(var(--wb-glass-saturate, 1.4));
   border: 1px solid var(--wb-glass-border, var(--wb-border));
