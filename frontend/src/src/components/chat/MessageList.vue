@@ -15,27 +15,32 @@ import { useToast } from '@/composables/useToast'
 import { RESUMABLE_STOP_REASONS } from '@/chat/models/blocks'
 import { useChatStore } from '@/stores/chat'
 
-/** 空状态的一键示例 prompt，点击直接填入输入框（文案走 i18n）。 */
-const quickPrompts: { title: string; text: string; icon: unknown }[] = [
+/** 空状态的一键示例 prompt，点击直接填入输入框（文案走 i18n）。
+ *  tone 决定图标徽标配色（复用设计系统强调色），让四张卡一眼可区分。 */
+const quickPrompts: { title: string; text: string; icon: unknown; tone: string }[] = [
   {
     title: t('chat.quick.weeklyTitle'),
     text: t('chat.quick.weeklyText'),
-    icon: FileText
+    icon: FileText,
+    tone: 'mint'
   },
   {
     title: t('chat.quick.explainTitle'),
     text: t('chat.quick.explainText'),
-    icon: Code2
+    icon: Code2,
+    tone: 'primary'
   },
   {
     title: t('chat.quick.cronTitle'),
     text: t('chat.quick.cronText'),
-    icon: Clock
+    icon: Clock,
+    tone: 'lemon'
   },
   {
     title: t('chat.quick.kdocsTitle'),
     text: t('chat.quick.kdocsText'),
-    icon: BookOpen
+    icon: BookOpen,
+    tone: 'lavender'
   }
 ]
 
@@ -234,7 +239,7 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
   <div ref="scrollEl" class="min-h-0 flex-1 overflow-y-auto px-6 py-6 relative" @scroll="onScroll">
     <!-- 空状态：克制卡片（实底 + 细边框，无渐变扫光）+ 4 个一键示例 prompt。 -->
     <div v-if="messages.length === 0 && !streaming" class="flex h-full items-center justify-center px-4">
-      <div class="w-full max-w-xl">
+      <div class="w-full max-w-2xl">
         <div class="hero-card p-8 text-center">
           <div class="hero-badge mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl">
             <Sparkles class="h-7 w-7" />
@@ -253,19 +258,22 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
             </el-button>
           </div>
         </div>
-        <div class="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div class="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           <button
             v-for="(s, i) in quickPrompts"
             :key="i"
             type="button"
-            class="card-pop group flex items-start gap-3 px-4 py-3 text-left transition-all hover:border-wb-primary/40 hover:shadow-sm"
+            class="card-pop qb-card group flex items-start gap-3 px-4 py-3.5 text-left"
             @click="$emit('useQuickPrompt', s.text)"
           >
-            <span class="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-wb-primary/10 text-wb-primary">
-              <component :is="s.icon" class="h-3.5 w-3.5" />
+            <span
+              class="qb-tile mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]"
+              :class="`qb-tile--${s.tone}`"
+            >
+              <component :is="s.icon" class="h-4 w-4" />
             </span>
             <span class="min-w-0">
-              <span class="block text-sm font-medium text-wb-ink">{{ s.title }}</span>
+              <span class="block text-sm font-semibold text-wb-ink">{{ s.title }}</span>
               <span class="mt-0.5 block truncate text-xs text-wb-muted">{{ s.text }}</span>
             </span>
           </button>
