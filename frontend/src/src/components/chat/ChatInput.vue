@@ -241,6 +241,24 @@ const PERMISSION_ITEMS: Array<{ value: PermissionLevel; labelKey: string; descKe
   { value: 'full', labelKey: 'chat.perm.full', descKey: 'chat.perm.desc.full', danger: true }
 ]
 
+/** /trust 别名 → PermissionLevel（接受后端 SessionMode 键、前端显示标签与中文）。 */
+const TRUST_ALIASES: Record<string, PermissionLevel> = {
+  restricted: 'restricted',
+  default: 'confirm',
+  auto_edit: 'auto',
+  'auto-edit': 'auto',
+  yolo: 'full',
+  plan: 'restricted',
+  confirm: 'confirm',
+  auto: 'auto',
+  full: 'full',
+  计划: 'restricted',
+  受限: 'restricted',
+  需确认: 'confirm',
+  自动: 'auto',
+  完全访问: 'full',
+}
+
 const permissionLabel = computed(
   () => PERMISSION_ITEMS.find((p) => p.value === permissionLevel.value)?.labelKey ?? 'chat.perm.confirm'
 )
@@ -418,6 +436,14 @@ function submit(): void {
     draft.value = ''
     resetHeight()
     emit('side')
+    return
+  }
+  // /trust 执行模式：无参循环；带参按别名直切（plan/confirm/auto/full 或内部键）
+  const trustMatch = /^\/trust(?:\s+([\s\S]+))?$/.exec(text)
+  if (trustMatch) {
+    draft.value = ''
+    resetHeight()
+    handleTrustCommand(trustMatch[1])
     return
   }
   if (slashOpen.value && /^\/\w*\s*$/.test(draft.value)) {
@@ -652,6 +678,35 @@ async function handleGoalCommand(args?: string): Promise<void> {
   }
 }
 
+/**
+ * /trust 执行模式：无参循环；带参按别名直切。
+ * 面板选中（pickSlash）与键入（submit）共用，避免逻辑双份。
+ */
+function handleTrustCommand(args?: string): void {
+  const cycle: PermissionLevel[] = ['restricted', 'confirm', 'auto', 'full']
+  const arg = (args ?? '').trim()
+  if (!arg) {
+    const idx = cycle.indexOf(permissionLevel.value)
+    const next = cycle[(idx + 1) % cycle.length]
+    applyTrust(next)
+    return
+  }
+  const target = TRUST_ALIASES[arg] ?? TRUST_ALIASES[arg.toLowerCase()] ?? null
+  if (!target) {
+    toast.error(t('slash.trustUnknown', arg))
+    return
+  }
+  applyTrust(target)
+}
+
+/** 应用执行模式：emit 给 ChatView 落库 + toast/内联反馈。 */
+function applyTrust(level: PermissionLevel): void {
+  emit('change-permission', level)
+  const labelKey = PERMISSION_ITEMS.find((p) => p.value === level)?.labelKey ?? 'chat.perm.confirm'
+  toast.success(t('slash.trustHint', t(labelKey)))
+  showCmdFeedback(`/trust · ${t(labelKey)}`)
+}
+
 function pickSlash(cmd: SlashCommand): void {
   slashOpen.value = false
   // 全部命令统一双保险反馈：toast（右下角气泡）+ 输入框内联反馈条。
@@ -708,17 +763,10 @@ function pickSlash(cmd: SlashCommand): void {
       void submitAgentTask()
       okAsync()
       break
-    case 'trust': {
-      // 循环切换执行模式（计划 → 需确认 → 自动 → 完全访问），替代无动作提示
-      const cycle: PermissionLevel[] = ['restricted', 'confirm', 'auto', 'full']
-      const idx = cycle.indexOf(permissionLevel.value)
-      const next = cycle[(idx + 1) % cycle.length]
-      const labelKey = PERMISSION_ITEMS.find((p) => p.value === next)?.labelKey ?? 'chat.perm.confirm'
-      emit('change-permission', next)
-      toast.success(t('slash.trustHint', t(labelKey)))
-      showCmdFeedback(`/trust · ${t(labelKey)}`)
+    case 'trust':
+      // 面板选中无参 → 循环；带参由 submit 拦截器处理
+      handleTrustCommand()
       break
-    }
     case 'goal':
       // 目标命令：留 "/goal " 前缀让用户接着输入描述，Enter 时 submit 拦截执行
       draft.value = '/goal '
