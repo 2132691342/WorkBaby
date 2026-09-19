@@ -25,6 +25,8 @@
 # Frontend
 /frontend/node_modules/
 /frontend/dist/
+# TS 增量构建缓存（vue-tsc -b 产物，不应入库）
+*.tsbuildinfo
 # 注：wailsjs 绑定（go/、runtime/）现纳入版本控制。CI 的 frontend job 仅安装 Node、不执行
 # wails build，若不提交则 vue-tsc 找不到 @/wailsjs/* 模块而失败。代价：本地每次 wails
 # build/dev 会重生成这些文件（git status 显示 modified）；修改 Go 导出接口后须本地重新生成
