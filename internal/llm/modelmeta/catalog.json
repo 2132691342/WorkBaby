@@ -1,0 +1,23 @@
+{
+  "_comment": "模型元数据目录：provider 行未声明 context_window / pricing 时的兜底缺省。match 为模型名不区分大小写的子串；多条命中取最长 match（更具体者优先）。单价为 USD / 百万 token 的近似缺省，设置页可按模型覆盖（pricing.<model>）。",
+  "entries": [
+    { "match": "gpt-5", "context_window": 400000, "input_per_m": 1.25, "output_per_m": 10.0, "cache_read_per_m": 0.125 },
+    { "match": "gpt-4.1", "context_window": 1000000, "input_per_m": 2.0, "output_per_m": 8.0, "cache_read_per_m": 0.5 },
+    { "match": "gpt-4o", "context_window": 128000, "input_per_m": 2.5, "output_per_m": 10.0, "cache_read_per_m": 1.25 },
+    { "match": "o4-mini", "context_window": 200000, "input_per_m": 1.1, "output_per_m": 4.4 },
+    { "match": "o3", "context_window": 200000, "input_per_m": 2.0, "output_per_m": 8.0 },
+    { "match": "claude-opus-4", "context_window": 200000, "input_per_m": 15.0, "output_per_m": 75.0, "cache_read_per_m": 1.5 },
+    { "match": "claude-sonnet-4-5", "context_window": 200000, "input_per_m": 3.0, "output_per_m": 15.0, "cache_read_per_m": 0.3 },
+    { "match": "claude-sonnet-4", "context_window": 200000, "input_per_m": 3.0, "output_per_m": 15.0, "cache_read_per_m": 0.3 },
+    { "match": "claude-3-7-sonnet", "context_window": 200000, "input_per_m": 3.0, "output_per_m": 15.0, "cache_read_per_m": 0.3 },
+    { "match": "claude-3-5-haiku", "context_window": 200000, "input_per_m": 0.8, "output_per_m": 4.0 },
+    { "match": "deepseek-reasoner", "context_window": 128000, "input_per_m": 0.55, "output_per_m": 2.19, "cache_read_per_m": 0.14 },
+    { "match": "deepseek-chat", "context_window": 128000, "input_per_m": 0.27, "output_per_m": 1.1, "cache_read_per_m": 0.07 },
+    { "match": "deepseek-r1", "context_window": 128000, "input_per_m": 0.55, "output_per_m": 2.19, "cache_read_per_m": 0.14 },
+    { "match": "deepseek-v3", "context_window": 128000, "input_per_m": 0.27, "output_per_m": 1.1, "cache_read_per_m": 0.07 },
+    { "match": "glm-4", "context_window": 128000, "input_per_m": 0.6, "output_per_m": 2.2 },
+    { "match": "kimi-k2", "context_window": 256000, "input_per_m": 0.6, "output_per_m": 2.5, "cache_read_per_m": 0.15 },
+    { "match": "qwen3", "context_window": 256000 },
+    { "match": "qwen-max", "context_window": 32768 }
+  ]
+}

@@ -1,0 +1,1212 @@
+/**
+ * WorkBaby 全局样式。
+ *
+ * <p>Tailwind 4：{@code @theme} 注册色彩 token（生成 bg-wb-primary 等 utility），
+ * 同时以 {@code :root} 暴露 {@code --wb-*} CSS 变量供非 utility 场景（背景层 / 阴影 /
+ * Markdown 正文 / 玻璃态组件类）使用。两套变量取值一致。
+ *
+ * <p><b>字体策略</b>（精简后只保留 7 个字体文件）：
+ * <ul>
+ *   <li>UI 无衬线：{@code Inter}（400 + 600 + 400italic + 600italic）+ 中文系统回退栈</li>
+ *   <li>等宽：{@code JetBrains Mono}（Regular）+ {@code Fira Code}（Regular）+ {@code Cascadia Code}（Regular）三选一</li>
+ * </ul>
+ *
+ * <p>理由：避免引入 ~3.4MB 外部字体的下载与版权风险；Inter + 系统中文栈在三大平台（Windows / macOS / Linux）渲染一致。
+ */
+@import 'tailwindcss';
+@import './themes.css';
+/* 原型同款组件设计系统（prd/WorkBaby-UI-Prototype.html）：card/btn/badge/tbl/tile… */
+@import './wb-ui.css';
+
+/* ===== 表单密度 token（全局唯一基线）=====
+ * 原生 .input 与 Element Plus 控件共用同一套高度 / 字号，
+ * 消除「同一个设置页里 28px 与 32px 混排、12px 与 14px 混排」的问题。 */
+:root {
+  --wb-ctl-h: 32px;
+  --wb-fs-ctl: 12.5px;
+  --wb-fs-label: 11.5px;
+  --wb-fs-hint: 11px;
+  --wb-radius-ctl: 10px;
+}
+
+/* ===== 离线字体（精简：Inter 4 weight + 3 款等宽 Regular）=====
+ * 用户决策（2026）：精简为 7 个文件。
+ *  - Inter：常规体 / 半粗体 + 各自斜体（标题 / 正文 / 数字）
+ *  - JetBrains Mono Regular：默认代码字体（CSS --font-mono 首选）
+ *  - Fira Code Regular / Cascadia Code Regular：设置中可选的代码字体备选 */
+
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/Inter-Regular.otf') format('opentype'); }
+@font-face { font-family: 'Inter'; font-style: italic; font-weight: 400; font-display: swap; src: url('./assets/fonts/Inter-Italic.otf') format('opentype'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('./assets/fonts/Inter-SemiBold.otf') format('opentype'); }
+@font-face { font-family: 'Inter'; font-style: italic; font-weight: 600; font-display: swap; src: url('./assets/fonts/Inter-SemiBoldItalic.otf') format('opentype'); }
+
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/JetBrainsMono-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'Fira Code'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/FiraCode-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'Cascadia Code'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/Cascadia-Code-Regular-2.ttf') format('truetype'); }
+
+@theme {
+  /* ===== 玻璃拟态浅蓝 token 默认值（与 themes.css light 同步）===== */
+
+  --color-wb-bg: #e8f1fd;
+  --color-wb-surface: rgba(255, 255, 255, 0.74);
+  --color-wb-surface-2: rgba(240, 246, 255, 0.72);
+  --color-wb-surface-hover: rgba(226, 239, 255, 0.88);
+  --color-wb-primary: #2f7bf6;
+  --color-wb-primary-strong: #1a5fe0;
+  --color-wb-primary-soft: rgba(47, 123, 246, 0.12);
+  --color-wb-mint: #12b76a;
+  --color-wb-lavender: #7a5af8;
+  --color-wb-sky: #2e90fa;
+  --color-wb-lemon: #f79009;
+  --color-wb-success: #12b76a;
+  --color-wb-warning: #f79009;
+  --color-wb-danger: #f04438;
+  --color-wb-info: #2e90fa;
+  --color-wb-ink: #16233c;
+  --color-wb-muted: #64748b;
+  --color-wb-border: rgba(45, 90, 160, 0.11);
+
+  /* ===== 字体栈（统一：显式声明所有面，避免浏览器自动降级到本机字体） ===== */
+
+  /* UI 无衬线（Inter 拉丁 + 中文系统栈优先；末尾无衬线兜底） */
+  --font-sans:
+    'Inter', 'PingFang SC', 'Microsoft YaHei', 'HarmonyOS Sans SC',
+    'MiSans', system-ui, ui-sans-serif, sans-serif;
+
+  /* Display 标题（与 UI 同源；不混用衬线，避免博客感） */
+  --font-display:
+    'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+
+  /* 中文展示（系统中文栈优先，避免英文降级到 Inter 渲染中文字形） */
+  --font-cn:
+    'PingFang SC', 'Microsoft YaHei', 'HarmonyOS Sans SC', 'Inter',
+    sans-serif;
+
+  /* 等宽（代码 / JSON / 命令输出；用户可在设置中切换） */
+  --font-mono:
+    'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace,
+    'SF Mono', Consolas, 'Courier New', monospace;
+
+  /* ===== 圆角 / 阴影刻度（统一：阴影全部收敛到 themes.css 的 --wb-shadow*，此处不重复定义）===== */
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+}
+
+/* ===== 组件基元（@layer components） ===== */
+@layer components {
+  /* === 按钮变体 ===
+   * .btn / .btn-primary / .btn-danger / .btn-ghost / .btn-icon / .card / .card-2
+   * 统一由 wb-ui.css 定义（28px / 12px，走 --wb-ctl-h 密度体系，与 Element Plus 对齐）。
+   * 此处不再重复声明：wb-ui.css 是未分层规则，优先级高于 @layer 内规则，
+   * 双份定义只会让「哪套生效」取决于层叠顺序，且同名不同值必然造成风格漂移。
+   * 仅保留 wb-ui.css 没有的 .btn-secondary 与 .card-pop。 */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium
+      transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50
+      border-wb-border bg-wb-surface text-wb-ink hover:border-wb-primary/40 hover:bg-wb-surface-2 hover:text-wb-primary-strong;
+  }
+  /* 浮层卡片（弹窗/下拉用，深阴影） */
+  .card-pop {
+    background-color: var(--wb-surface);
+    border: 1px solid var(--wb-border);
+    border-radius: var(--wb-radius);
+    box-shadow: var(--wb-shadow-pop);
+  }
+
+  /* === Element Plus 组件主题融合（全局唯一声明；各视图不得再复制 scoped 副本） === */
+  .wb-el-table {
+    --el-table-bg-color: transparent;
+    --el-table-tr-bg-color: transparent;
+    --el-table-header-bg-color: color-mix(in srgb, var(--wb-primary) 6%, transparent);
+    --el-table-border-color: var(--wb-border);
+    --el-table-text-color: var(--wb-ink);
+    --el-table-header-text-color: var(--wb-muted);
+    --el-table-row-hover-bg-color: color-mix(in srgb, var(--wb-primary) 8%, transparent);
+  }
+  .wb-el-form .el-form-item__label {
+    color: var(--wb-muted);
+    font-size: 12px;
+  }
+
+  /* === 输入框 ===
+   * .input 由 wb-ui.css 统一定义（--wb-ctl-h / --wb-fs-ctl），此处不再重复声明，
+   * 避免两份字号（12px 与 14px）在设置页混排。 */
+  .input-xs {
+    width: 100%;
+    border-radius: var(--wb-radius-sm);
+    border: 1px solid var(--wb-border-strong);
+    padding: 0.25rem 0.5rem;
+    font-size: 11px;
+    background: var(--wb-surface-solid);
+    color: var(--wb-ink);
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  /* === 徽标（15% 底色 + 语义色文字，rounded-full 更现代） === */
+  .badge-primary { @apply rounded-full bg-wb-primary-soft px-2 py-0.5 text-xs font-medium text-wb-primary-strong; }
+  .badge-success { @apply rounded-full bg-wb-success/12 px-2 py-0.5 text-xs font-medium text-wb-success; }
+  .badge-warning { @apply rounded-full bg-wb-warning/12 px-2 py-0.5 text-xs font-medium text-wb-warning; }
+  .badge-danger  { @apply rounded-full bg-wb-danger/12 px-2 py-0.5 text-xs font-medium text-wb-danger; }
+  .badge-info    { @apply rounded-full bg-wb-info/12 px-2 py-0.5 text-xs font-medium text-wb-info; }
+  .badge-neutral { @apply rounded-full bg-wb-muted/12 px-2 py-0.5 text-xs font-medium text-wb-muted; }
+
+  /* === 链接 === */
+  .link {
+    @apply rounded-md px-1 text-sm text-wb-primary-strong transition-colors hover:bg-wb-primary-soft;
+  }
+}
+
+/* ===== :root 默认值（与 themes.css light 同步）===== */
+:root {
+  --wb-bg: #e8f1fd;
+  --wb-page-gradient:
+    radial-gradient(1200px 620px at 8% -12%, rgba(96, 165, 250, 0.34), transparent 62%),
+    radial-gradient(1000px 560px at 104% 8%, rgba(56, 189, 248, 0.24), transparent 60%),
+    radial-gradient(900px 640px at 78% 112%, rgba(129, 140, 248, 0.20), transparent 62%),
+    linear-gradient(168deg, #cfe1f9 0%, #dfecfb 26%, #eef5fe 60%, #fafcff 100%);
+  --wb-surface: rgba(255, 255, 255, 0.74);
+  --wb-surface-2: rgba(240, 246, 255, 0.72);
+  --wb-surface-hover: rgba(226, 239, 255, 0.88);
+  --wb-surface-solid: #ffffff;
+  --wb-side: rgba(255, 255, 255, 0.66);
+  --wb-primary: #2f7bf6;
+  --wb-primary-strong: #1a5fe0;
+  --wb-primary-soft: rgba(47, 123, 246, 0.12);
+  --wb-mint: #12b76a;
+  --wb-lavender: #7a5af8;
+  --wb-sky: #2e90fa;
+  --wb-lemon: #f79009;
+  --wb-success: #12b76a;
+  --wb-warning: #f79009;
+  --wb-danger: #f04438;
+  --wb-info: #2e90fa;
+  --wb-ink: #16233c;
+  --wb-muted: #64748b;
+  --wb-border: rgba(45, 90, 160, 0.11);
+  --wb-border-strong: rgba(45, 90, 160, 0.20);
+  --wb-radius-sm: 10px;
+  --wb-radius: 12px;
+  --wb-radius-lg: 16px;
+  --wb-shadow: 0 1px 2px rgba(31, 70, 140, 0.05), 0 8px 24px -10px rgba(31, 70, 140, 0.16);
+  --wb-shadow-lg: 0 14px 40px -14px rgba(31, 70, 140, 0.22);
+  --wb-shadow-pop: 0 24px 64px -20px rgba(31, 70, 140, 0.30);
+  --wb-glass-blur: 20px;
+  --wb-glass-saturate: 1.5;
+  --wb-glass-border: rgba(255, 255, 255, 0.72);
+  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --wb-glass-opacity: 0.74;
+  --wb-grad-brand: linear-gradient(100deg, #2b6ef6 0%, #3f8dff 42%, #7c5cf8 100%);
+  --wb-grad-btn: linear-gradient(180deg, #4d93ff 0%, #2f7bf6 54%, #1a5fe0 100%);
+  --wb-user-bg-url: none;
+  --wb-user-bg-opacity: 1;
+  --wb-user-bg-blur: 0px;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background-color: var(--wb-bg);
+  background-image: var(--wb-page-gradient);
+  background-attachment: fixed;
+  color: var(--wb-ink);
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color 400ms ease, color 400ms ease;
+}
+
+/* 全局等宽元素 */
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* ===== 全局字体一致性：Element Plus 组件必须显式继承字体 ===== */
+/* 修复设置页 / 表单页「输入框和下拉框歪七扭八，字体不统一」的根因之一
+ * ——Element Plus 内部大量 .el-input 等组件默认 inherit，否则自动落到浏览器默认（Segoe UI / 微软雅黑），
+ * 与 Inter 主栈渲染不一致导致中文/英文混排错位。 */
+.el-input,
+.el-input__inner,
+.el-textarea__inner,
+.el-select,
+.el-select__wrapper,
+.el-select__placeholder,
+.el-option,
+.el-form-item,
+.el-form-item__label,
+.el-form-item__content,
+.el-button,
+.el-button span,
+.el-tag,
+.el-table,
+.el-table__cell,
+.el-table th.el-table__cell,
+.el-table td.el-table__cell,
+.el-table__empty-text,
+.el-tabs__item,
+.el-tabs__nav-wrap,
+.el-checkbox__label,
+.el-radio__label,
+.el-radio-button__inner,
+.el-switch__core,
+.el-dialog,
+.el-dialog__title,
+.el-dialog__body,
+.el-dialog__footer,
+.el-message,
+.el-message-box,
+.el-notification,
+.el-dropdown-menu__item,
+.el-popper,
+.el-tree,
+.el-tree-node__label,
+.el-empty__description,
+.el-pagination,
+.el-pagination__sizes .el-select .el-input__inner,
+.el-pagination__jump,
+.el-pager li,
+.el-slider__runway,
+.el-tooltip__popper,
+.el-empty {
+  font-family: var(--font-sans) !important;
+}
+
+/* 等宽场景单独覆盖（保留代码 / JSON / 命令输出的等宽字体） */
+.el-textarea__inner.font-mono,
+.el-input.font-mono .el-input__inner,
+pre code,
+pre,
+.mono {
+  font-family: var(--font-mono) !important;
+}
+
+/* ===== Element Plus 控件：与 wb-ui 原生控件同高同字号（全局密度基线）=====
+ * EP 默认 32px / 14px，wb-ui 原生 .input 是 28px / 12px，两套混排导致
+ * 设置页「编辑模型弹窗好看、其余表单难看」。此处统一收敛到 --wb-ctl-h / --wb-fs-ctl。 */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper,
+.el-input-number,
+.el-input-number .el-input__wrapper,
+.el-date-editor.el-input__wrapper,
+.el-cascader .el-input__wrapper {
+  min-height: var(--wb-ctl-h) !important;
+}
+.el-input__inner,
+.el-textarea__inner,
+.el-select__placeholder,
+.el-select__selected-item,
+.el-input-number .el-input__inner {
+  font-size: var(--wb-fs-ctl) !important;
+}
+.el-select__wrapper,
+.el-input__wrapper {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+.el-select__prefix,
+.el-select__suffix,
+.el-input__prefix,
+.el-input__suffix {
+  height: var(--wb-ctl-h);
+}
+.el-button--small {
+  min-height: var(--wb-ctl-h);
+  font-size: var(--wb-fs-ctl);
+}
+.el-form-item__label {
+  font-size: var(--wb-fs-label) !important;
+}
+
+/* ===== Element Plus 表单：统一对齐（设置页歪七扭八根因之二）===== */
+.el-form-item {
+  margin-bottom: 14px !important;
+}
+.el-form-item__label {
+  line-height: 1.4 !important;
+  padding-bottom: 4px !important;
+  font-weight: 500 !important;
+}
+.wb-el-form .el-form-item__label {
+  color: var(--wb-muted);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+/* 同一表单内左右对齐：label 在右侧时给固定宽度让左右列对齐 */
+.el-form--label-top .el-form-item__label {
+  padding-bottom: 4px;
+}
+
+/* 密度收紧：wb-form-grid 的 gap 已统一管理纵向间距，
+   EP 默认的 el-form-item margin-bottom: 22px 会让稀疏表单（如通道/搜索）撑满整页 */
+.wb-el-form .el-form-item {
+  margin-bottom: 0;
+}
+
+/* ===== wb-form-grid：Studio 通用栅格表单（修复设置页歪七扭八的根因） =====
+ * - form-row 两列网格（也支持 N 列）
+ * - form-cell 强制等高 + label 等行高
+ * - form-section 横向分隔
+ * - form-actions 底部按钮容器（右对齐） */
+.wb-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.wb-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wb-form-section__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wb-muted);
+  margin: 0;
+}
+.wb-form-row {
+  display: grid;
+  gap: 12px 14px;
+  align-items: start;
+}
+.wb-form-row--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.wb-form-row--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.wb-form-row--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.wb-form-cell {
+  margin-bottom: 0 !important;
+  width: 100%;
+}
+.wb-form-cell .el-form-item__content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wb-form-cell .el-input,
+.wb-form-cell .el-select,
+.wb-form-cell .el-input-number,
+.wb-form-cell .el-textarea {
+  width: 100%;
+}
+/* 等高：所有控件在 row 内对齐 baseline，避免 el-input-number 32px、el-input 32px、el-select 32px 出现上下错位 */
+.wb-form-cell .el-input__wrapper,
+.wb-form-cell .el-textarea__inner,
+.wb-form-cell .el-select__wrapper,
+.wb-form-cell .el-input-number {
+  min-height: 32px;
+}
+.wb-form-cell .el-input-number.is-controls-right {
+  width: 100%;
+}
+.wb-form-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--wb-muted);
+  margin: 2px 0 0;
+}
+.wb-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+@media (max-width: 720px) {
+  .wb-form-row--2,
+  .wb-form-row--3,
+  .wb-form-row--4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 空状态极光卡片（保留，与现状兼容） */
+.chat-empty-card {
+  background: var(--wb-surface);
+  box-shadow: var(--wb-shadow-lg);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.chat-empty-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 20px 60px color-mix(in srgb, var(--wb-primary) 20%, transparent);
+}
+
+/* 停止按钮呼吸动画 */
+.wb-stop-breathe {
+  animation: stop-breathe 1.4s ease-in-out infinite alternate;
+}
+@keyframes stop-breathe {
+  from { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in srgb, var(--wb-primary) 40%, transparent); }
+  to { transform: scale(1.05); box-shadow: 0 0 0 6px transparent; }
+}
+
+/* 桌宠呼吸 + 眨眼动画（保留，pet  系统未删） */
+.wb-pet-breathe {
+  animation: pet-breathe 3.4s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+@keyframes pet-breathe {
+  0%, 100% { transform: scaleY(1) scaleX(1); }
+  50% { transform: scaleY(1.035) scaleX(1.02); }
+}
+.wb-pet-blink {
+  animation: pet-blink 5s ease-in-out infinite;
+}
+@keyframes pet-blink {
+  0%, 95%, 100% { transform: scaleY(1); }
+  97% { transform: scaleY(0.1); }
+}
+.wb-pet-idle {
+  animation: pet-idle 4s ease-in-out infinite;
+}
+@keyframes pet-idle {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-3px) rotate(-1deg); }
+  75% { transform: translateY(-3px) rotate(1deg); }
+}
+
+/* .wb-glass / .wb-glass-solid 的唯一定义在 themes.css（含模糊半径与高光描边），
+   此处不再重复声明：同名双份定义只会让「哪套生效」取决于层叠顺序。 */
+
+/* ===== 细滚动条工具类（Windows WebView2 默认滚动条粗且隐藏，滚轮不可见时体感「不能滚动」）===== */
+.wb-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--wb-border-strong) transparent;
+}
+.wb-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.wb-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.wb-scroll::-webkit-scrollbar-thumb {
+  background: var(--wb-border-strong);
+  border-radius: 999px;
+}
+.wb-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--wb-muted);
+}
+.wb-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ===== 全局细滚动条（桌面 WebView2 统一观感；同时解决「看不见可滚动区域」） ===== */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--wb-muted) 32%, transparent) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--wb-muted) 32%, transparent);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--wb-muted) 55%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ===== 精致化细节：键盘焦点环 / 选中高亮 / EP 弹层圆角 ===== */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--wb-primary) 60%, transparent);
+  outline-offset: 2px;
+}
+::selection {
+  background: color-mix(in srgb, var(--wb-primary) 24%, transparent);
+}
+.el-dialog,
+.el-message-box,
+.el-message {
+  border-radius: var(--wb-radius-lg) !important;
+}
+.el-popper.is-light {
+  box-shadow: var(--wb-shadow-pop);
+  border-color: var(--wb-border);
+}
+.el-popper.is-dark {
+  border-radius: var(--wb-radius);
+}
+
+/* 细微 grain 噪点（克制风默认不启用；保留类供后续需要） */
+.wb-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  mix-blend-mode: multiply;
+}
+[data-theme='dark'] .wb-grain {
+  opacity: 0.05;
+  mix-blend-mode: screen;
+}
+
+/* ===== GenUI 调色板重映射=====
+ * GenUiRenderer 内部仍用 Tailwind 的 gray/emerald/amber/sky 语义色写样式；
+ * 这里在 .wb-genui 作用域内把这些 token 重定向到 wb-* 主题变量，
+ * 使 LLM 生成的内联 UI 自动跟随 spring / starry 两套主题，无需改 70 个节点分支。 */
+.wb-genui {
+  --color-gray-50: color-mix(in srgb, var(--wb-ink) 4%, transparent);
+  --color-gray-100: color-mix(in srgb, var(--wb-ink) 8%, transparent);
+  --color-gray-200: color-mix(in srgb, var(--wb-ink) 14%, transparent);
+  --color-gray-300: var(--wb-border-strong);
+  --color-gray-500: var(--wb-muted);
+  --color-gray-700: color-mix(in srgb, var(--wb-muted) 60%, var(--wb-ink));
+  --color-gray-800: var(--wb-ink);
+  --color-gray-900: var(--wb-ink);
+  --color-emerald-400: var(--wb-mint);
+  --color-emerald-500: var(--wb-mint);
+  --color-emerald-600: var(--wb-mint);
+  --color-emerald-700: var(--wb-mint);
+  --color-red-300: var(--wb-danger);
+  --color-red-400: var(--wb-danger);
+  --color-red-700: var(--wb-danger);
+  --color-red-100: color-mix(in srgb, var(--wb-danger) 20%, transparent);
+  --color-amber-300: var(--wb-warning);
+  --color-amber-600: var(--wb-warning);
+  --color-amber-700: var(--wb-warning);
+  --color-amber-50: color-mix(in srgb, var(--wb-warning) 18%, transparent);
+  --color-emerald-100: color-mix(in srgb, var(--wb-mint) 20%, transparent);
+  --color-sky-300: var(--wb-info);
+  --color-sky-500: var(--wb-info);
+  --color-sky-600: var(--wb-info);
+  --color-sky-700: var(--wb-info);
+}
+
+/* ===== Markdown 正文（保留） ===== */
+.markdown-body {
+  line-height: 1.7;
+  word-break: break-word;
+  color: var(--wb-ink);
+}
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+/* 标题：与正文同族无衬线（衬线标题在工具界面里读起来像博客，且与 UI 字体割裂）；
+ * 字号梯度收窄，段前间距控制在 0.9em —— 标题不该在消息流里砸出一个大洞。 */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0.9em 0 0.4em;
+  color: var(--wb-ink);
+}
+.markdown-body h1 { font-size: 1.35em; }
+.markdown-body h2 { font-size: 1.2em; }
+.markdown-body h3 { font-size: 1.08em; }
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 { font-size: 1em; color: var(--wb-muted); }
+.markdown-body p {
+  margin: 0.5em 0;
+}
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+.markdown-body li {
+  margin: 0.2em 0;
+}
+.markdown-body ul li::marker {
+  color: var(--wb-primary);
+}
+.markdown-body a {
+  color: var(--wb-primary-strong);
+  text-decoration: underline;
+}
+.markdown-body code {
+  background: color-mix(in srgb, var(--wb-ink) 6%, transparent);
+  color: var(--wb-ink);
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+  font-size: 0.9em;
+  font-family: var(--font-mono);
+}
+/* 代码块样式不在此定义：由 MarkdownRenderer 的全局块（hljs token 变量 + 语言标签 /
+ * 复制按钮的 header）统一提供，避免同一选择器两处定义、实际生效的却是后者。 */
+/* 引用块：主色左条 + 淡底右圆角（比单纯缩进更明确「这是摘录」） */
+.markdown-body blockquote {
+  border-left: 3px solid color-mix(in srgb, var(--wb-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--wb-primary) 5%, transparent);
+  border-radius: 0 10px 10px 0;
+  padding: 0.6em 0.9em;
+  color: var(--wb-muted);
+  margin: 0.7em 0;
+}
+.markdown-body blockquote p:first-child { margin-top: 0; }
+.markdown-body blockquote p:last-child { margin-bottom: 0; }
+
+/* 表格：只保留行分隔（无竖线、无外框），扫读时靠行距与 hover 定位。
+ * 给每格描边是「像 Excel」的来源——在消息流里那是最刺眼的一类块。 */
+.markdown-body table {
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0.9em 0;
+  width: 100%;
+  font-size: 0.96em;
+  border: 1px solid var(--wb-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 0;
+  border-bottom: 1px solid var(--wb-border);
+  padding: 9px 14px;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown-body th {
+  background: var(--wb-surface-2);
+  font-weight: 600;
+  font-size: 0.92em;
+  color: var(--wb-muted);
+  white-space: nowrap;
+}
+.markdown-body tbody tr:last-child td {
+  border-bottom: 0;
+}
+.markdown-body tbody tr:hover td {
+  background: color-mix(in srgb, var(--wb-primary) 4%, transparent);
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--wb-border);
+  margin: 1.1em 0;
+}
+.markdown-body img {
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+/* ===== 动效（保留） ===== */
+
+@keyframes wb-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.wb-msg-enter {
+  animation: wb-msg-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes wb-blink {
+  0%, 100% { opacity: 1; transform: scaleY(1); }
+  50% { opacity: 0.4; transform: scaleY(0.6); }
+}
+/* 光标加轻微 glow 呼吸，打字机质感更强 */
+@keyframes wb-cursor-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--wb-primary) 0%, transparent); }
+  50% { box-shadow: 0 0 6px 1px color-mix(in srgb, var(--wb-primary) 45%, transparent); }
+}
+.wb-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--wb-primary);
+  border-radius: 1px;
+  vertical-align: text-bottom;
+  animation: wb-blink 0.8s ease-in-out infinite, wb-cursor-glow 1.6s ease-in-out infinite;
+}
+
+button {
+  transition: transform 0.1s ease;
+}
+button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+@keyframes wb-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.wb-float {
+  animation: wb-float 3s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
+@keyframes wb-breathe {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
+}
+.wb-breathe {
+  animation: wb-breathe 2s ease-in-out infinite;
+}
+
+@keyframes wb-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.wb-fade-in {
+  animation: wb-fade-in 0.3s ease-out both;
+}
+
+@keyframes wb-slide-in-right {
+  from { transform: translateX(20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.wb-slide-in-right {
+  animation: wb-slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes wb-pop {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.wb-pop {
+  animation: wb-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes wb-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.wb-pulse {
+  animation: wb-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes wb-jump {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+.wb-jump {
+  animation: wb-jump 0.5s ease-out;
+}
+
+@keyframes wb-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+.wb-shake {
+  animation: wb-shake 0.3s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-msg-enter,
+  .wb-cursor,
+  .wb-float,
+  .wb-breathe,
+  .wb-fade-in,
+  .wb-slide-in-right,
+  .wb-pop,
+  .wb-pulse,
+  .wb-jump,
+  .wb-shake {
+    animation: none !important;
+  }
+  button:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ===== Element Plus 全局精致化（Studio 细节） ===== */
+
+/* 对话框：大圆角 + 玻璃高光描边 + 深层阴影 */
+.el-dialog {
+  border-radius: 20px !important;
+  border: 1px solid var(--wb-glass-border, var(--wb-border)) !important;
+  box-shadow: var(--wb-shadow-pop), var(--wb-glass-inset, none) !important;
+  overflow: hidden;
+}
+.el-dialog__header {
+  padding: 18px 22px 10px;
+  margin-right: 0 !important;
+}
+.el-dialog__title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: var(--wb-ink);
+}
+.el-dialog__headerbtn {
+  top: 14px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  transition: background 0.15s ease;
+}
+.el-dialog__headerbtn:hover {
+  background: color-mix(in srgb, var(--wb-primary) 10%, transparent);
+}
+.el-dialog__body {
+  padding: 12px 22px 8px;
+}
+.el-dialog__footer {
+  padding: 12px 22px 18px;
+  gap: 8px;
+}
+/* 遮罩加一层薄模糊：弹窗「浮起」的层次感来源 */
+.el-overlay {
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+/* ===== 统一表单弹窗（components/common/FormDialog.vue）=====
+ * 高表单内部滚动、矮表单自然高度，避免长表单溢出视口。 */
+.wb-form-dialog .el-dialog__body {
+  max-height: 66vh;
+  overflow: auto;
+}
+
+/* ===== 统一表单栅格（与 FormDialog / Field 配套）===== */
+.wb-fgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+  align-items: start;
+}
+.wb-fgrid--1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+.wb-fgrid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.wb-fsect {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wb-fsect__title {
+  /* 小节标题必须横跨整行：否则它会占掉一个字段格，把后续字段整体推错一列 */
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  padding-top: 2px;
+  font-size: var(--wb-fs-label, 11px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--wb-muted);
+}
+
+/* 抽屉：精细描边 */
+.el-drawer {
+  box-shadow: var(--wb-shadow-pop) !important;
+}
+
+/* 下拉 / 弹出层：统一 14px 圆角 + 玻璃描边 + 深阴影 */
+.el-popper.is-light {
+  border-radius: 14px;
+  border: 1px solid var(--wb-glass-border, var(--wb-border)) !important;
+  box-shadow: var(--wb-shadow-pop), var(--wb-glass-inset, none) !important;
+  overflow: hidden;
+}
+.el-popper.is-light .el-popper__arrow::before {
+  border-color: var(--wb-glass-border, var(--wb-border)) !important;
+  background: var(--wb-surface-solid) !important;
+}
+/* 下拉菜单项：胶囊圆角 + 主色 hover */
+.el-dropdown-menu,
+.el-select-dropdown__list,
+.el-cascader-menu {
+  padding: 5px !important;
+}
+/* 文本型菜单项：单行定高（选择器列表要保证行高一致，便于扫读） */
+.el-select-dropdown__item,
+.el-cascader-node {
+  border-radius: 8px !important;
+  margin: 1px 0;
+  font-size: 12.5px;
+  height: 30px;
+  line-height: 30px;
+  padding: 0 10px !important;
+  transition: background 0.13s ease, color 0.13s ease;
+}
+/* 下拉项不设固定高度：菜单项可以是「标签 + 说明」两行富内容，
+   固定 30px 会把说明文字裁掉半行（比紧凑更糟）。 */
+.el-dropdown-menu__item {
+  border-radius: 8px !important;
+  margin: 1px 0;
+  font-size: 12.5px;
+  min-height: 32px;
+  height: auto;
+  line-height: 1.45;
+  padding: 7px 11px !important;
+  transition: background 0.13s ease, color 0.13s ease;
+}
+.el-dropdown-menu__item:not(.is-disabled):hover,
+.el-select-dropdown__item:not(.is-disabled):hover,
+.el-cascader-node:not(.is-disabled):hover {
+  background: var(--wb-primary-soft) !important;
+  color: var(--wb-primary-strong) !important;
+}
+.el-dropdown-menu__item.is-selected,
+.el-select-dropdown__item.is-selected,
+.el-cascader-node.is-active {
+  color: var(--wb-primary-strong) !important;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--wb-primary) 8%, transparent) !important;
+}
+.el-dropdown-menu__item--divided {
+  margin-top: 5px;
+  border-top-color: var(--wb-border) !important;
+}
+/* ===== 执行模式（权限档位）下拉 =====
+ * 每一项是「标签 + 一句说明」的两行结构，需要比普通菜单项更宽、行距更松；
+ * 选择态用左侧圆点 + 浅蓝底，危险档（完全访问）整项走危险色。
+ * 注：el-dropdown 的菜单默认 teleport 到 body，必须写在全局（scoped :deep 命中不到）。 */
+.wb-perm-menu {
+  width: 340px !important;
+  padding: 6px !important;
+}
+.wb-perm-menu .el-dropdown-menu__item {
+  padding: 9px 12px !important;
+  border-radius: 10px !important;
+  align-items: flex-start;
+}
+.wb-perm-menu .el-dropdown-menu__item.is-selected {
+  background: var(--wb-primary-soft) !important;
+}
+.wb-perm-menu .el-dropdown-menu__item.is-danger {
+  color: var(--wb-danger);
+}
+.wb-perm-menu .el-dropdown-menu__item.is-danger.is-selected {
+  background: color-mix(in srgb, var(--wb-danger) 10%, transparent) !important;
+}
+
+/* 深色提示气泡：圆角 + 内距 + 字号，避免默认的「小方块」 */
+.el-popper.is-dark {
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--wb-ink) 92%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--wb-ink) 92%, transparent) !important;
+  box-shadow: var(--wb-shadow-lg) !important;
+  padding: 6px 10px !important;
+  font-size: 11.5px !important;
+  line-height: 1.6 !important;
+  max-width: 340px;
+}
+.el-popper.is-dark .el-popper__arrow::before {
+  background: color-mix(in srgb, var(--wb-ink) 92%, transparent) !important;
+  border-color: color-mix(in srgb, var(--wb-ink) 92%, transparent) !important;
+}
+
+/* 输入框 / 选择器：圆角统一 */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: var(--wb-radius-ctl, 10px) !important;
+  box-shadow: 0 0 0 1px var(--wb-border-strong) inset !important;
+  background: var(--wb-surface-solid) !important;
+  transition: box-shadow 0.15s ease !important;
+}
+.el-input__wrapper:hover:not(.is-focus):not(.is-disabled),
+.el-select__wrapper:hover:not(.is-focused):not(.is-disabled) {
+  box-shadow: 0 0 0 1px var(--wb-border-strong) inset !important;
+}
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--wb-primary) inset, 0 0 0 3px color-mix(in srgb, var(--wb-primary) 15%, transparent) !important;
+}
+
+/* 表格：header 更轻、hover 更柔 */
+.el-table {
+  --el-table-header-bg-color: color-mix(in srgb, var(--wb-primary) 5%, transparent);
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--wb-primary) 6%, transparent);
+  font-size: 13px;
+}
+.el-table th.el-table__cell {
+  font-weight: 600;
+  color: var(--wb-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background-color: transparent !important;
+  border-bottom: 1px solid var(--wb-border) !important;
+}
+.el-table td.el-table__cell {
+  border-bottom: 1px solid color-mix(in srgb, var(--wb-border) 60%, transparent) !important;
+}
+.el-table tr.el-table__row:last-child td.el-table__cell {
+  border-bottom: none !important;
+}
+
+/* 标签：圆角胶囊 */
+.el-tag {
+  border-radius: 999px;
+}
+
+/* 按钮：统一圆角与过渡 */
+.el-button {
+  border-radius: 8px;
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+/* 主按钮：品牌渐变实底 + 微光，桌面工具质感。
+   渐变走 background-image（Element Plus 只改 background-color，不会覆盖它）。 */
+.el-button--primary {
+  --el-button-bg-color: var(--wb-primary);
+  --el-button-border-color: color-mix(in srgb, var(--wb-primary-strong) 80%, transparent);
+  --el-button-hover-bg-color: var(--wb-primary);
+  --el-button-hover-border-color: var(--wb-primary-strong);
+  --el-button-active-bg-color: var(--wb-primary-strong);
+  --el-button-active-border-color: var(--wb-primary-strong);
+  background-image: var(--wb-grad-btn);
+  box-shadow:
+    0 1px 2px rgba(23, 66, 133, 0.16),
+    0 4px 14px color-mix(in srgb, var(--wb-primary) 30%, transparent);
+}
+.el-button--primary:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--wb-primary) 34%, transparent);
+}
+.el-button--primary:active {
+  filter: brightness(0.96);
+}
+/* plain / text / link 变体不走渐变（它们本就是浅底或无色底） */
+.el-button--primary.is-plain,
+.el-button--primary.is-text,
+.el-button--primary.is-link {
+  background-image: none;
+}
+/* plain 主按钮：克白底 + 主色边 */
+.el-button--primary.is-plain {
+  --el-button-bg-color: color-mix(in srgb, var(--wb-primary) 10%, transparent);
+  --el-button-text-color: var(--wb-primary-strong);
+}
+/* 文字链接：主色但更轻 */
+.el-button.is-link {
+  font-weight: 500;
+}
+
+/* 消息提示 / 通知：胶囊圆角 + 玻璃 + 图标与文字节奏 */
+.el-message {
+  border-radius: 999px;
+  border: 1px solid var(--wb-glass-border, var(--wb-border)) !important;
+  box-shadow: var(--wb-shadow-lg) !important;
+  padding: 10px 18px;
+  min-width: 0;
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+}
+.el-message .el-message__content {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.el-notification {
+  border-radius: 16px !important;
+  border: 1px solid var(--wb-glass-border, var(--wb-border)) !important;
+  box-shadow: var(--wb-shadow-pop) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+}
+.el-notification__title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.el-notification__content {
+  font-size: 12.5px;
+}
+.el-message-box {
+  border-radius: 20px;
+  border: 1px solid var(--wb-glass-border, var(--wb-border)) !important;
+  box-shadow: var(--wb-shadow-pop) !important;
+}
+.el-message-box__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.el-message-box__content {
+  font-size: 12.5px;
+  padding: 12px 20px 6px;
+}
+.el-message-box__btns {
+  padding: 6px 20px 18px;
+  gap: 8px;
+}
+
+/* 卡片：圆角统一 */
+.el-card {
+  border-radius: 12px !important;
+  border-color: var(--wb-border) !important;
+}
+
+/* Tabs：下划线主色 + 字号统一 */
+.el-tabs__item {
+  font-weight: 500;
+  font-size: 13px;
+}
+.el-tabs--card > .el-tabs__header .el-tabs__item.is-active {
+  border-color: var(--wb-border);
+  background-color: var(--wb-primary-soft);
+  color: var(--wb-primary-strong);
+}
+
+/* Switch：精致化轨道颜色 */
+.el-switch__core {
+  border-color: var(--wb-border-strong) !important;
+}
+
+/* Checkbox / Radio：主色覆盖 */
+.el-checkbox__input.is-checked .el-checkbox__inner,
+.el-radio__input.is-checked .el-radio__inner {
+  background-color: var(--wb-primary) !important;
+  border-color: var(--wb-primary) !important;
+}
+
+/* Empty 空状态：图标更大 + 文本更精致 */
+.el-empty__image {
+  width: 96px !important;
+  height: 96px !important;
+}
+.el-empty__description p {
+  color: var(--wb-muted);
+  font-size: 13px;
+}
+
+/* 加载指示 */
+.el-loading-mask {
+  border-radius: inherit;
+}
+
+/* 表单 label */
+.el-form-item__label {
+  color: var(--wb-muted);
+  font-size: 12px;
+  font-weight: 500;
+}

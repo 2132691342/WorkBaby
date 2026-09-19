@@ -1,0 +1,50 @@
+# Go
+/WorkBaby
+/WorkBaby.exe
+/workbaby.exe
+*.exe
+# 构建产物：本地 wails build 输出，**不入库**（含可执行文件与 NSIS 安装器）；
+# 安装器走 GitHub Actions tag 触发构建并上传到 GitHub Release，
+# 避免每次本地构建触发 LFS pointer 变化、git status 永远 modified。
+/build/bin/
+
+# Wails
+/build/darwin/
+/build/windows/
+# 安装脚本源码入库（installer/tmp 等构建产物仍忽略）
+!/build/windows/
+/build/windows/*
+!/build/windows/installer/
+/build/windows/installer/*
+!/build/windows/installer/*.nsi
+!/build/windows/installer/*.nsh
+
+# Runtimes（归档经 Git LFS 跟踪，见 .gitattributes）
+/runtimes/*.7z
+
+# Frontend
+/frontend/node_modules/
+/frontend/dist/
+/frontend/src/wailsjs/go/
+/frontend/src/wailsjs/runtime/
+
+# Local config / data
+/config.local.yaml
+/workbaby.db
+/workbaby.db-journal
+/workbaby.db-wal
+/workbaby.db-shm
+
+# 本地测试环境敏感信息（API Key / SMTP 授权码等，勿提交）
+/test.env
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Local user dir
+*.log
+
+# Nested git repos (submodules)
+assets/skills/project-standard/

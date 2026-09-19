@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "platform": "win32",
+  "arch": "x64",
+  "assets": [
+    {
+      "id": "python",
+      "version": "3.12.13",
+      "archiveFile": "python-3.12.13-win-x64.tar.gz",
+      "archiveType": "tar.gz",
+      "stripComponents": 1,
+      "sha256": "56c9dd9681c4810cb8bfdec277ee2606d8ab17e678e5bc2bd138eb8098e330b6",
+      "executableRelativePath": "python.exe",
+      "pathDirs": [
+        ".",
+        "Scripts"
+      ],
+      "maxFiles": 6000,
+      "maxUncompressedBytes": 251658240
+    },
+    {
+      "id": "powershell",
+      "version": "7.5.2",
+      "archiveFile": "powershell-7.5.2-win-x64.zip",
+      "archiveType": "zip",
+      "stripComponents": 0,
+      "sha256": "6cdabe52dcc2830929a53a970f689ab42b3819d34274cb2fbdd92aac13f66b92",
+      "executableRelativePath": "pwsh.exe",
+      "pathDirs": [
+        "."
+      ],
+      "maxFiles": 2000,
+      "maxUncompressedBytes": 471859200
+    }
+  ]
+}

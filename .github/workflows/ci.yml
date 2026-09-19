@@ -1,0 +1,83 @@
+# GitHub Actions：push / PR 日常质量门禁。
+#
+# 与 release.yml 的分工：release 只在 tag 上出包；本文件在每次 push/PR 上跑
+# 后端测试 + 依赖方向门禁 + 前端类型与单测，让回归在合并前暴露。
+#
+# 设计取舍：
+#   - 仅 windows-latest：项目只面向 Windows（CLAUDE.md / doc/14 一致）。
+#   - 后端 / 前端拆两个 job：前端 vue-tsc 在 runner 上曾有 npm 子依赖冲突假阳
+#     （ERR_PACKAGE_PATH_NOT_EXPORTED，见 68f248a），隔离后互不拖累；npm ci
+#     严格按 lockfile 安装，规避子依赖漂移。
+#   - go test 传 -short：跳过 timing-sensitive 的 flake 用例（test.ps1 同口径）。
+#   - 不编译 main 包：go:embed 依赖 frontend/dist，前端产物留给 wails build（release）。
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (go test + boundaries)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
+
+      - name: Setup Go 1.25
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: go vet
+        run: go vet ./internal/...
+
+      - name: go build（编译期验证，main 包留给 wails build）
+        run: go build ./internal/...
+
+      - name: go test（-short 跳过 timing-sensitive flake）
+        run: go test -short ./internal/...
+
+      - name: 依赖方向门禁
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/check-boundaries.ps1
+
+  frontend:
+    name: Frontend (vue-tsc + vitest)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci（严格 lockfile，规避子依赖漂移）
+        run: npm ci
+
+      - name: 类型检查（vue-tsc）
+        run: npx vue-tsc --noEmit -p tsconfig.json
+
+      - name: 单元测试（vitest）
+        run: npx vitest run

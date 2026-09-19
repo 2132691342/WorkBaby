@@ -1,0 +1,262 @@
+/* ===== 主题系统（玻璃拟态双主题） =====
+ *
+ * <p>设计基调：
+ * <ul>
+ *   <li>light（默认）：蓝调渐变页面底 + 大范围柔光晕，卡片为半透明白玻璃（backdrop-blur），
+ *       主色亮蓝只用于交互态与强调，辅以青蓝→紫的渐变品牌色</li>
+ *   <li>dark：深紫底色 + 紫罗兰光晕，卡片为半透明紫玻璃，主色紫罗兰</li>
+ *   <li>两套共用同一组语义令牌（--wb-*）：颜色 / 玻璃参数 / 圆角 / 阴影，组件不写死色值</li>
+ * </ul>
+ *
+ * <p>关键约定：{@code --wb-surface} 是玻璃底（半透明），凡是「内容必须压在实底上才清晰」的
+ * 场景（输入框 / 代码块 / 浮层弹窗）一律用 {@code --wb-surface-solid}。
+ */
+
+/* ---- light：蓝调渐变 + 白玻璃 ---- */
+[data-theme='light'] {
+  --wb-bg: #e8f1fd;
+  --wb-page-gradient:
+    radial-gradient(1200px 620px at 8% -12%, rgba(96, 165, 250, 0.34), transparent 62%),
+    radial-gradient(1000px 560px at 104% 8%, rgba(56, 189, 248, 0.24), transparent 60%),
+    radial-gradient(900px 640px at 78% 112%, rgba(129, 140, 248, 0.20), transparent 62%),
+    linear-gradient(168deg, #cfe1f9 0%, #dfecfb 26%, #eef5fe 60%, #fafcff 100%);
+
+  /* 玻璃底：卡片与容器 */
+  --wb-surface: rgba(255, 255, 255, 0.74);
+  --wb-surface-2: rgba(240, 246, 255, 0.72);
+  --wb-surface-hover: rgba(226, 239, 255, 0.88);
+  --wb-surface-solid: #ffffff;
+  --wb-side: rgba(255, 255, 255, 0.66);
+
+  --wb-primary: #2f7bf6;
+  --wb-primary-strong: #1a5fe0;
+  --wb-primary-soft: rgba(47, 123, 246, 0.12);
+  --wb-mint: #12b76a;
+  --wb-lavender: #7a5af8;
+  --wb-sky: #2e90fa;
+  --wb-lemon: #f79009;
+  --wb-success: #12b76a;
+  --wb-warning: #f79009;
+  --wb-danger: #f04438;
+  --wb-info: #2e90fa;
+
+  --wb-ink: #16233c;
+  --wb-muted: #64748b;
+
+  /* 分隔线走淡蓝；玻璃边缘走白色高光（--wb-glass-border） */
+  --wb-border: rgba(45, 90, 160, 0.11);
+  --wb-border-strong: rgba(45, 90, 160, 0.20);
+
+  --wb-radius-sm: 10px;
+  --wb-radius: 14px;
+  --wb-radius-lg: 20px;
+
+  --wb-shadow: 0 1px 2px rgba(31, 70, 140, 0.04), 0 10px 30px -12px rgba(31, 70, 140, 0.18);
+  --wb-shadow-lg: 0 18px 48px -18px rgba(31, 70, 140, 0.24);
+  --wb-shadow-pop: 0 28px 72px -24px rgba(31, 70, 140, 0.32);
+
+  /* 玻璃参数：blur + 白边高光 + 内阴影 */
+  --wb-glass-blur: 20px;
+  --wb-glass-saturate: 1.5;
+  --wb-glass-border: rgba(255, 255, 255, 0.72);
+  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --wb-glass-opacity: 0.74;
+
+  /* 品牌渐变（标题 / 强调数字 / 主按钮） */
+  --wb-grad-brand: linear-gradient(100deg, #2b6ef6 0%, #3f8dff 42%, #7c5cf8 100%);
+  --wb-grad-btn: linear-gradient(180deg, #4d93ff 0%, #2f7bf6 54%, #1a5fe0 100%);
+
+  /* 图标笔画重量：24 viewBox 线性图标在 14~18px 下的最优观感区间（细而不虚） */
+  --wb-icon-stroke: 1.7;
+  --wb-icon-stroke-strong: 2;
+
+  --color-wb-bg: var(--wb-bg);
+  --color-wb-surface: var(--wb-surface);
+  --color-wb-surface-2: var(--wb-surface-2);
+  --color-wb-surface-hover: var(--wb-surface-hover);
+  --color-wb-primary: var(--wb-primary);
+  --color-wb-primary-strong: var(--wb-primary-strong);
+  --color-wb-primary-soft: var(--wb-primary-soft);
+  --color-wb-mint: var(--wb-mint);
+  --color-wb-lavender: var(--wb-lavender);
+  --color-wb-sky: var(--wb-sky);
+  --color-wb-lemon: var(--wb-lemon);
+  --color-wb-ink: var(--wb-ink);
+  --color-wb-muted: var(--wb-muted);
+  --color-wb-border: var(--wb-border);
+  --color-wb-success: var(--wb-success);
+  --color-wb-warning: var(--wb-warning);
+  --color-wb-danger: var(--wb-danger);
+  --color-wb-info: var(--wb-info);
+}
+
+/* ---- dark：深紫底 + 紫罗兰玻璃 ----
+ * 层级靠明度与光晕：rail(#1a1528) → 主区(#16121f) → 卡片(紫玻璃) → 悬浮(更亮)。
+ * 全色带紫相，主色紫罗兰只留给交互态、品牌渐变与用户气泡。 */
+[data-theme='dark'] {
+  --wb-bg: #16121f;
+  --wb-page-gradient:
+    radial-gradient(1100px 580px at 6% -14%, rgba(124, 92, 248, 0.22), transparent 62%),
+    radial-gradient(920px 520px at 102% 6%, rgba(168, 85, 247, 0.16), transparent 60%),
+    radial-gradient(880px 620px at 82% 114%, rgba(99, 102, 241, 0.16), transparent 62%),
+    linear-gradient(172deg, #1d1730 0%, #191426 34%, #16121f 100%);
+
+  --wb-surface: rgba(43, 35, 66, 0.72);
+  --wb-surface-2: rgba(54, 44, 82, 0.62);
+  --wb-surface-hover: rgba(66, 54, 100, 0.78);
+  --wb-surface-solid: #241d38;
+  --wb-side: rgba(26, 21, 40, 0.80);
+
+  --wb-primary: #8b5cf6;
+  --wb-primary-strong: #a78bfa;
+  --wb-primary-soft: rgba(139, 92, 246, 0.18);
+  --wb-mint: #3ecf8e;
+  --wb-lavender: #c4b5fd;
+  --wb-sky: #7dd3fc;
+  --wb-lemon: #f5a623;
+  --wb-success: #3ecf8e;
+  --wb-warning: #f5a623;
+  --wb-danger: #f87171;
+  --wb-info: #7dd3fc;
+
+  --wb-ink: #ece8fa;
+  --wb-muted: #a49cc0;
+
+  --wb-border: rgba(167, 139, 250, 0.15);
+  --wb-border-strong: rgba(167, 139, 250, 0.28);
+
+  --wb-radius-sm: 10px;
+  --wb-radius: 14px;
+  --wb-radius-lg: 20px;
+
+  --wb-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 12px 32px -14px rgba(0, 0, 0, 0.58);
+  --wb-shadow-lg: 0 20px 52px -20px rgba(0, 0, 0, 0.66);
+  --wb-shadow-pop: 0 30px 76px -26px rgba(0, 0, 0, 0.76);
+
+  --wb-glass-blur: 20px;
+  --wb-glass-saturate: 1.25;
+  --wb-glass-border: rgba(167, 139, 250, 0.17);
+  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --wb-glass-opacity: 0.72;
+
+  --wb-grad-brand: linear-gradient(100deg, #a78bfa 0%, #8b5cf6 46%, #6366f1 100%);
+  --wb-grad-btn: linear-gradient(180deg, #a78bfa 0%, #8b5cf6 54%, #6d3ff0 100%);
+
+  /* 深色底上笔画略加粗一档，抵消「亮底显粗、暗底显细」的视觉误差 */
+  --wb-icon-stroke: 1.85;
+  --wb-icon-stroke-strong: 2.1;
+
+  --color-wb-bg: var(--wb-bg);
+  --color-wb-surface: var(--wb-surface);
+  --color-wb-surface-2: var(--wb-surface-2);
+  --color-wb-surface-hover: var(--wb-surface-hover);
+  --color-wb-primary: var(--wb-primary);
+  --color-wb-primary-strong: var(--wb-primary-strong);
+  --color-wb-primary-soft: var(--wb-primary-soft);
+  --color-wb-mint: var(--wb-mint);
+  --color-wb-lavender: var(--wb-lavender);
+  --color-wb-sky: var(--wb-sky);
+  --color-wb-lemon: var(--wb-lemon);
+  --color-wb-ink: var(--wb-ink);
+  --color-wb-muted: var(--wb-muted);
+  --color-wb-border: var(--wb-border);
+  --color-wb-success: var(--wb-success);
+  --color-wb-warning: var(--wb-warning);
+  --color-wb-danger: var(--wb-danger);
+  --color-wb-info: var(--wb-info);
+}
+
+/* ===== 玻璃容器（唯一定义处）=====
+ * 所有「浮在页面底色上的面」统一走 .wb-glass / .wb-glass-solid 两个基元，
+ * 避免各处自行拼 backdrop-filter 导致模糊半径与描边漂移。 */
+.wb-glass {
+  background: var(--wb-surface);
+  -webkit-backdrop-filter: blur(var(--wb-glass-blur)) saturate(var(--wb-glass-saturate));
+  backdrop-filter: blur(var(--wb-glass-blur)) saturate(var(--wb-glass-saturate));
+  border: 1px solid var(--wb-glass-border);
+  box-shadow: var(--wb-shadow), var(--wb-glass-inset);
+}
+.wb-glass-solid {
+  background: var(--wb-surface-solid);
+  border: 1px solid var(--wb-border);
+  box-shadow: var(--wb-shadow-pop);
+}
+
+/* ===== ElementPlus 主题桥接 ===== */
+:root[data-theme='light'],
+:root[data-theme='dark'] {
+  --el-color-primary: var(--wb-primary);
+  --el-color-primary-light-3: color-mix(in srgb, var(--wb-primary) 70%, transparent);
+  --el-color-primary-light-5: color-mix(in srgb, var(--wb-primary) 50%, transparent);
+  --el-color-primary-light-7: color-mix(in srgb, var(--wb-primary) 30%, transparent);
+  --el-color-primary-light-8: color-mix(in srgb, var(--wb-primary) 20%, transparent);
+  --el-color-primary-light-9: color-mix(in srgb, var(--wb-primary) 10%, transparent);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--wb-primary) 70%, black);
+
+  --el-color-success: var(--wb-success);
+  --el-color-warning: var(--wb-warning);
+  --el-color-danger: var(--wb-danger);
+  --el-color-info: var(--wb-info);
+
+  --el-text-color-primary: var(--wb-ink);
+  --el-text-color-regular: var(--wb-ink);
+  --el-text-color-secondary: var(--wb-muted);
+  --el-text-color-placeholder: var(--wb-muted);
+  --el-text-color-disabled: color-mix(in srgb, var(--wb-muted) 55%, transparent);
+  --el-disabled-text-color: color-mix(in srgb, var(--wb-muted) 55%, transparent);
+  --el-disabled-bg-color: var(--wb-surface-2);
+  --el-disabled-border-color: var(--wb-border);
+
+  /* 弹层 / 输入必须落在实底上：半透明玻璃会让下拉与对话框内容透底不可读 */
+  --el-bg-color: var(--wb-surface-solid);
+  --el-bg-color-page: var(--wb-bg);
+  --el-bg-color-overlay: var(--wb-surface-solid);
+
+  --el-border-color: var(--wb-border-strong);
+  --el-border-color-light: var(--wb-border);
+  --el-border-color-lighter: var(--wb-border);
+  --el-border-color-extra-light: var(--wb-border);
+  --el-border-color-dark: var(--wb-border-strong);
+  --el-border-color-darker: var(--wb-border-strong);
+  --el-border-color-hover: var(--wb-primary);
+
+  --el-fill-color: color-mix(in srgb, var(--wb-ink) 8%, transparent);
+  --el-fill-color-light: color-mix(in srgb, var(--wb-ink) 6%, transparent);
+  --el-fill-color-lighter: color-mix(in srgb, var(--wb-ink) 4%, transparent);
+  --el-fill-color-extra-light: color-mix(in srgb, var(--wb-ink) 2%, transparent);
+  --el-fill-color-dark: color-mix(in srgb, var(--wb-ink) 12%, transparent);
+  --el-fill-color-darker: color-mix(in srgb, var(--wb-ink) 16%, transparent);
+  --el-fill-color-blank: var(--wb-surface-solid);
+
+  --el-mask-color: rgba(15, 17, 22, 0.55);
+  --el-mask-color-extra-light: rgba(15, 17, 22, 0.12);
+  --el-box-shadow: var(--wb-shadow);
+  --el-box-shadow-light: var(--wb-shadow);
+  --el-box-shadow-lighter: var(--wb-shadow);
+  --el-box-shadow-dark: var(--wb-shadow-lg);
+
+  --el-border-radius-base: var(--wb-radius);
+  --el-border-radius-small: var(--wb-radius-sm);
+  --el-border-radius-round: 9999px;
+
+  --el-font-family: var(--font-sans);
+}
+
+/* 用户自定义背景图片 */
+body.has-custom-bg {
+  background-image: var(--wb-user-bg-url);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+body.has-custom-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: var(--wb-bg);
+  opacity: var(--wb-user-bg-opacity);
+  backdrop-filter: blur(var(--wb-user-bg-blur));
+  pointer-events: none;
+  z-index: -1;
+}

@@ -1,0 +1,158 @@
+# GitHub Actions：tag 触发自动构建并发布 GitHub Release。
+#
+# 触发：推送形如 v0.1.0 / v1.2.3 的 tag。
+# 流程：
+#   1) checkout（含 Git LFS 拉取内置运行时归档）
+#   2) 安装 Go 1.25 + Node 20 + Wails CLI + NSIS
+#   3) wails build（前端 npm ci && npm run build → 嵌入二进制 → NSIS 打包成 installer.exe）
+#   4) 上传 build/bin/WorkBaby-amd64-installer.exe 到 GitHub Release，自动生成 release notes
+#
+# 设计取舍：
+#   - 仅 windows-latest：项目目前只面向 Windows amd64（CLAUDE.md / doc/14 一致）。
+#   - 不上传 WorkBaby.exe（无 NSIS 打包）：用户场景是绿色安装；纯 exe 提供给高级用户，
+#     必要时可手动从 Actions artifacts 下载再扩展。
+#   - 缓存 npm + Go modules：~30% 时间节省；缓存键绑 Go 版本避免版本漂移。
+#   - 失败产物保留为 Actions artifacts：便于本地复现与排错。
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:  # 手动触发：测试流水线（不会上传到正式 Release）
+
+permissions:
+  contents: write  # 创建 Release + 上传资产
+
+jobs:
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout（含 LFS）
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
+          # tag 触发时显式 checkout 到 tag 指向的 commit，避免『This commit does not belong
+          # to any branch』警告。tag 必须先在 main 上存在（推荐流程：
+          #   git push origin main
+          #   git tag v0.1.0
+          #   git push origin v0.1.0
+          # —— 否则 tag 指向的 commit 在远端孤立，checkout 会失败）。
+          ref: ${{ github.ref }}
+
+      - name: Setup Go 1.25
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      # NSIS 安装器：windows-2025 runner 默认没装 NSIS，用 choco 装（runner 已自带 choco）。
+      # 历史曾用过 nschloe/setup-nsis 等第三方 action，但容易因 owner 删库导致流水线莫名失败。
+      # choco 源稳定、版本可锁、对 windows-latest runner 即开即用。
+      - name: Install NSIS（choco）
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          # NSIS 默认装到 C:\Program Files (x86)\NSIS；makensis 必须加入 PATH 供 wails build 调用
+          $nsisPath = "${env:ProgramFiles(x86)}\NSIS"
+          if (Test-Path $nsisPath) {
+              Write-Host "NSIS already installed"
+          } else {
+              throw "NSIS installation failed (path not found: $nsisPath)"
+          }
+          echo "$nsisPath" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Wails doctor（环境自检）
+        run: wails doctor
+
+      - name: 静态检查 + 依赖方向门禁
+        shell: pwsh
+        run: |
+          # CI 不跑完整测试（timing-sensitive flake 测试在 windows-latest runner 上假阳）——
+          # Release 出包质量由 tag 触发（人工审核）+ 编译期检查 + wails build 兜底。
+          # 本地开发跑 ./scripts/test.ps1 -Full 做完整验证（前端类型 + 单测 + 后端测试）。
+          Write-Host '== go vet ./internal/... ==' -ForegroundColor Cyan
+          go vet ./internal/...
+          if ($LASTEXITCODE -ne 0) { throw "go vet failed" }
+          Write-Host '== go build ./internal/...（编译期验证，main 包留给 wails build）==' -ForegroundColor Cyan
+          go build ./internal/...
+          if ($LASTEXITCODE -ne 0) { throw "go build failed" }
+          Write-Host '== 依赖方向门禁 ==' -ForegroundColor Cyan
+          powershell -ExecutionPolicy Bypass -File scripts/check-boundaries.ps1
+          if ($LASTEXITCODE -ne 0) { throw "check-boundaries failed" }
+          # 注：CI 不单独跑前端类型检查——vue-tsc / typescript 在 windows-latest runner 上
+          # npm 子依赖冲突易假阳失败（ERR_PACKAGE_PATH_NOT_EXPORTED）。前端类型错误会被 wails build
+          # 阶段的 npm run build 兜底（Vite/esbuild 编译会报 import / type 错误）。
+
+      - name: Wails 构建（前端 npm ci → 嵌入 → NSIS 打包）
+        shell: pwsh
+        # 必须让 wails 自动生成 bindings（前端 import '@/wailsjs/...' 依赖），
+        # 用 -skipbindings 会导致 frontend build 报 Cannot find module。
+        # -nsis 必填：wails 默认不生成安装器（cmd/wails/build.go 里 if f.NSIS 才调用
+        # GenerateNSISInstaller），缺了它不会产出 WorkBaby-amd64-installer.exe。
+        run: |
+          wails build -clean -platform windows/amd64 -trimpath -nsis
+          $wailsExit = $LASTEXITCODE
+
+          # 兜底：postBuildHook 若因 runner 环境差异未产出 runtimes，这里手动补跑（而非直接失败）。
+          # 注意：PowerShell 脚本调用不会更新 $LASTEXITCODE，所以用「产物是否存在」判定，
+          # 不要检查 $LASTEXITCODE（它仍是 wails build 的返回值，会误报失败）。
+          if (-not (Test-Path 'build/bin/runtimes/manifest.json')) {
+            if (-not (Test-Path 'build/bin/WorkBaby.exe')) {
+              throw "wails build failed (exit $wailsExit): WorkBaby.exe missing"
+            }
+            Write-Host '::warning::postBuildHook 未产出 runtimes，手动补跑 copy-runtimes'
+            $exe = (Resolve-Path 'build/bin/WorkBaby.exe').Path
+            & "$PWD/scripts/copy-runtimes.ps1" $exe
+            if (-not (Test-Path 'build/bin/runtimes/manifest.json')) {
+              throw "copy-runtimes fallback failed (manifest still missing)"
+            }
+          }
+
+          # 中间可能有非零 $LASTEXITCODE（hook 失败已被兜底），显式归零保证步骤成功
+          $global:LASTEXITCODE = 0
+          exit 0
+
+      - name: 验证产物
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'build/bin/WorkBaby.exe')) { throw "WorkBaby.exe missing" }
+          if (-not (Test-Path 'build/bin/WorkBaby-amd64-installer.exe')) { throw "WorkBaby-amd64-installer.exe missing" }
+          if (-not (Test-Path 'build/bin/runtimes/manifest.json')) { throw "build/bin/runtimes/manifest.json missing" }
+          if (-not (Test-Path 'build/windows/runtimes/manifest.json')) { throw "build/windows/runtimes/manifest.json missing (NSIS 需要)" }
+          Write-Host "Build artifacts OK（exe + installer + runtimes）"
+
+      # 失败时保留产物供本地排查；成功后直接上传到 Release（不重复留 artifacts）。
+      - name: 上传失败诊断包
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbaby-windows-debug
+          path: |
+            build/bin/
+            !build/bin/runtimes/
+          retention-days: 7
+
+      - name: 创建 GitHub Release 并上传安装器
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: WorkBaby ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            build/bin/WorkBaby-amd64-installer.exe
