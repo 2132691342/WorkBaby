@@ -74,3 +74,14 @@ func (h *Handler) ListKnowledgeGroups() ([]string, error) {
 func (h *Handler) ListKnowledgeByGroup(group string) ([]domain.KnowledgeDocRESP, error) {
 	return h.knowledgeSvc.ListByGroup(h.ctx, group)
 }
+
+// GetKnowledgeFile 提供受管文件给前端预览（PDF / Word / Excel）。
+// 仅对 source_type=file 的受管导入文档生效；text/url 类型前端直接用 source 文本。
+// 路由层负责 Fail + c.Data：避免 api 包反向依赖 server 包的 gin/Fail。
+func (h *Handler) GetKnowledgeFile(id string) ([]byte, string, error) {
+	data, mime, _, err := h.knowledgeSvc.ReadManagedFile(h.ctx, id)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, mime, nil
+}

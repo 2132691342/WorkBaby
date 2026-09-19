@@ -457,3 +457,48 @@ func toKnowledgeRESP(row *domain.KnowledgeDocDO) *domain.KnowledgeDocRESP {
 		UpdatedAt:  row.UpdatedAt,
 	}
 }
+
+// ReadManagedFile 按 id 读取受管文件内容（用于前端预览 PDF / Word / Excel）。
+// 仅对 source_type=file 的受管导入文档生效；text/url 类型不走此接口。
+// 返回：文件字节、Content-Type、原始文件名、错误。
+func (s *KnowledgeService) ReadManagedFile(ctx context.Context, id string) ([]byte, string, string, error) {
+	doc, err := s.docRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, "", "", pkg.Wrap(7006, "kdoc not found", err)
+	}
+	if doc.SourceType != domain.KnowledgeSourceFile {
+		return nil, "", "", pkg.Wrap(7006, "kdoc is not a managed file", nil)
+	}
+	ext := filepath.Ext(doc.Source)
+	if ext == "" {
+		ext = filepath.Ext(string(doc.SourceType))
+	}
+	dst := filepath.Join(s.dir, id+ext)
+
+	// 防越界：确认最终路径仍在受管目录内（id 必须形如字母数字/连字符）
+	if strings.ContainsAny(id, `/\`) || id == "" || id == "." || id == ".." {
+		return nil, "", "", pkg.Wrap(7006, "invalid doc id", nil)
+	}
+	absDst, err := filepath.Abs(dst)
+	if err != nil {
+		return nil, "", "", pkg.Wrap(7006, "resolve path failed", err)
+	}
+	absDir, err := filepath.Abs(s.dir)
+	if err != nil {
+		return nil, "", "", pkg.Wrap(7006, "resolve dir failed", err)
+	}
+	if !strings.HasPrefix(absDst, absDir+string(filepath.Separator)) {
+		return nil, "", "", pkg.Wrap(7006, "path escapes knowledge dir", nil)
+	}
+
+	data, err := os.ReadFile(absDst)
+	if err != nil {
+		return nil, "", "", pkg.Wrap(7006, "read kdoc file failed", err)
+	}
+	mime := doc.MIME
+	if mime == "" {
+		mime = rag.MIMEFromPath(absDst)
+	}
+	name := filepath.Base(doc.Source)
+	return data, mime, name, nil
+}

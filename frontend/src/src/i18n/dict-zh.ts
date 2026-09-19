@@ -809,6 +809,8 @@ export const zhCN: Dict = {
   'kdoc.titleField': "标题",
   'kdoc.viewDoc': "查看",
   'kdoc.viewUpdatedAt': "更新于",
+  'kdoc.previewUnsupported': "暂不支持预览 .{0} 格式，请下载查看",
+  'kdoc.downloadFile': "下载文件",
   'knowledge.addTag': "添加标签后回车",
   'knowledge.createFailed': "添加记忆失败",
   'knowledge.createSuccess': "记忆已添加",

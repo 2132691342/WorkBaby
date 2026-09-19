@@ -8,6 +8,7 @@ import { useKnowledgeDocsStore } from '@/stores/kdocs'
 import { t } from '@/i18n'
 import { formatDateTime } from '@/utils/time'
 import { useToast } from '@/composables/useToast'
+import DocPreviewPane from '@/components/knowledge/DocPreviewPane.vue'
 import type { KnowledgeDoc } from '@/types/api'
 
 /**
@@ -341,30 +342,34 @@ async function importManagedFile(): Promise<void> {
       </div>
     </FormDialog>
 
-    <!-- 详情：只读核对元数据 -->
+    <!-- 详情：元数据 + 文档预览（PDF / Word / Excel / 原文） -->
     <el-dialog
       :model-value="viewing !== null"
       :title="viewing?.name ?? ''"
-      width="640px"
+      width="900px"
       align-center
       class="wb-form-dialog"
       @update:model-value="viewing = null"
     >
-      <div v-if="viewing" class="kv">
-        <span>{{ t('kdoc.sourceTypeLabel') }}</span>
-        <span>{{ viewing.source_type }}</span>
-        <span>{{ t('kdoc.sourceField') }}</span>
-        <span class="mono">{{ displaySource(viewing) }}</span>
-        <span>{{ t('kdoc.sizeLabel') }}</span>
-        <span class="mono">{{ formatSize(viewing.size_bytes) }}</span>
-        <span>{{ t('kdoc.chunkCount') }}</span>
-        <span class="mono">{{ viewing.chunk_count }}</span>
-        <span>{{ t('kdoc.statusLabel') }}</span>
-        <span>{{ t(`kdoc.status.${viewing.status || 'pending'}`) }}</span>
-        <span>{{ t('kdoc.viewUpdatedAt') }}</span>
-        <span class="mono">{{ formatDateTime(viewing.updated_at) }}</span>
+      <div v-if="viewing" class="kdoc-view">
+        <div class="kv">
+          <span>{{ t('kdoc.sourceTypeLabel') }}</span>
+          <span>{{ viewing.source_type }}</span>
+          <span>{{ t('kdoc.sourceField') }}</span>
+          <span class="mono">{{ displaySource(viewing) }}</span>
+          <span>{{ t('kdoc.sizeLabel') }}</span>
+          <span class="mono">{{ formatSize(viewing.size_bytes) }}</span>
+          <span>{{ t('kdoc.chunkCount') }}</span>
+          <span class="mono">{{ viewing.chunk_count }}</span>
+          <span>{{ t('kdoc.statusLabel') }}</span>
+          <span>{{ t(`kdoc.status.${viewing.status || 'pending'}`) }}</span>
+          <span>{{ t('kdoc.viewUpdatedAt') }}</span>
+          <span class="mono">{{ formatDateTime(viewing.updated_at) }}</span>
+        </div>
+        <div v-if="viewing.error_msg" class="alert a-danger mt10">{{ viewing.error_msg }}</div>
+        <div class="kdoc-view__divider" />
+        <DocPreviewPane :doc="viewing" />
       </div>
-      <div v-if="viewing?.error_msg" class="alert a-danger mt10">{{ viewing.error_msg }}</div>
       <template #footer>
         <div class="wb-form-actions">
           <button class="btn" @click="viewing = null">{{ t('ui.btn.cancel') }}</button>
@@ -392,5 +397,15 @@ async function importManagedFile(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.kdoc-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.kdoc-view__divider {
+  height: 1px;
+  background: var(--wb-border);
+  margin: 14px 0 12px;
 }
 </style>

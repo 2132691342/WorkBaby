@@ -3,6 +3,8 @@ package server
 // 知识库与记忆路由。
 
 import (
+	"net/http"
+
 	"WorkBaby/internal/api"
 	"github.com/gin-gonic/gin"
 
@@ -70,6 +72,16 @@ func registerKnowledgeRoutes(v1 *gin.RouterGroup, h *api.Handler) {
 	})
 	v1.POST("/kdocs/:id/delete", func(c *gin.Context) { Fail(c, h.DeleteKnowledgeDoc(c.Param("id"))) })
 	v1.POST("/kdocs/:id/reindex", func(c *gin.Context) { Fail(c, h.ReindexKnowledgeDoc(c.Param("id"))) })
+
+	// 受管文件下载：前端预览 PDF/Word/Excel 用；text/url 类型由前端直接渲染 source 文本。
+	v1.GET("/kdocs/:id/file", func(c *gin.Context) {
+		data, mime, err := h.GetKnowledgeFile(c.Param("id"))
+		if err != nil {
+			Fail(c, err)
+			return
+		}
+		c.Data(http.StatusOK, mime, data)
+	})
 
 	// ---- memory（一份 MEMORY.md：概览 / 列表 / 检索 / 读写） ----
 	v1.GET("/memory", func(c *gin.Context) {

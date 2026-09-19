@@ -809,6 +809,8 @@ export const enUS: Dict = {
   'kdoc.titleField': "Title",
   'kdoc.viewDoc': "View",
   'kdoc.viewUpdatedAt': "Updated",
+  'kdoc.previewUnsupported': "Preview not supported for .{0}. Please download to view.",
+  'kdoc.downloadFile': "Download",
   'knowledge.addTag': "Type a tag and press Enter",
   'knowledge.createFailed': "Failed to add memory",
   'knowledge.createSuccess': "Memory added",
