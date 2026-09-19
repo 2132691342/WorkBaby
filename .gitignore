@@ -25,8 +25,10 @@
 # Frontend
 /frontend/node_modules/
 /frontend/dist/
-/frontend/src/wailsjs/go/
-/frontend/src/wailsjs/runtime/
+# 注：wailsjs 绑定（go/、runtime/）现纳入版本控制。CI 的 frontend job 仅安装 Node、不执行
+# wails build，若不提交则 vue-tsc 找不到 @/wailsjs/* 模块而失败。代价：本地每次 wails
+# build/dev 会重生成这些文件（git status 显示 modified）；修改 Go 导出接口后须本地重新生成
+# 并提交，否则 CI 类型门禁会用过期类型。
 
 # Local config / data
 /config.local.yaml
