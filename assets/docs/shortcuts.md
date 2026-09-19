@@ -40,7 +40,7 @@ WorkBaby 支持纯键盘操作与斜杠命令，熟悉后可以明显加快日�
 | `/goal [<目标描述>\|pause\|resume\|clear]` | 查看 / 设定 / 暂停 / 恢复 / 清除当前会话目标 |
 | `/model <模型名>` | 切换当前会话模型 |
 | `/agent <default\|coding\|research\|writer>` | 切换当前 Agent（工具集与记忆策略随之切换） |
-| `/trust <plan\|default\|auto-edit\|yolo>` | 切换执行模式（计划 / 需确认 / 自动编辑 / 完全访问） |
+| `/trust` | 循环切换执行模式（计划 / 需确认 / 自动 / 完全访问） |
 | `/tasks` | 打开后台任务中心 |
 | `/export` | 导出当前会话为 Markdown |
 | `/help` | 查看全部命令说明 |

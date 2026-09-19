@@ -33,7 +33,7 @@ func BuiltinCommands() []domain.SlashCommand {
 		// 模型与 Agent
 		{Name: "model", Args: "<模型名>", Desc: "切换当前会话模型", Group: "model", ClientOnly: true},
 		{Name: "agent", Args: "<default|coding|research|writer>", Desc: "切换当前 Agent（工具集与记忆策略随之切换）", Group: "agent", ClientOnly: true},
-		{Name: "trust", Args: "<plan|default|auto-edit|yolo>", Desc: "切换执行模式（计划=只读出方案 / 需确认 / 自动编辑 / 完全访问）", Group: "agent", ClientOnly: true},
+		{Name: "trust", Args: "", Desc: "循环切换执行模式（计划 / 需确认 / 自动 / 完全访问）", Group: "agent", ClientOnly: true},
 		// 工具开关
 		{Name: "tasks", Desc: "打开后台任务中心", Group: "system", ClientOnly: true},
 		{Name: "export", Desc: "导出当前会话为 Markdown", Group: "session", ClientOnly: true},
