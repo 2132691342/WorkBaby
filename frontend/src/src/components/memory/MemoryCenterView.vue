@@ -107,33 +107,37 @@ onMounted(load)
       <p v-else-if="loading" class="empty">{{ t('ui.status.loading') }}</p>
       <p v-else-if="items.length === 0" class="empty">{{ t('memory.empty') }}</p>
 
-      <!-- 分节分布：4 条按比例的水平条，零记忆时不渲染 -->
-      <div v-else class="mem-dist">
-        <div class="mem-dist__label">{{ t('memory.distribution') }}</div>
-        <div class="mem-dist__rows">
-          <div v-for="s in sectionCounts" :key="s.key" class="mem-dist__row">
-            <span class="mem-dist__lbl">{{ s.label }}</span>
-            <span class="mem-dist__track">
-              <span
-                class="mem-dist__fill"
-                :class="`fill-${s.key}`"
-                :style="{ width: maxCount ? (s.count / maxCount * 100) + '%' : '0%' }"
-              />
-            </span>
-            <strong class="mem-dist__num tnum">{{ s.count }}</strong>
+      <!-- 分节分布 + 条目列表：两个 v-else 不能并列，包在一个 template v-else 里 -->
+      <template v-else>
+        <!-- 分节分布：4 条按比例的水平条 -->
+        <div class="mem-dist">
+          <div class="mem-dist__label">{{ t('memory.distribution') }}</div>
+          <div class="mem-dist__rows">
+            <div v-for="s in sectionCounts" :key="s.key" class="mem-dist__row">
+              <span class="mem-dist__lbl">{{ s.label }}</span>
+              <span class="mem-dist__track">
+                <span
+                  class="mem-dist__fill"
+                  :class="`fill-${s.key}`"
+                  :style="{ width: maxCount ? (s.count / maxCount * 100) + '%' : '0%' }"
+                />
+              </span>
+              <strong class="mem-dist__num tnum">{{ s.count }}</strong>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div v-for="g in grouped" v-else :key="g.section" style="margin-bottom: 12px">
-        <div class="muted" style="margin-bottom: 4px">{{ sectionLabel(g.section) }}</div>
-        <div v-for="it in g.list" :key="it.section + it.text" class="flex-r">
-          <span style="flex: 1">{{ it.text }}</span>
-          <button class="btn btn-sm" :title="t('ui.action.delete')" @click="remove(it)">
-            <Trash2 class="ic-sm" />
-          </button>
+        <!-- 已有条目分组列表 -->
+        <div v-for="g in grouped" :key="g.section" style="margin-bottom: 12px">
+          <div class="muted" style="margin-bottom: 4px">{{ sectionLabel(g.section) }}</div>
+          <div v-for="it in g.list" :key="it.section + it.text" class="flex-r">
+            <span style="flex: 1">{{ it.text }}</span>
+            <button class="btn btn-sm" :title="t('ui.action.delete')" @click="remove(it)">
+              <Trash2 class="ic-sm" />
+            </button>
+          </div>
         </div>
-      </div>
+      </template>
     </div>
   </div>
 </template>
