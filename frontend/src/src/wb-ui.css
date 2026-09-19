@@ -185,6 +185,20 @@ body {
   min-height: 0;
 }
 
+/* ================= 入场动画：卡片淡入上滑 + 错位 stagger ================= */
+@keyframes wb-card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* 默认所有 .card 入场一次；前几张用 :nth-of-type 错位 */
+.card {
+  animation: wb-card-in 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 40ms;
+}
+.card:nth-of-type(2) { animation-delay: 100ms; }
+.card:nth-of-type(3) { animation-delay: 160ms; }
+.card:nth-of-type(4) { animation-delay: 220ms; }
+
 /* 聊天空态 hero：品牌色顶部柔光 + 渐变徽标，避免「通用白卡」观感 */
 .hero-card {
   position: relative;
