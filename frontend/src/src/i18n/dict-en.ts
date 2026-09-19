@@ -869,6 +869,7 @@ export const enUS: Dict = {
   'memory.addPlaceholder': "Write something worth remembering…",
   'memory.empty': "No memories yet — say “remember …” and it lands here",
   'memory.entries': "{0} memories",
+  'memory.distribution': "Distribution by section",
   'memory.file': "Memory file",
   'memory.openFile': "Open file",
   'memory.searchPlaceholder': "Search memories…",

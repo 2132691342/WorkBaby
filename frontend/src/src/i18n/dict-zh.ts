@@ -869,6 +869,7 @@ export const zhCN: Dict = {
   'memory.addPlaceholder': "写下要长期记住的内容…",
   'memory.empty': "还没有记忆 — 告诉 WorkBaby「记住…」，它就会写进这里",
   'memory.entries': "共 {0} 条记忆",
+  'memory.distribution': "按分节分布",
   'memory.file': "记忆文件",
   'memory.openFile': "打开文件",
   'memory.searchPlaceholder': "搜索记忆…",
