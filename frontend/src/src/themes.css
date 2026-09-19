@@ -61,8 +61,8 @@
   /* 玻璃参数：blur + 白边高光 + 内阴影 */
   --wb-glass-blur: 20px;
   --wb-glass-saturate: 1.5;
-  --wb-glass-border: rgba(255, 255, 255, 0.92);
-  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --wb-glass-border: rgba(255, 255, 255, 0.72);
+  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85);
   --wb-glass-opacity: 0.74;
 
   /* 品牌渐变（标题 / 强调数字 / 主按钮） */

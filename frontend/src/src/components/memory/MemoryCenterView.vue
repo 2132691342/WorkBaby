@@ -50,7 +50,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="flex-c gap-sm">
+  <div class="wb-ui" style="display: flex; flex-direction: column; gap: 12px">
     <div class="card p-sm">
       <div class="flex-r mb10">
         <strong>{{ t('memory.title') }}</strong>
