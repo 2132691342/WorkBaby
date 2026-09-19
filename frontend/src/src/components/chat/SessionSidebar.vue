@@ -174,10 +174,10 @@ const grouped = computed<Group[]>(() => {
 
   for (const root of filteredRoots) {
     const rootNode: SessionNode = { session: root, depth: 0, isRoot: true }
-    bucket(new Date(root.last_message_at ?? 0).getTime()).push(rootNode)
+    bucket(sessionTime(root)).push(rootNode)
     const kids = children.get(root.id) ?? []
     for (const child of kids) {
-      bucket(new Date(child.last_message_at ?? 0).getTime()).push({
+      bucket(sessionTime(child)).push({
         session: child,
         depth: 1,
         isRoot: false
@@ -206,6 +206,14 @@ const grouped = computed<Group[]>(() => {
 
 /** 会话时间统一走 utils/time（含「昨天」分支，与全站口径一致）。 */
 const fmtTime = formatRelativeTime
+
+/**
+ * 会话「最近活跃时间」：优先 last_message_at，尚未发过消息（后端给 0）时回落到 created_at。
+ * 直接用 last_message_at 会让空会话显示成 1970-01-01，并被错误归入「较早」分组。
+ */
+function sessionTime(s: Session): number {
+  return s.last_message_at || s.created_at
+}
 
 // 命中搜索时自动清空多选（避免搜索态的 checkbox 残留）
 watch(searchLower, () => {
@@ -342,7 +350,7 @@ watch(searchLower, () => {
                 <span
                   v-else-if="!multiSelect"
                   class="shrink-0 text-[10.5px] tabular-nums text-wb-muted/80"
-                >{{ fmtTime(node.session.last_message_at) }}</span>
+                >{{ fmtTime(sessionTime(node.session)) }}</span>
                 <!-- 悬浮操作：置顶 / 归档 / 删除 -->
                 <template v-if="!multiSelect">
                   <el-tooltip :content="node.session.pinned ? t('chat.unpin') : t('chat.pin')" placement="top">
