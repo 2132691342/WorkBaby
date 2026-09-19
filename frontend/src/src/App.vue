@@ -9,12 +9,13 @@ import {
   Search,
   Settings,
   Folder,
-  ArrowRight
+  ArrowRight,
+  Moon,
+  Sunny
 } from '@/components/common/icons'
 import { storeToRefs } from 'pinia'
 import { UploadFile } from '@/wailsjs/go/main/App'
 import AppBackground from '@/components/common/AppBackground.vue'
-import AppNav from '@/components/common/AppNav.vue'
 import CommandPalette from '@/components/common/CommandPalette.vue'
 import SessionSidebar from '@/components/chat/SessionSidebar.vue'
 import { useSettingsStore } from '@/stores/settings'
@@ -23,6 +24,7 @@ import { useToast } from '@/composables/useToast'
 import { useDialog } from '@/composables/useDialog'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useFocusMode } from '@/composables/useFocusMode'
+import { useTheme } from '@/composables/useTheme'
 import { openPalette } from '@/composables/useCommandPalette'
 import { bootstrapServer } from '@/api/bootstrap'
 
@@ -71,6 +73,13 @@ const tbTitle = computed(() => {
 // / Ctrl+B 收起左栏 / Ctrl+Shift+F 焦点模式）
 const { registerShortcut, clearAll: clearAllShortcuts } = useShortcuts()
 const focusMode = useFocusMode()
+
+// 顶栏已并入标题栏：主题切换是原先顶栏唯一不重复的动作，搬到窗口控制旁。
+const theme = useTheme()
+const isDark = computed(() => theme.currentTheme.value === 'dark')
+function toggleTheme(): void {
+  theme.setTheme(isDark.value ? 'light' : 'dark')
+}
 
 function navTo(to: string): void {
   void router.push(to)
@@ -314,6 +323,15 @@ async function onNewSessionShortcut(): Promise<void> {
         WorkBaby
       </span>
       <span class="tb-sp" />
+      <button
+        class="tb-act"
+        style="--wails-draggable: no-drag"
+        :title="t('chat.toggleTheme')"
+        @click="toggleTheme"
+      >
+        <Moon v-if="!isDark" class="h-3 w-3" />
+        <Sunny v-else class="h-3 w-3" />
+      </button>
       <div class="winctl" style="--wails-draggable: no-drag">
         <span title="最小化" @click="minWindow">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M5 12h14" /></svg>
@@ -326,9 +344,6 @@ async function onNewSessionShortcut(): Promise<void> {
         </span>
       </div>
     </div>
-
-    <!-- 顶栏横向菜单：工作台 / 自动化 / 工作流 / 记忆 / 知识库 / 仪表盘 / 设置 -->
-    <AppNav @create="onCreateSession" @search="openPalette" />
 
     <div class="win-body">
       <!-- 极简左栏：快捷动作 + 任务列表 + 底部设置 -->

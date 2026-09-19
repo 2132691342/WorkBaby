@@ -18,7 +18,7 @@ const KNOWN_PREFIXES = [
   '/api/v1/mcp/',
   '/api/v1/tools',
   '/api/v1/kdocs',
-  '/api/v1/memory/',
+  '/api/v1/memory',
 
   '/api/v1/pet/',
   '/api/v1/folders',

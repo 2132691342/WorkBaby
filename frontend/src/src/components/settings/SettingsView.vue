@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useAdminStore } from '@/stores/admin'
 import { t } from '@/i18n'
 import { ArrowRight } from '@/components/common/icons'
+import SectionFallback from '@/components/settings/SectionFallback.vue'
 
 /**
  * 设置中心：左侧三组导航 + 右侧内容区，路由 query 同步直达。
@@ -96,26 +97,37 @@ const tabs: { id: string; labelKey: string; items: SectionItem[] }[] = [
   }
 ]
 
+/** 异步 section 包装：chunk 加载失败时给可见错误，而不是静默空白。 */
+function lazySection(loader: () => Promise<{ default: Component }>): Component {
+  return defineAsyncComponent({
+    loader,
+    delay: 120,
+    timeout: 20000,
+    loadingComponent: SectionFallback,
+    errorComponent: SectionFallback
+  })
+}
+
 /** section 组件登记表：id → 异步组件（首次激活才加载 chunk）。 */
 const sectionComponents: Record<SettingsTab, Component> = {
-  models: defineAsyncComponent(() => import('@/components/settings/tabs/ProviderSettings.vue')),
-  appearance: defineAsyncComponent(() => import('@/components/settings/tabs/AppearanceSettings.vue')),
-  advanced: defineAsyncComponent(() => import('@/components/settings/tabs/AdvancedSettings.vue')),
-  search: defineAsyncComponent(() => import('@/components/settings/tabs/SearchSettings.vue')),
-  about: defineAsyncComponent(() => import('@/components/settings/tabs/AboutSettings.vue')),
-  skills: defineAsyncComponent(() => import('@/components/skills/SkillsView.vue')),
-  subagents: defineAsyncComponent(() => import('@/components/agents/SubagentsView.vue')),
-  commands: defineAsyncComponent(() => import('@/components/commands/CommandsView.vue')),
-  hooks: defineAsyncComponent(() => import('@/components/hooks/HooksView.vue')),
-  wiki: defineAsyncComponent(() => import('@/components/wiki/WikiView.vue')),
-  mcp: defineAsyncComponent(() => import('@/components/mcp/McpServersView.vue')),
-  tools: defineAsyncComponent(() => import('@/components/tools/ToolsView.vue')),
-  memory: defineAsyncComponent(() => import('@/components/memory/MemoryCenterView.vue')),
-  kdocs: defineAsyncComponent(() => import('@/components/knowledge/KnowledgeDocsView.vue')),
-  dashboard: defineAsyncComponent(() => import('@/components/dashboard/DashboardView.vue')),
-  runs: defineAsyncComponent(() => import('@/components/runs/RunsView.vue')),
-  files: defineAsyncComponent(() => import('@/components/files/FilesView.vue')),
-  pet: defineAsyncComponent(() => import('@/components/pet/PetSpaceView.vue'))
+  models: lazySection(() => import('@/components/settings/tabs/ProviderSettings.vue')),
+  appearance: lazySection(() => import('@/components/settings/tabs/AppearanceSettings.vue')),
+  advanced: lazySection(() => import('@/components/settings/tabs/AdvancedSettings.vue')),
+  search: lazySection(() => import('@/components/settings/tabs/SearchSettings.vue')),
+  about: lazySection(() => import('@/components/settings/tabs/AboutSettings.vue')),
+  skills: lazySection(() => import('@/components/skills/SkillsView.vue')),
+  subagents: lazySection(() => import('@/components/agents/SubagentsView.vue')),
+  commands: lazySection(() => import('@/components/commands/CommandsView.vue')),
+  hooks: lazySection(() => import('@/components/hooks/HooksView.vue')),
+  wiki: lazySection(() => import('@/components/wiki/WikiView.vue')),
+  mcp: lazySection(() => import('@/components/mcp/McpServersView.vue')),
+  tools: lazySection(() => import('@/components/tools/ToolsView.vue')),
+  memory: lazySection(() => import('@/components/memory/MemoryCenterView.vue')),
+  kdocs: lazySection(() => import('@/components/knowledge/KnowledgeDocsView.vue')),
+  dashboard: lazySection(() => import('@/components/dashboard/DashboardView.vue')),
+  runs: lazySection(() => import('@/components/runs/RunsView.vue')),
+  files: lazySection(() => import('@/components/files/FilesView.vue')),
+  pet: lazySection(() => import('@/components/pet/PetSpaceView.vue'))
 }
 
 const settings = useSettingsStore()

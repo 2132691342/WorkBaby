@@ -185,76 +185,6 @@ body {
   min-height: 0;
 }
 
-/* ================= 顶栏横向菜单 ================= */
-.appnav {
-  flex: none;
-  height: 54px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  background: var(--wb-surface);
-  -webkit-backdrop-filter: blur(var(--wb-glass-blur, 20px)) saturate(var(--wb-glass-saturate, 1.4));
-  backdrop-filter: blur(var(--wb-glass-blur, 20px)) saturate(var(--wb-glass-saturate, 1.4));
-  border-bottom: 1px solid var(--wb-border);
-  user-select: none;
-}
-.appnav-menu {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-}
-/* 顶栏菜单项：胶囊形横向菜单 */
-.appnav-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 36px;
-  padding: 0 16px;
-  border-radius: 999px;
-  color: var(--wb-muted);
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-.appnav-item .ic-sm {
-  color: inherit;
-}
-.appnav-item:hover {
-  background: var(--wb-surface-hover);
-  color: var(--wb-ink);
-}
-/* 激活项：品牌渐变实心胶囊 */
-.appnav-item.is-active {
-  background: var(--wb-grad-brand);
-  color: #fff;
-  font-weight: 600;
-  box-shadow:
-    0 2px 8px color-mix(in srgb, var(--wb-primary) 28%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
-}
-.appnav-item.is-active .ic-sm {
-  color: #fff;
-}
-.appnav-sp {
-  flex: 1;
-}
-.appnav-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-}
-[data-theme='dark'] .appnav {
-  background: var(--wb-side, var(--wb-surface));
-}
-
 /* ================= 侧栏 ================= */
 .side {
   width: 256px;
@@ -493,6 +423,21 @@ body {
   background: var(--wb-surface-hover);
   color: var(--wb-muted);
   font-size: 10.5px;
+}
+/* 标题栏图标按钮（主题切换等；自绘标题栏内的动作位） */
+.titlebar .tb-act {
+  width: 30px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--wb-muted);
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.titlebar .tb-act:hover {
+  background: var(--wb-surface-hover);
+  color: var(--wb-ink);
 }
 
 /* ================= 主区 ================= */
