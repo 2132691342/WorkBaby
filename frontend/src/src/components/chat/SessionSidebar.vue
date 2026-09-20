@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Search, CircleCheck, Circle, Delete, GitBranch, Archive, Pin } from '@/components/common/icons'
+import EmptyState from '@/components/common/EmptyState.vue'
 import type { Session } from '@/types/api'
 import { t } from '@/i18n'
 import { useDialog } from '@/composables/useDialog'
@@ -269,7 +270,7 @@ watch(searchLower, () => {
       <!-- 归档视图切换（默认隐藏 archived 会话） -->
       <button
         type="button"
-        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors"
+        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs2 transition-colors"
         :class="archivedView ? 'bg-wb-primary/10 text-wb-primary-strong' : 'text-wb-muted hover:bg-wb-surface-hover hover:text-wb-ink'"
         @click="archivedView = !archivedView"
       >
@@ -284,21 +285,26 @@ watch(searchLower, () => {
     <el-scrollbar class="flex-1">
       <div class="px-2 pb-2">
         <div v-if="loading" class="p-3 text-sm text-wb-muted">{{ t('ui.status.loading') }}</div>
-        <el-empty
+        <!-- 空态复用 EmptyState（紧凑尺寸）：与全应用空态同源 -->
+        <EmptyState
           v-else-if="sessions.length === 0"
-          :description="t('chat.noSessions')"
-          :image-size="56"
+          variant="empty-search"
+          size="sm"
+          :title="t('chat.noSessions')"
+          class="py-4"
         />
-        <el-empty
+        <EmptyState
           v-else-if="grouped.length === 0"
-          :description="t('chat.noMatch')"
-          :image-size="56"
+          variant="empty-search"
+          size="sm"
+          :title="t('chat.noMatch')"
+          class="py-4"
         />
         <template v-else>
           <div v-for="g in grouped" :key="g.label || 'flat'" class="mt-2">
             <div
               v-if="g.label"
-              class="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-wb-muted"
+              class="px-3 py-1 text-2xs font-semibold uppercase tracking-wider text-wb-muted"
             >
               {{ g.label }}
             </div>
@@ -327,7 +333,7 @@ watch(searchLower, () => {
                 <span v-if="!node.isRoot" class="shrink-0 text-wb-muted" :title="t('chat.branch')">
                   <el-icon :size="12"><GitBranch /></el-icon>
                 </span>
-                <span class="min-w-0 flex-1 truncate text-[12.5px]">
+                <span class="min-w-0 flex-1 truncate text-ctl">
                   {{ node.session.name || t('chat.unnamed') }}
                 </span>
                 <!-- 置顶标识：pinned 会话常驻显示 -->
@@ -341,7 +347,7 @@ watch(searchLower, () => {
                 <!-- 分支数徽标：根会话有支线时展示 -->
                 <span
                   v-if="node.isRoot && branchCount(node.session.id) > 0"
-                  class="shrink-0 rounded-full bg-wb-primary/10 px-1.5 text-[10px] font-medium text-wb-primary-strong"
+                  class="shrink-0 rounded-full bg-wb-primary/10 px-1.5 text-2xs font-medium text-wb-primary-strong"
                   :title="t('chat.branchCount', branchCount(node.session.id))"
                 >
                   <el-icon :size="10" class="align-[-1px]"><GitBranch /></el-icon>
@@ -349,7 +355,7 @@ watch(searchLower, () => {
                 </span>
                 <span
                   v-else-if="!multiSelect"
-                  class="shrink-0 text-[10.5px] tabular-nums text-wb-muted/80"
+                  class="shrink-0 text-2xs tabular-nums text-wb-muted/80"
                 >{{ fmtTime(sessionTime(node.session)) }}</span>
                 <!-- 悬浮操作：置顶 / 归档 / 删除 -->
                 <template v-if="!multiSelect">

@@ -12,6 +12,7 @@ import { Zap, Upload, FileText, Plus, Trash2 } from '@/components/common/icons'
 import { OpenFileDialog } from '@/wailsjs/go/main/App'
 import { apiPost } from '@/api/client'
 import { useSkillsStore } from '@/stores/skills'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { t } from '@/i18n'
 import { useToast } from '@/composables/useToast'
 import FormDialog from '@/components/common/FormDialog.vue'
@@ -193,12 +194,12 @@ function removeScript(i: number): void {
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-else :description="t('skill.empty')" :image-size="80" class="py-6">
+        <EmptyState variant="empty-search" size="sm" v-else :title="t('skill.empty')" class="py-6">
           <el-button type="primary" size="small" @click="openCreate">
             <Plus class="h-3.5 w-3.5" />
             {{ t('skill.new') }}
           </el-button>
-        </el-empty>
+        </EmptyState>
       </section>
     </div>
 
@@ -261,7 +262,7 @@ function removeScript(i: number): void {
           <div class="flex items-center gap-1.5 text-xs font-medium text-wb-ink">
             <FileText class="h-3.5 w-3.5 text-wb-mint" />
             {{ t('skill.scripts') }}
-            <span class="rounded bg-wb-mint/10 px-1.5 text-[10px] text-wb-mint">{{ (form.scripts ?? []).length }}</span>
+            <span class="rounded bg-wb-mint/10 px-1.5 text-2xs text-wb-mint">{{ (form.scripts ?? []).length }}</span>
           </div>
           <button class="btn btn-sm" :disabled="readOnly" @click="openScriptCreate">
             <Plus class="ic ic-sm" />
@@ -276,8 +277,8 @@ function removeScript(i: number): void {
             class="flex items-center gap-2 rounded-lg bg-wb-surface px-2 py-1.5 text-xs"
           >
             <span class="min-w-0 flex-1 truncate font-mono text-wb-ink">{{ sc.name || '(unnamed)' }}</span>
-            <span class="rounded bg-wb-primary/10 px-1.5 text-[10px] text-wb-primary-strong">{{ sc.language }}</span>
-            <span class="text-[10px] tabular-nums text-wb-muted">{{ (sc.code ?? '').length }}B</span>
+            <span class="rounded bg-wb-primary/10 px-1.5 text-2xs text-wb-primary-strong">{{ sc.language }}</span>
+            <span class="text-2xs tabular-nums text-wb-muted">{{ (sc.code ?? '').length }}B</span>
             <button class="btn-icon" :disabled="readOnly" @click="openScriptEdit(i)">{{ t('ui.btn.edit') }}</button>
             <button class="btn-icon" style="color: var(--wb-danger)" :disabled="readOnly" @click="removeScript(i)">
               <Trash2 class="ic ic-sm" />

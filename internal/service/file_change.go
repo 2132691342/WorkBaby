@@ -26,7 +26,7 @@ const detailMaxBytes = 256 << 10
 type FileChangeService struct {
 	repo      *repo.FileChangeRepo
 	bus       *event.Bus
-	events    *event.RunEventLog
+	emitter   *Emitter                      // 事件出口（与 ChatService 共享同一实例）
 	snapshots string                        // 快照根目录（默认 {home}/snapshots）
 	root      string                        // 工作区根（用于算相对路径）
 	snapRoot  func(sessionID string) string // 可选：会话级快照目录（绑定外部工作区时改放 {dir}/.workbaby/snapshots）
@@ -34,7 +34,8 @@ type FileChangeService struct {
 
 // NewFileChangeService 构造；snapshots 为快照目录，root 为工作区根。
 func NewFileChangeService(r *repo.FileChangeRepo, bus *event.Bus, snapshots, root string) *FileChangeService {
-	return &FileChangeService{repo: r, bus: bus, snapshots: snapshots, root: root}
+	// 默认出口可用：事件不因装配遗漏而静默丢失；装配方可用 WithEmitter 升级为带重放的共享实例。
+	return &FileChangeService{repo: r, bus: bus, emitter: NewEmitter(bus, nil), snapshots: snapshots, root: root}
 }
 
 // WithSnapshotRoot 注入会话级快照目录解析器；注入后优先于固定根 + sessionID 推导。
@@ -44,8 +45,9 @@ func (s *FileChangeService) WithSnapshotRoot(f func(sessionID string) string) *F
 }
 
 // WithEventLog 启用 run 事件日志：变更事件与 chat 事件共享序号空间，断线重放不缺帧。
-func (s *FileChangeService) WithEventLog(log *event.RunEventLog) *FileChangeService {
-	s.events = log
+// WithEmitter 注入事件出口（文件变更事件经它分配 seq 并广播）。
+func (s *FileChangeService) WithEmitter(e *Emitter) *FileChangeService {
+	s.emitter = e
 	return s
 }
 
@@ -248,18 +250,9 @@ func (s *FileChangeService) writeSnapshot(sessionID, id string, before []byte) (
 	return p, nil
 }
 
-// emit 发布变更事件：注入 run_id/session_id、经事件日志分配 seq 后广播。
+// emit 发布变更事件（归属经 ctx 提取，统一走 Emitter）。
 func (s *FileChangeService) emit(ctx context.Context, name string, payload map[string]any) {
-	runID := core.RunIDFromCtx(ctx)
-	if payload == nil {
-		payload = map[string]any{}
-	}
-	payload["run_id"] = runID
-	payload["session_id"] = core.SessionIDFromCtx(ctx)
-	if s.events != nil {
-		s.events.Append(runID, name, payload)
-	}
-	s.bus.Publish(name, payload)
+	s.emitter.EmitCtx(ctx, name, payload)
 }
 
 // toFileChangeRESP DO → 出参（不泄漏磁盘路径）。

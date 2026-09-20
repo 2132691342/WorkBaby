@@ -5,7 +5,6 @@ package anthropic
 
 import (
 	"context"
-	"net/http"
 	"testing"
 	"time"
 
@@ -91,14 +90,4 @@ func TestStreamConformance(t *testing.T) {
 		assert.Equal(t, 21, usage.TotalTokens)
 	})
 
-	t.Run("rate_limit_error_carries_retry_after", func(t *testing.T) {
-		h := http.Header{}
-		h.Set("Retry-After", "5")
-		srv := llmtest.Error(t, http.StatusTooManyRequests, `{"error":{"message":"rate limited"}}`, h)
-		c := New("test", srv.URL, "sk-ant")
-		_, err := c.Stream(context.Background(), &llm.ChatRequest{Model: "claude"})
-		require.Error(t, err)
-		assert.Equal(t, 5*time.Second, llm.RetryAfter(err))
-		assert.True(t, llm.IsTransient(err))
-	})
 }

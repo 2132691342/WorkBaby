@@ -29,7 +29,7 @@ const inputReason = "我需要你补充一点信息才能继续"
 // irreversible 每次都问；续跑回放的同一调用走 FindDecided 快速裁决。
 type ApprovalService struct {
 	bus       *event.Bus
-	events    *event.RunEventLog // run 事件日志（与 ChatService 共享，保证 seq 连续）
+	emitter   *Emitter // 事件出口（与 ChatService 共享同一实例，保证 seq 连续）
 	records   *repo.ApprovalRecordRepo
 	grants    *repo.ApprovalGrantRepo                       // 「本会话允许」持久化（跨重启 + 可撤销 + 可回滚）；nil = 不持久化
 	resume    func(ctx context.Context, runID string) error // 续跑钩子（重启后决策触发，durable pause）
@@ -86,6 +86,7 @@ type inputAnswer struct {
 func NewApprovalService(bus *event.Bus) *ApprovalService {
 	return &ApprovalService{
 		bus:       bus,
+		emitter:   NewEmitter(bus, nil), // 默认出口可用；装配方用 WithEmitter 升级为带重放的共享实例
 		pending:   map[string]*pendingApproval{},
 		inputs:    map[string]chan inputAnswer{},
 		inflight:  map[string]*pendingInput{},
@@ -94,9 +95,9 @@ func NewApprovalService(bus *event.Bus) *ApprovalService {
 	}
 }
 
-// WithEventLog 启用 run 事件日志：审批事件与 chat 事件共享同一序号空间，断线重放不缺帧。
-func (s *ApprovalService) WithEventLog(log *event.RunEventLog) *ApprovalService {
-	s.events = log
+// WithEmitter 注入事件出口：审批事件与 chat 事件共享同一序号空间，断线重放不缺帧。
+func (s *ApprovalService) WithEmitter(e *Emitter) *ApprovalService {
+	s.emitter = e
 	return s
 }
 
@@ -245,19 +246,9 @@ func (s *ApprovalService) HasGrant(command string) bool {
 	return s.approved[command]
 }
 
-// emit 发布审批事件：注入 run_id/session_id、经事件日志分配 seq，再广播到总线。
-// ctx 取消后可能读不到 runID（回退空串），此时事件不入重放缓冲，仅广播。
+// emit 发布审批事件（归属经 ctx 提取，统一走 Emitter）。
 func (s *ApprovalService) emit(ctx context.Context, name string, payload map[string]any) {
-	runID := core.RunIDFromCtx(ctx)
-	if payload == nil {
-		payload = map[string]any{}
-	}
-	payload["run_id"] = runID
-	payload["session_id"] = core.SessionIDFromCtx(ctx)
-	if s.events != nil {
-		s.events.Append(runID, name, payload)
-	}
-	s.bus.Publish(name, payload)
+	s.emitter.EmitCtx(ctx, name, payload)
 }
 
 // Approve 实现 tool.Approver：阻塞等待用户决策（批准 true / 拒绝、超时、取消 false）。

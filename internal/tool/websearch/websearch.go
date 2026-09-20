@@ -56,7 +56,7 @@ func (t *WebSearchTool) Schema() tool.ToolSchema {
 
 type searchReq struct {
 	Query string `json:"query"`
-	TopK  int    `json:"topK"`
+	TopK  int    `json:"top_k"`
 }
 
 // Execute 执行搜索并返回结果文本。

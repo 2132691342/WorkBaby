@@ -35,11 +35,13 @@ const BG_KEY = 'workbaby.background'
 
 /**
  * 主题登记表：light / dark 两套，与 themes.css 的 {@code [data-theme=...]} 块一一对应。
+ * 取值必须与 themes.css 保持同步——色值只定义在那里，本表是它的「预览视图」：
+ * 不一致会让主题选择器的预览块与实际观感对不上（历史问题：三处色值各写各的）。
  * 新增主题必须同时补 themes.css 的 CSS 块并在此登记。
  */
 export const THEMES: ThemeConfig[] = [
-  { id: 'light',  nameKey: 'settings.theme.light',  preview: 'linear-gradient(135deg,#e8f1fe,#2f7bf6)', primary: '#2f7bf6', primaryStrong: '#1c63dc', bg: '#eef4fd', surface: '#ffffff' },
-  { id: 'dark',  nameKey: 'settings.theme.dark',  preview: 'linear-gradient(135deg,#191919,#6d6af0)', primary: '#6d6af0', primaryStrong: '#8f8cff', bg: '#202020', surface: '#262626' }
+  { id: 'light', nameKey: 'settings.theme.light', preview: 'linear-gradient(135deg,#e3eefc,#2f7bf6)', primary: '#2f7bf6', primaryStrong: '#1a5fe0', bg: '#e3eefc', surface: '#ffffff' },
+  { id: 'dark', nameKey: 'settings.theme.dark', preview: 'linear-gradient(135deg,#16121f,#8b5cf6)', primary: '#8b5cf6', primaryStrong: '#a78bfa', bg: '#16121f', surface: '#241d38' }
 ]
 
 // 全局响应式状态
@@ -104,10 +106,8 @@ export function useTheme() {
         const base64 = reader.result as string
         try {
           const extracted = await extractPrimaryColor(base64)
+          // 主色由 applyBackground 统一写入（setBackground → applyBackground），此处不重复设置
           setBackground({ ...background.value, imageBase64: base64, extractedPrimary: extracted })
-          if (extracted && typeof document !== 'undefined') {
-            document.documentElement.style.setProperty('--wb-primary', extracted)
-          }
           resolve()
         } catch (e) {
           setBackground({ ...background.value, imageBase64: base64 })
@@ -126,7 +126,24 @@ export function useTheme() {
     saveBackground()
   }
 
-  /** 应用背景到 DOM */
+  /**
+   * 提取主色随背景一起应用/移除（inline 覆盖 --wb-primary）。
+   *
+   * <p>收口到单一函数是必须的：应用与移除分写在两处，必然出现「清除背景后主色残留，
+   * 整站停留在上一次背景图的色调」或「重启恢复背景后主色丢失」。
+   */
+  function applyExtractedPrimary(): void {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    const extracted = background.value.imageBase64 ? background.value.extractedPrimary : null
+    if (extracted) {
+      root.style.setProperty('--wb-primary', extracted)
+    } else {
+      root.style.removeProperty('--wb-primary')
+    }
+  }
+
+  /** 应用背景到 DOM（含提取主色的应用与移除） */
   function applyBackground(): void {
     if (typeof document === 'undefined') return
     const root = document.documentElement
@@ -141,6 +158,7 @@ export function useTheme() {
       root.style.removeProperty('--wb-user-bg-blur')
       document.body.classList.remove('has-custom-bg')
     }
+    applyExtractedPrimary()
   }
 
   function saveBackground(): void {

@@ -20,9 +20,15 @@
 
 /* ===== 表单密度 token（全局唯一基线）=====
  * 原生 .input 与 Element Plus 控件共用同一套高度 / 字号，
- * 消除「同一个设置页里 28px 与 32px 混排、12px 与 14px 混排」的问题。 */
+ * 消除「同一个设置页里 28px 与 32px 混排、12px 与 14px 混排」的问题。
+ *
+ * 控件高度三档：sm = 芯片/分段控件，md = 标准按钮与输入（密度基线），lg = 侧栏导航等大点击目标。
+ * 组件内不得再写裸像素高度——散落的 23/26/30/38px 是历史漂移，一律归到档位引用。 */
 :root {
+  --wb-ctl-h-sm: 24px;
   --wb-ctl-h: 32px;
+  --wb-ctl-h-lg: 38px;
+  --wb-ctl-icon: 30px; /* 圆形图标按钮（顶栏工具组） */
   --wb-fs-ctl: 12.5px;
   --wb-fs-label: 11.5px;
   --wb-fs-hint: 11px;
@@ -65,6 +71,13 @@
   --color-wb-ink: #16233c;
   --color-wb-muted: #64748b;
   --color-wb-border: rgba(45, 90, 160, 0.11);
+
+  /* 字号刻度（收敛散落的 text-[10px]/[11px]/[12.5px] 任意值）：
+   * 2xs = 徽标/角标, xs2 = 辅助标签与元信息, ctl = 控件与正文（与 --wb-fs-ctl 同值）。
+   * 组件一律用刻度类，不再写任意像素。 */
+  --text-2xs: 10px;
+  --text-xs2: 11px;
+  --text-ctl: 12.5px;
 
   /* ===== 字体栈（统一：显式声明所有面，避免浏览器自动降级到本机字体） ===== */
 
@@ -280,8 +293,7 @@ samp {
 .el-pagination__jump,
 .el-pager li,
 .el-slider__runway,
-.el-tooltip__popper,
-.el-empty {
+.el-tooltip__popper {
   font-family: var(--font-sans) !important;
 }
 
@@ -1187,16 +1199,6 @@ button:active:not(:disabled) {
 .el-radio__input.is-checked .el-radio__inner {
   background-color: var(--wb-primary) !important;
   border-color: var(--wb-primary) !important;
-}
-
-/* Empty 空状态：图标更大 + 文本更精致 */
-.el-empty__image {
-  width: 96px !important;
-  height: 96px !important;
-}
-.el-empty__description p {
-  color: var(--wb-muted);
-  font-size: 13px;
 }
 
 /* 加载指示 */

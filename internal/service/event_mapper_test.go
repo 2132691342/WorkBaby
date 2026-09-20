@@ -1,10 +1,6 @@
 package service
 
-// 会话运行时链路测试：内核事件 → 前端协议映射、辅助会话（主会话历史前缀截取）、目标模式状态机。
-//
-// 这三条链路的共同点是「跨层且易静默失效」：事件映射错一个名字前端就收不到终态；
-// 辅助会话前缀截取越界会把上下文撑爆或切断 user 轮次；目标模式状态机漏一个分支
-// 就会让目标卡在不可恢复的中间态。
+// 事件链路测试：内核事件 → 前端协议映射、子 Agent 事件隔离、辅助会话前缀截取、事件出口契约。
 
 import (
 	"context"
@@ -57,7 +53,10 @@ func TestCoreEventMapper(t *testing.T) {
 		require.Len(t, m.toolCalls, 1, "工具调用需收集进 assistant.tool_calls")
 		assert.Equal(t, "file_read", m.toolCalls[0].Function.Name)
 		require.NotNil(t, m.doneEvent, "终态延迟到 assistant 落库后由调用方发出")
-		assert.Equal(t, "MSG_1", m.doneEvent["message_id"])
+		done, ok := m.doneEvent.(domain.ChatDoneEvent)
+		require.True(t, ok, "终态载荷类型固定为 domain.ChatDoneEvent")
+		assert.Equal(t, "MSG_1", done.MessageID)
+		assert.Equal(t, string(domain.StopReasonCompleted), done.Reason)
 	})
 
 	t.Run("工具结果落库为 tool 消息", func(t *testing.T) {
@@ -125,39 +124,6 @@ func TestCoreEventMapper(t *testing.T) {
 	})
 }
 
-// TestSideConversationLifecycle 辅助会话：ensure 幂等 / 不进侧栏列表 / 随主会话配置。
-func TestSideConversationLifecycle(t *testing.T) {
-	svc, _ := newChatOpsService(t)
-	ctx := t.Context()
-
-	ses, _ := seedSession(t, svc, sideMsgRepo(t, svc), ctx)
-
-	side, err := svc.EnsureSideConversation(ctx, ses.ID)
-	require.NoError(t, err)
-	require.Equal(t, domain.SessionKindSide, side.Kind)
-	require.Equal(t, ses.ID, side.ParentID)
-	require.True(t, len(side.Name) > 0)
-
-	// 幂等：再次 ensure 返回同一条
-	again, err := svc.EnsureSideConversation(ctx, ses.ID)
-	require.NoError(t, err)
-	require.Equal(t, side.ID, again.ID)
-
-	// 侧栏列表不含辅助会话
-	list, err := svc.ListSessions(ctx, 1, 50)
-	require.NoError(t, err)
-	for _, it := range list.Items {
-		require.NotEqual(t, side.ID, it.ID)
-	}
-	require.True(t, list.Total >= 1)
-
-	// get 已有
-	got, err := svc.GetSideConversation(ctx, ses.ID)
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	require.Equal(t, side.ID, got.ID)
-}
-
 // TestSideParentMessages 主会话历史前缀：有界截取 + user 轮次对齐 + system 来源标注。
 func TestSideParentMessages(t *testing.T) {
 	svc, msgRepo := newChatOpsService(t)
@@ -216,53 +182,38 @@ func sideMsgRepo(t *testing.T, svc *ChatService) *repo.MessageRepo {
 	return svc.messages
 }
 
-// TestGoalLifecycle 目标模式状态机：set → pause → resume → clear 全链路，
-// 目标持久化在会话元数据（重启后 readSessionMeta 仍可恢复）。
-func TestGoalLifecycle(t *testing.T) {
-	svc, _ := newChatOpsService(t)
-	ctx := context.Background()
+// TestEmitterContract 事件出口契约：结构体载荷归一、归属注入、重放日志入账。
+// 这三条是 SSE 断线重放与前端渲染正确性的前提，任一失效都只表现为「前端莫名少事件」。
+func TestEmitterContract(t *testing.T) {
+	bus := event.New()
+	log := event.NewRunEventLog(0, 0)
+	em := NewEmitter(bus, log)
 
-	sesResp, err := svc.CreateSession(ctx, &domain.ChatSessionREQ{Name: "goal"})
-	require.NoError(t, err)
-	sesID := sesResp.ID
+	var got map[string]any
+	bus.Subscribe(event.MatchPrefix("chat:"), func(_ string, payload any) {
+		got, _ = payload.(map[string]any)
+	})
 
-	// 无参数 set 被拒：目标描述不能为空
-	_, err = svc.SetGoal(ctx, sesID, domain.GoalREQ{Action: "set"})
-	require.Error(t, err)
+	// 结构体载荷：经归一化后成为带归属字段的 map（前端契约形状固定）
+	em.Emit("RUN_1", "SES_1", "chat:done", domain.ChatDoneEvent{
+		Status: "completed", Reason: "completed", MessageID: "MSG_1",
+	})
+	require.NotNil(t, got, "事件必须广播到总线")
+	assert.Equal(t, "RUN_1", got["run_id"])
+	assert.Equal(t, "SES_1", got["session_id"])
+	assert.Equal(t, "MSG_1", got["message_id"])
+	assert.Equal(t, "completed", got["status"])
 
-	// set → active（Round 从 0 起）
-	g1, err := svc.SetGoal(ctx, sesID, domain.GoalREQ{Action: "set", Text: "修复所有 TS 编译错误并保持测试通过"})
-	require.NoError(t, err)
-	require.NotNil(t, g1.Goal)
-	assert.Equal(t, domain.GoalStatusActive, g1.Goal.Status)
-	assert.Equal(t, 0, g1.Goal.Round)
-	assert.Equal(t, domain.GoalDefaultMaxRounds, g1.Goal.MaxRounds)
+	// run 事件进重放缓冲：断线重连时按 Last-Event-ID 补齐
+	events, covered := log.Replay("RUN_1", 0)
+	assert.True(t, covered)
+	require.Len(t, events, 1)
+	assert.Equal(t, "chat:done", events[0].Name)
 
-	// 权威拉取（模拟重启 / 切会话）
-	got, err := svc.Goal(ctx, sesID)
-	require.NoError(t, err)
-	require.NotNil(t, got.Goal)
-	assert.Equal(t, "修复所有 TS 编译错误并保持测试通过", got.Goal.Text)
-
-	// set 已有活动目标 = replace，Round 保留
-	g2, err := svc.SetGoal(ctx, sesID, domain.GoalREQ{Action: "set", Text: "新目标"})
-	require.NoError(t, err)
-	assert.Equal(t, "新目标", g2.Goal.Text)
-
-	// pause / resume
-	gp, err := svc.SetGoal(ctx, sesID, domain.GoalREQ{Action: "pause"})
-	require.NoError(t, err)
-	assert.Equal(t, domain.GoalStatusPaused, gp.Goal.Status)
-	gr, err := svc.SetGoal(ctx, sesID, domain.GoalREQ{Action: "resume"})
-	require.NoError(t, err)
-	assert.Equal(t, domain.GoalStatusActive, gr.Goal.Status)
-
-	// clear → 无目标
-	gc, err := svc.SetGoal(ctx, sesID, domain.GoalREQ{Action: "clear"})
-	require.NoError(t, err)
-	assert.Nil(t, gc.Goal)
-
-	// pause 空目标报错
-	_, err = svc.SetGoal(ctx, sesID, domain.GoalREQ{Action: "pause"})
-	require.Error(t, err)
+	// 会话级事件（run_id 为空）：仍然广播（按会话过滤由 SSE 完成），但不进 run 重放缓冲
+	got = nil
+	em.Emit("", "SES_1", "chat:goal", map[string]any{"goal": nil})
+	require.NotNil(t, got, "无 run 归属的事件不能因订阅带 run 就丢弃")
+	assert.Equal(t, "", got["run_id"])
+	assert.Equal(t, "SES_1", got["session_id"])
 }

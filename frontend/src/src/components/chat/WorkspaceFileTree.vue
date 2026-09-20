@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FileText, FolderOpen, Image, RefreshCw } from '@/components/common/icons'
 import { apiGet, apiPost } from '@/api/client'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { t } from '@/i18n'
 import { useDialog } from '@/composables/useDialog'
 import { useToast } from '@/composables/useToast'
@@ -273,7 +274,7 @@ defineExpose({ refresh })
     <div class="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
       <!-- 筛选态：扁平列出已加载范围内的命中 -->
       <template v-if="filter.trim()">
-        <p v-if="matches.length === 0" class="px-2 py-3 text-[11px] text-wb-muted">
+        <p v-if="matches.length === 0" class="px-2 py-3 text-xs2 text-wb-muted">
           {{ t('chat.filterNoMatch') }}
         </p>
         <ul v-else class="space-y-0.5">
@@ -295,10 +296,9 @@ defineExpose({ refresh })
         <div v-if="rootLoading" class="space-y-2 px-2 py-3">
           <div v-for="i in 4" :key="i" class="h-3.5 animate-pulse rounded bg-wb-surface-hover" />
         </div>
-        <el-empty
+        <EmptyState variant="empty-search" size="sm"
           v-else-if="rootEntries.length === 0"
-          :description="t('chat.dirEmpty')"
-          :image-size="48"
+          :title="t('chat.dirEmpty')"
         />
         <ul v-else class="space-y-0.5">
           <li
@@ -316,7 +316,7 @@ defineExpose({ refresh })
               :class="expanded.has(r.e.path) ? 'text-wb-primary' : 'text-wb-muted'"
             />
             <span class="min-w-0 flex-1 truncate">{{ r.e.name }}</span>
-            <span v-if="!r.e.is_dir" class="shrink-0 text-[10px] text-wb-muted">{{ fmtSize(r.e.size) }}</span>
+            <span v-if="!r.e.is_dir" class="shrink-0 text-2xs text-wb-muted">{{ fmtSize(r.e.size) }}</span>
           </li>
         </ul>
       </template>
@@ -324,7 +324,7 @@ defineExpose({ refresh })
 
     <p
       v-if="[...truncated].length > 0 && !filter.trim()"
-      class="shrink-0 border-t border-wb-border px-3 py-1.5 text-[10px] text-wb-warning"
+      class="shrink-0 border-t border-wb-border px-3 py-1.5 text-2xs text-wb-warning"
     >
       {{ t('chat.dirTruncated') }}
     </p>

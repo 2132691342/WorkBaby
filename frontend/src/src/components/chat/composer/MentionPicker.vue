@@ -115,7 +115,7 @@ const groups = computed(() =>
       }"
       @click.stop
     >
-      <p class="mb-1 flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-wb-muted">
+      <p class="mb-1 flex items-center gap-1 px-2 py-1 text-2xs font-medium uppercase tracking-wider text-wb-muted">
         <AtSign class="h-3 w-3" />
         {{ t('mention.title') }}
         <span v-if="props.query" class="text-wb-primary">"{{ props.query }}"</span>
@@ -129,7 +129,7 @@ const groups = computed(() =>
       <ul ref="listEl" class="wb-scroll max-h-64 overflow-y-auto overscroll-contain">
         <li v-for="g in groups" :key="g.type">
           <!-- 分组标题：加重 + 主色 + 小图标，避免「只看得到一行行候选却没意识到分组」的盲区 -->
-          <p class="flex items-center gap-1.5 border-b border-wb-border/40 px-2 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-wider text-wb-primary-strong">
+          <p class="flex items-center gap-1.5 border-b border-wb-border/40 px-2 pb-1 pt-2 text-2xs font-semibold uppercase tracking-wider text-wb-primary-strong">
             <component :is="iconForGroup(g.type)" class="h-3 w-3" />
             {{ g.title }}
             <span class="ml-auto rounded bg-wb-primary/10 px-1 text-[9.5px] tabular-nums text-wb-primary">{{ g.items.length }}</span>
@@ -149,8 +149,8 @@ const groups = computed(() =>
             </span>
             <span class="min-w-0 flex-1">
               <span class="block truncate font-medium">{{ row.it.name }}</span>
-              <span v-if="row.it.type !== 'folder' && 'description' in row.it && row.it.description" class="block truncate text-[10px] text-wb-muted">{{ row.it.description }}</span>
-              <span v-else-if="row.it.type === 'folder' && row.it.path" class="block truncate text-[10px] text-wb-muted">{{ row.it.path }}</span>
+              <span v-if="row.it.type !== 'folder' && 'description' in row.it && row.it.description" class="block truncate text-2xs text-wb-muted">{{ row.it.description }}</span>
+              <span v-else-if="row.it.type === 'folder' && row.it.path" class="block truncate text-2xs text-wb-muted">{{ row.it.path }}</span>
             </span>
           </button>
         </li>

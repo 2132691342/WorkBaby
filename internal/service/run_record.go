@@ -7,14 +7,7 @@ import (
 	"WorkBaby/internal/core"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/pkg"
-	"WorkBaby/internal/repo"
 )
-
-// WithRunRecords 启用运行历史索引；nil = 不记录（旁路能力，不阻断聊天主链路）。
-func (s *ChatService) WithRunRecords(r *repo.RunRecordRepo) *ChatService {
-	s.runRec = r
-	return s
-}
 
 // ListRunRecords 运行历史（倒序分页）；sessionID 为空表示全部会话。
 func (s *ChatService) ListRunRecords(ctx context.Context, sessionID string, limit, offset int) (domain.RunRecordListRESP, error) {

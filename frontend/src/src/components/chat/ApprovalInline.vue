@@ -235,7 +235,7 @@ async function sendAnswer(): Promise<void> {
           {{ isInput ? t('chat.inputTag') : riskLabel }}
         </el-tag>
         <!-- 等待计时：run 正阻塞在这里，没有进度感用户会以为卡死 -->
-        <span v-if="!settled" class="text-[11px] text-wb-muted">{{ t('chat.waitingConfirm', waitSec) }}</span>
+        <span v-if="!settled" class="text-xs2 text-wb-muted">{{ t('chat.waitingConfirm', waitSec) }}</span>
       </div>
     </template>
 
@@ -256,7 +256,7 @@ async function sendAnswer(): Promise<void> {
         </el-button>
         <el-button size="small" @click="skip">{{ t('chat.inputSkip') }}</el-button>
       </div>
-      <p class="mt-1 text-[11px] text-wb-muted">{{ t('chat.inputHint') }}</p>
+      <p class="mt-1 text-xs2 text-wb-muted">{{ t('chat.inputHint') }}</p>
     </template>
 
     <!-- file_write / file_edit：路径 + 内容预览（编辑态展示替换前→替换后） -->
@@ -272,7 +272,7 @@ async function sendAnswer(): Promise<void> {
            而不是让用户对两段文本自行比对 -->
       <pre
         v-if="editPatchLines.length > 0"
-        class="mb-2 overflow-x-auto rounded-md border border-wb-border bg-wb-surface-2 px-3 py-2 font-mono text-[11px] leading-relaxed"
+        class="mb-2 overflow-x-auto rounded-md border border-wb-border bg-wb-surface-2 px-3 py-2 font-mono text-xs2 leading-relaxed"
       ><span
           v-for="(line, i) in editPatchLines"
           :key="i"
@@ -284,9 +284,9 @@ async function sendAnswer(): Promise<void> {
       </div>
       <pre
         v-else
-        class="overflow-x-auto rounded-md border border-wb-border bg-wb-surface-2 px-3 py-2 font-mono text-[11px] leading-relaxed text-wb-ink"
+        class="overflow-x-auto rounded-md border border-wb-border bg-wb-surface-2 px-3 py-2 font-mono text-xs2 leading-relaxed text-wb-ink"
       ><span class="block text-wb-muted">/* {{ fileWriteArgs.edit ? t('chat.approvalNewPreview') : t('chat.approvalAfterPreview') }} */</span>{{ fileWritePreview?.text }}</pre>
-      <p v-if="fileWritePreview?.truncated" class="mt-1 text-[10px] text-wb-muted">
+      <p v-if="fileWritePreview?.truncated" class="mt-1 text-2xs text-wb-muted">
         {{ t('chat.approvalTruncated', PREVIEW_LIMIT) }}
       </p>
     </template>
@@ -308,7 +308,7 @@ async function sendAnswer(): Promise<void> {
           {{ arg }}
         </el-tag>
       </div>
-      <div v-if="execArgs.cwd" class="mb-2 flex items-center gap-1.5 text-[11px] text-wb-muted">
+      <div v-if="execArgs.cwd" class="mb-2 flex items-center gap-1.5 text-xs2 text-wb-muted">
         <span class="text-wb-muted">cwd</span>
         <span class="font-mono">{{ execArgs.cwd }}</span>
       </div>
@@ -317,7 +317,7 @@ async function sendAnswer(): Promise<void> {
     <!-- 其它工具：args JSON pretty-print -->
     <pre
       v-else-if="argsJson"
-      class="overflow-x-auto rounded-md border border-wb-border bg-wb-surface-2 px-3 py-2 font-mono text-[11px] leading-relaxed text-wb-ink"
+      class="overflow-x-auto rounded-md border border-wb-border bg-wb-surface-2 px-3 py-2 font-mono text-xs2 leading-relaxed text-wb-ink"
     >{{ argsJson.text }}</pre>
 
     <!-- 兜底：原始命令 -->
@@ -332,7 +332,7 @@ async function sendAnswer(): Promise<void> {
         {{ reasonText }}
       </p>
 
-      <p class="mt-1 text-[11px] text-wb-muted">
+      <p class="mt-1 text-xs2 text-wb-muted">
         <span v-if="isIrreversible">{{ t('chat.approvalIrreversibleHint') }}</span>
         <span v-else>{{ t('chat.approvalSessionHint') }}</span>
       </p>

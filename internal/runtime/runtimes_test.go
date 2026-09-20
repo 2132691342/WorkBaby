@@ -38,7 +38,6 @@ func TestExtractEnforcesLimits(t *testing.T) {
 	assert.Contains(t, err.Error(), "maxBytes")
 }
 
-
 func writeZip(path string, files map[string]string) error {
 	f, err := os.Create(path)
 	if err != nil {

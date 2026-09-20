@@ -10,6 +10,7 @@ import { storeToRefs } from 'pinia'
 import { Bot, Plus, Trash2 } from '@/components/common/icons'
 import { useAgentProfilesStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { t } from '@/i18n'
 import FormDialog from '@/components/common/FormDialog.vue'
 import Field from '@/components/common/Field.vue'
@@ -136,12 +137,12 @@ async function submitForm(): Promise<void> {
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-else :description="t('agents.empty')" :image-size="80" class="py-6">
+        <EmptyState variant="empty-search" size="sm" v-else :title="t('agents.empty')" class="py-6">
           <el-button type="primary" size="small" @click="openCreate">
             <Plus class="h-3.5 w-3.5" />
             {{ t('agents.new') }}
           </el-button>
-        </el-empty>
+        </EmptyState>
         <p class="fs11 muted" style="margin: 8px 0 0">{{ t('agents.usageHint') }}</p>
       </section>
     </div>

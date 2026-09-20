@@ -108,7 +108,7 @@ onMounted(() => {
           :placeholder="t('mention.searchSkill')"
           @keydown="onKeydown"
         />
-        <span class="shrink-0 rounded bg-wb-primary/10 px-1.5 text-[10px] text-wb-primary">
+        <span class="shrink-0 rounded bg-wb-primary/10 px-1.5 text-2xs text-wb-primary">
           {{ filtered.length }}
         </span>
       </div>
@@ -140,10 +140,10 @@ onMounted(() => {
                 class="block truncate text-xs font-medium"
                 :class="idx === activeIndex ? 'text-wb-primary-strong' : 'text-wb-ink'"
               >{{ s.name }}</span>
-              <span v-if="s.description" class="block truncate text-[10px] text-wb-muted">
+              <span v-if="s.description" class="block truncate text-2xs text-wb-muted">
                 {{ s.description }}
               </span>
-              <span v-else-if="s.when_to_use" class="block truncate text-[10px] text-wb-muted">
+              <span v-else-if="s.when_to_use" class="block truncate text-2xs text-wb-muted">
                 {{ s.when_to_use }}
               </span>
             </span>
@@ -151,7 +151,7 @@ onMounted(() => {
         </li>
       </ul>
 
-      <p class="border-t border-wb-border px-3 py-1.5 text-[10px] text-wb-muted">
+      <p class="border-t border-wb-border px-3 py-1.5 text-2xs text-wb-muted">
         {{ t('mention.skillHint') }}
       </p>
     </div>

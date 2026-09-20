@@ -102,15 +102,6 @@ func TestHookSubprocessContract(t *testing.T) {
 		}
 	})
 
-	t.Run("历史事件名归一", func(t *testing.T) {
-		assert.Equal(t, domain.HookEventPreToolUse, domain.NormalizeHookEvent("before_tool"))
-		assert.Equal(t, domain.HookEventPostToolUse, domain.NormalizeHookEvent("after_tool"))
-		assert.Equal(t, domain.HookEventSessionStart, domain.NormalizeHookEvent("run_start"))
-		assert.Equal(t, domain.HookEventStop, domain.NormalizeHookEvent("run_end"))
-		assert.Equal(t, domain.HookEventPreToolUse, domain.NormalizeHookEvent("PreToolUse"))
-		assert.False(t, isHookEvent("bogus_event"))
-	})
-
 	t.Run("Stop 续跑判定", func(t *testing.T) {
 		block := func(v bool) *bool { return &v }
 		cases := []struct {

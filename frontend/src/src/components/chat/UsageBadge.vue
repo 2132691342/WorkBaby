@@ -95,7 +95,7 @@ const show = computed(() => hasUsage(props.usage))
 <template>
   <div v-if="show" class="mt-1 px-1">
     <el-tooltip :content="usageDetail(usage)" placement="top">
-      <span class="inline-flex cursor-help items-center gap-1 rounded-full border border-wb-border/70 bg-wb-surface px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-wb-muted transition-colors hover:border-wb-primary/40">
+      <span class="inline-flex cursor-help items-center gap-1 rounded-full border border-wb-border/70 bg-wb-surface px-1.5 py-0.5 font-mono text-2xs tabular-nums text-wb-muted transition-colors hover:border-wb-primary/40">
         <span v-if="live" class="h-1.5 w-1.5 animate-pulse rounded-full bg-wb-primary" />
         {{ fmtUsage(usage) }}
         <span

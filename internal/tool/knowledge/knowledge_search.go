@@ -43,7 +43,7 @@ func (t *SearchTool) Schema() tool.ToolSchema {
 
 type searchReq struct {
 	Query string `json:"query"`
-	TopK  int    `json:"topK"`
+	TopK  int    `json:"top_k"`
 }
 
 // Execute 检索并格式化结果。

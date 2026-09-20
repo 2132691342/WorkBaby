@@ -27,6 +27,46 @@ type FileStore interface {
 	ReadDataURL(ctx context.Context, id string) (string, error)
 }
 
+// ChatDeps ChatService 的依赖集合：构造期一次性注入（不提供后置 setter，
+// 漏接会让检查点/重放/落块等能力静默失效；由 MissingDeps 自检兜底）。
+type ChatDeps struct {
+	// 基础
+	Sessions  *repo.ChatSessionRepo
+	Messages  *repo.MessageRepo
+	Providers *repo.AiProviderRepo
+	Settings  *repo.SystemSettingRepo
+	Usages    *repo.TokenUsageRepo
+	Bus       *event.Bus
+	Registry  *registry.Registry
+	Tools     *ToolService
+	Memory    *memory.Service
+
+	// 路径解析（与工具沙箱 / 文件变更快照共用同一实例）
+	Session *SessionContext
+
+	// 持久化与运行时设施
+	Checkpoints core.CheckpointStore
+	EventLog    *event.RunEventLog
+	// Emitter 事件出口；nil 时用 Bus + EventLog 现场构造。装配方传入共享实例，
+	// 可保证 chat / task / approval 等域的 seq 落在同一条序列上。
+	Emitter    *Emitter
+	Blocks     *repo.MessageBlockRepo
+	RunRecords *repo.RunRecordRepo
+	Executions *core.ExecutionRegistry
+
+	// 协作服务
+	Approvals    *ApprovalService
+	Trust        *TrustService
+	Changes      *FileChangeService
+	PlanStore    *planmode.Store
+	Hooks        *UserHookService
+	Files        FileStore
+	Capabilities *capability.Registry
+
+	// SkillSync run 前按会话工作区叠加技能；nil = 不启用
+	SkillSync func(context.Context, string) error
+}
+
 // ChatService 会话 + 消息编排；接入 core.Loop 调用真实 LLM。
 type ChatService struct {
 	sessions    *repo.ChatSessionRepo
@@ -35,16 +75,17 @@ type ChatService struct {
 	setRepo     *repo.SystemSettingRepo
 	usages      *repo.TokenUsageRepo // token 明细（仪表盘三线图的唯一数据源）
 	bus         *event.Bus
+	emitter     *Emitter // 事件统一出口（注入归属 + seq + 广播）
 	reg         *registry.Registry
 	tools       *ToolService
 	mem         *memory.Service                     // 上下文占用统计（/context 分段）读取长期记忆
+	sctx        *SessionContext                     // 工作区根与过程数据目录解析（唯一数据源）
 	trust       *TrustService                       // 目录信任；nil = 关闭
 	planStore   *planmode.Store                     // 计划模式状态；nil = 不启用
 	locksMu     sync.Mutex                          // 保护 locks
 	locks       map[string]*sync.Mutex              // 会话级互斥：同会话的建流 / 插话 / 后台 run 串行，跨会话并行
 	runs        *runRegistry                        // 活动 run 注册中心（按 sessionID → cancel）；用于前端「停止」按钮
 	checkpoints core.CheckpointStore                // 检查点存储（SQL 默认；nil = 关闭）
-	events      *event.RunEventLog                  // run 事件日志：分配序号 + 缓存，供 SSE 断线重放
 	runRec      *repo.RunRecordRepo                 // 运行历史索引；nil = 不记录
 	execs       *core.ExecutionRegistry             // 执行平面
 	blocks      *repo.MessageBlockRepo              // 消息块持久化；nil = 不落块
@@ -54,23 +95,9 @@ type ChatService struct {
 	steers      *steerQueue                         // run 中用户新消息的注入队列（steering / follow-up）
 	seqMu       sync.Mutex                          // 保护 seqs
 	seqs        map[string]int64                    // 会话消息序号分配水位（工具消息与注入消息统一分配，防撞号）
-	dataHome    string                              // 数据根（paths.Home）；目录策略默认根由此派生
 	caps        *capability.Registry                // 能力注册表：上下文装配 / 工具暴露 / run 后沉淀三条通道
 	skillSync   func(context.Context, string) error // 技能目录同步钩子（run 前按会话工作区叠加）；nil = 不启用
-	tempClear   func(runID string)                  // run 级临时态清理钩子（三层 State 的 temp 作用域）；nil = 不启用
 	hookRunner  *UserHookService                    // 用户钩子执行器（run_start/before_tool/after_tool/run_end）；nil = 不启用
-}
-
-// WithHookRunner 注入用户钩子执行器（子进程协议）；nil = 不启用。
-func (s *ChatService) WithHookRunner(h *UserHookService) *ChatService {
-	s.hookRunner = h
-	return s
-}
-
-// WithTempStateClearer 注入 run 级临时态清理钩子（run 结束后调用一次）。
-func (s *ChatService) WithTempStateClearer(clear func(runID string)) *ChatService {
-	s.tempClear = clear
-	return s
 }
 
 // memoryCaptureTimeout run 后沉淀（记忆形成等）的独立超时。
@@ -94,14 +121,49 @@ func (s *ChatService) lockSession(sessionID string) func() {
 	return l.Unlock
 }
 
-// WithCapabilities 接入能力注册表；未接入时上下文装配与沉淀均为空操作。
-
-func NewChatService(sessions *repo.ChatSessionRepo, messages *repo.MessageRepo, provRepo *repo.AiProviderRepo, setRepo *repo.SystemSettingRepo, usages *repo.TokenUsageRepo, bus *event.Bus, reg *registry.Registry, tools *ToolService, mem *memory.Service) *ChatService {
-	return &ChatService{
-		sessions: sessions, messages: messages, provRepo: provRepo, setRepo: setRepo, usages: usages,
-		bus: bus, reg: reg, tools: tools, mem: mem, runs: newRunRegistry(),
-		steers: newSteerQueue(), seqs: map[string]int64{},
+// NewChatService 构造会话编排服务；依赖一次性注入（见 ChatDeps）。
+func NewChatService(deps ChatDeps) *ChatService {
+	emitter := deps.Emitter
+	if emitter == nil {
+		emitter = NewEmitter(deps.Bus, deps.EventLog)
 	}
+	return &ChatService{
+		sessions: deps.Sessions, messages: deps.Messages, provRepo: deps.Providers,
+		setRepo: deps.Settings, usages: deps.Usages, bus: deps.Bus, reg: deps.Registry,
+		emitter: emitter,
+		tools:   deps.Tools, mem: deps.Memory, sctx: deps.Session,
+		caps: deps.Capabilities, checkpoints: deps.Checkpoints,
+		blocks: deps.Blocks, runRec: deps.RunRecords, execs: deps.Executions,
+		approval: deps.Approvals, trust: deps.Trust, changeSvc: deps.Changes,
+		planStore: deps.PlanStore, hookRunner: deps.Hooks, files: deps.Files,
+		skillSync: deps.SkillSync,
+		runs:      newRunRegistry(),
+		steers:    newSteerQueue(), seqs: map[string]int64{},
+	}
+}
+
+// MissingDeps 未注入的核心依赖清单（启动自检）；空 = 装配完整。
+// 核心链路依赖缺失时的表现是「功能静默不生效」而非报错，装配方必须显式校验。
+func (s *ChatService) MissingDeps() []string {
+	var missing []string
+	add := func(cond bool, name string) {
+		if cond {
+			missing = append(missing, name)
+		}
+	}
+	add(s.sessions == nil, "Sessions")
+	add(s.messages == nil, "Messages")
+	add(s.reg == nil, "Registry")
+	add(s.tools == nil, "Tools")
+	add(s.caps == nil, "Capabilities")
+	add(s.checkpoints == nil, "Checkpoints")
+	add(s.emitter == nil || s.emitter.log == nil, "EventLog")
+	add(s.blocks == nil, "Blocks")
+	add(s.runRec == nil, "RunRecords")
+	add(s.execs == nil, "Executions")
+	add(s.approval == nil, "Approvals")
+	add(s.sctx == nil, "Session")
+	return missing
 }
 
 // CancelStream 中断指定 session 正在跑的 run（前端「停止」按钮）。
@@ -490,10 +552,6 @@ func (s *ChatService) executeAgent(ctx context.Context, ses *domain.ChatSessionD
 		ProviderID: ses.ProviderID,
 		Model:      runModel,
 	}, memoryCaptureTimeout)
-	// 三层 State：run 结束清理 temp 作用域（run 级临时态不跨轮存续）
-	if s.tempClear != nil {
-		s.tempClear(runID)
-	}
 	// 目标模式：活动目标在 run 正常收尾后自动校验，未达标携带下一步动作续跑
 	s.maybeContinueGoal(ctx, ses, runID, res)
 	return res
@@ -534,8 +592,11 @@ func (s *ChatService) failRun(ctx context.Context, runID, sessionID, assistantMs
 		"updated_at":  now,
 	})
 	s.emit(runID, sessionID, "chat:error", map[string]any{"code": 5000, "message": err.Error()})
-	s.emit(runID, sessionID, "chat:done", map[string]any{
-		"status": "failed", "reason": string(domain.StopReasonError), "message_id": assistantMsgID,
+	// 与正常收尾共用 domain.ChatDoneEvent 形状：前端只认一种终态载荷。
+	s.emit(runID, sessionID, "chat:done", domain.ChatDoneEvent{
+		Status:    "failed",
+		Reason:    string(domain.StopReasonError),
+		MessageID: assistantMsgID,
 	})
 }
 

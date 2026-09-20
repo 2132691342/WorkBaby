@@ -31,7 +31,6 @@ const routes: RouteRecordRaw[] = [
   { path: '/skills', redirect: '/settings?tab=skills' },
   { path: '/mcp', redirect: '/settings?tab=mcp' },
   { path: '/files', redirect: '/settings?tab=files' },
-  { path: '/folders', redirect: '/settings?tab=folders' },
   { path: '/tools', redirect: '/settings?tab=tools' },
   { path: '/pet', redirect: '/settings?tab=pet' },
   { path: '/docs', redirect: '/settings?tab=docs' },

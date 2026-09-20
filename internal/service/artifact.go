@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"WorkBaby/internal/core"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
 	"WorkBaby/internal/pkg"
@@ -17,20 +16,22 @@ import (
 // 工件是「引用」而非内容副本：只记路径与元信息，预览经 /files 服务走真实文件。
 // 由文件变更旁路自动登记（file_write 成功即 upsert），无需模型额外调用工具。
 type ArtifactService struct {
-	repo   *repo.ArtifactRepo
-	bus    *event.Bus
-	events *event.RunEventLog
-	root   string // 工作区根（算相对路径）
+	repo    *repo.ArtifactRepo
+	bus     *event.Bus
+	emitter *Emitter // 事件出口（与 ChatService 共享同一实例）
+	root    string   // 工作区根（算相对路径）
 }
 
 // NewArtifactService 构造；root 为工作区根。
 func NewArtifactService(r *repo.ArtifactRepo, bus *event.Bus, root string) *ArtifactService {
-	return &ArtifactService{repo: r, bus: bus, root: root}
+	// 默认出口可用：事件不因装配遗漏而静默丢失；装配方可用 WithEmitter 升级为带重放的共享实例。
+	return &ArtifactService{repo: r, bus: bus, emitter: NewEmitter(bus, nil), root: root}
 }
 
 // WithEventLog 启用 run 事件日志：工件事件与 chat 事件共享序号空间。
-func (s *ArtifactService) WithEventLog(log *event.RunEventLog) *ArtifactService {
-	s.events = log
+// WithEmitter 注入事件出口（工件登记事件经它分配 seq 并广播）。
+func (s *ArtifactService) WithEmitter(e *Emitter) *ArtifactService {
+	s.emitter = e
 	return s
 }
 
@@ -81,18 +82,9 @@ func (s *ArtifactService) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// emit 发布工件事件：注入 run_id/session_id、经事件日志分配 seq 后广播。
+// emit 发布工件事件（归属经 ctx 提取，统一走 Emitter）。
 func (s *ArtifactService) emit(ctx context.Context, name string, payload map[string]any) {
-	runID := core.RunIDFromCtx(ctx)
-	if payload == nil {
-		payload = map[string]any{}
-	}
-	payload["run_id"] = runID
-	payload["session_id"] = core.SessionIDFromCtx(ctx)
-	if s.events != nil {
-		s.events.Append(runID, name, payload)
-	}
-	s.bus.Publish(name, payload)
+	s.emitter.EmitCtx(ctx, name, payload)
 }
 
 // toArtifactRESP DO → 出参（不泄漏磁盘路径）。

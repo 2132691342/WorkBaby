@@ -118,14 +118,14 @@ defineExpose({ current })
         <button
           v-if="overridden"
           type="button"
-          class="text-[11px] text-wb-primary hover:underline"
+          class="text-xs2 text-wb-primary hover:underline"
           @click="resetOverride"
         >{{ t('chat.params.resetOverride') }}</button>
       </div>
       <div>
         <div class="mb-1 flex items-center justify-between text-xs">
           <span class="font-medium text-wb-ink">{{ t('chat.params.temperature') }}</span>
-          <span class="text-[10px] text-wb-muted">{{ fromText(effective?.temperature_from) }}：{{ effective?.temperature ?? '—' }}</span>
+          <span class="text-2xs text-wb-muted">{{ fromText(effective?.temperature_from) }}：{{ effective?.temperature ?? '—' }}</span>
         </div>
         <el-input-number
           v-model="paramTemperature"
@@ -138,19 +138,19 @@ defineExpose({ current })
           controls-position="right"
           @change="saveParams"
         />
-        <div class="mt-1 text-[10px] text-wb-muted">{{ t('chat.params.effectiveHint') }}</div>
+        <div class="mt-1 text-2xs text-wb-muted">{{ t('chat.params.effectiveHint') }}</div>
       </div>
       <div>
         <div class="mb-1 flex items-center justify-between text-xs">
           <span class="font-medium text-wb-ink">{{ t('chat.params.thinking') }}</span>
-          <span class="text-[10px] text-wb-muted">{{ fromText(effective?.thinking_from) }}：{{ t(`chat.effort.${displayEffort}`) }}</span>
+          <span class="text-2xs text-wb-muted">{{ fromText(effective?.thinking_from) }}：{{ t(`chat.effort.${displayEffort}`) }}</span>
         </div>
         <el-select v-model="paramThinkingEffort" class="!w-full" clearable :placeholder="t('chat.params.resetOverride')" @change="saveParams">
           <el-option v-for="item in effortItems" :key="item.value" :value="item.value" :label="item.label" />
         </el-select>
       </div>
       <template v-if="effective">
-        <div class="border-t border-wb-border pt-2 text-[11px] text-wb-muted">
+        <div class="border-t border-wb-border pt-2 text-xs2 text-wb-muted">
           <div class="flex items-center justify-between py-0.5">
             <span>{{ t('chat.params.contextWindow') }}</span>
             <span class="text-wb-ink">{{ effective.context_window.toLocaleString() }}（{{ fromText(effective.context_window_from) }}）</span>
@@ -164,7 +164,7 @@ defineExpose({ current })
             <span class="text-wb-ink">{{ effective.context_budget.toLocaleString() }} tokens</span>
           </div>
         </div>
-        <div v-if="thresholdHint" class="text-[10px] leading-snug text-wb-muted">{{ thresholdHint }}</div>
+        <div v-if="thresholdHint" class="text-2xs leading-snug text-wb-muted">{{ thresholdHint }}</div>
       </template>
     </div>
   </el-popover>

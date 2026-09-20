@@ -26,16 +26,17 @@ type ImageURL struct {
 	URL string `json:"url"`
 }
 
-// Message 跨边界统一消息。
+// Message 跨边界统一消息。json tag 一律 snake_case（CLAUDE.md §2.5.1）：
+// 该结构会随检查点序列化落库，tag 即持久化 ABI，改名等同数据迁移。
 type Message struct {
 	Role       RoleType      `json:"role"`
-	Content    string        `json:"content"`              // 模型可见正文
-	Parts      []ContentPart `json:"parts,omitempty"`      // 多模态片段；非空时各上游按自身协议展开
-	Thinking   string        `json:"thinking,omitempty"`   // 推理文本，不混入 Content
-	ToolCalls  []ToolCall    `json:"toolCalls,omitempty"`  // 助手消息的工具调用
-	ToolCallID string        `json:"toolCallID,omitempty"` // 仅 role==tool
-	ToolName   string        `json:"toolName,omitempty"`   // 仅 role==tool
-	Name       string        `json:"name,omitempty"`       // 可选显示名
+	Content    string        `json:"content"`                // 模型可见正文
+	Parts      []ContentPart `json:"parts,omitempty"`        // 多模态片段；非空时各上游按自身协议展开
+	Thinking   string        `json:"thinking,omitempty"`     // 推理文本，不混入 Content
+	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`   // 助手消息的工具调用
+	ToolCallID string        `json:"tool_call_id,omitempty"` // 仅 role==tool
+	ToolName   string        `json:"tool_name,omitempty"`    // 仅 role==tool
+	Name       string        `json:"name,omitempty"`         // 可选显示名
 }
 
 // ImageDataURL 是否图片 data URI（data:image/...）。
@@ -59,13 +60,13 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"` // JSON 字符串
 }
 
-// TokenUsage token 统计。
+// TokenUsage token 统计（snake_case 与业务契约一致）。
 type TokenUsage struct {
-	InputTokens      int `json:"inputTokens"`
-	OutputTokens     int `json:"outputTokens"`
-	CacheReadTokens  int `json:"cacheReadTokens,omitempty"`
-	CacheWriteTokens int `json:"cacheWriteTokens,omitempty"`
-	TotalTokens      int `json:"totalTokens"`
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 // SplitDataURL 拆分 data URI（data:image/png;base64,xxx）为 mime 与 base64 载荷；非 data URI 返回空串。

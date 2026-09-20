@@ -43,7 +43,7 @@ function isImage(mime: string | undefined): boolean {
 
       <span class="min-w-0 flex-1 truncate" :title="a.original_name || a.name">
         {{ a.original_name || a.name }}
-        <span v-if="ext(a.original_name || a.name)" class="ml-1 text-[10px] uppercase text-wb-muted">
+        <span v-if="ext(a.original_name || a.name)" class="ml-1 text-2xs uppercase text-wb-muted">
           {{ ext(a.original_name || a.name) }}
         </span>
       </span>

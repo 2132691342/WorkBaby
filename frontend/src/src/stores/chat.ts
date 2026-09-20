@@ -83,7 +83,14 @@ export const useChatStore = defineStore('chat', () => {
   const selectedModelID = ref<string | null>(null)
 
   const loadingSessions = ref(false)
+  /** 消息加载中：切会话先清空列表并显示骨架，避免闪「空会话 + 示例卡」的假空态。 */
+  const loadingMessages = ref(false)
   const streaming = ref(false)
+  /**
+   * 流式状态归属的会话。多个会话可以同时跑 run，而流式状态是单份的：
+   * 渲染与收尾都以此判断「这份状态是不是当前会话的」，避免切会话后串台。
+   */
+  const streamingSessionID = ref<string | null>(null)
   const streamingContent = ref('')
   const streamingThinking = ref('')
   /**
@@ -150,6 +157,11 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 当前进行中的流式句柄（用于停止按钮 cancel）。 */
   let activeHandle: StreamHandle | null = null
+  /**
+   * 会话级连接句柄：run 结束后连接保持打开——目标续跑要先跑一次校验 LLM 调用，
+   * 可能数十秒后才起新 run，保持连接才能无缝续看。同会话重发时替换旧连接，避免事件重复交付。
+   */
+  const streamHandles = new Map<string, StreamHandle>()
 
   async function loadSessions(): Promise<void> {
     loadingSessions.value = true
@@ -166,15 +178,20 @@ export const useChatStore = defineStore('chat', () => {
 
   async function loadMessages(id: string, opts?: { replace?: boolean }): Promise<void> {
     const seq = ++loadSeq
-    // 后端返回分页结构 { items, total, next_seq }（MessageListRESP），
-    // 这里先取 items 再与本地乐观消息合并，避免把整包对象当数组喂给 v-for
-    const resp = await apiGet<{ items: ApiMessage[]; total: number; next_seq: number }>(`/api/v1/chat/sessions/${id}/messages?limit=200`)
-    // 已有更新的拉取发起 → 本次结果过期，丢弃（防止慢响应把新快照覆盖回旧快照）
-    if (seq !== loadSeq) return
-    const loaded = toUiMessages(Array.isArray(resp?.items) ? resp.items : [])
-    // replace：流式收尾以权威快照为准——乐观占位与权威内容的前缀匹配在多轮 ReAct /
-    // <think> 场景下不可靠，merge 残留会让同一回复出现两条
-    messages.value = opts?.replace ? loaded : mergeLoadedMessages(messages.value, loaded)
+    loadingMessages.value = true
+    try {
+      // 后端返回分页结构 { items, total, next_seq }（MessageListRESP），
+      // 这里先取 items 再与本地乐观消息合并，避免把整包对象当数组喂给 v-for
+      const resp = await apiGet<{ items: ApiMessage[]; total: number; next_seq: number }>(`/api/v1/chat/sessions/${id}/messages?limit=200`)
+      // 已有更新的拉取发起 → 本次结果过期，丢弃（防止慢响应把新快照覆盖回旧快照）
+      if (seq !== loadSeq) return
+      const loaded = toUiMessages(Array.isArray(resp?.items) ? resp.items : [])
+      // replace：流式收尾以权威快照为准——乐观占位与权威内容的前缀匹配在多轮 ReAct /
+      // <think> 场景下不可靠，merge 残留会让同一回复出现两条
+      messages.value = opts?.replace ? loaded : mergeLoadedMessages(messages.value, loaded)
+    } finally {
+      if (seq === loadSeq) loadingMessages.value = false
+    }
   }
 
   /** 本地乐观消息 id（randomUUID 防同毫秒碰撞；非安全上下文降级时间戳+随机段）。 */
@@ -273,6 +290,8 @@ export const useChatStore = defineStore('chat', () => {
   async function selectSession(id: string): Promise<void> {
     currentID.value = id
     compressionNotice.value = null
+    // 先清空：否则加载期间列表仍是上一个会话的消息（切换瞬间内容错位）
+    messages.value = []
     await loadMessages(id)
     // 模型选择器跟随会话绑定的 provider：切到历史会话时，顶部徽标与参数展示要与实际运行模型一致
     const s = sessions.value.find((x) => x.id === id)
@@ -577,30 +596,26 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** 批量删除会话。 */
+  /** 批量删除会话（单次请求；后端逐条返回结果，部分失败时保留现场供用户重试）。 */
   async function deleteSessions(ids: string[]): Promise<{ ok: number; failed: string[] }> {
-    const failed: string[] = []
-    let ok = 0
-    for (const id of ids) {
-      try {
-        await apiPost(`/api/v1/chat/sessions/${id}/delete`)
-        sessions.value = sessions.value.filter((s) => s.id !== id)
-        if (currentID.value === id) {
-          currentID.value = sessions.value[0]?.id ?? null
-          messages.value = []
-        }
-        ok += 1
-      } catch {
-        failed.push(id)
-      }
+    if (ids.length === 0) return { ok: 0, failed: [] }
+    // 后端契约：body 为裸 ID 数组，返回 { ok, failed }
+    const res = await apiPost<{ ok: string[]; failed: string[] }>(
+      '/api/v1/chat/sessions/delete-batch',
+      ids
+    )
+    const removed = new Set(res?.ok ?? [])
+    if (removed.size > 0) {
+      sessions.value = sessions.value.filter((s) => !removed.has(s.id))
     }
-    if (currentID.value && !sessions.value.some((s) => s.id === currentID.value)) {
-      await loadSessions()
+    // 当前会话被删除 → 切到列表首个可见会话
+    if (currentID.value && removed.has(currentID.value)) {
       const next = sessions.value[0]
       currentID.value = next?.id ?? null
+      messages.value = []
       if (next) await loadMessages(next.id)
     }
-    return { ok, failed }
+    return { ok: removed.size, failed: res?.failed ?? [] }
   }
 
   /** 清空当前会话所有消息。 */
@@ -669,8 +684,9 @@ export const useChatStore = defineStore('chat', () => {
       sessionID = session.id
     }
 
-    // 本轮正在生成：走注入缝（steering / follow-up）——消息并入当前 run，下一轮带上，不打断执行
-    if (streaming.value) {
+    // 本轮正在生成：走注入缝（steering / follow-up）——消息并入当前 run，下一轮带上，不打断执行。
+    // 只有「本会话自己」在跑才插话：别的会话在跑时插话会打到没有活跃 run 的会话上。
+    if (streaming.value && streamingSessionID.value === sessionID) {
       pushLocalUserMessage(sessionID, text)
       try {
         await apiPost(`/api/v1/chat/sessions/${sessionID}/steer`, { content: text })
@@ -693,6 +709,7 @@ export const useChatStore = defineStore('chat', () => {
     } as unknown as ApiMessage)
 
     streaming.value = true
+    streamingSessionID.value = sessionID
     streamingContent.value = ''
     streamingThinking.value = ''
     streamingBlocks.value = []
@@ -713,18 +730,25 @@ export const useChatStore = defineStore('chat', () => {
     // 这里不清空——变更面板承载「本会话全部变更历史」，按 run 分组展示。
 
     try {
+      // 同会话重发：替换旧连接（旧 run 已结束，连接仍开着只为等续跑，此处不再需要）
+      streamHandles.get(sessionID)?.close()
       const handle = streamChat(
         { message: text, session_id: sessionID, model_id: selectedModelID.value ?? undefined, file_ids: fileIds, temperature: params.temperature, thinking_effort: params.thinkingEffort },
-        (event: ChatStreamEvent) => {
+        (event: ChatStreamEvent, meta) => {
+          // 非当前会话的事件（用户切走后仍在跑的后台 run）不写视图状态：切回时由快照补齐。
+          if (meta.session_id && meta.session_id !== currentID.value) return
           handleEvent(event)
         },
         // M2 可靠性：手动重连成功后立即重拉权威快照（弥补重放窗口覆盖不到的缺失）
         { onReconnect: () => void safeLoadMessages(sessionID) }
       )
       activeHandle = handle
+      streamHandles.set(sessionID, handle)
       await handle.promise
-      await safeLoadMessages(sessionID, { replace: true })
-      finalizeStreamingMessage(sessionID)
+      if (currentID.value === sessionID) {
+        await safeLoadMessages(sessionID, { replace: true })
+        finalizeStreamingMessage(sessionID)
+      }
     } catch (e) {
       if (!userCancelled.value) {
         error.value = e instanceof Error ? e.message : String(e)
@@ -741,14 +765,19 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       batcher.flush()
       activeHandle = null
-      streaming.value = false
-      streamingContent.value = ''
-      streamingThinking.value = ''
-      streamingBlocks.value = []
-      streamingStats.value = null
-      streamingSkill.value = null
-      streamingArtifacts.value = null
-      streamingGenUi.value = null
+      // 只有这份流式状态还属于本 run 时才清理：用户中途切走并在别处发了新消息时，
+      // 状态已归新的 run，清掉会把新会话的进行中气泡一起抹掉。
+      if (streamingSessionID.value === sessionID) {
+        streaming.value = false
+        streamingSessionID.value = null
+        streamingContent.value = ''
+        streamingThinking.value = ''
+        streamingBlocks.value = []
+        streamingStats.value = null
+        streamingSkill.value = null
+        streamingArtifacts.value = null
+        streamingGenUi.value = null
+      }
       // 注：本轮新增的 file_changes / artifacts 已由 batcher 流式累积；不重置——保留本会话全部变更历史
       await loadSessions()
       // 刷新上下文占用快照
@@ -761,6 +790,7 @@ export const useChatStore = defineStore('chat', () => {
     const sessionID = currentID.value
     if (!sessionID) throw new Error(t('chat.noSession'))
     streaming.value = true
+    streamingSessionID.value = sessionID
     streamingContent.value = ''
     streamingThinking.value = ''
     streamingBlocks.value = []
@@ -778,15 +808,22 @@ export const useChatStore = defineStore('chat', () => {
     streamingTurn.value = 0
     lastCheckpointTurn.value = null
     try {
+      streamHandles.get(sessionID)?.close()
       const handle = streamChat(
         { message: '', session_id: sessionID, resume_run_id: runID },
-        (event: ChatStreamEvent) => handleEvent(event),
+        (event: ChatStreamEvent, meta) => {
+          if (meta.session_id && meta.session_id !== currentID.value) return
+          handleEvent(event)
+        },
         { onReconnect: () => void safeLoadMessages(sessionID) }
       )
       activeHandle = handle
+      streamHandles.set(sessionID, handle)
       await handle.promise
-      await safeLoadMessages(sessionID, { replace: true })
-      finalizeStreamingMessage(sessionID)
+      if (currentID.value === sessionID) {
+        await safeLoadMessages(sessionID, { replace: true })
+        finalizeStreamingMessage(sessionID)
+      }
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
       await safeLoadMessages(sessionID, { replace: true })
@@ -795,14 +832,17 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       batcher.flush()
       activeHandle = null
-      streaming.value = false
-      streamingContent.value = ''
-      streamingThinking.value = ''
-      streamingBlocks.value = []
-      streamingStats.value = null
-      streamingSkill.value = null
-      streamingArtifacts.value = null
-      streamingGenUi.value = null
+      if (streamingSessionID.value === sessionID) {
+        streaming.value = false
+        streamingSessionID.value = null
+        streamingContent.value = ''
+        streamingThinking.value = ''
+        streamingBlocks.value = []
+        streamingStats.value = null
+        streamingSkill.value = null
+        streamingArtifacts.value = null
+        streamingGenUi.value = null
+      }
       await loadSessions()
       if (sessionID) await loadContextUsage(sessionID)
     }
@@ -837,10 +877,12 @@ export const useChatStore = defineStore('chat', () => {
   /** 停止当前流式生成。 */
   async function cancelStream(): Promise<void> {
     userCancelled.value = true
+    // 取消目标 = 正在跑 run 的会话，而非当前正在看的会话：
+    // 用户可能在 run A 期间切到会话 B，按 currentID 取消会打到没有活跃 run 的会话上。
+    const sessionID = streamingSessionID.value ?? currentID.value
     // 停止的那一刻就把还在转圈的工具落成 stopped 终态：
     // 等 run 终止事件再收尾的话，用户会看到转圈继续转很久，分不清「停了没」。
     settleRunningTools()
-    const sessionID = currentID.value
     if (sessionID) {
       try {
         await apiPost(`/api/v1/chat/sessions/${sessionID}/cancel`)
@@ -954,6 +996,23 @@ export const useChatStore = defineStore('chat', () => {
 
   const batcher = new StreamEventBatcher((updates: StreamEventUpdate[]) => {
     for (const update of updates) {
+      // 目标续跑：新 run 在既有连接上开始（chat:done 之后），清空上一轮的流式累积——
+      // 否则新一轮的增量会拼接在上一轮内容之后，前端显示成一条混合回复。
+      if (update.resetForNewRun) {
+        streaming.value = true
+        streamingSessionID.value = currentID.value
+        streamingContent.value = ''
+        streamingThinking.value = ''
+        streamingBlocks.value = []
+        streamingStats.value = null
+        streamingSkill.value = null
+        streamingArtifacts.value = null
+        streamingGenUi.value = null
+        streamingRetry.value = null
+        runStartedAt.value = Date.now()
+        lastCheckpointTurn.value = null
+        continue
+      }
       // chat:gap → 重放窗口失效，立即拉权威快照
       if (update.requestSnapshot && currentID.value) {
         void safeLoadMessages(currentID.value)
@@ -1134,7 +1193,9 @@ export const useChatStore = defineStore('chat', () => {
     selectedModelID,
     circuitStates,
     loadingSessions,
+    loadingMessages,
     streaming,
+    streamingSessionID,
     streamingContent,
     streamingThinking,
     streamingBlocks,

@@ -127,7 +127,7 @@ function isUser(m: Message): boolean {
       </button>
       <span class="text-sm font-semibold text-wb-ink">{{ t('review.title') }}</span>
     </div>
-    <p class="mb-2 text-[11px] text-wb-muted">{{ t('review.hint') }}</p>
+    <p class="mb-2 text-xs2 text-wb-muted">{{ t('review.hint') }}</p>
     <div class="mb-3 flex items-center gap-3">
       <label class="flex cursor-pointer items-center gap-1 text-wb-ink">
         <input v-model="reviewStaged" type="radio" :value="false">
@@ -181,7 +181,7 @@ function isUser(m: Message): boolean {
 
       <!-- 流式中：过程块 + 光标 -->
       <div v-if="streaming" class="w-full min-w-0">
-        <div v-if="streamingRetry" class="mb-1.5 flex items-center gap-1.5 rounded-lg bg-wb-lemon/10 px-2 py-1 text-[11px] text-wb-lemon">
+        <div v-if="streamingRetry" class="mb-1.5 flex items-center gap-1.5 rounded-lg bg-wb-lemon/10 px-2 py-1 text-xs2 text-wb-lemon">
           <Loader2 class="h-3 w-3 animate-spin" />
           {{ t('chat.retryHint', streamingRetry.attempt, Math.max(1, Math.round(streamingRetry.delay_ms / 1000))) }}
         </div>
@@ -203,10 +203,10 @@ function isUser(m: Message): boolean {
       </div>
 
       <!-- 错误（轻量红条） -->
-      <div v-if="error && !streaming" class="alert a-danger py-1.5 text-[11px]">{{ error }}</div>
+      <div v-if="error && !streaming" class="alert a-danger py-1.5 text-xs2">{{ error }}</div>
 
       <!-- 审批内联（辅助会话的工具同样走权限确认） -->
-      <div v-for="a in pendingApprovals" :key="a.id" class="rounded-lg border border-wb-warning/40 bg-wb-warning/10 p-2 text-[11px]">
+      <div v-for="a in pendingApprovals" :key="a.id" class="rounded-lg border border-wb-warning/40 bg-wb-warning/10 p-2 text-xs2">
         <p class="mb-1 font-medium text-wb-ink">{{ a.command }}</p>
         <p v-if="a.reason" class="mb-1.5 text-wb-muted">{{ a.reason }}</p>
         <div class="flex items-center gap-2">
@@ -243,7 +243,7 @@ function isUser(m: Message): boolean {
           </button>
         </div>
       </div>
-      <p class="mt-1 px-1 text-[10px] text-wb-muted">{{ t('side.inheritHint') }}</p>
+      <p class="mt-1 px-1 text-2xs text-wb-muted">{{ t('side.inheritHint') }}</p>
     </div>
   </div>
 </template>

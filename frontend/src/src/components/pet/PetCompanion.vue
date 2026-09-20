@@ -5,7 +5,7 @@
  * 形象源与桌宠、聊天头像同源（pet_configs.sprite_id）。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { apiGet } from '@/api/client'
+import { fetchPetConfigLite } from '@/stores/pet'
 import { getServerPort } from '@/api/http'
 import { t } from '@/i18n'
 
@@ -33,7 +33,8 @@ function readPref(): boolean {
 
 async function loadSprite(): Promise<void> {
   try {
-    const c = await apiGet<{ sprite_id: string | null; enabled?: boolean }>('/api/v1/pet/config')
+    // 同页共享一次请求（背景 / 陪伴体 / 头像共用缓存）
+    const c = await fetchPetConfigLite()
     spriteID.value = c.sprite_id ?? null
   } catch {
     spriteID.value = null
@@ -94,7 +95,7 @@ onBeforeUnmount(() => {
   <button
     v-if="!visiblePref"
     type="button"
-    class="mb-1 ml-auto mr-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-wb-muted transition-colors hover:bg-wb-surface-hover hover:text-wb-ink"
+    class="mb-1 ml-auto mr-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs text-wb-muted transition-colors hover:bg-wb-surface-hover hover:text-wb-ink"
     :title="t('pet.companionShow')"
     @click="toggle"
   >

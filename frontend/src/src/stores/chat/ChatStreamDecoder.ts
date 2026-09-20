@@ -104,6 +104,11 @@ export interface StreamEventUpdate {
    * 由 store 的 batcher 消费（异步动作），applyStreamUpdate 忽略。
    */
   requestSnapshot?: boolean
+  /**
+   * 目标模式自动续跑：新 run 在既有连接上开始 → store 重置流式累积，
+   * 否则新一轮的增量会拼在上一轮内容后面。由 store 的 batcher 消费。
+   */
+  resetForNewRun?: boolean
 }
 
 /** 解码单个事件为 store update；type 不识别 / data 字段缺失返回 null。 */
@@ -192,6 +197,9 @@ export function decodeStreamEvent(event: ChatStreamEvent, now: number = Date.now
           const d = data as { state?: TodoStateRESP }
           return d.state ? { setTodo: d.state } : null
         }
+        case 'run_start':
+          // 目标续跑的新 run 在既有连接上开始：标记「重置流式累积」，由 store 消费
+          return { resetForNewRun: true }
         case 'goal': {
           if (!data || typeof data !== 'object') return null
           const d = data as { goal?: SessionGoal | null }

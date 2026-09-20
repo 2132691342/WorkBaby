@@ -203,7 +203,7 @@ defineExpose({ reset, pickAt, moveActive, filtered })
       v-if="props.visible && filtered.length > 0"
       class="wb-glass absolute bottom-full left-0 z-50 mb-2 w-80 rounded-2xl border border-wb-border bg-wb-surface/95 p-2 shadow-[var(--wb-shadow-lg)] backdrop-blur"
     >
-      <p class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-wb-muted">
+      <p class="px-2 pb-1 pt-1 text-2xs font-medium uppercase tracking-wider text-wb-muted">
         {{ t('slash.title') }}
       </p>
       <div ref="listEl" class="wb-scroll max-h-72 space-y-0.5 overflow-y-auto overscroll-contain">
@@ -223,12 +223,12 @@ defineExpose({ reset, pickAt, moveActive, filtered })
           <span class="min-w-0 flex-1">
             <span class="flex items-center gap-1.5">
               <span class="truncate font-medium">/{{ cmd.id }}</span>
-              <span v-if="cmd.args" class="truncate text-[10px] text-wb-muted font-mono">{{ cmd.args }}</span>
+              <span v-if="cmd.args" class="truncate text-2xs text-wb-muted font-mono">{{ cmd.args }}</span>
               <span class="ml-auto shrink-0 rounded px-1 py-0 text-[9px]" :class="sourceBadge(cmd).cls">
                 {{ sourceBadge(cmd).text }}
               </span>
             </span>
-            <span class="block truncate text-[10px] text-wb-muted">{{ cmd.descKey ? t(cmd.descKey) : cmd.desc }}</span>
+            <span class="block truncate text-2xs text-wb-muted">{{ cmd.descKey ? t(cmd.descKey) : cmd.desc }}</span>
           </span>
         </button>
       </div>

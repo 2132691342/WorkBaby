@@ -8,6 +8,7 @@ import { Terminal, Plus, Trash2 } from '@/components/common/icons'
 import { apiGet, apiPost } from '@/api/client'
 import { useDialog } from '@/composables/useDialog'
 import { useToast } from '@/composables/useToast'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { t } from '@/i18n'
 import FormDialog from '@/components/common/FormDialog.vue'
 import Field from '@/components/common/Field.vue'
@@ -132,12 +133,12 @@ async function remove(c: UserCommand): Promise<void> {
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-else :description="t('commands.empty')" :image-size="80" class="py-6">
+        <EmptyState variant="empty-search" size="sm" v-else :title="t('commands.empty')" class="py-6">
           <el-button type="primary" size="small" @click="openCreate">
             <Plus class="h-3.5 w-3.5" />
             {{ t('commands.new') }}
           </el-button>
-        </el-empty>
+        </EmptyState>
         <p class="fs11 muted" style="margin: 8px 0 0">{{ t('commands.usageHint') }}</p>
         <p class="fs11 muted" style="margin: 4px 0 0">{{ t('commands.fileHint') }}</p>
       </section>

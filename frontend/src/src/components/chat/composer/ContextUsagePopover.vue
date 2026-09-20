@@ -74,14 +74,14 @@ function segmentColor(key: string): string {
             :transform="`rotate(-90 ${SIZE / 2} ${SIZE / 2})`"
           />
         </svg>
-        <span class="min-w-[18px] text-[10px] tabular-nums text-wb-muted">{{ pct }}</span>
+        <span class="min-w-[18px] text-2xs tabular-nums text-wb-muted">{{ pct }}</span>
       </button>
     </template>
 
     <div v-if="segments && segments.length > 0" class="space-y-3 p-1">
       <div class="flex items-baseline justify-between">
-        <span class="text-sm font-medium text-wb-ink">{{ detail }} <span class="text-[10px] text-wb-muted">tokens</span></span>
-        <span class="text-[11px]" :class="estimated ? 'text-wb-warning' : 'text-wb-muted'">
+        <span class="text-sm font-medium text-wb-ink">{{ detail }} <span class="text-2xs text-wb-muted">tokens</span></span>
+        <span class="text-xs2" :class="estimated ? 'text-wb-warning' : 'text-wb-muted'">
           {{ estimated ? t('chat.contextEstimated') : t('chat.contextMeasured') }}
         </span>
       </div>
@@ -94,12 +94,12 @@ function segmentColor(key: string): string {
       </ul>
       <div
         v-if="pct >= 70"
-        class="flex items-center justify-between rounded-md bg-wb-warning/10 px-2 py-1.5 text-[11px] text-wb-warning"
+        class="flex items-center justify-between rounded-md bg-wb-warning/10 px-2 py-1.5 text-xs2 text-wb-warning"
       >
         <span>{{ t('chat.ctxThresholdHint', 70) }}</span>
         <button
           type="button"
-          class="rounded border border-wb-warning/40 bg-wb-surface px-2 py-0.5 text-[10.5px] font-medium text-wb-warning transition-colors hover:bg-wb-warning hover:text-white disabled:opacity-50"
+          class="rounded border border-wb-warning/40 bg-wb-surface px-2 py-0.5 text-2xs font-medium text-wb-warning transition-colors hover:bg-wb-warning hover:text-white disabled:opacity-50"
           :disabled="compactDisabled"
           @click="emit('compact')"
         >
@@ -108,7 +108,7 @@ function segmentColor(key: string): string {
       </div>
     </div>
     <div v-else class="p-2 text-xs text-wb-muted">
-      <div class="mb-1 text-sm font-medium text-wb-ink">{{ detail }} <span class="text-[10px] text-wb-muted">tokens</span></div>
+      <div class="mb-1 text-sm font-medium text-wb-ink">{{ detail }} <span class="text-2xs text-wb-muted">tokens</span></div>
       <div>{{ t('chat.contextNoData') }}</div>
     </div>
   </el-popover>

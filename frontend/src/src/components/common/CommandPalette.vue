@@ -271,7 +271,7 @@ function flatIndex(cmd: CommandItem): number {
           />
           <div ref="listRef" class="max-h-[46vh] overflow-y-auto p-2">
             <template v-if="actionGroup.length > 0">
-              <p class="px-2 pb-1 pt-2 text-[11px] font-semibold text-wb-muted">{{ t('cmdk.groupActions') }}</p>
+              <p class="px-2 pb-1 pt-2 text-xs2 font-semibold text-wb-muted">{{ t('cmdk.groupActions') }}</p>
               <button
                 v-for="cmd in actionGroup"
                 :key="cmd.id"
@@ -288,7 +288,7 @@ function flatIndex(cmd: CommandItem): number {
 
             <!-- 权限模式切换 -->
             <template v-if="modeGroup.length > 0">
-              <p class="px-2 pb-1 pt-2 text-[11px] font-semibold text-wb-muted">{{ t('cmdk.groupMode') }}</p>
+              <p class="px-2 pb-1 pt-2 text-xs2 font-semibold text-wb-muted">{{ t('cmdk.groupMode') }}</p>
               <button
                 v-for="cmd in modeGroup"
                 :key="cmd.id"
@@ -305,7 +305,7 @@ function flatIndex(cmd: CommandItem): number {
 
             <!-- 工具启停 -->
             <template v-if="toolGroup.length > 0">
-              <p class="px-2 pb-1 pt-2 text-[11px] font-semibold text-wb-muted">{{ t('cmdk.groupTools') }}</p>
+              <p class="px-2 pb-1 pt-2 text-xs2 font-semibold text-wb-muted">{{ t('cmdk.groupTools') }}</p>
               <button
                 v-for="cmd in toolGroup"
                 :key="cmd.id"
@@ -317,13 +317,13 @@ function flatIndex(cmd: CommandItem): number {
               >
                 <component :is="cmd.icon" class="h-4 w-4 shrink-0 text-wb-muted" />
                 <span class="truncate">{{ cmd.title }}</span>
-                <span v-if="cmd.hint" class="ml-auto shrink-0 font-mono text-[10px] text-wb-muted/70">{{ cmd.hint }}</span>
+                <span v-if="cmd.hint" class="ml-auto shrink-0 font-mono text-2xs text-wb-muted/70">{{ cmd.hint }}</span>
               </button>
             </template>
 
             <!-- 会话切换（动态列表：当前会话以 ✓ 前缀标记） -->
             <template v-if="sessionGroup.length > 0">
-              <p class="px-2 pb-1 pt-2 text-[11px] font-semibold text-wb-muted">{{ t('cmdk.groupSessions') }}</p>
+              <p class="px-2 pb-1 pt-2 text-xs2 font-semibold text-wb-muted">{{ t('cmdk.groupSessions') }}</p>
               <button
                 v-for="cmd in sessionGroup"
                 :key="cmd.id"
@@ -335,12 +335,12 @@ function flatIndex(cmd: CommandItem): number {
               >
                 <component :is="cmd.icon" class="h-4 w-4 shrink-0 text-wb-primary" />
                 <span class="truncate">{{ cmd.title }}</span>
-                <span v-if="cmd.hint" class="ml-auto shrink-0 font-mono text-[10px] text-wb-muted/70">{{ cmd.hint }}</span>
+                <span v-if="cmd.hint" class="ml-auto shrink-0 font-mono text-2xs text-wb-muted/70">{{ cmd.hint }}</span>
               </button>
             </template>
 
             <template v-if="navGroup.length > 0">
-              <p class="px-2 pb-1 pt-2 text-[11px] font-semibold text-wb-muted">{{ t('cmdk.groupNav') }}</p>
+              <p class="px-2 pb-1 pt-2 text-xs2 font-semibold text-wb-muted">{{ t('cmdk.groupNav') }}</p>
               <button
                 v-for="cmd in navGroup"
                 :key="cmd.id"
@@ -352,14 +352,14 @@ function flatIndex(cmd: CommandItem): number {
               >
                 <component :is="cmd.icon" class="h-4 w-4 shrink-0 text-wb-muted" />
                 <span class="truncate">{{ cmd.title }}</span>
-                <span v-if="cmd.hint" class="ml-auto shrink-0 font-mono text-[10px] text-wb-muted/70">{{ cmd.hint }}</span>
+                <span v-if="cmd.hint" class="ml-auto shrink-0 font-mono text-2xs text-wb-muted/70">{{ cmd.hint }}</span>
               </button>
             </template>
             <p v-if="filtered.length === 0" class="px-3 py-8 text-center text-sm text-wb-muted">
               {{ t('cmdk.empty') }}
             </p>
           </div>
-          <div class="border-t border-wb-border px-4 py-2 text-[11px] text-wb-muted/80">
+          <div class="border-t border-wb-border px-4 py-2 text-xs2 text-wb-muted/80">
             {{ t('cmdk.hint') }}
           </div>
         </div>

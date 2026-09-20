@@ -9,13 +9,27 @@ import { onUnmounted } from 'vue'
 
 export interface StreamHandle {
   promise: Promise<void>
+  /** 取消订阅并停止 run（用户「停止」按钮）。 */
   cancel: () => void
+  /** 只关闭连接、不取消 run（同会话重发时替换旧连接；run 仍在后端继续）。 */
+  close: () => void
 }
 
 /** streamChat 可选项。 */
 export interface StreamChatOpts {
   /** 手动重连成功后调用（store 据此重拉会话快照，弥补重放覆盖不到的窗口）。 */
   onReconnect?: () => void
+}
+
+/**
+ * 事件元信息：该帧所属的会话与 run。
+ *
+ * <p>多个会话可以同时跑 run（后端跨会话并行），而前端视图只承载当前会话；
+ * store 用 session_id 过滤掉非当前会话的事件，避免后台 run 的增量写进正在看的会话。
+ */
+export interface StreamEventMeta {
+  session_id: string
+  run_id: string
 }
 
 /**
@@ -59,6 +73,9 @@ function normalizeStopReason(raw: string | null | undefined): string {
 export function mapSSEEvent(name: string, data: unknown): ChatStreamEvent | null {
   const p = (data ?? {}) as Record<string, unknown>
   switch (name) {
+    case 'chat:stream.start':
+      // run 开始（目标续跑的新 run 也走这里）：store 收到即重置流式累积
+      return { type: 'run_start', data: { model: p.model ?? '', resumed: p.resumed === true } }
     case 'chat:stream':
       return { type: 'content', data: p.delta ?? '' }
     case 'chat:thinking':
@@ -168,6 +185,9 @@ export function mapSSEEvent(name: string, data: unknown): ChatStreamEvent | null
     // P2：模型产出/任务生命周期事件，旁路消费
     case 'chat:todo':
       return { type: 'todo', data: { state: p.state } }
+    case 'chat:goal':
+      // 目标状态推送（set/pause/resume 与自动续跑校验后共用）；无 run 归属，按会话订阅送达
+      return { type: 'goal', data: { goal: p.goal ?? null } }
     case 'chat:file-change':
       return { type: 'file_change', data: { change: p.change } }
     case 'chat:warn':
@@ -210,12 +230,13 @@ export function mapSSEEvent(name: string, data: unknown): ChatStreamEvent | null
 /**
  * SSE 事件名白名单：只有「前端需要渲染」的事件才登记。
  *
- * <p>后端还会发一些前端无需感知的事件（`chat:stream.start` 已由建流响应覆盖、
- * `chat:tool-start` 由 `chat:tool` 一并落地为 running 状态、`chat:steer` 由本地 toast 回执、
- * harness 的 `agent.*` 属内核内部事件不跨层），这些**有意不登记**——
+ * <p>后端还会发一些前端无需感知的事件（`chat:tool-start` 由 `chat:tool` 一并落地为 running 状态、
+ * `chat:steer` 由本地 toast 回执、harness 的 `agent.*` 属内核内部事件不跨层），这些**有意不登记**——
  * 白名单是「关心的子集」，不等于「后端事件全集」，不要因为对不上就误判为漏收。
  */
 const EVENT_NAMES = [
+  // run 建流：首轮由建流响应覆盖；目标续跑的**新 run** 靠它无缝接续（于 chat:done 之后到达）
+  'chat:stream.start',
   'chat:stream',
   'chat:thinking',
   'chat:stats',
@@ -233,6 +254,7 @@ const EVENT_NAMES = [
   'ping',
   // P2 扩展事件
   'chat:todo',
+  'chat:goal',
   'chat:file-change',
   'chat:warn',
   'chat:artifact',
@@ -270,9 +292,10 @@ const MAX_RUN_MS = 15 * 60_000
 
 export function streamChat(
   req: ChatStreamReq,
-  onEvent: (event: ChatStreamEvent) => void,
+  onEvent: (event: ChatStreamEvent, meta: StreamEventMeta) => void,
   opts: StreamChatOpts = {}
 ): StreamHandle {
+  const sid = req.session_id ?? ''
   let es: EventSource | null = null
   let finished = false
   let cancelled = false
@@ -304,8 +327,9 @@ export function streamChat(
         const res = await apiPost<{ run_id: string }>('/api/v1/chat/stream', {
           session_id: req.session_id,
           content: req.message,
-          // model_id 是前端解析过的 model 名；后端 SendStream / CreateSession 用作兜底回查 provider
-          model: req.model_id ?? undefined,
+          // 附件必须随消息送达：缺了它，图片/文件对模型不可见，而 UI 上仍显示已挂附件。
+          // 模型切换不走这里——建会话与 /chat/sessions/:id/model 各自负责。
+          file_ids: req.file_ids?.length ? req.file_ids : undefined,
           temperature: req.temperature ?? undefined,
           thinking_effort: req.thinking_effort ?? undefined
         })
@@ -313,16 +337,20 @@ export function streamChat(
       }
     } catch (e) {
       finished = true
-      onEvent({ type: 'error', data: { message: e instanceof Error ? e.message : String(e) } })
+      onEvent(
+        { type: 'error', data: { message: e instanceof Error ? e.message : String(e) } },
+        { session_id: sid, run_id: '' }
+      )
       return
     }
     if (cancelled) return
+    const meta: StreamEventMeta = { session_id: sid, run_id: runID }
 
     // 2) SSE 连接 + 手动重连
     const base = getApiBase()
     if (!base) {
       finished = true
-      onEvent({ type: 'error', data: { message: '[4000] server not initialized' } })
+      onEvent({ type: 'error', data: { message: '[4000] server not initialized' } }, meta)
       return
     }
 
@@ -355,8 +383,11 @@ export function streamChat(
     }
 
     const openStream = (): void => {
+      // 订阅键是会话：run 只用于重放定位。目标模式的自动续跑会起新 run，
+      // 按 run 过滤会让前端在 chat:done 之后完全错过续跑的事件。
       const url =
-        `${base}/events?scope=chat&runId=${encodeURIComponent(runID)}` +
+        `${base}/events?scope=chat&session_id=${encodeURIComponent(req.session_id ?? '')}` +
+        `&run_id=${encodeURIComponent(runID)}` +
         (lastEventId ? `&last_event_id=${encodeURIComponent(lastEventId)}` : '')
       es = new EventSource(url)
 
@@ -372,6 +403,13 @@ export function streamChat(
 
       const handle = (name: string) => (e: MessageEvent<string>) => {
         if (cancelled) return
+        // chat:done 之后连接保持打开：目标模式的自动续跑（校验是一次 LLM 调用，
+        // 可能数十秒后才起新 run）在同一条连接上继续送达；期间的 chat:goal 也要收得到。
+        // 任何后续事件都意味着「还有活动」——撤销终态并续命看门狗。
+        const wasFinished = finished
+        if (wasFinished && name !== 'chat:done') {
+          finished = false
+        }
         resetWatchdogs(name)
         if (e.lastEventId) lastEventId = e.lastEventId
         let data: unknown
@@ -381,14 +419,13 @@ export function streamChat(
           data = {}
         }
         const ev = mapSSEEvent(name, data)
-        if (ev) onEvent(ev)
-        // 只有 chat:done 结束流：chat:error 可能是非致命错误（如检查点保存失败），
+        if (ev) onEvent(ev, meta)
+        // 只有 chat:done 结束当前 run：chat:error 可能是非致命错误（如检查点保存失败），
         // run 会继续并最终补发 chat:done——此时断流会丢掉后续全部增量与最终结果。
-        // 终态缺失的风险由 MAX_RUN_MS 总超时兜底。
+        // 注意此处**不关闭连接**（见上）；终态缺失的风险由 MAX_RUN_MS 总超时兜底。
         if (name === 'chat:done') {
           finished = true
           clearWatchdogs()
-          es?.close()
         }
       }
 
@@ -420,10 +457,11 @@ export function streamChat(
     }
     clearWatchdogs()
     if (reconnectTimer !== null) clearTimeout(reconnectTimer)
-    // es 经 openStream() 闭包赋值；TS 跨函数不追踪外部 let，静态推断仍为 null → 显式断言恢复类型
-    if (es !== null) (es as EventSource).close()
+    // 此处**不关闭** es：chat:done 之后连接保持打开，用于接收目标续跑的新 run。
+    // 连接由 close()（同会话重发时替换旧连接）或 cancel()（停止/组件卸载）关闭。
     if (timedOut) {
-      onEvent({ type: 'error', data: { message: '响应超时，已按当前进度收尾' } })
+      onEvent({ type: 'error', data: { message: '响应超时，已按当前进度收尾' } }, meta)
+      if (es !== null) (es as EventSource).close()
     }
   })()
 
@@ -435,10 +473,18 @@ export function streamChat(
     es?.close()
   }
 
+  /** 只关连接不取消 run（同会话重发时替换旧连接用）。 */
+  const close = (): void => {
+    finished = true
+    clearWatchdogs()
+    if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+    es?.close()
+  }
+
   // 让调用方在 onUnmounted 时机自动调取消。
   try { onUnmounted(cancel) } catch { /* 非组件调用上下文忽略 */ }
 
-  return { promise, cancel }
+  return { promise, cancel, close }
 }
 
 // 保留：让调用方在挂载后主动拉取权威消息（store 已用 loadMessages）。

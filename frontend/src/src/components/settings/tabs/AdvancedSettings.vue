@@ -127,7 +127,7 @@ onMounted(async () => {
       <div>
         <div class="text-sm font-medium text-wb-ink">{{ t('settings.memoryEnabled') }}</div>
         <div class="mt-0.5 max-w-lg text-xs text-wb-muted">{{ t('settings.memoryEnabledHint') }}</div>
-        <div class="mt-1 text-[11px] text-wb-muted">{{ t('settings.memoryPathHint') }}</div>
+        <div class="mt-1 text-xs2 text-wb-muted">{{ t('settings.memoryPathHint') }}</div>
       </div>
       <el-switch :model-value="memoryEnabled" @change="(v: boolean) => onMemoryEnabledChange(v)" />
     </div>
@@ -143,7 +143,7 @@ onMounted(async () => {
         <span class="text-xs text-wb-muted">
           {{ t('settings.execWhitelistCount', execWhitelist.length) }}
         </span>
-        <span v-if="execWhitelistDirty" class="text-[10px] font-medium text-wb-warning">
+        <span v-if="execWhitelistDirty" class="text-2xs font-medium text-wb-warning">
           ● {{ t('settings.execWhitelistDirty') }}
         </span>
       </div>
@@ -202,7 +202,7 @@ onMounted(async () => {
         >
           <div class="min-w-0">
             <div class="truncate font-mono text-xs text-wb-ink">{{ g.command }}</div>
-            <div class="mt-0.5 text-[11px] text-wb-muted">{{ fmtTime(g.created_at) }}</div>
+            <div class="mt-0.5 text-xs2 text-wb-muted">{{ fmtTime(g.created_at) }}</div>
           </div>
           <el-button size="small" type="danger" plain @click="revokeGrant(g.id)">
             {{ t('settings.grantRevoke') }}

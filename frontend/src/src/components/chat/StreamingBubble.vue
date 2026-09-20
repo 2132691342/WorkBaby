@@ -70,7 +70,7 @@ const hasAnyContent = computed(() => {
     <!-- 建流瞬时错误自动重试提示（限流/5xx；正文恢复自动消失） -->
     <div
       v-if="streamingRetry"
-      class="mb-2 flex items-center gap-2 rounded-lg bg-wb-lemon/10 px-2 py-1 text-[11px] text-wb-lemon"
+      class="mb-2 flex items-center gap-2 rounded-lg bg-wb-lemon/10 px-2 py-1 text-xs2 text-wb-lemon"
     >
       <Loader2 class="h-3 w-3 animate-spin" />
       {{ t('chat.retryHint', streamingRetry.attempt, Math.max(1, Math.round(streamingRetry.delay_ms / 1000))) }}
@@ -80,7 +80,7 @@ const hasAnyContent = computed(() => {
          单轮（turn<=1）不显示，避免给简单问答加噪声。检查点位点仅在多轮时一并展示。 -->
     <div
       v-if="!focusMode && streamingTurn > 1"
-      class="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] text-wb-muted"
+      class="mb-1.5 flex items-center gap-1.5 px-1 text-xs2 text-wb-muted"
     >
       <span class="font-medium text-wb-ink/70">{{ t('chat.turnLabel', streamingTurn) }}</span>
       <span v-if="lastCheckpointTurn" class="text-wb-muted/70">

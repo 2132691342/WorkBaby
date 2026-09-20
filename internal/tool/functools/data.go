@@ -27,7 +27,7 @@ func dataCleanTool() tool.Tool {
 		func(_ context.Context, raw json.RawMessage) (any, error) {
 			var req struct {
 				JSON      string `json:"json"`
-				DropEmpty bool   `json:"dropEmpty"`
+				DropEmpty bool   `json:"drop_empty"`
 			}
 			if err := json.Unmarshal(raw, &req); err != nil {
 				return nil, pkg.Wrap(4004, "data_clean args parse failed", err)
@@ -90,7 +90,7 @@ func dataAggregateTool() tool.Tool {
 		func(_ context.Context, raw json.RawMessage) (any, error) {
 			var req struct {
 				JSON    string `json:"json"`
-				GroupBy string `json:"groupBy"`
+				GroupBy string `json:"group_by"`
 				Field   string `json:"field"`
 				Op      string `json:"op"`
 			}

@@ -206,7 +206,7 @@ body {
   border-radius: var(--wb-radius-lg, 20px);
   background:
     radial-gradient(120% 82% at 50% -18%, color-mix(in srgb, var(--wb-primary) 17%, transparent), transparent 62%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 42%),
+    var(--wb-surface-sheen),
     var(--wb-surface);
   border: 1px solid var(--wb-glass-border, var(--wb-border));
   -webkit-backdrop-filter: blur(var(--wb-glass-blur, 20px)) saturate(var(--wb-glass-saturate, 1.4));
@@ -422,7 +422,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 38px;
+  height: var(--wb-ctl-h-lg);
   padding: 0 12px;
   border-radius: 12px;
   color: var(--wb-ink);
@@ -654,7 +654,7 @@ body {
 /* 玻璃卡：页面底色与光晕透过半透明卡面（--wb-surface + backdrop-blur） */
 .card {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 36%),
+    var(--wb-surface-sheen),
     var(--wb-surface);
   -webkit-backdrop-filter: blur(var(--wb-glass-blur, 20px)) saturate(var(--wb-glass-saturate, 1.4));
   backdrop-filter: blur(var(--wb-glass-blur, 20px)) saturate(var(--wb-glass-saturate, 1.4));
@@ -802,8 +802,8 @@ body {
 }
 /* 图标按钮：圆形（顶栏工具组 / 卡片角标动作），hover 淡蓝底 + 主色图标 */
 .btn-icon {
-  width: 30px;
-  height: 30px;
+  width: var(--wb-ctl-icon);
+  height: var(--wb-ctl-icon);
   padding: 0;
   border-radius: 50%;
   color: var(--wb-muted);
@@ -1009,7 +1009,7 @@ select.input {
   gap: 2px;
 }
 .seg button {
-  height: 23px;
+  height: var(--wb-ctl-h-sm);
   padding: 0 12px;
   border-radius: 999px;
   font-size: 11.5px;
@@ -1039,7 +1039,7 @@ select.input {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 24px;
+  height: var(--wb-ctl-h-sm);
   padding: 0 10px;
   border-radius: 999px;
   border: 1px solid var(--wb-border);
@@ -1845,7 +1845,7 @@ kbd.chip {
   align-items: center;
   gap: 6px;
   align-self: flex-start;
-  height: 26px;
+  height: var(--wb-ctl-h-sm);
   padding: 0 11px;
   border: 1px solid var(--wb-border);
   border-radius: 999px;
@@ -2141,7 +2141,7 @@ kbd.chip {
   display: flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
+  height: var(--wb-ctl-h-sm);
   padding: 0 9px;
   border: 1px solid transparent;
   border-radius: 999px;

@@ -28,7 +28,7 @@ func csvReadTool() tool.Tool {
 		func(_ context.Context, raw json.RawMessage) (any, error) {
 			var req struct {
 				CSV       string `json:"csv"`
-				HasHeader bool   `json:"hasHeader"`
+				HasHeader bool   `json:"has_header"`
 			}
 			if err := json.Unmarshal(raw, &req); err != nil {
 				return nil, pkg.Wrap(4004, "csv_read args parse failed", err)

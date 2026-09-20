@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { t } from '@/i18n'
 
 /**
- * 空状态组件：内置多套 SVG 插画，按 variant 选择。
+ * 空状态组件：内置多套 SVG 插画，按 variant 选择。全应用空态的唯一实现
+ * （列表页经 PageState 复用，侧栏用 size="sm"）。
  * 用法：`<EmptyState variant="empty-chat" title="还没有对话" subtitle="开始聊天吧~" />`
  */
 
@@ -22,45 +24,49 @@ const props = withDefaults(
     title?: string
     subtitle?: string
     animated?: boolean
+    /** 尺寸：sm 用于侧栏/面板内的紧凑空态（插画缩至 64px）。 */
+    size?: 'sm' | 'md'
   }>(),
   {
     variant: 'empty-chat',
     title: undefined,
     subtitle: undefined,
-    animated: true
+    animated: true,
+    size: 'md'
   }
 )
 
-const defaultTitles: Record<EmptyStateVariant, string> = {
-  'empty-chat': '还没有对话哦~',
-  'empty-files': '这里空空的',
-  'empty-search': '没有找到结果',
-  'empty-knowledge': '知识库还是空的',
-  'empty-workflows': '还没有工作流',
-  'error-404': '页面走丢了...',
-  'error-general': '出错了...',
-  'loading': '加载中...'
-}
+/** 默认文案走 i18n（EN 环境不应出现中文兜底）。 */
+const defaultTitles = computed<Record<EmptyStateVariant, string>>(() => ({
+  'empty-chat': t('empty.chat.title'),
+  'empty-files': t('empty.files.title'),
+  'empty-search': t('empty.search.title'),
+  'empty-knowledge': t('empty.knowledge.title'),
+  'empty-workflows': t('empty.workflows.title'),
+  'error-404': t('empty.notFound.title'),
+  'error-general': t('empty.error.title'),
+  loading: t('empty.loading.title')
+}))
 
-const defaultSubtitles: Record<EmptyStateVariant, string> = {
-  'empty-chat': '点击下方输入框，开始和 WorkBaby 聊天吧！',
-  'empty-files': '上传一些文件开始使用吧~',
-  'empty-search': '换个关键词试试？',
-  'empty-knowledge': '添加一些文档来丰富知识库',
-  'empty-workflows': '创建你的第一个自动化工作流',
-  'error-404': '你访问的页面不存在或已被移除',
-  'error-general': '请稍后再试或联系管理员',
-  'loading': '请稍等片刻~'
-}
+const defaultSubtitles = computed<Record<EmptyStateVariant, string>>(() => ({
+  'empty-chat': t('empty.chat.subtitle'),
+  'empty-files': t('empty.files.subtitle'),
+  'empty-search': t('empty.search.subtitle'),
+  'empty-knowledge': t('empty.knowledge.subtitle'),
+  'empty-workflows': t('empty.workflows.subtitle'),
+  'error-404': t('empty.notFound.subtitle'),
+  'error-general': t('empty.error.subtitle'),
+  loading: t('empty.loading.subtitle')
+}))
 
-const displayTitle = computed(() => props.title ?? defaultTitles[props.variant])
-const displaySubtitle = computed(() => props.subtitle ?? defaultSubtitles[props.variant])
+const displayTitle = computed(() => props.title ?? defaultTitles.value[props.variant])
+const displaySubtitle = computed(() => props.subtitle ?? defaultSubtitles.value[props.variant])
 </script>
 
 <template>
   <div class="flex flex-col items-center justify-center py-12 text-center">
     <!-- 空状态 SVG 插画 -->
-    <div :class="animated ? 'wb-float' : ''">
+    <div :class="[animated ? 'wb-float' : '', size === 'sm' ? 'wb-empty-sm' : '']">
       <!-- 空聊天 -->
       <svg
         v-if="variant === 'empty-chat'"
@@ -286,6 +292,12 @@ const displaySubtitle = computed(() => props.subtitle ?? defaultSubtitles[props.
 </template>
 
 <style scoped>
+/* 紧凑尺寸：插画缩到 64px（CSS 覆盖 SVG 的 width/height 属性） */
+.wb-empty-sm svg {
+  width: 64px;
+  height: 64px;
+}
+
 .wb-spin {
   animation: spin 2s linear infinite;
 }

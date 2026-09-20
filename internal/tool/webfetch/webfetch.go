@@ -63,7 +63,7 @@ func (t *WebFetchTool) Schema() tool.ToolSchema {
 
 type fetchReq struct {
 	URL      string `json:"url"`
-	MaxBytes int    `json:"maxBytes"`
+	MaxBytes int    `json:"max_bytes"`
 }
 
 // Execute 抓取并提取正文。

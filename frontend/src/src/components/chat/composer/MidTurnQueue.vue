@@ -35,7 +35,7 @@ function canMove(idx: number, dir: -1 | 1): boolean {
 
 <template>
   <div v-if="queue.length > 0" class="flex flex-col gap-1.5">
-    <div class="flex items-center justify-between px-1 text-[10px] text-wb-muted">
+    <div class="flex items-center justify-between px-1 text-2xs text-wb-muted">
       <span class="inline-flex items-center gap-1">
         <el-icon :size="11"><Layers /></el-icon>
         {{ t('queue.label', queue.length) }}

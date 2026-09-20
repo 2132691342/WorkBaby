@@ -64,7 +64,7 @@ func TestSSEServe(t *testing.T) {
 	ts, hub := newSSETestServer(event.NewRunEventLog(0, 0))
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v1/events?scope=chat&runId=r1")
+	resp, err := http.Get(ts.URL + "/api/v1/events?scope=chat&run_id=r1")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
@@ -91,7 +91,7 @@ func TestSSEReplayFromLastEventID(t *testing.T) {
 		log.Append("r1", "chat:stream", map[string]any{"delta": fmt.Sprintf("d%d", i)})
 	}
 
-	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/events?scope=chat&runId=r1", nil)
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/events?scope=chat&run_id=r1", nil)
 	require.NoError(t, err)
 	req.Header.Set("Last-Event-ID", "1")
 	resp, err := http.DefaultClient.Do(req)
@@ -114,7 +114,7 @@ func TestSSEReplayGap(t *testing.T) {
 		log.Append("r1", "chat:stream", map[string]any{"delta": fmt.Sprintf("d%d", i)})
 	}
 
-	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/events?scope=chat&runId=r1", nil)
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/events?scope=chat&run_id=r1", nil)
 	require.NoError(t, err)
 	req.Header.Set("Last-Event-ID", "1")
 	resp, err := http.DefaultClient.Do(req)
@@ -125,12 +125,34 @@ func TestSSEReplayGap(t *testing.T) {
 	assert.Contains(t, got, "event: chat:gap")
 }
 
+// TestSSESessionChannel 会话级订阅语义：订阅键是 session_id，run_id 只用于重放定位。
+// 无 run 归属的事件（目标状态、用户主动触发的回滚）必须送达；其他会话的事件不得串台。
+func TestSSESessionChannel(t *testing.T) {
+	ts, hub := newSSETestServer(event.NewRunEventLog(0, 0))
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/events?scope=chat&session_id=s1&run_id=r1")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	readFrames(t, resp.Body, 1) // sse-ready
+
+	hub.onEvent("chat:goal", map[string]any{"session_id": "s1", "goal": nil})              // 同会话、无 run → 送达
+	hub.onEvent("chat:stream", map[string]any{"session_id": "s2", "run_id": "r2", "delta": "x"}) // 会话不匹配 → 丢
+	hub.onEvent("chat:tool", map[string]any{"session_id": "s1", "run_id": "r1", "name": "file_read"})
+
+	// 只投递 2 帧：goal 与 tool；若会话过滤失效，第二帧会是 s2 的增量
+	got := readFrames(t, resp.Body, 2)
+	assert.Contains(t, got, "event: chat:goal")
+	assert.Contains(t, got, "event: chat:tool")
+	assert.NotContains(t, got, "r2")
+}
+
 // TestSSESlowClientClosed 慢客户端不静默丢帧，而是关闭连接触发重连重放。
 func TestSSESlowClientClosed(t *testing.T) {
 	ts, hub := newSSETestServer(event.NewRunEventLog(0, 0))
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v1/events?scope=chat&runId=r1")
+	resp, err := http.Get(ts.URL + "/api/v1/events?scope=chat&run_id=r1")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

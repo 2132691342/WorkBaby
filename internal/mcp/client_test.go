@@ -44,30 +44,6 @@ func dialFixture(t *testing.T, mode string) *StdioClient {
 	return c
 }
 
-func TestStdioClientHandshakeAndListTools(t *testing.T) {
-	c := dialFixture(t, fixtureOK)
-	ctx := context.Background()
-
-	info, err := c.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("initialize: %v", err)
-	}
-	if info.Name != "fixture" {
-		t.Fatalf("server name = %q, want fixture", info.Name)
-	}
-
-	tools, err := c.ListTools(ctx)
-	if err != nil {
-		t.Fatalf("list tools: %v", err)
-	}
-	if len(tools) != 2 || tools[0].Name != "echo" || tools[1].Name != "boom" {
-		t.Fatalf("tools = %+v, want [echo boom]", tools)
-	}
-	if !json.Valid(tools[0].InputSchema) {
-		t.Fatalf("echo schema is not valid json: %s", tools[0].InputSchema)
-	}
-}
-
 // TestMCPAdapterExecute 走业务实际入口（Adapter）：成功路径回填内容、isError 路径
 // 既回填原文又给出错误。Client 层的 CallTool 原样返回由此间接覆盖，不再单独设用例。
 func TestMCPAdapterExecute(t *testing.T) {

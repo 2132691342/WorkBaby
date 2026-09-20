@@ -91,7 +91,7 @@ func (t *ReadTool) Schema() tool.ToolSchema {
 
 type readReq struct {
 	Path     string `json:"path"`
-	MaxLines int    `json:"maxLines"`
+	MaxLines int    `json:"max_lines"`
 }
 
 // Meta 声明：纯读、文件组、信息类动作。

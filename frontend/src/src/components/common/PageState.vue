@@ -2,8 +2,13 @@
 /**
  * 列表页三态收敛：loading（骨架屏）/ error（文案 + 重试）/ empty（占位）。
  * 优先级 loading > error > empty，避免状态切换闪烁。
+ *
+ * <p>骨架与空态复用自研组件（Skeleton / EmptyState）：Element Plus 的 el-empty / el-skeleton
+ * 会把整套 EP 依赖拖进懒加载 chunk（实测多出 ~1.1MB），且样式与设计令牌不同源。
  */
 import { CircleX } from '@/components/common/icons'
+import Skeleton from '@/components/common/Skeleton.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { t } from '@/i18n'
 
 defineProps<{
@@ -24,14 +29,14 @@ defineEmits<{ retry: [] }>()
 <template>
   <!-- 骨架屏（loading 优先） -->
   <div v-if="loading" class="py-8">
-    <el-skeleton :rows="4" animated />
+    <Skeleton variant="text" :lines="4" />
   </div>
 
   <!-- 空态 -->
-  <el-empty
+  <EmptyState
     v-else-if="empty && !error"
-    :image-size="72"
-    :description="emptyText ?? t('ui.state.empty')"
+    variant="empty-search"
+    :title="emptyText ?? t('ui.state.empty')"
   />
 
   <!-- 错误态 -->

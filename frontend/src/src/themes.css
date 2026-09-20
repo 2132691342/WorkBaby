@@ -64,6 +64,9 @@
   --wb-glass-border: rgba(255, 255, 255, 0.72);
   --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85);
   --wb-glass-opacity: 0.74;
+  /* 卡片/面板顶部高光：玻璃「受光面」的唯一来源。组件不得再写死白色渐变——
+   * dark 主题下白色高光会变成一层灰白雾，是暗色漏白的主要来源。 */
+  --wb-surface-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0) 42%);
 
   /* 品牌渐变（标题 / 强调数字 / 主按钮） */
   --wb-grad-brand: linear-gradient(100deg, #2b6ef6 0%, #3f8dff 42%, #7c5cf8 100%);
@@ -141,6 +144,8 @@
   --wb-glass-border: rgba(167, 139, 250, 0.17);
   --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.07);
   --wb-glass-opacity: 0.72;
+  /* 暗色高光降到近乎不可见：只保留一条极淡的受光边，避免整块卡片顶部泛白 */
+  --wb-surface-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 42%);
 
   --wb-grad-brand: linear-gradient(100deg, #a78bfa 0%, #8b5cf6 46%, #6366f1 100%);
   --wb-grad-btn: linear-gradient(180deg, #a78bfa 0%, #8b5cf6 54%, #6d3ff0 100%);

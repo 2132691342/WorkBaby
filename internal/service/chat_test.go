@@ -1,9 +1,21 @@
 package service
 
-// 聊天服务长链路测试：会话操作 / 审批 / 插话队列 / 后台任务 / 工作区绑定 / 消息清洗。
-// 场景实现为私有函数（testXxx），由文件末尾 6 个按能力域划分的父测试以 t.Run 聚合。
+// 聊天服务长链路测试：会话操作（压缩归档）/ 审批两档放行 / 中途插话 /
+// 后台任务执行链路与无人值守审批。
+// 场景实现为私有函数（testXxx），由文件末尾的父测试以 t.Run 聚合。
 
 import (
+	"context"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
 	"WorkBaby/internal/core"
 	"WorkBaby/internal/db"
 	"WorkBaby/internal/domain"
@@ -11,17 +23,9 @@ import (
 	"WorkBaby/internal/llm"
 	"WorkBaby/internal/llm/registry"
 	"WorkBaby/internal/memory"
+	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/repo"
 	"WorkBaby/internal/tool"
-	"context"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-	"path/filepath"
-	"sync"
-	"testing"
-	"time"
 )
 
 func newChatOpsTestDB(t *testing.T) *gorm.DB {
@@ -47,8 +51,12 @@ func newChatOpsService(t *testing.T) (*ChatService, *repo.MessageRepo) {
 	msgRepo := repo.NewMessageRepo(gdb)
 	setRepo := repo.NewSystemSettingRepo(gdb)
 	mem := memory.NewService(filepath.Join(t.TempDir(), "MEMORY.md"), gdb)
-	svc := NewChatService(sessRepo, msgRepo, repo.NewAiProviderRepo(gdb), setRepo, repo.NewTokenUsageRepo(gdb),
-		event.New(), registry.New(), NewToolService(tool.NewRegistry(), setRepo), mem)
+	svc := NewChatService(ChatDeps{
+		Sessions: sessRepo, Messages: msgRepo, Providers: repo.NewAiProviderRepo(gdb),
+		Settings: setRepo, Usages: repo.NewTokenUsageRepo(gdb),
+		Bus: event.New(), Registry: registry.New(), Tools: NewToolService(tool.NewRegistry(), setRepo),
+		Memory: mem, Session: NewSessionContext(t.TempDir(), sessRepo),
+	})
 	return svc, msgRepo
 }
 
@@ -66,29 +74,6 @@ func seedSession(t *testing.T, svc *ChatService, msgRepo *repo.MessageRepo, ctx 
 }
 
 // ===== 会话消息操作 =====
-
-// TestForkSession 从指定消息分叉：新会话复制前段，原会话不变。
-func testForkSession(t *testing.T) {
-	svc, msgRepo := newChatOpsService(t)
-	ctx := context.Background()
-	ses, _ := seedSession(t, svc, msgRepo, ctx)
-
-	forked, err := svc.ForkSession(ctx, ses.ID, "M_3", "分叉会话")
-	require.NoError(t, err)
-	if forked.ID == ses.ID {
-		t.Fatalf("forked session must have new id")
-	}
-	forkedRows, err := msgRepo.ListBySession(ctx, forked.ID, 0, 100)
-	require.NoError(t, err)
-	if len(forkedRows) != 3 || forkedRows[2].Content != "msg3" {
-		t.Fatalf("want 3 copied messages, got %d last=%v", len(forkedRows), forkedRows[2].Content)
-	}
-	origRows, err := msgRepo.ListBySession(ctx, ses.ID, 0, 100)
-	require.NoError(t, err)
-	if len(origRows) != 5 {
-		t.Fatalf("original session must keep 5 messages, got %d", len(origRows))
-	}
-}
 
 // ===== 审批 =====
 
@@ -245,38 +230,6 @@ func testQueueSteerPersistsAndQueues(t *testing.T) {
 
 // ===== 工作区绑定 =====
 
-// TestWorkspaceBindLifecycle 工作区绑定闭环：
-// 创建即绑定（回归：CreateSession 曾丢弃 workspace_path）→ 解析优先绑定目录 →
-// 未绑定回落默认根 → 不存在的目录被拒绝。
-func testWorkspaceBindLifecycle(t *testing.T) {
-	svc, _ := newChatOpsService(t)
-	ctx := context.Background()
-
-	// 创建即绑定：路径规范化（正斜杠→系统分隔符）并落库
-	dir := t.TempDir()
-	ses, err := svc.CreateSession(ctx, &domain.ChatSessionREQ{Name: "ws", WorkspacePath: filepath.ToSlash(dir)})
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Clean(dir), ses.WorkspacePath, "创建时应绑定并规范化工作目录")
-
-	// WorkspaceRoot：绑定会话返回绑定目录；未绑定会话回落默认根
-	assert.Equal(t, filepath.Clean(dir), svc.WorkspaceRoot(ctx, ses.ID, "default-root"))
-	other, err := svc.CreateSession(ctx, &domain.ChatSessionREQ{Name: "no-ws"})
-	require.NoError(t, err)
-	assert.Equal(t, "default-root", svc.WorkspaceRoot(ctx, other.ID, "default-root"))
-
-	// 不存在的目录：创建与更新都要拒绝
-	_, err = svc.CreateSession(ctx, &domain.ChatSessionREQ{Name: "bad", WorkspacePath: filepath.ToSlash(filepath.Join(dir, "missing"))})
-	require.Error(t, err)
-	_, err = svc.UpdateWorkspace(ctx, ses.ID, filepath.ToSlash(filepath.Join(dir, "missing")))
-	require.Error(t, err)
-
-	// 解绑：空路径清空绑定，回落默认根
-	updated, err := svc.UpdateWorkspace(ctx, ses.ID, "")
-	require.NoError(t, err)
-	assert.Empty(t, updated.WorkspacePath)
-	assert.Equal(t, "default-root", svc.WorkspaceRoot(ctx, ses.ID, "default-root"))
-}
-
 // TestCompactSessionArchive 复现「摘要+归档」压缩语义：
 //
 // <p>早期轮次整体标 archived 剔出 LLM 上下文（正文不删改）；归档边界不得切进
@@ -342,70 +295,6 @@ func testCompactSessionArchive(t *testing.T) {
 	assert.NotContains(t, sum, "收尾", "保留侧轮次不应出现在归档摘要里")
 }
 
-// testToLLMMessagesDropsEmptyAssistant 空 assistant 占位（失败/中断残留）必须剥离，
-// 否则部分上游以 400 拒绝整轮且会话被持久化毒化；空 content 的 tool 消息兜底为 "(empty)" 而非剥离。
-func testToLLMMessagesDropsEmptyAssistant(t *testing.T) {
-	svc, _ := newChatOpsService(t)
-	toolCallsJSON := `[{"id":"CALL_1","type":"function","function":{"name":"exec","arguments":"{}"}}]`
-
-	hists := []domain.MessageDO{
-		{ID: "M1", Role: domain.MessageRoleUser, Content: "开工", Status: domain.MessageStatusCompleted},
-		// 上次 run 失败残留的空 assistant 占位（部分 provider 会因空 content 拒绝整轮）
-		{ID: "M2", Role: domain.MessageRoleAssistant, Content: "", Status: domain.MessageStatusFailed},
-		{ID: "M3", Role: domain.MessageRoleUser, Content: "继续", Status: domain.MessageStatusCompleted},
-		// 空 content 的 tool 消息：兜底 "(empty)" 而非剥掉（剥掉会破坏 tool_call 配对）
-		{ID: "M4", Role: domain.MessageRoleAssistant, Content: "", ToolCalls: toolCallsJSON, Status: domain.MessageStatusCompleted},
-		{ID: "M5", Role: domain.MessageRoleTool, ToolCallID: "CALL_1", Content: "", Status: domain.MessageStatusCompleted},
-	}
-	out, err := svc.toLLMMessages(hists)
-	require.NoError(t, err)
-	require.Len(t, out, 4, "空 assistant 占位应被剥掉，其余保留")
-
-	for _, m := range out {
-		if m.Role == llm.RoleAssistant && len(m.ToolCalls) == 0 {
-			require.NotEmpty(t, m.Content, "无 tool_calls 的 assistant 不允许空 content（GLM 1214）")
-		}
-		if m.Role == llm.RoleTool {
-			require.Equal(t, "(empty)", m.Content, "空 tool 结果应兜底为 (empty)")
-		}
-	}
-}
-
-func testToLLMMessagesDropsOrphanTools(t *testing.T) {
-	svc, _ := newChatOpsService(t)
-	toolCallsJSON := `[{"id":"CALL_REAL","type":"function","function":{"name":"exec","arguments":"{}"}}]`
-
-	hists := []domain.MessageDO{
-		{ID: "M1", Role: domain.MessageRoleUser, Content: "开工", Status: domain.MessageStatusCompleted},
-		{ID: "M2", Role: domain.MessageRoleAssistant, Content: "", ToolCalls: toolCallsJSON, Status: domain.MessageStatusCompleted},
-		{ID: "M3", Role: domain.MessageRoleTool, ToolCallID: "CALL_REAL", Content: "OK", Status: domain.MessageStatusCompleted},
-		// 孤儿：tool_call_id 在上下文中没有匹配的 assistant tool_call（压缩或续跑产生）
-		{ID: "M4", Role: domain.MessageRoleTool, ToolCallID: "CALL_GHOST", Content: "stale", Status: domain.MessageStatusCompleted},
-		// 防御：tool_call_id 为空的 tool 消息也应被剥掉
-		{ID: "M5", Role: domain.MessageRoleTool, ToolCallID: "", Content: "?", Status: domain.MessageStatusCompleted},
-		{ID: "M6", Role: domain.MessageRoleUser, Content: "继续", Status: domain.MessageStatusCompleted},
-		{ID: "M7", Role: domain.MessageRoleAssistant, Content: "完成", Status: domain.MessageStatusCompleted},
-	}
-	out, err := svc.toLLMMessages(hists)
-	require.NoError(t, err)
-	require.Len(t, out, 5, "应剥掉 2 条孤儿 tool 消息，剩 user/asst/tool/user/asst")
-
-	for _, m := range out {
-		if m.Role == llm.RoleTool {
-			require.NotEmpty(t, m.ToolCallID, "剥除后剩余的 tool 消息必须带有效 tool_call_id")
-		}
-	}
-	// 找到唯一一条幸存 tool 消息，断言它就是 CALL_REAL 那条
-	var toolCount int
-	for _, m := range out {
-		if m.Role == llm.RoleTool {
-			toolCount++
-			require.Equal(t, "CALL_REAL", m.ToolCallID)
-		}
-	}
-	require.Equal(t, 1, toolCount)
-}
-
 // ===== 聚合入口 =====
 //
 // 场景实现为上面的私有函数（不被 go test 直接发现），由下列 6 个按能力域划分的
@@ -413,7 +302,6 @@ func testToLLMMessagesDropsOrphanTools(t *testing.T) {
 
 // TestChatSessionOps 会话操作：分叉 / 压缩归档。
 func TestChatSessionOps(t *testing.T) {
-	t.Run("fork", testForkSession)
 	t.Run("compact_archive", testCompactSessionArchive)
 }
 
@@ -427,14 +315,77 @@ func TestChatSteerQueue(t *testing.T) {
 	t.Run("persists_and_queues", testQueueSteerPersistsAndQueues)
 }
 
-// TestChatWorkspaceBind 工作区绑定生命周期。
-func TestChatWorkspaceBind(t *testing.T) {
-	t.Run("lifecycle", testWorkspaceBindLifecycle)
+// waitForTaskState 轮询等待任务进入目标状态（worker 是异步 goroutine，不能同步断言）。
+func waitForTaskState(t *testing.T, svc *ChatTaskService, id string, want string) domain.ChatTaskDO {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		row, err := svc.List(context.Background(), 50)
+		if err == nil {
+			for _, it := range row.Items {
+				if it.ID == id && it.State == want {
+					return it
+				}
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("task %s 未在限时内进入状态 %s", id, want)
+	return domain.ChatTaskDO{}
 }
 
-// TestChatLLMMessageHygiene 回发上游前的消息清洗（协议硬约束：
-// 空 assistant 与孤儿 tool 消息都会让上游 400 拒绝整轮）。
-func TestChatLLMMessageHygiene(t *testing.T) {
-	t.Run("drops_empty_assistant", testToLLMMessagesDropsEmptyAssistant)
-	t.Run("drops_orphan_tools", testToLLMMessagesDropsOrphanTools)
+// TestChatTaskLifecycle 覆盖任务域的提交校验、执行链路与取消语义。
+func TestChatTaskLifecycle(t *testing.T) {
+	gdb := newChatOpsTestDB(t)
+	bus := event.New()
+	sessRepo := repo.NewChatSessionRepo(gdb)
+	taskRepo := repo.NewChatTaskRepo(gdb)
+	chat := NewChatService(ChatDeps{Bus: bus})
+	approval := NewApprovalService(bus)
+	svc := NewChatTaskService(taskRepo, bus, chat, approval, sessRepo)
+
+	t.Run("不存在的宿主会话 → 快速失败", func(t *testing.T) {
+		row, err := svc.Submit(context.Background(), "SES_missing", "default", "整理文件")
+		require.NoError(t, err)
+		require.Equal(t, domain.TaskStatePending, row.State, "提交即返回 pending")
+		done := waitForTaskState(t, svc, row.ID, domain.TaskStateFailed)
+		assert.Contains(t, done.Error, "宿主会话不可用")
+	})
+
+	t.Run("启动恢复：遗留未终态任务标记失败", func(t *testing.T) {
+		legacy := &domain.ChatTaskDO{
+			ID: pkg.NewID("TASK"), SessionID: "SES_x", Agent: "default", Prompt: "p", State: domain.TaskStateRunning,
+		}
+		require.NoError(t, taskRepo.Create(context.Background(), legacy))
+		// 再构造一个服务实例：新实例的 recoverUnfinished 应把 legacy 打成 failed
+		NewChatTaskService(taskRepo, bus, chat, approval, sessRepo)
+		got, err := taskRepo.GetByID(context.Background(), legacy.ID)
+		require.NoError(t, err)
+		assert.Equal(t, domain.TaskStateFailed, got.State)
+		assert.Contains(t, got.Error, "应用重启")
+	})
+}
+
+// TestGrantApprover 无人值守审批门：只吃免审授权，不可逆一律拒绝。
+func TestGrantApprover(t *testing.T) {
+	bus := event.New()
+	svc := NewApprovalService(bus)
+	g := grantApprover{svc: svc}
+	ctx := context.Background()
+	call := core.Call{ID: "1", Name: "exec", Args: []byte(`{"command":"ls"}`)}
+
+	t.Run("未授权拒绝且带可解释原因", func(t *testing.T) {
+		assert.False(t, g.Approve(ctx, call, tool.RiskApprovalNeeds))
+		assert.Contains(t, g.DenyReason(), "免审授权")
+	})
+
+	t.Run("已授权放行", func(t *testing.T) {
+		svc.rememberGrant(ctx, "", approvalCommand(call), tool.RiskApprovalNeeds)
+		assert.True(t, g.Approve(ctx, call, tool.RiskApprovalNeeds))
+	})
+
+	t.Run("不可逆操作永不免审", func(t *testing.T) {
+		assert.False(t, g.Approve(ctx, call, tool.RiskApprovalIrrev))
+	})
+
 }

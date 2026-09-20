@@ -124,7 +124,7 @@ onBeforeUnmount(() => {
           <span :class="stateClass(tk.state)">{{ stateLabel(tk.state) }}</span>
           <span class="font-medium text-wb-ink">{{ tk.agent }}</span>
           <span class="sp" />
-          <span class="tabular-nums text-[10px] text-wb-muted">{{ fmtTime(tk.created_at) }}</span>
+          <span class="tabular-nums text-2xs text-wb-muted">{{ fmtTime(tk.created_at) }}</span>
           <button
             v-if="tk.state === 'pending' || tk.state === 'running'"
             type="button"
@@ -139,25 +139,25 @@ onBeforeUnmount(() => {
         <p class="line-clamp-2 whitespace-pre-wrap break-all text-wb-ink">{{ tk.prompt }}</p>
 
         <!-- 运行中：已运行时长 -->
-        <p v-if="tk.state === 'running'" class="mt-1 text-[10px] text-wb-muted">
+        <p v-if="tk.state === 'running'" class="mt-1 text-2xs text-wb-muted">
           {{ t('tasks.elapsed', elapsed(tk)) }}
         </p>
 
         <!-- 失败原因 / 结果：可展开 -->
         <template v-if="tk.state === 'failed' && tk.error">
-          <p class="mt-1 whitespace-pre-wrap break-all text-[11px] text-wb-warning">{{ tk.error }}</p>
+          <p class="mt-1 whitespace-pre-wrap break-all text-xs2 text-wb-warning">{{ tk.error }}</p>
         </template>
         <template v-else-if="tk.result">
           <button
             type="button"
-            class="mt-1 text-[11px] text-wb-primary"
+            class="mt-1 text-xs2 text-wb-primary"
             @click="toggleExpand(tk.id)"
           >
             {{ expanded[tk.id] ? t('tasks.collapse') : t('tasks.expandResult') }}
           </button>
           <p
             v-if="expanded[tk.id]"
-            class="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded bg-wb-surface-2 p-2 text-[11px] text-wb-ink"
+            class="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded bg-wb-surface-2 p-2 text-xs2 text-wb-ink"
           >{{ tk.result }}</p>
         </template>
       </div>

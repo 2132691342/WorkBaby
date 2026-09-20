@@ -205,6 +205,8 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 ### 2.6 注释规范（强制精简）
 
 - 包：1 行职责；类型：2~4 行概要；方法：签名级；字段：仅在不显然时 1 行；
+- **连续注释块 ≤ 3 行**（文件头 / 类型 / 函数一致）：超过 3 行说明它该拆成字段注释，
+  或该写进 `doc/`——设计理由属于文档，代码里只留「读代码时一眼需要知道的那一句」；
 - 文件头注释（含 Vue/TS 的 JSDoc）不超过 5 行；端点 / 事件清单一律引 doc/16，不在注释里重复；
 - 行内只解释「为什么」；
 - 禁止：过程性内容、长篇 HTML 注释、TODO 历史、实现细节；
@@ -251,12 +253,23 @@ package platform
 | 实时通信 | SSE only（`internal/server/sse.go`，256 缓冲 / 慢客户端断连 / `chat:gap` 重放窗口溢出）；不引入 WebSocket |
 | 上下文压缩 | MicroCompressor（确定性折叠，不调 LLM） |
 | 并发控制 | 有界 goroutine 池 |
-| 事件总线 | event.Bus + server/sse 桥接 |
+| 事件出口 | `service.Emitter` 唯一出口：统一注入 run/session 归属、分配 seq、写入重放缓冲；业务域不得自行 `bus.Publish` |
+| 事件总线 | event.Bus + server/sse 桥接；SSE 订阅维度是**会话**（`session_id`），`run_id` 仅用于重放定位 |
 | Token 计量 | 每次 LLM 调用一行 token_usages（core TurnUsage → service.persistUsage），仪表盘三线图唯一数据源 |
 | 配置 | Viper + system_settings KV |
 | 加密 | AES-256-GCM（Provider API Key、MCP env） |
 
 禁止引入：OpenTelemetry / Prometheus 客户端；AOP 框架；全局可变状态。
+
+### 2.10.1 前端设计令牌（强制）
+
+- 色值只在 `themes.css` 定义（`--wb-*` 语义令牌 + `[data-theme='light'|'dark']` 块）；`useTheme.ts` 的 THEMES 表是预览视图，取值必须与 CSS 同步；
+- 组件禁止写死白色/灰色：暗色模式会漏白。Tailwind 用 `wb-*` token 类（`text-wb-ink` / `bg-wb-surface-2` / `border-wb-border`），不用 `gray-*` 等默认调色板；
+- 控件高度三档：`--wb-ctl-h-sm`(24px，芯片/分段) / `--wb-ctl-h`(32px，按钮/输入) / `--wb-ctl-h-lg`(38px，侧栏导航) + `--wb-ctl-icon`(30px，圆形图标按钮)；禁止裸像素高度；
+- 玻璃表面高光用 `--wb-surface-sheen`（唯一定义处），不写 `linear-gradient(rgba(255,255,255,…))`；
+- 字号用刻度类 `text-2xs` / `text-xs2` / `text-ctl`（与 Tailwind 内置 xs/sm/base 并用），禁止 `text-[Npx]` 任意值；
+- 空态与骨架统一用 `EmptyState` / `Skeleton`（列表页经 `PageState` 三态包装）；禁止 `el-empty` / `el-skeleton`——会把整套 Element Plus 依赖拖进懒加载 chunk，且样式与设计令牌不同源；
+- 用户背景图提取的主色经 `applyExtractedPrimary()` 统一应用/移除，禁止在别处直接 `style.setProperty('--wb-primary')`。
 
 ### 2.11 数据库迁移
 
@@ -272,7 +285,7 @@ FTS5 虚拟表与触发器用 raw SQL 启动期单独创建。
 | HTTP 方法白名单 | 业务 / 工具 / 工作流节点仅允许 GET 与 POST |
 | 路径参数位置 | 变量参数放路径末尾（`/xxx/:id/delete` 风格） |
 | 删除语义 | 删除走 `POST .../delete` |
-| 流式事件 | `GET /api/v1/events?scope=chat&runId={runId}` SSE |
+| 流式事件 | `GET /api/v1/events?scope=chat&session_id={sid}&run_id={runId}` SSE（query 一律 snake_case；session 是过滤键，run 供重放定位） |
 
 **路径风格唯一标准**：`/api/v1/{resource}/:id/{action}`，示例：
 - 中断会话正在跑的 run：`POST /api/v1/chat/sessions/:id/cancel`（`:id` = sessionID）
@@ -293,9 +306,9 @@ FTS5 虚拟表与触发器用 raw SQL 启动期单独创建。
 
 **原则**：
 - 测试函数 `func TestXxx(t *testing.T)`；子测试用 t.Run；测试名不带里程碑 / 版本号标记；
-- 重点覆盖复杂流程 / 长链路 / 跨模块集成 / 安全护栏 / 协议归一化；
-- 简单 CRUD / 字段映射 / 纯字符串函数 / 工具冒烟不保留测试；
-- 文件按能力域聚合：一个模块 / 一类关注点放一个 `_test.go`，禁止把同一件事（如 runner 的 ReAct 行为）拆成多份文件；mock / fixture 同包共享；
+- **最小有效覆盖**：只测「跨模块 / 跨轮次 / 跨协议」的行为——测试失败时必须意味着某条真实链路坏了；
+- 简单 CRUD / 字段映射 / 纯字符串函数 / 工具冒烟 / 弱断言（不 panic、返回非 nil、常量断言）不保留测试；
+- 文件按能力域聚合：一个模块 / 一类关注点放一个 `_test.go`，文件名即域索引（`guard_test.go` = 护栏、`recovery_test.go` = 检查点与恢复）；同域碎片（< 100 行）合并进同域文件，禁止把同一件事拆成多份文件；mock / fixture 同包共享；
 - 依赖真实外网的用例 `testing.Short()` 跳过；
 - service 层测试不引入 gin / Wails；server 层用 httptest。
 
@@ -307,8 +320,12 @@ FTS5 虚拟表与触发器用 raw SQL 启动期单独创建。
 | 压缩不拆散 assistant+tool 对等**协议硬约束** | 简单 CRUD、字段映射、枚举转换 |
 | 审批 / 信任 / 注入防护 / 路径穿越等**安全护栏** | 幂等的 setter 覆盖、构造函数冒烟 |
 | SSE 断线重放 / 文件变更快照回滚等**集成编排** | 同一行为在不同文件里的重复断言 |
+| FTS/检索打分、压缩裁剪等**复杂算法** | 只验证「不 panic」「非 nil」的弱断言 |
 
-**规模约束**：单个测试文件 ≤ 6 个测试函数；同类行为用 table-driven 合并进一个函数（子测试 `t.Run` 区分场景），禁止为每个边界单开一个 `TestXxx`。环境依赖（系统 shell、真实网络）用 `exec.LookPath` / `testing.Short()` 守卫后跳过，不得让整个包变红。
+**规模约束**：
+- 单个测试文件 ≤ 6 个 `Test` 函数；同类行为用 table-driven 合并（子测试 `t.Run` 区分场景），禁止为每个边界单开一个 `TestXxx`；
+- 全量 `go test ./internal/...` 本地应在 10 秒内完成——慢用例要么缩短等待，要么 `testing.Short()` 跳过；
+- 环境依赖（系统 shell、真实网络）用 `exec.LookPath` / `testing.Short()` 守卫后跳过，不得让整个包变红。
 
 ```go
 func TestRunnerNormalReactLoop(t *testing.T) {
@@ -364,6 +381,9 @@ wails build -nsis -ldflags "-s -w" -trimpath       # 生产构建（NSIS 安装�
 
 ## 7. 关键架构决策
 
+- **依赖一次性注入**：`ChatService` 等编排服务用 `XxxDeps` 结构体在构造期注入全部依赖，禁止后置 `With*` setter（历史教训：11 个 setter 从未被调用，检查点/重放/落块等能力静默失效）。`ChatService.MissingDeps()` 启动自检，装配不完整即启动失败；真实循环依赖（approval ↔ chat）只保留唯一一处显式构造后绑定；
+- **会话路径解析唯一数据源**：`service.SessionContext` 提供工作区根与过程数据目录，工具沙箱 / 快照 / 文件面板 / chat 共用，禁止各装配点自行拼接；
+- **事件载荷契约**：跨端事件（run 终态等）用 domain 侧结构体（`domain.ChatDoneEvent`）保证形状唯一；流式高频增量仍用 map 直传（零转换）；
 - 单一聚合根文件：domain/{name}.go 含 DO/DTO/REQ/VO/RESP/枚举/常量/错误变量；
 - internal/pkg 为叶子工具包：各层可依赖，自身不依赖任何其他 internal 业务包；
 - 双主机通信：业务 API 走 gin HTTP（POST/GET + {code,message,data}），流式走 SSE；

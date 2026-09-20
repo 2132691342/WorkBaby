@@ -264,13 +264,9 @@ async function recoverBoot(): Promise<void> {
 }
 
 async function onNewSessionShortcut(): Promise<void> {
-  try {
-    const s = await chat.createSession(chat.selectedModelID)
-    await router.push(`/chat/${s.id}`)
-    window.dispatchEvent(new CustomEvent('wb:focus-input'))
-  } catch {
-    /* 快捷键失败静默：不打扰用户 */
-  }
+  // 与「新建任务」按钮同一语义（草稿态不落库）。
+  // 此前此处直接建会话：Ctrl+N 会在会话列表留下空会话，而点按钮不会——两个入口行为必须一致。
+  await onCreateSession()
 }
 </script>
 
@@ -333,13 +329,13 @@ async function onNewSessionShortcut(): Promise<void> {
         <Sunny v-else class="h-3 w-3" />
       </button>
       <div class="winctl" style="--wails-draggable: no-drag">
-        <span title="最小化" @click="minWindow">
+        <span :title="t('app.win.minimize')" @click="minWindow">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M5 12h14" /></svg>
         </span>
-        <span title="最大化" @click="toggleMaximise">
+        <span :title="t('app.win.maximize')" @click="toggleMaximise">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="5" width="16" height="14" rx="1" /></svg>
         </span>
-        <span class="close" title="关闭" @click="closeWindow">
+        <span class="close" :title="t('app.win.close')" @click="closeWindow">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
         </span>
       </div>

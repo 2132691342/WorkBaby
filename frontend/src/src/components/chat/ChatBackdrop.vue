@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { apiGet } from '@/api/client'
+import { fetchPetConfigLite } from '@/stores/pet'
 import type { PetConfig } from '@/types/api'
 
 /**
@@ -13,7 +13,8 @@ const cfg = ref<PetConfig | null>(null)
 
 onMounted(async () => {
   try {
-    cfg.value = await apiGet<PetConfig>('/api/v1/pet/config')
+    // 同页共享一次请求（背景 / 陪伴体 / 头像共用缓存）
+    cfg.value = await fetchPetConfigLite()
   } catch {
     // 桌宠未配置 / 服务未就绪：静默不渲染背景，不影响聊天主链路
   }

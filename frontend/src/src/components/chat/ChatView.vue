@@ -36,16 +36,22 @@ const {
   sessions,
   currentID,
   messages,
+  loadingMessages,
   models,
   selectedModelID,
   circuitStates,
-  streaming,
   streamingStats,
   error,
   contextUsage,
   fileChanges,
   goal
 } = storeToRefs(chat)
+
+/**
+ * 「当前会话正在生成」：流式状态是单份的，用 streamingSessionID 标记归属。
+ * 用户切走后，后台 run 的增量不写视图状态；切回该会话或 run 结束后由快照补齐。
+ */
+const streaming = computed(() => chat.streaming && chat.streamingSessionID === chat.currentID)
 
 const showWorkspace = ref(false)
 const showPicker = ref(false)
@@ -486,10 +492,10 @@ function onHeaderCommand(cmd: string): void {
               <span v-if="streaming" class="absolute inline-flex h-full w-full animate-ping rounded-full bg-wb-primary opacity-60" />
               <span class="relative inline-block h-1.5 w-1.5 rounded-full" :class="streaming ? 'bg-wb-primary' : 'bg-wb-mint'" />
             </span>
-            <span>{{ streaming ? t('chat.running') : 'Agent · WorkBaby' }}</span>
+            <span>{{ streaming ? t('chat.running') : t('chat.agentIdle') }}</span>
             <span class="text-wb-border">·</span>
             <!-- 模型只读徽标 -->
-            <span class="inline-flex items-center gap-1 rounded border border-wb-border bg-wb-surface px-1.5 py-0.5 text-[11px] text-wb-muted">
+            <span class="inline-flex items-center gap-1 rounded border border-wb-border bg-wb-surface px-1.5 py-0.5 text-xs2 text-wb-muted">
               {{ currentModel }}
             </span>
           </div>
@@ -659,6 +665,7 @@ function onHeaderCommand(cmd: string): void {
         <MessageList
           :messages="messages"
           :streaming="streaming"
+          :loading="loadingMessages"
           @use-quick-prompt="onQuickPrompt"
           @quote="onQuoteSelection"
           @quote-side="onQuoteSide"
@@ -699,7 +706,7 @@ function onHeaderCommand(cmd: string): void {
         class="flex shrink-0 flex-col border-l border-wb-border bg-wb-surface"
         :class="rightTab === 'side' ? 'w-[26rem]' : 'w-80'"
       >
-        <div class="flex shrink-0 items-center border-b border-wb-border px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-wb-muted">
+        <div class="flex shrink-0 items-center border-b border-wb-border px-3 py-2 text-2xs font-medium uppercase tracking-wider text-wb-muted">
           <span v-if="rightTab === 'changes'">{{ t('changes.title') }}</span>
           <span v-else-if="rightTab === 'tasks'">{{ t('tasks.title') }}</span>
           <span v-else-if="rightTab === 'side'">{{ t('side.title') }}</span>
@@ -763,10 +770,10 @@ function onHeaderCommand(cmd: string): void {
         </div>
         <p v-else class="text-xs text-wb-muted">{{ t('ctx.hintNoSegments') }}</p>
         <!-- 优化建议：只给「看到明细也未必知道该怎么办」的那两条（占比过高 / 总量逼近上限） -->
-        <ul v-if="ctxAdvice.length > 0" class="mt-3 space-y-1 text-[11px] text-wb-warn">
+        <ul v-if="ctxAdvice.length > 0" class="mt-3 space-y-1 text-xs2 text-wb-warn">
           <li v-for="(advice, i) in ctxAdvice" :key="i">· {{ advice }}</li>
         </ul>
-        <p class="mt-3 text-[11px] text-wb-muted">
+        <p class="mt-3 text-xs2 text-wb-muted">
           {{ t('ctx.messages', contextUsage.message_count) }} · {{ t('ctx.tools', contextUsage.tool_count) }}
         </p>
       </template>

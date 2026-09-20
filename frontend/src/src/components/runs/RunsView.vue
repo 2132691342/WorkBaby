@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { apiGet } from '@/api/client'
 import PageState from '@/components/common/PageState.vue'
+import Skeleton from '@/components/common/Skeleton.vue'
 import { t } from '@/i18n'
 import { formatDateTime } from '@/utils/time'
 import type { RunRecord, RunRecordList } from '@/types/api'
@@ -156,7 +157,7 @@ async function openReplay(runID: string): Promise<void> {
     <el-dialog v-model="replayOpen" :title="t('runs.replayTitle')" width="720px" append-to-body>
       <p class="fs11 muted mono mb10">{{ replayRunID }}</p>
       <div v-if="replayLoading" class="py-8">
-        <el-skeleton :rows="4" animated />
+        <Skeleton variant="text" :lines="4" />
       </div>
       <p v-else-if="replayRows.length === 0" class="fs11 muted">{{ t('runs.replayEmpty') }}</p>
       <div v-else class="tbl-wrap" style="max-height: 56vh; overflow: auto">

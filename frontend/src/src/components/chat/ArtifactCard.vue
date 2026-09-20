@@ -86,7 +86,7 @@ function fmtSize(size?: number): string {
           {{ f.name }}
         </a>
         <span v-else class="max-w-[160px] truncate text-wb-muted">{{ f.name }}</span>
-        <span v-if="f.size" class="shrink-0 text-[10px] text-wb-muted">{{ fmtSize(f.size) }}</span>
+        <span v-if="f.size" class="shrink-0 text-2xs text-wb-muted">{{ fmtSize(f.size) }}</span>
         <a
           v-if="f.url && f.kind !== 'url'"
           :href="f.url"

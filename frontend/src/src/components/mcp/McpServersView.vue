@@ -9,6 +9,7 @@ import { storeToRefs } from 'pinia'
 import { useMcpStore } from '@/stores/mcp'
 import { useToast } from '@/composables/useToast'
 import { apiPost } from '@/api/client'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { t } from '@/i18n'
 import { Server, FolderOpen, RefreshCw } from '@/components/common/icons'
 import type { McpServer } from '@/types/api'
@@ -80,7 +81,7 @@ onMounted(() => {
         <div class="mb-3 flex items-center justify-between">
           <h2 class="font-display text-sm font-semibold text-wb-ink">{{ t('mcp.jsonEditor') }}</h2>
           <div class="flex items-center gap-2">
-            <span class="font-mono text-[10px] text-wb-muted">mcp.json</span>
+            <span class="font-mono text-2xs text-wb-muted">mcp.json</span>
             <el-tooltip placement="top" :content="t('mcp.revealHint')" :show-after="200">
               <button
                 type="button"
@@ -93,7 +94,7 @@ onMounted(() => {
             </el-tooltip>
           </div>
         </div>
-        <p class="mb-3 text-[11px] leading-relaxed text-wb-muted">{{ t('mcp.jsonHint') }}</p>
+        <p class="mb-3 text-xs2 leading-relaxed text-wb-muted">{{ t('mcp.jsonHint') }}</p>
 
         <el-input
           v-model="rawContent"
@@ -105,7 +106,7 @@ onMounted(() => {
           placeholder='{ "mcpServers": {} }'
         />
         <div class="mt-3 flex items-center justify-between gap-2">
-          <p class="text-[11px] text-wb-muted">{{ t('mcp.jsonSaveHint') }}</p>
+          <p class="text-xs2 text-wb-muted">{{ t('mcp.jsonSaveHint') }}</p>
           <el-button type="primary" :loading="savingRaw" @click="handleSaveRaw">
             {{ savingRaw ? t('ui.status.saving') : t('ui.btn.save') }}
           </el-button>
@@ -153,7 +154,7 @@ onMounted(() => {
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-else :description="t('mcp.empty')" :image-size="80" class="py-6" />
+        <EmptyState variant="empty-search" size="sm" v-else :title="t('mcp.empty')" class="py-6" />
       </section>
     </div>
   </div>

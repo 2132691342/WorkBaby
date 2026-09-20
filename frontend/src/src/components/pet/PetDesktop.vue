@@ -10,6 +10,7 @@ import { invokeShell } from '@/api/shellBridge'
 import { useChatStore } from '@/stores/chat'
 import { MessageSquare, Send, X } from '@/components/common/icons'
 import AssistantAvatar from '@/components/chat/AssistantAvatar.vue'
+import { t } from '@/i18n'
 
 interface PetConfigResp {
   sprite_id: string | null
@@ -276,7 +277,7 @@ watch([chatOpen, scale, bubbleEnabled, mood], () => scheduleHitMask())
         <div class="pet-chat-head">
           <AssistantAvatar class="pet-chat-avatar" :speaking="chat.streaming" />
           <span class="pet-chat-title">WorkBaby</span>
-          <button type="button" class="pet-chat-close" title="收起" @click="chatOpen = false">
+          <button type="button" class="pet-chat-close" :title="t('ui.btn.collapse')" @click="chatOpen = false">
             <X class="h-3 w-3" />
           </button>
         </div>

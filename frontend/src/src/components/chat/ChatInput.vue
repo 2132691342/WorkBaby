@@ -847,12 +847,12 @@ async function exportSessionMd(): Promise<void> {
       toast.info(t('slash.exportEmpty'))
       return
     }
-    const lines: string[] = ['# WorkBaby 会话导出', '']
+    const lines: string[] = [t('slash.exportTitle'), '']
     for (const m of items) {
-      const who = m.role === 'user' ? '你' : 'WorkBaby'
+      const who = m.role === 'user' ? t('slash.exportRoleUser') : 'WorkBaby'
       const when = m.created_at ? new Date(m.created_at).toLocaleString() : ''
       lines.push(`## ${who} ${when ? '· ' + when : ''}`, '')
-      if (m.thinking) lines.push(`> 思考：\n> ${m.thinking.replace(/\n/g, '\n> ')}`, '')
+      if (m.thinking) lines.push(`> ${t('slash.exportThinking')}:\n> ${m.thinking.replace(/\n/g, '\n> ')}`, '')
       lines.push(m.content ?? '', '')
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
@@ -898,20 +898,10 @@ async function submitAgentTask(): Promise<void> {
 
 /** /help：弹出命令清单（所有可执行命令与去向一目了然）。 */
 async function showHelp(): Promise<void> {
-  await ElMessageBox.alert(
-    `<div style="line-height:1.9;font-size:13px">
-      <b>/new</b> 新建会话<br/>
-      <b>/clear</b> 清空当前会话<br/>
-      <b>/compact</b> 压缩历史（后端摘要）<br/>
-      <b>/model</b> 切换模型 · <b>/workspace</b> 绑定目录 · <b>/theme</b> 外观<br/>
-      <b>/attach</b> 添加附件 · <b>/regenerate</b> 重新生成 · <b>/focus</b> 聚焦输入<br/>
-      <b>/export</b> 导出会话 Markdown · <b>/tasks</b> 后台任务 · <b>/agent</b> 子代理<br/>
-      <b>/trust</b> 查看权限 · <b>/help</b> 本帮助<br/>
-      <span style="color:#888">输入 <code>/</code> 实时列出，输入 <code>@</code> 可引用技能/文件夹/文件</span>
-    </div>`,
-    t('slash.helpTitle'),
-    { dangerouslyUseHTMLString: true, confirmButtonText: t('ui.btn.ok') }
-  )
+  await ElMessageBox.alert(t('slash.helpBody'), t('slash.helpTitle'), {
+    dangerouslyUseHTMLString: true,
+    confirmButtonText: t('ui.btn.ok')
+  })
 }
 
 /** 输入框最大高度：视口 55%（可超过原 240px 上限，长文编辑不憋屈）。 */
@@ -1289,7 +1279,7 @@ defineExpose({
                     />
                     {{ t(p.labelKey) }}
                   </span>
-                  <span class="max-w-[260px] text-[11px] leading-snug text-wb-muted">{{ t(p.descKey) }}</span>
+                  <span class="max-w-[260px] text-xs2 leading-snug text-wb-muted">{{ t(p.descKey) }}</span>
                 </div>
               </el-dropdown-item>
             </el-dropdown-menu>

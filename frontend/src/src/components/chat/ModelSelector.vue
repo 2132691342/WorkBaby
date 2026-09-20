@@ -233,13 +233,13 @@ onUnmounted(() => {
           </span>
           <span class="min-w-0 flex-1">
             <span class="block font-medium">{{ t('chat.auto') }}</span>
-            <span class="block text-[10px] text-wb-muted">{{ t('chat.autoDesc') }}</span>
+            <span class="block text-2xs text-wb-muted">{{ t('chat.autoDesc') }}</span>
           </span>
         </button>
 
         <!-- 常用模型 -->
         <template v-if="recentModels.length > 0 && !search">
-          <div class="my-1 flex items-center gap-1 px-2 text-[10px] text-wb-muted">
+          <div class="my-1 flex items-center gap-1 px-2 text-2xs text-wb-muted">
             <Clock class="h-3 w-3" />
             {{ t('chat.recentModels') }}
           </div>
@@ -259,16 +259,16 @@ onUnmounted(() => {
             </span>
             <span class="min-w-0 flex-1">
               <span class="block truncate font-medium">{{ m.alias || m.model }}</span>
-              <span class="block truncate text-[10px] text-wb-muted">{{ m.name }}</span>
+              <span class="block truncate text-2xs text-wb-muted">{{ m.name }}</span>
             </span>
-            <span class="text-[10px] text-wb-muted">{{ tierLabel(m) }}</span>
+            <span class="text-2xs text-wb-muted">{{ tierLabel(m) }}</span>
           </button>
         </template>
 
         <!-- 按供应商分组 -->
         <div v-if="providerGroups.length > 0" class="max-h-64 overflow-y-auto">
           <div v-for="[provider, models] in providerGroups" :key="provider">
-            <div class="my-1 flex items-center gap-1 px-2 text-[10px] text-wb-muted">
+            <div class="my-1 flex items-center gap-1 px-2 text-2xs text-wb-muted">
               {{ provider }}
             </div>
             <button
@@ -309,7 +309,7 @@ onUnmounted(() => {
                 <Eye v-if="m.vision" class="h-3 w-3 text-wb-muted" :title="t('chat.vision')" />
                 <Brain v-if="m.reasoning" class="h-3 w-3 text-wb-muted" :title="t('chat.thinking')" />
               </span>
-              <span class="text-[10px] text-wb-muted">{{ tierLabel(m) }}</span>
+              <span class="text-2xs text-wb-muted">{{ tierLabel(m) }}</span>
             </button>
           </div>
         </div>

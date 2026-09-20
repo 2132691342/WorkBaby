@@ -39,6 +39,7 @@ type SettingsTab =
   | 'runs'
   | 'files'
   | 'pet'
+  | 'docs'
   | 'about'
 
 /**
@@ -50,7 +51,6 @@ type SettingsTab =
  *
  * 删除的旧子项：
  *  - folders：被 files 覆盖（文件 = 附件、文件夹 = 文件分类），路由 /folders → /settings
- *  - docs：开发期 doc 浏览，普通用户无感；doc/ 仍可经 /docs 路由直接访问
  */
 const tabs: { id: string; labelKey: string; items: SectionItem[] }[] = [
   {
@@ -92,6 +92,7 @@ const tabs: { id: string; labelKey: string; items: SectionItem[] }[] = [
       { id: 'appearance', labelKey: 'settings.tab.appearance' },
       { id: 'advanced', labelKey: 'settings.tab.advanced' },
       { id: 'pet', labelKey: 'nav.pet' },
+      { id: 'docs', labelKey: 'nav.docs' },
       { id: 'about', labelKey: 'settings.tab.about' }
     ]
   }
@@ -127,7 +128,8 @@ const sectionComponents: Record<SettingsTab, Component> = {
   dashboard: lazySection(() => import('@/components/dashboard/DashboardView.vue')),
   runs: lazySection(() => import('@/components/runs/RunsView.vue')),
   files: lazySection(() => import('@/components/files/FilesView.vue')),
-  pet: lazySection(() => import('@/components/pet/PetSpaceView.vue'))
+  pet: lazySection(() => import('@/components/pet/PetSpaceView.vue')),
+  docs: lazySection(() => import('@/components/docs/DocsView.vue'))
 }
 
 const settings = useSettingsStore()
@@ -254,7 +256,7 @@ watch(
   padding: 12px 24px 0;
 }
 .set-chip {
-  height: 26px;
+  height: var(--wb-ctl-h-sm);
   padding: 0 12px;
   border-radius: 999px;
   border: 1px solid var(--wb-border);

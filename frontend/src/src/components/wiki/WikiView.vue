@@ -137,7 +137,7 @@ function onTreeNodeClick(node: WikiNode): void {
               <Code2 class="h-3.5 w-3.5 shrink-0 text-wb-primary" />
               <span class="min-w-0 flex-1 text-left">
                 <span class="block truncate font-medium text-wb-ink">{{ e.path }}</span>
-                <span class="block truncate text-[11px] text-wb-muted">{{ e.summary }}</span>
+                <span class="block truncate text-xs2 text-wb-muted">{{ e.summary }}</span>
               </span>
             </button>
           </div>
@@ -188,8 +188,8 @@ function onTreeNodeClick(node: WikiNode): void {
                   @click="openPage(c)"
                 >
                   <span class="min-w-0 flex-1 truncate text-left font-medium text-wb-ink">{{ c.path }}</span>
-                  <span class="shrink-0 text-[11px] text-wb-muted">{{ c.lang || '' }} {{ c.lines }}</span>
-                  <span class="hidden min-w-0 flex-[2] truncate text-left text-[11px] text-wb-muted md:block">{{ c.summary }}</span>
+                  <span class="shrink-0 text-xs2 text-wb-muted">{{ c.lang || '' }} {{ c.lines }}</span>
+                  <span class="hidden min-w-0 flex-[2] truncate text-left text-xs2 text-wb-muted md:block">{{ c.summary }}</span>
                 </button>
               </div>
 

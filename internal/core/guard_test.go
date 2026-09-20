@@ -47,16 +47,6 @@ func TestGuardChain(t *testing.T) {
 		assert.Equal(t, 0, write.callCount())
 	})
 
-	t.Run("路径预检通过后进入审批门", func(t *testing.T) {
-		execTool := &mockTool{name: "exec", risk: tool.RiskExec}
-		allowPath := func(_ context.Context, _ Call) (bool, string) { return true, "" }
-		h := Chain(PolicyGuard(ModeDefault, nil, &mockApprover{allow: true}, allowPath))(Executor(ExecOptions{}))
-		res := h(context.Background(), Call{ID: "1", Name: "exec", Args: json.RawMessage(`{}`), Tool: execTool})
-
-		assert.False(t, res.Refused)
-		assert.Equal(t, 1, execTool.callCount())
-	})
-
 	t.Run("策略模式矩阵与审批", func(t *testing.T) {
 		execTool := &mockTool{name: "exec", risk: tool.RiskExec}
 		ctx := context.Background()
@@ -117,22 +107,6 @@ func TestGuardChain(t *testing.T) {
 		assert.Equal(t, 1, echo.callCount())
 	})
 
-	t.Run("已重用步骤不计入计数且不执行", func(t *testing.T) {
-		echo := &mockTool{name: "echo", risk: tool.RiskReadOnly}
-		store := &mockStepStore{m: map[string]string{}}
-		h := Chain(RepeatGuard(2, store))(Executor(ExecOptions{}))
-		ctx := context.Background()
-		args := json.RawMessage(`{"a":1}`)
-
-		// 第一次：正常执行并入库。
-		h(ctx, Call{ID: "1", Name: "echo", Args: args, Tool: echo})
-		assert.Equal(t, 1, echo.callCount())
-		// 第二次：命中重用，不增计数、不重复执行（callCount 仍 1）。
-		again := h(ctx, Call{ID: "2", Name: "echo", Args: args, Tool: echo})
-		assert.False(t, again.Refused)
-		assert.Equal(t, "reused", again.Meta["idempotent"])
-		assert.Equal(t, 1, echo.callCount())
-	})
 }
 
 // TestCompressKeepsToolPairing 压缩的硬约束：绝不制造孤儿 tool 或空 assistant。

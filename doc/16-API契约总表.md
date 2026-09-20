@@ -26,7 +26,7 @@
 | GET | /dashboard/stats | 仪表盘统计 |
 | GET | /dashboard/trend | 会话/消息/token 趋势 |
 | GET | /dashboard/token-trend | token 三线趋势（today/week/month/custom） |
-| GET | /events | **SSE 事件流**（`scope`、`runId`、`last_event_id`） |
+| GET | /events | **SSE 事件流**（`scope`、`session_id`、`run_id`、`last_event_id`；会话级订阅，run 供重放定位） |
 | GET | /files/*filepath | 受管文件静态服务 |
 
 ### 会话与消息
@@ -248,7 +248,11 @@
 
 ## SSE 事件
 
-订阅：`GET /api/v1/events?scope=<前缀>&runId=<运行 id>&last_event_id=<seq>`。帧格式：`id: <seq>`、`event: <名称>`、`data: <JSON>`；`seq` 由服务端按 run 单调分配，支持断线重放；重放窗口不足时下发 `chat:gap` 转全量快照。
+订阅：`GET /api/v1/events?scope=<前缀>&session_id=<会话 id>&run_id=<运行 id>&last_event_id=<seq>`。
+
+- 过滤规则：scope 前缀 → 会话 → run。**`run_id` / `session_id` 为空的事件（目标状态、用户主动触发的回滚）不属于任何 run，不会因订阅带了 run 而被丢弃**；
+- 订阅键是 `session_id`：会话内全部 run 与无归属事件都送达；`run_id` 仅用于断线重放定位（目标模式的自动续跑会起新 run）；
+- 帧格式：`id: <seq>`、`event: <名称>`、`data: <JSON>`；`seq` 由服务端按 run 单调分配（`service.Emitter` 统一入账），支持断线重放；重放窗口不足时下发 `chat:gap` 转全量快照。
 
 | 事件 | 载荷要点 |
 |---|---|
@@ -269,6 +273,7 @@
 | `chat:approval-decided` | 审批决策 |
 | `chat:subagent-start` / `-done` / `-error` | 子 Agent 生命周期 |
 | `chat:todo` | 待办状态变化 |
+| `chat:goal` | 会话目标状态（set/pause/resume 与自动续跑校验后共用；无 run 归属，按会话送达） |
 | `chat:file-change` | 文件变更（含 diff 信息） |
 | `chat:artifact` | 产物登记 |
 | `chat:warn` | 告警（越界写入；反幻觉核验 `kind=unbacked_claim`） |
@@ -278,8 +283,7 @@
 | `chat:error` | 错误（code/message） |
 | `chat:done` | 终态（status/reason/stop_reason/message_id/usage） |
 | `chat:gap` | 重放窗口失效 → 前端拉全量快照 |
-| `task:created` / `task:started` / `task:done` | 后台任务生命周期 |
-
+| `task:created` / `task:started` / `task:done` | 后台任务生命周期（`scope=task` 独立订阅） |
 | `pet:state` | 桌宠状态机变化（idle / happy / working / sleeping） |
 | `pet:show` / `pet:hide` | 桌宠形态切换 |
 | `app:ready` | 应用就绪（携带 `server_port`、数据根、版本；Wails 与 HTTP 双通道） |

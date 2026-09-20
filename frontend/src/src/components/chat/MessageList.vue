@@ -63,6 +63,8 @@ const emit = defineEmits<{
 const props = defineProps<{
   messages: Message[]
   streaming: boolean
+  /** 消息加载中（切会话）：渲染骨架，避免闪「空会话 + 示例卡」的假空态。 */
+  loading: boolean
 }>()
 
 const chat = useChatStore()
@@ -237,8 +239,17 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
 
 <template>
   <div ref="scrollEl" class="min-h-0 flex-1 overflow-y-auto px-6 py-6 relative" @scroll="onScroll">
+    <!-- 加载骨架：切会话时先占位，避免「空会话 + 示例卡」闪一下的假空态 -->
+    <div v-if="loading && messages.length === 0" class="flex h-full flex-col gap-5 px-4 py-4">
+      <div v-for="i in 3" :key="i" class="mx-auto w-full max-w-[800px] space-y-2.5">
+        <div class="h-3.5 w-1/3 animate-pulse rounded bg-wb-surface-hover" />
+        <div class="h-3 w-full animate-pulse rounded bg-wb-surface-2" />
+        <div class="h-3 w-4/5 animate-pulse rounded bg-wb-surface-2" />
+      </div>
+    </div>
+
     <!-- 空状态：克制卡片（实底 + 细边框，无渐变扫光）+ 4 个一键示例 prompt。 -->
-    <div v-if="messages.length === 0 && !streaming" class="flex h-full items-center justify-center px-4">
+    <div v-else-if="messages.length === 0 && !streaming" class="flex h-full items-center justify-center px-4">
       <div class="w-full max-w-2xl">
         <div class="hero-card p-8 text-center">
           <div class="hero-badge mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl">

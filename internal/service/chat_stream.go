@@ -31,7 +31,7 @@ type coreEventMapper struct {
 
 	blockSeq  int64          // message_blocks 单调序号（同一事件对应同一 seq）
 	toolCalls []llm.ToolCall // 父 run 收集的工具调用（run 结束写 assistant.tool_calls）
-	doneEvent map[string]any // 终态事件：延迟到 assistant 落库后由调用方发出
+	doneEvent any            // 终态事件载荷（domain.ChatDoneEvent）：延迟到 assistant 落库后由调用方发出
 
 	// textSeg 自上次落块以来累积的正文增量：在工具调用之前与轮次/run 结束时落块，
 	// 使块的 seq 与模型真实输出顺序一致（叙述 → 工具 → 叙述）。
@@ -285,17 +285,17 @@ func (m *coreEventMapper) handle(e core.Event) {
 		}
 		// 收尾前把最后一段正文落块（正常路径已在 TurnEnd 落过，这里是兜底）。
 		m.flushText(e)
-		m.doneEvent = map[string]any{
-			"status":      "completed",
-			"reason":      string(domain.MapHarnessReason(p.Reason)),
-			"stop_reason": p.StopReason,
-			"message_id":  m.assistantMsgID,
-			"usage": map[string]any{
-				"input_tokens":          p.Usage.Input,
-				"output_tokens":         p.Usage.Output,
-				"cache_read_tokens":     p.Usage.CacheRead,
-				"cache_creation_tokens": p.Usage.CacheWrite,
-				"total_tokens":          p.Usage.Total,
+		m.doneEvent = domain.ChatDoneEvent{
+			Status:     "completed",
+			Reason:     string(domain.MapHarnessReason(p.Reason)),
+			StopReason: p.StopReason,
+			MessageID:  m.assistantMsgID,
+			Usage: &domain.ChatDoneUsage{
+				InputTokens:  p.Usage.Input,
+				OutputTokens: p.Usage.Output,
+				CacheRead:    p.Usage.CacheRead,
+				CacheWrite:   p.Usage.CacheWrite,
+				Total:        p.Usage.Total,
 			},
 		}
 	}

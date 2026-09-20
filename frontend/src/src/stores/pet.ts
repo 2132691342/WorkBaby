@@ -8,6 +8,27 @@ import { UploadPetSprite, OpenFileDialog, ReadLocalImage, SavePetSpriteImage } f
 import type { PetConfig, PetConfigReq, PetSprite, PetSpriteReq } from '@/types/api'
 
 /**
+ * 轻量配置读取：聊天页的背景 / 陪伴体 / 头像三个组件共用同一次请求。
+ * 进程内缓存首次结果，保存配置时失效——此前同页会并发发 3 次 GET /pet/config。
+ */
+let petConfigLite: Promise<PetConfig> | null = null
+
+export function fetchPetConfigLite(): Promise<PetConfig> {
+  if (!petConfigLite) {
+    petConfigLite = apiGet<PetConfig>('/api/v1/pet/config').catch((e: unknown) => {
+      petConfigLite = null // 失败不缓存，下次可重试
+      throw e
+    })
+  }
+  return petConfigLite
+}
+
+/** 失效缓存（保存配置后调用，让下一次读取拿到新值）。 */
+export function invalidatePetConfigLite(): void {
+  petConfigLite = null
+}
+
+/**
  * 桌宠 store：配置读写 + 形象资产管理（上传 / 编辑 / 删除），端点见 doc/16。
  */
 export const usePetStore = defineStore('pet', () => {
@@ -47,6 +68,7 @@ export const usePetStore = defineStore('pet', () => {
     info.value = null
     try {
       config.value = await apiPost<PetConfig>('/api/v1/pet/config/update', form.value)
+      invalidatePetConfigLite() // 聊天页各组件下次读取拿到新配置
       toast.success(t('common.saved'))
       window.dispatchEvent(new Event('wb-avatar-refresh'))
     } catch (e) {

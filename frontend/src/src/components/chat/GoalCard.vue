@@ -61,10 +61,10 @@ async function resume(): Promise<void> {
 <template>
   <div class="goal-card" :class="statusClass">
     <div class="flex items-center gap-1.5">
-      <span class="text-[13px]">🎯</span>
-      <span class="text-[11px] font-semibold text-wb-ink">{{ t('chat.goal.title') }}</span>
+      <span class="text-ctl">🎯</span>
+      <span class="text-xs2 font-semibold text-wb-ink">{{ t('chat.goal.title') }}</span>
       <span class="goal-status" :class="statusClass">{{ t(statusKey) }}</span>
-      <span class="ml-auto text-[10.5px] tabular-nums text-wb-muted">
+      <span class="ml-auto text-2xs tabular-nums text-wb-muted">
         {{ t('chat.goal.round', goal.round, maxRounds) }}
       </span>
       <button v-if="goal.status === 'active'" class="goal-act" :title="t('chat.goal.pause')" @click="pause">
@@ -80,11 +80,11 @@ async function resume(): Promise<void> {
       </button>
       <button class="goal-act" :title="t('chat.goal.clear')" @click="clear">✕</button>
     </div>
-    <p class="mt-1 text-[12px] leading-[1.6] text-wb-ink">{{ goal.text }}</p>
-    <p v-if="goal.status === 'active' && goal.next_step" class="mt-1 text-[11px] leading-[1.6] text-wb-muted">
+    <p class="mt-1 text-ctl leading-[1.6] text-wb-ink">{{ goal.text }}</p>
+    <p v-if="goal.status === 'active' && goal.next_step" class="mt-1 text-xs2 leading-[1.6] text-wb-muted">
       {{ t('chat.goal.nextStep') }}{{ goal.next_step }}
     </p>
-    <p v-if="goal.status === 'done' && goal.done_because" class="mt-1 text-[11px] leading-[1.6] text-wb-mint">
+    <p v-if="goal.status === 'done' && goal.done_because" class="mt-1 text-xs2 leading-[1.6] text-wb-mint">
       {{ goal.done_because }}
     </p>
   </div>

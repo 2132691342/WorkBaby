@@ -14,7 +14,7 @@ import (
 )
 
 // SSEHub 把 event.Bus 的 chat:* / pet:* / app:* / task:* 事件桥接到 SSE 长连接，
-// 客户端按 (scope, runID) 过滤；每条事件带 run 内单调 seq，重连时按 Last-Event-ID 重放，
+// 客户端按 (scope, session_id) 过滤；每条事件带 run 内单调 seq，重连时按 Last-Event-ID 重放，
 // 缓冲被覆盖则推 chat:gap 由前端转全量回补。
 type SSEHub struct {
 	bus     *event.Bus
@@ -26,11 +26,27 @@ type SSEHub struct {
 
 // sseClient 一条 SSE 连接；done 由 close 保证只关一次（Serve 的 defer 与 hub.Close 都会调）。
 type sseClient struct {
-	scope string // chat | pet | app
-	runID string // 空 = 全部 run
-	ch    chan sseMsg
-	done  chan struct{}
-	once  sync.Once
+	scope     string // chat | pet | app | task
+	runID     string // 订阅的 run：重放定位 + 未指定 session 时的过滤键
+	sessionID string // 订阅的会话：会话内全部 run 与无 run 归属的事件（目标状态等）都送达
+	ch        chan sseMsg
+	done      chan struct{}
+	once      sync.Once
+}
+
+// matches 过滤规则：scope 前缀 → 会话 → run；双方都有值才比对，
+// 使无 run 归属的事件（目标状态、用户触发的回滚）不会被订阅条件丢弃。
+func (c *sseClient) matches(name, runID, sessionID string) bool {
+	if c.scope != "" && !strings.HasPrefix(name, c.scope+":") {
+		return false
+	}
+	if c.sessionID != "" {
+		return sessionID == "" || sessionID == c.sessionID
+	}
+	if c.runID != "" {
+		return runID == "" || runID == c.runID
+	}
+	return true
 }
 
 // close 幂等关闭连接；channel 不关闭（交由 GC 回收），避免向已关闭 channel 发送 panic。
@@ -64,15 +80,13 @@ func (h *SSEHub) onEvent(name string, payload any) {
 		return
 	}
 	runID := extractRunID(payload)
+	sessionID := extractSessionID(payload)
 	msg := sseMsg{seq: extractSeq(payload), name: name, data: string(data)}
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {
-		if c.scope != "" && !strings.HasPrefix(name, c.scope+":") {
-			continue
-		}
-		if c.runID != "" && c.runID != runID {
+		if !c.matches(name, runID, sessionID) {
 			continue
 		}
 		select {
@@ -89,6 +103,16 @@ func (h *SSEHub) onEvent(name string, payload any) {
 func extractRunID(payload any) string {
 	if m, ok := payload.(map[string]any); ok {
 		if v, ok := m["run_id"].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// extractSessionID 从事件载荷中提取会话归属；无归属返回空串（只按 scope 过滤）。
+func extractSessionID(payload any) string {
+	if m, ok := payload.(map[string]any); ok {
+		if v, ok := m["session_id"].(string); ok && v != "" {
 			return v
 		}
 	}
@@ -131,10 +155,11 @@ func lastEventSeq(c *gin.Context) int64 {
 	return n
 }
 
-// Serve 处理 GET /api/v1/events?scope=chat&runId={runId}。
+// Serve 处理 GET /api/v1/events?scope=chat&session_id={sid}&run_id={runID}。
 func (h *SSEHub) Serve(c *gin.Context) {
 	scope := c.DefaultQuery("scope", "chat")
-	runID := c.Query("runId")
+	runID := c.Query("run_id")
+	sessionID := c.Query("session_id")
 	afterSeq := lastEventSeq(c)
 
 	c.Header("Content-Type", "text/event-stream")
@@ -143,10 +168,11 @@ func (h *SSEHub) Serve(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 
 	client := &sseClient{
-		scope: scope,
-		runID: runID,
-		ch:    make(chan sseMsg, 256),
-		done:  make(chan struct{}),
+		scope:     scope,
+		runID:     runID,
+		sessionID: sessionID,
+		ch:        make(chan sseMsg, 256),
+		done:      make(chan struct{}),
 	}
 
 	h.mu.Lock()

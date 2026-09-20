@@ -275,7 +275,7 @@ async function forkFrom(): Promise<void> {
       </button>
       <pre
         v-if="thinkingOpen"
-        class="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap border-l-2 border-wb-border pl-3 font-sans text-[11.5px] leading-[1.75] text-wb-muted"
+        class="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap border-l-2 border-wb-border pl-3 font-sans text-xs2 leading-[1.75] text-wb-muted"
       >{{ message.thinking }}</pre>
     </div>
 
@@ -330,7 +330,7 @@ async function forkFrom(): Promise<void> {
           :title="a.name"
         >
           <img v-if="a.kind === 'image'" :src="a.url" :alt="a.name" class="max-h-40 max-w-[220px] object-cover" />
-          <span v-else class="flex items-center gap-1 px-2 py-1 text-[11px] text-white/90">
+          <span v-else class="flex items-center gap-1 px-2 py-1 text-xs2 text-white/90">
             <Paperclip class="h-3 w-3" />{{ a.name }}
           </span>
         </a>
@@ -352,7 +352,7 @@ async function forkFrom(): Promise<void> {
           {{ t('chat.save') }}
         </el-button>
         <el-button size="small" @click="cancelEdit">{{ t('chat.cancel') }}</el-button>
-        <span class="text-[10px] text-wb-muted">{{ t('chat.editHint') }}</span>
+        <span class="text-2xs text-wb-muted">{{ t('chat.editHint') }}</span>
       </div>
     </div>
 
@@ -406,7 +406,7 @@ async function forkFrom(): Promise<void> {
     >
       <span
         v-if="fmtTime(message.created_at)"
-        class="mr-1 text-[10.5px] tabular-nums text-wb-muted/70"
+        class="mr-1 text-2xs tabular-nums text-wb-muted/70"
       >{{ fmtTime(message.created_at) }}</span>
       <el-tooltip :content="t('chat.copy')" placement="top">
         <el-button text size="small" circle @click="copyMessage">

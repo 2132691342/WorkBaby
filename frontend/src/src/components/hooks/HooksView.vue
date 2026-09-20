@@ -8,6 +8,7 @@ import { Webhook, Plus, Trash2, Play } from '@/components/common/icons'
 import { apiGet, apiPost } from '@/api/client'
 import { useDialog } from '@/composables/useDialog'
 import { useToast } from '@/composables/useToast'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { t } from '@/i18n'
 import FormDialog from '@/components/common/FormDialog.vue'
 import Field from '@/components/common/Field.vue'
@@ -206,7 +207,7 @@ function onEventChange(): void {
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-else :description="t('hooks.empty')" :image-size="80" class="py-6" />
+        <EmptyState variant="empty-search" size="sm" v-else :title="t('hooks.empty')" class="py-6" />
         <p class="fs11 muted" style="margin: 8px 0 0; white-space: pre-line">{{ t('hooks.protocolHint') }}</p>
       </section>
     </div>

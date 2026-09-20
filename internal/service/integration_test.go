@@ -282,7 +282,7 @@ func TestUnbackedClaimGuard(t *testing.T) {
 // TestApprovalPendingRestore 守卫审批恢复：审批挂起期间可列出，前端刷新后按 id 回填。
 func TestApprovalPendingRestore(t *testing.T) {
 	bus := event.New()
-	ap := NewApprovalService(bus).WithEventLog(event.NewRunEventLog(0, 0))
+	ap := NewApprovalService(bus).WithEmitter(NewEmitter(bus, event.NewRunEventLog(0, 0)))
 	ctx := core.WithRunContext(context.Background(), "RUN_1", "SESSION_1")
 
 	registered := make(chan struct{}, 1)

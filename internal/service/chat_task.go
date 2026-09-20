@@ -23,8 +23,8 @@ import (
 
 // 后台任务预算：与委派（3 分钟）不同，后台任务是用户有预期的长作业，给足墙钟。
 const (
-	taskQueueCap     = 64              // 队列容量；满则拒绝提交（背压直给用户）
-	taskWorkerCount  = 2               // 并发 worker 数：一个跑长任务时另一个还能接短任务
+	taskQueueCap     = 64               // 队列容量；满则拒绝提交（背压直给用户）
+	taskWorkerCount  = 2                // 并发 worker 数：一个跑长任务时另一个还能接短任务
 	taskWallTime     = 30 * time.Minute // 单任务墙钟上限
 	taskToolTimeout  = 5 * time.Minute  // 单次工具超时（对齐聊天执行器默认）
 	taskDefaultTurns = 40               // 任务默认轮次上限（Definition.Budget 可覆盖）
@@ -35,11 +35,12 @@ const (
 type ChatTaskService struct {
 	repo    *repo.ChatTaskRepo
 	bus     *event.Bus
+	emitter *Emitter // 事件出口：复用 ChatService 的实例，task:* 同样带 seq 可重放
 	chat    *ChatService
 	grants  *ApprovalService
 	session *repo.ChatSessionRepo
 
-	queue chan string // 待执行任务 ID
+	queue     chan string // 待执行任务 ID
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc // taskID → 取消函数（running 态才有）
 }
@@ -50,6 +51,12 @@ func NewChatTaskService(r *repo.ChatTaskRepo, bus *event.Bus, chat *ChatService,
 		repo: r, bus: bus, chat: chat, grants: grants, session: sessions,
 		queue:   make(chan string, taskQueueCap),
 		cancels: map[string]context.CancelFunc{},
+	}
+	if chat != nil {
+		s.emitter = chat.emitter
+	}
+	if s.emitter == nil {
+		s.emitter = NewEmitter(bus, nil)
 	}
 	s.recoverUnfinished()
 	for i := 0; i < taskWorkerCount; i++ {
@@ -340,16 +347,14 @@ func (s *ChatTaskService) finishFailed(ctx context.Context, id, reason string) {
 }
 
 // emit 发布 task:* 事件：整条任务 DO 作为载荷（前端整对象 upsert）。
-// 任务事件不进 RunEventLog（非 run 作用域，前端重连后以权威列表拉取兜底）。
+// 归属与 seq 由 Emitter 统一注入——任务事件与 chat:* 走同一套可靠性机制。
 func (s *ChatTaskService) emit(name string, t *domain.ChatTaskDO) {
-	if s.bus == nil || t == nil {
+	if t == nil {
 		return
 	}
-	s.bus.Publish(name, map[string]any{
-		"task":       t,
-		"task_id":    t.ID,
-		"session_id": t.SessionID,
-		"run_id":     t.RunID,
+	s.emitter.Emit(t.RunID, t.SessionID, name, map[string]any{
+		"task":    t,
+		"task_id": t.ID,
 	})
 }
 

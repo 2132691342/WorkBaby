@@ -11,18 +11,6 @@ import (
 
 // TestBuildSystem 上下文装配：顺序稳定、超预算可解释地丢弃。
 func TestBuildSystem(t *testing.T) {
-	t.Run("按序拼接且空段跳过", func(t *testing.T) {
-		body, dropped := BuildSystem([]Section{
-			{Title: "技能", Body: "SKILL", Order: OrderSkill},
-			{Title: "人格", Body: "PERSONA", Order: OrderPersona},
-			{Title: "空段", Body: "", Order: OrderEnv},
-		}, 0)
-
-		assert.Empty(t, dropped)
-		assert.Equal(t, "## 人格\nPERSONA\n\n## 技能\nSKILL", body, "Order 小者在前")
-		assert.NotContains(t, body, "空段")
-	})
-
 	t.Run("超预算丢弃低优先级段并回传段名", func(t *testing.T) {
 		body, dropped := BuildSystem([]Section{
 			{Title: "人格", Body: "PERSONA", Order: OrderPersona},

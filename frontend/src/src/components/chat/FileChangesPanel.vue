@@ -164,7 +164,7 @@ watch(tab, (v) => {
         @click="tab = 'changes'"
       >
         {{ t('changes.title') }}
-        <span class="ml-1 text-[10px] tabular-nums text-wb-muted">{{ changes.length }}</span>
+        <span class="ml-1 text-2xs tabular-nums text-wb-muted">{{ changes.length }}</span>
       </button>
       <button
         type="button"
@@ -173,7 +173,7 @@ watch(tab, (v) => {
         @click="tab = 'artifacts'"
       >
         {{ t('artifacts.title') }}
-        <span class="ml-1 text-[10px] tabular-nums text-wb-muted">{{ arts.length }}</span>
+        <span class="ml-1 text-2xs tabular-nums text-wb-muted">{{ arts.length }}</span>
       </button>
     </div>
 
@@ -183,20 +183,20 @@ watch(tab, (v) => {
       <div v-if="tab === 'changes' && detail" class="flex h-full flex-col">
         <div class="mb-2 flex items-center justify-between">
           <button class="text-xs text-wb-primary hover:underline" @click="closeDetail">← {{ t('changes.back') }}</button>
-          <span class="truncate text-[10px] text-wb-muted">{{ detail.rel_path }}</span>
+          <span class="truncate text-2xs text-wb-muted">{{ detail.rel_path }}</span>
         </div>
         <div v-if="detailLoading" class="text-xs text-wb-muted">{{ t('common.loading') }}</div>
         <!-- diff 着色渲染（与工具时间线同一套 parseDiffLines，裸 pre 只在非 diff 文本时兜底） -->
         <pre
           v-else-if="detail.diff && isDiff"
-          class="min-h-0 flex-1 overflow-auto rounded-md border border-wb-border bg-wb-surface-2 p-2 font-mono text-[11px] leading-relaxed"
+          class="min-h-0 flex-1 overflow-auto rounded-md border border-wb-border bg-wb-surface-2 p-2 font-mono text-xs2 leading-relaxed"
         ><span
           v-for="(ln, li) in diffLines"
           :key="li"
           :class="diffLineClass(ln.type)"
         >{{ ln.text }}
 </span></pre>
-        <pre v-else-if="detail.diff" class="min-h-0 flex-1 overflow-auto rounded-md border border-wb-border bg-wb-surface-2 p-2 font-mono text-[11px] leading-relaxed text-wb-ink">{{ detail.diff }}</pre>
+        <pre v-else-if="detail.diff" class="min-h-0 flex-1 overflow-auto rounded-md border border-wb-border bg-wb-surface-2 p-2 font-mono text-xs2 leading-relaxed text-wb-ink">{{ detail.diff }}</pre>
         <div v-else class="rounded-md border border-wb-border bg-wb-surface-2 p-3 text-xs text-wb-muted">{{ t('changes.diffEmpty') }}</div>
     </div>
 
@@ -206,7 +206,7 @@ watch(tab, (v) => {
           {{ t('changes.empty') }}
         </div>
         <div v-for="g in groupedChanges" :key="g.runID || g.label" class="space-y-1.5">
-          <p v-if="g.runID" class="px-1 text-[10px] font-medium uppercase tracking-wider text-wb-muted">
+          <p v-if="g.runID" class="px-1 text-2xs font-medium uppercase tracking-wider text-wb-muted">
             {{ t('changes.runGroup', g.label, g.items.length) }}
           </p>
           <button
@@ -222,7 +222,7 @@ watch(tab, (v) => {
               <span class="truncate text-xs font-medium text-wb-ink">{{ c.rel_path }}</span>
               <span v-if="c.rolled_back" class="ml-auto rounded border border-wb-border px-1 py-0.5 text-[9px] text-wb-muted">{{ t('changes.rolledBackBadge') }}</span>
             </div>
-            <div class="mt-1 flex items-center gap-2 text-[10px] text-wb-muted">
+            <div class="mt-1 flex items-center gap-2 text-2xs text-wb-muted">
               <span>{{ actionLabel(c.action) }}</span>
               <span>·</span>
               <span class="font-mono">{{ fmtBytes(c.bytes_before) }} → {{ fmtBytes(c.bytes_after) }}</span>
@@ -234,7 +234,7 @@ watch(tab, (v) => {
             <div v-if="!c.rolled_back" class="mt-1.5 flex justify-end opacity-0 transition-opacity group-hover:opacity-100">
               <el-button size="small" text type="primary" @click.stop="rollback(c)">
                 <el-icon class="mr-1"><RotateCcw /></el-icon>
-                <span class="text-[10px]">{{ t('changes.rollback') }}</span>
+                <span class="text-2xs">{{ t('changes.rollback') }}</span>
               </el-button>
             </div>
           </button>
@@ -254,7 +254,7 @@ watch(tab, (v) => {
           <component :is="artifactIcon(a.kind)" class="h-3.5 w-3.5 shrink-0 text-wb-primary" />
           <div class="min-w-0 flex-1">
             <div class="truncate text-xs font-medium text-wb-ink" :title="a.rel_path">{{ a.name }}</div>
-            <div class="truncate text-[10px] text-wb-muted">
+            <div class="truncate text-2xs text-wb-muted">
               <span>{{ a.rel_path }}</span>
               <span class="ml-2 font-mono">{{ fmtBytes(a.size) }}</span>
               <span class="ml-2">{{ fmtTime(a.updated_at) }}</span>

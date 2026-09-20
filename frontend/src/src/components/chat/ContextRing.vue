@@ -53,7 +53,7 @@ const hovered = ref(false)
     <template #reference>
       <button
         type="button"
-        class="ctx-ring flex items-center gap-2 rounded-full border border-wb-border bg-wb-surface px-2.5 py-1 text-[11px] text-wb-muted transition-colors hover:border-wb-primary hover:text-wb-primary-strong"
+        class="ctx-ring flex items-center gap-2 rounded-full border border-wb-border bg-wb-surface px-2.5 py-1 text-xs2 text-wb-muted transition-colors hover:border-wb-primary hover:text-wb-primary-strong"
         :title="t('chat.contextUsageTitle')"
       >
         <svg :width="SIZE / 2.4" :height="SIZE / 2.4" :viewBox="`0 0 ${SIZE / 2.4} ${SIZE / 2.4}`" class="shrink-0">
@@ -85,7 +85,7 @@ const hovered = ref(false)
     <div v-if="usage" class="space-y-3">
       <div class="flex items-baseline justify-between">
         <div class="text-sm font-medium text-wb-ink">{{ t('chat.contextUsageTitle') }}</div>
-        <div class="text-[11px]" :class="usage.estimated ? 'text-wb-warning' : 'text-wb-muted'">
+        <div class="text-xs2" :class="usage.estimated ? 'text-wb-warning' : 'text-wb-muted'">
           {{ usage.estimated ? t('chat.contextEstimated') : t('chat.contextMeasured') }}
         </div>
       </div>
@@ -151,7 +151,7 @@ const hovered = ref(false)
         </ul>
       </div>
 
-      <div class="text-[11px] text-wb-muted">
+      <div class="text-xs2 text-wb-muted">
         {{ usage.message_count }} {{ t('chat.contextMessages') }} ·
         {{ usage.tool_count }} {{ t('chat.contextTools') }}
       </div>

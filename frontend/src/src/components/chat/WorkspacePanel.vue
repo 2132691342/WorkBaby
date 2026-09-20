@@ -10,6 +10,7 @@ import {
 import { apiGet } from '@/api/client'
 import { openExternal } from '@/api/shellBridge'
 import type { WorkspaceFile } from '@/types/api'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { t } from '@/i18n'
 import Skeleton from '@/components/common/Skeleton.vue'
 import WorkspaceFileTree from '@/components/chat/WorkspaceFileTree.vue'
@@ -114,7 +115,7 @@ function refresh(): void {
       <button
         v-if="pick"
         type="button"
-        class="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-wb-muted transition-colors hover:bg-wb-surface-hover hover:text-wb-primary-strong"
+        class="shrink-0 rounded px-1.5 py-0.5 text-xs2 text-wb-muted transition-colors hover:bg-wb-surface-hover hover:text-wb-primary-strong"
         :title="t('chat.workspacePicker.title')"
         @click="pick"
       >
@@ -158,10 +159,9 @@ function refresh(): void {
 
       <!-- artifacts：可内嵌预览的产物 -->
       <div v-else class="h-full overflow-y-auto p-2">
-        <el-empty
+        <EmptyState variant="empty-search" size="sm"
           v-if="previewableFiles.length === 0"
-          :description="t('chat.noArtifacts')"
-          :image-size="48"
+          :title="t('chat.noArtifacts')"
         />
         <ul v-else class="space-y-0.5">
           <li

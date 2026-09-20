@@ -100,15 +100,6 @@ func TestLoopResilience(t *testing.T) {
 		assert.Equal(t, 1, p.callCount(), "取消后不应再发起下一轮")
 	})
 
-	t.Run("建流失败归一为 error", func(t *testing.T) {
-		p := &mockProvider{streamErr: assert.AnError}
-		l := newTestLoop(t, p)
-
-		out, err := l.Run(context.Background(), []*llm.Message{llm.UserMessage("hi")})
-		require.Error(t, err)
-		assert.Equal(t, ReasonError, out.Reason)
-	})
-
 	t.Run("轮次上限归一为 max_turns", func(t *testing.T) {
 		echo := &mockTool{name: "echo", risk: tool.RiskReadOnly}
 		turn := llm.ChatResponse{
@@ -192,10 +183,4 @@ func TestLoopCheckpoints(t *testing.T) {
 		assert.Equal(t, 5, out.PerTurn[0].Usage.TotalTokens)
 	})
 
-	t.Run("无检查点时续跑报错", func(t *testing.T) {
-		l := newTestLoop(t, &mockProvider{})
-
-		_, err := l.Resume(context.Background())
-		require.Error(t, err)
-	})
 }

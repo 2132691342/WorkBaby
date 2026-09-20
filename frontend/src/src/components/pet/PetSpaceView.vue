@@ -238,7 +238,7 @@ onMounted(load)
                 <span>{{ t(m.labelKey) }}</span>
               </button>
             </div>
-            <p class="mt-2 text-[10px] text-wb-muted">{{ t('pet.mood.hint') }}</p>
+            <p class="mt-2 text-2xs text-wb-muted">{{ t('pet.mood.hint') }}</p>
           </div>
         </section>
 
@@ -259,9 +259,9 @@ onMounted(load)
             >
               <Upload class="h-4 w-4" />
               <span>{{ uploading ? t('pet.uploading') : t('pet.uploadSprite') }}</span>
-              <span class="ml-1 text-[10px] text-wb-muted">≤5MB · png/webp/gif/jpg</span>
+              <span class="ml-1 text-2xs text-wb-muted">≤5MB · png/webp/gif/jpg</span>
             </button>
-            <p class="mt-1 text-[10px] leading-snug text-wb-muted">{{ t('pet.uploadHint') }}</p>
+            <p class="mt-1 text-2xs leading-snug text-wb-muted">{{ t('pet.uploadHint') }}</p>
           </div>
           <div v-if="loading" class="text-sm text-wb-muted">{{ t('pet.loading') }}</div>
           <ul v-else class="space-y-1">
@@ -269,7 +269,7 @@ onMounted(load)
               <div>
                 <span class="text-wb-ink">{{ s.name }}</span>
                 <span v-if="s.format" class="ml-2 text-xs text-wb-muted">{{ s.format }}</span>
-                <span v-if="s.is_builtin" class="ml-2 rounded bg-wb-sky/15 px-1.5 py-0.5 text-[10px] text-sky-700">{{ t('pet.builtin') }}</span>
+                <span v-if="s.is_builtin" class="ml-2 rounded bg-wb-sky/15 px-1.5 py-0.5 text-2xs text-sky-700">{{ t('pet.builtin') }}</span>
               </div>
               <el-button link type="danger" size="small" @click="removeSprite(s.id)">
                 {{ t('pet.delete') }}

@@ -281,21 +281,13 @@ func (s *ChatService) validateWorkspace(ctx context.Context, workspacePath strin
 // WorkspaceRoot 某会话工具链的工作区根：绑定了外部目录用外部目录，否则用默认根。
 // handler 装配期把它包成 tool.RootResolver 注入文件类工具；默认根为空时返回空串
 // （由 tool.ResolveRoot 的调用方兜底），避免把「未配置」误判成「当前目录」。
+// WorkspaceRoot 会话绑定的工作区根；未绑定或查询失败回落到 defRoot。
+// 规则收口在 SessionContext：chat 链路、工具沙箱与文件面板共用同一实现。
 func (s *ChatService) WorkspaceRoot(ctx context.Context, sessionID, defRoot string) string {
-	if sessionID == "" {
+	if s.sctx == nil {
 		return defRoot
 	}
-	row, err := s.sessions.GetByID(ctx, sessionID)
-	if err != nil || row == nil {
-		if err != nil {
-			pkg.L.Warn("workspace root resolve failed, fallback to default", "session", sessionID, "err", err.Error())
-		}
-		return defRoot
-	}
-	if p := strings.TrimSpace(row.WorkspacePath); p != "" {
-		return p
-	}
-	return defRoot
+	return s.sctx.WorkspaceRoot(ctx, sessionID, defRoot)
 }
 
 // UpdateSessionModel 切换会话使用的 Provider/模型（切换后输入框的思考强度与温度展示跟随新模型）。

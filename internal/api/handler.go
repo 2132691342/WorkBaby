@@ -46,43 +46,43 @@ import (
 // 本包允许唯一直接 import wails runtime，且仅用于 runtime.EventsEmit；
 // service / repo / domain 严禁导入 wails。
 type Handler struct {
-	ctx           context.Context
-	paths         *runtime.Paths
-	runtimeMgr    *runtime.Manager
-	cfg           *config.Config
-	bus           *event.Bus
-	eventLog      *event.RunEventLog         // run 事件日志（序号 + 断线重放缓冲），与 SSE hub 共享
-	execs         *core.ExecutionRegistry // 执行平面：全入口统一 run 登记
-	app           *bootstrap.App             // 组合根：repo 装配唯一入口（api 层不 import repo）
-	cipher        *pkg.Cipher
-	reg           *registry.Registry
-	metaSvc       *service.MetaService
-	provSvc       *service.ProviderService
-	chatSvc       *service.ChatService
-	todoStore     *service.SessionTodoStore  // 会话计划存储（todo 工具 + 前端共享）
-	
-	setSvc        *service.SettingsService
-	toolSvc       *service.ToolService
-	dashSvc       *service.DashboardService
-	docsSvc       *service.DocsService
-	approvalSvc   *service.ApprovalService
-	memSvc        *memory.Service
-	memProxy      *service.MemoryService
-	skillSvc      *service.SkillService
-	agentSvc      *service.AgentProfileService
-	commandSvc    *service.UserCommandService
-	mcpSvc        *service.McpService
-	knowledgeSvc  *service.KnowledgeService
-	petSvc        *pet.Service
-	petCtrl       *pet.Controller
-	taskSvc       *service.ChatTaskService // 后台任务域（提交/列表/取消 + task:* 事件）
-	folderSvc     *service.FolderService
-	fileSvc       *service.FileService
-	workspaceSvc  *service.WorkspaceService
-	changeSvc     *service.FileChangeService // 文件变更追踪（快照 + diff + 回滚）
-	artifactSvc   *service.ArtifactService   // 会话产出物登记
-		trustSvc      *service.TrustService      // 工作目录信任
-	hookSvc       *service.UserHookService   // 用户钩子（设置页 CRUD + 运行时执行器）
+	ctx        context.Context
+	paths      *runtime.Paths
+	runtimeMgr *runtime.Manager
+	cfg        *config.Config
+	bus        *event.Bus
+	eventLog   *event.RunEventLog      // run 事件日志（序号 + 断线重放缓冲），与 SSE hub 共享
+	execs      *core.ExecutionRegistry // 执行平面：全入口统一 run 登记
+	app        *bootstrap.App          // 组合根：repo 装配唯一入口（api 层不 import repo）
+	cipher     *pkg.Cipher
+	reg        *registry.Registry
+	metaSvc    *service.MetaService
+	provSvc    *service.ProviderService
+	chatSvc    *service.ChatService
+	todoStore  *service.SessionTodoStore // 会话计划存储（todo 工具 + 前端共享）
+
+	setSvc       *service.SettingsService
+	toolSvc      *service.ToolService
+	dashSvc      *service.DashboardService
+	docsSvc      *service.DocsService
+	approvalSvc  *service.ApprovalService
+	memSvc       *memory.Service
+	memProxy     *service.MemoryService
+	skillSvc     *service.SkillService
+	agentSvc     *service.AgentProfileService
+	commandSvc   *service.UserCommandService
+	mcpSvc       *service.McpService
+	knowledgeSvc *service.KnowledgeService
+	petSvc       *pet.Service
+	petCtrl      *pet.Controller
+	taskSvc      *service.ChatTaskService // 后台任务域（提交/列表/取消 + task:* 事件）
+	folderSvc    *service.FolderService
+	fileSvc      *service.FileService
+	workspaceSvc *service.WorkspaceService
+	changeSvc    *service.FileChangeService // 文件变更追踪（快照 + diff + 回滚）
+	artifactSvc  *service.ArtifactService   // 会话产出物登记
+	trustSvc     *service.TrustService      // 工作目录信任
+	hookSvc      *service.UserHookService   // 用户钩子（设置页 CRUD + 运行时执行器）
 	// Files 服务本地受管文件（main.go AssetServer 转发 /files/**）。
 	// 独立类型而非 Handler 方法：避免 net/http 类型泄漏进 Wails 绑定（见 fileserver.go）。
 	Files        *FileServer
@@ -214,6 +214,11 @@ func (h *Handler) Startup(ctx context.Context) error {
 		}
 	}
 
+	// 会话路径解析：工作区根与过程数据目录的唯一数据源（工具沙箱 / 快照 / 文件面板 / chat 共用）。
+	sctx := service.NewSessionContext(paths.Home, h.app.SessRepo)
+	// 事件出口：chat / task / approval / 变更 / 工件 共用同一实例，seq 落在同一条序列上。
+	emitter := service.NewEmitter(h.bus, h.eventLog)
+
 	// 工具系统：工作区根 + 内置工具注册（exec/file/webfetch/http/websearch）
 	workspace := filepath.Join(paths.Home, "workspace")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -221,33 +226,29 @@ func (h *Handler) Startup(ctx context.Context) error {
 	}
 	// 会话工作区解析：会话绑定了外部目录 → 工具沙箱/面板/exec cwd 全部跟随；
 	// 未绑定时回落到 {home}/workspaces/{sessionID}（会话隔离默认区，与文件面板同源，
-	// 保证「Agent 写的文件 = 面板里看到的文件」）。闭包晚绑定 chatSvc（其构造在工具注册之后）。
+	// 保证「Agent 写的文件 = 面板里看到的文件」）。
 	wsResolver := tool.RootResolver(func(sessionID string) string {
 		def := workspace
 		if sessionID != "" && !strings.Contains(sessionID, "/") && !strings.Contains(sessionID, "\\") {
 			def = filepath.Join(paths.Home, "workspaces", sessionID)
 		}
-		return h.chatSvc.WorkspaceRoot(h.ctx, sessionID, def)
+		return sctx.WorkspaceRoot(ctx, sessionID, def)
 	})
 	// 文件变更追踪：file_write 写前落快照 + diff，前端可预览/回滚
 	// 快照目录跟随会话工作区：绑定本地目录 → {dir}/.workbaby/snapshots/；默认 → {home}/snapshots/
 	h.changeSvc = service.NewFileChangeService(
 		h.app.FileChangeRepo, h.bus, filepath.Join(paths.Home, "snapshots"), workspace,
 	).WithSnapshotRoot(func(sessionID string) string {
-		if h.chatSvc != nil {
-			if _, sd := h.chatSvc.SessionDataDirs(h.ctx, sessionID); sd != "" {
-				return sd
-			}
-		}
-		return filepath.Join(paths.Home, "snapshots", sessionID)
-	}).WithEventLog(h.eventLog)
+		_, sd := sctx.DataDirs(ctx, sessionID)
+		return sd
+	}).WithEmitter(emitter)
 	// 工件登记：产出文件只记引用，前端经 /files 预览
 	h.artifactSvc = service.NewArtifactService(
 		h.app.ArtifactRepo, h.bus, workspace,
-	).WithEventLog(h.eventLog)
+	).WithEmitter(emitter)
 	toolReg := tool.NewRegistry()
 	// 审批门：白名单外/危险命令 → 前端 chat:approval 事件确认后放行；暂停态持久化
-	h.approvalSvc = service.NewApprovalService(h.bus).WithEventLog(h.eventLog).WithRecords(h.app.ApprovalRecRepo).WithGrants(h.app.ApprovalGrantRepo)
+	h.approvalSvc = service.NewApprovalService(h.bus).WithEmitter(emitter).WithRecords(h.app.ApprovalRecRepo).WithGrants(h.app.ApprovalGrantRepo)
 	// exec 工具：白名单运行时动态读取（settings/exec/agent 设置页）；
 	// cwd 缺省跟随会话工作区（绑定了外部目录时），命令与文件工具同一落点
 	if err := toolReg.Register(exectool.New(tool.DefaultExecPolicy()).
@@ -434,15 +435,6 @@ func (h *Handler) Startup(ctx context.Context) error {
 		return err
 	}
 
-	h.chatSvc = service.NewChatService(h.app.SessRepo, h.app.MsgRepo, h.app.ProvRepo, h.app.SetRepo, h.app.UsageRepo, h.bus, h.reg, h.toolSvc, h.memSvc).
-		WithHookRunner(h.hookSvc)
-		
-	// durable pause：审批跨重启决策后，经此钩子从检查点续跑原 run
-	h.approvalSvc.WithResumeHook(func(ctx context.Context, runID string) error {
-		_, err := h.chatSvc.ResumeRun(ctx, runID)
-		return err
-	})
-
 	// 目录信任：恒信任根 = 全局工作区 + 会话工作区根 + 数据目录本身；
 	// exec 的 cwd 不在根内时走 ask → 走审批门 → 批准后落盘 allow。
 	// workspaces 作为整棵会话工作区树纳入恒信任：默认工作区是 App 自己的受管区，
@@ -471,8 +463,10 @@ func (h *Handler) Startup(ctx context.Context) error {
 	}
 	registerCap(capability.NewEnvironment(), capability.OrderEnvironment)
 	registerCap(capability.NewWorkspace(), capability.OrderWorkspace)
-	
-	registerCap(capability.NewMemory(h.memSvc, h.chatSvc.MemoryEnabled), capability.OrderMemory)
+
+	registerCap(capability.NewMemory(h.memSvc, func(c context.Context) bool {
+		return service.MemoryEnabled(c, h.app.SetRepo)
+	}), capability.OrderMemory)
 	registerCap(capability.NewKnowledge(retriever), capability.OrderKnowledge)
 	registerCap(capability.NewSkill(capability.NewSkillSource(
 		func(input string) string { return h.skillSvc.Match(input) },
@@ -501,20 +495,48 @@ func (h *Handler) Startup(ctx context.Context) error {
 	if err := toolReg.SelfCheckSchema(); err != nil {
 		return err
 	}
-	h.chatSvc.WithCapabilities(caps)
-
 	// 文件系统：文件夹树 + 文件托管 + 会话工作区面板（面板与工具链共用会话目录解析）
 	h.folderSvc = service.NewFolderService(h.app.FolderRepo)
 	h.fileSvc = service.NewFileService(h.app.FileRepo, filepath.Join(paths.Home, "files"))
-	// 附件读取能力：聊天消息的图片附件经此转 data URI 发给多模态模型
-	h.chatSvc.WithFileStore(h.fileSvc)
 	h.workspaceSvc = service.NewWorkspaceService(filepath.Join(paths.Home, "workspaces"), func(sessionID string) string {
-		return h.chatSvc.WorkspaceRoot(h.ctx, sessionID, filepath.Join(paths.Home, "workspaces", sessionID))
+		return sctx.WorkspaceRoot(ctx, sessionID, filepath.Join(paths.Home, "workspaces", sessionID))
 	})
 
 	// 用户钩子：设置页管理 + run 生命周期（run_start/before_tool/after_tool/run_end）
 	h.hookSvc = service.NewUserHookService(h.app.UserHookRepo)
-	h.chatSvc.WithHookRunner(h.hookSvc)
+
+	// ChatService：依赖一次性注入（ChatDeps）。
+	// 检查点 / 事件重放 / 消息块 / 运行历史 / 执行平面此前靠后置 setter 注入且从未接上，
+	// 功能静默失效；现值此统一接线，并以 MissingDeps 自检保证不再漏接。
+	h.chatSvc = service.NewChatService(service.ChatDeps{
+		Sessions: h.app.SessRepo, Messages: h.app.MsgRepo, Providers: h.app.ProvRepo,
+		Settings: h.app.SetRepo, Usages: h.app.UsageRepo,
+		Bus: h.bus, Registry: h.reg, Tools: h.toolSvc, Memory: h.memSvc,
+		Session:      sctx,
+		Checkpoints:  service.NewSQLCheckpointStore(h.app.CheckpointRepo),
+		EventLog:     h.eventLog,
+		Emitter:      emitter,
+		Blocks:       h.app.BlocksRepo,
+		RunRecords:   h.app.RunRecRepo,
+		Executions:   h.execs,
+		Approvals:    h.approvalSvc,
+		Trust:        h.trustSvc,
+		Changes:      h.changeSvc,
+		PlanStore:    planStore,
+		Hooks:        h.hookSvc,
+		Files:        h.fileSvc,
+		Capabilities: caps,
+		SkillSync:    h.skillSvc.SyncWorkspace,
+	})
+	if missing := h.chatSvc.MissingDeps(); len(missing) > 0 {
+		return pkg.New(2003, "chat 装配不完整，缺少依赖", strings.Join(missing, ", "))
+	}
+	// durable pause：审批跨重启决策后从检查点续跑原 run。
+	// approval ↔ chat 是真实循环依赖，保留唯一一处构造后绑定。
+	h.approvalSvc.WithResumeHook(func(c context.Context, runID string) error {
+		_, err := h.chatSvc.ResumeRun(c, runID)
+		return err
+	})
 
 	// 桌宠：配置单行 + sprite 资产 + 状态机（chat run 事件驱动）
 	h.petSvc = pet.NewService(h.app.PetCfgRepo, h.app.PetSpriteRepo, filepath.Join(paths.Home, "sprites"))
