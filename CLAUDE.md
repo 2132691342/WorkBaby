@@ -22,6 +22,7 @@
 | MCP 配置 | mcp.json | 文件为源 + DB 同步 |
 | 网络搜索 | DuckDuckGo | 免 Key，HTML 解析 |
 | 日志 | log/slog（标准库） | 落文件 + 轮转 |
+| WebSocket | — | 业务实时通信**全部走 SSE**（`/api/v1/events`），未引入 gorilla/websocket |
 | 测试 | testing + testify | ^1.9.x |
 | ID | oklog/ulid/v2 + google/uuid | 业务 ULID 带前缀；trace 用 UUID |
 | Agent | 自研 core（一个 for + 5 钩子 + 2 队列） | 见 doc/04 |
@@ -68,9 +69,10 @@ WorkBaby/
 │   ├── config/                   # ⑮ 配置（Viper）
 │   ├── event/                    # ⑯ 应用内事件总线
 │   ├── db/                       # ⑰ SQLite 打开 + 迁移
-│   ├── pkg/                      # ⑱ 自研底层工具（叶子：无业务语义，AppError/ID/日志/路径/加密/HTTP 规则）
-│   ├── tray/                     # ⑲ 系统托盘（Windows Win32 自研 + 非 Windows 空实现）
-│   ├── singleinstance/           # ⑳ 单实例保护（命名互斥 + 本地 TCP IPC；非 Windows 空实现）
+│   ├── bootstrap/                # ⑱ App 组合根：repo 实例唯一装配点
+│   ├── pkg/                      # ⑲ 自研底层工具（叶子：无业务语义，AppError/ID/日志/路径/加密/HTTP 规则）
+│   ├── tray/                     # ⑳ 系统托盘（Windows Win32 自研 + 非 Windows 空实现）
+│   ├── singleinstance/           # ㉑ 单实例保护（命名互斥 + 本地 TCP IPC；非 Windows 空实现）
 │
 ├── frontend/                     # Vue 3 工程
 ├── assets/                       # 内置 Skill（embed）/ 图标 / 默认 sprite
@@ -246,6 +248,7 @@ package platform
 |---|---|
 | 统一错误 | AppError + 错误码分段 |
 | 日志 | slog 仅 info/warn/error 三等级；warn、error 单独落文件（workbaby-warn.log / workbaby-error.log）+ 轮转；ctx 注入 sessionID/runID |
+| 实时通信 | SSE only（`internal/server/sse.go`，256 缓冲 / 慢客户端断连 / `chat:gap` 重放窗口溢出）；不引入 WebSocket |
 | 上下文压缩 | MicroCompressor（确定性折叠，不调 LLM） |
 | 并发控制 | 有界 goroutine 池 |
 | 事件总线 | event.Bus + server/sse 桥接 |

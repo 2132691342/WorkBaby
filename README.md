@@ -8,20 +8,19 @@
 | 能力 | 说明 |
 |---|---|
 | 对话 | 多轮 ReAct Agent：流式输出、思考与正文分离、上下文自动压缩、断点幂等续跑、中途插话与自动续接 |
-| 干活 | 内置工具 40+：命令执行、文件读写、联网搜索、文档解析、知识库检索……危险操作走审批门 + 目录信任 + 命令白名单 |
-| 记住 | 三层记忆（短期窗口 / 长期 MEMORY.md / 情景库）：自动形成、按输入召回，模型也可用 `memory_write` 主动记 |
-| 私有资料 | 知识库 RAG：上传文档自动索引（FTS5），对话自动召回相关片段，`knowledge_search` 深度检索 |
-| 流程 | 可视化 DAG 工作流（LLM / 工具 / 条件 / HTTP / 人工输入 / 通知节点），定时触发，对话里 `run_workflow` 直接调 |
-| 扩展 | MCP Server 接入外部工具；Skill 注入方法论与脚本；子 Agent 委派（上下文/预算/工具三重隔离） |
-| 陪伴 | 桌宠与聊天同形象同状态；邮件 / Webhook 通知通道；后台任务中心 |
-| 工作面板 | 右栏 Git 面板三视图：变更（暂存区/工作区拆行 + 行内暂存/丢弃 + 单文件 diff + 提交）、历史（分页 + 提交详情 + 单次提交内文件 diff）、图谱（`log --graph` 只读）；分支切换/新建/删除与 ahead-behind |
-| 仓库导读 | 扫描工作区生成确定性导读：语言统计、入口文件、目录树（每文件一句话摘要）、目录页与文件页 |
-| 生命周期钩子 | run_start / before_tool / after_tool / run_end 触发用户命令子进程（stdin 收 JSON 载荷、stdout 出 JSON 决策），`before_tool` 的 deny 拦截工具调用 |
+| 干活 | 33 个内置工具（15 个域：exec / file / webfetch / websearch / http / doc / archive / delegate / memorywrite / planmode / requestinput / skillrun / todo / knowledge / 12 个纯函数）：命令执行、文件读写、联网搜索、文档解析、知识库检索……危险操作走审批门 + 目录信任 + 命令白名单 |
+| 记住 | 长期记忆（单一一份 MEMORY.md + FTS5 派生索引）：按输入召回，模型可主动用 `memory_write` 写入；设置页可控开关 |
+| 私有资料 | 知识库 RAG：上传文档自动索引（FTS5 trigram），对话自动召回相关片段，`knowledge_search` 深度检索（支持 PDF/Word/Excel 前端预览） |
+| 扩展 | MCP Server 接入外部工具；Skill 注入方法论与脚本；子 Agent 委派（上下文/预算/工具/正文四重隔离） |
+| 陪伴 | 桌宠与聊天同形象同状态；后台任务中心（异步任务 + 状态机 + 跨重启可恢复） |
+| 工作面板 | 右栏工作区文件树、文件变更快照（含 unified diff 与回滚）、辅助对话、任务中心（带徽标）|
+| 仓库导读 | Wiki：会话级确定性扫描，跳过依赖/构建目录，输出目录页 + 文件页（GET `/api/v1/wiki/overview` 与 `/wiki/page`）|
+| 生命周期钩子 | SessionStart / UserPromptSubmit / PreToolUse / PermissionRequest / PostToolUse / PostToolUseFailure / Stop 触发用户命令子进程（stdin 收 JSON 载荷、stdout 出 JSON 决策），`PreToolUse` 的 deny 拦截工具调用 |
 
 ## 技术栈
 
-**Go 1.24+** · Wails v2（WebView2 壳）· gin · GORM + SQLite（WAL + FTS5）· Viper · slog · gorilla/websocket（原生 CDP）
-**Vue 3 + TypeScript + Vite** · Element Plus · Pinia · Tailwind 4 设计 token
+**Go 1.24+** · Wails v2（WebView2 壳）· gin · GORM + SQLite（WAL + FTS5）· Viper · slog · SSE（实时通道，未引入 WebSocket）
+**Vue 3 + TypeScript + Vite** · Element Plus · Pinia · Tailwind 4 设计 token（叠加自研 `wb-ui.css` 玻璃拟态层）
 
 ## 架构：单进程双主机
 
@@ -34,8 +33,8 @@
 └──────────────────────────────────────────────────────────────┘
         │ gin（业务 API + 统一响应 + SSE）        ▲
         ▼                                        │ app:ready 注入端口
-  api ─► service ─► 能力域（harness / llm / tool / capability /
-                    memory / rag / workflow / mcp / pet …）─► repo ─► SQLite
+  api ─► service ─► 能力域（core / llm / tool / capability /
+                    memory / rag / mcp / pet …）─► repo ─► SQLite
 ```
 
 - 业务全部走 HTTP（`{code,message,data}` 统一响应），前端可脱离壳独立调试；
@@ -65,14 +64,15 @@ wails build -nsis -ldflags "-s -w" -trimpath
 ```text
 main.go / app.go        入口装配（embed 前端、托盘、单实例）
 internal/
-  server/ api/ service/ repo/ domain/   HTTP 四层 + 域模型
-  harness/ llm/ tool/ skill/ mcp/       Agent 内核与能力
-  capability/                           能力接入契约（三通道）
-  memory/ rag/ workflow/ pet/           记忆/知识库/工作流/桌宠
-  cron/ channel/ runtime/ pkg/ …        定时/通知/内置运行时/叶子工具
+  server/ api/ service/ repo/ domain/         HTTP 四层 + 域模型
+  core/ llm/ tool/ skill/ mcp/                 Agent 内核与能力
+  capability/                                   能力接入契约（三通道）
+  memory/ rag/ pet/                            记忆/知识库/桌宠
+  config/ event/ db/ bootstrap/ runtime/ pkg/  配置/事件/存储/装配/运行时/叶子工具
+  tray/ singleinstance/                         托盘 / 单实例保护
 frontend/src/src/       Vue 3 工程（api / stores / components / chat）
 assets/                 内置 Skill、图标、用户手册（/api/v1/docs）
-doc/                    设计文档（18 篇）
+doc/                    设计文档（17 篇，doc/06-Skill与MCP.md 缺位待补）
 ```
 
 ## 文档
