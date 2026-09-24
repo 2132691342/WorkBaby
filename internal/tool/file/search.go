@@ -101,8 +101,8 @@ type grepReq struct {
 
 func (t *GrepTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req grepReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "file_grep args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	if len(req.Pattern) > 512 {
 		return tool.ToolResult{Err: pkg.New(4001, "pattern too long", "")}
@@ -290,8 +290,8 @@ func (t *GlobTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolR
 	var req struct {
 		Pattern string `json:"pattern"`
 	}
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "file_glob args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	re, err := globRe(strings.TrimLeft(filepath.ToSlash(req.Pattern), "./"))
 	if err != nil {

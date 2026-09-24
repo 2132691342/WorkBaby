@@ -24,10 +24,8 @@ func (r *SessionTodoRepo) List(ctx context.Context, sessionID string) ([]domain.
 	return rows, nil
 }
 
-// ReplaceAll 用新计划整体替换（事务：删旧 + 批量插新）。
-//
-// 「覆盖」是计划语义：模型重列 plan 时不能留下上一版条目，否则新旧条目并存会让
-// 勾选进度串味。
+// ReplaceAll 用新计划整体替换（事务：删旧 + 批量插新）。「覆盖」是计划语义：模型重列 plan
+// 时不能留下上一版条目，否则新旧并存会让勾选进度串味。
 func (r *SessionTodoRepo) ReplaceAll(ctx context.Context, sessionID string, items []domain.TodoItem) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("session_id = ?", sessionID).Delete(&domain.SessionTodoDO{}).Error; err != nil {

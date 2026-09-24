@@ -1,3 +1,5 @@
+// 知识库测试：中文分块与检索、FTS 短查询兜底、重建索引的替换语义。
+
 package rag
 
 import (
@@ -123,10 +125,8 @@ func TestSearchShortChineseQuery(t *testing.T) {
 }
 
 // TestReindexReplacesChunksAndFTS 重建索引必须替换（而非追加）chunks 与 FTS5 行：
-// 否则同一文档会出现历史脏数据 + 重复命中。
-//
-// 设计要点：标记 token 必须选「trigram 无公共前缀」的两组，否则 FTS5 trigram
-// 分词器会因共享子串误匹配（query "alpha_old" 也能命中含 "alpha_new" 的内容）。
+// 否则同一文档会出现历史脏数据 + 重复命中。标记 token 必须选「trigram 无公共前缀」
+// 的两组，否则共享子串会误匹配（query "alpha_old" 命中含 "alpha_new" 的内容）。
 func TestReindexReplacesChunksAndFTS(t *testing.T) {
 	gdb := newRagTestDB(t)
 	ctx := context.Background()

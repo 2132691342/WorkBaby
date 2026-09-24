@@ -23,10 +23,8 @@ var AllProviderKinds = []ProviderKind{
 }
 
 // ProviderKindMeta 单个 kind 的展示元数据（前端 Settings 下拉渲染用）。
-//
-// 关键约束：每加一种 kind，必须在 internal/llm/<kind>/ 实现 Provider 接口，
-// 并在 registry.go buildOne 加 case —— 否则前端暴露的选项会让用户保存后
-// 立刻撞上 3020「unknown provider kind」（CLAUDE.md §8 反模式「臆造 API 特性」）。
+// 每加一种 kind 必须在 internal/llm/<kind>/ 实现 Provider 并在 registry 加 case，
+// 否则用户保存后立刻撞上「unknown provider kind」。
 type ProviderKindMeta struct {
 	Kind             ProviderKind `json:"kind"`
 	Label            string       `json:"label"`             // 用户可见名（前端可 i18n 覆盖）

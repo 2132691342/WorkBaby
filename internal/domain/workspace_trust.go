@@ -27,10 +27,8 @@ func ParseTrustState(s string) TrustState {
 	}
 }
 
-// WorkspaceTrustDO 工作目录信任登记（workspace_trust 表）。
-//
-// Path 是主键（绝对路径规范化后的形态）；就近查找由 service 层沿祖先链上溯实现，
-// 只登记用户显式决策过的目录——未登记的目录恒为 ask，不写库，避免污染。
+// WorkspaceTrustDO 工作目录信任登记（workspace_trust 表）。Path 是主键（规范化绝对路径）；
+// 就近查找由 service 沿祖先链上溯；未登记目录恒为 ask 且不写库。
 type WorkspaceTrustDO struct {
 	Path      string     `gorm:"primaryKey;size:512" json:"path"`
 	State     TrustState `gorm:"size:16"             json:"state"`
@@ -54,10 +52,8 @@ type WorkspaceTrustRESP struct {
 	UpdatedAt int64      `json:"updated_at"`
 }
 
-// TrustResolveRESP 单目录信任解析结果。
-//
-// Source 是实际命中的登记目录（可能与入参不同：沿祖先链上溯命中）；
-// Source 为空表示未命中任何登记，State 为默认的 ask。
+// TrustResolveRESP 单目录信任解析结果。Source 是实际命中的登记目录（可能沿祖先链上溯
+// 命中，故与入参不同）；为空表示未命中任何登记，State 为默认 ask。
 type TrustResolveRESP struct {
 	Path    string     `json:"path"`
 	State   TrustState `json:"state"`

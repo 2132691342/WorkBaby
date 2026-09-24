@@ -34,6 +34,13 @@ export interface ToolResultBlockData {
   duration_ms?: number
   /** 审批拒绝（Refused 语义）：非故障，前端展示「已拒绝」而非错误态。 */
   refused?: boolean
+  /**
+   * 工具元数据：cwd / same_failure_count / adaptive_hint / truncated_bytes / duration_ms 等。
+   * 后端 chat:tool-result 事件载荷里的 meta map 直接透传（exec 落 cwd，其余按需）。
+   * 前端按 key 取值渲染：cwd 在工具卡标题旁显示，same_failure_count 作失败计数徽标，
+   * adaptive_hint="1" 时把 [guard] 段从 content 中剥离并单独高亮。
+   */
+  meta?: Record<string, string>
 }
 
 /** 安全解析块 payload JSON；失败返回 null（脏数据不拖垮整条消息渲染）。 */

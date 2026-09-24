@@ -8,10 +8,9 @@ import (
 	"strings"
 )
 
-// resolveCommand 把命令名解析为可直接 CreateProcess 的可执行文件与其前置参数。
-//
-// Windows 上 .cmd / .bat 脚本外壳（npm / npx / uvx 等）直接 CreateProcess 会报
-// ERROR_BAD_EXE_FORMAT(193)；这里与 internal/tool/exec 共用同一套兜底。
+// resolveCommand 把命令名解析为可直接 CreateProcess 的可执行文件与其前置参数。Windows 上
+// .cmd / .bat 外壳（npm / npx / uvx）直接 CreateProcess 会报 ERROR_BAD_EXE_FORMAT(193)，
+// 因此与 internal/tool/exec 共用同一套兜底。
 func resolveCommand(name string) (string, []string) {
 	lp, err := exec.LookPath(name)
 	if err != nil {
@@ -23,10 +22,9 @@ func resolveCommand(name string) (string, []string) {
 	return lp, nil
 }
 
-// envWithPath 在现有环境基础上把 dirs 前置到 PATH：
-//   - Windows 变量名大小写不敏感，用 strings.EqualFold 整体替换原 PATH 条目
-//     （避免 os.Environ() 返回 "Path=" 与 "PATH=" 字面匹配不上丢整条系统 PATH）；
-//   - PATH 为空时退化为只用内置运行时目录。
+// envWithPath 在现有环境基础上把 dirs 前置到 PATH。Windows 变量名大小写不敏感，用
+// strings.EqualFold 整体替换原 PATH 条目（os.Environ() 可能返回 "Path=" 而匹配不上 "PATH="，
+// 按字面匹配会丢掉整条系统 PATH）；PATH 为空时退化为只用内置运行时目录。
 func envWithPath(existing []string, dirs []string) []string {
 	if len(dirs) == 0 {
 		return existing

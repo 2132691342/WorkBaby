@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -245,101 +243,28 @@ func (s *ChatService) runLLM(parentCtx context.Context, ses *domain.ChatSessionD
 // 已完成工具调用经 StepRecords 复用，不重放副作用；审批/补充输入会重新发起。
 
 func (s *ChatService) executeAgent(ctx context.Context, ses *domain.ChatSessionDO, runID, assistantMsgID, userInput string, params core.RequestParams, def core.Definition, resume bool) *core.Outcome {
-	// run 前按会话工作区叠加技能目录（未变化时零开销）；失败不阻断 run
-	if s.skillSync != nil {
-		if err := s.skillSync(ctx, ses.WorkspacePath); err != nil {
-			pkg.L.Warn("sync workspace skills failed", "sessionID", ses.ID, "err", err.Error())
-		}
-	}
-	// Agent 定义的运行期覆盖（见 core.Definition.Model / Thinking）：
-	//   - 模型：Agent 定义优先于会话模型；优先级差必须让用户看见，否则「界面上显示 A、实际跑 B」无法解释。
-	//   - 推理强度：仅当请求级未显式指定时生效——用户当次点的档位永远优先于 Agent 定义。
-	runModel := def.EffectiveModel(ses.Model)
-	if runModel != ses.Model {
-		pkg.L.Info("agent overrides session model",
-			"sessionID", ses.ID, "agent", def.Name, "sessionModel", ses.Model, "model", runModel)
-		s.emit(runID, ses.ID, "chat:warn", map[string]any{
-			"kind":          "agent_model_override",
-			"agent":         def.Name,
-			"session_model": ses.Model,
-			"model":         runModel,
-			"message":       "本次运行由子智能体定义指定了模型 " + runModel + "（会话模型 " + ses.Model + " 已被覆盖）",
-		})
-	}
-	if params.Thinking == nil && def.Thinking != "" {
-		params.Thinking = llm.ThinkingFromEffort(def.Thinking)
-	}
-	// UserPromptSubmit 用户钩子：模型调用前可补充上下文，或阻断本次请求（策略拦截）。
-	// 续跑不重复触发——该事件属于「用户提交」这一次动作。
-	promptHookCtx := ""
-	if s.hookRunner != nil && !resume {
-		blocked, reason, extra := s.hookRunner.UserPromptSubmit(ctx, ses.ID, runID, userInput, ses.WorkspacePath, ses.PermissionMode)
-		promptHookCtx = extra
-		if blocked {
-			herr := pkg.New(8610, "请求被用户钩子阻断", reason)
-			s.failRun(ctx, runID, ses.ID, assistantMsgID, herr)
-			return &core.Outcome{Reason: core.ReasonError, Err: herr}
-		}
-	}
+	// 运行前装配见 chat_prepare.go：技能叠加 → Agent 覆盖 → 用户钩子 → 历史 → system → 工具暴露。
+	s.syncWorkspaceSkills(ctx, ses)
+	runModel, params := s.applyAgentOverrides(ctx, ses, runID, def, params)
 
+	promptHookCtx, err := s.promptHookContext(ctx, ses, runID, userInput, resume)
+	if err != nil {
+		return s.failOutcome(ctx, ses, runID, assistantMsgID, err)
+	}
 	prov, err := s.reg.Get(ses.ProviderID)
 	if err != nil {
-		s.failRun(ctx, runID, ses.ID, assistantMsgID, err)
-		return &core.Outcome{Reason: core.ReasonError, Err: err}
+		return s.failOutcome(ctx, ses, runID, assistantMsgID, err)
+	}
+	llmMsgs, err := s.loadRunHistory(ctx, ses)
+	if err != nil {
+		return s.failOutcome(ctx, ses, runID, assistantMsgID, err)
 	}
 
-	// 拉历史 messages → 组装给 LLM（含工具调用上下文）
-	hists, err := s.messages.ListBySession(ctx, ses.ID, 0, 0)
-	if err != nil {
-		s.failRun(ctx, runID, ses.ID, assistantMsgID, err)
-		return &core.Outcome{Reason: core.ReasonError, Err: err}
-	}
-	llmMsgs, err := s.toLLMMessagesWithVision(ctx, hists, s.providerVision(ctx, ses.ProviderID))
-	if err != nil {
-		s.failRun(ctx, runID, ses.ID, assistantMsgID, err)
-		return &core.Outcome{Reason: core.ReasonError, Err: err}
-	}
-	// 辅助对话：主会话历史按预算前置拼接（有界 + 对齐 user 轮次），追问不用重复交代背景
-	parentMsgs, err := s.sideParentMessages(ctx, ses, s.providerVision(ctx, ses.ProviderID))
-	if err != nil {
-		s.failRun(ctx, runID, ses.ID, assistantMsgID, err)
-		return &core.Outcome{Reason: core.ReasonError, Err: err}
-	}
-	if len(parentMsgs) > 0 {
-		llmMsgs = append(parentMsgs, llmMsgs...)
-		pkg.L.Debug("side parent prefix", "sessionID", ses.ID, "prefixMsgs", len(parentMsgs))
-	}
-
-	// system 装配（真实请求口径，与 ContextUsage 透视同源——见 buildSystem）
+	// system 装配（真实请求口径，与 ContextUsage 透视同源——见 buildSystem）：
+	// 能力注入段 + 服务侧附加段 + 用户钩子补充段，最终交给内核 Config.System。
+	// 历史里不再前置 system 消息——两处都放会让上游收到两条 system，部分厂商直接 400。
 	sys, runState := s.buildSystem(ctx, ses, runID, userInput, def)
-	activeSkillTools := runState.SkillTools
-	// 用户钩子的上下文补充段：SessionStart（首轮模型请求前，续跑不重放）+ UserPromptSubmit。
-	// 追加在 system 尾部而非新开一条 system 消息，避免多 system 段在部分上游被拒。
-	if s.hookRunner != nil {
-		var parts []string
-		if !resume {
-			if txt := s.hookRunner.SessionStart(ctx, ses.ID, runID, "startup", ses.WorkspacePath, ses.PermissionMode); txt != "" {
-				parts = append(parts, txt)
-			}
-		}
-		if promptHookCtx != "" {
-			parts = append(parts, promptHookCtx)
-		}
-		if len(parts) > 0 {
-			extra := "## 用户钩子上下文\n\n" + strings.Join(parts, "\n\n")
-			if sys != nil {
-				sys.Content = sys.Content + "\n\n" + extra
-			} else {
-				sys = &llm.Message{Role: llm.RoleSystem, Content: extra}
-			}
-		}
-	}
-	// system 交给内核拼装（core.Config.System），历史里不再前置 system 消息——
-	// 两处都放会让上游收到两条 system，部分厂商直接 400。
-	sysText := ""
-	if sys != nil {
-		sysText = sys.Content
-	}
+	sysText := s.systemWithHookContext(ctx, ses, runID, sys, promptHookCtx, resume)
 
 	// 终态事件延迟到 assistant 消息落库后再发：前端收 chat:done 会立刻拉权威快照，
 	// 早于落库会让「空 content」覆盖已渲染内容，过程块一并丢失。
@@ -352,38 +277,17 @@ func (s *ChatService) executeAgent(ctx context.Context, ses *domain.ChatSessionD
 		}
 	}()
 
-	// 工具两级过滤：Skill 白名单（命中 skill 时）→ Agent 工具策略
-	toolDefs := s.tools.LLMDefinitionsFiltered(ctx, activeSkillTools)
-	toolDefs = def.FilterTools(toolDefs)
-	toolNames := make([]string, 0, len(toolDefs))
-	for _, d := range toolDefs {
-		toolNames = append(toolNames, d.Name)
-	}
+	toolNames := s.exposedToolNames(ctx, def, runState.SkillTools)
 
 	// 上下文预算按「上下文窗口 × 压缩比例」重算：Agent 内置值是静态的，
 	// 小窗口模型会撑爆、大窗口模型又过早压缩，交给 provider 与全局设置决定。
-	provRow := s.providerDO(ctx, ses.ProviderID)
 	window := s.modelContextWindow(ctx, ses.ProviderID, runModel)
-	budget := s.contextBudget(ctx, window, provRow)
-
+	budget := s.contextBudget(ctx, window, s.providerDO(ctx, ses.ProviderID))
 	// 单次 run 的 token 花费上限（全局设置；0 = 不限）。
 	maxRunTokens := int(s.settingFloat(ctx, domain.SettingKeyChatMaxRunTokens, 0))
-
 	// 采样参数两层合并：请求级 > 全局默认（Provider 级已被 §3.4 下线）。
-	dl := s.defaults(ctx)
-	temperature := params.Temperature
-	if temperature == nil {
-		t := dl.Temperature
-		temperature = &t
-	}
-	thinking := params.Thinking
-	if thinking == nil {
-		thinking = dl.Thinking
-	}
-	execTimeout := 5 * time.Minute
-	if def.Budget.ToolCallTimeout > 0 {
-		execTimeout = def.Budget.ToolCallTimeout
-	}
+	temperature, thinking := s.sampleParams(ctx, params)
+
 	// 装配内核：主循环只做「请求 → 执行 → 回填」，权限 / 审批 / 信任 / 续接全在
 	// 中间件与钩子里（见 chat_agent.go）。
 	stopContinues := 0
@@ -401,7 +305,7 @@ func (s *ChatService) executeAgent(ctx context.Context, ses *domain.ChatSessionD
 		Thinking:       thinking,
 		MaxRunTokens:   maxRunTokens,
 		MaxInput:       budget,
-		ExecTimeout:    execTimeout,
+		ExecTimeout:    toolCallTimeout(def),
 		Hooks: core.Hooks{
 			// 轮间插话：跑过工具后允许用户纠偏，下一轮生效。
 			Steering: func(context.Context) []*llm.Message { return s.steers.drain(ses.ID) },
@@ -434,8 +338,8 @@ func (s *ChatService) executeAgent(ctx context.Context, ses *domain.ChatSessionD
 
 	pkg.L.Info("chat run start",
 		"runID", runID, "sessionID", ses.ID, "providerID", ses.ProviderID, "model", runModel,
-		"agent", def.Name, "history", len(llmMsgs), "tools", len(toolDefs),
-		"skill", strings.Join(activeSkillTools, ","), "resume", resume)
+		"agent", def.Name, "history", len(llmMsgs), "tools", len(toolNames),
+		"skill", strings.Join(runState.SkillTools, ","), "resume", resume)
 	var res *core.Outcome
 	var runErr error
 	if resume {
@@ -451,109 +355,16 @@ func (s *ChatService) executeAgent(ctx context.Context, ses *domain.ChatSessionD
 	}
 	elapsed := time.Since(runStart).Milliseconds()
 
+	// 用量先落明细再统计：明细是仪表盘三线图的唯一数据源，失败只告警不阻断（不因计量丢回答）。
 	s.persistUsage(ctx, ses, runID, assistantMsgID, runModel, res)
-
+	logRunResult(ses, runID, runModel, res, len(mapper.toolCalls), elapsed, resume)
+	// 收尾见 chat_finalize.go：终态落库 → 反幻觉核验 → run 后沉淀。
+	s.finalizeRun(ctx, ses, runID, assistantMsgID, runModel, res, mapper)
 	if res.Err != nil {
-		pkg.L.Error("chat run failed",
-			"runID", runID, "sessionID", ses.ID, "reason", res.Reason,
-			"latencyMs", elapsed, "err", res.Err.Error())
-	} else {
-		pkg.L.Info("chat run done",
-			"runID", runID, "sessionID", ses.ID, "reason", res.Reason,
-			"stopReason", res.StopReason, "turns", res.Turns, "toolCalls", len(mapper.toolCalls),
-			"latencyMs", elapsed,
-			"input", res.Usage.InputTokens, "output", res.Usage.OutputTokens,
-			"cacheRead", res.Usage.CacheReadTokens, "total", res.Usage.TotalTokens)
-	}
-	// 运行历史落库：事件明细走 JSONL，这里只回填可列表 / 可跳转回放的索引。
-	s.finishRunRecord(ctx, runID, res)
-
-	nowMs := time.Now().UnixMilli()
-	// 终止原因统一口径：内核枚举 → 领域 stop_reason，
-	// max_turns / budget_exceeded 不再被硬写成 completed，前端可差异化收尾。
-	stopReason := domain.MapHarnessReason(res.Reason)
-	// 权限来源回滚：以 error/cancelled 收尾的 run 不留下本次扩出的免审授权
-	// （未验证的工作不保留「本会话允许」），成功/主动收尾的 run 授权保留。
-	if s.approval != nil && (res.Reason == core.ReasonCancelled || res.Reason == core.ReasonError) {
-		s.approval.RollbackRun(runID)
-	}
-	toolCallsJSON := ""
-	if len(mapper.toolCalls) > 0 {
-		if bs, err := json.Marshal(mapper.toolCalls); err == nil {
-			toolCallsJSON = string(bs)
-		}
-	}
-	// 消息级费用估算：按累计用量 × 单价（未配置单价为空串，前端不显示费用）。
-	costUSD := s.modelPricing(ctx, runModel).
-		CostUSD(int64(res.Usage.InputTokens), int64(res.Usage.OutputTokens), int64(res.Usage.CacheReadTokens))
-	costStr := ""
-	if costUSD > 0 {
-		costStr = fmt.Sprintf("$%.4f", costUSD)
-	}
-	if res.Err != nil {
-		s.finishExec(runID, core.StateFailed)
-		_ = s.messages.UpdateStatus(ctx, assistantMsgID, map[string]any{
-			"content":       res.Content,
-			"thinking":      res.Thinking,
-			"tool_calls":    toolCallsJSON,
-			"status":        domain.MessageStatusFailed,
-			"stop_reason":   stopReason,
-			"output_tokens": res.Usage.OutputTokens,
-			"cost":          costStr,
-			"updated_at":    nowMs,
-		})
 		return res
 	}
-	s.finishExec(runID, execState(res.Reason))
-	_ = s.messages.UpdateStatus(ctx, assistantMsgID, map[string]any{
-		"content":       res.Content,
-		"thinking":      res.Thinking,
-		"tool_calls":    toolCallsJSON,
-		"status":        domain.MessageStatusCompleted,
-		"stop_reason":   stopReason,
-		"input_tokens":  res.Usage.InputTokens,
-		"output_tokens": res.Usage.OutputTokens,
-		"cache_read":    res.Usage.CacheReadTokens,
-		"total_tokens":  res.Usage.TotalTokens,
-		"cost":          costStr,
-		"latency_ms":    nowMs - ses.LastMessageAt,
-		"updated_at":    nowMs,
-	})
-
-	// 反幻觉核验：声称已产出文件，但本 run 没有对应的 file_changes（拒绝/失败的不算）
-	// → 强提示揭露。证据级别从「整轮是否有写工具」升级为「声明路径与本 run 产物的精确比对」——
-	// 只跑 exec / 搜索后泛指「已生成 report」也算幻觉。
-	if claimsArtifact(res.Content) && s.changeSvc != nil {
-		changeRows, _ := s.changeSvc.ListByRun(ctx, runID, 200)
-		changes := make([]changeEvidence, 0, len(changeRows))
-		for _, r := range changeRows {
-			changes = append(changes, changeEvidence{Path: r.RelPath})
-		}
-		if !evidenceForClaim(claimedPaths(res.Content), mapper.toolCalls, changes) {
-			pkg.L.Warn("unbacked artifact claim (no matching file_changes in run)",
-				"runID", runID, "sessionID", ses.ID, "model", runModel,
-				"claimed", fmt.Sprint(claimedPaths(res.Content)), "changes", len(changeRows))
-			s.emit(runID, ses.ID, "chat:warn", map[string]any{
-				"kind":    "unbacked_claim",
-				"message": "本条回复声称已产出文件，但本 run 没有任何对应的写文件变更记录——相关文件并不存在，请让模型实际写入后再确认。",
-			})
-		}
-	}
-
-	// run 后沉淀（记忆形成等）：异步执行、独立超时，不阻塞响应；
-	// 各能力按自身策略决定是否沉淀（如 Agent 定义关闭 Formation 时记忆能力直接跳过）
-	s.caps.CaptureAll(&capability.CaptureCtx{
-		SessionID:  ses.ID,
-		RunID:      runID,
-		UserInput:  userInput,
-		Reply:      res.Content,
-		Transcript: captureTranscript(llmMsgs, userInput, res.Content),
-		Def:        def,
-		ProviderID: ses.ProviderID,
-		Model:      runModel,
-	}, memoryCaptureTimeout)
-	// 目标模式：活动目标在 run 正常收尾后自动校验，未达标携带下一步动作续跑
-	s.maybeContinueGoal(ctx, ses, runID, res)
+	s.verifyArtifactClaims(ctx, ses, runID, runModel, res, mapper)
+	s.afterRun(ctx, ses, def, runID, runModel, userInput, llmMsgs, res)
 	return res
 }
 
@@ -576,11 +387,6 @@ func captureTranscript(sent []*llm.Message, userInput, reply string) []llm.Messa
 	}
 	return transcript
 }
-
-// persistUsage 把每次 LLM 调用的用量落 token_usages。
-//
-// 先落明细再统计：明细是仪表盘三线图的唯一数据源，失败只告警不阻断（不因计量丢回答）。
-// 计费按 pricing.<model> KV 单价估算（未配置则 cost=0），费用随明细落库供仪表盘聚合。
 
 // failRun 错误落库：标 failed + 发 chat:error。
 func (s *ChatService) failRun(ctx context.Context, runID, sessionID, assistantMsgID string, err error) {

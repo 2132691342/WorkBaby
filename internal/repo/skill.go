@@ -36,9 +36,8 @@ func (r *SkillRepo) GetByName(ctx context.Context, name string) (*domain.SkillDO
 	return &row, nil
 }
 
-// Upsert 按 name upsert（builtin 重装 / custom 更新）。
-// 用「先查后写」而非 FirstOrCreate：内置 Skill 每次启动都带新 ULID，
-// dest 自带主键会被 FirstOrCreate 带进查询条件 → 查不到 → 走 INSERT → 撞 name 唯一索引（二次启动必崩）。
+// Upsert 按 name upsert（builtin 重装 / custom 更新）。用「先查后写」而非 FirstOrCreate：
+// dest 自带主键会被带进查询条件 → 查不到 → INSERT → 撞 name 唯一索引（二次启动必崩）。
 // Unscoped 让软删过的同名 Skill 可复用（等于取消软删）。
 func (r *SkillRepo) Upsert(ctx context.Context, row *domain.SkillDO) error {
 	// 每步都开新 session：GORM 的 session 会携带上一步的 ErrRecordNotFound

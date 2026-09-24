@@ -58,11 +58,8 @@ func (h *Handler) ListAvailableModels() ([]domain.AvailableModelRESP, error) {
 	return h.provSvc.ListAvailable(h.ctx)
 }
 
-// ListProviderKinds 暴露给前端：所有已实现 ProviderKind + 展示元数据。
-// 关键设计：前端不写死 kind 列表，从后端拉 ——
-//
-//	加新 ProviderKind 时：domain.AllProviderKindMetas 加一项 + internal/llm/<kind>/ 实现 Provider 接口
-//	+ registry.go buildOne 加 case；前端 0 改动即可见
+// ListProviderKinds 暴露给前端所有已实现 ProviderKind + 展示元数据。前端不写死 kind 列表
+// （从后端拉）：加新 kind 只需 domain 元数据一项 + llm/<kind>/ 实现 + registry case，前端 0 改动。
 func (h *Handler) ListProviderKinds() (domain.ProviderKindsRESP, error) {
 	return domain.AllProviderKindMetas, nil
 }

@@ -65,8 +65,8 @@ type archiveReq struct {
 // Execute 执行 zip / unzip。
 func (t *ArchiveTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req archiveReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "archive_manager args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	root := t.resolve(ctx)
 	src, err := t.safePath(root, req.Source)

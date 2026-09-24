@@ -258,15 +258,15 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
           <h3 class="text-lg font-semibold tracking-tight text-wb-ink">{{ t('chat.emptyTitle') }}</h3>
           <p class="mt-2 text-sm text-wb-muted">{{ t('chat.emptyPrompt') }}</p>
           <p class="mt-1 text-xs text-wb-muted/70">{{ t('chat.emptyHint') }}</p>
-          <!-- 无可用模型：直达设置页引导 -->
+          <!-- 无可用模型：直达设置页引导。中性提示条（琥珀只留给状态灯，不参与页面装饰） -->
           <div
             v-if="noModels"
-            class="mx-auto mt-4 flex max-w-sm items-center justify-center gap-2 rounded-lg border border-wb-warning/30 bg-wb-warning/10 px-3 py-2 text-xs text-wb-ink"
+            class="mx-auto mt-4 flex w-fit max-w-full items-center gap-2 rounded-lg border border-wb-border bg-wb-surface-2 px-3 py-2 text-xs text-wb-ink"
           >
             <span>{{ t('chat.noModelsGuide') }}</span>
-            <el-button link type="primary" size="small" @click="goSettings">
-              <el-icon class="mr-0.5"><Settings /></el-icon>{{ t('chat.goSettings') }}
-            </el-button>
+            <button class="btn-ghost fs12" type="button" @click="goSettings">
+              <Settings class="ic ic-sm" />{{ t('chat.goSettings') }}
+            </button>
           </div>
         </div>
         <div class="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -274,7 +274,7 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
             v-for="(s, i) in quickPrompts"
             :key="i"
             type="button"
-            class="card-pop qb-card group flex items-start gap-3 px-4 py-3.5 text-left"
+            class="card qb-card group flex items-start gap-3 text-left"
             @click="$emit('useQuickPrompt', s.text)"
           >
             <span
@@ -343,12 +343,13 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
         </div>
       </div>
 
-      <!-- 流式中的 assistant 气泡 -->
-      <div v-if="streaming" class="flex justify-start">
-        <AssistantAvatar class="mr-3" speaking />
-        <div class="w-full min-w-0">
-          <div class="mb-1 flex items-center gap-2 px-1 text-xs text-wb-muted">
-            <span class="font-medium text-wb-ink">WorkBaby</span>
+      <!-- 流式中的 assistant 气泡：头像列 + 名字行 + 裸文本 -->
+      <div v-if="streaming" class="msg-a">
+        <AssistantAvatar speaking />
+        <div class="msg-a-body">
+          <div class="msg-a-name">
+            WorkBaby
+            <span class="t-mono faint">· {{ t('chat.running') }}</span>
           </div>
           <StreamingBubble />
         </div>
@@ -397,16 +398,16 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
     </div>
 
     <!-- 滚动到底部按钮：fixed 定位确保不被 overflow 容器裁剪，bottom-24 抬到 composer 上方（不重叠） -->
-    <el-button
+    <button
       v-if="!pinned"
-      size="small"
-      round
-      class="fixed bottom-24 left-1/2 z-30 -translate-x-1/2 shadow-[var(--wb-shadow-lg)]"
+      type="button"
+      class="btn btn-sm fixed bottom-24 left-1/2 z-30 -translate-x-1/2"
+      style="box-shadow: var(--wb-shadow-2)"
       @click="scrollToBottom"
     >
-      <el-icon class="mr-1"><ChevronDown /></el-icon>
+      <ChevronDown class="ic-xs" />
       {{ t('chat.scrollToBottom') }}
-    </el-button>
+    </button>
   </div>
 </template>
 

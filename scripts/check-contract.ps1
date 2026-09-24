@@ -1,18 +1,20 @@
-﻿# check-contract.ps1 — WorkBaby 契约门禁（CLAUDE.md §4 补充）
+# check-contract.ps1 - WorkBaby contract gate (see AGENTS.md section 4)
 #
-# 检查项：
-#   route-cancel-resume-split   POST /chat/sessions/:id/cancel 与 POST /chat/runs/:id/resume 必须分别走不同路径
-#                               （同形异义陷阱治理）
-#   http-prefix-sync            前端 api/client.ts 的 KNOWN_PREFIXES 必须与后端 routes_*.go 注册路径前缀一致
+# Checks:
+#   route-cancel-resume-split   POST /chat/sessions/:id/cancel and POST /chat/runs/:id/resume
+#                               must live on different paths (same-shape-different-meaning trap)
+#   http-prefix-sync            frontend api/client.ts KNOWN_PREFIXES must match backend
+#                               routes_*.go registered path prefixes
 #
-# 设计原则：宁可误报也不要漏报——前端调了未注册路径就是 404，契约漂移必须立刻发现。
+# Principle: prefer false positives over misses - an unregistered frontend path is a hard 404,
+# and contract drift must surface immediately.
 #
-# 用法： powershell -ExecutionPolicy Bypass -File scripts/check-contract.ps1
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/check-contract.ps1
 
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
-# 脚本位于 <root>/scripts/，根目录是其祖父级
-# Split-Path -Parent 在某些 PS 版本会做 cwd-relative join；用 Convert-Path 转成绝对路径
+# Script lives in <root>/scripts/, so the repo root is its grandparent.
+# Split-Path -Parent may do cwd-relative joins on some PS versions; resolve to absolute first.
 $scriptPath = (Resolve-Path -LiteralPath $PSCommandPath).Path
 $root = Split-Path -Parent (Split-Path -Parent $scriptPath)
 Set-Location $root
@@ -28,17 +30,12 @@ function Pass([string]$msg) {
     Write-Host "PASS  $msg" -ForegroundColor Green
 }
 
-# ============== 1. cancel/resume 路径拆分检查 ==============
-$cancelPattern = 'v1\.POST\("/chat/sessions/:id/cancel"'
-$resumePattern = 'v1\.POST\("/chat/runs/:id/resume"'
-$legacyCancel  = 'v1\.POST\("/chat/stream/:id/cancel"'
-$legacyResume  = 'v1\.POST\("/chat/stream/:id/resume"'
-
+# ============== 1. cancel/resume path split ==============
 $routeFiles = @(Get-ChildItem -Path (Join-Path $root 'internal\server') -Recurse -Filter 'routes_*.go' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
 if ($routeFiles.Count -eq 0) {
     Write-Host "DEBUG  cwd=$((Get-Location).Path)  root=$root" -ForegroundColor Yellow
     Write-Host "DEBUG  joined=$(Join-Path $root 'internal\server')" -ForegroundColor Yellow
-    Fail "无法定位 routes_*.go（cwd=$((Get-Location).Path)）"
+    Fail "cannot locate routes_*.go (cwd=$((Get-Location).Path))"
 }
 
 function HasMatch($files, $substr) {
@@ -53,32 +50,36 @@ $hasNewResume = HasMatch $routeFiles '/chat/runs/:id/resume'
 $hasOldCancel = HasMatch $routeFiles '/chat/stream/:id/cancel'
 $hasOldResume = HasMatch $routeFiles '/chat/stream/:id/resume'
 
-if (-not $hasNewCancel) { Fail "缺少 POST /chat/sessions/:id/cancel 路由（按 CLAUDE.md §2.12 拆分后应为 sessionID 路由）" }
-else { Pass "POST /chat/sessions/:id/cancel 已注册" }
-if (-not $hasNewResume) { Fail "缺少 POST /chat/runs/:id/resume 路由（按 CLAUDE.md §2.12 拆分后应为 runID 路由）" }
-else { Pass "POST /chat/runs/:id/resume 已注册" }
-if ($hasOldCancel) { Fail "仍存在 POST /chat/stream/:id/cancel 旧路由——会与拆分后的 sessionID 路由冲突" }
-if ($hasOldResume) { Fail "仍存在 POST /chat/stream/:id/resume 旧路由——会与拆分后的 runID 路由冲突" }
+if (-not $hasNewCancel) { Fail "missing route POST /chat/sessions/:id/cancel (sessionID route per AGENTS.md)" }
+else { Pass "POST /chat/sessions/:id/cancel registered" }
+if (-not $hasNewResume) { Fail "missing route POST /chat/runs/:id/resume (runID route per AGENTS.md)" }
+else { Pass "POST /chat/runs/:id/resume registered" }
+if ($hasOldCancel) { Fail "legacy route POST /chat/stream/:id/cancel still present - conflicts with the sessionID route" }
+if ($hasOldResume) { Fail "legacy route POST /chat/stream/:id/resume still present - conflicts with the runID route" }
 
-# ============== 2. 前端 KNOWN_PREFIXES 与后端路由前缀一致性 ==============
+# ============== 2. frontend KNOWN_PREFIXES vs backend route prefixes ==============
 #
-# 原则：前端 KNOWN_PREFIXES 是「段级白名单」——数组元素要么 '/api/v1/X'（段根），要么 '/api/v1/X/'（段根带 / 后缀）。
-# 后端 routes_*.go 注册的路径去掉 :xxx 占位符后，凡归属到某段的，均应被前端对应白名单覆盖。
+# KNOWN_PREFIXES is a segment-level allowlist: each entry is either '/api/v1/X' (segment root)
+# or '/api/v1/X/' (segment root with trailing slash).
+# Backend routes registered in routes_*.go, after stripping :xxx placeholders, should all be
+# covered by the matching frontend entry.
 #
-# 双向匹配语义：前缀 p 满足「p 等于 fp 或以 fp 开头」即视为匹配。
+# Bidirectional match: prefix p matches frontend prefix fp when p equals fp or starts with fp.
 $backendSegments = @{}
 foreach ($f in $routeFiles) {
     $content = Get-Content -Raw -LiteralPath $f
-    # 注意：不得命名 $matches —— 与 PowerShell 自动变量冲突，-match 会覆盖它
-    # routes_*.go 注册的是相对 gin Group 的路径（如 "/chat/sessions"），完整路径 = "/api/v1" + 相对路径
-    # 接收者变量名不一（v1 / g / r 等），用 [A-Za-z]\w* 匹配
+    # Do not name a variable $matches - it collides with the PowerShell automatic variable
+    # and -match overwrites it.
+    # routes_*.go registers paths relative to a gin group (e.g. "/chat/sessions");
+    # the full path is "/api/v1" + relative path. Receiver names vary (v1 / g / r),
+    # hence the [A-Za-z]\w* pattern.
     $routeMatches = [regex]::Matches($content, '[A-Za-z]\w*\.(?:GET|POST|PUT|DELETE|Any|Handle)\("(/[^"]+)"')
     foreach ($rm in $routeMatches) {
         $path = '/api/v1' + $rm.Groups[1].Value
-        # 去掉 :id / :name / :itemID / :mode / :cid / :sid / :run_id 等占位符
+        # strip :id / :name / :itemID / :mode / :cid / :sid / :run_id placeholders
         $clean = [regex]::Replace($path, ':[A-Za-z_][A-Za-z0-9_]*', '')
         $clean = $clean.TrimEnd('/')
-        # '/api/v1/chat/sessions' split 后 4 元素，取前 4 个 join = '/api/v1/chat'
+        # '/api/v1/chat/sessions' splits into 4 elements; the first 4 joined give '/api/v1/chat'
         if ($clean -match '^/api/v1/[^/]+(/.*)?$') {
             $seg = ($clean -split '/')[0..3] -join '/'
             $backendSegments[$seg] = $true
@@ -102,7 +103,7 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
     }
 }
 if ($frontendSegments.Count -eq 0) {
-    Fail "无法从 $clientFile 解析出任何 KNOWN_PREFIXES（文件不存在或为空）"
+    Fail "cannot parse any KNOWN_PREFIXES from $clientFile (missing or empty)"
 }
 $frontendSegmentList = ($frontendSegments.Keys | Sort-Object)
 if ($env:WB_CONTRACT_DEBUG) {
@@ -112,7 +113,7 @@ if ($env:WB_CONTRACT_DEBUG) {
     $backendSegmentList | ForEach-Object { Write-Host "  [$_]" -ForegroundColor Yellow }
 }
 
-# A. 后端有段但前端无 → 死段（前端永远无法触达，需评估是否下线）
+# A. backend segment not covered by frontend - dead segment (unreachable, review for removal)
 $backendOnly = @()
 foreach ($seg in $backendSegmentList) {
     $matched = $false
@@ -122,7 +123,7 @@ foreach ($seg in $backendSegmentList) {
     if (-not $matched) { $backendOnly += $seg }
 }
 
-# B. 前端有段但后端无 → 必 404（最严重）
+# B. frontend segment with no backend route - guaranteed 404 (most severe)
 $frontendOnly = @()
 foreach ($seg in $frontendSegmentList) {
     $matched = $false
@@ -133,21 +134,21 @@ foreach ($seg in $frontendSegmentList) {
 }
 
 if ($frontendOnly.Count -gt 0) {
-    $frontendOnly | ForEach-Object { Fail "前端调用 KNOWN_PREFIXES '$_' 在后端无任何匹配路由（必 404）" }
+    $frontendOnly | ForEach-Object { Fail "frontend KNOWN_PREFIXES '$_' has no matching backend route (guaranteed 404)" }
 } else {
-    Pass "前端 KNOWN_PREFIXES 全部匹配后端路由"
+    Pass "all frontend KNOWN_PREFIXES match backend routes"
 }
 
 if ($backendOnly.Count -gt 0) {
     Write-Host ""
-    Write-Host "WARN  以下后端前缀前端未覆盖（可能是死接口，审查是否下线）：" -ForegroundColor Yellow
+    Write-Host "WARN  backend prefixes not covered by frontend (possibly dead endpoints):" -ForegroundColor Yellow
     $backendOnly | ForEach-Object { Write-Host "      $_" -ForegroundColor Yellow }
 }
 
-# ============== 收尾 ==============
+# ============== summary ==============
 Write-Host ""
 if ($failures.Count -gt 0) {
-    Write-Host "======== 失败 $($failures.Count) 项 ========" -ForegroundColor Red
+    Write-Host "======== $($failures.Count) failure(s) ========" -ForegroundColor Red
     exit 1
 }
-Write-Host "======== 全部通过 ========" -ForegroundColor Green
+Write-Host "======== all checks passed ========" -ForegroundColor Green

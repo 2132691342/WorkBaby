@@ -27,10 +27,8 @@ const (
 	ClassUnknown   ErrorClass = "unknown"   // 未知：保守不重试
 )
 
-// ClassifyError 把错误稳定归入桶。
-//
-// <p>provider 层经 pkg.Wrap 把原始段位码字符串化进 Details（Wrap 不保留 cause 链），
-// 故先看外层 AppError 码，再扫描文本中的内层 [code] 段位标记。
+// ClassifyError 把错误稳定归入桶：先看外层 AppError 码，再扫描文本中的内层 [code] 段位标记
+// （provider 层经 pkg.Wrap 把段位码字符串化进 Details，Wrap 不保留 cause 链）。
 func ClassifyError(err error) ErrorClass {
 	if err == nil {
 		return ClassUnknown
@@ -120,9 +118,11 @@ type RetryPolicy struct {
 	MaxDelay    time.Duration // 延迟封顶
 }
 
-// DefaultRetryPolicy 桌面助手取保守值：3 次尝试、800ms 起、8s 封顶。
+// DefaultRetryPolicy 桌面助手取保守值：5 次尝试、800ms 起、8s 封顶。
+// 3 次不足以覆盖「建流成功 + 流中途断」类间歇性故障（用户视角是「偶尔能用、偶尔
+// 不行」），且不会引入额外延迟——多数请求首调即成功，重试路径走不到封顶。
 func DefaultRetryPolicy() RetryPolicy {
-	return RetryPolicy{MaxAttempts: 3, BaseDelay: 800 * time.Millisecond, MaxDelay: 8 * time.Second}
+	return RetryPolicy{MaxAttempts: 5, BaseDelay: 800 * time.Millisecond, MaxDelay: 8 * time.Second}
 }
 
 // Backoff 第 attempt 次重试（0 起）的等待：Retry-After 优先，否则指数退避 + 0~25% 抖动再封顶。

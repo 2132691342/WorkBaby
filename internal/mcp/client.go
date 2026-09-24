@@ -108,14 +108,12 @@ type StdioClient struct {
 }
 
 // Done 返回「子进程已退出」信号的 channel：Manager 据此自动注销已死亡 server 的工具，
-// 避免模型反复调用一个不再存在的远端工具（连不上 → 8003 → Stagnation 熔断）。
+// 避免模型反复调用不再存在的远端工具（连不上 → 8003 → Stagnation 熔断）。
 func (c *StdioClient) Done() <-chan struct{} { return c.death }
 
 // DialStdio 启动 MCP server 子进程并完成 stdio 接线；进程退出由后台 goroutine 接管。
-// 调用方负责 Close，否则子进程会残留。
-//
-// pathDirs 可选：非空时把 dirs 前置到子进程 PATH（如内置 node/python 解压根），
-// 让 npx / uvx 等命令在系统 PATH 上缺失时也能找到。
+// 调用方负责 Close，否则子进程会残留。pathDirs 非空时把 dirs 前置到子进程 PATH
+// （内置 node/python 解压根），让 npx / uvx 在系统 PATH 缺失时也能找到。
 func DialStdio(name, command string, args, env []string, pathDirs func() []string) (*StdioClient, error) {
 	if command == "" {
 		return nil, pkg.New(8003, "mcp command is empty", name)
@@ -190,10 +188,8 @@ func (c *StdioClient) Initialize(ctx context.Context) (*ServerInfo, error) {
 	return &out.ServerInfo, nil
 }
 
-// ListTools 拉取服务端工具清单（分页跟进 nextCursor 至空）。
-//
-// MCP spec 2025-06-18 的 tools/list 是分页接口；不跟 nextCursor 会让工具超一页的 server
-// 静默丢失工具却仍报 Ready=true。
+// ListTools 拉取服务端工具清单（分页跟进 nextCursor 至空）。MCP spec 2025-06-18 的
+// tools/list 是分页接口；不跟 nextCursor 会让工具超一页的 server 静默丢工具却仍报 Ready。
 func (c *StdioClient) ListTools(ctx context.Context) ([]ToolDef, error) {
 	out := make([]ToolDef, 0, 8)
 	var cursor string

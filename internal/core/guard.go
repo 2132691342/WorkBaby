@@ -120,10 +120,8 @@ type ApprovalReasoner interface {
 // 调用方（service 层）用其封装工作区信任 + 计划模式只读检查。
 type PathPolicy func(ctx context.Context, call Call) (ok bool, reason string)
 
-// PolicyGuard 一站式安全门：先参数内容（注入）→ 再路径/计划模式 → 再风险×模式×规则×审批。
-//
-// 已由上层标记 Trusted 的调用直接放行（消除双层重复询问）；未注册工具由 ExposeGuard 先行处理，
-// 本中间件主要承担「即便暴露了，是否真的能调用」的最终决定。
+// PolicyGuard 一站式安全门：注入检测 → 路径/计划预检 → 风险×模式×规则 → 人工审批。
+// 已标记 Trusted 的调用直接放行（消除双层重复询问）。
 func PolicyGuard(mode Mode, rules Rules, approver Approver, pathPolicy PathPolicy) Middleware {
 	return func(next Handler) Handler {
 		return func(ctx context.Context, call Call) tool.ToolResult {
@@ -260,19 +258,6 @@ func canonicalArgs(args json.RawMessage) string {
 	return string(b)
 }
 
-// stringArg 取参数对象里的字符串字段。
-func stringArg(args json.RawMessage, key string) (string, bool) {
-	if len(args) == 0 {
-		return "", false
-	}
-	var m map[string]any
-	if err := json.Unmarshal(args, &m); err != nil {
-		return "", false
-	}
-	s, ok := m[key].(string)
-	return s, ok
-}
-
 // itoa 小整数转字符串，避免为计数引入 strconv 噪音。
 func itoa(n int) string {
 	if n == 0 {
@@ -286,4 +271,81 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(buf[i:])
+}
+
+// failureTracker 按工具名跟踪 run 内的连续失败计数；任意一次成功即清零。
+// 仅记"失败"，不记"拒绝"——拒绝是策略回执不是故障，模型必须按拒绝原因改道。
+type failureTracker struct {
+	mu     sync.Mutex
+	streak map[string]int
+}
+
+func newFailureTracker() *failureTracker {
+	return &failureTracker{streak: map[string]int{}}
+}
+
+func (f *failureTracker) record(name string, failed bool) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if failed {
+		f.streak[name]++
+		return f.streak[name]
+	}
+	delete(f.streak, name)
+	return 0
+}
+
+// AdaptiveLoopGuard 失败改道闸门：同一工具连续失败达阈值时，在 Content 末尾追加改道提示
+// （换参数 / 换工具 / 向用户咨询）。未达阈值只把次数写进 Meta["same_failure_count"]；
+// 任意一次成功即清零。拒绝不算失败——它是策略回执，不是故障。
+func AdaptiveLoopGuard(threshold int) Middleware {
+	if threshold <= 0 {
+		threshold = 3
+	}
+	tracker := newFailureTracker()
+	return func(next Handler) Handler {
+		return func(ctx context.Context, call Call) tool.ToolResult {
+			res := next(ctx, call)
+			failed := res.Err != nil
+			count := tracker.record(call.Name, failed)
+			if !failed || count < threshold {
+				if res.Meta == nil {
+					res.Meta = map[string]string{}
+				}
+				res.Meta["same_failure_count"] = itoa(count)
+				return res
+			}
+			// 同工具连续失败达到阈值：摘要 + 改道提示并入回执。
+			hint := adaptiveHint(call, res, count)
+			if hint != "" {
+				res.Content = res.Content + "\n\n[guard] " + hint
+			}
+			if res.Meta == nil {
+				res.Meta = map[string]string{}
+			}
+			res.Meta["same_failure_count"] = itoa(count)
+			res.Meta["adaptive_hint"] = "1"
+			return res
+		}
+	}
+}
+
+// adaptiveHint 生成改道提示：区分只读 vs 写/执行，提示后续可走的路径。
+// 不强行换工具——把候选路径列给模型，让它结合上下文判断。
+func adaptiveHint(call Call, res tool.ToolResult, count int) string {
+	var risk tool.RiskLevel
+	if call.Tool != nil {
+		risk = call.Tool.RiskLevel()
+	}
+	base := "工具 " + call.Name + " 已连续失败 " + itoa(count) + " 次。请换一种方式："
+	switch risk {
+	case tool.RiskReadOnly, "":
+		return base + "\n- 改用 file_read / file_grep / file_glob 直接探查\n- 改用 doc_reader 抽取文件正文\n- 仍需外部数据时调 delegate_task 派 explore 子 Agent\n- 资料确实缺失时向用户说明，不要死磕"
+	case tool.RiskExec:
+		return base + "\n- 检查命令参数（路径 / 引号 / 工作目录）\n- 用 file_list 先确认目标存在\n- 仍失败时向用户报告当前可见的症状（错误码 + 关键 stderr 一行）"
+	case tool.RiskNetwork:
+		return base + "\n- 检查 URL / 参数格式\n- 改用 webfetch 直拉正文\n- 多次失败后向用户报告"
+	default:
+		return base + "\n- 仔细核对入参\n- 改用相关只读工具先验证前置条件\n- 多次失败时向用户报告"
+	}
 }

@@ -1,196 +1,370 @@
-/* ===== 主题系统（玻璃拟态双主题） =====
+/* ===== 主题令牌（全项目唯一色值 / 尺寸定义处）=====
  *
- * <p>设计基调：
+ * <p>两套主题共用同一组语义令牌（--wb-*），组件不写死色值：
  * <ul>
- *   <li>light（默认）：蓝调渐变页面底 + 大范围柔光晕，卡片为半透明白玻璃（backdrop-blur），
- *       主色亮蓝只用于交互态与强调，辅以青蓝→紫的渐变品牌色</li>
- *   <li>dark：深紫底色 + 紫罗兰光晕，卡片为半透明紫玻璃，主色紫罗兰</li>
- *   <li>两套共用同一组语义令牌（--wb-*）：颜色 / 玻璃参数 / 圆角 / 阴影，组件不写死色值</li>
+ *   <li>浅色 = 晴空：冷白底 + 纯白卡 + 亮蓝强调（#2f80ed）</li>
+ *   <li>暗色 = 紫夜：近黑底 + 深灰紫卡 + 紫罗兰强调（#7c5cf8）</li>
  * </ul>
  *
- * <p>关键约定：{@code --wb-surface} 是玻璃底（半透明），凡是「内容必须压在实底上才清晰」的
- * 场景（输入框 / 代码块 / 浮层弹窗）一律用 {@code --wb-surface-solid}。
+ * <p>三条纪律（与「看上去廉价」的三个根因一一对应）：
+ * <ol>
+ *   <li>背景不抢戏：页面是**纯色**，不做多色光晕（光晕是「糖纸感」的来源）；</li>
+ *   <li>分层靠「1px 中性描边 + 极轻阴影」，不靠大模糊与彩色投影；</li>
+ *   <li>颜色只出现在必须被看到的地方：主操作、当前项、状态灯。
+ *       按钮一律纯色（禁渐变），描边一律中性半透明（禁彩色描边）。</li>
+ * </ol>
+ *
+ * <p>关键字号 / 尺寸刻度唯一来源：`--wb-fs-*`（6 级）、`--wb-radius-*`（4 级 + 胶囊）、
+ * `--wb-ctl-h*`（4 档控件高度 + 图标钮）、`--wb-dur-*`（3 档动效）。
  */
 
-/* ---- light：蓝调渐变 + 白玻璃 ---- */
-[data-theme='light'] {
-  --wb-bg: #e3eefc;
-  /* 纵深：三层彩色柔光（左上蓝 / 右上青 / 右下紫）+ 中部提亮 + 斜向底色。
-   * 提高柔光 Alpha 并加深底色，避免整屏发灰发白、玻璃卡失去「透光」参照。 */
-  --wb-page-gradient:
-    radial-gradient(1180px 640px at 6% -14%, rgba(56, 132, 255, 0.50), transparent 62%),
-    radial-gradient(1020px 580px at 104% 6%, rgba(34, 183, 245, 0.34), transparent 60%),
-    radial-gradient(940px 680px at 76% 114%, rgba(122, 90, 248, 0.28), transparent 64%),
-    radial-gradient(820px 560px at 42% 44%, rgba(255, 255, 255, 0.60), transparent 72%),
-    linear-gradient(168deg, #c6daf7 0%, #d9e9fc 26%, #eaf3fe 60%, #f8fbff 100%);
+/* ============================================================
+   刻度层：与主题无关的尺寸 / 字体 / 动效
+   ============================================================ */
+:root {
+  /* 字体三族：UI 用系统无衬线，标题与读数用 Bahnschrift（DIN 风），路径 / ID / token 用等宽 */
+  --font-disp:
+    'Bahnschrift', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  --font-cn:
+    'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif;
 
-  /* 玻璃底：卡片与容器 */
-  --wb-surface: rgba(255, 255, 255, 0.74);
-  --wb-surface-2: rgba(240, 246, 255, 0.72);
-  --wb-surface-hover: rgba(226, 239, 255, 0.88);
-  --wb-surface-solid: #ffffff;
-  --wb-side: rgba(255, 255, 255, 0.66);
+  /* 字号 6 级 */
+  --wb-fs-xs: 11px;
+  --wb-fs-sm: 12px;
+  --wb-fs-md: 13px;
+  --wb-fs-lg: 15px;
+  --wb-fs-xl: 20px;
+  --wb-fs-2xl: 28px;
+  --wb-lh-tight: 1.25;
+  --wb-lh-base: 1.6;
+  --wb-lh-loose: 1.75;
+  --wb-ls-plate: 0.08em;
 
-  --wb-primary: #2f7bf6;
-  --wb-primary-strong: #1a5fe0;
-  --wb-primary-soft: rgba(47, 123, 246, 0.12);
-  --wb-mint: #12b76a;
-  --wb-lavender: #7a5af8;
-  --wb-sky: #2e90fa;
-  --wb-lemon: #f79009;
-  --wb-success: #12b76a;
-  --wb-warning: #f79009;
-  --wb-danger: #f04438;
-  --wb-info: #2e90fa;
+  /* 间距（4 的倍数） */
+  --wb-sp-1: 4px;
+  --wb-sp-2: 8px;
+  --wb-sp-3: 12px;
+  --wb-sp-4: 16px;
+  --wb-sp-5: 20px;
+  --wb-sp-6: 24px;
+  --wb-sp-8: 32px;
+  --wb-sp-10: 40px;
+  --wb-sp-12: 48px;
 
-  --wb-ink: #16233c;
-  --wb-muted: #64748b;
+  /* 圆角 4 级 + 胶囊：圆润靠圆角与阴影，不靠描边 */
+  --wb-radius-xs: 6px;
+  --wb-radius-sm: 8px;
+  --wb-radius: 10px;
+  --wb-radius-lg: 16px;
+  --wb-radius-xl: 20px;
+  --wb-radius-full: 999px;
+  --wb-radius-ctl: var(--wb-radius);
 
-  /* 分隔线走淡蓝；玻璃边缘走白色高光（--wb-glass-border） */
-  --wb-border: rgba(45, 90, 160, 0.11);
-  --wb-border-strong: rgba(45, 90, 160, 0.20);
+  /* 控件高度 4 档 + 图标钮（组件禁止写裸像素高度） */
+  --wb-ctl-h-sm: 26px;
+  --wb-ctl-h: 34px;
+  --wb-ctl-h-lg: 38px;
+  --wb-ctl-h-xl: 44px;
+  --wb-ctl-icon: 32px;
+  --wb-switch-w: 48px;
+  --wb-switch-h: 26px;
 
-  --wb-radius-sm: 10px;
-  --wb-radius: 14px;
-  --wb-radius-lg: 20px;
+  --wb-fs-ctl: 12.5px;
+  --wb-fs-label: 12px;
+  --wb-fs-hint: 11px;
 
-  --wb-shadow: 0 1px 2px rgba(31, 70, 140, 0.04), 0 10px 30px -12px rgba(31, 70, 140, 0.18);
-  --wb-shadow-lg: 0 18px 48px -18px rgba(31, 70, 140, 0.24);
-  --wb-shadow-pop: 0 28px 72px -24px rgba(31, 70, 140, 0.32);
+  /* 布局宽度 */
+  --wb-w-nav: 236px;
+  --wb-w-settings: 208px;
+  --wb-w-panel: 336px;
+  --wb-w-panel-wide: 420px;
+  --wb-w-read: 780px;
 
-  /* 玻璃参数：blur + 白边高光 + 内阴影 */
-  --wb-glass-blur: 20px;
-  --wb-glass-saturate: 1.5;
-  --wb-glass-border: rgba(255, 255, 255, 0.72);
-  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-  --wb-glass-opacity: 0.74;
-  /* 卡片/面板顶部高光：玻璃「受光面」的唯一来源。组件不得再写死白色渐变——
-   * dark 主题下白色高光会变成一层灰白雾，是暗色漏白的主要来源。 */
-  --wb-surface-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0) 42%);
+  /* 动效三档：只解释状态变化，不做装饰 */
+  --wb-dur-fast: 110ms;
+  --wb-dur: 160ms;
+  --wb-dur-slow: 240ms;
+  --wb-ease: cubic-bezier(0.2, 0.6, 0.3, 1);
 
-  /* 品牌渐变（标题 / 强调数字 / 主按钮） */
-  --wb-grad-brand: linear-gradient(100deg, #2b6ef6 0%, #3f8dff 42%, #7c5cf8 100%);
-  --wb-grad-btn: linear-gradient(180deg, #4d93ff 0%, #2f7bf6 54%, #1a5fe0 100%);
+  --wb-z-panel: 20;
+  --wb-z-pop: 60;
+  --wb-z-modal: 80;
+  --wb-z-toast: 100;
 
   /* 图标笔画重量：24 viewBox 线性图标在 14~18px 下的最优观感区间（细而不虚） */
   --wb-icon-stroke: 1.7;
   --wb-icon-stroke-strong: 2;
 
-  --color-wb-bg: var(--wb-bg);
-  --color-wb-surface: var(--wb-surface);
-  --color-wb-surface-2: var(--wb-surface-2);
-  --color-wb-surface-hover: var(--wb-surface-hover);
-  --color-wb-primary: var(--wb-primary);
-  --color-wb-primary-strong: var(--wb-primary-strong);
-  --color-wb-primary-soft: var(--wb-primary-soft);
-  --color-wb-mint: var(--wb-mint);
-  --color-wb-lavender: var(--wb-lavender);
-  --color-wb-sky: var(--wb-sky);
-  --color-wb-lemon: var(--wb-lemon);
-  --color-wb-ink: var(--wb-ink);
-  --color-wb-muted: var(--wb-muted);
-  --color-wb-border: var(--wb-border);
-  --color-wb-success: var(--wb-success);
-  --color-wb-warning: var(--wb-warning);
-  --color-wb-danger: var(--wb-danger);
-  --color-wb-info: var(--wb-info);
+  /* 用户自定义背景图（设置页外观） */
+  --wb-user-bg-url: none;
+  --wb-user-bg-opacity: 1;
+  --wb-user-bg-blur: 0px;
 }
 
-/* ---- dark：深紫底 + 紫罗兰玻璃 ----
- * 层级靠明度与光晕：rail(#1a1528) → 主区(#16121f) → 卡片(紫玻璃) → 悬浮(更亮)。
- * 全色带紫相，主色紫罗兰只留给交互态、品牌渐变与用户气泡。 */
+/* ============================================================
+   浅色 · 晴空（默认主题：data-theme 缺失时同样生效）
+   ============================================================ */
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  --wb-bg: #f2f6fc;
+  --wb-page-gradient: none;
+
+  /* 面：页面底（--wb-bg）→ 侧栏与面板（--wb-side）→ 卡片（--wb-surface）
+   * → 抬升底（--wb-surface-hover）→ 凹陷底（--wb-sunken） */
+  --wb-side: #ffffff;
+  --wb-surface: #ffffff;
+  --wb-surface-2: #f7fafd;
+  --wb-surface-hover: #eef5fe;
+  --wb-surface-solid: #ffffff;
+  --wb-raise: #eef5fe;
+  --wb-sunken: #e8f1fb;
+  --wb-panel: #ffffff;
+
+  /* 中性叠加：hover 底色用它，避免「一屏几十个淡蓝块」 */
+  --wb-tint: rgba(15, 30, 51, 0.06);
+  --wb-tint-lg: rgba(15, 30, 51, 0.09);
+
+  --wb-line: #e2edfb;
+  --wb-line-2: #cddff6;
+  --wb-border: var(--wb-line);
+  --wb-border-strong: var(--wb-line-2);
+
+  --wb-ink: #0f1e33;
+  --wb-ink-2: #4a5b73;
+  --wb-muted: #6b7d95;
+
+  /* 单一强调色：亮天蓝，靠明度分四级（深 = 主操作 / 中 = 次 / 淡 = 轨道） */
+  --wb-primary: #2f80ed;
+  --wb-primary-strong: #1f6fdc;
+  --wb-primary-soft: rgba(47, 128, 237, 0.1);
+  --wb-primary-line: rgba(47, 128, 237, 0.3);
+  --wb-primary-ink: #ffffff;
+  --wb-accent-glow: rgba(47, 128, 237, 0.16);
+
+  /* 图表专用蓝阶：整屏只用这一个色相，杜绝「蓝绿橙紫」混搭 */
+  --wb-ch-1: #2f80ed;
+  --wb-ch-2: #6fa8f5;
+  --wb-ch-3: #a8cbfa;
+  --wb-ch-4: #d6e6fb;
+
+  /* 状态色只留给「通过 / 出错」，且降饱和，不与主色抢 */
+  --wb-success: #1f9d63;
+  --wb-success-soft: rgba(31, 157, 99, 0.1);
+  --wb-danger: #d15a55;
+  --wb-danger-soft: rgba(209, 90, 85, 0.1);
+  --wb-warning: #c08a35;
+  --wb-warning-soft: rgba(192, 138, 53, 0.12);
+  --wb-info: #2f80ed;
+
+  --wb-mint: var(--wb-success);
+  --wb-mint-strong: #178a55;
+  /* 装饰色统一收口到主色与中性阶：界面只允许「蓝 + 灰 + 白」 */
+  --wb-lavender: var(--wb-primary);
+  --wb-sky: var(--wb-ch-2);
+  --wb-lemon: var(--wb-warning);
+
+  --wb-sel: rgba(47, 128, 237, 0.16);
+  --wb-user-bubble: #e7f0fe;
+
+  /* 阴影极轻：只用来「托一下」，不用来「发光」 */
+  --wb-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --wb-shadow-2: 0 2px 6px -1px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --wb-shadow-3: 0 10px 30px -8px rgba(15, 23, 42, 0.16), 0 2px 8px -2px rgba(15, 23, 42, 0.07);
+  --wb-shadow-sm: var(--wb-shadow-1);
+  --wb-shadow: var(--wb-shadow-1);
+  --wb-shadow-lg: var(--wb-shadow-3);
+  --wb-shadow-pop: var(--wb-shadow-3);
+  --wb-btn-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+  --wb-btn-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --wb-btn-sheen-strong: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+
+  /* 玻璃参数：界面已改为纯色，仅桌面壳允许一层极淡的窗口透光，一律不叠加模糊 */
+  --wb-glass-blur: 0px;
+  --wb-glass-saturate: 1;
+  --wb-glass-border: var(--wb-line-2);
+  --wb-glass-inset: none;
+  --wb-glass-opacity: 1;
+  --wb-surface-sheen: none;
+  --wb-grad-brand: none;
+  --wb-grad-btn: none;
+
+  --wb-grid-dot: rgba(15, 23, 42, 0.03);
+  --wb-deco-1: rgba(63, 110, 196, 0.13);
+  --wb-deco-2: rgba(86, 140, 190, 0.1);
+
+  /* 代码块 */
+  --wb-code-bg: #f7f9fc;
+  --wb-code-header-bg: #eef2f8;
+  --wb-code-fg: #24292f;
+  --wb-code-border: #e2e8f0;
+}
+
+/* ============================================================
+   暗色 · 紫夜
+   ============================================================ */
 [data-theme='dark'] {
-  --wb-bg: #16121f;
-  --wb-page-gradient:
-    radial-gradient(1100px 580px at 6% -14%, rgba(124, 92, 248, 0.22), transparent 62%),
-    radial-gradient(920px 520px at 102% 6%, rgba(168, 85, 247, 0.16), transparent 60%),
-    radial-gradient(880px 620px at 82% 114%, rgba(99, 102, 241, 0.16), transparent 62%),
-    linear-gradient(172deg, #1d1730 0%, #191426 34%, #16121f 100%);
+  color-scheme: dark;
 
-  --wb-surface: rgba(43, 35, 66, 0.72);
-  --wb-surface-2: rgba(54, 44, 82, 0.62);
-  --wb-surface-hover: rgba(66, 54, 100, 0.78);
-  --wb-surface-solid: #241d38;
-  --wb-side: rgba(26, 21, 40, 0.80);
+  --wb-bg: #0b0a0e;
+  --wb-page-gradient: none;
 
-  --wb-primary: #8b5cf6;
-  --wb-primary-strong: #a78bfa;
-  --wb-primary-soft: rgba(139, 92, 246, 0.18);
-  --wb-mint: #3ecf8e;
-  --wb-lavender: #c4b5fd;
-  --wb-sky: #7dd3fc;
-  --wb-lemon: #f5a623;
-  --wb-success: #3ecf8e;
-  --wb-warning: #f5a623;
-  --wb-danger: #f87171;
-  --wb-info: #7dd3fc;
+  --wb-side: #14121a;
+  --wb-surface: #15131b;
+  --wb-surface-2: #100e15;
+  --wb-surface-hover: #1d1a25;
+  --wb-surface-solid: #15131b;
+  --wb-raise: #1d1a25;
+  --wb-sunken: #09080c;
+  --wb-panel: #14121a;
 
-  --wb-ink: #ece8fa;
-  --wb-muted: #a49cc0;
+  --wb-tint: rgba(255, 255, 255, 0.07);
+  --wb-tint-lg: rgba(255, 255, 255, 0.11);
 
-  --wb-border: rgba(167, 139, 250, 0.15);
-  --wb-border-strong: rgba(167, 139, 250, 0.28);
+  --wb-line: rgba(255, 255, 255, 0.07);
+  --wb-line-2: rgba(255, 255, 255, 0.13);
+  --wb-border: var(--wb-line);
+  --wb-border-strong: var(--wb-line-2);
 
-  --wb-radius-sm: 10px;
-  --wb-radius: 14px;
-  --wb-radius-lg: 20px;
+  --wb-ink: #ece9f3;
+  --wb-ink-2: #a9a3bd;
+  --wb-muted: #a09ab8;
 
-  --wb-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 12px 32px -14px rgba(0, 0, 0, 0.58);
-  --wb-shadow-lg: 0 20px 52px -20px rgba(0, 0, 0, 0.66);
-  --wb-shadow-pop: 0 30px 76px -26px rgba(0, 0, 0, 0.76);
+  --wb-primary: #7c5cf8;
+  --wb-primary-strong: #9075fa;
+  --wb-primary-soft: rgba(124, 92, 248, 0.13);
+  --wb-primary-line: rgba(124, 92, 248, 0.3);
+  --wb-primary-ink: #ffffff;
+  --wb-accent-glow: rgba(124, 92, 248, 0.24);
 
-  --wb-glass-blur: 20px;
-  --wb-glass-saturate: 1.25;
-  --wb-glass-border: rgba(167, 139, 250, 0.17);
-  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  --wb-glass-opacity: 0.72;
-  /* 暗色高光降到近乎不可见：只保留一条极淡的受光边，避免整块卡片顶部泛白 */
-  --wb-surface-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 42%);
+  --wb-ch-1: #7c5cf8;
+  --wb-ch-2: #9c85fa;
+  --wb-ch-3: #5b4a96;
+  --wb-ch-4: #33294f;
 
-  --wb-grad-brand: linear-gradient(100deg, #a78bfa 0%, #8b5cf6 46%, #6366f1 100%);
-  --wb-grad-btn: linear-gradient(180deg, #a78bfa 0%, #8b5cf6 54%, #6d3ff0 100%);
+  --wb-success: #35b97c;
+  --wb-success-soft: rgba(53, 185, 124, 0.12);
+  --wb-danger: #e8615a;
+  --wb-danger-soft: rgba(232, 97, 90, 0.12);
+  --wb-warning: #d9963c;
+  --wb-warning-soft: rgba(217, 150, 60, 0.12);
+  --wb-info: #7c5cf8;
+
+  --wb-mint: var(--wb-success);
+  --wb-mint-strong: #3fd08c;
+  --wb-lavender: var(--wb-primary);
+  --wb-sky: var(--wb-ch-2);
+  --wb-lemon: var(--wb-warning);
+
+  --wb-sel: rgba(124, 92, 248, 0.24);
+  --wb-user-bubble: #1e1b28;
+
+  --wb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --wb-shadow-2: 0 2px 8px -2px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.35);
+  --wb-shadow-3: 0 12px 34px -10px rgba(0, 0, 0, 0.72), 0 2px 8px -2px rgba(0, 0, 0, 0.5);
+  --wb-shadow-sm: var(--wb-shadow-1);
+  --wb-shadow: var(--wb-shadow-1);
+  --wb-shadow-lg: var(--wb-shadow-3);
+  --wb-shadow-pop: var(--wb-shadow-3);
+  --wb-btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
+  --wb-btn-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --wb-btn-sheen-strong: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+  --wb-glass-blur: 0px;
+  --wb-glass-saturate: 1;
+  --wb-glass-border: var(--wb-line-2);
+  --wb-glass-inset: none;
+  --wb-glass-opacity: 1;
+  --wb-surface-sheen: none;
+  --wb-grad-brand: none;
+  --wb-grad-btn: none;
+
+  --wb-grid-dot: rgba(255, 255, 255, 0.022);
+  --wb-deco-1: rgba(124, 92, 248, 0.24);
+  --wb-deco-2: rgba(56, 189, 248, 0.1);
+
+  --wb-code-bg: #100e15;
+  --wb-code-header-bg: #17151f;
+  --wb-code-fg: #ece9f3;
+  --wb-code-border: rgba(255, 255, 255, 0.09);
 
   /* 深色底上笔画略加粗一档，抵消「亮底显粗、暗底显细」的视觉误差 */
   --wb-icon-stroke: 1.85;
   --wb-icon-stroke-strong: 2.1;
-
-  --color-wb-bg: var(--wb-bg);
-  --color-wb-surface: var(--wb-surface);
-  --color-wb-surface-2: var(--wb-surface-2);
-  --color-wb-surface-hover: var(--wb-surface-hover);
-  --color-wb-primary: var(--wb-primary);
-  --color-wb-primary-strong: var(--wb-primary-strong);
-  --color-wb-primary-soft: var(--wb-primary-soft);
-  --color-wb-mint: var(--wb-mint);
-  --color-wb-lavender: var(--wb-lavender);
-  --color-wb-sky: var(--wb-sky);
-  --color-wb-lemon: var(--wb-lemon);
-  --color-wb-ink: var(--wb-ink);
-  --color-wb-muted: var(--wb-muted);
-  --color-wb-border: var(--wb-border);
-  --color-wb-success: var(--wb-success);
-  --color-wb-warning: var(--wb-warning);
-  --color-wb-danger: var(--wb-danger);
-  --color-wb-info: var(--wb-info);
 }
 
-/* ===== 玻璃容器（唯一定义处）=====
- * 所有「浮在页面底色上的面」统一走 .wb-glass / .wb-glass-solid 两个基元，
- * 避免各处自行拼 backdrop-filter 导致模糊半径与描边漂移。 */
+/* ============================================================
+   语义别名（组件层只认这些名字）
+   ============================================================ */
+:root {
+  --wb-c-bg: var(--wb-bg);
+  --wb-c-panel: var(--wb-panel);
+  --wb-c-card: var(--wb-surface);
+  --wb-c-raise: var(--wb-raise);
+  --wb-c-line: var(--wb-line);
+  --wb-c-line-2: var(--wb-line-2);
+  --wb-c-ink: var(--wb-ink);
+  --wb-c-ink-2: var(--wb-ink-2);
+  --wb-c-ink-3: var(--wb-muted);
+  --wb-c-accent: var(--wb-primary);
+  --wb-c-accent-ink: var(--wb-primary-ink);
+  --wb-c-ok: var(--wb-success);
+  --wb-c-bad: var(--wb-danger);
+  --wb-c-warn: var(--wb-warning);
+}
+
+/* ============================================================
+   面基元（唯一定义处）
+   ============================================================
+   .wb-glass       —— 结构面板：纯色底 + 1px 中性描边，不做模糊
+   .wb-glass-solid —— 弹层 / 输入：纯白底 + 深一档描边 + 浮层阴影
+   组件不得自行拼 backdrop-filter 或写 rgba 白色描边。 */
 .wb-glass {
   background: var(--wb-surface);
-  -webkit-backdrop-filter: blur(var(--wb-glass-blur)) saturate(var(--wb-glass-saturate));
-  backdrop-filter: blur(var(--wb-glass-blur)) saturate(var(--wb-glass-saturate));
-  border: 1px solid var(--wb-glass-border);
-  box-shadow: var(--wb-shadow), var(--wb-glass-inset);
+  border: 1px solid var(--wb-border);
 }
 .wb-glass-solid {
   background: var(--wb-surface-solid);
-  border: 1px solid var(--wb-border);
+  border: 1px solid var(--wb-border-strong);
   box-shadow: var(--wb-shadow-pop);
 }
 
-/* ===== ElementPlus 主题桥接 ===== */
+/* ============================================================
+   行内代码 / 路径：等宽 + 凹陷底（正文里的 token 观感）
+   ============================================================ */
+.wb-code-inline {
+  padding: 1px 5px;
+  border-radius: var(--wb-radius-xs);
+  background: var(--wb-raise);
+  border: 1px solid var(--wb-line);
+  color: var(--wb-ink-2);
+}
+
+/* ============================================================
+   用户自定义背景图（设置页 · 外观）
+   ============================================================ */
+body.has-custom-bg {
+  background-image: var(--wb-user-bg-url);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+body.has-custom-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: var(--wb-bg);
+  opacity: var(--wb-user-bg-opacity);
+  backdrop-filter: blur(var(--wb-user-bg-blur));
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ============================================================
+   Element Plus 主题桥接
+   （仅剩弹层 / 表格 / 表单等少量内置组件在用；新界面优先自研基元）
+   ============================================================ */
 :root[data-theme='light'],
 :root[data-theme='dark'] {
   --el-color-primary: var(--wb-primary);
@@ -199,7 +373,7 @@
   --el-color-primary-light-7: color-mix(in srgb, var(--wb-primary) 30%, transparent);
   --el-color-primary-light-8: color-mix(in srgb, var(--wb-primary) 20%, transparent);
   --el-color-primary-light-9: color-mix(in srgb, var(--wb-primary) 10%, transparent);
-  --el-color-primary-dark-2: color-mix(in srgb, var(--wb-primary) 70%, black);
+  --el-color-primary-dark-2: var(--wb-primary-strong);
 
   --el-color-success: var(--wb-success);
   --el-color-warning: var(--wb-warning);
@@ -236,35 +410,16 @@
   --el-fill-color-darker: color-mix(in srgb, var(--wb-ink) 16%, transparent);
   --el-fill-color-blank: var(--wb-surface-solid);
 
-  --el-mask-color: rgba(15, 17, 22, 0.55);
-  --el-mask-color-extra-light: rgba(15, 17, 22, 0.12);
-  --el-box-shadow: var(--wb-shadow);
-  --el-box-shadow-light: var(--wb-shadow);
-  --el-box-shadow-lighter: var(--wb-shadow);
-  --el-box-shadow-dark: var(--wb-shadow-lg);
+  --el-mask-color: color-mix(in srgb, var(--wb-bg) 62%, transparent);
+  --el-mask-color-extra-light: color-mix(in srgb, var(--wb-ink) 8%, transparent);
+  --el-box-shadow: var(--wb-shadow-2);
+  --el-box-shadow-light: var(--wb-shadow-1);
+  --el-box-shadow-lighter: var(--wb-shadow-1);
+  --el-box-shadow-dark: var(--wb-shadow-3);
 
   --el-border-radius-base: var(--wb-radius);
   --el-border-radius-small: var(--wb-radius-sm);
-  --el-border-radius-round: 9999px;
+  --el-border-radius-round: var(--wb-radius-full);
 
   --el-font-family: var(--font-sans);
-}
-
-/* 用户自定义背景图片 */
-body.has-custom-bg {
-  background-image: var(--wb-user-bg-url);
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
-}
-
-body.has-custom-bg::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: var(--wb-bg);
-  opacity: var(--wb-user-bg-opacity);
-  backdrop-filter: blur(var(--wb-user-bg-blur));
-  pointer-events: none;
-  z-index: -1;
 }

@@ -232,10 +232,8 @@ func (c *Client) headers() map[string]string {
 	return h
 }
 
-// buildBody 构造请求体；合并 ExtraBody；thinking 转换。
-//
-// 不做 temperature 钳位：GLM 等部分厂商要求 ≤1，由 provider 自身校验并
-// 返回明确错误（400 + message）；settings 层 input 框:max=2 兜底。
+// buildBody 构造请求体：合并 ExtraBody、转换 thinking。不做 temperature 钳位——
+// 厂商要求 ≤1 时由 provider 自身校验并返回明确错误，settings 层输入框兜底。
 func (c *Client) buildBody(req *llm.ChatRequest, stream bool) map[string]any {
 	body := map[string]any{
 		"model":    req.Model,

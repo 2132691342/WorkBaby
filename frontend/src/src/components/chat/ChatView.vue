@@ -4,7 +4,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Trash2, Eraser, FolderOpen, Pencil, Sparkles, ListTree, RefreshCw, Crosshair, X, Archive, Square, MessageSquare, Sunny } from '@/components/common/icons'
+import { Trash2, Eraser, FolderOpen, Pencil, ListTree, RefreshCw, Crosshair, X, Archive, Square, MessageSquare, Moon, Sunny, AlertTriangle, CircleX } from '@/components/common/icons'
 import { useChatStore, backendModeToPermission, type PermissionLevel } from '@/stores/chat'
 import { useTrustStore } from '@/stores/trust'
 import { useTasksStore } from '@/stores/tasks'
@@ -294,6 +294,7 @@ const compactKeepRecent = ref(20)
 const { enabled: focusMode, toggle: focusToggle } = useFocusMode()
 const theme = useTheme()
 /** 主题切换：原型 header 太阳图标，与 useTheme 双向同步 settings 页面。 */
+const isDarkTheme = computed(() => theme.currentTheme.value === 'dark')
 function toggleTheme(): void {
   theme.setTheme(theme.currentTheme.value === 'dark' ? 'light' : 'dark')
 }
@@ -471,143 +472,93 @@ function onHeaderCommand(cmd: string): void {
     <div class="chat-main" style="position: relative">
       <ChatBackdrop />
   <div class="relative z-10 flex h-full flex-col overflow-hidden text-wb-ink">
-    <!-- 顶部 ChatHeader：mascot + session title + workspace chip + 模型徽标 + 操作 -->
-    <header class="flex items-center justify-between gap-3 border-b border-wb-border bg-wb-surface px-5 py-2.5">
-      <div class="flex min-w-0 flex-1 items-center gap-3">
-        <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-wb-primary/10 text-wb-primary">
-          <Sparkles class="h-3.5 w-3.5" />
-        </div>
-        <div class="min-w-0 flex-1">
-          <h1
-            class="truncate text-sm font-medium text-wb-ink"
+    <!-- 会话头：标题 + 运行态灯 + 模型 | 工作区 chip | 面板开关组 -->
+    <header class="chat-head">
+      <div class="ch-id">
+        <div class="ch-name">
+          <span
+            class="min-w-0 truncate"
             :title="t('chat.renameHint')"
             @dblclick="onRenameSession"
-          >
-            {{ sessionTitle }}
-            <Pencil class="ml-1 inline h-3 w-3 text-wb-muted opacity-0 transition-opacity hover-hover:opacity-100" />
-          </h1>
-          <div class="flex items-center gap-2 text-xs text-wb-muted">
-            <!-- 运行态指示：执行中主色脉动，空闲静点 -->
-            <span class="relative inline-flex h-1.5 w-1.5">
-              <span v-if="streaming" class="absolute inline-flex h-full w-full animate-ping rounded-full bg-wb-primary opacity-60" />
-              <span class="relative inline-block h-1.5 w-1.5 rounded-full" :class="streaming ? 'bg-wb-primary' : 'bg-wb-mint'" />
-            </span>
-            <span>{{ streaming ? t('chat.running') : t('chat.agentIdle') }}</span>
-            <span class="text-wb-border">·</span>
-            <!-- 模型只读徽标 -->
-            <span class="inline-flex items-center gap-1 rounded border border-wb-border bg-wb-surface px-1.5 py-0.5 text-xs2 text-wb-muted">
-              {{ currentModel }}
-            </span>
-          </div>
+          >{{ sessionTitle }}</span>
+          <Pencil class="ic-xs text-wb-muted opacity-0 transition-opacity hover-hover:opacity-100" />
+        </div>
+        <div class="ch-sub">
+          <span class="flex items-center gap-1.5">
+            <i class="led" :class="streaming ? 'is-accent is-live' : 'is-ok'" />
+            {{ streaming ? t('chat.running') : t('chat.agentIdle') }}
+          </span>
+          <span>·</span>
+          <span class="t-mono">{{ currentModel }}</span>
         </div>
       </div>
 
-      <!-- 中间：workspace chip（点 → picker）；绑定态主色高亮，与「默认工作区」一眼区分 -->
+      <!-- 工作区 chip（点 → picker）；绑定态主色高亮，与「默认工作区」一眼区分 -->
       <button
         type="button"
-        class="composer-chip inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-all active:scale-95"
-        :class="workspacePath
-          ? 'border-wb-primary/40 bg-wb-primary/10 text-wb-primary-strong hover:border-wb-primary'
-          : 'border-wb-border bg-wb-surface text-wb-muted hover:border-wb-primary hover:text-wb-primary-strong'"
+        class="workspace-chip"
+        :class="{ 'is-on': Boolean(workspacePath) }"
         :title="workspacePath ?? t('chat.workspace.defaultFull')"
         @click="showPicker = true"
       >
-        <FolderOpen
-          class="h-3 w-3 shrink-0"
-          :class="workspacePath ? 'text-wb-primary-strong' : 'text-wb-primary'"
-        />
-        <span class="max-w-[220px] truncate font-medium">{{ workspaceDisplay }}</span>
+        <FolderOpen class="ic-xs" />
+        <span class="max-w-[220px] truncate">{{ workspaceDisplay }}</span>
       </button>
 
-      <!-- 运行中：header 常驻停止入口，不必到输入框区寻找 -->
-      <el-tooltip v-if="streaming" :content="t('chat.stop')" placement="bottom">
-        <el-button type="danger" text circle @click="chat.cancelStream()">
-          <el-icon><Square /></el-icon>
-        </el-button>
-      </el-tooltip>
+      <span class="sp" />
 
-      <!-- 上下文占用环：与输入框同源 liveContextUsage，悬停展开分段详情 -->
-      <ContextRing :usage="liveContextUsage" />
+      <div class="ch-tools">
+        <!-- 运行中：header 常驻停止入口，不必到输入框区寻找 -->
+        <button
+          v-if="streaming"
+          type="button"
+          class="icon-btn is-danger"
+          :title="t('chat.stop')"
+          @click="chat.cancelStream()"
+        >
+          <Square class="ic-sm" />
+        </button>
 
-      <!-- 焦点模式：只读正文，隐藏思考与工具时间线 -->
-      <el-tooltip :content="t('chat.focusMode')" placement="bottom">
-        <el-button
-          :type="focusMode ? 'primary' : 'default'"
-          text
-          circle
+        <!-- 上下文占用环：与输入框同源 liveContextUsage，悬停展开分段详情 -->
+        <ContextRing :usage="liveContextUsage" />
+
+        <!-- 焦点模式：只读正文，隐藏思考与工具时间线 -->
+        <button
+          type="button"
+          class="icon-btn"
+          :class="{ 'is-on': focusMode }"
+          :title="t('chat.focusMode')"
           @click="focusToggle"
         >
-          <el-icon><Crosshair /></el-icon>
-        </el-button>
-      </el-tooltip>
+          <Crosshair class="ic-sm" />
+        </button>
 
-      <div class="flex shrink-0 items-center gap-1">
-        <el-tooltip :content="t('changes.title')" placement="bottom">
-          <el-badge
-            :value="fileChanges.length"
-            :hidden="rightTab === 'changes' || fileChanges.length === 0"
-            :max="99"
-            :offset="[2, 6]"
-          >
-            <el-button
-              :type="rightTab === 'changes' ? 'primary' : 'default'"
-              text
-              circle
-              @click="toggleTab('changes')"
-            >
-              <el-icon><RefreshCw /></el-icon>
-            </el-button>
-          </el-badge>
-        </el-tooltip>
-        <el-tooltip :content="t('tasks.title')" placement="bottom">
-          <el-badge
-            :value="taskActiveCount"
-            :hidden="taskActiveCount === 0"
-            :max="9"
-            :offset="[2, 6]"
-          >
-            <el-button
-              :type="rightTab === 'tasks' ? 'primary' : 'default'"
-              text
-              circle
-              @click="toggleTab('tasks')"
-            >
-              <el-icon><ListTree /></el-icon>
-            </el-button>
-          </el-badge>
-        </el-tooltip>
-        <el-tooltip :content="t('side.title')" placement="bottom">
-          <el-button
-            :type="rightTab === 'side' ? 'primary' : 'default'"
-            text
-            circle
-            @click="toggleTab('side')"
-          >
-            <el-icon><MessageSquare /></el-icon>
-          </el-button>
-        </el-tooltip>
-        <el-tooltip :content="t('chat.workspace')" placement="bottom">
-          <el-button
-            :type="rightTab === 'workspace' ? 'primary' : 'default'"
-            text
-            circle
-            @click="toggleTab('workspace')"
-          >
-            <el-icon><FolderOpen /></el-icon>
-          </el-button>
-        </el-tooltip>
-        <!-- 主题切换：原型 header 太阳图标，明暗切换与 useTheme 双向同步 -->
-        <el-tooltip :content="t('chat.toggleTheme')" placement="bottom">
-          <el-button text circle @click="toggleTheme">
-            <el-icon><Sunny /></el-icon>
-          </el-button>
-        </el-tooltip>
+        <button type="button" class="icon-btn" :class="{ 'is-on': rightTab === 'changes' }" :title="t('changes.title')" @click="toggleTab('changes')">
+          <RefreshCw class="ic-sm" />
+          <i v-if="fileChanges.length > 0 && rightTab !== 'changes'" class="led is-accent" style="position: absolute; transform: translate(9px, -9px)" />
+        </button>
+        <button type="button" class="icon-btn" :class="{ 'is-on': rightTab === 'tasks' }" :title="t('tasks.title')" @click="toggleTab('tasks')">
+          <ListTree class="ic-sm" />
+          <i v-if="taskActiveCount > 0" class="led is-accent" style="position: absolute; transform: translate(9px, -9px)" />
+        </button>
+        <button type="button" class="icon-btn" :class="{ 'is-on': rightTab === 'side' }" :title="t('side.title')" @click="toggleTab('side')">
+          <MessageSquare class="ic-sm" />
+        </button>
+        <button type="button" class="icon-btn" :class="{ 'is-on': rightTab === 'workspace' }" :title="t('chat.workspace')" @click="toggleTab('workspace')">
+          <FolderOpen class="ic-sm" />
+        </button>
+        <span class="divider" />
+        <!-- 主题切换：明暗与 useTheme 双向同步 -->
+        <button type="button" class="icon-btn" :title="t('chat.toggleTheme')" @click="toggleTheme">
+          <Sunny v-if="isDarkTheme" class="ic-sm" />
+          <Moon v-else class="ic-sm" />
+        </button>
 
         <!-- 低频/危险操作收进「更多」菜单，降低 header 密度与误触 -->
         <el-dropdown trigger="click" @command="onHeaderCommand">
-          <el-button text circle :title="t('chat.moreActions')">
-            <el-icon><Archive /></el-icon>
-          </el-button>
+          <button type="button" class="icon-btn" :title="t('chat.moreActions')">
+            <Archive class="ic-sm" />
+          </button>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="compact" :disabled="!currentID || streaming">
@@ -629,32 +580,33 @@ function onHeaderCommand(cmd: string): void {
     <!-- 工具审批已下移 MessageList，此处不再渲染 -->
 
     <div v-if="error" class="mx-5 mt-2">
-      <el-alert type="error" :title="error" show-icon closable @close="chat.dismissError()">
-        <!-- 运行出错可一键重试：重新生成最后一轮（中断的继续走 StopReasonBanner 的「继续」） -->
-        <template #default>
-          <el-button
-            size="small"
-            text
-            type="primary"
+      <div class="alert is-bad">
+        <CircleX class="ic" />
+        <div class="grow">
+          <div class="a-t">{{ error }}</div>
+          <!-- 运行出错可一键重试：重新生成最后一轮（中断的继续走 StopReasonBanner 的「继续」） -->
+          <button
+            type="button"
+            class="btn btn-sm mt1"
             :disabled="streaming"
-            class="mt-1"
             @click="onRegenerate"
           >
-            <el-icon class="mr-1"><RefreshCw /></el-icon>
+            <RefreshCw class="ic-xs" />
             {{ t('chat.retryLastRun') }}
-          </el-button>
-        </template>
-      </el-alert>
+          </button>
+        </div>
+        <button type="button" class="icon-btn is-danger" :title="t('ui.btn.close')" @click="chat.dismissError()">
+          <X class="ic-xs" />
+        </button>
+      </div>
     </div>
 
     <!-- 当前 session 实际模型与所选不一致时给用户一个明确提示，避免「界面 A、实际 B」困惑 -->
     <div v-if="sessionModelMismatch" class="mx-5 mt-2">
-      <el-alert
-        type="warning"
-        :title="t('chat.sessionModelMismatch', currentSession?.model ?? '', currentModel)"
-        :closable="false"
-        show-icon
-      />
+      <div class="alert is-warn">
+        <AlertTriangle class="ic" />
+        <div class="grow">{{ t('chat.sessionModelMismatch', currentSession?.model ?? '', currentModel) }}</div>
+      </div>
     </div>
 
     <!-- 主区：消息流 + 输入（左） | 工作区文件树面板（右，可折叠） -->
@@ -703,21 +655,23 @@ function onHeaderCommand(cmd: string): void {
 
       <aside
         v-if="showWorkspace"
-        class="flex shrink-0 flex-col border-l border-wb-border bg-wb-surface"
-        :class="rightTab === 'side' ? 'w-[26rem]' : 'w-80'"
+        class="panel"
+        :class="{ 'is-wide': rightTab === 'side' }"
       >
-        <div class="flex shrink-0 items-center border-b border-wb-border px-3 py-2 text-2xs font-medium uppercase tracking-wider text-wb-muted">
-          <span v-if="rightTab === 'changes'">{{ t('changes.title') }}</span>
-          <span v-else-if="rightTab === 'tasks'">{{ t('tasks.title') }}</span>
-          <span v-else-if="rightTab === 'side'">{{ t('side.title') }}</span>
-          <span v-else>{{ t('chat.workspace') }}</span>
+        <div class="panel-head">
+          <div class="t-plate">
+            <span v-if="rightTab === 'changes'">{{ t('changes.title') }}</span>
+            <span v-else-if="rightTab === 'tasks'">{{ t('tasks.title') }}</span>
+            <span v-else-if="rightTab === 'side'">{{ t('side.title') }}</span>
+            <span v-else>{{ t('chat.workspace') }}</span>
+          </div>
           <button
             type="button"
-            class="ml-auto flex h-5 w-5 items-center justify-center rounded text-wb-muted transition-colors hover:bg-wb-surface-hover hover:text-wb-ink"
+            class="icon-btn"
             :title="t('chat.collapseAll')"
             @click="showWorkspace = false"
           >
-            <X class="h-3 w-3" />
+            <X class="ic-sm" />
           </button>
         </div>
         <div class="min-h-0 flex-1">
@@ -809,12 +763,8 @@ function onHeaderCommand(cmd: string): void {
 </template>
 
 <style scoped>
-/* chip 悬浮态 — 渐进光晕 */
-.composer-chip:hover {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--wb-primary) 8%, transparent);
-}
 /* 双击重命名笔图标 hover 显示 */
-header h1:hover .hover-hover\:opacity-100 {
+header .ch-name:hover .hover-hover\:opacity-100 {
   opacity: 1;
 }
 </style>

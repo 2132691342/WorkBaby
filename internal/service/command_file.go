@@ -23,11 +23,9 @@ func WorkspaceCommandDir(wsPath string) string {
 	return filepath.Join(wsPath, runtime.SandboxDirName, "commands")
 }
 
-// LoadCommandFiles 读取用户级命令文件目录，物化为斜杠命令（group=custom、选中即灌入输入框）。
-//
-// 文件是命令的「工程化」载体：可随 dotfiles 同步、可用 Git 管理、不必进设置页逐条录。
-// 同名优先序由调用方决定（工作区 > 用户级 > 设置页）。
-// 目录不存在、文件写坏、命令名非法都只跳过该文件并告警，不影响其余命令。
+// LoadCommandFiles 读取用户级命令文件目录，物化为斜杠命令（选中即灌入输入框）。文件是命令的
+// 工程化载体（可随 dotfiles 同步、可用 Git 管理）；同名优先序由调用方决定
+// （工作区 > 用户级 > 设置页）；目录缺失或文件写坏只跳过该条并告警。
 func LoadCommandFiles(home string) []domain.SlashCommand {
 	if strings.TrimSpace(home) == "" {
 		return nil

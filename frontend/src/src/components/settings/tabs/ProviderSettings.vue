@@ -69,7 +69,8 @@ const onboardingDismissed = ref(false)
 const showOnboarding = computed(
   () => !loading.value && providers.value.length === 0 && providerPresets.value.length > 0 && !onboardingDismissed.value
 )
-const topPresets = computed(() => providerPresets.value.slice(0, 9))
+// 只呈现 6 个最常用的预设：3 列 × 2 行正好一屏读完，再多就是让人挑花眼的墙
+const topPresets = computed(() => providerPresets.value.slice(0, 6))
 
 function pickPreset(name: string): void {
   openCreate()
@@ -290,32 +291,28 @@ defineExpose({ load })
 </script>
 
 <template>
-  <div class="wb-ui" style="display: flex; flex-direction: column; gap: 20px">
-    <!-- 顶部：新增模型入口 -->
-    <section class="card">
-      <div class="flex-r">
-        <div class="mini-tile"><Plus class="ic" /></div>
-        <div>
-          <h2>{{ t('settings.addProvider') }}</h2>
-          <p class="fs11 muted mt4">{{ t('settings.addProviderDesc') }}</p>
-        </div>
+  <!-- 自带滚动与页边距：本页内容长于视口，交给 .set-body/.set-page（设置区既有的滚动与页距语法） -->
+  <div class="set-body wb-ui">
+    <div class="set-page page-stack">
+      <!-- 范围说明 + 新增入口：标题与图标由设置外壳的 hero 头给出，此处不重复页名 -->
+      <div class="flex-r page-lead">
+        <p class="fs12 muted">{{ t('settings.modelsHint') }}</p>
         <span class="sp" />
         <button class="btn btn-primary" @click="openCreate">
           <Plus class="ic ic-sm" />
           {{ t('settings.addProvider') }}
         </button>
       </div>
-    </section>
 
     <!-- 全局默认参数 -->
-    <section class="card p-sm">
-      <h2 class="mb4">{{ t('settings.chatDefaults.title') }}</h2>
-      <p class="fs11 muted mb10">{{ t('settings.chatDefaults.desc') }}</p>
-      <div class="grid2" style="gap: 12px">
+    <section class="card">
+      <h2>{{ t('settings.chatDefaults.title') }}</h2>
+      <p class="fs11 muted mt4">{{ t('settings.chatDefaults.desc') }}</p>
+      <div class="form-grid mt14">
         <div class="field">
           <label>{{ t('settings.chatDefaults.temperature') }}</label>
           <input v-model.number="chatDefaults.default_temperature" class="input mono" type="number" min="0" max="2" step="0.05" :placeholder="t('settings.chatDefaults.builtin')" />
-          <p class="fs11 muted mt4">{{ t('settings.chatDefaults.temperatureTip') }}</p>
+          <p class="hint">{{ t('settings.chatDefaults.temperatureTip') }}</p>
         </div>
         <div class="field">
           <label>{{ t('settings.chatDefaults.thinking') }}</label>
@@ -326,22 +323,22 @@ defineExpose({ load })
             <option value="medium">{{ t('chat.effort.medium') }}</option>
             <option value="high">{{ t('chat.effort.high') }}</option>
           </select>
-          <p class="fs11 muted mt4">{{ t('settings.chatDefaults.thinkingTip') }}</p>
+          <p class="hint">{{ t('settings.chatDefaults.thinkingTip') }}</p>
         </div>
         <div class="field">
           <label>{{ t('settings.chatDefaults.compression') }}</label>
           <input v-model.number="chatDefaults.compression_ratio" class="input mono" type="number" min="0.1" max="1" step="0.01" :placeholder="t('settings.chatDefaults.builtin')" />
-          <p class="fs11 muted mt4">{{ t('settings.chatDefaults.compressionTip') }}</p>
+          <p class="hint">{{ t('settings.chatDefaults.compressionTip') }}</p>
         </div>
         <div class="field">
           <label>{{ t('settings.chatDefaults.maxInput') }}</label>
           <input v-model.number="chatDefaults.max_input_chars" class="input mono" type="number" min="100" step="1000" :placeholder="t('settings.chatDefaults.builtin')" />
-          <p class="fs11 muted mt4">{{ t('settings.chatDefaults.maxInputTip') }}</p>
+          <p class="hint">{{ t('settings.chatDefaults.maxInputTip') }}</p>
         </div>
         <div class="field">
           <label>{{ t('settings.chatDefaults.maxRunTokens') }}</label>
           <input v-model.number="chatDefaults.max_run_tokens" class="input mono" type="number" min="0" step="1000" :placeholder="t('settings.chatDefaults.builtin')" />
-          <p class="fs11 muted mt4">{{ t('settings.chatDefaults.maxRunTokensTip') }}</p>
+          <p class="hint">{{ t('settings.chatDefaults.maxRunTokensTip') }}</p>
         </div>
       </div>
       <div class="flex-r mt14">
@@ -350,36 +347,37 @@ defineExpose({ load })
       </div>
     </section>
 
-    <!-- 首启引导卡：未配置 Provider 时高亮出现，预设一键预填新建对话框 -->
-    <section v-if="showOnboarding" class="card onboard">
+    <!-- 首启引导：未配置 Provider 时出现，预设一键预填新建对话框（中性卡：强调色只用于按钮与链接） -->
+    <section v-if="showOnboarding" class="card">
       <div class="flex-r mb10">
         <div>
           <h2>{{ t('settings.onboardTitle') }}</h2>
-          <p class="fs12 muted mt4">{{ t('settings.onboardHint') }}</p>
+          <p class="fs11 muted mt4">{{ t('settings.onboardHint') }}</p>
         </div>
         <span class="sp" />
         <button class="btn-ghost fs12" @click="onboardingDismissed = true">{{ t('settings.onboardSkip') }}</button>
       </div>
-      <div class="onboard-grid">
+      <div class="preset-grid">
         <button
           v-for="p in topPresets"
           :key="p.name"
           type="button"
-          class="onboard-preset"
+          class="preset"
           @click="pickPreset(p.name)"
         >
-          <div class="flex-r">
-            <span class="fw500">{{ p.name }}</span>
+          <span class="flex-r" style="gap: 8px">
+            <b class="fs12 truncate">{{ p.name }}</b>
             <span class="sp" />
             <span class="badge b-neutral">{{ p.kind }}</span>
-          </div>
-          <div class="fs11 muted mono ellipsis">{{ p.base_url }}</div>
-          <div v-if="p.models?.[0]" class="fs11 muted ellipsis">{{ p.models?.[0] }}</div>
-          <div class="fs11 primary mt4">{{ t('settings.onboardUse') }} →</div>
+          </span>
+          <span class="fs11 muted mono truncate">{{ p.base_url }}</span>
+          <span v-if="p.models?.[0]" class="fs11 muted truncate">{{ p.models?.[0] }}</span>
+          <span class="preset-go fs11">{{ t('settings.onboardUse') }} →</span>
         </button>
       </div>
-      <div class="mt10">
-        <button class="btn" @click="openCreate">{{ t('settings.onboardManual') }}</button>
+      <div class="flex-r mt14" style="gap: 12px">
+        <p class="fs11 muted grow">{{ t('settings.onboardProtocolHint') }}</p>
+        <button class="btn btn-sm" @click="openCreate">{{ t('settings.onboardManual') }}</button>
       </div>
     </section>
 
@@ -389,14 +387,15 @@ defineExpose({ load })
         <h2>{{ t('settings.models') }} <span v-if="providers.length > 0" class="fs12 muted mono">({{ providers.length }})</span></h2>
       </div>
 
-      <PageState :loading="loading" :empty="providers.length === 0" :error="error" @retry="load">
-        <template #empty>
-          <div class="empty">
-            <p>{{ t('settings.empty') }}</p>
-            <p class="fs11">{{ t('settings.emptyHint') }}</p>
-          </div>
-        </template>
-      </PageState>
+      <PageState
+        compact
+        :loading="loading"
+        :empty="providers.length === 0"
+        :error="error"
+        :empty-text="t('settings.empty')"
+        :empty-hint="t('settings.emptyHint')"
+        @retry="load"
+      />
 
       <div v-if="!loading && providers.length > 0" class="tbl-wrap">
         <table class="tbl">
@@ -450,10 +449,10 @@ defineExpose({ load })
           </tbody>
         </table>
       </div>
-    </section>
+      </section>
 
-    <!-- 新增 / 编辑统一弹窗（720px + 28px 控件 + 12px 字号，与全局表单一致） -->
-    <FormDialog
+      <!-- 新增 / 编辑统一弹窗（720px + 28px 控件 + 12px 字号，与全局表单一致） -->
+      <FormDialog
       v-model="dialogVisible"
       :title="dialogTitle"
       :submitting="saving"
@@ -549,7 +548,8 @@ defineExpose({ load })
         </Field>
         <p class="fs11 muted" style="grid-column: 1 / -1; margin: 0">{{ t('settings.capabilitiesHint') }}</p>
       </div>
-    </FormDialog>
+      </FormDialog>
+    </div>
   </div>
 </template>
 
@@ -565,40 +565,47 @@ defineExpose({ load })
   cursor: pointer;
 }
 
-/* 首启引导卡：用主色淡边框与底色突出，区别于常规卡片 */
-.onboard {
-  border: 1px solid color-mix(in srgb, var(--wb-primary) 40%, transparent);
-  background: color-mix(in srgb, var(--wb-primary) 5%, var(--wb-surface));
-  padding: 16px;
-  margin-bottom: 16px;
+/* 只补栅格节奏：宽度与页边距沿用全局 .set-page，避免同名覆盖造成页距漂移 */
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-5);
 }
-.onboard-grid {
+.page-lead {
+  gap: var(--wb-sp-3);
+}
+
+/* 预设网格：固定 3 列（一行 3 个正好读完，不再 4 列挤压 URL），窄窗口降 2 列 */
+.preset-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
-  margin-top: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--wb-sp-3);
 }
-.onboard-preset {
+@media (max-width: 1180px) {
+  .preset-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.preset {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 4px;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
+  padding: 10px 12px;
+  border: 1px solid var(--wb-line-2);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface-2);
   text-align: left;
   cursor: pointer;
-  transition: transform 0.12s ease, border-color 0.12s ease;
+  transition: border-color var(--wb-dur-fast) var(--wb-ease), background var(--wb-dur-fast) var(--wb-ease);
 }
-.onboard-preset:hover {
-  transform: translateY(-1px);
+/* 悬浮只换描边与底色（不做位移），与全站卡片同一套动效语言 */
+.preset:hover {
   border-color: var(--wb-primary);
+  background: var(--wb-surface);
 }
-.ellipsis {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+.preset-go {
+  color: var(--wb-primary);
+  margin-top: 2px;
 }
 </style>

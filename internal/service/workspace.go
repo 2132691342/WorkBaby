@@ -16,11 +16,8 @@ import (
 // hiddenWorkspacePrefixes 工作区文件面板隐藏的内部目录。
 var hiddenWorkspacePrefixes = []string{"local/", ".workbaby/", ".index/"}
 
-// WorkspaceService 会话工作区文件面板：列目录 + 读取（沙箱）+ 内容类型推断。
-//
-// 面板根与工具链共用一套解析：会话绑定了外部目录就展示外部目录，
-// 否则展示默认工作区（workspacesRoot/{sessionID}）——否则「选了目录
-// 面板却是空的、Agent 却在外部目录干活」这种精神分裂会直接劝退用户。
+// WorkspaceService 会话工作区文件面板：列目录 + 读取（沙箱）+ 内容类型推断。面板根与工具链
+// 共用一套解析（绑定了外部目录就展示外部目录，否则展示默认工作区），避免面板与 Agent 各看一处。
 type WorkspaceService struct {
 	workspacesRoot string              // {home}/workspaces
 	resolve        func(string) string // 会话 → 工作区根；nil 或返回空 = 默认根

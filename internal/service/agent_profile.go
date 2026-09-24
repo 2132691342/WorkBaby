@@ -12,10 +12,8 @@ import (
 	"WorkBaby/internal/repo"
 )
 
-// AgentProfileService 自定义子智能体：CRUD + 启动同步进 harness 注册表。
-//
-// 注册表是运行期的唯一消费点：delegate_task 按名委派与会话 Agent 切换经 core.Agent(name)
-// 取定义，本服务只负责把 agent_profiles 表里 enabled 的行物化成 core.Definition。
+// AgentProfileService 自定义子智能体：CRUD + 启动同步进 harness 注册表。注册表是运行期
+// 唯一消费点（delegate_task 按名委派、会话 Agent 切换），本服务把 enabled 的行物化成 core.Definition。
 type AgentProfileService struct {
 	repo     *repo.AgentProfileRepo
 	dataHome string // {home}；非空时额外加载 {home}/agents/*.md 定义文件

@@ -25,7 +25,10 @@ async function handleSaveWebSearch(): Promise<void> {
 </script>
 
 <template>
-  <section class="card p-4">
+  <!-- 自带滚动与页边距：设置区统一 .set-body/.set-page（见 ProviderSettings 同款） -->
+  <div class="set-body wb-ui">
+    <div class="set-page">
+      <section class="card p-4">
     <div class="flex items-center justify-between gap-4 rounded-lg border border-wb-border bg-wb-surface-2 px-3 py-2.5">
       <div class="flex min-w-0 items-center gap-3">
         <el-switch
@@ -39,5 +42,7 @@ async function handleSaveWebSearch(): Promise<void> {
       </div>
       <el-button type="primary" @click="handleSaveWebSearch">{{ t('settings.saveWebSearch') }}</el-button>
     </div>
-  </section>
+      </section>
+    </div>
+  </div>
 </template>

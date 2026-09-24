@@ -1,3 +1,5 @@
+// 文件工具护栏测试：grep 尊重 .gitignore、file_edit 写前必读。
+
 package file
 
 import (

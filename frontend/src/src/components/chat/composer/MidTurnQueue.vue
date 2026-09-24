@@ -39,7 +39,7 @@ function canMove(idx: number, dir: -1 | 1): boolean {
       <span class="inline-flex items-center gap-1">
         <el-icon :size="11"><Layers /></el-icon>
         {{ t('queue.label', queue.length) }}
-        <span v-if="paused" class="rounded border border-wb-border px-1 py-0 text-[9px]">{{ t('queue.paused') }}</span>
+        <span v-if="paused" class="rounded border border-wb-border px-1 py-0 text-3xs">{{ t('queue.paused') }}</span>
       </span>
       <span class="inline-flex items-center gap-1">
         <el-button text size="small" @click="emit('toggle-pause')">

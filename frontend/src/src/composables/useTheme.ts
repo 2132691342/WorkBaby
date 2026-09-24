@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 
 /**
- * 主题系统：两套主题 light（浅蓝工作台，默认）/ dark（中性炭灰）。旧主题 id 由 {@link normalizeThemeID} 平滑归一。
+ * 主题系统：两套主题 light（晴空，默认）/ dark（紫夜）。旧主题 id 由 {@link normalizeThemeID} 平滑归一。
  */
 
 export type ThemeID = 'light' | 'dark'
@@ -29,9 +29,18 @@ export interface BackgroundSettings {
   extractedPrimary: string | null  // 用户上传图提取的主色
 }
 
-// v3 键：默认外观切成 light（浅蓝工作台），换键让存量用户的旧偏好一次性让位给新默认
+// v3 键：默认外观切成 light（晴空），换键让存量用户的旧偏好一次性让位给新默认
 const THEME_KEY = 'workbaby.theme.v3'
 const BG_KEY = 'workbaby.background'
+
+/** 提取主色时要一并覆盖的强调色族（--wb-primary 及其派生）：移除时必须逐个还原。 */
+const EXTRACTED_ACCENT_TOKENS = [
+  '--wb-primary',
+  '--wb-primary-strong',
+  '--wb-primary-soft',
+  '--wb-primary-line',
+  '--wb-accent-glow'
+] as const
 
 /**
  * 主题登记表：light / dark 两套，与 themes.css 的 {@code [data-theme=...]} 块一一对应。
@@ -40,8 +49,8 @@ const BG_KEY = 'workbaby.background'
  * 新增主题必须同时补 themes.css 的 CSS 块并在此登记。
  */
 export const THEMES: ThemeConfig[] = [
-  { id: 'light', nameKey: 'settings.theme.light', preview: 'linear-gradient(135deg,#e3eefc,#2f7bf6)', primary: '#2f7bf6', primaryStrong: '#1a5fe0', bg: '#e3eefc', surface: '#ffffff' },
-  { id: 'dark', nameKey: 'settings.theme.dark', preview: 'linear-gradient(135deg,#16121f,#8b5cf6)', primary: '#8b5cf6', primaryStrong: '#a78bfa', bg: '#16121f', surface: '#241d38' }
+  { id: 'light', nameKey: 'settings.theme.light', preview: 'linear-gradient(135deg,#f2f6fc,#2f80ed)', primary: '#2f80ed', primaryStrong: '#1f6fdc', bg: '#f2f6fc', surface: '#ffffff' },
+  { id: 'dark', nameKey: 'settings.theme.dark', preview: 'linear-gradient(135deg,#0b0a0e,#7c5cf8)', primary: '#7c5cf8', primaryStrong: '#9075fa', bg: '#0b0a0e', surface: '#15131b' }
 ]
 
 // 全局响应式状态
@@ -127,7 +136,7 @@ export function useTheme() {
   }
 
   /**
-   * 提取主色随背景一起应用/移除（inline 覆盖 --wb-primary）。
+   * 提取主色随背景一起应用/移除：整族强调色一起改，避免「主色变了、淡底与描边还是蓝的」。
    *
    * <p>收口到单一函数是必须的：应用与移除分写在两处，必然出现「清除背景后主色残留，
    * 整站停留在上一次背景图的色调」或「重启恢复背景后主色丢失」。
@@ -136,11 +145,15 @@ export function useTheme() {
     if (typeof document === 'undefined') return
     const root = document.documentElement
     const extracted = background.value.imageBase64 ? background.value.extractedPrimary : null
-    if (extracted) {
-      root.style.setProperty('--wb-primary', extracted)
-    } else {
-      root.style.removeProperty('--wb-primary')
+    if (!extracted) {
+      for (const token of EXTRACTED_ACCENT_TOKENS) root.style.removeProperty(token)
+      return
     }
+    root.style.setProperty('--wb-primary', extracted)
+    root.style.setProperty('--wb-primary-strong', `color-mix(in srgb, ${extracted} 82%, #0f1e33)`)
+    root.style.setProperty('--wb-primary-soft', `color-mix(in srgb, ${extracted} 12%, transparent)`)
+    root.style.setProperty('--wb-primary-line', `color-mix(in srgb, ${extracted} 34%, transparent)`)
+    root.style.setProperty('--wb-accent-glow', `color-mix(in srgb, ${extracted} 18%, transparent)`)
   }
 
   /** 应用背景到 DOM（含提取主色的应用与移除） */

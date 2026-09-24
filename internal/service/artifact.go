@@ -11,10 +11,8 @@ import (
 	"WorkBaby/internal/repo"
 )
 
-// ArtifactService 会话产出物登记。
-//
-// 工件是「引用」而非内容副本：只记路径与元信息，预览经 /files 服务走真实文件。
-// 由文件变更旁路自动登记（file_write 成功即 upsert），无需模型额外调用工具。
+// ArtifactService 会话产出物登记。工件是「引用」而非内容副本：只记路径与元信息，
+// 预览经 /files 走真实文件；由文件变更旁路自动登记（file_write 成功即 upsert）。
 type ArtifactService struct {
 	repo    *repo.ArtifactRepo
 	bus     *event.Bus

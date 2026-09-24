@@ -133,10 +133,8 @@ type WorkspaceFileItem struct {
 	ModifiedAt int64  `json:"modified_at"`
 }
 
-// WorkspaceEntry 工作区真实目录的单层条目（懒加载文件树用）。
-//
-// 区别于 WorkspaceFileItem（托管产物清单）：这是真实磁盘目录的懒加载一层，
-// 前端点开文件夹再请求下一层，避免大目录一次性全量返回。
+// WorkspaceEntry 工作区真实目录的单层条目（懒加载文件树用），区别于
+// WorkspaceFileItem（托管产物清单）：前端点开文件夹再请求下一层，避免大目录全量返回。
 type WorkspaceEntry struct {
 	Path  string `json:"path"` // 相对工作区根，slash 分隔；目录以 / 结尾便于前端判型
 	Name  string `json:"name"`

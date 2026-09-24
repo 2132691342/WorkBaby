@@ -1,3 +1,5 @@
+// 归档解压测试：路径穿越防护与解压限额（两处安全边界）。
+
 package runtime
 
 import (

@@ -1,0 +1,180 @@
+/* ============================================================
+   导览层 —— 让原型「一打开就看得懂」
+   1) 应用全屏铺满视口（不再缩在模拟窗口里）
+   2) 顶部导览条：返回地图 / 上一屏 / 屏名与说明 / 下一屏 / 主题
+   3) 首屏界面地图：40 屏按分组铺成卡片，点哪去哪
+   ============================================================ */
+
+.stage {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* ---- 顶部导览条（原型独有，不属于产品 UI） ---- */
+.tourbar {
+  flex: none;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4);
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--line-2);
+  font-size: var(--fs-sm);
+}
+.tourbar .tb-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--ctl-md);
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-2);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.tourbar .tb-home:hover { border-color: var(--accent-line); color: var(--accent); }
+.tourbar .tb-now {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.tourbar .tb-desc {
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46vw;
+}
+.tourbar .tb-idx {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.tourbar .tb-btn {
+  width: var(--ctl-md);
+  height: var(--ctl-md);
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.tourbar .tb-btn:hover { background: var(--bg-raise); color: var(--ink); }
+
+/* ---- 应用窗口：全屏 ---- */
+.win {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+.win-body { flex: 1; min-height: 0; display: flex; }
+
+/* ============================================================
+   界面地图（首屏）
+   ============================================================ */
+.map {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.map-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--sp-8) var(--sp-6) var(--sp-12);
+}
+.map-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg-card);
+}
+.map-hero .logo {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  border-radius: var(--r-lg);
+  background: var(--accent);
+  color: var(--accent-ink);
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25);
+}
+.map-hero b {
+  font-family: var(--font-disp);
+  font-size: var(--fs-xl);
+  letter-spacing: .02em;
+}
+.map-hero p { color: var(--ink-2); font-size: var(--fs-sm); margin-top: 3px; }
+
+.map-note {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  line-height: var(--lh-base);
+}
+
+.map-group { margin-top: var(--sp-8); }
+.map-group > header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+.map-group > header b {
+  font-family: var(--font-disp);
+  font-size: var(--fs-lg);
+  letter-spacing: .02em;
+}
+.map-group > header span { font-size: var(--fs-sm); color: var(--ink-3); }
+
+.map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+.map-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.map-card:hover { border-color: var(--accent-line); transform: translateY(-1px); }
+.map-card .mc-top { display: flex; align-items: center; gap: var(--sp-2); }
+.map-card .mc-glyph { color: var(--accent); }
+.map-card .mc-name { font-size: var(--fs-md); font-weight: 600; }
+.map-card .mc-desc { font-size: var(--fs-xs); color: var(--ink-3); line-height: var(--lh-base); }
+.map-card .mc-idx {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-3);
+}

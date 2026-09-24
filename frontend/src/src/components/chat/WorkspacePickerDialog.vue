@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { FolderSearch } from '@/components/common/icons'
 import { pickDirectoryViaShell } from '@/api/shellBridge'
 import { t } from '@/i18n'
@@ -51,6 +51,14 @@ async function pickViaShell(): Promise<void> {
     picking.value = false
   }
 }
+
+/** 沙箱根预览：绑定后过程数据（记忆/快照/脚本/产出/缓存）落在这里，让用户绑定时就确认。 */
+const sandboxPreview = computed(() => {
+  const v = draft.value.trim()
+  if (!v) return ''
+  const sep = v.includes('\\') ? '\\' : '/'
+  return v.replace(/[\\/]+$/, '') + sep + '.workbaby'
+})
 
 /** 前端只做形状校验（绝对路径）；目录是否真实存在由后端 updateWorkspace 校验。 */
 async function verify(): Promise<void> {
@@ -118,6 +126,11 @@ function clear(): void {
       :closable="false"
       show-icon
     />
+    <!-- 沙箱根预览：让用户绑定前就知道过程数据会落在哪（回应「沙箱与实际目录不一致」） -->
+    <p v-if="valid === true && sandboxPreview" class="mt-1.5 text-xs text-wb-muted">
+      {{ t('chat.workspacePicker.sandboxHint') }}
+      <code class="rounded bg-wb-surface px-1 py-0.5 font-mono text-2xs text-wb-ink">{{ sandboxPreview }}</code>
+    </p>
     <el-alert
       v-else-if="valid === false"
       class="mt-2"

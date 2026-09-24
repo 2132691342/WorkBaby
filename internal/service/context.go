@@ -57,8 +57,8 @@ func (s *ChatService) ContextUsage(ctx context.Context, sessionID string) (domai
 		system = sys.Content
 	}
 
-	// tools：本会话实际暴露的工具定义
-	toolDefs := def.FilterTools(s.tools.LLMDefinitions(ctx))
+	// tools：与真实请求同一入口（skillTools 传 nil = 无技能命中），保证透视口径等于实发口径
+	toolDefs := s.exposedToolDefs(ctx, def, nil)
 	toolsJSON, err := json.Marshal(toolDefs)
 	if err != nil {
 		toolsJSON = nil
@@ -150,6 +150,7 @@ const (
 )
 
 // buildSystem 装配本轮 system 段；与 /context 占用透视同源，保证「看到的占用」等于「实际发送」。
+// 两段来源：能力注册表注入段（PreloadAll 按 order 串联）+ 服务侧附加段（需读仓储与会话状态）。
 func (s *ChatService) buildSystem(ctx context.Context, ses *domain.ChatSessionDO, runID, userInput string, def core.Definition) (*llm.Message, *capability.RunState) {
 	state := &capability.RunState{}
 	sections := s.caps.PreloadAll(ctx, &capability.PreloadCtx{
@@ -160,6 +161,38 @@ func (s *ChatService) buildSystem(ctx context.Context, ses *domain.ChatSessionDO
 		Def:       def,
 		State:     state,
 	})
+	sections = append(sections, s.extraSystemSections(ctx, ses)...)
+
+	// system 段预算：上下文 token 预算 × 30%（rune≈0.6 token，中英混合口径）。
+	// system 被压缩器无条件保留，没有上限会只增不减。
+	sysRunes := 0
+	if window := s.contextWindow(ctx, ses.ProviderID); window > 0 {
+		if b := s.contextBudget(ctx, window, s.providerDO(ctx, ses.ProviderID)); b > 0 {
+			sysRunes = b * 3 / 10 * 2
+		}
+	}
+	body, dropped := core.BuildSystem(sections, sysRunes)
+	if len(dropped) > 0 {
+		pkg.L.Info("system pieces dropped by budget", "sessionID", ses.ID, "runID", runID, "dropped", strings.Join(dropped, ","))
+		// 裁剪必须回传前端：用户看到的回答质量下降（如 Skill 正文被丢）需要能对上原因。
+		// runID 为空是「占用透视」路径（不产生 run 事件），跳过。
+		if runID != "" {
+			s.emit(runID, ses.ID, "chat:context-trimmed", map[string]any{
+				"dropped_segments": dropped,
+				"budget_runes":     sysRunes,
+			})
+		}
+	}
+	if body == "" {
+		return nil, state
+	}
+	return llm.SystemMessage(body), state
+}
+
+// extraSystemSections 服务侧附加段：能力注入之外、需要读仓储或会话状态的 system 内容。
+// 拼接序 = Order（决定正文出现位置），丢弃序 = Priority（预算紧张时谁先走），两者必须分开设。
+func (s *ChatService) extraSystemSections(ctx context.Context, ses *domain.ChatSessionDO) []core.Section {
+	var sections []core.Section
 	// 项目指令（AGENTS.md）：用户全局 + 工作区两份，先全局后工作区。
 	// 指令文件承载稳定约定（技术栈 / 规范 / 验证方式），每轮 run 都注入 system。
 	sections = append(sections, agentsMdPieces(ses)...)
@@ -208,30 +241,7 @@ func (s *ChatService) buildSystem(ctx context.Context, ses *domain.ChatSessionDO
 			Priority: core.PriorityEssential,
 		})
 	}
-	// system 段预算：上下文 token 预算 × 30%（rune≈0.6 token，中英混合口径）。
-	// system 被压缩器无条件保留，没有上限会只增不减。
-	sysRunes := 0
-	if window := s.contextWindow(ctx, ses.ProviderID); window > 0 {
-		if b := s.contextBudget(ctx, window, s.providerDO(ctx, ses.ProviderID)); b > 0 {
-			sysRunes = b * 3 / 10 * 2
-		}
-	}
-	body, dropped := core.BuildSystem(sections, sysRunes)
-	if len(dropped) > 0 {
-		pkg.L.Info("system pieces dropped by budget", "sessionID", ses.ID, "runID", runID, "dropped", strings.Join(dropped, ","))
-		// 裁剪必须回传前端：用户看到的回答质量下降（如 Skill 正文被丢）需要能对上原因。
-		// runID 为空是「占用透视」路径（不产生 run 事件），跳过。
-		if runID != "" {
-			s.emit(runID, ses.ID, "chat:context-trimmed", map[string]any{
-				"dropped_segments": dropped,
-				"budget_runes":     sysRunes,
-			})
-		}
-	}
-	if body == "" {
-		return nil, state
-	}
-	return llm.SystemMessage(body), state
+	return sections
 }
 
 // verificationReminder 验证提醒：最近一条 assistant 轮次修改了文件但未执行任何命令 →
@@ -283,11 +293,8 @@ func skillBlockPayload(st *capability.RunState) map[string]any {
 	}
 }
 
-// toLLMMessages 历史消息 → llm.Message；重建 assistant 的工具调用与 tool 消息上下文。
-// 过滤孤儿 tool 消息（tool_call_id 无前置 assistant 匹配）与空 assistant 占位——
-// 不剥掉上游 LLM 会以 400 拒绝整轮。本条用户消息由 prepareRun 先落库，随历史一并带出。
-// toLLMMessages 无附件展开的口径（上下文占用透视等非 run 路径）。
-
+// toLLMMessages 历史消息 → llm.Message，重建 assistant 工具调用与 tool 消息上下文（无附件展开，
+// 供上下文占用透视等非 run 路径复用）。过滤孤儿 tool 消息与空 assistant 占位——不剥掉上游会 400。
 func (s *ChatService) toLLMMessages(hists []domain.MessageDO) ([]*llm.Message, error) {
 	return s.buildLLMMessages(context.Background(), hists, false)
 }

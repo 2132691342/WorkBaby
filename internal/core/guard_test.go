@@ -1,14 +1,20 @@
+// 护栏中间件链测试：拒绝语义（Refused 非 Err）、权限矩阵、熔断与失败改道注入。
+
 package core
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"WorkBaby/internal/llm"
+	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/tool"
 )
 
@@ -105,6 +111,56 @@ func TestGuardChain(t *testing.T) {
 		assert.Equal(t, RefuseLoopGuard, second.Meta["refused_reason"])
 		assert.True(t, reordered.Refused, "同参异序仍判重复")
 		assert.Equal(t, 1, echo.callCount())
+	})
+
+	t.Run("AdaptiveLoopGuard 同工具连续失败注入改道提示", func(t *testing.T) {
+		failing := &mockTool{
+			name: "exec", risk: tool.RiskExec,
+			fn: func(_ json.RawMessage) tool.ToolResult {
+				return tool.ToolResult{Err: pkg.Wrap(4006, "exec failed", errors.New("exit status 1"))}
+			},
+		}
+		// threshold=2 让测试更紧凑；只验证「计数+提示+」语义
+		h := Chain(AdaptiveLoopGuard(2))(Executor(ExecOptions{}))
+		ctx := context.Background()
+		args := json.RawMessage(`{"command":"python","args":["-c","print"]}`)
+
+		// 1) 第一次失败：记 1，未达阈值，原文回填
+		r1 := h(ctx, Call{ID: "1", Name: "exec", Args: args, Tool: failing})
+		assert.Error(t, r1.Err)
+		assert.Equal(t, "1", r1.Meta["same_failure_count"])
+		assert.NotContains(t, r1.Content, "[guard]", "未达阈值不应附加 hint")
+
+		// 2) 第二次失败：达阈值，附加改道提示 + Meta 标记
+		r2 := h(ctx, Call{ID: "2", Name: "exec", Args: args, Tool: failing})
+		assert.Error(t, r2.Err)
+		assert.Equal(t, "2", r2.Meta["same_failure_count"])
+		assert.Equal(t, "1", r2.Meta["adaptive_hint"], "达标后 Meta 必须打标记")
+		assert.Contains(t, r2.Content, "[guard]", "达标后必须追加 hint")
+		assert.Contains(t, r2.Content, "exec", "hint 必须含工具名")
+		assert.Contains(t, r2.Content, "检查命令参数", "exec 类提示核对参数")
+
+		// 3) 任意一次成功：streak 清零，下次失败重新计数
+		ok := &mockTool{name: "exec", risk: tool.RiskExec}
+		h2 := Chain(AdaptiveLoopGuard(2))(Executor(ExecOptions{}))
+		_ = h2(ctx, Call{ID: "3", Name: "exec", Args: args, Tool: ok})
+		r3 := h2(ctx, Call{ID: "4", Name: "exec", Args: args, Tool: failing})
+		assert.Equal(t, "1", r3.Meta["same_failure_count"], "成功后失败计数归零")
+	})
+
+	t.Run("summarizeToolError 长栈截断", func(t *testing.T) {
+		// 模拟 python 那种 30+ 行的栈：原样回填会把上下文撑爆
+		var sb strings.Builder
+		for i := 0; i < 30; i++ {
+			sb.WriteString("at frame ")
+			sb.WriteString(strconv.Itoa(i))
+			sb.WriteString(" of 30\n")
+		}
+		long := sb.String()
+		out := summarizeToolError("exec", errors.New(long))
+		assert.Contains(t, out, "工具执行失败: exec", "首行固定为工具名")
+		assert.Contains(t, out, "(truncated", "超过 stackLines 必须截断")
+		assert.Less(t, len(out), len(long), "截断后必须比原文短")
 	})
 
 }

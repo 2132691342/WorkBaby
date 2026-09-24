@@ -15,9 +15,7 @@ const (
 	UsageSourceTask TokenUsageSource = "task"
 )
 
-// TokenUsageDO 单次 LLM 调用的 token 明细。
-//
-// 与 chat_messages 的 token 字段区别：消息只保留最终助手消息的汇总值，
+// TokenUsageDO 单次 LLM 调用的 token 明细。与 chat_messages 的 token 字段区别：
 // 本表按「每一次上游调用」落一行，多轮工具循环因此可被完整统计与回溯。
 type TokenUsageDO struct {
 	ID               string           `gorm:"primaryKey;size:64" json:"id"`

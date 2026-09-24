@@ -77,10 +77,8 @@ func (s *ChatService) newCoreLoop(spec coreLoopSpec) *core.Loop {
 	return loop
 }
 
-// guardsFor 组装护栏中间件链。顺序即语义（外到内，任一环拒绝即短路）：
-// 1. ExposeGuard 未暴露/未注册拒绝；2. SchemaGuard 参数不合规回填模型修正；
-// 3. PolicyGuard 注入 + 路径/计划模式 + 风险×模式×规则×审批；
-// 4. hookGuard 用户钩子；5. RepeatGuard 重复熔断 + 步骤复用（前序拒绝不计为重复）。
+// guardsFor 组装护栏中间件链（顺序即语义，外到内，任一环拒绝即短路）：
+// ExposeGuard → SchemaGuard → PolicyGuard → hookGuard → AdaptiveLoopGuard → RepeatGuard。
 func (s *ChatService) guardsFor(spec coreLoopSpec) []core.Middleware {
 	var exposed map[string]bool
 	if len(spec.ToolNames) > 0 {
@@ -110,14 +108,15 @@ func (s *ChatService) guardsFor(spec coreLoopSpec) []core.Middleware {
 	}
 	// 用户钩子在策略门之后：内置护栏先裁决，钩子只处理「本机护栏已放行、但用户另有规矩」的场景。
 	ms = append(ms, s.hookGuard(spec.Ses, spec.RunID))
+	// 失败改道闸门：在 RepeatGuard 之前计数失败次数，达标后给模型注入改道提示；
+	// 不影响 RepeatGuard 的同参熔断（两者维度互补：tool-name 维度 vs 同参 key 维度）。
+	ms = append(ms, core.AdaptiveLoopGuard(3))
 	// 循环与停滞熔断放最后：前面的拒绝（未暴露/越权）不算「重复调用」。
 	return append(ms, core.RepeatGuard(3, nil))
 }
 
-// hookGuard 用户钩子闸门（子进程协议）。
-//
-// PreToolUse 可放行 / 升级人工确认 / 拦截；PostToolUse 的附加上下文并入回执。
-// 钩子自身故障不阻断——UserHookService 内部已兜底放行，这里只消费决策。
+// hookGuard 用户钩子闸门（子进程协议）：PreToolUse 可放行 / 升级确认 / 拦截，
+// PostToolUse 的附加上下文并入回执。钩子自身故障不阻断（内部已兜底放行）。
 func (s *ChatService) hookGuard(ses *domain.ChatSessionDO, runID string) core.Middleware {
 	if s.hookRunner == nil {
 		return func(next core.Handler) core.Handler { return next }

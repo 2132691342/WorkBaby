@@ -9,11 +9,9 @@ import (
 	"WorkBaby/internal/pkg"
 )
 
-// ValidateArgs 校验工具参数是否符合 JSON Schema。
-//
-// 用 jsonschema/v6 做完整 draft 2020-12 校验：$ref / allOf / oneOf / pattern /
-// minimum-maximum / additionalProperties 全部覆盖——自研子集漏掉这些约束会让
-// LLM 产出的错参直接穿透到工具执行层。schema 为空或 "{}" 时直接通过。
+// ValidateArgs 校验工具参数是否符合 JSON Schema（完整 draft 2020-12：$ref / allOf / oneOf /
+// pattern / minimum-maximum / additionalProperties）。自研子集漏掉这些约束会让 LLM 产出的
+// 错参直接穿透到执行层。schema 为空或 "{}" 时直接通过。
 func ValidateArgs(schema, args json.RawMessage) error {
 	if len(schema) == 0 || string(schema) == "null" || string(schema) == "{}" {
 		return nil

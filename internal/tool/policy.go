@@ -66,10 +66,8 @@ func DefaultDecision(mode SessionMode, risk RiskLevel) Decision {
 }
 
 // Gate 工具策略门：显式规则（按工具名，glob）优先，无规则回退 SessionMode × 风险默认。
-//
-// 分工（CLAUDE.md §6）：
-//   - Gate 是 harness 执行层的「工具级」裁决（在工具调用前）；
-//   - exec 工具内部仍是「命令级」白名单/危险正则（ExecPolicy），两者互不替代。
+// 分工：Gate 是执行层的「工具级」裁决；exec 工具内部仍是「命令级」白名单与危险正则，
+// 两者互不替代。
 type Gate struct {
 	mode  SessionMode
 	rules map[string]Decision
@@ -98,10 +96,8 @@ func (g *Gate) Set(name string, d Decision) *Gate {
 	return g
 }
 
-// Mode 返回策略门的会话权限模式；nil 门按 default 处理。
-//
-// YOLO（完全访问）下用户已授权全部动作，调用方据此连命令级裁决一起跳过——
-// 否则 Allow 与 YOLO 无法区分（两者 Decide 都返回 DecisionAllow）。
+// Mode 返回策略门的会话权限模式；nil 门按 default 处理。YOLO 下用户已授权全部动作，
+// 调用方据此连命令级裁决一起跳过——否则 Allow 与 YOLO 无法区分。
 func (g *Gate) Mode() SessionMode {
 	if g == nil {
 		return SessionModeDefault

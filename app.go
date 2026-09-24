@@ -1,5 +1,5 @@
 // Package main 提供 App 结构体，承载 Wails 生命周期；通过嵌入 *api.Handler 自动继承系统能力绑定。
-// 双主机架构（doc/01 §1）：业务 API 走 gin HTTP，Wails 绑定仅保留系统能力（对话框/剪贴板/托盘）。
+// 双主机架构（docs/ARCHITECTURE.md）：业务 API 走 gin HTTP，Wails 绑定仅保留系统能力（对话框/剪贴板/托盘）。
 package main
 
 import (
@@ -32,7 +32,7 @@ func NewApp() *App {
 	return &App{Handler: api.NewHandler()}
 }
 
-// startup 注入 ctx；按 doc/01 §4 初始化序列执行：路径 → 日志 → 配置 → DB → 迁移 →
+// startup 注入 ctx；按 docs/ARCHITECTURE.md 初始化序列执行：路径 → 日志 → 配置 → DB → 迁移 →
 // repo/service → 启动 gin server → EmitReady(serverPort) → 前端建立 HTTP 连接。
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx

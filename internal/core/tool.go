@@ -1,7 +1,6 @@
 // Package core 是 WorkBaby 的 Agent 执行内核：一个 ReAct 主循环 + 一条可插拔护栏中间件链。
-//
-// 边界：core 不依赖 api / service / server / wails；持久化与审批经接口注入；
-// 护栏以 Middleware 组合（对齐 go-micro ToolWrapper），主循环只保留「请求 → 执行 → 回填」三件事。
+// 主循环只保留「请求 → 执行 → 回填」三件事，安全与持久化全部经 Middleware 与接口注入。
+// 边界：core 不依赖 api / service / server / wails。
 package core
 
 import (
@@ -30,9 +29,7 @@ type Call struct {
 type Handler func(ctx context.Context, call Call) tool.ToolResult
 
 // Middleware 护栏中间件：包裹下一个 Handler，可短路、改写结果或放行。
-//
-// 契约：拒绝必须返回 tool.ToolResult{Refused: true}，让模型能改道续跑；
-// 不得返回 Err——错误留给真正的执行失败。
+// 契约：拒绝返回 ToolResult{Refused:true}（模型可改道）；不得返回 Err。
 type Middleware func(next Handler) Handler
 
 // Chain 按序组装中间件：索引 0 为最外层（最先裁决，最先短路）。

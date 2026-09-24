@@ -148,10 +148,8 @@ type goalVerdict struct {
 	Because  string `json:"because"`
 }
 
-// maybeContinueGoal 目标模式主钩子：一轮 run 成功收尾后调用。
-// 未完成 → 校验（LLM 实据裁决）→ 未达标则携带下一步动作自动续跑下一轮。
-// 调用点在 executeAgent 成功路径最末尾；续跑直接起新 run（runRegistry.deleteIf
-// 保证旧 run 的清理不会误删新 run 的取消句柄）。
+// maybeContinueGoal 目标模式主钩子：一轮 run 成功收尾后调用。未完成 → 校验（LLM 实据裁决）→
+// 未达标则携带下一步动作自动续跑下一轮。续跑直接起新 run（runRegistry 保证旧 run 清理不误删新句柄）。
 func (s *ChatService) maybeContinueGoal(ctx context.Context, ses *domain.ChatSessionDO, runID string, res *core.Outcome) {
 	g := sessionGoal(ses)
 	if g == nil || g.Status != domain.GoalStatusActive {
@@ -258,10 +256,18 @@ func (s *ChatService) goalVerdict(ctx context.Context, ses *domain.ChatSessionDO
 }
 
 const goalVerdictPrompt = `你是目标校验器。判断一轮 agent 工作后目标是否已达成，只输出 JSON。
-规则：
-- 只输出 JSON 对象，不要解释、不要 Markdown 代码块。
-- 校验只看实据：改出来的文件、命令输出、测试结果、可核对的产物。计划、待办清单、听起来像结论的回复都不算达成。
-- 没达成时必须给出具体、可执行的下一步动作（next_step），像交给另一个工程师的任务卡。
+
+## 评分准则（rubric；按以下清单逐项核查）
+1. 产物存在：声称生成/修改的文件必须确实出现或变更（用 ls / file_read 验证）；声称运行的命令必须 exit code=0 且输出与声称一致
+2. 可核对：检查项有可观测的证据（文件存在 + 内容匹配 / 命令退出码 + 关键 stdout），口头总结不算
+3. 范围匹配：完成的是用户问的事，不是顺手的扩展或绕开
+5. 反例触发：出现「我已完成」「已经创建」「已经成功」一类无证据陈述 → done=false 且 because 写明
+
+## 规则
+- 只输出 JSON 对象，不要解释、不要 Markdown 代码块
+- 校验只看实据：改出来的文件、命令输出、测试结果、可核对的产物。计划、待办清单、听起来像结论的回复都不算达成
+- 没达成时必须给出具体、可执行的下一步动作（next_step），像交给另一个工程师的任务卡（含「先验证 X 是否存在 → 若不存在则用 Y 创建 → 完成后跑 Z 验证」这种步骤化结构）
+
 输出结构：
 {"done":false,"next_step":"","because":""}`
 

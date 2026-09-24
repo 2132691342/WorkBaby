@@ -38,6 +38,17 @@ type ToolResult struct {
 	Refused bool              // 审批拒绝（Refused 语义：非故障，不推进失败熔断）
 }
 
+// MetaTerminate 工具结果元信息键：置 "1"（或 "true"）表示「本结果已是终局」——跳过下一轮
+// 模型调用直接 end_turn 收尾。同一轮**全部**结果都置位才生效：混合批次里只要有一个结果
+// 需要模型继续处理，就照常进入下一轮。
+const MetaTerminate = "terminate"
+
+// IsTerminal 工具结果是否自述已是终局。
+func IsTerminal(r ToolResult) bool {
+	v := strings.TrimSpace(r.Meta[MetaTerminate])
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
 // Tool 统一工具接口。
 type Tool interface {
 	Name() string

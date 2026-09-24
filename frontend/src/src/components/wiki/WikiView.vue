@@ -5,11 +5,14 @@
  * 确定性生成（不依赖 LLM）：扫描即产出，刷新即最新。
  */
 import { computed, onMounted, ref } from 'vue'
-import { BookOpen, RefreshCw, FolderSearch, Code2 } from '@/components/common/icons'
+import { useRouter } from 'vue-router'
+import { RefreshCw, FolderSearch, Code2 } from '@/components/common/icons'
 import { apiGet } from '@/api/client'
 import { useChatStore } from '@/stores/chat'
 import { t } from '@/i18n'
 import { useToast } from '@/composables/useToast'
+import EmptyState from '@/components/common/EmptyState.vue'
+import Skeleton from '@/components/common/Skeleton.vue'
 
 interface WikiNode {
   name: string
@@ -45,6 +48,7 @@ interface WikiPage {
 
 const chat = useChatStore()
 const toast = useToast()
+const router = useRouter()
 
 const overview = ref<WikiOverview | null>(null)
 const page = ref<WikiPage | null>(null)
@@ -53,6 +57,10 @@ const failed = ref(false)
 const scanning = ref(false)
 
 const sessionId = computed(() => chat.currentID ?? '')
+
+function goChat(): void {
+  void router.push('/chat')
+}
 
 onMounted(load)
 
@@ -95,23 +103,31 @@ function onTreeNodeClick(node: WikiNode): void {
 <template>
   <div class="scroll wb-ui">
     <div class="wrap wrap-lg">
-      <header class="hero">
-        <div class="tile"><BookOpen class="ic" /></div>
-        <div>
-          <h1>{{ t('wiki.title') }}</h1>
-          <p>{{ t('wiki.subtitle') }}</p>
-        </div>
+      <!-- 范围说明 + 刷新入口：页名由设置外壳的 hero 头给出，这里不再重复标题 -->
+      <div class="flex-r page-lead">
+        <p class="fs12 muted">{{ t('wiki.subtitle') }}</p>
         <span class="sp" />
         <button class="btn" :disabled="loading || !sessionId" @click="load">
           <RefreshCw class="ic ic-sm" :class="{ 'animate-spin': loading }" />
           {{ t('wiki.rescan') }}
         </button>
-      </header>
+      </div>
 
-      <!-- 未选会话 / 工作区不可用 -->
-      <div v-if="!sessionId" class="alert a-info">{{ t('wiki.needSession') }}</div>
-      <div v-else-if="loading" class="card p-5 text-sm text-wb-muted">{{ t('ui.status.loading') }}</div>
-      <div v-else-if="failed" class="alert a-warning">{{ t('wiki.unavailable') }}</div>
+      <!-- 未选会话：安静空态 + 出口动作，不用通栏提示条冒充内容 -->
+      <EmptyState
+        v-if="!sessionId"
+        :illustration="false"
+        :title="t('wiki.needSessionTitle')"
+        :subtitle="t('wiki.needSession')"
+      >
+        <button class="btn btn-primary" @click="goChat">{{ t('wiki.goChat') }}</button>
+      </EmptyState>
+      <div v-else-if="loading" class="card p-5">
+        <Skeleton variant="text" :lines="4" />
+      </div>
+      <EmptyState v-else-if="failed" variant="error-general" :illustration="false" :title="t('wiki.unavailable')">
+        <button class="btn btn-sm" @click="load">{{ t('ui.state.retry') }}</button>
+      </EmptyState>
 
       <template v-else-if="overview">
         <!-- 画像条 -->
@@ -207,6 +223,10 @@ function onTreeNodeClick(node: WikiNode): void {
 </template>
 
 <style scoped>
+/* 范围说明行：与模型设置页同一套「说明 + 右侧动作」语法 */
+.page-lead {
+  gap: var(--wb-sp-3);
+}
 .wiki-lang {
   border: 1px solid var(--wb-border);
   border-radius: 999px;

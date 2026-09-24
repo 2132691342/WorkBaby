@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,15 +23,27 @@ const (
 	ReasonStopped   = "stopped" // 钩子要求停止
 )
 
+// defaultMaxRetries 建流瞬时错误默认重试次数（不含首调）。
+const defaultMaxRetries = 5
+
+// DefaultMaxTurns 默认轮次上限。需要多步工具调用 + 中间纠错的任务，20 轮会在终态
+// 收束前被砍断；100 轮给足余量，可由 Agent 定义或会话设置覆盖。
+const DefaultMaxTurns = 100
+
+// DefaultMaxRunTokens 默认 run 累计 token 预算（成本熔断）；<=0 表示不限。
+// 桌面单用户场景里 10M tokens 远超一次"读 PPT 源文档→生成→审稿"的合理用量，
+// 主要拦"模型进入死循环反复重发同一工具"的极端情况。
+const DefaultMaxRunTokens = 10_000_000
+
 // Config run 级配置；零值字段在 New 里补默认。
 type Config struct {
 	Model        string
 	System       string
-	MaxTurns     int // 轮次上限；0 取默认 20
+	MaxTurns     int // 轮次上限；0 取默认 DefaultMaxTurns
 	Parallel     int // 只读工具并行度；0 取默认 4
 	MaxInput     int // 上下文 token 预算（压缩触发线）；0 表示不压缩
-	MaxRunTokens int // run 累计 token 预算（成本熔断）；<=0 不限
-	MaxRetries   int // 建流瞬时错误最大重试次数；0 取默认 3
+	MaxRunTokens int // run 累计 token 预算（成本熔断）；<=0 取默认 DefaultMaxRunTokens
+	MaxRetries   int // 建流瞬时错误最大重试次数；<=0 取默认 5
 	Exec         ExecOptions
 	Temperature  *float64
 	MaxTokens    *int
@@ -38,10 +52,16 @@ type Config struct {
 
 func (c Config) withDefaults() Config {
 	if c.MaxTurns <= 0 {
-		c.MaxTurns = 20
+		c.MaxTurns = DefaultMaxTurns
 	}
 	if c.Parallel <= 0 {
 		c.Parallel = 4
+	}
+	if c.MaxRunTokens <= 0 {
+		c.MaxRunTokens = DefaultMaxRunTokens
+	}
+	if c.MaxRetries <= 0 {
+		c.MaxRetries = defaultMaxRetries
 	}
 	return c
 }
@@ -132,7 +152,7 @@ type Loop struct {
 	onRetry     func(attempt int, delay time.Duration)
 }
 
-// New 构造 Loop；执行器默认为裸 Executor，需经 WithGuard 装上护栏链。
+// New 构造 Loop；护栏链必须经 WithGuard 装配，未装配时 Run/Resume 直接失败（见 runLoop）。
 func New(provider llm.Provider, reg *tool.Registry, cfg Config) *Loop {
 	if reg == nil {
 		reg = tool.NewRegistry()
@@ -233,8 +253,10 @@ func (l *Loop) runLoop(ctx context.Context, msgs []*llm.Message, startTurn int, 
 	if l.provider == nil {
 		return nil, pkg.New(5001, "provider 未就绪", "")
 	}
+	// 未装配护栏链必须失败而非回落裸执行器：后者会绕过暴露清单、注入检测与审批，
+	// 一次漏装 WithGuard 等于给模型开了全权限，而症状只在事后审计里可见。
 	if l.exec == nil {
-		l.exec = Executor(l.cfg.Exec)
+		return nil, pkg.New(5000, "run 未装配护栏链", l.meta.RunID)
 	}
 	if l.steps == nil {
 		l.steps = NewMapSteps(nil)
@@ -312,16 +334,22 @@ func (l *Loop) runLoop(ctx context.Context, msgs []*llm.Message, startTurn int, 
 		}
 
 		t0 := time.Now()
-		toolMsgs := l.runTools(ctx, turn, res.ToolCallsRaw)
+		toolMsgs, terminal := l.runTools(ctx, turn, res.ToolCallsRaw)
 		out.Timings.ToolsMs += time.Since(t0).Milliseconds()
 		msgs = append(msgs, toolMsgs...)
 		out.Messages = append(out.Messages, toolMsgs...)
 		// 轮间插话：跑过工具后允许用户纠偏，下一轮生效。
-		if steer := l.steering(ctx); len(steer) > 0 {
+		steer := l.steering(ctx)
+		if len(steer) > 0 {
 			msgs = append(msgs, steer...)
 		}
 
 		l.checkpoint(turn, msgs, out)
+		// 终局工具：本轮结果全部自述已是终局 → 没有待模型判断的内容，直接收尾。
+		// 有插话时不能收尾：用户刚说的话必须被处理，否则会静默丢消息。
+		if terminal && len(steer) == 0 {
+			return l.finish(out, ReasonEndTurn, res.StopReason), nil
+		}
 		if l.hooks.ShouldStop != nil && l.hooks.ShouldStop(ctx, turn) {
 			return l.finish(out, ReasonStopped, res.StopReason), nil
 		}
@@ -382,7 +410,8 @@ func (l *Loop) checkpoint(turn int, msgs []*llm.Message, out *Outcome) {
 
 // runTools 执行本轮工具调用；全只读且并行度 > 1 时并发，否则严格串行。
 // 结果严格按调用顺序回填，保证 assistant(tool_calls) 与 tool 结果配对完整。
-func (l *Loop) runTools(ctx context.Context, turn int, calls []llm.NormalizedToolCall) []*llm.Message {
+// 第二个返回值为「本轮是否全部终局」（见 tool.MetaTerminate）。
+func (l *Loop) runTools(ctx context.Context, turn int, calls []llm.NormalizedToolCall) ([]*llm.Message, bool) {
 	names := make([]string, 0, len(calls))
 	for _, c := range calls {
 		names = append(names, c.Name)
@@ -390,11 +419,12 @@ func (l *Loop) runTools(ctx context.Context, turn int, calls []llm.NormalizedToo
 	parallel := l.cfg.Parallel > 1 && len(calls) > 1 && l.registry.AllReadOnly(names)
 
 	results := make([]*llm.Message, len(calls))
+	terminal := make([]bool, len(calls))
 	if !parallel {
 		for i, c := range calls {
-			results[i] = l.runOne(ctx, turn, c)
+			results[i], terminal[i] = l.runOne(ctx, turn, c)
 		}
-		return results
+		return results, allTerminal(terminal)
 	}
 
 	var wg sync.WaitGroup
@@ -405,15 +435,29 @@ func (l *Loop) runTools(ctx context.Context, turn int, calls []llm.NormalizedToo
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i] = l.runOne(ctx, turn, c)
+			results[i], terminal[i] = l.runOne(ctx, turn, c)
 		}(i, c)
 	}
 	wg.Wait()
-	return results
+	return results, allTerminal(terminal)
+}
+
+// allTerminal 本轮是否每个结果都自述终局；空批次为 false（没有结果就没有终局依据）。
+func allTerminal(flags []bool) bool {
+	if len(flags) == 0 {
+		return false
+	}
+	for _, f := range flags {
+		if !f {
+			return false
+		}
+	}
+	return true
 }
 
 // runOne 执行一次调用：经护栏链 → 发事件 → 转成 tool 消息。
-func (l *Loop) runOne(ctx context.Context, turn int, tc llm.NormalizedToolCall) *llm.Message {
+// 第二个返回值是该结果是否请求跳过下一轮模型调用。
+func (l *Loop) runOne(ctx context.Context, turn int, tc llm.NormalizedToolCall) (*llm.Message, bool) {
 	t, _ := l.registry.Get(tc.Name)
 	call := Call{ID: tc.ID, Name: tc.Name, Args: tc.Arguments, Tool: t, RunID: l.meta.RunID, Turn: turn}
 
@@ -443,21 +487,57 @@ func (l *Loop) runOne(ctx context.Context, turn int, tc llm.NormalizedToolCall) 
 
 	content := res.Content
 	if res.Err != nil {
-		content = "工具执行失败: " + res.Err.Error()
+		// 错误回执做摘要：长栈截断，避免单条失败把上下文撑爆。
+		// AdaptiveLoopGuard 附加的 [guard] 段必须保留，否则摘要会盖掉改道提示。
+		hint := adaptiveHintFromContent(res.Content)
+		content = summarizeToolError(call.Name, res.Err)
+		if hint != "" {
+			content = content + "\n\n" + hint
+		}
 	}
-	return llm.ToolMessage(tc.ID, tc.Name, content)
+	return llm.ToolMessage(tc.ID, tc.Name, content), tool.IsTerminal(res)
+}
+
+// adaptiveHintFromContent 从 AdaptiveLoopGuard 已修改的 Content 里抽离 [guard] 段。
+// 摘要在错误上重建内容时不能让改道提示消失。
+func adaptiveHintFromContent(content string) string {
+	const marker = "[guard]"
+	i := strings.Index(content, marker)
+	if i < 0 {
+		return ""
+	}
+	return strings.TrimSpace(content[i:])
+}
+
+// summarizeToolError 工具错误的标准化摘要：保留类型与关键信息，截断长栈。
+// 优先走 AdaptiveLoopGuard 在 Meta 里注入的 same_failure_count，让模型看见
+// 「已经失败 N 次了」是改道信号；正文只给一行关键错误 + 多行栈的前若干行。
+func summarizeToolError(name string, err error) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	const stackLines = 4
+	const maxRunes = 600
+	lines := strings.Split(text, "\n")
+	if len(lines) > stackLines {
+		text = strings.Join(lines[:stackLines], "\n") + "\n... (truncated, " + strconv.Itoa(len(lines)-stackLines) + " more lines)"
+	}
+	runes := []rune(text)
+	if len(runes) > maxRunes {
+		text = string(runes[:maxRunes]) + "... (truncated)"
+	}
+	return "工具执行失败: " + name + " -> " + text
 }
 
 // streamWithRetry 包装 provider.Stream：瞬时错误按 policy 退避后重试，
 // 每轮重试前调 onRetry 回调发 agent.retry 事件给编排层桥接 chat:retry。
 // 未配置重试策略时回退到原行为（一次尝试、瞬时错误即失败）。
 func (l *Loop) streamWithRetry(ctx context.Context, turn int, req *llm.ChatRequest) (<-chan llm.StreamChunk, error) {
+	// 含首调的总尝试次数；默认值来自 Config.withDefaults。
 	maxAttempts := l.retryPolicy.MaxAttempts
 	if maxAttempts <= 0 {
 		maxAttempts = l.cfg.MaxRetries + 1
-	}
-	if maxAttempts <= 0 {
-		maxAttempts = 4 // 含首调的默认值：失败 → 重试 3 次
 	}
 	for attempt := 0; ; attempt++ {
 		ch, err := l.provider.Stream(ctx, req)
@@ -493,11 +573,14 @@ func (l *Loop) requestTurn(ctx context.Context, turn int, msgs []*llm.Message) (
 		return nil, pkg.Wrap(3005, "建流失败", err)
 	}
 
-	res := &turnResult{LatencyMs: time.Since(started).Milliseconds()}
+	res := &turnResult{}
 	for chunk := range ch {
 		if chunk.Err != nil {
 			l.emit(EventError, turn, ErrorPayload{Code: 3006, Message: chunk.Err.Error(), Kind: "upstream"})
 			res.HadError = true
+			if res.streamErr == nil {
+				res.streamErr = chunk.Err
+			}
 			continue
 		}
 		if s := chunk.Delta.Content; s != "" {
@@ -517,6 +600,14 @@ func (l *Loop) requestTurn(ctx context.Context, turn int, msgs []*llm.Message) (
 		if chunk.FinishReason != nil {
 			res.StopReason = *chunk.FinishReason
 		}
+	}
+	// 延迟必须覆盖消费全程：在建流返回时就取值会漏掉整段流式生成时间，
+	// 仪表盘上的「等模型」永远偏小，据此做的耗时归因全部失真。
+	res.LatencyMs = time.Since(started).Milliseconds()
+	// 只报错、一个 token 都没产出的流不能算成功轮：否则空 assistant 会被回填进历史，
+	// 上游下一轮直接 400（空 assistant + 工具结果不配对），而 run 却表现为正常收尾。
+	if res.HadError && res.empty() {
+		return nil, pkg.Wrap(3006, "上游返回错误且本轮无输出", res.streamErr)
 	}
 	return res, nil
 }
@@ -556,6 +647,12 @@ type turnResult struct {
 	StopReason   string
 	LatencyMs    int64
 	HadError     bool
+	streamErr    error // 首个 chunk 级错误，用于「空轮 + 报错」判定
+}
+
+// empty 本轮是否毫无产出（无正文、无思考、无工具调用）。
+func (r *turnResult) empty() bool {
+	return r.Content == "" && r.Thinking == "" && len(r.ToolCallsRaw) == 0
 }
 
 // ToolCalls 转成 assistant 消息的 ToolCall 结构。

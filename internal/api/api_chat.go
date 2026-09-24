@@ -150,18 +150,14 @@ func (h *Handler) ListCustomCommands() ([]domain.UserCommandRESP, error) {
 	return h.commandSvc.List(h.ctx)
 }
 
-// SetSessionAgent 切换会话 Agent（写元数据；下次 run 起生效）。
-//
-// req.Agent 合法值："" / "default" / "coding" / "research" / "writer"。
-// 空字符串 = 清除覆盖（回到 harness 内置 defaultAgentName）。
+// SetSessionAgent 切换会话 Agent（写元数据；下次 run 起生效）。Agent 合法值：
+// "" / "default" / "coding" / "research" / "writer"；空字符串 = 清除覆盖（回到内置 default）。
 func (h *Handler) SetSessionAgent(sessionID string, req domain.SetSessionAgentREQ) error {
 	return h.chatSvc.SetSessionAgent(h.ctx, sessionID, req.Agent)
 }
 
-// CompactSession 压缩会话历史上下文（/compact 命令的后端实现）。
-//
-// req.Instructions 是「保留指示」：非空会钉进会话元数据并以 system 段常驻注入
-// （不受历史折叠影响）；req.KeepRecent 覆盖默认保留窗口（<=0 用后端默认）。
+// CompactSession 压缩会话历史上下文（/compact 的后端实现）。Instructions 是「保留指示」：
+// 非空会钉进会话元数据并以 system 段常驻注入（不受历史折叠影响）；KeepRecent<=0 用后端默认。
 func (h *Handler) CompactSession(sessionID string, req domain.CompactREQ) (domain.CompactResultRESP, error) {
 	return h.chatSvc.CompactSession(h.ctx, sessionID, req)
 }

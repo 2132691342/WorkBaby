@@ -196,11 +196,9 @@ func (h *SSEHub) Serve(c *gin.Context) {
 		return
 	}
 
-	// 重放（afterSeq 之后补齐）：首连时 afterSeq=0，等价于补发该 run 已缓存的全部事件。
-	//
-	// 首连也必须重放：run 在 POST /chat/stream 返回时就已在 goroutine 里开跑，
-	// 「HTTP 响应 → SSE 握手」窗口内发出的 chat:stream.start 乃至 chat:done
-	// 若不补回，前端会永远等不到终态。
+	// 重放（afterSeq 之后补齐）。首连（afterSeq=0）也必须重放：run 在 POST /chat/stream
+	// 返回时已在 goroutine 里开跑，「HTTP 响应 → SSE 握手」窗口内发出的 chat:stream.start
+	// 乃至 chat:done 若不补回，前端会永远等不到终态。
 	if runID != "" && h.log != nil {
 		events, covered := h.log.Replay(runID, afterSeq)
 		if !covered {

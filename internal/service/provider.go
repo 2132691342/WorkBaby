@@ -110,7 +110,7 @@ func validateREQ(req *domain.AiProviderREQ) error {
 	if req.Kind == "" {
 		req.Kind = domain.ProviderKindOpenAI
 	}
-	// 防御性校验：拒绝前端传入后端不支持的 kind（CLAUDE.md §8 反模式「臆造 API 特性」）。
+	// 防御性校验：拒绝前端传入后端不支持的 kind（AGENTS.md 反模式「臆造 API 特性」）。
 	// kind 在 internal/domain/ai_provider.go AllProviderKinds 定义；registry.buildOne 失败会让 Provider 永久 unready。
 	if !slices.Contains(domain.AllProviderKinds, req.Kind) {
 		return pkg.New(3012, "unsupported provider kind", string(req.Kind))

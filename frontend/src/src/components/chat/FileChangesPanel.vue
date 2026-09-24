@@ -220,7 +220,7 @@ watch(tab, (v) => {
             <div class="flex items-center gap-2">
               <component :is="actionIcon(c.action)" class="h-3.5 w-3.5 shrink-0" :class="c.action === 'create' ? 'text-wb-mint' : c.action === 'delete' ? 'text-wb-danger' : 'text-wb-info'" />
               <span class="truncate text-xs font-medium text-wb-ink">{{ c.rel_path }}</span>
-              <span v-if="c.rolled_back" class="ml-auto rounded border border-wb-border px-1 py-0.5 text-[9px] text-wb-muted">{{ t('changes.rolledBackBadge') }}</span>
+              <span v-if="c.rolled_back" class="ml-auto rounded border border-wb-border px-1 py-0.5 text-3xs text-wb-muted">{{ t('changes.rolledBackBadge') }}</span>
             </div>
             <div class="mt-1 flex items-center gap-2 text-2xs text-wb-muted">
               <span>{{ actionLabel(c.action) }}</span>

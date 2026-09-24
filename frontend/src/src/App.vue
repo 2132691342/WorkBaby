@@ -10,6 +10,7 @@ import {
   Settings,
   Folder,
   ArrowRight,
+  Globe,
   Moon,
   Sunny
 } from '@/components/common/icons'
@@ -346,26 +347,26 @@ async function onNewSessionShortcut(): Promise<void> {
       <aside v-show="!collapsed" class="side">
         <div class="side-brand">
           <div class="logo"><Bot class="h-4 w-4" /></div>
-          <div>
+          <div class="grow">
             <b>WorkBaby</b>
             <small>{{ t('nav.localIdentityHint') }}</small>
           </div>
           <button class="rail-collapse" :title="t('nav.collapseRail')" @click="collapsed = true">
-            <component :is="ArrowRight" class="h-3 w-3" />
+            <ArrowRight class="h-3 w-3" />
           </button>
         </div>
 
-        <!-- 快捷动作：新建任务 / 搜索（领域切换走命令面板 Ctrl+K） -->
-        <div class="rail-actions">
-          <button class="rail-btn" :disabled="creating" @click="onCreateSession">
-            <span class="rail-ic"><Plus class="h-3.5 w-3.5" /></span>
-            <span class="flex-1 text-left">{{ t('nav.newTask') }}</span>
-            <kbd class="rail-kbd">Ctrl+N</kbd>
+        <!-- 快捷动作：新建任务（主行动，镂空主色） / 搜索（领域切换走命令面板 Ctrl+K） -->
+        <div class="side-actions">
+          <button class="side-btn is-primary" :disabled="creating" @click="onCreateSession">
+            <span class="rail-ic"><Plus class="ic-sm" /></span>
+            <span class="grow" style="text-align: left">{{ t('nav.newTask') }}</span>
+            <kbd class="rail-kbd">Ctrl N</kbd>
           </button>
-          <button class="rail-btn" @click="openPalette">
-            <span class="rail-ic"><Search class="h-3.5 w-3.5" /></span>
-            <span class="flex-1 text-left">{{ t('nav.search') }}</span>
-            <kbd class="rail-kbd">Ctrl+K</kbd>
+          <button class="side-btn" @click="openPalette">
+            <span class="rail-ic"><Search class="ic-sm" /></span>
+            <span class="grow" style="text-align: left">{{ t('nav.search') }}</span>
+            <kbd class="rail-kbd">Ctrl K</kbd>
           </button>
         </div>
 
@@ -387,20 +388,28 @@ async function onNewSessionShortcut(): Promise<void> {
         />
 
         <div class="side-foot">
-          <button class="fi" :title="currentLocale === 'zh-CN' ? 'English' : '中文'" @click="toggleLang">
-            <span class="ic ic-sm font-semibold">{{ currentLocale === 'zh-CN' ? 'EN' : '中' }}</span>
-            <span>{{ currentLocale === 'zh-CN' ? 'EN' : '中文' }}</span>
+          <button
+            class="foot-btn"
+            :title="currentLocale === 'zh-CN' ? 'English' : '中文'"
+            @click="toggleLang"
+          >
+            <Globe class="ic ic-sm" />
+            <span>{{ currentLocale === 'zh-CN' ? '中文' : 'English' }}</span>
           </button>
-          <button class="fi" :class="{ 'is-active': route.path.startsWith('/settings') }" @click="navTo('/settings')">
+          <span class="sp" />
+          <button
+            class="foot-btn"
+            :class="{ 'is-on': route.path.startsWith('/settings') }"
+            @click="navTo('/settings')"
+          >
             <Settings class="ic ic-sm" />
             <span>{{ t('nav.settings') }}</span>
           </button>
         </div>
       </aside>
 
-      <!-- 主内容区（app-deco：右下淡蓝装饰层，z-index:-1 保证在所有内容之下） -->
+      <!-- 主内容区 -->
       <main class="main relative z-10">
-        <div class="app-deco" aria-hidden="true" />
         <RouterView />
       </main>
     </div>

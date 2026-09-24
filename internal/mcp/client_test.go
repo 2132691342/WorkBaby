@@ -1,3 +1,5 @@
+// MCP 客户端测试：stdio 协议往返、服务不可用降级、管理器注册与注销。
+
 package mcp
 
 import (

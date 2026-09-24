@@ -69,8 +69,8 @@ type fetchReq struct {
 // Execute 抓取并提取正文。
 func (t *WebFetchTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req fetchReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "webfetch args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	if req.URL == "" {
 		return tool.ToolResult{Err: pkg.New(4004, "webfetch url is required", "")}

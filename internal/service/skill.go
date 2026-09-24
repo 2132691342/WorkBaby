@@ -48,16 +48,16 @@ func (s *SkillService) Summaries() []capability.SkillSummary {
 	return out
 }
 
-// SyncBuiltin 启动期：内置 Skill upsert 进表 + 重建 Registry。
-//
-// 用户关闭状态必须保留：内置 SKILL.md 每次启动重新解析（Enabled 恒为 true），
-// 直接 upsert 全字段覆盖会把用户 SetSkillEnabled(false) 的结果重置回 true。
+// SyncBuiltin 启动期：内置 Skill upsert 进表 + 重建 Registry。用户关闭状态必须保留——
+// 内置 SKILL.md 每次启动重新解析（Enabled 恒 true），全字段覆盖会把用户的 false 重置回 true。
 func (s *SkillService) SyncBuiltin(ctx context.Context) error {
 	rows, err := skill.LoadBuiltin()
 	if err != nil {
 		return err
 	}
+	live := make(map[string]bool, len(rows))
 	for i := range rows {
+		live[rows[i].Name] = true
 		if exist, gerr := s.repo.GetByName(ctx, rows[i].Name); gerr == nil && exist != nil {
 			rows[i].Enabled = exist.Enabled
 		}
@@ -65,7 +65,26 @@ func (s *SkillService) SyncBuiltin(ctx context.Context) error {
 			return err
 		}
 	}
+	s.pruneRetiredBuiltin(ctx, live)
 	return s.Reload(ctx)
+}
+
+// pruneRetiredBuiltin 摘除已下架的内置 Skill。
+// 内置技能对用户只读（Update / Delete 均拒绝），不清就会变成永久僵尸条目：
+// 列表里还在、也关不掉，用户只能看着一个自己没装过的技能一直占着技能位。
+func (s *SkillService) pruneRetiredBuiltin(ctx context.Context, live map[string]bool) {
+	rows, err := s.repo.List(ctx)
+	if err != nil {
+		return
+	}
+	for i := range rows {
+		if !skill.IsBuiltinRef(rows[i].SourceRef) || live[rows[i].Name] {
+			continue
+		}
+		if err := s.repo.Delete(ctx, rows[i].Name); err != nil {
+			pkg.L.Warn("remove retired builtin skill failed", "name", rows[i].Name, "err", err.Error())
+		}
+	}
 }
 
 // Reload 从表重建 Registry（增删改/启停后调用）。

@@ -24,11 +24,8 @@ var providerPresets = []ProviderPreset{
 	{Name: "LM Studio（本机）", Kind: "openai", BaseURL: "http://127.0.0.1:1234/v1", Note: "本地推理，无需 API Key"},
 }
 
-// ProviderPresets 返回内置预设（api 层直出，前端「新增模型」一键预填）。
-//
-// Models 统一归一化为非 nil 切片：nil slice 会被 JSON 序列化成 null，
-// 前端按数组下标访问（p.models[0]）会抛 TypeError 并导致整页渲染失败。
-// 本机预设（Ollama / LM Studio）不预置模型名，这里补成空切片而非删除字段。
+// ProviderPresets 返回内置预设（前端「新增模型」一键预填）。Models 归一化为非 nil 切片：
+// nil slice 序列化成 null，前端按下标访问会抛 TypeError。本机预设补空切片而非删字段。
 func ProviderPresets() []ProviderPreset {
 	out := make([]ProviderPreset, len(providerPresets))
 	copy(out, providerPresets)

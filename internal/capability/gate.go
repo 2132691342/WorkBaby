@@ -8,10 +8,8 @@ type GateResult struct {
 	Why  string // opt_in / keyword / off
 }
 
-// RelevanceGate 重型 prompt 段门控：显式 opt-in（@引用）> 会话关键词命中 > 默认关闭。
-//
-// 目的：让「空闲会话上下文精简」成为结构性默认，而不是把全部重型段注入后
-// 靠 Priority 裁剪兜底——裁剪发生在预算溢出时，已经付了 token 代价。
+// RelevanceGate 重型 prompt 段门控：显式 opt-in（@引用）> 会话关键词命中 > 默认关闭。让
+// 「空闲会话上下文精简」成为结构性默认，而不是把重型段全注入后靠 Priority 裁剪兜底。
 type RelevanceGate struct {
 	tokens   []string // 显式 opt-in 触发串（小写，含 @）
 	keywords []string // 会话关键词（小写）

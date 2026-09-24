@@ -44,11 +44,9 @@ func Migrate(db *gorm.DB) error {
 	return nil
 }
 
-// fts5Tables FTS5 虚拟表定义（唯一真相源；AutoMigrate 不覆盖，启动期单独执行）。
-//
-// tokenizer 必须用 trigram：FTS5 的 unicode61 不按字切分 CJK，整句中文会退化成
-// 单个 token，反而让中文检索全面失效。trigram 固定 3 字符窗口，因此「部署」「报错」
-// 这类 2 字中文查询在 MATCH 上必然零命中——由调用方的带打分子串兜底承担（见 rag/memory）。
+// fts5Tables FTS5 虚拟表定义（唯一真相源；AutoMigrate 不覆盖，启动期单独执行）。tokenizer
+// 必须用 trigram：unicode61 不按字切分 CJK，整句中文退化成单 token，中文检索全面失效。
+// 代价是 2 字中文查询在 MATCH 上必然零命中——由调用方的带打分子串兜底承担。
 var fts5Tables = []struct {
 	name string
 	ddl  string

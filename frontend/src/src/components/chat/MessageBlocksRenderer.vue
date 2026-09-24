@@ -6,7 +6,9 @@
  * 内部统一转为 RenderBlock 后只写一遍渲染逻辑。
  */
 import { computed, ref, watch } from 'vue'
-import { Brain, Sparkles, Loader2, Square, Check, X, ChevronDown } from '@/components/common/icons'
+import { Brain, Sparkles, Loader2, Square, Check, X, ChevronDown, Copy } from '@/components/common/icons'
+import { useClipboard } from '@vueuse/core'
+import { useToast } from '@/composables/useToast'
 import { t } from '@/i18n'
 import { groupToolRuns, looksLikeDiff } from '@/chat/models/blocks'
 import { toolLabel } from '@/chat/models/toolVisuals'
@@ -52,7 +54,21 @@ interface RenderBlock {
   /** tool_call 块。 */
   call?: { id: string; name: string; arguments: string }
   /** tool_result 块。 */
-  result?: { toolCallId: string; name: string; content: string; error?: string; durationMs?: number; refused?: boolean; uiHint?: string; data?: Record<string, unknown> | null }
+  result?: {
+    toolCallId: string
+    name: string
+    content: string
+    error?: string
+    durationMs?: number
+    refused?: boolean
+    uiHint?: string
+    data?: Record<string, unknown> | null
+    /**
+     * 工具元数据：cwd / same_failure_count / adaptive_hint / truncated_bytes 等。
+     * 后端 chat:tool-result 载荷里的 meta map 直接透传。
+     */
+    meta?: Record<string, string>
+  }
   /** skill 块。 */
   skill?: Record<string, unknown>
   /** artifact 块。 */
@@ -87,7 +103,11 @@ const renderBlocks = computed<RenderBlock[]>(() => {
           durationMs: typeof b.data.duration_ms === 'number' ? b.data.duration_ms : undefined,
           refused: b.data.refused === true,
           uiHint: typeof b.data.ui_hint === 'string' ? b.data.ui_hint : undefined,
-          data: (b.data.data ?? null) as Record<string, unknown> | null
+          data: (b.data.data ?? null) as Record<string, unknown> | null,
+          // 后端 meta 透传：cwd / same_failure_count / adaptive_hint 等按需渲染
+          meta: (b.data.meta && typeof b.data.meta === 'object')
+            ? (b.data.meta as Record<string, string>)
+            : undefined
         }
       } else if (b.kind === 'skill' && b.data) {
         rb.skill = b.data
@@ -116,7 +136,11 @@ const renderBlocks = computed<RenderBlock[]>(() => {
           error: typeof b.data?.error === 'string' ? b.data.error : undefined,
           durationMs: b.durationMs,
           refused: b.state === 'refused',
-          data: (b.data?.data ?? null) as Record<string, unknown> | null
+          data: (b.data?.data ?? null) as Record<string, unknown> | null,
+          // 流式期透传 meta（与持久化路径同源）；mergeBlockUpdate 时已合并到 data
+          meta: (b.data?.meta && typeof b.data.meta === 'object')
+            ? (b.data.meta as Record<string, string>)
+            : undefined
         }
         rb.running = b.state === 'running'
       } else if (b.kind === 'skill') {
@@ -201,6 +225,122 @@ function toolResultLines(content: string): string[] {
   return content.split('\n').filter((l) => l.length > 0)
 }
 
+/** cwd 短展示：取最后两级路径前缀，让用户在过程卡上一眼看见「命令落在哪」。 */
+function shortCwd(cwd: string): string {
+  if (!cwd) return ''
+  const parts = cwd.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (parts.length <= 2) return cwd
+  return '…/' + parts.slice(-2).join('/')
+}
+
+/** HTML 转义：v-html 渲染前的唯一入口（工具输出是模型可控内容，必须转义）。 */
+function escapeHTML(s: string): string {
+  return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'))
+}
+
+// ===== 复制：长工具输出一键复制（args / result 各一个入口） =====
+const toast = useToast()
+// legacy: true 提供 execCommand 兜底；JCEF WebView 在非安全上下文下 navigator.clipboard 可能不可用。
+const { copy: copyToClipboard } = useClipboard({ legacy: true })
+/** 已复制的块 key（1.5s 后复位，用于按钮 ✓ 反馈）。 */
+const copiedKey = ref<string | null>(null)
+
+async function copyBlock(key: string, text: string): Promise<void> {
+  if (!text) return
+  try {
+    await copyToClipboard(text)
+    copiedKey.value = key
+    setTimeout(() => {
+      if (copiedKey.value === key) copiedKey.value = null
+    }, 1500)
+    toast.success(t('chat.copied'))
+  } catch {
+    /* 剪贴板失败静默（WebView 权限受限场景） */
+  }
+}
+
+/** JSON 缩进美化；非 JSON（解析失败或非对象/数组开头）返回 null。 */
+function prettyJSON(text: string): string | null {
+  const t = (text ?? '').trim()
+  if (!(t.startsWith('{') || t.startsWith('['))) return null
+  try {
+    return JSON.stringify(JSON.parse(t), null, 2)
+  } catch {
+    return null
+  }
+}
+
+/** JSON 折叠阈值：超过此行数默认折叠，避免大输出把消息流拉长数倍。 */
+const JSON_FOLD_LINES = 14
+
+/** 已展开的 JSON 块 key（默认折叠，点击展开）。 */
+const jsonOpen = ref<Set<string>>(new Set())
+
+/** args / result 的块内 key（复制与折叠共用，避免模板里重复拼串）。 */
+function argKey(b: RenderBlock): string {
+  return `${b.kind}:${b.seq}:args`
+}
+function resultKey(b: RenderBlock): string {
+  return `${b.kind}:${b.seq}:result`
+}
+
+/** 该内容是否为「可折叠的长 JSON」。 */
+function jsonFoldable(text: string): boolean {
+  const pretty = prettyJSON(text)
+  return pretty !== null && pretty.split('\n').length > JSON_FOLD_LINES
+}
+
+/** 该 JSON 块当前是否处于折叠态（未手动展开 + 超阈值）。 */
+function isJSONFolded(key: string, text: string): boolean {
+  return !jsonOpen.value.has(key) && jsonFoldable(text)
+}
+
+function toggleJSON(key: string): void {
+  const next = new Set(jsonOpen.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  jsonOpen.value = next
+}
+
+/** 对已缩进的 JSON 做转义 + 着色（不重新解析，供折叠版复用）。 */
+function colorizeJSON(pretty: string): string {
+  // 用捕获组区分 key 与 string value：key 后面紧跟 `:`（JSON.stringify 缩进格式）。
+  // 不能靠「整体是否以冒号结尾」判断——字符串值自身可能以冒号结尾（如 "http://x:"）。
+  return escapeHTML(pretty).replace(
+    /("(?:\\.|[^\\"])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    (_m, str?: string, colon?: string, lit?: string, num?: string) => {
+      if (str !== undefined) {
+        const cls = colon === undefined ? 'j-str' : 'j-key'
+        return `<span class="${cls}">${str}${colon ?? ''}</span>`
+      }
+      if (lit !== undefined) {
+        const cls = lit === 'null' ? 'j-null' : 'j-bool'
+        return `<span class="${cls}">${lit}</span>`
+      }
+      return `<span class="j-num">${num}</span>`
+    }
+  )
+}
+
+/**
+ * 代码块渲染：JSON 走缩进 + 着色，其余原样转义；长 JSON 按 {@link JSON_FOLD_LINES} 折叠。
+ *
+ * 安全性：先整体转义 `& < >`，再在**转义后**的文本上做 token 着色——
+ * 着色只插入 class 为常量的 `<span>`，不含任何用户输入，因此 v-html 可安全使用。
+ * 配色只取主色 + 灰阶（AGENTS.md：绿/红仅作状态灯，不用于语法高亮）。
+ */
+function codeBlockHTML(text: string, key?: string): string {
+  if (!text) return ''
+  const pretty = prettyJSON(text)
+  if (pretty === null) return escapeHTML(text)
+  if (key !== undefined && isJSONFolded(key, text)) {
+    // 折叠版：保留前 N 行，末尾标记省略。着色仍按 token 生效（不重新解析）。
+    return colorizeJSON(pretty.split('\n').slice(0, JSON_FOLD_LINES).join('\n')) +
+      '\n<span class="j-fold">…</span>'
+  }
+  return colorizeJSON(pretty)
+}
+
 /** 是否为最后一个块：流式光标只挂在末块上（收缩成一处，避免模板里重复长表达式）。 */
 function isLastBlock(b: RenderBlock): boolean {
   const list = renderUnits.value
@@ -276,7 +416,13 @@ watch(
           v-for="b in g.tools"
           :key="`${b.kind}:${b.seq}`"
           class="wb-tool"
-          :class="{ open: isOpen(b), err: isError(b) }"
+          :class="{
+            open: isOpen(b),
+            run: b.running,
+            done: !b.running && !isError(b) && !b.result?.refused,
+            err: isError(b),
+            wait: Boolean(b.result?.refused)
+          }"
         >
           <button
             type="button"
@@ -315,16 +461,72 @@ watch(
             <span v-if="b.result?.durationMs != null" class="wb-tool-ms">
               {{ (b.result.durationMs / 1000).toFixed(1) }}s
             </span>
+            <!-- 内核改道信号：同工具连续失败计数（>=1 就显示，让用户看见模型在死磕） -->
+            <span
+              v-if="b.result?.meta?.same_failure_count && Number(b.result.meta.same_failure_count) >= 1"
+              class="wb-tool-failcount"
+              :title="t('chat.tool.failCountHint', { count: b.result.meta.same_failure_count })"
+            >
+              ×{{ b.result.meta.same_failure_count }}
+            </span>
+            <!-- AdaptiveLoopGuard 已注入 [guard] 改道提示 -->
+            <span
+              v-if="b.result?.meta?.adaptive_hint === '1'"
+              class="wb-tool-guard"
+              :title="t('chat.tool.guardHint')"
+            >
+              {{ t('chat.tool.guardBadge') }}
+            </span>
+            <!-- 工具实际执行目录：让用户能验证沙箱 cwd 与声称一致 -->
+            <span
+              v-if="b.result?.meta?.cwd"
+              class="wb-tool-cwd"
+              :title="b.result.meta.cwd"
+            >
+              {{ shortCwd(b.result.meta.cwd) }}
+            </span>
             <span v-if="isError(b)" class="wb-tool-failed">{{ t('chat.execFailed') }}</span>
+            <span v-else-if="b.result?.refused" class="wb-tool-refused">{{ t('chat.execRefused') }}</span>
             <ChevronDown v-if="isExpandable(b)" class="wb-tool-chev" :class="{ rotate: isOpen(b) }" />
           </button>
           <div v-if="isOpen(b) && (b.call?.arguments || b.result?.content)" class="wb-tool-bd">
             <template v-if="b.call?.arguments">
-              <p class="wb-tool-lb">args</p>
-              <pre class="wb-tool-pre"><code>{{ b.call.arguments }}</code></pre>
+              <div class="wb-tool-lb-row">
+                <p class="wb-tool-lb">args</p>
+                <button
+                  type="button"
+                  class="wb-tool-copy"
+                  :title="t('chat.copied')"
+                  @click.stop="copyBlock(argKey(b), b.call?.arguments ?? '')"
+                >
+                  <Check v-if="copiedKey === argKey(b)" class="wb-tool-copy-ok" />
+                  <Copy v-else class="wb-tool-copy-ic" />
+                </button>
+              </div>
+              <!-- JSON 入参自动缩进 + 着色（已转义后再着色，v-html 安全）；长 JSON 默认折叠 -->
+              <pre class="wb-tool-pre"><code v-html="codeBlockHTML(b.call.arguments, argKey(b))"></code></pre>
+              <button
+                v-if="jsonFoldable(b.call?.arguments ?? '')"
+                type="button"
+                class="wb-tool-fold"
+                @click.stop="toggleJSON(argKey(b))"
+              >
+                {{ isJSONFolded(argKey(b), b.call?.arguments ?? '') ? t('chat.tool.expandLines') : t('chat.tool.collapseLines') }}
+              </button>
             </template>
             <template v-if="b.result?.content">
-              <p class="wb-tool-lb">result</p>
+              <div class="wb-tool-lb-row">
+                <p class="wb-tool-lb">result</p>
+                <button
+                  type="button"
+                  class="wb-tool-copy"
+                  :title="t('chat.copied')"
+                  @click.stop="copyBlock(resultKey(b), b.result?.content ?? '')"
+                >
+                  <Check v-if="copiedKey === resultKey(b)" class="wb-tool-copy-ok" />
+                  <Copy v-else class="wb-tool-copy-ic" />
+                </button>
+              </div>
               <!-- 知识库检索：结构化命中 → 来源卡（可展开全文），替代文本墙 -->
               <KnowledgeHits
                 v-if="b.result.name === 'knowledge_search' && knowledgeHits(b).length > 0"
@@ -346,7 +548,18 @@ watch(
                 :diff="b.result.content"
                 :max-height="224"
               />
-              <pre v-else class="wb-tool-pre">{{ b.result.content }}</pre>
+              <!-- JSON 结果（exec 调 API / http 工具常见）自动缩进 + 着色；长 JSON 默认折叠 -->
+              <template v-else>
+                <pre class="wb-tool-pre"><code v-html="codeBlockHTML(b.result.content, resultKey(b))"></code></pre>
+                <button
+                  v-if="jsonFoldable(b.result.content)"
+                  type="button"
+                  class="wb-tool-fold"
+                  @click.stop="toggleJSON(resultKey(b))"
+                >
+                  {{ isJSONFolded(resultKey(b), b.result.content) ? t('chat.tool.expandLines') : t('chat.tool.collapseLines') }}
+                </button>
+              </template>
             </template>
           </div>
         </div>
@@ -403,32 +616,84 @@ watch(
   gap: 6px;
 }
 
-/* ===== 过程卡（连续工具单元）=====
- * 一屏十几个工具若每行裸露，消息流就是十几行散文字；收进一张卡后
- * 行间用极浅分隔线、hover 整行高亮，形成卡内列表的秩序感。 */
+/* ===== 工具时间线（Agent「干活」的核心视觉）=====
+ * 形态：左侧连续竖轨 + 节点状态灯 + 等宽行文——像日志流出的流水线，
+ * 一眼能看出「跑到第几步、哪一步慢、哪一步失败」。 */
 .wb-trace {
-  border: 1px solid var(--wb-border);
-  border-radius: 12px;
-  background: var(--wb-surface-solid);
-  overflow: hidden;
+  position: relative;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.wb-trace .wb-tool + .wb-tool {
-  border-top: 1px solid color-mix(in srgb, var(--wb-border) 65%, transparent);
+.wb-trace::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--wb-line-2);
+}
+.wb-trace .wb-tool {
+  position: relative;
+  border-radius: var(--wb-radius);
+  border: 1px solid transparent;
+  transition: border-color var(--wb-dur) var(--wb-ease), background var(--wb-dur) var(--wb-ease);
+}
+.wb-trace .wb-tool::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--wb-bg);
+  border: 1.5px solid var(--wb-line-2);
+  z-index: 1;
+}
+.wb-trace .wb-tool.run::before {
+  border-color: var(--wb-primary);
+  background: var(--wb-primary);
+  animation: wb-node-pulse 1.8s infinite;
+}
+.wb-trace .wb-tool.done::before {
+  border-color: var(--wb-success);
+  background: var(--wb-success);
+}
+.wb-trace .wb-tool.err::before {
+  border-color: var(--wb-danger);
+  background: var(--wb-danger);
+}
+.wb-trace .wb-tool.wait::before {
+  border-color: var(--wb-warning);
+  background: var(--wb-warning);
+}
+@keyframes wb-node-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--wb-primary-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--wb-primary-soft);
+  }
 }
 .wb-trace .wb-tool-hd {
-  border-radius: 0;
+  border-radius: var(--wb-radius);
 }
 .wb-trace .wb-tool-hd:hover {
-  background: color-mix(in srgb, var(--wb-primary) 6%, transparent);
+  background: var(--wb-surface);
+}
+.wb-trace .wb-tool.open {
+  background: var(--wb-surface);
+  border-color: var(--wb-line);
 }
 /* 展开区：卡内嵌块（不用漂白的大白块，避免把行切断） */
 .wb-trace .wb-tool-bd {
-  margin: 0 8px 8px 24px;
-  background: var(--wb-surface-2);
-  border-radius: 8px;
-}
-.wb-trace .wb-tool.err .wb-tool-hd {
-  border-radius: 0;
+  margin: 0 6px 8px 6px;
+  background: transparent;
+  border-radius: var(--wb-radius-sm);
 }
 .wb-block-thinking {
   display: flex;
@@ -486,16 +751,16 @@ watch(
   transition: background 0.15s ease;
 }
 .wb-tool-hd {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 6px;
+  width: 100%;
+  padding: 5px 6px;
   border: 0;
   background: transparent;
   text-align: left;
   cursor: pointer;
-  align-self: flex-start;
-  border-radius: 4px;
+  border-radius: var(--wb-radius);
 }
 .wb-tool-hd:hover {
   background: var(--wb-surface-hover);
@@ -546,7 +811,17 @@ watch(
   font-size: 10px;
   font-weight: 600;
   color: var(--wb-danger);
-  background: color-mix(in srgb, var(--wb-danger) 12%, transparent);
+  background: var(--wb-danger-soft);
+  border-radius: 999px;
+  padding: 1px 7px;
+  flex: none;
+}
+/* 拒绝是回执不是错误：琥珀色，语义与「失败」区分 */
+.wb-tool-refused {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--wb-warning);
+  background: var(--wb-warning-soft);
   border-radius: 999px;
   padding: 1px 7px;
   flex: none;
@@ -582,6 +857,52 @@ watch(
   font-variant-numeric: tabular-nums;
   margin-left: 2px;
 }
+/* 失败计数徽标：同工具连续失败 ≥1 时显示，「×N」让用户看见模型在死磕 */
+.wb-tool-failcount {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  padding: 0 5px;
+  height: 16px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--wb-danger);
+  background: color-mix(in oklab, var(--wb-danger) 12%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+/* 改道徽标：AdaptiveLoopGuard 已注入 [guard] 改道提示时的视觉信号 */
+.wb-tool-guard {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  padding: 0 6px;
+  height: 16px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--wb-primary-strong);
+  background: color-mix(in oklab, var(--wb-primary) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--wb-primary) 35%, transparent);
+}
+/* cwd 徽标：exec 工具实际执行目录的短展示（让用户能验证沙箱） */
+.wb-tool-cwd {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  padding: 0 6px;
+  height: 16px;
+  border-radius: 6px;
+  font-size: 10px;
+  color: var(--wb-muted);
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-border);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .wb-tool-bd {
   margin: 3px 0 1px 24px;
   padding: 6px 8px;
@@ -604,6 +925,61 @@ watch(
   border-radius: 5px;
   padding: 1px 6px;
 }
+/* 标签行 = 标签 + 复制按钮（复制放在标签右侧，不占正文宽度） */
+.wb-tool-lb-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 5px;
+}
+.wb-tool-lb-row .wb-tool-lb {
+  margin-bottom: 0;
+}
+.wb-tool-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: var(--wb-muted);
+  background: transparent;
+  transition: color 0.15s, background 0.15s;
+}
+.wb-tool-copy:hover {
+  color: var(--wb-primary-strong);
+  background: var(--wb-surface-hover);
+}
+.wb-tool-copy-ic {
+  width: 11px;
+  height: 11px;
+}
+.wb-tool-copy-ok {
+  width: 11px;
+  height: 11px;
+  color: var(--wb-primary-strong);
+}
+/* 长 JSON 展开 / 收起：胶囊镂空（与全局按钮语法一致，实底只在 hover） */
+.wb-tool-fold {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 0 8px;
+  height: 20px;
+  line-height: 18px;
+  border: 1px solid var(--wb-border);
+  border-radius: 10px;
+  font-size: 10px;
+  color: var(--wb-primary-strong);
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.wb-tool-fold:hover {
+  background: var(--wb-surface-hover);
+  border-color: color-mix(in oklab, var(--wb-primary) 35%, transparent);
+}
+.wb-tool-pre .j-fold {
+  color: var(--wb-muted);
+}
 .wb-tool-pre {
   margin: 0 0 6px;
   font-family: ui-monospace, monospace;
@@ -612,6 +988,24 @@ watch(
   white-space: pre-wrap;
   word-break: break-all;
   color: var(--wb-ink);
+}
+/* JSON 语法着色：只取主色 + 灰阶（设计令牌约束：绿/红仅作状态灯，不用于语法高亮） */
+.wb-tool-pre .j-key {
+  color: var(--wb-primary-strong);
+  font-weight: 600;
+}
+.wb-tool-pre .j-str {
+  color: var(--wb-ink);
+}
+.wb-tool-pre .j-num {
+  color: var(--wb-primary);
+}
+.wb-tool-pre .j-bool {
+  color: var(--wb-primary);
+  font-style: italic;
+}
+.wb-tool-pre .j-null {
+  color: var(--wb-muted);
 }
 .wb-tool-lines {
   list-style: none;
@@ -637,8 +1031,8 @@ watch(
   opacity: 0.7;
 }
 .wb-tool.err .wb-tool-hd {
-  background: color-mix(in srgb, var(--wb-danger) 8%, transparent);
-  border-radius: 4px;
+  background: var(--wb-danger-soft);
+  border-radius: var(--wb-radius);
 }
 
 .wb-block-skill {

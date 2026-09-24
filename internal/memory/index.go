@@ -18,10 +18,8 @@ type Hit struct {
 // minTrigramQuery FTS5 trigram 分词按 3 字符窗口切分，短于 3 字符的查询必然零命中。
 const minTrigramQuery = 3
 
-// index 记忆条目的派生索引。
-//
-// 全量重建而非增量同步：MEMORY.md 的条目量级是几十条，重建立即完成，
-// 而增量同步要处理「文件被用户手工编辑」的各种边界，收益与成本不成比例。
+// index 记忆条目的派生索引。全量重建而非增量同步：条目量级是几十条，重建立即完成，
+// 增量同步要处理「文件被用户手工编辑」的各种边界，收益与成本不成比例。
 type index struct {
 	db *gorm.DB
 	mu sync.Mutex

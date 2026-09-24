@@ -228,10 +228,8 @@ func (s *ChatService) SetSessionArchived(ctx context.Context, id string, archive
 	return &r, nil
 }
 
-// UpdateWorkspace 绑定/解绑会话的外部工作目录。
-//
-// 绑定即授权：目录经对话框显式选择，登记为 allow 信任（后续工具不再为它弹审批）。
-// 解绑（空路径）只清字段、不撤销已有信任登记——用户可能还要继续在原目录工作。
+// UpdateWorkspace 绑定/解绑会话的外部工作目录。绑定即授权：目录经对话框显式选择，
+// 登记为 allow 信任；解绑只清字段、不撤销信任（用户可能还要继续在原目录工作）。
 func (s *ChatService) UpdateWorkspace(ctx context.Context, id, workspacePath string) (*domain.ChatSessionRESP, error) {
 	row, err := s.sessions.GetByID(ctx, id)
 	if err != nil {
@@ -278,11 +276,8 @@ func (s *ChatService) validateWorkspace(ctx context.Context, workspacePath strin
 	return dir, nil
 }
 
-// WorkspaceRoot 某会话工具链的工作区根：绑定了外部目录用外部目录，否则用默认根。
-// handler 装配期把它包成 tool.RootResolver 注入文件类工具；默认根为空时返回空串
-// （由 tool.ResolveRoot 的调用方兜底），避免把「未配置」误判成「当前目录」。
-// WorkspaceRoot 会话绑定的工作区根；未绑定或查询失败回落到 defRoot。
-// 规则收口在 SessionContext：chat 链路、工具沙箱与文件面板共用同一实现。
+// WorkspaceRoot 会话绑定的工作区根；未绑定或查询失败回落到 defRoot。规则收口在
+// SessionContext（chat 链路 / 工具沙箱 / 文件面板共用），避免「未配置」被误判成当前目录。
 func (s *ChatService) WorkspaceRoot(ctx context.Context, sessionID, defRoot string) string {
 	if s.sctx == nil {
 		return defRoot
@@ -387,11 +382,8 @@ func (s *ChatService) TruncateMessages(ctx context.Context, sessionID, messageID
 	return nil
 }
 
-// ForkSession 从指定消息处分叉：新建会话并复制 ≤ 该 seq 的全部消息。
-// 复制体重置 run 关联（RunID 留空），避免新会话继承旧 run 的审批/取消语义。
-//
-// 分叉血缘写进 ParentID / BranchPoint：分支记住「从哪个会话的哪一条消息长出来」，
-// 前端据此把会话组织成树而不是平铺列表。分叉可递归（分支再分叉），不额外记 root。
+// ForkSession 从指定消息处分叉：新建会话并复制 ≤ 该 seq 的全部消息。复制体重置 run 关联
+// （RunID 留空），避免继承旧 run 的审批/取消语义；血缘写进 ParentID / BranchPoint 供前端建树。
 func (s *ChatService) ForkSession(ctx context.Context, sessionID, messageID string, name string) (*domain.ChatSessionRESP, error) {
 	ses, err := s.sessions.GetByID(ctx, sessionID)
 	if err != nil {

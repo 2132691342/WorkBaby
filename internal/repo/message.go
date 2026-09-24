@@ -112,11 +112,9 @@ func (r *MessageRepo) ListBySession(ctx context.Context, sessionID string, after
 	return ms, nil
 }
 
-// MaxSeq 会话当前最大消息序号（0 = 无消息）。
-//
-// 序号分配器的首次水位必须由数据库权威给出：按行扫描受单页上限约束，长会话
-// （消息数 > 单页上限）会漏掉更大的 seq，重启后从错误水位继续分配即与历史消息撞号，
-// 增量分页（after_seq 游标）随之漏消息。
+// MaxSeq 会话当前最大消息序号（0 = 无消息）。序号分配器的首次水位必须由数据库权威给出：
+// 按行扫描受单页上限约束，长会话会漏掉更大的 seq，重启后从错误水位继续即与历史消息撞号，
+// 增量分页随之漏消息。
 func (r *MessageRepo) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
 	var maxSeq int64
 	if err := r.db.WithContext(ctx).Model(&domain.MessageDO{}).
@@ -128,10 +126,8 @@ func (r *MessageRepo) MaxSeq(ctx context.Context, sessionID string) (int64, erro
 	return maxSeq, nil
 }
 
-// SearchSessions 按正文关键词检索命中消息的会话（去重；按最大 seq 倒序）。
-//
-// 只扫 user/assistant 正文（tool 结果与 system 提示词噪声太大）；
-// LIKE 走全表扫描，但会话消息量在桌面单机量级（万级），无需额外索引。
+// SearchSessions 按正文关键词检索命中消息的会话（去重；按最大 seq 倒序）。只扫 user/assistant
+// （tool 结果与 system 提示词噪声太大）；LIKE 全表扫描，但桌面单机消息量（万级）无需额外索引。
 func (r *MessageRepo) SearchSessions(ctx context.Context, keyword string, limit int) ([]domain.SessionHitDTO, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 20

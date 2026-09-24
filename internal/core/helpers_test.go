@@ -1,3 +1,5 @@
+// 内核测试共享替身：Provider / Tool / Sink / 步骤记忆 / 检查点的内存实现。
+
 package core
 
 import (
@@ -16,6 +18,8 @@ type mockProvider struct {
 	calls     int
 	requests  []*llm.ChatRequest
 	streamErr error
+	// chunkErr 非空时在流尾追加一个错误 chunk，模拟「生成中途上游报错」。
+	chunkErr error
 }
 
 func (m *mockProvider) Name() string                                    { return "mock" }
@@ -47,6 +51,7 @@ func (m *mockProvider) Stream(ctx context.Context, req *llm.ChatRequest) (<-chan
 	if i < len(m.turns) {
 		resp = m.turns[i]
 	}
+	chunkErr := m.chunkErr
 	m.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -84,6 +89,9 @@ func (m *mockProvider) Stream(ctx context.Context, req *llm.ChatRequest) (<-chan
 		}
 		sr := resp.StopReason
 		_ = send(llm.StreamChunk{FinishReason: &sr})
+		if chunkErr != nil {
+			_ = send(llm.StreamChunk{Err: chunkErr})
+		}
 	}()
 	return out, nil
 }

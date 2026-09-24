@@ -1,0 +1,1601 @@
+/* ============================================================
+   玻璃层 + 降噪覆盖（最后加载）
+   ------------------------------------------------------------
+   这一层只做两件事：
+   1) 分层：body 极淡渐变 → 雾面玻璃板 → 不透明卡片 → 弹层；
+   2) 降噪：把"底色 + 彩色描边 + 彩字"三件套收敛成一件。
+   ============================================================ */
+
+/* 1) 容器透明：让 body 的极淡渐变透上来（保留各自网格点纹理） */
+.stage,
+.main,
+.map,
+.msgs,
+.set-body,
+.win {
+  background-color: transparent;
+}
+
+/* 2) 面板是「雾面」而非「彩色糖纸」：底色本身很素，模糊只表现为质感 */
+.side,
+.panel,
+.set-nav,
+.titlebar,
+.chat-head {
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+.titlebar {
+  background: color-mix(in srgb, var(--bg-panel) 86%, transparent);
+}
+.chat-head {
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  border-bottom-color: var(--line);
+}
+
+/* 3) 内容区是一块更大的玻璃板（比卡片暗一档，卡片才浮得起来） */
+.chat,
+.set-body {
+  background: var(--glass-plate);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.5)) saturate(var(--glass-saturate));
+}
+
+/* 4) 卡片：不透明 + 1px 中性描边 + 极轻阴影（分层靠描边，不靠发光） */
+.card,
+.set-card,
+.tile,
+.wiki-tree,
+.wiki-page,
+.approve {
+  background-color: var(--glass-card);
+  border-color: var(--line);
+  box-shadow: var(--shadow-1);
+}
+
+/* 5) 标签降噪：淡底彩字，去掉彩色描边 */
+.tag,
+.tag.is-solid {
+  background: var(--bg-raise);
+  border-color: transparent;
+}
+.tag.is-accent {
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+.tag.is-ok {
+  background: var(--ok-soft);
+  border-color: transparent;
+}
+.tag.is-bad {
+  background: var(--bad-soft);
+  border-color: transparent;
+}
+.tag.is-warn {
+  background: var(--warn-soft);
+  border-color: transparent;
+}
+
+/* 6) 选中态降噪：中性底 + 一条主色标记（不再"底色 + 边框 + 彩字"三件套） */
+.sess-item.is-on {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border-left-color: var(--accent);
+}
+.sess-item.is-on .si-name {
+  color: var(--ink);
+}
+.set-item.is-on {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border-left-color: var(--accent);
+  color: var(--ink);
+}
+.chip.is-on {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+.menu-item.is-on {
+  background: var(--bg-raise);
+  color: var(--ink);
+}
+
+/* 6.5) 状态灯：去掉彩色光晕，只留纯色圆点（一屏几十个灯，光晕会"发亮"） */
+.led.is-ok,
+.led.is-bad,
+.led.is-warn,
+.led.is-accent {
+  box-shadow: none;
+}
+
+/* 7) 表格：去掉纵向噪声，只留极细分隔线 */
+.tbl th {
+  border-bottom-color: var(--line-2);
+}
+.tbl td {
+  border-bottom-color: var(--line);
+}
+
+/* 8) 精度微调：高级感来自"大留白 + 紧排版 + 零位移" */
+.set-page {
+  padding: var(--sp-8) var(--sp-10) var(--sp-12);
+  max-width: 960px;
+}
+.t-title {
+  letter-spacing: -0.01em;
+}
+.map-card:hover {
+  transform: none;
+  border-color: var(--line-2);
+}
+.btn,
+.card,
+.set-card,
+.chip,
+.tag {
+  transition-timing-function: var(--ease);
+}
+/* 悬浮不做位移，只做底色/描边：界面"稳"才显贵 */
+.sess-item:hover,
+.set-item:hover,
+.tree-row:hover,
+.pop-row:hover,
+.menu-item:hover {
+  transform: none;
+}
+/* 次级文字再收一档饱和，避免整屏泛蓝 */
+.t-sub,
+.hint,
+.mc-desc {
+  color: var(--ink-3);
+}
+
+/* ============================================================
+   9) 按钮与控件：实体感来自「1px 内高光 + 精确阴影」，不是渐变
+   ============================================================ */
+[data-theme='light'] {
+  --btn-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  --btn-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --tint: rgba(15, 23, 42, 0.06);
+  --tint-lg: rgba(15, 23, 42, 0.09);
+}
+[data-theme='dark'] {
+  --btn-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
+  --tint: rgba(255, 255, 255, 0.07);
+  --tint-lg: rgba(255, 255, 255, 0.11);
+}
+
+.btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.btn-lg {
+  height: 36px;
+  padding: 0 18px;
+  font-size: 13px;
+}
+.btn-sm {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 30%, transparent), var(--btn-sheen);
+}
+.btn-primary:hover {
+  background: var(--accent-hi);
+}
+.btn-primary:active {
+  transform: translateY(0.5px);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.btn-solid {
+  background: var(--bg-card);
+  border: 1px solid var(--line-2);
+  color: var(--ink);
+  box-shadow: var(--btn-shadow), var(--btn-sheen);
+}
+.btn-solid:hover {
+  border-color: var(--ink-3);
+}
+
+.btn-outline {
+  border-color: var(--line-2);
+  background: transparent;
+}
+.btn-outline:hover {
+  background: var(--tint);
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.btn-ghost:hover {
+  background: var(--tint);
+}
+
+.btn-danger {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--bad) 30%, transparent), var(--btn-sheen);
+}
+
+/* 图标按钮 */
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--ink-2);
+}
+.icon-btn:hover {
+  background: var(--tint);
+  color: var(--ink);
+}
+.icon-btn.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 输入类控件：精确的 focus ring（1px 主色 + 3px 淡光） */
+.input,
+.textarea,
+.select {
+  border-color: var(--line-2);
+  border-radius: 8px;
+  min-height: 32px;
+}
+.input:focus,
+.textarea:focus,
+.select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.search > input {
+  padding-left: 32px;
+}
+
+/* 开关：内部留出精确的槽感 */
+.switch {
+  width: 36px;
+  height: 20px;
+  border-color: var(--line-2);
+  background: var(--bg-sunken);
+}
+.switch::after {
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: var(--ink-3);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.switch.is-on::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+/* 分段控件 / 面板页签：选中用"抬起的白片"而不是彩色块 */
+.panel-seg button.is-on {
+  background: var(--bg-card);
+  color: var(--ink);
+  box-shadow: var(--btn-shadow), var(--btn-sheen);
+}
+
+/* ============================================================
+   10) 对齐参考稿：胶囊按钮 + 带底图标 + 圆角卡片
+   ============================================================ */
+
+/* 按钮：胶囊形、更饱满、图标与文字一起居中 */
+.btn {
+  height: var(--ctl-md);
+  padding: 0 16px;
+  border-radius: var(--r-full);
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.btn-lg {
+  height: var(--ctl-lg);
+  padding: 0 20px;
+  font-size: 13.5px;
+}
+.btn-sm {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+.btn-primary {
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 42%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+.btn-primary:hover {
+  background: var(--accent-hi);
+}
+.btn-primary:active {
+  transform: translateY(0.5px);
+}
+
+/* 图标按钮：圆形 + hover 淡底 */
+.icon-btn {
+  width: var(--ctl-icon);
+  height: var(--ctl-icon);
+  border-radius: var(--r-full);
+  color: var(--ink-3);
+}
+.icon-btn:hover {
+  background: var(--tint);
+  color: var(--ink);
+}
+.icon-btn.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.icon-btn.is-danger:hover {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+/* 图标带底：导航 / 列表里的图标统一放进淡色容器（参考稿最明显的特征） */
+.side-btn > .ic,
+.set-item > .ic,
+.sess-head .icon-btn,
+.winctl > span {
+  box-sizing: content-box;
+}
+.side-btn > .ic {
+  padding: 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink-2);
+  margin-left: -4px;
+}
+.side-btn.is-primary > .ic {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.side-btn.is-primary {
+  border-radius: var(--r-full);
+}
+.set-item > .ic {
+  padding: 5px;
+  border-radius: 8px;
+}
+.set-item.is-on > .ic {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.side-foot .foot-btn > .ic {
+  padding: 5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+/* 卡片：16px 圆角 + 极淡描边 + 几乎无阴影（参考稿的分层方式） */
+.card,
+.set-card,
+.tile,
+.wiki-tree,
+.wiki-page,
+.approve,
+.preset,
+.map-card,
+.fcard,
+.hero-strip {
+  border-radius: var(--r-lg);
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+.tile {
+  padding: 18px 20px;
+}
+.tile .tv {
+  font-weight: 700;
+}
+
+/* 输入与标签：圆润化 */
+.input,
+.textarea,
+.select {
+  border-radius: var(--r-md);
+}
+.tag,
+.chip,
+.mini-chip,
+.attach,
+.plan-pill,
+.badge {
+  border-radius: var(--r-full);
+}
+.tag {
+  padding: 0 8px;
+}
+.chip {
+  padding: 0 11px;
+}
+.workspace-chip {
+  border-radius: var(--r-full);
+  padding: 0 11px;
+}
+.panel-seg {
+  border-radius: var(--r-full);
+}
+.panel-seg button {
+  border-radius: var(--r-full);
+}
+.trace-line,
+.retry-bar,
+.approve {
+  border-radius: var(--r-md);
+}
+/* 发送键与头像：圆形（参考稿的圆润感来源） */
+.send-btn {
+  border-radius: var(--r-full);
+  width: var(--ctl-lg);
+  height: var(--ctl-lg);
+}
+.avatar {
+  border-radius: var(--r-full);
+}
+/* 地图卡 / 预设卡里的图标：淡底容器 */
+.map-card .mc-glyph {
+  padding: 5px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+}
+.preset .ic {
+  box-sizing: content-box;
+  padding: 6px;
+  border-radius: 9px;
+  background: var(--bg-raise);
+}
+/* ============================================================
+   11) 参考稿的"透亮氛围"：淡蓝底 + 白卡浮起 + 淡蓝装饰
+   ============================================================ */
+[data-theme='light'] {
+  --deco-1: rgba(63, 110, 196, 0.13);
+  --deco-2: rgba(86, 140, 190, 0.10);
+}
+[data-theme='dark'] {
+  --deco-1: rgba(124, 92, 248, 0.24);
+  --deco-2: rgba(56, 189, 248, 0.10);
+}
+
+/* KPI 瓦片：右下角的淡蓝光斑（参考图卡片里的"玻璃球"质感） */
+.tile {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+.tile::after {
+  content: '';
+  position: absolute;
+  right: -26px;
+  bottom: -32px;
+  width: 118px;
+  height: 118px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--deco-1), transparent 72%);
+  pointer-events: none;
+}
+[data-theme='dark'] .tile {
+  background: var(--bg-card);
+}
+
+/* 卡片描边用淡蓝，白卡在淡蓝底上"浮起来" */
+.card,
+.set-card,
+.map-card,
+.fcard,
+.preset,
+.wiki-tree,
+.wiki-page,
+.tile,
+.hero-strip {
+  border-color: var(--line-2);
+}
+
+/* 内容区顶部一道极淡的蓝光（参考稿正文区的"天光"） */
+.chat-head,
+.set-hero {
+  background-image: linear-gradient(180deg, var(--deco-2) 0%, transparent 100%);
+}
+
+/* ============================================================
+   12) 看板语言（对齐参考稿）：大标题 + 大数字 + 迷你图 + 淡蓝装饰
+   ============================================================ */
+.board-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  padding: 26px 30px;
+  margin-bottom: var(--sp-4);
+  border: 1px solid var(--line-2);
+  border-radius: 20px;
+  background: linear-gradient(135deg, #e9f2ff 0%, #f4f9ff 48%, #fbfdff 100%);
+}
+[data-theme='dark'] .board-hero {
+  background: linear-gradient(135deg, rgba(124, 92, 248, 0.14) 0%, rgba(30, 24, 44, 0.6) 55%, #15131b 100%);
+}
+.board-hero .bh-txt {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+}
+.board-hero .bh-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--line-2);
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.board-hero h1 {
+  margin: 10px 0 4px;
+  font-family: var(--font-disp);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+.board-hero p {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.board-hero .bh-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+/* 装饰光斑：参考稿里那团"玻璃球" */
+.board-hero .bh-deco {
+  position: absolute;
+  right: 88px;
+  top: -70px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--deco-1), transparent 70%);
+  pointer-events: none;
+}
+.board-hero .bh-deco-2 {
+  position: absolute;
+  right: -30px;
+  bottom: -90px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--deco-2), transparent 70%);
+  pointer-events: none;
+}
+
+/* KPI 卡：淡蓝圆底图标 + 灰标签 + 大数字 + 迷你柱 */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.kpi {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 20px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 16px;
+  background: var(--bg-card);
+}
+.kpi .kpi-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 14px;
+}
+.kpi .kpi-ic {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.kpi .kpi-label {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.kpi .kpi-delta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ok);
+}
+.kpi .kpi-value {
+  font-family: var(--font-disp);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--ink);
+}
+.kpi .kpi-unit {
+  margin-left: 5px;
+  font-size: var(--fs-sm);
+  font-weight: 400;
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
+.kpi .kpi-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: 14px;
+}
+.mini-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 30px;
+  flex: 1;
+}
+.mini-bars > i {
+  flex: 1;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+.mini-bars > i.is-peak {
+  background: var(--accent);
+}
+
+/* 看板里的大卡片：更松的留白 */
+.board-card {
+  padding: 22px 24px;
+  border: 1px solid var(--line-2);
+  border-radius: 16px;
+  background: var(--bg-card);
+}
+.board-card > .bc-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.board-card > .bc-head .bc-t {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.board-row {
+  display: grid;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+/* ============================================================
+   13) 参考稿的"看板件"：玻璃球 / 环形 / 横向条形 / 迷你面积
+   ============================================================ */
+/* 蓝色玻璃球（CSS 版 3D 装饰：内高光 + 内阴影 + 外投影） */
+.glass-orb {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 26%,
+    rgba(255, 255, 255, 0.97) 0%,
+    rgba(206, 221, 242, 0.72) 18%,
+    rgba(130, 164, 214, 0.52) 46%,
+    rgba(63, 110, 196, 0.32) 72%,
+    rgba(30, 63, 112, 0.20) 100%);
+  box-shadow:
+    inset -10px -14px 26px rgba(255, 255, 255, 0.55),
+    inset 10px 14px 32px rgba(63, 110, 196, 0.24),
+    0 20px 40px -16px rgba(30, 63, 112, 0.26);
+  pointer-events: none;
+}
+.glass-orb.is-sm {
+  background: radial-gradient(circle at 34% 28%,
+    rgba(255, 255, 255, 0.96) 0%,
+    rgba(214, 228, 244, 0.75) 22%,
+    rgba(148, 178, 216, 0.48) 52%,
+    rgba(86, 140, 190, 0.28) 100%);
+  box-shadow:
+    inset -6px -8px 16px rgba(255, 255, 255, 0.5),
+    inset 6px 8px 20px rgba(86, 140, 190, 0.22),
+    0 12px 24px -10px rgba(30, 63, 112, 0.22);
+}
+
+/* 大环形进度 */
+.ring-lg {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  flex: none;
+  border-radius: 50%;
+  background: conic-gradient(var(--ring-c, var(--accent)) calc(var(--p, 60) * 1%), var(--bg-sunken) 0);
+  display: grid;
+  place-items: center;
+}
+.ring-lg::after {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  background: var(--bg-card);
+}
+.ring-lg > b {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-disp);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.ring-lg > b > i {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+/* 横向条形图 */
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: 9px;
+}
+.bar-row .bl {
+  width: 84px;
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+}
+.bar-row .bt {
+  flex: 1;
+  height: 9px;
+  border-radius: var(--r-full);
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+.bar-row .bt > i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-full);
+  background: linear-gradient(90deg, #8aa8d6 0%, var(--accent) 100%);
+}
+.bar-row .bn {
+  width: 40px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/* 迷你环形（行内小进度） */
+.ring-sm {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 50%;
+  background: conic-gradient(var(--ring-c, var(--accent)) calc(var(--p, 60) * 1%), var(--bg-sunken) 0);
+  display: grid;
+  place-items: center;
+}
+.ring-sm::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: var(--bg-card);
+}
+.ring-sm > span {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+/* 卡片网格：一屏多卡（参考稿的密度） */
+.board-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+.board-grid > .span-2 {
+  grid-column: span 2;
+}
+.board-grid > .span-3 {
+  grid-column: span 3;
+}
+.board-grid > .span-4 {
+  grid-column: span 4;
+}
+.board-card + .board-card {
+  margin-top: 0;
+}
+
+/* 装饰层：卡片角落的淡蓝光斑（每张卡都有，形成"氛围"） */
+.board-card,
+.kpi {
+  position: relative;
+  overflow: hidden;
+}
+/* 卡片右上角的装饰光斑已移除：一屏十几团光斑是"乱"的来源 */
+[data-theme='dark'] .board-card::after {
+  background: radial-gradient(closest-side, rgba(124, 92, 248, 0.2), transparent 72%);
+}
+
+/* ============================================================
+   14) 精度层（craft floor）
+   ---- 浏览器表面：选区 / 插入符 / 焦点环 / 下划线偏移 ----
+   ============================================================ */
+body {
+  caret-color: var(--accent);
+}
+::selection {
+  background: var(--sel);
+}
+a {
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+/* 焦点环：键盘可见，鼠标不打扰（零偏移彩色光晕只用于键盘可达性，不用于装饰） */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.input:focus-visible,
+.textarea:focus-visible,
+.select:focus-visible {
+  outline: none;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+
+/* ---- 图标：靠颜色与位置分级，不靠色块（色块是模板化后台的廉价信号）---- */
+.kpi .kpi-ic,
+.board-card .kpi-ic {
+  width: auto;
+  height: auto;
+  background: transparent;
+  color: var(--ink-3);
+}
+.board-card > .bc-head .kpi-ic {
+  color: var(--accent);
+}
+.kpi .kpi-ic {
+  color: var(--ink-3);
+}
+/* 图标与文字同基线，间距 8px */
+.kpi .kpi-top,
+.board-card > .bc-head {
+  gap: var(--sp-2);
+}
+
+/* ---- 按钮：字重 500；只有实心主按钮带一层内高光；禁用不带阴影 ---- */
+.btn {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.btn .ic {
+  width: 15px;
+  height: 15px;
+}
+.btn-solid,
+.btn-outline,
+.btn-ghost {
+  box-shadow: none;
+}
+.btn-solid {
+  background: var(--bg-card);
+  border: 1px solid var(--line-2);
+}
+.btn-solid:hover {
+  background: var(--bg-card);
+  border-color: var(--ink-3);
+}
+.btn-ghost:hover {
+  background: var(--tint);
+}
+.btn-primary {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+.btn-primary:active {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.16);
+}
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+   15) 图表与配色：单一蓝阶 + SVG 圆角环（替代 conic-gradient 的硬边环）
+   ============================================================ */
+.ring-box {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.ring-box .ring-num {
+  position: absolute;
+  font-family: var(--font-disp);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.ring-box .ring-num > i {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.ring-svg circle {
+  fill: none;
+  stroke-width: 9;
+}
+.ring-svg .rk {
+  stroke: var(--bg-sunken);
+}
+.ring-svg .rv {
+  stroke-linecap: round;
+}
+
+/* 折线三系列：同一色相的三级明度（不再是 蓝/绿/灰 混搭） */
+.chart .ln-in {
+  stroke: var(--ch-1);
+}
+.chart .ln-out {
+  stroke: var(--ch-2);
+}
+.chart .ln-cache {
+  stroke: var(--ch-3);
+  stroke-dasharray: none;
+}
+.chart .area {
+  fill: var(--ch-1);
+}
+.chart .grid-line {
+  stroke: var(--line);
+}
+.legend .sw.in {
+  background: var(--ch-1);
+}
+.legend .sw.out {
+  background: var(--ch-2);
+}
+.legend .sw.cache {
+  background: var(--ch-3);
+}
+
+/* 横向条形：圆角轨道 + 蓝阶渐变 */
+.bar-row .bt {
+  height: 10px;
+  background: var(--bg-sunken);
+}
+.bar-row .bt > i {
+  background: linear-gradient(90deg, var(--ch-2) 0%, var(--ch-1) 100%);
+}
+
+/* 迷你柱：蓝阶，峰值最深 */
+.mini-bars > i {
+  border-radius: 3px;
+  background: var(--ch-3);
+}
+.mini-bars > i.is-peak {
+  background: var(--ch-1);
+}
+
+/* ============================================================
+   16) 降色：界面只允许「蓝 + 灰 + 白」三种
+   ---- 绿 / 红 只作为 4px 状态灯圆点，不进入文字、标签、图表 ----
+   ============================================================ */
+.statbar .st .sd,
+.statbar .st .sd.is-up,
+.tile .tl,
+.kpi .kpi-delta {
+  color: var(--ink-3);
+}
+
+/* 折线：主线用主蓝，另外两条走灰阶（不再出现第二/第三个蓝） */
+.chart .ln-in {
+  stroke: var(--accent);
+}
+.chart .ln-out {
+  stroke: var(--ink-3);
+}
+.chart .ln-cache {
+  stroke: var(--line-2);
+  stroke-dasharray: 5 4;
+}
+.chart .area {
+  fill: var(--accent);
+  opacity: 0.07;
+}
+.legend .sw.in {
+  background: var(--accent);
+}
+.legend .sw.out {
+  background: var(--ink-3);
+}
+.legend .sw.cache {
+  background: var(--line-2);
+}
+
+/* 标签统一成灰底灰字；只有"错误"允许一次红 */
+.tag.is-ok,
+.tag.is-accent,
+.tag.is-warn,
+.tag.is-solid,
+.mini-chip,
+.count {
+  background: var(--bg-sunken);
+  color: var(--ink-2);
+  border-color: transparent;
+}
+.tag.is-bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-color: transparent;
+}
+.tag.is-accent .ic,
+.tag.is-ok .ic {
+  color: var(--ink-3);
+}
+
+/* 进度与环形：只有主蓝（"成功态变绿"是多余的颜色） */
+.progress > i,
+.progress.is-ok > i {
+  background: var(--accent);
+}
+.mini-bars > i,
+.mini-bars > i.is-peak {
+  background: var(--ch-3);
+}
+.mini-bars > i.is-peak {
+  background: var(--accent);
+}
+.bar-row .bt > i {
+  background: var(--accent);
+}
+.dist-row .bar > i {
+  background: var(--accent) !important;
+}
+.ring-svg .rk {
+  stroke: var(--bg-sunken);
+}
+
+/* ============================================================
+   17) 纯色 + 镂空
+   ---- 界面一律纯色：去渐变、去光晕、去玻璃模糊、去透明叠加 ----
+   ---- 按钮一律镂空：描边 + 主色字，实底只出现在 hover ----
+   ============================================================ */
+[data-theme='light'] {
+  --page-solid: #f2f6fc;
+  --panel-solid: #ffffff;
+}
+[data-theme='dark'] {
+  --page-solid: #0b0a0e;
+  --panel-solid: #14121a;
+}
+
+/* 页面与面板：纯色 */
+body {
+  background-image: none;
+  background-color: var(--page-solid);
+}
+.side,
+.panel,
+.set-nav,
+.titlebar,
+.chat-head {
+  background: var(--panel-solid);
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.chat,
+.set-body {
+  background: transparent;
+  backdrop-filter: none;
+}
+.titlebar {
+  border-bottom: 1px solid var(--line);
+}
+
+/* 卡片：纯白，只留 1px 描边（去掉一切光影） */
+.card,
+.set-card,
+.board-card,
+.tile,
+.kpi,
+.map-card,
+.fcard,
+.preset,
+.wiki-tree,
+.wiki-page,
+.approve,
+.statbar,
+.composer,
+.win,
+.board-hero,
+.hero-strip {
+  background-image: none;
+  box-shadow: none;
+}
+.card,
+.set-card,
+.board-card,
+.tile,
+.kpi,
+.statbar,
+.composer,
+.board-hero,
+.hero-strip {
+  background-color: var(--panel-solid);
+  border: 1px solid var(--line-2);
+}
+/* 装饰全部关闭 */
+.board-hero .bh-deco,
+.board-hero .bh-deco-2,
+.glass-orb,
+.app-deco {
+  display: none;
+}
+
+/* 图表：纯色（环去掉渐变描边、面积去掉渐变） */
+.ring-svg .rv {
+  stroke: var(--accent);
+}
+.chart .area {
+  display: none;
+}
+.bar-row .bt > i,
+.mini-bars > i,
+.mini-bars > i.is-peak,
+.progress > i,
+.progress.is-ok > i {
+  background: var(--accent);
+  background-image: none;
+}
+.donut,
+.ring,
+.ring-lg,
+.ring-sm {
+  background-image: none;
+
+}
+
+/* ---- 按钮：全部镂空 ---- */
+.btn-primary {
+  background: transparent;
+  background-image: none;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  box-shadow: none;
+}
+.btn-primary:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.btn-primary:active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: none;
+  transform: none;
+}
+
+.btn-solid {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line-2);
+  box-shadow: none;
+}
+.btn-solid:hover {
+  border-color: var(--ink-3);
+  background: transparent;
+}
+
+.btn-outline {
+  background: transparent;
+}
+.btn-outline:hover {
+  background: transparent;
+  border-color: var(--ink-3);
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+}
+.btn-ghost:hover {
+  border-color: var(--line-2);
+  background: transparent;
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--bad);
+  border: 1px solid var(--bad);
+  box-shadow: none;
+}
+.btn-danger:hover {
+  background: var(--bad-soft);
+  filter: none;
+}
+
+.btn-danger-ghost {
+  background: transparent;
+}
+
+/* 图标按钮与发送键：镂空 */
+.icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+}
+.icon-btn:hover {
+  background: transparent;
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+.icon-btn.is-on {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.send-btn {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  box-shadow: none;
+}
+.send-btn:hover {
+  background: var(--accent-soft);
+  filter: none;
+}
+.send-btn.is-stop {
+  background: transparent;
+  border-color: var(--bad);
+  color: var(--bad);
+  animation: none;
+}
+
+/* 主行动按钮（侧栏"新建任务"）同样镂空 */
+.side-btn.is-primary {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  box-shadow: none;
+}
+.side-btn.is-primary:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.side-btn.is-primary > .ic {
+  background: transparent;
+  color: var(--accent);
+}
+.chip.is-on {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.chip:hover {
+  background: transparent;
+}
+
+/* ============================================================
+   18) 排队条（等待发送）：顶边线 + 纯文本列表
+   ---- 不再"白卡里套灰条"，不再堆「」与顿号 ----
+   ============================================================ */
+.queue-dock {
+  padding: 10px 14px 12px;
+}
+.queue-dock .qd-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-bottom: 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+.queue-dock .qd-item {
+  position: relative;
+  padding: 5px 0 5px 15px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: var(--lh-base);
+}
+.queue-dock .qd-item::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 12px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ---- 镂空描边加粗：1px 显得虚，统一到 2px（整数，避免 DPR=1 下被取整） ---- */
+.btn-primary,
+.btn-solid,
+.btn-outline,
+.btn-danger,
+.btn-danger-ghost,
+.send-btn,
+.side-btn.is-primary,
+.chip.is-on {
+  border-width: 2px;
+}
+.icon-btn:hover {
+  border-width: 2px;
+}
+
+
+/* ============================================================
+   19) 修正四项
+   ---- ① 选中态去掉左侧彩色竖条：只留中性底 ----
+   ---- ② 开关必须一眼看清 on / off ----
+   ---- ③ 输入框 / 下拉框改白底，不要淡蓝底 ----
+   ============================================================ */
+
+/* ① 选中态：中性底 + 加粗，去掉彩色竖条与彩字 */
+.sess-item,
+.set-item,
+.tree-row,
+.menu-item,
+.protox-item {
+  border-left: 0;
+}
+.sess-item.is-on,
+.set-item.is-on {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border-left: 0;
+}
+.sess-item.is-on .si-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+.set-item.is-on {
+  color: var(--ink);
+}
+.set-item.is-on > .ic {
+  background: transparent;
+  color: var(--accent);
+}
+.sess-item.is-on::before {
+  content: none;
+}
+
+/* ② 开关：加大加深；on 带白色对勾，off 为中灰 —— 白底表格上也一眼可辨
+   注：必须显式 inline-block——span 默认 inline，宽高在 <td> 内会失效（曾导致表格里的开关只剩一个白点） */
+.switch {
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  width: 48px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: #b3c0d1;
+}
+[data-theme='dark'] .switch {
+  background: #4c4660;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-full);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 30, 51, 0.35);
+  transition: transform var(--dur) var(--ease);
+}
+/* on：蓝底 + 白对勾 + 钮靠右 */
+.switch.is-on {
+  background: var(--accent);
+}
+.switch.is-on::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 8px;
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg);
+}
+.switch.is-on::after {
+  transform: translateX(22px);
+  background: #fff;
+}
+
+/* ⑤ 表格"启用"列：文字标签 + 状态点（比图形开关更易扫读） */
+.en-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1.5px solid var(--line-2);
+  border-radius: var(--r-full);
+  background: transparent;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.en-tag::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+.en-tag.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.en-tag.is-on::before {
+  background: var(--accent);
+}
+
+/* ③ 表单控件：白底 + 中性描边（淡蓝底在纯白卡片上很违和） */
+.input,
+.textarea,
+.select,
+.search > input {
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+}
+.input:hover,
+.select:hover,
+.textarea:hover {
+  border-color: var(--ink-3);
+}
+.input:focus,
+.textarea:focus,
+.select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.select {
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* ④ 主题卡：容器底色跟着主题走（黑包紫、白包蓝） */
+.theme-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 248px;
+  padding: 12px 14px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.theme-card .tc-thumb {
+  width: 56px;
+  height: 38px;
+  flex: none;
+  border: 1px solid;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+}
+.theme-card .tc-thumb > span {
+  width: 24px;
+  height: 13px;
+  border-radius: 3px;
+  display: block;
+}
+.theme-card .tc-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.theme-card .tc-txt b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.theme-card .tc-txt i {
+  font-size: 11px;
+  font-style: normal;
+}
+.theme-card .tc-check {
+  margin-left: auto;
+}
+
+/* ---- 仪表读数条：替代"同尺寸卡片网格 + 大数字指标"的套路 ---- */
+.statbar {
+  display: flex;
+  align-items: stretch;
+  padding: 16px 6px;
+  margin-bottom: var(--sp-4);
+  background: var(--bg-card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+}
+.statbar .st {
+  flex: 1;
+  min-width: 0;
+  padding: 0 18px;
+  border-right: 1px solid var(--line);
+}
+.statbar .st:last-child {
+  border-right: 0;
+}
+.statbar .st .sv {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-family: var(--font-disp);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.statbar .st .sv > i {
+  font-size: var(--fs-sm);
+  font-style: normal;
+  font-weight: 400;
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
+.statbar .st .sl {
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+.statbar .st .sd {
+  margin-top: 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+.statbar .st .sd.is-up {
+  color: var(--ok);
+}
+
+/* 表格内的行操作图标收小一档，避免把行撑高 */
+.tbl .row-act .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+/* 卡片头部的图标容器（hero / 章节）统一淡底 */
+.set-hero .hero-glyph {
+  background: var(--accent-soft);
+  border-color: transparent;
+  border-radius: 12px;
+}

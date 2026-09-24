@@ -1,4 +1,4 @@
-﻿# check-boundaries.ps1 — WorkBaby 架构门禁（CLAUDE.md §4）
+# check-boundaries.ps1 — WorkBaby 架构门禁（AGENTS.md）
 #
 # 检查项：
 #   pkg-no-internal          叶子工具包 internal/pkg 不得依赖任何 internal 业务包

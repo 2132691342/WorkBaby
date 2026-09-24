@@ -1,3 +1,5 @@
+// 工作区联动测试：会话绑定目录后 file / exec 的落点一致性（跨模块链路）。
+
 package tool_test
 
 import (
@@ -25,10 +27,8 @@ func mockWorkspaceResolver(bound map[string]string, def string) tool.RootResolve
 }
 
 // TestWorkspaceLinkWriteExec 会话绑定本地目录后的工具落点链路：
-//
-//	file_write/file_read 相对路径 → 绑定目录；exec 缺省 cwd → 绑定目录。
-//
-// 回归点：曾因 exec 不联动工作区，Agent「选目录后跑命令」落在进程目录。
+// file_write/file_read 相对路径 → 绑定目录；exec 缺省 cwd → 绑定目录。
+// 三者不一致会让 Agent「选目录后跑命令」落到错误位置。
 func TestWorkspaceLinkWriteExec(t *testing.T) {
 	proj := t.TempDir() // 用户选择的本地文件夹
 	def := filepath.Join(t.TempDir(), "default")

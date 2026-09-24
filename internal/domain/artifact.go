@@ -13,11 +13,8 @@ const (
 	ArtifactFile  ArtifactKind = "file"
 )
 
-// ArtifactDO 会话产出物登记（artifacts 表；）。
-//
-// 只登记引用（路径 + 大小），不存内容——内容留在工作区，前端经 /files 服务预览。
-// (session_id, rel_path) 唯一：同一文件反复修改只更新元信息，不堆历史版本
-// （历史版本由 file_changes 的快照承担）。
+// ArtifactDO 会话产出物登记（artifacts 表）：只登记引用（路径 + 大小），不存内容
+// （内容留在工作区）。同一文件反复修改只更新元信息，历史版本由 file_changes 承担。
 type ArtifactDO struct {
 	ID        string       `gorm:"primaryKey;size:64"           json:"id"`
 	SessionID string       `gorm:"size:64;index:idx_art_session;uniqueIndex:uk_art_session_path,priority:1" json:"session_id"`

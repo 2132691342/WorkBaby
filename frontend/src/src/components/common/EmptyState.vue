@@ -24,15 +24,21 @@ const props = withDefaults(
     title?: string
     subtitle?: string
     animated?: boolean
-    /** 尺寸：sm 用于侧栏/面板内的紧凑空态（插画缩至 64px）。 */
+    /** 尺寸：sm 用于侧栏/面板内的紧凑空态（插画缩至 64px、上下留白收窄）。 */
     size?: 'sm' | 'md'
+    /**
+     * 是否展示插画。false 用于窄容器（侧栏、表格内）：
+     * 120px 插画在 240px 宽的侧栏里会盖住文案，且插图在「只是没有数据」时是噪音。
+     */
+    illustration?: boolean
   }>(),
   {
     variant: 'empty-chat',
     title: undefined,
     subtitle: undefined,
     animated: true,
-    size: 'md'
+    size: 'md',
+    illustration: true
   }
 )
 
@@ -64,9 +70,9 @@ const displaySubtitle = computed(() => props.subtitle ?? defaultSubtitles.value[
 </script>
 
 <template>
-  <div class="flex flex-col items-center justify-center py-12 text-center">
+  <div class="wb-empty" :class="size === 'sm' ? 'is-sm' : ''">
     <!-- 空状态 SVG 插画 -->
-    <div :class="[animated ? 'wb-float' : '', size === 'sm' ? 'wb-empty-sm' : '']">
+    <div v-if="illustration" :class="[animated ? 'wb-float' : '', size === 'sm' ? 'wb-empty-sm' : '']">
       <!-- 空聊天 -->
       <svg
         v-if="variant === 'empty-chat'"
@@ -281,8 +287,10 @@ const displaySubtitle = computed(() => props.subtitle ?? defaultSubtitles.value[
     </div>
 
     <!-- 标题和副标题 -->
-    <h3 class="mt-4 text-base font-medium text-wb-ink">{{ displayTitle }}</h3>
-    <p v-if="displaySubtitle" class="mt-1 text-sm text-wb-muted">{{ displaySubtitle }}</p>
+    <h3 :class="['font-medium text-wb-ink', illustration ? 'mt-4' : '', size === 'sm' ? 'text-sm' : 'text-base']">
+      {{ displayTitle }}
+    </h3>
+    <p v-if="displaySubtitle" class="mt-1 text-xs text-wb-muted sm:text-sm">{{ displaySubtitle }}</p>
 
     <!-- 自定义内容插槽 -->
     <div class="mt-4">
@@ -292,6 +300,19 @@ const displaySubtitle = computed(() => props.subtitle ?? defaultSubtitles.value[
 </template>
 
 <style scoped>
+/* 空态留白随尺寸收敛：md 保留呼吸感，sm 用于侧栏与表格内，不制造大面积空白 */
+.wb-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--wb-sp-10) var(--wb-sp-4);
+}
+.wb-empty.is-sm {
+  padding: var(--wb-sp-5) var(--wb-sp-3);
+}
+
 /* 紧凑尺寸：插画缩到 64px（CSS 覆盖 SVG 的 width/height 属性） */
 .wb-empty-sm svg {
   width: 64px;

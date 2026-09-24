@@ -14,10 +14,8 @@ import (
 	"WorkBaby/internal/skill"
 )
 
-// 技能包 zip 导入：
-// 约定：每个含 SKILL.md 的目录即一个 Skill；
-// <pkg>/scripts/ 下的脚本（.js/.ts/.py/.ps1/.sh）随包入库为可执行 scripts（run_skill_script 工具使用）。
-// 单个失败不阻断整体；与内置 Skill 同名的包跳过（内置只读，避免被覆盖后启动期反复回写）。
+// 技能包 zip 导入：每个含 SKILL.md 的目录即一个 Skill，<pkg>/scripts/ 下的脚本随包入库
+// （run_skill_script 使用）。单个失败不阻断整体；与内置同名跳过（内置只读，避免反复回写）。
 
 // skillZipMaxBytes zip 上限。
 const skillZipMaxBytes = 40 << 20

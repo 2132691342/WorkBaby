@@ -145,15 +145,15 @@ func (m *coreEventMapper) handle(e core.Event) {
 		}
 		// 轮次结束推本轮用量：前端 streamingStats 实时驱动上下文进度与消息用量行。
 		if p, ok := e.Payload.(core.TurnEndPayload); ok {
-			s.emit(runID, ses.ID, "chat:stats", map[string]any{
-				"turn":                  e.Turn,
-				"input_tokens":          p.Usage.Input,
-				"output_tokens":         p.Usage.Output,
-				"cache_read_tokens":     p.Usage.CacheRead,
-				"cache_creation_tokens": p.Usage.CacheWrite,
-				"total_tokens":          p.Usage.Total,
-				"latency_ms":            p.LatencyMs,
-			})
+			s.emit(runID, ses.ID, "chat:stats", domain.ChatStatsEvent{
+						Turn:                e.Turn,
+						InputTokens:         p.Usage.Input,
+						OutputTokens:        p.Usage.Output,
+						CacheReadTokens:     p.Usage.CacheRead,
+						CacheCreationTokens: p.Usage.CacheWrite,
+						TotalTokens:         p.Usage.Total,
+						LatencyMs:           p.LatencyMs,
+					})
 		}
 		// 本轮叙述收尾：这一轮若以正文结束（没有后续工具调用），在这里落块。
 		m.flushText(e)
@@ -171,9 +171,9 @@ func (m *coreEventMapper) handle(e core.Event) {
 					},
 				})
 			}
-			s.emit(runID, ses.ID, "chat:tool", map[string]any{
-				"id": p.ID, "name": p.Name, "arguments": p.Arguments,
-				"activity": p.Activity, "agent": e.Agent,
+			s.emit(runID, ses.ID, "chat:tool", domain.ChatToolCallEvent{
+				ID: p.ID, Name: p.Name, Arguments: p.Arguments,
+				Activity: p.Activity, Agent: e.Agent,
 			})
 			if !isChild {
 				m.persistBlock(e, domain.BlockToolCall, map[string]any{
@@ -190,11 +190,12 @@ func (m *coreEventMapper) handle(e core.Event) {
 		if !ok {
 			return
 		}
-		s.emit(runID, ses.ID, "chat:tool-result", map[string]any{
-			"id": p.ToolCallID, "name": p.Name,
-			"content": p.Content, "error": p.Err, "duration_ms": p.DurationMs,
-			"agent": e.Agent, "ui_hint": p.UIHint, "data": p.Data,
-			"refused": p.Refused, "refused_reason": p.RefusedReason,
+		s.emit(runID, ses.ID, "chat:tool-result", domain.ChatToolResultEvent{
+			ID: p.ToolCallID, Name: p.Name,
+			Content: p.Content, Error: p.Err, DurationMs: p.DurationMs,
+			Agent: e.Agent, UIHint: p.UIHint, Data: p.Data,
+			Refused: p.Refused, RefusedReason: p.RefusedReason,
+			Meta: p.Meta,
 		})
 		if isChild {
 			return
@@ -206,11 +207,14 @@ func (m *coreEventMapper) handle(e core.Event) {
 			}
 		}
 		// 结果 + 产物落块：审批拒绝同样落块，历史可复现完整过程。
+		// meta 透传：cwd / same_failure_count / adaptive_hint 等元数据落块，
+		// 历史消息刷新后仍能展示「这条命令落在哪个目录」「失败改道提示是否生效」。
 		m.persistBlock(e, domain.BlockToolResult, map[string]any{
 			"tool_call_id": p.ToolCallID, "name": p.Name,
 			"content": p.Content, "error": p.Err,
 			"duration_ms": p.DurationMs, "refused": p.Refused,
 			"ui_hint": p.UIHint, "data": p.Data,
+			"meta": p.Meta,
 		})
 		if len(p.Data) > 0 {
 			m.persistBlock(e, domain.BlockArtifact, map[string]any{"name": p.Name, "data": p.Data})
@@ -243,10 +247,13 @@ func (m *coreEventMapper) handle(e core.Event) {
 		}
 		pkg.L.Info("context compressed", "runID", runID, "removed", p.Removed, "truncated", p.Truncated)
 		s.persistCompressBoundary(m.ctx, ses, p)
-		s.emit(runID, ses.ID, "chat:compressed", map[string]any{
-			"removed_messages": p.Removed,
-			"summary":          p.Summary,
-			"truncated":        p.Truncated,
+		s.emit(runID, ses.ID, "chat:compressed", domain.ChatCompressedEvent{
+			RemovedMessages: p.Removed,
+			Summary:         p.Summary,
+			Truncated:       p.Truncated,
+			// 压缩器标识：内核只保留确定性折叠一种，供前端展示折叠来源。
+			FilterKey: compressFilterMicro,
+			CutoffAt:  p.CutoffAt,
 		})
 	case core.EventError:
 		p, ok := e.Payload.(core.ErrorPayload)

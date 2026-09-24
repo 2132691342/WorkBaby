@@ -1,3 +1,5 @@
+// SSE 服务测试：事件送达、断线重放（Last-Event-ID）、重放窗口溢出、慢客户端断连。
+
 package server
 
 import (

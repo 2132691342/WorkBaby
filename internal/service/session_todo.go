@@ -7,10 +7,8 @@ import (
 	"WorkBaby/internal/repo"
 )
 
-// SessionTodoStore 会话计划持久化存储（实现 internal/tool/todo.Store 与 capability.TodoStore）。
-//
-// 计划随会话落库：跨进程重启、归档、切换会话后仍能回放进度，不再依赖进程内存。
-// 覆盖语义由 repo.ReplaceAll（事务删旧 + 插新）承担。
+// SessionTodoStore 会话计划持久化存储（实现 tool/todo.Store 与 capability.TodoStore）。
+// 计划随会话落库：跨重启、归档、切换会话后仍能回放进度；覆盖语义由 repo.ReplaceAll 承担。
 type SessionTodoStore struct {
 	repo *repo.SessionTodoRepo
 }

@@ -31,10 +31,8 @@ type runIDs struct {
 	AssistantMsgID string
 }
 
-// prepareRun 落 user + assistant 占位消息并登记执行平面 run。
-//
-// chat / 后台任务共用：同一会话串行落 seq，run 身份在消息落库前就已确定
-// （runID 需先写入消息行，供前端按 run 过滤事件）。调用方负责持会话锁。
+// prepareRun 落 user + assistant 占位消息并登记执行平面 run（chat 与后台任务共用）。
+// run 身份在消息落库前确定：runID 需先写入消息行，供前端按 run 过滤事件。
 func (s *ChatService) prepareRun(ctx context.Context, ses *domain.ChatSessionDO, content string, atts []domain.MessageAttachment, scope core.Scope, agentName string) (runIDs, error) {
 	// 新 run 启动前清掉同会话遗留挂起审批（跨重启残留）：旧卡的决策对象已不存在
 	if s.approval != nil {
@@ -131,10 +129,8 @@ func (s *ChatService) nextSeq(ctx context.Context, sessionID string) (int64, err
 	return maxSeq + 1, nil
 }
 
-// allocSeq 分配会话内连续 n 个消息序号（进程内单调水位，首次取数据库最大值 + 1）。
-//
-// 运行中的工具结果消息与 steering 注入消息都会落库，必须走同一分配器：
-// 序号撞号会让增量分页（after_seq 游标）漏消息。
+// allocSeq 分配会话内连续 n 个消息序号（进程内单调水位，首次取库内最大值 + 1）。
+// 工具结果与注入消息都走同一分配器：撞号会让增量分页漏消息。
 func (s *ChatService) allocSeq(ctx context.Context, sessionID string, n int64) (int64, error) {
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
@@ -202,10 +198,8 @@ func (s *ChatService) QueueSteer(ctx context.Context, sessionID, content string)
 	return &domain.SteerResultRESP{RunID: runID, SessionID: sessionID, MessageID: msg.ID, Queued: true}, nil
 }
 
-// RunAgent 同步跑一轮 Agent（后台任务入口； 后台任务队列）。
-//
-// 与 SendStream 的区别：不占用会话的活动 run 槽（后台任务与前台聊天可并行），
-// 阻塞直到 run 结束并返回结果摘要。
+// RunAgent 同步跑一轮 Agent（后台任务入口），阻塞直到 run 结束并返回结果摘要。
+// 与 SendStream 的区别：不占用会话的活动 run 槽，与前台聊天可并行。
 func (s *ChatService) RunAgent(ctx context.Context, sessionID, userInput, agentName string) (*AgentRunOutcome, error) {
 	unlock := s.lockSession(sessionID)
 	ses, err := s.sessions.GetByID(ctx, sessionID)

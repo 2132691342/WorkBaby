@@ -73,10 +73,8 @@ func NewRunEventLog(size, maxRuns int) *RunEventLog {
 	return &RunEventLog{size: size, maxRuns: maxRuns, runs: make(map[string]*runBuffer)}
 }
 
-// Append 分配序号、把 seq 注入 payload、序列化并入缓冲；返回序号与 JSON 串。
-//
-// runID 为空（非 run 作用域事件）时只序列化不入缓冲；单条事件超过 maxEventBytes
-// 时只记占位（Data 为空），重放遇到占位即判定为不覆盖，避免超大工具结果撑爆内存。
+// Append 分配序号、把 seq 注入 payload、序列化并入缓冲；返回序号与 JSON 串。runID 为空
+// （非 run 作用域事件）时只序列化不入缓冲；单条超 maxEventBytes 只记占位，重放判定为不覆盖。
 func (l *RunEventLog) Append(runID, name string, payload map[string]any) (int64, string) {
 	if runID == "" {
 		data, _ := json.Marshal(payload)

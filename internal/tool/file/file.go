@@ -60,10 +60,8 @@ func safePath(workspaceRoot, path string) (string, error) {
 // ReadTool 读文件。
 type ReadTool struct{ resolve func(context.Context) string }
 
-// NewRead 构造 file_read。
-//
-// resolver 按会话解析工作区根：会话可绑定外部目录，故不能是注册期固定的单一根；
-// resolver 为 nil 或解析出空串时回落到 defRoot（默认工作区）。
+// NewRead 构造 file_read。resolver 按会话解析工作区根（会话可绑定外部目录，故不能是
+// 注册期固定的单一根）；nil 或解析出空串时回落 defRoot。
 func NewRead(resolver tool.RootResolver, defRoot string) *ReadTool {
 	return &ReadTool{resolve: tool.ResolveRoot(resolver, defRoot)}
 }
@@ -110,8 +108,8 @@ func (t *ReadTool) ActivityDescription(args json.RawMessage) string {
 
 func (t *ReadTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req readReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "file_read args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	p, err := safePath(t.resolve(ctx), req.Path)
 	if err != nil {
@@ -144,10 +142,8 @@ func shortPath(p string) string {
 
 // ===== file_write =====
 
-// Recorder 记录一次写操作的变更（装配方注入； 文件变更与回滚点）。
-//
-// 变更追踪是旁路能力：写入成功即返回，记录失败/未注入都不影响工具语义。
-// session/run 身份由装配方从 ctx 解析——file 包不感知 harness。
+// Recorder 记录一次写操作的变更（装配方注入）。变更追踪是旁路能力：写入成功即返回，
+// 记录失败或未注入都不影响工具语义；session/run 身份由装配方从 ctx 解析。
 type Recorder interface {
 	RecordWrite(ctx context.Context, path string, existed bool, before, after []byte)
 }
@@ -216,8 +212,8 @@ type writeReq struct {
 
 func (t *WriteTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req writeReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "file_write args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	if len([]byte(req.Content)) > maxWriteBytes {
 		return tool.ToolResult{Err: pkg.New(4008, "file_write content too large", "")}
@@ -292,8 +288,8 @@ type listReq struct {
 
 func (t *ListTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req listReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "file_list args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	if req.Path == "" {
 		req.Path = "."

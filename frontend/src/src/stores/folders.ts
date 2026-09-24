@@ -6,7 +6,7 @@ import { t } from '@/i18n'
 import type { Folder, FolderTreeNode, FolderReq } from '@/types/api'
 
 /**
- * 文件夹 store：目录树与根目录列表的 CRUD，端点见 doc/16。
+ * 文件夹 store：目录树与根目录列表的 CRUD，端点见 docs/API-CONTRACT.md。
  */
 export const useFoldersStore = defineStore('folders', () => {
   const tree = ref<FolderTreeNode[]>([])

@@ -13,10 +13,8 @@ const (
 	TaskCancelled TaskState = "cancelled"
 )
 
-// TaskDO 后台任务（内存态，不落库）。
-//
-// 任务生命周期短且结果已落成会话消息（可回溯），落表是重复真相源；
-// 进程重启后任务消失是可接受的语义——与 ExecutionRegistry 一致。
+// TaskDO 后台任务（内存态，不落库）：结果已落成会话消息（可回溯），落表是重复真相源；
+// 进程重启后任务消失是可接受语义（与 ExecutionRegistry 一致）。
 type TaskDO struct {
 	ID          string    `json:"id"`
 	SessionID   string    `json:"session_id"`

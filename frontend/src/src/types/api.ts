@@ -206,6 +206,87 @@ export interface ChatStreamEvent {
   data: unknown
 }
 
+// ===== 后端跨端事件载荷契约（与 internal/domain/chat_event.go 一一对应） =====
+// 流式高频增量（chat:stream / chat:thinking）仍走极简 map（零转换），只有
+//「形状容易被写歪」的跨端事件在此定义强类型，前后端共用同一份形状。
+
+/** 工具调用载荷（chat:tool；后端 domain.ChatToolCallEvent）。 */
+export interface ChatToolCallPayload {
+  id: string
+  name: string
+  /** 原始 JSON 字符串（不是对象）——两处曾因形态不一让前端写防御式兜底。 */
+  arguments: string
+  /** 工具自述动作（"正在编辑 app.ts"）。 */
+  activity?: string
+  /** 子 Agent 委派来源标签。 */
+  agent?: string
+}
+
+/** 工具结果载荷（chat:tool-result；后端 domain.ChatToolResultEvent）。 */
+export interface ChatToolResultPayload {
+  id: string
+  name: string
+  content?: string
+  /** 故障错误；与 refused 互斥（refused 是策略拒绝，非故障）。 */
+  error?: string
+  duration_ms?: number
+  agent?: string
+  ui_hint?: string
+  data?: Record<string, unknown>
+  /** 执行期元数据：cwd / same_failure_count / adaptive_hint / truncated_bytes。 */
+  meta?: Record<string, string>
+  refused?: boolean
+  refused_reason?: string
+}
+
+/** 审批 / 补问载荷（chat:approval；后端 domain.ChatApprovalEvent，两种 kind 同形状）。 */
+export interface ChatApprovalPayload {
+  id: string
+  /** 审批：可读命令；补问：问题正文。 */
+  command: string
+  reason?: string
+  /** needs_approval | irreversible | input_required。 */
+  risk: string
+  /** 不可逆与补问恒 false（后端零值），前端据此隐藏「本会话允许」选项。 */
+  can_remember: boolean
+}
+
+/** 本轮用量（chat:stats；后端 domain.ChatStatsEvent）。 */
+export interface ChatStatsPayload {
+  turn: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  total_tokens: number
+  latency_ms: number
+}
+
+/** 上下文压缩（chat:compressed；后端 domain.ChatCompressedEvent）。
+ *  确定性折叠不产出 recovery refs——该字段是历史遗留的前端期待（后端从未下发），已移除。 */
+export interface ChatCompressedPayload {
+  removed_messages: number
+  /** 压缩器标识：内核只保留确定性折叠一种（"micro"）。 */
+  filter_key?: string
+  truncated?: boolean
+  cutoff_at?: number
+  summary?: string
+}
+
+/** 告警（chat:warn；后端 domain.ChatWarnEvent，三种 kind 共用同一形状）。
+ *  kind: unbacked_claim | file_out_of_sandbox | agent_model_override；扩展字段按 kind 生效。 */
+export interface ChatWarnPayload {
+  kind: string
+  message: string
+  rel_path?: string
+  path?: string
+  workspace?: string
+  sandbox?: string
+  agent?: string
+  session_model?: string
+  model?: string
+}
+
 /** 流式 stats 事件 payload（usage/耗时/缓存命中/cost）。 */
 export interface ChatStats {
   input_tokens?: number

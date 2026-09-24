@@ -11,10 +11,8 @@ import (
 	"WorkBaby/internal/tool/knowledge"
 )
 
-// knowledgeCap 知识库接入：自动召回注入 + 模型主动检索两条通道。
-//
-// 自动召回解决「模型不知道有哪些资料、忘了搜」的问题；
-// 主动检索解决「需要更深/更多资料」的问题。两者共用同一个检索器。
+// knowledgeCap 知识库接入：自动召回注入 + 模型主动检索两条通道，共用同一个检索器。
+// 前者解决「不知道有哪些资料、忘了搜」，后者解决「需要更深/更多资料」。
 type knowledgeCap struct {
 	rt       rag.Retriever
 	topK     int // 自动召回条数

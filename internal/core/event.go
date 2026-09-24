@@ -22,7 +22,7 @@ const (
 	EventRetry EventKind = "agent.retry"
 )
 
-// Event 跨边界事件载荷；JSON 字段一律 snake_case（CLAUDE.md §2.5）。
+// Event 跨边界事件载荷；JSON 字段一律 snake_case（AGENTS.md）。
 type Event struct {
 	Kind        EventKind `json:"kind"`
 	RunID       string    `json:"run_id"`

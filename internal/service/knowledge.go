@@ -33,10 +33,8 @@ const (
 	MaxManagedDocBytes = 60 << 20 // 单文件 ≤ 60MB（对应当前文档解析面）
 )
 
-// managedDocExts 允许导入受管库的扩展名白名单（与文档 loader 支持面一致）。
-//
-// .docx 已在 loader 中实现解包（archive/zip + word/document.xml），白名单一并放开；
-// 旧版私文档二进制 .doc 仍拒收（结构老旧、依赖重）。
+// managedDocExts 允许导入受管库的扩展名白名单（与文档 loader 支持面一致）。.docx 已在 loader
+// 实现解包，白名单一并放开；旧版私文档二进制 .doc 仍拒收（结构老旧、依赖重）。
 var managedDocExts = map[string]bool{
 	".txt": true, ".md": true, ".markdown": true, ".pdf": true,
 	".json": true, ".yaml": true, ".yml": true, ".xml": true,
@@ -286,10 +284,8 @@ func (s *KnowledgeService) UpdateDoc(ctx context.Context, id string, req *domain
 	return toKnowledgeRESP(row), nil
 }
 
-// underManagedDir 判定路径是否真正落在受管知识库目录内。
-//
-// 不能用 HasPrefix：`{dir}\..\..\任意文件.txt` 能通过前缀检查却被当作受管源读取，
-// 是标准的 .. 穿越。先 Abs 归一，再用 Rel 判定不逃逸。
+// underManagedDir 判定路径是否真正落在受管知识库目录内。不能用 HasPrefix：带 ..\..\ 的路径
+// 能通过前缀检查却被当作受管源读取（标准穿越）。先 Abs 归一，再用 Rel 判定不逃逸。
 func underManagedDir(dir, p string) bool {
 	if dir == "" || p == "" {
 		return false

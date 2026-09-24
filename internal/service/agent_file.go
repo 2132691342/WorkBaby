@@ -20,11 +20,9 @@ var agentFileFields = []string{"color", "mcpServers", "injectAgentsMd"}
 // thinkingLevels 允许的推理强度取值（与 llm.ThinkingFromEffort 一致）。
 var thinkingLevels = map[string]struct{}{"off": {}, "low": {}, "medium": {}, "high": {}}
 
-// LoadAgentFiles 读取用户级子智能体定义文件（frontmatter + 正文人设）。
-//
-// 定义文件与设置页创建的智能体（agent_profiles 表）同构，最终都物化成 core.Definition：
-// 区别只在载体——文件可随 dotfiles / 仓库分发，表适合在界面里随手改。
-// 缺 name / description、名字非法、与内置名撞名的文件会被诊断并跳过（内置名不可被文件覆盖）。
+// LoadAgentFiles 读取用户级子智能体定义文件（frontmatter + 正文人设），与设置页创建的
+// 智能体同构、最终都物化成 core.Definition（文件可随 dotfiles 分发，表适合界面里随手改）。
+// 缺 name / description、名字非法、与内置名撞名的文件诊断后跳过。
 func LoadAgentFiles(home string) []core.Definition {
 	if strings.TrimSpace(home) == "" {
 		return nil

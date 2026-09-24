@@ -38,10 +38,8 @@ type ChatSessionDO struct {
 	Pinned        bool  `gorm:"default:false" json:"pinned"`
 	MessageCount  int   `gorm:"default:0"            json:"message_count"`
 	LastMessageAt int64 `gorm:"default:0"            json:"last_message_at"`
-	// ParentID / BranchPoint 构成会话树血缘：分叉出的会话记住来源会话与分叉点 seq。
-	// 根会话 ParentID 为空、BranchPoint 为 0；分叉可递归，前端据此递归建树。
-	// PermissionMode 会话级工具权限模式（restricted/default/auto_edit/yolo；空 = 跟随系统设置）。
-	// 与全局 system_settings 的 agent.session_mode 是「会话覆盖 → 全局默认」关系。
+	// ParentID / BranchPoint 构成会话树血缘（分叉可递归；根会话为空 / 0）。
+	// PermissionMode 为会话级权限模式（空 = 跟随全局 agent.session_mode）。
 	PermissionMode string `gorm:"size:32"              json:"permission_mode"`
 	ParentID       string `gorm:"size:64;index"    json:"parent_id"`
 	BranchPoint    int64  `gorm:"default:0"        json:"branch_point"`
@@ -127,10 +125,8 @@ type ContextSegment struct {
 	Ratio  int    `json:"ratio"`  // 占上下文窗口的千分比（避免前端浮点误差）
 }
 
-// ContextUsageRESP 会话上下文占用快照（GET /chat/usage/context）。
-//
-// Segments 之和 + Free 恰为 ContextWindow；Estimated=true 表示未拿到 provider 实测值、
-// 全部按字符近似估算（前端需标注「估算」）。
+// ContextUsageRESP 会话上下文占用快照（GET /chat/usage/context）。Segments 之和 + Free
+// 恰为 ContextWindow；Estimated=true 表示未拿到 provider 实测值（前端需标注「估算」）。
 type ContextUsageRESP struct {
 	SessionID     string           `json:"session_id"`
 	Model         string           `json:"model"`
@@ -174,9 +170,7 @@ type SendStreamResult struct {
 }
 
 // EffectiveParamsRESP 当前会话实际生效的参数快照（输入框与设置页的唯一数据源）。
-//
-// From 字段标注每个参数的取值层级：provider（模型配置）| default（全局设置）| builtin（内置兜底）。
-// 请求级覆盖由前端本地持有（随消息上抛，不落库），故不在此列。
+// From 标注取值层级：provider | default | builtin；请求级覆盖由前端本地持有，不在此列。
 type EffectiveParamsRESP struct {
 	SessionID         string  `json:"session_id"`
 	ProviderID        string  `json:"provider_id"`

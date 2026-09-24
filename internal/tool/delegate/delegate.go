@@ -46,8 +46,8 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResul
 		Agent string `json:"agent"`
 		Task  string `json:"task"`
 	}
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "delegate_task args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	req.Task = strings.TrimSpace(req.Task)
 	if req.Task == "" {

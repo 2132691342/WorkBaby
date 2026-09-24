@@ -12,9 +12,7 @@ import (
 )
 
 // DiscoverDir 扫描目录约定的技能：<root>/<name>/SKILL.md（+ 可选 <name>/scripts/*）。
-//
-// 单个技能解析失败降级跳过，不阻断其余技能装载；根目录不存在返回空列表
-// （未创建过技能目录是首次启动的正常状态）。
+// 单个技能解析失败降级跳过，不阻断其余装载；根目录不存在返回空列表（首次启动的正常状态）。
 func DiscoverDir(root string, kind domain.SkillSourceKind) []domain.SkillDO {
 	root = strings.TrimSpace(root)
 	if root == "" {

@@ -9,7 +9,7 @@ import { t } from '@/i18n'
 export const TIME_EMPTY = '—'
 
 /**
- * 入参同时接受 ISO 串与毫秒时间戳（后端按 CLAUDE.md §2.8 统一返回毫秒整数）。
+ * 入参同时接受 ISO 串与毫秒时间戳（后端按 AGENTS.md 统一返回毫秒整数）。
  */
 function toDate(v: string | number | null | undefined): Date | null {
   if (v == null || v === '') return null

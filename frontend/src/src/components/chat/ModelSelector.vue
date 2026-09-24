@@ -187,7 +187,7 @@ onUnmounted(() => {
       <!-- 已选模型：供应商品牌圆徽；自动：Sparkles 而非 emoji -->
       <span
         v-if="currentModel"
-        class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-bold"
+        class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-3xs font-bold"
         :style="{ background: modelBrand(currentModel).bg, color: modelBrand(currentModel).fg }"
       >
         {{ modelBrand(currentModel).text }}
@@ -252,7 +252,7 @@ onUnmounted(() => {
             @click="selectModel(m.id)"
           >
             <span
-              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[9px] font-bold"
+              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-3xs font-bold"
               :style="{ background: modelBrand(m).bg, color: modelBrand(m).fg }"
             >
               {{ modelBrand(m).text }}
@@ -285,7 +285,7 @@ onUnmounted(() => {
               @click="selectModel(m.id)"
             >
               <span
-                class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[8px] font-bold"
+                class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-3xs font-bold"
                 :style="{ background: providerBrand(provider).bg, color: providerBrand(provider).fg }"
               >
                 {{ providerBrand(provider).text }}
@@ -301,7 +301,7 @@ onUnmounted(() => {
                 <AlertTriangle class="h-3 w-3 text-wb-warning" />
               </template>
               <template v-else-if="circuitBadge(m).kind === 'disabled'">
-                <span class="rounded bg-wb-surface-2 px-1 text-[9px] font-medium text-wb-muted">{{ t('common.disabled') }}</span>
+                <span class="rounded bg-wb-surface-2 px-1 text-3xs font-medium text-wb-muted">{{ t('common.disabled') }}</span>
               </template>
               <!-- 能力标签图标 -->
               <span class="flex shrink-0 items-center gap-0.5">

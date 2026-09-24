@@ -5,10 +5,8 @@ import (
 	"strings"
 )
 
-// frontMatter 极简 frontmatter：只支持顶层 `key: value`（值可为逗号 / 空格分隔的列表）。
-//
-// 命令文件与 Agent 定义文件只需要 6~8 个平铺字段，不支持嵌套 / 多行块 / YAML 锚点；
-// 为读这几个字段引入完整 YAML 解析器代价不成比例，且会让「写坏的字段」静默变成零值。
+// frontMatter 极简 frontmatter：只支持顶层 `key: value`（值可为逗号/空格分隔的列表）。
+// 命令与 Agent 定义文件只需 6~8 个平铺字段；为读这些字段引入完整 YAML 解析器代价不成比例。
 type frontMatter struct {
 	fields map[string]string
 	body   string

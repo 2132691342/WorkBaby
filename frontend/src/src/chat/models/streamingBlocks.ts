@@ -76,7 +76,8 @@ export function applyBlockUpdate(
             error: update.error,
             duration_ms: update.durationMs,
             refused: update.refused,
-            ...(update.data ?? {})
+            ...(update.data ?? {}),
+            ...(update.meta ? { meta: update.meta } : {})
           },
           state: update.refused ? 'refused' : (update.error ? 'error' : 'success'),
           durationMs: update.durationMs ?? next[idx].durationMs,
@@ -97,7 +98,8 @@ export function applyBlockUpdate(
           error: update.error,
           duration_ms: update.durationMs,
           refused: update.refused,
-          ...(update.data ?? {})
+          ...(update.data ?? {}),
+          ...(update.meta ? { meta: update.meta } : {})
         },
         state: update.refused ? 'refused' : (update.error ? 'error' : 'success'),
         durationMs: update.durationMs,
@@ -166,7 +168,7 @@ export type BlockUpdate =
   | { kind: 'thinking'; text: string }
   | { kind: 'text'; text: string }
   | { kind: 'tool_call'; id: string; name: string; arguments?: string; agent?: string; activity?: string; now: number }
-  | { kind: 'tool_result'; toolCallId: string; name: string; content?: string; error?: string; durationMs?: number; refused?: boolean; data?: Record<string, unknown> | null }
+  | { kind: 'tool_result'; toolCallId: string; name: string; content?: string; error?: string; durationMs?: number; refused?: boolean; data?: Record<string, unknown> | null; meta?: Record<string, string> }
   | { kind: 'skill'; id: string; payload: Record<string, unknown> }
   | { kind: 'genui'; id: string; payload: Record<string, unknown> }
   | { kind: 'artifact'; id: string; payload: Record<string, unknown> }

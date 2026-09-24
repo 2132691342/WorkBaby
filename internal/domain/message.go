@@ -28,11 +28,8 @@ const (
 	MessageStatusArchived  MessageStatus = "archived"  // 已归档：/compact 剔出上下文（UI仍可见）
 )
 
-// MessageContextScope 消息是否进入 LLM 上下文。
-//
-// 消息分层：UI 专属消息（界面提示、genui 包装、系统通知）可完整落库并在界面上回放，
-// 但不参与上下文装配——前端可放心新增消息形态而不污染模型上下文。
-// 零值按 MessageScopeLLM 处理（历史数据与既有写入路径无需回填）。
+// MessageContextScope 消息是否进入 LLM 上下文。UI 专属消息（界面提示、genui 包装、
+// 系统通知）可完整落库并回放但不参与装配；零值按 MessageScopeLLM 处理。
 type MessageContextScope string
 
 const (
@@ -216,10 +213,8 @@ type TruncateMessagesREQ struct {
 	MessageID string `json:"message_id"`
 }
 
-// DecideApprovalREQ 用户对工具审批请求（chat:approval 事件）的决策回填入参。
-//
-// Scope 决定放行的有效期：once（默认）= 只放行这一次；session = 本会话内同命令免审。
-// 不可逆风险（irreversible）的请求不接受 session——service 侧会忽略该字段。
+// DecideApprovalREQ 审批决策回填入参。Scope 决定放行有效期：once（默认）= 只放行这一次，
+// session = 本会话内同命令免审（不可逆风险忽略该字段，由 service 侧强制）。
 type DecideApprovalREQ struct {
 	Approved bool   `json:"approved"`
 	Scope    string `json:"scope,omitempty"`

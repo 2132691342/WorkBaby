@@ -9,10 +9,8 @@ const (
 	CommandSourceWorkspace = "workspace"
 )
 
-// SlashCommand 斜杠命令元数据（命令面板）。
-//
-// 真相源在后端：前端命令面板拉一次即渲染，新增命令不必改前端代码。
-// ClientOnly=true 的命令由前端就地执行（开面板/切模型/导出/灌入模板），后端只提供元数据。
+// SlashCommand 斜杠命令元数据（命令面板）。真相源在后端：前端拉一次即渲染，新增命令
+// 不必改前端。ClientOnly=true 的命令由前端就地执行，后端只提供元数据。
 type SlashCommand struct {
 	Name       string `json:"name"`        // 不含斜杠，如 "compact"
 	Args       string `json:"args"`        // 参数提示，无参数为空串
@@ -32,11 +30,8 @@ type CommandListRESP struct {
 	Total int            `json:"total"`
 }
 
-// CompactREQ 手动压缩入参（/compact）。
-//
-// Instructions 是「保留指示」：压缩会折叠早期推理与工具结果，用户可指定压缩后仍需
-// 留在上下文里的要点（/compact <instructions> 指令）。
-// KeepRecent 覆盖默认保留窗口（<=0 用后端默认值）。
+// CompactREQ 手动压缩入参（/compact）。Instructions 是「保留指示」：压缩会折叠早期
+// 推理与工具结果，用户可指定压缩后仍需留在上下文的要点。KeepRecent<=0 用后端默认值。
 type CompactREQ struct {
 	Instructions string `json:"instructions,omitempty"`
 	KeepRecent   int    `json:"keep_recent,omitempty"`

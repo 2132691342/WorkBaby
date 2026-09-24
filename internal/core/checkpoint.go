@@ -17,9 +17,7 @@ type Checkpoint struct {
 }
 
 // CheckpointStore 检查点读写；由 app 层注入持久化实现。
-//
-// Append 语义是「可覆盖的最新一轮」而非追加历史：同一 run 只保留最后一个位点，
-// 否则磁盘会随轮次线性放大，而 Resume 只认最后一轮。
+// Append 语义是「可覆盖的最新一轮」：同一 run 只保留最后位点，否则磁盘随轮次线性放大。
 type CheckpointStore interface {
 	Append(cp *Checkpoint) error
 	LoadLast(runID string) (*Checkpoint, error)

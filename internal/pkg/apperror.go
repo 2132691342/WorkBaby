@@ -8,7 +8,7 @@ import (
 )
 
 // AppError 是跨绑定边界的统一错误形态：error → JS Promise reject 时序列化为 {code,message,details}。
-// Code 取 1000-9999 按域分段（段位表见 CLAUDE.md §2.4），前后端共同遵守。
+// Code 取 1000-9999 按域分段（段位表见 AGENTS.md），前后端共同遵守。
 type AppError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`

@@ -23,10 +23,9 @@ const pendingReopenTTL = 24 * time.Hour
 // inputReason 补充输入请求的统一说明文案。
 const inputReason = "我需要你补充一点信息才能继续"
 
-// ApprovalService 工具审批门（durable pause）：阻塞等待用户决策，未决请求落 approval_records，
-// 重启后 RearmPending 重武装决策窗口，决策经续跑钩子从检查点恢复 run。
-// needs_approval 类命令批准过一次后进程内免审（可持久化为 approval_grants），
-// irreversible 每次都问；续跑回放的同一调用走 FindDecided 快速裁决。
+// ApprovalService 工具审批门（durable pause）：阻塞等待用户决策，未决请求落库，重启后
+// RearmPending 重武装窗口，决策经续跑钩子从检查点恢复 run。needs_approval 批准过一次后
+// 进程内免审（可持久化为 approval_grants），irreversible 每次都问。
 type ApprovalService struct {
 	bus       *event.Bus
 	emitter   *Emitter // 事件出口（与 ChatService 共享同一实例，保证 seq 连续）
@@ -247,7 +246,8 @@ func (s *ApprovalService) HasGrant(command string) bool {
 }
 
 // emit 发布审批事件（归属经 ctx 提取，统一走 Emitter）。
-func (s *ApprovalService) emit(ctx context.Context, name string, payload map[string]any) {
+// 载荷支持 map[string]any（极简增量）或领域事件结构体（如 domain.ChatApprovalEvent）；字段 snake_case。
+func (s *ApprovalService) emit(ctx context.Context, name string, payload any) {
 	s.emitter.EmitCtx(ctx, name, payload)
 }
 
@@ -292,12 +292,12 @@ func (s *ApprovalService) Approve(ctx context.Context, command string, risk stri
 	}()
 	s.persistPending(ctx, id, domain.ApprovalKindApproval, command, risk, item.expiresAt)
 
-	s.emit(ctx, "chat:approval", map[string]any{
-		"id":           id,
-		"command":      command,
-		"reason":       approvalReason(risk),
-		"risk":         risk,
-		"can_remember": canRemember(risk),
+	s.emit(ctx, "chat:approval", domain.ChatApprovalEvent{
+		ID:          id,
+		Command:     command,
+		Reason:      approvalReason(risk),
+		Risk:        risk,
+		CanRemember: canRemember(risk),
 	})
 
 	select {
@@ -346,10 +346,8 @@ func (s *ApprovalService) settleRecord(id, status, answer string) {
 	}
 }
 
-// RequestInput 模型主动向用户要信息（risk=input_required）：阻塞等待 Answer 回填文本。
-// 返回 (回答, true)；超时/取消返回 ("", false)。
-// 已决记录复用仅限续跑回放（IsResumedRun）：库内有本 run 同问题的已决记录
-// （answered/skipped 未消费）→ 直接消费复用，一次性问答不被静默复用。
+// RequestInput 模型主动向用户要信息（risk=input_required）：阻塞等待 Answer 回填文本，
+// 返回 (回答, true)；超时/取消返回 ("", false)。已决记录复用仅限续跑回放，一次性问答不被静默复用。
 func (s *ApprovalService) RequestInput(ctx context.Context, question string) (string, bool) {
 	if core.IsResumedRun(ctx) {
 		if rec := s.findDecided(ctx, domain.ApprovalKindInput, question,
@@ -382,11 +380,11 @@ func (s *ApprovalService) RequestInput(ctx context.Context, question string) (st
 	}()
 	s.persistPending(ctx, id, domain.ApprovalKindInput, question, "input_required", now.Add(approvalWaitTimeout).UnixMilli())
 
-	s.emit(ctx, "chat:approval", map[string]any{
-		"id":      id,
-		"command": question,
-		"reason":  inputReason,
-		"risk":    tool.RiskApprovalInput,
+	s.emit(ctx, "chat:approval", domain.ChatApprovalEvent{
+		ID:      id,
+		Command: question,
+		Reason:  inputReason,
+		Risk:    tool.RiskApprovalInput,
 	})
 
 	select {

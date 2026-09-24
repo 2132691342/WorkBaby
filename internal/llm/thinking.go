@@ -46,10 +46,8 @@ func ParseThinkingStyle(s string) ThinkingStyle {
 	}
 }
 
-// ThinkingFromEffort 前端/数据库里的 effort 字符串 → ThinkingConfig。
-//   - off / "" → nil（不注入 thinking 字段；由 Provider/全局默认兜底）
-//   - low / medium / high → enabled + 对应 budget_tokens
-//   - 其它 → nil（未知值不传）
+// ThinkingFromEffort 把 effort 字符串转成 ThinkingConfig：off/空 → nil（由 Provider 与
+// 全局默认兜底）；low/medium/high → enabled + 对应 budget_tokens；未知值不传。
 func ThinkingFromEffort(effort string) *ThinkingConfig {
 	switch effort {
 	case "off":
@@ -72,10 +70,8 @@ type thinkingProbe struct {
 	match func(model string) bool
 }
 
-// thinkingProbes 按序匹配，先命中先返回。
-//
-// 维护原则：只登记「不发思维参数会削弱能力、或发错会 400」的上游；
-// 探测不到的上游一律 none——宁可不开思考，也不能让整条链路 400 不可用。
+// thinkingProbes 按序匹配，先命中先返回。只登记「不发思维参数会削弱能力、或发错会 400」
+// 的上游；探测不到的一律 none——宁可不开思考，也不能让整条链路 400 不可用。
 var thinkingProbes = []thinkingProbe{
 	{style: ThinkingStyleAdaptive, hosts: []string{"minimaxi.com", "minimax.chat", "api.minimax"}},
 	{style: ThinkingStyleEnabled, hosts: []string{"bigmodel.cn", "open.bigmodel", "volces.com", "volcengineapi.com", "ark.cn-beijing", "moonshot.cn", "moonshot.ai"}},
@@ -86,10 +82,8 @@ var thinkingProbes = []thinkingProbe{
 	{style: ThinkingStyleReasoningEffort, match: isOpenAIReasoningModel},
 }
 
-// DetectThinkingStyle 按 baseURL 与模型名探测方言；无法判定返回 none。
-//
-// none 是安全默认：不向请求体注入任何思维字段，避免未知上游因不认识的
-// 参数直接 400。需要思考能力的用户可在 Provider 设置里显式指定方言。
+// DetectThinkingStyle 按 baseURL 与模型名探测方言；无法判定返回 none（安全默认，
+// 避免未知上游因不认识的参数直接 400）。用户可在 Provider 设置里显式指定方言。
 func DetectThinkingStyle(baseURL, model string) ThinkingStyle {
 	host := strings.ToLower(baseURL)
 	name := strings.ToLower(model)
@@ -127,10 +121,8 @@ func isQwenThinkingModel(model string) bool {
 	return strings.Contains(model, "qwen3") || strings.Contains(model, "-thinking")
 }
 
-// ResolveThinkingStyle 合并「用户显式指定」与「自动探测」两路输入。
-//
-// 显式指定优先：自动探测只能覆盖已知上游，遇到私有部署/新厂商必然漏判，
-// 必须有人工纠偏口，否则漏判就等于整条链路不可用。
+// ResolveThinkingStyle 合并「用户显式指定」与「自动探测」，显式优先。
+// 探测只能覆盖已知上游，私有部署与新厂商需人工纠偏口。
 func ResolveThinkingStyle(specified, baseURL, model string) ThinkingStyle {
 	if s := ParseThinkingStyle(specified); s != ThinkingStyleAuto {
 		return s
@@ -138,11 +130,8 @@ func ResolveThinkingStyle(specified, baseURL, model string) ThinkingStyle {
 	return DetectThinkingStyle(baseURL, model)
 }
 
-// RenderThinking 把归一化思维配置渲染成上游请求体的若干顶层字段。
-//
-// 返回 nil 表示「不注入任何字段」——包括 dialect=none、配置为 disabled 之外的
-// 未开启态，避免向上游发送它不认识的参数。
-// disabled 仍需显式下发：部分上游（Qwen3、GLM）默认开启思考，必须显式关掉。
+// RenderThinking 把归一化思维配置渲染成上游请求体的顶层字段。返回 nil 表示不注入
+// 任何字段（dialect=none 或未开启）；disabled 仍需显式下发（部分上游默认开启思考）。
 func RenderThinking(style ThinkingStyle, tc *ThinkingConfig) map[string]any {
 	if tc == nil {
 		return nil

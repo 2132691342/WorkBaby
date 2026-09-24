@@ -7,9 +7,7 @@ import (
 // 本文件：工具策略门与 run 事件发射（emit 是 service → SSE 的唯一出口）。
 
 // gateInternalAllowTools 工具策略门显式放行清单（default 模式下本会走 ask 的那些）。
-//
-// 放行不等于无护栏：实现了 tool.RiskClassifier 的工具（exec / run_skill_script）仍由
-// runner 拿 ClassifyArgs 的 per-call 风险做命令级裁决——白名单外与危险正则命中照样弹审批。
+// 放行不等于无护栏：实现 RiskClassifier 的工具仍由 runner 做命令级裁决。
 var gateInternalAllowTools = []string{
 	"exec", "run_skill_script", "delegate_task", // 命令级裁决走 RiskClassifier
 	"websearch", "webfetch", "http", // 信息型网络读取
@@ -47,7 +45,7 @@ const todoToolName = "todo"
 
 // emit 发布 run 事件：统一走 Emitter（注入归属、分配 seq、广播）。
 // 载荷支持 map[string]any（高频增量）或领域事件结构体（如 domain.ChatDoneEvent）；
-// 字段一律 snake_case（CLAUDE.md §2.5）。
+// 字段一律 snake_case（AGENTS.md）。
 func (s *ChatService) emit(runID, sessionID, name string, payload any) {
 	s.emitter.Emit(runID, sessionID, name, payload)
 }

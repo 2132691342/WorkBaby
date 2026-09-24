@@ -74,10 +74,8 @@ func (s *TrustService) Resolve(ctx context.Context, path string) (domain.TrustRe
 	return domain.TrustResolveRESP{Path: dir, State: domain.TrustStateAsk}, nil
 }
 
-// Ensure 工具执行前的信任闸门：解析 → ask 则询问 → 批准后记账为 allow。
-//
-// 返回 (放行, 拒绝原因)；deny 与「ask 被拒」都返回 false，原因直接进工具回执，
-// 模型据此改道（如改用工作区内的目录）而不是把拒绝当故障。
+// Ensure 工具执行前的信任闸门：解析 → ask 则询问 → 批准后记账为 allow。返回 (放行, 拒绝原因)；
+// deny 与「ask 被拒」都返回 false，原因直接进工具回执供模型改道（而非把拒绝当故障）。
 func (s *TrustService) Ensure(ctx context.Context, path string) (bool, string) {
 	st, err := s.Resolve(ctx, path)
 	if err != nil {

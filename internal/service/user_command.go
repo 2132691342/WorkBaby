@@ -10,11 +10,8 @@ import (
 	"WorkBaby/internal/repo"
 )
 
-// UserCommandService 自定义斜杠命令：保存的提示词模板 CRUD。
-//
-// 命令以 name 为键（/面板中的命令名），prompt 是灌入输入框的模板正文；
-// 模板里的 `$ARGUMENTS` / `$1..$9` 由前端在插入时用命令后的参数展开。
-// 与 {home}/commands/*.md 定义文件并列：同名时文件优先（见 command_file.go）。
+// UserCommandService 自定义斜杠命令：保存的提示词模板 CRUD。命令以 name 为键，prompt 是灌入
+// 输入框的模板正文（`$ARGUMENTS` / `$1..$9` 由前端展开）；与 {home}/commands/*.md 并列，同名时文件优先。
 type UserCommandService struct {
 	repo *repo.UserCommandRepo
 }

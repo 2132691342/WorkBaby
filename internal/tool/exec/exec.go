@@ -13,6 +13,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/encoding/unicode"
 
 	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/tool"
@@ -261,8 +265,8 @@ func (w *cappedWriter) tailBytes() []byte {
 // Execute 执行命令并返回合并输出（限流读取，上限 execMaxOutputBytes）。
 func (t *ExecTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req execReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "exec args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	// 白名单按 basename 匹配 command；危险模式检查完整命令串（command + args）
 	full := req.Command
@@ -303,9 +307,8 @@ func (t *ExecTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolR
 	}
 
 	// 平台侧解析：Windows 上 .cmd 外壳与 cmd 内建命令需包 cmd /c 才能 CreateProcess。
-	// 关键：LookPath 用父进程 PATH，而父进程 PATH 不含内置运行时——
-	// 必须先临时把内置 bin 目录前置到 PATH 再查找，否则内置 node/python/pwsh
-	// 在用户系统未装时被 LookPath 漏掉，回落到 cmd /c 后内置环境彻底失联。
+	// LookPath 用父进程 PATH，而它不含内置运行时——必须先在内置 bin 目录查找，
+	// 否则内置 node/python/pwsh 会被漏掉，回落 cmd /c 后内置环境失联。
 	var dirs []string
 	if t.pathDirs != nil {
 		dirs = t.pathDirs()
@@ -329,6 +332,12 @@ func (t *ExecTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolR
 			}
 		}
 	}
+	// 关键：显式把 cmd.Dir 落到 ENV 的 PWD 上，让 `python -c "import os; print(os.getcwd())"`
+	// 这类自述路径的子命令与父命令的 cwd 一致——避免 LLM 看到「沙箱解析到 X、子进程
+	// 实际落在 Y」的认知断裂（用户截图里 python 与 powershell 报不同 cwd 即此根因）。
+	if cmd.Dir != "" {
+		cmd.Env = append(cmd.Env, "PWD="+cmd.Dir)
+	}
 	if t.pathDirs != nil {
 		if dirs := t.pathDirs(); len(dirs) > 0 {
 			cmd.Env = envWithPath(dirs) // 子进程 PATH 前置内置运行时目录
@@ -346,10 +355,17 @@ func (t *ExecTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolR
 		exitCode = cmd.ProcessState.ExitCode()
 	}
 	meta := map[string]string{"exitCode": strconv.Itoa(exitCode)}
+	// 工作区 cwd 显式回填：让 LLM 与用户在事件流中看到「这条命令落在哪」，
+	// 避免「沙箱解析到 X、子进程实际在 Y」的认知断裂。
+	if wd := strings.TrimSpace(cmd.Dir); wd != "" {
+		meta["cwd"] = wd
+	}
 	if d := out.dropped(); d > 0 {
 		meta["truncatedBytes"] = strconv.FormatInt(d, 10)
 	}
-	output := out.Output()
+	// 编码归一化：PowerShell / Windows cmd 默认 GBK(cp936) 直出，UTF-8 解析会乱码；
+	// 探测 BOM 或启发式命中时把字节流转 UTF-8，让 LLM 看到正确文本。
+	output := decodeConsoleOutput(out.Output())
 	if err != nil {
 		if execCtx.Err() != nil {
 			return tool.ToolResult{Content: output, Meta: meta, Err: pkg.Wrap(4006, "exec timeout or cancelled", err)}
@@ -359,11 +375,9 @@ func (t *ExecTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolR
 	return tool.ToolResult{Content: output, Meta: meta}
 }
 
-// envWithPath 返回在现有环境基础上把 dirs 前置到 PATH 的环境切片。
-//
-// Windows 的环境变量名大小写不敏感，os.Environ() 可能返回 "Path=" 而非 "PATH="：
-// 按字面前缀匹配会漏掉，导致原 PATH 被丢弃、子进程只剩内置运行时目录。
-// 这里用 os.Getenv（Windows 上大小写不敏感）取值，再按不区分大小写的键名整条替换。
+// envWithPath 把 dirs 前置到 PATH 后返回环境切片。
+// Windows 环境变量名大小写不敏感，os.Environ() 可能返回 "Path=" 而非 "PATH="；
+// 按字面前缀匹配会漏掉并丢弃原 PATH，因此按不区分大小写的键名整条替换。
 func envWithPath(dirs []string) []string {
 	sep := string(os.PathListSeparator)
 	extra := strings.Join(dirs, sep)
@@ -383,10 +397,51 @@ func envWithPath(dirs []string) []string {
 	return append(env, "PATH="+pathVal)
 }
 
-// lookPathIn 只在内置运行时目录中解析命令，不触碰进程全局 PATH。
-//
-// exec.LookPath 收到含路径分隔符的入参时会直接检查该文件（Windows 下仍按 PATHEXT
-// 尝试扩展名），因此「内置目录优先」无需改写 PATH 即可实现。
+// utf8BOM / utf16LEBOM / utf16BEBOM 字节序标记：跨编码归一化的唯一可信线索。
+var (
+	utf8BOM    = []byte{0xEF, 0xBB, 0xBF}
+	utf16LEBOM = []byte{0xFF, 0xFE}
+	utf16BEBOM = []byte{0xFE, 0xFF}
+)
+
+// decodeConsoleOutput 探测子进程 stdout 实际编码并归一化：BOM 优先（唯一可信线索），
+// 无 BOM 时 UTF-8 校验通过即直通，失败则按 GBK 解（Windows cmd/powershell 默认编码）。
+func decodeConsoleOutput(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	b := []byte(raw)
+	if len(b) >= 3 && bytes.HasPrefix(b, utf8BOM) {
+		return strings.TrimPrefix(raw, string(utf8BOM))
+	}
+	if len(b) >= 2 {
+		if bytes.HasPrefix(b, utf16LEBOM) {
+			if u, err := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder().String(raw); err == nil {
+				return strings.TrimPrefix(u, string(utf16LEBOM))
+			}
+			return raw
+		}
+		if bytes.HasPrefix(b, utf16BEBOM) {
+			if u, err := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM).NewDecoder().String(raw); err == nil {
+				return u
+			}
+			return raw
+		}
+	}
+	// 无 BOM：先按 UTF-8 试解，能过 = 直通
+	if utf8.Valid(b) {
+		return raw
+	}
+	// UTF-8 失败：按 GBK 解（CJK 表意文字为主的容错）。
+	if u, err := simplifiedchinese.GBK.NewDecoder().String(raw); err == nil {
+		return u
+	}
+	return raw
+}
+
+// lookPathIn 只在内置运行时目录中解析命令，不触碰进程全局 PATH：
+// exec.LookPath 收到含分隔符的入参时直接检查该文件（Windows 按 PATHEXT 试扩展名），
+// 因此「内置目录优先」无需改写 PATH 即可实现。
 func lookPathIn(name string, dirs []string) (string, error) {
 	var lastErr error
 	for _, d := range dirs {

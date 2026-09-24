@@ -1,0 +1,211 @@
+/* ============================================================
+   WorkBaby 设计令牌 —— 全项目唯一色值/尺寸定义处
+   ------------------------------------------------------------
+   高级感的三条纪律（与"看上去廉价"的三个根因一一对应）：
+   1) 背景不抢戏：单处极淡主色晕 + 近乎无色的冷白底，不做三色光晕；
+   2) 分层靠「1px 中性描边 + 极轻阴影」，不靠大模糊与彩色投影；
+   3) 颜色只出现在"必须被看到的地方"：主操作、当前项、状态灯。
+      按钮用纯色，禁止渐变；描边用半透明中性色，禁止彩色描边。
+   ============================================================ */
+
+:root {
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-disp: 'Bahnschrift', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, ui-monospace, monospace;
+
+  /* 字号 6 级 */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+  --fs-2xl: 28px;
+
+  --lh-tight: 1.25;
+  --lh-base: 1.6;
+  --lh-loose: 1.75;
+  --ls-plate: 0.08em;
+
+  /* 间距（4 倍数） */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* 圆角：卡片 16 / 控件 10 / 胶囊（对齐参考稿的圆润度） */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-full: 999px;
+
+  /* 控件高度（比上一版放高一档：按钮更饱满） */
+  --ctl-sm: 26px;
+  --ctl-md: 34px;
+  --ctl-lg: 38px;
+  --ctl-xl: 44px;
+  --ctl-icon: 32px;
+
+  --w-nav: 236px;
+  --w-settings: 208px;
+  --w-panel: 336px;
+  --w-read: 780px;
+
+  --dur-fast: 110ms;
+  --dur: 160ms;
+  --dur-slow: 240ms;
+  --ease: cubic-bezier(0.2, 0.6, 0.3, 1);
+
+  --z-panel: 20;
+  --z-pop: 60;
+  --z-modal: 80;
+  --z-toast: 100;
+}
+
+/* ============================================================
+   浅色 · 晴空 —— 冷白底 + 单点淡蓝晕 + 纯白卡
+   ============================================================ */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #edf4fe;
+  --bg-gradient:
+    radial-gradient(1200px 600px at 8% -14%, rgba(47, 128, 237, 0.18), transparent 66%),
+    radial-gradient(920px 520px at 100% 2%, rgba(86, 170, 255, 0.13), transparent 62%),
+    linear-gradient(178deg, #e9f2fe 0%, #f3f8ff 52%, #fbfdff 100%);
+
+  --bg-panel: rgba(255, 255, 255, 0.78);
+  --bg-card: #ffffff;
+  --bg-raise: #eef5fe;
+  --bg-sunken: #e4eefb;
+
+  --line: #e2edfb;
+  --line-2: #cddff6;
+
+  --ink: #0f1e33;
+  --ink-2: #4a5b73;   /* 7.5:1 */
+  --ink-3: #6b7d95;   /* 4.6:1 */
+
+  /* 亮天蓝：单一色相，靠明度分四级（深=主操作 / 中=图表主系列 / 淡=次系列 / 极淡=轨道与底） */
+  --accent: #2f80ed;
+  --accent-hi: #1f6fdc;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(47, 128, 237, 0.10);
+  --accent-line: rgba(47, 128, 237, 0.30);
+  --accent-grad: linear-gradient(180deg, #4d93f5 0%, #2f80ed 100%);
+
+  /* 图表专用蓝阶：整屏只用这一个色相，杜绝"蓝绿橙紫"混搭 */
+  --ch-1: #2f80ed;
+  --ch-2: #6fa8f5;
+  --ch-3: #a8cbfa;
+  --ch-4: #d6e6fb;
+
+  /* 状态色只留给"通过/出错"，且降饱和，不与主色抢 */
+  --ok: #1f9d63;
+  --ok-soft: rgba(31, 157, 99, 0.10);
+  --bad: #d15a55;
+  --bad-soft: rgba(209, 90, 85, 0.10);
+  --warn: #c08a35;
+  --warn-soft: rgba(192, 138, 53, 0.12);
+
+  --user-bubble: #e7f0fe;
+  --sel: rgba(47, 128, 237, 0.16);
+
+  /* 阴影极轻：只用来"托一下"，不用来"发光" */
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-2: 0 2px 6px -1px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-3: 0 10px 30px -8px rgba(15, 23, 42, 0.16), 0 2px 8px -2px rgba(15, 23, 42, 0.07);
+
+  --glass-blur: 20px;
+  --glass-saturate: 1.1;
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --glass-plate: rgba(255, 255, 255, 0.74);
+  --glass-card: #ffffff;
+  --surface-sheen: none;
+
+  --grid-dot: rgba(15, 23, 42, 0.03);
+  --glow: rgba(37, 99, 235, 0.12);
+}
+
+/* ============================================================
+   暗色 · 夜紫 —— 近黑底 + 单点暗紫晕 + 深灰紫卡
+   ============================================================ */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0b0a0e;
+  --bg-gradient:
+    radial-gradient(900px 480px at 50% -8%, rgba(124, 92, 248, 0.09), transparent 72%),
+    linear-gradient(180deg, #0e0d13 0%, #0a090e 100%);
+
+  --bg-panel: rgba(13, 12, 17, 0.88);
+  --bg-card: #15131b;
+  --bg-raise: #1d1a25;
+  --bg-sunken: #09080c;
+
+  --line: rgba(255, 255, 255, 0.07);
+  --line-2: rgba(255, 255, 255, 0.13);
+
+  --ink: #ece9f3;
+  --ink-2: #a9a3bd;   /* 5.6:1 */
+  --ink-3: #8b85a3;   /* 4.5:1 */
+
+  --accent: #7c5cf8;
+  --accent-hi: #9075fa;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(124, 92, 248, 0.13);
+  --accent-line: rgba(124, 92, 248, 0.30);
+  --accent-grad: none;
+
+  --ok: #35b97c;
+  --ok-soft: rgba(53, 185, 124, 0.12);
+  --bad: #e8615a;
+  --bad-soft: rgba(232, 97, 90, 0.12);
+  --warn: #d9963c;
+  --warn-soft: rgba(217, 150, 60, 0.12);
+
+  --user-bubble: #1e1b28;
+  --sel: rgba(124, 92, 248, 0.24);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 2px 8px -2px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-3: 0 12px 34px -10px rgba(0, 0, 0, 0.72), 0 2px 8px -2px rgba(0, 0, 0, 0.5);
+
+  --glass-blur: 20px;
+  --glass-saturate: 1.1;
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  --glass-plate: rgba(23, 21, 30, 0.68);
+  --glass-card: #15131b;
+  --surface-sheen: none;
+
+  --grid-dot: rgba(255, 255, 255, 0.022);
+  --glow: rgba(124, 92, 248, 0.18);
+}
+
+/* ============================================================
+   语义别名（组件层只认这些名字）
+   ============================================================ */
+:root {
+  --c-bg: var(--bg);
+  --c-panel: var(--bg-panel);
+  --c-card: var(--bg-card);
+  --c-raise: var(--bg-raise);
+  --c-sunken: var(--bg-sunken);
+  --c-line: var(--line);
+  --c-line-2: var(--line-2);
+  --c-ink: var(--ink);
+  --c-ink-2: var(--ink-2);
+  --c-ink-3: var(--ink-3);
+  --c-accent: var(--accent);
+  --c-accent-ink: var(--accent-ink);
+  --c-ok: var(--ok);
+  --c-bad: var(--bad);
+  --c-warn: var(--warn);
+}

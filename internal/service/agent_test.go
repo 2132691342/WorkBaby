@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
 	"WorkBaby/internal/llm"
+	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/repo"
 	"WorkBaby/internal/tool"
 )
@@ -83,12 +85,13 @@ func (p *stubProvider) Stream(ctx context.Context, _ *llm.ChatRequest) (<-chan l
 	return out, nil
 }
 
-// stubTool 测试工具。
+// stubTool 测试工具；err 非空时 Execute 恒定失败（模拟"工具持续失败"场景）。
 type stubTool struct {
 	mu    sync.Mutex
 	name  string
 	risk  tool.RiskLevel
 	calls int
+	err   string
 }
 
 func (t *stubTool) Name() string        { return t.name }
@@ -104,6 +107,9 @@ func (t *stubTool) Execute(context.Context, json.RawMessage) tool.ToolResult {
 	t.mu.Lock()
 	t.calls++
 	t.mu.Unlock()
+	if t.err != "" {
+		return tool.ToolResult{Err: pkg.New(4006, t.err, "")}
+	}
 	return tool.ToolResult{Content: "ok:" + t.name}
 }
 
@@ -207,7 +213,101 @@ func TestCoreLoopAssembly(t *testing.T) {
 	})
 }
 
-// ===== 定义文件 =====
+// ===== 失败改道与错误摘要 =====
+
+// TestAdaptiveGuardInServiceChain 同工具连续失败达阈值时内核必须注入改道提示：
+// 模型要看见「已失败 N 次 + 候选替代路径」，否则会死磕同一调用直到耗尽预算。
+func TestAdaptiveGuardInServiceChain(t *testing.T) {
+	svc, msgRepo := newChatOpsService(t)
+	ctx := context.Background()
+	ses, _ := seedSession(t, svc, msgRepo, ctx)
+
+	failing := &stubTool{name: "file_read", risk: tool.RiskReadOnly, err: "read failed"}
+	require.NoError(t, svc.tools.Registry().Register(failing))
+
+	// 4 轮各传不同参数（绕开 RepeatGuard 的同参熔断），第 5 轮收尾
+	call := func(id, path string) llm.NormalizedToolCall {
+		return llm.NormalizedToolCall{ID: id, Name: "file_read", Arguments: json.RawMessage(`{"path":"` + path + `"}`)}
+	}
+	prov := &stubProvider{turns: []llm.ChatResponse{
+		{ToolCalls: []llm.NormalizedToolCall{call("t1", "a")}, StopReason: "tool_use"},
+		{ToolCalls: []llm.NormalizedToolCall{call("t2", "b")}, StopReason: "tool_use"},
+		{ToolCalls: []llm.NormalizedToolCall{call("t3", "c")}, StopReason: "tool_use"},
+		{ToolCalls: []llm.NormalizedToolCall{call("t4", "d")}, StopReason: "tool_use"},
+		{Message: llm.Message{Role: llm.RoleAssistant, Content: "改道"}, StopReason: "end_turn"},
+	}}
+
+	mapper := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
+	loop := svc.newCoreLoop(coreLoopSpec{
+		Ses: &domain.ChatSessionDO{ID: ses.ID}, RunID: "RUN_1", AssistantMsgID: "MSG_1",
+		Def: core.Agent(core.AgentDefault), Provider: prov, Model: "stub-model",
+		ToolNames: []string{"file_read"}, Sink: core.FuncSink(mapper.handle),
+	})
+
+	out, err := loop.Run(ctx, []*llm.Message{llm.UserMessage("read")})
+	require.NoError(t, err)
+	assert.Equal(t, core.ReasonEndTurn, out.Reason, "失败不是故障：模型改道后应正常收尾")
+
+	var hinted *llm.Message
+	var toolCount int
+	for _, m := range out.Messages {
+		if m.Role != llm.RoleTool {
+			continue
+		}
+		toolCount++
+		if strings.Contains(m.Content, "[guard]") {
+			hinted = m
+		}
+	}
+	require.GreaterOrEqual(t, toolCount, 3, "改道阈值 3：至少 3 次失败才触发")
+	require.NotNil(t, hinted, "达阈值后必须有 tool 消息含 [guard] 改道提示")
+	assert.Contains(t, hinted.Content, "file_read", "提示应含工具名")
+	assert.Contains(t, hinted.Content, "delegate_task", "只读类改道文案应列出 explore 子 Agent 选项")
+}
+
+// TestSummarizeToolErrorInLoop 长栈错误必须摘要后回填：原样回填会把上下文撑爆
+// （连续几次失败就能吃掉整轮预算），但关键错误与工具名必须保留。
+func TestSummarizeToolErrorInLoop(t *testing.T) {
+	svc, msgRepo := newChatOpsService(t)
+	ctx := context.Background()
+	ses, _ := seedSession(t, svc, msgRepo, ctx)
+
+	long := "Traceback (most recent call last):\n  File \"<string>\", line 1\n    import pptx\n" +
+		"ModuleNotFoundError: No module named 'pptx'\n" + strings.Repeat("at frame x\n", 30)
+	failing := &stubTool{name: "exec", risk: tool.RiskExec, err: long}
+	require.NoError(t, svc.tools.Registry().Register(failing))
+
+	prov := &stubProvider{turns: []llm.ChatResponse{
+		{ToolCalls: []llm.NormalizedToolCall{
+			{ID: "t1", Name: "exec", Arguments: json.RawMessage(`{"command":"python"}`)},
+		}, StopReason: "tool_use"},
+		{Message: llm.Message{Role: llm.RoleAssistant, Content: "done"}, StopReason: "end_turn"},
+	}}
+
+	mapper := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
+	loop := svc.newCoreLoop(coreLoopSpec{
+		Ses: &domain.ChatSessionDO{ID: ses.ID}, RunID: "RUN_1", AssistantMsgID: "MSG_1",
+		Def: core.Agent(core.AgentDefault), Provider: prov, Model: "stub-model",
+		ToolNames: []string{"exec"}, Sink: core.FuncSink(mapper.handle),
+	})
+
+	out, err := loop.Run(ctx, []*llm.Message{llm.UserMessage("run")})
+	require.NoError(t, err)
+	assert.Equal(t, core.ReasonEndTurn, out.Reason)
+
+	var found bool
+	for _, m := range out.Messages {
+		if m.Role != llm.RoleTool {
+			continue
+		}
+		found = true
+		assert.NotContains(t, m.Content, "at frame x", "长栈必须截断，原始 30 行不应进上下文")
+		assert.Contains(t, m.Content, "(truncated", "超长应出现截断标记")
+		assert.Contains(t, m.Content, "ModuleNotFoundError", "关键错误必须保留")
+		assert.Contains(t, m.Content, "工具执行失败", "首行固定为工具名提示")
+	}
+	assert.True(t, found, "必须至少落一条 tool 消息")
+}
 
 // ===== 自定义档案 =====
 

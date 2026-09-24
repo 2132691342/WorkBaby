@@ -1,6 +1,6 @@
 // Package http 提供通用 HTTP 请求工具。
 //
-// ADR: 内联快速解析；httpReq 不暴露为领域类型（CLAUDE.md §2.3.1 例外）。
+// ADR: 内联快速解析；httpReq 不暴露为领域类型（AGENTS.md 例外）。
 package http
 
 import (
@@ -32,7 +32,7 @@ func New() *HTTPTool {
 func (t *HTTPTool) Name() string              { return "http" }
 func (t *HTTPTool) RiskLevel() tool.RiskLevel { return tool.RiskNetwork }
 func (t *HTTPTool) Description() string {
-	return "发送通用 HTTP 请求（仅允许 GET / POST，详见 CLAUDE.md §2.12），返回状态码、响应头与响应体。"
+	return "发送通用 HTTP 请求（仅允许 GET / POST，详见 AGENTS.md），返回状态码、响应头与响应体。"
 }
 
 func (t *HTTPTool) Schema() tool.ToolSchema {
@@ -64,8 +64,8 @@ type httpReq struct {
 // Execute 发送 HTTP 请求并返回结果。
 func (t *HTTPTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req httpReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "http args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	method, ok := pkg.NormalizeMethod(req.Method)
 	if !ok {

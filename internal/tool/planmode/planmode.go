@@ -142,12 +142,18 @@ func (t *ExitTool) Execute(ctx context.Context, _ json.RawMessage) tool.ToolResu
 	if !t.store.Active(sid) {
 		return tool.ToolResult{Content: "当前不在计划模式中，无需退出。"}
 	}
-	// 退出即「计划交付」：必须用户批准（拒绝则保持计划模式，模型继续修订）
+	// 退出即「计划交付」：必须用户批准。
+	// 拒绝是用户行为而非模型能自行补齐的信息缺口：审批门只回传 bool，模型拿不到任何反馈，
+	// 继续跑只能在只读模式里猜测或反复重申同一个计划。故拒绝即终局，把控制权交回用户。
 	if t.approver != nil {
 		if !t.approver.Approve(ctx, "exit_plan_mode: 批准计划并开始执行？", tool.RiskApprovalNeeds) {
 			return tool.ToolResult{
-				Content: "用户未批准计划：保持计划模式（仍只读）。请根据用户反馈修订计划后再调用 exit_plan_mode。",
-				Meta:    map[string]string{"plan_mode": "on"},
+				Content: "用户未批准该计划，本次运行到此结束。计划模式仍然开启（工具仍为只读）；" +
+					"用户的下一条消息会说明要改什么，收到后再修订计划并重新提交。",
+				Meta: map[string]string{
+					"plan_mode":        "on",
+					tool.MetaTerminate: "1",
+				},
 			}
 		}
 	}

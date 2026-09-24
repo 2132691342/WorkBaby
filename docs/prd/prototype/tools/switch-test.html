@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <title>控件状态自检</title>
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/shell.css">
+  <link rel="stylesheet" href="../css/screens.css">
+  <link rel="stylesheet" href="../css/glass.css">
+  <style>
+    body { padding: 28px; background: var(--page-solid); }
+    .grid { display: grid; grid-template-columns: 150px 1fr; gap: 14px 20px; align-items: center; }
+    .lbl { font-family: var(--font-disp); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+    .box { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <div class="grid">
+    <div class="lbl">按钮 · 主</div>
+    <div class="box">
+      <button class="btn btn-primary"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12h14m-7-7v14"/></svg>新建任务</button>
+      <button class="btn btn-solid">次操作</button>
+      <button class="btn btn-outline">描边</button>
+      <button class="btn btn-danger">删除</button>
+      <button class="btn btn-primary" disabled>禁用</button>
+    </div>
+
+    <div class="lbl">按钮 · 尺寸</div>
+    <div class="box">
+      <button class="btn btn-primary btn-lg">大号</button>
+      <button class="btn btn-primary">默认</button>
+      <button class="btn btn-outline btn-sm">小号</button>
+      <button class="icon-btn" style="border-color:var(--line-2)"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 12h16M12 4v16"/></svg></button>
+      <button class="send-btn" style="width:36px;height:36px"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5 20 4l-7.5 15.5-2-6.5-6-1.5Z"/></svg></button>
+    </div>
+
+    <div class="lbl">开关</div>
+    <div class="box">
+      <span class="switch"></span>
+      <span class="switch is-on"></span>
+      <span style="font-size:12px;color:var(--ink-3)">off 中灰 + 白钮 ／ on 蓝底 + 对勾 + 白钮</span>
+    </div>
+
+    <div class="lbl">输入 / 下拉</div>
+    <div class="box">
+      <input class="input" style="width:180px" placeholder="占位文字">
+      <input class="input" style="width:180px" value="已填内容">
+      <select class="select" style="width:150px"><option>简体中文</option></select>
+      <div class="search" style="width:180px">
+        <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><path d="m16 16 4.5 4.5"/></svg>
+        <input class="input" placeholder="搜索">
+      </div>
+    </div>
+
+    <div class="lbl">标签</div>
+    <div class="box">
+      <span class="tag is-solid">内置</span>
+      <span class="tag is-accent">导入</span>
+      <span class="tag is-ok">正常</span>
+      <span class="tag is-bad">失败</span>
+      <span class="count">23</span>
+      <span class="mini-chip">go · git · pwsh</span>
+    </div>
+
+    <div class="lbl">状态灯</div>
+    <div class="box">
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)"><i class="led is-ok"></i>通过</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)"><i class="led is-accent is-live"></i>运行中</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)"><i class="led is-bad"></i>出错</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)"><i class="led"></i>空闲</span>
+    </div>
+
+    <div class="lbl">表格行</div>
+    <div class="box" style="display:block;width:640px">
+      <table class="tbl" style="background:var(--panel-solid);border:1px solid var(--line-2);border-radius:12px;overflow:hidden">
+        <thead><tr><th>名称</th><th>来源</th><th>启用</th><th></th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span style="display:inline-flex;align-items:center;gap:8px"><i class="led is-ok"></i><b style="font-weight:600">commit-craft</b></span></td>
+            <td><span class="tag is-accent">导入</span></td>
+            <td><span class="switch is-on"></span></td>
+            <td><div class="row-act"><button class="icon-btn">◎</button><button class="icon-btn">✎</button><button class="icon-btn is-danger">🗑</button></div></td>
+          </tr>
+          <tr>
+            <td><span style="display:inline-flex;align-items:center;gap:8px"><i class="led"></i><b style="font-weight:600">doc-sync</b></span></td>
+            <td><span class="tag is-solid">内置</span></td>
+            <td><span class="switch"></span></td>
+            <td><div class="row-act"><button class="icon-btn">◎</button></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="lbl">色板</div>
+    <div class="box">
+      <span style="width:64px;height:34px;border-radius:8px;background:var(--accent);border:1px solid var(--line-2)"></span>
+      <span style="width:64px;height:34px;border-radius:8px;background:var(--panel-solid);border:1px solid var(--line-2)"></span>
+      <span style="width:64px;height:34px;border-radius:8px;background:var(--page-solid);border:1px solid var(--line-2)"></span>
+      <span style="width:64px;height:34px;border-radius:8px;background:var(--ink);border:1px solid var(--line-2)"></span>
+      <span style="width:64px;height:34px;border-radius:8px;background:var(--ink-3);border:1px solid var(--line-2)"></span>
+      <span style="font-size:11.5px;color:var(--ink-3)">主蓝 / 卡白 / 页面底 / 主文字 / 次文字 —— 全站只用这五色</span>
+    </div>
+  </div>
+</body>
+</html>

@@ -67,10 +67,8 @@ func (r *Registry) List() []*LoadedSkill {
 }
 
 // Match 关键词确定性匹配：命中触发词最长者优先（更具体），等长按 skill 名字典序。
-//
-// 旧实现遍历 map 命中即返回——Go map 遍历顺序随机，多个 Skill 同时命中时
-// 每次结果可能不同。长触发词语义更具体（"合并 pdf" 优于 "pdf"），取最长命中
-// 让路由结果确定且更符合意图。
+// 遍历 map 命中即返回会随遍历顺序随机，长触发词语义更具体（"合并 pdf" 优于 "pdf"），
+// 故取最长命中让路由结果确定。
 func (r *Registry) Match(content string) string {
 	if content == "" {
 		return ""

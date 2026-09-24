@@ -45,11 +45,8 @@ func MapHTTPStatus(status int) *pkg.AppError {
 	}
 }
 
-// NewUpstreamError 把上游非 2xx 响应封装成 AppError。
-//
-// Message 是可直接展示给用户的单行文案（上游 message 清洗后截断）；
-// Details 放可操作的修复建议（无建议时为空），前端据此决定要不要补一行引导。
-// 原始 JSON 不进这两个字段——它只在日志与 run 事件里保留。
+// NewUpstreamError 把上游非 2xx 响应封装成 AppError：Message 是可展示的单行文案
+// （清洗后截断），Details 放修复建议。原始 JSON 只在日志与 run 事件里保留。
 func NewUpstreamError(prefix string, status int, raw []byte) *pkg.AppError {
 	u := ParseUpstreamError(status, raw)
 	code := 3100
@@ -63,11 +60,8 @@ func NewUpstreamError(prefix string, status int, raw []byte) *pkg.AppError {
 	return pkg.New(code, msg, u.Hint())
 }
 
-// UpstreamError 上游错误的可读摘要。
-//
-// 上游报文是给人看的诊断信息，不是给终端用户看的 UI 文案：直接整段抛到聊天界面
-// 会同时带出厂商内部字段与超长 JSON，把消息流撑乱。这里把它拆成
-// Message（上游说了什么）+ Hint（用户该做什么）两截，前端分段呈现。
+// UpstreamError 上游错误的可读摘要：拆成 Message（上游说了什么）+ Hint（用户该做什么）
+// 两截分段呈现。上游报文含厂商内部字段与超长 JSON，整段抛到界面会把消息流撑乱。
 type UpstreamError struct {
 	Status  int    `json:"status"`
 	Message string `json:"message"` // 上游 error.message 原文（解析失败时为清洗后的原文截断）

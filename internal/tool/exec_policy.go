@@ -21,11 +21,9 @@ type ExecPolicy struct {
 	denied []*regexp.Regexp // DeniedPatterns 的编译产物（Compile 填充；零值回退即时编译）
 }
 
-// DefaultExecPolicy 开箱可用默认：内置 Windows 常用工具链白名单（设置页 exec.whitelist 可整体覆盖），
-// 破坏性命令正则拦截；审批门槛 = exec 级。
-//
-// 白名单非空是「Agent 能干活」的前提——空白名单会让每条命令都弹审批，
-// 长任务在人工响应前就被墙钟预算砍断。安全由「白名单 basename + 破坏性正则 + 审批」三重叠加保证。
+// DefaultExecPolicy 开箱可用默认：Windows 常用工具链白名单 + 破坏性命令正则拦截。
+// 白名单非空是「Agent 能干活」的前提——空白名单会让每条命令都弹审批，长任务在人工
+// 响应前就被墙钟预算砍断。设置页可整体覆盖白名单。
 func DefaultExecPolicy() ExecPolicy {
 	return ExecPolicy{
 		AllowedBinaries: []string{
@@ -60,10 +58,8 @@ func DefaultExecPolicy() ExecPolicy {
 	}.Compile()
 }
 
-// Compile 预编译危险命令正则并返回带编译产物的副本。
-//
-// Classify 对每条命令都要匹配全部拒绝模式，逐次 regexp.MustCompile 属热路径浪费；
-// 装配方在构造或策略变更后调用一次即可。未编译时 Classify 回退即时编译，语义不变。
+// Compile 预编译危险命令正则并返回带编译产物的副本。Classify 对每条命令都要匹配全部
+// 拒绝模式，逐次 MustCompile 属热路径浪费；装配方在构造或策略变更后调用一次即可。
 func (p ExecPolicy) Compile() ExecPolicy {
 	if len(p.DeniedPatterns) == 0 {
 		p.denied = nil
@@ -102,11 +98,8 @@ func (p ExecPolicy) Allow(command string) error {
 	return pkg.New(4001, ErrBinaryDenied.Message, filepath.Base(fields[0]))
 }
 
-// Classify 对整条命令（command + args 拼接后）做安全分类：
-//   - ok=true                          → 白名单内且未命中危险正则，直接放行
-//   - ok=false, risk=RiskApprovalIrrev → 命中危险正则（不可逆），走审批（每次确认）
-//   - ok=false, risk=RiskApprovalNeeds → 白名单外（可恢复），走审批
-//   - ok=false, risk=""                → 直接拒绝（空命令），不进入审批
+// Classify 对整条命令做安全分类：白名单内且未命中危险正则 → 放行；命中危险正则 →
+// irreversible（不可逆，每次确认）；白名单外 → needs_approval；空命令 → 直接拒绝。
 func (p ExecPolicy) Classify(command string) (ok bool, risk string) {
 	fields := strings.Fields(strings.TrimSpace(command))
 	if len(fields) == 0 {

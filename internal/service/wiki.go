@@ -186,7 +186,7 @@ func (s *WikiService) Overview() (*domain.WikiOverviewRESP, error) {
 // entries 入口文件：README / 构建清单 / 主程序文件（存在即收录，各自带摘要）。
 func (s *WikiService) entries(root string) []domain.WikiFileSummaryRESP {
 	priority := []string{
-		"README.md", "readme.md", "CLAUDE.md", "AGENTS.md",
+		"README.md", "readme.md", "AGENTS.md",
 		"go.mod", "package.json", "Cargo.toml", "pom.xml", "pyproject.toml",
 	}
 	out := make([]domain.WikiFileSummaryRESP, 0, 8)

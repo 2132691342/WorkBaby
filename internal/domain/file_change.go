@@ -11,10 +11,8 @@ const (
 	ChangeDelete ChangeAction = "delete"
 )
 
-// FileChangeDO 一次文件写操作的变更记录（file_changes 表）。
-//
-// 写前落快照 → 落 diff → 前端 FileChangesPanel 可预览/对比/一键回滚。
-// v1 只覆盖 file_write（exec 的副作用不追踪：无法可靠归因）。
+// FileChangeDO 一次文件写操作的变更记录（file_changes 表）：写前落快照 → 落 diff →
+// 前端可预览 / 对比 / 一键回滚。只覆盖 file_write（exec 副作用无法可靠归因）。
 type FileChangeDO struct {
 	ID           string       `gorm:"primaryKey;size:64"           json:"id"`
 	SessionID    string       `gorm:"size:64;index:idx_fc_session" json:"session_id"`

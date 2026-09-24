@@ -1,3 +1,5 @@
+// 计划模式测试：写操作硬拦、退出必须经审批、无会话上下文时 fail-closed。
+
 package planmode
 
 import (

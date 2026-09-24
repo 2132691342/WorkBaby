@@ -88,8 +88,10 @@ func testApprovalScopes(t *testing.T) {
 	var mu sync.Mutex
 	remember := map[string]bool{}
 	bus.Subscribe(event.MatchExact("chat:approval"), func(_ string, payload any) {
+		// chat:approval 由强类型 domain.ChatApprovalEvent 发出，但 Emitter 归一为
+		// map（JSON 往返）后广播——订阅端统一按 map 消费，字段与结构体 json tag 一致。
 		m, _ := payload.(map[string]any)
-		if id, ok := m["id"].(string); ok {
+		if id, ok := m["id"].(string); ok && id != "" {
 			ids <- id
 		}
 		cmd, _ := m["command"].(string)
@@ -230,10 +232,9 @@ func testQueueSteerPersistsAndQueues(t *testing.T) {
 
 // ===== 工作区绑定 =====
 
-// TestCompactSessionArchive 复现「摘要+归档」压缩语义：
-//
-// <p>早期轮次整体标 archived 剔出 LLM 上下文（正文不删改）；归档边界不得切进
-// assistant(tool_calls) 与其 tool 结果之间；归档摘要写会话元数据供 buildSystem 注入。
+// TestCompactSessionArchive 复现「摘要+归档」压缩语义：早期轮次整体标 archived 剔出上下文
+// （正文不删改）；归档边界不得切进 assistant(tool_calls) 与其 tool 结果之间；
+// 归档摘要写会话元数据供 buildSystem 注入。
 func testCompactSessionArchive(t *testing.T) {
 	svc, msgRepo := newChatOpsService(t)
 	ctx := context.Background()
@@ -296,9 +297,8 @@ func testCompactSessionArchive(t *testing.T) {
 }
 
 // ===== 聚合入口 =====
-//
-// 场景实现为上面的私有函数（不被 go test 直接发现），由下列 6 个按能力域划分的
-// 父测试以 t.Run 聚合；改某个能力只需跑对应的一个父测试。
+// 场景实现为上面的私有函数（不被 go test 直接发现），由下列父测试以 t.Run 聚合；
+// 改某个能力只需跑对应的一个父测试。
 
 // TestChatSessionOps 会话操作：分叉 / 压缩归档。
 func TestChatSessionOps(t *testing.T) {

@@ -146,10 +146,9 @@ func (h *Handler) Startup(ctx context.Context) error {
 	// 事件 JSONL 无头导出：每 run 一文件，供回放/测试/自动化消费
 	h.eventLog.WithFileSink(filepath.Join(paths.Home, "runs"))
 	h.runtimeMgr = rt
-	// 同步等待内置运行时解压完成：MCP.Sync 在下方接着调用，子进程 PATH 注入依赖
-	// rt.BinDirs()；解压异步时 MCP server 启动时 node/python 路径尚未就绪，导致
-	// npx / uvx 类 server 只能依赖系统 PATH。Ensure 失败仅告警（解包失败不应阻断
-	// 启动，但要让用户在日志里看到）。
+	// 同步等待内置运行时解压：MCP.Sync 随后调用，其子进程 PATH 注入依赖 rt.BinDirs()；
+	// 异步解压时 npx / uvx 类 server 启动期拿不到 node/python，只能退回系统 PATH。
+	// Ensure 失败仅告警（不阻断启动，但日志可见）。
 	if err := rt.Ensure(); err != nil {
 		pkg.L.Warn("runtime ensure failed", "err", err)
 	}
@@ -435,10 +434,9 @@ func (h *Handler) Startup(ctx context.Context) error {
 		return err
 	}
 
-	// 目录信任：恒信任根 = 全局工作区 + 会话工作区根 + 数据目录本身；
-	// exec 的 cwd 不在根内时走 ask → 走审批门 → 批准后落盘 allow。
-	// workspaces 作为整棵会话工作区树纳入恒信任：默认工作区是 App 自己的受管区，
-	// 纳入询问只会让每次写文件都弹审批（噪声）。
+	// 目录信任：恒信任根 = 全局工作区 + 会话工作区根 + 数据目录本身。workspaces 整棵树
+	// 纳入恒信任——它是 App 自己的受管区，纳入询问只会让每次写文件都弹审批。
+	// exec 的 cwd 不在根内时走 ask → 审批门 → 批准后落盘 allow。
 	trustRoots := []string{
 		filepath.Join(paths.Home, "workspace"),
 		filepath.Join(paths.Home, "workspaces"),
@@ -505,9 +503,7 @@ func (h *Handler) Startup(ctx context.Context) error {
 	// 用户钩子：设置页管理 + run 生命周期（run_start/before_tool/after_tool/run_end）
 	h.hookSvc = service.NewUserHookService(h.app.UserHookRepo)
 
-	// ChatService：依赖一次性注入（ChatDeps）。
-	// 检查点 / 事件重放 / 消息块 / 运行历史 / 执行平面此前靠后置 setter 注入且从未接上，
-	// 功能静默失效；现值此统一接线，并以 MissingDeps 自检保证不再漏接。
+	// ChatService：依赖一次性注入（ChatDeps），并以 MissingDeps 自检兜住漏接。
 	h.chatSvc = service.NewChatService(service.ChatDeps{
 		Sessions: h.app.SessRepo, Messages: h.app.MsgRepo, Providers: h.app.ProvRepo,
 		Settings: h.app.SetRepo, Usages: h.app.UsageRepo,
@@ -607,11 +603,9 @@ func (h *Handler) Shutdown(_ context.Context) {
 	}
 }
 
-// bindEventBridge 应用内事件总线 → Wails 前端事件总线（仅系统级事件）。
-//
-// chat:* 不经此桥接：前端消费统一走 SSE（server/sse.go），Wails 通道零订阅者，
-// 而且每条 chat:stream 增量都会在 run goroutine 上同步执行一次 EventsEmit（序列化 + IPC），
-// 纯开销。保留 app:*（app:ready / app:open-file 是前端启动依赖）。
+// bindEventBridge 应用内事件总线 → Wails 前端事件总线（仅系统级事件 app:*）。chat:* 不经
+// 此桥接：前端统一走 SSE，Wails 通道零订阅者，而每条增量都会在 run goroutine 上多做一次
+// 序列化与 IPC（纯开销）。
 func (h *Handler) bindEventBridge() {
 	h.bus.Subscribe(event.MatchPrefix("app:"), func(event string, payload any) {
 		if h.ctx == nil {

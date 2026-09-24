@@ -9,10 +9,8 @@ import (
 var nonWordRe = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
 // MinGramLen trigram tokenizer 的最小可查长度；短于它的 token 匹配不到任何 3-gram。
-//
-// 这是 FTS5 trigram 分词器的硬约束（窗口固定 3 字符，不可配置）：换 unicode61
-// 会让整句中文退化成单 token，中文检索会全面失效，故 2 字查询只能由带打分的
-// 子串兜底承担——各检索入口都必须实现兜底，禁止静默返回空结果。
+// 这是 FTS5 trigram 的硬约束（窗口固定 3 字符）：换 unicode61 会让整句中文退化成单
+// token，中文检索全面失效，故 2 字查询只能由带打分的子串兜底承担。
 const MinGramLen = 3
 
 // MatchTokens 自由文本切词：按非字母数字分隔，丢弃不足 3 字的 token，去重保序。
@@ -42,10 +40,8 @@ func BuildMatchQuery(query string) string {
 	return strings.Join(parts, " OR ")
 }
 
-// SplitTokens 自由文本切词：按非字母/数字分隔，不过滤长度、不去重。
-//
-// 与 MatchTokens 的区别：保留 2 字中文短词（trigram MATCH 用不上它们，
-// 但带打分的子串兜底与召回场景正需要）；调用方按需去重。
+// SplitTokens 自由文本切词：按非字母/数字分隔，不过滤长度、不去重。与 MatchTokens 的区别：
+// 保留 2 字中文短词（trigram MATCH 用不上，但子串兜底与召回正需要）；调用方按需去重。
 func SplitTokens(query string) []string {
 	return nonWordRe.Split(strings.TrimSpace(query), -1)
 }
@@ -54,10 +50,8 @@ func SplitTokens(query string) []string {
 // 保证「部署手册」这类精确查询排在同 token 命中的噪声之前。
 const SubstringFullHitScore = 10
 
-// ScoreSubstring 子串兜底召回的相关性打分：整串命中 + token 命中计数。
-//
-// LIKE 用不上 bm25，故各检索入口（知识库 / 记忆）共用这一口径排序，
-// 避免同一查询在不同来源里排序规则不一致、甚至退化成按创建时间排序。
+// ScoreSubstring 子串兜底召回的相关性打分：整串命中 + token 命中计数。LIKE 用不上 bm25，
+// 故各检索入口（知识库 / 记忆）共用这一口径排序，避免同一查询在不同来源排序不一致。
 func ScoreSubstring(text, query string, tokens []string) float64 {
 	lower := strings.ToLower(text)
 	score := 0.0

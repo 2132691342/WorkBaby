@@ -1,7 +1,7 @@
 import { errorMessage } from '@/utils/error'
 
 /**
- * HTTP API 层（双主机，doc/15 §3）。
+ * HTTP API 层（双主机，docs/DEVELOPMENT.md）。
  *
  * <p>业务 API 走 gin HTTP（127.0.0.1 随机端口）；端口由 `app:ready` 注入并缓存到 localStorage。
  * 统一响应 `{code, message, data}`：code=0 返回 data，非 0 抛 Error(message)。

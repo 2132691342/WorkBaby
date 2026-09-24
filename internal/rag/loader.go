@@ -20,11 +20,8 @@ import (
 )
 
 const (
-	// maxFileBytes 单文件最大读取字节（防 OOM）。
-	//
-	// 与 service.KnowledgeService.MaxManagedDocBytes 对齐：导入允许 ≤ 60MB，
-	// loader 必须能读完整文件否则索引必然失败。URL 抓取有更严的 urlMaxBytes（5MB），
-	// 与单文件上限独立。
+	// maxFileBytes 单文件最大读取字节（防 OOM），与 service 侧导入上限对齐：
+	// loader 读不完的文件索引必然失败。URL 抓取有独立的更严上限（5MB）。
 	maxFileBytes = 60 << 20
 	// urlTimeout / urlMaxBytes 远程抓取限制。
 	urlTimeout  = 30 * time.Second

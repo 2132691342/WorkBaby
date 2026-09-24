@@ -15,10 +15,8 @@ import (
 	"WorkBaby/internal/domain"
 )
 
-// TestHookMatcher 匹配式三种写法与写入期校验。
-//
-// 空/* 匹配全部；只含字母数字下划线与竖线按精确名称名单；含其他字符按正则。
-// 非法正则在写入期即拒绝——落库后到运行期才发现会让钩子静默失效。
+// TestHookMatcher 匹配式三种写法与写入期校验：空/* 匹配全部；只含字母数字下划线与竖线按
+// 精确名称名单；含其他字符按正则。非法正则在写入期即拒绝——落库后再发现会让钩子静默失效。
 func TestHookMatcher(t *testing.T) {
 	t.Run("匹配语义", func(t *testing.T) {
 		cases := []struct {

@@ -29,7 +29,7 @@ export function invalidatePetConfigLite(): void {
 }
 
 /**
- * 桌宠 store：配置读写 + 形象资产管理（上传 / 编辑 / 删除），端点见 doc/16。
+ * 桌宠 store：配置读写 + 形象资产管理（上传 / 编辑 / 删除），端点见 docs/API-CONTRACT.md。
  */
 export const usePetStore = defineStore('pet', () => {
   const config = ref<PetConfig | null>(null)

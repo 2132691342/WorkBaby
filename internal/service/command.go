@@ -10,11 +10,8 @@ import (
 	"WorkBaby/internal/pkg"
 )
 
-// BuiltinCommands 内置斜杠命令表（命令面板）。
-//
-// 单一真相源：前端启动拉一次 GET /api/v1/chat/commands 渲染面板。
-// ClientOnly 命令的执行逻辑在前端（切模型/开面板/导出），后端不重复实现；
-// 非 ClientOnly 命令的面板项直接跳到现有端点（/chat/sessions/:id/compact 等）。
+// BuiltinCommands 内置斜杠命令表（命令面板）——单一真相源，前端拉一次 GET /chat/commands 渲染。
+// ClientOnly 命令的逻辑在前端（切模型/开面板/导出），其余命令的面板项直接跳到现有端点。
 func BuiltinCommands() []domain.SlashCommand {
 	cmds := []domain.SlashCommand{
 		// 会话闭环：新建 / 重命名 / 清空 / 分叉 / 截断

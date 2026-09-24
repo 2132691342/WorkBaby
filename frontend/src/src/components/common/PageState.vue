@@ -5,6 +5,9 @@
  *
  * <p>骨架与空态复用自研组件（Skeleton / EmptyState）：Element Plus 的 el-empty / el-skeleton
  * 会把整套 EP 依赖拖进懒加载 chunk（实测多出 ~1.1MB），且样式与设计令牌不同源。
+ *
+ * <p>空态文案走 emptyText / emptyHint 两个入参——本组件不暴露 empty 插槽，
+ * 传 `<template #empty>` 会被静默丢弃（没有对应的 slot 出口）。
  */
 import { CircleX } from '@/components/common/icons'
 import Skeleton from '@/components/common/Skeleton.vue'
@@ -19,8 +22,12 @@ defineProps<{
   error?: string | null
   /** 空态文案（缺省走 i18n）。 */
   emptyText?: string
+  /** 空态补充说明；compact 下缺省不显示副标题（避免「换个关键词试试」出现在非检索场景）。 */
+  emptyHint?: string
   /** 错误态文案（缺省走 i18n）。 */
   errorText?: string
+  /** 紧凑空态：卡片内嵌场景（如设置页表格）用，只留一句文案，不占插画与大片留白。 */
+  compact?: boolean
 }>()
 
 defineEmits<{ retry: [] }>()
@@ -36,7 +43,10 @@ defineEmits<{ retry: [] }>()
   <EmptyState
     v-else-if="empty && !error"
     variant="empty-search"
+    :size="compact ? 'sm' : 'md'"
+    :illustration="!compact"
     :title="emptyText ?? t('ui.state.empty')"
+    :subtitle="compact ? emptyHint ?? '' : emptyHint"
   />
 
   <!-- 错误态 -->

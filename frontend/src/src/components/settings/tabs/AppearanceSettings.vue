@@ -51,7 +51,10 @@ async function onThemeChange(val: string): Promise<void> {
 </script>
 
 <template>
-  <section class="card p-4">
+  <!-- 自带滚动与页边距：设置区统一 .set-body/.set-page（见 ProviderSettings 同款） -->
+  <div class="set-body wb-ui">
+    <div class="set-page">
+      <section class="card p-4">
     <h2 class="mb-3 font-display text-sm font-semibold text-wb-ink">
       {{ t('settings.tab.appearance') }}
     </h2>
@@ -125,5 +128,7 @@ async function onThemeChange(val: string): Promise<void> {
         </p>
       </div>
     </div>
-  </section>
+      </section>
+    </div>
+  </div>
 </template>

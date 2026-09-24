@@ -326,32 +326,31 @@ async function forkFrom(): Promise<void> {
           :href="a.url"
           target="_blank"
           rel="noopener"
-          class="block overflow-hidden rounded-lg border border-white/25 transition-opacity hover:opacity-90"
+          class="attach"
           :title="a.name"
         >
-          <img v-if="a.kind === 'image'" :src="a.url" :alt="a.name" class="max-h-40 max-w-[220px] object-cover" />
-          <span v-else class="flex items-center gap-1 px-2 py-1 text-xs2 text-white/90">
-            <Paperclip class="h-3 w-3" />{{ a.name }}
-          </span>
+          <img v-if="a.kind === 'image'" :src="a.url" :alt="a.name" class="max-h-28 max-w-[200px] rounded object-cover" />
+          <template v-else>
+            <Paperclip class="ic-xs" />
+            {{ a.name }}
+          </template>
         </a>
       </div>
     </div>
 
     <!-- 编辑模式 -->
     <div v-else class="flex w-full flex-col gap-2">
-      <el-input
+      <textarea
         v-model="editingContent"
-        type="textarea"
-        :rows="3"
-        resize="none"
+        rows="3"
+        class="textarea"
+        style="resize: none"
         @keydown.enter.ctrl="saveEdit"
         @keydown.esc="cancelEdit"
       />
       <div class="flex items-center gap-2">
-        <el-button type="primary" size="small" @click="saveEdit">
-          {{ t('chat.save') }}
-        </el-button>
-        <el-button size="small" @click="cancelEdit">{{ t('chat.cancel') }}</el-button>
+        <button type="button" class="btn btn-primary btn-sm" @click="saveEdit">{{ t('chat.save') }}</button>
+        <button type="button" class="btn btn-sm" @click="cancelEdit">{{ t('chat.cancel') }}</button>
         <span class="text-2xs text-wb-muted">{{ t('chat.editHint') }}</span>
       </div>
     </div>

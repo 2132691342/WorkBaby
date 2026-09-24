@@ -16,10 +16,8 @@ type runIdentity struct {
 
 type runCtxKey struct{}
 
-// ResolveRoot 把「按会话解析」包装成「按 ctx 解析」，并带默认根回落。
-//
-// 解析失败（会话未绑定目录 / ctx 无身份）一律回落 defRoot：工具宁可在默认
-// 工作区里返回「文件不存在」，也不能因拿不到根而让整个 run 中断。
+// ResolveRoot 把「按会话解析」包装成「按 ctx 解析」，并带默认根回落：解析失败一律回落
+// defRoot——工具宁可在默认工作区返回「文件不存在」，也不能因拿不到根让整个 run 中断。
 func ResolveRoot(r RootResolver, defRoot string) func(context.Context) string {
 	return func(ctx context.Context) string {
 		if r != nil {
@@ -43,10 +41,8 @@ func ResolveForSession(r RootResolver, defRoot, sessionID string) string {
 	return defRoot
 }
 
-// WithRunIdentity 把 runID / sessionID 注入 ctx（harness 在 run 开始时注入）。
-//
-// 工具借此解析本会话的工作区根、在审批事件里带上身份，无需把身份参数
-// 一路穿透 Tool 接口签名。
+// WithRunIdentity 把 runID / sessionID 注入 ctx（harness 在 run 开始时注入），
+// 工具借此解析工作区根并在审批事件里带身份，无需把身份穿透 Tool 接口签名。
 func WithRunIdentity(ctx context.Context, runID, sessionID string) context.Context {
 	return context.WithValue(ctx, runCtxKey{}, runIdentity{runID: runID, sessionID: sessionID})
 }

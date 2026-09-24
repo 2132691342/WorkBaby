@@ -71,11 +71,8 @@ func (r *TokenUsageRepo) Summarize(ctx context.Context, startMs, endMs int64) (d
 	return out, nil
 }
 
-// Aggregate 按桶聚合：
-//   - granularity=hour：桶起点按「小时」取整（created_at / 3600000）
-//   - granularity=day：桶起点按「自然日零点」取整（SQLite 无时区，用偏移修正到东八以外的本地日界）
-//
-// 返回稀疏桶（无数据的桶不出现），由 service 补齐空桶。
+// Aggregate 按桶聚合：hour 按小时取整，day 按自然日零点取整（SQLite 无时区，用偏移修正到
+// 本地日界）。返回稀疏桶（无数据的桶不出现），由 service 补齐空桶。
 func (r *TokenUsageRepo) Aggregate(ctx context.Context, startMs, endMs int64, gran domain.TokenTrendBucket, zoneOffsetMs int64) ([]domain.TokenBucketDTO, error) {
 	stepMs := int64(time.Hour.Milliseconds())
 	if gran == domain.TrendBucketDay {
@@ -96,10 +93,8 @@ func (r *TokenUsageRepo) Aggregate(ctx context.Context, startMs, endMs int64, gr
 }
 
 // CleanupMisreported 一次性清理上游误报的缓存 token：cache_read_tokens > input_tokens
-// （GLM 等 OpenAI 兼容实现偶发把 cached_tokens 报成等于 prompt_tokens，导致仪表盘
-// 命中率 100% 与 token 总数虚高）。LLM adapter 已在解析时 clamp 新数据；此函数专治存量。
-//
-// <p>不可逆：执行后 dashboard 缓存命中数会立即下降，幂等（重复执行无副作用）。
+// （兼容实现偶发把 cached_tokens 报成等于 prompt_tokens，导致命中率 100% 与总数虚高）。
+// adapter 已在解析时 clamp 新数据，此函数专治存量；执行后缓存命中数立即下降，幂等。
 func (r *TokenUsageRepo) CleanupMisreported(ctx context.Context) (int64, error) {
 	res := r.db.WithContext(ctx).Model(&domain.TokenUsageDO{}).
 		Where("cache_read_tokens > input_tokens AND input_tokens > 0").

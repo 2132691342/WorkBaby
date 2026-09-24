@@ -9,9 +9,7 @@ import (
 )
 
 // Section 上下文片段。Order 决定拼接顺序（小者在前），Priority 决定裁剪顺序（大者先丢）。
-//
-// 这是「能力三通道 + 五档优先级 + RelevanceGate」的替代品：那段机制的全部产出
-// 只是一段 system 文本，因此收敛为一个纯函数。
+// 各能力只声明自己的片段，拼接与裁剪收敛为一个纯函数。
 type Section struct {
 	Key      string // 语义标识（裁剪回传用）；空则用 Title
 	Title    string
@@ -56,10 +54,8 @@ func (s Section) label() string {
 	return s.Title
 }
 
-// BuildSystem 装配 system 正文：按 Order 升序拼接；超预算时按 Priority 降序丢段，
-// 常驻段（Priority <= PriorityEssential）永不丢。
-//
-// 返回正文与被丢弃段的标识——被丢段必须回传前端，否则「上下文里少了什么」不可解释。
+// BuildSystem 装配 system 正文：按 Order 升序拼接，超预算时按 Priority 降序丢段
+// （常驻段永不丢）。返回被丢弃段的标识——不回传则「少了什么」不可解释。
 func BuildSystem(sections []Section, maxRunes int) (string, []string) {
 	kept := make([]Section, len(sections))
 	copy(kept, sections)
@@ -120,10 +116,8 @@ func totalRunes(sections []Section) int {
 	return n
 }
 
-// RebuildHistory 清洗历史消息后再交给模型：
-// 剔除空 assistant 占位、剔除孤儿 tool 结果（无前置 assistant 配对）、空结果补占位。
-//
-// 上游对「有 tool_calls 却无对应 tool 结果」会直接报 400，因此清洗必须在发请求前完成。
+// RebuildHistory 清洗历史：剔除空 assistant 占位与孤儿 tool 结果，空结果补占位。
+// 上游对「有 tool_calls 却无对应结果」直接报 400，清洗必须在发请求前完成。
 func RebuildHistory(msgs []*llm.Message) []*llm.Message {
 	kept := make([]bool, len(msgs))
 	for i, m := range msgs {

@@ -41,8 +41,8 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResul
 	var req struct {
 		Question string `json:"question"`
 	}
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "request_input args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	req.Question = strings.TrimSpace(req.Question)
 	if req.Question == "" {

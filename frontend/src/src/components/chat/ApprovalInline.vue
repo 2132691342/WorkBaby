@@ -46,10 +46,6 @@ const riskLabel = computed(() => {
   return t('chat.approvalRiskNeeds')
 })
 
-const riskType = computed<'error' | 'warning'>(() =>
-  isIrreversible.value ? 'error' : 'warning'
-)
-
 const reasonText = computed(() => pendingApproval.value?.reason ?? '')
 
 /**
@@ -213,48 +209,35 @@ async function sendAnswer(): Promise<void> {
 </script>
 
 <template>
-  <el-alert
-    v-if="pendingApproval"
-    :type="isInput ? 'info' : riskType"
-    :closable="false"
-    show-icon
-    class="approval-card"
-  >
-    <template #title>
-      <div class="flex items-center gap-2">
-        <span class="text-sm font-semibold">{{ isInput ? t('chat.inputTitle') : toolTitle }}</span>
-        <el-tag
-          size="small"
-          :type="isInput ? 'primary' : isIrreversible ? 'danger' : 'warning'"
-          effect="dark"
-          round
-        >
-          <el-icon class="mr-0.5 align-[-2px]">
-            <AlertTriangle />
-          </el-icon>
-          {{ isInput ? t('chat.inputTag') : riskLabel }}
-        </el-tag>
-        <!-- 等待计时：run 正阻塞在这里，没有进度感用户会以为卡死 -->
-        <span v-if="!settled" class="text-xs2 text-wb-muted">{{ t('chat.waitingConfirm', waitSec) }}</span>
-      </div>
-    </template>
+  <div v-if="pendingApproval" class="approve" :class="{ 'is-danger': isIrreversible }">
+    <div class="approve-head">
+      <AlertTriangle class="ic" />
+      <span class="ap-title">{{ isInput ? t('chat.inputTitle') : toolTitle }}</span>
+      <span class="tag" :class="isInput ? 'is-accent' : isIrreversible ? 'is-bad' : 'is-warn'">
+        {{ isInput ? t('chat.inputTag') : riskLabel }}
+      </span>
+      <!-- 等待计时：run 正阻塞在这里，没有进度感用户会以为卡死 -->
+      <span class="sp" />
+      <span v-if="!settled" class="t-mono muted">{{ t('chat.waitingConfirm', waitSec) }}</span>
+    </div>
 
+    <div class="approve-body">
     <!-- 补充输入模式：问题 + 回复框 -->
     <template v-if="isInput">
       <p class="mb-2 whitespace-pre-wrap text-xs text-wb-ink">{{ pendingApproval.command }}</p>
-      <el-input
+      <textarea
         v-model="inputDraft"
-        type="textarea"
-        :rows="2"
+        rows="2"
+        class="textarea"
         :placeholder="t('chat.inputPlaceholder')"
         @keydown.enter.ctrl="sendAnswer"
       />
       <div class="mt-3 flex gap-2">
-        <el-button type="primary" size="small" :disabled="!inputDraft.trim()" @click="sendAnswer">
-          <el-icon class="mr-1"><Send /></el-icon>
+        <button type="button" class="btn btn-primary btn-sm" :disabled="!inputDraft.trim()" @click="sendAnswer">
+          <Send class="ic-xs" />
           {{ t('chat.inputSend') }}
-        </el-button>
-        <el-button size="small" @click="skip">{{ t('chat.inputSkip') }}</el-button>
+        </button>
+        <button type="button" class="btn btn-sm" @click="skip">{{ t('chat.inputSkip') }}</button>
       </div>
       <p class="mt-1 text-xs2 text-wb-muted">{{ t('chat.inputHint') }}</p>
     </template>
@@ -262,11 +245,9 @@ async function sendAnswer(): Promise<void> {
     <!-- file_write / file_edit：路径 + 内容预览（编辑态展示替换前→替换后） -->
     <template v-else-if="fileWriteArgs">
       <div class="mb-2 flex items-center gap-1.5 text-xs text-wb-muted">
-        <el-icon class="text-wb-primary"><FileIcon /></el-icon>
+        <FileIcon class="ic-xs text-wb-primary" />
         <span class="font-mono break-all">{{ fileWriteArgs.path || '?' }}</span>
-        <el-tag v-if="fileWriteArgs.append" size="small" type="info">
-          {{ t('chat.approvalAppend') }}
-        </el-tag>
+        <span v-if="fileWriteArgs.append" class="tag">{{ t('chat.approvalAppend') }}</span>
       </div>
       <!-- file_edit：本地合成补丁——执行前就能看清「改哪一行、改成什么」，
            而不是让用户对两段文本自行比对 -->
@@ -294,19 +275,11 @@ async function sendAnswer(): Promise<void> {
     <!-- exec：命令 + 参数 + 白名单说明 -->
     <template v-else-if="execArgs">
       <div class="mb-2 flex items-center gap-1.5 text-xs text-wb-muted">
-        <el-icon class="text-wb-primary"><Send /></el-icon>
+        <Send class="ic-xs text-wb-primary" />
         <span class="font-mono">{{ execArgs.command || '?' }}</span>
       </div>
       <div v-if="execArgs.args.length" class="mb-2 flex flex-wrap gap-1">
-        <el-tag
-          v-for="(arg, i) in execArgs.args"
-          :key="i"
-          size="small"
-          effect="plain"
-          class="font-mono"
-        >
-          {{ arg }}
-        </el-tag>
+        <span v-for="(arg, i) in execArgs.args" :key="i" class="mini-chip">{{ arg }}</span>
       </div>
       <div v-if="execArgs.cwd" class="mb-2 flex items-center gap-1.5 text-xs2 text-wb-muted">
         <span class="text-wb-muted">cwd</span>
@@ -326,48 +299,57 @@ async function sendAnswer(): Promise<void> {
       class="overflow-x-auto rounded-md bg-wb-surface-2 px-3 py-2 font-mono text-xs text-wb-ink"
     >{{ pendingApproval.command }}</pre>
 
-    <template v-if="!isInput">
-      <p class="mt-2 flex items-center gap-1 text-xs text-wb-muted">
-        <el-icon><Lock /></el-icon>
-        {{ reasonText }}
-      </p>
+    </div>
 
-      <p class="mt-1 text-xs2 text-wb-muted">
-        <span v-if="isIrreversible">{{ t('chat.approvalIrreversibleHint') }}</span>
-        <span v-else>{{ t('chat.approvalSessionHint') }}</span>
-      </p>
+    <div v-if="!isInput" class="approve-foot">
+        <span class="ap-note">
+          <Lock class="ic-xs align-[-2px]" />
+          {{ reasonText }}
+          ·
+          <span v-if="isIrreversible">{{ t('chat.approvalIrreversibleHint') }}</span>
+          <span v-else>{{ t('chat.approvalSessionHint') }}</span>
+        </span>
 
-      <!-- 已响应态：绿勾 + 禁用（决策后卡片不再可点，杜绝重复提交） -->
-      <div v-if="settled" class="mt-3 flex items-center gap-2 rounded-md border border-wb-mint/40 bg-wb-mint/10 px-3 py-2 text-xs text-wb-ink">
-        <el-icon class="text-wb-mint"><Check /></el-icon>
-        {{ settled === 'approved' ? t('chat.approvalApproved') : t('chat.approvalDenied') }}
-      </div>
-      <div v-else class="mt-3 flex flex-wrap gap-2">
-        <el-button
-          :type="isIrreversible ? 'danger' : 'primary'"
-          size="small"
-          :loading="deciding"
-          @click="approve"
-        >
-          {{ isIrreversible ? t('chat.approvalApproveIrreversible') : t('chat.approvalAllowOnce') }}
-        </el-button>
-        <!-- 本会话允许：只有后端声明可记住时出现（不可逆操作恒不出现，避免「选了却无效」） -->
-        <el-button
-          v-if="canRemember"
-          size="small"
-          :disabled="deciding"
-          @click="approveForSession"
-        >
-          {{ t('chat.approvalAllowSession') }}
-        </el-button>
-        <el-button size="small" :disabled="deciding" @click="deny">{{ t('chat.approvalDeny') }}</el-button>
-      </div>
-    </template>
-  </el-alert>
+        <!-- 已响应态：决策后卡片不再可点，杜绝重复提交 -->
+        <div v-if="settled" class="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-wb-ink" style="background: var(--wb-success-soft)">
+          <Check class="ic-xs text-wb-mint" />
+          {{ settled === 'approved' ? t('chat.approvalApproved') : t('chat.approvalDenied') }}
+        </div>
+        <template v-else>
+          <button
+            type="button"
+            class="btn btn-sm"
+            :class="isIrreversible ? 'btn-danger' : 'btn-primary'"
+            :disabled="deciding"
+            @click="approve"
+          >
+            {{ isIrreversible ? t('chat.approvalApproveIrreversible') : t('chat.approvalAllowOnce') }}
+          </button>
+          <!-- 本会话允许：只有后端声明可记住时出现（不可逆操作恒不出现，避免「选了却无效」） -->
+          <button
+            v-if="canRemember"
+            type="button"
+            class="btn btn-sm"
+            :disabled="deciding"
+            @click="approveForSession"
+          >
+            {{ t('chat.approvalAllowSession') }}
+          </button>
+          <button type="button" class="btn btn-sm" :disabled="deciding" @click="deny">
+            {{ t('chat.approvalDeny') }}
+          </button>
+        </template>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.approval-card :deep(.el-alert__content) {
-  padding: 4px 0;
+/* 决策按钮与说明同排：说明占满剩余宽度，按钮贴右 */
+.approve-foot .ap-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
 }
 </style>

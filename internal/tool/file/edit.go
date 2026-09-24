@@ -12,10 +12,8 @@ import (
 )
 
 // ===== file_edit =====
-//
-// 精确字符串替换编辑：模型改文件的正确姿势是「局部替换」而不是整篇重写——
-// 写错率与 token 消耗都低一个量级。替换前后生成 unified diff 回执，
-// 模型据此确认改动是否符合预期，用户在变更面板看到同一份 diff。
+// 精确字符串替换编辑：模型改文件的正确姿势是局部替换而非整篇重写（写错率与 token 消耗
+// 都低一个量级）。替换前后生成 unified diff 回执，模型与变更面板看到同一份 diff。
 
 // EditTool 精确替换编辑工具（file_edit）。
 type EditTool struct {
@@ -83,8 +81,8 @@ func (t *EditTool) ActivityDescription(args json.RawMessage) string {
 
 func (t *EditTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req editReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "file_edit args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	if req.OldString == "" {
 		return tool.ToolResult{Err: pkg.New(4001, "old_string 不能为空（空内容替换用 file_write）", req.Path)}

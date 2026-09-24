@@ -18,11 +18,9 @@ import (
 // detailMaxBytes 详情接口返回的 before/after 正文上限；超出截断（面板只做人工审阅）。
 const detailMaxBytes = 256 << 10
 
-// FileChangeService 文件变更登记与回滚。
-//
-// 写前落快照 → 算 unified diff → 落库 → 推 chat:file-change 事件；
-// 前端变更面板据此渲染清单，并可一键回滚到变更前内容。
-// v1 只覆盖 file_write：exec 的副作用无法可靠归因，不纳入追踪。
+// FileChangeService 文件变更登记与回滚：写前落快照 → 算 unified diff → 落库 →
+// 推 chat:file-change 事件。前端面板据此渲染清单并可一键回滚；只覆盖 file_write
+// （exec 的副作用无法可靠归因）。
 type FileChangeService struct {
 	repo      *repo.FileChangeRepo
 	bus       *event.Bus
@@ -99,14 +97,14 @@ func (s *FileChangeService) Record(ctx context.Context, in ChangeInput) (*domain
 	// 视为污染用户原有目录，emit chat:warn 让前端红色横幅提示用户立刻清理。
 	// 不阻塞变更落库（已发生的副作用必须留痕供回滚），但用户必须看见。
 	if s.root != "" && isOutOfSandbox(s.root, in.Path) {
-		s.emit(ctx, "chat:warn", map[string]any{
-			"kind":      "file_out_of_sandbox",
-			"rel_path":  rel,
-			"path":      in.Path,
-			"workspace": s.root,
-			"sandbox":   runtime.SandboxOf(s.root).Root,
-			"message":   "文件写到了工作区 .workbaby/ 之外（污染原有目录）；右键文件变更卡片可一键回滚",
-		})
+		s.emit(ctx, "chat:warn", domain.ChatWarnEvent{
+				Kind:      "file_out_of_sandbox",
+				RelPath:   rel,
+				Path:      in.Path,
+				Workspace: s.root,
+				Sandbox:   runtime.SandboxOf(s.root).Root,
+				Message:   "文件写到了工作区 .workbaby/ 之外（污染原有目录）；右键文件变更卡片可一键回滚",
+			})
 	}
 	s.emit(ctx, "chat:file-change", map[string]any{"change": toFileChangeRESP(row)})
 	return row, nil
@@ -182,10 +180,8 @@ func (s *FileChangeService) Rollback(ctx context.Context, id string) error {
 	return nil
 }
 
-// fileChangeRecorder 把 file_write 的写操作接到变更追踪与工件登记。
-//
-// session/run 身份从 ctx 解析（harness 注入）：无会话上下文（如工具单测/手动调用）
-// 时不记录，避免产生无归属的孤儿变更。两者都是旁路能力，失败只告警。
+// fileChangeRecorder 把 file_write 的写操作接到变更追踪与工件登记。session/run 身份从 ctx 解析：
+// 无会话上下文（工具单测等）时不记录，避免无归属的孤儿变更；两者都是旁路能力，失败只告警。
 type fileChangeRecorder struct {
 	svc      *FileChangeService
 	artifact *ArtifactService
@@ -251,7 +247,8 @@ func (s *FileChangeService) writeSnapshot(sessionID, id string, before []byte) (
 }
 
 // emit 发布变更事件（归属经 ctx 提取，统一走 Emitter）。
-func (s *FileChangeService) emit(ctx context.Context, name string, payload map[string]any) {
+// 载荷支持 map[string]any（极简增量）或领域事件结构体（如 domain.ChatWarnEvent）；字段 snake_case。
+func (s *FileChangeService) emit(ctx context.Context, name string, payload any) {
 	s.emitter.EmitCtx(ctx, name, payload)
 }
 

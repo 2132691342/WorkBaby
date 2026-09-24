@@ -26,7 +26,7 @@ type ImageURL struct {
 	URL string `json:"url"`
 }
 
-// Message 跨边界统一消息。json tag 一律 snake_case（CLAUDE.md §2.5.1）：
+// Message 跨边界统一消息。json tag 一律 snake_case（AGENTS.md）：
 // 该结构会随检查点序列化落库，tag 即持久化 ABI，改名等同数据迁移。
 type Message struct {
 	Role       RoleType      `json:"role"`

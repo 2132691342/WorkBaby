@@ -52,8 +52,8 @@ type docReq struct {
 // Execute 解析文档并返回纯文本。
 func (t *Reader) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req docReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "doc_reader args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	abs, err := t.safePath(t.resolve(ctx), req.Path)
 	if err != nil {

@@ -1421,7 +1421,7 @@ defineExpose({
   margin: 4px 13px 8px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--wb-mint) 12%, transparent);
+  background: var(--wb-success-soft);
   color: var(--wb-mint-strong, var(--wb-mint));
   font-size: 11.5px;
   font-weight: 500;
@@ -1457,16 +1457,17 @@ defineExpose({
   color: var(--wb-danger);
 }
 
-/* 发送键：禁用弱化；插入键主色底（流式中与停止键并排）；停止键 danger 底 + 呼吸动画 */
+/* 发送键（全局 .send 为镂空圆形）：插入键主色描边，停止键 danger 描边 + 呼吸提示 */
 .send:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 .send--steer {
-  background: var(--wb-primary);
+  color: var(--wb-primary);
 }
 .send--stop {
-  background: var(--wb-danger);
+  border-color: var(--wb-danger);
+  color: var(--wb-danger);
   animation: stop-breathe 1.6s ease-in-out infinite;
 }
 @keyframes stop-breathe {

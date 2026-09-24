@@ -94,6 +94,42 @@ func TestCoreEventMapper(t *testing.T) {
 		assert.Contains(t, last.Content, "detail")
 	})
 
+	t.Run("tool_result meta 透传 cwd / same_failure_count / adaptive_hint", func(t *testing.T) {
+		svc, _ := newChatOpsService(t)
+		ctx := context.Background()
+		ses, _ := svc.CreateSession(ctx, &domain.ChatSessionREQ{Name: "meta"})
+
+		// 订阅 chat:tool-result 收集载荷
+		var mu sync.Mutex
+		var captured map[string]any
+		svc.bus.Subscribe(event.MatchExact("chat:tool-result"), func(_ string, payload any) {
+			m, _ := payload.(map[string]any)
+			mu.Lock()
+			defer mu.Unlock()
+			captured = m
+		})
+
+		m := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
+		m.handle(core.Event{Kind: core.EventToolResult, RunID: "RUN_1", Turn: 1,
+			Payload: core.ToolResultPayload{
+				ToolCallID: "t1", Name: "exec", Content: "ok",
+				Meta: map[string]string{
+					"cwd":                `D:\WorkBaby\test`,
+					"same_failure_count": "3",
+					"adaptive_hint":      "1",
+				},
+			}})
+
+		require.NotNil(t, captured, "必须发出 chat:tool-result 事件")
+		// chat:tool-result 由强类型 domain.ChatToolResultEvent 发出，Emitter 归一为 map 后广播；
+		// meta 子 map 的键值仍是 string（json.Marshal map[string]string 保持值类型）。
+		meta, ok := captured["meta"].(map[string]any)
+		require.True(t, ok, "meta 必须透传为 map")
+		assert.Equal(t, `D:\WorkBaby\test`, meta["cwd"], "exec 实际目录必须透出")
+		assert.Equal(t, "3", meta["same_failure_count"], "失败计数必须透出")
+		assert.Equal(t, "1", meta["adaptive_hint"], "改道标记必须透出")
+	})
+
 	t.Run("子 Agent 事件分流不写父 run 历史", func(t *testing.T) {
 		svc, msgRepo := newChatOpsService(t)
 		ctx := context.Background()

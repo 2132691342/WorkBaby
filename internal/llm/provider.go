@@ -44,9 +44,7 @@ type ChatResponse struct {
 	StopReason string // end_turn / tool_use / max_tokens / length / stop
 }
 
-// StreamChunk 流式增量；harness 据此持续 Emit。
-//
-// Delta.Content / Delta.Thinking 是字符串片段，不是逐 token 而是事件序列。
+// StreamChunk 流式增量；harness 据此持续 Emit。Delta 是字符串片段而非逐 token；
 // FinalUsage 在最后一片填充（很多 Provider 在末片发 usage）。
 type StreamChunk struct {
 	Delta        Message
@@ -71,10 +69,8 @@ type ToolDefinition struct {
 
 // ThinkingConfig 推理开关；Provider 适配层翻译为各家私有字段。
 type ThinkingConfig struct {
-	// Type: enabled/disabled/adaptive；各 Provider 翻译：
-	//   Anthropic → thinking.type=enabled + budget_tokens
-	//   GLM → thinking.type=enabled（在 ExtraBody 注入）
-	//   DeepSeek → 不需要（reasoning_content 自动返回）
+	// Type: enabled/disabled/adaptive；各 Provider 翻译为自家私有字段
+	// （Anthropic → thinking.type + budget_tokens；GLM → ExtraBody；DeepSeek 自动返回）。
 	Type string `json:"type,omitempty"`
 	// BudgetTokens 思维预算（Anthropic 等）。
 	BudgetTokens int `json:"budget_tokens,omitempty"`

@@ -55,7 +55,7 @@ export interface StreamEventUpdate {
   /** 流式块增量（按事件到达顺序）：工具与正文的唯一真相源。 */
   blockAppend?: { kind: 'thinking' | 'text'; text: string }
   blockToolCall?: { id: string; name: string; arguments?: string; agent?: string; activity?: string }
-  blockToolResult?: { id: string; name: string; content?: string; error?: string; duration_ms?: number; refused?: boolean; data?: Record<string, unknown> | null }
+  blockToolResult?: { id: string; name: string; content?: string; error?: string; duration_ms?: number; refused?: boolean; data?: Record<string, unknown> | null; meta?: Record<string, string> }
   blockSkill?: { name: string; source?: string; description?: string; tools?: string[]; injected_chars?: number }
   blockArtifact?: { name: string; data: Record<string, unknown> }
   blockGenUi?: UiNode
@@ -88,11 +88,11 @@ export interface StreamEventUpdate {
   pushArtifact?: Artifact
   /** 自动上下文压缩（chat:compressed）：告知用户历史已被折叠，不是内容丢了。
    *  summary 是压缩器产出的交接纪要（auto 六段摘要；micro 为空），分隔线展开可见。 */
-  setCompressed?: { removed_messages: number; filter_key?: string; recovery_refs?: string[]; summary?: string }
+  setCompressed?: { removed_messages: number; filter_key?: string; truncated?: boolean; cutoff_at?: number; summary?: string }
   /** 上下文按预算裁剪（chat:context-trimmed）：system 段被丢，回答质量下降需可解释。 */
   setContextTrimmed?: { dropped_segments: string[]; budget_runes: number }
   /** 越界告警（chat:warn）：副作用落到了 .workbaby/ 之外，强制 toast 提示用户清理。 */
-  setWarn?: { kind: string; message: string; rel_path: string; path: string }
+  setWarn?: { kind: string; message: string; rel_path?: string; path?: string; workspace?: string; sandbox?: string; agent?: string; session_model?: string; model?: string }
   /** 会话目标状态推送（chat:goal）；null = 目标已清除。 */
   setGoal?: SessionGoal | null
   /** 建 BackgroundTask 条目（subagent_start：子 Agent 委派开跑即登记）。 */
@@ -142,7 +142,7 @@ export function decodeStreamEvent(event: ChatStreamEvent, now: number = Date.now
     }
     case 'tool_result': {
       if (!data || typeof data !== 'object') return null
-      const d = data as { id: string; name: string; output: string; state: string; agent?: string; duration_ms?: number; refused?: boolean; data?: Record<string, unknown> }
+      const d = data as { id: string; name: string; output: string; state: string; agent?: string; duration_ms?: number; refused?: boolean; data?: Record<string, unknown>; meta?: Record<string, string> }
       const update: StreamEventUpdate = {
         blockToolResult: {
           id: d.id,
@@ -151,7 +151,9 @@ export function decodeStreamEvent(event: ChatStreamEvent, now: number = Date.now
           error: d.state !== 'success' && !d.refused ? d.output : undefined,
           duration_ms: d.duration_ms,
           refused: d.refused === true,
-          data: d.data ?? null
+          data: d.data ?? null,
+          // 后端透传的元数据：cwd / same_failure_count / adaptive_hint / truncated_bytes 等
+          meta: d.meta
         }
       }
       // 修复：gen_ui 工具结果同步解析 UiTree（避免 store 二次解析）
@@ -217,12 +219,14 @@ export function decodeStreamEvent(event: ChatStreamEvent, now: number = Date.now
         }
         case 'compressed': {
           if (!data || typeof data !== 'object') return null
-          const d = data as { removed_messages?: number; filter_key?: string; recovery_refs?: string[]; summary?: string }
+          // 后端 domain.ChatCompressedEvent：确定性折叠不产出 recovery refs（历史遗留字段已移除）
+          const d = data as { removed_messages?: number; filter_key?: string; truncated?: boolean; cutoff_at?: number; summary?: string }
           return {
             setCompressed: {
               removed_messages: d.removed_messages ?? 0,
               filter_key: d.filter_key ?? '',
-              recovery_refs: Array.isArray(d.recovery_refs) ? d.recovery_refs : [],
+              truncated: d.truncated === true,
+              cutoff_at: typeof d.cutoff_at === 'number' ? d.cutoff_at : undefined,
               summary: typeof d.summary === 'string' ? d.summary : ''
             }
           }
@@ -236,13 +240,29 @@ export function decodeStreamEvent(event: ChatStreamEvent, now: number = Date.now
         }
         case 'warn': {
           if (!data || typeof data !== 'object') return null
-          const d = data as { kind?: string; message?: string; rel_path?: string; path?: string }
+          // 后端 domain.ChatWarnEvent：三种 kind 共用同一形状，按 kind 分支取用扩展字段
+          const d = data as {
+            kind?: string
+            message?: string
+            rel_path?: string
+            path?: string
+            workspace?: string
+            sandbox?: string
+            agent?: string
+            session_model?: string
+            model?: string
+          }
           return {
             setWarn: {
               kind: d.kind ?? '',
               message: d.message ?? '工作区越界写入',
               rel_path: d.rel_path ?? '',
-              path: d.path ?? ''
+              path: d.path ?? '',
+              workspace: d.workspace,
+              sandbox: d.sandbox,
+              agent: d.agent,
+              session_model: d.session_model,
+              model: d.model
             }
           }
         }
@@ -391,7 +411,8 @@ export function applyStreamUpdate(
         error: tr.error,
         durationMs: tr.duration_ms,
         refused: tr.refused,
-        data: tr.data ?? null
+        data: tr.data ?? null,
+        meta: tr.meta
       })
     }
     if (update.blockSkill) {

@@ -35,11 +35,8 @@ const sessionMetaKeyCompressBoundary = "compress_boundary"
 // 由 /agent <name> 命令写入；空回退 harness 内置 defaultAgentName。
 const sessionMetaKeyAgentName = "agent_name"
 
-// SearchSessions 跨会话检索（/resume 快速检索）。
-//
-// 标题命中优先于正文命中；两者都命中时只出现一次（标题命中优先）。
-// 正文检索只扫 user/assistant 正文（tool 结果与 system 提示词噪声太大），
-// 命中的会话按最大 seq 倒序——越近的对话越可能是用户想恢复的那条。
+// SearchSessions 跨会话检索（/resume 快速检索）。标题命中优先于正文命中（都命中只出现一次）；
+// 正文只扫 user/assistant（tool 结果与 system 提示词噪声太大）；结果按最大 seq 倒序。
 func (s *ChatService) SearchSessions(ctx context.Context, req domain.SessionSearchREQ) (*domain.SessionListRESP, error) {
 	q := strings.TrimSpace(req.Query)
 	if q == "" {
@@ -104,10 +101,8 @@ func (s *ChatService) SearchSessions(ctx context.Context, req domain.SessionSear
 	return &domain.SessionListRESP{Items: items, Total: len(items)}, nil
 }
 
-// autoTitleSession 首条用户消息后自动命名（/resume 的「会话可辨认」前提）。
-//
-// 只在会话仍是默认标题时改写：用户手动重命名过的会话不会被覆盖。
-// 命名失败（空摘要）保持原名，不阻断发送。
+// autoTitleSession 首条用户消息后自动命名（/resume 的「会话可辨认」前提）。只在会话仍是默认
+// 标题时改写（用户手动重命名过的不会被覆盖）；命名失败保持原名，不阻断发送。
 func (s *ChatService) autoTitleSession(ctx context.Context, ses *domain.ChatSessionDO, content string) {
 	if ses.Name != "" && ses.Name != DefaultSessionName {
 		return
@@ -122,11 +117,8 @@ func (s *ChatService) autoTitleSession(ctx context.Context, ses *domain.ChatSess
 	}
 }
 
-// SessionTitleFrom 从首条用户消息推导会话标题（确定性，不调 LLM）。
-//
-// 规则：取首个非空行 → 剥掉 Markdown 装饰（标题 / 引用 / 列表 / 数字有序列表 / 代码块围栏）→
-// 折叠空白 → 按 rune 截断到 40（中文安全）。斜杠命令（如 "/compact ..."）保留原样，
-// 因为那正是用户当轮想做的事。
+// SessionTitleFrom 从首条用户消息推导会话标题（确定性，不调 LLM）：取首个非空行 → 剥掉
+// Markdown 装饰 → 折叠空白 → 按 rune 截断到 40。斜杠命令保留原样（正是用户当轮要做的事）。
 func SessionTitleFrom(content string) string {
 	var first string
 	for _, line := range strings.Split(content, "\n") {

@@ -49,8 +49,8 @@ type searchReq struct {
 // Execute 检索并格式化结果。
 func (t *SearchTool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	var req searchReq
-	if err := json.Unmarshal(args, &req); err != nil {
-		return tool.ToolResult{Err: pkg.Wrap(4004, "knowledge_search args parse failed", err)}
+	if res := tool.DecodeArgs(args, &req); res.Err != nil {
+		return res
 	}
 	if req.Query == "" {
 		return tool.ToolResult{Err: pkg.New(4004, "knowledge_search query is required", "")}

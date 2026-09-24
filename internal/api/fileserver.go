@@ -10,10 +10,9 @@ import (
 	"WorkBaby/internal/service"
 )
 
-// FileServer 服务本地受管文件（main.go AssetServer 转发 /files/**）：
-// /files/sprites/{id} 桌宠 sprite、/files/files/{id} 托管文件、/files/workspace/{sessionId}?path= 工作区文件。
-// 均按 id 或 sessionId+path 校验，不暴露任意路径。
-// 不挂在 Handler 上：http 类型出现在 Wails 绑定签名里会污染生成的 TS 模型。
+// FileServer 服务本地受管文件（main.go AssetServer 转发 /files/**）：sprites / files / workspace
+// 三类，均按 id 或 sessionId+path 校验、不暴露任意路径。不挂在 Handler 上——http 类型进
+// Wails 绑定签名会污染生成的 TS 模型。
 type FileServer struct {
 	ctx          context.Context
 	fileSvc      *service.FileService

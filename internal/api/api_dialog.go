@@ -27,10 +27,8 @@ func (h *Handler) OpenDirectoryDialog(title, defaultPath string) (string, error)
 	})
 }
 
-// OpenExternal 用系统默认浏览器打开外部链接（http/https/file）。
-//
-// 聊天正文与产物卡里的链接一律经此打开：WebView 内直接导航会把整个 SPA
-// 页面替换掉，应用随之不可操作。仅放行安全 scheme。
+// OpenExternal 用系统默认浏览器打开外部链接（http/https/file）。聊天正文与产物卡里的链接
+// 一律经此打开：WebView 内直接导航会把整个 SPA 页面替换掉，应用随之不可操作。
 func (h *Handler) OpenExternal(url string) error {
 	u := strings.TrimSpace(url)
 	lower := strings.ToLower(u)

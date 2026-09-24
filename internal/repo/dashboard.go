@@ -70,9 +70,7 @@ func (r *DashboardRepo) CountTodayMessages(ctx context.Context, todayStart int64
 	return r.count(ctx, &domain.MessageDO{}, todayStart)
 }
 
-// SumTodayTokens 今日 token 消耗（token_usages 求和）。
-//
-// 与 TokenTrend 同源（token_usages 每次 LLM 调用一行）：chat_messages.total_tokens
+// SumTodayTokens 今日 token 消耗（token_usages 求和）。与 TokenTrend 同源——chat_messages
 // 只存末轮 per-turn 汇总，多轮工具 run 会被严重低估，两处数字对不上。
 func (r *DashboardRepo) SumTodayTokens(ctx context.Context, todayStart int64) (int64, error) {
 	var sum int64

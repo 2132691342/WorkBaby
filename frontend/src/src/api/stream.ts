@@ -1,4 +1,12 @@
-import type { ChatStreamReq, ChatStreamEvent } from '@/types/api'
+import type {
+  ChatStreamReq,
+  ChatStreamEvent,
+  ChatToolCallPayload,
+  ChatToolResultPayload,
+  ChatApprovalPayload,
+  ChatCompressedPayload,
+  ChatWarnPayload
+} from '@/types/api'
 import { apiPost, apiGet, getApiBase } from './http'
 import { onUnmounted } from 'vue'
 
@@ -113,53 +121,63 @@ export function mapSSEEvent(name: string, data: unknown): ChatStreamEvent | null
         }
       }
     case 'chat:tool': {
+      // 后端载荷已是强类型 domain.ChatToolCallEvent，前端按同名契约直接取值。
+      const ev = (data ?? {}) as Partial<ChatToolCallPayload>
       // activity 由工具自述（"正在编辑 app.ts"）：前端直接展示动词，不维护名称映射。
       // 空值不写进载荷，避免下游为「空字符串」再做一次判断。
-      const activity = typeof p.activity === 'string' ? p.activity : ''
+      const activity = typeof ev.activity === 'string' ? ev.activity : ''
       return {
         type: 'tool_call',
         data: {
-          id: p.id,
-          name: p.name,
-          args: p.arguments,
-          agent: p.agent ?? '',
+          id: ev.id,
+          name: ev.name,
+          args: ev.arguments,
+          agent: ev.agent ?? '',
           ...(activity ? { activity } : {})
         }
       }
     }
-    case 'chat:tool-result':
+    case 'chat:tool-result': {
+      // 后端载荷已是强类型 domain.ChatToolResultEvent，前端按同名契约直接取值。
+      const ev = (data ?? {}) as Partial<ChatToolResultPayload>
       return {
         type: 'tool_result',
         data: {
-          id: p.id,
-          name: p.name,
-          output: p.content ?? '',
-          state: p.error ? 'error' : 'success',
-          agent: p.agent ?? '',
+          id: ev.id,
+          name: ev.name,
+          output: ev.content ?? '',
+          state: ev.error ? 'error' : 'success',
+          agent: ev.agent ?? '',
           // 后端计量的真实执行耗时；缺失时 decoder 退回本地 started_at 差值
-          duration_ms: typeof p.duration_ms === 'number' ? p.duration_ms : undefined,
+          duration_ms: typeof ev.duration_ms === 'number' ? ev.duration_ms : undefined,
           // 工具结构化结果（knowledge_search 命中列表等）：来源卡直接消费
-          data: (p.data ?? undefined) as Record<string, unknown> | undefined
+          data: ev.data ?? undefined,
+          // 工具元数据：cwd / same_failure_count / adaptive_hint / truncated_bytes 等
+          meta: ev.meta ?? undefined
         }
       }
+    }
     case 'chat:subagent-start':
       return { type: 'subagent_start', data: { sub_run_id: p.sub_run_id, agent: p.agent ?? '' } }
     case 'chat:subagent-done':
       return { type: 'subagent_done', data: { sub_run_id: p.sub_run_id, agent: p.agent ?? '', reason: p.reason ?? '' } }
     case 'chat:subagent-error':
       return { type: 'subagent_error', data: { sub_run_id: p.sub_run_id, agent: p.agent ?? '', message: p.message ?? '' } }
-    case 'chat:approval':
+    case 'chat:approval': {
+      // 后端载荷已是强类型 domain.ChatApprovalEvent（审批与补问同形状），
+      // can_remember 恒有值：不可逆与补问为 false，前端据此隐藏「本会话允许」选项。
+      const ev = (data ?? {}) as Partial<ChatApprovalPayload>
       return {
         type: 'tool_approval_request',
         data: {
-          id: p.id,
-          command: p.command ?? '',
-          reason: p.reason ?? '',
-          risk: p.risk === 'irreversible' ? 'irreversible' : p.risk === 'input_required' ? 'input_required' : 'needs_approval',
-          // 后端声明是否允许「本会话允许」：不可逆操作恒为 false，前端据此隐藏该选项
-          can_remember: p.can_remember === true
+          id: ev.id,
+          command: ev.command ?? '',
+          reason: ev.reason ?? '',
+          risk: ev.risk === 'irreversible' ? 'irreversible' : ev.risk === 'input_required' ? 'input_required' : 'needs_approval',
+          can_remember: ev.can_remember === true
         }
       }
+    }
     case 'chat:approval-decided':
       return {
         type: 'approval_decided',
@@ -190,29 +208,41 @@ export function mapSSEEvent(name: string, data: unknown): ChatStreamEvent | null
       return { type: 'goal', data: { goal: p.goal ?? null } }
     case 'chat:file-change':
       return { type: 'file_change', data: { change: p.change } }
-    case 'chat:warn':
-      // 越界告警：process 副作用落到了 .workbaby/ 之外（污染用户原有目录）
+    case 'chat:warn': {
+      // 后端 domain.ChatWarnEvent：三种 kind 共用同一形状，扩展字段按 kind 生效
+      const ev = (data ?? {}) as Partial<ChatWarnPayload>
       return {
         type: 'warn',
         data: {
-          kind: String(p.kind ?? ''),
-          message: String(p.message ?? '工作区越界写入'),
-          rel_path: p.rel_path ? String(p.rel_path) : '',
-          path: p.path ? String(p.path) : ''
+          kind: ev.kind ?? '',
+          message: ev.message ?? '工作区越界写入',
+          rel_path: ev.rel_path ?? '',
+          path: ev.path ?? '',
+          workspace: ev.workspace,
+          sandbox: ev.sandbox,
+          agent: ev.agent,
+          session_model: ev.session_model,
+          model: ev.model
         }
       }
+    }
     case 'chat:artifact':
       return { type: 'session_artifact', data: { artifact: p.artifact } }
-    case 'chat:compressed':
+    case 'chat:compressed': {
+      // 后端 domain.ChatCompressedEvent。确定性折叠不产出 recovery refs——
+      // 该字段是历史遗留的前端期待（后端从未下发），强类型化时一并移除避免误导。
+      const ev = (data ?? {}) as Partial<ChatCompressedPayload>
       return {
         type: 'compressed',
         data: {
-          removed_messages: p.removed_messages ?? 0,
-          filter_key: p.filter_key ? String(p.filter_key) : '',
-          recovery_refs: Array.isArray(p.recovery_refs) ? p.recovery_refs.map(String) : [],
-          summary: p.summary ? String(p.summary) : ''
+          removed_messages: ev.removed_messages ?? 0,
+          filter_key: ev.filter_key ?? '',
+          truncated: ev.truncated === true,
+          cutoff_at: typeof ev.cutoff_at === 'number' ? ev.cutoff_at : undefined,
+          summary: ev.summary ?? ''
         }
       }
+    }
     case 'chat:context-trimmed':
       // 上下文按预算裁剪（system 段超限被丢）：回答质量可能受影响，必须让用户看到原因
       return {

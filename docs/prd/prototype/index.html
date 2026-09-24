@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WorkBaby · 界面原型</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23e9a23b'/%3E%3Ctext x='16' y='22' font-size='16' text-anchor='middle'%3EW%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/screens.css">
+  <link rel="stylesheet" href="css/tour.css">
+  <link rel="stylesheet" href="css/glass.css">
+</head>
+<body>
+  <div id="wb-app"></div>
+
+  <script>
+  /* 原型自检：脚本异常时给一条可见错误条，避免空白页无从排查 */
+  (function () {
+    function bar(msg) {
+      if (document.getElementById('wb-err')) return;
+      var d = document.createElement('div');
+      d.id = 'wb-err';
+      d.style.cssText = 'position:fixed;left:0;top:0;right:0;z-index:99999;padding:8px 14px;background:#2a0a0a;color:#ff9a8a;font:11px/1.5 monospace;white-space:pre-wrap';
+      d.textContent = '原型脚本异常：' + msg;
+      (document.body || document.documentElement).appendChild(d);
+    }
+    window.onerror = function (m, s, l, c) { bar(m + ' @ ' + (s || '').split('/').pop() + ':' + l + ':' + c); };
+    window.addEventListener('unhandledrejection', function (e) { bar(String(e.reason)); });
+  })();
+  </script>
+
+  <script src="js/icons.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/screen-chat.js"></script>
+  <script src="js/screen-settings.js"></script>
+  <script src="js/screen-apps.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

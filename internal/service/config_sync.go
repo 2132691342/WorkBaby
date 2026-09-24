@@ -60,10 +60,8 @@ func ProvidersFromFile(path string) ([]domain.AiProviderDO, error) {
 	return out, nil
 }
 
-// SyncFromList 把文件解析的 Provider 列表同步进 DB：
-//   - 已存在（按 id）→ upsert 更新（APIKey 非空才覆盖）
-//   - 新增 → Create
-//   - DB 存在但文件缺失 → 标记 disabled（保留历史，不删除）
+// SyncFromList 把文件解析的 Provider 列表同步进 DB：已存在按 id upsert（APIKey 非空才覆盖）、
+// 新增则 Create、DB 有而文件缺失则标记 disabled（保留历史不删除）。
 func (s *ProviderService) SyncFromList(ctx context.Context, rows []domain.AiProviderDO) error {
 	existing, err := s.r.List(ctx)
 	if err != nil {

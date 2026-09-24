@@ -5,107 +5,94 @@
  * 同时以 {@code :root} 暴露 {@code --wb-*} CSS 变量供非 utility 场景（背景层 / 阴影 /
  * Markdown 正文 / 玻璃态组件类）使用。两套变量取值一致。
  *
- * <p><b>字体策略</b>（精简后只保留 7 个字体文件）：
- * <ul>
- *   <li>UI 无衬线：{@code Inter}（400 + 600 + 400italic + 600italic）+ 中文系统回退栈</li>
- *   <li>等宽：{@code JetBrains Mono}（Regular）+ {@code Fira Code}（Regular）+ {@code Cascadia Code}（Regular）三选一</li>
- * </ul>
- *
- * <p>理由：避免引入 ~3.4MB 外部字体的下载与版权风险；Inter + 系统中文栈在三大平台（Windows / macOS / Linux）渲染一致。
+ * <p><b>字体策略</b>（三族）：UI 用系统无衬线（Segoe UI Variable + 中文系统栈），
+ * 标题与读数用 Bahnschrift（DIN 风），路径 / ID / token 用等宽（JetBrains Mono / Cascadia Code）。
+ * 不再打包 Inter：系统栈在 Windows 上渲染一致，且省下 ~1.2MB 产物体积。
  */
 @import 'tailwindcss';
 @import './themes.css';
 /* 原型同款组件设计系统（prd/WorkBaby-UI-Prototype.html）：card/btn/badge/tbl/tile… */
 @import './wb-ui.css';
 
-/* ===== 表单密度 token（全局唯一基线）=====
- * 原生 .input 与 Element Plus 控件共用同一套高度 / 字号，
- * 消除「同一个设置页里 28px 与 32px 混排、12px 与 14px 混排」的问题。
- *
- * 控件高度三档：sm = 芯片/分段控件，md = 标准按钮与输入（密度基线），lg = 侧栏导航等大点击目标。
+/* ===== 表单密度 token =====
+ * 唯一来源是 themes.css 的刻度层（--wb-ctl-h* / --wb-fs-* / --wb-radius*）。
  * 组件内不得再写裸像素高度——散落的 23/26/30/38px 是历史漂移，一律归到档位引用。 */
-:root {
-  --wb-ctl-h-sm: 24px;
-  --wb-ctl-h: 32px;
-  --wb-ctl-h-lg: 38px;
-  --wb-ctl-icon: 30px; /* 圆形图标按钮（顶栏工具组） */
-  --wb-fs-ctl: 12.5px;
-  --wb-fs-label: 11.5px;
-  --wb-fs-hint: 11px;
-  --wb-radius-ctl: 10px;
-}
 
-/* ===== 离线字体（精简：Inter 4 weight + 3 款等宽 Regular）=====
- * 用户决策（2026）：精简为 7 个文件。
- *  - Inter：常规体 / 半粗体 + 各自斜体（标题 / 正文 / 数字）
- *  - JetBrains Mono Regular：默认代码字体（CSS --font-mono 首选）
- *  - Fira Code Regular / Cascadia Code Regular：设置中可选的代码字体备选 */
-
-@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/Inter-Regular.otf') format('opentype'); }
-@font-face { font-family: 'Inter'; font-style: italic; font-weight: 400; font-display: swap; src: url('./assets/fonts/Inter-Italic.otf') format('opentype'); }
-@font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('./assets/fonts/Inter-SemiBold.otf') format('opentype'); }
-@font-face { font-family: 'Inter'; font-style: italic; font-weight: 600; font-display: swap; src: url('./assets/fonts/Inter-SemiBoldItalic.otf') format('opentype'); }
+/* ===== 离线字体（只打包等宽三选一；UI 与标题走系统字体栈）=====
+ *  - JetBrains Mono / Fira Code / Cascadia Code Regular：代码字体备选（设置项可切换）
+ *  - Bahnschrift：Windows 自带（DIN 风标题与读数），无需打包 */
 
 @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/JetBrainsMono-Regular.ttf') format('truetype'); }
 @font-face { font-family: 'Fira Code'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/FiraCode-Regular.ttf') format('truetype'); }
 @font-face { font-family: 'Cascadia Code'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/Cascadia-Code-Regular-2.ttf') format('truetype'); }
 
+/* ===== 色彩 token：只登记「utility 名 → 语义令牌」的映射 =====
+ * 值一律引用 themes.css 的 --wb-*（唯一色值定义处）。inline 让 utility 直接内联 var(--wb-*)，
+ * 在元素上按当前主题解析。此前这里硬编码过一份浅色值——bg-wb-* / text-wb-* 变成常量，
+ * 暗色模式下整页「白卡片 + 黑字」，正是漏白的根因。 */
+@theme inline {
+  --color-wb-bg: var(--wb-bg);
+  --color-wb-surface: var(--wb-surface);
+  --color-wb-surface-2: var(--wb-surface-2);
+  --color-wb-surface-hover: var(--wb-surface-hover);
+  --color-wb-raise: var(--wb-raise);
+  --color-wb-sunken: var(--wb-sunken);
+  --color-wb-primary: var(--wb-primary);
+  --color-wb-primary-strong: var(--wb-primary-strong);
+  --color-wb-primary-soft: var(--wb-primary-soft);
+  --color-wb-mint: var(--wb-mint);
+  --color-wb-lavender: var(--wb-lavender);
+  --color-wb-sky: var(--wb-sky);
+  --color-wb-lemon: var(--wb-lemon);
+  --color-wb-success: var(--wb-success);
+  --color-wb-warning: var(--wb-warning);
+  --color-wb-warn: var(--wb-warning);
+  --color-wb-danger: var(--wb-danger);
+  --color-wb-info: var(--wb-info);
+  --color-wb-ink: var(--wb-ink);
+  --color-wb-muted: var(--wb-muted);
+  --color-wb-line: var(--wb-line);
+  --color-wb-line-2: var(--wb-line-2);
+  --color-wb-border: var(--wb-border);
+  --color-wb-border-strong: var(--wb-border-strong);
+}
+
 @theme {
-  /* ===== 玻璃拟态浅蓝 token 默认值（与 themes.css light 同步）===== */
-
-  --color-wb-bg: #e8f1fd;
-  --color-wb-surface: rgba(255, 255, 255, 0.74);
-  --color-wb-surface-2: rgba(240, 246, 255, 0.72);
-  --color-wb-surface-hover: rgba(226, 239, 255, 0.88);
-  --color-wb-primary: #2f7bf6;
-  --color-wb-primary-strong: #1a5fe0;
-  --color-wb-primary-soft: rgba(47, 123, 246, 0.12);
-  --color-wb-mint: #12b76a;
-  --color-wb-lavender: #7a5af8;
-  --color-wb-sky: #2e90fa;
-  --color-wb-lemon: #f79009;
-  --color-wb-success: #12b76a;
-  --color-wb-warning: #f79009;
-  --color-wb-danger: #f04438;
-  --color-wb-info: #2e90fa;
-  --color-wb-ink: #16233c;
-  --color-wb-muted: #64748b;
-  --color-wb-border: rgba(45, 90, 160, 0.11);
-
-  /* 字号刻度（收敛散落的 text-[10px]/[11px]/[12.5px] 任意值）：
-   * 2xs = 徽标/角标, xs2 = 辅助标签与元信息, ctl = 控件与正文（与 --wb-fs-ctl 同值）。
-   * 组件一律用刻度类，不再写任意像素。 */
-  --text-2xs: 10px;
-  --text-xs2: 11px;
+  /* 字号刻度（收敛散落的 text-[Npx] 任意值）：
+   * 3xs = 圆形头像内的首字母等 8~9px 微章, 2xs = 徽标/角标, xs2 = 辅助标签与元信息,
+   * ctl = 控件与正文（与 --wb-fs-ctl 同值）。组件一律用刻度类，不再写任意像素。 */
+  --text-3xs: 9px;
+  --text-2xs: 11px;
+  --text-xs2: 12px;
   --text-ctl: 12.5px;
 
-  /* ===== 字体栈（统一：显式声明所有面，避免浏览器自动降级到本机字体） ===== */
+  /* ===== 字体栈（三族：UI / 标题读数 / 等宽）===== */
 
-  /* UI 无衬线（Inter 拉丁 + 中文系统栈优先；末尾无衬线兜底） */
+  /* UI 无衬线：系统栈优先，中文系统栈紧随其后 */
   --font-sans:
-    'Inter', 'PingFang SC', 'Microsoft YaHei', 'HarmonyOS Sans SC',
-    'MiSans', system-ui, ui-sans-serif, sans-serif;
+    'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei',
+    system-ui, -apple-system, sans-serif;
 
-  /* Display 标题（与 UI 同源；不混用衬线，避免博客感） */
+  /* Display 标题与读数（DIN 风；Bahnschrift 为 Windows 自带） */
   --font-display:
-    'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    'Bahnschrift', 'Segoe UI Variable Display', 'Segoe UI', 'Microsoft YaHei UI',
+    system-ui, sans-serif;
 
-  /* 中文展示（系统中文栈优先，避免英文降级到 Inter 渲染中文字形） */
+  /* 中文展示（系统中文栈优先，避免英文降级后中文字形错位） */
   --font-cn:
-    'PingFang SC', 'Microsoft YaHei', 'HarmonyOS Sans SC', 'Inter',
-    sans-serif;
+    'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif;
 
   /* 等宽（代码 / JSON / 命令输出；用户可在设置中切换） */
   --font-mono:
-    'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace,
-    'SF Mono', Consolas, 'Courier New', monospace;
+    'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, 'SF Mono',
+    Consolas, monospace;
 
-  /* ===== 圆角 / 阴影刻度（统一：阴影全部收敛到 themes.css 的 --wb-shadow*，此处不重复定义）===== */
-  --radius-xs: 0.375rem;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.5rem;
+  /* ===== 圆角刻度（4 级 + 胶囊；阴影一律走 themes.css 的 --wb-shadow*）===== */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
 }
 
 /* ===== 组件基元（@layer components） ===== */
@@ -173,52 +160,9 @@
   }
 }
 
-/* ===== :root 默认值（与 themes.css light 同步）===== */
-:root {
-  --wb-bg: #e8f1fd;
-  --wb-page-gradient:
-    radial-gradient(1200px 620px at 8% -12%, rgba(96, 165, 250, 0.34), transparent 62%),
-    radial-gradient(1000px 560px at 104% 8%, rgba(56, 189, 248, 0.24), transparent 60%),
-    radial-gradient(900px 640px at 78% 112%, rgba(129, 140, 248, 0.20), transparent 62%),
-    linear-gradient(168deg, #cfe1f9 0%, #dfecfb 26%, #eef5fe 60%, #fafcff 100%);
-  --wb-surface: rgba(255, 255, 255, 0.74);
-  --wb-surface-2: rgba(240, 246, 255, 0.72);
-  --wb-surface-hover: rgba(226, 239, 255, 0.88);
-  --wb-surface-solid: #ffffff;
-  --wb-side: rgba(255, 255, 255, 0.66);
-  --wb-primary: #2f7bf6;
-  --wb-primary-strong: #1a5fe0;
-  --wb-primary-soft: rgba(47, 123, 246, 0.12);
-  --wb-mint: #12b76a;
-  --wb-lavender: #7a5af8;
-  --wb-sky: #2e90fa;
-  --wb-lemon: #f79009;
-  --wb-success: #12b76a;
-  --wb-warning: #f79009;
-  --wb-danger: #f04438;
-  --wb-info: #2e90fa;
-  --wb-ink: #16233c;
-  --wb-muted: #64748b;
-  --wb-border: rgba(45, 90, 160, 0.11);
-  --wb-border-strong: rgba(45, 90, 160, 0.20);
-  --wb-radius-sm: 10px;
-  --wb-radius: 12px;
-  --wb-radius-lg: 16px;
-  --wb-shadow: 0 1px 2px rgba(31, 70, 140, 0.05), 0 8px 24px -10px rgba(31, 70, 140, 0.16);
-  --wb-shadow-lg: 0 14px 40px -14px rgba(31, 70, 140, 0.22);
-  --wb-shadow-pop: 0 24px 64px -20px rgba(31, 70, 140, 0.30);
-  --wb-glass-blur: 20px;
-  --wb-glass-saturate: 1.5;
-  --wb-glass-border: rgba(255, 255, 255, 0.72);
-  --wb-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-  --wb-glass-opacity: 0.74;
-  --wb-grad-brand: linear-gradient(100deg, #2b6ef6 0%, #3f8dff 42%, #7c5cf8 100%);
-  --wb-grad-btn: linear-gradient(180deg, #4d93ff 0%, #2f7bf6 54%, #1a5fe0 100%);
-  --wb-user-bg-url: none;
-  --wb-user-bg-opacity: 1;
-  --wb-user-bg-blur: 0px;
-}
-
+/* ===== 根部默认值 =====
+ * 全部令牌（色值 / 刻度）唯一定义处是 themes.css；此处不再复制一份，
+ * 两份同名变量只会让「哪套生效」取决于层叠顺序（曾是暗色漏白的根因）。 */
 html,
 body,
 #app {
@@ -228,15 +172,39 @@ body,
 body {
   background-color: var(--wb-bg);
   background-image: var(--wb-page-gradient);
-  background-attachment: fixed;
   color: var(--wb-ink);
   margin: 0;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.55;
+  font-family: var(--font-sans), var(--font-cn);
+  font-size: var(--wb-fs-md);
+  line-height: var(--wb-lh-base);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  transition: background-color 400ms ease, color 400ms ease;
+  transition: background-color var(--wb-dur-slow) var(--wb-ease), color var(--wb-dur-slow) var(--wb-ease);
+}
+
+::selection {
+  background: var(--wb-sel);
+}
+
+/* 焦点环：键盘可见，鼠标不打扰 */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--wb-primary);
+  outline-offset: 2px;
+  border-radius: var(--wb-radius-xs);
+}
+.input:focus-visible,
+.textarea:focus-visible,
+.composer-in textarea:focus-visible {
+  outline: none;
+}
+
+/* 滚动条：细、无按钮、融入面板 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--wb-line-2) transparent;
 }
 
 /* 全局等宽元素 */
@@ -1089,26 +1057,28 @@ button:active:not(:disabled) {
   transition: all 0.15s ease;
   font-weight: 500;
 }
-/* 主按钮：品牌渐变实底 + 微光，桌面工具质感。
-   渐变走 background-image（Element Plus 只改 background-color，不会覆盖它）。 */
+/* 主按钮：与 .btn-primary 同语法——主色描边镂空，hover 淡主色底。
+   与自研按钮同观感是必须的：弹窗 / 表单里两种主按钮并存时，实底与镂空混排会像两套系统。 */
 .el-button--primary {
-  --el-button-bg-color: var(--wb-primary);
-  --el-button-border-color: color-mix(in srgb, var(--wb-primary-strong) 80%, transparent);
-  --el-button-hover-bg-color: var(--wb-primary);
-  --el-button-hover-border-color: var(--wb-primary-strong);
-  --el-button-active-bg-color: var(--wb-primary-strong);
-  --el-button-active-border-color: var(--wb-primary-strong);
-  background-image: var(--wb-grad-btn);
-  box-shadow:
-    0 1px 2px rgba(23, 66, 133, 0.16),
-    0 4px 14px color-mix(in srgb, var(--wb-primary) 30%, transparent);
+  --el-button-bg-color: transparent;
+  --el-button-text-color: var(--wb-primary);
+  --el-button-border-color: var(--wb-primary);
+  --el-button-hover-bg-color: var(--wb-primary-soft);
+  --el-button-hover-text-color: var(--wb-primary);
+  --el-button-hover-border-color: var(--wb-primary);
+  --el-button-active-bg-color: color-mix(in srgb, var(--wb-primary) 18%, transparent);
+  --el-button-active-text-color: var(--wb-primary);
+  --el-button-active-border-color: var(--wb-primary);
+  --el-button-disabled-bg-color: transparent;
+  --el-button-disabled-text-color: color-mix(in srgb, var(--wb-primary) 45%, transparent);
+  --el-button-disabled-border-color: color-mix(in srgb, var(--wb-primary) 45%, transparent);
+  background-image: none;
+  box-shadow: none;
 }
-.el-button--primary:hover {
-  filter: brightness(1.06);
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--wb-primary) 34%, transparent);
-}
+.el-button--primary:hover,
 .el-button--primary:active {
-  filter: brightness(0.96);
+  filter: none;
+  box-shadow: none;
 }
 /* plain / text / link 变体不走渐变（它们本就是浅底或无色底） */
 .el-button--primary.is-plain,

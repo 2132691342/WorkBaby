@@ -224,7 +224,7 @@ defineExpose({ reset, pickAt, moveActive, filtered })
             <span class="flex items-center gap-1.5">
               <span class="truncate font-medium">/{{ cmd.id }}</span>
               <span v-if="cmd.args" class="truncate text-2xs text-wb-muted font-mono">{{ cmd.args }}</span>
-              <span class="ml-auto shrink-0 rounded px-1 py-0 text-[9px]" :class="sourceBadge(cmd).cls">
+              <span class="ml-auto shrink-0 rounded px-1 py-0 text-3xs" :class="sourceBadge(cmd).cls">
                 {{ sourceBadge(cmd).text }}
               </span>
             </span>

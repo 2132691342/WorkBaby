@@ -23,10 +23,9 @@ const mcpMaxResultChars = 50_000
 // fallbackSchema 远端 inputSchema 缺失或非法 JSON 时的兜底：不信任外部输入，但不让工具彻底不可用。
 var fallbackSchema = json.RawMessage(`{"type":"object","properties":{}}`)
 
-// invalidToolNameChars 工具名合法字符集外的字符 → 替换为下划线。
-//
-// MCP 允许任意字符串作工具名，部分会含 `/` `:` `.` ` ` 等（fs:read、github.create_issue）；
-// 上游 LLM 的函数名只接受 [A-Za-z0-9_-]，未清洗的非法字符会让整次请求 400。
+// invalidToolNameChars 工具名合法字符集外的字符 → 替换为下划线。MCP 允许任意字符串作工具名
+// （fs:read、github.create_issue），而上游 LLM 的函数名只接受 [A-Za-z0-9_-]，
+// 未清洗的非法字符会让整次请求 400。
 var invalidToolNameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 
 // sanitizeToolName 把任意字符串收敛到 LLM 函数名合法字符集。
@@ -74,11 +73,9 @@ func (a *MCPAdapter) RiskLevel() tool.RiskLevel { return tool.RiskNetwork }
 // 参与只读并发执行——MCP 写类工具（发邮件 / 下订单）有副作用，必须串行。
 func (a *MCPAdapter) Meta() tool.ToolMeta { return tool.ToolMeta{Group: tool.GroupExec} }
 
-// Execute 转发到远端；远端返回 isError 时内容仍然回填给 LLM，同时置 Err 便于前端提示。
-// 大返回（> mcpMaxResultChars）截断，避免读文件类工具一次灌进几十万字符撑爆上下文。
-//
-// 非文本块降级为占位说明：文本模型读不了像素/二进制，但「这里有一张图/一个资源」
-// 的信号本身有价值——静默丢弃会让模型以为工具坏了（返回空）。
+// Execute 转发到远端：远端返回 isError 时内容仍回填给 LLM，同时置 Err 便于前端提示；
+// 大返回截断避免撑爆上下文。非文本块降级为占位说明——文本模型读不了像素/二进制，
+// 但「这里有一张图/一个资源」的信号有价值，静默丢弃会让模型以为工具坏了。
 func (a *MCPAdapter) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	res, err := a.Client.CallTool(ctx, a.Tool.Name, args)
 	if err != nil {

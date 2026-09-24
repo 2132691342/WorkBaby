@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Search, CircleCheck, Circle, Delete, GitBranch, Archive, Pin } from '@/components/common/icons'
+import { Archive, Check, Delete, GitBranch, Layers, Pin, Search, X } from '@/components/common/icons'
 import EmptyState from '@/components/common/EmptyState.vue'
 import type { Session } from '@/types/api'
 import { t } from '@/i18n'
@@ -9,10 +9,9 @@ import { useChatStore } from '@/stores/chat'
 import { formatRelativeTime } from '@/utils/time'
 
 /**
- * 任务列表（左栏主体）：分组/平铺切换 + 搜索 + 多选批量删除 + 置顶/归档。
+ * 任务列表（左栏主体）：搜索 + 分组/平铺 + 多选批量删除 + 置顶/归档。
  *
  * 树形血缘：parent_id 相同的会话挂在同一个父节点下；根会话按时段分组。
- * 缩进深度 = 父级缩进 + 1；子节点不可换行或换组，仅作为父的「分支」展示。
  * 归档视图：默认隐藏 archived 会话，切到归档视图只看它们。
  */
 const props = defineProps<{
@@ -100,6 +99,7 @@ interface SessionNode {
 
 interface Group {
   label: string
+  count: number
   items: SessionNode[]
 }
 
@@ -107,7 +107,7 @@ const searchLower = computed(() => search.value.trim().toLowerCase())
 
 /**
  * 构建树状节点序列：
- *   - 根会话按时段分组（今天 / 昨天 / 一周内 / 更早）；
+ *   - 根会话按时段分组（今天 / 昨天 / 本周 / 更早）；
  *   - 每个根会话下挂其直接子分支（按 last_message_at 倒序）；
  *   - 多层分叉暂不展开（分叉可递归，但平铺更易读）。
  */
@@ -191,12 +191,12 @@ const grouped = computed<Group[]>(() => {
     const flat = [...todayList, ...yesterdayList, ...weekList, ...olderList].sort(
       (a, b) => (b.session.last_message_at ?? 0) - (a.session.last_message_at ?? 0)
     )
-    return flat.length ? [{ label: '', items: flat }] : []
+    return flat.length ? [{ label: '', count: flat.length, items: flat }] : []
   }
 
   const groups: Group[] = []
   const push = (label: string, list: SessionNode[]) => {
-    if (list.length) groups.push({ label: t(label) + ` (${list.length})`, items: list })
+    if (list.length) groups.push({ label: t(label), count: list.length, items: list })
   }
   push('chat.today', todayList)
   push('chat.yesterday', yesterdayList)
@@ -224,182 +224,168 @@ watch(searchLower, () => {
 
 <template>
   <aside class="flex h-full w-full flex-col">
-    <!-- 列表头：分组/平铺切换 + 批量删除入口 -->
-    <div class="flex items-center justify-between gap-2 px-3 pb-1.5 pt-2">
-      <div class="seg sm">
-        <button type="button" :class="{ on: !flat }" @click="flat && emit('toggle-flat')">
-          {{ t('chat.viewGrouped') }}
-        </button>
-        <button type="button" :class="{ on: flat }" @click="!flat && emit('toggle-flat')">
-          {{ t('chat.viewFlat') }}
-        </button>
-      </div>
-      <el-tooltip v-if="!multiSelect && sessions.length > 1" :content="t('chat.enterMultiSelect')" placement="top">
-        <button
-          type="button"
-          class="flex h-6 w-6 items-center justify-center rounded-md text-wb-muted transition-colors hover:bg-wb-surface-hover hover:text-wb-ink"
-          @click="enterMultiSelect"
-        >
-          <Delete class="h-3.5 w-3.5" />
-        </button>
-      </el-tooltip>
-    </div>
-
-    <div class="space-y-2 px-3 pb-2">
-      <!-- 多选模式：取消 + 批量删除 -->
-      <div v-if="multiSelect" class="flex items-center gap-1.5">
-        <el-button class="flex-1" size="small" @click="exitMultiSelect">
-          {{ t('chat.cancelMultiSelect') }}
-        </el-button>
-        <el-button
-          class="flex-1"
-          type="danger"
-          size="small"
-          :disabled="selectedIds.size === 0"
-          @click="confirmDeleteBatch"
-        >
-          <el-icon class="mr-1"><Delete /></el-icon>
-          {{ t('chat.deleteBatch', selectedIds.size) }}
-        </el-button>
-      </div>
-
-      <el-input v-model="search" size="small" :placeholder="t('chat.searchSession')" clearable>
-        <template #prefix><el-icon><Search /></el-icon></template>
-      </el-input>
-
-      <!-- 归档视图切换（默认隐藏 archived 会话） -->
+    <!-- 列表头：任务铭牌 + 归档视图 / 分组平铺 / 批量管理 -->
+    <div class="sess-head">
+      <div class="t-plate">{{ t('chat.tasks') }}</div>
       <button
         type="button"
-        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs2 transition-colors"
-        :class="archivedView ? 'bg-wb-primary/10 text-wb-primary-strong' : 'text-wb-muted hover:bg-wb-surface-hover hover:text-wb-ink'"
+        class="icon-btn"
+        :class="{ 'is-on': archivedView }"
+        :title="archivedView ? t('chat.backToActive') : t('chat.archivedView')"
         @click="archivedView = !archivedView"
       >
-        <Archive class="h-3 w-3" />
-        {{ archivedView ? t('chat.backToActive') : t('chat.archivedView') }}
-        <span v-if="archivedView" class="tabular-nums">
-          {{ props.sessions.filter((s) => s.status === 'archived').length }}
-        </span>
+        <Archive class="ic-sm" />
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        :class="{ 'is-on': flat }"
+        :title="flat ? t('chat.viewGrouped') : t('chat.viewFlat')"
+        @click="emit('toggle-flat')"
+      >
+        <Layers class="ic-sm" />
+      </button>
+      <button
+        v-if="!multiSelect && sessions.length > 1"
+        type="button"
+        class="icon-btn"
+        :title="t('chat.enterMultiSelect')"
+        @click="enterMultiSelect"
+      >
+        <Delete class="ic-sm" />
       </button>
     </div>
 
-    <el-scrollbar class="flex-1">
-      <div class="px-2 pb-2">
-        <div v-if="loading" class="p-3 text-sm text-wb-muted">{{ t('ui.status.loading') }}</div>
-        <!-- 空态复用 EmptyState（紧凑尺寸）：与全应用空态同源 -->
-        <EmptyState
-          v-else-if="sessions.length === 0"
-          variant="empty-search"
-          size="sm"
-          :title="t('chat.noSessions')"
-          class="py-4"
+    <div class="flex-none space-y-2 px-3 pb-2">
+      <!-- 多选模式：取消 + 批量删除 -->
+      <div v-if="multiSelect" class="flex items-center gap-1.5">
+        <button type="button" class="btn btn-sm flex-1" @click="exitMultiSelect">
+          <X class="ic-xs" />
+          {{ t('chat.cancelMultiSelect') }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-danger btn-sm flex-1"
+          :disabled="selectedIds.size === 0"
+          @click="confirmDeleteBatch"
+        >
+          <Delete class="ic-xs" />
+          {{ t('chat.deleteBatch', selectedIds.size) }}
+        </button>
+      </div>
+
+      <div class="search">
+        <Search class="ic ic-sm" />
+        <input
+          v-model="search"
+          type="text"
+          class="input"
+          :placeholder="t('chat.searchSession')"
+          autocomplete="off"
         />
-        <EmptyState
-          v-else-if="grouped.length === 0"
-          variant="empty-search"
-          size="sm"
-          :title="t('chat.noMatch')"
-          class="py-4"
-        />
-        <template v-else>
-          <div v-for="g in grouped" :key="g.label || 'flat'" class="mt-2">
-            <div
-              v-if="g.label"
-              class="px-3 py-1 text-2xs font-semibold uppercase tracking-wider text-wb-muted"
+      </div>
+    </div>
+
+    <div class="sess-scroll">
+      <div v-if="loading" class="px-3 py-3 fs12 muted">{{ t('ui.status.loading') }}</div>
+      <!-- 空态复用 EmptyState：窄栏里不画插画（120/64px 插画会盖住文案），只留结论 + 下一步 -->
+      <EmptyState
+        v-else-if="sessions.length === 0"
+        size="sm"
+        :illustration="false"
+        :title="t('chat.noSessionsTitle')"
+        :subtitle="t('chat.noSessionsHint')"
+      />
+      <EmptyState
+        v-else-if="grouped.length === 0"
+        size="sm"
+        :illustration="false"
+        :title="t('chat.noMatch')"
+        :subtitle="t('chat.noMatchHint')"
+      />
+      <template v-else>
+        <div v-for="g in grouped" :key="g.label || 'flat'" class="mb-1">
+          <div v-if="g.label" class="sess-group">
+            {{ g.label }}
+            <span class="n">{{ g.count }}</span>
+          </div>
+          <ul class="space-y-0.5">
+            <li
+              v-for="node in g.items"
+              :key="node.session.id"
+              class="sess-item"
+              :class="[
+                node.session.id === currentID && !multiSelect ? 'is-on' : '',
+                node.isRoot ? '' : 'tree-indent'
+              ]"
+              :style="node.isRoot ? undefined : { paddingLeft: '26px' }"
+              @click="multiSelect ? toggleSelect(node.session.id) : emit('select', node.session.id)"
             >
-              {{ g.label }}
-            </div>
-            <ul class="space-y-0.5">
-              <li
-                v-for="node in g.items"
-                :key="node.session.id"
-                class="group relative flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1.5 transition-colors"
-                :class="[
-                  node.session.id === currentID && !multiSelect
-                    ? 'bg-wb-primary/10 text-wb-primary-strong'
-                    : 'text-wb-ink hover:bg-wb-surface-hover',
-                  selectedIds.has(node.session.id) ? 'ring-1 ring-wb-primary/40' : '',
-                  node.isRoot ? '' : 'ml-3 border-l border-wb-border pl-2'
-                ]"
-                @click="multiSelect ? toggleSelect(node.session.id) : emit('select', node.session.id)"
-              >
+              <div class="si-name">
                 <button
                   v-if="multiSelect"
                   type="button"
-                  class="mr-0.5 shrink-0 text-wb-primary"
+                  class="icon-btn h-4 w-4 p-0"
+                  :class="selectedIds.has(node.session.id) ? 'is-on' : ''"
                   @click.stop="toggleSelect(node.session.id)"
                 >
-                  <el-icon><component :is="selectedIds.has(node.session.id) ? CircleCheck : Circle" /></el-icon>
+                  <Check v-if="selectedIds.has(node.session.id)" class="ic-xs" />
+                  <span v-else class="block h-2.5 w-2.5 rounded-full border border-wb-line-2" />
                 </button>
-                <span v-if="!node.isRoot" class="shrink-0 text-wb-muted" :title="t('chat.branch')">
-                  <el-icon :size="12"><GitBranch /></el-icon>
-                </span>
-                <span class="min-w-0 flex-1 truncate text-ctl">
-                  {{ node.session.name || t('chat.unnamed') }}
-                </span>
-                <!-- 置顶标识：pinned 会话常驻显示 -->
                 <span
                   v-if="node.session.pinned && !multiSelect"
-                  class="shrink-0 text-wb-primary-strong"
+                  class="text-wb-primary"
                   :title="t('chat.pinned')"
                 >
-                  <el-icon :size="11"><Pin /></el-icon>
+                  <Pin class="ic-xs" />
                 </span>
-                <!-- 分支数徽标：根会话有支线时展示 -->
+                <span v-else-if="!node.isRoot" class="shrink-0 text-wb-muted" :title="t('chat.branch')">
+                  <GitBranch class="ic-xs" />
+                </span>
+                <span class="min-w-0 flex-1 truncate">{{ node.session.name || t('chat.unnamed') }}</span>
+              </div>
+              <div class="si-meta">
+                <span>{{ fmtTime(sessionTime(node.session)) }}</span>
                 <span
                   v-if="node.isRoot && branchCount(node.session.id) > 0"
-                  class="shrink-0 rounded-full bg-wb-primary/10 px-1.5 text-2xs font-medium text-wb-primary-strong"
+                  class="flex items-center gap-0.5"
                   :title="t('chat.branchCount', branchCount(node.session.id))"
                 >
-                  <el-icon :size="10" class="align-[-1px]"><GitBranch /></el-icon>
+                  <GitBranch style="width: 10px; height: 10px" />
                   {{ branchCount(node.session.id) }}
                 </span>
-                <span
-                  v-else-if="!multiSelect"
-                  class="shrink-0 text-2xs tabular-nums text-wb-muted/80"
-                >{{ fmtTime(sessionTime(node.session)) }}</span>
-                <!-- 悬浮操作：置顶 / 归档 / 删除 -->
-                <template v-if="!multiSelect">
-                  <el-tooltip :content="node.session.pinned ? t('chat.unpin') : t('chat.pin')" placement="top">
-                    <el-button
-                      text
-                      size="small"
-                      circle
-                      class="ml-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                      :class="node.session.pinned ? 'text-wb-primary-strong' : ''"
-                      @click.stop="emit('pin', node.session.id, !node.session.pinned)"
-                    >
-                      <el-icon :size="13"><Pin /></el-icon>
-                    </el-button>
-                  </el-tooltip>
-                  <el-tooltip :content="archivedView ? t('chat.unarchive') : t('chat.archive')" placement="top">
-                    <el-button
-                      text
-                      size="small"
-                      circle
-                      class="ml-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                      :title="archivedView ? t('chat.unarchive') : t('chat.archive')"
-                      @click.stop="emit('archive', node.session.id, !archivedView)"
-                    >
-                      <el-icon :size="13"><Archive /></el-icon>
-                    </el-button>
-                  </el-tooltip>
-                  <el-button
-                    type="danger"
-                    size="small"
-                    text
-                    circle
-                    class="ml-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    :title="t('chat.deleteSession')"
-                    @click.stop="emit('remove', node.session.id)"
-                  >
-                    <el-icon :size="14"><Delete /></el-icon>
-                  </el-button>
-                </template>
-              </li>
-            </ul>
-          </div>
-        </template>
-      </div>
-    </el-scrollbar>
+              </div>
+              <!-- 悬浮操作：置顶 / 归档 / 删除 -->
+              <div v-if="!multiSelect" class="si-act">
+                <button
+                  type="button"
+                  class="icon-btn"
+                  :title="node.session.pinned ? t('chat.unpin') : t('chat.pinned')"
+                  @click.stop="emit('pin', node.session.id, !node.session.pinned)"
+                >
+                  <Pin class="ic-xs" />
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  :title="archivedView ? t('chat.unarchive') : t('chat.archive')"
+                  @click.stop="emit('archive', node.session.id, !archivedView)"
+                >
+                  <Archive class="ic-xs" />
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn is-danger"
+                  :title="t('chat.deleteSession')"
+                  @click.stop="emit('remove', node.session.id)"
+                >
+                  <Delete class="ic-xs" />
+                </button>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </template>
+    </div>
   </aside>
 </template>

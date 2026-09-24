@@ -45,11 +45,9 @@ var writeToolNames = map[string]struct{}{
 	"archive_manager": {},
 }
 
-// evidenceForClaim 核对声明与产物清单的覆盖关系：
-//   - claimed 为空：返回 true（无文件声明，无需核对——claimsArtifact 已先筛过含声明）
-//   - pathHits > 0：至少一条声明路径在本 run 的 file_changes 命中 → 证据齐备
-//   - pathHits == 0 但 writeTools > 0 且 hasChanges：变更在 worktree 但路径未抽到（泛指）→ 接受
-//   - 其他：未找到任何产物证据 → false
+// evidenceForClaim 核对声明与产物清单的覆盖关系：claimed 为空直接通过（调用方已先筛过含声明）；
+// 至少一条声明路径在本 run 的 file_changes 命中 → 证据齐备；路径未命中但有写入工具且工作区
+// 有变更（声明泛指）→ 接受；其余判为无证据。
 func evidenceForClaim(claimed map[string]struct{}, calls []llm.ToolCall, changes []changeEvidence) bool {
 	if len(claimed) == 0 {
 		return true

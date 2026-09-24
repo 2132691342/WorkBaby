@@ -1,7 +1,19 @@
+// 集成链路测试：MCP 配置加密与回滚、文件变更快照与回滚、反幻觉核验。
+
 package service
 
 import (
-	"WorkBaby/internal/core"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
 	"WorkBaby/internal/db"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
@@ -10,16 +22,6 @@ import (
 	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/repo"
 	"WorkBaby/internal/tool"
-	"context"
-	"encoding/json"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-	"os"
-	"path/filepath"
-	"testing"
-	"time"
 )
 
 func existingCommand(t *testing.T) string {
@@ -279,38 +281,5 @@ func TestUnbackedClaimGuard(t *testing.T) {
 	}
 }
 
-// TestApprovalPendingRestore 守卫审批恢复：审批挂起期间可列出，前端刷新后按 id 回填。
-func TestApprovalPendingRestore(t *testing.T) {
-	bus := event.New()
-	ap := NewApprovalService(bus).WithEmitter(NewEmitter(bus, event.NewRunEventLog(0, 0)))
-	ctx := core.WithRunContext(context.Background(), "RUN_1", "SESSION_1")
-
-	registered := make(chan struct{}, 1)
-	bus.Subscribe(event.MatchExact("chat:approval"), func(_ string, _ any) { registered <- struct{}{} })
-
-	done := make(chan bool, 1)
-	go func() { done <- ap.Approve(ctx, "del /tmp/x", "irreversible") }()
-
-	// 等审批注册并广播（消除与 Pending() 的调度竞态）
-	select {
-	case <-registered:
-	case <-time.After(2 * time.Second):
-		t.Fatal("审批事件未广播")
-	}
-
-	var found bool
-	for _, p := range ap.Pending() {
-		if p.Command != "del /tmp/x" {
-			continue
-		}
-		found = true
-		assert.Equal(t, "RUN_1", p.RunID)
-		assert.Equal(t, "SESSION_1", p.SessionID)
-		assert.True(t, p.ExpiresAt > time.Now().UnixMilli())
-		// 前端刷新后按 id 恢复决策（空 scope = 一次性放行）
-		require.NoError(t, ap.Decide(p.ID, false, ""))
-	}
-	assert.True(t, found, "审批挂起期间 Pending 应可列出")
-	assert.False(t, <-done)
-	assert.Empty(t, ap.Pending(), "决策后不应再有未决审批")
-}
+// 注：审批挂起可列出 + 按 id 回填决策的覆盖，由 recovery_test.go 的
+// TestDurableApprovalPauseResume 承担（跨重启闭环是其超集），此处不重复。

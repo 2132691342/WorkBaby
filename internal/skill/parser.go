@@ -51,10 +51,8 @@ func (w *whenToUseList) UnmarshalYAML(value *yaml.Node) error {
 	}
 }
 
-// ParseSKILLMD 解析 SKILL.md → SkillDO。
-//
-// 格式：首行 `---`，YAML frontmatter，闭合 `---`，之后为 Markdown body。
-// 解析失败返回 8002。
+// ParseSKILLMD 解析 SKILL.md → SkillDO：首行 `---`、YAML frontmatter、闭合 `---`、
+// 之后为 Markdown body。解析失败返回 8002。
 func ParseSKILLMD(data []byte, source domain.SkillSourceKind, ref string) (*domain.SkillDO, error) {
 	s := string(data)
 	if !strings.HasPrefix(strings.TrimSpace(s), "---") {

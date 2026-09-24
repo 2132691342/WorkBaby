@@ -100,10 +100,7 @@ func providerDefaults(p *ProviderParams) map[string]any {
 }
 
 // ProviderParamsFromDO 把持久化 AiProviderDO 映射成 ProviderParams。
-// 约定：Temperature==0 / TopP==0 / ThinkingEffort=="" 视作"未设置"，对应字段置 nil
-// （被 ResolveParams 跳到下一层：全局默认）。
-// TopP 不映射会让 Provider 表格里填的 top_p 静默失效——展示了输入框却不生效，
-// 比没有这个字段更糟。
+// Temperature==0 / TopP==0 / ThinkingEffort=="" 视作「未设置」（置 nil 并跳到下一层）。
 func ProviderParamsFromDO(p *domain.AiProviderDO) *ProviderParams {
 	if p == nil {
 		return nil
