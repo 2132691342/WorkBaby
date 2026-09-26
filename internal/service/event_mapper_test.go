@@ -13,7 +13,6 @@ import (
 	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
-	"WorkBaby/internal/repo"
 )
 
 // TestCoreEventMapper 覆盖事件映射与父子 run 分流。
@@ -210,12 +209,6 @@ func TestSideParentMessages(t *testing.T) {
 	normalMsgs, err := svc.sideParentMessages(ctx, row, false)
 	require.NoError(t, err)
 	require.Nil(t, normalMsgs)
-}
-
-// sideMsgRepo 测试种子数据用的消息仓储。
-func sideMsgRepo(t *testing.T, svc *ChatService) *repo.MessageRepo {
-	t.Helper()
-	return svc.messages
 }
 
 // TestEmitterContract 事件出口契约：结构体载荷归一、归属注入、重放日志入账。

@@ -133,14 +133,6 @@ func TestMcpServiceSaveRawWritesConfigAndRollsBack(t *testing.T) {
 	assert.Contains(t, string(after), "fs")
 }
 
-// writeCfgTemp 写临时配置文件，返回路径（保留给后续 MCP/配置类用例复用）。
-func writeCfgTemp(t *testing.T, name, content string) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), name)
-	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
-	return p
-}
-
 func newFileChangeTestEnv(t *testing.T) (*FileChangeService, string, *repo.FileChangeRepo) {
 	t.Helper()
 	dsn := "file:fc_" + t.Name() + "?mode=memory&cache=shared"

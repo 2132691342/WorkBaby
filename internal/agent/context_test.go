@@ -4,7 +4,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -120,16 +119,17 @@ func TestTransformContext(t *testing.T) {
 	})
 }
 
-// TestConvertToLlm（PI Phase 3）ConvertToLlm 回调：仅作用于本轮发送。
+// TestConvertToLlm（PI Phase 3）ConvertToLlm 回调：仅作用于本轮发送的请求载荷。
 func TestConvertToLlm(t *testing.T) {
 	echo := &mockTool{name: "echo", risk: tool.RiskReadOnly}
 	p := &mockProvider{turns: []llm.ChatResponse{
 		{Message: llm.Message{Role: llm.RoleAssistant, Content: "ok"}, StopReason: "end_turn"},
 	}}
+	// 协议边界：剥掉非 user/assistant/tool 的角色——验证回调确实参与请求构造，
+	// 而不只是被路过一次。
 	l := newTestLoop(t, p, echo).WithGuard(ExposeGuard(nil)).
 		WithHooks(Hooks{
 			ConvertToLlm: func(_ context.Context, msgs []*llm.Message) ([]*llm.Message, error) {
-				// 协议边界：过滤掉非 user/assistant/tool 角色
 				out := make([]*llm.Message, 0, len(msgs))
 				for _, m := range msgs {
 					if m.Role == llm.RoleUser || m.Role == llm.RoleAssistant || m.Role == llm.RoleTool {
@@ -143,9 +143,10 @@ func TestConvertToLlm(t *testing.T) {
 	_, err := l.Run(context.Background(), []*llm.Message{llm.UserMessage("hi")})
 	require.NoError(t, err)
 	require.NotEmpty(t, p.requests)
-	assert.NotEmpty(t, p.requests[0].Messages, "ConvertToLlm 应被调用且生效")
-
-	// 额外验证：JSON 字段保留
-	_, _ = json.Marshal(p.requests[0].Messages)
-	_ = tool.RiskReadOnly
+	for _, m := range p.requests[0].Messages {
+		assert.Contains(t,
+			[]llm.RoleType{llm.RoleUser, llm.RoleAssistant, llm.RoleTool},
+			m.Role,
+			"ConvertToLlm 过滤后角色必须只剩 user/assistant/tool")
+	}
 }

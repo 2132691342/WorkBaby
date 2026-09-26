@@ -57,6 +57,3 @@ func BenchmarkWriteEvent(b *testing.B) {
 		writeEvent(w, int64(i+1), "chat:stream", `{"delta":"x"}`)
 	}
 }
-
-// BenchmarkExtractMeta placeholder for future payload-extraction benchmark
-// (extractMeta is part of the planned SSE hot-path work and not yet implemented).

@@ -157,7 +157,7 @@
 |---|---|---|
 | GET / POST | /agent-profiles | 列表 / 按 name upsert（人设 / 工具策略 / 预算 / 模型） |
 | POST | /agent-profiles/:name/enabled · /:name/delete | 启停（停用即从注册表摘除）/ 删除 |
-| GET / POST | /hooks | 列表（event 已归一为七类事件名）/ 创建更新（后端能力，无内置界面） |
+| GET / POST | /hooks | 列表（event 已归一为 6 类事件名）/ 创建更新（后端能力，无内置界面） |
 | POST | /hooks/:id/delete · /:id/test | 删除 / 试跑（样例载荷 → 决策 / 理由 / 注入上下文 / 耗时） |
 
 ### 2.12 文件夹与文件

@@ -64,17 +64,7 @@
 
 ### 3.4 关键设计
 
-**场景函数 + 父测试聚合（service 层）**
-
-把场景写成私有函数（`testApprovalScopes`），由父测试用 `t.Run` 聚合：
-
-```go
-func TestChatApproval(t *testing.T) {
-	t.Run("scopes", testApprovalScopes)
-}
-```
-
-好处：改某个能力只需跑对应父测试；场景函数可被多个父测试复用；单文件测试函数数受控。
+**按改动面选测试**：先看要改的能力落在哪个包（见上表），再决定跑哪个目标；按需 `-run TestXxx` 定位单个用例。
 
 **真实依赖优先，只在必要处用替身**
 
@@ -95,7 +85,7 @@ func TestChatApproval(t *testing.T) {
 |---|---|
 | 新增后端端点 | `internal/server/routes.go` 注册 + `internal/api/`（`api_chat.go` / `api_provider.go` / `api_handlers.go` 按域归入）透传 + 业务进 `service`；同步 `docs/API-CONTRACT.md` 与前端 `client.ts` 白名单 |
 | 新增表 | `domain` DO → `repo` → 登记 `db/migrate.go` → 更新 `docs/ARCHITECTURE.md` 表清单 |
-| 新增工具 | 实现 `tool.Tool` → 在 `api.Handler.Startup` 注册 → 更新 `specs/features/tools/` |
+| 新增工具 | 实现 `tool.Tool` → 在 `api.Handler.Startup` 注册 → 更新 `specs/05-08 (tools)/` |
 | 新增前端文案 | zh / en 字典同步加键，跑 `i18n-sync.mjs check` |
 | 新增前端组件 | 遵守 `docs/COMPONENT-GUIDELINES.md`；外观语法回填 `wb-ui.css` |
 | 文档 | 与代码同时更新；只描述现状，不记录改动过程 |
@@ -107,5 +97,5 @@ func TestChatApproval(t *testing.T) {
 | 门禁脚本作为提交前必经 | 架构约束不靠自觉，破坏即失败 | 改动契约时需同步更新脚本与前端路径白名单 |
 | 测试只覆盖复杂链路 | 全量 10 秒内跑完，改功能验证快 | 简单函数的回归靠编译期与集成测试兜底 |
 | 文档与代码同 PR 更新 | 文档始终反映现状 | 每次改动都要评估文档影响面 |
-| 私有场景函数 + `t.Run` 聚合 | 单文件函数数受控；定位快 | 需遵守命名约定（`testXxx` 不被 `go test` 直接发现） |
+| 单文件 ≤ 6 个 `Test` | 改动时定位快；避免单文件膨胀 | 同类场景需用 table-driven 合并 |
 | 真实 SQLite / 真实子进程 | 测的是真实行为而非 mock 行为 | 单测略慢；子进程用例需 fixture 基础设施 |

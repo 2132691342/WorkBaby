@@ -110,9 +110,9 @@ budget = window × compressRatio（全局设置）
 | 整段折叠（不拆对） | 满足上游协议 | 折叠粒度粗，可能一次丢掉较多内容 |
 | 最后一轮永不丢 | 当前任务上下文始终完整 | 极端情况下仍可能超预算（此时由上游报错兜底） |
 
-## 7. 三回调边界（PI Phase 3）
+## 7. 三回调边界
 
-`specs/features/agent/01-react-loop.md §3` 列了三回调，本节细化 `TransformContext` 与 `ConvertToLlm` 的边界，
+`specs/01-react-loop.md §3` 列了三回调，本节细化 `TransformContext` 与 `ConvertToLlm` 的边界，
 避免在 service 层错位装配。
 
 ### 7.1 TransformContext vs ConvertToLlm
@@ -126,9 +126,8 @@ budget = window × compressRatio（全局设置）
 | 调用次数 | 每轮 1 次（已设时） | 每轮 1 次（已设时） |
 | 谁负责 | 编排层需要 per-turn 裁剪（如按会话状态折叠）时经 `Hooks.TransformContext` 注入 | 某协议需要特殊字段（如 Anthropic `cache_control`）时经 `Hooks.ConvertToLlm` 注入 |
 
-**为什么分开**：旧实现把「裁剪上下文」与「协议归一」挤在 `BeforeTurn` 一个回调里。
-当某个 Provider 出现新字段（比如 Anthropic `cache_control`）时，协议归一回调可单独
-打补丁而不影响压缩逻辑；反之亦然。
+**为什么分开**：把「裁剪上下文」与「协议归一」拆成两个回调。当某个 Provider 出现新字段
+（比如 Anthropic `cache_control`）时，协议归一回调可单独打补丁而不影响压缩逻辑；反之亦然。
 
 ### 7.2 PrepareNextTurn 的特殊位
 

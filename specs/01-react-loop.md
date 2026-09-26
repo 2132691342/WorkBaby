@@ -1,10 +1,7 @@
-# 01 · ReAct 主循环（PI 形态 2 层循环）
+# 01 · ReAct 主循环（2 层循环）
 
 `internal/agent` 是**纯内核**：不依赖上层、不感知 HTTP。输入只有「消息 + Provider + 工具」，
 输出只有「事件流 + Outcome」。所有与安全、审批、持久化相关的决策都由外部注入（三回调 + 中间件链）完成。
-
-> 形态：PI `pi-agent-core` 等价物；本包在 §9.7 列出的 7 项差距已对齐（2 层循环 / 三回调 / 队列 / getApiKey / 工具 ExecutionMode）。
-> 中间件链作为 §9.7.2 的「保留偏离」继续承担 6 维度安全护栏。
 
 ## 1. 装配
 
@@ -14,10 +11,10 @@
 New(provider, registry, cfg)
   → WithSink / WithMeta / WithHooks / WithCompressor / WithCheckpoints
   → WithAssistantMessage / WithSteps / WithRetry / Expose / WithGuard
-  → WithPrepareNextTurn   // PI Phase 3 新增：压缩 + 模型/思考档 + 注入消息
-  → WithGetAPIKey          // PI Phase 3 新增：可刷新 API key
-  → WithSteeringQueue      // PI Phase 3 新增：QueueMode 队列
-  → WithFollowUpQueue      // PI Phase 3 新增：同上
+  → WithPrepareNextTurn   // 压缩 + 模型/思考档 + 注入消息
+  → WithGetAPIKey          // 可刷新 API key
+  → WithSteeringQueue      // 轮间插话（QueueMode 队列）
+  → WithFollowUpQueue      // 收尾续接（同上）
 ```
 
 **护栏必装**：`WithGuard` 未装配时 `Run / Resume` 直接返回错误（5000），不回落到裸执行器——
@@ -70,18 +67,16 @@ runLoop(ctx, msgs, startTurn, out):
         append pending                                # 目标模式续跑 / 收尾续接统一走 follow-up
 ```
 
-**关键差异（vs 单层循环）**：
+**关键形态**：
 
-| 单层（旧） | 2 层（PI Phase 3）|
+| 形态 | 说明 |
 |---|---|
-| `if fu continue` 拼接在内层尾部 | 内层独立退出后外层显式 drain follow-up |
-| 压缩塞在 `BeforeTurn` 一锅 | `PrepareNextTurn` 独立回调，可同时改 model / thinking |
-| Steering/FollowUp 直返消息 | 队列 + `QueueMode`（`one-at-a-time` / `all`）|
-| 工具并行判定靠 `Parallel + AllReadOnly` | 工具自己声明 `ExecutionMode` |
+| 2 层循环 | 外层等收尾缝、内层做工具批与插话；目标模式续跑与检查点续跑统一走 follow-up |
+| 三个回调 | 上下文裁剪 / 协议归一 / 切模型思考档 互不干扰 |
+| 队列 + `QueueMode` | 轮间插话与收尾续接都从队列 drain，支持批量入队与可见性事件 |
+| 工具自声明 `ExecutionMode` | 避免启发式误判；可声明 Sequential 强制整批串行 |
 
 ## 3. 三回调分离
-
-旧 `BeforeTurn` 把「上下文裁剪」与「协议归一」挤在一处；Phase 3 拆为三个独立位点。
 
 | 回调 | 时机 | 职责 | 失败处理 |
 |---|---|---|---|
@@ -107,7 +102,7 @@ type NextTurnUpdate struct {
 `agent.run.start / turn.start / turn.delta / turn.thinking / turn.end / tool.call / tool.start /
 tool.result / checkpoint / compressed / error / run.done / queue.drained`，重试走 `agent.retry`。
 
-| 新事件 | 时机 |
+| 事件 | 时机 |
 |---|---|
 | `queue.drained` | `steeringQueue` 或 `followUpQueue` 一次 drain 取出 ≥1 条消息时下发，让前端看到「用户消息已入队并被消费」 |
 
@@ -121,15 +116,15 @@ tool.result / checkpoint / compressed / error / run.done / queue.drained`，重�
 
 | Hook | 时机与用途 |
 |---|---|
-| `BeforeTurn` | **旧字段**（保留兼容）：每轮请求前改写消息序列；新代码改用 `TransformContext` |
-| `AfterToolCall` | 工具执行后回调（落块、记忆抽取、审计）|
+| `BeforeTurn` | 每轮请求前改写消息序列（保留兼容；新代码用 `TransformContext`） |
+| `AfterToolCall` | 工具执行后回调（落块、记忆抽取、审计） |
 | `ShouldStop` | 轮结束后询问是否提前终止 |
-| `Steering` | **旧字段**（保留兼容）：轮间插话；新代码改用 `WithSteeringQueue` |
-| `FollowUp` | **旧字段**（保留兼容）：收尾续接；新代码改用 `WithFollowUpQueue` |
-| `TransformContext` | **新**：每轮请求前裁剪上下文 |
-| `ConvertToLlm` | **新**：协议边界归一 |
-| `PrepareNextTurn` | **新**：压缩 + 模型/思考档 + 注入消息（挂在 `Loop` 上而非 `Hooks`）|
-| `GetAPIKey` | **新**：可刷新 API key |
+| `Steering` | 轮间插话（保留兼容；新代码用 `WithSteeringQueue`） |
+| `FollowUp` | 收尾续接（保留兼容；新代码用 `WithFollowUpQueue`） |
+| `TransformContext` | 每轮请求前裁剪上下文 |
+| `ConvertToLlm` | 协议边界归一 |
+| `PrepareNextTurn` | 压缩 + 模型/思考档 + 注入消息（挂在 `Loop` 上而非 `Hooks`） |
+| `GetAPIKey` | 可刷新 API key |
 
 ## 6. 队列与 QueueMode
 

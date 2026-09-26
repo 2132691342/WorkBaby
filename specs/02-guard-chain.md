@@ -126,17 +126,14 @@ key = 工具名 + 规范化参数（JSON 重新序列化，同参异序判同一
 | 权限四档 + destructive 恒需审批 | 不可逆操作永不免审 | 首次使用有学习成本 |
 | 钩子在策略门之后 | 内置安全不被用户配置削弱 | 用户无法用钩子放宽内置护栏 |
 
-## 8. 为何保留 middleware 链 vs PI 的单一回调
+## 8. 为何使用 middleware 链
 
-PI `pi-agent-core` 的安全门是「`BeforeToolCall` / `AfterToolCall`」两个回调；
-本工程保留 **6 层 middleware 链** 是有意为之的偏离（见 `AGENTS.md §9.7.2`）。
+把 6 维度（Expose / Schema / Policy / Approval / Adaptive / Repeat）拆为独立中间件，而非塞进 1 个回调。
 
 ### 8.1 单一回调的合并压力
 
-把 6 维度（Expose / Schema / Policy / Approval / Adaptive / Repeat）塞进 1 个回调：
-
 ```ts
-// PI 风格（伪）
+// 单一回调的伪码示例
 beforeToolCall(ctx) {
     if (!allowed(ctx.toolCall)) return block(...)
     if (!validArgs(ctx.args)) return block(...)
@@ -162,23 +159,15 @@ beforeToolCall(ctx) {
 ### 8.2 middleware 链的优势
 
 ```go
-// 本工程
 Chain(ExposeGuard, SchemaGuard, PolicyGuard, hookGuard, AdaptiveLoopGuard, RepeatGuard)(base)
 ```
 
-- 每个中间件只负责一个维度，`func TestXxxGuard` 单测零依赖
+- 每个中间件只负责一个维度，对应一个 `TestXxxGuard` 单测零依赖
 - 短路靠 `return refuse(...)`，新增维度 = 插入一个新 `Middleware`，零侵入
 - 顺序在 `service.guardsFor` 一处集中，改顺序=改一个 slice
 - 拒绝原因码（`policy` / `approval` / `path_trust` / `prompt_injection` / `loop_guard`）与中间件一一对应
 
-### 8.3 与 PI 的兼容性
-
-- 链路最外层 `ExposeGuard` 的语义等价于 PI 的工具暴露检查
-- `PolicyGuard` 内的「风险×模式×规则」+ `Approver` 等价于 PI 的 `beforeToolCall`
-- `hookGuard` 用 `AfterToolCall` 链路回调等价于 PI 的 `afterToolCall` 注入附加上下文
-
-如果未来需要可扩展性（用户注册自定义护栏），本形态用「`Hook{AfterToolCall}` + middleware 注册表」
-扩展即可，不必退回到单一回调。
+如果未来需要可扩展性（用户注册自定义护栏），可在 hookGuard 后再追加一个用户注册中间件 slot，主链不变。
 
 ### 8.4 迁移到单一回调的代价
 

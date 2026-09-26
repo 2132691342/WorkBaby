@@ -1,8 +1,6 @@
-package service
+// 聊天服务长链路测试：会话压缩归档、审批两档放行、中途插话、任务生命周期与无人值守审批。
 
-// 聊天服务长链路测试：会话操作（压缩归档）/ 审批两档放行 / 中途插话 /
-// 后台任务执行链路与无人值守审批。
-// 场景实现为私有函数（testXxx），由文件末尾的父测试以 t.Run 聚合。
+package service
 
 import (
 	"context"
@@ -73,13 +71,11 @@ func seedSession(t *testing.T, svc *ChatService, msgRepo *repo.MessageRepo, ctx 
 	return ses, 5
 }
 
-// ===== 会话消息操作 =====
-
 // ===== 审批 =====
 
 // TestApprovalScopes 审批两档放行：「允许一次」只放行本次，「本会话允许」才免审；
 // 不可逆风险即便选了本会话也每次必问（给一次性放行是授权，给永久放行是隐患）。
-func testApprovalScopes(t *testing.T) {
+func TestApprovalScopes(t *testing.T) {
 	bus := event.New()
 	svc := NewApprovalService(bus)
 	ctx := agent.WithRunContext(context.Background(), "run-1", "ses-1")
@@ -204,7 +200,7 @@ func itoa(n int) string {
 }
 
 // TestQueueSteerPersistsAndQueues 有活动 run 时：消息立即落库（前端可见）+ 进入注入队列。
-func testQueueSteerPersistsAndQueues(t *testing.T) {
+func TestQueueSteerPersistsAndQueues(t *testing.T) {
 	svc, msgRepo := newChatOpsService(t)
 	ctx := context.Background()
 	ses, err := svc.CreateSession(ctx, &domain.ChatSessionREQ{Name: "steer2"})
@@ -230,12 +226,10 @@ func testQueueSteerPersistsAndQueues(t *testing.T) {
 	assert.Equal(t, domain.MessageStatusCompleted, rows[0].Status)
 }
 
-// ===== 工作区绑定 =====
-
 // TestCompactSessionArchive 复现「摘要+归档」压缩语义：早期轮次整体标 archived 剔出上下文
 // （正文不删改）；归档边界不得切进 assistant(tool_calls) 与其 tool 结果之间；
 // 归档摘要写会话元数据供 buildSystem 注入。
-func testCompactSessionArchive(t *testing.T) {
+func TestCompactSessionArchive(t *testing.T) {
 	svc, msgRepo := newChatOpsService(t)
 	ctx := context.Background()
 	ses, _ := seedSession(t, svc, msgRepo, ctx)
@@ -294,25 +288,6 @@ func testCompactSessionArchive(t *testing.T) {
 	require.NotEmpty(t, sum)
 	assert.Contains(t, sum, "用户：msg1")
 	assert.NotContains(t, sum, "收尾", "保留侧轮次不应出现在归档摘要里")
-}
-
-// ===== 聚合入口 =====
-// 场景实现为上面的私有函数（不被 go test 直接发现），由下列父测试以 t.Run 聚合；
-// 改某个能力只需跑对应的一个父测试。
-
-// TestChatSessionOps 会话操作：分叉 / 压缩归档。
-func TestChatSessionOps(t *testing.T) {
-	t.Run("compact_archive", testCompactSessionArchive)
-}
-
-// TestChatApproval 危险命令审批：两档放行（一次性 / 本会话）+ 不可逆永不免审。
-func TestChatApproval(t *testing.T) {
-	t.Run("scopes", testApprovalScopes)
-}
-
-// TestChatSteerQueue 中途插话：steer 持久化并入队。
-func TestChatSteerQueue(t *testing.T) {
-	t.Run("persists_and_queues", testQueueSteerPersistsAndQueues)
 }
 
 // waitForTaskState 轮询等待任务进入目标状态（worker 是异步 goroutine，不能同步断言）。

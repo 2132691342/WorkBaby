@@ -10,7 +10,7 @@ main.go / app.go              桌面壳：Wails 生命周期、单实例、托�
    │
    │  ── 以下为业务层，互不横向依赖，只向下依赖 ──
    ├─ internal/service        编排层：会话、审批、任务、文件、技能、MCP、知识库、记忆…
-   ├─ internal/agent          Agent 内核（PI 形态）：ReAct 循环、护栏链、事件、压缩、检查点
+   ├─ internal/agent          Agent 内核：ReAct 循环、护栏链、事件、压缩、检查点、队列
    ├─ internal/tool           工具契约、注册表、内置工具
    ├─ internal/llm            Provider 抽象与三家协议实现
    ├─ internal/capability     能力注册表（上下文装配 / 工具暴露 / run 后沉淀）
@@ -142,7 +142,7 @@ run 只用于重放定位——目标模式的自动续跑会起新 run，按 ru
 - 软删：仅 `knowledge_docs` 用 `gorm.DeletedAt`，其余物理删除
 - 文件作配置源 / 快照 / 导出；配置真相源：`model.json` / `mcp.json`
 
-### 7.2 表清单（24 张）
+### 7.2 表清单
 
 | 表 | 用途 |
 |---|---|
@@ -152,7 +152,7 @@ run 只用于重放定位——目标模式的自动续跑会起新 run，按 ru
 | `message_blocks` | 消息块（思考/正文/工具调用/产物，供刷新后复现） |
 | `session_todos` | 会话待办 |
 | `token_usages` | 每次上游调用的 token 明细（按来源拆分） |
-| `system_settings` | 键值设置（工具启停、exec 白名单、外观…） |
+| `system_settings` | 键值设置（工具启停、外观…） |
 | `skills` | 技能（内置 / 下载 / 自定义，含启用状态） |
 | `agent_profiles` | 自定义子智能体 |
 | `user_commands` | 自定义斜杠命令 |
@@ -160,7 +160,6 @@ run 只用于重放定位——目标模式的自动续跑会起新 run，按 ru
 | `mcp_servers` | MCP 服务器配置（env 加密） |
 | `knowledge_docs` / `knowledge_chunks` | 知识库文档（软删）与分块 |
 | `agent_checkpoints` | run 检查点（每 run 只留最新一轮） |
-| `run_records` | 运行历史索引 |
 | `approval_records` | 审批 / 补问记录（暂停恢复的落点） |
 | `approval_grants` | 免审授权 |
 | `chat_tasks` | 后台任务 |
@@ -181,9 +180,7 @@ run 只用于重放定位——目标模式的自动续跑会起新 run，按 ru
 | 停止原因 | `completed / cancelled / max_turns / tool_error_limit / token_budget / stagnation / error` |
 | 审批 | `pending → approved / denied / timeout / cancelled / answered / skipped → consumed` |
 | 后台任务 | `pending → running → completed / failed / cancelled` |
-| 知识文档 | `pending → parsing → indexed | failed` |
-| 运行记录 | `running → done / error` |
-| 执行平面 | `chat_turn / task / tool_only / delegate`；`planning / running / paused / waiting_input / completed / failed / cancelled` |
+| 知识文档 | `pending → parsing → indexed / failed` |
 | 目标 | `active / paused / done` |
 | 用量来源 | `chat / memory / delegate / task`（委派与后台任务单独归因） |
 
@@ -199,30 +196,20 @@ run 只用于重放定位——目标模式的自动续跑会起新 run，按 ru
 
 ## 8. 目录约定
 
-- 路由：`internal/server/routes.go`（Phase 1 合并：11 → 1）
-- 处理：`internal/api/` 三文件：`api_chat.go` / `api_provider.go` / `api_handlers.go`（其余 22 个薄壳合并）
+- 路由：`internal/server/routes.go`（单一 register 入口）
+- 处理：`internal/api/` 三文件：`api_chat.go` / `api_provider.go` / `api_handlers.go`
 - 业务：`internal/service/`
-  - **chat_run.go**（Phase 3 合并 `chat.go` + `chat_agent.go` + `chat_prepare.go` + `chat_finalize.go` + `chat_runs.go` + `chat_stream.go`，6 → 1）
+  - `chat_run.go`（编排主流程，最大单文件）
   - `chat_sessions.go`（导出 `SessionContext` / `SessionTodoStore`）
   - `chat_task.go`（独立类型 `ChatTaskService`）
-  - `approval.go` / `context.go` / `mcp.go` / `provider.go` / `skill.go` / `tool.go` 等
-- 工具：`internal/tool/functools/` 拆 4 文件
+  - `approval.go` / `context.go` / `mcp.go` / `provider.go` / `skill.go` / `tool.go` 等按域分布
+- 工具：`internal/tool/functools/`
   - `base.go`（`FuncTool` 骨架 + `All()`）
-  - `tools_data.go`（数学 / JSON / CSV / 哈希 / 编码 / 数据 / IP，18 个工具）
-  - `tools_text.go`（日期时间 / 文本 / 正则，9 个工具）
-  - `tools_io.go`（随机 / UUID，3 个工具）
+  - `tools_data.go`（数学 / JSON / CSV / 哈希 / 编码 / 数据 / IP）
+  - `tools_text.go`（日期时间 / 文本 / 正则）
+  - `tools_io.go`（随机 / UUID）
 - 数据：`internal/domain/<表>.go` 定义 DO 与状态常量；`internal/repo/<表>.go` 提供访问
 - 前端：`frontend/src/src` 下 `api / stores / components / chat / composables / i18n / types`
-
-### 8.1 文件规模参考（Phase 3 落地后）
-
-| 包 | 文件数 | 总 LOC | 备注 |
-|---|---|---|---|
-| `internal/agent` | 17 | ~2200 | 含 `phase3_test.go`（4 新测试 / 5 测试辅助类型）|
-| `internal/service` | 46 | ~13K | `chat_run.go` 2062 LOC 为单文件最大 |
-| `internal/tool/functools` | 4 | ~1300 | 拆 4 主题文件后均 ≤ 600 LOC |
-| `internal/llm` | 22 | ~2200 | providerbase 已抽取 |
-| `internal/tool` | 38 | ~5800 | 子包按域清晰 |
 
 ## 9. 取舍
 
@@ -233,3 +220,6 @@ run 只用于重放定位——目标模式的自动续跑会起新 run，按 ru
 | 双通道（HTTP + 原生绑定） | 业务可调试、可重放 | 前端需处理端口注入与两条通道边界 |
 | 会话级锁 | 跨会话天然并行 | 同会话无法并行（后续消息只能插话/排队） |
 | SQLite 单连接 | 无写锁竞争，行为可预测 | 写吞吐受限；重查询阻塞写 |
+| 确定性压缩 | 零成本零延迟，不调 LLM | 摘要质量低于 LLM 摘要 |
+| 检查点仅保留最新轮 | 存储恒定 | 无法回放到更早轮次 |
+| 无向量检索 | 零依赖、纯 Go | 召回依赖 FTS + 短查询子串兜底，不做语义相似度 |

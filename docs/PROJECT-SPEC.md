@@ -74,7 +74,7 @@ WorkBaby 是运行在 Windows 桌面的**个人 AI 助手**：不是聊天窗口
 | 目录信任 | 未登记目录首次写入前询问（fail-closed），祖先信任可继承 |
 | 工作区沙箱 | 文件工具限定工作区根；`exec` 的 cwd 越界校验；过程数据落 `.workbaby/` |
 | 提示注入检测 | 参数含伪工具调用标记（`<tool_call>` 等）直接拒绝 |
-| 用户钩子 | 7 类生命周期事件可放行 / 询问 / 拦截（`SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PermissionRequest` / `PostToolUse` / `PostToolUseFailure` / `Stop`）——后端护栏，无内置管理界面 |
+| 用户钩子 | 6 类生命周期事件可放行 / 询问 / 拦截（`PreToolUse` / `PostToolUse` / `PostToolUseFailure` / `PermissionRequest` / `UserPromptSubmit` / `Stop`）——后端能力，无内置管理界面 |
 
 ### 3.4 个性化与桌面
 

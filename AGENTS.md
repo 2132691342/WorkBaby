@@ -27,7 +27,7 @@
 | 实时通信 | SSE | 业务实时通信全部走 SSE（`/api/v1/events`），未引入 WebSocket |
 | 测试 | testing + testify | ^1.9.x |
 | ID | oklog/ulid/v2 + google/uuid | 业务 ULID 带前缀；trace 用 UUID |
-| Agent | 自研 agent（两层 for 循环 + 护栏中间件链） | 见 specs/features/agent |
+| Agent | 自研 agent（两层 for 循环 + 护栏中间件链） | 见 specs/01-04 (agent) |
 | LLM 适配 | 自研协议适配 | OpenAI / Anthropic / Ollama |
 | Schema 校验 | santhosh-tekuri/jsonschema/v6 | ^6.0.x |
 | MCP | 自研 stdio 客户端 | spec 2025-06-18 |
@@ -57,7 +57,7 @@ WorkBaby/
 │   ├── service/                  # ③ 业务编排层（事务边界；不写 SQL；不引 gin/Wails）
 │   ├── repo/                     # ④ 持久层（GORM；不引上层）
 │   ├── domain/                   # ⑤ 域模型（一个聚合根一个文件，DO/DTO/REQ/VO/RESP 同居一处）
-│   ├── agent/                    # ⑥ Agent 内核（ReAct 循环 + 护栏链 + 压缩 + 检查点 + 事件；PI pi-agent-core 等价物）
+│   ├── agent/                    # ⑥ Agent 内核（ReAct 循环 + 护栏链 + 压缩 + 检查点 + 事件）
 │   ├── llm/                      # ⑦ LLM 适配（providerbase + openai/anthropic/ollama + registry + toolcall）
 │   ├── tool/                     # ⑧ 工具系统（registry + functools 30 个工具 + exec/file/...）
 │   ├── skill/                    # ⑨ Skill（parser/registry/builtin）
@@ -79,7 +79,7 @@ WorkBaby/
 ├── assets/                       # 内置 Skill / 图标 / 用户手册（embed）
 ├── build/                        # 平台资源与产物
 ├── docs/                         # 项目级文档（架构/规范/流程）
-└── specs/features/               # 功能规格（按业务域分组）
+└── specs/               # 功能规格（拍平：01-21 连续编号）
 ```
 
 **禁止**：
@@ -91,7 +91,7 @@ WorkBaby/
 - `internal/pkg/` 依赖任何其他 `internal/` 业务包（叶子工具包铁律）
 - `agent/` import wails / api / service / server / gin
 
-注：原 `internal/core/` 已重命名为 `internal/agent/`（PI `pi-agent-core` 等价物）；后续若文档出现 `core/` 字样均指 `agent/`。
+注：`internal/agent` 是当前唯一的 Agent 内核包；历史文档中的 `core/` 字样均指 `agent/`。
 
 ### 2.2 依赖方向（强制）
 
@@ -204,11 +204,11 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 
 ### 2.6.1 文档规范
 
-- 根级：`README.md` / `AGENTS.md` / `DESIGN.md` / `CHANGELOG.md` / `TODO.md`
+- 根级：`README.md` / `AGENTS.md` / `DESIGN.md` / `CHANGELOG.md`
 - `docs/`：项目级说明（架构 / 规范 / 页面 / 流程 / 契约 / 部署）
-- `specs/features/<域>/`：功能规格，编号连续，一个功能一个文件
+- `specs/`：功能规格，编号 01-21 连续，一个功能一个文件
 - 每篇只写现状：定位 → 设计 → 契约（表 / 字段 / 端点 / 事件与代码一致）→ 关键流程 → 约束 → 取舍
-- 表格与短段落优先；不写 TODO 与未来计划（进度统一进 `TODO.md`）
+- 表格与短段落优先；不写 TODO 与未来计划（变更统一进 `CHANGELOG.md`）
 
 ### 2.7 全局 ID：ULID 大写 + 领域前缀
 
@@ -297,9 +297,9 @@ FTS5 虚拟表与触发器用 raw SQL 启动期单独创建。
 
 **例外**：llm Provider 适配层调上游 API 可用全部 method；mcp 的 JSON-RPC Method 字段是 RPC 方法名。
 
-### 2.13 Agent 内核 PI 契约（强制）
+### 2.13 Agent 内核契约（强制）
 
-`internal/agent` 严格遵循 PI `pi-agent-core` 的契约；只在 §9.7 列出的 7 项上偏离，全部偏离都写入规格并在 PR 中标注。
+`internal/agent` 是整个工程最核心的子系统，下面是它对外的强契约。
 
 #### 2.13.1 主循环形态（2 层）
 
@@ -379,7 +379,7 @@ type Tool interface {
 | 最后一轮永不丢 | 极端压缩场景下当前任务上下文必须完整 |
 | 工具执行不依赖 `Loop.cfg.Parallel` | 工具自己声明 `ExecutionMode`；`Parallel` 仅作兜底 |
 
-详见 `specs/features/agent/01-react-loop.md` / `02-guard-chain.md` / `03-context.md`。
+详见 `specs/01-react-loop.md` / `02-guard-chain.md` / `03-context.md`。
 
 ---
 
@@ -490,109 +490,23 @@ wails build -nsis -ldflags "-s -w" -trimpath       # 生产构建（NSIS 安装�
 
 ---
 
-## 9. PI 形态重构（2026-09）
+## 9. 文档结构与定位
 
-按 PI（HuggingFace `pi-mono`，对齐基线 v0.85.0）的设计哲学对本工程做定向精简。删除冗余、合并 fan-out，不引入插件系统，不动 agent 层的 ReAct 语义。
-
-### 9.1 删除清单
-
-| 删除 | 理由 |
+| 位置 | 内容 |
 |---|---|
-| `internal/pet/` 整包 + `internal/repo/pet.go` + `internal/domain/pet.go` + `internal/api/api_pet.go` + `internal/server/routes_pet.go` | 与「干活型个人 AI 助手」定位不符；用户已确认删除 |
-| 前端 `components/pet/`（4 文件） + `stores/pet.ts` + `SettingsView` 的 pet tab + `App.vue` 的 pet:show/pet:hide 监听 + `router` `/pet/desktop` + `AssistantAvatar` 的 sprite 引用 | 同上 |
-| 前端 `components/{channel,cron,home,workflows,folders}/` 5 个空 / 残留目录 | 死路径 |
-| 11 个 settings 视图的孤立目录 `components/{agents,commands,docs,files,hooks,mcp,memory,runs,skills,tools,wiki}/` | 单一视图无理由独占子目录；统一迁到 `components/settings/views/` |
-| `domain/contract.go` | 仅一个常量 `ContractVersion`，已并入 `domain/id.go` |
-| `domain/approval.go` | `ApprovalPendingRESP` 并入 `domain/approval_grant.go` |
-| `service/chat_gates.go` | 2 个内部辅助函数并入 `service/chat.go` |
-| `service/chat_usage.go` | 4 个 usage 落库函数并入 `service/chat_finalize.go` |
-| `service/{meta,docs}.go` | 壳函数，由调用方内联（`docs.go` 后重建为内置用户手册服务 `DocsService`） |
-| `internal/llm/{openai,anthropic,ollama}/client.go` 中的 `mustMarshal` / `intPtr` | 重复实现 3 次；统一到 `internal/llm/providerbase.go` |
+| `README.md` | 项目定位、技术栈总览、模块树、启动与构建命令 |
+| `AGENTS.md` | 工程规范（技术栈 / 包结构 / 依赖方向 / 命名 / 错误码 / 横切关注点 / 测试 / 门禁 / 验收） |
+| `DESIGN.md` | 视觉语言（设计令牌 / 控件 / 字体 / 阴影 / 动效） |
+| `CHANGELOG.md` | 面向用户的版本变更摘要（按 release 聚合） |
+| `docs/ARCHITECTURE.md` | 模块拓扑、依赖方向、数据流、关键设计决策 |
+| `docs/API-CONTRACT.md` | HTTP 路由表、SSE 事件清单、请求 / 响应 DTO、错误码映射 |
+| `docs/PAGE-STRUCTURE.md` | 前端页面信息架构、导航、组件约束 |
+| `docs/COMPONENT-GUIDELINES.md` | 前端组件编写规范（设计令牌、状态、ShellBridge 通信） |
+| `docs/DEVELOPMENT.md` | 开发环境搭建、本地运行、调试技巧 |
+| `docs/DEPLOYMENT.md` | 构建产物、安装包、升级与回滚 |
+| `docs/PROJECT-SPEC.md` | 产品定位、用户旅程、功能清单 |
+| `docs/prd/` | 需求原型 |
+| `specs/*.md` | 功能规格（定位 → 设计 → 契约 → 关键流程 → 约束） |
 
-### 9.2 合并清单
-
-| 操作 | 前 → 后 |
-|---|---|
-| `internal/server/routes_*.go`（11 文件） | → 1 个 `routes.go`（963 LOC，单一 register 入口） |
-| `internal/api/api_*.go`（24 文件） | → 3 个：`api_chat.go` + `api_provider.go` + `api_handlers.go`（其余 22 个薄壳合并） |
-| `internal/tool/functools/*.go`（12 文件） | → 4 个：`base.go`（FuncTool 骨架 + `All()`）+ `tools_data` / `tools_text` / `tools_io`（30 个工厂，按主题分） |
-| `internal/service/chat_*.go`（12 文件） | → 10 文件（gates + usage 并入 chat / finalize） |
-| 三个 provider 的 `mustMarshal` / `intPtr` | → `internal/llm/providerbase.go` 导出 `MustMarshal` / `IntPtr` |
-| 前端 11 个 settings 视图子目录 | → `components/settings/views/` 一个目录 |
-| 前端 `SettingsView` 中 11 个 `lazySection(() => import('@/components/{agents,commands,…}/X.vue'))` | → `@/components/settings/views/X.vue` 统一 |
-
-### 9.3 维护原则
-
-- **`agent/`（Agent 内核）ReAct 语义不变**：Phase 2 改名、Phase 3 契约对齐后，循环 / 护栏 / 压缩 / 检查点语义与 PI 形态一致
-- **`internal/mcp/` 零修改**：4 文件包结构已 well-shaped（client / adapter / manager / platform 切分正确）
-- **`internal/pkg/` 零修改**：叶子工具包铁律
-- **前端 `main.ts` / `App.vue` 主体 / `themes.css` / `wb-ui.css` / `i18n` 零修改**：设计令牌与外壳骨架保留
-- **不引入插件系统**：PI 的 Extension API 不移植；skill / command / hook 仍按内部资源加载
-- **不引入新依赖**：所有变化都在 Go 标准库 + 已有第三方库内完成
-
-### 9.4 架构门禁同步
-
-- `scripts/check-boundaries.ps1`：`ContractVersion` 读取路径从 `internal/domain/contract.go` 改为 `internal/domain/id.go`
-- `scripts/check-boundaries.ps1`：`core-no-upward` / `core-no-http` 改名为 `agent-no-upward` / `agent-no-http`；glob 由 `internal/core*` 改为 `internal/agent*`
-- `scripts/check-contract.ps1`：`routes_*.go` glob 改为 `routes*.go`（合并后只有 routes.go）
-- 前端 `api/client.ts` 的 `KNOWN_PREFIXES`：删除 `/api/v1/pet`（已无对应后端路由）；`/api/v1/folders` 后端路由与 ChatInput 引用链路仍存活，保留
-
-### 9.5 Phase 2：核心包重命名（core → agent）
-
-PI 的 `pi-agent-core` 在 Go 侧落到 `internal/agent/`（原 `internal/core/`）。重命名覆盖：
-
-- `internal/core/*.go`（16 文件） → `internal/agent/*.go`，`package core` → `package agent`
-- 34 个调用点的 import 路径与 `core.X` 引用全部更新
-- `service/chat_task.go` 中变量名 `agent` 与包名冲突，重命名为 `agentName`（函数签名同步）
-
-### 9.6 Phase 2 未做的项（评估后保留现状）
-
-| 候选 | 评估 | 决定 |
-|---|---|---|
-| 新建 `internal/session/`（JSONL + SQLite 双轨） | service/chat_sessions.go 已封装 chat session 全部持久化逻辑；迁移涉及 ~30 个调用点，改动量大于收益 | 延后 |
-| 新建 `internal/resource/`（合并 skill + agents.md + commands） | 已落地：`service/agents_md.go` + `command_file.go` + `frontmatter.go` 迁入 `internal/resource/`（agents_md / commands / loader）；`internal/skill/` 保留独立包 | 完成 |
-| 新建 `internal/settings/`（分层 SettingsManager） | `service/settings.go`（140 LOC）+ `bootstrap` KV 表已承载分层语义；新建包价值边际 | 延后 |
-| `internal/tool/builtin/`（聚合所有内置工具） | 各子包的 `Recorder` / `ScriptResolver` / `ExecPolicy` 等类型分散在子包内；新建聚合包形成反向耦合（子包需被 builtin 反向引用）。当前 `tool.Registry` 已支持 map 查找，handler 中 20 个注册点（18 直注 + 30 个 functools 批量 + 2 个能力域工具）是「显式优于隐式」的取舍 | 不做 |
-| `bootstrap` 接管 `api/handler.go Startup` 460 LOC | Startup 是 Wails 生命周期钩子（ctx 注入 + runtime 调用），必须留在 handler；bootstrap 已接管 db/config/runtime 等横切关注点 | 不做 |
-
-PI 形态重构已完成第 1 期（删除 + 合并）、第 2 期（`core → agent`）与 Phase 3（内核契约对齐）；`internal/resource/` 已落地。`session / settings` 两个新包属于「包装型重构」（零行为变化、纯结构调整），待需求驱动。
-
-### 9.7 Phase 3：内核契约对齐（2026-09）
-
-#### 9.7.1 7 项差距已对齐
-
-| 差距 | WorkBaby 落地 | PI 等价 |
-|---|---|---|
-| 单层循环 → 2 层循环 | `runLoop` 拆 outer（wait follow-up）+ inner（tool+steering） | `agentLoop` / `agentLoopContinue` |
-| `BeforeTurn` 三合一 → 三回调 | `Hooks.TransformContext` + `Hooks.ConvertToLlm` + `Loop.PrepareNextTurn` | `transformContext` / `convertToLlm` / `prepareNextTurnWithContext` |
-| Steering/FollowUp 直返 → 队列 | `SteeringQueue` / `FollowUpQueue` + `QueueMode` | `PendingMessageQueue` |
-| 编译期 API key → 可刷新 | `Loop.GetAPIKey func(ctx, provider) (string, error)` | `getApiKey` callback |
-| 启发式并行判定 → 工具级标注 | `Tool.ExecutionMode() ExecutionMode`（`sequential` / `parallel`）| `executionMode` |
-| 压缩耦合 Compressor → PrepareNextTurn 通用位 | `CompressInfo` 通过 `NextTurnUpdate.CompressInfo` 上行 | 同上 |
-| `EventKind` 补全 | `EventQueueDrained`（入队可见性）| `message_start/update/end` 链式 |
-
-#### 9.7.2 保留的偏离
-
-| 项 | 决定 | 理由 |
-|---|---|---|
-| Middleware 链（6 层护栏）| **保留** | Expose / Schema / Policy / Approval / Adaptive / Repeat 6 维度互相隔离；PI 的单一 before/after 回调会让审批门、路径信任、用户钩子互相污染（见 `specs/features/agent/02-guard-chain.md`）|
-| `Hooks.Steering` / `Hooks.FollowUp` 旧字段 | **保留** | 2 处 `Hooks{}` 字面量调用零迁移成本；新代码走 `WithSteeringQueue` / `WithFollowUpQueue` |
-| `Loop.Run(ctx, history)` / `Loop.Resume(ctx)` 签名 | **不变** | chat_run.go / delegate_core.go 调用点零变化 |
-| `service.ChatService` 公开方法集 32 个 | **不变** | API 契约稳定，前端零变化 |
-| SSE 事件名 / 载荷 / 数据库 schema | **不变** | 重构严格控制在内核内部 |
-
-#### 9.7.3 service 简化
-
-`chat_*.go` 6 文件（528 + 254 + 155 + 317 + 499 + 309 = 2062 LOC）合并为单个 `chat_run.go`：
-- `chat.go` + `chat_agent.go` + `chat_prepare.go` + `chat_finalize.go` + `chat_runs.go` + `chat_stream.go` → `chat_run.go`
-- `chat_sessions.go` / `chat_task.go` / `chat_test.go` 独立保留
-- 公开 API 零变化（依赖图已预先核实：无符号冲突、无循环依赖）
-- `tool/functools/tools.go` 1228 LOC 拆为 `tools_data.go` / `tools_text.go` / `tools_io.go` 3 主题文件
-
-#### 9.7.4 验证
-
-- `go build ./...` · `go vet ./...` · `go test ./internal/... -count=1 -timeout 60s`
-- `scripts/check-boundaries.ps1` · `scripts/check-contract.ps1`
-- `cd frontend && npm run typecheck && npm test`
-
-**重构基线**：调研结论已合并进本节与 `docs/ARCHITECTURE.md`；原始调研报告归档于 `docs/archive/ANALYSIS-PI-ALIGNMENT.md`（不再维护）。
+文档只描述**当前状态与设计**：现状是什么、为什么这样设计、关键边界是什么。
+不写过程性叙事（删除/合并/迁移史）、不写未来规划、不写历史里程碑。
