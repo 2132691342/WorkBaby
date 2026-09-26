@@ -1,16 +1,23 @@
-# 01 · ReAct 主循环
+# 01 · ReAct 主循环（PI 形态 2 层循环）
 
-`internal/core` 是**纯内核**：不依赖上层、不感知 HTTP。输入只有「消息 + Provider + 工具」，
-输出只有「事件流 + Outcome」。所有与安全、审批、持久化相关的决策都由外部注入（中间件或钩子）完成。
+`internal/agent` 是**纯内核**：不依赖上层、不感知 HTTP。输入只有「消息 + Provider + 工具」，
+输出只有「事件流 + Outcome」。所有与安全、审批、持久化相关的决策都由外部注入（三回调 + 中间件链）完成。
+
+> 形态：PI `pi-agent-core` 等价物；本包在 §9.7 列出的 7 项差距已对齐（2 层循环 / 三回调 / 队列 / getApiKey / 工具 ExecutionMode）。
+> 中间件链作为 §9.7.2 的「保留偏离」继续承担 6 维度安全护栏。
 
 ## 1. 装配
 
-`Loop` 由 Builder 装配：
+`Loop` 由 Builder 装配（全部可选，零值 = 旧行为）：
 
 ```
 New(provider, registry, cfg)
   → WithSink / WithMeta / WithHooks / WithCompressor / WithCheckpoints
   → WithAssistantMessage / WithSteps / WithRetry / Expose / WithGuard
+  → WithPrepareNextTurn   // PI Phase 3 新增：压缩 + 模型/思考档 + 注入消息
+  → WithGetAPIKey          // PI Phase 3 新增：可刷新 API key
+  → WithSteeringQueue      // PI Phase 3 新增：QueueMode 队列
+  → WithFollowUpQueue      // PI Phase 3 新增：同上
 ```
 
 **护栏必装**：`WithGuard` 未装配时 `Run / Resume` 直接返回错误（5000），不回落到裸执行器——
@@ -22,7 +29,7 @@ New(provider, registry, cfg)
 |---|---|---|
 | `Model` / `System` | — | 模型名与 system 正文 |
 | `MaxTurns` | **100** | 轮次上限。20 轮对「读多步 → 写 → 验证」的真实任务远远不够 |
-| `Parallel` | 4 | 只读工具并行度 |
+| `Parallel` | 4 | 未声明 `ExecutionMode` 的工具默认并行度；工具自己声明则忽略此值 |
 | `MaxInput` | — | 上下文 token 预算（压缩触发线）；0 表示不压缩 |
 | `MaxRunTokens` | **10M** | run 累计 token 预算（成本熔断） |
 | `MaxRetries` | **5** | 建流瞬时错误重试次数（不含首调） |
@@ -31,73 +38,128 @@ New(provider, registry, cfg)
 
 墙钟上限由编排层控制（`ChatService.runLLM` 默认 10 分钟，可由 Agent 定义覆盖）。
 
-## 2. 主循环
+## 2. 主循环（2 层）
 
 ```
-for turn := startTurn; ; turn++ {
-    ctx 取消           → finish(cancelled)
-    turn > MaxTurns    → finish(max_turns)
-    累计 token 超预算   → finish(budget_exceeded)
-    hooks.BeforeTurn(可改写消息)
-    MaxInput>0 → Compress → 有裁剪则发 agent.compressed
-    发 agent.turn.start
-    res = 请求模型（流式 + 瞬时错误重试）；失败 → agent.error + finish(error)
-    累计正文 / 思考 / 用量；发 agent.turn.end
-    无工具调用 → FollowUp 有内容则追加并继续，否则 finish(end_turn)
-    抓取流失败且本轮零产出 → agent.error + finish(error)（有产出则按正常轮收尾）
-    执行工具：全只读且 Parallel>1 → 并发（信号量），否则串行；结果按调用顺序回填
-    本轮结果全部自述终局（tool.MetaTerminate）且无插话 → finish(end_turn)，不再请求模型
-    写检查点；hooks.ShouldStop → finish(stopped)
-}
-finish → 发 agent.run.done{Reason, Usage, Turns}
+runLoop(ctx, msgs, startTurn, out):
+    for:                                              # 外层：收尾缝（inner 退出后到达）
+        for:                                          # 内层：请求 → 工具 → 回填
+            if lastTurn != nil && PrepareNextTurn != nil:
+                update = PrepareNextTurn(lastTurnCtx)
+                apply Model / Thinking / ExtraMessages / CompressInfo
+            TransformContext（未设则 BeforeTurn）      # 每轮请求前裁剪
+            Compress（WithCompressor）                 # 每轮预算折叠
+            ConvertToLlm（未设则原样）                 # 协议边界
+            emit turn.start
+            res = requestTurn(ctx, turn, msgs)
+            累计正文 / 思考 / 用量；emit turn.end
+            无工具调用 → 跳出 inner
+            toolMsgs, terminal = executeTools(...)
+                批内任一 Sequential → 整批串行
+                全部 Parallel（未声明视同）且 >1 → 信号量并发
+                结果严格按调用顺序回填
+            append toolMsgs
+            pending = drain(steeringQueue)           # 工具执行后、检查点前插话
+            append pending
+            checkpoint(turn)
+            if terminal && pending empty: 跳出 inner   # 有插话时不收尾，下一轮必须处理
+            if ShouldStop: finish(stopped)
+        # inner exit：本轮已收尾
+        pending = drain(followUpQueue)
+        if pending empty: finish(end_turn)
+        append pending                                # 目标模式续跑 / 收尾续接统一走 follow-up
 ```
 
-`turns` 为本轮累计用量与分段耗时（`LLMMs` / `ToolsMs` / `CompressMs`）同步累加，供仪表盘归因。
+**关键差异（vs 单层循环）**：
 
-### 终止原因
-
-`end_turn / max_turns / cancelled / budget_exceeded / error / stopped`
-
-外部据此决定前端收尾文案与是否给「继续」入口。
-
-### 三个保持不变的约束
-
-| 约束 | 原因 |
+| 单层（旧） | 2 层（PI Phase 3）|
 |---|---|
-| 结果**严格按调用顺序回填** | `assistant(tool_calls)` 与 tool 结果必须一一配对，顺序错位会被上游拒绝 |
-| 「报错但零产出」的轮不算成功 | 否则空 assistant 会被回填进历史，下一轮上游直接 400，而 run 却表现为正常收尾 |
-| 延迟覆盖消费全程 | 在建流返回时就取值会漏掉整段流式生成时间，耗时归因全部失真 |
+| `if fu continue` 拼接在内层尾部 | 内层独立退出后外层显式 drain follow-up |
+| 压缩塞在 `BeforeTurn` 一锅 | `PrepareNextTurn` 独立回调，可同时改 model / thinking |
+| Steering/FollowUp 直返消息 | 队列 + `QueueMode`（`one-at-a-time` / `all`）|
+| 工具并行判定靠 `Parallel + AllReadOnly` | 工具自己声明 `ExecutionMode` |
 
-## 3. 事件
+## 3. 三回调分离
+
+旧 `BeforeTurn` 把「上下文裁剪」与「协议归一」挤在一处；Phase 3 拆为三个独立位点。
+
+| 回调 | 时机 | 职责 | 失败处理 |
+|---|---|---|---|
+| `Hooks.TransformContext(ctx, msgs) (msgs, err)` | 每轮请求前 | 删除空占位 / 孤儿 tool / 折叠历史 | err → finish(error) |
+| `Hooks.ConvertToLlm(ctx, msgs) (msgs, err)` | 协议边界 | `AgentMessage → LlmMessage` 归一 | err → finish(error) |
+| `Loop.PrepareNextTurn(ctx, lastTurnCtx) (NextTurnUpdate, err)` | 上一轮结束、下轮开始前 | 压缩 + 切换模型/思考档 + 注入消息 | err → finish(error) |
+
+`NextTurnUpdate` 字段：
+
+```go
+type NextTurnUpdate struct {
+    Model         string                  // 空 = 保持
+    Thinking      *llm.ThinkingConfig     // nil = 保持
+    ExtraMessages []*llm.Message          // 注入消息
+    CompressInfo  *CompressInfo           // 压缩证据（与 chat:compressed 事件同源）
+}
+```
+
+## 4. 事件
 
 内核唯一出口是 `Sink.Emit(Event)`：
 
 `agent.run.start / turn.start / turn.delta / turn.thinking / turn.end / tool.call / tool.start /
-tool.result / checkpoint / compressed / error / run.done`，重试走 `agent.retry`。
+tool.result / checkpoint / compressed / error / run.done / queue.drained`，重试走 `agent.retry`。
+
+| 新事件 | 时机 |
+|---|---|
+| `queue.drained` | `steeringQueue` 或 `followUpQueue` 一次 drain 取出 ≥1 条消息时下发，让前端看到「用户消息已入队并被消费」 |
 
 `FuncSink` 把事件交给上层映射（service 侧映射为 `chat:*`）；`NopSink` 用于无人值守执行（后台任务）。
-
 映射结果经 `service.Emitter` 发布（`Emit` 显式归属 / `EmitCtx` 从 ctx 提取）：统一注入
 `run_id` + `session_id`、分配 seq 并写入重放缓冲，再广播到总线——这是 SSE 断线重放的前置条件。
 
-## 4. Hooks（可选扩展点）
+## 5. Hooks（可选扩展点）
 
 全部为 nil 时行为不变——扩展不侵入主循环。
 
 | Hook | 时机与用途 |
 |---|---|
-| `BeforeTurn` | 每轮请求前改写消息序列（上下文裁剪、临时注入） |
-| `AfterToolCall` | 工具执行后回调（落块、记忆抽取、审计） |
+| `BeforeTurn` | **旧字段**（保留兼容）：每轮请求前改写消息序列；新代码改用 `TransformContext` |
+| `AfterToolCall` | 工具执行后回调（落块、记忆抽取、审计）|
 | `ShouldStop` | 轮结束后询问是否提前终止 |
-| `Steering` | **轮间插话**：跑过工具之后、下一轮之前注入（长任务中途纠偏） |
-| `FollowUp` | **收尾续接**：本轮无工具调用、run 即将收尾时注入（自动接下一波） |
+| `Steering` | **旧字段**（保留兼容）：轮间插话；新代码改用 `WithSteeringQueue` |
+| `FollowUp` | **旧字段**（保留兼容）：收尾续接；新代码改用 `WithFollowUpQueue` |
+| `TransformContext` | **新**：每轮请求前裁剪上下文 |
+| `ConvertToLlm` | **新**：协议边界归一 |
+| `PrepareNextTurn` | **新**：压缩 + 模型/思考档 + 注入消息（挂在 `Loop` 上而非 `Hooks`）|
+| `GetAPIKey` | **新**：可刷新 API key |
 
-`Steering` 与 `FollowUp` 共同实现「用户随时可插话」：前者在工具执行后立即生效，后者在模型准备收尾时拦截。
+## 6. 队列与 QueueMode
 
-## 5. 工具执行
+```go
+type QueueMode string
+const (
+    QueueOneAtATime QueueMode = "one-at-a-time"  // 默认
+    QueueAll        QueueMode = "all"
+)
+
+type MessageQueue interface {
+    Drain() []*llm.Message
+    Enqueue(*llm.Message)
+    HasItems() bool
+    Mode() QueueMode
+}
+
+type FollowUpQueue = MessageQueue // 语义别名：两个队列位是同一契约
+```
+
+- `one-at-a-time`：每次 `Drain()` 取 1 条；多条用户消息按时间序逐轮消费
+- `all`：每次 `Drain()` 全量取出（多用户协同编辑 / 同步并发场景）
+- 空队列返回 nil：与原 `Hooks.Steering(ctx)` 直返一致
+- 两个位点各调一次：steering 在工具执行后、检查点前（见 §2）；follow-up 在 inner 退出后的收尾缝
+
+## 7. 工具执行
 
 `Executor(ExecOptions)` 是最内层：超时、panic 隔离、结果按 rune 截断、写入耗时标记。
-并发只在「全部只读 + 数量 > 1」时启用。
+并发判定完全由工具声明驱动：批内任一工具声明 `Sequential` → 整批串行；
+否则 `Loop.cfg.Parallel > 1`（总闸与信号量宽度）且批内 >1 且全部为 Parallel（未声明视同 Parallel）→ 信号量并发。
 
 ### 错误回执摘要
 
@@ -105,7 +167,7 @@ tool.result / checkpoint / compressed / error / run.done`，重试走 `agent.ret
 以 `工具执行失败: <name> -> <摘要>` 为固定首行；改道提示（见 `02-guard-chain.md`）拼到摘要末尾，
 保证模型看见完整信号。
 
-## 6. 子 Agent 委派
+## 8. 子 Agent 委派
 
 `delegate_task` 工具触发，四重隔离：
 
@@ -118,12 +180,16 @@ tool.result / checkpoint / compressed / error / run.done`，重试走 `agent.ret
 
 并发相同 `(agent, task)` 共享一次执行。
 
-## 7. 取舍
+## 9. 取舍
 
 | 取舍 | 优势 | 代价 |
 |---|---|---|
-| 显式 for 循环（无图引擎） | 全部状态在一处，可读可测；单 ReAct 场景零抽象开销 | 复杂拓扑（并行分支/条件汇聚）需自行扩展 |
+| 显式 for 循环（无图引擎）| 全部状态在一处，可读可测；单 ReAct 场景零抽象开销 | 复杂拓扑（并行分支/条件汇聚）需自行扩展 |
+| 2 层循环（vs 单层） | 收尾缝、目标模式续跑、检查点续跑统一走外层 | 多一层嵌套，单测需覆盖 inner/outer 边界 |
+| 三回调分离 | 关注点独立可测；PrepareNextTurn 是单一变更点 | 三个 nil 判空分支 |
+| 队列 vs 直返 | 支持批量入队；UI 可显式感知「已排队」 | 队列空时无消息，兼容旧 hook 需包装 |
+| 工具 ExecutionMode | 工具自己声明；避免启发式误判 | 可选接口，未实现默认 Parallel——有副作用的工具必须显式声明 Sequential |
 | 安全全在中间件链 | 加规则不改循环；每个关注点可单测、可重排 | 顺序即语义，改动链顺序需谨慎 |
-| 拒绝是回执不是错误 | 模型可改道，长任务不因一次拒绝中断 | 每个工具必须正确区分「拒绝」与「失败」 |
+| 拒绝是回执不是错误 | 模型可改道，长任务不因一次拒绝中断 | 每个工具必须正确区分「拒绝」与「失败」|
 | 事件是唯一输出通道 | 宿主只需一个 reducer；UI/存储/审计都是订阅者 | 事件契约变更影响面广 |
-| 结果严格按序回填 | 上游协议配对完整 | 并行执行也需串行回填（牺牲一点尾延迟） |
+| 结果严格按序回填 | 上游协议配对完整 | 并行执行也需串行回填（牺牲一点尾延迟）|

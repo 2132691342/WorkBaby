@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/tool"
 )
 
@@ -85,7 +85,7 @@ func (c *skillCap) ID() string { return "skill" }
 
 func (c *skillCap) Tools() []tool.Tool { return nil }
 
-func (c *skillCap) Preload(_ context.Context, p *PreloadCtx) ([]core.Section, error) {
+func (c *skillCap) Preload(_ context.Context, p *PreloadCtx) ([]agent.Section, error) {
 	if c.src == nil {
 		return nil, nil
 	}
@@ -115,16 +115,17 @@ func (c *skillCap) Preload(_ context.Context, p *PreloadCtx) ([]core.Section, er
 		p.State.SkillDescription = hit.Description
 		p.State.SkillInjectedLen = len(body)
 	}
-	return []core.Section{{
+	return []agent.Section{{
 		Key:      "skill",
 		Title:    "触发 Skill「" + name + "」，请严格按其指导执行",
 		Body:     body,
-		Priority: core.PriorityLow,
+		Order:    agent.OrderSkill,
+		Priority: agent.PriorityLow,
 	}}, nil
 }
 
 // skillIndex 未命中时的可用 Skill 索引段；无可用 Skill 或无清单能力返回 nil。
-func (c *skillCap) skillIndex() []core.Section {
+func (c *skillCap) skillIndex() []agent.Section {
 	lister, ok := c.src.(SkillLister)
 	if !ok {
 		return nil
@@ -151,11 +152,12 @@ func (c *skillCap) skillIndex() []core.Section {
 	if len(body) > maxSkillIndexRunes {
 		body = body[:maxSkillIndexRunes]
 	}
-	return []core.Section{{
+	return []agent.Section{{
 		Key:      "skill_index",
 		Title:    "可用技能索引",
 		Body:     string(body),
-		Priority: core.PriorityLowest,
+		Order:    agent.OrderSkill,
+		Priority: agent.PriorityLowest,
 	}}
 }
 

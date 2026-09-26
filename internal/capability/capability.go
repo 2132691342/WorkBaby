@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/llm"
 	"WorkBaby/internal/pkg"
@@ -25,7 +25,7 @@ import (
 type Capability interface {
 	ID() string
 	// Preload 每轮 run 前装配上下文；返回空表示本轮不注入。
-	Preload(ctx context.Context, c *PreloadCtx) ([]core.Section, error)
+	Preload(ctx context.Context, c *PreloadCtx) ([]agent.Section, error)
 	// Tools 暴露给模型的工具；无返回 nil。
 	Tools() []tool.Tool
 	// Capture run 结束后的自动沉淀；由注册表异步调用。
@@ -49,7 +49,7 @@ type PreloadCtx struct {
 	RunID     string
 	UserInput string
 	Session   *domain.ChatSessionDO
-	Def       core.Definition
+	Def       agent.Definition
 	State     *RunState
 }
 
@@ -60,21 +60,14 @@ type CaptureCtx struct {
 	UserInput  string
 	Reply      string
 	Transcript []llm.Message
-	Def        core.Definition
+	Def        agent.Definition
 	// 本 run 使用的 provider / model：终局抽取类能力（收件箱）据此调模型。
 	ProviderID string
 	Model      string
 }
 
-// 注入顺序：环境（含人格）→ 工作区 → 会话变量 → 记忆 → 知识库 → Skill。
-const (
-	OrderEnvironment = 15
-	OrderWorkspace   = 20
-	OrderSessionVar  = 28
-	OrderMemory      = 30
-	OrderKnowledge   = 40
-	OrderSkill       = 50
-)
+// 注入顺序常量统一在 agent（OrderPersona..OrderSkill），各能力 Section 显式声明；
+// 注册序仅作未显式声明段的兜底（PreloadAll 内处理）。
 
 type entry struct {
 	cap   Capability
@@ -132,7 +125,7 @@ func (r *Registry) Tools() []tool.Tool {
 
 // PreloadAll 串联全部能力的 Preload；单个能力失败仅告警并跳过，不阻断 run。
 // nil 注册表返回空并初始化运行态，调用方无需判空。
-func (r *Registry) PreloadAll(ctx context.Context, c *PreloadCtx) []core.Section {
+func (r *Registry) PreloadAll(ctx context.Context, c *PreloadCtx) []agent.Section {
 	if c.State == nil {
 		c.State = &RunState{}
 	}
@@ -143,7 +136,7 @@ func (r *Registry) PreloadAll(ctx context.Context, c *PreloadCtx) []core.Section
 	ents := append([]entry(nil), r.ents...)
 	r.mu.RUnlock()
 
-	out := make([]core.Section, 0, 4)
+	out := make([]agent.Section, 0, 4)
 	for _, e := range ents {
 		pieces, err := preloadOne(e.cap, ctx, c)
 		if err != nil {
@@ -162,7 +155,7 @@ func (r *Registry) PreloadAll(ctx context.Context, c *PreloadCtx) []core.Section
 }
 
 // preloadOne 执行单个 Preload 并兜住 panic：能力域异常不应拖垮整次 run。
-func preloadOne(cp Capability, ctx context.Context, c *PreloadCtx) (p []core.Section, err error) {
+func preloadOne(cp Capability, ctx context.Context, c *PreloadCtx) (p []agent.Section, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			p, err = nil, fmt.Errorf("capability panic: %v", rec)

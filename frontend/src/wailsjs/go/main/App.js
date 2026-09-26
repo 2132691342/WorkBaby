@@ -50,10 +50,6 @@ export function CreateFolder(arg1) {
   return window['go']['main']['App']['CreateFolder'](arg1);
 }
 
-export function CreatePetSprite(arg1) {
-  return window['go']['main']['App']['CreatePetSprite'](arg1);
-}
-
 export function CreateProvider(arg1) {
   return window['go']['main']['App']['CreateProvider'](arg1);
 }
@@ -100,10 +96,6 @@ export function DeleteMemory(arg1) {
 
 export function DeleteMessage(arg1, arg2) {
   return window['go']['main']['App']['DeleteMessage'](arg1, arg2);
-}
-
-export function DeletePetSprite(arg1) {
-  return window['go']['main']['App']['DeletePetSprite'](arg1);
 }
 
 export function DeleteProvider(arg1) {
@@ -224,14 +216,6 @@ export function GetMemoryOverview() {
 
 export function GetMemoryText() {
   return window['go']['main']['App']['GetMemoryText']();
-}
-
-export function GetPetConfig() {
-  return window['go']['main']['App']['GetPetConfig']();
-}
-
-export function GetPetState() {
-  return window['go']['main']['App']['GetPetState']();
 }
 
 export function GetProvider(arg1) {
@@ -358,10 +342,6 @@ export function ListPendingApprovals() {
   return window['go']['main']['App']['ListPendingApprovals']();
 }
 
-export function ListPetSprites() {
-  return window['go']['main']['App']['ListPetSprites']();
-}
-
 export function ListProviderKinds() {
   return window['go']['main']['App']['ListProviderKinds']();
 }
@@ -432,22 +412,6 @@ export function OpenExternal(arg1) {
 
 export function OpenFileDialog(arg1, arg2) {
   return window['go']['main']['App']['OpenFileDialog'](arg1, arg2);
-}
-
-export function PetMode() {
-  return window['go']['main']['App']['PetMode']();
-}
-
-export function PetMove(arg1, arg2) {
-  return window['go']['main']['App']['PetMove'](arg1, arg2);
-}
-
-export function PetToggleMode() {
-  return window['go']['main']['App']['PetToggleMode']();
-}
-
-export function ReadLocalImage(arg1) {
-  return window['go']['main']['App']['ReadLocalImage'](arg1);
 }
 
 export function ReadWorkspaceFile(arg1, arg2) {
@@ -522,10 +486,6 @@ export function SaveMcpRaw(arg1) {
   return window['go']['main']['App']['SaveMcpRaw'](arg1);
 }
 
-export function SavePetSpriteImage(arg1, arg2) {
-  return window['go']['main']['App']['SavePetSpriteImage'](arg1, arg2);
-}
-
 export function SaveWebSearchConfig(arg1) {
   return window['go']['main']['App']['SaveWebSearchConfig'](arg1);
 }
@@ -556,10 +516,6 @@ export function SetAgentProfileEnabled(arg1, arg2) {
 
 export function SetMcpServerEnabled(arg1, arg2) {
   return window['go']['main']['App']['SetMcpServerEnabled'](arg1, arg2);
-}
-
-export function SetPetClickThrough(arg1) {
-  return window['go']['main']['App']['SetPetClickThrough'](arg1);
 }
 
 export function SetSessionAgent(arg1, arg2) {
@@ -650,10 +606,6 @@ export function UpdateKnowledgeDoc(arg1, arg2) {
   return window['go']['main']['App']['UpdateKnowledgeDoc'](arg1, arg2);
 }
 
-export function UpdatePetConfig(arg1) {
-  return window['go']['main']['App']['UpdatePetConfig'](arg1);
-}
-
 export function UpdateProvider(arg1, arg2) {
   return window['go']['main']['App']['UpdateProvider'](arg1, arg2);
 }
@@ -674,10 +626,6 @@ export function UploadFileData(arg1) {
   return window['go']['main']['App']['UploadFileData'](arg1);
 }
 
-export function UploadPetSprite(arg1, arg2) {
-  return window['go']['main']['App']['UploadPetSprite'](arg1, arg2);
-}
-
 export function UpsertAgentProfile(arg1) {
   return window['go']['main']['App']['UpsertAgentProfile'](arg1);
 }
@@ -688,12 +636,4 @@ export function UpsertCustomCommand(arg1) {
 
 export function UpsertHook(arg1) {
   return window['go']['main']['App']['UpsertHook'](arg1);
-}
-
-export function WikiOverview(arg1) {
-  return window['go']['main']['App']['WikiOverview'](arg1);
-}
-
-export function WikiPage(arg1, arg2) {
-  return window['go']['main']['App']['WikiPage'](arg1, arg2);
 }

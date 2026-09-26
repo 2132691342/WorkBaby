@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/pkg"
 )
@@ -126,9 +126,9 @@ func (s *ChatService) SetSessionAgent(ctx context.Context, sessionID, agentName 
 	if agentName == "" {
 		delete(meta, sessionMetaKeyAgentName)
 	} else {
-		// 内置 + 自定义子智能体均可切换（core.Agent 会回退 default，但写库前先校验避免歧义）
+		// 内置 + 自定义子智能体均可切换（agent.Agent 会回退 default，但写库前先校验避免歧义）
 		known := false
-		for _, d := range core.AllAgents() {
+		for _, d := range agent.AllAgents() {
 			if d.Name == agentName {
 				known = true
 				break
@@ -165,7 +165,7 @@ func (s *ChatService) pinCompactInstructions(ctx context.Context, ses *domain.Ch
 	return true
 }
 
-// estimateTokensFromChars 字符数 → 估算 token（rune/4 近似，与 core.EstimateTokens 同口径）。
+// estimateTokensFromChars 字符数 → 估算 token（rune/4 近似，与 agent.EstimateTokens 同口径）。
 func estimateTokensFromChars(chars int) int { return chars / 4 }
 
 // 压缩参数：扫描上限、保留窗口与摘要规模。

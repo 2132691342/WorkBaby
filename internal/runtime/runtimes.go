@@ -20,7 +20,7 @@ type Manifest struct {
 	Assets        []ManifestAsset `json:"assets"`
 }
 
-// ManifestAsset 单个运行时资产：node / python / powershell。
+// ManifestAsset 单个运行时资产：python。
 type ManifestAsset struct {
 	ID                     string   `json:"id"`
 	Version                string   `json:"version"`

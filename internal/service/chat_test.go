@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/db"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
@@ -82,7 +82,7 @@ func seedSession(t *testing.T, svc *ChatService, msgRepo *repo.MessageRepo, ctx 
 func testApprovalScopes(t *testing.T) {
 	bus := event.New()
 	svc := NewApprovalService(bus)
-	ctx := core.WithRunContext(context.Background(), "run-1", "ses-1")
+	ctx := agent.WithRunContext(context.Background(), "run-1", "ses-1")
 
 	ids := make(chan string, 4)
 	var mu sync.Mutex
@@ -372,7 +372,7 @@ func TestGrantApprover(t *testing.T) {
 	svc := NewApprovalService(bus)
 	g := grantApprover{svc: svc}
 	ctx := context.Background()
-	call := core.Call{ID: "1", Name: "exec", Args: []byte(`{"command":"ls"}`)}
+	call := agent.Call{ID: "1", Name: "exec", Args: []byte(`{"command":"ls"}`)}
 
 	t.Run("未授权拒绝且带可解释原因", func(t *testing.T) {
 		assert.False(t, g.Approve(ctx, call, tool.RiskApprovalNeeds))

@@ -14,7 +14,9 @@
 | HTTP 服务 | gin | ^1.10.x（业务 API + SSE 全部走 HTTP） |
 | 前端 | Vue 3 + TypeScript + Vite | 3.5 / 5.6 / 6 |
 | UI 组件 | Element Plus | ^2.8.x（全量引入 + zh-cn） |
-| 状态管理 | Pinia | ^2.2.x（Setup Store） |
+| 状态管理 | Pinia | ^2.3.x（Setup Store） |
+| 样式引擎 | Tailwind CSS | ^4.x（设计令牌经 `themes.css` 语义变量落地） |
+| 图表 / 预览 | echarts · @vue-flow/core · lucide-vue-next · docx-preview / vue-pdf-embed / xlsx | 见 `frontend/package.json` |
 | ORM | GORM + glebarez/sqlite | ^1.30.x（pure-Go，无 CGO） |
 | 数据库 | SQLite | 3.45+（WAL + FTS5 trigram） |
 | 配置 | Viper | ^1.19.x（YAML + ENV；运行时配置走 KV 表） |
@@ -25,7 +27,7 @@
 | 实时通信 | SSE | 业务实时通信全部走 SSE（`/api/v1/events`），未引入 WebSocket |
 | 测试 | testing + testify | ^1.9.x |
 | ID | oklog/ulid/v2 + google/uuid | 业务 ULID 带前缀；trace 用 UUID |
-| Agent | 自研 core（一个 for 循环 + 护栏中间件链） | 见 specs/features/agent |
+| Agent | 自研 agent（两层 for 循环 + 护栏中间件链） | 见 specs/features/agent |
 | LLM 适配 | 自研协议适配 | OpenAI / Anthropic / Ollama |
 | Schema 校验 | santhosh-tekuri/jsonschema/v6 | ^6.0.x |
 | MCP | 自研 stdio 客户端 | spec 2025-06-18 |
@@ -35,6 +37,8 @@
 ### 1.1 依赖原则
 
 标准库 → `golang.org/x/...` → 生态库。新增依赖必须说明理由与替代方案。
+
+评估结论：`gotool`（cnlesscode）**不引入**——其 gfs / gZip / request / random 能力与 `internal/pkg` 及标准库重叠，且缺本项目必需的编码归一化（GBK/UTF-16）、AES-GCM、日志轮转与 HTTP 流式；引入只增依赖面不补缺口。
 
 ---
 
@@ -53,16 +57,16 @@ WorkBaby/
 │   ├── service/                  # ③ 业务编排层（事务边界；不写 SQL；不引 gin/Wails）
 │   ├── repo/                     # ④ 持久层（GORM；不引上层）
 │   ├── domain/                   # ⑤ 域模型（一个聚合根一个文件，DO/DTO/REQ/VO/RESP 同居一处）
-│   ├── core/                     # ⑥ Agent 内核（ReAct 循环 + 护栏链 + 压缩 + 检查点 + 事件）
-│   ├── llm/                      # ⑦ LLM 适配（provider + openai/anthropic/ollama/registry/toolcall）
-│   ├── tool/                     # ⑧ 工具系统（registry + exec/file/http/websearch/webfetch/...）
+│   ├── agent/                    # ⑥ Agent 内核（ReAct 循环 + 护栏链 + 压缩 + 检查点 + 事件；PI pi-agent-core 等价物）
+│   ├── llm/                      # ⑦ LLM 适配（providerbase + openai/anthropic/ollama + registry + toolcall）
+│   ├── tool/                     # ⑧ 工具系统（registry + functools 30 个工具 + exec/file/...）
 │   ├── skill/                    # ⑨ Skill（parser/registry/builtin）
 │   ├── mcp/                      # ⑩ MCP stdio 客户端（client/adapter/manager）
+│   ├── resource/                 # ⑪ 内置资源装载（AGENTS.md / 斜杠命令 / frontmatter 解析）
 │   ├── capability/               # 能力接入：Preload / Tools / Capture 三通道
-│   ├── memory/                   # ⑪ 长期记忆（单一 MEMORY.md + FTS5 派生索引）
-│   ├── rag/                      # ⑫ 知识库（loader/chunker/indexer/retriever）
-│   ├── pet/                      # ⑬ 桌宠（controller/service/sprite）
-│   ├── runtime/                  # ⑭ 运行时设施（paths/runtimes/archive/sandbox）
+│   ├── memory/                   # ⑫ 长期记忆（单一 MEMORY.md + FTS5 派生索引）
+│   ├── rag/                      # ⑬ 知识库（loader/chunker/indexer/retriever）
+│   ├── runtime/                  # ⑭ 运行时设施（paths/runtimes/archive/sandbox；当前仅内置 python）
 │   ├── config/                   # ⑮ 配置（Viper）
 │   ├── event/                    # ⑯ 应用内事件总线
 │   ├── db/                       # ⑰ SQLite 打开 + 迁移
@@ -72,7 +76,7 @@ WorkBaby/
 │   └── singleinstance/           # ㉑ 单实例保护（命名互斥 + 本地 TCP IPC）
 │
 ├── frontend/                     # Vue 3 工程
-├── assets/                       # 内置 Skill（embed）/ 图标 / 默认 sprite
+├── assets/                       # 内置 Skill / 图标 / 用户手册（embed）
 ├── build/                        # 平台资源与产物
 ├── docs/                         # 项目级文档（架构/规范/流程）
 └── specs/features/               # 功能规格（按业务域分组）
@@ -85,12 +89,14 @@ WorkBaby/
 - 在 `main` 包内写业务代码
 - `internal/pkg/` 内出现业务词汇（session / provider / workflow 等）
 - `internal/pkg/` 依赖任何其他 `internal/` 业务包（叶子工具包铁律）
-- `core/` import wails / api / service / server / gin
+- `agent/` import wails / api / service / server / gin
+
+注：原 `internal/core/` 已重命名为 `internal/agent/`（PI `pi-agent-core` 等价物）；后续若文档出现 `core/` 字样均指 `agent/`。
 
 ### 2.2 依赖方向（强制）
 
 ```
-internal/server ──► internal/api ──► internal/service ──► 能力域（core/llm/tool/memory/rag/...）
+internal/server ──► internal/api ──► internal/service ──► 能力域（agent/llm/tool/memory/rag/...）
                                           │
                                           ▼
                                      internal/repo ──► internal/domain
@@ -108,7 +114,7 @@ internal/server ──► internal/api ──► internal/service ──► 能�
 | repo | domain / pkg / gorm | api / service / 能力域 |
 | domain | pkg | 任何上层 |
 | **internal/pkg** | 标准库 / golang.org/x / 第三方工具 | **任何其他 internal 业务包** |
-| core | llm / tool / memory / pkg | api / service / server |
+| agent | llm / tool / memory / pkg | api / service / server |
 
 **双主机**：业务 API 走 gin HTTP，Wails 绑定只保留系统能力（对话框/剪贴板/托盘/窗口）。前端事件走 SSE。端口注入：`app:ready` 携带 `serverPort`。
 
@@ -162,7 +168,7 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 | 6000–6999 | Memory |
 | 7000–7999 | Knowledge / RAG |
 | 8000–8999 | Skill / MCP |
-| 9000–9999 | Pet |
+| 9000–9999 | 保留 |
 
 ### 2.5 命名规范
 
@@ -242,7 +248,7 @@ package platform
 | 并发控制 | 有界 goroutine 池 |
 | 事件出口 | `service.Emitter` 唯一出口（注入 run/session 归属 + 分配 seq + 写重放缓冲） |
 | 事件总线 | event.Bus + server/sse 桥接；SSE 订阅维度是**会话**（`session_id`） |
-| Token 计量 | 每次 LLM 调用一行 token_usages（core TurnUsage → service.persistUsage） |
+| Token 计量 | 每次 LLM 调用一行 token_usages（agent TurnUsage → service.persistUsage） |
 | 配置 | Viper + system_settings KV |
 | 加密 | AES-256-GCM（Provider API Key、MCP env） |
 
@@ -273,7 +279,7 @@ FTS5 虚拟表与触发器用 raw SQL 启动期单独创建。
 
 | 维度 | 规则 |
 |---|---|
-| HTTP 方法白名单 | 业务 / 工具 / 工作流节点仅允许 GET 与 POST |
+| HTTP 方法白名单 | 业务 / 工具仅允许 GET 与 POST |
 | 路径参数位置 | 变量参数放路径末尾（`/xxx/:id/delete` 风格） |
 | 删除语义 | 删除走 `POST .../delete` |
 | 流式事件 | `GET /api/v1/events?scope=chat&session_id={sid}&run_id={runId}` SSE |
@@ -290,6 +296,90 @@ FTS5 虚拟表与触发器用 raw SQL 启动期单独创建。
 白名单逻辑收口在 `internal/pkg/httprules.go`（`AllowMethod` / `NormalizeMethod`）。
 
 **例外**：llm Provider 适配层调上游 API 可用全部 method；mcp 的 JSON-RPC Method 字段是 RPC 方法名。
+
+### 2.13 Agent 内核 PI 契约（强制）
+
+`internal/agent` 严格遵循 PI `pi-agent-core` 的契约；只在 §9.7 列出的 7 项上偏离，全部偏离都写入规格并在 PR 中标注。
+
+#### 2.13.1 主循环形态（2 层）
+
+```
+runLoop(ctx, msgs, startTurn, out, emitStart):
+    outer:
+        pending = drain(followUpQueue)            // 外层：等收尾缝
+        inner:
+            if lastTurn != nil && PrepareNextTurn != nil:
+                update = PrepareNextTurn(lastTurnCtx)
+                apply Model/Thinking/ExtraMessages/CompressInfo
+            pending = drain(steeringQueue)         // 内层：轮间插话
+            res = streamTurn(ctx, turn, msgs)
+            append assistant
+            toolMsgs, runTerminate = executeTools(ctx, turn, calls)
+                // 按工具 ExecutionMode 分组：sequential 串行 / parallel 并发
+            append toolMsgs
+            emit turn_end
+            if ShouldStop(ctx, turn): return
+            if runTerminate && pending empty: break inner
+        // 内层退出：本轮已收尾
+        if followUp empty: return
+    // 外层循环：自动续跑、目标模式续接统一走 follow-up
+```
+
+#### 2.13.2 三回调分离
+
+| 回调 | 时机 | 职责 |
+|---|---|---|
+| `Hooks.TransformContext` | 每轮请求前 | 上下文裁剪（删除空占位 / 孤儿 tool / 折叠历史） |
+| `Hooks.ConvertToLlm` | 协议边界 | `AgentMessage → LlmMessage` 归一（仅在调上游前） |
+| `Loop.PrepareNextTurn` | 上一轮结束、下轮开始前 | 压缩 + 切换模型 / 思考档 + 注入消息；返回 `NextTurnUpdate` |
+
+`BeforeTurn` 旧字段保留为兼容入口；新代码只写 `TransformContext`。
+
+#### 2.13.3 队列与 QueueMode
+
+```go
+type QueueMode string
+const (
+    QueueOneAtATime QueueMode = "one-at-a-time"  // 默认：每次 drain 1 条
+    QueueAll        QueueMode = "all"             // 批量入队（多用户同步场景）
+)
+
+type SteeringQueue interface {
+    Drain() []*llm.Message  // 内层每轮开调一次
+    Enqueue(*llm.Message)
+    HasItems() bool
+}
+```
+
+#### 2.13.4 工具 ExecutionMode
+
+```go
+type ExecutionMode string
+const (
+    ExecutionSequential ExecutionMode = "sequential"
+    ExecutionParallel   ExecutionMode = "parallel"
+)
+
+// Tool 接口新增方法；未实现默认 Parallel
+type Tool interface {
+    ExecutionMode() ExecutionMode
+}
+```
+
+工具声明 `Sequential` 时整批按调用顺序串行；声明 `Parallel` 且 >1 时走信号量并发，结果按调用顺序回填。
+`Loop.cfg.Parallel` 作为未声明 `ExecutionMode` 的工具默认并行度。
+
+#### 2.13.5 不变量
+
+| 不变量 | 锁死原因 |
+|---|---|
+| 结果严格按调用顺序回填 | `assistant(tool_calls)` 与 `tool` 配对完整，顺序错位上游 400 |
+| 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
+| 延迟覆盖消费全程 | 在建流返回就取值会漏掉整段流耗时，仪表盘归因失真 |
+| 最后一轮永不丢 | 极端压缩场景下当前任务上下文必须完整 |
+| 工具执行不依赖 `Loop.cfg.Parallel` | 工具自己声明 `ExecutionMode`；`Parallel` 仅作兜底 |
+
+详见 `specs/features/agent/01-react-loop.md` / `02-guard-chain.md` / `03-context.md`。
 
 ---
 
@@ -320,10 +410,11 @@ FTS5 虚拟表与触发器用 raw SQL 启动期单独创建。
 
 | 文件 | 覆盖 |
 |---|---|
-| `core/loop_test.go` | 多轮 ReAct、只读并行、终局工具、检查点续跑、异常收尾 |
-| `core/guard_test.go` | 护栏链拒绝语义、权限矩阵、熔断、失败改道注入 |
-| `core/context_test.go` | 上下文预算裁剪、历史清洗的协议硬约束 |
-| `core/helpers_test.go` | 内核测试共享替身（非测试） |
+| `agent/loop_test.go` | 多轮 ReAct、只读并行、终局工具、检查点续跑、异常收尾 |
+| `agent/guard_test.go` | 护栏链拒绝语义、权限矩阵、熔断、失败改道注入 |
+| `agent/context_test.go` | 上下文预算裁剪、历史清洗的协议硬约束 |
+| `agent/phase3_test.go` | 2 层循环、PrepareNextTurn、Steering/FollowUp 队列、ExecutionMode |
+| `agent/helpers_test.go` | 内核测试共享替身（非测试） |
 | `service/agent_test.go` | 内核装配接线、失败改道、错误摘要、子智能体档案 |
 | `service/recovery_test.go` | 检查点语义、跨重启审批/补问闭环、授权回滚、悬挂 tool_calls 剥离 |
 | `service/chat_test.go` | 会话操作、审批放行档位、插话队列、后台任务 |
@@ -396,3 +487,112 @@ wails build -nsis -ldflags "-s -w" -trimpath       # 生产构建（NSIS 安装�
 ## 8. 反模式
 
 ❌ 大杂烩式改动 / 错误提前抽象 / 隐形架构决策 / 只覆盖乐观路径 / 臆造 API / 代码风格漂移 / 失控式连锁重构 / internal/pkg 依赖其他 internal 业务包
+
+---
+
+## 9. PI 形态重构（2026-09）
+
+按 PI（HuggingFace `pi-mono`，对齐基线 v0.85.0）的设计哲学对本工程做定向精简。删除冗余、合并 fan-out，不引入插件系统，不动 agent 层的 ReAct 语义。
+
+### 9.1 删除清单
+
+| 删除 | 理由 |
+|---|---|
+| `internal/pet/` 整包 + `internal/repo/pet.go` + `internal/domain/pet.go` + `internal/api/api_pet.go` + `internal/server/routes_pet.go` | 与「干活型个人 AI 助手」定位不符；用户已确认删除 |
+| 前端 `components/pet/`（4 文件） + `stores/pet.ts` + `SettingsView` 的 pet tab + `App.vue` 的 pet:show/pet:hide 监听 + `router` `/pet/desktop` + `AssistantAvatar` 的 sprite 引用 | 同上 |
+| 前端 `components/{channel,cron,home,workflows,folders}/` 5 个空 / 残留目录 | 死路径 |
+| 11 个 settings 视图的孤立目录 `components/{agents,commands,docs,files,hooks,mcp,memory,runs,skills,tools,wiki}/` | 单一视图无理由独占子目录；统一迁到 `components/settings/views/` |
+| `domain/contract.go` | 仅一个常量 `ContractVersion`，已并入 `domain/id.go` |
+| `domain/approval.go` | `ApprovalPendingRESP` 并入 `domain/approval_grant.go` |
+| `service/chat_gates.go` | 2 个内部辅助函数并入 `service/chat.go` |
+| `service/chat_usage.go` | 4 个 usage 落库函数并入 `service/chat_finalize.go` |
+| `service/{meta,docs}.go` | 壳函数，由调用方内联（`docs.go` 后重建为内置用户手册服务 `DocsService`） |
+| `internal/llm/{openai,anthropic,ollama}/client.go` 中的 `mustMarshal` / `intPtr` | 重复实现 3 次；统一到 `internal/llm/providerbase.go` |
+
+### 9.2 合并清单
+
+| 操作 | 前 → 后 |
+|---|---|
+| `internal/server/routes_*.go`（11 文件） | → 1 个 `routes.go`（963 LOC，单一 register 入口） |
+| `internal/api/api_*.go`（24 文件） | → 3 个：`api_chat.go` + `api_provider.go` + `api_handlers.go`（其余 22 个薄壳合并） |
+| `internal/tool/functools/*.go`（12 文件） | → 4 个：`base.go`（FuncTool 骨架 + `All()`）+ `tools_data` / `tools_text` / `tools_io`（30 个工厂，按主题分） |
+| `internal/service/chat_*.go`（12 文件） | → 10 文件（gates + usage 并入 chat / finalize） |
+| 三个 provider 的 `mustMarshal` / `intPtr` | → `internal/llm/providerbase.go` 导出 `MustMarshal` / `IntPtr` |
+| 前端 11 个 settings 视图子目录 | → `components/settings/views/` 一个目录 |
+| 前端 `SettingsView` 中 11 个 `lazySection(() => import('@/components/{agents,commands,…}/X.vue'))` | → `@/components/settings/views/X.vue` 统一 |
+
+### 9.3 维护原则
+
+- **`agent/`（Agent 内核）ReAct 语义不变**：Phase 2 改名、Phase 3 契约对齐后，循环 / 护栏 / 压缩 / 检查点语义与 PI 形态一致
+- **`internal/mcp/` 零修改**：4 文件包结构已 well-shaped（client / adapter / manager / platform 切分正确）
+- **`internal/pkg/` 零修改**：叶子工具包铁律
+- **前端 `main.ts` / `App.vue` 主体 / `themes.css` / `wb-ui.css` / `i18n` 零修改**：设计令牌与外壳骨架保留
+- **不引入插件系统**：PI 的 Extension API 不移植；skill / command / hook 仍按内部资源加载
+- **不引入新依赖**：所有变化都在 Go 标准库 + 已有第三方库内完成
+
+### 9.4 架构门禁同步
+
+- `scripts/check-boundaries.ps1`：`ContractVersion` 读取路径从 `internal/domain/contract.go` 改为 `internal/domain/id.go`
+- `scripts/check-boundaries.ps1`：`core-no-upward` / `core-no-http` 改名为 `agent-no-upward` / `agent-no-http`；glob 由 `internal/core*` 改为 `internal/agent*`
+- `scripts/check-contract.ps1`：`routes_*.go` glob 改为 `routes*.go`（合并后只有 routes.go）
+- 前端 `api/client.ts` 的 `KNOWN_PREFIXES`：删除 `/api/v1/pet`（已无对应后端路由）；`/api/v1/folders` 后端路由与 ChatInput 引用链路仍存活，保留
+
+### 9.5 Phase 2：核心包重命名（core → agent）
+
+PI 的 `pi-agent-core` 在 Go 侧落到 `internal/agent/`（原 `internal/core/`）。重命名覆盖：
+
+- `internal/core/*.go`（16 文件） → `internal/agent/*.go`，`package core` → `package agent`
+- 34 个调用点的 import 路径与 `core.X` 引用全部更新
+- `service/chat_task.go` 中变量名 `agent` 与包名冲突，重命名为 `agentName`（函数签名同步）
+
+### 9.6 Phase 2 未做的项（评估后保留现状）
+
+| 候选 | 评估 | 决定 |
+|---|---|---|
+| 新建 `internal/session/`（JSONL + SQLite 双轨） | service/chat_sessions.go 已封装 chat session 全部持久化逻辑；迁移涉及 ~30 个调用点，改动量大于收益 | 延后 |
+| 新建 `internal/resource/`（合并 skill + agents.md + commands） | 已落地：`service/agents_md.go` + `command_file.go` + `frontmatter.go` 迁入 `internal/resource/`（agents_md / commands / loader）；`internal/skill/` 保留独立包 | 完成 |
+| 新建 `internal/settings/`（分层 SettingsManager） | `service/settings.go`（140 LOC）+ `bootstrap` KV 表已承载分层语义；新建包价值边际 | 延后 |
+| `internal/tool/builtin/`（聚合所有内置工具） | 各子包的 `Recorder` / `ScriptResolver` / `ExecPolicy` 等类型分散在子包内；新建聚合包形成反向耦合（子包需被 builtin 反向引用）。当前 `tool.Registry` 已支持 map 查找，handler 中 20 个注册点（18 直注 + 30 个 functools 批量 + 2 个能力域工具）是「显式优于隐式」的取舍 | 不做 |
+| `bootstrap` 接管 `api/handler.go Startup` 460 LOC | Startup 是 Wails 生命周期钩子（ctx 注入 + runtime 调用），必须留在 handler；bootstrap 已接管 db/config/runtime 等横切关注点 | 不做 |
+
+PI 形态重构已完成第 1 期（删除 + 合并）、第 2 期（`core → agent`）与 Phase 3（内核契约对齐）；`internal/resource/` 已落地。`session / settings` 两个新包属于「包装型重构」（零行为变化、纯结构调整），待需求驱动。
+
+### 9.7 Phase 3：内核契约对齐（2026-09）
+
+#### 9.7.1 7 项差距已对齐
+
+| 差距 | WorkBaby 落地 | PI 等价 |
+|---|---|---|
+| 单层循环 → 2 层循环 | `runLoop` 拆 outer（wait follow-up）+ inner（tool+steering） | `agentLoop` / `agentLoopContinue` |
+| `BeforeTurn` 三合一 → 三回调 | `Hooks.TransformContext` + `Hooks.ConvertToLlm` + `Loop.PrepareNextTurn` | `transformContext` / `convertToLlm` / `prepareNextTurnWithContext` |
+| Steering/FollowUp 直返 → 队列 | `SteeringQueue` / `FollowUpQueue` + `QueueMode` | `PendingMessageQueue` |
+| 编译期 API key → 可刷新 | `Loop.GetAPIKey func(ctx, provider) (string, error)` | `getApiKey` callback |
+| 启发式并行判定 → 工具级标注 | `Tool.ExecutionMode() ExecutionMode`（`sequential` / `parallel`）| `executionMode` |
+| 压缩耦合 Compressor → PrepareNextTurn 通用位 | `CompressInfo` 通过 `NextTurnUpdate.CompressInfo` 上行 | 同上 |
+| `EventKind` 补全 | `EventQueueDrained`（入队可见性）| `message_start/update/end` 链式 |
+
+#### 9.7.2 保留的偏离
+
+| 项 | 决定 | 理由 |
+|---|---|---|
+| Middleware 链（6 层护栏）| **保留** | Expose / Schema / Policy / Approval / Adaptive / Repeat 6 维度互相隔离；PI 的单一 before/after 回调会让审批门、路径信任、用户钩子互相污染（见 `specs/features/agent/02-guard-chain.md`）|
+| `Hooks.Steering` / `Hooks.FollowUp` 旧字段 | **保留** | 2 处 `Hooks{}` 字面量调用零迁移成本；新代码走 `WithSteeringQueue` / `WithFollowUpQueue` |
+| `Loop.Run(ctx, history)` / `Loop.Resume(ctx)` 签名 | **不变** | chat_run.go / delegate_core.go 调用点零变化 |
+| `service.ChatService` 公开方法集 32 个 | **不变** | API 契约稳定，前端零变化 |
+| SSE 事件名 / 载荷 / 数据库 schema | **不变** | 重构严格控制在内核内部 |
+
+#### 9.7.3 service 简化
+
+`chat_*.go` 6 文件（528 + 254 + 155 + 317 + 499 + 309 = 2062 LOC）合并为单个 `chat_run.go`：
+- `chat.go` + `chat_agent.go` + `chat_prepare.go` + `chat_finalize.go` + `chat_runs.go` + `chat_stream.go` → `chat_run.go`
+- `chat_sessions.go` / `chat_task.go` / `chat_test.go` 独立保留
+- 公开 API 零变化（依赖图已预先核实：无符号冲突、无循环依赖）
+- `tool/functools/tools.go` 1228 LOC 拆为 `tools_data.go` / `tools_text.go` / `tools_io.go` 3 主题文件
+
+#### 9.7.4 验证
+
+- `go build ./...` · `go vet ./...` · `go test ./internal/... -count=1 -timeout 60s`
+- `scripts/check-boundaries.ps1` · `scripts/check-contract.ps1`
+- `cd frontend && npm run typecheck && npm test`
+
+**重构基线**：调研结论已合并进本节与 `docs/ARCHITECTURE.md`；原始调研报告归档于 `docs/archive/ANALYSIS-PI-ALIGNMENT.md`（不再维护）。

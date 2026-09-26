@@ -48,7 +48,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.srv = srv
 	a.Handler.EmitReady(srv.Port())
-	tray.Start(a.ctx, a) // 系统托盘：显示主窗 / 召唤桌宠 / 隐藏 / 退出
+	tray.Start(a.ctx) // 系统托盘：显示主窗 / 隐藏 / 退出
 	a.flushPendingOpenFile()
 	if pkg.L != nil {
 		pkg.L.Info("workbaby http ready", "port", srv.Port())

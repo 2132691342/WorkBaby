@@ -12,8 +12,7 @@ Wails 单 HTML 资源下 history 模式无法 fallback，统一用 **hash 路由
 | `/` | — | 重定向 `/chat`（主场景是聊天） |
 | `/chat` | `chat/ChatView.vue` | 空态工作区 |
 | `/chat/:id` | `chat/ChatView.vue` | 指定会话 |
-| `/settings` | `settings/SettingsView.vue` | 设置中心（`?tab=` 切换 19 个 section） |
-| `/pet/desktop` | `pet/PetDesktop.vue` | 桌宠独立窗口形态 |
+| `/settings` | `settings/SettingsView.vue` | 设置中心（`?tab=` 切换 12 个 section） |
 | 其余 | — | 重定向 `/chat` |
 
 ## 2. 应用外壳
@@ -65,35 +64,28 @@ Wails 单 HTML 资源下 history 模式无法 fallback，统一用 **hash 路由
 | 结果渲染 | 知识库命中 → 来源卡；diff → `DiffView`；多行 → 行列表；JSON → 缩进着色（超 14 行默认折叠）；其余原样 |
 | 复制 | args / result 各一个复制入口（`useClipboard` legacy 降级 + ✓ 反馈） |
 
-## 4. 设置中心（19 个 section）
+## 4. 设置中心（12 个 section）
 
-`SettingsView.vue` + `?tab=` 切换；左导航一级化（19 子项直接列出，分组标题只做视觉断行）。
+`SettingsView.vue` + `?tab=` 切换；左导航一级化（12 子项直接列出，分组标题只做视觉断行）。
 
 | 组 | section |
 |---|---|
-| 模型 | 模型服务（Provider / 预设 / 连通测试 / 熔断）、网络搜索 |
-| 能力 | 工具、技能、MCP 服务、子智能体、自定义命令、用户钩子 |
-| 数据 | 记忆中心、知识库、仓库导读（Wiki）、文件、仪表盘、运行历史 |
-| 系统 | 外观、安全与高级（exec 白名单 / 免审授权）、桌宠、文档、关于 |
+| 模型 | 模型服务（Provider / 预设 / 连通测试 / 熔断） |
+| 能力 | 联网搜索、技能、MCP 服务、子智能体、工具、记忆中心、知识库 |
+| 系统 | 外观、安全与高级（免审授权 / 托盘 / 记忆开关）、文档、关于 |
+
+**面向新手收敛**：开发者向 / 运维向入口不再从界面露出——仓库导读（Wiki 已整体下线）、
+文件、自定义命令、用户钩子、仪表盘、运行历史；其中的后端能力与 API 保留，已落库数据不受影响。
+exec 二进制白名单编辑器同步移除（后端默认白名单继续生效）。
 
 ## 5. 独立窗口与系统集成
 
 | 界面 | 组件 / 机制 |
 |---|---|
-| 桌宠窗口（260×300） | `pet/PetDesktop.vue`；Win32 `CreateRectRgn` + `CombineRgn` 设置命中区域实现点击穿透 |
-| 托盘 | `internal/tray`（Win32 原生）；菜单：显示/隐藏、召唤·收起桌宠、退出 |
+| 托盘 | `internal/tray`（Win32 原生）；菜单：显示/隐藏、退出 |
 | 单实例 | `internal/singleinstance`（命名互斥 + 本地 TCP IPC）；第二次启动唤起已有实例并传文件路径 |
 | 文件关联 | `.md / .txt / .pdf` 双击唤起 |
 | 命令面板 | `common/CommandPalette.vue`（Ctrl+K） |
 | 启动引导 | 无 Provider 时引导添加（设置 → 模型） |
 
-## 6. 主窗口 / 桌宠态切换
-
-两种形态共享同一前端上下文与状态（单窗口切换，非多窗口）：
-
-| 形态 | 尺寸 | 特性 |
-|---|---|---|
-| 主窗口态 | ≥960×640 | 完整三栏布局 |
-| 桌宠态 | 260×300 | 可置顶、可移动、非命中区域鼠标穿透 |
-
-切换时记忆主窗口位置与尺寸并在切回时还原。
+主窗口最小尺寸 ≥960×640（Wails 窗口约束）；桌面应用只有主窗口一种形态。

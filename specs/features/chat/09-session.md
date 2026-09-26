@@ -52,7 +52,7 @@
 → RebuildHistory 清洗后 Run（或 Resume）
 ```
 
-收尾（`chat_finalize.go`）：按每次上游调用落 `token_usages` → 写运行记录 → assistant 落库
+收尾（`chat_run.go`）：按每次上游调用落 `token_usages` → 写运行记录 → assistant 落库
 → 失败或取消时回滚本 run 新增的免审授权 → 反幻觉核验 → 能力沉淀 → 目标模式判定
 → **发 `chat:done`（落库后才发）**。
 

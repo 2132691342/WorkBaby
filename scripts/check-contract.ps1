@@ -31,11 +31,11 @@ function Pass([string]$msg) {
 }
 
 # ============== 1. cancel/resume path split ==============
-$routeFiles = @(Get-ChildItem -Path (Join-Path $root 'internal\server') -Recurse -Filter 'routes_*.go' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+$routeFiles = @(Get-ChildItem -Path (Join-Path $root 'internal\server') -Recurse -Filter 'routes*.go' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
 if ($routeFiles.Count -eq 0) {
     Write-Host "DEBUG  cwd=$((Get-Location).Path)  root=$root" -ForegroundColor Yellow
     Write-Host "DEBUG  joined=$(Join-Path $root 'internal\server')" -ForegroundColor Yellow
-    Fail "cannot locate routes_*.go (cwd=$((Get-Location).Path))"
+    Fail "cannot locate routes*.go (cwd=$((Get-Location).Path))"
 }
 
 function HasMatch($files, $substr) {

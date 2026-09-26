@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/tool"
 )
 
@@ -16,7 +16,7 @@ func NewWorkspace() Capability { return &workspaceCap{} }
 
 func (c *workspaceCap) ID() string { return "workspace" }
 
-func (c *workspaceCap) Preload(_ context.Context, p *PreloadCtx) ([]core.Section, error) {
+func (c *workspaceCap) Preload(_ context.Context, p *PreloadCtx) ([]agent.Section, error) {
 	if p.Session == nil {
 		return nil, nil
 	}
@@ -24,7 +24,7 @@ func (c *workspaceCap) Preload(_ context.Context, p *PreloadCtx) ([]core.Section
 	if wp == "" {
 		return nil, nil
 	}
-	return []core.Section{{
+	return []agent.Section{{
 		Key:   "workspace",
 		Title: "当前工作目录",
 		Body: "本会话绑定的本地工作目录：" + wp + "\n" +
@@ -33,7 +33,8 @@ func (c *workspaceCap) Preload(_ context.Context, p *PreloadCtx) ([]core.Section
 			"落点纪律：" + wp + " 是用户的目录，只写用户要的产物。中间脚本、临时文件、分析报告、导出结果一律放进 " +
 			wp + "/.workbaby/ 下（scripts/ 过程脚本、output/ 产出物、tmp/ 临时文件、cache/ 缓存）；" +
 			"该目录已存在且对 Git 不可见。禁止在项目根新建 scripts / output / temp 之类的目录。",
-		Priority: core.PriorityEssential,
+		Order:    agent.OrderWorkspace,
+		Priority: agent.PriorityEssential,
 	}}, nil
 }
 

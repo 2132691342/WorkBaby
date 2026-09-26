@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/memory"
 	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/tool"
@@ -36,7 +36,7 @@ func NewMemory(mem *memory.Service, enabled func(context.Context) bool) Capabili
 func (c *memoryCap) ID() string { return "memory" }
 
 // Preload 注入记忆：优先按本轮输入检索命中，无命中时回退到文件全文（条目少时它本身就是索引）。
-func (c *memoryCap) Preload(ctx context.Context, p *PreloadCtx) ([]core.Section, error) {
+func (c *memoryCap) Preload(ctx context.Context, p *PreloadCtx) ([]agent.Section, error) {
 	if c.mem == nil || !p.Def.Memory.Enabled || !c.enabled(ctx) {
 		return nil, nil
 	}
@@ -55,12 +55,12 @@ func (c *memoryCap) Preload(ctx context.Context, p *PreloadCtx) ([]core.Section,
 		}
 		body = pkg.TruncateRunes(raw, memoryInjectMaxRunes)
 	}
-	return []core.Section{{
+	return []agent.Section{{
 		Key:      "memory",
 		Title:    "长期记忆（用 memory_write 追加）",
 		Body:     body,
-		Order:    core.OrderMemory,
-		Priority: core.PriorityMedium,
+		Order:    agent.OrderMemory,
+		Priority: agent.PriorityMedium,
 	}}, nil
 }
 

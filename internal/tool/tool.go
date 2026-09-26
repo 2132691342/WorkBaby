@@ -181,6 +181,30 @@ func MetaOf(t Tool) ToolMeta {
 	return m
 }
 
+// ExecutionMode 工具执行模式（PI Phase 3）：声明本工具在被同一轮批量调用时的并发语义。
+// 未实现 ExecutionModeProvider 的工具默认为 Parallel，配合 Registry.AllParallel 判定整批并发。
+type ExecutionMode string
+
+const (
+	ExecutionParallel   ExecutionMode = "parallel"   // 可并发（受 Loop.cfg.Parallel 信号量约束）
+	ExecutionSequential ExecutionMode = "sequential" // 整批串行执行
+)
+
+// ExecutionModeProvider 可选接口：声明本工具的执行模式。覆盖 Loop 的默认并行判定。
+type ExecutionModeProvider interface {
+	ToolExecutionMode() ExecutionMode
+}
+
+// ExecutionModeOf 取工具执行模式：未实现 ExecutionModeProvider 默认 Parallel。
+func ExecutionModeOf(t Tool) ExecutionMode {
+	if emp, ok := t.(ExecutionModeProvider); ok {
+		if m := emp.ToolExecutionMode(); m != "" {
+			return m
+		}
+	}
+	return ExecutionParallel
+}
+
 // deriveCategory 未声明类别时按只读/破坏性/风险推导。
 func deriveCategory(m ToolMeta, risk RiskLevel) string {
 	switch {

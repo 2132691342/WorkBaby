@@ -64,7 +64,7 @@ func (c *Client) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRespo
 // Stream 流式（ndjson：每行一条 JSON，done:true 终止）。
 func (c *Client) Stream(ctx context.Context, req *llm.ChatRequest) (<-chan llm.StreamChunk, error) {
 	body := c.buildBody(req, true)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/api/chat", bytes.NewReader(mustMarshal(body)))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/api/chat", bytes.NewReader(llm.MustMarshal(body)))
 	if err != nil {
 		return nil, pkg.Wrap(3031, "build ollama stream", err)
 	}
@@ -335,7 +335,7 @@ func toJSON(v any) string {
 	return string(bs)
 }
 
-func mustMarshal(v any) []byte { bs, _ := json.Marshal(v); return bs }
+// mustMarshal 已迁出到 internal/llm/providerbase.go
 
 func itoaSimple(i int) string {
 	if i == 0 {

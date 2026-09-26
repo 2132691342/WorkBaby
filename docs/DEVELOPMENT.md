@@ -19,8 +19,8 @@
 
 | 脚本 | 检查什么 |
 |---|---|
-| `scripts/check-boundaries.ps1` | 分层依赖 9 项（`pkg` 不依赖 internal、`domain`/`repo` 不反向、`api` 不直接 import repo、`service` 不含 HTTP、`core` 不依赖上层也不含 HTTP）+ 前后端契约版本号一致 |
-| `scripts/check-contract.ps1` | 路由约定（cancel 与 resume 必须分路径）+ 前端 `client.ts` 路径白名单与后端 `routes_*.go` 注册前缀一致 |
+| `scripts/check-boundaries.ps1` | 分层依赖 9 项（`pkg` 不依赖 internal、`domain`/`repo` 不反向、`api` 不直接 import repo、`service` 不含 HTTP、`agent` 不依赖上层也不含 HTTP）+ 前后端契约版本号一致 |
+| `scripts/check-contract.ps1` | 路由约定（cancel 与 resume 必须分路径）+ 前端 `client.ts` 路径白名单与后端 `routes.go` 注册前缀一致 |
 | `scripts/i18n-sync.mjs` | zh / en 字典键集合与顺序一致；`dead` 子命令找未被引用的死键 |
 | `scripts/copy-runtimes.ps1` | 构建后钩子：内置运行时归档必须齐全 |
 
@@ -39,7 +39,7 @@
 
 | 包 | 测什么 |
 |---|---|
-| `internal/core` | ReAct 多轮循环、护栏链裁决、压缩不拆散 assistant+tool 对、历史清洗 |
+| `internal/agent` | ReAct 多轮循环、护栏链裁决、压缩不拆散 assistant+tool 对、历史清洗 |
 | `internal/service` | 编排链路：装配接线、事件映射、审批与跨重启续跑、检查点、集成编排（文件变更/反幻觉） |
 | `internal/llm` | 跨 Provider 归一化契约（错误分类、重试退避）+ 三家线协议流解析 |
 | `internal/tool` | 工具落点与沙箱、写前必读护栏、计划模式硬拦、exec 解析 |
@@ -54,7 +54,7 @@
 
 | 改动面 | 跑这个 |
 |---|---|
-| 内核循环 / 护栏 | `go test ./internal/core/` |
+| 内核循环 / 护栏 | `go test ./internal/agent/` |
 | 聊天编排 / 审批 / 恢复 | `go test ./internal/service/ -run 'TestChat\|TestApproval\|TestDurable\|TestCheckpoint'` |
 | 事件契约 | `go test ./internal/service/ -run 'TestCoreEventMapper\|TestEmitterContract'` |
 | SSE | `go test ./internal/server/` |
@@ -93,7 +93,7 @@ func TestChatApproval(t *testing.T) {
 
 | 改动 | 步骤 |
 |---|---|
-| 新增后端端点 | `internal/server/routes_<域>.go` 注册 + `internal/api/api_<域>.go` 透传 + 业务进 `service`；同步 `docs/API-CONTRACT.md` 与前端 `client.ts` 白名单 |
+| 新增后端端点 | `internal/server/routes.go` 注册 + `internal/api/`（`api_chat.go` / `api_provider.go` / `api_handlers.go` 按域归入）透传 + 业务进 `service`；同步 `docs/API-CONTRACT.md` 与前端 `client.ts` 白名单 |
 | 新增表 | `domain` DO → `repo` → 登记 `db/migrate.go` → 更新 `docs/ARCHITECTURE.md` 表清单 |
 | 新增工具 | 实现 `tool.Tool` → 在 `api.Handler.Startup` 注册 → 更新 `specs/features/tools/` |
 | 新增前端文案 | zh / en 字典同步加键，跑 `i18n-sync.mjs check` |

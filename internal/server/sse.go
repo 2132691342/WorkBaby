@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// SSEHub 把 event.Bus 的 chat:* / pet:* / app:* / task:* 事件桥接到 SSE 长连接，
+// SSEHub 把 event.Bus 的 chat:* / app:* / task:* 事件桥接到 SSE 长连接，
 // 客户端按 (scope, session_id) 过滤；每条事件带 run 内单调 seq，重连时按 Last-Event-ID 重放，
 // 缓冲被覆盖则推 chat:gap 由前端转全量回补。
 type SSEHub struct {
@@ -26,7 +26,7 @@ type SSEHub struct {
 
 // sseClient 一条 SSE 连接；done 由 close 保证只关一次（Serve 的 defer 与 hub.Close 都会调）。
 type sseClient struct {
-	scope     string // chat | pet | app | task
+	scope     string // chat | app | task
 	runID     string // 订阅的 run：重放定位 + 未指定 session 时的过滤键
 	sessionID string // 订阅的会话：会话内全部 run 与无 run 归属的事件（目标状态等）都送达
 	ch        chan sseMsg
@@ -65,10 +65,9 @@ func NewSSEHub(bus *event.Bus, log *event.RunEventLog) *SSEHub {
 		log:     log,
 		clients: make(map[*sseClient]struct{}),
 	}
-	// 桥接 chat:*/pet:*/app:*/task:* 四类事件（前端订阅范围）。
+	// 桥接 chat:*/app:*/task:* 三类事件（前端订阅范围）。
 	// task:* 必须在此登记：后台任务面板按 scope=task 订阅，缺了这一行任务中心收不到任何实时变化。
 	h.bus.Subscribe(event.MatchPrefix("chat:"), h.onEvent)
-	h.bus.Subscribe(event.MatchPrefix("pet:"), h.onEvent)
 	h.bus.Subscribe(event.MatchPrefix("app:"), h.onEvent)
 	h.bus.Subscribe(event.MatchPrefix("task:"), h.onEvent)
 	return h

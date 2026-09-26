@@ -24,7 +24,7 @@ wails build -nsis -ldflags "-s -w" -trimpath     # 推荐：体积更小、路�
 前端产物由 `main.go` 的 `//go:embed all:frontend/dist` 编进二进制，运行时经 AssetServer 提供；
 `/files/**` 前缀转发到本地受管文件服务。
 
-`copy-runtimes.ps1` 把 `runtimes/`（manifest + python / powershell 归档）复制到产物目录与 `build/windows/runtimes`，
+`copy-runtimes.ps1` 把 `runtimes/`（manifest + python 归档）复制到产物目录与 `build/windows/runtimes`，
 **清单声明的归档缺失即构建失败**。
 
 ## 3. 版本号
@@ -47,7 +47,7 @@ NSIS 脚本在 `build/windows/installer/project.nsi`（配 `wails_tools.nsh`、`
 
 ## 5. 内置运行时
 
-部分工具（技能脚本、命令执行）需要本机存在 python / powershell，但不应要求用户自己安装。
+部分工具（技能脚本、命令执行）需要本机存在 python，但不应要求用户自己安装。
 内置运行时把这些随安装包分发，首次启动时解压到数据目录。
 
 ### 5.1 清单
@@ -58,7 +58,6 @@ NSIS 脚本在 `build/windows/installer/project.nsi`（配 `wails_tools.nsh`、`
 | 资产 | 版本 | 格式 | 限额 |
 |---|---|---|---|
 | python | 3.12.13 | tar.gz | 6000 文件 / 240MiB；PATH 追加 `.` 与 `Scripts` |
-| powershell | 7.5.2 | zip | 2000 文件 / 450MiB |
 
 ### 5.2 解压与安全
 
@@ -88,7 +87,6 @@ db/workbaby.db         SQLite（WAL）
 logs/                  按等级分流的日志（10MiB×5 轮转）
 runs/                  run 事件 JSONL（最近 50 个）
 skills/                全局技能
-sprites/               桌宠形象
 memory/{sessionID}/    长期记忆
 workspaces/{sessionID}/默认会话工作区
 runtimes/{id}/{ver}/   内置运行时
@@ -116,6 +114,6 @@ files/                 受管文件
 |---|---|---|
 | `-nsis` 单包分发 | 用户双击即装；WebView2 缺失时引导安装 | 安装包体积较大（含前端资源与内置运行时） |
 | 主密钥随首启生成写入 `config.yaml` | 无需用户管理密钥 | 换机或删配置即丢失已存密钥（需重新录入模型 Key） |
-| 内置运行时随包（python / pwsh） | 工具开箱可用，不依赖用户自备环境 | 首启解压耗时 + 包体积增加 |
+| 内置运行时随包（python） | 工具开箱可用，不依赖用户自备环境 | 首启解压耗时 + 包体积增加 |
 | 解压带资源上限与路径校验 | 阻断 zip bomb 与越界写 | 超上限的资产需在 manifest 调整 |
 | 工作区沙箱 `.workbaby/` | 过程数据跟工作区走，不污染仓库 | 用户清理工作区时会一并删除记忆与快照 |

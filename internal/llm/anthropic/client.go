@@ -71,7 +71,7 @@ func (c *Client) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRespo
 // Stream 流式（SSE，event-stream）。
 func (c *Client) Stream(ctx context.Context, req *llm.ChatRequest) (<-chan llm.StreamChunk, error) {
 	body := c.buildBody(req, true)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/messages", bytes.NewReader(mustMarshal(body)))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/messages", bytes.NewReader(llm.MustMarshal(body)))
 	if err != nil {
 		return nil, pkg.Wrap(3031, "build anthropic stream failed", err)
 	}
@@ -231,7 +231,7 @@ func (c *Client) Models(_ context.Context) ([]llm.ModelInfo, error) {
 
 // Ping 非流式 chat 试 "ping"。
 func (c *Client) Ping(ctx context.Context) error {
-	body := c.buildBody(&llm.ChatRequest{Model: "claude-3-5-haiku-latest", Messages: []*llm.Message{llm.UserMessage("ping")}, MaxTokens: intPtr(1)}, false)
+	body := c.buildBody(&llm.ChatRequest{Model: "claude-3-5-haiku-latest", Messages: []*llm.Message{llm.UserMessage("ping")}, MaxTokens: llm.IntPtr(1)}, false)
 	resp, err := llm.DoJSON(ctx, c.HTTP, "POST", c.BaseURL+"/v1/messages", c.headers(), body, nil)
 	if err != nil {
 		return err
@@ -496,7 +496,4 @@ func toAnthropicTools(ts []llm.ToolDefinition) []map[string]any {
 	return out
 }
 
-// ===== helpers =====
-
-func mustMarshal(v any) []byte { bs, _ := json.Marshal(v); return bs }
-func intPtr(i int) *int        { return &i }
+// ===== helpers (mustMarshal / intPtr 已迁出到 internal/llm/providerbase.go) =====

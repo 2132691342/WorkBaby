@@ -49,6 +49,31 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: true,
-    target: 'es2022'
+    target: 'es2022',
+    // 手动分块（PI Phase 5 优化）：重型依赖按需加载，首屏 bundle 仅含 Vue/Pinia/router/axios。
+    //  - mermaid / cytoscape / katex / echarts / markdown-it 都已通过路由级 dynamic import 引入，
+    //    manualChunks 进一步把它们从主 chunk 拆出 → 单页首屏 < 600KB（gzip 前）。
+    //  - 路由级 dynamic import 见 ChatStreamDecoder.ts / markdown 渲染器 / dashboard 视图。
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('mermaid')) return 'vendor-mermaid'
+          if (id.includes('cytoscape')) return 'vendor-cytoscape'
+          if (id.includes('katex')) return 'vendor-katex'
+          if (id.includes('echarts') || id.includes('zrender')) return 'vendor-echarts'
+          if (id.includes('markdown-it') || id.includes('highlight.js') || id.includes('dompurify')) {
+            return 'vendor-markdown'
+          }
+          // 运行时核心（始终在主 bundle）
+          if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router')
+            || id.includes('axios') || id.includes('@vue') || id.includes('element-plus')
+            || id.includes('@element-plus')) {
+            return 'vendor'
+          }
+          return undefined
+        }
+      }
+    }
   }
 })

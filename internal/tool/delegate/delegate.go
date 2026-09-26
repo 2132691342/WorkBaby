@@ -1,6 +1,6 @@
 // Package delegate 提供「子 Agent 委派」工具。
 //
-// 父 Agent 把可独立完成的子任务交给专用 Agent（coding/research/writer）：
+// 父 Agent 把可独立完成的子任务交给专用 Agent（内置 default/explore 或自定义档案）：
 // 子 run 上下文隔离、预算独立、只回传摘要，父上下文不被子任务的中间过程撑爆。
 // 委派能力经 ctx 注入（tool.Delegator），本包不感知 harness。
 package delegate
@@ -24,14 +24,14 @@ var paramsSchema = json.RawMessage(`{
 	"type": "object",
 	"required": ["task"],
 	"properties": {
-		"agent": {"type": "string", "description": "子 Agent 名：内置 coding（工程）/ research（检索）/ writer（写作）/ default（通用），或设置页定义的自定义子智能体名；未知回退 default"},
+		"agent": {"type": "string", "description": "子 Agent 名：内置 default（通用全能）/ explore（只读探索），或设置页定义的自定义子智能体名；未知回退 default"},
 		"task":  {"type": "string", "description": "交给子 Agent 的完整任务描述，需自包含（子 Agent 看不到当前对话）"}
 	}
 }`)
 
 func (t *Tool) Name() string { return "delegate_task" }
 func (t *Tool) Description() string {
-	return "把可独立完成的大块任务委派给子 Agent（内置 coding/research/writer，或设置页定义的自定义子智能体）。子任务独立执行且只回传摘要，适合调研、批量检索、独立编码等不污染主上下文的工作。"
+	return "把可独立完成的大块任务委派给子 Agent（内置 default/explore，或设置页定义的自定义子智能体）。子任务独立执行且只回传摘要，适合调研、批量检索、独立编码等不污染主上下文的工作。"
 }
 func (t *Tool) Schema() tool.ToolSchema {
 	return tool.ToolSchema{Name: t.Name(), Description: t.Description(), Parameters: paramsSchema}
@@ -39,6 +39,9 @@ func (t *Tool) Schema() tool.ToolSchema {
 
 // RiskLevel 委派按 exec 级对待：子 Agent 会真实调用工具（可能写文件/跑命令）。
 func (t *Tool) RiskLevel() tool.RiskLevel { return tool.RiskExec }
+
+// ToolExecutionMode 子 Agent 委派整批串行：并发相同 (agent, task) 才会共享执行，并发触发反而双跑。
+func (t *Tool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
 
 // Execute 执行委派；委派能力未注入时返回可见错误（模型据此改道自己干）。
 func (t *Tool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {

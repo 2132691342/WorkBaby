@@ -36,6 +36,9 @@ func New(resolver tool.RootResolver, defRoot string) *ArchiveTool {
 
 func (t *ArchiveTool) Name() string              { return "archive_manager" }
 func (t *ArchiveTool) RiskLevel() tool.RiskLevel { return tool.RiskWriteLocal }
+
+// ToolExecutionMode 归档整批串行：解压/压缩互斥路径与临时目录。
+func (t *ArchiveTool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
 func (t *ArchiveTool) Description() string {
 	return "Compress a file/directory to zip, or extract a zip into a directory (workspace-relative paths)."
 }

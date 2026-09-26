@@ -121,7 +121,7 @@ type ChatSessionRESP struct {
 type ContextSegment struct {
 	Key    string `json:"key"`    // system | memory | tools | history
 	Title  string `json:"title"`  // 展示名
-	Tokens int    `json:"tokens"` // 估算 token（rune/4 近似，与 core.EstimateTokens 同口径）
+	Tokens int    `json:"tokens"` // 估算 token（rune/4 近似，与 agent.EstimateTokens 同口径）
 	Ratio  int    `json:"ratio"`  // 占上下文窗口的千分比（避免前端浮点误差）
 }
 

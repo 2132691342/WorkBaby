@@ -6,8 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/pkg"
+	"WorkBaby/internal/resource"
 )
 
 // AgentFileDir 用户级子智能体定义目录（{home}/agents）。
@@ -21,9 +22,9 @@ var agentFileFields = []string{"color", "mcpServers", "injectAgentsMd"}
 var thinkingLevels = map[string]struct{}{"off": {}, "low": {}, "medium": {}, "high": {}}
 
 // LoadAgentFiles 读取用户级子智能体定义文件（frontmatter + 正文人设），与设置页创建的
-// 智能体同构、最终都物化成 core.Definition（文件可随 dotfiles 分发，表适合界面里随手改）。
+// 智能体同构、最终都物化成 agent.Definition（文件可随 dotfiles 分发，表适合界面里随手改）。
 // 缺 name / description、名字非法、与内置名撞名的文件诊断后跳过。
-func LoadAgentFiles(home string) []core.Definition {
+func LoadAgentFiles(home string) []agent.Definition {
 	if strings.TrimSpace(home) == "" {
 		return nil
 	}
@@ -33,10 +34,10 @@ func LoadAgentFiles(home string) []core.Definition {
 		return nil
 	}
 	builtin := map[string]struct{}{}
-	for _, name := range core.BuiltinAgentNames() {
+	for _, name := range agent.BuiltinAgentNames() {
 		builtin[name] = struct{}{}
 	}
-	out := make([]core.Definition, 0, len(entries))
+	out := make([]agent.Definition, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".md") {
 			continue
@@ -58,42 +59,42 @@ func LoadAgentFiles(home string) []core.Definition {
 }
 
 // parseAgentFile 解析单个 Agent 定义文件。
-func parseAgentFile(data []byte, file string, builtin map[string]struct{}) (core.Definition, bool) {
-	fm := splitFrontMatter(string(data))
+func parseAgentFile(data []byte, file string, builtin map[string]struct{}) (agent.Definition, bool) {
+	fm := resource.SplitFrontMatter(string(data))
 	// 文件名是缺省名；frontmatter 里的 name 优先（与定义文件的自述一致）
-	name := strings.TrimSpace(fm.get("name"))
+	name := strings.TrimSpace(fm.Get("name"))
 	if name == "" {
 		name = strings.TrimSuffix(file, filepath.Ext(file))
 	}
-	desc := strings.TrimSpace(fm.get("description"))
+	desc := strings.TrimSpace(fm.Get("description"))
 	if name == "" || desc == "" {
 		pkg.L.Warn("agent file skipped: name/description required", "file", file)
-		return core.Definition{}, false
+		return agent.Definition{}, false
 	}
 	if !agentNamePattern.MatchString(name) {
 		pkg.L.Warn("agent file skipped: invalid name", "file", file, "name", name)
-		return core.Definition{}, false
+		return agent.Definition{}, false
 	}
 	if _, dup := builtin[name]; dup {
 		pkg.L.Warn("agent file skipped: name reserved by builtin agent", "file", file, "name", name)
-		return core.Definition{}, false
+		return agent.Definition{}, false
 	}
 	if unsupported := unsupportedAgentFields(fm); len(unsupported) > 0 {
 		pkg.L.Warn("agent file: unsupported fields ignored",
 			"agent", name, "fields", strings.Join(unsupported, ","))
 	}
-	tools := fm.list("tools")
+	tools := fm.List("tools")
 	allow := tools
 	if len(allow) == 1 && (allow[0] == "*" || allow[0] == "all") {
 		allow = nil // 显式「全部工具」= 不设白名单
 	}
-	maxTurns := fm.intValue("maxTurns", 0)
-	model := strings.TrimSpace(fm.get("model"))
+	maxTurns := fm.IntValue("maxTurns", 0)
+	model := strings.TrimSpace(fm.Get("model"))
 	// 继承主模型的写法与「不写」等价
 	if model == "inherit" {
 		model = ""
 	}
-	thinking := strings.ToLower(strings.TrimSpace(fm.get("thoughtLevel")))
+	thinking := strings.ToLower(strings.TrimSpace(fm.Get("thoughtLevel")))
 	if thinking != "" {
 		if _, ok := thinkingLevels[thinking]; !ok {
 			pkg.L.Warn("agent file: invalid thoughtLevel ignored", "agent", name, "value", thinking)
@@ -105,27 +106,27 @@ func parseAgentFile(data []byte, file string, builtin map[string]struct{}) (core
 			thinking = ""
 		}
 	}
-	return core.Definition{
+	return agent.Definition{
 		Name:        name,
 		Description: desc,
-		Persona:     strings.TrimSpace(fm.body),
-		Tools: core.ToolPolicy{
+		Persona:     strings.TrimSpace(fm.Body()),
+		Tools: agent.ToolPolicy{
 			Allow: allow,
-			Deny:  fm.list("disallowedTools"),
+			Deny:  fm.List("disallowedTools"),
 		},
 		// 子智能体默认不读写长期记忆：主对话的记忆属于主对话，子任务污染召回会降低准确率。
-		Memory:   core.MemoryPolicy{Enabled: false, Formation: false},
-		Budget:   core.Budget{MaxTurns: maxTurns},
+		Memory:   agent.MemoryPolicy{Enabled: false, Formation: false},
+		Budget:   agent.Budget{MaxTurns: maxTurns},
 		Model:    model,
 		Thinking: thinking,
 	}, true
 }
 
 // unsupportedAgentFields 返回定义文件里出现但当前未接入执行链的字段。
-func unsupportedAgentFields(fm frontMatter) []string {
+func unsupportedAgentFields(fm resource.FrontMatter) []string {
 	var out []string
 	for _, k := range agentFileFields {
-		if fm.get(k) != "" {
+		if fm.Get(k) != "" {
 			out = append(out, k)
 		}
 	}

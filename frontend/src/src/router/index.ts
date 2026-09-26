@@ -4,7 +4,7 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
  * 路由表：Wails 单 HTML 资源下 history 模式无法 fallback，统一用 hash 路由。
  * 鉴权由 Wails 绑定承载，路由层不做守卫。
  *
- * <p>信息架构：外壳左栏只保留任务主链路（聊天 / 自动化 / 设置），
+ * <p>信息架构：外壳左栏只保留任务主链路（聊天 / 设置），
  * 功能页全部收进设置中心 —— 旧路由（/memory /skills …）重定向到 /settings?tab=x，
  * 命令面板与历史书签里的深链仍然可达。
  */
@@ -18,21 +18,13 @@ const routes: RouteRecordRaw[] = [
   { path: '/chat/:id', name: 'chat-session', component: () => import('@/components/chat/ChatView.vue'), props: true },
   { path: '/settings', name: 'settings', component: () => import('@/components/settings/SettingsView.vue') },
 
-  // 独立窗口（桌宠形态）
-  { path: '/pet/desktop', name: 'pet-desktop', component: () => import('@/components/pet/PetDesktop.vue') },
-
   // 兼容重定向：旧侧栏入口全部归入设置中心对应 section
   { path: '/home', redirect: '/chat' },
-  { path: '/folders', redirect: '/settings?tab=files' }, // folders 并入 files
-  { path: '/dashboard', redirect: '/settings?tab=dashboard' },
-  { path: '/runs', redirect: '/settings?tab=runs' },
   { path: '/memory', redirect: '/settings?tab=memory' },
   { path: '/kdocs', redirect: '/settings?tab=kdocs' },
   { path: '/skills', redirect: '/settings?tab=skills' },
   { path: '/mcp', redirect: '/settings?tab=mcp' },
-  { path: '/files', redirect: '/settings?tab=files' },
   { path: '/tools', redirect: '/settings?tab=tools' },
-  { path: '/pet', redirect: '/settings?tab=pet' },
   { path: '/docs', redirect: '/settings?tab=docs' },
   { path: '/admin', redirect: '/settings?tab=about' },
 

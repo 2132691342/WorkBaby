@@ -71,14 +71,14 @@ func (r *Registry) SelfCheckSchema() error {
 	return nil
 }
 
-// AllReadOnly 给定工具名列表是否全部存在且声明只读（ToolMeta 声明优先，RiskLevel 兜底）。
-// 供 harness 只读并行执行裁决。
-func (r *Registry) AllReadOnly(names []string) bool {
+// AllParallel 给定工具名列表是否全部存在且执行模式为 Parallel（未声明 ExecutionModeProvider 视同 Parallel）。
+// 任一工具声明 Sequential 即整批串行；工具缺名时返回 false（宁可串行）。
+func (r *Registry) AllParallel(names []string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, name := range names {
 		t, ok := r.tools[name]
-		if !ok || !MetaOf(t).ReadOnly {
+		if !ok || ExecutionModeOf(t) != ExecutionParallel {
 			return false
 		}
 	}

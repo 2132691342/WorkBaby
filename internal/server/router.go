@@ -18,9 +18,7 @@ func (s *Server) registerRoutes() {
 	registerAgentRoutes(v1, h)
 	registerKnowledgeRoutes(v1, h)
 	registerFileRoutes(v1, h)
-	registerWikiRoutes(v1, h)
 	registerHookRoutes(v1, h)
-	registerPetRoutes(v1, h)
 	registerTaskRoutes(v1, h)
 }
 
@@ -46,11 +44,4 @@ func atoi64(s string, def int64) int64 {
 		return def
 	}
 	return n
-}
-
-func petMode(pet bool) string {
-	if pet {
-		return "pet"
-	}
-	return "main"
 }

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/llm"
 	"WorkBaby/internal/pkg"
@@ -150,7 +150,7 @@ type goalVerdict struct {
 
 // maybeContinueGoal 目标模式主钩子：一轮 run 成功收尾后调用。未完成 → 校验（LLM 实据裁决）→
 // 未达标则携带下一步动作自动续跑下一轮。续跑直接起新 run（runRegistry 保证旧 run 清理不误删新句柄）。
-func (s *ChatService) maybeContinueGoal(ctx context.Context, ses *domain.ChatSessionDO, runID string, res *core.Outcome) {
+func (s *ChatService) maybeContinueGoal(ctx context.Context, ses *domain.ChatSessionDO, runID string, res *agent.Outcome) {
 	g := sessionGoal(ses)
 	if g == nil || g.Status != domain.GoalStatusActive {
 		return
@@ -165,7 +165,7 @@ func (s *ChatService) maybeContinueGoal(ctx context.Context, ses *domain.ChatSes
 		return
 	}
 	switch res.Reason {
-	case core.ReasonCancelled, core.ReasonError:
+	case agent.ReasonCancelled, agent.ReasonError:
 		g.Status = domain.GoalStatusPaused
 		g.NextStep = ""
 		g.UpdatedAt = time.Now().UnixMilli()
@@ -210,7 +210,7 @@ func (s *ChatService) maybeContinueGoal(ctx context.Context, ses *domain.ChatSes
 		"当前目标：" + g.Text + "\n上一步校验给出的下一步动作：" + g.NextStep +
 		"\n请直接执行该动作；目标完成后明确汇报达成的实据（改了哪些文件 / 跑了哪些验证 / 结果如何）。"
 	go func() {
-		_, err := s.SendStream(context.Background(), ses.ID, next, nil, core.RequestParams{})
+		_, err := s.SendStream(context.Background(), ses.ID, next, nil, agent.RequestParams{})
 		if err != nil {
 			pkg.L.Warn("goal auto-continue failed", "sessionID", ses.ID, "err", err.Error())
 		}
@@ -219,7 +219,7 @@ func (s *ChatService) maybeContinueGoal(ctx context.Context, ses *domain.ChatSes
 
 // goalVerdict 目标校验：只看实据（文件变更 / 命令输出 / 测试结果），
 // 计划、清单、口头结论都不算达成。校验失败返回 error（调用方暂停目标）。
-func (s *ChatService) goalVerdict(ctx context.Context, ses *domain.ChatSessionDO, g *domain.SessionGoal, res *core.Outcome) (goalVerdict, error) {
+func (s *ChatService) goalVerdict(ctx context.Context, ses *domain.ChatSessionDO, g *domain.SessionGoal, res *agent.Outcome) (goalVerdict, error) {
 	if s.reg == nil || ses.ProviderID == "" {
 		return goalVerdict{}, pkg.New(2001, "registry/provider 未就绪", "")
 	}

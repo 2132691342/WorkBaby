@@ -40,8 +40,6 @@ export const useSettingsStore = defineStore('settings', () => {
     engine: 'duckduckgo',
     api_key: ''
   })
-  /** exec agent 二进制白名单。 */
-  const execWhitelist = ref<string[]>([])
 
   /** 全局记忆开关（KV memory.enabled；缺省开启）。关闭后：不再自动召回长期记忆、不再沉淀情景记忆。 */
   const memoryEnabled = ref(true)
@@ -314,27 +312,6 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  /** 加载 exec agent 二进制白名单。 */
-  async function loadExecWhitelist(): Promise<void> {
-    try {
-      execWhitelist.value = await apiGet<string[]>('/api/v1/settings/exec/agent')
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
-    }
-  }
-
-  /** 保存 exec agent 白名单。 */
-  async function saveExecWhitelist(binaries: string[]): Promise<boolean> {
-    error.value = null
-    try {
-      execWhitelist.value = await apiPost<string[]>('/api/v1/settings/exec/agent', binaries)
-      return true
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
-      return false
-    }
-  }
-
   /** 保存通用设置。 */
   async function saveGeneral(): Promise<boolean> {
     error.value = null
@@ -481,7 +458,6 @@ export const useSettingsStore = defineStore('settings', () => {
     providerPresets,
     general,
     webSearchConfig,
-    execWhitelist,
     chatDefaults,
     memoryEnabled,
     backgroundUrl,
@@ -502,8 +478,6 @@ export const useSettingsStore = defineStore('settings', () => {
     resetCircuit,
     saveGeneral,
     saveWebSearchConfig,
-    loadExecWhitelist,
-    saveExecWhitelist,
     loadChatDefaults,
     saveChatDefaults,
     loadMemoryEnabled,

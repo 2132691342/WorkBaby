@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
 	"WorkBaby/internal/pkg"
@@ -265,7 +265,7 @@ func (s *ApprovalService) Approve(ctx context.Context, command string, risk stri
 	}
 	// 已决记录快速裁决仅限续跑回放（IsResumedRun）：正常路径下同命令的第二次调用
 	// 必须重新询问，一次性审批不得被残留记录静默复用。
-	if core.IsResumedRun(ctx) {
+	if agent.IsResumedRun(ctx) {
 		if ok, found := s.consumeDecided(ctx, domain.ApprovalKindApproval, command); found {
 			return ok
 		}
@@ -277,8 +277,8 @@ func (s *ApprovalService) Approve(ctx context.Context, command string, risk stri
 		ch:        make(chan approvalDecision, 1),
 		command:   command,
 		risk:      risk,
-		runID:     core.RunIDFromCtx(ctx),
-		sessionID: core.SessionIDFromCtx(ctx),
+		runID:     agent.RunIDFromCtx(ctx),
+		sessionID: agent.SessionIDFromCtx(ctx),
 		createdAt: now.UnixMilli(),
 		expiresAt: now.Add(approvalWaitTimeout).UnixMilli(),
 	}
@@ -328,7 +328,7 @@ func (s *ApprovalService) persistPending(ctx context.Context, id, kind, command,
 		return
 	}
 	row := &domain.ApprovalRecordDO{
-		ID: id, RunID: core.RunIDFromCtx(ctx), SessionID: core.SessionIDFromCtx(ctx),
+		ID: id, RunID: agent.RunIDFromCtx(ctx), SessionID: agent.SessionIDFromCtx(ctx),
 		Kind: kind, Command: command, Risk: risk, Status: domain.ApprovalStatusPending, ExpiresAt: expiresAt,
 	}
 	if err := s.records.Create(ctx, row); err != nil {
@@ -349,7 +349,7 @@ func (s *ApprovalService) settleRecord(id, status, answer string) {
 // RequestInput 模型主动向用户要信息（risk=input_required）：阻塞等待 Answer 回填文本，
 // 返回 (回答, true)；超时/取消返回 ("", false)。已决记录复用仅限续跑回放，一次性问答不被静默复用。
 func (s *ApprovalService) RequestInput(ctx context.Context, question string) (string, bool) {
-	if core.IsResumedRun(ctx) {
+	if agent.IsResumedRun(ctx) {
 		if rec := s.findDecided(ctx, domain.ApprovalKindInput, question,
 			[]string{domain.ApprovalStatusAnswered, domain.ApprovalStatusSkipped}); rec != nil {
 			s.settleRecord(rec.ID, domain.ApprovalStatusConsumed, "")
@@ -367,8 +367,8 @@ func (s *ApprovalService) RequestInput(ctx context.Context, question string) (st
 	s.inputs[id] = ch
 	s.inflight[id] = &pendingInput{
 		question:  question,
-		runID:     core.RunIDFromCtx(ctx),
-		sessionID: core.SessionIDFromCtx(ctx),
+		runID:     agent.RunIDFromCtx(ctx),
+		sessionID: agent.SessionIDFromCtx(ctx),
 		expiresAt: now.Add(approvalWaitTimeout).UnixMilli(),
 	}
 	s.mu.Unlock()
@@ -461,7 +461,7 @@ func (s *ApprovalService) decideFromRecord(ctx context.Context, id, status, answ
 		return pkg.New(4003, "审批请求不存在或已过期", id)
 	}
 	s.settleRecord(id, status, answer)
-	s.emitDecided(core.WithRunContext(ctx, rec.RunID, rec.SessionID), id, rec.Command, decisionName(status))
+	s.emitDecided(agent.WithRunContext(ctx, rec.RunID, rec.SessionID), id, rec.Command, decisionName(status))
 	s.kickResume(ctx, rec)
 	return nil
 }
@@ -483,7 +483,7 @@ func (s *ApprovalService) findDecided(ctx context.Context, kind, command string,
 	if s.records == nil {
 		return nil
 	}
-	rec, err := s.records.FindDecided(ctx, core.RunIDFromCtx(ctx), kind, command, statuses)
+	rec, err := s.records.FindDecided(ctx, agent.RunIDFromCtx(ctx), kind, command, statuses)
 	if err != nil {
 		pkg.L.Warn("find decided approval failed", "err", err.Error())
 		return nil

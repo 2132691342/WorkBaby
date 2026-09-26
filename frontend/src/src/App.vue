@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter, RouterView } from 'vue-router'
 import { EventsOn, WindowMinimise, WindowToggleMaximise, Quit } from '@/wailsjs/runtime/runtime'
 import { init as initI18n, setLocale, t, currentLocale } from '@/i18n'
@@ -31,12 +31,11 @@ import { bootstrapServer } from '@/api/bootstrap'
 
 /**
  * 应用外壳（极简布局）：
- * 自绘标题栏（frameless）+ 极简左栏（新建任务 / 搜索 / 自动化 + 任务列表 + 底部设置）+ RouterView。
+ * 自绘标题栏（frameless）+ 极简左栏（新建任务 / 搜索 + 任务列表 + 底部设置）+ RouterView。
  *
  * <p>样式全部来自 wb-ui.css 设计系统层（.win / .titlebar / .side / .rail-* …）。
- * 功能页（记忆 / 知识库 / 技能 / MCP / 工具 / 工作流 / 统计 / 运行 / 文件 …）
+ * 功能页（记忆 / 知识库 / 技能 / MCP / 工具 / 统计 / 运行 / 文件 …）
  * 全部收进设置中心（/settings 左导航多 tab），旧路由重定向，外壳只保留任务主链路。
- * `/pet/desktop` 独立窗口跳过外壳。
  * 启动即进（去账号化）：bootstrapServer 成功才挂载业务视图，失败给可见错误态。
  */
 const route = useRoute()
@@ -45,8 +44,6 @@ const toast = useToast()
 const ready = ref(false)
 /** 启动引导状态：后端完成端口注入前显示可见进度，而不是白屏。 */
 const booting = ref(true)
-/** 桌宠独立窗口路由：跳过 AppShell。 */
-const isPetDesktop = computed(() => route.path === '/pet/desktop')
 /** 左栏整体收起（Ctrl+B；全隐而不是图标条）。 */
 const collapsed = ref(false)
 /** 本机会话令牌换取失败（后端未就绪 / 端口不对）时的错误提示。 */
@@ -166,32 +163,7 @@ async function toggleLang(): Promise<void> {
   await setLocale(currentLocale.value === 'zh-CN' ? 'en-US' : 'zh-CN')
 }
 
-/** 桌宠模式：进入独立页前的路由记忆（pet:hide 后回到这里）。 */
-const savedMainRoute = ref('/chat')
-watch(
-  () => route.fullPath,
-  (p) => {
-    if (p && p !== '/pet/desktop') savedMainRoute.value = p
-  },
-  { immediate: true }
-)
-
-/** 桌宠模式事件监听（Go 侧 PetToggleMode emit pet:show/pet:hide）。
- *  浏览器预览态无 window.runtime，静默降级。 */
-let offPetShow: (() => void) | undefined
-let offPetHide: (() => void) | undefined
-function registerPetEvents(): void {
-  try {
-    offPetShow = EventsOn('pet:show', () => {
-      if (route.path !== '/pet/desktop') void router.push('/pet/desktop')
-    })
-    offPetHide = EventsOn('pet:hide', () => {
-      if (route.path === '/pet/desktop') void router.replace(savedMainRoute.value)
-    })
-  } catch {
-    /* 非 Wails 环境无 window.runtime */
-  }
-}
+/** 桌宠模式已移除。 */
 
 onMounted(async () => {
   await initI18n()
@@ -205,7 +177,6 @@ onMounted(async () => {
     booting.value = false
     return
   }
-  registerPetEvents()
   registerFileOpenEvents()
   onReady()
   // 斜杠命令元数据：启动期一次缓存（此前从未接线，后端命令从未出现在面板）
@@ -220,8 +191,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearAllShortcuts()
-  offPetShow?.()
-  offPetHide?.()
   offFileOpen?.()
 })
 
@@ -272,11 +241,8 @@ async function onNewSessionShortcut(): Promise<void> {
 </script>
 
 <template>
-  <!-- 桌宠独立窗口：跳过主壳 -->
-  <RouterView v-if="isPetDesktop" />
-
   <!-- 后端初始化期间显示可见启动态，避免窗口打开后出现长时间白屏 -->
-  <div v-else-if="booting" class="wb-ui relative flex h-screen items-center justify-center" aria-live="polite">
+  <div v-if="booting" class="wb-ui relative flex h-screen items-center justify-center" aria-live="polite">
     <AppBackground />
     <div class="card relative z-10 w-full max-w-md space-y-5 text-center">
       <div class="tile tile-xl mx-auto flex items-center justify-center" style="margin: 0 auto 14px">

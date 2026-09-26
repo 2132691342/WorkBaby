@@ -5,14 +5,14 @@
 
 ## 1. 统一约定
 
-- 响应包裹：成功 `{code:0, data:...}`；失败 `{code:<错误码>, message:<文案>, detail?}`
+- 响应包裹：成功 `{code:0, message:"ok", data:...}`；失败 `{code:<错误码>, message:<文案>, details?}`
 - 请求体统一 JSON 绑定；分页 / 条数由各接口的 `limit` / `k` 查询参数控制
 - 契约版本：`GET /api/v1/meta/contract`；前端启动比对，不一致显式报错
 - 字段一律 **snake_case**
 - 路径风格：`/api/v1/{resource}/:id/{action}`；变量参数放路径末尾；删除走 `POST .../delete`
 
-**错误码段位**：1000 通用/文件/路径 · 2000 配置/持久化 · 3000 LLM/Provider · 4000 工具/命令审批 · 5000 Agent · 6000 Memory · 7000 Knowledge/RAG · 8000 Skill/MCP · 9000 Pet。
-扩展段位：8200 AgentProfile · 8300 UserCommand · 8600 UserHook · 8800 Wiki。
+**错误码段位**：1000 通用/文件/路径 · 2000 配置/持久化 · 3000 LLM/Provider · 4000 工具/命令审批 · 5000 Agent · 6000 Memory · 7000 Knowledge/RAG · 8000 Skill/MCP · 9000 保留。
+扩展段位：8200 AgentProfile · 8300 UserCommand · 8600 UserHook。
 
 ## 2. 端点
 
@@ -29,7 +29,7 @@
 | GET | /docs · /docs/:name | 文档列表 / 内容 |
 | GET | /dashboard/stats · /trend · /token-trend | 仪表盘统计 / 趋势 / token 三线趋势 |
 | GET | /events | **SSE 事件流**（见 §3） |
-| GET | /files/*filepath | 受管文件静态服务 |
+| GET | /files/*filepath | 受管文件静态服务（**注册在根路径，无 `/api/v1` 前缀**） |
 
 ### 2.2 会话与消息
 
@@ -115,6 +115,7 @@
 | GET | /ai-provider/circuit-status | 就绪 / 熔断状态 |
 | POST | /ai-provider/:id/reset-circuit | 重置并重建 |
 | GET | /settings · /settings/general · /settings/websearch · /settings/exec/agent | 设置读取 |
+| POST | /settings/general · /settings/websearch · /settings/exec/agent | 设置写入 |
 | GET / POST | /kv/:key | 任意 KV 读写 |
 
 ### 2.8 技能与 MCP
@@ -143,34 +144,26 @@
 | POST | /kdocs/import-file | 导入本地文件 |
 | GET | /kdocs/search · /groups · /group/:group | 检索 / 分组 / 按分组列文档 |
 | GET | /kdocs/:id | 详情 |
+| GET | /kdocs/:id/file | 原文文件（下载 / 前端预览） |
 | POST | /kdocs/:id/update · /delete · /reindex | 更新 / 删除 / 重建索引 |
 | GET | /memory · /list · /search · /text | 概览 / 条目列表 / 检索 / 全文 |
 | POST | /memory/append · /delete · /replace | 追加一条 / 删除 / 整篇覆盖 |
 
 长期记忆是单一 MEMORY.md（不分类、无候选收件箱），检索走 FTS5 派生索引。
 
-### 2.11 子智能体 · Wiki · 钩子
+### 2.11 子智能体 · 钩子
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET / POST | /agent-profiles | 列表 / 按 name upsert（人设 / 工具策略 / 预算 / 模型） |
 | POST | /agent-profiles/:name/enabled · /:name/delete | 启停（停用即从注册表摘除）/ 删除 |
-| GET | /wiki/overview | 画像（语言统计 / 入口文件 / 目录树，每文件一句话摘要） |
-| GET | /wiki/page | 单页：目录页子项清单 / 文件页正文（上限 512KB） |
-| GET / POST | /hooks | 列表（event 已归一为七类事件名）/ 创建更新 |
+| GET / POST | /hooks | 列表（event 已归一为七类事件名）/ 创建更新（后端能力，无内置界面） |
 | POST | /hooks/:id/delete · /:id/test | 删除 / 试跑（样例载荷 → 决策 / 理由 / 注入上下文 / 耗时） |
 
-Wiki 为确定性扫描生成（不依赖 LLM），跳过依赖/构建目录。
-
-### 2.12 桌宠、文件夹与文件
+### 2.12 文件夹与文件
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | /pet/state · /pet/config · /pet/sprites | 状态 / 配置 / 形象列表 |
-| POST | /pet/config/update | 更新配置 |
-| POST | /pet/sprites · /:id/delete | 新增形象 / 删除 |
-| POST | /pet/window/:mode | 切换形态（pet / main） |
-| POST | /pet/window/click-through | 设置命中区域（enabled + rects[]，物理像素；空列表恢复整窗可交互） |
 | GET | /folders/tree · /folders | 文件夹树 / 按父级列 |
 | POST | /folders · /:id/update · /:id/delete | 新建 / 更新 / 删除 |
 | GET | /files/search · /files | 搜索 / 列表 |
@@ -197,6 +190,8 @@ Wiki 为确定性扫描生成（不依赖 LLM），跳过依赖/构建目录。
 | `chat:checkpoint` | 检查点已写入（`turn`） |
 | `chat:stats` | 本轮用量（强类型 `ChatStatsEvent`：turn / input_tokens / output_tokens / cache_read_tokens / cache_creation_tokens / total_tokens / latency_ms） |
 | `chat:tool` | 工具调用开始（强类型 `ChatToolCallEvent`：id / name / arguments / agent / activity） |
+| `chat:tool-start` | 工具真正开始执行（`id` / `agent` / `turn`；护栏放行后与 `chat:tool`「调用开始」分两拍） |
+| `chat:queue-drained` | 插话 / 续接队列消费（强类型 `ChatQueueDrainedEvent`：queue / count / mode / turn） |
 | `chat:tool-result` | 工具结果（强类型 `ChatToolResultEvent`：id / name / content / error / duration_ms / agent / ui_hint / data / meta / refused / refused_reason）。`meta` 含 `cwd`（exec 实际目录）、`same_failure_count`（同工具连续失败次数）、`adaptive_hint=1`（已注入改道提示）、`truncated_bytes` |
 | `chat:approval` | 审批 / 补问（强类型 `ChatApprovalEvent`：id / command / reason / risk / can_remember；不可逆与补问 `can_remember` 恒 false） |
 | `chat:approval-decided` | 审批决策（`id`、`decision`） |
@@ -220,15 +215,12 @@ Wiki 为确定性扫描生成（不依赖 LLM），跳过依赖/构建目录。
 | 事件 | 说明 |
 |---|---|
 | `task:created` / `task:started` / `task:done` | 后台任务生命周期（`scope=task` 独立订阅） |
-| `pet:state` | 桌宠状态机变化（idle / happy / working / sleeping） |
-| `pet:show` / `pet:hide` | 桌宠形态切换 |
-| `app:ready` | 应用就绪（携带 `server_port`、数据根、版本；Wails 与 HTTP 双通道） |
+| `app:ready` | 应用就绪（携带 `server_port`、数据根、版本；**仅 Wails 事件通道**，HTTP 侧由前端轮询绑定兜底） |
 
 ## 4. Wails 绑定（非 HTTP）
 
 Go 绑定（前端经 `@/wailsjs/go/main/App` 调用）：
 `OpenFileDialog` / `OpenDirectoryDialog` 选择对话框、`OpenExternal` 打开外链、
-`ReadLocalImage` / `UploadPetSprite` / `SavePetSpriteImage` 形象资产、
-`PetToggleMode` / `PetMove` 桌宠窗口、`GetServerPort` 引导端口、`SettingValue` 读取设置。
+`GetServerPort` 引导端口、`SettingValue` 读取设置。
 
 生命周期事件：`app:ready` / `app:open-file`。

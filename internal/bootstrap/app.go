@@ -27,8 +27,6 @@ type App struct {
 	ApprovalGrantRepo *repo.ApprovalGrantRepo
 	ChatTaskRepo      *repo.ChatTaskRepo
 	TrustRepo         *repo.WorkspaceTrustRepo
-	PetCfgRepo        *repo.PetConfigRepo
-	PetSpriteRepo     *repo.PetSpriteRepo
 	FolderRepo        *repo.FolderRepo
 	FileRepo          *repo.FileRepo
 	FileChangeRepo    *repo.FileChangeRepo
@@ -59,8 +57,6 @@ func New(db *gorm.DB) *App {
 		ApprovalGrantRepo: repo.NewApprovalGrantRepo(db),
 		ChatTaskRepo:      repo.NewChatTaskRepo(db),
 		TrustRepo:         repo.NewWorkspaceTrustRepo(db),
-		PetCfgRepo:        repo.NewPetConfigRepo(db),
-		PetSpriteRepo:     repo.NewPetSpriteRepo(db),
 		FolderRepo:        repo.NewFolderRepo(db),
 		FileRepo:          repo.NewFileRepo(db),
 		FileChangeRepo:    repo.NewFileChangeRepo(db),

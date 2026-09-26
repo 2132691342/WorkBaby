@@ -100,3 +100,49 @@ type ChatWarnEvent struct {
 	SessionModel string `json:"session_model,omitempty"` // agent_model_override
 	Model        string `json:"model,omitempty"`         // agent_model_override
 }
+
+// ChatRetryEvent 建流瞬时错误退避重试载荷（chat:retry）。
+// Attempt 从 1 起；DelayMs 是本次退避等待毫秒数（前端展示「正在重试 N/3」）。
+type ChatRetryEvent struct {
+	Attempt int   `json:"attempt"`
+	DelayMs int64 `json:"delay_ms"`
+}
+
+// ChatErrorEvent run 内错误载荷（chat:error）。与 ChatDoneEvent 共用终态通道，
+// 但此处是中途失败（建流失败、上游 chunk 错误等），前端仅展示横幅，不收尾。
+type ChatErrorEvent struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// ChatSubagentStartEvent 子 Agent 委派起始载荷（chat:subagent-start）。
+// SubRunID 是子 run 的 runID（独立 SSE 通道）；Agent 是 Agent 定义名。
+type ChatSubagentStartEvent struct {
+	SubRunID string `json:"sub_run_id"`
+	Agent    string `json:"agent,omitempty"`
+}
+
+// ChatSubagentDoneEvent 子 Agent 委派收尾载荷（chat:subagent-done）。
+// Reason 走领域停止原因（MessageStopReason），与父 run 同口径。
+type ChatSubagentDoneEvent struct {
+	SubRunID string `json:"sub_run_id"`
+	Agent    string `json:"agent,omitempty"`
+	Reason   string `json:"reason"`
+}
+
+// ChatSubagentErrorEvent 子 Agent 委派中途错误载荷（chat:subagent-error）。
+type ChatSubagentErrorEvent struct {
+	SubRunID string `json:"sub_run_id"`
+	Agent    string `json:"agent,omitempty"`
+	Message  string `json:"message"`
+}
+
+// ChatQueueDrainedEvent steering / follow-up 队列取出可见性载荷（chat:queue-drained）。
+// PI Phase 3：让前端 / 审计感知「用户消息已入队并被消费」。
+// Queue: "steering" | "follow_up"；Count 是本次 drain 取出的消息数；Mode 是 QueueMode。
+type ChatQueueDrainedEvent struct {
+	Queue string `json:"queue"`
+	Count int    `json:"count"`
+	Mode  string `json:"mode,omitempty"`
+	Turn  int    `json:"turn"`
+}

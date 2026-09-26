@@ -13,7 +13,6 @@ export type EmptyStateVariant =
   | 'empty-files'
   | 'empty-search'
   | 'empty-knowledge'
-  | 'empty-workflows'
   | 'error-404'
   | 'error-general'
   | 'loading'
@@ -48,7 +47,6 @@ const defaultTitles = computed<Record<EmptyStateVariant, string>>(() => ({
   'empty-files': t('empty.files.title'),
   'empty-search': t('empty.search.title'),
   'empty-knowledge': t('empty.knowledge.title'),
-  'empty-workflows': t('empty.workflows.title'),
   'error-404': t('empty.notFound.title'),
   'error-general': t('empty.error.title'),
   loading: t('empty.loading.title')
@@ -59,7 +57,6 @@ const defaultSubtitles = computed<Record<EmptyStateVariant, string>>(() => ({
   'empty-files': t('empty.files.subtitle'),
   'empty-search': t('empty.search.subtitle'),
   'empty-knowledge': t('empty.knowledge.subtitle'),
-  'empty-workflows': t('empty.workflows.subtitle'),
   'error-404': t('empty.notFound.subtitle'),
   'error-general': t('empty.error.subtitle'),
   loading: t('empty.loading.subtitle')
@@ -196,30 +193,6 @@ const displaySubtitle = computed(() => props.subtitle ?? defaultSubtitles.value[
         <line x1="66" y1="62" x2="73" y2="62" stroke="#c8e6c9" stroke-width="2" />
         <!-- 书脊 -->
         <line x1="60" y1="35" x2="60" y2="90" stroke="#4caf50" stroke-width="2" />
-      </svg>
-
-      <!-- 空工作流 -->
-      <svg
-        v-else-if="variant === 'empty-workflows'"
-        width="120"
-        height="120"
-        viewBox="0 0 120 120"
-        fill="none"
-        class="mx-auto"
-      >
-        <circle cx="60" cy="60" r="55" fill="var(--wb-lemon)" fill-opacity="0.15" />
-        <!-- 流程节点 -->
-        <circle cx="35" cy="45" r="12" fill="#ffe08a" stroke="var(--wb-lemon)" stroke-width="2" />
-        <circle cx="85" cy="45" r="12" fill="#ffe08a" stroke="var(--wb-lemon)" stroke-width="2" />
-        <circle cx="60" cy="80" r="12" fill="#ffe08a" stroke="var(--wb-lemon)" stroke-width="2" />
-        <!-- 连接线 -->
-        <path d="M47,45 L73,45" stroke="var(--wb-lemon)" stroke-width="2" stroke-dasharray="4 2" />
-        <path d="40,55 L55,72" stroke="var(--wb-lemon)" stroke-width="2" stroke-dasharray="4 2" />
-        <path d="80,55 L65,72" stroke="var(--wb-lemon)" stroke-width="2" stroke-dasharray="4 2" />
-        <!-- 节点内图标 -->
-        <text x="35" y="49" text-anchor="middle" font-size="10" fill="var(--wb-lemon)">📥</text>
-        <text x="85" y="49" text-anchor="middle" font-size="10" fill="var(--wb-lemon)">⚙️</text>
-        <text x="60" y="84" text-anchor="middle" font-size="10" fill="var(--wb-lemon)">📤</text>
       </svg>
 
       <!-- 404 错误 -->

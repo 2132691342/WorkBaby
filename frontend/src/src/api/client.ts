@@ -19,17 +19,14 @@ const KNOWN_PREFIXES = [
   '/api/v1/tools',
   '/api/v1/kdocs',
   '/api/v1/memory',
-
-  '/api/v1/pet/',
-  '/api/v1/folders',
   '/api/v1/files',
+  '/api/v1/folders',
   '/api/v1/meta/',
   '/api/v1/dashboard',
   '/api/v1/docs',
   '/api/v1/admin',
   '/api/v1/tasks',
   '/api/v1/trust',
-  '/api/v1/wiki/',
   '/api/v1/hooks'
 ]
 

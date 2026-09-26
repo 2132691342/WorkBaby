@@ -6,24 +6,20 @@ import (
 	"path/filepath"
 	"strings"
 
-	"WorkBaby/internal/pet"
 	"WorkBaby/internal/service"
 )
 
-// FileServer 服务本地受管文件（main.go AssetServer 转发 /files/**）：sprites / files / workspace
-// 三类，均按 id 或 sessionId+path 校验、不暴露任意路径。不挂在 Handler 上——http 类型进
+// FileServer 服务本地受管文件（main.go AssetServer 转发 /files/**）：files / workspace
+// 两类，均按 id 或 sessionId+path 校验、不暴露任意路径。不挂在 Handler 上——http 类型进
 // Wails 绑定签名会污染生成的 TS 模型。
 type FileServer struct {
 	ctx          context.Context
 	fileSvc      *service.FileService
 	workspaceSvc *service.WorkspaceService
-	petSvc       *pet.Service
 }
 
 func (f *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
-	case strings.HasPrefix(r.URL.Path, "/files/sprites/"):
-		f.serveSprite(w, r, strings.TrimPrefix(r.URL.Path, "/files/sprites/"))
 	case strings.HasPrefix(r.URL.Path, "/files/files/"):
 		f.serveManagedFile(w, r, strings.TrimPrefix(r.URL.Path, "/files/files/"))
 	case strings.HasPrefix(r.URL.Path, "/files/workspace/"):
@@ -66,17 +62,4 @@ func (f *FileServer) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, 
 		w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(path)+`"`)
 	}
 	_, _ = w.Write(bs)
-}
-
-func (f *FileServer) serveSprite(w http.ResponseWriter, r *http.Request, id string) {
-	if id == "" || strings.Contains(id, "/") || f.petSvc == nil || f.ctx == nil {
-		http.NotFound(w, r)
-		return
-	}
-	row, err := f.petSvc.FindSprite(f.ctx, id)
-	if err != nil || row.FilePath == "" {
-		http.NotFound(w, r)
-		return
-	}
-	http.ServeFile(w, r, row.FilePath)
 }

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
 	"WorkBaby/internal/llm"
@@ -26,8 +26,8 @@ func newCheckpointTestStore(t *testing.T) (*sqlCheckpointStore, *repo.AgentCheck
 	return &sqlCheckpointStore{repo: r}, r, gdb
 }
 
-func checkpointFixture(runID string, turn int) *core.Checkpoint {
-	return &core.Checkpoint{
+func checkpointFixture(runID string, turn int) *agent.Checkpoint {
+	return &agent.Checkpoint{
 		RunID:          runID,
 		SessionID:      "SESSION_CP",
 		Turn:           turn,
@@ -128,7 +128,7 @@ func waitPendingRecord(t *testing.T, records *repo.ApprovalRecordRepo) *domain.A
 func TestDurableApprovalPauseResume(t *testing.T) {
 	t.Run("approval_decide_after_restart_resumes_and_fast_allows", func(t *testing.T) {
 		records := repo.NewApprovalRecordRepo(newChatOpsTestDB(t))
-		runCtx, cancel := context.WithCancel(core.WithRunContext(context.Background(), "RUN_A", "SES_A"))
+		runCtx, cancel := context.WithCancel(agent.WithRunContext(context.Background(), "RUN_A", "SES_A"))
 		defer cancel()
 		svc1, _ := newDurableApprovalSvc(t, records)
 
@@ -152,14 +152,14 @@ func TestDurableApprovalPauseResume(t *testing.T) {
 		}
 
 		// 续跑重放同一调用（resumed 标记）：已决记录快速放行（不再询问），并消费置 consumed
-		assert.True(t, svc2.Approve(core.WithResumedRun(core.WithRunContext(context.Background(), "RUN_A", "SES_A")),
+		assert.True(t, svc2.Approve(agent.WithResumedRun(agent.WithRunContext(context.Background(), "RUN_A", "SES_A")),
 			"git push --force", tool.RiskApprovalNeeds), "已批准记录必须快速放行")
 		consumed, err := records.Get(context.Background(), rec.ID)
 		require.NoError(t, err)
 		assert.Equal(t, domain.ApprovalStatusConsumed, consumed.Status)
 
 		// 消费一次性：同命令再次调用（非续跑）必须重新询问，不能演变成永久免审
-		askCtx, askCancel := context.WithCancel(core.WithRunContext(context.Background(), "RUN_A", "SES_A"))
+		askCtx, askCancel := context.WithCancel(agent.WithRunContext(context.Background(), "RUN_A", "SES_A"))
 		defer askCancel()
 		again := make(chan bool, 1)
 		go func() { again <- svc2.Approve(askCtx, "git push --force", tool.RiskApprovalNeeds) }()
@@ -177,7 +177,7 @@ func TestDurableApprovalPauseResume(t *testing.T) {
 	t.Run("input_answer_after_restart_reused_on_resume", func(t *testing.T) {
 		records := repo.NewApprovalRecordRepo(newChatOpsTestDB(t))
 		question := "部署目录是哪个？"
-		runCtx, cancel := context.WithCancel(core.WithRunContext(context.Background(), "RUN_B", "SES_B"))
+		runCtx, cancel := context.WithCancel(agent.WithRunContext(context.Background(), "RUN_B", "SES_B"))
 		defer cancel()
 		svc1, _ := newDurableApprovalSvc(t, records)
 
@@ -204,7 +204,7 @@ func TestDurableApprovalPauseResume(t *testing.T) {
 		}
 
 		// 续跑重放同一提问（resumed 标记）：直接复用已落库回答，不再二次打扰
-		text, ok := svc2.RequestInput(core.WithResumedRun(core.WithRunContext(context.Background(), "RUN_B", "SES_B")), question)
+		text, ok := svc2.RequestInput(agent.WithResumedRun(agent.WithRunContext(context.Background(), "RUN_B", "SES_B")), question)
 		assert.True(t, ok)
 		assert.Equal(t, "/srv/app", text)
 		consumed, err := records.Get(context.Background(), rec.ID)
@@ -225,7 +225,7 @@ func TestDurableApprovalPauseResume(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatalf("skip did not settle pending input")
 		}
-		text2, ok2 := svc2.RequestInput(core.WithResumedRun(core.WithRunContext(context.Background(), "RUN_B", "SES_B")), "另一个问题？")
+		text2, ok2 := svc2.RequestInput(agent.WithResumedRun(agent.WithRunContext(context.Background(), "RUN_B", "SES_B")), "另一个问题？")
 		assert.False(t, ok2)
 		assert.Empty(t, text2)
 		// svc1 的原始阻塞 RequestInput 由 subtest 退出时的 cancel() 唤醒，不在此等待
@@ -234,7 +234,7 @@ func TestDurableApprovalPauseResume(t *testing.T) {
 	t.Run("cancel_session_clears_leftover_pendings", func(t *testing.T) {
 		records := repo.NewApprovalRecordRepo(newChatOpsTestDB(t))
 		svc, _ := newDurableApprovalSvc(t, records)
-		runCtx, cancel := context.WithCancel(core.WithRunContext(context.Background(), "RUN_C", "SES_C"))
+		runCtx, cancel := context.WithCancel(agent.WithRunContext(context.Background(), "RUN_C", "SES_C"))
 		defer cancel()
 		done := make(chan bool, 1)
 		go func() { done <- svc.Approve(runCtx, "cmd", tool.RiskApprovalNeeds) }()
@@ -261,7 +261,7 @@ func TestApprovalGrantsLifecycle(t *testing.T) {
 		gdb := newChatOpsTestDB(t)
 		records := repo.NewApprovalRecordRepo(gdb)
 		grants := repo.NewApprovalGrantRepo(gdb)
-		runCtx, cancel := context.WithCancel(core.WithRunContext(context.Background(), "RUN_G", "SES_G"))
+		runCtx, cancel := context.WithCancel(agent.WithRunContext(context.Background(), "RUN_G", "SES_G"))
 		defer cancel()
 		svc1, _ := newDurableApprovalSvc(t, records)
 		svc1.WithGrants(grants)
@@ -292,7 +292,7 @@ func TestApprovalGrantsLifecycle(t *testing.T) {
 		svc2, _ := newDurableApprovalSvc(t, records)
 		svc2.WithGrants(grants)
 		svc2.LoadGrants(context.Background())
-		assert.True(t, svc2.Approve(core.WithRunContext(context.Background(), "RUN_G2", "SES_G"),
+		assert.True(t, svc2.Approve(agent.WithRunContext(context.Background(), "RUN_G2", "SES_G"),
 			"npm publish", tool.RiskApprovalNeeds), "持久化授权必须跨重启免审")
 	})
 
@@ -300,7 +300,7 @@ func TestApprovalGrantsLifecycle(t *testing.T) {
 		gdb := newChatOpsTestDB(t)
 		records := repo.NewApprovalRecordRepo(gdb)
 		grants := repo.NewApprovalGrantRepo(gdb)
-		runCtx, cancel := context.WithCancel(core.WithRunContext(context.Background(), "RUN_R", "SES_R"))
+		runCtx, cancel := context.WithCancel(agent.WithRunContext(context.Background(), "RUN_R", "SES_R"))
 		defer cancel()
 		svc, _ := newDurableApprovalSvc(t, records)
 		svc.WithGrants(grants)

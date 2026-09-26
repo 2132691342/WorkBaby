@@ -105,6 +105,9 @@ func (t *SkillRunTool) Description() string { return t.schema().Description }
 
 func (t *SkillRunTool) RiskLevel() tool.RiskLevel { return tool.RiskExec }
 
+// ToolExecutionMode 技能脚本执行整批串行：解释器子进程不并发。
+func (t *SkillRunTool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
+
 func (t *SkillRunTool) Schema() tool.ToolSchema { return t.schema() }
 
 func (t *SkillRunTool) schema() tool.ToolSchema {
@@ -153,11 +156,11 @@ func (t *SkillRunTool) Execute(ctx context.Context, raw json.RawMessage) tool.To
 		return tool.ToolResult{Err: err}
 	}
 	if len(code) > scriptMaxLen {
-		return tool.ToolResult{Err: pkg.New(9105, "script too large (>256KB)", req.Script)}
+		return tool.ToolResult{Err: pkg.New(8105, "script too large (>256KB)", req.Script)}
 	}
 	inter, ext, ok := interpreter(lang)
 	if !ok {
-		return tool.ToolResult{Err: pkg.New(9105, "unsupported script language: "+lang, req.Script)}
+		return tool.ToolResult{Err: pkg.New(8105, "unsupported script language: "+lang, req.Script)}
 	}
 
 	// 审批：执行代码一律 needs_approval。统一护栏链（runner 策略门）已裁决时不再重复询问；
@@ -229,9 +232,9 @@ func (t *SkillRunTool) Execute(ctx context.Context, raw json.RawMessage) tool.To
 	}
 	if runErr != nil && len(out) == 0 {
 		if runCtx.Err() == context.DeadlineExceeded {
-			return tool.ToolResult{Err: pkg.New(9105, "script run timeout", req.Script), Meta: meta}
+			return tool.ToolResult{Err: pkg.New(8105, "script run timeout", req.Script), Meta: meta}
 		}
-		return tool.ToolResult{Err: pkg.New(9105, "script run failed: "+runErr.Error(), req.Script), Meta: meta}
+		return tool.ToolResult{Err: pkg.New(8105, "script run failed: "+runErr.Error(), req.Script), Meta: meta}
 	}
 	return tool.ToolResult{Content: string(out), Meta: meta}
 }

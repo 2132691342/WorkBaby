@@ -2,9 +2,9 @@
 import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  MessageSquare, LayoutDashboard, Brain, BookOpen,
-  Folder, Server, Zap, ScrollText, Settings, FileText,
-  Cat, Sparkles, Eraser, RefreshCw, Crosshair, Shield, Wrench, Activity
+  MessageSquare, Brain, BookOpen,
+  Server, Zap, ScrollText, Settings,
+  Sparkles, Eraser, RefreshCw, Crosshair, Shield, Wrench
 } from '@/components/common/icons'
 import { t } from '@/i18n'
 import { apiGet, apiPost } from '@/api/client'
@@ -40,13 +40,8 @@ const listRef = ref<HTMLElement | null>(null)
 // 干脆让 TS 推为最宽类型（icon 为 any 透出），nav 数据本身在 import 处类型已强。
 const NAV_ITEMS = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageSquare },
-  { to: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
-  { to: '/runs', labelKey: 'nav.runs', icon: Activity },
   { to: '/memory', labelKey: 'nav.memory', icon: Brain },
   { to: '/kdocs', labelKey: 'nav.knowledge', icon: BookOpen },
-  { to: '/folders', labelKey: 'nav.folders', icon: Folder },
-  { to: '/files', labelKey: 'nav.files', icon: FileText },
-  { to: '/pet', labelKey: 'nav.pet', icon: Cat },
   { to: '/tools', labelKey: 'nav.tools', icon: Wrench },
   { to: '/mcp', labelKey: 'nav.mcp', icon: Server },
   { to: '/skills', labelKey: 'nav.skills', icon: Zap },

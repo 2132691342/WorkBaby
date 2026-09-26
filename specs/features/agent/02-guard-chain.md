@@ -48,7 +48,7 @@ func Chain(ms ...Middleware) Middleware   // 索引 0 为最外层：最先裁�
 |---|---|---|---|---|
 | `default` | allow | ask | ask | ask |
 | `auto_edit` | allow | allow | ask | ask |
-| `yolo` | allow | allow | allow | allow |
+| `yolo` | allow | allow | allow | **ask** |
 
 `destructive` 恒为 `ask`（不可逆，永不免审）。
 
@@ -58,7 +58,7 @@ func Chain(ms ...Middleware) Middleware   // 索引 0 为最外层：最先裁�
 ### 模式与全局设置的关系
 
 会话级 `PermissionMode` 覆盖全局 `system_settings` 的 `agent.session_mode`。
-装配时把两者合并为 `core.Mode`。
+装配时把两者合并为 `agent.Mode`。
 
 ## 4. AdaptiveLoopGuard：失败改道
 
@@ -125,3 +125,68 @@ key = 工具名 + 规范化参数（JSON 重新序列化，同参异序判同一
 | 两个互补防护（同参 / 同工具） | 分别覆盖「重复副作用」与「死磕工具」 | 模型可能因熔断而提前收尾（需改道提示配合） |
 | 权限四档 + destructive 恒需审批 | 不可逆操作永不免审 | 首次使用有学习成本 |
 | 钩子在策略门之后 | 内置安全不被用户配置削弱 | 用户无法用钩子放宽内置护栏 |
+
+## 8. 为何保留 middleware 链 vs PI 的单一回调
+
+PI `pi-agent-core` 的安全门是「`BeforeToolCall` / `AfterToolCall`」两个回调；
+本工程保留 **6 层 middleware 链** 是有意为之的偏离（见 `AGENTS.md §9.7.2`）。
+
+### 8.1 单一回调的合并压力
+
+把 6 维度（Expose / Schema / Policy / Approval / Adaptive / Repeat）塞进 1 个回调：
+
+```ts
+// PI 风格（伪）
+beforeToolCall(ctx) {
+    if (!allowed(ctx.toolCall)) return block(...)
+    if (!validArgs(ctx.args)) return block(...)
+    if (!pathTrusted(ctx)) return block(...)
+    if (!mode.allows(ctx.risk)) {
+        const ok = await approver.approve(...)
+        if (!ok) return block(...)
+    }
+    if (hook.deny) return block(...)
+    if (await hook.ask && !userApprove) return block(...)
+}
+```
+
+带来的问题：
+
+| 问题 | 后果 |
+|---|---|
+| 顺序即语义但分散在 if 链 | 调换「先问审批 vs 先查路径」会让模型看到不同的拒绝原因 |
+| 短路的早返点散落 | 新增规则时容易漏改一处 |
+| 每个维度无法单独 mock 单测 | 必须把 6 维度连起来构造 fixture |
+| 「拒绝原因码」分散维护 | 新增维度时容易与已有 6 个 reason 撞名 |
+
+### 8.2 middleware 链的优势
+
+```go
+// 本工程
+Chain(ExposeGuard, SchemaGuard, PolicyGuard, hookGuard, AdaptiveLoopGuard, RepeatGuard)(base)
+```
+
+- 每个中间件只负责一个维度，`func TestXxxGuard` 单测零依赖
+- 短路靠 `return refuse(...)`，新增维度 = 插入一个新 `Middleware`，零侵入
+- 顺序在 `service.guardsFor` 一处集中，改顺序=改一个 slice
+- 拒绝原因码（`policy` / `approval` / `path_trust` / `prompt_injection` / `loop_guard`）与中间件一一对应
+
+### 8.3 与 PI 的兼容性
+
+- 链路最外层 `ExposeGuard` 的语义等价于 PI 的工具暴露检查
+- `PolicyGuard` 内的「风险×模式×规则」+ `Approver` 等价于 PI 的 `beforeToolCall`
+- `hookGuard` 用 `AfterToolCall` 链路回调等价于 PI 的 `afterToolCall` 注入附加上下文
+
+如果未来需要可扩展性（用户注册自定义护栏），本形态用「`Hook{AfterToolCall}` + middleware 注册表」
+扩展即可，不必退回到单一回调。
+
+### 8.4 迁移到单一回调的代价
+
+| 项 | 现状（middleware）| 假设迁移（单一回调） |
+|---|---|---|
+| 6 个 `TestXxxGuard` | 6 文件 | 拆 6 内部函数 + 1 顶层 orchestrator 测试 |
+| 新增「OCR 注入检测」中间件 | 1 文件 + 1 注册 | 改 orchestrator + 加 reason 码分支 |
+| 审批门注入 | `Approver` interface | 仍 interface，但 orchestrator 顶层要管 |
+| 钩子 veto 与审批门互斥 | 显式分层 | 需 if-else 分支 |
+
+**判定**：保留 middleware 链是当前复杂度的最优解。如未来「安全维度 ≥10」或「用户可注册护栏」需求出现，再迁移到带优先级的中间件图。

@@ -12,14 +12,13 @@ import (
 	"WorkBaby/internal/bootstrap"
 	"WorkBaby/internal/capability"
 	"WorkBaby/internal/config"
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/db"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
 	"WorkBaby/internal/llm/registry"
 	"WorkBaby/internal/mcp"
 	"WorkBaby/internal/memory"
-	"WorkBaby/internal/pet"
 	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/rag"
 	"WorkBaby/internal/runtime"
@@ -52,11 +51,11 @@ type Handler struct {
 	cfg        *config.Config
 	bus        *event.Bus
 	eventLog   *event.RunEventLog      // run 事件日志（序号 + 断线重放缓冲），与 SSE hub 共享
-	execs      *core.ExecutionRegistry // 执行平面：全入口统一 run 登记
+	execs      *agent.ExecutionRegistry // 执行平面：全入口统一 run 登记
 	app        *bootstrap.App          // 组合根：repo 装配唯一入口（api 层不 import repo）
 	cipher     *pkg.Cipher
 	reg        *registry.Registry
-	metaSvc    *service.MetaService
+	metaSvc    *MetaService
 	provSvc    *service.ProviderService
 	chatSvc    *service.ChatService
 	todoStore  *service.SessionTodoStore // 会话计划存储（todo 工具 + 前端共享）
@@ -73,8 +72,6 @@ type Handler struct {
 	commandSvc   *service.UserCommandService
 	mcpSvc       *service.McpService
 	knowledgeSvc *service.KnowledgeService
-	petSvc       *pet.Service
-	petCtrl      *pet.Controller
 	taskSvc      *service.ChatTaskService // 后台任务域（提交/列表/取消 + task:* 事件）
 	folderSvc    *service.FolderService
 	fileSvc      *service.FileService
@@ -85,11 +82,7 @@ type Handler struct {
 	hookSvc      *service.UserHookService   // 用户钩子（设置页 CRUD + 运行时执行器）
 	// Files 服务本地受管文件（main.go AssetServer 转发 /files/**）。
 	// 独立类型而非 Handler 方法：避免 net/http 类型泄漏进 Wails 绑定（见 fileserver.go）。
-	Files        *FileServer
-	petMode      bool // 当前是否桌宠形态（v1 单窗口切换）
-	petX, petY   int
-	mainX, mainY int
-	mainW, mainH int
+	Files *FileServer
 }
 
 // NewHandler 构造壳。
@@ -97,7 +90,7 @@ func NewHandler() *Handler {
 	return &Handler{
 		bus:      event.New(),
 		eventLog: event.NewRunEventLog(0, 0),
-		execs:    core.NewExecutionRegistry(0),
+		execs:    agent.NewExecutionRegistry(0),
 	}
 }
 
@@ -108,7 +101,7 @@ func (h *Handler) Events() *event.Bus { return h.bus }
 func (h *Handler) EventLog() *event.RunEventLog { return h.eventLog }
 
 // ExecutionRegistry 暴露执行平面注册表（供 chat 等入口登记统一 run 拓扑）。
-func (h *Handler) ExecutionRegistry() *core.ExecutionRegistry { return h.execs }
+func (h *Handler) ExecutionRegistry() *agent.ExecutionRegistry { return h.execs }
 
 // isRegularFile 判断路径是常规文件（非目录）。
 func isRegularFile(p string) bool {
@@ -141,13 +134,13 @@ func (h *Handler) Startup(ctx context.Context) error {
 		return err
 	}
 
-	// 内置运行时（node/python/pwsh）：后台首跑解压，不阻塞启动；失败仅告警
+	// 内置运行时（python）：后台首跑解压，不阻塞启动；失败仅告警
 	rt := runtime.NewManager(paths.Home)
 	// 事件 JSONL 无头导出：每 run 一文件，供回放/测试/自动化消费
 	h.eventLog.WithFileSink(filepath.Join(paths.Home, "runs"))
 	h.runtimeMgr = rt
 	// 同步等待内置运行时解压：MCP.Sync 随后调用，其子进程 PATH 注入依赖 rt.BinDirs()；
-	// 异步解压时 npx / uvx 类 server 启动期拿不到 node/python，只能退回系统 PATH。
+	// 异步解压时 uvx 类 server 启动期拿不到 python，只能退回系统 PATH。
 	// Ensure 失败仅告警（不阻断启动，但日志可见）。
 	if err := rt.Ensure(); err != nil {
 		pkg.L.Warn("runtime ensure failed", "err", err)
@@ -183,7 +176,7 @@ func (h *Handler) Startup(ctx context.Context) error {
 	}
 
 	h.app = bootstrap.New(gdb)
-	h.metaSvc = service.NewMetaService(cfg)
+	h.metaSvc = NewMetaService(cfg)
 	h.provSvc = service.NewProviderService(h.app.ProvRepo, h.cipher)
 	h.setSvc = service.NewSettingsService(h.app.SetRepo, h.cipher)
 
@@ -350,7 +343,7 @@ func (h *Handler) Startup(ctx context.Context) error {
 	// Todo 计划工具：会话内待办（长任务先列计划再逐步勾选）
 	h.todoStore = service.NewSessionTodoStore(h.app.TodoRepo)
 	if err := toolReg.Register(todotool.New(h.todoStore, func(ctx context.Context) string {
-		return core.SessionIDFromCtx(ctx)
+		return agent.SessionIDFromCtx(ctx)
 	})); err != nil {
 		return err
 	}
@@ -459,13 +452,13 @@ func (h *Handler) Startup(ctx context.Context) error {
 			pkg.L.Warn("register capability failed", "cap", c.ID(), "err", err.Error())
 		}
 	}
-	registerCap(capability.NewEnvironment(), capability.OrderEnvironment)
-	registerCap(capability.NewWorkspace(), capability.OrderWorkspace)
+	registerCap(capability.NewEnvironment(), agent.OrderEnv)
+	registerCap(capability.NewWorkspace(), agent.OrderWorkspace)
 
 	registerCap(capability.NewMemory(h.memSvc, func(c context.Context) bool {
 		return service.MemoryEnabled(c, h.app.SetRepo)
-	}), capability.OrderMemory)
-	registerCap(capability.NewKnowledge(retriever), capability.OrderKnowledge)
+	}), agent.OrderMemory)
+	registerCap(capability.NewKnowledge(retriever), agent.OrderKnowledge)
 	registerCap(capability.NewSkill(capability.NewSkillSource(
 		func(input string) string { return h.skillSvc.Match(input) },
 		func(name string) (capability.SkillHit, bool) {
@@ -483,7 +476,7 @@ func (h *Handler) Startup(ctx context.Context) error {
 			}, true
 		},
 		h.skillSvc.Summaries,
-	)), capability.OrderSkill)
+	)), agent.OrderSkill)
 	// 能力暴露的工具统一注册（knowledge_search / memory_write）
 	for _, t := range caps.Tools() {
 		if err := toolReg.Register(t); err != nil {
@@ -534,9 +527,6 @@ func (h *Handler) Startup(ctx context.Context) error {
 		return err
 	})
 
-	// 桌宠：配置单行 + sprite 资产 + 状态机（chat run 事件驱动）
-	h.petSvc = pet.NewService(h.app.PetCfgRepo, h.app.PetSpriteRepo, filepath.Join(paths.Home, "sprites"))
-	h.petSvc.SeedBuiltin(ctx)
 	// 启动恢复：遗留未决审批重武装决策窗口（决策即续跑，durable pause）；
 	// 崩溃时卡在 streaming 的消息标 interrupted（可经 Resume 续跑）
 	h.approvalSvc.RearmPending(ctx)
@@ -546,31 +536,12 @@ func (h *Handler) Startup(ctx context.Context) error {
 	// 后台任务域：提交/列表/取消 + task:* SSE 事件（worker 池随构造启动）。
 	// 必须在 chatSvc 全部装配完成之后构造：任务执行复用其工具注册表/护栏链/用量落账。
 	h.taskSvc = service.NewChatTaskService(h.app.ChatTaskRepo, h.bus, h.chatSvc, h.approvalSvc, h.app.SessRepo)
-	h.petCtrl = pet.NewController(func(s pet.State) {
-		if h.ctx != nil {
-			wruntime.EventsEmit(h.ctx, "pet:state", map[string]any{"state": string(s)})
-		}
-	})
-	h.bus.Subscribe(event.MatchPrefix("chat:"), func(e string, _ any) {
-		if h.petCtrl == nil {
-			return
-		}
-		switch e {
-		case "chat:stream.start":
-			h.petCtrl.OnEvent("agent.run.start")
-		case "chat:done":
-			h.petCtrl.OnEvent("agent.run.done")
-		case "chat:error":
-			h.petCtrl.OnEvent("agent.error")
-		}
-	})
 
 	h.ctx = ctx
 	h.Files = &FileServer{
 		ctx:          ctx,
 		fileSvc:      h.fileSvc,
 		workspaceSvc: h.workspaceSvc,
-		petSvc:       h.petSvc,
 	}
 	h.bindEventBridge()
 	// app:ready 由 main.go 在 gin server 启动后发射

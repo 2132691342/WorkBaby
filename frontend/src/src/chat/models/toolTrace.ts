@@ -6,7 +6,7 @@
  * 这套回答「它在对什么东西做什么」——目标从 args 结构化提取，不是把 JSON 原文截断。
  */
 import type { Component } from 'vue'
-import { Search, Pencil, FilePlus2, Terminal, Bot, Brain, GitBranch, BookOpen, ListTree, MessageSquare, Globe } from '@/components/common/icons'
+import { Search, Pencil, FilePlus2, Terminal, Bot, Brain, BookOpen, ListTree, MessageSquare, Globe } from '@/components/common/icons'
 
 /** 迹线动词类别（i18n 键 tool.verb.<kind>）。 */
 export type TraceKind =
@@ -17,7 +17,6 @@ export type TraceKind =
   | 'search' // 检索：联网
   | 'knowledge' // 知识库
   | 'memory' // 记忆
-  | 'workflow' // 工作流
   | 'delegate' // 子代理委派
   | 'plan' // 待办 / 计划
   | 'ask' // 向用户提问
@@ -39,7 +38,6 @@ const KIND_BY_TOOL: Record<string, TraceKind> = {
   http: 'search',
   knowledge_search: 'knowledge',
   memory_write: 'memory',
-  run_workflow: 'workflow',
   delegate_task: 'delegate',
   todo: 'plan',
   request_input: 'ask'
@@ -53,7 +51,6 @@ const ICON_BY_KIND: Record<TraceKind, Component> = {
   search: Globe,
   knowledge: BookOpen,
   memory: Brain,
-  workflow: GitBranch,
   delegate: Bot,
   plan: ListTree,
   ask: MessageSquare,

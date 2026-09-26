@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
 	"WorkBaby/internal/pkg"
@@ -198,11 +198,11 @@ func (r *fileChangeRecorder) RecordWrite(ctx context.Context, path string, exist
 	if r.svc == nil {
 		return
 	}
-	sessionID := core.SessionIDFromCtx(ctx)
+	sessionID := agent.SessionIDFromCtx(ctx)
 	if sessionID == "" {
 		return
 	}
-	runID := core.RunIDFromCtx(ctx)
+	runID := agent.RunIDFromCtx(ctx)
 	if _, err := r.svc.Record(ctx, ChangeInput{
 		SessionID: sessionID,
 		RunID:     runID,

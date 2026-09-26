@@ -1,7 +1,7 @@
 // Package domain 是业务聚合根：每个聚合根一个文件，含 DO/DTO/REQ/VO/RESP/枚举/常量/错误变量。
 //
 // 本文件：AgentProfile 聚合根：用户自定义子智能体（人设 + 工具策略 + 预算），
-// 与内置 Agent（default/coding/research/writer）同构，供 delegate_task 按名委派与会话切换。
+// 与内置 Agent（default/explore）同构，供 delegate_task 按名委派与会话切换。
 package domain
 
 import (

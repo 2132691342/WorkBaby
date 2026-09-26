@@ -41,9 +41,8 @@ const (
 // 托盘菜单命令 ID。
 const (
 	trayCmdShow = 1000
-	trayCmdPet  = 1001
-	trayCmdHide = 1002
-	trayCmdQuit = 1003
+	trayCmdHide = 1001
+	trayCmdQuit = 1002
 )
 
 var (
@@ -185,8 +184,6 @@ func Run(actions Actions) {
 		switch cmd {
 		case trayCmdShow:
 			actions.ShowMain()
-		case trayCmdPet:
-			actions.Pet()
 		case trayCmdHide:
 			actions.Hide()
 		case trayCmdQuit:
@@ -220,7 +217,6 @@ func showTrayMenu() {
 	}
 	defer procDestroyMenu.Call(hMenu)
 	_ = appendMenuString(hMenu, trayCmdShow, "打开主窗口")
-	_ = appendMenuString(hMenu, trayCmdPet, "召唤 / 收起桌宠")
 	_ = appendMenuString(hMenu, trayCmdHide, "隐藏主窗口")
 	appendMenuSeparator(hMenu)
 	_ = appendMenuString(hMenu, trayCmdQuit, "退出 WorkBaby")
@@ -243,7 +239,7 @@ func addTrayIcon(hWnd, hIcon uintptr) bool {
 	nid.uFlags = nifMessage | nifIcon | nifTip
 	nid.uCallbackMessage = wmApp
 	nid.hIcon = hIcon
-	copy(nid.szTip[:], syscall.StringToUTF16("WorkBaby — 随时召唤桌宠"))
+	copy(nid.szTip[:], syscall.StringToUTF16("WorkBaby"))
 	r, _, _ := procShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&nid)))
 	return r != 0
 }

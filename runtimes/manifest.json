@@ -17,20 +17,6 @@
       ],
       "maxFiles": 6000,
       "maxUncompressedBytes": 251658240
-    },
-    {
-      "id": "powershell",
-      "version": "7.5.2",
-      "archiveFile": "powershell-7.5.2-win-x64.zip",
-      "archiveType": "zip",
-      "stripComponents": 0,
-      "sha256": "6cdabe52dcc2830929a53a970f689ab42b3819d34274cb2fbdd92aac13f66b92",
-      "executableRelativePath": "pwsh.exe",
-      "pathDirs": [
-        "."
-      ],
-      "maxFiles": 2000,
-      "maxUncompressedBytes": 471859200
     }
   ]
 }

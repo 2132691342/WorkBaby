@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useSettingsStore } from '@/stores/settings'
 import { useToast } from '@/composables/useToast'
 import { t } from '@/i18n'
 
 /**
- * 设置 · 高级 tab：exec agent 二进制白名单（脏检查 + 回滚）。
+ * 设置 · 高级 tab：托盘常驻 / 记忆开关 / 免审授权管理。
+ * exec 二进制白名单为后端默认策略（不暴露编辑界面）。
  */
 const settings = useSettingsStore()
 const toast = useToast()
-const { execWhitelist, closeToTray, memoryEnabled, error } = storeToRefs(settings)
-const { loadExecWhitelist, saveExecWhitelist, setCloseToTray, loadMemoryEnabled, setMemoryEnabled } = settings
+const { closeToTray, memoryEnabled, error } = storeToRefs(settings)
+const { setCloseToTray, loadMemoryEnabled, setMemoryEnabled } = settings
 
 /** 关闭到托盘：立即持久化（无脏检查必要，单项开关）。 */
 async function onCloseToTrayChange(v: boolean): Promise<void> {
@@ -26,42 +27,6 @@ async function onCloseToTrayChange(v: boolean): Promise<void> {
 async function onMemoryEnabledChange(v: boolean): Promise<void> {
   if (await setMemoryEnabled(v)) {
     toast.success(v ? t('settings.memoryEnabledOn') : t('settings.memoryEnabledOff'))
-  } else {
-    toast.error(error.value ?? t('common.saveFailed'))
-  }
-}
-
-const newBinary = ref('')
-/** 原始白名单（后端拉到的），用于判断「脏」并支持回滚 */
-const originalExecWhitelist = ref<string[]>([])
-/** 白名单是否被本地修改（控制保存按钮可用性 + 顶部角标提示） */
-const execWhitelistDirty = computed(() => {
-  const a = originalExecWhitelist.value
-  const b = execWhitelist.value
-  if (a.length !== b.length) return true
-  const sa = [...a].sort()
-  const sb = [...b].sort()
-  for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i]) return true
-  return false
-})
-
-async function addBinary(): Promise<void> {
-  const v = newBinary.value.trim()
-  if (!v || execWhitelist.value.includes(v)) return
-  execWhitelist.value = [...execWhitelist.value, v]
-  newBinary.value = ''
-}
-function removeBinary(b: string): void {
-  execWhitelist.value = execWhitelist.value.filter((x) => x !== b)
-}
-/** 放弃本地修改，恢复到原始值 */
-function resetExecWhitelistLocal(): void {
-  execWhitelist.value = [...originalExecWhitelist.value]
-}
-async function handleSaveExecWhitelist(): Promise<void> {
-  if (await saveExecWhitelist(execWhitelist.value)) {
-    originalExecWhitelist.value = [...execWhitelist.value]
-    toast.success(t('settings.execWhitelistSaved'))
   } else {
     toast.error(error.value ?? t('common.saveFailed'))
   }
@@ -101,8 +66,7 @@ function fmtTime(ms: number): string {
 }
 
 onMounted(async () => {
-  await Promise.all([loadMemoryEnabled(), loadExecWhitelist(), loadGrants()])
-  originalExecWhitelist.value = [...execWhitelist.value]
+  await Promise.all([loadMemoryEnabled(), loadGrants()])
 })
 </script>
 
@@ -133,62 +97,6 @@ onMounted(async () => {
         <div class="mt-1 text-xs2 text-wb-muted">{{ t('settings.memoryPathHint') }}</div>
       </div>
       <el-switch :model-value="memoryEnabled" @change="(v: boolean) => onMemoryEnabledChange(v)" />
-    </div>
-
-    <h2 class="mb-1 font-display text-sm font-semibold text-wb-ink">
-      {{ t('settings.execWhitelist') }}
-    </h2>
-    <p class="mb-3 text-xs text-wb-muted">{{ t('settings.execWhitelistHint') }}</p>
-
-    <h3 class="wb-form-section__title">{{ t('settings.section.security') }}</h3>
-    <div class="mb-3 rounded-lg border border-wb-border bg-wb-surface-2 p-3">
-      <div class="mb-2 flex items-center justify-between">
-        <span class="text-xs text-wb-muted">
-          {{ t('settings.execWhitelistCount', execWhitelist.length) }}
-        </span>
-        <span v-if="execWhitelistDirty" class="text-2xs font-medium text-wb-warning">
-          ● {{ t('settings.execWhitelistDirty') }}
-        </span>
-      </div>
-      <div v-if="execWhitelist.length > 0" class="flex flex-wrap gap-2">
-        <div
-          v-for="b in execWhitelist"
-          :key="b"
-          class="group inline-flex items-center gap-2 rounded-lg border border-wb-border bg-wb-surface px-3 py-1.5 font-mono text-xs text-wb-ink transition-colors hover:border-wb-danger/40"
-        >
-          <span class="h-1.5 w-1.5 rounded-full bg-wb-mint" />
-          <span>{{ b }}</span>
-          <button
-            type="button"
-            class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded text-wb-muted transition-colors hover:bg-wb-danger/10 hover:text-wb-danger"
-            :title="t('ui.btn.delete')"
-            @click="removeBinary(b)"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-      <div v-else class="flex items-center gap-2 rounded-lg border border-dashed border-wb-border px-3 py-4 text-xs text-wb-muted">
-        <span>—</span>
-        <span>{{ t('settings.execWhitelistEmpty') }}</span>
-      </div>
-    </div>
-
-    <div class="flex flex-wrap items-center gap-2">
-      <el-input
-        v-model="newBinary"
-        :placeholder="t('settings.execWhitelistAddPlaceholder')"
-        class="!w-72"
-        clearable
-        @keydown.enter="addBinary"
-      />
-      <el-button :disabled="!newBinary.trim()" @click="addBinary">+ {{ t('common.add') }}</el-button>
-      <div class="ml-auto flex items-center gap-2">
-        <el-button @click="resetExecWhitelistLocal" :disabled="!execWhitelistDirty">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :disabled="!execWhitelistDirty" @click="handleSaveExecWhitelist">
-          {{ t('settings.execWhitelistSave') }}
-        </el-button>
-      </div>
     </div>
 
     <!-- 免审授权：「本会话允许」的持久化授权，跨重启生效，可随时撤销 -->

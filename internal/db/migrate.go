@@ -31,8 +31,6 @@ func Migrate(db *gorm.DB) error {
 		&domain.ApprovalRecordDO{},
 		&domain.ApprovalGrantDO{},
 		&domain.ChatTaskDO{},
-		&domain.PetConfigDO{},
-		&domain.PetSpriteDO{},
 		&domain.FolderDO{},
 		&domain.FileDO{},
 		&domain.FileChangeDO{},

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
 	"WorkBaby/internal/repo"
@@ -32,18 +32,18 @@ func TestCoreEventMapper(t *testing.T) {
 		})
 
 		m := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
-		m.handle(core.Event{Kind: core.EventRunStart, RunID: "RUN_1"})
-		m.handle(core.Event{Kind: core.EventTurnStart, RunID: "RUN_1", Turn: 1})
-		m.handle(core.Event{Kind: core.EventTurnDelta, RunID: "RUN_1", Turn: 1,
-			Payload: core.DeltaPayload{Kind: "content", Text: "hi"}})
-		m.handle(core.Event{Kind: core.EventTurnEnd, RunID: "RUN_1", Turn: 1,
-			Payload: core.TurnEndPayload{Usage: core.UsagePayload{Input: 10, Output: 5, Total: 15}}})
-		m.handle(core.Event{Kind: core.EventToolCall, RunID: "RUN_1", Turn: 1,
-			Payload: core.ToolCallPayload{ID: "t1", Name: "file_read", Arguments: `{"path":"a"}`}})
-		m.handle(core.Event{Kind: core.EventToolResult, RunID: "RUN_1", Turn: 1,
-			Payload: core.ToolResultPayload{ToolCallID: "t1", Name: "file_read", Content: "AAA", UIHint: "diff"}})
-		m.handle(core.Event{Kind: core.EventRunDone, RunID: "RUN_1", Turn: 1,
-			Payload: core.RunDonePayload{Reason: core.ReasonEndTurn, Usage: core.UsagePayload{Total: 15}, Turns: 1}})
+		m.handle(agent.Event{Kind: agent.EventRunStart, RunID: "RUN_1"})
+		m.handle(agent.Event{Kind: agent.EventTurnStart, RunID: "RUN_1", Turn: 1})
+		m.handle(agent.Event{Kind: agent.EventTurnDelta, RunID: "RUN_1", Turn: 1,
+			Payload: agent.DeltaPayload{Kind: "content", Text: "hi"}})
+		m.handle(agent.Event{Kind: agent.EventTurnEnd, RunID: "RUN_1", Turn: 1,
+			Payload: agent.TurnEndPayload{Usage: agent.UsagePayload{Input: 10, Output: 5, Total: 15}}})
+		m.handle(agent.Event{Kind: agent.EventToolCall, RunID: "RUN_1", Turn: 1,
+			Payload: agent.ToolCallPayload{ID: "t1", Name: "file_read", Arguments: `{"path":"a"}`}})
+		m.handle(agent.Event{Kind: agent.EventToolResult, RunID: "RUN_1", Turn: 1,
+			Payload: agent.ToolResultPayload{ToolCallID: "t1", Name: "file_read", Content: "AAA", UIHint: "diff"}})
+		m.handle(agent.Event{Kind: agent.EventRunDone, RunID: "RUN_1", Turn: 1,
+			Payload: agent.RunDonePayload{Reason: agent.ReasonEndTurn, Usage: agent.UsagePayload{Total: 15}, Turns: 1}})
 
 		assert.Equal(t, []string{
 			"chat:stream.start", "chat:turn-start", "chat:stream", "chat:stats",
@@ -65,8 +65,8 @@ func TestCoreEventMapper(t *testing.T) {
 		ses, before := seedSession(t, svc, msgRepo, ctx)
 
 		m := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
-		m.handle(core.Event{Kind: core.EventToolResult, RunID: "RUN_1", Turn: 1,
-			Payload: core.ToolResultPayload{ToolCallID: "t1", Name: "exec", Content: "ok"}})
+		m.handle(agent.Event{Kind: agent.EventToolResult, RunID: "RUN_1", Turn: 1,
+			Payload: agent.ToolResultPayload{ToolCallID: "t1", Name: "exec", Content: "ok"}})
 
 		rows, err := msgRepo.ListBySession(ctx, ses.ID, 0, 0)
 		require.NoError(t, err)
@@ -84,8 +84,8 @@ func TestCoreEventMapper(t *testing.T) {
 		ses, _ := seedSession(t, svc, msgRepo, ctx)
 
 		m := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
-		m.handle(core.Event{Kind: core.EventToolResult, RunID: "RUN_1", Turn: 1,
-			Payload: core.ToolResultPayload{ToolCallID: "t1", Name: "exec", Content: "detail", Err: "exit 1"}})
+		m.handle(agent.Event{Kind: agent.EventToolResult, RunID: "RUN_1", Turn: 1,
+			Payload: agent.ToolResultPayload{ToolCallID: "t1", Name: "exec", Content: "detail", Err: "exit 1"}})
 
 		rows, err := msgRepo.ListBySession(ctx, ses.ID, 0, 0)
 		require.NoError(t, err)
@@ -110,8 +110,8 @@ func TestCoreEventMapper(t *testing.T) {
 		})
 
 		m := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
-		m.handle(core.Event{Kind: core.EventToolResult, RunID: "RUN_1", Turn: 1,
-			Payload: core.ToolResultPayload{
+		m.handle(agent.Event{Kind: agent.EventToolResult, RunID: "RUN_1", Turn: 1,
+			Payload: agent.ToolResultPayload{
 				ToolCallID: "t1", Name: "exec", Content: "ok",
 				Meta: map[string]string{
 					"cwd":                `D:\WorkBaby\test`,
@@ -144,11 +144,11 @@ func TestCoreEventMapper(t *testing.T) {
 		})
 
 		m := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
-		m.handle(core.Event{Kind: core.EventRunStart, RunID: "RUN_2", Agent: "explore"})
-		m.handle(core.Event{Kind: core.EventToolResult, RunID: "RUN_2", Agent: "explore",
-			Payload: core.ToolResultPayload{ToolCallID: "t9", Name: "file_read", Content: "child"}})
-		m.handle(core.Event{Kind: core.EventRunDone, RunID: "RUN_2", Agent: "explore",
-			Payload: core.RunDonePayload{Reason: core.ReasonEndTurn}})
+		m.handle(agent.Event{Kind: agent.EventRunStart, RunID: "RUN_2", Agent: "explore"})
+		m.handle(agent.Event{Kind: agent.EventToolResult, RunID: "RUN_2", Agent: "explore",
+			Payload: agent.ToolResultPayload{ToolCallID: "t9", Name: "file_read", Content: "child"}})
+		m.handle(agent.Event{Kind: agent.EventRunDone, RunID: "RUN_2", Agent: "explore",
+			Payload: agent.RunDonePayload{Reason: agent.ReasonEndTurn}})
 
 		assert.Equal(t, []string{"chat:subagent-start", "chat:tool-result", "chat:subagent-done"}, names,
 			"子 run 复用父 run 的 chat:done 会让前端提前关闭 SSE")

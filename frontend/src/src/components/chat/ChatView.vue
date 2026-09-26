@@ -16,7 +16,6 @@ import { t } from '@/i18n'
 import MessageList from '@/components/chat/MessageList.vue'
 import GoalCard from '@/components/chat/GoalCard.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
-import PetCompanion from '@/components/pet/PetCompanion.vue'
 import WorkspacePanel from '@/components/chat/WorkspacePanel.vue'
 import SideConversation from '@/components/chat/SideConversation.vue'
 import { useSideChatStore } from '@/stores/sideChat'
@@ -25,7 +24,6 @@ import FileChangesPanel from '@/components/chat/FileChangesPanel.vue'
 import TaskCenterPanel from '@/components/tasks/TaskCenterPanel.vue'
 import PinnedPlan from '@/components/chat/PinnedPlan.vue'
 import ContextRing from '@/components/chat/ContextRing.vue'
-import ChatBackdrop from '@/components/chat/ChatBackdrop.vue'
 import type { AvailableModel, ContextUsageRESP, Session } from '@/types/api'
 
 const chat = useChatStore()
@@ -470,7 +468,6 @@ function onHeaderCommand(cmd: string): void {
   <div class="chat wb-ui">
     <!-- 消息主体（会话历史已归位到左侧栏 40% 区） -->
     <div class="chat-main" style="position: relative">
-      <ChatBackdrop />
   <div class="relative z-10 flex h-full flex-col overflow-hidden text-wb-ink">
     <!-- 会话头：标题 + 运行态灯 + 模型 | 工作区 chip | 面板开关组 -->
     <header class="chat-head">
@@ -622,9 +619,6 @@ function onHeaderCommand(cmd: string): void {
           @quote="onQuoteSelection"
           @quote-side="onQuoteSide"
         />
-
-        <!-- 桌宠陪伴体：抠好的形象浮在输入框上方，跟随会话状态 -->
-        <PetCompanion :streaming="streaming" :failed="Boolean(error)" />
 
         <!-- PinnedPlan：composer 上方的计划胶囊（3/7 常显，hover 展开清单） -->
         <PinnedPlan />

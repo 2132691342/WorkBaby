@@ -392,7 +392,7 @@
         '<div class="hr"></div>' +
         U.plate('入口文件') +
         '<div class="row row-g2 wrap mt2">' +
-        ['main.go', 'app.go', 'internal/server/router.go', 'internal/core/runner.go', 'frontend/src/main.ts'].map((f) =>
+        ['main.go', 'app.go', 'internal/server/router.go', 'internal/agent/loop.go', 'frontend/src/main.ts'].map((f) =>
           '<button class="chip">' + ic('file-text', 12) + f + '</button>'
         ).join('') + '</div>') +
       '<div class="wiki-split">' +

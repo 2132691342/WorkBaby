@@ -6,11 +6,13 @@
 
 ```
 frontend/src/src/
-├── api/          http（统一 unwrap）/ client（路径白名单）/ stream（SSE）/ bootstrap（端口注入）/ contract
+├── api/          http（统一 unwrap）/ client（路径白名单）/ stream（SSE）/ bootstrap（端口注入）/ contract / shellBridge（桌面壳对话框）
 ├── chat/         纯领域模型：blocks（块序列）/ streamingBlocks / toolTrace / toolVisuals / merge（消息对账）/ tokens
-├── components/   按业务域分包（chat / settings / dashboard / pet / common / knowledge / mcp …）
+├── components/   按业务域分包（chat / settings / dashboard / common / knowledge / tasks / genui …）
 ├── composables/  useTheme / useToast / useDialog / useThrottledContent / useShortcuts …
-├── stores/       域 store（chat / sideChat / settings / pet / tasks / skills / knowledge …）
+├── router/       路由表（hash 模式；旧路径统一重定向 /settings?tab=x）
+├── utils/        error / time 小工具
+├── stores/       域 store（chat / sideChat / settings / tasks / skills / kdocs …）
 ├── types/api.ts  后端契约类型（与 RESP 字段一一对应，唯一类型来源）
 ├── markdown/     markdown-it 双实例 + DOMPurify + hljs / mermaid / katex
 ├── i18n/         中英词条（dict-zh / dict-en），key 集合与顺序对齐

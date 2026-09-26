@@ -6,7 +6,7 @@
  * 内部统一转为 RenderBlock 后只写一遍渲染逻辑。
  */
 import { computed, ref, watch } from 'vue'
-import { Brain, Sparkles, Loader2, Square, Check, X, ChevronDown, Copy } from '@/components/common/icons'
+import { Brain, Sparkles, Loader2, Square, Check, X, ChevronDown, Copy, Search } from '@/components/common/icons'
 import { useClipboard } from '@vueuse/core'
 import { useToast } from '@/composables/useToast'
 import { t } from '@/i18n'
@@ -284,6 +284,67 @@ function resultKey(b: RenderBlock): string {
   return `${b.kind}:${b.seq}:result`
 }
 
+// ===== 工具输出内搜索：长输出（exec / http / doc_reader）按行过滤 =====
+// 搜索状态按 resultKey 分桶：每张过程卡独立，互不干扰；折叠 / 折叠行号等其它折叠不受影响。
+const toolSearch = ref<Map<string, string>>(new Map())
+
+/** 该块的搜索词；为空表示未启用搜索。 */
+function searchTerm(b: RenderBlock): string {
+  return toolSearch.value.get(resultKey(b)) ?? ''
+}
+
+/** 设置 / 清除该块的搜索词；清空时移除键以减小 Map 体积。 */
+function setSearch(b: RenderBlock, term: string): void {
+  const key = resultKey(b)
+  const next = new Map(toolSearch.value)
+  if (term) next.set(key, term)
+  else next.delete(key)
+  toolSearch.value = next
+}
+
+/** 行级过滤（空搜索词返回全部）；大小写不敏感。 */
+function filterLines(lines: string[], term: string): string[] {
+  if (!term) return lines
+  const lo = term.toLowerCase()
+  return lines.filter((l) => l.toLowerCase().includes(lo))
+}
+
+/** 全文过滤计数（用于展示「匹配 X / Y 行」），空搜索词返回原始统计。 */
+function matchStats(content: string, term: string): { hits: number; total: number } | null {
+  if (!term) return null
+  const lines = content.split('\n')
+  const lo = term.toLowerCase()
+  let hits = 0
+  for (const l of lines) if (l.toLowerCase().includes(lo)) hits++
+  return { hits, total: lines.length }
+}
+
+/** pre 块按行过滤：未命中行剔除；保留换行结构便于 JSON 折叠仍生效。 */
+function filterPre(content: string, term: string): string {
+  if (!term) return content
+  const lo = term.toLowerCase()
+  return content
+    .split('\n')
+    .filter((l) => l.toLowerCase().includes(lo))
+    .join('\n')
+}
+
+/**
+ * 行内高亮搜索词：转义后再插入常量子标签 — v-html 安全边界与 codeBlockHTML 一致。
+ * 不区分大小写；只标第一次出现以保持视觉清爽（不强行在多匹配处堆叠标记）。
+ */
+function highlightLine(line: string, term: string): string {
+  if (!term) return escapeHTML(line)
+  const lo = term.toLowerCase()
+  const hay = line.toLowerCase()
+  const i = hay.indexOf(lo)
+  if (i < 0) return escapeHTML(line)
+  const before = escapeHTML(line.slice(0, i))
+  const hit = escapeHTML(line.slice(i, i + term.length))
+  const after = escapeHTML(line.slice(i + term.length))
+  return `${before}<mark class="wb-hl">${hit}</mark>${after}`
+}
+
 /** 该内容是否为「可折叠的长 JSON」。 */
 function jsonFoldable(text: string): boolean {
   const pretty = prettyJSON(text)
@@ -490,6 +551,36 @@ watch(
             <ChevronDown v-if="isExpandable(b)" class="wb-tool-chev" :class="{ rotate: isOpen(b) }" />
           </button>
           <div v-if="isOpen(b) && (b.call?.arguments || b.result?.content)" class="wb-tool-bd">
+            <!-- 工具输出内搜索：result 长度 > 4 行的卡片才显示（短输出无搜索必要） -->
+            <div
+              v-if="b.result?.content && (b.result.content.split('\n').length > 4 || searchTerm(b))"
+              class="wb-tool-search"
+            >
+              <Search class="wb-tool-search-ic" />
+              <input
+                :value="searchTerm(b)"
+                :placeholder="t('chat.tool.searchPlaceholder')"
+                class="wb-tool-search-in"
+                type="text"
+                spellcheck="false"
+                @input="setSearch(b, ($event.target as HTMLInputElement).value)"
+              />
+              <button
+                v-if="searchTerm(b)"
+                type="button"
+                class="wb-tool-search-clr"
+                :title="t('chat.tool.searchClear')"
+                @click.stop="setSearch(b, '')"
+              >
+                <X class="wb-ic-sm" />
+              </button>
+              <span
+                v-if="matchStats(b.result.content, searchTerm(b))"
+                class="wb-tool-search-stats"
+              >
+                {{ t('chat.tool.searchStats', matchStats(b.result.content, searchTerm(b))!) }}
+              </span>
+            </div>
             <template v-if="b.call?.arguments">
               <div class="wb-tool-lb-row">
                 <p class="wb-tool-lb">args</p>
@@ -537,10 +628,19 @@ watch(
                 v-else-if="toolResultLines(b.result.content).length > 1 && !(b.result.uiHint === 'diff' || looksLikeDiff(b.result.content))"
                 class="wb-tool-lines"
               >
-                <li v-for="(ln, li) in toolResultLines(b.result.content)" :key="li">
+                <li
+                  v-for="(ln, li) in filterLines(toolResultLines(b.result.content), searchTerm(b))"
+                  :key="li"
+                >
                   <span v-if="b.result.name === 'file_list'" class="wb-tool-line-path">📄</span>
                   <span v-else-if="b.result.name === 'file_glob'" class="wb-tool-line-path">🔍</span>
-                  <code>{{ ln }}</code>
+                  <code v-html="highlightLine(ln, searchTerm(b))"></code>
+                </li>
+                <li
+                  v-if="searchTerm(b) && filterLines(toolResultLines(b.result.content), searchTerm(b)).length === 0"
+                  class="wb-tool-empty"
+                >
+                  {{ t('chat.tool.searchNoMatch') }}
                 </li>
               </ul>
               <DiffView
@@ -550,7 +650,7 @@ watch(
               />
               <!-- JSON 结果（exec 调 API / http 工具常见）自动缩进 + 着色；长 JSON 默认折叠 -->
               <template v-else>
-                <pre class="wb-tool-pre"><code v-html="codeBlockHTML(b.result.content, resultKey(b))"></code></pre>
+                <pre class="wb-tool-pre"><code v-html="codeBlockHTML(searchTerm(b) ? filterPre(b.result.content, searchTerm(b)) : b.result.content, resultKey(b) + (searchTerm(b) ? ':f' : ''))"></code></pre>
                 <button
                   v-if="jsonFoldable(b.result.content)"
                   type="button"
@@ -958,6 +1058,78 @@ watch(
   width: 11px;
   height: 11px;
   color: var(--wb-primary-strong);
+}
+/* 工具输出内搜索：胶囊镂空输入 + 行内高亮 + 空匹配提示 */
+.wb-tool-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 6px;
+  padding: 0 8px;
+  height: 24px;
+  border: 1px solid var(--wb-border);
+  border-radius: 12px;
+  background: var(--wb-surface-2);
+  transition: border-color var(--wb-dur) var(--wb-ease);
+}
+.wb-tool-search:focus-within {
+  border-color: var(--wb-primary);
+}
+.wb-tool-search-ic {
+  width: 12px;
+  height: 12px;
+  color: var(--wb-ink-2);
+  flex-shrink: 0;
+}
+.wb-tool-search-in {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--wb-ink);
+  font: inherit;
+  font-size: var(--wb-fs-xs);
+  line-height: 1;
+}
+.wb-tool-search-in::placeholder {
+  color: var(--wb-muted);
+}
+.wb-tool-search-clr {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--wb-ink-2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.wb-tool-search-clr:hover {
+  background: var(--wb-surface-hover);
+  color: var(--wb-ink);
+}
+.wb-tool-search-stats {
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.wb-hl {
+  background: var(--wb-warn-soft, rgba(255, 200, 80, 0.3));
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.wb-tool-empty {
+  padding: 8px 0;
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-xs);
+  list-style: none;
 }
 /* 长 JSON 展开 / 收起：胶囊镂空（与全局按钮语法一致，实底只在 hover） */
 .wb-tool-fold {

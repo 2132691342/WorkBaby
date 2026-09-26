@@ -5,7 +5,12 @@ import type {
   ChatToolResultPayload,
   ChatApprovalPayload,
   ChatCompressedPayload,
-  ChatWarnPayload
+  ChatWarnPayload,
+  ChatRetryPayload,
+  ChatErrorPayload,
+  ChatSubagentStartPayload,
+  ChatSubagentDonePayload,
+  ChatSubagentErrorPayload
 } from '@/types/api'
 import { apiPost, apiGet, getApiBase } from './http'
 import { onUnmounted } from 'vue'
@@ -157,12 +162,18 @@ export function mapSSEEvent(name: string, data: unknown): ChatStreamEvent | null
         }
       }
     }
-    case 'chat:subagent-start':
-      return { type: 'subagent_start', data: { sub_run_id: p.sub_run_id, agent: p.agent ?? '' } }
-    case 'chat:subagent-done':
-      return { type: 'subagent_done', data: { sub_run_id: p.sub_run_id, agent: p.agent ?? '', reason: p.reason ?? '' } }
-    case 'chat:subagent-error':
-      return { type: 'subagent_error', data: { sub_run_id: p.sub_run_id, agent: p.agent ?? '', message: p.message ?? '' } }
+    case 'chat:subagent-start': {
+      const ev = (data ?? {}) as Partial<ChatSubagentStartPayload>
+      return { type: 'subagent_start', data: { sub_run_id: ev.sub_run_id ?? '', agent: ev.agent ?? '' } }
+    }
+    case 'chat:subagent-done': {
+      const ev = (data ?? {}) as Partial<ChatSubagentDonePayload>
+      return { type: 'subagent_done', data: { sub_run_id: ev.sub_run_id ?? '', agent: ev.agent ?? '', reason: ev.reason ?? '' } }
+    }
+    case 'chat:subagent-error': {
+      const ev = (data ?? {}) as Partial<ChatSubagentErrorPayload>
+      return { type: 'subagent_error', data: { sub_run_id: ev.sub_run_id ?? '', agent: ev.agent ?? '', message: ev.message ?? '' } }
+    }
     case 'chat:approval': {
       // 后端载荷已是强类型 domain.ChatApprovalEvent（审批与补问同形状），
       // can_remember 恒有值：不可逆与补问为 false，前端据此隐藏「本会话允许」选项。
@@ -189,10 +200,14 @@ export function mapSSEEvent(name: string, data: unknown): ChatStreamEvent | null
         type: 'stopped',
         data: { reason: normalizeStopReason(String(p.reason ?? p.stop_reason ?? p.status ?? 'completed')) }
       }
-    case 'chat:error':
-      return { type: 'error', data: { code: p.code, message: p.message ?? 'unknown error' } }
-    case 'chat:retry':
-      return { type: 'retry', data: { attempt: p.attempt, delay_ms: p.delay_ms } }
+    case 'chat:error': {
+      const ev = (data ?? {}) as Partial<ChatErrorPayload>
+      return { type: 'error', data: { code: ev.code ?? 0, message: ev.message ?? 'unknown error' } }
+    }
+    case 'chat:retry': {
+      const ev = (data ?? {}) as Partial<ChatRetryPayload>
+      return { type: 'retry', data: { attempt: ev.attempt ?? 0, delay_ms: ev.delay_ms ?? 0 } }
+    }
     case 'chat:gap':
       // 断线重放窗口已被环形缓冲覆盖：decoder 转 requestSnapshot，
       // 由 store 立即拉权威快照兜底。

@@ -5,18 +5,16 @@ import { useSettingsStore } from '@/stores/settings'
 import { useAdminStore } from '@/stores/admin'
 import { t } from '@/i18n'
 import {
-  Activity, ArrowLeft, Bot, BookOpen, Database, FileText, Folder, Globe, LayoutDashboard,
-  Link2, Palette, PawPrint, ScrollText, Server, Shield, Sparkles, Terminal, Webhook,
-  Wrench, Zap
+  ArrowLeft, Bot, BookOpen, Database, FileText, Globe, Palette,
+  Server, Shield, Sparkles, Webhook, Wrench, Zap
 } from '@/components/common/icons'
 import SectionFallback from '@/components/settings/SectionFallback.vue'
 
 /**
- * 设置中心：左导航一级化（19 个子项直接列出，不再「分组按钮 + chip 二次选择」）+ 右侧内容区。
+ * 设置中心：左导航一级化（12 个子项直接列出 + 3 组视觉断行）+ 右侧内容区。
  *
- * <p>功能页全部收进设置：原侧栏的 记忆 / 知识库 / 技能 / MCP / 工具 / 工作流 /
- * 仪表盘 / 运行 / 任务 / 文件 / 文件夹 / 文档 / 桌宠 都成为这里的一个 section，
- * 旧路由（/memory 等）重定向到 /settings?tab=x，外壳左栏只保留任务主链路。
+ * <p>面向新手收敛：开发者向 / 运维向入口（自定义命令 / 用户钩子 / 文件 /
+ * 仪表盘 / 运行历史）不再露出，仓库导读（Wiki）整体下线；后端能力与 API 保留。
  * section 组件按需异步加载（首次点击才拉取 chunk）。
  */
 
@@ -33,58 +31,31 @@ type SettingsTab =
   | 'search'
   | 'skills'
   | 'subagents'
-  | 'commands'
-  | 'hooks'
   | 'mcp'
   | 'tools'
   | 'memory'
   | 'kdocs'
-  | 'wiki'
-  | 'dashboard'
-  | 'runs'
-  | 'files'
-  | 'pet'
   | 'docs'
   | 'about'
 
-/**
- * 分组只负责「视觉断行」，不再是可点击的层级：
- * 模型 / 能力 / 数据 / 系统，全部子项一跳直达。
- *
- * 删除的旧子项：
- *  - folders：被 files 覆盖（文件 = 附件、文件夹 = 文件分类），路由 /folders → /settings
- */
+/** 分组只负责「视觉断行」：模型 / 能力 / 系统，全部子项一跳直达。 */
 const tabs: { id: string; labelKey: string; items: SectionItem[] }[] = [
   {
     id: 'model',
     labelKey: 'settings.tab.model',
-    items: [
-      { id: 'models', labelKey: 'settings.tab.models', icon: Server },
-      { id: 'search', labelKey: 'settings.tab.search', icon: Globe }
-    ]
+    items: [{ id: 'models', labelKey: 'settings.tab.models', icon: Server }]
   },
   {
     id: 'capability',
     labelKey: 'settings.tab.capability',
     items: [
-      { id: 'tools', labelKey: 'nav.tools', icon: Wrench },
+      { id: 'search', labelKey: 'settings.tab.search', icon: Globe },
       { id: 'skills', labelKey: 'nav.skills', icon: Zap },
       { id: 'mcp', labelKey: 'nav.mcp', icon: Webhook },
       { id: 'subagents', labelKey: 'nav.subagents', icon: Bot },
-      { id: 'commands', labelKey: 'nav.commands', icon: Terminal },
-      { id: 'hooks', labelKey: 'nav.hooks', icon: Link2 }
-    ]
-  },
-  {
-    id: 'data',
-    labelKey: 'settings.tab.data',
-    items: [
+      { id: 'tools', labelKey: 'nav.tools', icon: Wrench },
       { id: 'memory', labelKey: 'settings.tab.memory', icon: Database },
-      { id: 'kdocs', labelKey: 'nav.knowledge', icon: BookOpen },
-      { id: 'wiki', labelKey: 'nav.wiki', icon: ScrollText },
-      { id: 'files', labelKey: 'nav.files', icon: Folder },
-      { id: 'dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
-      { id: 'runs', labelKey: 'nav.runs', icon: Activity }
+      { id: 'kdocs', labelKey: 'nav.knowledge', icon: BookOpen }
     ]
   },
   {
@@ -93,7 +64,6 @@ const tabs: { id: string; labelKey: string; items: SectionItem[] }[] = [
     items: [
       { id: 'appearance', labelKey: 'settings.tab.appearance', icon: Palette },
       { id: 'advanced', labelKey: 'settings.tab.advanced', icon: Shield },
-      { id: 'pet', labelKey: 'nav.pet', icon: PawPrint },
       { id: 'docs', labelKey: 'nav.docs', icon: FileText },
       { id: 'about', labelKey: 'settings.tab.about', icon: Sparkles }
     ]
@@ -118,20 +88,13 @@ const sectionComponents: Record<SettingsTab, Component> = {
   advanced: lazySection(() => import('@/components/settings/tabs/AdvancedSettings.vue')),
   search: lazySection(() => import('@/components/settings/tabs/SearchSettings.vue')),
   about: lazySection(() => import('@/components/settings/tabs/AboutSettings.vue')),
-  skills: lazySection(() => import('@/components/skills/SkillsView.vue')),
-  subagents: lazySection(() => import('@/components/agents/SubagentsView.vue')),
-  commands: lazySection(() => import('@/components/commands/CommandsView.vue')),
-  hooks: lazySection(() => import('@/components/hooks/HooksView.vue')),
-  wiki: lazySection(() => import('@/components/wiki/WikiView.vue')),
-  mcp: lazySection(() => import('@/components/mcp/McpServersView.vue')),
-  tools: lazySection(() => import('@/components/tools/ToolsView.vue')),
-  memory: lazySection(() => import('@/components/memory/MemoryCenterView.vue')),
+  skills: lazySection(() => import('@/components/settings/views/SkillsView.vue')),
+  subagents: lazySection(() => import('@/components/settings/views/SubagentsView.vue')),
+  mcp: lazySection(() => import('@/components/settings/views/McpServersView.vue')),
+  tools: lazySection(() => import('@/components/settings/views/ToolsView.vue')),
+  memory: lazySection(() => import('@/components/settings/views/MemoryCenterView.vue')),
   kdocs: lazySection(() => import('@/components/knowledge/KnowledgeDocsView.vue')),
-  dashboard: lazySection(() => import('@/components/dashboard/DashboardView.vue')),
-  runs: lazySection(() => import('@/components/runs/RunsView.vue')),
-  files: lazySection(() => import('@/components/files/FilesView.vue')),
-  pet: lazySection(() => import('@/components/pet/PetSpaceView.vue')),
-  docs: lazySection(() => import('@/components/docs/DocsView.vue'))
+  docs: lazySection(() => import('@/components/settings/views/DocsView.vue'))
 }
 
 const settings = useSettingsStore()

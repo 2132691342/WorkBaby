@@ -124,6 +124,9 @@ func (t *ExecTool) effectivePolicy() tool.ExecPolicy {
 func (t *ExecTool) Name() string              { return "exec" }
 func (t *ExecTool) RiskLevel() tool.RiskLevel { return tool.RiskExec }
 
+// ToolExecutionMode 命令执行整批串行：并发 exec 易触发工作目录与子进程互踩。
+func (t *ExecTool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
+
 func (t *ExecTool) Description() string {
 	return "执行白名单内的本机命令（参数数组形式，无 shell 拼接）。必须传入完整命令与参数列表。"
 }

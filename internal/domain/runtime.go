@@ -1,4 +1,4 @@
-// Package domain 的 Runtime 状态聚合根：内置运行时（node / python / powershell）的检查快照。
+// Package domain 的 Runtime 状态聚合根：内置运行时（python）的检查快照。
 //
 // 该聚合根不落库：运行时状态来自安装目录资源 + 用户目录解压结果，用于设置页「关于」排障。
 package domain

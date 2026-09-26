@@ -69,7 +69,7 @@ func (c *Client) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRespo
 // Stream 流式。
 func (c *Client) Stream(ctx context.Context, req *llm.ChatRequest) (<-chan llm.StreamChunk, error) {
 	body := c.buildBody(req, true)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewReader(mustMarshal(body)))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewReader(llm.MustMarshal(body)))
 	if err != nil {
 		return nil, pkg.Wrap(3031, "build stream request failed", err)
 	}
@@ -207,7 +207,7 @@ func (c *Client) Ping(ctx context.Context) error {
 	req := &llm.ChatRequest{
 		Model:     "ping",
 		Messages:  []*llm.Message{llm.UserMessage("ping")},
-		MaxTokens: intPtr(1),
+		MaxTokens: llm.IntPtr(1),
 	}
 	body := c.buildBody(req, false)
 	resp, err := llm.DoJSON(ctx, c.HTTPClient, "POST", c.BaseURL+"/chat/completions", c.headers(), body, nil)
@@ -471,11 +471,4 @@ type OpenAIModelsResponse struct {
 	} `json:"data"`
 }
 
-// ===== helpers =====
-
-func mustMarshal(v any) []byte {
-	bs, _ := json.Marshal(v)
-	return bs
-}
-
-func intPtr(i int) *int { return &i }
+// ===== helpers (mustMarshal / intPtr 已迁出到 internal/llm/providerbase.go) =====

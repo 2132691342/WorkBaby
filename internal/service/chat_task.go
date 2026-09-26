@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
 	"WorkBaby/internal/llm"
@@ -16,7 +16,7 @@ import (
 )
 
 // 后台任务域：用户显式提交的持久化异步 Agent 作业。与聊天 run 的区别是它不是
-// 「发消息」的同步动作：提交即返回、后台跑完出结果、跨重启可见。执行复用 core.Loop
+// 「发消息」的同步动作：提交即返回、后台跑完出结果、跨重启可见。执行复用 agent.Loop
 // 与同一条护栏链，差异只在审批门（无人值守，只吃免审授权）。
 
 // 后台任务预算：与委派不同，后台任务是用户有预期的长作业，给足墙钟。
@@ -91,7 +91,7 @@ func (s *ChatTaskService) worker() {
 }
 
 // Submit 提交后台任务：立即落库（pending）→ 入队 → 发 task:created。不阻塞调用方。
-func (s *ChatTaskService) Submit(ctx context.Context, sessionID, agent, prompt string) (*domain.ChatTaskDO, error) {
+func (s *ChatTaskService) Submit(ctx context.Context, sessionID, agentName, prompt string) (*domain.ChatTaskDO, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return nil, pkg.New(5025, "任务描述不能为空", "")
@@ -99,10 +99,10 @@ func (s *ChatTaskService) Submit(ctx context.Context, sessionID, agent, prompt s
 	if sessionID == "" {
 		return nil, pkg.New(5025, "任务必须绑定一个宿主会话（工作区与模型来源）", "")
 	}
-	if agent == "" {
-		agent = core.AgentDefault
+	if agentName == "" {
+		agentName = agent.AgentDefault
 	}
-	def := core.Agent(agent)
+	def := agent.Agent(agentName)
 
 	row := &domain.ChatTaskDO{
 		ID: pkg.NewID("TASK"), SessionID: sessionID, Agent: def.Name, Prompt: prompt, State: domain.TaskStatePending,
@@ -202,13 +202,13 @@ func (s *ChatTaskService) runOne(id string) {
 		s.emit("task:started", row)
 	}
 	if s.chat.execs != nil {
-		s.chat.execs.Register(&core.ExecutionRun{
-			RunID: runID, SessionID: ses.ID, AgentName: row.Agent, Scope: core.ScopeTask, State: core.StateRunning,
+		s.chat.execs.Register(&agent.ExecutionRun{
+			RunID: runID, SessionID: ses.ID, AgentName: row.Agent, Scope: agent.ScopeTask, State: agent.StateRunning,
 		})
 	}
 
 	// 可取消 ctx：Cancel 写 cancels 表 → 这里收到取消 → loop 返回 → 落 cancelled。
-	runCtx, cancel := context.WithTimeout(core.WithRunContext(ctx, runID, ses.ID), taskWallTime)
+	runCtx, cancel := context.WithTimeout(agent.WithRunContext(ctx, runID, ses.ID), taskWallTime)
 	s.cancelsMu.Lock()
 	s.cancels[id] = cancel
 	s.cancelsMu.Unlock()
@@ -232,7 +232,7 @@ type taskOutcome struct {
 
 // execute 装配并运行任务 Loop；返回归一结果（不落库）。
 func (s *ChatTaskService) execute(ctx context.Context, ses *domain.ChatSessionDO, row *domain.ChatTaskDO, runID string) taskOutcome {
-	def := core.Agent(row.Agent)
+	def := agent.Agent(row.Agent)
 	prov, err := s.chat.reg.Get(ses.ProviderID)
 	if err != nil {
 		return taskOutcome{state: domain.TaskStateFailed, err: "Provider 不可用: " + err.Error()}
@@ -268,7 +268,7 @@ func (s *ChatTaskService) execute(ctx context.Context, ses *domain.ChatSessionDO
 		Model:       model,
 		System:      def.Persona,
 		ToolNames:   toolNames,
-		Sink:        core.NopSink{},
+		Sink:        agent.NopSink{},
 		ExecTimeout: taskToolTimeout,
 		Approver:    grantApprover{svc: s.grants},
 	})
@@ -288,13 +288,13 @@ func (s *ChatTaskService) execute(ctx context.Context, ses *domain.ChatSessionDO
 		return taskOutcome{state: domain.TaskStateFailed, err: runErr.Error()}
 	}
 	switch out.Reason {
-	case core.ReasonCancelled:
+	case agent.ReasonCancelled:
 		return taskOutcome{state: domain.TaskStateCancelled, err: "用户取消"}
-	case core.ReasonMaxTurns, core.ReasonBudget:
+	case agent.ReasonMaxTurns, agent.ReasonBudget:
 		// 预算耗尽不算失败：产出的部分结论仍是结果，附说明。
 		return taskOutcome{state: domain.TaskStateCompleted,
 			result: pkg.TruncateRunes(out.Content, taskResultMax) + "\n\n（已达轮次/预算上限，任务提前收束）"}
-	case core.ReasonError:
+	case agent.ReasonError:
 		msg := ""
 		if out.Err != nil {
 			msg = out.Err.Error()
@@ -320,11 +320,11 @@ func (s *ChatTaskService) settle(ctx context.Context, id, runID string, out task
 		s.emit("task:done", row)
 	}
 	if s.chat.execs != nil {
-		state := core.StateCompleted
+		state := agent.StateCompleted
 		if out.state == domain.TaskStateFailed {
-			state = core.StateFailed
+			state = agent.StateFailed
 		} else if out.state == domain.TaskStateCancelled {
-			state = core.StateCancelled
+			state = agent.StateCancelled
 		}
 		s.chat.execs.Finish(runID, state)
 	}
@@ -360,8 +360,8 @@ func (s *ChatTaskService) emit(name string, t *domain.ChatTaskDO) {
 // 后台任务继承用户在聊天里批准过的命令；未授权的拒绝是可改道回执，模型会换路径或收尾说明。
 type grantApprover struct{ svc *ApprovalService }
 
-// Approve 实现 core.Approver。
-func (g grantApprover) Approve(_ context.Context, call core.Call, risk string) bool {
+// Approve 实现 agent.Approver。
+func (g grantApprover) Approve(_ context.Context, call agent.Call, risk string) bool {
 	if g.svc == nil {
 		return false
 	}
@@ -371,7 +371,7 @@ func (g grantApprover) Approve(_ context.Context, call core.Call, risk string) b
 	return g.svc.HasGrant(approvalCommand(call))
 }
 
-// DenyReason 实现 core.ApprovalReasoner：拒绝回执可解释，模型能据此改道。
+// DenyReason 实现 agent.ApprovalReasoner：拒绝回执可解释，模型能据此改道。
 func (g grantApprover) DenyReason() string {
 	return "后台任务不弹审批窗，该命令未在免审授权中（请先在聊天中批准过，或调高会话权限模式）"
 }

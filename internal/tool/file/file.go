@@ -167,6 +167,10 @@ func (t *WriteTool) WithRecorder(r Recorder) *WriteTool {
 
 func (t *WriteTool) Name() string              { return "file_write" }
 func (t *WriteTool) RiskLevel() tool.RiskLevel { return tool.RiskWriteLocal }
+
+// ToolExecutionMode 写文件整批串行：并发写同一文件会互相覆盖，「写前必读」守卫也会互踩。
+func (t *WriteTool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
+
 func (t *WriteTool) Description() string {
 	return "写入/覆盖工作区内文本文件（单次最大 2MB）。修改已有文件优先用 file_edit（局部替换 + diff）；本工具用于新建文件或整篇重写。"
 }

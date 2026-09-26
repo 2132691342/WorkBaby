@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/tool"
 )
@@ -78,6 +78,9 @@ func NewEnter(store *Store) *EnterTool { return &EnterTool{store: store} }
 
 func (t *EnterTool) Name() string              { return enterToolName }
 func (t *EnterTool) RiskLevel() tool.RiskLevel { return tool.RiskReadOnly }
+
+// ToolExecutionMode 计划模式入口整批串行：状态机切换需保序。
+func (t *EnterTool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
 func (t *EnterTool) Description() string {
 	return "进入计划模式：先只用只读工具调研并产出计划，用户批准后才开始执行。适合改动面大或方向未定的任务。"
 }
@@ -91,7 +94,7 @@ func (t *EnterTool) Schema() tool.ToolSchema {
 }
 
 func (t *EnterTool) Execute(ctx context.Context, _ json.RawMessage) tool.ToolResult {
-	sid := core.SessionIDFromCtx(ctx)
+	sid := agent.SessionIDFromCtx(ctx)
 	if sid == "" {
 		return tool.ToolResult{Err: pkg.New(4001, "plan mode: no session context", "")}
 	}
@@ -119,6 +122,9 @@ func (t *ExitTool) WithApprover(a tool.Approver) *ExitTool { t.approver = a; ret
 
 func (t *ExitTool) Name() string              { return exitToolName }
 func (t *ExitTool) RiskLevel() tool.RiskLevel { return tool.RiskWriteLocal }
+
+// ToolExecutionMode 计划模式出口需审批，整批串行避免审批门并发触发。
+func (t *ExitTool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
 func (t *ExitTool) Description() string {
 	return "退出计划模式：把计划提交给用户审批，批准后恢复全部工具并开始执行。"
 }
@@ -135,7 +141,7 @@ func (t *ExitTool) Schema() tool.ToolSchema {
 func (t *ExitTool) Meta() tool.ToolMeta { return tool.ToolMeta{Group: tool.GroupAgent} }
 
 func (t *ExitTool) Execute(ctx context.Context, _ json.RawMessage) tool.ToolResult {
-	sid := core.SessionIDFromCtx(ctx)
+	sid := agent.SessionIDFromCtx(ctx)
 	if sid == "" {
 		return tool.ToolResult{Err: pkg.New(4001, "plan mode: no session context", "")}
 	}

@@ -287,6 +287,47 @@ export interface ChatWarnPayload {
   model?: string
 }
 
+/** 建流瞬时错误退避重试（chat:retry；后端 domain.ChatRetryEvent）。 */
+export interface ChatRetryPayload {
+  attempt: number
+  delay_ms: number
+}
+
+/** run 内错误（chat:error；后端 domain.ChatErrorEvent）。与 ChatDoneEvent 共用终态通道。 */
+export interface ChatErrorPayload {
+  code: number
+  message: string
+}
+
+/** 子 Agent 委派起始（chat:subagent-start；后端 domain.ChatSubagentStartEvent）。 */
+export interface ChatSubagentStartPayload {
+  sub_run_id: string
+  agent?: string
+}
+
+/** 子 Agent 委派收尾（chat:subagent-done；后端 domain.ChatSubagentDoneEvent）。 */
+export interface ChatSubagentDonePayload {
+  sub_run_id: string
+  agent?: string
+  reason: string
+}
+
+/** 子 Agent 委派中途错误（chat:subagent-error；后端 domain.ChatSubagentErrorEvent）。 */
+export interface ChatSubagentErrorPayload {
+  sub_run_id: string
+  agent?: string
+  message: string
+}
+
+/** 队列取出可见性（chat:queue-drained；后端 domain.ChatQueueDrainedEvent）。
+ *  PI Phase 3：前端 / 审计感知「用户消息已入队并被消费」。 */
+export interface ChatQueueDrainedPayload {
+  queue: 'steering' | 'follow_up'
+  count: number
+  mode?: string
+  turn: number
+}
+
 /** 流式 stats 事件 payload（usage/耗时/缓存命中/cost）。 */
 export interface ChatStats {
   input_tokens?: number
@@ -588,34 +629,6 @@ export interface WorkspaceListRESP {
   root: string
 }
 
-// ===== 运行历史 =====
-
-/** 单次 run 的索引记录（GET /api/v1/chat/runs）。 */
-export interface RunRecord {
-  run_id: string
-  session_id: string
-  model: string
-  status: 'running' | 'done' | 'error'
-  reason: string
-  turns: number
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  total_tokens: number
-  /** 分段耗时归因（毫秒）：等模型 / 跑工具 / 压上下文。 */
-  llm_ms: number
-  tools_ms: number
-  compress_ms: number
-  started_at: number
-  ended_at: number
-}
-
-/** 运行历史分页响应。 */
-export interface RunRecordList {
-  items: RunRecord[]
-  total: number
-}
-
 // ===== 工作目录信任 =====
 
 export type TrustState = 'allow' | 'ask' | 'deny'
@@ -907,115 +920,6 @@ export interface ToolInfo {
   description: string
 }
 
-/** 工作流定义。 */
-export interface Workflow {
-  id: string
-  name: string
-  description: string | null
-  graph: string
-  enabled: boolean
-  created_at: number
-  updated_at: number
-}
-
-/** 创建/更新工作流请求。 */
-export interface WorkflowReq {
-  name: string
-  description?: string | null
-  graph: string
-  enabled?: boolean
-}
-
-/** 启动工作流请求。 */
-export interface WorkflowRunReq {
-  inputs?: Record<string, unknown>
-}
-
-/** 工作流图（DAG，编辑器格式；与后端 WorkflowDAGRESP 契约一致）。 */
-export interface WorkflowGraph {
-  name: string
-  /** 图级入参：key → "nodeId.field" 引用（后端持久化，编辑器加载/保存必须原样带上）。 */
-  inputs?: Record<string, string>
-  nodes: WorkflowGraphNode[]
-  edges: WorkflowGraphEdge[]
-  outputs?: Record<string, string> // 图级输出：key → "nodeId.field"
-}
-
-/** 工作流节点执行记录（GET /api/v1/executions/:id 详情的 nodes）。 */
-export interface WorkflowNodeExecution {
-  id: string
-  execution_id: string
-  node_id: string
-  node_type: string
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'waiting_input' | string
-  error_msg?: string | null
-  started_at?: number | null
-  finished_at?: number | null
-}
-
-/** 执行详情：执行 + 节点执行列表。 */
-export interface ExecutionDetail {
-  execution: WorkflowExecution
-  nodes: WorkflowNodeExecution[]
-}
-
-/** 可视化节点：type 是后端节点类型；branch 是 condition 分支归属；pos 为画布坐标。 */
-export interface WorkflowGraphNode {
-  id: string
-  type: string
-  params?: Record<string, unknown>
-  branch?: string
-  pos?: { x: number; y: number }
-  /** 节点入参变量引用：key → "nodeId.field"（保存时不可丢，否则上游引用被清空）。 */
-  inputs?: Record<string, string>
-}
-
-/** 可视化边：source_handle 仅在源是 condition 节点时携带（true/false/自定义分支）。 */
-export interface WorkflowGraphEdge {
-  from: string
-  to: string
-  source_handle?: string
-}
-
-/** 节点字段描述（schema 驱动属性面板）。 */
-export interface WorkflowNodeField {
-  name: string
-  label: string
-  type: 'text' | 'number' | 'textarea' | 'select' | 'json'
-  required: boolean
-  description?: string
-  options?: string[]
-  default?: unknown
-}
-
-/** 节点类型目录（调色板 + 属性面板数据源）。 */
-export interface WorkflowNodeTypeInfo {
-  type: string
-  label: string
-  fields: WorkflowNodeField[]
-}
-
-/** 工作流执行记录。 */
-export interface WorkflowExecution {
-  id: string
-  workflow_id: string
-  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | string
-  inputs: Record<string, unknown> | null
-  outputs: Record<string, unknown> | null
-  error_msg: string | null
-  started_at: number | null
-  finished_at: number | null
-  created_at: number
-}
-
-/** 等待人工输入（HumanInput 节点）的上下文：事件载荷带 prompt/TTL，节点状态兜底时为空。 */
-export interface WorkflowPendingInput {
-  executionID: string
-  nodeID: string
-  prompt: string
-  ttlSeconds: number
-}
-
 /**
  * 前端审批队列项。
  *
@@ -1303,8 +1207,5 @@ export interface AdminOverview {
   messages: number
   memory_episodes: number
   knowledge_docs: number
-  workflows: number
-  cron_jobs: number
-  channels: number
   [key: string]: unknown
 }

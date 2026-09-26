@@ -19,7 +19,6 @@ import {
   Code2,
   Image as ImageIcon,
   LayoutTemplate,
-  Cat,
   ScanText,
   FileText,
   FolderOpen,
@@ -28,7 +27,6 @@ import {
   PackageCheck,
   Sparkles,
   Brain,
-  GitBranch,
   BookOpen,
   Bot
 } from '@/components/common/icons'
@@ -49,7 +47,6 @@ export function toolIcon(name: string): Component {
   if (n.startsWith('code_')) return Code2
   if (n.startsWith('image_') || n.startsWith('video_') || n.startsWith('audio_') || n.startsWith('model3d') || n.startsWith('vfx')) return ImageIcon
   if (n === 'gen_ui') return LayoutTemplate
-  if (n.startsWith('pet_')) return Cat
   if (n.startsWith('ocr_')) return ScanText
   if (n.startsWith('pdf_') || n.startsWith('word_') || n.startsWith('excel_')) return FileText
   if (n.startsWith('file_') || n.startsWith('folder_') || n.startsWith('archive_')) return FolderOpen
@@ -57,7 +54,6 @@ export function toolIcon(name: string): Component {
   if (n.startsWith('regex_')) return Regex
   if (n.startsWith('present_')) return PackageCheck
   if (n === 'memory_write' || n.startsWith('memory_')) return Brain
-  if (n === 'run_workflow' || n.startsWith('workflow_')) return GitBranch
   if (n.startsWith('knowledge_')) return BookOpen
   return Sparkles
 }

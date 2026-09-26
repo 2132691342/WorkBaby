@@ -6,14 +6,14 @@ import (
 	"regexp"
 	"strings"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/repo"
 )
 
 // AgentProfileService 自定义子智能体：CRUD + 启动同步进 harness 注册表。注册表是运行期
-// 唯一消费点（delegate_task 按名委派、会话 Agent 切换），本服务把 enabled 的行物化成 core.Definition。
+// 唯一消费点（delegate_task 按名委派、会话 Agent 切换），本服务把 enabled 的行物化成 agent.Definition。
 type AgentProfileService struct {
 	repo     *repo.AgentProfileRepo
 	dataHome string // {home}；非空时额外加载 {home}/agents/*.md 定义文件
@@ -41,7 +41,7 @@ func (s *AgentProfileService) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defs := make([]core.Definition, 0, len(rows))
+	defs := make([]agent.Definition, 0, len(rows))
 	taken := make(map[string]struct{}, len(rows))
 	for i := range rows {
 		d := profileToDefinition(&rows[i])
@@ -55,7 +55,7 @@ func (s *AgentProfileService) Sync(ctx context.Context) error {
 		}
 		defs = append(defs, d)
 	}
-	core.SetCustomAgents(defs)
+	agent.SetCustomAgents(defs)
 	return nil
 }
 
@@ -111,7 +111,7 @@ func validateProfileReq(req *domain.AgentProfileREQ) (*domain.AgentProfileDO, er
 		return nil, pkg.New(8203, "agent 名需为 kebab-case（小写字母开头，字母/数字/连字符，≤64 字符）", req.Name)
 	}
 	// 只保护内置名：自定义名之间的唯一性由 repo 的唯一约束负责。
-	for _, builtin := range core.BuiltinAgentNames() {
+	for _, builtin := range agent.BuiltinAgentNames() {
 		if builtin == name {
 			return nil, pkg.New(8202, "该名称为内置 Agent 保留名", name)
 		}
@@ -149,17 +149,17 @@ func validateProfileReq(req *domain.AgentProfileREQ) (*domain.AgentProfileDO, er
 	}, nil
 }
 
-// profileToDefinition 物化成 core.Definition；空 JSON 数组视为不限制。
-func profileToDefinition(row *domain.AgentProfileDO) core.Definition {
-	def := core.Definition{
+// profileToDefinition 物化成 agent.Definition；空 JSON 数组视为不限制。
+func profileToDefinition(row *domain.AgentProfileDO) agent.Definition {
+	def := agent.Definition{
 		Name:        row.Name,
 		Description: row.Description,
 		Persona:     row.SystemPrompt,
-		Tools: core.ToolPolicy{
+		Tools: agent.ToolPolicy{
 			Allow: unmarshalGlobList(row.ToolsAllow),
 			Deny:  unmarshalGlobList(row.ToolsDeny),
 		},
-		Memory:   core.MemoryPolicy{Enabled: row.MemoryEnable},
+		Memory:   agent.MemoryPolicy{Enabled: row.MemoryEnable},
 		Model:    strings.TrimSpace(row.Model),
 		Thinking: strings.TrimSpace(row.Thinking),
 	}

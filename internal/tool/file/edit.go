@@ -34,6 +34,10 @@ func (t *EditTool) WithRecorder(r Recorder) *EditTool {
 
 func (t *EditTool) Name() string              { return "file_edit" }
 func (t *EditTool) RiskLevel() tool.RiskLevel { return tool.RiskWriteLocal }
+
+// ToolExecutionMode 编辑文件整批串行：并发编辑同一文件会丢失更新。
+func (t *EditTool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
+
 func (t *EditTool) Description() string {
 	return "对工作区内文件做精确字符串替换（局部编辑）。必须先 file_read 拿到准确原文；old_string 需包含足够上下文保证唯一匹配。返回 unified diff。"
 }

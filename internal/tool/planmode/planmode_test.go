@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/pkg"
 )
 
@@ -53,14 +53,14 @@ func TestPlanMode(t *testing.T) {
 		s := newStore()
 		s.Enable("S1")
 		denied := NewExit(s, funcApprover(func(context.Context, string, string) bool { return false }))
-		if res := denied.Execute(core.WithRunContext(context.Background(), "R", "S1"), nil); res.Err != nil {
+		if res := denied.Execute(agent.WithRunContext(context.Background(), "R", "S1"), nil); res.Err != nil {
 			t.Fatalf("unexpected err: %v", res.Err)
 		}
 		if !s.Active("S1") {
 			t.Fatal("审批拒绝后应保持计划模式")
 		}
 		approved := NewExit(s, funcApprover(func(context.Context, string, string) bool { return true }))
-		if res := approved.Execute(core.WithRunContext(context.Background(), "R", "S1"), nil); res.Err != nil {
+		if res := approved.Execute(agent.WithRunContext(context.Background(), "R", "S1"), nil); res.Err != nil {
 			t.Fatalf("unexpected err: %v", res.Err)
 		}
 		if s.Active("S1") {

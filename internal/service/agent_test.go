@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/event"
 	"WorkBaby/internal/llm"
@@ -149,17 +149,17 @@ func TestCoreLoopAssembly(t *testing.T) {
 			Ses:            &domain.ChatSessionDO{ID: ses.ID},
 			RunID:          "RUN_1",
 			AssistantMsgID: "MSG_1",
-			Def:            core.Agent(core.AgentDefault),
+			Def:            agent.Agent(agent.AgentDefault),
 			Provider:       prov,
 			Model:          "stub-model",
 			ToolNames:      []string{"echo"},
-			Sink:           core.FuncSink(mapper.handle),
+			Sink:           agent.FuncSink(mapper.handle),
 		})
 
 		out, err := loop.Run(ctx, []*llm.Message{llm.UserMessage("hi")})
 		require.NoError(t, err)
 
-		assert.Equal(t, core.ReasonEndTurn, out.Reason)
+		assert.Equal(t, agent.ReasonEndTurn, out.Reason)
 		assert.Equal(t, 1, echo.callCount())
 		assert.Contains(t, names, "chat:tool")
 		assert.Contains(t, names, "chat:tool-result")
@@ -196,18 +196,18 @@ func TestCoreLoopAssembly(t *testing.T) {
 			Ses:            &domain.ChatSessionDO{ID: ses.ID},
 			RunID:          "RUN_1",
 			AssistantMsgID: "MSG_1",
-			Def:            core.Agent(core.AgentDefault),
+			Def:            agent.Agent(agent.AgentDefault),
 			Provider:       prov,
 			Model:          "stub-model",
 			ToolNames:      []string{"other"}, // echo 未暴露
-			Sink:           core.FuncSink(mapper.handle),
+			Sink:           agent.FuncSink(mapper.handle),
 		})
 
 		out, err := loop.Run(ctx, []*llm.Message{llm.UserMessage("hi")})
 		require.NoError(t, err)
 
 		assert.Equal(t, 0, echo.callCount(), "未暴露的工具绝不能被执行")
-		assert.Equal(t, core.ReasonEndTurn, out.Reason, "拒绝不是故障：模型可改道后正常收尾")
+		assert.Equal(t, agent.ReasonEndTurn, out.Reason, "拒绝不是故障：模型可改道后正常收尾")
 		require.Len(t, refused, 1)
 		assert.True(t, refused[0], "拒绝回执必须带 refused 标记，前端展示「已拒绝」而非错误")
 	})
@@ -240,13 +240,13 @@ func TestAdaptiveGuardInServiceChain(t *testing.T) {
 	mapper := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
 	loop := svc.newCoreLoop(coreLoopSpec{
 		Ses: &domain.ChatSessionDO{ID: ses.ID}, RunID: "RUN_1", AssistantMsgID: "MSG_1",
-		Def: core.Agent(core.AgentDefault), Provider: prov, Model: "stub-model",
-		ToolNames: []string{"file_read"}, Sink: core.FuncSink(mapper.handle),
+		Def: agent.Agent(agent.AgentDefault), Provider: prov, Model: "stub-model",
+		ToolNames: []string{"file_read"}, Sink: agent.FuncSink(mapper.handle),
 	})
 
 	out, err := loop.Run(ctx, []*llm.Message{llm.UserMessage("read")})
 	require.NoError(t, err)
-	assert.Equal(t, core.ReasonEndTurn, out.Reason, "失败不是故障：模型改道后应正常收尾")
+	assert.Equal(t, agent.ReasonEndTurn, out.Reason, "失败不是故障：模型改道后应正常收尾")
 
 	var hinted *llm.Message
 	var toolCount int
@@ -287,13 +287,13 @@ func TestSummarizeToolErrorInLoop(t *testing.T) {
 	mapper := newCoreEventMapper(svc, ctx, &domain.ChatSessionDO{ID: ses.ID}, "RUN_1", "MSG_1", nil)
 	loop := svc.newCoreLoop(coreLoopSpec{
 		Ses: &domain.ChatSessionDO{ID: ses.ID}, RunID: "RUN_1", AssistantMsgID: "MSG_1",
-		Def: core.Agent(core.AgentDefault), Provider: prov, Model: "stub-model",
-		ToolNames: []string{"exec"}, Sink: core.FuncSink(mapper.handle),
+		Def: agent.Agent(agent.AgentDefault), Provider: prov, Model: "stub-model",
+		ToolNames: []string{"exec"}, Sink: agent.FuncSink(mapper.handle),
 	})
 
 	out, err := loop.Run(ctx, []*llm.Message{llm.UserMessage("run")})
 	require.NoError(t, err)
-	assert.Equal(t, core.ReasonEndTurn, out.Reason)
+	assert.Equal(t, agent.ReasonEndTurn, out.Reason)
 
 	var found bool
 	for _, m := range out.Messages {
@@ -330,13 +330,13 @@ func TestAgentProfileLifecycle(t *testing.T) {
 	require.Equal(t, "translator", created.Name)
 	require.Equal(t, []string{"webfetch"}, created.ToolsAllow)
 
-	// 注册表已同步：core.Agent 命中自定义定义
-	def := core.Agent("translator")
+	// 注册表已同步：agent.Agent 命中自定义定义
+	def := agent.Agent("translator")
 	require.Equal(t, "translator", def.Name)
 	require.Equal(t, "你是翻译助手，只输出译文。", def.Persona)
 	require.Equal(t, 6, def.Budget.MaxTurns)
 	found := false
-	for _, d := range core.AllAgents() {
+	for _, d := range agent.AllAgents() {
 		if d.Name == "translator" {
 			found = true
 		}
@@ -344,7 +344,7 @@ func TestAgentProfileLifecycle(t *testing.T) {
 	require.True(t, found)
 
 	// 内置保留名拒绝（内置已收敛为 default / explore）
-	_, err = svc.Upsert(ctx, &domain.AgentProfileREQ{Name: core.AgentExplore})
+	_, err = svc.Upsert(ctx, &domain.AgentProfileREQ{Name: agent.AgentExplore})
 	require.Error(t, err)
 
 	// 非法名拒绝
@@ -353,15 +353,15 @@ func TestAgentProfileLifecycle(t *testing.T) {
 
 	// 停用后从注册表摘除
 	require.NoError(t, svc.SetEnabled(ctx, "translator", false))
-	require.Equal(t, "default", core.Agent("translator").Name)
+	require.Equal(t, "default", agent.Agent("translator").Name)
 
 	// 重新启用即回归注册表
 	require.NoError(t, svc.SetEnabled(ctx, "translator", true))
-	require.Equal(t, "translator", core.Agent("translator").Name)
+	require.Equal(t, "translator", agent.Agent("translator").Name)
 
 	// 删除后回退 default
 	require.NoError(t, svc.Delete(ctx, "translator"))
-	require.Equal(t, "default", core.Agent("translator").Name)
+	require.Equal(t, "default", agent.Agent("translator").Name)
 	_, err = svc.List(ctx)
 	require.NoError(t, err)
 }

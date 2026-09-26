@@ -8,16 +8,26 @@ import (
 	"strings"
 
 	"WorkBaby/internal/capability"
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/llm"
 	"WorkBaby/internal/llm/modelmeta"
 	"WorkBaby/internal/pkg"
+	"WorkBaby/internal/resource"
 	"WorkBaby/internal/runtime"
 )
 
 // defaultContextWindow provider 未声明上下文窗口时的兜底值（与前端 ChatView 的 128000 一致）。
 const defaultContextWindow = 128_000
+
+// runtimeHome 数据目录的包级间接层：便于单测替换（生产走 runtime.Resolve）。
+var runtimeHome = func() string {
+	paths, err := runtime.Resolve()
+	if err != nil {
+		return ""
+	}
+	return paths.Home
+}
 
 // ContextUsage 会话上下文占用分段快照（/context）。
 // 与真实请求同源（buildSystem）；recall 用会话最后一条用户消息作检索代理；
@@ -46,12 +56,12 @@ func (s *ChatService) ContextUsage(ctx context.Context, sessionID string) (domai
 		if err != nil {
 			return domain.ContextUsageRESP{}, err
 		}
-		history = core.EstimateTokens(msgs)
+		history = agent.EstimateTokens(msgs)
 	}
 	resp.Estimated = !measured
 
 	// system：与真实请求同一装配入口；recall 用最后一条用户消息作检索代理
-	def := core.Agent(defaultAgentName)
+	def := agent.Agent(defaultAgentName)
 	system := ""
 	if sys, _ := s.buildSystem(ctx, ses, "preview", lastUserInput(rows), def); sys != nil {
 		system = sys.Content
@@ -151,7 +161,7 @@ const (
 
 // buildSystem 装配本轮 system 段；与 /context 占用透视同源，保证「看到的占用」等于「实际发送」。
 // 两段来源：能力注册表注入段（PreloadAll 按 order 串联）+ 服务侧附加段（需读仓储与会话状态）。
-func (s *ChatService) buildSystem(ctx context.Context, ses *domain.ChatSessionDO, runID, userInput string, def core.Definition) (*llm.Message, *capability.RunState) {
+func (s *ChatService) buildSystem(ctx context.Context, ses *domain.ChatSessionDO, runID, userInput string, def agent.Definition) (*llm.Message, *capability.RunState) {
 	state := &capability.RunState{}
 	sections := s.caps.PreloadAll(ctx, &capability.PreloadCtx{
 		SessionID: ses.ID,
@@ -171,7 +181,7 @@ func (s *ChatService) buildSystem(ctx context.Context, ses *domain.ChatSessionDO
 			sysRunes = b * 3 / 10 * 2
 		}
 	}
-	body, dropped := core.BuildSystem(sections, sysRunes)
+	body, dropped := agent.BuildSystem(sections, sysRunes)
 	if len(dropped) > 0 {
 		pkg.L.Info("system pieces dropped by budget", "sessionID", ses.ID, "runID", runID, "dropped", strings.Join(dropped, ","))
 		// 裁剪必须回传前端：用户看到的回答质量下降（如 Skill 正文被丢）需要能对上原因。
@@ -191,32 +201,33 @@ func (s *ChatService) buildSystem(ctx context.Context, ses *domain.ChatSessionDO
 
 // extraSystemSections 服务侧附加段：能力注入之外、需要读仓储或会话状态的 system 内容。
 // 拼接序 = Order（决定正文出现位置），丢弃序 = Priority（预算紧张时谁先走），两者必须分开设。
-func (s *ChatService) extraSystemSections(ctx context.Context, ses *domain.ChatSessionDO) []core.Section {
-	var sections []core.Section
+func (s *ChatService) extraSystemSections(ctx context.Context, ses *domain.ChatSessionDO) []agent.Section {
+	var sections []agent.Section
 	// 项目指令（AGENTS.md）：用户全局 + 工作区两份，先全局后工作区。
 	// 指令文件承载稳定约定（技术栈 / 规范 / 验证方式），每轮 run 都注入 system。
-	sections = append(sections, agentsMdPieces(ses)...)
+	// 加载逻辑在 internal/resource（PI Phase 6 资源统一入口）。
+	sections = append(sections, resource.LoadAgentsMd(runtimeHome(), strings.TrimSpace(ses.WorkspacePath))...)
 	// 历史归档摘要：/compact 归档掉的早期轮次的确定性摘要（模型据此知道
 	// 被剔除的历史讲了什么，而不是凭空失忆）
 	if sum := archiveSummary(ses); sum != "" {
-		sections = append(sections, core.Section{
+		sections = append(sections, agent.Section{
 			Key: "archive", Title: "历史归档摘要", Body: sum,
-			Order: orderArchiveSummary, Priority: core.PriorityHigh,
+			Order: orderArchiveSummary, Priority: agent.PriorityHigh,
 		})
 	}
 	// 压缩保留指示：写进会话元数据，每次 run 都装进 system——不受历史折叠影响
 	if ins := compactInstructions(ses); ins != "" {
-		sections = append(sections, core.Section{
+		sections = append(sections, agent.Section{
 			Key: "compact", Title: "压缩保留指示", Body: ins,
-			Order: orderCompactHint, Priority: core.PriorityHigh,
+			Order: orderCompactHint, Priority: agent.PriorityHigh,
 		})
 	}
 	// 验证提醒：上一轮修改了文件但没执行任何命令 → 注入提醒。
 	// 改了代码却直接交付是「任务跑不完整」的常见根因。
 	if hint := s.verificationReminder(ctx, ses.ID); hint != "" {
-		sections = append(sections, core.Section{
+		sections = append(sections, agent.Section{
 			Key: "verify", Title: "验证提醒", Body: hint,
-			Order: orderVerifyHint, Priority: core.PriorityLow,
+			Order: orderVerifyHint, Priority: agent.PriorityLow,
 		})
 	}
 	// 工作区沙箱强制隔离：未绑定外部工作区时不注入，避免空谈约束。
@@ -224,7 +235,7 @@ func (s *ChatService) extraSystemSections(ctx context.Context, ses *domain.ChatS
 	// 解决把过程脚本直接落到工作区根、污染用户原有目录的问题。
 	if wp := strings.TrimSpace(ses.WorkspacePath); wp != "" {
 		sb := runtime.SandboxOf(wp)
-		sections = append(sections, core.Section{
+		sections = append(sections, agent.Section{
 			Key:   "workspace_sandbox",
 			Title: "工作区沙箱（强制隔离）",
 			Body: fmt.Sprintf(
@@ -238,7 +249,7 @@ func (s *ChatService) extraSystemSections(ctx context.Context, ses *domain.ChatS
 				wp, sb.Scripts, sb.Output, sb.Cache, sb.Tmp,
 			),
 			Order:    orderWorkspaceSandbox,
-			Priority: core.PriorityEssential,
+			Priority: agent.PriorityEssential,
 		})
 	}
 	return sections

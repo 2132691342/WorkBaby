@@ -73,19 +73,19 @@ $repoAll = @($dep.Keys | Where-Object { $_ -like 'WorkBaby/internal/repo*' })
 $apiAll = @($dep.Keys | Where-Object { $_ -like 'WorkBaby/internal/api*' })
 $serviceAll = @($dep.Keys | Where-Object { $_ -like 'WorkBaby/internal/service*' })
 $serverAll = @($dep.Keys | Where-Object { $_ -like 'WorkBaby/internal/server*' })
-$coreAll = @($dep.Keys | Where-Object { $_ -like 'WorkBaby/internal/core*' })
+$agentAll = @($dep.Keys | Where-Object { $_ -like 'WorkBaby/internal/agent*' })
 
 # repo / domain 禁止依赖的 internal 上层包（repo 仅允许 domain/db/repo/pkg）。
 # api-no-repo：组合根已下沉 internal/bootstrap（App 持有 repo），api 层经 App 取用——
 # 业务数据访问必须经 service，api 不得直接 import repo。
 $capDomain = @('WorkBaby/internal/api','WorkBaby/internal/service','WorkBaby/internal/server',
-    'WorkBaby/internal/harness','WorkBaby/internal/core','WorkBaby/internal/llm','WorkBaby/internal/tool',
+    'WorkBaby/internal/harness','WorkBaby/internal/agent','WorkBaby/internal/llm','WorkBaby/internal/tool',
     'WorkBaby/internal/skill','WorkBaby/internal/mcp','WorkBaby/internal/memory','WorkBaby/internal/rag',
     'WorkBaby/internal/pet','WorkBaby/internal/runtime','WorkBaby/internal/config','WorkBaby/internal/event')
 
 # server 允许依赖 api/domain/event/pkg/gin，禁止 service/repo/能力域
 $forbidServer = @('WorkBaby/internal/service','WorkBaby/internal/repo','WorkBaby/internal/db',
-    'WorkBaby/internal/harness','WorkBaby/internal/core','WorkBaby/internal/llm','WorkBaby/internal/tool',
+    'WorkBaby/internal/harness','WorkBaby/internal/agent','WorkBaby/internal/llm','WorkBaby/internal/tool',
     'WorkBaby/internal/skill','WorkBaby/internal/mcp','WorkBaby/internal/memory','WorkBaby/internal/rag',
     'WorkBaby/internal/pet','WorkBaby/internal/runtime','WorkBaby/internal/config')
 
@@ -96,15 +96,15 @@ Assert-NoImports 'repo-no-upward' $repoAll $capDomain
 Assert-NoImports 'api-no-repo' $apiAll @('WorkBaby/internal/repo')
 Assert-NoImports 'service-no-http' $serviceAll @('github.com/gin-gonic','github.com/wailsapp')
 Assert-NoImports 'server-no-downward' $serverAll $forbidServer
-# core 是 Agent 内核：持久化与审批经接口注入，因此不得反向依赖编排层与传输层。
+# agent 是 Agent 内核：持久化与审批经接口注入，因此不得反向依赖编排层与传输层。
 # 允许 llm / tool / pkg / domain 四个叶子方向的能力包，其余 internal 业务包一律禁止。
-Assert-NoImports 'core-no-upward' $coreAll @('WorkBaby/internal') @(
+Assert-NoImports 'agent-no-upward' $agentAll @('WorkBaby/internal') @(
     'WorkBaby/internal/llm','WorkBaby/internal/tool','WorkBaby/internal/pkg','WorkBaby/internal/domain',
-    'WorkBaby/internal/core')
-Assert-NoImports 'core-no-http' $coreAll @('github.com/gin-gonic','github.com/wailsapp')
+    'WorkBaby/internal/agent')
+Assert-NoImports 'agent-no-http' $agentAll @('github.com/gin-gonic','github.com/wailsapp')
 
 # ---- 3. 契约版本双写校验（前后端常量一致性） ----
-$goVer = Select-String -Path (Join-Path $root 'internal/domain/contract.go') -Pattern 'ContractVersion\s*=\s*(\d+)' |
+$goVer = Select-String -Path (Join-Path $root 'internal/domain/id.go') -Pattern 'ContractVersion\s*=\s*(\d+)' |
     ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1
 $tsFile = Join-Path $root 'frontend/src/src/api/contract.ts'
 $tsVer = Select-String -Path $tsFile -Pattern 'UI_API_CONTRACT_VERSION\s*=\s*(\d+)' |

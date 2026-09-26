@@ -8,14 +8,13 @@
 | 能力 | 说明 |
 |---|---|
 | 对话 | 多轮 ReAct Agent：流式输出、思考与正文分离、上下文自动压缩、断点幂等续跑、中途插话与自动续接 |
-| 干活 | 33 个内置工具（15 个域：exec / file / webfetch / websearch / http / doc / archive / delegate / memorywrite / planmode / requestinput / skillrun / todo / knowledge / 12 个纯函数）：命令执行、文件读写、联网搜索、文档解析、知识库检索。危险操作走审批门 + 目录信任 + 命令白名单 |
+| 干活 | 50 个内置工具：20 个业务工具（exec / 文件×6 / webfetch / websearch / http / doc / archive / delegate / memory_write / todo / 计划模式×2 / request_input / run_skill_script / knowledge_search）+ 30 个纯函数（functools）：命令执行、文件读写、联网搜索、文档解析、知识库检索。危险操作走审批门 + 目录信任 + 命令白名单 |
 | 记住 | 长期记忆（单一 MEMORY.md + FTS5 派生索引）：按输入召回，模型可主动用 `memory_write` 写入 |
 | 私有资料 | 知识库 RAG：文档自动索引（FTS5 trigram），对话自动召回片段，`knowledge_search` 深度检索（支持 PDF/Word/Excel 前端预览） |
 | 扩展 | MCP Server 接入外部工具；Skill 注入方法论与脚本；子 Agent 委派（上下文/预算/工具/正文四重隔离） |
-| 陪伴 | 桌宠与聊天同形象同状态；后台任务中心（异步任务 + 状态机 + 跨重启可恢复） |
-| 工作面板 | 右栏工作区文件树、文件变更快照（unified diff 与回滚）、辅助对话、任务中心 |
-| 仓库导读 | Wiki：会话级确定性扫描，跳过依赖/构建目录，输出目录页 + 文件页 |
-| 生命周期钩子 | 七类事件触发用户命令子进程（stdin 收 JSON 载荷、stdout 出 JSON 决策），`PreToolUse` 的 deny 拦截工具调用 |
+| 目标模式 | 设定目标后逐轮推进，每轮按实据校验，未达成自动续跑 |
+| 后台任务 | 异步任务中心（队列 + 2 worker + 状态机 + 跨重启可恢复） |
+| 工作面板 | 右栏工作区文件树、文件变更快照（unified diff 与回滚）、辅助对话（审批卡住时只读）、任务中心 |
 
 ## 技术栈
 
@@ -33,12 +32,12 @@
 └──────────────────────────────────────────────────────────────┘
         │ gin（业务 API + 统一响应 + SSE）        ▲
         ▼                                        │ app:ready 注入端口
-  api ─► service ─► 能力域（core / llm / tool / capability /
-                    memory / rag / mcp / pet …）─► repo ─► SQLite
+  api ─► service ─► 能力域（agent / llm / tool / skill / mcp /
+                    capability / memory / rag …）─► repo ─► SQLite
 ```
 
 - 业务全部走 HTTP（`{code,message,data}` 统一响应），前端可脱离壳独立调试
-- Agent 内核 `internal/core` 不依赖任何上层：LLM / 工具 / 记忆 / 审批全部接口注入，主循环只做「请求 → 执行 → 回填」，安全与持久化全在护栏中间件链与钩子里
+- Agent 内核 `internal/agent` 不依赖任何上层：LLM / 工具 / 记忆 / 审批全部接口注入，主循环只做「请求 → 执行 → 回填」，安全与持久化全在护栏中间件链与钩子里
 - 能力接入走统一契约 `internal/capability`：Preload（上下文注入）/ Tools（模型调用）/ Capture（run 后沉淀）三通道，新增能力注册一行即接入
 
 ## 快速开始
@@ -65,16 +64,35 @@ wails build -nsis -ldflags "-s -w" -trimpath
 main.go / app.go        入口装配（embed 前端、托盘、单实例）
 internal/
   server/ api/ service/ repo/ domain/          HTTP 四层 + 域模型
-  core/ llm/ tool/ skill/ mcp/                 Agent 内核与能力
+  agent/ llm/ tool/ skill/ mcp/                Agent 内核与能力
   capability/                                  能力接入契约（三通道）
-  memory/ rag/ pet/                            记忆 / 知识库 / 桌宠
+  memory/ rag/                                 记忆 / 知识库
   config/ event/ db/ bootstrap/ runtime/ pkg/  配置 / 事件 / 存储 / 装配 / 运行时 / 叶子工具
   tray/ singleinstance/                        托盘 / 单实例保护
 frontend/src/src/       Vue 3 工程（api / stores / components / chat）
-assets/                 内置 Skill、图标、用户手册（/api/v1/docs）
+assets/                 内置 Skill、图标、用户手册
 docs/                   项目级文档（架构 / 规范 / 流程 / 契约 / 部署）
 specs/features/         功能规格（按业务域分组）
 ```
+
+## 内核形态：PI 形态骨架
+
+`internal/agent` 与 PI `pi-agent-core` 等价：
+
+| PI 形态 | 本工程对应 |
+|---|---|
+| `Agent` 状态化包装（state + listeners + queues） | `Loop` 结构体 + `WithSink` / `WithHooks` / `WithSteeringQueue` / `WithFollowUpQueue` |
+| `agent-loop` 两层纯函数循环 | `runLoop`（outer 等 follow-up 收尾缝，inner 做工具批 + steering） |
+| `beforeToolCall` / `afterToolCall` Hook | 护栏中间件链 `Middleware` + `Executor(ExecOptions)` |
+| `transformContext` / `convertToLlm` | `Hooks.TransformContext` / `Hooks.ConvertToLlm` |
+| `getSteeringMessages` / `getFollowUpMessages` | `SteeringQueue` / `FollowUpQueue`（默认 one-at-a-time） |
+| `shouldStopAfterTurn` | `Hooks.ShouldStop` |
+| `prepareNextTurnWithContext` | `Loop.PrepareNextTurn`（NextTurnUpdate：切模型 / 思考档 / 注入消息 / 压缩信息） |
+| `AgentEvent` 10 类 | 14 个 `EventKind`：RunStart / TurnStart / TurnDelta / TurnThinking / TurnEnd / ToolCall / ToolStart / ToolResult / Checkpoint / Compressed / Error / RunDone + Retry / QueueDrained |
+| `Checkpoint` 续跑 | `Checkpoint` + `CheckpointStore`（SQLite 实现） |
+| 拒绝 = 回执（`Refused`） | `MetaTerminate` + 摘要错误回执模型 |
+
+是否引入 PI 的 Session 树（JSONL 分支 / fork / tree resume）与实验性 harness 抽象，取决于何时出现多分支会话树类需求。当前形态已能支撑单会话 ReAct；引入新抽象属「包装型重构」零行为变化，待需求驱动。
 
 ## 文档
 
@@ -89,6 +107,7 @@ specs/features/         功能规格（按业务域分组）
 | [`docs/PAGE-STRUCTURE.md`](docs/PAGE-STRUCTURE.md) | 页面与视图结构 |
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | 开发流程、命令与测试体系 |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | 构建、打包与分发 |
+| [`docs/REFERENCE-PROJECTS.md`](docs/REFERENCE-PROJECTS.md) | 参考项目调研与取舍（pi / go-micro / PandaX / gotool 等） |
 | [`specs/features/`](specs/features/) | 功能规格（Agent 内核 / 工具 / 会话 / 能力 / 系统） |
 | [`TODO.md`](TODO.md) · [`CHANGELOG.md`](CHANGELOG.md) | 进度与版本记录 |
 | [`assets/docs/`](assets/docs/) | 应用内用户手册（`GET /api/v1/docs` 查看） |

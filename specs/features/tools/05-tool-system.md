@@ -39,11 +39,17 @@ type ToolResult struct {
 | `Register(t)` | 重名 → 4005；**schema 编译失败 → 4004（注册即编译）** |
 | `Unregister(name)` | MCP 服务器停用时移除其工具 |
 | `Get(name)` / `List()` | 按名取 / 全量列出 |
-| `AllReadOnly(names)` | 只读并发裁决（`Meta.ReadOnly` 优先，`RiskLevel` 兜底） |
+| `AllParallel(names)` | 整批并发裁决：全部存在且执行模式为 Parallel（未声明视同 Parallel）才为真，任一 `Sequential` 即整批串行 |
 | `SelfCheckSchema()` | 启动期自检，不合法直接启动失败 |
 
-**工具启停不在注册表**：由 `service.ToolService` 结合 `system_settings` 决定（键 `tool.enabled.{name}`）。
-未配置时的默认：functools 分组默认禁用（数量多、易干扰选择），其余默认启用。
+**工具启停不在注册表**：由 `service.ToolService` 结合 `system_settings` 决定（键 `tool.enabled.{name}`，值 `"true"/"false"`）。
+
+| 环节 | 行为 |
+|---|---|
+| 默认值 | 未配置时按分组计算：functools 组默认 `false`（数量多、易干扰工具选择），其余默认 `true`；无启动期种子写入 |
+| 修改 | `POST /api/v1/tools/:name/enabled`（工具名未注册 → 4005）；设置页 ToolsView 开关与命令面板快捷开关都走它 |
+| 生效 | 即改即生效：下次 run 组装工具列表时重读 KV，无需重启；注册表本身无启停概念 |
+| 消费 | `ToolService.EnabledTools()` 过滤 → `LLMDefinitionsFiltered()` 转 LLM ToolDefinition → run 装配唯一入口 `ChatService.exposedToolDefs`（再经 Agent 策略 FilterTools） |
 
 参数校验用 `santhosh-tekuri/jsonschema/v6`，资源 URL 走自定义 scheme `workbaby://`，
 并剥离 MCP 带来的 `$schema`（避免启动期联网拉元 schema）。
@@ -79,12 +85,58 @@ type ToolResult struct {
 | 计划 | `todo` `enter_plan_mode` `exit_plan_mode` | 会话待办 / 计划模式进出（退出走审批门） |
 | 交互 | `request_input` | 缺关键信息时向用户提问并阻塞等待 |
 | 技能 | `run_skill_script` | 运行技能内置脚本（解释器固定映射，2 分钟超时） |
-| 委派 | `delegate_task` | 委派子 Agent |
-| 纯函数 | 12 个 functools | 数学 / 日期 / 文本 / 正则 / JSON / CSV / 哈希 / 编码 / 随机，无 IO 无副作用，默认分组禁用 |
+| 委派 | `delegate_task` | 委派子 Agent（见 `capability/20-subagent.md`） |
+| 纯函数 | 30 个 functools | 数学 / 日期时间 / 文本 / 正则 / JSON / CSV / 哈希 / 编码 / 随机 / 数据清洗 / IP，无 IO 无副作用，默认分组禁用（清单见 §4.1） |
 | 外接 | `mcp_*` | 来自 MCP 服务器 |
 
 注册时机：`api.Handler.Startup` 中统一注册（能力注册表暴露的 `knowledge_search` / `memory_write` 与 functools 一并注册），
 最后 `SelfCheckSchema` 统一自检。
+
+### 4.1 functools 纯函数工具目录（30 个）
+
+`FuncTool` 骨架统一封装：结果字符串原样返回、其余 JSON 序列化后放 `Data.value`；30 个工具全部 `RiskReadOnly`。
+
+**data 组（18 个，`tools_data.go`）**
+
+| 工具 | 用途 | 参数（**加粗必填**） |
+|---|---|---|
+| `math_eval` | 求值算术表达式（四则与括号） | **expression** |
+| `math_stats` | 逗号分隔数字的 count/sum/min/max/avg | **numbers** |
+| `json_parse` | 解析并美化 JSON（顺带校验） | **json** |
+| `json_get` | 按点分路径（含 `[0]` 下标）取值 | **json, path** |
+| `json_validate` | 校验是否合法 JSON | **json** |
+| `csv_read` | CSV 文本 → JSON 数组（有表头则每行成对象） | **csv**, has_header |
+| `csv_write` | JSON 二维数组（可选表头）→ CSV 文本 | **json**, header |
+| `hash_md5` | 文本 MD5 hex 摘要 | **text** |
+| `hash_sha256` | 文本 SHA 摘要（可选 SHA-1/256/512，默认 256） | **text**, algorithm |
+| `hash_hmac` | HMAC-SHA256 hex 摘要 | **key, text** |
+| `base64_encode` / `base64_decode` | 文本 ↔ Base64（UTF-8） | **text** / **base64** |
+| `url_encode` / `url_decode` | URL 组件百分号编码 / 解码 | **text** |
+| `data_clean` | 清洗对象数组：去首尾空格、可丢 null/空字段/空对象 | **json**, drop_empty |
+| `data_aggregate` | 按 key 分组聚合数值字段（sum/avg/count/min/max） | **json, group_by, field**, op |
+| `data_validate` | 校验数组内对象必需字段，返回缺失明细 | **json, required** |
+| `ip_lookup` | 本机主机名与非回环 IP 列表 | 无参 |
+
+**text 组（9 个，`tools_text.go`）**
+
+| 工具 | 用途 | 参数 |
+|---|---|---|
+| `current_time` | 当前日期时间（默认 `2006-01-02 15:04:05`） | format |
+| `date_add` / `date_diff` | 日期加减天数 / 两日期天数差 | **date**, days / **date1, date2** |
+| `text_replace` | 正则全文替换（支持 `$1` 组引用） | **text, regex**, replacement |
+| `text_count` | 字符数 / 词数 / 行数 | **text** |
+| `text_extract` | 提取全部正则匹配（捕获组，默认组 1） | **text, regex**, group |
+| `regex_match` | 测试文本是否匹配正则 | **pattern, text** |
+| `regex_extract` | 提取首个捕获组（无组则全匹配） | **pattern, text** |
+| `regex_replace` | 正则全文替换 | **pattern, replacement, text** |
+
+**io 组（3 个，`tools_io.go`）**
+
+| 工具 | 用途 | 参数 |
+|---|---|---|
+| `random_uuid` | 随机 UUID v4 | 无参 |
+| `random_string` | 指定长度随机字母数字串（默认 16） | length |
+| `random_number` | [min,max] 闭区间随机整数（默认 0..100） | min, max |
 
 ## 5. 运行身份与工作区
 

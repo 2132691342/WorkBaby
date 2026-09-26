@@ -23,6 +23,9 @@ func New(mem *memory.Service) *Tool { return &Tool{mem: mem} }
 func (t *Tool) Name() string              { return "memory_write" }
 func (t *Tool) RiskLevel() tool.RiskLevel { return tool.RiskWriteLocal }
 
+// ToolExecutionMode 记忆写入整批串行：并发追加 MEMORY.md 会互相覆盖。
+func (t *Tool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
+
 func (t *Tool) Meta() tool.ToolMeta {
 	return tool.ToolMeta{MaxResultChars: 500, UIHint: "memory"}
 }

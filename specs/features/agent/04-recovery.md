@@ -43,19 +43,24 @@ Resume(ctx)
 |---|---|
 | **不重发 run 起始事件** | 「本次是续跑」由调用方标注（编排层补发 `chat:stream.start{resumed:true}`） |
 | **用量跨段累计** | 续跑不是新的计费周期，`Usage` 从检查点继承后继续累加 |
-| **复用已完成调用** | `Steps` 恢复后，`RepeatGuard` 命中缓存直接返回结果，**不重放副作用** |
+| **复用已完成调用** | `Steps` 恢复后，`RepeatGuard` 命中缓存直接返回结果，**不重放副作用**（复用键 = 检查点恢复的记录；本 run 内新记结果仅随检查点持久化，不在本 run 内复用，防止读到旧值） |
 
 ## 3. 步骤记忆（MapSteps）
 
 进程内幂等：`tool:{name}|{args}` → 结果。
 
 ```
-MapSteps.Load(key) / Store(key, content) / Snapshot() map[string]string
+MapSteps.Load(key)   // 只命中检查点恢复的键
+MapSteps.Store(key, content)  // 本 run 新记：随检查点持久化，不在本 run 内复用
+Snapshot() map[string]string  // 全量快照，写入检查点
 ```
 
-快照随检查点落库，续跑时从检查点恢复。这让「已经执行过的写操作」不会因为续跑而重复发生。
+快照随检查点落库，续跑时从检查点恢复。这让「已经执行过的写操作」不会因为续跑而重复发生；
+恢复键以外的调用本 run 内照常执行（模型「写后重读」不会拿到旧值）。
 
-与 `RepeatGuard` 的分工：`MapSteps` 是存储，`RepeatGuard` 是使用它的中间件。
+与 `RepeatGuard` 的分工：`MapSteps` 是存储，`RepeatGuard` 是使用它的中间件——
+装配时经 `Loop.StepsStore()` 传入（`RepeatGuard(3, loop.StepsStore())`），
+适配器每次调用解引用 `l.steps`，兼容 `Resume` 整体重建步骤记忆。
 
 ## 4. 执行平面
 

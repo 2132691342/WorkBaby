@@ -50,6 +50,9 @@ func (t *Tool) Schema() tool.ToolSchema {
 }
 func (t *Tool) RiskLevel() tool.RiskLevel { return tool.RiskReadOnly }
 
+// ToolExecutionMode 会话待办整批串行：每条操作都改状态，前缀竞争会丢失中间步。
+func (t *Tool) ToolExecutionMode() tool.ExecutionMode { return tool.ExecutionSequential }
+
 // Execute 执行动作并返回最新计划（文本 + 结构化 Data）。
 func (t *Tool) Execute(ctx context.Context, args json.RawMessage) tool.ToolResult {
 	fail := func(msg string, err error) tool.ToolResult {

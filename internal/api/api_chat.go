@@ -3,10 +3,11 @@ package api
 import (
 	"strings"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/llm"
 	"WorkBaby/internal/pkg"
+	"WorkBaby/internal/resource"
 	"WorkBaby/internal/service"
 )
 
@@ -24,7 +25,7 @@ func (h *Handler) SendStream(req domain.SendStreamREQ) (domain.SendStreamResult,
 	if req.SessionID == "" {
 		return domain.SendStreamResult{}, domain.ErrSessionInvalid
 	}
-	params := core.RequestParams{Temperature: req.Temperature, Thinking: llm.ThinkingFromEffort(req.ThinkingEffort)}
+	params := agent.RequestParams{Temperature: req.Temperature, Thinking: llm.ThinkingFromEffort(req.ThinkingEffort)}
 	r, err := h.chatSvc.SendStream(h.ctx, req.SessionID, req.Content, req.FileIDs, params)
 	if err != nil {
 		return domain.SendStreamResult{}, err
@@ -108,15 +109,14 @@ func (h *Handler) ListChatCommands(sessionID string) (domain.CommandListRESP, er
 			})
 		}
 	}
-	// ② 用户级文件：{home}/commands/*.md
-	for _, c := range service.LoadCommandFiles(h.paths.Home) {
-		upsertCustom(c)
+	// ② + ③ 用户级 / 工作区级文件：工作区同名优先于用户级（与工作区技能同约定）。
+	// 一次性合并加载，避免两次循环 upsert。
+	var wsPath string
+	if sessionID != "" {
+		wsPath = h.chatSvc.WorkspaceRoot(h.ctx, sessionID, "")
 	}
-	// ③ 工作区级文件：<ws>/.workbaby/commands/*.md（未绑定工作区时不加载，与工作区技能同一约定）
-	if wsPath := h.chatSvc.WorkspaceRoot(h.ctx, sessionID, ""); wsPath != "" {
-		for _, c := range service.LoadWorkspaceCommandFiles(wsPath) {
-			upsertCustom(c)
-		}
+	for _, c := range resource.LoadCommands(h.paths.Home, wsPath) {
+		upsertCustom(c)
 	}
 	return domain.CommandListRESP{Items: items, Total: len(items)}, nil
 }

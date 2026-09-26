@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/pkg"
+	"WorkBaby/internal/repo"
 	"WorkBaby/internal/runtime"
 	"WorkBaby/internal/tool"
 )
@@ -500,6 +502,156 @@ func (s *ChatService) blocksByMessage(ctx context.Context, sessionID string) (ma
 		})
 	}
 	return out, nil
+}
+
+// --- session_context.go 内容（会话级路径解析 / 记忆开关）---
+
+// SessionContext 会话级路径解析：工作区根与过程数据目录的唯一数据源。
+// 独立于 ChatService，供工具沙箱、快照、文件面板与 chat 共用（避免多份目录规则）。
+type SessionContext struct {
+	home     string
+	sessions *repo.ChatSessionRepo
+}
+
+// NewSessionContext 构造会话路径解析器；home 为数据根（paths.Home）。
+func NewSessionContext(home string, sessions *repo.ChatSessionRepo) *SessionContext {
+	return &SessionContext{home: home, sessions: sessions}
+}
+
+// WorkspaceRoot 会话绑定的工作区根；未绑定或查询失败回落到 defRoot。
+func (c *SessionContext) WorkspaceRoot(ctx context.Context, sessionID, defRoot string) string {
+	if sessionID == "" || c.sessions == nil {
+		return defRoot
+	}
+	row, err := c.sessions.GetByID(ctx, sessionID)
+	if err != nil || row == nil {
+		if err != nil {
+			pkg.L.Warn("workspace root resolve failed, fallback to default", "session", sessionID, "err", err.Error())
+		}
+		return defRoot
+	}
+	if p := strings.TrimSpace(row.WorkspacePath); p != "" {
+		return p
+	}
+	return defRoot
+}
+
+// DataDirs 会话的记忆文件与快照目录：绑定本地工作区 → {dir}/.workbaby/ 下（过程数据跟工作区走）；
+// 未绑定 → {home} 下。
+func (c *SessionContext) DataDirs(ctx context.Context, sessionID string) (memoryFile, snapshotDir string) {
+	memoryFile = filepath.Join(c.home, "memory", sessionID, "MEMORY.md")
+	snapshotDir = filepath.Join(c.home, "snapshots", sessionID)
+	if sessionID == "" || c.sessions == nil {
+		return
+	}
+	row, err := c.sessions.GetByID(ctx, sessionID)
+	if err != nil || row == nil {
+		return
+	}
+	if wp := strings.TrimSpace(row.WorkspacePath); wp != "" {
+		sb := runtime.SandboxOf(wp)
+		memoryFile = filepath.Join(sb.Memory, sessionID, "MEMORY.md")
+		snapshotDir = filepath.Join(sb.Snapshots, sessionID)
+	}
+	return
+}
+
+// MemoryEnabled 记忆全局开关（设置缺失或读取失败时按开启处理）。
+func MemoryEnabled(ctx context.Context, setRepo *repo.SystemSettingRepo) bool {
+	if setRepo == nil {
+		return true
+	}
+	row, err := setRepo.Get(ctx, domain.SettingKeyMemoryEnabled)
+	if err != nil || row == nil {
+		return true
+	}
+	return strings.TrimSpace(row.V) != "false"
+}
+
+// --- session_todo.go 内容（会话计划持久化存储）---
+
+// SessionTodoStore 会话计划持久化存储（实现 tool/todo.Store 与 capability.TodoStore）。
+// 计划随会话落库：跨重启、归档、切换会话后仍能回放进度；覆盖语义由 repo.ReplaceAll 承担。
+type SessionTodoStore struct {
+	repo *repo.SessionTodoRepo
+}
+
+// NewSessionTodoStore 构造；repo 为 nil 时读写退化为空操作（不阻断 run）。
+func NewSessionTodoStore(r *repo.SessionTodoRepo) *SessionTodoStore {
+	return &SessionTodoStore{repo: r}
+}
+
+// Load 返回该会话当前计划。
+func (s *SessionTodoStore) Load(ctx context.Context, sessionID string) ([]domain.TodoItem, error) {
+	if s == nil || s.repo == nil {
+		return nil, nil
+	}
+	rows, err := s.repo.List(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return toTodoItems(rows), nil
+}
+
+// Save 覆盖该会话计划。
+func (s *SessionTodoStore) Save(ctx context.Context, sessionID string, items []domain.TodoItem) error {
+	if s == nil || s.repo == nil {
+		return nil
+	}
+	return s.repo.ReplaceAll(ctx, sessionID, items)
+}
+
+// State 返回会话计划快照（done/total 已统计）。
+func (s *SessionTodoStore) State(ctx context.Context, sessionID string) (domain.TodoStateRESP, error) {
+	items, err := s.Load(ctx, sessionID)
+	if err != nil {
+		return domain.TodoStateRESP{SessionID: sessionID}, err
+	}
+	return stateOf(sessionID, items), nil
+}
+
+// Toggle 用户手动勾选/取消某条待办（会话计划面板交互）。
+// 与模型侧的 todo 工具写同一份状态，下一轮 system 注入会带上最新进度。
+func (s *SessionTodoStore) Toggle(ctx context.Context, sessionID, itemID string) (domain.TodoStateRESP, error) {
+	if s == nil || s.repo == nil {
+		return domain.TodoStateRESP{SessionID: sessionID}, nil
+	}
+	items, err := s.Load(ctx, sessionID)
+	if err != nil {
+		return domain.TodoStateRESP{SessionID: sessionID}, err
+	}
+	for i := range items {
+		if items[i].ID != itemID {
+			continue
+		}
+		next := !items[i].Done
+		if _, err := s.repo.UpdateDone(ctx, sessionID, itemID, next); err != nil {
+			return domain.TodoStateRESP{SessionID: sessionID}, err
+		}
+		items[i].Done = next
+		return stateOf(sessionID, items), nil
+	}
+	return domain.TodoStateRESP{SessionID: sessionID}, domain.ErrTodoItemNotFound
+}
+
+// toTodoItems DO → 领域项（ItemID 承载模型给出的标识，主键仅用于存储）。
+func toTodoItems(rows []domain.SessionTodoDO) []domain.TodoItem {
+	out := make([]domain.TodoItem, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, domain.TodoItem{ID: r.ItemID, Title: r.Title, Done: r.Done})
+	}
+	return out
+}
+
+// stateOf 由 items 组装快照。
+func stateOf(sessionID string, items []domain.TodoItem) domain.TodoStateRESP {
+	done := 0
+	for _, it := range items {
+		if it.Done {
+			done++
+		}
+	}
+	return domain.TodoStateRESP{SessionID: sessionID, Items: items, DoneCount: done, Total: len(items)}
 }
 
 // SendStream 立即返回 runID/消息 ID；流式事件经 harness → event.Bus → api 层 → chat:* 推前端。

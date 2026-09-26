@@ -2,6 +2,7 @@
 package db
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -21,8 +22,14 @@ func Open(path string, busyMs int) (*gorm.DB, error) {
 		}
 	}
 	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(" + itoa(busyMs) + ")&_pragma=foreign_keys(ON)"
+	// ErrRecordNotFound 是业务常态（按名查找 / 首启种子查询），不当错误刷日志
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger:                                   logger.Default.LogMode(logger.Warn),
+		Logger: logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  true,
+		}),
 		DisableForeignKeyConstraintWhenMigrating: false,
 		PrepareStmt:                              true,
 	})

@@ -1,6 +1,6 @@
 package service
 
-// 本文件：子 Agent 委派（core.Loop 实现）。
+// 本文件：子 Agent 委派（agent.Loop 实现）。
 //
 // 四重隔离：子 run 只看到「人设 + 任务」、独立预算、工具集只能收缩不能升权、
 // 正文流不进父回答（只回传摘要）。并发相同 (agent, task) 共享一次执行。
@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"WorkBaby/internal/core"
+	"WorkBaby/internal/agent"
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/llm"
 	"WorkBaby/internal/pkg"
@@ -33,12 +33,12 @@ type delegateFlight struct {
 	err     error
 }
 
-// coreDelegator 用 core.Loop 跑子任务，只把摘要回传给父 Agent。
+// coreDelegator 用 agent.Loop 跑子任务，只把摘要回传给父 Agent。
 type coreDelegator struct {
 	svc         *ChatService
 	ses         *domain.ChatSessionDO
 	parentRunID string
-	parentSink  core.Sink // 父 run 的事件出口：子事件经此转发（带 Agent 标签）
+	parentSink  agent.Sink // 父 run 的事件出口：子事件经此转发（带 Agent 标签）
 	model       string
 	toolNames   []string
 
@@ -48,7 +48,7 @@ type coreDelegator struct {
 
 // newCoreDelegator 构造委派器。
 func (s *ChatService) newCoreDelegator(ses *domain.ChatSessionDO, parentRunID string,
-	parentSink core.Sink, model string, toolNames []string) *coreDelegator {
+	parentSink agent.Sink, model string, toolNames []string) *coreDelegator {
 	return &coreDelegator{
 		svc: s, ses: ses, parentRunID: parentRunID, parentSink: parentSink,
 		model: model, toolNames: toolNames, flights: map[string]*delegateFlight{},
@@ -64,7 +64,7 @@ func (d *coreDelegator) Delegate(ctx context.Context, agentName, task string) (s
 	if task == "" {
 		return "", pkg.New(5008, "委派失败：任务描述为空", "")
 	}
-	def := core.Agent(agentName) // 未知名回退 default
+	def := agent.Agent(agentName) // 未知名回退 default
 
 	// 并发同参去重：命中在飞委派则等待其结果，不重复扇出。
 	key := def.Name + "|" + task
@@ -90,15 +90,15 @@ func (d *coreDelegator) Delegate(ctx context.Context, agentName, task string) (s
 
 	childRunID := pkg.NewID("RUN")
 	if d.svc.execs != nil {
-		d.svc.execs.Register(&core.ExecutionRun{
+		d.svc.execs.Register(&agent.ExecutionRun{
 			RunID:       childRunID,
 			ParentRunID: d.parentRunID,
 			SessionID:   d.ses.ID,
 			AgentName:   def.Name,
-			Scope:       core.ScopeDelegate,
-			State:       core.StateRunning,
+			Scope:       agent.ScopeDelegate,
+			State:       agent.StateRunning,
 		})
-		defer d.svc.execs.Finish(childRunID, core.StateCompleted)
+		defer d.svc.execs.Finish(childRunID, agent.StateCompleted)
 	}
 
 	prov, err := d.svc.reg.Get(d.ses.ProviderID)
@@ -108,10 +108,10 @@ func (d *coreDelegator) Delegate(ctx context.Context, agentName, task string) (s
 	}
 
 	// 子 run 事件只转发工具层与生命周期：正文/思考不转发，避免混进父回答。
-	sink := core.FuncSink(func(e core.Event) {
+	sink := agent.FuncSink(func(e agent.Event) {
 		switch e.Kind {
-		case core.EventToolCall, core.EventToolStart, core.EventToolResult,
-			core.EventError, core.EventRunStart, core.EventRunDone:
+		case agent.EventToolCall, agent.EventToolStart, agent.EventToolResult,
+			agent.EventError, agent.EventRunStart, agent.EventRunDone:
 			e.ParentRunID = d.parentRunID
 			e.Agent = def.Name
 			d.parentSink.Emit(e)
@@ -122,20 +122,20 @@ func (d *coreDelegator) Delegate(ctx context.Context, agentName, task string) (s
 	childTools := filterToolNames(d.toolNames, def)
 
 	childModel := def.EffectiveModel(d.model)
-	cfg := core.Config{
+	cfg := agent.Config{
 		Model:    childModel,
 		System:   def.Persona,
 		MaxTurns: delegateMaxTurns,
-		Exec:     core.ExecOptions{Timeout: delegateToolTimeout},
+		Exec:     agent.ExecOptions{Timeout: delegateToolTimeout},
 	}
-	// 子 run 上下文天然短小，无需压缩。
-	loop := core.New(prov, d.svc.tools.Registry(), cfg).
+	// 子 run 上下文天然短小，无需压缩；步骤记忆传 nil——子 run 无检查点，无需复用。
+	loop := agent.New(prov, d.svc.tools.Registry(), cfg).
 		WithSink(sink).
-		WithMeta(core.Meta{RunID: childRunID, SessionID: d.ses.ID, ParentRunID: d.parentRunID, Agent: def.Name}).
+		WithMeta(agent.Meta{RunID: childRunID, SessionID: d.ses.ID, ParentRunID: d.parentRunID, Agent: def.Name}).
 		Expose(childTools).
-		WithGuard(d.svc.guardsFor(coreLoopSpec{Ses: d.ses, RunID: childRunID, Def: def})...)
+		WithGuard(d.svc.guardsFor(coreLoopSpec{Ses: d.ses, RunID: childRunID, Def: def}, nil)...)
 
-	childCtx, cancel := context.WithTimeout(core.WithRunContext(ctx, childRunID, d.ses.ID), delegateWallTime)
+	childCtx, cancel := context.WithTimeout(agent.WithRunContext(ctx, childRunID, d.ses.ID), delegateWallTime)
 	defer cancel()
 
 	out, runErr := loop.Run(childCtx, []*llm.Message{llm.UserMessage(task)})
@@ -157,7 +157,7 @@ func (d *coreDelegator) Delegate(ctx context.Context, agentName, task string) (s
 
 // filterToolNames 子 Agent 工具集：父 run 已暴露的工具 ∩ 子 Agent 策略。
 // 只能收缩不能升权——子 Agent 拿不到父 run 没暴露的工具。
-func filterToolNames(parent []string, def core.Definition) []string {
+func filterToolNames(parent []string, def agent.Definition) []string {
 	if len(def.Tools.Allow) == 0 && len(def.Tools.Deny) == 0 && def.Tools.MaxTools <= 0 {
 		return parent
 	}
