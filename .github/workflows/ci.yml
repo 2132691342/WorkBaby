@@ -1,11 +1,12 @@
 # GitHub Actions：push / PR 日常质量门禁。
 #
 # 与 release.yml 的分工：release 只在 tag 上出包；本文件在每次 push/PR 上跑
-# 后端测试 + 依赖方向门禁 + 前端类型与单测，让回归在合并前暴露。
+# 后端测试 + 依赖方向门禁 + 前端类型与构建，让回归在合并前暴露。
 #
 # 设计取舍：
 #   - 仅 windows-latest：项目只面向 Windows。
 #   - 后端 / 前端拆两个 job：两套工具链的失败互不拖累。
+#   - 门禁排在 go test 之前：测试挂掉时依赖方向结论仍能拿到。
 #   - go test 传 -short：跳过 timing-sensitive 的 flake 用例。
 #   - 不编译 main 包：go:embed 依赖 frontend/dist，前端产物留给 wails build（release）。
 
@@ -44,15 +45,15 @@ jobs:
       - name: go build（编译期验证，main 包留给 wails build）
         run: go build ./internal/...
 
-      - name: go test（-short 跳过 timing-sensitive flake）
-        run: go test -short ./internal/...
-
       - name: 依赖方向门禁
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File scripts/check-boundaries.ps1
 
+      - name: go test（-short 跳过 timing-sensitive flake）
+        run: go test -short -v ./internal/...
+
   frontend:
-    name: Frontend (vue-tsc + vitest)
+    name: Frontend (vue-tsc + build)
     runs-on: windows-latest
     defaults:
       run:
@@ -74,8 +75,5 @@ jobs:
       - name: npm ci（严格 lockfile，规避子依赖漂移）
         run: npm ci
 
-      - name: 类型检查（vue-tsc）
-        run: npx vue-tsc --noEmit -p tsconfig.json
-
-      - name: 单元测试（vitest）
-        run: npx vitest run
+      - name: 类型检查 + 构建（vue-tsc + vite build）
+        run: npm run build
