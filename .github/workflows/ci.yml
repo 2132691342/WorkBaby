@@ -50,7 +50,17 @@ jobs:
         run: powershell -ExecutionPolicy Bypass -File scripts/check-boundaries.ps1
 
       - name: go test（-short 跳过 timing-sensitive flake）
-        run: go test -short -v ./internal/...
+        shell: pwsh
+        run: go test -short -v ./internal/... 2>&1 | Tee-Object test-output.log
+        if: always()
+
+      - name: 上传测试日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-log
+          path: test-output.log
+          retention-days: 7
 
   frontend:
     name: Frontend (vue-tsc + build)
