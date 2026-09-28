@@ -1,3 +1,4 @@
+// 上下文清洗与压缩：发模型前保证协议合法，并按 token 预算裁剪历史。
 package agent
 
 import (

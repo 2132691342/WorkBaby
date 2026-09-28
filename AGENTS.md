@@ -191,11 +191,14 @@ json tag 必须忠实上游字段名。归一化层（`llm/llm.go`）使用 snak
 
 ### 2.6.1 文档规范
 
-- 根级：`README.md` / `AGENTS.md` / `DESIGN.md` / `CHANGELOG.md`
+- 根级：`README.md`（入口与能力全景）/ `AGENTS.md`（工程规范，唯一权威）/ `DESIGN.md`（视觉语言）
 - `docs/`：项目级说明（架构 / 契约 / 开发 / 部署 / 页面）
 - `specs/`：功能规格，编号 01-14，一个功能一个文件
 - 每篇只写现状：定位 → 设计 → 契约 → 关键流程 → 约束 → 取舍
-- 表格与短段落优先；不写 TODO 与未来计划（变更统一进 `CHANGELOG.md`）
+- 表格与短段落优先
+- **不写改动过程**：不建 CHANGELOG，不记录「本次改了什么」「之前坏在哪」，
+  设计变更直接改进对应文档；历史由 Git 承载
+- 不写外部项目名与「参考 / 借鉴 / 类似 X」——只讲自己怎么设计、为什么这么设计
 
 ### 2.7 全局 ID：ULID 大写 + 领域前缀
 
@@ -383,26 +386,29 @@ const (
 
 ### 3.2 规模约束
 
-- 单个测试文件 ≤ 6 个 `Test` 函数；同类行为用 table-driven 合并
+- **一个 `Test` 讲一条链路**：同类断言用 `t.Run` 归到同一个 Test 下，
+  失败时从输出就能看出是哪条链路、哪个分支坏了
+- 单个测试文件 ≤ 6 个 `Test` 函数
 - 全量 `go test ./internal/...` 本地应在 10 秒内完成
-- 环境依赖（系统 shell、真实网络）用 `exec.LookPath` / `testing.Short()` 守卫后跳过
+- 环境依赖（系统 shell、真实网络、运行时归档）用 `exec.LookPath` / `t.Skip` 守卫后跳过
 - 每个测试文件**首行必须有导航注释**
-- LLM 联调用 `factory.SetOverride` 注入假实现，绝不真联网
+- 多轮对话一律用 `internal/llm/llmtest` 脚本替身 + `factory.SetOverride` 注入，绝不真联网
 
 ### 3.3 测试索引
 
-| 文件 | 覆盖 |
+| 文件 | 覆盖的链路 |
 |---|---|
-| `app_test.go` | `domReady` 必须等装配完成（慢启动不误判）、关闭与退出的放行判据 |
-| `api/startup_test.go` | 全新环境整条启动装配链能起来（配置 / DB / 11 个工具 / 内置技能） |
-| `config/config_test.go` | 首次启动生成主密钥并持久化（曾经直接失败导致全站 404） |
-| `skill/skill_test.go` | embed 根路径、带列表的 frontmatter、内置技能正文、读写锁配对 |
-| `agent/loop_test.go` | 多轮循环、steering 注入、取消收尾、截断轮不执行工具、并行工具按序回填、重复调用被拦、超预算裁剪 |
-| `agent/compact_test.go` | CleanForProtocol 协议硬约束、切点选择、Compact 预算裁剪、降级截断 |
-| `service/agent_test.go` | 服务层集成：发送落库、审批闭环（含 session 级放行） |
-| `tool/files_test.go` | 路径穿越拒绝、Unicode 路径规整、写前必读、edit 唯一性、读后标记 |
-| `knowledge/knowledge_test.go` | 建索引、检索、短查询子串兜底、删除级联 |
-| `db/db_test.go` | 迁移建表与 FTS5 虚表 |
+| `app_test.go` | 启动等待（慢装配不误判 / 失败 / 超时）、关闭与退出的放行判据 |
+| `api/startup_test.go` | 干净环境完整装配 + 真实 HTTP 栈端点 + 跨源预检 |
+| `service/agent_test.go` | 建会话→发送→落库；审批闭环与会话级放行 |
+| `agent/loop_test.go` | 多轮回填顺序、并行保序、插话注入、三条收尾路径、重复调用拦截、超预算裁剪 |
+| `agent/compact_test.go` | CleanForProtocol 协议硬约束、切点选择、预算策略、降级截断 |
+| `tool/files_test.go` | 路径穿越拒绝、Unicode 路径规整与找回、写前必读、edit 唯一性与行尾保持 |
+| `skill/skill_test.go` | embed 加载与正文取出、按 id/名字命中与优先级、读写锁配对 |
+| `knowledge/knowledge_test.go` | 建索引→检索（含短查询兜底）→删除级联 |
+| `config/config_test.go` | 首次启动自举出配置与主密钥，且重启读回同一把 |
+| `runtime/python_test.go` | 内置归档顶层剥离、解压穿越拒绝 |
+| `db/db_test.go` | 全部业务表与 FTS5 虚表建出 |
 
 ---
 

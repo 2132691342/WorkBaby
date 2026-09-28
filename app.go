@@ -1,3 +1,4 @@
+// 应用入口：Wails 生命周期编排，本地 HTTP 启动、托盘、单实例与退出流程都在这里。
 package main
 
 import (
@@ -25,9 +26,8 @@ type App struct {
 	quitting    atomic.Bool
 	pendingFile string
 	// startDone 在 OnStartup 结束时关闭。
-	// Wails 把 OnStartup 放在独立 goroutine 里跑，OnDomReady 由 WebView2 导航回调触发，
-	// 两者没有任何顺序保证——首次启动解压内置 Python 要两秒，domReady 必然先到。
-	// 所以 domReady 必须显式等待，绝不能靠「Svc 是不是 nil」去猜。
+	// Wails 把 OnStartup 放在独立 goroutine，OnDomReady 由 WebView2 导航回调触发，
+	// 两者无顺序保证——首次启动解压内置 Python 要几秒，domReady 必然先到。
 	startDone chan struct{}
 	startOK   atomic.Bool
 	// startWait 是等待装配的上限；做成字段是为了能单测里缩短它。
@@ -81,8 +81,7 @@ func (a *App) domReady(ctx context.Context) {
 		return
 	}
 	pkg.Infof("app: 本地服务已启动，端口 %d", port)
-	// 前端监听器注册稍晚就会漏掉这一次事件，而漏掉的表现是「所有接口 404」，
-	// 排查成本极高。头几秒重发同一个事件，前端幂等接收，丢几次都无所谓。
+	// 前端监听器注册晚于本次派发就会漏掉端口，表现为「所有接口 404」，故短时间重发。
 	wruntime.EventsEmit(ctx, "app:ready", map[string]any{"server_port": port})
 	go repeatReady(ctx, port, 20)
 
@@ -141,8 +140,8 @@ func (a *App) Quit(ctx context.Context) {
 		return
 	}
 	wruntime.Quit(ctx)
-	// 优雅退出在 WebView2 卡死时可能永远不回来，进程就留在后台占着 exe
-	// （下一版安装器因此覆写失败）。这个定时器只兜底，正常路径由 shutdown 结束。
+	// 优雅退出在 WebView2 卡死时可能永远不回来，进程就留在后台占着 exe。
+	// 这个定时器只兜底，正常路径由 shutdown 结束。
 	go func() {
 		time.Sleep(8 * time.Second)
 		pkg.Warnf("app: 优雅退出超时，强制结束进程")
@@ -151,8 +150,7 @@ func (a *App) Quit(ctx context.Context) {
 }
 
 // ForceQuit 给前端调用的退出入口，不接收 context。
-// 前端在「启动失败 / 托盘异常」时必须有一条确定能走通的真退出路径，
-// 否则用户只能去任务管理器杀进程。
+// 启动失败 / 托盘异常时前端需要一条确定能走通的真退出路径。
 func (a *App) ForceQuit() {
 	ctx := a.Handler.Ctx()
 	if ctx == nil {

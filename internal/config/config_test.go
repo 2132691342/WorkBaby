@@ -1,7 +1,6 @@
-// 覆盖「全新机器第一次启动必须能起来」这条不变量。
+// 首次启动不变量：配置目录不存在时必须能自举出配置文件与主密钥。
 // 它曾经坏过：指定配置文件路径时 Viper 返回 *fs.PathError 而不是 ConfigFileNotFoundError，
 // 漏判导致首次启动直接失败——界面空着、接口全 404，而真实原因只在日志里。
-
 package config
 
 import (
@@ -9,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestLoadCreatesConfigOnFirstRun(t *testing.T) {
+func TestLoadSelfBootstrapsAndPersistsMasterKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	c, err := Load(path)
 	if err != nil {
@@ -30,23 +29,17 @@ func TestLoadCreatesConfigOnFirstRun(t *testing.T) {
 	if again.MasterKey != c.MasterKey {
 		t.Fatal("主密钥没有持久化")
 	}
-}
 
-func TestSetWorkspacePersists(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	c, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// 运行期改动也要落盘，重启后仍在。
 	dir := t.TempDir()
 	if err := c.SetWorkspace(dir); err != nil {
 		t.Fatal(err)
 	}
-	again, err := Load(path)
+	third, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Workspace != dir {
-		t.Fatalf("工作目录没有持久化: %q", again.Workspace)
+	if third.Workspace != dir {
+		t.Fatalf("工作目录没有持久化: %q", third.Workspace)
 	}
 }

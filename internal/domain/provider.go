@@ -1,3 +1,4 @@
+// 模型服务聚合根：provider 配置与加密后的凭据字段。
 package domain
 
 import "WorkBaby/internal/pkg"

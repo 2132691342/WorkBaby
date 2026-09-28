@@ -1,3 +1,4 @@
+// 技能聚合根：技能的元数据形态与来源标识。
 package domain
 
 import "WorkBaby/internal/pkg"

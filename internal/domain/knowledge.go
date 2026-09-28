@@ -1,3 +1,4 @@
+// 知识库聚合根：文档与其切片的持久化形态。
 package domain
 
 import "WorkBaby/internal/pkg"

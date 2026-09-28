@@ -1,3 +1,4 @@
+// 全局 ID 生成：ULID 大写 + 领域前缀，本机用户固定为 local。
 package domain
 
 // 主键前缀：ULID 带前缀便于日志与排障时一眼看出实体类别。

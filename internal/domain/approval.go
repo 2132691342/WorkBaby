@@ -1,3 +1,4 @@
+// 审批聚合根：审批卡的生命周期与放行范围。
 package domain
 
 import "WorkBaby/internal/pkg"

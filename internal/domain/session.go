@@ -1,3 +1,4 @@
+// 会话聚合根：会话本体、分支指针与运行状态。
 package domain
 
 import "WorkBaby/internal/pkg"

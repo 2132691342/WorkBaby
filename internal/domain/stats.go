@@ -1,3 +1,4 @@
+// 统计聚合根：token 用量按天 / 模型 / 会话的聚合形态。
 package domain
 
 import "WorkBaby/internal/pkg"

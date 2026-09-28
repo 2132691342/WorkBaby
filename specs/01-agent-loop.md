@@ -124,5 +124,15 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 
 ## 测试
 
-`loop_test.go`：多轮工具回填顺序、并行批次按序回填、steering 注入、
-ctx 取消收尾、截断轮不执行工具、重复调用被拦、超预算裁剪。
+`internal/agent/loop_test.go` 按不变量组织，每条断言对应一个「坏了就会出事」的场景：
+
+| 测试 | 锁住的行为 |
+|---|---|
+| `TestLoopRunsTurnsAndKeepsProtocolOrder` | 多轮循环 + 工具结果按声明顺序回填 |
+| `TestLoopParallelBatchFillsInDeclaredOrder` | 并发执行但顺序回填 |
+| `TestLoopInjectsSteeringBeforeNextTurn` | 插话并入下一轮上下文且排在首条 assistant 前 |
+| `TestLoopStopsOnCancelLengthAndError` | 取消 / 截断 / 上游报错三条收尾路径 |
+| `TestLoopBlocksRepeatedIdenticalCall` | 重复调用拦截到上限并写回失败结果 |
+| `TestLoopCompactsHistoryOverBudget` | 超预算裁剪且裁后从 user 起头 |
+
+多轮驱动用 `internal/llm/llmtest` 的脚本替身，不联网。

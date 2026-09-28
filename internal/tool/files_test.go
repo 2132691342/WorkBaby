@@ -1,4 +1,5 @@
-// 覆盖文件类工具的安全底线：路径穿越拒绝、Unicode 路径规整、写前必读、edit 唯一性、读后标记。
+// 文件类工具的安全底线：路径穿越拒绝、Unicode 路径规整与找回、写前必读、edit 唯一性与行尾保持。
+// 这些护栏一旦失效，模型会写错文件或写到工作目录外，属于不可逆后果。
 package tool
 
 import (
@@ -11,46 +12,45 @@ import (
 	"WorkBaby/internal/pkg"
 )
 
-// tracker 是测试用的已读记录。
-type tracker struct{ seen map[string]bool }
+// readTracker 记录已读文件，供写前必读判断。
+type readTracker struct{ seen map[string]bool }
 
-func (t *tracker) HasRead(p string) bool { return t.seen[p] }
-func (t *tracker) MarkRead(p string)     { t.seen[p] = true }
+func (t *readTracker) HasRead(p string) bool { return t.seen[p] }
+func (t *readTracker) MarkRead(p string)     { t.seen[p] = true }
 
 func newInput(t *testing.T, args map[string]any) (Input, string) {
+	t.Helper()
 	ws := t.TempDir()
-	deps := Deps{Reads: &tracker{seen: map[string]bool{}}, TmpDir: ws}
-	return Input{Args: args, Workspace: ws, Deps: deps}, ws
+	return Input{Args: args, Workspace: ws, Deps: Deps{Reads: &readTracker{seen: map[string]bool{}}, TmpDir: ws}}, ws
 }
 
-func TestReadRejectsPathTraversal(t *testing.T) {
-	in, _ := newInput(t, map[string]any{"path": "../outside.txt"})
-	if _, err := (readTool{}).Execute(context.Background(), in); err == nil {
-		t.Fatal("工作目录外的路径必须被拒绝")
-	} else if !strings.Contains(err.Error(), "1004") {
-		t.Fatalf("期望路径穿越错误码 1004，实际 %v", err)
-	}
+// 读路径必须挡住工作目录外的路径，并把「文件不存在」与「越界」区分成不同错误码。
+func TestReadPathSafety(t *testing.T) {
+	t.Run("路径穿越被拒绝", func(t *testing.T) {
+		in, _ := newInput(t, map[string]any{"path": "../outside.txt"})
+		_, err := (readTool{}).Execute(context.Background(), in)
+		if err == nil {
+			t.Fatal("工作目录外的路径必须被拒绝")
+		}
+		if pkg.CodeOf(err) != 1004 {
+			t.Fatalf("期望路径穿越错误码 1004，实际 %v", err)
+		}
+	})
+
+	t.Run("不存在给明确错误码", func(t *testing.T) {
+		in, _ := newInput(t, map[string]any{"path": "根本没有这个文件.xlsx"})
+		_, err := (readTool{}).Execute(context.Background(), in)
+		if err == nil {
+			t.Fatal("读不存在的文件必须报错")
+		}
+		if pkg.CodeOf(err) != 1005 || !strings.Contains(err.Error(), "找不到这个文件") {
+			t.Fatalf("期望明确的「找不到这个文件」错误，实际 %v", err)
+		}
+	})
 }
 
-func TestNormalizePath(t *testing.T) {
-	cases := []struct{ name, in, want string }{
-		{"不换行空格", "报表\u00a0数据.txt", "报表 数据.txt"},
-		{"全角空格", "报表\u3000数据.txt", "报表 数据.txt"},
-		{"零宽不换行空格", "报表\uFEFF数据.txt", "报表 数据.txt"},
-		{"前导@", "@D:\\报表\\a.txt", "D:\\报表\\a.txt"},
-		{"首尾空白", "  报表/数据.txt\t", "报表/数据.txt"},
-		{"中文标点保留", "报表（2024）.xlsx", "报表（2024）.xlsx"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := pkg.NormalizePath(c.in); got != c.want {
-				t.Fatalf("NormalizePath(%q) = %q，期望 %q", c.in, got, c.want)
-			}
-		})
-	}
-}
-
-func TestReadUnicodePathVariants(t *testing.T) {
+// 模型拿到的路径常带不可见字符与全角标点，读工具要能规整后命中磁盘上的真实文件。
+func TestReadRecoversUnicodePathVariants(t *testing.T) {
 	t.Run("复制来的不换行空格", func(t *testing.T) {
 		in, ws := newInput(t, map[string]any{"path": "报表\u00a0数据.txt"})
 		if err := pkg.WriteText(filepath.Join(ws, "报表 数据.txt"), "季度数据"); err != nil {
@@ -75,20 +75,48 @@ func TestReadUnicodePathVariants(t *testing.T) {
 			t.Fatalf("直引号变体应能找回弯引号命名的文件: %v", err)
 		}
 	})
-
-	t.Run("确实不存在", func(t *testing.T) {
-		in, _ := newInput(t, map[string]any{"path": "根本没有这个文件.xlsx"})
-		_, err := (readTool{}).Execute(context.Background(), in)
-		if err == nil {
-			t.Fatal("读不存在的文件必须报错")
-		}
-		if pkg.CodeOf(err) != 1005 || !strings.Contains(err.Error(), "找不到这个文件") {
-			t.Fatalf("期望明确的「找不到这个文件」错误，实际 %v", err)
-		}
-	})
 }
 
-func TestWriteRequiresReadFirst(t *testing.T) {
+// 规整规则：只处理不可见字符与全角空格，保留中文标点与首尾语义。
+func TestNormalizePath(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"不换行空格", "报表\u00a0数据.txt", "报表 数据.txt"},
+		{"全角空格", "报表\u3000数据.txt", "报表 数据.txt"},
+		{"零宽不换行空格", "报表\uFEFF数据.txt", "报表 数据.txt"},
+		{"前导@", "@D:\\报表\\a.txt", "D:\\报表\\a.txt"},
+		{"首尾空白", "  报表/数据.txt\t", "报表/数据.txt"},
+		{"中文标点保留", "报表（2024）.xlsx", "报表（2024）.xlsx"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pkg.NormalizePath(c.in); got != c.want {
+				t.Fatalf("NormalizePath(%q) = %q，期望 %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// 读过的文件必须被记账，否则写前必读形同虚设；输出要带行号供模型定位。
+func TestReadMarksFileAsReadWithLineNumbers(t *testing.T) {
+	in, ws := newInput(t, map[string]any{"path": "d.txt"})
+	target := filepath.Join(ws, "d.txt")
+	if err := os.WriteFile(target, []byte("第一行\n第二行\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (readTool{}).Execute(context.Background(), in)
+	if err != nil {
+		t.Fatalf("读取失败: %v", err)
+	}
+	if !strings.Contains(res.Content, "1\t") {
+		t.Fatalf("输出应带行号: %q", res.Content)
+	}
+	if !in.Deps.Reads.HasRead(target) {
+		t.Fatal("读过的文件必须被记录，供写前必读判断")
+	}
+}
+
+// 覆盖已存在文件前必须先读过；回执要写明这是覆盖，避免模型误以为新建。
+func TestWriteRequiresPriorRead(t *testing.T) {
 	in, ws := newInput(t, map[string]any{"path": "a.txt", "content": "hello"})
 	target := filepath.Join(ws, "a.txt")
 	if err := pkg.WriteText(target, "old"); err != nil {
@@ -97,7 +125,6 @@ func TestWriteRequiresReadFirst(t *testing.T) {
 	if _, err := (writeTool{}).Execute(context.Background(), in); err == nil {
 		t.Fatal("写已存在但没读过的文件必须被拒绝")
 	}
-	// 读过之后应允许写入，回执要写明这是覆盖而不是新建。
 	in.Deps.Reads.MarkRead(target)
 	res, err := (writeTool{}).Execute(context.Background(), in)
 	if err != nil {
@@ -108,7 +135,8 @@ func TestWriteRequiresReadFirst(t *testing.T) {
 	}
 }
 
-func TestEditSafety(t *testing.T) {
+// edit 的三条硬约束：唯一匹配、必须有实际改动、不得破坏 BOM 与行尾。
+func TestEditSafetyRules(t *testing.T) {
 	t.Run("old_text 不唯一", func(t *testing.T) {
 		in, ws := newInput(t, map[string]any{
 			"path":  "b.txt",
@@ -160,22 +188,4 @@ func TestEditSafety(t *testing.T) {
 			t.Fatalf("行尾或 BOM 被改动了，得到 %q", string(got))
 		}
 	})
-}
-
-func TestReadMarksFileAsRead(t *testing.T) {
-	in, ws := newInput(t, map[string]any{"path": "d.txt"})
-	target := filepath.Join(ws, "d.txt")
-	if err := os.WriteFile(target, []byte("第一行\n第二行\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	res, err := (readTool{}).Execute(context.Background(), in)
-	if err != nil {
-		t.Fatalf("读取失败: %v", err)
-	}
-	if !strings.Contains(res.Content, "1\t") {
-		t.Fatalf("输出应带行号: %q", res.Content)
-	}
-	if !in.Deps.Reads.HasRead(target) {
-		t.Fatal("读过的文件必须被记录，供写前必读判断")
-	}
 }

@@ -73,5 +73,6 @@ specs/        功能规格 01-14
 | [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP / SSE 契约与断线对账 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、数据目录、排错 |
 | [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 页面结构与组件基元 |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 构建产物与分发 |
 | [specs/](specs/) | 14 篇功能规格 |
 | [specs/12-user-manual.md](specs/12-user-manual.md) | 用户手册（写给第一次用的人） |

@@ -1,3 +1,4 @@
+// 业务 HTTP handler：只做参数解析与响应组装，编排一律下沉到 service 层。
 package api
 
 import (

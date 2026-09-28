@@ -1,3 +1,5 @@
+// 内置 Python 解压链路：真实归档顶层目录剥离 + 解压穿越拒绝。
+// 归档不在仓库时跳过——CI 可以选择不下载运行时包。
 package runtime
 
 import (
@@ -6,9 +8,6 @@ import (
 
 	"WorkBaby/internal/pkg"
 )
-
-// 覆盖内置 Python 解压链路：真实归档 + 顶层目录剥离 + 穿越拒绝。
-// 归档不在仓库时跳过——CI 可以选择不下载 46MB 的运行时包。
 
 func TestExtractBundledPython(t *testing.T) {
 	archive := filepath.Join("..", "..", "runtimes", "python-"+pythonVersion+"-win-x64.tar.gz")

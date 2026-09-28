@@ -1,4 +1,5 @@
-// 覆盖服务层集成链路：建会话 → 发消息 → 内核跑完落库；写操作审批的闭环。
+// 服务层集成链路：建会话 → 发消息 → 内核跑完落库；写操作审批的闭环（含会话级放行）。
+// 覆盖的是跨模块协作（repo + agent + registry + emitter），单层单测测不到。
 package service
 
 import (
@@ -8,47 +9,16 @@ import (
 	"time"
 
 	"WorkBaby/internal/config"
-	"WorkBaby/internal/domain"
 	"WorkBaby/internal/db"
+	"WorkBaby/internal/domain"
 	"WorkBaby/internal/llm"
 	"WorkBaby/internal/llm/factory"
+	"WorkBaby/internal/llm/llmtest"
 	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/repo"
 	"WorkBaby/internal/runtime"
 	"WorkBaby/internal/tool"
 )
-
-type fakeStream struct {
-	turns []llm.Message
-	idx   int
-}
-
-func (s *fakeStream) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event, error) {
-	i := s.idx
-	s.idx++
-	ch := make(chan llm.Event, 8)
-	go func() {
-		defer close(ch)
-		if i >= len(s.turns) {
-			ch <- llm.Event{Type: llm.EventDone, StopReason: llm.StopStop, Usage: &llm.Usage{Total: 9}}
-			return
-		}
-		m := s.turns[i]
-		if m.Content != "" {
-			ch <- llm.Event{Type: llm.EventDelta, Delta: m.Content}
-		}
-		for _, tc := range m.ToolCalls {
-			cp := tc
-			ch <- llm.Event{Type: llm.EventToolCall, ToolCall: &cp}
-		}
-		stop := llm.StopStop
-		if len(m.ToolCalls) > 0 {
-			stop = llm.StopToolUse
-		}
-		ch <- llm.Event{Type: llm.EventDone, StopReason: stop, Usage: &llm.Usage{Total: 9}}
-	}()
-	return ch, nil
-}
 
 // approveTool 永远要求审批，用来打通审批闭环。
 type approveTool struct{ ws string }
@@ -67,7 +37,8 @@ func (approveTool) Execute(ctx context.Context, in tool.Input) (*tool.Result, er
 	return &tool.Result{Content: "done", Title: "危险操作"}, nil
 }
 
-func newEnv(t *testing.T) (*Env, *Container) {
+// newEnv 起一套干净的依赖：DB + 工具注册表 + 服务容器，并完成 Bootstrap。
+func newEnv(t *testing.T, register ...tool.Tool) (*Env, *Container) {
 	t.Helper()
 	dir := t.TempDir()
 	gdb, err := db.Open(filepath.Join(dir, "t.db"))
@@ -78,11 +49,14 @@ func newEnv(t *testing.T) (*Env, *Container) {
 		pool, _ := gdb.DB()
 		_ = pool.Close()
 	})
-	em := NewEmitter()
 	paths := runtime.Paths{DataDir: dir, LogDir: dir, TmpDir: dir, SkillsDir: filepath.Join(dir, "skills")}
 	_ = pkg.EnsureDir(paths.SkillsDir)
+	reg := tool.New()
+	for _, x := range register {
+		reg.Register(x)
+	}
 	env := &Env{
-		Repo: repo.New(gdb), Paths: paths, Emitter: em, Registry: tool.New(),
+		Repo: repo.New(gdb), Paths: paths, Emitter: NewEmitter(), Registry: reg,
 		ToolDeps: NewToolDeps(paths, nil),
 		Cfg:      &config.Config{Workspace: dir},
 	}
@@ -96,26 +70,9 @@ func newEnv(t *testing.T) (*Env, *Container) {
 	return env, svc
 }
 
-func waitAssistant(t *testing.T, r *repo.Repo, sessionID string) {
+// newProviderSession 装好默认 provider 并建一个新会话。
+func newProviderSession(t *testing.T, svc *Container) *domain.SessionVO {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		entries, err := r.ListEntries(sessionID)
-		if err == nil && len(entries) > 0 && entries[len(entries)-1].Role == llm.RoleAssistant {
-			return
-		}
-		time.Sleep(30 * time.Millisecond)
-	}
-	t.Fatal("等待助手回复超时")
-}
-
-func TestChatSendPersistsConversation(t *testing.T) {
-	factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer {
-		return &fakeStream{turns: []llm.Message{{Content: "你好，我是 WorkBaby"}}}
-	})
-	defer factory.SetOverride("test", nil)
-
-	env, svc := newEnv(t)
 	p, err := svc.Providers.Upsert(domain.UpsertProviderREQ{Name: "t", API: "test", Models: []string{"m1"}})
 	if err != nil {
 		t.Fatal(err)
@@ -123,11 +80,61 @@ func TestChatSendPersistsConversation(t *testing.T) {
 	if err := svc.Providers.SetDefault(p.ID); err != nil {
 		t.Fatal(err)
 	}
-
 	sess, err := svc.Sessions.Create(domain.CreateSessionREQ{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return sess
+}
+
+// useScripted 把假模型接到 factory 上，测试结束自动摘除，绝不真联网。
+func useScripted(t *testing.T, turns ...llm.Message) *llmtest.Scripted {
+	t.Helper()
+	s := llmtest.New(turns...)
+	factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer { return s })
+	t.Cleanup(func() { factory.SetOverride("test", nil) })
+	return s
+}
+
+// waitUntil 轮询直到 cond 成立或超时，避免为异步落库写 sleep。
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("等待 %s 超时", what)
+}
+
+func lastRoleIs(r *repo.Repo, sessionID string, role string) func() bool {
+	return func() bool {
+		entries, err := r.ListEntries(sessionID)
+		return err == nil && len(entries) > 0 && entries[len(entries)-1].Role == role
+	}
+}
+
+func countRole(r *repo.Repo, sessionID string, role string) func() bool {
+	return func() bool {
+		entries, _ := r.ListEntries(sessionID)
+		n := 0
+		for _, e := range entries {
+			if e.Role == role {
+				n++
+			}
+		}
+		return n > 0
+	}
+}
+
+// 完整发送链路：消息入库 → 内核跑完 → 回复落库。
+func TestChatSendPersistsConversation(t *testing.T) {
+	useScripted(t, llm.Message{Content: "你好，我是 WorkBaby"})
+	env, svc := newEnv(t)
+	sess := newProviderSession(t, svc)
+
 	resp, err := svc.Chat.Send(sess.ID, "在吗", nil)
 	if err != nil {
 		t.Fatalf("发送失败: %v", err)
@@ -135,7 +142,7 @@ func TestChatSendPersistsConversation(t *testing.T) {
 	if resp.RunID == "" {
 		t.Fatal("应返回 run id")
 	}
-	waitAssistant(t, env.Repo, sess.ID)
+	waitUntil(t, "助手回复落库", lastRoleIs(env.Repo, sess.ID, llm.RoleAssistant))
 
 	detail, err := svc.Sessions.Detail(sess.ID)
 	if err != nil {
@@ -149,122 +156,65 @@ func TestChatSendPersistsConversation(t *testing.T) {
 	}
 }
 
-func TestApprovalFlowPersistsAndRunsAfterApprove(t *testing.T) {
-	factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer {
-		return &fakeStream{turns: []llm.Message{
-			{Content: "我来操作", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
-			{Content: "完成了"},
-		}}
-	})
-	defer factory.SetOverride("test", nil)
+// 审批闭环：模型请求写操作 → 产生审批卡 → 放行 → 工具执行并落库。
+func TestApprovalOnceUnblocksToolAndPersistsResult(t *testing.T) {
+	useScripted(t,
+		llm.Message{Content: "我来操作", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
+		llm.Message{Content: "完成了"},
+	)
+	env, svc := newEnv(t, approveTool{})
+	sess := newProviderSession(t, svc)
 
-	env, svc := newEnv(t)
-	env.Registry.Register(approveTool{})
-
-	p, err := svc.Providers.Upsert(domain.UpsertProviderREQ{Name: "t", API: "test", Models: []string{"m1"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = svc.Providers.SetDefault(p.ID)
-
-	sess, err := svc.Sessions.Create(domain.CreateSessionREQ{})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := svc.Chat.Send(sess.ID, "帮我执行危险操作", nil); err != nil {
 		t.Fatal(err)
 	}
-
-	// 等审批出现
-	deadline := time.Now().Add(5 * time.Second)
-	var list []domain.ApprovalVO
-	for time.Now().Before(deadline) {
-		list, _ = svc.Approvals.Pending(sess.ID)
-		if len(list) == 1 {
-			break
-		}
-		time.Sleep(30 * time.Millisecond)
-	}
-	if len(list) != 1 {
-		t.Fatalf("应产生一条待审批，实际 %d", len(list))
-	}
-	if err := svc.Approvals.Decide(list[0].ID, true, "once"); err != nil {
+	var pending []domain.ApprovalVO
+	waitUntil(t, "审批出现", func() bool {
+		pending, _ = svc.Approvals.Pending(sess.ID)
+		return len(pending) == 1
+	})
+	if err := svc.Approvals.Decide(pending[0].ID, true, "once"); err != nil {
 		t.Fatalf("审批失败: %v", err)
 	}
-	waitAssistant(t, env.Repo, sess.ID)
-
-	entries, _ := env.Repo.ListEntries(sess.ID)
-	found := false
-	for _, e := range entries {
-		if e.Role == llm.RoleTool {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("审批放行后工具结果应落库")
-	}
+	waitUntil(t, "工具结果落库", countRole(env.Repo, sess.ID, llm.RoleTool))
 }
 
 // 「本会话内都放行」必须真的生效：第二次同类调用不再产生新的审批卡。
 // 决策只回传布尔值会让这条分支永远走不到，因此单独锁一条测试。
 func TestApprovalSessionScopeSkipsSecondPrompt(t *testing.T) {
-	factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer {
-		return &fakeStream{turns: []llm.Message{
-			{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
-			{ToolCalls: []llm.ToolCall{{ID: "c2", Name: "risky"}}},
-			{Content: "两次都做完了"},
-		}}
-	})
-	defer factory.SetOverride("test", nil)
+	useScripted(t,
+		llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
+		llm.Message{ToolCalls: []llm.ToolCall{{ID: "c2", Name: "risky"}}},
+		llm.Message{Content: "两次都做完了"},
+	)
+	env, svc := newEnv(t, approveTool{})
+	sess := newProviderSession(t, svc)
 
-	env, svc := newEnv(t)
-	env.Registry.Register(approveTool{})
-
-	p, err := svc.Providers.Upsert(domain.UpsertProviderREQ{Name: "t", API: "test", Models: []string{"m1"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = svc.Providers.SetDefault(p.ID)
-
-	sess, err := svc.Sessions.Create(domain.CreateSessionREQ{})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := svc.Chat.Send(sess.ID, "连做两次", nil); err != nil {
 		t.Fatal(err)
 	}
-
-	first := waitPending(t, svc, sess.ID)
+	var first domain.ApprovalVO
+	waitUntil(t, "首条审批出现", func() bool {
+		list, _ := svc.Approvals.Pending(sess.ID)
+		if len(list) == 1 {
+			first = list[0]
+		}
+		return first.ID != ""
+	})
 	if err := svc.Approvals.Decide(first.ID, true, domain.ApprovalScopeSession); err != nil {
 		t.Fatalf("审批失败: %v", err)
 	}
-	waitAssistant(t, env.Repo, sess.ID)
-
+	waitUntil(t, "两次工具结果落库", func() bool {
+		entries, _ := env.Repo.ListEntries(sess.ID)
+		n := 0
+		for _, e := range entries {
+			if e.Role == llm.RoleTool {
+				n++
+			}
+		}
+		return n == 2
+	})
 	if pending, _ := svc.Approvals.Pending(sess.ID); len(pending) != 0 {
 		t.Fatalf("会话级放行后不该再问，实际仍有 %d 条待审批", len(pending))
 	}
-	entries, _ := env.Repo.ListEntries(sess.ID)
-	tools := 0
-	for _, e := range entries {
-		if e.Role == llm.RoleTool {
-			tools++
-		}
-	}
-	if tools != 2 {
-		t.Fatalf("两次工具结果都应落库，实际 %d", tools)
-	}
-}
-
-func waitPending(t *testing.T, svc *Container, sessionID string) domain.ApprovalVO {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		list, _ := svc.Approvals.Pending(sessionID)
-		if len(list) == 1 {
-			return list[0]
-		}
-		time.Sleep(30 * time.Millisecond)
-	}
-	t.Fatal("等待审批出现超时")
-	return domain.ApprovalVO{}
 }

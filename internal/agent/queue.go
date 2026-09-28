@@ -1,3 +1,4 @@
+// 插话与跟进的共用队列：轮次之间取走，一次一条。
 package agent
 
 import (

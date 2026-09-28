@@ -1,4 +1,5 @@
-// 覆盖数据库初始化：迁移与 FTS5 虚表必须可建。
+// 数据库初始化：全部业务表与 FTS5 虚表必须能建出来。
+// 少一张表对应一条断掉的链路（知识库检索挂在 FTS5 上，统计挂在 token_usages 上）。
 package db
 
 import (
@@ -6,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestOpenCreatesTables(t *testing.T) {
+func TestOpenCreatesEveryTable(t *testing.T) {
 	gdb, err := Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
 		t.Fatalf("打开数据库失败: %v", err)

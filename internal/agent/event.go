@@ -1,3 +1,4 @@
+// 内核事件定义：内核对外的唯一可观测面。
 package agent
 
 import "WorkBaby/internal/llm"

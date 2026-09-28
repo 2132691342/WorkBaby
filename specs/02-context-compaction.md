@@ -80,5 +80,11 @@ func Compact(msgs []llm.Message, b Budget) (out []llm.Message, before, after int
 
 ## 测试
 
-`compact_test.go`：空 assistant / 孤儿剔除、未配对补齐、user 边界切点、
-Compact 预算裁剪、切点不足时原样返回。
+`internal/agent/compact_test.go`：
+
+| 测试 | 锁住的行为 |
+|---|---|
+| `TestCleanForProtocolHardConstraints` | 剔除空 assistant 与孤儿结果；补齐未配对调用 |
+| `TestFindCutPointPrefersUserBoundary` | 切点只落在 user 边界 |
+| `TestTruncateDeterministicKeepsRecentTurns` | 降级截断保留完整 turn |
+| `TestCompactBudgetPolicy` | 未超预算不动；切点不足原样返回 |

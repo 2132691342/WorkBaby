@@ -88,10 +88,14 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 ## 测试怎么写
 
 - 只写「失败意味着真实链路坏了」的测试（判据见 `AGENTS.md §3.1`）
-- LLM 用 `factory.SetOverride("test", func(...) llm.Streamer {...})` 注入假实现
-- 内核测试用 `scriptedStreamer` 按脚本驱动多轮
+- 按链路组织：一个测试讲一件事，同类断言用 `t.Run` 归到同一个 Test 下，
+  这样失败时从输出就能看出是哪条链路、哪个分支坏了
+- 多轮对话用 `internal/llm/llmtest` 的脚本替身驱动，配合
+  `factory.SetOverride("test", ...)` 注入，**绝不真联网**
 - 文件名首行写导航注释，说明覆盖什么
 - 临时数据用 `t.TempDir()`，不要写进真实数据目录
+
+测试索引见 `AGENTS.md §3.3`。
 
 ## 排错
 
