@@ -1,4 +1,4 @@
-param([int]$X = 110, [int]$Y = 251)
+﻿param([int]$X = 110, [int]$Y = 251)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 

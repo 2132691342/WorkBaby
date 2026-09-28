@@ -104,15 +104,25 @@ jobs:
         # -nsis 必填：wails 默认不生成安装器（cmd/wails/build.go 里 if f.NSIS 才调用
         # GenerateNSISInstaller），缺了它不会产出 WorkBaby-amd64-installer.exe。
         run: |
-          wails build -clean -platform windows/amd64 -trimpath -nsis
+          $ErrorActionPreference = 'Continue'
+          wails build -clean -platform windows/amd64 -trimpath -nsis 2>&1 | Tee-Object -FilePath wails-build.log
           $wailsExit = $LASTEXITCODE
 
-          # 兜底：postBuildHook 若因 runner 环境差异未产出 runtimes，这里手动补跑（而非直接失败）。
-          # 注意：PowerShell 脚本调用不会更新 $LASTEXITCODE，所以用「产物是否存在」判定，
-          # 不要检查 $LASTEXITCODE（它仍是 wails build 的返回值，会误报失败）。
+          # wails 的失败必须在这里就暴露出来。早先这里用 $LASTEXITCODE 判断，
+          # 但 PowerShell 调 .ps1 不更新它，值其实是 wails build 的；
+          # 真正致命的是后面那句无条件 exit 0 —— 它把 wails 的失败吞成成功，
+          # 错误一路拖到「验证产物」才炸成一句没有线索的「installer missing」。
+          if ($wailsExit -ne 0) {
+            Write-Host '::error::wails build 失败，日志见 wails-build.log'
+            Get-Content wails-build.log -Tail 40 -ErrorAction SilentlyContinue
+            throw "wails build failed (exit $wailsExit)"
+          }
+
+          # postBuildHook 若因 runner 环境差异未产出 runtimes，这里补跑。
+          # 判据用「产物是否存在」而不是 $LASTEXITCODE（调 .ps1 不更新后者）。
           if (-not (Test-Path 'build/bin/runtimes/manifest.json')) {
             if (-not (Test-Path 'build/bin/WorkBaby.exe')) {
-              throw "wails build failed (exit $wailsExit): WorkBaby.exe missing"
+              throw "wails build 未产出 WorkBaby.exe"
             }
             Write-Host '::warning::postBuildHook 未产出 runtimes，手动补跑 copy-runtimes'
             $exe = (Resolve-Path 'build/bin/WorkBaby.exe').Path
@@ -122,9 +132,12 @@ jobs:
             }
           }
 
-          # 中间可能有非零 $LASTEXITCODE（hook 失败已被兜底），显式归零保证步骤成功
-          $global:LASTEXITCODE = 0
-          exit 0
+          # NSIS 打包失败时 wails 可能仍返回 0，必须显式确认安装器存在。
+          if (-not (Test-Path 'build/bin/WorkBaby-amd64-installer.exe')) {
+            Write-Host '::error::NSIS 安装器未产出'
+            Get-Content wails-build.log -Tail 40 -ErrorAction SilentlyContinue
+            throw "NSIS installer not produced"
+          }
 
       - name: 验证产物
         shell: pwsh

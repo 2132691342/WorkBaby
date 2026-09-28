@@ -1,4 +1,4 @@
-# 构建后把内置 Python 运行时压缩包拷到产物目录旁边，保证绿色包开箱即用。
+﻿# 构建后把内置 Python 运行时压缩包拷到产物目录旁边，保证绿色包开箱即用。
 # 代码侧 internal/runtime.ArchivePath 找的是 exe 同级 runtimes/python-<版本>-win-x64.tar.gz。
 param(
     [string]$Bin
