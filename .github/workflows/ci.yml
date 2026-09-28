@@ -54,13 +54,15 @@ jobs:
         run: go test -short -v ./internal/... 2>&1 | Tee-Object test-output.log
         if: always()
 
-      - name: 上传测试日志
+      # 失败时把失败行摘进 job summary：无需下载 artifact 就能看到原因。
+      - name: 汇总测试失败
         if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-test-log
-          path: test-output.log
-          retention-days: 7
+        shell: pwsh
+        run: |
+          $log = Get-Content test-output.log -ErrorAction SilentlyContinue
+          $bad = $log | Select-String -Pattern 'FAIL|panic:|--- FAIL|Error:|undefined|build failed' -Context 2,3
+          $body = if ($bad) { $bad | Out-String } else { $log | Select-Object -Last 60 | Out-String }
+          "## go test 失败摘要`n``````text`n$body`n```````" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
 
   frontend:
     name: Frontend (vue-tsc + build)
