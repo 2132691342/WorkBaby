@@ -97,6 +97,26 @@ jobs:
           # npm 子依赖冲突易假阳失败（ERR_PACKAGE_PATH_NOT_EXPORTED）。前端类型错误会被 wails build
           # 阶段的 npm run build 兜底（Vite/esbuild 编译会报 import / type 错误）。
 
+      # NSIS 工程第 135 行是 `File /r "..\runtimes\*.*"`，指向 build/windows/runtimes。
+      # 该目录不入库（内容是 LFS 归档副本），全新 checkout 时为空，而 NSIS 对空目录
+      # 直接 abort（no files found），安装器根本产不出来。所以必须在 wails build 之前
+      # 就把 runtimes 放到位——放在之后补是补不上的，NSIS 早就失败了。
+      - name: 准备 NSIS 打包用的 runtimes
+        shell: pwsh
+        run: |
+          $src = Join-Path $PWD 'runtimes'
+          $dest = Join-Path $PWD 'build/windows/runtimes'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $archives = Get-ChildItem -Path $src -Filter 'python-*.tar.gz' -File -ErrorAction SilentlyContinue
+          if (-not $archives) {
+            throw "runtimes/ 下没有 python-*.tar.gz：LFS 归档未拉取，无法打包安装器"
+          }
+          Copy-Item -Path (Join-Path $src 'python-*.tar.gz') -Destination $dest -Force
+          if (Test-Path (Join-Path $src 'manifest.json')) {
+            Copy-Item -Path (Join-Path $src 'manifest.json') -Destination $dest -Force
+          }
+          Write-Host ("已准备 {0} 个运行时归档 -> {1}" -f $archives.Count, $dest)
+
       - name: Wails 构建（前端 npm ci → 嵌入 → NSIS 打包）
         shell: pwsh
         # 必须让 wails 自动生成 bindings（前端 import '@/wailsjs/...' 依赖），
@@ -118,8 +138,8 @@ jobs:
             throw "wails build failed (exit $wailsExit)"
           }
 
-          # postBuildHook 若因 runner 环境差异未产出 runtimes，这里补跑。
-          # 判据用「产物是否存在」而不是 $LASTEXITCODE（调 .ps1 不更新后者）。
+          # postBuildHook 负责把 runtimes 复制到产物旁（程序首次启动从这里解开 Python）。
+          # NSIS 打包用的是 build/windows/runtimes，这里补的是 build/bin/runtimes。
           if (-not (Test-Path 'build/bin/runtimes/manifest.json')) {
             if (-not (Test-Path 'build/bin/WorkBaby.exe')) {
               throw "wails build 未产出 WorkBaby.exe"
