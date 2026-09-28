@@ -17,11 +17,6 @@
       "ext": "txt",
       "name": "文本文件",
       "description": "用 WorkBaby 打开并交给 AI 处理"
-    },
-    {
-      "ext": "pdf",
-      "name": "PDF 文档",
-      "description": "用 WorkBaby 打开并交给 AI 处理"
     }
   ],
   "author": {
@@ -31,11 +26,8 @@
   "info": {
     "companyName": "WorkBaby",
     "productName": "WorkBaby",
-    "productVersion": "0.1.0",
+    "productVersion": "1.0.0",
     "copyright": "© 2026 WorkBaby",
     "comments": "Local-first personal AI desktop assistant (Go + Wails + Vue 3)"
-  },
-  "postBuildHooks": {
-    "windows/amd64": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/copy-runtimes.ps1 ${bin}"
   }
 }

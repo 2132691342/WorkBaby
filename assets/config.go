@@ -1,17 +1,14 @@
-// Package assets 是编译期嵌入的静态资源：内置 Skill、文档与用户配置模板。
+// Package assets 是编译期嵌入的静态资源：内置 Skill、用户文档与文档目录。
 package assets
 
 import "embed"
 
-// _ 仅用于满足 go:embed 编译期导入约束；模板资源使用下方的字节变量。
-var _ embed.FS
-
-// ModelConfig 是首启生成到用户数据目录的 model.json 模板。
+// Skills 内置 Skill 目录（assets/skills/{name}/SKILL.md）。
 //
-//go:embed config/model.json
-var ModelConfig []byte
+//go:embed skills
+var Skills embed.FS
 
-// MCPConfig 是首启生成到用户数据目录的 mcp.json 模板。
+// Docs 内置用户文档目录（assets/docs/*.md；首行 # 标题作为 title）。
 //
-//go:embed config/mcp.json
-var MCPConfig []byte
+//go:embed docs
+var Docs embed.FS

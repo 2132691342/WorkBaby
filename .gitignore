@@ -47,6 +47,9 @@
 .vscode/
 *.iml
 
+# 浏览器自动化临时目录
+.playwright-cli/
+
 # Local user dir
 *.log
 

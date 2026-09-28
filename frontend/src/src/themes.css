@@ -22,11 +22,15 @@
    刻度层：与主题无关的尺寸 / 字体 / 动效
    ============================================================ */
 :root {
-  /* 字体三族：UI 用系统无衬线，标题与读数用 Bahnschrift（DIN 风），路径 / ID / token 用等宽 */
-  --font-disp:
-    'Bahnschrift', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
-  --font-cn:
-    'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif;
+  /* 字体三族（全站唯一来源，缺一个就是整条声明静默失效）：
+     正文 = 系统无衬线 + 中文黑体；标题/读数 = Bahnschrift（DIN 风）；路径 / ID / token = 等宽 */
+  --font-sans:
+    'Segoe UI Variable Text', 'Segoe UI', system-ui, 'Microsoft YaHei UI', 'Microsoft YaHei',
+    'PingFang SC', 'Noto Sans SC', sans-serif;
+  --font-display:
+    'Bahnschrift', 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'Microsoft YaHei UI',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: 'Cascadia Mono', 'Consolas', 'JetBrains Mono', 'Sarasa Mono SC', monospace;
 
   /* 字号 6 级 */
   --wb-fs-xs: 11px;
@@ -99,6 +103,10 @@
   --wb-user-bg-url: none;
   --wb-user-bg-opacity: 1;
   --wb-user-bg-blur: 0px;
+
+  /* 主题预览色：不随当前主题变化，两张主题卡各自显示自己的强调色 */
+  --wb-swatch-light: #2f80ed;
+  --wb-swatch-dark: #7c5cf8;
 }
 
 /* ============================================================
@@ -359,67 +367,4 @@ body.has-custom-bg::before {
   backdrop-filter: blur(var(--wb-user-bg-blur));
   pointer-events: none;
   z-index: -1;
-}
-
-/* ============================================================
-   Element Plus 主题桥接
-   （仅剩弹层 / 表格 / 表单等少量内置组件在用；新界面优先自研基元）
-   ============================================================ */
-:root[data-theme='light'],
-:root[data-theme='dark'] {
-  --el-color-primary: var(--wb-primary);
-  --el-color-primary-light-3: color-mix(in srgb, var(--wb-primary) 70%, transparent);
-  --el-color-primary-light-5: color-mix(in srgb, var(--wb-primary) 50%, transparent);
-  --el-color-primary-light-7: color-mix(in srgb, var(--wb-primary) 30%, transparent);
-  --el-color-primary-light-8: color-mix(in srgb, var(--wb-primary) 20%, transparent);
-  --el-color-primary-light-9: color-mix(in srgb, var(--wb-primary) 10%, transparent);
-  --el-color-primary-dark-2: var(--wb-primary-strong);
-
-  --el-color-success: var(--wb-success);
-  --el-color-warning: var(--wb-warning);
-  --el-color-danger: var(--wb-danger);
-  --el-color-info: var(--wb-info);
-
-  --el-text-color-primary: var(--wb-ink);
-  --el-text-color-regular: var(--wb-ink);
-  --el-text-color-secondary: var(--wb-muted);
-  --el-text-color-placeholder: var(--wb-muted);
-  --el-text-color-disabled: color-mix(in srgb, var(--wb-muted) 55%, transparent);
-  --el-disabled-text-color: color-mix(in srgb, var(--wb-muted) 55%, transparent);
-  --el-disabled-bg-color: var(--wb-surface-2);
-  --el-disabled-border-color: var(--wb-border);
-
-  /* 弹层 / 输入必须落在实底上：半透明玻璃会让下拉与对话框内容透底不可读 */
-  --el-bg-color: var(--wb-surface-solid);
-  --el-bg-color-page: var(--wb-bg);
-  --el-bg-color-overlay: var(--wb-surface-solid);
-
-  --el-border-color: var(--wb-border-strong);
-  --el-border-color-light: var(--wb-border);
-  --el-border-color-lighter: var(--wb-border);
-  --el-border-color-extra-light: var(--wb-border);
-  --el-border-color-dark: var(--wb-border-strong);
-  --el-border-color-darker: var(--wb-border-strong);
-  --el-border-color-hover: var(--wb-primary);
-
-  --el-fill-color: color-mix(in srgb, var(--wb-ink) 8%, transparent);
-  --el-fill-color-light: color-mix(in srgb, var(--wb-ink) 6%, transparent);
-  --el-fill-color-lighter: color-mix(in srgb, var(--wb-ink) 4%, transparent);
-  --el-fill-color-extra-light: color-mix(in srgb, var(--wb-ink) 2%, transparent);
-  --el-fill-color-dark: color-mix(in srgb, var(--wb-ink) 12%, transparent);
-  --el-fill-color-darker: color-mix(in srgb, var(--wb-ink) 16%, transparent);
-  --el-fill-color-blank: var(--wb-surface-solid);
-
-  --el-mask-color: color-mix(in srgb, var(--wb-bg) 62%, transparent);
-  --el-mask-color-extra-light: color-mix(in srgb, var(--wb-ink) 8%, transparent);
-  --el-box-shadow: var(--wb-shadow-2);
-  --el-box-shadow-light: var(--wb-shadow-1);
-  --el-box-shadow-lighter: var(--wb-shadow-1);
-  --el-box-shadow-dark: var(--wb-shadow-3);
-
-  --el-border-radius-base: var(--wb-radius);
-  --el-border-radius-small: var(--wb-radius-sm);
-  --el-border-radius-round: var(--wb-radius-full);
-
-  --el-font-family: var(--font-sans);
 }

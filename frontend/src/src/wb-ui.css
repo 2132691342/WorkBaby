@@ -8,14 +8,60 @@
  *   <li>标签降噪：中性底、无彩色描边；颜色只出现在主操作、当前项、状态灯。</li>
  * </ul>
  * 颜色与刻度全部来自 themes.css 的 --wb-* 令牌，本层不写色值。
- * 整体置于 components 层：Tailwind utility 优先级高于本层，布局工具类不失效。
+ * 样式表按引入顺序生效：main.ts 里 themes.css 先、wb-ui.css 后，故本层覆盖令牌层。
  */
-@layer components {
 
-/* ================= 基础 ================= */
+/* ================= 基础 =================
+ * 焦点环与滚动条是全站兜底：没有它们，键盘用户看不见焦点，滚动条是 17px 的系统默认灰条。 */
+/* 全站尺寸口径：width 永远是「盒子总宽」。
+   缺了它，width:100% + 左右 padding 的容器（.wrap 族）会比父级宽出两侧
+   padding——任何非全屏窗口都横向溢出，表现为右侧内容被裁、横向滚动条。 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html,
 body {
   height: 100%;
+  /* 浏览器默认给 body 8px margin：会让整个 .win 右移并横向溢出，
+     表现为右侧内容被裁、按钮点不到。 */
+  margin: 0;
+  /* 滚动只发生在 .scroll 容器里：body 级滚动条会让非全屏窗口整页横移 */
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: var(--wb-fs-md);
+  line-height: var(--wb-lh-base);
+}
+/* 关键：#app 是所有页面的祖先，它不撑满，.win 的 100vh 与 .win-body 的 flex:1
+   就都落空，表现为内容右移出窗口、按钮和文字被裁。 */
+#app {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+:focus-visible {
+  outline: 2px solid var(--wb-primary);
+  outline-offset: 2px;
+  border-radius: var(--wb-radius-xs);
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--wb-line-2);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--wb-radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--wb-muted);
+  background-clip: content-box;
 }
 :where(.wb-ui) button {
   background: none;
@@ -28,6 +74,22 @@ body {
 /* 同理用 :where()：写成 `.wb-ui svg` 会以 (0,1,1) 压掉 utility 的 display */
 :where(.wb-ui) svg {
   display: block;
+}
+/* 全站兜底：任何一个 flex 子项不写 min-width:0 都会把页面横向撑破，
+ * 表现为右侧内容被裁、底部多出一条横向滚动条。窗口最窄 960px，必须兜住。 */
+:where(.wb-ui) {
+  min-width: 0;
+}
+.win-body,
+.main,
+.screen {
+  overflow: hidden;
+}
+.wrap,
+.wrap-sm,
+.wrap-md,
+.wrap-lg {
+  min-width: 0;
 }
 
 /* ================= 排版 =================
@@ -140,6 +202,9 @@ body {
  * 标题栏 + 侧栏同面（--wb-panel），内容区是页面底（--wb-bg）：分层靠 1px 分隔线 */
 .win {
   height: 100vh;
+  /* 只给 height 不给 width：Wails 窗口下 .win 会退回内容宽度，
+     导致所有页面右移出窗口。100% 参照已撑满的 #app。 */
+  width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -164,6 +229,7 @@ body {
   color: var(--wb-primary-ink);
   display: grid;
   place-items: center;
+  font-size: var(--wb-fs-xs);
 }
 .titlebar .tb-mark svg {
   width: 12px;
@@ -222,30 +288,35 @@ body {
   align-items: center;
   gap: 2px;
 }
-.winctl span {
+.win-btn {
   width: 38px;
   height: 26px;
   display: grid;
   place-items: center;
+  border: 0;
+  background: transparent;
   border-radius: var(--wb-radius-sm);
   color: var(--wb-ink-2);
+  cursor: pointer;
   transition: background var(--wb-dur-fast) var(--wb-ease), color var(--wb-dur-fast) var(--wb-ease);
 }
-.winctl span:hover {
+.win-btn:hover {
   background: var(--wb-tint);
   color: var(--wb-ink);
 }
-.winctl span.close:hover {
-  background: #c42b1c;
-  color: #fff;
+.win-btn.close:hover {
+  background: var(--wb-danger);
+  color: var(--wb-primary-ink);
 }
-.winctl svg {
-  width: 11px;
-  height: 11px;
+.win-btn svg {
+  width: 12px;
+  height: 12px;
 }
 .win-body {
   flex: 1;
   min-height: 0;
+  /* 缺 min-width:0 时，flex 子项退回内容宽度，整页会横向溢出被裁 */
+  min-width: 0;
   display: flex;
 }
 
@@ -277,11 +348,18 @@ body {
   color: var(--wb-primary-ink);
   display: grid;
   place-items: center;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  font-size: var(--wb-fs-sm);
+  box-shadow: inset 0 1px 0 var(--wb-btn-sheen);
 }
 .side-brand .logo svg {
   width: 17px;
   height: 17px;
+}
+.side-brand .logo,
+.titlebar .tb-mark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 .side-brand b {
   display: block;
@@ -476,18 +554,21 @@ body {
 }
 .ses-group,
 .sess-group {
-  padding: var(--wb-sp-3) var(--wb-sp-3) 4px;
+  /* 分组标题 + 条目是一列：漏掉 column 会让标题和会话横着挤成一排 */
   display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-xs);
-  font-weight: 600;
-  color: var(--wb-muted);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: var(--wb-sp-3) var(--wb-sp-2) var(--wb-sp-1);
 }
 .ses-group .n,
 .sess-group .n {
-  font-family: var(--font-mono);
-  font-weight: 400;
+  padding: 0 var(--wb-sp-2) 2px;
+  font-family: var(--font-sans);
+  font-size: var(--wb-fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--wb-ls-plate);
+  color: var(--wb-muted);
 }
 .ses-item,
 .sess-item {
@@ -628,6 +709,10 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* 纵向滚动的容器绝不产生页面级横向滚动条：
+     个别子元素超宽时宁可裁切，也别让整页左右晃 */
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 .pad {
   padding: var(--wb-sp-5);
@@ -977,7 +1062,7 @@ body {
   background: var(--wb-sunken);
   border: 1px solid var(--wb-line);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-hint);
   color: var(--wb-ink-2);
 }
 .count.is-accent {
@@ -988,7 +1073,7 @@ body {
 .count.is-bad {
   background: var(--wb-danger);
   border-color: var(--wb-danger);
-  color: #fff;
+  color: var(--wb-primary-ink);
 }
 .kbd {
   display: inline-flex;
@@ -1000,7 +1085,7 @@ body {
   border-bottom-width: 2px;
   background: var(--wb-raise);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-hint);
   color: var(--wb-ink-2);
 }
 /* 表格内的启用态：文字标签 + 状态点（图形开关在密集行里看不清） */
@@ -1037,6 +1122,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 .field > label {
   font-size: var(--wb-fs-label);
@@ -1103,10 +1189,12 @@ select.input:focus {
   padding-right: 14px;
 }
 select.input {
+  /* 显式锁高：原生 select 的内高与 input 不同，同网格行会上下错位 */
+  height: var(--wb-ctl-h);
   appearance: none;
   background-image: linear-gradient(45deg, transparent 50%, var(--wb-muted) 50%),
     linear-gradient(135deg, var(--wb-muted) 50%, transparent 50%);
-  background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px;
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
   cursor: pointer;
@@ -1156,12 +1244,15 @@ select.input.narrow {
   height: var(--wb-switch-h);
   border: 0;
   border-radius: var(--wb-radius-full);
-  background: #b3c0d1;
+  background: var(--wb-muted);
+  opacity: 0.55;
   cursor: pointer;
-  transition: background var(--wb-dur) var(--wb-ease);
+  transition: background var(--wb-dur) var(--wb-ease), opacity var(--wb-dur) var(--wb-ease);
 }
-[data-theme='dark'] .switch {
-  background: #4c4660;
+.switch.on,
+.switch.is-on {
+  background: var(--wb-primary);
+  opacity: 1;
 }
 .switch::after {
   content: '';
@@ -1171,13 +1262,9 @@ select.input.narrow {
   width: 20px;
   height: 20px;
   border-radius: var(--wb-radius-full);
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 30, 51, 0.35);
+  background: var(--wb-surface-solid);
+  box-shadow: var(--wb-shadow-2);
   transition: transform var(--wb-dur) var(--wb-ease);
-}
-.switch.on,
-.switch.is-on {
-  background: var(--wb-primary);
 }
 .switch.on::before,
 .switch.is-on::before {
@@ -1187,14 +1274,14 @@ select.input.narrow {
   top: 8px;
   width: 9px;
   height: 5px;
-  border-left: 2px solid #fff;
-  border-bottom: 2px solid #fff;
+  border-left: 2px solid var(--wb-primary-ink);
+  border-bottom: 2px solid var(--wb-primary-ink);
   transform: rotate(-45deg);
 }
 .switch.on::after,
 .switch.is-on::after {
   transform: translateX(22px);
-  background: #fff;
+  background: var(--wb-surface-solid);
 }
 /* 小号开关（行内密集场景） */
 .switch.sm {
@@ -1252,9 +1339,9 @@ select.input.narrow {
   box-shadow: var(--wb-btn-shadow), var(--wb-btn-sheen);
 }
 .seg.sm button {
-  height: 21px;
+  height: var(--wb-ctl-h-sm);
   padding: 0 10px;
-  font-size: 11px;
+  font-size: var(--wb-fs-hint);
 }
 /* 复选框 */
 .check {
@@ -1609,6 +1696,21 @@ select.input.narrow {
   height: 1px;
   background: var(--wb-line);
 }
+/* 流水中途的一句旁白：不抢位置、不打断，只说明发生了什么 */
+.wb-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--wb-sp-2);
+  padding: 2px 0;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+  text-align: center;
+}
+.wb-hint .ic {
+  width: 13px;
+  height: 13px;
+}
 .hr {
   height: 1px;
   background: var(--wb-line);
@@ -1751,18 +1853,31 @@ select.input.narrow {
 .rli {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: var(--wb-sp-2) var(--wb-sp-3);
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-3) var(--wb-sp-3);
   border-bottom: 1px solid var(--wb-line);
   transition: background var(--wb-dur-fast) var(--wb-ease);
+  /* 不写 min-width:0，长路径会把整行撑到容器外、按钮被挤出可视区 */
+  min-width: 0;
+  flex-wrap: wrap;
 }
-.rli:last-child {
-  border-bottom: 0;
+/* flex-basis 0：宽窗口时动作与标题同行，只有真挤不下才换行贴右；
+   用 100% 会让动作组在任何宽度都掉到第二行 */
+.rli > .grow {
+  flex: 1 1 0;
+  min-width: 0;
 }
-.rli:hover {
-  background: var(--wb-tint);
+.rli > .flex-r,
+.rli > .btn {
+  margin-left: auto;
+  flex: none;
 }
 .rli h5 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-size: var(--wb-fs-sm);
   font-weight: 500;
   overflow: hidden;
@@ -1770,6 +1885,8 @@ select.input.narrow {
   white-space: nowrap;
 }
 .rli p {
+  margin: 2px 0 0;
+  min-width: 0;
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
   overflow: hidden;
@@ -2288,7 +2405,7 @@ select.input.narrow {
   background: var(--wb-raise);
   border: 1px solid var(--wb-line);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--wb-fs-hint);
   color: var(--wb-ink-2);
 }
 .mini-chip .x {
@@ -2485,6 +2602,13 @@ select.input.narrow {
   width: 15px;
   height: 15px;
 }
+.av span,
+.avatar span {
+  font-family: var(--font-display);
+  font-size: var(--wb-fs-xs);
+  font-weight: 700;
+  letter-spacing: var(--wb-ls-plate);
+}
 .av.me {
   background: var(--wb-user-bubble);
   color: var(--wb-ink-2);
@@ -2563,17 +2687,18 @@ select.input.narrow {
   background: var(--wb-primary);
 }
 
-/* ---- 消息尾操作 ---- */
+/* ---- 消息尾操作：常驻半透明，hover / 键盘聚焦才完全显形 ---- */
 .msg-acts {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-1);
   margin-top: 2px;
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity var(--wb-dur) var(--wb-ease);
 }
 .msg-a-body:hover .msg-acts,
-.turn:hover .msg-acts {
+.turn:hover .msg-acts,
+.msg-acts:focus-within {
   opacity: 1;
 }
 .msg-acts .act {
@@ -3302,9 +3427,13 @@ select.input.narrow {
   color: var(--wb-muted);
 }
 
-/* ================= 输入区 ================= */
+/* ================= 输入区 =================
+ * 外层 max-width 与 .msgs-inner 对齐：消息列与输入框共用一条读宽 */
 .composer-wrap {
   flex: none;
+  width: 100%;
+  max-width: calc(var(--wb-w-read) + var(--wb-sp-6) * 2);
+  margin: 0 auto;
   padding: 0 var(--wb-sp-6) var(--wb-sp-4);
   display: flex;
   flex-direction: column;
@@ -3871,18 +4000,19 @@ select.input.narrow {
 /* ================= 仪表盘 =================
  * 仪表读数条：替代「同尺寸卡片网格 + 大数字指标」的套路 */
 .statbar {
-  display: flex;
+  display: grid;
+  /* 四格固定宽度在窄窗口会把数字挤成竖排（"3.9 / 秒"），auto-fit 让它自己换行 */
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   align-items: stretch;
-  padding: var(--wb-sp-4) 6px;
+  padding: var(--wb-sp-4) var(--wb-sp-2);
   margin-bottom: var(--wb-sp-4);
   background: var(--wb-surface);
   border: 1px solid var(--wb-line-2);
   border-radius: var(--wb-radius-lg);
 }
 .statbar .st {
-  flex: 1;
   min-width: 0;
-  padding: 0 18px;
+  padding: 0 var(--wb-sp-4);
   border-right: 1px solid var(--wb-line);
 }
 .statbar .st:last-child {
@@ -3893,7 +4023,7 @@ select.input.narrow {
   align-items: baseline;
   gap: 5px;
   font-family: var(--font-display);
-  font-size: 24px;
+  font-size: var(--wb-fs-2xl);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
@@ -3914,7 +4044,7 @@ select.input.narrow {
 .statbar .st .sd {
   margin-top: 5px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--wb-fs-hint);
   color: var(--wb-muted);
 }
 .statbar .st .sd.is-up {
@@ -4966,5 +5096,4 @@ select.input.narrow {
   border: 1px solid var(--wb-line-2);
   background: var(--wb-surface);
   margin-bottom: var(--wb-sp-4);
-}
 }

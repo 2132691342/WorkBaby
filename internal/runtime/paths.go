@@ -1,5 +1,4 @@
-// Package runtime 提供运行时的横切设施：数据目录解析、路径常量。
-// 不依赖 Wails runtime；可纯单测。
+// Package runtime 负责数据目录定位与内置 Python 运行时解压。
 package runtime
 
 import (
@@ -9,43 +8,48 @@ import (
 	"WorkBaby/internal/pkg"
 )
 
-// Paths 持有 WorkBaby 本机数据目录；所有持久化的根路径都从它派生。
+// Paths 是全部落盘位置的唯一解析结果。
 type Paths struct {
-	Home string // %APPDATA%/WorkBaby/
-	DB   string // Home/db/workbaby.db
-	Log  string // Home/logs/
-	Cfg  string // Home/config.yaml
+	DataDir    string
+	DBPath     string
+	LogDir     string
+	TmpDir     string
+	RuntimeDir string
+	PythonDir  string
+	SkillsDir  string
+	ConfigFile string
+	ModelFile  string
 }
 
-// Resolve 根据用户配置/环境变量解析数据目录；优先环境变量 WORKBABY_HOME，便携模式下走 .portable 标记。
-// 当前仅 Windows，按 %APPDATA% 解析。
-func Resolve() (*Paths, error) {
-	home := os.Getenv("WORKBABY_HOME")
-	if home == "" {
-		appData := os.Getenv("APPDATA")
-		if appData == "" {
-			appData, _ = os.UserHomeDir()
+// Resolve 定位数据根并展开全部子路径。WORKBABY_HOME 优先，便于便携版与测试隔离。
+func Resolve() (Paths, error) {
+	root := os.Getenv("WORKBABY_HOME")
+	if root == "" {
+		base, err := os.UserConfigDir()
+		if err != nil {
+			return Paths{}, pkg.Wrap(1001, "定位用户数据目录失败", err)
 		}
-		if appData == "" {
-			return nil, pkg.New(2001, "cannot resolve user data dir", "")
+		root = filepath.Join(base, "WorkBaby")
+	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return Paths{}, pkg.Wrap(1001, "解析数据目录失败", err)
+	}
+	p := Paths{
+		DataDir:    root,
+		DBPath:     filepath.Join(root, "workbaby.db"),
+		LogDir:     filepath.Join(root, "logs"),
+		TmpDir:     filepath.Join(root, "tmp"),
+		RuntimeDir: filepath.Join(root, "runtime"),
+		PythonDir:  filepath.Join(root, "runtime", "python"),
+		SkillsDir:  filepath.Join(root, "skills"),
+		ConfigFile: filepath.Join(root, "config.yaml"),
+		ModelFile:  filepath.Join(root, "model.json"),
+	}
+	for _, dir := range []string{p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir, p.SkillsDir} {
+		if err := pkg.EnsureDir(dir); err != nil {
+			return Paths{}, err
 		}
-		home = filepath.Join(appData, "WorkBaby")
 	}
-	if err := pkg.EnsureDir(home); err != nil {
-		return nil, err
-	}
-	dbDir := filepath.Join(home, "db")
-	if err := pkg.EnsureDir(dbDir); err != nil {
-		return nil, err
-	}
-	logDir := filepath.Join(home, "logs")
-	if err := pkg.EnsureDir(logDir); err != nil {
-		return nil, err
-	}
-	return &Paths{
-		Home: home,
-		DB:   filepath.Join(dbDir, "workbaby.db"),
-		Log:  logDir,
-		Cfg:  filepath.Join(home, "config.yaml"),
-	}, nil
+	return p, nil
 }

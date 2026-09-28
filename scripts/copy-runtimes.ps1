@@ -1,89 +1,29 @@
-<#
-.SYNOPSIS
-Copy the bundled runtimes into the build output directories.
-
-.DESCRIPTION
-Invoked by the windows/amd64 postBuildHook in wails.json:
-
-    powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/copy-runtimes.ps1 ${bin}
-
-Path constraints imposed by Wails CLI (see wails v2 pkg/commands/build/build.go):
-  1. cwd when running the hook is options.BinDirectory (build/bin) -- NOT the project root.
-     Hence "../../scripts/..." (two levels up), never a bare "scripts/...".
-  2. The hook string is parsed with shlex.Split, so backslashes are treated as escapes
-     and get swallowed. Always use forward slashes: "../../" not "..\..\".
-  3. "${bin}" is replaced only when it is a standalone argument (wails matches whole args).
-     Never glue it into a path like "${bin}\..\...", or the placeholder stays literal.
-
-${bin} is the absolute path of the compiled executable (build/bin/WorkBaby.exe).
-
-The project level runtimes/ directory (manifest.json + one archive per asset) is
-copied to two generated locations, both ignored by git:
-
-    1. <binDir>\runtimes            -> picked up by internal/runtime.Manager.LocateBundledDir()
-                                       when WorkBaby.exe is launched from build/bin
-    2. <buildDir>\windows\runtimes  -> input of `File /r "..\runtimes"` in build/windows/installer/project.nsi
-
-Every archive declared in manifest.json must exist; otherwise the build fails fast
-instead of silently producing an installer with missing runtimes.
-#>
-[CmdletBinding()]
+# 构建后把内置 Python 运行时压缩包拷到产物目录旁边，保证绿色包开箱即用。
+# 代码侧 internal/runtime.ArchivePath 找的是 exe 同级 runtimes/python-<版本>-win-x64.tar.gz。
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$BinPath
+    [string]$Bin
 )
 
 $ErrorActionPreference = 'Stop'
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
-$sourceDir = Join-Path $projectRoot 'runtimes'
-$manifestFile = Join-Path $sourceDir 'manifest.json'
-
-if (-not (Test-Path -LiteralPath $manifestFile -PathType Leaf)) {
-    throw "[copy-runtimes] manifest.json not found: $manifestFile"
+if ([string]::IsNullOrWhiteSpace($Bin)) {
+    Write-Host "copy-runtimes: 未提供产物路径，跳过"
+    exit 0
 }
 
-$manifest = Get-Content -LiteralPath $manifestFile -Raw | ConvertFrom-Json
-$assets = @($manifest.assets)
-if ($assets.Count -eq 0) {
-    throw "[copy-runtimes] manifest.json declares no assets: $manifestFile"
+$root = Split-Path -Parent $PSScriptRoot
+$src = Join-Path $root 'runtimes'
+$archives = Get-ChildItem -Path $src -Filter 'python-*.tar.gz' -File -ErrorAction SilentlyContinue
+if (-not $archives) {
+    Write-Host "copy-runtimes: $src 下没有 python-*.tar.gz，跳过（运行时未下载）"
+    exit 0
 }
 
-$files = @('manifest.json')
-foreach ($asset in $assets) {
-    $id = $asset.id
-    $archive = $asset.archiveFile
-    if ([string]::IsNullOrWhiteSpace($archive)) {
-        throw "[copy-runtimes] asset '$id' in manifest.json has no archiveFile"
-    }
-    $archivePath = Join-Path $sourceDir $archive
-    if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
-        throw "[copy-runtimes] runtime archive missing for '$id': $archivePath"
-    }
-    $files += $archive
+$destRoot = Split-Path -Parent $Bin
+$dest = Join-Path $destRoot 'runtimes'
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+Copy-Item -Path (Join-Path $src 'python-*.tar.gz') -Destination $dest -Force
+if (Test-Path (Join-Path $src 'manifest.json')) {
+    Copy-Item -Path (Join-Path $src 'manifest.json') -Destination $dest -Force
 }
-
-$binDir = [System.IO.Path]::GetFullPath((Split-Path -Parent $BinPath))
-$buildDir = Split-Path -Parent $binDir
-if ([string]::IsNullOrWhiteSpace($buildDir)) {
-    throw "[copy-runtimes] cannot resolve build directory from: $BinPath"
-}
-
-# exe 同级目录供直接运行使用；build/windows 供 NSIS 打包使用
-$targets = @(
-    (Join-Path $binDir 'runtimes'),
-    (Join-Path $buildDir (Join-Path 'windows' 'runtimes'))
-)
-
-foreach ($target in $targets) {
-    if (Test-Path -LiteralPath $target) {
-        Remove-Item -LiteralPath $target -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path $target -Force | Out-Null
-
-    foreach ($file in $files) {
-        Copy-Item -LiteralPath (Join-Path $sourceDir $file) -Destination $target -Force
-    }
-
-    Write-Host "[copy-runtimes] $target <- $($files.Count) file(s)"
-}
+Write-Host "copy-runtimes: 已拷贝 Python 运行时到 $dest"

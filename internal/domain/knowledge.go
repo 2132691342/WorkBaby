@@ -1,104 +1,86 @@
-// Package domain 是业务聚合根：每个聚合根一个文件，含 DO/DTO/REQ/VO/RESP/枚举/常量/错误变量。
-//
-// 本文件：Knowledge 聚合根：知识库文档 + 分块 + FTS5 检索。
 package domain
 
-import (
-	"gorm.io/gorm"
+import "WorkBaby/internal/pkg"
 
-	"WorkBaby/internal/pkg"
+var (
+	ErrDocNotFound = pkg.New(7101, "文档不存在或已不可读", "")
+	ErrDocType     = pkg.New(7102, "暂不支持这种文件", "支持 PDF / Word / Excel / Markdown / 文本")
+	ErrQueryEmpty  = pkg.New(7104, "请输入要查的内容", "")
 )
 
-// KnowledgeDocStatus 文档索引状态机：pending → parsing → indexed | failed。
-type KnowledgeDocStatus string
-
-const (
-	KnowledgeStatusPending KnowledgeDocStatus = "pending"
-	KnowledgeStatusParsing KnowledgeDocStatus = "parsing"
-	KnowledgeStatusIndexed KnowledgeDocStatus = "indexed"
-	KnowledgeStatusFailed  KnowledgeDocStatus = "failed"
-)
-
-// KnowledgeSourceType 文档来源。
-type KnowledgeSourceType string
-
-const (
-	KnowledgeSourceFile KnowledgeSourceType = "file"
-	KnowledgeSourceURL  KnowledgeSourceType = "url"
-	KnowledgeSourceText KnowledgeSourceType = "text"
-)
-
-// KnowledgeDocDO 知识库文档（knowledge_docs 表）。
+// KnowledgeDocDO 知识库文档。
 type KnowledgeDocDO struct {
-	ID         string              `gorm:"primaryKey;size:64" json:"id"`
-	FolderID   *string             `gorm:"size:64;index" json:"folder_id,omitempty"`
-	Name       string              `gorm:"size:512" json:"name"`
-	Source     string              `gorm:"size:1024" json:"source"` // 文件路径 / URL / 原文
-	SourceType KnowledgeSourceType `gorm:"size:32" json:"source_type"`
-	MIME       string              `gorm:"size:128" json:"mime"`
-	SizeBytes  int64               `gorm:"default:0" json:"size_bytes"`
-	ChunkCount int                 `gorm:"default:0" json:"chunk_count"`
-	Status     KnowledgeDocStatus  `gorm:"size:16;index" json:"status"`
-	ErrorMsg   string              `gorm:"size:1024" json:"error_msg"`
-	CreatedAt  int64               `gorm:"autoCreateTime:milli" json:"created_at"`
-	UpdatedAt  int64               `gorm:"autoUpdateTime:milli" json:"updated_at"`
-	DeletedAt  gorm.DeletedAt      `gorm:"index" json:"-"`
-}
-
-// TableName 固定表名。
-func (KnowledgeDocDO) TableName() string { return "knowledge_docs" }
-
-// KnowledgeChunkDO 文档分块（knowledge_chunks 表）。
-type KnowledgeChunkDO struct {
 	ID        string `gorm:"primaryKey;size:64" json:"id"`
-	DocID     string `gorm:"size:64;index" json:"doc_id"`
-	Sequence  int    `json:"sequence"`
-	Content   string `gorm:"type:text" json:"content"`
-	Tokens    int    `gorm:"default:0" json:"tokens"`
-	MetaJSON  string `gorm:"type:text" json:"-"` // 标题/页码等定位信息
+	Path      string `gorm:"size:1024" json:"path"`
+	Title     string `gorm:"size:256" json:"title"`
+	Ext       string `gorm:"size:16" json:"ext"`
+	Size      int64  `json:"size"`
+	Chunks    int    `json:"chunks"`
+	Status    string `gorm:"size:16" json:"status"`
+	Error     string `gorm:"size:512" json:"error"`
 	CreatedAt int64  `gorm:"autoCreateTime:milli" json:"created_at"`
 }
 
-// TableName 固定表名。
+// TableName 显式指定表名：GORM 会把 DO 后缀复数化成 _dos。
+func (KnowledgeDocDO) TableName() string { return "knowledge_docs" }
+
+// KnowledgeChunkDO 文档分块；content 同时进 FTS 虚表，靠触发器同步。
+type KnowledgeChunkDO struct {
+	ID      string `gorm:"primaryKey;size:64" json:"id"`
+	DocID   string `gorm:"size:64;index" json:"doc_id"`
+	Seq     int    `json:"seq"`
+	Content string `gorm:"type:text" json:"content"`
+	Hash    string `gorm:"size:64" json:"hash"`
+}
+
+// TableName 显式指定表名：GORM 会把 DO 后缀复数化成 _dos。
 func (KnowledgeChunkDO) TableName() string { return "knowledge_chunks" }
 
-// KnowledgeDocREQ 上传入参。
-type KnowledgeDocREQ struct {
-	FolderID   *string `json:"folder_id,omitempty"`
-	Name       string  `json:"name"`
-	Source     string  `json:"source"`      // 文件路径 / URL / 原文
-	SourceType string  `json:"source_type"` // file / url / text
+// KnowledgeDocVO 文档列表项。
+type KnowledgeDocVO struct {
+	ID        string `json:"id"`
+	Path      string `json:"path"`
+	Title     string `json:"title"`
+	Ext       string `json:"ext"`
+	Size      int64  `json:"size"`
+	Chunks    int    `json:"chunks"`
+	Status    string `json:"status"`
+	Error     string `json:"error,omitempty"`
+	CreatedAt int64  `json:"created_at"`
 }
 
-// KnowledgeDocRESP 出参。
-type KnowledgeDocRESP struct {
-	ID         string              `json:"id"`
-	FolderID   *string             `json:"folder_id,omitempty"`
-	Name       string              `json:"name"`
-	Source     string              `json:"source"`
-	SourceType KnowledgeSourceType `json:"source_type"`
-	MIME       string              `json:"mime"`
-	SizeBytes  int64               `json:"size_bytes"`
-	ChunkCount int                 `json:"chunk_count"`
-	Status     KnowledgeDocStatus  `json:"status"`
-	ErrorMsg   string              `json:"error_msg,omitempty"`
-	CreatedAt  int64               `json:"created_at"`
-	UpdatedAt  int64               `json:"updated_at"`
+// AddDocsREQ 添加文档入参。
+type AddDocsREQ struct {
+	Paths []string `json:"paths"`
 }
 
-// KnowledgeHitRESP 检索命中项。
-type KnowledgeHitRESP struct {
-	DocID   string            `json:"doc_id"`
-	DocName string            `json:"doc_name"`
-	ChunkID string            `json:"chunk_id"`
-	Content string            `json:"content"`
-	Score   float64           `json:"score"`
-	Source  string            `json:"source"`
-	Meta    map[string]string `json:"meta,omitempty"`
+// SearchREQ 检索入参。
+type SearchREQ struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit"`
 }
 
-// 包级错误变量；错误码段位 7000。
-var (
-	ErrKnowledgeDocNotFound = pkg.New(7005, "knowledge doc not found", "")
-	ErrKnowledgeUnsupported = pkg.New(7006, "unsupported file format", "")
-)
+// SearchHitVO 检索命中。
+type SearchHitVO struct {
+	DocID   string  `json:"doc_id"`
+	Title   string  `json:"title"`
+	Path    string  `json:"path"`
+	Seq     int     `json:"seq"`
+	Content string  `json:"content"`
+	Score   float64 `json:"score"`
+}
+
+// SearchRESP 检索出参。
+type SearchRESP struct {
+	Hits []SearchHitVO `json:"hits"`
+}
+
+// AddDocsRESP 添加文档出参。
+type AddDocsRESP struct {
+	Added int `json:"added"`
+}
+
+// ReindexRESP 重建索引出参。
+type ReindexRESP struct {
+	Reindexed int `json:"reindexed"`
+}

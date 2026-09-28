@@ -2,46 +2,55 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
 	"sync"
 
+	"WorkBaby/internal/llm"
 	"WorkBaby/internal/pkg"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// Registry 工具注册中心：按名查找、列元信息。
-// 启停状态不在此处，由 service 层结合 system_settings 决定是否暴露给 LLM。
+var (
+	ErrDuplicateTool = pkg.New(4201, "工具重复注册", "")
+	ErrNoToolName    = pkg.New(4203, "工具名不能为空", "")
+)
+
+// Registry 是工具注册中心：并发只读为主，写只在启动期发生。
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]Tool
+	order []string
 }
 
-// NewRegistry 构造空注册中心。
-func NewRegistry() *Registry { return &Registry{tools: make(map[string]Tool)} }
+// New 构造空注册中心。
+func New() *Registry { return &Registry{tools: map[string]Tool{}} }
 
-// Register 注册工具；重名返回 4005 错误；参数 Schema 编译失败返回 4004（注册即编译）。
+// Register 注册一个工具。空名、重名、Schema 不合法都在这里当场报错：
+// 参数声明坏掉的工具留到运行期，只会变成一条看不懂的模型报错。
 func (r *Registry) Register(t Tool) error {
-	if t == nil || t.Name() == "" {
-		return pkg.New(4005, "tool must have a name", "")
+	name := t.Name()
+	if strings.TrimSpace(name) == "" {
+		return ErrNoToolName
 	}
-	if err := CompileSchema(t.Schema().Parameters); err != nil {
-		return err
+	sch, err := compileSchema(name, t.Parameters())
+	if err != nil {
+		return pkg.Wrap(4202, fmt.Sprintf("工具 %s 的参数声明不合法", name), err)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, dup := r.tools[t.Name()]; dup {
-		return pkg.New(4005, "tool already registered", t.Name())
+	if _, ok := r.tools[name]; ok {
+		return pkg.Wrap(4201, "工具重复注册", ErrDuplicateTool)
 	}
-	r.tools[t.Name()] = t
+	r.tools[name] = t
+	r.order = append(r.order, name)
+	cacheSchema(name, sch)
 	return nil
 }
 
-// Unregister 注销工具；用于 MCP server 停用/重载时移除其已注册工具。
-func (r *Registry) Unregister(name string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.tools, name)
-}
-
-// Get 按名取工具实例；未注册返回 ok=false。
+// Get 按名字取工具。
 func (r *Registry) Get(name string) (Tool, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -49,38 +58,137 @@ func (r *Registry) Get(name string) (Tool, bool) {
 	return t, ok
 }
 
-// List 返回全部已注册工具（无序）。
-func (r *Registry) List() []Tool {
+// All 按注册顺序列出全部工具。
+func (r *Registry) All() []Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]Tool, 0, len(r.tools))
-	for _, t := range r.tools {
-		out = append(out, t)
+	out := make([]Tool, 0, len(r.order))
+	for _, n := range r.order {
+		out = append(out, r.tools[n])
 	}
 	return out
 }
 
-// SelfCheckSchema 启动期自检：所有已注册工具 schema 必须是合法 JSON。
-func (r *Registry) SelfCheckSchema() error {
+// List 按工具名排序列出全部工具：声明顺序稳定才能命中上游的提示词缓存，
+// 排查「模型怎么少了某个工具」时也更容易逐行比对。
+func (r *Registry) List() []Tool {
+	out := r.All()
+	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
+	return out
+}
+
+// Enabled 按启用名单过滤；名单为空时全部启用。
+func (r *Registry) Enabled(disabled []string) []Tool {
+	blocked := map[string]bool{}
+	for _, n := range disabled {
+		blocked[n] = true
+	}
+	out := []Tool{}
+	for _, t := range r.All() {
+		if !blocked[t.Name()] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// Defs 把工具转成上游需要的声明，顺序稳定以便提示词可复现。
+func (r *Registry) Defs(tools []Tool) []llm.ToolDef {
+	names := make([]string, 0, len(tools))
+	byName := map[string]Tool{}
+	for _, t := range tools {
+		names = append(names, t.Name())
+		byName[t.Name()] = t
+	}
+	sort.Strings(names)
+	out := make([]llm.ToolDef, 0, len(names))
+	for _, n := range names {
+		t := byName[n]
+		out = append(out, llm.ToolDef{
+			Name:        t.Name(),
+			Description: t.Description(),
+			Parameters:  t.Parameters(),
+		})
+	}
+	return out
+}
+
+// ValidateSchemas 启动期全量自检一次参数声明，坏 schema 不许进运行期。
+func (r *Registry) ValidateSchemas() error {
 	for _, t := range r.List() {
-		params := t.Schema().Parameters
-		if len(params) > 0 && !json.Valid(params) {
-			return pkg.New(4004, "tool schema is not valid json", t.Name())
+		if _, err := compiledSchema(t); err != nil {
+			return pkg.Wrap(4202, fmt.Sprintf("工具 %s 的参数声明不合法", t.Name()), err)
 		}
 	}
 	return nil
 }
 
-// AllParallel 给定工具名列表是否全部存在且执行模式为 Parallel（未声明 ExecutionModeProvider 视同 Parallel）。
-// 任一工具声明 Sequential 即整批串行；工具缺名时返回 false（宁可串行）。
-func (r *Registry) AllParallel(names []string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for _, name := range names {
-		t, ok := r.tools[name]
-		if !ok || ExecutionModeOf(t) != ExecutionParallel {
-			return false
-		}
+// ValidateArgs 执行前校验参数，拦住模型给出的坏输入。
+func ValidateArgs(t Tool, args map[string]any) error {
+	sch, err := compiledSchema(t)
+	if err != nil {
+		return pkg.Wrap(4202, "编译参数校验器失败", err)
 	}
-	return true
+	// 无参工具调用会带 nil，按空对象处理，否则会被 schema 判为不合法。
+	if args == nil {
+		args = map[string]any{}
+	}
+	inst, err := json.Marshal(args)
+	if err != nil {
+		return pkg.Wrap(4002, "工具参数无法序列化", err)
+	}
+	var value any
+	if err := json.Unmarshal(inst, &value); err != nil {
+		return pkg.Wrap(4002, "工具参数不是合法 JSON", err)
+	}
+	if err := sch.Validate(value); err != nil {
+		return pkg.Wrap(4002, "工具参数不正确", err)
+	}
+	return nil
+}
+
+var (
+	schemaMu sync.RWMutex
+	schemas  = map[string]*jsonschema.Schema{}
+)
+
+// compiledSchema 复用注册期编译好的校验器：每次调用都新建编译器会把开销
+// 摊到每一轮的每个工具上，而同一份 schema 编译结果是不可变的。
+func compiledSchema(t Tool) (*jsonschema.Schema, error) {
+	schemaMu.RLock()
+	sch, ok := schemas[t.Name()]
+	schemaMu.RUnlock()
+	if ok {
+		return sch, nil
+	}
+	sch, err := compileSchema(t.Name(), t.Parameters())
+	if err != nil {
+		return nil, err
+	}
+	cacheSchema(t.Name(), sch)
+	return sch, nil
+}
+
+func cacheSchema(name string, sch *jsonschema.Schema) {
+	schemaMu.Lock()
+	schemas[name] = sch
+	schemaMu.Unlock()
+}
+
+// compileSchema 把参数声明编译成校验器；编译器不跨工具共享。
+func compileSchema(name string, params map[string]any) (*jsonschema.Schema, error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	c := jsonschema.NewCompiler()
+	c.DefaultDraft(jsonschema.Draft2020)
+	if err := c.AddResource(name+".json", doc); err != nil {
+		return nil, err
+	}
+	return c.Compile(name + ".json")
 }

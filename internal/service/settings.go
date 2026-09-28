@@ -1,140 +1,78 @@
 package service
 
 import (
-	"context"
-	"encoding/json"
-
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/pkg"
-	"WorkBaby/internal/repo"
+	"WorkBaby/internal/runtime"
 )
 
-// SettingsService KV 运行时配置（system_settings 表）+ SMTP/websearch 组装。
+// SettingsService 负责键值设置与外观项。
 type SettingsService struct {
-	r      *repo.SystemSettingRepo
-	cipher *pkg.Cipher
+	env   *Env
+	paths runtime.Paths
 }
 
-// NewSettingsService 构造；cipher 用于 SMTP 密码加解密。
-func NewSettingsService(r *repo.SystemSettingRepo, cipher *pkg.Cipher) *SettingsService {
-	return &SettingsService{r: r, cipher: cipher}
+// NewSettingsService 构造设置服务。
+func NewSettingsService(env *Env, paths runtime.Paths) *SettingsService {
+	return &SettingsService{env: env, paths: paths}
 }
 
-func (s *SettingsService) Get(ctx context.Context, k string) (*domain.SystemSettingRESP, error) {
-	row, err := s.r.Get(ctx, k)
+// All 取全部设置，缺失项用默认值补齐。
+func (s *SettingsService) All() (map[string]string, error) {
+	stored, err := s.env.Repo.AllSettings()
 	if err != nil {
 		return nil, err
 	}
-	return &domain.SystemSettingRESP{K: row.K, V: row.V, UpdatedAt: row.UpdatedAt}, nil
-}
-
-func (s *SettingsService) Set(ctx context.Context, k, v string) (*domain.SystemSettingRESP, error) {
-	if err := s.r.Set(ctx, k, v); err != nil {
-		return nil, err
-	}
-	return s.Get(ctx, k)
-}
-
-func (s *SettingsService) ListAll(ctx context.Context) ([]domain.SystemSettingRESP, error) {
-	rows, err := s.r.ListAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]domain.SystemSettingRESP, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, domain.SystemSettingRESP{K: r.K, V: r.V, UpdatedAt: r.UpdatedAt})
-	}
-	return out, nil
-}
-
-// GetWebSearchConfig 组装 websearch 配置。
-func (s *SettingsService) GetWebSearchConfig(ctx context.Context) (domain.WebSearchConfigRESP, error) {
-	get := func(k, def string) string {
-		row, err := s.r.Get(ctx, k)
-		if err != nil {
-			return def
+	for k, v := range domain.DefaultSettings() {
+		if _, ok := stored[k]; !ok {
+			stored[k] = v
 		}
-		return row.V
 	}
-	return domain.WebSearchConfigRESP{
-		Enabled: get(domain.SettingKeyWebSearchEnabled, "true"),
-		Engine:  get(domain.SettingKeyWebSearchEngine, "duckduckgo"),
-		APIKey:  "",
-	}, nil
+	if stored[domain.SettingWorkspace] == "" && s.env.Cfg.Workspace != "" {
+		stored[domain.SettingWorkspace] = s.env.Cfg.Workspace
+	}
+	return stored, nil
 }
 
-// SaveWebSearchConfig 保存 websearch 配置。
-func (s *SettingsService) SaveWebSearchConfig(ctx context.Context, req domain.WebSearchConfigRESP) error {
-	vals := map[string]string{
-		domain.SettingKeyWebSearchEnabled: req.Enabled,
-		domain.SettingKeyWebSearchEngine:  req.Engine,
+// Set 写入一个设置。
+func (s *SettingsService) Set(key, value string) error {
+	if key == "" {
+		return pkg.New(2006, "设置项名不能为空", "")
 	}
-	for k, v := range vals {
-		if err := s.r.Set(ctx, k, v); err != nil {
+	switch key {
+	case domain.SettingTheme:
+		if value != "light" && value != "dark" {
+			return pkg.New(2007, "主题只有晴空和紫夜两种", value)
+		}
+	case domain.SettingPermission:
+		switch value {
+		case domain.PermissionAsk, domain.PermissionAutoEdit, domain.PermissionYolo:
+		default:
+			return pkg.New(1106, "权限档位不正确", value)
+		}
+	case domain.SettingWorkspace:
+		if value != "" && !pkg.DirExists(value) {
+			return pkg.New(1003, "这个目录不存在", value)
+		}
+		if err := s.env.Cfg.SetWorkspace(value); err != nil {
 			return err
 		}
 	}
+	return s.env.Repo.SetSetting(key, value)
+}
+
+// SeedDefaults 首启写入默认值。
+func (s *SettingsService) SeedDefaults() error {
+	for k, v := range domain.DefaultSettings() {
+		cur, err := s.env.Repo.GetSetting(k)
+		if err != nil {
+			return err
+		}
+		if cur == "" {
+			if err := s.env.Repo.SetSetting(k, v); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
-}
-
-// GetGeneral 读取通用设置（JSON 值）；缺失返回空 map。
-func (s *SettingsService) GetGeneral(ctx context.Context) (map[string]any, error) {
-	row, err := s.r.Get(ctx, domain.SettingKeyGeneral)
-	if err != nil {
-		if err == domain.ErrSettingNotFound {
-			return map[string]any{}, nil
-		}
-		return nil, err
-	}
-	out := map[string]any{}
-	if err := json.Unmarshal([]byte(row.V), &out); err != nil {
-		return map[string]any{}, nil
-	}
-	return out, nil
-}
-
-// SaveGeneral 保存通用设置（JSON 值），返回规范化后的 map。
-func (s *SettingsService) SaveGeneral(ctx context.Context, v map[string]any) (map[string]any, error) {
-	bs, err := json.Marshal(v)
-	if err != nil {
-		return nil, pkg.Wrap(2020, "marshal general settings failed", err)
-	}
-	if err := s.r.Set(ctx, domain.SettingKeyGeneral, string(bs)); err != nil {
-		return nil, err
-	}
-	return v, nil
-}
-
-// GetExecWhitelist 读取 exec 工具二进制白名单（JSON 数组；未配置返回空列表）。
-func (s *SettingsService) GetExecWhitelist(ctx context.Context) ([]string, error) {
-	row, err := s.r.Get(ctx, domain.SettingKeyExecWhitelist)
-	if err != nil {
-		if err == domain.ErrSettingNotFound {
-			return []string{}, nil
-		}
-		return nil, err
-	}
-	var out []string
-	if err := json.Unmarshal([]byte(row.V), &out); err != nil {
-		return []string{}, nil
-	}
-	if out == nil {
-		out = []string{}
-	}
-	return out, nil
-}
-
-// SaveExecWhitelist 保存 exec 工具二进制白名单并返回规范化结果。
-func (s *SettingsService) SaveExecWhitelist(ctx context.Context, bins []string) ([]string, error) {
-	if bins == nil {
-		bins = []string{}
-	}
-	bs, err := json.Marshal(bins)
-	if err != nil {
-		return nil, pkg.Wrap(2020, "marshal exec whitelist failed", err)
-	}
-	if err := s.r.Set(ctx, domain.SettingKeyExecWhitelist, string(bs)); err != nil {
-		return nil, err
-	}
-	return bins, nil
 }

@@ -1,101 +1,105 @@
-# docs/DEVELOPMENT.md · 开发流程与测试体系
+# 开发指南
 
-## 1. 常用命令
+## 环境要求
 
-| 目的 | 命令 |
+- Go 1.24+
+- Node.js 20+（前端）
+- Wails CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- Windows 10/11（唯一目标平台）
+
+## 常用命令
+
+```powershell
+# 后端测试（全量 < 10s）
+go test ./internal/...
+
+# 前端类型检查 / 构建
+cd frontend
+npm install
+npm run build        # vue-tsc + vite build，产物 frontend/dist
+
+# 桌面应用（重新生成 Wails 绑定 + 编译 Go + 构建前端）
+wails build          # 产物 build/bin/WorkBaby.exe
+
+# 开发模式（前端热更 + Go 重编译）
+wails dev
+```
+
+## 改界面时：先在浏览器里看
+
+`wails dev` 每次都要开窗、重编 Go，慢。而界面是纯 HTTP + 事件驱动的，
+所以 `frontend/src/src/dev/` 备了一套假后端：`npm run dev` 直接在普通浏览器里
+跑出成品界面，改完刷新就看到，不必每次 `wails build`。
+
+```powershell
+cd frontend
+npm.cmd run dev    # 打开 http://127.0.0.1:5173
+```
+
+- 假数据在 `dev/fixtures.ts`，会话/技能/文档支持增删，能真的点「新建技能」
+- `?empty=1` 打开空态，用来检查「什么都没有」时的界面
+- 生产构建下 `import.meta.env.DEV` 为 false，整段被摇掉，不进包
+
+> PowerShell 下必须写 `npm.cmd`，`npm` 会被执行策略拦下。
+
+**局限**：这只验证界面，不代表后端联调通过。真联调仍要 `wails dev`。
+
+## 布局纪律（改界面前必读）
+
+这一版界面「歪」的根因几乎全是布局，不是配色：
+
+| 症状 | 病因 |
 |---|---|
-| 开发运行 | `wails dev`（前端 HMR + 后端热重启） |
-| 全量编译 | `go build ./...` |
-| 后端全量测试 | `go test ./internal/...` |
-| 单包 / 单测试 | `go test ./internal/service -run TestChatApproval -v` |
-| 静态检查 | `go vet ./internal/...` |
-| 前端类型检查 | `cd frontend && npm run typecheck` |
-| 前端测试 | `cd frontend && npm test` |
-| 前端构建 | `cd frontend && npm run build` |
+| 页面横向撑破、右侧被裁 | flex 子项默认 `min-width:auto`，不写 `min-width:0` 就会退回内容宽度 |
+| 一行文字竖着排成几列 | 容器是 `flex` 但漏了 `flex-direction: column` |
+| 读数被压成「3.9 / 秒」两行 | `flex:1` 等分在窄窗口宽度不够，改 `auto-fit + minmax()` 自行换行 |
+| 按钮被挤出可视区 | 行内长文本不设 `min-width:0` + 省略号 |
 
-## 2. 门禁脚本
+窗口最窄 960px，所有布局都要在这个宽度下成立。
 
-改完代码跑一遍即可发现越界与漂移：
+## 目录速查
 
-| 脚本 | 检查什么 |
+| 路径 | 内容 |
 |---|---|
-| `scripts/check-boundaries.ps1` | 分层依赖 9 项（`pkg` 不依赖 internal、`domain`/`repo` 不反向、`api` 不直接 import repo、`service` 不含 HTTP、`agent` 不依赖上层也不含 HTTP）+ 前后端契约版本号一致 |
-| `scripts/check-contract.ps1` | 路由约定（cancel 与 resume 必须分路径）+ 前端 `client.ts` 路径白名单与后端 `routes.go` 注册前缀一致 |
-| `scripts/i18n-sync.mjs` | zh / en 字典键集合与顺序一致；`dead` 子命令找未被引用的死键 |
-| `scripts/copy-runtimes.ps1` | 构建后钩子：内置运行时归档必须齐全 |
+| `internal/agent` | 内核循环（纯逻辑，无 IO 依赖，不引 gin/wails） |
+| `internal/service` | 编排层：会话/对话/审批/配置/系统提示 |
+| `internal/tool` | 工具契约 + 注册表 + 11 个内置工具 |
+| `internal/server/routes.go` | 路由注册唯一入口 |
+| `internal/server/sse.go` | SSE Hub：分发 / 重放 / 慢客户端策略 |
+| `frontend/src/src` | 前端源码（注意双层 src） |
+| `frontend/src/src/themes.css` | 色值与字体的唯一定义处 |
+| `frontend/src/src/wb-ui.css` | 组件基元唯一实现 |
 
-`scripts/test.ps1` 是分层测试入口：`-Pkg service`、`-Run TestXxx`、`-NoFront`、`-Full`。
-`-Full` 跑全部 Go 包 + 分层门禁 + i18n 校验 + 前端类型检查与测试。
+## 数据目录（运行时）
 
-## 3. 测试体系
+```
+%APPDATA%/WorkBaby/            # = C:\Users\<你>\AppData\Roaming\WorkBaby
+├── workbaby.db                # SQLite（WAL）
+├── config.yaml                # Viper 配置（MasterKey 等）
+├── logs/                      # info/warn/error 分文件
+├── runtime/python/            # 内置 Python 解压后
+├── skills/                    # 用户全局技能
+└── tmp/                       # 工具输出落盘、超限截断的全文
+```
 
-### 3.1 定位
+`WORKBABY_HOME` 环境变量可覆盖根目录，便于便携版与测试隔离。
+工作目录默认用户主目录，可放 `.workbaby/skills/` 提供工作区级技能。
 
-测试只守护**跨模块 / 跨轮次 / 跨协议**的行为：一个测试失败，必须意味着某条真实链路坏了。
+## 测试怎么写
 
-保留判据与删除清单见 [`AGENTS.md §3`](../AGENTS.md)。规模约束：单文件 ≤ 6 个 `Test`；全量 10 秒内跑完。
+- 只写「失败意味着真实链路坏了」的测试（判据见 `AGENTS.md §3.1`）
+- LLM 用 `factory.SetOverride("test", func(...) llm.Streamer {...})` 注入假实现
+- 内核测试用 `scriptedStreamer` 按脚本驱动多轮
+- 文件名首行写导航注释，说明覆盖什么
+- 临时数据用 `t.TempDir()`，不要写进真实数据目录
 
-### 3.2 分层与职责
+## 排错
 
-| 包 | 测什么 |
+| 现象 | 检查 |
 |---|---|
-| `internal/agent` | ReAct 多轮循环、护栏链裁决、压缩不拆散 assistant+tool 对、历史清洗 |
-| `internal/service` | 编排链路：装配接线、事件映射、审批与跨重启续跑、检查点、集成编排（文件变更/反幻觉） |
-| `internal/llm` | 跨 Provider 归一化契约（错误分类、重试退避）+ 三家线协议流解析 |
-| `internal/tool` | 工具落点与沙箱、写前必读护栏、计划模式硬拦、exec 解析 |
-| `internal/server` | SSE 可靠性：帧格式、断线重放、缓冲 gap、会话级订阅隔离、慢客户端 |
-| `internal/mcp` | 子进程协议：工具结果回填、死进程归一为可辨识错误、启停与注册表同步 |
-| `internal/rag` `memory` `runtime` | 检索算法（分词/兜底/重建替换）、解压安全护栏 |
-| `frontend/src/src/chat/__tests__/` | 流事件管线、消息对账、块分组 |
-
-完整测试索引（哪个文件覆盖什么）见 [`AGENTS.md §3.3`](../AGENTS.md)。
-
-### 3.3 按改动面选测试
-
-| 改动面 | 跑这个 |
-|---|---|
-| 内核循环 / 护栏 | `go test ./internal/agent/` |
-| 聊天编排 / 审批 / 恢复 | `go test ./internal/service/ -run 'TestChat\|TestApproval\|TestDurable\|TestCheckpoint'` |
-| 事件契约 | `go test ./internal/service/ -run 'TestCoreEventMapper\|TestEmitterContract'` |
-| SSE | `go test ./internal/server/` |
-| 模型接入 | `go test ./internal/llm/...` |
-| 工具沙箱 | `go test ./internal/tool/...` |
-| 前端渲染 / 流管线 | `cd frontend && npm test` |
-
-### 3.4 关键设计
-
-**按改动面选测试**：先看要改的能力落在哪个包（见上表），再决定跑哪个目标；按需 `-run TestXxx` 定位单个用例。
-
-**真实依赖优先，只在必要处用替身**
-
-| 依赖 | 选择 | 原因 |
-|---|---|---|
-| 数据库 | 真实 SQLite（内存模式 + 真实迁移） | 迁移与 FTS5 是高频故障源 |
-| LLM | `stubProvider`（按调用序返回预设响应） | 跨进程且不可控 |
-| MCP | 真实子进程 fixture（测试二进制 re-exec 成 server） | 要测的就是进程协议 |
-
-**守卫不稳定的外部依赖**：依赖系统 shell / 真实网络的用例先 `exec.LookPath` 或 `testing.Short()` 判断后跳过，
-不得让整个包变红。
-
-## 4. 改动规范
-
-分层、错误码、命名、注释与文档要求见 [`AGENTS.md`](../AGENTS.md)。典型改动路径：
-
-| 改动 | 步骤 |
-|---|---|
-| 新增后端端点 | `internal/server/routes.go` 注册 + `internal/api/`（`api_chat.go` / `api_provider.go` / `api_handlers.go` 按域归入）透传 + 业务进 `service`；同步 `docs/API-CONTRACT.md` 与前端 `client.ts` 白名单 |
-| 新增表 | `domain` DO → `repo` → 登记 `db/migrate.go` → 更新 `docs/ARCHITECTURE.md` 表清单 |
-| 新增工具 | 实现 `tool.Tool` → 在 `api.Handler.Startup` 注册 → 更新 `specs/05-08 (tools)/` |
-| 新增前端文案 | zh / en 字典同步加键，跑 `i18n-sync.mjs check` |
-| 新增前端组件 | 遵守 `docs/COMPONENT-GUIDELINES.md`；外观语法回填 `wb-ui.css` |
-| 文档 | 与代码同时更新；只描述现状，不记录改动过程 |
-
-## 5. 取舍
-
-| 取舍 | 优势 | 代价 |
-|---|---|---|
-| 门禁脚本作为提交前必经 | 架构约束不靠自觉，破坏即失败 | 改动契约时需同步更新脚本与前端路径白名单 |
-| 测试只覆盖复杂链路 | 全量 10 秒内跑完，改功能验证快 | 简单函数的回归靠编译期与集成测试兜底 |
-| 文档与代码同 PR 更新 | 文档始终反映现状 | 每次改动都要评估文档影响面 |
-| 单文件 ≤ 6 个 `Test` | 改动时定位快；避免单文件膨胀 | 同类场景需用 table-driven 合并 |
-| 真实 SQLite / 真实子进程 | 测的是真实行为而非 mock 行为 | 单测略慢；子进程用例需 fixture 基础设施 |
+| 启动即闪退 | `%APPDATA%/WorkBaby/logs/error.log` |
+| 前端连不上后端 | 是否走 `wails dev`（端口靠 `app:ready` 注入）；单独 `npm run dev` 调不到后端，但能看界面 |
+| FTS 检索无结果 | `db.go` 里 ftsStatements 是否全部执行成功（逐条 Exec） |
+| 模型 400 | 多半是 assistant/tool 配对被破坏；先看 `agent.CleanForProtocol` |
+| 工具参数总是不合法 | `registry.go` 注册期编译 Schema 失败会让启动直接失败，能跑到运行期说明 Schema 是好的 |
+| 样式改动没生效 | 硬编码颜色与裸像素字号会绕过 `themes.css` / `wb-ui.css`；用 `grep` 查 hex 与 `font-size: Npx` |

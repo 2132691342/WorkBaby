@@ -1,140 +1,88 @@
-// Package config 封装 Viper；读 config.yaml + ENV 覆盖；运行时配置走 KV（system_settings 表）。
+// Package config 负责应用配置：config.yaml 由 Viper 读写，密钥主密钥首启生成。
 package config
 
 import (
-	"crypto/rand"
-	"encoding/base64"
+	"errors"
 	"os"
-	"sync"
 
 	"WorkBaby/internal/pkg"
+
 	"github.com/spf13/viper"
 )
 
-// Config 强类型视图：固化在结构体里，避免散落在业务代码里强类型断言。
+// Config 是应用级配置，只有不适合放进数据库的东西才放这里。
 type Config struct {
-	App       AppCfg       `mapstructure:"app"`
-	Logging   LoggingCfg   `mapstructure:"logging"`
-	Database  DatabaseCfg  `mapstructure:"database"`
-	Assistant AssistantCfg `mapstructure:"assistant"`
-	Security  SecurityCfg  `mapstructure:"security"`
+	MasterKey string
+	Workspace string
+	LogLevel  string
+	v         *viper.Viper
 }
 
-// SecurityCfg 安全相关：主密钥（API Key 等加密用）。
-type SecurityCfg struct {
-	MasterKeyB64 string `mapstructure:"masterKeyB64"` // 32 字节 base64；首启自动生成并写回文件
-}
-
-type AppCfg struct {
-	Name    string `mapstructure:"name"`
-	Version string `mapstructure:"version"`
-	Env     string `mapstructure:"env"`  // dev | prod
-	Port    int    `mapstructure:"port"` // 预留（不打 HTTP server；给将来调试用）
-}
-
-type LoggingCfg struct {
-	Level string `mapstructure:"level"` // debug | info | warn | error
-}
-
-type DatabaseCfg struct {
-	Path          string `mapstructure:"path"`
-	WAL           bool   `mapstructure:"wal"`
-	BusyTimeoutMs int    `mapstructure:"busyTimeoutMs"`
-	FTS           bool   `mapstructure:"fts"`
-}
-
-type AssistantCfg struct {
-	DefaultTemperature   float64 `mapstructure:"defaultTemperature"`
-	DefaultThinking      string  `mapstructure:"defaultThinking"` // off | low | medium | high
-	DefaultContextWindow int     `mapstructure:"defaultContextWindow"`
-	CompressionRatio     float64 `mapstructure:"compressionRatio"`
-}
-
-var (
-	mu     sync.RWMutex
-	loaded *Config
-)
-
-// Init 读取配置；config.yaml 不存在则用默认值写出（首次启动的友好路径）。
-// 同时保证 security.masterKeyB64 不空：空就随机生成并落盘。
-func Init(path string) (*Config, error) {
+// Load 读取配置；不存在则生成主密钥后写入。
+func Load(path string) (*Config, error) {
 	v := viper.New()
-	v.SetEnvPrefix("WORKBABY")
-	v.AutomaticEnv()
-	setDefaults(v)
+	v.SetConfigFile(path)
+	v.SetConfigType("yaml")
+	v.SetDefault("log_level", "info")
+	v.SetDefault("workspace", "")
+	v.SetDefault("master_key", "")
 
-	if _, err := os.Stat(path); err == nil {
-		v.SetConfigFile(path)
-		if rerr := v.ReadInConfig(); rerr != nil {
-			return nil, pkg.Wrap(2002, "read config failed", rerr)
-		}
-	} else if !os.IsNotExist(err) {
-		return nil, pkg.Wrap(2002, "stat config failed", err)
-	} else {
-		// 文件不存在：写一份默认出去，方便用户编辑
-		if werr := v.WriteConfigAs(path); werr != nil {
-			return nil, pkg.Wrap(2003, "write default config failed", werr)
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			if !isNotExist(err) {
+				return nil, pkg.Wrap(2001, "读取配置文件失败", err)
+			}
 		}
 	}
 
-	// 主密钥：确保 config.yaml 中至少有一份（首启生成 + 落盘）。
-	if _, err := ensureMasterKey(v, path); err != nil {
-		return nil, err
+	c := &Config{
+		MasterKey: v.GetString("master_key"),
+		Workspace: v.GetString("workspace"),
+		LogLevel:  v.GetString("log_level"),
+		v:         v,
 	}
-
-	var c Config
-	if err := v.Unmarshal(&c); err != nil {
-		return nil, pkg.Wrap(2002, "unmarshal config failed", err)
+	if c.LogLevel == "" {
+		c.LogLevel = "info"
 	}
-	mu.Lock()
-	loaded = &c
-	mu.Unlock()
-	pkg.L.Info("config loaded", "path", path, "env", c.App.Env)
-	return &c, nil
+	if c.MasterKey == "" {
+		key, err := pkg.NewMasterKey()
+		if err != nil {
+			return nil, err
+		}
+		c.MasterKey = key
+		if err := c.Save(); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
-func ensureMasterKey(v *viper.Viper, path string) (string, error) {
-	mk := v.GetString("security.masterKeyB64")
-	if mk == "" {
-		mk = os.Getenv("WORKBABY_SECURITY_MASTERKEYB64")
+// Save 落盘配置。
+func (c *Config) Save() error {
+	c.v.Set("master_key", c.MasterKey)
+	c.v.Set("workspace", c.Workspace)
+	c.v.Set("log_level", c.LogLevel)
+	if err := c.v.WriteConfig(); err != nil {
+		return pkg.Wrap(2001, "写入配置文件失败", err)
 	}
-	if mk == "" {
-		key := make([]byte, 32)
-		if _, err := rand.Read(key); err != nil {
-			return "", pkg.Wrap(2020, "generate master key", err)
-		}
-		mk = base64.StdEncoding.EncodeToString(key)
-		v.Set("security.masterKeyB64", mk)
-		if err := v.WriteConfigAs(path); err != nil {
-			return "", pkg.Wrap(2021, "persist master key", err)
-		}
-	}
-	return mk, nil
+	return nil
 }
 
-// EnsureMasterKey 导出别名，给 handler 单独调（CLI 测试）。
-func EnsureMasterKey(v *viper.Viper, path string) (string, error) { return ensureMasterKey(v, path) }
-
-// Get 返回当前快照；用于 service 内部读取，避免持锁。
-func Get() *Config {
-	mu.RLock()
-	defer mu.RUnlock()
-	return loaded
+// SetWorkspace 更新工作目录并落盘。
+func (c *Config) SetWorkspace(dir string) error {
+	c.Workspace = dir
+	return c.Save()
 }
 
-func setDefaults(v *viper.Viper) {
-	v.SetDefault("app.name", "WorkBaby")
-	v.SetDefault("app.version", "0.1.0")
-	v.SetDefault("app.env", "dev")
-	v.SetDefault("app.port", 0)
-	v.SetDefault("logging.level", "info")
-	v.SetDefault("database.path", "")
-	v.SetDefault("database.wal", true)
-	v.SetDefault("database.busyTimeoutMs", 5000)
-	v.SetDefault("database.fts", true)
-	v.SetDefault("assistant.defaultTemperature", 0.25)
-	v.SetDefault("assistant.defaultThinking", "medium")
-	v.SetDefault("assistant.defaultContextWindow", 128000)
-	v.SetDefault("assistant.compressionRatio", 0.75)
-	v.SetDefault("security.masterKeyB64", "")
+// isNotExist 判断「配置文件还没建」这种正常首启场景。
+// 指定了具体文件路径时，Viper 返回的是 *fs.PathError 而不是 ConfigFileNotFoundError，
+// 漏判会让全新机器的首次启动直接失败，必须两种都认。
+func isNotExist(err error) bool {
+	if err == nil {
+		return false
+	}
+	if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+		return true
+	}
+	return errors.Is(err, os.ErrNotExist)
 }

@@ -1,5 +1,3 @@
-// 文件：AES-GCM 加解密（API Key / SMTP 密码 / Webhook token）。
-
 package pkg
 
 import (
@@ -7,94 +5,64 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"io"
 )
 
-// Cipher 持有加密主密钥（32 字节 AES-256）；首启从 config.yaml 加载或随机生成。
-type Cipher struct {
-	gcm cipher.AEAD
+// NewMasterKey 生成 32 字节主密钥（Base64 编码后落配置）。
+func NewMasterKey() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+		return "", Wrap(2001, "生成主密钥失败", err)
+	}
+	return base64.StdEncoding.EncodeToString(buf), nil
 }
 
-// NewCipherFromB64 从 base64 字符串恢复主密钥；空字符串返回 error（说明 config 未配）。
-func NewCipherFromB64(b64 string) (*Cipher, error) {
-	if b64 == "" {
-		return nil, New(2020, "master key not configured", "")
-	}
-	key, err := base64.StdEncoding.DecodeString(b64)
+// Encrypt 用 AES-256-GCM 加密，输出 Base64(nonce|ciphertext)。
+func Encrypt(masterKeyB64, plain string) (string, error) {
+	key, err := base64.StdEncoding.DecodeString(masterKeyB64)
 	if err != nil {
-		return nil, Wrap(2021, "invalid master key encoding", err)
+		return "", New(2002, "主密钥格式不正确", "")
 	}
-	if len(key) != 32 {
-		return nil, New(2022, "master key length must be 32 bytes (AES-256)", "")
-	}
-	return newCipherFromKey(key)
-}
-
-// NewCipherRandom 生成一次性随机密钥；用于首次启动写入 config.yaml。
-func NewCipherRandom() (*Cipher, string, error) {
-	key := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		return nil, "", Wrap(2023, "generate random key failed", err)
-	}
-	c, err := newCipherFromKey(key)
+	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, "", err
+		return "", Wrap(2002, "主密钥长度不正确", err)
 	}
-	return c, base64.StdEncoding.EncodeToString(key), nil
-}
-
-func newCipherFromKey(key []byte) (*Cipher, error) {
-	b, err := aes.NewCipher(key)
+	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, Wrap(2024, "init AES cipher failed", err)
+		return "", Wrap(2002, "初始化加密器失败", err)
 	}
-	gcm, err := cipher.NewGCM(b)
-	if err != nil {
-		return nil, Wrap(2025, "init GCM mode failed", err)
-	}
-	return &Cipher{gcm: gcm}, nil
-}
-
-// Encrypt 加密明文 → base64(nonce ‖ ciphertext) 字符串；空串返回空串（避免误写入）。
-func (c *Cipher) Encrypt(plaintext string) (string, error) {
-	if plaintext == "" {
-		return "", nil
-	}
-	if c == nil {
-		return "", New(2026, "cipher not initialized", "")
-	}
-	nonce := make([]byte, c.gcm.NonceSize())
+	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", Wrap(2027, "generate nonce failed", err)
+		return "", Wrap(2003, "生成随机 nonce 失败", err)
 	}
-	ct := c.gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	return base64.StdEncoding.EncodeToString(ct), nil
+	sealed := gcm.Seal(nonce, nonce, []byte(plain), nil)
+	return base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// Decrypt 反向：base64 → 明文；空串返回空串。
-func (c *Cipher) Decrypt(b64 string) (string, error) {
-	if b64 == "" {
-		return "", nil
-	}
-	if c == nil {
-		return "", New(2026, "cipher not initialized", "")
-	}
-	raw, err := base64.StdEncoding.DecodeString(b64)
+// Decrypt 解 Encrypt 的输出；密钥错误或数据被篡改时返回错误。
+func Decrypt(masterKeyB64, sealedB64 string) (string, error) {
+	key, err := base64.StdEncoding.DecodeString(masterKeyB64)
 	if err != nil {
-		return "", Wrap(2028, "invalid base64 ciphertext", err)
+		return "", New(2002, "主密钥格式不正确", "")
 	}
-	ns := c.gcm.NonceSize()
-	if len(raw) < ns {
-		return "", New(2029, "ciphertext too short", "")
-	}
-	nonce, ct := raw[:ns], raw[ns:]
-	pt, err := c.gcm.Open(nil, nonce, ct, nil)
+	raw, err := base64.StdEncoding.DecodeString(sealedB64)
 	if err != nil {
-		return "", Wrap(2029, "decrypt failed (wrong key or tampering)", err)
+		return "", New(2004, "密文格式不正确", "")
 	}
-	return string(pt), nil
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", Wrap(2002, "主密钥长度不正确", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", Wrap(2002, "初始化加密器失败", err)
+	}
+	if len(raw) < gcm.NonceSize() {
+		return "", New(2004, "密文长度不足", "")
+	}
+	plain, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
+	if err != nil {
+		return "", Wrap(2005, "解密失败，密文与主密钥不匹配", err)
+	}
+	return string(plain), nil
 }
-
-// ErrCipherNotInit 哨兵错误，便于 service 层判断是否需要退化为明文（用户未配密钥时）。
-var ErrCipherNotInit = errors.New("cipher not initialized")

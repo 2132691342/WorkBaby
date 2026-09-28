@@ -1,91 +1,64 @@
-import { errorMessage } from '@/utils/error'
+import axios from 'axios'
+import type { Resp } from '../types/api'
 
-/**
- * HTTP API 层（双主机，docs/DEVELOPMENT.md）。
- *
- * <p>业务 API 走 gin HTTP（127.0.0.1 随机端口）；端口由 `app:ready` 注入并缓存到 localStorage。
- * 统一响应 `{code, message, data}`：code=0 返回 data，非 0 抛 Error(message)。
- */
-const PORT_KEY = 'wb.serverPort'
+// 端口由 app:ready 注入；开发模式下由 vite 代理补齐。
+let baseURL = ''
 
-/** 后端 gin 监听的 origin（不含 /api/v1 前缀）。 */
-let origin = ''
+export function setBaseURL(port: number) {
+  baseURL = `http://127.0.0.1:${port}/api/v1`
+}
 
-/** 端口注入入口（App.vue 收到 app:ready 后调用）。 */
-export function initApi(port: string | number): void {
-  origin = `http://127.0.0.1:${port}`
+export function getBaseURL() {
+  return baseURL
+}
+
+const http = axios.create({ timeout: 30000 })
+
+http.interceptors.request.use((cfg) => {
+  if (baseURL && !cfg.url?.startsWith('http')) {
+    cfg.baseURL = baseURL
+  }
+  return cfg
+})
+
+export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
   try {
-    localStorage.setItem(PORT_KEY, String(port))
-  } catch {
-    // ignore: 非安全上下文可能不可写
+    const res = await http.get<Resp<T>>(url, { params })
+    return unwrap(res.data)
+  } catch (e) {
+    throw humanize(e)
   }
 }
 
-/** 惰性取 origin；未初始化时尝试从 localStorage 恢复。 */
-function getOrigin(): string {
-  if (origin) return origin
+export async function post<T>(url: string, body?: unknown): Promise<T> {
   try {
-    const p = localStorage.getItem(PORT_KEY)
-    if (p) origin = `http://127.0.0.1:${p}`
-  } catch {
-    // ignore
+    const res = await http.post<Resp<T>>(url, body)
+    return unwrap(res.data)
+  } catch (e) {
+    throw humanize(e)
   }
-  return origin
 }
 
-/** 当前端口（调试/展示用）；未初始化返回 0。 */
-export function getServerPort(): number {
-  const m = /^http:\/\/127\.0\.0\.1:(\d+)$/.exec(getOrigin())
-  return m ? Number(m[1]) : 0
-}
-
-/**
- * SSE 等非 fetch 通道的基础地址（含 /api/v1）。
- * 与 fetch 通道同源同前缀，避免两侧拼接规则漂移。
- */
-export function getApiBase(): string {
-  const o = getOrigin()
-  return o ? `${o}/api/v1` : ''
-}
-
-async function request<T>(path: string, method: 'GET' | 'POST', body?: unknown): Promise<T> {
-  const b = getOrigin()
-  if (!b) throw new Error('[4000] server not initialized (missing serverPort)')
-  const res = await fetch(b + path, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  })
-  return unwrap<T>(res, path, method)
-}
-
-async function unwrap<T>(res: Response, path: string, method: string): Promise<T> {
-  let payload: { code: number | string; message: string; data: T; details?: string }
-  try {
-    payload = (await res.json()) as typeof payload
-  } catch {
-    // 非 JSON 响应（404 / 路由未命中 / 网关错误）：带上 method+path 便于定位契约漂移
-    throw new Error(`[${res.status}] ${method} ${path} ${res.statusText || 'server error'}`.trim())
+// 浏览器层面的失败（断连/被拦）axios 只会说 Network Error，
+// 不翻成人话，用户连该找谁都不知道。
+function humanize(e: unknown): Error {
+  if (e && typeof e === 'object' && 'isAxiosError' in e) {
+    const err = e as unknown as { response?: { status: number }; code?: string; message: string }
+    if (err.response) {
+      return new Error(`本地服务返回了异常状态 ${err.response.status}`)
+    }
+    if (err.code === 'ECONNABORTED') {
+      return new Error('本地服务长时间没有响应，请重试一次')
+    }
+    return new Error(`连不上本地服务（${getBaseURL() || '尚未握手'}）。请检查是否残留了旧版进程，或代理软件拦截了本机回环地址`)
   }
-  // code 兼容数字 0 与字符串 "0"（旧契约）
-  const ok = payload.code === 0 || payload.code === '0'
-  if (!ok) {
-    const e = new Error(payload.message || 'operation failed')
-    ;(e as { code?: number }).code = Number(payload.code)
-    throw e
-  }
+  return e instanceof Error ? e : new Error(String(e))
+}
+
+function unwrap<T>(payload: Resp<T>): T {
+  if (!payload) throw new Error('后端没有返回数据')
+  if (payload.code !== 0) throw new Error(payload.message || '请求失败')
   return payload.data
 }
 
-/** GET 请求（query 直接拼在 path 上）。 */
-export async function apiGet<T>(path: string): Promise<T> {
-  return request<T>(path, 'GET')
-}
-
-/** POST 请求；body 可省略（无参提交）。 */
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  return request<T>(path, 'POST', body)
-}
-
-/** 与旧 utils/error 兼容的导出。 */
-export { errorMessage }
+export default http

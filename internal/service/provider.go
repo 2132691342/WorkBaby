@@ -2,294 +2,327 @@ package service
 
 import (
 	"context"
-	"slices"
+	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"WorkBaby/internal/domain"
 	"WorkBaby/internal/llm"
+	"WorkBaby/internal/llm/factory"
 	"WorkBaby/internal/pkg"
-	"WorkBaby/internal/repo"
 )
 
-// ProviderService LLM Provider 业务编排。
+// ProviderService 管理模型服务配置并负责构造上游适配器。
 type ProviderService struct {
-	r      *repo.AiProviderRepo
-	cipher *pkg.Cipher
+	env *Env
 }
 
-func NewProviderService(r *repo.AiProviderRepo, cipher *pkg.Cipher) *ProviderService {
-	return &ProviderService{r: r, cipher: cipher}
-}
+// NewProviderService 构造模型服务。
+func NewProviderService(env *Env) *ProviderService { return &ProviderService{env: env} }
 
-func maskAPIKey(k string) string {
-	k = strings.TrimSpace(k)
-	if k == "" {
-		return ""
-	}
-	if len([]byte(k)) <= 8 {
-		return "****"
-	}
-	return k[:4] + "****" + k[len([]byte(k))-4:]
-}
-
-// encryptAPIKey 用于 Create/Update 写入前加密；cipher 为空时透传空字符串。
-func (s *ProviderService) encryptAPIKey(plain string) (string, error) {
-	if plain == "" {
-		return "", nil
-	}
-	if s.cipher == nil {
-		return plain, nil // 极端兜底：未初始化（不应发生，handler 已注）
-	}
-	return s.cipher.Encrypt(plain)
-}
-
-// decryptAPIKey 用于内部 Build Registry 时把已加密的 apiKey 还原出来。
-func (s *ProviderService) decryptAPIKey(ct string) (string, error) {
-	if ct == "" {
-		return "", nil
-	}
-	if s.cipher == nil {
-		// 兼容：未启用 cipher 时（如手工 log dump）明文回退
-		return ct, nil
-	}
-	return s.cipher.Decrypt(ct)
-}
-
-// DecryptAPIKey 解密 API Key；导出给 LLM Registry 构造 Provider 时用。
-func (s *ProviderService) DecryptAPIKey(ct string) (string, error) { return s.decryptAPIKey(ct) }
-
-func (s *ProviderService) toRESP(p *domain.AiProviderDO) domain.AiProviderRESP {
-	return domain.AiProviderRESP{
-		ID:              p.ID,
-		Name:            p.Name,
-		Kind:            p.Kind,
-		APIKeyMasked:    maskAPIKey(decryptForMask(p.APIKey, s.cipher)),
-		BaseURL:         p.BaseURL,
-		Model:           p.Model,
-		Alias:           p.Alias,
-		Tier:            domain.NormalizeTier(p.Tier),
-		Enabled:         p.Enabled,
-		ContextWindow:   p.ContextWindow,
-		MaxOutputTokens: p.MaxOutputTokens,
-		CompressRatio:   p.CompressRatio,
-		Temperature:     p.Temperature,
-		TopP:            p.TopP,
-		ThinkingEffort:  p.ThinkingEffort,
-		ThinkingStyle:   p.ThinkingStyle,
-		// 解析后的方言：自动探测的结果要让用户看得见，否则「为什么没开思考」无从排查。
-		ThinkingStyleResolved: string(llm.ResolveThinkingStyle(p.ThinkingStyle, p.BaseURL, p.Model)),
-		SupportsToolCall:      p.SupportsToolCall,
-		SupportsVision:        p.SupportsVision,
-		SupportsReasoning:     p.SupportsReasoning,
-		ToolCallEffective:     p.SupportsToolCallEffective(),
-		VisionEffective:       p.SupportsVisionEffective(),
-		ReasoningEffective:    p.SupportsReasoningEffective(),
-		CapabilitiesJSON:      p.CapabilitiesJSON,
-		PricingJSON:           p.PricingJSON,
-		CreatedAt:             p.CreatedAt,
-		UpdatedAt:             p.UpdatedAt,
-	}
-}
-
-// decryptForMask 仅用于 RESP 的 apiKeyMasked 字段；解密失败回退原始字符串再 mask。
-func decryptForMask(ct string, c *pkg.Cipher) string {
-	if c == nil || ct == "" {
-		return ct
-	}
-	pt, err := c.Decrypt(ct)
+// List 列出模型服务，不返回密钥。
+func (p *ProviderService) List() ([]domain.ProviderVO, error) {
+	list, err := p.env.Repo.ListProviders()
 	if err != nil {
-		return ct
+		return nil, err
 	}
-	return pt
+	out := make([]domain.ProviderVO, 0, len(list))
+	for i := range list {
+		out = append(out, providerVO(&list[i], parseModels(list[i].Models)))
+	}
+	return out, nil
 }
 
-func validateREQ(req *domain.AiProviderREQ) error {
+// Upsert 新增或更新；密钥用 AES-GCM 加密后落库。
+func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.ProviderVO, error) {
 	if req.Name == "" {
-		return pkg.New(3010, "provider name is required", "")
+		return nil, pkg.New(3109, "请给这个服务起个名字", "")
 	}
-	if req.Kind == "" {
-		req.Kind = domain.ProviderKindOpenAI
+	switch req.API {
+	case domain.APIOpenAI, domain.APIAnthropic, domain.APIOllama:
+	default:
+		// 测试注入的假实现也放行，方便集成测试不联网跑通全链路。
+		if !factory.HasOverride(req.API) {
+			return nil, pkg.New(3108, "不支持的模型服务类型", req.API)
+		}
 	}
-	// 防御性校验：拒绝前端传入后端不支持的 kind（AGENTS.md 反模式「臆造 API 特性」）。
-	// kind 在 internal/domain/ai_provider.go AllProviderKinds 定义；registry.buildOne 失败会让 Provider 永久 unready。
-	if !slices.Contains(domain.AllProviderKinds, req.Kind) {
-		return pkg.New(3012, "unsupported provider kind", string(req.Kind))
-	}
-	if req.Model == "" {
-		return pkg.New(3011, "provider model is required", "")
-	}
-	return nil
-}
 
-// Create 新建 Provider：APIKey 入库前加密。
-func (s *ProviderService) Create(ctx context.Context, req *domain.AiProviderREQ) (*domain.AiProviderRESP, error) {
-	if err := validateREQ(req); err != nil {
-		return nil, err
+	d := &domain.ProviderDO{
+		ID:      req.ID,
+		Name:    req.Name,
+		API:     req.API,
+		BaseURL: req.BaseURL,
+		Enabled: true,
 	}
-	ct, err := s.encryptAPIKey(req.APIKey)
-	if err != nil {
-		return nil, pkg.Wrap(2028, "encrypt api key failed", err)
-	}
-	p := &domain.AiProviderDO{
-		ID:                pkg.NewID(domain.IDProvider),
-		Name:              req.Name,
-		Kind:              req.Kind,
-		APIKey:            ct,
-		BaseURL:           req.BaseURL,
-		Model:             req.Model,
-		Alias:             req.Alias,
-		Tier:              domain.NormalizeTier(req.Tier),
-		Enabled:           req.Enabled == nil || *req.Enabled,
-		ContextWindow:     req.ContextWindow,
-		MaxOutputTokens:   req.MaxOutputTokens,
-		CompressRatio:     orDefault(req.CompressRatio, defaultCompressionRatio),
-		Temperature:       req.Temperature,
-		TopP:              req.TopP,
-		ThinkingEffort:    req.ThinkingEffort,
-		ThinkingStyle:     string(llm.ParseThinkingStyle(req.ThinkingStyle)),
-		SupportsToolCall:  req.SupportsToolCall,
-		SupportsVision:    req.SupportsVision,
-		SupportsReasoning: req.SupportsReasoning,
-		CapabilitiesJSON:  req.CapabilitiesJSON,
-		PricingJSON:       req.PricingJSON,
-	}
-	if err := s.r.Create(ctx, p); err != nil {
-		return nil, err
-	}
-	r := s.toRESP(p)
-	return &r, nil
-}
-
-// Update 更新 Provider：APIKey 若非空则重新加密后覆盖；空则保留原值。
-func (s *ProviderService) Update(ctx context.Context, id string, req *domain.AiProviderREQ) (*domain.AiProviderRESP, error) {
-	p, err := s.r.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if req.Name != "" {
-		p.Name = req.Name
-	}
-	if req.Kind != "" {
-		p.Kind = req.Kind
+	if req.ID == "" {
+		d.ID = pkg.NewID(domain.PrefixProvider)
+	} else {
+		old, err := p.env.Repo.GetProvider(req.ID)
+		if err != nil {
+			return nil, err
+		}
+		d.Enabled = old.Enabled
+		d.IsDefault = old.IsDefault
+		d.Models = old.Models
+		if req.APIKey == "" {
+			d.APIKeyEnc = old.APIKeyEnc
+		}
 	}
 	if req.APIKey != "" {
-		ct, eerr := s.encryptAPIKey(req.APIKey)
-		if eerr != nil {
-			return nil, pkg.Wrap(2028, "encrypt api key failed", eerr)
+		enc, err := pkg.Encrypt(p.env.Cfg.MasterKey, req.APIKey)
+		if err != nil {
+			return nil, err
 		}
-		p.APIKey = ct
+		d.APIKeyEnc = enc
 	}
-	p.BaseURL = req.BaseURL
-	if req.Model != "" {
-		p.Model = req.Model
+	if len(req.Models) > 0 {
+		raw, _ := json.Marshal(req.Models)
+		d.Models = string(raw)
 	}
-	p.Alias = req.Alias
-	if req.Tier != "" {
-		p.Tier = domain.NormalizeTier(req.Tier)
-	}
-	if req.Enabled != nil {
-		p.Enabled = *req.Enabled
-	}
-	if req.ContextWindow > 0 {
-		p.ContextWindow = req.ContextWindow
-	}
-	if req.CompressRatio > 0 {
-		p.CompressRatio = req.CompressRatio
-	}
-	p.Temperature = req.Temperature
-	p.TopP = req.TopP
-	p.ThinkingEffort = req.ThinkingEffort
-	// 思维方言与能力三态允许显式清空回落到自动判定，故不做非零判断
-	p.ThinkingStyle = string(llm.ParseThinkingStyle(req.ThinkingStyle))
-	p.SupportsToolCall = req.SupportsToolCall
-	p.SupportsVision = req.SupportsVision
-	p.SupportsReasoning = req.SupportsReasoning
-	if req.CapabilitiesJSON != "" {
-		p.CapabilitiesJSON = req.CapabilitiesJSON
-	}
-	if req.PricingJSON != "" {
-		p.PricingJSON = req.PricingJSON
-	}
-	if err := s.r.Update(ctx, p); err != nil {
+	if err := p.env.Repo.UpsertProvider(d); err != nil {
 		return nil, err
 	}
-	r := s.toRESP(p)
-	return &r, nil
+
+	// 第一个服务自动成为默认，避免用户配完还要再点一次。
+	all, err := p.env.Repo.ListProviders()
+	if err == nil && len(all) == 1 {
+		_ = p.SetDefault(d.ID)
+		d.IsDefault = true
+	}
+	vo := providerVO(d, parseModels(d.Models))
+	return &vo, nil
 }
 
-func (s *ProviderService) Delete(ctx context.Context, id string) error {
-	return s.r.Delete(ctx, id)
-}
+// Delete 删除模型服务。
+func (p *ProviderService) Delete(id string) error { return p.env.Repo.DeleteProvider(id) }
 
-func (s *ProviderService) Get(ctx context.Context, id string) (*domain.AiProviderRESP, error) {
-	p, err := s.r.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
+// SetDefault 设为默认；同时写入设置便于会话缺省继承。
+func (p *ProviderService) SetDefault(id string) error {
+	if err := p.env.Repo.ClearDefault(); err != nil {
+		return err
 	}
-	r := s.toRESP(p)
-	return &r, nil
-}
-
-func (s *ProviderService) List(ctx context.Context) ([]domain.AiProviderRESP, error) {
-	ps, err := s.r.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]domain.AiProviderRESP, 0, len(ps))
-	for i := range ps {
-		out = append(out, s.toRESP(&ps[i]))
-	}
-	return out, nil
-}
-
-// ListAvailable 聊天模型选择器（只列 enabled）。
-func (s *ProviderService) ListAvailable(ctx context.Context) ([]domain.AvailableModelRESP, error) {
-	ps, err := s.r.ListEnabled(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]domain.AvailableModelRESP, 0, len(ps))
-	for _, p := range ps {
-		out = append(out, domain.AvailableModelRESP{
-			ID:              p.ID,
-			Name:            p.Name,
-			Kind:            p.Kind,
-			Model:           p.Model,
-			Alias:           p.Alias,
-			Tier:            p.Tier,
-			Enabled:         p.Enabled,
-			ContextWindow:   p.ContextWindow,
-			MaxOutputTokens: p.MaxOutputTokens,
-			CompressRatio:   p.CompressRatio,
-			Temperature:     p.Temperature,
-			ThinkingEffort:  p.ThinkingEffort,
-			ThinkingStyle:   p.ThinkingStyle,
-			ToolCall:        p.SupportsToolCallEffective(),
-			Vision:          p.SupportsVisionEffective(),
-			Reasoning:       p.SupportsReasoningEffective(),
-		})
-	}
-	return out, nil
-}
-
-// TestConnect 占位：当前只校验字段完整性。
-func (s *ProviderService) TestConnect(ctx context.Context, id string) error {
-	p, err := s.r.GetByID(ctx, id)
+	d, err := p.env.Repo.GetProvider(id)
 	if err != nil {
 		return err
 	}
-	if p.BaseURL == "" || p.Model == "" {
-		return domain.ErrProviderInvalid
+	d.IsDefault = true
+	if err := p.env.Repo.UpsertProvider(d); err != nil {
+		return err
 	}
-	if p.Kind != domain.ProviderKindOllama && p.APIKey == "" {
-		return domain.ErrProviderInvalid
-	}
-	return nil
+	return p.env.Repo.SetSetting(domain.SettingDefaultProvider, id)
 }
 
-func orDefault(v, d float64) float64 {
-	if v <= 0 {
-		return d
+// Test 连通测试：发一条极短请求，只关心能不能通。
+func (p *ProviderService) Test(id string) (*domain.TestProviderRESP, error) {
+	d, err := p.env.Repo.GetProvider(id)
+	if err != nil {
+		return nil, err
 	}
-	return v
+	streamer, model, err := p.build(d, "")
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	events, err := streamer.Stream(ctx, llm.Request{
+		Model:    model,
+		System:   "你是一个连通性测试助手。",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "回复 OK"}},
+	})
+	if err != nil {
+		return &domain.TestProviderRESP{OK: false, Model: model, Detail: err.Error()}, nil
+	}
+	ok := false
+	for ev := range events {
+		if ev.Type == llm.EventDelta || ev.Type == llm.EventDone {
+			ok = true
+		}
+		if ev.Type == llm.EventError && ev.Err != nil {
+			return &domain.TestProviderRESP{OK: false, Model: model, Detail: ev.Err.Error()}, nil
+		}
+	}
+	return &domain.TestProviderRESP{OK: ok, Model: model, Detail: "连通正常"}, nil
+}
+
+// Models 拉取上游模型列表。
+func (p *ProviderService) Models(id string) ([]string, error) {
+	d, err := p.env.Repo.GetProvider(id)
+	if err != nil {
+		return nil, err
+	}
+	key, err := p.keyOf(d)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := modelsEndpoint(d)
+	if endpoint == "" {
+		return parseModels(d.Models), nil
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, pkg.Wrap(3103, "构造模型列表请求失败", err)
+	}
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	if d.API == domain.APIAnthropic {
+		req.Header.Set("x-api-key", key)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, pkg.Wrap(3103, "拉取模型列表失败", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 400 {
+		return nil, pkg.New(3103, "拉取模型列表失败", strings.TrimSpace(string(raw)))
+	}
+	var payload struct {
+		Data  []struct{ ID string `json:"id"` }     `json:"data"`
+		Models []struct{ Name string `json:"name"` } `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return parseModels(d.Models), nil
+	}
+	out := []string{}
+	for _, m := range payload.Data {
+		if m.ID != "" {
+			out = append(out, m.ID)
+		}
+	}
+	for _, m := range payload.Models {
+		if m.Name != "" {
+			out = append(out, m.Name)
+		}
+	}
+	if len(out) == 0 {
+		return parseModels(d.Models), nil
+	}
+	return out, nil
+}
+
+// Streamer 按会话配置构造适配器；缺省回落到默认服务。
+func (p *ProviderService) Streamer(providerID, model string) (llm.Streamer, string, error) {
+	d, err := p.pick(providerID)
+	if err != nil {
+		return nil, "", err
+	}
+	return p.build(d, model)
+}
+
+// pick 取指定服务，或默认的那个。
+func (p *ProviderService) pick(providerID string) (*domain.ProviderDO, error) {
+	if providerID != "" {
+		return p.env.Repo.GetProvider(providerID)
+	}
+	list, err := p.env.Repo.ListProviders()
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		if list[i].IsDefault && list[i].Enabled {
+			return &list[i], nil
+		}
+	}
+	for i := range list {
+		if list[i].Enabled {
+			return &list[i], nil
+		}
+	}
+	return nil, domain.ErrNoProvider
+}
+
+// build 解密密钥并构造适配器；模型缺省取该服务已知的第一个。
+func (p *ProviderService) build(d *domain.ProviderDO, model string) (llm.Streamer, string, error) {
+	key, err := p.keyOf(d)
+	if err != nil {
+		return nil, "", err
+	}
+	if model == "" {
+		if ms := parseModels(d.Models); len(ms) > 0 {
+			model = ms[0]
+		}
+	}
+	if model == "" {
+		model = defaultModelOf(d.API)
+	}
+	streamer, err := factory.NewStreamer(llm.ClientConfig{
+		API: d.API, BaseURL: d.BaseURL, APIKey: key, Model: model,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return streamer, model, nil
+}
+
+// keyOf 解密密钥；Ollama 通常不需要密钥。
+func (p *ProviderService) keyOf(d *domain.ProviderDO) (string, error) {
+	if d.APIKeyEnc == "" {
+		return "", nil
+	}
+	return pkg.Decrypt(p.env.Cfg.MasterKey, d.APIKeyEnc)
+}
+
+func modelsEndpoint(d *domain.ProviderDO) string {
+	base := strings.TrimRight(d.BaseURL, "/")
+	switch d.API {
+	case domain.APIOllama:
+		if base == "" {
+			base = "http://127.0.0.1:11434"
+		}
+		return base + "/api/tags"
+	case domain.APIAnthropic:
+		if base == "" {
+			base = "https://api.anthropic.com"
+		}
+		return base + "/v1/models"
+	default:
+		if base == "" {
+			base = "https://api.openai.com/v1"
+		}
+		return base + "/models"
+	}
+}
+
+func defaultModelOf(api string) string {
+	switch api {
+	case domain.APIAnthropic:
+		return "claude-sonnet-4-20250514"
+	case domain.APIOllama:
+		return "qwen2.5:7b"
+	default:
+		return "gpt-4o-mini"
+	}
+}
+
+func providerVO(d *domain.ProviderDO, models []string) domain.ProviderVO {
+	return domain.ProviderVO{
+		ID: d.ID, Name: d.Name, API: d.API, BaseURL: d.BaseURL,
+		HasKey: d.APIKeyEnc != "", Models: models, IsDefault: d.IsDefault,
+		Enabled: d.Enabled, CreatedAt: d.CreatedAt,
+	}
+}
+
+func parseModels(raw string) []string {
+	if raw == "" {
+		return []string{}
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return []string{}
+	}
+	return out
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

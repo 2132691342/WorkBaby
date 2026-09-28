@@ -1,38 +1,63 @@
-// Package domain 是业务聚合根：每个聚合根一个文件，含 DO/DTO/REQ/VO/RESP/枚举/常量/错误变量。
-// 约束：不 import 任何上层（仅可 import pkg）；跨边界时间字段一律 int64 毫秒；
-// 枚举常量集中声明；错误变量以 Err* 命名。
 package domain
 
-// ID 前缀常量（ULID 前缀 SCREAMING_SNAKE）；上限 16 个字符，列存 64。
+// 主键前缀：ULID 带前缀便于日志与排障时一眼看出实体类别。
 const (
-	IDProvider      = "PROVIDER"
-	IDSession       = "SESSION"
-	IDMessage       = "MESSAGE"
-	IDMessageBlock  = "BLOCK"
-	IDTodo          = "TODO"
-	IDSystemSetting = "SYS"
-
-	IDSkill          = "SKILL"
-	IDMcpServer      = "MCP"
-	IDKnowledgeDoc   = "DOC"
-	IDKnowledgeChunk = "CHUNK"
-	IDSprite         = "SPRITE"
-	IDFolder         = "FOLDER"
-	IDFile           = "FILE"
-
-	IDAgentProfile = "AGENT"
-	IDUserCommand  = "UCMD"
+	PrefixSession  = "SESSION"
+	PrefixEntry    = "ENTRY"
+	PrefixApproval = "APPROVAL"
+	PrefixProvider = "PROVIDER"
+	PrefixDoc      = "KNDOC"
+	PrefixChunk    = "KNCHUNK"
+	PrefixUsage    = "USAGE"
 )
 
-// LocalUserID 本机单用户固定 ID；与 doc 17 auth §1 一致。
-const LocalUserID = "local"
-
-// DefaultTenant 默认租户；MVP 单租户。
-const DefaultTenant = "default"
-
-// ContractVersion 前端 ↔ 后端 API 契约版本。
-//
-// 前端 `frontend/src/src/api/contract.ts` 的同名常量必须与此一致，
-// 由 `scripts/check-boundaries.ps1` 双写校验；不一致时后端经 `GET /api/v1/meta/contract`
-// 暴露本值，前端启动比对后显式提示，而非静默 404。
+// ContractVersion 前后端契约版本。改动 RESP 字段必须同时改前端 types/api.ts。
 const ContractVersion = 2
+
+// 会话条目类型。
+const EntryTypeMessage = "message"
+
+// 消息角色。
+const (
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+	RoleTool      = "tool"
+)
+
+// 会话权限档：面向新手只有三档，用一句话说明区别。
+const (
+	PermissionAsk      = "ask"       // 改文件与跑命令都问
+	PermissionAutoEdit = "auto_edit" // 改文件不问，跑命令仍问
+	PermissionYolo     = "yolo"      // 全自动
+)
+
+// 上游协议类型：一个 Provider 只是配置行，新增一家服务通常不需要新适配器。
+const (
+	APIOpenAI    = "openai"
+	APIAnthropic = "anthropic"
+	APIOllama    = "ollama"
+)
+
+// 审批状态与放行范围。
+const (
+	ApprovalPending  = "pending"
+	ApprovalApproved = "approved"
+	ApprovalDenied   = "denied"
+
+	ApprovalScopeOnce    = "once"
+	ApprovalScopeSession = "session"
+)
+
+// 知识库文档状态。
+const (
+	DocPending = "pending"
+	DocIndexed = "indexed"
+	DocFailed  = "failed"
+)
+
+// 风险等级，只用于 UI 展示，不改变判定逻辑。
+const (
+	RiskLow    = "low"
+	RiskMedium = "medium"
+	RiskHigh   = "high"
+)
