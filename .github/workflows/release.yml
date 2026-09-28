@@ -8,7 +8,7 @@
 #   4) 上传 build/bin/WorkBaby-amd64-installer.exe 到 GitHub Release，自动生成 release notes
 #
 # 设计取舍：
-#   - 仅 windows-latest：项目目前只面向 Windows amd64（CLAUDE.md / doc/14 一致）。
+#   - 仅 windows-latest：项目目前只面向 Windows amd64。
 #   - 不上传 WorkBaby.exe（无 NSIS 打包）：用户场景是绿色安装；纯 exe 提供给高级用户，
 #     必要时可手动从 Actions artifacts 下载再扩展。
 #   - 缓存 npm + Go modules：~30% 时间节省；缓存键绑 Go 版本避免版本漂移。
@@ -83,7 +83,7 @@ jobs:
         run: |
           # CI 不跑完整测试（timing-sensitive flake 测试在 windows-latest runner 上假阳）——
           # Release 出包质量由 tag 触发（人工审核）+ 编译期检查 + wails build 兜底。
-          # 本地开发跑 ./scripts/test.ps1 -Full 做完整验证（前端类型 + 单测 + 后端测试）。
+          # 本地按 AGENTS.md §4 逐项验证。
           Write-Host '== go vet ./internal/... ==' -ForegroundColor Cyan
           go vet ./internal/...
           if ($LASTEXITCODE -ne 0) { throw "go vet failed" }

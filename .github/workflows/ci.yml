@@ -4,11 +4,9 @@
 # 后端测试 + 依赖方向门禁 + 前端类型与单测，让回归在合并前暴露。
 #
 # 设计取舍：
-#   - 仅 windows-latest：项目只面向 Windows（CLAUDE.md / doc/14 一致）。
-#   - 后端 / 前端拆两个 job：前端 vue-tsc 在 runner 上曾有 npm 子依赖冲突假阳
-#     （ERR_PACKAGE_PATH_NOT_EXPORTED，见 68f248a），隔离后互不拖累；npm ci
-#     严格按 lockfile 安装，规避子依赖漂移。
-#   - go test 传 -short：跳过 timing-sensitive 的 flake 用例（test.ps1 同口径）。
+#   - 仅 windows-latest：项目只面向 Windows。
+#   - 后端 / 前端拆两个 job：两套工具链的失败互不拖累。
+#   - go test 传 -short：跳过 timing-sensitive 的 flake 用例。
 #   - 不编译 main 包：go:embed 依赖 frontend/dist，前端产物留给 wails build（release）。
 
 name: ci

@@ -66,6 +66,7 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 | `internal/tool` | 工具契约 + 注册表 + 11 个内置工具 |
 | `internal/server/routes.go` | 路由注册唯一入口 |
 | `internal/server/sse.go` | SSE Hub：分发 / 重放 / 慢客户端策略 |
+| `tools/check-boundaries` | 依赖方向门禁（实现 §2.2 约束表，跑 `scripts/check-boundaries.ps1`） |
 | `frontend/src/src` | 前端源码（注意双层 src） |
 | `frontend/src/src/themes.css` | 色值与字体的唯一定义处 |
 | `frontend/src/src/wb-ui.css` | 组件基元唯一实现 |

@@ -70,8 +70,9 @@ WorkBaby/
 ├── assets/                       # 内置 Skill / 文档（embed）
 ├── build/                        # 平台资源与产物
 ├── docs/                         # 项目级文档（架构 / 契约 / 开发 / 部署 / 页面）
-├── specs/                        # 功能规格（01-12）
-└── scripts/                      # 构建辅助脚本
+├── specs/                        # 功能规格（01-14）
+├── scripts/                      # 构建辅助脚本（含依赖方向门禁入口）
+└── tools/                        # Go 写的独立门禁工具（check-boundaries）
 ```
 
 **禁止**：
@@ -417,9 +418,14 @@ const (
 ```bash
 go vet ./...
 go test ./internal/...
+powershell -File scripts/check-boundaries.ps1   # 依赖方向（§2.2 约束表的可执行版本）
 cd frontend && npm run build        # 含 vue-tsc 类型检查
 wails build                          # 产物 build/bin/WorkBaby.exe
 ```
+
+`check-boundaries` 用 `go list -json` 读编译器视角的真实 import 关系，逐层比对 §2.2 的
+允许表，并额外检查能力域不回引上层。它不做文本 grep——注释、字符串字面量与构建标签
+分支都会让 grep 得出错误结论。改动包结构或调整依赖后必须跑通。
 
 文档与实现不一致时，**以本文为准**；发现实现跑偏就改实现，不要改本文迁就代码。
 
