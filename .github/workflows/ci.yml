@@ -60,9 +60,11 @@ jobs:
         shell: pwsh
         run: |
           $log = Get-Content test-output.log -ErrorAction SilentlyContinue
-          $bad = $log | Select-String -Pattern 'FAIL|panic:|--- FAIL|Error:|undefined|build failed' -Context 2,3
-          $body = if ($bad) { $bad | Out-String } else { $log | Select-Object -Last 60 | Out-String }
-          "## go test 失败摘要`n``````text`n$body`n```````" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          $bad = $log | Select-String -Pattern '^--- FAIL|^    --- FAIL|^FAIL\s|^panic:|\.go:\d+:' -Context 0,4
+          $body = if ($bad) { $bad | Out-String } else { ($log | Select-Object -Last 40) -join "`n" }
+          $md = "## go test 失败摘要`n`n``````text`n$body`n```````"
+          Set-Content -Path $env:GITHUB_STEP_SUMMARY -Value $md -Encoding utf8
+        continue-on-error: true
 
   frontend:
     name: Frontend (vue-tsc + build)
