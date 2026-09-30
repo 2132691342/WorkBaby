@@ -5,10 +5,12 @@
 package main
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"WorkBaby/internal/api"
+	"WorkBaby/internal/domain"
 )
 
 func TestAwaitStartupOutcomes(t *testing.T) {
@@ -57,4 +59,32 @@ func TestBeforeCloseHidesUnlessQuitting(t *testing.T) {
 	if !a.closeAllowed() {
 		t.Fatal("退出流程中必须放行关闭")
 	}
+}
+
+// 「关闭到托盘」是可关的开关：关掉后关闭就是真退出。
+// 用户关掉后台驻留后发现程序怎么都退不掉，只能去任务管理器，属于设计缺失。
+func TestCloseToTrayRespectsUserChoice(t *testing.T) {
+	t.Run("没装配时按默认收进托盘", func(t *testing.T) {
+		a := NewApp()
+		if !a.closeToTray() {
+			t.Fatal("未装配时按默认行为收进托盘")
+		}
+	})
+
+	t.Run("显式关掉后不再拦截", func(t *testing.T) {
+		a := NewApp()
+		dir := t.TempDir()
+		t.Setenv("WORKBABY_HOME", dir)
+		if err := a.Handler.Startup(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(a.Handler.Shutdown)
+
+		if err := a.Handler.Repo.SetSetting(domain.SettingMinimizeToTray, "false"); err != nil {
+			t.Fatal(err)
+		}
+		if a.closeToTray() {
+			t.Fatal("用户关掉后台驻留后，关闭必须真的退出")
+		}
+	})
 }

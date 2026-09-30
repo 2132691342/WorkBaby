@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"WorkBaby/internal/api"
+	"WorkBaby/internal/domain"
 	"WorkBaby/internal/pkg"
 	"WorkBaby/internal/runtime"
 	"WorkBaby/internal/server"
@@ -123,11 +124,24 @@ func repeatReady(ctx context.Context, port, times int) {
 // 拆出来是为了能单测：真正调用前要碰 Wails 上下文。
 func (a *App) closeAllowed() bool { return a.quitting.Load() }
 
+// closeToTray 报告「关闭按钮」是否收进托盘。用户可以关掉这个行为，
+// 那时关闭就是真的退出——否则关掉后台驻留的人会发现程序怎么都退不掉。
+func (a *App) closeToTray() bool {
+	if a.Handler == nil || a.Handler.Repo == nil {
+		return true
+	}
+	v, err := a.Handler.Repo.GetSetting(domain.SettingMinimizeToTray)
+	if err != nil {
+		return true
+	}
+	return v != "false"
+}
+
 // beforeClose 拦截窗口关闭并收进托盘。
 // 已经在退出流程中时必须放行：Wails 的 Quit() 会先调这个回调，
 // 无条件返回 true 会让「退出」变成空操作，进程留在后台还占着 exe。
 func (a *App) beforeClose(ctx context.Context) bool {
-	if a.closeAllowed() {
+	if a.closeAllowed() || !a.closeToTray() {
 		return false
 	}
 	wruntime.WindowHide(ctx)

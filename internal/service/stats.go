@@ -40,6 +40,10 @@ func (s *SettingsService) Stats(days int) (*domain.StatsRESP, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctxStat, err := s.env.Repo.ContextUsage(since)
+	if err != nil {
+		return nil, err
+	}
 
 	byDay := make(map[string]repo.UsageStat, len(daily))
 	out := &domain.StatsRESP{Days: days, Daily: make([]domain.StatsDailyVO, 0, days)}
@@ -47,6 +51,7 @@ func (s *SettingsService) Stats(days int) (*domain.StatsRESP, error) {
 		byDay[d.Day] = d
 		out.Totals.Input += d.Input
 		out.Totals.Output += d.Output
+		out.Totals.Cached += d.Cached
 		out.Totals.Total += d.Total
 		out.Totals.Calls += d.Calls
 		out.Totals.LatencyMs += d.LatencyMs
@@ -56,12 +61,18 @@ func (s *SettingsService) Stats(days int) (*domain.StatsRESP, error) {
 		day := since.AddDate(0, 0, i).Format("2006-01-02")
 		d := byDay[day]
 		out.Daily = append(out.Daily, domain.StatsDailyVO{
-			Date: day, Input: d.Input, Output: d.Output, Total: d.Total,
+			Date: day, Input: d.Input, Output: d.Output, Cached: d.Cached, Total: d.Total,
 		})
 	}
 	if out.Totals.Calls > 0 {
 		out.Totals.AvgLatency = out.Totals.LatencyMs / int64(out.Totals.Calls)
 	}
+	// 命中率按总输入算，不按天平均：某天没命中会把整段的均值拉低，读不出真实水平。
+	if out.Totals.Input > 0 {
+		out.Totals.CacheHitRate = float64(out.Totals.Cached) / float64(out.Totals.Input)
+	}
+	out.Totals.AvgContext = ctxStat.Avg
+	out.Totals.PeakContext = ctxStat.Peak
 	out.Totals.Sessions = int(sessions)
 
 	out.Models = make([]domain.StatsModelVO, 0, len(models))
@@ -69,7 +80,10 @@ func (s *SettingsService) Stats(days int) (*domain.StatsRESP, error) {
 		if m.Model == "" {
 			continue
 		}
-		out.Models = append(out.Models, domain.StatsModelVO{Model: m.Model, Total: m.Total, Calls: m.Calls})
+		out.Models = append(out.Models, domain.StatsModelVO{
+			Model: m.Model, Total: m.Total, Calls: m.Calls,
+			Input: m.Input, Output: m.Output, Cached: m.Cached,
+		})
 	}
 	if out.Sessions == nil {
 		out.Sessions = []domain.StatsSessionVO{}

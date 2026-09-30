@@ -352,6 +352,7 @@ const (
 | 不变量 | 锁死原因 |
 |---|---|
 | 工具结果严格按调用顺序回填 | `assistant(tool_calls)` 与 `tool` 配对完整，错位上游 400 |
+| 事件出口必须串行化 | 并行工具各自在 goroutine 里 emit，同步调用只继承调用方 goroutine；不加锁就是并发改同一份落库位点，assistant 声明撞主键后整条丢失 |
 | 被截断轮的 tool_calls 一律不执行 | 半个 JSON 调用执行出去比不执行更危险 |
 | 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
 | CleanForProtocol 输出必须可直发上游 | 空消息/孤儿结果/未配对调用都在这一层兜底 |
@@ -399,16 +400,21 @@ const (
 
 | 文件 | 覆盖的链路 |
 |---|---|
-| `app_test.go` | 启动等待（慢装配不误判 / 失败 / 超时）、关闭与退出的放行判据 |
+| `app_test.go` | 启动等待（慢装配不误判 / 失败 / 超时）、关闭与退出的放行判据、关闭到托盘开关 |
 | `api/startup_test.go` | 干净环境完整装配 + 真实 HTTP 栈端点 + 跨源预检 |
+| `api/chat_stream_test.go` | 真实 HTTP 栈下的 SSE 送达（start→delta→done、seq 递增）与重放对账 |
 | `service/agent_test.go` | 建会话→发送→落库；审批闭环与会话级放行 |
-| `agent/loop_test.go` | 多轮回填顺序、并行保序、插话注入、三条收尾路径、重复调用拦截、超预算裁剪 |
+| `service/order_test.go` | 声明先于结果（跨轮 / 单轮 / 同轮并发三态） |
+| `service/system_test.go` | 人设的工作原则与输出风格约束都在位 |
+| `agent/loop_test.go` | 多轮回填顺序、并行保序、插话注入、三条收尾路径、重复调用拦截、超预算裁剪、事件出口串行化 |
 | `agent/compact_test.go` | CleanForProtocol 协议硬约束、切点选择、预算策略、降级截断 |
 | `tool/files_test.go` | 路径穿越拒绝、Unicode 路径规整与找回、写前必读、edit 唯一性与行尾保持 |
 | `skill/skill_test.go` | embed 加载与正文取出、按 id/名字命中与优先级、读写锁配对 |
 | `knowledge/knowledge_test.go` | 建索引→检索（含短查询兜底）→删除级联 |
 | `config/config_test.go` | 首次启动自举出配置与主密钥，且重启读回同一把 |
 | `runtime/python_test.go` | 内置归档顶层剥离、解压穿越拒绝 |
+| `runtime/detect_test.go` | 运行时路径解析、解压后探测命中、归档缺失报错带路径 |
+| `domain/modelcap_test.go` | 模型能力命中、未知模型诚实标记、具体规则优先 |
 | `db/db_test.go` | 全部业务表与 FTS5 虚表建出 |
 
 ---

@@ -25,6 +25,21 @@ func toLLMMessages(entries []domain.EntryDO) []llm.Message {
 	return out
 }
 
+// usageJSONOf 把内核用量序列化成条目的 usage_json；消息底部的 token 数读它。
+func usageJSONOf(u *llm.Usage, contextTokens int) string {
+	if u == nil {
+		return ""
+	}
+	raw, err := json.Marshal(domain.UsageVO{
+		Input: u.Input, Output: u.Output, Cached: u.Cached,
+		Total: u.Total, Context: contextTokens, LatencyMs: u.LatencyMs,
+	})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
 // toMessageVO 把条目转成前端渲染用的消息。
 func toMessageVO(e *domain.EntryDO) domain.MessageVO {
 	var p domain.MessagePayload

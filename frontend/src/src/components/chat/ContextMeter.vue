@@ -3,17 +3,25 @@
 import { computed } from 'vue'
 import { fmtCount } from '../../utils/num'
 
-const props = defineProps<{ used: number; win: number; ratio: number }>()
+const props = defineProps<{ used: number; win: number; ratio: number; known?: boolean }>()
 
-// ratio 为 0 表示这个模型没告诉我们窗口多大，这时不猜、不画比例。
-const known = computed(() => props.ratio > 0 && props.win > 0)
+// 后端明确告诉我们窗口是估算值时不画比例条：一条凭空的进度条
+// 比没有更糟，用户会以为这个数字是准的。
+const exact = computed(() => props.known !== false)
+const known = computed(() => exact.value && props.ratio > 0 && props.win > 0)
 const level = computed(() => (props.ratio >= 95 ? 'is-danger' : props.ratio >= 80 ? 'is-warn' : ''))
-const reading = computed(() => (known.value ? `${fmtCount(props.used)} / ${fmtCount(props.win)}` : '—'))
-const tip = '这轮对话已经占了多少模型窗口，超了会自动整理较早的内容'
+const reading = computed(() => {
+  if (!known.value) return exact.value ? '—' : '窗口未知'
+  return `${fmtCount(props.used)} / ${fmtCount(props.win)}`
+})
+const tip = computed(() => {
+  if (!exact.value) return '本地没有这个模型的资料，上下文按估算值显示；可在「设置 · 行为」里手填真实窗口'
+  return '这轮对话已经占了多少模型窗口，超了会自动整理较早的内容'
+})
 </script>
 
 <template>
-  <span class="ctx-txt" :title="tip">{{ reading }}</span>
+  <span class="ctx-txt" :class="{ 'is-unknown': !known }" :title="tip">{{ reading }}</span>
   <span
     class="ctx-bar"
     :class="[level, { 'is-on': known && ratio > 0 }]"
@@ -33,6 +41,11 @@ const tip = '这轮对话已经占了多少模型窗口，超了会自动整理�
   opacity: 0.55;
   transition: opacity var(--wb-dur) var(--wb-ease);
   white-space: nowrap;
+}
+/* 窗口未知时用虚线感（更淡 + 斜排），让用户一眼分得清「估算」和「实测」 */
+.ctx-txt.is-unknown {
+  opacity: 0.4;
+  font-style: italic;
 }
 .ctx-bar {
   position: absolute;

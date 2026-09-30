@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -256,5 +257,44 @@ func TestLoopCompactsHistoryOverBudget(t *testing.T) {
 	}
 	if streamer.Calls() == 0 {
 		t.Fatal("裁剪后仍应发起请求")
+	}
+}
+
+// 事件出口必须把并发调用串行化：并行工具各自在 goroutine 里发事件，
+// 上层靠「同一时刻只有一个事件在处理」维护落库位点。没有这把锁时，
+// 两个 goroutine 会同时读写同一份状态，assistant 声明因此撞主键、整条丢失。
+func TestEmitSerializesConcurrentTools(t *testing.T) {
+	var inFlight, peak int32
+	streamer := llmtest.New(
+		llm.Message{ToolCalls: []llm.ToolCall{
+			{ID: "a", Name: "par"}, {ID: "b", Name: "par"},
+			{ID: "c", Name: "par"}, {ID: "d", Name: "par"},
+		}},
+		llm.Message{Content: "好了"},
+	)
+	loop := New(Config{
+		Streamer: streamer,
+		Tools:    []tool.Tool{echoTool{name: "par", mode: tool.ExecutionParallel}},
+		Model:    "test",
+		Parallel: 4,
+		Emit: func(Event) {
+			n := atomic.AddInt32(&inFlight, 1)
+			for {
+				old := atomic.LoadInt32(&peak)
+				if n <= old || atomic.CompareAndSwapInt32(&peak, old, n) {
+					break
+				}
+			}
+			// 撑开窗口：没有锁时四个 goroutine 必然同时在飞
+			time.Sleep(2 * time.Millisecond)
+			atomic.AddInt32(&inFlight, -1)
+		},
+	}, nil)
+
+	if _, err := loop.Run(context.Background()); err != nil {
+		t.Fatalf("运行失败: %v", err)
+	}
+	if peak > 1 {
+		t.Fatalf("事件出口同时进入了 %d 个事件，上层落库位点会被读脏", peak)
 	}
 }

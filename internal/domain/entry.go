@@ -43,9 +43,14 @@ type ToolCall struct {
 
 // UsageVO token 与耗时。
 type UsageVO struct {
-	Input     int   `json:"input"`
-	Output    int   `json:"output"`
-	Total     int   `json:"total"`
+	Input  int `json:"input"`
+	Output int `json:"output"`
+	// Cached 是这次输入里命中上游缓存的部分，缓存命中率由它除以 Input 得出。
+	Cached int `json:"cached"`
+	Total  int `json:"total"`
+	// Context 是这一轮发出去时上下文占了多少窗口（系统提示 + 历史消息）。
+	// 用户判断「还能聊多久」靠的是它，不是这一轮本身花了多少。
+	Context   int   `json:"context"`
 	LatencyMs int64 `json:"latency_ms"`
 }
 

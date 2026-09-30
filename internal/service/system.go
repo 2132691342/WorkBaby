@@ -19,7 +19,15 @@ const persona = `你是 WorkBaby，一个能干活的桌面 AI 助手，用户�
 - 先看清再动手：不知道文件在哪就先 ls / find，没读过就别改。
 - 说人话：解释你在做什么，不要甩术语；出错时给一句「下一步可以怎么做」。
 - 一次做一件事：把大任务拆成几步，做完一步说一句进展。
-- 不编造：文件里没有的东西就说没有，不要用想象补齐。`
+- 不编造：文件里没有的东西就说没有，不要用想象补齐。
+
+说话方式（必须遵守）：
+- 不要用 emoji，一条都不要。
+- 不要用「好的！」「当然！」「没问题！」这类客套开场，直接说事。
+- 不要用「作为一个 AI」「希望这些对你有帮助」「还有什么可以帮您的吗」这类套话收尾。
+- 不用「首先 / 其次 / 最后」「综上所述」「总而言之」堆段落，条目多就直接列条目。
+- 有结果就报结果，没结果就报卡在哪，不要用模糊的「应该可以」「大概」。
+- 不确定的事直接说不确定，不要用肯定的语气糊过去。`
 
 // BuildSystem 组装系统提示。工具清单与准则由工具集驱动，换工具时提示词自动跟着变。
 func BuildSystem(env *Env, tools []tool.Tool, workspace string) string {
@@ -95,37 +103,28 @@ func projectDoc(workspace string) string {
 	return ""
 }
 
-// 上下文窗口默认值与常见模型的识别规则。
-const defaultContextWindow = 128000
-
-// 预算缺省值：Reserve 给模型输出留余量，Keep 是裁剪后保留的近期 token 预算。
+// 上下文预算的缺省值。窗口本身来自模型能力目录（domain.ModelCapabilityOf），
+// 这里只管「留多少给输出」和「裁剪后保留多少」这两个策略量。
 const (
 	defaultContextReserve = 16384
 	defaultContextKeep    = 20000
 )
 
-// contextWindowOf 粗判模型上下文窗口，用于计算压缩阈值；认不出来用默认值。
-func contextWindowOf(model string) int {
-	lower := strings.ToLower(model)
-	switch {
-	case strings.Contains(lower, "8k"):
-		return 8192
-	case strings.Contains(lower, "16k"):
-		return 16384
-	case strings.Contains(lower, "32k"):
-		return 32768
-	case strings.Contains(lower, "64k"):
-		return 65536
-	case strings.Contains(lower, "200k"):
-		return 200000
-	case strings.Contains(lower, "1m"):
-		return 1000000
-	default:
-		return defaultContextWindow
+// capabilityOf 取模型能力画像。用户在设置里手填的窗口优先于内置目录——
+// 私有部署与新模型不在目录里时，只有用户自己知道真实数字。
+func (c *ChatService) capabilityOf(model string) domain.ModelCapability {
+	cap := domain.ModelCapabilityOf(model)
+	if raw, err := c.env.Repo.GetSetting(domain.SettingContextWindow); err == nil {
+		if n, e := strconv.Atoi(strings.TrimSpace(raw)); e == nil && n > 0 {
+			cap.ContextWindow = n
+			cap.Known = true
+			cap.Note = ""
+		}
 	}
+	return cap
 }
 
-// budget 把「模型名 + 用户设置」翻译成内核要的三个整数。
+// budget 把「模型能力 + 用户设置」翻译成内核要的三个整数。
 // 内核不读设置表也不认识模型名，压缩策略只在这里一处。
 func (c *ChatService) budget(model string) agent.Budget {
 	reserve := defaultContextReserve
@@ -134,9 +133,15 @@ func (c *ChatService) budget(model string) agent.Budget {
 			reserve = n
 		}
 	}
+	cap := c.capabilityOf(model)
+	if reserve >= cap.ContextWindow {
+		// 留的余量比整个窗口还大时预算恒为负，压缩会退化成什么都不裁。
+		reserve = cap.ContextWindow / 4
+	}
 	return agent.Budget{
-		Window:  contextWindowOf(model),
-		Reserve: reserve,
-		Keep:    defaultContextKeep,
+		Window:      cap.ContextWindow,
+		WindowKnown: cap.Known,
+		Reserve:     reserve,
+		Keep:        defaultContextKeep,
 	}
 }

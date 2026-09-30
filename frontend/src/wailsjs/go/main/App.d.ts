@@ -55,6 +55,10 @@ export function ListSessions(arg1:gin.Context):Promise<void>;
 
 export function ListSkills(arg1:gin.Context):Promise<void>;
 
+export function ListTools(arg1:gin.Context):Promise<void>;
+
+export function ModelCapability(arg1:gin.Context):Promise<void>;
+
 export function OpenDirectoryDialog(arg1:string):Promise<string>;
 
 export function OpenFileDialog(arg1:string,arg2:string):Promise<string>;
@@ -66,6 +70,8 @@ export function Quit(arg1:context.Context):Promise<void>;
 export function ReindexDocs(arg1:gin.Context):Promise<void>;
 
 export function RenameSession(arg1:gin.Context):Promise<void>;
+
+export function RuntimeStatus(arg1:gin.Context):Promise<void>;
 
 export function SearchKnowledge(arg1:gin.Context):Promise<void>;
 
@@ -104,6 +110,8 @@ export function StopRun(arg1:gin.Context):Promise<void>;
 export function TestProvider(arg1:gin.Context):Promise<void>;
 
 export function ToggleSkill(arg1:gin.Context):Promise<void>;
+
+export function ToggleTool(arg1:gin.Context):Promise<void>;
 
 export function UpdateProvider(arg1:gin.Context):Promise<void>;
 

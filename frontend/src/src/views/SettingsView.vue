@@ -1,26 +1,55 @@
 <script setup lang="ts">
-// 设置页：模型服务 / 技能 / 知识库 / 外观，四个板块一个页面。
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+// 设置页：六个板块共用一套「左侧导航 + 右侧内容」的骨架。
+// 每个板块只管自己那块，切换时才懒加载对应数据。
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/common/AppIcon.vue'
 import AppearancePanel from '../components/settings/AppearancePanel.vue'
+import BehaviorPanel from '../components/settings/BehaviorPanel.vue'
 import KnowledgePanel from '../components/settings/KnowledgePanel.vue'
 import ProviderPanel from '../components/settings/ProviderPanel.vue'
 import SkillPanel from '../components/settings/SkillPanel.vue'
+import ToolPanel from '../components/settings/ToolPanel.vue'
 import { useSettingsStore } from '../stores/settings'
 
 const router = useRouter()
+const route = useRoute()
 const settings = useSettingsStore()
-const tab = ref<'providers' | 'skills' | 'knowledge' | 'appearance'>('providers')
 
-const tabs = [
+type TabKey = 'providers' | 'skills' | 'knowledge' | 'tools' | 'appearance' | 'behavior'
+
+// tab 直接反映 URL：设置页支持前进后退，刷新后停在原处。
+const tab = ref<TabKey>('providers')
+
+const tabs: { key: TabKey; name: string; icon: string; title: string; sub: string }[] = [
   { key: 'providers', name: '模型服务', icon: 'cpu', title: '模型服务', sub: '告诉助手用哪家服务、哪个模型' },
   { key: 'skills', name: '技能', icon: 'sparkles', title: '技能', sub: '把「怎么做一件事」写成秘籍，助手会照着做' },
   { key: 'knowledge', name: '知识库', icon: 'book', title: '知识库', sub: '把你的资料放进来，助手回答时会去查' },
-  { key: 'appearance', name: '外观与行为', icon: 'contrast', title: '外观与行为', sub: '主题、执行方式与开机自启' },
-] as const
+  { key: 'tools', name: '工具', icon: 'wrench', title: '工具', sub: '助手现在能干什么、哪些要先问你' },
+  { key: 'appearance', name: '外观', icon: 'contrast', title: '外观', sub: '主题、字体与字号' },
+  { key: 'behavior', name: '行为', icon: 'sliders', title: '行为', sub: '执行方式、后台驻留与工作目录' },
+]
 
 const current = computed(() => tabs.find((t) => t.key === tab.value) || tabs[0])
+
+function readTabFromPath(raw: unknown): TabKey {
+  const key = typeof raw === 'string' ? raw : ''
+  return tabs.some((t) => t.key === key) ? (key as TabKey) : 'providers'
+}
+
+// URL 是唯一真相：进设置页、刷新、前进后退都靠它对齐。
+watch(
+  () => route.params.tab,
+  (raw) => {
+    tab.value = readTabFromPath(raw)
+  },
+  { immediate: true },
+)
+
+function go(key: TabKey) {
+  tab.value = key
+  router.push(`/settings/${key}`)
+}
 
 onMounted(async () => {
   // 引导数据拿不到时不阻塞页面：各面板自己会显示错误态
@@ -49,7 +78,7 @@ onMounted(async () => {
           class="nav-item"
           :class="{ on: tab === t.key }"
           type="button"
-          @click="tab = t.key"
+          @click="go(t.key)"
         >
           <AppIcon :name="t.icon" /> {{ t.name }}
         </button>
@@ -71,7 +100,9 @@ onMounted(async () => {
         <ProviderPanel v-if="tab === 'providers'" />
         <SkillPanel v-else-if="tab === 'skills'" />
         <KnowledgePanel v-else-if="tab === 'knowledge'" />
-        <AppearancePanel v-else />
+        <ToolPanel v-else-if="tab === 'tools'" />
+        <AppearancePanel v-else-if="tab === 'appearance'" />
+        <BehaviorPanel v-else />
       </div>
     </div>
   </div>

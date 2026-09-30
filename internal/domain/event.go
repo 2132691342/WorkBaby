@@ -9,9 +9,13 @@ type TokenUsageDO struct {
 	Model     string `gorm:"size:128" json:"model"`
 	Input     int    `json:"input"`
 	Output    int    `json:"output"`
-	Total     int    `json:"total"`
-	LatencyMs int64  `json:"latency_ms"`
-	CreatedAt int64  `gorm:"autoCreateTime:milli" json:"created_at"`
+	// Cached 命中上游缓存的输入量；和 Input 分开看才知道长对话到底省没省钱。
+	Cached int `json:"cached"`
+	Total  int `json:"total"`
+	// Context 这一轮发出去时上下文占用的窗口量，按轮次看占用是涨还是被整理过。
+	Context  int   `json:"context"`
+	LatencyMs int64 `json:"latency_ms"`
+	CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 }
 
 // TableName 显式指定表名：GORM 会把 DO 后缀复数化成 _dos。
@@ -26,6 +30,7 @@ const (
 	EventChatApproval   = "chat:approval"
 	EventChatCompressed = "chat:compressed"
 	EventChatDone       = "chat:done"
+	EventChatStopped    = "chat:stopped"
 	EventChatError      = "chat:error"
 	EventChatContext    = "chat:context"
 	EventChatGap        = "chat:gap"
@@ -87,10 +92,11 @@ type CompressedData struct {
 
 // ContextData chat:context：每轮广播一次上下文占用，供输入区显示水位。
 type ContextData struct {
-	Used   int `json:"used"`
-	Window int `json:"window"`
-	Ratio  int `json:"ratio"` // 0-100 的整数百分比，前端不必自己算
-	Kept   int `json:"kept"`
+	Used    int  `json:"used"`
+	Window  int  `json:"window"`
+	Ratio   int  `json:"ratio"`   // 0-100 的整数百分比，前端不必自己算
+	Known   bool `json:"known"`   // false 表示窗口是估算值，界面应显示「未知」而不是具体数字
+	Reserve int  `json:"reserve"` // 留给模型输出的余量
 }
 
 // DoneData chat:done。
@@ -104,6 +110,13 @@ type DoneData struct {
 type ErrorData struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+}
+
+// StoppedData chat:stopped：用户点了停止。
+// 单独发这个事件而不是让前端自己改状态：停止可能来自托盘或快捷键，
+// 由后端广播一次权威信号，界面不会出现「后端已停、界面还在转圈」。
+type StoppedData struct {
+	Reason string `json:"reason"`
 }
 
 // GapData chat:gap：重放窗口溢出，前端需拉快照对账。

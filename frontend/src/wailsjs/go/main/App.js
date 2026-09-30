@@ -106,6 +106,14 @@ export function ListSkills(arg1) {
   return window['go']['main']['App']['ListSkills'](arg1);
 }
 
+export function ListTools(arg1) {
+  return window['go']['main']['App']['ListTools'](arg1);
+}
+
+export function ModelCapability(arg1) {
+  return window['go']['main']['App']['ModelCapability'](arg1);
+}
+
 export function OpenDirectoryDialog(arg1) {
   return window['go']['main']['App']['OpenDirectoryDialog'](arg1);
 }
@@ -128,6 +136,10 @@ export function ReindexDocs(arg1) {
 
 export function RenameSession(arg1) {
   return window['go']['main']['App']['RenameSession'](arg1);
+}
+
+export function RuntimeStatus(arg1) {
+  return window['go']['main']['App']['RuntimeStatus'](arg1);
 }
 
 export function SearchKnowledge(arg1) {
@@ -204,6 +216,10 @@ export function TestProvider(arg1) {
 
 export function ToggleSkill(arg1) {
   return window['go']['main']['App']['ToggleSkill'](arg1);
+}
+
+export function ToggleTool(arg1) {
+  return window['go']['main']['App']['ToggleTool'](arg1);
 }
 
 export function UpdateProvider(arg1) {

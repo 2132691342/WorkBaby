@@ -33,9 +33,10 @@ type Gate func(ctx context.Context, call *llm.ToolCall) (blocked bool, reason st
 // Budget 是上下文预算。三个整数由 service 层按模型与设置备好，
 // 内核只负责按预算裁剪，不认识设置表也不认识模型名。
 type Budget struct {
-	Window  int // 模型上下文窗口
-	Reserve int // 给模型输出留的余量
-	Keep    int // 裁剪后保留的近期 token 预算
+	Window      int  // 模型上下文窗口
+	WindowKnown bool // false 表示窗口是估算值，前端应显示「未知」
+	Reserve     int  // 给模型输出留的余量
+	Keep        int  // 裁剪后保留的近期 token 预算
 }
 
 // Result 是一次 run 的产出。
@@ -67,6 +68,7 @@ type Config struct {
 type Loop struct {
 	cfg      Config
 	mu       sync.Mutex
+	emitMu   sync.Mutex
 	msgs     []llm.Message
 	writeMu  sync.Mutex
 	repeated map[string]int
@@ -85,8 +87,15 @@ func New(cfg Config, history []llm.Message) *Loop {
 	return &Loop{cfg: cfg, msgs: msgs, repeated: map[string]int{}}
 }
 
-// emit 是事件出口的唯一实现：同步串行调用，避免并发写出乱序事件。
-func (l *Loop) emit(e Event) { l.cfg.Emit(e) }
+// emit 是事件出口的唯一实现：在这里把并发调用串行化。
+// 并行工具各自在 goroutine 里 emit，同步调用只继承调用方的 goroutine，
+// 不加锁就是 N 个 goroutine 同时进回调——上层正在改的落库位点会被读脏，
+// 出现「两个事件抢同一个条目 id，声明被主键冲突顶掉」这种丢消息的故障。
+func (l *Loop) emit(e Event) {
+	l.emitMu.Lock()
+	defer l.emitMu.Unlock()
+	l.cfg.Emit(e)
+}
 
 // Messages 返回当前累积的消息（含本轮产出），供调用方落库。
 func (l *Loop) Messages() []llm.Message {
@@ -110,8 +119,9 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 			return l.finish(res, StopAborted, nil)
 		}
 		l.compact()
-		l.reportContext()
 		l.drainSteering()
+		// 插话是并进下一轮上下文的，所以占用要在插话之后量，才是真正发出去的那份。
+		ctxTokens := l.reportContext()
 
 		l.emit(Event{Kind: EventTurnStart, Turn: turn})
 
@@ -120,6 +130,7 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 			res.Usage.Input += usage.Input
 			res.Usage.Output += usage.Output
 			res.Usage.Total += usage.Total
+			res.Usage.Cached += usage.Cached
 			res.Usage.LatencyMs += usage.LatencyMs
 		}
 		if err != nil {
@@ -139,7 +150,9 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 		}
 
 		res.Turns = turn
-		l.emit(Event{Kind: EventTurnEnd, Turn: turn})
+		// 本轮的用量随 turn_end 一起给出：落库是 append-only，回头补写做不到，
+		// 消息底部的 token 数只能在这一轮结束时就已经知道。
+		l.emit(Event{Kind: EventTurnEnd, Turn: turn, Usage: usage, ContextTokens: ctxTokens})
 
 		if stop == llm.StopAborted || ctx.Err() != nil {
 			return l.finish(res, StopAborted, nil)
@@ -181,14 +194,19 @@ func (l *Loop) compact() {
 }
 
 // reportContext 每轮广播一次上下文占用：用户靠它判断「还能聊多久、该不该开新对话」。
-func (l *Loop) reportContext() {
+// 返回本次实测值，调用方把它挂到 turn_end 上随消息一起落库。
+func (l *Loop) reportContext() int {
 	snapshot := l.Messages()
+	used := EstimateTokens(l.cfg.System, snapshot)
 	l.emit(Event{
-		Kind:         EventContext,
-		TokensUsed:   EstimateTokens(l.cfg.System, snapshot),
-		TokensWindow: l.cfg.Budget.Window,
-		Messages:     len(snapshot),
+		Kind:          EventContext,
+		TokensUsed:    used,
+		TokensWindow:  l.cfg.Budget.Window,
+		TokensKnown:   l.cfg.Budget.WindowKnown,
+		TokensReserve: l.cfg.Budget.Reserve,
+		Messages:      len(snapshot),
 	})
+	return used
 }
 
 // drainSteering 把轮间插话并进上下文；一次只取一条，连续发三句不会一次糊给模型。

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 聊天主视图：侧栏 + 消息流 + 输入区；没有会话时给引导页。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import * as api from '../api'
 import { useSse } from '../composables/useSse'
 import { useChatStore } from '../stores/chat'
@@ -33,7 +33,11 @@ async function newSession() {
 async function send(text: string, attachments: AttachmentREQ[]) {
   if (!session.currentId) await newSession()
   if (!session.currentId) return
-  await chat.send(session.currentId, text, attachments)
+  const sid = session.currentId
+  const sent = await chat.send(sid, text, attachments)
+  // 发送后立刻回显这条消息：等 chat:done 拉快照才显示的话，
+  // 用户会以为消息没发出去（助手还没回，观感上就是「什么都没发生」）。
+  if (sent?.entry_id) session.echoUserMessage(sent.entry_id, text)
   inputRef.value?.focus()
 }
 
@@ -43,6 +47,16 @@ async function steer(text: string) {
 
 async function stop() {
   if (session.currentId) await chat.stop(session.currentId)
+}
+
+// 收尾后拉权威快照。拉失败必须说出来：静默失败的表现是用户盯着一条
+// 已经结束的旧对话，以为助手没写完，而界面上没有任何地方提示过。
+async function reload() {
+  try {
+    await session.refresh()
+  } catch (e) {
+    chat.notify(`刷新对话失败：${(e as Error)?.message || '稍后重试'}`)
+  }
 }
 
 // /clear：把叶子指回第一条消息，历史保留，聊天从头上重来
@@ -90,15 +104,20 @@ useSse(
         break
       case 'chat:done':
         chat.onDone(env.data)
-        await session.refresh()
+        await reload()
+        break
+      case 'chat:stopped':
+        chat.onStopped()
+        await reload()
         break
       case 'chat:error':
         chat.onError(env.data)
-        await session.refresh()
+        await reload()
         break
       case 'chat:gap':
         chat.onGap()
-        await session.refresh()
+        await chat.syncApprovals(session.currentId || '')
+        await reload()
         break
     }
   },
@@ -112,6 +131,13 @@ onMounted(async () => {
     await session.open(session.list[0].id)
   }
 })
+
+// 切会话必须把流式状态清干净：上一段的正文 / 工具卡 / 审批卡 / 压缩提示
+// 都挂在 chat store 上，不清就会盖在新会话的历史上面。
+watch(
+  () => session.currentId,
+  () => chat.reset(),
+)
 </script>
 
 <template>

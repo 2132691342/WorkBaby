@@ -4,13 +4,16 @@ import type {
   AttachmentREQ,
   BootstrapVO,
   KnowledgeDocVO,
+  ModelCapability,
   ProviderVO,
+  RuntimeInfo,
   SearchHitVO,
   SendMessageRESP,
   SessionDetailVO,
   SessionVO,
   SkillVO,
   StatsRESP,
+  ToolVO,
 } from '../types/api'
 
 export const bootstrap = () => get<BootstrapVO>('/bootstrap')
@@ -78,6 +81,19 @@ export const knowledge = {
 export const settings = {
   all: () => get<Record<string, string>>('/settings'),
   set: (key: string, value: string) => post<boolean>('/settings', { key, value }),
+}
+
+export const tools = {
+  list: () => get<ToolVO[]>('/tools'),
+  toggle: (name: string, enabled: boolean) => post<boolean>(`/tools/${name}/toggle`, { enabled }),
+}
+
+export const models = {
+  capability: (model: string) => get<ModelCapability>(`/models/capability?model=${encodeURIComponent(model)}`),
+}
+
+export const runtime = {
+  status: () => get<RuntimeInfo>('/runtime'),
 }
 
 export const stats = (days: number) => get<StatsRESP>('/stats', { days })

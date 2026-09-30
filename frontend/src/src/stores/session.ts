@@ -34,6 +34,24 @@ export const useSessionStore = defineStore('session', () => {
     if (currentId.value) await open(currentId.value)
   }
 
+  // echoUserMessage 在发送成功后立刻把这条用户消息插到列表末尾。
+  // 用 entry_id 去重：随后的权威快照会把同一条再带回来，
+  // 没有这道去重，屏幕上就会出现两条一模一样的消息。
+  function echoUserMessage(entryId: string, content: string) {
+    if (!entryId) return
+    if (messages.value.some((m) => m.id === entryId)) return
+    messages.value = [
+      ...messages.value,
+      {
+        id: entryId,
+        role: 'user',
+        type: 'message',
+        content,
+        created_at: Date.now(),
+      },
+    ]
+  }
+
   async function remove(id: string) {
     await api.sessions.remove(id)
     if (currentId.value === id) {
@@ -60,5 +78,19 @@ export const useSessionStore = defineStore('session', () => {
     await loadList()
   }
 
-  return { list, currentId, current, messages, loadList, create, open, refresh, remove, rename, setPermission, setModel }
+  return {
+    list,
+    currentId,
+    current,
+    messages,
+    loadList,
+    create,
+    open,
+    refresh,
+    remove,
+    rename,
+    setPermission,
+    setModel,
+    echoUserMessage,
+  }
 })

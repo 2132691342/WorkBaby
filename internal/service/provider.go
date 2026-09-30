@@ -90,6 +90,9 @@ func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.Provider
 	if err == nil && len(all) == 1 {
 		_ = p.SetDefault(d.ID)
 		d.IsDefault = true
+	} else if err == nil {
+		// 非首个服务也要落默认模型：新会话只继承服务时模型名会是空的。
+		_ = p.adoptDefaultModel(d)
 	}
 	vo := providerVO(d, parseModels(d.Models))
 	return &vo, nil
@@ -111,7 +114,25 @@ func (p *ProviderService) SetDefault(id string) error {
 	if err := p.env.Repo.UpsertProvider(d); err != nil {
 		return err
 	}
-	return p.env.Repo.SetSetting(domain.SettingDefaultProvider, id)
+	if err := p.env.Repo.SetSetting(domain.SettingDefaultProvider, id); err != nil {
+		return err
+	}
+	// 顺带把默认模型记下来：只存服务不存模型时，新建会话继承到的是空模型名，
+	// 界面显示「默认模型」而能力查询永远认不出窗口大小。
+	return p.adoptDefaultModel(d)
+}
+
+// adoptDefaultModel 在用户没手动指定过模型时，取该服务的首个模型作为默认。
+func (p *ProviderService) adoptDefaultModel(d *domain.ProviderDO) error {
+	cur, _ := p.env.Repo.GetSetting(domain.SettingDefaultModel)
+	if cur != "" {
+		return nil
+	}
+	models := parseModels(d.Models)
+	if len(models) == 0 {
+		return nil
+	}
+	return p.env.Repo.SetSetting(domain.SettingDefaultModel, models[0])
 }
 
 // Test 连通测试：发一条极短请求，只关心能不能通。
@@ -182,8 +203,12 @@ func (p *ProviderService) Models(id string) ([]string, error) {
 		return nil, pkg.New(3103, "拉取模型列表失败", strings.TrimSpace(string(raw)))
 	}
 	var payload struct {
-		Data  []struct{ ID string `json:"id"` }     `json:"data"`
-		Models []struct{ Name string `json:"name"` } `json:"models"`
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return parseModels(d.Models), nil

@@ -74,6 +74,10 @@ func (c *ChatService) Send(sessionID, content string, attachments []domain.Attac
 	c.mu.Unlock()
 
 	runID := pkg.NewTraceID()
+	cap := c.capabilityOf(sess.Model)
+	pkg.Infof("chat: run 开始 session=%s run=%s model=%s provider=%s tools=%d window=%d(known=%v)",
+		sessionID, runID, sess.Model, sess.ProviderID,
+		len(c.env.Registry.Enabled(c.disabledTools())), cap.ContextWindow, cap.Known)
 	go c.run(ctx, runID, sessionID)
 
 	return &domain.SendMessageRESP{RunID: runID, EntryID: userEntry.ID, SessionID: sessionID}, nil
@@ -89,6 +93,9 @@ func (c *ChatService) Stop(sessionID string) error {
 	}
 	cancel()
 	c.approvals.CancelSession(sessionID)
+	pkg.Infof("chat: 收到停止请求 session=%s", sessionID)
+	// 立刻广播停止：内核的收尾要走完落库与 done，用户不该靠猜才知道点没点着。
+	c.env.Emitter.Emit(sessionID, domain.EventChatStopped, domain.StoppedData{Reason: "user"})
 	return nil
 }
 
@@ -127,6 +134,9 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 		c.fail(sessionID, err)
 		return
 	}
+	// 存量会话可能是在「只存服务、不存模型」时代建的，模型名是空的。
+	// 这里就地补齐并回写，否则界面永远显示「默认模型」、能力也查不出来。
+	sess = c.withModel(sess)
 	streamer, model, err := c.providers.Streamer(sess.ProviderID, sess.Model)
 	if err != nil {
 		c.fail(sessionID, err)
@@ -143,7 +153,8 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	deps := c.env.ToolDeps
 	deps.Reads = c.readsOf(sessionID)
 	permission := sess.Permission
-	state := &runState{sessionID: sessionID}
+	cap := c.capabilityOf(model)
+	state := &runState{sessionID: sessionID, model: model, windowKnown: cap.Known}
 
 	loop := agent.New(agent.Config{
 		Streamer:  streamer,
@@ -183,7 +194,9 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 		Model:     model,
 		Input:     res.Usage.Input,
 		Output:    res.Usage.Output,
+		Cached:    res.Usage.Cached,
 		Total:     res.Usage.Total,
+		Context:   state.turnContext,
 		LatencyMs: res.Usage.LatencyMs,
 	})
 	if fresh, e2 := c.env.Repo.GetSession(sessionID); e2 == nil {
@@ -193,17 +206,43 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	}
 
 	usage := domain.UsageVO{
-		Input: res.Usage.Input, Output: res.Usage.Output,
-		Total: res.Usage.Total, LatencyMs: res.Usage.LatencyMs,
+		Input: res.Usage.Input, Output: res.Usage.Output, Cached: res.Usage.Cached,
+		Total: res.Usage.Total, Context: state.turnContext, LatencyMs: res.Usage.LatencyMs,
 	}
 	c.env.Emitter.Emit(sessionID, domain.EventChatDone, domain.DoneData{
 		EntryID: state.lastEntryID, StopReason: res.StopReason, Usage: &usage,
 	})
+	pkg.Infof("chat: run 结束 session=%s run=%s stop=%s turns=%d tokens=%d",
+		sessionID, runID, res.StopReason, res.Turns, res.Usage.Total)
+}
+
+// withModel 给模型名为空的会话补上默认模型，并把结果回写进会话。
+// 只读不写的话，界面每次刷新都还是「默认模型」，用户会以为自己没设过模型。
+func (c *ChatService) withModel(sess *domain.SessionDO) *domain.SessionDO {
+	if sess.Model != "" {
+		return sess
+	}
+	providerID := sess.ProviderID
+	if providerID == "" {
+		providerID, _ = c.env.Repo.GetSetting(domain.SettingDefaultProvider)
+	}
+	model, _ := c.env.Repo.GetSetting(domain.SettingDefaultModel)
+	if providerID == "" || model == "" {
+		return sess
+	}
+	_ = c.env.Repo.UpdateSessionColumns(sess.ID, map[string]any{
+		"provider_id": providerID, "model": model,
+	})
+	sess.ProviderID = providerID
+	sess.Model = model
+	return sess
 }
 
 // runState 收集一次 run 过程中的落库位点。
 type runState struct {
 	sessionID   string
+	model       string
+	windowKnown bool
 	turnEntryID string
 	lastEntryID string
 	pending     string
@@ -211,6 +250,8 @@ type runState struct {
 	hasContent  bool
 	toolCalls   []llm.ToolCall
 	stopReason  string
+	turnUsage   *llm.Usage
+	turnContext int
 	startedAt   int64
 }
 
@@ -225,6 +266,11 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 		st.toolCalls = nil
 		st.startedAt = nowMillis()
 	case agent.EventDelta:
+		// 声明可能已在工具开始时落库并清空了 turnEntryID，此处正文又来了：
+		// 补一个新的 id，让本轮剩余正文在 turn_end 能单独落一条。
+		if st.turnEntryID == "" {
+			st.turnEntryID = pkg.NewID(domain.PrefixEntry)
+		}
 		if e.DeltaKind == agent.DeltaThinking {
 			st.thinking += e.Delta
 		} else {
@@ -235,21 +281,30 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 			EntryID: st.turnEntryID, Kind: e.DeltaKind, Delta: e.Delta,
 		})
 	case agent.EventToolStart:
-		if e.ToolCall != nil {
-			st.toolCalls = append(st.toolCalls, llm.ToolCall{
-				ID: e.ToolCall.ID, Name: e.ToolCall.Name, Label: e.ToolTitle, Args: e.ToolCall.Args,
-			})
-			c.env.Emitter.Emit(st.sessionID, domain.EventChatToolStart, domain.ToolStartData{
-				ToolCallID: e.ToolCall.ID, Tool: e.ToolCall.Name,
-				Label: e.ToolTitle, Args: e.ToolCall.Args,
-			})
+		if e.ToolCall == nil {
+			return
 		}
+		st.toolCalls = append(st.toolCalls, llm.ToolCall{
+			ID: e.ToolCall.ID, Name: e.ToolCall.Name, Label: e.ToolTitle, Args: e.ToolCall.Args,
+		})
+		// 声明必须先于结果落库：上游协议要求 assistant(tool_calls) 紧邻它自己的
+		// tool 结果。等 turn_end 才落声明的话，工具结果会先入链，上游收到
+		// 一条找不到声明的 tool 消息，直接 400（tool result's tool id not found）。
+		// 这里无条件落：turn_start 时 turnEntryID 虽有值，但声明必须早于任何 tool 结果。
+		c.appendAssistantTurn(st)
+		c.env.Emitter.Emit(st.sessionID, domain.EventChatToolStart, domain.ToolStartData{
+			ToolCallID: e.ToolCall.ID, Tool: e.ToolCall.Name,
+			Label: e.ToolTitle, Args: e.ToolCall.Args,
+		})
 	case agent.EventToolEnd:
 		if e.ToolCall == nil {
 			return
 		}
 		c.appendTool(st, e)
 	case agent.EventTurnEnd:
+		// 本轮用量随 turn_end 到，落在这一轮最后写入的那条 assistant 上。
+		st.turnUsage = e.Usage
+		st.turnContext = e.ContextTokens
 		c.appendAssistantTurn(st)
 	case agent.EventCompressed:
 		c.env.Emitter.Emit(st.sessionID, domain.EventChatCompressed, domain.CompressedData{
@@ -257,7 +312,8 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 		})
 	case agent.EventContext:
 		c.env.Emitter.Emit(st.sessionID, domain.EventChatContext, domain.ContextData{
-			Used: e.TokensUsed, Window: e.TokensWindow, Ratio: ratioOf(e.TokensUsed, e.TokensWindow),
+			Used: e.TokensUsed, Window: e.TokensWindow, Known: st.windowKnown,
+			Ratio: ratioOf(e.TokensUsed, e.TokensWindow), Reserve: e.TokensReserve,
 		})
 	case agent.EventAgentEnd:
 		st.stopReason = e.StopReason
@@ -282,20 +338,28 @@ func (c *ChatService) appendAssistantTurn(st *runState) {
 		st.turnEntryID = ""
 		return
 	}
+	// 声明可能已在工具开始时落过一轮，这里再落时必须换一个 id：
+	// 沿用已入库的旧 id 会撞主键约束，那条 assistant 消息就永远丢了。
+	if st.turnEntryID == "" {
+		st.turnEntryID = pkg.NewID(domain.PrefixEntry)
+	}
 	sess, err := c.env.Repo.GetSession(st.sessionID)
 	if err != nil {
 		return
 	}
 	entry := &domain.EntryDO{
-		ID:          st.turnEntryID,
-		SessionID:   st.sessionID,
-		ParentID:    sess.LeafEntryID,
-		Type:        domain.EntryTypeMessage,
-		Role:        domain.RoleAssistant,
+		ID:        st.turnEntryID,
+		SessionID: st.sessionID,
+		ParentID:  sess.LeafEntryID,
+		Type:      domain.EntryTypeMessage,
+		Role:      domain.RoleAssistant,
 		PayloadJSON: payloadOf(llm.Message{
 			Role: llm.RoleAssistant, Content: st.pending, Thinking: st.thinking,
 			ToolCalls: st.toolCalls,
 		}, st.stopReason, nowMillis()-st.startedAt),
+	}
+	if st.turnUsage != nil {
+		entry.UsageJSON = usageJSONOf(st.turnUsage, st.turnContext)
 	}
 	if err := c.sessions.Append(entry); err != nil {
 		pkg.Warnf("chat: 落 assistant 条目失败: %v", err)
@@ -303,6 +367,11 @@ func (c *ChatService) appendAssistantTurn(st *runState) {
 	}
 	st.lastEntryID = entry.ID
 	st.turnEntryID = ""
+	// 已落库的内容清空：下一段增量要作为独立的一条，不能与这条重复。
+	st.pending = ""
+	st.thinking = ""
+	st.hasContent = false
+	st.toolCalls = nil
 }
 
 // appendTool 落一条工具结果条目并按序接到树上。
@@ -327,6 +396,8 @@ func (c *ChatService) appendTool(st *runState, e agent.Event) {
 		return
 	}
 	st.lastEntryID = entry.ID
+	pkg.Infof("chat: 工具完成 session=%s tool=%s ok=%v cost=%dms",
+		st.sessionID, e.ToolCall.Name, e.ToolOK, e.DurationMs)
 	c.env.Emitter.Emit(st.sessionID, domain.EventChatToolEnd, domain.ToolEndData{
 		ToolCallID: e.ToolCall.ID, OK: e.ToolOK,
 		Title: e.ToolTitle, Output: e.ToolOutput, DurationMs: e.DurationMs,
@@ -348,7 +419,8 @@ func (c *ChatService) appendAssistant(st *runState, res *agent.Result) {
 
 // fail 统一错误出口：已产出的内容不回滚，用户能看到半成品。
 func (c *ChatService) fail(sessionID string, err error) {
-	pkg.Errorf("chat: run 失败: %v", err)
+	// 带上 code 与会话，用户截图里就能直接定位到是哪一类失败。
+	pkg.Errorf("chat: run 失败 session=%s code=%d err=%v", sessionID, pkg.CodeOf(err), err)
 	c.env.Emitter.Emit(sessionID, domain.EventChatError, domain.ErrorData{
 		Code: pkg.CodeOf(err), Message: err.Error(),
 	})

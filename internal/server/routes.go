@@ -3,9 +3,11 @@ package server
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"WorkBaby/internal/api"
 	"WorkBaby/internal/domain"
+	"WorkBaby/internal/pkg"
 
 	"github.com/gin-gonic/gin"
 )
@@ -73,6 +75,11 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			knowledge.POST("/search", h.SearchKnowledge)
 		}
 
+		v1.GET("/tools", h.ListTools)
+		v1.POST("/tools/:name/toggle", h.ToggleTool)
+		v1.GET("/models/capability", h.ModelCapability)
+		v1.GET("/runtime", h.RuntimeStatus)
+
 		v1.GET("/settings", h.AllSettings)
 		v1.POST("/settings", h.SetSetting)
 		v1.GET("/stats", h.Stats)
@@ -117,6 +124,13 @@ func sseHandler(hub *Hub) gin.HandlerFunc {
 
 		c.Writer.WriteHeader(http.StatusOK)
 		c.Writer.Flush()
+		pkg.Infof("sse: 会话 %s 已接入（%s）", sessionID, c.ClientIP())
+
+		defer func() { pkg.Infof("sse: 会话 %s 断开", sessionID) }()
+		// 心跳：WebView2 与中间件都会掐掉长时间静默的连接，
+		// 空闲时每 20 秒发一行注释帧，事件流因此不会莫名其妙断掉。
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
 
 		for {
 			select {
@@ -124,6 +138,11 @@ func sseHandler(hub *Hub) gin.HandlerFunc {
 				return
 			case <-client.Done():
 				return
+			case <-ticker.C:
+				if _, err := c.Writer.Write([]byte(": ping\n\n")); err != nil {
+					return
+				}
+				c.Writer.Flush()
 			case env := <-client.Events():
 				frame, err := encodeEvent(env)
 				if err != nil {

@@ -12,13 +12,21 @@ type StatsREQ struct {
 
 // StatsTotalsVO 总量卡片。
 type StatsTotalsVO struct {
-	Input      int `json:"input"`
-	Output     int `json:"output"`
+	Input  int `json:"input"`
+	Output int `json:"output"`
+	// Cached 命中上游缓存的输入量。缓存命中率 = Cached / Input，
+	// 长对话里这一项决定了成本是线性涨还是几乎不涨。
+	Cached     int `json:"cached"`
 	Total      int `json:"total"`
 	Calls      int `json:"calls"`
 	Sessions   int `json:"sessions"`
 	LatencyMs  int64 `json:"latency_ms"`
 	AvgLatency int64 `json:"avg_latency_ms"`
+	// CacheHitRate 是 0~1 的命中率，百分比由前端算。
+	CacheHitRate float64 `json:"cache_hit_rate"`
+	// AvgContext 每次调用发出时的上下文占用均值；PeakContext 是区间内最大那一轮。
+	AvgContext  int `json:"avg_context"`
+	PeakContext int `json:"peak_context"`
 }
 
 // StatsDailyVO 每日一柱，date 形如 2026-09-28。
@@ -26,14 +34,18 @@ type StatsDailyVO struct {
 	Date   string `json:"date"`
 	Input  int    `json:"input"`
 	Output int    `json:"output"`
+	Cached int    `json:"cached"`
 	Total  int    `json:"total"`
 }
 
 // StatsModelVO 按模型归因。
 type StatsModelVO struct {
-	Model string `json:"model"`
-	Total int    `json:"total"`
-	Calls int    `json:"calls"`
+	Model  string `json:"model"`
+	Total  int    `json:"total"`
+	Calls  int    `json:"calls"`
+	Input  int    `json:"input"`
+	Output int    `json:"output"`
+	Cached int    `json:"cached"`
 }
 
 // StatsSessionVO 用量最高的会话。

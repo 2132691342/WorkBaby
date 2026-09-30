@@ -27,23 +27,28 @@ const (
 
 // Event 是内核向外发出的事件；调用方据此落库、推送与渲染。
 type Event struct {
-	Kind         EventKind
-	Turn         int
-	Turns        int
-	DeltaKind    string
-	Delta        string
-	ToolCall     *llm.ToolCall
-	ToolOK       bool
-	ToolTitle    string
-	ToolOutput   string
-	ToolBlocked  bool
-	DurationMs   int64
-	StopReason   string
-	Usage        *llm.Usage
-	Err          error
-	TokensBefore int
-	TokensAfter  int
-	TokensUsed   int
-	TokensWindow int
-	Messages     int
+	Kind          EventKind
+	Turn          int
+	Turns         int
+	DeltaKind     string
+	Delta         string
+	ToolCall      *llm.ToolCall
+	ToolOK        bool
+	ToolTitle     string
+	ToolOutput    string
+	ToolBlocked   bool
+	DurationMs    int64
+	StopReason    string
+	Usage         *llm.Usage
+	Err           error
+	TokensBefore  int
+	TokensAfter   int
+	TokensUsed    int
+	TokensWindow  int
+	TokensKnown   bool // 窗口是否为确切值（false = 估算，界面须显示「未知」）
+	TokensReserve int
+	// ContextTokens 是这一轮发出去时上下文占用的窗口量。落库是 append-only，
+	// 消息底部的「上下文」只能在这一轮结束时就已经带着它。
+	ContextTokens int
+	Messages      int
 }

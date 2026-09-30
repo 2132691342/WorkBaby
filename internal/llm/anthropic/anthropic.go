@@ -84,8 +84,10 @@ type event struct {
 	} `json:"delta,omitempty"`
 	Message *struct {
 		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
+			InputTokens              int `json:"input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	} `json:"message,omitempty"`
 	Usage *struct {
@@ -168,6 +170,7 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 		case "message_start":
 			if ev.Message != nil {
 				usage.Input = ev.Message.Usage.InputTokens
+				usage.Cached = ev.Message.Usage.CacheReadInputTokens
 			}
 		case "content_block_start":
 			if ev.ContentBlock != nil && ev.ContentBlock.Type == "tool_use" {

@@ -51,8 +51,8 @@ type functionCall struct {
 }
 
 type toolDefOut struct {
-	Type     string       `json:"type"`
-	Function functionDef  `json:"function"`
+	Type     string      `json:"type"`
+	Function functionDef `json:"function"`
 }
 
 type functionDef struct {
@@ -78,16 +78,22 @@ type streamOpts struct {
 type streamChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string        `json:"content"`
-			Reasoning string        `json:"reasoning_content"`
+			Content   string       `json:"content"`
+			Reasoning string       `json:"reasoning_content"`
 			ToolCalls []toolCallIn `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
+		PromptTokens        int `json:"prompt_tokens"`
+		CompletionTokens    int `json:"completion_tokens"`
+		TotalTokens         int `json:"total_tokens"`
+		PromptTokensDetails *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+		// 部分厂商把缓存命中挂在 usage 顶层（Anthropic 口径的 cache_read_input_tokens），
+		// 同一份响应里两种写法都出现过，两个都认。
+		CacheReadInputTokens int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -148,12 +154,15 @@ type pendingCall struct {
 func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Event, started time.Time) {
 	pendingCalls := map[int]*pendingCall{}
 	usage := &llm.Usage{}
+	var think llm.ThinkSplitter
+	stop := ""
 
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		if ctx.Err() != nil {
-			emit(events, llm.Event{Type: llm.EventDone, StopReason: llm.StopAborted})
+			usage.LatencyMs = time.Since(started).Milliseconds()
+			emit(events, llm.Event{Type: llm.EventDone, StopReason: llm.StopAborted, Usage: usage})
 			return
 		}
 		line := strings.TrimSpace(scanner.Text())
@@ -180,6 +189,12 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 			usage.Input = chunk.Usage.PromptTokens
 			usage.Output = chunk.Usage.CompletionTokens
 			usage.Total = chunk.Usage.TotalTokens
+			if d := chunk.Usage.PromptTokensDetails; d != nil {
+				usage.Cached = d.CachedTokens
+			}
+			if n := chunk.Usage.CacheReadInputTokens; n > usage.Cached {
+				usage.Cached = n
+			}
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -189,7 +204,15 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 			emit(events, llm.Event{Type: llm.EventThinking, Delta: d.Reasoning})
 		}
 		if d.Content != "" {
-			emit(events, llm.Event{Type: llm.EventDelta, Delta: d.Content})
+			// 部分模型没有独立的 reasoning 字段，直接把 <think>…</think> 写进
+			// content。不拆开的话用户会看到裸标签，思考过程也永远折叠不了。
+			t, body := think.Split(d.Content)
+			if t != "" {
+				emit(events, llm.Event{Type: llm.EventThinking, Delta: t})
+			}
+			if body != "" {
+				emit(events, llm.Event{Type: llm.EventDelta, Delta: body})
+			}
 		}
 		for _, tc := range d.ToolCalls {
 			p, ok := pendingCalls[tc.Index]
@@ -206,6 +229,7 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 			p.args.WriteString(tc.Function.Arguments)
 		}
 		if fr := chunk.Choices[0].FinishReason; fr != nil {
+			stop = mapReason(*fr)
 			for _, idx := range sortedIndexes(pendingCalls) {
 				p := pendingCalls[idx]
 				emit(events, llm.Event{Type: llm.EventToolCall, ToolCall: &llm.ToolCall{
@@ -214,13 +238,17 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 					Args: decodeArgs(p.args.String()),
 				}})
 			}
-			usage.LatencyMs = time.Since(started).Milliseconds()
-			emit(events, llm.Event{Type: llm.EventDone, StopReason: mapReason(*fr), Usage: usage})
-			return
+			// 这里不能收尾：usage 是独立一帧，排在 finish_reason 之后、[DONE] 之前。
+			// 提前 return 会把整帧丢掉，计量与上下文水位从此全是 0。
+			// 清空是为了万一上游又补发 delta 时不重复下发同一个工具调用。
+			pendingCalls = map[int]*pendingCall{}
 		}
 	}
+	if stop == "" {
+		stop = llm.StopStop
+	}
 	usage.LatencyMs = time.Since(started).Milliseconds()
-	emit(events, llm.Event{Type: llm.EventDone, StopReason: llm.StopStop, Usage: usage})
+	emit(events, llm.Event{Type: llm.EventDone, StopReason: stop, Usage: usage})
 }
 
 func mapReason(reason string) string {

@@ -23,6 +23,7 @@ func (t *KnowledgeTool) Description() string        { return "在用户提供的
 func (t *KnowledgeTool) PromptSnippet() string      { return "knowledge_search(query, limit?): 检索用户的私有文档，回答资料类问题前先调用" }
 func (t *KnowledgeTool) PromptGuidelines() []string { return nil }
 func (t *KnowledgeTool) RequiresApproval() bool     { return false }
+func (t *KnowledgeTool) Category() string           { return domain.CategoryData }
 func (t *KnowledgeTool) ExecutionMode() ExecutionMode {
 	return ExecutionParallel
 }

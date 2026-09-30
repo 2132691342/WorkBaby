@@ -27,6 +27,13 @@ const (
 	SettingDisabledTools   = "disabled_tools"
 	SettingDisabledSkills  = "disabled_skills"
 	SettingContextReserve  = "context_reserve_tokens"
+	SettingContextWindow   = "context_window"
+	SettingMinimizeToTray   = "minimize_to_tray"
+	SettingLaunchOnLogin    = "launch_on_login"
+	SettingFontFamily       = "font_family"
+	SettingDensity          = "density"
+	SettingSendOnEnter      = "send_on_enter"
+	SettingShowThinking     = "show_thinking"
 )
 
 // DefaultSettings 首启写入的默认值。
@@ -38,5 +45,11 @@ func DefaultSettings() map[string]string {
 		SettingContextReserve: "16384",
 		SettingDisabledTools:  "",
 		SettingDisabledSkills: "",
+		SettingMinimizeToTray: "true",
+		SettingLaunchOnLogin:  "false",
+		SettingFontFamily:     "system",
+		SettingDensity:        "comfortable",
+		SettingSendOnEnter:    "true",
+		SettingShowThinking:   "true",
 	}
 }

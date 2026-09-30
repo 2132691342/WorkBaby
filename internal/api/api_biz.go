@@ -432,6 +432,48 @@ func (h *Handler) SearchKnowledge(c *gin.Context) {
 	ok(c, domain.SearchRESP{Hits: hits})
 }
 
+// ListTools 工具清单：助手当前能干什么、风险多大、是否启用。
+func (h *Handler) ListTools(c *gin.Context) { ok(c, h.Svc.Tools.Catalog()) }
+
+// ToggleTool 启停单个工具。
+func (h *Handler) ToggleTool(c *gin.Context) {
+	var req domain.ToggleToolREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap(1107, "请求格式不正确", err))
+		return
+	}
+	if err := h.Svc.Tools.SetEnabled(c.Param("name"), req.Enabled); err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, true)
+}
+
+// ModelCapability 查模型能力：上下文窗口、是否支持思考、是否识图。
+func (h *Handler) ModelCapability(c *gin.Context) {
+	model := c.Query("model")
+	if model == "" {
+		fail(c, pkg.New(1105, "请指定要查询的模型", ""))
+		return
+	}
+	ok(c, h.Svc.Chat.ModelCapability(model))
+}
+
+// RuntimeStatus 报告内置运行时是否就绪，附带失败原因。
+func (h *Handler) RuntimeStatus(c *gin.Context) { ok(c, runtimeInfo(h.Paths)) }
+
+// runtimeInfo 把运行时探测结果整成界面能直接显示的形状。
+func runtimeInfo(p runtime.Paths) domain.RuntimeInfoVO {
+	st := runtime.Status(p)
+	return domain.RuntimeInfoVO{
+		PythonExe:     st.Exe,
+		PythonSource:  st.Source,
+		PythonVersion: st.Version,
+		PythonError:   st.Err,
+		ArchivePath:   runtime.ArchivePath(p),
+	}
+}
+
 // AllSettings 全部设置。
 func (h *Handler) AllSettings(c *gin.Context) {
 	all, err := h.Svc.Settings.All()

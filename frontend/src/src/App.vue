@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 应用壳：无边框窗口的自绘标题栏 + 路由出口。
 import { computed, onMounted, ref, watch } from 'vue'
-import { useSettingsStore } from './stores/settings'
+import { syncFromSettings } from './composables/useAppearance'
 import { useTheme } from './composables/useTheme'
 import { sseConnected } from './composables/useSse'
+import { useChatStore } from './stores/chat'
+import { useSettingsStore } from './stores/settings'
 import AppIcon from './components/common/AppIcon.vue'
 import { status, message, retryHandshake } from './bootstrap'
 import { ForceQuit } from '../wailsjs/go/main/App'
@@ -11,6 +13,7 @@ import { EventsOn } from '../wailsjs/runtime/runtime'
 
 const booted = ref(false)
 const settings = useSettingsStore()
+const chat = useChatStore()
 useTheme()
 
 const failed = computed(() => status.value === 'failed')
@@ -30,6 +33,9 @@ async function loadBoot() {
   } catch {
     // 拿不到引导数据不该让整个界面卡住：聊天页会各自处理空态
   }
+  // 已保存的外观与显示偏好要落到 DOM 上，否则刷新后主题之外的设置全部失效。
+  syncFromSettings()
+  chat.setShowThinking(settings.values['show_thinking'] !== 'false')
   booted.value = true
 }
 

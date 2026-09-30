@@ -100,8 +100,13 @@ func (h *Hub) Replay(sessionID string, after int64) []domain.Envelope {
 }
 
 // encodeEvent 把信封序列化成 SSE 帧。
+//
+// data 里必须放**完整信封**而不是只有载荷：前端的 SSE 监听器拿到帧后
+// 直接把 data 当信封用（`env.event` 决定路由、`env.data` 才是载荷）。
+// 只发载荷的话 env.event 恒为 undefined，事件会被整条静默丢弃——
+// 后端跑完 3 轮、数据库里答案齐全，界面却一个字都不显示。
 func encodeEvent(env domain.Envelope) ([]byte, error) {
-	raw, err := json.Marshal(env.Data)
+	raw, err := json.Marshal(env)
 	if err != nil {
 		return nil, pkg.Wrap(2201, "序列化事件失败", err)
 	}

@@ -1,15 +1,25 @@
 import axios from 'axios'
+import { ref } from 'vue'
 import type { Resp } from '../types/api'
 
 // 端口由 app:ready 注入；开发模式下由 vite 代理补齐。
 let baseURL = ''
 
+// 响应式副本：SSE 的订阅时机依赖「端口何时可用」，
+// 拿普通变量去 watch 等不到变化，握手晚于挂载时事件流就再也建不起来。
+const baseURLRef = ref('')
+
 export function setBaseURL(port: number) {
   baseURL = `http://127.0.0.1:${port}/api/v1`
+  baseURLRef.value = baseURL
 }
 
 export function getBaseURL() {
   return baseURL
+}
+
+export function getBaseURLRef() {
+  return baseURLRef
 }
 
 const http = axios.create({ timeout: 30000 })

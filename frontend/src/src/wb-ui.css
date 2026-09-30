@@ -665,6 +665,13 @@ body {
   border-radius: var(--wb-radius);
   color: var(--wb-ink-2);
   font-size: var(--wb-fs-sm);
+  /* 侧栏宽度有限，标签一旦折行按钮就会变成两行高、彼此错位。
+     这里锁死单行并让多余部分省略，窄一点也只是少一个字，不会散架。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
   transition: background var(--wb-dur-fast) var(--wb-ease), color var(--wb-dur-fast) var(--wb-ease);
 }
 .side-foot .fi:hover,
@@ -2531,24 +2538,94 @@ select.input.narrow {
   overflow-y: auto;
   padding: var(--wb-sp-6) var(--wb-sp-6) var(--wb-sp-4);
 }
-.chat-wrap,
+.msgs {
+  display: flex;
+  flex-direction: column;
+}
 .msgs-inner {
-  max-width: var(--wb-w-read);
+  width: 100%;
+  max-width: var(--wb-w-col);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-6);
+}
+/* 聊天列必须占满并允许收缩：不写这两条，输入区一拉高整列就会按内容撑开，
+   底下的模型 chip 和发送键被 .screen 的 overflow:hidden 裁掉，用户以为按钮没了。 */
+.chat-wrap {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: var(--wb-w-col);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-6);
+}
+/* 消息不足一屏时贴着输入框：会话刚开头时正文和输入区之间不该隔一大片空白。
+   显式给宽度：.msgs 是列向 flex 容器，不写清楚子项会被拉伸规则牵着走。 */
+.msgs-inner {
+  align-self: center;
+  margin-top: auto;
 }
 .turn {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-3);
 }
+/* 工具组：在整块回答里紧跟产生它的那段内容。
+   历史与实时对齐到同一条竖线，回合跑完后画面不跳。 */
+.turn-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-1);
+}
+
+/* 一次助手回合 = 一条主线。思考、工具、正文、消息操作都挂在同一根竖轨上，
+   回合之间才靠大间距断开。没有这根线的时候，一屏里六七行各自带边框的元素
+   读起来是互不相干的流水账，看不出「这是同一次动作的几个步骤」。 */
+.turn-a {
+  position: relative;
+  gap: var(--wb-sp-2);
+}
+/* 回合内也收紧：思考、正文、消息操作本就是同一句话的组成部分，
+   12px 的间距会把它们拆成三段。 */
+.turn-a .msg-a-body {
+  gap: var(--wb-sp-2);
+}
+.turn-a::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--wb-avatar-size) / 2);
+  top: calc(var(--wb-avatar-size) / 2);
+  bottom: var(--wb-sp-2);
+  width: 1px;
+  background: var(--wb-line-2);
+  pointer-events: none;
+}
+/* 找不到归属回合的审批：没有头像可挂，但仍然是助手列里的一步，
+   照样要吃到竖轨与缩进，否则会退回容器左边缘变成悬空元素。 */
+.turn-appr {
+  position: relative;
+  padding-left: calc(var(--wb-avatar-size) + var(--wb-sp-3));
+}
+.turn-appr::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--wb-avatar-size) / 2);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--wb-line-2);
+  pointer-events: none;
+}
 
 /* ---- 用户消息：淡蓝气泡，靠右 ---- */
 .msg-u-wrap {
   display: flex;
   justify-content: flex-end;
+  align-items: flex-end;
+  gap: var(--wb-sp-2);
 }
 .msg-u {
   max-width: 78%;
@@ -2561,14 +2638,23 @@ select.input.narrow {
   line-height: var(--wb-lh-base);
   color: var(--wb-ink);
 }
-.msg-u .mention,
-.msg-u .utk {
+.msg-u .mention {
   padding: 0 4px;
   border-radius: var(--wb-radius-xs);
   background: var(--wb-primary-soft);
   color: var(--wb-primary);
   font-family: var(--font-mono);
   font-size: 12px;
+}
+/* 发送时间：贴气泡右下，弱化到不与正文争视线 */
+.msg-t {
+  flex: none;
+  padding-bottom: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--wb-muted);
+  opacity: 0.65;
 }
 
 /* ---- 助手消息：裸文本 + 左侧头像列 ---- */
@@ -2587,8 +2673,8 @@ select.input.narrow {
 .av,
 .avatar {
   flex: none;
-  width: 26px;
-  height: 26px;
+  width: var(--wb-avatar-size);
+  height: var(--wb-avatar-size);
   border-radius: var(--wb-radius);
   background: var(--wb-surface);
   border: 1px solid var(--wb-line-2);
@@ -2727,6 +2813,9 @@ select.input.narrow {
 .think {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  align-self: flex-start;
+  max-width: 100%;
   gap: 3px;
   font-size: var(--wb-fs-sm);
   background: transparent;
@@ -2984,9 +3073,6 @@ select.input.narrow {
 .tool {
   padding: 0;
   border-bottom: 0;
-}
-.tool + .tool {
-  margin-top: var(--wb-sp-1);
 }
 .tool-hd {
   display: flex;
@@ -3498,9 +3584,41 @@ select.input.narrow {
   font-size: var(--wb-fs-md);
   line-height: var(--wb-lh-base);
   color: var(--wb-ink);
-  max-height: 180px;
+  /* 高度由 JS 接管：自动撑高 + 顶边手动拉伸，CSS 不再设死上限 */
+  overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* 顶边拖拽把手：把输入区纵向拉高，长文本不用挤在小框里滚。
+   双击回到自动高度。 */
+.composer-grip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 12px;
+  z-index: 3;
+  cursor: ns-resize;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+}
+.composer-grip::before {
+  content: '';
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--wb-line-2);
+  opacity: 0;
+  transition: opacity var(--wb-dur) var(--wb-ease);
+}
+.composer:hover .composer-grip::before,
+.composer:focus-within .composer-grip::before,
+.composer.is-resizing .composer-grip::before {
+  opacity: 1;
+}
+.composer.is-resizing {
+  user-select: none;
 }
 .composer textarea::placeholder,
 .composer-in textarea::placeholder {
@@ -3541,15 +3659,6 @@ select.input.narrow {
 .tk-mention {
   background: var(--wb-tint);
   color: var(--wb-muted);
-}
-.utk {
-  background: var(--wb-primary-soft);
-  color: var(--wb-primary);
-  border-radius: 5px;
-  padding: 1px 5px;
-  margin: 0 1px;
-  font-size: 12px;
-  white-space: nowrap;
 }
 .attach-row {
   display: flex;

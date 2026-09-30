@@ -2,12 +2,14 @@ package runtime
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"WorkBaby/internal/pkg"
 )
@@ -22,8 +24,10 @@ const (
 )
 
 // PythonExe 返回可用的 Python 可执行文件路径；内置优先，其次系统。
+// 探测结果被缓存：一次进程生命周期内解压只需做一次，
+// 而每个工具调用都问一次会让「首次启动要等几秒」变成「每次调用都卡一下」。
 func PythonExe(p Paths) string {
-	if exe, err := EnsurePython(p); err == nil {
+	if exe, err := resolvePython(p); err == nil {
 		return exe
 	}
 	if sys, err := exec.LookPath("python.exe"); err == nil {
@@ -35,6 +39,70 @@ func PythonExe(p Paths) string {
 	return ""
 }
 
+// PythonStatus 报告内置运行时的可用状态与失败原因，供启动日志与设置页展示。
+type PythonStatus struct {
+	Exe     string // 非空表示内置 Python 可用
+	Err     string // 非空表示内置不可用时的原因（已内置到日志里）
+	Source  string // "bundled" | "system" | ""
+	Version string
+}
+
+// Status 探测内置 Python 并带上失败原因。诊断入口：只查不装，
+// 调用方想「装」应显式调 EnsurePython，避免隐式解压藏在读路径里。
+func Status(p Paths) PythonStatus {
+	exe, err := EnsurePython(p)
+	if err != nil {
+		return PythonStatus{Err: err.Error()}
+	}
+	return PythonStatus{Exe: exe, Source: "bundled", Version: pythonVersion}
+}
+
+var (
+	pythonOnce sync.Once
+	pythonPath string
+	pythonErr  error
+)
+
+// resolvePython 只解析一次：并发调用共享同一个结果。
+func resolvePython(p Paths) (string, error) {
+	pythonOnce.Do(func() {
+		pythonPath, pythonErr = EnsurePython(p)
+	})
+	return pythonPath, pythonErr
+}
+
+// EnsurePythonOrEmpty 是 EnsurePython 的静默版本，供只想拿到路径、
+// 不关心失败原因的调用方使用。
+func EnsurePythonOrEmpty(p Paths) string {
+	exe, err := EnsurePython(p)
+	if err != nil {
+		return ""
+	}
+	return exe
+}
+
+// lfsPointerPrefix 是未拉取的 LFS 文件在磁盘上的开头。
+// 只判存在性会把 pointer 当成 46MB 归档喂给 gzip，报错还完全指不到真因。
+var lfsPointerPrefix = []byte("version https://git-lfs.github.com/spec/v1")
+
+// isRealArchive 判归档是否真的下载到本地，而不只是 stat 得到一个文件。
+func isRealArchive(path string) bool {
+	if !pkg.FileExists(path) {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, len(lfsPointerPrefix))
+	n, err := f.Read(head)
+	if err != nil && n == 0 {
+		return false
+	}
+	return !bytes.HasPrefix(head[:n], lfsPointerPrefix)
+}
+
 // EnsurePython 保证内置 Python 已解压并返回其路径。
 func EnsurePython(p Paths) (string, error) {
 	exe := filepath.Join(p.PythonDir, "python.exe")
@@ -43,7 +111,10 @@ func EnsurePython(p Paths) (string, error) {
 	}
 	archive := ArchivePath(p)
 	if !pkg.FileExists(archive) {
-		return "", pkg.New(8001, "内置 Python 运行时包缺失", archive)
+		return "", pkg.New(8001, "内置 Python 运行时包缺失，请在程序目录的 runtimes 下放 "+filepath.Base(archive), archive)
+	}
+	if !isRealArchive(archive) {
+		return "", pkg.New(8002, "运行时包是 Git LFS 指针，尚未拉取真实文件", archive)
 	}
 	if err := extractTarGz(archive, p.PythonDir); err != nil {
 		return "", err
@@ -57,13 +128,26 @@ func EnsurePython(p Paths) (string, error) {
 	return exe, nil
 }
 
-// ArchivePath 是随分发包内置的运行时压缩包路径。
+// ArchivePath 定位随包分发的运行时压缩包。
+// 按序探测：exe 同级（打包版）→ exe 上两级（仓库内直接跑）→ 兜底同级。
+// 只认 exe 旁边一个位置时，开发模式与 wails dev 下必然找不到归档，
+// 表现为日志永远说「没有可用的 Python」，而文件其实就在仓库里。
 func ArchivePath(p Paths) string {
+	name := "python-" + pythonVersion + "-win-x64.tar.gz"
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(exe), "runtimes", "python-"+pythonVersion+"-win-x64.tar.gz")
+	dir := filepath.Dir(exe)
+	for _, candidate := range []string{
+		filepath.Join(dir, "runtimes", name),
+		filepath.Join(dir, "..", "..", "runtimes", name),
+	} {
+		if pkg.FileExists(candidate) {
+			return filepath.Clean(candidate)
+		}
+	}
+	return filepath.Join(dir, "runtimes", name)
 }
 
 // versionMatches 比对版本标记，版本一致就跳过解压。

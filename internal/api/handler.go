@@ -91,9 +91,13 @@ func (h *Handler) Startup(ctx context.Context) error {
 	}
 	h.Repo = repo.New(gdb)
 
-	// 内置 Python：失败只告警，python 工具会在执行时给出明确错误。
-	if exe := runtime.PythonExe(paths); exe == "" {
-		pkg.Warnf("startup: 没有可用的 Python，python 工具将不可用")
+	// 内置 Python：失败只告警，但必须把原因写清楚。
+	// 曾经这里只打一行「没有可用的 Python」，用户既不知道该放哪、
+	// 也不知道是 LFS 没拉还是解压失败，日志等于没打。
+	if st := runtime.Status(paths); st.Exe == "" {
+		pkg.Warnf("startup: 内置 Python 不可用：%s", st.Err)
+	} else {
+		pkg.Infof("startup: 内置 Python 已就绪（%s）", st.Version)
 	}
 
 	h.Registry = tool.New()

@@ -43,6 +43,7 @@ const totals = computed(() => data.value?.totals)
 // 没有任何用量时不画空图表：一张空的柱状图只会让人以为坏了
 const hasUsage = computed(() => (totals.value?.total || 0) > 0)
 const topSessions = computed(() => (data.value?.sessions || []).slice(0, 6))
+const hitRate = computed(() => (totals.value?.cache_hit_rate || 0) * 100)
 
 async function openSession(id: string) {
   await session.open(id)
@@ -91,6 +92,20 @@ async function newSession() {
               <div class="sv">{{ fmtCount(totals?.input || 0) }} / {{ fmtCount(totals?.output || 0) }}</div>
               <div class="sl">输入 / 输出</div>
               <div class="sd">你发的 / 助手回的</div>
+            </div>
+            <div class="st">
+              <div class="sv" :class="{ 'is-hit': hitRate > 0 }">
+                {{ hitRate.toFixed(hitRate >= 10 ? 0 : 1) }}%
+              </div>
+              <div class="sl">缓存命中率</div>
+              <div class="sd">
+                {{ fmtCount(totals?.cached || 0) }} 个输入 token 走了缓存，单价更低
+              </div>
+            </div>
+            <div class="st">
+              <div class="sv">{{ fmtCount(totals?.avg_context || 0) }}</div>
+              <div class="sl">平均上下文</div>
+              <div class="sd">峰值 {{ fmtCount(totals?.peak_context || 0) }} token</div>
             </div>
             <div class="st">
               <div class="sv">{{ totals?.sessions || 0 }}</div>
@@ -242,6 +257,10 @@ async function newSession() {
   align-items: center;
   gap: var(--wb-sp-4);
   margin-bottom: var(--wb-sp-4);
+}
+/* 命中率 >0 才上色：常显的绿色等于没有绿色 */
+.statbar .st .sv.is-hit {
+  color: var(--wb-success);
 }
 .card-head h2 {
   font-size: var(--wb-fs-md);

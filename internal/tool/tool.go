@@ -3,6 +3,7 @@ package tool
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -71,6 +72,37 @@ type Tool interface {
 	ExecutionMode() ExecutionMode
 	RequiresApproval() bool
 	Execute(ctx context.Context, in Input) (*Result, error)
+}
+
+// Categorized 是实现了分类的可选接口。
+// 分类只影响「工具」菜单里的分组展示，不参与模型调用，因此不强加在 Tool 上：
+// 测试用的替身工具不必为了编译通过去实现它。
+type Categorized interface {
+	Category() string
+}
+
+// CategoryOf 取工具分类，未实现时归到「文件」这一兜底类。
+func CategoryOf(t Tool) string {
+	if c, ok := t.(Categorized); ok {
+		if v := c.Category(); v != "" {
+			return v
+		}
+	}
+	return domain.CategoryFile
+}
+
+// ParamNames 从参数声明里取出参数名，按声明顺序返回，供界面渲染用法说明。
+func ParamNames(params map[string]any) []string {
+	props, ok := params["properties"].(map[string]any)
+	if !ok {
+		return []string{}
+	}
+	out := make([]string, 0, len(props))
+	for name := range props {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 var (

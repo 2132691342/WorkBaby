@@ -64,10 +64,21 @@ type ToolDef struct {
 
 // Usage 是一次调用的输入 / 输出与耗时。
 type Usage struct {
-	Input     int
-	Output    int
-	Total     int
+	Input  int
+	Output int
+	Total  int
+	// Cached 是这次输入里命中上游缓存的部分。缓存命中才是长对话真正的成本项：
+	// 同一段前缀重复计费的话，多轮对话的花费会随轮数线性膨胀。
+	Cached   int
 	LatencyMs int64
+}
+
+// CacheHitRate 缓存命中率；没有输入量时返回 0。
+func (u Usage) CacheHitRate() float64 {
+	if u.Input <= 0 {
+		return 0
+	}
+	return float64(u.Cached) / float64(u.Input)
 }
 
 // Request 是一次上游请求。

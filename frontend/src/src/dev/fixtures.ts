@@ -52,7 +52,9 @@ const md = (id: string, role: 'user' | 'assistant' | 'tool', content: string, ts
   content,
   created_at: ts,
   latency_ms: role === 'assistant' ? 4_200 : undefined,
-  usage: role === 'assistant' ? { input: 1_820, output: 640, total: 2_460, latency_ms: 4_200 } : undefined,
+  usage: role === 'assistant'
+    ? { input: 1_820, output: 640, cached: 1_240, total: 2_460, context: 9_300, latency_ms: 4_200 }
+    : undefined,
 })
 
 export const messages: Record<string, MessageVO[]> = {
@@ -182,15 +184,18 @@ export function stats(days: number): StatsRESP {
     const wave = Math.sin(i / 2.2) * 0.5 + 0.5
     const input = Math.round((900 + wave * 5_600 + (i % 3) * 320) * (i % 7 === 5 ? 0.25 : 1))
     const output = Math.round((280 + wave * 2_100) * (i % 7 === 5 ? 0.25 : 1))
-    return { date, input, output, total: input + output }
+    // 缓存命中随轮次走高：同一段前缀反复出现时，命中才是常态
+    const cached = Math.round(input * (0.45 + wave * 0.4))
+    return { date, input, output, cached, total: input + output }
   })
   const sum = daily.reduce(
     (a, d) => ({
       input: a.input + d.input,
       output: a.output + d.output,
+      cached: a.cached + d.cached,
       total: a.total + d.total,
     }),
-    { input: 0, output: 0, total: 0 },
+    { input: 0, output: 0, cached: 0, total: 0 },
   )
   return {
     days,
@@ -200,13 +205,16 @@ export function stats(days: number): StatsRESP {
       sessions: 12,
       latency_ms: sum.total > 0 ? 312_000 : 0,
       avg_latency_ms: sum.total > 0 ? 3_900 : 0,
+      cache_hit_rate: sum.input > 0 ? sum.cached / sum.input : 0,
+      avg_context: sum.input > 0 ? Math.round(sum.input / Math.max(1, Math.round(sum.total / 2_400))) : 0,
+      peak_context: 186_400,
     },
     daily,
     models: [
-      { model: 'claude-sonnet-4-5', total: 142_800, calls: 48 },
-      { model: 'gpt-4o', total: 86_400, calls: 31 },
-      { model: 'deepseek-chat', total: 41_200, calls: 19 },
-      { model: 'qwen-max', total: 18_600, calls: 12 },
+      { model: 'claude-sonnet-4-5', total: 142_800, calls: 48, input: 121_000, output: 21_800, cached: 96_500 },
+      { model: 'gpt-4o', total: 86_400, calls: 31, input: 74_600, output: 11_800, cached: 52_300 },
+      { model: 'deepseek-chat', total: 41_200, calls: 19, input: 35_900, output: 5_300, cached: 19_400 },
+      { model: 'qwen-max', total: 18_600, calls: 12, input: 15_200, output: 3_400, cached: 6_100 },
     ],
     sessions: [
       { session_id: 'SESSION_0005', title: '给团队做一份培训材料', total: 302_650 },
@@ -219,7 +227,10 @@ export function stats(days: number): StatsRESP {
 
 export const emptyStats: StatsRESP = {
   days: 14,
-  totals: { input: 0, output: 0, total: 0, calls: 0, sessions: 0, latency_ms: 0, avg_latency_ms: 0 },
+  totals: {
+    input: 0, output: 0, cached: 0, total: 0, calls: 0, sessions: 0,
+    latency_ms: 0, avg_latency_ms: 0, cache_hit_rate: 0, avg_context: 0, peak_context: 0,
+  },
   daily: [],
   models: [],
   sessions: [],

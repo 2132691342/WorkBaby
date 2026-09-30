@@ -32,6 +32,15 @@
     'Microsoft YaHei', sans-serif;
   --font-mono: 'Cascadia Mono', 'Consolas', 'JetBrains Mono', 'Sarasa Mono SC', monospace;
 
+  /* 界面可选字体族：设置页「字体」一项的取值表。
+     只改 --wb-font-ui，正文与标题仍走 --font-sans / --font-display，
+     这样换字体不会连等宽字体和标题风格一起换掉。 */
+  --wb-font-ui: var(--font-sans);
+
+  /* 全局字号缩放：外观设置只改这一个值，全站字号刻度等比跟随。
+     不引 CSS 引擎也不写 calc 包裹，直接乘系数——改一处就够。 */
+  --wb-fs-scale: 1;
+
   /* 字号 6 级 */
   --wb-fs-xs: 11px;
   --wb-fs-sm: 12px;
@@ -82,7 +91,13 @@
   --wb-w-settings: 208px;
   --wb-w-panel: 336px;
   --wb-w-panel-wide: 420px;
-  --wb-w-read: 780px;
+  --wb-w-read: 840px;
+  /* 消息列比输入框略宽：正文是主角，输入框不能反过来压过它 */
+  --wb-w-col: 900px;
+
+  /* 消息头像（正方形）。助手正文列 = 头像 + 间距，
+     纯思考回合与工具组都要按这个缩进对齐，缩进值不散落在组件里。 */
+  --wb-avatar-size: 26px;
 
   /* 动效三档：只解释状态变化，不做装饰 */
   --wb-dur-fast: 110ms;
@@ -110,52 +125,57 @@
 }
 
 /* ============================================================
-   浅色 · 晴空（默认主题：data-theme 缺失时同样生效）
+   浅白 · 晴空（默认主题：data-theme 缺失时同样生效）
+   ------------------------------------------------------------
+   三色分工是硬约束，白 / 灰 / 蓝各司其职：
+     浅白 = 页面与卡片的底
+     浅灰 = 分隔线、次级面、弱文字
+     浅蓝 = 只出现在必须被看到的地方：主操作、当前项、镂空描边
+   镂空按钮 = 透明底 + 蓝色描边 + 蓝色文字，与实心主按钮形成主次。
    ============================================================ */
 :root,
 [data-theme='light'] {
   color-scheme: light;
 
-  --wb-bg: #f2f6fc;
+  --wb-bg: #f4f6f9;
   --wb-page-gradient: none;
 
-  /* 面：页面底（--wb-bg）→ 侧栏与面板（--wb-side）→ 卡片（--wb-surface）
-   * → 抬升底（--wb-surface-hover）→ 凹陷底（--wb-sunken） */
+  /* 面：页面底 → 侧栏与面板 → 卡片 → 抬升底 → 凹陷底 */
   --wb-side: #ffffff;
   --wb-surface: #ffffff;
-  --wb-surface-2: #f7fafd;
-  --wb-surface-hover: #eef5fe;
+  --wb-surface-2: #fafbfd;
+  --wb-surface-hover: #f2f5f9;
   --wb-surface-solid: #ffffff;
-  --wb-raise: #eef5fe;
-  --wb-sunken: #e8f1fb;
+  --wb-raise: #f2f5f9;
+  --wb-sunken: #eaeef4;
   --wb-panel: #ffffff;
 
   /* 中性叠加：hover 底色用它，避免「一屏几十个淡蓝块」 */
-  --wb-tint: rgba(15, 30, 51, 0.06);
-  --wb-tint-lg: rgba(15, 30, 51, 0.09);
+  --wb-tint: rgba(15, 30, 51, 0.055);
+  --wb-tint-lg: rgba(15, 30, 51, 0.085);
 
-  --wb-line: #e2edfb;
-  --wb-line-2: #cddff6;
+  --wb-line: #e6eaf0;
+  --wb-line-2: #d3d9e2;
   --wb-border: var(--wb-line);
   --wb-border-strong: var(--wb-line-2);
 
-  --wb-ink: #0f1e33;
-  --wb-ink-2: #4a5b73;
-  --wb-muted: #6b7d95;
+  --wb-ink: #16202e;
+  --wb-ink-2: #4c586a;
+  --wb-muted: #74808f;
 
   /* 单一强调色：亮天蓝，靠明度分四级（深 = 主操作 / 中 = 次 / 淡 = 轨道） */
-  --wb-primary: #2f80ed;
-  --wb-primary-strong: #1f6fdc;
-  --wb-primary-soft: rgba(47, 128, 237, 0.1);
-  --wb-primary-line: rgba(47, 128, 237, 0.3);
+  --wb-primary: #2f7de1;
+  --wb-primary-strong: #1f66c4;
+  --wb-primary-soft: rgba(47, 125, 225, 0.09);
+  --wb-primary-line: rgba(47, 125, 225, 0.34);
   --wb-primary-ink: #ffffff;
-  --wb-accent-glow: rgba(47, 128, 237, 0.16);
+  --wb-accent-glow: rgba(47, 125, 225, 0.14);
 
   /* 图表专用蓝阶：整屏只用这一个色相，杜绝「蓝绿橙紫」混搭 */
-  --wb-ch-1: #2f80ed;
-  --wb-ch-2: #6fa8f5;
-  --wb-ch-3: #a8cbfa;
-  --wb-ch-4: #d6e6fb;
+  --wb-ch-1: #2f7de1;
+  --wb-ch-2: #74a9ee;
+  --wb-ch-3: #aecbf5;
+  --wb-ch-4: #dbe7fa;
 
   /* 状态色只留给「通过 / 出错」，且降饱和，不与主色抢 */
   --wb-success: #1f9d63;
@@ -164,7 +184,7 @@
   --wb-danger-soft: rgba(209, 90, 85, 0.1);
   --wb-warning: #c08a35;
   --wb-warning-soft: rgba(192, 138, 53, 0.12);
-  --wb-info: #2f80ed;
+  --wb-info: #2f7de1;
 
   --wb-mint: var(--wb-success);
   --wb-mint-strong: #178a55;
@@ -173,8 +193,8 @@
   --wb-sky: var(--wb-ch-2);
   --wb-lemon: var(--wb-warning);
 
-  --wb-sel: rgba(47, 128, 237, 0.16);
-  --wb-user-bubble: #e7f0fe;
+  --wb-sel: rgba(47, 125, 225, 0.16);
+  --wb-user-bubble: #eaf2fd;
 
   /* 阴影极轻：只用来「托一下」，不用来「发光」 */
   --wb-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);
@@ -210,46 +230,52 @@
 }
 
 /* ============================================================
-   暗色 · 紫夜
+   暗黑 · 紫夜
+   ------------------------------------------------------------
+   与浅白主题结构完全对位，只换三族色：
+     暗黑 = 页面底      （对应浅白）
+     暗灰 = 卡片与分隔  （对应浅灰）
+     暗紫 = 强调与镂空  （对应浅蓝）
+   镂空按钮在暗底上是「暗紫描边 + 暗紫文字」，与实心紫按钮构成主次。
    ============================================================ */
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --wb-bg: #0b0a0e;
+  --wb-bg: #0d0d10;
   --wb-page-gradient: none;
 
-  --wb-side: #14121a;
-  --wb-surface: #15131b;
-  --wb-surface-2: #100e15;
-  --wb-surface-hover: #1d1a25;
-  --wb-surface-solid: #15131b;
-  --wb-raise: #1d1a25;
-  --wb-sunken: #09080c;
-  --wb-panel: #14121a;
+  --wb-side: #151519;
+  --wb-surface: #17171c;
+  --wb-surface-2: #121216;
+  --wb-surface-hover: #1f1f26;
+  --wb-surface-solid: #1a1a20;
+  --wb-raise: #1f1f26;
+  --wb-sunken: #0a0a0d;
+  --wb-panel: #151519;
 
-  --wb-tint: rgba(255, 255, 255, 0.07);
-  --wb-tint-lg: rgba(255, 255, 255, 0.11);
+  --wb-tint: rgba(255, 255, 255, 0.06);
+  --wb-tint-lg: rgba(255, 255, 255, 0.1);
 
-  --wb-line: rgba(255, 255, 255, 0.07);
-  --wb-line-2: rgba(255, 255, 255, 0.13);
+  --wb-line: rgba(255, 255, 255, 0.08);
+  --wb-line-2: rgba(255, 255, 255, 0.15);
   --wb-border: var(--wb-line);
   --wb-border-strong: var(--wb-line-2);
 
-  --wb-ink: #ece9f3;
-  --wb-ink-2: #a9a3bd;
-  --wb-muted: #a09ab8;
+  --wb-ink: #ecebf2;
+  --wb-ink-2: #a8a5b6;
+  --wb-muted: #8b879b;
 
-  --wb-primary: #7c5cf8;
-  --wb-primary-strong: #9075fa;
-  --wb-primary-soft: rgba(124, 92, 248, 0.13);
-  --wb-primary-line: rgba(124, 92, 248, 0.3);
+  --wb-primary: #8b6bf0;
+  --wb-primary-strong: #9d81f5;
+  --wb-primary-soft: rgba(139, 107, 240, 0.15);
+  --wb-primary-line: rgba(139, 107, 240, 0.4);
   --wb-primary-ink: #ffffff;
-  --wb-accent-glow: rgba(124, 92, 248, 0.24);
+  --wb-accent-glow: rgba(139, 107, 240, 0.22);
 
-  --wb-ch-1: #7c5cf8;
-  --wb-ch-2: #9c85fa;
-  --wb-ch-3: #5b4a96;
-  --wb-ch-4: #33294f;
+  --wb-ch-1: #8b6bf0;
+  --wb-ch-2: #a58ff3;
+  --wb-ch-3: #5f4f97;
+  --wb-ch-4: #342c52;
 
   --wb-success: #35b97c;
   --wb-success-soft: rgba(53, 185, 124, 0.12);
@@ -257,7 +283,7 @@
   --wb-danger-soft: rgba(232, 97, 90, 0.12);
   --wb-warning: #d9963c;
   --wb-warning-soft: rgba(217, 150, 60, 0.12);
-  --wb-info: #7c5cf8;
+  --wb-info: #8b6bf0;
 
   --wb-mint: var(--wb-success);
   --wb-mint-strong: #3fd08c;
@@ -265,8 +291,8 @@
   --wb-sky: var(--wb-ch-2);
   --wb-lemon: var(--wb-warning);
 
-  --wb-sel: rgba(124, 92, 248, 0.24);
-  --wb-user-bubble: #1e1b28;
+  --wb-sel: rgba(139, 107, 240, 0.26);
+  --wb-user-bubble: #1f1d29;
 
   --wb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
   --wb-shadow-2: 0 2px 8px -2px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -303,8 +329,19 @@
 }
 
 /* ============================================================
-   语义别名（组件层只认这些名字）
+   字号缩放：--wb-fs-scale 由外观设置写入，全站字号等比跟随。
+   用 :root 选择器上的 zoom 会连同布局一起缩放，窗口不变时正好是「整体放大」。
    ============================================================ */
+html {
+  font-size: calc(16px * var(--wb-fs-scale));
+}
+
+/* 界面字体族：只换正文族，标题与等宽保持各自语义。 */
+body {
+  font-family: var(--wb-font-ui);
+}
+
+/* 语义别名（组件层只认这些名字） */
 :root {
   --wb-c-bg: var(--wb-bg);
   --wb-c-panel: var(--wb-panel);

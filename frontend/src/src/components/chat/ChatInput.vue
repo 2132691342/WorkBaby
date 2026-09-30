@@ -53,11 +53,66 @@ const cmds = computed(() => {
   return COMMANDS.filter((c) => `/${c.key}`.startsWith(q))
 })
 
+// 输入框高度：0 = 跟随内容自动；拖过顶边把手后由用户说了算。
+// 只靠自动撑高的话超过上限就只能在小框里滚，长文本写完自己也看不清。
+const TA_MIN = 64
+const TA_AUTO_MAX = 180
+const TA_MAX = 520
+// 消息区至少留这么高。再高输入区就顶到标题栏，聊天记录整块看不见。
+const MSGS_MIN = 120
+const taH = ref(0)
+const resizing = ref(false)
+
+// 拖拽上限跟着窗口走：写死 520px 在矮窗口上会把消息区挤没，
+// 输入区整块掉到窗口外面，底下的发送键直接看不见。
+function maxTaH(): number {
+  const el = ta.value
+  const wrap = el?.closest('.composer-wrap') as HTMLElement | null
+  if (!el || !wrap) return TA_MAX
+  const rest = wrap.offsetHeight - el.offsetHeight // 输入区里除文本框以外的高度
+  const top = wrap.getBoundingClientRect().top
+  const below = 24 // 输入区下边留白
+  const room = window.innerHeight - top - rest - below - MSGS_MIN
+  return Math.max(TA_MIN, Math.min(TA_MAX, room))
+}
+
 function autoGrow() {
   const el = ta.value
   if (!el) return
   el.style.height = 'auto'
-  el.style.height = `${Math.min(el.scrollHeight, 180)}px`
+  const auto = el.scrollHeight
+  // 手动拉高之后必须以用户给的高度为准：再按内容高度夹一次，
+  // 拖上去的框会被立刻压回去，等于拖不动。
+  const next = taH.value ? Math.max(auto, taH.value) : Math.min(auto, TA_AUTO_MAX)
+  el.style.height = `${Math.min(Math.max(next, TA_MIN), maxTaH())}px`
+}
+
+function onGripDown(e: PointerEvent) {
+  const el = ta.value
+  if (!el) return
+  const startY = e.clientY
+  const startH = el.offsetHeight
+  const cap = maxTaH()
+  taH.value = Math.max(Math.min(startH, cap), TA_MIN)
+  resizing.value = true
+  const move = (ev: PointerEvent) => {
+    taH.value = Math.min(Math.max(startH + (startY - ev.clientY), TA_MIN), cap)
+    autoGrow()
+  }
+  const up = () => {
+    resizing.value = false
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+  e.preventDefault()
+}
+
+// 双击把手：交还给自动高度
+function onGripDbl() {
+  taH.value = 0
+  nextTick(autoGrow)
 }
 
 function clearInput() {
@@ -189,15 +244,34 @@ watch(
   () => nextTick(() => ta.value?.focus()),
 )
 
-onMounted(() => document.addEventListener('pointerdown', onDocPointerDown))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDown))
+// 窗口变小后，之前拉高的高度可能已经超出可视区，必须跟着收回来。
+function onResize() {
+  if (resizing.value) return
+  if (taH.value > maxTaH()) taH.value = maxTaH()
+  autoGrow()
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocPointerDown)
+  window.addEventListener('resize', onResize)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocPointerDown)
+  window.removeEventListener('resize', onResize)
+})
 
 defineExpose({ focus: () => ta.value?.focus() })
 </script>
 
 <template>
   <div ref="root" class="composer-wrap">
-    <div class="composer">
+    <div class="composer" :class="{ 'is-resizing': resizing }">
+      <div
+        class="composer-grip"
+        title="拖动调整高度，双击恢复自动"
+        @pointerdown="onGripDown"
+        @dblclick="onGripDbl"
+      />
       <!-- 待发送文件：Wails 一次只给一个路径，所以做成可多次添加的列表 -->
       <div v-if="files.length" class="attach-row">
         <span
@@ -236,7 +310,12 @@ defineExpose({ focus: () => ta.value?.focus() })
       <div class="composer-bar">
         <span v-if="!running" class="hint">Enter 发送 · Shift+Enter 换行</span>
         <SessionChips ref="chipsRef" />
-        <ContextMeter :used="chat.contextUsed" :win="chat.contextWindow" :ratio="chat.contextRatio" />
+        <ContextMeter
+          :used="chat.contextUsed"
+          :win="chat.contextWindow"
+          :ratio="chat.contextRatio"
+          :known="chat.contextKnown"
+        />
         <span v-if="outsideCount" class="warn">{{ outsideCount }} 个文件助手读不到</span>
         <span class="sp" />
         <button v-if="running" class="btn btn-sm btn-danger-ghost" type="button" @click="emit('stop')">停止</button>
