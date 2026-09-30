@@ -25,6 +25,11 @@ export const useSessionStore = defineStore('session', () => {
   async function open(id: string) {
     currentId.value = id
     const detail = await api.sessions.detail(id)
+    // 快照防御：格式异常的响应绝不覆盖现有展示。
+    // 注意不拦「空列表」——新建会话的快照本来就是空的，拦了会误伤新建/切换。
+    if (!detail || !Array.isArray(detail.messages)) {
+      throw new Error('会话快照格式异常，已保留当前内容')
+    }
     messages.value = detail.messages
     const idx = list.value.findIndex((s) => s.id === id)
     if (idx >= 0) list.value[idx] = detail.session
@@ -54,11 +59,16 @@ export const useSessionStore = defineStore('session', () => {
 
   async function remove(id: string) {
     await api.sessions.remove(id)
-    if (currentId.value === id) {
-      currentId.value = null
-      messages.value = []
-    }
     await loadList()
+    if (currentId.value === id) {
+      // 删的是当前会话：自动切到列表里的下一个，不留一个空白界面
+      const next = list.value[0]
+      if (next) {
+        await open(next.id)
+      } else {
+        await create({})
+      }
+    }
   }
 
   async function rename(id: string, title: string) {

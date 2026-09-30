@@ -134,11 +134,12 @@ func TruncateDeterministic(msgs []llm.Message, keep int) []llm.Message {
 
 // Compact 是内核每轮发送前的必经之路：超预算就裁一刀，裁不出完整 turn 就原样返回。
 // 纯函数、无 IO、不调模型，因此可以单测，也不会有「压缩失败」这种中间态。
+// 超预算判断必须把 system 提示词算进去——它同样占窗口，漏算会让判断系统性偏乐观。
 func Compact(msgs []llm.Message, b Budget) ([]llm.Message, int) {
 	if len(msgs) == 0 {
 		return msgs, 0
 	}
-	before := EstimateTokens("", msgs)
+	before := b.SystemTokens + EstimateTokens("", msgs)
 	budget := b.Window - b.Reserve
 	if budget <= 0 {
 		budget = b.Window / 2

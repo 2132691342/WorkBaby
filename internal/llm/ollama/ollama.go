@@ -33,6 +33,8 @@ type messageIn struct {
 	Role      string        `json:"role"`
 	Content   string        `json:"content"`
 	ToolCalls []toolCallIn  `json:"tool_calls,omitempty"`
+	// Images 是 base64 图片列表（不含 data: 前缀），Ollama 的多模态形态
+	Images []string `json:"images,omitempty"`
 }
 
 type toolCallIn struct {
@@ -61,8 +63,9 @@ type requestBody struct {
 }
 
 type options struct {
-	NumPredict int     `json:"num_predict,omitempty"`
-	Temperature float64 `json:"temperature,omitempty"`
+	NumPredict  int      `json:"num_predict,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
 }
 
 type chunk struct {
@@ -91,7 +94,9 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	if err != nil {
 		return nil, pkg.Wrap(3001, "序列化请求失败", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/chat", strings.NewReader(string(raw)))
+	// 请求挂在 Feed 的内部 ctx 上：空闲看门狗取消它才能真正掐断连接。
+	feed := llm.NewFeed(ctx, 64)
+	httpReq, err := http.NewRequestWithContext(feed.Ctx(), http.MethodPost, c.baseURL+"/api/chat", strings.NewReader(string(raw)))
 	if err != nil {
 		return nil, pkg.Wrap(3001, "构造请求失败", err)
 	}
@@ -106,23 +111,25 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 		return nil, pkg.New(mapStatus(resp.StatusCode), "模型服务返回错误", trim(string(b)))
 	}
 
-	events := make(chan llm.Event, 64)
 	started := time.Now()
 	go func() {
 		defer resp.Body.Close()
-		defer close(events)
-		c.consume(ctx, resp.Body, events, started)
+		defer feed.Close()
+		c.consume(feed, resp.Body, started)
 	}()
-	return events, nil
+	go feed.WatchIdle()
+	return feed.Events(), nil
 }
 
-func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Event, started time.Time) {
+func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
+	ctx := feed.Ctx()
 	usage := &llm.Usage{}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
-		if ctx.Err() != nil {
-			emit(events, llm.Event{Type: llm.EventDone, StopReason: llm.StopAborted})
+		feed.Ping()
+		if ctx.Err() != nil && !feed.TimedOut() {
+			feed.Send(llm.Event{Type: llm.EventDone, StopReason: llm.StopAborted})
 			return
 		}
 		line := strings.TrimSpace(scanner.Text())
@@ -134,18 +141,19 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 			continue
 		}
 		if ck.Error != "" {
-			emit(events, llm.Event{Type: llm.EventError, StopReason: llm.StopError, Err: errString(ck.Error)})
+			feed.Send(llm.Event{Type: llm.EventError, StopReason: llm.StopError,
+				Err: errString(llm.FriendlyUpstreamError(ck.Error))})
 			return
 		}
 		if ck.Message.Thinking != "" {
-			emit(events, llm.Event{Type: llm.EventThinking, Delta: ck.Message.Thinking})
+			feed.Send(llm.Event{Type: llm.EventThinking, Delta: ck.Message.Thinking})
 		}
 		if ck.Message.Content != "" {
-			emit(events, llm.Event{Type: llm.EventDelta, Delta: ck.Message.Content})
+			feed.Send(llm.Event{Type: llm.EventDelta, Delta: ck.Message.Content})
 		}
 		for i, tc := range ck.Message.ToolCalls {
 			id := "call_" + itoa(len(ck.Message.ToolCalls)) + "_" + itoa(i)
-			emit(events, llm.Event{Type: llm.EventToolCall, ToolCall: &llm.ToolCall{
+			feed.Send(llm.Event{Type: llm.EventToolCall, ToolCall: &llm.ToolCall{
 				ID: id, Name: tc.Function.Name, Args: tc.Function.Arguments,
 			}})
 		}
@@ -158,13 +166,26 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 		if ck.Done {
 			usage.Total = usage.Input + usage.Output
 			usage.LatencyMs = time.Since(started).Milliseconds()
-			emit(events, llm.Event{Type: llm.EventDone, StopReason: mapReason(ck.DoneReason), Usage: usage})
+			feed.Send(llm.Event{Type: llm.EventDone, StopReason: mapReason(ck.DoneReason), Usage: usage})
 			return
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		switch {
+		case feed.TimedOut():
+			feed.Send(llm.Event{Type: llm.EventError, StopReason: llm.StopError, Err: llm.IdleError()})
+		case ctx.Err() == nil:
+			feed.Send(llm.Event{Type: llm.EventError, StopReason: llm.StopError,
+				Err: pkg.Wrap(3002, "模型服务连接中断", err)})
+		}
+		return
+	}
+	if ctx.Err() != nil && !feed.TimedOut() {
+		return
+	}
 	usage.Total = usage.Input + usage.Output
 	usage.LatencyMs = time.Since(started).Milliseconds()
-	emit(events, llm.Event{Type: llm.EventDone, StopReason: llm.StopStop, Usage: usage})
+	feed.Send(llm.Event{Type: llm.EventDone, StopReason: llm.StopStop, Usage: usage})
 }
 
 func mapReason(reason string) string {
@@ -180,6 +201,9 @@ func (c *Client) encode(req llm.Request) requestBody {
 	msgs := make([]messageIn, 0, len(req.Messages))
 	for _, m := range req.Messages {
 		mi := messageIn{Role: m.Role, Content: m.Content}
+		for _, im := range m.Images {
+			mi.Images = append(mi.Images, im.Base64)
+		}
 		if m.Role == llm.RoleTool {
 			mi.Role = "tool"
 		}
@@ -199,17 +223,10 @@ func (c *Client) encode(req llm.Request) requestBody {
 		td.Function.Parameters = t.Parameters
 		body.Tools = append(body.Tools, td)
 	}
-	if req.MaxTokens > 0 || req.Temperature > 0 {
-		body.Options = &options{NumPredict: req.MaxTokens, Temperature: req.Temperature}
+	if req.MaxTokens > 0 || req.Temperature != nil || req.TopP != nil {
+		body.Options = &options{NumPredict: req.MaxTokens, Temperature: req.Temperature, TopP: req.TopP}
 	}
 	return body
-}
-
-func emit(events chan llm.Event, e llm.Event) {
-	select {
-	case events <- e:
-	default:
-	}
 }
 
 func trim(s string) string {

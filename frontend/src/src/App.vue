@@ -7,6 +7,7 @@ import { sseConnected } from './composables/useSse'
 import { useChatStore } from './stores/chat'
 import { useSettingsStore } from './stores/settings'
 import AppIcon from './components/common/AppIcon.vue'
+import ToastHost from './components/common/ToastHost.vue'
 import { status, message, retryHandshake } from './bootstrap'
 import { ForceQuit } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
@@ -97,6 +98,7 @@ function quitApp() {
         <p>正在启动…</p>
       </div>
     </main>
+    <ToastHost />
   </div>
 </template>
 

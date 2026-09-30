@@ -26,4 +26,12 @@ Copy-Item -Path (Join-Path $src 'python-*.tar.gz') -Destination $dest -Force
 if (Test-Path (Join-Path $src 'manifest.json')) {
     Copy-Item -Path (Join-Path $src 'manifest.json') -Destination $dest -Force
 }
-Write-Host "copy-runtimes: 已拷贝 Python 运行时到 $dest"
+
+# NSIS 安装器源目录（project.nsi 引用 build/windows/runtimes）
+$nsisDest = Join-Path (Split-Path -Parent $destRoot) 'windows\runtimes'
+New-Item -ItemType Directory -Force -Path $nsisDest | Out-Null
+Copy-Item -Path (Join-Path $src 'python-*.tar.gz') -Destination $nsisDest -Force
+if (Test-Path (Join-Path $src 'manifest.json')) {
+    Copy-Item -Path (Join-Path $src 'manifest.json') -Destination $nsisDest -Force
+}
+Write-Host "copy-runtimes: 已拷贝 Python 运行时到 $dest 与 $nsisDest"

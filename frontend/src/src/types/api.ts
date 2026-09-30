@@ -24,6 +24,11 @@ export interface ToolCall {
   args?: Record<string, unknown>
 }
 
+export interface MessageImage {
+  mime: string
+  base64: string
+}
+
 export interface MessageVO {
   id: string
   role: 'user' | 'assistant' | 'tool'
@@ -35,6 +40,7 @@ export interface MessageVO {
   tool_name?: string
   is_error?: boolean
   stop_reason?: string
+  images?: MessageImage[]
   usage?: UsageVO
   created_at: number
   latency_ms?: number
@@ -65,10 +71,12 @@ export interface SendMessageRESP {
   session_id: string
 }
 
-/** @ 引用：只传工作目录内的相对路径，助手读得到才会用 */
+/** @ 引用：只传工作目录内的相对路径，助手读得到才会用。
+ *  粘贴的图片没有路径：image_base64 直接带数据（png/jpg/webp/gif）。 */
 export interface AttachmentREQ {
   path: string
   name: string
+  image_base64?: string
 }
 
 export interface ApprovalVO {
@@ -212,8 +220,34 @@ export interface ModelCapability {
   max_output: number
   thinking: boolean
   vision: boolean
+  tool_call: boolean
   known: boolean
   note: string
+}
+
+/** 模型级配置：目录 + 用户覆写合并后的最终值 */
+export interface ModelConfigVO {
+  provider_id: string
+  model: string
+  context_window: number
+  window_known: boolean
+  max_output: number
+  temperature: number
+  top_p: number
+  vision: boolean
+  tool_call: boolean
+  thinking: boolean
+}
+
+export interface UpsertModelConfigREQ {
+  provider_id: string
+  model: string
+  context_window: number
+  max_output: number
+  temperature: number
+  top_p: number
+  vision: boolean
+  tool_call: boolean
 }
 
 // ---- /runtime ----

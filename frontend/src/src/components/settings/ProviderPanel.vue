@@ -1,17 +1,20 @@
 <script setup lang="ts">
 // 模型服务面板：内置模板一键填好，只需粘 Key 就能用。
-import { computed, onMounted, reactive, ref } from 'vue'
+// 每个模型还能单独设上下文窗口、温度、top_p 与图像 / 工具调用能力。
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import * as api from '../../api'
+import type { ModelConfigVO } from '../../types/api'
 import { useSettingsStore } from '../../stores/settings'
+import { useToastStore } from '../../stores/toast'
 import AppIcon from '../common/AppIcon.vue'
 import PageState from '../common/PageState.vue'
 
 const store = useSettingsStore()
+const toast = useToastStore()
 const editing = ref<string | null>(null)
 const busy = ref(false)
 const testing = ref<string | null>(null)
 const testResult = ref<Record<string, { ok: boolean; detail: string }>>({})
-const extraModel = ref('')
 
 const templates = [
   { api: 'openai', name: 'OpenAI', base_url: 'https://api.openai.com/v1', models: 'gpt-4o,gpt-4o-mini' },
@@ -28,6 +31,30 @@ const fetched = ref<string[]>([])
 const needKey = computed(() => form.api !== 'ollama')
 const chosen = computed(() => form.models.split(',').map((s) => s.trim()).filter(Boolean))
 const options = computed(() => [...new Set([...chosen.value, ...fetched.value])])
+// 模型可能上百个：搜索式下拉 + 截断，已选的用 chips 管理
+const modelFilter = ref('')
+const dropdownOpen = ref(false)
+const MAX_SHOWN = 30
+
+const matchedOptions = computed(() => {
+  const q = modelFilter.value.trim().toLowerCase()
+  return q ? options.value.filter((m) => m.toLowerCase().includes(q)) : options.value
+})
+const shownOptions = computed(() => matchedOptions.value.slice(0, MAX_SHOWN))
+const hiddenCount = computed(() => Math.max(0, matchedOptions.value.length - MAX_SHOWN))
+
+// 从下拉选中或手打回车都会落到这里；已存在的不重复加
+function addModel(m: string) {
+  const name = m.trim()
+  if (!name) return
+  if (!chosen.value.includes(name)) form.models = [...chosen.value, name].join(',')
+  modelFilter.value = ''
+  dropdownOpen.value = false
+}
+
+function removeModel(m: string) {
+  form.models = chosen.value.filter((x) => x !== m).join(',')
+}
 
 function pick(t: (typeof templates)[number]) {
   editing.value = 'new'
@@ -38,7 +65,7 @@ function pick(t: (typeof templates)[number]) {
   form.key = ''
   form.models = t.models
   fetched.value = []
-  extraModel.value = ''
+  modelFilter.value = ''
 }
 
 function edit(id: string) {
@@ -52,7 +79,7 @@ function edit(id: string) {
   form.key = ''
   form.models = p.models.join(',')
   fetched.value = []
-  extraModel.value = ''
+  modelFilter.value = ''
 }
 
 function reset() {
@@ -64,28 +91,110 @@ function reset() {
   form.key = ''
   form.models = ''
   fetched.value = []
-  extraModel.value = ''
+  modelFilter.value = ''
+  cfgOpen.value = false
+  cfgRows.value = {}
 }
 
-// 拉取上游模型列表：保存前也能先看这家到底有哪些模型
+// 拉取上游模型列表：已保存的服务按 id 拉；还没保存的把连接信息直接发给后端
+const pulling = ref(false)
 async function pullModels() {
-  if (!form.id) return
-  const list = await store.loadModels(form.id)
-  fetched.value = list
+  pulling.value = true
+  try {
+    let list: string[] = []
+    if (form.id) {
+      list = await store.loadModels(form.id)
+    } else {
+      list = await api.providers.fetchModels({ api: form.api, base_url: form.base_url, api_key: form.key || undefined })
+    }
+    if (!list.length) toast.bad('上游没有返回模型列表，检查接口地址与服务商控制台')
+    else toast.ok(`已拉取 ${list.length} 个模型`)
+    fetched.value = list
+  } catch (e) {
+    toast.bad(`拉取模型列表失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    pulling.value = false
+  }
 }
 
-function toggleModel(m: string) {
-  const set = new Set(chosen.value)
-  if (set.has(m)) set.delete(m)
-  else set.add(m)
-  form.models = [...set].join(',')
+// ---- 模型参数与能力：目录认不出的模型，只有用户自己知道真实数字 ----
+interface CfgRow {
+  context_window: string
+  temperature: string
+  top_p: string
+  vision: boolean
+  tool_call: boolean
+  window_known: boolean
+  max_output: number
+  saving: boolean
+  saved: boolean
 }
 
-function addExtra() {
-  const m = extraModel.value.trim()
-  if (!m) return
-  if (!chosen.value.includes(m)) form.models = [...chosen.value, m].join(',')
-  extraModel.value = ''
+const cfgOpen = ref(false)
+const cfgRows = ref<Record<string, CfgRow>>({})
+
+function applyConfig(m: string, vo: ModelConfigVO) {
+  cfgRows.value[m] = {
+    context_window: vo.window_known ? String(vo.context_window) : '',
+    temperature: String(vo.temperature),
+    top_p: String(vo.top_p),
+    vision: vo.vision,
+    tool_call: vo.tool_call,
+    window_known: vo.window_known,
+    max_output: vo.max_output,
+    saving: false,
+    saved: false,
+  }
+}
+
+function blankRow(): CfgRow {
+  return {
+    context_window: '', temperature: '0.25', top_p: '0.75',
+    vision: false, tool_call: true, window_known: false, max_output: 0, saving: false, saved: false,
+  }
+}
+
+// 行对象必须先于渲染存在，模板里的 v-model 才有落点；随后用服务端值覆盖
+async function loadCfg(m: string) {
+  try {
+    applyConfig(m, await api.models.config(m, form.id || undefined))
+  } catch {
+    // 拉不到就保留缺省行
+  }
+}
+
+watch([cfgOpen, chosen], () => {
+  if (!cfgOpen.value) return
+  for (const m of chosen.value) {
+    if (!cfgRows.value[m]) cfgRows.value[m] = blankRow()
+    void loadCfg(m)
+  }
+})
+
+async function saveCfg(m: string) {
+  const row = cfgRows.value[m]
+  if (!row) return
+  row.saving = true
+  try {
+    const vo = await api.models.saveConfig({
+      provider_id: form.id,
+      model: m,
+      context_window: Math.max(0, Math.round(Number(row.context_window) || 0)),
+      max_output: row.max_output,
+      temperature: Math.min(2, Math.max(0, Number(row.temperature) || 0)),
+      top_p: Math.min(1, Math.max(0, Number(row.top_p) || 0)),
+      vision: row.vision,
+      tool_call: row.tool_call,
+    })
+    applyConfig(m, vo)
+    row.saved = true
+    toast.ok(`${m} 的参数已保存`)
+    setTimeout(() => (row.saved = false), 1500)
+  } catch (e) {
+    toast.bad(`保存模型参数失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    row.saving = false
+  }
 }
 
 async function save() {
@@ -103,14 +212,36 @@ async function save() {
     else await api.providers.upsert(body)
     await store.loadProviders()
     reset()
+    toast.ok(form.id ? '模型服务已更新' : '模型服务已添加')
+  } catch (e) {
+    toast.bad(`保存失败：${(e as Error)?.message || '请检查填写内容后重试'}`)
   } finally {
     busy.value = false
   }
 }
 
-async function remove(id: string) {
-  await api.providers.remove(id)
-  await store.loadProviders()
+// 删除是危险操作：两段式确认，第一次点进入确认态，3 秒不点自动还原
+const confirmingDelete = ref('')
+let confirmTimer = 0
+function askRemove(id: string) {
+  if (confirmingDelete.value === id) {
+    confirmingDelete.value = ''
+    void doRemove(id)
+    return
+  }
+  confirmingDelete.value = id
+  clearTimeout(confirmTimer)
+  confirmTimer = window.setTimeout(() => (confirmingDelete.value = ''), 3000)
+}
+
+async function doRemove(id: string) {
+  try {
+    await api.providers.remove(id)
+    await store.loadProviders()
+    toast.ok('模型服务已删除')
+  } catch (e) {
+    toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
+  }
 }
 
 async function test(id: string) {
@@ -118,16 +249,24 @@ async function test(id: string) {
   try {
     const r = await api.providers.test(id)
     testResult.value[id] = { ok: r.ok, detail: r.detail || (r.ok ? '连接正常' : '连接失败') }
+    if (r.ok) toast.ok(`${r.model} 连接正常`)
+    else toast.bad(`连接失败：${testResult.value[id].detail}`)
   } catch (e) {
     testResult.value[id] = { ok: false, detail: (e as Error).message }
+    toast.bad(`连接失败：${(e as Error).message}`)
   } finally {
     testing.value = null
   }
 }
 
 async function setDefault(id: string) {
-  await api.providers.setDefault(id)
-  await store.loadProviders()
+  try {
+    await api.providers.setDefault(id)
+    await store.loadProviders()
+    toast.ok('已设为默认服务')
+  } catch (e) {
+    toast.bad(`设置默认失败：${(e as Error)?.message || '请重试'}`)
+  }
 }
 
 onMounted(() => store.loadProviders())
@@ -165,40 +304,109 @@ onMounted(() => store.loadProviders())
         </label>
         <div class="field span2">
           <span class="lb">这个服务能用哪些模型（可多选）</span>
-          <div class="mrow">
-            <button
-              v-for="m in options"
-              :key="m"
-              class="chip"
-              :class="{ on: chosen.includes(m) }"
-              type="button"
-              @click="toggleModel(m)"
-            >
-              <AppIcon v-if="chosen.includes(m)" name="check" size="ic-xs" />
+
+          <!-- 已选模型：数量少，chips 一目了然，可单独移除 -->
+          <div v-if="chosen.length" class="mrow">
+            <span v-for="m in chosen" :key="m" class="chip on">
               {{ m }}
-            </button>
-            <span v-if="store.modelsLoading" class="muted">正在读取模型列表…</span>
-            <span v-else-if="!options.length" class="muted">模板已带常用模型；保存后可从上游拉取完整列表</span>
+              <button class="chip-x" type="button" aria-label="移除" @click="removeModel(m)">
+                <AppIcon name="close" size="ic-xs" />
+              </button>
+            </span>
           </div>
-          <div class="flex-r mrow-acts">
+
+          <!-- 搜索式下拉：上游几百个模型也能选，输入即过滤 -->
+          <div class="mselect">
             <input
-              v-model="extraModel"
+              v-model="modelFilter"
               class="input"
-              placeholder="列表里没有？在这里手打模型名，点「加上」"
-              @keydown.enter="addExtra"
+              placeholder="搜索或手打模型名，回车加上"
+              @focus="dropdownOpen = true"
+              @keydown.enter.prevent="addModel(modelFilter.trim())"
             />
-            <button class="btn btn-outline btn-sm" :disabled="!extraModel.trim()" @click="addExtra">加上</button>
-            <button
-              v-if="form.id"
-              class="btn btn-outline btn-sm"
-              :disabled="store.modelsLoading"
-              title="去服务商那里问一遍有哪些模型"
-              @click="pullModels"
-            >
-              {{ store.modelsLoading ? '拉取中…' : '拉取模型列表' }}
-            </button>
+            <div v-if="dropdownOpen && matchedOptions.length" class="mselect-pop">
+              <button
+                v-for="m in shownOptions"
+                :key="m"
+                class="pop-row"
+                type="button"
+                @mousedown.prevent="addModel(m)"
+              >
+                <AppIcon v-if="chosen.includes(m)" name="check" size="ic-xs" />
+                <span v-else class="pr-gap" />
+                {{ m }}
+              </button>
+              <div v-if="hiddenCount > 0" class="pop-row muted">
+                还有 {{ hiddenCount }} 个匹配项，继续输入缩小范围
+              </div>
+            </div>
+            <div v-else-if="dropdownOpen && modelFilter.trim()" class="mselect-pop">
+              <button class="pop-row" type="button" @mousedown.prevent="addModel(modelFilter.trim())">
+                <AppIcon name="plus" size="ic-xs" />
+                添加自定义模型「{{ modelFilter.trim() }}」
+              </button>
+            </div>
           </div>
-          <div class="hint">至少选一个；保存后在对话页底部也能随时换模型</div>
+          <div @focusout="dropdownOpen = false">
+            <div class="flex-r mrow-acts">
+              <span class="hint">
+                {{ store.modelsLoading ? '正在读取模型列表…' : options.length ? '' : '拉取列表后在这里选择，也可以手打' }}
+              </span>
+              <span class="sp" />
+              <button
+                class="btn btn-outline btn-sm"
+                :disabled="pulling || (needKey && !form.id && !form.key)"
+                :title="form.id ? '去服务商那里问一遍有哪些模型' : '按上面填的地址与密钥去问一遍'"
+                @click="pullModels"
+              >
+                {{ pulling || store.modelsLoading ? '拉取中…' : '拉取模型列表' }}
+              </button>
+            </div>
+            <div class="hint">至少选一个；保存后在对话页底部也能随时换模型</div>
+          </div>
+        </div>
+
+        <!-- 模型参数与能力：不展开也能用（走内置目录），展开后每项都能手填 -->
+        <div class="field span2">
+          <button class="cfg-toggle" type="button" @click="cfgOpen = !cfgOpen">
+            <AppIcon :name="cfgOpen ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
+            模型参数与能力
+            <span class="cfg-tip">上下文窗口、温度、top_p、识图 / 工具调用</span>
+          </button>
+          <div v-if="cfgOpen" class="cfg-list">
+            <div v-for="m in chosen" :key="m" class="cfg-row">
+              <div class="cfg-name" :title="m">{{ m }}</div>
+              <label class="cfg-field">
+                <span>上下文窗口</span>
+                <input
+                  v-model="cfgRows[m].context_window"
+                  class="input input-sm"
+                  inputmode="numeric"
+                  placeholder="自动"
+                />
+              </label>
+              <label class="cfg-field">
+                <span>温度</span>
+                <input v-model="cfgRows[m].temperature" class="input input-sm" inputmode="decimal" />
+              </label>
+              <label class="cfg-field">
+                <span>Top P</span>
+                <input v-model="cfgRows[m].top_p" class="input input-sm" inputmode="decimal" />
+              </label>
+              <label class="cfg-check" title="能不能看图">
+                <input v-model="cfgRows[m].vision" type="checkbox" />
+                <span>识图</span>
+              </label>
+              <label class="cfg-check" title="能不能调用工具">
+                <input v-model="cfgRows[m].tool_call" type="checkbox" />
+                <span>工具调用</span>
+              </label>
+              <button class="btn btn-outline btn-sm" :disabled="cfgRows[m]?.saving" @click="saveCfg(m)">
+                {{ cfgRows[m]?.saved ? '已保存' : cfgRows[m]?.saving ? '保存中…' : '保存' }}
+              </button>
+            </div>
+            <div class="hint">窗口留空 = 跟随内置目录；改完点保存立刻生效，对话里按这里的值算上下文水位</div>
+          </div>
         </div>
       </div>
       <div class="flex-r form-acts">
@@ -236,7 +444,9 @@ onMounted(() => store.loadProviders())
             </button>
             <button v-if="!p.is_default" class="btn btn-sm btn-ghost" @click="setDefault(p.id)">设默认</button>
             <button class="btn btn-sm btn-ghost" @click="edit(p.id)">编辑</button>
-            <button class="btn btn-sm btn-danger-ghost" @click="remove(p.id)">删除</button>
+            <button class="btn btn-sm btn-danger-ghost" @click="askRemove(p.id)">
+              {{ confirmingDelete === p.id ? '再点一次确认删除' : '删除' }}
+            </button>
           </div>
         </div>
       </div>
@@ -315,4 +525,136 @@ onMounted(() => store.loadProviders())
 }
 .t-ok { color: var(--wb-success); font-size: var(--wb-fs-sm); }
 .t-bad { color: var(--wb-danger); font-size: var(--wb-fs-sm); }
+
+/* 搜索式模型下拉：上游几百个模型时的唯一入口 */
+.mselect {
+  position: relative;
+}
+.mselect-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: var(--wb-z-pop);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface-solid);
+  border: 1px solid var(--wb-border-strong);
+  box-shadow: var(--wb-shadow-pop);
+}
+.mselect-pop .pop-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--wb-radius-sm);
+  background: transparent;
+  font-size: var(--wb-fs-sm);
+  font-family: var(--font-mono);
+  color: var(--wb-ink);
+  text-align: left;
+  cursor: pointer;
+}
+.mselect-pop .pop-row:hover {
+  background: var(--wb-tint);
+}
+.mselect-pop .pr-gap {
+  width: 14px;
+  flex: none;
+}
+.chip-x {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.chip-x:hover {
+  color: var(--wb-danger);
+}
+
+/* 模型参数折叠区 */
+.cfg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--wb-ctl-h-sm);
+  padding: 0 var(--wb-sp-2);
+  margin-left: calc(-1 * var(--wb-sp-2));
+  border: 0;
+  border-radius: var(--wb-radius-sm);
+  background: transparent;
+  font-size: var(--wb-fs-label);
+  font-weight: 600;
+  color: var(--wb-ink-2);
+  cursor: pointer;
+}
+.cfg-toggle:hover {
+  background: var(--wb-tint);
+  color: var(--wb-ink);
+}
+.cfg-tip {
+  font-weight: 400;
+  color: var(--wb-muted);
+}
+.cfg-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  margin-top: var(--wb-sp-2);
+  padding: var(--wb-sp-3);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface-2);
+}
+.cfg-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--wb-sp-3);
+}
+.cfg-name {
+  flex: 0 1 220px;
+  min-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink);
+}
+.cfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cfg-field > span {
+  font-size: var(--wb-fs-hint);
+  color: var(--wb-muted);
+}
+.cfg-field .input-sm {
+  width: 96px;
+  height: var(--wb-ctl-h-sm);
+  font-size: var(--wb-fs-sm);
+}
+.cfg-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink-2);
+  cursor: pointer;
+  user-select: none;
+}
+.cfg-check input {
+  accent-color: var(--wb-primary);
+}
 </style>

@@ -30,13 +30,14 @@ const repeatCallLimit = 3
 // 返回 blocked=true 时该调用不执行，直接生成一条失败结果让模型换方案。
 type Gate func(ctx context.Context, call *llm.ToolCall) (blocked bool, reason string)
 
-// Budget 是上下文预算。三个整数由 service 层按模型与设置备好，
+// Budget 是上下文预算。各整数由 service 层按模型与设置备好，
 // 内核只负责按预算裁剪，不认识设置表也不认识模型名。
 type Budget struct {
-	Window      int  // 模型上下文窗口
-	WindowKnown bool // false 表示窗口是估算值，前端应显示「未知」
-	Reserve     int  // 给模型输出留的余量
-	Keep        int  // 裁剪后保留的近期 token 预算
+	Window       int  // 模型上下文窗口
+	WindowKnown  bool // false 表示窗口是估算值，前端应显示「未知」
+	Reserve      int  // 给模型输出留的余量
+	Keep         int  // 裁剪后保留的近期 token 预算
+	SystemTokens int  // system 提示词的 token 估算：判断是否超预算必须算上它
 }
 
 // Result 是一次 run 的产出。
@@ -56,12 +57,15 @@ type Config struct {
 	System    string
 	Model     string
 	MaxTokens int
-	MaxTurns  int
-	Parallel  int
-	Budget    Budget
-	Gate      Gate
-	Emit      func(Event)
-	Steering  *Queue
+	// Temperature / TopP 由调用方按模型配置备好；nil 表示不下发，交给上游默认。
+	Temperature *float64
+	TopP        *float64
+	MaxTurns    int
+	Parallel    int
+	Budget      Budget
+	Gate        Gate
+	Emit        func(Event)
+	Steering    *Queue
 }
 
 // Loop 是一次运行的内核实例。
@@ -127,6 +131,15 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 
 		msg, stop, usage, err := l.streamTurn(ctx)
 		if usage != nil {
+			// 计量归一化：不少网关对 input_tokens 的上报不实（见过报 1 的），
+			// 而 ctxTokens 是本轮发出时的上下文实测估算（system + 历史 + 插话），
+			// 更接近真实输入。取较大者，消息指标 / 会话累计 / 仪表盘三处口径一致。
+			if usage.Input < ctxTokens {
+				usage.Input = ctxTokens
+			}
+			if usage.Total < usage.Input+usage.Output {
+				usage.Total = usage.Input + usage.Output
+			}
 			res.Usage.Input += usage.Input
 			res.Usage.Output += usage.Output
 			res.Usage.Total += usage.Total
@@ -179,18 +192,22 @@ func (l *Loop) finish(res *Result, reason string, err error) (*Result, error) {
 	return res, err
 }
 
-// compact 按预算裁剪上下文；只有真的裁掉东西才发事件，避免前端反复闪提示。
+// compact 按预算裁剪上下文。裁没裁以消息条数为准——token 口径必须一致，
+// 之前「含 system 的 before」对比「不含 system 的 after」，每轮都误报压缩。
+// 事件数字统一为含 system 的口径，与上下文水位展示一致。
 func (l *Loop) compact() {
 	snapshot := l.Messages()
-	before := EstimateTokens(l.cfg.System, snapshot)
 	trimmed, after := Compact(snapshot, l.cfg.Budget)
-	if after >= before {
+	if len(trimmed) == len(snapshot) {
 		return
 	}
 	l.mu.Lock()
 	l.msgs = trimmed
 	l.mu.Unlock()
-	l.emit(Event{Kind: EventCompressed, TokensBefore: before, TokensAfter: after})
+	sysTokens := len(l.cfg.System) / charsPerToken
+	l.emit(Event{Kind: EventCompressed,
+		TokensBefore: EstimateTokens("", snapshot) + sysTokens,
+		TokensAfter:  after + sysTokens})
 }
 
 // reportContext 每轮广播一次上下文占用：用户靠它判断「还能聊多久、该不该开新对话」。
@@ -226,11 +243,13 @@ func (l *Loop) drainSteering() {
 // streamTurn 请求一次模型，把流式增量实时发出，返回归一后的 assistant 消息。
 func (l *Loop) streamTurn(ctx context.Context) (llm.Message, string, *llm.Usage, error) {
 	req := llm.Request{
-		Model:     l.cfg.Model,
-		System:    l.cfg.System,
-		Messages:  CleanForProtocol(l.Messages()),
-		Tools:     llmToolDefs(l.cfg.Tools),
-		MaxTokens: l.cfg.MaxTokens,
+		Model:       l.cfg.Model,
+		System:      l.cfg.System,
+		Messages:    CleanForProtocol(l.Messages()),
+		Tools:       llmToolDefs(l.cfg.Tools),
+		MaxTokens:   l.cfg.MaxTokens,
+		Temperature: l.cfg.Temperature,
+		TopP:        l.cfg.TopP,
 	}
 	events, err := l.cfg.Streamer.Stream(ctx, req)
 	if err != nil {

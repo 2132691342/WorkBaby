@@ -62,12 +62,20 @@ export function DeleteSkill(arg1) {
   return window['go']['main']['App']['DeleteSkill'](arg1);
 }
 
+export function FetchModels(arg1) {
+  return window['go']['main']['App']['FetchModels'](arg1);
+}
+
 export function FollowUpMessage(arg1) {
   return window['go']['main']['App']['FollowUpMessage'](arg1);
 }
 
 export function ForceQuit() {
   return window['go']['main']['App']['ForceQuit']();
+}
+
+export function GetModelConfig(arg1) {
+  return window['go']['main']['App']['GetModelConfig'](arg1);
 }
 
 export function GetSession(arg1) {
@@ -88,6 +96,10 @@ export function ListApprovals(arg1) {
 
 export function ListDocs(arg1) {
   return window['go']['main']['App']['ListDocs'](arg1);
+}
+
+export function ListModelConfigs(arg1) {
+  return window['go']['main']['App']['ListModelConfigs'](arg1);
 }
 
 export function ListModels(arg1) {
@@ -224,6 +236,10 @@ export function ToggleTool(arg1) {
 
 export function UpdateProvider(arg1) {
   return window['go']['main']['App']['UpdateProvider'](arg1);
+}
+
+export function UpsertModelConfig(arg1) {
+  return window['go']['main']['App']['UpsertModelConfig'](arg1);
 }
 
 export function UpsertProvider(arg1) {

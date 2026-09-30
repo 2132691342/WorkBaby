@@ -77,9 +77,9 @@ func (s *ToolService) disabled() map[string]bool {
 	return out
 }
 
-// ModelCapability 查模型能力画像；用户手填的窗口优先于内置目录。
-func (c *ChatService) ModelCapability(model string) domain.ModelCapability {
-	return c.capabilityOf(model)
+// ModelCapability 查模型能力画像；模型设置里的手填值优先于内置目录。
+func (c *ChatService) ModelCapability(providerID, model string) domain.ModelCapability {
+	return c.capabilityOf(providerID, model)
 }
 
 // riskOfTool 给工具一个静态风险档，供界面在停用前提醒用户。

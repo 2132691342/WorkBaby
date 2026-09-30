@@ -1,6 +1,7 @@
 package service
 
 import (
+	"slices"
 	"context"
 	"encoding/json"
 	"io"
@@ -91,15 +92,20 @@ func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.Provider
 		_ = p.SetDefault(d.ID)
 		d.IsDefault = true
 	} else if err == nil {
-		// 非首个服务也要落默认模型：新会话只继承服务时模型名会是空的。
-		_ = p.adoptDefaultModel(d)
+		// 非首个服务也要校正默认模型：新会话只继承服务时模型名会是空的。
+		_ = p.refreshDefaultModel(d)
 	}
 	vo := providerVO(d, parseModels(d.Models))
 	return &vo, nil
 }
 
-// Delete 删除模型服务。
-func (p *ProviderService) Delete(id string) error { return p.env.Repo.DeleteProvider(id) }
+// Delete 删除模型服务，并级联清理它的模型级配置。
+func (p *ProviderService) Delete(id string) error {
+	if err := p.env.Repo.DeleteModelConfigsByProvider(id); err != nil {
+		return err
+	}
+	return p.env.Repo.DeleteProvider(id)
+}
 
 // SetDefault 设为默认；同时写入设置便于会话缺省继承。
 func (p *ProviderService) SetDefault(id string) error {
@@ -117,19 +123,21 @@ func (p *ProviderService) SetDefault(id string) error {
 	if err := p.env.Repo.SetSetting(domain.SettingDefaultProvider, id); err != nil {
 		return err
 	}
-	// 顺带把默认模型记下来：只存服务不存模型时，新建会话继承到的是空模型名，
-	// 界面显示「默认模型」而能力查询永远认不出窗口大小。
-	return p.adoptDefaultModel(d)
+	// 顺带校正默认模型：新建会话要从这里继承模型名，指向不存在的模型
+	// 会让每条新对话都报 model not found。
+	return p.refreshDefaultModel(d)
 }
 
-// adoptDefaultModel 在用户没手动指定过模型时，取该服务的首个模型作为默认。
-func (p *ProviderService) adoptDefaultModel(d *domain.ProviderDO) error {
+// refreshDefaultModel 校正默认模型：没有就取服务模型列表的第一个；
+// 已有的默认不在当前列表里（服务编辑 / 拉取列表后名字变了）也跟着换，
+// 否则新会话会继承到一个上游不存在的模型。
+func (p *ProviderService) refreshDefaultModel(d *domain.ProviderDO) error {
 	cur, _ := p.env.Repo.GetSetting(domain.SettingDefaultModel)
-	if cur != "" {
-		return nil
-	}
 	models := parseModels(d.Models)
 	if len(models) == 0 {
+		return nil
+	}
+	if cur != "" && slices.Contains(models, cur) {
 		return nil
 	}
 	return p.env.Repo.SetSetting(domain.SettingDefaultModel, models[0])
@@ -177,6 +185,11 @@ func (p *ProviderService) Models(id string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return p.fetch(d, key)
+}
+
+// fetch 按服务的接口类型请求上游模型列表。
+func (p *ProviderService) fetch(d *domain.ProviderDO, key string) ([]string, error) {
 	endpoint := modelsEndpoint(d)
 	if endpoint == "" {
 		return parseModels(d.Models), nil
@@ -239,6 +252,95 @@ func (p *ProviderService) Streamer(providerID, model string) (llm.Streamer, stri
 	return p.build(d, model)
 }
 
+// ModelConfig 返回「内置目录 + 用户覆写」合并后的模型配置。
+// 没有覆写时 WindowKnown 与目录一致；覆写了窗口就视为确切值。
+func (p *ProviderService) ModelConfig(providerID, model string) (*domain.ModelConfigVO, error) {
+	if providerID == "" {
+		providerID = defaultProviderID(p.env)
+	}
+	cap := domain.ModelCapabilityOf(model)
+	vo := &domain.ModelConfigVO{
+		ProviderID: providerID, Model: model,
+		ContextWindow: cap.ContextWindow, WindowKnown: cap.Known,
+		MaxOutput: cap.MaxOutput, Thinking: cap.Thinking,
+		Vision: cap.Vision, ToolCall: cap.ToolCall,
+		Temperature: domain.DefaultTemperature, TopP: domain.DefaultTopP,
+	}
+	d, err := p.env.Repo.GetModelConfig(providerID, model)
+	if err != nil {
+		return nil, err
+	}
+	if d == nil {
+		return vo, nil
+	}
+	if d.ContextWindow > 0 {
+		vo.ContextWindow = d.ContextWindow
+		vo.WindowKnown = true
+	}
+	if d.MaxOutput > 0 {
+		vo.MaxOutput = d.MaxOutput
+	}
+	vo.Temperature = d.Temperature
+	vo.TopP = d.TopP
+	vo.Vision = d.Vision
+	vo.ToolCall = d.ToolCall
+	return vo, nil
+}
+
+// ListModelConfigs 列出一个服务下的全部模型配置；不指定服务就取默认的。
+func (p *ProviderService) ListModelConfigs(providerID string) ([]domain.ModelConfigDO, error) {
+	if providerID == "" {
+		providerID = defaultProviderID(p.env)
+	}
+	return p.env.Repo.ListModelConfigs(providerID)
+}
+
+// UpsertModelConfig 保存模型级配置。
+func (p *ProviderService) UpsertModelConfig(req domain.UpsertModelConfigREQ) (*domain.ModelConfigVO, error) {
+	if req.ProviderID == "" {
+		return nil, pkg.New(3111, "缺少模型服务", "")
+	}
+	if req.Model == "" {
+		return nil, pkg.New(3111, "缺少模型名", "")
+	}
+	if _, err := p.env.Repo.GetProvider(req.ProviderID); err != nil {
+		return nil, err
+	}
+	d := &domain.ModelConfigDO{
+		ProviderID: req.ProviderID, Model: req.Model,
+		ContextWindow: req.ContextWindow, MaxOutput: req.MaxOutput,
+		Temperature: req.Temperature, TopP: req.TopP,
+		Vision: req.Vision, ToolCall: req.ToolCall,
+	}
+	if req.Temperature <= 0 {
+		d.Temperature = domain.DefaultTemperature
+	}
+	if req.TopP <= 0 {
+		d.TopP = domain.DefaultTopP
+	}
+	if err := p.env.Repo.UpsertModelConfig(d); err != nil {
+		return nil, err
+	}
+	return p.ModelConfig(req.ProviderID, req.Model)
+}
+
+// FetchModels 用未保存的连接信息拉模型列表：新增服务时不用先保存才能看列表。
+func (p *ProviderService) FetchModels(api, baseURL, apiKey string) ([]string, error) {
+	d := &domain.ProviderDO{API: api, BaseURL: baseURL}
+	if apiKey != "" {
+		enc, err := pkg.Encrypt(p.env.Cfg.MasterKey, apiKey)
+		if err != nil {
+			return nil, err
+		}
+		d.APIKeyEnc = enc
+	}
+	key, err := p.keyOf(d)
+	if err != nil {
+		return nil, err
+	}
+	return p.fetch(d, key)
+}
+
 // pick 取指定服务，或默认的那个。
 func (p *ProviderService) pick(providerID string) (*domain.ProviderDO, error) {
 	if providerID != "" {
@@ -262,6 +364,9 @@ func (p *ProviderService) pick(providerID string) (*domain.ProviderDO, error) {
 }
 
 // build 解密密钥并构造适配器；模型缺省取该服务已知的第一个。
+// 会话指定的模型必须在该服务已配置的模型列表里：默认模型可能因为
+// 服务编辑后列表变化而指向一个上游不存在的名字（典型症状是上游报
+// model not found），在本地拦截并说清楚，比转述上游的原始 JSON 有用得多。
 func (p *ProviderService) build(d *domain.ProviderDO, model string) (llm.Streamer, string, error) {
 	key, err := p.keyOf(d)
 	if err != nil {
@@ -274,6 +379,11 @@ func (p *ProviderService) build(d *domain.ProviderDO, model string) (llm.Streame
 	}
 	if model == "" {
 		model = defaultModelOf(d.API)
+	}
+	if ms := parseModels(d.Models); len(ms) > 0 && !slices.Contains(ms, model) {
+		return nil, "", pkg.New(3112,
+			"模型「"+model+"」不在服务「"+d.Name+"」的模型列表里",
+			"在对话底部换个模型，或到设置里检查这个服务的模型配置")
 	}
 	streamer, err := factory.NewStreamer(llm.ClientConfig{
 		API: d.API, BaseURL: d.BaseURL, APIKey: key, Model: model,
@@ -330,6 +440,18 @@ func providerVO(d *domain.ProviderDO, models []string) domain.ProviderVO {
 		HasKey: d.APIKeyEnc != "", Models: models, IsDefault: d.IsDefault,
 		Enabled: d.Enabled, CreatedAt: d.CreatedAt,
 	}
+}
+
+// defaultProviderID 取默认服务 id；没有默认就取第一个。
+func defaultProviderID(env *Env) string {
+	if id, err := env.Repo.GetSetting(domain.SettingDefaultProvider); err == nil && id != "" {
+		return id
+	}
+	list, err := env.Repo.ListProviders()
+	if err != nil || len(list) == 0 {
+		return ""
+	}
+	return list[0].ID
 }
 
 func parseModels(raw string) []string {

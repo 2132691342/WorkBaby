@@ -42,6 +42,15 @@ type block struct {
 	ToolUseID string        `json:"tool_use_id,omitempty"`
 	Content  string         `json:"content,omitempty"`
 	IsError  bool           `json:"is_error,omitempty"`
+	// 图片块（识图输入）：type=image 时必填
+	Source *imageSource `json:"source,omitempty"`
+}
+
+// imageSource 是 base64 内联的图片来源。
+type imageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type messageIn struct {
@@ -56,13 +65,14 @@ type toolDef struct {
 }
 
 type requestBody struct {
-	Model       string     `json:"model"`
-	System      string     `json:"system,omitempty"`
+	Model       string      `json:"model"`
+	System      string      `json:"system,omitempty"`
 	Messages    []messageIn `json:"messages"`
-	Tools       []toolDef  `json:"tools,omitempty"`
-	MaxTokens   int        `json:"max_tokens"`
-	Stream      bool       `json:"stream"`
-	Temperature float64    `json:"temperature,omitempty"`
+	Tools       []toolDef   `json:"tools,omitempty"`
+	MaxTokens   int         `json:"max_tokens"`
+	Stream      bool        `json:"stream"`
+	Temperature *float64    `json:"temperature,omitempty"`
+	TopP        *float64    `json:"top_p,omitempty"`
 }
 
 type event struct {
@@ -107,7 +117,9 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	if err != nil {
 		return nil, pkg.Wrap(3001, "序列化请求失败", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages", strings.NewReader(string(raw)))
+	// 请求挂在 Feed 的内部 ctx 上：空闲看门狗取消它才能真正掐断连接。
+	feed := llm.NewFeed(ctx, 64)
+	httpReq, err := http.NewRequestWithContext(feed.Ctx(), http.MethodPost, c.baseURL+"/v1/messages", strings.NewReader(string(raw)))
 	if err != nil {
 		return nil, pkg.Wrap(3001, "构造请求失败", err)
 	}
@@ -123,20 +135,21 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, pkg.New(mapStatus(resp.StatusCode), "模型服务返回错误", trim(string(b)))
+		return nil, pkg.New(mapStatus(resp.StatusCode), "模型服务返回错误", trim(llm.FriendlyUpstreamError(string(b))))
 	}
 
-	events := make(chan llm.Event, 64)
 	started := time.Now()
 	go func() {
 		defer resp.Body.Close()
-		defer close(events)
-		c.consume(ctx, resp.Body, events, started)
+		defer feed.Close()
+		c.consume(feed, resp.Body, started)
 	}()
-	return events, nil
+	go feed.WatchIdle()
+	return feed.Events(), nil
 }
 
-func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Event, started time.Time) {
+func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
+	ctx := feed.Ctx()
 	usage := &llm.Usage{}
 	calls := map[int]*llm.ToolCall{}
 	argsBuf := map[int]*strings.Builder{}
@@ -145,8 +158,9 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
-		if ctx.Err() != nil {
-			emit(events, llm.Event{Type: llm.EventDone, StopReason: llm.StopAborted})
+		feed.Ping()
+		if ctx.Err() != nil && !feed.TimedOut() {
+			feed.Send(llm.Event{Type: llm.EventDone, StopReason: llm.StopAborted})
 			return
 		}
 		line := strings.TrimSpace(scanner.Text())
@@ -162,8 +176,8 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 			continue
 		}
 		if ev.Error != nil {
-			emit(events, llm.Event{Type: llm.EventError, StopReason: llm.StopError,
-				Err: pkg.New(3106, ev.Error.Message, "")})
+			feed.Send(llm.Event{Type: llm.EventError, StopReason: llm.StopError,
+				Err: pkg.New(3106, llm.FriendlyUpstreamError(ev.Error.Message), "")})
 			return
 		}
 		switch ev.Type {
@@ -183,9 +197,9 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 			}
 			switch ev.Delta.Type {
 			case "text_delta":
-				emit(events, llm.Event{Type: llm.EventDelta, Delta: ev.Delta.Text})
+				feed.Send(llm.Event{Type: llm.EventDelta, Delta: ev.Delta.Text})
 			case "thinking_delta":
-				emit(events, llm.Event{Type: llm.EventThinking, Delta: ev.Delta.Thinking})
+				feed.Send(llm.Event{Type: llm.EventThinking, Delta: ev.Delta.Thinking})
 			case "input_json_delta":
 				if b, ok := argsBuf[ev.Index]; ok {
 					b.WriteString(ev.Delta.PartialJSON)
@@ -194,7 +208,7 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 		case "content_block_stop":
 			if tc, ok := calls[ev.Index]; ok {
 				tc.Args = decodeArgs(argsBuf[ev.Index])
-				emit(events, llm.Event{Type: llm.EventToolCall, ToolCall: tc})
+				feed.Send(llm.Event{Type: llm.EventToolCall, ToolCall: tc})
 			}
 		case "message_delta":
 			if ev.Delta != nil && ev.Delta.StopReason != "" {
@@ -206,13 +220,27 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 		case "message_stop":
 			usage.Total = usage.Input + usage.Output
 			usage.LatencyMs = time.Since(started).Milliseconds()
-			emit(events, llm.Event{Type: llm.EventDone, StopReason: stop, Usage: usage})
+			feed.Send(llm.Event{Type: llm.EventDone, StopReason: stop, Usage: usage})
 			return
 		}
 	}
+	// 读失败分三类：看门狗掐的、调用方取消的、连接真断了。只有前两类之外才该报错。
+	if err := scanner.Err(); err != nil {
+		switch {
+		case feed.TimedOut():
+			feed.Send(llm.Event{Type: llm.EventError, StopReason: llm.StopError, Err: llm.IdleError()})
+		case ctx.Err() == nil:
+			feed.Send(llm.Event{Type: llm.EventError, StopReason: llm.StopError,
+				Err: pkg.Wrap(3002, "模型服务连接中断", err)})
+		}
+		return
+	}
+	if ctx.Err() != nil && !feed.TimedOut() {
+		return
+	}
 	usage.Total = usage.Input + usage.Output
 	usage.LatencyMs = time.Since(started).Milliseconds()
-	emit(events, llm.Event{Type: llm.EventDone, StopReason: stop, Usage: usage})
+	feed.Send(llm.Event{Type: llm.EventDone, StopReason: stop, Usage: usage})
 }
 
 func mapReason(reason string) string {
@@ -237,32 +265,59 @@ func decodeArgs(b *strings.Builder) map[string]any {
 	return out
 }
 
+// encode 组装请求体，守住 Anthropic 协议的四条硬约束：
+// 无签名 thinking 不回传、内容不为空串、角色严格交替（合并同角色）、首条是 user。
 func (c *Client) encode(req llm.Request) requestBody {
 	msgs := make([]messageIn, 0, len(req.Messages))
+	merge := func(role string, blocks []block) {
+		if n := len(msgs); n > 0 && msgs[n-1].Role == role {
+			msgs[n-1].Content = append(msgs[n-1].Content, blocks...)
+			return
+		}
+		msgs = append(msgs, messageIn{Role: role, Content: blocks})
+	}
 	for _, m := range req.Messages {
 		switch m.Role {
 		case llm.RoleTool:
-			msgs = append(msgs, messageIn{Role: "user", Content: []block{{
-				Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content, IsError: m.IsError,
-			}}})
+			content := m.Content
+			if strings.TrimSpace(content) == "" {
+				content = "（无输出）"
+			}
+			merge("user", []block{{
+				Type: "tool_result", ToolUseID: m.ToolCallID, Content: content, IsError: m.IsError,
+			}})
 		case llm.RoleAssistant:
 			blocks := []block{}
-			if m.Thinking != "" {
-				blocks = append(blocks, block{Type: "thinking", Thinking: m.Thinking})
-			}
 			if m.Content != "" {
 				blocks = append(blocks, block{Type: "text", Text: m.Content})
 			}
 			for _, tc := range m.ToolCalls {
 				blocks = append(blocks, block{Type: "tool_use", ID: tc.ID, Name: tc.Name, Input: tc.Args})
 			}
-			if len(blocks) == 0 {
-				blocks = append(blocks, block{Type: "text", Text: ""})
+			if len(blocks) > 0 {
+				merge("assistant", blocks)
 			}
-			msgs = append(msgs, messageIn{Role: "assistant", Content: blocks})
 		default:
-			msgs = append(msgs, messageIn{Role: "user", Content: []block{{Type: "text", Text: m.Content}}})
+			text := m.Content
+			if strings.TrimSpace(text) == "" {
+				text = "（继续）"
+			}
+			blocks := []block{{Type: "text", Text: text}}
+			// 识图输入：base64 内联图片块，放在文本之后
+			for _, im := range m.Images {
+				blocks = append(blocks, block{
+					Type: "image",
+					Source: &imageSource{
+						Type: "base64", MediaType: im.MIME, Data: im.Base64,
+					},
+				})
+			}
+			merge("user", blocks)
 		}
+	}
+	// 首条必须是 user：压缩或异常路径可能让历史以 assistant 开头
+	if len(msgs) > 0 && msgs[0].Role != "user" {
+		msgs = append([]messageIn{{Role: "user", Content: []block{{Type: "text", Text: "（继续）"}}}}, msgs...)
 	}
 	var tools []toolDef
 	for _, t := range req.Tools {
@@ -274,14 +329,8 @@ func (c *Client) encode(req llm.Request) requestBody {
 	}
 	return requestBody{
 		Model: req.Model, System: req.System, Messages: msgs, Tools: tools,
-		MaxTokens: maxTokens, Stream: true, Temperature: req.Temperature,
-	}
-}
-
-func emit(events chan llm.Event, e llm.Event) {
-	select {
-	case events <- e:
-	default:
+		MaxTokens: maxTokens, Stream: true,
+		Temperature: req.Temperature, TopP: req.TopP,
 	}
 }
 

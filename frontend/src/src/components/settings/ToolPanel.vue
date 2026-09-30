@@ -5,6 +5,7 @@
 import { computed, onMounted, ref } from 'vue'
 import * as api from '../../api'
 import type { ToolVO } from '../../types/api'
+import { useToastStore } from '../../stores/toast'
 import AppIcon from '../common/AppIcon.vue'
 import EmptyState from '../common/EmptyState.vue'
 import PageState from '../common/PageState.vue'
@@ -13,6 +14,7 @@ const tools = ref<ToolVO[]>([])
 const loading = ref(true)
 const error = ref('')
 const busy = ref('')
+const toast = useToastStore()
 
 // 分类的展示顺序与中文名：顺序按「用户最常打交道的」排前面。
 const CATEGORY_ORDER = ['file', 'shell', 'code', 'web', 'data'] as const
@@ -57,8 +59,9 @@ async function toggle(t: ToolVO) {
   try {
     await api.tools.toggle(t.name, !t.enabled)
     t.enabled = !t.enabled
+    toast.ok(t.enabled ? `${t.label} 已启用，下一轮生效` : `${t.label} 已停用，下一轮生效`)
   } catch (e) {
-    error.value = (e as Error)?.message || '切换失败，请重试'
+    toast.bad(`切换失败：${(e as Error)?.message || '请重试'}`)
   } finally {
     busy.value = ''
   }

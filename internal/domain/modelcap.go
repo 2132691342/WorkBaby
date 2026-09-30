@@ -1,9 +1,5 @@
-// 模型能力目录：上下文窗口与「是否支持思考」的判定。
-//
-// 上游 `/models` 只返回模型 ID，不带窗口大小与思考能力；
-// 拉一次列表就"知道"上下文和思考能力是不成立的。这里的表是显式声明：
-// 认不出来的模型走保守缺省，并把 unknown 标出来让界面说实话，
-// 而不是拿一个猜出来的数字当权威显示给用户。
+// 模型能力目录：上下文窗口与能力判定。上游模型列表不带这些信息，
+// 认不出的模型走保守缺省并标记 unknown，让界面说实话而不是拿猜的数字当权威。
 package domain
 
 import "strings"
@@ -21,6 +17,7 @@ type ModelCapability struct {
 	MaxOutput     int    `json:"max_output"`
 	Thinking      bool   `json:"thinking"`
 	Vision        bool   `json:"vision"`
+	ToolCall      bool   `json:"tool_call"`
 	Known         bool   `json:"known"` // false 表示这是缺省值，不是查到的
 	Note          string `json:"note"`  // 认不出来时给界面的一句话说明
 }
@@ -83,13 +80,13 @@ func ModelCapabilityOf(model string) ModelCapability {
 			if strings.Contains(lower, key) {
 				return ModelCapability{
 					ID: name, ContextWindow: r.window, MaxOutput: r.output,
-					Thinking: r.think, Vision: r.vision, Known: true,
+					Thinking: r.think, Vision: r.vision, ToolCall: true, Known: true,
 				}
 			}
 		}
 	}
 	return ModelCapability{
 		ID: name, ContextWindow: DefaultContextWindow, MaxOutput: DefaultMaxOutput,
-		Known: false, Note: "本地没有这个模型的资料，上下文按 128K 估算，可在设置里手填",
+		ToolCall: true, Known: false, Note: "本地没有这个模型的资料，可在模型设置里手填窗口与能力",
 	}
 }

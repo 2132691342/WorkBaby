@@ -12,7 +12,7 @@ const known = computed(() => exact.value && props.ratio > 0 && props.win > 0)
 const level = computed(() => (props.ratio >= 95 ? 'is-danger' : props.ratio >= 80 ? 'is-warn' : ''))
 const reading = computed(() => {
   if (!known.value) return exact.value ? '—' : '窗口未知'
-  return `${fmtCount(props.used)} / ${fmtCount(props.win)}`
+  return `已用 ${fmtCount(props.used)} / ${fmtCount(props.win)}（${props.ratio}%）`
 })
 const tip = computed(() => {
   if (!exact.value) return '本地没有这个模型的资料，上下文按估算值显示；可在「设置 · 行为」里手填真实窗口'
@@ -38,8 +38,6 @@ const tip = computed(() => {
   font-size: var(--wb-fs-hint);
   font-variant-numeric: tabular-nums;
   color: var(--wb-muted);
-  opacity: 0.55;
-  transition: opacity var(--wb-dur) var(--wb-ease);
   white-space: nowrap;
 }
 /* 窗口未知时用虚线感（更淡 + 斜排），让用户一眼分得清「估算」和「实测」 */

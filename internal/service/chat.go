@@ -54,14 +54,23 @@ func (c *ChatService) Send(sessionID, content string, attachments []domain.Attac
 	}
 
 	content, injected := c.resolveSkill(content)
-	body := buildAttachBlock(sess.Workspace, attachments) + injected
+	body, images := buildAttachment(sess.Workspace, attachments)
+	// 带图片就必须是识图模型：不拦截的话图片会被静默丢掉，用户以为发过去了
+	if len(images) > 0 {
+		cap := c.capabilityOf(sess.ProviderID, sess.Model)
+		if !cap.Vision {
+			return nil, pkg.New(3113, "当前模型不支持识图，换一个支持视觉的模型后再发图片", sess.Model)
+		}
+	}
 	userEntry := &domain.EntryDO{
-		ID:          pkg.NewID(domain.PrefixEntry),
-		SessionID:   sessionID,
-		ParentID:    sess.LeafEntryID,
-		Type:        domain.EntryTypeMessage,
-		Role:        domain.RoleUser,
-		PayloadJSON: payloadOf(llm.Message{Role: llm.RoleUser, Content: body}, "", 0),
+		ID:       pkg.NewID(domain.PrefixEntry),
+		SessionID: sessionID,
+		ParentID:  sess.LeafEntryID,
+		Type:      domain.EntryTypeMessage,
+		Role:      domain.RoleUser,
+		PayloadJSON: payloadOf(llm.Message{
+			Role: llm.RoleUser, Content: body + injected, Images: images,
+		}, "", 0),
 	}
 	if err := c.sessions.Append(userEntry); err != nil {
 		return nil, err
@@ -74,7 +83,7 @@ func (c *ChatService) Send(sessionID, content string, attachments []domain.Attac
 	c.mu.Unlock()
 
 	runID := pkg.NewTraceID()
-	cap := c.capabilityOf(sess.Model)
+	cap := c.capabilityOf(sess.ProviderID, sess.Model)
 	pkg.Infof("chat: run 开始 session=%s run=%s model=%s provider=%s tools=%d window=%d(known=%v)",
 		sessionID, runID, sess.Model, sess.ProviderID,
 		len(c.env.Registry.Enabled(c.disabledTools())), cap.ContextWindow, cap.Known)
@@ -153,19 +162,23 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	deps := c.env.ToolDeps
 	deps.Reads = c.readsOf(sessionID)
 	permission := sess.Permission
-	cap := c.capabilityOf(model)
+	cap := c.capabilityOf(sess.ProviderID, model)
 	state := &runState{sessionID: sessionID, model: model, windowKnown: cap.Known}
+	temp, topP, maxOutput := c.samplingOf(sess.ProviderID, model)
 
 	loop := agent.New(agent.Config{
-		Streamer:  streamer,
-		Tools:     tools,
-		Deps:      deps,
-		Workspace: sess.Workspace,
-		System:    system,
-		Model:     model,
-		MaxTurns:  32,
-		Parallel:  4,
-		Budget:    c.budget(model),
+		Streamer:    streamer,
+		Tools:       tools,
+		Deps:        deps,
+		Workspace:   sess.Workspace,
+		System:      system,
+		Model:       model,
+		MaxTokens:   maxOutput,
+		Temperature: temp,
+		TopP:        topP,
+		MaxTurns:    32,
+		Parallel:    4,
+		Budget:      c.budget(sess.ProviderID, model, system),
 		Emit:      func(e agent.Event) { c.onEvent(state, e) },
 		Steering:  c.queueOf(sessionID),
 		Gate: func(ctx context.Context, call *llm.ToolCall) (bool, string) {

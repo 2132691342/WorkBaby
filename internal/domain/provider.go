@@ -54,6 +54,13 @@ type TestProviderREQ struct {
 	ID string `json:"id"`
 }
 
+// FetchModelsREQ 用未保存的连接信息拉模型列表（新增服务场景）。
+type FetchModelsREQ struct {
+	API     string `json:"api"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+}
+
 // TestProviderRESP 连通测试出参。
 type TestProviderRESP struct {
 	OK     bool   `json:"ok"`

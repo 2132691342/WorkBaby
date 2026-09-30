@@ -16,6 +16,9 @@ export function useSse(sessionId: () => string | null, onEvent: (env: ServerEven
   let source: EventSource | null = null
   let currentSid = ''
   let retryTimer: ReturnType<typeof setTimeout> | null = null
+  // 最后收到的 seq：重建连接时带回服务端，断开期间的事件（含 done/error）会重放补齐。
+  // 慢消费者被断开时就是靠它对账，不然界面会永远停在「运行中」。
+  let lastSeq = 0
 
   const close = () => {
     if (retryTimer) {
@@ -40,6 +43,7 @@ export function useSse(sessionId: () => string | null, onEvent: (env: ServerEven
 
   const open = (sid: string) => {
     close()
+    if (sid !== currentSid) lastSeq = 0
     currentSid = sid
     const base = getBaseURL()
     if (!base) {
@@ -47,7 +51,8 @@ export function useSse(sessionId: () => string | null, onEvent: (env: ServerEven
       scheduleRetry()
       return
     }
-    const es = new EventSource(`${base}/events?session_id=${encodeURIComponent(sid)}`)
+    const resume = lastSeq > 0 ? `&last_event_id=${lastSeq}` : ''
+    const es = new EventSource(`${base}/events?session_id=${encodeURIComponent(sid)}${resume}`)
     es.onopen = () => (sseConnected.value = true)
     es.onerror = () => {
       sseConnected.value = false
@@ -73,7 +78,9 @@ export function useSse(sessionId: () => string | null, onEvent: (env: ServerEven
     for (const name of names) {
       es.addEventListener(name, (ev) => {
         try {
-          onEvent(JSON.parse((ev as MessageEvent).data) as ServerEvent)
+          const env = JSON.parse((ev as MessageEvent).data) as ServerEvent
+          if (env.seq > lastSeq) lastSeq = env.seq
+          onEvent(env)
         } catch {
           // 坏帧直接丢弃，不打断整条流
         }

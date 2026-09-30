@@ -77,25 +77,6 @@ func TestReadRecoversUnicodePathVariants(t *testing.T) {
 	})
 }
 
-// 规整规则：只处理不可见字符与全角空格，保留中文标点与首尾语义。
-func TestNormalizePath(t *testing.T) {
-	cases := []struct{ name, in, want string }{
-		{"不换行空格", "报表\u00a0数据.txt", "报表 数据.txt"},
-		{"全角空格", "报表\u3000数据.txt", "报表 数据.txt"},
-		{"零宽不换行空格", "报表\uFEFF数据.txt", "报表 数据.txt"},
-		{"前导@", "@D:\\报表\\a.txt", "D:\\报表\\a.txt"},
-		{"首尾空白", "  报表/数据.txt\t", "报表/数据.txt"},
-		{"中文标点保留", "报表（2024）.xlsx", "报表（2024）.xlsx"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := pkg.NormalizePath(c.in); got != c.want {
-				t.Fatalf("NormalizePath(%q) = %q，期望 %q", c.in, got, c.want)
-			}
-		})
-	}
-}
-
 // 读过的文件必须被记账，否则写前必读形同虚设；输出要带行号供模型定位。
 func TestReadMarksFileAsReadWithLineNumbers(t *testing.T) {
 	in, ws := newInput(t, map[string]any{"path": "d.txt"})

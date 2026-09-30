@@ -231,7 +231,7 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 |---|---|
 | 统一错误 | AppError + 错误码分段 |
 | 日志 | slog 仅 info/warn/error；分文件落盘；ctx 注入 sessionID/runID |
-| 实时通信 | SSE only（256 缓冲 / 慢客户端断连 / `chat:gap` 对账） |
+| 实时通信 | SSE only（256 缓冲 / 慢客户端先挤 delta 保关键事件 / 重连带 `last_event_id` 重放对账） |
 | 压缩 | 确定性清洗 + 按 token 预算找切点，不调 LLM（见 spec 02） |
 | 工具输出 | 双通道：`Content` 回模型、`Detail` 给 UI；2000 行 / 50KB 双上限截断，超出落临时文件 |
 | 事件出口 | `service.Emitter` 唯一出口（注入归属 + 分配 seq + sink 注入） |
@@ -398,24 +398,30 @@ const (
 
 ### 3.3 测试索引
 
+只保留跨模块 / 跨轮次 / 跨协议的链路测试；单函数边界用例只在有真实故障背景时保留并合并。
+
 | 文件 | 覆盖的链路 |
 |---|---|
 | `app_test.go` | 启动等待（慢装配不误判 / 失败 / 超时）、关闭与退出的放行判据、关闭到托盘开关 |
 | `api/startup_test.go` | 干净环境完整装配 + 真实 HTTP 栈端点 + 跨源预检 |
 | `api/chat_stream_test.go` | 真实 HTTP 栈下的 SSE 送达（start→delta→done、seq 递增）与重放对账 |
 | `service/agent_test.go` | 建会话→发送→落库；审批闭环与会话级放行 |
-| `service/order_test.go` | 声明先于结果（跨轮 / 单轮 / 同轮并发三态） |
-| `service/system_test.go` | 人设的工作原则与输出风格约束都在位 |
+| `service/order_test.go` | 声明先于结果（跨轮 / 同轮并发两态）与落库位点串行化 |
+| `service/provider_test.go` | 默认服务→默认模型→新会话继承链；存量会话模型名回填 |
 | `agent/loop_test.go` | 多轮回填顺序、并行保序、插话注入、三条收尾路径、重复调用拦截、超预算裁剪、事件出口串行化 |
-| `agent/compact_test.go` | CleanForProtocol 协议硬约束、切点选择、预算策略、降级截断 |
-| `tool/files_test.go` | 路径穿越拒绝、Unicode 路径规整与找回、写前必读、edit 唯一性与行尾保持 |
+| `agent/compact_test.go` | CleanForProtocol 协议硬约束、压缩永不孤儿化 tool 结果、预算策略、降级截断 |
+| `tool/files_test.go` | 路径穿越拒绝、Unicode 路径找回、写前必读、edit 唯一性与行尾保持 |
 | `skill/skill_test.go` | embed 加载与正文取出、按 id/名字命中与优先级、读写锁配对 |
 | `knowledge/knowledge_test.go` | 建索引→检索（含短查询兜底）→删除级联 |
 | `config/config_test.go` | 首次启动自举出配置与主密钥，且重启读回同一把 |
 | `runtime/python_test.go` | 内置归档顶层剥离、解压穿越拒绝 |
-| `runtime/detect_test.go` | 运行时路径解析、解压后探测命中、归档缺失报错带路径 |
-| `domain/modelcap_test.go` | 模型能力命中、未知模型诚实标记、具体规则优先 |
+| `runtime/detect_test.go` | 运行时探测命中、归档缺失报错带路径 |
+| `llm/think_test.go` | 内联 think 标签分流：整段/多块/纯文本透传、流式切碎与逐字喂入 |
+| `llm/openai/stream_test.go` | usage 帧顺序、tool_call 单次下发、截断收尾、缓存计量 |
+| `llm/anthropic/stream_test.go` | 上游停滞经空闲看门狗报错收尾、事件缓冲满不丢弃 |
+| `llm/anthropic/encode_test.go` | 无签名 thinking 不回传、角色交替、空 text / tool_result 拦截 |
 | `db/db_test.go` | 全部业务表与 FTS5 虚表建出 |
+| `server/sse_test.go` | delta 合流保序、慢客户端挤 delta 保 done、按 seq 重放对账 |
 
 ---
 

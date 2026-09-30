@@ -83,7 +83,16 @@ const metrics = computed(() => {
     <!-- 用户消息 -->
     <div v-if="msg.role === 'user'" class="msg-u-wrap">
       <div class="msg-u">
-        {{ msg.content }}
+        <div v-if="msg.images?.length" class="msg-imgs">
+          <img
+            v-for="(im, i) in msg.images"
+            :key="i"
+            class="msg-img"
+            :src="`data:${im.mime};base64,${im.base64}`"
+            :alt="`图片 ${i + 1}`"
+          />
+        </div>
+        <div v-if="msg.content">{{ msg.content }}</div>
       </div>
       <time class="msg-t">{{ fmtTime(msg.created_at) }}</time>
     </div>
@@ -124,6 +133,20 @@ const metrics = computed(() => {
 </template>
 
 <style scoped>
+/* 用户随消息发的图片：小缩略图排在气泡内，点击消息不发新事件 */
+.msg-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.msg-img {
+  max-width: 180px;
+  max-height: 120px;
+  border-radius: var(--wb-radius-sm);
+  border: 1px solid var(--wb-line-2);
+  object-fit: cover;
+}
 .act.is-dim {
   color: var(--wb-muted);
   cursor: default;

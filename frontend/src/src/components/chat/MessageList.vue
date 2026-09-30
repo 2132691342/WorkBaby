@@ -5,6 +5,7 @@ import { useChatStore, type ToolRun } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
 import type { ApprovalVO, MessageVO } from '../../types/api'
 import { renderMarkdown } from '../../utils/md'
+import { groupTurns } from '../../utils/turns'
 import AppIcon from '../common/AppIcon.vue'
 import ApprovalCard from './ApprovalCard.vue'
 import MessageItem from './MessageItem.vue'
@@ -18,6 +19,35 @@ const session = useSessionStore()
 const chat = useChatStore()
 const scroller = ref<HTMLElement | null>(null)
 const stick = ref(true)
+// 流式思考块的折叠：默认展开（回复中看得见在想什么），可以收起
+const liveThinkOpen = ref(true)
+
+// 流式正文渲染节流：每个 delta 都全量重解析 markdown 会把主线程打满，
+// EventSource 的消息因此积压、被服务端判为慢消费者断连（现象是「卡住」）。
+// 数据照单全收，只把渲染放慢到 120ms 一拍。
+const renderedStream = ref('')
+let renderTimer = 0
+watch(
+  () => chat.streaming,
+  () => {
+    if (renderTimer) return
+    renderTimer = window.setTimeout(() => {
+      renderTimer = 0
+      renderedStream.value = renderMarkdown(chat.streaming)
+    }, 120)
+  },
+  { immediate: true },
+)
+watch(
+  () => chat.running,
+  (running) => {
+    if (!running && renderTimer) {
+      clearTimeout(renderTimer)
+      renderTimer = 0
+    }
+    renderedStream.value = renderMarkdown(chat.streaming)
+  },
+)
 
 function onScroll() {
   const el = scroller.value
@@ -43,14 +73,9 @@ const toolArgsMap = computed(() => {
 })
 
 // 一次「提问 → 回答」是一整块：用户发一句话，助手可能思考、连着跑几个工具、
-// 分几段把话说回来。数据里那是好几条 assistant 消息，但界面上必须是一个头像、
-// 一根不断的竖轨——每条 assistant 各配一个头像的话，一次回答就被切成几段流水账，
-// 读者根本看不出「这是同一个动作的几个步骤」。
-type AssistantPart = { msg: MessageVO; tools: MessageVO[]; approvals: ApprovalVO[] }
-
-type TurnBlock =
-  | { key: string; kind: 'user'; msg: MessageVO }
-  | { key: string; kind: 'assistant'; parts: AssistantPart[] }
+// 分几段把话说回来。分组逻辑在 utils/turns.ts（纯函数，可独立测试），
+// 审批由回调挂到触发它的回合上。
+type TurnBlock = import('../../utils/turns').TurnBlock<ApprovalVO[]>
 
 // 审批要认领它的 tool_call：声明在这条 assistant 上，结果在紧随的 tool 上，任一边命中即可。
 function approvalsFor(msg: MessageVO, tools: MessageVO[]): ApprovalVO[] {
@@ -59,48 +84,16 @@ function approvalsFor(msg: MessageVO, tools: MessageVO[]): ApprovalVO[] {
   return chat.approvals.filter((a) => a.tool_call_id && ids.has(a.tool_call_id))
 }
 
-const turnBlocks = computed<TurnBlock[]>(() => {
-  const out: TurnBlock[] = []
-  const msgs = session.messages
-  for (let i = 0; i < msgs.length; i++) {
-    const m = msgs[i]
-    if (m.role !== 'user') {
-      continue // 回合开头的 user 之后才有助手内容；游离消息在下面被收进那一块
-    }
-    out.push({ key: `t-${m.id}`, kind: 'user', msg: m })
-
-    // 收下这条提问之后的全部助手内容，直到下一条 user 为止
-    const parts: AssistantPart[] = []
-    let end = i
-    for (let j = i + 1; j < msgs.length && msgs[j].role !== 'user'; j++) {
-      const cur = msgs[j]
-      if (cur.role !== 'assistant') {
-        continue // 工具结果由声明它的那条 assistant 收纳
-      }
-      const tools: MessageVO[] = []
-      let k = j + 1
-      while (k < msgs.length && msgs[k].role === 'tool') {
-        tools.push(msgs[k])
-        k++
-      }
-      parts.push({ msg: cur, tools, approvals: approvalsFor(cur, tools) })
-      j = k - 1
-      end = k
-    }
-    if (parts.length) {
-      out.push({ key: `t-${m.id}-a`, kind: 'assistant', parts })
-    }
-    i = end
-  }
-  return out
-})
+const turnBlocks = computed<TurnBlock[]>(() =>
+  groupTurns(session.messages, (msg, tools) => approvalsFor(msg, tools)),
+)
 
 // 已经收进某一回合的审批：剩下的才算孤儿，避免同一张卡在两处都渲染。
 const placedApprovalIds = computed(() => {
   const out = new Set<string>()
   for (const b of turnBlocks.value) {
     if (b.kind !== 'assistant') continue
-    for (const p of b.parts) for (const a of p.approvals) out.add(a.id)
+    for (const p of b.parts) for (const a of p.approvals ?? []) out.add(a.id)
   }
   return out
 })
@@ -158,7 +151,7 @@ onMounted(async () => {
                 <MessageItem :msg="p.msg" plain />
                 <!-- 工具卡和审批卡收进同一块：它们本来就是这件事的步骤。
                      审批是这一回合要用户拍板的一步，脱离竖轨就成了悬空的独立元素。 -->
-                <div v-if="p.tools.length || p.approvals.length" class="turn-tools">
+                <div v-if="p.tools.length || (p.approvals?.length ?? 0)" class="turn-tools">
                   <ToolRunRow
                     v-for="t in p.tools"
                     :key="t.id"
@@ -187,14 +180,15 @@ onMounted(async () => {
         <div class="msg-a">
           <div class="avatar is-live"><span>WB</span></div>
           <div class="msg-a-body">
-            <!-- 思考：流式期间默认展开，跑完就折起来 -->
+            <!-- 思考：流式期间默认展开，可手动收起 -->
             <div v-if="chat.thinking" class="think is-live">
-              <div class="think-hd">
+              <button class="think-hd" type="button" @click="liveThinkOpen = !liveThinkOpen">
                 <AppIcon name="brain" size="ic-xs" />
                 <span>正在思考</span>
                 <span class="think-hint">{{ chat.thinking.length }} 字</span>
-              </div>
-              <div class="wb-think-body">{{ chat.thinking }}</div>
+                <AppIcon class="chev" :name="liveThinkOpen ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
+              </button>
+              <div v-if="liveThinkOpen" class="wb-think-body">{{ chat.thinking }}</div>
             </div>
 
             <div v-if="runBlocks.length" class="turn-tools">
@@ -214,7 +208,7 @@ onMounted(async () => {
             </div>
 
             <!-- 正文：光标常驻，让「还在写」这件事一眼可见 -->
-            <div v-if="chat.streaming" class="bubble is-streaming" v-html="renderMarkdown(chat.streaming)" />
+            <div v-if="chat.streaming" class="bubble is-streaming" v-html="renderedStream" />
             <div v-else-if="!chat.runs.length && !chat.thinking" class="bubble is-typing">
               <span class="dot" /><span class="dot" /><span class="dot" />
               <span class="typing-txt">正在组织回答</span>
@@ -266,12 +260,24 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
+  padding: 3px 6px;
+  margin-left: -6px;
+  border: 0;
+  border-radius: var(--wb-radius-sm);
+  background: transparent;
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
-  margin-bottom: var(--wb-sp-1);
+  cursor: pointer;
+  text-align: left;
+}
+.think-hd:hover {
+  background: var(--wb-tint);
+  color: var(--wb-ink-2);
+}
+.think-hd .chev {
+  margin-left: auto;
 }
 .think-hint {
-  margin-left: auto;
   font-variant-numeric: tabular-nums;
   opacity: 0.7;
 }

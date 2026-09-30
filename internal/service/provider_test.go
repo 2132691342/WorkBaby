@@ -40,7 +40,7 @@ func TestDefaultProviderCarriesDefaultModel(t *testing.T) {
 	if sess.Model == "" {
 		t.Fatal("新会话没有继承到模型名，输入区会一直显示「默认模型」")
 	}
-	if !svc.Chat.capabilityOf(sess.Model).Known {
+	if !svc.Chat.capabilityOf(sess.ProviderID, sess.Model).Known {
 		t.Errorf("模型 %q 应能查到能力画像", sess.Model)
 	}
 }

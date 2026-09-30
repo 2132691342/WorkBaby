@@ -6,10 +6,21 @@ import { onMounted, ref } from 'vue'
 import * as api from '../../api'
 import type { ModelCapability, RuntimeInfo } from '../../types/api'
 import { useSettingsStore } from '../../stores/settings'
+import { useToastStore } from '../../stores/toast'
 import { AutoStartEnabled, OpenDirectoryDialog, SetAutoStart } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 
 const store = useSettingsStore()
+const toast = useToastStore()
+
+// setValue 失败已经弹过 toast，这里吞掉避免未捕获异常
+async function applySetting(key: string, value: string) {
+  try {
+    await store.setValue(key, value)
+  } catch {
+    /* 已提示 */
+  }
+}
 
 const autoStart = ref(false)
 const autoStartErr = ref('')
@@ -44,6 +55,7 @@ async function toggleAutoStart() {
   try {
     await SetAutoStart(next)
     autoStart.value = await AutoStartEnabled()
+    toast.ok(next ? '已开启开机自动启动' : '已关闭开机自动启动')
   } catch (e) {
     autoStartErr.value = (e as Error)?.message || '设置失败，请重启后再试一次'
     autoStart.value = await AutoStartEnabled().catch(() => autoStart.value)
@@ -75,16 +87,26 @@ async function loadCapability() {
 async function pickWorkspace() {
   const dir = await OpenDirectoryDialog('选择工作目录')
   if (!dir) return
-  await store.setValue('workspace', dir)
-  await store.loadBoot()
+  try {
+    await store.setValue('workspace', dir)
+    await store.loadBoot()
+    toast.ok('工作目录已更换')
+  } catch {
+    /* setValue 已提示 */
+  }
 }
 
 async function saveWindow() {
   winErr.value = ''
   const v = winInput.value.trim()
   if (!v) {
-    await store.setValue('context_window', '')
-    cap.value && (cap.value.known = false)
+    try {
+      await store.setValue('context_window', '')
+      cap.value && (cap.value.known = false)
+      toast.ok('已清除手填窗口，跟随内置目录')
+    } catch {
+      /* 已提示 */
+    }
     return
   }
   const n = Number(v)
@@ -92,8 +114,13 @@ async function saveWindow() {
     winErr.value = '请填一个大于 0 的数字'
     return
   }
-  await store.setValue('context_window', String(Math.floor(n)))
-  await loadCapability()
+  try {
+    await store.setValue('context_window', String(Math.floor(n)))
+    await loadCapability()
+    toast.ok('上下文窗口已保存')
+  } catch {
+    /* 已提示 */
+  }
 }
 
 onMounted(async () => {
@@ -113,7 +140,7 @@ onMounted(async () => {
           class="perm"
           :class="{ 'is-on': permission() === o.key }"
           type="button"
-          @click="store.setValue('permission', o.key)"
+          @click="applySetting('permission', o.key)"
         >
           <b>{{ o.name }}</b>
           <span>{{ o.desc }}</span>
@@ -143,7 +170,7 @@ onMounted(async () => {
           class="wb-switch"
           type="checkbox"
           :checked="minimizeToTray()"
-          @change="store.setValue('minimize_to_tray', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
+          @change="applySetting('minimize_to_tray', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
         />
       </label>
       <label class="row">
@@ -167,7 +194,7 @@ onMounted(async () => {
           class="wb-switch"
           type="checkbox"
           :checked="sendOnEnter()"
-          @change="store.setValue('send_on_enter', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
+          @change="applySetting('send_on_enter', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
         />
       </label>
 

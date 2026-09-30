@@ -25,6 +25,7 @@ interface PendingFile {
   path: string
   name: string
   outside: boolean
+  image?: string // 粘贴图片的 base64（无路径）
 }
 
 const COMMANDS = [
@@ -184,13 +185,18 @@ function submit() {
     clearInput()
     return
   }
-  if (!value) return
+  // 允许只发图片不打字
+  if (!value && !files.value.length) return
   // 越界的文件助手读不到，宁可不发也不要假装成功
   if (outsideCount.value) return
   emit(
     'send',
     value,
-    files.value.map((f) => ({ path: f.path, name: f.name })),
+    files.value.map((f) => ({
+      path: f.path,
+      name: f.name,
+      image_base64: f.image,
+    })),
   )
   clearInput()
   files.value = []
@@ -239,6 +245,29 @@ function onDocPointerDown(e: PointerEvent) {
   closeAll()
 }
 
+// 粘贴图片：截图后 Ctrl+V 直接进附件列表，和打 @ 引用文件是同一条发送链路
+function onPaste(e: ClipboardEvent) {
+  const imgs = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith('image/'))
+  if (!imgs.length) return
+  e.preventDefault()
+  for (const f of imgs) {
+    if (full.value) break
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '')
+      const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+      if (!base64) return
+      files.value.push({
+        path: '',
+        name: f.name || `截图-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.png`,
+        outside: false,
+        image: base64,
+      })
+    }
+    reader.readAsDataURL(f)
+  }
+}
+
 watch(
   () => props.running,
   () => nextTick(() => ta.value?.focus()),
@@ -275,13 +304,13 @@ defineExpose({ focus: () => ta.value?.focus() })
       <!-- 待发送文件：Wails 一次只给一个路径，所以做成可多次添加的列表 -->
       <div v-if="files.length" class="attach-row">
         <span
-          v-for="f in files"
-          :key="f.path"
+          v-for="(f, i) in files"
+          :key="`${f.path}-${i}`"
           class="attach"
-          :class="{ 'is-bad': f.outside }"
-          :title="f.outside ? `${f.path} · 不在工作目录内，助手读不到` : f.path"
+          :class="{ 'is-bad': f.outside, 'is-img': !!f.image }"
+          :title="f.outside ? `${f.path} · 不在工作目录内，助手读不到` : f.image ? `${f.name} · 粘贴的图片` : f.path"
         >
-          <AppIcon name="doc" size="ic-xs" />
+          <AppIcon :name="f.image ? 'image' : 'doc'" size="ic-xs" />
           <span class="fn">{{ f.name }}</span>
           <button class="x" type="button" aria-label="移除" @click="removeFile(f.path)">
             <AppIcon name="close" size="ic-xs" />
@@ -301,9 +330,10 @@ defineExpose({ focus: () => ta.value?.focus() })
           class="ta"
           rows="1"
           :disabled="disabled"
-          :placeholder="placeholder || '有什么要帮忙的？直接说就行，打 @ 可引用文件'"
+          :placeholder="placeholder || '有什么要帮忙的？直接说就行，打 @ 可引用文件，可粘贴截图'"
           @keydown="onKeydown"
           @input="onInput"
+          @paste="onPaste"
         />
       </div>
 

@@ -12,12 +12,20 @@ const store = useSettingsStore()
 
 async function setFont(key: string) {
   currentFont.value = key
-  await store.setValue('font_family', key)
+  try {
+    await store.setValue('font_family', key)
+  } catch {
+    /* setValue 已提示 */
+  }
 }
 
 async function setSize(key: string) {
   currentSize.value = key
-  await store.setValue('font_size', key)
+  try {
+    await store.setValue('font_size', key)
+  } catch {
+    /* setValue 已提示 */
+  }
 }
 
 onMounted(syncFromSettings)

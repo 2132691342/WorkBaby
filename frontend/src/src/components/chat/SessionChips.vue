@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import * as api from '../../api'
 import { useSessionStore } from '../../stores/session'
 import { useSettingsStore } from '../../stores/settings'
+import { useToastStore } from '../../stores/toast'
 import AppIcon from '../common/AppIcon.vue'
 
 // 后端 /sessions/:id/permission 只认这三个值，别再引入第四种叫法。
@@ -15,14 +16,38 @@ const PERMISSIONS = [
 
 const session = useSessionStore()
 const settings = useSettingsStore()
+const toast = useToastStore()
 
 const open = ref<'model' | 'perm' | null>(null)
 const models = ref<string[]>([])
 const providerId = ref('')
 const modelLoading = ref(false)
+// 每个模型的能力标签：窗口多大、能不能识图。选模型时一眼看到差别。
+const caps = ref<Record<string, { win: string; vision: boolean; tools: boolean }>>({})
+// 过滤与截断：上游可能有几百个模型，全量渲染既卡也不好用
+const filter = ref('')
+const MAX_SHOWN = 30
+
+const filtered = computed(() => {
+  const q = filter.value.trim().toLowerCase()
+  const hit = q ? models.value.filter((m) => m.toLowerCase().includes(q)) : models.value
+  return hit.slice(0, MAX_SHOWN)
+})
+const hiddenCount = computed(() => {
+  const q = filter.value.trim().toLowerCase()
+  const hit = q ? models.value.filter((m) => m.toLowerCase().includes(q)) : models.value
+  return Math.max(0, hit.length - MAX_SHOWN)
+})
 
 const modelName = computed(() => session.current?.model || settings.boot?.default_model || '默认模型')
 const permName = computed(() => PERMISSIONS.find((p) => p.key === session.current?.permission)?.name || PERMISSIONS[0].name)
+
+// 窗口大小说人话：1000000 → 1M，131072 → 128K
+function fmtWin(n: number): string {
+  if (n >= 1000000) return `${Math.round((n / 1000000) * 10) / 10}M`
+  if (n >= 1000) return `${Math.round(n / 1024)}K`
+  return String(n)
+}
 
 // 模型名从已配置的服务商里选，不让用户背模型 ID
 async function loadModels() {
@@ -32,6 +57,15 @@ async function loadModels() {
     const p = list.find((x) => x.id === session.current?.provider_id) || list.find((x) => x.is_default) || list[0]
     providerId.value = p?.id || ''
     models.value = p ? [...p.models] : []
+    // 能力标签查不到就不显示，不阻塞下拉打开
+    for (const m of models.value) {
+      void api.models
+        .capability(m, providerId.value)
+        .then((c) => {
+          caps.value[m] = { win: fmtWin(c.context_window), vision: c.vision, tools: c.tool_call }
+        })
+        .catch(() => {})
+    }
   } finally {
     modelLoading.value = false
   }
@@ -39,6 +73,7 @@ async function loadModels() {
 
 function show(kind: 'model' | 'perm') {
   open.value = kind
+  filter.value = ''
   if (kind === 'model' && !models.value.length) void loadModels()
 }
 
@@ -49,13 +84,24 @@ function toggle(kind: 'model' | 'perm') {
 
 async function chooseModel(model: string) {
   if (!providerId.value) return
-  await session.setModel(providerId.value, model)
-  open.value = null
+  try {
+    await session.setModel(providerId.value, model)
+    open.value = null
+    toast.ok(`本对话已切换到 ${model}`)
+  } catch (e) {
+    toast.bad(`切换模型失败：${(e as Error)?.message || '请重试'}`)
+  }
 }
 
 async function choosePermission(key: string) {
-  await session.setPermission(key)
-  open.value = null
+  try {
+    await session.setPermission(key)
+    open.value = null
+    const name = PERMISSIONS.find((p) => p.key === key)?.name || key
+    toast.ok(`动手前规矩已改为「${name}」，下一轮生效`)
+  } catch (e) {
+    toast.bad(`设置失败：${(e as Error)?.message || '请重试'}`)
+  }
 }
 
 defineExpose({ show, close: () => (open.value = null) })
@@ -90,8 +136,14 @@ defineExpose({ show, close: () => (open.value = null) })
         <div v-if="modelLoading" class="pop-row muted">正在读取模型列表…</div>
         <div v-else-if="!models.length" class="pop-row muted">还没有配置模型服务</div>
         <template v-else>
+          <input
+            v-model="filter"
+            class="input m-filter"
+            placeholder="输入名称过滤…"
+            autofocus
+          />
           <button
-            v-for="m in models"
+            v-for="m in filtered"
             :key="m"
             class="pop-row"
             :class="{ 'is-hi': m === session.current?.model }"
@@ -100,8 +152,17 @@ defineExpose({ show, close: () => (open.value = null) })
           >
             <AppIcon v-if="m === session.current?.model" name="check" size="ic-xs" />
             <span v-else class="pr-gap" />
-            {{ m }}
+            <span class="m-name">{{ m }}</span>
+            <span v-if="caps[m]" class="m-caps">
+              <span class="m-win">{{ caps[m].win }}</span>
+              <span v-if="caps[m].vision" class="m-tag">识图</span>
+              <span v-if="!caps[m].tools" class="m-tag is-off">无工具</span>
+            </span>
           </button>
+          <div v-if="hiddenCount > 0" class="pop-row muted">
+            还有 {{ hiddenCount }} 个模型，输入名称继续过滤
+          </div>
+          <div v-else-if="!filtered.length" class="pop-row muted">没有匹配的模型</div>
         </template>
       </template>
 
@@ -167,6 +228,41 @@ defineExpose({ show, close: () => (open.value = null) })
 .pop-row .pr-d {
   display: block;
   font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+}
+.m-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.m-filter {
+  height: var(--wb-ctl-h-sm);
+  margin-bottom: 4px;
+  font-size: var(--wb-fs-sm);
+}
+.m-caps {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.m-win {
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+  font-variant-numeric: tabular-nums;
+}
+.m-tag {
+  padding: 0 5px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
+  font-size: var(--wb-fs-hint);
+}
+.m-tag.is-off {
+  background: var(--wb-tint);
   color: var(--wb-muted);
 }
 </style>

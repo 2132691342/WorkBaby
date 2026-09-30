@@ -68,7 +68,9 @@ func (r RetryingStreamer) Stream(ctx context.Context, req Request) (<-chan Event
 	}
 
 	out := make(chan Event, 64)
+	ctx, cancel := context.WithCancel(ctx)
 	go func() {
+		defer cancel()
 		defer close(out)
 		for attempt := 0; ; attempt++ {
 			src, err := r.Inner.Stream(ctx, req)
@@ -76,7 +78,10 @@ func (r RetryingStreamer) Stream(ctx context.Context, req Request) (<-chan Event
 				if attempt < maxRetry && Retryable(err) && sleep(ctx, backoff(base, attempt)) {
 					continue
 				}
-				out <- Event{Type: EventError, StopReason: StopError, Err: err}
+				select {
+				case out <- Event{Type: EventError, StopReason: StopError, Err: err}:
+				case <-ctx.Done():
+				}
 				return
 			}
 			produced := false
@@ -85,7 +90,11 @@ func (r RetryingStreamer) Stream(ctx context.Context, req Request) (<-chan Event
 				if ev.Type == EventDelta || ev.Type == EventThinking || ev.Type == EventToolCall {
 					produced = true
 				}
-				out <- ev
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					return
+				}
 				if ev.Type == EventError {
 					failed = true
 				}

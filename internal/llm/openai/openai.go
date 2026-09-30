@@ -31,12 +31,25 @@ func New(cfg llm.ClientConfig) *Client {
 	return &Client{baseURL: base, apiKey: cfg.APIKey, http: &http.Client{Timeout: 0}}
 }
 
+// chatMessage 的 Content 用 any：纯文本是 string，带图片时是 content part 数组
+// （OpenAI 多模态形态）。响应解析走 streamChunk，不经过这个结构。
 type chatMessage struct {
 	Role       string        `json:"role"`
-	Content    string        `json:"content,omitempty"`
+	Content    any           `json:"content,omitempty"`
 	ToolCalls  []toolCallOut `json:"tool_calls,omitempty"`
 	ToolCallID string        `json:"tool_call_id,omitempty"`
 	Name       string        `json:"name,omitempty"`
+}
+
+// contentPart 是多模态消息的一个片段：文本或图片。
+type contentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *imageURL `json:"image_url,omitempty"`
+}
+
+type imageURL struct {
+	URL string `json:"url"`
 }
 
 type toolCallOut struct {
@@ -68,7 +81,8 @@ type chatRequest struct {
 	Stream      bool          `json:"stream"`
 	StreamOpts  *streamOpts   `json:"stream_options,omitempty"`
 	MaxTokens   int           `json:"max_tokens,omitempty"`
-	Temperature float64       `json:"temperature,omitempty"`
+	Temperature *float64      `json:"temperature,omitempty"`
+	TopP        *float64      `json:"top_p,omitempty"`
 }
 
 type streamOpts struct {
@@ -116,7 +130,9 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", body)
+	// 请求挂在 Feed 的内部 ctx 上：空闲看门狗取消它才能真正掐断连接。
+	feed := llm.NewFeed(ctx, 64)
+	httpReq, err := http.NewRequestWithContext(feed.Ctx(), http.MethodPost, c.baseURL+"/chat/completions", body)
 	if err != nil {
 		return nil, pkg.Wrap(3001, "构造请求失败", err)
 	}
@@ -134,14 +150,14 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 		return nil, readError(resp)
 	}
 
-	events := make(chan llm.Event, 64)
 	started := time.Now()
 	go func() {
 		defer resp.Body.Close()
-		defer close(events)
-		c.consume(ctx, resp.Body, events, started)
+		defer feed.Close()
+		c.consume(feed, resp.Body, started)
 	}()
-	return events, nil
+	go feed.WatchIdle()
+	return feed.Events(), nil
 }
 
 // pendingCall 累积一个工具调用的增量片段；OpenAI 把 id / name / args 拆在多个 delta 里下发。
@@ -151,7 +167,8 @@ type pendingCall struct {
 	args strings.Builder
 }
 
-func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Event, started time.Time) {
+func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
+	ctx := feed.Ctx()
 	pendingCalls := map[int]*pendingCall{}
 	usage := &llm.Usage{}
 	var think llm.ThinkSplitter
@@ -160,9 +177,10 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
-		if ctx.Err() != nil {
+		feed.Ping()
+		if ctx.Err() != nil && !feed.TimedOut() {
 			usage.LatencyMs = time.Since(started).Milliseconds()
-			emit(events, llm.Event{Type: llm.EventDone, StopReason: llm.StopAborted, Usage: usage})
+			feed.Send(llm.Event{Type: llm.EventDone, StopReason: llm.StopAborted, Usage: usage})
 			return
 		}
 		line := strings.TrimSpace(scanner.Text())
@@ -181,8 +199,8 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 			continue
 		}
 		if chunk.Error != nil && chunk.Error.Message != "" {
-			emit(events, llm.Event{Type: llm.EventError, StopReason: llm.StopError,
-				Err: pkg.New(3106, chunk.Error.Message, "")})
+			feed.Send(llm.Event{Type: llm.EventError, StopReason: llm.StopError,
+				Err: pkg.New(3106, llm.FriendlyUpstreamError(chunk.Error.Message), "")})
 			return
 		}
 		if chunk.Usage != nil {
@@ -201,17 +219,17 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 		}
 		d := chunk.Choices[0].Delta
 		if d.Reasoning != "" {
-			emit(events, llm.Event{Type: llm.EventThinking, Delta: d.Reasoning})
+			feed.Send(llm.Event{Type: llm.EventThinking, Delta: d.Reasoning})
 		}
 		if d.Content != "" {
 			// 部分模型没有独立的 reasoning 字段，直接把 <think>…</think> 写进
 			// content。不拆开的话用户会看到裸标签，思考过程也永远折叠不了。
 			t, body := think.Split(d.Content)
 			if t != "" {
-				emit(events, llm.Event{Type: llm.EventThinking, Delta: t})
+				feed.Send(llm.Event{Type: llm.EventThinking, Delta: t})
 			}
 			if body != "" {
-				emit(events, llm.Event{Type: llm.EventDelta, Delta: body})
+				feed.Send(llm.Event{Type: llm.EventDelta, Delta: body})
 			}
 		}
 		for _, tc := range d.ToolCalls {
@@ -232,7 +250,7 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 			stop = mapReason(*fr)
 			for _, idx := range sortedIndexes(pendingCalls) {
 				p := pendingCalls[idx]
-				emit(events, llm.Event{Type: llm.EventToolCall, ToolCall: &llm.ToolCall{
+				feed.Send(llm.Event{Type: llm.EventToolCall, ToolCall: &llm.ToolCall{
 					ID:   p.id,
 					Name: p.name,
 					Args: decodeArgs(p.args.String()),
@@ -244,11 +262,25 @@ func (c *Client) consume(ctx context.Context, body io.Reader, events chan llm.Ev
 			pendingCalls = map[int]*pendingCall{}
 		}
 	}
+	// 读失败分三类：看门狗掐的、调用方取消的、连接真断了。只有前两类之外才该报错。
+	if err := scanner.Err(); err != nil {
+		switch {
+		case feed.TimedOut():
+			feed.Send(llm.Event{Type: llm.EventError, StopReason: llm.StopError, Err: llm.IdleError()})
+		case ctx.Err() == nil:
+			feed.Send(llm.Event{Type: llm.EventError, StopReason: llm.StopError,
+				Err: pkg.Wrap(3002, "模型服务连接中断", err)})
+		}
+		return
+	}
+	if ctx.Err() != nil && !feed.TimedOut() {
+		return
+	}
 	if stop == "" {
 		stop = llm.StopStop
 	}
 	usage.LatencyMs = time.Since(started).Milliseconds()
-	emit(events, llm.Event{Type: llm.EventDone, StopReason: stop, Usage: usage})
+	feed.Send(llm.Event{Type: llm.EventDone, StopReason: stop, Usage: usage})
 }
 
 func mapReason(reason string) string {
@@ -285,13 +317,6 @@ func sortedIndexes(m map[int]*pendingCall) []int {
 	return keys
 }
 
-func emit(events chan llm.Event, e llm.Event) {
-	select {
-	case events <- e:
-	default:
-	}
-}
-
 func (c *Client) encode(req llm.Request) (io.Reader, error) {
 	msgs := make([]chatMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
@@ -299,6 +324,17 @@ func (c *Client) encode(req llm.Request) (io.Reader, error) {
 	}
 	for _, m := range req.Messages {
 		cm := chatMessage{Role: m.Role, Content: m.Content}
+		// 识图输入：user 消息带图片时 content 切换成多模态数组形态
+		if m.Role == llm.RoleUser && len(m.Images) > 0 {
+			parts := []contentPart{{Type: "text", Text: m.Content}}
+			for _, im := range m.Images {
+				parts = append(parts, contentPart{
+					Type:     "image_url",
+					ImageURL: &imageURL{URL: "data:" + im.MIME + ";base64," + im.Base64},
+				})
+			}
+			cm.Content = parts
+		}
 		switch m.Role {
 		case llm.RoleTool:
 			cm.ToolCallID = m.ToolCallID
@@ -325,7 +361,7 @@ func (c *Client) encode(req llm.Request) (io.Reader, error) {
 	payload := chatRequest{
 		Model: req.Model, Messages: msgs, Tools: tools, Stream: true,
 		StreamOpts: &streamOpts{IncludeUsage: true},
-		MaxTokens:  req.MaxTokens, Temperature: req.Temperature,
+		MaxTokens:  req.MaxTokens, Temperature: req.Temperature, TopP: req.TopP,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

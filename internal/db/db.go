@@ -88,6 +88,7 @@ func Migrate(gdb *gorm.DB) error {
 		&domain.EntryDO{},
 		&domain.ApprovalDO{},
 		&domain.ProviderDO{},
+		&domain.ModelConfigDO{},
 		&domain.KnowledgeDocDO{},
 		&domain.KnowledgeChunkDO{},
 		&domain.SettingDO{},

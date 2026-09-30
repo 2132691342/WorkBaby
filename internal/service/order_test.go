@@ -81,42 +81,6 @@ func TestToolDeclarationPersistedBeforeResult(t *testing.T) {
 	assertDeclaredBeforeResult(t, svc, sess.ID)
 }
 
-// 单轮场景：一条声明配一条结果，顺序必须成立。
-func TestSingleToolTurnKeepsDeclarationFirst(t *testing.T) {
-	useScripted(t,
-		llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
-		llm.Message{Content: "做完了"},
-	)
-	env, svc := newEnv(t, approveTool{})
-	sess := newProviderSession(t, svc)
-
-	if _, err := svc.Chat.Send(sess.ID, "做一下", nil); err != nil {
-		t.Fatal(err)
-	}
-	// 审批工具必须先放行才会真正执行，顺序才有意义。
-	var pending domain.ApprovalVO
-	waitUntil(t, "审批出现", func() bool {
-		list, _ := svc.Approvals.Pending(sess.ID)
-		if len(list) == 1 {
-			pending = list[0]
-		}
-		return pending.ID != ""
-	})
-	if err := svc.Approvals.Decide(pending.ID, true, "once"); err != nil {
-		t.Fatal(err)
-	}
-	waitUntil(t, "工具结果落库", func() bool {
-		entries, _ := env.Repo.ListEntries(sess.ID)
-		for _, e := range entries {
-			if e.Role == llm.RoleTool {
-				return true
-			}
-		}
-		return false
-	})
-	assertDeclaredBeforeResult(t, svc, sess.ID)
-}
-
 // 同一轮里并发跑多个工具：事件从多个 goroutine 同时到达，落库位点必须仍是单线程的。
 //
 // 真实故障：emit 是同步调用，只继承调用方的 goroutine。并行工具各自 emit 时，

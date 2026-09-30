@@ -5,6 +5,7 @@ import type {
   BootstrapVO,
   KnowledgeDocVO,
   ModelCapability,
+  ModelConfigVO,
   ProviderVO,
   RuntimeInfo,
   SearchHitVO,
@@ -14,6 +15,7 @@ import type {
   SkillVO,
   StatsRESP,
   ToolVO,
+  UpsertModelConfigREQ,
 } from '../types/api'
 
 export const bootstrap = () => get<BootstrapVO>('/bootstrap')
@@ -56,6 +58,9 @@ export const providers = {
   test: (id: string) => post<{ ok: boolean; model: string; detail: string }>(`/providers/${id}/test`, { id }),
   setDefault: (id: string) => post<boolean>(`/providers/${id}/default`),
   models: (provider_id: string) => get<string[]>(`/providers/models?provider_id=${provider_id}`),
+  /** 新增服务还没保存时也能拉：直接把连接信息发给后端 */
+  fetchModels: (body: { api: string; base_url: string; api_key?: string }) =>
+    post<string[]>('/providers/models/fetch', body),
 }
 
 export const skills = {
@@ -89,7 +94,17 @@ export const tools = {
 }
 
 export const models = {
-  capability: (model: string) => get<ModelCapability>(`/models/capability?model=${encodeURIComponent(model)}`),
+  capability: (model: string, provider_id?: string) =>
+    get<ModelCapability>(
+      `/models/capability?model=${encodeURIComponent(model)}${provider_id ? `&provider_id=${provider_id}` : ''}`,
+    ),
+  config: (model: string, provider_id?: string) =>
+    get<ModelConfigVO>(
+      `/models/config?model=${encodeURIComponent(model)}${provider_id ? `&provider_id=${provider_id}` : ''}`,
+    ),
+  configs: (provider_id?: string) =>
+    get<ModelConfigVO[]>(`/models/configs${provider_id ? `?provider_id=${provider_id}` : ''}`),
+  saveConfig: (body: UpsertModelConfigREQ) => post<ModelConfigVO>('/models/config', body),
 }
 
 export const runtime = {

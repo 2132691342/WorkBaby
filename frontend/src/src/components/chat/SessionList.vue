@@ -2,9 +2,11 @@
 // 侧栏会话列表：分组展示 + 重命名 / 删除。
 import { computed, ref } from 'vue'
 import { useSessionStore } from '../../stores/session'
+import { useToastStore } from '../../stores/toast'
 import AppIcon from '../common/AppIcon.vue'
 
 const session = useSessionStore()
+const toast = useToastStore()
 const editingId = ref<string | null>(null)
 const draft = ref('')
 
@@ -33,10 +35,26 @@ function startEdit(id: string, title: string) {
 }
 
 async function commitEdit() {
-  if (editingId.value && draft.value.trim()) {
-    await session.rename(editingId.value, draft.value.trim())
-  }
+  const id = editingId.value
+  const title = draft.value.trim()
   editingId.value = null
+  if (!id || !title) return
+  try {
+    await session.rename(id, title)
+  } catch (e) {
+    toast.bad(`重命名失败：${(e as Error)?.message || '请重试'}`)
+  }
+}
+
+// 单击直接删：图标按钮上做两段式确认，用户只会觉得「点了没反应」。
+// 删除结果必须立刻可见——当前会话被删时由 store 自动切到下一个。
+async function doRemove(s: { id: string; title: string }) {
+  try {
+    await session.remove(s.id)
+    toast.ok(`已删除「${s.title || '未命名对话'}」`)
+  } catch (e) {
+    toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
+  }
 }
 </script>
 
@@ -61,8 +79,8 @@ async function commitEdit() {
             <span class="icon-btn" title="重命名" @click.stop="startEdit(s.id, s.title)">
               <AppIcon name="pencil" size="ic-sm" />
             </span>
-            <span class="icon-btn" title="删除" @click.stop="session.remove(s.id)">
-              <AppIcon name="close" size="ic-sm" />
+            <span class="icon-btn danger" title="删除" @click.stop="doRemove(s)">
+              <AppIcon name="trash" size="ic-sm" />
             </span>
           </span>
         </template>
@@ -75,5 +93,9 @@ async function commitEdit() {
 .rename {
   height: var(--wb-ctl-h-sm);
   font-size: var(--wb-fs-sm);
+}
+.icon-btn.danger:hover {
+  color: var(--wb-danger);
+  background: var(--wb-danger-soft);
 }
 </style>

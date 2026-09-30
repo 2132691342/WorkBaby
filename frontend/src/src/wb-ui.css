@@ -209,6 +209,8 @@ body {
   flex-direction: column;
   overflow: hidden;
   background: var(--wb-bg);
+  /* toast 容器的定位锚点 */
+  position: relative;
 }
 .titlebar {
   height: 38px;
@@ -2600,7 +2602,7 @@ select.input.narrow {
   top: calc(var(--wb-avatar-size) / 2);
   bottom: var(--wb-sp-2);
   width: 1px;
-  background: var(--wb-line-2);
+  background: var(--wb-line);
   pointer-events: none;
 }
 /* 找不到归属回合的审批：没有头像可挂，但仍然是助手列里的一步，
@@ -2616,7 +2618,7 @@ select.input.narrow {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--wb-line-2);
+  background: var(--wb-line);
   pointer-events: none;
 }
 
@@ -2633,7 +2635,8 @@ select.input.narrow {
   border-radius: var(--wb-radius-lg);
   border-top-right-radius: var(--wb-radius-xs);
   background: var(--wb-user-bubble);
-  border: 1px solid var(--wb-line-2);
+  border: 1px solid var(--wb-line);
+  box-shadow: var(--wb-shadow-1);
   font-size: var(--wb-fs-md);
   line-height: var(--wb-lh-base);
   color: var(--wb-ink);
@@ -2676,8 +2679,8 @@ select.input.narrow {
   width: var(--wb-avatar-size);
   height: var(--wb-avatar-size);
   border-radius: var(--wb-radius);
-  background: var(--wb-surface);
-  border: 1px solid var(--wb-line-2);
+  background: var(--wb-primary-soft);
+  border: 1px solid var(--wb-primary-line);
   display: grid;
   place-items: center;
   color: var(--wb-primary);
@@ -3061,7 +3064,6 @@ select.input.narrow {
   color: var(--wb-primary);
   font-weight: 500;
 }
-.tool,
 .tl-hd,
 .tool-bd pre,
 .approve,
@@ -3070,20 +3072,23 @@ select.input.narrow {
   border: 1px solid var(--wb-line);
   border-radius: var(--wb-radius);
 }
+/* 工具行做成「安静的一行」而不是一张卡：一回合里工具往往连着跑好几个，
+   每个都套边框就是一摞灰盒子。展开后的参数与输出仍有凹陷面板兜住。 */
 .tool {
-  padding: 0;
-  border-bottom: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--wb-radius-sm);
 }
 .tool-hd {
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
-  padding: 8px 11px;
+  padding: 6px 8px;
   text-align: left;
   transition: background var(--wb-dur-fast) var(--wb-ease);
   cursor: pointer;
-  border-radius: var(--wb-radius);
+  border-radius: var(--wb-radius-sm);
 }
 .tool-hd:hover {
   background: var(--wb-tint);
@@ -3130,7 +3135,7 @@ select.input.narrow {
 }
 .tool-bd {
   display: none;
-  padding: 0 12px 11px 36px;
+  padding: 2px 8px 10px 33px;
 }
 .tool.open .tool-bd {
   display: block;

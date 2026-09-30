@@ -13,6 +13,7 @@ import type {
   ToolEndData,
   ToolStartData,
 } from '../types/api'
+import { useToastStore } from './toast'
 
 // 当前正在跑的工具调用：流式期间只做「展示」，chat:done 后用权威快照覆盖。
 export interface ToolRun {
@@ -86,9 +87,14 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function decide(approvalId: string, approved: boolean, scope = 'once') {
-    if (approved) await api.approvals.approve(approvalId, scope)
-    else await api.approvals.deny(approvalId)
-    approvals.value = approvals.value.filter((a) => a.id !== approvalId)
+    try {
+      if (approved) await api.approvals.approve(approvalId, scope)
+      else await api.approvals.deny(approvalId)
+      approvals.value = approvals.value.filter((a) => a.id !== approvalId)
+    } catch (e) {
+      // 决策没生效就不能移除卡片，否则用户以为点过了，工具却一直卡着
+      useToastStore().bad(`操作失败：${(e as Error)?.message || '请重试'}`)
+    }
   }
 
   // ---- 事件入口（SSE → store） ----
@@ -107,6 +113,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function onToolStart(data: ToolStartData) {
+    // 断线重连重放可能把同一条 tool_start 再送一次：按 tool_call_id 去重，
+    // 不然运行列表里出现重复工具卡，渲染也会因重复 key 异常
+    if (runs.value.some((r) => r.tool_call_id === data.tool_call_id)) return
     runs.value.push({
       tool_call_id: data.tool_call_id,
       tool: data.tool,
@@ -157,8 +166,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function onDone(_data: DoneData) {
+  function onDone(data: DoneData) {
     running.value = false
+    // 收尾后用权威用量校准水位：SSE 的 context 是最后一轮开始时的值，
+    // 不含最后一轮回复本身，差的那截在这里补上。
+    if (data.usage) {
+      contextUsed.value = data.usage.context
+      if (data.usage.context > 0 && contextWindow.value > 0) {
+        contextRatio.value = Math.min(100, Math.round((data.usage.context / contextWindow.value) * 100))
+      }
+    }
     // 收尾后必须清掉运行态记录：历史消息里已经有这些工具了，
     // 不清就会同一次调用渲染两遍（截图里那条「1s 0s」就是两份叠在一起）。
     runs.value = []
@@ -200,6 +217,13 @@ export const useChatStore = defineStore('chat', () => {
 
   function onGap() {
     notice.value = '连接出现过中断，正在对账刷新'
+    // 断线期间 run 可能已经结束而 done 事件丢了（重放窗口溢出时无法补发）。
+    // 这里先退出运行态，快照刷新给出权威消息列表；若 run 还在跑，
+    // 后续 delta / done 事件到来时会自然恢复。
+    running.value = false
+    runs.value = []
+    streaming.value = ''
+    thinking.value = ''
   }
 
   return {

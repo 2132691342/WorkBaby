@@ -5,6 +5,7 @@ import * as api from '../api'
 import { useSse } from '../composables/useSse'
 import { useChatStore } from '../stores/chat'
 import { useSessionStore } from '../stores/session'
+import { useToastStore } from '../stores/toast'
 import type { AttachmentREQ } from '../types/api'
 import AppSidebar from '../components/common/AppSidebar.vue'
 import ChatInput from '../components/chat/ChatInput.vue'
@@ -13,6 +14,7 @@ import MessageList from '../components/chat/MessageList.vue'
 
 const session = useSessionStore()
 const chat = useChatStore()
+const toast = useToastStore()
 const inputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 const creating = ref(false)
 
@@ -25,6 +27,8 @@ async function newSession() {
     chat.reset()
     await session.create({})
     inputRef.value?.focus()
+  } catch (e) {
+    toast.bad(`新建对话失败：${(e as Error)?.message || '请重试'}`)
   } finally {
     creating.value = false
   }
@@ -34,7 +38,14 @@ async function send(text: string, attachments: AttachmentREQ[]) {
   if (!session.currentId) await newSession()
   if (!session.currentId) return
   const sid = session.currentId
-  const sent = await chat.send(sid, text, attachments)
+  let sent
+  try {
+    sent = await chat.send(sid, text, attachments)
+  } catch (e) {
+    // 发送被拒（会话忙 / 没配模型服务）必须立刻说清楚，不能让消息无声消失
+    toast.bad(`发送失败：${(e as Error)?.message || '请重试'}`)
+    return
+  }
   // 发送后立刻回显这条消息：等 chat:done 拉快照才显示的话，
   // 用户会以为消息没发出去（助手还没回，观感上就是「什么都没发生」）。
   if (sent?.entry_id) session.echoUserMessage(sent.entry_id, text)
@@ -42,11 +53,22 @@ async function send(text: string, attachments: AttachmentREQ[]) {
 }
 
 async function steer(text: string) {
-  if (session.currentId) await chat.steer(session.currentId, text)
+  if (!session.currentId) return
+  try {
+    await chat.steer(session.currentId, text)
+    toast.ok('已插话，助手会在下一轮响应')
+  } catch (e) {
+    toast.bad(`插话失败：${(e as Error)?.message || '请重试'}`)
+  }
 }
 
 async function stop() {
-  if (session.currentId) await chat.stop(session.currentId)
+  if (!session.currentId) return
+  try {
+    await chat.stop(session.currentId)
+  } catch (e) {
+    toast.bad(`停止失败：${(e as Error)?.message || '请重试'}`)
+  }
 }
 
 // 收尾后拉权威快照。拉失败必须说出来：静默失败的表现是用户盯着一条

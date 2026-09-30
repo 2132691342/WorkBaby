@@ -110,10 +110,24 @@ const (
 	defaultContextKeep    = 20000
 )
 
-// capabilityOf 取模型能力画像。用户在设置里手填的窗口优先于内置目录——
-// 私有部署与新模型不在目录里时，只有用户自己知道真实数字。
-func (c *ChatService) capabilityOf(model string) domain.ModelCapability {
+// capabilityOf 取模型能力画像。优先级：按「服务 + 模型」的用户配置 →
+// 全局窗口设置（兼容旧数据）→ 内置目录。私有部署与新模型不在目录里时，
+// 只有用户自己知道真实数字，所以模型设置页可以手填。
+func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapability {
 	cap := domain.ModelCapabilityOf(model)
+	if cfg, err := c.env.Repo.GetModelConfig(providerID, model); err == nil && cfg != nil {
+		if cfg.ContextWindow > 0 {
+			cap.ContextWindow = cfg.ContextWindow
+			cap.Known = true
+			cap.Note = ""
+		}
+		if cfg.MaxOutput > 0 {
+			cap.MaxOutput = cfg.MaxOutput
+		}
+		cap.Vision = cfg.Vision
+		cap.ToolCall = cfg.ToolCall
+		return cap
+	}
 	if raw, err := c.env.Repo.GetSetting(domain.SettingContextWindow); err == nil {
 		if n, e := strconv.Atoi(strings.TrimSpace(raw)); e == nil && n > 0 {
 			cap.ContextWindow = n
@@ -124,24 +138,42 @@ func (c *ChatService) capabilityOf(model string) domain.ModelCapability {
 	return cap
 }
 
-// budget 把「模型能力 + 用户设置」翻译成内核要的三个整数。
+// samplingOf 取温度与 top_p：模型配置里有就用，没有落缺省值。
+// 同时带出最大输出覆写；0 表示保持适配器自己的缺省。
+func (c *ChatService) samplingOf(providerID, model string) (temp, topP *float64, maxOutput int) {
+	t, p := domain.DefaultTemperature, domain.DefaultTopP
+	if cfg, err := c.env.Repo.GetModelConfig(providerID, model); err == nil && cfg != nil {
+		if cfg.Temperature > 0 {
+			t = cfg.Temperature
+		}
+		if cfg.TopP > 0 {
+			p = cfg.TopP
+		}
+		maxOutput = cfg.MaxOutput
+	}
+	return &t, &p, maxOutput
+}
+
+// budget 把「模型能力 + 用户设置」翻译成内核要的几个整数。
 // 内核不读设置表也不认识模型名，压缩策略只在这里一处。
-func (c *ChatService) budget(model string) agent.Budget {
+// system 提示词由调用方传入：它是每次请求都会占窗口的部分。
+func (c *ChatService) budget(providerID, model, system string) agent.Budget {
 	reserve := defaultContextReserve
 	if v, err := c.env.Repo.GetSetting(domain.SettingContextReserve); err == nil && v != "" {
 		if n, e := strconv.Atoi(v); e == nil && n > 0 {
 			reserve = n
 		}
 	}
-	cap := c.capabilityOf(model)
+	cap := c.capabilityOf(providerID, model)
 	if reserve >= cap.ContextWindow {
 		// 留的余量比整个窗口还大时预算恒为负，压缩会退化成什么都不裁。
 		reserve = cap.ContextWindow / 4
 	}
 	return agent.Budget{
-		Window:      cap.ContextWindow,
-		WindowKnown: cap.Known,
-		Reserve:     reserve,
-		Keep:        defaultContextKeep,
+		Window:       cap.ContextWindow,
+		WindowKnown:  cap.Known,
+		Reserve:      reserve,
+		Keep:         defaultContextKeep,
+		SystemTokens: len(system) / 4,
 	}
 }

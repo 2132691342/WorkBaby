@@ -3,10 +3,12 @@
 import { onMounted, ref } from 'vue'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
+import { useToastStore } from '../../stores/toast'
 import AppIcon from '../common/AppIcon.vue'
 import PageState from '../common/PageState.vue'
 
 const store = useSettingsStore()
+const toast = useToastStore()
 const busy = ref(false)
 const query = ref('')
 const hits = ref<Array<{ title: string; content: string }>>([])
@@ -28,12 +30,29 @@ async function pickAndAdd() {
     if (!path) return
     const r = await api.knowledge.add([path])
     if (!r.added) error.value = '这个文件没法识别，试试 md / txt / pdf / docx / xlsx / html'
-    else await store.loadDocs()
+    else {
+      await store.loadDocs()
+      toast.ok('文档已添加，正在自动建立索引')
+    }
   } catch (e) {
     error.value = (e as Error).message
   } finally {
     busy.value = false
   }
+}
+
+// 删除两段式确认：第一次点进入确认态，3 秒不点自动还原
+const confirming = ref('')
+let confirmTimer = 0
+function askRemove(id: string) {
+  if (confirming.value === id) {
+    confirming.value = ''
+    void removeDoc(id)
+    return
+  }
+  confirming.value = id
+  clearTimeout(confirmTimer)
+  confirmTimer = window.setTimeout(() => (confirming.value = ''), 3000)
 }
 
 async function removeDoc(id: string) {
@@ -42,6 +61,7 @@ async function removeDoc(id: string) {
   try {
     await api.knowledge.remove(id)
     await store.loadDocs()
+    toast.ok('文档已删除')
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -53,8 +73,9 @@ async function reindex() {
   busy.value = true
   error.value = ''
   try {
-    await api.knowledge.reindex()
+    const r = await api.knowledge.reindex()
     await store.loadDocs()
+    toast.ok(`索引已重建（${r.reindexed} 个文档）`)
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -62,13 +83,18 @@ async function reindex() {
   }
 }
 
+const searching = ref(false)
 async function search() {
   if (!query.value.trim()) return
+  searching.value = true
   try {
     const r = await api.knowledge.search(query.value.trim(), 5)
     hits.value = r.hits
+    if (!r.hits.length) toast.info('知识库里没找到相关内容')
   } catch (e) {
     error.value = (e as Error).message
+  } finally {
+    searching.value = false
   }
 }
 
@@ -100,7 +126,9 @@ onMounted(() => store.loadDocs())
         placeholder="在知识库里搜点什么…"
         @keydown.enter="search"
       />
-      <button class="btn" type="button" @click="search">搜索</button>
+      <button class="btn" type="button" :disabled="searching" @click="search">
+        {{ searching ? '搜索中…' : '搜索' }}
+      </button>
     </div>
 
     <div v-if="hits.length" class="hits">
@@ -128,8 +156,8 @@ onMounted(() => store.loadDocs())
             <span class="tag" :class="{ 'b-success': d.status === 'indexed', 'b-danger': d.status === 'failed' }">
               {{ statusName[d.status] || d.status }} · {{ d.chunks }} 块
             </span>
-            <button class="btn btn-sm btn-danger-ghost" :disabled="busy" @click="removeDoc(d.id)">
-              删除
+            <button class="btn btn-sm btn-danger-ghost" :disabled="busy" @click="askRemove(d.id)">
+              {{ confirming === d.id ? '确认删除' : '删除' }}
             </button>
           </div>
         </div>

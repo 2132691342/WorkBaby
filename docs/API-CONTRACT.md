@@ -30,7 +30,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | /chat/send | `{session_id, content, attachments?}` → `{run_id, entry_id, session_id}` |
+| POST | /chat/send | `{session_id, content, attachments?}` → `{run_id, entry_id, session_id}`。附件：`{path, name}` 引用工作目录文件；`{name, image_base64}` 直接带粘贴图片。图片走识图通道：单张 ≤5MB、每条 ≤4 张，模型不支持识图时报 3113 |
 | POST | /chat/stop | `{session_id}` 停止当前 run |
 | POST | /chat/steer | `{session_id, content}` 插话：轮间注入，立刻生效 |
 | POST | /chat/followup | `{session_id, content}` 排队：与插话同队列，轮间注入 |
@@ -63,6 +63,7 @@
 | POST | /providers/:id/test | 连通测试，返回 `{ok, model, detail}` |
 | POST | /providers/:id/default | 设为默认 |
 | GET | /providers/models?provider_id= | 拉上游模型列表 |
+| POST | /providers/models/fetch | `{api, base_url, api_key?}`：未保存的新服务也能拉列表 |
 
 ## 技能 / 知识库 / 设置
 
@@ -81,7 +82,10 @@
 | POST | /knowledge/search | `{query, limit?}` → `{hits[]}` |
 | GET | /tools | 工具清单：助手当前能干什么、风险多大、是否启用 |
 | POST | /tools/:name/toggle | `{enabled}`，下一轮生效 |
-| GET | /models/capability?model=… | 模型能力画像：上下文窗口、是否支持思考 / 识图 |
+| GET | /models/capability?model=&provider_id= | 模型能力画像：上下文窗口、是否支持思考 / 识图 / 工具调用 |
+| GET | /models/config?model=&provider_id= | 单个模型配置（目录 + 覆写合并后的最终值） |
+| GET | /models/configs?provider_id= | 一个服务下的全部模型配置 |
+| POST | /models/config | 保存模型配置 `{provider_id, model, context_window?, max_output?, temperature, top_p, vision, tool_call}` |
 | GET | /runtime | 内置运行时状态（Python 是否就绪 + 失败原因 + 归档路径） |
 | GET | /settings | KV 全集 |
 | POST | /settings | `{key, value}` |
@@ -109,11 +113,15 @@
 
 ```jsonc
 { "id": "MiniMax-M3", "context_window": 1000000, "max_output": 32768,
-  "thinking": true, "vision": false, "known": true, "note": "" }
+  "thinking": true, "vision": false, "tool_call": true, "known": true, "note": "" }
 ```
 
-`known=false` 时 `note` 带一句人话说明。设置 `context_window` 后以用户填的为准，
-并把 `known` 提升为 `true`。
+`known=false` 时 `note` 带一句人话说明。能力解析优先级：
+**按「服务 + 模型」的用户配置（model_configs 表）→ 全局 `context_window` 设置（兼容旧数据）→ 内置目录**。
+
+模型级配置是用户对单个模型的覆写：上下文窗口（0 = 跟随目录）、温度（缺省 0.25）、
+top_p（缺省 0.75）、最大输出，以及识图 / 工具调用两项能力。会话发起请求时按这里的
+值算上下文水位与采样参数；代理改名的私有模型靠它闭环。
 
 ## 运行时状态
 

@@ -4,11 +4,13 @@
 import { onMounted, ref } from 'vue'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
+import { useToastStore } from '../../stores/toast'
 import { OpenFileDialog, OpenDirectoryDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 import PageState from '../common/PageState.vue'
 
 const store = useSettingsStore()
+const toast = useToastStore()
 const open = ref<string | null>(null)
 const body = ref('')
 const busy = ref(false)
@@ -40,6 +42,7 @@ async function toggle(id: string, enabled: boolean) {
   try {
     await api.skills.toggle(id, enabled)
     await store.loadSkills()
+    toast.ok(enabled ? '技能已启用' : '技能已停用')
   } catch (e) {
     err.value = (e as Error).message
   }
@@ -73,6 +76,7 @@ async function submitCreate() {
     await api.skills.create({ ...draft.value })
     creating.value = false
     await store.loadSkills()
+    toast.ok('技能已创建')
   } catch (e) {
     err.value = (e as Error).message
   } finally {
@@ -91,9 +95,24 @@ async function importFiles(fromDir: boolean) {
       return
     }
     await store.loadSkills()
+    toast.ok(`已导入 ${r.imported} 个技能`)
   } catch (e) {
     err.value = (e as Error).message
   }
+}
+
+// 删除两段式确认：与模型服务删除同一交互
+const confirming = ref('')
+let confirmTimer = 0
+function askRemove(id: string) {
+  if (confirming.value === id) {
+    confirming.value = ''
+    void remove(id)
+    return
+  }
+  confirming.value = id
+  clearTimeout(confirmTimer)
+  confirmTimer = window.setTimeout(() => (confirming.value = ''), 3000)
 }
 
 async function remove(id: string) {
@@ -102,6 +121,7 @@ async function remove(id: string) {
     await api.skills.remove(id)
     if (open.value === id) open.value = null
     await store.loadSkills()
+    toast.ok('技能已删除')
   } catch (e) {
     err.value = (e as Error).message
   }
@@ -183,9 +203,10 @@ onMounted(() => store.loadSkills())
           <button
             v-if="s.source !== 'builtin'"
             class="icon-btn danger"
+            :class="{ 'is-confirm': confirming === s.id }"
             type="button"
-            title="删除"
-            @click.stop="remove(s.id)"
+            :title="confirming === s.id ? '再点一次确认删除' : '删除'"
+            @click.stop="askRemove(s.id)"
           >
             <AppIcon name="trash" size="ic-xs" />
           </button>
@@ -259,6 +280,10 @@ onMounted(() => store.loadSkills())
   background: var(--wb-tint);
 }
 .icon-btn.danger:hover {
+  color: var(--wb-danger);
+  background: var(--wb-danger-soft);
+}
+.icon-btn.danger.is-confirm {
   color: var(--wb-danger);
   background: var(--wb-danger-soft);
 }

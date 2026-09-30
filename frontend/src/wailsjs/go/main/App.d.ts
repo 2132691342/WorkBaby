@@ -33,9 +33,13 @@ export function DeleteSession(arg1:gin.Context):Promise<void>;
 
 export function DeleteSkill(arg1:gin.Context):Promise<void>;
 
+export function FetchModels(arg1:gin.Context):Promise<void>;
+
 export function FollowUpMessage(arg1:gin.Context):Promise<void>;
 
 export function ForceQuit():Promise<void>;
+
+export function GetModelConfig(arg1:gin.Context):Promise<void>;
 
 export function GetSession(arg1:gin.Context):Promise<void>;
 
@@ -46,6 +50,8 @@ export function ImportSkills(arg1:gin.Context):Promise<void>;
 export function ListApprovals(arg1:gin.Context):Promise<void>;
 
 export function ListDocs(arg1:gin.Context):Promise<void>;
+
+export function ListModelConfigs(arg1:gin.Context):Promise<void>;
 
 export function ListModels(arg1:gin.Context):Promise<void>;
 
@@ -114,6 +120,8 @@ export function ToggleSkill(arg1:gin.Context):Promise<void>;
 export function ToggleTool(arg1:gin.Context):Promise<void>;
 
 export function UpdateProvider(arg1:gin.Context):Promise<void>;
+
+export function UpsertModelConfig(arg1:gin.Context):Promise<void>;
 
 export function UpsertProvider(arg1:gin.Context):Promise<void>;
 

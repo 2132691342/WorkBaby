@@ -54,6 +54,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			providers.POST("/:id/test", h.TestProvider)
 			providers.POST("/:id/default", h.SetDefaultProvider)
 			providers.GET("/models", h.ListModels)
+			providers.POST("/models/fetch", h.FetchModels)
 		}
 
 		skills := v1.Group("/skills")
@@ -78,6 +79,9 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		v1.GET("/tools", h.ListTools)
 		v1.POST("/tools/:name/toggle", h.ToggleTool)
 		v1.GET("/models/capability", h.ModelCapability)
+		v1.GET("/models/config", h.GetModelConfig)
+		v1.GET("/models/configs", h.ListModelConfigs)
+		v1.POST("/models/config", h.UpsertModelConfig)
 		v1.GET("/runtime", h.RuntimeStatus)
 
 		v1.GET("/settings", h.AllSettings)
@@ -89,6 +93,8 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 }
 
 // sseHandler 是事件流端点：订阅维度是会话，支持 Last-Event-ID 重放。
+// 断线重连的 seq 优先取 query（前端手动重建 EventSource 时拿不到
+// 浏览器自动附带的 Last-Event-ID header），header 作为兜底。
 func sseHandler(hub *Hub) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID := c.Query("session_id")
@@ -104,8 +110,18 @@ func sseHandler(hub *Hub) gin.HandlerFunc {
 		c.Writer.Header().Set("Connection", "keep-alive")
 		c.Writer.Header().Set("X-Accel-Buffering", "no")
 
-		if after := parseSeq(c.GetHeader("Last-Event-ID")); after > 0 {
-			for _, env := range hub.Replay(sessionID, after) {
+		after := parseSeq(c.Query("last_event_id"))
+		if after == 0 {
+			after = parseSeq(c.GetHeader("Last-Event-ID"))
+		}
+		if after > 0 {
+			replay := hub.Replay(sessionID, after)
+			if len(replay) == 0 {
+				// 重放窗口溢出或 seq 不认识：提示前端拉快照对账，避免丢事件却毫不知情。
+				gap, _ := encodeEvent(domain.Envelope{Seq: after, Event: domain.EventChatGap, Data: domain.GapData{Reason: "replay_overflow"}})
+				_, _ = c.Writer.Write(gap)
+			}
+			for _, env := range replay {
 				frame, err := encodeEvent(env)
 				if err != nil {
 					continue
@@ -115,11 +131,6 @@ func sseHandler(hub *Hub) gin.HandlerFunc {
 				}
 			}
 			c.Writer.Flush()
-		}
-		// 重放窗口溢出：提示前端拉快照对账，避免丢事件却毫不知情。
-		if after := parseSeq(c.GetHeader("Last-Event-ID")); after > 0 && len(hub.Replay(sessionID, after)) == 0 {
-			gap, _ := encodeEvent(domain.Envelope{Seq: after, Event: domain.EventChatGap, Data: domain.GapData{Reason: "replay_overflow"}})
-			_, _ = c.Writer.Write(gap)
 		}
 
 		c.Writer.WriteHeader(http.StatusOK)

@@ -456,7 +456,65 @@ func (h *Handler) ModelCapability(c *gin.Context) {
 		fail(c, pkg.New(1105, "请指定要查询的模型", ""))
 		return
 	}
-	ok(c, h.Svc.Chat.ModelCapability(model))
+	ok(c, h.Svc.Chat.ModelCapability(c.Query("provider_id"), model))
+}
+
+// GetModelConfig 查单个模型配置（目录 + 覆写合并后的最终值）。
+func (h *Handler) GetModelConfig(c *gin.Context) {
+	model := c.Query("model")
+	if model == "" {
+		fail(c, pkg.New(1105, "请指定要查询的模型", ""))
+		return
+	}
+	vo, err := h.Svc.Providers.ModelConfig(c.Query("provider_id"), model)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// ListModelConfigs 列出一个服务下的全部模型配置。
+func (h *Handler) ListModelConfigs(c *gin.Context) {
+	list, err := h.Svc.Providers.ListModelConfigs(c.Query("provider_id"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, list)
+}
+
+// UpsertModelConfig 保存模型配置。
+func (h *Handler) UpsertModelConfig(c *gin.Context) {
+	var req domain.UpsertModelConfigREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap(1107, "请求格式不正确", err))
+		return
+	}
+	vo, err := h.Svc.Providers.UpsertModelConfig(req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// FetchModels 用未保存的连接信息拉上游模型列表（新增服务场景）。
+func (h *Handler) FetchModels(c *gin.Context) {
+	var req domain.FetchModelsREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap(1107, "请求格式不正确", err))
+		return
+	}
+	if req.API == "" {
+		req.API = domain.APIOpenAI
+	}
+	models, err := h.Svc.Providers.FetchModels(req.API, req.BaseURL, req.APIKey)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, models)
 }
 
 // RuntimeStatus 报告内置运行时是否就绪，附带失败原因。

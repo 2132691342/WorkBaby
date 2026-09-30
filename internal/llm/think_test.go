@@ -1,6 +1,6 @@
-// 内联 <think> 标签的分流：标签被切碎、切在内容中间、多次出现都要能正确拆开。
-// 真实故障：MiniMax-M3 把推理写在 content 里，界面直接显示裸 <think> 标签，
-// 且思考过程永远折叠不了——因为它进了 content 而不是 thinking 通道。
+// 内联 <think> 标签的分流：真实故障是部分模型把推理直接写进 content，
+// 界面会露出裸 <think> 标签且思考永远折叠不了。这里锁两条链路：
+// 常规整段分流、标签被流式切块切碎（跨 chunk 状态保持）。
 package llm
 
 import (
@@ -20,68 +20,45 @@ func feed(chunks []string) (string, string) {
 	return think.String(), text.String()
 }
 
+// 整段标签、多块思考、前后混杂正文：分流的常规形态。
 func TestThinkSplitterSeparatesContent(t *testing.T) {
 	think, text := feed([]string{"<think>我在想</think>", "你好"})
-	if think != "我在想" {
-		t.Errorf("思考段不对: %q", think)
+	if think != "我在想" || text != "你好" {
+		t.Fatalf("整段分流不对: think=%q text=%q", think, text)
 	}
-	if text != "你好" {
-		t.Errorf("正文段不对: %q", text)
+
+	think, text = feed([]string{
+		"开头", "<think>第一段</think>", "中间", "<think>第二段</think>", "结尾",
+	})
+	if think != "第一段第二段" {
+		t.Errorf("多块思考不对: %q", think)
+	}
+	if text != "开头中间结尾" {
+		t.Errorf("正文拼接不对: %q", text)
+	}
+
+	// 纯文本必须原样透传，一个字符都不能动
+	think, text = feed([]string{"普通回答", "没有标签"})
+	if think != "" || text != "普通回答没有标签" {
+		t.Fatalf("纯文本应原样透传: think=%q text=%q", think, text)
 	}
 }
 
 // 标签被拆到多个 delta 里：这是流式场景的常态，必须跨块保持状态。
 func TestThinkSplitterHandlesSplitTags(t *testing.T) {
 	think, text := feed([]string{"<thi", "nk>推理中", "</thi", "nk>", "答案"})
-	if think != "推理中" {
-		t.Errorf("思考段不对: %q", think)
+	if think != "推理中" || text != "答案" {
+		t.Fatalf("切碎标签分流不对: think=%q text=%q", think, text)
 	}
-	if text != "答案" {
-		t.Errorf("正文段不对: %q", text)
-	}
-}
 
-// 每个字符单独喂一次：最坏情况下的碎片化。
-func TestThinkSplitterCharByChar(t *testing.T) {
-	var chunks []string
-	for _, r := range "<think>思考</think>正文" {
-		chunks = append(chunks, string(r))
+	// 逐字符喂入：最恶劣的切块方式也不能漏字
+	whole := "<think>深度思考</think>最终结论"
+	chars := make([]string, 0, len([]rune(whole)))
+	for _, r := range whole {
+		chars = append(chars, string(r))
 	}
-	think, text := feed(chunks)
-	if think != "思考" {
-		t.Errorf("思考段不对: %q", think)
-	}
-	if text != "正文" {
-		t.Errorf("正文段不对: %q", text)
-	}
-}
-
-// 标签前后的正文都必须原样保留，不能被吞掉。
-func TestThinkSplitterKeepsSurroundingText(t *testing.T) {
-	think, text := feed([]string{"前面<think>中间</think>后面"})
-	if think != "中间" {
-		t.Errorf("思考段不对: %q", think)
-	}
-	if text != "前面后面" {
-		t.Errorf("正文段不对: %q", text)
-	}
-}
-
-// 多段思考：模型可能反复进入退出思考状态。
-func TestThinkSplitterMultipleBlocks(t *testing.T) {
-	think, text := feed([]string{"<think>一</think>正文1<think>二</think>正文2"})
-	if think != "一二" {
-		t.Errorf("思考段不对: %q", think)
-	}
-	if text != "正文1正文2" {
-		t.Errorf("正文段不对: %q", text)
-	}
-}
-
-// 没有标签的普通正文必须原样透传，一个字符都不能少。
-func TestThinkSplitterPassthroughPlainText(t *testing.T) {
-	_, text := feed([]string{"普通回答", "，没有任何标签。"})
-	if text != "普通回答，没有任何标签。" {
-		t.Errorf("普通正文被改动了: %q", text)
+	think, text = feed(chars)
+	if think != "深度思考" || text != "最终结论" {
+		t.Fatalf("逐字喂入分流不对: think=%q text=%q", think, text)
 	}
 }

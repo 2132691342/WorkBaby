@@ -16,11 +16,15 @@ func toLLMMessages(entries []domain.EntryDO) []llm.Message {
 	for _, e := range entries {
 		var p domain.MessagePayload
 		_ = json.Unmarshal([]byte(e.PayloadJSON), &p)
-		out = append(out, llm.Message{
+		msg := llm.Message{
 			Role: e.Role, Content: p.Content, Thinking: p.Thinking,
 			ToolCallID: p.ToolCallID, IsError: p.IsError,
 			ToolCalls:  toLLMToolCalls(p.ToolCalls),
-		})
+		}
+		for _, im := range p.Images {
+			msg.Images = append(msg.Images, llm.Image{MIME: im.MIME, Base64: im.Base64})
+		}
+		out = append(out, msg)
 	}
 	return out
 }
@@ -55,6 +59,9 @@ func toMessageVO(e *domain.EntryDO) domain.MessageVO {
 	if len(p.ToolCalls) > 0 {
 		vo.ToolCalls = p.ToolCalls
 	}
+	if len(p.Images) > 0 {
+		vo.Images = p.Images
+	}
 	if u.Total > 0 || u.Input > 0 || u.Output > 0 {
 		cp := u
 		vo.Usage = &cp
@@ -68,6 +75,9 @@ func payloadOf(m llm.Message, stopReason string, latencyMs int64, toolName ...st
 		Thinking: m.Thinking, Content: m.Content, ToolCallID: m.ToolCallID,
 		IsError: m.IsError, StopReason: stopReason, LatencyMs: latencyMs,
 		ToolCalls: toDomainToolCalls(m.ToolCalls),
+	}
+	for _, im := range m.Images {
+		p.Images = append(p.Images, domain.MessageImage{MIME: im.MIME, Base64: im.Base64})
 	}
 	if len(toolName) > 0 {
 		p.ToolName = toolName[0]

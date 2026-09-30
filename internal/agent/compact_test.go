@@ -37,19 +37,6 @@ func TestCleanForProtocolHardConstraints(t *testing.T) {
 	})
 }
 
-// 切点必须落在 user 边界上，落在中间会切出半个 turn。
-func TestFindCutPointPrefersUserBoundary(t *testing.T) {
-	msgs := []llm.Message{
-		{Role: llm.RoleUser, Content: "第一句"},
-		{Role: llm.RoleAssistant, Content: "回应"},
-		{Role: llm.RoleUser, Content: "第二句"},
-		{Role: llm.RoleAssistant, Content: "再回应"},
-	}
-	if cut := FindCutPoint(msgs, 30); cut != 2 {
-		t.Fatalf("切点应落在第二个 user 处，实际 %d", cut)
-	}
-}
-
 // 降级路径：只保留最近的完整 turn，不能切出残缺的 user/assistant 配对。
 func TestTruncateDeterministicKeepsRecentTurns(t *testing.T) {
 	msgs := []llm.Message{

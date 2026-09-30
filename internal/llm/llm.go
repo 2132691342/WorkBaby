@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"strings"
 
 	"WorkBaby/internal/pkg"
 )
@@ -37,6 +38,13 @@ var (
 	ErrBadStream = pkg.New(3105, "上游返回了无法解析的流", "")
 )
 
+// Image 是 user 消息附带的图片；Base64 不含 data: 前缀。
+// 历史回传时原样保留，识图模型才能在多轮对话里持续看到图。
+type Image struct {
+	MIME   string
+	Base64 string
+}
+
 // Message 是归一化消息：assistant 的正文与思考严格分离，工具调用与结果各自独立。
 type Message struct {
 	Role       string
@@ -45,6 +53,8 @@ type Message struct {
 	ToolCalls  []ToolCall
 	ToolCallID string
 	IsError    bool
+	// Images 只在 user 消息上出现；不支持识图的模型由 service 层提前拦截。
+	Images []Image
 }
 
 // ToolCall 是一次工具调用；Args 保留原始 JSON，由工具侧自行解析。
@@ -81,14 +91,28 @@ func (u Usage) CacheHitRate() float64 {
 	return float64(u.Cached) / float64(u.Input)
 }
 
-// Request 是一次上游请求。
+// Request 是一次上游请求。Temperature / TopP 用指针表达「用户没设置就不下发」，
+// 让 0 值也是合法输入（比如刻意要确定性输出时设 0）。
 type Request struct {
 	Model       string
 	System      string
 	Messages    []Message
 	Tools       []ToolDef
 	MaxTokens   int
-	Temperature float64
+	Temperature *float64
+	TopP        *float64
+}
+
+// FriendlyUpstreamError 把常见上游错误转成人话：直接展示上游原始 JSON
+// 对用户没有可行动性——尤其是模型名写错这种本地就能说清楚的问题。
+func FriendlyUpstreamError(msg string) string {
+	low := strings.ToLower(msg)
+	switch {
+	case strings.Contains(low, "model not found"), strings.Contains(low, "invalid_model_error"),
+		strings.Contains(low, "unknown model"), strings.Contains(low, "does not exist"):
+		return "模型在这个服务上不存在，请在对话底部换个模型，或到设置里检查模型名。上游信息：" + msg
+	}
+	return msg
 }
 
 // Event 是流式事件。Go 侧按值传递，UI 需累积快照时自行拼接，不共享可变状态。

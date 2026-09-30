@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api'
 import type { BootstrapVO, KnowledgeDocVO, ProviderVO, SkillVO } from '../types/api'
+import { useToastStore } from './toast'
 
 export const useSettingsStore = defineStore('settings', () => {
   const boot = ref<BootstrapVO | null>(null)
@@ -82,9 +83,16 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  // 所有设置项写入的公共出口：失败必须弹出，否则开关类操作「点了没反应」。
+  // 成功不弹——开关自身的状态变化已经说明了结果。
   async function setValue(key: string, value: string) {
-    await api.settings.set(key, value)
-    values.value = { ...values.value, [key]: value }
+    try {
+      await api.settings.set(key, value)
+      values.value = { ...values.value, [key]: value }
+    } catch (e) {
+      useToastStore().bad(`保存设置失败：${(e as Error)?.message || '请重试'}`)
+      throw e
+    }
   }
 
   return {
