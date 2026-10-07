@@ -35,7 +35,7 @@ onMounted(syncFromSettings)
   <div class="ap">
     <div class="card p-sm">
       <h3>主题</h3>
-      <p class="hint">浅白适合白天办公，暗紫适合夜里或长时间盯屏幕。</p>
+      <p class="hint">浅白适合白天办公，暗黑适合夜里或长时间盯屏幕。</p>
       <div class="theme-row">
         <button
           v-for="t in THEMES"
@@ -47,7 +47,7 @@ onMounted(syncFromSettings)
         >
           <span class="sw" :style="{ background: t.swatch }" />
           <b>{{ t.name }}</b>
-          <span class="theme-sub">{{ t.key === 'light' ? '白 · 灰 · 浅蓝' : '黑 · 灰 · 暗紫' }}</span>
+          <span class="theme-sub">{{ t.key === 'light' ? '雾白 · 靛灰 · 电靛' : '墨夜 · 午夜靛 · 长春花' }}</span>
         </button>
       </div>
     </div>

@@ -63,9 +63,9 @@ const rows = computed(() =>
   background: var(--wb-primary);
 }
 .t1 {
-  background: var(--wb-success);
+  background: var(--wb-live);
 }
 .t2 {
-  background: var(--wb-warning);
+  background: var(--wb-lavender);
 }
 </style>

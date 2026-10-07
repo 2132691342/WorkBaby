@@ -60,8 +60,23 @@ const md = (id: string, role: 'user' | 'assistant' | 'tool', content: string, ts
 export const messages: Record<string, MessageVO[]> = {
   SESSION_0001: [
     md('M1', 'user', '这是本季度的销售明细，帮我整理成一份给老板看的总结。', now - 1_800_000),
-    md('M2', 'assistant', '好的，我先读一下文件。', now - 1_700_000),
-    md('M3', 'tool', '已读取 sales-q3.csv（842 行）', now - 1_690_000),
+    {
+      ...md('M2', 'assistant', '', now - 1_700_000),
+      thinking:
+        '用户要一份给老板看的总结。附件是 sales-q3.csv，我先读原始数据，把销售额按区域聚合，算环比，再挑两个异常点提醒。',
+      tool_calls: [
+        {
+          id: 'TC_1',
+          name: 'read_file',
+          args: { path: 'C:\\Users\\demo\\工作\\sales-q3.csv', limit: 50 },
+        },
+      ],
+    },
+    {
+      ...md('M3', 'tool', '区域,月份,销售额(万)\n华东,7,188\n华东,8,201\n华东,9,223\n华南,7,102\n华南,8,115\n华南,9,121\n华北,7,119\n华北,8,108\n华北,9,107', now - 1_690_000),
+      tool_call_id: 'TC_1',
+      tool_name: 'read_file',
+    },
     md(
       'M4',
       'assistant',

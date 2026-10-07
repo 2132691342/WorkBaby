@@ -5,10 +5,17 @@ import type { ApprovalVO } from '../../types/api'
 import { summarizeArgs } from '../../utils/md'
 import AppIcon from '../common/AppIcon.vue'
 
-defineProps<{ approval: ApprovalVO; busy?: boolean }>()
+const props = defineProps<{ approval: ApprovalVO; busy?: boolean }>()
 const emit = defineEmits<{ decide: [id: string, approved: boolean, scope: string] }>()
 
 const scope = ref<'once' | 'session'>('once')
+// 点了哪个决定就只有那个按钮转圈，await 期间另一个按钮禁用，防双击重复决策
+const pending = ref<'' | 'allow' | 'reject'>('')
+function decide(id: string, approved: boolean) {
+  if (props.busy || pending.value) return
+  pending.value = approved ? 'allow' : 'reject'
+  emit('decide', id, approved, scope.value)
+}
 const riskText: Record<string, string> = {
   low: '低风险',
   medium: '中风险',
@@ -38,8 +45,20 @@ const riskText: Record<string, string> = {
       <span class="tag">{{ riskText[approval.risk] || approval.risk }}</span>
     </div>
     <div class="approve-foot">
-      <button class="btn btn-sm btn-outline" :disabled="busy" @click="emit('decide', approval.id, false, scope)">拒绝</button>
-      <button class="btn btn-sm btn-primary" :disabled="busy" @click="emit('decide', approval.id, true, scope)">
+      <button
+        class="btn btn-sm btn-outline"
+        :class="{ 'is-loading': pending === 'reject' }"
+        :disabled="busy || (!!pending && pending !== 'reject')"
+        @click="decide(approval.id, false)"
+      >
+        拒绝
+      </button>
+      <button
+        class="btn btn-sm btn-primary"
+        :class="{ 'is-loading': pending === 'allow' }"
+        :disabled="busy || (!!pending && pending !== 'allow')"
+        @click="decide(approval.id, true)"
+      >
         放行
       </button>
       <span class="ap-note">拿不准就拒绝，可以让助手换个做法</span>

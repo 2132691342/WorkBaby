@@ -355,11 +355,12 @@ onMounted(() => store.loadProviders())
               <span class="sp" />
               <button
                 class="btn btn-outline btn-sm"
+                :class="{ 'is-loading': pulling }"
                 :disabled="pulling || (needKey && !form.id && !form.key)"
                 :title="form.id ? '去服务商那里问一遍有哪些模型' : '按上面填的地址与密钥去问一遍'"
                 @click="pullModels"
               >
-                {{ pulling || store.modelsLoading ? '拉取中…' : '拉取模型列表' }}
+                {{ pulling || store.modelsLoading ? '拉取中' : '拉取模型列表' }}
               </button>
             </div>
             <div class="hint">至少选一个；保存后在对话页底部也能随时换模型</div>
@@ -401,8 +402,13 @@ onMounted(() => store.loadProviders())
                 <input v-model="cfgRows[m].tool_call" type="checkbox" />
                 <span>工具调用</span>
               </label>
-              <button class="btn btn-outline btn-sm" :disabled="cfgRows[m]?.saving" @click="saveCfg(m)">
-                {{ cfgRows[m]?.saved ? '已保存' : cfgRows[m]?.saving ? '保存中…' : '保存' }}
+              <button
+                class="btn btn-outline btn-sm"
+                :class="{ 'is-loading': cfgRows[m]?.saving }"
+                :disabled="cfgRows[m]?.saving"
+                @click="saveCfg(m)"
+              >
+                {{ cfgRows[m]?.saved ? '已保存' : '保存' }}
               </button>
             </div>
             <div class="hint">窗口留空 = 跟随内置目录；改完点保存立刻生效，对话里按这里的值算上下文水位</div>
@@ -410,8 +416,8 @@ onMounted(() => store.loadProviders())
         </div>
       </div>
       <div class="flex-r form-acts">
-        <button class="btn btn-primary btn-sm" :disabled="busy || !chosen.length" @click="save">
-          {{ busy ? '保存中…' : '保存' }}
+        <button class="btn btn-primary btn-sm" :class="{ 'is-loading': busy }" :disabled="busy || !chosen.length" @click="save">
+          保存
         </button>
         <button class="btn btn-ghost btn-sm" @click="reset">取消</button>
         <span v-if="!form.id" class="acts-hint">保存后就能去拉取上游模型列表</span>
@@ -439,8 +445,13 @@ onMounted(() => store.loadProviders())
             </p>
           </div>
           <div class="flex-r">
-            <button class="btn btn-sm btn-ghost" :disabled="testing === p.id" @click="test(p.id)">
-              {{ testing === p.id ? '测试中…' : '测试' }}
+            <button
+              class="btn btn-sm btn-ghost"
+              :class="{ 'is-loading': testing === p.id }"
+              :disabled="testing === p.id"
+              @click="test(p.id)"
+            >
+              {{ testing === p.id ? '测试中' : '测试' }}
             </button>
             <button v-if="!p.is_default" class="btn btn-sm btn-ghost" @click="setDefault(p.id)">设默认</button>
             <button class="btn btn-sm btn-ghost" @click="edit(p.id)">编辑</button>

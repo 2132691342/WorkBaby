@@ -245,14 +245,14 @@ onMounted(async () => {
 
 <style scoped>
 .avatar.is-live {
-  box-shadow: 0 0 0 3px var(--wb-primary-soft);
+  box-shadow: 0 0 0 3px var(--wb-live-soft);
 }
-/* 思考块：流式期间带一条左侧竖线，与正文气泡明确分开。
+/* 思考块：流式期间带一条极光青竖线，与正文气泡明确分开。
    展开时占满助手列，字数提示才能顶到行尾；收起时按内容收窄。 */
 .think.is-live {
   align-self: stretch;
   align-items: stretch;
-  border-left: 2px solid var(--wb-primary-line);
+  border-left: 2px solid var(--wb-live-line);
   padding-left: var(--wb-sp-3);
   margin-bottom: var(--wb-sp-2);
 }
@@ -281,7 +281,7 @@ onMounted(async () => {
   font-variant-numeric: tabular-nums;
   opacity: 0.7;
 }
-/* 流式正文末尾的光标：持续输出时最重要的一个视觉信号 */
+/* 流式正文末尾的光标：持续输出时最重要的一个视觉信号（极光青 = 正在发生） */
 .bubble.is-streaming::after {
   content: '';
   display: inline-block;
@@ -289,7 +289,7 @@ onMounted(async () => {
   height: 1em;
   margin-left: 2px;
   vertical-align: -0.15em;
-  background: var(--wb-primary);
+  background: var(--wb-live);
   animation: caret 1s step-end infinite;
 }
 @keyframes caret {
@@ -312,7 +312,7 @@ onMounted(async () => {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--wb-muted);
+  background: var(--wb-live);
   animation: blink 1.1s ease-in-out infinite;
 }
 .dot:nth-child(2) { animation-delay: 0.18s; }

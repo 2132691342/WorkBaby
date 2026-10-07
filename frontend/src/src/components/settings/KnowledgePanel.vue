@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 知识库面板：添加文档 → 自动切分建索引 → 可随时检索或重建。
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
@@ -9,7 +9,9 @@ import PageState from '../common/PageState.vue'
 
 const store = useSettingsStore()
 const toast = useToastStore()
-const busy = ref(false)
+// 忙碌标识带动作与目标：转圈只出现在真正在跑的那个按钮上
+const busyTarget = ref('')
+const busy = computed(() => busyTarget.value !== '')
 const query = ref('')
 const hits = ref<Array<{ title: string; content: string }>>([])
 const error = ref('')
@@ -23,7 +25,7 @@ const statusName: Record<string, string> = {
 // 一次选中就建索引：原来「再选一个 → 添加这些」两步，新手会以为第一次点击没生效
 async function pickAndAdd() {
   error.value = ''
-  busy.value = true
+  busyTarget.value = 'add'
   try {
     const { OpenFileDialog } = await import('../../../wailsjs/go/main/App')
     const path = await OpenFileDialog('选择要放进知识库的文档', '')
@@ -37,7 +39,7 @@ async function pickAndAdd() {
   } catch (e) {
     error.value = (e as Error).message
   } finally {
-    busy.value = false
+    busyTarget.value = ''
   }
 }
 
@@ -56,7 +58,7 @@ function askRemove(id: string) {
 }
 
 async function removeDoc(id: string) {
-  busy.value = true
+  busyTarget.value = `remove:${id}`
   error.value = ''
   try {
     await api.knowledge.remove(id)
@@ -65,12 +67,12 @@ async function removeDoc(id: string) {
   } catch (e) {
     error.value = (e as Error).message
   } finally {
-    busy.value = false
+    busyTarget.value = ''
   }
 }
 
 async function reindex() {
-  busy.value = true
+  busyTarget.value = 'reindex'
   error.value = ''
   try {
     const r = await api.knowledge.reindex()
@@ -79,7 +81,7 @@ async function reindex() {
   } catch (e) {
     error.value = (e as Error).message
   } finally {
-    busy.value = false
+    busyTarget.value = ''
   }
 }
 
@@ -104,10 +106,22 @@ onMounted(() => store.loadDocs())
 <template>
   <div class="kb">
     <div class="toolbar">
-      <button class="btn btn-primary" type="button" :disabled="busy" @click="pickAndAdd">
+      <button
+        class="btn btn-primary"
+        type="button"
+        :class="{ 'is-loading': busyTarget === 'add' }"
+        :disabled="busy"
+        @click="pickAndAdd"
+      >
         <AppIcon name="plus" size="ic-xs" /> 添加文档
       </button>
-      <button class="btn" type="button" :disabled="busy" @click="reindex">
+      <button
+        class="btn"
+        type="button"
+        :class="{ 'is-loading': busyTarget === 'reindex' }"
+        :disabled="busy"
+        @click="reindex"
+      >
         <AppIcon name="refresh" size="ic-xs" /> 重建索引
       </button>
       <span class="spacer" />
@@ -126,8 +140,14 @@ onMounted(() => store.loadDocs())
         placeholder="在知识库里搜点什么…"
         @keydown.enter="search"
       />
-      <button class="btn" type="button" :disabled="searching" @click="search">
-        {{ searching ? '搜索中…' : '搜索' }}
+      <button
+        class="btn"
+        type="button"
+        :class="{ 'is-loading': searching }"
+        :disabled="searching"
+        @click="search"
+      >
+        搜索
       </button>
     </div>
 
@@ -156,7 +176,12 @@ onMounted(() => store.loadDocs())
             <span class="tag" :class="{ 'b-success': d.status === 'indexed', 'b-danger': d.status === 'failed' }">
               {{ statusName[d.status] || d.status }} · {{ d.chunks }} 块
             </span>
-            <button class="btn btn-sm btn-danger-ghost" :disabled="busy" @click="askRemove(d.id)">
+            <button
+              class="btn btn-sm btn-danger-ghost"
+              :class="{ 'is-loading': busyTarget === `remove:${d.id}` }"
+              :disabled="busy"
+              @click="askRemove(d.id)"
+            >
               {{ confirming === d.id ? '确认删除' : '删除' }}
             </button>
           </div>

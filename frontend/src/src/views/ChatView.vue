@@ -34,10 +34,14 @@ async function newSession() {
   }
 }
 
+const sending = ref(false)
+const stopping = ref(false)
+
 async function send(text: string, attachments: AttachmentREQ[]) {
   if (!session.currentId) await newSession()
   if (!session.currentId) return
   const sid = session.currentId
+  sending.value = true
   let sent
   try {
     sent = await chat.send(sid, text, attachments)
@@ -45,6 +49,8 @@ async function send(text: string, attachments: AttachmentREQ[]) {
     // 发送被拒（会话忙 / 没配模型服务）必须立刻说清楚，不能让消息无声消失
     toast.bad(`发送失败：${(e as Error)?.message || '请重试'}`)
     return
+  } finally {
+    sending.value = false
   }
   // 发送后立刻回显这条消息：等 chat:done 拉快照才显示的话，
   // 用户会以为消息没发出去（助手还没回，观感上就是「什么都没发生」）。
@@ -63,11 +69,14 @@ async function steer(text: string) {
 }
 
 async function stop() {
-  if (!session.currentId) return
+  if (!session.currentId || stopping.value) return
+  stopping.value = true
   try {
     await chat.stop(session.currentId)
   } catch (e) {
     toast.bad(`停止失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    stopping.value = false
   }
 }
 
@@ -186,6 +195,8 @@ watch(
       <ChatInput
         ref="inputRef"
         :running="chat.running"
+        :sending="sending"
+        :stopping="stopping"
         @send="send"
         @steer="steer"
         @stop="stop"

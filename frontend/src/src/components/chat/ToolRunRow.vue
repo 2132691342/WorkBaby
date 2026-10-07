@@ -55,8 +55,8 @@ const open = ref(false)
   flex: none;
 }
 .st.is-run {
-  color: var(--wb-primary);
-  background: var(--wb-primary-soft);
+  color: var(--wb-live);
+  background: var(--wb-live-soft);
   animation: pulse 1.1s ease-in-out infinite;
 }
 .st.is-ok {

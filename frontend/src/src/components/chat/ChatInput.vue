@@ -9,7 +9,13 @@ import AppIcon from '../common/AppIcon.vue'
 import ContextMeter from './ContextMeter.vue'
 import SessionChips from './SessionChips.vue'
 
-const props = defineProps<{ running: boolean; disabled?: boolean; placeholder?: string }>()
+const props = defineProps<{
+  running: boolean
+  sending?: boolean
+  stopping?: boolean
+  disabled?: boolean
+  placeholder?: string
+}>()
 const emit = defineEmits<{
   send: [text: string, attachments: AttachmentREQ[]]
   steer: [text: string]
@@ -178,7 +184,7 @@ function onKeydown(e: KeyboardEvent) {
 
 function submit() {
   const value = text.value.trim()
-  if (props.disabled) return
+  if (props.disabled || props.sending) return
   if (props.running) {
     if (!value) return
     emit('steer', value)
@@ -348,12 +354,22 @@ defineExpose({ focus: () => ta.value?.focus() })
         />
         <span v-if="outsideCount" class="warn">{{ outsideCount }} 个文件助手读不到</span>
         <span class="sp" />
-        <button v-if="running" class="btn btn-sm btn-danger-ghost" type="button" @click="emit('stop')">停止</button>
+        <button
+          v-if="running"
+          class="btn btn-sm btn-danger-ghost"
+          :class="{ 'is-loading': stopping }"
+          :disabled="stopping"
+          type="button"
+          @click="emit('stop')"
+        >
+          停止
+        </button>
         <button
           v-else
           class="btn btn-sm btn-primary"
+          :class="{ 'is-loading': sending }"
           type="button"
-          :disabled="!text.trim() || disabled || outsideCount > 0"
+          :disabled="sending || !text.trim() || disabled || outsideCount > 0"
           @click="submit"
         >
           发送

@@ -13,6 +13,7 @@ SQLite 里只有两张核心表撑起全部状态：`sessions` + `entries`。
 | entries | id, session_id, parent_id, seq, role, type, payload_json, created_at |
 | approvals | id, session_id, tool_call_id, tool, label, args_json, risk, reason, status, created_at, decided_at |
 | providers | id, name, api, base_url, api_key_enc, models(JSON), is_default, created_at, updated_at |
+| model_configs | 模型级能力配置（thinking / 识图 / 窗口等），provider_id + model 定位 |
 | settings | key(PK), value |
 | knowledge_docs / knowledge_chunks | 文档与分块，FTS5 由触发器同步 |
 | token_usages | 每次 LLM 调用一行 |

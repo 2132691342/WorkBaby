@@ -54,6 +54,13 @@ function route(path: string, body: unknown, query: URLSearchParams): unknown {
   const hit = routes.find(([pattern]) => pattern === path)
   if (hit) return hit[1](body, query)
 
+  // 会话详情：返回 fixtures 里的消息历史（含工具调用与思考块），预览时能看到完整界面
+  if (/^\/sessions\/[^/]+$/.test(path)) {
+    const id = path.split('/')[2]
+    const session = state.sessions.find((s) => s.id === id)
+    return { session, messages: fx.messages[id] || [] }
+  }
+
   // 带 :id 的动作一律后缀匹配，路由表就不用为每个动词各写一条。
   const parts = path.split('/')
   const tail = parts[parts.length - 1] || ''
