@@ -24,13 +24,14 @@ type Env struct {
 	ToolDeps  tool.Deps
 }
 
-// NewToolDeps 构造工具依赖：内置 Python 优先，知识库检索器直接注入。
+// NewToolDeps 构造工具依赖：内置 Python / PowerShell 优先，知识库检索器直接注入。
 func NewToolDeps(p runtime.Paths, ks *knowledge.Service) tool.Deps {
 	return tool.Deps{
-		PythonExe: runtime.PythonExe(p),
-		Knowledge: ks,
-		TmpDir:    p.TmpDir,
-		Reads:     nil,
+		PythonExe:     runtime.PythonExe(p),
+		PowerShellExe: runtime.PowerShellExe(p),
+		Knowledge:     ks,
+		TmpDir:        p.TmpDir,
+		Reads:         nil,
 	}
 }
 

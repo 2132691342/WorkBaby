@@ -92,6 +92,20 @@ func (h *Handler) RenameSession(c *gin.Context) {
 	ok(c, true)
 }
 
+// SetSessionWorkspace 切换会话工作目录：改完下一条消息立即生效。
+func (h *Handler) SetSessionWorkspace(c *gin.Context) {
+	var req domain.SetWorkspaceREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap(1107, "请求格式不正确", err))
+		return
+	}
+	if err := h.Svc.Sessions.SetWorkspace(c.Param("id"), req.Workspace); err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, true)
+}
+
 // DeleteSession 删除会话。
 func (h *Handler) DeleteSession(c *gin.Context) {
 	if err := h.Svc.Sessions.Delete(c.Param("id")); err != nil {

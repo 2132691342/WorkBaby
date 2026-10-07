@@ -76,7 +76,13 @@ func (t powershellTool) Execute(ctx context.Context, in Input) (*Result, error) 
 	defer cancel()
 
 	start := time.Now()
-	cmd := exec.CommandContext(runCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command)
+	// 内置 pwsh 优先（Deps 注入），兜底系统 powershell；flags 两代通用。
+	shell := in.Deps.PowerShellExe
+	if shell == "" {
+		shell = "powershell.exe"
+	}
+	cmd := exec.CommandContext(runCtx, shell, "-NoProfile", "-NonInteractive", "-Command", command)
+	hideConsole(cmd)
 	cmd.Dir = cwd
 	cmd.Cancel = func() error { return killTree(cmd.Process.Pid) }
 	cmd.WaitDelay = 3 * time.Second

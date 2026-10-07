@@ -43,10 +43,11 @@ type ReadTracker interface {
 
 // Deps 是工具需要的外界依赖，构造期注入，执行期只读。
 type Deps struct {
-	PythonExe string
-	Knowledge Searcher
-	Reads     ReadTracker
-	TmpDir    string
+	PythonExe     string
+	PowerShellExe string
+	Knowledge     Searcher
+	Reads         ReadTracker
+	TmpDir        string
 }
 
 // Searcher 是知识库检索能力，由 knowledge 包实现。

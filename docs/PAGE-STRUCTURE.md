@@ -130,6 +130,7 @@
 | `chat/ToolRunRow.vue` | 工具执行卡（折叠摘要 / 展开参数与输出 / 耗时） |
 | `chat/ApprovalCard.vue` | 审批三选：只这次 / 本会话 / 拒绝 |
 | `chat/ChatInput.vue` | 输入区（自动增高 / 回车发送 / 插话提示 / 上下文水位 / 模型与规矩 chip；`@` 附件 chip 内联在此） |
+| `chat/WorkspaceChip.vue` | 工作目录芯片（输入框上方：basename + tooltip 全路径；点击选目录 = 全局默认 + 当前会话双写；未设置虚线灰态） |
 
 ## 图标纪律
 

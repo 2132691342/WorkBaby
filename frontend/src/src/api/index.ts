@@ -31,6 +31,8 @@ export const sessions = {
     post<boolean>(`/sessions/${id}/model`, { provider_id, model }),
   setPermission: (id: string, permission: string) =>
     post<boolean>(`/sessions/${id}/permission`, { permission }),
+  setWorkspace: (id: string, workspace: string) =>
+    post<boolean>(`/sessions/${id}/workspace`, { workspace }),
   branch: (id: string, entry_id: string) => post<boolean>(`/sessions/${id}/branch`, { entry_id }),
 }
 

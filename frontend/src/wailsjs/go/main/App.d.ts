@@ -95,6 +95,8 @@ export function SetSessionModel(arg1:gin.Context):Promise<void>;
 
 export function SetSessionPermission(arg1:gin.Context):Promise<void>;
 
+export function SetSessionWorkspace(arg1:gin.Context):Promise<void>;
+
 export function SetSetting(arg1:gin.Context):Promise<void>;
 
 export function SetStartupError(arg1:Error):Promise<void>;

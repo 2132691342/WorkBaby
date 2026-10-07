@@ -25,6 +25,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			sessions.POST("", h.CreateSession)
 			sessions.GET("/:id", h.GetSession)
 			sessions.POST("/:id/rename", h.RenameSession)
+			sessions.POST("/:id/workspace", h.SetSessionWorkspace)
 			sessions.POST("/:id/delete", h.DeleteSession)
 			sessions.POST("/:id/model", h.SetSessionModel)
 			sessions.POST("/:id/permission", h.SetSessionPermission)

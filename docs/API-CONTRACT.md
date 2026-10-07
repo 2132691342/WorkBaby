@@ -24,6 +24,7 @@
 | POST | /sessions/:id/delete | 删除（级联 entries / approvals / token_usages） |
 | POST | /sessions/:id/model | `{provider_id, model}` |
 | POST | /sessions/:id/permission | `{permission}`：`ask` / `auto_edit` / `yolo` |
+| POST | /sessions/:id/workspace | `{workspace}` 切换本会话工作目录（必须真实存在，下一条消息生效） |
 | POST | /sessions/:id/branch | `{entry_id}` 把 leaf 指回历史某条 |
 
 ## 对话

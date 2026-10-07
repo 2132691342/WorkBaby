@@ -52,6 +52,11 @@ type SetPermissionREQ struct {
 	Permission string `json:"permission"`
 }
 
+// SetWorkspaceREQ 切换工作目录入参。
+type SetWorkspaceREQ struct {
+	Workspace string `json:"workspace"`
+}
+
 // BranchREQ 从某条历史回溯入参。
 type BranchREQ struct {
 	EntryID string `json:"entry_id"`

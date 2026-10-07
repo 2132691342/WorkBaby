@@ -8,6 +8,7 @@ import type { AttachmentREQ } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import ContextMeter from './ContextMeter.vue'
 import SessionChips from './SessionChips.vue'
+import WorkspaceChip from './WorkspaceChip.vue'
 
 const props = defineProps<{
   running: boolean
@@ -344,6 +345,7 @@ defineExpose({ focus: () => ta.value?.focus() })
       </div>
 
       <div class="composer-bar">
+        <WorkspaceChip />
         <span v-if="!running" class="hint">Enter 发送 · Shift+Enter 换行</span>
         <SessionChips ref="chipsRef" />
         <ContextMeter

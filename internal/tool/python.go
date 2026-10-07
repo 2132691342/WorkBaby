@@ -77,6 +77,7 @@ func (t pythonTool) Execute(ctx context.Context, in Input) (*Result, error) {
 
 	start := time.Now()
 	cmd := exec.CommandContext(runCtx, exe, script)
+	hideConsole(cmd)
 	cmd.Dir = in.Workspace
 	cmd.Cancel = func() error { return killTree(cmd.Process.Pid) }
 	cmd.WaitDelay = 3 * time.Second

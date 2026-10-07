@@ -28,7 +28,7 @@
 | ID | oklog/ulid/v2 | 业务 ULID 带前缀 |
 | 加密 | AES-256-GCM（标准库） | Provider API Key |
 | 托盘 | getlantern/systray | 关闭到托盘 |
-| 内置运行时 | 仅 Python | `runtimes/python`，其余一律不内置 |
+| 内置运行时 | Python + PowerShell | `runtimes/`（LFS 随产物分发），其余一律不内置 |
 
 ### 1.1 依赖原则
 
@@ -59,7 +59,7 @@ WorkBaby/
 │   ├── tool/                     # ⑧ 工具系统（registry + files/exec/python/web/search + runtime）
 │   ├── skill/                    # ⑨ Skill（parser/registry/loader）
 │   ├── knowledge/                # ⑩ 知识库（loader/chunker/service + FTS5 检索）
-│   ├── runtime/                  # ⑪ 路径解析 + 内置 Python 运行时（tar.gz 解压）
+│   ├── runtime/                  # ⑪ 路径解析 + 内置 Python / PowerShell 运行时（tar.gz / zip 解压）
 │   ├── config/                   # ⑫ 配置（Viper YAML + MasterKey）
 │   ├── db/                       # ⑬ SQLite 打开 + 迁移 + FTS5 虚表
 │   ├── pkg/                      # ⑭ 叶子工具包（AppError/ID/日志/加密/httprules/fsutil）
@@ -415,6 +415,7 @@ const (
 | `knowledge/knowledge_test.go` | 建索引→检索（含短查询兜底）→删除级联 |
 | `config/config_test.go` | 首次启动自举出配置与主密钥，且重启读回同一把 |
 | `runtime/python_test.go` | 内置归档顶层剥离、解压穿越拒绝 |
+| `runtime/powershell_test.go` | 内置 PowerShell zip 平铺解压、LFS 指针跳过 |
 | `runtime/detect_test.go` | 运行时探测命中、归档缺失报错带路径 |
 | `llm/think_test.go` | 内联 think 标签分流：整段/多块/纯文本透传、流式切碎与逐字喂入 |
 | `llm/openai/stream_test.go` | usage 帧顺序、tool_call 单次下发、截断收尾、缓存计量 |

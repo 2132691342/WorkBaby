@@ -1139,6 +1139,20 @@ body {
   opacity: 0.45;
   cursor: not-allowed;
 }
+.chip.is-loading {
+  pointer-events: none;
+  cursor: progress;
+}
+.chip.is-loading::before {
+  content: '';
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--wb-radius-full);
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  animation: wb-ic-spin 0.8s linear infinite;
+}
 .chip.on,
 .chip.is-on {
   border: 2px solid var(--wb-primary);

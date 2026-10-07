@@ -68,6 +68,20 @@ function pick(t: (typeof templates)[number]) {
   modelFilter.value = ''
 }
 
+// 切接口类型时地址跟着换：同一家服务商的 openai 入口和 anthropic 入口不是一个路径，
+// 不联动的话用户会拿着 openai 地址打 anthropic 协议，必然 404。
+const API_URL_MAP: Record<string, Record<string, string>> = {
+  'https://api.deepseek.com/v1': { anthropic: 'https://api.deepseek.com/anthropic' },
+  'https://api.deepseek.com/anthropic': { openai: 'https://api.deepseek.com/v1' },
+}
+watch(
+  () => form.api,
+  (next) => {
+    const mapped = API_URL_MAP[form.base_url.trim().replace(/\/+$/, '')]?.[next]
+    if (mapped) form.base_url = mapped
+  },
+)
+
 function edit(id: string) {
   const p = store.providers.find((x) => x.id === id)
   if (!p) return
@@ -114,6 +128,38 @@ async function pullModels() {
     toast.bad(`拉取模型列表失败：${(e as Error)?.message || '请重试'}`)
   } finally {
     pulling.value = false
+  }
+}
+
+// 新服务商还没落库：先把服务商存了拿到 id，再存模型参数——参数必须有地方挂
+async function ensureProviderSaved(): Promise<string | null> {
+  if (form.id) return form.id
+  if (!form.name || !chosen.value.length) {
+    toast.bad('先填名称并至少选一个模型，才能保存模型参数')
+    return null
+  }
+  busy.value = true
+  try {
+    await api.providers.upsert({
+      name: form.name,
+      api: form.api,
+      base_url: form.base_url,
+      api_key: form.key || undefined,
+      models: chosen.value,
+    })
+    await store.loadProviders()
+    const saved = store.providers.find((x) => x.name === form.name)
+    if (!saved) {
+      toast.bad('保存成功但没找到新服务商，请重试')
+      return null
+    }
+    form.id = saved.id
+    return saved.id
+  } catch (e) {
+    toast.bad(`先保存服务商失败：${(e as Error)?.message || '请检查名称、地址与密钥'}`)
+    return null
+  } finally {
+    busy.value = false
   }
 }
 
@@ -174,10 +220,12 @@ watch([cfgOpen, chosen], () => {
 async function saveCfg(m: string) {
   const row = cfgRows.value[m]
   if (!row) return
+  const pid = await ensureProviderSaved()
+  if (!pid) return
   row.saving = true
   try {
     const vo = await api.models.saveConfig({
-      provider_id: form.id,
+      provider_id: pid,
       model: m,
       context_window: Math.max(0, Math.round(Number(row.context_window) || 0)),
       max_output: row.max_output,

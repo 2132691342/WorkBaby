@@ -161,6 +161,18 @@ func (s *SessionService) SetPermission(id, perm string) error {
 	return s.env.Repo.UpdateSessionColumns(id, map[string]any{"permission": perm})
 }
 
+// SetWorkspace 切换会话工作目录：下一条消息起，读写与命令都在新目录里跑。
+// 目录必须真实存在——对话框给的一定在，但接口直调不一定。
+func (s *SessionService) SetWorkspace(id, workspace string) error {
+	if workspace == "" {
+		return pkg.New(1002, "工作目录不能为空", "")
+	}
+	if !pkg.DirExists(workspace) {
+		return pkg.New(1003, "这个目录不存在", workspace)
+	}
+	return s.env.Repo.UpdateSessionColumns(id, map[string]any{"workspace": workspace})
+}
+
 // Branch 从某条历史回溯：只把 leaf 指针移过去，老分支仍留在树里。
 func (s *SessionService) Branch(id, entryID string) error {
 	entries, err := s.env.Repo.ListEntries(id)

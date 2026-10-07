@@ -186,6 +186,10 @@ export function SetSessionPermission(arg1) {
   return window['go']['main']['App']['SetSessionPermission'](arg1);
 }
 
+export function SetSessionWorkspace(arg1) {
+  return window['go']['main']['App']['SetSessionWorkspace'](arg1);
+}
+
 export function SetSetting(arg1) {
   return window['go']['main']['App']['SetSetting'](arg1);
 }

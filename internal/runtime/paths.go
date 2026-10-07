@@ -10,15 +10,16 @@ import (
 
 // Paths 是全部落盘位置的唯一解析结果。
 type Paths struct {
-	DataDir    string
-	DBPath     string
-	LogDir     string
-	TmpDir     string
-	RuntimeDir string
-	PythonDir  string
-	SkillsDir  string
-	ConfigFile string
-	ModelFile  string
+	DataDir       string
+	DBPath        string
+	LogDir        string
+	TmpDir        string
+	RuntimeDir    string
+	PythonDir     string
+	PowerShellDir string
+	SkillsDir     string
+	ConfigFile    string
+	ModelFile     string
 }
 
 // Resolve 定位数据根并展开全部子路径。WORKBABY_HOME 优先，便于便携版与测试隔离。
@@ -36,15 +37,16 @@ func Resolve() (Paths, error) {
 		return Paths{}, pkg.Wrap(1001, "解析数据目录失败", err)
 	}
 	p := Paths{
-		DataDir:    root,
-		DBPath:     filepath.Join(root, "workbaby.db"),
-		LogDir:     filepath.Join(root, "logs"),
-		TmpDir:     filepath.Join(root, "tmp"),
-		RuntimeDir: filepath.Join(root, "runtime"),
-		PythonDir:  filepath.Join(root, "runtime", "python"),
-		SkillsDir:  filepath.Join(root, "skills"),
-		ConfigFile: filepath.Join(root, "config.yaml"),
-		ModelFile:  filepath.Join(root, "model.json"),
+		DataDir:       root,
+		DBPath:        filepath.Join(root, "workbaby.db"),
+		LogDir:        filepath.Join(root, "logs"),
+		TmpDir:        filepath.Join(root, "tmp"),
+		RuntimeDir:    filepath.Join(root, "runtime"),
+		PythonDir:     filepath.Join(root, "runtime", "python"),
+		PowerShellDir: filepath.Join(root, "runtime", "powershell"),
+		SkillsDir:     filepath.Join(root, "skills"),
+		ConfigFile:    filepath.Join(root, "config.yaml"),
+		ModelFile:     filepath.Join(root, "model.json"),
 	}
 	for _, dir := range []string{p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir, p.SkillsDir} {
 		if err := pkg.EnsureDir(dir); err != nil {
