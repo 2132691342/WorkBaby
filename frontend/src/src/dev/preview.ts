@@ -1,14 +1,10 @@
-// 开发态预览：让 `npm run dev` 在普通浏览器里就能看到真实界面。
-//
-// 桌面端跑的是 Wails 宿主，界面却完全由 HTTP + 事件驱动，所以只要把
-// window.runtime / window.go / axios 适配器换成假实现，浏览器里看到的就是成品。
-// 目的只有一个：改视觉时能当场看到效果，不用每次都 wails build 再开窗。
-//
-// 生产构建下 import.meta.env.DEV 为 false，整个函数体被摇掉，不进包。
+// 开发态预览：把 window.runtime / axios 换成假实现，`npm run dev` 就能在
+// 普通浏览器里看到成品界面，改视觉不必每次 wails build 开窗。
+// 生产构建下 import.meta.env.DEV 为 false，整段被摇掉，不进包。
 import http from '../api/http'
 import * as fx from './fixtures'
 
-type Handler = (body: unknown, query: URLSearchParams) => unknown
+type Handler = (body: unknown, query: URLSearchParams, method: string) => unknown
 
 const now = Date.now()
 
@@ -32,8 +28,22 @@ function newID(prefix: string) {
 
 const routes: Array<[string, Handler]> = [
   ['/bootstrap', () => fx.boot],
-  ['/sessions', () => state.sessions],
-  ['/chat/send', () => ({ run_id: 'RUN_1', entry_id: 'ENTRY_1', session_id: state.sessions[0].id })],
+  // 空态预览（?empty=1）：列表为空且拒绝创建，界面才会停在欢迎页；
+  // 非 POST 的 /sessions 也可能带尾部动作（delete/rename 等），那些走后面的兜底。
+  [
+    '/sessions',
+    (_body, _q, method) => {
+      if (state.empty) return method === 'POST' ? null : []
+      if (method === 'POST') {
+        // 以夹具会话为模板补齐必填字段，预览里点「新对话」能得到完整的一条
+        const s = { ...fx.sessions[0], id: newID('SESSION'), title: '新对话' }
+        state.sessions = [s, ...state.sessions]
+        return s
+      }
+      return state.sessions
+    },
+  ],
+  ['/chat/send', () => ({ run_id: 'RUN_1', entry_id: 'ENTRY_1', session_id: state.sessions[0]?.id || '' })],
   ['/chat/stop', () => true],
   ['/chat/steer', () => true],
   ['/stats', () => (state.empty ? fx.emptyStats : fx.stats(14))],
@@ -50,9 +60,9 @@ const routes: Array<[string, Handler]> = [
   ],
 ]
 
-function route(path: string, body: unknown, query: URLSearchParams): unknown {
+function route(path: string, body: unknown, query: URLSearchParams, method = 'GET'): unknown {
   const hit = routes.find(([pattern]) => pattern === path)
-  if (hit) return hit[1](body, query)
+  if (hit) return hit[1](body, query, method)
 
   // 会话详情：返回 fixtures 里的消息历史（含工具调用与思考块），预览时能看到完整界面
   if (/^\/sessions\/[^/]+$/.test(path)) {
@@ -193,7 +203,7 @@ export function installPreview() {
       }
     }
     return {
-      data: json(route(url.pathname, body, url.searchParams)),
+      data: json(route(url.pathname, body, url.searchParams, (cfg.method || 'GET').toUpperCase())),
       status: 200,
       statusText: 'OK',
       headers: {},

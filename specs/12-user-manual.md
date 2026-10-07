@@ -33,7 +33,7 @@
 
 ## 知识库
 
-设置 → 知识库 → 添加文档（支持 md / txt / pdf / docx / xlsx / html / csv），
+设置 → 知识库 → 添加文档（支持 md / txt / pdf / docx / xlsx / html / csv / log / json / yml），
 可以一次框选多个文件。之后问「根据我给的资料……」它就会去查。
 
 ## 技能

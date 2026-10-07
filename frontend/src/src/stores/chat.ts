@@ -176,8 +176,7 @@ export const useChatStore = defineStore('chat', () => {
         contextRatio.value = Math.min(100, Math.round((data.usage.context / contextWindow.value) * 100))
       }
     }
-    // 收尾后必须清掉运行态记录：历史消息里已经有这些工具了，
-    // 不清就会同一次调用渲染两遍（截图里那条「1s 0s」就是两份叠在一起）。
+    // 收尾后清掉运行态记录：历史消息里已经有这些工具了，不清会渲染两遍。
     runs.value = []
     thinking.value = ''
     streaming.value = ''

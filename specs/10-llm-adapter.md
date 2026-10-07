@@ -55,3 +55,10 @@ factory.HasOverride(api) bool // 服务层放行测试型 api 名
 - API Key AES-256-GCM 加密落库，出参只给 `has_key`
 - 连通测试发一条 1 token 的最小请求，成功返回实际模型名
 - 模型列表：openai 兼容 `/models`；anthropic `/v1/models`；ollama `/api/tags`
+
+## 取舍
+
+三家协议各自独立实现而不是统一中间层：归一化只发生在 `llm.go` 的事件出口，
+协议 DTO 忠实上游字段名。统一抽象层省下的代码量，抵不上调试「归一化层
+吃掉了某家特有字段」的时间。重试只在「一个字都没产出」时进行——
+重复发送半截正文比失败本身更糟。

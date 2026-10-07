@@ -1,4 +1,4 @@
-# 14 · 用量与上下文水位
+| `totals` | 总量卡片：输入 / 输出 / 总 token / 缓存命中与命中率 / 平均与峰值上下文 / 调用次数 / 会话数 / 平均耗时 |# 14 · 用量与上下文水位
 
 ## 定位
 
@@ -14,11 +14,12 @@
 所以报的是真正要发出去的数字）：
 
 ```go
-Event{Kind: EventContext, TokensUsed, TokensWindow, Messages}
+Event{Kind: EventContext, TokensUsed, TokensWindow, TokensKnown, TokensReserve, Messages}
 ```
 
 - `TokensUsed` = `EstimateTokens(system, msgs)`，与压缩用的是同一个估算口径
-- `TokensWindow` 来自 `Config.Budget.Window`，认不出模型名时是 128000 缺省
+- `TokensWindow` 来自能力目录，可被模型级配置与全局 `context_window` 设置覆写；
+  `TokensKnown=false` 表示窗口是估算值，界面显示「未知」而不是假装准确
 - 服务层换算成 `ratio`（0-100 整数）再推给前端，前端不必自己算
 
 ### 为什么每轮都发
@@ -30,14 +31,14 @@ Event{Kind: EventContext, TokensUsed, TokensWindow, Messages}
 
 - 平时低透明度，移进输入框或水位 ≥80% 时才显眼
 - ≥80% 转警告色，接近满转危险色
-- `window` 认不出来时显示「—」而不是拿缺省值假装准确
+- 窗口为估算值（`known=false`）时显示「窗口未知」，不拿缺省值假装准确
 
 ## 用量统计
 
 ### 数据来源
 
-`token_usages` 表，每次 LLM 调用一行（`provider` / `model` / `input` /
-`output` / `total` / `latency_ms` / `created_at`）。会话表上另有 `total_tokens`
+`token_usages` 表，每次 LLM 调用一行（`session_id` / `entry_id` / `provider` / `model` /
+`input` / `output` / `cached` / `total` / `context` / `latency_ms` / `created_at`）。会话表上另有 `total_tokens`
 冗余计数，删除会话时级联清理。
 
 ### 接口

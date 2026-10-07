@@ -32,7 +32,7 @@ function onListClick(e: MouseEvent) {
         <small>{{ settings.boot?.version || '' }}</small>
       </div>
     </div>
-    <button class="btn btn-primary side-btn" type="button" @click="emit('newSession')">
+    <button class="btn btn-lav side-btn" type="button" @click="emit('newSession')">
       <AppIcon name="plus" /> 新对话
     </button>
     <div class="sess" @click.capture="onListClick">

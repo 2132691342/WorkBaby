@@ -10,7 +10,7 @@ SQLite 里只有两张核心表撑起全部状态：`sessions` + `entries`。
 | 表 | 关键列 |
 |---|---|
 | sessions | id, title, workspace, provider_id, model, permission, leaf_entry_id, message_count, total_tokens, created_at, updated_at |
-| entries | id, session_id, parent_id, seq, role, type, payload_json, created_at |
+| entries | id, session_id, parent_id, seq, role, type, payload_json, usage_json, created_at |
 | approvals | id, session_id, tool_call_id, tool, label, args_json, risk, reason, status, created_at, decided_at |
 | providers | id, name, api, base_url, api_key_enc, models(JSON), is_default, created_at, updated_at |
 | model_configs | 模型级能力配置（thinking / 识图 / 窗口等），provider_id + model 定位 |
@@ -36,7 +36,7 @@ SQLite 里只有两张核心表撑起全部状态：`sessions` + `entries`。
 
 ## 链还原
 
-`service.SessionService.buildChain(entries, leafID)`：从 leaf 沿 `parent_id`
+包级函数 `buildChain(entries, leafID)`：从 leaf 沿 `parent_id`
 回溯到根，反转即当前上下文。放在 service 层而不是 repo 层——
 repo 只管存取，「怎么拼成上下文」是业务语义。
 
@@ -62,3 +62,9 @@ send → runID → 内核循环 → done
 ```
 
 一个会话同时只允许一个 run（`ErrSessionBusy`）。
+
+## 取舍
+
+消息树存 parent_id 而不是线性列表：`/clear` 与「回到开头」只是把叶子指针
+挪回第一条，历史零拷贝保留。代价是每次追加都要读一次 leaf 指针，
+量级是单行查询，可忽略。

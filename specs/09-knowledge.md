@@ -20,7 +20,8 @@
 | .pdf | 逐页取文本 |
 | .docx | document.xml 去标签 |
 | .xlsx | sharedStrings + sheet 单元格逐行 |
-| .html | 去标签转纯文本 |
+| .html/.htm | 去标签转纯文本 |
+| .log / .json / .yml/.yaml | 原文 |
 | .csv | 按行 |
 
 ## 切分

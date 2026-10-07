@@ -45,7 +45,7 @@ type ToggleToolREQ struct {
 }
 
 // RuntimeInfoVO 运行时状态出参：Python 是否就绪 + 失败原因。
-// 曾经这里只有「可用 / 不可用」两个值，用户看到不可用却不知道该做什么。
+// 必须是「原因」而不只是「可用 / 不可用」：用户看到不可用时要能知道下一步做什么。
 type RuntimeInfoVO struct {
 	PythonExe     string `json:"python_exe"`
 	PythonSource  string `json:"python_source"`

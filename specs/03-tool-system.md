@@ -91,7 +91,8 @@ Gate → 落 approvals 行 → 推 chat:approval → 等用户决策
 | `knowledge_search` | 搜索知识库 | parallel | 否 | 私有资料检索，由 service 装配时注入（见 spec 09） |
 
 前 10 个在 `tool.RegisterBuiltins` 注册；`knowledge_search` 依赖 knowledge 服务，
-由 `service.New` 在装配期注册，**除此之外任何地方不得注册工具**。
+由 `service/container.go` 的 `Container.New` 在装配期注册，
+**除此之外任何地方不得注册工具**。
 
 ## 约束
 

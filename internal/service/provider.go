@@ -364,9 +364,8 @@ func (p *ProviderService) pick(providerID string) (*domain.ProviderDO, error) {
 }
 
 // build 解密密钥并构造适配器；模型缺省取该服务已知的第一个。
-// 会话指定的模型必须在该服务已配置的模型列表里：默认模型可能因为
-// 服务编辑后列表变化而指向一个上游不存在的名字（典型症状是上游报
-// model not found），在本地拦截并说清楚，比转述上游的原始 JSON 有用得多。
+// 会话指定的模型必须在该服务已配置的列表里，否则本地直接报错——
+// 比把上游的 model not found 原始 JSON 转述给用户有用得多。
 func (p *ProviderService) build(d *domain.ProviderDO, model string) (llm.Streamer, string, error) {
 	key, err := p.keyOf(d)
 	if err != nil {

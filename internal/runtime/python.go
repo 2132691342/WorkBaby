@@ -130,8 +130,6 @@ func EnsurePython(p Paths) (string, error) {
 
 // ArchivePath 定位随包分发的运行时压缩包。
 // 按序探测：exe 同级（打包版）→ exe 上两级（仓库内直接跑）→ 兜底同级。
-// 只认 exe 旁边一个位置时，开发模式与 wails dev 下必然找不到归档，
-// 表现为日志永远说「没有可用的 Python」，而文件其实就在仓库里。
 func ArchivePath(p Paths) string {
 	name := "python-" + pythonVersion + "-win-x64.tar.gz"
 	exe, err := os.Executable()

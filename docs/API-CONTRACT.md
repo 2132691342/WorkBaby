@@ -36,7 +36,8 @@
 | POST | /chat/steer | `{session_id, content}` 插话：轮间注入，立刻生效 |
 | POST | /chat/followup | `{session_id, content}` 排队：与插话同队列，轮间注入 |
 
-`attachments` 是 `@` 引用文件：`[{path, name}]`，`path` 必须是**相对工作目录**的路径。
+`attachments` 是 `@` 引用文件：`[{path, name}]`，`path` 相对路径按工作目录解析，
+绝对路径必须落在工作目录内（越界拒绝，1004）。
 后端现读文件正文拼到用户消息最前面（上限 5 个文件 / 每个 64KB），
 读不到会在正文里写明「读不到」而不是静默跳过。
 
@@ -143,10 +144,11 @@ top_p（缺省 0.75）、最大输出，以及识图 / 工具调用两项能力�
 ```jsonc
 {
   "days": 14,
-  "totals": { "input": 0, "output": 0, "total": 0, "calls": 0,
-              "sessions": 0, "latency_ms": 0, "avg_latency_ms": 0 },
-  "daily":    [{ "date": "2026-09-28", "input": 0, "output": 0, "total": 0 }],
-  "models":   [{ "model": "deepseek-chat", "total": 0, "calls": 0 }],
+  "totals": { "input": 0, "output": 0, "cached": 0, "total": 0, "calls": 0, "sessions": 0,
+              "latency_ms": 0, "avg_latency_ms": 0, "cache_hit_rate": 0,
+              "avg_context": 0, "peak_context": 0 },
+  "daily":    [{ "date": "2026-09-28", "input": 0, "output": 0, "cached": 0, "total": 0 }],
+  "models":   [{ "model": "deepseek-chat", "input": 0, "output": 0, "cached": 0, "total": 0, "calls": 0 }],
   "sessions": [{ "session_id": "SESSION_…", "title": "…", "total": 0 }]
 }
 ```
@@ -165,6 +167,7 @@ top_p（缺省 0.75）、最大输出，以及识图 / 工具调用两项能力�
 | chat:tool_end | `{tool_call_id, ok, title, output, duration_ms}` |
 | chat:approval | `{approval_id, tool_call_id, tool, label, args, risk, reason}` |
 | chat:compressed | `{tokens_before, tokens_after}` |
+| chat:user | `{entry_id, content}`：插话 / 排队消息已注入上下文并落库，界面据此把它补进时间线（空闲时直接落库也发本事件） |
 | chat:context | `{used, window, ratio, known, reserve?}`：每轮广播一次上下文占用，`ratio` 是 0-100 整数，`known=false` 表示窗口是缺省估算值，界面须显示「未知」而不是具体数字 |
 | chat:done | `{entry_id, stop_reason, usage?}` |
 | chat:stopped | `{reason}`：用户点了停止。单独发是因为停止可能来自托盘或快捷键，由后端广播一次权威信号，界面不会停在「后端已停、还在转圈」的状态 |
@@ -176,13 +179,13 @@ top_p（缺省 0.75）、最大输出，以及识图 / 工具调用两项能力�
 四条规则，前端必须照做：
 
 1. **重连带 `Last-Event-ID`**：浏览器 `EventSource` 自动带，服务端补发 `seq` 之后的事件
-2. **慢客户端直接断连**：缓冲（256 条）写满即断开连接，
-   宁可让前端重连补齐，也不拖慢内核。断的是连接不是会话
+2. **慢客户端先挤 delta**：缓冲（256 条）写满时先挤掉积压的 delta 保住关键事件，
+   仍满才断开连接——宁可让前端重连补齐，也不拖慢内核。断的是连接不是会话
 3. **`chat:gap` 意味着有洞**：立刻 `GET /sessions/:id` 拉权威快照重建消息流，
    之后的事件继续正常应用
-4. **订阅必须在握手之后建立**：端口是异步注入的，握手完成前 `getBaseURL()` 为空串。
-   此时直接放弃订阅，事件流就永远建不起来，表现为「发消息一直转圈、没有回复」，
-   且界面上没有任何错误——因为连接压根没发起。前端须在握手就绪后补订阅，断线也要自建重连
+4. **订阅必须在握手之后建立**：端口是异步注入的，握手完成前 `getBaseURL()` 为空串，
+   此时订阅会静默失败（EventSource 压根没建起来）。前端须在握手就绪后补订阅，
+   断线也要自建重连（EventSource 自带重连不带会话维度语义）
 
 正常路径下前端在 `chat:done` 后也会拉一次权威快照——
 **前端不做增量合并**，服务端是唯一真相。

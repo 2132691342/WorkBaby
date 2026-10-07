@@ -34,14 +34,16 @@ msgs → CleanForProtocol → 估算 token → 超预算？
 ### Budget（阈值来自 service 层）
 
 ```go
-type Budget struct{ Window, Reserve, Keep int }
+type Budget struct{ Window, WindowKnown, Reserve, Keep, SystemTokens }
 ```
 
 | 字段 | 缺省 | 含义 |
 |---|---|---|
-| Window | 128000 | 模型上下文窗口，按模型名粗判，认不出用缺省 |
+| Window | 128000 | 模型上下文窗口：来自内置能力目录，可被模型级配置与全局 `context_window` 设置覆写 |
+| WindowKnown | — | 窗口是否为确切值；false 时前端显示「未知」 |
 | Reserve | 16384 | 给模型输出留的余量，可由设置项覆盖 |
 | Keep | 20000 | 裁剪后保留的近期 token 预算 |
+| SystemTokens | 估算 | system 提示词的 token 估算，判断是否超预算必须算上它 |
 
 可用预算 = `Window - Reserve`；窗口比余量还小时退化为 `Window / 2`。
 
@@ -56,11 +58,11 @@ type Budget struct{ Window, Reserve, Keep int }
 ### Compact（内核入口）
 
 ```go
-func Compact(msgs []llm.Message, b Budget) ([]llm.Message, int, int)
+func Compact(msgs []llm.Message, b Budget) (out []llm.Message, after int)
 ```
 
-返回裁剪后的消息、裁剪前 token、裁剪后 token。**只有真的裁掉东西才发
-`compressed` 事件**——每次都发会让前端不停闪「上下文已整理」。
+返回裁剪后的消息与裁剪后 token（裁剪前由调用方按消息条数对比得出）。
+**只有真的裁掉东西才发 `compressed` 事件**——每次都发会让前端不停闪「上下文已整理」。
 
 ## 契约
 
@@ -69,7 +71,7 @@ func CleanForProtocol(msgs []llm.Message) []llm.Message
 func EstimateTokens(system string, msgs []llm.Message) int
 func FindCutPoint(msgs []llm.Message, keepTokens int) int
 func TruncateDeterministic(msgs []llm.Message, keep int) []llm.Message
-func Compact(msgs []llm.Message, b Budget) (out []llm.Message, before, after int)
+func Compact(msgs []llm.Message, b Budget) (out []llm.Message, after int)
 ```
 
 ## 取舍
@@ -77,6 +79,8 @@ func Compact(msgs []llm.Message, b Budget) (out []llm.Message, before, after int
 不落库压缩记录。数据库永远存完整历史，压缩只发生在「发给模型的那一刻」——
 重开会话会重新裁一次，结果完全一致。会话详情因此永远是完整的，
 不会出现「上周的对话从中间开始」这种让新手困惑的界面。
+代价是超长会话每次发送都要重算一遍 token 估算，好在这是纯内存计算，
+几十轮量级的会话耗时可以忽略。
 
 ## 测试
 
@@ -84,7 +88,5 @@ func Compact(msgs []llm.Message, b Budget) (out []llm.Message, before, after int
 
 | 测试 | 锁住的行为 |
 |---|---|
-| `TestCleanForProtocolHardConstraints` | 剔除空 assistant 与孤儿结果；补齐未配对调用 |
-| `TestFindCutPointPrefersUserBoundary` | 切点只落在 user 边界 |
-| `TestTruncateDeterministicKeepsRecentTurns` | 降级截断保留完整 turn |
-| `TestCompactBudgetPolicy` | 未超预算不动；切点不足原样返回 |
+| `TestCompactProtocol` | 清洗硬约束（剔除空 assistant / 孤儿结果、补齐未配对调用）；压缩永不孤儿化工具结果；整轮丢弃；预算策略；降级截断 |
+| `TestLoopCompactsHistoryOverBudget` | 循环内真实裁剪：超预算才动手，裁后从 user 起头 |

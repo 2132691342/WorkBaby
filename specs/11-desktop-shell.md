@@ -16,7 +16,7 @@ Wails 只负责「窗口 + 系统能力」，业务全部走内嵌 gin。
 Wails 把 `OnStartup` 放在**独立 goroutine** 里跑，`OnDomReady` 由 WebView2 的
 导航回调触发。首次启动要解压内置 Python（约两秒），`domReady` 必然先到。
 
-因此**不能**用「`Svc` 是不是 nil」判断启动失败——那是靠猜，慢启动必然被误判。
+因此**不能**用「`Svc` 是不是 nil」判断启动失败——慢启动会被误判成失败。
 正确做法是显式握手：
 
 ```
@@ -28,7 +28,7 @@ domReady: <-startDone（上限 45s）→ 按 startOK 决定起服务还是报启
 
 Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return。
 所以「永远拦截」等于「退出按钮无效」：窗口没了、托盘没了，进程还活着，
-还占着 exe —— 表现是下一个版本安装器覆写失败。
+还占着 exe，用户只能去任务管理器结束它。
 
 | 入口 | 标志位 | `OnBeforeClose` | 结果 |
 |---|---|---|---|

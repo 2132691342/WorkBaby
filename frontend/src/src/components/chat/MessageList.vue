@@ -180,9 +180,10 @@ onMounted(async () => {
         <div class="msg-a">
           <div class="avatar is-live"><span>WB</span></div>
           <div class="msg-a-body">
-            <!-- 思考：流式期间默认展开，可手动收起 -->
+            <!-- 思考：流式期间默认展开，可手动收起；呼吸点标记「还在想」 -->
             <div v-if="chat.thinking" class="think is-live">
               <button class="think-hd" type="button" @click="liveThinkOpen = !liveThinkOpen">
+                <span class="think-dot" aria-hidden="true" />
                 <AppIcon name="brain" size="ic-xs" />
                 <span>正在思考</span>
                 <span class="think-hint">{{ chat.thinking.length }} 字</span>
@@ -276,6 +277,28 @@ onMounted(async () => {
 }
 .think-hd .chev {
   margin-left: auto;
+}
+/* 呼吸点：正文开始前唯一需要盯着的信号，比图标更早被余光捕捉 */
+.think-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wb-live);
+  animation: think-pulse 1.2s var(--wb-ease) infinite;
+}
+@keyframes think-pulse {
+  50% {
+    opacity: 0.25;
+    transform: scale(0.75);
+  }
+}
+.wb-think-body {
+  animation: think-fade var(--wb-dur) var(--wb-ease);
+}
+@keyframes think-fade {
+  from {
+    opacity: 0;
+  }
 }
 .think-hint {
   font-variant-numeric: tabular-nums;

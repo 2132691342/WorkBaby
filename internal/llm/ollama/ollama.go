@@ -126,6 +126,9 @@ func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
 	usage := &llm.Usage{}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	// 工具调用序号跨 chunk 累计：按当前 chunk 的列表长度取号，
+	// 调用分多个 chunk 下发时会生成重复 ID，声明与结果就配对错乱了。
+	callSeq := 0
 	for scanner.Scan() {
 		feed.Ping()
 		if ctx.Err() != nil && !feed.TimedOut() {
@@ -152,7 +155,8 @@ func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
 			feed.Send(llm.Event{Type: llm.EventDelta, Delta: ck.Message.Content})
 		}
 		for i, tc := range ck.Message.ToolCalls {
-			id := "call_" + itoa(len(ck.Message.ToolCalls)) + "_" + itoa(i)
+			id := "call_" + itoa(callSeq) + "_" + itoa(i)
+			callSeq++
 			feed.Send(llm.Event{Type: llm.EventToolCall, ToolCall: &llm.ToolCall{
 				ID: id, Name: tc.Function.Name, Args: tc.Function.Arguments,
 			}})

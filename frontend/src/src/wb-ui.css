@@ -125,7 +125,7 @@ body {
 }
 .h-xl {
   font-family: var(--font-display);
-  font-size: 21px;
+  font-size: var(--wb-fs-xl);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.4;
@@ -259,7 +259,7 @@ body {
   background: var(--wb-raise);
   border: 1px solid var(--wb-line);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-ink-2);
   max-width: 260px;
 }
@@ -275,7 +275,9 @@ body {
   justify-content: center;
   border-radius: var(--wb-radius-sm);
   color: var(--wb-muted);
-  transition: background var(--wb-dur-fast) var(--wb-ease), color var(--wb-dur-fast) var(--wb-ease);
+  cursor: pointer;
+  transition: background var(--wb-dur-fast) var(--wb-ease), color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 .titlebar .tb-act:hover {
   background: var(--wb-tint);
@@ -284,6 +286,22 @@ body {
 .titlebar .tb-act svg {
   width: 14px;
   height: 14px;
+}
+/* 主题快切药丸（案例的太阳 / 月亮控件）：白底容器 + 选中片 */
+.titlebar .tb-themes {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line-2);
+}
+.titlebar .tb-themes .tb-act.on {
+  background: var(--wb-tint-lg);
+  color: var(--wb-primary);
+}
+.titlebar .tb-themes .tb-act:active {
+  transform: scale(0.92);
 }
 .winctl {
   display: flex;
@@ -389,7 +407,7 @@ body {
   padding: 0 var(--wb-sp-2);
   margin-bottom: 2px;
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
   font-weight: 600;
   letter-spacing: var(--wb-ls-plate);
   text-transform: uppercase;
@@ -429,7 +447,7 @@ body {
 .nav-item .cnt {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
 }
 
@@ -497,7 +515,7 @@ body {
 .rail-kbd {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
   opacity: 0.8;
 }
@@ -777,7 +795,7 @@ body {
   padding: 0 var(--wb-sp-4);
   border-radius: var(--wb-radius-full);
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size: var(--wb-fs-md);
   font-weight: 500;
   color: var(--wb-ink);
   white-space: nowrap;
@@ -823,6 +841,22 @@ body {
 }
 .btn-primary:active:not(:disabled) {
   background: color-mix(in srgb, var(--wb-primary-deep) 78%, var(--wb-ink));
+}
+/* 薰衣草主 CTA（案例「注册」钮）：浅紫实底 + 深字，与实底主按钮构成两档强调。
+   悬停向主色加深一档、按下再深一档，缩放动效继承 .btn 的五态体系。 */
+.btn-lav {
+  border-color: transparent;
+  background: var(--wb-lav-cta);
+  color: var(--wb-on-lav);
+  font-weight: 600;
+  box-shadow: var(--wb-btn-shadow);
+}
+.btn-lav:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--wb-lav-cta) 80%, var(--wb-primary));
+  color: var(--wb-on-lav);
+}
+.btn-lav:active:not(:disabled) {
+  background: color-mix(in srgb, var(--wb-lav-cta) 62%, var(--wb-primary));
 }
 .btn-outline {
   border-color: var(--wb-line-2);
@@ -874,10 +908,10 @@ body {
 .btn-lg {
   height: var(--wb-ctl-h-lg);
   padding: 0 var(--wb-sp-5);
-  font-size: 13.5px;
+  font-size: var(--wb-fs-md);
 }
 .btn-sm {
-  height: 28px;
+  height: var(--wb-ctl-h-sm);
   padding: 0 var(--wb-sp-3);
   font-size: var(--wb-fs-sm);
 }
@@ -1019,7 +1053,7 @@ body {
 .badge .mono,
 .tag .mono {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
 }
 .b-primary {
   background: var(--wb-primary-soft);
@@ -1210,7 +1244,7 @@ body {
   border: 1.5px solid var(--wb-line-2);
   border-radius: var(--wb-radius-full);
   background: transparent;
-  font-size: 11.5px;
+  font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
   cursor: pointer;
 }
@@ -1690,7 +1724,7 @@ select.input.narrow {
 }
 .preset .p-url {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
 }
 /* 空态建议卡：整卡可点，悬浮只给中性底与描边（彩色描边会把「可点」误读成「已选中」）。
    注意不要用 .card-pop —— 那是弹层类（position:absolute），会把网格卡片叠成一坨。 */
@@ -1954,7 +1988,7 @@ select.input.narrow {
   height: 13px;
 }
 .step h5 {
-  font-size: 11.5px;
+  font-size: var(--wb-fs-xs);
   font-weight: 600;
   margin-bottom: 1px;
 }
@@ -2061,7 +2095,7 @@ select.input.narrow {
   display: grid;
   place-items: center;
   font-family: var(--font-display);
-  font-size: 8px;
+  font-size: var(--wb-fs-2xs);
   font-weight: 700;
   font-style: normal;
   color: var(--wb-primary);
@@ -2243,7 +2277,7 @@ select.input.narrow {
 }
 .pop-row .pr-t {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--wb-fs-sm);
   color: var(--wb-ink);
 }
 .pop-row .pr-d {
@@ -2293,7 +2327,7 @@ select.input.narrow {
 .menu-label {
   padding: 6px var(--wb-sp-2) 3px;
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
   font-weight: 600;
   letter-spacing: var(--wb-ls-plate);
   text-transform: uppercase;
@@ -2304,7 +2338,6 @@ select.input.narrow {
   inset: 0;
   z-index: var(--wb-z-modal);
   background: color-mix(in srgb, var(--wb-bg) 62%, transparent);
-  backdrop-filter: blur(2px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -2628,7 +2661,7 @@ select.input.narrow {
   border: 1px solid var(--wb-line-2);
   background: var(--wb-raise);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--wb-fs-xs);
   color: var(--wb-ink-2);
   cursor: pointer;
 }
@@ -2756,7 +2789,7 @@ select.input.narrow {
   background: var(--wb-primary-soft);
   color: var(--wb-primary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--wb-fs-sm);
 }
 /* 发送时间：贴气泡右下，弱化到不与正文争视线 */
 .msg-t {
@@ -2856,7 +2889,7 @@ select.input.narrow {
   background: var(--wb-raise);
   border: 1px solid var(--wb-line);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--wb-fs-sm);
 }
 .prose ul,
 .bubble ul {
@@ -2996,7 +3029,7 @@ select.input.narrow {
   border-left: 2px solid var(--wb-primary-line);
   padding: 2px var(--wb-sp-3);
   color: var(--wb-muted);
-  font-size: 12.5px;
+  font-size: var(--wb-fs-ctl);
   line-height: var(--wb-lh-base);
   white-space: pre-wrap;
   background: transparent;
@@ -3077,13 +3110,13 @@ select.input.narrow {
 }
 .tl-head .tl-name {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--wb-fs-sm);
   font-weight: 600;
   color: var(--wb-ink);
 }
 .tl-head .tl-args {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3093,7 +3126,7 @@ select.input.narrow {
 .tl-head .tl-time {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
   flex: none;
 }
@@ -3184,7 +3217,7 @@ select.input.narrow {
   font-variant-numeric: tabular-nums;
 }
 .tl-hd .rcpt {
-  font-size: 11px;
+  font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
   font-weight: 400;
   white-space: nowrap;
@@ -3196,7 +3229,7 @@ select.input.narrow {
   margin-left: 0;
 }
 .tl-hd button {
-  font-size: 11px;
+  font-size: var(--wb-fs-xs);
   color: var(--wb-primary);
   font-weight: 500;
 }
@@ -3238,13 +3271,13 @@ select.input.narrow {
 }
 .tool-hd .nm {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--wb-fs-sm);
   font-weight: 600;
   color: var(--wb-ink);
 }
 .tool-hd .arg {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3254,7 +3287,7 @@ select.input.narrow {
 }
 .tool-hd .ms {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
   font-variant-numeric: tabular-nums;
   flex: none;
@@ -3278,7 +3311,7 @@ select.input.narrow {
 }
 .tool-bd .lb {
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
   font-weight: 600;
   letter-spacing: var(--wb-ls-plate);
   text-transform: uppercase;
@@ -3289,7 +3322,7 @@ select.input.narrow {
   margin: 0;
   padding: var(--wb-sp-3);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--wb-fs-xs);
   line-height: 1.62;
   color: var(--wb-ink-2);
   background: var(--wb-sunken);
@@ -3311,7 +3344,7 @@ select.input.narrow {
   background: var(--wb-sunken);
   border: 1px solid var(--wb-line);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--wb-fs-sm);
   line-height: 1.62;
   overflow-x: auto;
   color: var(--wb-ink-2);
@@ -3322,7 +3355,7 @@ select.input.narrow {
 }
 .diff {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--wb-fs-sm);
   line-height: 1.6;
 }
 .diff .d-add {
@@ -3379,7 +3412,7 @@ select.input.narrow {
 }
 .approve .cmd {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--wb-fs-sm);
   background: var(--wb-sunken);
   border: 1px solid var(--wb-line);
   border-radius: var(--wb-radius-sm);
@@ -3660,7 +3693,7 @@ select.input.narrow {
   border-radius: 5px;
   padding: 1px 5px;
   margin: 0 1px;
-  font-size: 12px;
+  font-size: var(--wb-fs-sm);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   background: var(--wb-primary-soft);
@@ -3812,7 +3845,7 @@ select.input.narrow {
 .queue-dock .qd-item {
   position: relative;
   padding: 5px 0 5px 15px;
-  font-size: 12.5px;
+  font-size: var(--wb-fs-ctl);
   color: var(--wb-ink-2);
   line-height: var(--wb-lh-base);
 }
@@ -3868,7 +3901,7 @@ select.input.narrow {
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--wb-fs-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3878,7 +3911,7 @@ select.input.narrow {
   align-items: center;
   gap: 6px;
   margin-top: 5px;
-  font-size: 10.5px;
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
 }
 .add {
@@ -3979,7 +4012,7 @@ select.input.narrow {
 }
 .kpi .v {
   font-family: var(--font-display);
-  font-size: 32px;
+  font-size: var(--wb-fs-3xl);
   font-weight: 700;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -4042,7 +4075,7 @@ select.input.narrow {
 }
 .chart .axis-label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
   fill: var(--wb-muted);
 }
 .chart .ln-in {
@@ -4074,13 +4107,13 @@ select.input.narrow {
 .ring-box .ring-num {
   position: absolute;
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: var(--wb-fs-xl);
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--wb-ink);
 }
 .ring-box .ring-num > i {
-  font-size: 11px;
+  font-size: var(--wb-fs-xs);
   font-style: normal;
   font-weight: 500;
   color: var(--wb-muted);
@@ -4118,7 +4151,7 @@ select.input.narrow {
   position: relative;
   z-index: 1;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--wb-fs-2xs);
   font-weight: 600;
   color: var(--wb-ink-2);
 }
@@ -4368,11 +4401,11 @@ select.input.narrow {
   gap: 1px;
 }
 .theme-card .tc-txt b {
-  font-size: 13px;
+  font-size: var(--wb-fs-md);
   font-weight: 600;
 }
 .theme-card .tc-txt i {
-  font-size: 11px;
+  font-size: var(--wb-fs-xs);
   font-style: normal;
 }
 .theme-card .tc-check {
@@ -4447,7 +4480,7 @@ select.input.narrow {
 .board-hero h1 {
   margin: 10px 0 4px;
   font-family: var(--font-display);
-  font-size: 30px;
+  font-size: var(--wb-fs-2xl);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.15;

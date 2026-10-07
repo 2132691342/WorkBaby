@@ -88,6 +88,7 @@ func (l *Loop) prepare(ctx context.Context, calls []llm.ToolCall) ([]plan, []*to
 				Title:   "工具不存在",
 				IsError: true,
 			}
+			l.emitSkipped(call, "工具不存在", "没有这个工具："+call.Name)
 			continue
 		}
 		if err := tool.ValidateArgs(t, call.Args); err != nil {
@@ -96,6 +97,7 @@ func (l *Loop) prepare(ctx context.Context, calls []llm.ToolCall) ([]plan, []*to
 				Title:   "参数不正确",
 				IsError: true,
 			}
+			l.emitSkipped(call, "参数不正确", "参数不正确："+err.Error())
 			continue
 		}
 		if l.isRepeated(call) {
@@ -104,8 +106,7 @@ func (l *Loop) prepare(ctx context.Context, calls []llm.ToolCall) ([]plan, []*to
 				Title:   "重复调用",
 				IsError: true,
 			}
-			l.emit(Event{Kind: EventToolEnd, ToolCall: &call, ToolOK: false,
-				ToolBlocked: true, ToolTitle: "重复调用"})
+			l.emitSkipped(call, "重复调用", "同样的调用已经连续试了 "+itoa(repeatCallLimit)+" 次，换个做法吧。")
 			continue
 		}
 		if l.cfg.Gate != nil {
@@ -116,8 +117,7 @@ func (l *Loop) prepare(ctx context.Context, calls []llm.ToolCall) ([]plan, []*to
 					Title:   "已跳过",
 					IsError: true,
 				}
-				l.emit(Event{Kind: EventToolEnd, ToolCall: &call, ToolOK: false,
-					ToolBlocked: true, ToolTitle: "已跳过", ToolOutput: reason})
+				l.emitSkipped(call, "已跳过", reason)
 				continue
 			}
 		}
@@ -125,6 +125,15 @@ func (l *Loop) prepare(ctx context.Context, calls []llm.ToolCall) ([]plan, []*to
 		plans = append(plans, plan{idx: i, call: call, tool: t})
 	}
 	return plans, results
+}
+
+// emitSkipped 给预执行失败的调用补一对开始 / 结束事件。落库侧只在 tool_start
+// 里写工具声明，缺了开始事件，结果条目就会引用一条从未声明的调用：
+// 内存里 CleanForProtocol 能兜住，重载历史后协议配对就断了。
+func (l *Loop) emitSkipped(call llm.ToolCall, title, output string) {
+	l.emit(Event{Kind: EventToolStart, ToolCall: &call, ToolTitle: title})
+	l.emit(Event{Kind: EventToolEnd, ToolCall: &call, ToolOK: false,
+		ToolBlocked: true, ToolTitle: title, ToolOutput: output})
 }
 
 // callKey 用工具名加参数做去重键；参数按 JSON 编码保证键稳定。

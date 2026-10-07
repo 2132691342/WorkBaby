@@ -8,6 +8,7 @@ import { useSessionStore } from '../stores/session'
 import { useToastStore } from '../stores/toast'
 import type { AttachmentREQ } from '../types/api'
 import AppSidebar from '../components/common/AppSidebar.vue'
+import AppIcon from '../components/common/AppIcon.vue'
 import ChatInput from '../components/chat/ChatInput.vue'
 import ExampleCards from '../components/chat/ExampleCards.vue'
 import MessageList from '../components/chat/MessageList.vue'
@@ -130,6 +131,11 @@ useSse(
       case 'chat:compressed':
         chat.onCompressed(env.data)
         break
+      case 'chat:user':
+        // 插话 / 排队消息在注入时刻落库后广播：把它补进时间线，
+        // 位置与真实对话一致（运行中落在上一轮工具结果之后）。
+        session.echoUserMessage(env.data.entry_id, env.data.content)
+        break
       case 'chat:context':
         chat.onContext(env.data)
         break
@@ -182,10 +188,17 @@ watch(
 
       <template v-if="empty && !chat.running">
         <div class="welcome">
-          <div class="hero-mark">WB</div>
-          <h2>你好，我是 WorkBaby</h2>
-          <p>会读文件、跑代码、查资料。用大白话说需求就行。</p>
-          <ExampleCards @pick="pickExample" />
+          <div class="hero-glow g1" aria-hidden="true" />
+          <div class="hero-glow g2" aria-hidden="true" />
+          <div class="hero-badge rise">
+            <AppIcon name="sparkles" size="ic-xs" />
+            <span>本地运行 · 会干活的 AI 助手</span>
+          </div>
+          <h2 class="hero-title rise">你好，我是 <span class="hero-name">WorkBaby</span></h2>
+          <p class="hero-sub rise">会读文件、跑代码、查资料。用大白话说需求就行。</p>
+          <div class="rise">
+            <ExampleCards @pick="pickExample" />
+          </div>
         </div>
       </template>
       <template v-else>
@@ -233,6 +246,8 @@ watch(
 }
 .welcome {
   flex: 1;
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -240,26 +255,81 @@ watch(
   gap: var(--wb-sp-3);
   padding: var(--wb-sp-8);
 }
-.hero-mark {
-  width: 64px;
-  height: 64px;
-  border-radius: var(--wb-radius-xl);
-  display: grid;
-  place-items: center;
-  background: var(--wb-primary);
-  color: var(--wb-primary-ink);
+/* 光晕只在空态引导出现（案例的 blur 圆）：工作界面仍是纯色 */
+.hero-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+}
+.hero-glow.g1 {
+  width: 480px;
+  height: 480px;
+  top: -22%;
+  left: -12%;
+  background: var(--wb-glow-1);
+}
+.hero-glow.g2 {
+  width: 400px;
+  height: 400px;
+  bottom: -18%;
+  right: -10%;
+  background: var(--wb-glow-2);
+}
+.hero-badge,
+.hero-title,
+.hero-sub,
+.welcome > :last-child {
+  position: relative;
+  z-index: 1;
+}
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  height: var(--wb-ctl-h-sm);
+  padding: 0 var(--wb-sp-3);
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-border);
+  color: var(--wb-primary);
+  font-size: var(--wb-fs-xs);
+  font-weight: 600;
+}
+.hero-title {
   font-family: var(--font-display);
-  font-size: var(--wb-fs-2xl);
+  font-size: var(--wb-fs-3xl);
   font-weight: 700;
-  letter-spacing: var(--wb-ls-plate);
-}
-.welcome h2 {
-  font-family: var(--font-display);
-  font-size: var(--wb-fs-xl);
+  letter-spacing: -0.01em;
   color: var(--wb-ink);
+  text-align: center;
 }
-.welcome p {
+.hero-name {
+  color: var(--wb-primary);
+}
+.hero-sub {
   color: var(--wb-muted);
-  margin-bottom: var(--wb-sp-5);
+  margin-bottom: var(--wb-sp-4);
+  max-width: 460px;
+  text-align: center;
+}
+/* 入场错峰：徽章 → 标题 → 副题 → 例句卡，一拍 60ms，只演一次 */
+.rise {
+  animation: hero-rise var(--wb-dur-slow) var(--wb-ease) backwards;
+}
+.hero-title.rise {
+  animation-delay: 60ms;
+}
+.hero-sub.rise {
+  animation-delay: 120ms;
+}
+.welcome > :last-child.rise {
+  animation-delay: 180ms;
+}
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
 }
 </style>

@@ -156,65 +156,157 @@ func TestChatSendPersistsConversation(t *testing.T) {
 	}
 }
 
-// 审批闭环：模型请求写操作 → 产生审批卡 → 放行 → 工具执行并落库。
-func TestApprovalOnceUnblocksToolAndPersistsResult(t *testing.T) {
-	useScripted(t,
-		llm.Message{Content: "我来操作", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
-		llm.Message{Content: "完成了"},
-	)
-	env, svc := newEnv(t, approveTool{})
-	sess := newProviderSession(t, svc)
+// 审批闭环：模型请求写操作 → 审批卡 → 放行 → 执行并落库；
+// 「本会话内都放行」必须真的生效，第二次同类调用不再弹卡。
+// 决策只回传布尔值会让会话级放行这条分支永远走不到，因此单独锁住。
+func TestApprovalLoop(t *testing.T) {
+	t.Run("单次放行后工具执行并落库", func(t *testing.T) {
+		useScripted(t,
+			llm.Message{Content: "我来操作", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
+			llm.Message{Content: "完成了"},
+		)
+		env, svc := newEnv(t, approveTool{})
+		sess := newProviderSession(t, svc)
 
-	if _, err := svc.Chat.Send(sess.ID, "帮我执行危险操作", nil); err != nil {
-		t.Fatal(err)
-	}
-	var pending []domain.ApprovalVO
-	waitUntil(t, "审批出现", func() bool {
-		pending, _ = svc.Approvals.Pending(sess.ID)
-		return len(pending) == 1
+		if _, err := svc.Chat.Send(sess.ID, "帮我执行危险操作", nil); err != nil {
+			t.Fatal(err)
+		}
+		var pending []domain.ApprovalVO
+		waitUntil(t, "审批出现", func() bool {
+			pending, _ = svc.Approvals.Pending(sess.ID)
+			return len(pending) == 1
+		})
+		if err := svc.Approvals.Decide(pending[0].ID, true, "once"); err != nil {
+			t.Fatalf("审批失败: %v", err)
+		}
+		waitUntil(t, "工具结果落库", countRole(env.Repo, sess.ID, llm.RoleTool))
 	})
-	if err := svc.Approvals.Decide(pending[0].ID, true, "once"); err != nil {
-		t.Fatalf("审批失败: %v", err)
-	}
-	waitUntil(t, "工具结果落库", countRole(env.Repo, sess.ID, llm.RoleTool))
+
+	t.Run("会话级放行后不再弹卡", func(t *testing.T) {
+		useScripted(t,
+			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
+			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c2", Name: "risky"}}},
+			llm.Message{Content: "两次都做完了"},
+		)
+		env, svc := newEnv(t, approveTool{})
+		sess := newProviderSession(t, svc)
+
+		if _, err := svc.Chat.Send(sess.ID, "连做两次", nil); err != nil {
+			t.Fatal(err)
+		}
+		var first domain.ApprovalVO
+		waitUntil(t, "首条审批出现", func() bool {
+			list, _ := svc.Approvals.Pending(sess.ID)
+			if len(list) == 1 {
+				first = list[0]
+			}
+			return first.ID != ""
+		})
+		if err := svc.Approvals.Decide(first.ID, true, domain.ApprovalScopeSession); err != nil {
+			t.Fatalf("审批失败: %v", err)
+		}
+		waitUntil(t, "两次工具结果落库", func() bool {
+			entries, _ := env.Repo.ListEntries(sess.ID)
+			n := 0
+			for _, e := range entries {
+				if e.Role == llm.RoleTool {
+					n++
+				}
+			}
+			return n == 2
+		})
+		if pending, _ := svc.Approvals.Pending(sess.ID); len(pending) != 0 {
+			t.Fatalf("会话级放行后不该再问，实际仍有 %d 条待审批", len(pending))
+		}
+	})
 }
 
-// 「本会话内都放行」必须真的生效：第二次同类调用不再产生新的审批卡。
-// 决策只回传布尔值会让这条分支永远走不到，因此单独锁一条测试。
-func TestApprovalSessionScopeSkipsSecondPrompt(t *testing.T) {
-	useScripted(t,
-		llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
-		llm.Message{ToolCalls: []llm.ToolCall{{ID: "c2", Name: "risky"}}},
-		llm.Message{Content: "两次都做完了"},
-	)
-	env, svc := newEnv(t, approveTool{})
+// 错误轮的半成品必须落库：UI 已流式显示的内容不能在刷新后凭空消失。
+func TestChatErrorPersistsPartialContent(t *testing.T) {
+	s := useScripted(t, llm.Message{Content: "占位"})
+	s.ErrAfterDelta = "我先查一下——"
+	env, svc := newEnv(t)
 	sess := newProviderSession(t, svc)
 
-	if _, err := svc.Chat.Send(sess.ID, "连做两次", nil); err != nil {
+	if _, err := svc.Chat.Send(sess.ID, "帮我看看", nil); err != nil {
 		t.Fatal(err)
 	}
-	var first domain.ApprovalVO
-	waitUntil(t, "首条审批出现", func() bool {
-		list, _ := svc.Approvals.Pending(sess.ID)
-		if len(list) == 1 {
-			first = list[0]
-		}
-		return first.ID != ""
-	})
-	if err := svc.Approvals.Decide(first.ID, true, domain.ApprovalScopeSession); err != nil {
-		t.Fatalf("审批失败: %v", err)
+	waitUntil(t, "半成品落库", countRole(env.Repo, sess.ID, llm.RoleAssistant))
+
+	detail, err := svc.Sessions.Detail(sess.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	waitUntil(t, "两次工具结果落库", func() bool {
-		entries, _ := env.Repo.ListEntries(sess.ID)
-		n := 0
-		for _, e := range entries {
-			if e.Role == llm.RoleTool {
-				n++
+	if len(detail.Messages) != 2 {
+		t.Fatalf("应落库 user + 半成品共 2 条，实际 %d", len(detail.Messages))
+	}
+	if detail.Messages[1].Content != "我先查一下——" {
+		t.Fatalf("半成品正文不符: %q", detail.Messages[1].Content)
+	}
+}
+
+// 插话落库两态：空闲时直接落库（没有 run 来消费队列，不落就永远丢）；
+// 运行中在轮间注入时落库，链序必须是 上一轮结果 → 插话 → 本轮回复。
+func TestChatSteerPersists(t *testing.T) {
+	t.Run("空闲时直接落库", func(t *testing.T) {
+		useScripted(t, llm.Message{Content: "好的"})
+		env, svc := newEnv(t)
+		sess := newProviderSession(t, svc)
+
+		if err := svc.Chat.Steer(sess.ID, "记得用中文回复"); err != nil {
+			t.Fatal(err)
+		}
+		waitUntil(t, "插话落库", countRole(env.Repo, sess.ID, llm.RoleUser))
+
+		detail, err := svc.Sessions.Detail(sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(detail.Messages) != 1 || detail.Messages[0].Content != "记得用中文回复" {
+			t.Fatalf("插话应作为唯一 user 条目落库: %+v", detail.Messages)
+		}
+	})
+
+	t.Run("运行中按注入链序落库", func(t *testing.T) {
+		useScripted(t,
+			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
+			llm.Message{Content: "完成了"},
+		)
+		env, svc := newEnv(t, approveTool{})
+		sess := newProviderSession(t, svc)
+
+		if _, err := svc.Chat.Send(sess.ID, "帮我执行", nil); err != nil {
+			t.Fatal(err)
+		}
+		var pending []domain.ApprovalVO
+		waitUntil(t, "审批出现", func() bool {
+			pending, _ = svc.Approvals.Pending(sess.ID)
+			return len(pending) == 1
+		})
+		if err := svc.Chat.Steer(sess.ID, "顺便说一句"); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.Approvals.Decide(pending[0].ID, true, "once"); err != nil {
+			t.Fatal(err)
+		}
+		waitUntil(t, "回复落库", lastRoleIs(env.Repo, sess.ID, llm.RoleAssistant))
+
+		detail, err := svc.Sessions.Detail(sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var roles []string
+		for _, m := range detail.Messages {
+			roles = append(roles, m.Role)
+		}
+		want := []string{llm.RoleUser, llm.RoleAssistant, llm.RoleTool, llm.RoleUser, llm.RoleAssistant}
+		if len(roles) != len(want) {
+			t.Fatalf("链路条数不符: %v", roles)
+		}
+		for i := range want {
+			if roles[i] != want[i] {
+				t.Fatalf("链序不符: got %v want %v", roles, want)
 			}
 		}
-		return n == 2
 	})
-	if pending, _ := svc.Approvals.Pending(sess.ID); len(pending) != 0 {
-		t.Fatalf("会话级放行后不该再问，实际仍有 %d 条待审批", len(pending))
-	}
 }

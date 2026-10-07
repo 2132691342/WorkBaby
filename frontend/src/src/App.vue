@@ -15,7 +15,7 @@ import { EventsOn } from '../wailsjs/runtime/runtime'
 const booted = ref(false)
 const settings = useSettingsStore()
 const chat = useChatStore()
-useTheme()
+const { theme, setTheme } = useTheme()
 
 const failed = computed(() => status.value === 'failed')
 const ready = computed(() => booted.value && !failed.value)
@@ -68,6 +68,26 @@ function quitApp() {
       <span class="tb-name">WorkBaby</span>
       <span class="tb-chip" :class="{ 'is-on': ready }">{{ ready ? '已就绪' : '启动中…' }}</span>
       <span class="tb-sp" />
+      <div class="tb-themes" role="group" aria-label="主题">
+        <button
+          class="tb-act"
+          type="button"
+          :class="{ on: theme === 'light' }"
+          title="晨紫（浅色）"
+          @click="setTheme('light')"
+        >
+          <AppIcon name="sun" size="ic-sm" />
+        </button>
+        <button
+          class="tb-act"
+          type="button"
+          :class="{ on: theme === 'dark' }"
+          title="夜紫（暗色）"
+          @click="setTheme('dark')"
+        >
+          <AppIcon name="moon" size="ic-sm" />
+        </button>
+      </div>
       <span class="led" :class="sseConnected ? 'g' : 'w'" :title="sseConnected ? '已连接' : '连接断开，正在重连'" />
       <div class="winctl">
         <button class="win-btn" type="button" title="最小化" @click="winctl('min')">

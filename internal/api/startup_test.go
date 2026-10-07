@@ -1,8 +1,6 @@
-// 全新环境下「从零装配 → 真实 HTTP 栈打通」的完整链路。
-// 曾经整条链在干净机器上失败过两次：
-// ① 装配失败只写在日志里，表现为界面空着、每个接口 404；
-// ② 打包版所有 POST 变成 Network Error——跨源预检被 methodGuard 拦下且无 CORS 头，
-//    而 Go 的 http 客户端不发预检，只有这条测试模拟浏览器行为才测得出来。
+// 从零装配 → 真实 HTTP 栈的整条启动链路：装配完整性、业务端点、
+// 磁盘导入技能、跨源预检。Go 的 http 客户端不发预检，只有这里
+// 模拟浏览器行为才测得出来 CORS 缺失（症状是打包版所有 POST 报 Network Error）。
 
 package api_test
 
@@ -90,77 +88,79 @@ func call(t *testing.T, base, method, path string, body any) (int, string) {
 	return resp.StatusCode, string(raw)
 }
 
-// 每个业务端点都必须真的能通：走一遍真实路由、方法白名单与 JSON 契约。
-func TestBusinessEndpointsRespond(t *testing.T) {
-	base := newBootedServer(t)
+// 启动链路：端点、导入、CORS 三段一体，各起一套干净环境验证一条分支。
+func TestStartupChain(t *testing.T) {
+	t.Run("业务端点全部可通", func(t *testing.T) {
+		base := newBootedServer(t)
 
-	reads := []string{
-		"/skills", "/sessions", "/providers", "/knowledge/docs",
-		"/settings", "/stats", "/bootstrap", "/approvals",
-	}
-	for _, p := range reads {
-		if code, body := call(t, base, "GET", p, nil); code != http.StatusOK {
-			t.Errorf("GET %s -> %d %s", p, code, body)
+		reads := []string{
+			"/skills", "/sessions", "/providers", "/knowledge/docs",
+			"/settings", "/stats", "/bootstrap", "/approvals",
 		}
-	}
-
-	writes := []struct {
-		path string
-		body any
-	}{
-		{"/sessions", map[string]any{}},
-		{"/skills/create-skill@builtin/toggle", map[string]any{"enabled": false}},
-		{"/skills", map[string]any{"name": "demo-skill", "description": "d", "body": "## 怎么做\n1. x"}},
-		{"/knowledge/docs/add", map[string]any{"paths": []string{""}}},
-		{"/knowledge/search", map[string]any{"query": "x"}},
-		{"/settings", map[string]any{"key": "persona", "value": "v"}},
-	}
-	for _, w := range writes {
-		if code, body := call(t, base, "POST", w.path, w.body); code != http.StatusOK {
-			t.Errorf("POST %s -> %d %s", w.path, code, body)
+		for _, p := range reads {
+			if code, body := call(t, base, "GET", p, nil); code != http.StatusOK {
+				t.Errorf("GET %s -> %d %s", p, code, body)
+			}
 		}
-	}
-}
 
-// 导入技能要真的把磁盘上的 SKILL.md 收进注册表。
-func TestSkillImportFromDisk(t *testing.T) {
-	base := newBootedServer(t)
+		writes := []struct {
+			path string
+			body any
+		}{
+			{"/sessions", map[string]any{}},
+			{"/skills/create-skill@builtin/toggle", map[string]any{"enabled": false}},
+			{"/skills", map[string]any{"name": "demo-skill", "description": "d", "body": "## 怎么做\n1. x"}},
+			{"/knowledge/docs/add", map[string]any{"paths": []string{""}}},
+			{"/knowledge/search", map[string]any{"query": "x"}},
+			{"/settings", map[string]any{"key": "persona", "value": "v"}},
+		}
+		for _, w := range writes {
+			if code, body := call(t, base, "POST", w.path, w.body); code != http.StatusOK {
+				t.Errorf("POST %s -> %d %s", w.path, code, body)
+			}
+		}
+	})
 
-	dir := filepath.Join(t.TempDir(), "my-imported")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	body := "---\nname: my-imported\ndescription: 测试导入\n---\n\n正文\n"
-	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code, resp := call(t, base, "POST", "/skills/import", map[string]any{"paths": []string{dir}})
-	if code != http.StatusOK || !strings.Contains(resp, `"imported":1`) {
-		t.Fatalf("导入失败: %d %s", code, resp)
-	}
-	if code, resp := call(t, base, "GET", "/skills/my-imported/content", nil); code != http.StatusOK || !strings.Contains(resp, "正文") {
-		t.Fatalf("导入后取不到正文: %d %s", code, resp)
-	}
-}
+	// 导入技能要真的把磁盘上的 SKILL.md 收进注册表。
+	t.Run("从磁盘导入技能", func(t *testing.T) {
+		base := newBootedServer(t)
 
-// 浏览器跨源 POST 前必须拿到带 CORS 头的 204，否则前端所有写操作都是 Network Error。
-func TestCorsPreflightAllowsCrossOriginPost(t *testing.T) {
-	base := newBootedServer(t)
+		dir := filepath.Join(t.TempDir(), "my-imported")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "---\nname: my-imported\ndescription: 测试导入\n---\n\n正文\n"
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		code, resp := call(t, base, "POST", "/skills/import", map[string]any{"paths": []string{dir}})
+		if code != http.StatusOK || !strings.Contains(resp, `"imported":1`) {
+			t.Fatalf("导入失败: %d %s", code, resp)
+		}
+		if code, resp := call(t, base, "GET", "/skills/my-imported/content", nil); code != http.StatusOK || !strings.Contains(resp, "正文") {
+			t.Fatalf("导入后取不到正文: %d %s", code, resp)
+		}
+	})
 
-	req, err := http.NewRequest("OPTIONS", base+"/skills", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Origin", "http://wails.localhost")
-	req.Header.Set("Access-Control-Request-Method", "POST")
-	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	// 浏览器跨源 POST 前必须拿到带 CORS 头的 204，否则前端所有写操作都是 Network Error。
+	t.Run("跨源预检放行 POST", func(t *testing.T) {
+		base := newBootedServer(t)
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("预检传输失败: %v", err)
-	}
-	defer resp.Body.Close()
-	if acao := resp.Header.Get("Access-Control-Allow-Origin"); resp.StatusCode != http.StatusNoContent || acao != "http://wails.localhost" {
-		t.Fatalf("预检被拦：status=%d ACAO=%q（POST 会全部变成 Network Error）", resp.StatusCode, acao)
-	}
+		req, err := http.NewRequest("OPTIONS", base+"/skills", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Origin", "http://wails.localhost")
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		req.Header.Set("Access-Control-Request-Headers", "content-type")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("预检传输失败: %v", err)
+		}
+		defer resp.Body.Close()
+		if acao := resp.Header.Get("Access-Control-Allow-Origin"); resp.StatusCode != http.StatusNoContent || acao != "http://wails.localhost" {
+			t.Fatalf("预检被拦：status=%d ACAO=%q（POST 会全部变成 Network Error）", resp.StatusCode, acao)
+		}
+	})
 }

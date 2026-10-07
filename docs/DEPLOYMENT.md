@@ -4,8 +4,11 @@
 
 ```
 build/bin/
-├── WorkBaby.exe                                   # 主程序（前端已 embed，单文件可跑）
-└── runtimes/python-<版本>-win-x64.tar.gz          # 内置 Python（可选，见下）
+├── WorkBaby.exe                                    # 主程序（前端已 embed，单文件可跑）
+└── runtimes/
+    ├── python-<版本>-win-x64.tar.gz                # 内置 Python（可选，见下）
+    ├── PowerShell-<版本>-win-x64.zip               # 内置 PowerShell 7（可选）
+    └── manifest.json                               # 归档清单（版本 / sha256 / 解压上限）
 ```
 
 ## 构建
@@ -15,16 +18,22 @@ wails build
 powershell -File scripts/copy-runtimes.ps1 -Bin build/bin/WorkBaby.exe
 ```
 
-## 内置 Python（可选增强）
+`copy-runtimes.ps1` 把仓库 `runtimes/` 下的归档拷到**两处**：
+产物旁 `build/bin/runtimes/`（绿色版直接跑）与 NSIS 安装器源目录
+`build/windows/runtimes/`（`installer/project.nsi` 引用）。
 
-1. 把 embeddable Python 3.12 打成 `runtimes/python-3.12.13-win-x64.tar.gz`，
-   放在 exe 同级的 `runtimes/` 下
-2. `scripts/copy-runtimes.ps1` 负责把仓库 `runtimes/` 下的压缩包与 manifest 拷到产物旁
-3. 首次调用 `python` 工具时自动解压到数据目录并写 `.version` 标记，之后秒开
+## 内置运行时（可选增强）
 
-没有内置运行时时应用照常运行：`python` 工具会返回 8002 明确错误，
-设置页的状态灯显示未就绪，其余功能不受影响。
-系统 PATH 上的 Python 会被自动采用。
+1. 仓库 `runtimes/` 下放 `python-3.12.13-win-x64.tar.gz`（embeddable Python 打包，
+   Git LFS）与 `PowerShell-7.4.2-win-x64.zip`（官方 win-x64 zip）
+2. 启动装配期（`Handler.Startup` → `NewToolDeps`）自动解压到数据目录并写
+   `.version` 标记，命中版本跳过解压；网络/文件系统问题不影响启动
+3. 解压校验：逐条目路径检查（拒绝绝对路径与 `..`）、512MB 解压上限、
+   LFS 指针识别（未拉取的归档按缺失报错而不是当压缩包喂给解压器）
+
+没有内置 Python 时应用照常运行：`python` 工具返回 8002 明确错误，
+设置页状态灯显示未就绪，系统 PATH 上的 Python 会被自动采用。
+内置 PowerShell 缺失时静默兜底系统 `powershell.exe`（win5.1 或 7），工具不断档。
 
 ## 用户数据
 

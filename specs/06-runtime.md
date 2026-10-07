@@ -11,17 +11,19 @@ PowerShell 是 Windows 自动化的第一入口（文件批处理 / 系统设置
 
 ```go
 runtime.PythonExe(paths) :=
-  EnsurePython(paths)      // ① 内置：首次调用自动解压到数据目录
+  EnsurePython(paths)      // ① 内置：装配期自动解压到数据目录（sync.Once 幂等）
 | lookPath("python.exe")   // ② 系统 PATH
 | lookPath("python")       // ③ 无扩展名（兼容异常环境）
 
 runtime.PowerShellExe(paths) :=
-  EnsurePowerShell(paths)              // ① 内置 pwsh 7.4.2
+  EnsurePowerShell(paths)              // ① 内置 pwsh 7.4.2（解压失败则跳过，不算致命）
 | lookPath("pwsh.exe" / "pwsh")        // ② 系统 PowerShell 7+
 | lookPath("powershell.exe" / "powershell") // ③ 系统 Windows PowerShell 5.1 兜底
 ```
 
-返回空串表示不可用：工具在执行时给出明确错误码（python 8002、powershell 8011/8012），
+Python 返回空串时，python 工具执行报 8002（内置未解压且系统也没有）；
+PowerShell 返回空串的情形被 ③ 兜住，工具不会失败。
+8011 / 8012 是 runtime 解压与探测层的错误码（解压失败 / 包缺失或 LFS 指针），
 `/bootstrap` 的 `python_ready` 让前端能提前在设置页显示状态灯。
 
 ## 解压
@@ -33,7 +35,8 @@ runtime.PowerShellExe(paths) :=
 2. 解压逐条目校验路径，拒绝绝对路径与 `..`（8004）
 3. 总体积上限 512MB，防压缩包炸弹
 4. 写 `.version` 标记；命中版本就跳过解压，秒开
-5. 归档若是 Git LFS 指针文本（未拉取二进制），不把它当包解开，直接按包缺失报错（8012）
+5. 归档若是 Git LFS 指针文本（未拉取二进制），不把它当包解开，按包缺失报错
+   （Python 8002 / PowerShell 8012）
 
 Python tar.gz 剥离顶层目录；PowerShell 官方 zip 本身平铺（pwsh.exe 在根），不剥层。
 
@@ -58,6 +61,7 @@ Python tar.gz 剥离顶层目录；PowerShell 官方 zip 本身平铺（pwsh.exe
 | 参数 | 说明 |
 |---|---|
 | command | 要执行的 PowerShell 命令 |
+| cwd | 工作目录，相对路径按工作区解析（SafeJoin 校验），缺省为工作区根 |
 | timeout_ms | 超时毫秒，默认 120000，上限 600000 |
 
 - 内置 pwsh 优先（`tool.Deps.PowerShellExe` 注入），兜底系统 `powershell.exe`；

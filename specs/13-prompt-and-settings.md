@@ -27,10 +27,8 @@ persona           固定人设 + 四条工作原则 + 一组输出风格约束
 **输出风格（必须遵守）**：不用 emoji、不用客套开场与套话收尾、
 不用「首先/其次/最后」堆段落、不确定就直说不确定。
 
-这一组不是润色，是产品约束：没有它，模型默认会输出
-「好的！📁 整理文件：…💡 出主意：」这种一眼就是 AI 生成的排版。
-规则只存在于提示词里，删掉不会有编译错误，因此由
-`service.TestPersonaForbidsEmojiAndFiller` 钉住。
+这一组是产品约束：没有它，模型的输出会混入 emoji 与 AI 腔排版。
+规则只存在于提示词里，删掉不会有编译错误，评审提示词改动时必须逐条过。
 
 ## 工具驱动
 
@@ -59,10 +57,17 @@ persona           固定人设 + 四条工作原则 + 一组输出风格约束
 | `default_model` | 空 | 默认模型名 |
 | `permission` | `ask` | 执行方式：ask / auto_edit / yolo |
 | `context_reserve_tokens` | 16384 | 给模型输出留的 token 余量 |
+| `context_window` | 空 | 全局上下文窗口覆写（空 = 用能力目录值） |
 | `disabled_tools` | 空 | 逗号分隔的停用工具名单 |
 | `disabled_skills` | 空 | 逗号分隔的停用技能名单（启动时套用） |
 | `theme` | `light` | 主题：light / dark |
 | `font_size` | `md` | 正文字号刻度 |
+| `font_family` | 空 | 界面字体族（空 = 系统默认） |
+| `show_thinking` | `true` | 是否展示思考过程 |
+| `send_on_enter` | `true` | 回车发送（false = Ctrl+Enter 发送） |
+| `minimize_to_tray` | `true` | 关闭按钮收进托盘 |
+| `launch_on_login` | `false` | 开机自启（写 HKCU Run） |
+| `density` | `comfortable` | 信息密度 |
 | `workspace` | 用户主目录 | 默认工作目录 |
 
 配置文件（`config.yaml`）只放**不适合进数据库**的东西：MasterKey、监听端口。

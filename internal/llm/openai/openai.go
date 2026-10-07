@@ -276,6 +276,17 @@ func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
 	if ctx.Err() != nil && !feed.TimedOut() {
 		return
 	}
+	// 有些兼容网关不发 finish_reason 直接 [DONE]：循环结束时把累积的工具调用
+	// 补发出去，否则模型声明的调用全部静默丢失。
+	for _, idx := range sortedIndexes(pendingCalls) {
+		p := pendingCalls[idx]
+		feed.Send(llm.Event{Type: llm.EventToolCall, ToolCall: &llm.ToolCall{
+			ID:   p.id,
+			Name: p.name,
+			Args: decodeArgs(p.args.String()),
+		}})
+		pendingCalls[idx] = nil
+	}
 	if stop == "" {
 		stop = llm.StopStop
 	}

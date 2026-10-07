@@ -10,7 +10,7 @@
 ## 常用命令
 
 ```powershell
-# 后端测试（全量 < 10s）
+# 后端测试（29 条链路测试，全量 -count=1 约 20s）
 go test ./internal/...
 
 # 前端类型检查 / 构建
@@ -46,7 +46,7 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 
 ## 布局纪律（改界面前必读）
 
-这一版界面「歪」的根因几乎全是布局，不是配色：
+界面「歪」的根因几乎全是布局，不是配色：
 
 | 症状 | 病因 |
 |---|---|
@@ -77,8 +77,10 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 %APPDATA%/WorkBaby/            # = C:\Users\<你>\AppData\Roaming\WorkBaby
 ├── workbaby.db                # SQLite（WAL）
 ├── config.yaml                # Viper 配置（MasterKey 等）
+├── model.json                 # 模型能力缓存的本地覆写
 ├── logs/                      # info/warn/error 分文件
 ├── runtime/python/            # 内置 Python 解压后
+├── runtime/powershell/        # 内置 PowerShell 7 解压后
 ├── skills/                    # 用户全局技能
 └── tmp/                       # 工具输出落盘、超限截断的全文
 ```

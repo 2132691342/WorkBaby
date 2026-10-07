@@ -35,7 +35,8 @@
 标准库 → `golang.org/x/...` → 生态库。新增依赖必须说明理由与替代方案。
 
 **明确不引入**：UI 组件库（Element Plus 等）、工作流引擎（BPMN）、微前端（Qiankun）、
-富文本编辑器、UnoCSS、ECharts/AntV X6、Vue I18n、gotool——当前功能面用不到，引入只增维护成本。
+富文本编辑器、UnoCSS、ECharts/AntV X6、Vue I18n、通用工具库——当前功能面用不到，
+引入只增维护成本。
 
 ---
 
@@ -302,13 +303,13 @@ Run(ctx):
 简洁优先：不做双层循环，不做 PrepareNextTurn 挂载点。压缩与模型切换都在
 service 层发送前完成。
 
-**为什么砍掉外层 follow-up 循环**：那一层是为终端 REPL 服务的——用户不停敲键、
-循环停了就自动续跑。桌面端有明确的「插话 / 排队」按钮，语义由 UI 表达，
-内核再套一层只会让「什么时候注入」变成隐式行为。跟进消息与插话同属一个队列，
-在轮间注入，效果一致，少一个状态机。
+**为什么是单层而不是「循环停了自动续跑」**：自动续跑是为终端 REPL 设计的——
+用户不停敲键，循环不能停。桌面端有明确的「插话 / 排队」按钮，语义由 UI 表达；
+内核再套一层自动续跑，只会让「什么时候注入」变成隐式行为。跟进消息与插话
+同属一个队列，在轮间注入，效果一致，少一个状态机。
 
-**为什么砍掉 PrepareNextTurn**：压缩是纯函数（清洗 + 按预算找切点），不需要在
-轮间回调里做副作用。`Config.Budget` 三个整数由 service 层备好，内核在每次发送前
+**为什么没有 PrepareNextTurn 挂载点**：压缩是纯函数（清洗 + 按预算找切点），不需要在
+轮间回调里做副作用。`Config.Budget` 由 service 层备好，内核在每次发送前
 按预算调用 `agent.Compact`，压缩是发请求的必经之路而不是可选钩子。
 
 #### 2.13.2 队列
@@ -352,18 +353,18 @@ const (
 | 不变量 | 锁死原因 |
 |---|---|
 | 工具结果严格按调用顺序回填 | `assistant(tool_calls)` 与 `tool` 配对完整，错位上游 400 |
-| 事件出口必须串行化 | 并行工具各自在 goroutine 里 emit，同步调用只继承调用方 goroutine；不加锁就是并发改同一份落库位点，assistant 声明撞主键后整条丢失 |
+| 事件出口必须串行化 | 并行工具各自在 goroutine 里 emit，不锁就是并发改同一份落库位点，assistant 声明撞主键后整条丢失 |
 | 被截断轮的 tool_calls 一律不执行 | 半个 JSON 调用执行出去比不执行更危险 |
 | 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
 | CleanForProtocol 输出必须可直发上游 | 空消息/孤儿结果/未配对调用都在这一层兜底 |
-| 事件发布永不阻塞内核 | Hub 慢客户端直接断连 + `chat:gap` 对账 |
+| 事件发布永不阻塞内核 | Hub 慢客户端先挤 delta 断连兜底 + `chat:gap` 对账 |
 | 同一工具同一参数重复调用直接拦 | 模型卡在同一个调用上打转，比撞轮数上限更难排查 |
 | 工具 panic 不 recover | panic 说明有 bug，工具失败用 `pkg.New(4xxx, ...)` 表达 |
-| 端口握手必须早于 `app.mount` | 监听器晚一步就拿不到端口，表现为**所有接口 404** |
-| 就绪状态用响应式值传，不靠事件通知 | 事件在「监听器注册之前」派发同样会丢，组件挂载时要读到的是当前值 |
+| 端口握手必须早于 `domReady` 广播 | 监听器晚一步端口就为空，前端所有接口 404 |
+| 就绪状态用响应式值传，不靠事件通知 | 事件在监听器注册前派发会丢，组件挂载时要读到的是当前值 |
 | 启动失败必须走 Wails 事件总线 | 此时 HTTP/SSE 还不存在，走 `Emitter` 等于没发，用户只会看到空窗口 |
-| `domReady` 必须等 `OnStartup` 完成 | Wails 把 `OnStartup` 放独立 goroutine，两者无顺序保证；用「Svc 是不是 nil」猜必然误判 |
-| `beforeClose` 必须在退出流程中放行 | 无条件拦截会让托盘「退出」变成空操作，进程留在后台并占住 exe |
+| `domReady` 必须等 `OnStartup` 完成 | Wails 把 `OnStartup` 放独立 goroutine，两者无顺序保证；靠「Svc 是不是 nil」判断会误判慢启动 |
+| `beforeClose` 必须在退出流程中放行 | 无条件拦截会让托盘「退出」变成空操作，进程留驻后台占住 exe |
 | 读锁必须配 `RUnlock` | 配成 `Unlock` 会 panic，且调用点在每轮对话的 `BuildSystem` 里 |
 
 详见 `specs/01-agent-loop.md` / `02-context-compaction.md`。
@@ -398,31 +399,30 @@ const (
 
 ### 3.3 测试索引
 
-只保留跨模块 / 跨轮次 / 跨协议的链路测试；单函数边界用例只在有真实故障背景时保留并合并。
+只保留跨模块 / 跨轮次 / 跨协议的链路测试，每条链路一个 Test（分支用 `t.Run` 归入同一条链）。
+全量 29 个 Test / 19 个文件；单个测试文件 ≤ 6 个 `Test`；全量 -count=1 约 20 秒（大头是内置运行时真实解压）。
 
-| 文件 | 覆盖的链路 |
-|---|---|
-| `app_test.go` | 启动等待（慢装配不误判 / 失败 / 超时）、关闭与退出的放行判据、关闭到托盘开关 |
-| `api/startup_test.go` | 干净环境完整装配 + 真实 HTTP 栈端点 + 跨源预检 |
-| `api/chat_stream_test.go` | 真实 HTTP 栈下的 SSE 送达（start→delta→done、seq 递增）与重放对账 |
-| `service/agent_test.go` | 建会话→发送→落库；审批闭环与会话级放行 |
-| `service/order_test.go` | 声明先于结果（跨轮 / 同轮并发两态）与落库位点串行化 |
-| `service/provider_test.go` | 默认服务→默认模型→新会话继承链；存量会话模型名回填 |
-| `agent/loop_test.go` | 多轮回填顺序、并行保序、插话注入、三条收尾路径、重复调用拦截、超预算裁剪、事件出口串行化 |
-| `agent/compact_test.go` | CleanForProtocol 协议硬约束、压缩永不孤儿化 tool 结果、预算策略、降级截断 |
-| `tool/files_test.go` | 路径穿越拒绝、Unicode 路径找回、写前必读、edit 唯一性与行尾保持 |
-| `skill/skill_test.go` | embed 加载与正文取出、按 id/名字命中与优先级、读写锁配对 |
-| `knowledge/knowledge_test.go` | 建索引→检索（含短查询兜底）→删除级联 |
-| `config/config_test.go` | 首次启动自举出配置与主密钥，且重启读回同一把 |
-| `runtime/python_test.go` | 内置归档顶层剥离、解压穿越拒绝 |
-| `runtime/powershell_test.go` | 内置 PowerShell zip 平铺解压、LFS 指针跳过 |
-| `runtime/detect_test.go` | 运行时探测命中、归档缺失报错带路径 |
-| `llm/think_test.go` | 内联 think 标签分流：整段/多块/纯文本透传、流式切碎与逐字喂入 |
-| `llm/openai/stream_test.go` | usage 帧顺序、tool_call 单次下发、截断收尾、缓存计量 |
-| `llm/anthropic/stream_test.go` | 上游停滞经空闲看门狗报错收尾、事件缓冲满不丢弃 |
-| `llm/anthropic/encode_test.go` | 无签名 thinking 不回传、角色交替、空 text / tool_result 拦截 |
-| `db/db_test.go` | 全部业务表与 FTS5 虚表建出 |
-| `server/sse_test.go` | delta 合流保序、慢客户端挤 delta 保 done、按 seq 重放对账 |
+| 文件 | Test | 覆盖的链路 |
+|---|---|---|
+| `app_test.go` | TestAppLifecycle | 启动等待（慢装配 / 失败 / 超时）、关闭拦截与退出放行、关闭到托盘开关 |
+| `api/startup_test.go` | TestStartupChain | 干净环境完整装配 + 业务端点 + 磁盘导入技能 + 跨源预检 |
+| `api/chat_stream_test.go` | TestChatStreamChain | 真实 HTTP 栈 SSE 送达（start→delta→done、seq 递增）与 Last-Event-ID 重放 |
+| `service/agent_test.go` | TestChatSendPersistsConversation · TestApprovalLoop · TestChatErrorPersistsPartialContent · TestChatSteerPersists | 建会话→发送→落库；审批闭环（单次 / 会话级）；错误轮半成品落库；插话落库（空闲直落 / 运行中按注入链序） |
+| `service/order_test.go` | TestToolResultOrdering | 声明先于结果（跨轮 / 同轮并发两态）与落库位点串行化 |
+| `service/provider_test.go` | TestDefaultModelChain | 默认服务→默认模型→新会话继承；存量空模型会话 run 时回填 |
+| `agent/loop_test.go` | TestLoopProtocolOrder · TestLoopInjectsSteeringBeforeNextTurn · TestLoopStopsOnCancelLengthAndError · TestLoopBlocksRepeatedIdenticalCall · TestEmitSerializesConcurrentTools | 回填顺序（多轮 / 并行）、插话注入与 steering 事件、三条收尾路径、重复调用拦截与事件成对、事件出口串行化 |
+| `agent/compact_test.go` | TestCompactProtocol · TestLoopCompactsHistoryOverBudget | CleanForProtocol 硬约束、压缩永不孤儿化 / 整轮丢弃、预算策略、降级截断、循环内真实裁剪 |
+| `tool/files_test.go` | TestFilesReadChain · TestFilesWriteEditGuardrails | 路径穿越、错误码区分、Unicode 找回、已读记账；覆盖前必读、edit 唯一性、行尾与 BOM |
+| `skill/skill_test.go` | TestSkillRegistryChain | embed 加载与正文取出、id/名字命中与来源优先级、读写锁配对 |
+| `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引→检索（短查询兜底）→删除级联 |
+| `config/config_test.go` | TestLoadSelfBootstrapsAndPersistsMasterKey | 首次启动自举出配置与主密钥，重启读回同一把 |
+| `runtime/runtime_test.go` | TestPythonRuntimeChain · TestPowerShellRuntimeChain | 归档顶层剥离 / 平铺解压、穿越拒绝、探测命中、缺失报错带路径、探测位兜底 |
+| `llm/think_test.go` | TestThinkSplitter | 内联 think 标签分流：整段 / 多块 / 纯文本透传、切碎标签与逐字喂入 |
+| `llm/openai/stream_test.go` | TestOpenAIStreamChain | usage 帧顺序、tool_call 单次下发、断流收尾、缓存计量双口径 |
+| `llm/anthropic/stream_test.go` | TestAnthropicStreamChain | 上游停滞经空闲看门狗收尾、事件缓冲满不丢弃 |
+| `llm/anthropic/encode_test.go` | TestEncodeProtocolConstraints | 无签名 thinking 不回传、角色交替、空 text / tool_result 拦截 |
+| `db/db_test.go` | TestOpenCreatesEveryTable | 全部业务表与 FTS5 虚表建出 |
+| `server/sse_test.go` | TestHubDeliveryChain | delta 合流保序、慢客户端挤 delta 保 done、按 seq 重放 |
 
 ---
 

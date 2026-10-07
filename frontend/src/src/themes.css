@@ -1,12 +1,13 @@
 /* ===== 主题令牌（全项目唯一色值 / 尺寸定义处）=====
  *
- * <p>设计语言「靛蓝极光」：三个色族各司其职——
- *   <b>靛蓝族</b> = 动作与品牌（主按钮、选中、链接）；<b>极光青族</b> = 活跃与流动
- *   （流式光标、运行中状态灯、思考中）；<b>丁香紫</b> = 柔和底色（选中底、气泡底）。
+ * <p>设计语言「晨紫 Mindful Violet」：单色相紫罗兰体系，五档明度各司其职——
+ *   <b>深紫 #4C1D95</b> = 动作与品牌（主按钮、选中、强调文字）；<b>亮紫 #8B5CF6</b> = 活跃
+ *   （流式光标、运行中状态灯、思考中）；<b>浅紫 #DDD6FE</b> = 柔和底色（选中底、气泡底）；
+ *   <b>紫雾 #F5F3FF</b> = 页面底色；<b>纯白</b> = 卡片面。明度即层级：越亮越「正在发生」。
  * 两套主题共用同一组语义令牌（--wb-*），组件不写死色值：
  * <ul>
- *   <li>浅色 = 晨霭：雾白底 + 纯白卡 + 电靛强调（#4F46E5）+ 深极光青活动色（#0891B2）</li>
- *   <li>暗色 = 靛夜：墨夜底（#0A0A1A）+ 午夜靛卡（#141432）+ 长春花强调（#818CF8）+ 极光青活动色（#67E8F9）</li>
+ *   <li>浅色 = 晨紫：紫雾底 + 纯白卡 + 深紫强调（#4C1D95）+ 亮紫活动色（#8B5CF6）</li>
+ *   <li>暗色 = 夜紫：墨夜底（#131022）+ 暗紫卡（#1D1839）+ 浅紫强调（#A78BFA）+ 淡紫活动色（#C4B5FD）</li>
  * </ul>
  *
  * <p>三条纪律（与「看上去廉价」的三个根因一一对应）：
@@ -17,7 +18,7 @@
  *       按钮一律纯色（禁渐变），描边一律中性半透明（禁彩色描边）。</li>
  * </ol>
  *
- * <p>关键字号 / 尺寸刻度唯一来源：`--wb-fs-*`（6 级）、`--wb-radius-*`（4 级 + 胶囊）、
+ * <p>关键字号 / 尺寸刻度唯一来源：`--wb-fs-*`（8 级）、`--wb-radius-*`（4 级 + 胶囊）、
  * `--wb-ctl-h*`（4 档控件高度 + 图标钮）、`--wb-dur-*`（3 档动效）。
  */
 
@@ -44,13 +45,15 @@
      不引 CSS 引擎也不写 calc 包裹，直接乘系数——改一处就够。 */
   --wb-fs-scale: 1;
 
-  /* 字号 6 级 */
+  /* 字号 8 级 */
+  --wb-fs-2xs: 10px;
   --wb-fs-xs: 11px;
   --wb-fs-sm: 12px;
   --wb-fs-md: 13px;
   --wb-fs-lg: 15px;
   --wb-fs-xl: 20px;
   --wb-fs-2xl: 28px;
+  --wb-fs-3xl: 32px;
   --wb-lh-tight: 1.25;
   --wb-lh-base: 1.6;
   --wb-lh-loose: 1.75;
@@ -123,69 +126,74 @@
   --wb-user-bg-blur: 0px;
 
   /* 主题预览色：不随当前主题变化，两张主题卡各自显示自己的强调色 */
-  --wb-swatch-light: #4f46e5;
-  --wb-swatch-dark: #818cf8;
+  --wb-swatch-light: #4c1d95;
+  --wb-swatch-dark: #a78bfa;
+
+  /* 薰衣草主 CTA（案例「注册」钮的固化色）：两套主题同值，深字保证对比 */
+  --wb-lav-cta: #ddd6fe;
+  --wb-on-lav: #241b45;
 }
 
 /* ============================================================
-   浅白 · 晨霭（默认主题：data-theme 缺失时同样生效）
+   浅白 · 晨紫（默认主题：data-theme 缺失时同样生效）
    ------------------------------------------------------------
-   晨雾般的冷白底，靛蓝 + 极光青双强调：
-     雾白 = 页面与卡片的底（带一丝丁香紫的凉意）
-     靛灰 = 分隔线、次级面、弱文字
-     电靛 #4F46E5 = 主操作、当前项、镂空描边（白字对比 6.3:1）
-     深极光青 #0891B2 = 流式光标、运行中状态灯（浅底上依然可见）
-   镂空按钮 = 透明底 + 靛蓝描边 + 靛蓝文字，与实心主按钮形成主次。
+   紫雾般的浅底，单色相紫罗兰五档：
+     紫雾 #F5F3FF = 页面与侧栏的底（color-4）
+     纯白 #FFFFFF = 卡片面（color-5）
+     深紫 #4C1D95 = 主操作、强调文字、镂空描边（白字对比 10.4:1）（color-1）
+     亮紫 #8B5CF6 = 流式光标、运行中状态灯（color-2）
+     浅紫 #DDD6FE = 选中底、气泡底（color-3）
+   镂空按钮 = 透明底 + 深紫描边 + 深紫文字，与实心主按钮形成主次。
    ============================================================ */
 :root,
 [data-theme='light'] {
   color-scheme: light;
 
-  --wb-bg: #f5f6fb;
+  --wb-bg: #f5f3ff;
   --wb-page-gradient: none;
 
   /* 面：页面底 → 侧栏与面板 → 卡片 → 抬升底 → 凹陷底 */
-  --wb-side: #fbfbfe;
+  --wb-side: #faf9ff;
   --wb-surface: #ffffff;
-  --wb-surface-2: #f8f8fd;
-  --wb-surface-hover: #f1f2fa;
+  --wb-surface-2: #faf9ff;
+  --wb-surface-hover: #f2edfe;
   --wb-surface-solid: #ffffff;
-  --wb-raise: #f1f2fa;
-  --wb-sunken: #eaebf6;
+  --wb-raise: #f2edfe;
+  --wb-sunken: #eae3fb;
   --wb-panel: #ffffff;
 
   /* 中性叠加：hover 底色用它，避免「一屏几十个淡紫块」 */
-  --wb-tint: rgba(30, 32, 90, 0.05);
-  --wb-tint-lg: rgba(30, 32, 90, 0.08);
+  --wb-tint: rgba(52, 36, 105, 0.05);
+  --wb-tint-lg: rgba(52, 36, 105, 0.08);
 
-  --wb-line: #e6e7f2;
-  --wb-line-2: #d5d7e8;
+  --wb-line: #e9e4f6;
+  --wb-line-2: #d9d2ee;
   --wb-border: var(--wb-line);
   --wb-border-strong: var(--wb-line-2);
 
-  --wb-ink: #181832;
-  --wb-ink-2: #4b4d6b;
-  --wb-muted: #74769b;
+  --wb-ink: #221c40;
+  --wb-ink-2: #5b547c;
+  --wb-muted: #8680a8;
 
-  /* 动作色：电靛，靠明度分四级（深 = 实底按钮 / 中 = 描边与文字 / 淡 = 轨道） */
-  --wb-primary: #4f46e5;
-  --wb-primary-strong: #4338ca;
-  --wb-primary-deep: #4f46e5;
-  --wb-primary-soft: rgba(129, 140, 248, 0.13);
-  --wb-primary-line: rgba(99, 102, 241, 0.36);
+  /* 动作色：深紫，靠明度分四级（深 = 实底按钮 / 中 = 描边与文字 / 淡 = 轨道） */
+  --wb-primary: #4c1d95;
+  --wb-primary-strong: #3d1678;
+  --wb-primary-deep: #4c1d95;
+  --wb-primary-soft: rgba(139, 92, 246, 0.13);
+  --wb-primary-line: rgba(124, 58, 237, 0.36);
   --wb-primary-ink: #ffffff;
-  --wb-accent-glow: rgba(79, 70, 229, 0.14);
+  --wb-accent-glow: rgba(76, 29, 149, 0.14);
 
-  /* 活动色：极光青。只给「正在发生的事」用——流式光标、运行灯、思考中 */
-  --wb-live: #0891b2;
-  --wb-live-soft: rgba(8, 145, 178, 0.1);
-  --wb-live-line: rgba(8, 145, 178, 0.35);
+  /* 活动色：亮紫。只给「正在发生的事」用——流式光标、运行灯、思考中 */
+  --wb-live: #8b5cf6;
+  --wb-live-soft: rgba(139, 92, 246, 0.1);
+  --wb-live-line: rgba(139, 92, 246, 0.35);
 
-  /* 图表双色：靛蓝为主序列，极光青为对比序列，其余两档做渐进 */
-  --wb-ch-1: #4f46e5;
-  --wb-ch-2: #0891b2;
-  --wb-ch-3: #a5b4fc;
-  --wb-ch-4: #e4e6fb;
+  /* 图表双色：深紫为主序列，亮紫为对比序列，浅紫两档做渐进 */
+  --wb-ch-1: #4c1d95;
+  --wb-ch-2: #8b5cf6;
+  --wb-ch-3: #c4b5fd;
+  --wb-ch-4: #eae4fb;
 
   /* 状态色只留给「通过 / 出错」，且降饱和，不与主色抢 */
   --wb-success: #1f9d63;
@@ -194,27 +202,27 @@
   --wb-danger-soft: rgba(209, 90, 85, 0.1);
   --wb-warning: #c08a35;
   --wb-warning-soft: rgba(192, 138, 53, 0.12);
-  --wb-info: #4f46e5;
+  --wb-info: #4c1d95;
 
   --wb-mint: var(--wb-success);
   --wb-mint-strong: #178a55;
   /* 装饰色统一收口到主色、活动色与中性阶 */
-  --wb-lavender: #818cf8;
+  --wb-lavender: #a78bfa;
   --wb-sky: var(--wb-ch-2);
   --wb-lemon: var(--wb-warning);
 
-  --wb-sel: rgba(129, 140, 248, 0.18);
-  --wb-user-bubble: #edeeff;
+  --wb-sel: rgba(139, 92, 246, 0.16);
+  --wb-user-bubble: #eae4fb;
 
   /* 阴影极轻：只用来「托一下」，不用来「发光」 */
-  --wb-shadow-1: 0 1px 2px rgba(28, 29, 60, 0.05);
-  --wb-shadow-2: 0 2px 6px -1px rgba(28, 29, 60, 0.08), 0 1px 2px rgba(28, 29, 60, 0.04);
-  --wb-shadow-3: 0 10px 30px -8px rgba(35, 32, 90, 0.18), 0 2px 8px -2px rgba(28, 29, 60, 0.06);
+  --wb-shadow-1: 0 1px 2px rgba(38, 30, 78, 0.05);
+  --wb-shadow-2: 0 2px 6px -1px rgba(38, 30, 78, 0.08), 0 1px 2px rgba(38, 30, 78, 0.04);
+  --wb-shadow-3: 0 10px 30px -8px rgba(48, 36, 100, 0.18), 0 2px 8px -2px rgba(38, 30, 78, 0.06);
   --wb-shadow-sm: var(--wb-shadow-1);
   --wb-shadow: var(--wb-shadow-1);
   --wb-shadow-lg: var(--wb-shadow-3);
   --wb-shadow-pop: var(--wb-shadow-3);
-  --wb-btn-shadow: 0 1px 2px rgba(28, 29, 60, 0.1);
+  --wb-btn-shadow: 0 1px 2px rgba(38, 30, 78, 0.1);
   --wb-btn-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.16);
   --wb-btn-sheen-strong: inset 0 1px 0 rgba(255, 255, 255, 0.22);
 
@@ -228,72 +236,76 @@
   --wb-grad-brand: none;
   --wb-grad-btn: none;
 
-  --wb-grid-dot: rgba(28, 29, 60, 0.035);
-  --wb-deco-1: rgba(129, 140, 248, 0.16);
-  --wb-deco-2: rgba(103, 232, 249, 0.14);
+  --wb-grid-dot: rgba(38, 30, 78, 0.035);
+  --wb-deco-1: rgba(139, 92, 246, 0.16);
+  --wb-deco-2: rgba(196, 181, 253, 0.16);
+
+  /* 欢迎页光晕（案例的 blur 圆）：只允许出现在空态引导，工作界面仍然纯色 */
+  --wb-glow-1: rgba(221, 214, 254, 0.6);
+  --wb-glow-2: rgba(139, 92, 246, 0.28);
 
   /* 代码块 */
-  --wb-code-bg: #f7f8fd;
-  --wb-code-header-bg: #eef0f9;
-  --wb-code-fg: #26263b;
-  --wb-code-border: #e4e6f2;
+  --wb-code-bg: #f8f6fe;
+  --wb-code-header-bg: #f0ecfc;
+  --wb-code-fg: #2a2545;
+  --wb-code-border: #e6e0f4;
 }
 
 /* ============================================================
-   暗黑 · 靛夜
+   暗黑 · 夜紫
    ------------------------------------------------------------
-   与浅白主题结构完全对位，只换三族色：
-     墨夜 #0A0A1A = 页面底    （对应雾白）
-     午夜靛 #141432 = 卡片与分隔（对应靛灰）
-     长春花 #818CF8 = 强调与镂空（对应电靛）
-     极光青 #67E8F9 = 活动与流式（暗底上 12.9:1，格外醒目）
-   镂空按钮在暗底上是「长春花描边 + 长春花文字」，实底按钮用电靛 #4F46E5。
+   与浅白主题结构完全对位，只换五档明度：
+     墨夜 #131022 = 页面底    （对应紫雾）
+     暗紫 #1D1839 = 卡片与分隔（对应纯白）
+     浅紫 #A78BFA = 强调与镂空（对应深紫）
+     淡紫 #C4B5FD = 活动与流式（暗底上最亮的一档，格外醒目）
+   镂空按钮在暗底上是「浅紫描边 + 浅紫文字」，实底按钮用 #6D28D9。
    ============================================================ */
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --wb-bg: #0a0a1a;
+  --wb-bg: #131022;
   --wb-page-gradient: none;
 
-  --wb-side: #0e0e22;
-  --wb-surface: #141432;
-  --wb-surface-2: #101026;
-  --wb-surface-hover: #1b1b3e;
-  --wb-surface-solid: #15152e;
-  --wb-raise: #1b1b3e;
-  --wb-sunken: #070714;
-  --wb-panel: #0e0e22;
+  --wb-side: #171331;
+  --wb-surface: #1d1839;
+  --wb-surface-2: #181431;
+  --wb-surface-hover: #272148;
+  --wb-surface-solid: #1e193b;
+  --wb-raise: #272148;
+  --wb-sunken: #0e0b1c;
+  --wb-panel: #171331;
 
-  --wb-tint: rgba(224, 228, 255, 0.055);
-  --wb-tint-lg: rgba(224, 228, 255, 0.09);
+  --wb-tint: rgba(228, 222, 255, 0.055);
+  --wb-tint-lg: rgba(228, 222, 255, 0.09);
 
-  --wb-line: rgba(199, 206, 255, 0.1);
-  --wb-line-2: rgba(199, 206, 255, 0.18);
+  --wb-line: rgba(211, 202, 255, 0.1);
+  --wb-line-2: rgba(211, 202, 255, 0.18);
   --wb-border: var(--wb-line);
   --wb-border-strong: var(--wb-line-2);
 
-  --wb-ink: #e8e8f6;
-  --wb-ink-2: #a7aacf;
-  --wb-muted: #888bb5;
+  --wb-ink: #edeaf9;
+  --wb-ink-2: #b4add6;
+  --wb-muted: #9089b8;
 
-  /* 动作色：长春花做文字与描边（暗底 6.1:1），电靛做实底按钮 */
-  --wb-primary: #818cf8;
-  --wb-primary-strong: #a5b4fc;
-  --wb-primary-deep: #4f46e5;
-  --wb-primary-soft: rgba(129, 140, 248, 0.14);
-  --wb-primary-line: rgba(129, 140, 248, 0.42);
+  /* 动作色：浅紫做文字与描边（暗底 7.3:1），#6D28D9 做实底按钮 */
+  --wb-primary: #a78bfa;
+  --wb-primary-strong: #c4b5fd;
+  --wb-primary-deep: #6d28d9;
+  --wb-primary-soft: rgba(167, 139, 250, 0.15);
+  --wb-primary-line: rgba(167, 139, 250, 0.42);
   --wb-primary-ink: #ffffff;
-  --wb-accent-glow: rgba(79, 70, 229, 0.3);
+  --wb-accent-glow: rgba(139, 92, 246, 0.3);
 
-  /* 活动色：极光青，暗底上最亮的信号色 */
-  --wb-live: #67e8f9;
-  --wb-live-soft: rgba(103, 232, 249, 0.11);
-  --wb-live-line: rgba(103, 232, 249, 0.4);
+  /* 活动色：淡紫，暗底上最亮的信号色 */
+  --wb-live: #c4b5fd;
+  --wb-live-soft: rgba(196, 181, 253, 0.11);
+  --wb-live-line: rgba(196, 181, 253, 0.4);
 
-  --wb-ch-1: #818cf8;
-  --wb-ch-2: #67e8f9;
-  --wb-ch-3: #4f46e5;
-  --wb-ch-4: #2c2c6b;
+  --wb-ch-1: #a78bfa;
+  --wb-ch-2: #c4b5fd;
+  --wb-ch-3: #6d28d9;
+  --wb-ch-4: #2e2657;
 
   --wb-success: #3bbe85;
   --wb-success-soft: rgba(59, 190, 133, 0.12);
@@ -301,16 +313,16 @@
   --wb-danger-soft: rgba(232, 106, 99, 0.12);
   --wb-warning: #d99a45;
   --wb-warning-soft: rgba(217, 154, 69, 0.12);
-  --wb-info: #818cf8;
+  --wb-info: #a78bfa;
 
   --wb-mint: var(--wb-success);
   --wb-mint-strong: #4fd39a;
-  --wb-lavender: #a5b4fc;
+  --wb-lavender: #c4b5fd;
   --wb-sky: var(--wb-ch-2);
   --wb-lemon: var(--wb-warning);
 
-  --wb-sel: rgba(129, 140, 248, 0.28);
-  --wb-user-bubble: #1e1e48;
+  --wb-sel: rgba(167, 139, 250, 0.26);
+  --wb-user-bubble: #2e2657;
 
   --wb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
   --wb-shadow-2: 0 2px 8px -2px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -332,14 +344,17 @@
   --wb-grad-brand: none;
   --wb-grad-btn: none;
 
-  --wb-grid-dot: rgba(199, 206, 255, 0.025);
-  --wb-deco-1: rgba(129, 140, 248, 0.26);
-  --wb-deco-2: rgba(103, 232, 249, 0.12);
+  --wb-grid-dot: rgba(211, 202, 255, 0.025);
+  --wb-deco-1: rgba(167, 139, 250, 0.26);
+  --wb-deco-2: rgba(76, 29, 149, 0.32);
 
-  --wb-code-bg: #0c0c22;
-  --wb-code-header-bg: #12122c;
-  --wb-code-fg: #e9e8f6;
-  --wb-code-border: rgba(199, 206, 255, 0.1);
+  --wb-glow-1: rgba(167, 139, 250, 0.2);
+  --wb-glow-2: rgba(109, 40, 217, 0.26);
+
+  --wb-code-bg: #151129;
+  --wb-code-header-bg: #1b1635;
+  --wb-code-fg: #ece9f8;
+  --wb-code-border: rgba(211, 202, 255, 0.1);
 
   /* 深色底上笔画略加粗一档，抵消「亮底显粗、暗底显细」的视觉误差 */
   --wb-icon-stroke: 1.85;

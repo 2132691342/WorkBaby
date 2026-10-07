@@ -124,8 +124,47 @@ func (c *ChatService) enqueue(sessionID, content string) error {
 	if content == "" {
 		return domain.ErrEmptyContent
 	}
+	// 会话锁保证「判忙」与 Send 不交错：要么赶在 run 结束前排进队列，
+	// 要么确认空闲后直接落库，两条路都恰好持久化一次。
+	lock := c.lockOf(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	c.mu.Lock()
+	busy := c.cancel[sessionID] != nil
+	c.mu.Unlock()
+	if !busy {
+		// 空闲时没有 run 来消费队列：直接落库进历史，下次发送模型自然看得到。
+		// 不入队，否则下次 run 首轮 drain 会把同一句再注入一次。
+		c.appendSteered(sessionID, content)
+		return nil
+	}
 	c.queueOf(sessionID).Enqueue(llm.Message{Role: llm.RoleUser, Content: content})
 	return nil
+}
+
+// appendSteered 把插话落一条 user 条目并广播，界面据此把它补进时间线。
+func (c *ChatService) appendSteered(sessionID, content string) {
+	sess, err := c.env.Repo.GetSession(sessionID)
+	if err != nil {
+		return
+	}
+	entry := &domain.EntryDO{
+		ID:        pkg.NewID(domain.PrefixEntry),
+		SessionID: sessionID,
+		ParentID:  sess.LeafEntryID,
+		Type:      domain.EntryTypeMessage,
+		Role:      domain.RoleUser,
+		PayloadJSON: payloadOf(llm.Message{
+			Role: llm.RoleUser, Content: content,
+		}, "", 0),
+	}
+	if err := c.sessions.Append(entry); err != nil {
+		pkg.Warnf("chat: 落插话条目失败: %v", err)
+		return
+	}
+	c.env.Emitter.Emit(sessionID, domain.EventChatUser, domain.UserData{
+		EntryID: entry.ID, Content: content,
+	})
 }
 
 // run 是一次 run 的完整生命周期。
@@ -140,7 +179,7 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 
 	sess, err := c.env.Repo.GetSession(sessionID)
 	if err != nil {
-		c.fail(sessionID, err)
+		c.fail(sessionID, nil, nil, err)
 		return
 	}
 	// 存量会话可能是在「只存服务、不存模型」时代建的，模型名是空的。
@@ -148,12 +187,12 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	sess = c.withModel(sess)
 	streamer, model, err := c.providers.Streamer(sess.ProviderID, sess.Model)
 	if err != nil {
-		c.fail(sessionID, err)
+		c.fail(sessionID, nil, nil, err)
 		return
 	}
 	history, err := c.sessions.History(sessionID)
 	if err != nil {
-		c.fail(sessionID, err)
+		c.fail(sessionID, nil, nil, err)
 		return
 	}
 	tools := c.env.Registry.Enabled(c.disabledTools())
@@ -163,7 +202,7 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	deps.Reads = c.readsOf(sessionID)
 	permission := sess.Permission
 	cap := c.capabilityOf(sess.ProviderID, model)
-	state := &runState{sessionID: sessionID, model: model, windowKnown: cap.Known}
+	state := &runState{sessionID: sessionID, providerID: sess.ProviderID, model: model, windowKnown: cap.Known}
 	temp, topP, maxOutput := c.samplingOf(sess.ProviderID, model)
 
 	loop := agent.New(agent.Config{
@@ -195,28 +234,12 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 
 	res, err := loop.Run(ctx)
 	if err != nil {
-		c.fail(sessionID, err)
+		c.fail(sessionID, state, res, err)
 		return
 	}
 
 	c.appendAssistant(state, res)
-	_ = c.env.Repo.AddUsage(&domain.TokenUsageDO{
-		ID:        pkg.NewID(domain.PrefixUsage),
-		SessionID: sessionID,
-		Provider:  sess.ProviderID,
-		Model:     model,
-		Input:     res.Usage.Input,
-		Output:    res.Usage.Output,
-		Cached:    res.Usage.Cached,
-		Total:     res.Usage.Total,
-		Context:   state.turnContext,
-		LatencyMs: res.Usage.LatencyMs,
-	})
-	if fresh, e2 := c.env.Repo.GetSession(sessionID); e2 == nil {
-		_ = c.env.Repo.UpdateSessionColumns(sessionID, map[string]any{
-			"total_tokens": fresh.TotalTokens + res.Usage.Total,
-		})
-	}
+	c.recordUsage(sessionID, sess.ProviderID, model, state.turnContext, res.Usage)
 
 	usage := domain.UsageVO{
 		Input: res.Usage.Input, Output: res.Usage.Output, Cached: res.Usage.Cached,
@@ -254,6 +277,7 @@ func (c *ChatService) withModel(sess *domain.SessionDO) *domain.SessionDO {
 // runState 收集一次 run 过程中的落库位点。
 type runState struct {
 	sessionID   string
+	providerID  string
 	model       string
 	windowKnown bool
 	turnEntryID string
@@ -300,10 +324,8 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 		st.toolCalls = append(st.toolCalls, llm.ToolCall{
 			ID: e.ToolCall.ID, Name: e.ToolCall.Name, Label: e.ToolTitle, Args: e.ToolCall.Args,
 		})
-		// 声明必须先于结果落库：上游协议要求 assistant(tool_calls) 紧邻它自己的
-		// tool 结果。等 turn_end 才落声明的话，工具结果会先入链，上游收到
-		// 一条找不到声明的 tool 消息，直接 400（tool result's tool id not found）。
-		// 这里无条件落：turn_start 时 turnEntryID 虽有值，但声明必须早于任何 tool 结果。
+		// 声明必须先于结果落库：上游要求 assistant(tool_calls) 紧邻它自己的
+		// tool 结果，落晚了上游会以 tool result's tool id not found 直接 400。
 		c.appendAssistantTurn(st)
 		c.env.Emitter.Emit(st.sessionID, domain.EventChatToolStart, domain.ToolStartData{
 			ToolCallID: e.ToolCall.ID, Tool: e.ToolCall.Name,
@@ -314,6 +336,10 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 			return
 		}
 		c.appendTool(st, e)
+	case agent.EventSteering:
+		// 插话在注入时刻落库：早了会插进 assistant(tool_calls) 与工具结果之间
+		// 撕裂协议配对，晚了链序就与真实对话不一致。
+		c.appendSteered(st.sessionID, e.UserContent)
 	case agent.EventTurnEnd:
 		// 本轮用量随 turn_end 到，落在这一轮最后写入的那条 assistant 上。
 		st.turnUsage = e.Usage
@@ -431,12 +457,42 @@ func (c *ChatService) appendAssistant(st *runState, res *agent.Result) {
 }
 
 // fail 统一错误出口：已产出的内容不回滚，用户能看到半成品。
-func (c *ChatService) fail(sessionID string, err error) {
+// 错误轮没有 turn_end，这里负责把已流出的正文兜底落库——不然界面上看得到的
+// 内容刷新后就消失；上游已计量的 token 也要进仪表盘，否则漏算真实消耗。
+func (c *ChatService) fail(sessionID string, st *runState, res *agent.Result, err error) {
+	if st != nil {
+		st.stopReason = agent.StopError
+		c.appendAssistantTurn(st)
+		if res != nil && (res.Usage.Input > 0 || res.Usage.Output > 0) {
+			c.recordUsage(sessionID, st.providerID, st.model, st.turnContext, res.Usage)
+		}
+	}
 	// 带上 code 与会话，用户截图里就能直接定位到是哪一类失败。
 	pkg.Errorf("chat: run 失败 session=%s code=%d err=%v", sessionID, pkg.CodeOf(err), err)
 	c.env.Emitter.Emit(sessionID, domain.EventChatError, domain.ErrorData{
 		Code: pkg.CodeOf(err), Message: err.Error(),
 	})
+}
+
+// recordUsage 落一行用量并累计进会话总额，正常与错误两条路径共用。
+func (c *ChatService) recordUsage(sessionID, providerID, model string, ctxTokens int, u llm.Usage) {
+	_ = c.env.Repo.AddUsage(&domain.TokenUsageDO{
+		ID:        pkg.NewID(domain.PrefixUsage),
+		SessionID: sessionID,
+		Provider:  providerID,
+		Model:     model,
+		Input:     u.Input,
+		Output:    u.Output,
+		Cached:    u.Cached,
+		Total:     u.Total,
+		Context:   ctxTokens,
+		LatencyMs: u.LatencyMs,
+	})
+	if fresh, e2 := c.env.Repo.GetSession(sessionID); e2 == nil {
+		_ = c.env.Repo.UpdateSessionColumns(sessionID, map[string]any{
+			"total_tokens": fresh.TotalTokens + u.Total,
+		})
+	}
 }
 
 // resolveSkill 把 /skill:名字 展开成带正文的用户消息。

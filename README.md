@@ -12,8 +12,8 @@
 | 安全 | 写文件 / 跑命令 / 跑脚本走审批卡：只这一次 / 本会话内都放行 / 拒绝 |
 | 方法论 | Skill：把「怎么做一件事」写成 `SKILL.md`，需要时才展开正文 |
 | 私有资料 | 知识库：本地文档（PDF / Word / Excel / Markdown / 文本）建索引，对话时按需检索 |
-| 看得见 | 对话时实时显示上下文占用；仪表盘按天 / 按模型统计 token 用量 |
-| Python | 内置便携式 CPython（可选），开箱即用，不用自己装环境 |
+| 看得见 | 对话时实时显示上下文占用；仪表盘按天 / 按模型统计 token 用量与缓存命中 |
+| 开箱即跑 | 内置便携式 CPython 与 PowerShell 7（可选随包分发），不用自己装环境 |
 
 打开就用：装好 → 设置里填一个模型服务 → 回到聊天页说人话 → 它自己读文件、改文件、跑脚本、查资料。
 需要贴文件时在输入框打 `@` 选文件；`/` 可以唤出常用命令。
@@ -28,7 +28,7 @@
 | 配置 / 日志 / ID | Viper · log/slog · ULID |
 | Agent / LLM | 自研内核（单层流式循环）· 自研协议适配（OpenAI 兼容 / Anthropic / Ollama） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + 原生 CSS 设计令牌（无 UI 框架） |
-| 测试 | testing（全量 < 10s，LLM 用假实现注入） |
+| 测试 | testing（29 条链路测试，全量 -count=1 约 20s；LLM 用假实现注入，不联网） |
 
 ## 快速开始
 
@@ -56,7 +56,7 @@ internal/
   domain/     域模型（一个聚合根一个文件）
   knowledge/  知识库（切分 + FTS5 检索）
   skill/      Skill 解析与注册
-  runtime/    路径解析 + 内置 Python
+  runtime/    路径解析 + 内置 Python / PowerShell 运行时
   pkg/        叶子工具包（错误 / ID / 日志 / 加密 / 路径）
 frontend/src/src/   Vue3 源码（themes.css 是唯一色值与字体来源）
 docs/         架构 / 契约 / 开发 / 部署 / 页面

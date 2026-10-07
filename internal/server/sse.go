@@ -72,9 +72,8 @@ func (c *Client) Events() <-chan domain.Envelope { return c.ch }
 func (c *Client) Done() <-chan struct{} { return c.done }
 
 // Publish 把一个事件推给订阅该会话的全部客户端，并写入重放缓冲。
-// 连续的 chat:delta 先在会话内合并（80ms 窗口），非 delta 事件到达时
-// 先冲刷挂起的 delta 再发，保证顺序。seq 由 Emitter 分配，合并不破坏
-// 断线重放的一致性——重放里少的是中间增量，正文语义等价。
+// 连续的 chat:delta 按 80ms 窗口合流，非 delta 事件到达时先冲刷挂起的
+// delta 再发自己；重放里少的是中间增量，正文语义等价。
 func (h *Hub) Publish(sessionID string, env domain.Envelope) {
 	if env.Event != domain.EventChatDelta {
 		// 非 delta：先冲刷挂起的 delta（保序），再发自己
@@ -213,11 +212,8 @@ func (h *Hub) Replay(sessionID string, after int64) []domain.Envelope {
 }
 
 // encodeEvent 把信封序列化成 SSE 帧。
-//
-// data 里必须放**完整信封**而不是只有载荷：前端的 SSE 监听器拿到帧后
-// 直接把 data 当信封用（`env.event` 决定路由、`env.data` 才是载荷）。
-// 只发载荷的话 env.event 恒为 undefined，事件会被整条静默丢弃——
-// 后端跑完 3 轮、数据库里答案齐全，界面却一个字都不显示。
+// data 里放**完整信封**而不是只有载荷：前端拿到帧后直接把 data 当信封用
+// （`env.event` 决定路由、`env.data` 才是载荷），只发载荷事件会被整条丢弃。
 func encodeEvent(env domain.Envelope) ([]byte, error) {
 	raw, err := json.Marshal(env)
 	if err != nil {

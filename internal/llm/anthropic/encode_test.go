@@ -24,55 +24,61 @@ func bodyOf(t *testing.T, req llm.Request) requestBody {
 	return body
 }
 
-func TestEncodeDropsUnsignedThinking(t *testing.T) {
-	body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
-		{Role: llm.RoleUser, Content: "你好"},
-		{Role: llm.RoleAssistant, Thinking: "思考过程", Content: "回答"},
-		{Role: llm.RoleUser, Content: "继续"},
-	}})
-	for _, m := range body.Messages {
-		for _, b := range m.Content {
-			if b.Type == "thinking" {
-				t.Fatal("无签名的 thinking 块被回传：网关会以 invalid_request_error 拒绝")
+// Anthropic Messages 协议的编码硬约束：无签名 thinking 不回传、
+// 角色严格交替、空 text / tool_result 拦截。任何一条违反，多轮对话
+// 第二轮起就会被网关以 invalid_request_error 拒绝——表现为「答完一轮就卡死」。
+func TestEncodeProtocolConstraints(t *testing.T) {
+	// 无签名的 thinking 块回传会被网关拒绝。
+	t.Run("无签名 thinking 不回传", func(t *testing.T) {
+		body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "你好"},
+			{Role: llm.RoleAssistant, Thinking: "思考过程", Content: "回答"},
+			{Role: llm.RoleUser, Content: "继续"},
+		}})
+		for _, m := range body.Messages {
+			for _, b := range m.Content {
+				if b.Type == "thinking" {
+					t.Fatal("无签名的 thinking 块被回传：网关会以 invalid_request_error 拒绝")
+				}
 			}
 		}
-	}
-}
+	})
 
-func TestEncodeMergesSameRoleAndKeepsAlternation(t *testing.T) {
-	body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
-		{Role: llm.RoleUser, Content: "看下桌面"},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "t1", Name: "ls", Args: map[string]any{"path": "c:/"}}}},
-		{Role: llm.RoleTool, ToolCallID: "t1", Content: "a.txt"},
-		// 插话注入：紧跟在 tool 结果（role=user）后面，不能出现连续两条 user
-		{Role: llm.RoleUser, Content: "顺便看看大小"},
-	}})
-	prev := ""
-	for i, m := range body.Messages {
-		if i > 0 && m.Role == prev {
-			t.Fatalf("第 %d 条出现连续同角色消息 %q：严格交替的兼容层会拒绝", i, m.Role)
+	// 插话注入会紧跟在 tool 结果（role=user）后面，合并后不能出现连续两条 user。
+	t.Run("同角色合并且保持交替", func(t *testing.T) {
+		body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "看下桌面"},
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "t1", Name: "ls", Args: map[string]any{"path": "c:/"}}}},
+			{Role: llm.RoleTool, ToolCallID: "t1", Content: "a.txt"},
+			{Role: llm.RoleUser, Content: "顺便看看大小"},
+		}})
+		prev := ""
+		for i, m := range body.Messages {
+			if i > 0 && m.Role == prev {
+				t.Fatalf("第 %d 条出现连续同角色消息 %q：严格交替的兼容层会拒绝", i, m.Role)
+			}
+			prev = m.Role
 		}
-		prev = m.Role
-	}
-	if body.Messages[0].Role != "user" {
-		t.Fatal("首条消息必须是 user")
-	}
-}
+		if body.Messages[0].Role != "user" {
+			t.Fatal("首条消息必须是 user")
+		}
+	})
 
-func TestEncodeRejectsEmptyTextAndToolResult(t *testing.T) {
-	body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
-		{Role: llm.RoleUser, Content: ""},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "t1", Name: "ls"}}},
-		{Role: llm.RoleTool, ToolCallID: "t1", Content: ""},
-	}})
-	for _, m := range body.Messages {
-		for _, b := range m.Content {
-			if b.Type == "text" && strings.TrimSpace(b.Text) == "" {
-				t.Fatal("空 text 块被发出")
-			}
-			if b.Type == "tool_result" && strings.TrimSpace(b.Content) == "" {
-				t.Fatal("空 tool_result 被发出")
+	t.Run("空 text 与空 tool_result 拦截", func(t *testing.T) {
+		body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: ""},
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "t1", Name: "ls"}}},
+			{Role: llm.RoleTool, ToolCallID: "t1", Content: ""},
+		}})
+		for _, m := range body.Messages {
+			for _, b := range m.Content {
+				if b.Type == "text" && strings.TrimSpace(b.Text) == "" {
+					t.Fatal("空 text 块被发出")
+				}
+				if b.Type == "tool_result" && strings.TrimSpace(b.Content) == "" {
+					t.Fatal("空 tool_result 被发出")
+				}
 			}
 		}
-	}
+	})
 }

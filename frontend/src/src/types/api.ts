@@ -161,6 +161,8 @@ export interface ApprovalData {
   reason: string
 }
 export interface CompressedData { tokens_before: number; tokens_after: number }
+/** 插话 / 排队消息已注入上下文并落库，界面据此把它补进时间线 */
+export interface UserData { entry_id: string; content: string }
 export interface DoneData { entry_id: string; stop_reason: string; usage?: UsageVO }
 export interface ErrorData { code: number; message: string }
 export interface GapData { reason: string }
@@ -189,6 +191,7 @@ export type ServerEvent =
   | (Envelope<ToolEndData> & { event: 'chat:tool_end' })
   | (Envelope<ApprovalData> & { event: 'chat:approval' })
   | (Envelope<CompressedData> & { event: 'chat:compressed' })
+  | (Envelope<UserData> & { event: 'chat:user' })
   | (Envelope<ContextData> & { event: 'chat:context' })
   | (Envelope<DoneData> & { event: 'chat:done' })
   | (Envelope<StoppedData> & { event: 'chat:stopped' })

@@ -47,7 +47,7 @@ onMounted(syncFromSettings)
         >
           <span class="sw" :style="{ background: t.swatch }" />
           <b>{{ t.name }}</b>
-          <span class="theme-sub">{{ t.key === 'light' ? '雾白 · 靛灰 · 电靛' : '墨夜 · 午夜靛 · 长春花' }}</span>
+          <span class="theme-sub">{{ t.key === 'light' ? '紫雾 · 纯白 · 深紫' : '墨夜 · 暗紫 · 浅紫' }}</span>
         </button>
       </div>
     </div>

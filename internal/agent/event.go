@@ -13,6 +13,7 @@ const (
 	EventDelta      EventKind = "message_delta"
 	EventToolStart  EventKind = "tool_execution_start"
 	EventToolEnd    EventKind = "tool_execution_end"
+	EventSteering   EventKind = "steering"
 	EventTurnEnd    EventKind = "turn_end"
 	EventAgentEnd   EventKind = "agent_end"
 	EventCompressed EventKind = "compressed"
@@ -37,6 +38,8 @@ type Event struct {
 	ToolTitle     string
 	ToolOutput    string
 	ToolBlocked   bool
+	// UserContent 是随 steering 事件注入上下文的插话正文，调用方据此补落 user 条目。
+	UserContent   string
 	DurationMs    int64
 	StopReason    string
 	Usage         *llm.Usage

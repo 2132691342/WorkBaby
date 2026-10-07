@@ -29,6 +29,7 @@ const (
 	EventChatToolEnd    = "chat:tool_end"
 	EventChatApproval   = "chat:approval"
 	EventChatCompressed = "chat:compressed"
+	EventChatUser       = "chat:user"
 	EventChatDone       = "chat:done"
 	EventChatStopped    = "chat:stopped"
 	EventChatError      = "chat:error"
@@ -88,6 +89,12 @@ type ApprovalData struct {
 type CompressedData struct {
 	TokensBefore int `json:"tokens_before"`
 	TokensAfter  int `json:"tokens_after"`
+}
+
+// UserData chat:user：插话 / 排队消息已注入上下文并落库，界面据此把它补进时间线。
+type UserData struct {
+	EntryID string `json:"entry_id"`
+	Content string `json:"content"`
 }
 
 // ContextData chat:context：每轮广播一次上下文占用，供输入区显示水位。

@@ -92,9 +92,8 @@ func New(cfg Config, history []llm.Message) *Loop {
 }
 
 // emit 是事件出口的唯一实现：在这里把并发调用串行化。
-// 并行工具各自在 goroutine 里 emit，同步调用只继承调用方的 goroutine，
-// 不加锁就是 N 个 goroutine 同时进回调——上层正在改的落库位点会被读脏，
-// 出现「两个事件抢同一个条目 id，声明被主键冲突顶掉」这种丢消息的故障。
+// 并行工具各自在 goroutine 里 emit，不加锁则上层落库位点被并发读写——
+// 两个事件会抢同一个条目 id，声明被主键冲突顶掉。
 func (l *Loop) emit(e Event) {
 	l.emitMu.Lock()
 	defer l.emitMu.Unlock()
@@ -131,10 +130,10 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 
 		msg, stop, usage, err := l.streamTurn(ctx)
 		if usage != nil {
-			// 计量归一化：不少网关对 input_tokens 的上报不实（见过报 1 的），
-			// 而 ctxTokens 是本轮发出时的上下文实测估算（system + 历史 + 插话），
-			// 更接近真实输入。取较大者，消息指标 / 会话累计 / 仪表盘三处口径一致。
-			if usage.Input < ctxTokens {
+		// 计量归一化：部分网关对 input_tokens 上报不实，而 ctxTokens 是本轮
+		// 发出时的上下文实测估算（system + 历史 + 插话），更接近真实输入。
+		// 取较大者，保证消息指标 / 会话累计 / 仪表盘三处口径一致。
+		if usage.Input < ctxTokens {
 				usage.Input = ctxTokens
 			}
 			if usage.Total < usage.Input+usage.Output {
@@ -227,6 +226,8 @@ func (l *Loop) reportContext() int {
 }
 
 // drainSteering 把轮间插话并进上下文；一次只取一条，连续发三句不会一次糊给模型。
+// 每条插话发一个 steering 事件：上层必须在注入时刻落库，链序才能与真实对话一致
+// （先于本轮 assistant 产出，后于上一轮工具结果）。
 func (l *Loop) drainSteering() {
 	if l.cfg.Steering == nil {
 		return
@@ -238,6 +239,9 @@ func (l *Loop) drainSteering() {
 	l.mu.Lock()
 	l.msgs = append(l.msgs, pending...)
 	l.mu.Unlock()
+	for _, m := range pending {
+		l.emit(Event{Kind: EventSteering, UserContent: m.Content})
+	}
 }
 
 // streamTurn 请求一次模型，把流式增量实时发出，返回归一后的 assistant 消息。

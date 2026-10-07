@@ -131,136 +131,139 @@ func unwrapID(t *testing.T, body string) string {
 	return payload.Data.ID
 }
 
-// 完整对话流：POST 发消息后，SSE 必须依次送达 start → delta → done，
-// 且 delta 的正文拼接起来等于模型回复、done 带得上 token 用量。
-func TestChatStreamDeliversDeltaAndDone(t *testing.T) {
-	base := newBootedServer(t)
+// 对话流链路：发消息 → SSE 送达 → 断线重放，跨进程边界验证「前端真的能收到事件」。
+func TestChatStreamChain(t *testing.T) {
+	// 完整对话流：POST 发消息后，SSE 必须依次送达 start → delta → done，
+	// 且 delta 的正文拼接起来等于模型回复、done 带得上 token 用量。
+	t.Run("SSE 送达 start delta done", func(t *testing.T) {
+		base := newBootedServer(t)
 
-	script := llmtest.New(llm.Message{Content: "你好，我是 WorkBaby"})
-	script.Usage = &llm.Usage{Input: 11, Output: 7, Total: 18, LatencyMs: 42}
-	factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer { return script })
-	t.Cleanup(func() { factory.SetOverride("test", nil) })
+		script := llmtest.New(llm.Message{Content: "你好，我是 WorkBaby"})
+		script.Usage = &llm.Usage{Input: 11, Output: 7, Total: 18, LatencyMs: 42}
+		factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer { return script })
+		t.Cleanup(func() { factory.SetOverride("test", nil) })
 
-	code, body := call(t, base, "POST", "/providers", map[string]any{
-		"name": "t", "api": "test", "models": []string{"m1"},
-	})
-	if code != http.StatusOK {
-		t.Fatalf("创建模型服务失败: %d %s", code, body)
-	}
-	provID := unwrapID(t, body)
-	code, body = call(t, base, "POST", "/providers/"+provID+"/default", nil)
-	if code != http.StatusOK {
-		t.Fatalf("设为默认失败: %d %s", code, body)
-	}
-
-	code, body = call(t, base, "POST", "/sessions", map[string]any{})
-	if code != http.StatusOK {
-		t.Fatalf("建会话失败: %d %s", code, body)
-	}
-	sessID := unwrapID(t, body)
-
-	frames, stop := subscribeSSE(t, base, sessID)
-	defer stop()
-
-	code, body = call(t, base, "POST", "/chat/send", map[string]any{
-		"session_id": sessID, "content": "在吗",
-	})
-	if code != http.StatusOK || !strings.Contains(body, `"code":0`) {
-		t.Fatalf("发送失败: %d %s", code, body)
-	}
-
-	got := drainUntil(t, frames, "chat:start", "chat:delta", "chat:done")
-
-	// 按前端的真实用法解帧：它把 data 直接当信封用——
-	// `env.event` 决定路由到哪个处理函数，`env.data` 才是载荷。
-	// 只断言 `event:` 行会漏掉「data 里没带 event」这种致命问题：
-	// 后端跑完全部轮次、数据库里答案齐全，界面却一个字都不显示。
-	var text strings.Builder
-	var seqs []int64
-	for _, f := range got {
-		if f.Data["event"] != f.Event {
-			t.Fatalf("data 里没有回带 event 字段（实际 %v，帧头是 %q）：前端按 env.event 路由会全部落空",
-				f.Data["event"], f.Event)
+		code, body := call(t, base, "POST", "/providers", map[string]any{
+			"name": "t", "api": "test", "models": []string{"m1"},
+		})
+		if code != http.StatusOK {
+			t.Fatalf("创建模型服务失败: %d %s", code, body)
 		}
-		envSeq, _ := f.Data["seq"].(float64)
-		seqs = append(seqs, int64(envSeq))
-		load, ok := f.Data["data"].(map[string]any)
-		if !ok {
-			t.Fatalf("%s 的 data 字段不是对象，前端读不到载荷: %v", f.Event, f.Data)
+		provID := unwrapID(t, body)
+		code, body = call(t, base, "POST", "/providers/"+provID+"/default", nil)
+		if code != http.StatusOK {
+			t.Fatalf("设为默认失败: %d %s", code, body)
 		}
-		switch f.Event {
-		case "chat:delta":
-			if load["kind"] == "text" {
-				text.WriteString(load["delta"].(string))
+
+		code, body = call(t, base, "POST", "/sessions", map[string]any{})
+		if code != http.StatusOK {
+			t.Fatalf("建会话失败: %d %s", code, body)
+		}
+		sessID := unwrapID(t, body)
+
+		frames, stop := subscribeSSE(t, base, sessID)
+		defer stop()
+
+		code, body = call(t, base, "POST", "/chat/send", map[string]any{
+			"session_id": sessID, "content": "在吗",
+		})
+		if code != http.StatusOK || !strings.Contains(body, `"code":0`) {
+			t.Fatalf("发送失败: %d %s", code, body)
+		}
+
+		got := drainUntil(t, frames, "chat:start", "chat:delta", "chat:done")
+
+		// 按前端的真实用法解帧：它把 data 直接当信封用——
+		// `env.event` 决定路由到哪个处理函数，`env.data` 才是载荷。
+		// 只断言 `event:` 行会漏掉「data 里没带 event」这种致命问题：
+		// 后端跑完全部轮次、数据库里答案齐全，界面却一个字都不显示。
+		var text strings.Builder
+		var seqs []int64
+		for _, f := range got {
+			if f.Data["event"] != f.Event {
+				t.Fatalf("data 里没有回带 event 字段（实际 %v，帧头是 %q）：前端按 env.event 路由会全部落空",
+					f.Data["event"], f.Event)
 			}
-		case "chat:done":
-			if load["usage"] == nil {
-				t.Error("done 事件没有带上 token 用量，输入区水位永远更新不了")
+			envSeq, _ := f.Data["seq"].(float64)
+			seqs = append(seqs, int64(envSeq))
+			load, ok := f.Data["data"].(map[string]any)
+			if !ok {
+				t.Fatalf("%s 的 data 字段不是对象，前端读不到载荷: %v", f.Event, f.Data)
+			}
+			switch f.Event {
+			case "chat:delta":
+				if load["kind"] == "text" {
+					text.WriteString(load["delta"].(string))
+				}
+			case "chat:done":
+				if load["usage"] == nil {
+					t.Error("done 事件没有带上 token 用量，输入区水位永远更新不了")
+				}
 			}
 		}
-	}
-	if text.String() != "你好，我是 WorkBaby" {
-		t.Fatalf("流式正文拼接不对: %q", text.String())
-	}
-	// seq 必须严格递增：前端靠它做断线重放，乱序会导致对账时重复渲染。
-	for i := 1; i < len(seqs); i++ {
-		if seqs[i] <= seqs[i-1] {
-			t.Fatalf("事件 seq 非递增: %v", seqs)
+		if text.String() != "你好，我是 WorkBaby" {
+			t.Fatalf("流式正文拼接不对: %q", text.String())
 		}
-	}
-}
-
-// 断线重连：Last-Event-ID 之后的事件必须被重放，
-// 否则用户切走再切回来会丢掉整段回复。
-func TestChatStreamReplaysAfterLastEventID(t *testing.T) {
-	base := newBootedServer(t)
-
-	script := llmtest.New(llm.Message{Content: "重放我"})
-	factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer { return script })
-	t.Cleanup(func() { factory.SetOverride("test", nil) })
-
-	code, body := call(t, base, "POST", "/providers", map[string]any{
-		"name": "t", "api": "test", "models": []string{"m1"},
+		// seq 必须严格递增：前端靠它做断线重放，乱序会导致对账时重复渲染。
+		for i := 1; i < len(seqs); i++ {
+			if seqs[i] <= seqs[i-1] {
+				t.Fatalf("事件 seq 非递增: %v", seqs)
+			}
+		}
 	})
-	if code != http.StatusOK {
-		t.Fatalf("创建模型服务失败: %d %s", code, body)
-	}
-	provID := unwrapID(t, body)
-	if code, body := call(t, base, "POST", "/providers/"+provID+"/default", nil); code != http.StatusOK {
-		t.Fatalf("设为默认失败: %d %s", code, body)
-	}
 
-	code, body = call(t, base, "POST", "/sessions", map[string]any{})
-	if code != http.StatusOK {
-		t.Fatalf("建会话失败: %d %s", code, body)
-	}
-	sessID := unwrapID(t, body)
+	// 断线重连：Last-Event-ID 之后的事件必须被重放，
+	// 否则用户切走再切回来会丢掉整段回复。
+	t.Run("按 Last-Event-ID 重放", func(t *testing.T) {
+		base := newBootedServer(t)
 
-	frames, stop := subscribeSSE(t, base, sessID)
-	defer stop()
-	if _, body := call(t, base, "POST", "/chat/send", map[string]any{
-		"session_id": sessID, "content": "hi",
-	}); !strings.Contains(body, `"code":0`) {
-		t.Fatalf("发送失败: %s", body)
-	}
-	got := drainUntil(t, frames, "chat:done")
-	stop()
+		script := llmtest.New(llm.Message{Content: "重放我"})
+		factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer { return script })
+		t.Cleanup(func() { factory.SetOverride("test", nil) })
 
-	// 以最后一个 seq 重连，缓冲里已经没有更新的事件，应当只收到 gap 提示。
-	last := got[len(got)-1].ID
-	req, err := http.NewRequest(http.MethodGet, base+"/events?session_id="+sessID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Last-Event-ID", last)
-	resp, err := (&http.Client{}).Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	sc := bufio.NewScanner(resp.Body)
-	if !sc.Scan() {
-		// 没有待重放事件时静默挂起是允许的，这里只要求不能报错、不能立刻 EOF 崩掉。
-		t.Log("无待重放事件，连接保持挂起")
-	}
+		code, body := call(t, base, "POST", "/providers", map[string]any{
+			"name": "t", "api": "test", "models": []string{"m1"},
+		})
+		if code != http.StatusOK {
+			t.Fatalf("创建模型服务失败: %d %s", code, body)
+		}
+		provID := unwrapID(t, body)
+		if code, body := call(t, base, "POST", "/providers/"+provID+"/default", nil); code != http.StatusOK {
+			t.Fatalf("设为默认失败: %d %s", code, body)
+		}
+
+		code, body = call(t, base, "POST", "/sessions", map[string]any{})
+		if code != http.StatusOK {
+			t.Fatalf("建会话失败: %d %s", code, body)
+		}
+		sessID := unwrapID(t, body)
+
+		frames, stop := subscribeSSE(t, base, sessID)
+		defer stop()
+		if _, body := call(t, base, "POST", "/chat/send", map[string]any{
+			"session_id": sessID, "content": "hi",
+		}); !strings.Contains(body, `"code":0`) {
+			t.Fatalf("发送失败: %s", body)
+		}
+		got := drainUntil(t, frames, "chat:done")
+		stop()
+
+		// 以最后一个 seq 重连，缓冲里已经没有更新的事件，应当只收到 gap 提示。
+		last := got[len(got)-1].ID
+		req, err := http.NewRequest(http.MethodGet, base+"/events?session_id="+sessID, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Last-Event-ID", last)
+		resp, err := (&http.Client{}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		sc := bufio.NewScanner(resp.Body)
+		if !sc.Scan() {
+			// 没有待重放事件时静默挂起是允许的，这里只要求不能报错、不能立刻 EOF 崩掉。
+			t.Log("无待重放事件，连接保持挂起")
+		}
+	})
 }

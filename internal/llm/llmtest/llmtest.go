@@ -19,6 +19,8 @@ type Scripted struct {
 	Usage *llm.Usage
 	// Err 非空时该轮以 EventError 结束，用于验证错误收尾。
 	Err error
+	// ErrAfterDelta 非空时先流出该增量再报错，模拟「流到一半断掉」。
+	ErrAfterDelta string
 
 	idx   int
 	calls int32
@@ -44,6 +46,11 @@ func (s *Scripted) Stream(ctx context.Context, req llm.Request) (<-chan llm.Even
 			return
 		}
 		m := s.Turns[i]
+		if s.ErrAfterDelta != "" {
+			ch <- llm.Event{Type: llm.EventDelta, Delta: s.ErrAfterDelta}
+			ch <- llm.Event{Type: llm.EventError, StopReason: llm.StopError, Err: s.Err}
+			return
+		}
 		if s.Err != nil {
 			ch <- llm.Event{Type: llm.EventError, StopReason: llm.StopError, Err: s.Err}
 			return

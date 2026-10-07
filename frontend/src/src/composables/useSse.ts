@@ -6,12 +6,8 @@ import type { ServerEvent } from '../types/api'
 export const sseConnected = ref(false)
 
 // 订阅维度是会话：一次 run 内的全部事件都走这个通道。
-//
-// 两个必须自己扛的坑：
-// ① 端口握手是异步的，此刻 baseURL 可能还是空串。握手前 return 而不重试，
-//    会话事件流就永远连不上，表现为「发消息一直转圈、没有回复」——
-//    且界面上没有任何错误，因为 EventSource 压根没建起来。
-// ② EventSource 断开后不会自己恢复，必须按会话 id 重新订阅。
+// 两条必须自己扛：① 端口握手是异步的，握手前 baseURL 为空串，订阅会静默失败，
+// 必须等就绪后补订阅；② EventSource 断开不自恢复，要按会话 id 自建重连。
 export function useSse(sessionId: () => string | null, onEvent: (env: ServerEvent) => void) {
   let source: EventSource | null = null
   let currentSid = ''
@@ -69,6 +65,7 @@ export function useSse(sessionId: () => string | null, onEvent: (env: ServerEven
       'chat:tool_end',
       'chat:approval',
       'chat:compressed',
+      'chat:user',
       'chat:context',
       'chat:done',
       'chat:stopped',
