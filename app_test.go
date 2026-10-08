@@ -1,6 +1,4 @@
 // 应用生命周期链路：装配等待判据、关闭去向判定（收托盘 / 真退出）。
-// Wails 把 OnStartup 放在独立 goroutine 里跑，与 OnDomReady 没有顺序保证，
-// 所以「怎么判装配完成」和「关闭时去哪儿」是这条链路的两个核心判据。
 package main
 
 import (

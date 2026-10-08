@@ -1,6 +1,5 @@
-// Anthropic 适配层两条链路：
-//   TestAnthropicEncodeProtocol — 厂商特有硬约束：无签名 thinking 不能回传。
-//   TestAnthropicStreamChain    — 上游流收尾保证（空闲看门狗、事件不丢车）。
+// Anthropic 适配层链路：无签名 thinking 不能回传（厂商特有硬约束）、
+// 上游停滞经空闲看门狗收尾、事件缓冲满不丢弃。
 package anthropic
 
 import (

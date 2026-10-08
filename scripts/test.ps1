@@ -1,9 +1,10 @@
-# 测试入口。日常改动用 -Fast：跳过真实解压并复用构建缓存，秒级返回；
-# 提交前与 CI 跑默认全量（-count=1 强制真跑，不吃缓存），保证结果可信。
+# 测试入口。三个开关决定「跑什么」：范围（-Pkg / -Run）、模式（-Fast / -Race）。
+# 日常改动用 -Fast -Run <名字>：只碰一个 Test，构建命中缓存，秒级返回。
 param(
-    [switch]$Fast,   # -short + 允许缓存：跳过 runtime 的真实解压
-    [string]$Pkg,    # 只跑一个包，如 backend/service
-    [switch]$Race    # 竞态检测，慢，改并发相关代码时用
+    [string]$Pkg,     # 只跑一个包，如 backend/service
+    [string]$Run,     # 只跑匹配的 Test，支持正则，如 TestChatRunChain
+    [switch]$Fast,    # -short + 允许缓存：跳过 runtime 的真实解压（全仓唯一的慢点）
+    [switch]$Race     # 竞态检测，慢，改并发相关代码时用；需要 CGO 与 gcc
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,11 +15,12 @@ try {
     $goArgs = @('test')
     $goArgs += if ($Pkg) { "./$Pkg" } else { './...' }
     $goArgs += if ($Fast) { '-short' } else { '-count=1' }
+    if ($Run) { $goArgs += @('-run', $Run) }
     if ($Race) { $goArgs += '-race' }
 
     Write-Host "go $($goArgs -join ' ')" -ForegroundColor DarkGray
     & go @goArgs
-    if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
+    if ($LASTEXITCODE -ne 0) { throw '测试未通过' }
 } finally {
     Pop-Location
 }
