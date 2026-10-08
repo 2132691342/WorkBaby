@@ -125,11 +125,23 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 
 		l.emit(Event{Kind: EventTurnStart, Turn: turn})
 
-		msg, stop, usage, err := l.streamTurn(ctx)
+		msg, stop, usage, err := l.streamTurn(ctx, l.cfg.MaxTokens)
+		if err != nil {
+			l.appendMessage(msg)
+			res.Turns = turn
+			return l.finish(res, StopError, err)
+		}
+
+		if stop == llm.StopLength {
+			// 截断轮的参数只有半个 JSON，既不执行也不留进历史：
+			// 留着会被下一轮当成真调用发回上游，等于凭空多出一个没做过的动作。
+			msg.ToolCalls = nil
+		}
+
 		if usage != nil {
-		// 部分网关的 input_tokens 上报不实，取它与上下文实测估算的较大者，
-		// 保证消息指标、会话累计、仪表盘三处口径一致。
-		if usage.Input < ctxTokens {
+			// 部分网关的 input_tokens 上报不实，取它与上下文实测估算的较大者，
+			// 保证消息指标、会话累计、仪表盘三处口径一致。
+			if usage.Input < ctxTokens {
 				usage.Input = ctxTokens
 			}
 			if usage.Total < usage.Input+usage.Output {
@@ -141,20 +153,10 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 			res.Usage.Cached += usage.Cached
 			res.Usage.LatencyMs += usage.LatencyMs
 		}
-		if err != nil {
-			l.appendMessage(msg)
-			res.Turns = turn
-			return l.finish(res, StopError, err)
-		}
 		l.appendMessage(msg)
 
-		// 被截断的响应里参数可能不完整，一律判失败，绝不执行。
-		calls := msg.ToolCalls
-		if stop == llm.StopLength {
-			calls = nil
-		}
-		if len(calls) > 0 {
-			l.executeTools(ctx, calls)
+		if len(msg.ToolCalls) > 0 {
+			l.executeTools(ctx, msg.ToolCalls)
 		}
 
 		res.Turns = turn
@@ -170,7 +172,7 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 		if stop == llm.StopError {
 			return l.finish(res, StopError, nil)
 		}
-		if len(calls) == 0 {
+		if len(msg.ToolCalls) == 0 {
 			return l.finish(res, StopCompleted, nil)
 		}
 	}
@@ -237,13 +239,14 @@ func (l *Loop) drainSteering() {
 }
 
 // streamTurn 请求一次模型，把流式增量实时发出，返回归一后的 assistant 消息。
-func (l *Loop) streamTurn(ctx context.Context) (llm.Message, string, *llm.Usage, error) {
+// maxTokens 由调用方给出（service 层按模型能力定的输出预算，内核不自行改动）。
+func (l *Loop) streamTurn(ctx context.Context, maxTokens int) (llm.Message, string, *llm.Usage, error) {
 	req := llm.Request{
 		Model:       l.cfg.Model,
 		System:      l.cfg.System,
 		Messages:    CleanForProtocol(l.Messages()),
 		Tools:       llmToolDefs(l.cfg.Tools),
-		MaxTokens:   l.cfg.MaxTokens,
+		MaxTokens:   maxTokens,
 		Temperature: l.cfg.Temperature,
 		TopP:        l.cfg.TopP,
 	}

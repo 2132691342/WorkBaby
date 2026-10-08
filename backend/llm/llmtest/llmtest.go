@@ -4,6 +4,7 @@ package llmtest
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 
 	"WorkBaby/backend/llm"
@@ -21,9 +22,12 @@ type Scripted struct {
 	Err error
 	// ErrAfterDelta 非空时先流出该增量再报错，模拟「流到一半断掉」。
 	ErrAfterDelta string
+	// Requests 按顺序记下每次上游请求：断言「下发的参数」只能从这里看。
+	Requests []llm.Request
 
 	idx   int
 	calls int32
+	mu    sync.Mutex
 }
 
 // New 造一个脚本替身。
@@ -37,6 +41,9 @@ func (s *Scripted) Stream(ctx context.Context, req llm.Request) (<-chan llm.Even
 	i := s.idx
 	s.idx++
 	atomic.AddInt32(&s.calls, 1)
+	s.mu.Lock()
+	s.Requests = append(s.Requests, req)
+	s.mu.Unlock()
 
 	ch := make(chan llm.Event, 8)
 	go func() {
@@ -54,6 +61,9 @@ func (s *Scripted) Stream(ctx context.Context, req llm.Request) (<-chan llm.Even
 		if s.Err != nil {
 			ch <- llm.Event{Type: llm.EventError, StopReason: llm.StopError, Err: s.Err}
 			return
+		}
+		if m.Thinking != "" {
+			ch <- llm.Event{Type: llm.EventThinking, Delta: m.Thinking}
 		}
 		if m.Content != "" {
 			ch <- llm.Event{Type: llm.EventDelta, Delta: m.Content}

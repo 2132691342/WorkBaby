@@ -323,9 +323,11 @@ func (c *Client) encode(req llm.Request) requestBody {
 	for _, t := range req.Tools {
 		tools = append(tools, toolDef{Name: t.Name, Description: t.Description, InputSchema: t.Parameters})
 	}
+	// max_tokens 在 anthropic 协议里是必填字段，不能省。0 说明上层没填好，
+	// 用一个够用的兜底值而不是 4096——推理型模型会把它全花在思考上。
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
-		maxTokens = 4096
+		maxTokens = llm.DefaultMaxTokens
 	}
 	return requestBody{
 		Model: req.Model, System: req.System, Messages: msgs, Tools: tools,

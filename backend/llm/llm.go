@@ -33,6 +33,11 @@ const (
 	EventError    = "error"
 )
 
+// DefaultMaxTokens 是输出预算的最后兜底：正常路径由 service 层按模型能力填好，
+// 走到这里说明上层漏了。0 不能下发——openai 会按 omitempty 丢掉整个字段，
+// anthropic 的 max_tokens 是必填；取小值会让推理型模型想完就没词。
+const DefaultMaxTokens = 16384
+
 var (
 	ErrNoAPIKey  = pkg.New(3001, "缺少 API Key", "")
 	ErrBadStream = pkg.New(3105, "上游返回了无法解析的流", "")

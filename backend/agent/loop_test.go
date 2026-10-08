@@ -154,6 +154,30 @@ func TestLoopStopsOnCancelLengthAndError(t *testing.T) {
 		}
 	})
 
+	// 「只想不说」：带思考的模型把预算全花在推理上，正文与工具调用一起没了。
+	// 内核不会自作主张重试——预算是 service 层按模型上限给的，到顶就是到顶，
+	// 悄悄重试只会在上游上限更低时换来一个 400。如实以 length 收尾，界面给「继续」。
+	t.Run("零产出截断如实收尾", func(t *testing.T) {
+		streamer := llmtest.New(llm.Message{Thinking: "先想想该怎么做。"})
+		streamer.Stops = []string{llm.StopLength}
+		loop := New(Config{Streamer: streamer, Model: "test", MaxTokens: 32768}, nil)
+
+		res, err := loop.Run(context.Background())
+		if err != nil {
+			t.Fatalf("运行失败: %v", err)
+		}
+		if res.StopReason != StopLength {
+			t.Fatalf("期望 length，实际 %s", res.StopReason)
+		}
+		if streamer.Calls() != 1 {
+			t.Fatalf("不该重试同一轮，实际发起 %d 次请求", streamer.Calls())
+		}
+		// 两次请求的下发预算必须一致：内核不该在重试路径上偷偷抬高它。
+		if got := streamer.Requests[0].MaxTokens; got != 32768 {
+			t.Fatalf("下发预算应为装配时的值 32768，实际 %d", got)
+		}
+	})
+
 	// 「报错但零产出」不算成功，否则会落一条空 assistant，下一轮直接 400。
 	t.Run("上游报错", func(t *testing.T) {
 		streamer := llmtest.New(llm.Message{Content: "半句"})

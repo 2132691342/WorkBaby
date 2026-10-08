@@ -480,7 +480,7 @@ func (h *Handler) ToggleTool(c *gin.Context) {
 func (h *Handler) ModelCapability(c *gin.Context) {
 	model := c.Query("model")
 	if model == "" {
-		fail(c, pkg.New(1105, "请指定要查询的模型", ""))
+		fail(c, pkg.New(3111, "请指定要查询的模型", ""))
 		return
 	}
 	ok(c, h.Svc.Chat.ModelCapability(c.Query("provider_id"), model))
@@ -490,7 +490,7 @@ func (h *Handler) ModelCapability(c *gin.Context) {
 func (h *Handler) GetModelConfig(c *gin.Context) {
 	model := c.Query("model")
 	if model == "" {
-		fail(c, pkg.New(1105, "请指定要查询的模型", ""))
+		fail(c, pkg.New(3111, "请指定要查询的模型", ""))
 		return
 	}
 	vo, err := h.Svc.Providers.ModelConfig(c.Query("provider_id"), model)

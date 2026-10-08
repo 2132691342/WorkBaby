@@ -5,9 +5,11 @@ package domain
 import "strings"
 
 // 模型能力缺省值：认不出来时用这一组，并在 ModelCapability.Known 上标 false。
+// MaxOutput 给得宽：带思考的模型把推理也算进输出预算，给 8k 会让它「想完就没词了」，
+// 正文与工具调用一起被截断（finish_reason=length），用户只看到一段思考。
 const (
 	DefaultContextWindow = 128000
-	DefaultMaxOutput     = 8192
+	DefaultMaxOutput     = 16384
 )
 
 // ModelCapability 是单个模型的能力画像。
@@ -48,7 +50,9 @@ var capabilityRules = []capabilityRule{
 	{match: []string{"gemini"}, window: 1000000, output: 8192, think: false, vision: true},
 	// DeepSeek
 	{match: []string{"deepseek-reasoner", "deepseek-r1"}, window: 128000, output: 32768, think: true, vision: false},
-	{match: []string{"deepseek"}, window: 128000, output: 8192, think: false, vision: false},
+	// v4 / v3.2 起的混合推理模型：同一端点既能思考也能带视觉，输出预算按推理档给足
+	{match: []string{"deepseek-v4", "deepseek-v3.2", "deepseek-v3.1"}, window: 128000, output: 32768, think: true, vision: true},
+	{match: []string{"deepseek"}, window: 128000, output: 16384, think: false, vision: false},
 	// Qwen
 	{match: []string{"qwen3", "qwq"}, window: 131072, output: 32768, think: true, vision: false},
 	{match: []string{"qwen2.5-vl", "qwen-vl"}, window: 131072, output: 8192, think: false, vision: true},
@@ -57,7 +61,7 @@ var capabilityRules = []capabilityRule{
 	{match: []string{"kimi-k2-thinking", "kimi-thinking"}, window: 262144, output: 32768, think: true, vision: false},
 	{match: []string{"kimi", "moonshot"}, window: 200000, output: 16384, think: false, vision: false},
 	// GLM
-	{match: []string{"glm-4.6"}, window: 200000, output: 32768, think: true, vision: false},
+	{match: []string{"glm-5", "glm-4.6"}, window: 200000, output: 32768, think: true, vision: false},
 	{match: []string{"glm"}, window: 128000, output: 8192, think: false, vision: false},
 	// MiniMax
 	{match: []string{"minimax-m3", "minimax-m2", "minimax-text"}, window: 1000000, output: 32768, think: true, vision: false},

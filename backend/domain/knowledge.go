@@ -6,7 +6,7 @@ import "WorkBaby/backend/pkg"
 var (
 	ErrDocNotFound = pkg.New(6101, "文档不存在或已不可读", "")
 	ErrDocType     = pkg.New(6102, "暂不支持这种文件", "支持 PDF / Word / Excel / Markdown / 文本")
-	ErrQueryEmpty  = pkg.New(7104, "请输入要查的内容", "")
+	ErrQueryEmpty  = pkg.New(6103, "请输入要查的内容", "")
 )
 
 // KnowledgeDocDO 知识库文档。

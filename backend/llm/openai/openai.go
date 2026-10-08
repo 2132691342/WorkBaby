@@ -369,10 +369,16 @@ func (c *Client) encode(req llm.Request) (io.Reader, error) {
 			Name: t.Name, Description: t.Description, Parameters: t.Parameters,
 		}})
 	}
+	// 与 anthropic 侧同一条纪律：0 会被 omitempty 整个吃掉，等于把输出上限
+	// 交给上游默认值。正常路径由 service 层按模型能力填好，0 是上层 bug。
+	maxTokens := req.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = llm.DefaultMaxTokens
+	}
 	payload := chatRequest{
 		Model: req.Model, Messages: msgs, Tools: tools, Stream: true,
 		StreamOpts: &streamOpts{IncludeUsage: true},
-		MaxTokens:  req.MaxTokens, Temperature: req.Temperature, TopP: req.TopP,
+		MaxTokens:  maxTokens, Temperature: req.Temperature, TopP: req.TopP,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

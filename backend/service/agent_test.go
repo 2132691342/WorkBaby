@@ -1,5 +1,5 @@
-// 服务层集成链路：审批闭环（会话级放行）、错误轮半成品落库、插话按注入链序落库。
-// 覆盖跨模块协作（repo + agent + registry + emitter + approvals），单层单测测不到。
+// 服务层集成链路：审批闭环（会话级放行）、错误轮半成品落库、插话按注入链序落库、
+// 输出预算下发到上游。覆盖跨模块协作（repo + agent + registry + emitter + approvals）。
 package service
 
 import (
@@ -197,6 +197,36 @@ func TestChatErrorPersistsPartialContent(t *testing.T) {
 	}
 	if detail.Messages[1].Content != "我先查一下——" {
 		t.Fatalf("半成品正文不符: %q", detail.Messages[1].Content)
+	}
+}
+
+// 输出预算必须真的下发到上游：不下发时各家网关各按自己的默认（常见 4096/8192），
+// 带思考的模型会把预算全花在推理上，正文与工具调用一起断在 finish_reason=length，
+// 用户看到的就是「助手只思考、没有任何动作」。
+func TestChatSendsOutputBudget(t *testing.T) {
+	s := useScripted(t, llm.Message{Content: "好了"})
+	env, svc := newEnv(t)
+	sess := newProviderSession(t, svc)
+
+	if _, err := svc.Chat.Send(sess.ID, "你好", nil); err != nil {
+		t.Fatalf("发送失败: %v", err)
+	}
+	waitUntil(t, "回复落库", countRole(env.Repo, sess.ID, domain.RoleAssistant))
+
+	if len(s.Requests) == 0 {
+		t.Fatal("没有发出上游请求")
+	}
+	if s.Requests[0].MaxTokens <= 0 {
+		t.Fatalf("max_tokens 未下发（%d）：上游会用自己的默认值把回答截断", s.Requests[0].MaxTokens)
+	}
+
+	// 上下文余量必须容得下真正下发的输出预算：余量算小了，压缩判断「还能塞多少」
+	// 会虚高，总占用可能顶破窗口。取一个输出档高于余量缺省的模型来验证它会跟着抬。
+	const big = "gpt-4.1"
+	b := svc.Chat.budget("", big, "sys")
+	if want := domain.ModelCapabilityOf(big).MaxOutput; b.Reserve < want {
+		t.Fatalf("上下文余量 %d 没跟上输出预算 %d：压缩会按虚高的空间往窗口里塞内容",
+			b.Reserve, want)
 	}
 }
 

@@ -59,9 +59,12 @@ func TestBundledRuntimeChain(t *testing.T) {
 		}
 	})
 
-	// 真实解压一次两份归档：官方 zip 布局变了（多套一层目录）会让内嵌运行时
-	// 在用户机器上凭空消失，必须在这里拦住。
+	// 真实解压一次两份归档：官方 zip 布局变了会让内嵌运行时在用户机器上凭空消失。
+	// 这是全仓最慢的一步（几千个文件落盘），用 -short 隔离——日常验证不必跑它。
 	t.Run("归档解压平铺到根目录", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("真实解压：-short 跳过，碰运行时归档时跑全量")
+		}
 		for _, c := range []struct {
 			name string
 			want []string

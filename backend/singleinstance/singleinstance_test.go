@@ -29,7 +29,9 @@ func TestSecondLaunchHandoff(t *testing.T) {
 		}
 	}
 
-	t.Run("带文件路径原样送达", func(t *testing.T) {
+	// 两种载荷走同一条通道：带路径 = 打开文件，空路径 = 只想把已有窗口带出来。
+	// 空的那次最容易被"顺手过滤掉空值"的写法吞掉，所以必须一起断言。
+	t.Run("载荷原样送达（含空路径唤起）", func(t *testing.T) {
 		want := `C:\demo\季度总结.md`
 		if err := SendPathToRunningInstance(dir, want); err != nil {
 			t.Fatalf("发送失败: %v", err)
@@ -37,10 +39,6 @@ func TestSecondLaunchHandoff(t *testing.T) {
 		if got := recv("文件路径"); got != want {
 			t.Fatalf("路径没有原样送达: %q", got)
 		}
-	})
-
-	t.Run("空路径也要送达", func(t *testing.T) {
-		// 二次启动不带文件 = 只想把已有窗口带出来；静默丢弃会让双击图标像没反应
 		if err := SendPathToRunningInstance(dir, ""); err != nil {
 			t.Fatalf("发送失败: %v", err)
 		}

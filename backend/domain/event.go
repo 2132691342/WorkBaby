@@ -111,6 +111,8 @@ type DoneData struct {
 	EntryID    string  `json:"entry_id"`
 	StopReason string  `json:"stop_reason"`
 	Usage      *UsageVO `json:"usage"`
+	// MaxTokens 是本轮实际下发的输出预算：撞 length 时界面靠它说清是哪个上限用尽了。
+	MaxTokens int `json:"max_tokens"`
 }
 
 // ErrorData chat:error。

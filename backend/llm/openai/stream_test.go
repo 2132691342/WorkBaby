@@ -47,10 +47,13 @@ func collect(t *testing.T, c *Client) []llm.Event {
 
 func TestOpenAIStreamChain(t *testing.T) {
 	t.Run("usage 帧晚于 finish_reason 仍能拿到", func(t *testing.T) {
+		// usage 是独立帧，出现在 finish_reason 之后，读不到就永远显示 0（缓存命中率）；
+		// 缓存字段有两种写法（顶层与 prompt_tokens_details 下），同时出现取大的。
 		c := serve(t,
 			`data: {"choices":[{"delta":{"content":"你好"}}]}`,
 			`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,
-			`data: {"choices":[],"usage":{"prompt_tokens":128,"completion_tokens":37,"total_tokens":165}}`,
+			`data: {"choices":[],"usage":{"prompt_tokens":128,"completion_tokens":37,"total_tokens":165,`+
+				`"cache_read_input_tokens":400,"prompt_tokens_details":{"cached_tokens":450}}}`,
 			`data: [DONE]`,
 		)
 		events := collect(t, c)
@@ -66,6 +69,9 @@ func TestOpenAIStreamChain(t *testing.T) {
 		}
 		if done.Usage.Input != 128 || done.Usage.Output != 37 || done.Usage.Total != 165 {
 			t.Fatalf("usage 丢了：%+v", *done.Usage)
+		}
+		if done.Usage.Cached != 450 {
+			t.Fatalf("缓存应取两种写法的较大值 450，实际 %d", done.Usage.Cached)
 		}
 		if done.StopReason != llm.StopStop {
 			t.Fatalf("停止原因应为 stop，实际 %q", done.StopReason)
@@ -116,28 +122,6 @@ func TestOpenAIStreamChain(t *testing.T) {
 		}
 		if events[len(events)-1].Type != llm.EventDone {
 			t.Fatalf("最后一个事件应是收尾，实际 %v", events[len(events)-1].Type)
-		}
-	})
-
-	// 缓存命中率是长对话真正的成本指标，读不到就永远显示 0。
-	// 厂商写法不统一：OpenAI 口径在 prompt_tokens_details 下，有的挂在 usage 顶层，
-	// 两种同时出现时取大的——这几个分支在真实网关上都出现过。
-	t.Run("缓存计量两种口径取大", func(t *testing.T) {
-		c := serve(t,
-			`data: {"choices":[{"delta":{"content":"x"}}]}`,
-			`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,
-			`data: {"choices":[],"usage":{"prompt_tokens":500,"completion_tokens":10,"total_tokens":510,`+
-				`"cache_read_input_tokens":400,"prompt_tokens_details":{"cached_tokens":450}}}`,
-			`data: [DONE]`,
-		)
-		var done llm.Event
-		for _, ev := range collect(t, c) {
-			if ev.Type == llm.EventDone {
-				done = ev
-			}
-		}
-		if done.Usage == nil || done.Usage.Cached != 450 {
-			t.Fatalf("应取两种写法的较大值 450，实际 %+v", done.Usage)
 		}
 	})
 }

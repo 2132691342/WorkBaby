@@ -242,6 +242,12 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	cap := c.capabilityOf(sess.ProviderID, model)
 	state := &runState{sessionID: sessionID, providerID: sess.ProviderID, model: model, windowKnown: cap.Known}
 	temp, topP, maxOutput := c.samplingOf(sess.ProviderID, model)
+	state.maxTokens = maxOutput
+	budget := c.budget(sess.ProviderID, model, system)
+	// 把真正要下发的数字落进日志：截断类问题的第一步永远是「当时给的预算是多少」，
+	// 没有这行就只能靠反推配置。
+	pkg.Infof("chat: 装配 session=%s run=%s model=%s max_tokens=%d reserve=%d window=%d(known=%v)",
+		sessionID, runID, model, maxOutput, budget.Reserve, cap.ContextWindow, cap.Known)
 
 	loop := agent.New(agent.Config{
 		Streamer:    streamer,
@@ -255,7 +261,7 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 		TopP:        topP,
 		MaxTurns:    32,
 		Parallel:    4,
-		Budget:      c.budget(sess.ProviderID, model, system),
+		Budget:      budget,
 		Emit:      func(e agent.Event) { c.onEvent(state, e) },
 		Steering:  c.queueOf(sessionID),
 		Gate: func(ctx context.Context, call *llm.ToolCall) (bool, string) {
@@ -285,6 +291,7 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	}
 	c.env.Emitter.Emit(sessionID, domain.EventChatDone, domain.DoneData{
 		EntryID: state.lastEntryID, StopReason: res.StopReason, Usage: &usage,
+		MaxTokens: state.maxTokens,
 	})
 	pkg.Infof("chat: run 结束 session=%s run=%s stop=%s turns=%d tokens=%d",
 		sessionID, runID, res.StopReason, res.Turns, res.Usage.Total)
@@ -318,6 +325,7 @@ type runState struct {
 	providerID  string
 	model       string
 	windowKnown bool
+	maxTokens   int
 	turnEntryID string
 	lastEntryID string
 	pending     string
