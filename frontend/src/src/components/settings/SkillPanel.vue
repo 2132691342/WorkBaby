@@ -202,7 +202,7 @@ onMounted(() => store.loadSkills())
           />
           <button
             v-if="s.source !== 'builtin'"
-            class="icon-btn danger"
+            class="icon-btn is-sm is-danger"
             :class="{ 'is-confirm': confirming === s.id }"
             type="button"
             :title="confirming === s.id ? '再点一次确认删除' : '删除'"
@@ -264,26 +264,9 @@ onMounted(() => store.loadSkills())
   min-width: 0;
   cursor: pointer;
 }
-.icon-btn {
-  display: grid;
-  place-items: center;
-  width: var(--wb-ctl-h-sm);
-  height: var(--wb-ctl-h-sm);
-  border-radius: var(--wb-radius-xs);
-  color: var(--wb-muted);
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-.icon-btn:hover {
-  color: var(--wb-ink);
-  background: var(--wb-tint);
-}
-.icon-btn.danger:hover {
-  color: var(--wb-danger);
-  background: var(--wb-danger-soft);
-}
-.icon-btn.danger.is-confirm {
+/* 删除钮走全局 .icon-btn（五态齐全），这里只叠「二次确认」的常亮态：
+   scoped 重定义 .icon-btn 会连带抹掉 :active 缩放 / :disabled / .is-loading 三态。 */
+.icon-btn.is-confirm {
   color: var(--wb-danger);
   background: var(--wb-danger-soft);
 }

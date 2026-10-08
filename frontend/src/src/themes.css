@@ -88,6 +88,12 @@
   --wb-switch-w: 48px;
   --wb-switch-h: 26px;
 
+  /* 图标瓦片：卡片头的方块底（读数卡 / 空态 / 例句卡）。不是可点控件，
+     但同一组尺寸反复出现，散成裸像素就会各自漂，收口在这里。 */
+  --wb-tile-sm: 30px;
+  --wb-tile: 40px;
+  --wb-tile-lg: 52px;
+
   --wb-fs-ctl: 12.5px;
   --wb-fs-label: 12px;
   --wb-fs-hint: 11px;
@@ -245,6 +251,8 @@
   --wb-glow-1: rgba(221, 214, 254, 0.6);
   --wb-glow-2: rgba(139, 92, 246, 0.28);
   --wb-glow-3: rgba(139, 92, 246, 0.16);
+  --wb-aura-blur: 90px;
+  --wb-mask-ink: #000;
 
   /* 代码块 */
   --wb-code-bg: #f8f6fe;

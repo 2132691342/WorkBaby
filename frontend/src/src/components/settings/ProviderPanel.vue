@@ -742,9 +742,28 @@ onMounted(() => store.loadProviders())
   padding: 0;
   cursor: pointer;
   color: inherit;
+  border-radius: var(--wb-radius-full);
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    background var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
-.chip-x:hover {
+.chip-x:hover:not(:disabled) {
   color: var(--wb-danger);
+  transform: scale(1.06);
+}
+.chip-x:active:not(:disabled) {
+  color: var(--wb-danger);
+  background: var(--wb-danger-soft);
+  transform: scale(0.92);
+}
+.chip-x:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.chip-x.is-loading {
+  pointer-events: none;
+  cursor: progress;
 }
 
 /* 模型参数折叠区 */
@@ -762,10 +781,23 @@ onMounted(() => store.loadProviders())
   font-weight: 600;
   color: var(--wb-ink-2);
   cursor: pointer;
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
-.cfg-toggle:hover {
+.cfg-toggle:hover:not(:disabled) {
   background: var(--wb-tint);
   color: var(--wb-ink);
+}
+.cfg-toggle:active:not(:disabled) {
+  background: var(--wb-tint-lg);
+  color: var(--wb-ink);
+  transform: scale(0.97);
+}
+.cfg-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .cfg-tip {
   font-weight: 400;

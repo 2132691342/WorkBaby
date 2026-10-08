@@ -253,10 +253,10 @@ watch(() => settings.boot?.default_model, seedContext)
       <template v-if="empty && !chat.running">
         <div class="welcome">
           <div class="hero-aura" aria-hidden="true">
-            <span class="aura aura-top" />
-            <span class="aura aura-left" />
-            <span class="aura aura-right" />
-            <span class="aura-mesh" />
+            <span class="wb-aura wb-aura-top" />
+            <span class="wb-aura wb-aura-left" />
+            <span class="wb-aura wb-aura-right" />
+            <span class="wb-aura-mesh" />
           </div>
 
           <div class="hero-in">
@@ -325,65 +325,8 @@ watch(() => settings.boot?.default_model, seedContext)
   place-items: center;
   padding: var(--wb-sp-8) var(--wb-sp-6);
 }
-.hero-aura {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-.aura {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(90px);
-  animation: aura-breathe var(--wb-ease) infinite;
-}
-.aura-top {
-  /* 居中靠 calc 而不是 translateX(-50%)：位移会让 breathe 的 transform 把它抢回去 */
-  top: -26%;
-  left: calc(50% - 320px);
-  width: 640px;
-  height: 420px;
-  background: radial-gradient(closest-side, var(--wb-glow-1), transparent);
-  animation-duration: 14s;
-}
-.aura-left {
-  bottom: -18%;
-  left: -10%;
-  width: 420px;
-  height: 420px;
-  background: radial-gradient(closest-side, var(--wb-glow-2), transparent);
-  animation-duration: 18s;
-  animation-delay: -6s;
-}
-.aura-right {
-  bottom: -22%;
-  right: -8%;
-  width: 380px;
-  height: 380px;
-  background: radial-gradient(closest-side, var(--wb-glow-3), transparent);
-  animation-duration: 22s;
-  animation-delay: -11s;
-}
-/* 点阵：给纯色底一层秩序感。ellipse mask 让它从中心向外淡出，避免出现硬边 */
-.aura-mesh {
-  position: absolute;
-  inset: 0;
-  background-image: radial-gradient(var(--wb-grid-dot) 1px, transparent 0);
-  background-size: 22px 22px;
-  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 42%, #000 40%, transparent 100%);
-  mask-image: radial-gradient(ellipse 60% 55% at 50% 42%, #000 40%, transparent 100%);
-}
-@keyframes aura-breathe {
-  0%,
-  100% {
-    opacity: 0.8;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.06);
-  }
-}
+/* 欢迎页的光晕 / 点阵装饰已收进 wb-ui.css 的 .wb-aura*：整套才一份定义，
+   组件里只留「放在哪」的位置规则。 */
 .hero-in {
   position: relative;
   z-index: 1;
@@ -457,7 +400,7 @@ watch(() => settings.boot?.default_model, seedContext)
 /* 装饰层动效不吃「减少动态效果」的系统设置：用户关了它，就该真的停 */
 @media (prefers-reduced-motion: reduce) {
   .rise,
-  .aura {
+  .wb-aura {
     animation: none;
   }
 }

@@ -83,7 +83,7 @@ onMounted(syncFromSettings)
             type="button"
             @click="setSize(s.key)"
           >
-            <b :style="{ fontSize: `${13 * s.scale}px` }">A</b>
+            <b :style="{ fontSize: `calc(var(--wb-fs-md) * ${s.scale})` }">A</b>
             <span>{{ s.name }}</span>
           </button>
         </div>
@@ -142,10 +142,27 @@ onMounted(syncFromSettings)
   border: 1px solid var(--wb-border);
   cursor: pointer;
   color: var(--wb-ink);
-  transition: border-color var(--wb-dur) var(--wb-ease), box-shadow var(--wb-dur) var(--wb-ease);
+  transition:
+    border-color var(--wb-dur) var(--wb-ease),
+    background var(--wb-dur) var(--wb-ease),
+    box-shadow var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
-.theme-card:hover {
+.theme-card:hover:not(:disabled) {
   border-color: var(--wb-border-strong);
+  background: var(--wb-surface-hover);
+}
+.theme-card:active:not(:disabled) {
+  border-color: var(--wb-border-strong);
+  transform: scale(0.98);
+}
+.theme-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.theme-card.is-loading {
+  pointer-events: none;
+  cursor: progress;
 }
 .theme-card.is-on {
   border-color: var(--wb-primary);
@@ -159,8 +176,8 @@ onMounted(syncFromSettings)
   color: var(--wb-muted);
 }
 .sw {
-  width: 44px;
-  height: 44px;
+  width: var(--wb-ctl-h-xl);
+  height: var(--wb-ctl-h-xl);
   border-radius: var(--wb-radius-full);
   box-shadow: inset 0 0 0 1px var(--wb-tint-lg);
 }
@@ -173,43 +190,7 @@ onMounted(syncFromSettings)
   display: grid;
   gap: var(--wb-sp-2);
 }
-.perm-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--wb-sp-2);
-}
-@media (max-width: 560px) {
-  .perm-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-.perm {
-  text-align: left;
-  display: grid;
-  gap: 2px;
-  padding: var(--wb-sp-3);
-  border-radius: var(--wb-radius-sm);
-  border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
-  color: var(--wb-ink);
-  cursor: pointer;
-  min-width: 0;
-  transition: border-color var(--wb-dur) var(--wb-ease), background var(--wb-dur) var(--wb-ease);
-}
-.perm:hover {
-  border-color: var(--wb-border-strong);
-}
-.perm.is-on {
-  border-color: var(--wb-primary);
-  background: var(--wb-primary-soft);
-}
-.perm b {
-  font-size: var(--wb-fs-md);
-}
-.perm span {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
+/* .perm-row / .perm 是共享选择卡，已收回到 wb-ui.css；这里只留本地修饰符 */
 .size-cell {
   justify-items: center;
   text-align: center;

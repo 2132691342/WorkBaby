@@ -222,14 +222,6 @@ onMounted(() => store.loadDocs())
 .err {
   color: var(--wb-danger);
 }
-.x {
-  display: inline-grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-}
 .hits {
   display: grid;
   gap: var(--wb-sp-2);

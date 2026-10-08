@@ -328,43 +328,7 @@ onMounted(async () => {
   color: var(--wb-danger);
   margin-bottom: 0;
 }
-.perm-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--wb-sp-2);
-}
-@media (max-width: 860px) {
-  .perm-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-.perm {
-  text-align: left;
-  display: grid;
-  gap: 2px;
-  padding: var(--wb-sp-3);
-  border-radius: var(--wb-radius-sm);
-  border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
-  color: var(--wb-ink);
-  cursor: pointer;
-  min-width: 0;
-  transition: border-color var(--wb-dur) var(--wb-ease), background var(--wb-dur) var(--wb-ease);
-}
-.perm:hover {
-  border-color: var(--wb-border-strong);
-}
-.perm.is-on {
-  border-color: var(--wb-primary);
-  background: var(--wb-primary-soft);
-}
-.perm b {
-  font-size: var(--wb-fs-md);
-}
-.perm span {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
+/* .perm-row / .perm 是共享选择卡，已收回到 wb-ui.css */
 .row {
   display: flex;
   align-items: center;

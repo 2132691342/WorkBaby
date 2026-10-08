@@ -443,14 +443,19 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
 .attach .x {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: var(--wb-ctl-icon);
+  height: var(--wb-ctl-icon);
   border-radius: var(--wb-radius-full);
   color: var(--wb-muted);
   transition: color var(--wb-dur-fast) var(--wb-ease), transform var(--wb-dur-fast) var(--wb-ease);
 }
-.attach .x:hover {
+.attach .x:hover:not(:disabled) {
   color: var(--wb-danger);
+  transform: scale(1.08);
+}
+.attach .x:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .attach .x:active {
   transform: scale(0.88);

@@ -24,7 +24,7 @@ const examples = [
 
 <style scoped>
 /* 例句卡按案例的卡片语言：圆角大一点、图标成「瓦片」、标题用主色。
-   五态齐全：默认 / 悬停上浮 / 按下回落 / 焦点环 / 禁用（继承浏览器默认禁用）。 */
+   五态齐全：默认 / 悬停上浮 / 按下回落 / 禁用（变淡 + 禁光标）/ 加载（转圈）。 */
 .ex-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -71,6 +71,15 @@ const examples = [
 .ex-card:active:not(:disabled) {
   transform: scale(0.98);
 }
+.ex-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.ex-card.is-loading {
+  pointer-events: none;
+  cursor: progress;
+}
 .ex-card:focus-visible {
   outline: 2px solid var(--wb-primary);
   outline-offset: 2px;
@@ -78,8 +87,8 @@ const examples = [
 .ex-ic {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: var(--wb-tile-sm);
+  height: var(--wb-tile-sm);
   margin-bottom: var(--wb-sp-2);
   border-radius: var(--wb-radius);
   background: var(--wb-primary-soft);

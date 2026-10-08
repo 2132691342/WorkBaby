@@ -18,8 +18,8 @@ withDefaults(defineProps<{ title: string; sub?: string; icon?: string }>(), { ic
 
 <style scoped>
 .em-ic {
-  width: 52px;
-  height: 52px;
+  width: var(--wb-tile-lg);
+  height: var(--wb-tile-lg);
   border-radius: var(--wb-radius-lg);
   display: grid;
   place-items: center;

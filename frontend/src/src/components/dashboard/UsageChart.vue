@@ -209,7 +209,7 @@ svg {
 .ylab text,
 .xlab text {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--wb-fs-2xs);
   fill: var(--wb-muted);
 }
 .area-in {

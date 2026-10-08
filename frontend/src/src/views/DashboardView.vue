@@ -91,9 +91,17 @@ const subline = computed(() => {
   return `平均上下文 ${fmtCount(t.avg_context)} · 峰值 ${fmtCount(t.peak_context)} · 有记录的会话 ${t.sessions} 个`
 })
 
+// 打开会话要等 deserialization：async 期间不给反馈，用户会以为点空了
+const opening = ref('')
 async function openSession(id: string) {
-  await session.open(id)
-  router.push('/')
+  if (opening.value) return
+  opening.value = id
+  try {
+    await session.open(id)
+    router.push('/')
+  } finally {
+    opening.value = ''
+  }
 }
 
 async function newSession() {
@@ -185,6 +193,8 @@ async function newSession() {
                     :key="s.session_id"
                     class="rli ses"
                     type="button"
+                    :disabled="opening !== ''"
+                    :class="{ 'is-loading': opening === s.session_id }"
                     :title="`${s.title || '未命名对话'} · ${fmtCount(s.total)} token`"
                     @click="openSession(s.session_id)"
                   >
@@ -284,8 +294,8 @@ async function newSession() {
 .kpi .kt {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: var(--wb-tile-sm);
+  height: var(--wb-tile-sm);
   flex: none;
   border-radius: var(--wb-radius-sm);
   background: var(--wb-primary-soft);
@@ -391,6 +401,32 @@ async function newSession() {
 .ses:active {
   transform: scale(0.99);
 }
+.ses:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* 打开中：转圈顶掉图标位，文字与 token 数保留 */
+.ses.is-loading {
+  pointer-events: none;
+  cursor: progress;
+}
+.ses.is-loading .nm {
+  position: relative;
+  padding-left: 18px;
+}
+.ses.is-loading .nm::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border-radius: var(--wb-radius-full);
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  animation: wb-ic-spin 0.8s linear infinite;
+}
 .ses .nm {
   flex: 1 1 auto;
   min-width: 0;
@@ -420,8 +456,8 @@ async function newSession() {
 .blank-in .bt {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: var(--wb-tile);
+  height: var(--wb-tile);
   flex: none;
   border-radius: var(--wb-radius);
   background: var(--wb-primary-soft);

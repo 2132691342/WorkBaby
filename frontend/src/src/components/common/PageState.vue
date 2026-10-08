@@ -33,11 +33,11 @@ defineProps<{ loading: boolean; error?: string; empty?: boolean; emptyTitle?: st
   gap: var(--wb-sp-3);
   padding: var(--wb-sp-5) 0;
 }
+/* 骨架用不透明度做呼吸：渐变的流光会把注意力从「内容还没到」拉到背景自己身上 */
 .sk-line {
   height: 14px;
   border-radius: var(--wb-radius-xs);
-  background: linear-gradient(90deg, var(--wb-surface-2), var(--wb-raise), var(--wb-surface-2));
-  background-size: 200% 100%;
+  background: var(--wb-raise);
   animation: sk 1.2s ease-in-out infinite;
 }
 .w40 { width: 40%; }
@@ -45,7 +45,12 @@ defineProps<{ loading: boolean; error?: string; empty?: boolean; emptyTitle?: st
 .w80 { width: 80%; }
 .w90 { width: 90%; }
 @keyframes sk {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 </style>

@@ -823,10 +823,10 @@ body {
     opacity var(--wb-dur) var(--wb-ease),
     transform var(--wb-dur-fast) var(--wb-ease);
 }
-/* 默认按钮 = 中性镂空（solid 语法） */
+/* 默认按钮 = 中性镂空（solid 语法）：1px 中性描边是分层纪律，2px 会让按钮面变「重」 */
 .btn,
 .btn-solid {
-  border: 2px solid var(--wb-line-2);
+  border: 1px solid var(--wb-line-2);
   background: transparent;
 }
 /* 悬停 = 放大 + 变色；禁用不响应 */
@@ -873,12 +873,19 @@ body {
 .btn-lav:active:not(:disabled) {
   background: color-mix(in srgb, var(--wb-lav-cta) 62%, var(--wb-primary));
 }
+/* 每个权重都必须有两段颜色变化：hover 走一档、active 再走一档。
+   缩放只负责「点到了」，颜色负责「这次权限/语义是什么」，两者并行才够明显。 */
 .btn-outline {
   border-color: var(--wb-line-2);
   color: var(--wb-ink-2);
 }
 .btn-outline:hover:not(:disabled) {
   border-color: var(--wb-muted);
+  color: var(--wb-ink);
+}
+.btn-outline:active:not(:disabled) {
+  border-color: var(--wb-muted);
+  background: var(--wb-tint);
   color: var(--wb-ink);
 }
 .btn-ghost {
@@ -888,6 +895,11 @@ body {
 .btn-ghost:hover:not(:disabled) {
   border-color: var(--wb-line-2);
   background: transparent;
+  color: var(--wb-ink);
+}
+.btn-ghost:active:not(:disabled) {
+  border-color: var(--wb-line-2);
+  background: var(--wb-tint);
   color: var(--wb-ink);
 }
 /* 兼容旧类名：soft = 淡底强调 */
@@ -902,23 +914,39 @@ body {
   border-color: transparent;
   background: color-mix(in srgb, var(--wb-primary) 18%, transparent);
 }
+.btn-soft:active:not(:disabled),
+.btn-pill:active:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--wb-primary) 28%, transparent);
+}
+/* 危险 = 中性描边 + 危险色文字：描边一律中性，语义由文字与底色承载 */
 .btn-danger {
-  border: 2px solid var(--wb-danger);
+  border: 1px solid var(--wb-border-strong);
   color: var(--wb-danger);
   background: transparent;
 }
 .btn-danger:hover:not(:disabled) {
+  border-color: var(--wb-muted);
   background: var(--wb-danger-soft);
   color: var(--wb-danger);
 }
+.btn-danger:active:not(:disabled) {
+  border-color: var(--wb-muted);
+  background: color-mix(in srgb, var(--wb-danger) 22%, transparent);
+  color: var(--wb-danger);
+}
 .btn-danger-ghost {
-  border: 2px solid color-mix(in srgb, var(--wb-danger) 45%, transparent);
+  border: 1px solid transparent;
   color: var(--wb-danger);
   background: transparent;
 }
 .btn-danger-ghost:hover:not(:disabled) {
+  border-color: var(--wb-border-strong);
   background: var(--wb-danger-soft);
-  border-color: var(--wb-danger);
+}
+.btn-danger-ghost:active:not(:disabled) {
+  border-color: var(--wb-border-strong);
+  background: color-mix(in srgb, var(--wb-danger) 22%, transparent);
 }
 .btn-lg {
   height: var(--wb-ctl-h-lg);
@@ -1033,13 +1061,16 @@ body {
   background: var(--wb-danger-soft);
   color: var(--wb-danger);
 }
+/* .btn-icon 与 .icon-btn 同名同形：一组就够了，两组就要保证两边都改到 */
+.icon-btn.is-sm,
 .btn-icon.is-sm {
-  width: 22px;
-  height: 22px;
+  width: var(--wb-ctl-h-sm);
+  height: var(--wb-ctl-h-sm);
 }
+.icon-btn.is-lg,
 .btn-icon.is-lg {
-  width: 32px;
-  height: 32px;
+  width: var(--wb-ctl-h-lg);
+  height: var(--wb-ctl-h-lg);
 }
 
 /* ---- 五态补齐：行级与轻量可点元素 ----
@@ -1109,6 +1140,123 @@ body {
   border: 2px solid currentColor;
   border-top-color: transparent;
   animation: wb-ic-spin 0.8s linear infinite;
+}
+
+/* ---- 选择卡 .perm：设置页「几选一」的选项卡（.perm-row 是它的容器）----
+   曾经在 AppearancePanel 与 BehaviorPanel 各写一份，改一处忘一处；
+   现收回到语法层，五态与配色只留这一份定义。 */
+.perm-row {
+  display: grid;
+  /* minmax 有下限才会换行：写 minmax(0,1fr) 是多少列都挤在一行，窄面板里会压成一溜细条 */
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: var(--wb-sp-2);
+}
+.perm {
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  padding: var(--wb-sp-3);
+  border-radius: var(--wb-radius-sm);
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  cursor: pointer;
+  min-width: 0;
+  transition:
+    border-color var(--wb-dur) var(--wb-ease),
+    background var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.perm:hover:not(:disabled) {
+  border-color: var(--wb-border-strong);
+}
+.perm:active:not(:disabled) {
+  border-color: var(--wb-border-strong);
+  transform: scale(0.98);
+}
+.perm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.perm.is-loading {
+  pointer-events: none;
+  cursor: progress;
+}
+.perm.is-on {
+  border-color: var(--wb-primary);
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
+}
+.perm b {
+  font-size: var(--wb-fs-md);
+}
+.perm span {
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+}
+
+/* ---- 空态欢迎页装饰层 .wb-aura* ----
+ * 全站唯一的「光晕 + 点阵」：只给空态引导用，工作界面保持纯色。
+ * 三枚光晕同源单色相（--wb-glow-1/2/3），用法是在 .welcome 里堆
+ * <div class="hero-aura"><i class="wb-aura wb-aura-top"/>…</div>。 */
+.hero-aura {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.wb-aura {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(var(--wb-aura-blur));
+  animation: aura-breathe var(--wb-ease) infinite;
+}
+.wb-aura-top {
+  /* 居中靠 calc 而不是 translateX(-50%)：位移会让 breathe 的 transform 把它抢回去 */
+  top: -26%;
+  left: calc(50% - 320px);
+  width: 640px;
+  height: 420px;
+  background: radial-gradient(closest-side, var(--wb-glow-1), transparent);
+  animation-duration: 14s;
+}
+.wb-aura-left {
+  bottom: -18%;
+  left: -10%;
+  width: 420px;
+  height: 420px;
+  background: radial-gradient(closest-side, var(--wb-glow-2), transparent);
+  animation-duration: 18s;
+  animation-delay: -6s;
+}
+.wb-aura-right {
+  bottom: -22%;
+  right: -8%;
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(closest-side, var(--wb-glow-3), transparent);
+  animation-duration: 22s;
+  animation-delay: -11s;
+}
+/* 点阵：给纯色底一层秩序感。ellipse mask 让它从中心向外淡出，避免出现硬边 */
+.wb-aura-mesh {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--wb-grid-dot) 1px, transparent 0);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 42%, var(--wb-mask-ink) 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 42%, var(--wb-mask-ink) 40%, transparent 100%);
+}
+@keyframes aura-breathe {
+  0%,
+  100% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
 }
 
 /* ================= 徽标 / 状态灯 / 芯片 ================= */
@@ -3111,16 +3259,45 @@ select.input.narrow {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
+  height: var(--wb-ctl-h-sm);
   padding: 0 6px;
+  border: 0;
   border-radius: var(--wb-radius-sm);
+  background: transparent;
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
   cursor: pointer;
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
-.msg-acts .act:hover {
+.msg-acts .act:hover:not(:disabled) {
   background: var(--wb-tint);
   color: var(--wb-ink);
+  transform: scale(1.04);
+}
+.msg-acts .act:active:not(:disabled) {
+  background: var(--wb-tint-lg);
+  color: var(--wb-ink);
+  transform: scale(0.94);
+}
+.msg-acts .act:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.msg-acts .act.is-loading {
+  pointer-events: none;
+  cursor: progress;
+}
+.msg-acts .act.is-loading::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: var(--wb-radius-full);
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  animation: wb-ic-spin 0.8s linear infinite;
 }
 .msg-acts .sep {
   width: 1px;
