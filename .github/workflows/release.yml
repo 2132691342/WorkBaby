@@ -103,7 +103,7 @@ jobs:
         shell: pwsh
         run: |
           $patterns = @(
-            'backend/runtime/bundled/python-*.tar.gz',
+            'backend/runtime/bundled/python-*.zip',
             'backend/runtime/bundled/PowerShell-*-win-x64.zip'
           )
           foreach ($pattern in $patterns) {
@@ -142,8 +142,8 @@ jobs:
             throw "wails build failed (exit $wailsExit)"
           }
 
-          # postBuildHook 早已取消：运行时归档由 go:embed 进 exe，产物旁不再需要
-          # runtimes 目录。exe 存在性在这里确认，NSIS 的产出在下一段确认。
+          # 运行时归档由 go:embed 进 exe，产物旁不需要 runtimes 目录。
+          # exe 存在性在这里确认，NSIS 的产出在下一段确认。
           if (-not (Test-Path 'build/bin/WorkBaby.exe')) {
             throw "wails build 未产出 WorkBaby.exe"
           }
