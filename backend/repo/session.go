@@ -23,12 +23,15 @@ func (r *Repo) GetSession(id string) (*domain.SessionDO, error) {
 	return &s, nil
 }
 
-// ListSessions 按更新时间倒序列出会话。
-func (r *Repo) ListSessions(limit int) ([]domain.SessionDO, error) {
+// ListSessions 按更新时间倒序分页列出会话；offset 为 0 即第一页。
+func (r *Repo) ListSessions(limit, offset int) ([]domain.SessionDO, error) {
 	var list []domain.SessionDO
 	q := r.db.Order("updated_at DESC")
 	if limit > 0 {
 		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
 	}
 	if err := q.Find(&list).Error; err != nil {
 		return nil, err

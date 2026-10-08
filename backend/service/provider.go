@@ -326,9 +326,7 @@ func (p *ProviderService) ModelConfig(providerID, model string) (*domain.ModelCo
 		vo.ContextWindow = d.ContextWindow
 		vo.WindowKnown = true
 	}
-	if d.MaxOutput > 0 {
-		vo.MaxOutput = d.MaxOutput
-	}
+	vo.MaxOutput = domain.MaxOutputOf(vo.ContextWindow)
 	vo.Temperature = d.Temperature
 	vo.TopP = d.TopP
 	vo.Vision = d.Vision
@@ -370,8 +368,8 @@ func (p *ProviderService) UpsertModelConfig(req domain.UpsertModelConfigREQ) (*d
 	}
 	d := &domain.ModelConfigDO{
 		ProviderID: req.ProviderID, Model: req.Model,
-		ContextWindow: req.ContextWindow, MaxOutput: req.MaxOutput,
-		Temperature: req.Temperature, TopP: req.TopP,
+		ContextWindow: req.ContextWindow,
+		Temperature:   req.Temperature, TopP: req.TopP,
 		Vision: req.Vision, ToolCall: req.ToolCall,
 	}
 	if req.Temperature <= 0 {
@@ -438,7 +436,11 @@ func (p *ProviderService) build(d *domain.ProviderDO, model string) (llm.Streame
 		}
 	}
 	if model == "" {
-		model = defaultModelOf(d.API)
+		// 兜底不再猜模型名：猜出来的名字在用户机器上大概率不存在，
+		// 报「模型不存在」比直接说清「还没配模型」更难排查。
+		return nil, "", pkg.New(3112,
+			"服务「"+d.Name+"」还没有可用的模型",
+			"到设置里给它添加一个模型（可从上游拉取），或在对话底部选择模型")
 	}
 	if ms := parseModels(d.Models); len(ms) > 0 && !slices.Contains(ms, model) {
 		return nil, "", pkg.New(3112,
@@ -480,17 +482,6 @@ func modelsEndpoint(d *domain.ProviderDO) string {
 			base = "https://api.openai.com/v1"
 		}
 		return base + "/models"
-	}
-}
-
-func defaultModelOf(api string) string {
-	switch api {
-	case domain.APIAnthropic:
-		return "claude-sonnet-4-20250514"
-	case domain.APIOllama:
-		return "qwen2.5:7b"
-	default:
-		return "gpt-4o-mini"
 	}
 }
 

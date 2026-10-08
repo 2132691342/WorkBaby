@@ -23,13 +23,17 @@ assets/skills/{name}/SKILL.md                    # 内置（embed），启动时
 
 ```markdown
 ---
-name: 周报生成
+name: weekly-report
+when_to_use:
+  - 周报
+  - 写周报
 description: 按团队模板把本周工作整理成周报。
 ---
 （正文：给模型看的操作指引，Markdown）
 ```
 
-`name` 与 `description` 必填；解析失败只跳过这一个技能并记 warn，
+`name`（小写字母 / 数字 / 连字符，≤64）与 `description` 必填；`when_to_use`
+是可选触发词列表（标量也接受），会随清单一起注入系统提示。解析失败只跳过这一个技能并记 warn，
 **一个坏技能不许让整个助手起不来**。
 
 ## 三级来源与优先级
@@ -46,7 +50,7 @@ description: 按团队模板把本周工作整理成周报。
 
 ## 注入方式（渐进式披露）
 
-系统提示只注入启用技能的「name + description」清单，一行一条；
+系统提示只注入启用技能的「name + description + 触发词」清单，一行一条；
 **正文不常驻**——模型判断该用某个技能时，自己调 `read` 把它当文件读进来。
 技能一多就把上下文撑爆，渐进式披露是唯一可行的做法。
 

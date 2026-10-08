@@ -130,7 +130,8 @@ func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
 	ctx := feed.Ctx()
 	usage := &llm.Usage{}
 	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	// 单行上限 16MB：大段文件内容当工具参数下发时，4MB 会误报连接中断。
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	// 工具调用序号跨 chunk 累计：按当前 chunk 的列表长度取号，
 	// 调用分多个 chunk 下发时会生成重复 ID，声明与结果就配对错乱了。
 	callSeq := 0

@@ -208,6 +208,10 @@ func (r *Registry) Render() string {
 	for _, s := range enabled {
 		b.WriteString("  <skill name=\"" + s.Name + "\" location=\"" + s.Location + "\">\n")
 		b.WriteString("    " + s.Description + "\n")
+		// 触发词真的给到模型才算数：写入 frontmatter 却没人读，等于没写。
+		if len(s.WhenToUse) > 0 {
+			b.WriteString("    适用于：" + strings.Join(s.WhenToUse, " / ") + "\n")
+		}
 		b.WriteString("  </skill>\n")
 	}
 	b.WriteString("</available_skills>\n")
@@ -346,6 +350,7 @@ func ParseContent(text, location, source string) (domain.Skill, error) {
 		ID:          name + "@" + source,
 		Name:        name,
 		Description: desc,
+		WhenToUse:   stringsOf(meta["when_to_use"]),
 		Location:    location,
 		Source:      source,
 		Enabled:     true,
@@ -376,7 +381,27 @@ func firstLine(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// scalar 把 YAML 标量取成字符串；我们只关心 name 与 description 这两个纯文本字段。
+// stringsOf 把 frontmatter 里可能是标量或列表的值收成字符串列表（when_to_use 两种写法都合法）。
+func stringsOf(v any) []string {
+	switch t := v.(type) {
+	case nil:
+		return nil
+	case string:
+		if s := strings.TrimSpace(t); s != "" {
+			return []string{s}
+		}
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, it := range t {
+			if s := strings.TrimSpace(scalar(it)); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
 func scalar(v any) string {
 	switch t := v.(type) {
 	case string:

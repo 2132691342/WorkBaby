@@ -252,7 +252,6 @@ export interface UpsertModelConfigREQ {
   provider_id: string
   model: string
   context_window: number
-  max_output: number
   temperature: number
   top_p: number
   vision: boolean

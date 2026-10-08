@@ -105,7 +105,7 @@ backend/runtime/bundled/PowerShell-7.4.2-win-x64.zip
 |---|---|
 | command | 要执行的 PowerShell 命令 |
 | cwd | 工作目录，相对路径按工作区解析（SafeJoin 校验），缺省为工作区根 |
-| timeout_ms | 超时毫秒，默认 120000，上限 600000 |
+| timeout_ms | 超时毫秒，默认 120000，上限 1800000 |
 
 - 内置 pwsh 优先（`tool.Deps.PowerShellExe` 注入），兜底系统 `powershell.exe`；
   `-NoProfile -NonInteractive` 对 pwsh 7 与 5.1 通用

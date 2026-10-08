@@ -31,7 +31,8 @@ async function pickAndAdd() {
     const path = await OpenFileDialog('选择要放进知识库的文档', '')
     if (!path) return
     const r = await api.knowledge.add([path])
-    if (!r.added) error.value = '这个文件没法识别，试试 md / txt / pdf / docx / xlsx / html'
+    if (!r.added)
+      error.value = '这个文件没法识别，支持：md / txt / csv / log / json / yml / yaml / html / pdf / docx / xlsx'
     else {
       await store.loadDocs()
       toast.ok('文档已添加，正在自动建立索引')

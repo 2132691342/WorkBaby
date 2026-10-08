@@ -53,11 +53,13 @@ func (t webSearchTool) Execute(ctx context.Context, in Input) (*Result, error) {
 		return nil, pkg.Wrap(4004, "构造搜索请求失败", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Mozilla/5.0 WorkBaby")
+	// 用普通浏览器 UA：以自定义 UA 请求会被搜索站直接拦成验证码页，
+	// 表现是「搜什么都零结果」，比报错更难排查。
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, pkg.Wrap(4005, "搜索失败，检查网络", err)
+		return nil, pkg.Wrap(4005, "联网搜索失败：搜索通道（DuckDuckGo）不可达，检查网络或代理后再试", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
@@ -67,7 +69,12 @@ func (t webSearchTool) Execute(ctx context.Context, in Input) (*Result, error) {
 
 	items := parseResults(string(body), limit)
 	if len(items) == 0 {
-		return &Result{Content: "（没搜到结果）", Title: "搜网页（无结果）", Detail: ""}, nil
+		// 零结果有三种来源：关键词太窄、通道被拦、页面结构变了。
+		// 不区分就报「没搜到」，用户会以为网上真的没有。
+		return &Result{
+			Content: "搜索没有返回结果：可能是关键词太具体，也可能是搜索通道被网络环境拦截。换一种说法重试，或稍后再试。",
+			Title:   "搜网页（无结果）", Detail: "",
+		}, nil
 	}
 	out := strings.Join(items, "\n") + "\n"
 	return &Result{

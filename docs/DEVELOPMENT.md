@@ -12,13 +12,13 @@
 ```powershell
 # 后端测试：日常改动用 -Fast（跳过归档解压 + 复用构建缓存）
 .\scripts\test.ps1 -Fast
-.\scripts\test.ps1                                        # 全量（21 个 Test / 12 个文件）
+.\scripts\test.ps1                                        # 全量（19 个 Test / 12 个文件），附依赖方向门禁
 .\scripts\test.ps1 -Fast -Pkg backend/service             # 只跑一个包
-.\scripts\test.ps1 -Fast -Run TestChatRunChain            # 只跑一个 Test
+.\scripts\test.ps1 -Fast -Run TestServiceRunChain         # 只跑一个 Test
 .\scripts\test.ps1 -Race                                  # 竞态检测，改并发相关代码时用
 
-# 依赖方向门禁
-.\scripts\check-boundaries.ps1
+# 依赖方向门禁（整仓模式下由 test.ps1 自动跑，需要单独跑时）
+go run ./tools/check-boundaries
 
 # 前端类型检查 / 构建
 cd frontend
@@ -73,7 +73,7 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 | `backend/tool` | 工具契约 + 注册表 + 11 个内置工具 |
 | `backend/server/routes.go` | 路由注册唯一入口 |
 | `backend/server/sse.go` | SSE Hub：分发 / 重放 / 慢客户端策略 |
-| `tools/check-boundaries` | 依赖方向门禁实现（Go 程序，入口 `scripts/check-boundaries.ps1`） |
+| `tools/check-boundaries` | 依赖方向门禁实现（Go 程序，由 `scripts/test.ps1` 整仓模式调用） |
 | `frontend/src/src` | 前端源码（注意双层 src） |
 | `frontend/src/src/themes.css` | 色值与字体的唯一定义处 |
 | `frontend/src/src/wb-ui.css` | 组件基元唯一实现 |
@@ -109,7 +109,7 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 - **装配类测试不真解压归档**：`backend/runtime/runtimetest.SeedMarkers` 预置
   「已解压 + 版本标记」，装配只跑配置 / DB / 服务 / 工具注册的真实链路。
   真解压只在 `runtime` 包的 `TestBundledRuntimeChain` 做一次——那是全量测试
-  唯一的慢点（约 6s），日常用 `-short` 跳过，是刻意的
+  唯一的慢点（约 3s），日常用 `-Fast` 跳过，是刻意的
 - 多轮对话用 `backend/llm/llmtest` 的脚本替身驱动，配合
   `factory.SetOverride("test", ...)` 注入，**绝不真联网**
 - 环境依赖（系统 shell、真实网络、内置运行时归档）必须先探测再决定跳过，
@@ -119,12 +119,17 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 
 保留哪几条链路、每条覆盖什么，见 `AGENTS.md §3.3` 的测试索引。
 
-## 辅助脚本
+## 验证脚本
 
-| 脚本 | 用途 |
+只有 `scripts/test.ps1` 一个入口，参数即「跑什么」：
+
+| 参数 | 用途 |
 |---|---|
-| `scripts/test.ps1` | 测试入口：`-Fast` 日常、默认全量、`-Pkg` 单包、`-Run` 单 Test、`-Race` 并发检测 |
-| `scripts/check-boundaries.ps1` | 依赖方向门禁入口（跑 `tools/check-boundaries`） |
+| 默认（无参数） | 全量测试（`-count=1`）+ 依赖方向门禁，提交前 / CI 用 |
+| `-Fast` | `-short` + 允许缓存：跳过归档真实解压，秒级返回 |
+| `-Pkg <包>` | 只跑一个包，如 `backend/service` |
+| `-Run <正则>` | 只跑匹配的 Test，如 `TestServiceRunChain` |
+| `-Race` | 竞态检测（需 CGO 与 gcc，分钟级） |
 
 运行时归档（`backend/runtime/bundled/*.zip`）直接随仓库托管（Git LFS），
 升级时手工替换 zip 并同步版本常量与 SHA 常量，没有取包脚本。

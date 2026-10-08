@@ -3,6 +3,7 @@ package knowledge
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -167,8 +168,12 @@ func (s *Service) index(doc *domain.KnowledgeDocDO) error {
 		return err
 	}
 	chunks := chunk(text)
+	truncated := false
 	if len(chunks) > maxChunks {
+		// 超长文档只索引前一段，但必须留痕：静默截断会让「后半本永远搜不到」
+		// 变成用户无法理解的检索失灵，文档还显示「已索引」。
 		chunks = chunks[:maxChunks]
+		truncated = true
 	}
 	rows := make([]domain.KnowledgeChunkDO, 0, len(chunks))
 	seen := map[string]bool{}
@@ -192,6 +197,9 @@ func (s *Service) index(doc *domain.KnowledgeDocDO) error {
 	doc.Chunks = len(rows)
 	doc.Status = domain.DocIndexed
 	doc.Error = ""
+	if truncated {
+		doc.Error = fmt.Sprintf("文档太长，只索引了前 %d 段（约 %d 字），后面部分搜不到", maxChunks, maxChunks*chunkTarget)
+	}
 	return s.repo.UpsertDoc(doc)
 }
 

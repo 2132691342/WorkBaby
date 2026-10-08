@@ -161,7 +161,8 @@ func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
 	stop := llm.StopStop
 
 	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	// 单行上限 16MB：大段文件内容当工具参数下发时，4MB 会误报连接中断。
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
 		feed.Ping()
 		if ctx.Err() != nil && !feed.TimedOut() {

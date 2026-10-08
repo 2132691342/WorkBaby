@@ -51,8 +51,12 @@ type Budget struct{ Window, WindowKnown, Reserve, Keep, SystemTokens }
 | Window | 128000 | 模型上下文窗口：来自内置能力目录，可被模型级配置与全局 `context_window` 设置覆写 |
 | WindowKnown | — | 窗口是否为确切值；false 时界面读数加「约」前缀 |
 | Reserve | 16384 | 给模型输出留的余量：先取设置项，再抬到该模型真正下发的输出预算（见下） |
-| Keep | 20000 | 裁剪后保留的近期 token 预算 |
+| Keep | 20000 | 裁剪后保留的近期 token 预算；随窗口缩放 = `clamp(窗口/4, 20000, 200000)` |
 | SystemTokens | 估算 | system 提示词的 token 估算，判断是否超预算必须算上它 |
+
+输出预算（`MaxTokens`）不写死、不由用户设置：一律按上下文窗口的 1/8 派生
+（`domain.MaxOutputOf`），窗口覆写到哪输出就跟到哪——1M 窗口给 125K 输出，
+长任务不会被缺省的 8k 拦腰截断。
 
 可用预算 = `Window - Reserve`。Reserve 是**下限**，service 层还会把它抬到
 `max(设置值, MaxTokens)`：留的余量比实际输出预算还小，等于按虚高的空间往窗口里塞内容，
@@ -97,7 +101,7 @@ func Compact(msgs []llm.Message, b Budget) (out []llm.Message, after int)
 
 ## 测试
 
-`backend/agent/compact_test.go`：
+`backend/agent/agent_test.go`（`TestCompactProtocol`）：
 
 | 测试 | 锁住的行为 |
 |---|---|

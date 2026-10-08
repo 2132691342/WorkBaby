@@ -2,8 +2,10 @@ package knowledge
 
 import (
 	"archive/zip"
+	"fmt"
 	"io"
 	"regexp"
+	"sort"
 	"strings"
 
 	"WorkBaby/backend/domain"
@@ -15,7 +17,7 @@ import (
 // 支持的类型：面向办公文档，超出即标记失败并在列表里说明原因。
 var supported = map[string]bool{
 	"md": true, "txt": true, "csv": true, "log": true, "json": true, "yml": true, "yaml": true,
-	"html": true, "htm": true, "pdf": true, "docx": true, "xlsx": true,
+	"html": true, "htm": true, "pdf": true, "docx": true, "xlsx": true, "pptx": true,
 }
 
 // RE2 不支持反向引用，脚本与样式各写一条。
@@ -27,6 +29,10 @@ var (
 	cellRe     = regexp.MustCompile(`(?s)<(t|v)[^>]*>(.*?)</(t|v)>`)
 	paraBreak  = regexp.MustCompile(`(?s)</w:p>`)
 	docxTextRe = regexp.MustCompile(`(?s)<w:t[^>]*>(.*?)</w:t>`)
+
+	slideFileRe = regexp.MustCompile(`^ppt/slides/slide(\d+)\.xml$`)
+	pptParaRe   = regexp.MustCompile(`(?s)</a:p>`)
+	pptxTextRe  = regexp.MustCompile(`(?s)<a:t[^>]*>(.*?)</a:t>`)
 )
 
 // LoadText 按扩展名抽纯文本。
@@ -42,6 +48,8 @@ func LoadText(path string) (string, error) {
 		return loadZipEntry(path, "word/document.xml", docxToText)
 	case "xlsx":
 		return loadXLSX(path)
+	case "pptx":
+		return loadPPTX(path)
 	case "html", "htm":
 		raw, err := pkg.ReadText(path)
 		if err != nil {
@@ -159,6 +167,65 @@ func loadXLSX(path string) (string, error) {
 		return "", pkg.New(6102, "这个表格里没有可提取的内容", "")
 	}
 	return out, nil
+}
+
+// loadPPTX 抽每页文字，按页序拼成带页码的文本。
+func loadPPTX(path string) (string, error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return "", pkg.Wrap(6101, "打开演示文稿失败", err)
+	}
+	defer r.Close()
+
+	type slide struct {
+		num  int
+		text string
+	}
+	slides := []slide{}
+	for _, f := range r.File {
+		m := slideFileRe.FindStringSubmatch(f.Name)
+		if m == nil {
+			continue
+		}
+		raw, err := readZipFile(f)
+		if err != nil {
+			continue
+		}
+		slides = append(slides, slide{num: atoi(m[1]), text: pptxToText(string(raw))})
+	}
+	if len(slides) == 0 {
+		return "", pkg.New(6102, "这个演示文稿里没有可提取的内容", "")
+	}
+	sort.Slice(slides, func(i, j int) bool { return slides[i].num < slides[j].num })
+	var b strings.Builder
+	for _, s := range slides {
+		if strings.TrimSpace(s.text) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "第 %d 页\n%s\n\n", s.num, s.text)
+	}
+	out := b.String()
+	if strings.TrimSpace(out) == "" {
+		return "", pkg.New(6102, "这个演示文稿里没有可提取的文字", "可能整页都是图片")
+	}
+	return out, nil
+}
+
+// pptxToText 抽一页幻灯片的文字：按段落断行，再抽 <a:t> 文本。
+func pptxToText(xml string) string {
+	var b strings.Builder
+	for _, p := range pptParaRe.Split(xml, -1) {
+		line := ""
+		for _, m := range pptxTextRe.FindAllStringSubmatch(p, -1) {
+			line += m[1]
+		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		b.WriteString(strings.TrimSpace(line))
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // sheetToText 把 sheet 的单元格按行拼成制表符分隔的文本。

@@ -13,7 +13,8 @@ import (
 )
 
 // 等待确认的时限：无人值守时按拒绝处理，绝不自动放行危险操作。
-const approvalTimeout = 5 * time.Minute
+// 给 30 分钟，覆盖开会 / 午休离座——5 分钟会把「人不在工位」变成一串静默拒绝。
+const approvalTimeout = 30 * time.Minute
 
 // ApprovalService 是审批门：内核执行工具前必经，落表以便审计与界面展示。
 // 等待中的决策只存在于内存，重启即失效——由 ExpireStale 在启动时收口。
@@ -95,7 +96,7 @@ func (a *ApprovalService) Gate(ctx context.Context, sessionID string, perm strin
 	if !decision.Approved {
 		status = domain.ApprovalDenied
 		if timedOut {
-			reason = "等待确认超时，已按拒绝处理"
+			reason = fmt.Sprintf("等待确认超过 %d 分钟，已按拒绝处理；让助手重新发起即可", int(approvalTimeout.Minutes()))
 		}
 	} else if decision.Scope == domain.ApprovalScopeSession {
 		a.mu.Lock()

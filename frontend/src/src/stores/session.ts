@@ -7,12 +7,26 @@ export const useSessionStore = defineStore('session', () => {
   const list = ref<SessionVO[]>([])
   const currentId = ref<string | null>(null)
   const messages = ref<MessageVO[]>([])
+  // 一页会话数必须与后端 sessionPageSize 一致；还有更多时侧栏给「加载更多」。
+  const PAGE = 200
+  const hasMore = ref(false)
 
   const current = computed(() => list.value.find((s) => s.id === currentId.value) || null)
 
   async function loadList() {
-    list.value = await api.sessions.list()
+    list.value = await api.sessions.list(0)
+    hasMore.value = list.value.length >= PAGE
     return list.value
+  }
+
+  // loadMore 追加下一页：用 set 去重——翻页期间有会话更新会跳到前面，
+  // 不去重会在列表里出现两条一样的对话。
+  async function loadMore() {
+    const more = await api.sessions.list(list.value.length)
+    const seen = new Set(list.value.map((s) => s.id))
+    const fresh = more.filter((s) => !seen.has(s.id))
+    list.value = [...list.value, ...fresh]
+    hasMore.value = more.length >= PAGE && fresh.length > 0
   }
 
   async function create(payload: { title?: string; workspace?: string } = {}) {
@@ -93,10 +107,12 @@ export const useSessionStore = defineStore('session', () => {
 
   return {
     list,
+    hasMore,
     currentId,
     current,
     messages,
     loadList,
+    loadMore,
     create,
     open,
     refresh,

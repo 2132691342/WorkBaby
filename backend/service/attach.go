@@ -38,7 +38,12 @@ func buildAttachment(workspace string, items []domain.AttachmentREQ) (string, []
 	if len(items) == 0 {
 		return "", nil
 	}
+	// 超出数量上限必须留痕：静默丢弃会让模型说「没看到那个文件」，
+	// 用户两头都找不到原因（为什么少了一个）。
+	note := ""
 	if len(items) > attachMaxFiles {
+		note = fmt.Sprintf("（本次引用了 %d 个文件，一次最多读 %d 个，其余 %d 个没有带上）\n\n",
+			len(items), attachMaxFiles, len(items)-attachMaxFiles)
 		items = items[:attachMaxFiles]
 	}
 	var b strings.Builder
@@ -89,18 +94,24 @@ func buildAttachment(workspace string, items []domain.AttachmentREQ) (string, []
 			b.WriteString(fmt.Sprintf("### %s\n（读不到或内容为空）\n\n", it.Name))
 			continue
 		}
-		body := string(raw)
+		// Word / Excel / PDF 是二进制文档：按字节当文本读只会塞进一堆乱码，
+		// 明说做不到并给出可行路径，别让模型拿着乱码瞎猜。
+		if pkg.LooksBinary(raw) {
+			b.WriteString(fmt.Sprintf("### %s\n（这是二进制文档，直接引用读不出内容：把它加进知识库再检索，或用 python 处理）\n\n", it.Name))
+			continue
+		}
+		body := pkg.DecodeText(raw)
 		if len(body) > attachMaxBytes {
 			body = cutRunes(body, attachMaxBytes)
 		}
 		b.WriteString("### " + filepath.Base(full) + "\n\n```\n" + body + "\n```\n\n")
 	}
-	if b.Len() == 0 && len(images) == 0 {
-		return "", nil
-	}
-	head := ""
+	head := note
 	if b.Len() > 0 {
-		head = "以下是用户引用的文件内容：\n\n" + b.String() + "---\n\n"
+		head += "以下是用户引用的文件内容：\n\n" + b.String() + "---\n\n"
+	}
+	if head == "" && len(images) == 0 {
+		return "", nil
 	}
 	return head, images
 }

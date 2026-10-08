@@ -20,6 +20,7 @@
 | .pdf | 逐页取文本 |
 | .docx | document.xml 去标签 |
 | .xlsx | sharedStrings + sheet 单元格逐行 |
+| .pptx | ppt/slides/slideN.xml 逐页抽 <a:t>，加页码 |
 | .html/.htm | 去标签转纯文本 |
 | .log / .json / .yml/.yaml | 原文 |
 | .csv | 按行 |
@@ -63,7 +64,8 @@
 ## 测试
 
 `knowledge/knowledge_test.go` 的 `TestKnowledgeChain` 覆盖：建索引 → 检索（含两字短查询
-走 `LIKE` 兜底）→ 删除文档后切片级联清理（FTS 里不留孤儿）。
+走 `LIKE` 兜底）→ 删除文档后切片级联清理（FTS 里不留孤儿）；
+另锁 pptx 按页号抽取（zip 条目顺序不可靠）且内容可检索。
 
 ## 取舍
 

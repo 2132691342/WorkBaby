@@ -1,10 +1,14 @@
-// 知识库完整链路：加文档 → 建索引 → 检索（含短查询子串兜底）→ 删除级联。
+// 知识库完整链路：加文档 → 建索引 → 检索（含短查询子串兜底）→ 删除级联，
+// 以及 Office 文档（zip+xml）抽取的页序正确性。
 // 单独测任一层都测不出检索失效：文档表、切片表与 FTS5 虚表是协作关系。
 package knowledge
 
 import (
+	"archive/zip"
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"WorkBaby/backend/db"
@@ -69,6 +73,53 @@ func TestKnowledgeChain(t *testing.T) {
 		}
 		if len(short) == 0 {
 			t.Fatal("短查询应有子串兜底结果")
+		}
+	})
+
+	// pptx 的页序按文件序号排，不靠 zip 条目顺序：
+	// zip 里 slide10 可能排在 slide2 前面，按条目顺序读会把页序打乱。
+	t.Run("pptx 抽取页序正确且可检索", func(t *testing.T) {
+		svc := newService(t)
+		path := filepath.Join(t.TempDir(), "汇报.pptx")
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		zw := zip.NewWriter(f)
+		slides := map[string]string{
+			"ppt/slides/slide2.xml": `<a:p><a:t>第二页讲成本控制</a:t></a:p>`,
+			"ppt/slides/slide1.xml": `<a:p><a:t>第一页讲季度增长</a:t></a:p>`,
+		}
+		// 刻意先写 slide2：抽取结果必须仍按页号排序。
+		for _, name := range []string{"ppt/slides/slide2.xml", "ppt/slides/slide1.xml"} {
+			w, err := zw.Create(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Write([]byte(slides[name])); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		if n, err := svc.Add([]string{path}); err != nil || n != 1 {
+			t.Fatalf("添加 pptx 失败: n=%d err=%v", n, err)
+		}
+		text, err := LoadText(path)
+		if err != nil {
+			t.Fatalf("抽取 pptx 失败: %v", err)
+		}
+		if i1, i2 := strings.Index(text, "第一页"), strings.Index(text, "第二页"); i1 < 0 || i2 < 0 || i1 > i2 {
+			t.Fatalf("页序不对或内容缺失: %q", text)
+		}
+		hits, err := svc.Search(context.Background(), "成本控制", 5)
+		if err != nil || len(hits) == 0 {
+			t.Fatalf("pptx 内容应可检索: err=%v hits=%d", err, len(hits))
 		}
 	})
 

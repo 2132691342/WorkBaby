@@ -21,7 +21,7 @@ import type {
 export const bootstrap = () => get<BootstrapVO>('/bootstrap')
 
 export const sessions = {
-  list: () => get<SessionVO[]>('/sessions'),
+  list: (offset = 0) => get<SessionVO[]>('/sessions', offset > 0 ? { offset } : undefined),
   create: (body: { title?: string; workspace?: string; provider_id?: string; model?: string }) =>
     post<SessionVO>('/sessions', body),
   detail: (id: string) => get<SessionDetailVO>(`/sessions/${id}`),
@@ -102,6 +102,9 @@ export const models = {
     get<ModelCapability>(
       `/models/capability?model=${encodeURIComponent(model)}${provider_id ? `&provider_id=${provider_id}` : ''}`,
     ),
+  /** 批量能力：换模型下拉一次列几十上百个模型，逐个查会打出 N+1 */
+  capabilities: (provider_id: string, models: string[]) =>
+    post<ModelCapability[]>('/models/capabilities', { provider_id, models }),
   config: (model: string, provider_id?: string) =>
     get<ModelConfigVO>(
       `/models/config?model=${encodeURIComponent(model)}${provider_id ? `&provider_id=${provider_id}` : ''}`,

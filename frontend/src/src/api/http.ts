@@ -22,7 +22,9 @@ export function getBaseURLRef() {
   return baseURLRef
 }
 
-const http = axios.create({ timeout: 30000 })
+// 120 秒：大 PDF 建索引、拉取上游模型列表、导入技能都可能跑过 30 秒；
+// 超时只砍断等待，不打断后端任务，用户一重试就是重复索引/重复导入。
+const http = axios.create({ timeout: 120000 })
 
 http.interceptors.request.use((cfg) => {
   if (baseURL && !cfg.url?.startsWith('http')) {

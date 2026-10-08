@@ -9,7 +9,8 @@ const (
 )
 
 // ModelConfigDO 模型级配置。ProviderID + Model 复合主键。
-// 零值语义：ContextWindow / MaxOutput 为 0 表示跟随内置目录。
+// ContextWindow 为 0 表示跟随内置目录；MaxOutput 已废弃（按窗口 1/8 派生），列仅保留。
+
 type ModelConfigDO struct {
 	ProviderID    string  `gorm:"primaryKey;size:64" json:"provider_id"`
 	Model         string  `gorm:"primaryKey;size:255" json:"model"`
@@ -30,11 +31,16 @@ type UpsertModelConfigREQ struct {
 	ProviderID    string  `json:"provider_id"`
 	Model         string  `json:"model"`
 	ContextWindow int     `json:"context_window"`
-	MaxOutput     int     `json:"max_output"`
 	Temperature   float64 `json:"temperature"`
 	TopP          float64 `json:"top_p"`
 	Vision        bool    `json:"vision"`
 	ToolCall      bool    `json:"tool_call"`
+}
+
+// ModelCapabilitiesREQ 批量查模型能力入参；换模型下拉一次列几十上百个模型。
+type ModelCapabilitiesREQ struct {
+	ProviderID string   `json:"provider_id"`
+	Models     []string `json:"models"`
 }
 
 // ModelConfigVO 出参：配置与内置目录合并后的最终值，前端直接显示。

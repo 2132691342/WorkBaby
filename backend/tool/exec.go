@@ -8,18 +8,16 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/transform"
 )
 
-// 默认与上限超时：默认给足办公脚本的时间，上限防止死循环命令长期占用。
+// 默认与上限超时：上限 30 分钟（构建 / 安装 / 批量转码的量级），
+// 防止死循环命令长期占用进程树。
 const (
 	defaultTimeout = 120 * time.Second
-	maxTimeout     = 600 * time.Second
+	maxTimeout     = 1800 * time.Second
 )
 
 // powershellTool 在 Windows 上执行 PowerShell 命令，是模型真正「干活」的出口。
@@ -46,7 +44,7 @@ func (powershellTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"command":    map[string]any{"type": "string", "description": "PowerShell 命令"},
 			"cwd":        map[string]any{"type": "string", "description": "工作目录，默认当前工作目录"},
-			"timeout_ms": map[string]any{"type": "integer", "description": "超时毫秒，默认 120000，上限 600000"},
+			"timeout_ms": map[string]any{"type": "integer", "description": "超时毫秒，默认 120000，上限 1800000"},
 		},
 		"required": []string{"command"},
 	}
@@ -138,20 +136,10 @@ func (t powershellTool) Execute(ctx context.Context, in Input) (*Result, error) 
 	}, nil
 }
 
-// normalizeEncoding 把 GBK 输出归一为 UTF-8（Windows 命令行默认 GBK），
-// 避免中文输出变成乱码。已是合法 UTF-8 的原样返回。
+// normalizeEncoding 把命令输出归一为 UTF-8：Windows 命令行默认 GBK，
+// PowerShell 重定向又常产出 UTF-16，统一交给 pkg.DecodeText。
 func normalizeEncoding(b []byte) string {
-	if len(b) == 0 {
-		return ""
-	}
-	if utf8.Valid(b) {
-		return string(b)
-	}
-	out, _, err := transform.Bytes(simplifiedchinese.GBK.NewDecoder(), b)
-	if err != nil {
-		return string(b)
-	}
-	return string(out)
+	return pkg.DecodeText(b)
 }
 
 // RiskOf 给命令定风险等级，只用于 UI 展示，不改变审批判定。

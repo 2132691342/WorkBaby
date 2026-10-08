@@ -283,7 +283,7 @@ onMounted(async () => {
         <div class="grow">
           <div class="a-t">回答被截断了</div>
           <div>{{ truncText }}</div>
-          <div class="a-sub">想让它一次写更长，去「设置 → 模型」把这个模型的输出上限调大。</div>
+          <div class="a-sub">输出预算已按上下文窗口给足（窗口的 1/8）。仍被截断说明撞到了模型自己的硬上限：换一个支持更长输出的模型，或点「继续」接着写。</div>
         </div>
         <button class="btn btn-sm" type="button" :disabled="chat.running" @click="emit('continue')">
           继续

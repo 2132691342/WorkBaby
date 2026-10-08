@@ -238,7 +238,7 @@ onMounted(async () => {
             <template v-if="cap.known">
               <b :title="String(cap.context_window)">{{ fmtCount(cap.context_window) }}</b>
             </template>
-            <template v-else><i class="unknown">未知（按 128K 估算）</i></template>
+            <template v-else><i class="unknown">未知（按 {{ fmtCount(cap.context_window) }} 估算）</i></template>
           </span>
           <span>最大输出</span>
           <span>{{ fmtCount(cap.max_output) }}</span>

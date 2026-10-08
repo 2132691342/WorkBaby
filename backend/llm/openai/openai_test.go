@@ -1,10 +1,12 @@
-// OpenAI 流式解析链路：usage 帧顺序、工具调用单次下发、断流收尾、缓存计量。
-// usage 是独立一帧，排在 finish_reason 之后、[DONE] 之前——提前收尾会让计量与上下文水位全变 0。
+// OpenAI 适配层链路：请求编码的协议家族差异（推理家族 vs 普通模型），
+// 以及流式解析的硬约束（usage 帧顺序、工具调用单次下发、断流收尾）。
 package openai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -45,10 +47,66 @@ func collect(t *testing.T, c *Client) []llm.Event {
 	return out
 }
 
-func TestOpenAIStreamChain(t *testing.T) {
+// decodeBody 编码一次请求并解回 map，逐字段断言。
+func decodeBody(t *testing.T, req llm.Request) map[string]any {
+	t.Helper()
+	c := New(llm.ClientConfig{BaseURL: "http://127.0.0.1:1"})
+	body, err := c.encode(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// 编码协议：推理家族只认 max_completion_tokens 且拒绝采样参数，用错字段直接 400。
+func TestEncodeProtocolFamilies(t *testing.T) {
+	temp := 0.25
+
+	t.Run("推理家族用 max_completion_tokens", func(t *testing.T) {
+		body := decodeBody(t, llm.Request{Model: "o3-mini", MaxTokens: 1000, Temperature: &temp})
+		if _, ok := body["max_tokens"]; ok {
+			t.Fatal("o 系模型不应下发 max_tokens，会直接 400")
+		}
+		if _, ok := body["temperature"]; ok {
+			t.Fatal("o 系模型不应下发 temperature，会直接 400")
+		}
+		if got, ok := body["max_completion_tokens"].(float64); !ok || int(got) != 1000 {
+			t.Fatalf("max_completion_tokens 缺失或不对: %v", body["max_completion_tokens"])
+		}
+	})
+
+	t.Run("普通模型仍用 max_tokens", func(t *testing.T) {
+		body := decodeBody(t, llm.Request{Model: "deepseek-chat", MaxTokens: 1000, Temperature: &temp})
+		if got, ok := body["max_tokens"].(float64); !ok || int(got) != 1000 {
+			t.Fatalf("max_tokens 缺失或不对: %v", body["max_tokens"])
+		}
+		if _, ok := body["max_completion_tokens"]; ok {
+			t.Fatal("普通模型不应下发 max_completion_tokens")
+		}
+		if _, ok := body["temperature"]; !ok {
+			t.Fatal("普通模型的 temperature 应正常下发")
+		}
+	})
+
+	t.Run("网关前缀不影响家族判定", func(t *testing.T) {
+		body := decodeBody(t, llm.Request{Model: "openai/gpt-5", MaxTokens: 500})
+		if _, ok := body["max_completion_tokens"]; !ok {
+			t.Fatal("带网关前缀的 gpt-5 应命中推理协议")
+		}
+	})
+}
+
+// 流式解析：usage 是独立一帧排在 finish_reason 之后，提前收尾会让计量与水位全变 0。
+func TestStreamChain(t *testing.T) {
 	t.Run("usage 帧晚于 finish_reason 仍能拿到", func(t *testing.T) {
-		// usage 是独立帧，出现在 finish_reason 之后，读不到就永远显示 0（缓存命中率）；
-		// 缓存字段有两种写法（顶层与 prompt_tokens_details 下），同时出现取大的。
 		c := serve(t,
 			`data: {"choices":[{"delta":{"content":"你好"}}]}`,
 			`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,

@@ -81,6 +81,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		v1.GET("/tools", h.ListTools)
 		v1.POST("/tools/:name/toggle", h.ToggleTool)
 		v1.GET("/models/capability", h.ModelCapability)
+		v1.POST("/models/capabilities", h.ModelCapabilities)
 		v1.GET("/models/config", h.GetModelConfig)
 		v1.GET("/models/configs", h.ListModelConfigs)
 		v1.POST("/models/config", h.UpsertModelConfig)

@@ -59,8 +59,10 @@ func (t *KnowledgeTool) Execute(ctx context.Context, in Input) (*Result, error) 
 	for i, h := range hits {
 		fmt.Fprintf(&b, "[%d] %s（%s）\n%s\n\n", i+1, h.Title, h.Path, h.Content)
 	}
+	// 上限与其余工具统一：模型传 limit=100 时几万字一次灌进窗口，
+	// 剩下的上下文全被检索结果挤掉。
 	return &Result{
 		Title:   fmt.Sprintf("找到 %d 条相关内容", len(hits)),
-		Content: strings.TrimRight(b.String(), "\n"),
+		Content: Cut(strings.TrimRight(b.String(), "\n"), in.Deps.TmpDir, "knowledge"),
 	}, nil
 }

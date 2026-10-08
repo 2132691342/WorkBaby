@@ -1,5 +1,6 @@
 // 跨进程边界的端到端链路：完整装配 + 真实 HTTP 栈下的启动完整性、技能导入、
-// 跨源预检、流式送达与断线重放。内核与落库都没问题时，界面仍可能一直转圈。
+// 跨源预检、SSE 送达与断线重放。内核与落库都没问题时，界面仍可能一直转圈。
+// 服务只启动一次，全部子测试共用。
 package api_test
 
 import (
@@ -25,9 +26,9 @@ import (
 	"WorkBaby/backend/server"
 )
 
-// newBootedServer 在干净家目录起一套完整装配 + 真实 HTTP 栈，返回 base URL。
+// bootServer 在干净家目录起一套完整装配 + 真实 HTTP 栈。
 // 运行时标记先预置好：配置 / DB / 服务 / 工具注册全链路照常跑，只跳过归档解压。
-func newBootedServer(t *testing.T) string {
+func bootServer(t *testing.T) (string, *api.Handler) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("WORKBABY_HOME", home)
@@ -38,7 +39,6 @@ func newBootedServer(t *testing.T) string {
 		t.Fatalf("首次启动必须成功: %v", err)
 	}
 	t.Cleanup(h.Shutdown)
-	assertBootstrapped(t, h)
 
 	srv := server.New(h)
 	port, err := srv.Start()
@@ -46,33 +46,7 @@ func newBootedServer(t *testing.T) string {
 		t.Fatalf("HTTP 服务启动失败: %v", err)
 	}
 	t.Cleanup(srv.Stop)
-	return fmt.Sprintf("http://127.0.0.1:%d/api/v1", port)
-}
-
-// assertBootstrapped 断言装配完整性：缺任一样东西，界面都是空窗口 + 接口全 404。
-func assertBootstrapped(t *testing.T, h *api.Handler) {
-	t.Helper()
-	if h.Svc == nil || h.Repo == nil || h.Registry == nil || h.Skills == nil {
-		t.Fatal("服务容器没有装配完整，界面会空着且接口全 404")
-	}
-	if h.Cfg.MasterKey == "" {
-		t.Fatal("配置没有生成主密钥")
-	}
-	if len(h.Skills.List()) == 0 {
-		t.Fatal("内置技能没有加载")
-	}
-	if len(h.Registry.All()) == 0 {
-		t.Fatal("内置工具一个都没注册，模型会突然找不到文件能力")
-	}
-	for _, name := range []string{"read", "write"} {
-		if _, found := h.Registry.Get(name); !found {
-			t.Fatalf("%s 工具没有注册", name)
-		}
-	}
-	// 端口握手必须晚于 Startup：Startup 阶段就写端口，界面拿到的可能是过期值。
-	if h.Port() != 0 {
-		t.Fatal("端口应由后续握手阶段写入，Startup 阶段应为 0")
-	}
+	return fmt.Sprintf("http://127.0.0.1:%d/api/v1", port), h
 }
 
 // call 发一个带 WebView2 来源的请求，返回状态码与响应体。
@@ -126,7 +100,6 @@ type sseFrame struct {
 }
 
 // subscribeSSE 订阅会话事件流，逐帧解析；lastID 非空时带 Last-Event-ID 重连。
-// 读到 EOF 或出错时关闭通道，测试侧靠它判断流是否提前断掉。
 func subscribeSSE(t *testing.T, base, sessionID, lastID string) (<-chan sseFrame, func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -212,9 +185,33 @@ func names(frames []sseFrame) []string {
 	return out
 }
 
-// 启动链路：从零起来就要能用——装配完整、能导入技能、能过跨源预检。
-func TestStartupChain(t *testing.T) {
-	base := newBootedServer(t)
+// 从零启动到事件送达的完整链路：装配 → 技能导入 → 预检 → SSE 流与重放。
+func TestHTTPChain(t *testing.T) {
+	base, h := bootServer(t)
+
+	// 装配缺任一样东西，界面都是空窗口 + 接口全 404；端口握手必须晚于 Startup。
+	t.Run("装配完整且端口在握手前为空", func(t *testing.T) {
+		if h.Svc == nil || h.Repo == nil || h.Registry == nil || h.Skills == nil {
+			t.Fatal("服务容器没有装配完整，界面会空着且接口全 404")
+		}
+		if h.Cfg.MasterKey == "" {
+			t.Fatal("配置没有生成主密钥")
+		}
+		if len(h.Skills.List()) == 0 {
+			t.Fatal("内置技能没有加载")
+		}
+		if len(h.Registry.All()) == 0 {
+			t.Fatal("内置工具一个都没注册，模型会突然找不到文件能力")
+		}
+		for _, name := range []string{"read", "write"} {
+			if _, found := h.Registry.Get(name); !found {
+				t.Fatalf("%s 工具没有注册", name)
+			}
+		}
+		if h.Port() != 0 {
+			t.Fatal("端口应由后续握手阶段写入，Startup 阶段应为 0")
+		}
+	})
 
 	// 导入技能要真的把磁盘上的 SKILL.md 收进注册表并能取回正文。
 	t.Run("从磁盘导入技能", func(t *testing.T) {
@@ -255,36 +252,32 @@ func TestStartupChain(t *testing.T) {
 			t.Fatalf("预检被拦：status=%d ACAO=%q（POST 会全部变成 Network Error）", resp.StatusCode, acao)
 		}
 	})
-}
 
-// 对话流链路：发消息 → SSE 送达 → 断线重放。
-func TestChatStreamChain(t *testing.T) {
-	base := newBootedServer(t)
+	// 发消息 → SSE 送达 → 断线重放。事件信封的形态（data 里回带 event 与 seq）
+	// 必须与前端解析约定一致，只断言 `event:` 行会漏掉界面一个字都不显示的情况。
+	t.Run("SSE 送达与断线重放", func(t *testing.T) {
+		// 假实现必须早于建服务注入：Upsert 只在 factory 有 override 时才放行
+		// 「test」这种非内置类型，晚一步整条链路会在第一步被拒。
+		script := llmtest.New(llm.Message{Content: "你好，我是 WorkBaby"})
+		factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer { return script })
+		t.Cleanup(func() { factory.SetOverride("test", nil) })
 
-	// 假实现必须早于建服务注入：Upsert 只在 factory 有 override 时才放行
-	// 「test」这种非内置类型，晚一步整条链路会在第一步被拒。
-	var script = llmtest.New(llm.Message{Content: "你好，我是 WorkBaby"})
-	factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer { return script })
-	t.Cleanup(func() { factory.SetOverride("test", nil) })
+		code, body := call(t, base, "POST", "/providers", map[string]any{
+			"name": "t", "api": "test", "models": []string{"m1"},
+		})
+		if code != http.StatusOK {
+			t.Fatalf("创建模型服务失败: %d %s", code, body)
+		}
+		provID := unwrapID(t, body)
+		if code, body := call(t, base, "POST", "/providers/"+provID+"/default", nil); code != http.StatusOK {
+			t.Fatalf("设为默认失败: %d %s", code, body)
+		}
 
-	code, body := call(t, base, "POST", "/providers", map[string]any{
-		"name": "t", "api": "test", "models": []string{"m1"},
-	})
-	if code != http.StatusOK {
-		t.Fatalf("创建模型服务失败: %d %s", code, body)
-	}
-	provID := unwrapID(t, body)
-	if code, body := call(t, base, "POST", "/providers/"+provID+"/default", nil); code != http.StatusOK {
-		t.Fatalf("设为默认失败: %d %s", code, body)
-	}
-
-	// POST 发消息后，SSE 必须依次送达 start → delta → done，
-	// 且 delta 的正文拼接起来等于模型回复、done 带得上 token 用量。
-	t.Run("SSE 送达 start delta done", func(t *testing.T) {
+		// 送达：start → delta → done，delta 拼接等于模型回复、done 带上用量、seq 严格递增。
 		script = llmtest.New(llm.Message{Content: "你好，我是 WorkBaby"})
 		script.Usage = &llm.Usage{Input: 11, Output: 7, Total: 18, LatencyMs: 42}
 
-		code, body := call(t, base, "POST", "/sessions", map[string]any{})
+		code, body = call(t, base, "POST", "/sessions", map[string]any{})
 		if code != http.StatusOK {
 			t.Fatalf("建会话失败: %d %s", code, body)
 		}
@@ -302,7 +295,6 @@ func TestChatStreamChain(t *testing.T) {
 		got := drainUntil(t, frames, "chat:start", "chat:delta", "chat:done")
 
 		// 前端把 data 当信封用：data.event 决定路由，data.data 才是载荷。
-		// 只断言 `event:` 行会漏掉「data 里没回带 event」，界面会一个字都不显示。
 		var text strings.Builder
 		var seqs []int64
 		for _, f := range got {
@@ -336,27 +328,24 @@ func TestChatStreamChain(t *testing.T) {
 				t.Fatalf("事件 seq 非递增: %v", seqs)
 			}
 		}
-	})
 
-	// 断线重连：带 Last-Event-ID 回来必须补上缺的那几帧，否则用户切走一次
-	// 就永久丢一段回复（正文停在半句，点重连也没反应）。
-	t.Run("按 Last-Event-ID 重放缺失事件", func(t *testing.T) {
+		// 断线重连：带 Last-Event-ID 回来必须补上缺的那几帧，否则用户切走一次
+		// 就永久丢一段回复（正文停在半句，点重连也没反应）。
 		script = llmtest.New(llm.Message{Content: "重放我"})
-
-		code, body := call(t, base, "POST", "/sessions", map[string]any{})
+		code, body = call(t, base, "POST", "/sessions", map[string]any{})
 		if code != http.StatusOK {
 			t.Fatalf("建会话失败: %d %s", code, body)
 		}
 		sid := unwrapID(t, body)
 
-		frames, stop := subscribeSSE(t, base, sid, "")
+		frames2, stop2 := subscribeSSE(t, base, sid, "")
 		if _, body := call(t, base, "POST", "/chat/send", map[string]any{
 			"session_id": sid, "content": "hi",
 		}); !strings.Contains(body, `"code":0`) {
 			t.Fatalf("发送失败: %s", body)
 		}
-		got := drainUntil(t, frames, "chat:done")
-		stop()
+		got = drainUntil(t, frames2, "chat:done")
+		stop2()
 
 		seqOf := func(f sseFrame) int64 {
 			v, _ := f.Data["seq"].(float64)
@@ -366,8 +355,6 @@ func TestChatStreamChain(t *testing.T) {
 		if last < 3 {
 			t.Skipf("本轮只发出 %d 帧，构不出重放窗口", last)
 		}
-
-		// 假装断了 2 帧：重连后必须先把这两帧补回来。
 		replay, stopReplay := subscribeSSE(t, base, sid, strconv.FormatInt(last-2, 10))
 		defer stopReplay()
 		again := drainUntil(t, replay, "chat:done")

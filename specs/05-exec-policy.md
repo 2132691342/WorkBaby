@@ -9,10 +9,10 @@
 
 | 规则 | 说明 |
 |---|---|
-| 内置运行时优先 | 子进程 PATH 首位插入内置 Python 目录，`python` / `pip` 优先解析到内置解释器 |
-| 超时 | 默认 120s，上限 600s，超时杀进程树并返回已产出内容 |
+| 内置运行时优先 | 子进程 PATH 首位插入内置 Python 目录，`python` 优先解析到内置解释器（内置运行时不带 pip） |
+| 超时 | 默认 120s，上限 1800s，超时杀进程树并返回已产出内容 |
 | 输出上限 | 统一走 `tool.CutTail`：2000 行 / 50KB 双上限，保留结尾，超出落临时文件并把路径与丢弃量告诉模型 |
-| 编码归一化 | GBK 输出统一转 UTF-8（Windows 命令行默认 GBK；已是合法 UTF-8 的原样返回） |
+| 编码归一化 | 统一走 `pkg.DecodeText`：UTF-8 / GBK / UTF-16（含无 BOM 启发式）都归一成 UTF-8 |
 | 审批 | `powershell` 与 `python` 要求审批；yolo 档整体放行（见下表） |
 | 无 profile | `-NoProfile -NonInteractive`：不加载用户 profile，不弹交互提示 |
 

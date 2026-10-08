@@ -13,11 +13,11 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// 默认跳过的目录：与内容无关但体积巨大，遍历它们只会拖慢结果。
+// 默认跳过的目录：只放「与内容无关且体积巨大」的确定性目标。
+// 不跳 build / dist / vendor：它们在不少项目里就是源码目录，跳过等于永远搜不到。
 var skipDirs = map[string]bool{
 	".git": true, "node_modules": true, ".svn": true, ".hg": true,
-	"dist": true, "build": true, "__pycache__": true, ".venv": true,
-	"vendor": true, ".workbaby": true,
+	"__pycache__": true, ".venv": true, ".workbaby": true,
 }
 
 const (
@@ -204,11 +204,11 @@ func (t grepTool) Execute(ctx context.Context, in Input) (*Result, error) {
 			}
 		}
 		raw, err := os.ReadFile(path)
-		if err != nil || bytesAreBinary(raw) {
+		if err != nil || pkg.LooksBinary(raw) {
 			return scanned < maxWalk
 		}
 		rel := pkg.RelPath(in.Workspace, path)
-		for i, line := range strings.Split(string(raw), "\n") {
+		for i, line := range strings.Split(pkg.DecodeText(raw), "\n") {
 			if len(hits) >= maxHits {
 				truncated = true
 				return false

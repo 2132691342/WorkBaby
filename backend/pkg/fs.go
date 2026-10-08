@@ -20,13 +20,13 @@ func DirExists(p string) bool {
 	return err == nil && st.IsDir()
 }
 
-// ReadText 读整个文本文件；失败时包装为带 code 的错误。
+// ReadText 读整个文本文件并按 UTF-8/GBK/UTF-16 归一；失败时包装为带 code 的错误。
 func ReadText(p string) (string, error) {
 	raw, err := os.ReadFile(p)
 	if err != nil {
 		return "", Wrap(1005, "读取文件失败", err)
 	}
-	return string(raw), nil
+	return DecodeText(raw), nil
 }
 
 // WriteText 写文本文件并自动创建父目录。

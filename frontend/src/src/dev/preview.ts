@@ -60,7 +60,7 @@ const routes: Array<[string, Handler]> = [
     (_b, q) => ({
       id: q.get('model') || '',
       context_window: 1_024_000,
-      max_output: 32_768,
+      max_output: 128_000,
       thinking: true,
       vision: false,
       tool_call: true,

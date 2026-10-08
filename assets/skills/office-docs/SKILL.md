@@ -1,6 +1,6 @@
 ---
 name: office-docs
-version: 1.0.0
+version: 2.0.0
 when_to_use:
   - .docx
   - .xlsx
@@ -11,73 +11,55 @@ when_to_use:
   - 电子表格
   - ppt
   - 幻灯片
-  - 生成 pdf
-  - 转 pdf
-  - 合并 pdf
   - 提取表格
-description: 在本机用内置 Python 处理 Word / Excel / PPT / PDF：读取、改写、生成、格式转换、合并拆分、提取表格与图片。当用户提到这些文件类型或要产出这类交付物时使用。不适用于纯文本/代码的读写。
-allowed_tools: ["file_read", "file_write", "file_list", "file_edit", "exec", "doc_reader"]
+  - 合并 pdf
+description: 在本机处理 Word / Excel / PPT / PDF：读取内容、生成与批量处理表格文本、提取数据。用户提到这些文件类型或要产出这类交付物时使用。不适用于纯文本/代码的读写。
 ---
 
 # 办公文档处理
 
-WorkBaby 自带 Python 运行时，**没有预装第三方库**。标准做法：写脚本 → 用内置 python 跑 → 读回结果校验。
+先记住两条环境事实，它们决定所有做法：
 
-## 一、环境与依赖
+- 内置 Python 是精简运行时：**没有第三方库，也没有 pip**。`pip install` 一定失败，不要试。
+- 读办公文档正文优先走**知识库检索**（`knowledge_search`），写产物用 `python` 标准库或直接写文件。
 
-先确认解释器可用，再按需装包（首次需要联网，后续复用）：
+## 一、读取
+
+| 文件 | 做法 |
+|---|---|
+| txt / md / csv / json / log | `read` 直接读；大文件用 offset / limit 分段 |
+| docx / xlsx / pptx / pdf | 让用户把文件加进知识库，再用 `knowledge_search` 检索（四类都能抽文字） |
+| 需要看整体结构或抽全部表格 | `python` 标准库脚本：这三种格式本质是 zip + xml，用 `zipfile` + `re` 抽文本 |
+| 用户用 @ 引用了 docx / xlsx / pdf | 读不到正文是正常的（二进制文档），改走知识库，不要让用户以为文件是坏的 |
+
+## 二、生成与修改
+
+| 交付物 | 做法 |
+|---|---|
+| .csv | 最稳：`python` 写 CSV，`encoding='utf-8-sig'`（Excel 双击打开不乱码） |
+| .xlsx | `python` 标准库 `zipfile` 拼最小 xlsx；工作区有现成模板时「解压 → 改 xml → 重打包」 |
+| .docx | 同上（zip + xml）；内容简单时先产出 md / txt，告知用户可在 Word 里另存 |
+| .pdf | 生成 / 合并 / 拆页**做不到**（没有第三方库）：如实说明，给出替代（用户自己的 Office 里另存 PDF） |
+
+写 xlsx 的最小套路：
+
+1. 用 `zipfile.ZipFile(w)` 写三个部件起步：`[Content_Types].xml`、`xl/workbook.xml`、`xl/worksheets/sheet1.xml`；
+2. 单元格文本直接内联 `<is><t>文字</t></is>`，省掉 sharedStrings；
+3. 写完必须用 `python` 重新打开 zip、抽单元格文本验证一遍再报告。
+
+## 三、可选：借用户本机的 Office 做转换
+
+只在需要 Word→PDF 这类第三方程式能力、且用户机器装了对应软件时走这条路：
 
 ```
-python -c "import sys; print(sys.version)"
-pip install openpyxl python-docx python-pptx pypdf reportlab
+powershell -Command "try { New-Object -ComObject Word.Application | Out-Null; 'word-ok' } catch { 'no-word' }"
 ```
 
-| 任务 | 库 | 安装 |
-|---|---|---|
-| Excel 读写 | `openpyxl` | `pip install openpyxl` |
-| Word 读写 | `python-docx` | `pip install python-docx` |
-| PPT 处理 | `python-pptx` | `pip install python-pptx` |
-| PDF 读取/合并/拆分/水印 | `pypdf` | `pip install pypdf` |
-| PDF 生成 | `reportlab` | `pip install reportlab` |
-| 批量/表格数据 | `pandas` | `pip install pandas` |
-
-已有能力优先复用：`doc_reader` 工具可直接抽取 pdf/docx/txt/md/html/csv/json 的正文，**先试它，不必写脚本**。
-
-## 二、标准流程
-
-1. **先看**：`file_read` 或 `doc_reader` 拿到真实结构与内容，不凭用户描述猜（尤其是模板文件，要先看清占位符）。
-2. **写脚本**：用 `file_write` 落到工作区内（如 `.workbaby/scripts/task_xxx.py`），路径用相对路径。
-3. **跑**：`exec` 执行，参数数组里给绝对路径或明确的 cwd，不要在命令里拼 Python 代码。
-4. **校验**：`file_read` 读回产物确认；Excel 要读值（不是公式），PDF 要抽文本对照。
-5. **报告**：说清产物路径与关键结果；没跑通要说明失败原因，不许声称已完成。
-
-## 三、各格式要点
-
-**Excel**
-- 读公式的结果必须 `load_workbook(..., data_only=True)`；读公式本身用默认参数，两者要两次加载。
-- 写入用 `openpyxl`：`ws.cell(row, col).value = ...`；改完必须 `wb.save(path)`。
-- CSV 用 `pandas.read_csv` / `to_csv(index=False)`；中文注意 `encoding='utf-8-sig'`，否则 Excel 打开乱码。
-- 合并单元格的值只在左上角单元格。
-
-**Word**
-- `python-docx` 只能新建或追加，**不能编辑已有文档结构**；改现有文件用 `replace` 改文本，复杂度高时先跟用户确认。
-- 中文字体要同时设置 `style.font.name` 与 `rPr` 的 `eastAsia`（不设则中文掉西文字体）。
-- 用 `doc.tables` / `doc.paragraphs` 遍历，`add_heading(level)` 建层级。
-
-**PPT**
-- `python-pptx` 只能基于模板新建，不能直接改现有 pptx 的版式；做「套模板」先 `Presentation('template.pptx')`。
-- 用 `slide_layouts[i]` 选版式，占位符通过 `placeholder_format.idx` 定位，不要假设索引固定。
-- 文本框 `tf.word_wrap = True`，否则长文本溢出。
-
-**PDF**
-- 用 `pypdf`：`PdfReader` 读页/文本/表单；`PdfWriter` 合并 (`append`)、拆分、旋转、加水印（先生成水印 PDF 再 `merge_page`）。
-- 扫描件没有文本层（抽出来是空的），直接告诉用户，不要用空结果假装成功。
-- 生成 PDF：`reportlab` 适合从头排版；已有 HTML/MD 要先转成 PDF 时，说明限制或改用 Word 路线。
-- 加密/解密用 `reader.decrypt(password)`；处理加密文件**必须**先向用户要密码。
+先探测再提方案；用户确认后才执行（会拉起 Office、弹窗口、占用软件）。探测不到就明说做不了，不要硬试。
 
 ## 四、硬性约束
 
 - 所有读写限定在工作区沙箱内，路径越界会被拒绝，不要试图用绝对路径绕开。
-- 产物默认写在工作区内；交付时给出相对路径。
-- 一次失败改方法，不原地重复跑同一条命令超过两次。
-- 没装成功依赖就明说，不要假装处理完成。
+- 产物写在工作区，交付时给相对路径；一次失败改方法，不原地重复同一条命令超过两次。
+- 校验后才报告：读回产物确认内容；没跑通就说清卡在哪，不许声称已完成。
+- 删除、覆盖、批量改动前先说清影响范围。

@@ -24,7 +24,7 @@
 | Schema 校验 | santhosh-tekuri/jsonschema/v6 | ^6.0.x |
 | 日志 | log/slog（标准库） | info/warn/error 分文件落盘 |
 | 实时通信 | SSE | 业务实时通信全部走 SSE（`/api/v1/events`），不引入 WebSocket |
-| 测试 | testing（标准库） | 全量 < 10s |
+| 测试 | testing（标准库） | 全量（含归档解压）约 8s；`-Fast` 秒级 |
 | ID | oklog/ulid/v2 | 业务 ULID 带前缀 |
 | 加密 | AES-256-GCM（标准库） | Provider API Key |
 | 托盘 | getlantern/systray | 关闭到托盘 |
@@ -440,17 +440,17 @@ const (
 ### 3.3 测试索引
 
 只保留跨模块 / 跨轮次 / 跨协议的链路测试，每条链路一个 Test（分支用 `t.Run` 归入同一条链）。
-全量 **21 个 Test / 12 个文件**。按改动范围挑命令，不要一律跑全量：
+全量 **19 个 Test / 12 个文件**。按改动范围挑命令，不要一律跑全量：
 
 | 场景 | 命令 | 耗时 |
 |---|---|---|
 | 日常改动 | `scripts/test.ps1 -Fast` | 秒级 |
-| 提交前 / CI | `scripts/test.ps1` | 约 40s（含归档真实解压） |
-| 只动了一个包 | `scripts/test.ps1 -Fast -Pkg backend/service` | 约 1.5s |
-| 只动了一条链路 | `scripts/test.ps1 -Fast -Run TestChatRunChain` | 约 1.5s |
+| 提交前 / CI | `scripts/test.ps1` | 约 8s（含归档真实解压与依赖门禁） |
+| 只动了一个包 | `scripts/test.ps1 -Fast -Pkg backend/service` | 约 2s |
+| 只动了一条链路 | `scripts/test.ps1 -Fast -Run TestServiceRunChain` | 约 2s |
 | 并发相关改动 | `scripts/test.ps1 -Race` | 分钟级 |
 
-时间大头是 `runtime` 包对两份归档的真实解压（约 6s，全量唯一的慢点，`-Fast` 跳过）。
+时间大头是 `runtime` 包对两份归档的真实解压（约 3s，全量唯一的慢点，`-Fast` 跳过）。
 
 `-Race` 前置条件：`-race` 需要 cgo，而本项目为了让 SQLite 驱动保持纯 Go 默认关掉了 CGO。
 跑这一档必须先装 MinGW（`winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT`，
@@ -460,17 +460,17 @@ const (
 | 文件 | Test | 覆盖的链路 |
 |---|---|---|
 | `app_test.go` | TestAppLifecycle | 启动等待（慢装配 / 失败 / 超时）；关闭去向（托盘开关 + 退出流程 + 托盘未就绪） |
-| `api/api_test.go` | TestStartupChain · TestChatStreamChain | 干净环境完整装配 → 磁盘导入技能 → 跨源预检放行 POST；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event）与带 Last-Event-ID 重连补帧 |
+| `api/api_test.go` | TestHTTPChain | 完整启动装配 → 磁盘导入技能 → 跨源预检放行 POST；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event）与带 Last-Event-ID 重连补帧。服务只启动一次，全部子测试共用 |
 | `agent/agent_test.go` | TestLoopProtocolOrder · TestLoopStopsOnCancelLengthAndError · TestLoopBlocksRepeatedIdenticalCall · TestEmitSerializesConcurrentTools · TestCompactProtocol | 回填顺序（多轮 / 并行）、三条收尾路径（截断轮不执行工具、零产出也不重试）、重复调用拦截与事件成对、事件出口串行化；清洗硬约束、压缩永不孤儿化 / 整轮丢弃、预算边界与降级 |
-| `service/chain_test.go` | TestChatRunChain · TestToolResultOrdering · TestDefaultModelChain | 一次 run 的落库判据（审批会话级放行 / 错误轮半成品 / 插话链序 / 输出预算与余量）；声明与结果紧邻配对（跨轮 / 同轮并发）；默认服务→默认模型→会话继承与存量回填 |
+| `service/chain_test.go` | TestServiceRunChain | 一次 run 的落库判据（审批会话级放行 / 错误轮半成品 / 插话链序 / 输出预算与余量）、声明与结果紧邻配对（跨轮 / 同轮并发）、默认服务→默认模型→会话继承与存量回填。装配只做一次，七个子测试共用 |
 | `tool/files_test.go` | TestFilesReadChain · TestFilesWriteEditGuardrails | 路径穿越、Unicode 路径变体找回；读→写闭环（读工具记账后放行）、edit 唯一性、行尾与 BOM |
-| `skill/skill_test.go` | TestSkillRegistryChain | embed 加载与落盘、同名按来源优先且可回退、切换工作目录换掉工作区技能 |
-| `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引→检索（短查询子串兜底）→删除级联 |
+| `skill/skill_test.go` | TestSkillRegistryChain | embed 加载与落盘、触发词解析并渲染进清单、同名按来源优先且可回退、切换工作目录换掉工作区技能 |
+| `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引→检索（短查询子串兜底）→删除级联；pptx 按页号抽取且可检索 |
 | `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档与 SHA 常量一致、真实解压平铺到根目录（`-short` 跳过）、解压路径穿越拒绝 |
 | `server/sse_test.go` | TestHubDeliveryChain | delta 合流保序、慢客户端挤 delta 保 done |
 | `singleinstance/singleinstance_test.go` | TestSecondLaunchHandoff | 二次启动转交：文件路径与空路径（只唤起窗口）都原样送达主实例 |
-| `llm/openai/stream_test.go` | TestOpenAIStreamChain | usage 帧顺序与缓存双口径、tool_call 单次下发、断流收尾 |
-| `llm/anthropic/anthropic_test.go` | TestAnthropicEncodeProtocol · TestAnthropicStreamChain | 无签名 thinking 不回传；上游停滞经空闲看门狗收尾、事件缓冲满不丢弃 |
+| `llm/openai/openai_test.go` | TestEncodeProtocolFamilies · TestStreamChain | 推理家族只认 max_completion_tokens 且拒绝采样参数、网关前缀不影响判定；usage 帧顺序与缓存双口径、tool_call 单次下发、断流收尾 |
+| `llm/anthropic/anthropic_test.go` | TestEncodeProtocol · TestStreamChain | 无签名 thinking 不回传；上游停滞经空闲看门狗收尾、事件缓冲满不丢弃 |
 
 ---
 
@@ -478,14 +478,14 @@ const (
 
 ```bash
 go vet ./...
-scripts/test.ps1                     # 全量测试（日常用 -Fast，见 §3.3）
-scripts/check-boundaries.ps1         # 依赖方向（§2.2 约束表的可执行版本）
+scripts/test.ps1                     # 测试 + 依赖门禁的唯一入口（日常用 -Fast，见 §3.3）
 cd frontend && npm run build         # 含 vue-tsc 类型检查
 wails build                          # 产物 build/bin/WorkBaby.exe
 ```
 
-`check-boundaries` 用 `go list -json` 读编译器视角的真实 import 关系，逐层比对 §2.2 的
-允许表，并额外检查能力域不回引上层。它不做文本 grep——注释、字符串字面量与构建标签
+`scripts/test.ps1` 在整仓模式下（不带 `-Pkg` / `-Run`）自动追加跑 `tools/check-boundaries`：
+它用 `go list -json` 读编译器视角的真实 import 关系，逐层比对 §2.2 的允许表，
+并额外检查能力域不回引上层。它不做文本 grep——注释、字符串字面量与构建标签
 分支都会让 grep 得出错误结论。改动包结构或调整依赖后必须跑通。
 
 文档与实现不一致时，**以本文为准**；发现实现跑偏就改实现，不要改本文迁就代码。

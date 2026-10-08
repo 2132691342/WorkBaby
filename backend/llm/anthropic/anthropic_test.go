@@ -43,7 +43,7 @@ func stallingServer(t *testing.T) *httptest.Server {
 
 // 无签名 thinking 回传会被网关以 invalid_request_error 拒绝，
 // 症状是多轮对话从第二轮起「答完一轮就卡死」。
-func TestAnthropicEncodeProtocol(t *testing.T) {
+func TestEncodeProtocol(t *testing.T) {
 	body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
 		{Role: llm.RoleUser, Content: "你好"},
 		{Role: llm.RoleAssistant, Thinking: "思考过程", Content: "回答"},
@@ -58,7 +58,7 @@ func TestAnthropicEncodeProtocol(t *testing.T) {
 	}
 }
 
-func TestAnthropicStreamChain(t *testing.T) {
+func TestStreamChain(t *testing.T) {
 	// 上游停滞必须经看门狗以 error 收尾并关通道，不能永远等下去。
 	t.Run("停滞经空闲看门狗报错收尾", func(t *testing.T) {
 		old := llm.StreamIdleTimeout

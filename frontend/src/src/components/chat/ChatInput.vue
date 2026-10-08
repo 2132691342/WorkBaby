@@ -4,6 +4,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
+import { useToastStore } from '../../stores/toast'
 import type { AttachmentREQ } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import ContextMeter from './ContextMeter.vue'
@@ -44,6 +45,10 @@ const COMMANDS = [
 
 const chat = useChatStore()
 const settings = useSettingsStore()
+const toast = useToastStore()
+// 「设置 → 行为」的回车发送开关：之前这开关没有任何消费方，界面承诺的行为不成立。
+const sendOnEnter = () => settings.values['send_on_enter'] !== 'false'
+const sendHint = computed(() => (sendOnEnter() ? 'Enter 发送 · Shift+Enter 换行' : 'Enter 换行 · Ctrl+Enter 发送'))
 const root = ref<HTMLElement | null>(null)
 const chipsRef = ref<InstanceType<typeof SessionChips> | null>(null)
 const ta = ref<HTMLTextAreaElement | null>(null)
@@ -183,7 +188,11 @@ function onKeydown(e: KeyboardEvent) {
     }
     return
   }
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  if (e.key === 'Enter' && !e.isComposing) {
+    if (e.shiftKey) return // Shift+Enter 一律换行
+    // 发送方式跟随「设置 → 行为」的回车发送开关；关掉后回车换行、Ctrl+Enter 发送。
+    const wantSend = e.ctrlKey || sendOnEnter()
+    if (!wantSend) return
     e.preventDefault()
     submit()
   }
@@ -232,7 +241,10 @@ function toRelative(base: string, fullPath: string): string | null {
 // attachPath 把外部给的绝对路径挂成待发送附件：落在工作目录内转相对路径，
 // 落在外面标出来（助手读不到，不假装成功）。选文件与外部打开共用这一条。
 function attachPath(picked: string) {
-  if (full.value) return
+  if (full.value) {
+    toast.bad(`一次最多引用 ${MAX_ATTACH} 个文件`)
+    return
+  }
   const base = settings.boot?.workspace || ''
   const rel = base ? toRelative(base, picked) : null
   if (rel === null) {
@@ -267,11 +279,19 @@ function onDocPointerDown(e: PointerEvent) {
 
 // 粘贴图片：截图后 Ctrl+V 直接进附件列表，和打 @ 引用文件是同一条发送链路
 function onPaste(e: ClipboardEvent) {
-  const imgs = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith('image/'))
-  if (!imgs.length) return
+  const all = Array.from(e.clipboardData?.files || [])
+  const imgs = all.filter((f) => f.type.startsWith('image/'))
+  if (!imgs.length) {
+    // 复制的是文件而不是图片：不装作收到了，告诉用户该用 @ 引用
+    if (all.length) toast.bad('只支持直接粘贴图片；引用文件请用 @ 或回形针按钮')
+    return
+  }
   e.preventDefault()
   for (const f of imgs) {
-    if (full.value) break
+    if (full.value) {
+      toast.bad(`一次最多引用 ${MAX_ATTACH} 个文件`)
+      break
+    }
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = String(reader.result || '')
@@ -279,7 +299,8 @@ function onPaste(e: ClipboardEvent) {
       if (!base64) return
       files.value.push({
         path: '',
-        name: f.name || `截图-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.png`,
+        // 本地时间命名：UTC 会差 8 小时，截图名对不上操作时刻
+        name: f.name || `截图-${new Date().toLocaleTimeString('zh-CN', { hour12: false }).replace(/:/g, '')}.png`,
         outside: false,
         image: base64,
       })
@@ -359,7 +380,7 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
 
       <div class="composer-bar">
         <WorkspaceChip />
-        <span v-if="!running" class="hint">Enter 发送 · Shift+Enter 换行</span>
+        <span v-if="!running" class="hint">{{ sendHint }}</span>
         <SessionChips ref="chipsRef" />
         <ContextMeter
           :used="chat.contextUsed"

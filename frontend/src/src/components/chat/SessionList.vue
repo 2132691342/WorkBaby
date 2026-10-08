@@ -56,6 +56,20 @@ async function doRemove(s: { id: string; title: string }) {
     toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
   }
 }
+
+// 一次性加载全部旧会话既慢又没必要；超过一页时给一个显式的入口，
+// 否则用了几个月后旧对话在界面上凭空消失（数据其实还在）。
+const loadingMore = ref(false)
+async function more() {
+  loadingMore.value = true
+  try {
+    await session.loadMore()
+  } catch (e) {
+    toast.bad(`加载更多失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    loadingMore.value = false
+  }
+}
 </script>
 
 <template>
@@ -86,6 +100,9 @@ async function doRemove(s: { id: string; title: string }) {
         </template>
       </button>
     </div>
+    <button v-if="session.hasMore" class="more" type="button" :disabled="loadingMore" @click="more">
+      {{ loadingMore ? '加载中…' : '加载更早的对话' }}
+    </button>
   </div>
 </template>
 
@@ -93,6 +110,20 @@ async function doRemove(s: { id: string; title: string }) {
 .rename {
   height: var(--wb-ctl-h-sm);
   font-size: var(--wb-fs-sm);
+}
+.more {
+  display: block;
+  width: 100%;
+  margin: 6px 0 2px;
+  padding: 6px 0;
+  border: none;
+  background: none;
+  color: var(--wb-ink-3);
+  font-size: var(--wb-fs-hint);
+  cursor: pointer;
+}
+.more:hover:not(:disabled) {
+  color: var(--wb-ink);
 }
 .icon-btn.danger:hover {
   color: var(--wb-danger);

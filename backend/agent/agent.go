@@ -80,7 +80,7 @@ type Loop struct {
 // New 构造内核；传入的历史会被复制，避免调用方后续修改造成竞态。
 func New(cfg Config, history []llm.Message) *Loop {
 	if cfg.MaxTurns <= 0 {
-		cfg.MaxTurns = 32
+		cfg.MaxTurns = 64
 	}
 	if cfg.Emit == nil {
 		cfg.Emit = func(Event) {}

@@ -58,7 +58,7 @@ func (t readTool) Execute(ctx context.Context, in Input) (*Result, error) {
 	if err != nil {
 		return nil, pkg.Wrap(1005, "读取文件失败", err)
 	}
-	if bytesAreBinary(raw) {
+	if pkg.LooksBinary(raw) {
 		return &Result{
 			Content: "这是二进制文件，无法按文本读取。",
 			Title:   "读文件（二进制，已跳过）",
@@ -74,7 +74,7 @@ func (t readTool) Execute(ctx context.Context, in Input) (*Result, error) {
 		return &Result{Content: "（空文件，没有任何内容）", Title: fmt.Sprintf("读了 %s（空文件，0 字节）", rel)}, nil
 	}
 
-	lines := strings.Split(strings.TrimPrefix(string(raw), "\uFEFF"), "\n")
+	lines := strings.Split(strings.TrimPrefix(pkg.DecodeText(raw), "\uFEFF"), "\n")
 	offset := Int(in.Args, "offset", 1)
 	limit := Int(in.Args, "limit", MaxLines)
 	if offset < 1 {
@@ -421,16 +421,3 @@ func truncateForMsg(s string) string {
 	return s
 }
 
-// bytesAreBinary 用 NUL 字节判断，避免把乱码塞进上下文。
-func bytesAreBinary(b []byte) bool {
-	n := len(b)
-	if n > 8192 {
-		n = 8192
-	}
-	for i := 0; i < n; i++ {
-		if b[i] == 0 {
-			return true
-		}
-	}
-	return false
-}

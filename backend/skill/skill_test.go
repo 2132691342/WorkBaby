@@ -5,6 +5,7 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -52,6 +53,10 @@ func TestSkillRegistryChain(t *testing.T) {
 		if off.Skill.Description == "" {
 			t.Fatal("description 没有解析出来")
 		}
+		// 触发词必须解析并渲染给模型：写入 frontmatter 却没人读等于没写。
+		if len(off.Skill.WhenToUse) != 2 {
+			t.Fatalf("when_to_use 列表没解析出来: %+v", off.Skill.WhenToUse)
+		}
 		if off.Body == "" {
 			t.Fatal("正文没有随技能一起取出")
 		}
@@ -76,6 +81,10 @@ func TestSkillRegistryChain(t *testing.T) {
 		}
 		if body, err := r.Content("office-docs"); err != nil || body == "" {
 			t.Fatalf("内置技能正文取不到: err=%v body=%q", err, body)
+		}
+		// 渲染进系统提示的清单要带触发词，否则模型只能靠 description 猜场景。
+		if render := r.Render(); !strings.Contains(render, "适用于：") {
+			t.Fatalf("技能清单没有带触发词: %s", render)
 		}
 	})
 

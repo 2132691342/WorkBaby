@@ -75,14 +75,31 @@ type functionDef struct {
 }
 
 type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Tools       []toolDefOut  `json:"tools,omitempty"`
-	Stream      bool          `json:"stream"`
-	StreamOpts  *streamOpts   `json:"stream_options,omitempty"`
-	MaxTokens   int           `json:"max_tokens,omitempty"`
-	Temperature *float64      `json:"temperature,omitempty"`
-	TopP        *float64      `json:"top_p,omitempty"`
+	Model    string        `json:"model"`
+	Messages []chatMessage `json:"messages"`
+	Tools    []toolDefOut  `json:"tools,omitempty"`
+	Stream   bool          `json:"stream"`
+	StreamOpts *streamOpts `json:"stream_options,omitempty"`
+	// 输出上限二选一：推理家族只认 max_completion_tokens，其余只认 max_tokens。
+	MaxTokens           int      `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int      `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64 `json:"temperature,omitempty"`
+	TopP                *float64 `json:"top_p,omitempty"`
+}
+
+// reasoningOnly 判断推理协议家族（o1/o3/o4 与 gpt-5 系）：这些模型拒绝
+// max_tokens / temperature / top_p。网关透传时模型名即协议契约，前缀不影响。
+func reasoningOnly(model string) bool {
+	name := strings.ToLower(strings.TrimSpace(model))
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:] // 网关常带前缀（openai/o3-mini）
+	}
+	for _, p := range []string{"o1", "o3", "o4", "gpt-5"} {
+		if name == p || strings.HasPrefix(name, p+"-") || strings.HasPrefix(name, p+".") {
+			return true
+		}
+	}
+	return false
 }
 
 type streamOpts struct {
@@ -175,7 +192,9 @@ func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
 	stop := ""
 
 	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	// 单行上限 16MB：模型把大段文件内容塞进一个工具参数时会走到这里，
+	// 4MB 会在正常的长文件任务上报「连接中断」。
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
 		feed.Ping()
 		if ctx.Err() != nil && !feed.TimedOut() {
@@ -377,7 +396,14 @@ func (c *Client) encode(req llm.Request) (io.Reader, error) {
 	payload := chatRequest{
 		Model: req.Model, Messages: msgs, Tools: tools, Stream: true,
 		StreamOpts: &streamOpts{IncludeUsage: true},
-		MaxTokens:  maxTokens, Temperature: req.Temperature, TopP: req.TopP,
+	}
+	if reasoningOnly(req.Model) {
+		// 推理家族：只认 max_completion_tokens，且拒绝非默认 temperature / top_p。
+		payload.MaxCompletionTokens = maxTokens
+	} else {
+		payload.MaxTokens = maxTokens
+		payload.Temperature = req.Temperature
+		payload.TopP = req.TopP
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

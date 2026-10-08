@@ -11,8 +11,9 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// StreamIdleTimeout 上游空闲超时：这么久没有数据就掐断。var 便于测试调短。
-var StreamIdleTimeout = 120 * time.Second
+// StreamIdleTimeout 上游空闲超时：5 分钟内没有数据就掐断（var 便于测试调短）。
+// 推理模型思考期几分钟不发字节属正常，给 2 分钟会把正常回答误判成断线。
+var StreamIdleTimeout = 300 * time.Second
 
 // Feed 包装一条事件通道。Send 在 ctx 取消前阻塞而不是丢弃，
 // 消费方（内核）保证读到通道关闭，所以不会死锁。

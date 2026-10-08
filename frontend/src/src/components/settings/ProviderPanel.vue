@@ -16,13 +16,15 @@ const busy = ref(false)
 const testing = ref<string | null>(null)
 const testResult = ref<Record<string, { ok: boolean; detail: string }>>({})
 
+// 模板只预填接口地址，不预置任何模型名：厂商的模型名单几天就变，
+// 替用户拍板只会让他拿着过时名字撞「模型不存在」。模型一律拉取或手输。
 const templates = [
-  { api: 'openai', name: 'OpenAI', base_url: 'https://api.openai.com/v1', models: 'gpt-4o,gpt-4o-mini' },
-  { api: 'anthropic', name: 'Anthropic', base_url: 'https://api.anthropic.com', models: 'claude-sonnet-4-5,claude-haiku-4-5' },
-  { api: 'openai', name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', models: 'deepseek-chat,deepseek-reasoner' },
-  { api: 'openai', name: '月之暗面', base_url: 'https://api.moonshot.cn/v1', models: 'moonshot-v1-32k' },
-  { api: 'openai', name: '阿里百炼', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: 'qwen-max,qwen-plus' },
-  { api: 'ollama', name: '本地 Ollama', base_url: 'http://127.0.0.1:11434', models: 'qwen3:8b' },
+  { api: 'openai', name: 'OpenAI', base_url: 'https://api.openai.com/v1' },
+  { api: 'anthropic', name: 'Anthropic', base_url: 'https://api.anthropic.com' },
+  { api: 'openai', name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1' },
+  { api: 'openai', name: '月之暗面', base_url: 'https://api.moonshot.cn/v1' },
+  { api: 'openai', name: '阿里百炼', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { api: 'ollama', name: '本地 Ollama', base_url: 'http://127.0.0.1:11434' },
 ]
 
 const form = reactive({ id: '', name: '', api: 'openai', base_url: '', key: '', models: '' })
@@ -113,7 +115,7 @@ function pick(t: (typeof templates)[number]) {
   form.api = t.api
   form.base_url = t.base_url
   form.key = ''
-  form.models = t.models
+  form.models = ''
   fetched.value = []
   modelFilter.value = ''
   keyHas.value = false
@@ -121,20 +123,6 @@ function pick(t: (typeof templates)[number]) {
   keyShown.value = false
   storedKey.value = null
 }
-
-// 切接口类型时地址跟着换：同一家服务商的 openai 入口和 anthropic 入口不是一个路径，
-// 不联动的话用户会拿着 openai 地址打 anthropic 协议，必然 404。
-const API_URL_MAP: Record<string, Record<string, string>> = {
-  'https://api.deepseek.com/v1': { anthropic: 'https://api.deepseek.com/anthropic' },
-  'https://api.deepseek.com/anthropic': { openai: 'https://api.deepseek.com/v1' },
-}
-watch(
-  () => form.api,
-  (next) => {
-    const mapped = API_URL_MAP[form.base_url.trim().replace(/\/+$/, '')]?.[next]
-    if (mapped) form.base_url = mapped
-  },
-)
 
 function edit(id: string) {
   const p = store.providers.find((x) => x.id === id)
@@ -203,7 +191,9 @@ async function ensureProviderSaved(): Promise<string | null> {
   }
   busy.value = true
   try {
-    await api.providers.upsert({
+    // 直接用返回的 VO 拿 id：按名字反查会命中同名的旧服务，
+    // 模型参数就挂到了另一条记录上，「保存成功但不生效」极难排查。
+    const saved = await api.providers.upsert({
       name: form.name,
       api: form.api,
       base_url: form.base_url,
@@ -211,9 +201,8 @@ async function ensureProviderSaved(): Promise<string | null> {
       models: chosen.value,
     })
     await store.loadProviders()
-    const saved = store.providers.find((x) => x.name === form.name)
-    if (!saved) {
-      toast.bad('保存成功但没找到新服务商，请重试')
+    if (!saved?.id) {
+      toast.bad('保存成功但没拿到服务商编号，请重试')
       return null
     }
     form.id = saved.id
@@ -227,6 +216,7 @@ async function ensureProviderSaved(): Promise<string | null> {
 }
 
 // ---- 模型参数与能力：目录认不出的模型，只有用户自己知道真实数字 ----
+// 最大输出不可设置：后端一律按上下文窗口的 1/8 派生，无需在此传递
 interface CfgRow {
   context_window: string
   temperature: string
@@ -234,7 +224,6 @@ interface CfgRow {
   vision: boolean
   tool_call: boolean
   window_known: boolean
-  max_output: number
   saving: boolean
   saved: boolean
 }
@@ -250,7 +239,6 @@ function applyConfig(m: string, vo: ModelConfigVO) {
     vision: vo.vision,
     tool_call: vo.tool_call,
     window_known: vo.window_known,
-    max_output: vo.max_output,
     saving: false,
     saved: false,
   }
@@ -259,7 +247,7 @@ function applyConfig(m: string, vo: ModelConfigVO) {
 function blankRow(): CfgRow {
   return {
     context_window: '', temperature: '0.25', top_p: '0.75',
-    vision: false, tool_call: true, window_known: false, max_output: 0, saving: false, saved: false,
+    vision: false, tool_call: true, window_known: false, saving: false, saved: false,
   }
 }
 
@@ -291,7 +279,6 @@ async function saveCfg(m: string) {
       provider_id: pid,
       model: m,
       context_window: Math.max(0, Math.round(Number(row.context_window) || 0)),
-      max_output: row.max_output,
       temperature: Math.min(2, Math.max(0, Number(row.temperature) || 0)),
       top_p: Math.min(1, Math.max(0, Number(row.top_p) || 0)),
       vision: row.vision,
@@ -387,7 +374,7 @@ onMounted(() => store.loadProviders())
 <template>
   <div class="prov">
     <div class="tpl-row">
-      <span class="t-plate">选择服务商，填入 API Key 即可</span>
+      <span class="t-plate">选一个服务商模板，填入 API Key 后拉取模型</span>
       <button v-for="t in templates" :key="t.name" class="chip" type="button" @click="pick(t)">{{ t.name }}</button>
     </div>
 
@@ -500,7 +487,7 @@ onMounted(() => store.loadProviders())
                 {{ pulling || store.modelsLoading ? '拉取中' : '拉取模型列表' }}
               </button>
             </div>
-            <div class="hint">至少选一个；保存后在对话页底部也能随时换模型</div>
+            <div class="hint">模型等你在上面「拉取模型列表」后选择，或直接输入名字；保存后在对话页底部也能随时换</div>
           </div>
         </div>
 

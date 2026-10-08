@@ -53,8 +53,10 @@ E1(user) → E2(assistant+tool_calls) → E3(tool) → E4(assistant)  ← leaf
 
 ### model_configs
 
-复合主键 `(provider_id, model)`，`ContextWindow` / `MaxOutput` 为 0 表示跟随内置目录（`domain/modelcap.go`）。
+复合主键 `(provider_id, model)`，`ContextWindow` 为 0 表示跟随内置目录（`domain/modelcap.go`）。
 存在的意义是**让私有部署与改名模型能被正确计费与算水位**——目录认不出的模型靠它闭环。
+`MaxOutput` 列已废弃：输出预算一律按上下文窗口 1/8 派生（`domain.MaxOutputOf`），
+不写死、不由用户设置，列仅为兼容既有表结构而保留。
 
 ### knowledge_chunks + FTS5
 

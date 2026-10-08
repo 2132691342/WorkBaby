@@ -108,9 +108,13 @@ func projectDoc(workspace string) string {
 const (
 	defaultContextReserve = 16384
 	defaultContextKeep    = 20000
+	// 压缩后保留量的上限：保留区跟着窗口涨，但不能让一次裁剪仍留下大半窗口，
+	// 否则压缩完立刻又超预算，来回裁剪。
+	maxContextKeep = 200000
 )
 
 // capabilityOf 取模型能力画像：用户配置 > 全局窗口设置 > 内置目录。
+// 窗口在哪定，输出预算就在哪派生（窗口 1/8），画像里的两个数永远一致。
 func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapability {
 	cap := domain.ModelCapabilityOf(model)
 	if cfg, err := c.env.Repo.GetModelConfig(providerID, model); err == nil && cfg != nil {
@@ -119,11 +123,9 @@ func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapabil
 			cap.Known = true
 			cap.Note = ""
 		}
-		if cfg.MaxOutput > 0 {
-			cap.MaxOutput = cfg.MaxOutput
-		}
 		cap.Vision = cfg.Vision
 		cap.ToolCall = cfg.ToolCall
+		cap.MaxOutput = domain.MaxOutputOf(cap.ContextWindow)
 		return cap
 	}
 	if raw, err := c.env.Repo.GetSetting(domain.SettingContextWindow); err == nil {
@@ -133,22 +135,21 @@ func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapabil
 			cap.Note = ""
 		}
 	}
+	cap.MaxOutput = domain.MaxOutputOf(cap.ContextWindow)
 	return cap
 }
 
-// samplingOf 取温度、top_p 与最大输出：用户配置优先，其余回退到能力目录。
+// samplingOf 取温度、top_p 与最大输出：输出预算按合并后的窗口 1/8 派生，不可设置。
+// 写死任何一档都会在长任务上把回答截成半截（见 domain.MaxOutputOf）。
 func (c *ChatService) samplingOf(providerID, model string) (temp, topP *float64, maxOutput int) {
 	t, p := domain.DefaultTemperature, domain.DefaultTopP
-	maxOutput = domain.ModelCapabilityOf(model).MaxOutput
+	maxOutput = domain.MaxOutputOf(c.capabilityOf(providerID, model).ContextWindow)
 	if cfg, err := c.env.Repo.GetModelConfig(providerID, model); err == nil && cfg != nil {
 		if cfg.Temperature > 0 {
 			t = cfg.Temperature
 		}
 		if cfg.TopP > 0 {
 			p = cfg.TopP
-		}
-		if cfg.MaxOutput > 0 {
-			maxOutput = cfg.MaxOutput
 		}
 	}
 	return &t, &p, maxOutput
@@ -173,11 +174,20 @@ func (c *ChatService) budget(providerID, model, system string) agent.Budget {
 		// 留的余量比整个窗口还大时预算恒为负，压缩会退化成什么都不裁。
 		reserve = cap.ContextWindow / 4
 	}
+	// 保留区跟着窗口走：1M 窗口配 2 万保留量，压缩一次就把前面几十万 token
+	// 的记忆全丢了，长任务表现为「它怎么把前提忘了」。
+	keep := cap.ContextWindow / 4
+	if keep < defaultContextKeep {
+		keep = defaultContextKeep
+	}
+	if keep > maxContextKeep {
+		keep = maxContextKeep
+	}
 	return agent.Budget{
 		Window:       cap.ContextWindow,
 		WindowKnown:  cap.Known,
 		Reserve:      reserve,
-		Keep:         defaultContextKeep,
+		Keep:         keep,
 		SystemTokens: len(system) / 4,
 	}
 }

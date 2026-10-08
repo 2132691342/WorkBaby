@@ -81,6 +81,18 @@ func (c *ChatService) ModelCapability(providerID, model string) domain.ModelCapa
 	return c.capabilityOf(providerID, model)
 }
 
+// ModelCapabilities 批量查能力画像；空模型名直接跳过，调用方不必先过滤。
+func (c *ChatService) ModelCapabilities(providerID string, models []string) []domain.ModelCapability {
+	out := make([]domain.ModelCapability, 0, len(models))
+	for _, m := range models {
+		if strings.TrimSpace(m) == "" {
+			continue
+		}
+		out = append(out, c.capabilityOf(providerID, m))
+	}
+	return out
+}
+
 // riskOfTool 给工具一个静态风险档，供界面在停用前提醒用户。
 func riskOfTool(t tool.Tool) string {
 	switch t.Name() {

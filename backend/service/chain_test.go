@@ -1,5 +1,5 @@
-// 服务层链路：一次 run 的落库判据（审批 / 错误轮 / 插话 / 预算）、工具声明与结果的配对、
-// 默认模型的继承与回填。装配较贵，父测试只做一次。
+// 服务层链路：一次 run 的完整生命周期（审批 / 错误轮 / 插话 / 预算 / 落库配对）
+// 与默认模型的继承回填。装配昂贵（DB + 注册表 + 容器），全文件只做一次。
 package service
 
 import (
@@ -39,8 +39,7 @@ func (approveTool) Execute(ctx context.Context, in tool.Input) (*tool.Result, er
 	return &tool.Result{Content: "done", Title: "危险操作"}, nil
 }
 
-// parallelTool 声明为并发执行，用来打中「同一轮多个工具」这条路径；
-// 执行里停一下，把两个 goroutine 在飞的时间窗撑开。
+// parallelTool 声明为并发执行；执行里停一下，把多个 goroutine 在飞的时间窗撑开。
 type parallelTool struct{}
 
 func (parallelTool) Name() string               { return "par" }
@@ -58,8 +57,8 @@ func (parallelTool) Execute(ctx context.Context, in tool.Input) (*tool.Result, e
 	return &tool.Result{Content: "done", Title: "并发操作"}, nil
 }
 
-// newEnv 起一套干净的依赖：DB + 工具注册表 + 服务容器，并完成 Bootstrap。
-func newEnv(t *testing.T, register ...tool.Tool) (*Env, *Container) {
+// newEnv 起一套干净的依赖（DB + 注册表 + 容器）并完成 Bootstrap。
+func newEnv(t *testing.T) (*Env, *Container) {
 	t.Helper()
 	dir := t.TempDir()
 	runtimetest.SeedMarkers(t, dir)
@@ -79,9 +78,8 @@ func newEnv(t *testing.T, register ...tool.Tool) (*Env, *Container) {
 	}
 	_ = pkg.EnsureDir(paths.SkillsDir)
 	reg := tool.New()
-	for _, x := range register {
-		reg.Register(x)
-	}
+	reg.Register(approveTool{})
+	reg.Register(parallelTool{})
 	env := &Env{
 		Repo: repo.New(gdb), Paths: paths, Emitter: NewEmitter(), Registry: reg,
 		ToolDeps: NewToolDeps(paths, nil),
@@ -202,12 +200,10 @@ func describe(msgs []llm.Message) string {
 	return out
 }
 
-// 一次 run 的生命周期：发起 → 工具 / 审批 / 插话 → 落库。
-// 四个分支共用一次装配，各自断言一条会在界面上「看得见」的判据。
-func TestChatRunChain(t *testing.T) {
-	// 装配较贵（DB + 注册表 + 服务容器），四个分支共用一套；
-	// 脚本替身很便宜，各分支按需挂载自己的那一版。
-	env, svc := newEnv(t, approveTool{})
+// 服务层唯一一条完整链路：发送 → 工具 / 审批 / 插话 → 落库 → 收尾。
+// 所有子测试共用同一套装配；脚本替身很便宜，各自按需挂载。
+func TestServiceRunChain(t *testing.T) {
+	env, svc := newEnv(t)
 
 	// 会话级放行必须真的生效：第二次同类调用不再弹卡，否则用户要点两遍。
 	t.Run("审批闭环（会话级放行）", func(t *testing.T) {
@@ -329,18 +325,14 @@ func TestChatRunChain(t *testing.T) {
 			t.Fatalf("上下文余量 %d 没跟上输出预算 %d：压缩会按虚高的空间往窗口里塞内容", b.Reserve, want)
 		}
 	})
-}
 
-// 工具声明与结果的落库配对：跨轮逐个放行与同轮并发两种形态都要成立。
-// emit 不串行化时第二个 goroutine 撞主键，那条声明永远丢在链外。
-func TestToolResultOrdering(t *testing.T) {
+	// 跨轮声明先于结果：落库顺序错位时，上游以「结果找不到紧邻的声明」拒绝整轮。
 	t.Run("跨轮声明先于结果", func(t *testing.T) {
 		useScripted(t,
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c2", Name: "risky"}}},
 			llm.Message{Content: "两次都做完了"},
 		)
-		env, svc := newEnv(t, approveTool{})
 		sess := newProviderSession(t, svc)
 
 		if _, err := svc.Chat.Send(sess.ID, "连做两次", nil); err != nil {
@@ -360,12 +352,12 @@ func TestToolResultOrdering(t *testing.T) {
 		assertDeclaredBeforeResult(t, svc, sess.ID)
 	})
 
+	// 同轮并发：emit 不串行化时第二个 goroutine 撞主键，那条声明永远丢在链外。
 	t.Run("同轮并发保序且声明齐全", func(t *testing.T) {
 		useScripted(t,
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "par"}, {ID: "c2", Name: "par"}}},
 			llm.Message{Content: "两个都跑完了"},
 		)
-		env, svc := newEnv(t, parallelTool{})
 		sess := newProviderSession(t, svc)
 
 		if _, err := svc.Chat.Send(sess.ID, "同时做两个", nil); err != nil {
@@ -403,52 +395,50 @@ func TestToolResultOrdering(t *testing.T) {
 		}
 		assertDeclaredBeforeResult(t, svc, sess.ID)
 	})
-}
 
-// 默认模型的继承链：设默认服务 → 落默认模型 → 新会话继承 → 存量空模型会话跑一次补齐。
-// 这条链断掉时界面显示「默认模型」且上下文窗口永远算不出来，症状分散在多处。
-func TestDefaultModelChain(t *testing.T) {
-	useScripted(t, llm.Message{Content: "好的"})
-	env, svc := newEnv(t)
+	// 默认模型的继承链：设默认服务 → 落默认模型 → 新会话继承 → 存量空模型会话跑一次补齐。
+	// 这条链断掉时界面显示「默认模型」且上下文窗口永远算不出来，症状分散在多处。
+	t.Run("默认模型继承与回填", func(t *testing.T) {
+		useScripted(t, llm.Message{Content: "好的"})
+		p, err := svc.Providers.Upsert(domain.UpsertProviderREQ{
+			Name: "m", API: "test", Models: []string{"MiniMax-M3", "gpt-4o"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.Providers.SetDefault(p.ID); err != nil {
+			t.Fatal(err)
+		}
+		// 只存服务不存模型时，能力查询与上下文水位全失效。
+		if got, _ := env.Repo.GetSetting(domain.SettingDefaultModel); got != "MiniMax-M3" {
+			t.Fatalf("设默认服务后应落默认模型，实际 %q", got)
+		}
 
-	p, err := svc.Providers.Upsert(domain.UpsertProviderREQ{
-		Name: "m", API: "test", Models: []string{"MiniMax-M3", "gpt-4o"},
+		sess, err := svc.Sessions.Create(domain.CreateSessionREQ{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sess.ProviderID != p.ID {
+			t.Fatalf("会话没继承到默认服务: %q", sess.ProviderID)
+		}
+		if sess.Model == "" {
+			t.Fatal("新会话没有继承到模型名，输入区会一直显示「默认模型」")
+		}
+
+		// 存量会话（模型名为空）跑一次 run 必须就地补齐。
+		if err := env.Repo.UpdateSessionColumns(sess.ID, map[string]any{"model": ""}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Chat.Send(sess.ID, "在吗", nil); err != nil {
+			t.Fatal(err)
+		}
+		waitUntil(t, "模型名回写", func() bool {
+			fresh, err := env.Repo.GetSession(sess.ID)
+			return err == nil && fresh.Model != ""
+		})
+		fresh, _ := env.Repo.GetSession(sess.ID)
+		if fresh.Model != "MiniMax-M3" {
+			t.Fatalf("模型名未回写: %q", fresh.Model)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Providers.SetDefault(p.ID); err != nil {
-		t.Fatal(err)
-	}
-	// 只存服务不存模型时，能力查询与上下文水位全失效。
-	if got, _ := env.Repo.GetSetting(domain.SettingDefaultModel); got != "MiniMax-M3" {
-		t.Fatalf("设默认服务后应落默认模型，实际 %q", got)
-	}
-
-	sess, err := svc.Sessions.Create(domain.CreateSessionREQ{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sess.ProviderID != p.ID {
-		t.Fatalf("会话没继承到默认服务: %q", sess.ProviderID)
-	}
-	if sess.Model == "" {
-		t.Fatal("新会话没有继承到模型名，输入区会一直显示「默认模型」")
-	}
-
-	// 存量会话（模型名为空）跑一次 run 必须就地补齐。
-	if err := env.Repo.UpdateSessionColumns(sess.ID, map[string]any{"model": ""}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.Chat.Send(sess.ID, "在吗", nil); err != nil {
-		t.Fatal(err)
-	}
-	waitUntil(t, "模型名回写", func() bool {
-		fresh, err := env.Repo.GetSession(sess.ID)
-		return err == nil && fresh.Model != ""
-	})
-	fresh, _ := env.Repo.GetSession(sess.ID)
-	if fresh.Model != "MiniMax-M3" {
-		t.Fatalf("模型名未回写: %q", fresh.Model)
-	}
 }

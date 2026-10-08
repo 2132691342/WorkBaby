@@ -5,7 +5,7 @@ import "WorkBaby/backend/pkg"
 
 var (
 	ErrDocNotFound = pkg.New(6101, "文档不存在或已不可读", "")
-	ErrDocType     = pkg.New(6102, "暂不支持这种文件", "支持 PDF / Word / Excel / Markdown / 文本")
+	ErrDocType     = pkg.New(6102, "暂不支持这种文件", "支持 PDF / Word / Excel / PPT / Markdown / 文本 / 表格数据")
 	ErrQueryEmpty  = pkg.New(6103, "请输入要查的内容", "")
 )
 

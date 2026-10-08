@@ -69,7 +69,7 @@ repo 只管存取，「怎么拼成上下文」是业务语义。
 send → runID → 内核循环 → done
   ├─ stop：ctx 取消，落已产出内容
   ├─ error：错误事件 + 已落内容保留
-  └─ 审批挂起：run 阻塞在闸门等决策，超时 5 分钟按拒绝
+  └─ 审批挂起：run 阻塞在闸门等决策，超时 30 分钟按拒绝
 ```
 
 一个会话同时只允许一个 run（`ErrSessionBusy`）。
@@ -78,9 +78,8 @@ send → runID → 内核循环 → done
 
 | 文件 | 覆盖的链路 |
 |---|---|
-| `service/agent_test.go` | 建会话 → 发送 → 落库；审批闭环；错误轮半成品落库；插话按注入链序落库 |
-| `service/order_test.go` | 声明与结果紧邻配对（跨轮 / 同轮并发两种形态）与落库位点串行化 |
-| `api/chat_stream_test.go` | 真实 HTTP 栈上的 SSE 送达与 `Last-Event-ID` 重连补帧 |
+| `service/chain_test.go`（`TestServiceRunChain`） | 建会话 → 发送 → 落库；审批闭环；错误轮半成品落库；插话按注入链序落库；声明与结果紧邻配对（跨轮 / 同轮并发）；默认模型继承与回填 |
+| `api/api_test.go`（`TestHTTPChain`） | 真实 HTTP 栈上的 SSE 送达与 `Last-Event-ID` 重连补帧；启动装配与跨源预检 |
 | `singleinstance/singleinstance_test.go` | 二次启动把文件路径（或唤起请求）转交主实例 |
 
 ## 取舍

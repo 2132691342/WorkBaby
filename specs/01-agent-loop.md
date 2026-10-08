@@ -42,9 +42,10 @@ Run(ctx):
 `Compact` 是每次发送前的必经之路，不是可选钩子。
 
 **为什么内核不重试截断**：带思考的模型把推理 token 也算进输出预算，推理吃满时这一轮
-会「只想不说」。内核不重试——它并不知道模型能吐多少：预算是 service 层按模型上限给的，
-内核再抬一次就可能超过上游真实上限，直接换回一个 400，把「能看懂的截断」变成
-「看不懂的报错」。到顶就是到顶：如实以 `length` 收尾，由界面的「继续」接着写。
+会「只想不说」。内核不重试——它并不知道模型能吐多少：预算是 service 层按上下文窗口
+1/8 派生的（`domain.MaxOutputOf`），内核再抬一次就可能超过上游真实上限，直接换回一个
+400，把「能看懂的截断」变成「看不懂的报错」。到顶就是到顶：如实以 `length` 收尾，
+由界面的「继续」接着写。
 
 ### 契约
 
@@ -66,10 +67,10 @@ type Config struct {
     Workspace   string
     System      string
     Model       string
-    MaxTokens   int      // 输出预算；service 层保证非零（见 10 的采样解析）
+    MaxTokens   int      // 输出预算；service 层按上下文窗口 1/8 派生，保证非零
     Temperature *float64 // nil 表示不下发，交给上游默认
     TopP        *float64
-    MaxTurns    int      // 缺省 32；到顶以 StopMaxTurns 收尾
+    MaxTurns    int      // 缺省 64；到顶以 StopMaxTurns 收尾
     Parallel    int      // 并发工具上限，缺省 4
     Budget      Budget
     Gate        Gate
@@ -160,7 +161,7 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 - **Gate 是唯一回调面**：审批等需要挂起等用户的逻辑收成一个函数，而不是钩子集合。
   内核因此不认识审批表、不认识设置，依赖全部经 Config 注入，可以纯内存单测。
 - **截断不自作主张补偿**：内核不知道模型的输出上限，唯一可靠的预算是 service
-  按能力目录给的 `MaxTokens`。到顶就以 `length` 收尾，把「还能不能再写」这个
+  按上下文窗口 1/8 派生的 `MaxTokens`。到顶就以 `length` 收尾，把「还能不能再写」这个
   判断交回给用户（界面上的「继续」），而不是替用户赌一次更大的预算。
 - **代价**：单层循环意味着「运行中改配置」要到下一轮才生效；内核对压缩内容
   无感知，压缩质量完全取决于 `Compact` 的切点策略（见 02）。
@@ -169,13 +170,13 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 
 | 文件 | 测试 | 锁住的行为 |
 |---|---|---|
-| `loop_test.go` | `TestLoopProtocolOrder` | 多轮回填顺序、并行批次保序 |
+| `agent_test.go` | `TestLoopProtocolOrder` | 多轮回填顺序、并行批次保序 |
 | | `TestLoopStopsOnCancelLengthAndError` | 取消 / 截断（截断轮不执行工具、零产出也不重试）/ 上游报错 |
 | | `TestLoopBlocksRepeatedIdenticalCall` | 重复调用拦截到上限 + 被拦调用事件成对 |
 | | `TestEmitSerializesConcurrentTools` | 事件出口串行化 |
-| `compact_test.go` | `TestCompactProtocol` | 清洗硬约束、压缩切点合法性 |
+| | `TestCompactProtocol` | 清洗硬约束、压缩切点合法性、预算边界与降级 |
 
-输出预算是否真的下发到上游由 `service/agent_test.go` 的 `TestChatSendsOutputBudget`
-从装配层锁住（`llmtest.Scripted.Requests` 记下每次请求的参数）。
+输出预算是否真的下发到上游由 `service/chain_test.go` 的 `TestServiceRunChain`
+（输出预算子测试）从装配层锁住（`llmtest.Scripted.Requests` 记下每次请求的参数）。
 
 多轮驱动用 `backend/llm/llmtest` 的脚本替身，不联网。

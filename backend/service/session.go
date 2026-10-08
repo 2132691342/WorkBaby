@@ -62,9 +62,13 @@ func (s *SessionService) Create(req domain.CreateSessionREQ) (*domain.SessionVO,
 	return &vo, nil
 }
 
-// List 列出会话。
-func (s *SessionService) List() ([]domain.SessionVO, error) {
-	list, err := s.env.Repo.ListSessions(200)
+// sessionPageSize 一页会话数；配 offset 翻页。
+// 只取一页不设翻页入口，第 201 个会话就会从界面上凭空消失，数据还在库里。
+const sessionPageSize = 200
+
+// List 按 offset 分页列出会话。
+func (s *SessionService) List(offset int) ([]domain.SessionVO, error) {
+	list, err := s.env.Repo.ListSessions(sessionPageSize, offset)
 	if err != nil {
 		return nil, err
 	}

@@ -37,7 +37,7 @@ func (pythonTool) Parameters() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"code":       map[string]any{"type": "string", "description": "Python 代码"},
-			"timeout_ms": map[string]any{"type": "integer", "description": "超时毫秒，默认 120000，上限 600000"},
+			"timeout_ms": map[string]any{"type": "integer", "description": "超时毫秒，默认 120000，上限 1800000"},
 		},
 		"required": []string{"code"},
 	}

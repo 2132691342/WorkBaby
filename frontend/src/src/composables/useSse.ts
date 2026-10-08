@@ -34,13 +34,16 @@ export function useSse(
     sseConnected.value = false
   }
 
+  // 退避到 3 秒封顶：断线期间用户往往正在发消息，重连要快但不能打转。
+  // 固定 800ms 在服务端长时间没起来时会一秒多敲一次，白白刷日志与 CPU。
+  let retryDelay = 800
   const scheduleRetry = () => {
     if (retryTimer || !currentSid) return
-    // 退避到 3 秒封顶：断线期间用户往往正在发消息，重连要快但不能打转。
     retryTimer = setTimeout(() => {
       retryTimer = null
       open(currentSid)
-    }, 800)
+    }, retryDelay)
+    retryDelay = Math.min(retryDelay * 2, 3000)
   }
 
   const open = (sid: string) => {
@@ -57,6 +60,7 @@ export function useSse(
     const es = new EventSource(`${base}/events?session_id=${encodeURIComponent(sid)}${resume}`)
     es.onopen = () => {
       sseConnected.value = true
+      retryDelay = 800
       if (dropped) {
         dropped = false
         onReconnect?.()

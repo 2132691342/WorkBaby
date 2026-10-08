@@ -11,22 +11,24 @@ var (
 
 // Skill 是磁盘上一个 SKILL.md 的解析结果，不落库——文件即真相源。
 type Skill struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Location    string `json:"location"`
-	Source      string `json:"source"`
-	Enabled     bool   `json:"enabled"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	WhenToUse   []string `json:"when_to_use,omitempty"`
+	Location    string   `json:"location"`
+	Source      string   `json:"source"`
+	Enabled     bool     `json:"enabled"`
 }
 
 // SkillVO 出参与 Skill 同形，单独声明避免内部字段外泄。
 type SkillVO struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Location    string `json:"location"`
-	Source      string `json:"source"`
-	Enabled     bool   `json:"enabled"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	WhenToUse   []string `json:"when_to_use,omitempty"`
+	Location    string   `json:"location"`
+	Source      string   `json:"source"`
+	Enabled     bool     `json:"enabled"`
 }
 
 // ToggleSkillREQ 启停入参。
@@ -60,7 +62,7 @@ type SkillContentRESP struct {
 // ToVO 转成出参。
 func (s *Skill) ToVO() SkillVO {
 	return SkillVO{
-		ID: s.ID, Name: s.Name, Description: s.Description,
+		ID: s.ID, Name: s.Name, Description: s.Description, WhenToUse: s.WhenToUse,
 		Location: s.Location, Source: s.Source, Enabled: s.Enabled,
 	}
 }

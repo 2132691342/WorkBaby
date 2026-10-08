@@ -17,7 +17,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | /sessions | 会话列表（按更新时间倒序） |
+| GET | /sessions?offset= | 会话列表（按更新时间倒序，一页 200 条；`offset` 用于「加载更多」翻页） |
 | POST | /sessions | 新建 `{title?, workspace?, provider_id?, model?}` |
 | GET | /sessions/:id | 详情：会话 + 当前分支全量消息 |
 | POST | /sessions/:id/rename | `{title}` |
@@ -77,17 +77,18 @@
 | POST | /skills/:id/toggle | `{enabled}` |
 | POST | /skills/:id/delete | 删除用户技能（builtin 不可删） |
 | GET | /skills/:id/content | 技能正文 |
-| GET | /knowledge/docs | 文档列表 |
-| POST | /knowledge/docs/add | `{paths[]}` 批量添加并建索引 → `{added}` |
+| GET | /knowledge/docs | 文档列表（`error` 字段兼作提示位：超长截断索引等「已成功但有话要说」也写这里） |
+| POST | /knowledge/docs/add | `{paths[]}` 批量添加并建索引 → `{added}`；支持 md / txt / csv / log / json / yml / yaml / html / pdf / docx / xlsx / pptx |
 | POST | /knowledge/docs/:id/delete | 删除（级联分块） |
 | POST | /knowledge/reindex | 全量重建索引 → `{reindexed}` |
 | POST | /knowledge/search | `{query, limit?}` → `{hits[]}` |
 | GET | /tools | 工具清单：助手当前能干什么、风险多大、是否启用 |
 | POST | /tools/:name/toggle | `{enabled}`，下一轮生效 |
 | GET | /models/capability?model=&provider_id= | 模型能力画像：上下文窗口、是否支持思考 / 识图 / 工具调用 |
+| POST | /models/capabilities | 批量能力画像 `{provider_id, models[]}` → `ModelCapability[]`（换模型下拉一次列几十上百个模型，逐个查即 N+1） |
 | GET | /models/config?model=&provider_id= | 单个模型配置（目录 + 覆写合并后的最终值） |
 | GET | /models/configs?provider_id= | 一个服务下的全部模型配置 |
-| POST | /models/config | 保存模型配置 `{provider_id, model, context_window?, max_output?, temperature, top_p, vision, tool_call}` |
+| POST | /models/config | 保存模型配置 `{provider_id, model, context_window?, temperature, top_p, vision, tool_call}`；最大输出不可配置，按上下文窗口 1/8 派生 |
 | GET | /runtime | 内置运行时状态：Python 与 PowerShell 各自的 exe / source(bundled\|system\|空) / version / error |
 | POST | /runtime/redetect | 重新检测内置运行时：清探测缓存后重跑，运行期放入归档后点这里生效 |
 | GET | /settings | KV 全集 |
@@ -114,9 +115,11 @@
 `known=false` 与缺省值，由界面显示「未知」并允许用户手填。
 
 ```jsonc
-{ "id": "MiniMax-M3", "context_window": 1000000, "max_output": 32768,
+{ "id": "MiniMax-M3", "context_window": 1000000, "max_output": 125000,
   "thinking": true, "vision": false, "tool_call": true, "known": true, "note": "" }
 ```
+
+`max_output` 是派生值（窗口 1/8），不是目录里的独立声明。
 
 `known=false` 时 `note` 带一句人话说明。能力解析优先级：
 **按「服务 + 模型」的用户配置（model_configs 表）→ 全局 `context_window` 设置（没配模型级时的兜底）→ 内置目录**。

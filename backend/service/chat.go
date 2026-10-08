@@ -261,8 +261,10 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 		MaxTokens:   maxOutput,
 		Temperature: temp,
 		TopP:        topP,
-		MaxTurns:    32,
-		Parallel:    4,
+		// 64 轮：多文件批处理一步一轮，32 轮会在真实长任务中途硬停。
+		// 正常任务由「模型不再发起工具调用」自然结束，轮数只是失控护栏。
+		MaxTurns: 64,
+		Parallel: 4,
 		Budget:      budget,
 		Emit:      func(e agent.Event) { c.onEvent(state, e) },
 		Steering:  c.queueOf(sessionID),

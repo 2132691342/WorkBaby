@@ -5,6 +5,7 @@ import * as api from '../../api'
 import { useSessionStore } from '../../stores/session'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
+import { fmtCount } from '../../utils/num'
 import AppIcon from '../common/AppIcon.vue'
 
 // 后端 /sessions/:id/permission 只认这三个值，别再引入第四种叫法。
@@ -21,6 +22,10 @@ const toast = useToastStore()
 const open = ref<'model' | 'perm' | null>(null)
 const models = ref<string[]>([])
 const providerId = ref('')
+// 会话绑定的服务商被删掉时会回退到别的服务，必须显式告知：
+// 不声不响换服务商，用户以为换的只是模型，实际换了一个账号在计费。
+const providerName = ref('')
+const providerMissing = ref(false)
 const modelLoading = ref(false)
 // 每个模型的能力标签：窗口多大、能不能识图。选模型时一眼看到差别。
 const caps = ref<Record<string, { win: string; vision: boolean; tools: boolean }>>({})
@@ -42,29 +47,27 @@ const hiddenCount = computed(() => {
 const modelName = computed(() => session.current?.model || settings.boot?.default_model || '默认模型')
 const permName = computed(() => PERMISSIONS.find((p) => p.key === session.current?.permission)?.name || PERMISSIONS[0].name)
 
-// 窗口大小说人话：1000000 → 1M，131072 → 128K
-function fmtWin(n: number): string {
-  if (n >= 1000000) return `${Math.round((n / 1000000) * 10) / 10}M`
-  if (n >= 1000) return `${Math.round(n / 1024)}K`
-  return String(n)
-}
-
 // 模型名从已配置的服务商里选，不让用户背模型 ID
 async function loadModels() {
   modelLoading.value = true
   try {
     const list = await api.providers.list()
-    const p = list.find((x) => x.id === session.current?.provider_id) || list.find((x) => x.is_default) || list[0]
+    const own = list.find((x) => x.id === session.current?.provider_id)
+    // 会话自己的服务商优先；被删掉时才退回默认服务，并在下拉里说明这件事。
+    const p = own || list.find((x) => x.is_default) || list[0]
+    providerMissing.value = !own && !!p
+    providerName.value = p?.name || ''
     providerId.value = p?.id || ''
     models.value = p ? [...p.models] : []
-    // 能力标签查不到就不显示，不阻塞下拉打开
-    for (const m of models.value) {
-      void api.models
-        .capability(m, providerId.value)
-        .then((c) => {
-          caps.value[m] = { win: fmtWin(c.context_window), vision: c.vision, tools: c.tool_call }
-        })
-        .catch(() => {})
+    if (models.value.length && providerId.value) {
+      // 批量取一次：下拉一次列几十上百个模型，逐个请求是纯浪费。
+      try {
+        for (const c of await api.models.capabilities(providerId.value, models.value)) {
+          caps.value[c.id] = { win: fmtCount(c.context_window), vision: c.vision, tools: c.tool_call }
+        }
+      } catch {
+        // 能力标签拿不到就不显示，不阻塞下拉打开
+      }
     }
   } finally {
     modelLoading.value = false
@@ -132,10 +135,13 @@ defineExpose({ show, close: () => (open.value = null) })
 
     <div v-if="open" class="pop chips-pop">
       <template v-if="open === 'model'">
-        <div class="menu-label">用哪个模型</div>
+        <div class="menu-label">用哪个模型{{ providerName ? `（来自「${providerName}」）` : '' }}</div>
         <div v-if="modelLoading" class="pop-row muted">正在读取模型列表…</div>
         <div v-else-if="!models.length" class="pop-row muted">还没有配置模型服务</div>
         <template v-else>
+          <div v-if="providerMissing" class="pop-row is-warn">
+            本对话原来的服务商已被删除，下面是其他服务的模型；选一个即切换过去
+          </div>
           <input
             v-model="filter"
             class="input m-filter"
@@ -218,6 +224,12 @@ defineExpose({ show, close: () => (open.value = null) })
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+.pop-row.is-warn {
+  text-align: left;
+  font-size: var(--wb-fs-hint);
+  color: var(--wb-warning);
+  cursor: default;
 }
 .pop-row .pr-t {
   font-family: var(--font-sans);

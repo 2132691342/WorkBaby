@@ -40,6 +40,8 @@ type Streamer interface {
 | 工具调用 | `tool_calls` 增量拼装 | `tool_use` 块 | `tool_calls`（整体） |
 | 思考 | reasoning_content（若有） | thinking 块 | 无 |
 | 鉴权 | Bearer | x-api-key | 无 |
+| 输出上限字段 | 按模型家族二选一（见下） | `max_tokens` 必填 | `options.num_predict` |
+| 采样参数 | 普通模型下发；推理家族拒绝 | 均可下发 | 均可下发 |
 
 适配器只做「协议 → 归一化」，业务字段（snake_case）出归一化层后统一。
 
@@ -53,9 +55,14 @@ type Streamer interface {
 | openai | `max_tokens,omitempty` 把字段整个吃掉 → 上级不知道上限，实际由网关自己定 | `llm.DefaultMaxTokens` |
 | anthropic | `max_tokens` 是必填字段 | 同上 |
 
+openai 兼容面内部还要按模型家族二选一（`reasoningOnly`）：o1/o3/o4 与 gpt-5 系
+**只认 `max_completion_tokens`，且拒绝 `temperature` / `top_p`**，用旧字段直接 400。
+判定按模型名（网关前缀不影响）——这不是猜能力，是协议差异。
+
 **兜底值不能小**：推理型模型把思考算进同一份预算，给小值会让它「想完就没词」，
 正文与工具调用一起断在 `finish_reason=length`（界面表现是「助手只思考，什么都没做」）。
-上游报的 `length` 只是表象——预算是我们自己给的，问题出在下发的数值上。
+上游报的 `length` 只是表象——预算是我们自己给的，问题出在下发的数值上；
+真正的预算是 service 层按窗口 1/8 派生的，兜底常量只在调用方漏传时生效。
 
 `Temperature` / `TopP` 相反：用指针表达「没设置就不下发」，因为 0 是合法取值
 （刻意要确定性输出），不能让 0 与「未设置」在同一个字段里撞车。
