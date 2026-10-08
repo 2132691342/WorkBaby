@@ -45,6 +45,41 @@ const hasUsage = computed(() => (totals.value?.total || 0) > 0)
 const topSessions = computed(() => (data.value?.sessions || []).slice(0, 6))
 const hitRate = computed(() => (totals.value?.cache_hit_rate || 0) * 100)
 
+// 读数卡片：右栏一组小卡，每张一个主读数 + 一行注解。抽成数据而不是铺开六个块，
+// 是不想让模板里出现「同一张卡抄六遍」——抄错一处就六处分叉。
+const metrics = computed(() => {
+  const t = totals.value
+  return [
+    { key: 'total', value: fmtCount(t?.total || 0), label: '总 token', note: `模型调用 ${t?.calls || 0} 次` },
+    {
+      key: 'io',
+      value: `${fmtCount(t?.input || 0)} / ${fmtCount(t?.output || 0)}`,
+      label: '输入 / 输出',
+      note: '你发的 / 助手回的',
+    },
+    {
+      key: 'hit',
+      value: `${hitRate.value.toFixed(hitRate.value >= 10 ? 0 : 1)}%`,
+      label: '缓存命中率',
+      note: `${fmtCount(t?.cached || 0)} 个输入 token 走了缓存`,
+      hit: hitRate.value > 0,
+    },
+    {
+      key: 'ctx',
+      value: fmtCount(t?.avg_context || 0),
+      label: '平均上下文',
+      note: `峰值 ${fmtCount(t?.peak_context || 0)} token`,
+    },
+    { key: 'sessions', value: String(t?.sessions || 0), label: '会话数', note: '有对话记录的会话' },
+    {
+      key: 'latency',
+      value: fmtMs(t?.avg_latency_ms || 0),
+      label: '平均耗时',
+      note: `合计 ${fmtMs(t?.latency_ms || 0)}`,
+    },
+  ]
+})
+
 async function openSession(id: string) {
   await session.open(id)
   router.push('/')
@@ -82,43 +117,6 @@ async function newSession() {
         </div>
 
         <PageState :loading="loading" :error="error">
-          <div class="statbar">
-            <div class="st">
-              <div class="sv">{{ fmtCount(totals?.total || 0) }}</div>
-              <div class="sl">总 token</div>
-              <div class="sd">模型调用 {{ totals?.calls || 0 }} 次</div>
-            </div>
-            <div class="st">
-              <div class="sv">{{ fmtCount(totals?.input || 0) }} / {{ fmtCount(totals?.output || 0) }}</div>
-              <div class="sl">输入 / 输出</div>
-              <div class="sd">你发的 / 助手回的</div>
-            </div>
-            <div class="st">
-              <div class="sv" :class="{ 'is-hit': hitRate > 0 }">
-                {{ hitRate.toFixed(hitRate >= 10 ? 0 : 1) }}%
-              </div>
-              <div class="sl">缓存命中率</div>
-              <div class="sd">
-                {{ fmtCount(totals?.cached || 0) }} 个输入 token 走了缓存，单价更低
-              </div>
-            </div>
-            <div class="st">
-              <div class="sv">{{ fmtCount(totals?.avg_context || 0) }}</div>
-              <div class="sl">平均上下文</div>
-              <div class="sd">峰值 {{ fmtCount(totals?.peak_context || 0) }} token</div>
-            </div>
-            <div class="st">
-              <div class="sv">{{ totals?.sessions || 0 }}</div>
-              <div class="sl">会话数</div>
-              <div class="sd">有对话记录的会话</div>
-            </div>
-            <div class="st">
-              <div class="sv">{{ fmtMs(totals?.avg_latency_ms || 0) }}</div>
-              <div class="sl">平均耗时</div>
-              <div class="sd">合计 {{ fmtMs(totals?.latency_ms || 0) }}</div>
-            </div>
-          </div>
-
           <div v-if="!hasUsage" class="card blank">
             <div class="blank-in">
               <AppIcon name="chart" size="ic-lg" />
@@ -130,25 +128,37 @@ async function newSession() {
             </div>
           </div>
 
-          <template v-else>
-            <div class="card chart-card">
-              <div class="card-head">
-                <h2>每天用了多少</h2>
-                <div class="legend">
-                  <span><i class="sw in" /> 输入</span>
-                  <span><i class="sw out" /> 输出</span>
+          <div v-else class="cols">
+            <!-- 左栏（主）：趋势与分布，占宽多一点是为了让图表读得清 -->
+            <div class="col col-main">
+              <div class="card chart-card">
+                <div class="card-head">
+                  <h2>每天用了多少</h2>
+                  <div class="legend">
+                    <span><i class="sw in" /> 输入</span>
+                    <span><i class="sw out" /> 输出</span>
+                  </div>
                 </div>
+                <UsageChart :daily="data?.daily || []" />
               </div>
-              <UsageChart :daily="data?.daily || []" />
-            </div>
 
-            <div class="two">
               <div class="card">
                 <div class="card-head">
                   <h2>按模型</h2>
                 </div>
                 <ShareBars :items="data?.models || []" />
                 <p v-if="!data?.models.length" class="t-sub none">还没有模型调用记录</p>
+              </div>
+            </div>
+
+            <!-- 右栏（次）：读数小卡 + 会话排行 -->
+            <div class="col col-side">
+              <div class="metrics">
+                <article v-for="m in metrics" :key="m.key" class="metric">
+                  <div class="mv" :class="{ 'is-hit': m.hit }">{{ m.value }}</div>
+                  <div class="ml">{{ m.label }}</div>
+                  <div class="md">{{ m.note }}</div>
+                </article>
               </div>
 
               <div class="card">
@@ -172,7 +182,7 @@ async function newSession() {
                 <p v-else class="t-sub none">还没有会话用量</p>
               </div>
             </div>
-          </template>
+          </div>
         </PageState>
       </div>
     </div>
@@ -259,7 +269,7 @@ async function newSession() {
   margin-bottom: var(--wb-sp-4);
 }
 /* 命中率 >0 才上色：常显的绿色等于没有绿色 */
-.statbar .st .sv.is-hit {
+.metric .mv.is-hit {
   color: var(--wb-success);
 }
 .card-head h2 {
@@ -276,10 +286,52 @@ async function newSession() {
 .legend .sw.out {
   background: var(--wb-ch-2);
 }
-.two {
+/* 卡片式两栏：左主（图表 / 分布）右次（读数 / 排行）。
+   用 fr 而不是固定像素：窄窗口按比例收缩，永远不出横向滚动条。 */
+.cols {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   gap: var(--wb-sp-4);
+  align-items: start;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-4);
+  min-width: 0;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--wb-sp-3);
+}
+.metric {
+  min-width: 0;
+  padding: var(--wb-sp-3) var(--wb-sp-4);
+  border-radius: var(--wb-radius-lg);
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line-2);
+}
+.mv {
+  font-family: var(--font-display);
+  font-size: var(--wb-fs-xl);
+  font-weight: 600;
+  line-height: var(--wb-lh-tight);
+  color: var(--wb-ink);
+  /* 长数字（百万级）要有退路：anywhere 只在必要时断行，不断就让卡片被撑破 */
+  overflow-wrap: anywhere;
+}
+.ml {
+  margin-top: 2px;
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink-2);
+}
+.md {
+  margin-top: 2px;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+  line-height: var(--wb-lh-base);
 }
 /* 图表卡的悬浮提示要能探出卡片，否则首尾两天读不到 */
 .chart-card {
@@ -309,21 +361,15 @@ async function newSession() {
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
 }
-@media (max-width: 860px) {
-  .two {
+/* 窄到放不下两栏就叠成一栏：先塌布局，再塌读数网格，避免「两栏各剩 200px」 */
+@media (max-width: 1000px) {
+  .cols {
     grid-template-columns: minmax(0, 1fr);
   }
-  /* 窄窗口四格读数改 2×2：大数字不压缩、不溢出 */
-  .statbar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .statbar .st {
-    border-right: 0;
-    border-bottom: 1px solid var(--wb-line);
-    padding: var(--wb-sp-2) 0;
-  }
-  .statbar .st:nth-last-child(-n + 2) {
-    border-bottom: 0;
+}
+@media (max-width: 520px) {
+  .metrics {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

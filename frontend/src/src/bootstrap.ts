@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import { setBaseURL } from './api/http'
 
@@ -22,8 +22,7 @@ const HANDSHAKE_TIMEOUT_MS = 20000
 const status = ref<HandshakeStatus>('pending')
 const port = ref(0)
 const message = ref('')
-export { status, message, port }
-export const handshakeReady = computed(() => status.value === 'ready')
+export { status, message }
 
 function fail(reason: string) {
   if (status.value === 'ready') return

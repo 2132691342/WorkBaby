@@ -223,15 +223,10 @@ function toRelative(base: string, fullPath: string): string | null {
   return fullPath.slice(root.length + 1)
 }
 
-async function pickFile() {
+// attachPath 把外部给的绝对路径挂成待发送附件：落在工作目录内转相对路径，
+// 落在外面标出来（助手读不到，不假装成功）。选文件与外部打开共用这一条。
+function attachPath(picked: string) {
   if (full.value) return
-  menu.value = null
-  // 选中后把刚敲的那个 @ 去掉，别留半个词在输入框里
-  text.value = text.value.replace(/@\S*$/, '').trimEnd()
-  nextTick(autoGrow)
-  const { OpenFileDialog } = await import('../../../wailsjs/go/main/App')
-  const picked = await OpenFileDialog('', '')
-  if (!picked) return
   const base = settings.boot?.workspace || ''
   const rel = base ? toRelative(base, picked) : null
   if (rel === null) {
@@ -241,6 +236,18 @@ async function pickFile() {
   }
   if (files.value.some((f) => f.path === rel)) return
   files.value.push({ path: rel, name: baseName(rel), outside: false })
+}
+
+async function pickFile() {
+  if (full.value) return
+  menu.value = null
+  // 选中后把刚敲的那个 @ 去掉，别留半个词在输入框里
+  text.value = text.value.replace(/@\S*$/, '').trimEnd()
+  nextTick(autoGrow)
+  const { OpenFileDialog } = await import('../../../wailsjs/go/main/App')
+  const picked = await OpenFileDialog('', '')
+  if (!picked) return
+  attachPath(picked)
 }
 
 function removeFile(path: string) {
@@ -296,7 +303,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
 })
 
-defineExpose({ focus: () => ta.value?.focus() })
+defineExpose({ focus: () => ta.value?.focus(), attachPath })
 </script>
 
 <template>
@@ -430,10 +437,17 @@ defineExpose({ focus: () => ta.value?.focus() })
 .attach .x {
   display: grid;
   place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--wb-radius-full);
   color: var(--wb-muted);
+  transition: color var(--wb-dur-fast) var(--wb-ease), transform var(--wb-dur-fast) var(--wb-ease);
 }
 .attach .x:hover {
   color: var(--wb-danger);
+}
+.attach .x:active {
+  transform: scale(0.88);
 }
 .attach-tip {
   align-self: center;

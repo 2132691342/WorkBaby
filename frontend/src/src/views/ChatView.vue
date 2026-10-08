@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // 聊天主视图：侧栏 + 消息流 + 输入区；没有会话时给引导页。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as api from '../api'
 import { useSse } from '../composables/useSse'
+import { intentFile, intentNewSession, SHELL_INTENT_EVENT } from '../composables/shellIntent'
 import { useChatStore } from '../stores/chat'
 import { useSessionStore } from '../stores/session'
+import { useSettingsStore } from '../stores/settings'
 import { useToastStore } from '../stores/toast'
 import type { AttachmentREQ } from '../types/api'
 import AppSidebar from '../components/common/AppSidebar.vue'
@@ -15,6 +17,7 @@ import MessageList from '../components/chat/MessageList.vue'
 
 const session = useSessionStore()
 const chat = useChatStore()
+const settings = useSettingsStore()
 const toast = useToastStore()
 const inputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 const creating = ref(false)
@@ -160,13 +163,39 @@ useSse(
   },
 )
 
+// 桌面壳意图：托盘「新建对话」与「外部打开的文件」在这里落地。
+// 挂载时先消费一次（意图可能在视图挂载前就到了，用户当时在别的页），
+// 之后靠事件即时响应。
+function consumeShellIntent() {
+  if (intentNewSession.value) {
+    intentNewSession.value = false
+    void newSession()
+  }
+  if (intentFile.value) {
+    const p = intentFile.value
+    intentFile.value = ''
+    inputRef.value?.attachPath(p)
+  }
+}
+
 onMounted(async () => {
   await session.loadList()
   if (!session.list.length) {
-    await session.create({})
+    try {
+      await session.create({})
+    } catch (e) {
+      // 打开应用就失败时给一句人话，别让它以「界面出现异常」的面目冒出来
+      toast.bad(`新建对话失败：${(e as Error)?.message || '请重试'}`)
+    }
   } else if (!session.currentId) {
     await session.open(session.list[0].id)
   }
+  window.addEventListener(SHELL_INTENT_EVENT, consumeShellIntent)
+  consumeShellIntent()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(SHELL_INTENT_EVENT, consumeShellIntent)
 })
 
 // 切会话必须把流式状态清干净：上一段的正文 / 工具卡 / 审批卡 / 压缩提示
@@ -175,6 +204,16 @@ watch(
   () => session.currentId,
   () => chat.reset(),
 )
+
+// 快照到手就回填上下文水位：打开 / 切换 / 新建 / 收尾刷新后输入框立刻有读数，
+// 不必等下一轮 chat:context——那之前底栏是空的，用户以为这个功能不存在。
+function seedContext() {
+  if (!chat.running) void chat.seedContext(session.current, session.messages)
+}
+
+watch(() => [session.currentId, session.messages] as const, seedContext, { immediate: true })
+// 引导数据晚于视图挂载：默认模型一到就补一次，空态也显示窗口刻度。
+watch(() => settings.boot?.default_model, seedContext)
 </script>
 
 <template>
@@ -188,16 +227,24 @@ watch(
 
       <template v-if="empty && !chat.running">
         <div class="welcome">
-          <div class="hero-glow g1" aria-hidden="true" />
-          <div class="hero-glow g2" aria-hidden="true" />
-          <div class="hero-badge rise">
-            <AppIcon name="sparkles" size="ic-xs" />
-            <span>本地运行 · 会干活的 AI 助手</span>
+          <div class="hero-aura" aria-hidden="true">
+            <span class="aura aura-top" />
+            <span class="aura aura-left" />
+            <span class="aura aura-right" />
+            <span class="aura-mesh" />
           </div>
-          <h2 class="hero-title rise">你好，我是 <span class="hero-name">WorkBaby</span></h2>
-          <p class="hero-sub rise">会读文件、跑代码、查资料。用大白话说需求就行。</p>
-          <div class="rise">
-            <ExampleCards @pick="pickExample" />
+
+          <div class="hero-in">
+            <div class="hero-badge rise">
+              <AppIcon name="sparkles" size="ic-xs" />
+              <span>本地运行 · 会干活的 AI 助手</span>
+            </div>
+            <h2 class="hero-title rise">你好，我是 <span class="hero-name">WorkBaby</span></h2>
+            <p class="hero-sub rise">会读文件、跑代码、查资料。用大白话说需求就行。</p>
+            <div class="rise">
+              <ExampleCards @pick="pickExample" />
+            </div>
+            <p class="hero-foot rise">对话与文件都留在这台机器上 · 动手之前会先问你一句</p>
           </div>
         </div>
       </template>
@@ -244,44 +291,83 @@ watch(
 .chat-head h1 {
   min-width: 0;
 }
+/* 欢迎页是唯一的装饰性背景：三枚同源光晕 + 一层点阵，只出现在空态。 */
 .welcome {
   flex: 1;
   position: relative;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--wb-sp-3);
-  padding: var(--wb-sp-8);
+  display: grid;
+  place-items: center;
+  padding: var(--wb-sp-8) var(--wb-sp-6);
 }
-/* 光晕只在空态引导出现（案例的 blur 圆）：工作界面仍是纯色 */
-.hero-glow {
+.hero-aura {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.aura {
   position: absolute;
   border-radius: 50%;
   filter: blur(90px);
-  pointer-events: none;
+  animation: aura-breathe var(--wb-ease) infinite;
 }
-.hero-glow.g1 {
-  width: 480px;
-  height: 480px;
-  top: -22%;
-  left: -12%;
-  background: var(--wb-glow-1);
+.aura-top {
+  /* 居中靠 calc 而不是 translateX(-50%)：位移会让 breathe 的 transform 把它抢回去 */
+  top: -26%;
+  left: calc(50% - 320px);
+  width: 640px;
+  height: 420px;
+  background: radial-gradient(closest-side, var(--wb-glow-1), transparent);
+  animation-duration: 14s;
 }
-.hero-glow.g2 {
-  width: 400px;
-  height: 400px;
+.aura-left {
   bottom: -18%;
-  right: -10%;
-  background: var(--wb-glow-2);
+  left: -10%;
+  width: 420px;
+  height: 420px;
+  background: radial-gradient(closest-side, var(--wb-glow-2), transparent);
+  animation-duration: 18s;
+  animation-delay: -6s;
 }
-.hero-badge,
-.hero-title,
-.hero-sub,
-.welcome > :last-child {
+.aura-right {
+  bottom: -22%;
+  right: -8%;
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(closest-side, var(--wb-glow-3), transparent);
+  animation-duration: 22s;
+  animation-delay: -11s;
+}
+/* 点阵：给纯色底一层秩序感。ellipse mask 让它从中心向外淡出，避免出现硬边 */
+.aura-mesh {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--wb-grid-dot) 1px, transparent 0);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 42%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 42%, #000 40%, transparent 100%);
+}
+@keyframes aura-breathe {
+  0%,
+  100% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+.hero-in {
   position: relative;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-3);
+  width: 100%;
+  max-width: 660px;
 }
 .hero-badge {
   display: inline-flex;
@@ -292,6 +378,7 @@ watch(
   border-radius: var(--wb-radius-full);
   background: var(--wb-surface);
   border: 1px solid var(--wb-border);
+  box-shadow: var(--wb-shadow-1);
   color: var(--wb-primary);
   font-size: var(--wb-fs-xs);
   font-weight: 600;
@@ -301,6 +388,7 @@ watch(
   font-size: var(--wb-fs-3xl);
   font-weight: 700;
   letter-spacing: -0.01em;
+  line-height: var(--wb-lh-tight);
   color: var(--wb-ink);
   text-align: center;
 }
@@ -309,11 +397,17 @@ watch(
 }
 .hero-sub {
   color: var(--wb-muted);
-  margin-bottom: var(--wb-sp-4);
-  max-width: 460px;
+  font-size: var(--wb-fs-md);
+  margin-bottom: var(--wb-sp-2);
+  max-width: 520px;
   text-align: center;
 }
-/* 入场错峰：徽章 → 标题 → 副题 → 例句卡，一拍 60ms，只演一次 */
+.hero-foot {
+  margin-top: var(--wb-sp-3);
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-xs);
+}
+/* 入场错峰：徽章 → 标题 → 副题 → 例句卡 → 脚注，一拍 60ms，只演一次 */
 .rise {
   animation: hero-rise var(--wb-dur-slow) var(--wb-ease) backwards;
 }
@@ -323,13 +417,23 @@ watch(
 .hero-sub.rise {
   animation-delay: 120ms;
 }
-.welcome > :last-child.rise {
+.hero-in > .rise:nth-child(4) {
   animation-delay: 180ms;
+}
+.hero-foot.rise {
+  animation-delay: 240ms;
 }
 @keyframes hero-rise {
   from {
     opacity: 0;
     transform: translateY(10px);
+  }
+}
+/* 装饰层动效不吃「减少动态效果」的系统设置：用户关了它，就该真的停 */
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .aura {
+    animation: none;
   }
 }
 </style>

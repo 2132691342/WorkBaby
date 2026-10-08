@@ -3,7 +3,7 @@
 // 会让外层 i++ 恰好跳过下一条 user 消息，表现为「第二条消息永远不显示」。
 import type { MessageVO } from '../types/api'
 
-export interface TurnPart<A> {
+interface TurnPart<A> {
   msg: MessageVO
   tools: MessageVO[]
   /** approvals 由调用方挂载：审批属于触发它的回合 */

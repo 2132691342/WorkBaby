@@ -5,9 +5,11 @@ import type {
   KnowledgeDocVO,
   MessageVO,
   ProviderVO,
+  RuntimeInfo,
   SessionVO,
   SkillVO,
   StatsRESP,
+  ToolVO,
 } from '../types/api'
 
 const DAY = 86_400_000
@@ -157,6 +159,31 @@ export const skills: SkillVO[] = [
   },
 ]
 
+export const tools: ToolVO[] = [
+  ['read', '读文件', 'file', '读取工作目录里的文件内容，写文件前必须先读过它', 'low', false, 'sequential'],
+  ['write', '写文件', 'file', '新建或整体覆盖一个文件', 'high', true, 'sequential'],
+  ['edit', '改文件', 'file', '按上下文片段替换文件内容', 'high', true, 'sequential'],
+  ['ls', '看目录', 'file', '列出目录里的文件与文件夹', 'low', false, 'parallel'],
+  ['find', '找文件', 'file', '按文件名模式找文件', 'low', false, 'parallel'],
+  ['grep', '搜内容', 'file', '在文件内容里搜关键词', 'low', false, 'parallel'],
+  ['powershell', '跑命令', 'shell', '执行 PowerShell 命令', 'high', true, 'sequential'],
+  ['python', '跑脚本', 'code', '用内置 Python 执行脚本', 'high', true, 'sequential'],
+  ['web_search', '搜网页', 'web', '在网上搜资料', 'low', false, 'parallel'],
+  ['web_fetch', '开网页', 'web', '打开一个网页并读取正文', 'low', false, 'parallel'],
+  ['knowledge_search', '查知识库', 'data', '在放进来的私有资料里检索', 'low', false, 'parallel'],
+].map(([name, label, category, description, risk, approval, mode]) => ({
+  name: name as string,
+  label: label as string,
+  category: category as string,
+  description: description as string,
+  risk: risk as string,
+  approval: approval as boolean,
+  mode: mode as string,
+  params: ['path', 'pattern'],
+  enabled: true,
+  builtin: true,
+}))
+
 export const docs: KnowledgeDocVO[] = [
   {
     id: 'DOC_0001',
@@ -249,4 +276,16 @@ export const emptyStats: StatsRESP = {
   daily: [],
   models: [],
   sessions: [],
+}
+
+/** 运行时状态：内置 Python 就绪 + PowerShell 回退系统版本，两种状态都能看到 */
+export const runtimeInfo: RuntimeInfo = {
+  python_exe: 'C:\\Users\\demo\\AppData\\Roaming\\WorkBaby\\runtime\\python\\python.exe',
+  python_source: 'bundled',
+  python_version: '3.13.14',
+  python_error: '',
+  powershell_exe: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+  powershell_source: 'system',
+  powershell_version: '',
+  powershell_error: '内置 PowerShell 解压失败：磁盘空间不足',
 }

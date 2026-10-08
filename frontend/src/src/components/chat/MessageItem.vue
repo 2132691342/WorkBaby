@@ -106,7 +106,7 @@ const metrics = computed(() => {
         <div v-if="thinking" class="think">
           <button class="wb-think-toggle" type="button" @click="thinkOpen = !thinkOpen">
             <AppIcon :name="thinkOpen ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
-            {{ thinkOpen ? '收起思考' : '想了想' }}
+            思考过程
           </button>
           <div v-if="thinkOpen" class="wb-think-body">{{ thinking }}</div>
         </div>

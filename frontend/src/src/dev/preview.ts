@@ -18,6 +18,7 @@ const state = {
   skills: [...fx.skills],
   docs: [...fx.docs],
   providers: [...fx.providers],
+  tools: [...fx.tools],
   settings: { ...fx.boot.settings },
   empty: new URLSearchParams(location.search).get('empty') === '1',
 }
@@ -33,14 +34,15 @@ const routes: Array<[string, Handler]> = [
   [
     '/sessions',
     (_body, _q, method) => {
-      if (state.empty) return method === 'POST' ? null : []
       if (method === 'POST') {
-        // 以夹具会话为模板补齐必填字段，预览里点「新对话」能得到完整的一条
+        // 以夹具会话为模板补齐必填字段，预览里点「新对话」能得到完整的一条。
+        // 空态预览不把它放进列表（界面停在欢迎页），但返回体必须是合法会话，
+        // 调用方紧接着读它的 id，返回 null 会让整个界面崩掉。
         const s = { ...fx.sessions[0], id: newID('SESSION'), title: '新对话' }
-        state.sessions = [s, ...state.sessions]
+        if (!state.empty) state.sessions = [s, ...state.sessions]
         return s
       }
-      return state.sessions
+      return state.empty ? [] : state.sessions
     },
   ],
   ['/chat/send', () => ({ run_id: 'RUN_1', entry_id: 'ENTRY_1', session_id: state.sessions[0]?.id || '' })],
@@ -49,6 +51,24 @@ const routes: Array<[string, Handler]> = [
   ['/stats', () => (state.empty ? fx.emptyStats : fx.stats(14))],
   ['/providers', () => state.providers],
   ['/providers/models', () => ['claude-sonnet-4-5', 'claude-haiku-4-5']],
+  // 运行时状态：内置 Python 就绪 + PowerShell 用系统兜底，覆盖两种展示
+  ['/runtime', () => fx.runtimeInfo],
+  ['/runtime/redetect', () => fx.runtimeInfo],
+  // 模型能力：带 provider_id 才读得到用户配置（演示模型级 1024000 窗口的场景）
+  [
+    '/models/capability',
+    (_b, q) => ({
+      id: q.get('model') || '',
+      context_window: 1_024_000,
+      max_output: 32_768,
+      thinking: true,
+      vision: false,
+      tool_call: true,
+      known: Boolean(q.get('provider_id')),
+      note: q.get('provider_id') ? '' : '本地没有这个模型的资料，窗口按估算显示',
+    }),
+  ],
+  ['/tools', () => state.tools],
   ['/skills', () => state.skills],
   ['/knowledge/docs', () => state.docs],
   ['/knowledge/reindex', () => ({ reindexed: state.docs.length })],
@@ -83,8 +103,14 @@ function route(path: string, body: unknown, query: URLSearchParams, method = 'GE
   }
   if (tail === 'rename') return true
   if (tail === 'toggle') {
-    const s = state.skills.find((x) => x.id === id)
-    if (s) s.enabled = Boolean((body as { enabled?: boolean })?.enabled)
+    const on = Boolean((body as { enabled?: boolean })?.enabled)
+    if (path.startsWith('/tools')) {
+      const t = state.tools.find((x) => x.name === id)
+      if (t) t.enabled = on
+    } else {
+      const s = state.skills.find((x) => x.id === id)
+      if (s) s.enabled = on
+    }
     return true
   }
   if (tail === 'content') {
@@ -93,6 +119,7 @@ function route(path: string, body: unknown, query: URLSearchParams, method = 'GE
   }
   if (tail === 'default') return true
   if (tail === 'test') return { ok: true, model: 'claude-sonnet-4-5', detail: '连接正常' }
+  if (tail === 'reveal') return { api_key: 'sk-preview-1234567890abcdef' }
   if (tail === 'update') return state.providers[0]
   if (tail === 'branch') return true
   if (tail === 'model' || tail === 'permission') return true
@@ -158,6 +185,7 @@ interface PreviewRuntime {
   WindowMinimise: () => void
   WindowToggleMaximise: () => void
   WindowHide: () => void
+  Quit: () => void
 }
 
 export function installPreview() {
@@ -178,6 +206,8 @@ export function installPreview() {
     WindowMinimise: () => undefined,
     WindowToggleMaximise: () => undefined,
     WindowHide: () => undefined,
+    // 预览里没有真实窗口生命周期：关闭按钮触发的是外壳的 Quit 判定，这里只吞掉调用
+    Quit: () => undefined,
   }
 
   const w = window as unknown as { runtime: PreviewRuntime; go: unknown }

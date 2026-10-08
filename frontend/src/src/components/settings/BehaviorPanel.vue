@@ -7,6 +7,7 @@ import * as api from '../../api'
 import type { ModelCapability, RuntimeInfo } from '../../types/api'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
+import { fmtCount } from '../../utils/num'
 import { AutoStartEnabled, OpenDirectoryDialog, SetAutoStart } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 
@@ -71,13 +72,41 @@ async function loadRuntime() {
   }
 }
 
+// 重新检测要有可见反馈：清缓存重探测，首次解压失败修好后这一次点击就能重试。
+const checking = ref(false)
+async function redetect() {
+  if (checking.value) return
+  checking.value = true
+  runtimeErr.value = ''
+  try {
+    runtimeInfo.value = await api.runtime.redetect()
+    toast.ok('已重新检测内置运行时')
+  } catch (e) {
+    runtimeErr.value = (e as Error)?.message || '重新检测失败'
+  } finally {
+    checking.value = false
+  }
+}
+
+// 运行时的三种状态：内置就绪 / 用系统已装的那份 / 未就绪
+function rtLed(source: string) {
+  return source === 'bundled' ? 'g' : source === 'system' ? 'w' : 'r'
+}
+function rtText(source: string, version: string) {
+  if (source === 'bundled') return `内置就绪 · ${version}`
+  if (source === 'system') return '使用系统已安装的版本'
+  return '未就绪'
+}
+
 // 当前模型的上下文窗口：本地没资料就显示「未知」并允许手填，
-// 而不是拿一个猜出来的数字冒充权威。
+// 而不是拿一个猜出来的数字冒充权威。provider_id 必须带上——
+// 模型级配置按「服务 + 模型」存储，不传就查不到用户填过的值。
 async function loadCapability() {
   const model = store.boot?.default_model || store.values['default_model']
   if (!model) return
+  const pid = store.boot?.default_provider_id || undefined
   try {
-    cap.value = await api.models.capability(model)
+    cap.value = await api.models.capability(model, pid)
     winInput.value = store.values['context_window'] || ''
   } catch {
     cap.value = null
@@ -206,11 +235,13 @@ onMounted(async () => {
         <div class="cap-grid">
           <span>上下文窗口</span>
           <span>
-            <template v-if="cap.known">{{ (cap.context_window / 1000).toFixed(0) }}K</template>
+            <template v-if="cap.known">
+              <b :title="String(cap.context_window)">{{ fmtCount(cap.context_window) }}</b>
+            </template>
             <template v-else><i class="unknown">未知（按 128K 估算）</i></template>
           </span>
           <span>最大输出</span>
-          <span>{{ (cap.max_output / 1000).toFixed(0) }}K</span>
+          <span>{{ fmtCount(cap.max_output) }}</span>
           <span>支持思考</span>
           <span>{{ cap.thinking ? '是' : '否' }}</span>
           <span>支持识图</span>
@@ -234,25 +265,36 @@ onMounted(async () => {
 
     <div class="card p-sm">
       <h3>内置运行时</h3>
+      <p class="hint">Python 与 PowerShell 随程序分发、首次启动自动解压；缺失时自动用系统里已装的。</p>
       <div v-if="runtimeErr" class="hint err">{{ runtimeErr }}</div>
       <div v-else-if="runtimeInfo" class="kv">
-        <dt>内置 Python</dt>
+        <dt>Python</dt>
         <dd>
-          <span class="led" :class="runtimeInfo.python_exe ? 'g' : 'r'" />
-          <template v-if="runtimeInfo.python_exe">
-            可用 · {{ runtimeInfo.python_version }}
-          </template>
-          <template v-else>未就绪</template>
+          <span class="led" :class="rtLed(runtimeInfo.python_source)" />
+          <span>{{ rtText(runtimeInfo.python_source, runtimeInfo.python_version) }}</span>
         </dd>
         <template v-if="!runtimeInfo.python_exe">
-          <dt>原因</dt>
+          <dt>Python 原因</dt>
           <dd class="why">{{ runtimeInfo.python_error || '未知' }}</dd>
-          <dt>归档路径</dt>
-          <dd class="mono">{{ runtimeInfo.archive_path || '未找到' }}</dd>
+        </template>
+        <dt>PowerShell</dt>
+        <dd>
+          <span class="led" :class="rtLed(runtimeInfo.powershell_source)" />
+          <span>{{ rtText(runtimeInfo.powershell_source, runtimeInfo.powershell_version) }}</span>
+        </dd>
+        <template v-if="!runtimeInfo.powershell_exe">
+          <dt>PS 原因</dt>
+          <dd class="why">{{ runtimeInfo.powershell_error || '未知' }}</dd>
         </template>
       </div>
-      <button class="btn btn-sm btn-ghost act" type="button" @click="loadRuntime">
-        <AppIcon name="refresh" size="ic-xs" /> 重新检测
+      <button
+        class="btn btn-sm btn-ghost act"
+        type="button"
+        :disabled="checking"
+        @click="redetect"
+      >
+        <AppIcon v-if="!checking" name="refresh" size="ic-xs" />
+        {{ checking ? '检测中…' : '重新检测' }}
       </button>
     </div>
 

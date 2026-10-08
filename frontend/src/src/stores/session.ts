@@ -17,6 +17,9 @@ export const useSessionStore = defineStore('session', () => {
 
   async function create(payload: { title?: string; workspace?: string } = {}) {
     const sess = await api.sessions.create(payload)
+    // 返回体没有 id 时当场说清楚：继续往下走会读 null.id 崩在渲染层，
+    // 用户只看到一条看不懂的「界面出现异常」。
+    if (!sess?.id) throw new Error('新建对话没有成功，请重试')
     await loadList()
     await open(sess.id)
     return sess

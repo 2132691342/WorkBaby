@@ -40,10 +40,10 @@ jobs:
           cache: true
 
       - name: go vet
-        run: go vet ./internal/...
+        run: go vet ./backend/...
 
       - name: go build（编译期验证，main 包留给 wails build）
-        run: go build ./internal/...
+        run: go build ./backend/...
 
       - name: 依赖方向门禁
         shell: pwsh
@@ -51,7 +51,7 @@ jobs:
 
       - name: go test（-short 跳过 timing-sensitive flake）
         shell: pwsh
-        run: go test -short -v ./internal/... 2>&1 | Tee-Object test-output.log
+        run: go test -short -v ./backend/... 2>&1 | Tee-Object test-output.log
         if: always()
 
       # 失败时把失败行摘进 job summary：无需下载 artifact 就能看到原因。

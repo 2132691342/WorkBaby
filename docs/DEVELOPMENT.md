@@ -10,8 +10,8 @@
 ## 常用命令
 
 ```powershell
-# 后端测试（29 条链路测试，全量 -count=1 约 20s）
-go test ./internal/...
+# 后端测试（24 个 Test / 16 个测试文件，全量约 3.5s）
+go test ./backend/...
 
 # 前端类型检查 / 构建
 cd frontend
@@ -61,12 +61,12 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 
 | 路径 | 内容 |
 |---|---|
-| `internal/agent` | 内核循环（纯逻辑，无 IO 依赖，不引 gin/wails） |
-| `internal/service` | 编排层：会话/对话/审批/配置/系统提示 |
-| `internal/tool` | 工具契约 + 注册表 + 11 个内置工具 |
-| `internal/server/routes.go` | 路由注册唯一入口 |
-| `internal/server/sse.go` | SSE Hub：分发 / 重放 / 慢客户端策略 |
-| `tools/check-boundaries` | 依赖方向门禁（实现 §2.2 约束表，跑 `scripts/check-boundaries.ps1`） |
+| `backend/agent` | 内核循环（纯逻辑，无 IO 依赖，不引 gin/wails） |
+| `backend/service` | 编排层：会话/对话/审批/配置/系统提示 |
+| `backend/tool` | 工具契约 + 注册表 + 11 个内置工具 |
+| `backend/server/routes.go` | 路由注册唯一入口 |
+| `backend/server/sse.go` | SSE Hub：分发 / 重放 / 慢客户端策略 |
+| `tools/check-boundaries` | 依赖方向门禁实现（Go 程序，入口 `scripts/check-boundaries.ps1`） |
 | `frontend/src/src` | 前端源码（注意双层 src） |
 | `frontend/src/src/themes.css` | 色值与字体的唯一定义处 |
 | `frontend/src/src/wb-ui.css` | 组件基元唯一实现 |
@@ -78,10 +78,11 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 ├── workbaby.db                # SQLite（WAL）
 ├── config.yaml                # Viper 配置（MasterKey 等）
 ├── model.json                 # 模型能力缓存的本地覆写
-├── logs/                      # info/warn/error 分文件
+├── logs/                      # app.log（全量）+ warn.log（warn 与 error）
 ├── runtime/python/            # 内置 Python 解压后
 ├── runtime/powershell/        # 内置 PowerShell 7 解压后
 ├── skills/                    # 用户全局技能
+├── builtin-skills/            # 内置技能落盘处（模型按路径读取）
 └── tmp/                       # 工具输出落盘、超限截断的全文
 ```
 
@@ -90,21 +91,42 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 
 ## 测试怎么写
 
-- 只写「失败意味着真实链路坏了」的测试（判据见 `AGENTS.md §3.1`）
-- 按链路组织：一个测试讲一件事，同类断言用 `t.Run` 归到同一个 Test 下，
-  这样失败时从输出就能看出是哪条链路、哪个分支坏了
-- 多轮对话用 `internal/llm/llmtest` 的脚本替身驱动，配合
+**只保留「失败即意味着某条真实链路坏了」的测试**。判据：这条断言失败时，是否有某个跨模块 /
+跨轮次 / 跨协议的行为出了问题？纯函数的输入输出、字段映射、构造冒烟一律不写——它们不缩短排错时间，
+只增加每次改动后的阅读成本与上下文负担。
+
+- **一条链路一个 `Test`**：同类分支用 `t.Run` 归到同一个 `Test` 下，
+  失败时从输出直接看出是哪条链路、哪个分支坏了；单个文件最多 6 个 `Test`
+- **重成本低层级只准备一次**：起 HTTP 服务、解压归档这类昂贵 setup 放在父测试里，
+  子测试共享；否则每次加分支都在给总时长做乘法
+- **装配类测试不真解压归档**：`backend/runtime/runtimetest.SeedMarkers` 预置
+  「已解压 + 版本标记」，装配只跑配置 / DB / 服务 / 工具注册的真实链路。
+  真解压只在 `runtime` 包的 `TestBundledRuntimeChain` 做一次——那是全量测试
+  唯一的慢点（约 2s），是刻意的
+- 多轮对话用 `backend/llm/llmtest` 的脚本替身驱动，配合
   `factory.SetOverride("test", ...)` 注入，**绝不真联网**
-- 文件名首行写导航注释，说明覆盖什么
+- 环境依赖（系统 shell、真实网络、内置运行时归档）必须先探测再决定跳过，
+  而不是喂假数据让测试「绿着跑」
+- 首行注释写清楚这条链路覆盖什么、坏了的表现是什么；文件里不留「曾经坏过」这类历史叙述
 - 临时数据用 `t.TempDir()`，不要写进真实数据目录
 
-测试索引见 `AGENTS.md §3.3`。
+保留哪几条链路、每条覆盖什么，见 `AGENTS.md §3.3` 的测试索引。
+
+## 辅助脚本
+
+| 脚本 | 用途 |
+|---|---|
+| `scripts/check-boundaries.ps1` | 依赖方向门禁入口（跑 `tools/check-boundaries`） |
+| `scripts/shot.ps1` | 截运行中的窗口（可先点击 / 滚轮 / 拖拽 / 打字），用于查看界面现状 |
+
+运行时归档（`backend/runtime/bundled/*.zip`）直接随仓库托管（Git LFS），
+升级时手工替换 zip 并同步版本常量与 SHA 常量，没有取包脚本。
 
 ## 排错
 
 | 现象 | 检查 |
 |---|---|
-| 启动即闪退 | `%APPDATA%/WorkBaby/logs/error.log` |
+| 启动即闪退 | `%APPDATA%/WorkBaby/logs/warn.log`（warn 与 error 共落此文件） |
 | 前端连不上后端 | 是否走 `wails dev`（端口靠 `app:ready` 注入）；单独 `npm run dev` 调不到后端，但能看界面 |
 | FTS 检索无结果 | `db.go` 里 ftsStatements 是否全部执行成功（逐条 Exec） |
 | 模型 400 | 多半是 assistant/tool 配对被破坏；先看 `agent.CleanForProtocol` |

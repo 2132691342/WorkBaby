@@ -105,9 +105,10 @@ Function .onInit
 FunctionEnd
 
 Section
-    # Disk space estimate: exe + ~161MB of bundled runtimes (in KB).
-    # Without it the installer under-reports the required space and can fail mid-copy.
-    AddSize 187000
+    # Disk space estimate: the exe carries the embedded runtimes (~130MB) and is
+    # the only file we install. Without this the installer under-reports required
+    # space and can fail mid-copy.
+    AddSize 140000
 
     !insertmacro wails.setShellContext
 
@@ -121,20 +122,9 @@ Section
 
     !insertmacro wails.files
 
-    # Bundled runtimes (Python / PowerShell) live next to the exe.
-    # runtime.Manager unpacks them into the user directory on first launch and
-    # prepends them to the PATH of exec / skillrun child processes.
-    # Source dir is produced by scripts/copy-runtimes.ps1 into build/windows/runtimes.
-    # The archives are already zip/tar.gz: keeping them uncompressed avoids paying
-    # compress-then-decompress cost on ~161MB that is already compressed.
-    #
-    # NOTE: NSIS has no global "compress on" switch -- do not 'SetCompress on' here.
-    # Scoping is via SetCompress off followed by SetCompress auto.
-    SetOutPath "$INSTDIR\runtimes"
-    SetCompress off
-    File /r "..\runtimes\*.*"
-    SetCompress auto
-    SetOutPath $INSTDIR
+    # Bundled runtimes (Python / PowerShell) are embedded in the exe by go:embed
+    # and unpacked into the user data directory on first launch -- nothing else to
+    # package here.
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"

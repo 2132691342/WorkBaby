@@ -2,7 +2,8 @@
 
 WorkBaby 是一个 Windows 单进程桌面 Agent：Wails 出窗口，gin 出本地 HTTP，自研 agent 内核跑
 「说话 → 干活 → 回话」的循环，SQLite 存全部状态。本文件讲清楚每个模块怎么设计、怎么实现、
-为什么这么设计，以及代价是什么。工程规范（编码 / 依赖 / 工作流）见 `AGENTS.md`。
+为什么这么设计，以及代价是什么。工程规范（编码 / 依赖 / 工作流）见 `AGENTS.md`，
+数据模型见 `docs/DATA-MODEL.md`，接口契约见 `docs/API-CONTRACT.md`。
 
 ## 1. 技术栈与形态
 
@@ -21,20 +22,38 @@ WorkBaby 是一个 Windows 单进程桌面 Agent：Wails 出窗口，gin 出本�
 WebView (Vue3 SPA)
    │  axios（HTTP）           ▲ SSE /api/v1/events
    ▼                          │
-internal/server ──► internal/api ──► internal/service ──► 能力域
+backend/server ──► backend/api ──► backend/service ──► 能力域
                                                         agent / llm / tool / knowledge / skill
                                                               │
-                                                     internal/repo ──► internal/domain
-internal/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任何层可用，自身不依赖业务包
+                                                     backend/repo ──► backend/domain
+backend/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任何层可用，自身不依赖业务包
 ```
 
 依赖方向由 `scripts/check-boundaries.ps1` 门禁强制（读编译器视角的真实 import 关系）。
 要点：`agent` 内核不依赖 api / service / server / repo——它通过 `Config` 接收一切依赖，
 因此可以被假 LLM 驱动着做全链路测试。
 
+### 2.1 模块与规格对照
+
+概要在本文件，实现细节在对应的规格：
+
+| 模块 | 规格 |
+|---|---|
+| `agent` 内核循环 | [specs/01](../specs/01-agent-loop.md) |
+| 上下文压缩 | [specs/02](../specs/02-context-compaction.md) |
+| `tool` 工具系统 / 文件工具 / 命令策略 | [specs/03](../specs/03-tool-system.md) · [04](../specs/04-file-tools.md) · [05](../specs/05-exec-policy.md) |
+| `llm` 协议适配 | [specs/10](../specs/10-llm-adapter.md) |
+| `service` 会话模型 / 系统提示与设置 | [specs/07](../specs/07-session.md) · [13](../specs/13-prompt-and-settings.md) |
+| `skill` | [specs/08](../specs/08-skill.md) |
+| `knowledge` | [specs/09](../specs/09-knowledge.md) |
+| `runtime` 内置运行时 | [specs/06](../specs/06-runtime.md) |
+| 桌面壳（窗口 / 托盘 / 单实例） | [specs/11](../specs/11-desktop-shell.md) |
+| 用量与上下文水位 | [specs/14](../specs/14-usage-and-context.md) |
+| 给使用者的说明 | [specs/12 用户手册](../specs/12-user-manual.md) |
+
 ## 3. 一次对话的生命周期
 
-1. 前端 `POST /chat/send` → `service.Chat.Send`：校验 → 落 user 条目 → 注册取消句柄 → 返回 runID
+1. 前端 `POST /chat/send` → `ChatService.Send`：校验 → 落 user 条目 → 注册取消句柄 → 返回 runID
 2. 后台 goroutine 组装 `agent.Config`（系统提示 / 工具 / 预算 / 审批闸门 / 事件回调）并 `Run`
 3. 内核单层循环：压缩 → 注入插话 → 流式调模型 → 执行工具 → 按序回填 → 下一轮
 4. 事件经 `service.Emitter`（分配 seq）→ `server.Hub`（delta 合流 + 广播）→ SSE 到前端
@@ -43,7 +62,7 @@ internal/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任
 
 ## 4. 模块设计
 
-### 4.1 internal/agent —— 内核
+### 4.1 backend/agent —— 内核
 
 **设计**：单层流式循环。每轮：压缩（超预算才动手）→ 注入插话 → 流式调模型（边收边发事件）→
 执行工具（按声明顺序回填）→ `turn_end`。没有外层 follow-up 循环，插话与排队共用一个
@@ -63,7 +82,7 @@ one-at-a-time 队列，在轮间注入。
 **代价**：单层循环意味着「运行中改配置」要到下一轮才生效；压缩不调 LLM 意味着被裁掉的
 历史细节不可恢复（完整历史仍在数据库里，只是不发给模型）。
 
-### 4.2 internal/llm —— 协议适配
+### 4.2 backend/llm —— 协议适配
 
 **设计**：`llm.Message / Request / Event` 是协议无关的归一化形态；三个适配器各自把归一化
 请求翻译成上游协议、把上游流翻译成统一事件流。`RetryingStreamer` 包一层重试（只在尚未产出
@@ -81,7 +100,7 @@ one-at-a-time 队列，在轮间注入。
 **代价**：每个协议的自定义行为（如 Anthropic 的 prompt caching 字段）分散在各自适配器里，
 新增协议需要实现全部归一化映射。
 
-### 4.3 internal/tool —— 工具系统
+### 4.3 backend/tool —— 工具系统
 
 **设计**：`Tool` 接口（名称 / 参数 schema / 执行 / 风险 / 审批要求 / 执行模式）+ 注册表 +
 11 个内置工具（读 / 写 / 改 / 列目录 / 找文件 / 搜内容 / PowerShell / Python / 搜网页 / 开网页 / 查知识库）。
@@ -92,7 +111,7 @@ one-at-a-time 队列，在轮间注入。
 
 **代价**：工具输出有 2000 行 / 50KB 双上限，超出落临时文件——模型拿到的是摘要而非全文。
 
-### 4.4 internal/service —— 业务编排
+### 4.4 backend/service —— 业务编排
 
 **设计**：会话（树状条目链 + 分支）、对话（装配内核 + 事件映射 + 落库）、审批（闸门 + 等待 +
 超时拒绝）、系统提示（人设 + 工具说明 + 工作目录）、配置归一化（模型能力目录 + 用户覆写 +
@@ -103,13 +122,15 @@ one-at-a-time 队列，在轮间注入。
 
 **代价**：service 是最大的包，编排逻辑集中——好处是业务规则只有一处，代价是单包较重。
 
-### 4.5 internal/server + internal/api —— HTTP 与桌面桥
+### 4.5 backend/server + backend/api —— HTTP 与桌面桥
 
 **设计**：gin 路由（方法白名单 GET/POST、`/api/v1/{resource}/:id/{action}` 风格）+ SSE Hub。
 Hub 负责三件事：按会话广播、**delta 合流**（80ms 窗口把连续正文增量合并成一条，事件量降一个
 数量级）、慢消费者护栏（缓冲满先挤 delta 保关键事件，仍满才断连，重连按 Last-Event-ID 重放，
-滚过窗口发 `chat:gap` 让前端拉快照）。api 层是薄 handler + Wails 系统能力绑定（对话框 /
-剪贴板 / 窗口），是唯一允许 import wails 的包。
+滚过窗口发 `chat:gap` 让前端拉快照）。api 层是薄 handler + 对话框 / 自启这两类系统能力实现，
+是唯一允许 import wails 的包；**Wails 绑定面只有 `*main.App` 的 5 个方法**（退出、两个
+文件对话框、自启读写）——`App` 持有而不是嵌入 `*api.Handler`，gin handler 不会被绑成
+JS 方法；窗口控制与剪贴板由前端直接调 `wailsjs/runtime`。
 
 **为什么业务全走 HTTP 而不是 Wails 绑定**：单一通信面，前端在浏览器里就能调试；Wails 事件
 总线只承载系统能力回调。
@@ -117,7 +138,7 @@ Hub 负责三件事：按会话广播、**delta 合流**（80ms 窗口把连续�
 **代价**：SSE 链路有内建的断连 / 重连 / 对账语义，比直接函数调用复杂；换来的是流式场景的
 确定性（事件不丢、顺序不乱、断线可恢复）。
 
-### 4.6 internal/repo + internal/domain —— 持久层与域模型
+### 4.6 backend/repo + backend/domain —— 持久层与域模型
 
 **设计**：会话（树状 entry 链，leaf 指针定位当前分支）、消息（payload JSON 存全部形态）、
 审批、Provider、模型级配置、token 用量、设置 KV。GORM AutoMigrate 迁移，FTS5 虚表启动期
@@ -129,14 +150,16 @@ Hub 负责三件事：按会话广播、**delta 合流**（80ms 窗口把连续�
 **代价**：树状结构让「列全部消息」必须走链回溯；数据库存完整历史（含 base64 图片），
 体积会随使用增长。
 
-### 4.7 internal/knowledge + internal/skill —— 知识库与技能
+### 4.7 backend/knowledge + backend/skill —— 知识库与技能
 
-**知识库**：文档按类型解析（PDF / Word / Excel / Markdown / 文本 / JSON / 日志）→
+**知识库**：文档按类型解析（PDF / Word / Excel / Markdown / HTML / YAML / JSON / 文本 / CSV / 日志）→
 按段落切块落库 → FTS5 trigram 虚表建索引 → 对话时按需检索，短查询自动降级为子串匹配。
 删除级联清理索引。
 
-**技能**：`SKILL.md`（frontmatter + 正文）作为「方法论」载体，embed 内置 + 磁盘导入 +
-新建三种来源；名字或描述命中时才把正文展开进上下文，平时只占一行描述。
+**技能**：`SKILL.md`（frontmatter + 正文）作为「方法论」载体，embed 内置 + 全局目录 +
+工作区目录三种来源；内置技能启动时先**落到真实磁盘路径**再登记——系统提示里让模型
+`read` 的路径必须是真文件，虚拟路径会让「命中了却打不开」成为常态。切换工作目录会
+重载工作区技能。名字或描述命中时才把正文展开进上下文，平时只占一行描述。
 
 **为什么两者都做成「按需加载」**：知识库与技能都是长文本，常驻上下文会直接吃掉窗口，
 让用户更早撞上压缩。检索命中 / 技能命中时才注入正文，把窗口留给真正的对话。
@@ -144,14 +167,17 @@ Hub 负责三件事：按会话广播、**delta 合流**（80ms 窗口把连续�
 **代价**：FTS5 trigram 对语义检索无能为力（是关键词匹配不是向量检索）；技能命中靠名字 /
 描述匹配，没有语义路由。
 
-### 4.8 internal/runtime + internal/config + internal/pkg
+### 4.8 backend/runtime + backend/config + backend/pkg
 
-**runtime**：数据目录解析（`WORKBABY_HOME` 优先）+ 内置便携 CPython 与 PowerShell 7 解压
-（Python tar.gz 剥离顶层、PowerShell 官方 zip 平铺；zip-slip 防护、512MB 解压上限、
-LFS 指针识别）+ 可用性探测（缺失时报出可执行的处置建议而非一句「不可用」）。
+**runtime**：数据目录解析（`WORKBABY_HOME` 优先）+ 内置 Python 3.12.8 embeddable 与
+PowerShell 7 解压（两份都是官方 zip，平铺布局；归档 `go:embed` 进 exe；zip-slip 防护、
+512MB 解压上限、版本切换清旧目录、LFS 指针识别、解压后打开 `site`）+ 可用性探测
+（缺失时报出可执行的处置建议而非一句「不可用」）。「重新检测」会连 `Env.ToolDeps`
+一起刷新——工具依赖是启动期冻结的快照，不刷新的话修好环境也仍然报没有可用的 Python。
 
 **为何内置而不是要求用户装**：新手装上即用是本产品的立身点，要求用户配 Python 环境
-等于把失败点外推到用户机器上。内置只有两种运行时，其余语言仍走系统 PATH。
+等于把失败点外推到用户机器上。归档嵌进 exe 而不是放在 exe 旁边，分发就只有一个文件、
+没有「忘了拷 runtimes 目录」这种失败模式。内置只有两种运行时，其余语言仍走系统 PATH。
 
 **config**：Viper YAML + 运行时 KV 表双轨；主密钥首次启动自举，API Key 用 AES-256-GCM
 落库。
@@ -175,7 +201,7 @@ LFS 指针识别）+ 可用性探测（缺失时报出可执行的处置建议�
 舒适上限。
 
 **代价**：无 UI 组件库意味着所有控件（开关 / 弹层 / 表格 / 折叠）自绘并各自维护；
-Win7 时代的 WebView2 缺席时需要系统级安装。
+未安装 WebView2 运行时的旧系统需要先补装。
 
 ## 5. 可靠性对策一览
 
@@ -183,7 +209,7 @@ Win7 时代的 WebView2 缺席时需要系统级安装。
 |---|---|
 | 工具声明与结果错位 → 上游 400 | 按调用下标回填；声明先于结果落库；发送前 `CleanForProtocol` 兜底 |
 | 上游停滞 / 代理挂起 | 流式空闲看门狗 120s 掐断并报错收尾 |
-| 事件洪水打瘫前端 | Hub 层 delta 合流（80ms）+ 慢消费者挤 delta 保关键事件 + 前端 120ms 节流渲染 |
+| 事件洪水打瘫前端 | Hub 层 delta 合流（80ms）+ 慢消费者挤 delta 保关键事件 + 前端 120ms 节流渲染（流式期间跳过高亮，收尾补完整渲染） |
 | 断线丢事件 | seq 重放 + `chat:gap` 快照对账 + 前端空快照防御 |
 | 网关计量不实 | input 用本地实测上下文占用兜底取大者 |
 | 压缩裁坏上下文 | 切点只在 user 边界；切不出完整 turn 就放弃裁剪 |
@@ -199,3 +225,15 @@ Win7 时代的 WebView2 缺席时需要系统级安装。
 - 单进程单用户：无多账户、无协同；SQLite 写入串行
 - 前端无虚拟列表：单会话上千条消息时滚动会变重
 - 仅 Windows（托盘 / WebView2 / 路径分隔符均按 Windows 设计）
+
+## 7. 这些代价换到了什么
+
+| 代价 | 换到的东西 |
+|---|---|
+| SSE 自建重连 / 重放 / 对账 | 事件不丢、顺序不乱、断线可恢复；前端在同一套 HTTP 语义上开发，浏览器即可调试 |
+| 消息链做成树 | `/clear` 与「从某条历史重开」是同一棵树的不同叶子，分支回溯零成本 |
+| 工具声明先于结果落库 + 事件出口串行化 | 历史回放永远协议合法，第二轮不会突然 400 |
+| 压缩不调 LLM | 压缩零延迟、零额外成本、结果可预测可重放 |
+| 归档嵌进 exe | 单文件分发，没有「忘了拷 runtimes 目录」这种失败模式；新手装上即用 |
+| 自绘全部控件 | 视觉与主题完全可控，浅色深色两套主题不必迁就组件库自带的视觉语言 |
+| 每条操作一张卡 + 水位与用量可见 | 用户始终知道它在干什么、还能聊多久、花了多少——这是「敢让它干活」的前提 |

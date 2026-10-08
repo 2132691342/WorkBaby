@@ -1,4 +1,4 @@
-| `totals` | 总量卡片：输入 / 输出 / 总 token / 缓存命中与命中率 / 平均与峰值上下文 / 调用次数 / 会话数 / 平均耗时 |# 14 · 用量与上下文水位
+# 14 · 用量与上下文水位
 
 ## 定位
 
@@ -19,7 +19,7 @@ Event{Kind: EventContext, TokensUsed, TokensWindow, TokensKnown, TokensReserve, 
 
 - `TokensUsed` = `EstimateTokens(system, msgs)`，与压缩用的是同一个估算口径
 - `TokensWindow` 来自能力目录，可被模型级配置与全局 `context_window` 设置覆写；
-  `TokensKnown=false` 表示窗口是估算值，界面显示「未知」而不是假装准确
+  `TokensKnown=false` 表示窗口是估算值，界面读数加「约」前缀（数字照常给）
 - 服务层换算成 `ratio`（0-100 整数）再推给前端，前端不必自己算
 
 ### 为什么每轮都发
@@ -29,9 +29,12 @@ Event{Kind: EventContext, TokensUsed, TokensWindow, TokensKnown, TokensReserve, 
 
 ### 展示口径
 
-- 平时低透明度，移进输入框或水位 ≥80% 时才显眼
-- ≥80% 转警告色，接近满转危险色
-- 窗口为估算值（`known=false`）时显示「窗口未知」，不拿缺省值假装准确
+- 输入框底栏常驻一枚水位环 + 读数（`已用 / 窗口`），0% 也显示——
+  什么都不显示等于用户没有这个信息
+- 打开 / 切换 / 新建会话时从会话快照（最近一条带 `usage.context` 的助手条目）
+  与模型能力回填，不必等下一轮 `chat:context`
+- ≥80% 转警告色，≥95% 转危险色
+- 窗口为估算值（`known=false`）时读数加「约」前缀，数字照常给，不假装精确
 
 ## 用量统计
 
@@ -47,10 +50,13 @@ Event{Kind: EventContext, TokensUsed, TokensWindow, TokensKnown, TokensReserve, 
 
 | 段 | 用途 |
 |---|---|
-| `totals` | 总量卡片：输入 / 输出 / 总 token / 调用次数 / 会话数 / 平均耗时 |
+| `totals` | 总量卡片：输入 / 输出 / 缓存命中量 / 总 token / 调用次数 / 会话数 / 总耗时与平均耗时 / 缓存命中率 / 平均与峰值上下文 |
 | `daily` | 每日一柱，长度恒等于 `days`，**没有调用的天补零** |
-| `models` | 按模型归因，按消耗从多到少，最多 8 个 |
+| `models` | 按模型归因（含 cached），按消耗从多到少，最多 8 个 |
 | `sessions` | 用量最高的 5 个会话，供跳转 |
+
+缓存命中量是长对话真正的成本指标（`cached / input`）；平均与峰值上下文
+回答「平时一轮有多重、最重的一轮是多少」，是判断「该不该开新会话」的依据。
 
 补零是硬要求：否则 x 轴刻度会随「哪天恰好没说话」而跳动，
 用户会以为数据出错了。

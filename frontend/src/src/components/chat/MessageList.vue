@@ -4,7 +4,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useChatStore, type ToolRun } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
 import type { ApprovalVO, MessageVO } from '../../types/api'
-import { renderMarkdown } from '../../utils/md'
+import { renderMarkdown, renderMarkdownStream } from '../../utils/md'
 import { groupTurns } from '../../utils/turns'
 import AppIcon from '../common/AppIcon.vue'
 import ApprovalCard from './ApprovalCard.vue'
@@ -24,7 +24,7 @@ const liveThinkOpen = ref(true)
 
 // 流式正文渲染节流：每个 delta 都全量重解析 markdown 会把主线程打满，
 // EventSource 的消息因此积压、被服务端判为慢消费者断连（现象是「卡住」）。
-// 数据照单全收，只把渲染放慢到 120ms 一拍。
+// 数据照单全收，只把渲染放慢到 120ms 一拍；期间跳过高亮，收尾再补完整渲染。
 const renderedStream = ref('')
 let renderTimer = 0
 watch(
@@ -33,7 +33,7 @@ watch(
     if (renderTimer) return
     renderTimer = window.setTimeout(() => {
       renderTimer = 0
-      renderedStream.value = renderMarkdown(chat.streaming)
+      renderedStream.value = renderMarkdownStream(chat.streaming)
     }, 120)
   },
   { immediate: true },
@@ -45,6 +45,7 @@ watch(
       clearTimeout(renderTimer)
       renderTimer = 0
     }
+    // 收尾用完整渲染：把流式期间跳过的代码高亮一次性补上
     renderedStream.value = renderMarkdown(chat.streaming)
   },
 )
@@ -248,7 +249,7 @@ onMounted(async () => {
 .avatar.is-live {
   box-shadow: 0 0 0 3px var(--wb-live-soft);
 }
-/* 思考块：流式期间带一条极光青竖线，与正文气泡明确分开。
+/* 思考块：流式期间带一条亮紫竖线（活动色），与正文气泡明确分开。
    展开时占满助手列，字数提示才能顶到行尾；收起时按内容收窄。 */
 .think.is-live {
   align-self: stretch;
@@ -274,6 +275,9 @@ onMounted(async () => {
 .think-hd:hover {
   background: var(--wb-tint);
   color: var(--wb-ink-2);
+}
+.think-hd:active {
+  transform: scale(0.97);
 }
 .think-hd .chev {
   margin-left: auto;

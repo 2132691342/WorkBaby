@@ -9,10 +9,17 @@ Skill = 一段按需注入的领域知识（prompt 素材），不是可执行�
 ## 文件格式
 
 ```
-assets/skills/{name}/SKILL.md     # 内置（embed）
-%APPDATA%/WorkBaby/skills/{name}/SKILL.md   # 用户全局
-{workspace}/.workbaby/skills/     # 工作区级
+assets/skills/{name}/SKILL.md                    # 内置（embed），启动时落到磁盘
+%APPDATA%/WorkBaby/builtin-skills/{name}/SKILL.md  # 内置落盘位置（真路径）
+%APPDATA%/WorkBaby/skills/{name}/SKILL.md        # 用户全局
+{workspace}/.workbaby/skills/                    # 工作区级
 ```
+
+内置技能虽然在源码里是 embed 资源，启动时必须先**写一份到磁盘**再登记：
+注入上下文靠的是「让模型 `read` 这个路径」，虚拟路径在 `read` 眼里不存在，
+技能命中了却打不开，等于白给。落盘目录与用户技能目录分开，
+免得被「全局技能」扫描重复登记成两条。写失败时退化为「正文只留在内存」——
+`/技能名` 这类显式调用仍然可用。
 
 ```markdown
 ---
@@ -34,7 +41,8 @@ description: 按团队模板把本周工作整理成周报。
 | workspace | 工作目录 | 高 |
 
 `Get(name)` 返回最高优先级的那份；`List()` 全部列出并带 `source` 字段，
-让用户看得见「这个技能是从哪来的」。
+让用户看得见「这个技能是从哪来的」。切换工作目录时先摘掉上一个工作区的技能再装入
+新的（`DropSource` + `LoadWorkspace`）——不重载的话切完目录列表还是旧的那套。
 
 ## 注入方式（渐进式披露）
 
@@ -49,8 +57,11 @@ description: 按团队模板把本周工作整理成周报。
 | API | 说明 |
 |---|---|
 | GET /skills | 列表（含来源与启停状态） |
+| POST /skills | 新建：写 `SKILL.md` 到全局技能目录并登记 |
+| POST /skills/import | 从磁盘目录导入（把已有技能目录收进注册表） |
 | POST /skills/:id/toggle | 启停，落 settings KV，重启后仍生效 |
 | GET /skills/:id/content | 正文预览 |
+| POST /skills/:id/delete | 删除（内置技能不可删） |
 
 ## 内置技能
 

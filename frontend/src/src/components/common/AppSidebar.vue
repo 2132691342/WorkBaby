@@ -27,10 +27,7 @@ function onListClick(e: MouseEvent) {
   <aside class="side">
     <div class="side-brand">
       <div class="logo">WB</div>
-      <div>
-        <b>WorkBaby</b>
-        <small>{{ settings.boot?.version || '' }}</small>
-      </div>
+      <b>WorkBaby</b>
     </div>
     <button class="btn btn-lav side-btn" type="button" @click="emit('newSession')">
       <AppIcon name="plus" /> 新对话
@@ -51,6 +48,9 @@ function onListClick(e: MouseEvent) {
       <button class="foot-btn" type="button" @click="router.push('/settings')">
         <AppIcon name="settings" /> 设置
       </button>
+      <span v-if="settings.boot?.version" class="ver" :title="`WorkBaby ${settings.boot.version}`">
+        v{{ settings.boot.version }}
+      </span>
     </div>
   </aside>
 </template>
@@ -61,6 +61,18 @@ function onListClick(e: MouseEvent) {
   width: calc(100% - var(--wb-sp-6));
   justify-content: flex-start;
   gap: var(--wb-sp-2);
+}
+/* 版本号另起一行居中：与两个导航按钮同行会挤在一起 */
+.side-foot {
+  flex-wrap: wrap;
+}
+.ver {
+  flex-basis: 100%;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  opacity: 0.7;
 }
 .sess {
   flex: 1 1 40%;

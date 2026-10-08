@@ -13,7 +13,7 @@ md.use({
     code(token) {
       const lang = (token.lang || '').split(/\s+/)[0]
       let body = token.text
-      if (lang && hljs.getLanguage(lang)) {
+      if (!streaming && lang && hljs.getLanguage(lang)) {
         try {
           body = hljs.highlight(token.text, { language: lang }).value
         } catch {
@@ -36,7 +36,21 @@ export function renderMarkdown(src: string): string {
   return DOMPurify.sanitize(raw, { ADD_ATTR: ['target'] })
 }
 
-export function firstLine(s: string, max = 120): string {
+// 流式期间专用：跳过语法高亮。
+// 正文每 120ms 全量重解析一次，hljs 是这条路径上最贵的一步；
+// 代码块在流完之前基本都是半截的，高亮留到收尾那次完整渲染补上。
+let streaming = false
+
+export function renderMarkdownStream(src: string): string {
+  streaming = true
+  try {
+    return renderMarkdown(src)
+  } finally {
+    streaming = false
+  }
+}
+
+function firstLine(s: string, max = 120): string {
   const line = (s || '').trim().split('\n')[0] || ''
   return line.length > max ? line.slice(0, max) + '…' : line
 }

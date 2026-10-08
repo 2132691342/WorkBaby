@@ -28,6 +28,56 @@ const templates = [
 const form = reactive({ id: '', name: '', api: 'openai', base_url: '', key: '', models: '' })
 const fetched = ref<string[]>([])
 
+// ---- API Key：已存密钥显示为掩码，眼睛显隐；「更换」是显式动作 ----
+// 明文只在用户点眼睛时才向后端要一次，编辑期间不动它时保存不会覆盖旧密钥。
+const KEY_MASK = '••••••••••••••••••••'
+const keyHas = ref(false) // 该服务已保存密钥（服务端 has_key）
+const keyEdit = ref(true) // 正在输入新密钥（新服务默认，编辑已存密钥默认关闭）
+const keyShown = ref(false) // 明文显示中
+const storedKey = ref<string | null>(null) // 拉取到的明文缓存
+const keyBusy = ref(false)
+
+const keyValue = computed(() => {
+  if (keyEdit.value) return form.key
+  if (keyShown.value) return storedKey.value ?? ''
+  return KEY_MASK
+})
+
+function onKeyInput(e: Event) {
+  if (keyEdit.value) form.key = (e.target as HTMLInputElement).value
+}
+
+async function toggleKeyShown() {
+  // 正在输入新密钥：只是明文 / 密文切换
+  if (keyEdit.value) {
+    keyShown.value = !keyShown.value
+    return
+  }
+  if (keyShown.value) {
+    keyShown.value = false
+    return
+  }
+  if (storedKey.value === null && form.id) {
+    keyBusy.value = true
+    try {
+      storedKey.value = (await api.providers.reveal(form.id)).api_key
+    } catch (e) {
+      toast.bad(`读取密钥失败：${(e as Error)?.message || '请重试'}`)
+      return
+    } finally {
+      keyBusy.value = false
+    }
+  }
+  keyShown.value = true
+}
+
+// 「更换」：清空输入并进入编辑态；留空保存则保持原密钥
+function startReplaceKey() {
+  keyEdit.value = true
+  keyShown.value = true
+  form.key = ''
+}
+
 const needKey = computed(() => form.api !== 'ollama')
 const chosen = computed(() => form.models.split(',').map((s) => s.trim()).filter(Boolean))
 const options = computed(() => [...new Set([...chosen.value, ...fetched.value])])
@@ -66,6 +116,10 @@ function pick(t: (typeof templates)[number]) {
   form.models = t.models
   fetched.value = []
   modelFilter.value = ''
+  keyHas.value = false
+  keyEdit.value = true
+  keyShown.value = false
+  storedKey.value = null
 }
 
 // 切接口类型时地址跟着换：同一家服务商的 openai 入口和 anthropic 入口不是一个路径，
@@ -94,6 +148,11 @@ function edit(id: string) {
   form.models = p.models.join(',')
   fetched.value = []
   modelFilter.value = ''
+  // 已存密钥显示掩码；没有密钥才直接进入输入态
+  keyHas.value = p.has_key
+  keyEdit.value = !p.has_key
+  keyShown.value = false
+  storedKey.value = null
 }
 
 function reset() {
@@ -108,6 +167,10 @@ function reset() {
   modelFilter.value = ''
   cfgOpen.value = false
   cfgRows.value = {}
+  keyHas.value = false
+  keyEdit.value = true
+  keyShown.value = false
+  storedKey.value = null
 }
 
 // 拉取上游模型列表：已保存的服务按 id 拉；还没保存的把连接信息直接发给后端
@@ -144,7 +207,7 @@ async function ensureProviderSaved(): Promise<string | null> {
       name: form.name,
       api: form.api,
       base_url: form.base_url,
-      api_key: form.key || undefined,
+      api_key: keyEdit.value && form.key ? form.key : undefined,
       models: chosen.value,
     })
     await store.loadProviders()
@@ -253,7 +316,8 @@ async function save() {
       name: form.name,
       api: form.api,
       base_url: form.base_url,
-      api_key: form.key || undefined,
+      // 只有在「更换 / 新填」且确实有内容时才提交密钥，其余情况不动已存的
+      api_key: keyEdit.value && form.key ? form.key : undefined,
       models: chosen.value,
     }
     if (form.id) await api.providers.update(form.id, body)
@@ -348,7 +412,32 @@ onMounted(() => store.loadProviders())
         </label>
         <label v-if="needKey" class="field span2">
           <span class="lb">API Key</span>
-          <input v-model="form.key" class="input" type="password" placeholder="粘贴密钥，保存后加密存储" />
+          <div class="key-row">
+            <input
+              class="input"
+              :type="keyShown ? 'text' : 'password'"
+              :readonly="!keyEdit"
+              :value="keyValue"
+              :placeholder="keyEdit ? '粘贴密钥，保存后加密存储' : ''"
+              @input="onKeyInput"
+            />
+            <button
+              class="icon-btn"
+              type="button"
+              :title="keyShown ? '隐藏' : keyHas && !keyEdit ? '显示已保存的密钥' : '显示'"
+              :class="{ 'is-loading': keyBusy }"
+              @click="toggleKeyShown"
+            >
+              <AppIcon :name="keyShown ? 'eye-off' : 'eye'" size="ic-sm" />
+            </button>
+            <button v-if="keyHas && !keyEdit" class="btn btn-sm btn-ghost" type="button" @click="startReplaceKey">
+              更换
+            </button>
+          </div>
+          <span class="key-note">
+            <template v-if="keyHas && !keyEdit">已保存密钥（加密存储），点眼睛查看</template>
+            <template v-else-if="keyHas && keyEdit">留空保存则保持原密钥</template>
+          </span>
         </label>
         <div class="field span2">
           <span class="lb">这个服务能用哪些模型（可多选）</span>
@@ -559,6 +648,26 @@ onMounted(() => store.loadProviders())
   font-size: var(--wb-fs-label);
   font-weight: 500;
   color: var(--wb-ink-2);
+}
+/* API Key 行：输入 + 眼睛 + 更换同一行，掩码态呈现等宽点阵 */
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  min-width: 0;
+}
+.key-row .input {
+  flex: 1;
+  min-width: 0;
+}
+.key-row .input[readonly] {
+  font-family: var(--font-mono);
+  color: var(--wb-ink-2);
+  cursor: default;
+}
+.key-note {
+  font-size: var(--wb-fs-hint);
+  color: var(--wb-muted);
 }
 .mrow {
   display: flex;

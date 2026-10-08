@@ -8,13 +8,16 @@
 
 ## 设计
 
-### 四步流水线
+### 流水线
 
 ```text
-msgs → CleanForProtocol → 估算 token → 超预算？
-                                    ├─ 否 → 原样发送
-                                    └─ 是 → FindCutPoint 切 → 裁掉前段 → CleanForProtocol 复检
+msgs → 估算 token → 超预算？
+                    ├─ 否 → 原样发送（不做任何改动）
+                    └─ 是 → CleanForProtocol → FindCutPoint 切 → 裁掉前段 → CleanForProtocol 复检
 ```
+
+先估后清：没超预算就不动一个字节。清洗只在「已经要裁」时才做，
+避免每次发送都重排消息（省掉无谓的内存分配与语义变化）。
 
 ### CleanForProtocol（协议硬约束）
 
@@ -22,9 +25,15 @@ msgs → CleanForProtocol → 估算 token → 超预算？
 
 | 输入形态 | 处理 |
 |---|---|
+| 相邻的 assistant 消息（同一轮的并行声明被拆散） | 合并成一条，`tool_calls` 取并集 |
 | 空 assistant（无内容无思考无调用） | 删除 |
 | tool 结果找不到对应调用（孤儿） | 删除 |
 | assistant 声明了调用但没有结果 | 补一条 `IsError` 的 tool 占位 |
+
+**为什么必须先合并**：同轮多个工具声明若被逐条落库，链上会留下
+`A(c1) → A(c2) → T(c1) → T(c2)`——`T(c1)` 与它的声明之间隔着 `A(c2)`，
+上游以 `tool result's tool id not found` 直接拒绝。相邻 assistant 本就是
+同一轮的产物，合并即恢复配对。
 
 ### EstimateTokens
 
@@ -40,12 +49,14 @@ type Budget struct{ Window, WindowKnown, Reserve, Keep, SystemTokens }
 | 字段 | 缺省 | 含义 |
 |---|---|---|
 | Window | 128000 | 模型上下文窗口：来自内置能力目录，可被模型级配置与全局 `context_window` 设置覆写 |
-| WindowKnown | — | 窗口是否为确切值；false 时前端显示「未知」 |
+| WindowKnown | — | 窗口是否为确切值；false 时界面读数加「约」前缀 |
 | Reserve | 16384 | 给模型输出留的余量，可由设置项覆盖 |
 | Keep | 20000 | 裁剪后保留的近期 token 预算 |
 | SystemTokens | 估算 | system 提示词的 token 估算，判断是否超预算必须算上它 |
 
-可用预算 = `Window - Reserve`；窗口比余量还小时退化为 `Window / 2`。
+可用预算 = `Window - Reserve`。service 层会先把 Reserve 夹到不超过 `Window/4`，
+因此正常路径上预算不会退化成负数；内核仍保留 `Window/2` 兜底，用于 Budget
+由其他调用方构造的场景。
 
 ### FindCutPoint（切点选择）
 
@@ -84,9 +95,8 @@ func Compact(msgs []llm.Message, b Budget) (out []llm.Message, after int)
 
 ## 测试
 
-`internal/agent/compact_test.go`：
+`backend/agent/compact_test.go`：
 
 | 测试 | 锁住的行为 |
 |---|---|
-| `TestCompactProtocol` | 清洗硬约束（剔除空 assistant / 孤儿结果、补齐未配对调用）；压缩永不孤儿化工具结果；整轮丢弃；预算策略；降级截断 |
-| `TestLoopCompactsHistoryOverBudget` | 循环内真实裁剪：超预算才动手，裁后从 user 起头 |
+| `TestCompactProtocol` | 清洗硬约束（合并拆散的并行声明、剔除空 assistant / 孤儿结果）；压缩永不孤儿化工具结果（扫全切点）；整轮丢弃；预算边界与降级截断 |

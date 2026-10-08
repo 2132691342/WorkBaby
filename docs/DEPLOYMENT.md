@@ -4,34 +4,36 @@
 
 ```
 build/bin/
-├── WorkBaby.exe                                    # 主程序（前端已 embed，单文件可跑）
-└── runtimes/
-    ├── python-<版本>-win-x64.tar.gz                # 内置 Python（可选，见下）
-    ├── PowerShell-<版本>-win-x64.zip               # 内置 PowerShell 7（可选）
-    └── manifest.json                               # 归档清单（版本 / sha256 / 解压上限）
+└── WorkBaby.exe    # 主程序（前端与内置运行时都已 embed，单文件可跑）
 ```
+
+发布流程（GitHub Release）在此基础上额外产出 NSIS 安装器
+（`WorkBaby-amd64-installer.exe`），安装器模板在 `build/windows/installer/`。
 
 ## 构建
 
 ```powershell
+git lfs pull   # 首建必做：内置运行时归档经 LFS 托管
 wails build
-powershell -File scripts/copy-runtimes.ps1 -Bin build/bin/WorkBaby.exe
 ```
 
-`copy-runtimes.ps1` 把仓库 `runtimes/` 下的归档拷到**两处**：
-产物旁 `build/bin/runtimes/`（绿色版直接跑）与 NSIS 安装器源目录
-`build/windows/runtimes/`（`installer/project.nsi` 引用）。
+产物只有一个 exe：Python 与 PowerShell 的归档由 `go:embed` 打进主程序，
+首次启动解压到用户数据目录。exe 因此明显变大（约 130MB+），
+发布流程用「不到 100MB 视为归档未嵌入」兜底。
 
-## 内置运行时（可选增强）
+## 内置运行时
 
-1. 仓库 `runtimes/` 下放 `python-3.12.13-win-x64.tar.gz`（embeddable Python 打包，
-   Git LFS）与 `PowerShell-7.4.2-win-x64.zip`（官方 win-x64 zip）
-2. 启动装配期（`Handler.Startup` → `NewToolDeps`）自动解压到数据目录并写
-   `.version` 标记，命中版本跳过解压；网络/文件系统问题不影响启动
+1. 归档在 `backend/runtime/bundled/`（`python-3.12.8-embed-amd64.zip` +
+   `PowerShell-7.4.2-win-x64.zip`，Git LFS 托管，构建时嵌入 exe）
+2. 启动装配期（`Handler.Startup` → `NewToolDeps`）自动解压到数据目录、打开
+   `site` 并写 `.version` 标记，命中版本跳过解压；网络/文件系统问题不影响启动
 3. 解压校验：逐条目路径检查（拒绝绝对路径与 `..`）、512MB 解压上限、
-   LFS 指针识别（未拉取的归档按缺失报错而不是当压缩包喂给解压器）
+   版本切换先清旧目录、内嵌字节是 LFS 指针文本时按「包不可用」报错
+4. 升级归档：从官方渠道下载新 zip 替换 `bundled/` 下的文件 →
+   改 `pythonVersion` / `powershellVersion` → 算出新归档 SHA-256 填进对应的
+   `*ArchiveSHA256` 常量 → `go test ./backend/runtime/` 守护三者一致
 
-没有内置 Python 时应用照常运行：`python` 工具返回 8002 明确错误，
+没有内置 Python 时应用照常运行：`python` 工具返回明确错误，
 设置页状态灯显示未就绪，系统 PATH 上的 Python 会被自动采用。
 内置 PowerShell 缺失时静默兜底系统 `powershell.exe`（win5.1 或 7），工具不断档。
 
@@ -45,5 +47,6 @@ powershell -File scripts/copy-runtimes.ps1 -Bin build/bin/WorkBaby.exe
 - 单实例锁 + 本地 TCP IPC：二次启动会唤起已有窗口并转交文件路径
 - 端口随机绑定 127.0.0.1，无外网暴露面
 - API Key 以 AES-256-GCM 加密存库，MasterKey 在 config.yaml（首启生成）
-- 生成的 Wails 绑定会把 `*api.Handler` 上的方法一并导出，
-  真正的系统能力只有 `internal/api/system_windows.go` 里的那几个
+- Wails 绑定面只有 `*main.App` 的 5 个系统能力方法（ForceQuit / 打开文件与目录
+  对话框 / 自启读写）：`App` 持有而不是嵌入 `*api.Handler`，gin handler 不会被
+  绑成 JS 方法；窗口控制与剪贴板由前端直接调 `wailsjs/runtime`

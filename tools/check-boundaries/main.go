@@ -1,9 +1,6 @@
 // 依赖方向门禁：把 AGENTS.md §2.1 / §2.2 的约束表变成可执行检查。
-//
-// 用 go list -json 读编译器视角的真实 import 关系，而不是对源码做文本 grep：
-// 注释、字符串字面量、构建标签分支都会让 grep 得出错误结论。
-// 用 Go 而非 PowerShell 解析 JSON：go list 的输出是多条 JSON 记录拼接，
-// 记录内部的空行会让 PowerShell 的文本切分把一条记录劈成两半。
+// 用 go list -json 读编译器视角的真实 import 关系（文本 grep 会被注释、
+// 字符串字面量与构建标签骗过）；多记录 JSON 拼接也是选 Go 解析的原因。
 package main
 
 import (
@@ -20,12 +17,8 @@ type pkgInfo struct {
 	Imports    []string
 }
 
-// layer -> 允许依赖的 internal 包。空切片表示该层不得依赖任何 internal 业务包。
-//
-// api 层是依赖注入容器：Handler 持有 Repo / Cfg / Registry / Skills / Knowledge
-// 的句柄供 service 编排，因此它必须能引用这些类型——AGENTS.md §2.2 禁止的是 api
-// 绕过 service 直接做业务，而不是禁止它持有句柄。
-// tool 层依赖 llm 是工具参数 Schema 校验所需的 ToolCall 契约。
+// layer -> 允许依赖的 backend 包；空切片表示不得依赖任何 backend 业务包。
+// api 是依赖注入容器：持有 Repo / Cfg 等句柄是它的职责，禁止的是绕过 service 直接做业务。
 var allowed = map[string][]string{
 	"server": {"api", "domain", "pkg"},
 	"api": {
@@ -68,11 +61,11 @@ func main() {
 		fail("go list -m 失败: %v", err)
 	}
 	module := strings.TrimSpace(string(modOut))
-	prefix := module + "/internal/"
+	prefix := module + "/backend/"
 
 	// 循环依赖会让 go list 直接失败（编译器先于本门禁拒绝）。这类违规同样要报出来，
 	// 并带上 go 的原始诊断，否则只剩一句无信息量的「失败」。
-	listCmd := exec.Command("go", "list", "-json", "./internal/...")
+	listCmd := exec.Command("go", "list", "-json", "./backend/...")
 	out, listErr := listCmd.Output()
 	if listErr != nil {
 		fmt.Fprintln(os.Stderr, "依赖方向门禁失败：go list 无法解析依赖图")
@@ -96,7 +89,7 @@ func main() {
 		}
 	}
 	if len(pkgs) == 0 {
-		fail("未解析到任何 internal 包")
+		fail("未解析到任何 backend 包")
 	}
 
 	var violations []string
@@ -125,7 +118,7 @@ func main() {
 			switch {
 			case leaf:
 				violations = append(violations,
-					fmt.Sprintf("%s -> %s（叶子包不得依赖任何 internal 业务包）", layer, target))
+					fmt.Sprintf("%s -> %s（叶子包不得依赖任何 backend 业务包）", layer, target))
 			case !contains(permitted, target):
 				violations = append(violations,
 					fmt.Sprintf("%s -> %s（允许：%s）", layer, target, strings.Join(permitted, " / ")))
@@ -152,7 +145,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("依赖方向门禁通过：%d 个 internal 包，依赖方向全部合规\n", len(pkgs))
+	fmt.Printf("依赖方向门禁通过：%d 个 backend 包，依赖方向全部合规\n", len(pkgs))
 }
 
 func fail(format string, args ...any) {

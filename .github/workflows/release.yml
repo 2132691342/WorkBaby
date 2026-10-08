@@ -84,11 +84,11 @@ jobs:
           # CI 不跑完整测试（timing-sensitive flake 测试在 windows-latest runner 上假阳）——
           # Release 出包质量由 tag 触发（人工审核）+ 编译期检查 + wails build 兜底。
           # 本地按 AGENTS.md §4 逐项验证。
-          Write-Host '== go vet ./internal/... ==' -ForegroundColor Cyan
-          go vet ./internal/...
+          Write-Host '== go vet ./backend/... ==' -ForegroundColor Cyan
+          go vet ./backend/...
           if ($LASTEXITCODE -ne 0) { throw "go vet failed" }
-          Write-Host '== go build ./internal/...（编译期验证，main 包留给 wails build）==' -ForegroundColor Cyan
-          go build ./internal/...
+          Write-Host '== go build ./backend/...（编译期验证，main 包留给 wails build）==' -ForegroundColor Cyan
+          go build ./backend/...
           if ($LASTEXITCODE -ne 0) { throw "go build failed" }
           Write-Host '== 依赖方向门禁 ==' -ForegroundColor Cyan
           powershell -ExecutionPolicy Bypass -File scripts/check-boundaries.ps1
@@ -97,25 +97,29 @@ jobs:
           # npm 子依赖冲突易假阳失败（ERR_PACKAGE_PATH_NOT_EXPORTED）。前端类型错误会被 wails build
           # 阶段的 npm run build 兜底（Vite/esbuild 编译会报 import / type 错误）。
 
-      # NSIS 工程第 135 行是 `File /r "..\runtimes\*.*"`，指向 build/windows/runtimes。
-      # 该目录不入库（内容是 LFS 归档副本），全新 checkout 时为空，而 NSIS 对空目录
-      # 直接 abort（no files found），安装器根本产不出来。所以必须在 wails build 之前
-      # 就把 runtimes 放到位——放在之后补是补不上的，NSIS 早就失败了。
-      - name: 准备 NSIS 打包用的 runtimes
+      # 运行时归档 go:embed 进 exe：LFS 没拉下来时内嵌的是 pointer 文本，
+      # 构建照样成功、用户首次启动才发现运行时不可用。构建前当场拦下。
+      - name: 校验运行时归档（LFS 已拉取真文件）
         shell: pwsh
         run: |
-          $src = Join-Path $PWD 'runtimes'
-          $dest = Join-Path $PWD 'build/windows/runtimes'
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          $archives = Get-ChildItem -Path $src -Filter 'python-*.tar.gz' -File -ErrorAction SilentlyContinue
-          if (-not $archives) {
-            throw "runtimes/ 下没有 python-*.tar.gz：LFS 归档未拉取，无法打包安装器"
+          $patterns = @(
+            'backend/runtime/bundled/python-*.tar.gz',
+            'backend/runtime/bundled/PowerShell-*-win-x64.zip'
+          )
+          foreach ($pattern in $patterns) {
+            $f = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $f) { throw "缺少运行时归档: $pattern（git lfs pull 未执行？）" }
+            $fs = [System.IO.File]::OpenRead($f.FullName)
+            try {
+              $buf = New-Object byte[] 24
+              $n = $fs.Read($buf, 0, 24)
+            } finally { $fs.Close() }
+            $head = [System.Text.Encoding]::ASCII.GetString($buf, 0, $n)
+            if ($head.StartsWith('version https://git-lfs')) {
+              throw "运行时归档是 LFS 指针，未拉取真实文件: $($f.Name)"
+            }
+            Write-Host ("OK {0} {1:N1} MB" -f $f.Name, ($f.Length / 1MB))
           }
-          Copy-Item -Path (Join-Path $src 'python-*.tar.gz') -Destination $dest -Force
-          if (Test-Path (Join-Path $src 'manifest.json')) {
-            Copy-Item -Path (Join-Path $src 'manifest.json') -Destination $dest -Force
-          }
-          Write-Host ("已准备 {0} 个运行时归档 -> {1}" -f $archives.Count, $dest)
 
       - name: Wails 构建（前端 npm ci → 嵌入 → NSIS 打包）
         shell: pwsh
@@ -138,18 +142,10 @@ jobs:
             throw "wails build failed (exit $wailsExit)"
           }
 
-          # postBuildHook 负责把 runtimes 复制到产物旁（程序首次启动从这里解开 Python）。
-          # NSIS 打包用的是 build/windows/runtimes，这里补的是 build/bin/runtimes。
-          if (-not (Test-Path 'build/bin/runtimes/manifest.json')) {
-            if (-not (Test-Path 'build/bin/WorkBaby.exe')) {
-              throw "wails build 未产出 WorkBaby.exe"
-            }
-            Write-Host '::warning::postBuildHook 未产出 runtimes，手动补跑 copy-runtimes'
-            $exe = (Resolve-Path 'build/bin/WorkBaby.exe').Path
-            & "$PWD/scripts/copy-runtimes.ps1" $exe
-            if (-not (Test-Path 'build/bin/runtimes/manifest.json')) {
-              throw "copy-runtimes fallback failed (manifest still missing)"
-            }
+          # postBuildHook 早已取消：运行时归档由 go:embed 进 exe，产物旁不再需要
+          # runtimes 目录。exe 存在性在这里确认，NSIS 的产出在下一段确认。
+          if (-not (Test-Path 'build/bin/WorkBaby.exe')) {
+            throw "wails build 未产出 WorkBaby.exe"
           }
 
           # NSIS 打包失败时 wails 可能仍返回 0，必须显式确认安装器存在。
@@ -164,9 +160,10 @@ jobs:
         run: |
           if (-not (Test-Path 'build/bin/WorkBaby.exe')) { throw "WorkBaby.exe missing" }
           if (-not (Test-Path 'build/bin/WorkBaby-amd64-installer.exe')) { throw "WorkBaby-amd64-installer.exe missing" }
-          if (-not (Test-Path 'build/bin/runtimes/manifest.json')) { throw "build/bin/runtimes/manifest.json missing" }
-          if (-not (Test-Path 'build/windows/runtimes/manifest.json')) { throw "build/windows/runtimes/manifest.json missing (NSIS 需要)" }
-          Write-Host "Build artifacts OK（exe + installer + runtimes）"
+          # 运行时内嵌会让 exe 明显变大；不到 100MB 说明归档没嵌进来。
+          $exeMB = (Get-Item 'build/bin/WorkBaby.exe').Length / 1MB
+          if ($exeMB -lt 100) { throw ("WorkBaby.exe 只有 {0:N1} MB：运行时归档疑似未嵌入" -f $exeMB) }
+          Write-Host ("Build artifacts OK（exe {0:N1} MB + installer）" -f $exeMB)
 
       # 失败时保留产物供本地排查；成功后直接上传到 Release（不重复留 artifacts）。
       - name: 上传失败诊断包
@@ -176,7 +173,7 @@ jobs:
           name: workbaby-windows-debug
           path: |
             build/bin/
-            !build/bin/runtimes/
+            !build/bin/*.db
           retention-days: 7
 
       - name: 创建 GitHub Release 并上传安装器

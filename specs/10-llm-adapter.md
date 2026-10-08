@@ -2,7 +2,7 @@
 
 ## 定位
 
-`internal/llm` 定义协议无关的归一化层；三家协议各自实现 `Streamer`。
+`backend/llm` 定义协议无关的归一化层；三家协议各自实现 `Streamer`。
 新增一家服务通常只是新增一行 switch。
 
 ## 归一化模型
@@ -13,6 +13,7 @@ type Message struct {
     ToolCalls []ToolCall
     ToolCallID string
     IsError bool
+    Images []Image            // 图片附件（base64 + MIME），随用户消息落库
 }
 type Event struct {
     Type EventKind            // Delta / ThinkingDelta / ToolCall / Done / Error
@@ -23,6 +24,13 @@ type Streamer interface {
     Stream(ctx, Request) (<-chan Event, error)
 }
 ```
+
+### 图片附件
+
+粘贴或附加的图片走 `Message.Images`。发送前有一道闸门：模型能力画像里
+`Vision=false` 时直接拒绝（错误码 3113）——不拦截的话图片会被上游静默丢掉，
+用户以为发过去了。三个适配层各自把图片编码成上游格式（openai 的
+`image_url` data URI、anthropic 的 `image` block、ollama 透传 base64）。
 
 ## 三家差异收口
 

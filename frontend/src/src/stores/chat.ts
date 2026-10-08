@@ -9,10 +9,14 @@ import type {
   ContextData,
   DeltaData,
   DoneData,
+  MessageVO,
+  ModelCapability,
+  SessionVO,
   StartData,
   ToolEndData,
   ToolStartData,
 } from '../types/api'
+import { useSettingsStore } from './settings'
 import { useToastStore } from './toast'
 
 // 当前正在跑的工具调用：流式期间只做「展示」，chat:done 后用权威快照覆盖。
@@ -171,10 +175,7 @@ export const useChatStore = defineStore('chat', () => {
     // 收尾后用权威用量校准水位：SSE 的 context 是最后一轮开始时的值，
     // 不含最后一轮回复本身，差的那截在这里补上。
     if (data.usage) {
-      contextUsed.value = data.usage.context
-      if (data.usage.context > 0 && contextWindow.value > 0) {
-        contextRatio.value = Math.min(100, Math.round((data.usage.context / contextWindow.value) * 100))
-      }
+      seed(data.usage.context, contextWindow.value, contextKnown.value)
     }
     // 收尾后清掉运行态记录：历史消息里已经有这些工具了，不清会渲染两遍。
     runs.value = []
@@ -208,6 +209,75 @@ export const useChatStore = defineStore('chat', () => {
     contextWindow.value = data.window
     contextKnown.value = data.known !== false
     contextRatio.value = Math.max(0, Math.min(100, Math.round(data.ratio || 0)))
+  }
+
+  // ---- 快照回填：进入 / 切换会话立刻有水位读数，不必等下一轮 chat:context ----
+
+  // 模型能力按「服务 + 模型」缓存：切会话时同一模型不重复请求。
+  const capCache = new Map<string, ModelCapability>()
+
+  function seed(used: number, win: number, known: boolean) {
+    contextUsed.value = Math.max(0, used || 0)
+    if (win > 0) contextWindow.value = win
+    contextKnown.value = win > 0 ? known : false
+    contextRatio.value =
+      contextWindow.value > 0
+        ? Math.max(0, Math.min(100, Math.round((contextUsed.value / contextWindow.value) * 100)))
+        : 0
+  }
+
+  // 已用量取最近一条带 usage.context 的助手条目的值：它就是「下一轮发出时的上下文量」。
+  function lastContextOf(messages: MessageVO[]): number {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role === 'assistant' && (m.usage?.context || 0) > 0) return m.usage?.context || 0
+    }
+    return 0
+  }
+
+  // 空态（还没建会话）时用默认模型把窗口刻度填上：水位环一开始就显示
+  // 「0 / 128k」，用户不必等第一轮回答才知道这个窗口多大。
+  async function seedDefaultWindow() {
+    const boot = useSettingsStore().boot
+    const model = boot?.default_model
+    if (!model) return
+    const key = `${boot?.default_provider_id || ''}|${model}`
+    let cap = capCache.get(key)
+    if (!cap) {
+      try {
+        cap = await api.models.capability(model, boot?.default_provider_id)
+        capCache.set(key, cap)
+      } catch {
+        return
+      }
+    }
+    if (cap && cap.context_window > 0 && contextUsed.value === 0) {
+      seed(0, cap.context_window, cap.known !== false)
+    }
+  }
+
+  async function seedContext(sess: SessionVO | null, messages: MessageVO[]) {
+    if (running.value) return
+    if (!sess) {
+      void seedDefaultWindow()
+      return
+    }
+    const used = lastContextOf(messages)
+    const key = `${sess.provider_id}|${sess.model}`
+    let cap = capCache.get(key)
+    if (!cap && sess.model) {
+      try {
+        cap = await api.models.capability(sess.model, sess.provider_id)
+        capCache.set(key, cap)
+      } catch {
+        // 能力查不到不是错误：窗口留给下一轮 chat:context，这里先把已用量放上去
+      }
+    }
+    if (cap && cap.context_window > 0) {
+      seed(used, cap.context_window, cap.known !== false)
+    } else {
+      seed(used, contextWindow.value, contextKnown.value)
+    }
   }
 
   function notify(text: string) {
@@ -257,5 +327,6 @@ export const useChatStore = defineStore('chat', () => {
     onContext,
     onGap,
     syncApprovals,
+    seedContext,
   }
 })

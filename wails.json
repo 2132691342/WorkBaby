@@ -7,9 +7,6 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "wailsjsdir": "./frontend/src",
-  "postBuildHooks": {
-    "windows/amd64": "powershell -ExecutionPolicy Bypass -File ../../scripts/copy-runtimes.ps1 ${bin}"
-  },
   "fileAssociations": [
     {
       "ext": "md",

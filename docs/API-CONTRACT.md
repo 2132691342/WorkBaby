@@ -4,14 +4,14 @@
 方法白名单：GET / POST；删除一律 `POST .../delete`。
 事件流：`GET /api/v1/events?session_id={sid}`（SSE）。
 
-前端调用全部收口在 `frontend/src/src/api/index.ts`，与 `internal/server/routes.go` 一一对应。
+前端调用全部收口在 `frontend/src/src/api/index.ts`，与 `backend/server/routes.go` 一一对应。
 
 ## 系统
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | /health | 存活探测 |
-| GET | /bootstrap | 启动引导（版本 / 契约版本 / 默认模型 / 工作目录 / 设置全集 / python_ready） |
+| GET | /bootstrap | 启动引导（版本 / 契约版本 / 默认服务 / 默认模型 / 权限档 / 工作目录 / 设置全集 / python_ready） |
 
 ## 会话
 
@@ -48,7 +48,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | /approvals?session_id= | 待决审批（含跨重启恢复项） |
+| GET | /approvals?session_id= | 待决审批（仅当前进程内等待中的；启动时会把上次残留的按拒绝收口） |
 | POST | /approvals/:id/approve | `{scope}`：`once` / `session` |
 | POST | /approvals/:id/deny | 拒绝 |
 
@@ -88,10 +88,10 @@
 | GET | /models/config?model=&provider_id= | 单个模型配置（目录 + 覆写合并后的最终值） |
 | GET | /models/configs?provider_id= | 一个服务下的全部模型配置 |
 | POST | /models/config | 保存模型配置 `{provider_id, model, context_window?, max_output?, temperature, top_p, vision, tool_call}` |
-| GET | /runtime | 内置运行时状态（Python 是否就绪 + 失败原因 + 归档路径） |
+| GET | /runtime | 内置运行时状态：Python 与 PowerShell 各自的 exe / source(bundled\|system\|空) / version / error |
+| POST | /runtime/redetect | 重新检测内置运行时：清探测缓存后重跑，运行期放入归档后点这里生效 |
 | GET | /settings | KV 全集 |
 | POST | /settings | `{key, value}` |
-| GET | /stats?days=14 | 仪表盘统计（见下） |
 
 ## 工具目录
 
@@ -129,11 +129,20 @@ top_p（缺省 0.75）、最大输出，以及识图 / 工具调用两项能力�
 
 ```jsonc
 { "python_exe": "…\\runtime\\python\\python.exe", "python_source": "bundled",
-  "python_version": "3.12.13", "python_error": "", "archive_path": "…\\runtimes\\python-3.12.13-win-x64.tar.gz" }
+  "python_version": "3.12.8", "python_error": "",
+  "powershell_exe": "…\\powershell\\pwsh.exe", "powershell_source": "bundled",
+  "powershell_version": "7.4.2", "powershell_error": "" }
 ```
 
-`python_error` 非空时带上可执行的原因（归档缺失 / LFS 指针未拉取 / 解压失败），
-而不是只给一句「不可用」——用户要能据此判断该把文件放哪。
+`*_source` 三种取值：`bundled`（内置就绪）/ `system`（内置缺失，用系统已装的那份）/
+空（未就绪）。`*_error` 非空时带上可执行的原因（解压失败 / 内嵌字节是 LFS 指针 /
+版本不一致），而不是只给一句「不可用」——用户要能据此判断下一步做什么。
+
+## 密钥查看
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | /providers/:id/reveal | 返回解密后的 `{api_key}`；只在用户点「显示」时调用，没存密钥时报 3114 |
 
 ## 统计
 
@@ -168,7 +177,7 @@ top_p（缺省 0.75）、最大输出，以及识图 / 工具调用两项能力�
 | chat:approval | `{approval_id, tool_call_id, tool, label, args, risk, reason}` |
 | chat:compressed | `{tokens_before, tokens_after}` |
 | chat:user | `{entry_id, content}`：插话 / 排队消息已注入上下文并落库，界面据此把它补进时间线（空闲时直接落库也发本事件） |
-| chat:context | `{used, window, ratio, known, reserve?}`：每轮广播一次上下文占用，`ratio` 是 0-100 整数，`known=false` 表示窗口是缺省估算值，界面须显示「未知」而不是具体数字 |
+| chat:context | `{used, window, ratio, known, reserve?}`：每轮广播一次上下文占用，`ratio` 是 0-100 整数，`known=false` 表示窗口是缺省估算值，界面读数加「约」前缀（数字照常给，不隐藏） |
 | chat:done | `{entry_id, stop_reason, usage?}` |
 | chat:stopped | `{reason}`：用户点了停止。单独发是因为停止可能来自托盘或快捷键，由后端广播一次权威信号，界面不会停在「后端已停、还在转圈」的状态 |
 | chat:error | `{code, message}` |
@@ -189,3 +198,7 @@ top_p（缺省 0.75）、最大输出，以及识图 / 工具调用两项能力�
 
 正常路径下前端在 `chat:done` 后也会拉一次权威快照——
 **前端不做增量合并**，服务端是唯一真相。
+
+打开 / 切换 / 新建会话时，前端不等 `chat:context`：用会话快照里最近一条带
+`usage.context` 的助手条目加 `/models/capability` 的窗口值，先把输入框的水位环
+填上（`stores/chat.ts` 的 `seedContext`）。事件只负责对话进行中的实时更新。

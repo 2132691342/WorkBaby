@@ -58,6 +58,8 @@ export const providers = {
   update: (id: string, body: Record<string, unknown>) => post<ProviderVO>(`/providers/${id}/update`, body),
   remove: (id: string) => post<boolean>(`/providers/${id}/delete`),
   test: (id: string) => post<{ ok: boolean; model: string; detail: string }>(`/providers/${id}/test`, { id }),
+  /** 显式查看已保存的密钥（用户点「显示」时才调用） */
+  reveal: (id: string) => post<{ api_key: string }>(`/providers/${id}/reveal`),
   setDefault: (id: string) => post<boolean>(`/providers/${id}/default`),
   models: (provider_id: string) => get<string[]>(`/providers/models?provider_id=${provider_id}`),
   /** 新增服务还没保存时也能拉：直接把连接信息发给后端 */
@@ -111,6 +113,8 @@ export const models = {
 
 export const runtime = {
   status: () => get<RuntimeInfo>('/runtime'),
+  /** 重新探测：后端先清探测缓存再跑一遍，运行期放入归档后点这里生效 */
+  redetect: () => post<RuntimeInfo>('/runtime/redetect'),
 }
 
 export const stats = (days: number) => get<StatsRESP>('/stats', { days })

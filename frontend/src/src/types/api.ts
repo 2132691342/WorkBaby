@@ -174,7 +174,7 @@ export interface Envelope<T = unknown> {
   data: T
 }
 
-/** 上下文水位：ratio 为 0-100 的整数；known=false 表示窗口是估算值，界面应显示「未知」 */
+/** 上下文水位：ratio 为 0-100 的整数；known=false 表示窗口是估算值，读数加「约」前缀显示 */
 export interface ContextData {
   used: number
   window: number
@@ -258,10 +258,14 @@ export interface UpsertModelConfigREQ {
 /** 内置运行时状态。python_error 非空时给出可执行的原因，而不是一句「不可用」 */
 export interface RuntimeInfo {
   python_exe: string
+  /** bundled = 内置运行时；system = 用系统已装的那份；空 = 未就绪 */
   python_source: string
   python_version: string
   python_error: string
-  archive_path: string
+  powershell_exe: string
+  powershell_source: string
+  powershell_version: string
+  powershell_error: string
 }
 
 // ---- /stats ----

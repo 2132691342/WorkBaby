@@ -1,4 +1,4 @@
-// Package main 是 WorkBaby 的入口：只做装配，业务全部委托 internal 包。
+// Package main 是 WorkBaby 的入口：只做装配，业务全部委托 backend 包。
 package main
 
 import (
@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"WorkBaby/internal/pkg"
-	"WorkBaby/internal/singleinstance"
+	"WorkBaby/backend/pkg"
+	"WorkBaby/backend/singleinstance"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -25,7 +25,8 @@ var assets embed.FS
 func main() {
 	app := NewApp()
 
-	// 单实例：二次启动（含文件关联打开）把路径转交主实例后退出。
+	// 单实例：二次启动一律把这次启动交给主实例——带文件就转交文件，
+	// 不带就请它把窗口带出来（否则双击图标在托盘/隐藏状态下像是没反应）。
 	dir := dataDir()
 	inst, ierr := singleinstance.Acquire(dir)
 	if ierr != nil {
@@ -33,8 +34,8 @@ func main() {
 			pkg.Errorf("workbaby: 单实例检查失败: %v", ierr)
 			return
 		}
-		if path := filePathFromArgs(); path != "" {
-			_ = singleinstance.SendPathToRunningInstance(dir, path)
+		if err := singleinstance.SendPathToRunningInstance(dir, filePathFromArgs()); err != nil {
+			pkg.Warnf("workbaby: 转交到已运行实例失败: %v", err)
 		}
 		return
 	}
@@ -45,9 +46,7 @@ func main() {
 	} else {
 		go func() {
 			for path := range inst.FileChannel() {
-				if path != "" {
-					app.handleOpenFileFromIPC(path)
-				}
+				app.handleSecondLaunch(path)
 			}
 		}()
 	}

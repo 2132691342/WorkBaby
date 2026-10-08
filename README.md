@@ -13,10 +13,22 @@
 | 方法论 | Skill：把「怎么做一件事」写成 `SKILL.md`，需要时才展开正文 |
 | 私有资料 | 知识库：本地文档（PDF / Word / Excel / Markdown / 文本）建索引，对话时按需检索 |
 | 看得见 | 对话时实时显示上下文占用；仪表盘按天 / 按模型统计 token 用量与缓存命中 |
-| 开箱即跑 | 内置便携式 CPython 与 PowerShell 7（可选随包分发），不用自己装环境 |
+| 开箱即跑 | Python 与 PowerShell 7 已嵌进程序，首次启动自动解开，不用自己装环境 |
 
 打开就用：装好 → 设置里填一个模型服务 → 回到聊天页说人话 → 它自己读文件、改文件、跑脚本、查资料。
 需要贴文件时在输入框打 `@` 选文件；`/` 可以唤出常用命令。
+
+## 为什么这样设计（取舍）
+
+| 取向 | 选择 | 换来什么 | 代价 |
+|---|---|---|---|
+| 本地优先 | SQLite + 文件 + 加密密钥全在本机，HTTP 只绑 127.0.0.1 随机端口 | 数据不出机器，无账号无云服务 | 单进程单用户，不能协同 |
+| 单一通信面 | 业务 API 与事件流全走 HTTP（gin + SSE），Wails 绑定只留系统能力 | 前端在普通浏览器里就能跑通全界面 | SSE 要自建断连、重放、对账 |
+| 透明度优先 | 工具每步一张卡、上下文水位实时可见、用量按天归因 | 用户知道它在干什么、花了多少 | 界面元素比纯聊天多 |
+| 可控优先 | 写文件 / 跑命令 / 跑脚本走审批卡；重复调用第 3 次强判失败 | 不可逆操作有闸门，模型打转能自停 | 每步 ask 会打断节奏（可设自动放行） |
+| 确定性优先 | 上下文压缩是确定性裁剪 + 按 token 预算找切点，不调 LLM | 压缩可预测、可重放、零额外成本 | 裁掉的早期细节不进模型（历史仍在库里） |
+| 开箱即用 | Python / PowerShell 归档 `go:embed` 进 exe，首启解压 | 新手装上即用，不碰环境变量 | exe 约 130MB+ |
+| 界面自绘 | 无 UI 组件库，控件全部自绘 + 语义 CSS 令牌 | 视觉与主题完全可控 | 控件生命周期自己维护 |
 
 ## 技术栈
 
@@ -28,13 +40,16 @@
 | 配置 / 日志 / ID | Viper · log/slog · ULID |
 | Agent / LLM | 自研内核（单层流式循环）· 自研协议适配（OpenAI 兼容 / Anthropic / Ollama） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + 原生 CSS 设计令牌（无 UI 框架） |
-| 测试 | testing（29 条链路测试，全量 -count=1 约 20s；LLM 用假实现注入，不联网） |
+| 测试 | testing（24 个 Test / 16 个测试文件，全量约 3.5s；LLM 用脚本替身注入，不联网） |
 
 ## 快速开始
 
 ```powershell
+# 内置运行时归档（Python 3.12.8 + PowerShell 7）随仓库托管（Git LFS）：
+# 克隆后先 git lfs pull 把真文件拉下来，否则构建会以内嵌 LFS 指针报错。
+
 # 开发
-go test ./internal/...        # 后端测试
+go test ./backend/...        # 后端链路测试
 cd frontend && npm install && npm run build
 wails dev                     # 开发模式
 
@@ -45,34 +60,58 @@ wails build                   # 产物 build/bin/WorkBaby.exe
 ## 目录
 
 ```
-internal/
-  agent/      内核：单层流式循环 + 工具调度 + 上下文压缩
-  llm/        协议适配（openai / anthropic / ollama + retry + factory）
-  tool/       工具注册表 + 11 个内置工具
-  service/    业务编排（会话 / 对话 / 审批 / 配置 / 系统提示）
-  server/     gin 路由 + SSE hub
-  api/        业务 handler + Wails 系统能力绑定
+backend/
+  agent/      内核：单层流式循环 + 工具调度 + 上下文压缩（不依赖 IO 与桌面壳）
+  llm/        协议适配（openai / anthropic / ollama + retry + factory + 假实现）
+  tool/       工具注册表 + 11 个内置工具的执行与安全护栏
+  service/    业务编排（会话 / 对话 / 审批 / 模型服务 / 设置 / 系统提示 / 用量）
+  server/     gin 路由 + SSE hub（合流 / 重放 / 慢客户端）
+  api/        启动装配 + 业务 handler + 对话框 / 自启等系统能力实现
   repo/       GORM 持久层
-  domain/     域模型（一个聚合根一个文件）
-  knowledge/  知识库（切分 + FTS5 检索）
-  skill/      Skill 解析与注册
-  runtime/    路径解析 + 内置 Python / PowerShell 运行时
+  domain/     域模型（一个聚合根一个文件，DO / REQ / VO / RESP 同居）
+  knowledge/  知识库（解析 + 切分 + FTS5 检索）
+  skill/      Skill 解析、注册与来源优先级
+  runtime/    路径解析 + 内置 Python / PowerShell 运行时（归档 go:embed，首启解压）
+              runtimetest/  测试夹具：预置运行时标记，装配类测试跳过解压
+  config/     Viper 配置（MasterKey 等）
+  db/         SQLite 打开 / 迁移 / FTS5 虚表
   pkg/        叶子工具包（错误 / ID / 日志 / 加密 / 路径）
+  tray/       系统托盘        singleinstance/  单实例与二次启动转交
 frontend/src/src/   Vue3 源码（themes.css 是唯一色值与字体来源）
-docs/         架构 / 契约 / 开发 / 部署 / 页面
-specs/        功能规格 01-14
+assets/       内置 Skill（embed 进 exe）
+scripts/      依赖门禁入口（CI 引用）+ 窗口截图
+tools/        依赖方向门禁（Go 写的独立程序）
+docs/         项目级文档（架构 / 契约 / 数据模型 / 页面 / 开发 / 部署）
+specs/        子系统规格 01-14
 ```
 
 ## 文档
 
+先读 `AGENTS.md`（规范）→ `docs/ARCHITECTURE.md`（全貌）→ 按需查 `specs/`。
+
 | 文档 | 内容 |
 |---|---|
-| [AGENTS.md](AGENTS.md) | 工程规范（唯一权威） |
-| [DESIGN.md](DESIGN.md) | 视觉语言与交互原则 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构总览与关键取舍 |
-| [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP / SSE 契约与断线对账 |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、数据目录、排错 |
-| [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 页面结构与组件基元 |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 构建产物与分发 |
-| [specs/](specs/) | 14 篇功能规格 |
-| [specs/12-user-manual.md](specs/12-user-manual.md) | 用户手册（写给第一次用的人） |
+| [AGENTS.md](AGENTS.md) | 工程规范（编码 / 依赖方向 / 错误码 / 测试判据），唯一权威 |
+| [DESIGN.md](DESIGN.md) | 视觉语言、设计令牌、交互原则 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 全貌：分层、依赖方向、每个模块的设计 / 实现 / 为什么 / 代价、可靠性对策、已知限制 |
+| [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 域模型与持久化：表、树状条目链、迁移与 FTS5 |
+| [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP 端点、SSE 事件字典与断线对账四条规则 |
+| [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 路由、页面骨架、组件基元、设置键位 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、布局纪律、数据目录、测试写法、排错 |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 构建产物、内置运行时、分发注意 |
+
+子系统规格 `specs/01-14`：
+[01 Agent 内核](specs/01-agent-loop.md) ·
+[02 上下文压缩](specs/02-context-compaction.md) ·
+[03 工具系统](specs/03-tool-system.md) ·
+[04 文件工具](specs/04-file-tools.md) ·
+[05 命令执行策略](specs/05-exec-policy.md) ·
+[06 内置运行时](specs/06-runtime.md) ·
+[07 会话模型](specs/07-session.md) ·
+[08 Skill 系统](specs/08-skill.md) ·
+[09 知识库](specs/09-knowledge.md) ·
+[10 LLM 适配层](specs/10-llm-adapter.md) ·
+[11 桌面壳](specs/11-desktop-shell.md) ·
+[12 用户手册](specs/12-user-manual.md) ·
+[13 系统提示与设置](specs/13-prompt-and-settings.md) ·
+[14 用量与上下文水位](specs/14-usage-and-context.md)

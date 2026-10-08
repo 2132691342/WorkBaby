@@ -1,11 +1,14 @@
 <script setup lang="ts">
 // 应用壳：无边框窗口的自绘标题栏 + 路由出口。
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { syncFromSettings } from './composables/useAppearance'
 import { useTheme } from './composables/useTheme'
 import { sseConnected } from './composables/useSse'
+import { intentFile, intentNewSession, pushShellIntent } from './composables/shellIntent'
 import { useChatStore } from './stores/chat'
 import { useSettingsStore } from './stores/settings'
+import { useToastStore } from './stores/toast'
 import AppIcon from './components/common/AppIcon.vue'
 import ToastHost from './components/common/ToastHost.vue'
 import { status, message, retryHandshake } from './bootstrap'
@@ -15,16 +18,25 @@ import { EventsOn } from '../wailsjs/runtime/runtime'
 const booted = ref(false)
 const settings = useSettingsStore()
 const chat = useChatStore()
+const toast = useToastStore()
+const router = useRouter()
 const { theme, setTheme } = useTheme()
 
 const failed = computed(() => status.value === 'failed')
 const ready = computed(() => booted.value && !failed.value)
 
+// 关闭按钮的去向由「关闭到托盘」设置说了算，悬停提示如实反映，别让用户猜。
+const closeHint = computed(() =>
+  settings.values['minimize_to_tray'] !== 'false' ? '关闭（收进托盘）' : '关闭',
+)
+
 function winctl(action: string) {
   void import('../wailsjs/runtime/runtime').then((rt) => {
     if (action === 'min') rt.WindowMinimise()
     else if (action === 'max') rt.WindowToggleMaximise()
-    else if (action === 'close') rt.WindowHide()
+    // 关闭必须走 Quit：它触发 Go 侧 OnBeforeClose 判定——收进托盘还是真退出
+    // 由设置与退出流程决定。直接 WindowHide 会绕过判定，把「关闭」一律变成收托盘。
+    else if (action === 'close') rt.Quit()
   })
 }
 
@@ -45,9 +57,20 @@ onMounted(() => {
   watch(status, (s) => {
     if (s === 'ready' && !booted.value) void loadBoot()
   })
-  EventsOn('app:new-session', () => window.dispatchEvent(new CustomEvent('wb:new-session')))
+  // 收进托盘前外壳会提示一句再隐藏，否则窗口「凭空消失」最让人困惑
+  EventsOn('app:to-tray', () => toast.info('已收进托盘，点右下角图标重新打开'))
+  // 托盘「新建对话」与外部打开文件：切回对话页，落到对话视图里执行。
+  // 先存意图再广播——视图可能还没挂载，事件不能作为唯一载体。
+  EventsOn('app:new-session', () => {
+    intentNewSession.value = true
+    void router.push('/')
+    pushShellIntent()
+  })
   EventsOn('app:open-file', (data: { path?: string }) => {
-    window.dispatchEvent(new CustomEvent('wb:open-file', { detail: data?.path }))
+    if (!data?.path) return
+    intentFile.value = data.path
+    void router.push('/')
+    pushShellIntent()
   })
 })
 
@@ -96,7 +119,7 @@ function quitApp() {
         <button class="win-btn" type="button" title="最大化" @click="winctl('max')">
           <AppIcon name="window-max" size="ic-sm" />
         </button>
-        <button class="win-btn close" type="button" title="关闭（收进托盘）" @click="winctl('close')">
+        <button class="win-btn close" type="button" :title="closeHint" @click="winctl('close')">
           <AppIcon name="close" size="ic-sm" />
         </button>
       </div>

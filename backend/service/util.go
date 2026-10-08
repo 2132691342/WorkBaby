@@ -1,0 +1,109 @@
+package service
+
+import (
+	"encoding/json"
+	"time"
+
+	"WorkBaby/backend/domain"
+	"WorkBaby/backend/llm"
+)
+
+func nowMillis() int64 { return time.Now().UnixMilli() }
+
+// toLLMMessages 把会话链还原出的条目转成内核消息。
+func toLLMMessages(entries []domain.EntryDO) []llm.Message {
+	out := make([]llm.Message, 0, len(entries))
+	for _, e := range entries {
+		var p domain.MessagePayload
+		_ = json.Unmarshal([]byte(e.PayloadJSON), &p)
+		msg := llm.Message{
+			Role: e.Role, Content: p.Content, Thinking: p.Thinking,
+			ToolCallID: p.ToolCallID, IsError: p.IsError,
+			ToolCalls:  toLLMToolCalls(p.ToolCalls),
+		}
+		for _, im := range p.Images {
+			msg.Images = append(msg.Images, llm.Image{MIME: im.MIME, Base64: im.Base64})
+		}
+		out = append(out, msg)
+	}
+	return out
+}
+
+// usageJSONOf 把内核用量序列化成条目的 usage_json；消息底部的 token 数读它。
+func usageJSONOf(u *llm.Usage, contextTokens int) string {
+	if u == nil {
+		return ""
+	}
+	raw, err := json.Marshal(domain.UsageVO{
+		Input: u.Input, Output: u.Output, Cached: u.Cached,
+		Total: u.Total, Context: contextTokens, LatencyMs: u.LatencyMs,
+	})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+// toMessageVO 把条目转成前端渲染用的消息。
+func toMessageVO(e *domain.EntryDO) domain.MessageVO {
+	var p domain.MessagePayload
+	_ = json.Unmarshal([]byte(e.PayloadJSON), &p)
+	var u domain.UsageVO
+	_ = json.Unmarshal([]byte(e.UsageJSON), &u)
+	vo := domain.MessageVO{
+		ID: e.ID, Role: e.Role, Type: e.Type, Thinking: p.Thinking,
+		Content: p.Content, ToolCallID: p.ToolCallID,
+		ToolName: p.ToolName, IsError: p.IsError, StopReason: p.StopReason,
+		LatencyMs: p.LatencyMs, CreatedAt: e.CreatedAt,
+	}
+	if len(p.ToolCalls) > 0 {
+		vo.ToolCalls = p.ToolCalls
+	}
+	if len(p.Images) > 0 {
+		vo.Images = p.Images
+	}
+	if u.Total > 0 || u.Input > 0 || u.Output > 0 {
+		cp := u
+		vo.Usage = &cp
+	}
+	return vo
+}
+
+// payloadOf 把内核消息序列化成条目 payload。
+func payloadOf(m llm.Message, stopReason string, latencyMs int64, toolName ...string) string {
+	p := domain.MessagePayload{
+		Thinking: m.Thinking, Content: m.Content, ToolCallID: m.ToolCallID,
+		IsError: m.IsError, StopReason: stopReason, LatencyMs: latencyMs,
+		ToolCalls: toDomainToolCalls(m.ToolCalls),
+	}
+	for _, im := range m.Images {
+		p.Images = append(p.Images, domain.MessageImage{MIME: im.MIME, Base64: im.Base64})
+	}
+	if len(toolName) > 0 {
+		p.ToolName = toolName[0]
+	}
+	raw, _ := json.Marshal(p)
+	return string(raw)
+}
+
+func toLLMToolCalls(in []domain.ToolCall) []llm.ToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolCall, 0, len(in))
+	for _, c := range in {
+		out = append(out, llm.ToolCall{ID: c.ID, Name: c.Name, Label: c.Label, Args: c.Args})
+	}
+	return out
+}
+
+func toDomainToolCalls(in []llm.ToolCall) []domain.ToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]domain.ToolCall, 0, len(in))
+	for _, c := range in {
+		out = append(out, domain.ToolCall{ID: c.ID, Name: c.Name, Label: c.Label, Args: c.Args})
+	}
+	return out
+}

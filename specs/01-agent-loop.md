@@ -2,7 +2,7 @@
 
 ## 定位
 
-内核是可单测的纯循环（`internal/agent`）：不知道 HTTP、数据库、桌面壳；
+内核是可单测的纯循环（`backend/agent`）：不知道 HTTP、数据库、桌面壳；
 模型、工具、队列、闸门全部经 `Config` 注入。个人助手的复杂度下限就在这里。
 
 ## 设计
@@ -39,7 +39,7 @@ type Gate func(ctx context.Context, call *llm.ToolCall) (blocked bool, reason st
 
 type Budget struct {
     Window       int   // 模型上下文窗口
-    WindowKnown  bool  // false 表示窗口是估算值，前端须显示「未知」
+    WindowKnown  bool  // false 表示窗口是估算值，界面读数加「约」前缀
     Reserve      int   // 给模型输出留的余量
     Keep         int   // 压缩后保留的近期 token 预算
     SystemTokens int   // system 提示词的 token 估算
@@ -55,8 +55,8 @@ type Config struct {
     MaxTokens   int
     Temperature *float64 // nil 表示不下发，交给上游默认
     TopP        *float64
-    MaxTurns    int
-    Parallel    int
+    MaxTurns    int      // 缺省 32；到顶以 StopMaxTurns 收尾
+    Parallel    int      // 并发工具上限，缺省 4
     Budget      Budget
     Gate        Gate
     Emit        func(Event)
@@ -86,7 +86,7 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 | `turn_start` | 每轮发模型前 | `Turn` |
 | `message_delta` | 收到正文 / 思考增量 | `DeltaKind`(text\|thinking) `Delta` |
 | `tool_execution_start` | 工具开始（预执行失败的调用同样发，保证事件成对） | `ToolCall` `ToolTitle` |
-| `tool_execution_end` | 工具结束 | `ToolCall` `ToolOK` `ToolTitle` `ToolOutput` `DurationMs` |
+| `tool_execution_end` | 工具结束 | `ToolCall` `ToolOK` `ToolBlocked` `ToolTitle` `ToolOutput` `DurationMs` |
 | `steering` | 插话注入上下文时，每条一个 | `UserContent` |
 | `turn_end` | 工具结果全部回填后 | `Turn` `Usage` `ContextTokens` |
 | `compressed` | 真的裁掉过东西 | `TokensBefore` `TokensAfter` |
@@ -108,8 +108,8 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 1. **prepare**：查工具 → `tool.ValidateArgs` → 过闸门。闸门拦下就当场生成一条
    `IsError` 结果，不进执行批次，但**仍占住自己的序号**。
 2. **execute**：批中任一工具声明 `ExecutionSequential`，整批退化为串行；
-   否则走信号量并发（上限 `Config.Parallel`，默认 4）。写类工具额外持写锁，
-   避免两个写操作打同一个文件。
+   否则走信号量并发（上限 `Config.Parallel`，默认 4）。写类工具靠这条分批规则
+   保证不会并发（sequential 工具永远不在并发批里），因此不需要额外的锁。
 3. **回填**：按调用下标写回 `assistant(tool_calls)` 声明的顺序。
 
 ### 中断与异常
@@ -133,26 +133,26 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 | 事件出口串行化 | 并行工具各自在 goroutine 里发事件，不锁则上层落库位点被并发读写 |
 | 工具 panic 不 recover | panic 说明有 bug；失败用 `pkg.New(4xxx, ...)` 表达 |
 
+事件驱动落库时，上层还要守住两条与协议配对相关的硬约束——声明必须在结果之前
+合并落库、ULID 熵源必须并发安全，详见 [`07-session.md`](07-session.md) 的「落库契约」。
+
 ## 取舍
 
-- **单层循环而非外层 follow-up 循环**：外层循环服务的是终端 REPL（用户一直敲键、
-  循环停了就自动续跑）。桌面端有明确的「插话 / 排队」按钮，语义由 UI 表达；
-  再套一层只会让「什么时候注入」变成隐式行为。跟进消息与插话进同一个队列。
-- **无 PrepareNextTurn 挂载点**：压缩是纯函数（清洗 + 按预算找切点），不需要在
-  轮间回调里做副作用。`Budget` 由 service 层备好，`Compact` 是每次发送前的
-  必经之路，不是可选钩子。
+- **单层循环、无 PrepareNextTurn 挂载点**：理由见上文「设计」两节——桌面端语义由
+  UI 表达，压缩是纯函数而非钩子。
 - **Gate 是唯一回调面**：审批等需要挂起等用户的逻辑收成一个函数，而不是钩子集合。
   内核因此不认识审批表、不认识设置，依赖全部经 Config 注入，可以纯内存单测。
+- **代价**：单层循环意味着「运行中改配置」要到下一轮才生效；内核对压缩内容
+  无感知，压缩质量完全取决于 `Compact` 的切点策略（见 02）。
 
 ## 测试
 
 | 文件 | 测试 | 锁住的行为 |
 |---|---|---|
 | `loop_test.go` | `TestLoopProtocolOrder` | 多轮回填顺序、并行批次保序 |
-| | `TestLoopInjectsSteeringBeforeNextTurn` | 插话并入下一轮上下文 + steering 事件 |
 | | `TestLoopStopsOnCancelLengthAndError` | 取消 / 截断（截断轮不执行工具）/ 上游报错 |
 | | `TestLoopBlocksRepeatedIdenticalCall` | 重复调用拦截到上限 + 被拦调用事件成对 |
 | | `TestEmitSerializesConcurrentTools` | 事件出口串行化 |
-| `compact_test.go` | `TestLoopCompactsHistoryOverBudget` | 超预算裁剪且裁后从 user 起头 |
+| `compact_test.go` | `TestCompactProtocol` | 清洗硬约束、压缩切点合法性 |
 
-多轮驱动用 `internal/llm/llmtest` 的脚本替身，不联网。
+多轮驱动用 `backend/llm/llmtest` 的脚本替身，不联网。

@@ -1,4 +1,7 @@
-﻿param(
+﻿# 截运行中的 WorkBaby 窗口（真机视觉验收）：可先置顶、调整尺寸、点一下、滚一段、
+# 拖一下、敲一句。全部走 Win32 事件——窗口由另一个进程的消息循环驱动，
+# SendKeys / Set-Clipboard 之类的高层 cmdlet 送不进 WebView2。
+param(
   [string]$Out = "D:\GoFiles\WorkBaby\shot.png",
   [string]$ProcName = "WorkBaby",
   [int]$W = 0,

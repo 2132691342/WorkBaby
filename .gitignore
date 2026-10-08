@@ -19,9 +19,6 @@
 !/build/windows/installer/*.nsi
 !/build/windows/installer/*.nsh
 
-# Runtimes（归档经 Git LFS 跟踪，见 .gitattributes）
-/runtimes/*.7z
-
 # Frontend
 /frontend/node_modules/
 /frontend/dist/
@@ -55,3 +52,6 @@
 
 # Nested git repos (submodules)
 assets/skills/project-standard/
+# 数据目录被指到源码树时解压出来的运行时：纯粹的本地产物，入库只会污染工作区
+service/powershell/
+.trash/

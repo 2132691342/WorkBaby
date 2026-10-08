@@ -62,23 +62,18 @@ persona           固定人设 + 四条工作原则 + 一组输出风格约束
 | `disabled_skills` | 空 | 逗号分隔的停用技能名单（启动时套用） |
 | `theme` | `light` | 主题：light / dark |
 | `font_size` | `md` | 正文字号刻度 |
-| `font_family` | 空 | 界面字体族（空 = 系统默认） |
+| `font_family` | `system` | 界面字体族（`system` = 跟随系统默认） |
 | `show_thinking` | `true` | 是否展示思考过程 |
 | `send_on_enter` | `true` | 回车发送（false = Ctrl+Enter 发送） |
-| `minimize_to_tray` | `true` | 关闭按钮收进托盘 |
+| `minimize_to_tray` | `true` | 关闭按钮收进托盘；`false` = 点关闭就退出进程 |
 | `launch_on_login` | `false` | 开机自启（写 HKCU Run） |
 | `density` | `comfortable` | 信息密度 |
 | `workspace` | 用户主目录 | 默认工作目录 |
 
 配置文件（`config.yaml`）只放**不适合进数据库**的东西：MasterKey、监听端口。
 
-三档执行方式的准确含义（前后端取值必须与本表一致）：
-
-| 档位 | 写文件 | 跑命令 / 跑脚本 |
-|---|---|---|
-| `ask` | 问 | 问 |
-| `auto_edit` | 不问 | 问 |
-| `yolo` | 不问 | 不问 |
+三档执行方式的完整语义与审批闸门见 [`05-exec-policy.md`](05-exec-policy.md)；
+档位按会话存（`sessions.permission`），前端在输入框的「规矩」chip 里切换。
 
 **不改工具面**：不做「只读档就把工具藏起来」，那会让模型突然找不到工具并反复重试。
 

@@ -28,7 +28,7 @@
 | ID | oklog/ulid/v2 | 业务 ULID 带前缀 |
 | 加密 | AES-256-GCM（标准库） | Provider API Key |
 | 托盘 | getlantern/systray | 关闭到托盘 |
-| 内置运行时 | Python + PowerShell | `runtimes/`（LFS 随产物分发），其余一律不内置 |
+| 内置运行时 | Python + PowerShell | `backend/runtime/bundled/`（go:embed 进 exe，归档经 LFS 托管），其余一律不内置 |
 
 ### 1.1 依赖原则
 
@@ -49,7 +49,7 @@ WorkBaby/
 ├── main.go                       # 入口：embed + wails.Run + 单实例守卫
 ├── app.go                        # App 结构体（嵌入 *api.Handler，生命周期委托）
 │
-├── internal/
+├── backend/
 │   ├── server/                   # ① HTTP 层（gin）：路由 / SSE hub / 统一响应 / 方法白名单
 │   ├── api/                      # ② 业务 handler（薄）+ 系统能力绑定（唯一允许 import wails 的包）
 │   ├── service/                  # ③ 业务编排层（事务边界；不写 SQL；不引 gin/Wails）
@@ -60,7 +60,8 @@ WorkBaby/
 │   ├── tool/                     # ⑧ 工具系统（registry + files/exec/python/web/search + runtime）
 │   ├── skill/                    # ⑨ Skill（parser/registry/loader）
 │   ├── knowledge/                # ⑩ 知识库（loader/chunker/service + FTS5 检索）
-│   ├── runtime/                  # ⑪ 路径解析 + 内置 Python / PowerShell 运行时（tar.gz / zip 解压）
+│   ├── runtime/                  # ⑪ 路径解析 + 内置 Python / PowerShell 运行时（bundled/ 归档 go:embed + 解压）
+│   │   └── runtimetest/          #    测试夹具：预置运行时标记，装配类测试跳过解压（只被测试引用）
 │   ├── config/                   # ⑫ 配置（Viper YAML + MasterKey）
 │   ├── db/                       # ⑬ SQLite 打开 + 迁移 + FTS5 虚表
 │   ├── pkg/                      # ⑭ 叶子工具包（AppError/ID/日志/加密/httprules/fsutil）
@@ -68,33 +69,33 @@ WorkBaby/
 │   └── singleinstance/           # ⑯ 单实例保护（文件锁 + 本地 TCP IPC）
 │
 ├── frontend/                     # Vue 3 工程（源码在 frontend/src/src）
-├── assets/                       # 内置 Skill / 文档（embed）
+├── assets/                       # 内置 Skill（embed）
 ├── build/                        # 平台资源与产物
-├── docs/                         # 项目级文档（架构 / 契约 / 开发 / 部署 / 页面）
-├── specs/                        # 功能规格（01-14）
-├── scripts/                      # 构建辅助脚本（含依赖方向门禁入口）
+├── docs/                         # 项目级文档：架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署
+├── specs/                        # 子系统规格（01-14）
+├── scripts/                      # 依赖门禁入口（CI 引用）+ 窗口截图
 └── tools/                        # Go 写的独立门禁工具（check-boundaries）
 ```
 
 **禁止**：
 
 - 在 `service / repo / api` 包内定义实体 / DTO / VO / 枚举（必须放 `domain/`）
-- 错误码 / 工具类分散到各业务包（统一 `internal/pkg/`）
+- 错误码 / 工具类分散到各业务包（统一 `backend/pkg/`）
 - 在 `main` 包内写业务代码
-- `internal/pkg/` 内出现业务词汇（session / provider / chat 等）
-- `internal/pkg/` 依赖任何其他 `internal/` 业务包（叶子工具包铁律）
+- `backend/pkg/` 内出现业务词汇（session / provider / chat 等）
+- `backend/pkg/` 依赖任何其他 `backend/` 业务包（叶子工具包铁律）
 - `agent/` import wails / api / service / server / gin
 
 ### 2.2 依赖方向（强制）
 
 ```
-internal/server ──► internal/api ──► internal/service ──► 能力域（agent/llm/tool/knowledge/skill）
+backend/server ──► backend/api ──► backend/service ──► 能力域（agent/llm/tool/knowledge/skill）
                                           │
                                           ▼
-                                     internal/repo ──► internal/domain
+                                     backend/repo ──► backend/domain
                                           │
                                           ▼
-                              internal/pkg（叶子工具包：各层可依赖，自身不依赖任何 internal 业务包）
+                              backend/pkg（叶子工具包：各层可依赖，自身不依赖任何 backend 业务包）
 ```
 
 | 层 | 允许依赖 | 禁止依赖 |
@@ -105,7 +106,7 @@ internal/server ──► internal/api ──► internal/service ──► 能�
 | 能力域 | repo / domain / pkg / 其他能力域（经接口） | api / service / server / wails |
 | repo | domain / pkg / gorm | api / service / 能力域 |
 | domain | pkg | 任何上层 |
-| **internal/pkg** | 标准库 / golang.org/x / 第三方工具 | **任何其他 internal 业务包** |
+| **backend/pkg** | 标准库 / golang.org/x / 第三方工具 | **任何其他 backend 业务包** |
 | agent | llm / tool / pkg | api / service / server / repo |
 
 **双主机**：业务 API 走 gin HTTP，Wails 绑定只保留系统能力（对话框/剪贴板/窗口）。
@@ -129,7 +130,7 @@ internal/server ──► internal/api ──► internal/service ──► 能�
 
 `server / api / service / repo` 四层禁止就地声明入参/出参/实体结构体，必须引用 `domain.XxxREQ/DTO/VO/RESP/DO`。
 
-例外：`internal/tool/*` 内的快速参数解析允许内联（须加注释）；`internal/repo/*` 内 GORM 临时查询条件允许内联。
+例外：`backend/tool/*` 内的快速参数解析允许内联（须加注释）；`backend/repo/*` 内 GORM 临时查询条件允许内联。
 
 ### 2.4 错误处理（强制 AppError）
 
@@ -157,6 +158,7 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 | 4000–4999 | 工具 / 审批 |
 | 5000–5999 | Agent / 内核 |
 | 6000–6999 | Knowledge |
+| 7000–7999 | Runtime（内置运行时） |
 | 8000–8999 | Skill |
 | 9000–9999 | 保留 |
 
@@ -181,26 +183,40 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 
 ### 2.5.1 LLM 协议 DTO 例外
 
-`internal/llm/openai|anthropic|ollama` 下的 `*.go` 是上游 API 响应反序列化 DTO，
+`backend/llm/openai|anthropic|ollama` 下的 `*.go` 是上游 API 响应反序列化 DTO，
 json tag 必须忠实上游字段名。归一化层（`llm/llm.go`）使用 snake_case。
 
 ### 2.6 注释规范（强制精简）
 
-- 包：1 行职责；类型：2~4 行概要；方法：签名级；字段：仅在不显然时 1 行
-- **连续注释块 ≤ 3 行**；文件头注释不超过 5 行
-- 行内只解释「为什么」
-- 禁止：过程性内容、TODO 历史、实现细节叙事、外部项目名与「参考/借鉴」字样
+注释的读者是「半年后要改这段代码的人」。他要的是**这个东西是什么、边界在哪**，
+不是作者的思考过程。
+
+| 位置 | 要求 |
+|---|---|
+| 文件头 | 1~2 行说清这个文件的职责；禁止超过 3 行 |
+| 包 | 1 行 |
+| 类型 | 1~2 行说它是什么；契约类类型可展开到 3 行说清边界 |
+| 方法 | 1 行签名级说明（干什么 / 返回什么），不写实现步骤 |
+| 字段 | 仅在名字不自解释时写 1 行 |
+| 行内 | 只写「为什么」，1 行 |
+
+- **连续注释块 ≤ 2 行**（契约说明例外，最多 3 行）
+- 禁止：过程性叙述、TODO 历史、实现细节叙事、外部项目名与「参考 / 借鉴」字样
+- 禁止：把设计论证写进注释——论证属于 `docs/` 与 `specs/`，代码里只放结论
 
 ### 2.6.1 文档规范
 
+文档只回答三件事：**这个项目是什么、每个模块怎么设计实现、为什么这么选型**。
+
 - 根级：`README.md`（入口与能力全景）/ `AGENTS.md`（工程规范，唯一权威）/ `DESIGN.md`（视觉语言）
-- `docs/`：项目级说明（架构 / 契约 / 开发 / 部署 / 页面）
-- `specs/`：功能规格，编号 01-14，一个功能一个文件
-- 每篇只写现状：定位 → 设计 → 契约 → 关键流程 → 约束 → 取舍
-- 表格与短段落优先
+- `docs/`：项目级说明（架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署）
+- `specs/`：子系统规格，编号 01-14，一个子系统一个文件
+- 每篇只写现状：定位 → 设计 → 契约 → 关键流程 → 约束 → 取舍。**优势与代价必须写出来**
+- 表格与短段落优先；能用表就不用列表
 - **不写改动过程**：不建 CHANGELOG，不记录「本次改了什么」「之前坏在哪」，
   设计变更直接改进对应文档；历史由 Git 承载
 - 不写外部项目名与「参考 / 借鉴 / 类似 X」——只讲自己怎么设计、为什么这么设计
+- 文档必须与代码同步：改行为时同时改对着这篇行为的文档与注释，不同步视为未完成
 
 ### 2.7 全局 ID：ULID 大写 + 领域前缀
 
@@ -208,7 +224,7 @@ json tag 必须忠实上游字段名。归一化层（`llm/llm.go`）使用 snak
 func NewID(prefix string) string   // "SESSION_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 ```
 
-前缀常量集中在 `internal/domain/id.go`。本机用户 id 固定 `"local"`。
+前缀常量集中在 `backend/domain/id.go`。本机用户 id 固定 `"local"`。
 
 ### 2.8 时间戳统一毫秒整数
 
@@ -268,19 +284,19 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 
 | 维度 | 规则 |
 |---|---|
-| HTTP 方法白名单 | 业务仅允许 GET 与 POST（`internal/pkg/httprules.go` 收口） |
+| HTTP 方法白名单 | 业务仅允许 GET 与 POST（`backend/pkg/httprules.go` 收口） |
 | 路径参数位置 | 变量参数放路径末尾（`/xxx/:id/delete` 风格） |
 | 删除语义 | 删除走 `POST .../delete` |
 | 流式事件 | `GET /api/v1/events?session_id={sid}` SSE，Last-Event-ID 重放 |
 
 **路径风格唯一标准**：`/api/v1/{resource}/:id/{action}`。前端 API 层收敛在
-`frontend/src/src/api/index.ts`，路径与 `internal/server/routes.go` 一一对应。
+`frontend/src/src/api/index.ts`，路径与 `backend/server/routes.go` 一一对应。
 
 **例外**：llm Provider 适配层调上游 API 可用全部 method。
 
 ### 2.13 Agent 内核契约（强制）
 
-`internal/agent` 是整个工程最核心的子系统。
+`backend/agent` 是整个工程最核心的子系统。
 
 #### 2.13.1 主循环形态（单层流式）
 
@@ -365,6 +381,9 @@ const (
 | 启动失败必须走 Wails 事件总线 | 此时 HTTP/SSE 还不存在，走 `Emitter` 等于没发，用户只会看到空窗口 |
 | `domReady` 必须等 `OnStartup` 完成 | Wails 把 `OnStartup` 放独立 goroutine，两者无顺序保证；靠「Svc 是不是 nil」判断会误判慢启动 |
 | `beforeClose` 必须在退出流程中放行 | 无条件拦截会让托盘「退出」变成空操作，进程留驻后台占住 exe |
+| 窗口关闭必须走 `Quit`（触发 `OnBeforeClose`） | 直接 `WindowHide` 绕过判定，把「关闭」一律变成收托盘，关掉驻留设置也退不掉 |
+| 托盘退出后必须等消息循环收尾 | 进程抢在 `NIM_DELETE` 之前退出，通知区会留下摘不掉的幽灵图标 |
+| 托盘消息循环必须锁定 OS 线程 | `GetMessage` 与托盘窗口创建分属不同线程，菜单点击与退出回调一起失灵 |
 | 读锁必须配 `RUnlock` | 配成 `Unlock` 会 panic，且调用点在每轮对话的 `BuildSystem` 里 |
 
 详见 `specs/01-agent-loop.md` / `02-context-compaction.md`。
@@ -386,43 +405,49 @@ const (
 | 审批闭环 / 路径穿越 / 写前必读等安全护栏 | 幂等 setter、构造函数冒烟 |
 | FTS 检索与短查询兜底 | 只验证「不 panic」「非 nil」的弱断言 |
 | 服务层集成：建会话→发送→落库 | 同一行为在不同文件里的重复断言 |
+| 跨进程边界的端到端（HTTP / SSE / IPC） | 结构存在性检查（某张表在不在） |
+
+同一个行为只在一个地方断言。**重复断言是测试的负债**：改一次行为要改 N 处，
+而其中任何一处的失败都不会告诉你更多东西。
 
 ### 3.2 规模约束
 
 - **一个 `Test` 讲一条链路**：同类断言用 `t.Run` 归到同一个 Test 下，
   失败时从输出就能看出是哪条链路、哪个分支坏了
 - 单个测试文件 ≤ 6 个 `Test` 函数
-- 全量 `go test ./internal/...` 本地应在 10 秒内完成
+- **昂贵的 setup 只在父测试准备一次**：起 HTTP 服务、装配服务容器、解压内嵌归档都属于这一类。
+  每个子测试各起一套，加一条分支就在给总时长做乘法
+- **装配类测试不真解压归档**：`runtime/runtimetest.SeedMarkers` 预置
+  「已解压 + 版本标记」后，装配只跑配置 / DB / 服务 / 工具注册的真实链路。
+  真解压只在 `runtime` 包做一次（唯一的慢点是刻意的）
 - 环境依赖（系统 shell、真实网络、运行时归档）用 `exec.LookPath` / `t.Skip` 守卫后跳过
-- 每个测试文件**首行必须有导航注释**
-- 多轮对话一律用 `internal/llm/llmtest` 脚本替身 + `factory.SetOverride` 注入，绝不真联网
+- 每个测试文件**首行必须有导航注释**：写清楚覆盖哪条链路、坏了的表现是什么
+- 多轮对话一律用 `backend/llm/llmtest` 脚本替身 + `factory.SetOverride` 注入，绝不真联网
 
 ### 3.3 测试索引
 
 只保留跨模块 / 跨轮次 / 跨协议的链路测试，每条链路一个 Test（分支用 `t.Run` 归入同一条链）。
-全量 29 个 Test / 19 个文件；单个测试文件 ≤ 6 个 `Test`；全量 -count=1 约 20 秒（大头是内置运行时真实解压）。
+全量 24 个 Test / 16 个文件，`go test ./... -count=1` 约 3.5s；唯一的时间大头是
+`runtime` 包对两份归档的真实解压与 SHA 校验（刻意的，装配类测试已用标记跳过）。
 
 | 文件 | Test | 覆盖的链路 |
 |---|---|---|
-| `app_test.go` | TestAppLifecycle | 启动等待（慢装配 / 失败 / 超时）、关闭拦截与退出放行、关闭到托盘开关 |
-| `api/startup_test.go` | TestStartupChain | 干净环境完整装配 + 业务端点 + 磁盘导入技能 + 跨源预检 |
-| `api/chat_stream_test.go` | TestChatStreamChain | 真实 HTTP 栈 SSE 送达（start→delta→done、seq 递增）与 Last-Event-ID 重放 |
-| `service/agent_test.go` | TestChatSendPersistsConversation · TestApprovalLoop · TestChatErrorPersistsPartialContent · TestChatSteerPersists | 建会话→发送→落库；审批闭环（单次 / 会话级）；错误轮半成品落库；插话落库（空闲直落 / 运行中按注入链序） |
-| `service/order_test.go` | TestToolResultOrdering | 声明先于结果（跨轮 / 同轮并发两态）与落库位点串行化 |
-| `service/provider_test.go` | TestDefaultModelChain | 默认服务→默认模型→新会话继承；存量空模型会话 run 时回填 |
-| `agent/loop_test.go` | TestLoopProtocolOrder · TestLoopInjectsSteeringBeforeNextTurn · TestLoopStopsOnCancelLengthAndError · TestLoopBlocksRepeatedIdenticalCall · TestEmitSerializesConcurrentTools | 回填顺序（多轮 / 并行）、插话注入与 steering 事件、三条收尾路径、重复调用拦截与事件成对、事件出口串行化 |
-| `agent/compact_test.go` | TestCompactProtocol · TestLoopCompactsHistoryOverBudget | CleanForProtocol 硬约束、压缩永不孤儿化 / 整轮丢弃、预算策略、降级截断、循环内真实裁剪 |
-| `tool/files_test.go` | TestFilesReadChain · TestFilesWriteEditGuardrails | 路径穿越、错误码区分、Unicode 找回、已读记账；覆盖前必读、edit 唯一性、行尾与 BOM |
-| `skill/skill_test.go` | TestSkillRegistryChain | embed 加载与正文取出、id/名字命中与来源优先级、读写锁配对 |
-| `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引→检索（短查询兜底）→删除级联 |
-| `config/config_test.go` | TestLoadSelfBootstrapsAndPersistsMasterKey | 首次启动自举出配置与主密钥，重启读回同一把 |
-| `runtime/runtime_test.go` | TestPythonRuntimeChain · TestPowerShellRuntimeChain | 归档顶层剥离 / 平铺解压、穿越拒绝、探测命中、缺失报错带路径、探测位兜底 |
-| `llm/think_test.go` | TestThinkSplitter | 内联 think 标签分流：整段 / 多块 / 纯文本透传、切碎标签与逐字喂入 |
-| `llm/openai/stream_test.go` | TestOpenAIStreamChain | usage 帧顺序、tool_call 单次下发、断流收尾、缓存计量双口径 |
-| `llm/anthropic/stream_test.go` | TestAnthropicStreamChain | 上游停滞经空闲看门狗收尾、事件缓冲满不丢弃 |
-| `llm/anthropic/encode_test.go` | TestEncodeProtocolConstraints | 无签名 thinking 不回传、角色交替、空 text / tool_result 拦截 |
-| `db/db_test.go` | TestOpenCreatesEveryTable | 全部业务表与 FTS5 虚表建出 |
-| `server/sse_test.go` | TestHubDeliveryChain | delta 合流保序、慢客户端挤 delta 保 done、按 seq 重放 |
+| `app_test.go` | TestAppLifecycle | 启动等待（慢装配 / 失败 / 超时）；关闭去向（托盘开关 + 退出流程 + 托盘未就绪） |
+| `api/startup_test.go` | TestStartupChain | 干净环境完整装配 → 磁盘导入技能 → 跨源预检放行 POST |
+| `api/chat_stream_test.go` | TestChatStreamChain | 真实 HTTP 栈 SSE 送达（start→delta→done、seq 递增、data 回带 event）与带 Last-Event-ID 重连补帧 |
+| `agent/loop_test.go` | TestLoopProtocolOrder · TestLoopStopsOnCancelLengthAndError · TestLoopBlocksRepeatedIdenticalCall · TestEmitSerializesConcurrentTools | 回填顺序（多轮 / 并行）、三条收尾路径、重复调用拦截与事件成对、事件出口串行化 |
+| `agent/compact_test.go` | TestCompactProtocol | 清洗硬约束、拆散的并行声明合并、压缩永不孤儿化 / 整轮丢弃、预算边界与降级 |
+| `service/agent_test.go` | TestApprovalLoop · TestChatErrorPersistsPartialContent · TestChatSteerPersists | 审批闭环（会话级放行不再弹卡）；错误轮半成品落库；运行中插话按注入链序落库 |
+| `service/order_test.go` | TestToolResultOrdering | 声明与结果紧邻配对（跨轮 / 同轮并发两态）与落库位点串行化 |
+| `service/provider_test.go` | TestDefaultModelChain · TestProviderKeyReveal | 默认服务→默认模型→新会话继承；存量空模型会话 run 时回填；密钥加密落库与显式查看 |
+| `tool/files_test.go` | TestFilesReadChain · TestFilesWriteEditGuardrails | 路径穿越、Unicode 路径变体找回；读→写闭环（读工具记账后放行）、edit 唯一性、行尾与 BOM |
+| `skill/skill_test.go` | TestSkillRegistryChain | embed 加载与落盘、同名按来源优先且可回退、切换工作目录换掉工作区技能 |
+| `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引→检索（短查询子串兜底）→删除级联 |
+| `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档与 SHA 常量一致、真实解压平铺到根目录、解压路径穿越拒绝 |
+| `server/sse_test.go` | TestHubDeliveryChain | delta 合流保序、慢客户端挤 delta 保 done |
+| `singleinstance/singleinstance_test.go` | TestSecondLaunchHandoff | 二次启动转交：文件路径与空路径（只唤起窗口）都原样送达主实例 |
+| `llm/openai/stream_test.go` | TestOpenAIStreamChain | usage 帧顺序、tool_call 单次下发、断流收尾、缓存计量双口径取大 |
+| `llm/anthropic/anthropic_test.go` | TestAnthropicEncodeProtocol · TestAnthropicStreamChain | 无签名 thinking 不回传；上游停滞经空闲看门狗收尾、事件缓冲满不丢弃 |
 
 ---
 
@@ -430,7 +455,7 @@ const (
 
 ```bash
 go vet ./...
-go test ./internal/...
+go test ./backend/...
 powershell -File scripts/check-boundaries.ps1   # 依赖方向（§2.2 约束表的可执行版本）
 cd frontend && npm run build        # 含 vue-tsc 类型检查
 wails build                          # 产物 build/bin/WorkBaby.exe

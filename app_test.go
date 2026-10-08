@@ -1,80 +1,81 @@
-// 应用生命周期链路：启动等待（慢装配不误判 / 失败 / 超时）与关闭放行判据。
-// Wails 把 OnStartup 放在独立 goroutine 里跑，与 OnDomReady 没有顺序保证；
-// 启动失败误判的表现是首次启动（解压内置 Python 约两秒）界面永远停在启动页。
+// 应用生命周期链路：装配等待判据、关闭去向判定（收托盘 / 真退出）。
+// Wails 把 OnStartup 放在独立 goroutine 里跑，与 OnDomReady 没有顺序保证，
+// 所以「怎么判装配完成」和「关闭时去哪儿」是这条链路的两个核心判据。
 package main
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"WorkBaby/internal/api"
-	"WorkBaby/internal/domain"
+	"WorkBaby/backend/api"
+	"WorkBaby/backend/db"
+	"WorkBaby/backend/domain"
+	"WorkBaby/backend/repo"
 )
 
 func TestAppLifecycle(t *testing.T) {
-	t.Run("等待慢装配后判成功", func(t *testing.T) {
-		a := NewApp()
+	t.Run("等待判据：慢装配不误判 / 失败如实报 / 卡死有上限", func(t *testing.T) {
+		// 慢装配（首次启动要解压运行时）：必须等到装配真的完成，不能一秒钟就报失败
+		slow := NewApp()
 		go func() {
 			time.Sleep(120 * time.Millisecond)
-			a.startOK.Store(true)
-			close(a.startDone)
+			slow.startOK.Store(true)
+			close(slow.startDone)
 		}()
 		start := time.Now()
-		if !a.awaitStartup() {
+		if !slow.awaitStartup() {
 			t.Fatal("装配最终成功后必须判定为成功，不能误报失败")
 		}
 		if d := time.Since(start); d < 100*time.Millisecond {
 			t.Fatalf("没有真正等待装配完成，只用了 %v", d)
 		}
-	})
 
-	t.Run("装配失败要判失败", func(t *testing.T) {
-		a := NewApp()
-		close(a.startDone)
-		if a.awaitStartup() {
+		failed := NewApp()
+		close(failed.startDone)
+		if failed.awaitStartup() {
 			t.Fatal("装配失败必须判定为失败")
 		}
-	})
 
-	// 超时上限不能被忽略，否则装配真卡死时界面会永远等下去。
-	t.Run("卡死要超时返回", func(t *testing.T) {
-		a := &App{Handler: api.New("test"), startDone: make(chan struct{}), startWait: 80 * time.Millisecond}
-		if a.awaitStartup() {
+		// 超时上限不能被忽略，否则装配真卡死时界面会永远等下去
+		stuck := &App{handler: api.New("test"), startDone: make(chan struct{}), startWait: 80 * time.Millisecond}
+		if stuck.awaitStartup() {
 			t.Fatal("装配卡住必须超时返回")
 		}
 	})
 
-	// 未进入退出流程时拦截关闭（收进托盘）；已进入必须放行，
-	// 否则托盘「退出」是空操作，进程留在后台并占住 exe。
-	t.Run("关闭拦截与退出放行", func(t *testing.T) {
-		a := NewApp()
-		if a.closeAllowed() {
-			t.Fatal("普通关闭必须被拦截，否则窗口直接消失")
-		}
-		a.quitting.Store(true)
-		if !a.closeAllowed() {
-			t.Fatal("退出流程中必须放行关闭")
-		}
-	})
-
-	// 「关闭到托盘」是可关的开关：关掉后关闭就是真退出。
-	// 关掉后台驻留却发现程序怎么都退不掉，只能去任务管理器，属于设计缺失。
-	t.Run("关闭到托盘尊重用户选择", func(t *testing.T) {
-		a := NewApp()
-		if !a.closeToTray() {
+	t.Run("关闭去向：托盘开关与退出流程决定收托盘还是真退出", func(t *testing.T) {
+		fresh := NewApp()
+		if !fresh.closeToTray() {
 			t.Fatal("未装配时按默认行为收进托盘")
 		}
-		dir := t.TempDir()
-		t.Setenv("WORKBABY_HOME", dir)
-		if err := a.Handler.Startup(context.Background()); err != nil {
+		// 托盘没就绪时拦截关闭，等于把窗口藏进一个还不存在的托盘里，用户再也找不回来
+		if fresh.beforeClose(context.Background()) {
+			t.Fatal("托盘没就绪时不能拦截关闭")
+		}
+		// 未进入退出流程时拦截关闭（收进托盘）
+		if fresh.closeAllowed() {
+			t.Fatal("普通关闭必须被拦截，否则窗口直接消失")
+		}
+		// 退出流程中必须放行，否则托盘「退出」是空操作，进程留在后台占着 exe
+		fresh.quitting.Store(true)
+		if !fresh.closeAllowed() {
+			t.Fatal("退出流程中必须放行关闭")
+		}
+
+		// 用户关掉「后台驻留」后，关闭必须真的退出；这条读持久化设置，需要一个真库
+		database, err := db.Open(filepath.Join(t.TempDir(), "app.db"))
+		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(a.Handler.Shutdown)
-		if err := a.Handler.Repo.SetSetting(domain.SettingMinimizeToTray, "false"); err != nil {
+		r := repo.New(database)
+		t.Cleanup(func() { _ = r.Close() })
+		if err := r.SetSetting(domain.SettingMinimizeToTray, "false"); err != nil {
 			t.Fatal(err)
 		}
-		if a.closeToTray() {
+		off := &App{handler: &api.Handler{Repo: r}}
+		if off.closeToTray() {
 			t.Fatal("用户关掉后台驻留后，关闭必须真的退出")
 		}
 	})
