@@ -111,6 +111,30 @@ function pickExample(text: string) {
   void send(text, [])
 }
 
+// 续写：截断后接着写。发一句「继续」是唯一协议安全的方式——
+// 直接把半截回复续上会被上游拒掉，助手也不该看到一条自己没写完的消息。
+async function resume() {
+  if (chat.running) return
+  await send('继续', [])
+}
+
+// 重试：把最后一条用户消息原样再发一次。失败轮的半成品已经落库，
+// 重发等于让助手在同一段上下文上再答一遍，历史不会因此错乱。
+async function retry() {
+  if (chat.running) return
+  const last = [...session.messages].reverse().find((m) => m.role === 'user')
+  if (!last?.content) return
+  await send(last.content, [])
+}
+
+// 断线重连后的对账：断开期间可能丢了 done / error，重放窗口也不保证兜得住。
+// 退出运行态 → 拉权威快照 → 对齐未决审批；少做一件，界面就可能永远停在「运行中」。
+async function reconcile() {
+  chat.onGap()
+  await chat.syncApprovals(session.currentId || '')
+  await reload()
+}
+
 // SSE 事件 → store；结束后拉一次权威快照，前端不做复杂合并。
 useSse(
   () => session.currentId,
@@ -161,6 +185,7 @@ useSse(
         break
     }
   },
+  reconcile,
 )
 
 // 桌面壳意图：托盘「新建对话」与「外部打开的文件」在这里落地。
@@ -249,7 +274,7 @@ watch(() => settings.boot?.default_model, seedContext)
         </div>
       </template>
       <template v-else>
-        <MessageList />
+        <MessageList @continue="resume" @retry="retry" />
       </template>
 
       <ChatInput

@@ -188,6 +188,107 @@ interface PreviewRuntime {
   Quit: () => void
 }
 
+/** 预览用的假 SSE 连接：握手成功即静默；地址带 ?stream=1 时演一次完整回合。 */
+type EsListener = (ev: MessageEvent) => void
+
+class PreviewEventSource {
+  onopen: ((ev: Event) => void) | null = null
+  onerror: ((ev: Event) => void) | null = null
+  private listeners = new Map<string, EsListener[]>()
+  private timers: Array<ReturnType<typeof setTimeout>> = []
+
+  constructor(_url: string) {
+    this.push(0, () => {
+      this.onopen?.(new Event('open'))
+      // 演不演由页面地址说了算：默认静默，否则每点一个会话都要重播一遍
+      if (new URLSearchParams(location.search).get('stream') === '1') this.playback()
+    })
+  }
+
+  addEventListener(name: string, cb: EsListener) {
+    this.listeners.set(name, [...(this.listeners.get(name) || []), cb])
+  }
+
+  removeEventListener(name: string, cb: EsListener) {
+    this.listeners.set(name, (this.listeners.get(name) || []).filter((f) => f !== cb))
+  }
+
+  close() {
+    for (const t of this.timers) clearTimeout(t)
+    this.timers = []
+  }
+
+  private push(ms: number, fn: () => void) {
+    this.timers.push(setTimeout(fn, ms))
+  }
+
+  private emit(event: string, data: unknown, seq: number) {
+    for (const cb of this.listeners.get(event) || []) {
+      cb(new MessageEvent(event, { data: JSON.stringify({ seq, event, data }) }))
+    }
+  }
+
+  // 一次完整回合：思考 → 工具 → 正文 → 撞上输出上限。
+  // 刻意以 length 收尾——界面上那条「继续」提示只有这条路径才看得到。
+  private playback() {
+    const entry = 'ENTRY_PREVIEW'
+    let seq = 0
+    let at = 0
+    const after = (ms: number, fn: () => void) => {
+      at += ms
+      this.push(at, fn)
+    }
+    const think = (text: string) =>
+      after(320, () => this.emit('chat:delta', { entry_id: entry, kind: 'thinking', delta: text }, ++seq))
+    const say = (text: string) =>
+      after(300, () => this.emit('chat:delta', { entry_id: entry, kind: 'text', delta: text }, ++seq))
+
+    this.emit('chat:start', { run_id: 'RUN_PREVIEW', session_id: '' }, ++seq)
+    after(0, () => this.emit('chat:context', { used: 42_800, window: 1_024_000, ratio: 4, known: true }, ++seq))
+    think('先看看工作区里有什么。')
+    think('读一下销售明细，再按区域汇总。')
+    after(700, () =>
+      this.emit(
+        'chat:tool_start',
+        {
+          tool_call_id: 'CALL_PREVIEW',
+          tool: 'read_file',
+          label: 'read_file',
+          args: { path: 'C:\\Users\\demo\\工作\\sales-q3.csv', limit: 50 },
+        },
+        ++seq,
+      ),
+    )
+    after(1600, () =>
+      this.emit(
+        'chat:tool_end',
+        {
+          tool_call_id: 'CALL_PREVIEW',
+          ok: true,
+          title: '输出',
+          output: '区域,销售额,同比\n华东,6120000,+24%\n华南,3380000,+12%',
+          duration_ms: 680,
+        },
+        ++seq,
+      ),
+    )
+    say('## 季度结论\n\n')
+    say('整体销售额 **¥1,284 万**，环比增长 18.4%。')
+    after(600, () =>
+      this.emit(
+        'chat:done',
+        {
+          entry_id: entry,
+          stop_reason: 'length',
+          max_tokens: 32_768,
+          usage: { input: 42_800, output: 8_192, cached: 6_000, total: 50_992, context: 42_800, latency_ms: 12_400 },
+        },
+        ++seq,
+      ),
+    )
+  }
+}
+
 export function installPreview() {
   // 事件总线要真的能派发：bootstrap 靠 app:ready 握手才肯放行界面
   const listeners = new Map<string, Listener[]>()
@@ -240,6 +341,10 @@ export function installPreview() {
       config: cfg,
     }
   }
+
+  // 预览里没有 SSE 服务端：接管 EventSource。
+  // 不接管的话浏览器会拿 404 反复重连，控制台被刷满，真正的报错全被淹掉。
+  ;(window as unknown as { EventSource: unknown }).EventSource = PreviewEventSource
 
   // 与 Go 侧 repeatReady 同策略：模块图是异步加载的，单次 0ms 广播可能早于
   // bootstrap 注册监听，之后就永远等不到端口（表现：整页空白）

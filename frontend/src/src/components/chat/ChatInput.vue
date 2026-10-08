@@ -175,6 +175,12 @@ function onKeydown(e: KeyboardEvent) {
   }
   if (e.key === 'Escape') {
     closeAll()
+    // 运行中按 Esc = 停止。这是面对「停不下来的助手」最直接的本能；
+    // 只在输入框为空时响应，免得正在写的内容被一次误按清掉上下文。
+    if (props.running && !text.value.trim()) {
+      e.preventDefault()
+      emit('stop')
+    }
     return
   }
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -334,7 +340,7 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
       </div>
 
       <div v-if="running" class="cq">
-        <AppIcon name="info" size="ic-xs" /> 运行中：发送会作为插话，助手会尽快响应
+        <AppIcon name="info" size="ic-xs" /> 运行中：发送会作为插话，按 Esc 停下
       </div>
 
       <div class="composer-in">

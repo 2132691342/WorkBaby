@@ -163,7 +163,13 @@ export interface ApprovalData {
 export interface CompressedData { tokens_before: number; tokens_after: number }
 /** 插话 / 排队消息已注入上下文并落库，界面据此把它补进时间线 */
 export interface UserData { entry_id: string; content: string }
-export interface DoneData { entry_id: string; stop_reason: string; usage?: UsageVO }
+export interface DoneData {
+  entry_id: string
+  stop_reason: string
+  usage?: UsageVO
+  /** 本轮实际下发的输出预算；撞 length 时用它说清「撞的是哪个上限」 */
+  max_tokens?: number
+}
 export interface ErrorData { code: number; message: string }
 export interface GapData { reason: string }
 export interface StoppedData { reason: string }

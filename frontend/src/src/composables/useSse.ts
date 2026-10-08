@@ -5,13 +5,19 @@ import type { ServerEvent } from '../types/api'
 // 连接状态全站唯一：标题栏小灯与消息流读同一份，断线只换颜色不弹提示。
 export const sseConnected = ref(false)
 
-// 订阅维度是会话：一次 run 内的全部事件都走这个通道。
-// 两条必须自己扛：① 端口握手是异步的，握手前 baseURL 为空串，订阅会静默失败，
-// 必须等就绪后补订阅；② EventSource 断开不自恢复，要按会话 id 自建重连。
-export function useSse(sessionId: () => string | null, onEvent: (env: ServerEvent) => void) {
+// 订阅维度是会话：一次 run 的全部事件都走这个通道。两件事必须自己扛——
+// 端口握手是异步的（握手前 baseURL 为空串，订阅会静默失败），EventSource 断开不自恢复。
+export function useSse(
+  sessionId: () => string | null,
+  onEvent: (env: ServerEvent) => void,
+  /** 断过又接上时回调：断开期间可能丢了 done/error，要拉权威快照对账 */
+  onReconnect?: () => void,
+) {
   let source: EventSource | null = null
   let currentSid = ''
   let retryTimer: ReturnType<typeof setTimeout> | null = null
+  // 断过一次才需要对账：首次连上不算，否则每次打开会话都白刷一遍。
+  let dropped = false
   // 最后收到的 seq：重建连接时带回服务端，断开期间的事件（含 done/error）会重放补齐。
   // 慢消费者被断开时就是靠它对账，不然界面会永远停在「运行中」。
   let lastSeq = 0
@@ -49,9 +55,16 @@ export function useSse(sessionId: () => string | null, onEvent: (env: ServerEven
     }
     const resume = lastSeq > 0 ? `&last_event_id=${lastSeq}` : ''
     const es = new EventSource(`${base}/events?session_id=${encodeURIComponent(sid)}${resume}`)
-    es.onopen = () => (sseConnected.value = true)
+    es.onopen = () => {
+      sseConnected.value = true
+      if (dropped) {
+        dropped = false
+        onReconnect?.()
+      }
+    }
     es.onerror = () => {
       sseConnected.value = false
+      dropped = true
       // EventSource 自带重连，但它不会带上我们要的 session 维度语义，
       // 且服务端可能已判定为慢客户端而移除订阅——统一自己重连。
       es.close()

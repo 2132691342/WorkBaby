@@ -63,6 +63,9 @@ const ICONS: Record<string, string> = {
     '<path d="M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-1"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41-1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  zap: '<path d="M13 2 3 14h8l-1 8 11-12h-8l1-8Z"/>',
+  'arrow-down-up': '<path d="M7 21V3"/><path d="m3 7 4-4 4 4"/><path d="M17 3v18"/><path d="m13 17 4 4 4-4"/>',
 }
 
 withDefaults(defineProps<{ name: string; size?: string; spin?: boolean }>(), { size: 'ic', spin: false })

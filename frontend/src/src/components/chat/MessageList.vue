@@ -5,6 +5,7 @@ import { useChatStore, type ToolRun } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
 import type { ApprovalVO, MessageVO } from '../../types/api'
 import { renderMarkdown, renderMarkdownStream } from '../../utils/md'
+import { fmtInt } from '../../utils/num'
 import { groupTurns } from '../../utils/turns'
 import AppIcon from '../common/AppIcon.vue'
 import ApprovalCard from './ApprovalCard.vue'
@@ -15,12 +16,54 @@ type RunBlock =
   | { key: string; kind: 'run'; run: ToolRun }
   | { key: string; kind: 'approval'; approval: ApprovalVO }
 
+// 收尾提示条上的动作：截断续写 / 出错重试都由视图实现，这里只上报意图。
+const emit = defineEmits<{ (e: 'continue'): void; (e: 'retry'): void }>()
+
 const session = useSessionStore()
 const chat = useChatStore()
 const scroller = ref<HTMLElement | null>(null)
 const stick = ref(true)
 // 流式思考块的折叠：默认展开（回复中看得见在想什么），可以收起
 const liveThinkOpen = ref(true)
+
+// 思考可能几万字：全量塞进 DOM 会让每帧重排压住主线程，也会把正文顶出屏幕。
+// 只渲染尾部——推理是流式的，用户要看的是「现在想到哪」。
+const THINK_TAIL = 4000
+const liveThink = computed(() => {
+  const t = chat.thinking
+  if (t.length <= THINK_TAIL) return t
+  return `…（前文已折叠，共 ${t.length} 字）\n${t.slice(-THINK_TAIL)}`
+})
+
+// 正文一出现就自动收起思考：视线该落在答案上，而不是继续跟着推理往下滚。
+// 只自动收一次，用户随后手动展开不再被打断。
+let autoCollapsed = false
+watch(
+  () => chat.streaming,
+  (text) => {
+    if (text && !autoCollapsed) {
+      autoCollapsed = true
+      liveThinkOpen.value = false
+    }
+  },
+)
+watch(
+  () => chat.running,
+  (running) => {
+    if (running) {
+      autoCollapsed = false
+      liveThinkOpen.value = true
+    }
+  },
+)
+
+// 截断提示必须带出实际预算：撞的是「我们给的额度」还是「厂商硬限制」，
+// 光看提示分不出来，而两者该做的事不同（去调额度 vs 换模型或接受）。
+const truncText = computed(() =>
+  chat.truncBudget
+    ? `这一轮用满了 ${fmtInt(chat.truncBudget)} 的输出预算，后半段没有写出来。`
+    : '这一轮到了输出上限，后半段没有写出来。',
+)
 
 // 流式正文渲染节流：每个 delta 都全量重解析 markdown 会把主线程打满，
 // EventSource 的消息因此积压、被服务端判为慢消费者断连（现象是「卡住」）。
@@ -190,7 +233,7 @@ onMounted(async () => {
                 <span class="think-hint">{{ chat.thinking.length }} 字</span>
                 <AppIcon class="chev" :name="liveThinkOpen ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
               </button>
-              <div v-if="liveThinkOpen" class="wb-think-body">{{ chat.thinking }}</div>
+              <div v-if="liveThinkOpen" class="wb-think-body">{{ liveThink }}</div>
             </div>
 
             <div v-if="runBlocks.length" class="turn-tools">
@@ -234,12 +277,27 @@ onMounted(async () => {
         <AppIcon name="info" />
         <span>{{ chat.notice }}</span>
       </div>
-      <div v-if="chat.lastError" class="alert a-danger">
+      <!-- 被截断：正文只写了一半，工具调用作废。给一键续写，别让用户自己猜要怎么办 -->
+      <div v-if="chat.truncated" class="alert a-warn tail-act">
         <AppIcon name="alert" />
-        <div>
+        <div class="grow">
+          <div class="a-t">回答被截断了</div>
+          <div>{{ truncText }}</div>
+          <div class="a-sub">想让它一次写更长，去「设置 → 模型」把这个模型的输出上限调大。</div>
+        </div>
+        <button class="btn btn-sm" type="button" :disabled="chat.running" @click="emit('continue')">
+          继续
+        </button>
+      </div>
+      <div v-if="chat.lastError" class="alert a-danger tail-act">
+        <AppIcon name="alert" />
+        <div class="grow">
           <div class="a-t">出错了</div>
           <div>{{ chat.lastError }}</div>
         </div>
+        <button class="btn btn-sm" type="button" :disabled="chat.running" @click="emit('retry')">
+          重试
+        </button>
       </div>
     </div>
   </div>
@@ -346,5 +404,17 @@ onMounted(async () => {
 .dot:nth-child(3) { animation-delay: 0.36s; }
 @keyframes blink {
   50% { opacity: 0.2; transform: translateY(-2px); }
+}
+/* 收尾提示条：说明占中间，动作贴右；说明短的时候按钮也不会被拉到中缝 */
+.tail-act {
+  align-items: center;
+}
+.tail-act .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tail-act .btn {
+  flex: none;
+  margin-left: auto;
 }
 </style>

@@ -40,6 +40,13 @@ export const useChatStore = defineStore('chat', () => {
   const approvals = ref<ApprovalVO[]>([])
   const lastError = ref('')
   const notice = ref('')
+  // 本轮因输出上限被截断：正文可能只写了一半，工具调用一律作废。
+  // 这件事必须让用户看见并能一键续上，否则表现就是「助手说着说着没了」。
+  const truncated = ref(false)
+  // 撞上限时那一次实际下发的输出预算。界面必须报出这个数字：
+  // 「撞的是我们给的额度」和「撞的是厂商硬限制」在信号上分不出来，
+  // 不给数字，用户就没法判断该不该去把额度调大。
+  const truncBudget = ref(0)
   // 上下文水位：ratio 为 0-100 整数；windowKnown=false 表示这个模型的窗口是估算值
   const contextUsed = ref(0)
   const contextWindow = ref(0)
@@ -54,6 +61,8 @@ export const useChatStore = defineStore('chat', () => {
     approvals.value = []
     lastError.value = ''
     notice.value = ''
+    truncated.value = false
+    truncBudget.value = 0
     contextUsed.value = 0
     contextWindow.value = 0
     contextRatio.value = 0
@@ -108,6 +117,8 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = ''
     runs.value = []
     lastError.value = ''
+    truncated.value = false
+    truncBudget.value = 0
   }
 
   function onDelta(data: DeltaData) {
@@ -172,6 +183,20 @@ export const useChatStore = defineStore('chat', () => {
 
   function onDone(data: DoneData) {
     running.value = false
+    // stop_reason 是内核唯一的收尾口径，前端必须照实表达：
+    // length = 撞到输出上限（正文半截、工具作废），max_turns = 步数用尽。
+    // 不说的话，界面看起来就是「助手莫名其妙不说话了」。
+    switch (data.stop_reason) {
+      case 'length':
+        // 不再另发一句 notice：流末尾那条警告已经把事情和「继续」都讲清楚了，
+        // 两处说同一件事只会稀释注意力。
+        truncated.value = true
+        truncBudget.value = data.max_tokens || 0
+        break
+      case 'max_turns':
+        notice.value = '这一轮步骤太多，已经停下。可以点「继续」接着做'
+        break
+    }
     // 收尾后用权威用量校准水位：SSE 的 context 是最后一轮开始时的值，
     // 不含最后一轮回复本身，差的那截在这里补上。
     if (data.usage) {
@@ -303,6 +328,8 @@ export const useChatStore = defineStore('chat', () => {
     approvals,
     lastError,
     notice,
+    truncated,
+    truncBudget,
     contextUsed,
     contextWindow,
     contextRatio,

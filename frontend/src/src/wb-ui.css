@@ -1042,6 +1042,75 @@ body {
   height: 32px;
 }
 
+/* ---- 五态补齐：行级与轻量可点元素 ----
+ * 按钮族（.btn / .icon-btn / .chip / .seg / .en-tag / .send-btn）自带完整五态，见上文。
+ * 下面这批是「整行」与「轻量小控件」：它们同样是可点目标，必须给点击感，
+ * 但整行放大 1.03 会在长列表里抖成一片，所以悬停只用 1.02 甚至不缩放，
+ * 按下统一 0.97 —— 缩小是「点到了」最直接的反馈，且不会推动邻居。 */
+.side-btn:active:not(:disabled),
+.rail-btn:active:not(:disabled),
+.side-foot .fi:active:not(:disabled),
+.side-foot .foot-btn:active:not(:disabled),
+.cbar-chip:active:not(:disabled),
+.composer-chip:active:not(:disabled),
+.plan-pill:active:not(:disabled),
+.trace-line:active:not(:disabled),
+.wb-trace-toggle:active:not(:disabled),
+.think > .hd:active:not(:disabled),
+.think-head:active:not(:disabled),
+.wb-think-toggle:active:not(:disabled),
+.menu-item:active:not(:disabled),
+.pop-row:active:not(:disabled),
+.qcard:active:not(:disabled),
+.preset:active:not(:disabled),
+.qb-card:active:not(:disabled),
+.step:active:not(:disabled),
+.attach .x:active,
+.mini-chip .x:active {
+  transform: scale(0.97);
+}
+/* 悬停放大只给「单点目标」（药丸、折叠条），整行保持不动 */
+.plan-pill:hover:not(:disabled),
+.trace-line:hover:not(:disabled),
+.wb-trace-toggle:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+/* 禁用：变淡 + 禁止光标，且不吃任何缩放反馈 */
+.side-btn:disabled,
+.rail-btn:disabled,
+.cbar-chip:disabled,
+.composer-chip:disabled,
+.plan-pill:disabled,
+.trace-line:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* 加载：转圈顶掉左侧图标位，文字保留（异步动作统一挂 .is-loading） */
+.side-btn.is-loading,
+.rail-btn.is-loading,
+.cbar-chip.is-loading,
+.composer-chip.is-loading,
+.plan-pill.is-loading {
+  pointer-events: none;
+  cursor: progress;
+  position: relative;
+}
+.side-btn.is-loading::before,
+.rail-btn.is-loading::before,
+.cbar-chip.is-loading::before,
+.composer-chip.is-loading::before,
+.plan-pill.is-loading::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--wb-radius-full);
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: wb-ic-spin 0.8s linear infinite;
+}
+
 /* ================= 徽标 / 状态灯 / 芯片 ================= */
 .badge,
 .tag {
@@ -1963,6 +2032,12 @@ select.input.narrow {
 .alert .a-t {
   font-weight: 600;
   color: var(--wb-ink);
+}
+/* 补充说明行：主句读完才需要，压暗一档但别缩到看不清 */
+.alert .a-sub {
+  margin-top: 2px;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
 }
 .alert.is-ok,
 .a-success {
