@@ -135,7 +135,12 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, pkg.New(mapStatus(resp.StatusCode), "模型服务返回错误", trim(llm.FriendlyUpstreamError(string(b))))
+		return nil, pkg.Wrap(llm.MapStatus(resp.StatusCode), "模型服务返回错误",
+			&llm.StatusError{
+				Status:     resp.StatusCode,
+				RetryAfter: llm.ParseRetryAfter(resp.Header),
+				Body:       trim(llm.FriendlyUpstreamError(string(b))),
+			})
 	}
 
 	started := time.Now()
@@ -344,17 +349,3 @@ func trim(s string) string {
 	return s
 }
 
-func mapStatus(code int) int {
-	switch {
-	case code == 401 || code == 403:
-		return 3104
-	case code == 404:
-		return 3105
-	case code == 429:
-		return 3106
-	case code >= 500:
-		return 3107
-	default:
-		return 3103
-	}
-}

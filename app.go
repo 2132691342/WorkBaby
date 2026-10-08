@@ -28,9 +28,8 @@ type App struct {
 	inst        *singleinstance.Instance
 	quitting    atomic.Bool
 	pendingFile string
-	// startDone 在 OnStartup 结束时关闭。
-	// Wails 把 OnStartup 放在独立 goroutine，OnDomReady 由 WebView2 导航回调触发，
-	// 两者无顺序保证——首次启动解压内置 Python 要几秒，domReady 必然先到。
+	// startDone 在 OnStartup 结束时关闭。OnStartup 与 WebView2 的 domReady 无顺序保证，
+	// 首次启动解压内置 Python 要几秒，domReady 必然先到。
 	startDone chan struct{}
 	startOK   atomic.Bool
 	// startWait 是等待装配的上限；做成字段是为了能单测里缩短它。
@@ -154,9 +153,7 @@ func (a *App) closeToTray() bool {
 	return v != "false"
 }
 
-// beforeClose 拦截窗口关闭并收进托盘。只有「托盘已就绪 + 设置开着 + 不在退出流程」
-// 才拦：托盘没就绪时拦截会把窗口藏进一个不存在的托盘；退出流程中必须放行，
-// 否则托盘「退出」是空操作。
+// beforeClose 拦截窗口关闭并收进托盘；托盘未就绪或已在退出流程时不拦。
 func (a *App) beforeClose(ctx context.Context) bool {
 	if a.closeAllowed() || !a.closeToTray() || !a.trayUp.Load() {
 		return false

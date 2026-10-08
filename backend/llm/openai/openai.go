@@ -256,9 +256,8 @@ func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
 					Args: decodeArgs(p.args.String()),
 				}})
 			}
-			// 这里不能收尾：usage 是独立一帧，排在 finish_reason 之后、[DONE] 之前。
-			// 提前 return 会把整帧丢掉，计量与上下文水位从此全是 0。
-			// 清空是为了万一上游又补发 delta 时不重复下发同一个工具调用。
+			// 不能在这里收尾：usage 是独立一帧，排在 finish_reason 之后、[DONE] 之前。
+			// 清空 pending 是为了上游补发 delta 时不重复下发同一个调用。
 			pendingCalls = map[int]*pendingCall{}
 		}
 	}
@@ -393,20 +392,10 @@ func readError(resp *http.Response) error {
 	if len(msg) > 400 {
 		msg = msg[:400]
 	}
-	return pkg.New(mapStatus(resp.StatusCode), "模型服务返回错误", msg)
-}
-
-func mapStatus(code int) int {
-	switch {
-	case code == 401 || code == 403:
-		return 3104
-	case code == 404:
-		return 3105
-	case code == 429:
-		return 3106
-	case code >= 500:
-		return 3107
-	default:
-		return 3103
-	}
+	return pkg.Wrap(llm.MapStatus(resp.StatusCode), "模型服务返回错误",
+		&llm.StatusError{
+			Status:     resp.StatusCode,
+			RetryAfter: llm.ParseRetryAfter(resp.Header),
+			Body:       msg,
+		})
 }

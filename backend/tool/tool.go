@@ -3,6 +3,7 @@ package tool
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,14 @@ const (
 const (
 	MaxLines = 2000
 	MaxBytes = 50 << 10
+)
+
+// Retain 决定超出阈值时保留哪一头：命令与脚本类输出的关键信息在结尾。
+type Retain string
+
+const (
+	RetainHead Retain = "head"
+	RetainTail Retain = "tail"
 )
 
 // Result 是工具产出：Content 回填给模型，Title 给 UI 一行摘要，Detail 是展开后的完整输出。
@@ -141,10 +150,18 @@ func Slice(args map[string]any, key string) []any {
 }
 
 // Truncate 按行数与字节数截断；字节上限回退到字符边界，避免切出半个汉字。
-func Truncate(s string, tmpDir string) string {
+func Truncate(s string, retain Retain) string {
 	lines := strings.Split(s, "\n")
 	if len(lines) > MaxLines {
-		s = strings.Join(lines[:MaxLines], "\n")
+		if retain == RetainTail {
+			lines = lines[len(lines)-MaxLines:]
+		} else {
+			lines = lines[:MaxLines]
+		}
+		s = strings.Join(lines, "\n")
+	}
+	if retain == RetainTail {
+		return cutBytesTail(s, MaxBytes)
 	}
 	return CutBytes(s, MaxBytes)
 }
@@ -162,24 +179,77 @@ func CutBytes(s string, max int) string {
 	return s[:cut]
 }
 
-// Overflow 把完整输出落临时文件，返回给模型看的一句话。
-func Overflow(full, tmpDir, prefix string) string {
+// cutBytesTail 是保留结尾版本的 CutBytes：往前推到字符边界而不是往后退。
+func cutBytesTail(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := len(s) - max
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return s[cut:]
+}
+
+// Sanitize 剥掉会让 UI 与 JSON 序列化的控制字符，制表符与换行保留。
+// 命令输出里混进一个转义序列就能把整条 SSE 帧打崩，所以在出口统一洗一遍。
+func Sanitize(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\t' || r == '\n' || r == '\r':
+			return r
+		case r < 0x20 || r == 0x7f:
+			return -1
+		// U+FFF9..U+FFFB 是行间注记标记，不可见但会串进正文
+		case r >= 0xfff9 && r <= 0xfffb:
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// noteOf 描述这一刀砍掉了什么。只说「已截断」的话，模型不知道该整块重取
+// 还是换个更窄的范围——丢 3 行和丢 3 万行的续读策略完全不同。
+func noteOf(before, full string, path string) string {
+	droppedLines := strings.Count(full, "\n") - strings.Count(before, "\n")
+	droppedBytes := len(full) - len(before)
+	tail := ""
+	if path != "" {
+		tail = "，完整内容见 " + path
+	}
+	if droppedLines > 0 {
+		return fmt.Sprintf("……（输出过长已截断，还有 %d 行 / %d 字节没给你%s）", droppedLines, droppedBytes, tail)
+	}
+	return fmt.Sprintf("……（输出过长已截断，还有 %d 字节没给你%s）", droppedBytes, tail)
+}
+
+// saveOverflow 把完整输出落临时文件，返回可用路径；无法保存返回空串。
+func saveOverflow(full, tmpDir, prefix string) string {
 	if tmpDir == "" {
-		return "（输出已截断，且未配置临时目录，完整内容无法保存）"
+		return ""
 	}
 	path := tmpDir + string('/') + pkg.TempName(prefix, ".txt")
 	if err := pkg.WriteText(path, full); err != nil {
-		return "（输出已截断）"
+		pkg.Warnf("tool: 写临时输出失败: %v", err)
+		return ""
 	}
-	return "……（输出过长已截断，完整内容见 " + path + "）"
+	return path
 }
 
-// Cut 统一截断入口：未超阈值原样返回，超出则截断并附完整路径。
-func Cut(s, tmpDir, prefix string) string {
+// Cut 统一截断入口：未超阈值原样返回，超出则截断并说明去向。
+func Cut(s, tmpDir, prefix string) string { return CutWith(s, tmpDir, prefix, RetainHead) }
+
+// CutTail 同 Cut，但保留结尾：命令 / 脚本的关键信息在最后一行——
+// 失败原因、堆栈尾巴、构建结论，只留开头等于永远看不到报错。
+func CutTail(s, tmpDir, prefix string) string { return CutWith(s, tmpDir, prefix, RetainTail) }
+
+// CutWith 是截断的唯一实现：衡量 -> 按保留策略裁剪 -> 落盘 -> 组装回执。
+func CutWith(s, tmpDir, prefix string, retain Retain) string {
 	if len(strings.Split(s, "\n")) <= MaxLines && len(s) <= MaxBytes {
 		return s
 	}
-	return Truncate(s, tmpDir) + "\n" + Overflow(s, tmpDir, prefix)
+	kept := Truncate(s, retain)
+	return kept + "\n" + noteOf(kept, s, saveOverflow(s, tmpDir, prefix))
 }
 
 // Since 取耗时毫秒，供工具结果回执使用。

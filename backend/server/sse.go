@@ -15,6 +15,9 @@ const (
 	replayWindow = 256
 	// deltaCoalesce 连续 delta 的合并窗口：流式正文每 token 一条，不合流会把前端压成慢消费者。
 	deltaCoalesce = 80 * time.Millisecond
+	// replayGrace 是最后一个订阅者离开后重放窗口还留多久：
+	// 重连是「先断后连」，立刻清就再也重放不出来。
+	replayGrace = 2 * time.Minute
 )
 
 // Hub 是 SSE 广播中心：按会话分发，慢客户端直接断连并提示对账。
@@ -23,7 +26,8 @@ type Hub struct {
 	clients map[*Client]bool
 	replay  map[string][]domain.Envelope
 	pend    map[string]*domain.Envelope // 会话内待合并的 delta；非 delta 事件到达时先冲刷保序
-	timers  map[string]*time.Timer
+	timers  map[string]*time.Timer      // 会话的 delta 合流定时器
+	sweeps  map[string]*time.Timer      // 会话无订阅者后的延迟回收定时器
 }
 
 // Client 是一个 SSE 订阅者。
@@ -41,6 +45,7 @@ func NewHub() *Hub {
 		replay:  map[string][]domain.Envelope{},
 		pend:    map[string]*domain.Envelope{},
 		timers:  map[string]*time.Timer{},
+		sweeps:  map[string]*time.Timer{},
 	}
 }
 
@@ -49,6 +54,11 @@ func (h *Hub) Subscribe(sessionID string) *Client {
 	c := &Client{SessionID: sessionID, ch: make(chan domain.Envelope, clientBuffer), done: make(chan struct{})}
 	h.mu.Lock()
 	h.clients[c] = true
+	// 重连回来了：撤掉延迟回收，否则这段重放窗口会在补帧过程中被清掉。
+	if t, ok := h.sweeps[sessionID]; ok {
+		t.Stop()
+		delete(h.sweeps, sessionID)
+	}
 	h.mu.Unlock()
 	return c
 }
@@ -60,7 +70,44 @@ func (h *Hub) Unsubscribe(c *Client) {
 		delete(h.clients, c)
 		c.once.Do(func() { close(c.done) })
 	}
+	h.scheduleSweep(c.SessionID)
 	h.mu.Unlock()
+}
+
+// DropSession 立刻丢弃一个会话的全部缓冲（删会话时用，不留宽限期）。
+func (h *Hub) DropSession(sessionID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if t, ok := h.sweeps[sessionID]; ok {
+		t.Stop()
+		delete(h.sweeps, sessionID)
+	}
+	h.clear(sessionID)
+}
+
+// scheduleSweep 在最后一个订阅者离开后挂一张延迟回收的定时器（调用方持有 h.mu）。
+func (h *Hub) scheduleSweep(sessionID string) {
+	for c := range h.clients {
+		if c.SessionID == sessionID {
+			return
+		}
+	}
+	if _, ok := h.sweeps[sessionID]; ok {
+		return
+	}
+	h.sweeps[sessionID] = time.AfterFunc(replayGrace, func() {
+		h.DropSession(sessionID)
+	})
+}
+
+// clear 清掉一个会话的重放窗口 / 待合并 delta / 合流定时器（调用方持有 h.mu）。
+func (h *Hub) clear(sessionID string) {
+	delete(h.replay, sessionID)
+	if t, ok := h.timers[sessionID]; ok {
+		t.Stop()
+		delete(h.timers, sessionID)
+	}
+	delete(h.pend, sessionID)
 }
 
 // Events 取出该客户端的事件通道。
@@ -69,9 +116,8 @@ func (c *Client) Events() <-chan domain.Envelope { return c.ch }
 // Done 在客户端被移除时关闭。
 func (c *Client) Done() <-chan struct{} { return c.done }
 
-// Publish 把一个事件推给订阅该会话的全部客户端，并写入重放缓冲。
-// 连续的 chat:delta 按 80ms 窗口合流，非 delta 事件到达时先冲刷挂起的
-// delta 再发自己；重放里少的是中间增量，正文语义等价。
+// Publish 推送给订阅该会话的全部客户端并写入重放缓冲。
+// 连续的 chat:delta 按 80ms 窗口合流，非 delta 事件到达时先冲刷挂起的 delta 再发自己。
 func (h *Hub) Publish(sessionID string, env domain.Envelope) {
 	if env.Event != domain.EventChatDelta {
 		// 非 delta：先冲刷挂起的 delta（保序），再发自己
@@ -210,8 +256,7 @@ func (h *Hub) Replay(sessionID string, after int64) []domain.Envelope {
 }
 
 // encodeEvent 把信封序列化成 SSE 帧。
-// data 里放**完整信封**而不是只有载荷：前端拿到帧后直接把 data 当信封用
-// （`env.event` 决定路由、`env.data` 才是载荷），只发载荷事件会被整条丢弃。
+// data 放完整信封而不是只有载荷：前端直接按 `env.event` 路由、`env.data` 取载荷。
 func encodeEvent(env domain.Envelope) ([]byte, error) {
 	raw, err := json.Marshal(env)
 	if err != nil {

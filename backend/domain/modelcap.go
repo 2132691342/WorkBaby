@@ -5,8 +5,7 @@ package domain
 import "strings"
 
 // 模型能力缺省值：认不出来时用这一组，并在 ModelCapability.Known 上标 false。
-// MaxOutput 给得宽：带思考的模型把推理也算进输出预算，给 8k 会让它「想完就没词了」，
-// 正文与工具调用一起被截断（finish_reason=length），用户只看到一段思考。
+// MaxOutput 给得宽：推理也算输出预算，给小了模型会「想完就没词」。
 const (
 	DefaultContextWindow = 128000
 	DefaultMaxOutput     = 16384

@@ -126,9 +126,8 @@ func resolveReadable(ws, path string) (string, os.FileInfo, error) {
 // quotePair 是一对引号的写法；同一文件里的引号必须成对，不能左右混搭。
 type quotePair struct{ dOpen, dClose, sOpen, sClose rune }
 
-// quotePairs 覆盖文件名里真实出现过的写法：直引号、左弯+右弯、左弯+左弯、
-// 右弯+右弯、右弯+左弯。Windows 不允许直引号进文件名，但复制粘贴与输入法
-// 常把磁盘上的弯引号变成直的，所以两个方向都要试。
+// quotePairs 覆盖文件名里真实出现过的引号写法。复制粘贴与输入法常把磁盘上的
+// 弯引号变成直的，所以直 → 弯、弯 → 直两个方向都要试。
 var quotePairs = []quotePair{
 	{0x22, 0x22, 0x27, 0x27},
 	{0x201C, 0x201D, 0x2018, 0x2019},

@@ -33,8 +33,7 @@ type Tray struct {
 func New(m Menu) *Tray { return &Tray{menu: m, done: make(chan struct{})} }
 
 // Start 启动托盘事件循环（阻塞，需在 goroutine 里调用）。
-// Windows 上托盘窗口的创建与消息循环必须落在同一个 OS 线程，否则
-// GetMessage 收不到 CreateWindowEx 那个线程的消息，菜单点击与退出回调一起失灵。
+// 托盘窗口的创建与消息循环必须在同一个 OS 线程，否则菜单点击与退出回调一起失灵。
 func (t *Tray) Start() {
 	t.once.Do(func() {
 		runtime.LockOSThread()

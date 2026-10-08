@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"WorkBaby/backend/llm"
@@ -258,13 +259,16 @@ func (l *Loop) streamTurn(ctx context.Context, maxTokens int) (llm.Message, stri
 	msg := llm.Message{Role: llm.RoleAssistant}
 	stop := llm.StopStop
 	var usage *llm.Usage
+	// 每个 token 拼一次字符串是把整段正文复制一遍：长回答末尾就是 O(n²)。
+	// Builder 一次分配、最后收口，循环里只做追加。
+	var body, thinking strings.Builder
 	for ev := range events {
 		switch ev.Type {
 		case llm.EventDelta:
-			msg.Content += ev.Delta
+			body.WriteString(ev.Delta)
 			l.emit(Event{Kind: EventDelta, DeltaKind: DeltaText, Delta: ev.Delta})
 		case llm.EventThinking:
-			msg.Thinking += ev.Delta
+			thinking.WriteString(ev.Delta)
 			l.emit(Event{Kind: EventDelta, DeltaKind: DeltaThinking, Delta: ev.Delta})
 		case llm.EventToolCall:
 			if ev.ToolCall != nil {
@@ -284,6 +288,8 @@ func (l *Loop) streamTurn(ctx context.Context, maxTokens int) (llm.Message, stri
 	if ctx.Err() != nil {
 		stop = llm.StopAborted
 	}
+	msg.Content = body.String()
+	msg.Thinking = thinking.String()
 	return msg, stop, usage, nil
 }
 

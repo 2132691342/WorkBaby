@@ -1,6 +1,5 @@
 // 运行时压缩包随二进制内嵌：用户不需要在 exe 旁边放任何文件。
-// 归档与代码同仓库（Git LFS 托管，见 .gitattributes）；升级归档的同时必须
-// 同步版本常量与 SHA 常量，三者不一致会被 TestBundledRuntimeChain 拦下。
+// 升级归档时必须同步版本常量与 SHA 常量，三者不一致会被 TestBundledRuntimeChain 拦下。
 package runtime
 
 import (

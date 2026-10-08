@@ -8,9 +8,8 @@ import (
 	"testing"
 )
 
-// SeedMarkers 在 root 下写出 Python / PowerShell 的版本标记与可执行文件占位，
-// 让 EnsurePython / EnsurePowerShell 命中「已解压」跳过分支。
-// 版本号写错不会假绿：命不中标记就退回真解压，只是慢。
+// SeedMarkers 写出 Python / PowerShell 的版本标记与可执行文件占位，
+// 让 EnsurePython / EnsurePowerShell 命中「已解压」分支跳过真解压。
 func SeedMarkers(t *testing.T, root string) {
 	t.Helper()
 	for _, r := range []struct{ dir, ver, exe string }{

@@ -49,7 +49,7 @@ func (c *ChatService) Send(sessionID, content string, attachments []domain.Attac
 	lock.Lock()
 	defer lock.Unlock()
 
-	if _, busy := c.cancel[sessionID]; busy {
+	if c.busy(sessionID) {
 		return nil, domain.ErrSessionBusy
 	}
 
@@ -176,6 +176,8 @@ func (c *ChatService) Forget(sessionID string) {
 		c.approvals.CancelSession(sessionID)
 		c.approvals.ForgetSession(sessionID)
 	}
+	// seq 与 SSE 重放窗口同样按会话记账：只删库不清这里，每建一个会话就留一段无人认领的内存。
+	c.env.Emitter.Forget(sessionID)
 }
 
 // appendSteered 把插话落一条 user 条目并广播，界面据此把它补进时间线。
@@ -328,8 +330,10 @@ type runState struct {
 	maxTokens   int
 	turnEntryID string
 	lastEntryID string
-	pending     string
-	thinking    string
+	// pending / thinking 用 Builder：本轮正文按 token 累加，走 `+=` 是每 token
+	// 复制一遍整段，长回答末尾就是 O(n²)。
+	pending     strings.Builder
+	thinking    strings.Builder
 	hasContent  bool
 	toolCalls   []llm.ToolCall
 	stopReason  string
@@ -343,8 +347,8 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 	switch e.Kind {
 	case agent.EventTurnStart:
 		st.turnEntryID = pkg.NewID(domain.PrefixEntry)
-		st.pending = ""
-		st.thinking = ""
+		st.pending.Reset()
+		st.thinking.Reset()
 		st.hasContent = false
 		st.toolCalls = nil
 		st.startedAt = nowMillis()
@@ -355,9 +359,9 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 			st.turnEntryID = pkg.NewID(domain.PrefixEntry)
 		}
 		if e.DeltaKind == agent.DeltaThinking {
-			st.thinking += e.Delta
+			st.thinking.WriteString(e.Delta)
 		} else {
-			st.pending += e.Delta
+			st.pending.WriteString(e.Delta)
 			st.hasContent = true
 		}
 		c.env.Emitter.Emit(st.sessionID, domain.EventChatDelta, domain.DeltaData{
@@ -421,7 +425,7 @@ func ratioOf(used, window int) int {
 
 // appendAssistantTurn 落本轮的 assistant 条目；空消息不落，避免下一轮上游 400。
 func (c *ChatService) appendAssistantTurn(st *runState) {
-	if !st.hasContent && st.thinking == "" && len(st.toolCalls) == 0 {
+	if !st.hasContent && st.thinking.Len() == 0 && len(st.toolCalls) == 0 {
 		st.turnEntryID = ""
 		return
 	}
@@ -441,7 +445,7 @@ func (c *ChatService) appendAssistantTurn(st *runState) {
 		Type:      domain.EntryTypeMessage,
 		Role:      domain.RoleAssistant,
 		PayloadJSON: payloadOf(llm.Message{
-			Role: llm.RoleAssistant, Content: st.pending, Thinking: st.thinking,
+			Role: llm.RoleAssistant, Content: st.pending.String(), Thinking: st.thinking.String(),
 			ToolCalls: st.toolCalls,
 		}, st.stopReason, nowMillis()-st.startedAt),
 	}
@@ -455,8 +459,8 @@ func (c *ChatService) appendAssistantTurn(st *runState) {
 	st.lastEntryID = entry.ID
 	st.turnEntryID = ""
 	// 已落库的内容清空：下一段增量要作为独立的一条，不能与这条重复。
-	st.pending = ""
-	st.thinking = ""
+	st.pending.Reset()
+	st.thinking.Reset()
 	st.hasContent = false
 	st.toolCalls = nil
 }
@@ -497,7 +501,7 @@ func (c *ChatService) appendAssistant(st *runState, res *agent.Result) {
 		return
 	}
 	st.stopReason = res.StopReason
-	if !st.hasContent && st.thinking == "" {
+	if !st.hasContent && st.thinking.Len() == 0 {
 		st.turnEntryID = ""
 		return
 	}
@@ -523,7 +527,9 @@ func (c *ChatService) fail(sessionID string, st *runState, res *agent.Result, er
 
 // recordUsage 落一行用量并累计进会话总额，正常与错误两条路径共用。
 func (c *ChatService) recordUsage(sessionID, providerID, model string, ctxTokens int, u llm.Usage) {
-	_ = c.env.Repo.AddUsage(&domain.TokenUsageDO{
+	// 记账失败不能让这次对话失败，但必须留下痕迹：整个仪表盘的数据全靠这张表，
+	// 静默失败的表现是「用了很久，仪表盘一直是 0」。
+	if err := c.env.Repo.AddUsage(&domain.TokenUsageDO{
 		ID:        pkg.NewID(domain.PrefixUsage),
 		SessionID: sessionID,
 		Provider:  providerID,
@@ -534,11 +540,18 @@ func (c *ChatService) recordUsage(sessionID, providerID, model string, ctxTokens
 		Total:     u.Total,
 		Context:   ctxTokens,
 		LatencyMs: u.LatencyMs,
-	})
-	if fresh, e2 := c.env.Repo.GetSession(sessionID); e2 == nil {
-		_ = c.env.Repo.UpdateSessionColumns(sessionID, map[string]any{
-			"total_tokens": fresh.TotalTokens + u.Total,
-		})
+	}); err != nil {
+		pkg.Warnf("chat: 用量落账失败 session=%s: %v", sessionID, err)
+	}
+	fresh, err := c.env.Repo.GetSession(sessionID)
+	if err != nil {
+		pkg.Warnf("chat: 取会话失败 session=%s: %v", sessionID, err)
+		return
+	}
+	if err := c.env.Repo.UpdateSessionColumns(sessionID, map[string]any{
+		"total_tokens": fresh.TotalTokens + u.Total,
+	}); err != nil {
+		pkg.Warnf("chat: 累计会话 token 失败 session=%s: %v", sessionID, err)
 	}
 }
 
@@ -581,6 +594,15 @@ func (c *ChatService) autoTitle(sess *domain.SessionDO, content string) {
 	if err := c.sessions.Rename(sess.ID, title); err != nil {
 		pkg.Warnf("chat: 自动命名失败: %v", err)
 	}
+}
+
+// busy 判断会话是否有 run 在跑。map 的读必须和写争同一把锁：
+// 并发读写 map 不是「读到脏数据」而是直接 fatal error，recover 也救不回来。
+func (c *ChatService) busy(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.cancel[sessionID]
+	return ok
 }
 
 // lockOf 取会话级互斥锁。

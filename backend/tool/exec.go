@@ -94,12 +94,14 @@ func (t powershellTool) Execute(ctx context.Context, in Input) (*Result, error) 
 	cmd.Env = runtimePathEnv(in.Deps.PythonExe)
 
 	err := cmd.Run()
-	combined := normalizeEncoding(stdout.Bytes()) + normalizeEncoding(stderr.Bytes())
+	// 命令输出保留结尾：失败原因、堆栈尾巴、构建结论都在最后几行。
+	// 同时洗掉控制字符：一段带 \x1b[?… 的输出能把整条 SSE 帧打崩。
+	combined := Sanitize(normalizeEncoding(stdout.Bytes()) + normalizeEncoding(stderr.Bytes()))
 	elapsed := Since(start)
 
 	if runCtx.Err() == context.DeadlineExceeded {
 		return &Result{
-			Content: fmt.Sprintf("命令超时（%d 秒）已终止。\n%s", int(timeout.Seconds()), Cut(combined, in.Deps.TmpDir, "exec")),
+			Content: fmt.Sprintf("命令超时（%d 秒）已终止。\n%s", int(timeout.Seconds()), CutTail(combined, in.Deps.TmpDir, "exec")),
 			Title:   "命令超时",
 			Detail:  combined,
 			IsError: true,
@@ -108,14 +110,13 @@ func (t powershellTool) Execute(ctx context.Context, in Input) (*Result, error) 
 	if runCtx.Err() == context.Canceled {
 		return &Result{Content: "命令已被停止。", Title: "命令已停止", Detail: combined, IsError: true}, nil
 	}
-	// 非零退出码不算工具错误：命令确实跑了，成功与否由模型自己解读
-	// （grep 无匹配、git diff --exit-code 都会返回非零）。只有执行层失败
-	// （找不到 shell、启动被拒）才算工具错误。
+	// 非零退出码不算工具错误：grep 无匹配、git diff --exit-code 都返回非零，
+	// 成功与否由模型自己解读。只有执行层失败（找不到 shell）才算工具错误。
 	var exitErr *exec.ExitError
 	switch {
 	case err != nil && errors.As(err, &exitErr):
 		return &Result{
-			Content: fmt.Sprintf("退出码 %d\n%s", exitErr.ExitCode(), Cut(combined, in.Deps.TmpDir, "exec")),
+			Content: fmt.Sprintf("退出码 %d\n%s", exitErr.ExitCode(), CutTail(combined, in.Deps.TmpDir, "exec")),
 			Title:   "命令非零退出",
 			Detail:  combined,
 		}, nil
@@ -131,7 +132,7 @@ func (t powershellTool) Execute(ctx context.Context, in Input) (*Result, error) 
 		combined = "（命令执行成功，没有输出）"
 	}
 	return &Result{
-		Content: Cut(combined, in.Deps.TmpDir, "exec"),
+		Content: CutTail(combined, in.Deps.TmpDir, "exec"),
 		Title:   fmt.Sprintf("跑了一条命令（%.1fs）", float64(elapsed)/1000),
 		Detail:  combined,
 	}, nil

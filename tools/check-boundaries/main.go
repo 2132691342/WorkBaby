@@ -1,6 +1,5 @@
 // 依赖方向门禁：把 AGENTS.md §2.1 / §2.2 的约束表变成可执行检查。
-// 用 go list -json 读编译器视角的真实 import 关系（文本 grep 会被注释、
-// 字符串字面量与构建标签骗过）；多记录 JSON 拼接也是选 Go 解析的原因。
+// 用 go list -json 读编译器视角的真实 import 关系——文本 grep 会被注释与字符串骗过。
 package main
 
 import (

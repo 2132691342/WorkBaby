@@ -11,10 +11,7 @@ import (
 	"WorkBaby/backend/skill"
 )
 
-// 技能的新建 / 导入 / 删除。
-// 只有开关的技能面板不叫「能用」：用户想把自己那套流程固化下来时，
-// 必须有一条不依赖命令行、不依赖模型的路径。
-
+// 技能的新建 / 导入 / 删除：固化自己的流程要有一条不依赖命令行的路径。
 // Create 新建一个用户技能，写进数据目录的 skills 下并立刻注册。
 func (s *SkillService) Create(req domain.CreateSkillREQ) (*domain.SkillVO, error) {
 	if s.env.Skills == nil {

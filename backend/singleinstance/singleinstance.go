@@ -8,9 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"WorkBaby/backend/pkg"
 )
+
+// ipcReadTimeout 是单次 IPC 报文的读取上限：本地回环上的一行，
+// 给到 5s 已经比任何真实调用慢一个数量级。
+const ipcReadTimeout = 5 * time.Second
 
 // ErrInstanceAlreadyRunning 表示已有实例在运行。
 var ErrInstanceAlreadyRunning = pkg.New(2301, "已经有一个 WorkBaby 在跑了", "")
@@ -74,6 +79,11 @@ func (i *Instance) StartListener() error {
 
 func (i *Instance) handle(conn net.Conn) {
 	defer conn.Close()
+	// 对端发一半就卡住时没有 deadline 会把这条 goroutine 和 conn 永久挂着：
+	// 第二个实例启动几次就积几条，锁释放后它们还在等一段永远不会到的换行。
+	if err := conn.SetReadDeadline(time.Now().Add(ipcReadTimeout)); err != nil {
+		return
+	}
 	line, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
 		return

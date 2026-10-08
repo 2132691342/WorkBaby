@@ -17,8 +17,7 @@ type ToolService struct {
 func NewToolService(env *Env) *ToolService { return &ToolService{env: env} }
 
 // Catalog 列出全部内置工具：名称、用途、风险、参数与当前启用状态。
-// 清单由注册表实时投影，停用某个工具后这一项立刻变成未启用，
-// 不会出现「文档说有、实际没有」的两份真相。
+// 清单由注册表实时投影，不会出现「文档说有、实际没有」的两份真相。
 func (s *ToolService) Catalog() []domain.ToolVO {
 	disabled := s.disabled()
 	out := make([]domain.ToolVO, 0, 16)

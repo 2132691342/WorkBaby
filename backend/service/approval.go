@@ -141,8 +141,7 @@ func (a *ApprovalService) Decide(id string, approved bool, scope string) error {
 }
 
 // ExpireStale 启动期把上次运行残留的待决审批按拒绝收口。
-// 等待通道是内存态，重启后没人再等这些决策：留着它们，前端会渲染出一批
-// 点了也没反应的审批卡。按拒绝落定比留成 pending 诚实——那次操作确实没做。
+// 等待通道是内存态，留着它们前端会渲染一批点了没反应的审批卡。
 func (a *ApprovalService) ExpireStale() error {
 	return a.env.Repo.SettleAllPending(domain.ApprovalDenied, nowMillis())
 }

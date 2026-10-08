@@ -103,17 +103,14 @@ func projectDoc(workspace string) string {
 	return ""
 }
 
-// 上下文预算的缺省值。窗口本身来自模型能力目录（domain.ModelCapabilityOf），
-// 这里只管「留多少给输出」和「裁剪后保留多少」这两个策略量；
-// 前者是下限，实际会抬到该模型真正下发的输出预算（见 budget）。
+// 上下文预算的策略量：窗口本身来自模型能力目录（domain.ModelCapabilityOf）。
+// 余量是下限，实际会抬到该模型真正下发的输出预算（见 budget）。
 const (
 	defaultContextReserve = 16384
 	defaultContextKeep    = 20000
 )
 
-// capabilityOf 取模型能力画像。优先级：按「服务 + 模型」的用户配置 →
-// 全局窗口设置（兼容旧数据）→ 内置目录。私有部署与新模型不在目录里时，
-// 只有用户自己知道真实数字，所以模型设置页可以手填。
+// capabilityOf 取模型能力画像：用户配置 > 全局窗口设置 > 内置目录。
 func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapability {
 	cap := domain.ModelCapabilityOf(model)
 	if cfg, err := c.env.Repo.GetModelConfig(providerID, model); err == nil && cfg != nil {
@@ -140,8 +137,6 @@ func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapabil
 }
 
 // samplingOf 取温度、top_p 与最大输出：用户配置优先，其余回退到能力目录。
-// 最大输出必须始终有值——留给推理模型的预算太小，它会「想完就没词」，
-// 正文与工具调用一起断在 finish_reason=length。
 func (c *ChatService) samplingOf(providerID, model string) (temp, topP *float64, maxOutput int) {
 	t, p := domain.DefaultTemperature, domain.DefaultTopP
 	maxOutput = domain.ModelCapabilityOf(model).MaxOutput
@@ -161,7 +156,6 @@ func (c *ChatService) samplingOf(providerID, model string) (temp, topP *float64,
 
 // budget 把「模型能力 + 用户设置」翻译成内核要的几个整数。
 // 内核不读设置表也不认识模型名，压缩策略只在这里一处。
-// system 提示词由调用方传入：它是每次请求都会占窗口的部分。
 func (c *ChatService) budget(providerID, model, system string) agent.Budget {
 	reserve := defaultContextReserve
 	if v, err := c.env.Repo.GetSetting(domain.SettingContextReserve); err == nil && v != "" {

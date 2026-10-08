@@ -156,8 +156,7 @@ func (r *Registry) DropSource(source string) {
 }
 
 // LoadWorkspace 换入一个工作区的技能：先摘掉上一个工作区的，再装入新的。
-// workspace 为空表示不再使用工作区技能，必须摘干净——留着上一个目录的那套，
-// 用户在新目录里会看到一堆叫不出名字、也打不开的技能。
+// workspace 为空表示不再使用工作区技能，必须摘干净。
 func LoadWorkspace(r *Registry, workspace string) {
 	if r == nil {
 		return

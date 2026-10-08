@@ -1,11 +1,11 @@
 package service
 
 import (
-	"slices"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,6 +14,10 @@ import (
 	"WorkBaby/backend/llm/factory"
 	"WorkBaby/backend/pkg"
 )
+
+// modelListTimeout 是拉模型列表的整请求上限：列表接口不该慢到让用户等，
+// 但它是一次性 GET，不像流式响应那样需要区别对待「等响应头」与「等正文」。
+const modelListTimeout = 20 * time.Second
 
 // ProviderService 管理模型服务配置并负责构造上游适配器。
 type ProviderService struct {
@@ -176,8 +180,18 @@ func (p *ProviderService) Reveal(id string) (string, error) {
 	return p.keyOf(d)
 }
 
+// modelsHTTP 复用同一个连接池：每次新建 Client 都等于新建一个池，旧池的连接还在 TIME_WAIT。
+var modelsHTTP = &http.Client{
+	Timeout: modelListTimeout,
+	Transport: &http.Transport{
+		MaxIdleConns:        8,
+		MaxIdleConnsPerHost: 4,
+		IdleConnTimeout:     60 * time.Second,
+	},
+}
+
 // Test 连通测试：发一条极短请求，只关心能不能通。
-func (p *ProviderService) Test(id string) (*domain.TestProviderRESP, error) {
+func (p *ProviderService) Test(ctx context.Context, id string) (*domain.TestProviderRESP, error) {
 	d, err := p.env.Repo.GetProvider(id)
 	if err != nil {
 		return nil, err
@@ -186,7 +200,8 @@ func (p *ProviderService) Test(id string) (*domain.TestProviderRESP, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// ctx 从请求链路传下来：用户关了设置页，这次连通性探测就该跟着停
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	events, err := streamer.Stream(ctx, llm.Request{
 		Model:    model,
@@ -209,7 +224,7 @@ func (p *ProviderService) Test(id string) (*domain.TestProviderRESP, error) {
 }
 
 // Models 拉取上游模型列表。
-func (p *ProviderService) Models(id string) ([]string, error) {
+func (p *ProviderService) Models(ctx context.Context, id string) ([]string, error) {
 	d, err := p.env.Repo.GetProvider(id)
 	if err != nil {
 		return nil, err
@@ -218,16 +233,18 @@ func (p *ProviderService) Models(id string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return p.fetch(d, key)
+	return p.fetch(ctx, d, key)
 }
 
 // fetch 按服务的接口类型请求上游模型列表。
-func (p *ProviderService) fetch(d *domain.ProviderDO, key string) ([]string, error) {
+func (p *ProviderService) fetch(ctx context.Context, d *domain.ProviderDO, key string) ([]string, error) {
 	endpoint := modelsEndpoint(d)
 	if endpoint == "" {
 		return parseModels(d.Models), nil
 	}
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
+	ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, pkg.Wrap(3103, "构造模型列表请求失败", err)
 	}
@@ -238,8 +255,7 @@ func (p *ProviderService) fetch(d *domain.ProviderDO, key string) ([]string, err
 		req.Header.Set("x-api-key", key)
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := modelsHTTP.Do(req)
 	if err != nil {
 		return nil, pkg.Wrap(3103, "拉取模型列表失败", err)
 	}
@@ -321,8 +337,7 @@ func (p *ProviderService) ModelConfig(providerID, model string) (*domain.ModelCo
 }
 
 // ListModelConfigs 列出一个服务下的全部模型配置；不指定服务就取默认的。
-// 出参形状与 ModelConfig 一致（配置与内置目录合并后的 VO）：
-// 直接吐 DO 的话窗口与识图这些「目录认得出的值」全是零，界面显示成未配置。
+// 出 VO 而不是 DO：吐 DO 的话「目录认得出的值」全是零，界面显示成未配置。
 func (p *ProviderService) ListModelConfigs(providerID string) ([]domain.ModelConfigVO, error) {
 	if providerID == "" {
 		providerID = defaultProviderID(p.env)
@@ -372,7 +387,7 @@ func (p *ProviderService) UpsertModelConfig(req domain.UpsertModelConfigREQ) (*d
 }
 
 // FetchModels 用未保存的连接信息拉模型列表：新增服务时不用先保存才能看列表。
-func (p *ProviderService) FetchModels(api, baseURL, apiKey string) ([]string, error) {
+func (p *ProviderService) FetchModels(ctx context.Context, api, baseURL, apiKey string) ([]string, error) {
 	d := &domain.ProviderDO{API: api, BaseURL: baseURL}
 	if apiKey != "" {
 		enc, err := pkg.Encrypt(p.env.Cfg.MasterKey, apiKey)
@@ -385,7 +400,7 @@ func (p *ProviderService) FetchModels(api, baseURL, apiKey string) ([]string, er
 	if err != nil {
 		return nil, err
 	}
-	return p.fetch(d, key)
+	return p.fetch(ctx, d, key)
 }
 
 // pick 取指定服务，或默认的那个。
@@ -411,8 +426,7 @@ func (p *ProviderService) pick(providerID string) (*domain.ProviderDO, error) {
 }
 
 // build 解密密钥并构造适配器；模型缺省取该服务已知的第一个。
-// 会话指定的模型必须在该服务已配置的列表里，否则本地直接报错——
-// 比把上游的 model not found 原始 JSON 转述给用户有用得多。
+// 模型必须在该服务的列表里，本地直接报错比转述上游的 model not found 更有用。
 func (p *ProviderService) build(d *domain.ProviderDO, model string) (llm.Streamer, string, error) {
 	key, err := p.keyOf(d)
 	if err != nil {

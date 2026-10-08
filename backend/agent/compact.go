@@ -92,9 +92,8 @@ func CleanForProtocol(msgs []llm.Message) []llm.Message {
 	return out
 }
 
-// mergeConsecutiveAssistants 合并相邻的 assistant 消息：历史里若留下
-// A(c1) → A(c2) → T(c1) → T(c2) 这种链（声明被逐条落库），结果与它的声明
-// 之间隔着另一条 assistant，上游直接 400。相邻 assistant 本是同一轮的产物。
+// mergeConsecutiveAssistants 合并相邻的 assistant 消息。
+// T(c1) 与它的声明之间隔着另一条 assistant 时上游直接 400，而相邻 assistant 本就是同一轮的产物。
 func mergeConsecutiveAssistants(msgs []llm.Message) []llm.Message {
 	out := make([]llm.Message, 0, len(msgs))
 	for _, m := range msgs {
@@ -162,9 +161,8 @@ func TruncateDeterministic(msgs []llm.Message, keep int) []llm.Message {
 	return CleanForProtocol(msgs[start:])
 }
 
-// Compact 是内核每轮发送前的必经之路：超预算就裁一刀，裁不出完整 turn 就原样返回。
-// 纯函数、无 IO、不调模型，因此可以单测，也不会有「压缩失败」这种中间态。
-// 超预算判断必须把 system 提示词算进去——它同样占窗口，漏算会让判断系统性偏乐观。
+// Compact 是每轮发送前的必经之路：超预算就裁一刀，裁不出完整 turn 就原样返回。
+// 纯函数、无 IO、不调模型；预算必须含 system 提示词，漏算会让判断偏乐观。
 func Compact(msgs []llm.Message, b Budget) ([]llm.Message, int) {
 	if len(msgs) == 0 {
 		return msgs, 0

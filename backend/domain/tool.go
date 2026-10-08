@@ -1,6 +1,5 @@
-// 工具目录：把「助手现在能干什么」变成一份前端可直接渲染的清单。
-// 模型每轮都要读工具声明，用户却没有任何入口去看它们；
-// 这个接口是那份声明的只读投影，改工具集时清单自动跟着变。
+// 工具目录：把「助手现在能干什么」变成一份前端可直接渲染的清单，
+// 它是模型工具声明的只读投影，改工具集时清单自动跟着变。
 package domain
 
 import "WorkBaby/backend/pkg"
@@ -36,8 +35,7 @@ type ToggleToolREQ struct {
 }
 
 // RuntimeInfoVO 运行时状态出参：Python 与 PowerShell 的可用状态 + 失败原因。
-// source 取值 bundled / system / ""：系统兜底可用时也要如实报告，
-// 让界面能区分「内置就绪」与「用系统里装的那份」。
+// source 取值 bundled / system / ""，让界面能区分「内置就绪」与「用系统里装的那份」。
 type RuntimeInfoVO struct {
 	PythonExe         string `json:"python_exe"`
 	PythonSource      string `json:"python_source"`

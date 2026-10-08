@@ -34,6 +34,9 @@ func New(h *api.Handler) *Server {
 	hub := NewHub()
 	if h.Emitter != nil {
 		h.Emitter.SetSink(func(sessionID string, env domain.Envelope) { hub.Publish(sessionID, env) })
+		// 会话被删时把重放窗口与待合并 delta 一起清掉：Emitter 是 service 层的
+		// 东西，反过来 import server 就破了依赖方向，只能从这里挂进去。
+		h.Emitter.SetCutHook(hub.DropSession)
 	}
 	s := &Server{engine: engine, hub: hub}
 	registerRoutes(engine, h, hub)

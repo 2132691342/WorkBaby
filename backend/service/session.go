@@ -35,9 +35,7 @@ func (s *SessionService) Create(req domain.CreateSessionREQ) (*domain.SessionVO,
 	if model == "" {
 		model, _ = s.env.Repo.GetSetting(domain.SettingDefaultModel)
 	}
-	// 默认模型没落库时，从默认服务的模型列表里取第一个。
-	// 少了这步，新会话的模型名就是空的，界面一直显示「默认模型」、
-	// 上下文窗口也永远算不出来。
+	// 默认模型没落库时从默认服务的列表取第一个：否则模型名为空，窗口永远算不出来。
 	if model == "" && providerID != "" {
 		if d, err := s.env.Repo.GetProvider(providerID); err == nil {
 			if ms := parseModels(d.Models); len(ms) > 0 {

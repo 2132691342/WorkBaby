@@ -88,12 +88,13 @@ func (t pythonTool) Execute(ctx context.Context, in Input) (*Result, error) {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 
-	combined := normalizeEncoding(stdout.Bytes()) + normalizeEncoding(stderr.Bytes())
+	// 保留结尾：Traceback 的最后一行才是异常本身，留开头只能看到调用栈的头。
+	combined := Sanitize(normalizeEncoding(stdout.Bytes()) + normalizeEncoding(stderr.Bytes()))
 	elapsed := Since(start)
 
 	if runCtx.Err() == context.DeadlineExceeded {
 		return &Result{
-			Content: fmt.Sprintf("脚本超时（%d 秒）已终止。\n", int(timeout.Seconds())) + Cut(combined, tmpDir, "python"),
+			Content: fmt.Sprintf("脚本超时（%d 秒）已终止。\n", int(timeout.Seconds())) + CutTail(combined, tmpDir, "python"),
 			Title:   "脚本超时",
 			Detail:  combined,
 			IsError: true,
@@ -104,7 +105,7 @@ func (t pythonTool) Execute(ctx context.Context, in Input) (*Result, error) {
 			combined = err.Error()
 		}
 		return &Result{
-			Content: Cut(combined, tmpDir, "python"),
+			Content: CutTail(combined, tmpDir, "python"),
 			Title:   "脚本报错了",
 			Detail:  combined,
 			IsError: true,
@@ -114,7 +115,7 @@ func (t pythonTool) Execute(ctx context.Context, in Input) (*Result, error) {
 		combined = "（脚本执行成功，没有输出）"
 	}
 	return &Result{
-		Content: Cut(combined, tmpDir, "python"),
+		Content: CutTail(combined, tmpDir, "python"),
 		Title:   fmt.Sprintf("跑了一段 Python（%.1fs）", float64(elapsed)/1000),
 		Detail:  combined,
 	}, nil

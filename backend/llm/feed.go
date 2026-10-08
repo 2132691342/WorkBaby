@@ -11,9 +11,7 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// StreamIdleTimeout 上游空闲超时：这么久没有收到任何数据就掐断连接。
-// 代理停滞、上游不回包时，底层 scanner 会无限等下去，表现为「莫名卡住」。
-// var 是为了测试能把超时调短，不用真等两分钟。
+// StreamIdleTimeout 上游空闲超时：这么久没有数据就掐断。var 便于测试调短。
 var StreamIdleTimeout = 120 * time.Second
 
 // Feed 包装一条事件通道。Send 在 ctx 取消前阻塞而不是丢弃，
@@ -52,9 +50,8 @@ func (f *Feed) Ping() {
 	}
 }
 
-// Send 发送一个事件；先非阻塞投递（缓冲有位就直接进，不受取消影响），
-// 缓冲满才阻塞等待，此时 ctx 取消则放弃。两段式是为了避免
-// 「通道可写但 ctx 恰好已取消」时 select 随机选分支丢掉收尾事件。
+// Send 发送事件：缓冲满才阻塞等待，ctx 取消则放弃。
+// 先非阻塞投递是避免「通道可写但 ctx 已取消」时随机丢掉收尾事件。
 func (f *Feed) Send(e Event) {
 	select {
 	case f.events <- e:

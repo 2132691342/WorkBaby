@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
 	"WorkBaby/backend/llm"
+	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/tool"
 )
 
@@ -127,9 +129,8 @@ func (l *Loop) prepare(ctx context.Context, calls []llm.ToolCall) ([]plan, []*to
 	return plans, results
 }
 
-// emitSkipped 给预执行失败的调用补一对开始 / 结束事件。落库侧只在 tool_start
-// 里写工具声明，缺了开始事件，结果条目就会引用一条从未声明的调用：
-// 内存里 CleanForProtocol 能兜住，重载历史后协议配对就断了。
+// emitSkipped 给预执行失败的调用补一对开始 / 结束事件。
+// 落库侧只在 tool_start 里写声明，缺了开始事件，重载历史后协议配对会断。
 func (l *Loop) emitSkipped(call llm.ToolCall, title, output string) {
 	l.emit(Event{Kind: EventToolStart, ToolCall: &call, ToolTitle: title})
 	l.emit(Event{Kind: EventToolEnd, ToolCall: &call, ToolOK: false,
@@ -145,6 +146,7 @@ func callKey(call llm.ToolCall) string {
 	return call.Name + "|" + string(raw)
 }
 
+// 去重表没有锁：只有 prepare 串行读写它。搬进并行路径时必须同时给它加锁。
 func (l *Loop) isRepeated(call llm.ToolCall) bool {
 	return l.repeated[callKey(call)] >= repeatCallLimit-1
 }
@@ -156,6 +158,7 @@ func (l *Loop) markCalled(call llm.ToolCall) {
 func itoa(n int) string { return strconv.Itoa(n) }
 
 // runParallel 并发执行：信号量限制并发度，结果按原始下标回填。
+// 信号量必须在 go 之前获取，否则并发度的真上界是调用数而不是 cfg.Parallel。
 func (l *Loop) runParallel(ctx context.Context, plans []plan, results []*tool.Result) {
 	limit := l.cfg.Parallel
 	if limit <= 0 {
@@ -164,20 +167,42 @@ func (l *Loop) runParallel(ctx context.Context, plans []plan, results []*tool.Re
 	sem := make(chan struct{}, limit)
 	var wg sync.WaitGroup
 	for _, p := range plans {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			// 这个下标必须有结果：assistant 声明了几个调用就得回填几个。
+			results[p.idx] = l.runOne(ctx, p)
+			continue
+		}
 		wg.Add(1)
 		go func(p plan) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			defer func() {
+				<-sem
+				// recover 必须落在这条 goroutine 的延迟调用里，放外层只会拿到 nil。
+				if rec := recover(); rec != nil {
+					pkg.Errorf("tool: %s 内部崩溃: %v\n%s", p.tool.Name(), rec, debug.Stack())
+					results[p.idx] = panicResult(p.tool.Label(), rec)
+				}
+			}()
 			results[p.idx] = l.runOne(ctx, p)
 		}(p)
 	}
 	wg.Wait()
 }
 
+// panicResult 把工具 panic 转成一条给模型看的失败结果。
+// panic 说明有 bug，但代价不该是整进程退出。
+func panicResult(label string, rec any) *tool.Result {
+	return &tool.Result{
+		Content: fmt.Sprintf("执行失败：%s 内部错误（%v）", label, rec),
+		Title:   label + "失败了",
+		IsError: true,
+	}
+}
+
 // runOne 执行单个工具并发出开始 / 结束事件。
-// 写类工具的串行保证来自 executeTools 的分批：批内只要有一个 sequential 工具，
-// 整批就走串行路径，因此这里不需要额外的锁。
+// 写类工具的串行保证来自 executeTools 的分批，这里不需要额外的锁。
 func (l *Loop) runOne(ctx context.Context, p plan) *tool.Result {
 	call := p.call
 	l.emit(Event{Kind: EventToolStart, ToolCall: &call, ToolTitle: p.tool.Label()})

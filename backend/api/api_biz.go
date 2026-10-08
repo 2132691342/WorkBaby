@@ -2,6 +2,8 @@
 package api
 
 import (
+	"errors"
+	"io"
 	"strconv"
 
 	"WorkBaby/backend/domain"
@@ -10,6 +12,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// bindOptionalBody 解析「可带可不带」的请求体。
+// 没 body 不报错（参数还能从 query / path 兜），body 是坏 JSON 则必须当场报错。
+func bindOptionalBody(c *gin.Context, out any) error {
+	if err := c.ShouldBindJSON(out); err != nil && !errors.Is(err, io.EOF) {
+		return pkg.Wrap(1107, "请求格式不正确", err)
+	}
+	return nil
+}
 
 // ok 统一成功响应。
 func ok(c *gin.Context, data any) {
@@ -178,7 +189,10 @@ func (h *Handler) SendMessage(c *gin.Context) {
 // StopRun 停止当前 run。
 func (h *Handler) StopRun(c *gin.Context) {
 	var req domain.StopRunREQ
-	_ = c.ShouldBindJSON(&req)
+	if err := bindOptionalBody(c, &req); err != nil {
+		fail(c, err)
+		return
+	}
 	if req.SessionID == "" {
 		req.SessionID = c.Query("session_id")
 	}
@@ -230,7 +244,10 @@ func (h *Handler) ListApprovals(c *gin.Context) {
 // DecideApproval 审批决策；approve / deny 共用，靠动作区分。
 func (h *Handler) DecideApproval(c *gin.Context) {
 	var req domain.DecideApprovalREQ
-	_ = c.ShouldBindJSON(&req)
+	if err := bindOptionalBody(c, &req); err != nil {
+		fail(c, err)
+		return
+	}
 	approved := c.Param("action") == "approve"
 	if err := h.Svc.Approvals.Decide(c.Param("id"), approved, req.Scope); err != nil {
 		fail(c, err)
@@ -292,12 +309,15 @@ func (h *Handler) DeleteProvider(c *gin.Context) {
 // TestProvider 连通测试。
 func (h *Handler) TestProvider(c *gin.Context) {
 	var req domain.TestProviderREQ
-	_ = c.ShouldBindJSON(&req)
+	if err := bindOptionalBody(c, &req); err != nil {
+		fail(c, err)
+		return
+	}
 	id := req.ID
 	if id == "" {
 		id = c.Param("id")
 	}
-	resp, err := h.Svc.Providers.Test(id)
+	resp, err := h.Svc.Providers.Test(c.Request.Context(), id)
 	if err != nil {
 		fail(c, err)
 		return
@@ -326,7 +346,7 @@ func (h *Handler) SetDefaultProvider(c *gin.Context) {
 
 // ListModels 拉取上游模型列表。
 func (h *Handler) ListModels(c *gin.Context) {
-	models, err := h.Svc.Providers.Models(c.Query("provider_id"))
+	models, err := h.Svc.Providers.Models(c.Request.Context(), c.Query("provider_id"))
 	if err != nil {
 		fail(c, err)
 		return
@@ -536,7 +556,7 @@ func (h *Handler) FetchModels(c *gin.Context) {
 	if req.API == "" {
 		req.API = domain.APIOpenAI
 	}
-	models, err := h.Svc.Providers.FetchModels(req.API, req.BaseURL, req.APIKey)
+	models, err := h.Svc.Providers.FetchModels(c.Request.Context(), req.API, req.BaseURL, req.APIKey)
 	if err != nil {
 		fail(c, err)
 		return

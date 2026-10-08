@@ -96,8 +96,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 }
 
 // sseHandler 是事件流端点：订阅维度是会话，支持 Last-Event-ID 重放。
-// 断线重连的 seq 优先取 query（前端手动重建 EventSource 时拿不到
-// 浏览器自动附带的 Last-Event-ID header），header 作为兜底。
+// seq 优先取 query（前端手动重建 EventSource 时拿不到自动附加的 header），header 兜底。
 func sseHandler(hub *Hub) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID := c.Query("session_id")

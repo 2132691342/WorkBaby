@@ -33,8 +33,7 @@ func isImageName(name string) (string, bool) {
 }
 
 // buildAttachment 把引用附件拆成「文本上下文块 + 图片列表」。
-// 图片（识图输入）不走文本块：base64 直接进消息，由协议层转成 image block。
-// 读不到就跳过并说明——用户以为文件进去了、其实没有，是最糟糕的一种失败。
+// 图片走 base64 image block，不进文本块；读不到就跳过并说明。
 func buildAttachment(workspace string, items []domain.AttachmentREQ) (string, []llm.Image) {
 	if len(items) == 0 {
 		return "", nil
