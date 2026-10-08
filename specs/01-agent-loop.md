@@ -11,18 +11,27 @@
 
 ```text
 Run(ctx):
+  emit agent_start
   for turn = 1..MaxTurns:
-    msgs  = Compact(msgs, Budget)      # 超预算才动手
-    drain(steering) → append            # 轮间插话
-    emit context_usage                # 插话之后量，才是真正发出去的那份
-    msg   = streamTurn(ctx, msgs)       # 流式，边收边发事件
-    if stop ∈ {error, aborted}: 收尾返回
+    if ctx 已取消: 以 aborted 收尾
+    msgs = Compact(msgs, Budget)          # 超预算才动手，纯函数
+    drain(steering) → append              # 轮间插话：并进本轮上下文
+    emit context_usage                    # 插话之后量，才是真正发出去的那份
+    emit turn_start
+    msg, stop = streamTurn(ctx, msgs)     # 流式，边收边发；预算 = Config.MaxTokens
+    if stop == error: append(msg); 以 error 收尾
+    if stop == length: drop(msg.tool_calls)   # 半个 JSON 不执行也不入历史
+    合并 usage                            # input 取上报值与上下文实测的较大者
     append(msg)
-    if stop == length: break            # 截断轮的 tool_calls 一律不执行
-    if len(calls) == 0: break           # 纯文本回复 = 回合自然结束
-    append(executeTools(calls))         # 按调用顺序回填
-    emit turn_end
+    if 有工具调用: executeTools(calls)     # 按声明顺序回填
+    emit turn_end                         # 用量随本轮一起发出：落库 append-only
+    if stop ∈ {aborted, length, error}: 收尾返回
+    if 无工具调用: 以 completed 收尾       # 纯文本回复 = 回合自然结束
+  以 max_turns 收尾
 ```
+
+顺序要点：**收尾判据一律排在 `append` / 工具执行 / `turn_end` 之后**。
+否则「这一轮产出了什么」没落库就退出了，界面刷新后那半截内容凭空消失。
 
 **为什么是单层**：外层 follow-up 循环服务的是终端 REPL（用户一直敲键，
 循环停了就自动续跑）。桌面端有明确的「插话 / 排队」按钮，语义由 UI 表达；
@@ -31,6 +40,11 @@ Run(ctx):
 **为什么没有 PrepareNextTurn**：压缩是纯函数（清洗 + 按预算找切点），
 不需要在轮间回调里做副作用。`Budget` 三个整数由 service 层备好，
 `Compact` 是每次发送前的必经之路，不是可选钩子。
+
+**为什么内核不重试截断**：带思考的模型把推理 token 也算进输出预算，推理吃满时这一轮
+会「只想不说」。内核不重试——它并不知道模型能吐多少：预算是 service 层按模型上限给的，
+内核再抬一次就可能超过上游真实上限，直接换回一个 400，把「能看懂的截断」变成
+「看不懂的报错」。到顶就是到顶：如实以 `length` 收尾，由界面的「继续」接着写。
 
 ### 契约
 
@@ -52,7 +66,7 @@ type Config struct {
     Workspace   string
     System      string
     Model       string
-    MaxTokens   int
+    MaxTokens   int      // 输出预算；service 层保证非零（见 10 的采样解析）
     Temperature *float64 // nil 表示不下发，交给上游默认
     TopP        *float64
     MaxTurns    int      // 缺省 32；到顶以 StopMaxTurns 收尾
@@ -116,9 +130,9 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 
 | 情况 | 行为 |
 |---|---|
-| ctx 取消 | `StopAborted`，已产出内容保留，不再执行工具 |
+| ctx 取消 | `StopAborted`，已产出内容保留（判据排在工具执行之后，本轮工具因 ctx 已取消而失败） |
 | 上游报错 | `StopError` + 返回 err；已产出内容照常保留 |
-| 响应被截断 | `StopLength`，本轮 tool_calls 全部不执行 |
+| 响应被截断 | `StopLength`，已写出的正文保留，本轮 tool_calls 全部不执行；界面提示可续写 |
 | 轮数超限 | `StopMaxTurns` |
 | 同一工具同一参数重复第 3 次 | 该调用直接判失败，结果写回让模型换路 |
 
@@ -127,7 +141,9 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 | 不变量 | 原因 |
 |---|---|
 | 工具结果严格按调用顺序回填 | assistant(tool_calls) 与 tool 配对错位 → 上游 400 |
-| 截断轮不执行工具 | 半个 JSON 调用执行出去比不执行更危险 |
+| 截断轮不执行工具、不入历史 | 半个 JSON 调用执行出去比不执行更危险；留进历史会被当成真调用回传上游 |
+| 输出预算必须显式下发 | 不下发时上游各按自己的默认（常见 4096/8192），带思考的模型会「只想不说」 |
+| 内核不擅自抬高输出预算 | 内核不知道模型能吐多少，抬过头就是把「能看懂的截断」换成「看不懂的 400」 |
 | 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
 | CleanForProtocol 输出可直接发上游 | 空消息 / 孤儿结果 / 未配对调用都在这一层兜底 |
 | 事件出口串行化 | 并行工具各自在 goroutine 里发事件，不锁则上层落库位点被并发读写 |
@@ -142,6 +158,9 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
   UI 表达，压缩是纯函数而非钩子。
 - **Gate 是唯一回调面**：审批等需要挂起等用户的逻辑收成一个函数，而不是钩子集合。
   内核因此不认识审批表、不认识设置，依赖全部经 Config 注入，可以纯内存单测。
+- **截断不自作主张补偿**：内核不知道模型的输出上限，唯一可靠的预算是 service
+  按能力目录给的 `MaxTokens`。到顶就以 `length` 收尾，把「还能不能再写」这个
+  判断交回给用户（界面上的「继续」），而不是替用户赌一次更大的预算。
 - **代价**：单层循环意味着「运行中改配置」要到下一轮才生效；内核对压缩内容
   无感知，压缩质量完全取决于 `Compact` 的切点策略（见 02）。
 
@@ -150,9 +169,12 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 | 文件 | 测试 | 锁住的行为 |
 |---|---|---|
 | `loop_test.go` | `TestLoopProtocolOrder` | 多轮回填顺序、并行批次保序 |
-| | `TestLoopStopsOnCancelLengthAndError` | 取消 / 截断（截断轮不执行工具）/ 上游报错 |
+| | `TestLoopStopsOnCancelLengthAndError` | 取消 / 截断（截断轮不执行工具、零产出也不重试）/ 上游报错 |
 | | `TestLoopBlocksRepeatedIdenticalCall` | 重复调用拦截到上限 + 被拦调用事件成对 |
 | | `TestEmitSerializesConcurrentTools` | 事件出口串行化 |
 | `compact_test.go` | `TestCompactProtocol` | 清洗硬约束、压缩切点合法性 |
+
+输出预算是否真的下发到上游由 `service/agent_test.go` 的 `TestChatSendsOutputBudget`
+从装配层锁住（`llmtest.Scripted.Requests` 记下每次请求的参数）。
 
 多轮驱动用 `backend/llm/llmtest` 的脚本替身，不联网。

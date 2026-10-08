@@ -162,6 +162,8 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 | 8000–8999 | Skill |
 | 9000–9999 | 保留 |
 
+每个码的完整含义与处置动作见 [`docs/ERROR-CODES.md`](docs/ERROR-CODES.md)。
+
 ### 2.5 命名规范
 
 | 类别 | 风格 | 示例 |
@@ -306,8 +308,9 @@ Run(ctx):
     msgs = Compact(msgs, Budget)          # 超预算才动手，纯函数
     pending = drain(steering)            # 轮间插话：并进下一轮上下文
     append(pending)
-    msg    = streamTurn(ctx, msgs)       # 流式调模型，边收边发事件
+    msg    = streamTurn(ctx, msgs)       # 流式调模型，边收边发事件；预算 = Config.MaxTokens
     if stop in {error, aborted}: 收尾退出
+    if stop == length: drop(msg.tool_calls)  # 半个 JSON 不执行也不入历史
     append(msg)
     if stop == length: break             # 截断轮的 tool_calls 一律不执行
     if len(calls) == 0: break            # 纯文本回复 = 回合自然结束
@@ -370,7 +373,10 @@ const (
 |---|---|
 | 工具结果严格按调用顺序回填 | `assistant(tool_calls)` 与 `tool` 配对完整，错位上游 400 |
 | 事件出口必须串行化 | 并行工具各自在 goroutine 里 emit，不锁就是并发改同一份落库位点，assistant 声明撞主键后整条丢失 |
-| 被截断轮的 tool_calls 一律不执行 | 半个 JSON 调用执行出去比不执行更危险 |
+| 被截断轮的 tool_calls 一律不执行 | 半个 JSON 调用执行出去比不执行更危险；留进历史还会被当成真调用回传上游 |
+| 输出预算必须显式下发到上游 | 0 在 openai 协议里被 `omitempty` 整个吃掉、在 anthropic 协议里是必填字段，两条协议都要兜到 `llm.DefaultMaxTokens`；推理型模型的思考会吃满小预算，正文与工具调用一起断在 length |
+| 上下文余量必须容得下输出预算 | 余量比实际下发值小，压缩会按虚高的空间往窗口里塞内容，总占用顶破窗口 |
+| 内核不擅自抬高输出预算 | 内核不知道模型能吐多少，抬过头就是把「能看懂的截断」换成「看不懂的 400」；到顶就以 length 收尾，交给界面的「继续」 |
 | 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
 | CleanForProtocol 输出必须可直发上游 | 空消息/孤儿结果/未配对调用都在这一层兜底 |
 | 事件发布永不阻塞内核 | Hub 慢客户端先挤 delta 断连兜底 + `chat:gap` 对账 |
@@ -420,6 +426,9 @@ const (
 - **装配类测试不真解压归档**：`runtime/runtimetest.SeedMarkers` 预置
   「已解压 + 版本标记」后，装配只跑配置 / DB / 服务 / 工具注册的真实链路。
   真解压只在 `runtime` 包做一次（唯一的慢点是刻意的）
+- **慢链路用标准 `-short` 隔离**：解压归档加了 `testing.Short()` 守卫后，
+  日常 `test.ps1 -Fast` 秒级返回，只有真碰运行时归档时才需要全量。
+  不要用自定义 tag 或环境变量另造一套开关
 - 环境依赖（系统 shell、真实网络、运行时归档）用 `exec.LookPath` / `t.Skip` 守卫后跳过
 - 每个测试文件**首行必须有导航注释**：写清楚覆盖哪条链路、坏了的表现是什么
 - 多轮对话一律用 `backend/llm/llmtest` 脚本替身 + `factory.SetOverride` 注入，绝不真联网
@@ -427,26 +436,34 @@ const (
 ### 3.3 测试索引
 
 只保留跨模块 / 跨轮次 / 跨协议的链路测试，每条链路一个 Test（分支用 `t.Run` 归入同一条链）。
-全量 24 个 Test / 16 个文件，`go test ./... -count=1` 约 3.5s；唯一的时间大头是
-`runtime` 包对两份归档的真实解压与 SHA 校验（刻意的，装配类测试已用标记跳过）。
+全量 **25 个 Test / 16 个文件**。按改动范围挑命令，不要一律跑全量：
+
+| 场景 | 命令 | 耗时 |
+|---|---|---|
+| 日常改动 | `scripts/test.ps1 -Fast` | 约 3s |
+| 提交前 / CI | `scripts/test.ps1` | 约 10s |
+| 只动了一个包 | `scripts/test.ps1 -Fast -Pkg backend/service` | 约 1.5s |
+| 并发相关改动 | `scripts/test.ps1 -Race` | 分钟级 |
+
+时间大头是 `runtime` 包对两份归档的真实解压（约 6s，全量唯一的慢点，`-Fast` 跳过）。
 
 | 文件 | Test | 覆盖的链路 |
 |---|---|---|
 | `app_test.go` | TestAppLifecycle | 启动等待（慢装配 / 失败 / 超时）；关闭去向（托盘开关 + 退出流程 + 托盘未就绪） |
 | `api/startup_test.go` | TestStartupChain | 干净环境完整装配 → 磁盘导入技能 → 跨源预检放行 POST |
 | `api/chat_stream_test.go` | TestChatStreamChain | 真实 HTTP 栈 SSE 送达（start→delta→done、seq 递增、data 回带 event）与带 Last-Event-ID 重连补帧 |
-| `agent/loop_test.go` | TestLoopProtocolOrder · TestLoopStopsOnCancelLengthAndError · TestLoopBlocksRepeatedIdenticalCall · TestEmitSerializesConcurrentTools | 回填顺序（多轮 / 并行）、三条收尾路径、重复调用拦截与事件成对、事件出口串行化 |
+| `agent/loop_test.go` | TestLoopProtocolOrder · TestLoopStopsOnCancelLengthAndError · TestLoopBlocksRepeatedIdenticalCall · TestEmitSerializesConcurrentTools | 回填顺序（多轮 / 并行）、三条收尾路径（含截断轮不执行工具、零产出也不重试）、重复调用拦截与事件成对、事件出口串行化 |
 | `agent/compact_test.go` | TestCompactProtocol | 清洗硬约束、拆散的并行声明合并、压缩永不孤儿化 / 整轮丢弃、预算边界与降级 |
-| `service/agent_test.go` | TestApprovalLoop · TestChatErrorPersistsPartialContent · TestChatSteerPersists | 审批闭环（会话级放行不再弹卡）；错误轮半成品落库；运行中插话按注入链序落库 |
+| `service/agent_test.go` | TestApprovalLoop · TestChatErrorPersistsPartialContent · TestChatSendsOutputBudget · TestChatSteerPersists | 审批闭环（会话级放行不再弹卡）；错误轮半成品落库；输出预算真的下发到上游且上下文余量跟得上；运行中插话按注入链序落库 |
 | `service/order_test.go` | TestToolResultOrdering | 声明与结果紧邻配对（跨轮 / 同轮并发两态）与落库位点串行化 |
 | `service/provider_test.go` | TestDefaultModelChain · TestProviderKeyReveal | 默认服务→默认模型→新会话继承；存量空模型会话 run 时回填；密钥加密落库与显式查看 |
 | `tool/files_test.go` | TestFilesReadChain · TestFilesWriteEditGuardrails | 路径穿越、Unicode 路径变体找回；读→写闭环（读工具记账后放行）、edit 唯一性、行尾与 BOM |
 | `skill/skill_test.go` | TestSkillRegistryChain | embed 加载与落盘、同名按来源优先且可回退、切换工作目录换掉工作区技能 |
 | `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引→检索（短查询子串兜底）→删除级联 |
-| `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档与 SHA 常量一致、真实解压平铺到根目录、解压路径穿越拒绝 |
+| `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档与 SHA 常量一致、真实解压平铺到根目录（`-short` 跳过）、解压路径穿越拒绝 |
 | `server/sse_test.go` | TestHubDeliveryChain | delta 合流保序、慢客户端挤 delta 保 done |
 | `singleinstance/singleinstance_test.go` | TestSecondLaunchHandoff | 二次启动转交：文件路径与空路径（只唤起窗口）都原样送达主实例 |
-| `llm/openai/stream_test.go` | TestOpenAIStreamChain | usage 帧顺序、tool_call 单次下发、断流收尾、缓存计量双口径取大 |
+| `llm/openai/stream_test.go` | TestOpenAIStreamChain | usage 帧顺序与缓存双口径、tool_call 单次下发、断流收尾 |
 | `llm/anthropic/anthropic_test.go` | TestAnthropicEncodeProtocol · TestAnthropicStreamChain | 无签名 thinking 不回传；上游停滞经空闲看门狗收尾、事件缓冲满不丢弃 |
 
 ---
@@ -455,9 +472,9 @@ const (
 
 ```bash
 go vet ./...
-go test ./backend/...
-powershell -File scripts/check-boundaries.ps1   # 依赖方向（§2.2 约束表的可执行版本）
-cd frontend && npm run build        # 含 vue-tsc 类型检查
+scripts/test.ps1                     # 全量测试（日常用 -Fast，见 §3.3）
+scripts/check-boundaries.ps1         # 依赖方向（§2.2 约束表的可执行版本）
+cd frontend && npm run build         # 含 vue-tsc 类型检查
 wails build                          # 产物 build/bin/WorkBaby.exe
 ```
 

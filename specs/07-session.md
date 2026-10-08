@@ -74,6 +74,15 @@ send → runID → 内核循环 → done
 
 一个会话同时只允许一个 run（`ErrSessionBusy`）。
 
+## 测试
+
+| 文件 | 覆盖的链路 |
+|---|---|
+| `service/agent_test.go` | 建会话 → 发送 → 落库；审批闭环；错误轮半成品落库；插话按注入链序落库 |
+| `service/order_test.go` | 声明与结果紧邻配对（跨轮 / 同轮并发两种形态）与落库位点串行化 |
+| `api/chat_stream_test.go` | 真实 HTTP 栈上的 SSE 送达与 `Last-Event-ID` 重连补帧 |
+| `singleinstance/singleinstance_test.go` | 二次启动把文件路径（或唤起请求）转交主实例 |
+
 ## 取舍
 
 消息树存 parent_id 而不是线性列表：`/clear` 与「回到开头」只是把叶子指针

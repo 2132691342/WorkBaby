@@ -10,8 +10,14 @@
 ## 常用命令
 
 ```powershell
-# 后端测试（24 个 Test / 16 个测试文件，全量约 3.5s）
-go test ./backend/...
+# 后端测试：日常改动用 -Fast（跳过归档解压 + 复用构建缓存，约 3s）
+.\scripts\test.ps1 -Fast
+.\scripts\test.ps1                              # 全量（25 个 Test / 16 个文件，约 10s）
+.\scripts\test.ps1 -Fast -Pkg backend/service   # 只跑一个包
+.\scripts\test.ps1 -Race                        # 竞态检测，改并发相关代码时用
+
+# 依赖方向门禁
+.\scripts\check-boundaries.ps1
 
 # 前端类型检查 / 构建
 cd frontend
@@ -102,7 +108,7 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 - **装配类测试不真解压归档**：`backend/runtime/runtimetest.SeedMarkers` 预置
   「已解压 + 版本标记」，装配只跑配置 / DB / 服务 / 工具注册的真实链路。
   真解压只在 `runtime` 包的 `TestBundledRuntimeChain` 做一次——那是全量测试
-  唯一的慢点（约 2s），是刻意的
+  唯一的慢点（约 6s），日常用 `-short` 跳过，是刻意的
 - 多轮对话用 `backend/llm/llmtest` 的脚本替身驱动，配合
   `factory.SetOverride("test", ...)` 注入，**绝不真联网**
 - 环境依赖（系统 shell、真实网络、内置运行时归档）必须先探测再决定跳过，
@@ -116,6 +122,7 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 
 | 脚本 | 用途 |
 |---|---|
+| `scripts/test.ps1` | 测试入口：`-Fast` 日常、默认全量、`-Pkg` 单包、`-Race` 并发检测 |
 | `scripts/check-boundaries.ps1` | 依赖方向门禁入口（跑 `tools/check-boundaries`） |
 | `scripts/shot.ps1` | 截运行中的窗口（可先点击 / 滚轮 / 拖拽 / 打字），用于查看界面现状 |
 

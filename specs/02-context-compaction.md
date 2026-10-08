@@ -50,13 +50,15 @@ type Budget struct{ Window, WindowKnown, Reserve, Keep, SystemTokens }
 |---|---|---|
 | Window | 128000 | 模型上下文窗口：来自内置能力目录，可被模型级配置与全局 `context_window` 设置覆写 |
 | WindowKnown | — | 窗口是否为确切值；false 时界面读数加「约」前缀 |
-| Reserve | 16384 | 给模型输出留的余量，可由设置项覆盖 |
+| Reserve | 16384 | 给模型输出留的余量：先取设置项，再抬到该模型真正下发的输出预算（见下） |
 | Keep | 20000 | 裁剪后保留的近期 token 预算 |
 | SystemTokens | 估算 | system 提示词的 token 估算，判断是否超预算必须算上它 |
 
-可用预算 = `Window - Reserve`。service 层会先把 Reserve 夹到不超过 `Window/4`，
-因此正常路径上预算不会退化成负数；内核仍保留 `Window/2` 兜底，用于 Budget
-由其他调用方构造的场景。
+可用预算 = `Window - Reserve`。Reserve 是**下限**，service 层还会把它抬到
+`max(设置值, MaxTokens)`：留的余量比实际输出预算还小，等于按虚高的空间往窗口里塞内容，
+总占用会顶破窗口。余量本身就超过整个窗口时（极端配置）压到 `Window/4`，
+否则预算恒为负、压缩会退化成什么都不裁；内核另留 `Window/2` 兜底，
+用于 Budget 由其他调用方构造的场景。
 
 ### FindCutPoint（切点选择）
 

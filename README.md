@@ -40,7 +40,7 @@
 | 配置 / 日志 / ID | Viper · log/slog · ULID |
 | Agent / LLM | 自研内核（单层流式循环）· 自研协议适配（OpenAI 兼容 / Anthropic / Ollama） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + 原生 CSS 设计令牌（无 UI 框架） |
-| 测试 | testing（24 个 Test / 16 个测试文件，全量约 3.5s；LLM 用脚本替身注入，不联网） |
+| 测试 | testing（25 个 Test / 16 个测试文件；日常 `scripts/test.ps1 -Fast` 约 3s，全量约 10s；LLM 用脚本替身注入，不联网） |
 
 ## 快速开始
 

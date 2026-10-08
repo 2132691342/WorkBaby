@@ -66,6 +66,7 @@ Event{Kind: EventContext, TokensUsed, TokensWindow, TokensKnown, TokensReserve, 
 - `days` 缺省 14，上限 90
 - 起点取当天往前 `days-1` 天的本地零点，`localtime` 归组——用户看的是自己的日历
 - 平均耗时 = 总耗时 / 调用次数，避免「今天没说话」时均值被拉成 0
+- 上下文用量只统计 `context > 0` 的行：没记下上下文占用的调用若计入，会把均值与峰值一起拉低
 
 ## 取舍
 

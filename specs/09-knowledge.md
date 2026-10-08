@@ -40,10 +40,30 @@
 **注入方式：模型经 `knowledge_search` 工具自主调用，不自动塞 prompt。**
 自动召回会让每轮对话都背着全部资料，既贵又稀释注意力。
 
+## 契约
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `query` | string，必填 | 关键词或短句 |
+| `limit` | integer | 返回条数，缺省 5 |
+
+返回给模型的是渲染好的文本块（`[序号] 标题（路径）` + 正文）；零命中时返回一句
+「知识库里没有相关内容」而不是空结果——空结果会让模型以为工具坏了，转而凭记忆编。
+
+**库内形态**：`knowledge_chunks` 是实体表，`knowledge_chunks_fts` 是 FTS5 虚表，
+靠 insert / delete / update 三个触发器保持同步。虚表用 `tokenize='trigram'`，
+默认的 `unicode61` 不按字切分 CJK，整句中文会退化成一个 token；
+`doc_id` / `chunk_id` 标 `UNINDEXED`，只用于回查，不参与匹配。
+
 ## 状态机
 
 `pending → indexed → failed`；失败原因落 `error` 字段，前端直接展示，
 不让用户对着一个「添加失败」干瞪眼。
+
+## 测试
+
+`knowledge/knowledge_test.go` 的 `TestKnowledgeChain` 覆盖：建索引 → 检索（含两字短查询
+走 `LIKE` 兜底）→ 删除文档后切片级联清理（FTS 里不留孤儿）。
 
 ## 取舍
 
