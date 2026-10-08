@@ -98,7 +98,10 @@ Gate → 落 approvals 行 → 推 chat:approval → 等用户决策
 ## 约束
 
 - 工具不得自行读配置 / 开日志 / 起 goroutine；一切依赖从 `Deps` 注入
-- 工具不得 `recover` 自己的 panic
+- 工具不得 `recover` 自己的 panic（由 `agent.runParallel` 在 goroutine 边界统一兜，见 spec 01）
 - 输出统一走 `tool.Cut`（2000 行 / 50KB 双上限，超出落临时文件并把路径告诉模型）
+- 截断回执必须写明**丢了多少**（行数 / 字节数）：只说「已截断」，模型不知道该整块重取还是换个更窄的范围
+- 命令（`exec`）与脚本（`python`）走 `tool.CutTail` 保留结尾：失败原因、Traceback 末行、构建结论都在最后几行，留开头等于永远看不到报错
+- 子进程输出统一过 `tool.Sanitize` 剥控制字符：一段带 `\x1b[?…` 的输出能把整条 SSE 帧打崩
 - 路径安全（穿越拒绝、Unicode 规整）统一走 `pkg.SafeJoin`，规则只写一遍
 - 错误用 `pkg.New(4xxx, ...)`，前端按 code 分流

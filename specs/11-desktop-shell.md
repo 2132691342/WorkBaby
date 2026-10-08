@@ -99,6 +99,7 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
   等前端就绪后再发 `app:open-file`
 - 主实例收不到握手（端口文件过期 / 进程已死）→ 当作首次启动正常继续
 - 支持文件关联（md / txt 双击用 WorkBaby 打开）
+- IPC 读取有 5 秒 deadline：对端发一半就卡住时，没有上限会把这条连接与 goroutine 永久挂着
 
 ## 桌面壳意图的落地
 

@@ -73,7 +73,7 @@ WorkBaby/
 ├── build/                        # 平台资源与产物
 ├── docs/                         # 项目级文档：架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署
 ├── specs/                        # 子系统规格（01-14）
-├── scripts/                      # 依赖门禁入口（CI 引用）+ 窗口截图
+├── scripts/                      # 测试入口 + 依赖门禁入口（CI 引用）
 └── tools/                        # Go 写的独立门禁工具（check-boundaries）
 ```
 
@@ -202,9 +202,9 @@ json tag 必须忠实上游字段名。归一化层（`llm/llm.go`）使用 snak
 | 字段 | 仅在名字不自解释时写 1 行 |
 | 行内 | 只写「为什么」，1 行 |
 
-- **连续注释块 ≤ 2 行**（契约说明例外，最多 3 行）
+- **连续注释块 ≤ 2 行**（契约说明例外，最多 3 行）；方法注释一律 1 行，第二行只在「不这么做会出事」时才留
+- 注释只写结论与边界，**不写论证**：「为什么这么设计」属于 `docs/` 与 `specs/`
 - 禁止：过程性叙述、TODO 历史、实现细节叙事、外部项目名与「参考 / 借鉴」字样
-- 禁止：把设计论证写进注释——论证属于 `docs/` 与 `specs/`，代码里只放结论
 
 ### 2.6.1 文档规范
 
@@ -252,7 +252,7 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 | 日志 | slog 仅 info/warn/error；分文件落盘；ctx 注入 sessionID/runID |
 | 实时通信 | SSE only（256 缓冲 / 慢客户端先挤 delta 保关键事件 / 重连带 `last_event_id` 重放对账） |
 | 压缩 | 确定性清洗 + 按 token 预算找切点，不调 LLM（见 spec 02） |
-| 工具输出 | 双通道：`Content` 回模型、`Detail` 给 UI；2000 行 / 50KB 双上限截断，超出落临时文件 |
+| 工具输出 | 双通道：`Content` 回模型、`Detail` 给 UI；2000 行 / 50KB 双上限截断，超出落临时文件并回报丢弃量；命令 / 脚本类保留结尾（`CutTail`），其余保留开头 |
 | 事件出口 | `service.Emitter` 唯一出口（注入归属 + 分配 seq + sink 注入） |
 | Token 计量 | 每次 LLM 调用一行 token_usages；`GET /stats` 按天/模型/会话聚合 |
 | 配置 | Viper + settings KV 表 |
@@ -268,7 +268,10 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 - 色值只在 `themes.css` 定义（`--wb-*` 语义令牌 + `[data-theme]` 块）
 - 组件禁止写死颜色：用 `var(--wb-*)`，不用 hex
 - 分层只靠「1px 中性描边 + 极轻阴影」：禁渐变、禁彩色描边、禁 backdrop-blur 叠层
-- 控件高度四档：`--wb-ctl-h-sm`(26px) / `--wb-ctl-h`(34px) / `--wb-ctl-h-lg`(38px) / `--wb-ctl-h-xl`(44px)；禁止裸像素高度
+- 控件高度四档：`--wb-ctl-h-sm`(26px) / `--wb-ctl-h`(34px) / `--wb-ctl-h-lg`(38px) / `--wb-ctl-h-xl`(44px)，另有图标钮 `--wb-ctl-icon`(32px)；禁止裸像素高度
+- 装饰性图标瓦片用 `--wb-tile-sm`(30px) / `--wb-tile`(40px) / `--wb-tile-lg`(52px)：它们不是控件，但同一组尺寸反复出现，散成裸像素就会各自漂
+- 按钮五态必须齐全（默认 / 悬停放大 / 按下缩小 / 禁用 / 加载）：每个可点元素都要给「点到了」的反馈
+- 危险按钮用中性描边 + 危险色文字：彩色描边违反分层纪律，语义交给文字与底色
 - 字号用刻度 `--wb-fs-*`；禁止任意像素值
 - 字体只有三个语义变量：`--font-sans` / `--font-mono` / `--font-display`，全部在 `themes.css` 定义；`html, body` 必须显式声明 `font-family` 与 `font-size`
 - 空态与骨架统一用 `EmptyState` / `PageState`；禁止 `el-empty` / `el-skeleton`
@@ -381,7 +384,8 @@ const (
 | CleanForProtocol 输出必须可直发上游 | 空消息/孤儿结果/未配对调用都在这一层兜底 |
 | 事件发布永不阻塞内核 | Hub 慢客户端先挤 delta 断连兜底 + `chat:gap` 对账 |
 | 同一工具同一参数重复调用直接拦 | 模型卡在同一个调用上打转，比撞轮数上限更难排查 |
-| 工具 panic 不 recover | panic 说明有 bug，工具失败用 `pkg.New(4xxx, ...)` 表达 |
+| 并发工具 goroutine 在起之前取信号量 | 信号量放在 goroutine 里的话 N 个调用先起 N 个 goroutine 再抢锁，「并发度有上界」是假的——一次 30 个工具就铺 30 个 goroutine |
+| 工具 panic 在 goroutine 边界 recover | panic 说明有 bug，但桌面端不该因为一个工具的 bug 把整进程连同这次对话一起带走；recover 后转成 `IsError` 结果并打堆栈，`recover` 之外的失败仍用 `pkg.New(4xxx, ...)` 表达 |
 | 端口握手必须早于 `domReady` 广播 | 监听器晚一步端口就为空，前端所有接口 404 |
 | 就绪状态用响应式值传，不靠事件通知 | 事件在监听器注册前派发会丢，组件挂载时要读到的是当前值 |
 | 启动失败必须走 Wails 事件总线 | 此时 HTTP/SSE 还不存在，走 `Emitter` 等于没发，用户只会看到空窗口 |
@@ -436,27 +440,29 @@ const (
 ### 3.3 测试索引
 
 只保留跨模块 / 跨轮次 / 跨协议的链路测试，每条链路一个 Test（分支用 `t.Run` 归入同一条链）。
-全量 **25 个 Test / 16 个文件**。按改动范围挑命令，不要一律跑全量：
+全量 **21 个 Test / 12 个文件**。按改动范围挑命令，不要一律跑全量：
 
 | 场景 | 命令 | 耗时 |
 |---|---|---|
-| 日常改动 | `scripts/test.ps1 -Fast` | 约 3s |
-| 提交前 / CI | `scripts/test.ps1` | 约 10s |
+| 日常改动 | `scripts/test.ps1 -Fast` | 秒级 |
+| 提交前 / CI | `scripts/test.ps1` | 约 40s（含归档真实解压） |
 | 只动了一个包 | `scripts/test.ps1 -Fast -Pkg backend/service` | 约 1.5s |
+| 只动了一条链路 | `scripts/test.ps1 -Fast -Run TestChatRunChain` | 约 1.5s |
 | 并发相关改动 | `scripts/test.ps1 -Race` | 分钟级 |
 
 时间大头是 `runtime` 包对两份归档的真实解压（约 6s，全量唯一的慢点，`-Fast` 跳过）。
 
+`-Race` 前置条件：`-race` 需要 cgo，而本项目为了让 SQLite 驱动保持纯 Go 默认关掉了 CGO。
+跑这一档必须先装 MinGW（`winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT`，
+装完确认 `gcc` 在 PATH 里），再 `CGO_ENABLED=1`。没有 C 编译器时这一档会直接
+`build failed`——不是代码问题，别当成回归去查。
+
 | 文件 | Test | 覆盖的链路 |
 |---|---|---|
 | `app_test.go` | TestAppLifecycle | 启动等待（慢装配 / 失败 / 超时）；关闭去向（托盘开关 + 退出流程 + 托盘未就绪） |
-| `api/startup_test.go` | TestStartupChain | 干净环境完整装配 → 磁盘导入技能 → 跨源预检放行 POST |
-| `api/chat_stream_test.go` | TestChatStreamChain | 真实 HTTP 栈 SSE 送达（start→delta→done、seq 递增、data 回带 event）与带 Last-Event-ID 重连补帧 |
-| `agent/loop_test.go` | TestLoopProtocolOrder · TestLoopStopsOnCancelLengthAndError · TestLoopBlocksRepeatedIdenticalCall · TestEmitSerializesConcurrentTools | 回填顺序（多轮 / 并行）、三条收尾路径（含截断轮不执行工具、零产出也不重试）、重复调用拦截与事件成对、事件出口串行化 |
-| `agent/compact_test.go` | TestCompactProtocol | 清洗硬约束、拆散的并行声明合并、压缩永不孤儿化 / 整轮丢弃、预算边界与降级 |
-| `service/agent_test.go` | TestApprovalLoop · TestChatErrorPersistsPartialContent · TestChatSendsOutputBudget · TestChatSteerPersists | 审批闭环（会话级放行不再弹卡）；错误轮半成品落库；输出预算真的下发到上游且上下文余量跟得上；运行中插话按注入链序落库 |
-| `service/order_test.go` | TestToolResultOrdering | 声明与结果紧邻配对（跨轮 / 同轮并发两态）与落库位点串行化 |
-| `service/provider_test.go` | TestDefaultModelChain · TestProviderKeyReveal | 默认服务→默认模型→新会话继承；存量空模型会话 run 时回填；密钥加密落库与显式查看 |
+| `api/api_test.go` | TestStartupChain · TestChatStreamChain | 干净环境完整装配 → 磁盘导入技能 → 跨源预检放行 POST；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event）与带 Last-Event-ID 重连补帧 |
+| `agent/agent_test.go` | TestLoopProtocolOrder · TestLoopStopsOnCancelLengthAndError · TestLoopBlocksRepeatedIdenticalCall · TestEmitSerializesConcurrentTools · TestCompactProtocol | 回填顺序（多轮 / 并行）、三条收尾路径（截断轮不执行工具、零产出也不重试）、重复调用拦截与事件成对、事件出口串行化；清洗硬约束、压缩永不孤儿化 / 整轮丢弃、预算边界与降级 |
+| `service/chain_test.go` | TestChatRunChain · TestToolResultOrdering · TestDefaultModelChain | 一次 run 的落库判据（审批会话级放行 / 错误轮半成品 / 插话链序 / 输出预算与余量）；声明与结果紧邻配对（跨轮 / 同轮并发）；默认服务→默认模型→会话继承与存量回填 |
 | `tool/files_test.go` | TestFilesReadChain · TestFilesWriteEditGuardrails | 路径穿越、Unicode 路径变体找回；读→写闭环（读工具记账后放行）、edit 唯一性、行尾与 BOM |
 | `skill/skill_test.go` | TestSkillRegistryChain | embed 加载与落盘、同名按来源优先且可回退、切换工作目录换掉工作区技能 |
 | `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引→检索（短查询子串兜底）→删除级联 |

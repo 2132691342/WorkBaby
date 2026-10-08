@@ -10,11 +10,12 @@
 ## 常用命令
 
 ```powershell
-# 后端测试：日常改动用 -Fast（跳过归档解压 + 复用构建缓存，约 3s）
+# 后端测试：日常改动用 -Fast（跳过归档解压 + 复用构建缓存）
 .\scripts\test.ps1 -Fast
-.\scripts\test.ps1                              # 全量（25 个 Test / 16 个文件，约 10s）
-.\scripts\test.ps1 -Fast -Pkg backend/service   # 只跑一个包
-.\scripts\test.ps1 -Race                        # 竞态检测，改并发相关代码时用
+.\scripts\test.ps1                                        # 全量（21 个 Test / 12 个文件）
+.\scripts\test.ps1 -Fast -Pkg backend/service             # 只跑一个包
+.\scripts\test.ps1 -Fast -Run TestChatRunChain            # 只跑一个 Test
+.\scripts\test.ps1 -Race                                  # 竞态检测，改并发相关代码时用
 
 # 依赖方向门禁
 .\scripts\check-boundaries.ps1
@@ -122,9 +123,8 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 
 | 脚本 | 用途 |
 |---|---|
-| `scripts/test.ps1` | 测试入口：`-Fast` 日常、默认全量、`-Pkg` 单包、`-Race` 并发检测 |
+| `scripts/test.ps1` | 测试入口：`-Fast` 日常、默认全量、`-Pkg` 单包、`-Run` 单 Test、`-Race` 并发检测 |
 | `scripts/check-boundaries.ps1` | 依赖方向门禁入口（跑 `tools/check-boundaries`） |
-| `scripts/shot.ps1` | 截运行中的窗口（可先点击 / 滚轮 / 拖拽 / 打字），用于查看界面现状 |
 
 运行时归档（`backend/runtime/bundled/*.zip`）直接随仓库托管（Git LFS），
 升级时手工替换 zip 并同步版本常量与 SHA 常量，没有取包脚本。

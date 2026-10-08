@@ -40,7 +40,7 @@
 | 配置 / 日志 / ID | Viper · log/slog · ULID |
 | Agent / LLM | 自研内核（单层流式循环）· 自研协议适配（OpenAI 兼容 / Anthropic / Ollama） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + 原生 CSS 设计令牌（无 UI 框架） |
-| 测试 | testing（25 个 Test / 16 个测试文件；日常 `scripts/test.ps1 -Fast` 约 3s，全量约 10s；LLM 用脚本替身注入，不联网） |
+| 测试 | testing（21 个 Test / 12 个测试文件；日常 `scripts/test.ps1 -Fast`，加 `-Run <名字>` 只跑一条；LLM 用脚本替身注入，不联网） |
 
 ## 快速开始
 
@@ -49,7 +49,7 @@
 # 克隆后先 git lfs pull 把真文件拉下来，否则构建会以内嵌 LFS 指针报错。
 
 # 开发
-go test ./backend/...        # 后端链路测试
+.\scripts\test.ps1 -Fast     # 后端链路测试
 cd frontend && npm install && npm run build
 wails dev                     # 开发模式
 
@@ -79,7 +79,7 @@ backend/
   tray/       系统托盘        singleinstance/  单实例与二次启动转交
 frontend/src/src/   Vue3 源码（themes.css 是唯一色值与字体来源）
 assets/       内置 Skill（embed 进 exe）
-scripts/      依赖门禁入口（CI 引用）+ 窗口截图
+scripts/      测试入口 · 依赖门禁入口（CI 引用）
 tools/        依赖方向门禁（Go 写的独立程序）
 docs/         项目级文档（架构 / 契约 / 数据模型 / 页面 / 开发 / 部署）
 specs/        子系统规格 01-14
@@ -99,6 +99,8 @@ specs/        子系统规格 01-14
 | [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 路由、页面骨架、组件基元、设置键位 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、布局纪律、数据目录、测试写法、排错 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 构建产物、内置运行时、分发注意 |
+| [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 错误码 1000–8999 的含义与处置动作 |
+| [specs/12 用户手册](specs/12-user-manual.md) | 面向使用者的功能说明与操作路径 |
 
 子系统规格 `specs/01-14`：
 [01 Agent 内核](specs/01-agent-loop.md) ·

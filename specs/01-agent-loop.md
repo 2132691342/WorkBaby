@@ -147,7 +147,8 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 | 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
 | CleanForProtocol 输出可直接发上游 | 空消息 / 孤儿结果 / 未配对调用都在这一层兜底 |
 | 事件出口串行化 | 并行工具各自在 goroutine 里发事件，不锁则上层落库位点被并发读写 |
-| 工具 panic 不 recover | panic 说明有 bug；失败用 `pkg.New(4xxx, ...)` 表达 |
+| 工具 panic 在 goroutine 边界 recover | 桌面端不该因为一个工具的 bug 让整进程退出；recover 落成 `IsError` 结果让模型换路，同时把堆栈打进日志 |
+| 并发批次在 `go` 之前取信号量 | 见上；与此对应，ctx 取消时剩余调用串行走 `runOne` 补失败结果，保证 assistant 声明与 tool 结果成对 |
 
 事件驱动落库时，上层还要守住两条与协议配对相关的硬约束——声明必须在结果之前
 合并落库、ULID 熵源必须并发安全，详见 [`07-session.md`](07-session.md) 的「落库契约」。
