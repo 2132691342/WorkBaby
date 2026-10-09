@@ -7,8 +7,9 @@
 #   - 仅 windows-latest：项目只面向 Windows。
 #   - 后端 / 前端拆两个 job：两套工具链的失败互不拖累。
 #   - 门禁排在 go test 之前：测试挂掉时依赖方向结论仍能拿到。
-#   - go test 传 -short：跳过 timing-sensitive 的 flake 用例。
-#   - 不编译 main 包：go:embed 依赖 frontend/dist，前端产物留给 wails build（release）。
+#   - go test 传 -short：跳过归档真实解压（全量唯一的慢点，见 AGENTS §3.3）。
+#   - 不编译 / 不测 main 包：go:embed 依赖 frontend/dist，那份产物由 release 的 wails build 负责。
+#     壳层逻辑（app_test.go）因此只在本地跑，改动 app.go 时记得本地执行。
 
 name: ci
 
@@ -42,13 +43,20 @@ jobs:
       - name: go vet
         run: go vet ./backend/...
 
+      - name: gofmt（行尾与格式门禁）
+        shell: pwsh
+        run: |
+          # .gitattributes 已把 *.go 固定为 LF：这里必须无输出，否则本地格式没对齐。
+          $bad = gofmt -l .
+          if ($bad) { throw "gofmt 未通过：`n$bad" }
+
       - name: go build（编译期验证，main 包留给 wails build）
         run: go build ./backend/...
 
       - name: 依赖方向门禁
         run: go run ./tools/check-boundaries
 
-      - name: go test（-short 跳过 timing-sensitive flake）
+      - name: go test（-short 跳过归档解压）
         shell: pwsh
         run: |
           # 管道到 Tee-Object 之后，pwsh 的退出码不再反映 go test：

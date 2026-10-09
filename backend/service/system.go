@@ -119,10 +119,8 @@ const (
 func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapability {
 	cap := domain.ModelCapabilityOf(model)
 	if cfg, err := c.env.Repo.GetModelConfig(providerID, model); err == nil && cfg != nil {
-		if cfg.ContextWindow > 0 {
-			cap.ContextWindow = cfg.ContextWindow
-			cap.Known = true
-			cap.Note = ""
+		if n := cfg.ContextWindow; n > 0 {
+			cap = cap.WithWindow(n)
 		}
 		cap.Vision = cfg.Vision
 		cap.ToolCall = cfg.ToolCall
@@ -131,19 +129,16 @@ func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapabil
 	}
 	if raw, err := c.env.Repo.GetSetting(domain.SettingContextWindow); err == nil {
 		if n, e := strconv.Atoi(strings.TrimSpace(raw)); e == nil && n > 0 {
-			cap.ContextWindow = n
-			cap.Known = true
-			cap.Note = ""
+			cap = cap.WithWindow(n)
 		}
 	}
 	cap.MaxOutput = cap.OutputBudget()
 	return cap
 }
 
-// samplingOf 取采样参数与输出预算。cap 由调用方统一解析，一次装配只查一次库。
-// 采样参数只在用户显式配置过时才下发（SamplingUnset 表示跟随上游默认）：
-// 拿一个拍脑袋的默认温度覆盖所有模型，会在推理型与思考型模型上撞上游约束。
-// 输出预算 = 窗口 1/8 与厂商硬上限取小（见 domain.ModelCapability.OutputBudget）。
+// samplingOf 取采样参数与输出预算：采样参数只在用户显式配置过时才下发
+// （拿拍脑袋的默认温度覆盖所有模型会在推理型模型上撞上游约束），输出预算按窗口 1/8
+// 派生（见 domain.ModelCapability.OutputBudget）。cap 由调用方解析，一次装配只查一次库。
 func (c *ChatService) samplingOf(cap domain.ModelCapability, providerID, model string) (temp, topP *float64, maxOutput int) {
 	maxOutput = cap.OutputBudget()
 	cfg, err := c.env.Repo.GetModelConfig(providerID, model)

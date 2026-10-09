@@ -23,8 +23,7 @@ func foldSpaces(s string) string {
 	}, s)
 }
 
-// spaceLike 覆盖复制粘贴最常带进来的伪装空格：U+00A0 不换行空格、
-// U+2000-U+200A、U+202F 窄不换行空格、U+205F 中型空格、U+3000 全角空格、U+FEFF 零宽不换行空格。
+// spaceLike 判定复制粘贴最常见的伪装空格（各种不换行 / 窄 / 全角 / 零宽空格）。
 func spaceLike(r rune) bool {
 	switch {
 	case r == 0x00A0, r == 0x202F, r == 0x205F, r == 0x3000, r == 0xFEFF:

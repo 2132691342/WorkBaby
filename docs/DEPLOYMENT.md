@@ -39,11 +39,24 @@ wails build
 
 ## 用户数据
 
-首启自动创建 `%APPDATA%/WorkBaby/`（DB / 配置 / 日志 / 运行时 / 技能目录）。
+首启自动创建 `%APPDATA%/WorkBaby/`，全部状态都在这里：
+
+| 内容 | 位置 |
+|---|---|
+| 数据库（会话 / 条目 / 用量 / 审批） | `workbaby.db`（WAL） |
+| 配置（含 MasterKey） | `config.yaml` |
+| 日志 | `logs/app.log`（全量）、`logs/warn.log`（warn 与 error） |
+| 内置运行时解压产物 | `runtime/python/`、`runtime/powershell/` |
+| 技能与知识库索引 | `skills/`、`builtin-skills/`、DB 内的分块 |
+| WebView2 profile（纯缓存） | `webview/` |
+| 单实例锁与 IPC 端口 | `app.lock`、`ipc.port` |
 
 安装器把程序装进 `$PROGRAMFILES64`，建桌面与开始菜单快捷方式，并注册卸载器与
-文件关联（md / txt）；卸载器会一并清掉「开机自启」的注册表值与数据目录提示。
-绿色版（只用 `WorkBaby.exe`）同样可用：卸载就是删 exe，用户数据留在 `%APPDATA%` 里。
+文件关联（md / txt）。**覆盖安装**会问一句要不要先清空本机数据（默认保留，
+静默安装 `/S` 不删）；**卸载**同样问一句是否删除本机数据——选「否」数据留在
+`%APPDATA%\WorkBaby`，下次装回来接着用。旧版本留在 `%APPDATA%\WorkBaby.exe`
+的 WebView2 profile 属纯缓存，卸载时直接清掉。绿色版（只用 `WorkBaby.exe`）同样可用：
+卸载就是删 exe，用户数据留在 `%APPDATA%` 里。
 
 ## 分发注意
 

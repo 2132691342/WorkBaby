@@ -9,7 +9,7 @@ type TokenUsageDO struct {
 	Model     string `gorm:"size:128" json:"model"`
 	Input     int    `json:"input"`
 	Output    int    `json:"output"`
-	// Cached 命中上游缓存的输入量；和 Input 分开看才知道长对话到底省没省钱。
+	// Cached 是 Input 里命中上游缓存的部分（恒 ≤ Input）；和 Input 分开看才知道长对话省没省钱。
 	Cached int `json:"cached"`
 	Total  int `json:"total"`
 	// Context 这一轮发出去时上下文占用的窗口量，按轮次看占用是涨还是被整理过。

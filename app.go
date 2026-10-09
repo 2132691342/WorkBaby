@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -128,11 +129,14 @@ const trayExitWait = 300 * time.Millisecond
 // repeatReady 在启动后的头几秒里重复广播端口，直到前端接住。
 // 这是对「事件先于监听器发出」的唯一可靠解法，成本可以忽略。
 func repeatReady(ctx context.Context, port, times int) {
+	// 用 Ticker 而不是循环里 time.After：后者每轮都新建一个定时器，取消时也留不住。
+	ticker := time.NewTicker(300 * time.Millisecond)
+	defer ticker.Stop()
 	for i := 0; i < times; i++ {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(300 * time.Millisecond):
+		case <-ticker.C:
 			wruntime.EventsEmit(ctx, "app:ready", map[string]any{"server_port": port})
 		}
 	}
@@ -226,6 +230,9 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.inst != nil {
 		a.inst.Release()
 	}
+	// 收尾日志必须在 os.Exit 之前：日志是直接写文件的，不经过缓冲，这一行不会丢。
+	// 日志里「启动」有记录、「退出」没有，排查时无法判断是崩溃还是正常关的。
+	pkg.Infof("app: 退出流程完成")
 	os.Exit(0)
 }
 
@@ -259,4 +266,18 @@ func dataDir() string {
 		return ""
 	}
 	return paths.DataDir
+}
+
+// ensureWebviewDir 返回 WebView2 profile 目录（数据目录下的 webview）并在需要时建出来。
+// 数据目录定位失败时返回空串，交回 Wails 的默认路径——启动不能因为这一项失败而中断。
+func ensureWebviewDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	sub := filepath.Join(dir, "webview")
+	if err := pkg.EnsureDir(sub); err != nil {
+		pkg.Warnf("workbaby: 建 WebView2 数据目录失败，回退默认路径: %v", err)
+		return ""
+	}
+	return sub
 }

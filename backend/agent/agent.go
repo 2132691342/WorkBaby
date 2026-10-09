@@ -38,6 +38,9 @@ type Budget struct {
 	Reserve      int  // 给模型输出留的余量
 	Keep         int  // 裁剪后保留的近期 token 预算
 	SystemTokens int  // system 提示词的 token 估算：判断是否超预算必须算上它
+	// ToolsTokens 是工具声明的 token 估算。工具 schema 与消息一样每轮都发出去，
+	// 漏算它水位会偏低、压缩会来得太晚。由 New 按 Config.Tools 自动填，调用方不必管。
+	ToolsTokens int
 }
 
 // Result 是一次 run 的产出。
@@ -85,6 +88,8 @@ func New(cfg Config, history []llm.Message) *Loop {
 	if cfg.Emit == nil {
 		cfg.Emit = func(Event) {}
 	}
+	// 工具声明由内核自己数：调用方少填一项预算，压缩判断就会偏乐观。
+	cfg.Budget.ToolsTokens = estimateToolTokens(cfg.Tools)
 	msgs := make([]llm.Message, len(history))
 	copy(msgs, history)
 	return &Loop{cfg: cfg, msgs: msgs, repeated: map[string]int{}}
@@ -126,7 +131,7 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 
 		l.emit(Event{Kind: EventTurnStart, Turn: turn})
 
-		msg, stop, usage, err := l.streamTurnWithOverflowRetry(ctx)
+		msg, stop, usage, err := l.streamTurnWithRetry(ctx)
 		if err != nil {
 			l.appendMessage(msg)
 			res.Turns = turn
@@ -140,11 +145,13 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 		}
 
 		if usage != nil {
-			// 部分网关的 input_tokens 上报不实，取它与上下文实测估算的较大者，
-			// 保证消息指标、会话累计、仪表盘三处口径一致。
-			if usage.Input < ctxTokens {
-				usage.Input = ctxTokens
+			// 上游报出的输入量比本地估算更可信：取两者较大者，消息指标、会话累计、
+			// 仪表盘三处口径一致，也不会出现「入 9.9K 上下文 25K」这种自相矛盾的读数。
+			// 本地估算偏保守时以它兜底，估算偏高时以上游为准。
+			if usage.Input > ctxTokens {
+				ctxTokens = usage.Input
 			}
+			usage.Input = ctxTokens
 			if usage.Total < usage.Input+usage.Output {
 				usage.Total = usage.Input + usage.Output
 			}
@@ -189,7 +196,7 @@ func (l *Loop) finish(res *Result, reason string, err error) (*Result, error) {
 	return res, err
 }
 
-// compact 按预算裁剪上下文。是否裁过以消息条数为准，事件里的 token 一律含 system 口径。
+// compact 按预算裁剪上下文。是否裁过以消息条数为准，事件里的 token 一律是完整口径。
 func (l *Loop) compact() {
 	snapshot := l.Messages()
 	trimmed, after := Compact(snapshot, l.cfg.Budget)
@@ -199,17 +206,16 @@ func (l *Loop) compact() {
 	l.mu.Lock()
 	l.msgs = trimmed
 	l.mu.Unlock()
-	sysTokens := countTokens(l.cfg.System)
 	l.emit(Event{Kind: EventCompressed,
-		TokensBefore: EstimateTokens("", snapshot) + sysTokens,
-		TokensAfter:  after + sysTokens})
+		TokensBefore: fullContext(l.cfg.Budget, snapshot),
+		TokensAfter:  after})
 }
 
 // reportContext 每轮广播一次上下文占用：用户靠它判断「还能聊多久、该不该开新对话」。
 // 返回本次实测值，调用方把它挂到 turn_end 上随消息一起落库。
 func (l *Loop) reportContext() int {
 	snapshot := l.Messages()
-	used := EstimateTokens(l.cfg.System, snapshot)
+	used := fullContext(l.cfg.Budget, snapshot)
 	l.emit(Event{
 		Kind:          EventContext,
 		TokensUsed:    used,
@@ -239,19 +245,43 @@ func (l *Loop) drainSteering() {
 	}
 }
 
-// streamTurnWithOverflowRetry 请求一次模型；上游报上下文超限时强制压缩后重试一次。
-// 只有本地估算偏乐观才会走到这，直接判死会让长任务「跑到一半不动了」。
-// 已经吐出过内容的轮次不重试：重试会让用户看到一段重复的正文。
-func (l *Loop) streamTurnWithOverflowRetry(ctx context.Context) (llm.Message, string, *llm.Usage, error) {
-	msg, stop, usage, err := l.streamTurn(ctx, l.cfg.MaxTokens)
-	if err == nil || ctx.Err() != nil || !llm.IsContextOverflow(err) {
-		return msg, stop, usage, err
+// 降级重试的边界：预算收到 minRetryMaxTokens 以下就短到没用，不再试；
+// maxRetryTurns 是次数上限——被拒的轮次一个 token 都没产出，但恒拒绝的端点不能无限试。
+const (
+	minRetryMaxTokens = 4096
+	maxRetryTurns     = 2
+)
+
+// streamTurnWithRetry 请求模型，两类「本地算不准、上游能纠正」的拒绝按需降级重试：
+// 上下文超限 → 强制压缩（只做一次）；输出预算被拒 → 按上游说的上限收紧（最多两次）。
+// 输出预算只降不升：内核不知道模型能吐多少，抬过头就是把能看懂的截断换成看不懂的 400。
+func (l *Loop) streamTurnWithRetry(ctx context.Context) (llm.Message, string, *llm.Usage, error) {
+	maxTokens := l.cfg.MaxTokens
+	compacted := false
+	for attempt := 0; ; attempt++ {
+		msg, stop, usage, err := l.streamTurn(ctx, maxTokens)
+		if err == nil || ctx.Err() != nil || attempt >= maxRetryTurns {
+			return msg, stop, usage, err
+		}
+		// 已经吐出过内容的轮次与重试无关：再发一次会让用户看到一段重复的正文。
+		if strings.TrimSpace(msg.Content) != "" || strings.TrimSpace(msg.Thinking) != "" || len(msg.ToolCalls) > 0 {
+			return msg, stop, usage, err
+		}
+		switch {
+		case llm.IsContextOverflow(err) && !compacted:
+			compacted = true
+			l.forceCompact()
+		case llm.IsOutputLimit(err):
+			next := llm.OutputLimitFrom(err, maxTokens)
+			if next >= maxTokens || next < minRetryMaxTokens {
+				return msg, stop, usage, err
+			}
+			pkg.Warnf("agent: 上游拒绝输出预算 %d，本轮降到 %d 重试: %v", maxTokens, next, err)
+			maxTokens = next
+		default:
+			return msg, stop, usage, err
+		}
 	}
-	if strings.TrimSpace(msg.Content) != "" || strings.TrimSpace(msg.Thinking) != "" || len(msg.ToolCalls) > 0 {
-		return msg, stop, usage, err
-	}
-	l.forceCompact()
-	return l.streamTurn(ctx, l.cfg.MaxTokens)
 }
 
 // forceCompact 上游报超限后的强制裁剪：保留量砍半、允许硬切，
@@ -265,12 +295,11 @@ func (l *Loop) forceCompact() {
 	l.mu.Lock()
 	l.msgs = trimmed
 	l.mu.Unlock()
-	sysTokens := countTokens(l.cfg.System)
 	l.emit(Event{Kind: EventCompressed,
-		TokensBefore: EstimateTokens("", snapshot) + sysTokens,
-		TokensAfter:  after + sysTokens})
+		TokensBefore: fullContext(l.cfg.Budget, snapshot),
+		TokensAfter:  after})
 	pkg.Warnf("agent: 上游报上下文超限，已强制压缩 %d 条 → %d 条（%d → %d tokens）",
-		len(snapshot), len(trimmed), EstimateTokens("", snapshot), after)
+		len(snapshot), len(trimmed), fullContext(l.cfg.Budget, snapshot), after)
 }
 
 // streamTurn 请求一次模型，把流式增量实时发出，返回归一后的 assistant 消息。
@@ -311,6 +340,8 @@ func (l *Loop) streamTurn(ctx context.Context, maxTokens int) (llm.Message, stri
 		case llm.EventDone:
 			stop = ev.StopReason
 			if ev.Usage != nil {
+				// 口径归一收在内核这一处：新增适配器不必各自记得做，命中率也不会越过 100%。
+				ev.Usage.Normalize()
 				usage = ev.Usage
 			}
 		case llm.EventError:

@@ -47,11 +47,13 @@ export const useChatStore = defineStore('chat', () => {
   // 「撞的是我们给的额度」和「撞的是厂商硬限制」在信号上分不出来，
   // 不给数字，用户就没法判断该不该去把额度调大。
   const truncBudget = ref(0)
-  // 上下文水位：ratio 为 0-100 整数；windowKnown=false 表示这个模型的窗口是估算值
+  // 上下文水位：ratio 为 0-100 整数，分母是「可用预算」（窗口减掉给输出留的余量），
+  // 与助手真正开始整理较早内容的位置一致；contextKnown=false 表示窗口是估算值
   const contextUsed = ref(0)
   const contextWindow = ref(0)
   const contextRatio = ref(0)
   const contextKnown = ref(false)
+  const contextReserve = ref(0)
 
   function reset() {
     running.value = false
@@ -67,6 +69,7 @@ export const useChatStore = defineStore('chat', () => {
     contextWindow.value = 0
     contextRatio.value = 0
     contextKnown.value = false
+    contextReserve.value = 0
   }
 
   // 思考内容可能被用户关掉：关掉后不累积，也不出现在历史渲染里。
@@ -233,6 +236,7 @@ export const useChatStore = defineStore('chat', () => {
     contextUsed.value = data.used
     contextWindow.value = data.window
     contextKnown.value = data.known !== false
+    contextReserve.value = data.reserve || 0
     contextRatio.value = Math.max(0, Math.min(100, Math.round(data.ratio || 0)))
   }
 
@@ -241,13 +245,18 @@ export const useChatStore = defineStore('chat', () => {
   // 模型能力按「服务 + 模型」缓存：切会话时同一模型不重复请求。
   const capCache = new Map<string, ModelCapability>()
 
-  function seed(used: number, win: number, known: boolean) {
+  function seed(used: number, win: number, known: boolean, reserve = 0) {
     contextUsed.value = Math.max(0, used || 0)
     if (win > 0) contextWindow.value = win
+    if (reserve > 0) contextReserve.value = reserve
     contextKnown.value = win > 0 ? known : false
+    // 与后端 ratioOf 同一条公式：分母是可用预算，不是整窗口（否则读数会比整理线慢半拍）。
+    // 这里只能拿模型默认余量（能力画像里的 max_output）估，用户手填过余量时以下一轮
+    // chat:context 的权威值为准。
+    const usable = win - reserve > 0 ? win - reserve : Math.floor(win / 2)
     contextRatio.value =
-      contextWindow.value > 0
-        ? Math.max(0, Math.min(100, Math.round((contextUsed.value / contextWindow.value) * 100)))
+      usable > 0
+        ? Math.max(0, Math.min(100, Math.round((contextUsed.value / usable) * 100)))
         : 0
   }
 
@@ -277,7 +286,7 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
     if (cap && cap.context_window > 0 && contextUsed.value === 0) {
-      seed(0, cap.context_window, cap.known !== false)
+      seed(0, cap.context_window, cap.known !== false, cap.max_output || 0)
     }
   }
 
@@ -299,9 +308,11 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
     if (cap && cap.context_window > 0) {
-      seed(used, cap.context_window, cap.known !== false)
+      // 余量按模型默认值（能力画像的 max_output）估：手填过 context_reserve_tokens
+      // 的用户，读数会在下一轮 chat:context 用权威值纠正。
+      seed(used, cap.context_window, cap.known !== false, cap.max_output || 0)
     } else {
-      seed(used, contextWindow.value, contextKnown.value)
+      seed(used, contextWindow.value, contextKnown.value, contextReserve.value)
     }
   }
 
@@ -334,6 +345,7 @@ export const useChatStore = defineStore('chat', () => {
     contextWindow,
     contextRatio,
     contextKnown,
+    contextReserve,
     reset,
     send,
     stop,

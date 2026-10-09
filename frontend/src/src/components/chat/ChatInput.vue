@@ -47,7 +47,7 @@ const COMMANDS = [
 const chat = useChatStore()
 const settings = useSettingsStore()
 const toast = useToastStore()
-// 「设置 → 行为」的回车发送开关：之前这开关没有任何消费方，界面承诺的行为不成立。
+// 「设置 → 行为」的回车发送开关：界面提示必须跟着它切，否则承诺的行为不成立。
 const sendOnEnter = () => settings.values['send_on_enter'] !== 'false'
 const sendHint = computed(() => (sendOnEnter() ? 'Enter 发送 · Shift+Enter 换行' : 'Enter 换行 · Ctrl+Enter 发送'))
 const root = ref<HTMLElement | null>(null)
@@ -480,6 +480,7 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
           :win="chat.contextWindow"
           :ratio="chat.contextRatio"
           :known="chat.contextKnown"
+          :reserve="chat.contextReserve"
         />
         <span v-if="outsideCount" class="warn">{{ outsideCount }} 个文件助手读不到</span>
         <span class="sp" />

@@ -17,9 +17,13 @@
 Event{Kind: EventContext, TokensUsed, TokensWindow, TokensKnown, TokensReserve, Messages}
 ```
 
-- `TokensUsed` = `EstimateTokens(system, msgs)`，与压缩用的是同一个估算口径
+- `TokensUsed` = `fullContext(Budget, msgs)` = system 提示词 + 工具声明 + 消息
+  （含思考、工具调用名与图片的折算），与压缩判断用的是同一个口径——两处口径不一致时，
+  水位还显示「没满」但压缩已经动手了
 - `TokensWindow` 来自能力目录，可被模型级配置与全局 `context_window` 设置覆写；
   `TokensKnown=false` 表示窗口是估算值，界面读数加「约」前缀（数字照常给）
+- `TokensReserve` 是给模型输出留的余量（缺省 = 该模型真正下发的输出预算），
+  界面据此说明「水位到多少就该整理」
 - 服务层换算成 `ratio`（0-100 整数）再推给前端，前端不必自己算
 
 ### 为什么每轮都发
@@ -32,8 +36,13 @@ Event{Kind: EventContext, TokensUsed, TokensWindow, TokensKnown, TokensReserve, 
 - 输入框底栏常驻一枚水位环 + 读数（`已用 / 窗口`），0% 也显示——
   什么都不显示等于用户没有这个信息
 - 打开 / 切换 / 新建会话时从会话快照（最近一条带 `usage.context` 的助手条目）
-  与模型能力回填，不必等下一轮 `chat:context`
-- ≥80% 转警告色，≥95% 转危险色
+  与模型能力回填（余量按能力画像的 `max_output` 估，手填过余量的用户下一轮被权威值纠正），
+  不必等下一轮 `chat:context`
+- **环的分母是可用预算**（`窗口 - 余量`），不是整窗口：内核在 `before > 窗口 - 余量`
+  时就动手整理，用整窗口当分母会慢半拍——整理已经发生、环上才 87%，用户看着
+  「还有空间」却在丢内容。所以 `ratio` 到 100% 的含义是「下一轮就要整理」
+- 悬停提示报出整理线（`窗口 - 余量` 的具体 token 数）：「该开新会话了」得能落到数字上
+- ≥80% 转警告色，≥95% 转危险色（按可用预算算，颜色与整理线一致）
 - 窗口为估算值时读数加「约」前缀；估算值本身偏保守，宁可让用户早一点决定开新对话
 
 ## 用量统计
@@ -43,6 +52,20 @@ Event{Kind: EventContext, TokensUsed, TokensWindow, TokensKnown, TokensReserve, 
 `token_usages` 表，每次 LLM 调用一行（`session_id` / `entry_id` / `provider` / `model` /
 `input` / `output` / `cached` / `total` / `context` / `latency_ms` / `created_at`）。会话表上另有 `total_tokens`
 冗余计数，删除会话时级联清理。
+
+### 口径
+
+三处读数（消息底部、会话累计、仪表盘）必须同源同口径，否则同一件事会出现三个数：
+
+| 项 | 口径 |
+|---|---|
+| `input` | 这一次请求发出去的**全部**输入 token，**含**命中缓存的部分。Anthropic 协议与部分兼容网关把 `input_tokens` / `prompt_tokens` 报成「未命中缓存的部分」，适配层与内核按「Cached 大于 Input 即未命中口径」补回总量（`llm.Usage.Normalize`） |
+| `cached` | 输入里命中上游缓存的部分，恒 ≤ `input`。命中率 = `cached / input`；老数据（输入只记了未命中部分）在汇总时按同一规则读侧补回（仪表盘走 `repo.sumInputSQL`，消息底部在 `MessageItem` 里补），两处都再压一次 100% 兜底 |
+| `context` | 这一轮发出时占用的窗口量。取「本地估算」与「上游实收输入」的较大者：估算偏保守时用实测值纠正，偏乐观时上游的拒绝由强制压缩兜底（见 [02](02-context-compaction.md)） |
+| `total` | ≥ `input + output`。上游给的数小于两者之和时以两者之和为准，避免仪表盘上「总量比输入+输出还小」 |
+
+读数一致性是硬要求：用户看到的 `入 9.9K` 与 `上下文 9.9K` 必须真的是一回事，
+`缓存 229%` 这种数只会让人以为统计坏了。
 
 ### 接口
 

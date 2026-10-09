@@ -29,7 +29,8 @@ type withCategory struct {
 
 func (w *withCategory) Category() string { return w.cat }
 
-// RegisterBuiltins 是内置工具的唯一注册入口。
+// RegisterBuiltins 注册不依赖外界构造的工具。knowledge_search 需要知识库检索能力，
+// 由 service 容器在装配期补注册（见 service.New）。
 func RegisterBuiltins(r *Registry) error {
 	for _, t := range []Tool{
 		readTool{},

@@ -417,23 +417,50 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 	case agent.EventContext:
 		c.env.Emitter.Emit(st.sessionID, domain.EventChatContext, domain.ContextData{
 			Used: e.TokensUsed, Window: e.TokensWindow, Known: st.windowKnown,
-			Ratio: ratioOf(e.TokensUsed, e.TokensWindow), Reserve: e.TokensReserve,
+			Ratio: ratioOf(e.TokensUsed, e.TokensWindow, e.TokensReserve), Reserve: e.TokensReserve,
 		})
 	case agent.EventAgentEnd:
 		st.stopReason = e.StopReason
 	}
 }
 
-// ratioOf 换算成整数百分比；窗口认不出来时返回 0，让读数退回「约」口径而不是瞎报。
-func ratioOf(used, window int) int {
-	if window <= 0 || used <= 0 {
+// firstLine 取首行并截断，供日志记录失败原因：工具输出可能很长，也可能带上文件内容，
+// 日志只留能定位问题的那一句。
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	if r := []rune(s); len(r) > 200 {
+		s = string(r[:200]) + "…"
+	}
+	return s
+}
+
+// ratioOf 换算成整数百分比，分母是可用预算（窗口减输出余量），与内核压缩的触发线同口径：
+// 水位环到 100% 就是「下一轮要整理」，拿窗口当分母会慢半拍（整理已发生，环上才 90%）。
+func ratioOf(used, window, reserve int) int {
+	usable := usableWindow(window, reserve)
+	if usable <= 0 || used <= 0 {
 		return 0
 	}
-	r := used * 100 / window
+	r := used * 100 / usable
 	if r > 100 {
 		return 100
 	}
 	return r
+}
+
+// usableWindow 是「还能塞多少」：窗口减去输出余量；余量吃掉整个窗口时退到一半，
+// 与 agent.Compact 的兜底同一条规则——两处不一致时读数与实际触发点会错开。
+func usableWindow(window, reserve int) int {
+	if window <= 0 {
+		return 0
+	}
+	if window-reserve <= 0 {
+		return window / 2
+	}
+	return window - reserve
 }
 
 // appendAssistantTurn 落本轮的 assistant 条目；空消息不落，避免下一轮上游 400。
@@ -500,8 +527,14 @@ func (c *ChatService) appendTool(st *runState, e agent.Event) {
 		return
 	}
 	st.lastEntryID = entry.ID
-	pkg.Infof("chat: 工具完成 session=%s tool=%s ok=%v cost=%dms",
-		st.sessionID, e.ToolCall.Name, e.ToolOK, e.DurationMs)
+	if e.ToolOK {
+		pkg.Infof("chat: 工具完成 session=%s tool=%s cost=%dms",
+			st.sessionID, e.ToolCall.Name, e.DurationMs)
+	} else {
+		// 失败必须带原因：只写 ok=false 的话，事后翻日志查不出「为什么失败」。
+		pkg.Warnf("chat: 工具失败 session=%s tool=%s cost=%dms reason=%s",
+			st.sessionID, e.ToolCall.Name, e.DurationMs, firstLine(e.ToolOutput))
+	}
 	c.env.Emitter.Emit(st.sessionID, domain.EventChatToolEnd, domain.ToolEndData{
 		ToolCallID: e.ToolCall.ID, OK: e.ToolOK,
 		Title: e.ToolTitle, Output: e.ToolOutput, DurationMs: e.DurationMs,

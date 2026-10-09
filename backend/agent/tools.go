@@ -233,6 +233,11 @@ func (l *Loop) runOne(ctx context.Context, p plan) *tool.Result {
 	if res == nil {
 		res = &tool.Result{Content: "", Title: p.tool.Label()}
 	}
+	// Detail 是给界面与日志的那份。工具只给了 Content（失败结果、空结果）时补上：
+	// 不补的话工具卡展开是空白，日志里也只剩一句 ok=false，谁都查不出为什么。
+	if res.Detail == "" {
+		res.Detail = res.Content
+	}
 	l.emit(Event{Kind: EventToolEnd, ToolCall: &call, ToolOK: !res.IsError,
 		ToolTitle: res.Title, ToolOutput: res.Detail, DurationMs: elapsed})
 	return res

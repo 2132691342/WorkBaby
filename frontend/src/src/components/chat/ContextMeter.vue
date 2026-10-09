@@ -4,7 +4,14 @@
 import { computed } from 'vue'
 import { fmtCount } from '../../utils/num'
 
-const props = defineProps<{ used: number; win: number; ratio: number; known?: boolean }>()
+const props = defineProps<{
+  used: number
+  win: number
+  ratio: number
+  known?: boolean
+  /** 给模型输出留的余量：环的分母是「窗口 - 余量」，与助手开始整理的位置一致 */
+  reserve?: number
+}>()
 
 // known=false 表示窗口来自缺省估算：读数加「约」前缀，数字照常给。
 // 不给读数（老实现的做法）用户只看到「窗口未知」，等于这个功能不存在。
@@ -22,11 +29,23 @@ const reading = computed(() => {
   if (!props.win || props.win <= 0) return used
   return `${exact.value ? '' : '约 '}${used} / ${fmtCount(props.win)}`
 })
+// 整理线：分母与后端 ratioOf 一致（窗口减余量）。数字给出来，用户才知道「该开新会话了」
+// 这句话具体对应到多少 token。
+const slimLine = computed(() => {
+  const win = props.win || 0
+  const reserve = props.reserve || 0
+  if (win <= 0) return 0
+  return win - reserve > 0 ? win - reserve : Math.floor(win / 2)
+})
 const tip = computed(() => {
+  const line =
+    slimLine.value > 0
+      ? `到 ${fmtCount(slimLine.value)} 会自动整理较早的内容`
+      : '快满时会自动整理较早的内容'
   if (!exact.value) {
-    return `上下文已用 ${fmtCount(props.used || 0)}（约），窗口是估算值；可在「设置 · 行为」里手填真实窗口`
+    return `上下文已用 ${fmtCount(props.used || 0)}（约），窗口是估算值；可在「设置 · 行为」里手填真实窗口。${line}`
   }
-  return `这轮对话已经占了多少模型窗口（${pct.value}%），超了会自动整理较早的内容`
+  return `这轮对话已占可用预算的 ${pct.value}%（已用 ${fmtCount(props.used || 0)} / 窗口 ${fmtCount(props.win || 0)}）；${line}`
 })
 const aria = computed(() =>
   props.win > 0 ? `上下文已用 ${pct.value}%` : `上下文已用 ${fmtCount(props.used || 0)}`,

@@ -26,19 +26,14 @@ func newInput(t *testing.T, args map[string]any) (Input, string) {
 
 // 文件类工具的完整护栏链路：读（穿越拒绝、Unicode 找回）与写改（写前必读、edit 唯一性、行尾保持）。
 func TestFilesGuardrails(t *testing.T) {
-	t.Run("路径穿越被拒绝", func(t *testing.T) {
-		in, _ := newInput(t, map[string]any{"path": "../outside.txt"})
-		_, err := (readTool{}).Execute(context.Background(), in)
-		if err == nil {
-			t.Fatal("工作目录外的路径必须被拒绝")
+	// 路径护栏：工作目录外的路径必须拒绝；模型拿到的路径常带不可见字符与全角标点，
+	// 读工具要能规整后命中磁盘上的真实文件。
+	t.Run("路径护栏：穿越拒绝与变体找回", func(t *testing.T) {
+		out, _ := newInput(t, map[string]any{"path": "../outside.txt"})
+		if _, err := (readTool{}).Execute(context.Background(), out); pkg.CodeOf(err) != 1004 {
+			t.Fatalf("工作目录外的路径应报 1004，实际 %v", err)
 		}
-		if pkg.CodeOf(err) != 1004 {
-			t.Fatalf("期望路径穿越错误码 1004，实际 %v", err)
-		}
-	})
 
-	// 模型拿到的路径常带不可见字符与全角标点，读工具要能规整后命中磁盘上的真实文件。
-	t.Run("Unicode 路径变体找回", func(t *testing.T) {
 		in, ws := newInput(t, map[string]any{"path": "报表\u00a0数据.txt"})
 		if err := pkg.WriteText(filepath.Join(ws, "报表 数据.txt"), "季度数据"); err != nil {
 			t.Fatal(err)
@@ -87,16 +82,17 @@ func TestFilesGuardrails(t *testing.T) {
 		}
 	})
 
-	t.Run("edit 唯一性与实际改动", func(t *testing.T) {
+	// edit 的三条底线：匹配必须唯一、必须真的改动、改完不能破坏原文件的行尾与 BOM。
+	t.Run("edit 唯一性、实际改动与行尾保持", func(t *testing.T) {
 		in, ws := newInput(t, map[string]any{
 			"path":  "b.txt",
 			"edits": []any{map[string]any{"old_text": "重复", "new_text": "已改"}},
 		})
-		target := filepath.Join(ws, "b.txt")
-		if err := pkg.WriteText(target, "重复\n重复\n"); err != nil {
+		ambiguous := filepath.Join(ws, "b.txt")
+		if err := pkg.WriteText(ambiguous, "重复\n重复\n"); err != nil {
 			t.Fatal(err)
 		}
-		in.Deps.Reads.MarkRead(target)
+		in.Deps.Reads.MarkRead(ambiguous)
 		if _, err := (editTool{}).Execute(context.Background(), in); err == nil {
 			t.Fatal("old_text 不唯一时必须报错")
 		}
@@ -105,30 +101,28 @@ func TestFilesGuardrails(t *testing.T) {
 			"path":  "b2.txt",
 			"edits": []any{map[string]any{"old_text": "原样", "new_text": "原样"}},
 		})
-		target = filepath.Join(ws, "b2.txt")
-		if err := pkg.WriteText(target, "原样\n"); err != nil {
+		noop := filepath.Join(ws, "b2.txt")
+		if err := pkg.WriteText(noop, "原样\n"); err != nil {
 			t.Fatal(err)
 		}
-		in.Deps.Reads.MarkRead(target)
+		in.Deps.Reads.MarkRead(noop)
 		if _, err := (editTool{}).Execute(context.Background(), in); err == nil {
 			t.Fatal("没有实际改动的 edit 必须被拒绝")
 		}
-	})
 
-	t.Run("保持行尾与 BOM", func(t *testing.T) {
-		in, ws := newInput(t, map[string]any{
+		in, ws = newInput(t, map[string]any{
 			"path":  "c.txt",
 			"edits": []any{map[string]any{"old_text": "旧值", "new_text": "新值"}},
 		})
-		target := filepath.Join(ws, "c.txt")
-		if err := os.WriteFile(target, []byte("\uFEFF第一行\r\n旧值\r\n第三行\r\n"), 0o644); err != nil {
+		crlf := filepath.Join(ws, "c.txt")
+		if err := os.WriteFile(crlf, []byte("\uFEFF第一行\r\n旧值\r\n第三行\r\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		in.Deps.Reads.MarkRead(target)
+		in.Deps.Reads.MarkRead(crlf)
 		if _, err := (editTool{}).Execute(context.Background(), in); err != nil {
 			t.Fatalf("改文件失败: %v", err)
 		}
-		got, err := os.ReadFile(target)
+		got, err := os.ReadFile(crlf)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -2,7 +2,7 @@
 // 行为面板：只管「助手怎么做事、怎么待着」的事。
 // 主题字体在「外观」，两者刻意分开——用户找设置时是带着目的来的，
 // 「我想让它别老弹窗确认」和「我想把界面调暗」不该挤在同一屏里互相干扰。
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import * as api from '../../api'
 import type { ModelCapability, RuntimeInfo } from '../../types/api'
 import { useSettingsStore } from '../../stores/settings'
@@ -42,6 +42,11 @@ const runtimeErr = ref('')
 const cap = ref<ModelCapability | null>(null)
 const winInput = ref('')
 const winErr = ref('')
+
+// 输出预算被厂商硬上限钳住（只在窗口来自目录时可能发生）：读起来像算错了，得说明一句
+const clampedByVendor = computed(
+  () => !!cap.value && cap.value.max_output < Math.floor(cap.value.context_window / 8),
+)
 
 // 权限档取值必须与后端 domain.PermissionXxx 一致，否则设置写入直接被拒。
 const PERMISSIONS = [
@@ -292,7 +297,11 @@ onMounted(async () => {
             <template v-else><i class="unknown">未知（按 {{ fmtCount(cap.context_window) }} 估算）</i></template>
           </span>
           <span>最大输出</span>
-          <span>{{ fmtCount(cap.max_output) }}</span>
+          <span>
+            {{ fmtCount(cap.max_output) }}
+            <!-- 窗口来自目录时才会被厂商上限钳住；钳过就说清楚，别让用户以为算错了 -->
+            <em v-if="clampedByVendor" class="cap-note">已按厂商上限收紧</em>
+          </span>
           <span>支持思考</span>
           <span>{{ cap.thinking ? '是' : '否' }}</span>
           <span>支持识图</span>
@@ -462,6 +471,12 @@ onMounted(async () => {
 .unknown {
   color: var(--wb-warning);
   font-style: italic;
+}
+.cap-note {
+  margin-left: var(--wb-sp-2);
+  font-style: normal;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-warning);
 }
 .cap-fix {
   display: flex;

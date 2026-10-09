@@ -21,7 +21,7 @@ Run(ctx):
     msg, stop = streamTurn(ctx, msgs)     # 流式，边收边发；预算 = Config.MaxTokens
     if stop == error: append(msg); 以 error 收尾
     if stop == length: drop(msg.tool_calls)   # 半个 JSON 不执行也不入历史
-    合并 usage                            # input 取上报值与上下文实测的较大者
+    合并 usage                            # 口径归一后取上报值与上下文实测的较大者
     append(msg)
     if 有工具调用: executeTools(calls)     # 按声明顺序回填
     emit turn_end                         # 用量随本轮一起发出：落库 append-only
@@ -38,14 +38,15 @@ Run(ctx):
 再套一层只会让「什么时候注入」变成隐式行为。跟进消息与插话进同一个队列。
 
 **为什么没有 PrepareNextTurn**：压缩是纯函数（清洗 + 按预算找切点），
-不需要在轮间回调里做副作用。`Budget` 三个整数由 service 层备好，
+不需要在轮间回调里做副作用。`Budget` 的窗口与余量由 service 层备好，
 `Compact` 是每次发送前的必经之路，不是可选钩子。
 
-**为什么内核不重试截断**：带思考的模型把推理 token 也算进输出预算，推理吃满时这一轮
-会「只想不说」。内核不重试——它并不知道模型能吐多少：预算由 service 层按模型上限与
-窗口算好（算法见 spec 02），内核再抬一次就可能超过上游真实上限，直接换回一个 400，
-把「能看懂的截断」变成「看不懂的报错」。到顶就是到顶：如实以 `length` 收尾，
-由界面的「继续」接着写。
+**为什么内核不抬高输出预算**：带思考的模型把推理 token 也算进输出预算，推理吃满时
+这一轮会「只想不说」。内核不重试截断，也不把预算往上加——它并不知道模型能吐多少：
+预算由 service 层按窗口算好（算法见 spec 02），内核再抬一次就可能超过上游真实上限，
+把「能看懂的截断」换成「看不懂的 400」。到顶就是到顶：如实以 `length` 收尾，
+由界面的「继续」接着写。**唯一的例外是上游明确拒绝这个预算**（`max_tokens too large`
+一类）：那只说明本地算大了，照着上游说的上限收紧再发一次（最多两次，见 spec 02）。
 
 ### 契约
 
@@ -58,6 +59,7 @@ type Budget struct {
     Reserve      int   // 给模型输出留的余量
     Keep         int   // 压缩后保留的近期 token 预算
     SystemTokens int   // system 提示词的 token 估算
+    ToolsTokens  int   // 工具声明的 token 估算，由 New 按 Config.Tools 自动填
 }
 
 type Config struct {
@@ -67,7 +69,7 @@ type Config struct {
     Workspace   string
     System      string
     Model       string
-    MaxTokens   int      // 输出预算；service 层按「窗口 1/8 与厂商硬上限取小」派生，保证非零
+    MaxTokens   int      // 输出预算；service 层按「窗口 1/8」派生（目录口径下再与厂商硬上限取小），保证非零
     Temperature *float64 // nil 表示不下发，交给上游默认；0 是合法的确定性取值
     TopP        *float64
     MaxTurns    int      // 缺省 64（设置键 max_turns 可覆写）；到顶以 StopMaxTurns 收尾
@@ -137,6 +139,7 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 | 轮数超限 | `StopMaxTurns` |
 | 同一工具同一参数用满 3 次 | 第 4 次起该调用直接判失败，结果写回让模型换路；计数在 run 内累计不衰减——同一调用反复出现就是模型在打转，中间穿插别的调用不代表它换了方案 |
 | 上游报上下文超限 | 强制压缩（保留量砍半）后重试本轮一次；本轮已吐出过内容则不重试（避免重复正文），再次失败以 StopError 收尾 |
+| 上游拒绝输出预算 | 按上游报出的上限收紧预算后重试（报错里没数字就对折，最多两次、下限 4096）；本轮已吐出过内容则不重试，仍失败以 StopError 收尾 |
 
 ### 不变量
 
@@ -145,7 +148,9 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 | 工具结果严格按调用顺序回填 | assistant(tool_calls) 与 tool 配对错位 → 上游 400 |
 | 截断轮不执行工具、不入历史 | 半个 JSON 调用执行出去比不执行更危险；留进历史会被当成真调用回传上游 |
 | 输出预算必须显式下发 | 不下发时上游各按自己的默认（常见 4096/8192），带思考的模型会「只想不说」 |
-| 内核不擅自抬高输出预算 | 内核不知道模型能吐多少，抬过头就是把「能看懂的截断」换成「看不懂的 400」 |
+| 内核不擅自抬高输出预算 | 内核不知道模型能吐多少，抬过头就是把「能看懂的截断」换成「看不懂的 400」；只有上游明确拒绝时才降级重试——上游报出的上限优先、没写就对折，最多两次、下限 4096，只降不升 |
+| 用量口径在 `turn_end` 之前归一 | `llm.Usage.Normalize` 把「未命中部分」口径补成总量：不归一，命中量会大于输入量，界面算出超过 100% 的命中率，输入量也偏小（长对话的成本被读低） |
+| 上下文读数取「上游实收输入」与本地估算的较大者 | 估算偏保守时用实测值纠正，避免同一张卡片上出现「入 9.9K / 上下文 25K」这种自相矛盾的读数 |
 | 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
 | CleanForProtocol 输出可直接发上游 | 空消息 / 孤儿结果 / 未配对调用都在这一层兜底 |
 | 事件出口串行化 | 并行工具各自在 goroutine 里发事件，不锁则上层落库位点被并发读写 |
@@ -172,13 +177,12 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 
 | 文件 | 测试 | 锁住的行为 |
 |---|---|---|
-| `agent_test.go` | `TestLoopProtocolOrder` | 多轮回填顺序、并行批次保序 |
-| | `TestLoopStopsOnCancelLengthAndError` | 取消 / 截断（截断轮不执行工具、零产出也不重试）/ 上游报错 |
+| `agent_test.go` | `TestLoopProtocol` | 多轮回填顺序、并行批次保序；取消 / 截断（截断轮不执行工具、零产出也不重试）/ 上游报错四条收尾；上游拒绝输出预算时减半重试；事件出口串行化 |
 | | `TestLoopBlocksRepeatedIdenticalCall` | 重复调用拦截到上限 + 被拦调用事件成对 |
-| | `TestEmitSerializesConcurrentTools` | 事件出口串行化 |
 | | `TestCompactProtocol` | 清洗硬约束、压缩切点合法性、预算边界与降级 |
 
-输出预算是否真的下发到上游由 `service/chain_test.go` 的 `TestServiceRunChain`
-（输出预算子测试）从装配层锁住（`llmtest.Scripted.Requests` 记下每次请求的参数）。
+输出预算是否真的下发到上游、以及用量口径是否归一后落库，由
+`service/chain_test.go` 的 `TestServiceRunChain`（输出预算 / 用量口径子测试）
+从装配层锁住（`llmtest.Scripted.Requests` 记下每次请求的参数）。
 
 多轮驱动用 `backend/llm/llmtest` 的脚本替身，不联网。

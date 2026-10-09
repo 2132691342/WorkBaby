@@ -2,10 +2,12 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode"
 
 	"WorkBaby/backend/llm"
+	"WorkBaby/backend/tool"
 )
 
 // 估算参数：CJK 按字计（一字约一 token），其余按 3.5 字符 1 token，再加每条消息的结构开销。
@@ -14,17 +16,35 @@ import (
 const (
 	perMessageOverhead = 4
 	charsPerToken      = 3.5
+	// perImageTokens 是每张图片的折算：识图模型的图片开销由上游的缩放策略决定，
+	// 本地只能给一个量级正确的固定值。完全不折算的话，粘贴截图的那一轮会被严重低估。
+	perImageTokens = 1200
 )
 
-// EstimateTokens 粗估上下文 token 数：不追求精确，只用于判断是否该压缩。
+// EstimateTokens 粗估消息与 system 提示词的 token 数：不追求精确，只用于判断是否该压缩。
+// 工具声明与图片的开销必须一起算上（前者见 Budget.ToolsTokens），它们同样占窗口。
 func EstimateTokens(system string, msgs []llm.Message) int {
 	total := countTokens(system) + perMessageOverhead
 	for _, m := range msgs {
 		total += perMessageOverhead
 		total += countTokens(m.Thinking)
 		total += countTokens(m.Content)
+		total += len(m.Images) * perImageTokens
 		for _, tc := range m.ToolCalls {
 			total += countTokens(tc.Name) + 8
+		}
+	}
+	return total
+}
+
+// estimateToolTokens 估工具声明的 token 数：schema 每轮都随请求发出去，和消息一样占窗口，
+// 工具越多占得越狠。漏算它，水位读数偏低、压缩也会来得太晚。
+func estimateToolTokens(tools []tool.Tool) int {
+	total := 0
+	for _, t := range tools {
+		total += countTokens(t.Name()) + countTokens(t.Description()) + 8
+		if raw, err := json.Marshal(t.Parameters()); err == nil {
+			total += countTokens(string(raw))
 		}
 	}
 	return total
@@ -94,8 +114,8 @@ func CleanForProtocol(msgs []llm.Message) []llm.Message {
 	return out
 }
 
-// mergeConsecutiveAssistants 合并相邻的 assistant 消息。
-// T(c1) 与它的声明之间隔着另一条 assistant 时上游直接 400，而相邻 assistant 本就是同一轮的产物。
+// mergeConsecutiveAssistants 合并相邻的 assistant 消息：隔着一条 assistant 的工具结果
+// 会被上游以「找不到紧邻声明」拒绝，而相邻 assistant 本就是同一轮的产物。
 func mergeConsecutiveAssistants(msgs []llm.Message) []llm.Message {
 	out := make([]llm.Message, 0, len(msgs))
 	for _, m := range msgs {
@@ -169,7 +189,7 @@ func CompactForce(msgs []llm.Message, b Budget) ([]llm.Message, int) {
 	cleaned := CleanForProtocol(msgs)
 	// 只剩两条时任何裁剪都会把对话掏空，交给上层以错误收尾反而更诚实。
 	if len(cleaned) <= 2 {
-		return msgs, EstimateTokens("", msgs)
+		return msgs, fullContext(b, msgs)
 	}
 	keep := b.Keep / 2
 	if keep < 2000 {
@@ -180,16 +200,22 @@ func CompactForce(msgs []llm.Message, b Budget) ([]llm.Message, int) {
 		cut = len(cleaned) / 2
 	}
 	out := CleanForProtocol(cleaned[cut:])
-	return out, EstimateTokens("", out)
+	return out, fullContext(b, out)
+}
+
+// fullContext 是一份消息真正要占的上下文量：system + 工具声明 + 消息。
+// 水位、压缩事件、压缩判断三处必须同一口径，读数才不会互相打架。
+func fullContext(b Budget, msgs []llm.Message) int {
+	return b.SystemTokens + b.ToolsTokens + EstimateTokens("", msgs)
 }
 
 // Compact 是每轮发送前的必经之路：超预算就裁一刀，裁不出完整 turn 就原样返回。
-// 纯函数、无 IO、不调模型；预算必须含 system 提示词，漏算会让判断偏乐观。
+// 纯函数、无 IO、不调模型；预算必须含 system 与工具声明，漏算会让判断偏乐观。
 func Compact(msgs []llm.Message, b Budget) ([]llm.Message, int) {
 	if len(msgs) == 0 {
 		return msgs, 0
 	}
-	before := b.SystemTokens + EstimateTokens("", msgs)
+	before := fullContext(b, msgs)
 	budget := b.Window - b.Reserve
 	if budget <= 0 {
 		budget = b.Window / 2
@@ -209,5 +235,5 @@ func Compact(msgs []llm.Message, b Budget) ([]llm.Message, int) {
 		return msgs, before
 	}
 	out := CleanForProtocol(cleaned[cut:])
-	return out, EstimateTokens("", out)
+	return out, fullContext(b, out)
 }

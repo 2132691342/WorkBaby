@@ -154,8 +154,7 @@ func (h *Hub) Publish(sessionID string, env domain.Envelope) {
 	}
 	e := env
 	h.pend[sessionID] = &e
-	h.stopTimer(sessionID)
-	h.timers[sessionID] = time.AfterFunc(deltaCoalesce, func() { h.FlushDelta(sessionID) })
+	h.armTimer(sessionID)
 	h.mu.Unlock()
 	if flush != nil {
 		h.publishNow(sessionID, *flush)
@@ -176,15 +175,22 @@ func (h *Hub) FlushDelta(sessionID string) {
 func (h *Hub) takePending(sessionID string) *domain.Envelope {
 	pend := h.pend[sessionID]
 	delete(h.pend, sessionID)
-	h.stopTimer(sessionID)
+	// 定时器只停不删：下一段 delta 还要用它，删掉就得为每个 token 重新分配一张。
+	if t, ok := h.timers[sessionID]; ok {
+		t.Stop()
+	}
 	return pend
 }
 
-func (h *Hub) stopTimer(sessionID string) {
+// armTimer 给会话挂上或重置合流定时器（调用方持有 h.mu）：每个 delta 都新起一张
+// AfterFunc 等于每个 token 一次分配，会话只留一张、按需 Reset（Go 1.23 起对任何
+// 状态的定时器都安全）；回调执行途中被 Reset 时本轮提前冲刷，对合流无影响。
+func (h *Hub) armTimer(sessionID string) {
 	if t, ok := h.timers[sessionID]; ok {
-		t.Stop()
-		delete(h.timers, sessionID)
+		t.Reset(deltaCoalesce)
+		return
 	}
+	h.timers[sessionID] = time.AfterFunc(deltaCoalesce, func() { h.FlushDelta(sessionID) })
 }
 
 // publishNow 真正投递：写重放缓冲 + 推给所有订阅者。

@@ -1,5 +1,5 @@
-// 内核链路：主循环的协议约束（回填顺序、收尾判据、重复调用拦截、事件串行化）
-// 与上下文裁剪 / 协议清洗（切点必须落在完整 turn 边界，输出能直发上游）。
+// 内核链路：主循环的协议约束（结果顺序回填、收尾路径、降级重试、事件串行化、重复调用拦截）
+// 与上下文裁剪的硬约束（清洗、切点、预算边界）。坏了的表现：上游 400、半截内容落库、事件错位。
 package agent
 
 import (
@@ -92,22 +92,22 @@ func assertNoOrphanToolResults(t *testing.T, msgs []llm.Message, label string) {
 	}
 }
 
-// 主循环的协议约束：结果按声明顺序回填，四种收尾（取消 / 截断 / 报错 / 正常）都不越界，
-// 并行工具的事件串行出门。顺序与串行化都是协议硬约束，错位即整轮 400。
-func TestLoopProtocol(t *testing.T) {
-	t.Run("多轮按声明顺序回填", func(t *testing.T) {
+// 主循环的协议约束：结果按声明顺序回填，收尾路径不越界，降级重试有上限，
+// 并行工具的事件串行出门。这些都是协议硬约束，错位即整轮 400。
+func TestLoopChain(t *testing.T) {
+	t.Run("工具结果按声明顺序回填", func(t *testing.T) {
+		// 串行多轮：两个工具分两轮调用，中间穿插助手正文。
 		var seen []string
-		streamer := llmtest.New(
+		multi := llmtest.New(
 			llm.Message{Content: "先看看", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "one"}}},
 			llm.Message{Content: "再看", ToolCalls: []llm.ToolCall{{ID: "c2", Name: "two"}}},
 			llm.Message{Content: "做完了"},
 		)
 		loop := New(Config{
-			Streamer: streamer,
+			Streamer: multi,
 			Tools:    []tool.Tool{echoTool{name: "one", seen: &seen}, echoTool{name: "two", seen: &seen}},
 			Model:    "test",
 		}, nil)
-
 		res, err := loop.Run(context.Background())
 		if err != nil {
 			t.Fatalf("运行失败: %v", err)
@@ -125,11 +125,9 @@ func TestLoopProtocol(t *testing.T) {
 		if len(seen) != 2 {
 			t.Fatalf("两个工具都应执行过，实际 %d", len(seen))
 		}
-	})
 
-	// 并行执行快慢不一，回填顺序必须仍等于声明顺序。
-	t.Run("并行批次保序回填", func(t *testing.T) {
-		streamer := llmtest.New(
+		// 并行批次：执行快慢不一，回填顺序必须仍等于声明顺序。
+		par := llmtest.New(
 			llm.Message{ToolCalls: []llm.ToolCall{
 				{ID: "a", Name: "slow"}, {ID: "b", Name: "fast"}, {ID: "c", Name: "mid"},
 			}},
@@ -140,11 +138,11 @@ func TestLoopProtocol(t *testing.T) {
 			echoTool{name: "fast", mode: tool.ExecutionParallel},
 			echoTool{name: "mid", mode: tool.ExecutionParallel, delay: 15 * time.Millisecond},
 		}
-		loop := New(Config{Streamer: streamer, Tools: tools, Model: "test", Parallel: 4}, nil)
-		if _, err := loop.Run(context.Background()); err != nil {
+		ploop := New(Config{Streamer: par, Tools: tools, Model: "test", Parallel: 4}, nil)
+		if _, err := ploop.Run(context.Background()); err != nil {
 			t.Fatalf("运行失败: %v", err)
 		}
-		got := toolIDs(loop.Messages())
+		got := toolIDs(ploop.Messages())
 		for i, want := range []string{"a", "b", "c"} {
 			if i >= len(got) || got[i] != want {
 				t.Fatalf("并行结果回填乱序: %v", got)
@@ -152,69 +150,167 @@ func TestLoopProtocol(t *testing.T) {
 		}
 	})
 
-	t.Run("取消以 aborted 收尾", func(t *testing.T) {
-		loop := New(Config{Streamer: llmtest.New(llm.Message{Content: "开始"}), Model: "test"}, nil)
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		res, err := loop.Run(ctx)
-		if err != nil {
-			t.Fatalf("取消不应返回错误: %v", err)
+	// 失败原因必须同时给模型、界面与日志：只写进给模型的那份，工具卡展开是空白、
+	// 日志只剩 ok=false，谁都查不出为什么。
+	t.Run("工具失败带原因", func(t *testing.T) {
+		var ends []Event
+		streamer := llmtest.New(
+			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "bad"}}},
+			llm.Message{Content: "换个办法"},
+		)
+		loop := New(Config{
+			Streamer: streamer,
+			Tools:    []tool.Tool{echoTool{name: "bad", err: errors.New("路径不存在")}},
+			Model:    "test",
+			Emit: func(e Event) {
+				if e.Kind == EventToolEnd {
+					ends = append(ends, e)
+				}
+			},
+		}, nil)
+		if _, err := loop.Run(context.Background()); err != nil {
+			t.Fatalf("运行失败: %v", err)
 		}
-		if res.StopReason != StopAborted {
-			t.Fatalf("期望 aborted，实际 %s", res.StopReason)
+		if len(ends) != 1 || ends[0].ToolOK {
+			t.Fatalf("工具报错时应有且只有一条 ToolOK=false 的结束事件: %+v", ends)
+		}
+		if !strings.Contains(ends[0].ToolOutput, "路径不存在") {
+			t.Fatalf("失败原因没进事件输出（工具卡与日志都会是空白）: %q", ends[0].ToolOutput)
 		}
 	})
 
-	// 半个 JSON 调用执行出去比不执行更危险；「只想不说」的零产出轮同样不重试——
-	// 预算由 service 层按模型上限给，内核悄悄重试只会在上游上限更低时换来一个 400。
-	t.Run("截断轮不执行工具且不重试", func(t *testing.T) {
+	// 收尾路径：取消 / 截断 / 上游报错都必须如实收尾，且截断轮的工具调用不执行、不重试。
+	t.Run("四条收尾路径", func(t *testing.T) {
+		canceled := New(Config{Streamer: llmtest.New(llm.Message{Content: "开始"}), Model: "test"}, nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		res, err := canceled.Run(ctx)
+		if err != nil || res.StopReason != StopAborted {
+			t.Fatalf("取消应以 aborted 收尾: %+v %v", res, err)
+		}
+
 		var seen []string
-		withCall := llmtest.New(llm.Message{
+		truncated := llmtest.New(llm.Message{
 			Content:   "被截断",
 			ToolCalls: []llm.ToolCall{{ID: "c1", Name: "one"}},
 		})
-		withCall.Stops = []string{llm.StopLength}
+		truncated.Stops = []string{llm.StopLength}
 		loop := New(Config{
-			Streamer: withCall,
+			Streamer: truncated,
 			Tools:    []tool.Tool{echoTool{name: "one", seen: &seen}},
 			Model:    "test",
 		}, nil)
-		res, _ := loop.Run(context.Background())
+		res, _ = loop.Run(context.Background())
 		if len(seen) != 0 {
 			t.Fatal("被截断的响应里工具不该被执行")
 		}
-		if res.StopReason != StopLength {
-			t.Fatalf("期望 length，实际 %s", res.StopReason)
-		}
-		if withCall.Calls() != 1 {
-			t.Fatalf("截断轮不该重试，实际发起 %d 次请求", withCall.Calls())
+		if res.StopReason != StopLength || truncated.Calls() != 1 {
+			t.Fatalf("截断应以 length 收尾且不重试: stop=%s calls=%d", res.StopReason, truncated.Calls())
 		}
 
-		thinkingOnly := llmtest.New(llm.Message{Thinking: "先想想该怎么做。"})
-		thinkingOnly.Stops = []string{llm.StopLength}
-		loop2 := New(Config{Streamer: thinkingOnly, Model: "test", MaxTokens: 32768}, nil)
+		// 零产出截断同样不重试：预算由 service 层给定，内核悄悄重试只会在上游上限更低时换来 400。
+		thinking := llmtest.New(llm.Message{Thinking: "先想想该怎么做。"})
+		thinking.Stops = []string{llm.StopLength}
+		loop2 := New(Config{Streamer: thinking, Model: "test", MaxTokens: 32768}, nil)
 		res2, err := loop2.Run(context.Background())
-		if err != nil {
-			t.Fatalf("运行失败: %v", err)
+		if err != nil || res2.StopReason != StopLength || thinking.Calls() != 1 {
+			t.Fatalf("零产出截断应以 length 收尾且不重试: stop=%s calls=%d err=%v",
+				res2.StopReason, thinking.Calls(), err)
 		}
-		if res2.StopReason != StopLength {
-			t.Fatalf("零产出截断期望 length，实际 %s", res2.StopReason)
-		}
-		if thinkingOnly.Calls() != 1 {
-			t.Fatalf("零产出截断不该重试，实际发起 %d 次请求", thinkingOnly.Calls())
+
+		failed := llmtest.New(llm.Message{Content: "半句"})
+		failed.Err = errors.New("上游 500")
+		loop3 := New(Config{Streamer: failed, Model: "test"}, nil)
+		res3, err := loop3.Run(context.Background())
+		if err == nil || res3 == nil || res3.StopReason != StopError {
+			t.Fatalf("上游报错应向上返回并以 error 收尾: %+v %v", res3, err)
 		}
 	})
 
-	t.Run("上游报错以 error 收尾", func(t *testing.T) {
-		streamer := llmtest.New(llm.Message{Content: "半句"})
-		streamer.Err = errors.New("上游 500")
-		loop := New(Config{Streamer: streamer, Model: "test"}, nil)
-		res, err := loop.Run(context.Background())
-		if err == nil {
-			t.Fatal("上游报错应向上返回")
+	// 上游拒绝输出预算时降级重试：窗口是用户手填的、模型是网关转发的，本地算不出上游
+	// 真实上限，而报错里通常写着真实上限，照着改一次就能过；到下限则放弃。
+	t.Run("输出预算被拒时降级", func(t *testing.T) {
+		streamer := &llmtest.Scripted{
+			Turns: []llm.Message{{Content: "不该走到这里"}, {Content: "降级后成功"}},
+			Errs:  []error{errors.New("Invalid max_tokens value: 128000 > 32768")},
 		}
-		if res == nil || res.StopReason != StopError {
-			t.Fatalf("期望 error 收尾，实际 %+v", res)
+		loop := New(Config{Streamer: streamer, Model: "test", MaxTokens: 128000}, nil)
+		res, err := loop.Run(context.Background())
+		if err != nil {
+			t.Fatalf("降级重试后应成功: %v", err)
+		}
+		if streamer.Calls() != 2 {
+			t.Fatalf("期望重试一次，实际发起 %d 次请求", streamer.Calls())
+		}
+		if got := streamer.Requests[0].MaxTokens; got != 128000 {
+			t.Fatalf("首次下发的预算不该被改动，实际 %d", got)
+		}
+		if got := streamer.Requests[1].MaxTokens; got != 32768 {
+			t.Fatalf("重试的预算应取上游报出的上限 32768，实际 %d", got)
+		}
+		if got := res.Messages[len(res.Messages)-1].Content; got != "降级后成功" {
+			t.Fatalf("重试产出的正文没进结果: %q", got)
+		}
+
+		// 上游不给数字（只说太长了）时对折，对折到「短到没用」就不再试：
+		// 反复试只会把一次可读的失败拖成多次无用往返。
+		noNumber := llmtest.New(llm.Message{Content: "不该走到这里"})
+		noNumber.Err = errors.New("max_tokens is too large")
+		loop2 := New(Config{Streamer: noNumber, Model: "test", MaxTokens: 6000}, nil)
+		if _, err := loop2.Run(context.Background()); err == nil {
+			t.Fatal("降级到下限后仍被拒，应把上游原话返回")
+		}
+		if noNumber.Calls() != 1 {
+			t.Fatalf("预算 6000 对折会低于下限，不该重试，实际发起 %d 次请求", noNumber.Calls())
+		}
+	})
+
+	// 模型卡在同一个调用上打转时按重复上限拦下，并把失败结果喂回去让它换方案；
+	// 被拦的调用也必须留下完整的开始 / 结束事件对，否则重载历史后协议配对就断了。
+	t.Run("重复调用拦到上限", func(t *testing.T) {
+		var seen []string
+		call := func(id string) llm.ToolCall {
+			return llm.ToolCall{ID: id, Name: "one", Args: map[string]any{"path": "a.txt"}}
+		}
+		streamer := llmtest.New(
+			llm.Message{ToolCalls: []llm.ToolCall{call("c1")}},
+			llm.Message{ToolCalls: []llm.ToolCall{call("c2")}},
+			llm.Message{ToolCalls: []llm.ToolCall{call("c3")}},
+			llm.Message{ToolCalls: []llm.ToolCall{call("c4")}},
+			llm.Message{Content: "换了个办法"},
+		)
+		var events []Event
+		loop := New(Config{
+			Streamer: streamer,
+			Tools:    []tool.Tool{echoTool{name: "one", seen: &seen}},
+			Model:    "test",
+			Emit:     func(e Event) { events = append(events, e) },
+		}, nil)
+		if _, err := loop.Run(context.Background()); err != nil {
+			t.Fatalf("运行失败: %v", err)
+		}
+		if len(seen) != repeatCallLimit {
+			t.Fatalf("期望只执行 %d 次，实际 %d", repeatCallLimit, len(seen))
+		}
+		for _, m := range loop.Messages() {
+			if m.Role == llm.RoleTool && m.ToolCallID == "c4" && !m.IsError {
+				t.Fatal("超出重复上限的调用应当判失败")
+			}
+		}
+		startIdx, endIdx := -1, -1
+		for i, e := range events {
+			if e.ToolCall == nil || e.ToolCall.ID != "c4" {
+				continue
+			}
+			if e.Kind == EventToolStart && startIdx < 0 {
+				startIdx = i
+			}
+			if e.Kind == EventToolEnd {
+				endIdx = i
+			}
+		}
+		if startIdx < 0 || endIdx < 0 || startIdx > endIdx {
+			t.Fatalf("被拦调用 c4 的事件对不完整: start=%d end=%d", startIdx, endIdx)
 		}
 	})
 
@@ -246,7 +342,6 @@ func TestLoopProtocol(t *testing.T) {
 				atomic.AddInt32(&inFlight, -1)
 			},
 		}, nil)
-
 		if _, err := loop.Run(context.Background()); err != nil {
 			t.Fatalf("运行失败: %v", err)
 		}
@@ -254,57 +349,6 @@ func TestLoopProtocol(t *testing.T) {
 			t.Fatalf("事件出口同时进入了 %d 个事件，上层落库位点会被读脏", peak)
 		}
 	})
-}
-
-// 模型卡在同一个调用上打转时按重复上限拦下，并把失败结果喂回去让它换方案。
-func TestLoopBlocksRepeatedIdenticalCall(t *testing.T) {
-	var seen []string
-	call := func(id string) llm.ToolCall {
-		return llm.ToolCall{ID: id, Name: "one", Args: map[string]any{"path": "a.txt"}}
-	}
-	streamer := llmtest.New(
-		llm.Message{ToolCalls: []llm.ToolCall{call("c1")}},
-		llm.Message{ToolCalls: []llm.ToolCall{call("c2")}},
-		llm.Message{ToolCalls: []llm.ToolCall{call("c3")}},
-		llm.Message{ToolCalls: []llm.ToolCall{call("c4")}},
-		llm.Message{Content: "换了个办法"},
-	)
-	var events []Event
-	loop := New(Config{
-		Streamer: streamer,
-		Tools:    []tool.Tool{echoTool{name: "one", seen: &seen}},
-		Model:    "test",
-		Emit:     func(e Event) { events = append(events, e) },
-	}, nil)
-
-	if _, err := loop.Run(context.Background()); err != nil {
-		t.Fatalf("运行失败: %v", err)
-	}
-	if len(seen) != repeatCallLimit {
-		t.Fatalf("期望只执行 %d 次，实际 %d", repeatCallLimit, len(seen))
-	}
-	for _, m := range loop.Messages() {
-		if m.Role == llm.RoleTool && m.ToolCallID == "c4" && !m.IsError {
-			t.Fatal("超出重复上限的调用应当判失败")
-		}
-	}
-	// 被拦的调用也必须有完整的开始 / 结束事件对：落库侧只在 tool_start 里写工具声明，
-	// 缺了开始事件，重载历史后协议配对就断了。
-	startIdx, endIdx := -1, -1
-	for i, e := range events {
-		if e.ToolCall == nil || e.ToolCall.ID != "c4" {
-			continue
-		}
-		if e.Kind == EventToolStart && startIdx < 0 {
-			startIdx = i
-		}
-		if e.Kind == EventToolEnd {
-			endIdx = i
-		}
-	}
-	if startIdx < 0 || endIdx < 0 || startIdx > endIdx {
-		t.Fatalf("被拦调用 c4 的事件对不完整: start=%d end=%d", startIdx, endIdx)
-	}
 }
 
 // 裁剪与清洗的硬约束：输出必须能直发上游，切点必须落在完整 turn 边界。
@@ -341,9 +385,10 @@ func TestCompactProtocol(t *testing.T) {
 		assertNoOrphanToolResults(t, out, "CleanForProtocol")
 	})
 
-	// keepTokens 从 0 扫到大，让切点落在每一个可能的位置上，结果都必须协议合法，
+	// keepTokens 从 0 扫到大，让切点落在每一个可能的位置上：结果都必须协议合法，
 	// 且保留侧的第一条必须是 user（切在回合中间会把半截 turn 发给上游）。
-	t.Run("压缩不孤儿化结果且整轮丢弃", func(t *testing.T) {
+	// 顺带覆盖预算边界：没超不动、切不出完整 turn 就放弃、降级只留最近整轮。
+	t.Run("压缩不孤儿化结果且切在整轮边界", func(t *testing.T) {
 		base := []llm.Message{
 			{Role: llm.RoleUser, Content: "看桌面"},
 			callAssistant("c1"),
@@ -361,10 +406,7 @@ func TestCompactProtocol(t *testing.T) {
 				t.Fatalf("keep=%d：保留侧第一条是 %q，turn 被从中间切开了", keep, out[0].Role)
 			}
 		}
-	})
 
-	// 预算判定与降级：没超不动、切不出完整 turn 就放弃、降级只留最近整轮。
-	t.Run("预算边界与降级", func(t *testing.T) {
 		small := []llm.Message{
 			{Role: llm.RoleUser, Content: "一句"},
 			{Role: llm.RoleAssistant, Content: "一句"},

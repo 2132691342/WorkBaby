@@ -81,9 +81,11 @@ jobs:
       - name: 静态检查 + 依赖方向门禁
         shell: pwsh
         run: |
-          # CI 不跑完整测试（timing-sensitive flake 测试在 windows-latest runner 上假阳）——
-          # Release 出包质量由 tag 触发（人工审核）+ 编译期检查 + wails build 兜底。
-          # 本地按 AGENTS.md §4 逐项验证。
+          # 出包阶段不重复跑测试：质量门禁在 ci.yml（测试 + 门禁 + 前端类型检查）。
+          # 这里只做「编译得过 + 依赖方向没坏」，把时间留给构建与产物校验。
+          Write-Host '== gofmt -l（应为空）==' -ForegroundColor Cyan
+          $bad = gofmt -l .
+          if ($bad) { throw "gofmt 未通过：`n$bad" }
           Write-Host '== go vet ./backend/... ==' -ForegroundColor Cyan
           go vet ./backend/...
           if ($LASTEXITCODE -ne 0) { throw "go vet failed" }
@@ -93,9 +95,8 @@ jobs:
           Write-Host '== 依赖方向门禁 ==' -ForegroundColor Cyan
           go run ./tools/check-boundaries
           if ($LASTEXITCODE -ne 0) { throw "check-boundaries failed" }
-          # 注：CI 不单独跑前端类型检查——vue-tsc / typescript 在 windows-latest runner 上
-          # npm 子依赖冲突易假阳失败（ERR_PACKAGE_PATH_NOT_EXPORTED）。前端类型错误会被 wails build
-          # 阶段的 npm run build 兜底（Vite/esbuild 编译会报 import / type 错误）。
+          # 前端类型检查与生产构建在 ci.yml 的 frontend job 里跑；
+          # 这里的 npm run build 是 wails 内嵌流程的一部分，类型错误同样会在这里拦下。
 
       # 运行时归档 go:embed 进 exe：LFS 没拉下来时内嵌的是 pointer 文本，
       # 构建照样成功、用户首次启动才发现运行时不可用。构建前当场拦下。

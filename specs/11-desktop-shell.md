@@ -77,6 +77,8 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
   否则菜单点击与退出回调都收不到消息
 - 「打开窗口 / 新建对话」都 `WindowShow + WindowUnminimise`——
   隐藏与最小化是两种状态，只做一半就唤不回
+- 菜单回调统一过 `safeCall`：托盘是进程级组件，回调里的一个 panic 会连同正在跑的
+  对话一起带走整进程；兜住后只留下日志与堆栈
 - 退出时 `Stop` 后 `WaitForExit(300ms)`：等消息循环把图标从通知区摘掉，
   进程抢跑会留下一个只能靠鼠标划过才消失的「幽灵图标」
 
@@ -115,10 +117,19 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 
 | 事项 | 做法 |
 |---|---|
-| 覆盖安装 | 写 exe 前先 `taskkill /F /IM WorkBaby.exe /T`，杀到了才提示；托盘常驻时 exe 仍被占用 |
+| 覆盖安装 | 写 exe 前先 `ExecWait 'taskkill /F /IM WorkBaby.exe /T' $0`——托盘常驻时 exe 仍被占用；必须用 `ExecWait`，`Exec` 不写退出码，判断等于没判；杀掉后等 1.5 秒释放文件句柄 |
+| 旧数据 | 检测到 `%APPDATA%\WorkBaby\workbaby.db` 时问一句要不要在装前清空；默认保留，静默安装（`/S`）从不删 |
+| 卸载数据 | 问一句是否删除本机数据（对话记录 / 配置含 API Key / 知识库 / 技能 / 日志 / 运行时）；默认保留，静默卸载同样不删 |
 | 文件关联 | 模板的 `wails.associateFiles` 是空宏，直接在 `project.nsi` 里调 `APP_ASSOCIATE` |
 | 脚本编码 | `project.nsi` 必须带 UTF-8 BOM，否则中文注释与字符串会被按系统代码页解析而报错 |
-| 插件 | 该打包环境不带任何 NSIS 插件，只能用 `Exec` / `taskkill` 这类内置能力 |
+| 插件 | 该打包环境不带任何 NSIS 插件，只能用 `ExecWait` / `taskkill` 这类内置能力 |
+| 本地自检 | 改完 `project.nsi` 先 `makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\WorkBaby.exe project.nsi` 编一遍再发 |
+
+### WebView2 数据目录
+
+`windows.Options.WebviewUserDataPath` 指向 `<数据目录>\webview`。Wails 默认把它放在
+`%APPDATA%\<exe 名>`——一个名字像可执行文件、内容是几十 MB 浏览器缓存的目录：
+用户会往杀软误报上想，卸载时也容易漏清。挪进数据目录后，卸载选「删数据」就是一次清干净。
 
 ## 事件注入
 

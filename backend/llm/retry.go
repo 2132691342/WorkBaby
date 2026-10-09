@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +41,60 @@ func IsContextOverflow(err error) bool {
 		}
 	}
 	return false
+}
+
+// outputPatterns 是各家「输出预算被拒」的文案特征：max_tokens / max_completion_tokens
+// 超过该模型真实上限。窗口的 1/8 是本地算出来的经验值，只有上游知道真实上限，
+// agent 层据此把预算减半重试一次。
+var outputPatterns = []string{
+	"max_tokens", "max_completion_tokens", "max output", "maximum output",
+	"output token", "maxoutputtokens", "max_new_tokens",
+}
+
+// IsOutputLimit 判定错误是否是「输出预算超过上游上限」。
+// 上下文超限的文案里也常出现 tokens / maximum，先排除它，避免压错了方向。
+func IsOutputLimit(err error) bool {
+	if err == nil || IsContextOverflow(err) {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, p := range outputPatterns {
+		if strings.Contains(msg, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// limitNumberRe 用来从错误文本里取上游声明的数字（输出上限、合法区间）。
+var limitNumberRe = regexp.MustCompile(`\d+`)
+
+// OutputLimitFrom 给出「输出预算被拒」之后的降级值：报错里写着上限就用它，没写就对折。
+// 各家原话不同（`[1, 32768]` / `128000 > 32768` 都出现过），取比自己小的最大数字即可：
+// 取大一点只是再被拒一次（调用方有次数上限），取小一点只是回答短些，都比整轮失败轻。
+func OutputLimitFrom(err error, current int) int {
+	if current <= 0 {
+		return 0
+	}
+	if err != nil {
+		if n := limitBelow(err.Error(), current); n > 0 {
+			return n
+		}
+	}
+	return current / 2
+}
+
+// limitBelow 扫描文本里的整数，返回小于 limit 的最大值；没有则返回 0。
+func limitBelow(msg string, limit int) int {
+	best := 0
+	for _, raw := range limitNumberRe.FindAllString(msg, 8) {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= best || n >= limit {
+			continue
+		}
+		best = n
+	}
+	return best
 }
 
 // 可重试的错误特征：限流、过载与传输中断。只有拿不到状态码时才用得上这些。

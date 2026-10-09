@@ -39,7 +39,8 @@ type PowerShellStatus struct {
 	Version string
 }
 
-// StatusPowerShell 探测内置 PowerShell，只查不装（与 Python 的 Status 同语义）。
+// StatusPowerShell 探测内置 PowerShell 并带上失败原因；首次调用会真解压归档，
+// 已解压则按 .version 命中（与 Python 的 Status 同语义）。
 func StatusPowerShell(p Paths) PowerShellStatus {
 	exe, err := EnsurePowerShell(p)
 	if err != nil {

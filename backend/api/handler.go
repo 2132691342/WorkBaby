@@ -100,12 +100,22 @@ func (h *Handler) Startup(ctx context.Context) error {
 	}
 	h.Repo = repo.New(gdb)
 
+	// 启动横幅：出问题时第一个要问的是「哪个版本、数据在哪」，先记下来。
+	pkg.Infof("startup: WorkBaby %s 启动（数据目录 %s）", h.Version, paths.DataDir)
+
 	// 内置 Python：失败只告警不阻断启动，但原因必须写清楚——
 	// 只说「没有可用的 Python」，用户无从判断是包没嵌进来、解压失败还是被安全软件拦了。
 	if st := runtime.Status(paths); st.Exe == "" {
 		pkg.Warnf("startup: 内置 Python 不可用：%s", st.Err)
 	} else {
 		pkg.Infof("startup: 内置 Python 已就绪（%s）", st.Version)
+	}
+	// PowerShell 与 Python 对称地在这里解压并留痕：105MB 的归档若解压失败，
+	// 等到某次 powershell 调用时才发现就太晚了（那时回退系统 pwsh，用户看不出差别）。
+	if st := runtime.StatusPowerShell(paths); st.Exe == "" {
+		pkg.Warnf("startup: 内置 PowerShell 不可用（将回退系统的 pwsh）：%s", st.Err)
+	} else {
+		pkg.Infof("startup: 内置 PowerShell 已就绪（%s）", st.Version)
 	}
 
 	h.Registry = tool.New()

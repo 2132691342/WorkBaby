@@ -45,7 +45,8 @@ const totals = computed(() => data.value?.totals)
 // 没有任何用量时不画空图表：一张空的折线图只会让人以为坏了
 const hasUsage = computed(() => (totals.value?.total || 0) > 0)
 const topSessions = computed(() => (data.value?.sessions || []).slice(0, 6))
-const hitRate = computed(() => (totals.value?.cache_hit_rate || 0) * 100)
+// 上限 100%：老数据的输入量按「未命中部分」记，命中量可能大于输入量（后端已归一，这里兜显示）
+const hitRate = computed(() => Math.min(100, (totals.value?.cache_hit_rate || 0) * 100))
 
 // 四个读数卡：每张一个主读数 + 标签 + 一行注解。
 // 抽成数据而不是把模板抄四遍——抄错一处就是四处分叉。

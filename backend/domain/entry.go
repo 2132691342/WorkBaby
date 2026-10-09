@@ -50,9 +50,10 @@ type ToolCall struct {
 
 // UsageVO token 与耗时。
 type UsageVO struct {
+	// Input 是这次请求发出去的全部输入（含命中缓存的部分）。
 	Input  int `json:"input"`
 	Output int `json:"output"`
-	// Cached 是这次输入里命中上游缓存的部分，缓存命中率由它除以 Input 得出。
+	// Cached 是 Input 里命中上游缓存的部分，恒 ≤ Input；命中率由它除以 Input 得出。
 	Cached int `json:"cached"`
 	Total  int `json:"total"`
 	// Context 是这一轮发出去时上下文占了多少窗口（系统提示 + 历史消息）。

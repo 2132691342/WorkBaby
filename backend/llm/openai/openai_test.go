@@ -69,55 +69,46 @@ func decodeBody(t *testing.T, req llm.Request) map[string]any {
 // 适配层链路：请求编码的协议家族差异（推理家族 vs 普通模型）与流式解析的三条底线
 // （usage 帧顺序、工具调用单次下发、断流必须收尾）。
 func TestOpenAIAdapter(t *testing.T) {
-	// 推理家族只认 max_completion_tokens 且拒绝采样参数，用错字段直接 400。
-	temp := 0.25
-
-	t.Run("推理家族用 max_completion_tokens", func(t *testing.T) {
-		body := decodeBody(t, llm.Request{Model: "o3-mini", MaxTokens: 1000, Temperature: &temp})
-		if _, ok := body["max_tokens"]; ok {
-			t.Fatal("o 系模型不应下发 max_tokens，会直接 400")
-		}
-		if _, ok := body["temperature"]; ok {
-			t.Fatal("o 系模型不应下发 temperature，会直接 400")
-		}
-		if got, ok := body["max_completion_tokens"].(float64); !ok || int(got) != 1000 {
-			t.Fatalf("max_completion_tokens 缺失或不对: %v", body["max_completion_tokens"])
-		}
-	})
-
-	t.Run("普通模型仍用 max_tokens", func(t *testing.T) {
-		body := decodeBody(t, llm.Request{Model: "deepseek-chat", MaxTokens: 1000, Temperature: &temp})
-		if got, ok := body["max_tokens"].(float64); !ok || int(got) != 1000 {
-			t.Fatalf("max_tokens 缺失或不对: %v", body["max_tokens"])
-		}
-		if _, ok := body["max_completion_tokens"]; ok {
-			t.Fatal("普通模型不应下发 max_completion_tokens")
-		}
-		if _, ok := body["temperature"]; !ok {
-			t.Fatal("普通模型的 temperature 应正常下发")
-		}
-	})
-
-	t.Run("网关前缀不影响家族判定", func(t *testing.T) {
-		body := decodeBody(t, llm.Request{Model: "openai/gpt-5", MaxTokens: 500})
-		if _, ok := body["max_completion_tokens"]; !ok {
-			t.Fatal("带网关前缀的 gpt-5 应命中推理协议")
+	// 推理家族只认 max_completion_tokens 且拒绝采样参数，用错字段直接 400；
+	// 网关前缀（openai/gpt-5）不参与判定，否则同一模型换个网关就 400。
+	t.Run("输出上限字段按协议家族选择", func(t *testing.T) {
+		temp := 0.25
+		for _, c := range []struct {
+			model     string
+			reasoning bool
+		}{
+			{model: "o3-mini", reasoning: true},
+			{model: "openai/gpt-5", reasoning: true},
+			{model: "deepseek-chat"},
+		} {
+			body := decodeBody(t, llm.Request{Model: c.model, MaxTokens: 1000, Temperature: &temp})
+			newField, ok := body["max_completion_tokens"].(float64)
+			oldField, hasOld := body["max_tokens"].(float64)
+			_, hasTemp := body["temperature"]
+			if c.reasoning {
+				if !ok || int(newField) != 1000 || hasOld || hasTemp {
+					t.Fatalf("%s: 推理家族只认 max_completion_tokens 且拒绝采样参数，实际 %v", c.model, body)
+				}
+				continue
+			}
+			if !hasOld || int(oldField) != 1000 || ok || !hasTemp {
+				t.Fatalf("%s: 普通模型应用 max_tokens 并正常下发采样参数，实际 %v", c.model, body)
+			}
 		}
 	})
 
-	// usage 是独立一帧排在 finish_reason 之后，提前收尾会让计量与水位全变 0。
-	t.Run("usage 帧晚于 finish_reason 仍能拿到", func(t *testing.T) {
-		c := serve(t,
+	// 流式解析：usage 是独立一帧排在 finish_reason 之后（提前收尾会让计量与水位全变 0），
+	// finish_reason 那一帧定型工具调用但不能吞掉 usage 帧、也不能重复下发。
+	t.Run("流式解析：usage 帧与工具调用", func(t *testing.T) {
+		usage := serve(t,
 			`data: {"choices":[{"delta":{"content":"你好"}}]}`,
 			`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 			`data: {"choices":[],"usage":{"prompt_tokens":128,"completion_tokens":37,"total_tokens":165,`+
 				`"cache_read_input_tokens":400,"prompt_tokens_details":{"cached_tokens":450}}}`,
 			`data: [DONE]`,
 		)
-		events := collect(t, c)
-
 		var done llm.Event
-		for _, ev := range events {
+		for _, ev := range collect(t, usage) {
 			if ev.Type == llm.EventDone {
 				done = ev
 			}
@@ -134,21 +125,16 @@ func TestOpenAIAdapter(t *testing.T) {
 		if done.StopReason != llm.StopStop {
 			t.Fatalf("停止原因应为 stop，实际 %q", done.StopReason)
 		}
-	})
 
-	// finish_reason 那一帧要定型工具调用，但不能因此把 usage 帧吞掉，也不能重复下发。
-	t.Run("工具调用单次下发", func(t *testing.T) {
-		c := serve(t,
+		called := serve(t,
 			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"ls","arguments":"{}"}}]}}]}`,
 			`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 			`data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`,
 			`data: [DONE]`,
 		)
-		events := collect(t, c)
-
 		var calls []llm.ToolCall
-		var done llm.Event
-		for _, ev := range events {
+		done = llm.Event{}
+		for _, ev := range collect(t, called) {
 			if ev.Type == llm.EventToolCall && ev.ToolCall != nil {
 				calls = append(calls, *ev.ToolCall)
 			}
@@ -156,11 +142,8 @@ func TestOpenAIAdapter(t *testing.T) {
 				done = ev
 			}
 		}
-		if len(calls) != 1 {
-			t.Fatalf("工具调用应恰好下发 1 次，实际 %d", len(calls))
-		}
-		if calls[0].ID != "call_1" || calls[0].Name != "ls" {
-			t.Fatalf("工具调用内容不对: %+v", calls[0])
+		if len(calls) != 1 || calls[0].ID != "call_1" || calls[0].Name != "ls" {
+			t.Fatalf("工具调用应恰好下发 1 次且内容正确，实际 %+v", calls)
 		}
 		if done.Usage == nil || done.Usage.Total != 15 {
 			t.Fatalf("工具调用收尾时 usage 丢了: %+v", done.Usage)

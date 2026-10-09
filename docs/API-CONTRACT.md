@@ -86,11 +86,11 @@
 | POST | /knowledge/search | `{query, limit?}` → `{hits[]}` |
 | GET | /tools | 工具清单：助手当前能干什么、风险多大、是否启用 |
 | POST | /tools/:name/toggle | `{enabled}`，下一轮生效 |
-| GET | /models/capability?model=&provider_id= | 模型能力画像：上下文窗口、是否支持思考 / 识图 / 工具调用 |
+| GET | /models/capability?model=&provider_id= | 模型能力画像：上下文窗口、派生输出预算、是否支持思考 / 识图 / 工具调用 |
 | POST | /models/capabilities | 批量能力画像 `{provider_id, models[]}` → `ModelCapability[]`（换模型下拉一次列几十上百个模型，逐个查即 N+1） |
 | GET | /models/config?model=&provider_id= | 单个模型配置（目录 + 覆写合并后的最终值） |
 | GET | /models/configs?provider_id= | 一个服务下的全部模型配置 |
-| POST | /models/config | 保存模型配置 `{provider_id, model, context_window?, temperature, top_p, vision, tool_call}`；temperature / top_p 传 -1 表示跟随上游默认；最大输出不可配置，按「窗口 1/8 与厂商硬上限取小」派生 |
+| POST | /models/config | 保存模型配置 `{provider_id, model, context_window?, temperature, top_p, vision, tool_call}`；temperature / top_p 传 -1 表示跟随上游默认；最大输出不可配置，按「窗口 1/8」派生 |
 | GET | /runtime | 内置运行时状态：Python 与 PowerShell 各自的 exe / source(bundled\|system\|空) / version / error |
 | POST | /runtime/redetect | 重新检测内置运行时：清探测缓存后重跑，运行期放入归档后点这里生效 |
 | GET | /settings | KV 全集 |
@@ -118,17 +118,20 @@
 
 ```jsonc
 { "id": "MiniMax-M3", "context_window": 1000000, "max_output": 125000,
-  "thinking": true, "vision": false, "tool_call": true, "known": true, "note": "" }
+  "window_override": false, "thinking": true, "vision": false, "tool_call": true, "known": true, "note": "" }
 ```
 
-`max_output` 是派生值（窗口 1/8），不是目录里的独立声明。
+`max_output` 是派生值（窗口 1/8），不是目录里的独立声明。窗口来自内置目录时再与厂商
+硬上限取小（有的模型单次输出上限只有 32K，1M 窗口按 1/8 会算出 12.5 万）；窗口被用户
+手填时（`window_override=true`）硬上限不参与——目录里的硬上限描述的是同名模型在另一个
+服务上的样子。被厂商上限钳住时界面补一句「已按厂商上限收紧」。
 
 `known=false` 时 `note` 带一句人话说明。能力解析优先级：
 **按「服务 + 模型」的用户配置（model_configs 表）→ 全局 `context_window` 设置（没配模型级时的兜底）→ 内置目录**。
 
 模型级配置是用户对单个模型的覆写：上下文窗口（0 = 跟随目录）、温度 / top_p
 （**-1 = 未设置，跟随上游默认**；0 是合法的确定性取值）、识图 / 工具调用两项能力。
-最大输出不可配置：一律按「窗口 1/8 与厂商硬上限取小」派生（`max_output` 出参即结果）。
+最大输出不可配置：按上面的规则从窗口派生（`max_output` 出参即结果）。
 会话发起请求时按这里的值算上下文水位与采样参数；代理改名的私有模型靠它闭环。
 
 ## 运行时状态

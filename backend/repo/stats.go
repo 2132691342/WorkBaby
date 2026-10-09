@@ -6,6 +6,11 @@ import (
 	"WorkBaby/backend/domain"
 )
 
+// sumInputSQL 按「Input 含缓存」的口径汇总输入量。老数据只记了未命中缓存的部分
+// （缓存量因此大于输入量）：读侧按同一条规则补回总量，否则仪表盘输入量偏小、
+// 命中率越过 100%（`llm.Usage.Normalize` 管新行，这里管存量）。
+const sumInputSQL = "SUM(CASE WHEN COALESCE(cached, 0) > input THEN input + cached ELSE input END)"
+
 // UsageStat 一次按天 / 按模型的聚合结果。
 type UsageStat struct {
 	Model     string
@@ -31,7 +36,7 @@ func (r *Repo) DailyUsage(since time.Time) ([]UsageStat, error) {
 	}
 	err := r.db.Model(&domain.TokenUsageDO{}).
 		Select("strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day,"+
-			"SUM(input) AS input, SUM(output) AS output, SUM(total) AS total,"+
+			sumInputSQL+" AS input, SUM(output) AS output, SUM(total) AS total,"+
 			"COALESCE(SUM(cached), 0) AS cached,"+
 			"COUNT(*) AS calls, COALESCE(SUM(latency_ms), 0) AS latency_ms").
 		Where("created_at >= ?", since.UnixMilli()).
@@ -61,7 +66,7 @@ func (r *Repo) ModelUsage(since time.Time, limit int) ([]UsageStat, error) {
 	}
 	err := r.db.Model(&domain.TokenUsageDO{}).
 		Select("model AS model, SUM(total) AS total, COUNT(*) AS calls,"+
-			"SUM(input) AS input, SUM(output) AS output, COALESCE(SUM(cached), 0) AS cached").
+			sumInputSQL+" AS input, SUM(output) AS output, COALESCE(SUM(cached), 0) AS cached").
 		Where("created_at >= ?", since.UnixMilli()).
 		Group("model").Order("total DESC").Limit(limit).Scan(&rows).Error
 	if err != nil {

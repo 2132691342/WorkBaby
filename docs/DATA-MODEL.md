@@ -56,8 +56,8 @@ E1(user) → E2(assistant+tool_calls) → E3(tool) → E4(assistant)  ← leaf
 
 复合主键 `(provider_id, model)`，`ContextWindow` 为 0 表示跟随内置目录（`domain/modelcap.go`）。
 存在的意义是**让私有部署与改名模型能被正确计费与算水位**——目录认不出的模型靠它闭环。
-`MaxOutput` 列已废弃：输出预算按「窗口 1/8 与厂商硬上限取小」派生（`domain.ModelCapability.OutputBudget`），
-不写死、不由用户设置，列仅为兼容既有表结构而保留。
+`MaxOutput` 列已废弃：输出预算按「窗口 1/8」派生（`domain.ModelCapability.OutputBudget`，
+窗口来自内置目录时再与厂商硬上限取小），不写死、不由用户设置，列仅为兼容既有表结构而保留。
 `Temperature` / `TopP` 为 `SamplingUnset`（-1）时不向上游下发，0 是合法的确定性取值。
 
 ### knowledge_chunks + FTS5

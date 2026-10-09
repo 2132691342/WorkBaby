@@ -60,18 +60,40 @@ ManifestDPIAware true
 # 开机自启的注册表位置，装/卸都要清干净，否则卸载后还会开机弹窗。
 !define AUTOSTART_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 
+# 用户数据目录：数据库、配置（含 API Key）、日志、技能、知识库索引、内置运行时解压产物。
+# 必须与 backend/runtime 的 Resolve 一致（%APPDATA%\WorkBaby）；设了 WORKBABY_HOME
+# 的便携用法安装器不认——那种情况下数据由用户自己保管。
+!define USER_DATA_DIR "$APPDATA\${INFO_PROJECTNAME}"
+
+# 旧版 WebView2 profile 目录：Wails 默认把浏览器缓存写到 %APPDATA%\<exe 名>。
+# 新版已挪进数据目录的 webview\ 子目录，这里只为清掉升级残留（纯缓存，直接删）。
+!define LEGACY_WEBVIEW_DIR "$APPDATA\${PRODUCT_EXECUTABLE}"
+
 # 覆盖安装前必须先关掉运行中的实例。
 # 托盘常驻让「窗口已经关了」不等于「进程已退出」——exe 仍被文件句柄占着，
 # NSIS 覆写时报 "Error opening file for writing"，对用户是莫名其妙的失败。
 # 只用 NSIS 内置指令：这个打包环境不带任何插件（nsExec 之类用不了）。
-# taskkill 找不到目标返回 128、杀掉返回 0，据此决定要不要提示。
+# taskkill 找不到目标返回 128、杀掉返回 0，据此决定要不要等它释放句柄——
+# 取退出码必须用 ExecWait（Exec 不写 $0，写成 Exec 等于这个判断从来没生效过）。
 !macro killRunningInstance
-    Exec 'taskkill /F /IM ${PRODUCT_EXECUTABLE} /T'
+    ExecWait 'taskkill /F /IM ${PRODUCT_EXECUTABLE} /T' $0
     ${If} $0 == 0
         DetailPrint "已关闭正在运行的 WorkBaby（它可能收在右下角托盘里）"
         ; 给 Windows 一点时间真正释放文件句柄，否则紧接着的覆写仍可能失败
         Sleep 1500
     ${EndIf}
+!macroend
+
+# 覆盖安装时发现旧数据就问一句要不要先清空。
+# 默认保留：静默安装（/S）从不删数据——无人值守时删掉用户的对话记录不可接受。
+!macro promptCleanUserData
+    IfFileExists "${USER_DATA_DIR}\workbaby.db" 0 wb_userdata_done
+    IfSilent wb_userdata_done
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION "检测到本机已有 WorkBaby 数据：$\r$\n${USER_DATA_DIR}$\r$\n$\r$\n其中有对话记录、模型服务配置（含 API Key）、知识库索引、技能与内置运行时。$\r$\n$\r$\n是否在安装前清空这些数据？选「否」将保留，安装后继续使用。" IDNO wb_userdata_done
+    RMDir /r "${USER_DATA_DIR}"
+    RMDir /r "${LEGACY_WEBVIEW_DIR}"
+    DetailPrint "已清空旧的本地数据（对话记录 / 配置 / 知识库 / 运行时）"
+    wb_userdata_done:
 !macroend
 
 !define MUI_ICON "..\icon.ico"
@@ -110,6 +132,10 @@ Section
     # space and can fail mid-copy.
     AddSize 140000
 
+    # 覆盖安装：在动任何文件之前问一句要不要清空旧数据（用户此刻已经点过「安装」，
+    # 回答的就是他刚做的决定）。清空后首启会重新解压内置运行时，属预期。
+    !insertmacro promptCleanUserData
+
     !insertmacro wails.setShellContext
 
     !insertmacro wails.webview2runtime
@@ -145,9 +171,18 @@ Section "uninstall"
     !insertmacro wails.setShellContext
 
     !insertmacro killRunningInstance
-    DeleteRegValue HKCU "${AUTOSTART_KEY}" "${INFO_PRODUCTNAME}"
+    DeleteRegValue HKCU "${AUTOSTART_KEY}" "${INFO_PROJECTNAME}"
 
-    RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
+    # 本机数据默认保留（重装后接着用），所以问一句。静默卸载（/S）保持默认：不删。
+    IfSilent wb_keep_userdata
+    MessageBox MB_YESNO|MB_ICONQUESTION "是否同时删除本机数据？$\r$\n$\r$\n会删除 ${USER_DATA_DIR}：$\r$\n对话记录、模型服务配置（含 API Key）、知识库索引、技能、日志与内置运行时。$\r$\n$\r$\n选「否」保留数据，下次安装后可以继续用。" IDNO wb_keep_userdata
+    RMDir /r "${USER_DATA_DIR}"
+    DetailPrint "已删除本机数据"
+    wb_keep_userdata:
+
+    # 旧版 WebView2 profile（%APPDATA%\<exe 名>）：纯缓存，卸载一律清掉；
+    # 新版的 profile 在数据目录的 webview\ 里，随上面那次选择一起处理。
+    RMDir /r "${LEGACY_WEBVIEW_DIR}"
 
     RMDir /r $INSTDIR
 

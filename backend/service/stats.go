@@ -72,7 +72,13 @@ func (s *SettingsService) Stats(days int) (*domain.StatsRESP, error) {
 	}
 	// 命中率按总输入算，不按天平均：某天没命中会把整段的均值拉低，读不出真实水平。
 	if out.Totals.Input > 0 {
-		out.Totals.CacheHitRate = float64(out.Totals.Cached) / float64(out.Totals.Input)
+		rate := float64(out.Totals.Cached) / float64(out.Totals.Input)
+		// 归一前落库的行按「未命中部分」记输入，命中量可能大于输入量。命中率越过
+		// 100% 只会让用户以为统计坏了，读侧压回 0~1（新行在 llm.Usage.Normalize 已归一）。
+		if rate > 1 {
+			rate = 1
+		}
+		out.Totals.CacheHitRate = rate
 	}
 	out.Totals.AvgContext = ctxStat.Avg
 	out.Totals.PeakContext = ctxStat.Peak

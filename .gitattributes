@@ -1,3 +1,6 @@
+# Go 源码统一 LF：Windows 上 core.autocrlf=true 会把检出内容写成 CRLF，
+# 而 gofmt -l 把 CRLF 文件一律报成「未格式化」——行尾不统一，这个门禁就没法用。
+*.go text eol=lf
 # 运行时归档经 Git LFS 跟踪：它们随 go:embed 进 exe，仓库里必须存真文件。
 # 构建前未执行 git lfs pull 时内嵌的是 pointer 文本，exe 能构建、用户首次启动才炸——
 # release.yml 有构建前校验，TestBundledRuntimeChain 有 SHA 守护。

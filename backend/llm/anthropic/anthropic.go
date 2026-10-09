@@ -193,8 +193,11 @@ func (c *Client) consume(feed *llm.Feed, body io.Reader, started time.Time) {
 		switch ev.Type {
 		case "message_start":
 			if ev.Message != nil {
-				usage.Input = ev.Message.Usage.InputTokens
-				usage.Cached = ev.Message.Usage.CacheReadInputTokens
+				// input_tokens 在本协议里只算未命中缓存的部分，三段相加才是这次
+				// 真正发出去的输入量；只取第一段会让输入量偏小、命中率越过 100%。
+				u := ev.Message.Usage
+				usage.Input = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+				usage.Cached = u.CacheReadInputTokens
 			}
 		case "content_block_start":
 			if ev.ContentBlock != nil && ev.ContentBlock.Type == "tool_use" {

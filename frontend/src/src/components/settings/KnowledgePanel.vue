@@ -22,7 +22,7 @@ const statusName: Record<string, string> = {
   failed: '失败',
 }
 
-// 一次选中就建索引：原来「再选一个 → 添加这些」两步，新手会以为第一次点击没生效
+// 一次选中就建索引：分两步走会让新手以为第一次点击没生效
 async function pickAndAdd() {
   error.value = ''
   busyTarget.value = 'add'

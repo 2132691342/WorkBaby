@@ -42,6 +42,7 @@ type Streamer interface {
 | 鉴权 | Bearer | x-api-key | 无 |
 | 输出上限字段 | 按模型家族二选一（见下） | `max_tokens` 必填 | `options.num_predict` |
 | 采样参数 | 普通模型下发；推理家族拒绝 | 均可下发 | 均可下发 |
+| 用量字段 | `prompt_tokens` 含缓存；命中取 `prompt_tokens_details.cached_tokens` 与顶层 `cache_read_input_tokens` 的较大者（两种写法都出现过） | `input_tokens` **只含未命中**，与 `cache_read_input_tokens`、`cache_creation_input_tokens` 相加才是输入总量 | `prompt_eval_count` / `eval_count`，无缓存计量 |
 
 适配器只做「协议 → 归一化」，业务字段（snake_case）出归一化层后统一。
 
@@ -64,8 +65,18 @@ openai 兼容面内部还要按模型家族二选一（`reasoningOnly`）：o1/o
 上游报的 `length` 只是表象——预算是我们自己给的，问题出在下发的数值上；
 真正的预算由 service 层派生（算法见 spec 02），这里的兜底常量只在调用方漏传时生效。
 
-超限错误识别：`llm.IsContextOverflow(err)` 匹配各家「上下文超限」文案，
-命中的错误**不原地重试**（重试必然同样失败），由内核层压缩后重试一次，见 `02`。
+用量口径由适配层负责如实上报，`llm.Usage.Normalize` 再兜一道（见 `14`）：
+网关转发别家协议时，两家的字段语义会串台，只靠适配层判不准。
+
+两类「上游拒绝」由内核按错误文本识别后降级重试，见 `02`：
+
+| 谓词 | 判据 | 内核动作 |
+|---|---|---|
+| `llm.IsContextOverflow` | 上下文超限文案 | 强制压缩后重试 |
+| `llm.IsOutputLimit` | 输出预算被拒文案（`max_tokens` / `max_completion_tokens`） | `llm.OutputLimitFrom(err, 当前值)` 取新预算后重试 |
+
+两者都不在 `RetryingStreamer` 里重试——重发同样的请求只会同样失败，
+必须由掌握上下文与预算的内核换参数再发。
 
 `Temperature` / `TopP` 相反：用指针表达「没设置就不下发」，因为 0 是合法取值
 （刻意要确定性输出），不能让 0 与「未设置」在同一个字段里撞车。

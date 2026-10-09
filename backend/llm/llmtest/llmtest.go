@@ -20,6 +20,9 @@ type Scripted struct {
 	Usage *llm.Usage
 	// Err 非空时该轮以 EventError 结束，用于验证错误收尾。
 	Err error
+	// Errs 按轮次指定错误（与 Turns 下标对齐）：验证「先失败、重试才成功」时用它，
+	// Err 是「每一轮都失败」的简写。
+	Errs []error
 	// ErrAfterDelta 非空时先流出该增量再报错，模拟「流到一半断掉」。
 	ErrAfterDelta string
 	// Requests 按顺序记下每次上游请求：断言「下发的参数」只能从这里看。
@@ -60,6 +63,10 @@ func (s *Scripted) Stream(ctx context.Context, req llm.Request) (<-chan llm.Even
 		}
 		if s.Err != nil {
 			ch <- llm.Event{Type: llm.EventError, StopReason: llm.StopError, Err: s.Err}
+			return
+		}
+		if i < len(s.Errs) && s.Errs[i] != nil {
+			ch <- llm.Event{Type: llm.EventError, StopReason: llm.StopError, Err: s.Errs[i]}
 			return
 		}
 		if m.Thinking != "" {

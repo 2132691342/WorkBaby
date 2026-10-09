@@ -129,7 +129,9 @@ backend/server ──► backend/api ──► backend/service ──► 能力�
 
 `server / api / service / repo` 四层禁止就地声明入参/出参/实体结构体，必须引用 `domain.XxxREQ/DTO/VO/RESP/DO`。
 
-例外：`backend/tool/*` 内的快速参数解析允许内联（须加注释）；`backend/repo/*` 内 GORM 临时查询条件允许内联。
+例外：`backend/tool/*` 内的快速参数解析允许内联（须加注释）；`backend/repo/*` 内 GORM 临时查询条件允许内联；
+上游第三方接口的响应解析载体允许就地声明（与 §2.5.1 同理——它不是我们的入参 / 出参，
+字段名还要忠实对方，目前只有 `service/provider.go` 解析 `/models` 列表那一处）。
 
 ### 2.4 错误处理（强制 AppError）
 
@@ -194,15 +196,16 @@ json tag 必须忠实上游字段名。归一化层（`llm/llm.go`）使用 snak
 
 | 位置 | 要求 |
 |---|---|
-| 文件头 | 1~2 行说清这个文件的职责；禁止超过 3 行 |
+| 文件头 | 1 行说清这个文件的职责（最多 2 行） |
 | 包 | 1 行 |
-| 类型 | 1~2 行说它是什么；契约类类型可展开到 3 行说清边界 |
+| 类型 | 1 行说它是什么；契约类类型可到 2 行说清边界 |
 | 方法 | 1 行签名级说明（干什么 / 返回什么），不写实现步骤 |
-| 字段 | 仅在名字不自解释时写 1 行 |
+| 字段 | 名字不自解释时写 1 行；枚举与哨兵值必须写清取值含义 |
 | 行内 | 只写「为什么」，1 行 |
 
-- **连续注释块 ≤ 2 行**（契约说明例外，最多 3 行）；方法注释一律 1 行，第二行只在「不这么做会出事」时才留
-- 注释只写结论与边界，**不写论证**：「为什么这么设计」属于 `docs/` 与 `specs/`
+- **最低要求就这三样**：文件有头、导出方法有签名说明、字段有注释。够了就停——注释不是设计文档
+- **连续注释块 ≤ 2 行**；方法注释的第二行只在「不这么做会出事」时才留
+- 注释只写**结论与边界**，不写论证：「为什么这么设计、当初踩过什么坑」属于 `docs/` 与 `specs/`
 - 禁止：过程性叙述、TODO 历史、实现细节叙事、外部项目名与「参考 / 借鉴」字样
 
 ### 2.6.1 文档规范
@@ -310,6 +313,7 @@ Run(ctx):
     pending = drain(steering)            # 轮间插话：并进下一轮上下文
     append(pending)
     msg    = streamTurn(ctx, msgs)       # 流式调模型，边收边发事件；预算 = Config.MaxTokens
+                                         # 上游拒绝时降级重试（压缩 / 收预算），最多两次
     if stop in {error, aborted}: 收尾退出
     if stop == length: drop(msg.tool_calls)  # 半个 JSON 不执行也不入历史
     append(msg)
@@ -376,12 +380,16 @@ const (
 | 事件出口必须串行化 | 并行工具各自在 goroutine 里 emit，不锁就是并发改同一份落库位点，assistant 声明撞主键后整条丢失 |
 | 被截断轮的 tool_calls 一律不执行 | 半个 JSON 调用执行出去比不执行更危险；留进历史还会被当成真调用回传上游 |
 | 输出预算必须显式下发到上游 | 0 在 openai 协议里被 `omitempty` 整个吃掉、在 anthropic 协议里是必填字段，两条协议都要兜到 `llm.DefaultMaxTokens`；推理型模型的思考会吃满小预算，正文与工具调用一起断在 length |
-| 输出预算 = min(窗口 1/8, 厂商硬上限) | 窗口 1/8 保证长回答不被随手截断；只有 1/8 时 1M 窗口会下发 12.5 万，超过厂商真实上限就是整轮 400。硬上限来自 `domain` 能力目录的 `maxOut` 字段 |
+| 输出预算 = 窗口 1/8（目录口径下再与厂商硬上限取小） | 窗口 1/8 保证长回答不被随手截断；窗口来自目录时它的硬上限与窗口同源，一并取小（1M 窗口按 1/8 下发 12.5 万可能超过厂商真实上限）。窗口被用户手填（`model_configs` / `context_window`）时硬上限不参与：它描述的是同名模型在别的服务上的样子，此时按用户声明的窗口 1/8 走 |
 | 上下文余量必须容得下输出预算 | 余量缺省就是输出预算本身：余量比实际下发值小，压缩会按虚高的空间往窗口里塞内容，总占用顶破窗口 |
+| 上下文预算必须含工具声明与图片 | 工具 schema 每轮都随请求发出去，图片按张占 token：只数消息正文，水位读数偏低、压缩来得太晚（`Budget.ToolsTokens` / `EstimateTokens`） |
 | 采样参数只在用户显式配置时下发 | 用一个拍脑袋的默认温度覆盖所有模型，会在推理型与思考型模型上撞上游约束；持久化层用 `SamplingUnset=-1` 表达未设置（0 是合法的确定性取值） |
-| 内核不擅自抬高输出预算 | 内核不知道模型能吐多少，抬过头就是把「能看懂的截断」换成「看不懂的 400」；到顶就以 length 收尾，交给界面的「继续」 |
+| 内核不擅自抬高输出预算 | 内核不知道模型能吐多少，抬过头就是把「能看懂的截断」换成「看不懂的 400」；到顶就以 length 收尾，交给界面的「继续」。只有上游明确拒绝这个预算时才降级重试：报错里的上限优先、没写就对折，最多两次、下限 4096 —— 只降不升 |
+| 用量口径在 turn_end 之前归一 | 命中量大于输入量时界面会算出超过 100% 的命中率、输入量也偏小（长对话的成本被读低）；`llm.Usage.Normalize` 把两种计费口径补成「Input 含缓存」，读侧再兜一次 100% |
+| 上下文读数取「上游实收输入」与本地估算的较大者 | 同一张卡片上的「入」与「上下文」必须是一回事：估算偏保守时用实测值纠正，否则出现「入 9.9K / 上下文 25K」这种自相矛盾的读数 |
 | 上游报上下文超限 → 强制压缩重试一次 | 本地估算是粗估，偏乐观时上游拒绝整轮；本轮已吐出过内容则不重试（避免重复正文），第二次仍失败才以错误收尾 |
 | 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
+| 工具失败必须带原因（模型 / 界面 / 日志三处） | `Result.Detail` 为空时由 `agent.runOne` 补成 `Content`：只把原因留在给模型的那份里，工具卡展开是空白、日志只剩 `ok=false`，用户与开发者都查不出为什么 |
 | CleanForProtocol 输出必须可直发上游 | 空消息/孤儿结果/未配对调用都在这一层兜底 |
 | 事件发布永不阻塞内核 | Hub 慢客户端先挤 delta 断连兜底 + `chat:gap` 对账 |
 | 同一工具同一参数整个 run 内累计 3 次后拦 | 模型卡在同一个调用上打转，比撞轮数上限更难排查；计数不衰减——中间穿插别的调用不代表它换了方案 |
@@ -442,15 +450,25 @@ const (
 
 ### 3.3 测试索引
 
-只保留跨模块 / 跨轮次 / 跨协议的链路测试，每条链路一个 Test（分支用 `t.Run` 归入同一条链）。
-全量 **14 个 Test / 12 个文件**。按改动范围挑命令，不要一律跑全量：
+保留判据只有两条：**它坏了会指向一条真实链路**、**必须跨模块 / 跨轮次 / 跨协议**。
+全量 **14 个 Test / 13 个文件 / 36 个子测试**（约 2400 行）。同族场景收在同一个 Test 的子测试里，
+不按「一个断言一个测试」散开——散开只会在改动时逼你跑一大堆、失败时又定位不到是哪条链。
 
-| 场景 | 命令 | 耗时 |
+**改这里 → 只跑这条**（定位与验证都从这张表进）：
+
+| 改动位置 | 命令 | 耗时 |
 |---|---|---|
-| 日常改动 | `go test -short ./...` | 秒级 |
-| 只动了一个包 | `go test -short ./backend/service` | 约 2s |
-| 只动了一条链路 | `go test -short -run TestServiceRunChain ./backend/service` | 约 2s |
-| 提交前 / CI | `go test -count=1 ./...` + `go run ./tools/check-boundaries` | 约 10s（含归档真实解压；冷缓存首次可达 1 分钟） |
+| `agent/`（循环、压缩、工具调度） | `go test -short -run 'TestLoopChain\|TestCompactProtocol' ./backend/agent` | ~1s |
+| `service/`（会话、对话、审批、落库） | `go test -short -run TestServiceRunChain ./backend/service` | ~3s |
+| `llm/*`（协议适配） | `go test -short ./backend/llm/...` | ~3s |
+| `tool/`（文件护栏、执行、web） | `go test -short -run TestFilesGuardrails ./backend/tool` | ~1s |
+| `server/`（SSE hub） | `go test -short -run TestHubDeliveryChain ./backend/server` | ~2s |
+| `api/` + `server/`（端到端 HTTP + SSE） | `go test -short -run TestHTTPChain ./backend/api` | ~3s |
+| `runtime/`（内置运行时） | `go test -short -run TestBundledRuntimeChain ./backend/runtime` | ~1s |
+| `skill/` · `knowledge/` | `go test -short ./backend/skill ./backend/knowledge` | ~2s |
+| 壳层（`app.go` / 托盘 / 单实例） | `go test -short -run 'TestAppLifecycle\|TestSecondLaunchHandoff' . ./backend/singleinstance` | ~1s |
+| 拿不准 | `go test -short ./...` | ~9s |
+| 提交前 / CI | `go test -count=1 ./...` + `go run ./tools/check-boundaries` | ~13s（含归档真实解压；冷缓存首次可达 1 分钟） |
 | 并发相关改动 | `go test -race ./backend/...` | 分钟级 |
 
 时间大头是 `runtime` 包对两份归档的真实解压（全量唯一的慢点，`-short` 跳过）。
@@ -461,31 +479,44 @@ const (
 装完确认 `gcc` 在 PATH 里），再 `CGO_ENABLED=1`。没有 C 编译器时这一档会直接
 `build failed`——不是代码问题，别当成回归去查。
 
+**每条链覆盖什么**（括号里是子测试）：
+
 | 文件 | Test | 覆盖的链路 |
 |---|---|---|
-| `app_test.go` | TestAppLifecycle | 启动等待（慢装配 / 失败 / 超时）；关闭去向（托盘开关 + 退出流程 + 托盘未就绪） |
-| `agent/agent_test.go` | TestLoopProtocol · TestLoopBlocksRepeatedIdenticalCall · TestCompactProtocol | 主循环协议：回填顺序（多轮 / 并行）、三条收尾路径（取消 / 截断不执行工具且不重试 / 报错）、事件出口串行化；重复调用拦截与事件成对；清洗硬约束与压缩切点合法性 |
-| `api/api_test.go` | TestHTTPChain | 完整启动装配 → 跨源预检放行 POST；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event）与带 Last-Event-ID 重连补帧。服务只启动一次，全部子测试共用 |
-| `service/chain_test.go` | TestServiceRunChain | 一次 run 的落库判据（审批会话级放行 / 错误轮半成品 / 插话链序 / 输出预算与余量）、声明与结果紧邻配对（跨轮 / 同轮并发）、默认服务→默认模型→会话继承与存量回填。装配只做一次，七个子测试共用 |
-| `tool/files_test.go` | TestFilesGuardrails | 路径穿越、Unicode 路径变体找回；读→写闭环（读工具记账后放行）、edit 唯一性与实际改动、行尾与 BOM |
-| `skill/skill_test.go` | TestSkillRegistryChain | embed 解析与落盘、触发词渲染进清单、同名按来源优先且可回退、切换工作目录换掉工作区技能 |
-| `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引→检索（短查询子串兜底）→删除级联；pptx 按页号抽取且可检索 |
-| `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档与 SHA 常量一致、解压路径穿越拒绝；真实解压平铺到根目录（`-short` 跳过） |
-| `server/sse_test.go` | TestHubDeliveryChain | delta 合流保序、慢客户端挤 delta 保 done |
+| `app_test.go` | TestAppLifecycle | 启动等待判据（慢装配不误判 / 失败如实报 / 卡死有上限）；关闭去向（托盘开关 / 退出流程 / 托盘未就绪） |
+| `agent/agent_test.go` | TestLoopChain | 顺序回填（串行多轮 + 并行批次）；工具失败带原因；四条收尾路径（取消 / 截断不执行工具且不重试 / 零产出截断 / 上游报错）；输出预算被拒时降级（取上游上限 + 到下限放弃）；重复调用拦到上限且事件成对；事件出口串行化 |
+| | TestCompactProtocol | 清洗剔除空 assistant 与孤儿结果；拆散的并行声明合并；压缩不孤儿化结果且切在整轮边界（含预算边界与降级截断） |
+| `api/api_test.go` | TestHTTPChain | 启动装配完整且端口握手时序正确；跨源预检放行 POST；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event）与 Last-Event-ID 补帧。服务只启动一次，子测试共用 |
+| `server/sse_test.go` | TestHubDeliveryChain | 缓冲满时挤 delta 保 done；同类 delta 合流保序 |
+| `service/chain_test.go` | TestServiceRunChain | 审批闭环（会话级放行）；落库链序（错误轮半成品 / 插话注入）；声明与结果紧邻配对（跨轮 / 同轮并发）；输出预算与水位口径；用量口径（归一落库 + 命中率封顶）；默认模型继承与存量回填。装配只做一次 |
+| `service/skill_zip_test.go` | TestSkillZipImport | 技能包导入链：多技能解压落盘注册、条目穿越拒绝且不落盘、没有 SKILL.md 的包拒绝 |
+| `tool/files_test.go` | TestFilesGuardrails | 路径护栏（穿越拒绝 + Unicode 变体找回）；覆盖前必读闭环；edit 唯一性、实际改动与行尾 BOM 保持 |
+| `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引 → 检索（短查询子串兜底）→ 删除级联；pptx 按页号抽取且可检索 |
+| `skill/skill_test.go` | TestSkillRegistryChain | embed 解析落盘与触发词渲染；同名按来源优先且可回退、切换工作目录换掉工作区技能 |
+| `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档 SHA 与常量一致、解压路径穿越拒绝；真实解压平铺到根目录（`-short` 跳过） |
 | `singleinstance/singleinstance_test.go` | TestSecondLaunchHandoff | 二次启动转交：文件路径与空路径（只唤起窗口）都原样送达主实例 |
-| `llm/openai/openai_test.go` | TestOpenAIAdapter | 推理家族只认 max_completion_tokens 且拒绝采样参数、网关前缀不影响判定；usage 帧顺序与缓存双口径、tool_call 单次下发、断流收尾 |
-| `llm/anthropic/anthropic_test.go` | TestAnthropicAdapter | 无签名 thinking 不回传；上游停滞经空闲看门狗收尾、事件缓冲满不丢弃 |
+| `llm/openai/openai_test.go` | TestOpenAIAdapter | 输出上限字段按协议家族选择（含网关前缀）；流式解析（usage 帧晚到 + 缓存双口径 + 工具调用单次下发）；断流仍收尾 |
+| `llm/anthropic/anthropic_test.go` | TestAnthropicAdapter | 无签名 thinking 不回传；缓冲满不丢事件且停滞经空闲看门狗收尾 |
 
 ---
 
 ## 4. 架构门禁
 
 ```bash
+gofmt -l .                           # 必须无输出：Go 源码统一 LF（见 .gitattributes）
 go vet ./...
 go test -count=1 ./...               # 全量测试（日常用 -short 跳过归档解压，见 §3.3）
 go run ./tools/check-boundaries      # 依赖方向门禁
 cd frontend && npm run build         # 含 vue-tsc 类型检查
 wails build                          # 产物 build/bin/WorkBaby.exe
+```
+
+`gofmt -l .` 要能当门禁用，行尾就必须统一：`.gitattributes` 里 `*.go text eol=lf`
+（Windows 上 `core.autocrlf=true` 会把检出内容写成 CRLF，而 gofmt 把 CRLF 文件一律
+报成「未格式化」）。§2.6 的注释行数上限同样可机械核对——
+
+```bash
+rg -U -t go -o "(^\s*//[^\n]*\r?\n){4,}"   # 必须无输出：没有 ≥4 行的连续注释块
 ```
 
 `tools/check-boundaries` 用 `go list -json` 读编译器视角的真实 import 关系，

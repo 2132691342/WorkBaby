@@ -3,6 +3,7 @@ package tray
 
 import (
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -51,9 +52,7 @@ func (t *Tray) onReady() {
 		show := systray.AddMenuItem(t.menu.ShowText, t.menu.ShowText)
 		go func() {
 			for range show.ClickedCh {
-				if t.menu.OnShow != nil {
-					t.menu.OnShow()
-				}
+				safeCall(t.menu.OnShow)
 			}
 		}()
 	}
@@ -61,7 +60,7 @@ func (t *Tray) onReady() {
 		item := systray.AddMenuItem("新建对话", "新建对话")
 		go func() {
 			for range item.ClickedCh {
-				t.menu.OnNew()
+				safeCall(t.menu.OnNew)
 			}
 		}()
 	}
@@ -69,17 +68,31 @@ func (t *Tray) onReady() {
 		quit := systray.AddMenuItem(t.menu.QuitText, t.menu.QuitText)
 		go func() {
 			for range quit.ClickedCh {
-				if t.menu.OnQuit != nil {
-					t.menu.OnQuit()
-				}
+				safeCall(t.menu.OnQuit)
 			}
 		}()
 	}
 }
 
+// safeCall 兜住菜单回调的 panic：托盘是进程级组件，回调里的一个 bug 应当只留下日志与
+// 堆栈，而不是把整进程连同正在跑的对话一起带走。
+func safeCall(f func()) {
+	if f == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			pkg.Errorf("tray: 菜单回调崩溃: %v\n%s", rec, debug.Stack())
+		}
+	}()
+	f()
+}
+
 func (t *Tray) onExit() {
 	t.exitOnce.Do(func() { close(t.done) })
-	pkg.Warnf("tray: 已退出")
+	// 正常退出不是告警：warn.log 要留给真正的异常，否则每次退出都刷一条，
+	// 出事时没人会去看它。
+	pkg.Infof("tray: 消息循环已收尾")
 }
 
 // Stop 请求托盘退出（异步：消息循环何时收完尾见 WaitForExit）。

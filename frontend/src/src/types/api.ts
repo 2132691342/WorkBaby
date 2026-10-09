@@ -191,7 +191,8 @@ export interface Envelope<T = unknown> {
   data: T
 }
 
-/** 上下文水位：ratio 为 0-100 的整数；known=false 表示窗口是估算值，读数加「约」前缀显示 */
+/** 上下文水位：ratio 为 0-100 的整数，分母是可用预算（窗口 - reserve），
+ * 与助手开始整理较早内容的位置一致；known=false 表示窗口是估算值，读数加「约」前缀显示 */
 export interface ContextData {
   used: number
   window: number
@@ -233,11 +234,13 @@ export interface ToolVO {
 
 // ---- /models/capability ----
 
-/** 模型能力画像。known=false 表示本地没有该模型资料，窗口为缺省估算值 */
+/** 模型能力画像。known=false 表示本地没有该模型资料，窗口为缺省估算值；
+ * window_override=true 表示窗口是你手填的，此时输出预算按窗口 1/8 走（不受厂商上限钳制） */
 export interface ModelCapability {
   id: string
   context_window: number
   max_output: number
+  window_override: boolean
   thinking: boolean
   vision: boolean
   tool_call: boolean

@@ -323,8 +323,8 @@ func (p *ProviderService) ModelConfig(providerID, model string) (*domain.ModelCo
 		return vo, nil
 	}
 	if d.ContextWindow > 0 {
-		cap.ContextWindow = d.ContextWindow
-		vo.ContextWindow = d.ContextWindow
+		cap = cap.WithWindow(d.ContextWindow)
+		vo.ContextWindow = cap.ContextWindow
 		vo.WindowKnown = true
 	}
 	vo.MaxOutput = cap.OutputBudget()

@@ -40,7 +40,7 @@
 | 配置 / 日志 / ID | Viper · log/slog · ULID |
 | Agent / LLM | 自研内核（单层流式循环）· 自研协议适配（OpenAI 兼容 / Anthropic / Ollama） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + 原生 CSS 设计令牌（无 UI 框架） |
-| 测试 | testing（14 个 Test / 12 个文件全为跨模块链路；日常 `go test -short ./...`、定点 `go test -short -run <名字> ./<包>`；LLM 用脚本替身注入，不联网） |
+| 测试 | testing（14 个 Test / 36 个子测试全为跨模块链路；日常 `go test -short ./...`、定点 `go test -short -run <名字> ./<包>`；LLM 用脚本替身注入，不联网） |
 
 ## 快速开始
 
@@ -56,6 +56,7 @@ wails dev                     # 开发模式
 
 # 发布
 wails build                   # 产物 build/bin/WorkBaby.exe
+wails build -nsis             # 另出 Windows 安装器 build/bin/WorkBaby-amd64-installer.exe
 ```
 
 ## 目录
@@ -80,6 +81,7 @@ backend/
   tray/       系统托盘        singleinstance/  单实例与二次启动转交
 frontend/src/src/   Vue3 源码（themes.css 是唯一色值与字体来源）
 assets/       内置 Skill（embed 进 exe）
+build/windows/ 平台资源与 NSIS 安装器脚本（installer/project.nsi 是可持久定制的那份）
 tools/        依赖方向门禁（Go 写的独立程序）
 docs/         项目级文档（架构 / 契约 / 数据模型 / 页面 / 开发 / 部署）
 specs/        子系统规格 01-14

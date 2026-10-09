@@ -28,6 +28,7 @@ func main() {
 	// 单实例：二次启动一律把这次启动交给主实例——带文件就转交文件，
 	// 不带就请它把窗口带出来（否则双击图标在托盘/隐藏状态下像是没反应）。
 	dir := dataDir()
+	webviewDir := ensureWebviewDir(dir)
 	inst, ierr := singleinstance.Acquire(dir)
 	if ierr != nil {
 		if !errors.Is(ierr, singleinstance.ErrInstanceAlreadyRunning) {
@@ -75,6 +76,10 @@ func main() {
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
+			// WebView2 的 profile 默认落在 %APPDATA%\WorkBaby.exe——一个名字像 exe、
+			// 内容却是几十 MB 浏览器缓存的目录。挪进数据目录后卸载能一次清干净，
+			// 用户也不会在自己的 AppData 里看到一个莫名其妙的目录。
+			WebviewUserDataPath: webviewDir,
 		},
 	})
 	if err != nil {

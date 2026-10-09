@@ -56,7 +56,14 @@ func (s *Server) Start() (int, error) {
 		return 0, pkg.New(2202, "解析监听地址失败", "")
 	}
 	s.port = addr.Port
-	s.srv = &http.Server{Handler: s.engine, ReadHeaderTimeout: 15 * time.Second}
+	s.srv = &http.Server{
+		Handler: s.engine,
+		// WriteTimeout 必须保持 0：SSE 是长连接，任何写超时都会把事件流按固定
+		// 秒数掐断，前端只能不停重连。其余三项按本机服务的量级收紧。
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	go func() {
 		// Serve 只在退出时返回，正常关闭是 ErrServerClosed；
 		// 其余错误（监听器被抢、fd 耗尽）必须留痕，否则进程以为服务是健康的。
@@ -77,7 +84,10 @@ func (s *Server) Stop() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_ = s.srv.Shutdown(ctx)
+	// 关闭超时说明还有连接没退出（通常是没走的 SSE）：留下痕迹，别静默丢掉。
+	if err := s.srv.Shutdown(ctx); err != nil {
+		pkg.Warnf("server: 关闭时有连接未退出: %v", err)
+	}
 }
 
 // methodGuard 只放行 GET 与 POST，杜绝误用其它方法造成语义漂移。

@@ -37,49 +37,43 @@ func newSkillEnv(t *testing.T) (*Env, *SkillService) {
 	return env, svc.Skills
 }
 
+// 技能包导入链：解压落盘并注册、条目穿越拒绝且不落盘、没有 SKILL.md 的包拒绝。
 func TestSkillZipImport(t *testing.T) {
-	t.Run("多技能包解压落盘并注册", func(t *testing.T) {
-		env, svc := newSkillEnv(t)
-		data := buildZip(t, map[string]string{
-			"a/SKILL.md": "---\nname: skill-a\ndescription: 技能 A\n---\n正文 A\n",
-			"b/SKILL.md": "---\nname: skill-b\ndescription: 技能 B\n---\n正文 B\n",
-		})
-		resp, err := svc.ImportZip("pack.zip", data)
-		if err != nil {
-			t.Fatalf("导入失败: %v", err)
-		}
-		if resp.Imported != 2 {
-			t.Fatalf("应导入 2 个技能，实际 %d", resp.Imported)
-		}
-		for _, name := range []string{"skill-a", "skill-b"} {
-			if _, ok := env.Skills.Get(name); !ok {
-				t.Fatalf("%s 未注册", name)
-			}
-			if !pkg.FileExists(filepath.Join(env.Paths.SkillsDir, name, "SKILL.md")) {
-				t.Fatalf("%s 未落盘", name)
-			}
-		}
+	env, svc := newSkillEnv(t)
+	data := buildZip(t, map[string]string{
+		"a/SKILL.md": "---\nname: skill-a\ndescription: 技能 A\n---\n正文 A\n",
+		"b/SKILL.md": "---\nname: skill-b\ndescription: 技能 B\n---\n正文 B\n",
 	})
+	resp, err := svc.ImportZip("pack.zip", data)
+	if err != nil {
+		t.Fatalf("导入失败: %v", err)
+	}
+	if resp.Imported != 2 {
+		t.Fatalf("应导入 2 个技能，实际 %d", resp.Imported)
+	}
+	for _, name := range []string{"skill-a", "skill-b"} {
+		if _, ok := env.Skills.Get(name); !ok {
+			t.Fatalf("%s 未注册", name)
+		}
+		if !pkg.FileExists(filepath.Join(env.Paths.SkillsDir, name, "SKILL.md")) {
+			t.Fatalf("%s 未落盘", name)
+		}
+	}
 
-	t.Run("条目穿越被拒绝且不落盘", func(t *testing.T) {
-		env, svc := newSkillEnv(t)
-		data := buildZip(t, map[string]string{
-			"../evil.txt": "x",
-			"a/SKILL.md":  "---\nname: skill-c\ndescription: c\n---\n正文\n",
-		})
-		if _, err := svc.ImportZip("evil.zip", data); pkg.CodeOf(err) != 8108 {
-			t.Fatalf("应报 8108，实际 %v", err)
-		}
-		if pkg.FileExists(filepath.Join(filepath.Dir(env.Paths.SkillsDir), "evil.txt")) {
-			t.Fatal("穿越文件竟然写出去了")
-		}
+	evilEnv, evilSvc := newSkillEnv(t)
+	evil := buildZip(t, map[string]string{
+		"../evil.txt": "x",
+		"a/SKILL.md":  "---\nname: skill-c\ndescription: c\n---\n正文\n",
 	})
+	if _, err := evilSvc.ImportZip("evil.zip", evil); pkg.CodeOf(err) != 8108 {
+		t.Fatalf("条目穿越应报 8108，实际 %v", err)
+	}
+	if pkg.FileExists(filepath.Join(filepath.Dir(evilEnv.Paths.SkillsDir), "evil.txt")) {
+		t.Fatal("穿越文件竟然写出去了")
+	}
 
-	t.Run("没有 SKILL.md 的包被拒绝", func(t *testing.T) {
-		_, svc := newSkillEnv(t)
-		data := buildZip(t, map[string]string{"readme.txt": "hi"})
-		if _, err := svc.ImportZip("empty.zip", data); pkg.CodeOf(err) != 8109 {
-			t.Fatalf("应报 8109，实际 %v", err)
-		}
-	})
+	_, emptySvc := newSkillEnv(t)
+	if _, err := emptySvc.ImportZip("empty.zip", buildZip(t, map[string]string{"readme.txt": "hi"})); pkg.CodeOf(err) != 8109 {
+		t.Fatalf("没有 SKILL.md 的包应报 8109，实际 %v", err)
+	}
 }

@@ -233,8 +233,9 @@ func TestServiceRunChain(t *testing.T) {
 		}
 	})
 
-	// 错误轮的半成品必须落库：UI 已流式显示的内容，刷新后不能凭空消失。
-	t.Run("错误轮半成品落库", func(t *testing.T) {
+	// 落库链序：错误轮的半成品必须留下（UI 已流式显示的内容，刷新后不能凭空消失）；
+	// 插话必须按「上一轮结果 → 插话 → 本轮回复」落库（早写撕裂协议配对，晚写链序失真）。
+	t.Run("落库链序：错误轮半成品 / 插话注入", func(t *testing.T) {
 		s := useScripted(t, llm.Message{Content: "占位"})
 		s.ErrAfterDelta = "我先查一下——"
 		sess := newProviderSession(t, svc)
@@ -254,39 +255,35 @@ func TestServiceRunChain(t *testing.T) {
 		if detail.Messages[1].Content != "我先查一下——" {
 			t.Fatalf("半成品正文不符: %q", detail.Messages[1].Content)
 		}
-	})
 
-	// 插话必须按「上一轮结果 → 插话 → 本轮回复」落库：
-	// 早写会插进 assistant(tool_calls) 与工具结果之间撕裂配对，晚写则链序失真。
-	t.Run("插话按注入链序落库", func(t *testing.T) {
 		useScripted(t,
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
 			llm.Message{Content: "完成了"},
 		)
-		sess := newProviderSession(t, svc)
+		inject := newProviderSession(t, svc)
 
-		if _, err := svc.Chat.Send(sess.ID, "帮我执行", nil); err != nil {
+		if _, err := svc.Chat.Send(inject.ID, "帮我执行", nil); err != nil {
 			t.Fatal(err)
 		}
 		var pending []domain.ApprovalVO
 		waitUntil(t, "审批出现", func() bool {
-			pending, _ = svc.Approvals.Pending(sess.ID)
+			pending, _ = svc.Approvals.Pending(inject.ID)
 			return len(pending) == 1
 		})
-		if err := svc.Chat.Steer(sess.ID, "顺便说一句"); err != nil {
+		if err := svc.Chat.Steer(inject.ID, "顺便说一句"); err != nil {
 			t.Fatal(err)
 		}
 		if err := svc.Approvals.Decide(pending[0].ID, true, "once"); err != nil {
 			t.Fatal(err)
 		}
-		waitUntil(t, "回复落库", lastRoleIs(env.Repo, sess.ID, llm.RoleAssistant))
+		waitUntil(t, "回复落库", lastRoleIs(env.Repo, inject.ID, llm.RoleAssistant))
 
-		detail, err := svc.Sessions.Detail(sess.ID)
+		injected, err := svc.Sessions.Detail(inject.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var roles []string
-		for _, m := range detail.Messages {
+		for _, m := range injected.Messages {
 			roles = append(roles, m.Role)
 		}
 		want := []string{llm.RoleUser, llm.RoleAssistant, llm.RoleTool, llm.RoleUser, llm.RoleAssistant}
@@ -330,10 +327,78 @@ func TestServiceRunChain(t *testing.T) {
 		if cap.OutputBudget() > cap.MaxOutputLimit || cap.MaxOutputLimit <= 0 {
 			t.Fatalf("输出预算 %d 没被厂商硬上限 %d 钳住", cap.OutputBudget(), cap.MaxOutputLimit)
 		}
+		// 窗口是用户手填的（同名模型能在别的服务上跑，目录里的硬上限描述的不是这个端点）：
+		// 输出预算按他填的窗口 1/8 走，不能再被目录的旧上限钳住。
+		custom := cap.WithWindow(1024000)
+		if got, want := custom.OutputBudget(), 1024000/8; got != want {
+			t.Fatalf("手填窗口 %d 的输出预算应为窗口 1/8 = %d，实际 %d（被目录硬上限钳住了）",
+				custom.ContextWindow, want, got)
+		}
+		// 水位环的分母必须与压缩触发线同口径：拿整窗口当分母的话，整理已经发生、
+		// 环上才 87%，用户看着「还有空间」却已经在丢内容。
+		reserve := cap.OutputBudget()
+		if got := ratioOf(cap.ContextWindow-reserve, cap.ContextWindow, reserve); got != 100 {
+			t.Fatalf("水位刚到整理线时 ratio 应为 100，实际 %d", got)
+		}
+		if got := ratioOf(cap.ContextWindow/2, cap.ContextWindow, 0); got != 50 {
+			t.Fatalf("没有余量时 ratio 应等于窗口占用率 50，实际 %d", got)
+		}
+		if got := ratioOf(cap.ContextWindow, cap.ContextWindow, cap.ContextWindow); got != 100 {
+			t.Fatalf("余量吃掉整个窗口时该退到半窗兜底并封顶 100，实际 %d", got)
+		}
 	})
 
-	// 跨轮声明先于结果：落库顺序错位时，上游以「结果找不到紧邻的声明」拒绝整轮。
-	t.Run("跨轮声明先于结果", func(t *testing.T) {
+	// 上游把输入报成「未命中缓存的部分」时口径必须补回总量，界面读数才不会越界：
+	// 命中量大于输入量会让消息卡片与仪表盘算出 229% 这种数，用户只会以为统计坏了。
+	t.Run("用量口径：归一落库与命中率封顶", func(t *testing.T) {
+		s := useScripted(t, llm.Message{Content: "好了"})
+		s.Usage = &llm.Usage{Input: 100, Output: 20, Total: 120, Cached: 300}
+		sess := newProviderSession(t, svc)
+
+		if _, err := svc.Chat.Send(sess.ID, "你好", nil); err != nil {
+			t.Fatalf("发送失败: %v", err)
+		}
+		waitUntil(t, "回复落库", countRole(env.Repo, sess.ID, domain.RoleAssistant, 1))
+
+		detail, err := svc.Sessions.Detail(sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u := detail.Messages[len(detail.Messages)-1].Usage
+		if u == nil {
+			t.Fatal("这轮用量没落库，消息底部会读不到 token 数")
+		}
+		if u.Cached > u.Input {
+			t.Fatalf("命中量 %d 大于输入量 %d：界面会算出超过 100%% 的命中率", u.Cached, u.Input)
+		}
+		if u.Input < 400 {
+			t.Fatalf("输入量没补回未命中部分：期望 ≥ 400（100 未命中 + 300 命中），实际 %d", u.Input)
+		}
+		if u.Context < u.Input {
+			t.Fatalf("上下文 %d 小于输入 %d：同一张卡片上两个读数会互相矛盾", u.Context, u.Input)
+		}
+
+		// 老数据的命中量可能大于输入量（输入只记了未命中部分），汇总侧必须兜在 100% 以内。
+		useScripted(t, llm.Message{Content: "占位"}) // 建服务要过适配器校验，这里只用它注册 test 类型
+		legacy := newProviderSession(t, svc)
+		if err := env.Repo.AddUsage(&domain.TokenUsageDO{
+			ID: pkg.NewID(domain.PrefixUsage), SessionID: legacy.ID,
+			Model: "m1", Input: 100, Output: 20, Total: 120, Cached: 300, Context: 100,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		st, err2 := svc.Settings.Stats(14)
+		if err2 != nil {
+			t.Fatal(err2)
+		}
+		if st.Totals.CacheHitRate > 1 {
+			t.Fatalf("命中率读数 %.2f 越过 100%%：用户会以为统计坏了", st.Totals.CacheHitRate)
+		}
+	})
+
+	// 声明与结果紧邻配对：跨轮交错或同轮并发时，落库顺序错位都会被上游以
+	// 「结果找不到紧邻的声明」拒绝整轮；同轮并发还要求每个调用的声明都落进库里。
+	t.Run("声明与结果紧邻配对", func(t *testing.T) {
 		useScripted(t,
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c2", Name: "risky"}}},
@@ -356,21 +421,19 @@ func TestServiceRunChain(t *testing.T) {
 		}
 		waitUntil(t, "两条工具结果落库", countRole(env.Repo, sess.ID, llm.RoleTool, 2))
 		assertDeclaredBeforeResult(t, svc, sess.ID)
-	})
 
-	// 同轮并发：emit 不串行化时第二个 goroutine 撞主键，那条声明永远丢在链外。
-	t.Run("同轮并发保序且声明齐全", func(t *testing.T) {
+		// 同轮并发：emit 不串行化时第二个 goroutine 撞主键，那条声明永远丢在链外。
 		useScripted(t,
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "par"}, {ID: "c2", Name: "par"}}},
 			llm.Message{Content: "两个都跑完了"},
 		)
-		sess := newProviderSession(t, svc)
+		parSess := newProviderSession(t, svc)
 
-		if _, err := svc.Chat.Send(sess.ID, "同时做两个", nil); err != nil {
+		if _, err := svc.Chat.Send(parSess.ID, "同时做两个", nil); err != nil {
 			t.Fatal(err)
 		}
 		waitUntil(t, "两条工具结果与收尾都落库", func() bool {
-			entries, _ := env.Repo.ListEntries(sess.ID)
+			entries, _ := env.Repo.ListEntries(parSess.ID)
 			tools, assistants := 0, 0
 			for _, e := range entries {
 				switch e.Role {
@@ -383,7 +446,7 @@ func TestServiceRunChain(t *testing.T) {
 			return tools == 2 && assistants >= 2
 		})
 
-		entries, _ := env.Repo.ListEntries(sess.ID)
+		entries, _ := env.Repo.ListEntries(parSess.ID)
 		declared := map[string]bool{}
 		for _, e := range entries {
 			var p domain.MessagePayload
@@ -399,7 +462,7 @@ func TestServiceRunChain(t *testing.T) {
 				t.Fatalf("工具 %q 的声明没落库（多半是主键冲突顶掉了）", want)
 			}
 		}
-		assertDeclaredBeforeResult(t, svc, sess.ID)
+		assertDeclaredBeforeResult(t, svc, parSess.ID)
 	})
 
 	// 默认模型的继承链：设默认服务 → 落默认模型 → 新会话继承 → 存量空模型会话跑一次补齐。

@@ -78,21 +78,26 @@ type ToolDef struct {
 
 // Usage 是一次调用的输入 / 输出与耗时。
 type Usage struct {
+	// Input 是这次请求发出去的全部输入 token（含命中缓存的部分）。
 	Input  int
 	Output int
 	Total  int
-	// Cached 是这次输入里命中上游缓存的部分。缓存命中才是长对话真正的成本项：
-	// 同一段前缀重复计费的话，多轮对话的花费会随轮数线性膨胀。
+	// Cached 是 Input 里命中上游缓存的部分，恒 ≤ Input。缓存命中才是长对话真正的
+	// 成本项：同一段前缀重复计费的话，多轮对话的花费会随轮数线性膨胀。
 	Cached    int
 	LatencyMs int64
 }
 
-// CacheHitRate 缓存命中率；没有输入量时返回 0。
-func (u Usage) CacheHitRate() float64 {
-	if u.Input <= 0 {
-		return 0
+// Normalize 把上游的两种计费口径归一成「Input 含缓存」：Anthropic 口径把
+// prompt/input_tokens 报成「未命中缓存的部分」，Cached 会大于 Input，不补回来
+// 命中率会算出大于 100% 的数、输入量也偏小（长对话的成本被读低）。
+func (u *Usage) Normalize() {
+	if u == nil {
+		return
 	}
-	return float64(u.Cached) / float64(u.Input)
+	if u.Cached > u.Input {
+		u.Input += u.Cached
+	}
 }
 
 // Request 是一次上游请求。Temperature / TopP 用指针表达「用户没设置就不下发」，

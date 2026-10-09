@@ -12,7 +12,7 @@
 ```powershell
 # 后端测试：日常改动用 -short（跳过归档解压，秒级返回）
 go test -short ./...                                        # 日常
-go test -count=1 ./...                                      # 全量（14 个 Test / 12 个文件），含归档真实解压
+go test -count=1 ./...                                      # 全量（14 个 Test / 36 个子测试），含归档真实解压
 go test -short ./backend/service                            # 只跑一个包
 go test -short -run TestServiceRunChain ./backend/service   # 只跑一条链路
 go test -race ./backend/...                                 # 竞态检测，改并发相关代码时用

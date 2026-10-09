@@ -9,8 +9,8 @@ import AppIcon from '../common/AppIcon.vue'
 
 const props = defineProps<{ msg: MessageVO; plain?: boolean }>()
 
-// 旧数据里 <think> 可能还混在正文里（分流器上线之前产生的）。
-// 渲染时顺手拆开：正文干净、思考归位，用户看到裸标签才会以为程序坏了。
+// 正文里可能混着 <think> 标签（没有单独 thinking 字段的消息）：渲染时拆开，
+// 正文干净、思考归位——用户看到裸标签才会以为程序坏了。
 const split = computed(() => splitThink(props.msg.content || ''))
 const html = computed(() => (split.value.text ? renderMarkdown(split.value.text) : ''))
 // 正文拆掉思考后可能为空，这种回合只保留思考块，不画空气泡。
@@ -61,12 +61,16 @@ function fmtTime(ms: number) {
 const metrics = computed(() => {
   const u = props.msg.usage
   if (!u) return []
+  // 命中量大于输入量说明这是一条老口径的行（输入只记了未命中部分）：读侧按同一规则
+  // 补回总量，口径与仪表盘汇总一致。不补的话，命中率只能压到 100% 这种不实读数。
+  const input = u.cached > u.input ? u.input + u.cached : u.input
+  const context = Math.max(u.context, input)
   const out: { k: string; v: string; tip: string; hi?: boolean }[] = [
-    { k: '入', v: fmtCount(u.input), tip: '这一轮发出去的输入 token（含系统提示与历史消息）' },
+    { k: '入', v: fmtCount(input), tip: '这一轮发出去的输入 token（含系统提示与历史消息）' },
     { k: '出', v: fmtCount(u.output), tip: '模型写出来的 token' },
   ]
-  if (u.input > 0) {
-    const rate = u.cached > 0 ? Math.round((u.cached / u.input) * 100) : 0
+  if (input > 0) {
+    const rate = u.cached > 0 ? Math.min(100, Math.round((u.cached / input) * 100)) : 0
     out.push({
       k: '缓存',
       v: rate > 0 ? `${rate}%` : '无',
@@ -76,10 +80,10 @@ const metrics = computed(() => {
       hi: rate > 0,
     })
   }
-  if (u.context > 0) {
+  if (context > 0) {
     out.push({
       k: '上下文',
-      v: fmtCount(u.context),
+      v: fmtCount(context),
       tip: '这一轮发出时占用的上下文窗口，超了会自动整理较早的内容',
     })
   }
