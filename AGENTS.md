@@ -24,7 +24,7 @@
 | Schema 校验 | santhosh-tekuri/jsonschema/v6 | ^6.0.x |
 | 日志 | log/slog（标准库） | info/warn/error 分文件落盘 |
 | 实时通信 | SSE | 业务实时通信全部走 SSE（`/api/v1/events`），不引入 WebSocket |
-| 测试 | testing（标准库） | 全量（含归档解压）约 8s；`-Fast` 秒级 |
+| 测试 | testing（标准库） | 全量（含归档解压）约 10s；`-short` 秒级 |
 | ID | oklog/ulid/v2 | 业务 ULID 带前缀 |
 | 加密 | AES-256-GCM（标准库） | Provider API Key |
 | 托盘 | getlantern/systray | 关闭到托盘 |
@@ -73,7 +73,6 @@ WorkBaby/
 ├── build/                        # 平台资源与产物
 ├── docs/                         # 项目级文档：架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署
 ├── specs/                        # 子系统规格（01-14）
-├── scripts/                      # 测试入口 + 依赖门禁入口（CI 引用）
 └── tools/                        # Go 写的独立门禁工具（check-boundaries）
 ```
 
@@ -435,7 +434,7 @@ const (
   「已解压 + 版本标记」后，装配只跑配置 / DB / 服务 / 工具注册的真实链路。
   真解压只在 `runtime` 包做一次（唯一的慢点是刻意的）
 - **慢链路用标准 `-short` 隔离**：解压归档加了 `testing.Short()` 守卫后，
-  日常 `test.ps1 -Fast` 秒级返回，只有真碰运行时归档时才需要全量。
+  日常 `go test -short ./...` 秒级返回，只有真碰运行时归档时才跑全量。
   不要用自定义 tag 或环境变量另造一套开关
 - 环境依赖（系统 shell、真实网络、运行时归档）用 `exec.LookPath` / `t.Skip` 守卫后跳过
 - 每个测试文件**首行必须有导航注释**：写清楚覆盖哪条链路、坏了的表现是什么
@@ -448,15 +447,16 @@ const (
 
 | 场景 | 命令 | 耗时 |
 |---|---|---|
-| 日常改动 | `scripts/test.ps1 -Fast` | 秒级 |
-| 提交前 / CI | `scripts/test.ps1` | 约 10s（含归档真实解压与依赖门禁；冷缓存首次可达 1 分钟） |
-| 只动了一个包 | `scripts/test.ps1 -Fast -Pkg backend/service` | 约 2s |
-| 只动了一条链路 | `scripts/test.ps1 -Fast -Run TestServiceRunChain` | 约 2s |
-| 并发相关改动 | `scripts/test.ps1 -Race` | 分钟级 |
+| 日常改动 | `go test -short ./...` | 秒级 |
+| 只动了一个包 | `go test -short ./backend/service` | 约 2s |
+| 只动了一条链路 | `go test -short -run TestServiceRunChain ./backend/service` | 约 2s |
+| 提交前 / CI | `go test -count=1 ./...` + `go run ./tools/check-boundaries` | 约 10s（含归档真实解压；冷缓存首次可达 1 分钟） |
+| 并发相关改动 | `go test -race ./backend/...` | 分钟级 |
 
-时间大头是 `runtime` 包对两份归档的真实解压（全量唯一的慢点，`-Fast` 跳过）。
+时间大头是 `runtime` 包对两份归档的真实解压（全量唯一的慢点，`-short` 跳过）。
+提交前那两条是分开跑的：测试与门禁各自独立可见，失败时不互相掩盖。
 
-`-Race` 前置条件：`-race` 需要 cgo，而本项目为了让 SQLite 驱动保持纯 Go 默认关掉了 CGO。
+`-race` 前置条件：`-race` 需要 cgo，而本项目为了让 SQLite 驱动保持纯 Go 默认关掉了 CGO。
 跑这一档必须先装 MinGW（`winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT`，
 装完确认 `gcc` 在 PATH 里），再 `CGO_ENABLED=1`。没有 C 编译器时这一档会直接
 `build failed`——不是代码问题，别当成回归去查。
@@ -482,15 +482,15 @@ const (
 
 ```bash
 go vet ./...
-scripts/test.ps1                     # 测试 + 依赖门禁的唯一入口（日常用 -Fast，见 §3.3）
+go test -count=1 ./...               # 全量测试（日常用 -short 跳过归档解压，见 §3.3）
+go run ./tools/check-boundaries      # 依赖方向门禁
 cd frontend && npm run build         # 含 vue-tsc 类型检查
 wails build                          # 产物 build/bin/WorkBaby.exe
 ```
 
-`scripts/test.ps1` 在整仓模式下（不带 `-Pkg` / `-Run`）自动追加跑 `tools/check-boundaries`：
-它用 `go list -json` 读编译器视角的真实 import 关系，逐层比对 §2.2 的允许表，
-并额外检查能力域不回引上层。它不做文本 grep——注释、字符串字面量与构建标签
-分支都会让 grep 得出错误结论。改动包结构或调整依赖后必须跑通。
+`tools/check-boundaries` 用 `go list -json` 读编译器视角的真实 import 关系，
+逐层比对 §2.2 的允许表，并额外检查能力域不回引上层。它不做文本 grep——注释、
+字符串字面量与构建标签分支都会让 grep 得出错误结论。改动包结构或调整依赖后必须跑通。
 
 文档与实现不一致时，**以本文为准**；发现实现跑偏就改实现，不要改本文迁就代码。
 

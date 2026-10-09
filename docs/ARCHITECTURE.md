@@ -29,7 +29,7 @@ backend/server ──► backend/api ──► backend/service ──► 能力�
 backend/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任何层可用，自身不依赖业务包
 ```
 
-依赖方向由 `tools/check-boundaries` 门禁强制（`scripts/test.ps1` 整仓模式自动调用；读编译器视角的真实 import 关系）。
+依赖方向由 `tools/check-boundaries` 门禁强制（`go run ./tools/check-boundaries`，读编译器视角的真实 import 关系）。
 要点：`agent` 内核不依赖 api / service / server / repo——它通过 `Config` 接收一切依赖，
 因此可以被假 LLM 驱动着做全链路测试。
 
