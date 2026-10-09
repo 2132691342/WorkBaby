@@ -3,7 +3,7 @@
 package service
 
 import (
-	"sync"
+	"sync/atomic"
 
 	"WorkBaby/backend/config"
 	"WorkBaby/backend/knowledge"
@@ -15,6 +15,8 @@ import (
 )
 
 // Env 是各服务共享的运行环境，构造期一次性注入。
+// 可变部分（工具依赖）走 atomic 快照：确认键 vs 读侧不能共用一把锁的话，
+// 整 struct 拷贝会读到撕裂的 string header。
 type Env struct {
 	Repo      *repo.Repo
 	Paths     runtime.Paths
@@ -23,8 +25,7 @@ type Env struct {
 	Registry  *tool.Registry
 	Skills    *skill.Registry
 	Knowledge *knowledge.Service
-	ToolDeps  tool.Deps
-	depsMu    sync.Mutex
+	deps      atomic.Pointer[tool.Deps]
 }
 
 // NewToolDeps 构造工具依赖：内置 Python / PowerShell 优先，知识库检索器直接注入。
@@ -38,14 +39,27 @@ func NewToolDeps(p runtime.Paths, ks *knowledge.Service) tool.Deps {
 	}
 }
 
+// SetToolDeps 整体替换工具依赖快照；调用方构造期或重新探测后各调一次。
+func (e *Env) SetToolDeps(d tool.Deps) {
+	e.deps.Store(&d)
+}
+
+// ToolDepsSnapshot 取当前工具依赖快照：返回的是拷贝，调用方改副本不影响全局。
+func (e *Env) ToolDepsSnapshot() tool.Deps {
+	if p := e.deps.Load(); p != nil {
+		return *p
+	}
+	return tool.Deps{}
+}
+
 // RefreshToolDeps 重新解析内置运行时路径并写回工具依赖：ToolDeps 是启动期快照，
 // 不刷新的话「重新检测」显示已就绪，跑脚本仍然报没有可用的 Python。
 func (e *Env) RefreshToolDeps(p runtime.Paths) {
 	runtime.ResetProbe()
-	e.depsMu.Lock()
-	defer e.depsMu.Unlock()
-	e.ToolDeps.PythonExe = runtime.PythonExe(p)
-	e.ToolDeps.PowerShellExe = runtime.PowerShellExe(p)
+	cur := e.ToolDepsSnapshot()
+	cur.PythonExe = runtime.PythonExe(p)
+	cur.PowerShellExe = runtime.PowerShellExe(p)
+	e.SetToolDeps(cur)
 }
 
 // ReloadWorkspaceSkills 重新装载当前工作区的技能，切换工作目录后调用。

@@ -138,6 +138,7 @@ func (h *Hub) Publish(sessionID string, env domain.Envelope) {
 	}
 
 	h.mu.Lock()
+	var flush *domain.Envelope
 	if pend := h.pend[sessionID]; pend != nil {
 		if pd, same := pend.Data.(domain.DeltaData); same && pd.EntryID == d.EntryID && pd.Kind == d.Kind {
 			// 同一条目同一形态：正文拼进去（Data 是值，必须回写）
@@ -146,17 +147,19 @@ func (h *Hub) Publish(sessionID string, env domain.Envelope) {
 			h.mu.Unlock()
 			return
 		}
-		// 形态切换（思考 ↔ 正文）或换了条目：先冲刷旧的
-		delete(h.pend, sessionID)
-		h.stopTimer(sessionID)
-		h.mu.Unlock()
-		h.publishNow(sessionID, *pend)
-		h.mu.Lock()
+		// 形态切换（思考 ↔ 正文）或换了条目：旧的一并取走。
+		// 「取旧 + 装新」必须同一次持锁完成：中间放锁的话，并发 Publish 写进来的
+		// pend 会被本 goroutine 覆盖，那一段正文就永久丢了。
+		flush = pend
 	}
 	e := env
 	h.pend[sessionID] = &e
+	h.stopTimer(sessionID)
 	h.timers[sessionID] = time.AfterFunc(deltaCoalesce, func() { h.FlushDelta(sessionID) })
 	h.mu.Unlock()
+	if flush != nil {
+		h.publishNow(sessionID, *flush)
+	}
 }
 
 // FlushDelta 把会话挂起的合并 delta 发出去；定时器与事件冲刷共用。
@@ -231,11 +234,19 @@ func drainDeltas(ch chan domain.Envelope) {
 			}
 			kept = append(kept, ev)
 		default:
+			// 回灌一律非阻塞：此刻通道刚被本函数读空，正常单写者场景都塞得回；
+			// 并发写入挤满时宁可丢 delta（可由快照对账恢复），也不能卡住调用链。
 			for _, ev := range kept {
-				ch <- ev
+				select {
+				case ch <- ev:
+				default:
+				}
 			}
 			if last != nil {
-				ch <- *last
+				select {
+				case ch <- *last:
+				default:
+				}
 			}
 			return
 		}

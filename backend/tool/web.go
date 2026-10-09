@@ -16,12 +16,12 @@ import (
 // webSearchTool 用 DuckDuckGo 的 HTML 端点搜索，免 Key。
 type webSearchTool struct{}
 
-func (webSearchTool) Name() string                { return "web_search" }
-func (webSearchTool) Label() string               { return "搜网页" }
+func (webSearchTool) Name() string                 { return "web_search" }
+func (webSearchTool) Label() string                { return "搜网页" }
 func (webSearchTool) ExecutionMode() ExecutionMode { return ExecutionParallel }
-func (webSearchTool) RequiresApproval() bool      { return false }
-func (webSearchTool) Description() string         { return "联网搜索，返回标题、链接与摘要。" }
-func (webSearchTool) PromptSnippet() string       { return "联网搜索" }
+func (webSearchTool) RequiresApproval() bool       { return false }
+func (webSearchTool) Description() string          { return "联网搜索，返回标题、链接与摘要。" }
+func (webSearchTool) PromptSnippet() string        { return "联网搜索" }
 func (webSearchTool) PromptGuidelines() []string {
 	return []string{"问到最新信息、外部资料时才搜索；本地文件里能找到的不要联网。"}
 }
@@ -149,12 +149,14 @@ func unwrapDuckURL(raw string) string {
 // webFetchTool 抓网页正文。
 type webFetchTool struct{}
 
-func (webFetchTool) Name() string                { return "web_fetch" }
-func (webFetchTool) Label() string               { return "打开网页" }
+func (webFetchTool) Name() string                 { return "web_fetch" }
+func (webFetchTool) Label() string                { return "打开网页" }
 func (webFetchTool) ExecutionMode() ExecutionMode { return ExecutionParallel }
-func (webFetchTool) RequiresApproval() bool      { return false }
-func (webFetchTool) Description() string         { return "抓取一个网页并转成纯文本，便于阅读与总结。" }
-func (webFetchTool) PromptSnippet() string       { return "打开网页看内容" }
+func (webFetchTool) RequiresApproval() bool       { return false }
+func (webFetchTool) Description() string {
+	return "抓取一个网页并转成纯文本，便于阅读与总结。"
+}
+func (webFetchTool) PromptSnippet() string { return "打开网页看内容" }
 func (webFetchTool) PromptGuidelines() []string {
 	return []string{"只抓用户给出的具体网址，不要自己猜域名。"}
 }
@@ -163,8 +165,8 @@ func (webFetchTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"url":        map[string]any{"type": "string", "description": "网页地址"},
-			"max_chars":  map[string]any{"type": "integer", "description": "最多保留多少字符，默认 20000"},
+			"url":       map[string]any{"type": "string", "description": "网页地址"},
+			"max_chars": map[string]any{"type": "integer", "description": "最多保留多少字符，默认 20000"},
 		},
 		"required": []string{"url"},
 	}

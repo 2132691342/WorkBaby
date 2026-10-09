@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 
 	"WorkBaby/backend/config"
 	"WorkBaby/backend/db"
@@ -18,6 +19,8 @@ import (
 )
 
 // Handler 持有全部业务服务与共享设施。
+// port / startErr 会被 Wails 绑定 goroutine 与生命周期 goroutine 并发读写，必须走原子量：
+// 「绑定方法随时可调」的前提是读侧不会读到撕裂值。
 type Handler struct {
 	Version   string
 	ctx       context.Context
@@ -30,34 +33,40 @@ type Handler struct {
 	Emitter   *service.Emitter
 	Svc       *service.Container
 	Log       *pkg.Logger
-	port      int
-	startErr  string
+	port      atomic.Int64
+	startErr  atomic.Pointer[string]
 }
 
 // New 构造 handler；真正的资源装配在 Startup 里做。
 func New(version string) *Handler { return &Handler{Version: version} }
 
 // SetServerPort 记录本地 HTTP 端口。
-func (h *Handler) SetServerPort(port int) { h.port = port }
+func (h *Handler) SetServerPort(port int) { h.port.Store(int64(port)) }
 
 // Port 返回已记录的本地 HTTP 端口，0 表示尚未启动。
-func (h *Handler) Port() int { return h.port }
+func (h *Handler) Port() int { return int(h.port.Load()) }
 
 // ServerPort 返回本地 HTTP 端口。
 // 前端在错过 app:ready 事件时靠它兜底：绑定方法是随时可调的，不存在事件竞态。
-func (h *Handler) ServerPort() int { return h.port }
+func (h *Handler) ServerPort() int { return int(h.port.Load()) }
 
 // SetStartupError 记录启动失败原因，供前端展示。
 func (h *Handler) SetStartupError(err error) {
 	if err == nil {
 		return
 	}
-	h.startErr = err.Error()
+	msg := err.Error()
+	h.startErr.Store(&msg)
 	pkg.Errorf("startup: %v", err)
 }
 
 // StartupError 返回启动失败原因；空串表示一切正常。
-func (h *Handler) StartupError() string { return h.startErr }
+func (h *Handler) StartupError() string {
+	if p := h.startErr.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
 
 // Startup 是唯一装配入口，顺序即依赖顺序。
 func (h *Handler) Startup(ctx context.Context) error {
@@ -118,8 +127,9 @@ func (h *Handler) Startup(ctx context.Context) error {
 	h.Emitter = service.NewEmitter()
 	env := &service.Env{
 		Repo: h.Repo, Paths: paths, Cfg: cfg, Emitter: h.Emitter,
-		Registry: h.Registry, Skills: h.Skills, Knowledge: h.Knowledge, ToolDeps: toolDeps,
+		Registry: h.Registry, Skills: h.Skills, Knowledge: h.Knowledge,
 	}
+	env.SetToolDeps(toolDeps)
 	svc, err := service.New(env)
 	if err != nil {
 		return err

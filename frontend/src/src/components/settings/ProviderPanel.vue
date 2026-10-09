@@ -216,7 +216,19 @@ async function ensureProviderSaved(): Promise<string | null> {
 }
 
 // ---- 模型参数与能力：目录认不出的模型，只有用户自己知道真实数字 ----
-// 最大输出不可设置：后端一律按上下文窗口的 1/8 派生，无需在此传递
+// 最大输出不可设置：后端按「窗口 1/8 与厂商硬上限取小」派生，无需在此传递。
+// temperature / top_p 的 -1 是「未设置」哨兵：留空表示跟随上游默认，
+// 0 是合法的确定性取值，两者必须能分开。
+const SAMPLING_UNSET = -1
+const samplingText = (v: number) => (v < 0 ? '' : String(v))
+const samplingValue = (raw: string, max: number) => {
+  const t = raw.trim()
+  if (!t) return SAMPLING_UNSET
+  const n = Number(t)
+  if (!Number.isFinite(n) || n < 0) return SAMPLING_UNSET
+  return Math.min(max, n)
+}
+
 interface CfgRow {
   context_window: string
   temperature: string
@@ -234,8 +246,8 @@ const cfgRows = ref<Record<string, CfgRow>>({})
 function applyConfig(m: string, vo: ModelConfigVO) {
   cfgRows.value[m] = {
     context_window: vo.window_known ? String(vo.context_window) : '',
-    temperature: String(vo.temperature),
-    top_p: String(vo.top_p),
+    temperature: samplingText(vo.temperature),
+    top_p: samplingText(vo.top_p),
     vision: vo.vision,
     tool_call: vo.tool_call,
     window_known: vo.window_known,
@@ -246,7 +258,7 @@ function applyConfig(m: string, vo: ModelConfigVO) {
 
 function blankRow(): CfgRow {
   return {
-    context_window: '', temperature: '0.25', top_p: '0.75',
+    context_window: '', temperature: '', top_p: '',
     vision: false, tool_call: true, window_known: false, saving: false, saved: false,
   }
 }
@@ -270,17 +282,18 @@ watch([cfgOpen, chosen], () => {
 
 async function saveCfg(m: string) {
   const row = cfgRows.value[m]
-  if (!row) return
-  const pid = await ensureProviderSaved()
-  if (!pid) return
+  if (!row || row.saving) return
   row.saving = true
   try {
+    // 保存前会先确保服务商已落库，这一步也可能要等请求，loading 必须最先挂上
+    const pid = await ensureProviderSaved()
+    if (!pid) return
     const vo = await api.models.saveConfig({
       provider_id: pid,
       model: m,
       context_window: Math.max(0, Math.round(Number(row.context_window) || 0)),
-      temperature: Math.min(2, Math.max(0, Number(row.temperature) || 0)),
-      top_p: Math.min(1, Math.max(0, Number(row.top_p) || 0)),
+      temperature: samplingValue(row.temperature, 2),
+      top_p: samplingValue(row.top_p, 1),
       vision: row.vision,
       tool_call: row.tool_call,
     })
@@ -333,13 +346,20 @@ function askRemove(id: string) {
   confirmTimer = window.setTimeout(() => (confirmingDelete.value = ''), 3000)
 }
 
+// rowBusy 标记正在操作的服务行：删除与设默认都要等两次请求，
+// 期间按钮转圈、同行其它操作禁用，防连点造成「删了又设默认」这类交叉请求。
+const rowBusy = ref('')
 async function doRemove(id: string) {
+  if (rowBusy.value) return
+  rowBusy.value = id
   try {
     await api.providers.remove(id)
     await store.loadProviders()
     toast.ok('模型服务已删除')
   } catch (e) {
     toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    rowBusy.value = ''
   }
 }
 
@@ -359,12 +379,16 @@ async function test(id: string) {
 }
 
 async function setDefault(id: string) {
+  if (rowBusy.value) return
+  rowBusy.value = id
   try {
     await api.providers.setDefault(id)
     await store.loadProviders()
     toast.ok('已设为默认服务')
   } catch (e) {
     toast.bad(`设置默认失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    rowBusy.value = ''
   }
 }
 
@@ -510,13 +534,23 @@ onMounted(() => store.loadProviders())
                   placeholder="自动"
                 />
               </label>
-              <label class="cfg-field">
+              <label class="cfg-field" title="越高回答越发散；留空 = 跟随该模型的默认">
                 <span>温度</span>
-                <input v-model="cfgRows[m].temperature" class="input input-sm" inputmode="decimal" />
+                <input
+                  v-model="cfgRows[m].temperature"
+                  class="input input-sm"
+                  inputmode="decimal"
+                  placeholder="默认"
+                />
               </label>
-              <label class="cfg-field">
+              <label class="cfg-field" title="采样范围；留空 = 跟随该模型的默认">
                 <span>Top P</span>
-                <input v-model="cfgRows[m].top_p" class="input input-sm" inputmode="decimal" />
+                <input
+                  v-model="cfgRows[m].top_p"
+                  class="input input-sm"
+                  inputmode="decimal"
+                  placeholder="默认"
+                />
               </label>
               <label class="cfg-check" title="能不能看图">
                 <input v-model="cfgRows[m].vision" type="checkbox" />
@@ -535,7 +569,10 @@ onMounted(() => store.loadProviders())
                 {{ cfgRows[m]?.saved ? '已保存' : '保存' }}
               </button>
             </div>
-            <div class="hint">窗口留空 = 跟随内置目录；改完点保存立刻生效，对话里按这里的值算上下文水位</div>
+            <div class="hint">
+              窗口留空 = 跟随内置目录；温度 / Top P 留空 = 跟随上游默认，填 0 才是刻意要确定性输出。
+              改完点保存立刻生效，对话里按这里的值算上下文水位。
+            </div>
           </div>
         </div>
       </div>
@@ -577,9 +614,22 @@ onMounted(() => store.loadProviders())
             >
               {{ testing === p.id ? '测试中' : '测试' }}
             </button>
-            <button v-if="!p.is_default" class="btn btn-sm btn-ghost" @click="setDefault(p.id)">设默认</button>
-            <button class="btn btn-sm btn-ghost" @click="edit(p.id)">编辑</button>
-            <button class="btn btn-sm btn-danger-ghost" @click="askRemove(p.id)">
+            <button
+              v-if="!p.is_default"
+              class="btn btn-sm btn-ghost"
+              :class="{ 'is-loading': rowBusy === p.id }"
+              :disabled="!!rowBusy"
+              @click="setDefault(p.id)"
+            >
+              设默认
+            </button>
+            <button class="btn btn-sm btn-ghost" :disabled="!!rowBusy" @click="edit(p.id)">编辑</button>
+            <button
+              class="btn btn-sm btn-danger-ghost"
+              :class="{ 'is-loading': rowBusy === p.id && confirmingDelete === '' }"
+              :disabled="!!rowBusy"
+              @click="askRemove(p.id)"
+            >
               {{ confirmingDelete === p.id ? '再点一次确认删除' : '删除' }}
             </button>
           </div>

@@ -9,7 +9,7 @@
 | 约定 | 内容 |
 |---|---|
 | 表与 DO | 一个聚合根一个 `domain/*.go`，DO 必须显式 `TableName()`——GORM 会把 `XxxDO` 复数化成 `xxx_dos` |
-| 主键 | ULID + 领域前缀（`SESSION_` / `ENTRY_` 等），生成见 `domain/id.go`；本机用户 id 固定 `"local"` |
+| 主键 | ULID + 领域前缀（`SESSION_` / `ENTRY_` 等），生成见 `domain/id.go` |
 | 时间戳 | `CreatedAt` / `UpdatedAt` 一律毫秒整数（`autoCreateTime:milli`）；跨边界 struct 里不出现 `time.Time` |
 | JSON tag | 一律 snake_case；前端 `types/api.ts` 的字段名必须与后端 json tag 完全一致 |
 | 迁移 | GORM AutoMigrate：只增不删、零值兜底；FTS5 虚表与触发器用 raw SQL 逐条创建 |
@@ -49,14 +49,16 @@ E1(user) → E2(assistant+tool_calls) → E3(tool) → E4(assistant)  ← leaf
   零成本实现；代价是「列全部消息」必须从 leaf 沿 `parent_id` 上溯
 - `payload_json` 存 `MessagePayload`（ thinking / content / tool_calls / tool_call_id /
   tool_name / is_error / stop_reason / latency_ms / images ），一种 payload 覆盖所有消息形态
-- `usage_json` 存这一轮的 `UsageVO`：消息的 token 数是 originate 一次性写死的，append-only 表回头补写做不到
+- `usage_json` 存这一轮的 `UsageVO`（token 数与上下文占用在此定稿）：append-only 表不回头补写，
+  所以计量必须在写这条消息时就算准
 
 ### model_configs
 
 复合主键 `(provider_id, model)`，`ContextWindow` 为 0 表示跟随内置目录（`domain/modelcap.go`）。
 存在的意义是**让私有部署与改名模型能被正确计费与算水位**——目录认不出的模型靠它闭环。
-`MaxOutput` 列已废弃：输出预算一律按上下文窗口 1/8 派生（`domain.MaxOutputOf`），
+`MaxOutput` 列已废弃：输出预算按「窗口 1/8 与厂商硬上限取小」派生（`domain.ModelCapability.OutputBudget`），
 不写死、不由用户设置，列仅为兼容既有表结构而保留。
+`Temperature` / `TopP` 为 `SamplingUnset`（-1）时不向上游下发，0 是合法的确定性取值。
 
 ### knowledge_chunks + FTS5
 
@@ -94,4 +96,4 @@ DO 永远不直接出：`ProviderDO.APIKeyEnc` 的 tag 是 `json:"-"`，出参�
 
 - 完整历史（含消息的 base64 图片）都存在库里，体积随使用增长
 - 单连接写：SQLite 写串行，偶发长事务会挡住读；靠 `busy_timeout` 兜底并对用户说人话
-- AutoMigrate 不能表达「删字段」这类变更；需要的话升级到 golang-migrate 并要求 PR 带 up/down sql
+- AutoMigrate 只增不删：废弃字段只能留在表里（如 `model_configs.max_output`），改字段语义要靠代码兼容

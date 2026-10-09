@@ -85,11 +85,15 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // 所有设置项写入的公共出口：失败必须弹出，否则开关类操作「点了没反应」。
   // 成功不弹——开关自身的状态变化已经说明了结果。
+  // 本地先落值再发请求：开关/单选这类控件的「点亮」必须是瞬时的，
+  // 等一个 HTTP 往返才变色，用户会以为没点上而重复点。
   async function setValue(key: string, value: string) {
+    const prev = values.value[key]
+    values.value = { ...values.value, [key]: value }
     try {
       await api.settings.set(key, value)
-      values.value = { ...values.value, [key]: value }
     } catch (e) {
+      values.value = { ...values.value, [key]: prev }
       useToastStore().bad(`保存设置失败：${(e as Error)?.message || '请重试'}`)
       throw e
     }

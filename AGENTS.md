@@ -281,8 +281,7 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 
 ### 2.11 数据库迁移
 
-- v1：GORM AutoMigrate；新增字段只增不删、零值兜底
-- v2：golang-migrate；PR 必带 up/down sql
+- GORM AutoMigrate：新增字段只增不删、零值兜底；废弃字段留在表里（改语义靠代码兼容）
 - FTS5 虚拟表与触发器用 raw SQL 启动期逐条创建（多语句一次 Exec 不可靠）
 
 ### 2.12 HTTP 与 API 路径约定（强制）
@@ -378,14 +377,19 @@ const (
 | 事件出口必须串行化 | 并行工具各自在 goroutine 里 emit，不锁就是并发改同一份落库位点，assistant 声明撞主键后整条丢失 |
 | 被截断轮的 tool_calls 一律不执行 | 半个 JSON 调用执行出去比不执行更危险；留进历史还会被当成真调用回传上游 |
 | 输出预算必须显式下发到上游 | 0 在 openai 协议里被 `omitempty` 整个吃掉、在 anthropic 协议里是必填字段，两条协议都要兜到 `llm.DefaultMaxTokens`；推理型模型的思考会吃满小预算，正文与工具调用一起断在 length |
-| 上下文余量必须容得下输出预算 | 余量比实际下发值小，压缩会按虚高的空间往窗口里塞内容，总占用顶破窗口 |
+| 输出预算 = min(窗口 1/8, 厂商硬上限) | 窗口 1/8 保证长回答不被随手截断；只有 1/8 时 1M 窗口会下发 12.5 万，超过厂商真实上限就是整轮 400。硬上限来自 `domain` 能力目录的 `maxOut` 字段 |
+| 上下文余量必须容得下输出预算 | 余量缺省就是输出预算本身：余量比实际下发值小，压缩会按虚高的空间往窗口里塞内容，总占用顶破窗口 |
+| 采样参数只在用户显式配置时下发 | 用一个拍脑袋的默认温度覆盖所有模型，会在推理型与思考型模型上撞上游约束；持久化层用 `SamplingUnset=-1` 表达未设置（0 是合法的确定性取值） |
 | 内核不擅自抬高输出预算 | 内核不知道模型能吐多少，抬过头就是把「能看懂的截断」换成「看不懂的 400」；到顶就以 length 收尾，交给界面的「继续」 |
+| 上游报上下文超限 → 强制压缩重试一次 | 本地估算是粗估，偏乐观时上游拒绝整轮；本轮已吐出过内容则不重试（避免重复正文），第二次仍失败才以错误收尾 |
 | 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
 | CleanForProtocol 输出必须可直发上游 | 空消息/孤儿结果/未配对调用都在这一层兜底 |
 | 事件发布永不阻塞内核 | Hub 慢客户端先挤 delta 断连兜底 + `chat:gap` 对账 |
-| 同一工具同一参数重复调用直接拦 | 模型卡在同一个调用上打转，比撞轮数上限更难排查 |
+| 同一工具同一参数整个 run 内累计 3 次后拦 | 模型卡在同一个调用上打转，比撞轮数上限更难排查；计数不衰减——中间穿插别的调用不代表它换了方案 |
 | 并发工具 goroutine 在起之前取信号量 | 信号量放在 goroutine 里的话 N 个调用先起 N 个 goroutine 再抢锁，「并发度有上界」是假的——一次 30 个工具就铺 30 个 goroutine |
-| 工具 panic 在 goroutine 边界 recover | panic 说明有 bug，但桌面端不该因为一个工具的 bug 把整进程连同这次对话一起带走；recover 后转成 `IsError` 结果并打堆栈，`recover` 之外的失败仍用 `pkg.New(4xxx, ...)` 表达 |
+| 工具 panic 在串行与并行两条路径都 recover | panic 说明有 bug，但桌面端不该因为一个工具的 bug 把整进程连同这次对话一起带走；`runOneSafe` 统一兜底转成 `IsError` 结果并打堆栈——只兜并发路径等于没兜，write / edit / powershell / python 都是串行工具 |
+| 用户文件写入必须原子替换 | 临时文件 + rename；磁盘写满或进程被杀留下半截文件比写失败更糟，助手写的是用户的真实工程文件 |
+| 插话队列必须有上限 | 队列无上限时连点/脚本可无限堆积，每条都要在轮间注入进上下文，内存与 token 双爆；满时丢最旧并回执错误 |
 | 端口握手必须早于 `domReady` 广播 | 监听器晚一步端口就为空，前端所有接口 404 |
 | 就绪状态用响应式值传，不靠事件通知 | 事件在监听器注册前派发会丢，组件挂载时要读到的是当前值 |
 | 启动失败必须走 Wails 事件总线 | 此时 HTTP/SSE 还不存在，走 `Emitter` 等于没发，用户只会看到空窗口 |
@@ -440,17 +444,17 @@ const (
 ### 3.3 测试索引
 
 只保留跨模块 / 跨轮次 / 跨协议的链路测试，每条链路一个 Test（分支用 `t.Run` 归入同一条链）。
-全量 **19 个 Test / 12 个文件**。按改动范围挑命令，不要一律跑全量：
+全量 **14 个 Test / 12 个文件**。按改动范围挑命令，不要一律跑全量：
 
 | 场景 | 命令 | 耗时 |
 |---|---|---|
 | 日常改动 | `scripts/test.ps1 -Fast` | 秒级 |
-| 提交前 / CI | `scripts/test.ps1` | 约 8s（含归档真实解压与依赖门禁） |
+| 提交前 / CI | `scripts/test.ps1` | 约 10s（含归档真实解压与依赖门禁；冷缓存首次可达 1 分钟） |
 | 只动了一个包 | `scripts/test.ps1 -Fast -Pkg backend/service` | 约 2s |
 | 只动了一条链路 | `scripts/test.ps1 -Fast -Run TestServiceRunChain` | 约 2s |
 | 并发相关改动 | `scripts/test.ps1 -Race` | 分钟级 |
 
-时间大头是 `runtime` 包对两份归档的真实解压（约 3s，全量唯一的慢点，`-Fast` 跳过）。
+时间大头是 `runtime` 包对两份归档的真实解压（全量唯一的慢点，`-Fast` 跳过）。
 
 `-Race` 前置条件：`-race` 需要 cgo，而本项目为了让 SQLite 驱动保持纯 Go 默认关掉了 CGO。
 跑这一档必须先装 MinGW（`winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT`，
@@ -460,17 +464,17 @@ const (
 | 文件 | Test | 覆盖的链路 |
 |---|---|---|
 | `app_test.go` | TestAppLifecycle | 启动等待（慢装配 / 失败 / 超时）；关闭去向（托盘开关 + 退出流程 + 托盘未就绪） |
-| `api/api_test.go` | TestHTTPChain | 完整启动装配 → 磁盘导入技能 → 跨源预检放行 POST；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event）与带 Last-Event-ID 重连补帧。服务只启动一次，全部子测试共用 |
-| `agent/agent_test.go` | TestLoopProtocolOrder · TestLoopStopsOnCancelLengthAndError · TestLoopBlocksRepeatedIdenticalCall · TestEmitSerializesConcurrentTools · TestCompactProtocol | 回填顺序（多轮 / 并行）、三条收尾路径（截断轮不执行工具、零产出也不重试）、重复调用拦截与事件成对、事件出口串行化；清洗硬约束、压缩永不孤儿化 / 整轮丢弃、预算边界与降级 |
+| `agent/agent_test.go` | TestLoopProtocol · TestLoopBlocksRepeatedIdenticalCall · TestCompactProtocol | 主循环协议：回填顺序（多轮 / 并行）、三条收尾路径（取消 / 截断不执行工具且不重试 / 报错）、事件出口串行化；重复调用拦截与事件成对；清洗硬约束与压缩切点合法性 |
+| `api/api_test.go` | TestHTTPChain | 完整启动装配 → 跨源预检放行 POST；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event）与带 Last-Event-ID 重连补帧。服务只启动一次，全部子测试共用 |
 | `service/chain_test.go` | TestServiceRunChain | 一次 run 的落库判据（审批会话级放行 / 错误轮半成品 / 插话链序 / 输出预算与余量）、声明与结果紧邻配对（跨轮 / 同轮并发）、默认服务→默认模型→会话继承与存量回填。装配只做一次，七个子测试共用 |
-| `tool/files_test.go` | TestFilesReadChain · TestFilesWriteEditGuardrails | 路径穿越、Unicode 路径变体找回；读→写闭环（读工具记账后放行）、edit 唯一性、行尾与 BOM |
-| `skill/skill_test.go` | TestSkillRegistryChain | embed 加载与落盘、触发词解析并渲染进清单、同名按来源优先且可回退、切换工作目录换掉工作区技能 |
+| `tool/files_test.go` | TestFilesGuardrails | 路径穿越、Unicode 路径变体找回；读→写闭环（读工具记账后放行）、edit 唯一性与实际改动、行尾与 BOM |
+| `skill/skill_test.go` | TestSkillRegistryChain | embed 解析与落盘、触发词渲染进清单、同名按来源优先且可回退、切换工作目录换掉工作区技能 |
 | `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引→检索（短查询子串兜底）→删除级联；pptx 按页号抽取且可检索 |
-| `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档与 SHA 常量一致、真实解压平铺到根目录（`-short` 跳过）、解压路径穿越拒绝 |
+| `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档与 SHA 常量一致、解压路径穿越拒绝；真实解压平铺到根目录（`-short` 跳过） |
 | `server/sse_test.go` | TestHubDeliveryChain | delta 合流保序、慢客户端挤 delta 保 done |
 | `singleinstance/singleinstance_test.go` | TestSecondLaunchHandoff | 二次启动转交：文件路径与空路径（只唤起窗口）都原样送达主实例 |
-| `llm/openai/openai_test.go` | TestEncodeProtocolFamilies · TestStreamChain | 推理家族只认 max_completion_tokens 且拒绝采样参数、网关前缀不影响判定；usage 帧顺序与缓存双口径、tool_call 单次下发、断流收尾 |
-| `llm/anthropic/anthropic_test.go` | TestEncodeProtocol · TestStreamChain | 无签名 thinking 不回传；上游停滞经空闲看门狗收尾、事件缓冲满不丢弃 |
+| `llm/openai/openai_test.go` | TestOpenAIAdapter | 推理家族只认 max_completion_tokens 且拒绝采样参数、网关前缀不影响判定；usage 帧顺序与缓存双口径、tool_call 单次下发、断流收尾 |
+| `llm/anthropic/anthropic_test.go` | TestAnthropicAdapter | 无签名 thinking 不回传；上游停滞经空闲看门狗收尾、事件缓冲满不丢弃 |
 
 ---
 

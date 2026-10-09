@@ -49,14 +49,11 @@ func StatusPowerShell(p Paths) PowerShellStatus {
 }
 
 // resolvePowerShell 只解析一次：并发调用共享同一个结果；缓存可被 ResetProbe 清空。
+// 真正的解压在 probeFlight 闸门下做，缓存命中的读路径不被它阻塞。
 func resolvePowerShell(p Paths) (string, error) {
-	probeMu.Lock()
-	defer probeMu.Unlock()
-	if !pwshProbed {
-		powershellPath, powershellErr = EnsurePowerShell(p)
-		pwshProbed = true
-	}
-	return powershellPath, powershellErr
+	return probeOnce(&pwshProbed, &powershellPath, &powershellErr, func() (string, error) {
+		return EnsurePowerShell(p)
+	})
 }
 
 // EnsurePowerShell 保证内置 PowerShell 已解压并返回 pwsh 路径。

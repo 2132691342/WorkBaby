@@ -313,7 +313,7 @@ func (p *ProviderService) ModelConfig(providerID, model string) (*domain.ModelCo
 		ContextWindow: cap.ContextWindow, WindowKnown: cap.Known,
 		MaxOutput: cap.MaxOutput, Thinking: cap.Thinking,
 		Vision: cap.Vision, ToolCall: cap.ToolCall,
-		Temperature: domain.DefaultTemperature, TopP: domain.DefaultTopP,
+		Temperature: domain.SamplingUnset, TopP: domain.SamplingUnset,
 	}
 	d, err := p.env.Repo.GetModelConfig(providerID, model)
 	if err != nil {
@@ -323,10 +323,11 @@ func (p *ProviderService) ModelConfig(providerID, model string) (*domain.ModelCo
 		return vo, nil
 	}
 	if d.ContextWindow > 0 {
+		cap.ContextWindow = d.ContextWindow
 		vo.ContextWindow = d.ContextWindow
 		vo.WindowKnown = true
 	}
-	vo.MaxOutput = domain.MaxOutputOf(vo.ContextWindow)
+	vo.MaxOutput = cap.OutputBudget()
 	vo.Temperature = d.Temperature
 	vo.TopP = d.TopP
 	vo.Vision = d.Vision
@@ -369,14 +370,9 @@ func (p *ProviderService) UpsertModelConfig(req domain.UpsertModelConfigREQ) (*d
 	d := &domain.ModelConfigDO{
 		ProviderID: req.ProviderID, Model: req.Model,
 		ContextWindow: req.ContextWindow,
-		Temperature:   req.Temperature, TopP: req.TopP,
-		Vision: req.Vision, ToolCall: req.ToolCall,
-	}
-	if req.Temperature <= 0 {
-		d.Temperature = domain.DefaultTemperature
-	}
-	if req.TopP <= 0 {
-		d.TopP = domain.DefaultTopP
+		Temperature:   domain.ClampSampling(req.Temperature),
+		TopP:          domain.ClampSampling(req.TopP),
+		Vision:        req.Vision, ToolCall: req.ToolCall,
 	}
 	if err := p.env.Repo.UpsertModelConfig(d); err != nil {
 		return nil, err

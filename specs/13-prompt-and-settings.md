@@ -56,7 +56,7 @@ persona           固定人设 + 四条工作原则 + 一组输出风格约束
 | `default_provider` | 空 | 默认模型服务 id |
 | `default_model` | 空 | 默认模型名 |
 | `permission` | `ask` | 执行方式：ask / auto_edit / yolo |
-| `context_reserve_tokens` | 16384 | 给模型输出留的 token 余量 |
+| `context_reserve_tokens` | 空 | 给模型输出留的 token 余量；空 = 跟随该模型的输出预算 |
 | `context_window` | 空 | 全局上下文窗口覆写（空 = 用能力目录值） |
 | `disabled_tools` | 空 | 逗号分隔的停用工具名单 |
 | `disabled_skills` | 空 | 逗号分隔的停用技能名单（启动时套用） |
@@ -69,13 +69,24 @@ persona           固定人设 + 四条工作原则 + 一组输出风格约束
 | `launch_on_login` | `false` | 开机自启（写 HKCU Run） |
 | `density` | `comfortable` | 信息密度 |
 | `workspace` | 用户主目录 | 默认工作目录 |
+| `max_turns` | 空（内置 64） | 单次 run 的轮数上限，失控护栏 |
+| `tool_parallel` | 空（内置 4） | 并发工具上限 |
+| `stream_idle_seconds` | 空（内置 300） | 上游空闲看门狗阈值，夹取 5 秒 ~ 30 分钟 |
 
-配置文件（`config.yaml`）只放**不适合进数据库**的东西：MasterKey、监听端口。
+配置文件（`config.yaml`）只放**不适合进数据库**的东西：`master_key`、`workspace`、`log_level`。
+监听端口是随机回环，不落配置。
 
 三档执行方式的完整语义与审批闸门见 [`05-exec-policy.md`](05-exec-policy.md)；
 档位按会话存（`sessions.permission`），前端在输入框的「规矩」chip 里切换。
 
-**不改工具面**：不做「只读档就把工具藏起来」，那会让模型突然找不到工具并反复重试。
+## 取舍
+
+- **提示词由工具集驱动**：换工具时说明自动跟着变，不需要两处维护；代价是模型看到的准则
+  依赖每个工具的 `PromptSnippet` 写得准，工具作者漏写等于模型看不到这个能力。
+- **人设与输出风格只存在于字符串里**：删掉不会有编译错误，改坏也没有测试能拦住。
+  代价是评审提示词改动必须逐条人工过，靠规范而不是靠工具。
+- **设置全部走 KV 表**：加一个开关不用改表结构；代价是键名与取值没有类型约束，
+  写错值只有到使用时才暴露（所以取值都集中在 `domain/settings.go` 一处声明）。
 
 ## 约束
 

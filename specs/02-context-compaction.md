@@ -37,8 +37,14 @@ msgs → 估算 token → 超预算？
 
 ### EstimateTokens
 
-中文按字（每个 Han 字符 1 token）、其余按 4 字符 1 token，再加每条消息 4 token
-结构开销。误差 ±10% 对「要不要裁」这个判断足够，不值得引入 tokenizer 依赖。
+中文按字（每个 Han 字符 1 token）、其余按 3.5 字符 1 token，再加每条消息 4 token
+结构开销与每个工具调用 8 token（声明的名字与固定字段）。3.5 而不是 4：代码与 JSON
+的 token 密度高于自然语言，按 4 估会系统性偏低，偏低的估算让压缩判断偏乐观，
+最终以上游 context 超限报错收场。
+误差 ±10% 对「要不要裁」这个判断足够，不值得引入 tokenizer 依赖。
+
+`service.budget` 的 `SystemTokens` 同样走 `agent.EstimateTokens`：
+system 提示词里中文占比高，另写一套 `len/4` 会低估约 1/4。
 
 ### Budget（阈值来自 service 层）
 
@@ -48,21 +54,30 @@ type Budget struct{ Window, WindowKnown, Reserve, Keep, SystemTokens }
 
 | 字段 | 缺省 | 含义 |
 |---|---|---|
-| Window | 128000 | 模型上下文窗口：来自内置能力目录，可被模型级配置与全局 `context_window` 设置覆写 |
+| Window | 65536 | 模型上下文窗口：来自内置能力目录，可被模型级配置与全局 `context_window` 设置覆写；认不出的模型用保守值——偏小的代价是压缩早一点（可恢复），偏大的代价是首轮 400（整轮作废） |
 | WindowKnown | — | 窗口是否为确切值；false 时界面读数加「约」前缀 |
-| Reserve | 16384 | 给模型输出留的余量：先取设置项，再抬到该模型真正下发的输出预算（见下） |
+| Reserve | 跟随输出预算 | 给模型输出留的余量：缺省 = 该模型真正下发的输出预算，用户设置（`context_reserve_tokens`）只作为显式覆写 |
 | Keep | 20000 | 裁剪后保留的近期 token 预算；随窗口缩放 = `clamp(窗口/4, 20000, 200000)` |
 | SystemTokens | 估算 | system 提示词的 token 估算，判断是否超预算必须算上它 |
 
-输出预算（`MaxTokens`）不写死、不由用户设置：一律按上下文窗口的 1/8 派生
-（`domain.MaxOutputOf`），窗口覆写到哪输出就跟到哪——1M 窗口给 125K 输出，
-长任务不会被缺省的 8k 拦腰截断。
+输出预算（`MaxTokens`）= **窗口 1/8 与厂商硬上限取小**（`ModelCapability.OutputBudget`）：
+窗口 1/8 保证长回答不被随手截断，硬上限保证不越界——1M 窗口按 1/8 会算出 12.5 万，
+而有的模型的单次输出上限只有 32K / 64K，越界就是整轮 400。
 
-可用预算 = `Window - Reserve`。Reserve 是**下限**，service 层还会把它抬到
-`max(设置值, MaxTokens)`：留的余量比实际输出预算还小，等于按虚高的空间往窗口里塞内容，
-总占用会顶破窗口。余量本身就超过整个窗口时（极端配置）压到 `Window/4`，
-否则预算恒为负、压缩会退化成什么都不裁；内核另留 `Window/2` 兜底，
-用于 Budget 由其他调用方构造的场景。
+可用预算 = `Window - Reserve`。Reserve 缺省就是输出预算本身：留的余量比实际输出
+预算还小，等于按虚高的空间往窗口里塞内容，总占用会顶破窗口。余量本身超过整个
+窗口时（极端配置）压到 `Window/4`，否则预算恒为负、压缩会退化成什么都不裁；
+内核另留 `Window/2` 兜底，用于 Budget 由其他调用方构造的场景。
+
+### 上游报超限时的强制压缩
+
+本地估算是粗估，偏乐观时上游会以 `context length exceeded` 一类错误拒绝整轮请求。
+内核识别这类错误（`llm.IsContextOverflow`）后走 `CompactForce`：
+保留量砍半、允许从中间硬切，压缩后重试本轮**一次**。
+
+约束：本轮**已经吐出过内容**（正文 / 思考 / 工具调用）就不重试——重试会让用户
+看到一段重复的正文。第二次仍失败才以错误收尾。这条路径保证「长任务跑到一半
+突然不动了」变成「它整理了一下上下文，继续跑」。
 
 ### FindCutPoint（切点选择）
 
@@ -89,6 +104,7 @@ func EstimateTokens(system string, msgs []llm.Message) int
 func FindCutPoint(msgs []llm.Message, keepTokens int) int
 func TruncateDeterministic(msgs []llm.Message, keep int) []llm.Message
 func Compact(msgs []llm.Message, b Budget) (out []llm.Message, after int)
+func CompactForce(msgs []llm.Message, b Budget) (out []llm.Message, after int)
 ```
 
 ## 取舍

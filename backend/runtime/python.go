@@ -51,14 +51,11 @@ func Status(p Paths) PythonStatus {
 }
 
 // resolvePython 只解析一次：并发调用共享同一个结果；缓存可被 ResetProbe 清空。
+// 真正的解压在 probeFlight 闸门下做，缓存命中的读路径不被它阻塞。
 func resolvePython(p Paths) (string, error) {
-	probeMu.Lock()
-	defer probeMu.Unlock()
-	if !pythonProbed {
-		pythonPath, pythonErr = EnsurePython(p)
-		pythonProbed = true
-	}
-	return pythonPath, pythonErr
+	return probeOnce(&pythonProbed, &pythonPath, &pythonErr, func() (string, error) {
+		return EnsurePython(p)
+	})
 }
 
 // EnsurePythonOrEmpty 是 EnsurePython 的静默版本，供只想拿到路径、

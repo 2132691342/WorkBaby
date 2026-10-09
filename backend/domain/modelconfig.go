@@ -2,14 +2,24 @@
 // 上下文窗口、温度、top_p、最大输出与识图 / 工具调用能力。
 package domain
 
-// 模型参数缺省值：新建配置未填写时落这组。
-const (
-	DefaultTemperature = 0.25
-	DefaultTopP        = 0.75
-)
+// SamplingUnset 是采样参数的「未设置」值：负值在协议层面非法，正好当哨兵。
+// 不能用 0 表达未设置——0 是合法的确定性取值，要允许用户显式设 0。
+const SamplingUnset = -1.0
+
+// ClampSampling 归一采样参数：负值一律视为未设置，超范围的值夹回边界。
+func ClampSampling(v float64) float64 {
+	if v < 0 {
+		return SamplingUnset
+	}
+	if v > 2 {
+		return 2
+	}
+	return v
+}
 
 // ModelConfigDO 模型级配置。ProviderID + Model 复合主键。
-// ContextWindow 为 0 表示跟随内置目录；MaxOutput 已废弃（按窗口 1/8 派生），列仅保留。
+// ContextWindow 为 0 表示跟随内置目录；MaxOutput 已废弃（按窗口派生），列仅保留。
+// Temperature / TopP 为 SamplingUnset 时不下发，交给上游默认。
 
 type ModelConfigDO struct {
 	ProviderID    string  `gorm:"primaryKey;size:64" json:"provider_id"`

@@ -51,5 +51,8 @@ func (c *Container) Bootstrap() error {
 	if err := c.Approvals.ExpireStale(); err != nil {
 		return err
 	}
+	if err := c.Settings.MigrateLegacy(); err != nil {
+		return err
+	}
 	return c.Settings.SeedDefaults()
 }

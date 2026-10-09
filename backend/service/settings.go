@@ -78,3 +78,16 @@ func (s *SettingsService) SeedDefaults() error {
 	}
 	return nil
 }
+
+// MigrateLegacy 清掉历史版本写死的默认值，让它们回到「跟随模型」的新语义。
+// 存量库里这些值是首启时由旧默认写入的，不清理会永远盖住新逻辑。
+func (s *SettingsService) MigrateLegacy() error {
+	// 旧版把压缩余量写死 16384；现在缺省跟随模型真实输出预算。
+	legacyReserve := "16384"
+	if v, err := s.env.Repo.GetSetting(domain.SettingContextReserve); err == nil && v == legacyReserve {
+		if err := s.env.Repo.SetSetting(domain.SettingContextReserve, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}

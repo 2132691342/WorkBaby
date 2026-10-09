@@ -23,10 +23,10 @@ const (
 // powershellTool 在 Windows 上执行 PowerShell 命令，是模型真正「干活」的出口。
 type powershellTool struct{}
 
-func (powershellTool) Name() string                { return "powershell" }
-func (powershellTool) Label() string               { return "跑命令" }
+func (powershellTool) Name() string                 { return "powershell" }
+func (powershellTool) Label() string                { return "跑命令" }
 func (powershellTool) ExecutionMode() ExecutionMode { return ExecutionSequential }
-func (powershellTool) RequiresApproval() bool      { return true }
+func (powershellTool) RequiresApproval() bool       { return true }
 func (powershellTool) Description() string {
 	return "执行一条 PowerShell 命令。用于文件批量操作、压缩解压、调用系统工具等。"
 }

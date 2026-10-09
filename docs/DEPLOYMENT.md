@@ -40,7 +40,10 @@ wails build
 ## 用户数据
 
 首启自动创建 `%APPDATA%/WorkBaby/`（DB / 配置 / 日志 / 运行时 / 技能目录）。
-卸载只需删 exe 与该目录。
+
+安装器把程序装进 `$PROGRAMFILES64`，建桌面与开始菜单快捷方式，并注册卸载器与
+文件关联（md / txt）；卸载器会一并清掉「开机自启」的注册表值与数据目录提示。
+绿色版（只用 `WorkBaby.exe`）同样可用：卸载就是删 exe，用户数据留在 `%APPDATA%` 里。
 
 ## 分发注意
 
@@ -49,4 +52,13 @@ wails build
 - API Key 以 AES-256-GCM 加密存库，MasterKey 在 config.yaml（首启生成）
 - Wails 绑定面只有 `*main.App` 的 5 个系统能力方法（ForceQuit / 打开文件与目录
   对话框 / 自启读写）：`App` 持有而不是嵌入 `*api.Handler`，gin handler 不会被
-  绑成 JS 方法；窗口控制与剪贴板由前端直接调 `wailsjs/runtime`
+  绑成 JS 方法；窗口控制由前端直接调 `wailsjs/runtime`，复制走 `navigator.clipboard`
+
+## 取舍
+
+- **归档嵌进 exe**：分发只有一个文件，没有「忘了拷 runtimes 目录」这种失败模式；
+  代价是 exe 130MB+、构建期强依赖 LFS 拉取，以及首启多等一次解压。
+- **不做自动更新**：没有更新服务与签名校验链路，安装包就是全部；
+  代价是修 bug 要靠用户重新下载安装，覆盖安装时先杀常驻进程。
+- **只发 Windows amd64**：单平台让托盘、WebView2、路径分隔符都不必抽象；
+  代价是其他平台完全不可用。

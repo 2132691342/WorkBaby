@@ -37,7 +37,13 @@ const sourceName: Record<string, string> = {
   workspace: '工作区',
 }
 
+// busyId 标记正在操作的行：开关 / 展开 / 删除共用，同一时刻只跑一个，
+// 否则连点会打出重复请求，开关状态最后谁赢取决于返回顺序。
+const busyId = ref('')
+
 async function toggle(id: string, enabled: boolean) {
+  if (busyId.value) return
+  busyId.value = id
   err.value = ''
   try {
     await api.skills.toggle(id, enabled)
@@ -45,18 +51,28 @@ async function toggle(id: string, enabled: boolean) {
     toast.ok(enabled ? '技能已启用' : '技能已停用')
   } catch (e) {
     err.value = (e as Error).message
+  } finally {
+    busyId.value = ''
   }
 }
 
 async function expand(id: string) {
-  err.value = ''
   if (open.value === id) {
     open.value = null
     return
   }
-  const r = await api.skills.content(id)
-  body.value = r.content
-  open.value = id
+  if (busyId.value) return
+  err.value = ''
+  busyId.value = id
+  try {
+    const r = await api.skills.content(id)
+    body.value = r.content
+    open.value = id
+  } catch (e) {
+    err.value = (e as Error).message
+  } finally {
+    busyId.value = ''
+  }
 }
 
 function startCreate() {
@@ -84,11 +100,16 @@ async function submitCreate() {
   }
 }
 
+// importing 覆盖真正的导入请求段：原生对话框本身有系统反馈，
+// 选完文件后的解析与落盘才是需要转圈的那一段。
+const importing = ref(false)
 async function importFiles(fromDir: boolean) {
+  if (importing.value) return
   err.value = ''
+  const p = fromDir ? await OpenDirectoryDialog('') : await OpenFileDialog('', '')
+  if (!p) return
+  importing.value = true
   try {
-    const p = fromDir ? await OpenDirectoryDialog('') : await OpenFileDialog('', '')
-    if (!p) return
     const r = await api.skills.import([p])
     if (!r.imported) {
       err.value = '没找到 SKILL.md。技能是一个文件夹，里面放着 SKILL.md 文件。'
@@ -98,6 +119,8 @@ async function importFiles(fromDir: boolean) {
     toast.ok(`已导入 ${r.imported} 个技能`)
   } catch (e) {
     err.value = (e as Error).message
+  } finally {
+    importing.value = false
   }
 }
 
@@ -116,6 +139,8 @@ function askRemove(id: string) {
 }
 
 async function remove(id: string) {
+  if (busyId.value) return
+  busyId.value = id
   err.value = ''
   try {
     await api.skills.remove(id)
@@ -124,6 +149,8 @@ async function remove(id: string) {
     toast.ok('技能已删除')
   } catch (e) {
     err.value = (e as Error).message
+  } finally {
+    busyId.value = ''
   }
 }
 
@@ -136,10 +163,22 @@ onMounted(() => store.loadSkills())
       <button class="btn btn-primary" type="button" @click="startCreate">
         <AppIcon name="plus" size="ic-xs" /> 新建技能
       </button>
-      <button class="btn" type="button" @click="importFiles(false)">
+      <button
+        class="btn"
+        type="button"
+        :class="{ 'is-loading': importing }"
+        :disabled="importing"
+        @click="importFiles(false)"
+      >
         <AppIcon name="download" size="ic-xs" /> 导入 SKILL.md
       </button>
-      <button class="btn" type="button" @click="importFiles(true)">
+      <button
+        class="btn"
+        type="button"
+        :class="{ 'is-loading': importing }"
+        :disabled="importing"
+        @click="importFiles(true)"
+      >
         <AppIcon name="folder" size="ic-xs" /> 导入文件夹
       </button>
     </div>
@@ -186,7 +225,11 @@ onMounted(() => store.loadSkills())
           class="rli skill"
           :class="{ 'is-open': open === s.id }"
         >
-          <div class="grow main" @click="expand(s.id)">
+          <div
+            class="grow main"
+            :class="{ 'is-loading': busyId === s.id }"
+            @click="expand(s.id)"
+          >
             <h5>
               {{ s.name }}
               <span class="tag">{{ sourceName[s.source] || s.source }}</span>
@@ -198,14 +241,16 @@ onMounted(() => store.loadSkills())
             :class="{ 'is-on': s.enabled }"
             type="button"
             :title="s.enabled ? '点击停用' : '点击启用'"
+            :disabled="busyId === s.id"
             @click="toggle(s.id, !s.enabled)"
           />
           <button
             v-if="s.source !== 'builtin'"
             class="icon-btn is-sm is-danger"
-            :class="{ 'is-confirm': confirming === s.id }"
+            :class="{ 'is-confirm': confirming === s.id, 'is-loading': busyId === s.id }"
             type="button"
             :title="confirming === s.id ? '再点一次确认删除' : '删除'"
+            :disabled="busyId === s.id"
             @click.stop="askRemove(s.id)"
           >
             <AppIcon name="trash" size="ic-xs" />

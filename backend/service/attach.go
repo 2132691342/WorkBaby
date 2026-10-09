@@ -15,10 +15,10 @@ import (
 
 // 引用文件的读入上限：够看清一个表格/文档的骨架，又不至于把上下文一次撑爆。
 const (
-	attachMaxFiles   = 5
-	attachMaxBytes   = 64 << 10
-	imageMaxBytes    = 5 << 20
-	imageMaxPerMsg   = 4
+	attachMaxFiles = 5
+	attachMaxBytes = 64 << 10
+	imageMaxBytes  = 5 << 20
+	imageMaxPerMsg = 4
 )
 
 // 图片扩展名 → MIME。列表之外的一律当文本附件处理。

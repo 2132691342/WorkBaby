@@ -42,9 +42,9 @@ Run(ctx):
 `Compact` 是每次发送前的必经之路，不是可选钩子。
 
 **为什么内核不重试截断**：带思考的模型把推理 token 也算进输出预算，推理吃满时这一轮
-会「只想不说」。内核不重试——它并不知道模型能吐多少：预算是 service 层按上下文窗口
-1/8 派生的（`domain.MaxOutputOf`），内核再抬一次就可能超过上游真实上限，直接换回一个
-400，把「能看懂的截断」变成「看不懂的报错」。到顶就是到顶：如实以 `length` 收尾，
+会「只想不说」。内核不重试——它并不知道模型能吐多少：预算由 service 层按模型上限与
+窗口算好（算法见 spec 02），内核再抬一次就可能超过上游真实上限，直接换回一个 400，
+把「能看懂的截断」变成「看不懂的报错」。到顶就是到顶：如实以 `length` 收尾，
 由界面的「继续」接着写。
 
 ### 契约
@@ -67,11 +67,11 @@ type Config struct {
     Workspace   string
     System      string
     Model       string
-    MaxTokens   int      // 输出预算；service 层按上下文窗口 1/8 派生，保证非零
-    Temperature *float64 // nil 表示不下发，交给上游默认
+    MaxTokens   int      // 输出预算；service 层按「窗口 1/8 与厂商硬上限取小」派生，保证非零
+    Temperature *float64 // nil 表示不下发，交给上游默认；0 是合法的确定性取值
     TopP        *float64
-    MaxTurns    int      // 缺省 64；到顶以 StopMaxTurns 收尾
-    Parallel    int      // 并发工具上限，缺省 4
+    MaxTurns    int      // 缺省 64（设置键 max_turns 可覆写）；到顶以 StopMaxTurns 收尾
+    Parallel    int      // 并发工具上限，缺省 4（设置键 tool_parallel 可覆写）
     Budget      Budget
     Gate        Gate
     Emit        func(Event)
@@ -135,7 +135,8 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 | 上游报错 | `StopError` + 返回 err；已产出内容照常保留 |
 | 响应被截断 | `StopLength`，已写出的正文保留，本轮 tool_calls 全部不执行；界面提示可续写 |
 | 轮数超限 | `StopMaxTurns` |
-| 同一工具同一参数重复第 3 次 | 该调用直接判失败，结果写回让模型换路 |
+| 同一工具同一参数用满 3 次 | 第 4 次起该调用直接判失败，结果写回让模型换路；计数在 run 内累计不衰减——同一调用反复出现就是模型在打转，中间穿插别的调用不代表它换了方案 |
+| 上游报上下文超限 | 强制压缩（保留量砍半）后重试本轮一次；本轮已吐出过内容则不重试（避免重复正文），再次失败以 StopError 收尾 |
 
 ### 不变量
 
@@ -148,8 +149,9 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 | 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
 | CleanForProtocol 输出可直接发上游 | 空消息 / 孤儿结果 / 未配对调用都在这一层兜底 |
 | 事件出口串行化 | 并行工具各自在 goroutine 里发事件，不锁则上层落库位点被并发读写 |
-| 工具 panic 在 goroutine 边界 recover | 桌面端不该因为一个工具的 bug 让整进程退出；recover 落成 `IsError` 结果让模型换路，同时把堆栈打进日志 |
-| 并发批次在 `go` 之前取信号量 | 见上；与此对应，ctx 取消时剩余调用串行走 `runOne` 补失败结果，保证 assistant 声明与 tool 结果成对 |
+| 工具 panic 在串行与并行两条路径都 recover | 桌面端不该因为一个工具的 bug 让整进程退出；`runOneSafe` 落成 `IsError` 结果让模型换路，同时把堆栈打进日志。串行工具（write / edit / powershell / python）同样要兜——只兜并发路径等于没兜 |
+| 并发批次在 `go` 之前取信号量 | 见上；与此对应，ctx 取消时剩余调用串行走 `runOneSafe` 补失败结果，保证 assistant 声明与 tool 结果成对 |
+| 插话队列有上限（50 条） | 入队者是人手打字的插话，正常到不了量级；不设上限时脚本或连点可以无限堆积，每条都要注入进上下文，内存与 token 双爆。满时丢弃最旧并回执错误 |
 
 事件驱动落库时，上层还要守住两条与协议配对相关的硬约束——声明必须在结果之前
 合并落库、ULID 熵源必须并发安全，详见 [`07-session.md`](07-session.md) 的「落库契约」。
@@ -161,8 +163,8 @@ func (l *Loop) Messages() []llm.Message   // 全量上下文（含 user/assistan
 - **Gate 是唯一回调面**：审批等需要挂起等用户的逻辑收成一个函数，而不是钩子集合。
   内核因此不认识审批表、不认识设置，依赖全部经 Config 注入，可以纯内存单测。
 - **截断不自作主张补偿**：内核不知道模型的输出上限，唯一可靠的预算是 service
-  按上下文窗口 1/8 派生的 `MaxTokens`。到顶就以 `length` 收尾，把「还能不能再写」这个
-  判断交回给用户（界面上的「继续」），而不是替用户赌一次更大的预算。
+  备好的 `MaxTokens`（算法见 spec 02）。到顶就以 `length` 收尾，
+  把「还能不能再写」这个判断交回给用户（界面上的「继续」），而不是替用户赌一次更大的预算。
 - **代价**：单层循环意味着「运行中改配置」要到下一轮才生效；内核对压缩内容
   无感知，压缩质量完全取决于 `Compact` 的切点策略（见 02）。
 

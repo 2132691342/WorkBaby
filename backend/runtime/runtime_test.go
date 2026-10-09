@@ -1,4 +1,4 @@
-// 内置运行时链路：归档与 SHA 常量一致、真实解压布局、解压路径穿越防护。
+// 内置运行时链路：内嵌归档与 SHA 常量一致、解压路径穿越防护、真实解压布局。
 // 缺归档只代表内置运行时不可用，跳过而不是把 LFS pointer 喂给解压器。
 package runtime
 
@@ -37,24 +37,33 @@ func pythonStdlibZip() string {
 
 func TestBundledRuntimeChain(t *testing.T) {
 	// 换归档忘了同步 SHA 常量，或者构建机没拉 LFS，都会一直滑到用户机器上才暴露。
-	t.Run("归档与 SHA 常量一致", func(t *testing.T) {
+	t.Run("归档与常量一致且穿越被拒", func(t *testing.T) {
 		for _, c := range []struct{ name, want string }{
 			{pythonArchiveName(), PythonArchiveSHA256},
 			{powershellArchiveName(), PowerShellArchiveSHA256},
 		} {
-			t.Run(c.name, func(t *testing.T) {
-				data := hasEmbeddedArchive(t, c.name)
-				if c.want == "" {
-					t.Fatalf("SHA 常量为空：用 sha256sum 实测 %s 后填进 Go 常量", c.name)
-				}
-				sum := sha256.Sum256(data)
-				if got := hex.EncodeToString(sum[:]); got != c.want {
-					t.Fatalf("归档与常量不一致：归档 %s，常量 %s", got, c.want)
-				}
-			})
+			data := hasEmbeddedArchive(t, c.name)
+			if c.want == "" {
+				t.Fatalf("SHA 常量为空：用 sha256sum 实测 %s 后填进 Go 常量", c.name)
+			}
+			sum := sha256.Sum256(data)
+			if got := hex.EncodeToString(sum[:]); got != c.want {
+				t.Fatalf("%s 归档与常量不一致：归档 %s，常量 %s", c.name, got, c.want)
+			}
 		}
 		if _, err := archiveBytes("不存在的归档.zip"); err == nil || !strings.Contains(err.Error(), "不存在的归档.zip") {
 			t.Fatalf("缺失归档必须报错并带上文件名: %v", err)
+		}
+
+		// zip-slip：归档里的 ..\ 与绝对路径必须被拒，否则解压能把文件写到数据目录之外。
+		dest := t.TempDir()
+		for _, name := range []string{`..\evil.exe`, `/abs/evil.exe`, `a/../../evil.exe`} {
+			if _, err := safeExtractPath(dest, name); err == nil {
+				t.Fatalf("穿越路径未被拒绝: %q", name)
+			}
+		}
+		if _, err := safeExtractPath(dest, `python/tools/x.exe`); err != nil {
+			t.Fatalf("正常路径被误拒: %v", err)
 		}
 	})
 
@@ -71,34 +80,19 @@ func TestBundledRuntimeChain(t *testing.T) {
 			{pythonArchiveName(), []string{"python.exe", pythonStdlibZip()}},
 			{powershellArchiveName(), []string{"pwsh.exe", "System.Management.Automation.dll"}},
 		} {
-			t.Run(c.name, func(t *testing.T) {
-				zr, err := newZipReader(hasEmbeddedArchive(t, c.name))
-				if err != nil {
-					t.Fatalf("归档格式不正确: %v", err)
-				}
-				dest := t.TempDir()
-				if err := extractZip(zr, dest); err != nil {
-					t.Fatalf("解压失败: %v", err)
-				}
-				for _, w := range c.want {
-					if !pkg.FileExists(filepath.Join(dest, w)) {
-						t.Fatalf("解压后根目录下缺少 %s——官方 zip 布局变了？", w)
-					}
-				}
-			})
-		}
-	})
-
-	// zip-slip：归档里的 ..\ 与绝对路径必须被拒，否则解压能把文件写到数据目录之外。
-	t.Run("解压路径穿越被拒绝", func(t *testing.T) {
-		dest := t.TempDir()
-		for _, name := range []string{`..\evil.exe`, `/abs/evil.exe`, `a/../../evil.exe`} {
-			if _, err := safeExtractPath(dest, name); err == nil {
-				t.Fatalf("穿越路径未被拒绝: %q", name)
+			zr, err := newZipReader(hasEmbeddedArchive(t, c.name))
+			if err != nil {
+				t.Fatalf("%s 归档格式不正确: %v", c.name, err)
 			}
-		}
-		if _, err := safeExtractPath(dest, `python/tools/x.exe`); err != nil {
-			t.Fatalf("正常路径被误拒: %v", err)
+			dest := t.TempDir()
+			if err := extractZip(zr, dest); err != nil {
+				t.Fatalf("%s 解压失败: %v", c.name, err)
+			}
+			for _, w := range c.want {
+				if !pkg.FileExists(filepath.Join(dest, w)) {
+					t.Fatalf("%s 解压后根目录下缺少 %s——官方 zip 布局变了？", c.name, w)
+				}
+			}
 		}
 	})
 }

@@ -16,10 +16,10 @@ import (
 // pythonTool 用内置 Python 运行时执行脚本：办公新手最常需要的能力。
 type pythonTool struct{}
 
-func (pythonTool) Name() string                { return "python" }
-func (pythonTool) Label() string               { return "跑脚本" }
+func (pythonTool) Name() string                 { return "python" }
+func (pythonTool) Label() string                { return "跑脚本" }
 func (pythonTool) ExecutionMode() ExecutionMode { return ExecutionSequential }
-func (pythonTool) RequiresApproval() bool      { return true }
+func (pythonTool) RequiresApproval() bool       { return true }
 func (pythonTool) Description() string {
 	return "执行一段 Python 代码，用于计算、处理表格与文本、批量处理文件。工作目录即当前会话工作目录。"
 }

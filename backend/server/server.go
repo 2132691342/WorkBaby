@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -56,7 +57,13 @@ func (s *Server) Start() (int, error) {
 	}
 	s.port = addr.Port
 	s.srv = &http.Server{Handler: s.engine, ReadHeaderTimeout: 15 * time.Second}
-	go func() { _ = s.srv.Serve(ln) }()
+	go func() {
+		// Serve 只在退出时返回，正常关闭是 ErrServerClosed；
+		// 其余错误（监听器被抢、fd 耗尽）必须留痕，否则进程以为服务是健康的。
+		if err := s.srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			pkg.Errorf("server: 本地服务退出: %v", err)
+		}
+	}()
 	return s.port, nil
 }
 

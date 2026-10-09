@@ -16,8 +16,24 @@ type RunBlock =
   | { key: string; kind: 'run'; run: ToolRun }
   | { key: string; kind: 'approval'; approval: ApprovalVO }
 
-// 收尾提示条上的动作：截断续写 / 出错重试都由视图实现，这里只上报意图。
-const emit = defineEmits<{ (e: 'continue'): void; (e: 'retry'): void }>()
+// 收尾提示条上的动作：截断续写 / 出错重试由视图实现。
+// 传回调而不是 emit：按钮要 await 到结果才能收回 loading，emit 是同步的拿不到。
+const props = defineProps<{
+  onContinue?: () => Promise<void> | void
+  onRetry?: () => Promise<void> | void
+}>()
+
+const acting = ref<'' | 'continue' | 'retry'>('')
+async function act(kind: 'continue' | 'retry') {
+  if (acting.value || chat.running) return
+  acting.value = kind
+  try {
+    if (kind === 'continue') await props.onContinue?.()
+    else await props.onRetry?.()
+  } finally {
+    acting.value = ''
+  }
+}
 
 const session = useSessionStore()
 const chat = useChatStore()
@@ -66,18 +82,25 @@ const truncText = computed(() =>
 )
 
 // 流式正文渲染节流：每个 delta 都全量重解析 markdown 会把主线程打满，
-// EventSource 的消息因此积压、被服务端判为慢消费者断连（现象是「卡住」）。
-// 数据照单全收，只把渲染放慢到 120ms 一拍；期间跳过高亮，收尾再补完整渲染。
+// EventSource 的消息因此积压、被服务端判为慢消费者断连（现象是「卡住」），
+// 同一时刻的点击反馈也被一起推迟。
+// 数据照单全收，只把渲染放慢；期间跳过高亮，收尾再补完整渲染。
+// 正文很长时再降一档：全量重解析是 O(n)，长文下 120ms 的节奏跟不上，
+// 每拍都在追赶只会让主线程一直没有空档。
+const STREAM_TICK_MS = 120
+const STREAM_TICK_MS_LONG = 280
+const STREAM_LONG_CHARS = 20000
 const renderedStream = ref('')
 let renderTimer = 0
 watch(
   () => chat.streaming,
   () => {
     if (renderTimer) return
+    const tick = chat.streaming.length > STREAM_LONG_CHARS ? STREAM_TICK_MS_LONG : STREAM_TICK_MS
     renderTimer = window.setTimeout(() => {
       renderTimer = 0
       renderedStream.value = renderMarkdownStream(chat.streaming)
-    }, 120)
+    }, tick)
   },
   { immediate: true },
 )
@@ -160,17 +183,24 @@ const orphanApprovals = computed(() => {
   return chat.approvals.filter((a) => !placed.has(a.id))
 })
 
-watch(
-  // approvals 也要盯：审批卡是等在正文下面的，不滚过去就被输入框盖住，
-  // 用户只看到「助手停了」，看不到该点什么。
-  () => [session.messages.length, chat.streaming, chat.thinking, chat.runs.length, chat.approvals.length] as const,
-  async () => {
-    if (!stick.value) return
+// 贴底滚动走 rAF 合并：流式期间每个 delta 都触发一次 watch，
+// 逐个 nextTick 再读 scrollHeight 会把主线程压成强制重排，点击反馈因此变钝。
+// approvals 也要盯：审批卡等在正文下面，不滚过去就被输入框盖住，
+// 用户只看到「助手停了」，看不到该点什么。
+let scrollPending = false
+function stickToBottom() {
+  if (!stick.value || scrollPending) return
+  scrollPending = true
+  requestAnimationFrame(async () => {
+    scrollPending = false
     await nextTick()
     const el = scroller.value
     if (el) el.scrollTop = el.scrollHeight
-  },
-  { deep: true },
+  })
+}
+watch(
+  () => [session.messages.length, chat.streaming.length, chat.thinking.length, chat.runs.length, chat.approvals.length] as const,
+  stickToBottom,
 )
 
 // 打开会话时消息往往已经加载完了才挂载本组件，watch 不会为「首次就有数据」触发，
@@ -210,7 +240,7 @@ onMounted(async () => {
                     v-for="a in p.approvals"
                     :key="a.id"
                     :approval="a"
-                    @decide="(id, ok, scope) => chat.decide(id, ok, scope)"
+                    :on-decide="(id, ok, scope) => chat.decide(id, ok, scope)"
                   />
                 </div>
               </template>
@@ -248,7 +278,11 @@ onMounted(async () => {
                   :output="b.run.output"
                   :duration_ms="b.run.duration_ms"
                 />
-                <ApprovalCard v-else :approval="b.approval" @decide="(id, ok, scope) => chat.decide(id, ok, scope)" />
+                <ApprovalCard
+                  v-else
+                  :approval="b.approval"
+                  :on-decide="(id, ok, scope) => chat.decide(id, ok, scope)"
+                />
               </template>
             </div>
 
@@ -269,7 +303,7 @@ onMounted(async () => {
           v-for="a in orphanApprovals"
           :key="a.id"
           :approval="a"
-          @decide="(id, ok, scope) => chat.decide(id, ok, scope)"
+          :on-decide="(id, ok, scope) => chat.decide(id, ok, scope)"
         />
       </div>
 
@@ -285,7 +319,13 @@ onMounted(async () => {
           <div>{{ truncText }}</div>
           <div class="a-sub">输出预算已按上下文窗口给足（窗口的 1/8）。仍被截断说明撞到了模型自己的硬上限：换一个支持更长输出的模型，或点「继续」接着写。</div>
         </div>
-        <button class="btn btn-sm" type="button" :disabled="chat.running" @click="emit('continue')">
+        <button
+          class="btn btn-sm"
+          type="button"
+          :class="{ 'is-loading': acting === 'continue' }"
+          :disabled="chat.running || !!acting"
+          @click="act('continue')"
+        >
           继续
         </button>
       </div>
@@ -295,7 +335,13 @@ onMounted(async () => {
           <div class="a-t">出错了</div>
           <div>{{ chat.lastError }}</div>
         </div>
-        <button class="btn btn-sm" type="button" :disabled="chat.running" @click="emit('retry')">
+        <button
+          class="btn btn-sm"
+          type="button"
+          :class="{ 'is-loading': acting === 'retry' }"
+          :disabled="chat.running || !!acting"
+          @click="act('retry')"
+        >
           重试
         </button>
       </div>

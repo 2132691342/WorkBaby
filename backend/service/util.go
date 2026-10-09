@@ -19,7 +19,7 @@ func toLLMMessages(entries []domain.EntryDO) []llm.Message {
 		msg := llm.Message{
 			Role: e.Role, Content: p.Content, Thinking: p.Thinking,
 			ToolCallID: p.ToolCallID, IsError: p.IsError,
-			ToolCalls:  toLLMToolCalls(p.ToolCalls),
+			ToolCalls: toLLMToolCalls(p.ToolCalls),
 		}
 		for _, im := range p.Images {
 			msg.Images = append(msg.Images, llm.Image{MIME: im.MIME, Base64: im.Base64})

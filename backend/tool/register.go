@@ -5,16 +5,16 @@ import "WorkBaby/backend/domain"
 // toolCategory 是内置工具的展示分类。集中声明在这里而不是散落在各工具里：
 // 分类只服务于「工具」菜单的分组，与工具实现正交，改分类不必碰执行逻辑。
 var toolCategory = map[string]string{
-	"read":       domain.CategoryFile,
-	"write":      domain.CategoryFile,
-	"edit":       domain.CategoryFile,
-	"ls":         domain.CategoryFile,
-	"find":       domain.CategoryFile,
-	"grep":       domain.CategoryFile,
-	"powershell": domain.CategoryShell,
-	"python":     domain.CategoryCode,
-	"web_search": domain.CategoryWeb,
-	"web_fetch":  domain.CategoryWeb,
+	"read":             domain.CategoryFile,
+	"write":            domain.CategoryFile,
+	"edit":             domain.CategoryFile,
+	"ls":               domain.CategoryFile,
+	"find":             domain.CategoryFile,
+	"grep":             domain.CategoryFile,
+	"powershell":       domain.CategoryShell,
+	"python":           domain.CategoryCode,
+	"web_search":       domain.CategoryWeb,
+	"web_fetch":        domain.CategoryWeb,
 	"knowledge_search": domain.CategoryData,
 }
 

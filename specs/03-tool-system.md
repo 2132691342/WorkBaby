@@ -43,7 +43,9 @@ type Result struct {
 | 职责 | 说明 |
 |---|---|
 | `Register` | 注册即编译 Schema；空名 / 重名 / Schema 不合法当场报错 |
-| `Get` / `All` / `List` / `Enabled` | 查工具、按注册顺序列出、按停用名单过滤并补上启用状态 |
+| `Get` | 按名字取一个工具 |
+| `All` / `List` | `All` 按注册顺序、`List` 按名字排序（排序只为让声明顺序稳定） |
+| `Enabled` | 按停用名单过滤，名单为空即全部启用 |
 | `Defs` | 转上游声明，按名字排序——顺序稳定才能命中 prompt 缓存 |
 | `ValidateSchemas` | 启动期再全量自检一次，坏 schema 不许进运行期 |
 | `ValidateArgs` | 执行前校验；`nil` 参数按空对象放行 |
@@ -95,13 +97,23 @@ Gate → 落 approvals 行 → 推 chat:approval → 等用户决策
 由 `service/container.go` 的 `Container.New` 在装配期注册，
 **除此之外任何地方不得注册工具**。
 
+## 取舍
+
+- **固定 11 个工具，不做动态发现**：工具越少，模型选错的概率越低，提示词里的准则也能逐条写清。
+  代价是用户想要的新能力得等发版，或自己用 `powershell` 拼。
+- **护栏长在工具里**：路径穿越、写前必读、edit 唯一性都由工具自判，不在 service 层统一拦。
+  好处是护栏与能力贴合（谁能写、谁只读一目了然）；代价是新增工具时容易漏，靠测试兜。
+- **并发度保守**：写类工具声明 sequential，靠「一个 sequential 整批串行」保证不并发，
+  调度器无需维护读写锁；代价是一批里混进一个写工具，其余只读工具也失去并发。
+- **注册期编译 Schema**：参数契约有问题就在启动时报错，而不是等模型调用时才炸；代价是写工具时必须一次把契约写对。
+
 ## 约束
 
 - 工具不得自行读配置 / 开日志 / 起 goroutine；一切依赖从 `Deps` 注入
-- 工具不得 `recover` 自己的 panic（由 `agent.runParallel` 在 goroutine 边界统一兜，见 spec 01）
+- 工具不得 `recover` 自己的 panic（由 `agent.runOneSafe` 在串行与并行两条路径统一兜，见 spec 01）
 - 输出统一走 `tool.Cut`（2000 行 / 50KB 双上限，超出落临时文件并把路径告诉模型）
 - 截断回执必须写明**丢了多少**（行数 / 字节数）：只说「已截断」，模型不知道该整块重取还是换个更窄的范围
-- 命令（`exec`）与脚本（`python`）走 `tool.CutTail` 保留结尾：失败原因、Traceback 末行、构建结论都在最后几行，留开头等于永远看不到报错
+- 命令（`powershell`）与脚本（`python`）走 `tool.CutTail` 保留结尾：失败原因、Traceback 末行、构建结论都在最后几行，留开头等于永远看不到报错
 - 子进程输出统一过 `tool.Sanitize` 剥控制字符：一段带 `\x1b[?…` 的输出能把整条 SSE 帧打崩
 - 路径安全（穿越拒绝、Unicode 规整）统一走 `pkg.SafeJoin`，规则只写一遍
 - 错误用 `pkg.New(4xxx, ...)`，前端按 code 分流

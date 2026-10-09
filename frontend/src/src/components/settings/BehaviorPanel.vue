@@ -14,13 +14,25 @@ import AppIcon from '../common/AppIcon.vue'
 const store = useSettingsStore()
 const toast = useToastStore()
 
-// setValue 失败已经弹过 toast，这里吞掉避免未捕获异常
+// 正在保存的设置键：同一时刻只允许一个写入，防连点把状态点乱。
+const busyKey = ref('')
+
+// setValue 失败已经弹过 toast，这里吞掉避免未捕获异常。
 async function applySetting(key: string, value: string) {
+  if (busyKey.value) return
+  busyKey.value = key
   try {
     await store.setValue(key, value)
   } catch {
     /* 已提示 */
+  } finally {
+    busyKey.value = ''
   }
+}
+
+// 开关转发事件时会给出目标控件，键盘操作也要能切换。
+function onSwitch(key: string, on: boolean) {
+  void applySetting(key, on ? 'true' : 'false')
 }
 
 const autoStart = ref(false)
@@ -51,15 +63,20 @@ async function loadAutoStart() {
 }
 
 async function toggleAutoStart() {
+  if (busyKey.value) return
+  busyKey.value = 'auto_start'
   autoStartErr.value = ''
   const next = !autoStart.value
+  autoStart.value = next // 先翻转：开关的点亮必须是瞬时的
   try {
     await SetAutoStart(next)
     autoStart.value = await AutoStartEnabled()
     toast.ok(next ? '已开启开机自动启动' : '已关闭开机自动启动')
   } catch (e) {
     autoStartErr.value = (e as Error)?.message || '设置失败，请重启后再试一次'
-    autoStart.value = await AutoStartEnabled().catch(() => autoStart.value)
+    autoStart.value = await AutoStartEnabled().catch(() => !next)
+  } finally {
+    busyKey.value = ''
   }
 }
 
@@ -113,28 +130,38 @@ async function loadCapability() {
   }
 }
 
+const pickingWs = ref(false)
 async function pickWorkspace() {
+  if (pickingWs.value) return
   const dir = await OpenDirectoryDialog('选择工作目录')
   if (!dir) return
+  pickingWs.value = true
   try {
     await store.setValue('workspace', dir)
     await store.loadBoot()
     toast.ok('工作目录已更换')
   } catch {
     /* setValue 已提示 */
+  } finally {
+    pickingWs.value = false
   }
 }
 
+const savingWindow = ref(false)
 async function saveWindow() {
+  if (savingWindow.value) return
   winErr.value = ''
   const v = winInput.value.trim()
   if (!v) {
+    savingWindow.value = true
     try {
       await store.setValue('context_window', '')
       cap.value && (cap.value.known = false)
       toast.ok('已清除手填窗口，跟随内置目录')
     } catch {
       /* 已提示 */
+    } finally {
+      savingWindow.value = false
     }
     return
   }
@@ -143,12 +170,15 @@ async function saveWindow() {
     winErr.value = '请填一个大于 0 的数字'
     return
   }
+  savingWindow.value = true
   try {
     await store.setValue('context_window', String(Math.floor(n)))
     await loadCapability()
     toast.ok('上下文窗口已保存')
   } catch {
     /* 已提示 */
+  } finally {
+    savingWindow.value = false
   }
 }
 
@@ -169,6 +199,7 @@ onMounted(async () => {
           class="perm"
           :class="{ 'is-on': permission() === o.key }"
           type="button"
+          :disabled="!!busyKey"
           @click="applySetting('permission', o.key)"
         >
           <b>{{ o.name }}</b>
@@ -182,7 +213,13 @@ onMounted(async () => {
       <p class="hint">助手能读写的范围就是这里，界面上所有文件都相对它解析。</p>
       <div class="ws-row">
         <code class="ws-path">{{ store.values['workspace'] || store.boot?.workspace || '未设置' }}</code>
-        <button class="btn btn-sm btn-primary" type="button" @click="pickWorkspace">
+        <button
+          class="btn btn-sm btn-primary"
+          type="button"
+          :class="{ 'is-loading': pickingWs }"
+          :disabled="pickingWs"
+          @click="pickWorkspace"
+        >
           <AppIcon name="folder" size="ic-xs" /> 更换
         </button>
       </div>
@@ -195,11 +232,14 @@ onMounted(async () => {
           <b>关闭窗口时收进托盘</b>
           <span>关掉窗口后助手仍在后台待命，右下角托盘图标可以再唤起</span>
         </span>
-        <input
-          class="wb-switch"
-          type="checkbox"
-          :checked="minimizeToTray()"
-          @change="applySetting('minimize_to_tray', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
+        <button
+          class="switch"
+          type="button"
+          role="switch"
+          :aria-checked="minimizeToTray()"
+          :class="{ 'is-on': minimizeToTray() }"
+          :disabled="busyKey === 'minimize_to_tray'"
+          @click="onSwitch('minimize_to_tray', !minimizeToTray())"
         />
       </label>
       <label class="row">
@@ -207,7 +247,15 @@ onMounted(async () => {
           <b>开机自动启动</b>
           <span>开机登录后自动在后台待命，要用时点右下角托盘图标</span>
         </span>
-        <input class="wb-switch" type="checkbox" :checked="autoStart" @change="toggleAutoStart" />
+        <button
+          class="switch"
+          type="button"
+          role="switch"
+          :aria-checked="autoStart"
+          :class="{ 'is-on': autoStart }"
+          :disabled="busyKey === 'auto_start'"
+          @click="toggleAutoStart"
+        />
       </label>
       <p v-if="autoStartErr" class="hint err">{{ autoStartErr }}</p>
     </div>
@@ -219,11 +267,14 @@ onMounted(async () => {
           <b>回车发送</b>
           <span>关闭后回车换行，发送要用 Ctrl+Enter</span>
         </span>
-        <input
-          class="wb-switch"
-          type="checkbox"
-          :checked="sendOnEnter()"
-          @change="applySetting('send_on_enter', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
+        <button
+          class="switch"
+          type="button"
+          role="switch"
+          :aria-checked="sendOnEnter()"
+          :class="{ 'is-on': sendOnEnter() }"
+          :disabled="busyKey === 'send_on_enter'"
+          @click="onSwitch('send_on_enter', !sendOnEnter())"
         />
       </label>
 
@@ -257,7 +308,15 @@ onMounted(async () => {
             step="1024"
             placeholder="手填上下文窗口（如 200000）"
           />
-          <button class="btn btn-sm btn-outline" type="button" @click="saveWindow">保存</button>
+          <button
+            class="btn btn-sm btn-outline"
+            type="button"
+            :class="{ 'is-loading': savingWindow }"
+            :disabled="savingWindow"
+            @click="saveWindow"
+          >
+            保存
+          </button>
         </div>
         <p v-if="winErr" class="hint err">{{ winErr }}</p>
       </div>
@@ -290,6 +349,7 @@ onMounted(async () => {
       <button
         class="btn btn-sm btn-ghost act"
         type="button"
+        :class="{ 'is-loading': checking }"
         :disabled="checking"
         @click="redetect"
       >

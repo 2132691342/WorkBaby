@@ -42,24 +42,24 @@ const sending = ref(false)
 const stopping = ref(false)
 
 async function send(text: string, attachments: AttachmentREQ[]) {
-  if (!session.currentId) await newSession()
-  if (!session.currentId) return
-  const sid = session.currentId
+  if (sending.value) return
+  // loading 必须挂在最前面：没有会话时要先建会话（建会话 + 拉列表 + 取快照三次请求），
+  // 反馈晚于点击一秒以上，用户就会以为没点上而重复点。
   sending.value = true
-  let sent
   try {
-    sent = await chat.send(sid, text, attachments)
+    if (!session.currentId) await newSession()
+    if (!session.currentId) return
+    const sent = await chat.send(session.currentId, text, attachments)
+    // 发送后立刻回显这条消息：等 chat:done 拉快照才显示的话，
+    // 用户会以为消息没发出去（助手还没回，观感上就是「什么都没发生」）。
+    if (sent?.entry_id) session.echoUserMessage(sent.entry_id, text)
   } catch (e) {
     // 发送被拒（会话忙 / 没配模型服务）必须立刻说清楚，不能让消息无声消失
     toast.bad(`发送失败：${(e as Error)?.message || '请重试'}`)
-    return
   } finally {
     sending.value = false
+    inputRef.value?.focus()
   }
-  // 发送后立刻回显这条消息：等 chat:done 拉快照才显示的话，
-  // 用户会以为消息没发出去（助手还没回，观感上就是「什么都没发生」）。
-  if (sent?.entry_id) session.echoUserMessage(sent.entry_id, text)
-  inputRef.value?.focus()
 }
 
 async function steer(text: string) {
@@ -243,7 +243,7 @@ watch(() => settings.boot?.default_model, seedContext)
 
 <template>
   <div class="chat wb-ui">
-    <AppSidebar @new-session="newSession" />
+    <AppSidebar :creating="creating" @new-session="newSession" />
 
     <div class="chat-main">
       <header class="chat-head">
@@ -267,14 +267,14 @@ watch(() => settings.boot?.default_model, seedContext)
             <h2 class="hero-title rise">你好，我是 <span class="hero-name">WorkBaby</span></h2>
             <p class="hero-sub rise">会读文件、跑代码、查资料。用大白话说需求就行。</p>
             <div class="rise">
-              <ExampleCards @pick="pickExample" />
+              <ExampleCards :busy="sending || chat.running" @pick="pickExample" />
             </div>
             <p class="hero-foot rise">对话与文件都留在这台机器上 · 动手之前会先问你一句</p>
           </div>
         </div>
       </template>
       <template v-else>
-        <MessageList @continue="resume" @retry="retry" />
+        <MessageList :on-continue="resume" :on-retry="retry" />
       </template>
 
       <ChatInput

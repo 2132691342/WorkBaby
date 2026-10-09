@@ -104,8 +104,13 @@ func newRotateFile(path string) (*rotateFile, error) {
 	if err != nil {
 		return nil, Wrap(1002, "打开日志文件失败", err)
 	}
-	st, _ := f.Stat()
-	return &rotateFile{path: path, f: f, size: st.Size()}, nil
+	// Stat 失败时按 0 起步继续：日志文件刚创建时拿不到大小不影响功能，
+	// 直接解引用 nil 才是致命的。
+	var size int64
+	if st, err := f.Stat(); err == nil {
+		size = st.Size()
+	}
+	return &rotateFile{path: path, f: f, size: size}, nil
 }
 
 func (r *rotateFile) Write(p []byte) (int, error) {

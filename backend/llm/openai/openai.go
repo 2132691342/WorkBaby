@@ -75,11 +75,11 @@ type functionDef struct {
 }
 
 type chatRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
-	Tools    []toolDefOut  `json:"tools,omitempty"`
-	Stream   bool          `json:"stream"`
-	StreamOpts *streamOpts `json:"stream_options,omitempty"`
+	Model      string        `json:"model"`
+	Messages   []chatMessage `json:"messages"`
+	Tools      []toolDefOut  `json:"tools,omitempty"`
+	Stream     bool          `json:"stream"`
+	StreamOpts *streamOpts   `json:"stream_options,omitempty"`
 	// 输出上限二选一：推理家族只认 max_completion_tokens，其余只认 max_tokens。
 	MaxTokens           int      `json:"max_tokens,omitempty"`
 	MaxCompletionTokens int      `json:"max_completion_tokens,omitempty"`
@@ -151,6 +151,8 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	feed := llm.NewFeed(ctx, 64)
 	httpReq, err := http.NewRequestWithContext(feed.Ctx(), http.MethodPost, c.baseURL+"/chat/completions", body)
 	if err != nil {
+		// 错误分支必须显式收口：feed 的 cancel 与 events 通道不关就是一次泄漏。
+		feed.Close()
 		return nil, pkg.Wrap(3001, "构造请求失败", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -160,10 +162,12 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	}
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
+		feed.Close()
 		return nil, pkg.Wrap(3002, "调用模型服务失败", err)
 	}
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
+		feed.Close()
 		return nil, readError(resp)
 	}
 

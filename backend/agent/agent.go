@@ -34,7 +34,7 @@ type Gate func(ctx context.Context, call *llm.ToolCall) (blocked bool, reason st
 // Budget 是上下文预算，由 service 层按模型与设置备好；内核只按预算裁剪。
 type Budget struct {
 	Window       int  // 模型上下文窗口
-	WindowKnown  bool // false 表示窗口是估算值，前端应显示「未知」
+	WindowKnown  bool // false 表示窗口是估算值，前端读数加「约」前缀
 	Reserve      int  // 给模型输出留的余量
 	Keep         int  // 裁剪后保留的近期 token 预算
 	SystemTokens int  // system 提示词的 token 估算：判断是否超预算必须算上它
@@ -126,7 +126,7 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 
 		l.emit(Event{Kind: EventTurnStart, Turn: turn})
 
-		msg, stop, usage, err := l.streamTurn(ctx, l.cfg.MaxTokens)
+		msg, stop, usage, err := l.streamTurnWithOverflowRetry(ctx)
 		if err != nil {
 			l.appendMessage(msg)
 			res.Turns = turn
@@ -199,7 +199,7 @@ func (l *Loop) compact() {
 	l.mu.Lock()
 	l.msgs = trimmed
 	l.mu.Unlock()
-	sysTokens := len(l.cfg.System) / charsPerToken
+	sysTokens := countTokens(l.cfg.System)
 	l.emit(Event{Kind: EventCompressed,
 		TokensBefore: EstimateTokens("", snapshot) + sysTokens,
 		TokensAfter:  after + sysTokens})
@@ -237,6 +237,40 @@ func (l *Loop) drainSteering() {
 	for _, m := range pending {
 		l.emit(Event{Kind: EventSteering, UserContent: m.Content})
 	}
+}
+
+// streamTurnWithOverflowRetry 请求一次模型；上游报上下文超限时强制压缩后重试一次。
+// 只有本地估算偏乐观才会走到这，直接判死会让长任务「跑到一半不动了」。
+// 已经吐出过内容的轮次不重试：重试会让用户看到一段重复的正文。
+func (l *Loop) streamTurnWithOverflowRetry(ctx context.Context) (llm.Message, string, *llm.Usage, error) {
+	msg, stop, usage, err := l.streamTurn(ctx, l.cfg.MaxTokens)
+	if err == nil || ctx.Err() != nil || !llm.IsContextOverflow(err) {
+		return msg, stop, usage, err
+	}
+	if strings.TrimSpace(msg.Content) != "" || strings.TrimSpace(msg.Thinking) != "" || len(msg.ToolCalls) > 0 {
+		return msg, stop, usage, err
+	}
+	l.forceCompact()
+	return l.streamTurn(ctx, l.cfg.MaxTokens)
+}
+
+// forceCompact 上游报超限后的强制裁剪：保留量砍半、允许硬切，
+// 裁剪结果照常广播——用户要能看到「它整理了上下文」而不是凭空重试。
+func (l *Loop) forceCompact() {
+	snapshot := l.Messages()
+	trimmed, after := CompactForce(snapshot, l.cfg.Budget)
+	if len(trimmed) == len(snapshot) {
+		return
+	}
+	l.mu.Lock()
+	l.msgs = trimmed
+	l.mu.Unlock()
+	sysTokens := countTokens(l.cfg.System)
+	l.emit(Event{Kind: EventCompressed,
+		TokensBefore: EstimateTokens("", snapshot) + sysTokens,
+		TokensAfter:  after + sysTokens})
+	pkg.Warnf("agent: 上游报上下文超限，已强制压缩 %d 条 → %d 条（%d → %d tokens）",
+		len(snapshot), len(trimmed), EstimateTokens("", snapshot), after)
 }
 
 // streamTurn 请求一次模型，把流式增量实时发出，返回归一后的 assistant 消息。

@@ -30,9 +30,9 @@ func New(cfg llm.ClientConfig) *Client {
 }
 
 type messageIn struct {
-	Role      string        `json:"role"`
-	Content   string        `json:"content"`
-	ToolCalls []toolCallIn  `json:"tool_calls,omitempty"`
+	Role      string       `json:"role"`
+	Content   string       `json:"content"`
+	ToolCalls []toolCallIn `json:"tool_calls,omitempty"`
 	// Images 是 base64 图片列表（不含 data: 前缀），Ollama 的多模态形态
 	Images []string `json:"images,omitempty"`
 }
@@ -80,11 +80,11 @@ type chunk struct {
 			} `json:"function"`
 		} `json:"tool_calls"`
 	} `json:"message"`
-	Done           bool   `json:"done"`
-	DoneReason     string `json:"done_reason"`
+	Done            bool   `json:"done"`
+	DoneReason      string `json:"done_reason"`
 	PromptEvalCount int    `json:"prompt_eval_count"`
-	EvalCount      int    `json:"eval_count"`
-	Error          string `json:"error"`
+	EvalCount       int    `json:"eval_count"`
+	Error           string `json:"error"`
 }
 
 // Stream 发起流式请求。
@@ -98,15 +98,19 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	feed := llm.NewFeed(ctx, 64)
 	httpReq, err := http.NewRequestWithContext(feed.Ctx(), http.MethodPost, c.baseURL+"/api/chat", strings.NewReader(string(raw)))
 	if err != nil {
+		// 错误分支必须显式收口：feed 的 cancel 与 events 通道不关就是一次泄漏。
+		feed.Close()
 		return nil, pkg.Wrap(3001, "构造请求失败", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
+		feed.Close()
 		return nil, pkg.Wrap(3002, "调用模型服务失败", err)
 	}
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
+		feed.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, pkg.Wrap(llm.MapStatus(resp.StatusCode), "模型服务返回错误",
 			&llm.StatusError{
@@ -246,4 +250,3 @@ func trim(s string) string {
 	}
 	return s
 }
-

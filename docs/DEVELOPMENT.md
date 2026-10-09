@@ -12,7 +12,7 @@
 ```powershell
 # 后端测试：日常改动用 -Fast（跳过归档解压 + 复用构建缓存）
 .\scripts\test.ps1 -Fast
-.\scripts\test.ps1                                        # 全量（19 个 Test / 12 个文件），附依赖方向门禁
+.\scripts\test.ps1                                        # 全量（14 个 Test / 12 个文件），附依赖方向门禁
 .\scripts\test.ps1 -Fast -Pkg backend/service             # 只跑一个包
 .\scripts\test.ps1 -Fast -Run TestServiceRunChain         # 只跑一个 Test
 .\scripts\test.ps1 -Race                                  # 竞态检测，改并发相关代码时用
@@ -103,13 +103,13 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 只增加每次改动后的阅读成本与上下文负担。
 
 - **一条链路一个 `Test`**：同类分支用 `t.Run` 归到同一个 `Test` 下，
-  失败时从输出直接看出是哪条链路、哪个分支坏了；单个文件最多 6 个 `Test`
+  失败时从输出直接看出是哪条链路、哪个分支坏了；单个文件 1–3 个 `Test` 就够
 - **重成本低层级只准备一次**：起 HTTP 服务、解压归档这类昂贵 setup 放在父测试里，
   子测试共享；否则每次加分支都在给总时长做乘法
 - **装配类测试不真解压归档**：`backend/runtime/runtimetest.SeedMarkers` 预置
   「已解压 + 版本标记」，装配只跑配置 / DB / 服务 / 工具注册的真实链路。
   真解压只在 `runtime` 包的 `TestBundledRuntimeChain` 做一次——那是全量测试
-  唯一的慢点（约 3s），日常用 `-Fast` 跳过，是刻意的
+  唯一的慢点，日常用 `-Fast` 跳过，是刻意的
 - 多轮对话用 `backend/llm/llmtest` 的脚本替身驱动，配合
   `factory.SetOverride("test", ...)` 注入，**绝不真联网**
 - 环境依赖（系统 shell、真实网络、内置运行时归档）必须先探测再决定跳过，

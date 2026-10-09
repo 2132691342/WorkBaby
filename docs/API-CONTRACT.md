@@ -88,7 +88,7 @@
 | POST | /models/capabilities | 批量能力画像 `{provider_id, models[]}` → `ModelCapability[]`（换模型下拉一次列几十上百个模型，逐个查即 N+1） |
 | GET | /models/config?model=&provider_id= | 单个模型配置（目录 + 覆写合并后的最终值） |
 | GET | /models/configs?provider_id= | 一个服务下的全部模型配置 |
-| POST | /models/config | 保存模型配置 `{provider_id, model, context_window?, temperature, top_p, vision, tool_call}`；最大输出不可配置，按上下文窗口 1/8 派生 |
+| POST | /models/config | 保存模型配置 `{provider_id, model, context_window?, temperature, top_p, vision, tool_call}`；temperature / top_p 传 -1 表示跟随上游默认；最大输出不可配置，按「窗口 1/8 与厂商硬上限取小」派生 |
 | GET | /runtime | 内置运行时状态：Python 与 PowerShell 各自的 exe / source(bundled\|system\|空) / version / error |
 | POST | /runtime/redetect | 重新检测内置运行时：清探测缓存后重跑，运行期放入归档后点这里生效 |
 | GET | /settings | KV 全集 |
@@ -124,9 +124,10 @@
 `known=false` 时 `note` 带一句人话说明。能力解析优先级：
 **按「服务 + 模型」的用户配置（model_configs 表）→ 全局 `context_window` 设置（没配模型级时的兜底）→ 内置目录**。
 
-模型级配置是用户对单个模型的覆写：上下文窗口（0 = 跟随目录）、温度（缺省 0.25）、
-top_p（缺省 0.75）、最大输出，以及识图 / 工具调用两项能力。会话发起请求时按这里的
-值算上下文水位与采样参数；代理改名的私有模型靠它闭环。
+模型级配置是用户对单个模型的覆写：上下文窗口（0 = 跟随目录）、温度 / top_p
+（**-1 = 未设置，跟随上游默认**；0 是合法的确定性取值）、识图 / 工具调用两项能力。
+最大输出不可配置：一律按「窗口 1/8 与厂商硬上限取小」派生（`max_output` 出参即结果）。
+会话发起请求时按这里的值算上下文水位与采样参数；代理改名的私有模型靠它闭环。
 
 ## 运行时状态
 

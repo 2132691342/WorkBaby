@@ -44,35 +44,45 @@ func addFile(t *testing.T, svc *Service, name, body string) string {
 }
 
 func TestKnowledgeChain(t *testing.T) {
-	// 检索必须命中内容；两字查询在 trigram 下零命中，要靠子串兜底。
-	t.Run("建索引后可检索且短查询有兜底", func(t *testing.T) {
+	// 加 → 查 → 删 → 再查是一条链：两字查询在 trigram 下零命中要靠子串兜底，
+	// 删除文档必须连带清掉切片，否则 FTS 里会留下查不到来源的孤儿结果。
+	t.Run("建索引可检索、短查询有兜底、删除级联", func(t *testing.T) {
 		svc := newService(t)
 		addFile(t, svc, "季度报告.md", "第三季度销售额增长了 18%，主要来自华东区的渠道拓展。\n客户满意度提升到 92%。")
-		addFile(t, svc, "流程笔记.txt", "预算审批流程需要三级签字")
+		flowPath := addFile(t, svc, "流程笔记.txt", "预算审批流程需要三级签字")
 
 		docs, err := svc.List()
 		if err != nil || len(docs) != 2 {
 			t.Fatalf("应有两个文档: %v", err)
 		}
+		var flowID string
 		for _, d := range docs {
 			if d.Status != domain.DocIndexed {
-				t.Fatalf("文档应已建索引，实际 %s", d.Status)
+				t.Fatalf("文档应已建索引，实际 %s（路径 %s）", d.Status, d.Path)
+			}
+			if d.Path == flowPath {
+				flowID = d.ID
 			}
 		}
+		if flowID == "" {
+			t.Fatal("列表里找不到刚加入的流程笔记")
+		}
 
-		hits, err := svc.Search(context.Background(), "季度销售额", 5)
-		if err != nil {
-			t.Fatalf("检索失败: %v", err)
+		if hits, err := svc.Search(context.Background(), "季度销售额", 5); err != nil || len(hits) == 0 {
+			t.Fatalf("应能检索到内容: err=%v hits=%d", err, len(hits))
 		}
-		if len(hits) == 0 {
-			t.Fatal("应能检索到内容")
+		if short, err := svc.Search(context.Background(), "预算", 5); err != nil || len(short) == 0 {
+			t.Fatalf("两字查询应有子串兜底结果: err=%v hits=%d", err, len(short))
 		}
-		short, err := svc.Search(context.Background(), "预算", 5)
-		if err != nil {
-			t.Fatalf("短查询失败: %v", err)
+
+		if err := svc.Delete(flowID); err != nil {
+			t.Fatal(err)
 		}
-		if len(short) == 0 {
-			t.Fatal("短查询应有子串兜底结果")
+		if left, err := svc.List(); err != nil || len(left) != 1 {
+			t.Fatalf("删除后应只剩一个文档: err=%v n=%d", err, len(left))
+		}
+		if gone, err := svc.Search(context.Background(), "三级签字", 5); err != nil || len(gone) != 0 {
+			t.Fatalf("删除后不应还能检索到内容: err=%v hits=%d", err, len(gone))
 		}
 	})
 
@@ -117,34 +127,8 @@ func TestKnowledgeChain(t *testing.T) {
 		if i1, i2 := strings.Index(text, "第一页"), strings.Index(text, "第二页"); i1 < 0 || i2 < 0 || i1 > i2 {
 			t.Fatalf("页序不对或内容缺失: %q", text)
 		}
-		hits, err := svc.Search(context.Background(), "成本控制", 5)
-		if err != nil || len(hits) == 0 {
+		if hits, err := svc.Search(context.Background(), "成本控制", 5); err != nil || len(hits) == 0 {
 			t.Fatalf("pptx 内容应可检索: err=%v hits=%d", err, len(hits))
-		}
-	})
-
-	// 删除文档必须连带清掉切片，否则 FTS 里会留下查不到来源的孤儿结果。
-	t.Run("删除级联清理切片", func(t *testing.T) {
-		svc := newService(t)
-		addFile(t, svc, "doc.md", "这是一段用于删除测试的内容，会被切成多个切片落库。")
-
-		docs, err := svc.List()
-		if err != nil || len(docs) != 1 {
-			t.Fatalf("应有一个文档: %v", err)
-		}
-		if err := svc.Delete(docs[0].ID); err != nil {
-			t.Fatal(err)
-		}
-		left, err := svc.List()
-		if err != nil || len(left) != 0 {
-			t.Fatalf("删除后不应还有文档: %v", err)
-		}
-		hits, err := svc.Search(context.Background(), "删除测试", 5)
-		if err != nil {
-			t.Fatalf("删除后检索失败: %v", err)
-		}
-		if len(hits) != 0 {
-			t.Fatalf("删除后不应还能检索到内容，实际 %d 条", len(hits))
 		}
 	})
 }

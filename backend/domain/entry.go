@@ -2,15 +2,15 @@ package domain
 
 // EntryDO 会话条目：append-only，parent_id 串成树，不做更新与删除。
 type EntryDO struct {
-	ID         string `gorm:"primaryKey;size:64" json:"id"`
-	SessionID  string `gorm:"size:64;index:idx_entry_session,priority:1" json:"session_id"`
-	ParentID   string `gorm:"size:64" json:"parent_id"`
-	Seq        int    `gorm:"index:idx_entry_session,priority:2" json:"seq"`
-	Type       string `gorm:"size:16" json:"type"`
-	Role       string `gorm:"size:16" json:"role"`
+	ID          string `gorm:"primaryKey;size:64" json:"id"`
+	SessionID   string `gorm:"size:64;index:idx_entry_session,priority:1" json:"session_id"`
+	ParentID    string `gorm:"size:64" json:"parent_id"`
+	Seq         int    `gorm:"index:idx_entry_session,priority:2" json:"seq"`
+	Type        string `gorm:"size:16" json:"type"`
+	Role        string `gorm:"size:16" json:"role"`
 	PayloadJSON string `gorm:"type:text" json:"payload_json"`
-	UsageJSON  string `gorm:"type:text" json:"usage_json"`
-	CreatedAt  int64  `gorm:"autoCreateTime:milli" json:"created_at"`
+	UsageJSON   string `gorm:"type:text" json:"usage_json"`
+	CreatedAt   int64  `gorm:"autoCreateTime:milli" json:"created_at"`
 }
 
 // TableName 显式指定表名：GORM 会把 DO 后缀复数化成 _dos。
@@ -63,8 +63,8 @@ type UsageVO struct {
 
 // MessageVO 前端渲染用的扁平消息。
 type MessageVO struct {
-	ID         string     `json:"id"`
-	Role       string     `json:"role"`
+	ID         string         `json:"id"`
+	Role       string         `json:"role"`
 	Type       string         `json:"type"`
 	Thinking   string         `json:"thinking,omitempty"`
 	Content    string         `json:"content,omitempty"`
@@ -107,7 +107,7 @@ type StopRunREQ struct {
 
 // SendMessageRESP 发消息出参。
 type SendMessageRESP struct {
-	RunID    string `json:"run_id"`
-	EntryID  string `json:"entry_id"`
+	RunID     string `json:"run_id"`
+	EntryID   string `json:"entry_id"`
 	SessionID string `json:"session_id"`
 }

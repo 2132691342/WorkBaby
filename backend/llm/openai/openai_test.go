@@ -66,8 +66,10 @@ func decodeBody(t *testing.T, req llm.Request) map[string]any {
 	return out
 }
 
-// 编码协议：推理家族只认 max_completion_tokens 且拒绝采样参数，用错字段直接 400。
-func TestEncodeProtocolFamilies(t *testing.T) {
+// 适配层链路：请求编码的协议家族差异（推理家族 vs 普通模型）与流式解析的三条底线
+// （usage 帧顺序、工具调用单次下发、断流必须收尾）。
+func TestOpenAIAdapter(t *testing.T) {
+	// 推理家族只认 max_completion_tokens 且拒绝采样参数，用错字段直接 400。
 	temp := 0.25
 
 	t.Run("推理家族用 max_completion_tokens", func(t *testing.T) {
@@ -102,10 +104,8 @@ func TestEncodeProtocolFamilies(t *testing.T) {
 			t.Fatal("带网关前缀的 gpt-5 应命中推理协议")
 		}
 	})
-}
 
-// 流式解析：usage 是独立一帧排在 finish_reason 之后，提前收尾会让计量与水位全变 0。
-func TestStreamChain(t *testing.T) {
+	// usage 是独立一帧排在 finish_reason 之后，提前收尾会让计量与水位全变 0。
 	t.Run("usage 帧晚于 finish_reason 仍能拿到", func(t *testing.T) {
 		c := serve(t,
 			`data: {"choices":[{"delta":{"content":"你好"}}]}`,

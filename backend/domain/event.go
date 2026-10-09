@@ -13,7 +13,7 @@ type TokenUsageDO struct {
 	Cached int `json:"cached"`
 	Total  int `json:"total"`
 	// Context 这一轮发出去时上下文占用的窗口量，按轮次看占用是涨还是被整理过。
-	Context  int   `json:"context"`
+	Context   int   `json:"context"`
 	LatencyMs int64 `json:"latency_ms"`
 	CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 }
@@ -46,7 +46,7 @@ type Envelope struct {
 
 // StartData chat:start。
 type StartData struct {
-	RunID    string `json:"run_id"`
+	RunID     string `json:"run_id"`
 	SessionID string `json:"session_id"`
 }
 
@@ -108,8 +108,8 @@ type ContextData struct {
 
 // DoneData chat:done。
 type DoneData struct {
-	EntryID    string  `json:"entry_id"`
-	StopReason string  `json:"stop_reason"`
+	EntryID    string   `json:"entry_id"`
+	StopReason string   `json:"stop_reason"`
 	Usage      *UsageVO `json:"usage"`
 	// MaxTokens 是本轮实际下发的输出预算：撞 length 时界面靠它说清是哪个上限用尽了。
 	MaxTokens int `json:"max_tokens"`
@@ -134,12 +134,12 @@ type GapData struct {
 
 // BootstrapVO 启动引导数据。
 type BootstrapVO struct {
-	Version          string            `json:"version"`
-	ContractVersion  int               `json:"contract_version"`
-	DefaultProviderID string           `json:"default_provider_id"`
-	DefaultModel     string            `json:"default_model"`
-	Workspace        string            `json:"workspace"`
-	Permission       string            `json:"permission"`
-	PythonReady      bool              `json:"python_ready"`
-	Settings         map[string]string `json:"settings"`
+	Version           string            `json:"version"`
+	ContractVersion   int               `json:"contract_version"`
+	DefaultProviderID string            `json:"default_provider_id"`
+	DefaultModel      string            `json:"default_model"`
+	Workspace         string            `json:"workspace"`
+	Permission        string            `json:"permission"`
+	PythonReady       bool              `json:"python_ready"`
+	Settings          map[string]string `json:"settings"`
 }

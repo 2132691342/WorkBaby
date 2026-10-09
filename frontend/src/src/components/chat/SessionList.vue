@@ -48,12 +48,18 @@ async function commitEdit() {
 
 // 单击直接删：图标按钮上做两段式确认，用户只会觉得「点了没反应」。
 // 删除结果必须立刻可见——当前会话被删时由 store 自动切到下一个。
+// busyId 负责把「请求在路上」这件事显式化：不挂 loading 就能连点出重复删除。
+const busyId = ref('')
 async function doRemove(s: { id: string; title: string }) {
+  if (busyId.value) return
+  busyId.value = s.id
   try {
     await session.remove(s.id)
     toast.ok(`已删除「${s.title || '未命名对话'}」`)
   } catch (e) {
     toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    busyId.value = ''
   }
 }
 
@@ -90,12 +96,25 @@ async function more() {
         <template v-else>
           <span class="si-name">{{ s.title || '未命名对话' }}</span>
           <span class="si-act">
-            <span class="icon-btn" title="重命名" @click.stop="startEdit(s.id, s.title)">
+            <button
+              class="icon-btn"
+              type="button"
+              title="重命名"
+              :disabled="!!busyId"
+              @click.stop="startEdit(s.id, s.title)"
+            >
               <AppIcon name="pencil" size="ic-sm" />
-            </span>
-            <span class="icon-btn danger" title="删除" @click.stop="doRemove(s)">
+            </button>
+            <button
+              class="icon-btn danger"
+              type="button"
+              title="删除"
+              :class="{ 'is-loading': busyId === s.id }"
+              :disabled="!!busyId"
+              @click.stop="doRemove(s)"
+            >
               <AppIcon name="trash" size="ic-sm" />
-            </span>
+            </button>
           </span>
         </template>
       </button>
@@ -124,6 +143,14 @@ async function more() {
 }
 .more:hover:not(:disabled) {
   color: var(--wb-ink);
+}
+.more:active:not(:disabled) {
+  transform: scale(0.97);
+  color: var(--wb-ink);
+}
+.more:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 .icon-btn.danger:hover {
   color: var(--wb-danger);

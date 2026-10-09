@@ -8,15 +8,17 @@ import (
 	"WorkBaby/backend/llm"
 )
 
-// 估算参数：CJK 按字计，其余按 4 字符 1 token，再加每条消息的结构开销。
+// 估算参数：CJK 按字计（一字约一 token），其余按 3.5 字符 1 token，再加每条消息的结构开销。
+// 3.5 而不是 4：代码与 JSON 的 token 密度高于自然语言，按 4 估会系统性偏低，
+// 偏低的估算让压缩判断偏乐观，最终以上游 context 超限报错收场。
 const (
 	perMessageOverhead = 4
-	charsPerToken      = 4
+	charsPerToken      = 3.5
 )
 
 // EstimateTokens 粗估上下文 token 数：不追求精确，只用于判断是否该压缩。
 func EstimateTokens(system string, msgs []llm.Message) int {
-	total := len(system)/charsPerToken + perMessageOverhead
+	total := countTokens(system) + perMessageOverhead
 	for _, m := range msgs {
 		total += perMessageOverhead
 		total += countTokens(m.Thinking)
@@ -42,7 +44,7 @@ func countTokens(s string) int {
 	if ascii < 0 {
 		ascii = 0
 	}
-	return cjk + ascii/charsPerToken
+	return cjk + int(float64(ascii)/charsPerToken)
 }
 
 // CleanForProtocol 在调上游前清洗消息，守住两个协议硬约束：
@@ -159,6 +161,26 @@ func TruncateDeterministic(msgs []llm.Message, keep int) []llm.Message {
 		start = len(msgs) - keep
 	}
 	return CleanForProtocol(msgs[start:])
+}
+
+// CompactForce 是上游报上下文超限后的强制裁剪：本地估算说「没超」不算数，
+// 保留量砍半再找切点；切点落不下时从中间硬切，保证重试发出去的内容一定更少。
+func CompactForce(msgs []llm.Message, b Budget) ([]llm.Message, int) {
+	cleaned := CleanForProtocol(msgs)
+	// 只剩两条时任何裁剪都会把对话掏空，交给上层以错误收尾反而更诚实。
+	if len(cleaned) <= 2 {
+		return msgs, EstimateTokens("", msgs)
+	}
+	keep := b.Keep / 2
+	if keep < 2000 {
+		keep = 2000
+	}
+	cut := FindCutPoint(cleaned, keep)
+	if cut <= 0 || cut >= len(cleaned) {
+		cut = len(cleaned) / 2
+	}
+	out := CleanForProtocol(cleaned[cut:])
+	return out, EstimateTokens("", out)
 }
 
 // Compact 是每轮发送前的必经之路：超预算就裁一刀，裁不出完整 turn 就原样返回。

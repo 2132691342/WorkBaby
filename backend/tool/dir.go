@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -23,17 +24,23 @@ var skipDirs = map[string]bool{
 const (
 	maxWalk = 20000 // 遍历文件数上限，防止在巨型目录里跑不完
 	maxHits = 200   // 命中数上限：同一个词反复命中对模型没有新信息
+	// grepFileMax 单文件读取上限：源码文本几乎不会超过它。
+	// 不加闸时搜一个几 GB 的日志/数据文件会把整文件读进内存，是「助手卡死」的典型来源。
+	grepFileMax = 8 << 20
+	hitLineMax  = 500 // 单行命中截断长度：压缩过的 JS 一行能有几十万字符
 )
 
 // lsTool 列目录。
 type lsTool struct{}
 
-func (lsTool) Name() string                { return "ls" }
-func (lsTool) Label() string               { return "看目录" }
+func (lsTool) Name() string                 { return "ls" }
+func (lsTool) Label() string                { return "看目录" }
 func (lsTool) ExecutionMode() ExecutionMode { return ExecutionParallel }
-func (lsTool) RequiresApproval() bool      { return false }
-func (lsTool) Description() string         { return "列出目录下的文件与子目录，目录名带 / 后缀。" }
-func (lsTool) PromptSnippet() string       { return "查看目录里有什么" }
+func (lsTool) RequiresApproval() bool       { return false }
+func (lsTool) Description() string {
+	return "列出目录下的文件与子目录，目录名带 / 后缀。"
+}
+func (lsTool) PromptSnippet() string { return "查看目录里有什么" }
 func (lsTool) PromptGuidelines() []string {
 	return []string{"不确定文件在哪时，先用 ls 看一眼，不要凭空猜路径。"}
 }
@@ -88,12 +95,12 @@ func (t lsTool) Execute(ctx context.Context, in Input) (*Result, error) {
 // findTool 按 glob 找文件。
 type findTool struct{}
 
-func (findTool) Name() string                { return "find" }
-func (findTool) Label() string               { return "找文件" }
+func (findTool) Name() string                 { return "find" }
+func (findTool) Label() string                { return "找文件" }
 func (findTool) ExecutionMode() ExecutionMode { return ExecutionParallel }
-func (findTool) RequiresApproval() bool      { return false }
+func (findTool) RequiresApproval() bool       { return false }
 func (findTool) Description() string {
-	return "按文件名匹配查找文件，如 **/*.xlsx 或 *报告*。自动跳过无关大目录。"
+	return "按文件名匹配查找文件，如 *.xlsx、**/*.xlsx 或 *报告*。自动跳过无关大目录。"
 }
 func (findTool) PromptSnippet() string { return "按名字找文件" }
 func (findTool) PromptGuidelines() []string {
@@ -135,8 +142,7 @@ func (t findTool) Execute(ctx context.Context, in Input) (*Result, error) {
 			return false
 		}
 		scanned++
-		ok, err := filepath.Match(pattern, d.Name())
-		if err == nil && ok {
+		if matchName(pattern, d.Name(), pkg.RelPath(in.Workspace, path)) {
 			hits = append(hits, pkg.RelPath(in.Workspace, path))
 		}
 		return scanned < maxWalk
@@ -148,10 +154,10 @@ func (t findTool) Execute(ctx context.Context, in Input) (*Result, error) {
 // grepTool 搜文件内容。
 type grepTool struct{}
 
-func (grepTool) Name() string                { return "grep" }
-func (grepTool) Label() string               { return "搜内容" }
+func (grepTool) Name() string                 { return "grep" }
+func (grepTool) Label() string                { return "搜内容" }
 func (grepTool) ExecutionMode() ExecutionMode { return ExecutionParallel }
-func (grepTool) RequiresApproval() bool      { return false }
+func (grepTool) RequiresApproval() bool       { return false }
 func (grepTool) Description() string {
 	return "按正则表达式搜索文件内容，返回 路径:行号:内容。长行截断到 500 字符。"
 }
@@ -198,10 +204,12 @@ func (t grepTool) Execute(ctx context.Context, in Input) (*Result, error) {
 			return true
 		}
 		scanned++
-		if glob != "" {
-			if ok, err := filepath.Match(glob, d.Name()); err != nil || !ok {
-				return scanned < maxWalk
-			}
+		if glob != "" && !matchName(glob, d.Name(), pkg.RelPath(in.Workspace, path)) {
+			return scanned < maxWalk
+		}
+		if info, err := d.Info(); err == nil && info.Size() > grepFileMax {
+			truncated = true
+			return scanned < maxWalk
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil || pkg.LooksBinary(raw) {
@@ -216,8 +224,8 @@ func (t grepTool) Execute(ctx context.Context, in Input) (*Result, error) {
 			if !re.MatchString(line) {
 				continue
 			}
-			if len(line) > 500 {
-				line = CutBytes(line, 500) + "…"
+			if len(line) > hitLineMax {
+				line = CutBytes(line, hitLineMax) + "…"
 			}
 			hits = append(hits, fmt.Sprintf("%s:%d:%s", rel, i+1, line))
 		}
@@ -225,6 +233,25 @@ func (t grepTool) Execute(ctx context.Context, in Input) (*Result, error) {
 	})
 	truncated = truncated || scanned >= maxWalk
 	return resultOfHits("搜内容", hits, truncated, in, fmt.Sprintf("搜到 %d 处匹配", len(hits)))
+}
+
+// matchName 判断文件名是否命中模型写的 glob。
+// filepath.Match 不支持 ** 且 * 不跨分隔符，而模型习惯写 **/*.xlsx：
+// 去掉 **/ 前缀后按基名匹配；显式带目录的写法按相对路径逐段匹配。
+func matchName(pattern, name, rel string) bool {
+	p := strings.TrimPrefix(pattern, "./")
+	for strings.HasPrefix(p, "**/") {
+		p = strings.TrimPrefix(p, "**/")
+	}
+	if p == "" {
+		return true
+	}
+	if !strings.ContainsAny(p, `/\`) {
+		ok, err := filepath.Match(p, name)
+		return err == nil && ok
+	}
+	ok, err := path.Match(p, filepath.ToSlash(rel))
+	return err == nil && ok
 }
 
 // walk 遍历目录：跳过无关大目录，遵守 .gitignore 的目录与文件名规则。

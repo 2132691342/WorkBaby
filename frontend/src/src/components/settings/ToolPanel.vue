@@ -119,7 +119,7 @@ onMounted(load)
           <div class="tc-foot">
             <button
               class="btn btn-sm"
-              :class="t.enabled ? 'btn-outline' : 'btn-primary'"
+              :class="[t.enabled ? 'btn-outline' : 'btn-primary', { 'is-loading': busy === t.name }]"
               type="button"
               :disabled="busy === t.name"
               @click="toggle(t)"

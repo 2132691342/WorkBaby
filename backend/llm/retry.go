@@ -11,10 +11,34 @@ import (
 )
 
 // 不可重试的错误特征：配额与鉴权类，重试只会让等待更久。
+// context 超限也在这里：原地重试必然同样失败，压缩后重试由 agent 层负责。
 var fatalPatterns = []string{
 	"insufficient_quota", "out of budget", "quota exceeded", "billing",
 	"invalid api key", "unauthorized", "permission denied", "forbidden",
 	"context length", "request too large", "model_not_found",
+}
+
+// overflowPatterns 是各家「上下文超限」的文案特征。命中不代表对话完了——
+// 本地 token 估算是粗估，偏乐观时就会走到这；agent 层据此压缩后重试。
+var overflowPatterns = []string{
+	"context length", "context_length_exceeded", "context window", "context_window",
+	"maximum context", "max context", "too many tokens", "reduce the length",
+	"prompt is too long", "prompt too long", "input is too long", "request too large",
+	"exceeds the maximum", "maximum number of tokens", "exceed context",
+}
+
+// IsContextOverflow 判定错误是否是「上下文超限」。
+func IsContextOverflow(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, p := range overflowPatterns {
+		if strings.Contains(msg, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // 可重试的错误特征：限流、过载与传输中断。只有拿不到状态码时才用得上这些。

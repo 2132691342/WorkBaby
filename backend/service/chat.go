@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -63,7 +64,7 @@ func (c *ChatService) Send(sessionID, content string, attachments []domain.Attac
 		}
 	}
 	userEntry := &domain.EntryDO{
-		ID:       pkg.NewID(domain.PrefixEntry),
+		ID:        pkg.NewID(domain.PrefixEntry),
 		SessionID: sessionID,
 		ParentID:  sess.LeafEntryID,
 		Type:      domain.EntryTypeMessage,
@@ -138,7 +139,9 @@ func (c *ChatService) enqueue(sessionID, content string) error {
 		c.appendSteered(sessionID, content)
 		return nil
 	}
-	c.queueOf(sessionID).Enqueue(llm.Message{Role: llm.RoleUser, Content: content})
+	if !c.queueOf(sessionID).Enqueue(llm.Message{Role: llm.RoleUser, Content: content}) {
+		return pkg.New(5101, "插话排得太多了，等助手处理完这批再说", "")
+	}
 	return nil
 }
 
@@ -159,7 +162,7 @@ func (c *ChatService) flushQueue(sessionID string) {
 	}
 }
 
-// Forget 清掉一个会话的全部运行态：取消句柄、插话队列、读账本与会话锁。
+// Forget 清掉一个会话的全部运行态：取消句柄、插话队列与读账本。
 // 删会话时不做这件事，正在跑的 run 会继续往已删会话写孤儿条目，几个 map 也只增不减。
 func (c *ChatService) Forget(sessionID string) {
 	c.mu.Lock()
@@ -167,7 +170,9 @@ func (c *ChatService) Forget(sessionID string) {
 	delete(c.cancel, sessionID)
 	delete(c.queues, sessionID)
 	delete(c.reads, sessionID)
-	delete(c.locks, sessionID)
+	// locks 故意保留：在跑的 run 或并发请求可能正持有那把锁，
+	// 删掉后新调用会新建一把，同一会话出现两把锁，enqueue 依赖的串行化前提就没了。
+	// 每会话一个 mutex 的内存量级可忽略，不值得为它引入竞态。
 	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -208,6 +213,11 @@ func (c *ChatService) appendSteered(sessionID, content string) {
 // run 是一次 run 的完整生命周期。
 func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	defer func() {
+		// 兜住内核之外的意外：桌面端不该因为一次对话里的 bug 把整进程带走。
+		if rec := recover(); rec != nil {
+			pkg.Errorf("chat: run 内部崩溃 session=%s run=%s: %v\n%s", sessionID, runID, rec, debug.Stack())
+			c.fail(sessionID, nil, nil, pkg.New(5102, "助手内部出错了，已经停下来；可以点重试再来一次", ""))
+		}
 		c.mu.Lock()
 		delete(c.cancel, sessionID)
 		c.mu.Unlock()
@@ -237,19 +247,22 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	}
 	tools := c.env.Registry.Enabled(c.disabledTools())
 	system := BuildSystem(c.env, tools, sess.Workspace)
+	// 上游空闲超时是运行期可改的设置，装配时同步一次。
+	c.applyStreamIdle()
 
-	deps := c.env.ToolDeps
+	deps := c.env.ToolDepsSnapshot()
 	deps.Reads = c.readsOf(sessionID)
 	permission := sess.Permission
 	cap := c.capabilityOf(sess.ProviderID, model)
 	state := &runState{sessionID: sessionID, providerID: sess.ProviderID, model: model, windowKnown: cap.Known}
-	temp, topP, maxOutput := c.samplingOf(sess.ProviderID, model)
+	temp, topP, maxOutput := c.samplingOf(cap, sess.ProviderID, model)
 	state.maxTokens = maxOutput
-	budget := c.budget(sess.ProviderID, model, system)
+	budget := c.budget(cap, system)
 	// 把真正要下发的数字落进日志：截断类问题的第一步永远是「当时给的预算是多少」，
 	// 没有这行就只能靠反推配置。
-	pkg.Infof("chat: 装配 session=%s run=%s model=%s max_tokens=%d reserve=%d window=%d(known=%v)",
-		sessionID, runID, model, maxOutput, budget.Reserve, cap.ContextWindow, cap.Known)
+	pkg.Infof("chat: 装配 session=%s run=%s model=%s max_tokens=%d reserve=%d window=%d(known=%v) temp=%s parallel=%d",
+		sessionID, runID, model, maxOutput, budget.Reserve, cap.ContextWindow, cap.Known,
+		fmtPtr(temp), c.toolParallel())
 
 	loop := agent.New(agent.Config{
 		Streamer:    streamer,
@@ -261,13 +274,11 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 		MaxTokens:   maxOutput,
 		Temperature: temp,
 		TopP:        topP,
-		// 64 轮：多文件批处理一步一轮，32 轮会在真实长任务中途硬停。
-		// 正常任务由「模型不再发起工具调用」自然结束，轮数只是失控护栏。
-		MaxTurns: 64,
-		Parallel: 4,
+		MaxTurns:    c.maxTurns(),
+		Parallel:    c.toolParallel(),
 		Budget:      budget,
-		Emit:      func(e agent.Event) { c.onEvent(state, e) },
-		Steering:  c.queueOf(sessionID),
+		Emit:        func(e agent.Event) { c.onEvent(state, e) },
+		Steering:    c.queueOf(sessionID),
 		Gate: func(ctx context.Context, call *llm.ToolCall) (bool, string) {
 			t, ok := c.env.Registry.Get(call.Name)
 			if !ok {
@@ -413,7 +424,7 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 	}
 }
 
-// ratioOf 换算成整数百分比；窗口认不出来时返回 0，让前端显示「未知」而不是瞎报。
+// ratioOf 换算成整数百分比；窗口认不出来时返回 0，让读数退回「约」口径而不是瞎报。
 func ratioOf(used, window int) int {
 	if window <= 0 || used <= 0 {
 		return 0

@@ -1,8 +1,26 @@
 <script setup lang="ts">
 // 首屏引导：点一下就把例句发出去，降低「不知道说什么」的门槛。
+// 点击后整组禁用、被点的那张转圈——发送要走三次请求，没有反馈就像没点上。
+import { ref, watch } from 'vue'
 import AppIcon from '../common/AppIcon.vue'
 
+const props = defineProps<{ busy?: boolean }>()
 const emit = defineEmits<{ pick: [text: string] }>()
+
+const picked = ref('')
+function pick(text: string) {
+  if (props.busy || picked.value) return
+  picked.value = text
+  emit('pick', text)
+}
+// 发送失败时 busy 不会变真，卡片一直转圈就成了「点了没反应」；
+// 发送完成后由 busy 回落复位，超时兜底只针对失败路径。
+watch(
+  () => props.busy,
+  (busy) => {
+    if (!busy) picked.value = ''
+  },
+)
 
 const examples = [
   { icon: 'doc', title: '帮我读文件', text: '帮我看看当前工作目录里有哪些文件，挑最重要的一个给我讲讲' },
@@ -14,7 +32,15 @@ const examples = [
 
 <template>
   <div class="ex-grid">
-    <button v-for="ex in examples" :key="ex.title" class="ex-card" type="button" @click="emit('pick', ex.text)">
+    <button
+      v-for="ex in examples"
+      :key="ex.title"
+      class="ex-card"
+      type="button"
+      :class="{ 'is-loading': picked === ex.text }"
+      :disabled="props.busy || !!picked"
+      @click="pick(ex.text)"
+    >
       <span class="ex-ic"><AppIcon :name="ex.icon" size="ic-lg" /></span>
       <span class="ex-t">{{ ex.title }}</span>
       <span class="ex-s">{{ ex.text }}</span>
@@ -79,6 +105,20 @@ const examples = [
 .ex-card.is-loading {
   pointer-events: none;
   cursor: progress;
+  opacity: 1;
+}
+/* 加载态：标题旁一枚转圈，卡片本身保持全亮——变淡会被误读成禁用 */
+.ex-card.is-loading .ex-t::after {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-left: 7px;
+  vertical-align: -1px;
+  border-radius: 50%;
+  border: 2px solid var(--wb-primary);
+  border-top-color: transparent;
+  animation: wb-ic-spin 0.8s linear infinite;
 }
 .ex-card:focus-visible {
   outline: 2px solid var(--wb-primary);

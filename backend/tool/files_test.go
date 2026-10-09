@@ -24,9 +24,8 @@ func newInput(t *testing.T, args map[string]any) (Input, string) {
 	return Input{Args: args, Workspace: ws, Deps: Deps{Reads: &readTracker{seen: map[string]bool{}}, TmpDir: ws}}, ws
 }
 
-// 读链路安全与健壮性：路径穿越拒绝、Unicode 路径规整找回。
-// 护栏一旦失效，模型会读到工作目录外的文件，或对着一份存在的数据说「找不到」。
-func TestFilesReadChain(t *testing.T) {
+// 文件类工具的完整护栏链路：读（穿越拒绝、Unicode 找回）与写改（写前必读、edit 唯一性、行尾保持）。
+func TestFilesGuardrails(t *testing.T) {
 	t.Run("路径穿越被拒绝", func(t *testing.T) {
 		in, _ := newInput(t, map[string]any{"path": "../outside.txt"})
 		_, err := (readTool{}).Execute(context.Background(), in)
@@ -61,11 +60,7 @@ func TestFilesReadChain(t *testing.T) {
 			t.Fatalf("直引号变体应能找回弯引号命名的文件: %v", err)
 		}
 	})
-}
 
-// 写与改的护栏：覆盖前必读、edit 唯一匹配与实际改动、不破坏 BOM 与行尾。
-// 失效后果是模型覆盖没读过的文件或改坏内容，属于不可逆后果。
-func TestFilesWriteEditGuardrails(t *testing.T) {
 	// 读→写闭环：没读过就写必须被拒；read 工具真读一次即完成记账，write 随即放行。
 	// 记账这一步在 read 工具内部，写工具的拒绝分支不覆盖它——所以必须走真的读一次。
 	t.Run("覆盖前必读", func(t *testing.T) {

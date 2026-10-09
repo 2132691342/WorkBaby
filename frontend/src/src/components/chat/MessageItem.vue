@@ -2,6 +2,7 @@
 // 单条消息：用户气泡 / 助手回答（markdown + 思考折叠 + 工具卡）。
 import { computed, ref } from 'vue'
 import type { MessageVO } from '../../types/api'
+import { useToastStore } from '../../stores/toast'
 import { renderMarkdown } from '../../utils/md'
 import { fmtCount } from '../../utils/num'
 import AppIcon from '../common/AppIcon.vue'
@@ -33,11 +34,20 @@ function splitThink(s: string): { think: string; text: string } {
   return { think, text }
 }
 
+const copying = ref(false)
 async function copy() {
-  if (!split.value.text) return
-  await navigator.clipboard.writeText(split.value.text)
-  copied.value = true
-  setTimeout(() => (copied.value = false), 1200)
+  if (!split.value.text || copying.value) return
+  copying.value = true
+  try {
+    await navigator.clipboard.writeText(split.value.text)
+    copied.value = true
+    setTimeout(() => (copied.value = false), 1200)
+  } catch {
+    // 剪贴板被系统策略拒绝时不能静默：用户以为复制成功了
+    useToastStore().bad('复制失败，请手动选中文本复制')
+  } finally {
+    copying.value = false
+  }
 }
 
 function fmtTime(ms: number) {
@@ -114,7 +124,13 @@ const metrics = computed(() => {
              每轮都画一个空头像，一次回答就会碎成一串互不相干的 WB 图标。 -->
         <div v-if="hasText" class="bubble" :class="{ 'is-error': msg.is_error }" v-html="html" />
         <div v-if="hasText" class="msg-acts">
-          <button class="act" type="button" @click="copy">
+          <button
+            class="act"
+            type="button"
+            :class="{ 'is-loading': copying }"
+            :disabled="copying"
+            @click="copy"
+          >
             <AppIcon name="copy" size="ic-xs" />
             {{ copied ? '已复制' : '复制' }}
           </button>

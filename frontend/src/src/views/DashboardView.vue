@@ -104,15 +104,27 @@ async function openSession(id: string) {
   }
 }
 
+// 建会话要走「建 + 拉列表 + 取快照」，期间按钮必须自己说明在忙。
+const creating = ref(false)
+const createErr = ref('')
 async function newSession() {
-  await session.create({})
-  router.push('/')
+  if (creating.value) return
+  creating.value = true
+  createErr.value = ''
+  try {
+    await session.create({})
+    router.push('/')
+  } catch (e) {
+    createErr.value = (e as Error)?.message || '新建对话失败，请重试'
+  } finally {
+    creating.value = false
+  }
 }
 </script>
 
 <template>
   <div class="dash wb-ui">
-    <AppSidebar @new-session="newSession" />
+    <AppSidebar :creating="creating" @new-session="newSession" />
 
     <div class="dash-main scroll">
       <div class="wrap">
@@ -134,6 +146,8 @@ async function newSession() {
             </button>
           </div>
         </header>
+
+        <p v-if="createErr" class="alert is-bad">{{ createErr }}</p>
 
         <PageState :loading="loading" :error="error">
           <div v-if="!hasUsage" class="card blank">

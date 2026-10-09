@@ -9,12 +9,12 @@
 
 | 规则 | 说明 |
 |---|---|
-| 内置运行时优先 | 子进程 PATH 首位插入内置 Python 目录，`python` 优先解析到内置解释器（内置运行时不带 pip） |
+| 内置运行时优先 | 子进程 PATH 首位插入内置 Python 目录，`python` 优先解析到内置解释器（内置运行时不带 pip，见 spec 06） |
 | 超时 | 默认 120s，上限 1800s，超时杀进程树并返回已产出内容 |
-| 输出上限 | 统一走 `tool.CutTail`：2000 行 / 50KB 双上限，保留结尾，超出落临时文件并把路径与丢弃量告诉模型 |
+| 输出上限 | 统一走 `tool.CutTail` 保留结尾，阈值与落盘规则见 spec 03 |
 | 编码归一化 | 统一走 `pkg.DecodeText`：UTF-8 / GBK / UTF-16（含无 BOM 启发式）都归一成 UTF-8 |
 | 审批 | `powershell` 与 `python` 要求审批；yolo 档整体放行（见下表） |
-| 无 profile | `-NoProfile -NonInteractive`：不加载用户 profile，不弹交互提示 |
+| 无交互 | `-NoProfile -NonInteractive`：不加载用户 profile，不弹交互提示 |
 
 进程树终止用 `cmd.Cancel` + `WaitDelay`：超时或用户点停止时杀掉子进程，
 最多等 3 秒让管道收尾，避免留下孤儿进程占着文件。

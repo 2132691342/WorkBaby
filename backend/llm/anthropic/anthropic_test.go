@@ -41,29 +41,31 @@ func stallingServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-// 无签名 thinking 回传会被网关以 invalid_request_error 拒绝，
-// 症状是多轮对话从第二轮起「答完一轮就卡死」。
-func TestEncodeProtocol(t *testing.T) {
-	body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
-		{Role: llm.RoleUser, Content: "你好"},
-		{Role: llm.RoleAssistant, Thinking: "思考过程", Content: "回答"},
-		{Role: llm.RoleUser, Content: "继续"},
-	}})
-	for _, m := range body.Messages {
-		for _, b := range m.Content {
-			if b.Type == "thinking" {
-				t.Fatal("无签名的 thinking 块被回传，网关会以 invalid_request_error 拒绝")
+// 适配层链路：请求编码的厂商硬约束（无签名 thinking 不回传）与流式解析的两条底线
+// （停滞要看门狗收尾、缓冲满不丢事件）。
+func TestAnthropicAdapter(t *testing.T) {
+	// 无签名 thinking 回传会被网关以 invalid_request_error 拒绝，
+	// 症状是多轮对话从第二轮起「答完一轮就卡死」。
+	t.Run("无签名 thinking 不回传", func(t *testing.T) {
+		body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "你好"},
+			{Role: llm.RoleAssistant, Thinking: "思考过程", Content: "回答"},
+			{Role: llm.RoleUser, Content: "继续"},
+		}})
+		for _, m := range body.Messages {
+			for _, b := range m.Content {
+				if b.Type == "thinking" {
+					t.Fatal("无签名的 thinking 块被回传，网关会以 invalid_request_error 拒绝")
+				}
 			}
 		}
-	}
-}
+	})
 
-func TestStreamChain(t *testing.T) {
 	// 上游停滞必须经看门狗以 error 收尾并关通道，不能永远等下去。
 	t.Run("停滞经空闲看门狗报错收尾", func(t *testing.T) {
-		old := llm.StreamIdleTimeout
-		llm.StreamIdleTimeout = 300 * time.Millisecond
-		defer func() { llm.StreamIdleTimeout = old }()
+		old := llm.StreamIdleTimeout()
+		llm.SetStreamIdleTimeout(300 * time.Millisecond)
+		defer llm.SetStreamIdleTimeout(old)
 
 		srv := stallingServer(t)
 		defer srv.Close()

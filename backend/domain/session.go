@@ -79,7 +79,7 @@ type SessionVO struct {
 
 // SessionDetailVO 会话详情：会话 + 已还原的线性消息。
 type SessionDetailVO struct {
-	Session SessionVO   `json:"session"`
+	Session  SessionVO   `json:"session"`
 	Messages []MessageVO `json:"messages"`
 }
 

@@ -12,10 +12,10 @@ type StatsTotalsVO struct {
 	Output int `json:"output"`
 	// Cached 命中上游缓存的输入量。缓存命中率 = Cached / Input，
 	// 长对话里这一项决定了成本是线性涨还是几乎不涨。
-	Cached     int `json:"cached"`
-	Total      int `json:"total"`
-	Calls      int `json:"calls"`
-	Sessions   int `json:"sessions"`
+	Cached     int   `json:"cached"`
+	Total      int   `json:"total"`
+	Calls      int   `json:"calls"`
+	Sessions   int   `json:"sessions"`
 	LatencyMs  int64 `json:"latency_ms"`
 	AvgLatency int64 `json:"avg_latency_ms"`
 	// CacheHitRate 是 0~1 的命中率，百分比由前端算。

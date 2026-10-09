@@ -72,8 +72,8 @@ func newEnv(t *testing.T) (*Env, *Container) {
 	})
 	paths := runtime.Paths{
 		DataDir: dir, LogDir: dir, TmpDir: dir, SkillsDir: filepath.Join(dir, "skills"),
-		RuntimeDir: filepath.Join(dir, "runtime"),
-		PythonDir:  filepath.Join(dir, "runtime", "python"),
+		RuntimeDir:    filepath.Join(dir, "runtime"),
+		PythonDir:     filepath.Join(dir, "runtime", "python"),
 		PowerShellDir: filepath.Join(dir, "runtime", "powershell"),
 	}
 	_ = pkg.EnsureDir(paths.SkillsDir)
@@ -82,9 +82,9 @@ func newEnv(t *testing.T) (*Env, *Container) {
 	reg.Register(parallelTool{})
 	env := &Env{
 		Repo: repo.New(gdb), Paths: paths, Emitter: NewEmitter(), Registry: reg,
-		ToolDeps: NewToolDeps(paths, nil),
-		Cfg:      &config.Config{Workspace: dir},
+		Cfg: &config.Config{Workspace: dir},
 	}
+	env.SetToolDeps(NewToolDeps(paths, nil))
 	svc, err := New(env)
 	if err != nil {
 		t.Fatal(err)
@@ -320,9 +320,15 @@ func TestServiceRunChain(t *testing.T) {
 		// 上下文余量必须容得下真正下发的输出预算：余量算小了，压缩会按虚高的
 		// 空间往窗口里塞内容，总占用顶破窗口。
 		const big = "gpt-4.1"
-		b := svc.Chat.budget("", big, "sys")
-		if want := domain.ModelCapabilityOf(big).MaxOutput; b.Reserve < want {
+		cap := domain.ModelCapabilityOf(big)
+		b := svc.Chat.budget(cap, "sys")
+		if want := cap.OutputBudget(); b.Reserve < want {
 			t.Fatalf("上下文余量 %d 没跟上输出预算 %d：压缩会按虚高的空间往窗口里塞内容", b.Reserve, want)
+		}
+		// 1M 窗口的模型按 1/8 会算出 12.5 万输出，超过厂商硬上限就是整轮 400；
+		// 输出预算必须被目录里的硬上限钳住。
+		if cap.OutputBudget() > cap.MaxOutputLimit || cap.MaxOutputLimit <= 0 {
+			t.Fatalf("输出预算 %d 没被厂商硬上限 %d 钳住", cap.OutputBudget(), cap.MaxOutputLimit)
 		}
 	})
 

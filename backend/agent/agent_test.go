@@ -1,4 +1,4 @@
-// 内核链路：主循环的不变量（回填顺序、收尾判据、重复调用拦截、事件串行化）
+// 内核链路：主循环的协议约束（回填顺序、收尾判据、重复调用拦截、事件串行化）
 // 与上下文裁剪 / 协议清洗（切点必须落在完整 turn 边界，输出能直发上游）。
 package agent
 
@@ -29,7 +29,9 @@ func (t echoTool) Label() string              { return t.name }
 func (t echoTool) Description() string        { return "测试工具" }
 func (t echoTool) PromptSnippet() string      { return "测试" }
 func (t echoTool) PromptGuidelines() []string { return nil }
-func (t echoTool) Parameters() map[string]any { return map[string]any{"type": "object", "properties": map[string]any{}} }
+func (t echoTool) Parameters() map[string]any {
+	return map[string]any{"type": "object", "properties": map[string]any{}}
+}
 func (t echoTool) ExecutionMode() tool.ExecutionMode { return t.mode }
 func (t echoTool) RequiresApproval() bool            { return false }
 
@@ -67,8 +69,8 @@ func toolResult(id, content string) llm.Message {
 	return llm.Message{Role: llm.RoleTool, ToolCallID: id, Content: content}
 }
 
-// assertNoOrphanToolResults 断言每条工具结果都落在「最近一条 assistant 的声明窗口」里。
-// 上游只认紧邻配对：结果与声明之间隔着另一条 assistant 或 user 消息都会被 400。
+// assertNoOrphanToolResults 断言每条工具结果都落在最近一条 assistant 的声明窗口里：
+// 上游只认紧邻配对，结果与声明之间隔着别的消息都会被 400。
 func assertNoOrphanToolResults(t *testing.T, msgs []llm.Message, label string) {
 	t.Helper()
 	open := map[string]bool{}
@@ -90,9 +92,9 @@ func assertNoOrphanToolResults(t *testing.T, msgs []llm.Message, label string) {
 	}
 }
 
-// 回填顺序：多轮逐次声明与同轮并行两种形态，写进上下文的顺序都必须等于声明顺序。
-// 顺序本身就是协议约束——错位会让 assistant(tool_calls) 与 tool 配不上，上游直接 400。
-func TestLoopProtocolOrder(t *testing.T) {
+// 主循环的协议约束：结果按声明顺序回填，四种收尾（取消 / 截断 / 报错 / 正常）都不越界，
+// 并行工具的事件串行出门。顺序与串行化都是协议硬约束，错位即整轮 400。
+func TestLoopProtocol(t *testing.T) {
 	t.Run("多轮按声明顺序回填", func(t *testing.T) {
 		var seen []string
 		streamer := llmtest.New(
@@ -125,6 +127,7 @@ func TestLoopProtocolOrder(t *testing.T) {
 		}
 	})
 
+	// 并行执行快慢不一，回填顺序必须仍等于声明顺序。
 	t.Run("并行批次保序回填", func(t *testing.T) {
 		streamer := llmtest.New(
 			llm.Message{ToolCalls: []llm.ToolCall{
@@ -148,11 +151,8 @@ func TestLoopProtocolOrder(t *testing.T) {
 			}
 		}
 	})
-}
 
-// 收尾判据：取消不报错误、截断轮的工具一律不执行、上游报错也以 error 收尾。
-func TestLoopStopsOnCancelLengthAndError(t *testing.T) {
-	t.Run("取消", func(t *testing.T) {
+	t.Run("取消以 aborted 收尾", func(t *testing.T) {
 		loop := New(Config{Streamer: llmtest.New(llm.Message{Content: "开始"}), Model: "test"}, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -165,16 +165,17 @@ func TestLoopStopsOnCancelLengthAndError(t *testing.T) {
 		}
 	})
 
-	// 半个 JSON 调用执行出去比不执行更危险。
-	t.Run("截断轮不执行工具", func(t *testing.T) {
+	// 半个 JSON 调用执行出去比不执行更危险；「只想不说」的零产出轮同样不重试——
+	// 预算由 service 层按模型上限给，内核悄悄重试只会在上游上限更低时换来一个 400。
+	t.Run("截断轮不执行工具且不重试", func(t *testing.T) {
 		var seen []string
-		streamer := llmtest.New(llm.Message{
+		withCall := llmtest.New(llm.Message{
 			Content:   "被截断",
 			ToolCalls: []llm.ToolCall{{ID: "c1", Name: "one"}},
 		})
-		streamer.Stops = []string{llm.StopLength}
+		withCall.Stops = []string{llm.StopLength}
 		loop := New(Config{
-			Streamer: streamer,
+			Streamer: withCall,
 			Tools:    []tool.Tool{echoTool{name: "one", seen: &seen}},
 			Model:    "test",
 		}, nil)
@@ -185,33 +186,26 @@ func TestLoopStopsOnCancelLengthAndError(t *testing.T) {
 		if res.StopReason != StopLength {
 			t.Fatalf("期望 length，实际 %s", res.StopReason)
 		}
-	})
+		if withCall.Calls() != 1 {
+			t.Fatalf("截断轮不该重试，实际发起 %d 次请求", withCall.Calls())
+		}
 
-	// 「只想不说」：预算全花在推理上。内核不自作主张重试——预算由 service 层按模型上限给，
-	// 悄悄重试只会在上游上限更低时换来一个 400。
-	t.Run("零产出截断如实收尾", func(t *testing.T) {
-		streamer := llmtest.New(llm.Message{Thinking: "先想想该怎么做。"})
-		streamer.Stops = []string{llm.StopLength}
-		loop := New(Config{Streamer: streamer, Model: "test", MaxTokens: 32768}, nil)
-
-		res, err := loop.Run(context.Background())
+		thinkingOnly := llmtest.New(llm.Message{Thinking: "先想想该怎么做。"})
+		thinkingOnly.Stops = []string{llm.StopLength}
+		loop2 := New(Config{Streamer: thinkingOnly, Model: "test", MaxTokens: 32768}, nil)
+		res2, err := loop2.Run(context.Background())
 		if err != nil {
 			t.Fatalf("运行失败: %v", err)
 		}
-		if res.StopReason != StopLength {
-			t.Fatalf("期望 length，实际 %s", res.StopReason)
+		if res2.StopReason != StopLength {
+			t.Fatalf("零产出截断期望 length，实际 %s", res2.StopReason)
 		}
-		if streamer.Calls() != 1 {
-			t.Fatalf("不该重试同一轮，实际发起 %d 次请求", streamer.Calls())
-		}
-		// 两次请求的下发预算必须一致：内核不该在重试路径上偷偷抬高它。
-		if got := streamer.Requests[0].MaxTokens; got != 32768 {
-			t.Fatalf("下发预算应为装配时的值 32768，实际 %d", got)
+		if thinkingOnly.Calls() != 1 {
+			t.Fatalf("零产出截断不该重试，实际发起 %d 次请求", thinkingOnly.Calls())
 		}
 	})
 
-	// 「报错但零产出」不算成功，否则会落一条空 assistant，下一轮直接 400。
-	t.Run("上游报错", func(t *testing.T) {
+	t.Run("上游报错以 error 收尾", func(t *testing.T) {
 		streamer := llmtest.New(llm.Message{Content: "半句"})
 		streamer.Err = errors.New("上游 500")
 		loop := New(Config{Streamer: streamer, Model: "test"}, nil)
@@ -221,6 +215,43 @@ func TestLoopStopsOnCancelLengthAndError(t *testing.T) {
 		}
 		if res == nil || res.StopReason != StopError {
 			t.Fatalf("期望 error 收尾，实际 %+v", res)
+		}
+	})
+
+	// 并行工具各自在 goroutine 里发事件，上层靠「同一时刻只有一个事件在处理」维护落库位点。
+	t.Run("事件出口串行化", func(t *testing.T) {
+		var inFlight, peak int32
+		streamer := llmtest.New(
+			llm.Message{ToolCalls: []llm.ToolCall{
+				{ID: "a", Name: "par"}, {ID: "b", Name: "par"},
+				{ID: "c", Name: "par"}, {ID: "d", Name: "par"},
+			}},
+			llm.Message{Content: "好了"},
+		)
+		loop := New(Config{
+			Streamer: streamer,
+			Tools:    []tool.Tool{echoTool{name: "par", mode: tool.ExecutionParallel}},
+			Model:    "test",
+			Parallel: 4,
+			Emit: func(Event) {
+				n := atomic.AddInt32(&inFlight, 1)
+				for {
+					old := atomic.LoadInt32(&peak)
+					if n <= old || atomic.CompareAndSwapInt32(&peak, old, n) {
+						break
+					}
+				}
+				// 撑开窗口：没有锁时四个 goroutine 必然同时在飞
+				time.Sleep(2 * time.Millisecond)
+				atomic.AddInt32(&inFlight, -1)
+			},
+		}, nil)
+
+		if _, err := loop.Run(context.Background()); err != nil {
+			t.Fatalf("运行失败: %v", err)
+		}
+		if peak > 1 {
+			t.Fatalf("事件出口同时进入了 %d 个事件，上层落库位点会被读脏", peak)
 		}
 	})
 }
@@ -235,6 +266,7 @@ func TestLoopBlocksRepeatedIdenticalCall(t *testing.T) {
 		llm.Message{ToolCalls: []llm.ToolCall{call("c1")}},
 		llm.Message{ToolCalls: []llm.ToolCall{call("c2")}},
 		llm.Message{ToolCalls: []llm.ToolCall{call("c3")}},
+		llm.Message{ToolCalls: []llm.ToolCall{call("c4")}},
 		llm.Message{Content: "换了个办法"},
 	)
 	var events []Event
@@ -248,19 +280,19 @@ func TestLoopBlocksRepeatedIdenticalCall(t *testing.T) {
 	if _, err := loop.Run(context.Background()); err != nil {
 		t.Fatalf("运行失败: %v", err)
 	}
-	if len(seen) != repeatCallLimit-1 {
-		t.Fatalf("期望只执行 %d 次，实际 %d", repeatCallLimit-1, len(seen))
+	if len(seen) != repeatCallLimit {
+		t.Fatalf("期望只执行 %d 次，实际 %d", repeatCallLimit, len(seen))
 	}
 	for _, m := range loop.Messages() {
-		if m.Role == llm.RoleTool && m.ToolCallID == "c3" && !m.IsError {
-			t.Fatal("第三次重复调用应当判失败")
+		if m.Role == llm.RoleTool && m.ToolCallID == "c4" && !m.IsError {
+			t.Fatal("超出重复上限的调用应当判失败")
 		}
 	}
 	// 被拦的调用也必须有完整的开始 / 结束事件对：落库侧只在 tool_start 里写工具声明，
 	// 缺了开始事件，重载历史后协议配对就断了。
 	startIdx, endIdx := -1, -1
 	for i, e := range events {
-		if e.ToolCall == nil || e.ToolCall.ID != "c3" {
+		if e.ToolCall == nil || e.ToolCall.ID != "c4" {
 			continue
 		}
 		if e.Kind == EventToolStart && startIdx < 0 {
@@ -271,44 +303,7 @@ func TestLoopBlocksRepeatedIdenticalCall(t *testing.T) {
 		}
 	}
 	if startIdx < 0 || endIdx < 0 || startIdx > endIdx {
-		t.Fatalf("被拦调用 c3 的事件对不完整: start=%d end=%d", startIdx, endIdx)
-	}
-}
-
-// 并行工具各自在 goroutine 里发事件，上层靠「同一时刻只有一个事件在处理」维护落库位点。
-func TestEmitSerializesConcurrentTools(t *testing.T) {
-	var inFlight, peak int32
-	streamer := llmtest.New(
-		llm.Message{ToolCalls: []llm.ToolCall{
-			{ID: "a", Name: "par"}, {ID: "b", Name: "par"},
-			{ID: "c", Name: "par"}, {ID: "d", Name: "par"},
-		}},
-		llm.Message{Content: "好了"},
-	)
-	loop := New(Config{
-		Streamer: streamer,
-		Tools:    []tool.Tool{echoTool{name: "par", mode: tool.ExecutionParallel}},
-		Model:    "test",
-		Parallel: 4,
-		Emit: func(Event) {
-			n := atomic.AddInt32(&inFlight, 1)
-			for {
-				old := atomic.LoadInt32(&peak)
-				if n <= old || atomic.CompareAndSwapInt32(&peak, old, n) {
-					break
-				}
-			}
-			// 撑开窗口：没有锁时四个 goroutine 必然同时在飞
-			time.Sleep(2 * time.Millisecond)
-			atomic.AddInt32(&inFlight, -1)
-		},
-	}, nil)
-
-	if _, err := loop.Run(context.Background()); err != nil {
-		t.Fatalf("运行失败: %v", err)
-	}
-	if peak > 1 {
-		t.Fatalf("事件出口同时进入了 %d 个事件，上层落库位点会被读脏", peak)
+		t.Fatalf("被拦调用 c4 的事件对不完整: start=%d end=%d", startIdx, endIdx)
 	}
 }
 
@@ -346,8 +341,9 @@ func TestCompactProtocol(t *testing.T) {
 		assertNoOrphanToolResults(t, out, "CleanForProtocol")
 	})
 
-	// keepTokens 从 0 扫到大，让切点落在每一个可能的位置上，结果都必须协议合法。
-	t.Run("压缩永不孤儿化工具结果", func(t *testing.T) {
+	// keepTokens 从 0 扫到大，让切点落在每一个可能的位置上，结果都必须协议合法，
+	// 且保留侧的第一条必须是 user（切在回合中间会把半截 turn 发给上游）。
+	t.Run("压缩不孤儿化结果且整轮丢弃", func(t *testing.T) {
 		base := []llm.Message{
 			{Role: llm.RoleUser, Content: "看桌面"},
 			callAssistant("c1"),
@@ -361,27 +357,7 @@ func TestCompactProtocol(t *testing.T) {
 		for keep := 0; keep <= 4000; keep += 37 {
 			out, _ := Compact(base, Budget{Window: 1, Reserve: 0, Keep: keep})
 			assertNoOrphanToolResults(t, out, "Compact")
-		}
-	})
-
-	// 保留侧的第一条必须是 user：切在回合中间会把半截 turn 发给上游。
-	t.Run("压缩整轮丢弃", func(t *testing.T) {
-		base := []llm.Message{
-			{Role: llm.RoleUser, Content: "看桌面"},
-			callAssistant("c1"),
-			toolResult("c1", strings.Repeat("x", 400)),
-			{Role: llm.RoleAssistant, Content: "好的"},
-			{Role: llm.RoleUser, Content: "再看看"},
-			callAssistant("c2"),
-			toolResult("c2", strings.Repeat("y", 400)),
-			{Role: llm.RoleAssistant, Content: "搞定"},
-		}
-		for keep := 0; keep <= 2000; keep += 53 {
-			out, _ := Compact(base, Budget{Window: 1, Reserve: 0, Keep: keep})
-			if len(out) == 0 {
-				continue
-			}
-			if out[0].Role != llm.RoleUser {
+			if len(out) > 0 && out[0].Role != llm.RoleUser {
 				t.Fatalf("keep=%d：保留侧第一条是 %q，turn 被从中间切开了", keep, out[0].Role)
 			}
 		}

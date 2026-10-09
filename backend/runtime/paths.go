@@ -10,17 +10,17 @@ import (
 
 // Paths 是全部落盘位置的唯一解析结果。
 type Paths struct {
-	DataDir       string
-	DBPath        string
-	LogDir        string
-	TmpDir        string
+	DataDir          string
+	DBPath           string
+	LogDir           string
+	TmpDir           string
 	RuntimeDir       string
 	PythonDir        string
 	PowerShellDir    string
 	SkillsDir        string
 	BuiltinSkillsDir string
-	ConfigFile    string
-	ModelFile     string
+	ConfigFile       string
+	ModelFile        string
 }
 
 // Resolve 定位数据根并展开全部子路径。WORKBABY_HOME 优先，便于便携版与测试隔离。

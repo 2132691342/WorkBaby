@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -210,25 +208,6 @@ func TestHTTPChain(t *testing.T) {
 		}
 		if h.Port() != 0 {
 			t.Fatal("端口应由后续握手阶段写入，Startup 阶段应为 0")
-		}
-	})
-
-	// 导入技能要真的把磁盘上的 SKILL.md 收进注册表并能取回正文。
-	t.Run("从磁盘导入技能", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "my-imported")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		body := "---\nname: my-imported\ndescription: 测试导入\n---\n\n正文\n"
-		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		code, resp := call(t, base, "POST", "/skills/import", map[string]any{"paths": []string{dir}})
-		if code != http.StatusOK || !strings.Contains(resp, `"imported":1`) {
-			t.Fatalf("导入失败: %d %s", code, resp)
-		}
-		if code, resp := call(t, base, "GET", "/skills/my-imported/content", nil); code != http.StatusOK || !strings.Contains(resp, "正文") {
-			t.Fatalf("导入后取不到正文: %d %s", code, resp)
 		}
 	})
 

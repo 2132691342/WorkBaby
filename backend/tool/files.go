@@ -1,9 +1,11 @@
 package tool
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -14,10 +16,10 @@ import (
 // readTool 读文件：按行带行号返回，便于模型精确定位后再改。
 type readTool struct{}
 
-func (readTool) Name() string                { return "read" }
-func (readTool) Label() string               { return "读文件" }
+func (readTool) Name() string                 { return "read" }
+func (readTool) Label() string                { return "读文件" }
 func (readTool) ExecutionMode() ExecutionMode { return ExecutionParallel }
-func (readTool) RequiresApproval() bool      { return false }
+func (readTool) RequiresApproval() bool       { return false }
 func (readTool) Description() string {
 	return "读取文件文本内容。用 offset 与 limit 分页读大文件，不要一次读全部。"
 }
@@ -52,6 +54,11 @@ func (t readTool) Execute(ctx context.Context, in Input) (*Result, error) {
 	}
 	if st.IsDir() {
 		return nil, pkg.New(1008, "这是目录，不是文件", full)
+	}
+	// 超过阈值的文件走流式取页：全量读进内存只为了截断前 2000 行，
+	// 读一个几 GB 的日志会把助手连同整个界面一起卡住。
+	if st.Size() > readFileMax {
+		return t.readLarge(full, st, in)
 	}
 
 	raw, err := os.ReadFile(full)
@@ -103,6 +110,80 @@ func (t readTool) Execute(ctx context.Context, in Input) (*Result, error) {
 		title = fmt.Sprintf("读了 %s（%d-%d 行，%d 字节）", rel, offset, end, len(raw))
 	}
 	return &Result{Content: content, Title: title, Detail: out}, nil
+}
+
+// readFileMax 全量读上限：超过它的文本文件已远超任何上下文窗口，
+// 只为输出一页而行全量读取纯属浪费内存。
+const readFileMax = 32 << 20
+
+// readLarge 流式读取大文件的一页：逐行扫描只保留目标区间，不为整文件分配内存。
+// 编码按 UTF-8 处理（超大文本里 GBK 属少数场景）；单行超过 16MB 时报可读的错。
+func (readTool) readLarge(full string, st os.FileInfo, in Input) (*Result, error) {
+	rel := pkg.RelPath(in.Workspace, full)
+	f, err := os.Open(full)
+	if err != nil {
+		return nil, pkg.Wrap(1005, "读取文件失败", err)
+	}
+	defer f.Close()
+
+	head := make([]byte, 8192)
+	n, _ := io.ReadFull(f, head)
+	if pkg.LooksBinary(head[:n]) {
+		return &Result{
+			Content: "这是二进制文件，无法按文本读取。",
+			Title:   "读文件（二进制，已跳过）",
+			Detail:  full,
+			IsError: true,
+		}, nil
+	}
+	if in.Deps.Reads != nil {
+		in.Deps.Reads.MarkRead(full)
+	}
+
+	offset := Int(in.Args, "offset", 1)
+	limit := Int(in.Args, "limit", MaxLines)
+	if offset < 1 {
+		offset = 1
+	}
+	if limit <= 0 {
+		limit = MaxLines
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, pkg.Wrap(1005, "读取文件失败", err)
+	}
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 16<<20)
+	var b strings.Builder
+	lineNo, shown := 0, 0
+	for sc.Scan() {
+		lineNo++
+		if lineNo < offset {
+			continue
+		}
+		if shown >= limit {
+			break
+		}
+		fmt.Fprintf(&b, "%6d\t%s\n", lineNo, sc.Text())
+		shown++
+	}
+	if err := sc.Err(); err != nil {
+		return nil, pkg.Wrap(1005, "读取文件失败", err)
+	}
+	if shown == 0 {
+		return &Result{
+			Content: fmt.Sprintf("（文件有 %.1f MB，从第 %d 行起没有内容；用 offset=1 从头读）", float64(st.Size())/(1<<20), offset),
+			Title:   fmt.Sprintf("读了 %s（该区间为空）", rel),
+		}, nil
+	}
+
+	more := lineNo > offset-1+shown
+	out := b.String()
+	title := fmt.Sprintf("读了 %s（第 %d-%d 行，共 %.1f MB）", rel, offset, offset+shown-1, float64(st.Size())/(1<<20))
+	if more {
+		out += fmt.Sprintf("……（文件较大，已显示第 %d-%d 行；用 offset=%d 继续读）", offset, offset+shown-1, offset+shown)
+	}
+	return &Result{Content: out, Title: title, Detail: out}, nil
 }
 
 // resolveReadable 定位要读的文件。复制来的路径常与磁盘上的字节不一致，
@@ -173,10 +254,10 @@ func applyQuotePair(p string, q quotePair) string {
 // writeTool 整体写入文件。写前必读，避免模型凭空覆盖用户文件。
 type writeTool struct{}
 
-func (writeTool) Name() string                { return "write" }
-func (writeTool) Label() string               { return "写文件" }
+func (writeTool) Name() string                 { return "write" }
+func (writeTool) Label() string                { return "写文件" }
 func (writeTool) ExecutionMode() ExecutionMode { return ExecutionSequential }
-func (writeTool) RequiresApproval() bool      { return true }
+func (writeTool) RequiresApproval() bool       { return true }
 func (writeTool) Description() string {
 	return "整体写入文件（覆盖原内容）。会自动创建不存在的父目录。"
 }
@@ -236,10 +317,10 @@ func (t writeTool) Execute(ctx context.Context, in Input) (*Result, error) {
 // editTool 精确替换：old_text 必须唯一，避免多处替换造成不可预期修改。
 type editTool struct{}
 
-func (editTool) Name() string                { return "edit" }
-func (editTool) Label() string               { return "改文件" }
+func (editTool) Name() string                 { return "edit" }
+func (editTool) Label() string                { return "改文件" }
 func (editTool) ExecutionMode() ExecutionMode { return ExecutionSequential }
-func (editTool) RequiresApproval() bool      { return true }
+func (editTool) RequiresApproval() bool       { return true }
 func (editTool) Description() string {
 	return "按精确文本替换修改文件。old_text 必须在文件中唯一，否则会报错。"
 }
@@ -420,4 +501,3 @@ func truncateForMsg(s string) string {
 	}
 	return s
 }
-

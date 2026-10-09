@@ -33,15 +33,15 @@ func New(cfg llm.ClientConfig) *Client {
 }
 
 type block struct {
-	Type     string         `json:"type"`
-	Text     string         `json:"text,omitempty"`
-	Thinking string         `json:"thinking,omitempty"`
-	ID       string         `json:"id,omitempty"`
-	Name     string         `json:"name,omitempty"`
-	Input    map[string]any `json:"input,omitempty"`
-	ToolUseID string        `json:"tool_use_id,omitempty"`
-	Content  string         `json:"content,omitempty"`
-	IsError  bool           `json:"is_error,omitempty"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
+	Thinking  string         `json:"thinking,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Input     map[string]any `json:"input,omitempty"`
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Content   string         `json:"content,omitempty"`
+	IsError   bool           `json:"is_error,omitempty"`
 	// 图片块（识图输入）：type=image 时必填
 	Source *imageSource `json:"source,omitempty"`
 }
@@ -76,8 +76,8 @@ type requestBody struct {
 }
 
 type event struct {
-	Type    string `json:"type"`
-	Index   int    `json:"index"`
+	Type         string `json:"type"`
+	Index        int    `json:"index"`
 	ContentBlock *struct {
 		Type  string         `json:"type"`
 		ID    string         `json:"id"`
@@ -121,6 +121,8 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	feed := llm.NewFeed(ctx, 64)
 	httpReq, err := http.NewRequestWithContext(feed.Ctx(), http.MethodPost, c.baseURL+"/v1/messages", strings.NewReader(string(raw)))
 	if err != nil {
+		// 错误分支必须显式收口：feed 的 cancel 与 events 通道不关就是一次泄漏。
+		feed.Close()
 		return nil, pkg.Wrap(3001, "构造请求失败", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -130,10 +132,12 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
+		feed.Close()
 		return nil, pkg.Wrap(3002, "调用模型服务失败", err)
 	}
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
+		feed.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, pkg.Wrap(llm.MapStatus(resp.StatusCode), "模型服务返回错误",
 			&llm.StatusError{
@@ -349,4 +353,3 @@ func trim(s string) string {
 	}
 	return s
 }
-

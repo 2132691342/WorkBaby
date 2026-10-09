@@ -21,15 +21,22 @@ const approvalTimeout = 30 * time.Minute
 type ApprovalService struct {
 	env    *Env
 	mu     sync.Mutex
-	wait   map[string]chan Decision
+	wait   map[string]waitEntry
 	grants map[string]map[string]bool
+}
+
+// waitEntry 记录一次等待中的审批：会话随条目一起存，
+// 取消整会话时按内存字段过滤，不必逐个回库查（那会在持锁期间做 N 次 SQL）。
+type waitEntry struct {
+	ch        chan Decision
+	sessionID string
 }
 
 // NewApprovalService 构造审批服务。
 func NewApprovalService(env *Env) *ApprovalService {
 	return &ApprovalService{
 		env:    env,
-		wait:   map[string]chan Decision{},
+		wait:   map[string]waitEntry{},
 		grants: map[string]map[string]bool{},
 	}
 }
@@ -76,7 +83,7 @@ func (a *ApprovalService) Gate(ctx context.Context, sessionID string, perm strin
 
 	ch := make(chan Decision, 1)
 	a.mu.Lock()
-	a.wait[rec.ID] = ch
+	a.wait[rec.ID] = waitEntry{ch: ch, sessionID: sessionID}
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
@@ -130,11 +137,11 @@ func (a *ApprovalService) Decide(id string, approved bool, scope string) error {
 		return err
 	}
 	a.mu.Lock()
-	ch := a.wait[id]
+	entry, ok := a.wait[id]
 	a.mu.Unlock()
-	if ch != nil {
+	if ok {
 		select {
-		case ch <- Decision{Approved: approved, Scope: scope}:
+		case entry.ch <- Decision{Approved: approved, Scope: scope}:
 		default:
 		}
 	}
@@ -161,18 +168,19 @@ func (a *ApprovalService) Pending(sessionID string) ([]domain.ApprovalVO, error)
 }
 
 // CancelSession 取消会话内剩余待决审批（run 被停止时调用）。
+// 唤醒在锁内只做非阻塞发信号，DB 收口放锁外——持锁做 SQL 会连带卡住所有 Gate/Decide。
 func (a *ApprovalService) CancelSession(sessionID string) {
-	_ = a.env.Repo.CancelSessionApprovals(sessionID, nowMillis())
 	a.mu.Lock()
-	for id, ch := range a.wait {
-		if a.belongs(id, sessionID) {
+	for _, entry := range a.wait {
+		if entry.sessionID == sessionID {
 			select {
-			case ch <- Decision{}:
+			case entry.ch <- Decision{}:
 			default:
 			}
 		}
 	}
 	a.mu.Unlock()
+	_ = a.env.Repo.CancelSessionApprovals(sessionID, nowMillis())
 }
 
 // ForgetSession 清掉会话的放行记忆。Stop 不能清（用户「本会话内放行」的意愿还在），
@@ -189,14 +197,6 @@ type ToolCallView struct {
 	Args   map[string]any
 	Risk   string
 	Reason string
-}
-
-func (a *ApprovalService) belongs(approvalID, sessionID string) bool {
-	rec, err := a.env.Repo.GetApproval(approvalID)
-	if err != nil {
-		return false
-	}
-	return rec.SessionID == sessionID
 }
 
 func boolStatus(ok bool) string {

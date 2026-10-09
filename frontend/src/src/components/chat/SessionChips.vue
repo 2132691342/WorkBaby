@@ -85,18 +85,26 @@ function toggle(kind: 'model' | 'perm') {
   else show(kind)
 }
 
+// applying 标记正在应用的那一行：切换要等「改会话 + 刷新列表」两次请求，
+// 不挂反馈用户会连点，最终状态取决于返回顺序。
+const applying = ref('')
 async function chooseModel(model: string) {
-  if (!providerId.value) return
+  if (!providerId.value || applying.value) return
+  applying.value = `m:${model}`
   try {
     await session.setModel(providerId.value, model)
     open.value = null
     toast.ok(`本对话已切换到 ${model}`)
   } catch (e) {
     toast.bad(`切换模型失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    applying.value = ''
   }
 }
 
 async function choosePermission(key: string) {
+  if (applying.value) return
+  applying.value = `p:${key}`
   try {
     await session.setPermission(key)
     open.value = null
@@ -104,6 +112,8 @@ async function choosePermission(key: string) {
     toast.ok(`动手前规矩已改为「${name}」，下一轮生效`)
   } catch (e) {
     toast.bad(`设置失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    applying.value = ''
   }
 }
 
@@ -152,8 +162,9 @@ defineExpose({ show, close: () => (open.value = null) })
             v-for="m in filtered"
             :key="m"
             class="pop-row"
-            :class="{ 'is-hi': m === session.current?.model }"
+            :class="{ 'is-hi': m === session.current?.model, 'is-loading': applying === `m:${m}` }"
             type="button"
+            :disabled="!!applying"
             @click="chooseModel(m)"
           >
             <AppIcon v-if="m === session.current?.model" name="check" size="ic-xs" />
@@ -178,8 +189,9 @@ defineExpose({ show, close: () => (open.value = null) })
           v-for="p in PERMISSIONS"
           :key="p.key"
           class="pop-row"
-          :class="{ 'is-hi': p.key === session.current?.permission }"
+          :class="{ 'is-hi': p.key === session.current?.permission, 'is-loading': applying === `p:${p.key}` }"
           type="button"
+          :disabled="!!applying"
           @click="choosePermission(p.key)"
         >
           <span class="grow">

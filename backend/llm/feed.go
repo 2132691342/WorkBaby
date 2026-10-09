@@ -11,9 +11,25 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// StreamIdleTimeout 上游空闲超时：5 分钟内没有数据就掐断（var 便于测试调短）。
-// 推理模型思考期几分钟不发字节属正常，给 2 分钟会把正常回答误判成断线。
-var StreamIdleTimeout = 300 * time.Second
+// streamIdleMs 上游空闲超时（毫秒）。缺省 5 分钟：推理模型思考期几分钟不发字节
+// 属正常，给 2 分钟会把正常回答误判成断线；上限交给 service 层按设置夹取。
+// 用原子量而不是普通 var：看门狗在自己的 goroutine 里读，设置可能随时被改。
+var streamIdleMs atomic.Int64
+
+func init() { streamIdleMs.Store(300_000) }
+
+// StreamIdleTimeout 返回当前空闲超时。
+func StreamIdleTimeout() time.Duration {
+	return time.Duration(streamIdleMs.Load()) * time.Millisecond
+}
+
+// SetStreamIdleTimeout 覆写空闲超时；只做下界保护（1s），上界由调用方按设置夹取。
+func SetStreamIdleTimeout(d time.Duration) {
+	if d < time.Second {
+		d = time.Second
+	}
+	streamIdleMs.Store(d.Milliseconds())
+}
 
 // Feed 包装一条事件通道。Send 在 ctx 取消前阻塞而不是丢弃，
 // 消费方（内核）保证读到通道关闭，所以不会死锁。
@@ -72,7 +88,7 @@ func (f *Feed) TimedOut() bool { return f.timedOut.Load() }
 // 只在兜底路径触发，正常完成由 consume 自己收尾。
 func (f *Feed) WatchIdle() {
 	for {
-		timer := time.NewTimer(StreamIdleTimeout)
+		timer := time.NewTimer(StreamIdleTimeout())
 		select {
 		case <-f.ctx.Done():
 			timer.Stop()

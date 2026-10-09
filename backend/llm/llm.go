@@ -17,11 +17,11 @@ const (
 
 // 停止原因。
 const (
-	StopStop     = "stop"
-	StopLength   = "length"
-	StopToolUse  = "tool_use"
-	StopError    = "error"
-	StopAborted  = "aborted"
+	StopStop    = "stop"
+	StopLength  = "length"
+	StopToolUse = "tool_use"
+	StopError   = "error"
+	StopAborted = "aborted"
 )
 
 // 事件类型。
@@ -83,7 +83,7 @@ type Usage struct {
 	Total  int
 	// Cached 是这次输入里命中上游缓存的部分。缓存命中才是长对话真正的成本项：
 	// 同一段前缀重复计费的话，多轮对话的花费会随轮数线性膨胀。
-	Cached   int
+	Cached    int
 	LatencyMs int64
 }
 

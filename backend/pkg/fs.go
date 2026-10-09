@@ -29,12 +29,32 @@ func ReadText(p string) (string, error) {
 	return DecodeText(raw), nil
 }
 
-// WriteText 写文本文件并自动创建父目录。
+// WriteText 原子写文本文件并自动创建父目录。
+// 先写同目录临时文件再 rename：磁盘写满或进程中途退出时，原文件保持完整。
+// 助手写的是用户的真实工程文件，半截内容比写失败更糟。
 func WriteText(p, content string) error {
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Wrap(1006, "创建目录失败", err)
 	}
-	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+	tmp, err := os.CreateTemp(dir, ".wb-write-*")
+	if err != nil {
+		return Wrap(1007, "写入文件失败", err)
+	}
+	tmpName := tmp.Name()
+	discard := func() { _ = os.Remove(tmpName) }
+	if _, err := tmp.WriteString(content); err != nil {
+		_ = tmp.Close()
+		discard()
+		return Wrap(1007, "写入文件失败", err)
+	}
+	if err := tmp.Close(); err != nil {
+		discard()
+		return Wrap(1007, "写入文件失败", err)
+	}
+	_ = os.Chmod(tmpName, 0o644)
+	if err := os.Rename(tmpName, p); err != nil {
+		discard()
 		return Wrap(1007, "写入文件失败", err)
 	}
 	return nil

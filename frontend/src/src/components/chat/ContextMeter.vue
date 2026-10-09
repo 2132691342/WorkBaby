@@ -57,13 +57,12 @@ const aria = computed(() =>
   cursor: default;
   transition:
     background var(--wb-dur-fast) var(--wb-ease),
-    border-color var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
+    border-color var(--wb-dur-fast) var(--wb-ease);
 }
+/* 只给底色提示、不做缩放：它是读数不是控件，悬停放大等于骗用户去点 */
 .ctx:hover {
   background: var(--wb-tint);
   border-color: var(--wb-line);
-  transform: scale(1.02);
 }
 .ring {
   width: 18px;

@@ -234,7 +234,8 @@ export interface ModelCapability {
   note: string
 }
 
-/** 模型级配置：目录 + 用户覆写合并后的最终值 */
+/** 模型级配置：目录 + 用户覆写合并后的最终值。
+ * temperature / top_p 为 -1 表示「未设置」（跟随上游默认）；0 是合法的确定性取值。 */
 export interface ModelConfigVO {
   provider_id: string
   model: string
@@ -252,7 +253,9 @@ export interface UpsertModelConfigREQ {
   provider_id: string
   model: string
   context_window: number
+  /** -1 = 未设置（跟随上游默认）；合法取值 0 起 */
   temperature: number
+  /** -1 = 未设置（跟随上游默认）；合法取值 0 起 */
   top_p: number
   vision: boolean
   tool_call: boolean

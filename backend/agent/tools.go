@@ -57,7 +57,7 @@ func (l *Loop) executeTools(ctx context.Context, calls []llm.ToolCall) {
 
 	if sequential {
 		for _, p := range plans {
-			results[p.idx] = l.runOne(ctx, p)
+			results[p.idx] = l.runOneSafe(ctx, p)
 		}
 	} else {
 		l.runParallel(ctx, plans, results)
@@ -103,12 +103,13 @@ func (l *Loop) prepare(ctx context.Context, calls []llm.ToolCall) ([]plan, []*to
 			continue
 		}
 		if l.isRepeated(call) {
+			msg := "这个调用已经试了 " + itoa(repeatCallLimit) + " 次没有进展，换个做法吧。"
 			results[i] = &tool.Result{
-				Content: "同样的调用已经连续试了 " + itoa(repeatCallLimit) + " 次，换个做法吧。",
+				Content: msg,
 				Title:   "重复调用",
 				IsError: true,
 			}
-			l.emitSkipped(call, "重复调用", "同样的调用已经连续试了 "+itoa(repeatCallLimit)+" 次，换个做法吧。")
+			l.emitSkipped(call, "重复调用", msg)
 			continue
 		}
 		if l.cfg.Gate != nil {
@@ -146,9 +147,11 @@ func callKey(call llm.ToolCall) string {
 	return call.Name + "|" + string(raw)
 }
 
+// isRepeated 判断同一调用是否已经用满执行额度；计数在整个 run 内累计不衰减——
+// 同一工具同一参数反复出现就是模型在打转，中间穿插别的调用不代表它换了方案。
 // 去重表没有锁：只有 prepare 串行读写它。搬进并行路径时必须同时给它加锁。
 func (l *Loop) isRepeated(call llm.ToolCall) bool {
-	return l.repeated[callKey(call)] >= repeatCallLimit-1
+	return l.repeated[callKey(call)] >= repeatCallLimit
 }
 
 func (l *Loop) markCalled(call llm.ToolCall) {
@@ -171,24 +174,29 @@ func (l *Loop) runParallel(ctx context.Context, plans []plan, results []*tool.Re
 		case sem <- struct{}{}:
 		case <-ctx.Done():
 			// 这个下标必须有结果：assistant 声明了几个调用就得回填几个。
-			results[p.idx] = l.runOne(ctx, p)
+			results[p.idx] = l.runOneSafe(ctx, p)
 			continue
 		}
 		wg.Add(1)
 		go func(p plan) {
 			defer wg.Done()
-			defer func() {
-				<-sem
-				// recover 必须落在这条 goroutine 的延迟调用里，放外层只会拿到 nil。
-				if rec := recover(); rec != nil {
-					pkg.Errorf("tool: %s 内部崩溃: %v\n%s", p.tool.Name(), rec, debug.Stack())
-					results[p.idx] = panicResult(p.tool.Label(), rec)
-				}
-			}()
-			results[p.idx] = l.runOne(ctx, p)
+			defer func() { <-sem }()
+			results[p.idx] = l.runOneSafe(ctx, p)
 		}(p)
 	}
 	wg.Wait()
+}
+
+// runOneSafe 在 runOne 之外兜 panic：工具 panic 不该把整个进程带走。
+// 串行与并行两条路径共用这一层——recover 必须直接包住 runOne 的调用栈才拿得到值。
+func (l *Loop) runOneSafe(ctx context.Context, p plan) (res *tool.Result) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			pkg.Errorf("tool: %s 内部崩溃: %v\n%s", p.tool.Name(), rec, debug.Stack())
+			res = panicResult(p.tool.Label(), rec)
+		}
+	}()
+	return l.runOne(ctx, p)
 }
 
 // panicResult 把工具 panic 转成一条给模型看的失败结果。

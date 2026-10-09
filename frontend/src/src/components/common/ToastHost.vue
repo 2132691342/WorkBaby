@@ -19,9 +19,20 @@ const ICONS: Record<string, string> = { ok: 'check', bad: 'alert', info: 'info' 
 </template>
 
 <style scoped>
+/* 可点关闭的 toast 同样要有点击反馈：悬停提亮、按下回收，
+   否则用户不知道它能点，只能等它自己消失 */
 .toast {
   pointer-events: auto;
   cursor: pointer;
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.toast:hover {
+  background: var(--wb-surface-hover);
+}
+.toast:active {
+  transform: scale(0.98);
 }
 .toast.is-ok .ic {
   color: var(--wb-success);

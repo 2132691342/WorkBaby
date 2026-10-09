@@ -1,13 +1,15 @@
-﻿package service
+package service
 
 import (
 	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"WorkBaby/backend/agent"
 	"WorkBaby/backend/domain"
+	"WorkBaby/backend/llm"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/tool"
 )
@@ -104,17 +106,16 @@ func projectDoc(workspace string) string {
 }
 
 // 上下文预算的策略量：窗口本身来自模型能力目录（domain.ModelCapabilityOf）。
-// 余量是下限，实际会抬到该模型真正下发的输出预算（见 budget）。
+// 余量缺省跟随真实下发的输出预算，用户设置只作为覆写。
 const (
-	defaultContextReserve = 16384
-	defaultContextKeep    = 20000
+	defaultContextKeep = 20000
 	// 压缩后保留量的上限：保留区跟着窗口涨，但不能让一次裁剪仍留下大半窗口，
 	// 否则压缩完立刻又超预算，来回裁剪。
 	maxContextKeep = 200000
 )
 
 // capabilityOf 取模型能力画像：用户配置 > 全局窗口设置 > 内置目录。
-// 窗口在哪定，输出预算就在哪派生（窗口 1/8），画像里的两个数永远一致。
+// 改窗口后输出预算要跟着重算，画像里的两个数永远一致。
 func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapability {
 	cap := domain.ModelCapabilityOf(model)
 	if cfg, err := c.env.Repo.GetModelConfig(providerID, model); err == nil && cfg != nil {
@@ -125,7 +126,7 @@ func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapabil
 		}
 		cap.Vision = cfg.Vision
 		cap.ToolCall = cfg.ToolCall
-		cap.MaxOutput = domain.MaxOutputOf(cap.ContextWindow)
+		cap.MaxOutput = cap.OutputBudget()
 		return cap
 	}
 	if raw, err := c.env.Repo.GetSetting(domain.SettingContextWindow); err == nil {
@@ -135,40 +136,83 @@ func (c *ChatService) capabilityOf(providerID, model string) domain.ModelCapabil
 			cap.Note = ""
 		}
 	}
-	cap.MaxOutput = domain.MaxOutputOf(cap.ContextWindow)
+	cap.MaxOutput = cap.OutputBudget()
 	return cap
 }
 
-// samplingOf 取温度、top_p 与最大输出：输出预算按合并后的窗口 1/8 派生，不可设置。
-// 写死任何一档都会在长任务上把回答截成半截（见 domain.MaxOutputOf）。
-func (c *ChatService) samplingOf(providerID, model string) (temp, topP *float64, maxOutput int) {
-	t, p := domain.DefaultTemperature, domain.DefaultTopP
-	maxOutput = domain.MaxOutputOf(c.capabilityOf(providerID, model).ContextWindow)
-	if cfg, err := c.env.Repo.GetModelConfig(providerID, model); err == nil && cfg != nil {
-		if cfg.Temperature > 0 {
-			t = cfg.Temperature
-		}
-		if cfg.TopP > 0 {
-			p = cfg.TopP
+// samplingOf 取采样参数与输出预算。cap 由调用方统一解析，一次装配只查一次库。
+// 采样参数只在用户显式配置过时才下发（SamplingUnset 表示跟随上游默认）：
+// 拿一个拍脑袋的默认温度覆盖所有模型，会在推理型与思考型模型上撞上游约束。
+// 输出预算 = 窗口 1/8 与厂商硬上限取小（见 domain.ModelCapability.OutputBudget）。
+func (c *ChatService) samplingOf(cap domain.ModelCapability, providerID, model string) (temp, topP *float64, maxOutput int) {
+	maxOutput = cap.OutputBudget()
+	cfg, err := c.env.Repo.GetModelConfig(providerID, model)
+	if err != nil || cfg == nil {
+		return nil, nil, maxOutput
+	}
+	if cfg.Temperature != domain.SamplingUnset {
+		t := cfg.Temperature
+		temp = &t
+	}
+	if cfg.TopP != domain.SamplingUnset {
+		p := cfg.TopP
+		topP = &p
+	}
+	return temp, topP, maxOutput
+}
+
+// maxTurns 读取轮数上限：设置表可覆写（前端暂不暴露，留给高级用户直接改库）。
+func (c *ChatService) maxTurns() int {
+	return c.intSetting(domain.SettingMaxTurns, domain.DefaultMaxTurns)
+}
+
+// toolParallel 读取工具并发度上限。
+func (c *ChatService) toolParallel() int {
+	return c.intSetting(domain.SettingToolParallel, domain.DefaultToolParallel)
+}
+
+// intSetting 读一个正整数设置，缺失或不合法时用缺省值。
+func (c *ChatService) intSetting(key string, def int) int {
+	if v, err := c.env.Repo.GetSetting(key); err == nil && v != "" {
+		if n, e := strconv.Atoi(v); e == nil && n > 0 {
+			return n
 		}
 	}
-	return &t, &p, maxOutput
+	return def
+}
+
+// fmtPtr 把可空采样参数打成人话，日志里「默认」与「0」必须能分开。
+func fmtPtr(v *float64) string {
+	if v == nil {
+		return "默认"
+	}
+	return strconv.FormatFloat(*v, 'g', -1, 64)
+}
+
+// applyStreamIdle 把「上游空闲超时」设置写进 llm 层：设置运行期可改，
+// 每次 run 装配时同步一次（一次原子写，成本可忽略）；夹取 5 秒 ~ 30 分钟。
+// 低于 5 秒会把推理模型的正常思考误判成断线，高于 30 分钟用户体感就是卡死。
+func (c *ChatService) applyStreamIdle() {
+	sec := c.intSetting(domain.SettingStreamIdleSec, 300)
+	if sec < 5 {
+		sec = 5
+	}
+	if sec > 1800 {
+		sec = 1800
+	}
+	llm.SetStreamIdleTimeout(time.Duration(sec) * time.Second)
 }
 
 // budget 把「模型能力 + 用户设置」翻译成内核要的几个整数。
 // 内核不读设置表也不认识模型名，压缩策略只在这里一处。
-func (c *ChatService) budget(providerID, model, system string) agent.Budget {
-	reserve := defaultContextReserve
+func (c *ChatService) budget(cap domain.ModelCapability, system string) agent.Budget {
+	// 余量缺省 = 真正下发的输出预算：拿小余量去请大输出，压缩算出来的
+	// 「还能塞多少」会虚高，总占用可能顶破窗口。用户设置只作为显式覆写。
+	reserve := cap.OutputBudget()
 	if v, err := c.env.Repo.GetSetting(domain.SettingContextReserve); err == nil && v != "" {
 		if n, e := strconv.Atoi(v); e == nil && n > 0 {
 			reserve = n
 		}
-	}
-	cap := c.capabilityOf(providerID, model)
-	// 余量必须容得下真正下发的输出预算：拿 16k 的余量去请 32k 的输出，
-	// 压缩算出来的「还能塞多少」会虚高，总占用可能顶破窗口。
-	if _, _, maxOutput := c.samplingOf(providerID, model); maxOutput > reserve {
-		reserve = maxOutput
 	}
 	if reserve >= cap.ContextWindow {
 		// 留的余量比整个窗口还大时预算恒为负，压缩会退化成什么都不裁。
@@ -184,10 +228,12 @@ func (c *ChatService) budget(providerID, model, system string) agent.Budget {
 		keep = maxContextKeep
 	}
 	return agent.Budget{
-		Window:       cap.ContextWindow,
-		WindowKnown:  cap.Known,
-		Reserve:      reserve,
-		Keep:         keep,
-		SystemTokens: len(system) / 4,
+		Window:      cap.ContextWindow,
+		WindowKnown: cap.Known,
+		Reserve:     reserve,
+		Keep:        keep,
+		// 估算口径必须与内核一致：走 agent.EstimateTokens 而不是再写一个 len/4，
+		// 中文 system 提示词按字节算会低估约 1/4，压缩判断因此偏乐观。
+		SystemTokens: agent.EstimateTokens(system, nil),
 	}
 }

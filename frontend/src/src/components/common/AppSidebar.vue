@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../stores/settings'
 import SessionList from '../chat/SessionList.vue'
 import AppIcon from './AppIcon.vue'
 
+const props = defineProps<{ creating?: boolean }>()
 const emit = defineEmits<{ newSession: [] }>()
 
 const route = useRoute()
@@ -29,7 +30,13 @@ function onListClick(e: MouseEvent) {
       <div class="logo">WB</div>
       <b>WorkBaby</b>
     </div>
-    <button class="btn btn-lav side-btn" type="button" @click="emit('newSession')">
+    <button
+      class="btn btn-lav side-btn"
+      type="button"
+      :class="{ 'is-loading': props.creating }"
+      :disabled="props.creating"
+      @click="emit('newSession')"
+    >
       <AppIcon name="plus" /> 新对话
     </button>
     <div class="sess" @click.capture="onListClick">

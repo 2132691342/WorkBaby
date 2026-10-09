@@ -5,16 +5,28 @@ import type { ApprovalVO } from '../../types/api'
 import { summarizeArgs } from '../../utils/md'
 import AppIcon from '../common/AppIcon.vue'
 
-const props = defineProps<{ approval: ApprovalVO; busy?: boolean }>()
-const emit = defineEmits<{ decide: [id: string, approved: boolean, scope: string] }>()
+const props = defineProps<{
+  approval: ApprovalVO
+  busy?: boolean
+  /** 决策回调（返回 Promise）：成功后卡片由父级移除，失败由卡片复位重试。 */
+  onDecide?: (id: string, approved: boolean, scope: string) => Promise<void> | void
+}>()
 
 const scope = ref<'once' | 'session'>('once')
 // 点了哪个决定就只有那个按钮转圈，await 期间另一个按钮禁用，防双击重复决策
 const pending = ref<'' | 'allow' | 'reject'>('')
-function decide(id: string, approved: boolean) {
+async function decide(id: string, approved: boolean) {
   if (props.busy || pending.value) return
   pending.value = approved ? 'allow' : 'reject'
-  emit('decide', id, approved, scope.value)
+  try {
+    await props.onDecide?.(id, approved, scope.value)
+  } catch {
+    // 失败已由 store 弹提示；这里吸收异常，让 finally 能复位按钮供重试
+  } finally {
+    // 无论成败都要复位：失败时卡片不会被移除，不复位就是一个永久转圈的按钮，
+    // 而这是「助手卡住」时用户唯一的自救入口。
+    pending.value = ''
+  }
 }
 const riskText: Record<string, string> = {
   low: '低风险',
