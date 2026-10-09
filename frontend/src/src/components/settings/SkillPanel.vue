@@ -5,7 +5,7 @@ import { onMounted, ref } from 'vue'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
-import { OpenFileDialog, OpenDirectoryDialog } from '../../../wailsjs/go/main/App'
+import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 import PageState from '../common/PageState.vue'
 
@@ -103,16 +103,16 @@ async function submitCreate() {
 // importing 覆盖真正的导入请求段：原生对话框本身有系统反馈，
 // 选完文件后的解析与落盘才是需要转圈的那一段。
 const importing = ref(false)
-async function importFiles(fromDir: boolean) {
+async function importMd() {
   if (importing.value) return
   err.value = ''
-  const p = fromDir ? await OpenDirectoryDialog('') : await OpenFileDialog('', '')
+  const p = await OpenFileDialog('', '*.md')
   if (!p) return
   importing.value = true
   try {
     const r = await api.skills.import([p])
     if (!r.imported) {
-      err.value = '没找到 SKILL.md。技能是一个文件夹，里面放着 SKILL.md 文件。'
+      err.value = '这个文件里没有解析出技能。技能是一个 SKILL.md，或一个 zip 包。'
       return
     }
     await store.loadSkills()
@@ -122,6 +122,47 @@ async function importFiles(fromDir: boolean) {
   } finally {
     importing.value = false
   }
+}
+
+// 技能包导入：浏览器读 zip 内容转 base64 上传，后端解压落盘。
+// 用 <input type=file> 而不是原生对话框：前端要拿到文件字节，对话框只给路径。
+const zipInput = ref<HTMLInputElement | null>(null)
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let bin = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(bin)
+}
+
+async function importZipFile(file: File) {
+  if (importing.value) return
+  err.value = ''
+  importing.value = true
+  try {
+    const data = arrayBufferToBase64(await file.arrayBuffer())
+    const r = await api.skills.importZip(file.name, data)
+    if (!r.imported) {
+      err.value = r.skipped.length
+        ? `没有可导入的技能：${r.skipped.join('、')}`
+        : '压缩包里没有找到 SKILL.md。技能包里每个技能一个文件夹，各含一个 SKILL.md。'
+      return
+    }
+    await store.loadSkills()
+    toast.ok(`已导入 ${r.imported} 个技能`)
+  } catch (e) {
+    err.value = (e as Error).message
+  } finally {
+    importing.value = false
+    if (zipInput.value) zipInput.value.value = ''
+  }
+}
+
+function onZipChange(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0]
+  if (f) void importZipFile(f)
 }
 
 // 删除两段式确认：与模型服务删除同一交互
@@ -168,22 +209,30 @@ onMounted(() => store.loadSkills())
         type="button"
         :class="{ 'is-loading': importing }"
         :disabled="importing"
-        @click="importFiles(false)"
+        @click="zipInput?.click()"
       >
-        <AppIcon name="download" size="ic-xs" /> 导入 SKILL.md
+        <AppIcon name="download" size="ic-xs" /> 导入技能包（.zip）
       </button>
+      <input
+        ref="zipInput"
+        type="file"
+        accept=".zip"
+        hidden
+        @change="onZipChange"
+      />
       <button
         class="btn"
         type="button"
         :class="{ 'is-loading': importing }"
         :disabled="importing"
-        @click="importFiles(true)"
+        @click="importMd"
       >
-        <AppIcon name="folder" size="ic-xs" /> 导入文件夹
+        <AppIcon name="doc" size="ic-xs" /> 导入 SKILL.md
       </button>
     </div>
     <p class="hint">
       技能是给助手的「操作秘籍」。写清什么时候用、怎么做，它就会照着做。
+      导入支持别人分享的技能包（zip）或单个 SKILL.md 文件。
     </p>
 
     <p v-if="err" class="alert is-bad">{{ err }}</p>

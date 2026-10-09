@@ -5,7 +5,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
-import type { AttachmentREQ } from '../../types/api'
+import * as api from '../../api'
+import type { AttachmentREQ, FileEntryVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import ContextMeter from './ContextMeter.vue'
 import SessionChips from './SessionChips.vue'
@@ -59,12 +60,100 @@ const cmdIndex = ref(0)
 
 const outsideCount = computed(() => files.value.filter((f) => f.outside).length)
 const full = computed(() => files.value.length >= MAX_ATTACH)
-// 只认行首的整条 /xxx；一旦带空格就不是命令了
-const cmds = computed(() => {
+
+// ---- 斜杠菜单：内置命令 + 已启用技能，输入 / 名字过滤 ----
+interface SlashItem {
+  kind: 'cmd' | 'skill'
+  key: string
+  name: string
+  desc: string
+}
+
+const MAX_SKILL_MATCH = 8
+const slashItems = computed<SlashItem[]>(() => {
   const q = menu.value === 'slash' ? text.value : ''
   if (!q || /\s/.test(q)) return []
-  return COMMANDS.filter((c) => `/${c.key}`.startsWith(q))
+  const cmds: SlashItem[] = COMMANDS.filter((c) => `/${c.key}`.startsWith(q)).map((c) => ({
+    kind: 'cmd', key: c.key, name: c.name, desc: c.desc,
+  }))
+  const kw = q.slice(1).toLowerCase()
+  const skills: SlashItem[] = settings.skills
+    .filter((s) => s.enabled)
+    .filter((s) => !kw || s.name.toLowerCase().includes(kw) || s.description.toLowerCase().includes(kw))
+    .slice(0, MAX_SKILL_MATCH)
+    .map((s) => ({ kind: 'skill', key: s.name, name: s.name, desc: s.description }))
+  return [...cmds, ...skills]
 })
+
+// 选技能后填入 /skill:名字，需求说明交给用户补；发送时后端把正文注入这条消息
+function runSlash(item: SlashItem) {
+  if (item.kind === 'cmd') {
+    runCommand(item.key as (typeof COMMANDS)[number]['key'])
+    return
+  }
+  clearInput()
+  text.value = `/skill:${item.key} `
+  nextTick(() => ta.value?.focus())
+}
+
+// ---- @ 引用：工作区文件面板，逐级浏览点选，不再弹资源管理器 ----
+const browsePath = ref('')
+const browseEntries = ref<FileEntryVO[]>([])
+const browseLoading = ref(false)
+const browseFilter = ref('')
+const browseLoaded = ref(false)
+
+const browseCrumbs = computed(() => {
+  const parts = browsePath.value ? browsePath.value.split('/').filter(Boolean) : []
+  return [
+    { name: '工作区', path: '' },
+    ...parts.map((p, i) => ({ name: p, path: parts.slice(0, i + 1).join('/') })),
+  ]
+})
+const browseShown = computed(() => {
+  const q = browseFilter.value.trim().toLowerCase()
+  return q ? browseEntries.value.filter((e) => e.name.toLowerCase().includes(q)) : browseEntries.value
+})
+
+async function loadDir(path: string) {
+  browseLoading.value = true
+  browsePath.value = path
+  browseFilter.value = ''
+  try {
+    browseEntries.value = (await api.files.list(path)).entries
+    browseLoaded.value = true
+  } catch (e) {
+    toast.bad(`读取目录失败：${(e as Error)?.message || '请重试'}`)
+    browseEntries.value = []
+  } finally {
+    browseLoading.value = false
+  }
+}
+
+// 树里点选的一定在工作区内（后端 SafeJoin 兜底），直接按相对路径挂附件
+function pickFromTree(entry: FileEntryVO) {
+  if (entry.dir) {
+    void loadDir(browsePath.value ? `${browsePath.value}/${entry.name}` : entry.name)
+    return
+  }
+  if (full.value) {
+    toast.bad(`一次最多引用 ${MAX_ATTACH} 个文件`)
+    return
+  }
+  const rel = browsePath.value ? `${browsePath.value}/${entry.name}` : entry.name
+  if (!files.value.some((f) => f.path === rel)) {
+    files.value.push({ path: rel, name: entry.name, outside: false })
+  }
+  text.value = text.value.replace(/@\S*$/, '').trimEnd()
+  menu.value = null
+  nextTick(autoGrow)
+}
+
+// 上一级目录：根目录的上一级还是根目录
+function browseUp() {
+  const idx = browsePath.value.lastIndexOf('/')
+  void loadDir(idx > 0 ? browsePath.value.slice(0, idx) : '')
+}
 
 // 输入框高度：0 = 跟随内容自动；拖过顶边把手后由用户说了算。
 // 只靠自动撑高的话超过上限就只能在小框里滚，长文本写完自己也看不清。
@@ -143,9 +232,13 @@ function onInput() {
   const v = text.value
   if (/@\S*$/.test(v)) {
     menu.value = 'mention'
+    // 面板只拉一次根目录；进目录后靠条目点击导航
+    if (!browseLoaded.value && !browseLoading.value) void loadDir('')
   } else if (v.startsWith('/') && !/\s/.test(v)) {
     menu.value = 'slash'
     cmdIndex.value = 0
+    // 技能清单懒加载：第一次打 / 才拉，之后用缓存
+    if (!settings.skills.length && !settings.skillsLoading) void settings.loadSkills()
   } else {
     menu.value = null
   }
@@ -160,8 +253,8 @@ function runCommand(key: (typeof COMMANDS)[number]['key']) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (menu.value === 'slash' && cmds.value.length) {
-    const n = cmds.value.length
+  if (menu.value === 'slash' && slashItems.value.length) {
+    const n = slashItems.value.length
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       cmdIndex.value = (cmdIndex.value + 1) % n
@@ -174,7 +267,7 @@ function onKeydown(e: KeyboardEvent) {
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault()
-      runCommand(cmds.value[cmdIndex.value].key)
+      runSlash(slashItems.value[Math.min(cmdIndex.value, n - 1)])
       return
     }
   }
@@ -371,7 +464,7 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
           class="ta"
           rows="1"
           :disabled="disabled"
-          :placeholder="placeholder || '有什么要帮忙的？直接说就行，打 @ 可引用文件，可粘贴截图'"
+          :placeholder="placeholder || '有什么要帮忙的？直接说就行，打 @ 选文件，打 / 用技能，可粘贴截图'"
           @keydown="onKeydown"
           @input="onInput"
           @paste="onPaste"
@@ -412,37 +505,79 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
         </button>
       </div>
 
-      <!-- 斜杠命令：↑↓ 选择、回车执行、Esc 关闭 -->
+      <!-- 斜杠菜单：命令 + 技能，↑↓ 选择、回车执行、Esc 关闭 -->
       <div v-if="menu === 'slash'" class="pop menu-pop">
-        <div class="menu-label">命令</div>
-        <div v-if="!cmds.length" class="pop-row muted">没有匹配的命令</div>
+        <div v-if="!slashItems.length" class="pop-row muted">没有匹配的命令或技能</div>
         <template v-else>
           <button
-            v-for="(c, i) in cmds"
-            :key="c.key"
+            v-for="(it, i) in slashItems"
+            :key="`${it.kind}-${it.key}`"
             class="pop-row"
             :class="{ 'is-hi': i === cmdIndex }"
             type="button"
             @mouseenter="cmdIndex = i"
-            @click="runCommand(c.key)"
+            @click="runSlash(it)"
           >
-            <span class="cm">/{{ c.key }}</span>
+            <span v-if="it.kind === 'cmd'" class="cm">/{{ it.key }}</span>
+            <AppIcon v-else name="sparkles" size="ic-xs" />
             <span class="grow">
-              <b class="pr-t">{{ c.name }}</b>
-              <span class="pr-d">{{ c.desc }}</span>
+              <b class="pr-t">{{ it.kind === 'cmd' ? it.name : it.key }}</b>
+              <span class="pr-d">{{ it.desc }}</span>
             </span>
+            <span v-if="it.kind === 'skill'" class="tag">技能</span>
           </button>
         </template>
       </div>
 
-      <!-- @ 引用：只给一个动作，够用就好 -->
+      <!-- @ 引用：工作区文件逐级浏览点选 -->
       <div v-else-if="menu === 'mention'" class="pop menu-pop">
-        <div class="menu-label">引用文件到这条消息</div>
-        <button class="pop-row" type="button" :disabled="full" @click="pickFile">
-          <AppIcon name="doc" size="ic-xs" />
+        <div class="mb-head">
+          <button
+            class="icon-btn is-sm"
+            type="button"
+            title="上一级"
+            :disabled="!browsePath || browseLoading"
+            @click="browseUp"
+          >
+            <AppIcon name="chevron-left" size="ic-xs" />
+          </button>
+          <div class="crumbs">
+            <template v-for="(cr, i) in browseCrumbs" :key="cr.path || '__root__'">
+              <span v-if="i" class="crumb-sep">/</span>
+              <button
+                class="crumb"
+                :class="{ 'is-cur': i === browseCrumbs.length - 1 }"
+                type="button"
+                @click="loadDir(cr.path)"
+              >
+                {{ cr.name }}
+              </button>
+            </template>
+          </div>
+          <input v-model="browseFilter" class="input input-sm mb-filter" placeholder="过滤" />
+        </div>
+        <div class="mb-list">
+          <div v-if="browseLoading" class="pop-row muted">读取中…</div>
+          <div v-else-if="!browseShown.length" class="pop-row muted">
+            {{ browseFilter ? '没有匹配的文件' : '这个目录是空的' }}
+          </div>
+          <button
+            v-for="e in browseShown"
+            :key="e.name"
+            class="pop-row"
+            type="button"
+            @click="pickFromTree(e)"
+          >
+            <AppIcon :name="e.dir ? 'folder' : 'doc'" size="ic-xs" />
+            <span class="grow"><b class="pr-t">{{ e.name }}</b></span>
+            <AppIcon v-if="e.dir" name="chevron-right" size="ic-xs" />
+          </button>
+        </div>
+        <button class="pop-row mb-out" type="button" :disabled="full" @click="pickFile">
+          <AppIcon name="search" size="ic-xs" />
           <span class="grow">
-            <b class="pr-t">选择文件…</b>
-            <span class="pr-d">{{ full ? `一次最多 ${MAX_ATTACH} 个` : '只能选工作目录里的文件，助手才读得到' }}</span>
+            <b class="pr-t">浏览整个电脑…</b>
+            <span class="pr-d">工作区之外的文件助手读不到</span>
           </span>
         </button>
       </div>
@@ -506,6 +641,69 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
   bottom: calc(100% + 6px);
   max-height: 300px;
   overflow-y: auto;
+}
+/* @ 引用面板：路径行与底部的「整个电脑」固定，中间列表滚动 */
+.menu-pop:has(.mb-list) {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.mb-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2) var(--wb-sp-2) var(--wb-sp-1);
+  border-bottom: 1px solid var(--wb-line);
+  flex: none;
+}
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+}
+.crumb {
+  border: 0;
+  background: transparent;
+  padding: 2px 4px;
+  border-radius: var(--wb-radius-sm);
+  font-size: var(--wb-fs-xs);
+  font-weight: 600;
+  color: var(--wb-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--wb-dur-fast) var(--wb-ease), color var(--wb-dur-fast) var(--wb-ease);
+}
+.crumb:hover:not(:disabled) {
+  background: var(--wb-tint);
+  color: var(--wb-ink);
+}
+.crumb.is-cur {
+  color: var(--wb-ink);
+}
+.crumb-sep {
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-xs);
+}
+.mb-filter {
+  width: 88px;
+  height: var(--wb-ctl-h-sm);
+  font-size: var(--wb-fs-xs);
+  flex: none;
+}
+.mb-list {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  padding: var(--wb-sp-1) var(--wb-sp-1) var(--wb-sp-2);
+}
+.mb-out {
+  border-top: 1px solid var(--wb-line);
+  flex: none;
+  border-radius: 0;
 }
 .cm {
   font-family: var(--font-mono);

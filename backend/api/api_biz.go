@@ -2,6 +2,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"errors"
 	"io"
 	"strconv"
@@ -413,6 +414,40 @@ func (h *Handler) ImportSkills(c *gin.Context) {
 		return
 	}
 	ok(c, resp)
+}
+
+// ImportSkillZip 导入技能压缩包：Data 是 zip 原始字节的 base64。
+func (h *Handler) ImportSkillZip(c *gin.Context) {
+	var req domain.ImportSkillZipREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap(1107, "请求格式不正确", err))
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(req.Data)
+	if err != nil {
+		fail(c, pkg.Wrap(1107, "技能包数据不是合法的 base64", err))
+		return
+	}
+	if len(raw) == 0 {
+		fail(c, pkg.New(1109, "技能包内容为空", req.Filename))
+		return
+	}
+	resp, err := h.Svc.Skills.ImportZip(req.Filename, raw)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, resp)
+}
+
+// ListFiles 列举工作区目录，供 @ 引用面板逐级浏览。
+func (h *Handler) ListFiles(c *gin.Context) {
+	vo, err := h.Svc.Files.List(c.Query("path"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
 }
 
 // DeleteSkill 删除用户技能。

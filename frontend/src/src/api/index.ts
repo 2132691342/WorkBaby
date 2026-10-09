@@ -3,6 +3,7 @@ import type {
   ApprovalVO,
   AttachmentREQ,
   BootstrapVO,
+  FileListVO,
   KnowledgeDocVO,
   ModelCapability,
   ModelConfigVO,
@@ -73,9 +74,17 @@ export const skills = {
     post<SkillVO>('/skills', body),
   import: (paths: string[]) =>
     post<{ imported: number; skipped: string[] }>('/skills/import', { paths }),
+  /** 导入 zip 技能包：data 是 zip 原始字节的 base64 */
+  importZip: (filename: string, data: string) =>
+    post<{ imported: number; skipped: string[] }>('/skills/import-zip', { filename, data }),
   remove: (id: string) => post<boolean>(`/skills/${id}/delete`),
   toggle: (id: string, enabled: boolean) => post<boolean>(`/skills/${id}/toggle`, { enabled }),
   content: (id: string) => get<{ content: string }>(`/skills/${id}/content`),
+}
+
+/** 工作区文件浏览：path 为相对工作区的目录，空串即根目录 */
+export const files = {
+  list: (path = '') => get<FileListVO>('/files', { path }),
 }
 
 export const knowledge = {

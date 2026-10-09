@@ -64,6 +64,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			skills.GET("", h.ListSkills)
 			skills.POST("", h.CreateSkill)
 			skills.POST("/import", h.ImportSkills)
+			skills.POST("/import-zip", h.ImportSkillZip)
 			skills.POST("/:id/toggle", h.ToggleSkill)
 			skills.POST("/:id/delete", h.DeleteSkill)
 			skills.GET("/:id/content", h.SkillContent)
@@ -80,6 +81,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 
 		v1.GET("/tools", h.ListTools)
 		v1.POST("/tools/:name/toggle", h.ToggleTool)
+		v1.GET("/files", h.ListFiles)
 		v1.GET("/models/capability", h.ModelCapability)
 		v1.POST("/models/capabilities", h.ModelCapabilities)
 		v1.GET("/models/config", h.GetModelConfig)

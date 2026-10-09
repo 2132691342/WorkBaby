@@ -568,12 +568,17 @@ func (c *ChatService) recordUsage(sessionID, providerID, model string, ctxTokens
 	}
 }
 
-// resolveSkill 把 /skill:名字 展开成带正文的用户消息。
+// resolveSkill 把「/skill:名字 需求」展开成带正文的用户消息。
+// 名字只取第一个空白前的整段：后面跟的具体要求原样保留，作为正文之外的补充指令。
 func (c *ChatService) resolveSkill(content string) (string, string) {
 	if !strings.HasPrefix(content, "/") || c.env.Skills == nil {
 		return content, content
 	}
-	name := strings.TrimPrefix(content, "/")
+	head := content
+	if idx := strings.IndexAny(content, " \t\n\r"); idx >= 0 {
+		head = content[:idx]
+	}
+	name := strings.TrimPrefix(head, "/")
 	name = strings.TrimPrefix(name, "skill:")
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -582,6 +587,10 @@ func (c *ChatService) resolveSkill(content string) (string, string) {
 	body, err := c.env.Skills.Content(name)
 	if err != nil {
 		return content, content
+	}
+	extra := strings.TrimSpace(strings.TrimPrefix(content, head))
+	if extra != "" {
+		return content, "请按下面这个技能的步骤来做：\n\n" + body + "\n\n用户的具体要求：\n" + extra
 	}
 	return content, "请按下面这个技能的步骤来做：\n\n" + body
 }

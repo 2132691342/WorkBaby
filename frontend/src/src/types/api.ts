@@ -114,6 +114,17 @@ export interface SkillVO {
   enabled: boolean
 }
 
+export interface FileEntryVO {
+  name: string
+  dir: boolean
+}
+
+/** 工作区目录列举：path 是相对工作区的目录，空串即根目录 */
+export interface FileListVO {
+  path: string
+  entries: FileEntryVO[]
+}
+
 export interface KnowledgeDocVO {
   id: string
   path: string

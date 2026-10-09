@@ -53,8 +53,9 @@ description: 按团队模板把本周工作整理成周报。
 **正文不常驻**——模型判断该用某个技能时，自己调 `read` 把它当文件读进来。
 技能一多就把上下文撑爆，渐进式披露是唯一可行的做法。
 
-用户也可以在输入框打 `/技能名` 直接触发：正文由 service 展开后拼成一条用户消息发出去，
-与手打的消息走同一条落库链路（`entries` 里就是一条普通 user 条目），只是发送前多一步展开。
+用户也可以在输入框打 `/` 从菜单选技能，或直接发 `/skill:名字 需求说明`：正文由 service
+展开后拼成一条用户消息发出去（需求说明附在展开正文之后），与手打的消息走同一条落库链路
+（`entries` 里就是一条普通 user 条目），只是发送前多一步展开。
 
 ## 管理
 
@@ -62,7 +63,8 @@ description: 按团队模板把本周工作整理成周报。
 |---|---|
 | GET /skills | 列表（含来源与启停状态） |
 | POST /skills | 新建：写 `SKILL.md` 到全局技能目录并登记 |
-| POST /skills/import | 从磁盘目录导入（把已有技能目录收进注册表） |
+| POST /skills/import | 从磁盘导入 `{paths[]}`：单个 SKILL.md 或含它的文件夹 |
+| POST /skills/import-zip | 导入压缩包 `{filename, data}`（zip 字节 base64）：解压到临时目录后走同一条定位复制链路；条目路径经 SafeJoin 校验防穿越，单文件 64MB / 总量 256MB 双限流 |
 | POST /skills/:id/toggle | 启停，落 settings KV，重启后仍生效 |
 | GET /skills/:id/content | 正文预览 |
 | POST /skills/:id/delete | 删除（内置技能不可删） |
@@ -71,9 +73,15 @@ description: 按团队模板把本周工作整理成周报。
 
 | 技能 | 用途 |
 |---|---|
-| office-docs | Excel / Word / PDF 处理套路 |
+| office-docs | Word / Excel / PPT / PDF 的读取与产物套路 |
 | create-skill | 教用户怎么写自己的 SKILL.md |
 | frontend-design | 生成页面时的设计约束 |
+| deep-research | 结构化调研：大纲确认 → 逐项搜索 → 交叉验证 → 带引用报告 |
+| translation | 中英互译：判用途定风格、术语表全程一致、双语对照交付 |
+| resume | 简历按 JD 定制：不编造事实、原文件只读、产出写 resume-output/ |
+| travel-plan | 旅行规划：每日行程 / 预算表 / 打包清单三件套 |
+| writing | 职场写作与润色：周报 / 邮件 / 通知 / 总结骨架，去 AI 味 |
+| prompt-craft | 提示词打磨：角色任务约束格式四件套 + 小样测试循环 |
 
 ## 取舍
 

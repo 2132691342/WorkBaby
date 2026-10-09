@@ -74,6 +74,8 @@
 | GET | /skills | 技能列表（含 source 与 enabled） |
 | POST | /skills | 新建技能 `{name, description, body}` |
 | POST | /skills/import | 从磁盘导入 `{paths[]}`（SKILL.md 或含它的文件夹）→ `{imported, skipped[]}` |
+| POST | /skills/import-zip | 导入技能压缩包 `{filename, data}`（zip 字节 base64）→ `{imported, skipped[]}` |
+| GET | /files | 工作区目录列举（`?path=` 相对目录，空即根）→ `{path, entries[{name, dir}]}`；供 @ 引用面板浏览 |
 | POST | /skills/:id/toggle | `{enabled}` |
 | POST | /skills/:id/delete | 删除用户技能（builtin 不可删） |
 | GET | /skills/:id/content | 技能正文 |

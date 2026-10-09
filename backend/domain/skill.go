@@ -48,6 +48,12 @@ type ImportSkillsREQ struct {
 	Paths []string `json:"paths"`
 }
 
+// ImportSkillZipREQ 导入技能压缩包入参：Data 是 zip 原始字节的 base64。
+type ImportSkillZipREQ struct {
+	Filename string `json:"filename"`
+	Data     string `json:"data"`
+}
+
 // ImportSkillsRESP 导入出参。
 type ImportSkillsRESP struct {
 	Imported int      `json:"imported"`

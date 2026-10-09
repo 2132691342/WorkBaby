@@ -104,6 +104,13 @@ function addModel(m: string) {
   dropdownOpen.value = false
 }
 
+// 焦点真正离开「输入框 + 弹层」这一块才收起；focusout 会冒泡，是外点关闭的正解
+function onMSelectBlur(e: FocusEvent) {
+  const next = e.relatedTarget as Node | null
+  if (next && e.currentTarget && (e.currentTarget as Node).contains(next)) return
+  dropdownOpen.value = false
+}
+
 function removeModel(m: string) {
   form.models = chosen.value.filter((x) => x !== m).join(',')
 }
@@ -219,7 +226,11 @@ async function ensureProviderSaved(): Promise<string | null> {
 // 最大输出不可设置：后端按「窗口 1/8 与厂商硬上限取小」派生，无需在此传递。
 // temperature / top_p 的 -1 是「未设置」哨兵：留空表示跟随上游默认，
 // 0 是合法的确定性取值，两者必须能分开。
+// 界面一律预填常见默认值：空着显示「默认」会让用户误以为没有配置。
 const SAMPLING_UNSET = -1
+const DEFAULT_WINDOW = 128000
+const DEFAULT_TEMPERATURE = '0.25'
+const DEFAULT_TOP_P = '0.75'
 const samplingText = (v: number) => (v < 0 ? '' : String(v))
 const samplingValue = (raw: string, max: number) => {
   const t = raw.trim()
@@ -245,9 +256,9 @@ const cfgRows = ref<Record<string, CfgRow>>({})
 
 function applyConfig(m: string, vo: ModelConfigVO) {
   cfgRows.value[m] = {
-    context_window: vo.window_known ? String(vo.context_window) : '',
-    temperature: samplingText(vo.temperature),
-    top_p: samplingText(vo.top_p),
+    context_window: vo.window_known ? String(vo.context_window) : String(DEFAULT_WINDOW),
+    temperature: samplingText(vo.temperature) || DEFAULT_TEMPERATURE,
+    top_p: samplingText(vo.top_p) || DEFAULT_TOP_P,
     vision: vo.vision,
     tool_call: vo.tool_call,
     window_known: vo.window_known,
@@ -258,7 +269,9 @@ function applyConfig(m: string, vo: ModelConfigVO) {
 
 function blankRow(): CfgRow {
   return {
-    context_window: '', temperature: '', top_p: '',
+    context_window: String(DEFAULT_WINDOW),
+    temperature: DEFAULT_TEMPERATURE,
+    top_p: DEFAULT_TOP_P,
     vision: false, tool_call: true, window_known: false, saving: false, saved: false,
   }
 }
@@ -464,7 +477,7 @@ onMounted(() => store.loadProviders())
           </div>
 
           <!-- 搜索式下拉：上游几百个模型也能选，输入即过滤 -->
-          <div class="mselect">
+          <div class="mselect" @focusout="onMSelectBlur" @keydown.esc="dropdownOpen = false">
             <input
               v-model="modelFilter"
               class="input"
@@ -495,7 +508,7 @@ onMounted(() => store.loadProviders())
               </button>
             </div>
           </div>
-          <div @focusout="dropdownOpen = false">
+          <div>
             <div class="flex-r mrow-acts">
               <span class="hint">
                 {{ store.modelsLoading ? '正在读取模型列表…' : options.length ? '' : '拉取列表后在这里选择，也可以手打' }}
@@ -570,8 +583,8 @@ onMounted(() => store.loadProviders())
               </button>
             </div>
             <div class="hint">
-              窗口留空 = 跟随内置目录；温度 / Top P 留空 = 跟随上游默认，填 0 才是刻意要确定性输出。
-              改完点保存立刻生效，对话里按这里的值算上下文水位。
+              已按常见默认值预填（窗口 128000 / 温度 0.25 / Top P 0.75），目录认得出的模型显示识别值，直接改即可。
+              清空则回退：窗口跟随内置目录、采样跟随上游默认；填 0 才是刻意要确定性输出。改完点保存立刻生效。
             </div>
           </div>
         </div>
@@ -657,6 +670,8 @@ onMounted(() => store.loadProviders())
 }
 .form-card {
   margin-bottom: var(--wb-sp-4);
+  /* 模型下拉弹层要探出卡片：.card 的 overflow:hidden 会把它裁掉一截 */
+  overflow: visible;
 }
 .form-card h3 {
   margin: 0 0 var(--wb-sp-3);

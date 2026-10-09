@@ -4,9 +4,9 @@ package domain
 
 import "strings"
 
-// DefaultContextWindow 是认不出模型时的保守窗口：偏小的代价是压缩早一点（可恢复），
-// 偏大的代价是首轮就撞上游 context length 错误（整轮作废）。
-const DefaultContextWindow = 65536
+// DefaultContextWindow 是认不出模型时的缺省窗口：当前主流模型 128K 起步，
+// 取 128000 与界面预填的默认值一致；更小的模型靠用户在设置里手填纠正。
+const DefaultContextWindow = 128000
 
 // ModelCapability 是单个模型的能力画像。
 type ModelCapability struct {

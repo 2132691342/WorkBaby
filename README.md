@@ -16,7 +16,7 @@
 | 开箱即跑 | Python 与 PowerShell 7 已嵌进程序，首次启动自动解开，不用自己装环境 |
 
 打开就用：装好 → 设置里填一个模型服务 → 回到聊天页说人话 → 它自己读文件、改文件、跑脚本、查资料。
-需要贴文件时在输入框打 `@` 选文件；`/` 可以唤出常用命令。
+需要贴文件时在输入框打 `@` 从工作区文件面板里选；打 `/` 唤出常用命令与技能，选一个技能它就按那套方法干活。
 
 ## 为什么这样设计（取舍）
 
@@ -65,7 +65,7 @@ backend/
   agent/      内核：单层流式循环 + 工具调度 + 上下文压缩（不依赖 IO 与桌面壳）
   llm/        协议适配（openai / anthropic / ollama + retry + factory + 假实现）
   tool/       工具注册表 + 11 个内置工具的执行与安全护栏
-  service/    业务编排（会话 / 对话 / 审批 / 模型服务 / 设置 / 系统提示 / 用量）
+  service/    业务编排（会话 / 对话 / 审批 / 模型服务 / 技能 / 工作区文件 / 设置 / 用量）
   server/     gin 路由 + SSE hub（合流 / 重放 / 慢客户端）
   api/        启动装配 + 业务 handler + 对话框 / 自启等系统能力实现
   repo/       GORM 持久层
@@ -95,7 +95,7 @@ specs/        子系统规格 01-14
 | [DESIGN.md](DESIGN.md) | 视觉语言、设计令牌、交互原则 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 全貌：分层、依赖方向、每个模块的设计 / 实现 / 为什么 / 代价、可靠性对策、已知限制 |
 | [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 域模型与持久化：表、树状条目链、迁移与 FTS5 |
-| [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP 端点、SSE 事件字典与断线对账四条规则 |
+| [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP 端点、SSE 事件字典与断线对账五条规则 |
 | [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 路由、页面骨架、组件基元、设置键位 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、布局纪律、数据目录、测试写法、排错 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 构建产物、内置运行时、分发注意 |

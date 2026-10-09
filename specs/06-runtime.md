@@ -12,16 +12,16 @@ PowerShell 是 Windows 自动化的第一入口（文件批处理 / 系统设置
 | 项 | 位置 / 约定 |
 |---|---|
 | 归档目录 | `backend/runtime/bundled/`（与代码同包，`//go:embed all:bundled`） |
-| Python | `python-3.12.8-embed-amd64.zip`：官方 Windows embeddable 包，平铺布局，不剥层 |
-| PowerShell | `PowerShell-7.4.2-win-x64.zip`：官方 win-x64 zip，本身平铺（pwsh.exe 在根），不剥层 |
+| Python | `python-3.12.8-embed-amd64.zip`：Windows embeddable 发行包，平铺布局，不剥层 |
+| PowerShell | `PowerShell-7.4.2-win-x64.zip`：win-x64 发行 zip，本身平铺（pwsh.exe 在根），不剥层 |
 | 版本托管 | Git LFS（`.gitattributes`），仓库里必须存真文件 |
 | 一致性 | 版本常量（`pythonVersion` / `powershellVersion`）与 `*ArchiveSHA256` 常量必须与归档同步；`TestBundledRuntimeChain` 守护三者一致 |
 
-只认 zip：Windows 上 zip 是原生格式，官方 embeddable 与 PowerShell 也都只发 zip，
+只认 zip：Windows 上 zip 是原生格式，两个运行时的上游发行包也都只发 zip，
 少一次格式转换就少一处失败点。embeddable 包默认关掉 `site`（`python312._pth` 里
 `#import site` 是注释），解压后必须打开它，否则装不了用户包。
 
-升级归档的显式步骤：从官方渠道下载新 zip 替换 `bundled/` 里的同名文件 →
+升级归档的显式步骤：从对应版本的上游发布页下载新 zip 替换 `bundled/` 里的同名文件 →
 改版本常量 → 算出新归档的 SHA-256 填进 `*ArchiveSHA256` 常量 →
 跑 `go test ./backend/runtime/`。漏改版本常量时 `versionMatches` 会拿旧标记跳过解压，
 用户机器上永远停在旧运行时，SHA 守护就是拦这个。归档没放进 `bundled/` 时测试跳过——

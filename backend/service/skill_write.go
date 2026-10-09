@@ -1,7 +1,10 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,6 +86,95 @@ func (s *SkillService) Import(paths []string) (*domain.ImportSkillsRESP, error) 
 		}
 	}
 	return resp, nil
+}
+
+// ImportZip 导入一个技能压缩包：zip 里可以是一个技能（任意层级的 SKILL.md），
+// 也可以是一包技能。先解压到临时目录，再走与磁盘导入同一套定位与复制。
+func (s *SkillService) ImportZip(filename string, data []byte) (*domain.ImportSkillsRESP, error) {
+	if s.env.Skills == nil {
+		return nil, domain.ErrSkillNotFound
+	}
+	if !strings.EqualFold(filepath.Ext(filename), ".zip") {
+		return nil, pkg.New(8108, "技能包必须是 .zip 文件", filename)
+	}
+	tmp, err := os.MkdirTemp("", "workbaby-skill-")
+	if err != nil {
+		return nil, pkg.Wrap(8108, "创建临时目录失败", err)
+	}
+	defer os.RemoveAll(tmp)
+	if err := unzipSkill(data, tmp); err != nil {
+		return nil, err
+	}
+	found := locateSkillFiles(tmp)
+	if len(found) == 0 {
+		return nil, pkg.New(8109, "压缩包里没有 SKILL.md：技能包里每个技能一个文件夹，各含一个 SKILL.md", filename)
+	}
+	resp := &domain.ImportSkillsRESP{Skipped: []string{}}
+	for _, src := range found {
+		name, err := s.copySkill(src)
+		if err != nil {
+			resp.Skipped = append(resp.Skipped, filepath.Base(filepath.Dir(src)))
+			pkg.Warnf("skill: 从压缩包导入 %s 失败: %v", src, err)
+			continue
+		}
+		resp.Imported++
+		if _, ok := s.env.Skills.Get(name); !ok {
+			for _, sk := range skill.LoadDir(s.env.Paths.SkillsDir, domain.SkillSourceGlobal) {
+				s.env.Skills.Add(sk)
+			}
+		}
+	}
+	return resp, nil
+}
+
+// 解压上限：技能包是文档不是数据载体，超限几乎肯定是拿错了文件。
+const (
+	zipMaxFileSize = 64 << 20
+	zipMaxTotal    = 256 << 20
+)
+
+// unzipSkill 解压技能包到 dst。条目路径必须仍落在 dst 内，防 zip 路径穿越。
+func unzipSkill(data []byte, dst string) error {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return pkg.Wrap(8108, "压缩包打不开，确认是有效的 zip 文件", err)
+	}
+	var total int64
+	for _, f := range zr.File {
+		target, err := pkg.SafeJoin(dst, f.Name)
+		if err != nil {
+			return pkg.New(8108, "压缩包里有不合法的路径条目", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := pkg.EnsureDir(target); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := pkg.EnsureDir(filepath.Dir(target)); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return pkg.Wrap(8108, "读取压缩包条目失败", err)
+		}
+		buf, rerr := io.ReadAll(io.LimitReader(rc, zipMaxFileSize+1))
+		_ = rc.Close()
+		if rerr != nil {
+			return pkg.Wrap(8108, "读取压缩包条目失败", rerr)
+		}
+		if int64(len(buf)) > zipMaxFileSize {
+			return pkg.New(8108, "压缩包里的单个文件太大", f.Name)
+		}
+		total += int64(len(buf))
+		if total > zipMaxTotal {
+			return pkg.New(8108, "压缩包解压后的总量太大", "")
+		}
+		if err := os.WriteFile(target, buf, 0o644); err != nil {
+			return pkg.Wrap(8108, "解压压缩包失败", err)
+		}
+	}
+	return nil
 }
 
 // copySkill 把一个 SKILL.md 复制进数据目录，名字冲突时自动加序号。
