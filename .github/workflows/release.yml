@@ -3,7 +3,7 @@
 # 触发：推送形如 v0.1.0 / v1.2.3 的 tag。
 # 流程：
 #   1) checkout（含 Git LFS 拉取内置运行时归档）
-#   2) 安装 Go 1.25 + Node 20 + Wails CLI + NSIS
+#   2) 安装 Go（版本随 go.mod）+ Node 20 + Wails CLI + NSIS
 #   3) wails build（前端 npm ci && npm run build → 嵌入二进制 → NSIS 打包成 installer.exe）
 #   4) 上传 build/bin/WorkBaby-amd64-installer.exe 到 GitHub Release，自动生成 release notes
 #
@@ -43,10 +43,10 @@ jobs:
           # —— 否则 tag 指向的 commit 在远端孤立，checkout 会失败）。
           ref: ${{ github.ref }}
 
-      - name: Setup Go 1.25
+      - name: Setup Go（版本随 go.mod）
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version-file: go.mod
           cache: true
 
       - name: Setup Node 20
@@ -91,7 +91,7 @@ jobs:
           go build ./backend/...
           if ($LASTEXITCODE -ne 0) { throw "go build failed" }
           Write-Host '== 依赖方向门禁 ==' -ForegroundColor Cyan
-          powershell -ExecutionPolicy Bypass -File scripts/check-boundaries.ps1
+          go run ./tools/check-boundaries
           if ($LASTEXITCODE -ne 0) { throw "check-boundaries failed" }
           # 注：CI 不单独跑前端类型检查——vue-tsc / typescript 在 windows-latest runner 上
           # npm 子依赖冲突易假阳失败（ERR_PACKAGE_PATH_NOT_EXPORTED）。前端类型错误会被 wails build
@@ -130,12 +130,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           wails build -clean -platform windows/amd64 -trimpath -nsis 2>&1 | Tee-Object -FilePath wails-build.log
+          # 管道到 Tee-Object 后退出码取自 $LASTEXITCODE，必须当场存下来再判；
+          # 不判的话失败会一路拖到「验证产物」才炸成一句没有线索的缺失提示。
           $wailsExit = $LASTEXITCODE
-
-          # wails 的失败必须在这里就暴露出来。早先这里用 $LASTEXITCODE 判断，
-          # 但 PowerShell 调 .ps1 不更新它，值其实是 wails build 的；
-          # 真正致命的是后面那句无条件 exit 0 —— 它把 wails 的失败吞成成功，
-          # 错误一路拖到「验证产物」才炸成一句没有线索的「installer missing」。
           if ($wailsExit -ne 0) {
             Write-Host '::error::wails build 失败，日志见 wails-build.log'
             Get-Content wails-build.log -Tail 40 -ErrorAction SilentlyContinue

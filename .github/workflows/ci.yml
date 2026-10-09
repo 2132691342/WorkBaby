@@ -33,10 +33,10 @@ jobs:
           lfs: true
           fetch-depth: 1
 
-      - name: Setup Go 1.25
+      - name: Setup Go（版本随 go.mod）
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version-file: go.mod
           cache: true
 
       - name: go vet
@@ -46,12 +46,15 @@ jobs:
         run: go build ./backend/...
 
       - name: 依赖方向门禁
-        shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File scripts/check-boundaries.ps1
+        run: go run ./tools/check-boundaries
 
       - name: go test（-short 跳过 timing-sensitive flake）
         shell: pwsh
-        run: go test -short -v ./backend/... 2>&1 | Tee-Object test-output.log
+        run: |
+          # 管道到 Tee-Object 之后，pwsh 的退出码不再反映 go test：
+          # 必须显式取 $LASTEXITCODE，否则测试全红这一步也是绿的。
+          go test -short -v ./backend/... 2>&1 | Tee-Object test-output.log
+          if ($LASTEXITCODE -ne 0) { throw "go test failed" }
         if: always()
 
       # 失败时把失败行摘进 job summary：无需下载 artifact 就能看到原因。
