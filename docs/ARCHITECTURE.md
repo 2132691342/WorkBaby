@@ -57,7 +57,7 @@ backend/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任�
 2. 后台 goroutine 组装 `agent.Config`（系统提示 / 工具 / 预算 / 审批闸门 / 事件回调）并 `Run`
 3. 内核单层循环：压缩 → 注入插话 → 流式调模型 → 执行工具 → 按序回填 → 下一轮
 4. 事件经 `service.Emitter`（分配 seq）→ `server.Hub`（delta 合流 + 广播）→ SSE 到前端
-5. 需要审批时闸门挂起等用户决策；30 分钟无人值守按拒绝
+5. 需要审批时闸门挂起等用户决策；30 分钟无人值守按拒绝；进程退出时残留的待决审批在下次启动收口并回传给前端
 6. run 结束：落 assistant 条目与用量，推 `chat:done`，前端拉权威快照
 
 ## 4. 模块设计
@@ -74,7 +74,11 @@ one-at-a-time 队列，在轮间注入。
 
 **关键不变量**（都有测试锁定）：
 - 工具结果严格按调用下标回填——`assistant(tool_calls)` 与 `tool` 配对错位上游直接 400
-- 事件出口串行化——并行工具各自在 goroutine 里 emit，不加锁就是并发改同一份落库位点
+- 事件出口按会话串行化——并行工具各自在 goroutine 里 emit，不加锁就是并发改同一份落库位点；
+  「分配 seq」与「投递」必须是同一次原子步，否则 seq 大的那条可能先到，前端按 seq 去重就把先到的丢了
+- 每轮一个可取消 ctx，轮结束即 cancel——失败的轮次若不掐断上游，重试包装器会继续
+  在无人读的通道上阻塞，goroutine 与那条 HTTP 连接一起挂到进程退出
+- run 结束必须 cancel 它自己的 ctx：只把句柄从表里摘掉不调用，每个正常结束的 run 泄漏一整棵 ctx 子树
 - 被截断轮的 tool_calls 一律不执行
 - 同一工具同一参数重复 3 次直接判失败，让模型换路而不是空转到轮数上限
 - 并发工具在 goroutine 边界 recover：一个工具的 bug 不该带走整个桌面进程
@@ -223,10 +227,10 @@ PowerShell 7 解压（两份都是官方 zip，平铺布局；归档 `go:embed` 
 | 握手 | `bootstrap.ts` | 模块顶层静态注册 `app:ready` / `app:startup-error`，拿到端口才设 axios baseURL。握手结果用**响应式值**而不是事件通知下游：事件在监听器注册前派发会丢，组件读 ref 永远读得到当前值；20s 超时给「启动失败」提示，不让人永远停在「启动中」 |
 | 状态 | `stores/session.ts` | 会话列表 / 当前会话 / 消息链：**服务端快照是唯一真相**，前端只做展示与切换 |
 | | `stores/chat.ts` | 运行态（流式正文、思考、工具卡、审批、水位、压缩与截断提示）与全部 SSE 事件入口 |
-| | `stores/settings.ts` | `/bootstrap` 下发的设置全集 + 本地编辑，改动按原键名写回服务端 |
+| | `stores/settings.ts` | `/bootstrap` 下发的设置全集 + 本地编辑，改动按原键名写回服务端；另有 `syncSettings()` 走 `GET /settings`——bootstrap 一个大接口任一子项出错就整体失败，而主题 / 字体只依赖设置表，不该被别的子项连坐 |
 | | `stores/toast.ts` | 瞬时提示，与业务状态解耦 |
 | 组合式 | `composables/useSse.ts` | 按会话订阅事件流：断线重连、带 `last_event_id` 重放、**重连即对账** |
-| | `composables/useTheme.ts` · `useAppearance.ts` | 主题 / 字体 / 字号落地到 `document.documentElement` 的 CSS 变量；取值表只此一份，设置页保存与启动恢复共用 |
+| | `composables/useTheme.ts` · `useAppearance.ts` | 主题 / 字体 / 字号 / 自定义背景落地到 `document.documentElement` 的 CSS 变量；取值表只此一份，设置页保存与启动恢复共用。背景图走 `/assets/background`（前端拿不到数据目录路径），因此要盯住端口握手再重apply 一次 |
 | | `composables/useSessionPanel.ts` | 对话页会话面板的折叠状态：localStorage 持久化，标题栏按钮与面板共用同一份开关 |
 | | `composables/shellIntent.ts` | 壳意图队列（托盘「新建对话」、外部打开文件）：先存意图再切页，视图挂载时消费，躲开「事件早于视图挂载」 |
 | 纯函数 | `utils/md.ts` | markdown 渲染唯一出口（marked + DOMPurify + highlight.js）：流式渲染与收尾完整渲染两个入口 |
@@ -265,6 +269,12 @@ PowerShell 7 解压（两份都是官方 zip，平铺布局；归档 `go:embed` 
 | 压缩裁坏上下文 | 切点只在 user 边界；切不出完整 turn 就放弃裁剪 |
 | 模型打转 | 同参重复调用用满 3 次后，第 4 次起判失败 |
 | 审批无人值守 | 30 分钟超时按拒绝，理由写明时限 |
+| 进程退出时还有确认没决定 | 等待决策的通道是内存态，重启即失效：启动时按拒绝收口并把清单经 `GET /bootstrap` 的 `expired_approvals` 交回前端，打开对应会话时说清「哪几步被按拒绝了，可以让助手重做」 |
+| 大库重建索引 | 后台任务 + 进度轮询 + 可取消，不把一次 HTTP 请求占上几十秒 |
+| @ 引用 / 知识库读入超大文件 | 读入前先 `os.Stat` 判大小（附件 32MB、知识库 64MB、图片 5MB），超限给出可执行的替代路径；`os.ReadFile` 是整文件进内存 |
+| 多步写中途失败留下半套配置 | 模型服务的「落服务 + 定默认 + 校正默认模型」与知识库「换分块 + 改文档状态」各进一个事务 |
+| 上游进入重试但下游已放弃 | 每轮可取消 ctx + run 收尾 cancel，避免 goroutine 与连接泄漏 |
+| SSE 单客户端内事件乱序 | 每个客户端一把发送锁：publish 的「读通道 → 挤 delta → 回灌」三步不可并发 |
 | 模型名指向不存在的模型 | 发送前本地校验 + 默认模型失效自愈 |
 | 图片发给不支持识图的模型 | 发送前按能力目录与模型配置拦截 |
 

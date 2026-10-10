@@ -63,6 +63,10 @@ async function loadBoot() {
   // 已保存的外观与显示偏好要落到 DOM 上，否则刷新后主题之外的设置全部失效。
   syncFromSettings()
   chat.setShowThinking(settings.values['show_thinking'] !== 'false')
+  // 上次退出时没处理完的确认：进程一退，等待决策的通道就没了，
+  // 后端已按拒绝收口。交给会话层，打开对应对话时说清楚——
+  // 不说的话用户只看到「助手那一步没做」，而全过程没有任何痕迹。
+  session.setStaleApprovals(settings.boot?.expired_approvals || [])
   booted.value = true
 }
 

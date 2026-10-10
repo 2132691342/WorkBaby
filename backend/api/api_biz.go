@@ -52,6 +52,7 @@ func (h *Handler) Bootstrap(c *gin.Context) {
 		Permission:        settings[domain.SettingPermission],
 		PythonReady:       runtimeReady(h.Paths),
 		Settings:          settings,
+		ExpiredApprovals:  h.ExpiredApprovals(),
 	})
 }
 
@@ -494,13 +495,25 @@ func (h *Handler) DeleteDoc(c *gin.Context) {
 }
 
 // ReindexDocs 全量重建索引。
-func (h *Handler) ReindexDocs(c *gin.Context) {
-	n, err := h.Svc.Knowledge.Reindex()
+// StartReindex 启动后台重建：不等它跑完——大库重建会把这条请求占上一分钟，
+// 期间界面只有一个转圈，也没有任何办法停它。
+func (h *Handler) StartReindex(c *gin.Context) {
+	started, err := h.Svc.Knowledge.StartReindex()
 	if err != nil {
 		fail(c, err)
 		return
 	}
-	ok(c, domain.ReindexRESP{Reindexed: n})
+	ok(c, domain.StartReindexRESP{Started: started})
+}
+
+// ReindexStatus 取重建进度。
+func (h *Handler) ReindexStatus(c *gin.Context) {
+	ok(c, h.Svc.Knowledge.ReindexStatus())
+}
+
+// CancelReindex 中断重建。
+func (h *Handler) CancelReindex(c *gin.Context) {
+	ok(c, h.Svc.Knowledge.CancelReindex())
 }
 
 // SearchKnowledge 检索知识库。
@@ -663,6 +676,47 @@ func (h *Handler) AllSettings(c *gin.Context) {
 		return
 	}
 	ok(c, all)
+}
+
+// GetBackground 取当前自定义背景。
+func (h *Handler) GetBackground(c *gin.Context) {
+	bg, err := h.Svc.Settings.Background()
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, bg)
+}
+
+// SetBackground 设置自定义背景；空路径表示清除。
+func (h *Handler) SetBackground(c *gin.Context) {
+	var req domain.BackgroundREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap(1107, "请求格式不正确", err))
+		return
+	}
+	bg, err := h.Svc.Settings.SetBackground(req.Path, req.Opacity, req.Blur)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, bg)
+}
+
+// BackgroundAsset 吐出背景图本体。前端不能直接读数据目录里的文件，
+// 只能拿到一个 URL——这也是背景图必须复制到数据目录的原因之一。
+func (h *Handler) BackgroundAsset(c *gin.Context) {
+	bg, err := h.Svc.Settings.Background()
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	if bg.Image == "" || !pkg.FileExists(bg.Image) {
+		fail(c, pkg.New(1005, "还没有设置背景图", ""))
+		return
+	}
+	c.Header("Cache-Control", "no-cache")
+	c.File(bg.Image)
 }
 
 // SetSetting 写入设置。

@@ -119,6 +119,18 @@ async function openSession(id: string) {
             <p>最近 {{ days }} 天，助手替你花了多少</p>
           </div>
           <span class="sp" />
+          <!-- 手动刷新：区间切换是唯一的重载入口，跑完一轮想看最新数只能来回切，
+               那不是刷新，是把用户当定时器用。 -->
+          <button
+            class="btn btn-sm"
+            type="button"
+            :class="{ 'is-loading': loading }"
+            :disabled="loading"
+            @click="load()"
+          >
+            <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
+            {{ loading ? '刷新中…' : '刷新' }}
+          </button>
           <div class="seg" role="group" aria-label="统计区间">
             <button
               v-for="d in SPANS"

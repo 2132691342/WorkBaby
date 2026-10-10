@@ -155,6 +155,25 @@ export interface BootstrapVO {
   permission: string
   python_ready: boolean
   settings: Record<string, string>
+  /** 本次启动被按拒绝收口的上次残留确认；空数组表示没有 */
+  expired_approvals?: ApprovalVO[]
+}
+
+/** 知识库重建任务的进度快照 */
+export interface ReindexJobVO {
+  running: boolean
+  total: number
+  done: number
+  failed: number
+  started_at: number
+  finished_at: number
+}
+
+/** 自定义背景 */
+export interface BackgroundVO {
+  image: string
+  opacity: number
+  blur: number
 }
 
 // SSE 事件载荷

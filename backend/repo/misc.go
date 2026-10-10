@@ -21,6 +21,19 @@ func (r *Repo) SetSetting(key, value string) error {
 	return wrapDB("写入设置", r.db.Save(&domain.SettingDO{Key: key, Value: value}).Error)
 }
 
+// SetSettings 批量写入设置值：成组的设置必须一次落库，
+// 只写了一半会得到一个「两个设置互相矛盾」的界面状态。
+func (r *Repo) SetSettings(kv map[string]string) error {
+	return r.WithTx(func(tx *Repo) error {
+		for k, v := range kv {
+			if err := tx.SetSetting(k, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // AllSettings 取全部设置。
 func (r *Repo) AllSettings() (map[string]string, error) {
 	var list []domain.SettingDO

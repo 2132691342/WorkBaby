@@ -54,7 +54,12 @@ async function send(text: string, attachments: AttachmentREQ[]) {
   sending.value = true
   try {
     if (!session.currentId) await newSession()
-    if (!session.currentId) return
+    // 自动建会话失败时 newSession 已经弹过 toast，这里必须再兜一句并退出：
+    // 静默 return 的表现是「点了发送，什么都没发生」。
+    if (!session.currentId) {
+      toast.bad('没有可用的对话，发送已取消')
+      return
+    }
     const sent = await chat.send(session.currentId, text, attachments)
     // 发送后立刻回显这条消息：等 chat:done 拉快照才显示的话，
     // 用户会以为消息没发出去（助手还没回，观感上就是「什么都没发生」）。
@@ -228,6 +233,20 @@ function consumeShellIntent() {
   }
 }
 
+// 回到对话页必须无条件对一次账：离开期间 SSE 的 sink 被摘掉了，
+// chat:done / chat:error 整段丢失，回来就会永远停在「正在组织回答」。
+// 先退运行态再拉快照——run 若真的还在跑，后续 delta 会把运行态补回来。
+async function syncOnMount() {
+  chat.reset()
+  if (session.currentId) {
+    await chat.syncApprovals(session.currentId)
+    await reload()
+    // 上次退出时挂着的确认已经被按拒绝收口：这条提示只在打开那个会话时念一次。
+    const text = session.takeStaleText(session.currentId)
+    if (text) chat.notify(text)
+  }
+}
+
 onMounted(async () => {
   await session.loadList()
   if (!session.list.length) {
@@ -240,6 +259,7 @@ onMounted(async () => {
   } else if (!session.currentId) {
     await session.open(session.list[0].id)
   }
+  await syncOnMount()
   window.addEventListener(SHELL_INTENT_EVENT, consumeShellIntent)
   consumeShellIntent()
 })

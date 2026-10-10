@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,7 +20,29 @@ const (
 	attachMaxBytes = 64 << 10
 	imageMaxBytes  = 5 << 20
 	imageMaxPerMsg = 4
+	// 读入上限：先看大小再读，@ 一个 2GB 日志不该让进程内存先尖峰一次。
+	// 落上下文的上限是 attachMaxBytes，这层只是「别把整文件搬进内存」的闸门。
+	attachReadMaxBytes = 32 << 20
 )
+
+// errTooBig 表示文件超过读入上限，调用方据此给出可读的提示而不是「读不到」。
+var errTooBig = pkg.New(1013, "文件超过读入上限", "")
+
+// readCapped 先看大小再读：os.ReadFile 是把整文件搬进内存，
+// 引用面板里一个几百 MB 的日志就足以让桌面进程内存尖峰。
+func readCapped(path string, limit int) ([]byte, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if fi.IsDir() {
+		return nil, pkg.New(1008, "目标是目录，不是文件", "")
+	}
+	if fi.Size() > int64(limit) {
+		return nil, errTooBig
+	}
+	return os.ReadFile(path)
+}
 
 // 图片扩展名 → MIME。列表之外的一律当文本附件处理。
 var imageMIMEs = map[string]string{
@@ -73,13 +96,9 @@ func buildAttachment(workspace string, items []domain.AttachmentREQ) (string, []
 		}
 		// 工作目录里的图片：读成 base64 走识图通道
 		if mime, ok := isImageName(it.Name); ok {
-			raw, err := os.ReadFile(full)
+			raw, err := readCapped(full, imageMaxBytes)
 			if err != nil || len(raw) == 0 {
-				b.WriteString(fmt.Sprintf("### %s\n（读不到或内容为空）\n\n", it.Name))
-				continue
-			}
-			if len(raw) > imageMaxBytes {
-				b.WriteString(fmt.Sprintf("### %s\n（图片超过 5MB，没有发送）\n\n", it.Name))
+				b.WriteString(fmt.Sprintf("### %s\n（%s）\n\n", it.Name, attachReason(err, "图片超过 5MB，没有发送")))
 				continue
 			}
 			if len(images) >= imageMaxPerMsg {
@@ -89,9 +108,9 @@ func buildAttachment(workspace string, items []domain.AttachmentREQ) (string, []
 			images = append(images, llm.Image{MIME: mime, Base64: base64.StdEncoding.EncodeToString(raw)})
 			continue
 		}
-		raw, err := os.ReadFile(full)
+		raw, err := readCapped(full, attachReadMaxBytes)
 		if err != nil || len(raw) == 0 {
-			b.WriteString(fmt.Sprintf("### %s\n（读不到或内容为空）\n\n", it.Name))
+			b.WriteString(fmt.Sprintf("### %s\n（%s）\n\n", it.Name, attachReason(err, "文件超过 32MB，没有读入")))
 			continue
 		}
 		// Word / Excel / PDF 是二进制文档：按字节当文本读只会塞进一堆乱码，
@@ -114,6 +133,20 @@ func buildAttachment(workspace string, items []domain.AttachmentREQ) (string, []
 		return "", nil
 	}
 	return head, images
+}
+
+// attachReason 把读文件的失败翻成人话：模型要靠这句话告诉用户「为什么没带上」，
+// 一句笼统的「读不到」会让用户反复重发同一个文件。
+func attachReason(err error, bigMsg string) string {
+	if err != nil {
+		if errors.Is(err, errTooBig) {
+			return bigMsg
+		}
+		if pkg.CodeOf(err) == 1008 {
+			return "这是一个目录，引用不了"
+		}
+	}
+	return "读不到或内容为空"
 }
 
 // cutRunes 按字节上限截断但保证不切在多字节字符中间。

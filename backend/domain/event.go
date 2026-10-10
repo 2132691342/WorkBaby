@@ -143,4 +143,8 @@ type BootstrapVO struct {
 	Permission        string            `json:"permission"`
 	PythonReady       bool              `json:"python_ready"`
 	Settings          map[string]string `json:"settings"`
+	// ExpiredApprovals 是本次启动被按拒绝收口的上次残留审批。
+	// 进程退出时等待决策的通道随之消失，这些确认永远等不到答案；
+	// 前端必须把它们说出来，否则用户只看到「助手那一步没做」。
+	ExpiredApprovals []ApprovalVO `json:"expired_approvals"`
 }

@@ -166,10 +166,28 @@ func (a *ApprovalService) Decide(id string, approved bool, scope string) error {
 	return nil
 }
 
-// ExpireStale 启动期把上次运行残留的待决审批按拒绝收口。
-// 等待通道是内存态，留着它们前端会渲染一批点了没反应的审批卡。
-func (a *ApprovalService) ExpireStale() error {
-	return a.env.Repo.SettleAllPending(domain.ApprovalDenied, nowMillis())
+// ExpireStale 启动期把上次运行残留的待决审批按拒绝收口，并返回被收口的清单。
+// 等待通道是内存态，进程一退就再也等不到决策——让它们停在 pending，
+// 界面会给出一批点了没反应的审批卡。返回清单是为了让前端能说清「哪几条被按拒绝了」：
+// 静默收口的表现是用户翻回昨天的对话，发现助手那一步没做，而全过程没有任何提示。
+func (a *ApprovalService) ExpireStale() ([]domain.ApprovalVO, error) {
+	recs, err := a.env.Repo.ListPendingApprovals("")
+	if err != nil {
+		return nil, err
+	}
+	if len(recs) == 0 {
+		return nil, nil
+	}
+	if err := a.env.Repo.SettleAllPending(domain.ApprovalDenied, nowMillis()); err != nil {
+		return nil, err
+	}
+	out := make([]domain.ApprovalVO, 0, len(recs))
+	for i := range recs {
+		recs[i].Status = domain.ApprovalDenied
+		out = append(out, approvalVO(&recs[i]))
+	}
+	pkg.Warnf("approval: 上次运行残留 %d 条待决审批，已按拒绝收口", len(out))
+	return out, nil
 }
 
 // Pending 列出会话内待决审批，供前端跨重启恢复决策卡。

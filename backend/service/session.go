@@ -177,18 +177,12 @@ func (s *SessionService) SetWorkspace(id, workspace string) error {
 
 // Branch 从某条历史回溯：只把 leaf 指针移过去，老分支仍留在树里。
 func (s *SessionService) Branch(id, entryID string) error {
-	entries, err := s.env.Repo.ListEntries(id)
+	// 只查存在性：为校验一个 id 把整棵条目树拉进内存，长会话上是纯浪费。
+	ok, err := s.env.Repo.EntryExists(id, entryID)
 	if err != nil {
 		return err
 	}
-	found := false
-	for _, e := range entries {
-		if e.ID == entryID {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !ok {
 		return domain.ErrEntryNotFound
 	}
 	return s.env.Repo.UpdateSessionColumns(id, map[string]any{"leaf_entry_id": entryID})

@@ -1,6 +1,5 @@
-// hub 的两条保命语义：慢消费者必须保住 done（丢了就永远「运行中」），
-// 同类 delta 必须合流且保序（否则正文打乱）。端到端的重放语义（Last-Event-ID 补帧）
-// 在 api 包的流链路测试里验证。
+// hub 的两条保命语义：慢消费者必须保住 done，同类 delta 必须合流且保序。
+// 端到端的重放语义（Last-Event-ID 补帧）在 api 包的流链路测试里验证。
 package server
 
 import (
@@ -26,8 +25,8 @@ func drain(c *Client) []domain.Envelope {
 }
 
 func TestHubDeliveryChain(t *testing.T) {
-	// 段一：灌满缓冲（全是可挤的 delta）后再推 done，done 必须挤掉 delta 后送达，
-	// 而不是把客户端断开——前端被判定为慢消费者时，丢 done 的表现是「永远停在运行中」。
+	// 段一：灌满缓冲后再推 done，done 必须挤掉 delta 送达而不是断开客户端——
+	// 丢 done 的表现是「永远停在运行中」。
 	hubA := NewHub()
 	cA := hubA.Subscribe("s1")
 	defer hubA.Unsubscribe(cA)
@@ -52,8 +51,7 @@ func TestHubDeliveryChain(t *testing.T) {
 		t.Fatalf("积压 delta 应挤到只剩最后一条，实际 %d", deltas)
 	}
 
-	// 段二：三条同类 delta 在合流窗口内应合并成一条且正文保序；
-	// 非 delta 事件先冲刷挂起 delta，再发自己。
+	// 段二：三条同类 delta 应合并成一条且正文保序；非 delta 事件先冲刷挂起 delta 再发自己。
 	hubB := NewHub()
 	cB := hubB.Subscribe("s1")
 	defer hubB.Unsubscribe(cB)

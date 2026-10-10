@@ -1,5 +1,4 @@
-// 知识库完整链路：加文档 → 建索引 → 检索（含短查询子串兜底）→ 删除级联，
-// 以及 Office 文档（zip+xml）抽取的页序正确性。
+// 知识库链路：加文档 → 建索引 → 检索 → 删除级联 → 重建索引（后台任务）。
 // 单独测任一层都测不出检索失效：文档表、切片表与 FTS5 虚表是协作关系。
 package knowledge
 
@@ -10,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"WorkBaby/backend/db"
 	"WorkBaby/backend/domain"
@@ -43,10 +43,10 @@ func addFile(t *testing.T, svc *Service, name, body string) string {
 	return path
 }
 
+// 一条链走完：加 → 查 → 删 → 再查 + Office 抽取。
+// 两字查询在 trigram 下零命中要靠子串兜底；删除必须连带清掉切片，
+// 否则 FTS 里留下查不到来源的孤儿结果；pptx 页序按文件序号排，不靠 zip 条目顺序。
 func TestKnowledgeChain(t *testing.T) {
-	// 一条链走完：加 → 查 → 删 → 再查 + Office 文档抽取。两字查询在 trigram 下
-	// 零命中要靠子串兜底；删除必须连带清掉切片，否则 FTS 里留下查不到来源的孤儿结果；
-	// pptx 的页序按文件序号排，不靠 zip 条目顺序（slide10 可能排在 slide2 前面）。
 	t.Run("加文档、检索兜底、删除级联与 Office 页序", func(t *testing.T) {
 		svc := newService(t)
 		addFile(t, svc, "季度报告.md", "第三季度销售额增长了 18%，主要来自华东区的渠道拓展。\n客户满意度提升到 92%。")
@@ -92,7 +92,7 @@ func TestKnowledgeChain(t *testing.T) {
 			t.Fatalf("删除后不应还能检索到内容: err=%v hits=%d", err, len(gone))
 		}
 
-		// Office 抽取：刻意先写 slide2，抽取结果必须仍按页号排序。
+		// 刻意先写 slide2：抽取结果必须仍按页号排序。
 		pptxPath := filepath.Join(t.TempDir(), "汇报.pptx")
 		pf, err := os.Create(pptxPath)
 		if err != nil {
@@ -136,4 +136,41 @@ func TestKnowledgeChain(t *testing.T) {
 			t.Fatalf("pptx 命中的片段不对: %+v", phits[0])
 		}
 	})
+}
+
+// 重建索引是后台任务：跑满进度、拒绝重入、结束后必须留下 finished_at。
+func TestReindexJob(t *testing.T) {
+	svc := newService(t)
+	for i := 0; i < 3; i++ {
+		addFile(t, svc, "doc.txt", "关于石板蓝与紫的配色说明，重复内容用于撑开切片。")
+	}
+
+	started, err := svc.StartReindex()
+	if err != nil || !started {
+		t.Fatalf("启动重建失败: started=%v err=%v", started, err)
+	}
+	// 重入会把两个任务的进度读成混合值，必须被拒。
+	if again, err := svc.StartReindex(); err != nil || again {
+		t.Fatalf("重复启动应被拒: again=%v err=%v", again, err)
+	}
+
+	st := svc.ReindexStatus()
+	deadline := time.Now().Add(5 * time.Second)
+	for st.Running && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+		st = svc.ReindexStatus()
+	}
+	if st.Running {
+		t.Fatal("重建任务没有在预期时间内结束")
+	}
+	if st.Total != 3 || st.Done+st.Failed != st.Total {
+		t.Fatalf("进度没有跑满: done=%d failed=%d total=%d", st.Done, st.Failed, st.Total)
+	}
+	if st.FinishedAt == 0 {
+		t.Fatal("结束时间未记录：前端只能靠它判断这一趟跑完了")
+	}
+	// 没任务在跑时取消要如实返回 false，不能假装成功。
+	if svc.CancelReindex() {
+		t.Fatal("没有任务在跑时取消应返回 false")
+	}
 }

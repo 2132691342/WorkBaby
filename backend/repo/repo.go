@@ -32,6 +32,15 @@ func New(db *gorm.DB) *Repo { return &Repo{db: db} }
 // DB 暴露底层连接，仅供 FTS 虚表查询等必须走 raw SQL 的场景。
 func (r *Repo) DB() *gorm.DB { return r.db }
 
+// WithTx 在一个事务里跑 fn：多步写要么一起生效要么一起回滚。
+// 连接固定为一条，fn 里不要做长 IO（网络请求、解压）——那会把写锁拖成整库停顿。
+func (r *Repo) WithTx(fn func(tx *Repo) error) error {
+	if r == nil || r.db == nil {
+		return pkg.New(2105, "数据仓储未就绪", "")
+	}
+	return wrapDB("事务", r.db.Transaction(func(tx *gorm.DB) error { return fn(&Repo{db: tx}) }))
+}
+
 // Close 关闭底层连接池。SQLite 文件被占用时数据目录无法删除、
 // 备份也无法复制，退出时必须显式关掉。
 func (r *Repo) Close() error {

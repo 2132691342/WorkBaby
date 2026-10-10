@@ -39,8 +39,10 @@ const session = useSessionStore()
 const chat = useChatStore()
 
 // 审批卡的回调只写一遍：三处渲染点在模板里各写一份箭头函数，改一处就会漏两处。
+// 必须把 Promise 交回给审批卡——void 掉之后按钮的 loading 立刻就结束了，
+// 用户看不到「点到了」，会以为没生效而再点一次。
 function onDecide(id: string, ok: boolean, scope: string) {
-  void chat.decide(id, ok, scope)
+  return chat.decide(id, ok, scope)
 }
 
 const scroller = ref<HTMLElement | null>(null)

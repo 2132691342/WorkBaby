@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 单条消息：用户气泡 / 助手回答（markdown + 思考折叠 + 工具卡）。
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import type { MessageVO } from '../../types/api'
 import { useToastStore } from '../../stores/toast'
 import { renderMarkdown } from '../../utils/md'
@@ -35,13 +35,19 @@ function splitThink(s: string): { think: string; text: string } {
 }
 
 const copying = ref(false)
+let copiedTimer = 0
+// 复制成功的对勾要自动收：定时器不随卸载清掉，滚出视口被回收的组件会带着一个
+// 永远不落地的回调。
+onBeforeUnmount(() => clearTimeout(copiedTimer))
+
 async function copy() {
   if (!split.value.text || copying.value) return
   copying.value = true
   try {
     await navigator.clipboard.writeText(split.value.text)
     copied.value = true
-    setTimeout(() => (copied.value = false), 1200)
+    clearTimeout(copiedTimer)
+    copiedTimer = window.setTimeout(() => (copied.value = false), 1200)
   } catch {
     // 剪贴板被系统策略拒绝时不能静默：用户以为复制成功了
     useToastStore().bad('复制失败，请手动选中文本复制')

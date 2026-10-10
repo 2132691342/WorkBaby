@@ -33,8 +33,11 @@ type Handler struct {
 	Emitter   *service.Emitter
 	Svc       *service.Container
 	Log       *pkg.Logger
-	port      atomic.Int64
-	startErr  atomic.Pointer[string]
+	// expiredApprovals 是本次启动收口的「上次没处理完的确认」。装配期写、HTTP 期只读，
+	// 两者由 app.go 的 startDone 通道建立 happens-before。
+	expiredApprovals []domain.ApprovalVO
+	port             atomic.Int64
+	startErr         atomic.Pointer[string]
 }
 
 // New 构造 handler；真正的资源装配在 Startup 里做。
@@ -57,6 +60,9 @@ func (h *Handler) SetStartupError(err error) {
 	h.startErr.Store(&msg)
 	pkg.Errorf("startup: %v", err)
 }
+
+// ExpiredApprovals 返回本次启动被按拒绝收口的审批清单；空表示没有残留。
+func (h *Handler) ExpiredApprovals() []domain.ApprovalVO { return h.expiredApprovals }
 
 // StartupError 返回启动失败原因；空串表示一切正常。
 func (h *Handler) StartupError() string {
@@ -148,9 +154,11 @@ func (h *Handler) Startup(ctx context.Context) error {
 	if err := h.Registry.ValidateSchemas(); err != nil {
 		return err
 	}
-	if err := svc.Bootstrap(); err != nil {
+	expired, err := svc.Bootstrap()
+	if err != nil {
 		return err
 	}
+	h.expiredApprovals = expired
 	// 停用名单要在默认值落库之后读，否则首启会把用户的选择冲掉。
 	if v, err := h.Repo.GetSetting(domain.SettingDisabledSkills); err == nil && v != "" {
 		h.Skills.ApplyDisabled(strings.Split(v, ","))

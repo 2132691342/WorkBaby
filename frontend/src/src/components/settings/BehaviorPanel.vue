@@ -5,6 +5,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import * as api from '../../api'
 import type { ModelCapability, RuntimeInfo } from '../../types/api'
+import { useSessionStore } from '../../stores/session'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import { fmtCount } from '../../utils/num'
@@ -13,6 +14,7 @@ import AppIcon from '../common/AppIcon.vue'
 
 const store = useSettingsStore()
 const toast = useToastStore()
+const session = useSessionStore()
 
 // 正在保存的设置键：同一时刻只允许一个写入，防连点把状态点乱。
 const busyKey = ref('')
@@ -145,6 +147,17 @@ async function pickWorkspace() {
   pickingWs.value = true
   try {
     await store.setValue('workspace', dir)
+    // 当前会话也要切：只写全局默认值的话，正在聊的这个会话还挂在旧目录上，
+    // 输入框那枚芯片和实际工作目录会给出两套答案。
+    const cur = session.currentId
+    if (cur) {
+      try {
+        await api.sessions.setWorkspace(cur, dir)
+      } catch (e) {
+        toast.bad(`全局默认值已换，当前会话没换成：${(e as Error)?.message || '请重试'}`)
+        return
+      }
+    }
     await store.loadBoot()
     toast.ok('工作目录已更换')
   } catch {
@@ -160,6 +173,7 @@ const ADV_FIELDS = [
   { key: 'max_turns', name: '单轮步数上限', def: 64, min: 4, max: 512, hint: '一次回答最多连续干多少步。调小更早停下（更省），调大适合超长批处理。' },
   { key: 'tool_parallel', name: '工具并发', def: 4, min: 1, max: 16, hint: '同时跑几个工具。本地文件读写对并发不敏感，4 已经够用。' },
   { key: 'stream_idle_seconds', name: '等待上游秒数', def: 300, min: 5, max: 1800, hint: '这么久没有新内容才判定断线。推理模型思考慢时可以调大。' },
+  { key: 'context_reserve_tokens', name: '上下文余量', def: 0, min: 0, max: 500000, hint: '给回答预留的 token。0 = 跟随输出预算自动算；长对话老是被压缩时可以调大。' },
 ] as const
 
 const advOpen = ref(false)
@@ -179,6 +193,24 @@ watch(advOpen, (open) => {
 function onAdvInput(key: string, e: Event) {
   const el = e.target as HTMLInputElement
   advInput.value = { ...advInput.value, [key]: el.value }
+}
+
+// 恢复默认必须真的写库：只清输入框的话用户以为已经恢复，
+// 下次打开看到的还是旧值——这是一枚「看起来有效」的死按钮。
+const advResetting = ref(false)
+async function resetAdv() {
+  if (advResetting.value || advSaving.value) return
+  advResetting.value = true
+  advErr.value = ''
+  try {
+    for (const f of ADV_FIELDS) await store.setValue(f.key, '')
+    advInput.value = {}
+    toast.ok('已恢复默认，下一轮对话生效')
+  } catch {
+    /* setValue 已提示 */
+  } finally {
+    advResetting.value = false
+  }
 }
 
 async function saveAdv() {
@@ -246,8 +278,19 @@ async function saveWindow() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadAutoStart(), loadRuntime(), loadCapability()])
+  await Promise.all([loadAutoStart(), loadRuntime()])
 })
+
+// 引导数据（默认模型）可能晚于本组件挂载：父组件的 onMounted 在子组件之后执行，
+// 直接打开或刷新到这一页时 boot 常常还没到，整块「当前模型 / 上下文窗口」就不见了。
+// 跟着 boot 走一遍并补一次重试入口。
+watch(
+  () => store.boot?.default_model,
+  (model) => {
+    if (model) void loadCapability()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -300,7 +343,7 @@ onMounted(async () => {
           type="button"
           role="switch"
           :aria-checked="minimizeToTray()"
-          :class="{ 'is-on': minimizeToTray() }"
+          :class="{ 'is-on': minimizeToTray(), 'is-loading': busyKey === 'minimize_to_tray' }"
           :disabled="busyKey === 'minimize_to_tray'"
           @click="onSwitch('minimize_to_tray', !minimizeToTray())"
         />
@@ -315,7 +358,7 @@ onMounted(async () => {
           type="button"
           role="switch"
           :aria-checked="autoStart"
-          :class="{ 'is-on': autoStart }"
+          :class="{ 'is-on': autoStart, 'is-loading': busyKey === 'auto_start' }"
           :disabled="busyKey === 'auto_start'"
           @click="toggleAutoStart"
         />
@@ -335,7 +378,7 @@ onMounted(async () => {
           type="button"
           role="switch"
           :aria-checked="sendOnEnter()"
-          :class="{ 'is-on': sendOnEnter() }"
+          :class="{ 'is-on': sendOnEnter(), 'is-loading': busyKey === 'send_on_enter' }"
           :disabled="busyKey === 'send_on_enter'"
           @click="onSwitch('send_on_enter', !sendOnEnter())"
         />
@@ -419,8 +462,9 @@ onMounted(async () => {
           <button
             class="btn btn-sm btn-ghost"
             type="button"
-            :disabled="advSaving"
-            @click="advInput = {}"
+            :class="{ 'is-loading': advResetting }"
+            :disabled="advSaving || advResetting"
+            @click="resetAdv"
           >
             全部恢复默认
           </button>
@@ -478,8 +522,6 @@ onMounted(async () => {
       <div class="kv">
         <dt>版本</dt>
         <dd class="mono">{{ store.boot?.version || '—' }}</dd>
-        <dt>数据目录</dt>
-        <dd class="mono">{{ store.values['workspace'] ? '见上方工作目录' : '—' }}</dd>
         <dt>日志</dt>
         <dd class="mono">%APPDATA%\WorkBaby\logs\app.log</dd>
       </div>

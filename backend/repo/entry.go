@@ -31,6 +31,18 @@ func (r *Repo) AppendEntry(e *domain.EntryDO) error {
 	}))
 }
 
+// EntryExists 判断条目是否属于该会话；只查主键，不拉整棵条目树。
+func (r *Repo) EntryExists(sessionID, entryID string) (bool, error) {
+	var n int64
+	err := r.db.Model(&domain.EntryDO{}).
+		Where("id = ? AND session_id = ?", entryID, sessionID).
+		Limit(1).Count(&n).Error
+	if err != nil {
+		return false, wrapDB("查询条目", err)
+	}
+	return n > 0, nil
+}
+
 // ListEntries 按 seq 顺序列出会话全部条目；树还原在调用方做。
 func (r *Repo) ListEntries(sessionID string) ([]domain.EntryDO, error) {
 	var list []domain.EntryDO

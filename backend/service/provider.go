@@ -13,6 +13,7 @@ import (
 	"WorkBaby/backend/llm"
 	"WorkBaby/backend/llm/factory"
 	"WorkBaby/backend/pkg"
+	"WorkBaby/backend/repo"
 )
 
 // modelListTimeout 是拉模型列表的整请求上限：列表接口不该慢到让用户等，
@@ -87,77 +88,96 @@ func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.Provider
 		raw, _ := json.Marshal(req.Models)
 		d.Models = string(raw)
 	}
-	if err := p.env.Repo.UpsertProvider(d); err != nil {
+	// 「落服务」与「定默认」必须一起生效：中途失败会留下「配好了却没有默认服务」，
+	// 用户看到的是保存成功的提示，下一次发送却报没配模型。
+	vo := domain.ProviderVO{}
+	if err := p.env.Repo.WithTx(func(tx *repo.Repo) error {
+		if err := tx.UpsertProvider(d); err != nil {
+			return err
+		}
+		// 第一个服务自动成为默认，避免用户配完还要再点一次。
+		all, err := tx.ListProviders()
+		if err != nil {
+			return err
+		}
+		if len(all) == 1 {
+			if err := p.setDefaultIn(tx, d.ID); err != nil {
+				return err
+			}
+			d.IsDefault = true
+		} else if err := p.refreshDefaultModelIn(tx, d); err != nil {
+			// 非首个服务也要校正默认模型：新会话只继承服务时模型名会是空的。
+			return err
+		}
+		vo = providerVO(d, parseModels(d.Models))
+		return nil
+	}); err != nil {
 		return nil, err
 	}
-
-	// 第一个服务自动成为默认，避免用户配完还要再点一次。
-	all, err := p.env.Repo.ListProviders()
-	if err == nil && len(all) == 1 {
-		_ = p.SetDefault(d.ID)
-		d.IsDefault = true
-	} else if err == nil {
-		// 非首个服务也要校正默认模型：新会话只继承服务时模型名会是空的。
-		_ = p.refreshDefaultModel(d)
-	}
-	vo := providerVO(d, parseModels(d.Models))
 	return &vo, nil
 }
 
 // Delete 删除模型服务，并级联清理它的模型级配置与默认指向。
 func (p *ProviderService) Delete(id string) error {
-	if err := p.env.Repo.DeleteModelConfigsByProvider(id); err != nil {
-		return err
-	}
-	if err := p.env.Repo.DeleteProvider(id); err != nil {
-		return err
-	}
-	return p.resetDefaultIfDeleted(id)
+	return p.env.Repo.WithTx(func(tx *repo.Repo) error {
+		if err := tx.DeleteModelConfigsByProvider(id); err != nil {
+			return err
+		}
+		if err := tx.DeleteProvider(id); err != nil {
+			return err
+		}
+		return p.resetDefaultIfDeletedIn(tx, id)
+	})
 }
 
-// resetDefaultIfDeleted 删掉的正是默认服务时，把默认转交给还活着的服务。
+// resetDefaultIfDeletedIn 删掉的正是默认服务时，把默认转交给还活着的服务。
 // 都不剩就清空设置：留一个指向已删 id 的默认比没有默认更糟。
-func (p *ProviderService) resetDefaultIfDeleted(id string) error {
-	cur, _ := p.env.Repo.GetSetting(domain.SettingDefaultProvider)
+func (p *ProviderService) resetDefaultIfDeletedIn(tx *repo.Repo, id string) error {
+	cur, _ := tx.GetSetting(domain.SettingDefaultProvider)
 	if cur != id {
 		return nil
 	}
-	all, err := p.env.Repo.ListProviders()
+	all, err := tx.ListProviders()
 	if err != nil {
 		return err
 	}
 	if len(all) == 0 {
-		_ = p.env.Repo.SetSetting(domain.SettingDefaultProvider, "")
-		_ = p.env.Repo.SetSetting(domain.SettingDefaultModel, "")
-		return nil
+		if err := tx.SetSetting(domain.SettingDefaultProvider, ""); err != nil {
+			return err
+		}
+		return tx.SetSetting(domain.SettingDefaultModel, "")
 	}
-	return p.SetDefault(all[0].ID)
+	return p.setDefaultIn(tx, all[0].ID)
 }
 
 // SetDefault 设为默认；同时写入设置便于会话缺省继承。
 func (p *ProviderService) SetDefault(id string) error {
-	if err := p.env.Repo.ClearDefault(); err != nil {
+	return p.env.Repo.WithTx(func(tx *repo.Repo) error { return p.setDefaultIn(tx, id) })
+}
+
+func (p *ProviderService) setDefaultIn(tx *repo.Repo, id string) error {
+	if err := tx.ClearDefault(); err != nil {
 		return err
 	}
-	d, err := p.env.Repo.GetProvider(id)
+	d, err := tx.GetProvider(id)
 	if err != nil {
 		return err
 	}
 	d.IsDefault = true
-	if err := p.env.Repo.UpsertProvider(d); err != nil {
+	if err := tx.UpsertProvider(d); err != nil {
 		return err
 	}
-	if err := p.env.Repo.SetSetting(domain.SettingDefaultProvider, id); err != nil {
+	if err := tx.SetSetting(domain.SettingDefaultProvider, id); err != nil {
 		return err
 	}
 	// 顺带校正默认模型：新建会话要从这里继承模型名，指向不存在的模型
 	// 会让每条新对话都报 model not found。
-	return p.refreshDefaultModel(d)
+	return p.refreshDefaultModelIn(tx, d)
 }
 
-// refreshDefaultModel 校正默认模型：没有就取列表第一个，指向不存在的模型时也跟着换。
-func (p *ProviderService) refreshDefaultModel(d *domain.ProviderDO) error {
-	cur, _ := p.env.Repo.GetSetting(domain.SettingDefaultModel)
+// refreshDefaultModelIn 校正默认模型：没有就取列表第一个，指向不存在的模型时也跟着换。
+func (p *ProviderService) refreshDefaultModelIn(tx *repo.Repo, d *domain.ProviderDO) error {
+	cur, _ := tx.GetSetting(domain.SettingDefaultModel)
 	models := parseModels(d.Models)
 	if len(models) == 0 {
 		return nil
@@ -165,7 +185,7 @@ func (p *ProviderService) refreshDefaultModel(d *domain.ProviderDO) error {
 	if cur != "" && slices.Contains(models, cur) {
 		return nil
 	}
-	return p.env.Repo.SetSetting(domain.SettingDefaultModel, models[0])
+	return tx.SetSetting(domain.SettingDefaultModel, models[0])
 }
 
 // Reveal 返回解密后的 API Key：设置页「显示密钥」时才会调用。
@@ -319,8 +339,13 @@ func (p *ProviderService) ModelConfig(providerID, model string) (*domain.ModelCo
 	if err != nil {
 		return nil, err
 	}
+	return applyOverride(cap, vo, d), nil
+}
+
+// applyOverride 把用户覆写叠到目录能力上；d 为 nil 表示没有覆写。
+func applyOverride(cap domain.ModelCapability, vo *domain.ModelConfigVO, d *domain.ModelConfigDO) *domain.ModelConfigVO {
 	if d == nil {
-		return vo, nil
+		return vo
 	}
 	if d.ContextWindow > 0 {
 		cap = cap.WithWindow(d.ContextWindow)
@@ -332,7 +357,7 @@ func (p *ProviderService) ModelConfig(providerID, model string) (*domain.ModelCo
 	vo.TopP = d.TopP
 	vo.Vision = d.Vision
 	vo.ToolCall = d.ToolCall
-	return vo, nil
+	return vo
 }
 
 // ListModelConfigs 列出一个服务下的全部模型配置；不指定服务就取默认的。
@@ -345,13 +370,20 @@ func (p *ProviderService) ListModelConfigs(providerID string) ([]domain.ModelCon
 	if err != nil {
 		return nil, err
 	}
+	// 一次取回全部覆写再在内存里合并：逐个 ModelConfig 会为每个模型多打一条
+	// GetModelConfig，配置一多就成了 N+1。
 	out := make([]domain.ModelConfigVO, 0, len(list))
 	for _, d := range list {
-		vo, verr := p.ModelConfig(providerID, d.Model)
-		if verr != nil {
-			return nil, verr
+		item := d
+		cap := domain.ModelCapabilityOf(item.Model)
+		vo := &domain.ModelConfigVO{
+			ProviderID: providerID, Model: item.Model,
+			ContextWindow: cap.ContextWindow, WindowKnown: cap.Known,
+			MaxOutput: cap.MaxOutput, Thinking: cap.Thinking,
+			Vision: cap.Vision, ToolCall: cap.ToolCall,
+			Temperature: domain.SamplingUnset, TopP: domain.SamplingUnset,
 		}
-		out = append(out, *vo)
+		out = append(out, *applyOverride(cap, vo, &item))
 	}
 	return out, nil
 }

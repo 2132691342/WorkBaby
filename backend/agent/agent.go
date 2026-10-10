@@ -315,7 +315,13 @@ func (l *Loop) streamTurn(ctx context.Context, maxTokens int) (llm.Message, stri
 		Temperature: l.cfg.Temperature,
 		TopP:        l.cfg.TopP,
 	}
-	events, err := l.cfg.Streamer.Stream(ctx, req)
+	// 每轮用自己的可取消 ctx：错误 / 截断提前返回时必须掐断上游流。
+	// 用外层 ctx 的话，重试包装器会继续在无人读的通道上阻塞等待，
+	// goroutine 与那条 HTTP 连接一起挂到进程退出——失败的轮次越多漏得越多。
+	turnCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	events, err := l.cfg.Streamer.Stream(turnCtx, req)
 	if err != nil {
 		return llm.Message{Role: llm.RoleAssistant}, StopError, nil, err
 	}

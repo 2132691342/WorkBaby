@@ -23,7 +23,7 @@ const { collapsed } = useSessionPanel()
       <AppIcon name="plus" /> 新对话
     </button>
     <div class="sess">
-      <SessionList />
+      <SessionList @new-session="emit('newSession')" />
     </div>
   </aside>
 </template>

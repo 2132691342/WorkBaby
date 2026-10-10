@@ -81,7 +81,18 @@ type AddDocsRESP struct {
 	Added int `json:"added"`
 }
 
-// ReindexRESP 重建索引出参。
-type ReindexRESP struct {
-	Reindexed int `json:"reindexed"`
+// StartReindexRESP 启动重建出参：重建是后台任务，这里只回答「有没有起来」。
+type StartReindexRESP struct {
+	Started bool `json:"started"`
+}
+
+// ReindexJobVO 重建任务的进度快照。大库重建要跑几十秒，
+// 同步等一个请求既不 observable 也不可取消，界面只能给一个转圈。
+type ReindexJobVO struct {
+	Running    bool  `json:"running"`
+	Total      int   `json:"total"`
+	Done       int   `json:"done"`
+	Failed     int   `json:"failed"`
+	StartedAt  int64 `json:"started_at"`
+	FinishedAt int64 `json:"finished_at"`
 }

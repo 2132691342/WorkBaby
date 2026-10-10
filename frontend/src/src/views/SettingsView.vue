@@ -58,6 +58,9 @@ onMounted(async () => {
   } catch {
     /* ignore */
   }
+  // 进设置页时按服务端权威值重读一次：本地 values 可能在别处被乐观改写过
+  // （改设置是先落本地再发请求），进来时对齐一次才不会显示一个服务端没有的值。
+  if (settings.ready) await settings.syncSettings()
 })
 </script>
 

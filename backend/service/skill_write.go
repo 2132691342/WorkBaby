@@ -64,6 +64,7 @@ func (s *SkillService) Import(paths []string) (*domain.ImportSkillsRESP, error) 
 		return nil, domain.ErrSkillNotFound
 	}
 	resp := &domain.ImportSkillsRESP{Skipped: []string{}}
+	needReload := false
 	for _, p := range paths {
 		p = strings.TrimSpace(p)
 		if p == "" {
@@ -82,12 +83,16 @@ func (s *SkillService) Import(paths []string) (*domain.ImportSkillsRESP, error) 
 				continue
 			}
 			resp.Imported++
+			// copySkill 已经把文件放进 skills 目录，扫一次盘即可注册
 			if _, ok := s.env.Skills.Get(name); !ok {
-				// copySkill 已经把文件放进 skills 目录，重新扫一次即可注册
-				for _, sk := range skill.LoadDir(s.env.Paths.SkillsDir, domain.SkillSourceGlobal) {
-					s.env.Skills.Add(sk)
-				}
+				needReload = true
 			}
+		}
+	}
+	// 扫盘放在循环外：每个技能都整目录重扫一遍是 O(n²)，一包 20 个技能扫 20 次。
+	if needReload {
+		for _, sk := range skill.LoadDir(s.env.Paths.SkillsDir, domain.SkillSourceGlobal) {
+			s.env.Skills.Add(sk)
 		}
 	}
 	return resp, nil
@@ -115,6 +120,7 @@ func (s *SkillService) ImportZip(filename string, data []byte) (*domain.ImportSk
 		return nil, pkg.New(8109, "压缩包里没有 SKILL.md：技能包里每个技能一个文件夹，各含一个 SKILL.md", filename)
 	}
 	resp := &domain.ImportSkillsRESP{Skipped: []string{}}
+	needReload := false
 	for _, src := range found {
 		name, err := s.copySkill(src)
 		if err != nil {
@@ -124,9 +130,12 @@ func (s *SkillService) ImportZip(filename string, data []byte) (*domain.ImportSk
 		}
 		resp.Imported++
 		if _, ok := s.env.Skills.Get(name); !ok {
-			for _, sk := range skill.LoadDir(s.env.Paths.SkillsDir, domain.SkillSourceGlobal) {
-				s.env.Skills.Add(sk)
-			}
+			needReload = true
+		}
+	}
+	if needReload {
+		for _, sk := range skill.LoadDir(s.env.Paths.SkillsDir, domain.SkillSourceGlobal) {
+			s.env.Skills.Add(sk)
 		}
 	}
 	return resp, nil
@@ -155,6 +164,11 @@ func unzipSkill(data []byte, dst string) error {
 				return err
 			}
 			continue
+		}
+		// 符号链接条目必须拦掉：写文件时它会被当成普通文件写出内容，
+		// 等于让压缩包决定往磁盘哪个位置落东西。
+		if f.Mode()&os.ModeSymlink != 0 {
+			return pkg.New(8108, "压缩包里有符号链接条目，不安全的技能包", f.Name)
 		}
 		if err := pkg.EnsureDir(filepath.Dir(target)); err != nil {
 			return err

@@ -17,12 +17,17 @@ const (
 	chunkTarget = 600
 	chunkMax    = 1200
 	maxChunks   = 2000
+	// 索引读入上限：解析是把整文件读进内存再切块，一个几百 MB 的日志
+	// 会先把进程内存顶满，再得到一堆没有检索价值的块。
+	maxDocBytes = 64 << 20
 )
 
 // Service 是知识库服务；索引写入串行，检索并发安全。
 type Service struct {
-	repo *repo.Repo
-	mu   sync.Mutex
+	repo  *repo.Repo
+	mu    sync.Mutex
+	jobMu sync.Mutex
+	cur   job
 }
 
 // New 构造知识库服务。
@@ -60,7 +65,9 @@ func (s *Service) Add(paths []string) (int, error) {
 // Delete 删除文档及其分块。
 func (s *Service) Delete(id string) error { return s.repo.DeleteDoc(id) }
 
-// Reindex 全量重建索引：清掉旧分块后按当前文档重新切分。
+// Reindex 同步重建全部文档并重建索引，返回成功篇数。
+// 走 HTTP 的路径请用 StartReindex（后台任务 + 进度 + 可取消）；
+// 这个方法留给装配期与测试——小库一次跑完，不需要任务状态机。
 func (s *Service) Reindex() (int, error) {
 	docs, err := s.repo.ListDocs()
 	if err != nil {
@@ -156,6 +163,13 @@ func (s *Service) addOne(path string) error {
 	if err := s.repo.UpsertDoc(doc); err != nil {
 		return err
 	}
+	// 超大门槛在解析之前：解析一旦开始，整文件已经在内存里了。
+	if st.size > maxDocBytes {
+		doc.Status = domain.DocFailed
+		doc.Error = fmt.Sprintf("文件超过 %d MB，没有索引：先拆成小文件，或只把要查的那部分加进来", maxDocBytes>>20)
+		_ = s.repo.UpsertDoc(doc)
+		return pkg.New(6104, doc.Error, "")
+	}
 	if err := s.index(doc); err != nil {
 		doc.Status = domain.DocFailed
 		doc.Error = err.Error()
@@ -166,10 +180,9 @@ func (s *Service) addOne(path string) error {
 }
 
 // index 解析 → 切分 → 去重 → 写分块（FTS 由触发器同步）。
+// 锁只罩住最后的写入：解析是纯 CPU + 文件 IO，占着锁做会让「批量重建索引」
+// 期间连一次检索都排不上。
 func (s *Service) index(doc *domain.KnowledgeDocDO) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	text, err := LoadText(doc.Path)
 	if err != nil {
 		return err
@@ -198,16 +211,15 @@ func (s *Service) index(doc *domain.KnowledgeDocDO) error {
 			Hash:    hash,
 		})
 	}
-	if err := s.repo.ReplaceChunks(doc.ID, rows); err != nil {
-		return err
-	}
 	doc.Chunks = len(rows)
 	doc.Status = domain.DocIndexed
 	doc.Error = ""
 	if truncated {
 		doc.Error = fmt.Sprintf("文档太长，只索引了前 %d 段（约 %d 字），后面部分搜不到", maxChunks, maxChunks*chunkTarget)
 	}
-	return s.repo.UpsertDoc(doc)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.repo.ReplaceChunksAndDoc(doc.ID, rows, doc)
 }
 
 // chunk 按段落累积到目标长度；相邻块保留最后一段作为重叠。

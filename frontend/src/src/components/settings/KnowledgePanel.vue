@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // 知识库面板：添加文档 → 自动切分建索引 → 可随时检索或重建。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
+import type { ReindexJobVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import PageState from '../common/PageState.vue'
 
@@ -57,6 +58,7 @@ function askRemove(id: string) {
   clearTimeout(confirmTimer)
   confirmTimer = window.setTimeout(() => (confirming.value = ''), 3000)
 }
+onBeforeUnmount(() => clearTimeout(confirmTimer))
 
 async function removeDoc(id: string) {
   busyTarget.value = `remove:${id}`
@@ -72,17 +74,69 @@ async function removeDoc(id: string) {
   }
 }
 
+// 重建是后台任务：大库要跑几十秒，同步等一个请求就把这条连接占死了，
+// 期间界面只有一个转圈，也没办法停。启动 → 轮询进度 → 可取消。
+const job = ref<ReindexJobVO | null>(null)
+let pollTimer = 0
+const jobRunning = computed(() => job.value?.running === true)
+const jobPercent = computed(() => {
+  const j = job.value
+  if (!j || j.total === 0) return 0
+  return Math.min(100, Math.round(((j.done + j.failed) / j.total) * 100))
+})
+
+function stopPolling() {
+  clearInterval(pollTimer)
+  pollTimer = 0
+}
+
+onBeforeUnmount(stopPolling)
+
 async function reindex() {
-  busyTarget.value = 'reindex'
+  if (jobRunning.value || busy) return
   error.value = ''
   try {
     const r = await api.knowledge.reindex()
-    await store.loadDocs()
-    toast.ok(`索引已重建（${r.reindexed} 个文档）`)
+    if (!r.started) {
+      toast.info('已经有一趟重建在跑了')
+      return
+    }
+    job.value = { running: true, total: 0, done: 0, failed: 0, started_at: 0, finished_at: 0 }
+    stopPolling()
+    pollTimer = window.setInterval(pollJob, 700)
   } catch (e) {
     error.value = (e as Error).message
-  } finally {
-    busyTarget.value = ''
+  }
+}
+
+async function pollJob() {
+  try {
+    const j = await api.knowledge.reindexStatus()
+    job.value = j
+    if (j.running) return
+    stopPolling()
+    await store.loadDocs()
+    // 跑到一半被取消要如实说：文档列表里会留着上一版的块数，
+    // 不提一句用户会以为全部重建完了。
+    if (j.total > 0 && j.done + j.failed < j.total) {
+      toast.info(`重建已中断（${j.done + j.failed}/${j.total}）`)
+    } else if (j.failed > 0) {
+      toast.ok(`索引已重建：成功 ${j.done} 个，失败 ${j.failed} 个`)
+    } else {
+      toast.ok(`索引已重建（${j.done} 个文档）`)
+    }
+  } catch (e) {
+    stopPolling()
+    error.value = (e as Error).message
+  }
+}
+
+async function cancelReindex() {
+  if (!jobRunning.value) return
+  try {
+    await api.knowledge.cancelReindex()
+  } catch (e) {
+    error.value = (e as Error).message
   }
 }
 
@@ -119,14 +173,27 @@ onMounted(() => store.loadDocs())
       <button
         class="btn"
         type="button"
-        :class="{ 'is-loading': busyTarget === 'reindex' }"
-        :disabled="busy"
+        :class="{ 'is-loading': jobRunning && !job?.total }"
+        :disabled="jobRunning"
         @click="reindex"
       >
-        <AppIcon name="refresh" size="ic-xs" /> 重建索引
+        <AppIcon v-if="!jobRunning" name="refresh" size="ic-xs" />
+        {{ jobRunning ? '重建中…' : '重建索引' }}
       </button>
       <span class="spacer" />
       <span class="count">{{ store.docs.length }} 个文档</span>
+    </div>
+
+    <!-- 重建进度：有进度条才有「还能等多久」，只有转圈的话用户只能干等或乱点 -->
+    <div v-if="jobRunning" class="job">
+      <div class="job-bar" role="progressbar" :aria-valuenow="jobPercent" aria-valuemin="0" aria-valuemax="100">
+        <span class="job-fill" :style="{ width: `${jobPercent}%` }" />
+      </div>
+      <span class="job-tx mono">
+        {{ (job?.done || 0) + (job?.failed || 0) }}/{{ job?.total || 0 }}
+        <template v-if="job?.failed"> · 失败 {{ job.failed }}</template>
+      </span>
+      <button class="btn btn-sm btn-ghost" type="button" @click="cancelReindex">停止</button>
     </div>
 
     <p v-if="error" class="alert a-warn">
@@ -198,6 +265,36 @@ onMounted(() => store.loadDocs())
   flex-direction: column;
   gap: var(--wb-sp-3);
   min-width: 0;
+}
+/* 重建进度条：主色实条 + 中性轨道，不加装饰——它要说的是「还剩多少」 */
+.job {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-border);
+}
+.job-bar {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-sunken);
+  overflow: hidden;
+}
+.job-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-primary);
+  transition: width var(--wb-dur) var(--wb-ease);
+}
+.job-tx {
+  flex: none;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-ink-2);
 }
 .toolbar {
   display: flex;

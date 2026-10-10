@@ -30,16 +30,27 @@ func (r *Repo) DeleteDoc(id string) error {
 	}))
 }
 
-// ReplaceChunks 用新分块整体替换文档旧分块，保证重建索引幂等。
-func (r *Repo) ReplaceChunks(docID string, chunks []domain.KnowledgeChunkDO) error {
+// ReplaceChunksAndDoc 用新分块整体替换文档旧分块，并把文档状态一起写进同一事务。
+// 分两步的话「显示已索引但一个分块都没有」是可能的中间态：不报错、也查不出原因。
+func (r *Repo) ReplaceChunksAndDoc(docID string, chunks []domain.KnowledgeChunkDO, doc *domain.KnowledgeDocDO) error {
 	return wrapDB("重建知识分块", r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("doc_id = ?", docID).Delete(&domain.KnowledgeChunkDO{}).Error; err != nil {
 			return err
 		}
-		if len(chunks) == 0 {
+		if len(chunks) > 0 {
+			if err := tx.CreateInBatches(chunks, 200).Error; err != nil {
+				return err
+			}
+		}
+		if doc == nil {
 			return nil
 		}
-		return tx.CreateInBatches(chunks, 200).Error
+		return tx.Model(&domain.KnowledgeDocDO{}).Where("id = ?", doc.ID).
+			Updates(map[string]any{
+				"status": doc.Status,
+				"error":  doc.Error,
+				"chunks": doc.Chunks,
+			}).Error
 	}))
 }
 

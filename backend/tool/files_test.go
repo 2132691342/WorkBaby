@@ -1,5 +1,5 @@
-// 文件类工具的安全底线：路径穿越拒绝、Unicode 路径规整与找回、写前必读、edit 唯一性与行尾保持。
-// 这些护栏一旦失效，模型会写错文件或写到工作目录外，属于不可逆后果。
+// 文件类工具的安全底线：路径穿越拒绝、Unicode 路径找回、写前必读、edit 唯一性与行尾保持。
+// 护栏一旦失效，模型会写错文件或写到工作目录外，属于不可逆后果。
 package tool
 
 import (
@@ -24,10 +24,8 @@ func newInput(t *testing.T, args map[string]any) (Input, string) {
 	return Input{Args: args, Workspace: ws, Deps: Deps{Reads: &readTracker{seen: map[string]bool{}}, TmpDir: ws}}, ws
 }
 
-// 文件类工具的完整护栏链路：读（穿越拒绝、Unicode 找回）与写改（写前必读、edit 唯一性、行尾保持）。
 func TestFilesGuardrails(t *testing.T) {
-	// 路径护栏：工作目录外的路径必须拒绝；模型拿到的路径常带不可见字符与全角标点，
-	// 读工具要能规整后命中磁盘上的真实文件。
+	// 模型拿到的路径常带不可见字符与全角标点，读工具要能规整后命中磁盘上的真实文件。
 	t.Run("路径护栏：穿越拒绝与变体找回", func(t *testing.T) {
 		out, _ := newInput(t, map[string]any{"path": "../outside.txt"})
 		if _, err := (readTool{}).Execute(context.Background(), out); pkg.CodeOf(err) != 1004 {
@@ -57,8 +55,7 @@ func TestFilesGuardrails(t *testing.T) {
 		}
 	})
 
-	// 读→写闭环：没读过就写必须被拒；read 工具真读一次即完成记账，write 随即放行。
-	// 记账这一步在 read 工具内部，写工具的拒绝分支不覆盖它——所以必须走真的读一次。
+	// 记账在 read 工具内部，写工具的拒绝分支不覆盖它——所以必须走真的读一次。
 	t.Run("覆盖前必读", func(t *testing.T) {
 		ws := t.TempDir()
 		deps := Deps{Reads: &readTracker{seen: map[string]bool{}}, TmpDir: ws}
@@ -83,7 +80,6 @@ func TestFilesGuardrails(t *testing.T) {
 		}
 	})
 
-	// edit 的三条底线：匹配必须唯一、必须真的改动、改完不能破坏原文件的行尾与 BOM。
 	t.Run("edit 唯一性、实际改动与行尾保持", func(t *testing.T) {
 		in, ws := newInput(t, map[string]any{
 			"path":  "b.txt",

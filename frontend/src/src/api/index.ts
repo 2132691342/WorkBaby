@@ -1,7 +1,8 @@
-import { get, post } from './http'
+import { get, getBaseURL, post } from './http'
 import type {
   ApprovalVO,
   AttachmentREQ,
+  BackgroundVO,
   BootstrapVO,
   FileListVO,
   HelpDocRESP,
@@ -11,6 +12,7 @@ import type {
   ModelConfigVO,
   ProviderVO,
   RuntimeInfo,
+  ReindexJobVO,
   SearchHitVO,
   SendMessageRESP,
   SessionDetailVO,
@@ -93,7 +95,10 @@ export const knowledge = {
   docs: () => get<KnowledgeDocVO[]>('/knowledge/docs'),
   add: (paths: string[]) => post<{ added: number }>('/knowledge/docs/add', { paths }),
   remove: (id: string) => post<boolean>(`/knowledge/docs/${id}/delete`),
-  reindex: () => post<{ reindexed: number }>('/knowledge/reindex'),
+  /** 启动后台重建：大库要跑几十秒，同步等一个请求既占连接也没法停 */
+  reindex: () => post<{ started: boolean }>('/knowledge/reindex'),
+  reindexStatus: () => get<ReindexJobVO>('/knowledge/reindex'),
+  cancelReindex: () => post<boolean>('/knowledge/reindex/cancel'),
   search: (query: string, limit = 5) =>
     post<{ hits: SearchHitVO[] }>('/knowledge/search', { query, limit }),
 }
@@ -101,7 +106,13 @@ export const knowledge = {
 export const settings = {
   all: () => get<Record<string, string>>('/settings'),
   set: (key: string, value: string) => post<boolean>('/settings', { key, value }),
+  background: () => get<BackgroundVO>('/settings/background'),
+  setBackground: (path: string, opacity: number, blur: number) =>
+    post<BackgroundVO>('/settings/background', { path, opacity, blur }),
 }
+
+/** 背景图本体：前端拿不到数据目录里的文件路径，只能走这个 URL */
+export const backgroundUrl = () => `${getBaseURL()}/assets/background`
 
 export const tools = {
   list: () => get<ToolVO[]>('/tools'),
@@ -116,10 +127,7 @@ export const models = {
   /** 批量能力：换模型下拉一次列几十上百个模型，逐个查会打出 N+1 */
   capabilities: (provider_id: string, models: string[]) =>
     post<ModelCapability[]>('/models/capabilities', { provider_id, models }),
-  config: (model: string, provider_id?: string) =>
-    get<ModelConfigVO>(
-      `/models/config?model=${encodeURIComponent(model)}${provider_id ? `&provider_id=${provider_id}` : ''}`,
-    ),
+  /** 一次取回某服务下全部模型的覆写：展开参数面板时用它，避免逐个 models/config 打成 N+1 */
   configs: (provider_id?: string) =>
     get<ModelConfigVO[]>(`/models/configs${provider_id ? `?provider_id=${provider_id}` : ''}`),
   saveConfig: (body: UpsertModelConfigREQ) => post<ModelConfigVO>('/models/config', body),

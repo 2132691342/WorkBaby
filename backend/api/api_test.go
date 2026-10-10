@@ -1,6 +1,5 @@
-// 跨进程边界的端到端链路：完整装配 + 真实 HTTP 栈下的启动完整性、技能导入、
-// 跨源预检、SSE 送达与断线重放。内核与落库都没问题时，界面仍可能一直转圈。
-// 服务只启动一次，全部子测试共用。
+// 跨进程边界的端到端链路：真实 HTTP 栈下的装配完整性、跨源预检、帮助文档、
+// SSE 送达与断线重放。内核与落库都没问题时，界面仍可能一直转圈。
 package api_test
 
 import (
@@ -38,8 +37,7 @@ func bootServer(t *testing.T) (string, *api.Handler) {
 	}
 	t.Cleanup(h.Shutdown)
 
-	// 装配缺任一样东西，界面都是空窗口 + 接口全 404；端口必须在握手阶段才写入。
-	// 这两条约定在装配点收口一次，下游子测试才不用各自防守。
+	// 装配缺任一样东西，界面都是空窗口 + 接口全 404。
 	if h.Svc == nil || h.Repo == nil || h.Registry == nil || h.Skills == nil || h.Cfg.MasterKey == "" {
 		t.Fatal("服务容器没有装配完整（Svc/Repo/Registry/Skills/MasterKey），界面会空着且接口全 404")
 	}
@@ -201,8 +199,7 @@ func names(frames []sseFrame) []string {
 func TestHTTPChain(t *testing.T) {
 	base, _ := bootServer(t)
 
-	// Go 的 http 客户端不发预检，只有这里模拟浏览器行为才测得出来 CORS 缺失
-	// （症状是打包版所有 POST 报 Network Error）。
+	// Go 的 http 客户端不发预检，只有模拟浏览器才测得出来（症状：打包版所有 POST 报 Network Error）。
 	t.Run("跨源预检放行 POST", func(t *testing.T) {
 		req, err := http.NewRequest("OPTIONS", base+"/skills", nil)
 		if err != nil {
@@ -222,8 +219,6 @@ func TestHTTPChain(t *testing.T) {
 		}
 	})
 
-	// 帮助文档是打包进 exe 的静态资源：目录要能列、正文要能读、
-	// 路径参数不能穿出 docs 目录（name 只放行 [a-z0-9-_]）。
 	t.Run("帮助文档可读且不越界", func(t *testing.T) {
 		code, body := call(t, base, "GET", "/docs", nil)
 		if code != http.StatusOK || !strings.Contains(body, `"getting-started"`) {
@@ -255,11 +250,10 @@ func TestHTTPChain(t *testing.T) {
 		}
 	})
 
-	// 发消息 → SSE 送达 → 断线重放。事件信封的形态（data 里回带 event 与 seq）
-	// 必须与前端解析约定一致，只断言 `event:` 行会漏掉界面一个字都不显示的情况。
+	// 事件信封的形态（data 里回带 event 与 seq）必须与前端解析约定一致，
+	// 只断言 `event:` 行会漏掉界面一个字都不显示的情况。
 	t.Run("SSE 送达与断线重放", func(t *testing.T) {
-		// 假实现必须早于建服务注入：Upsert 只在 factory 有 override 时才放行
-		// 「test」这种非内置类型，晚一步整条链路会在第一步被拒。
+		// 假实现必须早于建服务注入：Upsert 只在 factory 有 override 时才放行「test」这种类型。
 		script := llmtest.New(llm.Message{Content: "你好，我是 WorkBaby"})
 		factory.SetOverride("test", func(llm.ClientConfig) llm.Streamer { return script })
 		t.Cleanup(func() { factory.SetOverride("test", nil) })
@@ -275,7 +269,6 @@ func TestHTTPChain(t *testing.T) {
 			t.Fatalf("设为默认失败: %d %s", code, body)
 		}
 
-		// 送达：start → delta → done，delta 拼接等于模型回复、done 带上用量、seq 严格递增。
 		script = llmtest.New(llm.Message{Content: "你好，我是 WorkBaby"})
 		script.Usage = &llm.Usage{Input: 11, Output: 7, Total: 18, LatencyMs: 42}
 
@@ -316,8 +309,7 @@ func TestHTTPChain(t *testing.T) {
 					text.WriteString(load["delta"].(string))
 				}
 			case "chat:done":
-				// 用量会被服务层按「输入含缓存」归一（脚本的 18 会被改写），
-				// 所以断言口径：模型报的输出量与总量正数都在，而不是钉死脚本值。
+				// 用量会被服务层按「输入含缓存」归一，所以只断言口径不钉死脚本值。
 				usage, ok := load["usage"].(map[string]any)
 				total, _ := usage["total"].(float64)
 				if !ok || usage["output"] != float64(7) || total <= 0 {
@@ -335,8 +327,7 @@ func TestHTTPChain(t *testing.T) {
 			}
 		}
 
-		// 断线重连：带 Last-Event-ID 回来必须补上缺的那几帧，否则用户切走一次
-		// 就永久丢一段回复（正文停在半句，点重连也没反应）。
+		// 断线重连：带 Last-Event-ID 回来必须补上缺的那几帧，否则切走一次就永久丢一段回复。
 		script = llmtest.New(llm.Message{Content: "重放我"})
 		code, body = call(t, base, "POST", "/sessions", map[string]any{})
 		if code != http.StatusOK {

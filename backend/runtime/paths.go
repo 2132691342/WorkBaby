@@ -21,6 +21,7 @@ type Paths struct {
 	SkillsDir        string
 	BuiltinSkillsDir string
 	ConfigFile       string
+	BackgroundDir    string
 }
 
 // Resolve 定位数据根并展开全部子路径。WORKBABY_HOME 优先，便于便携版与测试隔离。
@@ -50,8 +51,9 @@ func Resolve() (Paths, error) {
 		// 内置技能要落到真实磁盘路径：系统提示里让模型 read 的 SKILL.md 必须存在。
 		// 单独一个目录而不是 skills/builtin，是为了不被「全局技能」扫描重复登记。
 		BuiltinSkillsDir: filepath.Join(root, "builtin-skills"),
+		BackgroundDir:    filepath.Join(root, "background"),
 	}
-	for _, dir := range []string{p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir, p.SkillsDir, p.BuiltinSkillsDir} {
+	for _, dir := range []string{p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir, p.SkillsDir, p.BuiltinSkillsDir, p.BackgroundDir} {
 		if err := pkg.EnsureDir(dir); err != nil {
 			return Paths{}, err
 		}
@@ -60,9 +62,8 @@ func Resolve() (Paths, error) {
 	return p, nil
 }
 
-// sweepTmp 清理临时目录里超过 7 天的溢出文件：工具截断会把完整输出落在这里，
-// 不清就是无上界的磁盘增长。启动期没有任何 run 在跑，此时清理没有竞态；
-// 失败只告警——清理失败不该挡启动。
+// sweepTmp 清理临时目录里超过 7 天的溢出文件（工具截断的完整输出落在这里）。
+// 启动期没有任何 run 在跑，此时清理没有竞态；失败只告警，不该挡启动。
 func sweepTmp(dir string) {
 	cutoff := time.Now().AddDate(0, 0, -7)
 	entries, err := os.ReadDir(dir)

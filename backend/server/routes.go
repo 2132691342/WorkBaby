@@ -75,7 +75,9 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			knowledge.GET("/docs", h.ListDocs)
 			knowledge.POST("/docs/add", h.AddDocs)
 			knowledge.POST("/docs/:id/delete", h.DeleteDoc)
-			knowledge.POST("/reindex", h.ReindexDocs)
+			knowledge.POST("/reindex", h.StartReindex)
+			knowledge.GET("/reindex", h.ReindexStatus)
+			knowledge.POST("/reindex/cancel", h.CancelReindex)
 			knowledge.POST("/search", h.SearchKnowledge)
 		}
 
@@ -95,6 +97,9 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 
 		v1.GET("/settings", h.AllSettings)
 		v1.POST("/settings", h.SetSetting)
+		v1.GET("/settings/background", h.GetBackground)
+		v1.POST("/settings/background", h.SetBackground)
+		v1.GET("/assets/background", h.BackgroundAsset)
 		v1.GET("/stats", h.Stats)
 	}
 

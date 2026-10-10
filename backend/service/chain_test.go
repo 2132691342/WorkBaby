@@ -1,9 +1,11 @@
-// 服务层链路：一次 run 的完整生命周期（审批 / 错误轮 / 插话 / 预算 / 落库配对）
-// 与默认模型的继承回填。装配昂贵（DB + 注册表 + 容器），全文件只做一次。
+// 服务层链路：一次 run 的完整生命周期与跨进程场景。
+// 装配昂贵（DB + 注册表 + 容器），全文件共用一套。
 // 坏了的表现：审批后工具没执行、刷新后历史消失或链序撕裂（下一轮直接 400）。
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"path/filepath"
@@ -20,6 +22,7 @@ import (
 	"WorkBaby/backend/repo"
 	"WorkBaby/backend/runtime"
 	"WorkBaby/backend/runtime/runtimetest"
+	"WorkBaby/backend/skill"
 	"WorkBaby/backend/tool"
 )
 
@@ -90,7 +93,7 @@ func newEnv(t *testing.T) (*Env, *Container) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Bootstrap(); err != nil {
+	if _, err := svc.Bootstrap(); err != nil {
 		t.Fatal(err)
 	}
 	return env, svc
@@ -201,14 +204,11 @@ func describe(msgs []llm.Message) string {
 	return out
 }
 
-// 服务层唯一一条完整链路：发送 → 工具 / 审批 / 插话 → 落库 → 收尾。
-// 所有子测试共用同一套装配；脚本替身很便宜，各自按需挂载。
+// 发送 → 工具 / 审批 / 插话 → 落库 → 收尾；所有子测试共用同一套装配。
 func TestServiceRunChain(t *testing.T) {
 	env, svc := newEnv(t)
 
-	// 配对落库的两条路径：跨轮的「首轮弹卡 → 会话级放行 → 第二轮不再问」，
-	// 以及同轮并发——emit 不串行化时第二个 goroutine 撞主键，声明永远丢在链外，
-	// 恢复历史后整条链就是「结果找不到紧邻的声明」（上游 400）。
+	// 同轮并发时若 emit 不串行化，第二个 goroutine 撞主键，声明永远丢在链外（上游 400）。
 	t.Run("审批闭环与配对落库（跨轮 + 同轮并发）", func(t *testing.T) {
 		useScripted(t,
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
@@ -236,7 +236,6 @@ func TestServiceRunChain(t *testing.T) {
 		}
 		assertDeclaredBeforeResult(t, svc, sess.ID)
 
-		// 同轮并发：两条声明同时发出。
 		useScripted(t,
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "par"}, {ID: "c2", Name: "par"}}},
 			llm.Message{Content: "两个都跑完了"},
@@ -277,8 +276,8 @@ func TestServiceRunChain(t *testing.T) {
 		assertDeclaredBeforeResult(t, svc, parSess.ID)
 	})
 
-	// 落库链序：错误轮的半成品必须留下（UI 已流式显示的内容，刷新后不能凭空消失）；
-	// 插话必须按「上一轮结果 → 插话 → 本轮回复」落库（早写撕裂协议配对，晚写链序失真）。
+	// 错误轮半成品必须留下（UI 已流式显示的内容，刷新后不能凭空消失）；
+	// 插话必须按「上一轮结果 → 插话 → 本轮回复」落库（早写撕裂配对，晚写链序失真）。
 	t.Run("落库链序：错误轮半成品 / 插话注入", func(t *testing.T) {
 		s := useScripted(t, llm.Message{Content: "占位"})
 		s.ErrAfterDelta = "我先查一下——"
@@ -341,8 +340,7 @@ func TestServiceRunChain(t *testing.T) {
 		}
 	})
 
-	// 输出预算必须真的下发到上游：不下发时各家网关各按自己的默认（常见 4096/8192），
-	// 带思考的模型把预算全花在推理上，用户看到的就是「助手只思考、没有任何动作」。
+	// 预算不下发时各家网关按自己的默认（常见 4096/8192），带思考的模型会把预算全花在推理上。
 	t.Run("预算与用量口径：下发 / 余量 / 归一落库", func(t *testing.T) {
 		s := useScripted(t, llm.Message{Content: "好了"})
 		sess := newProviderSession(t, svc)
@@ -358,34 +356,29 @@ func TestServiceRunChain(t *testing.T) {
 		if s.Requests[0].MaxTokens <= 0 {
 			t.Fatalf("max_tokens 未下发（%d）：上游会用自己的默认值把回答截断", s.Requests[0].MaxTokens)
 		}
-		// 上下文余量必须容得下真正下发的输出预算：余量算小了，压缩会按虚高的
-		// 空间往窗口里塞内容，总占用顶破窗口。
+		// 余量容不下输出预算的话，压缩会按虚高的空间往窗口里塞内容。
 		const big = "gpt-4.1"
 		cap := domain.ModelCapabilityOf(big)
 		b := svc.Chat.budget(cap, "sys")
 		if want := cap.OutputBudget(); b.Reserve < want {
 			t.Fatalf("上下文余量 %d 没跟上输出预算 %d：压缩会按虚高的空间往窗口里塞内容", b.Reserve, want)
 		}
-		// 1M 窗口的模型按 1/8 会算出 12.5 万输出，超过厂商硬上限就是整轮 400；
-		// 输出预算必须被目录里的硬上限钳住。
+		// 1M 窗口按 1/8 会算出 12.5 万输出，超过厂商硬上限就是整轮 400。
 		if cap.OutputBudget() > cap.MaxOutputLimit || cap.MaxOutputLimit <= 0 {
 			t.Fatalf("输出预算 %d 没被厂商硬上限 %d 钳住", cap.OutputBudget(), cap.MaxOutputLimit)
 		}
-		// 窗口是用户手填的（同名模型能在别的服务上跑，目录里的硬上限描述的不是这个端点）：
-		// 输出预算按他填的窗口 1/8 走，不能再被目录的旧上限钳住。
+		// 窗口是用户手填的，输出预算按他填的窗口 1/8 走，不能再被目录上限钳住。
 		custom := cap.WithWindow(1024000)
 		if got, want := custom.OutputBudget(), 1024000/8; got != want {
 			t.Fatalf("手填窗口 %d 的输出预算应为窗口 1/8 = %d，实际 %d（被目录硬上限钳住了）",
 				custom.ContextWindow, want, got)
 		}
-		// 水位环的分母必须与压缩触发线同口径：拿整窗口当分母的话，整理已经发生、
-		// 环上才 87%，用户看着「还有空间」却已经在丢内容。
+		// 水位分母与压缩触发线同口径：拿整窗口当分母，整理已发生时环上才 87%。
 		reserve := cap.OutputBudget()
 		if got := ratioOf(cap.ContextWindow-reserve, cap.ContextWindow, reserve); got != 100 {
 			t.Fatalf("水位刚到整理线时 ratio 应为 100，实际 %d", got)
 		}
-		// 上游把输入报成「未命中缓存的部分」时口径必须补回总量，界面读数才不会越界：
-		// 命中量大于输入量会让消息卡片与仪表盘算出 229% 这种数，用户只会以为统计坏了。
+		// 上游把输入报成「未命中部分」时口径必须补回总量，否则命中率会算出 229% 这种数。
 		us := useScripted(t, llm.Message{Content: "好了"})
 		us.Usage = &llm.Usage{Input: 100, Output: 20, Total: 120, Cached: 300}
 		usSess := newProviderSession(t, svc)
@@ -413,8 +406,8 @@ func TestServiceRunChain(t *testing.T) {
 			t.Fatalf("上下文 %d 小于输入 %d：同一张卡片上两个读数会互相矛盾", u.Context, u.Input)
 		}
 
-		// 老数据的命中量可能大于输入量（输入只记了未命中部分），汇总侧必须兜在 100% 以内。
-		useScripted(t, llm.Message{Content: "占位"}) // 建服务要过适配器校验，这里只用它注册 test 类型
+		// 老数据命中量可能大于输入量，汇总侧必须兜在 100% 以内。
+		useScripted(t, llm.Message{Content: "占位"}) // 建服务要过适配器校验
 		legacy := newProviderSession(t, svc)
 		if err := env.Repo.AddUsage(&domain.TokenUsageDO{
 			ID: pkg.NewID(domain.PrefixUsage), SessionID: legacy.ID,
@@ -431,8 +424,7 @@ func TestServiceRunChain(t *testing.T) {
 		}
 	})
 
-	// 默认模型的继承链：设默认服务 → 落默认模型 → 新会话继承 → 存量空模型会话跑一次补齐。
-	// 这条链断掉时界面显示「默认模型」且上下文窗口永远算不出来，症状分散在多处。
+	// 链断掉时界面显示「默认模型」且上下文窗口永远算不出来，症状分散在多处。
 	t.Run("默认模型继承与回填", func(t *testing.T) {
 		useScripted(t, llm.Message{Content: "好的"})
 		p, err := svc.Providers.Upsert(domain.UpsertProviderREQ{
@@ -476,4 +468,103 @@ func TestServiceRunChain(t *testing.T) {
 			t.Fatalf("模型名未回写: %q", fresh.Model)
 		}
 	})
+}
+
+// 进程退出时等待决策的通道随之消失，残留的待决审批在下次启动按拒绝收口。
+// 静默收口的表现是用户翻回昨天的对话只看到「助手那一步没做」，全程没有痕迹。
+func TestApprovalRestart(t *testing.T) {
+	env, svc := newEnv(t)
+	rec := &domain.ApprovalDO{
+		ID:        pkg.NewID(domain.PrefixApproval),
+		SessionID: "SESSION_TEST",
+		Tool:      "write",
+		Label:     "写入文件",
+		Status:    domain.ApprovalPending,
+		CreatedAt: 1,
+	}
+	if err := env.Repo.CreateApproval(rec); err != nil {
+		t.Fatalf("写入待决审批失败: %v", err)
+	}
+
+	got, err := svc.Approvals.ExpireStale()
+	if err != nil {
+		t.Fatalf("收口失败: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != rec.ID {
+		t.Fatalf("收口清单应带回这一条: %+v", got)
+	}
+	if got[0].Status != domain.ApprovalDenied {
+		t.Fatalf("收口后状态应为已拒绝，实际 %s", got[0].Status)
+	}
+	if got[0].Label != "写入文件" {
+		t.Fatalf("清单要带得回工具名，前端才能说清是哪一步: %s", got[0].Label)
+	}
+	// 第二次收口必须是空的：重复提示比不提示更烦。
+	if again, err := svc.Approvals.ExpireStale(); err != nil || len(again) != 0 {
+		t.Fatalf("已收口的审批不该再出现: %+v %v", again, err)
+	}
+	if left, err := svc.Approvals.Pending("SESSION_TEST"); err != nil || len(left) != 0 {
+		t.Fatalf("收口后仍查到待决审批: %+v %v", left, err)
+	}
+}
+
+// 技能包导入：解压落盘注册、条目穿越拒绝且不落盘、没有 SKILL.md 的包拒绝。
+func TestSkillZipImport(t *testing.T) {
+	env, _ := newEnv(t)
+	env.Skills = skill.New()
+	svc := NewSkillService(env)
+
+	data := buildZip(t, map[string]string{
+		"a/SKILL.md": "---\nname: skill-a\ndescription: 技能 A\n---\n正文 A\n",
+		"b/SKILL.md": "---\nname: skill-b\ndescription: 技能 B\n---\n正文 B\n",
+	})
+	resp, err := svc.ImportZip("pack.zip", data)
+	if err != nil {
+		t.Fatalf("导入失败: %v", err)
+	}
+	if resp.Imported != 2 {
+		t.Fatalf("应导入 2 个技能，实际 %d", resp.Imported)
+	}
+	for _, name := range []string{"skill-a", "skill-b"} {
+		if _, ok := env.Skills.Get(name); !ok {
+			t.Fatalf("%s 未注册", name)
+		}
+		if !pkg.FileExists(filepath.Join(env.Paths.SkillsDir, name, "SKILL.md")) {
+			t.Fatalf("%s 未落盘", name)
+		}
+	}
+
+	evil := buildZip(t, map[string]string{
+		"../evil.txt": "x",
+		"a/SKILL.md":  "---\nname: skill-c\ndescription: c\n---\n正文\n",
+	})
+	if _, err := svc.ImportZip("evil.zip", evil); pkg.CodeOf(err) != 8108 {
+		t.Fatalf("条目穿越应报 8108，实际 %v", err)
+	}
+	if pkg.FileExists(filepath.Join(filepath.Dir(env.Paths.SkillsDir), "evil.txt")) {
+		t.Fatal("穿越文件竟然写出去了")
+	}
+
+	if _, err := svc.ImportZip("empty.zip", buildZip(t, map[string]string{"readme.txt": "hi"})); pkg.CodeOf(err) != 8109 {
+		t.Fatalf("没有 SKILL.md 的包应报 8109，实际 %v", err)
+	}
+}
+
+func buildZip(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }

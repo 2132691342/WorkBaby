@@ -94,7 +94,8 @@ func (s *Server) Stop() {
 func methodGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !pkg.AllowMethod(c.Request.Method) {
-			c.JSON(200, gin.H{"code": 1002, "message": "只允许 GET 与 POST", "data": nil})
+			// 走统一外壳而不是手写 gin.H：响应形状只有一处定义，前端才能无分支解析。
+			c.JSON(200, domain.Resp{Code: 1002, Message: "只允许 GET 与 POST"})
 			c.Abort()
 			return
 		}

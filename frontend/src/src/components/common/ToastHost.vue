@@ -10,11 +10,19 @@ const ICONS: Record<string, string> = { ok: 'check', bad: 'alert', info: 'info' 
 </script>
 
 <template>
-  <div class="toasts">
-    <div v-for="t in toast.items" :key="t.id" class="toast" :class="`is-${t.kind}`" @click="toast.dismiss(t.id)">
+  <!-- aria-live：读屏用户不该「看不到提示」；键盘可达则让不需要鼠标的人也能关掉 -->
+  <div class="toasts" role="status" aria-live="polite">
+    <button
+      v-for="t in toast.items"
+      :key="t.id"
+      type="button"
+      class="toast"
+      :class="`is-${t.kind}`"
+      @click="toast.dismiss(t.id)"
+    >
       <AppIcon :name="ICONS[t.kind]" size="ic-sm" />
       <span>{{ t.text }}</span>
-    </div>
+    </button>
   </div>
 </template>
 
@@ -24,6 +32,13 @@ const ICONS: Record<string, string> = { ok: 'check', bad: 'alert', info: 'info' 
 .toast {
   pointer-events: auto;
   cursor: pointer;
+  /* 换 button 之后要按回 toast 的版式：button 自带居中与衬线默认，会歪 */
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  text-align: left;
+  font: inherit;
+  color: inherit;
   transition:
     background var(--wb-dur-fast) var(--wb-ease),
     transform var(--wb-dur-fast) var(--wb-ease);

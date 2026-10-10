@@ -60,6 +60,32 @@ func WriteText(p, content string) error {
 	return nil
 }
 
+// CopyFile 复制文件到 dst（自动建父目录）。
+// 背景图与导入的技能都要留一份自己的副本：直接引用用户选中的原文件，
+// 原文件一删一挪引用就断了，而用户不会记得这层关系。
+func CopyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return Wrap(1005, "读取文件失败", err)
+	}
+	defer in.Close()
+	if err := EnsureDir(filepath.Dir(dst)); err != nil {
+		return err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return Wrap(1007, "写入文件失败", err)
+	}
+	if _, err := out.ReadFrom(in); err != nil {
+		_ = out.Close()
+		return Wrap(1007, "写入文件失败", err)
+	}
+	if err := out.Close(); err != nil {
+		return Wrap(1007, "写入文件失败", err)
+	}
+	return nil
+}
+
 // EnsureDir 保证目录存在。
 func EnsureDir(p string) error {
 	if err := os.MkdirAll(p, 0o755); err != nil {

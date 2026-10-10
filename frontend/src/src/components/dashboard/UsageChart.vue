@@ -51,25 +51,45 @@ const px = (i: number) =>
 const py = (v: number) =>
   PAD.top + plotH - (plotH * Math.min(Math.max(v || 0, 0), maxValue.value)) / maxValue.value
 
-const pointsIn = computed(() => pointsFor((d) => d.input || 0))
-const pointsOut = computed(() => pointsFor((d) => d.output || 0))
-
-function pointsFor(pick: (d: StatsDailyItem) => number): string {
-  return props.daily.map((d, i) => `${px(i).toFixed(1)},${py(pick(d)).toFixed(1)}`).join(' ')
+function coordsFor(pick: (d: StatsDailyItem) => number) {
+  return props.daily.map((d, i) => ({ x: px(i), y: py(pick(d)) }))
 }
 
-// 面积 = 折线两端垂到基线闭合；用 point 串直接拼，省掉一套 path builder
-function areaOf(line: string): string {
-  if (!line) return ''
-  const parts = line.split(' ')
-  const first = parts[0].split(',')[0]
-  const last = parts[parts.length - 1].split(',')[0]
+// 平滑曲线：Catmull-Rom 转三次贝塞尔，张力取 1/6（再大就过冲出负区间）。
+// 天数一多时折线像锯齿，「趋势往哪走」反而读不出来；平滑后与面积渐变是一套语言。
+function smoothOf(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return ''
+  if (pts.length === 1) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[i + 2] || p2
+    const c1x = p1.x + (p2.x - p0.x) / 6
+    const c1y = p1.y + (p2.y - p0.y) / 6
+    const c2x = p2.x - (p3.x - p1.x) / 6
+    const c2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`
+  }
+  return d
+}
+
+// 面积 = 曲线两端垂到基线闭合
+function areaOf(pts: { x: number; y: number }[]): string {
+  if (!pts.length) return ''
   const base = (PAD.top + plotH).toFixed(1)
-  return `${first},${base} ${line} ${last},${base}`
+  const last = pts[pts.length - 1]
+  const first = pts[0]
+  return `${smoothOf(pts)} L ${last.x.toFixed(1)} ${base} L ${first.x.toFixed(1)} ${base} Z`
 }
 
-const areaIn = computed(() => areaOf(pointsIn.value))
-const areaOut = computed(() => areaOf(pointsOut.value))
+const coordsIn = computed(() => coordsFor((d) => d.input || 0))
+const coordsOut = computed(() => coordsFor((d) => d.output || 0))
+const lineIn = computed(() => smoothOf(coordsIn.value))
+const lineOut = computed(() => smoothOf(coordsOut.value))
+const areaIn = computed(() => areaOf(coordsIn.value))
+const areaOut = computed(() => areaOf(coordsOut.value))
 
 const yTicks = computed(() =>
   Array.from({ length: Y_GRID + 1 }, (_, i) => {
@@ -155,11 +175,11 @@ const hover = computed(() => {
         </text>
       </g>
 
-      <!-- 面积 + 折线 -->
-      <polygon class="area-in" :points="areaIn" />
-      <polygon class="area-out" :points="areaOut" />
-      <polyline class="line-in" :points="pointsIn" />
-      <polyline class="line-out" :points="pointsOut" />
+      <!-- 面积 + 曲线 -->
+      <path class="area-in" :d="areaIn" />
+      <path class="area-out" :d="areaOut" />
+      <path class="line-in" :d="lineIn" />
+      <path class="line-out" :d="lineOut" />
 
       <!-- x 轴标签 -->
       <g class="xlab">
@@ -228,7 +248,7 @@ svg {
 .line-in,
 .line-out {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 2.6;
   stroke-linecap: round;
   stroke-linejoin: round;
 }

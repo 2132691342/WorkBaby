@@ -21,6 +21,20 @@ export const useSettingsStore = defineStore('settings', () => {
     error.value = (e as Error)?.message || '加载失败，请稍后再试'
   }
 
+  // 只重读设置表：bootstrap 一次给全量（服务 / 技能 / 文档 / 设置），
+  // 任何一个子项出错就整体失败；而主题、字体、字号只依赖设置表，不该被别的子项连坐。
+  async function syncSettings() {
+    try {
+      values.value = { ...values.value, ...(await api.settings.all()) }
+      return true
+    } catch (e) {
+      // 兜底读不到就只留一条错误：外观保持上一次的值。不弹 toast——
+      // 这多半发生在启动期，弹窗比静默退回更吵。
+      fail(e)
+      return false
+    }
+  }
+
   async function loadBoot() {
     try {
       boot.value = await api.bootstrap()
@@ -29,6 +43,9 @@ export const useSettingsStore = defineStore('settings', () => {
       return boot.value
     } catch (e) {
       fail(e)
+      // 大接口挂了也要把外观带回来：用户看到的是「界面突然变回出厂设置」，
+      // 那是另一件跟他无关的事故留下的痕迹。
+      await syncSettings()
       throw e
     }
   }
@@ -110,6 +127,7 @@ export const useSettingsStore = defineStore('settings', () => {
     modelsLoading,
     error,
     loadBoot,
+    syncSettings,
     loadProviders,
     loadSkills,
     loadDocs,

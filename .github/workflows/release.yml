@@ -1,18 +1,4 @@
-# GitHub Actions：tag 触发自动构建并发布 GitHub Release。
-#
-# 触发：推送形如 v0.1.0 / v1.2.3 的 tag。
-# 流程：
-#   1) checkout（含 Git LFS 拉取内置运行时归档）
-#   2) 安装 Go（版本随 go.mod）+ Node 20 + Wails CLI + NSIS
-#   3) wails build（前端 npm ci && npm run build → 嵌入二进制 → NSIS 打包成 installer.exe）
-#   4) 上传 build/bin/WorkBaby-amd64-installer.exe 到 GitHub Release，自动生成 release notes
-#
-# 设计取舍：
-#   - 仅 windows-latest：项目目前只面向 Windows amd64。
-#   - 不上传 WorkBaby.exe（无 NSIS 打包）：用户场景是绿色安装；纯 exe 提供给高级用户，
-#     必要时可手动从 Actions artifacts 下载再扩展。
-#   - 缓存 npm + Go modules：~30% 时间节省；缓存键绑 Go 版本避免版本漂移。
-#   - 失败产物保留为 Actions artifacts：便于本地复现与排错。
+# tag 触发：wails build → NSIS 安装器 → GitHub Release。设计与取舍见 docs/DEPLOYMENT.md。
 
 name: release
 

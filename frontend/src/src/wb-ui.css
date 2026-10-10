@@ -729,6 +729,18 @@ body {
 .sess-item.is-on {
   background: var(--wb-tint-lg);
 }
+/* 会话行：禁用态给灰化（正在打开别的会话时防连点），加载态给「正在打开」的信号。
+   整行不放大——宽度 100% 放大就是左右溢出，侧栏里会被裁掉边缘。 */
+.sess-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sess-item.is-loading {
+  background: var(--wb-primary-soft);
+}
+.sess-item.is-loading .si-name {
+  color: var(--wb-primary);
+}
 .ses-item h5,
 .sess-item .si-name {
   display: flex;
@@ -1754,6 +1766,30 @@ select.input.narrow {
   opacity: 0.3;
   cursor: not-allowed;
 }
+/* 加载态：开关的写入是一次请求，只 disabled 不转圈的话用户看不出「点到了」。
+   与禁用态同挂时保持全亮——opacity 只压暗别的控件，不压这一枚正在干活的。
+   用外扩的呼吸环而不是转旋钮：旋钮的 transform 已经被 translateX 占着，
+   动画会把它顶回左侧，看着像开关自己跳回去了。 */
+.switch.is-loading {
+  opacity: 1;
+  cursor: progress;
+  animation: wb-switch-wait 900ms var(--wb-ease) infinite;
+}
+@keyframes wb-switch-wait {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--wb-primary-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--wb-primary-soft);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .switch.is-loading {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--wb-primary-soft);
+  }
+}
 .switch.on,
 .switch.is-on {
   background: var(--wb-primary);
@@ -2415,6 +2451,22 @@ select.input.narrow {
 .rli > .btn {
   margin-left: auto;
   flex: none;
+}
+/* 行展开区是 button：button 自带居中、衬线与 UA 边框，不在这里打平就会歪。 */
+.rli > .main {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.rli > .main:hover {
+  color: var(--wb-primary);
+}
+.rli > .main:active {
+  transform: scale(0.99);
 }
 /* 行加载态：标题左侧转圈占住开关的位置语义——「这行正在变化」，
    与行内开关的 :disabled 同挂，点击不丢反馈。 */

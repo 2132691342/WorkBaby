@@ -1,15 +1,5 @@
-# GitHub Actions：push / PR 日常质量门禁。
-#
-# 与 release.yml 的分工：release 只在 tag 上出包；本文件在每次 push/PR 上跑
-# 后端测试 + 依赖方向门禁 + 前端类型与构建，让回归在合并前暴露。
-#
-# 设计取舍：
-#   - 仅 windows-latest：项目只面向 Windows。
-#   - 后端 / 前端拆两个 job：两套工具链的失败互不拖累。
-#   - 门禁排在 go test 之前：测试挂掉时依赖方向结论仍能拿到。
-#   - go test 传 -short：跳过归档真实解压（全量唯一的慢点，见 AGENTS §3.3）。
-#   - 不编译 / 不测 main 包：go:embed 依赖 frontend/dist，那份产物由 release 的 wails build 负责。
-#     壳层逻辑（app_test.go）因此只在本地跑，改动 app.go 时记得本地执行。
+# 日常质量门禁：push / PR 上跑后端测试 + 依赖方向门禁 + 前端类型与构建。
+# 出包在 release.yml（只在 tag 触发）。设计与取舍见 docs/DEPLOYMENT.md。
 
 name: ci
 

@@ -221,11 +221,17 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 		lock := c.lockOf(sessionID)
 		lock.Lock()
 		c.mu.Lock()
+		cancel := c.cancel[sessionID]
 		delete(c.cancel, sessionID)
 		c.mu.Unlock()
 		// 收尾窗口里入队的插话没人消费了：补落库，否则这句凭空消失。
 		c.flushQueueLocked(sessionID)
 		lock.Unlock()
+		// 只摘句柄不调用 = 每个正常结束的 run 泄漏一个 ctx 及其整棵子树
+		//（HTTP 连接、重试 goroutine 全挂在它下面）。
+		if cancel != nil {
+			cancel()
+		}
 	}()
 
 	c.env.Emitter.Emit(sessionID, domain.EventChatStart, domain.StartData{RunID: runID, SessionID: sessionID})
@@ -347,8 +353,7 @@ type runState struct {
 	maxTokens   int
 	turnEntryID string
 	lastEntryID string
-	// leafID 是跟着 Append 推进的落库父位点：run 是会话条目唯一的写方，
-	// 记住它就不必每条消息都回查一次会话（长 run 少一半 SQL）。
+	// leafID 是跟着 Append 推进的落库父位点：记住它就不必每条消息回查会话。
 	leafID string
 	// pending / thinking 用 Builder：本轮正文按 token 累加，走 `+=` 是每 token
 	// 复制一遍整段，长回答末尾就是 O(n²)。

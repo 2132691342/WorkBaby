@@ -147,9 +147,15 @@ export const useChatStore = defineStore('chat', () => {
     lastError.value = ''
     truncated.value = false
     truncBudget.value = 0
+    // 上一轮的「已停止 / 连接中断」提示必须清掉：留着它会挂在下一轮顶部，
+    // 用户刚点发送就看到一句旧的对账提示，会以为这次又断了。
+    notice.value = ''
   }
 
   function onDelta(data: DeltaData) {
+    // delta 到达即说明 run 还活着：对账（onGap）可能提前退了运行态，
+    // 不在这里补回来的话，live 回合的 v-if 关着，正文攒到下次快照才突然出现。
+    running.value = true
     if (data.kind === 'thinking') {
       if (showThinking) thinking.value += data.delta
     } else streaming.value += data.delta

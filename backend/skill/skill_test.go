@@ -1,6 +1,5 @@
-// 技能注册表链路：embed 解析（frontmatter 含列表也必须成功）→ 落盘成真文件 → 渲染进提示，
-// 以及同名来源优先级与切换工作目录。
-// 坏了的表现：技能被静默丢弃、模型读了虚拟路径读不到正文、旧工作区的技能残留。
+// 技能注册表链路：embed 解析 → 落盘成真文件 → 渲染进提示，以及来源优先级与工作区切换。
+// 坏了的表现：技能被静默丢弃、模型读虚拟路径读不到正文、旧工作区的技能残留。
 package skill
 
 import (
@@ -37,8 +36,7 @@ func testFS() fstest.MapFS {
 }
 
 func TestSkillRegistryChain(t *testing.T) {
-	// 从 embed 解析到落盘：Location 必须是磁盘上的真文件，
-	// 否则模型按系统提示去 read 时读到的还是 embed 的虚拟路径。
+	// Location 必须是磁盘上的真文件，否则模型按系统提示去 read 时读到的是虚拟路径。
 	t.Run("embed 解析、落盘与渲染", func(t *testing.T) {
 		embedded := LoadFS(testFS(), "skills", domain.SkillSourceBuiltin)
 		if len(embedded) != 2 {
@@ -82,7 +80,6 @@ func TestSkillRegistryChain(t *testing.T) {
 		}
 	})
 
-	// 同名技能按来源优先级命中（工作区覆盖内置，撤掉后回落），
 	// 切换工作目录必须换掉工作区技能：留着上一个目录那套，用户会看到一堆打不开的技能。
 	t.Run("来源优先级与工作区切换", func(t *testing.T) {
 		r := New()

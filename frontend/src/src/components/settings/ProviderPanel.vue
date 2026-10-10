@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 模型服务面板：内置模板一键填好，只需粘 Key 就能用。
 // 每个模型还能单独设上下文窗口、温度、top_p 与图像 / 工具调用能力。
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import * as api from '../../api'
 import type { ModelConfigVO } from '../../types/api'
 import { useSettingsStore } from '../../stores/settings'
@@ -274,22 +274,34 @@ function blankRow(): CfgRow {
   }
 }
 
-// 行对象必须先于渲染存在，模板里的 v-model 才有落点；随后用服务端值覆盖
-async function loadCfg(m: string) {
+// 行对象必须先于渲染存在，模板里的 v-model 才有落点；随后用服务端值覆盖。
+// 一次 configs 拉回全部覆写再在内存里分发：逐个 models.config 是 N+1——
+// 选 30 个模型就打 30 次请求，展开一次参数面板要把本地服务按在地上摩擦。
+async function loadCfgs(models: string[]) {
+  const pid = form.id || undefined
+  for (const m of models) {
+    if (!cfgRows.value[m]) cfgRows.value[m] = blankRow()
+  }
+  // 服务商还没保存（新建中）：必然没有覆写，缺省行就是正确答案，不必打请求。
+  if (!pid) return
   try {
-    applyConfig(m, await api.models.config(m, form.id || undefined))
+    const all = await api.models.configs(pid)
+    const byModel = new Map(all.map((c) => [c.model, c]))
+    for (const m of models) {
+      const hit = byModel.get(m)
+      if (hit) applyConfig(m, hit)
+    }
   } catch (e) {
     // 拉不到就保留缺省行，但必须说一声：用户会把预填值当成已保存的配置，直接再保存一遍
-    toast.bad(`读不到「${m}」的配置，下面显示的是默认值：${(e as Error)?.message || '请重试'}`)
+    toast.bad(`读不到模型参数，下面显示的是默认值：${(e as Error)?.message || '请重试'}`)
   }
 }
 
-watch([cfgOpen, chosen], () => {
+// form.id 也要盯：服务商保存前后 id 从空变成真值，不重拉的话
+// 用户「先展开参数、再保存服务」时看到的一直是缺省行。
+watch([cfgOpen, chosen, () => form.id], () => {
   if (!cfgOpen.value) return
-  for (const m of chosen.value) {
-    if (!cfgRows.value[m]) cfgRows.value[m] = blankRow()
-    void loadCfg(m)
-  }
+  void loadCfgs(chosen.value)
 })
 
 async function saveCfg(m: string) {
@@ -359,6 +371,7 @@ function askRemove(id: string) {
   clearTimeout(confirmTimer)
   confirmTimer = window.setTimeout(() => (confirmingDelete.value = ''), 3000)
 }
+onBeforeUnmount(() => clearTimeout(confirmTimer))
 
 // rowBusy 标记正在操作的服务行：删除与设默认都要等两次请求，
 // 期间按钮转圈、同行其它操作禁用，防连点造成「删了又设默认」这类交叉请求。

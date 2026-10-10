@@ -69,11 +69,29 @@
 `pending → indexed → failed`；失败原因落 `error` 字段，前端直接展示，
 不让用户对着一个「添加失败」干瞪眼。
 
+## 重建索引
+
+重建逐篇跑「解析 → 切块 → 替换分块」，大库要几十秒。它走**后台任务**而不是同步请求：
+同步等一次 HTTP 会把这条连接占死几十秒，界面只有一个转圈，也没有任何办法停下来。
+
+| 接口 | 作用 |
+|---|---|
+| `POST /knowledge/reindex` | 启动一趟重建；已在跑时返回 `started=false`，不排队也不重入 |
+| `GET /knowledge/reindex` | 进度快照 `{running, total, done, failed, started_at, finished_at}` |
+| `POST /knowledge/reindex/cancel` | 中断。ctx 只在篇与篇之间检查——一篇的解析与写入是原子单位，中途掐断会留下半套分块 |
+
+前端启动后按 700ms 轮询，`running=false` 时停止并刷新文档列表；
+`done + failed < total` 说明是被中断的，必须如实说「重建已中断（n/total）」，
+否则文档列表里留着上一版的块数，用户会以为全部重建完了。
+
 ## 测试
 
 `knowledge/knowledge_test.go` 的 `TestKnowledgeChain` 覆盖：建索引 → 检索（含两字短查询
 走 `LIKE` 兜底）→ 删除文档后切片级联清理（FTS 里不留孤儿）；
 另锁 pptx 按页号抽取（zip 条目顺序不可靠）且内容可检索。
+
+`knowledge/knowledge_test.go` 的 `TestReindexJob` 锁重建任务：进度跑满且记录
+`finished_at`、重入被拒、结束后取消返回 false。
 
 ## 取舍
 

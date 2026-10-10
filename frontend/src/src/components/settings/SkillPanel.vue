@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 技能面板：新建 / 导入 / 开关 / 看正文 / 删除。
 // 只有开关的面板不叫「能用」：想把自己那套流程固化下来，必须有条不依赖命令行的路。
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
@@ -178,6 +178,7 @@ function askRemove(id: string) {
   clearTimeout(confirmTimer)
   confirmTimer = window.setTimeout(() => (confirming.value = ''), 3000)
 }
+onBeforeUnmount(() => clearTimeout(confirmTimer))
 
 async function remove(id: string) {
   if (busyId.value) return
@@ -274,9 +275,12 @@ onMounted(() => store.loadSkills())
           class="rli skill"
           :class="{ 'is-open': open === s.id }"
         >
-          <div
+          <!-- 展开区用 button 而不是 div：键盘要能 Tab 到，读屏要知道它是可展开的 -->
+          <button
             class="grow main"
+            type="button"
             :class="{ 'is-loading': busyId === s.id }"
+            :aria-expanded="open === s.id"
             @click="expand(s.id)"
           >
             <h5>
@@ -284,14 +288,17 @@ onMounted(() => store.loadSkills())
               <span class="tag">{{ sourceName[s.source] || s.source }}</span>
             </h5>
             <p>{{ s.description || '（无描述）' }}</p>
-          </div>
+          </button>
           <button
             class="switch"
-            :class="{ 'is-on': s.enabled }"
             type="button"
+            role="switch"
+            :aria-checked="s.enabled"
+            :aria-label="s.enabled ? `停用技能 ${s.name}` : `启用技能 ${s.name}`"
+            :class="{ 'is-on': s.enabled, 'is-loading': busyId === s.id }"
             :title="s.enabled ? '点击停用' : '点击启用'"
             :disabled="busyId === s.id"
-            @click="toggle(s.id, !s.enabled)"
+            @click.stop="toggle(s.id, !s.enabled)"
           />
           <button
             v-if="s.source !== 'builtin'"

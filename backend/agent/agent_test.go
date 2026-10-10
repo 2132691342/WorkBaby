@@ -1,5 +1,5 @@
-// 内核链路：主循环的协议约束（结果顺序回填、收尾路径、降级重试、事件串行化、重复调用拦截）
-// 与上下文裁剪的硬约束（清洗、切点、预算边界）。坏了的表现：上游 400、半截内容落库、事件错位。
+// 内核链路：主循环的协议约束与上下文裁剪的硬约束。
+// 坏了的表现：上游 400、半截内容落库、事件错位。
 package agent
 
 import (
@@ -92,11 +92,8 @@ func assertNoOrphanToolResults(t *testing.T, msgs []llm.Message, label string) {
 	}
 }
 
-// 主循环的协议约束：结果按声明顺序回填，收尾路径不越界，降级重试有上限，
-// 并行工具的事件串行出门。这些都是协议硬约束，错位即整轮 400。
+// 结果按声明顺序回填，收尾路径不越界，降级重试有上限，事件串行出门——错位即整轮 400。
 func TestLoopChain(t *testing.T) {
-	// 失败原因必须同时给模型、界面与日志：只写进给模型的那份，工具卡展开是空白、
-	// 日志只剩 ok=false，谁都查不出为什么。
 	t.Run("工具失败带原因", func(t *testing.T) {
 		var ends []Event
 		streamer := llmtest.New(
@@ -124,7 +121,6 @@ func TestLoopChain(t *testing.T) {
 		}
 	})
 
-	// 收尾路径：取消 / 截断 / 上游报错都必须如实收尾，且截断轮的工具调用不执行、不重试。
 	t.Run("四条收尾路径", func(t *testing.T) {
 		canceled := New(Config{Streamer: llmtest.New(llm.Message{Content: "开始"}), Model: "test"}, nil)
 		ctx, cancel := context.WithCancel(context.Background())
@@ -153,7 +149,6 @@ func TestLoopChain(t *testing.T) {
 			t.Fatalf("截断应以 length 收尾且不重试: stop=%s calls=%d", res.StopReason, truncated.Calls())
 		}
 
-		// 零产出截断同样不重试：预算由 service 层给定，内核悄悄重试只会在上游上限更低时换来 400。
 		thinking := llmtest.New(llm.Message{Thinking: "先想想该怎么做。"})
 		thinking.Stops = []string{llm.StopLength}
 		loop2 := New(Config{Streamer: thinking, Model: "test", MaxTokens: 32768}, nil)
@@ -172,8 +167,7 @@ func TestLoopChain(t *testing.T) {
 		}
 	})
 
-	// 上游拒绝输出预算时降级重试：窗口是用户手填的、模型是网关转发的，本地算不出上游
-	// 真实上限，而报错里通常写着真实上限，照着改一次就能过；到下限则放弃。
+	// 上游报错里通常写着真实上限，照着改一次就能过；到下限则放弃。
 	t.Run("输出预算被拒时降级", func(t *testing.T) {
 		streamer := &llmtest.Scripted{
 			Turns: []llm.Message{{Content: "不该走到这里"}, {Content: "降级后成功"}},
@@ -197,8 +191,6 @@ func TestLoopChain(t *testing.T) {
 			t.Fatalf("重试产出的正文没进结果: %q", got)
 		}
 
-		// 上游不给数字（只说太长了）时对折，对折到「短到没用」就不再试：
-		// 反复试只会把一次可读的失败拖成多次无用往返。
 		noNumber := llmtest.New(llm.Message{Content: "不该走到这里"})
 		noNumber.Err = errors.New("max_tokens is too large")
 		loop2 := New(Config{Streamer: noNumber, Model: "test", MaxTokens: 6000}, nil)
@@ -210,7 +202,6 @@ func TestLoopChain(t *testing.T) {
 		}
 	})
 
-	// 模型卡在同一个调用上打转时按重复上限拦下，并把失败结果喂回去让它换方案；
 	// 被拦的调用也必须留下完整的开始 / 结束事件对，否则重载历史后协议配对就断了。
 	t.Run("重复调用拦到上限", func(t *testing.T) {
 		var seen []string
@@ -259,11 +250,8 @@ func TestLoopChain(t *testing.T) {
 		}
 	})
 
-	// 回填顺序是内核最险的一段：串行多轮逐轮推进，并行批次三个工具在各自 goroutine
-	// 里执行与发事件——结果回填必须仍按声明顺序（否则上游 400），事件出口必须串行
-	// （上层靠「同一时刻只有一条事件在处理」维护落库位点）。
+	// 并行批次里三个工具各自发事件，结果回填仍须按声明顺序，事件出口仍须串行。
 	t.Run("回填顺序与轮数（串行 + 并行）", func(t *testing.T) {
-		// 串行多轮：两个工具分两轮调用，中间穿插助手正文。
 		var seen []string
 		serial := New(Config{
 			Streamer: llmtest.New(
@@ -285,7 +273,6 @@ func TestLoopChain(t *testing.T) {
 			t.Fatalf("串行结果回填乱序: %v（声明顺序 c1,c2）", got)
 		}
 
-		// 并行批次：完成顺序 fast → mid → slow，回填仍须按 a,b,c。
 		var inFlight, peak int32
 		par := New(Config{
 			Streamer: llmtest.New(
@@ -331,9 +318,7 @@ func TestLoopChain(t *testing.T) {
 
 // 裁剪与清洗的硬约束：输出必须能直发上游，切点必须落在完整 turn 边界。
 func TestCompactProtocol(t *testing.T) {
-	// CleanForProtocol 的三条硬约束：空 assistant 与孤儿结果必须剔除（上游 400），
-	// 相邻的并行声明必须合并成一条——逐条落库会留下 A(c1) → A(c2) → T(c1) → T(c2)，
-	// T(c1) 与它的声明之间隔着 A(c2)，上游以 tool result's tool id not found 拒绝。
+	// 相邻并行声明必须合并成一条：逐条落库会留下 A(c1) → A(c2) → T(c1)，上游认不出配对。
 	t.Run("清洗与声明合并：空 assistant / 孤儿结果 / 拆散声明", func(t *testing.T) {
 		orphan := []llm.Message{
 			{Role: llm.RoleUser, Content: "在吗"},
@@ -361,9 +346,7 @@ func TestCompactProtocol(t *testing.T) {
 		assertNoOrphanToolResults(t, out, "CleanForProtocol")
 	})
 
-	// keepTokens 从 0 扫到大，让切点落在每一个可能的位置上：结果都必须协议合法，
-	// 且保留侧的第一条必须是 user（切在回合中间会把半截 turn 发给上游）。
-	// 顺带覆盖预算边界：没超不动、切不出完整 turn 就放弃、降级只留最近整轮。
+	// keep 从 0 扫到大，让切点落在每一个可能的位置上：结果都必须协议合法且首条是 user。
 	t.Run("压缩不孤儿化结果且切在整轮边界", func(t *testing.T) {
 		base := []llm.Message{
 			{Role: llm.RoleUser, Content: "看桌面"},

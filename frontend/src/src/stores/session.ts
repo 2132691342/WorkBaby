@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '../api'
-import type { MessageVO, SessionVO } from '../types/api'
+import type { ApprovalVO, MessageVO, SessionVO } from '../types/api'
 
 export const useSessionStore = defineStore('session', () => {
   const list = ref<SessionVO[]>([])
@@ -39,17 +39,55 @@ export const useSessionStore = defineStore('session', () => {
     return sess
   }
 
-  async function open(id: string) {
-    currentId.value = id
-    const detail = await api.sessions.detail(id)
-    // 快照防御：格式异常的响应绝不覆盖现有展示。
-    // 注意不拦「空列表」——新建会话的快照本来就是空的，拦了会误伤新建/切换。
-    if (!detail || !Array.isArray(detail.messages)) {
-      throw new Error('会话快照格式异常，已保留当前内容')
+  // openingId 是「正在打开哪个会话」：侧栏行要给 loading，点了没反馈
+  // 会让用户在慢机器上连点，来回切换把状态搅乱。
+  const openingId = ref<string | null>(null)
+
+  // stale 记录「上次退出时没来得及处理的确认」→ 会话 id 到条目数。
+  // 这些确认在重启时被按拒绝收口，界面必须有一个地方说出这件事。
+  const stale = ref<Record<string, string[]>>({})
+
+  function setStaleApprovals(list: ApprovalVO[]) {
+    const next: Record<string, string[]> = {}
+    for (const a of list) {
+      if (!a.session_id) continue
+      ;(next[a.session_id] ||= []).push(a.label || a.tool || '一步操作')
     }
-    messages.value = detail.messages
-    const idx = list.value.findIndex((s) => s.id === id)
-    if (idx >= 0) list.value[idx] = detail.session
+    stale.value = next
+  }
+
+  // staleText 给当前会话拼一句人话；看过后就清掉，别每次刷新都再念一遍。
+  function takeStaleText(id: string): string {
+    const labels = stale.value[id]
+    if (!labels?.length) return ''
+    const rest = { ...stale.value }
+    delete rest[id]
+    stale.value = rest
+    const names = [...new Set(labels)].slice(0, 3).join('、')
+    return labels.length === 1
+      ? `上次退出时有一条确认没来得及处理（${names}），已按拒绝结束。需要的话让助手再做一次。`
+      : `上次退出时有 ${labels.length} 条确认没来得及处理（${names} 等），已按拒绝结束。需要的话让助手再做一次。`
+  }
+
+  async function open(id: string) {
+    openingId.value = id
+    try {
+      // 换会话先清空：不清的话这一瞬间标题已经是新的、消息还是上一段，
+      // 观感是「两个会话叠在一起」。同一个会话刷新不清（失败时保住现有内容）。
+      if (currentId.value !== id) messages.value = []
+      currentId.value = id
+      const detail = await api.sessions.detail(id)
+      // 快照防御：格式异常的响应绝不覆盖现有展示。
+      // 注意不拦「空列表」——新建会话的快照本来就是空的，拦了会误伤新建/切换。
+      if (!detail || !Array.isArray(detail.messages)) {
+        throw new Error('会话快照格式异常，已保留当前内容')
+      }
+      messages.value = detail.messages
+      const idx = list.value.findIndex((s) => s.id === id)
+      if (idx >= 0) list.value[idx] = detail.session
+    } finally {
+      if (openingId.value === id) openingId.value = null
+    }
   }
 
   async function refresh() {
@@ -111,6 +149,10 @@ export const useSessionStore = defineStore('session', () => {
     currentId,
     current,
     messages,
+    openingId,
+    stale,
+    setStaleApprovals,
+    takeStaleText,
     loadList,
     loadMore,
     create,

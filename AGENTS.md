@@ -260,7 +260,7 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 | 实时通信 | SSE only（256 缓冲 / 慢客户端先挤 delta 保关键事件、回灌再丢关键事件就断开对账 / 重连带 `last_event_id` 重放并按 seq 去重，缓冲裁掉中段时主动发 `chat:gap`） |
 | 压缩 | 确定性清洗 + 按 token 预算找切点，不调 LLM（见 spec 02） |
 | 工具输出 | 双通道：`Content` 回模型、`Detail` 给 UI；2000 行 / 50KB 双上限截断，超出落临时文件并回报丢弃量；命令 / 脚本类保留结尾（`CutTail`），其余保留开头 |
-| 事件出口 | `service.Emitter` 唯一出口（注入归属 + 分配 seq + sink 注入） |
+| 事件出口 | `service.Emitter` 唯一出口（注入归属 + 分配 seq + sink 注入，按会话串行化） |
 | Token 计量 | 每次 LLM 调用一行 token_usages；`GET /stats` 按天/模型/会话聚合 |
 | 配置 | Viper + settings KV 表 |
 | 加密 | AES-256-GCM（Provider API Key） |
@@ -384,7 +384,9 @@ const (
 | 不变量 | 锁死原因 |
 |---|---|
 | 工具结果严格按调用顺序回填 | `assistant(tool_calls)` 与 `tool` 配对完整，错位上游 400 |
-| 事件出口必须串行化 | 并行工具各自在 goroutine 里 emit，不锁就是并发改同一份落库位点，assistant 声明撞主键后整条丢失 |
+| 事件出口必须串行化（按会话） | 并行工具各自在 goroutine 里 emit，不锁就是并发改同一份落库位点，assistant 声明撞主键后整条丢失；且「分配 seq」与「投递」必须同一次原子步——分号之后 seq 大的可能先到，前端按 seq 去重会把先到的那条当旧事件丢掉。按会话分道而不是全局一把锁，免得慢订阅者堵住别的会话 |
+| 每轮一个可取消 ctx，轮结束即 cancel | 上游进入重试而下游已 return 时，重试包装器会阻塞在无人读的通道上（goroutine + 连接挂到进程退出）；run 收尾只把句柄从表里摘掉不调用，等于每个正常结束的 run 泄漏一整棵 ctx 子树 |
+| 大文件读入前先验大小 | `os.ReadFile` 是整文件进内存：附件 / 知识库必须先 `os.Stat` 判大小再决定读不读，超限要给出可执行的替代路径 |
 | 被截断轮的 tool_calls 一律不执行 | 半个 JSON 调用执行出去比不执行更危险；留进历史还会被当成真调用回传上游 |
 | 输出预算必须显式下发到上游 | 0 在 openai 协议里被 `omitempty` 整个吃掉、在 anthropic 协议里是必填字段，两条协议都要兜到 `llm.DefaultMaxTokens`；推理型模型的思考会吃满小预算，正文与工具调用一起断在 length |
 | 输出预算 = 窗口 1/8（目录口径下再与厂商硬上限取小） | 窗口 1/8 保证长回答不被随手截断；窗口来自目录时它的硬上限与窗口同源，一并取小（1M 窗口按 1/8 下发 12.5 万可能超过厂商真实上限）。窗口被用户手填（`model_configs` / `context_window`）时硬上限不参与：它描述的是同名模型在别的服务上的样子，此时按用户声明的窗口 1/8 走 |
@@ -498,9 +500,11 @@ const (
 | `api/api_test.go` | TestHTTPChain | 装配完整与端口握手时序（bootServer 内一次卡死）；跨源预检放行 POST；帮助文档目录与正文且路径穿越被拦；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event、usage 落袋）与 Last-Event-ID 补帧。服务只启动一次，子测试共用 |
 | `server/sse_test.go` | TestHubDeliveryChain | 缓冲满时挤 delta 保 done；同类 delta 合流保序（两段共用同一 Test，事件通道由 drain 助手收口） |
 | `service/chain_test.go` | TestServiceRunChain | 审批闭环与跨轮配对（会话级放行 + 声明紧邻落库）；落库链序（错误轮半成品 / 插话注入）；同轮并发（声明不丢且配对不错位）；输出预算与水位口径；用量口径（归一落库 + 命中率封顶）；默认模型继承与存量回填。装配只做一次 |
-| `service/skill_zip_test.go` | TestSkillZipImport | 技能包导入链：多技能解压落盘注册、条目穿越拒绝且不落盘、没有 SKILL.md 的包拒绝 |
+| | TestSkillZipImport | 技能包导入链：多技能解压落盘注册、条目穿越拒绝且不落盘、没有 SKILL.md 的包拒绝 |
+| | TestApprovalRestart | 跨进程重启：上次残留的待决审批按拒绝收口并把清单带回来，二次收口为空 |
 | `tool/files_test.go` | TestFilesGuardrails | 路径护栏（穿越拒绝 + Unicode 变体找回）；覆盖前必读闭环；edit 唯一性、实际改动与行尾 BOM 保持 |
 | `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引 → 检索（短查询子串兜底）→ 删除级联；pptx 按页号抽取且可检索 |
+| | TestReindexJob | 重建索引后台任务：进度跑满、拒绝重入、结束后取消返回 false |
 | `skill/skill_test.go` | TestSkillRegistryChain | embed 解析落盘与触发词渲染；同名按来源优先且可回退、切换工作目录换掉工作区技能 |
 | `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档 SHA 与常量一致、解压路径穿越拒绝；真实解压平铺到根目录（`-short` 跳过） |
 | `singleinstance/singleinstance_test.go` | TestSecondLaunchHandoff | 二次启动转交：文件路径与空路径（只唤起窗口）都原样送达主实例 |

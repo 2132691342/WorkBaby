@@ -1,15 +1,27 @@
 <script setup lang="ts">
 // 侧栏会话列表：分组展示 + 相对时间 + 重命名 / 删除。
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
 import { fmtRel } from '../../utils/time'
 import AppIcon from '../common/AppIcon.vue'
 
+const emit = defineEmits<{ newSession: [] }>()
+
 const session = useSessionStore()
 const toast = useToastStore()
 const editingId = ref<string | null>(null)
 const draft = ref('')
+
+async function openSession(id: string) {
+  // 打开会话要 await 并兜住失败：不接住就是一个未捕获的 rejection，
+  // 点了没反应也没有任何提示，用户只能反复点。
+  try {
+    await session.open(id)
+  } catch (e) {
+    toast.bad(`打开对话失败：${(e as Error)?.message || '请重试'}`)
+  }
+}
 
 const groups = computed(() => {
   const today: typeof session.list = []
@@ -46,6 +58,10 @@ async function commitEdit() {
     toast.bad(`重命名失败：${(e as Error)?.message || '请重试'}`)
   }
 }
+
+// 两段式确认的还原定时器必须随组件卸载清掉：留着会在已卸载的组件上写 ref，
+// 面板切走后再回来状态是脏的。
+onBeforeUnmount(() => clearTimeout(confirmTimer))
 
 // 删除走两段式确认，与模型服务 / 知识库 / 技能同一模式：第一次点进入确认态
 // （图标换成对勾 + 危险底），3 秒不点自动还原。误触是删掉整段历史，值得多一次点击。
@@ -101,9 +117,10 @@ async function more() {
         v-for="s in g.items"
         :key="s.id"
         class="sess-item"
-        :class="{ 'is-on': s.id === session.currentId }"
+        :class="{ 'is-on': s.id === session.currentId, 'is-loading': session.openingId === s.id }"
         type="button"
-        @click="session.open(s.id)"
+        :disabled="!!session.openingId && session.openingId !== s.id"
+        @click="openSession(s.id)"
       >
         <template v-if="editingId === s.id">
           <input v-model="draft" class="input rename" autofocus @keydown.enter="commitEdit" @blur="commitEdit" />
@@ -150,6 +167,7 @@ async function more() {
       <span class="se-ic"><AppIcon name="chat" size="ic-lg" /></span>
       <b>还没有对话</b>
       <p>说句话就能开一段新的。</p>
+      <button class="btn btn-sm" type="button" @click="emit('newSession')">新建对话</button>
     </div>
   </div>
 </template>

@@ -15,8 +15,7 @@ const (
 	replayWindow = 256
 	// deltaCoalesce 连续 delta 的合并窗口：流式正文每 token 一条，不合流会把前端压成慢消费者。
 	deltaCoalesce = 80 * time.Millisecond
-	// replayGrace 是最后一个订阅者离开后重放窗口还留多久：
-	// 重连是「先断后连」，立刻清就再也重放不出来。
+	// replayGrace：重连是「先断后连」，立刻清就再也重放不出来。
 	replayGrace = 2 * time.Minute
 )
 
@@ -36,6 +35,10 @@ type Client struct {
 	ch        chan domain.Envelope
 	done      chan struct{}
 	once      sync.Once
+	// sendMu 保证同一个客户端的投递顺序：publishNow 是「读通道 → 挤 delta → 回灌」
+	// 三步，两个并发发布者同时在上面操作会让回灌把后来的事件插到前面去，
+	// 挤掉判据也随之失真。发送永远是非阻塞的，持锁不会卡住调用链。
+	sendMu sync.Mutex
 }
 
 // NewHub 构造广播中心。
@@ -208,6 +211,7 @@ func (h *Hub) publishNow(sessionID string, env domain.Envelope) {
 	h.mu.Unlock()
 
 	for _, c := range targets {
+		c.sendMu.Lock()
 		select {
 		case c.ch <- env:
 		default:
@@ -218,6 +222,7 @@ func (h *Hub) publishNow(sessionID string, env domain.Envelope) {
 				// 「运行中」，必须断开走快照对账，不能静默吞掉。
 				h.Unsubscribe(c)
 				pkg.Warnf("sse: 会话 %s 的客户端缓冲拥塞且回灌失败，已断开（等待对账）", sessionID)
+				c.sendMu.Unlock()
 				continue
 			}
 			select {
@@ -227,6 +232,7 @@ func (h *Hub) publishNow(sessionID string, env domain.Envelope) {
 				pkg.Warnf("sse: 会话 %s 的客户端持续消费过慢，已断开（等待对账）", sessionID)
 			}
 		}
+		c.sendMu.Unlock()
 	}
 }
 

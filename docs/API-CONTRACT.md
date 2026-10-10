@@ -11,7 +11,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | /health | 存活探测 |
-| GET | /bootstrap | 启动引导（版本 / 契约版本 / 默认服务 / 默认模型 / 权限档 / 工作目录 / 设置全集 / python_ready） |
+| GET | /bootstrap | 启动引导（版本 / 契约版本 / 默认服务 / 默认模型 / 权限档 / 工作目录 / 设置全集 / python_ready / `expired_approvals[]`）。`expired_approvals` 是本次启动被按拒绝收口的上次残留确认——等待决策的通道随进程退出消失，前端必须把它们说出来，否则用户只看到「助手那一步没做」 |
 
 ## 会话
 
@@ -85,19 +85,24 @@
 | GET | /knowledge/docs | 文档列表（`error` 字段兼作提示位：超长截断索引等「已成功但有话要说」也写这里） |
 | POST | /knowledge/docs/add | `{paths[]}` 批量添加并建索引 → `{added}`；支持 md / txt / csv / log / json / yml / yaml / html / pdf / docx / xlsx / pptx |
 | POST | /knowledge/docs/:id/delete | 删除（级联分块） |
-| POST | /knowledge/reindex | 全量重建索引 → `{reindexed}` |
+| POST | /knowledge/reindex | 启动后台重建 → `{started}`；已在跑时 started=false，不排队也不重入 |
+| GET | /knowledge/reindex | 重建进度 → `{running, total, done, failed, started_at, finished_at}` |
+| POST | /knowledge/reindex/cancel | 中断重建。大库重建要跑几十秒，同步等一个请求会把连接占死且无法停止，因此走后台任务 + 轮询 |
 | POST | /knowledge/search | `{query, limit?}` → `{hits[]}` |
 | GET | /tools | 工具清单：助手当前能干什么、风险多大、是否启用 |
 | POST | /tools/:name/toggle | `{enabled}`，下一轮生效 |
 | GET | /models/capability?model=&provider_id= | 模型能力画像：上下文窗口、派生输出预算、是否支持思考 / 识图 / 工具调用 |
 | POST | /models/capabilities | 批量能力画像 `{provider_id, models[]}` → `ModelCapability[]`（换模型下拉一次列几十上百个模型，逐个查即 N+1） |
-| GET | /models/config?model=&provider_id= | 单个模型配置（目录 + 覆写合并后的最终值） |
-| GET | /models/configs?provider_id= | 一个服务下的全部模型配置 |
+| GET | /models/configs?provider_id= | 一个服务下的全部模型配置（目录 + 覆写合并后的最终值）。展开「模型参数」面板时用它一次取回，逐个 `models/config` 会打成 N+1 |
+| GET | /models/config?model=&provider_id= | 单个模型配置；批量场景一律走 configs，这一条留给外部调用与排障 |
 | POST | /models/config | 保存模型配置 `{provider_id, model, context_window?, temperature, top_p, vision, tool_call}`；temperature / top_p 传 -1 表示跟随上游默认；最大输出不可配置，按「窗口 1/8」派生 |
 | GET | /runtime | 内置运行时状态：Python 与 PowerShell 各自的 exe / source(bundled\|system\|空) / version / error |
 | POST | /runtime/redetect | 重新检测内置运行时：清探测缓存后重跑，运行期放入归档后点这里生效 |
-| GET | /settings | KV 全集 |
+| GET | /settings | KV 全集。bootstrap 之外的一条轻量读路径：bootstrap 一次给全量（服务 / 技能 / 文档 / 设置），任一子项出错整体失败；而主题 / 字体 / 字号只依赖设置表，不该被别的子项连坐 |
 | POST | /settings | `{key, value}` |
+| GET | /settings/background | 自定义背景 → `{image, opacity, blur}`；`image` 为空表示未设置 |
+| POST | /settings/background | `{path, opacity, blur}`；图片先复制进数据目录再记路径（引用用户原文件，原文件一挪背景就没了）。`path` 为空表示清除并删除副本 |
+| GET | /assets/background | 背景图本体。前端拿不到数据目录里的路径，只能走这个 URL |
 
 ## 工具目录
 
