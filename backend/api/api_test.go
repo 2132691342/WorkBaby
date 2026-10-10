@@ -38,6 +38,20 @@ func bootServer(t *testing.T) (string, *api.Handler) {
 	}
 	t.Cleanup(h.Shutdown)
 
+	// 装配缺任一样东西，界面都是空窗口 + 接口全 404；端口必须在握手阶段才写入。
+	// 这两条约定在装配点收口一次，下游子测试才不用各自防守。
+	if h.Svc == nil || h.Repo == nil || h.Registry == nil || h.Skills == nil || h.Cfg.MasterKey == "" {
+		t.Fatal("服务容器没有装配完整（Svc/Repo/Registry/Skills/MasterKey），界面会空着且接口全 404")
+	}
+	for _, name := range []string{"read", "write"} {
+		if _, ok := h.Registry.Get(name); !ok {
+			t.Fatalf("%s 工具没有注册，模型会突然找不到文件能力", name)
+		}
+	}
+	if h.Port() != 0 {
+		t.Fatal("端口应由后续握手阶段写入，Startup 阶段应为 0（早一步广播则前端所有接口 404）")
+	}
+
 	srv := server.New(h)
 	port, err := srv.Start()
 	if err != nil {
@@ -183,33 +197,9 @@ func names(frames []sseFrame) []string {
 	return out
 }
 
-// 从零启动到事件送达的完整链路：装配 → 技能导入 → 预检 → SSE 流与重放。
+// 从零启动到事件送达的完整链路：装配（bootServer 内断言）→ 预检 → 帮助文档 → SSE 流与重放。
 func TestHTTPChain(t *testing.T) {
-	base, h := bootServer(t)
-
-	// 装配缺任一样东西，界面都是空窗口 + 接口全 404；端口握手必须晚于 Startup。
-	t.Run("装配完整且端口在握手前为空", func(t *testing.T) {
-		if h.Svc == nil || h.Repo == nil || h.Registry == nil || h.Skills == nil {
-			t.Fatal("服务容器没有装配完整，界面会空着且接口全 404")
-		}
-		if h.Cfg.MasterKey == "" {
-			t.Fatal("配置没有生成主密钥")
-		}
-		if len(h.Skills.List()) == 0 {
-			t.Fatal("内置技能没有加载")
-		}
-		if len(h.Registry.All()) == 0 {
-			t.Fatal("内置工具一个都没注册，模型会突然找不到文件能力")
-		}
-		for _, name := range []string{"read", "write"} {
-			if _, found := h.Registry.Get(name); !found {
-				t.Fatalf("%s 工具没有注册", name)
-			}
-		}
-		if h.Port() != 0 {
-			t.Fatal("端口应由后续握手阶段写入，Startup 阶段应为 0")
-		}
-	})
+	base, _ := bootServer(t)
 
 	// Go 的 http 客户端不发预检，只有这里模拟浏览器行为才测得出来 CORS 缺失
 	// （症状是打包版所有 POST 报 Network Error）。
@@ -229,6 +219,39 @@ func TestHTTPChain(t *testing.T) {
 		defer resp.Body.Close()
 		if acao := resp.Header.Get("Access-Control-Allow-Origin"); resp.StatusCode != http.StatusNoContent || acao != "http://wails.localhost" {
 			t.Fatalf("预检被拦：status=%d ACAO=%q（POST 会全部变成 Network Error）", resp.StatusCode, acao)
+		}
+	})
+
+	// 帮助文档是打包进 exe 的静态资源：目录要能列、正文要能读、
+	// 路径参数不能穿出 docs 目录（name 只放行 [a-z0-9-_]）。
+	t.Run("帮助文档可读且不越界", func(t *testing.T) {
+		code, body := call(t, base, "GET", "/docs", nil)
+		if code != http.StatusOK || !strings.Contains(body, `"getting-started"`) {
+			t.Fatalf("帮助目录读不到: %d %s", code, body)
+		}
+		var list struct {
+			Code int `json:"code"`
+			Data []struct {
+				Name  string `json:"name"`
+				Title string `json:"title"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(body), &list); err != nil {
+			t.Fatalf("帮助目录解析失败: %v", err)
+		}
+		if len(list.Data) < 2 || list.Data[0].Name != "getting-started" || list.Data[0].Title == "" {
+			t.Fatalf("帮助目录不完整（首篇须是快速上手且带标题）: %+v", list.Data)
+		}
+
+		code, body = call(t, base, "GET", "/docs/getting-started", nil)
+		if code != http.StatusOK || !strings.Contains(body, "快速上手") {
+			t.Fatalf("帮助正文读不到: %d %s", code, body)
+		}
+
+		// 穿越尝试只要能拿到文档内容就算失守：路由层 404 与业务层错误码都算拦下。
+		code, body = call(t, base, "GET", "/docs/..%2Fconfig", nil)
+		if code == http.StatusOK && strings.Contains(body, `"code":0`) {
+			t.Fatalf("非法文档名没有被拦下: %d %s", code, body)
 		}
 	})
 
@@ -293,8 +316,12 @@ func TestHTTPChain(t *testing.T) {
 					text.WriteString(load["delta"].(string))
 				}
 			case "chat:done":
-				if load["usage"] == nil {
-					t.Error("done 事件没有带上 token 用量，输入区水位永远更新不了")
+				// 用量会被服务层按「输入含缓存」归一（脚本的 18 会被改写），
+				// 所以断言口径：模型报的输出量与总量正数都在，而不是钉死脚本值。
+				usage, ok := load["usage"].(map[string]any)
+				total, _ := usage["total"].(float64)
+				if !ok || usage["output"] != float64(7) || total <= 0 {
+					t.Fatalf("done 事件的用量不对（output 应为 7、total 为正，实际 %v）：输入区水位与仪表盘都靠它", load["usage"])
 				}
 			}
 		}
@@ -330,9 +357,11 @@ func TestHTTPChain(t *testing.T) {
 			v, _ := f.Data["seq"].(float64)
 			return int64(v)
 		}
+		// 帧数不足说明一轮连 start/delta/done 都没凑齐，是链路退化而不是"跳过"：
+		// 用 Fatal 而不是 Skip，避免重放这一段在无人知晓的情况下永远不执行。
 		last := seqOf(got[len(got)-1])
 		if last < 3 {
-			t.Skipf("本轮只发出 %d 帧，构不出重放窗口", last)
+			t.Fatalf("本轮只发出 %d 帧（<start/delta/done>），断线重放无从验证", last)
 		}
 		replay, stopReplay := subscribeSSE(t, base, sid, strconv.FormatInt(last-2, 10))
 		defer stopReplay()

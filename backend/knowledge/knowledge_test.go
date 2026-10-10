@@ -68,11 +68,17 @@ func TestKnowledgeChain(t *testing.T) {
 			t.Fatal("列表里找不到刚加入的流程笔记")
 		}
 
-		if hits, err := svc.Search(context.Background(), "季度销售额", 5); err != nil || len(hits) == 0 {
+		hits, err := svc.Search(context.Background(), "季度销售额", 5)
+		if err != nil || len(hits) == 0 {
 			t.Fatalf("应能检索到内容: err=%v hits=%d", err, len(hits))
+		}
+		if !strings.Contains(hits[0].Title, "季度报告") || !strings.Contains(hits[0].Content, "销售额") {
+			t.Fatalf("命中结果指向的文档或片段不对: %+v", hits[0])
 		}
 		if short, err := svc.Search(context.Background(), "预算", 5); err != nil || len(short) == 0 {
 			t.Fatalf("两字查询应有子串兜底结果: err=%v hits=%d", err, len(short))
+		} else if !strings.Contains(short[0].Content, "预算") {
+			t.Fatalf("子串兜底命中的片段不对: %+v", short[0])
 		}
 
 		if err := svc.Delete(flowID); err != nil {
@@ -127,8 +133,12 @@ func TestKnowledgeChain(t *testing.T) {
 		if i1, i2 := strings.Index(text, "第一页"), strings.Index(text, "第二页"); i1 < 0 || i2 < 0 || i1 > i2 {
 			t.Fatalf("页序不对或内容缺失: %q", text)
 		}
-		if hits, err := svc.Search(context.Background(), "成本控制", 5); err != nil || len(hits) == 0 {
+		hits, err := svc.Search(context.Background(), "成本控制", 5)
+		if err != nil || len(hits) == 0 {
 			t.Fatalf("pptx 内容应可检索: err=%v hits=%d", err, len(hits))
+		}
+		if !strings.Contains(hits[0].Content, "成本控制") {
+			t.Fatalf("pptx 命中的片段不对: %+v", hits[0])
 		}
 	})
 }

@@ -1,15 +1,17 @@
 <script setup lang="ts">
-// 应用壳：无边框窗口的自绘标题栏 + 路由出口。
+// 应用壳：无边框窗口的自绘标题栏 + 全局导航轨道 + 路由出口。
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { syncFromSettings } from './composables/useAppearance'
-import { useTheme } from './composables/useTheme'
+import { useSessionPanel } from './composables/useSessionPanel'
 import { sseConnected } from './composables/useSse'
 import { intentFile, intentNewSession, pushShellIntent } from './composables/shellIntent'
 import { useChatStore } from './stores/chat'
+import { useSessionStore } from './stores/session'
 import { useSettingsStore } from './stores/settings'
 import { useToastStore } from './stores/toast'
 import AppIcon from './components/common/AppIcon.vue'
+import NavRail from './components/common/NavRail.vue'
 import ToastHost from './components/common/ToastHost.vue'
 import { status, message, retryHandshake } from './bootstrap'
 import { ForceQuit } from '../wailsjs/go/main/App'
@@ -17,13 +19,25 @@ import { EventsOn } from '../wailsjs/runtime/runtime'
 
 const booted = ref(false)
 const settings = useSettingsStore()
+const session = useSessionStore()
 const chat = useChatStore()
 const toast = useToastStore()
 const router = useRouter()
-const { theme, setTheme } = useTheme()
+const route = useRoute()
+const { collapsed: panelCollapsed, toggle: togglePanel } = useSessionPanel()
 
 const failed = computed(() => status.value === 'failed')
 const ready = computed(() => booted.value && !failed.value)
+
+// 标题栏中区：对话页显示当前会话标题（会话名就是导航），其余页显示页面名。
+const isChat = computed(() => !/^\/(dashboard|help|settings)/.test(route.path))
+const pageTitle = computed(() => {
+  const p = route.path
+  if (p.startsWith('/dashboard')) return '仪表盘'
+  if (p.startsWith('/help')) return '帮助'
+  if (p.startsWith('/settings')) return '设置'
+  return session.current?.title || '新对话'
+})
 
 // 关闭按钮的去向由「关闭到托盘」设置说了算，悬停提示如实反映，别让用户猜。
 const closeHint = computed(() =>
@@ -89,28 +103,19 @@ function quitApp() {
     <header class="titlebar" style="--wails-draggable: drag">
       <div class="tb-mark"><span class="logo-mini">WB</span></div>
       <span class="tb-name">WorkBaby</span>
-      <span class="tb-chip" :class="{ 'is-on': ready }">{{ ready ? '已就绪' : '启动中…' }}</span>
+      <span class="tb-sep" aria-hidden="true" />
+      <button
+        v-if="isChat && ready"
+        class="tb-act"
+        type="button"
+        :title="panelCollapsed ? '展开会话列表' : '折叠会话列表'"
+        @click="togglePanel"
+      >
+        <AppIcon name="panel-left" size="ic-sm" />
+      </button>
+      <span class="tb-title" :title="pageTitle">{{ pageTitle }}</span>
       <span class="tb-sp" />
-      <div class="tb-themes" role="group" aria-label="主题">
-        <button
-          class="tb-act"
-          type="button"
-          :class="{ on: theme === 'light' }"
-          title="晨紫（浅色）"
-          @click="setTheme('light')"
-        >
-          <AppIcon name="sun" size="ic-sm" />
-        </button>
-        <button
-          class="tb-act"
-          type="button"
-          :class="{ on: theme === 'dark' }"
-          title="夜紫（暗色）"
-          @click="setTheme('dark')"
-        >
-          <AppIcon name="moon" size="ic-sm" />
-        </button>
-      </div>
+      <span v-if="ready && !sseConnected" class="tb-chip">连接断开，正在重连</span>
       <span class="led" :class="sseConnected ? 'g' : 'w'" :title="sseConnected ? '已连接' : '连接断开，正在重连'" />
       <div class="winctl">
         <button class="win-btn" type="button" title="最小化" @click="winctl('min')">
@@ -125,6 +130,7 @@ function quitApp() {
       </div>
     </header>
     <main class="win-body">
+      <NavRail v-if="ready" />
       <router-view v-if="ready" />
       <div v-else-if="failed" class="boot">
         <div class="boot-mark bad"><AppIcon name="alert" size="ic-lg" /></div>
@@ -151,6 +157,21 @@ function quitApp() {
   font-weight: 700;
   font-size: var(--wb-fs-xs);
   color: var(--wb-primary-ink);
+}
+/* 品牌与中区之间的细分隔：会话标题是导航信息，跟品牌名分开读 */
+.tb-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--wb-line-2);
+  flex: none;
+}
+.tb-title {
+  max-width: 460px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
 }
 .boot {
   height: 100%;

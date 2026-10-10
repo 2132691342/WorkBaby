@@ -16,7 +16,7 @@ type Message struct {
     Images []Image            // 图片附件（base64 + MIME），随用户消息落库
 }
 type Event struct {
-    Type EventKind            // Delta / ThinkingDelta / ToolCall / Done / Error
+    Type string               // EventDelta / EventThinking / EventToolCall / EventDone / EventError
     Delta string; ToolCall *ToolCall
     StopReason string; Usage *Usage; Err error
 }
@@ -38,7 +38,7 @@ type Streamer interface {
 |---|---|---|---|
 | 流格式 | SSE `data:` | SSE 事件流 | JSON Lines |
 | 工具调用 | `tool_calls` 增量拼装 | `tool_use` 块 | `tool_calls`（整体） |
-| 思考 | reasoning_content（若有） | thinking 块 | 无 |
+| 思考 | reasoning_content（若有） | thinking 块 | message.thinking（若有） |
 | 鉴权 | Bearer | x-api-key | 无 |
 | 输出上限字段 | 按模型家族二选一（见下） | `max_tokens` 必填 | `options.num_predict` |
 | 采样参数 | 普通模型下发；推理家族拒绝 | 均可下发 | 均可下发 |
@@ -117,7 +117,8 @@ factory.HasOverride(api) bool // 服务层放行测试型 api 名
 ## 凭据与连通性
 
 - API Key AES-256-GCM 加密落库，出参只给 `has_key`
-- 连通测试发一条 1 token 的最小请求，成功返回实际模型名
+- 连通测试发一条最小请求（不设输出预算：部分上游对过小的 `max_tokens` 直接 400，
+  探测会被误判成「配置错误」；模型在一句答复后自然停止），成功返回实际模型名
 - 模型列表：openai 兼容 `/models`；anthropic `/v1/models`；ollama `/api/tags`
 
 ## 取舍

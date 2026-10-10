@@ -125,29 +125,6 @@ func TestLoopChain(t *testing.T) {
 		if len(seen) != 2 {
 			t.Fatalf("两个工具都应执行过，实际 %d", len(seen))
 		}
-
-		// 并行批次：执行快慢不一，回填顺序必须仍等于声明顺序。
-		par := llmtest.New(
-			llm.Message{ToolCalls: []llm.ToolCall{
-				{ID: "a", Name: "slow"}, {ID: "b", Name: "fast"}, {ID: "c", Name: "mid"},
-			}},
-			llm.Message{Content: "好了"},
-		)
-		tools := []tool.Tool{
-			echoTool{name: "slow", mode: tool.ExecutionParallel, delay: 30 * time.Millisecond},
-			echoTool{name: "fast", mode: tool.ExecutionParallel},
-			echoTool{name: "mid", mode: tool.ExecutionParallel, delay: 15 * time.Millisecond},
-		}
-		ploop := New(Config{Streamer: par, Tools: tools, Model: "test", Parallel: 4}, nil)
-		if _, err := ploop.Run(context.Background()); err != nil {
-			t.Fatalf("运行失败: %v", err)
-		}
-		got := toolIDs(ploop.Messages())
-		for i, want := range []string{"a", "b", "c"} {
-			if i >= len(got) || got[i] != want {
-				t.Fatalf("并行结果回填乱序: %v", got)
-			}
-		}
 	})
 
 	// 失败原因必须同时给模型、界面与日志：只写进给模型的那份，工具卡展开是空白、
@@ -314,19 +291,24 @@ func TestLoopChain(t *testing.T) {
 		}
 	})
 
-	// 并行工具各自在 goroutine 里发事件，上层靠「同一时刻只有一个事件在处理」维护落库位点。
-	t.Run("事件出口串行化", func(t *testing.T) {
+	// 并行批次是内核最险的一段：三个工具在各自 goroutine 里执行与发事件，
+	// 结果回填必须仍按声明顺序（否则上游 400），事件出口必须串行
+	// （上层靠「同一时刻只有一条事件在处理」维护落库位点）。
+	t.Run("并行批次：回填顺序与事件串行化", func(t *testing.T) {
 		var inFlight, peak int32
 		streamer := llmtest.New(
 			llm.Message{ToolCalls: []llm.ToolCall{
-				{ID: "a", Name: "par"}, {ID: "b", Name: "par"},
-				{ID: "c", Name: "par"}, {ID: "d", Name: "par"},
+				{ID: "a", Name: "slow"}, {ID: "b", Name: "fast"}, {ID: "c", Name: "mid"},
 			}},
 			llm.Message{Content: "好了"},
 		)
 		loop := New(Config{
 			Streamer: streamer,
-			Tools:    []tool.Tool{echoTool{name: "par", mode: tool.ExecutionParallel}},
+			Tools: []tool.Tool{
+				echoTool{name: "slow", mode: tool.ExecutionParallel, delay: 30 * time.Millisecond},
+				echoTool{name: "fast", mode: tool.ExecutionParallel},
+				echoTool{name: "mid", mode: tool.ExecutionParallel, delay: 15 * time.Millisecond},
+			},
 			Model:    "test",
 			Parallel: 4,
 			Emit: func(Event) {
@@ -337,13 +319,19 @@ func TestLoopChain(t *testing.T) {
 						break
 					}
 				}
-				// 撑开窗口：没有锁时四个 goroutine 必然同时在飞
+				// 撑开窗口：没有锁时几个 goroutine 必然同时在飞
 				time.Sleep(2 * time.Millisecond)
 				atomic.AddInt32(&inFlight, -1)
 			},
 		}, nil)
 		if _, err := loop.Run(context.Background()); err != nil {
 			t.Fatalf("运行失败: %v", err)
+		}
+		got := toolIDs(loop.Messages())
+		for i, want := range []string{"a", "b", "c"} {
+			if i >= len(got) || got[i] != want {
+				t.Fatalf("并行结果回填乱序: %v（声明顺序 a,b,c）", got)
+			}
 		}
 		if peak > 1 {
 			t.Fatalf("事件出口同时进入了 %d 个事件，上层落库位点会被读脏", peak)

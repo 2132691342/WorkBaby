@@ -13,9 +13,11 @@
 | 方法论 | Skill：把「怎么做一件事」写成 `SKILL.md`，需要时才展开正文 |
 | 私有资料 | 知识库：本地文档（PDF / Word / Excel / Markdown / 文本）建索引，对话时按需检索 |
 | 看得见 | 对话时实时显示上下文占用；仪表盘按天 / 按模型统计 token 用量与缓存命中 |
+| 看得懂 | 应用内「帮助」页：五篇内置手册（上手 / 配模型 / 工具与安全 / 知识库与技能 / 常见问题），离线可查 |
 | 开箱即跑 | Python 与 PowerShell 7 已嵌进程序，首次启动自动解开，不用自己装环境 |
 
-打开就用：装好 → 设置里填一个模型服务 → 回到聊天页说人话 → 它自己读文件、改文件、跑脚本、查资料。
+打开就用：装好 → 左侧导航栏「设置」里填一个模型服务（没配好时欢迎页有直达按钮与教程）
+→ 回到聊天页说人话 → 它自己读文件、改文件、跑脚本、查资料。
 需要贴文件时在输入框打 `@` 从工作区文件面板里选；打 `/` 唤出常用命令与技能，选一个技能它就按那套方法干活。
 
 ## 为什么这样设计（取舍）
@@ -40,7 +42,7 @@
 | 配置 / 日志 / ID | Viper · log/slog · ULID |
 | Agent / LLM | 自研内核（单层流式循环）· 自研协议适配（OpenAI 兼容 / Anthropic / Ollama） |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + 原生 CSS 设计令牌（无 UI 框架） |
-| 测试 | testing（14 个 Test / 36 个子测试全为跨模块链路；日常 `go test -short ./...`、定点 `go test -short -run <名字> ./<包>`；LLM 用脚本替身注入，不联网） |
+| 测试 | testing（14 个 Test / 32 个子测试全为跨模块链路；日常 `go test -short ./...`、定点 `go test -short -run <名字> ./<包>`；LLM 用脚本替身注入，不联网） |
 
 ## 快速开始
 
@@ -80,7 +82,7 @@ backend/
   pkg/        叶子工具包（错误 / ID / 日志 / 加密 / 路径）
   tray/       系统托盘        singleinstance/  单实例与二次启动转交
 frontend/src/src/   Vue3 源码（themes.css 是唯一色值与字体来源）
-assets/       内置 Skill（embed 进 exe）
+assets/       内置 Skill + 应用内帮助文档（embed 进 exe）
 build/windows/ 平台资源与 NSIS 安装器脚本（installer/project.nsi 是可持久定制的那份）
 tools/        依赖方向门禁（Go 写的独立程序）
 docs/         项目级文档（架构 / 契约 / 数据模型 / 页面 / 开发 / 部署）
@@ -102,7 +104,7 @@ specs/        子系统规格 01-14
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、布局纪律、数据目录、测试写法、排错 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 构建产物、内置运行时、分发注意 |
 | [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 错误码 1000–8999 的含义与处置动作 |
-| [specs/12 用户手册](specs/12-user-manual.md) | 面向使用者的功能说明与操作路径 |
+| [specs/12 用户手册](specs/12-user-manual.md) | 应用内帮助页：内置文档组织、`/docs` 接口与阅读界面 |
 
 子系统规格 `specs/01-14`：
 [01 Agent 内核](specs/01-agent-loop.md) ·

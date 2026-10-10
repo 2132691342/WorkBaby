@@ -29,7 +29,6 @@ const (
 	SettingContextReserve  = "context_reserve_tokens"
 	SettingContextWindow   = "context_window"
 	SettingMinimizeToTray  = "minimize_to_tray"
-	SettingLaunchOnLogin   = "launch_on_login"
 	SettingFontFamily      = "font_family"
 	SettingDensity         = "density"
 	SettingSendOnEnter     = "send_on_enter"
@@ -59,7 +58,6 @@ func DefaultSettings() map[string]string {
 		SettingDisabledTools:  "",
 		SettingDisabledSkills: "",
 		SettingMinimizeToTray: "true",
-		SettingLaunchOnLogin:  "false",
 		SettingFontFamily:     "system",
 		SettingDensity:        "comfortable",
 		SettingSendOnEnter:    "true",

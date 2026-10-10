@@ -84,9 +84,9 @@ onMounted(async () => {
         </button>
       </div>
       <div class="side-foot">
-        <button class="foot-btn" type="button" @click="router.push('/')">
-          <AppIcon name="chevron-left" /> 返回对话
-        </button>
+        <span class="ver" :title="settings.boot?.version ? `WorkBaby ${settings.boot.version}` : ''">
+          WorkBaby{{ settings.boot?.version ? ` v${settings.boot.version}` : '' }}
+        </span>
       </div>
     </aside>
 
@@ -166,5 +166,15 @@ onMounted(async () => {
 /* 面板本身也要能收缩，否则里面的长路径照样撑破 */
 .wrap-md > * {
   min-width: 0;
+}
+/* 侧栏底部：版本号居中弱化，不抢板块导航 */
+.side-foot {
+  justify-content: center;
+}
+.ver {
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  opacity: 0.75;
 }
 </style>

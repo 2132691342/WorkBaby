@@ -343,6 +343,72 @@ body {
   display: flex;
 }
 
+/* ================= 导航轨道 =================
+ * 全站唯一主导航：图标列，条目 = 图标 + 10px 小字。
+ * 选中态 = 淡底 + 左侧 2px 竖条 + 主色图标，位置不变只换色。 */
+.rail {
+  width: 56px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: var(--wb-sp-2) 6px;
+  background: var(--wb-panel);
+  border-right: 1px solid var(--wb-line);
+}
+.rail-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 9px 0 7px;
+  border-radius: var(--wb-radius-sm);
+  color: var(--wb-muted);
+  transition: background var(--wb-dur-fast) var(--wb-ease), color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.rail-item .ic {
+  color: inherit;
+}
+.rail-item:hover {
+  background: var(--wb-tint);
+  color: var(--wb-ink);
+  transform: scale(1.04);
+}
+.rail-item:active {
+  transform: scale(0.94);
+}
+.rail-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+.rail-item.is-on {
+  background: var(--wb-tint-lg);
+  color: var(--wb-primary);
+}
+.rail-item.is-on::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 18px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-primary);
+}
+.rail-label {
+  font-size: var(--wb-fs-2xs);
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+.rail-sp {
+  flex: 1;
+}
+
 /* ================= 侧栏 ================= */
 .side {
   width: var(--wb-w-nav);
@@ -614,6 +680,35 @@ body {
   cursor: pointer;
   margin-bottom: 2px;
   transition: background var(--wb-dur-fast) var(--wb-ease);
+}
+/* 会话行单排：名字 + 相对时间（时间在悬停时让位给操作按钮） */
+.sess-item {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--wb-sp-2);
+}
+/* 选中态左侧竖条：与导航轨道同语言，位置固定只换色 */
+.sess-item.is-on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-primary);
+}
+.si-time {
+  flex: none;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--wb-dur-fast) var(--wb-ease);
+}
+.sess-item:hover .si-time,
+.sess-item.is-on .si-time {
+  opacity: 0;
 }
 .ses-item:hover,
 .sess-item:hover {
@@ -1143,8 +1238,7 @@ body {
 }
 
 /* ---- 选择卡 .perm：设置页「几选一」的选项卡（.perm-row 是它的容器）----
-   曾经在 AppearancePanel 与 BehaviorPanel 各写一份，改一处忘一处；
-   现收回到语法层，五态与配色只留这一份定义。 */
+   语法层唯一定义：外观、行为等面板共用同一份五态与配色，改一处即全局生效。 */
 .perm-row {
   display: grid;
   /* minmax 有下限才会换行：写 minmax(0,1fr) 是多少列都挤在一行，窄面板里会压成一溜细条 */
@@ -2895,58 +2989,8 @@ select.input.narrow {
   display: flex;
   flex-direction: column;
 }
-.chat-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
-  padding: var(--wb-sp-2) var(--wb-sp-4) var(--wb-sp-2) var(--wb-sp-5);
-  border-bottom: 1px solid var(--wb-line);
-  background: var(--wb-panel);
-  z-index: 5;
-}
-.chat-head .ch-id,
-.chat-head .title {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  flex: 1;
-}
-.chat-head .ch-name,
-.chat-head h1 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--wb-fs-lg);
-  font-weight: 600;
-  color: var(--wb-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.4;
-}
-.chat-head .ch-sub,
-.chat-head .sub {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.chat-head .ch-tools {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.chat-head .divider {
-  width: 1px;
-  height: 16px;
-  background: var(--wb-line-2);
-  margin: 0 var(--wb-sp-1);
-}
-/* 工作区 chip（会话头） */
+/* 会话标题已移入标题栏：消息区直达顶部，页头样式随之下线 */
+/* 工作区 chip（输入框上方） */
 .workspace-chip {
   display: inline-flex;
   align-items: center;
@@ -2977,6 +3021,9 @@ select.input.narrow {
   min-height: 0;
   overflow-y: auto;
   padding: var(--wb-sp-6) var(--wb-sp-6) var(--wb-sp-4);
+  /* 关掉浏览器滚动锚定：吸底由 JS 按「用户是否在底部」决定，
+     锚定机制横插一脚时，流式追加内容会把视口锁回旧位置 */
+  overflow-anchor: none;
 }
 .msgs {
   display: flex;
@@ -3202,8 +3249,10 @@ select.input.narrow {
 .bubble li + li {
   margin-top: 3px;
 }
-.prose li::before,
-.bubble li::before {
+/* 自定义方块点只属于无序列表：有序列表保留原生序号，
+   两者叠在一起会出现「1. + 方块点」的双标记 */
+.prose ul li::before,
+.bubble ul li::before {
   content: '';
   position: absolute;
   left: 0;
@@ -3212,6 +3261,27 @@ select.input.narrow {
   height: 4px;
   border-radius: 1px;
   background: var(--wb-primary);
+}
+.prose ol,
+.bubble ol {
+  margin: var(--wb-sp-2) 0;
+  padding-left: var(--wb-sp-5);
+  list-style: decimal;
+}
+.prose ol li,
+.bubble ol li {
+  padding-left: 0;
+}
+.prose ol li::before,
+.bubble ol li::before {
+  content: none;
+}
+/* 序号用主色：与自定义点同权重，不抢正文 */
+.prose ol li::marker,
+.bubble ol li::marker {
+  color: var(--wb-primary);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
 }
 
 /* ---- 正文表格：只留横线，与整页「描边分层」一个语言 ---- */

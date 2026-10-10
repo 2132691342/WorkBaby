@@ -148,21 +148,19 @@ func TestOpenAIAdapter(t *testing.T) {
 		if done.Usage == nil || done.Usage.Total != 15 {
 			t.Fatalf("工具调用收尾时 usage 丢了: %+v", done.Usage)
 		}
-	})
 
-	// 上游中途断流（没有 finish_reason、没有 usage）也要收到收尾事件，
-	// 否则内核会一直等下去，界面上表现为「助手卡住不动」。
-	t.Run("断流仍收尾", func(t *testing.T) {
-		c := serve(t,
-			`data: {"choices":[{"delta":{"content":"半句"}}]}`,
-		)
-		events := collect(t, c)
-
-		if len(events) == 0 {
-			t.Fatal("断流后一个事件都没有")
+		// 上游中途断流（没有 finish_reason、没有 usage）也要以收尾事件结束，
+		// 否则内核一直等下去，界面表现为「助手卡住不动」；断流前的内容照常送达。
+		broken := serve(t, `data: {"choices":[{"delta":{"content":"半句"}}]}`)
+		events := collect(t, broken)
+		var sawText bool
+		for _, ev := range events {
+			if ev.Type == llm.EventDelta && ev.Delta == "半句" {
+				sawText = true
+			}
 		}
-		if events[len(events)-1].Type != llm.EventDone {
-			t.Fatalf("最后一个事件应是收尾，实际 %v", events[len(events)-1].Type)
+		if !sawText || len(events) == 0 || events[len(events)-1].Type != llm.EventDone {
+			t.Fatalf("断流后应保留已送达内容并以收尾事件结束，实际 %d 条、末尾 %v", len(events), events[len(events)-1].Type)
 		}
 	})
 }

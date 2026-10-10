@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 聊天主视图：侧栏 + 消息流 + 输入区；没有会话时给引导页。
+// 聊天主视图：会话面板 + 消息流 + 输入区；没有会话时给引导页。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import * as api from '../api'
 import { useSse } from '../composables/useSse'
 import { intentFile, intentNewSession, SHELL_INTENT_EVENT } from '../composables/shellIntent'
@@ -9,20 +10,25 @@ import { useSessionStore } from '../stores/session'
 import { useSettingsStore } from '../stores/settings'
 import { useToastStore } from '../stores/toast'
 import type { AttachmentREQ } from '../types/api'
-import AppSidebar from '../components/common/AppSidebar.vue'
 import AppIcon from '../components/common/AppIcon.vue'
 import ChatInput from '../components/chat/ChatInput.vue'
 import ExampleCards from '../components/chat/ExampleCards.vue'
 import MessageList from '../components/chat/MessageList.vue'
+import SessionPanel from '../components/chat/SessionPanel.vue'
 
 const session = useSessionStore()
 const chat = useChatStore()
 const settings = useSettingsStore()
 const toast = useToastStore()
+const router = useRouter()
 const inputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 const creating = ref(false)
 
 const empty = computed(() => !session.currentId || (!session.messages.length && !chat.running))
+
+// 没配默认模型时，欢迎页先把「去配置」顶到最前——不然用户的第一条消息必然失败，
+// 而失败提示要十几秒后才出现，那一刻他已经认定「这软件是坏的」。
+const needsSetup = computed(() => !settings.boot?.default_provider_id || !settings.boot?.default_model)
 
 async function newSession() {
   if (creating.value) return
@@ -243,13 +249,9 @@ watch(() => settings.boot?.default_model, seedContext)
 
 <template>
   <div class="chat wb-ui">
-    <AppSidebar :creating="creating" @new-session="newSession" />
+    <SessionPanel :creating="creating" @new-session="newSession" />
 
     <div class="chat-main">
-      <header class="chat-head">
-        <h1>{{ session.current?.title || '新对话' }}</h1>
-      </header>
-
       <template v-if="empty && !chat.running">
         <div class="welcome">
           <div class="hero-aura" aria-hidden="true">
@@ -266,9 +268,25 @@ watch(() => settings.boot?.default_model, seedContext)
             </div>
             <h2 class="hero-title rise">你好，我是 <span class="hero-name">WorkBaby</span></h2>
             <p class="hero-sub rise">会读文件、跑代码、查资料。用大白话说需求就行。</p>
-            <div class="rise">
+
+            <!-- 没配模型：例句卡没有意义（发了也收不到回答），换成一步到位的配置引导 -->
+            <div v-if="needsSetup" class="setup-card rise">
+              <span class="setup-ic"><AppIcon name="cpu" /></span>
+              <div class="setup-tx">
+                <b>先把模型服务配好，我才能开口说话</b>
+                <p>需要一个 API Key（在服务商官网申请），大约 1 分钟。跟着教程走就行。</p>
+              </div>
+              <div class="setup-acts">
+                <button class="btn btn-primary" type="button" @click="router.push('/settings/providers')">
+                  去配置
+                </button>
+                <button class="btn" type="button" @click="router.push('/help/models')">看教程</button>
+              </div>
+            </div>
+            <div v-else class="rise">
               <ExampleCards :busy="sending || chat.running" @pick="pickExample" />
             </div>
+
             <p class="hero-foot rise">对话与文件都留在这台机器上 · 动手之前会先问你一句</p>
           </div>
         </div>
@@ -310,20 +328,64 @@ watch(() => settings.boot?.default_model, seedContext)
   flex: 1;
   min-width: 0;
 }
-.chat-head {
-  position: relative;
+/* 欢迎页的配置引导卡：白底 + 中性描边，与例句卡同族但更「有事要做」 */
+.setup-card {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-4);
+  border-radius: var(--wb-radius-lg);
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-border);
+  box-shadow: var(--wb-shadow-2);
+  text-align: left;
 }
-.chat-head h1 {
+.setup-ic {
+  flex: none;
+  width: var(--wb-tile);
+  height: var(--wb-tile);
+  display: grid;
+  place-items: center;
+  border-radius: var(--wb-radius);
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
+}
+.setup-tx {
   min-width: 0;
+  flex: 1;
+}
+.setup-tx b {
+  display: block;
+  font-size: var(--wb-fs-md);
+  color: var(--wb-ink);
+  margin-bottom: 2px;
+}
+.setup-tx p {
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+  line-height: var(--wb-lh-base);
+}
+.setup-acts {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
 }
 /* 欢迎页是唯一的装饰性背景：三枚同源光晕 + 一层点阵，只出现在空态。 */
 .welcome {
   flex: 1;
+  min-height: 0;
   position: relative;
-  overflow: hidden;
-  display: grid;
-  place-items: center;
-  padding: var(--wb-sp-8) var(--wb-sp-6);
+  /* 内容（badge + 标题 + 例句卡）在最小窗口（960×640）下装不下，
+     用可滚动 + margin auto 居中：装得下时居中，装不下时从顶部滚，不许裁切 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 var(--wb-sp-6);
 }
 /* 欢迎页的光晕 / 点阵装饰已收进 wb-ui.css 的 .wb-aura*：整套才一份定义，
    组件里只留「放在哪」的位置规则。 */
@@ -336,6 +398,8 @@ watch(() => settings.boot?.default_model, seedContext)
   gap: var(--wb-sp-3);
   width: 100%;
   max-width: 660px;
+  margin: auto 0;
+  padding: var(--wb-sp-6) 0;
 }
 .hero-badge {
   display: inline-flex;

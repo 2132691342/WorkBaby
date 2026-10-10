@@ -7,6 +7,7 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'chat', component: () => import('../views/ChatView.vue') },
     { path: '/dashboard', name: 'dashboard', component: () => import('../views/DashboardView.vue') },
+    { path: '/help/:name?', name: 'help', component: () => import('../views/HelpView.vue') },
     { path: '/settings/:tab?', name: 'settings', component: () => import('../views/SettingsView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

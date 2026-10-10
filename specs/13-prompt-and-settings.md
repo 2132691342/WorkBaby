@@ -66,7 +66,6 @@ persona           固定人设 + 四条工作原则 + 一组输出风格约束
 | `show_thinking` | `true` | 是否展示思考过程 |
 | `send_on_enter` | `true` | 回车发送（false = Ctrl+Enter 发送） |
 | `minimize_to_tray` | `true` | 关闭按钮收进托盘；`false` = 点关闭就退出进程 |
-| `launch_on_login` | `false` | 开机自启（写 HKCU Run） |
 | `density` | `comfortable` | 信息密度 |
 | `workspace` | 用户主目录 | 默认工作目录 |
 | `max_turns` | 空（内置 64） | 单次 run 的轮数上限，失控护栏 |

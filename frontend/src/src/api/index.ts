@@ -4,6 +4,8 @@ import type {
   AttachmentREQ,
   BootstrapVO,
   FileListVO,
+  HelpDocRESP,
+  HelpDocVO,
   KnowledgeDocVO,
   ModelCapability,
   ModelConfigVO,
@@ -130,3 +132,9 @@ export const runtime = {
 }
 
 export const stats = (days: number) => get<StatsRESP>('/stats', { days })
+
+/** 内置帮助文档（只读，随应用打包） */
+export const docs = {
+  list: () => get<HelpDocVO[]>('/docs'),
+  content: (name: string) => get<HelpDocRESP>(`/docs/${name}`),
+}

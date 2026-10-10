@@ -69,6 +69,7 @@ const routes: Array<[string, Handler]> = [
     }),
   ],
   ['/tools', () => state.tools],
+  ['/docs', () => fx.helpDocs],
   ['/skills', () => state.skills],
   ['/knowledge/docs', () => state.docs],
   ['/knowledge/reindex', () => ({ reindexed: state.docs.length })],
@@ -89,6 +90,13 @@ function route(path: string, body: unknown, query: URLSearchParams, method = 'GE
     const id = path.split('/')[2]
     const session = state.sessions.find((s) => s.id === id)
     return { session, messages: fx.messages[id] || [] }
+  }
+
+  // 帮助文档正文：与 /docs 目录同源，预览里点哪篇都读得到
+  if (path.startsWith('/docs/')) {
+    const name = path.slice('/docs/'.length)
+    const doc = fx.helpDocs.find((d) => d.name === name)
+    return doc ? { name, title: doc.title, content: fx.helpDocContent[name] || '' } : null
   }
 
   // 带 :id 的动作一律后缀匹配，路由表就不用为每个动词各写一条。

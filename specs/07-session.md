@@ -20,10 +20,12 @@ SQLite 里只有两张核心表撑起全部状态：`sessions` + `entries`。
 
 ## 条目类型
 
+entries 只有一种 type：`message`。审批决策不落 entries——它属于独立的 `approvals` 表
+（见 spec 03），前端按时间把它插进消息流展示，会话链里不留审批条目。
+
 | type | role | payload | 说明 |
 |---|---|---|---|
 | message | user / assistant / tool | 见下 | 唯一的消息形态 |
-| approval | — | 见 approval 门 | 审批决策卡挂在消息流里 |
 
 | role | payload |
 |---|---|

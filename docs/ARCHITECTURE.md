@@ -49,7 +49,7 @@ backend/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任�
 | `runtime` 内置运行时 | [specs/06](../specs/06-runtime.md) |
 | 桌面壳（窗口 / 托盘 / 单实例） | [specs/11](../specs/11-desktop-shell.md) |
 | 用量与上下文水位 | [specs/14](../specs/14-usage-and-context.md) |
-| 给使用者的说明 | [specs/12 用户手册](../specs/12-user-manual.md) |
+| 应用内帮助页（内置文档 + `/docs`） | [specs/12](../specs/12-user-manual.md) |
 
 ## 3. 一次对话的生命周期
 
@@ -220,13 +220,15 @@ PowerShell 7 解压（两份都是官方 zip，平铺布局；归档 `go:embed` 
 | | `stores/toast.ts` | 瞬时提示，与业务状态解耦 |
 | 组合式 | `composables/useSse.ts` | 按会话订阅事件流：断线重连、带 `last_event_id` 重放、**重连即对账** |
 | | `composables/useTheme.ts` · `useAppearance.ts` | 主题 / 字体 / 字号落地到 `document.documentElement` 的 CSS 变量；取值表只此一份，设置页保存与启动恢复共用 |
+| | `composables/useSessionPanel.ts` | 对话页会话面板的折叠状态：localStorage 持久化，标题栏按钮与面板共用同一份开关 |
 | | `composables/shellIntent.ts` | 壳意图队列（托盘「新建对话」、外部打开文件）：先存意图再切页，视图挂载时消费，躲开「事件早于视图挂载」 |
 | 纯函数 | `utils/md.ts` | markdown 渲染唯一出口（marked + DOMPurify + highlight.js）：流式渲染与收尾完整渲染两个入口 |
 | | `utils/turns.ts` | 消息分组：一次「提问 → 回答」是一个回合块，纯函数可独立测试 |
-| | `utils/num.ts` | 数字与耗时格式化 |
+| | `utils/num.ts` · `utils/time.ts` | 数字 / 耗时格式化；会话列表的相对时间（今天给时刻、一周内给天数、更早给日期） |
 
-**组件**：23 个 `.vue` 按域分目录（`common` 基元 / `chat` 对话 / `dashboard` 仪表盘 / `settings` 六个面板），
-视图只有聊天、仪表盘、设置三个。组件清单、布局与交互规则见 `docs/PAGE-STRUCTURE.md`。
+**组件**：24 个 `.vue` 按域分目录（`common` 基元 / `chat` 对话 / `dashboard` 仪表盘 / `settings` 六个面板），
+视图四个：聊天、仪表盘、帮助、设置。一级导航只有 `common/NavRail.vue` 一处（56px 轨道），
+各视图不自画返回入口。组件清单、布局与交互规则见 `docs/PAGE-STRUCTURE.md`。
 
 **为什么自绘全部控件**：产品要求「极简 + 精美」且只有一个交互面，组件库自带的视觉语言
 会与设计令牌体系打架；自绘的代价是控件生命周期自己维护，收益是视觉与主题完全可控。

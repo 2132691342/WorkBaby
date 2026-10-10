@@ -1,5 +1,6 @@
-// SSE 广播中心链路：delta 合流保序、慢消费者挤 delta 保关键事件。
-// 端到端的重放语义（带 Last-Event-ID 重连补帧）在 api 包的流链路测试里验证。
+// hub 的两条保命语义：慢消费者必须保住 done（丢了就永远「运行中」），
+// 同类 delta 必须合流且保序（否则正文打乱）。端到端的重放语义（Last-Event-ID 补帧）
+// 在 api 包的流链路测试里验证。
 package server
 
 import (
@@ -8,88 +9,77 @@ import (
 	"WorkBaby/backend/domain"
 )
 
-// 前端被判定为慢消费者时，丢掉 done/error 的表现是「永远停在运行中」。
+// drain 取走当前已入队的全部事件，不阻塞。
+func drain(c *Client) []domain.Envelope {
+	var out []domain.Envelope
+	for {
+		select {
+		case ev, ok := <-c.Events():
+			if !ok {
+				return out
+			}
+			out = append(out, ev)
+		default:
+			return out
+		}
+	}
+}
+
 func TestHubDeliveryChain(t *testing.T) {
-	t.Run("缓冲满时挤 delta 保 done", func(t *testing.T) {
-		hub := NewHub()
-		c := hub.Subscribe("s1")
-		defer hub.Unsubscribe(c)
+	// 段一：灌满缓冲（全是可挤的 delta）后再推 done，done 必须挤掉 delta 后送达，
+	// 而不是把客户端断开——前端被判定为慢消费者时，丢 done 的表现是「永远停在运行中」。
+	hubA := NewHub()
+	cA := hubA.Subscribe("s1")
+	defer hubA.Unsubscribe(cA)
+	for i := 0; i < clientBuffer; i++ {
+		hubA.Publish("s1", domain.Envelope{Seq: int64(i + 1), Event: domain.EventChatDelta, Data: domain.DeltaData{Delta: "x"}})
+	}
+	hubA.Publish("s1", domain.Envelope{Seq: int64(clientBuffer + 1), Event: domain.EventChatDone, Data: domain.DoneData{}})
 
-		// 灌满缓冲：全是可以挤掉的 delta
-		for i := 0; i < clientBuffer; i++ {
-			hub.Publish("s1", domain.Envelope{Seq: int64(i + 1), Event: domain.EventChatDelta, Data: domain.DeltaData{Delta: "x"}})
+	deltas, done := 0, false
+	for _, ev := range drain(cA) {
+		switch ev.Event {
+		case domain.EventChatDelta:
+			deltas++
+		case domain.EventChatDone:
+			done = true
 		}
-		// 再推一条 done：必须能挤掉 delta 后送达，而不是把客户端断开
-		hub.Publish("s1", domain.Envelope{Seq: int64(clientBuffer + 1), Event: domain.EventChatDone, Data: domain.DoneData{}})
+	}
+	if !done {
+		t.Fatalf("缓冲满后 done 事件丢失：前端会永远停在「运行中」")
+	}
+	if deltas != 1 {
+		t.Fatalf("积压 delta 应挤到只剩最后一条，实际 %d", deltas)
+	}
 
-		var got []domain.Envelope
-		for {
-			select {
-			case ev, ok := <-c.Events():
-				if !ok {
-					t.Fatal("通道提前关闭：done 事件无法送达")
-				}
-				got = append(got, ev)
-				continue
-			default:
-			}
-			break
-		}
-		deltas := 0
-		done := false
-		for _, ev := range got {
-			switch ev.Event {
-			case domain.EventChatDelta:
-				deltas++
-			case domain.EventChatDone:
-				done = true
-			}
-		}
-		if !done {
-			t.Fatalf("缓冲满后 done 事件丢失：前端会永远停在「运行中」（收到 %d 条）", len(got))
-		}
-		if deltas != 1 {
-			t.Fatalf("积压 delta 应挤到只剩最后一条，实际 %d", deltas)
-		}
-	})
-
-	// 三条同类 delta 应合并成一条（80ms 窗口内），正文语义等价；
+	// 段二：三条同类 delta 在合流窗口内应合并成一条且正文保序；
 	// 非 delta 事件先冲刷挂起 delta，再发自己。
-	t.Run("同类 delta 合流保序", func(t *testing.T) {
-		hub := NewHub()
-		c := hub.Subscribe("s1")
-		defer hub.Unsubscribe(c)
+	hubB := NewHub()
+	cB := hubB.Subscribe("s1")
+	defer hubB.Unsubscribe(cB)
+	for _, txt := range []string{"你", "好", "呀"} {
+		hubB.Publish("s1", domain.Envelope{Seq: 1, Event: domain.EventChatDelta,
+			Data: domain.DeltaData{EntryID: "e1", Kind: "text", Delta: txt}})
+	}
+	hubB.Publish("s1", domain.Envelope{Seq: 2, Event: domain.EventChatDone, Data: domain.DoneData{}})
 
-		for _, txt := range []string{"你", "好", "呀"} {
-			hub.Publish("s1", domain.Envelope{Seq: 1, Event: domain.EventChatDelta,
-				Data: domain.DeltaData{EntryID: "e1", Kind: "text", Delta: txt}})
-		}
-		hub.Publish("s1", domain.Envelope{Seq: 2, Event: domain.EventChatDone, Data: domain.DoneData{}})
-
-		var deltas, dones int
-		var text string
-		for {
-			select {
-			case ev := <-c.Events():
-				switch ev.Event {
-				case domain.EventChatDelta:
-					deltas++
-					if d, ok := ev.Data.(domain.DeltaData); ok {
-						text += d.Delta
-					}
-				case domain.EventChatDone:
-					dones++
-				}
-				continue
-			default:
+	merged, dones := 0, 0
+	var text string
+	for _, ev := range drain(cB) {
+		switch ev.Event {
+		case domain.EventChatDelta:
+			merged++
+			if d, ok := ev.Data.(domain.DeltaData); ok {
+				text += d.Delta
 			}
-			break
+		case domain.EventChatDone:
+			dones++
 		}
-		if deltas != 1 || text != "你好呀" {
-			t.Fatalf("delta 应合并为一条且正文完整，实际 %d 条 text=%q", deltas, text)
-		}
-		if dones != 1 {
-			t.Fatalf("done 应送达 1 次，实际 %d", dones)
-		}
-	})
+	}
+	if merged != 1 || text != "你好呀" {
+		t.Fatalf("delta 应合并为一条且正文完整，实际 %d 条 text=%q", merged, text)
+	}
+	if dones != 1 {
+		t.Fatalf("done 应送达 1 次，实际 %d", dones)
+	}
 }

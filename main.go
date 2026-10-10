@@ -36,6 +36,9 @@ func main() {
 			return
 		}
 		if err := singleinstance.SendPathToRunningInstance(dir, filePathFromArgs()); err != nil {
+			// 锁还在说明主实例活着（文件锁随进程退出由系统释放），多半是它还没
+			// 写完端口文件。这里不另开一个窗口（两个窗口会让用户困惑），
+			// 记一条 warn 后退出——等主实例装配完再双击即可正常唤起。
 			pkg.Warnf("workbaby: 转交到已运行实例失败: %v", err)
 		}
 		return

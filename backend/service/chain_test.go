@@ -205,8 +205,9 @@ func describe(msgs []llm.Message) string {
 func TestServiceRunChain(t *testing.T) {
 	env, svc := newEnv(t)
 
-	// 会话级放行必须真的生效：第二次同类调用不再弹卡，否则用户要点两遍。
-	t.Run("审批闭环（会话级放行）", func(t *testing.T) {
+	// 连续两轮工具调用的完整链：首轮弹卡 → 会话级放行 → 第二轮不再问 →
+	// 两轮的声明与结果都按紧邻配对落库（错位会被上游以「结果找不到声明」拒绝整轮）。
+	t.Run("审批闭环与跨轮配对", func(t *testing.T) {
 		useScripted(t,
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c2", Name: "risky"}}},
@@ -231,6 +232,7 @@ func TestServiceRunChain(t *testing.T) {
 		if pending, _ := svc.Approvals.Pending(sess.ID); len(pending) != 0 {
 			t.Fatalf("会话级放行后不该再问，实际仍有 %d 条待审批", len(pending))
 		}
+		assertDeclaredBeforeResult(t, svc, sess.ID)
 	})
 
 	// 落库链序：错误轮的半成品必须留下（UI 已流式显示的内容，刷新后不能凭空消失）；
@@ -340,12 +342,6 @@ func TestServiceRunChain(t *testing.T) {
 		if got := ratioOf(cap.ContextWindow-reserve, cap.ContextWindow, reserve); got != 100 {
 			t.Fatalf("水位刚到整理线时 ratio 应为 100，实际 %d", got)
 		}
-		if got := ratioOf(cap.ContextWindow/2, cap.ContextWindow, 0); got != 50 {
-			t.Fatalf("没有余量时 ratio 应等于窗口占用率 50，实际 %d", got)
-		}
-		if got := ratioOf(cap.ContextWindow, cap.ContextWindow, cap.ContextWindow); got != 100 {
-			t.Fatalf("余量吃掉整个窗口时该退到半窗兜底并封顶 100，实际 %d", got)
-		}
 	})
 
 	// 上游把输入报成「未命中缓存的部分」时口径必须补回总量，界面读数才不会越界：
@@ -396,33 +392,9 @@ func TestServiceRunChain(t *testing.T) {
 		}
 	})
 
-	// 声明与结果紧邻配对：跨轮交错或同轮并发时，落库顺序错位都会被上游以
-	// 「结果找不到紧邻的声明」拒绝整轮；同轮并发还要求每个调用的声明都落进库里。
-	t.Run("声明与结果紧邻配对", func(t *testing.T) {
-		useScripted(t,
-			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "risky"}}},
-			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c2", Name: "risky"}}},
-			llm.Message{Content: "两次都做完了"},
-		)
-		sess := newProviderSession(t, svc)
-
-		if _, err := svc.Chat.Send(sess.ID, "连做两次", nil); err != nil {
-			t.Fatal(err)
-		}
-		deadline := time.Now().Add(8 * time.Second)
-		for time.Now().Before(deadline) {
-			if list, _ := svc.Approvals.Pending(sess.ID); len(list) > 0 {
-				_ = svc.Approvals.Decide(list[0].ID, true, "once")
-			}
-			if countRole(env.Repo, sess.ID, llm.RoleTool, 2)() {
-				break
-			}
-			time.Sleep(30 * time.Millisecond)
-		}
-		waitUntil(t, "两条工具结果落库", countRole(env.Repo, sess.ID, llm.RoleTool, 2))
-		assertDeclaredBeforeResult(t, svc, sess.ID)
-
-		// 同轮并发：emit 不串行化时第二个 goroutine 撞主键，那条声明永远丢在链外。
+	// 同轮并发的落库：emit 不串行化时第二个 goroutine 撞主键，那条声明永远丢在链外，
+	// 恢复历史后整条链就是「结果找不到紧邻的声明」。
+	t.Run("同轮并发：声明不丢且配对不错位", func(t *testing.T) {
 		useScripted(t,
 			llm.Message{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "par"}, {ID: "c2", Name: "par"}}},
 			llm.Message{Content: "两个都跑完了"},

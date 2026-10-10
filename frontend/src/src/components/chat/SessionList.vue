@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// 侧栏会话列表：分组展示 + 重命名 / 删除。
+// 侧栏会话列表：分组展示 + 相对时间 + 重命名 / 删除。
 import { computed, ref } from 'vue'
 import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
+import { fmtRel } from '../../utils/time'
 import AppIcon from '../common/AppIcon.vue'
 
 const session = useSessionStore()
@@ -95,6 +96,7 @@ async function more() {
         </template>
         <template v-else>
           <span class="si-name">{{ s.title || '未命名对话' }}</span>
+          <span class="si-time">{{ fmtRel(s.updated_at) }}</span>
           <span class="si-act">
             <button
               class="icon-btn"

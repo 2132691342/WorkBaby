@@ -2,7 +2,7 @@
 // 行为面板：只管「助手怎么做事、怎么待着」的事。
 // 主题字体在「外观」，两者刻意分开——用户找设置时是带着目的来的，
 // 「我想让它别老弹窗确认」和「我想把界面调暗」不该挤在同一屏里互相干扰。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import * as api from '../../api'
 import type { ModelCapability, RuntimeInfo } from '../../types/api'
 import { useSettingsStore } from '../../stores/settings'
@@ -149,6 +149,62 @@ async function pickWorkspace() {
     /* setValue 已提示 */
   } finally {
     pickingWs.value = false
+  }
+}
+
+// ---- 高级护栏：默认收起。缺省值只在设置表没有显式覆写时生效，
+// 恢复默认 = 写空值（后端 intSetting 对空值回落到内置缺省）。
+const ADV_FIELDS = [
+  { key: 'max_turns', name: '单轮步数上限', def: 64, min: 4, max: 512, hint: '一次回答最多连续干多少步。调小更早停下（更省），调大适合超长批处理。' },
+  { key: 'tool_parallel', name: '工具并发', def: 4, min: 1, max: 16, hint: '同时跑几个工具。本地文件读写对并发不敏感，4 已经够用。' },
+  { key: 'stream_idle_seconds', name: '等待上游秒数', def: 300, min: 5, max: 1800, hint: '这么久没有新内容才判定断线。推理模型思考慢时可以调大。' },
+] as const
+
+const advOpen = ref(false)
+const advInput = ref<Record<string, string>>({})
+const advErr = ref('')
+const advSaving = ref(false)
+
+// 展开时把当前值（或空 = 跟随缺省）填进输入框，收起再开不会带上未保存的草稿。
+watch(advOpen, (open) => {
+  if (!open) return
+  advErr.value = ''
+  const next: Record<string, string> = {}
+  for (const f of ADV_FIELDS) next[f.key] = store.values[f.key] || ''
+  advInput.value = next
+})
+
+function onAdvInput(key: string, e: Event) {
+  const el = e.target as HTMLInputElement
+  advInput.value = { ...advInput.value, [key]: el.value }
+}
+
+async function saveAdv() {
+  if (advSaving.value) return
+  advErr.value = ''
+  const write: Array<[string, string]> = []
+  for (const f of ADV_FIELDS) {
+    const raw = (advInput.value[f.key] ?? '').trim()
+    if (raw === '') {
+      write.push([f.key, ''])
+      continue
+    }
+    const n = Number(raw)
+    if (!Number.isInteger(n) || n < f.min || n > f.max) {
+      advErr.value = `${f.name}要填 ${f.min}–${f.max} 之间的整数`
+      return
+    }
+    write.push([f.key, String(n)])
+  }
+  advSaving.value = true
+  try {
+    for (const [k, v] of write) await store.setValue(k, v)
+    toast.ok('已保存，下一轮对话生效')
+    advOpen.value = false
+  } catch {
+    /* setValue 已提示 */
+  } finally {
+    advSaving.value = false
   }
 }
 
@@ -332,6 +388,54 @@ onMounted(async () => {
     </div>
 
     <div class="card p-sm">
+      <!-- 高级护栏：默认收起。新手改错这里不会炸（后端对非法值回落缺省），
+           但收起来能保证「看不见 = 不用管」。 -->
+      <button class="adv-head" type="button" :aria-expanded="advOpen" @click="advOpen = !advOpen">
+        <AppIcon name="sliders" size="ic-sm" />
+        <b>高级</b>
+        <span class="adv-sub">一般不用改</span>
+        <AppIcon class="chev" :name="advOpen ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
+      </button>
+      <div v-if="advOpen" class="adv-body">
+        <label v-for="f in ADV_FIELDS" :key="f.key" class="row">
+          <span class="grow">
+            <b>{{ f.name }}</b>
+            <span>{{ f.hint }}</span>
+          </span>
+          <input
+            class="inp inp-num"
+            type="number"
+            :min="f.min"
+            :max="f.max"
+            :value="advInput[f.key] ?? ''"
+            :placeholder="String(f.def)"
+            @input="onAdvInput(f.key, $event)"
+          />
+        </label>
+        <p v-if="advErr" class="hint err">{{ advErr }}</p>
+        <div class="adv-acts">
+          <button
+            class="btn btn-sm btn-ghost"
+            type="button"
+            :disabled="advSaving"
+            @click="advInput = {}"
+          >
+            全部恢复默认
+          </button>
+          <button
+            class="btn btn-sm btn-primary"
+            type="button"
+            :class="{ 'is-loading': advSaving }"
+            :disabled="advSaving"
+            @click="saveAdv"
+          >
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-sm">
       <h3>内置运行时</h3>
       <p class="hint">Python 与 PowerShell 随程序分发、首次启动自动解压；缺失时自动用系统里已装的。</p>
       <div v-if="runtimeErr" class="hint err">{{ runtimeErr }}</div>
@@ -506,5 +610,58 @@ onMounted(async () => {
 .why {
   color: var(--wb-danger);
   word-break: break-all;
+}
+/* ---- 高级折叠 ---- */
+.adv-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  width: 100%;
+  padding: var(--wb-sp-1) 0;
+  color: var(--wb-ink);
+  text-align: left;
+  border-radius: var(--wb-radius-sm);
+  transition: color var(--wb-dur-fast) var(--wb-ease), transform var(--wb-dur-fast) var(--wb-ease);
+}
+.adv-head .ic {
+  color: var(--wb-muted);
+}
+.adv-head b {
+  font-size: var(--wb-fs-md);
+}
+.adv-head:hover {
+  color: var(--wb-primary);
+}
+.adv-head:hover .ic {
+  color: inherit;
+}
+.adv-head:active {
+  transform: scale(0.985);
+}
+.adv-sub {
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+}
+.chev {
+  margin-left: auto;
+}
+.adv-body {
+  animation: adv-in var(--wb-dur) var(--wb-ease);
+}
+@keyframes adv-in {
+  from {
+    opacity: 0;
+  }
+}
+.inp-num {
+  width: 96px;
+  flex: none;
+  text-align: right;
+}
+.adv-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--wb-sp-2);
+  padding-top: var(--wb-sp-3);
 }
 </style>

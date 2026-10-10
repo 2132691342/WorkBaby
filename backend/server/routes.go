@@ -90,6 +90,9 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		v1.GET("/runtime", h.RuntimeStatus)
 		v1.POST("/runtime/redetect", h.RedetectRuntime)
 
+		v1.GET("/docs", h.ListHelpDocs)
+		v1.GET("/docs/:name", h.HelpDocContent)
+
 		v1.GET("/settings", h.AllSettings)
 		v1.POST("/settings", h.SetSetting)
 		v1.GET("/stats", h.Stats)

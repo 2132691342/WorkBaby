@@ -35,12 +35,8 @@ jobs:
         with:
           lfs: true
           fetch-depth: 1
-          # tag 触发时显式 checkout 到 tag 指向的 commit，避免『This commit does not belong
-          # to any branch』警告。tag 必须先在 main 上存在（推荐流程：
-          #   git push origin main
-          #   git tag v0.1.0
-          #   git push origin v0.1.0
-          # —— 否则 tag 指向的 commit 在远端孤立，checkout 会失败）。
+          # tag 必须先在 main 上存在（先 push main 再 push tag），否则 checkout 的
+          # commit 在远端孤立、会报『does not belong to any branch』。
           ref: ${{ github.ref }}
 
       - name: Setup Go（版本随 go.mod）
@@ -59,9 +55,8 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
-      # NSIS 安装器：windows-2025 runner 默认没装 NSIS，用 choco 装（runner 已自带 choco）。
-      # 历史曾用过 nschloe/setup-nsis 等第三方 action，但容易因 owner 删库导致流水线莫名失败。
-      # choco 源稳定、版本可锁、对 windows-latest runner 即开即用。
+      # NSIS 安装器：runner 默认没装 NSIS，用 choco 装（runner 自带 choco）——
+      # 源稳定、版本可锁、即开即用，不依赖第三方 action 的存续。
       - name: Install NSIS（choco）
         shell: pwsh
         run: |

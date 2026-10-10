@@ -339,3 +339,17 @@ export interface StatsRESP {
   models: StatsModelItem[]
   sessions: StatsSessionItem[]
 }
+
+// ---- /docs（内置帮助文档）----
+
+export interface HelpDocVO {
+  name: string
+  title: string
+}
+
+export interface HelpDocRESP {
+  name: string
+  title: string
+  /** 原始 Markdown，渲染走 utils/md.ts */
+  content: string
+}

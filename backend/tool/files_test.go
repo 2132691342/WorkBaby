@@ -51,8 +51,9 @@ func TestFilesGuardrails(t *testing.T) {
 		if err := pkg.WriteText(filepath.Join(ws, "“周报”.txt"), "本周进展"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := (readTool{}).Execute(context.Background(), in); err != nil {
-			t.Fatalf("直引号变体应能找回弯引号命名的文件: %v", err)
+		got, err := (readTool{}).Execute(context.Background(), in)
+		if err != nil || !strings.Contains(got.Content, "本周进展") {
+			t.Fatalf("直引号变体应能找回弯引号命名的文件并读到内容: err=%v", err)
 		}
 	})
 

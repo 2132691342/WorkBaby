@@ -278,6 +278,8 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 - 字体只有三个语义变量：`--font-sans` / `--font-mono` / `--font-display`，全部在 `themes.css` 定义；`html, body` 必须显式声明 `font-family` 与 `font-size`
 - 空态与骨架统一用 `EmptyState` / `PageState`；禁止 `el-empty` / `el-skeleton`
 - 按钮胶囊镂空：`wb-ui.css` 的 `.btn` 族是唯一实现
+- 一级导航只在 `NavRail`（56px 轨道，对话/仪表盘/帮助/设置）：各视图不得自画返回或主页入口；
+  选中态 = 淡底 + 左侧 2px 竖条 + 主色（`.rail-item.is-on` / `.sess-item.is-on` / `.nav-item.on` 同一语言）
 - 图标统一走内联 SVG（`.ic` 类已按 24 网格写好 `stroke-width`）；禁止用 Unicode 字符或 Emoji 冒充图标
 - 事件 data 的字段名必须与后端 json tag 一致（snake_case）；禁止 `as never` 之类的强转绕过类型检查
 
@@ -451,24 +453,24 @@ const (
 ### 3.3 测试索引
 
 保留判据只有两条：**它坏了会指向一条真实链路**、**必须跨模块 / 跨轮次 / 跨协议**。
-全量 **14 个 Test / 13 个文件 / 36 个子测试**（约 2400 行）。同族场景收在同一个 Test 的子测试里，
+全量 **14 个 Test / 13 个文件 / 32 个子测试**（约 2300 行）。同族场景收在同一个 Test 的子测试里，
 不按「一个断言一个测试」散开——散开只会在改动时逼你跑一大堆、失败时又定位不到是哪条链。
 
 **改这里 → 只跑这条**（定位与验证都从这张表进）：
 
-| 改动位置 | 命令 | 耗时 |
+| 改动位置 | 命令 | 耗时（含编译） |
 |---|---|---|
-| `agent/`（循环、压缩、工具调度） | `go test -short -run 'TestLoopChain\|TestCompactProtocol' ./backend/agent` | ~1s |
-| `service/`（会话、对话、审批、落库） | `go test -short -run TestServiceRunChain ./backend/service` | ~3s |
-| `llm/*`（协议适配） | `go test -short ./backend/llm/...` | ~3s |
-| `tool/`（文件护栏、执行、web） | `go test -short -run TestFilesGuardrails ./backend/tool` | ~1s |
-| `server/`（SSE hub） | `go test -short -run TestHubDeliveryChain ./backend/server` | ~2s |
-| `api/` + `server/`（端到端 HTTP + SSE） | `go test -short -run TestHTTPChain ./backend/api` | ~3s |
-| `runtime/`（内置运行时） | `go test -short -run TestBundledRuntimeChain ./backend/runtime` | ~1s |
-| `skill/` · `knowledge/` | `go test -short ./backend/skill ./backend/knowledge` | ~2s |
-| 壳层（`app.go` / 托盘 / 单实例） | `go test -short -run 'TestAppLifecycle\|TestSecondLaunchHandoff' . ./backend/singleinstance` | ~1s |
-| 拿不准 | `go test -short ./...` | ~9s |
-| 提交前 / CI | `go test -count=1 ./...` + `go run ./tools/check-boundaries` | ~13s（含归档真实解压；冷缓存首次可达 1 分钟） |
+| `agent/`（循环、压缩、工具调度） | `go test -short -run 'TestLoopChain\|TestCompactProtocol' ./backend/agent` | ~4s |
+| `service/`（会话、对话、审批、落库） | `go test -short -run TestServiceRunChain ./backend/service` | ~6s |
+| `llm/*`（协议适配） | `go test -short ./backend/llm/...` | ~4s |
+| `tool/`（文件护栏、执行、web） | `go test -short -run TestFilesGuardrails ./backend/tool` | ~4s |
+| `server/`（SSE hub） | `go test -short -run TestHubDeliveryChain ./backend/server` | ~4s |
+| `api/`（端到端 HTTP + SSE） | `go test -short -run TestHTTPChain ./backend/api` | ~7s |
+| `runtime/`（内置运行时） | `go test -short -run TestBundledRuntimeChain ./backend/runtime` | ~5s |
+| `skill/` · `knowledge/` | `go test -short ./backend/skill ./backend/knowledge` | ~5s |
+| 壳层（`app.go` / 托盘 / 单实例） | `go test -short -run 'TestAppLifecycle\|TestSecondLaunchHandoff' . ./backend/singleinstance` | ~2s |
+| 拿不准 | `go test -short ./...` | ~10s |
+| 提交前 / CI | `go test -count=1 ./...` + `go run ./tools/check-boundaries` | ~18s（含归档真实解压；冷缓存首次可达 1 分钟） |
 | 并发相关改动 | `go test -race ./backend/...` | 分钟级 |
 
 时间大头是 `runtime` 包对两份归档的真实解压（全量唯一的慢点，`-short` 跳过）。
@@ -484,18 +486,18 @@ const (
 | 文件 | Test | 覆盖的链路 |
 |---|---|---|
 | `app_test.go` | TestAppLifecycle | 启动等待判据（慢装配不误判 / 失败如实报 / 卡死有上限）；关闭去向（托盘开关 / 退出流程 / 托盘未就绪） |
-| `agent/agent_test.go` | TestLoopChain | 顺序回填（串行多轮 + 并行批次）；工具失败带原因；四条收尾路径（取消 / 截断不执行工具且不重试 / 零产出截断 / 上游报错）；输出预算被拒时降级（取上游上限 + 到下限放弃）；重复调用拦到上限且事件成对；事件出口串行化 |
+| `agent/agent_test.go` | TestLoopChain | 串行多轮的顺序回填；工具失败带原因；四条收尾路径（取消 / 截断不执行工具且不重试 / 零产出截断 / 上游报错）；输出预算被拒时降级（取上游上限 + 到下限放弃）；重复调用拦到上限且事件成对；并行批次（按声明顺序回填 + 事件出口串行化） |
 | | TestCompactProtocol | 清洗剔除空 assistant 与孤儿结果；拆散的并行声明合并；压缩不孤儿化结果且切在整轮边界（含预算边界与降级截断） |
-| `api/api_test.go` | TestHTTPChain | 启动装配完整且端口握手时序正确；跨源预检放行 POST；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event）与 Last-Event-ID 补帧。服务只启动一次，子测试共用 |
-| `server/sse_test.go` | TestHubDeliveryChain | 缓冲满时挤 delta 保 done；同类 delta 合流保序 |
-| `service/chain_test.go` | TestServiceRunChain | 审批闭环（会话级放行）；落库链序（错误轮半成品 / 插话注入）；声明与结果紧邻配对（跨轮 / 同轮并发）；输出预算与水位口径；用量口径（归一落库 + 命中率封顶）；默认模型继承与存量回填。装配只做一次 |
+| `api/api_test.go` | TestHTTPChain | 装配完整与端口握手时序（bootServer 内一次卡死）；跨源预检放行 POST；帮助文档目录与正文且路径穿越被拦；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event、usage 落袋）与 Last-Event-ID 补帧。服务只启动一次，子测试共用 |
+| `server/sse_test.go` | TestHubDeliveryChain | 缓冲满时挤 delta 保 done；同类 delta 合流保序（两段共用同一 Test，事件通道由 drain 助手收口） |
+| `service/chain_test.go` | TestServiceRunChain | 审批闭环与跨轮配对（会话级放行 + 声明紧邻落库）；落库链序（错误轮半成品 / 插话注入）；同轮并发（声明不丢且配对不错位）；输出预算与水位口径；用量口径（归一落库 + 命中率封顶）；默认模型继承与存量回填。装配只做一次 |
 | `service/skill_zip_test.go` | TestSkillZipImport | 技能包导入链：多技能解压落盘注册、条目穿越拒绝且不落盘、没有 SKILL.md 的包拒绝 |
 | `tool/files_test.go` | TestFilesGuardrails | 路径护栏（穿越拒绝 + Unicode 变体找回）；覆盖前必读闭环；edit 唯一性、实际改动与行尾 BOM 保持 |
 | `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引 → 检索（短查询子串兜底）→ 删除级联；pptx 按页号抽取且可检索 |
 | `skill/skill_test.go` | TestSkillRegistryChain | embed 解析落盘与触发词渲染；同名按来源优先且可回退、切换工作目录换掉工作区技能 |
 | `runtime/runtime_test.go` | TestBundledRuntimeChain | 归档 SHA 与常量一致、解压路径穿越拒绝；真实解压平铺到根目录（`-short` 跳过） |
 | `singleinstance/singleinstance_test.go` | TestSecondLaunchHandoff | 二次启动转交：文件路径与空路径（只唤起窗口）都原样送达主实例 |
-| `llm/openai/openai_test.go` | TestOpenAIAdapter | 输出上限字段按协议家族选择（含网关前缀）；流式解析（usage 帧晚到 + 缓存双口径 + 工具调用单次下发）；断流仍收尾 |
+| `llm/openai/openai_test.go` | TestOpenAIAdapter | 输出上限字段按协议家族选择（含网关前缀）；流式解析（usage 帧晚到 + 缓存双口径 + 工具调用单次下发 + 断流保留已送达内容并以收尾结束） |
 | `llm/anthropic/anthropic_test.go` | TestAnthropicAdapter | 无签名 thinking 不回传；缓冲满不丢事件且停滞经空闲看门狗收尾 |
 
 ---

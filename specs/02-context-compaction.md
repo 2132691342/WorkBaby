@@ -61,7 +61,7 @@ type Budget struct{ Window, WindowKnown, Reserve, Keep, SystemTokens, ToolsToken
 
 | 字段 | 缺省 | 含义 |
 |---|---|---|
-| Window | 65536 | 模型上下文窗口：来自内置能力目录，可被模型级配置与全局 `context_window` 设置覆写；认不出的模型用保守值——偏小的代价是压缩早一点（可恢复），偏大的代价是首轮 400（整轮作废） |
+| Window | 128000 | 模型上下文窗口：来自内置能力目录，可被模型级配置与全局 `context_window` 设置覆写；目录认不出的模型用 `DefaultContextWindow`(=128000)——偏小的代价是压缩早一点（可恢复，读数还会加「约」前缀），偏大的代价是首轮撞上游窗口上限 400（整轮作废） |
 | WindowKnown | — | 窗口是否为确切值；false 时界面读数加「约」前缀 |
 | Reserve | 跟随输出预算 | 给模型输出留的余量：缺省 = 该模型真正下发的输出预算，用户设置（`context_reserve_tokens`）只作为显式覆写 |
 | Keep | 20000 | 裁剪后保留的近期 token 预算；随窗口缩放 = `clamp(窗口/4, 20000, 200000)` |
@@ -146,4 +146,4 @@ func CompactForce(msgs []llm.Message, b Budget) (out []llm.Message, after int)
 | 测试 | 锁住的行为 |
 |---|---|
 | `TestCompactProtocol` | 清洗硬约束（合并拆散的并行声明、剔除空 assistant / 孤儿结果）；压缩永不孤儿化工具结果（扫全切点）；整轮丢弃；预算边界与降级截断 |
-| `TestLoopProtocol`（输出预算被拒子测试） | 上游拒绝输出预算时预算减半重试一次，首次下发的值不被改动 |
+| `TestLoopChain`（输出预算被拒子测试） | 上游拒绝输出预算时按报错里的上限降级重试（没写数字才对折，最多两次、下限 4096），首次下发的值不被改动 |
