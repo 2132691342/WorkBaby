@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -107,11 +108,15 @@ func (a *ApprovalService) Gate(ctx context.Context, sessionID string, perm strin
 		a.grants[sessionID][t.Name()] = true
 		a.mu.Unlock()
 	}
-	_ = a.env.Repo.SettleApproval(rec.ID, status, nowMillis())
+	if err := a.env.Repo.SettleApproval(rec.ID, status, nowMillis()); err != nil && !errors.Is(err, domain.ErrApprovalSettled) {
+		pkg.Warnf("approval: 决策落库失败 id=%s: %v", rec.ID, err)
+	}
 	return !decision.Approved, reason
 }
 
 // await 等决策；ctx 取消与超时都记为不批准。
+// 超时 / 取消的瞬间恰好有决策到达时读走它：晚一拍也按用户的真实选择走，
+// 否则落库已经是「已批准」，工具却按拒绝跳过。
 func (a *ApprovalService) await(ctx context.Context, ch chan domain.ApprovalDecisionDTO) (domain.ApprovalDecisionDTO, bool) {
 	timer := time.NewTimer(approvalTimeout)
 	defer timer.Stop()
@@ -119,26 +124,45 @@ func (a *ApprovalService) await(ctx context.Context, ch chan domain.ApprovalDeci
 	case d := <-ch:
 		return d, false
 	case <-ctx.Done():
-		return domain.ApprovalDecisionDTO{}, false
+		select {
+		case d := <-ch:
+			return d, false
+		default:
+			return domain.ApprovalDecisionDTO{}, false
+		}
 	case <-timer.C:
-		return domain.ApprovalDecisionDTO{}, true
+		select {
+		case d := <-ch:
+			return d, false
+		default:
+			return domain.ApprovalDecisionDTO{}, true
+		}
 	}
 }
 
-// Decide 落用户决策并唤醒等待中的工具调用。
+// Decide 落用户决策并唤醒等待中的工具调用。等待条目「弹出即消费」：摘走它的人拿到
+// 唯一发送权，落库的决策与到达工具的那份不会分叉；摘不到说明等待已结束（超时 / 已取消 /
+// 重复点击），此时绝不能再改库——否则界面显示「已批准」，工具却早已按拒绝跳过。
 func (a *ApprovalService) Decide(id string, approved bool, scope string) error {
-	if err := a.env.Repo.SettleApproval(id, boolStatus(approved), nowMillis()); err != nil {
-		return err
-	}
 	a.mu.Lock()
 	entry, ok := a.wait[id]
-	a.mu.Unlock()
 	if ok {
-		select {
-		case entry.ch <- domain.ApprovalDecisionDTO{Approved: approved, Scope: scope}:
-		default:
-		}
+		delete(a.wait, id)
 	}
+	a.mu.Unlock()
+	if !ok {
+		return domain.ErrApprovalSettled
+	}
+	if err := a.env.Repo.SettleApproval(id, boolStatus(approved), nowMillis()); err != nil {
+		// 落库失败（不含「已被收口」）：把等待条目放回去，Gate 继续等，用户可以重试。
+		if !errors.Is(err, domain.ErrApprovalSettled) {
+			a.mu.Lock()
+			a.wait[id] = entry
+			a.mu.Unlock()
+		}
+		return err
+	}
+	entry.ch <- domain.ApprovalDecisionDTO{Approved: approved, Scope: scope}
 	return nil
 }
 
@@ -162,15 +186,14 @@ func (a *ApprovalService) Pending(sessionID string) ([]domain.ApprovalVO, error)
 }
 
 // CancelSession 取消会话内剩余待决审批（run 被停止时调用）。
-// 唤醒在锁内只做非阻塞发信号，DB 收口放锁外——持锁做 SQL 会连带卡住所有 Gate/Decide。
+// 与 Decide 同一套「弹出即消费」：摘走条目后通道必然为空，唤醒写入不会阻塞；
+// DB 收口放锁外——持锁做 SQL 会连带卡住所有 Gate/Decide。
 func (a *ApprovalService) CancelSession(sessionID string) {
 	a.mu.Lock()
-	for _, entry := range a.wait {
+	for id, entry := range a.wait {
 		if entry.sessionID == sessionID {
-			select {
-			case entry.ch <- domain.ApprovalDecisionDTO{}:
-			default:
-			}
+			delete(a.wait, id)
+			entry.ch <- domain.ApprovalDecisionDTO{}
 		}
 	}
 	a.mu.Unlock()

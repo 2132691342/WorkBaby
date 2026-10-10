@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api'
+import { ApiError } from '../api/http'
 import type {
   ApprovalData,
   ApprovalVO,
@@ -83,10 +84,6 @@ export const useChatStore = defineStore('chat', () => {
     if (!on) thinking.value = ''
   }
 
-  function isThinkingVisible() {
-    return showThinking
-  }
-
   // 返回后端分配的用户条目 id，供调用方立刻回显这条消息。
   async function send(sessionId: string, content: string, attachments?: AttachmentREQ[]) {
     lastError.value = ''
@@ -128,7 +125,15 @@ export const useChatStore = defineStore('chat', () => {
       else await api.approvals.deny(approvalId)
       approvals.value = approvals.value.filter((a) => a.id !== approvalId)
     } catch (e) {
-      // 决策没生效就不能移除卡片，否则用户以为点过了，工具却一直卡着
+      // 4102 = 这张审批的等待已经结束（超时 / 会话被取消 / 已在别处决策）：
+      // 它永远点不动了，摘掉卡片并说清原因，否则用户对着一个点不掉的卡反复尝试。
+      if (e instanceof ApiError && e.code === 4102) {
+        approvals.value = approvals.value.filter((a) => a.id !== approvalId)
+        useToastStore().info('这张确认已经失效（等待超时或已在别处处理）')
+        return
+      }
+      // 其他失败（本地服务抖动等）保留卡片：决策没生效就移除，
+      // 用户以为点过了，工具却一直卡着。
       useToastStore().bad(`操作失败：${(e as Error)?.message || '请重试'}`)
     }
   }
@@ -382,7 +387,6 @@ export const useChatStore = defineStore('chat', () => {
     decide,
     notify,
     setShowThinking,
-    isThinkingVisible,
     onStart,
     onDelta,
     onToolStart,

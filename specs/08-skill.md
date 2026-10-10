@@ -10,10 +10,13 @@ Skill = 一段按需注入的领域知识（prompt 素材），不是可执行�
 
 ```
 assets/skills/{name}/SKILL.md                    # 内置（embed），启动时落到磁盘
-%APPDATA%/WorkBaby/builtin-skills/{name}/SKILL.md  # 内置落盘位置（真路径）
-%APPDATA%/WorkBaby/skills/{name}/SKILL.md        # 用户全局
+{数据目录}/builtin-skills/{name}/SKILL.md          # 内置落盘位置（真路径）
+{数据目录}/skills/{name}/SKILL.md                  # 用户全局
 {workspace}/.workbaby/skills/                    # 工作区级
 ```
+
+数据目录默认 `%APPDATA%/WorkBaby`，`WORKBABY_HOME` 环境变量可整体覆盖
+（便携版与测试隔离用），上述两条路径跟着走。
 
 内置技能虽然在源码里是 embed 资源，启动时必须先**写一份到磁盘**再登记：
 模型是按路径去 `read` 正文的，虚拟路径在 `read` 眼里不存在。
@@ -64,7 +67,7 @@ description: 按团队模板把本周工作整理成周报。
 |---|---|
 | GET /skills | 列表（含来源与启停状态） |
 | POST /skills | 新建：写 `SKILL.md` 到全局技能目录并登记 |
-| POST /skills/import | 从磁盘导入 `{paths[]}`：单个 SKILL.md 或含它的文件夹 |
+| POST /skills/import | 从磁盘导入 `{paths[]}`：单个 SKILL.md、含它的文件夹，或装满技能子目录的目录（只扫一层）；同名自动追加 `-2` 序号不覆盖；返回 `{imported, skipped[]}`（skipped 是没导进来的条目与原因，界面要能看到，静默丢弃会让用户以为文件放错了） |
 | POST /skills/import-zip | 导入压缩包 `{filename, data}`（zip 字节 base64）：解压到临时目录后走同一条定位复制链路；条目路径经 SafeJoin 校验防穿越，单文件 64MB / 总量 256MB 双限流 |
 | POST /skills/:id/toggle | 启停，落 settings KV，重启后仍生效 |
 | GET /skills/:id/content | 正文预览 |

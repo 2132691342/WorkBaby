@@ -37,6 +37,12 @@ async function act(kind: 'continue' | 'retry') {
 
 const session = useSessionStore()
 const chat = useChatStore()
+
+// 审批卡的回调只写一遍：三处渲染点在模板里各写一份箭头函数，改一处就会漏两处。
+function onDecide(id: string, ok: boolean, scope: string) {
+  void chat.decide(id, ok, scope)
+}
+
 const scroller = ref<HTMLElement | null>(null)
 const stick = ref(true)
 // 流式思考块的折叠：默认展开（回复中看得见在想什么），可以收起
@@ -81,12 +87,8 @@ const truncText = computed(() =>
     : '这一轮到了输出上限，后半段没有写出来。',
 )
 
-// 流式正文渲染节流：每个 delta 都全量重解析 markdown 会把主线程打满，
-// EventSource 的消息因此积压、被服务端判为慢消费者断连（现象是「卡住」），
-// 同一时刻的点击反馈也被一起推迟。
-// 数据照单全收，只把渲染放慢；期间跳过高亮，收尾再补完整渲染。
-// 正文很长时再降一档：全量重解析是 O(n)，长文下 120ms 的节奏跟不上，
-// 每拍都在追赶只会让主线程一直没有空档。
+// 流式渲染节流：每个 delta 全量重解析 markdown 会打满主线程，SSE 被服务端判为慢消费者断连；
+// 数据照单全收、只把渲染放慢，收尾补完整渲染。长文再降一档（全量重解析是 O(n)）。
 const STREAM_TICK_MS = 120
 const STREAM_TICK_MS_LONG = 280
 const STREAM_LONG_CHARS = 20000
@@ -183,10 +185,8 @@ const orphanApprovals = computed(() => {
   return chat.approvals.filter((a) => !placed.has(a.id))
 })
 
-// 贴底滚动走 rAF 合并：流式期间每个 delta 都触发一次 watch，
-// 逐个 nextTick 再读 scrollHeight 会把主线程压成强制重排，点击反馈因此变钝。
-// approvals 也要盯：审批卡等在正文下面，不滚过去就被输入框盖住，
-// 用户只看到「助手停了」，看不到该点什么。
+// 贴底滚动走 rAF 合并：逐 delta 读 scrollHeight 会把主线程压成强制重排。
+// approvals 也要盯：审批卡等在正文下面，不滚过去就被输入框盖住。
 let scrollPending = false
 function stickToBottom() {
   if (!stick.value || scrollPending) return
@@ -240,7 +240,7 @@ onMounted(async () => {
                     v-for="a in p.approvals"
                     :key="a.id"
                     :approval="a"
-                    :on-decide="(id, ok, scope) => chat.decide(id, ok, scope)"
+                    :on-decide="onDecide"
                   />
                 </div>
               </template>
@@ -281,7 +281,7 @@ onMounted(async () => {
                 <ApprovalCard
                   v-else
                   :approval="b.approval"
-                  :on-decide="(id, ok, scope) => chat.decide(id, ok, scope)"
+                  :on-decide="onDecide"
                 />
               </template>
             </div>
@@ -350,6 +350,23 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 新回合入场：自下方轻浮入。历史消息首屏渲染带同一动画——打开会话时整屏一次性
+   淡入（一档动效内完成），比「啪」地出现柔和；新增的回合则得到明确的「来了」反馈。
+   流式期间的重渲染不重建元素，动画不会重放。 */
+.msgs-inner > * {
+  animation: turn-in var(--wb-dur) var(--wb-ease);
+}
+@keyframes turn-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msgs-inner > * {
+    animation: none;
+  }
+}
 .avatar.is-live {
   box-shadow: 0 0 0 3px var(--wb-live-soft);
 }

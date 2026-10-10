@@ -117,10 +117,8 @@ export function setSseSession(sid: string | null) {
   }
 }
 
-/**
- * 订阅当前会话的事件流。连接是全站单例：同一会话重复订阅不重开连接，
- * 组件卸载只摘掉自己的处理器，连接保持——run 不在对话页时也在跑。
- */
+/** 订阅当前会话的事件流。连接全站单例：重复订阅不重开，组件卸载只摘处理器——
+ *  run 不在对话页时也要继续跑。 */
 export function useSse(
   sessionId: () => string | null,
   onEvent: (env: ServerEvent) => void,

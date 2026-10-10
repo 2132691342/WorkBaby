@@ -67,9 +67,21 @@ function humanize(e: unknown): Error {
   return e instanceof Error ? e : new Error(String(e))
 }
 
+// 业务错误带上 code：调用方要按码分流（审批 4102「已失效」要把卡片摘掉，
+// 其他失败要保留卡片供重试，两者不能只看 message 猜）。
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly code: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 function unwrap<T>(payload: Resp<T>): T {
   if (!payload) throw new Error('后端没有返回数据')
-  if (payload.code !== 0) throw new Error(payload.message || '请求失败')
+  if (payload.code !== 0) throw new ApiError(payload.message || '请求失败', payload.code)
   return payload.data
 }
 

@@ -165,24 +165,6 @@ func FindCutPoint(msgs []llm.Message, keepTokens int) int {
 	return cut
 }
 
-// TruncateDeterministic 是预算太紧时的降级：只保留最近 keep 条，并切成完整的 turn。
-func TruncateDeterministic(msgs []llm.Message, keep int) []llm.Message {
-	if keep <= 0 {
-		keep = 6
-	}
-	if len(msgs) <= keep {
-		return msgs
-	}
-	start := len(msgs) - keep
-	for start < len(msgs) && msgs[start].Role != llm.RoleUser {
-		start++
-	}
-	if start >= len(msgs) {
-		start = len(msgs) - keep
-	}
-	return CleanForProtocol(msgs[start:])
-}
-
 // CompactForce 是上游报上下文超限后的强制裁剪：本地估算说「没超」不算数，
 // 保留量砍半再找切点；切点落不下时从中间硬切，保证重试发出去的内容一定更少。
 func CompactForce(msgs []llm.Message, b Budget) ([]llm.Message, int) {

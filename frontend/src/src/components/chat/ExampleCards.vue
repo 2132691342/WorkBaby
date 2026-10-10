@@ -49,8 +49,8 @@ const examples = [
 </template>
 
 <style scoped>
-/* 例句卡按案例的卡片语言：圆角大一点、图标成「瓦片」、标题用主色。
-   五态齐全：默认 / 悬停上浮 / 按下回落 / 禁用（变淡 + 禁光标）/ 加载（转圈）。 */
+/* 例句卡：圆角大一点、图标成「瓦片」、标题用主色。
+   五态齐全：悬停上浮 / 按下回落 / 禁用（变淡 + 禁光标）/ 加载（转圈）。 */
 .ex-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

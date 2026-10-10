@@ -222,11 +222,9 @@ async function ensureProviderSaved(): Promise<string | null> {
   }
 }
 
-// ---- 模型参数与能力：目录认不出的模型，只有用户自己知道真实数字 ----
-// 最大输出不可设置：后端按「窗口 1/8 与厂商硬上限取小」派生，无需在此传递。
-// temperature / top_p 的 -1 是「未设置」哨兵：留空表示跟随上游默认，
-// 0 是合法的确定性取值，两者必须能分开。
-// 界面一律预填常见默认值：空着显示「默认」会让用户误以为没有配置。
+// ---- 模型参数与能力：目录认不出的模型只有用户自己知道真实数字 ----
+// 最大输出不在这里设置（后端按「窗口 1/8 与厂商硬上限取小」派生）；
+// temperature / top_p 的 -1 是「未设置」哨兵，与合法的 0 必须能分开。
 const SAMPLING_UNSET = -1
 const DEFAULT_WINDOW = 128000
 const DEFAULT_TEMPERATURE = '0.25'
@@ -280,8 +278,9 @@ function blankRow(): CfgRow {
 async function loadCfg(m: string) {
   try {
     applyConfig(m, await api.models.config(m, form.id || undefined))
-  } catch {
-    // 拉不到就保留缺省行
+  } catch (e) {
+    // 拉不到就保留缺省行，但必须说一声：用户会把预填值当成已保存的配置，直接再保存一遍
+    toast.bad(`读不到「${m}」的配置，下面显示的是默认值：${(e as Error)?.message || '请重试'}`)
   }
 }
 

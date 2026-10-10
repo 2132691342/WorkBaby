@@ -15,7 +15,7 @@ persona           固定人设 + 四条工作原则 + 一组输出风格约束
 ## 可用工具        每个工具一行：名称 + PromptSnippet
 ## 工具使用准则     各工具的 PromptGuidelines + 兜底准则
 ## 可用技能         启用技能的 name + description（渐进式披露）
-当前工作目录       绝对路径
+当前工作目录       绝对路径（反斜杠归一律为正斜杠，模型拼命令时不必再转义）
 <project_context>  工作目录下的 AGENTS.md / CLAUDE.md 全文（若有）
 ```
 
@@ -41,6 +41,9 @@ persona           固定人设 + 四条工作原则 + 一组输出风格约束
 自动补一句「用 powershell 做目录浏览与搜索」——
 用户把浏览工具停用之后，模型不至于突然不会找文件。
 
+准则段末尾固定压一条「回答简洁，文件路径写清楚」（`buildGuidelines` 的最后一行）：
+它保证这段永不为空，也是产品口吻的最后一道闸。
+
 ## 项目上下文
 
 工作目录下存在 `AGENTS.md` / `AGENTS.MD` / `CLAUDE.md` 时全文注入
@@ -57,16 +60,15 @@ persona           固定人设 + 四条工作原则 + 一组输出风格约束
 | `default_model` | 空 | 默认模型名 |
 | `permission` | `ask` | 执行方式：ask / auto_edit / yolo |
 | `context_reserve_tokens` | 空 | 给模型输出留的 token 余量；空 = 跟随该模型的输出预算 |
-| `context_window` | 空 | 全局上下文窗口覆写（空 = 用能力目录值） |
+| `context_window` | 空 | 全局上下文窗口覆写（空 = 用能力目录值）；优先级：模型级 `model_configs` > 本键 > 内置能力目录 |
 | `disabled_tools` | 空 | 逗号分隔的停用工具名单 |
 | `disabled_skills` | 空 | 逗号分隔的停用技能名单（启动时套用） |
-| `theme` | `light` | 主题：light / dark |
+| `theme` | `light` | 主题：light / dark；切换即写库，启动时以库为准（localStorage 只是库还没读到时的兜底） |
 | `font_size` | `md` | 正文字号刻度 |
 | `font_family` | `system` | 界面字体族（`system` = 跟随系统默认） |
 | `show_thinking` | `true` | 是否展示思考过程 |
 | `send_on_enter` | `true` | 回车发送（false = Ctrl+Enter 发送） |
 | `minimize_to_tray` | `true` | 关闭按钮收进托盘；`false` = 点关闭就退出进程 |
-| `density` | `comfortable` | 信息密度 |
 | `workspace` | 用户主目录 | 默认工作目录 |
 | `max_turns` | 空（内置 64） | 单次 run 的轮数上限，失控护栏 |
 | `tool_parallel` | 空（内置 4） | 并发工具上限 |

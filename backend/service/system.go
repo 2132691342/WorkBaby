@@ -156,7 +156,7 @@ func (c *ChatService) samplingOf(cap domain.ModelCapability, providerID, model s
 	return temp, topP, maxOutput
 }
 
-// maxTurns 读取轮数上限：设置表可覆写（前端暂不暴露，留给高级用户直接改库）。
+// maxTurns 读取轮数上限：设置页「规矩」面板可改，缺省 64。
 func (c *ChatService) maxTurns() int {
 	return c.intSetting(domain.SettingMaxTurns, domain.DefaultMaxTurns)
 }

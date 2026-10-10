@@ -346,10 +346,10 @@ service 层发送前完成。
 #### 2.13.2 队列
 
 ```go
-type Queue struct{ ... }        // 一次 drain 一条（one-at-a-time）
+type Queue struct{ ... }        // 一次 drain 一条（one-at-a-time）；上限 50，满时丢最旧
 func NewQueue() *Queue
-func (q *Queue) Enqueue(m *llm.Message)
-func (q *Queue) Drain() []*llm.Message
+func (q *Queue) Enqueue(m llm.Message) bool   // 满时返回 false（调用方回 5101）
+func (q *Queue) Drain() []llm.Message
 func (q *Queue) HasItems() bool
 ```
 
@@ -403,6 +403,8 @@ const (
 | 并发工具 goroutine 在起之前取信号量 | 信号量放在 goroutine 里的话 N 个调用先起 N 个 goroutine 再抢锁，「并发度有上界」是假的——一次 30 个工具就铺 30 个 goroutine |
 | 工具 panic 在串行与并行两条路径都 recover | panic 说明有 bug，但桌面端不该因为一个工具的 bug 把整进程连同这次对话一起带走；`runOneSafe` 统一兜底转成 `IsError` 结果并打堆栈——只兜并发路径等于没兜，write / edit / powershell / python 都是串行工具 |
 | 用户文件写入必须原子替换 | 临时文件 + rename；磁盘写满或进程被杀留下半截文件比写失败更糟，助手写的是用户的真实工程文件 |
+| 审批决策弹出即消费 | 从等待表摘走条目的人落库并唤醒工具，两边不会分叉；等待已结束（超时/取消/重复点击）后到达的决策返回 4102 不改库——否则界面显示「已批准」，工具却早已按拒绝跳过 |
+| 条目写入串行 + seq 事务内分配 | run 收尾的「摘取消句柄 + 补落队列」必须在同一把会话锁里一次完成；seq 分配与插入放进同一写事务，并发追加不撞号、`leaf_entry_id` 不分叉 |
 | 插话队列必须有上限 | 队列无上限时连点/脚本可无限堆积，每条都要在轮间注入进上下文，内存与 token 双爆；满时丢最旧并回执错误 |
 | 端口握手必须早于 `domReady` 广播 | 监听器晚一步端口就为空，前端所有接口 404 |
 | 就绪状态用响应式值传，不靠事件通知 | 事件在监听器注册前派发会丢，组件挂载时要读到的是当前值 |
@@ -458,7 +460,7 @@ const (
 ### 3.3 测试索引
 
 保留判据只有两条：**它坏了会指向一条真实链路**、**必须跨模块 / 跨轮次 / 跨协议**。
-全量 **14 个 Test / 13 个文件 / 32 个子测试**（约 2300 行）。同族场景收在同一个 Test 的子测试里，
+全量 **14 个 Test / 13 个文件 / 25 个子测试**（约 2350 行）。同族场景收在同一个 Test 的子测试里，
 不按「一个断言一个测试」散开——散开只会在改动时逼你跑一大堆、失败时又定位不到是哪条链。
 
 **改这里 → 只跑这条**（定位与验证都从这张表进）：

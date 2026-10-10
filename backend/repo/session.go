@@ -39,17 +39,19 @@ func (r *Repo) ListSessions(limit, offset int) ([]domain.SessionDO, error) {
 	return list, nil
 }
 
-// UpdateSession 全量更新会话。
-func (r *Repo) UpdateSession(s *domain.SessionDO) error {
-	return wrapDB("更新会话", r.db.Save(s).Error)
-}
-
 // UpdateSessionColumns 只更新指定列，避免并发写覆盖掉别的字段。
 func (r *Repo) UpdateSessionColumns(id string, cols map[string]any) error {
 	if len(cols) == 0 {
 		return nil
 	}
 	return wrapDB("更新会话", r.db.Model(&domain.SessionDO{}).Where("id = ?", id).Updates(cols).Error)
+}
+
+// AddSessionTokens 原子累加会话累计 token：读-改-写在两条路径并发收尾时会丢账。
+func (r *Repo) AddSessionTokens(id string, delta int) error {
+	return wrapDB("累计会话 token", r.db.Model(&domain.SessionDO{}).
+		Where("id = ?", id).
+		Update("total_tokens", gorm.Expr("total_tokens + ?", delta)).Error)
 }
 
 // DeleteSession 删除会话及其全部条目与用量记录。

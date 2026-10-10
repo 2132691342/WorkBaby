@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// 用量仪表盘：一行读数 → 趋势折线图 → 按模型 / 会话两个分布卡。
-// 节奏照「案例」走：先给四个关键读数（横排、各自独立），再给一张全宽大图，
-// 最后才是两个分布小卡。竖着一路堆卡片会让人不知道该先看哪。
+// 用量仪表盘：先四个关键读数（横排、各自独立），再一张全宽趋势图，最后两个分布卡——
+// 竖着一路堆卡片会让人不知道该先看哪。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import * as api from '../api'
 import { useSessionStore } from '../stores/session'
+import { useToastStore } from '../stores/toast'
 import type { StatsRESP } from '../types/api'
 import { fmtCount, fmtMs } from '../utils/num'
 import AppIcon from '../components/common/AppIcon.vue'
@@ -99,6 +99,9 @@ async function openSession(id: string) {
   try {
     await session.open(id)
     router.push('/')
+  } catch (e) {
+    // 打不开必须说一声：按钮转圈结束却停在原地，用户只会反复点
+    useToastStore().bad(`打不开这个会话：${(e as Error)?.message || '请重试'}`)
   } finally {
     opening.value = ''
   }
@@ -145,6 +148,8 @@ async function openSession(id: string) {
             <!-- 四个关键读数：横排，各自独立成卡 -->
             <div class="kpis">
               <article v-for="k in kpis" :key="k.key" class="kpi">
+                <!-- 右上角的水印图标：给卡片一个「这是什么读数」的底色，不做动画主角 -->
+                <span class="kg" aria-hidden="true"><AppIcon :name="k.icon" /></span>
                 <span class="kt"><AppIcon :name="k.icon" size="ic-sm" /></span>
                 <div class="kb">
                   <div class="kv" :class="{ 'is-hit': k.hit }">{{ k.value }}</div>
@@ -272,6 +277,8 @@ async function openSession(id: string) {
   gap: var(--wb-sp-3);
 }
 .kpi {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: flex-start;
   gap: var(--wb-sp-3);
@@ -284,6 +291,31 @@ async function openSession(id: string) {
 }
 .kpi:hover {
   border-color: var(--wb-primary-line);
+}
+/* 水印图标：右下探出卡片一角，极低透明度；悬停时轻轻放大——是「被注意到」而不是「在动」 */
+.kg {
+  position: absolute;
+  right: -6px;
+  top: -8px;
+  color: var(--wb-primary);
+  opacity: 0.07;
+  pointer-events: none;
+  transition:
+    transform var(--wb-dur) var(--wb-ease),
+    opacity var(--wb-dur) var(--wb-ease);
+}
+.kg svg {
+  width: 64px;
+  height: 64px;
+}
+.kpi:hover .kg {
+  transform: scale(1.06);
+  opacity: 0.1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kg {
+    transition: none;
+  }
 }
 .kpi .kt {
   display: grid;

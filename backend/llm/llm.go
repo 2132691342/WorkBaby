@@ -88,9 +88,8 @@ type Usage struct {
 	LatencyMs int64
 }
 
-// Normalize 把上游的两种计费口径归一成「Input 含缓存」：Anthropic 口径把
-// prompt/input_tokens 报成「未命中缓存的部分」，Cached 会大于 Input，不补回来
-// 命中率会算出大于 100% 的数、输入量也偏小（长对话的成本被读低）。
+// Normalize 把两种计费口径归一成「Input 含缓存」：不补回来的话命中率会算出
+// 大于 100%、输入量偏小（长对话的成本被读低）。
 func (u *Usage) Normalize() {
 	if u == nil {
 		return

@@ -43,7 +43,8 @@ E1(user) → E2(assistant+tool_calls) → E3(tool) → E4(assistant)  ← leaf
                 └→ E3'(tool, 另一分支) → E4'                      ← 分支
 ```
 
-- `parent_id` 串成树，`seq` 是会话内的写入顺序
+- `parent_id` 串成树，`seq` 是会话内的写入顺序；seq 分配、插入与 `leaf_entry_id`
+  推进在同一个写事务里完成（读最大 seq 与插入绑成原子步），并发追加不会撞号或分叉
 - append-only：不改不删，错误的分支靠移动 `leaf_entry_id` 放弃
 - 为什么要树而不是线性表：`/clear`（回到新起点）与「从某条历史重开」是同一棵树的不同叶子，
   零成本实现；代价是「列全部消息」必须从 leaf 沿 `parent_id` 上溯

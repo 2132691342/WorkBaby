@@ -147,9 +147,8 @@ func (h *Hub) Publish(sessionID string, env domain.Envelope) {
 			h.mu.Unlock()
 			return
 		}
-		// 形态切换（思考 ↔ 正文）或换了条目：旧的一并取走。
-		// 「取旧 + 装新」必须同一次持锁完成：中间放锁的话，并发 Publish 写进来的
-		// pend 会被本 goroutine 覆盖，那一段正文就永久丢了。
+		// 形态切换（思考 ↔ 正文）或换了条目：旧的一并取走。「取旧 + 装新」必须同一次持锁——
+		// 中间放锁的话，并发 Publish 写进来的 pend 会被本 goroutine 覆盖，那段正文永久丢。
 		flush = pend
 	}
 	e := env
@@ -182,9 +181,8 @@ func (h *Hub) takePending(sessionID string) *domain.Envelope {
 	return pend
 }
 
-// armTimer 给会话挂上或重置合流定时器（调用方持有 h.mu）：每个 delta 都新起一张
-// AfterFunc 等于每个 token 一次分配，会话只留一张、按需 Reset（Go 1.23 起对任何
-// 状态的定时器都安全）；回调执行途中被 Reset 时本轮提前冲刷，对合流无影响。
+// armTimer 给会话挂上或重置合流定时器（调用方持有 h.mu）：会话只留一张、按需 Reset，
+// 每 token 新起一张 AfterFunc 等于每 token 一次分配。
 func (h *Hub) armTimer(sessionID string) {
 	if t, ok := h.timers[sessionID]; ok {
 		t.Reset(deltaCoalesce)

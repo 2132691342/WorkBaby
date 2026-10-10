@@ -83,10 +83,8 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  // 所有设置项写入的公共出口：失败必须弹出，否则开关类操作「点了没反应」。
-  // 成功不弹——开关自身的状态变化已经说明了结果。
-  // 本地先落值再发请求：开关/单选这类控件的「点亮」必须是瞬时的，
-  // 等一个 HTTP 往返才变色，用户会以为没点上而重复点。
+  // 设置项写入公共出口：本地先落值再发请求（等往返才点亮会被当成没点上）、
+  // 失败弹提示并回滚，成功不弹（开关自身颜色已说明结果）。
   async function setValue(key: string, value: string) {
     const prev = values.value[key]
     values.value = { ...values.value, [key]: value }

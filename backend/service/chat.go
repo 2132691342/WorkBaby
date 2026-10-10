@@ -145,12 +145,9 @@ func (c *ChatService) enqueue(sessionID, content string) error {
 	return nil
 }
 
-// flushQueue 把队列里没被消费的消息补落库。
+// flushQueueLocked 把队列里没被消费的消息补落库；调用方必须已持有会话锁。
 // run 收尾与「判忙后入队」恰好交错时，那句消息既没进上下文也没落库。
-func (c *ChatService) flushQueue(sessionID string) {
-	lock := c.lockOf(sessionID)
-	lock.Lock()
-	defer lock.Unlock()
+func (c *ChatService) flushQueueLocked(sessionID string) {
 	q := c.queueOf(sessionID)
 	if q == nil || !q.HasItems() {
 		return
@@ -170,9 +167,8 @@ func (c *ChatService) Forget(sessionID string) {
 	delete(c.cancel, sessionID)
 	delete(c.queues, sessionID)
 	delete(c.reads, sessionID)
-	// locks 故意保留：在跑的 run 或并发请求可能正持有那把锁，
-	// 删掉后新调用会新建一把，同一会话出现两把锁，enqueue 依赖的串行化前提就没了。
-	// 每会话一个 mutex 的内存量级可忽略，不值得为它引入竞态。
+	// locks 故意保留：删掉后新建的锁与在跑 run 持有的那把不同，同一会话出现两把锁，
+	// enqueue 依赖的串行化前提就没了（每会话一个 mutex 的内存可忽略）。
 	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -220,11 +216,16 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 			pkg.Errorf("chat: run 内部崩溃 session=%s run=%s: %v\n%s", sessionID, runID, rec, debug.Stack())
 			c.fail(sessionID, nil, nil, pkg.New(5102, "助手内部出错了，已经停下来；可以点重试再来一次", ""))
 		}
+		// 「摘取消句柄」与「补落队列」必须在同一把会话锁里一次做完：
+		// 两步之间 enqueue 会看到 !busy 直接落库，与 flushQueue 并发写同一条会话链。
+		lock := c.lockOf(sessionID)
+		lock.Lock()
 		c.mu.Lock()
 		delete(c.cancel, sessionID)
 		c.mu.Unlock()
 		// 收尾窗口里入队的插话没人消费了：补落库，否则这句凭空消失。
-		c.flushQueue(sessionID)
+		c.flushQueueLocked(sessionID)
+		lock.Unlock()
 	}()
 
 	c.env.Emitter.Emit(sessionID, domain.EventChatStart, domain.StartData{RunID: runID, SessionID: sessionID})
@@ -408,10 +409,8 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 		c.appendAssistantTurn(st)
 		c.appendTool(st, e)
 	case agent.EventSteering:
-		// 插话在注入时刻落库：早了会插进 assistant(tool_calls) 与工具结果之间
-		// 撕裂协议配对，晚了链序就与真实对话不一致。
-		// 落库位点要跟着推进：runState 记的 leafID 不认这条插话，下一轮
-		// assistant 就会挂到分叉上，插话从链里消失。
+		// 插话在注入时刻落库（早写撕裂协议配对、晚写链序失真），落库位点必须跟着推进——
+		// 不推的话下一轮 assistant 会挂到分叉上，插话从链里消失。
 		if id := c.appendSteered(st.sessionID, e.UserContent); id != "" {
 			st.leafID = id
 		}
@@ -601,8 +600,7 @@ func (c *ChatService) fail(sessionID string, st *runState, res *agent.Result, er
 func (c *ChatService) recordUsage(sessionID, providerID, model string, ctxTokens int, u llm.Usage) {
 	// 先确认会话还在：删会话与 run 收尾竞态的窗口里先落账，会留下永远没人认领的
 	// 孤儿用量行，仪表盘按天聚合会把它算进去。
-	fresh, err := c.env.Repo.GetSession(sessionID)
-	if err != nil {
+	if _, err := c.env.Repo.GetSession(sessionID); err != nil {
 		pkg.Warnf("chat: 取会话失败 session=%s: %v", sessionID, err)
 		return
 	}
@@ -622,9 +620,7 @@ func (c *ChatService) recordUsage(sessionID, providerID, model string, ctxTokens
 	}); err != nil {
 		pkg.Warnf("chat: 用量落账失败 session=%s: %v", sessionID, err)
 	}
-	if err := c.env.Repo.UpdateSessionColumns(sessionID, map[string]any{
-		"total_tokens": fresh.TotalTokens + u.Total,
-	}); err != nil {
+	if err := c.env.Repo.AddSessionTokens(sessionID, u.Total); err != nil {
 		pkg.Warnf("chat: 累计会话 token 失败 session=%s: %v", sessionID, err)
 	}
 }

@@ -4,7 +4,7 @@
 
 - Go 1.24+
 - Node.js 20+（前端）
-- Wails CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- Wails CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`（与 CI 同一个 pin，避免本地 CLI 版本漂移）
 - Windows 10/11（唯一目标平台）
 
 ## 常用命令
@@ -12,7 +12,7 @@
 ```powershell
 # 后端测试：日常改动用 -short（跳过归档解压，秒级返回）
 go test -short ./...                                        # 日常
-go test -count=1 ./...                                      # 全量（14 个 Test / 32 个子测试），含归档真实解压
+go test -count=1 ./...                                      # 全量（14 个 Test / 25 个子测试），含归档真实解压
 go test -short ./backend/service                            # 只跑一个包
 go test -short -run TestServiceRunChain ./backend/service   # 只跑一条链路
 go test -race ./backend/...                                 # 竞态检测，改并发相关代码时用
@@ -84,7 +84,6 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 %APPDATA%/WorkBaby/            # = C:\Users\<你>\AppData\Roaming\WorkBaby
 ├── workbaby.db                # SQLite（WAL）
 ├── config.yaml                # Viper 配置（MasterKey 等）
-├── model.json                 # 模型能力缓存的本地覆写
 ├── logs/                      # app.log（全量）+ warn.log（warn 与 error）
 ├── runtime/python/            # 内置 Python 解压后
 ├── runtime/powershell/        # 内置 PowerShell 7 解压后

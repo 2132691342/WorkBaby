@@ -2,19 +2,8 @@ import { ref } from 'vue'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import { setBaseURL } from './api/http'
 
-/**
- * 端口握手。
- *
- * Go 侧 OnDomReady 一触发就广播 app:ready，而 Wails 事件不缓冲给后注册的
- * 监听器——监听器晚一步，端口就永远拿不到，axios 只能拿空 baseURL 去打
- * Wails 自己的静态服务器，结果是每个接口都 404。
- *
- * 这里用**状态**而不是事件通知下游：事件在「监听器注册之前」派发同样会丢，
- * 而组件读 ref 永远读得到当前值。
- * ① 模块顶层静态注册（type=module 的脚本早于 DOMContentLoaded）
- * ② Go 侧启动后 6 秒内重复广播，前端幂等接收
- * ③ 超时兜底：绝不让用户永远停在「启动中…」
- */
+/** 端口握手：Wails 事件不缓冲给后注册的监听器，晚一步端口就永远拿不到（接口全 404）。
+ *  三重兜底：模块顶层静态注册 + Go 侧 6 秒重复广播 + 20 秒超时；下游读 ref 而非事件。 */
 export type HandshakeStatus = 'pending' | 'ready' | 'failed'
 
 const HANDSHAKE_TIMEOUT_MS = 20000

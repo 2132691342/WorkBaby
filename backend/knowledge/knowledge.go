@@ -87,7 +87,14 @@ func (s *Service) Search(ctx context.Context, query string, limit int) ([]domain
 		limit = 5
 	}
 	hits, err := s.repo.SearchChunks(escapeFTS(query), limit)
-	if err != nil || len(hits) == 0 {
+	if err != nil {
+		// FTS 出错与「没命中」是两回事：留一行日志，否则索引损坏会表现为永久静默降级。
+		pkg.Warnf("knowledge: FTS 检索失败，退化为子串匹配: %v", err)
+		return s.fallbackSearch(query, limit)
+	}
+	if len(hits) == 0 {
+		// FTS 零命中分两种：真正的「没有」和 trigram 对短查询无能为力。后者如实说清，
+		// 免得用户以为资料没进库。
 		return s.fallbackSearch(query, limit)
 	}
 	return hits, nil

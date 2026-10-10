@@ -271,6 +271,9 @@ watch(() => settings.boot?.default_model, seedContext)
     <SessionPanel :creating="creating" @new-session="newSession" />
 
     <div class="chat-main">
+      <!-- 欢迎页 ↔ 消息流：两态都占满主区，必须 out-in 才不重叠；
+           首条消息发出时给一个明确的「进入对话」过渡 -->
+      <Transition name="chat-swap" mode="out-in">
       <template v-if="empty && !chat.running">
         <div class="welcome">
           <div class="hero-aura" aria-hidden="true">
@@ -313,6 +316,7 @@ watch(() => settings.boot?.default_model, seedContext)
       <template v-else>
         <MessageList :on-continue="resume" :on-retry="retry" />
       </template>
+      </Transition>
 
       <ChatInput
         ref="inputRef"
@@ -347,6 +351,31 @@ watch(() => settings.boot?.default_model, seedContext)
   min-height: 0;
   flex: 1;
   min-width: 0;
+}
+/* 欢迎页 ↔ 消息流切换：out-in 保证两态不重叠，动效压在半档内不拖节奏 */
+.chat-swap-enter-active {
+  transition:
+    opacity var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur) var(--wb-ease);
+}
+.chat-swap-leave-active {
+  transition: opacity var(--wb-dur-fast) var(--wb-ease);
+}
+.chat-swap-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.chat-swap-leave-to {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-swap-enter-active,
+  .chat-swap-leave-active {
+    transition: none;
+  }
+  .chat-swap-enter-from {
+    transform: none;
+  }
 }
 /* 欢迎页的配置引导卡：白底 + 中性描边，与例句卡同族但更「有事要做」 */
 .setup-card {

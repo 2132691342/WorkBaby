@@ -194,13 +194,8 @@ func (s *SessionService) Branch(id, entryID string) error {
 	return s.env.Repo.UpdateSessionColumns(id, map[string]any{"leaf_entry_id": entryID})
 }
 
-// Append 追加一条条目并返回它。
+// Append 追加一条条目；seq 由持久层在同一事务内分配并写回 e.Seq。
 func (s *SessionService) Append(e *domain.EntryDO) error {
-	seq, err := s.env.Repo.MaxSeq(e.SessionID)
-	if err != nil {
-		return err
-	}
-	e.Seq = seq + 1
 	return s.env.Repo.AppendEntry(e)
 }
 

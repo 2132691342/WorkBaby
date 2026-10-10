@@ -1,7 +1,6 @@
 # Go
 /WorkBaby
 /WorkBaby.exe
-/workbaby.exe
 *.exe
 # 构建产物：本地 wails build 输出，**不入库**（含可执行文件与 NSIS 安装器）；
 # 安装器走 GitHub Actions tag 触发构建并上传到 GitHub Release，
@@ -22,6 +21,8 @@
 # Frontend
 /frontend/node_modules/
 /frontend/dist/
+# wails 判断是否需要重跑 npm install 的指纹缓存
+/frontend/package.json.md5
 # TS 增量构建缓存（vue-tsc -b 产物，不应入库）
 *.tsbuildinfo
 # 注：wailsjs 绑定（go/、runtime/）现纳入版本控制。CI 的 frontend job 仅安装 Node、不执行
@@ -36,22 +37,21 @@
 /workbaby.db-wal
 /workbaby.db-shm
 
-# 本地测试环境敏感信息（API Key / SMTP 授权码等，勿提交）
-/test.env
-
 # IDE
 .idea/
 .vscode/
 *.iml
-
-# 浏览器自动化临时目录
-.playwright-cli/
 
 # Local user dir
 *.log
 
 # Nested git repos (submodules)
 assets/skills/project-standard/
-# 数据目录被指到源码树时解压出来的运行时：纯粹的本地产物，入库只会污染工作区
-service/powershell/
+
+# WORKBABY_HOME 被指到源码树时的落盘产物：纯粹本地产物，入库只会污染工作区
+/runtime/
+/builtin-skills/
+/skills/
+/logs/
+/tmp/
 .trash/

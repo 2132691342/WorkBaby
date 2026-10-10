@@ -30,7 +30,6 @@ const (
 	SettingContextWindow   = "context_window"
 	SettingMinimizeToTray  = "minimize_to_tray"
 	SettingFontFamily      = "font_family"
-	SettingDensity         = "density"
 	SettingSendOnEnter     = "send_on_enter"
 	SettingShowThinking    = "show_thinking"
 	SettingMaxTurns        = "max_turns"
@@ -59,7 +58,6 @@ func DefaultSettings() map[string]string {
 		SettingDisabledSkills: "",
 		SettingMinimizeToTray: "true",
 		SettingFontFamily:     "system",
-		SettingDensity:        "comfortable",
 		SettingSendOnEnter:    "true",
 		SettingShowThinking:   "true",
 	}

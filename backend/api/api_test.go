@@ -48,7 +48,7 @@ func bootServer(t *testing.T) (string, *api.Handler) {
 			t.Fatalf("%s 工具没有注册，模型会突然找不到文件能力", name)
 		}
 	}
-	if h.Port() != 0 {
+	if h.ServerPort() != 0 {
 		t.Fatal("端口应由后续握手阶段写入，Startup 阶段应为 0（早一步广播则前端所有接口 404）")
 	}
 

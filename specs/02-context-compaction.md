@@ -126,7 +126,6 @@ func Compact(msgs []llm.Message, b Budget) (out []llm.Message, after int)
 func CleanForProtocol(msgs []llm.Message) []llm.Message
 func EstimateTokens(system string, msgs []llm.Message) int
 func FindCutPoint(msgs []llm.Message, keepTokens int) int
-func TruncateDeterministic(msgs []llm.Message, keep int) []llm.Message
 func Compact(msgs []llm.Message, b Budget) (out []llm.Message, after int)
 func CompactForce(msgs []llm.Message, b Budget) (out []llm.Message, after int)
 ```

@@ -43,11 +43,9 @@ func New(version string) *Handler { return &Handler{Version: version} }
 // SetServerPort 记录本地 HTTP 端口。
 func (h *Handler) SetServerPort(port int) { h.port.Store(int64(port)) }
 
-// Port 返回已记录的本地 HTTP 端口，0 表示尚未启动。
-func (h *Handler) Port() int { return int(h.port.Load()) }
-
-// ServerPort 返回本地 HTTP 端口。
-// 前端在错过 app:ready 事件时靠它兜底：绑定方法是随时可调的，不存在事件竞态。
+// ServerPort 返回本地 HTTP 端口，0 表示尚未启动。
+// 不在 Wails 绑定面上（绑定只留 5 个系统方法）：前端靠 app:ready 的重复广播完成握手；
+// 这里保留给测试与需要查询端口的内部调用。
 func (h *Handler) ServerPort() int { return int(h.port.Load()) }
 
 // SetStartupError 记录启动失败原因，供前端展示。

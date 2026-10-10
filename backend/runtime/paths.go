@@ -21,7 +21,6 @@ type Paths struct {
 	SkillsDir        string
 	BuiltinSkillsDir string
 	ConfigFile       string
-	ModelFile        string
 }
 
 // Resolve 定位数据根并展开全部子路径。WORKBABY_HOME 优先，便于便携版与测试隔离。
@@ -48,7 +47,6 @@ func Resolve() (Paths, error) {
 		PowerShellDir: filepath.Join(root, "runtime", "powershell"),
 		SkillsDir:     filepath.Join(root, "skills"),
 		ConfigFile:    filepath.Join(root, "config.yaml"),
-		ModelFile:     filepath.Join(root, "model.json"),
 		// 内置技能要落到真实磁盘路径：系统提示里让模型 read 的 SKILL.md 必须存在。
 		// 单独一个目录而不是 skills/builtin，是为了不被「全局技能」扫描重复登记。
 		BuiltinSkillsDir: filepath.Join(root, "builtin-skills"),

@@ -130,8 +130,10 @@ async function loadCapability() {
   try {
     cap.value = await api.models.capability(model, pid)
     winInput.value = store.values['context_window'] || ''
-  } catch {
+  } catch (e) {
+    // 能力读不到时输入框会以空白按「跟随默认」呈现，不给提示会被误读成「这个模型没有上限」
     cap.value = null
+    toast.bad(`读不到这个模型的能力信息：${(e as Error)?.message || '请检查模型服务'}`)
   }
 }
 

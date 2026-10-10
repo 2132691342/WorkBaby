@@ -18,6 +18,6 @@
       "@/wailsjs/*": ["src/wailsjs/*"]
     }
   },
-  "include": ["src/src/**/*.ts", "src/src/**/*.tsx", "src/src/**/*.vue", "env.d.ts", "src/wailsjs/**/*.ts"],
+  "include": ["src/src/**/*.ts", "src/src/**/*.tsx", "src/src/**/*.vue", "src/wailsjs/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

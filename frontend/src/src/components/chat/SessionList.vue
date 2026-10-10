@@ -145,10 +145,43 @@ async function more() {
     >
       {{ loadingMore ? '加载中…' : '加载更早的对话' }}
     </button>
+    <!-- 一条会话都没有（数据被清空 / 首次进入还没自动建会话）：给一个能往下走的出口 -->
+    <div v-if="!session.list.length" class="sess-empty">
+      <span class="se-ic"><AppIcon name="chat" size="ic-lg" /></span>
+      <b>还没有对话</b>
+      <p>说句话就能开一段新的。</p>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* 空态：图标瓦片 + 一句人话，与全站空态语言一致（不用 el-empty 那类套话） */
+.sess-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-8) var(--wb-sp-4);
+  text-align: center;
+}
+.sess-empty .se-ic {
+  display: grid;
+  place-items: center;
+  width: var(--wb-tile);
+  height: var(--wb-tile);
+  border-radius: var(--wb-radius);
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
+}
+.sess-empty b {
+  font-size: var(--wb-fs-md);
+  font-weight: 600;
+  color: var(--wb-ink);
+}
+.sess-empty p {
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+}
 .rename {
   height: var(--wb-ctl-h-sm);
   font-size: var(--wb-fs-sm);

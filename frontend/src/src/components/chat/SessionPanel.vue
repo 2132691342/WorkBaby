@@ -11,7 +11,8 @@ const { collapsed } = useSessionPanel()
 </script>
 
 <template>
-  <aside v-show="!collapsed" class="side">
+  <!-- 折叠走 class 而不是 v-show：负边距滑出的过渡才看得见（v-show 的 display 切换无法过渡） -->
+  <aside class="side" :class="{ collapsed }">
     <button
       class="btn btn-lav side-btn"
       type="button"

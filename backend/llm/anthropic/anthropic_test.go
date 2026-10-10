@@ -1,5 +1,6 @@
 // Anthropic 适配层链路：无签名 thinking 不能回传（厂商特有硬约束）、
 // 上游停滞经空闲看门狗收尾、事件缓冲满不丢弃。
+// 坏了的表现：多轮对话从第二轮起卡死；上游停滞时界面永远停在「正在思考」；长回答丢字。
 package anthropic
 
 import (
@@ -46,7 +47,7 @@ func stallingServer(t *testing.T) *httptest.Server {
 func TestAnthropicAdapter(t *testing.T) {
 	// 无签名 thinking 回传会被网关以 invalid_request_error 拒绝，
 	// 症状是多轮对话从第二轮起「答完一轮就卡死」。
-	t.Run("无签名 thinking 不回传", func(t *testing.T) {
+	t.Run("协议适配：thinking 编码 / 缓冲背压 / 停滞看门狗", func(t *testing.T) {
 		body := bodyOf(t, llm.Request{Model: "m", Messages: []llm.Message{
 			{Role: llm.RoleUser, Content: "你好"},
 			{Role: llm.RoleAssistant, Thinking: "思考过程", Content: "回答"},
@@ -59,12 +60,8 @@ func TestAnthropicAdapter(t *testing.T) {
 				}
 			}
 		}
-	})
-
-	// 流式异常与背压：内核被落库拖慢时不读通道，此时 select/default 式实现会静默丢事件；
-	// 上游停滞则必须经看门狗以 error 收尾并关通道，不能永远等下去。
-	t.Run("缓冲满不丢事件且停滞经看门狗收尾", func(t *testing.T) {
-		// 一次吐 200 帧：通道只有 64 个位置，收得慢时中间那些帧不能丢。
+		// 背压与停滞：收得慢时一帧都不能丢（一次吐 200 帧，通道只有 64 个位置）；
+		// 上游停滞必须经看门狗以 error 收尾并关通道，不能永远等下去。
 		burst := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			for i := 0; i < 200; i++ {

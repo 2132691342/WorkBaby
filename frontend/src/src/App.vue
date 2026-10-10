@@ -136,7 +136,11 @@ function quitApp() {
     </header>
     <main class="win-body">
       <NavRail v-if="ready" />
-      <router-view v-if="ready" />
+      <router-view v-if="ready" v-slot="{ Component }">
+        <Transition name="view" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </router-view>
       <div v-else-if="failed" class="boot">
         <div class="boot-mark bad"><AppIcon name="alert" size="ic-lg" /></div>
         <h2>没能启动起来</h2>
@@ -157,6 +161,32 @@ function quitApp() {
 </template>
 
 <style scoped>
+/* 视图切换：旧页淡出、新页自下方 6px 浮入——换页时给眼睛一个「到位了」的落点。
+   这是工作界面唯一的装饰性位移，时长压在半档动效内，不拖慢切换。 */
+.view-enter-active {
+  transition:
+    opacity var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur) var(--wb-ease);
+}
+.view-leave-active {
+  transition: opacity var(--wb-dur-fast) var(--wb-ease);
+}
+.view-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.view-leave-to {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .view-enter-active,
+  .view-leave-active {
+    transition: none;
+  }
+  .view-enter-from {
+    transform: none;
+  }
+}
 .logo-mini {
   font-family: var(--font-display);
   font-weight: 700;

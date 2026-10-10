@@ -1,4 +1,5 @@
 // 技能压缩包导入链路：解压落盘注册、zip 路径穿越护栏、空包拒绝。
+// 坏了的表现：技能被静默丢弃，或解压把文件写到技能目录之外。
 package service
 
 import (
@@ -40,6 +41,8 @@ func newSkillEnv(t *testing.T) (*Env, *SkillService) {
 // 技能包导入链：解压落盘并注册、条目穿越拒绝且不落盘、没有 SKILL.md 的包拒绝。
 func TestSkillZipImport(t *testing.T) {
 	env, svc := newSkillEnv(t)
+
+	// 正常导入：解压落盘并注册。
 	data := buildZip(t, map[string]string{
 		"a/SKILL.md": "---\nname: skill-a\ndescription: 技能 A\n---\n正文 A\n",
 		"b/SKILL.md": "---\nname: skill-b\ndescription: 技能 B\n---\n正文 B\n",
@@ -60,20 +63,20 @@ func TestSkillZipImport(t *testing.T) {
 		}
 	}
 
-	evilEnv, evilSvc := newSkillEnv(t)
+	// 条目穿越：报 8108，且不能有文件写出技能目录。
 	evil := buildZip(t, map[string]string{
 		"../evil.txt": "x",
 		"a/SKILL.md":  "---\nname: skill-c\ndescription: c\n---\n正文\n",
 	})
-	if _, err := evilSvc.ImportZip("evil.zip", evil); pkg.CodeOf(err) != 8108 {
+	if _, err := svc.ImportZip("evil.zip", evil); pkg.CodeOf(err) != 8108 {
 		t.Fatalf("条目穿越应报 8108，实际 %v", err)
 	}
-	if pkg.FileExists(filepath.Join(filepath.Dir(evilEnv.Paths.SkillsDir), "evil.txt")) {
+	if pkg.FileExists(filepath.Join(filepath.Dir(env.Paths.SkillsDir), "evil.txt")) {
 		t.Fatal("穿越文件竟然写出去了")
 	}
 
-	_, emptySvc := newSkillEnv(t)
-	if _, err := emptySvc.ImportZip("empty.zip", buildZip(t, map[string]string{"readme.txt": "hi"})); pkg.CodeOf(err) != 8109 {
+	// 没有 SKILL.md 的包：报 8109。
+	if _, err := svc.ImportZip("empty.zip", buildZip(t, map[string]string{"readme.txt": "hi"})); pkg.CodeOf(err) != 8109 {
 		t.Fatalf("没有 SKILL.md 的包应报 8109，实际 %v", err)
 	}
 }

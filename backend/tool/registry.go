@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"WorkBaby/backend/llm"
 	"WorkBaby/backend/pkg"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -88,27 +87,6 @@ func (r *Registry) Enabled(disabled []string) []Tool {
 		if !blocked[t.Name()] {
 			out = append(out, t)
 		}
-	}
-	return out
-}
-
-// Defs 把工具转成上游需要的声明，顺序稳定以便提示词可复现。
-func (r *Registry) Defs(tools []Tool) []llm.ToolDef {
-	names := make([]string, 0, len(tools))
-	byName := map[string]Tool{}
-	for _, t := range tools {
-		names = append(names, t.Name())
-		byName[t.Name()] = t
-	}
-	sort.Strings(names)
-	out := make([]llm.ToolDef, 0, len(names))
-	for _, n := range names {
-		t := byName[n]
-		out = append(out, llm.ToolDef{
-			Name:        t.Name(),
-			Description: t.Description(),
-			Parameters:  t.Parameters(),
-		})
 	}
 	return out
 }

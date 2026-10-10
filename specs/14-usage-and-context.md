@@ -38,6 +38,8 @@ Event{Kind: EventContext, TokensUsed, TokensWindow, TokensKnown, TokensReserve, 
 - 打开 / 切换 / 新建会话时从会话快照（最近一条带 `usage.context` 的助手条目）
   与模型能力回填（余量按能力画像的 `max_output` 估，手填过余量的用户下一轮被权威值纠正），
   不必等下一轮 `chat:context`
+- 一轮结束时用 `agent_end` 带回的权威 usage 再校准一次水位：`context` 报的是
+  **这一轮开始前**的占用，不含刚写出的回复本身，差的那截在 `done` 时补上
 - **环的分母是可用预算**（`窗口 - 余量`），不是整窗口：内核在 `before > 窗口 - 余量`
   时就动手整理，用整窗口当分母会慢半拍——整理已经发生、环上才 87%，用户看着
   「还有空间」却在丢内容。所以 `ratio` 到 100% 的含义是「下一轮就要整理」

@@ -1,5 +1,6 @@
 // OpenAI 适配层链路：请求编码的协议家族差异（推理家族 vs 普通模型），
 // 以及流式解析的硬约束（usage 帧顺序、工具调用单次下发、断流收尾）。
+// 坏了的表现：推理模型第一轮就 400；用量与水位读数全是 0；断流后界面卡在「运行中」。
 package openai
 
 import (
@@ -71,7 +72,7 @@ func decodeBody(t *testing.T, req llm.Request) map[string]any {
 func TestOpenAIAdapter(t *testing.T) {
 	// 推理家族只认 max_completion_tokens 且拒绝采样参数，用错字段直接 400；
 	// 网关前缀（openai/gpt-5）不参与判定，否则同一模型换个网关就 400。
-	t.Run("输出上限字段按协议家族选择", func(t *testing.T) {
+	t.Run("协议适配：家族字段 / usage 帧 / 工具调用 / 断流收尾", func(t *testing.T) {
 		temp := 0.25
 		for _, c := range []struct {
 			model     string
@@ -95,11 +96,8 @@ func TestOpenAIAdapter(t *testing.T) {
 				t.Fatalf("%s: 普通模型应用 max_tokens 并正常下发采样参数，实际 %v", c.model, body)
 			}
 		}
-	})
-
-	// 流式解析：usage 是独立一帧排在 finish_reason 之后（提前收尾会让计量与水位全变 0），
-	// finish_reason 那一帧定型工具调用但不能吞掉 usage 帧、也不能重复下发。
-	t.Run("流式解析：usage 帧与工具调用", func(t *testing.T) {
+		// 流式解析：usage 是独立一帧排在 finish_reason 之后（提前收尾会让计量与水位全变 0），
+		// finish_reason 那一帧定型工具调用但不能吞掉 usage 帧、也不能重复下发。
 		usage := serve(t,
 			`data: {"choices":[{"delta":{"content":"你好"}}]}`,
 			`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,

@@ -72,5 +72,20 @@ const open = ref(false)
 }
 .is-dim { color: var(--wb-muted); }
 pre.is-bad { color: var(--wb-danger); }
-.tool.open .chev { transform: rotate(90deg); }
+/* 展开：内容自上而下轻轻展开，箭头同步转向——没有这层过渡，折叠条会「跳」 */
+.tool-bd {
+  animation: tool-unfold var(--wb-dur) var(--wb-ease);
+}
+@keyframes tool-unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.chev {
+  transition: transform var(--wb-dur-fast) var(--wb-ease);
+}
+.tool.open .chev {
+  transform: rotate(90deg);
+}
 </style>

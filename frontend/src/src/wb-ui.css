@@ -1,21 +1,10 @@
-/**
- * wb-ui.css · WorkBaby 组件语法层（唯一实现处）。
- *
- * <p>语言来自 doc/prd/prototype：**纯色 + 镂空 + 1px 中性描边**。
- * <ul>
- *   <li>按钮一律胶囊形、镂空：描边 + 主色字，实底只出现在 hover；</li>
- *   <li>卡片不透明 + 1px 中性描边 + 极轻阴影；悬浮不做位移，只做底色/描边；</li>
- *   <li>标签降噪：中性底、无彩色描边；颜色只出现在主操作、当前项、状态灯。</li>
- * </ul>
- * 颜色与刻度全部来自 themes.css 的 --wb-* 令牌，本层不写色值。
- * 样式表按引入顺序生效：main.ts 里 themes.css 先、wb-ui.css 后，故本层覆盖令牌层。
- */
+/** wb-ui.css · 组件基元唯一实现处：色值与刻度全部取自 themes.css 的 --wb-* 令牌，
+    本层不写色值。按钮五态与卡片 / 标签的形态纪律见 DESIGN.md。 */
 
 /* ================= 基础 =================
  * 焦点环与滚动条是全站兜底：没有它们，键盘用户看不见焦点，滚动条是 17px 的系统默认灰条。 */
-/* 全站尺寸口径：width 永远是「盒子总宽」。
-   缺了它，width:100% + 左右 padding 的容器（.wrap 族）会比父级宽出两侧
-   padding——任何非全屏窗口都横向溢出，表现为右侧内容被裁、横向滚动条。 */
+/* 全站尺寸口径：width 永远是「盒子总宽」；缺了它，width:100% + 左右 padding 的容器
+   会比父级宽出两侧 padding，任何非全屏窗口都横向溢出。 */
 *,
 *::before,
 *::after {
@@ -291,7 +280,7 @@ body {
   width: 14px;
   height: 14px;
 }
-/* 主题快切药丸（案例的太阳 / 月亮控件）：白底容器 + 选中片 */
+/* 主题快切药丸：白底容器 + 选中片 */
 .titlebar .tb-themes {
   display: inline-flex;
   gap: 2px;
@@ -348,8 +337,7 @@ body {
 }
 
 /* ================= 导航轨道 =================
- * 全站唯一主导航：图标列，条目 = 图标 + 10px 小字。
- * 选中态 = 淡底 + 左侧 2px 竖条 + 主色图标，位置不变只换色。 */
+ * 全站唯一主导航，条目 = 图标 + 小字标签；选中态 = 淡底 + 左侧 2px 竖条 + 主色。 */
 .rail {
   width: 56px;
   flex: none;
@@ -421,10 +409,24 @@ body {
   flex-direction: column;
   background: var(--wb-panel);
   border-right: 1px solid var(--wb-line);
-  transition: width var(--wb-dur) var(--wb-ease);
+  /* 折叠 = 负外边距滑出：内容不重排、不变形，展开时滑回来 */
+  transition:
+    margin-left var(--wb-dur) var(--wb-ease),
+    visibility 0s linear 0s;
 }
 .side.collapsed {
-  display: none;
+  margin-left: calc(-1 * var(--wb-w-nav));
+  visibility: hidden;
+  border-right-color: transparent;
+  transition:
+    margin-left var(--wb-dur) var(--wb-ease),
+    visibility 0s linear var(--wb-dur);
+}
+@media (prefers-reduced-motion: reduce) {
+  .side,
+  .side.collapsed {
+    transition: none;
+  }
 }
 .side-brand {
   display: flex;
@@ -576,7 +578,7 @@ body {
 .side-btn .rail-ic .ic {
   color: inherit;
 }
-/* 导航 / 列表图标统一放进淡色容器（原型的辨识特征） */
+/* 导航 / 列表图标统一放进淡色容器：图标与文字一眼分得清 */
 .rail-ic {
   display: grid;
   place-items: center;
@@ -836,7 +838,7 @@ body {
   background-size: 22px 22px;
   border-top: 1px solid var(--wb-line);
 }
-/* 装饰层保留类名但不再绘制：界面一律纯色（原型的降噪纪律） */
+/* 装饰层保留类名但不再绘制：界面一律纯色 */
 .app-deco {
   display: none;
 }
@@ -895,11 +897,8 @@ body {
 }
 
 /* ================= 按钮 =================
- * 语法 = 形状(胶囊) × 权重(primary/solid/outline/ghost) × 语义(danger)
- * 五态规格（每个按钮必须齐全）：
- *   默认 → 悬停（放大 1.03 + 变色）→ 按下（缩小 0.96 + 变色）→ 禁用 → 加载（转圈）。
- * 颜色一律 160ms 过渡、尺寸一律 110ms；加载态 = .is-loading（async 期间挂上），
- * 配合 :disabled 时转圈不被压暗。 */
+ * 语法 = 形状(胶囊) × 权重(primary/solid/outline/ghost) × 语义(danger)。
+ * 五态齐全：悬停放大 1.03 + 变色、按下缩小 0.96 + 变色、禁用、加载(.is-loading 转圈)。 */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -956,8 +955,8 @@ body {
 .btn-primary:active:not(:disabled) {
   background: color-mix(in srgb, var(--wb-primary-deep) 78%, var(--wb-ink));
 }
-/* 薰衣草主 CTA（案例「注册」钮）：浅紫实底 + 深字，与实底主按钮构成两档强调。
-   悬停向主色加深一档、按下再深一档，缩放动效继承 .btn 的五态体系。 */
+/* 薰衣草主 CTA：浅紫实底 + 深字，与实底主按钮构成两档强调；
+   悬停加深一档、按下再深一档，缩放继承 .btn 的五态体系。 */
 .btn-lav {
   border-color: transparent;
   background: var(--wb-lav-cta);
@@ -1294,9 +1293,7 @@ body {
 }
 
 /* ---- 空态欢迎页装饰层 .wb-aura* ----
- * 全站唯一的「光晕 + 点阵」：只给空态引导用，工作界面保持纯色。
- * 三枚光晕同源单色相（--wb-glow-1/2/3），用法是在 .welcome 里堆
- * <div class="hero-aura"><i class="wb-aura wb-aura-top"/>…</div>。 */
+ * 全站唯一的「光晕 + 点阵」，只给空态引导用；工作界面保持纯色。 */
 .hero-aura {
   position: absolute;
   inset: 0;
@@ -2004,7 +2001,7 @@ select.input.narrow {
   box-shadow: none;
 }
 
-/* ---- 图标容器：淡底方块（原型的辨识特征） ---- */
+/* ---- 图标容器：淡底方块 ---- */
 .tile {
   display: grid;
   place-items: center;

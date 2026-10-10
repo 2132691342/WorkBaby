@@ -51,13 +51,14 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 | 钩子 | 职责 |
 |---|---|
 | OnStartup | `api.Handler.Startup`：路径 → 日志 → 配置 → DB → 工具 → 技能 → 服务装配 |
-| OnDomReady | 启动 gin（回环随机端口）→ 广播 `app:ready` → 拉起托盘 |
+| OnDomReady | 启动 gin（回环随机端口）→ 广播 `app:ready`（立即一次 + 之后 20 次 × 300ms，约 6 秒的重复广播窗口，覆盖前端任意时刻才注册的监听；绑定面不加端口查询方法，握手通道只有这一条）→ 拉起托盘 |
 | OnBeforeClose | 按「关闭到托盘」设置收托盘或放行（见上） |
 | OnShutdown | 停 HTTP → 退托盘并等它摘掉图标 → 关数据库 → 放实例锁 → 结束进程 |
 
 **启动失败必须让用户看见**：`Startup` 失败时 `Svc` 为 nil，
 `OnDomReady` 直接返回，界面空着且每个接口都 404，而真实原因只在日志里。
-因此失败时记录原因并推 `app:startup-error` 给前端。
+因此失败时记录原因、推 `app:startup-error` 给前端，并把窗口显式显示出来
+（失败时窗口不能停在隐藏态，否则连错误屏都看不到）。
 
 ## Wails 绑定面（仅系统能力）
 
@@ -98,7 +99,7 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 - 转交到达时主实例可能还没装配完：在 `startDone` 上等（上限 45s）；
   装配没完成不碰 Wails 运行时——空 ctx 调它会直接终止进程
 - **首次启动**（没有主实例可转交）时命令行里的文件路径由自己接手，
-  等前端就绪后再发 `app:open-file`
+  等前端就绪后延迟 1200ms 再发 `app:open-file`（抢在 Vue 挂载之前发，事件没人听）
 - 转交失败（主实例还在装配、端口文件没写好）→ 记一条 warn 后退出：文件锁还在就说明
   主实例活着，这里再开第二个窗口只会让用户困惑；等装配完成后再双击即可正常唤起
 - 支持文件关联（md / txt 双击用 WorkBaby 打开）

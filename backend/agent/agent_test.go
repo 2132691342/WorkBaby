@@ -95,38 +95,6 @@ func assertNoOrphanToolResults(t *testing.T, msgs []llm.Message, label string) {
 // 主循环的协议约束：结果按声明顺序回填，收尾路径不越界，降级重试有上限，
 // 并行工具的事件串行出门。这些都是协议硬约束，错位即整轮 400。
 func TestLoopChain(t *testing.T) {
-	t.Run("工具结果按声明顺序回填", func(t *testing.T) {
-		// 串行多轮：两个工具分两轮调用，中间穿插助手正文。
-		var seen []string
-		multi := llmtest.New(
-			llm.Message{Content: "先看看", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "one"}}},
-			llm.Message{Content: "再看", ToolCalls: []llm.ToolCall{{ID: "c2", Name: "two"}}},
-			llm.Message{Content: "做完了"},
-		)
-		loop := New(Config{
-			Streamer: multi,
-			Tools:    []tool.Tool{echoTool{name: "one", seen: &seen}, echoTool{name: "two", seen: &seen}},
-			Model:    "test",
-		}, nil)
-		res, err := loop.Run(context.Background())
-		if err != nil {
-			t.Fatalf("运行失败: %v", err)
-		}
-		if res.Turns != 3 {
-			t.Fatalf("期望 3 轮，实际 %d", res.Turns)
-		}
-		msgs := loop.Messages()
-		if len(msgs) != 5 {
-			t.Fatalf("期望 5 条消息（2 assistant + 2 tool + 1 assistant），实际 %d", len(msgs))
-		}
-		if msgs[1].ToolCallID != "c1" || msgs[3].ToolCallID != "c2" || msgs[4].Content != "做完了" {
-			t.Fatalf("消息顺序不符合协议约束: %+v", msgs)
-		}
-		if len(seen) != 2 {
-			t.Fatalf("两个工具都应执行过，实际 %d", len(seen))
-		}
-	})
-
 	// 失败原因必须同时给模型、界面与日志：只写进给模型的那份，工具卡展开是空白、
 	// 日志只剩 ok=false，谁都查不出为什么。
 	t.Run("工具失败带原因", func(t *testing.T) {
@@ -291,19 +259,41 @@ func TestLoopChain(t *testing.T) {
 		}
 	})
 
-	// 并行批次是内核最险的一段：三个工具在各自 goroutine 里执行与发事件，
-	// 结果回填必须仍按声明顺序（否则上游 400），事件出口必须串行
+	// 回填顺序是内核最险的一段：串行多轮逐轮推进，并行批次三个工具在各自 goroutine
+	// 里执行与发事件——结果回填必须仍按声明顺序（否则上游 400），事件出口必须串行
 	// （上层靠「同一时刻只有一条事件在处理」维护落库位点）。
-	t.Run("并行批次：回填顺序与事件串行化", func(t *testing.T) {
+	t.Run("回填顺序与轮数（串行 + 并行）", func(t *testing.T) {
+		// 串行多轮：两个工具分两轮调用，中间穿插助手正文。
+		var seen []string
+		serial := New(Config{
+			Streamer: llmtest.New(
+				llm.Message{Content: "先看看", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "one"}}},
+				llm.Message{Content: "再看", ToolCalls: []llm.ToolCall{{ID: "c2", Name: "two"}}},
+				llm.Message{Content: "做完了"},
+			),
+			Tools: []tool.Tool{echoTool{name: "one", seen: &seen}, echoTool{name: "two", seen: &seen}},
+			Model: "test",
+		}, nil)
+		res, err := serial.Run(context.Background())
+		if err != nil {
+			t.Fatalf("串行运行失败: %v", err)
+		}
+		if res.Turns != 3 || len(seen) != 2 {
+			t.Fatalf("串行三轮回填异常：turns=%d，执行了 %d 个工具", res.Turns, len(seen))
+		}
+		if got := toolIDs(serial.Messages()); len(got) != 2 || got[0] != "c1" || got[1] != "c2" {
+			t.Fatalf("串行结果回填乱序: %v（声明顺序 c1,c2）", got)
+		}
+
+		// 并行批次：完成顺序 fast → mid → slow，回填仍须按 a,b,c。
 		var inFlight, peak int32
-		streamer := llmtest.New(
-			llm.Message{ToolCalls: []llm.ToolCall{
-				{ID: "a", Name: "slow"}, {ID: "b", Name: "fast"}, {ID: "c", Name: "mid"},
-			}},
-			llm.Message{Content: "好了"},
-		)
-		loop := New(Config{
-			Streamer: streamer,
+		par := New(Config{
+			Streamer: llmtest.New(
+				llm.Message{ToolCalls: []llm.ToolCall{
+					{ID: "a", Name: "slow"}, {ID: "b", Name: "fast"}, {ID: "c", Name: "mid"},
+				}},
+				llm.Message{Content: "好了"},
+			),
 			Tools: []tool.Tool{
 				echoTool{name: "slow", mode: tool.ExecutionParallel, delay: 30 * time.Millisecond},
 				echoTool{name: "fast", mode: tool.ExecutionParallel},
@@ -324,10 +314,10 @@ func TestLoopChain(t *testing.T) {
 				atomic.AddInt32(&inFlight, -1)
 			},
 		}, nil)
-		if _, err := loop.Run(context.Background()); err != nil {
-			t.Fatalf("运行失败: %v", err)
+		if _, err := par.Run(context.Background()); err != nil {
+			t.Fatalf("并行运行失败: %v", err)
 		}
-		got := toolIDs(loop.Messages())
+		got := toolIDs(par.Messages())
 		for i, want := range []string{"a", "b", "c"} {
 			if i >= len(got) || got[i] != want {
 				t.Fatalf("并行结果回填乱序: %v（声明顺序 a,b,c）", got)
@@ -341,29 +331,27 @@ func TestLoopChain(t *testing.T) {
 
 // 裁剪与清洗的硬约束：输出必须能直发上游，切点必须落在完整 turn 边界。
 func TestCompactProtocol(t *testing.T) {
-	t.Run("清洗剔除空 assistant 与孤儿结果", func(t *testing.T) {
-		in := []llm.Message{
+	// CleanForProtocol 的三条硬约束：空 assistant 与孤儿结果必须剔除（上游 400），
+	// 相邻的并行声明必须合并成一条——逐条落库会留下 A(c1) → A(c2) → T(c1) → T(c2)，
+	// T(c1) 与它的声明之间隔着 A(c2)，上游以 tool result's tool id not found 拒绝。
+	t.Run("清洗与声明合并：空 assistant / 孤儿结果 / 拆散声明", func(t *testing.T) {
+		orphan := []llm.Message{
 			{Role: llm.RoleUser, Content: "在吗"},
 			{Role: llm.RoleAssistant},
 			{Role: llm.RoleTool, ToolCallID: "gone", Content: "孤儿结果"},
 		}
-		out := CleanForProtocol(in)
-		if len(out) != 1 || out[0].Content != "在吗" {
+		if out := CleanForProtocol(orphan); len(out) != 1 || out[0].Content != "在吗" {
 			t.Fatalf("空 assistant 与孤儿结果应被剔除: %+v", out)
 		}
-	})
 
-	// 并行工具的声明若被逐条落库，链上会留下 A(c1) → A(c2) → T(c1) → T(c2)：
-	// T(c1) 与它的声明之间隔着 A(c2)，上游以 tool result's tool id not found 拒绝。
-	t.Run("拆散的并行声明合并为一条", func(t *testing.T) {
-		in := []llm.Message{
+		split := []llm.Message{
 			{Role: llm.RoleUser, Content: "两件事一起做"},
 			callAssistant("c1"),
 			callAssistant("c2"),
 			toolResult("c1", "结果一"),
 			toolResult("c2", "结果二"),
 		}
-		out := CleanForProtocol(in)
+		out := CleanForProtocol(split)
 		if len(out) != 4 {
 			t.Fatalf("相邻 assistant 应合并成一条，实际 %d 条", len(out))
 		}
@@ -409,9 +397,6 @@ func TestCompactProtocol(t *testing.T) {
 		}
 		if out, _ := Compact(tight, Budget{Window: 10, Reserve: 1, Keep: 1}); len(out) != len(tight) {
 			t.Fatalf("切点不足时应原样返回，实际裁成 %d 条", len(out))
-		}
-		if out := TruncateDeterministic(tight, 1); len(out) != 1 || out[0].Content != tight[2].Content {
-			t.Fatalf("降级截断应只保留最近的完整 turn: %+v", out)
 		}
 	})
 }

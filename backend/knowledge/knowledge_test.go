@@ -44,9 +44,10 @@ func addFile(t *testing.T, svc *Service, name, body string) string {
 }
 
 func TestKnowledgeChain(t *testing.T) {
-	// 加 → 查 → 删 → 再查是一条链：两字查询在 trigram 下零命中要靠子串兜底，
-	// 删除文档必须连带清掉切片，否则 FTS 里会留下查不到来源的孤儿结果。
-	t.Run("建索引可检索、短查询有兜底、删除级联", func(t *testing.T) {
+	// 一条链走完：加 → 查 → 删 → 再查 + Office 文档抽取。两字查询在 trigram 下
+	// 零命中要靠子串兜底；删除必须连带清掉切片，否则 FTS 里留下查不到来源的孤儿结果；
+	// pptx 的页序按文件序号排，不靠 zip 条目顺序（slide10 可能排在 slide2 前面）。
+	t.Run("加文档、检索兜底、删除级联与 Office 页序", func(t *testing.T) {
 		svc := newService(t)
 		addFile(t, svc, "季度报告.md", "第三季度销售额增长了 18%，主要来自华东区的渠道拓展。\n客户满意度提升到 92%。")
 		flowPath := addFile(t, svc, "流程笔记.txt", "预算审批流程需要三级签字")
@@ -90,23 +91,18 @@ func TestKnowledgeChain(t *testing.T) {
 		if gone, err := svc.Search(context.Background(), "三级签字", 5); err != nil || len(gone) != 0 {
 			t.Fatalf("删除后不应还能检索到内容: err=%v hits=%d", err, len(gone))
 		}
-	})
 
-	// pptx 的页序按文件序号排，不靠 zip 条目顺序：
-	// zip 里 slide10 可能排在 slide2 前面，按条目顺序读会把页序打乱。
-	t.Run("pptx 抽取页序正确且可检索", func(t *testing.T) {
-		svc := newService(t)
-		path := filepath.Join(t.TempDir(), "汇报.pptx")
-		f, err := os.Create(path)
+		// Office 抽取：刻意先写 slide2，抽取结果必须仍按页号排序。
+		pptxPath := filepath.Join(t.TempDir(), "汇报.pptx")
+		pf, err := os.Create(pptxPath)
 		if err != nil {
 			t.Fatal(err)
 		}
-		zw := zip.NewWriter(f)
+		zw := zip.NewWriter(pf)
 		slides := map[string]string{
 			"ppt/slides/slide2.xml": `<a:p><a:t>第二页讲成本控制</a:t></a:p>`,
 			"ppt/slides/slide1.xml": `<a:p><a:t>第一页讲季度增长</a:t></a:p>`,
 		}
-		// 刻意先写 slide2：抽取结果必须仍按页号排序。
 		for _, name := range []string{"ppt/slides/slide2.xml", "ppt/slides/slide1.xml"} {
 			w, err := zw.Create(name)
 			if err != nil {
@@ -119,26 +115,25 @@ func TestKnowledgeChain(t *testing.T) {
 		if err := zw.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if err := f.Close(); err != nil {
+		if err := pf.Close(); err != nil {
 			t.Fatal(err)
 		}
-
-		if n, err := svc.Add([]string{path}); err != nil || n != 1 {
+		if n, err := svc.Add([]string{pptxPath}); err != nil || n != 1 {
 			t.Fatalf("添加 pptx 失败: n=%d err=%v", n, err)
 		}
-		text, err := LoadText(path)
+		text, err := LoadText(pptxPath)
 		if err != nil {
 			t.Fatalf("抽取 pptx 失败: %v", err)
 		}
 		if i1, i2 := strings.Index(text, "第一页"), strings.Index(text, "第二页"); i1 < 0 || i2 < 0 || i1 > i2 {
 			t.Fatalf("页序不对或内容缺失: %q", text)
 		}
-		hits, err := svc.Search(context.Background(), "成本控制", 5)
-		if err != nil || len(hits) == 0 {
-			t.Fatalf("pptx 内容应可检索: err=%v hits=%d", err, len(hits))
+		phits, err := svc.Search(context.Background(), "成本控制", 5)
+		if err != nil || len(phits) == 0 {
+			t.Fatalf("pptx 内容应可检索: err=%v hits=%d", err, len(phits))
 		}
-		if !strings.Contains(hits[0].Content, "成本控制") {
-			t.Fatalf("pptx 命中的片段不对: %+v", hits[0])
+		if !strings.Contains(phits[0].Content, "成本控制") {
+			t.Fatalf("pptx 命中的片段不对: %+v", phits[0])
 		}
 	})
 }

@@ -1,5 +1,6 @@
 // 内置运行时链路：内嵌归档与 SHA 常量一致、解压路径穿越防护、真实解压布局。
 // 缺归档只代表内置运行时不可用，跳过而不是把 LFS pointer 喂给解压器。
+// 坏了的表现：内嵌运行时在用户机器上凭空消失，或解压把文件写到数据目录之外。
 package runtime
 
 import (
@@ -37,7 +38,7 @@ func pythonStdlibZip() string {
 
 func TestBundledRuntimeChain(t *testing.T) {
 	// 换归档忘了同步 SHA 常量，或者构建机没拉 LFS，都会一直滑到用户机器上才暴露。
-	t.Run("归档与常量一致且穿越被拒", func(t *testing.T) {
+	t.Run("归档校验、穿越防护与解压布局", func(t *testing.T) {
 		for _, c := range []struct{ name, want string }{
 			{pythonArchiveName(), PythonArchiveSHA256},
 			{powershellArchiveName(), PowerShellArchiveSHA256},
@@ -65,13 +66,12 @@ func TestBundledRuntimeChain(t *testing.T) {
 		if _, err := safeExtractPath(dest, `python/tools/x.exe`); err != nil {
 			t.Fatalf("正常路径被误拒: %v", err)
 		}
-	})
 
-	// 真实解压一次两份归档：官方 zip 布局变了会让内嵌运行时在用户机器上凭空消失。
-	// 这是全仓最慢的一步（几千个文件落盘），用 -short 隔离——日常验证不必跑它。
-	t.Run("归档解压平铺到根目录", func(t *testing.T) {
+		// 真实解压一次两份归档：官方 zip 布局变了会让内嵌运行时在用户机器上凭空消失。
+		// 这是全仓最慢的一步（几千个文件落盘），-short 只跳过它，上面的校验照跑。
 		if testing.Short() {
-			t.Skip("真实解压：-short 跳过，碰运行时归档时跑全量")
+			t.Log("真实解压：-short 跳过，碰运行时归档时跑全量")
+			return
 		}
 		for _, c := range []struct {
 			name string

@@ -46,7 +46,6 @@ type Result struct {
 | `Get` | 按名字取一个工具 |
 | `All` / `List` | `All` 按注册顺序、`List` 按名字排序（排序只为让声明顺序稳定） |
 | `Enabled` | 按停用名单过滤，名单为空即全部启用 |
-| `Defs` | 转上游声明，按名字排序——顺序稳定才能命中 prompt 缓存 |
 | `ValidateSchemas` | 启动期再全量自检一次，坏 schema 不许进运行期 |
 | `ValidateArgs` | 执行前校验；`nil` 参数按空对象放行 |
 

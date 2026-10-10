@@ -148,9 +148,8 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 		}
 
 		if usage != nil {
-			// 上游报出的输入量比本地估算更可信：取两者较大者，消息指标、会话累计、
+			// 上游报出的输入量比本地估算更可信：取两者较大者，消息指标、会话累计与
 			// 仪表盘三处口径一致，也不会出现「入 9.9K 上下文 25K」这种自相矛盾的读数。
-			// 本地估算偏保守时以它兜底，估算偏高时以上游为准。
 			if usage.Input > ctxTokens {
 				ctxTokens = usage.Input
 			}
@@ -255,8 +254,7 @@ const (
 	maxRetryTurns     = 2
 )
 
-// streamTurnWithRetry 请求模型，两类「本地算不准、上游能纠正」的拒绝按需降级重试：
-// 上下文超限 → 强制压缩（只做一次）；输出预算被拒 → 按上游说的上限收紧（最多两次）。
+// streamTurnWithRetry 请求模型：上下文超限 → 强制压缩一次；输出预算被拒 → 按上游上限收紧（最多两次）。
 // 输出预算只降不升：内核不知道模型能吐多少，抬过头就是把能看懂的截断换成看不懂的 400。
 func (l *Loop) streamTurnWithRetry(ctx context.Context) (llm.Message, string, *llm.Usage, error) {
 	maxTokens := l.cfg.MaxTokens

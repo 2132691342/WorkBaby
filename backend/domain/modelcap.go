@@ -13,9 +13,8 @@ type ModelCapability struct {
 	ID            string `json:"id"`
 	ContextWindow int    `json:"context_window"`
 	MaxOutput     int    `json:"max_output"`
-	// MaxOutputLimit 是厂商文档里的输出硬上限（0 = 未知）。
-	// 窗口的 1/8 只是经验值：对 1M 窗口的模型会算出 12.5 万，
-	// 而厂商上限可能只有 3.2 万，下发超限值会被上游直接 400。
+	// MaxOutputLimit 是厂商文档里的输出硬上限（0 = 未知）：窗口 1/8 对 1M 窗口会算出
+	// 12.5 万，超过厂商上限就是整轮 400。
 	MaxOutputLimit int `json:"max_output_limit"`
 	// WindowOverride 表示窗口来自用户手填或服务声明，不是目录查出来的。
 	// 此时目录里的硬上限描述的是另一个端点（同名不同服务），不参与钳制。
@@ -28,8 +27,7 @@ type ModelCapability struct {
 }
 
 // OutputBudget 返回该模型应下发的输出预算：窗口 1/8；窗口来自目录时再与厂商硬上限取小。
-// 窗口 1/8 保证长回答不会被随手截断，也是用户手填窗口后唯一可用的口径——
-// 他知道这个端点能吃下多少，而目录里的硬上限来自同名模型的另一个服务。
+// 1/8 保证长回答不被随手截断，也是用户手填窗口后的唯一口径（硬上限来自另一个端点）。
 func (c ModelCapability) OutputBudget() int {
 	if c.ContextWindow <= 0 {
 		return 0
@@ -55,9 +53,8 @@ func (c ModelCapability) WithWindow(window int) ModelCapability {
 type capabilityRule struct {
 	match  []string // 模型名包含任一子串即命中，按顺序匹配
 	window int
-	// maxOut 是厂商文档里的最大输出 token（0 = 目录不知道，按窗口 1/8 走）。
-	// 数值宁保守勿激进：低一点只是回答短些（界面能「继续」），
-	// 高一点是整轮请求被上游拒绝。窗口被手填覆写后这项不生效（见 OutputBudget）。
+	// maxOut 是厂商文档里的最大输出（0 = 不知道，按窗口 1/8 走）；数值宁保守勿激进——
+	// 低一点只是回答短些（界面能「继续」），高一点是整轮被上游拒绝。手填窗口后不生效。
 	maxOut int
 	think  bool
 	vision bool

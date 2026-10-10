@@ -7,8 +7,17 @@ import (
 )
 
 // AppendEntry 追加一条条目并把会话的 leaf 指针与计数一起推进（同一事务，保证链不裂）。
+// seq 在事务内分配：连接固定为一条，事务把「读最大 seq」与「插入」绑成原子步，
+// 并发追加（run 收尾与入队落库交错）不会撞号、不会分叉。
 func (r *Repo) AppendEntry(e *domain.EntryDO) error {
 	return wrapDB("落库条目", r.db.Transaction(func(tx *gorm.DB) error {
+		var seq int
+		if err := tx.Model(&domain.EntryDO{}).
+			Where("session_id = ?", e.SessionID).
+			Select("COALESCE(MAX(seq), 0)").Scan(&seq).Error; err != nil {
+			return err
+		}
+		e.Seq = seq + 1
 		if err := tx.Create(e).Error; err != nil {
 			return err
 		}
@@ -29,13 +38,4 @@ func (r *Repo) ListEntries(sessionID string) ([]domain.EntryDO, error) {
 		return nil, wrapDB("读取会话条目", err)
 	}
 	return list, nil
-}
-
-// MaxSeq 取会话当前最大 seq，用于分配下一条。
-func (r *Repo) MaxSeq(sessionID string) (int, error) {
-	var seq int
-	err := r.db.Model(&domain.EntryDO{}).
-		Where("session_id = ?", sessionID).
-		Select("COALESCE(MAX(seq), 0)").Scan(&seq).Error
-	return seq, wrapDB("读取会话序号", err)
 }

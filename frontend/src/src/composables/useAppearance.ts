@@ -2,6 +2,7 @@
 // 「保存设置」与「启动时重新应用」发生在两个地方，放组件里没法被第二处复用。
 import { ref, watch } from 'vue'
 import { useSettingsStore } from '../stores/settings'
+import { theme as themeRef } from './useTheme'
 
 // 字体族：只换正文族，标题与等宽保持各自语义。
 export const FONTS = [
@@ -37,6 +38,11 @@ export function syncFromSettings() {
   currentFont.value = s.values['font_family'] || 'system'
   currentSize.value = s.values['font_size'] || 'md'
   applyAppearance()
+  // 主题以设置表为准：换机器 / 清缓存后由它把主题带回来
+  const t = s.values['theme']
+  if ((t === 'light' || t === 'dark') && t !== themeRef.value) {
+    themeRef.value = t
+  }
 }
 
 // 任何一处改了取值都自动落到 DOM，省掉每个调用点各写一遍 apply。
