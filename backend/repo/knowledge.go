@@ -8,31 +8,31 @@ import (
 
 // UpsertDoc 新增或更新知识库文档。
 func (r *Repo) UpsertDoc(d *domain.KnowledgeDocDO) error {
-	return r.db.Save(d).Error
+	return wrapDB("保存知识文档", r.db.Save(d).Error)
 }
 
 // ListDocs 列出全部文档。
 func (r *Repo) ListDocs() ([]domain.KnowledgeDocDO, error) {
 	var list []domain.KnowledgeDocDO
 	if err := r.db.Order("created_at DESC").Find(&list).Error; err != nil {
-		return nil, err
+		return nil, wrapDB("列出知识文档", err)
 	}
 	return list, nil
 }
 
 // DeleteDoc 删除文档及其分块（FTS 由触发器同步清理）。
 func (r *Repo) DeleteDoc(id string) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	return wrapDB("删除知识文档", r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("doc_id = ?", id).Delete(&domain.KnowledgeChunkDO{}).Error; err != nil {
 			return err
 		}
 		return tx.Where("id = ?", id).Delete(&domain.KnowledgeDocDO{}).Error
-	})
+	}))
 }
 
 // ReplaceChunks 用新分块整体替换文档旧分块，保证重建索引幂等。
 func (r *Repo) ReplaceChunks(docID string, chunks []domain.KnowledgeChunkDO) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	return wrapDB("重建知识分块", r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("doc_id = ?", docID).Delete(&domain.KnowledgeChunkDO{}).Error; err != nil {
 			return err
 		}
@@ -40,7 +40,7 @@ func (r *Repo) ReplaceChunks(docID string, chunks []domain.KnowledgeChunkDO) err
 			return nil
 		}
 		return tx.CreateInBatches(chunks, 200).Error
-	})
+	}))
 }
 
 // SearchChunks 走 FTS5 检索；短于 3 字的查询由调用方做子串兜底。
@@ -69,7 +69,7 @@ func (r *Repo) SearchChunks(query string, limit int) ([]domain.SearchHitVO, erro
 		ORDER BY score ASC
 		LIMIT ?`, query, limit).Scan(&rows).Error
 	if err != nil {
-		return nil, err
+		return nil, wrapDB("检索知识分块", err)
 	}
 	hits := make([]domain.SearchHitVO, 0, len(rows))
 	for _, r := range rows {

@@ -20,6 +20,12 @@ import (
 // nameRe 限定技能名，保证 /skill:名字 的词法边界清晰。
 var nameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
+// ValidName 报告一个名字能否用作技能目录名与 /skill: 词法名：
+// 只允许小写字母、数字与连字符，最长 64 字符——路径分隔符与「..」天然被拒。
+func ValidName(name string) bool {
+	return name != "" && len(name) <= 64 && nameRe.MatchString(name)
+}
+
 // Registry 是技能注册中心；写只在加载期与设置页发生，读是高频路径。
 type Registry struct {
 	mu     sync.RWMutex
@@ -339,7 +345,7 @@ func ParseContent(text, location, source string) (domain.Skill, error) {
 	if name == "" {
 		name = strings.TrimSuffix(filepath.Base(filepath.Dir(location)), ".md")
 	}
-	if !nameRe.MatchString(name) || len(name) > 64 {
+	if !ValidName(name) {
 		return domain.Skill{}, pkg.Wrap(8101, "技能名不合法", domain.ErrSkillName)
 	}
 	desc := strings.TrimSpace(scalar(meta["description"]))

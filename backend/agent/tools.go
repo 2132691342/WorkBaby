@@ -112,6 +112,9 @@ func (l *Loop) prepare(ctx context.Context, calls []llm.ToolCall) ([]plan, []*to
 			l.emitSkipped(call, "重复调用", msg)
 			continue
 		}
+		// 被拒绝（或超时拒绝）的调用也计入重复额度：拒绝同样是没有进展，
+		// 不计数的话模型能对同一个调用无限重发，审批卡一张接一张。
+		l.markCalled(call)
 		if l.cfg.Gate != nil {
 			blocked, reason := l.cfg.Gate(ctx, &call)
 			if blocked {
@@ -124,7 +127,6 @@ func (l *Loop) prepare(ctx context.Context, calls []llm.ToolCall) ([]plan, []*to
 				continue
 			}
 		}
-		l.markCalled(call)
 		plans = append(plans, plan{idx: i, call: call, tool: t})
 	}
 	return plans, results

@@ -22,6 +22,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   send: [text: string, attachments: AttachmentREQ[]]
   steer: [text: string]
+  queue: [text: string]
   stop: []
   newSession: []
   clearSession: []
@@ -291,12 +292,23 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// 运行中的发送方式：插话（下一轮立刻生效）或排队（排在队尾慢慢来）。
+// 后端两条路共用一个队列，语义差异由这里的按钮表达。
+const mode = ref<'steer' | 'queue'>('steer')
+watch(
+  () => props.running,
+  (on) => {
+    if (!on) mode.value = 'steer'
+  },
+)
+
 function submit() {
   const value = text.value.trim()
   if (props.disabled || props.sending) return
   if (props.running) {
     if (!value) return
-    emit('steer', value)
+    if (mode.value === 'queue') emit('queue', value)
+    else emit('steer', value)
     clearInput()
     return
   }
@@ -454,7 +466,17 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
       </div>
 
       <div v-if="running" class="cq">
-        <AppIcon name="info" size="ic-xs" /> 运行中：发送会作为插话，按 Esc 停下
+        <AppIcon name="info" size="ic-xs" />
+        {{ mode === 'queue' ? '这条会排进队列，等当前批次处理完再生效' : '运行中：发送会作为插话，按 Esc 停下' }}
+      </div>
+
+      <!-- 排队条：与后端队列一一对应的本地视图，注入时刻随 chat:user 消掉 -->
+      <div v-if="chat.queued.length" class="queue-dock">
+        <div class="qd-head">
+          <AppIcon name="clock" size="ic-xs" />
+          已排队 {{ chat.queued.length }} 条 · 会在轮间自动生效
+        </div>
+        <div v-for="(q, i) in chat.queued" :key="`${i}-${q}`" class="qd-item">{{ q }}</div>
       </div>
 
       <div class="composer-in">
@@ -484,6 +506,10 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
         />
         <span v-if="outsideCount" class="warn">{{ outsideCount }} 个文件助手读不到</span>
         <span class="sp" />
+        <div v-if="running" class="seg" role="group" aria-label="发送方式">
+          <button type="button" :class="{ 'is-on': mode === 'steer' }" @click="mode = 'steer'">插话</button>
+          <button type="button" :class="{ 'is-on': mode === 'queue' }" @click="mode = 'queue'">排队</button>
+        </div>
         <button
           v-if="running"
           class="btn btn-sm btn-danger-ghost"

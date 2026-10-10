@@ -185,11 +185,12 @@ func (c *ChatService) Forget(sessionID string) {
 	c.env.Emitter.Forget(sessionID)
 }
 
-// appendSteered 把插话落一条 user 条目并广播，界面据此把它补进时间线。
-func (c *ChatService) appendSteered(sessionID, content string) {
+// appendSteered 把插话落一条 user 条目并广播，返回条目 id（失败返回空串），
+// 供 run 内的调用方同步落库位点。
+func (c *ChatService) appendSteered(sessionID, content string) string {
 	sess, err := c.env.Repo.GetSession(sessionID)
 	if err != nil {
-		return
+		return ""
 	}
 	entry := &domain.EntryDO{
 		ID:        pkg.NewID(domain.PrefixEntry),
@@ -203,11 +204,12 @@ func (c *ChatService) appendSteered(sessionID, content string) {
 	}
 	if err := c.sessions.Append(entry); err != nil {
 		pkg.Warnf("chat: 落插话条目失败: %v", err)
-		return
+		return ""
 	}
 	c.env.Emitter.Emit(sessionID, domain.EventChatUser, domain.UserData{
 		EntryID: entry.ID, Content: content,
 	})
+	return entry.ID
 }
 
 // run 是一次 run 的完整生命周期。
@@ -254,7 +256,8 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 	deps.Reads = c.readsOf(sessionID)
 	permission := sess.Permission
 	cap := c.capabilityOf(sess.ProviderID, model)
-	state := &runState{sessionID: sessionID, providerID: sess.ProviderID, model: model, windowKnown: cap.Known}
+	state := &runState{sessionID: sessionID, providerID: sess.ProviderID, model: model,
+		windowKnown: cap.Known, leafID: sess.LeafEntryID}
 	temp, topP, maxOutput := c.samplingOf(cap, sess.ProviderID, model)
 	state.maxTokens = maxOutput
 	budget := c.budget(cap, system)
@@ -284,7 +287,7 @@ func (c *ChatService) run(ctx context.Context, runID, sessionID string) {
 			if !ok {
 				return true, "没有这个工具"
 			}
-			return c.approvals.Gate(ctx, sessionID, permission, t, ToolCallView{
+			return c.approvals.Gate(ctx, sessionID, permission, t, domain.ApprovalCallDTO{
 				ID: call.ID, Args: call.Args,
 				Risk: riskOfCommand(t, call.Args), Reason: reasonOf(t, call.Args),
 			})
@@ -343,6 +346,9 @@ type runState struct {
 	maxTokens   int
 	turnEntryID string
 	lastEntryID string
+	// leafID 是跟着 Append 推进的落库父位点：run 是会话条目唯一的写方，
+	// 记住它就不必每条消息都回查一次会话（长 run 少一半 SQL）。
+	leafID string
 	// pending / thinking 用 Builder：本轮正文按 token 累加，走 `+=` 是每 token
 	// 复制一遍整段，长回答末尾就是 O(n²)。
 	pending     strings.Builder
@@ -404,7 +410,11 @@ func (c *ChatService) onEvent(st *runState, e agent.Event) {
 	case agent.EventSteering:
 		// 插话在注入时刻落库：早了会插进 assistant(tool_calls) 与工具结果之间
 		// 撕裂协议配对，晚了链序就与真实对话不一致。
-		c.appendSteered(st.sessionID, e.UserContent)
+		// 落库位点要跟着推进：runState 记的 leafID 不认这条插话，下一轮
+		// assistant 就会挂到分叉上，插话从链里消失。
+		if id := c.appendSteered(st.sessionID, e.UserContent); id != "" {
+			st.leafID = id
+		}
 	case agent.EventTurnEnd:
 		// 本轮用量随 turn_end 到，落在这一轮最后写入的那条 assistant 上。
 		st.turnUsage = e.Usage
@@ -463,6 +473,20 @@ func usableWindow(window, reserve int) int {
 	return window - reserve
 }
 
+// leafOf 返回当前落库父位点：正常路径直接用 runState 记的位点，
+// 拿不到才回查一次会话；仍拿不到说明会话已不在，没有挂靠点。
+func (c *ChatService) leafOf(st *runState) string {
+	if st.leafID != "" {
+		return st.leafID
+	}
+	sess, err := c.env.Repo.GetSession(st.sessionID)
+	if err != nil {
+		return ""
+	}
+	st.leafID = sess.LeafEntryID
+	return st.leafID
+}
+
 // appendAssistantTurn 落本轮的 assistant 条目；空消息不落，避免下一轮上游 400。
 func (c *ChatService) appendAssistantTurn(st *runState) {
 	if !st.hasContent && st.thinking.Len() == 0 && len(st.toolCalls) == 0 {
@@ -474,14 +498,14 @@ func (c *ChatService) appendAssistantTurn(st *runState) {
 	if st.turnEntryID == "" {
 		st.turnEntryID = pkg.NewID(domain.PrefixEntry)
 	}
-	sess, err := c.env.Repo.GetSession(st.sessionID)
-	if err != nil {
+	parent := c.leafOf(st)
+	if parent == "" {
 		return
 	}
 	entry := &domain.EntryDO{
 		ID:        st.turnEntryID,
 		SessionID: st.sessionID,
-		ParentID:  sess.LeafEntryID,
+		ParentID:  parent,
 		Type:      domain.EntryTypeMessage,
 		Role:      domain.RoleAssistant,
 		PayloadJSON: payloadOf(llm.Message{
@@ -497,6 +521,7 @@ func (c *ChatService) appendAssistantTurn(st *runState) {
 		return
 	}
 	st.lastEntryID = entry.ID
+	st.leafID = entry.ID
 	st.turnEntryID = ""
 	// 已落库的内容清空：下一段增量要作为独立的一条，不能与这条重复。
 	st.pending.Reset()
@@ -507,14 +532,14 @@ func (c *ChatService) appendAssistantTurn(st *runState) {
 
 // appendTool 落一条工具结果条目并按序接到树上。
 func (c *ChatService) appendTool(st *runState, e agent.Event) {
-	sess, err := c.env.Repo.GetSession(st.sessionID)
-	if err != nil {
+	parent := c.leafOf(st)
+	if parent == "" {
 		return
 	}
 	entry := &domain.EntryDO{
 		ID:        pkg.NewID(domain.PrefixEntry),
 		SessionID: st.sessionID,
-		ParentID:  sess.LeafEntryID,
+		ParentID:  parent,
 		Type:      domain.EntryTypeMessage,
 		Role:      domain.RoleTool,
 		PayloadJSON: payloadOf(llm.Message{
@@ -527,6 +552,7 @@ func (c *ChatService) appendTool(st *runState, e agent.Event) {
 		return
 	}
 	st.lastEntryID = entry.ID
+	st.leafID = entry.ID
 	if e.ToolOK {
 		pkg.Infof("chat: 工具完成 session=%s tool=%s cost=%dms",
 			st.sessionID, e.ToolCall.Name, e.DurationMs)
@@ -573,6 +599,13 @@ func (c *ChatService) fail(sessionID string, st *runState, res *agent.Result, er
 
 // recordUsage 落一行用量并累计进会话总额，正常与错误两条路径共用。
 func (c *ChatService) recordUsage(sessionID, providerID, model string, ctxTokens int, u llm.Usage) {
+	// 先确认会话还在：删会话与 run 收尾竞态的窗口里先落账，会留下永远没人认领的
+	// 孤儿用量行，仪表盘按天聚合会把它算进去。
+	fresh, err := c.env.Repo.GetSession(sessionID)
+	if err != nil {
+		pkg.Warnf("chat: 取会话失败 session=%s: %v", sessionID, err)
+		return
+	}
 	// 记账失败不能让这次对话失败，但必须留下痕迹：整个仪表盘的数据全靠这张表，
 	// 静默失败的表现是「用了很久，仪表盘一直是 0」。
 	if err := c.env.Repo.AddUsage(&domain.TokenUsageDO{
@@ -588,11 +621,6 @@ func (c *ChatService) recordUsage(sessionID, providerID, model string, ctxTokens
 		LatencyMs: u.LatencyMs,
 	}); err != nil {
 		pkg.Warnf("chat: 用量落账失败 session=%s: %v", sessionID, err)
-	}
-	fresh, err := c.env.Repo.GetSession(sessionID)
-	if err != nil {
-		pkg.Warnf("chat: 取会话失败 session=%s: %v", sessionID, err)
-		return
 	}
 	if err := c.env.Repo.UpdateSessionColumns(sessionID, map[string]any{
 		"total_tokens": fresh.TotalTokens + u.Total,

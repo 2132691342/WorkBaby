@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"WorkBaby/backend/domain"
-	"WorkBaby/backend/repo"
 )
 
 // 仪表盘统计的天数缺省与上限。
@@ -48,7 +47,7 @@ func (s *SettingsService) Stats(days int) (*domain.StatsRESP, error) {
 		return nil, err
 	}
 
-	byDay := make(map[string]repo.UsageStat, len(daily))
+	byDay := make(map[string]domain.UsageStatVO, len(daily))
 	out := &domain.StatsRESP{Days: days, Daily: make([]domain.StatsDailyVO, 0, days)}
 	for _, d := range daily {
 		byDay[d.Day] = d

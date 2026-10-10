@@ -47,3 +47,17 @@ type DecideApprovalREQ struct {
 	Scope  string `json:"scope"`
 	Reason string `json:"reason"`
 }
+
+// ApprovalCallDTO 是审批门需要的调用视图：内核事件 → 审批门。
+type ApprovalCallDTO struct {
+	ID     string
+	Args   map[string]any
+	Risk   string
+	Reason string
+}
+
+// ApprovalDecisionDTO 是用户在审批卡上的选择；scope=session 表示本会话同类免审。
+type ApprovalDecisionDTO struct {
+	Approved bool
+	Scope    string
+}

@@ -78,6 +78,16 @@ async function steer(text: string) {
   }
 }
 
+// 排队：进入后端队列，注入时刻随 chat:user 进时间线；本地视图由 store 记账。
+async function queueUp(text: string) {
+  if (!session.currentId) return
+  try {
+    await chat.followUp(session.currentId, text)
+  } catch (e) {
+    toast.bad(`排队失败：${(e as Error)?.message || '请重试'}`)
+  }
+}
+
 async function stop() {
   if (!session.currentId || stopping.value) return
   stopping.value = true
@@ -101,16 +111,24 @@ async function reload() {
 }
 
 // /clear：把叶子指回第一条消息，历史保留，聊天从头上重来
+const clearing = ref(false)
 async function clearSession() {
-  if (!session.currentId) return
+  if (!session.currentId || clearing.value) return
   const first = session.messages[0]
   if (!first) {
     chat.notify('这个会话还没有历史')
     return
   }
-  await api.sessions.branch(session.currentId, first.id)
-  await session.refresh()
-  chat.notify('已回到本会话开头')
+  clearing.value = true
+  try {
+    await api.sessions.branch(session.currentId, first.id)
+    await session.refresh()
+    chat.notify('已回到本会话开头')
+  } catch (e) {
+    chat.notify(`没能回到开头：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    clearing.value = false
+  }
 }
 
 function pickExample(text: string) {
@@ -168,6 +186,7 @@ useSse(
         // 插话 / 排队消息在注入时刻落库后广播：把它补进时间线，
         // 位置与真实对话一致（运行中落在上一轮工具结果之后）。
         session.echoUserMessage(env.data.entry_id, env.data.content)
+        chat.onDequeued(env.data.content)
         break
       case 'chat:context':
         chat.onContext(env.data)
@@ -302,6 +321,7 @@ watch(() => settings.boot?.default_model, seedContext)
         :stopping="stopping"
         @send="send"
         @steer="steer"
+        @queue="queueUp"
         @stop="stop"
         @new-session="newSession"
         @clear-session="clearSession"

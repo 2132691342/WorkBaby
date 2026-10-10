@@ -47,9 +47,23 @@ async function commitEdit() {
   }
 }
 
-// 单击直接删：图标按钮上做两段式确认，用户只会觉得「点了没反应」。
-// 删除结果必须立刻可见——当前会话被删时由 store 自动切到下一个。
-// busyId 负责把「请求在路上」这件事显式化：不挂 loading 就能连点出重复删除。
+// 删除走两段式确认，与模型服务 / 知识库 / 技能同一模式：第一次点进入确认态
+// （图标换成对勾 + 危险底），3 秒不点自动还原。误触是删掉整段历史，值得多一次点击。
+const confirmingId = ref('')
+let confirmTimer = 0
+function askRemove(s: { id: string; title: string }) {
+  if (busyId.value) return
+  if (confirmingId.value === s.id) {
+    confirmingId.value = ''
+    clearTimeout(confirmTimer)
+    void doRemove(s)
+    return
+  }
+  confirmingId.value = s.id
+  clearTimeout(confirmTimer)
+  confirmTimer = window.setTimeout(() => (confirmingId.value = ''), 3000)
+}
+
 const busyId = ref('')
 async function doRemove(s: { id: string; title: string }) {
   if (busyId.value) return
@@ -110,18 +124,25 @@ async function more() {
             <button
               class="icon-btn danger"
               type="button"
-              title="删除"
-              :class="{ 'is-loading': busyId === s.id }"
+              :title="confirmingId === s.id ? '再点一次确认删除' : '删除'"
+              :class="{ 'is-loading': busyId === s.id, 'is-confirm': confirmingId === s.id }"
               :disabled="!!busyId"
-              @click.stop="doRemove(s)"
+              @click.stop="askRemove(s)"
             >
-              <AppIcon name="trash" size="ic-sm" />
+              <AppIcon :name="confirmingId === s.id ? 'check' : 'trash'" size="ic-sm" />
             </button>
           </span>
         </template>
       </button>
     </div>
-    <button v-if="session.hasMore" class="more" type="button" :disabled="loadingMore" @click="more">
+    <button
+      v-if="session.hasMore"
+      class="more"
+      type="button"
+      :class="{ 'is-loading': loadingMore }"
+      :disabled="loadingMore"
+      @click="more"
+    >
       {{ loadingMore ? '加载中…' : '加载更早的对话' }}
     </button>
   </div>
@@ -139,7 +160,7 @@ async function more() {
   padding: 6px 0;
   border: none;
   background: none;
-  color: var(--wb-ink-3);
+  color: var(--wb-c-ink-3);
   font-size: var(--wb-fs-hint);
   cursor: pointer;
 }
@@ -154,7 +175,30 @@ async function more() {
   cursor: not-allowed;
   opacity: 0.6;
 }
+/* 加载态：转圈 + 文字保留（只换文案不转圈不算数） */
+.more.is-loading {
+  opacity: 1;
+  pointer-events: none;
+  cursor: progress;
+  position: relative;
+}
+.more.is-loading::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: var(--wb-radius-full);
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  animation: wb-ic-spin 0.8s linear infinite;
+}
 .icon-btn.danger:hover {
+  color: var(--wb-danger);
+  background: var(--wb-danger-soft);
+}
+/* 确认态：对勾 + 危险底，一眼看出「再点就真删了」 */
+.icon-btn.danger.is-confirm {
   color: var(--wb-danger);
   background: var(--wb-danger-soft);
 }

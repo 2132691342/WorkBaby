@@ -15,7 +15,8 @@ type TokenUsageDO struct {
 	// Context 这一轮发出去时上下文占用的窗口量，按轮次看占用是涨还是被整理过。
 	Context   int   `json:"context"`
 	LatencyMs int64 `json:"latency_ms"`
-	CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
+	// CreatedAt 带索引：仪表盘三个聚合全按它过滤，没索引就是每次打开全表扫。
+	CreatedAt int64 `gorm:"autoCreateTime:milli;index" json:"created_at"`
 }
 
 // TableName 显式指定表名：GORM 会把 DO 后缀复数化成 _dos。

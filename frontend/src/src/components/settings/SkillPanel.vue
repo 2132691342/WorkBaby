@@ -254,8 +254,8 @@ onMounted(() => store.loadSkills())
       </div>
       <div class="acts">
         <button class="btn" type="button" @click="creating = false">取消</button>
-        <button class="btn btn-primary" type="button" :disabled="busy" @click="submitCreate">
-          {{ busy ? '保存中…' : '保存' }}
+        <button class="btn btn-primary" type="button" :class="{ 'is-loading': busy }" :disabled="busy" @click="submitCreate">
+          保存
         </button>
       </div>
     </div>

@@ -5,6 +5,7 @@
 import { onMounted } from 'vue'
 import { FONTS, FONT_SIZES, currentFont, currentSize, syncFromSettings } from '../../composables/useAppearance'
 import { useTheme } from '../../composables/useTheme'
+import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 
 const { theme, setTheme, THEMES } = useTheme()
@@ -25,6 +26,18 @@ async function setSize(key: string) {
     await store.setValue('font_size', key)
   } catch {
     /* setValue 已提示 */
+  }
+}
+
+// 思考显示是即时生效的界面开关：setValue 乐观落值，成功后同步进聊天 store——
+// 只落库的话，下一次流式之前界面仍按旧值渲染。
+async function toggleThinking() {
+  const next = store.values['show_thinking'] === 'false'
+  try {
+    await store.setValue('show_thinking', next ? 'true' : 'false')
+    useChatStore().setShowThinking(next)
+  } catch {
+    /* setValue 已提示并回滚 */
   }
 }
 
@@ -98,11 +111,13 @@ onMounted(syncFromSettings)
           <b>显示思考过程</b>
           <span>模型推理时展示思考内容，关闭后只显示最终答复</span>
         </span>
-        <input
-          class="wb-switch"
-          type="checkbox"
-          :checked="store.values['show_thinking'] !== 'false'"
-          @change="store.setValue('show_thinking', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
+        <button
+          class="switch"
+          type="button"
+          role="switch"
+          :aria-checked="store.values['show_thinking'] !== 'false'"
+          :class="{ 'is-on': store.values['show_thinking'] !== 'false' }"
+          @click="toggleThinking"
         />
       </label>
     </div>

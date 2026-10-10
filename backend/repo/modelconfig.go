@@ -4,7 +4,7 @@ import "WorkBaby/backend/domain"
 
 // UpsertModelConfig 保存模型级配置；复合主键不存在则插入。
 func (r *Repo) UpsertModelConfig(d *domain.ModelConfigDO) error {
-	return r.db.Save(d).Error
+	return wrapDB("保存模型配置", r.db.Save(d).Error)
 }
 
 // GetModelConfig 取一条模型配置；没有配置返回 nil 而不是错误，调用方按缺省处理。
@@ -15,7 +15,7 @@ func (r *Repo) GetModelConfig(providerID, model string) (*domain.ModelConfigDO, 
 		if notFound(err) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, wrapDB("读取模型配置", err)
 	}
 	return &d, nil
 }
@@ -28,12 +28,12 @@ func (r *Repo) ListModelConfigs(providerID string) ([]domain.ModelConfigDO, erro
 		q = q.Where("provider_id = ?", providerID)
 	}
 	if err := q.Find(&list).Error; err != nil {
-		return nil, err
+		return nil, wrapDB("列出模型配置", err)
 	}
 	return list, nil
 }
 
 // DeleteModelConfigsByProvider 删除服务时级联清理它的模型配置。
 func (r *Repo) DeleteModelConfigsByProvider(providerID string) error {
-	return r.db.Where("provider_id = ?", providerID).Delete(&domain.ModelConfigDO{}).Error
+	return wrapDB("删除模型配置", r.db.Where("provider_id = ?", providerID).Delete(&domain.ModelConfigDO{}).Error)
 }

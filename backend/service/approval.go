@@ -28,7 +28,7 @@ type ApprovalService struct {
 // waitEntry 记录一次等待中的审批：会话随条目一起存，
 // 取消整会话时按内存字段过滤，不必逐个回库查（那会在持锁期间做 N 次 SQL）。
 type waitEntry struct {
-	ch        chan Decision
+	ch        chan domain.ApprovalDecisionDTO
 	sessionID string
 }
 
@@ -41,14 +41,8 @@ func NewApprovalService(env *Env) *ApprovalService {
 	}
 }
 
-// Decision 是用户在审批卡上的选择。
-type Decision struct {
-	Approved bool
-	Scope    string
-}
-
 // Gate 拦下需要审批的工具调用：落记录 → 推事件 → 等决策。
-func (a *ApprovalService) Gate(ctx context.Context, sessionID string, perm string, t tool.Tool, call ToolCallView) (bool, string) {
+func (a *ApprovalService) Gate(ctx context.Context, sessionID string, perm string, t tool.Tool, call domain.ApprovalCallDTO) (bool, string) {
 	if !t.RequiresApproval() {
 		return false, ""
 	}
@@ -81,7 +75,7 @@ func (a *ApprovalService) Gate(ctx context.Context, sessionID string, perm strin
 		return true, "无法记录这次确认，已按拒绝处理"
 	}
 
-	ch := make(chan Decision, 1)
+	ch := make(chan domain.ApprovalDecisionDTO, 1)
 	a.mu.Lock()
 	a.wait[rec.ID] = waitEntry{ch: ch, sessionID: sessionID}
 	a.mu.Unlock()
@@ -118,16 +112,16 @@ func (a *ApprovalService) Gate(ctx context.Context, sessionID string, perm strin
 }
 
 // await 等决策；ctx 取消与超时都记为不批准。
-func (a *ApprovalService) await(ctx context.Context, ch chan Decision) (Decision, bool) {
+func (a *ApprovalService) await(ctx context.Context, ch chan domain.ApprovalDecisionDTO) (domain.ApprovalDecisionDTO, bool) {
 	timer := time.NewTimer(approvalTimeout)
 	defer timer.Stop()
 	select {
 	case d := <-ch:
 		return d, false
 	case <-ctx.Done():
-		return Decision{}, false
+		return domain.ApprovalDecisionDTO{}, false
 	case <-timer.C:
-		return Decision{}, true
+		return domain.ApprovalDecisionDTO{}, true
 	}
 }
 
@@ -141,7 +135,7 @@ func (a *ApprovalService) Decide(id string, approved bool, scope string) error {
 	a.mu.Unlock()
 	if ok {
 		select {
-		case entry.ch <- Decision{Approved: approved, Scope: scope}:
+		case entry.ch <- domain.ApprovalDecisionDTO{Approved: approved, Scope: scope}:
 		default:
 		}
 	}
@@ -174,7 +168,7 @@ func (a *ApprovalService) CancelSession(sessionID string) {
 	for _, entry := range a.wait {
 		if entry.sessionID == sessionID {
 			select {
-			case entry.ch <- Decision{}:
+			case entry.ch <- domain.ApprovalDecisionDTO{}:
 			default:
 			}
 		}
@@ -189,14 +183,6 @@ func (a *ApprovalService) ForgetSession(sessionID string) {
 	a.mu.Lock()
 	delete(a.grants, sessionID)
 	a.mu.Unlock()
-}
-
-// ToolCallView 是审批门需要的调用视图。
-type ToolCallView struct {
-	ID     string
-	Args   map[string]any
-	Risk   string
-	Reason string
 }
 
 func boolStatus(ok bool) string {

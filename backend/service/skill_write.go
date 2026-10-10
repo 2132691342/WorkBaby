@@ -24,6 +24,11 @@ func (s *SkillService) Create(req domain.CreateSkillREQ) (*domain.SkillVO, error
 	if name == "" {
 		return nil, pkg.New(8105, "给这个技能起个名字", "")
 	}
+	// 名字先过词法校验再拼路径：不带这一步，`..` 与路径分隔符能写出技能目录之外；
+	// 非法名写盘成功后才在 Parse 失败，也会留下注册不了的脏目录。
+	if !skill.ValidName(name) {
+		return nil, pkg.New(8101, "技能名只能用小写字母、数字和连字符", name)
+	}
 	body := strings.TrimSpace(req.Body)
 	if body == "" {
 		return nil, pkg.New(8105, "技能内容不能为空", "")

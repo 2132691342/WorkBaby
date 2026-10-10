@@ -4,7 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { syncFromSettings } from './composables/useAppearance'
 import { useSessionPanel } from './composables/useSessionPanel'
-import { sseConnected } from './composables/useSse'
+import { sseConnected, sseSubscribed } from './composables/useSse'
 import { intentFile, intentNewSession, pushShellIntent } from './composables/shellIntent'
 import { useChatStore } from './stores/chat'
 import { useSessionStore } from './stores/session'
@@ -115,8 +115,13 @@ function quitApp() {
       </button>
       <span class="tb-title" :title="pageTitle">{{ pageTitle }}</span>
       <span class="tb-sp" />
-      <span v-if="ready && !sseConnected" class="tb-chip">连接断开，正在重连</span>
-      <span class="led" :class="sseConnected ? 'g' : 'w'" :title="sseConnected ? '已连接' : '连接断开，正在重连'" />
+      <span v-if="ready && sseSubscribed && !sseConnected" class="tb-chip">连接断开，正在重连</span>
+      <span
+        v-if="ready && sseSubscribed"
+        class="led"
+        :class="sseConnected ? 'g' : 'w'"
+        :title="sseConnected ? '已连接' : '连接断开，正在重连'"
+      />
       <div class="winctl">
         <button class="win-btn" type="button" title="最小化" @click="winctl('min')">
           <AppIcon name="window-min" size="ic-sm" />

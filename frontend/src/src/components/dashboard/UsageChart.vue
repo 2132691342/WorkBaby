@@ -233,7 +233,7 @@ svg {
   stroke-linejoin: round;
 }
 .line-in {
-  stroke: var(--wb-primary);
+  stroke: var(--wb-ch-1);
 }
 .line-out {
   stroke: var(--wb-ch-2);

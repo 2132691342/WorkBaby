@@ -122,10 +122,13 @@ func sseHandler(hub *Hub) gin.HandlerFunc {
 		if after == 0 {
 			after = parseSeq(c.GetHeader("Last-Event-ID"))
 		}
+		// lastReplayed 记录重放推到的位点：Subscribe 与 Replay 快照之间进来的事件
+		// 既在重放缓冲里又在客户端通道里，主循环按 seq 去重，否则正文重复拼接。
+		lastReplayed := int64(0)
 		if after > 0 {
 			replay := hub.Replay(sessionID, after)
-			if len(replay) == 0 {
-				// 重放窗口溢出或 seq 不认识：提示前端拉快照对账，避免丢事件却毫不知情。
+			if len(replay) == 0 || replay[0].Seq > after+1 {
+				// 重放窗口溢出，或缓冲裁掉了中段：提示前端拉快照对账，避免丢事件却毫不知情。
 				gap, _ := encodeEvent(domain.Envelope{Seq: after, Event: domain.EventChatGap, Data: domain.GapData{Reason: "replay_overflow"}})
 				_, _ = c.Writer.Write(gap)
 			}
@@ -137,6 +140,7 @@ func sseHandler(hub *Hub) gin.HandlerFunc {
 				if _, err := c.Writer.Write(frame); err != nil {
 					return
 				}
+				lastReplayed = env.Seq
 			}
 			c.Writer.Flush()
 		}
@@ -163,6 +167,11 @@ func sseHandler(hub *Hub) gin.HandlerFunc {
 				}
 				c.Writer.Flush()
 			case env := <-client.Events():
+				// 重放已送过的 seq 直接跳过：Subscribe 与 Replay 快照之间的窗口
+				// 事件从两条路都会到达，不过滤就会重发。
+				if env.Seq > 0 && env.Seq <= lastReplayed {
+					continue
+				}
 				frame, err := encodeEvent(env)
 				if err != nil {
 					continue

@@ -283,6 +283,10 @@ body {
   background: var(--wb-tint);
   color: var(--wb-ink);
 }
+.titlebar .tb-act:active {
+  transform: scale(0.92);
+  background: var(--wb-tint-lg);
+}
 .titlebar .tb-act svg {
   width: 14px;
   height: 14px;
@@ -2414,6 +2418,22 @@ select.input.narrow {
 .rli > .btn {
   margin-left: auto;
   flex: none;
+}
+/* 行加载态：标题左侧转圈占住开关的位置语义——「这行正在变化」，
+   与行内开关的 :disabled 同挂，点击不丢反馈。 */
+.rli .main.is-loading {
+  cursor: progress;
+  pointer-events: none;
+}
+.rli .main.is-loading h5::before {
+  content: '';
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--wb-radius-full);
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  animation: wb-ic-spin 0.8s linear infinite;
 }
 .rli h5 {
   margin: 0;

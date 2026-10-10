@@ -215,7 +215,13 @@ func (h *Hub) publishNow(sessionID string, env domain.Envelope) {
 		default:
 			// 缓冲满：先挤掉积压的 delta（正文可由快照对账恢复），
 			// 给关键事件腾位子。挤完还塞不进才断开。
-			drainDeltas(c.ch)
+			if drainDeltas(c.ch) {
+				// 回灌时关键事件被并发写入挤掉：done / error 丢了前端就永远停在
+				// 「运行中」，必须断开走快照对账，不能静默吞掉。
+				h.Unsubscribe(c)
+				pkg.Warnf("sse: 会话 %s 的客户端缓冲拥塞且回灌失败，已断开（等待对账）", sessionID)
+				continue
+			}
 			select {
 			case c.ch <- env:
 			default:
@@ -226,9 +232,9 @@ func (h *Hub) publishNow(sessionID string, env domain.Envelope) {
 	}
 }
 
-// drainDeltas 把通道里积压的 chat:delta 挤到只剩最后一条。
-// delta 可由快照与重放恢复，done / error 丢了前端就永远停在「运行中」。
-func drainDeltas(ch chan domain.Envelope) {
+// drainDeltas 把通道里积压的 chat:delta 挤到只剩最后一条，返回是否有非 delta
+// 事件在回灌时被挤掉。delta 可由快照与重放恢复；done / error 不行，调用方据此断开。
+func drainDeltas(ch chan domain.Envelope) (lost bool) {
 	var last *domain.Envelope
 	kept := make([]domain.Envelope, 0, 16)
 	for {
@@ -246,6 +252,7 @@ func drainDeltas(ch chan domain.Envelope) {
 				select {
 				case ch <- ev:
 				default:
+					lost = true
 				}
 			}
 			if last != nil {

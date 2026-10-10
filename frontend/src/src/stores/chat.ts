@@ -54,6 +54,8 @@ export const useChatStore = defineStore('chat', () => {
   const contextRatio = ref(0)
   const contextKnown = ref(false)
   const contextReserve = ref(0)
+  // 排队中的插话：与后端队列一一对应的本地视图，注入时刻随 chat:user 消掉。
+  const queued = ref<string[]>([])
 
   function reset() {
     running.value = false
@@ -70,6 +72,7 @@ export const useChatStore = defineStore('chat', () => {
     contextRatio.value = 0
     contextKnown.value = false
     contextReserve.value = 0
+    queued.value = []
   }
 
   // 思考内容可能被用户关掉：关掉后不累积，也不出现在历史渲染里。
@@ -100,6 +103,23 @@ export const useChatStore = defineStore('chat', () => {
 
   async function steer(sessionId: string, content: string) {
     await api.chat.steer(sessionId, content)
+  }
+
+  // 排队：后端与插话同一个队列，这里只多记一份本地视图供排队条展示；
+  // 注入时刻的 chat:user 会按内容消掉对应条目。
+  async function followUp(sessionId: string, content: string) {
+    await api.chat.followUp(sessionId, content)
+    queued.value.push(content)
+  }
+
+  function onDequeued(content: string) {
+    const i = queued.value.indexOf(content)
+    if (i >= 0) queued.value.splice(i, 1)
+    else if (queued.value.length) queued.value.shift()
+  }
+
+  function clearQueued() {
+    queued.value = []
   }
 
   async function decide(approvalId: string, approved: boolean, scope = 'once') {
@@ -213,6 +233,9 @@ export const useChatStore = defineStore('chat', () => {
     // 决策若来自别处（SSE 断开、另一个窗口、或直接调接口），
     // 这张卡就会永远挂在已经结束的回合下面，用户看到的是一条永远等不着的请求。
     approvals.value = []
+    // 没来得及消费的排队消息由后端 flush 兜底落库（稍后以 chat:user 到达，
+    // 时间线里有它们），排队条到此收口。
+    queued.value = []
   }
 
   // 用户主动停止：立刻退出运行态，不等内核走完收尾。
@@ -220,11 +243,13 @@ export const useChatStore = defineStore('chat', () => {
   function onStopped() {
     running.value = false
     notice.value = '已停止'
+    queued.value = []
   }
 
   function onError(data: { code: number; message: string }) {
     running.value = false
     lastError.value = data.message
+    queued.value = []
   }
 
   // 上下文被裁剪：只说一句发生了什么，不弹窗不打断
@@ -346,10 +371,14 @@ export const useChatStore = defineStore('chat', () => {
     contextRatio,
     contextKnown,
     contextReserve,
+    queued,
     reset,
     send,
     stop,
     steer,
+    followUp,
+    onDequeued,
+    clearQueued,
     decide,
     notify,
     setShowThinking,

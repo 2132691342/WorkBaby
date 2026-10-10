@@ -51,6 +51,24 @@ type StatsSessionVO struct {
 	Total     int    `json:"total"`
 }
 
+// UsageStatVO 一次按天 / 按模型的聚合结果；repo 扫描行，服务层再加工成出参。
+type UsageStatVO struct {
+	Model     string
+	Day       string
+	Input     int
+	Output    int
+	Cached    int
+	Total     int
+	Calls     int
+	LatencyMs int64
+}
+
+// ContextStatVO 是区间内上下文占用的均值与峰值。
+type ContextStatVO struct {
+	Avg  int
+	Peak int
+}
+
 // StatsRESP 仪表盘出参。一次返回全部，前端不需要拼多个接口。
 type StatsRESP struct {
 	Days     int              `json:"days"`

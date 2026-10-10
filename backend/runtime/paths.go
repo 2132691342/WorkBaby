@@ -4,6 +4,7 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"WorkBaby/backend/pkg"
 )
@@ -57,5 +58,29 @@ func Resolve() (Paths, error) {
 			return Paths{}, err
 		}
 	}
+	sweepTmp(p.TmpDir)
 	return p, nil
+}
+
+// sweepTmp 清理临时目录里超过 7 天的溢出文件：工具截断会把完整输出落在这里，
+// 不清就是无上界的磁盘增长。启动期没有任何 run 在跑，此时清理没有竞态；
+// 失败只告警——清理失败不该挡启动。
+func sweepTmp(dir string) {
+	cutoff := time.Now().AddDate(0, 0, -7)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			pkg.Warnf("runtime: 清理临时文件失败 %s: %v", e.Name(), err)
+		}
+	}
 }

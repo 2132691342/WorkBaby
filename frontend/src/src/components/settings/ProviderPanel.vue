@@ -333,11 +333,13 @@ async function save() {
       api_key: keyEdit.value && form.key ? form.key : undefined,
       models: chosen.value,
     }
-    if (form.id) await api.providers.update(form.id, body)
+    // 先取分支结论再 reset：reset 会清掉 form.id，放它后面三元永远判成「已添加」
+    const updating = !!form.id
+    if (updating) await api.providers.update(form.id, body)
     else await api.providers.upsert(body)
     await store.loadProviders()
     reset()
-    toast.ok(form.id ? '模型服务已更新' : '模型服务已添加')
+    toast.ok(updating ? '模型服务已更新' : '模型服务已添加')
   } catch (e) {
     toast.bad(`保存失败：${(e as Error)?.message || '请检查填写内容后重试'}`)
   } finally {

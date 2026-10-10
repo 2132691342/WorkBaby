@@ -8,7 +8,7 @@ import (
 
 // CreateSession 创建会话。
 func (r *Repo) CreateSession(s *domain.SessionDO) error {
-	return r.db.Create(s).Error
+	return wrapDB("创建会话", r.db.Create(s).Error)
 }
 
 // GetSession 按 id 取会话；未命中返回 domain.ErrSessionNotFound。
@@ -18,7 +18,7 @@ func (r *Repo) GetSession(id string) (*domain.SessionDO, error) {
 		if notFound(err) {
 			return nil, domain.ErrSessionNotFound
 		}
-		return nil, err
+		return nil, wrapDB("读取会话", err)
 	}
 	return &s, nil
 }
@@ -34,14 +34,14 @@ func (r *Repo) ListSessions(limit, offset int) ([]domain.SessionDO, error) {
 		q = q.Offset(offset)
 	}
 	if err := q.Find(&list).Error; err != nil {
-		return nil, err
+		return nil, wrapDB("列出会话", err)
 	}
 	return list, nil
 }
 
 // UpdateSession 全量更新会话。
 func (r *Repo) UpdateSession(s *domain.SessionDO) error {
-	return r.db.Save(s).Error
+	return wrapDB("更新会话", r.db.Save(s).Error)
 }
 
 // UpdateSessionColumns 只更新指定列，避免并发写覆盖掉别的字段。
@@ -49,12 +49,12 @@ func (r *Repo) UpdateSessionColumns(id string, cols map[string]any) error {
 	if len(cols) == 0 {
 		return nil
 	}
-	return r.db.Model(&domain.SessionDO{}).Where("id = ?", id).Updates(cols).Error
+	return wrapDB("更新会话", r.db.Model(&domain.SessionDO{}).Where("id = ?", id).Updates(cols).Error)
 }
 
 // DeleteSession 删除会话及其全部条目与用量记录。
 func (r *Repo) DeleteSession(id string) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	return wrapDB("删除会话", r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("session_id = ?", id).Delete(&domain.EntryDO{}).Error; err != nil {
 			return err
 		}
@@ -65,5 +65,5 @@ func (r *Repo) DeleteSession(id string) error {
 			return err
 		}
 		return tx.Where("id = ?", id).Delete(&domain.SessionDO{}).Error
-	})
+	}))
 }

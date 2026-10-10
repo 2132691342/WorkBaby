@@ -138,11 +138,14 @@ one-at-a-time 队列，在轮间注入。
 **设计**：gin 路由（方法白名单 GET/POST、`/api/v1/{resource}/:id/{action}` 风格）+ SSE Hub。
 Hub 负责四件事：按会话广播、**delta 合流**（80ms 窗口把连续正文增量合并成一条，事件量降一个
 数量级；合流定时器按会话复用一张并 `Reset`——每个 delta 新起一张等于每个 token 一次分配）、
-慢消费者护栏（缓冲满先挤 delta 保关键事件，仍满才断连，重连按 Last-Event-ID 重放，
-滚过窗口发 `chat:gap` 让前端拉快照）、**会话回收**（重放窗口与待合并 delta 都以 sessionID
+慢消费者护栏（缓冲满先挤 delta 保关键事件，仍满才断连；挤出的关键事件回灌再被
+并发写入挤掉时同样断连——静默吞掉 done/error 等于让前端永远停在「运行中」。
+重连按 Last-Event-ID 重放并按 seq 去重（订阅与快照之间的窗口事件两条路都会到达），
+缓冲滚过窗口或裁掉中段时主动发 `chat:gap` 让前端拉快照）、**会话回收**（重放窗口与待合并 delta 都以 sessionID
 为键只增不减；最后一个订阅者离开后延迟 2 分钟再回收——这段时间正是 SSE 重连要用的窗口，
-删会话时则立刻回收，由 `Emitter.SetCutHook` 回调触发）。api 层是薄 handler + 对话框 / 自启这两类系统能力实现，
-是 backend 内唯一允许 import wails 的包；**Wails 绑定面只有 `*main.App` 的 5 个方法**（退出、两个
+删会话时则立刻回收，由 `Emitter.SetCutHook` 回调触发）。api 层是薄 handler + 对话框 / 自启 / 运行时状态检测这类系统能力实现，
+是 backend 内唯一允许 import wails 的包，也是装配组合根（`Startup` 持有 repo / config /
+能力域句柄；业务 handler 仍必须经 service）；**Wails 绑定面只有 `*main.App` 的 5 个方法**（退出、两个
 文件对话框、自启读写）——`App` 持有而不是嵌入 `*api.Handler`，gin handler 不会被绑成
 JS 方法；窗口控制由前端直接调 `wailsjs/runtime`，复制走 `navigator.clipboard`。
 

@@ -4,12 +4,23 @@ package repo
 import (
 	"errors"
 
+	"WorkBaby/backend/pkg"
+
 	"gorm.io/gorm"
 )
 
 // Repo 持有唯一数据库连接；所有仓储方法挂在它上面，避免各处自行打开连接。
 type Repo struct {
 	db *gorm.DB
+}
+
+// wrapDB 给底层 DB 错误补上 2xxx 段错误码：repo 出口不带码，到前端就只剩
+// 兜底的 9999，前端失去按段位分流的能力。op 用「动词 + 对象」，日志能直接定位。
+func wrapDB(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return pkg.Wrap(2105, op+"失败", err)
 }
 
 // notFound 统一「未命中」判据，避免各仓储文件重复判断 gorm 错误。

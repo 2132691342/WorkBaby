@@ -133,7 +133,10 @@ func (l *Loop) Run(ctx context.Context) (*Result, error) {
 
 		msg, stop, usage, err := l.streamTurnWithRetry(ctx)
 		if err != nil {
-			l.appendMessage(msg)
+			// 报错但零产出的空 assistant 不进历史：留着它，下一轮就是协议 400。
+			if msg.Content != "" || msg.Thinking != "" || len(msg.ToolCalls) > 0 {
+				l.appendMessage(msg)
+			}
 			res.Turns = turn
 			return l.finish(res, StopError, err)
 		}

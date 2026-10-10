@@ -100,13 +100,18 @@ backend/server ──► backend/api ──► backend/service ──► 能力�
 | 层 | 允许依赖 | 禁止依赖 |
 |---|---|---|
 | server | api / domain / pkg / gin | service / repo / 能力域 |
-| api | service / domain / pkg / gin / wails | repo / 能力域 |
+| api | service / domain / pkg / gin / wails；**装配期**持有 repo / config / db / 能力域句柄（组合根） | handler 方法绕过 service 直写业务（查询型系统能力如 runtime 状态检测除外） |
 | service | repo / domain / pkg / 能力域 | api / server / gin / wails |
 | 能力域 | repo / domain / pkg / 其他能力域（经接口） | api / service / server / wails |
 | repo | domain / pkg / gorm | api / service / 能力域 |
 | domain | pkg | 任何上层 |
 | **backend/pkg** | 标准库 / golang.org/x / 第三方工具 | **任何其他 backend 业务包** |
 | agent | llm / tool / pkg | api / service / server / repo |
+
+**api = 组合根**：`Handler.Startup` 是唯一装配入口，持有 Repo / Cfg / Registry 等
+句柄是它的职责（`tools/check-boundaries` 按此放行）；业务 handler 方法必须经
+service 走业务流程，唯一例外是查询型系统能力（`/runtime` 状态检测）——
+它们与对话框 / 自启同属「系统能力绑定」，不是业务编排。
 
 **双主机**：业务 API 走 gin HTTP，Wails 绑定只保留系统能力（对话框/剪贴板/窗口）。
 前端事件走 SSE。端口注入：`app:ready` 携带 `server_port`。
@@ -252,7 +257,7 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 |---|---|
 | 统一错误 | AppError + 错误码分段 |
 | 日志 | slog 仅 info/warn/error；分文件落盘；ctx 注入 sessionID/runID |
-| 实时通信 | SSE only（256 缓冲 / 慢客户端先挤 delta 保关键事件 / 重连带 `last_event_id` 重放对账） |
+| 实时通信 | SSE only（256 缓冲 / 慢客户端先挤 delta 保关键事件、回灌再丢关键事件就断开对账 / 重连带 `last_event_id` 重放并按 seq 去重，缓冲裁掉中段时主动发 `chat:gap`） |
 | 压缩 | 确定性清洗 + 按 token 预算找切点，不调 LLM（见 spec 02） |
 | 工具输出 | 双通道：`Content` 回模型、`Detail` 给 UI；2000 行 / 50KB 双上限截断，超出落临时文件并回报丢弃量；命令 / 脚本类保留结尾（`CutTail`），其余保留开头 |
 | 事件出口 | `service.Emitter` 唯一出口（注入归属 + 分配 seq + sink 注入） |
@@ -390,11 +395,11 @@ const (
 | 用量口径在 turn_end 之前归一 | 命中量大于输入量时界面会算出超过 100% 的命中率、输入量也偏小（长对话的成本被读低）；`llm.Usage.Normalize` 把两种计费口径补成「Input 含缓存」，读侧再兜一次 100% |
 | 上下文读数取「上游实收输入」与本地估算的较大者 | 同一张卡片上的「入」与「上下文」必须是一回事：估算偏保守时用实测值纠正，否则出现「入 9.9K / 上下文 25K」这种自相矛盾的读数 |
 | 上游报上下文超限 → 强制压缩重试一次 | 本地估算是粗估，偏乐观时上游拒绝整轮；本轮已吐出过内容则不重试（避免重复正文），第二次仍失败才以错误收尾 |
-| 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400 |
+| 「报错但零产出」轮不算成功 | 否则空 assistant 落库，下一轮直接 400；内核内存历史同样不收空 assistant——任何直接消费 `res.Messages` 的调用方都会复现这个 400 |
 | 工具失败必须带原因（模型 / 界面 / 日志三处） | `Result.Detail` 为空时由 `agent.runOne` 补成 `Content`：只把原因留在给模型的那份里，工具卡展开是空白、日志只剩 `ok=false`，用户与开发者都查不出为什么 |
 | CleanForProtocol 输出必须可直发上游 | 空消息/孤儿结果/未配对调用都在这一层兜底 |
 | 事件发布永不阻塞内核 | Hub 慢客户端先挤 delta 断连兜底 + `chat:gap` 对账 |
-| 同一工具同一参数整个 run 内累计 3 次后拦 | 模型卡在同一个调用上打转，比撞轮数上限更难排查；计数不衰减——中间穿插别的调用不代表它换了方案 |
+| 同一工具同一参数整个 run 内累计 3 次后拦 | 模型卡在同一个调用上打转，比撞轮数上限更难排查；计数不衰减——中间穿插别的调用不代表它换了方案；被审批拒绝（含超时拒绝）同样计一次，否则被拒的调用能无限重发、审批卡一张接一张 |
 | 并发工具 goroutine 在起之前取信号量 | 信号量放在 goroutine 里的话 N 个调用先起 N 个 goroutine 再抢锁，「并发度有上界」是假的——一次 30 个工具就铺 30 个 goroutine |
 | 工具 panic 在串行与并行两条路径都 recover | panic 说明有 bug，但桌面端不该因为一个工具的 bug 把整进程连同这次对话一起带走；`runOneSafe` 统一兜底转成 `IsError` 结果并打堆栈——只兜并发路径等于没兜，write / edit / powershell / python 都是串行工具 |
 | 用户文件写入必须原子替换 | 临时文件 + rename；磁盘写满或进程被杀留下半截文件比写失败更糟，助手写的是用户的真实工程文件 |

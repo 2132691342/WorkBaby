@@ -47,7 +47,7 @@ EventsOn('app:startup-error', (data: { message?: string }) => {
   fail(data?.message || '后端启动失败，请查看日志目录里的 app.log')
 })
 
-const timer = setTimeout(() => {
+let timer = setTimeout(() => {
   fail('本地服务没有响应。可能残留了旧版 WorkBaby 进程占用，请先在任务管理器里结束它再重试。')
 }, HANDSHAKE_TIMEOUT_MS)
 
@@ -60,5 +60,12 @@ export function retryHandshake() {
   if (port.value) {
     setBaseURL(port.value)
     status.value = 'ready'
+    return
   }
+  // 重试必须重挂超时：广播只在启动后 6 秒内发过，不挂定时器，
+  // 再点一次重试就永远停在「正在启动…」。
+  clearTimeout(timer)
+  timer = setTimeout(() => {
+    fail('本地服务没有响应。可能残留了旧版 WorkBaby 进程占用，请先在任务管理器里结束它再重试。')
+  }, HANDSHAKE_TIMEOUT_MS)
 }

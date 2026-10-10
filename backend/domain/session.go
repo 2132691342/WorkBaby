@@ -22,7 +22,7 @@ type SessionDO struct {
 	MessageCount int    `json:"message_count"`
 	TotalTokens  int    `json:"total_tokens"`
 	CreatedAt    int64  `gorm:"autoCreateTime:milli;index" json:"created_at"`
-	UpdatedAt    int64  `gorm:"autoUpdateTime:milli" json:"updated_at"`
+	UpdatedAt    int64  `gorm:"autoUpdateTime:milli;index" json:"updated_at"`
 }
 
 // TableName 显式指定表名：GORM 会把 DO 后缀复数化成 _dos。
