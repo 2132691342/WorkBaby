@@ -1,15 +1,7 @@
-// 内置资源的取用入口：embed 进来的技能目录与用户主目录。
+// 系统能力的取用入口：当前只暴露用户主目录作为工作目录的缺省值。
 package api
 
-import (
-	"io/fs"
-	"os"
-
-	"WorkBaby/assets"
-)
-
-// builtinSkills 返回内置技能的嵌入文件系统。
-func builtinSkills() fs.FS { return assets.Skills }
+import "os"
 
 // userHome 取用户主目录，作为工作目录的缺省值。
 func userHome() (string, error) { return os.UserHomeDir() }

@@ -74,7 +74,6 @@ func (s *Skill) ToVO() SkillVO {
 
 // 技能来源。
 const (
-	SkillSourceBuiltin   = "builtin"
 	SkillSourceGlobal    = "global"
 	SkillSourceWorkspace = "workspace"
 )

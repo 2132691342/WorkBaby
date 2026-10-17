@@ -174,8 +174,9 @@
   --wb-border: var(--wb-line);
   --wb-border-strong: var(--wb-line-2);
 
-  --wb-ink: #334155;
-  --wb-ink-2: #475569;
+  /* 正文与标题走中性深 #1e293b：与案例一致，层次交给字号与字重而不是灰度差 */
+  --wb-ink: #1e293b;
+  --wb-ink-2: #334155;
   --wb-muted: #64748b;
 
   /* 动作色：靛蓝 #6366f1（实底白字达标），文字 / 描边同色系靠明度分四级 */
@@ -254,7 +255,7 @@
   /* 代码块 */
   --wb-code-bg: #f8fafc;
   --wb-code-header-bg: #f1f5f9;
-  --wb-code-fg: #334155;
+  --wb-code-fg: #1e293b;
   --wb-code-border: #e2e8f0;
 }
 

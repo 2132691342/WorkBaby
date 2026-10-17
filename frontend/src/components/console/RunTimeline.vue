@@ -26,6 +26,18 @@ const hi = computed(() => {
 })
 const span = computed(() => Math.max(1, hi.value - lo.value))
 
+// 时间轴刻度：5 等分，标成相对起点的耗时。
+// 没有刻度时每根条只能看出「相对长短」，看不出「第几秒发生的」。
+const ticks = computed(() => {
+  const out: { left: string; label: string }[] = []
+  if (!steps.value.length) return out
+  for (let i = 0; i <= 4; i++) {
+    const frac = i / 4
+    out.push({ left: `${frac * 100}%`, label: fmtMs(frac * span.value) })
+  }
+  return out
+})
+
 function leftOf(s: RunStep): string {
   return `${((s.at - lo.value) / span.value) * 100}%`
 }
@@ -48,7 +60,10 @@ function fmtMs(ms: number): string {
       <span v-if="steps.length">{{ steps.length }} 个动作 · 合计 {{ fmtMs(hi - lo) }}</span>
       <span v-if="chars">正文 {{ chars.toLocaleString() }} 字</span>
     </div>
-    <ul v-if="steps.length" class="tl-steps">
+    <div class="tl-axis" aria-hidden="true">
+    <span v-for="(t, i) in ticks" :key="i" class="tl-tick" :style="{ left: t.left }">{{ t.label }}</span>
+  </div>
+  <ul v-if="steps.length" class="tl-steps">
       <li v-for="(s, i) in steps" :key="i" class="tl-step" :title="s.detail || s.label || s.name">
         <span class="tl-track">
           <span class="tl-bar" :class="{ 'is-bad': !s.ok }" :style="{ left: leftOf(s), width: widthOf(s) }" />
@@ -75,6 +90,29 @@ function fmtMs(ms: number): string {
   gap: var(--wb-sp-3);
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
+}
+/* 时间轴刻度：贴在轨道上方，随轨道同宽 */
+.tl-axis {
+  position: relative;
+  height: 14px;
+  margin-bottom: 2px;
+}
+.tl-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: var(--wb-fs-2xs);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--wb-muted);
+  white-space: nowrap;
+}
+/* 首尾两个刻度靠边对齐，避免探出容器被裁掉 */
+.tl-tick:first-child {
+  transform: none;
+}
+.tl-tick:last-child {
+  transform: translateX(-100%);
 }
 .tl-steps {
   display: flex;

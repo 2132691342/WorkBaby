@@ -12,6 +12,7 @@ import { useSessionStore } from '../../stores/session'
 import { fmtCount, fmtMs } from '../../utils/num'
 import AppIcon from '../common/AppIcon.vue'
 import PageState from '../common/PageState.vue'
+import RunReplay from './RunReplay.vue'
 import RunTimeline from './RunTimeline.vue'
 
 const toast = useToastStore()
@@ -184,8 +185,18 @@ const peakContext = computed(() => {
 
           <section class="sec">
             <h3>干了什么</h3>
-            <RunTimeline v-if="detail.timeline?.steps.length || detail.timeline?.chars" :timeline="detail.timeline" />
-            <p v-else class="none">这一轮没调工具，只有正文。</p>
+            <p v-if="!detail.timeline?.steps.length && !detail.timeline?.chars" class="none">
+              这一轮没调工具，只有正文。
+            </p>
+            <template v-else>
+              <!-- 回放：同一份时间线的另一种看法，按真实时间轴走一遍 -->
+              <RunReplay v-if="detail.timeline?.steps.length" :timeline="detail.timeline" />
+              <!-- 静态瀑布：一眼看谁拖了后腿，与回放共用同一批 step -->
+              <RunTimeline
+                v-if="detail.timeline?.steps.length || detail.timeline?.chars"
+                :timeline="detail.timeline"
+              />
+            </template>
           </section>
 
           <section v-if="detail.snapshots.length" class="sec">

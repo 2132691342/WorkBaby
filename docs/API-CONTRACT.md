@@ -86,8 +86,8 @@
 | POST | /skills/import | 从磁盘导入 `{paths[]}`（SKILL.md 或含它的文件夹）→ `{imported, skipped[]}` |
 | POST | /skills/import-zip | 导入技能压缩包 `{filename, data}`（zip 字节 base64）→ `{imported, skipped[]}` |
 | GET | /files | 工作区目录列举（`?path=` 相对目录，空即根）→ `{path, entries[{name, dir}]}`；供 @ 引用面板浏览 |
-| POST | /skills/toggle/:id | `{enabled}` |
-| POST | /skills/delete/:id | 删除用户技能（builtin 不可删） |
+| POST | /skills/toggle/:id | `{enabled}`：启停是移目录（skills/ ↔ skills.disabled/）；工作区技能拒停报 8110，目标同名报 8111 |
+| POST | /skills/delete/:id | 删除用户技能（工作区级技能只从界面摘除，不动用户的文件） |
 | GET | /skills/content/:id | 技能正文 |
 | GET | /knowledge/docs | 文档列表（`error` 字段兼作提示位：超长截断索引等「已成功但有话要说」也写这里） |
 | POST | /knowledge/docs/add | `{paths[]}` 批量添加并建索引 → `{added}`；支持 md / txt / csv / log / json / yml / yaml / html / pdf / docx / xlsx / pptx |
@@ -139,6 +139,17 @@
 |---|---|---|
 | GET | /git/status?session_id= | 版本状态 → `GitStatusVO`。没装 Git / 不是仓库**不报错**，返回 `available` / `is_repo` 与一句 `reason`（处置动作是「去装」或「去初始化」，不是重试） |
 | GET | /git/diff?path=&session_id= | 差异 → `GitDiffVO`。`path` 为空表示整个工作区；相对路径按工作目录解析，越界报 1004 |
+| GET | /git/history?limit=&session_id= | 提交列表 → `GitCommitVO[]`，按时间倒序，默认 50、上限 200 |
+| GET | /git/commit?hash=&session_id= | 单次提交 → `GitCommitDetailVO`：元信息 + `files[]` + `diff`（复用差异行结构） |
+| GET | /git/file-history?path=&limit=&session_id= | 一个文件的提交历史 → `GitCommitVO[]` |
+| GET | /git/branches?session_id= | 分支清单 → `GitBranchVO[]`：`name` / `current` / `ahead` / `behind` |
+| POST | /git/stage | `{paths[]?}` → `GitStatusVO`（写后重读；空表示全部改动，越界报 1004） |
+| POST | /git/unstage | `{paths[]?}` → `GitStatusVO`。只动索引，不动工作区文件 |
+| POST | /git/commit | `{message}` → `GitCommitRESP`。信息空或超 5000 字报 1016，无改动报 1017 |
+| POST | /git/branch | `{name}` → `GitStatusVO`。新建并切过去；名字不合规报 1018 |
+| POST | /git/switch | `{name}` → `GitStatusVO`。不带 `--force` |
+| POST | /git/push | → `GitStatusVO`。只允许普通推送，禁止 `--force` |
+| POST | /git/message | `{paths[]?}` → `GitMessageRESP`：助手按当前 diff 起草提交信息；`err` 非空时界面回落手写 |
 
 `session_id` 决定看哪个目录：**给了就看该会话的工作目录**（会话级目录才是这次改动真正发生的地方），
 没给或会话查不到则退回全局工作目录——只按全局看，用户在某个会话里换过目录就会看错地方。
@@ -173,7 +184,7 @@
 [{ "name": "powershell", "label": "跑命令", "category": "shell",
    "description": "在 Windows 上执行一条命令", "risk": "high",
    "approval": true, "mode": "sequential", "params": ["command"],
-   "enabled": true, "builtin": true }]
+   "enabled": true, "source": "global" }]
 ```
 
 `category` 取值 `file | shell | code | web | data`；`risk` 取值 `low | medium | high`。

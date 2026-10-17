@@ -130,7 +130,7 @@ export interface SkillVO {
   name: string
   description: string
   location: string
-  /** builtin = 随程序内置；global = 用户安装 */
+  /** global = 用户目录；workspace = 当前工作区目录，同名时工作区优先 */
   source: string
   enabled: boolean
 }
@@ -499,12 +499,53 @@ export interface GitDiffLineVO {
   text: string
 }
 
-/** 一份差异。truncated 为真时 dropped 是被丢掉的行数 */
 export interface GitDiffVO {
   path: string
   truncated: boolean
   dropped: number
   lines: GitDiffLineVO[]
+}
+
+/** 历史列表里的一次提交 */
+export interface GitCommitVO {
+  hash: string
+  short: string
+  subject: string
+  author: string
+  /** 提交时间，毫秒 */
+  when: number
+  files: number
+  additions: number
+  deletions: number
+}
+/** 一次提交的完整内容：元信息 + 文件清单 + 逐行差异 */
+export interface GitCommitDetailVO {
+  hash: string
+  short: string
+  subject: string
+  body: string
+  author: string
+  when: number
+  parents: string[]
+  files: GitFileVO[]
+  diff?: GitDiffVO
+}
+/** 一个分支及其相对上游的领先 / 落后数 */
+export interface GitBranchVO {
+  name: string
+  current: boolean
+  ahead: number
+  behind: number
+}
+/** 一次提交的结果：写后重读的状态 + 新提交的 hash */
+export interface GitCommitRESP {
+  status: GitStatusVO
+  hash: string
+}
+/** 助手起草的提交信息。err 非空表示起草失败，界面回落到手写 */
+export interface GitMessageRESP {
+  message: string
+  err: string
 }
 
 /* ================= 指挥台（specs/11-13 / 15） ================= */

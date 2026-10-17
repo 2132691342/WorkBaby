@@ -29,15 +29,3 @@ func encodeStringSlice(list []string) string {
 	}
 	return string(raw)
 }
-
-// firstLine 取首行并截断，供日志记录失败原因。
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = strings.TrimSpace(s[:i])
-	}
-	if r := []rune(s); len(r) > 200 {
-		s = string(r[:200]) + "…"
-	}
-	return s
-}

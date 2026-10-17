@@ -222,7 +222,7 @@ func (s *SkillService) copySkill(src string) (string, error) {
 	return name, nil
 }
 
-// Delete 删除用户技能；内置技能不可删——它们跟着安装包走。
+// Delete 删除用户技能；工作区级技能不从这里删——那是用户的文件，只从界面摘除。
 func (s *SkillService) Delete(id string) error {
 	if s.env.Skills == nil {
 		return domain.ErrSkillNotFound
@@ -231,8 +231,8 @@ func (s *SkillService) Delete(id string) error {
 	if !ok {
 		return domain.ErrSkillNotFound
 	}
-	if sk.Source == domain.SkillSourceBuiltin {
-		return pkg.New("8106", "内置技能不能删除，可以先关掉", "")
+	if sk.Source == domain.SkillSourceWorkspace {
+		return pkg.New("8106", "工作区技能请到工作区目录里删除", "")
 	}
 	// 用 Location 反推目录：导入时同名会自动加序号，重算 skillsDir/name 会指错地方
 	if dir := filepath.Dir(sk.Location); dir != "" && dir != "." {

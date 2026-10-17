@@ -12,7 +12,7 @@ WorkBaby 不再自己拼系统提示、不再自己管工具声明——这两�
 | 用户自定义指令 | 用户 | `<agent-dir>/AGENTS.md` 或 `APPEND_SYSTEM.md` |
 | 项目级指令 | 用户 | `<workspace>/.pi/APPEND_SYSTEM.md` |
 | WorkBaby 拓展模块（记忆 / 知识库 / 技能） | WorkBaby | 见 §3 |
-| 模型、思考档、压缩参数 | WorkBaby 界面 → PI `settings.json` | 见 [26](26-pi-bootstrap.md) |
+| 模型、思考档、压缩参数 | WorkBaby 界面 → PI `settings.json` | 见 [18](18-pi-bootstrap.md) |
 
 **不覆盖 PI 的系统提示**（不写 `SYSTEM.md`）。PI 的提示与它的工具集、压缩策略、
 权限模型是配套的，覆盖掉等于把内核的假设全拆了。要加东西就用 `APPEND_SYSTEM.md`。

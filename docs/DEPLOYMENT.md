@@ -68,7 +68,7 @@ Node 同理兜底系统 `node.exe`；PowerShell 从不内置，走系统自带�
 | 配置（含 MasterKey） | `config.yaml` |
 | 日志 | `logs/app.log`（全量）、`logs/warn.log`（warn 与 error） |
 | 内置运行时解压产物 | `runtime/node/`、`runtime/npm-global/`、`runtime/python/` |
-| 技能与知识库索引 | `skills/`、`builtin-skills/`、DB 内的分块 |
+| 技能与知识库索引 | `pi-agent/skills/`、`pi-agent/skills.disabled/`、DB 内的分块 |
 | WebView2 profile（纯缓存） | `webview/` |
 | 单实例锁与 IPC 端口 | `app.lock`、`ipc.port` |
 

@@ -108,7 +108,7 @@ pi.registerTool({
 扩展跑在 PI 进程里，能读到注入的环境变量。
 
 记忆的**注入**不走工具，走 `<agent-dir>/APPEND_SYSTEM.md` 的受控标记块
-（见 [13](13-prompt-and-settings.md)）——注入要每轮自动生效，
+（见 [07](07-prompt-and-settings.md)）——注入要每轮自动生效，
 让模型自己想起来去查等于没有。
 
 ## 7. 为什么不用 PI 的 project trust 代替

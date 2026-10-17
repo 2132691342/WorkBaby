@@ -12,7 +12,12 @@ import type {
   CompareVO,
   EvalVO,
   FileListVO,
+  GitBranchVO,
+  GitCommitDetailVO,
+  GitCommitRESP,
+  GitCommitVO,
   GitDiffVO,
+  GitMessageRESP,
   GitStatusVO,
   HelpDocRESP,
   HelpDocVO,
@@ -205,6 +210,25 @@ export const docs = {
 export const git = {
   status: (session_id = '') => get<GitStatusVO>('/git/status', pick({ session_id })),
   diff: (path = '', session_id = '') => get<GitDiffVO>('/git/diff', pick({ path, session_id })),
+  /** 提交列表，按时间倒序 */
+  history: (session_id = '', limit = 50) =>
+    get<GitCommitVO[]>('/git/history', pick({ session_id, limit: String(limit) })),
+  /** 单次提交：元信息 + 文件清单 + 逐行差异 */
+  commit: (hash: string, session_id = '') => get<GitCommitDetailVO>('/git/commit', pick({ hash, session_id })),
+  /** 一个文件的提交历史 */
+  fileHistory: (path: string, session_id = '', limit = 50) =>
+    get<GitCommitVO[]>('/git/file-history', pick({ path, session_id, limit: String(limit) })),
+  branches: (session_id = '') => get<GitBranchVO[]>('/git/branches', pick({ session_id })),
+  /** 受控写入：写后返回重读的状态，界面用一份数据刷新列表 */
+  stage: (paths: string[], session_id = '') => post<GitStatusVO>('/git/stage', { paths, session_id }),
+  unstage: (paths: string[], session_id = '') => post<GitStatusVO>('/git/unstage', { paths, session_id }),
+  commit_: (message: string, session_id = '') =>
+    post<GitCommitRESP>('/git/commit', { message, session_id }),
+  createBranch: (name: string, session_id = '') => post<GitStatusVO>('/git/branch', { name, session_id }),
+  switchBranch: (name: string, session_id = '') => post<GitStatusVO>('/git/switch', { name, session_id }),
+  push: (session_id = '') => post<GitStatusVO>('/git/push', { session_id }),
+  /** 助手按 diff 起草提交信息；Err 非空时界面回落到手写 */
+  draftMessage: (paths: string[], session_id = '') => post<GitMessageRESP>('/git/message', { paths, session_id }),
 }
 
 /* ================= 指挥台 API（specs/11-13 / 15） ================= */

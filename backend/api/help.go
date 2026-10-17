@@ -88,12 +88,14 @@ func docRank(name string) int {
 		return 0
 	case "models":
 		return 1
-	case "tools-and-permissions":
+	case "usage":
 		return 2
-	case "knowledge-and-skills":
+	case "tools-and-permissions":
 		return 3
-	case "faq":
+	case "knowledge-and-skills":
 		return 4
+	case "faq":
+		return 5
 	}
 	return 100
 }

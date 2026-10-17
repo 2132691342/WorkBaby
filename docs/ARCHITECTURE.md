@@ -67,6 +67,8 @@ backend/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任�
 | 评估与回归 | [specs/11](../specs/11-eval-regression.md) |
 | `history` 通用会话历史 | [specs/12](../specs/12-universal-history.md) |
 | `archmap` 项目架构图 | [specs/13](../specs/13-arch-map.md) |
+| 工作区文件面板（`/files` 列举） | [specs/20](../specs/20-workspace-files.md) |
+| Harness 控制面（runs / checkpoints / evals / stats 总纲） | [specs/21](../specs/21-harness-console.md) |
 | 记忆 | [specs/14](../specs/14-memory.md) |
 | 子代理 | [specs/16](../specs/16-subagent.md) |
 
@@ -185,3 +187,7 @@ OnStartup
 | 崩溃隔离：PI 挂了不带走桌面进程 | 要一套重启与对账逻辑 |
 
 重写的收益只是省一个 Node 依赖，成本是永久追版本。
+
+**PI 不强制用户预先安装**。启动时按「系统已装 > 内置那一份」的顺序找：
+用户机器上已经 `npm i -g` 过 PI 时直接复用它（带他自己的包与版本，命令行里改的配置也认），
+只有找不到才退到内置那份。因此老用户不会被强制迁移，新用户也不用自己装环境。

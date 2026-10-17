@@ -142,22 +142,6 @@ export const providers: ProviderVO[] = [
 
 export const skills: SkillVO[] = [
   {
-    id: 'office-docs@builtin',
-    name: 'office-docs',
-    description: '生成和修改 Word / Excel / PPT 文件',
-    location: 'assets/skills/office-docs',
-    source: 'builtin',
-    enabled: true,
-  },
-  {
-    id: 'create-skill@builtin',
-    name: 'create-skill',
-    description: '帮你把一套固定流程写成技能',
-    location: 'assets/skills/create-skill',
-    source: 'builtin',
-    enabled: true,
-  },
-  {
     id: 'weekly-report@global',
     name: 'weekly-report',
     description: '按我那套格式写周报',

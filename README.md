@@ -1,5 +1,8 @@
 # WorkBaby
 
+[![ci](https://github.com/2132691342/WorkBaby/actions/workflows/ci.yml/badge.svg)](https://github.com/2132691342/WorkBaby/actions/workflows/ci.yml)
+[![release](https://github.com/2132691342/WorkBaby/actions/workflows/release.yml/badge.svg?event=release)](https://github.com/2132691342/WorkBaby/releases/tag/v1.3.0)
+
 > **能干活的个人 AI 助手** —— Windows 本地优先的桌面 Agent 客户端，给不懂命令行的办公新手用。
 > 数据全部留在本机：会话文件与 SQLite 落盘、密钥 AES-GCM 加密；HTTP 只绑定 127.0.0.1 随机端口。
 >
@@ -13,7 +16,7 @@
 | 对话 | 流式输出、思考与正文分离、中途插话与排队、上下文自动压缩 |
 | 干活 | PI 自带的工具：读 / 写 / 改文件，看目录、找文件、搜内容，跑命令、跑脚本，搜网页、开网页；另加知识库检索与记忆写入 |
 | 安全 | 写文件 / 跑命令 / 跑脚本走审批卡：只这一次 / 本会话内都放行 / 拒绝；另有「只读」模式直接拒绕 |
-| 方法论 | Skill：把「怎么做一件事」写成 `SKILL.md`，需要时才展开正文 |
+| 方法论 | Skill：把「怎么做一件事」写成 `SKILL.md`放在技能目录里，需要时才展开正文 |
 | 私有资料 | 知识库：本地文档（PDF / Word / Excel / Markdown / 文本）建索引，通过 MCP 工具按需检索 |
 | 记得住 | 记忆：跨对话保留你的习惯与约定；界面上写、或对话里对助手说「记住…」，之后每轮对话自动带上 |
 | 外部工具 | MCP：把本地 MCP server 配进来，由 PI 自己连接并在对话里使用 |
@@ -23,7 +26,9 @@
 | 评估回归 | 一次对话的客观指标 + 主观分；存基线，退步了一眼看见 |
 | 历史接着聊 | 在 Claude Code / Codex 里聊过的天，这里只读翻看，可搬到 WorkBaby 接着聊 |
 | 项目架构 | 本地静态分析模块与依赖，画成分层架构图（不联网、不调模型） |
-| 改了什么看得见 | 工作区：助手在你的文件夹里改了哪些文件、每一处改了什么，逐行对账（只读，不替你提交） |
+| 改了什么看得见 | 工作区：助手在你的文件夹里改了哪些文件、每一处改了什么，逐行对账 |
+| 收成一次提交 | 勾要入栈的文件 → 写一句这次改了什么（可让助手按改动起草）→ 确认提交；还能看提交历史、某个文件的历史、切分支与推送 |
+| 回放与瀑布图 | 一次运行的每个动作按真实时间轴重走一遍（播放 / 单步 / 0.5×–4×），瀑布图一眼看出哪一步拖了后腿 |
 | 看得见 | 对话时实时显示上下文占用；仪表盘按天 / 按模型统计 token 用量与缓存命中 |
 | 看得懂 | 应用内「帮助」页：内置手册，离线可查 |
 | 开箱即跑 | Node / Python 已嵌进程序，首次启动自动解开；PI 也由它装好 |
@@ -55,7 +60,7 @@
 | 配置 / 日志 / ID | Viper · log/slog · ULID |
 | Agent / LLM | 外部内核 PI（`pi --mode rpc`）· 模型与服务商由 PI 自己的 `models.json` 管 |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + 原生 CSS 设计令牌（无 UI 框架） |
-| 测试 | testing（一包一个入口，入口内按链路分子测试；全是跨模块 / 跨协议链路，不写只验单函数返回值的那种；`pwsh scripts/check.ps1` 分四档收口，模型侧用脚本替身注入，不联网） |
+| 测试 | testing（一包一个入口，入口内按链路分子测试；全是跨模块 / 跨协议链路，不写只验单函数返回值的那种；`pwsh scripts/check.ps1` 分三档收口，模型侧用脚本替身注入，不联网） |
 
 ## 快速开始
 
@@ -66,7 +71,6 @@
 # 日常验证（一个脚本收口）
 pwsh scripts/check.ps1                  # 快门：格式 → 编译 → 全部包的短测试
 pwsh scripts/check.ps1 -Pkg backend/pi  # 只验一个包（改小功能用这个）
-pwsh scripts/check.ps1 -All             # 再加前端构建
 pwsh scripts/check.ps1 -Full            # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
 
 # 开发
@@ -90,7 +94,7 @@ backend/
   repo/       GORM 持久层
   domain/     域模型（一个聚合根一个文件，DO / REQ / VO / RESP 同居）
   knowledge/  知识库（解析 + 切分 + FTS5 检索；另挂一个 MCP server 出口）
-  git/        工作区版本视图（只读 status / diff，走系统 git）
+  git/        工作区版本视图（读 status/diff/历史，写限白名单六动作，走系统 git）
   skill/      Skill 解析、注册与来源优先级
   history/    通用会话历史（只读扫描 + 按来源解析）
   archmap/    项目架构分析（import 解析 + 分层图数据）
@@ -102,12 +106,12 @@ backend/
   tray/       系统托盘
   singleinstance/  单实例与二次启动转交
 frontend/src/   Vue3 源码（themes.css 是唯一色值与字体来源）
-assets/       内置 Skill + 应用内帮助文档（embed 进 exe）
+assets/       应用内帮助文档（embed 进 exe）
 build/windows/ 平台资源与 NSIS 安装器脚本（installer/project.nsi 是可持久定制的那份）
-scripts/      check.ps1：统一验证入口（快门 / -All / -Full / -Pkg）
+scripts/      check.ps1：统一验证入口（快门 / -Pkg / -Full）
 tools/        依赖方向门禁（Go 写的独立程序）
 docs/         项目级文档（架构 / 契约 / 数据模型 / 页面 / 开发 / 部署 / 错误码）
-specs/        子系统规格 01-19，一个子系统一个文件
+specs/        子系统规格 01-21，一个子系统一个文件
 ```
 
 运行观测不单独设包：`service/runs.go` + `repo/run.go` + `domain/run.go`。
@@ -120,7 +124,6 @@ specs/        子系统规格 01-19，一个子系统一个文件
 ```powershell
 pwsh scripts/check.ps1                        # 快门：格式 → 编译 → 全部包的短测试
 pwsh scripts/check.ps1 -Pkg backend/service   # 只验一个包（改小功能用这个）
-pwsh scripts/check.ps1 -All                   # 再加前端构建
 pwsh scripts/check.ps1 -Full                  # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
 go test ./backend/service/ -run TestServiceChain -v        # 只跑一条链
 go test ./backend/pi/ -run 'TestPiChain/审批请求解析与回写响应'  # 只跑链上的一段
@@ -133,15 +136,15 @@ go test ./backend/pi/ -run 'TestPiChain/审批请求解析与回写响应'  # �
 | 对话编排 / 审批桥 / 投影 / 用量 | `backend/service` `TestServiceChain` | 会话懒创建 → 发送回写指针 → 删除清行清文件、一轮跑完的运行记录与用量口径、JSONL 投影（坏行只跳过自己）、策略文件、审批桥全链、子代理独立进程、配置同步幂等、并发不串会话 |
 | HTTP 面 / SSE | `backend/api` `TestHTTPChain` | 装配完整与端口握手、预检与方法白名单、路径穿越在门口拒绝、统一信封与空数组契约、SSE 全链（seq 递增、用量落袋）与断线重放 |
 | 知识库 | `backend/knowledge` `TestKnowledgeChain` | 加文档→索引→检索→删除级联、Office 页序、重建索引后台任务、MCP 出口（握手 / 工具声明 / 检索 / 零命中的话术） |
-| Skill | `backend/skill` `TestSkillRegistryChain` | embed 解析落盘渲染、来源优先级与工作区切换 |
-| 工作区版本视图 | `backend/git` `TestGitChain` | 真 git 仓库的 status/diff 全链路（行号归属 / 中文路径还原）、非仓库给人话引导 |
+| Skill | `backend/skill` `TestSkillRegistryChain` | 目录解析与来源优先级、工作区切换后不残留 |
+| 工作区版本视图 | `backend/git` `TestGitChain` | 真仓库全链路（状态归类 / 行号归属 / 未跟踪整篇新增）+ 受控写入（勾选入栈 → 空信息被拒 → 提交带回 hash → 历史与文件历史可读 → 出栈不动工作区）+ 分支切换后历史跟着换 + 写入护栏（越界、分支名、提交号） |
 | 内置运行时 | `backend/runtime` `TestBundledRuntimeChain` | 内嵌归档与 SHA 一致、解压路径穿越防护、Node 剔层与其余平铺 |
 | 桌面壳启动 / 托盘 | `app_test.go` `TestAppChain` | 慢装配不误判、失败如实报、卡死有上限、关闭去向 |
 
 ## 文档
 
 读法：`README.md`（这个项目是什么）→ `docs/ARCHITECTURE.md`（全貌与每个模块的设计）→
-`specs/01-19`（某个子系统怎么实现）→ `AGENTS.md`（动手改代码时的规范）。
+`specs/01-21`（某个子系统怎么实现）→ `AGENTS.md`（动手改代码时的规范）。
 只看设计不看规范的，读到 `ARCHITECTURE.md` 就够了。
 
 | 文档 | 内容 |
@@ -157,7 +160,7 @@ go test ./backend/pi/ -run 'TestPiChain/审批请求解析与回写响应'  # �
 | [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 错误码 1000–9799 的含义与处置动作 |
 | [specs/06 用户手册](specs/06-user-manual.md) | 应用内帮助页：内置文档组织、`/docs` 接口与阅读界面 |
 
-子系统规格 `specs/01-19`，一个子系统一个文件：
+子系统规格 `specs/01-21`，一个子系统一个文件：
 [01 内置运行时](specs/01-runtime.md) ·
 [02 会话模型](specs/02-session.md) ·
 [03 Skill 系统](specs/03-skill.md) ·
@@ -176,4 +179,6 @@ go test ./backend/pi/ -run 'TestPiChain/审批请求解析与回写响应'  # �
 [16 子代理](specs/16-subagent.md) ·
 [17 PI 监督进程](specs/17-pi-supervisor.md) ·
 [18 环境引导](specs/18-pi-bootstrap.md) ·
-[19 审批与 WorkBaby 扩展](specs/19-approval-bridge.md)
+[19 审批与 WorkBaby 扩展](specs/19-approval-bridge.md) ·
+[20 工作区文件面板](specs/20-workspace-files.md) ·
+[21 Harness 控制面](specs/21-harness-console.md)

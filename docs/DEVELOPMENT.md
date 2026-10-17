@@ -13,7 +13,6 @@
 # 验证入口：一个脚本收口，别在本地与 CI 各写一套（分档说明见 AGENTS.md §3.3）
 pwsh scripts/check.ps1                                      # 快门：格式 → 编译 → 所有包短测试
 pwsh scripts/check.ps1 -Pkg backend/service                 # 只验一个包
-pwsh scripts/check.ps1 -All                                 # 快门 + 前端构建
 pwsh scripts/check.ps1 -Full                                # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
 
 # 单独跑某一步时才手敲
@@ -102,12 +101,12 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 │   ├── settings.json          #   默认模型 / 思考档 / defaultTools / 压缩参数
 │   ├── models.json            #   服务商与模型（WorkBaby 是唯一写入者）
 │   ├── mcp.json               #   MCP server（含内置的 workbaby-knowledge）
-│   ├── APPEND_SYSTEM.md       #   人设 + 记忆 + 技能清单（受控标记块）
+│   ├── APPEND_SYSTEM.md       #   人设 + 记忆（受控标记块；技能清单由 PI 原生注入，不在这）
 │   ├── workbaby-policy.json   #   审批档（由审批扩展读）
 │   ├── extensions/            #   workbaby.ts：审批闸门 + 记忆写入工具
 │   ├── skills/                #   PI 的技能目录（= WorkBaby 的用户技能目录）
+│   ├── skills.disabled/       #   停用的技能住这里：不在 PI 扫描范围，对模型不存在
 │   └── sessions/              #   PI 的会话 JSONL：对话真身在这里
-├── builtin-skills/            # 内置技能落盘处（模型按路径读取）
 ├── site-packages/             # 内置 Python 装的第三方包（跨运行时版本保留）
 └── tmp/                       # 超限输出的全文
 ```
@@ -158,7 +157,7 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 
 分档与命令的唯一权威是 [`AGENTS.md` §3.3](../AGENTS.md)（本节不重复表格，避免两处各写一套后走样）。
 取舍只有一句：**改哪里跑哪里**。日常用快门档（所有包的短测试）；只碰了一个包就用
-`-Pkg` 把编译范围一起收窄；独立子系统（前端 / 全量）用 `-All`；
+`-Pkg` 把编译范围一起收窄；前端单独验证直接 `cd frontend; npm run build`；
 真 git 链路与归档真解压只在 `-Full`（提交前与 CI）跑到。
 
 单独跑某一步时才手敲原生命令：

@@ -24,11 +24,13 @@
 | Schema 校验 | santhosh-tekuri/jsonschema/v6 | ^6.0.x |
 | 日志 | log/slog（标准库） | info/warn/error 分文件落盘 |
 | 实时通信 | SSE | 业务实时通信全部走 SSE（`/api/v1/events`），不引入 WebSocket |
-| 测试 | testing（标准库） | 一包一入口、一条链一子测试；`scripts/check.ps1` 分四档收口验证（快门 / -All / -Full / -Pkg），耗时以编译为主 |
+| 测试 | testing（标准库） | 一包一入口、一条链一子测试；`scripts/check.ps1` 分三档收口验证（快门 / -Pkg / -Full），耗时以编译为主 |
 | ID | oklog/ulid/v2 | 业务 ULID 带前缀 |
 | 加密 | AES-256-GCM（标准库） | Provider API Key |
 | 托盘 | getlantern/systray | 关闭到托盘 |
 | 内置运行时 | Node + Python | `backend/runtime/bundled/`（go:embed 进 exe，归档经 LFS 托管），其余一律不内置 |
+| 平台 | Windows | 本期只考虑 Windows；平台特定代码按 `//go:build windows` 分文件，不写 `runtime.GOOS` 大分支 |
+| 平台 | Windows | 本期只考虑 Windows；平台特定代码按 `//go:build windows` 分文件，不写 `runtime.GOOS` 大分支 |
 
 ### 1.1 依赖原则
 
@@ -40,6 +42,16 @@
 需要哪一类能力时，先问「几百行自绘能不能覆盖」：运行观测（specs/15）是自己从
 条目链投影，架构图（specs/13）是自绘 SVG，仪表盘的两张图也是自绘——
 这些都是几百行就能覆盖的场景，不因为「有现成的库」就开禁。
+
+### 1.2 内核归 PI，界面归 WorkBaby
+
+Agent 内核是外部 PI 进程（`pi --mode rpc`），本项目**不重写内核**：工具、压缩、
+重试、缓存、编辑、MCP、扩展、子代理全由 PI 演进，本机只做发现 / 安装 / 拉起 / 守护 /
+协议编解码 / 事件翻译六件事。想加一个 agent 能力时先确认 PI 是否已有：已有就在界面上
+暴露它，不自研第二份。
+
+PI 不强制用户预先安装：内置 Node 与内置 npm 前缀可代装；用户机器上已有可用 PI 时
+直接复用（specs/18）。
 
 ---
 
@@ -62,7 +74,7 @@ WorkBaby/
 │   ├── domain/                   # ⑥ 域模型（一个聚合根一个文件，DO/DTO/REQ/VO/RESP 同居一处）
 │   ├── skill/                    # ⑦ Skill（parser/registry/loader，目录即 PI 的技能目录）
 │   ├── knowledge/                # ⑧ 知识库（loader/chunker/service + FTS5 检索；另挂一个 MCP server 出口）
-│   ├── git/                      # ⑨ 工作区版本视图（只读 status / diff，走系统 git）
+│   ├── git/                      # ⑨ 工作区版本视图（读 status/diff/历史，写限白名单六动作，走系统 git）
 │   ├── runtime/                  # ⑩ 路径解析 + 内置 Node / Python 运行时（bundled/ 归档 go:embed + 解压）
 │   │   └── runtimetest/          #    测试夹具：预置运行时标记，装配类测试跳过解压（只被测试引用）
 │   ├── config/                   # ⑪ 配置（Viper YAML + MasterKey）
@@ -72,7 +84,7 @@ WorkBaby/
 │   ├── singleinstance/           # ⑮ 单实例保护（文件锁 + 本地 TCP IPC）
 │   ├── history/                  # ⑯ 通用会话历史（只读扫描 + 解析器注册表）
 │   └── archmap/                  # ⑰ 项目架构分析（import 解析 + 分层图数据）
-├── assets/                       # 内置 Skill（embed）
+├── assets/                       # 应用内帮助文档（embed；Skill 管理见 specs/03）
 ├── build/                        # 平台资源与产物
 ├── docs/                         # 项目级文档：架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署
 ├── specs/                        # 子系统规格（01-21）
@@ -97,6 +109,8 @@ WorkBaby/
 - `backend/pkg/` 依赖任何其他 `backend/` 业务包（叶子工具包铁律）
 - `backend/pi` import wails / api / server / gin / service，或让上层直接复制一份子进程与协议
 - 任何层向 PI 的 JSONL 写入（只有 PI 能写它）
+- 用字符串拼 git 写命令：`backend/git` 的写入走显式白名单（stage / unstage / commit / 新建分支 /
+  切分支 / push），`--force` / `reset --hard` / `--amend` / `--no-verify` / `-C <dir>` 一律拒绝（specs/09）
 
 ### 2.2 依赖方向（强制）
 
@@ -269,7 +283,7 @@ json tag 必须忠实协议字段名（camelCase：`parentId` / `toolCallId` / `
 
 - 根级：`README.md`（入口与能力全景）/ `AGENTS.md`（工程规范，唯一权威）/ `DESIGN.md`（视觉语言）
 - `docs/`：项目级说明（架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署）
-- `specs/`：子系统规格，编号 01-22，一个子系统一个文件
+- `specs/`：子系统规格，编号 01-21，一个子系统一个文件
 - 每篇只写现状：定位 → 设计 → 契约 → 关键流程 → 约束 → 取舍。**优势与代价必须写出来**
 - 表格与短段落优先；能用表就不用列表
 - **不写改动过程**：不建 CHANGELOG，不记录「本次改了什么」「之前坏在哪」，
@@ -440,7 +454,7 @@ type Record struct {
 | 环境 `Ready` 判定在 spawn 之前 | 没配模型就 spawn，失败点会推到第一次对话，错误难以归因 |
 | 会话/消息/审批等界面词表不变 | 前端只认自己的 `chat:*`；换词表等于重写整个前端 |
 
-详见 `specs/17-pi-supervisor.md` / `26-pi-bootstrap.md`。
+详见 `specs/17-pi-supervisor.md` / `18-pi-bootstrap.md`。
 
 ---
 
@@ -517,12 +531,12 @@ singleinstance / mcp / git 之外的能力域）不单独设测试：它们的�
 |---|---|
 | `app_test.go` · TestAppChain | 启动等待判据（慢装配不误判 / 失败如实报 / 卡死有上限）；关闭去向（托盘开关与退出流程决定收托盘还是真退出） |
 | `pi/pi_test.go` · TestPiChain | 真假 PI 进程下的协议链：LF 分帧（含 U+2028 在字符串内）+ 未知记录不挡命令 + 响应按 id 关联；事件顺序不变量（`agent_end` → 重试 → `agent_settled`，done 不早到）；流式增量与工具结果内容块；压缩前后 token；审批请求解析与决策回写；停止先取回排队文本；有序退出与崩溃报错；可执行文件识别与工作区进程归属 |
-| `pi/env/env_test.go` · TestPiEnvChain | 环境闸门按 node → pi → model 报首个阻塞项（模型就绪不等于环境就绪）；进程环境的 PATH 前置与 agent 目录唯一；`models.json` / `settings.json` 写出 PI 认识的形状且写入是原子替换；`mcp.json` 补内置条目、未知字段保留、坏文件不覆盖 |
+| `pi/env/env_test.go` · TestPiEnvChain | 环境闸门按 node → pi → model 报首个阻塞项（模型就绪不等于环境就绪）；系统已装 PI 被识别为 `system` 来源并优先复用；进程环境的 PATH 前置与 agent 目录唯一；`models.json` / `settings.json` 写出 PI 认识的形状且写入是原子替换；`mcp.json` 补内置条目、未知字段保留、坏文件不覆盖 |
 | `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈：预检放行 + 方法白名单 + 路径穿越在门口拒绝；统一信封与空数组契约；SSE 全链（子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋）与 Last-Event-ID 重放。服务只启一次，子测试共用 |
-| `service/chain_test.go` · TestServiceChain | 会话生命周期（懒创建 → 发送回写指针 → 删除同时清行与文件）；一轮跑完后的运行记录收尾与用量口径；停止链路；JSONL 投影（含坏行只跳过自己）；权限档写进策略文件；审批桥（登记 → 工具名解析 → 会话级放行 → Forget 清干净 → 4102）；工作区切换重建进程；子代理独立进程与隐藏会话不进列表；配置同步写出 PI 的全部文件并登记审批扩展；`APPEND_SYSTEM` 只改受控块；设置与工具开关同步进 `settings.json`；MCP 校验不过不落盘且内置条目删不掉；并发发送不串会话 |
+| `service/chain_test.go` · TestServiceChain | 会话生命周期（懒创建 → 发送回写指针 → 删除同时清行与文件）；一轮跑完后的运行记录收尾与用量口径；停止链路；JSONL 投影（含坏行只跳过自己）；**技能启停 = 移目录**（停用后 skills/ 清空、skills.disabled/ 可列可读可恢复）；权限档写进策略文件；审批桥（登记 → 工具名解析 → 会话级放行 → Forget 清干净 → 4102）；工作区切换重建进程；子代理独立进程与隐藏会话不进列表；配置同步写出 PI 的全部文件并登记审批扩展；`APPEND_SYSTEM` 只改受控块；设置与工具开关同步进 `settings.json`；MCP 校验不过不落盘且内置条目删不掉；并发发送不串会话 |
 | `knowledge/knowledge_test.go` · TestKnowledgeChain | 建索引 → 检索（短查询子串兜底）→ 删除级联；pptx 按页号抽取且可检索；重建索引后台任务（进度跑满、拒绝重入、结束后取消返回 false）；MCP 出口（握手按客户端版本回、通知不回帧、工具声明、检索命中与零命中的话术、未知方法报错） |
-| `git/git_test.go` · TestGitChain | 真仓库端到端：init → 提交 → 改动 → status 认出「改过 / 未跟踪」带对增删行数、中文带空格路径还原 → 单文件差异的行号归属与未跟踪整篇新增 → 整个工作区 diff 不为空；护栏（工作区外路径被拒、非仓库目录给人话引导）。`-short` 与没装 git 都跳过 |
-| `skill/skill_test.go` · TestSkillRegistryChain | embed 解析落盘与触发词渲染；同名按来源优先且可回退、切换工作目录换掉工作区技能；停用 = 移出目录（不是写 KV） |
+| `git/git_test.go` · TestGitChain | 真仓库端到端，按坏法分三条链：读（status 归类 / 中文带空格路径还原 / 行号归属 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；写（参数白名单 → 勾选入栈 → 空信息被拒 → 提交带 hash → 历史与文件历史可读 → 出栈只动索引）；分支（名字白名单 → 新建切换 → 历史隔离）。`-short` 与没装 git 都跳过 |
+| `skill/skill_test.go` · TestSkillRegistryChain | 两区目录扫描与来源优先级（skills/ 启用、skills.disabled/ 停用但可见可读）；切换工作目录换掉工作区技能且不残留 |
 | `runtime/runtime_test.go` · TestBundledRuntimeChain | 两份归档 SHA 与常量一致、解压路径穿越拒绝；Node 剥掉顶层单目录、Python 平铺；真解压（`-short` 跳过） |
 
 **改这里 → 只跑这条**（定位与验证都从这张表进；单包一律用脚本）：
@@ -538,7 +552,7 @@ singleinstance / mcp / git 之外的能力域）不单独设测试：它们的�
 | `runtime/`（含真解压）· `git/`（含真 git） | `pwsh scripts/check.ps1 -Full` |
 | 某一条子测试 | `go test -count=1 -run 'TestPiChain/审批请求解析与回写响应' ./backend/pi` |
 | 拿不准 | `pwsh scripts/check.ps1` |
-| 改了前端 | `pwsh scripts/check.ps1 -All` |
+| 改了前端 | `cd frontend; npm run build`（或直接跑 `-Full`） |
 | 提交前 / CI | `pwsh scripts/check.ps1 -Full` |
 
 耗时大头是**编译**（前端依赖之外，Go 侧 26 个包 + wails / gin / gorm），测试本体多在亚秒级。

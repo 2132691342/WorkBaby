@@ -1,5 +1,5 @@
 // 系统提示与运行期参数：WorkBaby 不再拼系统提示（那在 PI 里），
-// 这里只负责把「用户自定义指令 + 记忆 + 技能清单」写进 PI 能读到的位置。
+// 这里只负责把「人设 + 记忆」写进 PI 能读到的受控块；技能清单由 PI 原生注入（specs/03）。
 package service
 
 import (
@@ -62,13 +62,6 @@ func buildAppendBody(env *Env) string {
 	if env.Memory != nil {
 		if block := env.Memory.RenderForPrompt(); block != "" {
 			b.WriteString("\n" + block + "\n")
-		}
-	}
-	if env.Skills != nil {
-		if xml := env.Skills.Render(); xml != "" {
-			b.WriteString("\n## 可用技能\n")
-			b.WriteString(xml)
-			b.WriteString("\n")
 		}
 	}
 	return b.String()

@@ -28,7 +28,6 @@ const (
 	SettingDefaultProvider = "default_provider"
 	SettingDefaultModel    = "default_model"
 	SettingDisabledTools   = "disabled_tools"
-	SettingDisabledSkills  = "disabled_skills"
 	SettingContextReserve  = "context_reserve_tokens"
 	SettingContextWindow   = "context_window"
 	SettingMinimizeToTray  = "minimize_to_tray"
@@ -87,7 +86,6 @@ func DefaultSettings() map[string]string {
 		SettingPermission:     PermissionAskWrite,
 		SettingContextReserve: "",
 		SettingDisabledTools:  "",
-		SettingDisabledSkills: "",
 		SettingMinimizeToTray: "true",
 		SettingFontFamily:     "system",
 		SettingSendOnEnter:    "true",

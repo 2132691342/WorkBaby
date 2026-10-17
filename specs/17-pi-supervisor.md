@@ -63,7 +63,7 @@ stdout 只走协议记录；诊断与日志走 stderr。两侧都必须持续读
 `setStatus` / `setWidget`），把未知类型当错误会让每个装了扩展的环境都起不来。
 
 `confirm` / `select` 是唯一需要回响应的两种记录，它们就是审批闸门的通道——
-详见 [27](27-approval-bridge.md)。
+详见 [19](19-approval-bridge.md)。
 
 ### 3.3 命令与关联
 

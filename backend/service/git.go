@@ -35,6 +35,96 @@ func (s *GitService) Diff(sessionID, rel string) (*domain.GitDiffVO, error) {
 	return git.Diff(root, rel)
 }
 
+// History 提交列表，按时间倒序。
+func (s *GitService) History(sessionID string, limit int) ([]domain.GitCommitVO, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.History(root, limit)
+}
+
+// CommitDetail 单次提交的完整内容。
+func (s *GitService) CommitDetail(sessionID, hash string) (*domain.GitCommitDetailVO, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.CommitDetail(root, hash)
+}
+
+// FileHistory 一个文件的提交历史。
+func (s *GitService) FileHistory(sessionID, rel string, limit int) ([]domain.GitCommitVO, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.FileHistory(root, rel, limit)
+}
+
+// Branches 分支清单。
+func (s *GitService) Branches(sessionID string) ([]domain.GitBranchVO, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.Branches(root)
+}
+
+// Stage 入栈；写后返回重读的状态。
+func (s *GitService) Stage(sessionID string, paths []string) (*domain.GitStatusVO, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.Stage(root, paths)
+}
+
+// Unstage 出栈；只动索引。
+func (s *GitService) Unstage(sessionID string, paths []string) (*domain.GitStatusVO, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.Unstage(root, paths)
+}
+
+// Commit 提交；信息由用户填。
+func (s *GitService) Commit(sessionID, message string) (*domain.GitCommitRESP, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.Commit(root, message)
+}
+
+// CreateBranch 新建分支并切过去。
+func (s *GitService) CreateBranch(sessionID, name string) (*domain.GitStatusVO, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.CreateBranch(root, name)
+}
+
+// SwitchBranch 切到已有分支。
+func (s *GitService) SwitchBranch(sessionID, name string) (*domain.GitStatusVO, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.SwitchBranch(root, name)
+}
+
+// Push 推送当前分支。
+func (s *GitService) Push(sessionID string) (*domain.GitStatusVO, error) {
+	root, err := s.workspace(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return git.Push(root)
+}
+
 // workspace 取助手实际干活的目录：会话自己设过就用会话的，否则用全局工作目录。
 // 只用全局会看错地方——会话级工作目录才是这次改动真正发生的地方。
 func (s *GitService) workspace(sessionID string) (string, error) {

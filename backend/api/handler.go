@@ -4,7 +4,6 @@ package api
 
 import (
 	"context"
-	"strings"
 	"sync/atomic"
 
 	"WorkBaby/backend/config"
@@ -113,9 +112,12 @@ func (h *Handler) Startup(ctx context.Context) error {
 	h.Knowledge = knowledge.New(h.Repo)
 
 	h.Skills = skill.New()
-	// 内置技能落盘再登记：PI 与模型都是按真实路径读正文的。
-	skill.InstallBuiltin(h.Skills, builtinSkills(), "skills", paths.BuiltinSkillsDir)
+	// 全局技能两区都扫：skills/ 启用、skills.disabled/ 停用——停用只是对模型隐形，
+	// 界面仍要列得出（specs/03）。清单注入由 PI 原生完成，WorkBaby 不再渲染第二份。
 	for _, s := range skill.LoadDir(paths.SkillsDir, domain.SkillSourceGlobal) {
+		h.Skills.Add(s)
+	}
+	for _, s := range skill.LoadDisabledDir(paths.DisabledSkillsDir, domain.SkillSourceGlobal) {
 		h.Skills.Add(s)
 	}
 	skill.LoadWorkspace(h.Skills, cfg.Workspace)
@@ -135,10 +137,6 @@ func (h *Handler) Startup(ctx context.Context) error {
 		return err
 	}
 	h.expiredApprovals = expired
-	// 停用名单要在默认值落库之后读，否则首启会把用户的选择冲掉。
-	if v, err := h.Repo.GetSetting(domain.SettingDisabledSkills); err == nil && v != "" {
-		h.Skills.ApplyDisabled(strings.Split(v, ","))
-	}
 	return nil
 }
 

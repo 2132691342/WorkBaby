@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 工作区视图：助手改了哪些文件、改了什么，在这里一眼看到。
-// 只读（status / diff）——提交与回滚是版本操作，交给用户在自己的工具里决定。
+// 工作区视图：助手改了哪些文件、改了什么、这个仓库发生过什么，以及把改动收成一次提交。
+// 读全开放（status / diff / 历史），写受控六动作（specs/09）——提交这一下始终由用户点下去。
 import { computed, onMounted, ref, watch } from 'vue'
 import * as api from '../api'
 import { useSessionStore } from '../stores/session'
@@ -9,6 +9,9 @@ import type { GitDiffVO, GitFileVO, GitStatusVO } from '../types/api'
 import AppIcon from '../components/common/AppIcon.vue'
 import PageState from '../components/common/PageState.vue'
 import DiffView from '../components/workspace/DiffView.vue'
+import GitBranchPanel from '../components/workspace/GitBranchPanel.vue'
+import GitCommitPanel from '../components/workspace/GitCommitPanel.vue'
+import GitHistoryPanel from '../components/workspace/GitHistoryPanel.vue'
 
 const toast = useToastStore()
 const session = useSessionStore()
@@ -89,6 +92,22 @@ onMounted(() => {
 })
 // 换会话就换目录：不跟着切，这一页会一直显示上一个会话的改动
 watch(sessionId, load)
+
+// ---- 页签：改动 / 提交 / 历史 / 分支 ----
+const TABS = [
+  { key: 'changes', label: '改动' },
+  { key: 'commit', label: '提交' },
+  { key: 'history', label: '历史' },
+  { key: 'branch', label: '分支' },
+]
+const tab = ref('changes')
+
+// 写操作后由子面板回传重读的状态：整个页面用同一份数据刷新，
+// 而不是每个面板各拉一次、各显示一个时刻的样子。
+async function afterWrite(st: GitStatusVO) {
+  status.value = st
+  if (tab.value === 'changes') await openDiff('')
+}
 </script>
 
 <template>
@@ -126,6 +145,21 @@ watch(sessionId, load)
             <span class="pt mono" :title="status?.workspace || ''">{{ status?.workspace }}</span>
           </div>
 
+          <!-- 页签：改动是默认，提交 / 历史 / 分支是这次新增的三块 -->
+          <div class="wk-tabs" role="tablist" aria-label="工作区视图">
+            <button
+              v-for="t in TABS"
+              :key="t.key"
+              type="button"
+              role="tab"
+              :class="{ on: tab === t.key }"
+              :aria-selected="tab === t.key"
+              @click="tab = t.key"
+            >
+              {{ t.label }}
+            </button>
+          </div>
+
           <div v-if="!readable" class="card blank">
             <div class="blank-in">
               <span class="bt"><AppIcon name="git-branch" size="ic-lg" /></span>
@@ -137,6 +171,28 @@ watch(sessionId, load)
                 </p>
               </div>
             </div>
+          </div>
+
+          <div v-else-if="tab === 'commit'" class="card tab-body">
+            <div class="card-head">
+              <h2>提交</h2>
+              <p class="hint">勾选要入这次提交的文件，写一句这次改了什么。</p>
+            </div>
+            <GitCommitPanel :status="status" :session-id="sessionId" @done="afterWrite" />
+          </div>
+
+          <div v-else-if="tab === 'history'" class="card tab-body">
+            <div class="card-head">
+              <h2>提交历史</h2>
+            </div>
+            <GitHistoryPanel :session-id="sessionId" />
+          </div>
+
+          <div v-else-if="tab === 'branch'" class="card tab-body">
+            <div class="card-head">
+              <h2>分支</h2>
+            </div>
+            <GitBranchPanel :session-id="sessionId" @done="afterWrite" />
           </div>
 
           <div v-else class="cols">
@@ -228,6 +284,46 @@ watch(sessionId, load)
 }
 .page-head .sp {
   flex: 1;
+}
+
+/* 页签：与设置页同一套语言——淡底 + 主色文字，不用描边抢层级 */
+.wk-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-surface);
+  align-self: flex-start;
+}
+.wk-tabs button {
+  height: var(--wb-ctl-h-sm);
+  padding: 0 var(--wb-sp-3);
+  border: 0;
+  border-radius: var(--wb-radius-full);
+  background: transparent;
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--wb-dur) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease);
+}
+.wk-tabs button:hover {
+  color: var(--wb-ink);
+}
+.wk-tabs button.on {
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
+}
+.tab-body {
+  padding: var(--wb-sp-4);
+}
+.tab-body .hint {
+  margin: 2px 0 0;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
 }
 
 /* 分支条：一行说清分支、与上游的差距、目录 */

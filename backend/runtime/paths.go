@@ -19,13 +19,15 @@ type Paths struct {
 	PythonDir  string
 	// NodeDir 与 NpmGlobalDir 是跑 PI 的那套：Node 必须内置优先，
 	// npm 全局前缀必须落在应用目录（系统前缀要管理员权限，写失败时用户完全看不懂）。
-	NodeDir          string
-	NpmGlobalDir     string
-	PiAgentDir       string
-	SkillsDir        string
-	BuiltinSkillsDir string
-	ConfigFile       string
-	BackgroundDir    string
+	NodeDir      string
+	NpmGlobalDir string
+	PiAgentDir   string
+	SkillsDir    string
+	// DisabledSkillsDir 不是技能目录：PI 只扫 skills/，停用的技能住在这里——
+	// 对模型不存在，对界面仍要可见可恢复。
+	DisabledSkillsDir string
+	ConfigFile        string
+	BackgroundDir     string
 	// SitePackages 是给内置 Python 装第三方包的地方。落在数据根而不是
 	// runtime/python 里：后者升级时会整个清场，装过的包跟着一起没。
 	SitePackages string
@@ -63,14 +65,13 @@ func ResolveAt(root string) (Paths, error) {
 		// 应用目录，卸载即清；同时保证它的 skills/ 就是我们的技能目录。
 		PiAgentDir: filepath.Join(root, "pi-agent"),
 		SkillsDir:  filepath.Join(root, "pi-agent", "skills"),
-		ConfigFile: filepath.Join(root, "config.yaml"),
-		// 内置技能要落到真实磁盘路径：系统提示里让模型 read 的 SKILL.md 必须存在。
-		// 单独一个目录而不是 skills/builtin，是为了不被「全局技能」扫描重复登记。
-		BuiltinSkillsDir: filepath.Join(root, "builtin-skills"),
-		BackgroundDir:    filepath.Join(root, "background"),
-		SitePackages:     filepath.Join(root, "site-packages"),
+		// 停用的技能移出 PI 的扫描范围才算真停用；同层目录，不嵌套进 skills/。
+		DisabledSkillsDir: filepath.Join(root, "pi-agent", "skills.disabled"),
+		ConfigFile:        filepath.Join(root, "config.yaml"),
+		BackgroundDir:     filepath.Join(root, "background"),
+		SitePackages:      filepath.Join(root, "site-packages"),
 	}
-	for _, dir := range []string{p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir, p.SkillsDir, p.BuiltinSkillsDir, p.BackgroundDir, p.SitePackages, p.NodeDir, p.NpmGlobalDir, p.PiAgentDir} {
+	for _, dir := range []string{p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir, p.SkillsDir, p.DisabledSkillsDir, p.BackgroundDir, p.SitePackages, p.NodeDir, p.NpmGlobalDir, p.PiAgentDir} {
 		if err := pkg.EnsureDir(dir); err != nil {
 			return Paths{}, err
 		}

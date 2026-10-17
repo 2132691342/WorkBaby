@@ -1,19 +1,18 @@
 <#
 验证入口：一个脚本收口全部验证动作（格式 / 编译 / 依赖边界 / 测试 / 前端）。
-按「改了多大」选档，失败即退出且不吞退出码。
+按「改了多大」选档，失败即退出不吞退出码。
 
   pwsh scripts/check.ps1                 快门：格式 → 编译 → 全包短测试
   pwsh scripts/check.ps1 -Pkg ./backend/pi   只验一个包（改单个能力域时用）
-  pwsh scripts/check.ps1 -All            快门 + 前端构建
-  pwsh scripts/check.ps1 -Full           全部（vet + 依赖边界 + 全量测试 + 前端），CI 跑这一档
+  pwsh scripts/check.ps1 -Full           全量：vet + 依赖边界 + 全量测试 + 前端构建；提交前 / CI 跑这一档
 
-耗时大头是编译而不是断言：测试本体多在亚秒级，26 个包的编译才是分钟级。
+耗时大头是编译而不是断言：测试本体多在亚秒级，包的编译才是分钟级。
 所以「只跑一个包」省的是编译——这就是 -Pkg 存在的理由。
-短测试（-short）跳过真 git 操作、归档真解压与真 PI 进程；这些各在对应包里留一次全量。
+短测试（-short）跳过真 git 子进程链路与归档真解压；这两条只在 -Full 跑到。
+前端改了就直接跑 -Full；单独验证前端时进 frontend 跑 npm run build。
 #>
 [CmdletBinding()]
 param(
-    [switch]$All,
     [switch]$Full,
     [string]$Pkg
 )
@@ -40,7 +39,7 @@ Step 'gofmt' {
 }
 
 if ($Pkg) {
-    # 包路径写成 backend/pi 或 ./backend/pi 都行：go 只认后者，这里补上前缀。
+    # 包路径写成 backend/pi 或 ./backend/pi 都行；go 只认后者，这里补上前缀。
     if ($Pkg -notmatch '^(\.|WorkBaby)') { $Pkg = "./$Pkg" }
     Step "build $Pkg" { go build $Pkg }
     Step "test $Pkg" {
@@ -62,8 +61,8 @@ Step 'test' {
     if ($Full) { go test -count=1 ./... } else { go test -short -count=1 ./... }
 }
 
-# 前端只有构建一档：npm run build 里已经串了 vue-tsc，不必再单独跑一遍类型检查。
-if ($All -or $Full) {
+# 前端只有一档：npm run build 里已串了 vue-tsc，不必再单独跑类型检查。
+if ($Full) {
     Step 'frontend build' {
         Push-Location frontend
         try { npm run build } finally { Pop-Location }

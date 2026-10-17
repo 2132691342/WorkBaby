@@ -38,7 +38,7 @@ PI 已经做了，而且做得更全（它还要处理扩展注册的工具、`c
 ## 配置文件
 
 路径：`<agent-dir>/mcp.json`，`<agent-dir>` 由 `PI_CODING_AGENT_DIR` 指向
-`{数据目录}/pi-agent`（见 [26](26-pi-bootstrap.md)）。
+`{数据目录}/pi-agent`（见 [18](18-pi-bootstrap.md)）。
 
 首次启动若文件不存在，按内置模板写一份（只含 `_comment` 与一个示例条目），
 让用户打开就知道往哪儿填，而不是面对空编辑器。

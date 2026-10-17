@@ -316,6 +316,61 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
+	t.Run("技能启停是移目录不是改标记", func(t *testing.T) {
+		vo, err := te.container.Skills.Create(domain.CreateSkillREQ{
+			Name: "toggle-me", Description: "验证移目录", Body: "步骤一。",
+		})
+		if err != nil {
+			t.Fatalf("建技能失败: %v", err)
+		}
+		enabledDir := filepath.Join(te.env.Paths.SkillsDir, "toggle-me")
+		disabledDir := filepath.Join(te.env.Paths.DisabledSkillsDir, "toggle-me")
+		if _, err := os.Stat(enabledDir); err != nil {
+			t.Fatalf("新建应落在 skills/: %v", err)
+		}
+		// 清单由 PI 扫目录注入，所以停用必须把目录移出 PI 的视野；只改内存就是假开关。
+		if err := te.container.Skills.Toggle(vo.ID, false); err != nil {
+			t.Fatalf("停用失败: %v", err)
+		}
+		if pkg.DirExists(enabledDir) {
+			t.Fatal("停用后 skills/ 里不该还剩着")
+		}
+		if !pkg.DirExists(disabledDir) {
+			t.Fatal("停用后目录应在 skills.disabled/")
+		}
+		found := false
+		for _, sk := range te.container.Skills.List() {
+			if sk.ID == vo.ID {
+				found = true
+				if sk.Enabled {
+					t.Fatalf("列表里的停用技能应标记未启用: %+v", sk)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("停用的技能仍要在列表里（界面要能一键恢复）")
+		}
+		if err := te.container.Skills.Toggle(vo.ID, true); err != nil {
+			t.Fatalf("启用失败: %v", err)
+		}
+		if !pkg.DirExists(enabledDir) || pkg.DirExists(disabledDir) {
+			t.Fatal("启用没把目录移回来")
+		}
+		// 工作区技能属于项目文件，界面不搬：装入一条后拒停必须是 8110，不是「找不到」。
+		wsDir := filepath.Join(te.env.Cfg.Workspace, ".pi", "skills", "ws-reject")
+		if err := os.MkdirAll(wsDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := pkg.WriteText(filepath.Join(wsDir, "SKILL.md"), "---\nname: ws-reject\ndescription: d\n---\n正文\n"); err != nil {
+			t.Fatal(err)
+		}
+		skill.LoadWorkspace(te.env.Skills, te.env.Cfg.Workspace)
+		err = te.container.Skills.Toggle("ws-reject@workspace", false)
+		if err == nil || pkg.CodeOf(err) != "8110" {
+			t.Fatalf("工作区技能拒停应报 8110，实际 %v", err)
+		}
+	})
+
 	t.Run("权限档写进策略文件", func(t *testing.T) {
 		sess := te.newSession(t)
 		if err := te.container.Sessions.SetPermission(sess.ID, domain.PermissionReadonly); err != nil {

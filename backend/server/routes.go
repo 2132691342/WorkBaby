@@ -111,6 +111,19 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		{
 			git.GET("/status", h.GitStatus)
 			git.GET("/diff", h.GitDiff)
+			// 版本历史（specs/09）：提交列表、单次提交、文件历史、分支清单。
+			git.GET("/history", h.GitHistory)
+			git.GET("/commit", h.GitCommitDetail)
+			git.GET("/file-history", h.GitFileHistory)
+			git.GET("/branches", h.GitBranches)
+			// 受控写入：白名单六动作，命中禁止清单一律 1018。
+			git.POST("/stage", h.GitStage)
+			git.POST("/unstage", h.GitUnstage)
+			git.POST("/commit", h.GitCommit)
+			git.POST("/branch", h.GitCreateBranch)
+			git.POST("/switch", h.GitSwitchBranch)
+			git.POST("/push", h.GitPush)
+			git.POST("/message", h.GitDraftMessage)
 		}
 
 		mcp := v1.Group("/mcp")

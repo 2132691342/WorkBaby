@@ -32,7 +32,6 @@ const TEMPLATE = `## 什么时候用
 （容易出错的地方、需要的工具）`
 
 const sourceName: Record<string, string> = {
-  builtin: '内置',
   global: '我的',
   workspace: '工作区',
 }
@@ -301,7 +300,7 @@ onMounted(() => store.loadSkills())
             @click.stop="toggle(s.id, !s.enabled)"
           />
           <button
-            v-if="s.source !== 'builtin'"
+            v-if="s.source !== 'workspace'"
             class="icon-btn is-sm is-danger"
             :class="{ 'is-confirm': confirming === s.id, 'is-loading': busyId === s.id }"
             type="button"
