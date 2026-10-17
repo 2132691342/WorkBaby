@@ -133,7 +133,6 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		checkpoints := v1.Group("/checkpoints")
 		{
 			checkpoints.GET("", h.ListCheckpoints)
-			checkpoints.POST("/restore/:id", h.RestoreCheckpoint)
 			checkpoints.POST("/fork/:id", h.ForkCheckpoint)
 		}
 

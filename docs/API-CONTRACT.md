@@ -323,8 +323,7 @@ duration_ms, can_resume}`。
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | /checkpoints?session_id= | 一个会话的全部检查点（按轮次升序） |
-| POST | /checkpoints/restore/:id | 回到这一刻 `{session_id}`：发 PI 的 `fork`（entryId = 检查点里的），**新建一条会话**，原会话完整保留 |
-| POST | /checkpoints/fork/:id | 与 restore 同义（保留旧路径名，前端两者都可调） |
+| POST | /checkpoints/fork/:id | 从这一刻重开 `{session_id}`：发 PI 的 `fork`（entryId = 检查点里的），**新建一条会话**，原会话完整保留。PI 没有「把会话叶子挪回去」的协议面，所以「回去」只能是分叉，界面因此不叫「撤销」也不叫「回退」 |
 
 ### 评估与回归
 

@@ -38,21 +38,6 @@ func (h *Handler) ListCheckpoints(c *gin.Context) {
 	ok(c, list)
 }
 
-// RestoreCheckpoint 回到某个检查点（移动会话叶子，不删条目）。
-func (h *Handler) RestoreCheckpoint(c *gin.Context) {
-	var req domain.RestoreCheckpointREQ
-	if err := bindOptionalBody(c, &req); err != nil {
-		fail(c, err)
-		return
-	}
-	vo, err := h.Svc.Runs.Restore(req.SessionID, c.Param("id"))
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	ok(c, vo)
-}
-
 // ForkCheckpoint 从某个检查点分叉出一条新会话。
 func (h *Handler) ForkCheckpoint(c *gin.Context) {
 	var req domain.RestoreCheckpointREQ

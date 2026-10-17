@@ -234,12 +234,8 @@ export const runs = {
 
 export const checkpoints = {
   list: (session_id: string) => get<CheckpointVO[]>('/checkpoints', { session_id }),
-  /** 回到某轮：把会话当前位点移回去，不删任何条目 */
-  restore: (session_id: string, id: string) =>
-    post<null>(`/checkpoints/restore/${id}`, { session_id }),
-  /** 从某轮分叉出一条新会话：原会话完整保留 */
-  fork: (session_id: string, id: string) =>
-    post<SessionVO>(`/checkpoints/fork/${id}`, { session_id }),
+  /** 从某轮重开：PI 没有「改 leaf」的协议面，所以是分叉出一条新会话，原会话完整保留 */
+  fork: (session_id: string, id: string) => post<SessionVO>(`/checkpoints/fork/${id}`, { session_id }),
 }
 
 /** 评估与回归：一次对话打几分，与基线比差在哪。 */

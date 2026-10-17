@@ -128,14 +128,8 @@ func (s *RunsService) Checkpoints(sessionID string) ([]domain.CheckpointVO, erro
 	return s.env.Repo.ListCheckpoints(sessionID)
 }
 
-// Restore 回到某个检查点：PI 没有「改 leaf」的协议面，
-// 所以语义是**从那一刻分叉出一条新会话**，原会话完整保留。
-// 界面用「从这一刻重开」表达它，而不是「撤销」。
-func (s *RunsService) Restore(sessionID, checkpointID string) (*domain.SessionVO, error) {
-	return s.Fork(sessionID, checkpointID)
-}
-
-// Fork 从检查点分叉出一条新会话：原会话完整保留，用户从那一刻开一条平行的问法。
+// Fork 从检查点分叉出一条新会话：PI 没有「把会话叶子挪回去」的协议面，
+// 所以「回到这一刻」就是分叉，原会话与它的检查点都完整保留。
 func (s *RunsService) Fork(sessionID, checkpointID string) (*domain.SessionVO, error) {
 	cp, err := s.env.Repo.GetCheckpoint(checkpointID)
 	if err != nil {

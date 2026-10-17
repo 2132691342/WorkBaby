@@ -3,11 +3,12 @@
 // 它回答的是「这一轮到底干了什么、花了多少、从哪能回去」，与对话页的运行态互补：
 // 对话页看此刻，这里看历史。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import * as api from '../../api'
 import type { RunDetailVO, RunVO } from '../../types/api'
 import { useToastStore } from '../../stores/toast'
 import { useDrawer } from '../../composables/useDrawer'
+import { useSessionStore } from '../../stores/session'
 import { fmtCount, fmtMs } from '../../utils/num'
 import AppIcon from '../common/AppIcon.vue'
 import PageState from '../common/PageState.vue'
@@ -15,6 +16,8 @@ import RunTimeline from './RunTimeline.vue'
 
 const toast = useToastStore()
 const route = useRoute()
+const router = useRouter()
+const session = useSessionStore()
 
 const runs = ref<RunVO[]>([])
 const loading = ref(true)
@@ -84,28 +87,19 @@ onBeforeUnmount(() => {
 })
 
 const busy = ref('')
-async function restore(cpId: string) {
-  const d = detail.value
-  if (!d || busy.value) return
-  busy.value = cpId
-  try {
-    await api.checkpoints.restore(d.session_id, cpId)
-    toast.ok('已回到那一刻，可以接着说了')
-  } catch (e) {
-    toast.bad(`回退失败：${(e as Error)?.message || '请重试'}`)
-  } finally {
-    busy.value = ''
-  }
-}
-async function fork(cpId: string) {
+// 两个动作落到同一处：PI 没有「把会话叶子挪回去」的协议面，
+// 回到某一轮 = 从那一刻分叉出一条新会话，原会话完整保留。
+// 分叉完必须跳去对话页并打开新会话——留在指挥台等于什么都没发生。
+async function forkFrom(cpId: string) {
   const d = detail.value
   if (!d || busy.value) return
   busy.value = cpId
   try {
     const sess = await api.checkpoints.fork(d.session_id, cpId)
-    toast.ok('已开出分支会话')
+    await session.open(sess.id)
     open.value = false
-    void sess
+    await router.push('/')
+    toast.ok('已从这一刻开出新会话，原对话还在')
   } catch (e) {
     toast.bad(`分叉失败：${(e as Error)?.message || '请重试'}`)
   } finally {
@@ -224,17 +218,9 @@ const peakContext = computed(() => {
                   class="btn btn-sm"
                   type="button"
                   :disabled="!!busy"
-                  @click="restore(cp.id)"
+                  @click="forkFrom(cp.id)"
                 >
-                  {{ busy === cp.id ? '处理中…' : '回到这里' }}
-                </button>
-                <button
-                  class="btn btn-sm btn-ghost"
-                  type="button"
-                  :disabled="!!busy"
-                  @click="fork(cp.id)"
-                >
-                  开分支
+                  {{ busy === cp.id ? '处理中…' : '从这一刻重开' }}
                 </button>
               </li>
             </ul>

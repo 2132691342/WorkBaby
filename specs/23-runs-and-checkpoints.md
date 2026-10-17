@@ -53,8 +53,7 @@
 | GET | `/api/v1/runs?session_id=&limit=` | 运行记录列表（不给 `session_id` 就是跨会话，最多 200 条） |
 | GET | `/api/v1/runs/:id` | 详情：记录 + 时间线 + 上下文快照 + 检查点 |
 | GET | `/api/v1/checkpoints?session_id=` | 一个会话的全部检查点（按轮次升序） |
-| POST | `/api/v1/checkpoints/restore/:id` | 回到这一刻 `{session_id}` |
-| POST | `/api/v1/checkpoints/fork/:id` | 从这一刻开一条新会话 `{session_id}` → `SessionVO` |
+| POST | `/api/v1/checkpoints/fork/:id` | 从这一刻重开 `{session_id}` → `SessionVO`（PI 没有「改 leaf」的协议面，回去只能是分叉） |
 | POST | `/api/v1/archive` | 手动按保留期归档 → `{retention_days, sessions, detached_runs}` |
 
 `RunVO`：`{id, session_id, session_title, provider_id, model, status, stop_reason, turns,
@@ -86,12 +85,15 @@ duration_ms, can_resume}`。
 ### 回到某一轮
 
 ```
-POST /checkpoints/restore/:id {session_id}
+POST /checkpoints/fork/:id {session_id}
   → 校验检查点属于该会话（9601）
   → PI 的 fork（entryId = 检查点里的 pi_entry_id）
-  → 拿到新 JSONL → 建一条新的 WorkBaby 会话行（标题加「（回退）」）
-  → 广播 chat:switched，前端跳过去
+  → 拿到新 JSONL → 建一条新的 WorkBaby 会话行
+  → 前端跳到对话页并打开这条新会话；原会话与它的全部检查点都还在
 ```
+
+界面只给一个「从这一刻重开」钮，不叫「回退」也不叫「撤销」：历史没有被改动，
+新会话是另一条平行线，说成「撤销」用户会以为原对话里的东西没了。
 
 **不是移动指针，而是分叉。** PI 的 leaf 是它内部状态，协议上没有“改 leaf”这回事。
 原会话完整保留——用户想再看回去，切回原来的会话就行。
