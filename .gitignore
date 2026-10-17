@@ -1,0 +1,57 @@
+# Go
+/WorkBaby
+/WorkBaby.exe
+*.exe
+# 构建产物：本地 wails build 输出，**不入库**（含可执行文件与 NSIS 安装器）；
+# 安装器走 GitHub Actions tag 触发构建并上传到 GitHub Release，
+# 避免每次本地构建触发 LFS pointer 变化、git status 永远 modified。
+/build/bin/
+
+# Wails
+/build/darwin/
+/build/windows/
+# 安装脚本源码入库（installer/tmp 等构建产物仍忽略）
+!/build/windows/
+/build/windows/*
+!/build/windows/installer/
+/build/windows/installer/*
+!/build/windows/installer/*.nsi
+!/build/windows/installer/*.nsh
+
+# Frontend
+/frontend/node_modules/
+/frontend/dist/
+# wails 判断是否需要重跑 npm install 的指纹缓存
+/frontend/package.json.md5
+# TS 增量构建缓存（vue-tsc -b 产物，不应入库）
+*.tsbuildinfo
+# 注：wailsjs 绑定（go/、runtime/）现纳入版本控制。CI 的 frontend job 仅安装 Node、不执行
+# wails build，若不提交则 vue-tsc 找不到 @/wailsjs/* 模块而失败。代价：本地每次 wails
+# build/dev 会重生成这些文件（git status 显示 modified）；修改 Go 导出接口后须本地重新生成
+# 并提交，否则 CI 类型门禁会用过期类型。
+
+# Local config / data
+/config.local.yaml
+/workbaby.db
+/workbaby.db-journal
+/workbaby.db-wal
+/workbaby.db-shm
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Local user dir
+*.log
+
+# Nested git repos (submodules)
+assets/skills/project-standard/
+
+# WORKBABY_HOME 被指到源码树时的落盘产物：纯粹本地产物，入库只会污染工作区
+/runtime/
+/builtin-skills/
+/skills/
+/logs/
+/tmp/
+.trash/

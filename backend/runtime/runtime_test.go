@@ -1,0 +1,93 @@
+// 内置运行时链路：内嵌归档与 SHA 常量一致、解压路径穿越防护、真实解压布局。
+// 坏了的表现：内嵌运行时在用户机器上凭空消失，或解压把文件写到数据目录之外。
+package runtime
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"WorkBaby/backend/pkg"
+)
+
+// hasEmbeddedArchive 取内嵌归档；缺失或仍是 LFS pointer 时跳过本条链路。
+func hasEmbeddedArchive(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := bundledFS.ReadFile("bundled/" + name)
+	if err != nil {
+		t.Skipf("内嵌归档未放入 bundled/（应随仓库经 Git LFS 托管，克隆后先 git lfs pull）: %s", name)
+	}
+	if bytes.HasPrefix(data, lfsPointerPrefix) {
+		t.Skipf("运行时包未随 LFS 拉取，跳过: %s", name)
+	}
+	return data
+}
+
+// pythonStdlibZip 是 embeddable 包里的标准库归档名，随 Python 版本变化。
+func pythonStdlibZip() string {
+	parts := strings.Split(pythonVersion, ".")
+	if len(parts) < 2 {
+		return "python.zip"
+	}
+	return "python" + parts[0] + parts[1] + ".zip"
+}
+
+func TestBundledRuntimeChain(t *testing.T) {
+	// 换归档忘了同步 SHA 常量，或构建机没拉 LFS，都会一直滑到用户机器上才暴露。
+	for _, c := range []struct{ name, want string }{
+		{pythonArchiveName(), PythonArchiveSHA256},
+		{nodeArchiveName(), NodeArchiveSHA256},
+	} {
+		data := hasEmbeddedArchive(t, c.name)
+		if c.want == "" {
+			t.Fatalf("SHA 常量为空：用 sha256sum 实测 %s 后填进 Go 常量", c.name)
+		}
+		sum := sha256.Sum256(data)
+		if got := hex.EncodeToString(sum[:]); got != c.want {
+			t.Fatalf("%s 归档与常量不一致：归档 %s，常量 %s", c.name, got, c.want)
+		}
+	}
+
+	// zip-slip：归档里的 ..\ 与绝对路径必须被拒，否则解压能把文件写到数据目录之外。
+	dest := t.TempDir()
+	for _, name := range []string{`..\evil.exe`, `/abs/evil.exe`, `a/../../evil.exe`} {
+		if _, err := safeExtractPath(dest, name); err == nil {
+			t.Fatalf("穿越路径未被拒绝: %q", name)
+		}
+	}
+	if _, err := safeExtractPath(dest, `python/tools/x.exe`); err != nil {
+		t.Fatalf("正常路径被误拒: %v", err)
+	}
+
+	// 真实解压两份归档：全仓最慢的一步，-short 只跳过它。
+	if testing.Short() {
+		t.Log("真实解压：-short 跳过，碰运行时归档时跑全量")
+		return
+	}
+	for _, c := range []struct {
+		name  string
+		strip string
+		want  []string
+	}{
+		{pythonArchiveName(), "", []string{"python.exe", pythonStdlibZip()}},
+		// Node 的官方 zip 多一层顶层目录，必须剥掉它平铺，否则 npm.cmd 指错路径。
+		{nodeArchiveName(), nodeArchiveRooted, []string{"node.exe", "npm.cmd"}},
+	} {
+		zr, err := newZipReader(hasEmbeddedArchive(t, c.name))
+		if err != nil {
+			t.Fatalf("%s 归档格式不正确: %v", c.name, err)
+		}
+		dir := t.TempDir()
+		if err := extractZipStripped(zr, dir, c.strip); err != nil {
+			t.Fatalf("%s 解压失败: %v", c.name, err)
+		}
+		for _, w := range c.want {
+			if !pkg.FileExists(filepath.Join(dir, w)) {
+				t.Fatalf("%s 解压后根目录下缺少 %s——官方 zip 布局变了？", c.name, w)
+			}
+		}
+	}
+}

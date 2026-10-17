@@ -1,0 +1,85 @@
+// 外观设置的取值表与落地逻辑：主题、字体、字号、自定义背景。单独成文件是因为
+// 「保存设置」与「启动时重新应用」发生在两个地方，放组件里没法被第二处复用。
+import { ref, watch } from 'vue'
+import { getBaseURLRef } from '../api/http'
+import { useSettingsStore } from '../stores/settings'
+import { theme as themeRef } from './useTheme'
+
+// 字体族：只换正文族，标题与等宽保持各自语义。
+export const FONTS = [
+  { key: 'system', name: '系统默认', stack: 'var(--font-sans)', desc: '微软雅黑 / Segoe UI，最稳' },
+  { key: 'song', name: '宋体', stack: "'SimSun', 'Songti SC', serif", desc: '正式文档观感' },
+  { key: 'kai', name: '楷体', stack: "'KaiTi', 'STKaiti', serif", desc: '偏手写，公文常用' },
+  { key: 'hei', name: '黑体', stack: "'SimHei', 'Microsoft YaHei', sans-serif", desc: '对比更强' },
+  { key: 'fang', name: '仿宋', stack: "'FangSong', 'STFangsong', serif", desc: '公文标准字体' },
+] as const
+
+// 字号档位是刻度而不是任意值：改一处全站等比跟随，布局不会错位。
+export const FONT_SIZES = [
+  { key: 'sm', name: '小', scale: 0.9 },
+  { key: 'md', name: '标准', scale: 1 },
+  { key: 'lg', name: '大', scale: 1.12 },
+  { key: 'xl', name: '特大', scale: 1.25 },
+] as const
+
+export const currentFont = ref('system')
+export const currentSize = ref('md')
+
+// 自定义背景：image 存的是服务端那侧的标识（有值即已设置），
+// 真正的图片字节走 /assets/background——前端拿不到数据目录里的路径。
+export const bgImage = ref('')
+export const bgStrength = ref(0.5)
+export const bgBlur = ref(0)
+
+// applyAppearance 把当前取值写回 CSS 变量。theme 由 useTheme 负责，这里只管字体与字号。
+export function applyAppearance() {
+  const font = FONTS.find((f) => f.key === currentFont.value)
+  document.documentElement.style.setProperty('--wb-font-ui', font?.stack || 'var(--font-sans)')
+  const size = FONT_SIZES.find((s) => s.key === currentSize.value)
+  document.documentElement.style.setProperty('--wb-fs-scale', String(size?.scale ?? 1))
+}
+
+// applyBackground 应用自定义背景：图片 URL 依赖端口，握手前拼不出来，
+// 因此端口变化时要重跑一次（见文件末尾的 watch）。
+export function applyBackground() {
+  const root = document.documentElement
+  const on = bgImage.value !== ''
+  root.style.setProperty('--wb-user-bg-opacity', String(1 - bgStrength.value))
+  root.style.setProperty('--wb-user-bg-blur', `${bgBlur.value}px`)
+  root.style.setProperty(
+    '--wb-user-bg-url',
+    on ? `url("${getBaseURLRef().value}/assets/background")` : 'none',
+  )
+  document.body.classList.toggle('has-custom-bg', on)
+}
+
+// syncFromSettings 从设置表同步到 DOM：App 启动与设置页保存后都调它。
+export function syncFromSettings() {
+  const s = useSettingsStore()
+  currentFont.value = s.values['font_family'] || 'system'
+  currentSize.value = s.values['font_size'] || 'md'
+  applyAppearance()
+  bgImage.value = s.values['bg_image'] || ''
+  bgStrength.value = clampNum(s.values['bg_opacity'], 0.5, 0, 0.9)
+  bgBlur.value = clampNum(s.values['bg_blur'], 0, 0, 24)
+  applyBackground()
+  // 主题以设置表为准：换机器 / 清缓存后由它把主题带回来
+  const t = s.values['theme']
+  if ((t === 'light' || t === 'dark') && t !== themeRef.value) {
+    themeRef.value = t
+  }
+}
+
+function clampNum(raw: string | undefined, def: number, lo: number, hi: number): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return def
+  return Math.min(hi, Math.max(lo, n))
+}
+
+// 任何一处改了取值都自动落到 DOM，省掉每个调用点各写一遍 apply。
+watch([currentFont, currentSize], applyAppearance)
+watch([bgImage, bgStrength, bgBlur], applyBackground)
+// 端口握手晚于外观首次应用：那时 URL 还是空的，图片根本加载不出来。
+watch(getBaseURLRef(), () => {
+  if (bgImage.value) applyBackground()
+})

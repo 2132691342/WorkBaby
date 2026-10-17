@@ -1,0 +1,2 @@
+// wailsjs/ 是 `wails dev` / `wails build` 自动生成的前端绑定目录（运行时生成）。
+// 提交 .gitkeep 让目录在空状态下仍可被 git 追踪；wails dev/build 会覆盖这里的实际内容。

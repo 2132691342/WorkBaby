@@ -1,0 +1,361 @@
+// 开发态预览：把桌面壳绑定与 HTTP 层换成假实现，普通浏览器即可看成品界面；
+// 生产构建整段被摇掉，不进包。
+import http from '../api/http'
+import * as fx from './fixtures'
+
+type Handler = (body: unknown, query: URLSearchParams, method: string) => unknown
+
+const now = Date.now()
+
+function json(data: unknown) {
+  return { code: 0, message: '', data }
+}
+
+// 会话 / 技能 / 文档在内存里增删：预览时能真的点新建、点删除。
+const state = {
+  sessions: [...fx.sessions],
+  skills: [...fx.skills],
+  docs: [...fx.docs],
+  providers: [...fx.providers],
+  tools: [...fx.tools],
+  settings: { ...fx.boot.settings },
+  empty: new URLSearchParams(location.search).get('empty') === '1',
+}
+
+function newID(prefix: string) {
+  return `${prefix}_${Date.now().toString(36).toUpperCase()}`
+}
+
+const routes: Array<[string, Handler]> = [
+  ['/bootstrap', () => fx.boot],
+  // 空态预览（?empty=1）：列表为空且拒绝创建，界面才会停在欢迎页；
+  // 非 POST 的 /sessions 也可能带尾部动作（delete/rename 等），那些走后面的兜底。
+  [
+    '/sessions',
+    (_body, _q, method) => {
+      if (method === 'POST') {
+        // 以夹具会话为模板补齐必填字段：调用方紧接着读 id，返回 null 会让界面崩掉。
+        const s = { ...fx.sessions[0], id: newID('SESSION'), title: '新对话' }
+        if (!state.empty) state.sessions = [s, ...state.sessions]
+        return s
+      }
+      return state.empty ? [] : state.sessions
+    },
+  ],
+  ['/chat/send', () => ({ run_id: 'RUN_1', entry_id: 'ENTRY_1', session_id: state.sessions[0]?.id || '' })],
+  ['/chat/stop', () => true],
+  ['/chat/steer', () => true],
+  ['/stats', () => (state.empty ? fx.emptyStats : fx.stats(14))],
+  ['/providers', () => state.providers],
+  ['/providers/models', () => ['claude-sonnet-4-5', 'claude-haiku-4-5']],
+  // 运行时状态：内置 Node / Python 就绪，覆盖展示
+  ['/runtime', () => fx.runtimeInfo],
+  ['/runtime/redetect', () => fx.runtimeInfo],
+  // 模型能力：带 provider_id 才读得到用户配置（演示模型级 1024000 窗口的场景）
+  [
+    '/models/capability',
+    (_b, q) => ({
+      id: q.get('model') || '',
+      context_window: 1_024_000,
+      max_output: 128_000,
+      thinking: true,
+      vision: false,
+      tool_call: true,
+      known: Boolean(q.get('provider_id')),
+      note: q.get('provider_id') ? '' : '本地没有这个模型的资料，窗口按估算显示',
+    }),
+  ],
+  ['/tools', () => state.tools],
+  ['/docs', () => fx.helpDocs],
+  ['/skills', () => state.skills],
+  ['/knowledge/docs', () => state.docs],
+  ['/knowledge/reindex', () => ({ reindexed: state.docs.length })],
+  [
+    '/knowledge/search',
+    () => ({
+      hits: [{ doc_id: 'D1', title: '产品手册-v3.md', seq: 1, content: '产品支持按席位购买，最少 5 席。', score: 0.82 }],
+    }),
+  ],
+]
+
+function route(path: string, body: unknown, query: URLSearchParams, method = 'GET'): unknown {
+  const hit = routes.find(([pattern]) => pattern === path)
+  if (hit) return hit[1](body, query, method)
+
+  // 会话详情：返回 fixtures 里的消息历史（含工具调用与思考块），预览时能看到完整界面
+  if (/^\/sessions\/[^/]+$/.test(path)) {
+    const id = path.split('/')[2]
+    const session = state.sessions.find((s) => s.id === id)
+    return { session, messages: fx.messages[id] || [] }
+  }
+
+  // 帮助文档正文：与 /docs 目录同源，预览里点哪篇都读得到
+  if (path.startsWith('/docs/')) {
+    const name = path.slice('/docs/'.length)
+    const doc = fx.helpDocs.find((d) => d.name === name)
+    return doc ? { name, title: doc.title, content: fx.helpDocContent[name] || '' } : null
+  }
+
+  // 带 :id 的动作一律后缀匹配，路由表就不用为每个动词各写一条。
+  const parts = path.split('/')
+  const tail = parts[parts.length - 1] || ''
+  const id = parts[parts.length - 2] || ''
+  if (tail === 'delete') {
+    if (path.startsWith('/sessions')) state.sessions = state.sessions.filter((s) => s.id !== id)
+    if (path.startsWith('/skills')) state.skills = state.skills.filter((s) => s.id !== id)
+    if (path.startsWith('/knowledge')) state.docs = state.docs.filter((d) => d.id !== id)
+    return true
+  }
+  if (tail === 'rename') return true
+  if (tail === 'toggle') {
+    const on = Boolean((body as { enabled?: boolean })?.enabled)
+    if (path.startsWith('/tools')) {
+      const t = state.tools.find((x) => x.name === id)
+      if (t) t.enabled = on
+    } else {
+      const s = state.skills.find((x) => x.id === id)
+      if (s) s.enabled = on
+    }
+    return true
+  }
+  if (tail === 'content') {
+    const s = state.skills.find((x) => x.id === id)
+    return { content: `## 什么时候用\n\n${s?.description || ''}\n\n## 怎么做\n\n1. 读取相关资料\n2. 按模板整理\n3. 交给用户确认` }
+  }
+  if (tail === 'default') return true
+  if (tail === 'test') return { ok: true, model: 'claude-sonnet-4-5', detail: '连接正常' }
+  if (tail === 'reveal') return { api_key: 'sk-preview-1234567890abcdef' }
+  if (tail === 'update') return state.providers[0]
+  if (tail === 'branch') return true
+  if (tail === 'model' || tail === 'permission') return true
+
+  if (path === '/skills' && body) {
+    const b = body as { name: string; description: string }
+    const skill = {
+      id: `${b.name}@global`,
+      name: b.name,
+      description: b.description,
+      location: `skills/${b.name}`,
+      source: 'global',
+      enabled: true,
+    }
+    state.skills = [...state.skills, skill]
+    return skill
+  }
+  if (path === '/skills/import') {
+    state.skills = [
+      ...state.skills,
+      {
+        id: 'imported-demo@global',
+        name: 'imported-demo',
+        description: '从文件夹导入的技能',
+        location: 'skills/imported-demo',
+        source: 'global',
+        enabled: true,
+      },
+    ]
+    return { imported: 1, skipped: [] }
+  }
+  if (path === '/knowledge/docs/add') {
+    const paths = ((body as { paths?: string[] })?.paths || []).map((p, i) => ({
+      id: newID('DOC'),
+      path: p.split(/[\\/]/).pop() || p,
+      title: p.split(/[\\/]/).pop() || p,
+      ext: 'md',
+      size: 12_000,
+      chunks: 6,
+      status: 'indexed',
+      created_at: now + i,
+    }))
+    state.docs = [...state.docs, ...paths]
+    return { added: paths.length }
+  }
+  if (path === '/settings') {
+    const b = body as { key: string; value: string }
+    if (b?.key) state.settings[b.key] = b.value
+    return true
+  }
+  return null
+}
+
+/** Wails 宿主注入的两个全局，只在预览时我们自己造一份。 */
+type Listener = (data: unknown) => void
+interface PreviewRuntime {
+  EventsOnMultiple: (name: string, cb: Listener) => () => void
+  EventsOn: (name: string, cb: Listener) => () => void
+  EventsOnce: (name: string, cb: Listener) => () => void
+  EventsOff: (name: string) => boolean
+  EventsEmit: (name: string, data: unknown) => void
+  LogPrint: (msg: string) => void
+  WindowMinimise: () => void
+  WindowToggleMaximise: () => void
+  WindowHide: () => void
+  Quit: () => void
+}
+
+/** 预览用的假 SSE 连接：握手成功即静默；地址带 ?stream=1 时演一次完整回合。 */
+type EsListener = (ev: MessageEvent) => void
+
+class PreviewEventSource {
+  onopen: ((ev: Event) => void) | null = null
+  onerror: ((ev: Event) => void) | null = null
+  private listeners = new Map<string, EsListener[]>()
+  private timers: Array<ReturnType<typeof setTimeout>> = []
+
+  constructor(_url: string) {
+    this.push(0, () => {
+      this.onopen?.(new Event('open'))
+      // 演不演由页面地址说了算：默认静默，否则每点一个会话都要重播一遍
+      if (new URLSearchParams(location.search).get('stream') === '1') this.playback()
+    })
+  }
+
+  addEventListener(name: string, cb: EsListener) {
+    this.listeners.set(name, [...(this.listeners.get(name) || []), cb])
+  }
+
+  removeEventListener(name: string, cb: EsListener) {
+    this.listeners.set(name, (this.listeners.get(name) || []).filter((f) => f !== cb))
+  }
+
+  close() {
+    for (const t of this.timers) clearTimeout(t)
+    this.timers = []
+  }
+
+  private push(ms: number, fn: () => void) {
+    this.timers.push(setTimeout(fn, ms))
+  }
+
+  private emit(event: string, data: unknown, seq: number) {
+    for (const cb of this.listeners.get(event) || []) {
+      cb(new MessageEvent(event, { data: JSON.stringify({ seq, event, data }) }))
+    }
+  }
+
+  // 一次完整回合：思考 → 工具 → 正文 → 撞上输出上限。
+  // 刻意以 length 收尾——界面上那条「继续」提示只有这条路径才看得到。
+  private playback() {
+    const entry = 'ENTRY_PREVIEW'
+    let seq = 0
+    let at = 0
+    const after = (ms: number, fn: () => void) => {
+      at += ms
+      this.push(at, fn)
+    }
+    const think = (text: string) =>
+      after(320, () => this.emit('chat:delta', { entry_id: entry, kind: 'thinking', delta: text }, ++seq))
+    const say = (text: string) =>
+      after(300, () => this.emit('chat:delta', { entry_id: entry, kind: 'text', delta: text }, ++seq))
+
+    this.emit('chat:start', { run_id: 'RUN_PREVIEW', session_id: '' }, ++seq)
+    after(0, () => this.emit('chat:context', { used: 42_800, window: 1_024_000, ratio: 4, known: true }, ++seq))
+    think('先看看工作区里有什么。')
+    think('读一下销售明细，再按区域汇总。')
+    after(700, () =>
+      this.emit(
+        'chat:tool_start',
+        {
+          tool_call_id: 'CALL_PREVIEW',
+          tool: 'read_file',
+          label: 'read_file',
+          args: { path: 'C:\\Users\\demo\\工作\\sales-q3.csv', limit: 50 },
+        },
+        ++seq,
+      ),
+    )
+    after(1600, () =>
+      this.emit(
+        'chat:tool_end',
+        {
+          tool_call_id: 'CALL_PREVIEW',
+          ok: true,
+          title: '输出',
+          output: '区域,销售额,同比\n华东,6120000,+24%\n华南,3380000,+12%',
+          duration_ms: 680,
+        },
+        ++seq,
+      ),
+    )
+    say('## 季度结论\n\n')
+    say('整体销售额 **¥1,284 万**，环比增长 18.4%。')
+    after(600, () =>
+      this.emit(
+        'chat:done',
+        {
+          entry_id: entry,
+          stop_reason: 'length',
+          max_tokens: 32_768,
+          usage: { input: 42_800, output: 8_192, cached: 6_000, total: 50_992, context: 42_800, latency_ms: 12_400 },
+        },
+        ++seq,
+      ),
+    )
+  }
+}
+
+export function installPreview() {
+  // 事件总线要真的能派发：bootstrap 靠 app:ready 握手才肯放行界面
+  const listeners = new Map<string, Listener[]>()
+  const on = (name: string, cb: Listener) => {
+    listeners.set(name, [...(listeners.get(name) || []), cb])
+    return () => listeners.set(name, (listeners.get(name) || []).filter((f) => f !== cb))
+  }
+
+  const runtime: PreviewRuntime = {
+    EventsOnMultiple: on,
+    EventsOn: on,
+    EventsOnce: on,
+    EventsOff: (name) => listeners.delete(name),
+    EventsEmit: (name, data) => (listeners.get(name) || []).forEach((f) => f(data)),
+    LogPrint: () => undefined,
+    WindowMinimise: () => undefined,
+    WindowToggleMaximise: () => undefined,
+    WindowHide: () => undefined,
+    // 预览里没有真实窗口生命周期：关闭按钮触发的是外壳的 Quit 判定，这里只吞掉调用
+    Quit: () => undefined,
+  }
+
+  const w = window as unknown as { runtime: PreviewRuntime; go: unknown }
+  w.runtime = runtime
+  w.go = {
+    main: {
+      App: {
+        OpenFileDialog: async () => 'C:\\Users\\demo\\工作\\季度总结.md',
+        OpenDirectoryDialog: async () => 'C:\\Users\\demo\\工作\\skills',
+        ForceQuit: () => undefined,
+      },
+    },
+  }
+
+  http.defaults.adapter = async (cfg) => {
+    const url = new URL(String(cfg.url || '/'), 'http://preview.local')
+    let body: unknown = cfg.data
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body)
+      } catch {
+        /* 非 JSON 请求体原样透传 */
+      }
+    }
+    return {
+      data: json(route(url.pathname, body, url.searchParams, (cfg.method || 'GET').toUpperCase())),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: cfg,
+    }
+  }
+
+  // 预览里没有 SSE 服务端：接管 EventSource。
+  // 不接管的话浏览器会拿 404 反复重连，控制台被刷满，真正的报错全被淹掉。
+  ;(window as unknown as { EventSource: unknown }).EventSource = PreviewEventSource
+
+  // 与 Go 侧 repeatReady 同策略：模块图是异步加载的，单次 0ms 广播可能早于
+  // bootstrap 注册监听，之后就永远等不到端口（表现：整页空白）
+  for (let i = 0; i < 20; i++) {
+    setTimeout(() => runtime.EventsEmit('app:ready', { server_port: 5173 }), i * 100)
+  }
+}
+
+if (import.meta.env.DEV) installPreview()
