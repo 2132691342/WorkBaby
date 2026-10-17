@@ -1,4 +1,4 @@
-// 通用会话历史的出参：扫描结果与会话详情（specs/20）。
+// 通用会话历史的出参：扫描结果与会话详情（specs/12）。
 package domain
 
 // HistoryEntryVO 一段扫到的外部会话；列表与详情同构，详情才带 messages。

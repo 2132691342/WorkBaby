@@ -33,7 +33,7 @@ const (
 )
 
 // 会话权限档：面向新手只有三档，用一句话说明区别。
-// 它驱动审批扩展的行为（specs/27），不由内核直接实现。
+// 它驱动审批扩展的行为（specs/19），不由内核直接实现。
 const (
 	PermissionAuto     = "auto"      // 全部放行，不弹任何确认
 	PermissionAskWrite = "ask_write" // 非只读工具都要确认

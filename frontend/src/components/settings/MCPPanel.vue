@@ -25,10 +25,16 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [c, tpls] = await Promise.all([api.mcp.config(), api.mcp.templates()])
+    // 工具清单读不到不挡面板：它只影响每条上是「已声明」还是「内核已注册」。
+    const [c, tpls, tools] = await Promise.all([
+      api.mcp.config(),
+      api.mcp.templates(),
+      api.mcp.tools().catch(() => []),
+    ])
     cfg.value = c
     raw.value = c.raw
     templates.value = tpls
+    toolNames.value = tools ?? []
     dirty.value = false
     syntaxError.value = ''
   } catch (e) {
@@ -91,24 +97,28 @@ async function useTemplate(kind: string) {
   toast.ok(`已填入「${tpl.label}」模板，改完点「保存并重载」才生效`)
 }
 
-// 探测：连一次拉工具清单，让用户在保存之前就知道这条配置能不能用
-const probing = ref('')
-const toolsOpen = ref('')
-const tools = ref<MCPToolVO[]>([])
-async function probe(name: string) {
-  if (probing.value) return
-  probing.value = name
+// 重新加载：按当前文件重拉内核进程，然后看内核报了哪些外部工具前缀。
+// 这里没有「探测」：连接是内核做的，它也不上报每个服务的工具清单，
+// 任何状态灯都会是猜出来的。
+const reloading = ref(false)
+const toolNames = ref<MCPToolVO[]>([])
+async function reload() {
+  if (reloading.value) return
+  reloading.value = true
   try {
-    tools.value = await api.mcp.probe(name)
-    toolsOpen.value = name
-    toast.ok(`连上了，发现 ${tools.value.length} 个工具`)
-    cfg.value = await api.mcp.config()
+    cfg.value = await api.mcp.reload()
+    toolNames.value = await api.mcp.tools()
+    toast.ok(`已重新加载，内核侧看到 ${toolNames.value.length} 个外部工具条目`)
   } catch (e) {
-    toolsOpen.value = ''
-    toast.bad(`探测失败：${(e as Error)?.message || '检查命令与参数'}`)
+    toast.bad(`重新加载失败：${(e as Error)?.message || '检查命令与参数'}`)
   } finally {
-    probing.value = ''
+    reloading.value = false
   }
+}
+
+// declared 判断某个服务的工具条目有没有出现在内核的清单里。
+function declared(name: string) {
+  return toolNames.value.some((t) => t.server === name)
 }
 
 const parseError = computed(() => cfg.value?.parse_error || '')
@@ -195,6 +205,16 @@ const savedText = computed(() => (dirty.value ? '有未保存的修改' : '已�
         <div class="ed-head">
           <span class="lb">解析结果</span>
           <span class="dim">{{ servers.length }} 个服务</span>
+          <button
+            class="btn btn-sm btn-ghost"
+            :class="{ 'is-loading': reloading }"
+            :disabled="reloading || !servers.length"
+            title="按当前文件重新拉起内核，再看它报回来的外部工具条目"
+            type="button"
+            @click="reload"
+          >
+            {{ reloading ? '重新加载中…' : '重新加载' }}
+          </button>
         </div>
         <p v-if="!servers.length" class="blank">
           还没有任何服务。点上面的「本地命令」模板，把 <span class="mono">command</span> 换成你自己的启动命令。
@@ -211,53 +231,22 @@ const savedText = computed(() => (dirty.value ? '有未保存的修改' : '已�
                   aria-label="已停用"
                   title="已停用：不启动、工具不注册"
                 />
-                <span
-                  v-else-if="s.last_probe_ok"
-                  class="led ok"
-                  role="status"
-                  aria-label="上次连接成功"
-                  title="上次连接成功"
-                />
-                <span
-                  v-else
-                  class="led bad"
-                  role="status"
-                  aria-label="上次连接失败"
-                  title="上次连接失败"
-                />
                 <span v-if="s.disabled" class="tag muted">已停用</span>
-                <span class="tag">{{ s.tool_count }} 个工具</span>
+                <span v-else class="tag" :class="{ ok: declared(s.name) }">
+                  {{ declared(s.name) ? '内核已注册' : '已声明' }}
+                </span>
               </div>
               <p class="mono dim cmd">{{ s.command }} {{ s.args.join(' ') }}</p>
               <p v-if="s.cwd" class="dim hint">工作目录 {{ s.cwd }}</p>
               <p v-if="s.env_keys.length" class="dim hint">
                 附加环境变量 {{ s.env_keys.join('、') }}
               </p>
-              <p v-if="s.last_error" class="srv-err">{{ s.last_error }}</p>
-              <ul v-if="toolsOpen === s.name" class="tool-mini">
-                <li v-for="t in tools" :key="t.name">
-                  <b>{{ t.name }}</b>
-                  <span class="dim">{{ t.description }}</span>
-                </li>
-              </ul>
-            </div>
-            <div class="srv-ops">
-              <button
-                class="btn btn-sm btn-ghost"
-                :class="{ 'is-loading': probing === s.name }"
-                :disabled="probing !== '' || s.disabled"
-                :title="s.disabled ? '停用的条目不探测：先把 disabled 改回 false' : '连一次，看它到底提供哪些工具'"
-                :aria-label="`探测服务 ${s.name}`"
-                type="button"
-                @click="probe(s.name)"
-              >
-                {{ probing === s.name ? '连接中…' : '探测' }}
-              </button>
             </div>
           </li>
         </ul>
         <p class="foot-note">
-          工具的全局启停在「工具」页：这里只决定「连不连」。
+          「已声明」只说明配置里有它：连不连得上由内核负责，它连不上时的原因在内核的日志里。
+          想让状态变成「内核已注册」，点上面的「重新加载」。工具的全局启停在「工具」页。
         </p>
       </section>
     </div>
@@ -460,28 +449,6 @@ const savedText = computed(() => (dirty.value ? '有未保存的修改' : '已�
 .hint {
   font-size: var(--wb-fs-hint);
   margin-top: 1px;
-}
-.srv-err {
-  font-size: var(--wb-fs-hint);
-  color: var(--wb-danger);
-  margin-top: 2px;
-}
-.tool-mini {
-  margin-top: var(--wb-sp-2);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.tool-mini li {
-  display: flex;
-  gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-hint);
-}
-.tool-mini b {
-  color: var(--wb-ink-2);
-}
-.srv-ops {
-  flex: none;
 }
 .foot-note {
   margin-top: var(--wb-sp-4);

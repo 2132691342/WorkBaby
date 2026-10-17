@@ -2,10 +2,6 @@
 // 它是模型工具声明的只读投影，改工具集时清单自动跟着变。
 package domain
 
-import "WorkBaby/backend/pkg"
-
-var ErrToolNotFound = pkg.New("4204", "没有这个工具", "")
-
 // ToolVO 是单个工具的视图对象。risk 与 approval 决定界面上的风险标记。
 type ToolVO struct {
 	Name        string   `json:"name"`

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 评估页签：打分、存基线、看回归对比（specs/19）。
+// 评估页签：打分、存基线、看回归对比（specs/11）。
 import { onMounted, ref } from 'vue'
 import * as api from '../../api'
 import type { BaselineVO, EvalVO } from '../../types/api'

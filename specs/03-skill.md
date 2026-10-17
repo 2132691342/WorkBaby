@@ -1,4 +1,4 @@
-# 08 · Skill 系统
+# 03 · Skill 系统
 
 ## 定位
 
@@ -49,8 +49,8 @@ description: 按公司模板把本周工作整理成周报。
 | workspace | `<workspace>/.pi/skills/` | 高 |
 
 `List()` 全部列出并带 `source`，让用户看得见「这个技能是从哪来的」。
-工作区级的扫描方向变了：以前 WorkBaby 自己扫 `.workbaby/skills/`，
-现在读 `<workspace>/.pi/skills/`——用户用 PI CLI 放进去的技能，界面里也看得见。
+工作区级读 PI 的技能目录 `<workspace>/.pi/skills/`：技能加载本就是 PI 的能力，
+同一份目录两边都读，用户用 PI CLI 放进去的技能，界面里立刻看得见。
 
 ## 注入方式
 

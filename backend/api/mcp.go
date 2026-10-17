@@ -57,12 +57,6 @@ func (h *Handler) ListMCPServers(c *gin.Context) {
 	ok(c, h.Svc.MCP.List())
 }
 
-// ProbeMCPServer 已删除：客户端是 PI，WorkBaby 不再自己握手。
-// 保留路由但告诉调用方改用重载 + 工具清单：探测失败时原因也在 PI 的日志里。
-func (h *Handler) ProbeMCPServer(c *gin.Context) {
-	fail(c, pkg.New("9109", "现在由助手引擎自己连接 MCP 服务", "保存后点「重新加载」，再看工具清单里有没有这个服务的工具"))
-}
-
 // ListMCPTools 当前注册的全部 MCP 工具。
 func (h *Handler) ListMCPTools(c *gin.Context) {
 	ok(c, h.Svc.MCP.Tools())

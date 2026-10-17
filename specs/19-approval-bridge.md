@@ -1,4 +1,4 @@
-# 27 · 审批与 WorkBaby 扩展
+# 19 · 审批与 WorkBaby 扩展
 
 PI 默认**不**在每次工具调用前问用户。WorkBaby 要有审批闸门，唯一不改 PI 的接法是
 给它装一个扩展：`tool_call` 处理器阻塞等待 `ctx.ui.confirm()`，

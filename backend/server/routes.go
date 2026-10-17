@@ -101,7 +101,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		v1.POST("/models/config", h.UpsertModelConfig)
 		v1.GET("/runtime", h.RuntimeStatus)
 		v1.POST("/runtime/redetect", h.RedetectRuntime)
-		// 环境引导（specs/26）：闸门快照与 PI 的安装更新。
+		// 环境引导（specs/18）：闸门快照与 PI 的安装更新。
 		v1.GET("/env", h.EnvStatus)
 		v1.POST("/env/install", h.InstallPi)
 		v1.POST("/env/update", h.InstallPi)
@@ -120,7 +120,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			mcp.GET("/template", h.MCPTemplate)
 			mcp.POST("/reload", h.ReloadMCP)
 			mcp.GET("/servers", h.ListMCPServers)
-			mcp.POST("/servers/probe", h.ProbeMCPServer)
+
 			mcp.GET("/tools", h.ListMCPTools)
 		}
 

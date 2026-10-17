@@ -6,7 +6,6 @@ import "WorkBaby/backend/pkg"
 var (
 	ErrApprovalNotFound = pkg.New("4101", "审批记录不存在", "")
 	ErrApprovalSettled  = pkg.New("4102", "这条审批已经处理过了", "")
-	ErrApprovalTimeout  = pkg.New("4103", "等待确认超时，已按拒绝处理", "")
 )
 
 // ApprovalDO 审批记录。落表是为了跨重启后决策卡仍在。

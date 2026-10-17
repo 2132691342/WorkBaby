@@ -8,7 +8,6 @@ var (
 	ErrMemoryTooLong  = pkg.New("9502", "这条记忆太长了", "单条上限 500 字，长了就拆成几条")
 	ErrMemoryNotFound = pkg.New("9503", "这条记忆不存在", "可能已经删掉了，刷新看看")
 	ErrMemoryFull     = pkg.New("9504", "记忆装满了", "先删掉几条不再需要的")
-	ErrMemoryOff      = pkg.New("9505", "记忆功能没接上", "")
 )
 
 // 记忆来源：用户自己写的，还是助手在对话里记下的。界面上要能分开看。

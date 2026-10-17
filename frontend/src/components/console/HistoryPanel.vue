@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 历史页签：只读翻看别处聊过的天 + 接着聊（specs/20）。
+// 历史页签：只读翻看别处聊过的天 + 接着聊（specs/12）。
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import * as api from '../../api'

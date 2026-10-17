@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 架构页签：本地静态分析的分层依赖图（specs/21）。
+// 架构页签：本地静态分析的分层依赖图（specs/13）。
 // 布局按依赖深度分层：入口在上、被依赖的在下；边用贝塞尔曲线，不引图形库。
 import { computed, onMounted, ref } from 'vue'
 import * as api from '../../api'

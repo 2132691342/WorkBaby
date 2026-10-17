@@ -183,7 +183,7 @@ export const runtime = {
   redetect: () => post<RuntimeInfo>('/runtime/redetect'),
 }
 
-/** 环境引导：闸门快照与 PI 的安装更新（specs/26） */
+/** 环境引导：闸门快照与 PI 的安装更新（specs/18） */
 export const env = {
   status: () => get<PiEnvVO>('/env'),
   /** 安装 PI：进度走 chat:setup 事件流式回传，接口立刻返回 */
@@ -207,7 +207,7 @@ export const git = {
   diff: (path = '', session_id = '') => get<GitDiffVO>('/git/diff', pick({ path, session_id })),
 }
 
-/* ================= 指挥台 API（specs/16-21） ================= */
+/* ================= 指挥台 API（specs/11-13 / 15） ================= */
 
 export const mcp = {
   /** 读回配置原文、解析结果与解析错误（界面左侧编辑、右侧对照） */
@@ -218,14 +218,13 @@ export const mcp = {
   templates: () => get<MCPTemplateVO[]>('/mcp/template'),
   /** 按当前文件重新拉起全部服务 */
   reload: () => post<MCPConfigRESP>('/mcp/reload'),
-  /** 配置里的服务条目（含探测状态与工具数） */
+  /** 配置里的服务条目：只有声明（命令 / 参数 / 是否停用），连接结果不在这一层 */
   servers: () => get<MCPServerVO[]>('/mcp/servers'),
-  /** 即时探测：连一次拉工具清单 */
-  probe: (name: string) => post<MCPToolVO[]>('/mcp/servers/probe', { name }),
+  /** 内核报上来的外部工具前缀 */
   tools: () => get<MCPToolVO[]>('/mcp/tools'),
 }
 
-/** 运行观测：这一轮干了什么、花了多少、从哪能回去（specs/23）。 */
+/** 运行观测：这一轮干了什么、花了多少、从哪能回去（specs/15）。 */
 export const runs = {
   list: (session_id = '', limit = 50) =>
     get<RunVO[]>('/runs', pick({ session_id, limit: String(limit) })),

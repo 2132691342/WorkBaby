@@ -35,8 +35,7 @@ func (s *MCPService) Config() (*domain.MCPConfigRESP, error) {
 }
 
 // SaveConfig 保存配置原文：先校验再落盘。
-// 解析不过直接返回 9106，文件一个字符都不动——写坏一份配置等于把整个面板变成
-// 「什么都连不上」，且用户看不出是自己改坏的。
+// 解析不过返回 9106 且文件一个字符都不动：半写坏的配置会把整个面板变成连不上。
 func (s *MCPService) SaveConfig(req domain.SaveMCPConfigREQ) (*domain.MCPConfigRESP, error) {
 	if _, parseErr := parseMCPServers([]byte(req.Raw)); parseErr != "" {
 		return nil, pkg.New("9106", "配置有问题，没有保存", parseErr)
@@ -129,8 +128,7 @@ func (s *MCPService) mcpToolNames() []string {
 }
 
 // parseMCPServers 解析 mcp.json；返回服务条目与解析错误（空串表示没问题）。
-// 未知字段原样保留——从别的客户端拷来的配置带 timeout / headers 等，
-// 按自己的理解裁剪会让它失效。
+// 未知字段原样保留：拷来的配置带 timeout / headers 等，按自己的理解裁剪会让它失效。
 func parseMCPServers(raw []byte) ([]domain.MCPServerVO, string) {
 	if len(strings.TrimSpace(string(raw))) == 0 {
 		return []domain.MCPServerVO{}, ""

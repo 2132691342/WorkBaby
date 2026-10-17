@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -121,7 +120,7 @@ func buildAttachment(workspace string, items []domain.AttachmentREQ) (string, []
 		}
 		body := pkg.DecodeText(raw)
 		if len(body) > attachMaxBytes {
-			body = cutRunes(body, attachMaxBytes)
+			body = pkg.Cut(body, attachMaxBytes)
 		}
 		b.WriteString("### " + filepath.Base(full) + "\n\n```\n" + body + "\n```\n\n")
 	}
@@ -147,16 +146,4 @@ func attachReason(err error, bigMsg string) string {
 		}
 	}
 	return "读不到或内容为空"
-}
-
-// cutRunes 按字节上限截断但保证不切在多字节字符中间。
-func cutRunes(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	cut := max
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "\n……（内容过长已截断）"
 }

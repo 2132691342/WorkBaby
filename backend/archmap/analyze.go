@@ -1,4 +1,4 @@
-// Package archmap 本地静态分析项目的模块与依赖关系（specs/21）。
+// Package archmap 本地静态分析项目的模块与依赖关系（specs/13）。
 // 只读：正则解析 import，无语法树依赖；动态 import 漏解析由覆盖率兜住。
 package archmap
 

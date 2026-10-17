@@ -1,6 +1,5 @@
 // 内置 Node 运行时：上游 win-x64 zip 随二进制内嵌，首次启动解压到数据目录。
-// 归档本身含单层目录（node-v24.21.0-win-x64/），必须剥掉它平铺到根——
-// 不平铺则 npm.cmd 内部的相对路径会指错，表现为「npm 装好了但 PI 起不来」。
+// 归档含单层目录，解压必须剥掉它平铺到根，否则 npm.cmd 内部的相对路径指错。
 package runtime
 
 import (
@@ -25,9 +24,8 @@ const NodeArchiveSHA256 = "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721c
 // nodeArchiveName 返回内嵌归档文件名。
 func nodeArchiveName() string { return nodeArchiveRooted + ".zip" }
 
-// NodeExe 返回可用的 Node 路径；内置优先于系统。
-// 内置优先是刻意的：PI 对 Node 版本有下界且行为随小版本变，
-// 用用户 PATH 上某个 18.x 会让错误出现在协议层而不是启动检查里。
+// NodeExe 返回可用的 Node 路径：内置优先于系统。
+// PI 对 Node 版本有下界且行为随小版本变，用系统上某个旧版会让错误出现在协议层。
 func NodeExe(p Paths) string {
 	if exe, err := resolveNode(p); err == nil {
 		return exe

@@ -67,8 +67,7 @@ func (a *ApprovalService) Open(sessionID, requestID, method, title, body string,
 }
 
 // Decide 把用户决策回给 PI 并发事件。
-// 摘不到条目说明等待已结束（超时 / 已取消 / 重复点击），返回 4102 且不改任何状态——
-// 否则界面显示「已批准」，PI 那边早已按拒绝跳过。
+// 摘不到条目说明等待已结束（超时 / 取消 / 重复点击）：返回 4102 且不改任何状态。
 func (a *ApprovalService) Decide(sessionID, approvalID string, approved bool, scope string) error {
 	a.mu.Lock()
 	entry, ok := a.wait[approvalID]

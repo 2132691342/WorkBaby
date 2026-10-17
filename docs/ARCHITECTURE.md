@@ -51,24 +51,24 @@ backend/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任�
 
 | 模块 | 规格 |
 |---|---|
-| PI 子进程监督（进程 / 协议 / 翻译） | [specs/25](../specs/25-pi-supervisor.md) |
-| 环境引导（Node / PI 安装 / config 互通） | [specs/26](../specs/26-pi-bootstrap.md) |
-| 会话模型（两处存储的分工） | [specs/07](../specs/07-session.md) |
-| 系统提示与设置（`defaultTools` / 拓展模块注入） | [specs/13](../specs/13-prompt-and-settings.md) |
-| `skill` | [specs/08](../specs/08-skill.md) |
-| `knowledge` | [specs/09](../specs/09-knowledge.md) |
-| `git` 工作区版本视图 | [specs/15](../specs/15-workspace-git.md) |
-| `runtime` 内置运行时 | [specs/06](../specs/06-runtime.md) |
-| 桌面壳（窗口 / 托盘 / 单实例） | [specs/11](../specs/11-desktop-shell.md) |
-| 用量与上下文水位 | [specs/14](../specs/14-usage-and-context.md) |
-| 应用内帮助页（内置文档 + `/docs`） | [specs/12](../specs/12-user-manual.md) |
-| MCP 外部工具接入 | [specs/16](../specs/16-mcp.md) |
-| 运行观测与检查点 | [specs/23](../specs/23-runs-and-checkpoints.md) |
-| 评估与回归 | [specs/19](../specs/19-eval-regression.md) |
-| `history` 通用会话历史 | [specs/20](../specs/20-universal-history.md) |
-| `archmap` 项目架构图 | [specs/21](../specs/21-arch-map.md) |
-| 记忆 | [specs/22](../specs/22-memory.md) |
-| 子代理 | [specs/24](../specs/24-subagent.md) |
+| PI 子进程监督（进程 / 协议 / 翻译） | [specs/17](../specs/17-pi-supervisor.md) |
+| 环境引导（Node / PI 安装 / config 互通） | [specs/18](../specs/18-pi-bootstrap.md) |
+| 会话模型（两处存储的分工） | [specs/02](../specs/02-session.md) |
+| 系统提示与设置（`defaultTools` / 拓展模块注入） | [specs/07](../specs/07-prompt-and-settings.md) |
+| `skill` | [specs/03](../specs/03-skill.md) |
+| `knowledge` | [specs/04](../specs/04-knowledge.md) |
+| `git` 工作区版本视图 | [specs/09](../specs/09-workspace-git.md) |
+| `runtime` 内置运行时 | [specs/01](../specs/01-runtime.md) |
+| 桌面壳（窗口 / 托盘 / 单实例） | [specs/05](../specs/05-desktop-shell.md) |
+| 用量与上下文水位 | [specs/08](../specs/08-usage-and-context.md) |
+| 应用内帮助页（内置文档 + `/docs`） | [specs/06](../specs/06-user-manual.md) |
+| MCP 外部工具接入 | [specs/10](../specs/10-mcp.md) |
+| 运行观测与检查点 | [specs/15](../specs/15-runs-and-checkpoints.md) |
+| 评估与回归 | [specs/11](../specs/11-eval-regression.md) |
+| `history` 通用会话历史 | [specs/12](../specs/12-universal-history.md) |
+| `archmap` 项目架构图 | [specs/13](../specs/13-arch-map.md) |
+| 记忆 | [specs/14](../specs/14-memory.md) |
+| 子代理 | [specs/16](../specs/16-subagent.md) |
 
 ## 3. 一次对话的生命周期
 
@@ -124,8 +124,8 @@ backend/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任�
 ### 4.3 backend/domain —— 域模型
 
 一个聚合根一个文件，DO / DTO / REQ / VO / RESP 同居一处。
-`entries`（自研条目链）已删除：消息真身在 PI 的 JSONL 里。
-`sessions` 表保留但字段改了（`pi_session_id` / `pi_session_file`）。
+会话表只存归属、配置快照与 PI 会话指针（`pi_session_id` / `pi_session_file`）：
+消息真身在 PI 的 JSONL 里，WorkBaby 不另持一份条目链，避免两份真相各自漂移。
 
 ### 4.4 backend/runtime —— 内置运行时
 

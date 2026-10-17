@@ -101,9 +101,8 @@ func (s *RunsService) Detail(runID string) (*domain.RunDetailVO, error) {
 	return &vo, nil
 }
 
-// timelineOf 投影工具动作时间线。
-// 会话正文在 PI 的 JSONL 里，运行观测只统计自己记的账（用量与工具成败），
-// 不再从条目链重读一遗——那需要把整份 JSONL 再解析一次，而详情页刚解析过。
+// timelineOf 投影工具动作时间线：只统计运行观测自己记的账（用量与工具成败），
+// 不回读 PI 的会话文件——那是别人的存储。
 func (s *RunsService) timelineOf(sessionID string) ([]domain.RunStep, int) {
 	return []domain.RunStep{}, 0
 }

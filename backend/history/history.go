@@ -1,4 +1,4 @@
-// Package history 只读扫描本机其他 AI 工具留下的会话历史（specs/20）。
+// Package history 只读扫描本机其他 AI 工具留下的会话历史（specs/12）。
 // 不同步、不常驻、不写库；「接着聊」由 service 层新建 WorkBaby 会话并注入上下文。
 package history
 
@@ -162,7 +162,7 @@ func ParseFile(source, path string) (domain.HistoryEntryVO, error) {
 }
 
 // extract 从一行 JSON 里抽消息：先按已知来源形状取 text / content，其余按 role+content 兜底。
-// 变体太多，兜底形状优先保证「有文字就能看」——具体形状见 specs/20。
+// 变体太多，兜底形状优先保证「有文字就能看」——具体形状见 specs/12。
 func extract(raw map[string]any) (domain.HistoryMessageVO, int64, string) {
 	var m domain.HistoryMessageVO
 	var ts int64

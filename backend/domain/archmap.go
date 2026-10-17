@@ -1,13 +1,12 @@
-// 项目架构图聚合根：本地静态分析的图数据（specs/21）。不落库，每次请求重算。
+// 项目架构图聚合根：本地静态分析的图数据（specs/13）。不落库，每次请求重算。
 package domain
 
 import "WorkBaby/backend/pkg"
 
 var (
-	ErrArchDirMissing   = pkg.New("9401", "这个目录不存在或读不了", "")
-	ErrArchNoCode       = pkg.New("9402", "这个目录里没有可解析的代码文件", "")
-	ErrArchTimeout      = pkg.New("9403", "分析超时，结果可能不全", "")
-	ErrArchTooManyFiles = pkg.New("9404", "文件太多（超过 10 万），分析不了", "")
+	ErrArchDirMissing = pkg.New("9401", "这个目录不存在或读不了", "")
+	ErrArchNoCode     = pkg.New("9402", "这个目录里没有可解析的代码文件", "")
+	ErrArchTimeout    = pkg.New("9403", "分析超时，结果可能不全", "")
 )
 
 // ArchNode 图的一个节点 = 一个目录（模块）。

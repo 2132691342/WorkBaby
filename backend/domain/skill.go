@@ -6,7 +6,6 @@ import "WorkBaby/backend/pkg"
 var (
 	ErrSkillNotFound = pkg.New("8103", "技能不存在", "")
 	ErrSkillName     = pkg.New("8101", "技能名不合法", "只能用小写字母、数字和连字符")
-	ErrSkillFront    = pkg.New("8102", "技能文件缺少正确的开头说明", "")
 )
 
 // Skill 是磁盘上一个 SKILL.md 的解析结果，不落库——文件即真相源。

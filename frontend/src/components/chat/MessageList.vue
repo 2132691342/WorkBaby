@@ -40,9 +40,9 @@ const session = useSessionStore()
 const chat = useChatStore()
 const router = useRouter()
 
-// 模型配置类错误（重试解决不了）：服务不存在 3101、没配服务 3102、Key 被拒 3104、
-// 缺服务或模型名 3111、服务没模型 3112、模型不识图 3113、没存 Key 3114 —— 出路都在设置页。
-const SETUP_CODES = new Set(['3101', '3102', '3104', '3111', '3112', '3113', '3114'])
+// 模型配置类错误（重试解决不了）：服务不存在 3101、缺服务或模型名 3111、
+// 模型不识图 3113、没存 Key 3114 —— 出路都在设置页。
+const SETUP_CODES = new Set(['3101', '3111', '3113', '3114'])
 const needSetup = computed(() => SETUP_CODES.has(chat.lastErrorCode))
 
 // 审批卡回调只写一遍；必须把 Promise 交回卡片，否则按钮 loading 会瞬间结束。

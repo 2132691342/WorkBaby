@@ -10,7 +10,7 @@ import { fmtCount } from '../../utils/num'
 import type { ProviderVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 
-// 后端只认这三个值（specs/27），别再引入第四种叫法。
+// 后端只认这三个值（specs/19），别再引入第四种叫法。
 const PERMISSIONS = [
   { key: 'ask_write', name: '先问我', desc: '写文件、跑命令前都先问一句，最稳妥' },
   { key: 'auto', name: '全自动', desc: '什么都不问，直接做（只建议在自己电脑上用）' },

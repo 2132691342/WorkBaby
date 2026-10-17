@@ -89,8 +89,7 @@ func stripControlledBlock(s string) string {
 }
 
 // projectDoc 读工作目录下的项目说明，让助手遵守用户自己定的规矩。
-// 它写进 APPEND_SYSTEM 之外的独立文件（PI 自己也会扫 AGENTS.md），
-// 这里只在需要显式提及时返回内容。
+// PI 自己会扫 AGENTS.md，这里只在需要显式提及时返回内容。
 func projectDoc(workspace string) string {
 	if workspace == "" {
 		return ""

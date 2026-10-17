@@ -49,7 +49,7 @@ const clampedByVendor = computed(
 )
 
 // 权限档取值必须与后端 domain.Permission* 一致，否则设置写入直接被拒。
-// 这三个档位由 WorkBaby 的审批扩展实行（specs/27）。
+// 这三个档位由 WorkBaby 的审批扩展实行（specs/19）。
 const PERMISSIONS = [
   { key: 'ask_write', name: '先问我', desc: '写文件、跑命令都先问我一句，推荐新手使用' },
   { key: 'auto', name: '全自动', desc: '不再询问，直接执行（只建议在自己电脑上用）' },

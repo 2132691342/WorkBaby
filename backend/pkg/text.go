@@ -104,3 +104,16 @@ func looksUTF16(b []byte) (bigEndian bool, ok bool) {
 	}
 	return false, false
 }
+
+// Cut 按字节上限截断，且不切在多字节字符中间。
+// 尾部标记计入返回内容，调用方给的 max 是「正文上限」而不是总长上限。
+func Cut(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n……（内容过长已截断）"
+}

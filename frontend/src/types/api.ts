@@ -507,7 +507,7 @@ export interface GitDiffVO {
   lines: GitDiffLineVO[]
 }
 
-/* ================= 指挥台（specs/16-21） ================= */
+/* ================= 指挥台（specs/11-13 / 15） ================= */
 
 /** MCP 外部服务配置 */
 export interface MCPServerVO {
@@ -520,13 +520,6 @@ export interface MCPServerVO {
   disabled: boolean
   /** 单次调用超时（秒），0 = 用缺省 30 */
   timeout: number
-  /** 上次探测是否成功；配合 last_probe_at 才有「没测过」与「测失败」之分 */
-  last_probe_ok: boolean
-  /** 上次探测时刻，0 = 从未探测 */
-  last_probe_at: number
-  /** 上次探测的错误，空 = 无错 */
-  last_error: string
-  tool_count: number
 }
 /** 保存 MCP 配置：后端先校验再落盘，解析不过一个字符都不写 */
 export interface SaveMCPConfigREQ {
@@ -547,9 +540,7 @@ export interface MCPTemplateVO {
   hint: string
   raw: string
 }
-export interface ProbeMCPServerREQ {
-  name: string
-}
+/** 工具清单条目：MCP 工具的名字由内核上报，WorkBaby 只知道声明了哪些服务 */
 export interface MCPToolVO {
   name: string
   label: string
@@ -707,7 +698,7 @@ export interface HistoryScanRESP {
   timed_out: boolean
 }
 
-/** 项目架构图（specs/21） */
+/** 项目架构图（specs/13） */
 export interface ArchNode {
   id: string
   label: string

@@ -5,8 +5,6 @@ import "WorkBaby/backend/pkg"
 
 var (
 	ErrProviderNotFound = pkg.New("3101", "模型服务不存在", "")
-	ErrNoProvider       = pkg.New("3102", "还没有配置模型服务", "去设置页添加一个")
-	ErrProviderUnreach  = pkg.New("3103", "连不上这个模型服务", "检查地址与密钥")
 )
 
 // ProviderDO 模型服务配置。api_key 以 AES-GCM 密文存储，明文只在内存里出现。

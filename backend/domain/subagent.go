@@ -1,4 +1,4 @@
-// 子代理聚合根：一次委派的入参（specs/24）。
+// 子代理聚合根：一次委派的入参（specs/16）。
 package domain
 
 import "WorkBaby/backend/pkg"

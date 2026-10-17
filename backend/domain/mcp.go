@@ -1,17 +1,5 @@
-// MCP 外部服务聚合根：配置文件里的一项启动声明与它的运行期状态（specs/16）。
+// MCP 外部服务聚合根：配置文件里的一项启动声明与它的运行期状态（specs/10）。
 package domain
-
-import "WorkBaby/backend/pkg"
-
-var (
-	ErrMCPServerNotFound = pkg.New("9101", "这个 MCP 服务不存在", "")
-	ErrMCPStartFailed    = pkg.New("9102", "MCP 服务起不来", "检查命令路径与参数")
-	ErrMCPHandshake      = pkg.New("9103", "MCP 服务握手超时", "它可能不是个正常的 MCP server")
-	ErrMCPProtocol       = pkg.New("9104", "MCP 服务返回了看不懂的内容", "协议错误")
-	ErrMCPCallFailed     = pkg.New("9105", "MCP 工具调用失败", "")
-	ErrMCPConfigParse    = pkg.New("9106", "MCP 配置文件读不通", "按提示改正后再保存")
-	ErrMCPConfigIO       = pkg.New("9107", "MCP 配置文件读写失败", "检查数据目录是否可写")
-)
 
 // MCPDefaultTimeout 是单次调用的缺省超时（秒）；配置文件没写就用它。
 const MCPDefaultTimeout = 30
@@ -32,18 +20,15 @@ type MCPEntry struct {
 }
 
 // MCPServerVO 出参：命令与参数给界面展示，环境变量只回键名——值里常写着密钥。
+// 只有「声明」没有「连接结果」：连接由 PI 负责，它不回报每个服务的成败，就没有可信的状态可画。
 type MCPServerVO struct {
-	Name        string   `json:"name"`
-	Command     string   `json:"command"`
-	Args        []string `json:"args"`
-	EnvKeys     []string `json:"env_keys"`
-	Cwd         string   `json:"cwd"`
-	Disabled    bool     `json:"disabled"`
-	Timeout     int      `json:"timeout"`
-	LastProbeOK bool     `json:"last_probe_ok"`
-	LastProbeAt int64    `json:"last_probe_at"`
-	LastError   string   `json:"last_error"`
-	ToolCount   int      `json:"tool_count"`
+	Name     string   `json:"name"`
+	Command  string   `json:"command"`
+	Args     []string `json:"args"`
+	EnvKeys  []string `json:"env_keys"`
+	Cwd      string   `json:"cwd"`
+	Disabled bool     `json:"disabled"`
+	Timeout  int      `json:"timeout"`
 }
 
 // SaveMCPConfigREQ 保存配置原文：后端先校验再落盘，解析不过不写文件。
@@ -57,11 +42,6 @@ type MCPConfigRESP struct {
 	Raw        string        `json:"raw"`
 	Servers    []MCPServerVO `json:"servers"`
 	ParseError string        `json:"parse_error"`
-}
-
-// ProbeMCPServerREQ 探测入参：服务名走请求体，路由不拼 `/:id/:action`。
-type ProbeMCPServerREQ struct {
-	Name string `json:"name"`
 }
 
 // MCPTemplateVO 一个内置模板：界面按 kinds 列按钮，点哪个填哪个。

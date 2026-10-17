@@ -1,14 +1,11 @@
 // 会话聚合根：WorkBaby 的元数据与指向 PI 会话的指针。
-// 消息真身在 PI 的 JSONL 里，ID 与 PiSessionID 分开：JSONL 文件名里的 uuid
-// 要 new_session 之后才有，不能做提前标识。
+// 消息真身在 PI 的 JSONL 里；ID 与 PiSessionID 分开，后者要 new_session 之后才有。
 package domain
 
 import "WorkBaby/backend/pkg"
 
 var (
 	ErrSessionNotFound = pkg.New("1101", "会话不存在", "")
-	ErrEntryNotFound   = pkg.New("1102", "消息不存在", "")
-	ErrSessionBusy     = pkg.New("1103", "这个会话正在处理上一条消息", "")
 	ErrEmptyContent    = pkg.New("1104", "说点什么再发送吧", "")
 )
 

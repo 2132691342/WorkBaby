@@ -4,7 +4,10 @@ package knowledge
 
 import (
 	"archive/zip"
+	"bufio"
 	"context"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,6 +173,88 @@ func TestKnowledgeChain(t *testing.T) {
 		// 没任务在跑时取消要如实返回 false，不能假装成功。
 		if svc.CancelReindex() {
 			t.Fatal("没有任务在跑时取消应返回 false")
+		}
+	})
+
+	// MCP 出口是助手唯一能看到知识库的通道：协议帧坏一行，症状就是「搜索没结果」。
+	t.Run("MCP 出口：握手、工具声明与检索调用", func(t *testing.T) {
+		svc := newService(t)
+		addFile(t, svc, "报销制度.md", "差旅住宿标准：一线城市每晚 500 元，其他城市 350 元。")
+
+		// 两根管道拼出一条 stdio：测试写 serverIn / 读 serverOut，server 反过来。
+		serverIn, clientWrite := io.Pipe()
+		clientRead, serverWrite := io.Pipe()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = NewMCPServer(svc, serverIn, serverWrite).Serve()
+		}()
+		defer func() {
+			_ = clientWrite.Close()
+			<-done
+			_ = clientRead.Close()
+		}()
+
+		sc := bufio.NewScanner(clientRead)
+		write := func(payload string) {
+			t.Helper()
+			if _, err := io.WriteString(clientWrite, payload+"\n"); err != nil {
+				t.Fatalf("写入请求失败: %v", err)
+			}
+		}
+		// call 发一条请求并读回它那一条响应；通知只 write，不走这里。
+		call := func(payload string) map[string]any {
+			t.Helper()
+			write(payload)
+			if !sc.Scan() {
+				t.Fatalf("没有读到响应帧: %s（%v）", payload, sc.Err())
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(sc.Bytes(), &msg); err != nil {
+				t.Fatalf("响应不是合法 JSON: %v\n%s", err, sc.Text())
+			}
+			return msg
+		}
+
+		initResp := call(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`)
+		result, _ := initResp["result"].(map[string]any)
+		// 版本必须按客户端给的答：硬回自己的版本会让握手直接谈不拢。
+		if result["protocolVersion"] != "2025-06-18" {
+			t.Fatalf("协议版本没有回客户端带来的值: %v", initResp)
+		}
+
+		// 通知没有 id：回了就会错位在途请求的响应配对上。
+		write(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+		listResp := call(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
+		tools, _ := listResp["result"].(map[string]any)["tools"].([]any)
+		if len(tools) != 1 {
+			t.Fatalf("应当只声明一个工具: %v", listResp)
+		}
+		tool := tools[0].(map[string]any)
+		if tool["name"] != mcpToolSearch {
+			t.Fatalf("工具名不对: %v", tool["name"])
+		}
+
+		callResp := call(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"knowledge_search","arguments":{"query":"住宿标准","limit":3}}}`)
+		calls, _ := callResp["result"].(map[string]any)["content"].([]any)
+		if len(calls) != 1 {
+			t.Fatalf("检索响应缺少内容块: %v", callResp)
+		}
+		text := calls[0].(map[string]any)["text"].(string)
+		if !strings.Contains(text, "500") || !strings.Contains(text, "报销制度") {
+			t.Fatalf("检索结果没有带上命中的文档与正文: %q", text)
+		}
+
+		empty := call(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"knowledge_search","arguments":{"query":"火星殖民配额"}}}`)
+		emptyText := empty["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+		// 零命中要给一句话：空串会让模型以为工具坏了，转而凭记忆编。
+		if !strings.Contains(emptyText, "没有相关内容") {
+			t.Fatalf("零命中应当明说: %q", emptyText)
+		}
+
+		bad := call(`{"jsonrpc":"2.0","id":5,"method":"unknown/method"}`)
+		if bad["error"] == nil {
+			t.Fatalf("未知方法必须报错而不是静默: %v", bad)
 		}
 	})
 }

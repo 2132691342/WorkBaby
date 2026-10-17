@@ -103,9 +103,8 @@ func handle(scenario, id, typ, message string) {
 	}
 }
 
-// goScript 吐一轮完整的事件序列。
-// 关键点：agent_end 之后还跟一条自动重试，最后才 agent_settled——
-// 把 done 挂在 agent_end 上会让界面在还在跑的时候显示「完成」。
+// goScript 吐一轮完整的事件序列：agent_end 之后还有一条自动重试，最后才 agent_settled。
+// done 必须挂在 agent_settled 上，挂早了会在还在跑的时候显示「完成」。
 func goScript(scenario, message string) {
 	emit(map[string]any{"type": "agent_start"})
 	emit(map[string]any{"type": "turn_start"})

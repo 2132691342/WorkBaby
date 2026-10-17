@@ -1,4 +1,4 @@
-﻿# AGENTS.md · WorkBaby 工程规范
+# AGENTS.md · WorkBaby 工程规范
 
 > 本文件是代码风格 / 分包 / 依赖方向 / 工作流的唯一权威。
 > 设计说明见 `docs/` 与 `specs/`；冲突时以本文件为准。
@@ -37,8 +37,8 @@
 **明确不引入**：UI 组件库、工作流引擎、微前端、富文本编辑器、原子化 CSS 引擎、
 图表库与图编辑库、国际化框架、通用工具库——当前功能面用不到，引入只增维护成本。
 
-需要哪一类能力时，先问「几百行自绘能不能覆盖」：运行观测（specs/23）是自己从
-条目链投影，架构图（specs/21）是自绘 SVG，仪表盘的两张图也是自绘——
+需要哪一类能力时，先问「几百行自绘能不能覆盖」：运行观测（specs/15）是自己从
+条目链投影，架构图（specs/13）是自绘 SVG，仪表盘的两张图也是自绘——
 这些都是几百行就能覆盖的场景，不因为「有现成的库」就开禁。
 
 ---
@@ -193,7 +193,6 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 
 **码值是数字字符串**（`"1001"`），不是 int：HTTP 状态码与业务码同为 int 时前端只能靠字段名分辨，
 字符串从类型上就把两者分开（`Res` 的 `code` 是 `string`，HTTP 状态码是 int）。
-码值本身仍是原来的分段编号，只改承载类型不改语义。
 
 **错误码段位**：
 
@@ -202,7 +201,7 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 | 1000–1999 | 通用 / 文件 / 路径 |
 | 2000–2999 | 配置 / 持久化 / DB |
 | 3000–3999 | Provider / 模型配置 |
-| 4000–4999 | 预留（工具执行已归 PI，本机不再有此段） |
+| 4000–4999 | 审批（4101–4103）。工具执行在 PI 里，本段不再产生工具执行码 |
 | 5000–5999 | 会话运行（忙 / 插话队列 / 收尾） |
 | 6000–6999 | Knowledge |
 | 7000–7999 | Runtime（内置运行时） |
@@ -309,7 +308,7 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 | 统一错误 | AppError + 错误码分段 |
 | 日志 | slog 仅 info/warn/error；分文件落盘；ctx 注入 sessionID/runID |
 | 实时通信 | SSE only（256 缓冲 / 慢客户端先挤 delta 保关键事件、回灌再丢关键事件就断开对账 / 重连带 `last_event_id` 重放并按 seq 去重，缓冲裁掉中段时主动发 `chat:gap`） |
-| 压缩 | 由 PI 自己做（确定性清洗 + 按预算找切点）；WorkBaby 只展示 `compaction_end` 的结果（见 spec 02 已删除） |
+| 压缩 | 由 PI 自己做（确定性清洗 + 按预算找切点）；WorkBaby 只展示 `compaction_end` 的结果 |
 | 工具输出 | 由 PI 截断；WorkBaby 只做展示层截断（UI 不渲染万行） |
 | PI 进程 | 一个工作区一个进程；归 `backend/pi` 独有，其他层不得 `os/exec` 拉起 PI |
 | 事件出口 | `service.Emitter` 唯一出口（注入归属 + 分配 seq + sink 注入，按会话串行化） |
@@ -441,7 +440,7 @@ type Record struct {
 | 环境 `Ready` 判定在 spawn 之前 | 没配模型就 spawn，失败点会推到第一次对话，错误难以归因 |
 | 会话/消息/审批等界面词表不变 | 前端只认自己的 `chat:*`；换词表等于重写整个前端 |
 
-详见 `specs/25-pi-supervisor.md` / `26-pi-bootstrap.md`。
+详见 `specs/17-pi-supervisor.md` / `26-pi-bootstrap.md`。
 
 ---
 
@@ -493,71 +492,65 @@ type Record struct {
 
 | 命令 | 跑什么 | 什么时候用 |
 |---|---|---|
-| `pwsh scripts/check.ps1` | 格式 → 编译 → 依赖边界 → 所有包短测试 | 日常快门，约 10 秒 |
-| `pwsh scripts/check.ps1 -All` | 同上，测试换成全量，再加前端构建 | 改了前端或准备提交 |
-| `pwsh scripts/check.ps1 -Full` | 再加 vet 与前端类型检查 | 发版前；CI 跑的就是这一档 |
-| `pwsh scripts/check.ps1 -Pkg ./backend/mcp` | 只跑这一个包 | 明确只碰了这一个包 |
+| `pwsh scripts/check.ps1` | 格式 → 编译 → 所有包短测试 | 日常快门 |
+| `pwsh scripts/check.ps1 -Pkg backend/pi` | 格式 → 编译该包 → 测该包（短） | 明确只碰了一个包 |
+| `pwsh scripts/check.ps1 -All` | 快门 + 前端构建 | 改了前端 |
+| `pwsh scripts/check.ps1 -Full` | 再加 vet、依赖边界、全量测试、前端构建 | 发版前；CI 跑这一档 |
 
-失败即退出且不吞退出码；测试只打印结论行，失败才展开。
-短测试（`-short`）跳过真实 git 与归档解压这类慢步骤，它们只在全量档跑到——
-真 git 链路与归档解压不在本地常跑，就必须在 CI 上跑到。
+失败即退出且不吞退出码。`-Pkg` 模式下不跑边界与前端——它只回答「这个包坏没坏」。
 
-CI（`.github/workflows/ci.yml`）跑的是 `-Full` 那一档。
+短测试（`-short`）跳过真 git 子进程链路与归档真解压；这两条只在 `-Full` 跑到，
+CI 常跑全量，所以本地不跑不等于没人跑。
+`-race` 需要 cgo（本项目默认关 CGO 以保持 SQLite 纯 Go），要跑得先装 MinGW 再
+`CGO_ENABLED=1 go test -race ./backend/...`；没装 C 编译器时它直接 `build failed`，那不是回归。
 
 ### 3.4 测试索引
 
 保留判据只有两条：**它坏了会指向一条真实链路**、**必须跨模块 / 跨轮次 / 跨协议**。
-全量 **11 个入口 / 11 个文件**（一包一入口）。同族场景收在同一个入口的子测试里，
+全包共 9 个入口 / 9 个文件（一包一入口）。同族场景收进同一个入口的子测试，
 不按「一个断言一个测试」散开——散开只会在改动时逼你跑一大堆、失败时又定位不到是哪条链。
-没列进来的包（server / config / db / domain / pkg / repo / history / archmap / tray / singleinstance）
-不单独设测试：它们的正确性由流经它的链路断言。
+只打日志不做断言的「测试」不是测试，删掉。
+没列进来的包（server / config / db / domain / pkg / repo / history / archmap / tray /
+singleinstance / mcp / git 之外的能力域）不单独设测试：它们的正确性由流经它的链路断言。
+
+| 入口 | 覆盖的链路 |
+|---|---|
+| `app_test.go` · TestAppChain | 启动等待判据（慢装配不误判 / 失败如实报 / 卡死有上限）；关闭去向（托盘开关与退出流程决定收托盘还是真退出） |
+| `pi/pi_test.go` · TestPiChain | 真假 PI 进程下的协议链：LF 分帧（含 U+2028 在字符串内）+ 未知记录不挡命令 + 响应按 id 关联；事件顺序不变量（`agent_end` → 重试 → `agent_settled`，done 不早到）；流式增量与工具结果内容块；压缩前后 token；审批请求解析与决策回写；停止先取回排队文本；有序退出与崩溃报错；可执行文件识别与工作区进程归属 |
+| `pi/env/env_test.go` · TestPiEnvChain | 环境闸门按 node → pi → model 报首个阻塞项（模型就绪不等于环境就绪）；进程环境的 PATH 前置与 agent 目录唯一；`models.json` / `settings.json` 写出 PI 认识的形状且写入是原子替换；`mcp.json` 补内置条目、未知字段保留、坏文件不覆盖 |
+| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈：预检放行 + 方法白名单 + 路径穿越在门口拒绝；统一信封与空数组契约；SSE 全链（子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋）与 Last-Event-ID 重放。服务只启一次，子测试共用 |
+| `service/chain_test.go` · TestServiceChain | 会话生命周期（懒创建 → 发送回写指针 → 删除同时清行与文件）；一轮跑完后的运行记录收尾与用量口径；停止链路；JSONL 投影（含坏行只跳过自己）；权限档写进策略文件；审批桥（登记 → 工具名解析 → 会话级放行 → Forget 清干净 → 4102）；工作区切换重建进程；子代理独立进程与隐藏会话不进列表；配置同步写出 PI 的全部文件并登记审批扩展；`APPEND_SYSTEM` 只改受控块；设置与工具开关同步进 `settings.json`；MCP 校验不过不落盘且内置条目删不掉；并发发送不串会话 |
+| `knowledge/knowledge_test.go` · TestKnowledgeChain | 建索引 → 检索（短查询子串兜底）→ 删除级联；pptx 按页号抽取且可检索；重建索引后台任务（进度跑满、拒绝重入、结束后取消返回 false）；MCP 出口（握手按客户端版本回、通知不回帧、工具声明、检索命中与零命中的话术、未知方法报错） |
+| `git/git_test.go` · TestGitChain | 真仓库端到端：init → 提交 → 改动 → status 认出「改过 / 未跟踪」带对增删行数、中文带空格路径还原 → 单文件差异的行号归属与未跟踪整篇新增 → 整个工作区 diff 不为空；护栏（工作区外路径被拒、非仓库目录给人话引导）。`-short` 与没装 git 都跳过 |
+| `skill/skill_test.go` · TestSkillRegistryChain | embed 解析落盘与触发词渲染；同名按来源优先且可回退、切换工作目录换掉工作区技能；停用 = 移出目录（不是写 KV） |
+| `runtime/runtime_test.go` · TestBundledRuntimeChain | 两份归档 SHA 与常量一致、解压路径穿越拒绝；Node 剥掉顶层单目录、Python 平铺；真解压（`-short` 跳过） |
 
 **改这里 → 只跑这条**（定位与验证都从这张表进；单包一律用脚本）：
 
-| 改动位置 | 命令 | 耗时（含编译） |
-|---|---|---|
-| `pi/`（进程、协议编解码、事件翻译） | `pwsh scripts/check.ps1 -Pkg backend/pi` | ~3s |
-| `pi/env/`（Node 探测、PI 安装、config 互通） | `pwsh scripts/check.ps1 -Pkg backend/pi/env` | ~2s |
-| `service/`（会话、对话、落库、编排） | `pwsh scripts/check.ps1 -Pkg backend/service` | ~7s |
-| `api/` · `server/`（端到端 HTTP + SSE） | `pwsh scripts/check.ps1 -Pkg backend/api` | ~4s |
-| `runtime/`（内置运行时，含真解压） | `pwsh scripts/check.ps1 -Full` | ~7s |
-| `git/`（工作区视图，含真 git） | `pwsh scripts/check.ps1 -Full` | ~8s |
-| `skill/` · `knowledge/` | `pwsh scripts/check.ps1 -Pkg backend/skill` 等 | ~2s |
-| 壳层（`app.go`） | `pwsh scripts/check.ps1 -Pkg .` | ~3s |
-| 某个分支 | `-run 'TestPiChain/未知记录不报错'` | 秒级 |
-| 拿不准 | `pwsh scripts/check.ps1` | 全包短测试 + 编译，约 10s |
-| 改了前端或准备提交 | `pwsh scripts/check.ps1 -All` | 约 30s |
-| 提交前 / CI | `pwsh scripts/check.ps1 -Full`（见 `.github/workflows/ci.yml`） | 分钟级 |
-| 并发相关改动 | `go test -race ./backend/...` | 分钟级（需 cgo，见下） |
+| 改动位置 | 命令 |
+|---|---|
+| `pi/`（进程、协议编解码、事件翻译） | `pwsh scripts/check.ps1 -Pkg backend/pi` |
+| `pi/env/`（Node 探测、PI 安装、config 互通） | `pwsh scripts/check.ps1 -Pkg backend/pi/env` |
+| `service/`（会话、对话、落库、编排） | `pwsh scripts/check.ps1 -Pkg backend/service` |
+| `api/` · `server/`（端到端 HTTP + SSE） | `pwsh scripts/check.ps1 -Pkg backend/api` |
+| `skill/` · `knowledge/` | `pwsh scripts/check.ps1 -Pkg backend/skill` 等 |
+| 壳层（`app.go`） | `pwsh scripts/check.ps1 -Pkg .` |
+| `runtime/`（含真解压）· `git/`（含真 git） | `pwsh scripts/check.ps1 -Full` |
+| 某一条子测试 | `go test -count=1 -run 'TestPiChain/审批请求解析与回写响应' ./backend/pi` |
+| 拿不准 | `pwsh scripts/check.ps1` |
+| 改了前端 | `pwsh scripts/check.ps1 -All` |
+| 提交前 / CI | `pwsh scripts/check.ps1 -Full` |
 
-耗时大头是**编译**（26 个包 + wails / gin / gorm 依赖），测试本体多在亚秒级。
-所以「只跑一个包」省的是编译，不是断言——这也是一包一入口之外，脚本还要出 `-Pkg` 与核心档的原因。
+耗时大头是**编译**（前端依赖之外，Go 侧 26 个包 + wails / gin / gorm），测试本体多在亚秒级。
+所以「只跑一个包」省的是编译，不是断言——这就是 `-Pkg` 存在的理由。
 
-`-race` 前置条件：`-race` 需要 cgo，而本项目为了让 SQLite 驱动保持纯 Go 默认关掉了 CGO。
-跑这一档必须先装 MinGW（`winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT`，
-装完确认 `gcc` 在 PATH 里），再 `CGO_ENABLED=1`。没有 C 编译器时这一档会直接
-`build failed`——不是代码问题，别当成回归去查。
-
-**每条链覆盖什么**（括号里是子测试）：
-
-| 文件 | 入口 | 覆盖的链路（括号里是子测试） |
-|---|---|---|
-| `app_test.go` | TestAppChain | 启动等待判据（慢装配不误判 / 失败如实报 / 卡死有上限）；关闭去向（托盘开关 / 退出流程 / 托盘未就绪） |
-| `pi/pi_test.go` | TestPiChain | 假 PI 进程下的完整协议链：按 LF 分帧（含 U+2028 在字符串内）；未知记录忽略不报错；命令按 id 关联且乱序响应不错配；stdout 持续读到 EOF；事件翻译映射（text_delta / tool_start / tool_end）；`chat:done` 只在 `agent_settled`（早到的 `agent_end` 不提前完成）；stdin 关闭后优雅退出；异常退出转 `9701` 且不自动重发 |
-| `pi/env/env_test.go` | TestPiEnvChain | 环境闸门判定（node 缺 / pi 缺 / 模型缺 三种 `blocking`）；`models.json` 写出后 PI 能读的形状；`settings.json` 的 `defaultTools` 纯名字列表；`APPEND_SYSTEM.md` 只改标记块（块外内容不丢）；`mcp.json` 内置条目不被丢 |
-| `api/api_test.go` | TestHTTPChain | 装配完整与端口握手时序（bootServer 内一次卡死）；跨源预检放行 POST；帮助文档名不越界；真实 HTTP 栈 SSE 送达（seq 递增、data 回带 event、usage 落袋）与 Last-Event-ID 补帧。服务只启动一次，子测试共用 |
-| `service/chain_test.go` | TestServiceChain | 发送到 PI 的命令选择（空闲 prompt / 流中 steer / 流中 follow_up）；停止先 `clear_queue` 再 `abort`；JSONL 投影（message / compaction / branch_summary / 未知 entry 不出消息）；会话懒创建（首次发送才 `new_session`）；删除同时清行与文件；用量与上下文口径落库；默认模型回填；工作区切换重建进程；跨进程重启（残留运行记录收口）；技能包导入（解压落盘 + 条目穿越拒绝）；子代理（独立进程 / 结论回填 / 隐藏会话不进列表） |
-| `knowledge/knowledge_test.go` | TestKnowledgeChain | 建索引 → 检索（短查询子串兜底）→ 删除级联；pptx 按页号抽取且可检索；重建索引后台任务（进度跑满、拒绝重入、结束后取消返回 false） |
-| `git/git_test.go` | TestGitChain | 真仓库端到端：init → 提交 → 改动 → status 认出「改过 / 未跟踪」带对增删行数、中文带空格路径还原 → 单文件差异的行号归属与未跟踪整篇新增 → 整个工作区 diff 不为空；护栏（工作区外路径被拒、非仓库目录给人话引导）（`-short` 与没装 git 都跳过） |
-| `skill/skill_test.go` | TestSkillRegistryChain | embed 解析落盘与触发词渲染；同名按来源优先且可回退、切换工作目录换掉工作区技能；停用 = 移出目录（不是写 KV） |
-| `runtime/runtime_test.go` | TestBundledRuntimeChain | 两份归档 SHA 与常量一致、解压路径穿越拒绝；Node 剥掉顶层单目录、Python 平铺；真解压（`-short` 跳过） |
 
 ---
 
 ## 4. 架构门禁
 
 ```bash
-pwsh scripts/check.ps1 -Full         # 格式 + vet + 依赖边界 + 全量测试 + 前端类型与构建
+pwsh scripts/check.ps1 -Full         # 格式 + 编译 + vet + 依赖边界 + 全量测试 + 前端构建
 wails build                          # 产物 build/bin/WorkBaby.exe
 ```
 
@@ -565,13 +558,12 @@ wails build                          # 产物 build/bin/WorkBaby.exe
 
 ```bash
 gofmt -l .                           # 必须无输出：Go 源码统一 LF（见 .gitattributes）
-go vet ./...
-go run ./tools/check-boundaries      # 依赖方向门禁
-go test -short -count=1 ./backend/pi ./backend/service ./backend/api
-                                     # 核心链路快门；-short 跳过真 git、归档解压与真 PI
-go test -short -count=1 ./...        # 所有包短测试（-All 档）
-go test -count=1 ./...               # 全量（-Full 档）
-cd frontend && npm run typecheck     # 只看类型；npm run build 会再 vite build
+go build ./...                       # 编译比测试更早暴露类型错误
+go vet ./...                         # 只在 -Full 跑
+go run ./tools/check-boundaries      # 依赖方向门禁，只在 -Full 跑
+go test -short -count=1 ./...        # 短测试（快门 / -All / -Pkg）
+go test -count=1 ./...               # 全量（-Full）：真 git 链路与归档真解压只有这里跑到
+cd frontend && npm run build         # vue-tsc -b && vite build：类型检查已串在构建里
 ```
 
 `gofmt -l .` 要能当门禁用，行尾就必须统一：`.gitattributes` 里 `*.go text eol=lf`

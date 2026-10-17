@@ -11,15 +11,15 @@
 
 ```powershell
 # 验证入口：一个脚本收口，别在本地与 CI 各写一套（分档说明见 AGENTS.md §3.3）
-pwsh scripts/check.ps1                                      # 快门：格式 → vet → 边界 → 核心链路四包 → 前端类型
-pwsh scripts/check.ps1 -All                                 # 全档：再加所有包的短测试
-pwsh scripts/check.ps1 -Full                                # 提交档：全量测试 + 前端类型 + 前端构建
-pwsh scripts/check.ps1 -Pkg backend/service                 # 只跑一个包
+pwsh scripts/check.ps1                                      # 快门：格式 → 编译 → 所有包短测试
+pwsh scripts/check.ps1 -Pkg backend/service                 # 只验一个包
+pwsh scripts/check.ps1 -All                                 # 快门 + 前端构建
+pwsh scripts/check.ps1 -Full                                # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
 
 # 单独跑某一步时才手敲
 go test -short -count=1 ./...                               # 所有包短测试：跳过真 git 链路与归档真实解压
-go test -count=1 ./...                                      # 全量：13 个入口，两条慢链路都跑到
-go test -run 'TestServiceChain/预算与用量口径' ./backend/service   # 定点一个分支
+go test -count=1 ./...                                      # 全量：9 个入口，两条慢链路都跑到
+go test -run 'TestServiceChain/审批桥' ./backend/service      # 定点链上的一段
 go test -race ./backend/...                                 # 竞态检测，改并发相关代码时用（需 CGO 与 gcc）
 
 # 依赖方向门禁（改包结构或调整依赖后必跑）
@@ -75,8 +75,9 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 |---|---|
 | `backend/pi` | PI 子进程监督：进程 / RPC 编解码 / 事件翻译（不引 gin/wails，只能靠 pkg 与 runtime） |
 | `backend/pi/env` | 环境引导：内置 Node、PI 的发现与安装、models.json / settings.json / mcp.json 互通 |
-| `backend/service` | 编排层：会话/对话/审批桥/配置 |
-| `backend/service/memory.go` | 记忆：跨对话的长期事实，注入 APPEND_SYSTEM.md（不单独成包，见 `specs/22`） |
+| `backend/service` | 编排层：会话 / 对话 / 审批桥 / 配置同步 / 运行观测 / 记忆 / 子代理（一个关注点一个文件） |
+| `backend/service/memory.go` | 记忆：跨对话的长期事实，注入 APPEND_SYSTEM.md（不单独成包，见 `specs/14`） |
+| `backend/api` | HTTP handler + 组合根：`api_biz.go` 只放统一响应外壳与引导，其余按资源分文件（`sessions.go` / `chat.go` / `providers.go` / `models.go` / `skills.go` / `knowledge.go` / `tools.go` / `runtime.go` / `settings.go` / `mcp.go` / `git.go` / `memory.go` / `observe.go` / `history.go` / `archmap.go` / `help.go` / `env.go`），一个资源一个文件 |
 | `backend/history` | 通用会话历史：只读扫描本机其它 AI 客户端的会话文件 |
 | `backend/archmap` | 项目架构分析：import 解析 → 分层图数据 |
 | `backend/server/routes.go` | 路由注册唯一入口 |
@@ -131,8 +132,8 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 跨轮次 / 跨协议的行为出了问题？纯函数的输入输出、字段映射、构造冒烟一律不写——它们不缩短排错时间，
 只增加每次改动后的阅读成本与上下文负担。
 
-- **一个包一个入口**：入口统一叫 `Test<Domain>Chain`，同包内其余函数是 `check*` 辅助
-  （不是 `Test*`），由入口调起。多入口会让「这个包测了什么」分散在若干个函数里，
+- **一个包一个入口**：入口统一叫 `Test<Domain>Chain`，同包内其余函数是小写辅助
+  （不带 `Test` 前缀就不会被单独跑起）。多入口会让「这个包测了什么」分散在若干个函数里，
   失败时也不知道该看哪一个
 - **一条链路一个入口**：同类分支用 `t.Run` 归到同一个入口下，
   失败时从输出直接看出是哪条链路、哪个分支坏了，
@@ -156,19 +157,20 @@ npm.cmd run dev    # 打开 http://127.0.0.1:5173
 ## 验证命令
 
 分档与命令的唯一权威是 [`AGENTS.md` §3.3](../AGENTS.md)（本节不重复表格，避免两处各写一套后走样）。
-取舍只有一句：**改哪里跑哪里**——默认档只跑核心链路四包，独立子系统的护栏用 `-All`，
-真 git 与归档解压只在 `-Full`（本地提交前与 CI）跑到。
+取舍只有一句：**改哪里跑哪里**。日常用快门档（所有包的短测试）；只碰了一个包就用
+`-Pkg` 把编译范围一起收窄；独立子系统（前端 / 全量）用 `-All`；
+真 git 链路与归档真解压只在 `-Full`（提交前与 CI）跑到。
 
 单独跑某一步时才手敲原生命令：
 
 | 目的 | 命令 |
 |---|---|
 | 单个包 | `go test -count=1 ./backend/pi` |
-| 定点一条链路 | `go test -run 'TestPiChain/未知记录忽略不报错' ./backend/pi` |
+| 定点一条链路 | `go test -run 'TestPiChain/审批请求解析与回写响应' ./backend/pi` |
 | 依赖方向门禁 | `go run ./tools/check-boundaries` |
 | 竞态检测 | `go test -race ./backend/...`（需 CGO 与 gcc，分钟级） |
 
-耗时大头是**编译**（20 个包 + wails/gin/gorm 依赖），测试本体多在亚秒级——
+耗时大头是**编译**（20 个包 + wails / gin / gorm 依赖），测试本体多在亚秒级——
 `-Pkg` 省的是编译，不是断言。CI（`.github/workflows/ci.yml`）跑的就是 `-Full` 那档。
 
 运行时归档（`backend/runtime/bundled/*.zip`）直接随仓库托管（Git LFS），

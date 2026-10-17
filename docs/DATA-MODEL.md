@@ -43,14 +43,13 @@
 | `runs` | `RunDO` | 一次 run 一行账 |
 | `context_snapshots` | `ContextSnapshotDO` | 每轮一张水位快照 |
 | `checkpoints` | `CheckpointDO` | 每次 run 起点打一个点 |
-| `orchestra_evals` | `EvalDO` | 评估记录（specs/19） |
+| `orchestra_evals` | `EvalDO` | 评估记录（specs/11） |
 | `orchestra_baselines` | `BaselineDO` | 回归基线 |
-| `memories` | `MemoryDO` | 长期记忆（specs/22） |
+| `memories` | `MemoryDO` | 长期记忆（specs/14） |
 
-**已删除**：`entries`。消息真身在 PI 的 JSONL 里，WorkBaby 不再持有条目链。
-只读投影见 §3。
+表里没有消息表：消息真身在 PI 的 JSONL 里，WorkBaby 不持有条目链，只读投影见 §3。
 
-MCP 配置不是表：它是 `<agent-dir>/mcp.json`（specs/16）。
+MCP 配置不是表：它是 `<agent-dir>/mcp.json`（specs/10）。
 
 ### sessions
 
@@ -63,7 +62,7 @@ Workspace     string
 Model         string // "provider/modelId"
 ThinkingLevel string
 Permission    string // auto / ask_write / readonly
-AllowedTools  string // JSON 数组：本会话「总是允许」的工具（specs/27）
+AllowedTools  string // JSON 数组：本会话「总是允许」的工具（specs/19）
 Hidden        bool   // 子代理的载体，不进列表
 MessageCount  int    // 从 get_session_stats 同步
 TotalTokens   int
@@ -73,7 +72,7 @@ UpdatedAt     int64
 
 - `ID` 与 `PiSessionID` 分开：JSONL 文件名里的 uuid 要 `new_session` 之后才有，
   不能做提前标识
-- `Permission` 是本会话的审批档，写进 `workbaby-policy.json` 供扩展读取（specs/27）
+- `Permission` 是本会话的审批档，写进 `workbaby-policy.json` 供扩展读取（specs/19）
 - `hidden=true` 是子代理的载体会话，不进列表但可被直接打开
 
 ### 为什么没有 entries 表
@@ -122,7 +121,7 @@ UpdatedAt     int64
 ### model_configs
 
 复合主键 `(provider_id, model)`。目录认不出的私有模型靠它闭环。
-这些值同时写进 PI 的 `models.json`（specs/13），**WorkBaby 是唯一写入者**：
+这些值同时写进 PI 的 `models.json`（specs/07），**WorkBaby 是唯一写入者**：
 
 | 列 | 语义 |
 |---|---|
@@ -142,7 +141,7 @@ USING fts5(content, doc_id UNINDEXED, chunk_id UNINDEXED, tokenize='trigram')
 三个触发器（AFTER INSERT / DELETE / UPDATE）把 `knowledge_chunks.content` 同步进虚表。
 `trigram` 是硬要求：默认 `unicode61` 不按字切分 CJK，整句中文会退化成一个 token。
 
-### 观测域表（specs/23）
+### 观测域表（specs/15）
 
 ```
 runs                id / session_id / provider_id / model / status / stop_reason / turns
@@ -183,7 +182,7 @@ DO 永远不直接出：`ProviderDO.APIKeyEnc` 的 tag 是 `json:"-"`，出参�
 静态默认（`domain.DefaultSettings`，首启写入）+ 运行时 KV（`settings` 表）。
 区分依据：会不会被用户在设置页改。
 
-**但要分清存放位置**（见 specs/13）：
+**但要分清存放位置**（见 specs/07）：
 
 | 设置 | 存在哪 |
 |---|---|

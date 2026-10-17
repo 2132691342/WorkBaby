@@ -1,11 +1,9 @@
 // PI 监督链路：真实子进程 + 真实 stdin/stdout 分帧，覆盖编解码、命令关联与生命周期。
-// 坏了的表现：事件串不起来（界面一直转圈）、done 提前到（自动重试期间显示已完成）、
-// 进程死了不报错（用户只看到「没反应」）、停止时排队的句子凭空消失。
+// 坏了的表现：界面一直转圈、done 提前到、进程死了没反应、停止时排队的句子凭空消失。
 package pi
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -121,31 +119,19 @@ func waitFor(t *testing.T, cond func() bool) {
 func TestPiChain(t *testing.T) {
 	exe := buildFakePI(t)
 
-	t.Run("按 LF 分帧且 U+2028 不截断记录", func(t *testing.T) {
-		_, rec := start(t, exe, "basic")
+	t.Run("分帧、未知记录与命令关联", func(t *testing.T) {
+		client, rec := start(t, exe, "basic")
 		// 两条 setStatus 都要到：按 U+2028 切分会把第二条截成半截 JSON 而丢掉。
 		waitFor(t, func() bool { return rec.count(KindExtensionUI) >= 2 })
-	})
-
-	t.Run("未知记录忽略不报错", func(t *testing.T) {
-		client, rec := start(t, exe, "basic")
-		// 首帧是 setStatus：如果它被当成错误，后面的命令全部会挂。
-		if _, err := client.GetState(context.Background()); err != nil {
-			t.Fatalf("遇到扩展 UI 记录后命令应当照常可用: %v", err)
-		}
-		waitFor(t, func() bool { return rec.count(KindExtensionUI) >= 2 })
-	})
-
-	t.Run("命令按 id 关联且拿到数据", func(t *testing.T) {
-		client, _ := start(t, exe, "basic")
+		// 首帧是扩展 UI 记录：把它当错误处理，后面的命令就全挂了。
 		st, err := client.GetState(context.Background())
 		if err != nil {
-			t.Fatalf("get_state 失败: %v", err)
+			t.Fatalf("遇到扩展 UI 记录后命令应当照常可用: %v", err)
 		}
 		if st.SessionID == "" || st.SessionFile == "" {
 			t.Fatalf("会话标识没拿到: %+v", st)
 		}
-		// 连续发两条不同命令，响应不能串。
+		// 连续两条不同命令，响应必须按 id 各归各的。
 		stats, err := client.GetSessionStats(context.Background())
 		if err != nil {
 			t.Fatalf("get_session_stats 失败: %v", err)
@@ -183,13 +169,13 @@ func TestPiChain(t *testing.T) {
 		}
 	})
 
-	t.Run("流式增量与工具事件都能收到", func(t *testing.T) {
+	t.Run("流式增量、工具事件与结果内容块", func(t *testing.T) {
 		client, rec := start(t, exe, "tools")
 		if _, err := client.Prompt(context.Background(), "读文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
 		waitFor(t, func() bool { return rec.count(KindToolEnd) >= 1 })
-		// 正文与思考两类增量都要单独解析出来。
+		// 正文与思考两类增量都要单独解析出来，界面上它们是折叠与正文两种东西。
 		var text, thinking bool
 		rec.mu.Lock()
 		for _, e := range rec.events {
@@ -207,14 +193,7 @@ func TestPiChain(t *testing.T) {
 		if !text || !thinking {
 			t.Fatalf("增量没解析出来（text=%v thinking=%v）", text, thinking)
 		}
-	})
-
-	t.Run("工具结果按内容块还原", func(t *testing.T) {
-		client, rec := start(t, exe, "tools")
-		if _, err := client.Prompt(context.Background(), "读文件", "", nil); err != nil {
-			t.Fatalf("prompt 失败: %v", err)
-		}
-		waitFor(t, func() bool { return rec.count(KindToolEnd) >= 1 })
+		// 工具结果按内容块还原，元数据（耗时 / 是否出错）要跟着出来。
 		ev, _ := rec.find(KindToolEnd)
 		if ev.Result == nil || len(ev.Result.Content) == 0 || ev.Result.Content[0].Text != "文件内容" {
 			t.Fatalf("工具结果没还原: %+v", ev.Result)
@@ -239,7 +218,7 @@ func TestPiChain(t *testing.T) {
 		}
 	})
 
-	t.Run("审批请求能带出标题与正文", func(t *testing.T) {
+	t.Run("审批请求解析与回写响应", func(t *testing.T) {
 		client, rec := start(t, exe, "approval")
 		if _, err := client.Prompt(context.Background(), "写文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
@@ -270,10 +249,7 @@ func TestPiChain(t *testing.T) {
 		if found.Body != "要写入文件 a.txt" {
 			t.Fatalf("审批正文没解析出来: %q", found.Body)
 		}
-	})
-
-	t.Run("回审批响应不报错", func(t *testing.T) {
-		client, _ := start(t, exe, "approval")
+		// 决策必须回到发出请求的那个进程：写不进去就是界面点了没反应。
 		if err := client.WriteResponse(map[string]any{
 			"type": "extension_ui_response", "id": "confirm-1", "confirmed": true,
 		}); err != nil {
@@ -297,35 +273,33 @@ func TestPiChain(t *testing.T) {
 		waitFor(t, func() bool { return rec.count(KindAgentSettled) >= 1 })
 	})
 
-	t.Run("关 stdin 后有序退出", func(t *testing.T) {
+	t.Run("退出：关 stdin 有序，崩溃要报错且不自动重启", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		client.Stop()
 		waitFor(t, func() bool { return rec.isExited() })
 		if client.Alive() {
 			t.Fatal("停止后进程还活着")
 		}
-	})
 
-	t.Run("进程崩溃后报错且不自动重启", func(t *testing.T) {
-		rec := &recorder{}
-		client, err := Start(Config{Exe: exe, Env: os.Environ(), Args: []string{"--scenario", "crash"}}, rec)
+		crashed := &recorder{}
+		bad, err := Start(Config{Exe: exe, Env: os.Environ(), Args: []string{"--scenario", "crash"}}, crashed)
 		if err != nil {
 			t.Fatalf("拉起假 PI 失败: %v", err)
 		}
-		t.Cleanup(client.Stop)
-		waitFor(t, func() bool { return rec.isExited() })
-		if client.Alive() {
+		t.Cleanup(bad.Stop)
+		waitFor(t, func() bool { return crashed.isExited() })
+		if bad.Alive() {
 			t.Fatal("崩溃后仍报告存活")
 		}
 		// 死进程上的命令必须立刻失败，不能等超时。
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		if _, err := client.GetState(ctx); err == nil {
+		if _, err := bad.GetState(ctx); err == nil {
 			t.Fatal("死进程上的命令应当报错")
 		}
 	})
 
-	t.Run("ResolveExe 认出 pi.cmd", func(t *testing.T) {
+	t.Run("进程归属：ResolveExe 与一个工作区一个进程", func(t *testing.T) {
 		dir := t.TempDir()
 		if got := ResolveExe(dir); got != "" {
 			t.Fatalf("空目录不该找到可执行文件: %s", got)
@@ -337,9 +311,7 @@ func TestPiChain(t *testing.T) {
 		if got := ResolveExe(dir); got != file {
 			t.Fatalf("应当认出 pi.cmd: got %q want %q", got, file)
 		}
-	})
 
-	t.Run("Supervisor 一个工作区一个进程", func(t *testing.T) {
 		sup := NewSupervisor(
 			func(workspace string) (Config, error) {
 				return Config{Exe: exe, Env: os.Environ()}, nil
@@ -349,6 +321,9 @@ func TestPiChain(t *testing.T) {
 		// 进程占着那个目录（它是 cwd），必须先停进程再让 TempDir 清目录。
 		t.Cleanup(sup.StopAll)
 
+		if _, err := sup.Ensure(context.Background(), ""); err == nil {
+			t.Fatal("空工作区应当报错")
+		}
 		ws := t.TempDir()
 		a, err := sup.Ensure(context.Background(), ws)
 		if err != nil {
@@ -377,18 +352,4 @@ func TestPiChain(t *testing.T) {
 		// 先停掉进程，TempDir 的清理才不会撞上「目录被占用」。
 		sup.StopAll()
 	})
-
-	t.Run("空工作区拒绝拉起", func(t *testing.T) {
-		sup := NewSupervisor(
-			func(workspace string) (Config, error) { return Config{Exe: exe, Env: os.Environ()}, nil },
-			func(workspace string) Handler { return &recorder{} },
-		)
-		t.Cleanup(sup.StopAll)
-		if _, err := sup.Ensure(context.Background(), ""); err == nil {
-			t.Fatal("空工作区应当报错（没有 cwd 就没法跑）")
-		}
-	})
 }
-
-// 编译期确认 json 被引用（事件断言里会用到原始记录）。
-var _ = json.Marshal

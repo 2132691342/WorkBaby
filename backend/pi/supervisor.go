@@ -154,9 +154,7 @@ func (s *Supervisor) Running(workspace string) bool {
 	return s.Get(workspace) != nil
 }
 
-// RestartIdle 重启当前没有会话在跑的进程。
-// caller 无法从这一层知道“有会话在跑”，所以由上层传入判据：
-// 这里只提供一个保守的默认——全部重启。
+// RestartIdle 重启进程。这一层看不出「哪个工作区有会话在跑」，所以保守地全部重启。
 func (s *Supervisor) RestartIdle(ctx context.Context) error {
 	return s.RestartAll()
 }

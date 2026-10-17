@@ -128,9 +128,8 @@ func (r *Repo) UsageOfSession(sessionID string) (input, output, cached int, err 
 	return row.In, row.Out, row.Cached, nil
 }
 
-// ToolStatsOfSession 汇总一个会话的工具调用次数与失败次数。
-// 工具动作的真身在 PI 的 JSONL 里，这里改从运行记录的时间线判——
-// 观测域只统计自己记的账，不回查别人的会话文件。
+// ToolStatsOfSession 从运行记录的时间线汇总一个会话的工具调用与失败次数：
+// 观测域只统计自己记的账，不回查 PI 的会话文件。
 func (r *Repo) ToolStatsOfSession(sessionID string) (calls, failures int, err error) {
 	var rows []domain.RunDO
 	if err := r.db.Select("timeline_json").

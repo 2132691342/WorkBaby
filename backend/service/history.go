@@ -13,7 +13,7 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// HistoryService 通用会话历史：扫描翻看 + 接着聊（specs/20）。
+// HistoryService 通用会话历史：扫描翻看 + 接着聊（specs/12）。
 // 自定义文件夹走 settings KV（history_folders），不建表——翻看不需要持久化。
 type HistoryService struct {
 	env      *Env

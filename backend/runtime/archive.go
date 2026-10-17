@@ -29,8 +29,7 @@ func extractZip(reader *zip.Reader, dest string) error {
 }
 
 // extractZipStripped 解压并可选地剥掉归档顶层的一个目录前缀。
-// Node 的上游 zip 内容在 node-v24.21.0-win-x64/ 下，不剥层会让 node.exe 多一层路径，
-// npm.cmd 里的相对路径会指错；Python / PowerShell 本身平铺，传空串即可。
+// Node 的上游 zip 多一层目录需要剥掉；Python 的平铺，stripRoot 传空串。
 func extractZipStripped(reader *zip.Reader, dest, stripRoot string) error {
 	if err := pkg.EnsureDir(dest); err != nil {
 		return err

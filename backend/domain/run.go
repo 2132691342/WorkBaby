@@ -1,4 +1,4 @@
-// 运行观测聚合根：一次 run 的账、上下文快照与检查点（specs/23）。
+// 运行观测聚合根：一次 run 的账、上下文快照与检查点（specs/15）。
 package domain
 
 import (

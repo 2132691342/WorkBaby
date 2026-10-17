@@ -1,12 +1,10 @@
-// 评估与基线聚合根：一次 run 打几分，与历史最好成绩比什么（specs/19）。
+// 评估与基线聚合根：一次 run 打几分，与历史最好成绩比什么（specs/11）。
 package domain
 
 import "WorkBaby/backend/pkg"
 
 var (
 	ErrEvalNotFound    = pkg.New("9221", "这条评估记录不存在", "")
-	ErrEvalDuplicated  = pkg.New("9222", "同一次运行已经打过分了", "改分请走更新")
-	ErrEvalNoMetrics   = pkg.New("9223", "这次运行没有可采集的指标", "")
 	ErrBaselineMissing = pkg.New("9224", "这条基线不存在", "")
 	ErrCompareHalf     = pkg.New("9225", "对比需要基线与一次运行各一份", "")
 )

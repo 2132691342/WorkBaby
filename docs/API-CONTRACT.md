@@ -26,7 +26,7 @@
 | POST | /sessions/delete/:id | 删除（SQLite 行 + PI 的 JSONL 文件 + approvals + token_usages）。会话在跑时先 `abort` 等 `agent_settled` 再删 |
 | POST | /sessions/model/:id | `{provider_id, model}`（同时发 PI 的 `set_model`） |
 | POST | /sessions/thinking/:id | `{level}`：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`，发 PI 的 `set_thinking_level` |
-| POST | /sessions/permission/:id | `{permission}`：`auto` / `ask_write` / `readonly`。写进 `workbaby-policy.json` 供审批扩展读取（specs/27） |
+| POST | /sessions/permission/:id | `{permission}`：`auto` / `ask_write` / `readonly`。写进 `workbaby-policy.json` 供审批扩展读取（specs/19） |
 | POST | /sessions/workspace/:id | `{workspace}` 切换本会话工作目录（必须真实存在）。因为 `cwd` 是进程级属性，切换会按新工作区重新 spawn（下一条消息生效） |
 | POST | /sessions/fork/:id | `{entry_id}` 从历史某条分叉成新会话 → `SessionVO`（发 PI 的 `fork`）。**不是移动 leaf**：PI 没有改 leaf 的协议面 |
 
@@ -62,7 +62,7 @@
 决策返回 4102，不改状态。
 
 `scope=session` 只作用于当前会话（写 `sessions.allowed_tools`），不写全局。
-全局放行等于把 `ask_write` 档位废掉。完整链路见 [specs/27](../specs/27-approval-bridge.md)。
+全局放行等于把 `ask_write` 档位废掉。完整链路见 [specs/19](../specs/19-approval-bridge.md)。
 
 ## 模型服务
 
@@ -115,7 +115,7 @@
 | GET | /runtime | 运行时状态：Node / Python 各自的 exe / source(bundled\|system\|空) / version / error，另带 PI 的 exe / source / version |
 | POST | /runtime/redetect | 重新检测内置运行时：清探测缓存后重跑，并把新路径写回 PI 进程的环境 |
 
-#### 环境引导（specs/26）
+#### 环境引导（specs/18）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -282,8 +282,12 @@ MCP 工具名字带 `mcp__{server}__{tool}` 前缀，`builtin=false`，风险一
 | GET | /mcp/template | 全部内置模板 `[{kind,label,hint,raw}]` |
 | POST | /mcp/reload | 重启当前工作区的 PI 进程（`mcp.json` 是启动期读的，不重启等于没改） |
 | GET | /mcp/tools | 当前 PI 报上来的 MCP 工具（名字带 `mcp__{server}__` 前缀） |
-| GET | /mcp/servers | 配置里声明的所有 server：`name` / `command` / `args` / `env_keys`（只给键名，不给值）/ `cwd` / `disabled` / `timeout` / `last_probe_ok` / `last_probe_at` / `last_error` |
-| POST | /mcp/servers/probe | **保留但不再实现**：WorkBaby 不是 MCP 客户端，自己握手探活没有意义。返回 `9109`，提示改用「保存 → 重新加载 → 看工具清单」 |
+| GET | /mcp/servers | 配置里声明的所有 server：`name` / `command` / `args` / `env_keys`（只给键名，不给值）/ `cwd` / `disabled` / `timeout` |
+
+这里只有**声明**，没有连接结果：MCP 服务由 PI 连接，而 PI 的 `get_state` 不回报每个服务的
+工具清单与成败。所以出参里没有 `ok` / `error` / `工具数` 这类字段——给了就只能靠猜。
+界面因此显示「已声明 / 内核已注册」（后者来自 `/mcp/tools` 里有没有这个服务的前缀条目），
+并提供「重新加载」动作而不是探测按钮。
 
 条目字段以 PI 的 `mcp.md` 为准：`command`（必填）· `args[]` · `env{}` · `cwd` · `disabled`。
 **未知字段原样保留**：从别的客户端拷来的配置带 `timeout` / `headers` 等，裁剪会让它失效。

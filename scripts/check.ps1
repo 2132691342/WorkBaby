@@ -1,11 +1,15 @@
 <#
 验证入口：一个脚本收口全部验证动作（格式 / 编译 / 依赖边界 / 测试 / 前端）。
-分档按「改了多大」选，不要每次全跑；失败即退出且不吞退出码。
+按「改了多大」选档，失败即退出且不吞退出码。
 
-  pwsh scripts/check.ps1            日常快门：格式 → 编译 → 边界 → 全包短测试（约 10s）
-  pwsh scripts/check.ps1 -All       同上，测试换成全量，再加前端构建
-  pwsh scripts/check.ps1 -Full      再加 vet 与前端类型检查（CI 跑这一档）
-  pwsh scripts/check.ps1 -Pkg ./backend/pi   只跑这一个包
+  pwsh scripts/check.ps1                 快门：格式 → 编译 → 全包短测试
+  pwsh scripts/check.ps1 -Pkg ./backend/pi   只验一个包（改单个能力域时用）
+  pwsh scripts/check.ps1 -All            快门 + 前端构建
+  pwsh scripts/check.ps1 -Full           全部（vet + 依赖边界 + 全量测试 + 前端），CI 跑这一档
+
+耗时大头是编译而不是断言：测试本体多在亚秒级，26 个包的编译才是分钟级。
+所以「只跑一个包」省的是编译——这就是 -Pkg 存在的理由。
+短测试（-short）跳过真 git 操作、归档真解压与真 PI 进程；这些各在对应包里留一次全量。
 #>
 [CmdletBinding()]
 param(
@@ -15,66 +19,55 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$repo = Split-Path -Parent $PSScriptRoot
-Set-Location $repo
+Set-Location (Split-Path -Parent $PSScriptRoot)
 
-$failed = @()
 function Step($name, $block) {
     Write-Host "==> $name" -ForegroundColor Cyan
     & $block
     if ($LASTEXITCODE -ne 0) {
-        $script:failed += $name
         Write-Host "    FAILED: $name" -ForegroundColor Red
         exit $LASTEXITCODE
     }
 }
 
-# 1) 格式：gofmt 必须无输出。行尾由 .gitattributes 统一成 LF，否则 CRLF 文件一律被报未格式化。
+# gofmt 必须无输出：.gitattributes 把 *.go 钉成 LF，CRLF 文件会被一律报成未格式化。
 Step 'gofmt' {
     $bad = gofmt -l . 2>&1 | Where-Object { $_ -and $_ -notmatch '^frontend' }
     if ($bad) {
-        Write-Host "    需要格式化：" -ForegroundColor Yellow
-        $bad | ForEach-Object { Write-Host "      $_" }
+        $bad | ForEach-Object { Write-Host "      需要格式化：$_" -ForegroundColor Yellow }
         $global:LASTEXITCODE = 1
-    } else {
-        $global:LASTEXITCODE = 0
-    }
+    } else { $global:LASTEXITCODE = 0 }
 }
 
-# 2) 编译：比测试更早暴露类型错误。
-Step 'build' { go build ./... }
-
-# 3) 依赖方向门禁。
-Step 'boundaries' { go run ./tools/check-boundaries }
-
-# 4) 测试：-Full 跑全量，其余跑 -short（跳过真 git 与归档解压）。
 if ($Pkg) {
+    # 包路径写成 backend/pi 或 ./backend/pi 都行：go 只认后者，这里补上前缀。
+    if ($Pkg -notmatch '^(\.|WorkBaby)') { $Pkg = "./$Pkg" }
+    Step "build $Pkg" { go build $Pkg }
     Step "test $Pkg" {
         if ($Full) { go test -count=1 $Pkg } else { go test -short -count=1 $Pkg }
     }
-} elseif ($All -or $Full) {
-    Step 'test (all)' { go test -count=1 ./... }
-} else {
-    Step 'test (short)' { go test -short -count=1 ./... }
+    Write-Host '全部通过。' -ForegroundColor Green
+    exit 0
 }
+
+# 编译比测试更早暴露类型错误，放在测试前。
+Step 'build' { go build ./... }
 
 if ($Full) {
     Step 'vet' { go vet ./... }
+    Step 'boundaries' { go run ./tools/check-boundaries }
 }
 
-# 5) 前端：-All 与 -Full 才跑（改前端或准备提交）。
+Step 'test' {
+    if ($Full) { go test -count=1 ./... } else { go test -short -count=1 ./... }
+}
+
+# 前端只有构建一档：npm run build 里已经串了 vue-tsc，不必再单独跑一遍类型检查。
 if ($All -or $Full) {
     Step 'frontend build' {
         Push-Location frontend
         try { npm run build } finally { Pop-Location }
     }
 }
-if ($Full) {
-    Step 'frontend typecheck' {
-        Push-Location frontend
-        try { npm run typecheck } finally { Pop-Location }
-    }
-}
 
-Write-Host ""
-Write-Host "全部通过。" -ForegroundColor Green
+Write-Host '全部通过。' -ForegroundColor Green

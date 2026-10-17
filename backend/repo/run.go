@@ -103,9 +103,8 @@ func (r *Repo) ListCheckpoints(sessionID string) ([]domain.CheckpointVO, error) 
 	return out, nil
 }
 
-// ForkSessionAt 从某个位点分叉出一条新会话：原会话完整保留。
-// PI 的 leaf 是内部状态，不能从这层改；这里只建一行 WorkBaby 的会话记录，
-// 真正的 JSONL 由 service 层调 PI 的 fork 生成后回写。
+// ForkSessionAt 建一条分叉会话的记录行：真正的 JSONL 由上层调 PI 的 fork 生成后回写。
+// PI 的 leaf 是内部状态，不能在持久层改。
 func (r *Repo) ForkSessionAt(src *domain.SessionDO, title string) (*domain.SessionDO, error) {
 	forked := &domain.SessionDO{
 		ID:         newForkID(),

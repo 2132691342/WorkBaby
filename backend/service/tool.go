@@ -93,10 +93,8 @@ func (s *ToolService) toolVO(name string, enabled map[string]bool) domain.ToolVO
 	return vo
 }
 
-// declared 从 PI 读当前声明的工具名。
-// 走 get_state 之后的事件积累不可靠（进程刚起时没有事件），所以用一次极短的
-// prompt 之外没有更好的办法——这里改用「读 PI 的 defaultTools 与内置表」的组合：
-// 只有 PI 已经跑起来时才问它，否则返回未就绪。
+// declared 从 PI 读当前声明的工具名：读 defaultTools 与内置表的组合。
+// 进程没跑起来时问不到，返回未就绪——事件积累对刚起的进程不可靠。
 func (s *ToolService) declared() ([]string, bool) {
 	settings, err := s.env.PiEnv.ReadSettings()
 	if err != nil {
@@ -148,9 +146,8 @@ func (s *ToolService) mcpServers() map[string]bool {
 	return out
 }
 
-// SetEnabled 启停单个工具：写 PI 的 defaultTools。
-// 勾选集合写成纯名字列表（替换整个集），不用增减语法——那会依赖 PI 的默认集，
-// PI 新增工具会绕过用户勾选自动出现在界面上。
+// SetEnabled 启停单个工具：写 PI 的 defaultTools，用纯名字列表替换整个集。
+// 增减语法会依赖 PI 的默认集，让新增工具绕过用户勾选自动出现在界面上。
 func (s *ToolService) SetEnabled(name string, enabled bool) error {
 	settings, err := s.env.PiEnv.ReadSettings()
 	if err != nil {

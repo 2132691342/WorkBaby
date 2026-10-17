@@ -1,4 +1,4 @@
-# 07 · 会话
+# 02 · 会话
 
 一个会话 = 一个 PI session（JSONL 文件）+ 一行 WorkBaby 元数据。
 两者用 `pi_session_id` 绑定，谁都不是对方的副本。

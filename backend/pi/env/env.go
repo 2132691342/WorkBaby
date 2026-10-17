@@ -1,6 +1,5 @@
-// Package env 负责 PI 的运行环境：内置 Node、PI 的发现与安装、注入的 PATH、
-// 以及 WorkBaby 与 PI 之间的配置互通（models.json / settings.json / mcp.json）。
-// 它是 backend/pi 的子包：环境引导与协议无关，但只有 pi 需要它。
+// Package env 负责 PI 的运行环境：内置 Node、PI 的发现与安装、注入的 PATH，
+// 以及与 PI 的配置互通（models.json / settings.json / mcp.json）。只有 pi 需要它。
 package env
 
 import (
@@ -270,8 +269,7 @@ func (e *Env) InstallPi(onLine func(string)) error {
 const piPackage = "@earendil-works/pi-coding-agent"
 
 // ModelReady 判断是否至少有一个服务配了密钥与模型。
-// 只看 models.json / providers 的落库状态：没有可用的模型就 spawn，
-// 失败点会推到第一次对话，错误还埋在协议流里。
+// 没有可用模型就 spawn，失败点会推到第一次对话，错误还埋在协议流里。
 func ModelReady(hasProvider bool) bool { return hasProvider }
 
 // WriteFileAtomic 原子替换写入：磁盘写满或进程被杀留下半截配置比写失败更糟。

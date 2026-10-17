@@ -7,9 +7,7 @@ import "reflect"
 const maxFillDepth = 8
 
 // FillNilSlices 把 v（及其嵌套结构）里的 nil 切片换成空切片，返回可直接编码的值。
-// 契约说是数组就永远发 []，不在出口补一次就得要求每个 handler 都记得初始化。
 // 指针就地改，值类型返回副本；[]byte 与标量不进入递归。
-
 func FillNilSlices(v any) any {
 	if v == nil {
 		return v

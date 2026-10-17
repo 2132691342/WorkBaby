@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 指挥台：运行 / 评估 / 历史 / 架构四个页签（specs/19-21 / 23）。
+// 指挥台：运行 / 评估 / 历史 / 架构四个页签（specs/11-13 / 15）。
 // 一级导航只有 NavRail 一处；这里的子导航复用 .nav-item 的竖条语言。
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'

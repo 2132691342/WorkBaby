@@ -9,7 +9,7 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// ArchMapService 项目架构分析：把 archmap 能力域的结果按工作目录装配（specs/21）。
+// ArchMapService 项目架构分析：把 archmap 能力域的结果按工作目录装配（specs/13）。
 type ArchMapService struct {
 	env *Env
 }

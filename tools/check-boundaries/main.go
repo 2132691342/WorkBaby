@@ -29,7 +29,7 @@ var allowed = map[string][]string{
 		"runtime", "config", "db", "git",
 		// 内核是外部 PI 进程：service 通过 pi 的接口发命令、收事件。
 		"pi",
-		// 指挥台四域（specs/16-19）与通用历史 / 架构图同为能力域，由 service 编排
+		// 指挥台四域（specs/10-19）与通用历史 / 架构图同为能力域，由 service 编排
 		"history", "archmap",
 	},
 	// pi 不依赖 domain / repo：它只认 pkg 与 runtime，通过接口把事件交给上层。

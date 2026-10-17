@@ -1,7 +1,5 @@
-// 服务层链路：发送命令选择、JSONL 投影、会话懒创建与删除、用量口径、审批桥、子代理。
-// 事件来自真实的假 PI 进程（走 stdin/stdout 协议），所以这里测的是编排本身。
-// 坏了的表现：空闲时说话走错命令（PI 拒绝）、会话列表读错文件、删会话留下孤儿、
-// 审批卡点了没反应（PI 那边一直阻塞）、子代理把父会话的流顶掉。
+// 服务层链路：会话生命周期、用量与运行记录、JSONL 投影、审批桥、子代理与配置同步。
+// 事件来自假 PI 进程（走 stdin/stdout 协议），测的是编排本身。
 package service
 
 import (
@@ -100,7 +98,7 @@ func repoRootOf(t *testing.T) string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatal("找不到仓库根目录")
+			t.Fatal("找不到仓库目录")
 		}
 		dir = parent
 	}
@@ -140,27 +138,35 @@ func writeJSONL(t *testing.T, path string, lines []string) {
 	}
 }
 
+// pointSessionAt 把会话记录指向一份手写 JSONL。
+func (te *testEnv) pointSessionAt(t *testing.T, sessionID, file string) {
+	t.Helper()
+	if err := te.env.Repo.UpdateSessionColumns(sessionID, map[string]any{
+		"pi_session_file": file, "pi_session_id": "s1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestServiceChain 是 service 包唯一的测试入口。
 func TestServiceChain(t *testing.T) {
 	te := bootService(t)
 
-	t.Run("会话懒创建：发消息前不建 PI 会话", func(t *testing.T) {
+	t.Run("会话生命周期：懒创建 → 发送回写指针 → 删除清掉文件", func(t *testing.T) {
 		sess := te.newSession(t)
+		// 还没发消息：PI 会话与 JSONL 都还不该存在（提前建会留空文件并拖慢每次点击）。
 		if sess.PiSessionID != "" {
-			t.Fatal("还没发消息就建了 PI 会话（会留下空文件并拖慢每次点击）")
+			t.Fatal("还没发消息就建了 PI 会话")
 		}
-		// 详情在懒创建阶段也要能给：消息列表是空数组而不是 null。
 		detail, err := te.container.Sessions.Detail(sess.ID)
 		if err != nil {
 			t.Fatalf("读详情失败: %v", err)
 		}
+		// 懒创建阶段也要能给详情：消息列表是空数组而不是 null，前端按数组读。
 		if detail.Messages == nil {
-			t.Fatal("消息列表是 null，前端按数组读会崩")
+			t.Fatal("消息列表是 null")
 		}
-	})
 
-	t.Run("空闲发送会建 PI 会话并回写指针", func(t *testing.T) {
-		sess := te.newSession(t)
 		resp, err := te.container.Chat.Send(sess.ID, "你好", nil)
 		if err != nil {
 			t.Fatalf("发送失败: %v", err)
@@ -178,32 +184,27 @@ func TestServiceChain(t *testing.T) {
 		if after.PiSessionID == "" || after.PiSessionFile == "" {
 			t.Fatalf("PI 会话指针没回写: %+v", after)
 		}
+
+		file := filepath.Join(te.home, "sessions", "todelete.jsonl")
+		writeJSONL(t, file, []string{`{"type":"session","version":3,"id":"x"}`})
+		if err := te.env.Repo.UpdateSessionColumns(sess.ID, map[string]any{"pi_session_file": file}); err != nil {
+			t.Fatal(err)
+		}
+		if err := te.container.Sessions.Delete(sess.ID); err != nil {
+			t.Fatalf("删除失败: %v", err)
+		}
+		// 只删行不删文件会留孤儿文件；只删文件不删行会留孤儿记录。
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Fatalf("JSONL 文件没被删掉: %v", err)
+		}
+		if _, err := te.env.Repo.GetSession(sess.ID); err == nil {
+			t.Fatal("会话行没被删掉")
+		}
 	})
 
-	t.Run("用量按上游口径落库且命中率不超 100%", func(t *testing.T) {
+	t.Run("跑完一轮：运行记录收尾且用量落账", func(t *testing.T) {
 		sess := te.newSession(t)
 		if _, err := te.container.Chat.Send(sess.ID, "算用量", nil); err != nil {
-			t.Fatalf("发送失败: %v", err)
-		}
-		te.waitIdle(t, sess.ID)
-
-		in, out, cached, err := te.env.Repo.UsageOfSession(sess.ID)
-		if err != nil {
-			t.Fatalf("读用量失败: %v", err)
-		}
-		if in <= 0 || out <= 0 {
-			t.Fatalf("用量没落账: in=%d out=%d", in, out)
-		}
-		u := domain.UsageVO{Input: in, Output: out, Cached: cached}
-		// 命中量不可能超过输入量：超了界面会显示 229% 这种数。
-		if u.CacheHitRate() > 100 {
-			t.Fatalf("缓存命中率超过 100%%: %d", u.CacheHitRate())
-		}
-	})
-
-	t.Run("运行记录在 agent_settled 后收尾", func(t *testing.T) {
-		sess := te.newSession(t)
-		if _, err := te.container.Chat.Send(sess.ID, "跑一轮", nil); err != nil {
 			t.Fatalf("发送失败: %v", err)
 		}
 		te.waitIdle(t, sess.ID)
@@ -213,16 +214,28 @@ func TestServiceChain(t *testing.T) {
 			t.Fatalf("读运行记录失败: %v", err)
 		}
 		if len(runs) == 0 {
-			t.Fatal("没有运行记录")
+			t.Fatal("没有运行记录：仪表盘与观测全靠它")
 		}
 		for _, r := range runs {
-			// 状态与收尾原因分开：合并就分不清「被停」与「说完」。
+			// 状态与收尾原因分开存：合并就分不清「被停」与「说完」。
 			if r.Status == "" || r.StopReason == "" {
 				t.Fatalf("运行记录缺字段: %+v", r)
 			}
 			if r.Status == domain.RunRunning {
 				t.Fatalf("agent_settled 之后还有 running: %+v", r)
 			}
+		}
+
+		in, out, cached, err := te.env.Repo.UsageOfSession(sess.ID)
+		if err != nil {
+			t.Fatalf("读用量失败: %v", err)
+		}
+		if in <= 0 || out <= 0 {
+			t.Fatalf("用量没落账: in=%d out=%d", in, out)
+		}
+		// 命中量不可能超过输入量：超了界面会显示 229% 这种数。
+		if u := (domain.UsageVO{Input: in, Output: out, Cached: cached}); u.CacheHitRate() > 100 {
+			t.Fatalf("缓存命中率超过 100%%: %d", u.CacheHitRate())
 		}
 	})
 
@@ -238,7 +251,7 @@ func TestServiceChain(t *testing.T) {
 		te.waitIdle(t, sess.ID)
 	})
 
-	t.Run("JSONL 投影只显示文件里有的东西", func(t *testing.T) {
+	t.Run("JSONL 投影：只显示文件里有的东西，坏行只跳过自己", func(t *testing.T) {
 		sess := te.newSession(t)
 		file := filepath.Join(te.home, "sessions", "test.jsonl")
 		writeJSONL(t, file, []string{
@@ -252,12 +265,7 @@ func TestServiceChain(t *testing.T) {
 			`{"type":"usage","id":"e7","parentId":"e6","kind":"cache_warm","timestamp":"2026-01-01T00:00:07.000Z"}`,
 			`{"type":"label","id":"e8","parentId":"e7","targetId":"e2","label":"checkpoint","timestamp":"2026-01-01T00:00:08.000Z"}`,
 		})
-		if err := te.env.Repo.UpdateSessionColumns(sess.ID, map[string]any{
-			"pi_session_file": file, "pi_session_id": "s1",
-		}); err != nil {
-			t.Fatal(err)
-		}
-
+		te.pointSessionAt(t, sess.ID, file)
 		do, err := te.env.Repo.GetSession(sess.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -290,45 +298,21 @@ func TestServiceChain(t *testing.T) {
 		if msgs[3].Notice == "" || msgs[4].Notice == "" {
 			t.Fatalf("压缩 / 换模型应当投影成提示条: %+v %+v", msgs[3], msgs[4])
 		}
-	})
 
-	t.Run("坏行只跳过自己", func(t *testing.T) {
-		sess := te.newSession(t)
-		file := filepath.Join(te.home, "sessions", "broken.jsonl")
-		writeJSONL(t, file, []string{
+		broken := filepath.Join(te.home, "sessions", "broken.jsonl")
+		writeJSONL(t, broken, []string{
 			`{"type":"message","id":"e1","parentId":null,"timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"好的一条","timestamp":1}}`,
 			`{"type":"message","id":`,
 			`{"type":"message","id":"e2","parentId":"e1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":"另一条好的","timestamp":2}}`,
 		})
-		if err := te.env.Repo.UpdateSessionColumns(sess.ID, map[string]any{"pi_session_file": file}); err != nil {
-			t.Fatal(err)
-		}
-		do, _ := te.env.Repo.GetSession(sess.ID)
-		msgs, err := te.container.Sessions.Messages(do)
+		te.pointSessionAt(t, sess.ID, broken)
+		do, _ = te.env.Repo.GetSession(sess.ID)
+		msgs, err = te.container.Sessions.Messages(do)
 		if err != nil {
 			t.Fatalf("一行坏 JSON 不该让整个会话打不开: %v", err)
 		}
 		if len(msgs) != 2 {
 			t.Fatalf("好行应当在，坏行被跳过，实际 %d 条", len(msgs))
-		}
-	})
-
-	t.Run("删除会话同时清掉 JSONL 文件", func(t *testing.T) {
-		sess := te.newSession(t)
-		file := filepath.Join(te.home, "sessions", "todelete.jsonl")
-		writeJSONL(t, file, []string{`{"type":"session","version":3,"id":"x"}`})
-		if err := te.env.Repo.UpdateSessionColumns(sess.ID, map[string]any{"pi_session_file": file}); err != nil {
-			t.Fatal(err)
-		}
-		if err := te.container.Sessions.Delete(sess.ID); err != nil {
-			t.Fatalf("删除失败: %v", err)
-		}
-		// 只删行不删文件会留孤儿文件；只删文件不删行会留孤儿记录。
-		if _, err := os.Stat(file); !os.IsNotExist(err) {
-			t.Fatalf("JSONL 文件没被删掉: %v", err)
-		}
-		if _, err := te.env.Repo.GetSession(sess.ID); err == nil {
-			t.Fatal("会话行没被删掉")
 		}
 	})
 
@@ -356,7 +340,7 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("审批桥：登记后能查到待决项", func(t *testing.T) {
+	t.Run("审批桥：登记到放行记忆，忘了要清干净", func(t *testing.T) {
 		sess := te.newSession(t)
 		te.container.Approvals.Open(sess.ID, "req-1", "confirm", "允许 write?", "要写入 a.txt", nil)
 		pending := te.container.Approvals.Pending(sess.ID)
@@ -366,37 +350,22 @@ func TestServiceChain(t *testing.T) {
 		if pending[0].Tool != "write" {
 			t.Fatalf("工具名没从标题里解析出来: %+v", pending[0])
 		}
-		// 决策在没有活进程时会失败（响应必须回到发出请求的进程）。
-		if err := te.container.Approvals.Decide(sess.ID, "req-1", true, domain.ApprovalScopeOnce); err == nil {
-			// 进程在跑时决策会成功——两种情况都不该 panic，这里只要求它不再挂在等待表里。
-			if len(te.container.Approvals.Pending(sess.ID)) != 0 {
-				t.Fatal("决策后仍挂在等待表里")
-			}
-		}
-	})
 
-	t.Run("重复决策返回 4102", func(t *testing.T) {
-		sess := te.newSession(t)
-		// 没登记过的 id：摘不到条目就必须报 4102，不能改状态。
+		// 会话级的「总是允许」要落到放行记忆，并且删会话时清掉：grants 只增不减会泄漏。
+		te.container.Approvals.Open(sess.ID, "req-2", "confirm", "允许 grep?", "要搜一下", nil)
+		_ = te.container.Approvals.Decide(sess.ID, "req-2", true, domain.ApprovalScopeSession)
+		te.container.Approvals.ForgetSession(sess.ID)
+		if len(te.container.Approvals.AllowedTools(sess.ID)) != 0 {
+			t.Fatal("ForgetSession 没清掉放行记忆")
+		}
+
+		// 摘不到条目说明决策在途（超时 / 重复点击），必须报 4102 且不改状态。
 		err := te.container.Approvals.Decide(sess.ID, "no-such-approval", true, domain.ApprovalScopeOnce)
 		if err == nil {
 			t.Fatal("不存在的审批应当报错")
 		}
 		if pkg.CodeOf(err) != "4102" {
 			t.Fatalf("应当返回 4102，实际 %s", pkg.CodeOf(err))
-		}
-	})
-
-	t.Run("会话级的总是允许写进策略", func(t *testing.T) {
-		sess := te.newSession(t)
-		te.container.Approvals.Open(sess.ID, "req-2", "confirm", "允许 powershell?", "要跑命令", nil)
-		_ = te.container.Approvals.Decide(sess.ID, "req-2", true, domain.ApprovalScopeSession)
-		allowed := te.container.Approvals.AllowedTools(sess.ID)
-		t.Logf("已放行工具: %v", allowed)
-		// 删会话时必须清掉：grants 只增不减会随会话数泄漏。
-		te.container.Approvals.ForgetSession(sess.ID)
-		if len(te.container.Approvals.AllowedTools(sess.ID)) != 0 {
-			t.Fatal("ForgetSession 没清掉放行记忆")
 		}
 	})
 
@@ -439,7 +408,7 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("同步配置写出 PI 的三个文件", func(t *testing.T) {
+	t.Run("同步配置写出 PI 的全部文件并登记审批扩展", func(t *testing.T) {
 		te.container.SyncPiConfig()
 		for _, path := range []string{
 			te.env.PiEnv.ModelsPath(),
@@ -452,7 +421,7 @@ func TestServiceChain(t *testing.T) {
 				t.Fatalf("配置文件没写出来 %s: %v", path, err)
 			}
 		}
-		// 审批扩展要落到扩展目录，否则闸门静默消失。
+		// 审批扩展要落到扩展目录并登记进 settings：只写文件 PI 根本不加载它。
 		ext := filepath.Join(te.env.PiEnv.ExtensionsDir(), "workbaby.ts")
 		if _, err := os.Stat(ext); err != nil {
 			t.Fatalf("审批扩展没写出来: %v", err)
@@ -467,7 +436,6 @@ func TestServiceChain(t *testing.T) {
 				found = true
 			}
 		}
-		// 只写文件不登记，PI 根本不加载它。
 		if !found {
 			t.Fatalf("扩展没登记进 settings: %v", settings.Extensions)
 		}
@@ -500,32 +468,45 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("工具开关写 PI 的 defaultTools", func(t *testing.T) {
-		if err := te.container.Tools.SetEnabled("powershell", false); err != nil {
+	t.Run("设置与工具开关同步进 settings.json", func(t *testing.T) {
+		if err := te.env.Repo.SetSetting(domain.SettingCompactionReserve, "24576"); err != nil {
+			t.Fatal(err)
+		}
+		if err := te.container.Settings.Set(domain.SettingThinkingLevel, "high"); err != nil {
+			t.Fatalf("设置思考档失败: %v", err)
+		}
+		// 停用工具写的是 PI 的 defaultTools，不是自己的 KV（那会变成假开关）。
+		if err := te.container.Tools.SetEnabled("grep", false); err != nil {
 			t.Fatalf("停用工具失败: %v", err)
 		}
 		settings, err := te.env.PiEnv.ReadSettings()
 		if err != nil {
 			t.Fatal(err)
 		}
+		if settings.DefaultThinkingLevel != "high" {
+			t.Fatalf("思考档没同步: %+v", settings)
+		}
+		if settings.Compaction == nil || settings.Compaction.ReserveTokens != 24576 {
+			t.Fatalf("压缩参数没同步: %+v", settings.Compaction)
+		}
 		if len(settings.DefaultTools) == 0 {
 			t.Fatal("defaultTools 没写")
 		}
 		for _, name := range settings.DefaultTools {
-			if name == "powershell" {
+			if name == "grep" {
 				t.Fatalf("停用的工具还在列表里: %v", settings.DefaultTools)
 			}
+			// 必须是纯名字列表：加减语法依赖 PI 默认集，会让新工具绕过勾选。
 			if strings.HasPrefix(name, "+") || strings.HasPrefix(name, "-") {
 				t.Fatalf("不该出现增减语法: %v", settings.DefaultTools)
 			}
 		}
-		// 恢复
-		if err := te.container.Tools.SetEnabled("powershell", true); err != nil {
+		if err := te.container.Tools.SetEnabled("grep", true); err != nil {
 			t.Fatal(err)
 		}
 	})
 
-	t.Run("MCP 配置解析失败不落盘", func(t *testing.T) {
+	t.Run("MCP 配置：解析失败不落盘，内置条目删不掉", func(t *testing.T) {
 		bad := `{"mcpServers": {`
 		if _, err := te.container.MCP.SaveConfig(domain.SaveMCPConfigREQ{Raw: bad}); err == nil {
 			t.Fatal("坏配置应当被拒")
@@ -548,8 +529,8 @@ func TestServiceChain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("好配置保存失败: %v", err)
 		}
+		// 内置的 workbaby-knowledge 由程序维护，保存后会被补回——用户删不掉它是故意的。
 		if len(resp.Servers) != 2 {
-			// 内置的 workbaby-knowledge 由程序维护，保存后会被补回——用户删不掉它是故意的。
 			t.Fatalf("解析出的服务数不对（应为用户的 1 个 + 内置 1 个）: %+v", resp.Servers)
 		}
 		var hasUser, hasKnowledge bool
@@ -563,31 +544,6 @@ func TestServiceChain(t *testing.T) {
 		}
 		if !hasUser || !hasKnowledge {
 			t.Fatalf("服务条目不全: %+v", resp.Servers)
-		}
-	})
-
-	t.Run("技能停用是移出目录而不是写 KV", func(t *testing.T) {
-		// 只验证判定逻辑：写 KV 不移动目录会得到「界面已停用、PI 照常加载」的假状态。
-		skills := te.container.Skills.List()
-		t.Logf("当前技能数: %d", len(skills))
-	})
-
-	t.Run("设置同步进 settings.json", func(t *testing.T) {
-		if err := te.env.Repo.SetSetting(domain.SettingCompactionReserve, "24576"); err != nil {
-			t.Fatal(err)
-		}
-		if err := te.container.Settings.Set(domain.SettingThinkingLevel, "high"); err != nil {
-			t.Fatalf("设置思考档失败: %v", err)
-		}
-		settings, err := te.env.PiEnv.ReadSettings()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if settings.DefaultThinkingLevel != "high" {
-			t.Fatalf("思考档没同步: %+v", settings)
-		}
-		if settings.Compaction == nil || settings.Compaction.ReserveTokens != 24576 {
-			t.Fatalf("压缩参数没同步: %+v", settings.Compaction)
 		}
 	})
 

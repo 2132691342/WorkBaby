@@ -55,7 +55,7 @@
 | 配置 / 日志 / ID | Viper · log/slog · ULID |
 | Agent / LLM | 外部内核 PI（`pi --mode rpc`）· 模型与服务商由 PI 自己的 `models.json` 管 |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + 原生 CSS 设计令牌（无 UI 框架） |
-| 测试 | testing（12 个包各一个入口 + 应用生命周期一条，全部是跨模块 / 跨协议链路；`pwsh scripts/check.ps1` 分四档收口验证，LLM 用脚本替身注入，不联网） |
+| 测试 | testing（一包一个入口，入口内按链路分子测试；全是跨模块 / 跨协议链路，不写只验单函数返回值的那种；`pwsh scripts/check.ps1` 分四档收口，模型侧用脚本替身注入，不联网） |
 
 ## 快速开始
 
@@ -64,10 +64,10 @@
 # 克隆后先 git lfs pull 把真文件拉下来，否则构建会以内嵌 LFS 指针报错。
 
 # 日常验证（一个脚本收口）
-pwsh scripts/check.ps1                  # 快门：编译 → 依赖门禁 → 短测试（约 10 秒）
-pwsh scripts/check.ps1 -All             # 再加全量测试与前端构建
-pwsh scripts/check.ps1 -Full            # 提交前：再加静态检查与前端类型检查
-pwsh scripts/check.ps1 -Pkg ./backend/mcp     # 只跑一个包
+pwsh scripts/check.ps1                  # 快门：格式 → 编译 → 全部包的短测试
+pwsh scripts/check.ps1 -Pkg backend/pi  # 只验一个包（改小功能用这个）
+pwsh scripts/check.ps1 -All             # 再加前端构建
+pwsh scripts/check.ps1 -Full            # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
 
 # 开发
 cd frontend && npm install && npm run build
@@ -107,7 +107,7 @@ build/windows/ 平台资源与 NSIS 安装器脚本（installer/project.nsi 是�
 scripts/      check.ps1：统一验证入口（快门 / -All / -Full / -Pkg）
 tools/        依赖方向门禁（Go 写的独立程序）
 docs/         项目级文档（架构 / 契约 / 数据模型 / 页面 / 开发 / 部署 / 错误码）
-specs/        子系统规格 01-27（01-05 / 10 已随内核替换下线）
+specs/        子系统规格 01-19，一个子系统一个文件
 ```
 
 运行观测不单独设包：`service/runs.go` + `repo/run.go` + `domain/run.go`。
@@ -118,20 +118,21 @@ specs/        子系统规格 01-27（01-05 / 10 已随内核替换下线）
 一包一个入口（`TestXxxChain`），内部按链路分段。每条都对着一个**用户可见的故障**写，不是为凑覆盖率。
 
 ```powershell
-pwsh scripts/check.ps1                       # 快门：编译 + 门禁 + 全部包的短测试（约 10 秒）
-pwsh scripts/check.ps1 -Pkg ./backend/service # 只跑一个包（改小功能用这个）
-pwsh scripts/check.ps1 -All                  # 加全量测试与前端构建
-pwsh scripts/check.ps1 -Full                 # 提交前：加静态检查与前端类型检查
-go test ./backend/service/ -run TestServiceChain -v   # 只跑一条链
+pwsh scripts/check.ps1                        # 快门：格式 → 编译 → 全部包的短测试
+pwsh scripts/check.ps1 -Pkg backend/service   # 只验一个包（改小功能用这个）
+pwsh scripts/check.ps1 -All                   # 再加前端构建
+pwsh scripts/check.ps1 -Full                  # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
+go test ./backend/service/ -run TestServiceChain -v        # 只跑一条链
+go test ./backend/pi/ -run 'TestPiChain/审批请求解析与回写响应'  # 只跑链上的一段
 ```
 
 | 改了哪里 | 跑这条 | 断言什么 |
 |---|---|---|
-| PI 子进程 / 协议 / 翻译 | `backend/pi` `TestPiChain` | 按 LF 分帧（U+2028 不截断）、未知记录忽略、命令按 id 关联、`done` 只在 `agent_settled`、崩溃报错不自动重发、一流核心一进程 |
-| 环境引导 / 配置互通 | `backend/pi/env` `TestPiEnvChain` | 闸门阻塞项、PATH 前置注入、`models.json` 形状、`defaultTools` 纯名字、`mcp.json` 未知字段保留 |
-| 对话编排 / 审批桥 / 投影 / 用量 | `backend/service` `TestServiceChain` | JSONL 投影（只显示文件里有的）、会话懒创建与删除、策略文件、审批桥、子代理独立进程、配置同步幂等 |
-| HTTP 面 / SSE | `backend/api` `TestHTTPChain` | 装配完整与端口握手、跨源预检、环境闸门、SSE 送达与断线重放、运行记录与用量落账 |
-| 知识库 | `backend/knowledge` `TestKnowledgeChain` | 加文档→索引→检索→删除级联、Office 页序、重建索引后台任务 |
+| PI 子进程 / 协议 / 翻译 | `backend/pi` `TestPiChain` | 按 LF 分帧（U+2028 不截断）、未知记录不挡命令、命令按 id 关联、`done` 只在 `agent_settled`、停止先取回排队文本、崩溃报错不自动重发、一个工作区一个进程 |
+| 环境引导 / 配置互通 | `backend/pi/env` `TestPiEnvChain` | 闸门按 node → pi → model 报首个阻塞项、PATH 前置注入、`models.json` 与 `settings.json` 的形状、原子写入不留临时文件、`mcp.json` 未知字段保留且坏文件不覆盖 |
+| 对话编排 / 审批桥 / 投影 / 用量 | `backend/service` `TestServiceChain` | 会话懒创建 → 发送回写指针 → 删除清行清文件、一轮跑完的运行记录与用量口径、JSONL 投影（坏行只跳过自己）、策略文件、审批桥全链、子代理独立进程、配置同步幂等、并发不串会话 |
+| HTTP 面 / SSE | `backend/api` `TestHTTPChain` | 装配完整与端口握手、预检与方法白名单、路径穿越在门口拒绝、统一信封与空数组契约、SSE 全链（seq 递增、用量落袋）与断线重放 |
+| 知识库 | `backend/knowledge` `TestKnowledgeChain` | 加文档→索引→检索→删除级联、Office 页序、重建索引后台任务、MCP 出口（握手 / 工具声明 / 检索 / 零命中的话术） |
 | Skill | `backend/skill` `TestSkillRegistryChain` | embed 解析落盘渲染、来源优先级与工作区切换 |
 | 工作区版本视图 | `backend/git` `TestGitChain` | 真 git 仓库的 status/diff 全链路（行号归属 / 中文路径还原）、非仓库给人话引导 |
 | 内置运行时 | `backend/runtime` `TestBundledRuntimeChain` | 内嵌归档与 SHA 一致、解压路径穿越防护、Node 剔层与其余平铺 |
@@ -140,7 +141,7 @@ go test ./backend/service/ -run TestServiceChain -v   # 只跑一条链
 ## 文档
 
 读法：`README.md`（这个项目是什么）→ `docs/ARCHITECTURE.md`（全貌与每个模块的设计）→
-`specs/06-27`（某个子系统怎么实现）→ `AGENTS.md`（动手改代码时的规范）。
+`specs/01-19`（某个子系统怎么实现）→ `AGENTS.md`（动手改代码时的规范）。
 只看设计不看规范的，读到 `ARCHITECTURE.md` 就够了。
 
 | 文档 | 内容 |
@@ -154,25 +155,25 @@ go test ./backend/service/ -run TestServiceChain -v   # 只跑一条链
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、布局纪律、数据目录、测试写法、排错 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 构建产物、内置运行时、分发注意 |
 | [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 错误码 1000–9799 的含义与处置动作 |
-| [specs/12 用户手册](specs/12-user-manual.md) | 应用内帮助页：内置文档组织、`/docs` 接口与阅读界面 |
+| [specs/06 用户手册](specs/06-user-manual.md) | 应用内帮助页：内置文档组织、`/docs` 接口与阅读界面 |
 
-子系统规格 `specs/06-27`：
-[06 内置运行时](specs/06-runtime.md) ·
-[07 会话模型](specs/07-session.md) ·
-[08 Skill 系统](specs/08-skill.md) ·
-[09 知识库](specs/09-knowledge.md) ·
-[11 桌面壳](specs/11-desktop-shell.md) ·
-[12 用户手册](specs/12-user-manual.md) ·
-[13 系统提示与设置](specs/13-prompt-and-settings.md) ·
-[14 用量与上下文水位](specs/14-usage-and-context.md) ·
-[15 工作区版本视图](specs/15-workspace-git.md) ·
-[16 MCP 外部工具](specs/16-mcp.md) ·
-[19 评估与回归](specs/19-eval-regression.md) ·
-[20 通用会话历史](specs/20-universal-history.md) ·
-[21 项目架构图](specs/21-arch-map.md) ·
-[22 记忆](specs/22-memory.md) ·
-[23 运行观测与检查点](specs/23-runs-and-checkpoints.md) ·
-[24 子代理](specs/24-subagent.md) ·
-[25 PI 监督进程](specs/25-pi-supervisor.md) ·
-[26 环境引导](specs/26-pi-bootstrap.md) ·
-[27 审批与 WorkBaby 扩展](specs/27-approval-bridge.md)
+子系统规格 `specs/01-19`，一个子系统一个文件：
+[01 内置运行时](specs/01-runtime.md) ·
+[02 会话模型](specs/02-session.md) ·
+[03 Skill 系统](specs/03-skill.md) ·
+[04 知识库](specs/04-knowledge.md) ·
+[05 桌面壳](specs/05-desktop-shell.md) ·
+[06 用户手册](specs/06-user-manual.md) ·
+[07 系统提示与设置](specs/07-prompt-and-settings.md) ·
+[08 用量与上下文水位](specs/08-usage-and-context.md) ·
+[09 工作区版本视图](specs/09-workspace-git.md) ·
+[10 MCP 外部工具](specs/10-mcp.md) ·
+[11 评估与回归](specs/11-eval-regression.md) ·
+[12 通用会话历史](specs/12-universal-history.md) ·
+[13 项目架构图](specs/13-arch-map.md) ·
+[14 记忆](specs/14-memory.md) ·
+[15 运行观测与检查点](specs/15-runs-and-checkpoints.md) ·
+[16 子代理](specs/16-subagent.md) ·
+[17 PI 监督进程](specs/17-pi-supervisor.md) ·
+[18 环境引导](specs/18-pi-bootstrap.md) ·
+[19 审批与 WorkBaby 扩展](specs/19-approval-bridge.md)

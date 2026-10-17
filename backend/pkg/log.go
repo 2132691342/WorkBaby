@@ -114,6 +114,7 @@ func newRotateFile(path string) (*rotateFile, error) {
 	return &rotateFile{path: path, f: f, size: size}, nil
 }
 
+// Write 实现 io.Writer：按级别分流，warn 与 error 同时进问题日志。
 func (r *rotateFile) Write(p []byte) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -142,6 +143,8 @@ func (r *rotateFile) rotate() error {
 	r.size = 0
 	return nil
 }
+
+// Close 落盘并释放句柄。
 
 func (r *rotateFile) Close() error {
 	r.mu.Lock()

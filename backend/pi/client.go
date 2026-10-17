@@ -23,9 +23,7 @@ import (
 var (
 	ErrProcessDown   = pkg.New("9701", "助手进程已经退出，正在重新拉起", "")
 	ErrCommandFailed = pkg.New("9702", "助手没有接受这条指令", "")
-	ErrTimeout       = pkg.New("9703", "助手一直没有回应", "")
 	ErrNotReady      = pkg.New("9704", "助手环境还没准备好", "")
-	ErrStartup       = pkg.New("9705", "助手启动失败", "")
 )
 
 // commandTimeout 是单条命令的默认等待上限。prompt 只等"已接受"，很快；
@@ -438,6 +436,7 @@ type tailBuffer struct {
 
 func newTailBuffer(max int) *tailBuffer { return &tailBuffer{max: max, lines: make([]string, 0, max)} }
 
+// Add 追加一行并维持环形上限。
 func (t *tailBuffer) Add(s string) {
 	if strings.TrimSpace(s) == "" {
 		return
@@ -449,6 +448,8 @@ func (t *tailBuffer) Add(s string) {
 		t.lines = t.lines[len(t.lines)-t.max:]
 	}
 }
+
+// String 按写入顺序拼出缓冲内容。
 
 func (t *tailBuffer) String() string {
 	t.mu.Lock()

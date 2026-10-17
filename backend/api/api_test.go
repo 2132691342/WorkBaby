@@ -1,7 +1,5 @@
-// 跨进程边界的端到端链路：真实 HTTP 栈下的装配完整性、跨源预检、SSE 送达与断线重放。
-// 这里跑的是真 PI（用 pitest 假进程替身，走真实 stdin/stdout 协议），
-// 所以 SSE 的每一帧都是从「子进程 → 协议解析 → 翻译 → Hub」整条链出来的。
-// 坏了的表现：界面一直转圈（done 永不到）、用量落不进仪表盘、重连后丢一段回复。
+// HTTP 边界链路：装配完整性、方法白名单、统一信封与 SSE 全链（业务编排归 service）。
+// 坏了的表现：接口全 404、前端 POST 被预检拦掉、重连丢一段回复、数组字段发成 null。
 package api_test
 
 import (
@@ -213,6 +211,7 @@ func drainUntil(t *testing.T, frames <-chan sseFrame, wanted ...string) []sseFra
 	return got
 }
 
+// keysOf 把待定事件集变成可打印的列表（失败信息里要能看出缺哪几个）。
 func keysOf(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -223,9 +222,10 @@ func keysOf(m map[string]bool) []string {
 
 // TestHTTPChain 是 api 包唯一的测试入口。服务只启动一次，子测试共用。
 func TestHTTPChain(t *testing.T) {
-	base, h := bootServer(t)
+	base, _ := bootServer(t)
 
-	t.Run("跨源预检放行 POST", func(t *testing.T) {
+	t.Run("HTTP 闸门：预检放行、方法白名单、越界入参在门口拒绝", func(t *testing.T) {
+		// 预检不放行的话前端所有 POST 都在浏览器层就被拦掉，接口本身根本没被调用。
 		req, err := http.NewRequest(http.MethodOptions, base+"/chat/send", nil)
 		if err != nil {
 			t.Fatal(err)
@@ -237,77 +237,69 @@ func TestHTTPChain(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer resp.Body.Close()
-		// 预检不放行的话前端所有 POST 都会在浏览器层就被拦掉。
 		if resp.StatusCode >= 400 {
 			t.Fatalf("预检被拒: %d", resp.StatusCode)
 		}
-	})
 
-	t.Run("帮助文档名不越界", func(t *testing.T) {
-		// 拿到文档内容就算失守：路由层 404 与业务错误码都算拦下。
+		// 方法白名单：DELETE / PUT 一律走统一外壳报 1002，而不是让 gin 自己回 404/405。
+		for _, m := range []string{http.MethodPut, http.MethodDelete} {
+			if _, body := call(t, base, m, "/sessions/whatever", nil); !strings.Contains(body, `"code":"1002"`) {
+				t.Fatalf("%s 应当被白名单拦下: %s", m, body)
+			}
+		}
+
+		// 路径变量里的穿越必须在门口拦掉：拿到文档内容才算失守。
 		if code, body := call(t, base, "GET", "/docs/..%2Fconfig", nil); code == http.StatusOK &&
 			strings.Contains(body, `"code":"0"`) {
 			t.Fatalf("非法文档名没有被拦下: %d %s", code, body)
 		}
 	})
 
-	t.Run("环境闸门随引导下发", func(t *testing.T) {
+	t.Run("统一信封与空数组契约", func(t *testing.T) {
 		code, body := call(t, base, "GET", "/bootstrap", nil)
 		if code != http.StatusOK {
 			t.Fatalf("bootstrap 失败: %d %s", code, body)
 		}
 		var payload struct {
+			Code string `json:"code"`
 			Data struct {
-				PiEnv *struct {
-					Ready    bool   `json:"ready"`
-					Blocking string `json:"blocking"`
-					PiPath   string `json:"pi_path"`
-				} `json:"pi_env"`
+				ContractVersion  int                `json:"contract_version"`
+				PiEnv            *json.RawMessage   `json:"pi_env"`
+				ExpiredApprovals *[]map[string]any  `json:"expired_approvals"`
+				Settings         *map[string]string `json:"settings"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
 			t.Fatalf("解析 bootstrap 失败: %v", err)
 		}
+		if payload.Code != "0" {
+			t.Fatalf("成功响应的 code 必须是字符串 \"0\": %s", body)
+		}
 		// 没有 pi_env 的话前端进不了环境向导，只会看到一个永远发不出消息的输入框。
 		if payload.Data.PiEnv == nil {
 			t.Fatalf("bootstrap 里没有 pi_env: %s", body)
 		}
-		if payload.Data.PiEnv.PiPath == "" {
-			t.Fatalf("测试里 PI 路径应当已注入: %s", body)
+		// 切片与 map 是 null 还是 []，前端读法完全不同：契约说是数组就永远发数组。
+		if payload.Data.ExpiredApprovals == nil {
+			t.Fatalf("expired_approvals 发成了 null: %s", body)
 		}
-		if payload.Data.PiEnv.Ready && payload.Data.PiEnv.Blocking != "" {
-			t.Fatalf("就绪却还报阻塞项: %s", body)
+		if payload.Data.Settings == nil {
+			t.Fatalf("settings 发成了 null: %s", body)
+		}
+
+		// 环境状态与运行时状态是设置页与向导的唯一数据源，字段名不能漂。
+		if _, body := call(t, base, "GET", "/env", nil); !strings.Contains(body, `"pi_path"`) {
+			t.Fatalf("环境接口缺少 pi_path: %s", body)
+		}
+		_, body = call(t, base, "GET", "/runtime", nil)
+		for _, want := range []string{`"node_exe"`, `"python_exe"`} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("运行时状态缺少 %s: %s", want, body)
+			}
 		}
 	})
 
-	t.Run("会话建好后是懒创建", func(t *testing.T) {
-		code, body := call(t, base, "POST", "/sessions", map[string]any{})
-		if code != http.StatusOK {
-			t.Fatalf("建会话失败: %d %s", code, body)
-		}
-		id := unwrapID(t, body)
-		_, detail := call(t, base, "GET", "/sessions/"+id, nil)
-		var payload struct {
-			Data struct {
-				Session struct {
-					PiSessionID string `json:"pi_session_id"`
-				} `json:"session"`
-				Messages []any `json:"messages"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(detail), &payload); err != nil {
-			t.Fatalf("解析详情失败: %v body=%s", err, detail)
-		}
-		// 还没发过消息：PI 会话与 JSONL 都还不该存在，消息列表给空数组而不是 null。
-		if payload.Data.Session.PiSessionID != "" {
-			t.Fatalf("没发消息就建了 PI 会话: %s", detail)
-		}
-		if payload.Data.Messages == nil {
-			t.Fatalf("消息列表是 null，前端按数组读会崩: %s", detail)
-		}
-	})
-
-	t.Run("SSE 送达与断线重放", func(t *testing.T) {
+	t.Run("SSE 全链：子进程到帧、seq 递增、断线重放", func(t *testing.T) {
 		// 配一个服务：环境闸门的 model 判定要它，发送也要求有可用模型。
 		code, body := call(t, base, "POST", "/providers", map[string]any{
 			"name": "t", "api": "openai-completions",
@@ -358,7 +350,6 @@ func TestHTTPChain(t *testing.T) {
 					text.WriteString(load["delta"].(string))
 				}
 			case "chat:done":
-				// 用量要落进仪表盘的口径里。
 				usage, ok := load["usage"].(map[string]any)
 				if !ok || usage["output"] != float64(20) {
 					t.Fatalf("done 的用量不对（output 应为 20，实际 %v）", load["usage"])
@@ -368,184 +359,25 @@ func TestHTTPChain(t *testing.T) {
 		if text.String() != "你好" {
 			t.Fatalf("流式正文拼接不对: %q", text.String())
 		}
-		// seq 必须严格递增：前端靠它做断线重放，乱序会导致对账时重复渲染。
+		// seq 必须严格递增：前端靠它做断线重放，乱序会在对账时重复渲染。
 		for i := 1; i < len(seqs); i++ {
 			if seqs[i] <= seqs[i-1] {
 				t.Fatalf("事件 seq 非递增: %v", seqs)
 			}
 		}
 
-		// 断线重连：带 Last-Event-ID 回来必须补上缺的那几帧。
-		lastID := got[len(got)-1].ID
-		frames2, stop2 := subscribeSSE(t, base, sessID, lastID)
+		// 断线重连：带 Last-Event-ID 回来必须能重新接入，而不是被拒绝。
+		frames2, stop2 := subscribeSSE(t, base, sessID, got[len(got)-1].ID)
 		defer stop2()
 		if code, body = call(t, base, "POST", "/chat/followup", map[string]any{
 			"session_id": sessID, "content": "再补一句",
-		}); !strings.Contains(body, `"code":"0"`) && code != http.StatusOK {
+		}); code != http.StatusOK && !strings.Contains(body, `"code":"0"`) {
 			t.Fatalf("排队消息失败: %s", body)
 		}
-		// 能重新订阅成功（不报错）就说明重放通道可用；具体补几帧取决于时序。
 		select {
 		case <-frames2:
 		case <-time.After(5 * time.Second):
-			// 没有新事件也算通过：这条断言只验证「重连不被拒绝」。
-		}
-	})
-
-	t.Run("运行记录与用量落账", func(t *testing.T) {
-		code, body := call(t, base, "GET", "/runs?limit=10", nil)
-		if code != http.StatusOK {
-			t.Fatalf("查运行记录失败: %d %s", code, body)
-		}
-		var payload struct {
-			Data []struct {
-				Status     string `json:"status"`
-				StopReason string `json:"stop_reason"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(body), &payload); err != nil {
-			t.Fatalf("解析运行记录失败: %v body=%s", err, body)
-		}
-		if len(payload.Data) == 0 {
-			t.Fatal("跑过对话却没有运行记录：仪表盘与观测全靠它")
-		}
-		for _, r := range payload.Data {
-			// 状态与收尾原因必须分开存：合并就分不清「被停」与「说完」。
-			if r.Status == "" || r.StopReason == "" {
-				t.Fatalf("运行记录缺少状态或收尾原因: %+v", r)
-			}
-			if r.Status == "running" {
-				t.Fatalf("agent_settled 之后不该还有 running: %+v", r)
-			}
-		}
-
-		code, body = call(t, base, "GET", "/stats?days=7", nil)
-		if code != http.StatusOK {
-			t.Fatalf("查统计失败: %d %s", code, body)
-		}
-		var stats struct {
-			Data struct {
-				Daily []struct {
-					Date string `json:"date"`
-				} `json:"daily"`
-				Totals struct {
-					Input int `json:"input"`
-				} `json:"totals"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(body), &stats); err != nil {
-			t.Fatalf("解析统计失败: %v", err)
-		}
-		// daily 长度必须恒等于 days：否则趋势图 x 轴会随「哪天没说话」跳动。
-		if len(stats.Data.Daily) != 7 {
-			t.Fatalf("daily 长度应为 7，实际 %d", len(stats.Data.Daily))
-		}
-		if stats.Data.Totals.Input == 0 {
-			t.Fatal("用量没有落账：仪表盘会一直是 0")
-		}
-	})
-
-	t.Run("停止不报错且取回排队文本", func(t *testing.T) {
-		code, body := call(t, base, "POST", "/sessions", map[string]any{})
-		if code != http.StatusOK {
-			t.Fatalf("建会话失败: %d %s", code, body)
-		}
-		sid := unwrapID(t, body)
-		if _, body := call(t, base, "POST", "/chat/send", map[string]any{
-			"session_id": sid, "content": "开始",
-		}); !strings.Contains(body, `"code":"0"`) {
-			t.Fatalf("发送失败: %s", body)
-		}
-		// 停止必须先 clear_queue 再 abort：不取回排队文本，用户那句话就消失了。
-		if code, body := call(t, base, "POST", "/chat/stop", map[string]any{
-			"session_id": sid,
-		}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
-			t.Fatalf("停止失败: %d %s", code, body)
-		}
-	})
-
-	t.Run("审批决策在无等待项时返回 4102", func(t *testing.T) {
-		code, body := call(t, base, "POST", "/approvals/decide/not-exist", map[string]any{
-			"session_id": "x", "action": "allow",
-		})
-		if code != http.StatusOK {
-			t.Fatalf("审批路由不该 404: %d %s", code, body)
-		}
-		// 摘不到等待项说明决策在途（超时/重复点击），必须报 4102 且不改状态。
-		if !strings.Contains(body, `"code":"4102"`) {
-			t.Fatalf("应当返回 4102，实际: %s", body)
-		}
-	})
-
-	t.Run("依赖边界与环境接口可用", func(t *testing.T) {
-		code, body := call(t, base, "GET", "/env", nil)
-		if code != http.StatusOK {
-			t.Fatalf("查环境失败: %d %s", code, body)
-		}
-		if !strings.Contains(body, `"pi_path"`) {
-			t.Fatalf("环境接口缺少 pi_path: %s", body)
-		}
-		code, body = call(t, base, "GET", "/runtime", nil)
-		if code != http.StatusOK {
-			t.Fatalf("查运行时失败: %d %s", code, body)
-		}
-		// 两套内置运行时都要报出来：少了 node 那一项，界面就说不清 PI 为什么起不来。
-		for _, want := range []string{`"node_exe"`, `"python_exe"`} {
-			if !strings.Contains(body, want) {
-				t.Fatalf("运行时状态缺少 %s: %s", want, body)
-			}
-		}
-	})
-
-	t.Run("工具清单来自 PI 且可停用", func(t *testing.T) {
-		code, body := call(t, base, "GET", "/tools", nil)
-		if code != http.StatusOK {
-			t.Fatalf("查工具失败: %d %s", code, body)
-		}
-		if !strings.Contains(body, `"read"`) {
-			t.Fatalf("工具清单里没有 read: %s", body)
-		}
-		// 停用一个工具：写 PI 的 defaultTools，不能写自己的 KV（那会变成假开关）。
-		code, body = call(t, base, "POST", "/tools/toggle/powershell", map[string]any{"enabled": false})
-		if code != http.StatusOK {
-			t.Fatalf("停用工具失败: %d %s", code, body)
-		}
-		settings, err := h.PiEnv.ReadSettings()
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, name := range settings.DefaultTools {
-			if name == "powershell" {
-				t.Fatalf("停用没写进 defaultTools: %v", settings.DefaultTools)
-			}
-			// 必须是纯名字列表：加减语法依赖 PI 默认集，会让新工具绕过勾选。
-			if strings.HasPrefix(name, "+") || strings.HasPrefix(name, "-") {
-				t.Fatalf("不该出现增减语法: %v", settings.DefaultTools)
-			}
-		}
-	})
-
-	t.Run("MCP 配置校验后才落盘", func(t *testing.T) {
-		bad := `{"mcpServers": {` // 语法不完整
-		code, body := call(t, base, "POST", "/mcp/config", map[string]any{"raw": bad})
-		if code != http.StatusOK {
-			t.Fatalf("MCP 保存路由不该 404: %d %s", code, body)
-		}
-		if !strings.Contains(body, `"code":"9106"`) {
-			t.Fatalf("坏配置应当报 9106: %s", body)
-		}
-		// 解析不过就一个字符都不能落盘。
-		raw, err := h.PiEnv.ReadMCPRaw()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(raw), `{"mcpServers": {`) {
-			t.Fatalf("坏配置被写进文件了: %s", raw)
-		}
-
-		good := `{"mcpServers":{"srv":{"command":"node","args":["x.js"]}}}`
-		if code, body := call(t, base, "POST", "/mcp/config", map[string]any{"raw": good}); code != http.StatusOK {
-			t.Fatalf("好配置保存失败: %d %s", code, body)
+			// 没有新事件也算通过：这条只验证「重连不被拒绝」。
 		}
 	})
 }

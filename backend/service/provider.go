@@ -230,9 +230,8 @@ var modelsHTTP = &http.Client{
 	},
 }
 
-// Test 连通测试：发一条极短请求，只关心能不能通。
-// 它不经过 PI（那要先进一次会话才知道成不成），直接打上游的 /models，
-// 用 HTTP 状态码回答「地址与密钥对不对」——这是用户在这一步唯一想知道的事。
+// Test 连通测试：直接打上游的 models 端点，用 HTTP 状态码回答地址与密钥对不对。
+// 不经过 PI：那要先进一次会话才知道成不成，用户在这一步只想知道这一件事。
 func (p *ProviderService) Test(ctx context.Context, id string) (*domain.TestProviderRESP, error) {
 	d, err := p.env.Repo.GetProvider(id)
 	if err != nil {

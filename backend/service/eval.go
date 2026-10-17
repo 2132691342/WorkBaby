@@ -1,4 +1,4 @@
-// 评估与回归：一次 run 打几分、指标如何，与基线比差在哪（specs/19）。
+// 评估与回归：一次 run 打几分、指标如何，与基线比差在哪（specs/11）。
 package service
 
 import (
@@ -139,9 +139,8 @@ func (s *EvalService) Compare(baselineID, runID string) (*domain.CompareVO, erro
 	}, nil
 }
 
-// metricsOf 采集一次会话的客观指标。
-// 用量从 token_usages 汇总；工具成败由旁听器在事件里累加后落进 runs，
-// 不再回查条目链（正文已不在本机库里）。
+// metricsOf 采集一次会话的客观指标：用量从 token_usages 汇总，
+// 工具成败从运行记录的时间线取，不回查 PI 的会话文件。
 func (s *EvalService) metricsOf(sessionID string) domain.EvalMetrics {
 	in, out, cached, _ := s.env.Repo.UsageOfSession(sessionID)
 	calls, failures, _ := s.env.Repo.ToolStatsOfSession(sessionID)
