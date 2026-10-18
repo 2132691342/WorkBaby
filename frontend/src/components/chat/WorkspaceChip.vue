@@ -77,10 +77,10 @@ async function pick() {
   background: var(--wb-surface-2);
   border-color: var(--wb-border-strong);
   color: var(--wb-ink-2);
-  transform: scale(1.02);
+  transform: scale(1.06);
 }
 .ws-chip:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.92);
 }
 .ws-chip.is-default {
   border-style: dashed;

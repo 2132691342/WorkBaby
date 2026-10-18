@@ -41,18 +41,85 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-export function renderMarkdown(src: string): string {
-  const raw = md.parse(src || '', { async: false }) as string
+function sanitize(raw: string): string {
   return DOMPurify.sanitize(raw, { ADD_ATTR: ['target'] })
 }
 
+export function renderMarkdown(src: string): string {
+  return sanitize(md.parse(src || '', { async: false }) as string)
+}
+
+// ── 流式增量渲染 ──
+// 全量重解析是 O(n²)：每 120ms 把累计数万字的正文重新 parse + sanitize 一遍，
+// 主线程被打满，SSE 反而会被判成慢消费者断连。按块缓存后只有正在写的那块需要重渲染。
+interface Rendered {
+  src: string
+  html: string
+}
+
+let cached: Rendered[] = []
+
+/** 新回合必须清缓存：否则上一轮的块会被判成「没变」直接复用。 */
+export function resetStreamRender() {
+  cached = []
+}
+
+/** 切成顶层块：空行分段；围栏代码块整块不拆，未闭合的围栏也要收口（流式期间常见）。 */
+function splitBlocks(src: string): string[] {
+  const out: string[] = []
+  let cur: string[] = []
+  let fence = ''
+
+  const flush = () => {
+    const text = cur.join('\n').replace(/\s+$/, '')
+    if (text) out.push(text)
+    cur = []
+  }
+
+  for (const line of src.split('\n')) {
+    const hit = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
+    if (hit) {
+      const mark = hit[1]
+      if (!fence) {
+        flush()
+        fence = mark[0]
+      } else if (mark[0] === fence && mark.length >= fence.length) {
+        fence = ''
+        cur.push(line)
+        flush()
+        continue
+      }
+      cur.push(line)
+      continue
+    }
+    if (!fence && !line.trim()) flush()
+    else cur.push(line)
+  }
+  flush()
+  return out
+}
+
 export function renderMarkdownStream(src: string): string {
+  const parts = splitBlocks(src || '')
+  const next: Rendered[] = []
+  // 前缀里与上一帧内容一致的块直接复用，从第一个不同的下标起重渲染
+  let i = 0
+  while (i < cached.length && i < parts.length && cached[i].src === parts[i]) {
+    next.push(cached[i])
+    i++
+  }
   streaming = true
   try {
-    return renderMarkdown(src)
+    for (let k = i; k < parts.length; k++) {
+      next.push({ src: parts[k], html: renderMarkdown(parts[k]) })
+    }
   } finally {
     streaming = false
   }
+  cached = next
+  // 每块的 html 自带尾部换行，用空串拼接即可；再插 \n 会在块间多出一个空行，
+  // 表现是段落间距比全量渲染大一圈。
+  return next.map((b) => b.html).join('')
 }
 
 function firstLine(s: string, max = 120): string {

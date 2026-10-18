@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useChatStore, type ToolRun } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
-import { renderMarkdown, renderMarkdownStream } from '../../utils/md'
+import { renderMarkdown, renderMarkdownStream, resetStreamRender } from '../../utils/md'
 import { fmtCount, fmtInt } from '../../utils/num'
 import { groupTurns } from '../../utils/turns'
 import AppIcon from '../common/AppIcon.vue'
@@ -90,8 +90,8 @@ watch(
   },
 )
 
-// 流式渲染节流：每个 delta 全量重解析 markdown 会打满主线程，SSE 被服务端判为慢消费者断连；
-// 数据照单全收、只把渲染放慢，收尾补完整渲染。
+// 流式渲染节流：渲染走块级增量缓存（见 utils/md），节流只负责把刷新放慢，
+// 不让每个 delta 都触发一次重排。
 const STREAM_TICK_MS = 120
 const STREAM_TICK_MS_LONG = 280
 const STREAM_LONG_CHARS = 20000
@@ -112,10 +112,16 @@ watch(
 watch(
   () => chat.running,
   (running) => {
-    if (!running && renderTimer) {
+    if (running) {
+      // 新回合：上一轮的块缓存若留着，内容相同的块会被误判为未变而复用错误结果
+      resetStreamRender()
+      return
+    }
+    if (renderTimer) {
       clearTimeout(renderTimer)
       renderTimer = 0
     }
+    // 收尾补一次高亮完整渲染：流式期间跳过了 hljs
     renderedStream.value = renderMarkdown(chat.streaming)
   },
 )

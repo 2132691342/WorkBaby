@@ -1,7 +1,6 @@
 // 应用入口：装配状态、路由、样式并挂载根组件。
 import { createPinia } from 'pinia'
 import { computed, createApp } from 'vue'
-import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import enUs from 'element-plus/es/locale/lang/en'
 import App from './App.vue'
@@ -31,7 +30,8 @@ app.config.errorHandler = (err, _inst, info) => {
 app.use(createPinia())
 app.use(router)
 app.use(i18n)
-app.use(ElementPlus)
+// 组件由 unplugin-vue-components 按模板标签按需注册，不再全量 app.use(ElementPlus)：
+// 全量注册会把没用到的组件与全部样式一并打进首屏。
 // EP 的内置文案跟随当前语言：由 App.vue 根部的 ElConfigProvider 消费这个 computed。
 app.provide('epLocale', computed(() => (i18n.global.locale.value === 'en' ? enUs : zhCn)))
 app.mount('#app')

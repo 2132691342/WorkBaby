@@ -107,16 +107,27 @@
     color var(--wb-dur) var(--wb-ease),
     box-shadow var(--wb-dur) var(--wb-ease);
 }
-.el-button:not(.is-disabled):not(.is-text):not(.is-link):hover {
-  transform: scale(1.03);
+/* 五态：默认 / 悬停放大 / 按下缩小 / 禁用 / 加载。
+   刻度与全站自绘按钮统一（1.06 / 0.92），两种按钮并排时点击手感才一致。
+   text 与 link 是文字级控件，缩放会带动整行文字抖动，只给颜色反馈。 */
+.el-button:not(.is-disabled):not(.is-text):not(.is-link):not(.is-loading):hover {
+  transform: scale(1.06);
 }
-.el-button:not(.is-disabled):not(.is-text):not(.is-link):active {
-  transform: scale(0.96);
+.el-button:not(.is-disabled):not(.is-text):not(.is-link):not(.is-loading):active {
+  transform: scale(0.92);
 }
 .el-button.is-disabled,
-.el-button.is-disabled:hover {
+.el-button.is-disabled:hover,
+.el-button.is-disabled:active {
   transform: none;
   opacity: 0.5;
+  cursor: not-allowed;
+}
+/* 加载态：锁定尺寸不参与缩放，否则连点会让按钮持续抖动 */
+.el-button.is-loading,
+.el-button.is-loading:hover,
+.el-button.is-loading:active {
+  transform: none;
 }
 
 /* 主按钮：全站唯一的大面积强调色，实底靛蓝 + 白字 */
@@ -147,9 +158,14 @@
 /* 加载态：转圈保持全亮，其余按钮压暗（同批操作里只有一枚在动） */
 .el-button.is-loading {
   cursor: progress;
+  opacity: 0.85;
 }
 .el-button.is-loading::before {
   background: transparent;
+}
+/* 加载态的转圈图标按主色走，EP 默认继承文字色会偏灰 */
+.el-button.is-loading .el-icon.is-loading {
+  color: inherit;
 }
 
 /* 图标钮（纯图标按钮统一走 default + circle 或 square） */

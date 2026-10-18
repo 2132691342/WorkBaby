@@ -236,10 +236,10 @@ defineExpose({ show, close })
   background: var(--wb-surface-2);
   border-color: var(--wb-border-strong);
   color: var(--wb-ink-2);
-  transform: scale(1.02);
+  transform: scale(1.06);
 }
 .chip:active {
-  transform: scale(0.97);
+  transform: scale(0.92);
 }
 .chip.is-on {
   background: var(--wb-primary-soft);

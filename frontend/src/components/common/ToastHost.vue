@@ -102,10 +102,10 @@ const ICONS: Record<string, string> = { ok: 'check', bad: 'alert', info: 'info' 
 .toast-close:hover {
   background: var(--wb-surface-2);
   color: var(--wb-ink);
-  transform: scale(1.1);
+  transform: scale(1.06);
 }
 .toast-close:active {
-  transform: scale(0.9);
+  transform: scale(0.92);
 }
 .toast-enter-active,
 .toast-leave-active {

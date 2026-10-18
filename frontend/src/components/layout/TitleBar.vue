@@ -117,28 +117,25 @@ function winctl(action: 'min' | 'max' | 'close') {
     <span class="tb-sp" />
 
     <div class="tb-actions" style="--wails-draggable: no-drag">
-      <el-tooltip :content="t('nav.help')" placement="bottom" :show-after="400">
-        <button
-          class="tb-icon"
-          type="button"
-          :class="{ 'is-on': section === 'help' }"
-          :aria-label="t('nav.help')"
-          @click="go('/help')"
-        >
-          <AppIcon name="help" size="ic-sm" />
-        </button>
-      </el-tooltip>
-      <el-tooltip :content="t('nav.settings')" placement="bottom" :show-after="400">
-        <button
-          class="tb-icon"
-          type="button"
-          :class="{ 'is-on': section === 'settings' }"
-          :aria-label="t('nav.settings')"
-          @click="go('/settings')"
-        >
-          <AppIcon name="settings" size="ic-sm" />
-        </button>
-      </el-tooltip>
+      <!-- 设置与帮助是旁路入口：带文字标签，不靠图标猜——用户找不到入口最常说的就是「没这个菜单」 -->
+      <button
+        class="tb-nav"
+        type="button"
+        :class="{ 'is-on': section === 'help' }"
+        @click="go('/help')"
+      >
+        <AppIcon name="help" size="ic-sm" />
+        <span>{{ t('nav.help') }}</span>
+      </button>
+      <button
+        class="tb-nav"
+        type="button"
+        :class="{ 'is-on': section === 'settings' }"
+        @click="go('/settings')"
+      >
+        <AppIcon name="settings" size="ic-sm" />
+        <span>{{ t('nav.settings') }}</span>
+      </button>
       <el-tooltip :content="connection.hint" placement="bottom" :show-after="400">
         <span class="tb-led" :class="connection.tone">
           <span class="wb-led" :class="connection.tone ? `wb-led--${connection.tone}` : ''" />
@@ -207,8 +204,7 @@ function winctl(action: 'min' | 'max' | 'close') {
   flex: none;
 }
 
-.tb-fold,
-.tb-icon {
+.tb-fold {
   display: grid;
   place-items: center;
   width: var(--wb-ctl-icon);
@@ -220,18 +216,44 @@ function winctl(action: 'min' | 'max' | 'close') {
     color var(--wb-dur) var(--wb-ease),
     transform var(--wb-dur-fast) var(--wb-ease);
 }
-.tb-fold:hover,
-.tb-icon:hover {
+.tb-fold:hover {
   background: var(--wb-nav-hover-bg);
   color: var(--wb-ink);
   transform: scale(1.06);
 }
-.tb-fold:active,
-.tb-icon:active {
+.tb-fold:active {
   transform: scale(0.92);
 }
-.tb-icon.is-on {
+/* 带文字的旁路入口：图标与标签同行，选中态用与左栏一致的淡底 + 主色 */
+.tb-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  height: var(--wb-ctl-icon);
+  padding: 0 var(--wb-sp-3);
+  border-radius: var(--wb-radius-sm);
+  border: 1px solid transparent;
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.tb-nav:hover {
+  background: var(--wb-nav-hover-bg);
+  color: var(--wb-ink);
+  transform: scale(1.06);
+}
+.tb-nav:active {
+  transform: scale(0.92);
+}
+.tb-nav.is-on {
   background: var(--wb-nav-active-bg);
+  border-color: var(--wb-primary-line);
   color: var(--wb-nav-active-ink);
 }
 

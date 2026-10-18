@@ -361,12 +361,19 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 - 控件高度四档：`--wb-ctl-h-sm`(26px) / `--wb-ctl-h`(34px) / `--wb-ctl-h-lg`(38px) / `--wb-ctl-h-xl`(44px)，另有图标钮 `--wb-ctl-icon`(32px)；禁止裸像素高度
 - 装饰性图标瓦片用 `--wb-tile-sm`(30px) / `--wb-tile`(40px) / `--wb-tile-lg`(52px)：它们不是控件，但同一组尺寸反复出现，散成裸像素就会各自漂
 - 按钮五态必须齐全（默认 / 悬停放大 / 按下缩小 / 禁用 / 加载）：每个可点元素都要给「点到了」的反馈
+- **五态刻度全站统一 `1.06` / `0.92`**：EP 按钮在 `ep-theme.css` 里定，自绘按钮在各自组件里定，两边必须同一档——
+  同一个操作条里 EP 按钮放大 1.03、旁边自绘图标钮放大 1.06，用户会感觉「有的按钮软、有的脆」。
+  `text` / `link` 是文字级控件，缩放会带动整行文字抖动，只给颜色反馈；
+  禁用与加载两态一律 `transform: none`，否则连点会让按钮持续抖
 - 危险按钮用中性描边 + 危险色文字：彩色描边违反分层纪律，语义交给文字与底色
 - 字号用刻度 `--wb-fs-*`；禁止任意像素值
 - 字体只有三个语义变量：`--font-sans` / `--font-mono` / `--font-display`，全部在 `themes.css` 定义；`html, body` 必须显式声明 `font-family` 与 `font-size`
 - 组件基元优先用 Element Plus（按钮 / 表单 / 开关 / 下拉 / 弹窗 / 气泡确认 / 标签 / 表格 / 抽屉 / 页签）；
   EP 变量经 `ep-theme.css` 接到 `--wb-*`，组件里禁止另写色值
 - 图表一律 ECharts（`utils/echarts.ts` 唯一装配点，按需注册），色值取 `--wb-ch-*`；主题切换后重读 CSS 变量重绘
+- **EP 只按需引入，禁止回到 `app.use(ElementPlus)` 全量注册**：由 `unplugin-vue-components` 的 `ElementPlusResolver`
+  按模板标签导入实际用到的组件。配套约束——`manualChunks` 里不要把 `element-plus` 整体归堆，
+  那会把未用组件（日历 / 穿梭框 / 走马灯等）连同内部依赖一起拉回首屏，让 tree-shaking 与懒加载同时失效
 - 代码编辑一律 `CodeEditor`（CodeMirror 6）：markdown / json 高亮
 - 文案一律走 i18n（`src/locales/`，key 按域分层）；用户可见的字符串禁止硬编码在模板里
 - 消息流 / markdown 渲染 / 代码块 / 工具卡 / 思考块 / 提问卡保留自绘

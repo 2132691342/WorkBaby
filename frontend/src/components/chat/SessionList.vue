@@ -319,10 +319,10 @@ onBeforeUnmount(() => {
 .sess-act:hover:not(:disabled) {
   background: var(--wb-surface);
   color: var(--wb-ink);
-  transform: scale(1.1);
+  transform: scale(1.06);
 }
 .sess-act:active:not(:disabled) {
-  transform: scale(0.9);
+  transform: scale(0.92);
 }
 .sess-act.is-danger:hover:not(:disabled) {
   color: var(--wb-danger);

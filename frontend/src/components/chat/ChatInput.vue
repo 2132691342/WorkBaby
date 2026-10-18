@@ -650,10 +650,10 @@ defineExpose({
 .attach-x:hover {
   background: var(--wb-tint-lg);
   color: var(--wb-danger);
-  transform: scale(1.08);
+  transform: scale(1.06);
 }
 .attach-x:active {
-  transform: scale(0.9);
+  transform: scale(0.92);
 }
 .attach-tip {
   font-size: var(--wb-fs-2xs);
