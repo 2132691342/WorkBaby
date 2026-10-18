@@ -86,6 +86,15 @@ export default {
     collapseSide: 'Collapse sidebar',
     expandSide: 'Expand sidebar',
   },
+  // 左 rail 的短标签：60px 宽只能放 1~2 个词，完整名进 title 与 sr-only
+  navShort: {
+    chat: 'Chat',
+    workspace: 'Code',
+    skills: 'Skills',
+    dashboard: 'Stats',
+    help: 'Help',
+    settings: 'Setup',
+  },
 
   titlebar: {
     minimize: 'Minimize',

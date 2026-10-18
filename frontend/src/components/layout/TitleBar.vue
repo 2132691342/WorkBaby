@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// 顶栏：品牌 + 三区切换（对话 / 工作区 / 仪表盘）+ 帮助与设置入口 + 连接灯 + 窗控。
-// 标题与折叠钮只出现在对话页——会话标题就是导航信息。
+// 顶栏：品牌 + 当前区标题 + 连接灯 + 窗控。
+// 一级导航在左 rail（NavRail），这里只回答「我现在在哪、连上没有」。
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { sseConnected, sseSubscribed } from '../../composables/useSse'
 import { useChatStore } from '../../stores/chat'
@@ -16,18 +16,10 @@ const props = defineProps<{ ready: boolean }>()
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 const session = useSessionStore()
 const chat = useChatStore()
 const settings = useSettingsStore()
 const { collapsed, toggle } = useSessionPanel()
-
-/** 三区切换：只有这三处算「工作台面」，帮助与设置是旁路入口 */
-const SURFACES = [
-  { key: 'chat', path: '/', labelKey: 'nav.chat', icon: 'chat' },
-  { key: 'workspace', path: '/workspace', labelKey: 'nav.workspace', icon: 'git-branch' },
-  { key: 'dashboard', path: '/dashboard', labelKey: 'nav.dashboard', icon: 'chart' },
-] as const
 
 const section = computed(() => {
   const p = route.path
@@ -68,16 +60,6 @@ const closeHint = computed(() =>
   settings.values['minimize_to_tray'] !== 'false' ? t('titlebar.closeToTray') : t('titlebar.close'),
 )
 
-function go(path: string) {
-  if (route.path === path) return
-  void router.push(path)
-}
-
-function onSurface(v: string | number | boolean | undefined) {
-  const hit = SURFACES.find((s) => s.key === v)
-  if (hit) go(hit.path)
-}
-
 function winctl(action: 'min' | 'max' | 'close') {
   if (action === 'min') WindowMinimise()
   else if (action === 'max') WindowToggleMaximise()
@@ -93,13 +75,7 @@ function winctl(action: 'min' | 'max' | 'close') {
       <span class="tb-name">{{ t('app.name') }}</span>
     </div>
 
-    <div v-if="ready" class="tb-seg" style="--wails-draggable: no-drag">
-      <el-radio-group :model-value="section" size="small" @change="onSurface">
-        <el-radio-button v-for="s in SURFACES" :key="s.key" :value="s.key">
-          {{ t(s.labelKey) }}
-        </el-radio-button>
-      </el-radio-group>
-    </div>
+<!-- 一级导航已迁到左 rail，顶栏只留品牌、上下文标题与系统区 -->
 
     <button
       v-if="isChat && ready"
@@ -117,25 +93,6 @@ function winctl(action: 'min' | 'max' | 'close') {
     <span class="tb-sp" />
 
     <div class="tb-actions" style="--wails-draggable: no-drag">
-      <!-- 设置与帮助是旁路入口：带文字标签，不靠图标猜——用户找不到入口最常说的就是「没这个菜单」 -->
-      <button
-        class="tb-nav"
-        type="button"
-        :class="{ 'is-on': section === 'help' }"
-        @click="go('/help')"
-      >
-        <AppIcon name="help" size="ic-sm" />
-        <span>{{ t('nav.help') }}</span>
-      </button>
-      <button
-        class="tb-nav"
-        type="button"
-        :class="{ 'is-on': section === 'settings' }"
-        @click="go('/settings')"
-      >
-        <AppIcon name="settings" size="ic-sm" />
-        <span>{{ t('nav.settings') }}</span>
-      </button>
       <el-tooltip :content="connection.hint" placement="bottom" :show-after="400">
         <span class="tb-led" :class="connection.tone">
           <span class="wb-led" :class="connection.tone ? `wb-led--${connection.tone}` : ''" />
@@ -224,39 +181,6 @@ function winctl(action: 'min' | 'max' | 'close') {
 .tb-fold:active {
   transform: scale(0.92);
 }
-/* 带文字的旁路入口：图标与标签同行，选中态用与左栏一致的淡底 + 主色 */
-.tb-nav {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--wb-sp-1);
-  height: var(--wb-ctl-icon);
-  padding: 0 var(--wb-sp-3);
-  border-radius: var(--wb-radius-sm);
-  border: 1px solid transparent;
-  color: var(--wb-muted);
-  font-size: var(--wb-fs-xs);
-  font-weight: 600;
-  white-space: nowrap;
-  transition:
-    background var(--wb-dur) var(--wb-ease),
-    border-color var(--wb-dur) var(--wb-ease),
-    color var(--wb-dur) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-.tb-nav:hover {
-  background: var(--wb-nav-hover-bg);
-  color: var(--wb-ink);
-  transform: scale(1.06);
-}
-.tb-nav:active {
-  transform: scale(0.92);
-}
-.tb-nav.is-on {
-  background: var(--wb-nav-active-bg);
-  border-color: var(--wb-primary-line);
-  color: var(--wb-nav-active-ink);
-}
-
 .tb-ctx {
   font-size: var(--wb-fs-sm);
   color: var(--wb-muted);

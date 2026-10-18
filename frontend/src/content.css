@@ -10,7 +10,9 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  scroll-behavior: smooth;
+  /* 浏览器滚动锚定会与「贴底」打架：副量一屏外消息（content-visibility）时
+     scrollTop 被改动，看起来像用户自己离开了最新一轮。贴底由 JS 自己管。 */
+  overflow-anchor: none;
 }
 
 .msg-col {
@@ -21,6 +23,18 @@
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-6);
+}
+
+/* 长会话的关键优化：屏幕外的消息不参与 layout 与 paint。
+   auto 的记忆尺寸让滚动条几何与滚动位置保持稳定（首次估值 120px），
+   否则跳过渲染会让滚动条来回跳。
+   最后两条例外——正在写的那一轮必须实时反映高度变化。 */
+.msg-col > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+.msg-col > :nth-last-child(-n + 2) {
+  content-visibility: visible;
 }
 
 /* 一跳回合：一次「用户说 → 助手答」是整块，靠一条不断开的竖线串起来 */
@@ -81,10 +95,64 @@
   border: 1px solid var(--wb-border);
 }
 
+/* 助手消息是一条完整容器，不是「头像 + 散装正文」。
+   角色徽章胶囊统一交代说话权属，正文有独立的面板边框承担分区。 */
 .msg-ai {
   display: flex;
-  gap: var(--wb-sp-3);
-  align-items: flex-start;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  align-items: stretch;
+  min-width: 0;
+}
+
+/* 角色徽章：用户与助手同一语言（胶囊 + 大写的极小程序编号），
+   用户侧右对齐并染点强调色，助手侧保持中性。 */
+.msg-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--wb-muted);
+}
+.msg-badge > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: calc(21px * var(--wb-vw-scale));
+  padding: 2px var(--wb-sp-2);
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-elev-raised);
+}
+.msg-badge.is-live > span {
+  border-color: var(--wb-accent-border);
+  background: var(--wb-accent-tint);
+  color: var(--wb-primary);
+}
+.msg-me .msg-badge {
+  justify-content: flex-end;
+}
+.msg-me .msg-badge > span {
+  border-color: var(--wb-accent-border);
+  background: var(--wb-accent-tint);
+  color: var(--wb-primary);
+}
+/* 正在生成：徽章内一枚呼吸点，比单独画头像省地方也更准 */
+.bd-dot {
+  width: 6px;
+  height: 6px;
+  margin-right: var(--wb-sp-2);
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-live);
+  animation: wb-pulse 1.4s var(--wb-ease) infinite;
+  flex: none;
+}
+.msg-badge.is-bad > span {
+  border-color: var(--wb-danger);
+  background: var(--wb-danger-soft);
+  color: var(--wb-danger);
 }
 
 .msg-avatar {
@@ -104,8 +172,16 @@
   border: 1px solid var(--wb-border);
 }
 
+/* 助手正文：独立面板承担分区（头像的锚点职责迁到这里的边框与徽章）。
+   左侧脊线 2px 是「助手列」的身份线，不要改成彩色抽边。 */
 .msg-ai-body {
   min-width: 0;
+  padding: var(--wb-sp-3) var(--wb-sp-4);
+  border: 1px solid var(--wb-border);
+  border-left: 2px solid var(--wb-line-2);
+  border-radius: var(--wb-radius-md);
+  background: var(--wb-elev-raised);
+  box-shadow: var(--wb-shadow-1);
   flex: 1;
   display: flex;
   flex-direction: column;

@@ -10,6 +10,7 @@ import { useChatStore } from './stores/chat'
 import { useSettingsStore } from './stores/settings'
 import { useToastStore } from './stores/toast'
 import AppIcon from './components/common/AppIcon.vue'
+import NavRail from './components/layout/NavRail.vue'
 import ToastHost from './components/common/ToastHost.vue'
 import TitleBar from './components/layout/TitleBar.vue'
 import { status, stage, message, retryHandshake } from './bootstrap'
@@ -94,7 +95,10 @@ function quitApp() {
     <div class="app-shell">
       <TitleBar :ready="ready" />
 
-      <main class="app-body">
+      <div class="app-frame">
+        <NavRail v-if="ready" />
+
+        <main class="app-body">
         <router-view v-if="ready" v-slot="{ Component }">
           <Transition name="wb-view" mode="out-in">
             <component :is="Component" />
@@ -137,7 +141,8 @@ function quitApp() {
           </div>
           <p class="boot-tip">{{ t('boot.tip') }}</p>
         </div>
-      </main>
+        </main>
+      </div>
 
       <ToastHost />
     </div>
@@ -153,8 +158,16 @@ function quitApp() {
   background: var(--wb-bg);
   color: var(--wb-ink);
 }
+/* 顶栏之下横向切一刀：左 rail 固定，右侧才是内容区 */
+.app-frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
 .app-body {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   overflow: hidden;

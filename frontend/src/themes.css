@@ -152,6 +152,8 @@
   /* 应用壳栅格：顶栏 / 侧栏 / 内容区页头。全部随视口比例缩放。 */
   --wb-h-titlebar: calc(48px * var(--wb-vw-scale));
   --wb-w-side: calc(232px * var(--wb-vw-scale));
+  /* 一级导航 rail：60px 只放图标 + 一行短标签，宽了就变成第二根侧栏 */
+  --wb-w-rail: calc(62px * var(--wb-vw-scale));
   --wb-h-pagehead: calc(60px * var(--wb-vw-scale));
 
   /* 圆角七档：控件用 radius 一档，卡片用 xl，整块面板用 2xl。 */
@@ -159,6 +161,8 @@
 
   /* 字号补两档：读数大数字与页标题 */
   --wb-fs-display: calc(36px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  /* rail 短标签：比 2xs 再小一档，两字中文竖排时不撑破 60px 宽 */
+  --wb-fs-3xs: calc(10px * var(--wb-fs-scale) * var(--wb-vw-scale));
 
   /* 动效补一档慢速：整块视图进出与卡片入场 */
   --wb-dur-slower: 320ms;
@@ -189,6 +193,24 @@
   --wb-sunken: #f1f5f9;
   --wb-panel: #ffffff;
 
+  /* 表面阶梯：相邻两级只差 2%~5% 亮度，读起来是一片连续工作区而不是卡片叠卡片。
+     由外到内：窗口 → 工作区 → 表单/行 → 抬升面 → 悬停 → 选中；组件一律引用这组，不自己选灰阶。 */
+  --wb-elev-window: #f8fafc;
+  --wb-elev-workspace: #f8fafc;
+  --wb-elev-surface: #ffffff;
+  --wb-elev-raised: #ffffff;
+  --wb-elev-hover: #f8fafc;
+  --wb-elev-selected: #eef2ff;
+
+  /* 表单控件：控件要与普通面区分开，给出「可以点进去」的浮凸感 */
+  --wb-control-bg: #ffffff;
+  --wb-control-bg-hover: #f8fafc;
+  --wb-control-bg-disabled: #f1f5f9;
+  --wb-control-border: #e2e8f0;
+  --wb-control-border-hover: #cbd5e1;
+  --wb-control-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 1px 2px rgba(15, 23, 42, 0.05);
+  --wb-control-shadow-focus: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 0 0 3px rgba(99, 102, 241, 0.12);
+
   /* 中性叠加：hover 底色用它，避免「一屏几十个彩色块」 */
   --wb-tint: rgba(15, 23, 42, 0.04);
   --wb-tint-lg: rgba(15, 23, 42, 0.07);
@@ -211,6 +233,10 @@
   --wb-primary-line: rgba(99, 102, 241, 0.35);
   --wb-primary-ink: #ffffff;
   --wb-accent-glow: rgba(99, 102, 241, 0.14);
+  --wb-accent-tint: rgba(99, 102, 241, 0.1);
+  --wb-accent-tint-soft: rgba(99, 102, 241, 0.06);
+  --wb-accent-tint-strong: rgba(99, 102, 241, 0.18);
+  --wb-accent-border: rgba(99, 102, 241, 0.3);
 
   /* 活动色：淡靛 #818cf8。只给「正在发生的事」——流式光标、运行灯、思考中；
      1 档与 2 档分工是「动作」与「活动」之分，不混用 */
@@ -334,6 +360,22 @@
   --wb-sunken: #0b1220;
   --wb-panel: #131c31;
 
+  /* 深色同样走六级阶梯：由外向内逐级抬 2%~5% 亮度 */
+  --wb-elev-window: #0b1220;
+  --wb-elev-workspace: #131c31;
+  --wb-elev-surface: #1e293b;
+  --wb-elev-raised: #263449;
+  --wb-elev-hover: #263449;
+  --wb-elev-selected: #23305a;
+
+  --wb-control-bg: #172033;
+  --wb-control-bg-hover: #1e293b;
+  --wb-control-bg-disabled: #131c31;
+  --wb-control-border: #334155;
+  --wb-control-border-hover: #475569;
+  --wb-control-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --wb-control-shadow-focus: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 0 3px rgba(129, 140, 248, 0.2);
+
   --wb-tint: rgba(226, 232, 240, 0.055);
   --wb-tint-lg: rgba(226, 232, 240, 0.09);
 
@@ -353,6 +395,10 @@
   --wb-primary-soft: rgba(129, 140, 248, 0.18);
   --wb-primary-line: rgba(129, 140, 248, 0.45);
   --wb-primary-ink: #ffffff;
+  --wb-accent-tint: rgba(129, 140, 248, 0.18);
+  --wb-accent-tint-soft: rgba(129, 140, 248, 0.1);
+  --wb-accent-tint-strong: rgba(129, 140, 248, 0.28);
+  --wb-accent-border: rgba(129, 140, 248, 0.42);
   --wb-accent-glow: rgba(129, 140, 248, 0.28);
 
   /* 活动色：亮靛，暗底上的饱和信号色 */

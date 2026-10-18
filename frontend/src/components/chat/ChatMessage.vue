@@ -12,6 +12,10 @@ const props = defineProps<{ msg: MessageVO; plain?: boolean }>()
 const { t } = useI18n()
 const toast = useToastStore()
 
+// 角色名走 i18n：硬编码「你 / WB」在切换语言后会留下一半中文
+const meName = computed(() => t('chat.you'))
+const assistantName = computed(() => t('chat.assistant'))
+
 // 正文里可能混着 <think> 标签（没有单独 thinking 字段的消息）：渲染时拆开，
 // 正文干净、思考归位——用户看到裸标签才会以为程序坏了。
 function splitThink(s: string): { think: string; text: string } {
@@ -75,9 +79,10 @@ const metrics = computed(() => {
 </script>
 
 <template>
-  <!-- 用户消息 -->
+  <!-- 用户消息：角色徽章统一交代说话权属，气泡保留右对齐的对话感 -->
   <div v-if="msg.role === 'user'" class="msg-me">
     <div class="msg-me-col">
+      <div class="msg-badge"><span>{{ meName }}</span></div>
       <div class="msg-me-bubble">
         <div v-if="msg.images?.length" class="me-imgs">
           <img
@@ -101,10 +106,13 @@ const metrics = computed(() => {
     </div>
   </div>
 
-  <!-- 助手回答：纯工具声明回合不画头像，否则一次多轮回答会碎成一串互不相干的图标 -->
+  <!-- 助手回答：容器代替头像做分区，纯工具声明回合不重复打徽章 -->
   <div v-else class="msg-ai" :class="{ 'is-plain': plain }">
-    <div v-if="hasText && !plain" class="msg-avatar"><span>WB</span></div>
-    <div class="msg-ai-body" :class="{ 'is-indent': !hasText || plain }">
+    <div v-if="hasText && !plain" class="msg-badge" :class="{ 'is-bad': msg.is_error }">
+      <span>{{ assistantName }}</span>
+      <AppIcon v-if="msg.is_error" name="alert" size="ic-2xs" />
+    </div>
+    <div class="msg-ai-body">
       <div v-if="thinking" class="think">
         <button class="think-head" type="button" :aria-expanded="thinkOpen" @click="thinkOpen = !thinkOpen">
           <AppIcon name="brain" size="ic-xs" />
@@ -134,12 +142,17 @@ const metrics = computed(() => {
 </template>
 
 <style scoped>
+/* 用户列整体右对齐，但徽章要占满宽度后在内部靠右——
+   否则 align-items:flex-end 会把徽章压成与气泡同宽的窄条。 */
 .msg-me-col {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: var(--wb-sp-1);
-  max-width: min(78%, calc(640px * var(--wb-vw-scale)));
+  width: 100%;
+}
+.msg-me-col > .msg-badge {
+  align-self: stretch;
 }
 .me-imgs {
   display: flex;

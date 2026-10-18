@@ -347,6 +347,11 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 视觉语言见 `DESIGN.md`。核心约束：
 
 - 色值只在 `themes.css` 定义（`--wb-*` 语义令牌 + `[data-theme]` 块）
+- **表面走 `--wb-elev-*` 六级阶梯**（window / workspace / surface / raised / hover / selected）：
+  相邻两级只差 2%~5% 亮度，读起来是一片连续工作区而不是卡片叠卡片。
+  组件禁止自己选灰阶，一律引用阶梯；**表单控件另走 `--wb-control-*` 一组**
+  （bg / bg-hover / bg-disabled / border / border-hover / shadow / shadow-focus），
+  控件要有「可以点进去」的浮凸感，与普通面区分开
 - 尺寸令牌全部乘 `--wb-vw-scale`（由 `useViewportScale` 按「窗口宽 ÷ 1440」写入，
 上下限 0.8~1.35）：分辨率不同的机器上整套刻度等比跟随，不改代码；
 组件层写死裸像素只允许在令牌定义处
@@ -378,8 +383,15 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 - 文案一律走 i18n（`src/locales/`，key 按域分层）；用户可见的字符串禁止硬编码在模板里
 - 消息流 / markdown 渲染 / 代码块 / 工具卡 / 思考块 / 提问卡保留自绘
   （它们是内容渲染不是表单基元，EP 没有对应物）；提问卡内部仍用 EP 的按钮与输入
-- 一级导航只在顶栏（`layout/TitleBar.vue` 的三区分段 + 帮助 / 设置图标）：
-  各视图不得自画返回或主页入口；左栏只放**当前区**的导航（会话列表 / 设置分组 / 文档目录）
+- **一级导航只在左 rail**（`layout/NavRail.vue`，60px 图标 + 一行短标签竖排）：
+  对话 / 工作区 / 技能 / 用量 / 帮助 / 设置全部平级——设置是 rail 底部的一等入口，
+  不是顶栏角落的图标。顶栏只留品牌、当前区标题、连接灯与窗控；
+  各视图不得自画返回或主页入口；左栏（会话列表 / 设置分组 / 文档目录）只放**当前区**的导航
+- 消息流用**统一容器 + 角色徽章胶囊**（`.msg-badge`），不做「用户右气泡 / 助手左头像」——
+  助手列的身份由正文面板的左侧 2px 脊线承担。长会话必须给 `.msg-col > *` 加
+  `content-visibility: auto` + `contain-intrinsic-size: auto 120px`（末两条除外），
+  并给 `.msg-scroll` 加 `overflow-anchor: none`，贴底由 JS 管——否则浏览器滚动锚定
+  与 stick-to-bottom 打架，表现为「明明在底部却跳走了」
 - 选中态 = 淡底 + 左侧 2px 竖条 + 主色（`.sess-row.is-on` / `.set-item.is-on` / `.help-item.is-on` 同一语言）
 - 图标统一走 `AppIcon` 内联 SVG（24 网格，`--wb-icon-stroke`）；禁止用 Unicode 字符或 Emoji 冒充图标
 - 事件 data 的字段名必须与后端 json tag 一致（snake_case）；禁止 `as never` 之类的强转绕过类型检查

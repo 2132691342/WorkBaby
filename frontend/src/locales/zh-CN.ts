@@ -86,6 +86,15 @@ export default {
     collapseSide: '收起侧栏',
     expandSide: '展开侧栏',
   },
+  // 左 rail 的短标签：60px 宽只能放两个字，完整名进 title 与 sr-only
+  navShort: {
+    chat: '对话',
+    workspace: '工作区',
+    skills: '技能',
+    dashboard: '用量',
+    help: '帮助',
+    settings: '设置',
+  },
 
   titlebar: {
     minimize: '最小化',

@@ -468,20 +468,25 @@ defineExpose({
           <div v-for="(q, i) in chat.queued" :key="`${i}-${q}`" class="qd-item">{{ q }}</div>
         </div>
 
-        <el-input
-          ref="ta"
-          v-model="text"
-          class="ta"
-          type="textarea"
-          :autosize="{ minRows: 1, maxRows: 8 }"
-          :disabled="disabled"
-          :placeholder="placeholder || t('chat.inputPlaceholder')"
-          @keydown="onKeydown"
-          @input="onInput"
-          @paste="onPaste"
-        />
+        <!-- 输入块：外层给 min-height，空态也有一个大目标可点；
+             焦点态在 content.css 里加柔光圈，这里只负责层级。 -->
+        <div class="ta-shell">
+          <el-input
+            ref="ta"
+            v-model="text"
+            class="ta"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 10 }"
+            :disabled="disabled"
+            :placeholder="placeholder || t('chat.inputPlaceholder')"
+            @keydown="onKeydown"
+            @input="onInput"
+            @paste="onPaste"
+          />
+        </div>
 
-        <div class="composer-bar">
+        <!-- 工具行：与输入块用一条分隔线切开，不再抢输入框的横向空间 -->
+        <div class="composer-bar is-divided">
           <el-tooltip :content="t('chat.attachPick')" placement="top" :show-after="400">
             <button class="bar-btn" type="button" :disabled="disabled || full" @click="pickFile">
               <AppIcon name="folder" size="ic-xs" />
@@ -692,16 +697,34 @@ defineExpose({
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 输入块：撑满高度并让 textarea 也撑满，点击空白区即可落光标 */
+.ta-shell {
+  display: flex;
+  min-height: calc(68px * var(--wb-vw-scale));
+  padding: var(--wb-sp-1);
+}
+.ta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
 .ta :deep(.el-textarea__inner) {
   border: none;
   box-shadow: none;
   background: transparent;
-  padding: var(--wb-sp-3) var(--wb-sp-3) var(--wb-sp-2);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
   font-size: var(--wb-fs-md);
-  max-height: calc(200px * var(--wb-vw-scale));
+  max-height: calc(240px * var(--wb-vw-scale));
+  resize: none;
 }
 .ta :deep(.el-textarea__inner:focus) {
   box-shadow: none;
+}
+/* 工具行与输入块用一条分隔线切开 */
+.composer-bar.is-divided {
+  margin-top: var(--wb-sp-1);
+  padding-top: var(--wb-sp-2);
+  border-top: 1px solid var(--wb-border);
 }
 .composer-bar {
   display: flex;

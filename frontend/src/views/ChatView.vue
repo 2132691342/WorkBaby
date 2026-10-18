@@ -15,6 +15,7 @@ import ChatInput from '../components/chat/ChatInput.vue'
 import ExampleCards from '../components/chat/ExampleCards.vue'
 import MessageList from '../components/chat/MessageList.vue'
 import SessionPanel from '../components/chat/SessionPanel.vue'
+import StatusHud from '../components/chat/StatusHud.vue'
 
 const { t } = useI18n()
 const session = useSessionStore()
@@ -340,6 +341,7 @@ watch(() => settings.boot?.default_model, seedContext)
         @new-session="newSession"
         @clear-session="newSession"
       />
+      <StatusHud />
     </div>
   </div>
 </template>

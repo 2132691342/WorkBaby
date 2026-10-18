@@ -26,6 +26,8 @@ const chat = useChatStore()
 const toast = useToastStore()
 const router = useRouter()
 
+const assistantName = computed(() => t('chat.assistant'))
+
 const acting = ref<'' | 'continue' | 'retry'>('')
 const cancellingRetry = ref(false)
 
@@ -247,7 +249,12 @@ async function onStreamClick(e: MouseEvent) {
       <!-- 正在进行的回合 -->
       <div v-if="chat.running" class="turn">
         <div class="msg-ai is-live">
-          <div class="msg-avatar is-live"><span>WB</span></div>
+          <div class="msg-badge is-live">
+            <span>
+              <span class="bd-dot" aria-hidden="true" />
+              {{ assistantName }}
+            </span>
+          </div>
           <div class="msg-ai-body">
             <div v-if="chat.thinking" class="think is-live">
               <button
