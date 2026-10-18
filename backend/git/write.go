@@ -5,10 +5,24 @@ package git
 import (
 	"path/filepath"
 	"strings"
+	"time"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 )
+
+// writeRun 执行一条 git 写命令；失败折成 1019，git 原文进 message。
+// 写动作报成 1015「读取版本信息失败」是语义错位，前端按 1019 给「钩子拒绝 / 冲突 / 推送被拒」的处置。
+func writeRun(dir string, timeout time.Duration, args ...string) (result, error) {
+	res, err := run(dir, timeout, args...)
+	if err != nil {
+		if _, ok := err.(*pkg.AppError); ok {
+			return res, err
+		}
+		return res, pkg.Wrap("1019", strings.TrimSpace(res.errOut), err)
+	}
+	return res, nil
+}
 
 // Stage 把 paths 放进待提交区；paths 为空表示全部改动。
 func Stage(dir string, paths []string) (*domain.GitStatusVO, error) {
@@ -19,7 +33,7 @@ func Stage(dir string, paths []string) (*domain.GitStatusVO, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := run(dir, writeTimeout, append([]string{"add", "--"}, args...)...); err != nil {
+	if _, err := writeRun(dir, writeTimeout, append([]string{"add", "--"}, args...)...); err != nil {
 		return nil, err
 	}
 	return Status(dir)
@@ -39,7 +53,7 @@ func Unstage(dir string, paths []string) (*domain.GitStatusVO, error) {
 	if !hasHead(dir) {
 		prefix = []string{"reset"}
 	}
-	if _, err := run(dir, writeTimeout, append(prefix, append([]string{"--"}, args...)...)...); err != nil {
+	if _, err := writeRun(dir, writeTimeout, append(prefix, append([]string{"--"}, args...)...)...); err != nil {
 		return nil, err
 	}
 	return Status(dir)
@@ -58,11 +72,9 @@ func Commit(dir, message string) (*domain.GitCommitRESP, error) {
 		return nil, pkg.New("1016", "提交信息太长了，缩短到一句摘要", "")
 	}
 	// 不带 --amend / --no-verify：改写已发布历史与跳过钩子都不该由界面替用户决定。
-	res, err := run(dir, writeTimeout, "commit", "-m", msg)
-	if err != nil {
+	if _, err := writeRun(dir, writeTimeout, "commit", "-m", msg); err != nil {
 		// 无改动可提交是 git 的 1，原文说清「没什么可提交」；折成 1017 让界面给出下一步。
-		if strings.Contains(res.errOut, "nothing to commit") ||
-			strings.Contains(res.out, "nothing to commit") {
+		if strings.Contains(err.Error(), "nothing to commit") {
 			return nil, pkg.New("1017", "没有可提交的改动，先勾选文件入栈", "")
 		}
 		return nil, err
@@ -82,7 +94,7 @@ func CreateBranch(dir, name string) (*domain.GitStatusVO, error) {
 	if !validBranchName(name) {
 		return nil, pkg.New("1018", "分支名不合法", "只允许字母、数字、点、下划线、斜杠与连字符，且不能以连字符开头")
 	}
-	if _, err := run(dir, writeTimeout, "checkout", "-b", name); err != nil {
+	if _, err := writeRun(dir, writeTimeout, "checkout", "-b", name); err != nil {
 		return nil, err
 	}
 	return Status(dir)
@@ -96,7 +108,7 @@ func SwitchBranch(dir, name string) (*domain.GitStatusVO, error) {
 	if !validBranchName(name) {
 		return nil, pkg.New("1018", "分支名不合法", name)
 	}
-	if _, err := run(dir, writeTimeout, "checkout", name); err != nil {
+	if _, err := writeRun(dir, writeTimeout, "checkout", name); err != nil {
 		return nil, err
 	}
 	return Status(dir)
@@ -107,7 +119,7 @@ func Push(dir string) (*domain.GitStatusVO, error) {
 	if err := requireRepo(dir); err != nil {
 		return nil, err
 	}
-	if _, err := run(dir, pushTimeout, "push"); err != nil {
+	if _, err := writeRun(dir, pushTimeout, "push"); err != nil {
 		return nil, err
 	}
 	return Status(dir)
