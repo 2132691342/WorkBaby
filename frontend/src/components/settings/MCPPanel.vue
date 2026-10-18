@@ -1,13 +1,17 @@
 <script setup lang="ts">
 // MCP 面板：配置读写的是 PI 的 mcp.json（全局 + 项目各一份），
 // 在线状态与工具清单来自 `pi mcp list --json`——连没连上只有 PI 知道。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import * as api from '../../api'
+import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { MCPListRESP, MCPServerVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
+import CodeEditor from '../common/CodeEditor.vue'
+import PnHead from '../common/PnHead.vue'
 
 const toast = useToastStore()
+const settingsStore = useSettingsStore()
 const data = ref<MCPListRESP | null>(null)
 const scope = ref<'global' | 'project'>('global')
 const raw = ref('')
@@ -25,16 +29,17 @@ const STATE: Record<string, { label: string; cls: string }> = {
 async function reload() {
   try {
     data.value = await api.mcp.list()
+    settingsStore.mcp = data.value
     raw.value = scope.value === 'global' ? data.value.global_raw : data.value.project_raw
   } catch (e) {
     toast.bad(`读取 MCP 失败：${(e as Error)?.message || '请重试'}`)
   }
 }
 
-function switchScope(next: 'global' | 'project') {
-  scope.value = next
+// 切换作用域时把配置原文换成对应那份
+watch(scope, (next) => {
   raw.value = next === 'global' ? data.value?.global_raw || '{}' : data.value?.project_raw || '{}'
-}
+})
 
 async function save() {
   if (busy.value) return
@@ -100,28 +105,29 @@ function addTemplate() {
   raw.value = JSON.stringify(tpl, null, 2)
 }
 
-onMounted(() => void reload())
+onMounted(() => {
+  if (settingsStore.mcp) {
+    data.value = settingsStore.mcp
+    raw.value = scope.value === 'global' ? data.value.global_raw : data.value.project_raw
+    void reload()
+  } else void reload()
+})
 </script>
 
 <template>
   <div class="panel">
-    <header class="pn-head">
-      <div>
-        <h3>MCP 服务</h3>
-        <p class="pn-sub">
-          配置在 <span class="mono">{{ data?.global_path || '~/.pi/agent/mcp.json' }}</span>；在线状态来自 <span class="mono">pi mcp list</span>。
-        </p>
-      </div>
-      <div class="acts">
-        <button class="btn" type="button" :class="{ 'is-loading': busy === 'reload' }" :disabled="!!busy" @click="refresh">重连</button>
-      </div>
-    </header>
+    <PnHead icon="globe" title="MCP 服务">
+      <template #sub>
+        配置在 <span class="mono">{{ data?.global_path || '~/.pi/agent/mcp.json' }}</span>；在线状态来自 <span class="mono">pi mcp list</span>——对话开始后 PI 进程起来才会探测，未连接不等于配置坏了。
+      </template>
+      <el-button :loading="busy === 'reload'" :disabled="!!busy" @click="refresh">重连</el-button>
+    </PnHead>
 
     <div v-if="!servers.length" class="empty card">
       <span class="em-ic"><AppIcon name="globe" /></span>
       <b>还没有配置 MCP 服务</b>
       <p>MCP 让助手用上外部工具（浏览器、数据库、内部系统）。在下面粘一段配置即可。</p>
-      <button class="btn" type="button" @click="addTemplate">填一个模板</button>
+      <el-button @click="addTemplate">填一个模板</el-button>
     </div>
 
     <div v-else class="cards">
@@ -132,18 +138,26 @@ onMounted(() => void reload())
             <b>{{ s.name }}</b>
             <span class="muted sm">{{ s.scope === 'project' ? '项目级' : '全局' }} · 暴露档 {{ s.exposure }}</span>
           </div>
-          <span class="tag" :class="STATE[s.state]?.cls">{{ STATE[s.state]?.label || s.state }}</span>
+          <el-tag :type="STATE[s.state]?.cls || 'info'" size="small" effect="plain"
+            :title="s.state === 'unknown' ? 'PI 进程还没起来；对话开始后自动探测' : ''">
+            {{ STATE[s.state]?.label || s.state }}
+          </el-tag>
         </div>
         <div class="mono sm muted m-tr">{{ s.transport || '（没有命令或地址）' }}</div>
         <div class="m-tools">
           <span v-for="t in s.tools.slice(0, 6)" :key="t" class="chip sm">{{ t }}</span>
           <span v-if="s.tools.length > 6" class="muted sm">+{{ s.tools.length - 6 }}</span>
-          <span v-if="!s.tools.length" class="muted sm">还没有工具清单</span>
+          <span v-if="!s.tools.length && s.state !== 'unknown'" class="muted sm">还没有工具清单</span>
+          <span v-if="!s.tools.length && s.state === 'unknown'" class="muted sm">对话开始后 PI 会自动接入并列出工具</span>
         </div>
         <p v-if="s.error" class="err">{{ s.error }}</p>
         <div class="m-acts">
-          <button class="btn btn-sm" type="button" :class="{ 'is-loading': busy === `login:${s.name}` }" :disabled="!!busy" @click="login(s)">登录</button>
-          <button class="btn btn-sm danger" type="button" :class="{ 'is-loading': busy === `del:${s.name}` }" :disabled="!!busy" @click="remove(s)">删除</button>
+          <el-button size="small" :loading="busy === `login:${s.name}`" :disabled="!!busy" @click="login(s)">登录</el-button>
+          <el-popconfirm title="删除后助手就用不上这个服务了，确定？" width="260" @confirm="remove(s)">
+            <template #reference>
+              <el-button size="small" type="danger" plain :loading="busy === `del:${s.name}`" :disabled="!!busy">删除</el-button>
+            </template>
+          </el-popconfirm>
         </div>
       </article>
     </div>
@@ -152,15 +166,17 @@ onMounted(() => void reload())
       <div class="ed-head">
         <b>配置原文</b>
         <div class="seg">
-          <button class="seg-btn" type="button" :class="{ on: scope === 'global' }" @click="switchScope('global')">全局</button>
-          <button class="seg-btn" type="button" :class="{ on: scope === 'project' }" :disabled="!hasProject" @click="switchScope('project')">项目</button>
+          <el-radio-group v-model="scope" size="small">
+            <el-radio-button value="global">全局</el-radio-button>
+            <el-radio-button value="project" :disabled="!hasProject">项目</el-radio-button>
+          </el-radio-group>
         </div>
         <span class="sp" />
-        <button class="btn btn-sm" type="button" @click="addTemplate">填模板</button>
+        <el-button size="small" @click="addTemplate">填模板</el-button>
       </div>
-      <textarea v-model="raw" class="textarea mono" spellcheck="false" rows="12" />
+      <CodeEditor v-model="raw" lang="json" :min-height="240" />
       <div class="ed-acts">
-        <button class="btn btn-primary" type="button" :class="{ 'is-loading': busy === 'save' }" :disabled="!!busy" @click="save">保存</button>
+        <el-button type="primary" :loading="busy === 'save'" :disabled="!!busy" @click="save">保存</el-button>
         <span class="muted sm">保存前会做 JSON 与 mcpServers 结构校验；不通过一个字符都不写</span>
       </div>
     </section>
@@ -173,24 +189,9 @@ onMounted(() => void reload())
   flex-direction: column;
   gap: var(--wb-sp-4);
 }
-.pn-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--wb-sp-3);
-}
-.pn-head h3 {
-  font-size: var(--wb-fs-lg);
-  color: var(--wb-ink);
-}
-.pn-sub {
-  margin-top: 4px;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
   gap: var(--wb-sp-3);
 }
 .mcard {
@@ -257,6 +258,7 @@ onMounted(() => void reload())
   display: flex;
   align-items: center;
   gap: var(--wb-sp-3);
+  flex-wrap: wrap;
 }
 .ed-head b {
   font-size: var(--wb-fs-sm);

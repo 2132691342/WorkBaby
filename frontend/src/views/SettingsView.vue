@@ -77,16 +77,13 @@ onMounted(async () => {
         </div>
       </div>
       <div class="nav">
-        <button
-          v-for="t in tabs"
-          :key="t.key"
-          class="nav-item"
-          :class="{ on: tab === t.key }"
-          type="button"
-          @click="go(t.key)"
-        >
-          <AppIcon :name="t.icon" /> {{ t.name }}
-        </button>
+        <!-- EP 菜单：选中态与导航语言一致（淡底 + 主色） -->
+        <el-menu :default-active="tab" class="nav-menu" @select="(k: string) => go(k as TabKey)">
+          <el-menu-item v-for="t in tabs" :key="t.key" :index="t.key">
+            <AppIcon :name="t.icon" />
+            <span>{{ t.name }}</span>
+          </el-menu-item>
+        </el-menu>
       </div>
       <div class="side-foot">
         <span class="ver" :title="settings.boot?.version ? `WorkBaby ${settings.boot.version}` : ''">
@@ -136,9 +133,24 @@ onMounted(async () => {
   gap: 2px;
   padding: 0 var(--wb-sp-3);
 }
-.nav-item {
-  width: 100%;
-  min-width: 0;
+/* EP 菜单去自带样式：底透明、无边框、高度跟控件刻度 */
+.nav-menu {
+  border-right: none;
+  background: transparent;
+  --el-menu-bg-color: transparent;
+  --el-menu-hover-bg-color: var(--wb-tint);
+  --el-menu-active-color: var(--wb-primary);
+  --el-menu-text-color: var(--wb-ink-2);
+  --el-menu-item-height: var(--wb-ctl-h-lg);
+}
+.nav-menu .el-menu-item {
+  border-radius: var(--wb-radius);
+  margin-bottom: 2px;
+  gap: var(--wb-sp-2);
+}
+.nav-menu .el-menu-item.is-active {
+  background: var(--wb-primary-soft);
+  font-weight: 600;
 }
 .settings-main {
   flex: 1;
@@ -147,8 +159,9 @@ onMounted(async () => {
   overflow-x: hidden;
 }
 .wrap-md {
+  /* 宽屏不再把内容挤在半边：上限跟随视口比例令牌，窄窗自身可收缩 */
   width: 100%;
-  max-width: 1080px;
+  max-width: calc(1280px * var(--wb-vw-scale));
   margin: 0 auto;
   padding: var(--wb-sp-8) var(--wb-sp-6) var(--wb-sp-10);
   display: flex;

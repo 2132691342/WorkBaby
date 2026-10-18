@@ -13,15 +13,16 @@ const { collapsed } = useSessionPanel()
 <template>
   <!-- 折叠走 class 而不是 v-show：负边距滑出的过渡才看得见（v-show 的 display 切换无法过渡） -->
   <aside class="side" :class="{ collapsed }">
-    <button
-      class="btn btn-lav side-btn"
-      type="button"
-      :class="{ 'is-loading': props.creating }"
+    <el-button
+      class="side-btn"
+      type="primary"
+      plain
+      :loading="props.creating"
       :disabled="props.creating"
       @click="emit('newSession')"
     >
       <AppIcon name="plus" /> 新对话
-    </button>
+    </el-button>
     <div class="sess">
       <SessionList @new-session="emit('newSession')" />
     </div>

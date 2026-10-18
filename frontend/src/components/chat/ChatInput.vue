@@ -62,7 +62,44 @@ const sendHint = computed(() => (sendOnEnter() ? 'Enter 发送 · Shift+Enter �
 const root = ref<HTMLElement | null>(null)
 const chipsRef = ref<InstanceType<typeof SessionChips> | null>(null)
 const ta = ref<HTMLTextAreaElement | null>(null)
+// 会话草稿：切换会话不丢正在写的话。按会话 id 存，无会话用 'draft'（新建态）。
 const text = ref('')
+let draftFor = ''
+const DRAFT_KEY = 'wb-composer-drafts'
+const drafts: Record<string, string> = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}') as Record<string, string>
+  } catch {
+    return {}
+  }
+})()
+
+function saveDraft() {
+  if (draftFor === text.value) return
+  // 先清掉旧键再落新键：换会话时旧草稿要腾位置
+  if (draftFor) delete drafts[draftFor]
+  draftFor = session.currentId || '__new__'
+  if (text.value.trim()) drafts[draftFor] = text.value
+  else delete drafts[draftFor]
+  try {
+    // 只留最近 20 份草稿：超出就丢最旧的（对象键序即插入序）
+    const keys = Object.keys(drafts)
+    if (keys.length > 20) delete drafts[keys[0]]
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts))
+  } catch {
+    /* 配额 / 隐私模式 */
+  }
+}
+
+function loadDraft() {
+  const key = session.currentId || '__new__'
+  if (draftFor === key) return
+  draftFor = key
+  text.value = drafts[key] || ''
+  nextTick(autoGrow)
+}
+
+watch(() => session.currentId, loadDraft)
 // 选中的团队：非空时这条需求交给它分头干（附件与插话不参与团队路径）
 const files = ref<PendingFile[]>([])
 const menu = ref<'slash' | 'mention' | null>(null)
@@ -269,6 +306,7 @@ function onGripDbl() {
 
 function clearInput() {
   text.value = ''
+  saveDraft()
   menu.value = null
   nextTick(autoGrow)
 }
@@ -279,6 +317,7 @@ function closeAll() {
 }
 
 function onInput() {
+  saveDraft()
   const v = text.value
   if (/@\S*$/.test(v)) {
     menu.value = 'mention'
@@ -478,6 +517,7 @@ function onResize() {
 }
 
 onMounted(() => {
+  loadDraft()
   document.addEventListener('pointerdown', onDocPointerDown)
   window.addEventListener('resize', onResize)
 })
@@ -580,26 +620,27 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
             排队
           </button>
         </div>
-        <button
+        <el-button
           v-if="running"
-          class="btn btn-sm btn-danger-ghost"
-          :class="{ 'is-loading': stopping }"
+          size="small"
+          type="danger"
+          plain
+          :loading="stopping"
           :disabled="stopping"
-          type="button"
           @click="emit('stop')"
         >
           停止
-        </button>
-        <button
+        </el-button>
+        <el-button
           v-else
-          class="btn btn-sm btn-primary"
-          :class="{ 'is-loading': sending }"
-          type="button"
+          size="small"
+          type="primary"
+          :loading="sending"
           :disabled="sending || !text.trim() || disabled || outsideCount > 0"
           @click="submit"
         >
           发送
-        </button>
+        </el-button>
       </div>
 
       <!-- 斜杠菜单：命令 + 技能，↑↓ 选择、回车执行、Esc 关闭 -->

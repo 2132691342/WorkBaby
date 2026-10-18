@@ -24,79 +24,85 @@
      不引 CSS 引擎也不写 calc 包裹，直接乘系数——改一处就够。 */
   --wb-fs-scale: 1;
 
-  /* 字号 8 级 */
-  --wb-fs-2xs: 10px;
-  --wb-fs-xs: 11px;
-  --wb-fs-sm: 12px;
-  --wb-fs-md: 13px;
-  --wb-fs-lg: 15px;
-  --wb-fs-xl: 20px;
-  --wb-fs-2xl: 28px;
-  --wb-fs-3xl: 32px;
+  /* 视口比例缩放：由 useViewportScale 按「窗口宽 ÷ 1440」写入，
+     上下限在 JS 侧鎖死（0.75~1.35）——分辨率不同的机器上整套刻度等比跟随，
+     组件层全部走令牌，无需改代码。缺省 1 保证不依赖 JS 也有一套可用尺寸。 */
+  --wb-vw-scale: 1;
+
+  /* 字号 8 级：字号 = 基准 × 用户字号缩放 × 视口比例。
+     变量里再乘 --wb-fs-scale 是为了让「外观设置只改一个值」继续成立。 */
+  --wb-fs-2xs: calc(10px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-xs: calc(11px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-sm: calc(12px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-md: calc(13px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-lg: calc(15px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-xl: calc(20px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-2xl: calc(28px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-3xl: calc(32px * var(--wb-fs-scale) * var(--wb-vw-scale));
   --wb-lh-tight: 1.25;
   --wb-lh-base: 1.6;
   --wb-lh-loose: 1.75;
   --wb-ls-plate: 0.08em;
 
-  /* 间距（4 的倍数） */
-  --wb-sp-1: 4px;
-  --wb-sp-2: 8px;
-  --wb-sp-3: 12px;
-  --wb-sp-4: 16px;
-  --wb-sp-5: 20px;
-  --wb-sp-6: 24px;
-  --wb-sp-8: 32px;
-  --wb-sp-10: 40px;
-  --wb-sp-12: 48px;
+  /* 间距（4 的倍数）：全部随视口比例缩放 */
+  --wb-sp-1: calc(4px * var(--wb-vw-scale));
+  --wb-sp-2: calc(8px * var(--wb-vw-scale));
+  --wb-sp-3: calc(12px * var(--wb-vw-scale));
+  --wb-sp-4: calc(16px * var(--wb-vw-scale));
+  --wb-sp-5: calc(20px * var(--wb-vw-scale));
+  --wb-sp-6: calc(24px * var(--wb-vw-scale));
+  --wb-sp-8: calc(32px * var(--wb-vw-scale));
+  --wb-sp-10: calc(40px * var(--wb-vw-scale));
+  --wb-sp-12: calc(48px * var(--wb-vw-scale));
 
   /* 圆角 4 级 + 胶囊：圆润靠圆角与阴影，不靠描边 */
-  --wb-radius-xs: 6px;
-  --wb-radius-sm: 8px;
-  --wb-radius: 10px;
-  --wb-radius-lg: 16px;
-  --wb-radius-xl: 20px;
+  --wb-radius-xs: calc(6px * var(--wb-vw-scale));
+  --wb-radius-sm: calc(8px * var(--wb-vw-scale));
+  --wb-radius: calc(10px * var(--wb-vw-scale));
+  --wb-radius-lg: calc(16px * var(--wb-vw-scale));
+  --wb-radius-xl: calc(20px * var(--wb-vw-scale));
   --wb-radius-full: 999px;
   --wb-radius-ctl: var(--wb-radius);
 
   /* 控件高度 4 档 + 图标钮（组件禁止写裸像素高度） */
-  --wb-ctl-h-sm: 26px;
-  --wb-ctl-h: 34px;
-  --wb-ctl-h-lg: 38px;
-  --wb-ctl-h-xl: 44px;
-  --wb-ctl-icon: 32px;
-  --wb-switch-w: 48px;
-  --wb-switch-h: 26px;
+  --wb-ctl-h-sm: calc(26px * var(--wb-vw-scale));
+  --wb-ctl-h: calc(34px * var(--wb-vw-scale));
+  --wb-ctl-h-lg: calc(38px * var(--wb-vw-scale));
+  --wb-ctl-h-xl: calc(44px * var(--wb-vw-scale));
+  --wb-ctl-icon: calc(32px * var(--wb-vw-scale));
+  --wb-switch-w: calc(48px * var(--wb-vw-scale));
+  --wb-switch-h: calc(26px * var(--wb-vw-scale));
 
   /* 图标瓦片：卡片头的方块底（读数卡 / 空态 / 例句卡）。不是可点控件，
      但同一组尺寸反复出现，散成裸像素就会各自漂，收口在这里。 */
-  --wb-tile-sm: 30px;
-  --wb-tile: 40px;
-  --wb-tile-lg: 52px;
+  --wb-tile-sm: calc(30px * var(--wb-vw-scale));
+  --wb-tile: calc(40px * var(--wb-vw-scale));
+  --wb-tile-lg: calc(52px * var(--wb-vw-scale));
 
-  --wb-fs-ctl: 12.5px;
-  --wb-fs-label: 12px;
-  --wb-fs-hint: 11px;
+  --wb-fs-ctl: calc(12.5px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-label: calc(12px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-hint: calc(11px * var(--wb-fs-scale) * var(--wb-vw-scale));
 
   /* 布局宽度 */
-  --wb-w-nav: 236px;
-  --wb-w-settings: 208px;
-  --wb-w-panel: 336px;
-  --wb-w-panel-wide: 420px;
-  --wb-w-read: 840px;
+  --wb-w-nav: calc(236px * var(--wb-vw-scale));
+  --wb-w-settings: calc(208px * var(--wb-vw-scale));
+  --wb-w-panel: calc(336px * var(--wb-vw-scale));
+  --wb-w-panel-wide: calc(420px * var(--wb-vw-scale));
+  --wb-w-read: calc(840px * var(--wb-vw-scale));
   /* 消息列比输入框略宽：正文是主角，输入框不能反过来压过它 */
-  --wb-w-col: 900px;
+  --wb-w-col: calc(900px * var(--wb-vw-scale));
   /* 面板头部那段说明文字的排版宽度：四个指挥台面板都用它，
      各自写一遍 560px 的话改一次要动四个文件 */
-  --wb-w-desc: 560px;
+  --wb-w-desc: calc(560px * var(--wb-vw-scale));
   /* 标题栏中区（面包屑 / 页面名）的宽度上限 */
-  --wb-w-crumbs: 460px;
+  --wb-w-crumbs: calc(460px * var(--wb-vw-scale));
 
   /* 小尺寸输入：设置页里「上下文窗口 / 温度 / Top P」这类窄数字框共用 */
-  --wb-w-input-sm: 96px;
+  --wb-w-input-sm: calc(96px * var(--wb-vw-scale));
 
   /* 消息头像（正方形）。助手正文列 = 头像 + 间距，
      纯思考回合与工具组都要按这个缩进对齐，缩进值不散落在组件里。 */
-  --wb-avatar-size: 26px;
+  --wb-avatar-size: calc(26px * var(--wb-vw-scale));
 
   /* 动效三档：只解释状态变化，不做装饰 */
   --wb-dur-fast: 110ms;

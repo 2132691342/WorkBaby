@@ -25,6 +25,14 @@ const (
 	EventChatAsk = "chat:ask"
 	// EventChatAskClosed 是那条问题已经不需要再答了（已答 / 会话中止 / 进程退出）。
 	EventChatAskClosed = "chat:ask_closed"
+	// EventChatNotify 是引擎扩展的即时通知（fire-and-forget，无需应答）。
+	EventChatNotify = "chat:notify"
+	// EventChatStatus 是引擎扩展设置的状态条文本；空 text 表示清除。
+	EventChatStatus = "chat:status"
+	// EventChatWidget 是引擎扩展推送的小部件文本行。
+	EventChatWidget = "chat:widget"
+	// EventChatTitle 是引擎请求改标题。
+	EventChatTitle = "chat:title"
 )
 
 // Envelope 是 SSE 帧的统一外壳；Data 按事件名对应到下面各结构体。
@@ -144,6 +152,30 @@ type SetupData struct {
 	Message  string `json:"message"`
 }
 
+// NotifyData chat:notify：扩展的即时通知。Level 是 info / warning / error。
+type NotifyData struct {
+	Level   string `json:"level"`
+	Message string `json:"message"`
+}
+
+// StatusData chat:status：扩展设置的状态条；空 Text 表示清除那个键。
+type StatusData struct {
+	Key  string `json:"key"`
+	Text string `json:"text"`
+}
+
+// WidgetData chat:widget：扩展推送的小部件文本行；空 Lines 表示清除。
+type WidgetData struct {
+	Key       string   `json:"key"`
+	Lines     []string `json:"lines"`
+	Placement string   `json:"placement"`
+}
+
+// TitleData chat:title：引擎请求改标题（展示层自定是否采纳）。
+type TitleData struct {
+	Title string `json:"title"`
+}
+
 // BootstrapVO 启动引导数据：一次请求把前端起步要读的东西全给到，省掉一串往返。
 type BootstrapVO struct {
 	Version         string `json:"version"`
@@ -155,6 +187,16 @@ type BootstrapVO struct {
 	// PiEnv 是环境闸门：ready=false 时前端进向导且不 spawn PI。
 	PiEnv    *PiEnvVO          `json:"pi_env"`
 	Settings map[string]string `json:"settings"`
+}
+
+// WarmupRESP 首屏预热聚合：设置页各面板要读的清单一次拉齐，
+// 前端不再逐面板手点刷新。全部只读磁盘与配置，不拉起 PI 进程。
+type WarmupRESP struct {
+	Skills     []SkillVO          `json:"skills"`
+	Providers  *ProviderListRESP  `json:"providers"`
+	Tools      *ToolListRESP      `json:"tools"`
+	Extensions *ExtensionListRESP `json:"extensions"`
+	MCP        *MCPListRESP       `json:"mcp"`
 }
 
 // PiEnvVO 是 PI 运行环境的判定结果（形态由 pi/env 产出，这里避免 domain 反向依赖）。

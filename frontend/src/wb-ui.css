@@ -708,6 +708,31 @@ body {
   font-variant-numeric: tabular-nums;
   transition: opacity var(--wb-dur-fast) var(--wb-ease);
 }
+/* 运行呼吸灯：这个会话正在跑（后端 running 字段），
+   与标题栏连接灯同一语言（点亮即活动，呼吸即进行中）。 */
+.si-run {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-line-2);
+  opacity: 0.6;
+  transition: background var(--wb-dur) var(--wb-ease);
+}
+.si-run.on {
+  background: var(--wb-live);
+  opacity: 1;
+  animation: si-breathe 1.6s var(--wb-ease) infinite;
+}
+@keyframes si-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--wb-live-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--wb-live-soft);
+  }
+}
 .sess-item:hover .si-time,
 .sess-item.is-on .si-time {
   opacity: 0;

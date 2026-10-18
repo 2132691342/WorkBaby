@@ -42,6 +42,16 @@ function pick(src: Record<string, string>): Record<string, string> | undefined {
 
 export const bootstrap = () => get<BootstrapVO>('/bootstrap')
 
+/** 首屏预热聚合：设置页各面板的清单一次拉齐（字段与 domain.WarmupRESP 一致） */
+export interface WarmupRESP {
+  skills: SkillVO[]
+  providers: ProviderListRESP | null
+  tools: ToolListRESP | null
+  extensions: ExtensionListRESP | null
+  mcp: MCPListRESP | null
+}
+export const warmup = () => get<WarmupRESP>('/warmup')
+
 /** 路径约定：变量参数一律落在路径末尾（`/{resource}/{action}/:id`） */
 export const sessions = {
   /** workspace 为空表示「全部工作目录」 */

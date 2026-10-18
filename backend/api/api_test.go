@@ -310,6 +310,31 @@ func TestHTTPChain(t *testing.T) {
 		}
 	})
 
+	// 首屏预热聚合：五路清单一次拉齐且不发 null，前端进面板时不再空白。
+	t.Run("预热聚合：五路清单一次拉齐", func(t *testing.T) {
+		_, body := call(t, base, "GET", "/warmup", nil)
+		var payload struct {
+			Code string `json:"code"`
+			Data struct {
+				Skills     *[]map[string]any `json:"skills"`
+				Providers  *json.RawMessage  `json:"providers"`
+				Tools      *json.RawMessage  `json:"tools"`
+				Extensions *json.RawMessage  `json:"extensions"`
+				MCP        *json.RawMessage  `json:"mcp"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatalf("解析 warmup 失败: %v", err)
+		}
+		if payload.Code != "0" {
+			t.Fatalf("warmup 报错: %s", body)
+		}
+		if payload.Data.Skills == nil || payload.Data.Providers == nil || payload.Data.Tools == nil ||
+			payload.Data.Extensions == nil || payload.Data.MCP == nil {
+			t.Fatalf("warmup 字段缺失: %s", body)
+		}
+	})
+
 	t.Run("SSE 全链：子进程到帧、seq 递增、断线重连不被拒", func(t *testing.T) {
 		// 配一个服务：环境闸门的 model 判定要它。
 		code, body := call(t, base, "POST", "/providers/upsert", map[string]any{

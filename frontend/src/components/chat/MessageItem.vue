@@ -134,7 +134,6 @@ const metrics = computed(() => {
             思考过程
           </button>
           <div v-if="thinkOpen" id="think-body" class="wb-think-body">{{ thinking }}</div>
-          <div v-if="thinkOpen" class="wb-think-body">{{ thinking }}</div>
         </div>
         <!-- 只有工具声明、正文还没出来的回合不画气泡：
              每轮都画一个空头像，一次回答就会碎成一串互不相干的 WB 图标。 -->

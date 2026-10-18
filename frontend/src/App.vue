@@ -4,6 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { syncFromSettings } from './composables/useAppearance'
 import { useSessionPanel } from './composables/useSessionPanel'
+import { useViewportScale } from './composables/useViewportScale'
 import { sseConnected, sseSubscribed } from './composables/useSse'
 import { intentFile, intentNewSession, pushShellIntent } from './composables/shellIntent'
 import { useChatStore } from './stores/chat'
@@ -13,7 +14,8 @@ import { useToastStore } from './stores/toast'
 import AppIcon from './components/common/AppIcon.vue'
 import NavRail from './components/common/NavRail.vue'
 import ToastHost from './components/common/ToastHost.vue'
-import { status, message, retryHandshake } from './bootstrap'
+import { status, stage, message, retryHandshake } from './bootstrap'
+import { inject, type Ref } from 'vue'
 import { ForceQuit } from '../wailsjs/go/main/App'
 import { EventsOn, Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime'
 
@@ -25,6 +27,10 @@ const toast = useToastStore()
 const router = useRouter()
 const route = useRoute()
 const { collapsed: panelCollapsed, toggle: togglePanel } = useSessionPanel()
+// 视口比例缩放：分辨率不同的机器上全套刻度等比跟随，不改代码
+useViewportScale()
+// EP 内置文案的当前语言（main.ts 提供）
+const epLocale = inject<Ref>('epLocale')
 
 const failed = computed(() => status.value === 'failed')
 const ready = computed(() => booted.value && !failed.value)
@@ -55,7 +61,11 @@ function winctl(action: string) {
 
 async function loadBoot() {
   try {
+    stage.value = 'env'
     await settings.loadBoot()
+    stage.value = 'done'
+    // 预热在后台跑：不等它，对话页立即可用，设置页进面板时已有缓存
+    void settings.warmup()
   } catch {
     // 拿不到引导数据不该让整个界面卡住：聊天页会各自处理空态
   }
@@ -92,6 +102,13 @@ onMounted(() => {
   })
 })
 
+// 加载页阶段读数：三行依次点亮，把「正在启动」拆成可感知的进度
+const bootSteps = computed(() => [
+  { key: 'handshake', label: '连接本地服务', done: stage.value !== 'handshake' },
+  { key: 'bootstrap', label: '读取引导数据', done: stage.value === 'env' || stage.value === 'done' },
+  { key: 'env', label: '检查助手环境', done: stage.value === 'done' },
+])
+
 // 退不掉的进程是最糟糕的失败：给一个一定走真正退出流程的入口。
 function quitApp() {
   try {
@@ -103,7 +120,8 @@ function quitApp() {
 </script>
 
 <template>
-  <div class="win wb-ui">
+  <el-config-provider :locale="epLocale">
+    <div class="win wb-ui">
     <header class="titlebar" style="--wails-draggable: drag">
       <div class="tb-mark"><span class="logo-mini">WB</span></div>
       <span class="tb-name">WorkBaby</span>
@@ -156,12 +174,29 @@ function quitApp() {
         <p class="tip">详细原因在 <span class="mono">%APPDATA%\WorkBaby\logs\app.log</span></p>
       </div>
       <div v-else class="boot">
-        <div class="boot-mark">WB</div>
-        <p>正在启动…</p>
+        <div class="boot-aura" aria-hidden="true">
+          <span class="aura a1" /><span class="aura a2" />
+        </div>
+        <div class="boot-mark"><span>WB</span></div>
+        <div class="boot-steps">
+          <div
+            v-for="s in bootSteps"
+            :key="s.key"
+            class="boot-step"
+            :class="{ 'is-done': s.done, 'is-live': !s.done }"
+          >
+            <span class="bs-dot" aria-hidden="true">
+              <AppIcon v-if="s.done" name="check" size="ic-2xs" />
+            </span>
+            {{ s.label }}
+          </div>
+        </div>
+        <p class="boot-tip">首次启动需要准备运行环境，稍等片刻</p>
       </div>
     </main>
     <ToastHost />
   </div>
+  </el-config-provider>
 </template>
 
 <style scoped>
@@ -193,8 +228,47 @@ function quitApp() {
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: var(--wb-sp-3);
+  gap: var(--wb-sp-4);
   color: var(--wb-muted);
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+}
+/* 双光晕：与欢迎页同一手法（纯装饰、低透明度、不参与交互） */
+.boot-aura {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.aura {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(var(--wb-aura-blur));
+  opacity: 0.55;
+  animation: aura-float 5s ease-in-out infinite alternate;
+}
+.aura.a1 {
+  width: calc(420px * var(--wb-vw-scale));
+  height: calc(420px * var(--wb-vw-scale));
+  left: 12%;
+  top: 18%;
+  background: var(--wb-glow-1);
+}
+.aura.a2 {
+  width: calc(340px * var(--wb-vw-scale));
+  height: calc(340px * var(--wb-vw-scale));
+  right: 12%;
+  bottom: 16%;
+  background: var(--wb-glow-2);
+  animation-delay: -2.5s;
+}
+@keyframes aura-float {
+  from {
+    transform: translateY(-12px) scale(0.97);
+  }
+  to {
+    transform: translateY(12px) scale(1.03);
+  }
 }
 .boot-mark {
   width: var(--wb-tile-lg);
@@ -207,10 +281,79 @@ function quitApp() {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: var(--wb-fs-xl);
+  position: relative;
+  z-index: 1;
+  animation: boot-breathe 2.2s var(--wb-ease) infinite;
+  box-shadow: var(--wb-shadow-2);
 }
-.boot-mark.bad {
-  background: var(--wb-danger);
-  color: var(--wb-surface);
+@keyframes boot-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--wb-live-soft);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 calc(10px * var(--wb-vw-scale)) var(--wb-live-soft);
+  }
+}
+.boot-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  position: relative;
+  z-index: 1;
+  margin-top: var(--wb-sp-2);
+}
+.boot-step {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
+  transition: color var(--wb-dur) var(--wb-ease);
+}
+.boot-step.is-done {
+  color: var(--wb-ink-2);
+}
+.boot-step.is-live .bs-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--wb-live);
+  animation: bs-ping 1.4s var(--wb-ease) infinite;
+}
+@keyframes bs-ping {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+.bs-dot {
+  position: relative;
+  width: calc(16px * var(--wb-vw-scale));
+  height: calc(16px * var(--wb-vw-scale));
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--wb-tint);
+  color: var(--wb-success);
+  flex: none;
+  transition: background var(--wb-dur) var(--wb-ease);
+}
+.boot-step.is-done .bs-dot {
+  background: var(--wb-success-soft);
+}
+.boot-tip {
+  font-size: var(--wb-fs-hint);
+  color: var(--wb-muted);
+  position: relative;
+  z-index: 1;
 }
 .boot h2 {
   font-family: var(--font-display);

@@ -8,6 +8,8 @@ import { useToastStore } from '../../stores/toast'
 import type { SkillVO } from '../../types/api'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
+import CodeEditor from '../common/CodeEditor.vue'
+import PnHead from '../common/PnHead.vue'
 
 const store = useSettingsStore()
 const toast = useToastStore()
@@ -105,24 +107,21 @@ function TOAST_IMPORT(r: { imported: number; skipped: string[] }) {
   if (!r.imported && !r.skipped?.length) toast.info('没有找到可导入的技能')
 }
 
-onMounted(() => void reload())
+onMounted(() => {
+  // 预热缓存先上屏，后台静默刷新对齐最新；没有缓存才等网络
+  if (store.warmed) void reload()
+  else void reload()
+})
 </script>
 
 <template>
   <div class="panel">
-    <header class="pn-head">
-      <div>
-        <h3>技能</h3>
-        <p class="pn-sub">这里是 PI 真正会加载的技能目录；停用只是把它移出扫描范围，文件还在。</p>
-      </div>
-      <div class="acts">
-        <input v-model="filter" class="input search" placeholder="搜索技能" />
-        <button class="btn" type="button" :class="{ 'is-loading': busy === 'import' }" :disabled="!!busy" @click="importFolder">
-          导入
-        </button>
-        <button class="btn" type="button" :disabled="!!busy" @click="reload">刷新</button>
-      </div>
-    </header>
+    <PnHead icon="sparkles" title="技能">
+      <template #sub>这里是 PI 真正会加载的技能目录；停用只是把它移出扫描范围，文件还在。</template>
+      <el-input v-model="filter" class="search" placeholder="搜索技能" clearable />
+      <el-button :loading="busy === 'import'" :disabled="!!busy" @click="importFolder">导入</el-button>
+      <el-button :disabled="!!busy" @click="reload">刷新</el-button>
+    </PnHead>
 
     <div v-if="!store.skills.length" class="empty card">
       <span class="em-ic"><AppIcon name="book" /></span>
@@ -141,30 +140,33 @@ onMounted(() => void reload())
       <div class="rows">
         <article v-for="s in g.items" :key="s.id" class="row card" :class="{ 'is-off': !s.enabled }">
           <button class="r-main" type="button" @click="open(s)">
-            <b>{{ s.name }}</b>
+            <span class="r-top">
+              <b>{{ s.name }}</b>
+              <el-tag :type="s.enabled ? 'success' : 'info'" size="small" effect="plain">
+                {{ s.enabled ? '启用' : '停用' }}
+              </el-tag>
+            </span>
             <span class="r-desc">{{ s.description || '（没有说明）' }}</span>
           </button>
-          <span class="tag" :class="{ ok: s.enabled }">{{ s.enabled ? '启用' : '停用' }}</span>
-          <button
-            v-if="s.source !== 'package'"
-            class="btn btn-sm"
-            type="button"
-            :class="{ 'is-loading': busy === s.id }"
-            :disabled="!!busy"
-            @click="toggle(s)"
-          >
-            {{ s.enabled ? '停用' : '启用' }}
-          </button>
-          <button
-            v-if="s.source === 'global'"
-            class="btn btn-sm danger"
-            type="button"
-            :class="{ 'is-loading': busy === `del:${s.id}` }"
-            :disabled="!!busy"
-            @click="remove(s)"
-          >
-            删除
-          </button>
+          <div class="r-acts">
+            <el-switch
+              v-if="s.source !== 'package'"
+              :model-value="s.enabled"
+              :loading="busy === s.id"
+              :disabled="!!busy"
+              @change="toggle(s)"
+            />
+            <el-popconfirm
+              v-if="s.source === 'global'"
+              title="删除后这个技能就没了，确定？"
+              width="240"
+              @confirm="remove(s)"
+            >
+              <template #reference>
+                <el-button size="small" type="danger" plain :loading="busy === `del:${s.id}`" :disabled="!!busy">删除</el-button>
+              </template>
+            </el-popconfirm>
+          </div>
         </article>
       </div>
     </section>
@@ -180,7 +182,9 @@ onMounted(() => void reload())
               <AppIcon name="close" size="ic-sm" />
             </button>
           </header>
-          <pre class="dr-body">{{ content || '读取中…' }}</pre>
+          <div class="dr-body">
+            <CodeEditor :model-value="content" lang="markdown" readonly :min-height="9999" />
+          </div>
         </div>
       </div>
     </Transition>
@@ -192,27 +196,6 @@ onMounted(() => void reload())
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-4);
-}
-.pn-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--wb-sp-3);
-  flex-wrap: wrap;
-}
-.pn-head h3 {
-  font-size: var(--wb-fs-lg);
-  color: var(--wb-ink);
-}
-.pn-sub {
-  margin-top: 4px;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.acts {
-  display: flex;
-  gap: var(--wb-sp-2);
-  align-items: center;
 }
 .search {
   width: 180px;
@@ -238,15 +221,33 @@ onMounted(() => void reload())
   flex: 1;
 }
 .rows {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  /* 响应式卡网：宽屏多列铺满主区，窄窗自动回单列 */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
+  gap: var(--wb-sp-3);
 }
 .row {
   display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
+  flex-direction: column;
+  gap: var(--wb-sp-2);
   padding: var(--wb-sp-3) var(--wb-sp-4);
+}
+.r-top {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+}
+.r-top b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.r-acts {
+  display: flex;
+  gap: var(--wb-sp-2);
+  margin-top: auto;
 }
 .row.is-off {
   opacity: 0.62;
@@ -330,12 +331,8 @@ onMounted(() => void reload())
   flex: 1;
   overflow: auto;
   margin: 0;
-  padding: var(--wb-sp-4);
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
-  line-height: 1.7;
-  color: var(--wb-ink-2);
-  white-space: pre-wrap;
-  word-break: break-word;
+  padding: var(--wb-sp-3);
+  display: flex;
+  flex-direction: column;
 }
 </style>

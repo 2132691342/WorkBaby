@@ -1,6 +1,7 @@
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import UnoCSS from 'unocss/vite'
 
 /**
  * Vite 配置：Wails v2 嵌入式前端。
@@ -9,7 +10,7 @@ import vue from '@vitejs/plugin-vue'
  * <p>开发调试界面可用 `npm run dev`；调通后端请用 `wails dev`（会注入 app:ready 端口）。
  */
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), UnoCSS()],
   resolve: {
     alias: [
       { find: '@/wailsjs', replacement: fileURLToPath(new URL('./wailsjs', import.meta.url)) },
@@ -32,6 +33,15 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined
           if (id.includes('highlight.js') || id.includes('dompurify') || id.includes('marked')) {
             return 'vendor-markdown'
+          }
+          if (id.includes('echarts') || id.includes('zrender')) {
+            return 'vendor-echarts'
+          }
+          if (id.includes('element-plus') || id.includes('@element-plus') || id.includes('@vueuse')) {
+            return 'vendor-ep'
+          }
+          if (id.includes('codemirror')) {
+            return 'vendor-cm'
           }
           if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router') || id.includes('axios')) {
             return 'vendor'

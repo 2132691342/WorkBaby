@@ -25,6 +25,11 @@ async function openSession(id: string) {
   }
 }
 
+// 分页展示：默认只渲染最新 10 条，「更多」每次追加 20 条。
+// 展开状态在面板会话期内保持，不随重渲染丢得只剩 10 条。
+const PAGE = 10
+const STEP = 20
+const shown = ref(PAGE)
 const groups = computed(() => {
   const today: typeof session.list = []
   const week: typeof session.list = []
@@ -32,7 +37,8 @@ const groups = computed(() => {
   const dayStart = new Date()
   dayStart.setHours(0, 0, 0, 0)
   const weekAgo = dayStart.getTime() - 6 * 86400_000
-  for (const s of session.list) {
+  // 列表本就按更新时间倒序：先取前 N 条再分组，分组标题如实反映时间分布
+  for (const s of session.list.slice(0, shown.value)) {
     if (s.updated_at >= dayStart.getTime()) today.push(s)
     else if (s.updated_at >= weekAgo) week.push(s)
     else earlier.push(s)
@@ -43,6 +49,10 @@ const groups = computed(() => {
   if (earlier.length) out.push({ name: '更早', items: earlier })
   return out
 })
+const hiddenCount = computed(() => Math.max(0, session.list.length - shown.value))
+function showMore() {
+  shown.value += STEP
+}
 
 function startEdit(id: string, title: string) {
   editingId.value = id
@@ -136,6 +146,7 @@ async function doRemove(s: { id: string; title: string }) {
             <input v-model="draft" class="input rename" autofocus @keydown.enter="commitEdit" @blur="commitEdit" />
           </template>
           <template v-else>
+            <span class="si-run" :class="{ on: s.running }" :title="s.running ? '这个会话正在跑' : ''" aria-hidden="true" />
             <span class="si-name">{{ s.title || '未命名对话' }}</span>
             <span class="si-time">{{ fmtRel(s.updated_at) }}</span>
             <span class="si-act">
@@ -176,6 +187,10 @@ async function doRemove(s: { id: string; title: string }) {
         </button>
       </TransitionGroup>
     </div>
+    <!-- 还有更多：每次追加一页，直到全部展示 -->
+    <button v-if="hiddenCount > 0" class="more" type="button" @click="showMore">
+      更多（还有 {{ hiddenCount }} 条）
+    </button>
     <!-- 一条会话都没有（数据被清空 / 首次进入还没自动建会话）：给一个能往下走的出口 -->
     <div v-if="!session.list.length" class="sess-empty">
       <span class="se-ic"><AppIcon name="chat" size="ic-lg" /></span>
@@ -187,6 +202,34 @@ async function doRemove(s: { id: string; title: string }) {
 </template>
 
 <style scoped>
+/* 「更多」按钮：窄条铺满，淡底不抢会话行；五态与 .btn 同纪律 */
+.more {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--wb-sp-2);
+  height: var(--wb-ctl-h);
+  border-radius: var(--wb-radius);
+  border: 1px dashed var(--wb-border);
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-xs);
+  transition:
+    color var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease),
+    background var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.more:hover {
+  color: var(--wb-primary);
+  border-color: var(--wb-primary-line);
+  background: var(--wb-primary-soft);
+  transform: scale(1.02);
+}
+.more:active {
+  transform: scale(0.97);
+}
+
 /* 会话行增删：淡出 + 缩掉，与全站列表增删同一语言。
    会话行是满宽的，悬停不放大（会溢出侧栏被裁），按下缩小 0.97 由基元负责。 */
 .slist-enter-active,

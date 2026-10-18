@@ -25,7 +25,7 @@
 |---|---|---|
 | 命令响应 | `type == "response"` | 按 `id` 唤醒等待者 |
 | 会话事件 | 已知事件名 | 进翻译层 |
-| 扩展 UI | `type == "extension_ui_request"` | `confirm`/`select`/`input`/`editor` 转 `chat:ask`；其余忽略 |
+| 扩展 UI | `type == "extension_ui_request"` | `confirm`/`select`/`input`/`editor` 转 `chat:ask`；`notify`/`setStatus`/`setWidget`/`setTitle` 转只读反馈事件；其余忽略 |
 | 未知 | 其余 | debug 日志后丢弃 |
 
 ## 事件翻译
@@ -42,6 +42,10 @@
 | `auto_retry_start` | `chat:retry` |
 | `agent_settled` | `chat:done` |
 | `extension_ui_request`（confirm/select/input/editor） | `chat:ask` |
+| `extension_ui_request`（notify） | `chat:notify`（info/warning/error，无需应答） |
+| `extension_ui_request`（setStatus） | `chat:status`（状态条，空 text 即清除） |
+| `extension_ui_request`（setWidget） | `chat:widget`（文本行小部件，空行即清除） |
+| `extension_ui_request`（setTitle） | `chat:title` |
 
 ## 会话文件索引
 

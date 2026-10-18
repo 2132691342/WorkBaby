@@ -19,6 +19,8 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 	{
 		v1.GET("/health", h.Health)
 		v1.GET("/bootstrap", h.Bootstrap)
+		// 首屏预热：设置页各面板的清单一次拉齐（只读磁盘，不拉起 PI 进程）。
+		v1.GET("/warmup", h.Warmup)
 
 		sessions := v1.Group("/sessions")
 		{

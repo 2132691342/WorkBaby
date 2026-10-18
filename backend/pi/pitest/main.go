@@ -231,6 +231,18 @@ func cwd() string {
 func goScript(scenario, message string) {
 	emit(map[string]any{"type": "agent_start"})
 	emit(map[string]any{"type": "turn_start"})
+	if scenario == "notify" {
+		// fire-and-forget 四种：通知 / 状态条 / 小部件 / 标题。无需应答，客户端只能展示或忽略。
+		emit(map[string]any{"type": "extension_ui_request", "id": "n1", "method": "notify",
+			"message": "命令被用户拒绝", "notifyType": "warning"})
+		emit(map[string]any{"type": "extension_ui_request", "id": "n2", "method": "setStatus",
+			"statusKey": "my-ext", "statusText": "Turn 3 running..."})
+		emit(map[string]any{"type": "extension_ui_request", "id": "n3", "method": "setWidget",
+			"widgetKey": "my-ext", "widgetLines": []any{"--- My Widget ---", "Line 1"},
+			"widgetPlacement": "aboveEditor"})
+		emit(map[string]any{"type": "extension_ui_request", "id": "n4", "method": "setTitle",
+			"title": "pi - demo"})
+	}
 	emit(map[string]any{"type": "message_start", "message": map[string]any{
 		"role": "assistant", "content": []any{}, "stopReason": "pending", "timestamp": 1,
 	}})

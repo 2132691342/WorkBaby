@@ -2,20 +2,22 @@
 // 全局导航轨道：对话 / 仪表盘 / 帮助 / 设置，底部主题切换。全站唯一主导航。
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useTheme } from '../../composables/useTheme'
 import AppIcon from './AppIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
 const { theme, setTheme } = useTheme()
+const { t } = useI18n()
 
-const items = [
-  { key: 'chat', to: '/', icon: 'chat', label: '对话' },
-  { key: 'workspace', to: '/workspace', icon: 'git-branch', label: '工作区' },
-  { key: 'dashboard', to: '/dashboard', icon: 'chart', label: '仪表盘' },
-  { key: 'help', to: '/help', icon: 'book', label: '帮助' },
-  { key: 'settings', to: '/settings', icon: 'settings', label: '设置' },
-]
+const items = computed(() => [
+  { key: 'chat', to: '/', icon: 'chat', label: t('nav.chat') },
+  { key: 'workspace', to: '/workspace', icon: 'git-branch', label: t('nav.workspace') },
+  { key: 'dashboard', to: '/dashboard', icon: 'chart', label: t('nav.dashboard') },
+  { key: 'help', to: '/help', icon: 'book', label: t('nav.help') },
+  { key: 'settings', to: '/settings', icon: 'settings', label: t('nav.settings') },
+])
 
 const active = computed(() => {
   const p = route.path

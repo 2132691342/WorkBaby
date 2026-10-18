@@ -3,12 +3,15 @@
 // 启停写的是 PI settings.json 的 defaultTools，不自己实现任何工具。
 import { computed, onMounted, ref } from 'vue'
 import * as api from '../../api'
+import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { ToolListRESP, ToolVO } from '../../types/api'
 import { fmtRel } from '../../utils/time'
 import AppIcon from '../common/AppIcon.vue'
+import PnHead from '../common/PnHead.vue'
 
 const toast = useToastStore()
+const settingsStore = useSettingsStore()
 const data = ref<ToolListRESP | null>(null)
 const busy = ref('')
 const filter = ref('')
@@ -31,6 +34,7 @@ const groups = computed(() => {
 async function reload() {
   try {
     data.value = await api.tools.list()
+    settingsStore.tools = data.value
   } catch (e) {
     toast.bad(`读取工具失败：${(e as Error)?.message || '请重试'}`)
   }
@@ -49,28 +53,29 @@ async function toggle(t: ToolVO) {
   }
 }
 
-onMounted(() => void reload())
+onMounted(() => {
+  // 预热缓存先上屏：有就直接渲染，后台再刷一次对齐最新；没有才等网络
+  if (settingsStore.tools) {
+    data.value = settingsStore.tools
+    void reload()
+  } else void reload()
+})
 </script>
 
 <template>
   <div class="panel">
-    <header class="pn-head">
-      <div>
-        <h3>工具</h3>
-        <p class="pn-sub">
-          <template v-if="data?.snapshot === 'session'">
-            来自最近一次会话的工具声明（{{ fmtRel(data.snapshot_at) }}）：这就是模型此刻真能调到的工具。
-          </template>
-          <template v-else>
-            还没有会话快照，这里按 PI 的内置工具表推断；聊过一轮之后会显示真实声明。
-          </template>
-        </p>
-      </div>
-      <div class="acts">
-        <input v-model="filter" class="input search" placeholder="搜索工具" />
-        <button class="btn" type="button" @click="reload">刷新</button>
-      </div>
-    </header>
+    <PnHead icon="wrench" title="工具">
+      <template #sub>
+        <template v-if="data?.snapshot === 'session'">
+          来自最近一次会话的工具声明（{{ fmtRel(data.snapshot_at) }}）：这就是模型此刻真能调到的工具。
+        </template>
+        <template v-else>
+          还没有会话快照，这里按 PI 的内置工具表推断；聊过一轮之后会显示真实声明。
+        </template>
+      </template>
+      <el-input v-model="filter" class="search" placeholder="搜索工具" clearable />
+      <el-button :disabled="!!busy" @click="reload">刷新</el-button>
+    </PnHead>
 
     <section v-for="g in groups" :key="g.key" class="group">
       <div class="g-head">
@@ -80,22 +85,22 @@ onMounted(() => void reload())
       </div>
       <div class="rows">
         <article v-for="t in g.items" :key="t.name" class="row card" :class="{ 'is-off': !t.enabled }">
-          <span class="rk"><AppIcon name="wrench" size="ic-sm" /></span>
-          <div class="rr">
+          <div class="r-top">
+            <span class="rk"><AppIcon name="wrench" size="ic-sm" /></span>
             <b class="mono">{{ t.name }}</b>
-            <span class="r-desc">{{ t.description }}</span>
           </div>
-          <span v-if="g.key === 'mcp'" class="muted sm">{{ t.server }}</span>
-          <button
-            v-else
-            class="btn btn-sm"
-            type="button"
-            :class="{ 'is-loading': busy === t.name }"
-            :disabled="!!busy"
-            @click="toggle(t)"
-          >
-            {{ t.enabled ? '停用' : '启用' }}
-          </button>
+          <span class="r-desc">{{ t.description }}</span>
+          <div class="r-acts">
+            <span v-if="g.key === 'mcp'" class="muted sm">{{ t.server }}</span>
+            <span class="sp" />
+            <el-switch
+              v-if="g.key !== 'mcp'"
+              :model-value="t.enabled"
+              :loading="busy === t.name"
+              :disabled="!!busy"
+              @change="toggle(t)"
+            />
+          </div>
         </article>
       </div>
     </section>
@@ -111,28 +116,6 @@ onMounted(() => void reload())
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-4);
-}
-.pn-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--wb-sp-3);
-  flex-wrap: wrap;
-}
-.pn-head h3 {
-  font-size: var(--wb-fs-lg);
-  color: var(--wb-ink);
-}
-.pn-sub {
-  margin-top: 4px;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-  max-width: 640px;
-  line-height: 1.7;
-}
-.acts {
-  display: flex;
-  gap: var(--wb-sp-2);
 }
 .search {
   width: 180px;
@@ -158,18 +141,31 @@ onMounted(() => void reload())
   flex: 1;
 }
 .rows {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: var(--wb-sp-3);
 }
 .row {
   display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
-  padding: 9px var(--wb-sp-4);
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-3) var(--wb-sp-4);
 }
 .row.is-off {
   opacity: 0.6;
+}
+.r-top {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  min-width: 0;
+}
+.r-top b {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .rk {
   width: var(--wb-tile-sm);
@@ -181,23 +177,20 @@ onMounted(() => void reload())
   color: var(--wb-primary);
   flex: none;
 }
-.rr {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.rr b {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-}
 .r-desc {
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.r-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  margin-top: auto;
 }
 .sm {
   font-size: var(--wb-fs-2xs);

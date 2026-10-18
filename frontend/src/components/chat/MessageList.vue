@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { useChatStore, type ToolRun } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
 import { renderMarkdown, renderMarkdownStream } from '../../utils/md'
-import { fmtInt } from '../../utils/num'
+import { fmtCount, fmtInt } from '../../utils/num'
 import { groupTurns } from '../../utils/turns'
 import AppIcon from '../common/AppIcon.vue'
 import AskCard from './AskCard.vue'
@@ -164,6 +164,17 @@ const toolArgsMap = computed(() => {
   return map
 })
 
+// 引擎扩展的状态条与小部件：Record → 有序条目，模板好渲染
+const statusEntries = computed(() => Object.entries(chat.engineStatus))
+const widgetEntries = computed(() => Object.entries(chat.engineWidgets))
+
+// 运行读数：秒数直接读 store 的计时器；耗时格式 m 分 s 秒
+const fmtElapsed = computed(() => {
+  const s = chat.elapsedSec
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m${s % 60}s`
+})
+
 // 一次「提问 → 回答」是一整块（思考 + 多个工具 + 几段正文）；分组逻辑在 utils/turns.ts。
 type TurnBlock = import('../../utils/turns').TurnBlock<unknown>
 
@@ -276,6 +287,17 @@ onMounted(async () => {
               <span class="dot" /><span class="dot" /><span class="dot" />
               <span class="typing-txt">正在组织回答</span>
             </div>
+            <!-- 运行读数：耗时随跑随长，token 走实时水位；空跑（无 thinking/runs/stream）不占位 -->
+            <div v-if="chat.running && (chat.streaming || chat.thinking || chat.runs.length)" class="run-meter">
+              <span class="rm-item">
+                <AppIcon name="clock" size="ic-2xs" />
+                {{ fmtElapsed }}
+              </span>
+              <span v-if="chat.contextUsed > 0" class="rm-item">
+                <AppIcon name="chart" size="ic-2xs" />
+                {{ fmtCount(chat.contextUsed) }} tok
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -283,6 +305,17 @@ onMounted(async () => {
       <!-- 引擎在问用户：问题来自 PI 进程，不挂在某一条消息上，统一排在流末尾 -->
       <div v-if="chat.asks.length" class="turn turn-appr">
         <AskCard v-for="a in chat.asks" :key="a.id" :ask="a" />
+      </div>
+
+      <!-- 引擎扩展的状态条与小部件：来自 setStatus / setWidget，排在提问卡之后 -->
+      <div v-if="statusEntries.length || widgetEntries.length" class="engine-fx">
+        <div v-for="[k, v] in statusEntries" :key="`s-${k}`" class="efx-row">
+          <span class="efx-dot" aria-hidden="true" />
+          <span class="efx-txt">{{ v }}</span>
+        </div>
+        <div v-for="[k, lines] in widgetEntries" :key="`w-${k}`" class="efx-widget">
+          <div v-for="(ln, i) in lines" :key="i" class="efx-line">{{ ln }}</div>
+        </div>
       </div>
 
       <!-- 重试提示条：重试期间用户唯一的主动选择是「别试了」，所以按钮必须在这一条上 -->
@@ -362,6 +395,68 @@ onMounted(async () => {
 }
 .avatar.is-live {
   box-shadow: 0 0 0 3px var(--wb-live-soft);
+}
+/* 引擎扩展的反馈区：状态条用活动色点，小部件用等宽凹陷块 */
+.engine-fx {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  padding-left: calc(var(--wb-avatar-size) + var(--wb-sp-3));
+}
+.efx-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-ink-2);
+}
+.efx-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-live);
+  animation: efx-breathe 1.6s var(--wb-ease) infinite;
+  flex: none;
+}
+@keyframes efx-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.efx-widget {
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-radius-sm);
+  background: var(--wb-raise);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.efx-line {
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 运行读数：耗时与实时 token，弱化展示不抢正文 */
+.run-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-3);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  font-variant-numeric: tabular-nums;
+  padding-left: var(--wb-sp-1);
+}
+.rm-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 /* 回到底部悬浮钮：零高不占版面；单点目标档 1.02 / 0.97 */
 .jump-row {

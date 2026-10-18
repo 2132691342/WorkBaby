@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { ModelREQ, ProviderVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
+import PnHead from '../common/PnHead.vue'
 
 const store = useSettingsStore()
 const toast = useToastStore()
@@ -194,21 +195,18 @@ onMounted(() => {
 
 <template>
   <div class="panel">
-    <header class="pn-head">
-      <div>
-        <h3>模型服务</h3>
-        <p class="pn-sub">
-          读写的就是 PI 的 <span class="mono">{{ path || 'models.json' }}</span>：这里加的，<span class="mono">pi</span> 命令也立刻能用。
-        </p>
-      </div>
-      <button class="btn btn-primary" type="button" @click="reset">新增服务</button>
-    </header>
+    <PnHead icon="cpu" title="模型服务">
+      <template #sub>
+        读写的就是 PI 的 <span class="mono">{{ path || 'models.json' }}</span>：这里加的，<span class="mono">pi</span> 命令也立刻能用。
+      </template>
+      <el-button type="primary" @click="reset">新增服务</el-button>
+    </PnHead>
 
     <div v-if="!providers.length" class="empty card">
       <span class="em-ic"><AppIcon name="cpu" /></span>
       <b>还没有任何服务商</b>
       <p>填一个 OpenAI 兼容的地址与密钥即可开始（大多数中转网关都属于这一类）。</p>
-      <button class="btn" type="button" @click="reset">新增服务</button>
+      <el-button @click="reset">新增服务</el-button>
     </div>
 
     <div class="cards">
@@ -232,10 +230,14 @@ onMounted(() => {
           <span v-if="p.models.length > 4" class="muted">+{{ p.models.length - 4 }}</span>
         </div>
         <div class="pc-acts">
-          <button class="btn btn-sm" type="button" :class="{ 'is-loading': busy === `test:${p.id}` }" :disabled="!!busy" @click="test(p)">测试</button>
-          <button class="btn btn-sm" type="button" :class="{ 'is-loading': busy === `def:${p.id}` }" :disabled="!!busy || p.is_default" @click="setDefault(p)">设默认</button>
-          <button class="btn btn-sm" type="button" :disabled="!!busy" @click="edit(p)">编辑</button>
-          <button class="btn btn-sm danger" type="button" :class="{ 'is-loading': busy === `del:${p.id}` }" :disabled="!!busy" @click="remove(p)">删除</button>
+          <el-button size="small" :loading="busy === `test:${p.id}`" :disabled="!!busy" @click="test(p)">测试</el-button>
+          <el-button size="small" type="primary" plain :loading="busy === `def:${p.id}`" :disabled="!!busy || p.is_default" @click="setDefault(p)">设默认</el-button>
+          <el-button size="small" :disabled="!!busy" @click="edit(p)">编辑</el-button>
+          <el-popconfirm title="删除后 pi 命令也用不了它，确定？" width="240" @confirm="remove(p)">
+            <template #reference>
+              <el-button size="small" type="danger" plain :loading="busy === `del:${p.id}`" :disabled="!!busy">删除</el-button>
+            </template>
+          </el-popconfirm>
         </div>
       </article>
     </div>
@@ -248,21 +250,21 @@ onMounted(() => {
       <div class="grid2">
         <label class="field">
           <span>显示名</span>
-          <input v-model="form.name" class="input" placeholder="例：本地网关 / DeepSeek" />
+          <el-input v-model="form.name" placeholder="例：本地网关 / DeepSeek" />
         </label>
         <label class="field">
           <span>接口类型</span>
-          <select v-model="form.api" class="input">
-            <option v-for="a in APIS" :key="a.key" :value="a.key">{{ a.label }}</option>
-          </select>
+          <el-select v-model="form.api">
+            <el-option v-for="a in APIS" :key="a.key" :label="a.label" :value="a.key" />
+          </el-select>
         </label>
         <label class="field">
           <span>接口地址</span>
-          <input v-model="form.base_url" class="input mono" placeholder="https://api.example.com/v1" />
+          <el-input v-model="form.base_url" class="mono" placeholder="https://api.example.com/v1" />
         </label>
         <label class="field">
           <span>API Key {{ editing ? '（留空表示不改）' : '' }}</span>
-          <input v-model="form.api_key" class="input mono" type="password" placeholder="sk-…" />
+          <el-input v-model="form.api_key" class="mono" type="password" show-password placeholder="sk-…" />
         </label>
       </div>
 
@@ -271,13 +273,13 @@ onMounted(() => {
           <b>模型</b>
           <span class="muted">{{ form.models.length }} 个</span>
           <span class="sp" />
-          <button class="btn btn-sm" type="button" :class="{ 'is-loading': busy === 'fetch' }" :disabled="!!busy" @click="fetchModels">
+          <el-button size="small" :loading="busy === 'fetch'" :disabled="!!busy" @click="fetchModels">
             从上游拉取
-          </button>
+          </el-button>
         </div>
         <div class="md-add">
-          <input v-model="manual" class="input" placeholder="手动填模型名，空格或逗号分隔" @keydown.enter.prevent="addManual" />
-          <button class="btn btn-sm" type="button" @click="addManual">加入</button>
+          <el-input v-model="manual" placeholder="手动填模型名，空格或逗号分隔" @keydown.enter.prevent="addManual" />
+          <el-button size="small" @click="addManual">加入</el-button>
         </div>
         <div v-if="fetched.length" class="md-pick">
           <button v-for="m in fetched" :key="m" class="chip sm" type="button" :disabled="form.models.some((x) => x.id === m)" @click="addModel(m)">
@@ -286,23 +288,23 @@ onMounted(() => {
         </div>
         <div v-if="form.models.length" class="md-list">
           <div v-for="(m, i) in form.models" :key="m.id" class="md-row">
-            <input v-model="m.id" class="input mono" placeholder="模型 id" />
-            <input v-model="m.name" class="input" placeholder="显示名" />
-            <input v-model.number="m.context_window" class="input num" type="number" placeholder="窗口" />
-            <input v-model.number="m.max_tokens" class="input num" type="number" placeholder="输出上限" />
-            <label class="ck"><input v-model="m.vision" type="checkbox" />识图</label>
-            <label class="ck"><input v-model="m.reasoning" type="checkbox" />思考</label>
-            <button class="lnk danger" type="button" @click="form.models.splice(i, 1)">移除</button>
+            <el-input v-model="m.id" class="mono" placeholder="模型 id" size="small" />
+            <el-input v-model="m.name" placeholder="显示名" size="small" />
+            <el-input-number v-model="m.context_window" placeholder="窗口" size="small" :min="0" :controls="false" class="num" />
+            <el-input-number v-model="m.max_tokens" placeholder="输出上限" size="small" :min="0" :controls="false" class="num" />
+            <el-checkbox v-model="m.vision" size="small">识图</el-checkbox>
+            <el-checkbox v-model="m.reasoning" size="small">思考</el-checkbox>
+            <el-button size="small" type="danger" link @click="form.models.splice(i, 1)">移除</el-button>
           </div>
         </div>
         <p v-else class="muted">还没加模型：模型清单决定界面上的模型选择器里有什么。</p>
       </div>
 
       <div class="ed-acts">
-        <button class="btn btn-primary" type="button" :class="{ 'is-loading': busy === 'save' }" :disabled="!!busy" @click="save">
+        <el-button type="primary" :loading="busy === 'save'" :disabled="!!busy" @click="save">
           保存
-        </button>
-        <button v-if="editing" class="btn" type="button" @click="reset">取消</button>
+        </el-button>
+        <el-button v-if="editing" @click="reset">取消</el-button>
         <span class="sp" />
         <span class="muted">保存后重启空闲的 PI 进程，新配置立刻生效</span>
       </div>
@@ -316,24 +318,9 @@ onMounted(() => {
   flex-direction: column;
   gap: var(--wb-sp-4);
 }
-.pn-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--wb-sp-3);
-}
-.pn-head h3 {
-  font-size: var(--wb-fs-lg);
-  color: var(--wb-ink);
-}
-.pn-sub {
-  margin-top: 4px;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
   gap: var(--wb-sp-3);
 }
 .pcard {
@@ -417,8 +404,14 @@ onMounted(() => {
 }
 .grid2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--wb-sp-3);
+}
+/* 窄窗时表单双列会挤：单列兜底 */
+@media (max-width: 720px) {
+  .grid2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .field {
   display: flex;
@@ -457,20 +450,12 @@ onMounted(() => {
 }
 .md-row {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 90px 90px auto auto auto;
+  grid-template-columns: 1.4fr 1fr 100px 100px auto auto auto;
   gap: 6px;
   align-items: center;
 }
-.md-row .input {
-  height: var(--wb-ctl-h-sm);
-  font-size: var(--wb-fs-xs);
-}
-.ck {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-ink-2);
+.md-row .num {
+  width: 100%;
 }
 .ed-acts {
   display: flex;

@@ -505,6 +505,11 @@ export interface SetupData { phase: string; progress: number; message: string }
 export interface GapData { reason: string }
 export interface StoppedData { reason: string }
 
+export interface NotifyData { level: 'info' | 'warning' | 'error'; message: string }
+export interface StatusData { key: string; text: string }
+export interface WidgetData { key: string; lines: string[]; placement: string }
+export interface TitleData { title: string }
+
 export interface Envelope<T = unknown> {
   seq: number
   event: string
@@ -537,3 +542,7 @@ export type ServerEvent =
   | (Envelope<SetupData> & { event: 'chat:setup' })
   | (Envelope<AskData> & { event: 'chat:ask' })
   | (Envelope<AskClosedData> & { event: 'chat:ask_closed' })
+  | (Envelope<NotifyData> & { event: 'chat:notify' })
+  | (Envelope<StatusData> & { event: 'chat:status' })
+  | (Envelope<WidgetData> & { event: 'chat:widget' })
+  | (Envelope<TitleData> & { event: 'chat:title' })

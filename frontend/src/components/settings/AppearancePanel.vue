@@ -16,6 +16,7 @@ import { useTheme } from '../../composables/useTheme'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
+import { LOCALES, setLocale, type Locale } from '../../i18n'
 import AppIcon from '../common/AppIcon.vue'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 
@@ -55,6 +56,18 @@ async function toggleThinking() {
     /* setValue 已提示并回滚 */
   } finally {
     thinkingBusy.value = false
+  }
+}
+
+// 语言切换：立即生效（i18n 是响应式的），落库供下次启动恢复。
+const currentLocale = computed<Locale>(() => (store.values['language'] === 'en' ? 'en' : 'zh-CN'))
+async function setLanguage(locale: Locale) {
+  if (locale === currentLocale.value) return
+  try {
+    await store.setValue('language', locale)
+    setLocale(locale)
+  } catch {
+    /* setValue 已提示 */
   }
 }
 
@@ -207,60 +220,38 @@ onMounted(async () => {
         </div>
         <div class="bg-acts">
           <div class="bg-btns">
-            <button
-              class="btn btn-sm"
-              type="button"
-              :class="{ 'is-loading': bgBusy }"
-              :disabled="bgBusy"
-              @click="pickBackground"
-            >
+            <el-button size="small" :loading="bgBusy" :disabled="bgBusy" @click="pickBackground">
               <AppIcon v-if="!bgBusy" name="image" size="ic-xs" />
               {{ hasBg ? '换一张' : '选一张' }}
-            </button>
-            <button
-              v-if="hasBg"
-              class="btn btn-sm btn-ghost"
-              type="button"
-              :disabled="bgBusy"
-              @click="saveBg('', bgStrength, bgBlur)"
-            >
+            </el-button>
+            <el-button v-if="hasBg" size="small" :disabled="bgBusy" @click="saveBg('', bgStrength, bgBlur)">
               清除
-            </button>
+            </el-button>
           </div>
           <div class="bg-opts">
             <div class="bg-opt">
               <span class="bg-lab">浓度</span>
-              <div class="seg" role="group" aria-label="背景浓度">
-                <button
-                  v-for="s in BG_STRENGTHS"
-                  :key="s.key"
-                  type="button"
-                  :class="{ on: Math.abs(bgStrength - s.value) < 0.01 }"
-                  :disabled="!hasBg || bgBusy"
-                  @click="setStrength(s.value)"
-                >
-                  {{ s.name }}
-                </button>
-              </div>
+              <el-radio-group :model-value="bgStrength" size="small" :disabled="!hasBg || bgBusy" @update:model-value="(v: number) => setStrength(Number(v))">
+                <el-radio-button v-for="s in BG_STRENGTHS" :key="s.key" :value="s.value">{{ s.name }}</el-radio-button>
+              </el-radio-group>
             </div>
             <div class="bg-opt">
               <span class="bg-lab">模糊</span>
-              <div class="seg" role="group" aria-label="背景模糊">
-                <button
-                  v-for="b in BG_BLURS"
-                  :key="b.key"
-                  type="button"
-                  :class="{ on: Math.abs(bgBlur - b.value) < 0.01 }"
-                  :disabled="!hasBg || bgBusy"
-                  @click="setBlur(b.value)"
-                >
-                  {{ b.name }}
-                </button>
-              </div>
+              <el-radio-group :model-value="bgBlur" size="small" :disabled="!hasBg || bgBusy" @update:model-value="(v: number) => setBlur(Number(v))">
+                <el-radio-button v-for="b in BG_BLURS" :key="b.key" :value="b.value">{{ b.name }}</el-radio-button>
+              </el-radio-group>
             </div>
           </div>
         </div>
       </div>
+    </div>
+
+    <div class="card p-sm">
+      <h3>语言 / Language</h3>
+      <p class="hint">切换界面语言，立即生效。</p>
+      <el-radio-group :model-value="currentLocale" @update:model-value="(v: string | number | boolean | undefined) => setLanguage(v as Locale)">
+        <el-radio-button v-for="l in LOCALES" :key="l.key" :value="l.key">{{ l.name }}</el-radio-button>
+      </el-radio-group>
     </div>
 
     <div class="card p-sm">
@@ -271,17 +262,11 @@ onMounted(async () => {
           <b>显示思考过程</b>
           <span>模型推理时展示思考内容，关闭后只显示最终答复</span>
         </span>
-        <button
-          class="switch"
-          type="button"
-          role="switch"
-          :aria-checked="store.values['show_thinking'] !== 'false'"
-          :class="{
-            'is-on': store.values['show_thinking'] !== 'false',
-            'is-loading': thinkingBusy,
-          }"
+        <el-switch
+          :model-value="store.values['show_thinking'] !== 'false'"
+          :loading="thinkingBusy"
           :disabled="thinkingBusy"
-          @click="toggleThinking"
+          @change="toggleThinking"
         />
       </label>
     </div>

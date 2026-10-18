@@ -2,6 +2,7 @@
 // 「保存设置」与「启动时重新应用」发生在两个地方，放组件里没法被第二处复用。
 import { ref, watch } from 'vue'
 import { getBaseURLRef } from '../api/http'
+import { setLocale } from '../i18n'
 import { useSettingsStore } from '../stores/settings'
 import { theme as themeRef } from './useTheme'
 
@@ -58,6 +59,9 @@ export function syncFromSettings() {
   const s = useSettingsStore()
   currentFont.value = s.values['font_family'] || 'system'
   currentSize.value = s.values['font_size'] || 'md'
+  // 语言：设置表驱动 i18n 与 Element Plus 内置文案
+  const lang = s.values['language'] === 'en' ? 'en' : 'zh-CN'
+  setLocale(lang)
   applyAppearance()
   bgImage.value = s.values['bg_image'] || ''
   bgStrength.value = clampNum(s.values['bg_opacity'], 0.5, 0, 0.9)

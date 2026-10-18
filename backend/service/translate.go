@@ -162,11 +162,39 @@ func (c *ChatService) onEvent(workspace, sessionID string, st *runState, ev pi.E
 		}
 
 	case pi.KindExtensionUI:
-		// 只有需要用户回答的方法才进问答桥；fire-and-forget 方法一律忽略。
+		// 需要用户回答的方法进问答桥；fire-and-forget 方法转成只读的界面反馈。
 		switch ev.Method {
 		case "confirm", "select", "input", "editor":
 			c.openAsk(workspace, sessionID, ev)
+		case "notify":
+			c.emit(sessionID, domain.EventChatNotify, domain.NotifyData{
+				Level: notifyLevelOf(ev.NotifyType), Message: ev.Body,
+			})
+		case "setStatus":
+			c.emit(sessionID, domain.EventChatStatus, domain.StatusData{
+				Key: ev.StatusKey, Text: ev.StatusText,
+			})
+		case "setWidget":
+			lines := []string{}
+			if ev.WidgetLines != nil {
+				lines = ev.WidgetLines
+			}
+			c.emit(sessionID, domain.EventChatWidget, domain.WidgetData{
+				Key: ev.ID, Lines: lines, Placement: ev.WidgetPlacement,
+			})
+		case "setTitle":
+			c.emit(sessionID, domain.EventChatTitle, domain.TitleData{Title: ev.Title})
 		}
+	}
+}
+
+// notifyLevelOf 把 PI 的 notify 级别归一到前端取值；未知级别按 info。
+func notifyLevelOf(t string) string {
+	switch t {
+	case "warning", "error":
+		return t
+	default:
+		return "info"
 	}
 }
 

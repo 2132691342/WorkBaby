@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"strconv"
+	"sync"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pi"
@@ -61,6 +62,47 @@ func (h *Handler) Bootstrap(c *gin.Context) {
 		Workspace:       h.workspace(),
 		PiEnv:           h.buildPiEnv(),
 		Settings:        settings,
+	})
+}
+
+// Warmup 首屏预热：设置页各面板的清单一次拉齐。
+// 只读磁盘与配置，不拉起 PI 进程——MCP 在线状态与工具快照里有没有真实清单，
+// 都等对话开始后 PI 自己补；面板上如实标注数据来源。
+func (h *Handler) Warmup(c *gin.Context) {
+	var (
+		skills    []domain.SkillVO
+		providers *domain.ProviderListRESP
+		tools     *domain.ToolListRESP
+		exts      *domain.ExtensionListRESP
+		mcp       *domain.MCPListRESP
+		wg        sync.WaitGroup
+	)
+	wg.Add(5)
+	go func() { defer wg.Done(); skills = h.Svc.Skills.List() }()
+	go func() { defer wg.Done(); providers, _ = h.Svc.Providers.List() }()
+	go func() { defer wg.Done(); tools = h.Svc.Tools.Catalog() }()
+	go func() { defer wg.Done(); exts, _ = h.Svc.Extensions.List() }()
+	go func() {
+		defer wg.Done()
+		m, err := h.Svc.MCP.List(h.workspace())
+		if err == nil {
+			mcp = m
+		}
+	}()
+	wg.Wait()
+
+	// 某一路失败时单独补一次：这些都只是读目录与文件，失败多半是并发窗口。
+	if providers == nil {
+		providers, _ = h.Svc.Providers.List()
+	}
+	if tools == nil {
+		tools = h.Svc.Tools.Catalog()
+	}
+	if mcp == nil {
+		mcp = &domain.MCPListRESP{Servers: []domain.MCPServerVO{}}
+	}
+	ok(c, domain.WarmupRESP{
+		Skills: skills, Providers: providers, Tools: tools, Extensions: exts, MCP: mcp,
 	})
 }
 

@@ -39,6 +39,11 @@ const names = [
   // 引擎里的扩展在问用户（confirm / select / input）。
   'chat:ask',
   'chat:ask_closed',
+  // 引擎扩展的 fire-and-forget 反馈：通知 / 状态条 / 小部件 / 标题。
+  'chat:notify',
+  'chat:status',
+  'chat:widget',
+  'chat:title',
 ]
 
 let source: EventSource | null = null

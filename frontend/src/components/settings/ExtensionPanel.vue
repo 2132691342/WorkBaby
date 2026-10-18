@@ -3,12 +3,15 @@
 // 装 / 卸都走 PI 自己的 CLI，进度经 chat:setup 事件流式回传。
 import { computed, onMounted, ref } from 'vue'
 import * as api from '../../api'
+import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { ExtensionListRESP, ExtensionVO, PackageVO } from '../../types/api'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
+import PnHead from '../common/PnHead.vue'
 
 const toast = useToastStore()
+const settingsStore = useSettingsStore()
 const data = ref<ExtensionListRESP | null>(null)
 const busy = ref('')
 const source = ref('')
@@ -20,6 +23,7 @@ const packages = computed(() => data.value?.packages ?? [])
 async function reload() {
   try {
     data.value = await api.extensions.list()
+    settingsStore.extensions = data.value
   } catch (e) {
     toast.bad(`读取插件失败：${(e as Error)?.message || '请重试'}`)
   }
@@ -122,23 +126,23 @@ function onSetup(line: string) {
 }
 
 defineExpose({ onSetup })
-onMounted(() => void reload())
+onMounted(() => {
+  if (settingsStore.extensions) {
+    data.value = settingsStore.extensions
+    void reload()
+  } else void reload()
+})
 </script>
 
 <template>
   <div class="panel">
-    <header class="pn-head">
-      <div>
-        <h3>插件</h3>
-        <p class="pn-sub">
-          包走 <span class="mono">pi install</span>（npm / git / 本地），扩展走 <span class="mono">extensions</span> 目录 + settings.json 登记。
-        </p>
-      </div>
-      <div class="acts">
-        <button class="btn" type="button" :class="{ 'is-loading': busy === 'reload' }" :disabled="!!busy" @click="restart">重载</button>
-        <button class="btn" type="button" :class="{ 'is-loading': busy === 'import' }" :disabled="!!busy" @click="importExt">导入扩展</button>
-      </div>
-    </header>
+    <PnHead icon="zap" title="插件">
+      <template #sub>
+        包走 <span class="mono">pi install</span>（npm / git / 本地），扩展走 <span class="mono">extensions</span> 目录 + settings.json 登记。
+      </template>
+      <el-button :loading="busy === 'reload'" :disabled="!!busy" @click="restart">重载</el-button>
+      <el-button :loading="busy === 'import'" :disabled="!!busy" @click="importExt">导入扩展</el-button>
+    </PnHead>
 
     <section class="block card">
       <div class="b-head">
@@ -146,10 +150,10 @@ onMounted(() => void reload())
         <span class="muted">随包安装的技能、扩展、提示模板一起生效</span>
       </div>
       <div class="inst">
-        <input v-model="source" class="input mono" placeholder="npm:@scope/pkg 或 git:github.com/owner/repo 或 ./本地目录" @keydown.enter="install" />
-        <button class="btn btn-primary" type="button" :class="{ 'is-loading': busy === 'install' }" :disabled="!!busy || !source.trim()" @click="install">
+        <el-input v-model="source" class="mono" placeholder="npm:@scope/pkg 或 git:github.com/owner/repo 或 ./本地目录" @keydown.enter="install" />
+        <el-button type="primary" :loading="busy === 'install'" :disabled="!!busy || !source.trim()" @click="install">
           安装
-        </button>
+        </el-button>
       </div>
       <div v-if="!packages.length" class="muted small">还没有装过包。</div>
       <div v-else class="rows">
@@ -159,10 +163,12 @@ onMounted(() => void reload())
             <b>{{ p.name }}</b>
             <span class="mono sm muted">{{ p.source }}</span>
           </div>
-          <span v-if="p.missing" class="tag bad">目录缺失</span>
-          <button class="btn btn-sm danger" type="button" :class="{ 'is-loading': busy === `u:${p.source}` }" :disabled="!!busy" @click="uninstall(p)">
-            卸载
-          </button>
+          <el-tag v-if="p.missing" type="danger" size="small" effect="plain">目录缺失</el-tag>
+          <el-popconfirm title="卸载后随包资源一起失效，确定？" width="260" @confirm="uninstall(p)">
+            <template #reference>
+              <el-button size="small" type="danger" plain :loading="busy === `u:${p.source}`" :disabled="!!busy">卸载</el-button>
+            </template>
+          </el-popconfirm>
         </div>
       </div>
     </section>
@@ -180,13 +186,13 @@ onMounted(() => void reload())
             <b>{{ e.name }}</b>
             <span class="mono sm muted">{{ e.path }}</span>
           </div>
-          <span class="tag" :class="{ ok: e.enabled }">{{ e.enabled ? '已启用' : '未启用' }}</span>
-          <button class="btn btn-sm" type="button" :class="{ 'is-loading': busy === `t:${e.path}` }" :disabled="!!busy" @click="toggle(e)">
-            {{ e.enabled ? '停用' : '启用' }}
-          </button>
-          <button class="btn btn-sm danger" type="button" :class="{ 'is-loading': busy === `d:${e.path}` }" :disabled="!!busy" @click="remove(e)">
-            删除
-          </button>
+          <el-tag :type="e.enabled ? 'success' : 'info'" size="small" effect="plain">{{ e.enabled ? '已启用' : '未启用' }}</el-tag>
+          <el-switch :model-value="e.enabled" :loading="busy === `t:${e.path}`" :disabled="!!busy" @change="toggle(e)" />
+          <el-popconfirm title="删除这个扩展文件？" width="220" @confirm="remove(e)">
+            <template #reference>
+              <el-button size="small" type="danger" plain :loading="busy === `d:${e.path}`" :disabled="!!busy">删除</el-button>
+            </template>
+          </el-popconfirm>
         </div>
       </div>
     </section>
@@ -203,26 +209,6 @@ onMounted(() => void reload())
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-4);
-}
-.pn-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--wb-sp-3);
-  flex-wrap: wrap;
-}
-.pn-head h3 {
-  font-size: var(--wb-fs-lg);
-  color: var(--wb-ink);
-}
-.pn-sub {
-  margin-top: 4px;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.acts {
-  display: flex;
-  gap: var(--wb-sp-2);
 }
 .block {
   padding: var(--wb-sp-4);
@@ -242,6 +228,11 @@ onMounted(() => void reload())
 .inst {
   display: flex;
   gap: var(--wb-sp-2);
+  flex-wrap: wrap;
+}
+.inst .input {
+  flex: 1;
+  min-width: 240px;
 }
 .rows {
   display: flex;

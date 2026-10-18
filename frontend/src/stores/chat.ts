@@ -12,10 +12,13 @@ import type {
   DoneData,
   ErrorData,
   MessageVO,
+  NotifyData,
   RetryData,
   StartData,
+  StatusData,
   ToolEndData,
   ToolStartData,
+  WidgetData,
 } from '../types/api'
 import { useSettingsStore } from './settings'
 import { useToastStore } from './toast'
@@ -60,9 +63,15 @@ export const useChatStore = defineStore('chat', () => {
   const contextReserve = ref(0)
   const queued = ref<string[]>([])
   const retrying = ref(false)
+  // 引擎扩展的状态条与小部件：key → 内容，多扩展共存互不覆盖
+  const engineStatus = ref<Record<string, string>>({})
+  const engineWidgets = ref<Record<string, string[]>>({})
 
   function reset() {
     running.value = false
+    stopTicker()
+    startedAt.value = 0
+    elapsedSec.value = 0
     thinking.value = ''
     streaming.value = ''
     runs.value = []
@@ -79,6 +88,8 @@ export const useChatStore = defineStore('chat', () => {
     contextReserve.value = 0
     queued.value = []
     retrying.value = false
+    engineStatus.value = {}
+    engineWidgets.value = {}
   }
 
   // 思考内容可能被用户关掉：关掉后不累积，也不出现在历史渲染里。
@@ -150,8 +161,26 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ---- 事件入口（SSE → store） ----
+  // run 开始时刻与本轮 token 读数：耗时读数由界面计时器消费
+  const startedAt = ref(0)
+  const elapsedSec = ref(0)
+  let tickTimer = 0
+  function startTicker() {
+    stopTicker()
+    tickTimer = window.setInterval(() => {
+      if (startedAt.value) elapsedSec.value = Math.round((Date.now() - startedAt.value) / 1000)
+    }, 1000)
+  }
+  function stopTicker() {
+    if (tickTimer) clearInterval(tickTimer)
+    tickTimer = 0
+  }
+
   function onStart(_data: StartData) {
     running.value = true
+    startedAt.value = Date.now()
+    elapsedSec.value = 0
+    startTicker()
     retrying.value = false
     thinking.value = ''
     streaming.value = ''
@@ -213,6 +242,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function onDone(data: DoneData) {
     running.value = false
+    stopTicker()
     retrying.value = false
     switch (data.stop_reason) {
       case 'length':
@@ -235,6 +265,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function onStopped() {
     running.value = false
+    stopTicker()
     retrying.value = false
     notice.value = '已停止'
     queued.value = []
@@ -243,6 +274,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function onError(data: ErrorData) {
     running.value = false
+    stopTicker()
     retrying.value = false
     lastError.value = data.message
     lastErrorCode.value = data.code || ''
@@ -329,6 +361,34 @@ export const useChatStore = defineStore('chat', () => {
     thinking.value = ''
   }
 
+  // ---- 引擎扩展的 fire-and-forget 反馈 ----
+
+  function onNotify(data: NotifyData) {
+    const t = useToastStore()
+    if (data.level === 'error') t.bad(data.message)
+    else if (data.level === 'warning') t.info(`⚠ ${data.message}`)
+    else t.info(data.message)
+  }
+
+  function onStatus(data: StatusData) {
+    const next = { ...engineStatus.value }
+    if (data.text) next[data.key] = data.text
+    else delete next[data.key]
+    engineStatus.value = next
+  }
+
+  function onWidget(data: WidgetData) {
+    const next = { ...engineWidgets.value }
+    if (data.lines?.length) next[data.key] = data.lines
+    else delete next[data.key]
+    engineWidgets.value = next
+  }
+
+  function onTitle(data: { title: string }) {
+    if (!data.title) return
+    notice.value = `助手建议标题：${data.title}`
+  }
+
   return {
     running,
     thinking,
@@ -347,6 +407,9 @@ export const useChatStore = defineStore('chat', () => {
     contextReserve,
     queued,
     retrying,
+    engineStatus,
+    engineWidgets,
+    elapsedSec,
     reset,
     send,
     stop,
@@ -371,6 +434,10 @@ export const useChatStore = defineStore('chat', () => {
     cancelRetry,
     onContext,
     onGap,
+    onNotify,
+    onStatus,
+    onWidget,
+    onTitle,
     seedContext,
   }
 })

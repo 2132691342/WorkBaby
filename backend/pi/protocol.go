@@ -47,6 +47,14 @@ type Event struct {
 	Body    string   `json:"-"`
 	Text    string   `json:"text"`
 	Options []string `json:"options"`
+	// NotifyType 是 notify 的级别：info / warning / error。
+	NotifyType string `json:"notifyType"`
+	// StatusKey / StatusText 是 setStatus 的键值对；空 Text 表示清除。
+	StatusKey  string `json:"statusKey"`
+	StatusText string `json:"statusText"`
+	// WidgetLines 是 setWidget 的文本行；空表示清除。
+	WidgetLines     []string `json:"widgetLines"`
+	WidgetPlacement string   `json:"widgetPlacement"`
 
 	// —— 消息 ——
 	// 同一个 json 字段两种形态：扩展 UI 的 message 是字符串，消息事件的 message 是对象。
@@ -208,6 +216,24 @@ func parseEvent(raw []byte) (Event, bool) {
 			}
 			if err := json.Unmarshal(raw, &wrap); err == nil {
 				ev.Body = wrap.Message
+			}
+		}
+		// fire-and-forget 的字段不在 wrap 里，直接按 Event 的 tag 解：
+		// notify（notifyType）、setStatus（statusKey/statusText）、setWidget（widgetLines）。
+		if head.Type == "extension_ui_request" {
+			var extra struct {
+				NotifyType      string   `json:"notifyType"`
+				StatusKey       string   `json:"statusKey"`
+				StatusText      string   `json:"statusText"`
+				WidgetLines     []string `json:"widgetLines"`
+				WidgetPlacement string   `json:"widgetPlacement"`
+			}
+			if err := json.Unmarshal(raw, &extra); err == nil {
+				ev.NotifyType = extra.NotifyType
+				ev.StatusKey = extra.StatusKey
+				ev.StatusText = extra.StatusText
+				ev.WidgetLines = extra.WidgetLines
+				ev.WidgetPlacement = extra.WidgetPlacement
 			}
 		}
 		// message_end / message_start 的 usage 与 stopReason 在 message 对象里，不在顶层。

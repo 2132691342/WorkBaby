@@ -1,0 +1,73 @@
+// Element Plus 主题桥：把 EP 的 CSS 变量接到 WorkBaby 的 --wb-* 令牌上。
+// 色值仍然只在 themes.css 定义一处；这里只做「EP 变量 = wb 令牌」的引用关系。
+// 两套主题由 [data-theme] 切换，EP 组件跟着令牌自动换装。
+:root {
+  /* 主色系：动作靛蓝 */
+  --el-color-primary: var(--wb-primary);
+  --el-color-primary-light-3: var(--wb-primary-strong);
+  --el-color-primary-light-5: var(--wb-sky);
+  --el-color-primary-light-7: var(--wb-lavender);
+  --el-color-primary-light-8: var(--wb-brand-3);
+  --el-color-primary-light-9: var(--wb-brand-4);
+  --el-color-primary-dark-2: var(--wb-primary-deep);
+
+  /* 状态色：只留给通过 / 出错 / 注意 */
+  --el-color-success: var(--wb-success);
+  --el-color-warning: var(--wb-warning);
+  --el-color-danger: var(--wb-danger);
+  --el-color-error: var(--wb-danger);
+  --el-color-info: var(--wb-info);
+
+  /* 面与文字：走主题令牌，浅暗两套自动跟随 */
+  --el-bg-color: var(--wb-surface);
+  --el-bg-color-overlay: var(--wb-surface-solid);
+  --el-bg-color-page: var(--wb-bg);
+  --el-fill-color: var(--wb-raise);
+  --el-fill-color-light: var(--wb-surface-hover);
+  --el-fill-color-lighter: var(--wb-surface-2);
+  --el-fill-color-blank: var(--wb-surface-solid);
+  --el-text-color-primary: var(--wb-ink);
+  --el-text-color-regular: var(--wb-ink-2);
+  --el-text-color-secondary: var(--wb-muted);
+  --el-text-color-placeholder: var(--wb-muted);
+  --el-border-color: var(--wb-line);
+  --el-border-color-light: var(--wb-line);
+  --el-border-color-lighter: var(--wb-line);
+  --el-border-color-extra-light: var(--wb-line);
+
+  /* 圆角与字体：跟随 wb 刻度 */
+  --el-border-radius-base: var(--wb-radius);
+  --el-border-radius-small: var(--wb-radius-sm);
+  --el-border-radius-round: var(--wb-radius-full);
+  --el-font-family: var(--font-sans);
+  --el-font-size-base: var(--wb-fs-md);
+  --el-font-size-small: var(--wb-fs-sm);
+  --el-font-size-extra-small: var(--wb-fs-xs);
+
+  /* 阴影：极轻托底，与全站分层纪律一致 */
+  --el-box-shadow-light: var(--wb-shadow-2);
+  --el-box-shadow: var(--wb-shadow-3);
+}
+
+[data-theme='dark'] {
+  /* 暗色下 EP 的遮罩与弹出层也要跟上 */
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+}
+
+/* EP 组件细节对齐全站纪律：按钮胶囊、悬停反馈 */
+.el-button {
+  border-radius: var(--wb-radius-full);
+  transition: transform var(--wb-dur-fast) var(--wb-ease);
+}
+.el-button:not(.is-disabled):hover {
+  transform: scale(1.02);
+}
+.el-button:not(.is-disabled):active {
+  transform: scale(0.97);
+}
+.el-dialog,
+.el-drawer,
+.el-popover.el-popper,
+.el-message {
+  border-radius: var(--wb-radius-lg);
+}

@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import { OpenDirectoryDialog, SetAutoStart } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
+import PnHead from '../common/PnHead.vue'
 
 const settings = useSettingsStore()
 const toast = useToastStore()
@@ -89,70 +90,61 @@ onMounted(async () => {
 
 <template>
   <div class="panel">
-    <header class="pn-head">
-      <div>
-        <h3>行为</h3>
-        <p class="pn-sub">这里改的是「怎么用」：工作目录、思考深度、压缩阈值与窗口行为。</p>
-      </div>
-    </header>
+    <PnHead icon="sliders" title="行为" sub="这里改的是「怎么用」：工作目录、思考深度、压缩阈值与窗口行为。" />
 
-    <section class="card block">
-      <div class="b-head"><b>工作目录</b><span class="muted">助手读写文件、跑命令都在这里面</span></div>
-      <div class="row">
-        <span class="mono path">{{ workspace || '（还没设置）' }}</span>
-        <span class="sp" />
-        <button class="btn btn-sm" type="button" @click="pickWorkspace">更换</button>
-      </div>
-    </section>
+    <!-- 宽屏两列铺满主区，窄窗自动回单列 -->
+    <div class="cols">
+      <section class="card block">
+        <div class="b-head"><b>工作目录</b><span class="muted">助手读写文件、跑命令都在这里面</span></div>
+        <div class="row">
+          <el-button size="small" @click="pickWorkspace">更换</el-button>
+          <span class="sp" />
+          <span class="mono path">{{ workspace || '（还没设置）' }}</span>
+        </div>
+      </section>
 
-    <section class="card block">
-      <div class="b-head"><b>默认思考档</b><span class="muted">写进 PI settings.json 的 defaultThinkingLevel</span></div>
-      <div class="row">
-        <select v-model="level" class="input sel">
-          <option v-for="l in LEVELS" :key="l.key" :value="l.key">{{ l.name }}</option>
-        </select>
-        <button class="btn btn-sm" type="button" :class="{ 'is-loading': busy === 'thinking' }" :disabled="!!busy" @click="saveThinking">
-          保存
-        </button>
-      </div>
-    </section>
+      <section class="card block">
+        <div class="b-head"><b>默认思考档</b><span class="muted">写进 PI settings.json 的 defaultThinkingLevel</span></div>
+        <div class="row">
+          <el-select v-model="level" class="sel">
+            <el-option v-for="l in LEVELS" :key="l.key" :label="l.name" :value="l.key" />
+          </el-select>
+          <el-button size="small" type="primary" plain :loading="busy === 'thinking'" :disabled="!!busy" @click="saveThinking">
+            保存
+          </el-button>
+        </div>
+      </section>
 
-    <section class="card block">
-      <div class="b-head"><b>压缩阈值</b><span class="muted">上下文快满时，PI 会保留最近这些 token</span></div>
-      <div class="grid2">
-        <label class="field">
-          <span>预留余量（reserveTokens）</span>
-          <input v-model.number="reserve" class="input" type="number" min="0" placeholder="缺省 16384" />
-        </label>
-        <label class="field">
-          <span>保留最近（keepRecentTokens）</span>
-          <input v-model.number="keep" class="input" type="number" min="0" placeholder="缺省 20000" />
-        </label>
-      </div>
-      <div class="row">
-        <span class="muted sm">填 0 表示交回 PI 的缺省值</span>
-        <span class="sp" />
-        <button class="btn btn-sm" type="button" :class="{ 'is-loading': busy === 'compaction' }" :disabled="!!busy" @click="saveCompaction">
-          保存
-        </button>
-      </div>
-    </section>
+      <section class="card block">
+        <div class="b-head"><b>压缩阈值</b><span class="muted">上下文快满时，PI 会保留最近这些 token</span></div>
+        <div class="grid2">
+          <el-form-item class="field">
+            <template #label>预留余量（reserveTokens）</template>
+            <el-input-number v-model="reserve" :min="0" :controls="false" placeholder="缺省 16384" class="w-full" />
+          </el-form-item>
+          <el-form-item class="field">
+            <template #label>保留最近（keepRecentTokens）</template>
+            <el-input-number v-model="keep" :min="0" :controls="false" placeholder="缺省 20000" class="w-full" />
+          </el-form-item>
+        </div>
+        <div class="row">
+          <span class="muted sm">填 0 表示交回 PI 的缺省值</span>
+          <span class="sp" />
+          <el-button size="small" type="primary" plain :loading="busy === 'compaction'" :disabled="!!busy" @click="saveCompaction">
+            保存
+          </el-button>
+        </div>
+      </section>
 
-    <section class="card block">
-      <div class="b-head"><b>窗口与输入</b></div>
-      <div class="row">
+      <section class="card block">
+        <div class="b-head"><b>窗口与输入</b></div>
+        <div class="row">
         <div class="rl">
           <b>关闭时收进托盘</b>
           <span class="muted sm">关掉之后点 × 就是真的退出</span>
         </div>
         <span class="sp" />
-        <button
-          class="switch"
-          type="button"
-          :class="{ on: settings.values['minimize_to_tray'] !== 'false' }"
-          :aria-pressed="settings.values['minimize_to_tray'] !== 'false'"
-          @click="settings.setValue('minimize_to_tray', settings.values['minimize_to_tray'] === 'false' ? 'true' : 'false')"
-        />
+        <el-switch :model-value="settings.values['minimize_to_tray'] !== 'false'" @change="settings.setValue('minimize_to_tray', settings.values['minimize_to_tray'] === 'false' ? 'true' : 'false')" />
       </div>
       <div class="row">
         <div class="rl">
@@ -160,13 +152,7 @@ onMounted(async () => {
           <span class="muted sm">关掉之后 Enter 换行、Ctrl+Enter 发送</span>
         </div>
         <span class="sp" />
-        <button
-          class="switch"
-          type="button"
-          :class="{ on: settings.values['send_on_enter'] !== 'false' }"
-          :aria-pressed="settings.values['send_on_enter'] !== 'false'"
-          @click="settings.setValue('send_on_enter', settings.values['send_on_enter'] === 'false' ? 'true' : 'false')"
-        />
+        <el-switch :model-value="settings.values['send_on_enter'] !== 'false'" @change="settings.setValue('send_on_enter', settings.values['send_on_enter'] === 'false' ? 'true' : 'false')" />
       </div>
       <div class="row">
         <div class="rl">
@@ -174,9 +160,10 @@ onMounted(async () => {
           <span class="muted sm">登录 Windows 后自动把 WorkBaby 放到托盘</span>
         </div>
         <span class="sp" />
-        <button class="switch" type="button" :class="{ on: autoStart }" :aria-pressed="autoStart" @click="toggleAutoStart" />
-      </div>
-    </section>
+        <el-switch :model-value="autoStart" @change="toggleAutoStart" />
+        </div>
+      </section>
+    </div>
 
     <section class="card block">
       <div class="b-head">
@@ -211,14 +198,11 @@ onMounted(async () => {
   flex-direction: column;
   gap: var(--wb-sp-4);
 }
-.pn-head h3 {
-  font-size: var(--wb-fs-lg);
-  color: var(--wb-ink);
-}
-.pn-sub {
-  margin-top: 4px;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
+.cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+  gap: var(--wb-sp-3);
+  align-items: start;
 }
 .block {
   padding: var(--wb-sp-4);

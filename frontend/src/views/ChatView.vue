@@ -180,6 +180,18 @@ useSse(
       case 'chat:ask_closed':
         chat.onAskClosed(env.data)
         break
+      case 'chat:notify':
+        chat.onNotify(env.data)
+        break
+      case 'chat:status':
+        chat.onStatus(env.data)
+        break
+      case 'chat:widget':
+        chat.onWidget(env.data)
+        break
+      case 'chat:title':
+        chat.onTitle(env.data)
+        break
       case 'chat:compressed':
         chat.onCompressed(env.data)
         break

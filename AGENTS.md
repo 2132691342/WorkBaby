@@ -16,7 +16,12 @@
 | 状态管理 | Pinia | ^2.3.x（Setup Store） |
 | 路由 | Vue Router | ^4.5.x（hash 模式） |
 | HTTP 客户端 | Axios | ^1.7.x |
-| 样式 | 原生 CSS 设计令牌（`themes.css` + `wb-ui.css`） | 无 CSS 引擎依赖；组件全自绘，无 UI 组件库 |
+| UI 组件库 | Element Plus | ^2.14.x（弹窗 / 表单 / 下拉 / 开关 / 确认气泡；文案跟随 i18n） |
+| 原子 CSS | UnoCSS | ^66.x（布局与间距；色值仍走 --wb-* 令牌） |
+| 图表 | ECharts | ^6.x（按需引入：Line / Pie + Grid / Tooltip；主题色接 --wb-ch-*） |
+| 代码编辑器 | CodeMirror 6 | markdown / json 高亮 + one-dark；技能正文与 MCP 配置编辑 |
+| 国际化 | Vue I18n | ^9.14.x（zh-CN 默认 + en；设置页可切换，Element Plus 文案同步） |
+| 样式 | 原生 CSS 设计令牌（`themes.css` + `ep-theme.css`） | 色值与尺寸只在 themes.css 定义；EP 变量经 ep-theme.css 接到 --wb-* 令牌 |
 | 渲染 | marked · dompurify · highlight.js | markdown 唯一出口 `utils/md.ts` |
 | ORM | GORM + glebarez/sqlite | ^1.30.x（pure-Go，无 CGO） |
 | 数据库 | SQLite | WAL；只存界面设置 KV——会话、消息与用量都在 PI 的会话文件里 |
@@ -33,12 +38,13 @@
 
 标准库 → `golang.org/x/...` → 生态库。新增依赖必须说明理由与替代方案。
 
-**明确不引入**：UI 组件库、工作流引擎、微前端、富文本编辑器、原子化 CSS 引擎、
-图表库与图编辑库、国际化框架、通用工具库——当前功能面用不到，引入只增维护成本。
+**明确不引入**：工作流引擎、微前端、通用工具库——当前功能面用不到，引入只增维护成本。
+富文本编辑器（WangEditor 等）按需再评估；当前 CodeMirror 6 覆盖技能与配置编辑场景。
 
-需要哪一类能力时，先问「几百行自绘能不能覆盖」：仪表盘的两张图都是自绘 SVG，
-界面基元（开关 / 弹层 / 表格 / 折叠）也都在 `wb-ui.css` 里自己写——
-这些都是几百行就能覆盖的场景，不因为「有现成的库」就开禁。
+**视觉分层纪律不变**：Element Plus 只是基元供给方，视觉语言仍由 `themes.css` 的
+靛蓝五档令牌说了算——EP 的 CSS 变量经 `ep-theme.css` 全部接到 `--wb-*`，
+组件里禁止写 EP 主题色之外的色值；图表色值同理走 `--wb-ch-*`。
+新增组件优先用 EP 现成的，不回退到自绘弹层。
 
 ### 1.2 内核归 PI，界面归 WorkBaby
 
@@ -328,6 +334,9 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 视觉语言见 `DESIGN.md`。核心约束：
 
 - 色值只在 `themes.css` 定义（`--wb-*` 语义令牌 + `[data-theme]` 块）
+- 尺寸令牌全部乘 `--wb-vw-scale`（由 `useViewportScale` 按「窗口宽 ÷ 1440」写入，
+上下限 0.8~1.35）：分辨率不同的机器上整套刻度等比跟随，不改代码；
+组件层写死裸像素只允许在令牌定义处
 - 强调色只有同一个靛蓝色相的五档，没有第二个色相：`#6366f1`（动作）· `#818cf8`（活动）·
   `#e0e7ff`（淡强调）· `#f8fafc`（更淡的底）· `#1e293b`（中性深）。
   数据可视化取 `--wb-ch-1..4`（靛蓝明度递减），其中 3/4 两档是两档淡靛，不是中性灰
@@ -339,8 +348,12 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 - 危险按钮用中性描边 + 危险色文字：彩色描边违反分层纪律，语义交给文字与底色
 - 字号用刻度 `--wb-fs-*`；禁止任意像素值
 - 字体只有三个语义变量：`--font-sans` / `--font-mono` / `--font-display`，全部在 `themes.css` 定义；`html, body` 必须显式声明 `font-family` 与 `font-size`
-- 空态与骨架统一用 `EmptyState` / `PageState`；禁止 `el-empty` / `el-skeleton`
-- 按钮胶囊镂空：`wb-ui.css` 的 `.btn` 族是唯一实现
+- 组件基元优先用 Element Plus（按钮 / 表单 / 开关 / 下拉 / 弹窗 / 气泡确认 / 标签）；
+  EP 变量经 `ep-theme.css` 接到 `--wb-*`，组件里禁止另写色值
+- 图表一律 ECharts（按需注册），色值取 `--wb-ch-*`；主题切换后重读 CSS 变量重绘
+- 代码编辑一律 `CodeEditor`（CodeMirror 6）：markdown / json 高亮 + one-dark
+- 文案一律走 i18n（`src/locales/`，key 按域分层）；用户可见的字符串禁止硬编码在模板里
+- 消息流 / markdown 渲染 / 工具卡保留自绘（它们是内容渲染不是表单基元，EP 没有对应物）
 - 一级导航只在 `NavRail`（56px 轨道，对话/仪表盘/帮助/设置）：各视图不得自画返回或主页入口；
   选中态 = 淡底 + 左侧 2px 竖条 + 主色（`.rail-item.is-on` / `.sess-item.is-on` / `.nav-item.on` 同一语言）
 - 图标统一走内联 SVG（`.ic` 类已按 24 网格写好 `stroke-width`）；禁止用 Unicode 字符或 Emoji 冒充图标
@@ -403,7 +416,7 @@ type Record struct {
 |---|---|---|
 | 命令响应 | `type == "response"` | 按 `id` 唤醒等待者 |
 | 会话事件 | 已知事件名 | 进翻译层 |
-| 扩展 UI | `type == "extension_ui_request"` | `confirm`/`select`/`input`/`editor` 转 `chat:ask`；其余方法忽略 |
+| 扩展 UI | `type == "extension_ui_request"` | `confirm`/`select`/`input`/`editor` 转 `chat:ask`；`notify`/`setStatus`/`setWidget`/`setTitle` 转只读反馈事件；其余方法忽略 |
 | 未知 | 其余 | debug 日志后丢弃 |
 
 #### 2.13.3 事件翻译映射
@@ -421,6 +434,10 @@ type Record struct {
 | `auto_retry_start` | `chat:retry` |
 | `agent_settled` | `chat:done` |
 | `extension_ui_request`（`confirm`/`select`/`input`/`editor`） | `chat:ask` |
+| `extension_ui_request`（`notify`） | `chat:notify`（info/warning/error，无需应答） |
+| `extension_ui_request`（`setStatus`） | `chat:status`（状态条，空 text 即清除） |
+| `extension_ui_request`（`setWidget`） | `chat:widget`（文本行小部件，空行即清除） |
+| `extension_ui_request`（`setTitle`） | `chat:title` |
 
 #### 2.13.4 不变量
 

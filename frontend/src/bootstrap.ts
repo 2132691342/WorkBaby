@@ -10,9 +10,12 @@ export type HandshakeStatus = 'pending' | 'ready' | 'failed'
 const HANDSHAKE_TIMEOUT_MS = 20000
 
 const status = ref<HandshakeStatus>('pending')
+// 加载页的阶段读数：握手本地服务 → 读取引导数据 → 检查助手环境 → 完成。
+export type BootStage = 'handshake' | 'bootstrap' | 'env' | 'done'
+const stage = ref<BootStage>('handshake')
 const port = ref(0)
 const message = ref('')
-export { status, message }
+export { status, stage, message }
 
 function fail(reason: string) {
   if (status.value === 'ready') return
@@ -26,6 +29,7 @@ function adopt(next: number) {
   setBaseURL(next)
   if (status.value !== 'ready') {
     status.value = 'ready'
+    stage.value = 'bootstrap'
     clearTimeout(timer)
   }
 }
