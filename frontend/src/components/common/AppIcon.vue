@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 全站唯一图标出口：24 网格内联 SVG，currentColor 描边。
-// 笔画粗细由 wb-ui.css 的 .ic 类统一控制（--wb-icon-stroke），组件不各自指定。
+// 笔画粗细与尺寸档位由 base.css 的 .ic* 类统一控制（--wb-icon-stroke），组件不各自指定。
 const ICONS: Record<string, string> = {
   plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
   chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',

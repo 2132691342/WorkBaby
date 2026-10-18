@@ -22,23 +22,18 @@ var allowed = map[string][]string{
 	"server": {"api", "domain", "pkg"},
 	"api": {
 		"service", "domain", "pkg",
-		"repo", "config", "db", "runtime", "skill", "knowledge", "pi",
+		"repo", "config", "db", "runtime", "skill", "pi",
 	},
 	"service": {
-		"repo", "domain", "pkg", "knowledge", "skill",
+		"repo", "domain", "pkg", "skill",
 		"runtime", "config", "db", "git",
 		// 内核是外部 PI 进程：service 通过 pi 的接口发命令、收事件。
 		"pi",
-		// 指挥台四域（specs/10-19）与通用历史 / 架构图同为能力域，由 service 编排
-		"history", "archmap",
 	},
 	// pi 不依赖 domain / repo：它只认 pkg 与 runtime，通过接口把事件交给上层。
 	"pi":             {"pkg", "runtime"},
-	"knowledge":      {"repo", "domain", "pkg", "db"},
 	"skill":          {"domain", "pkg"},
 	"git":            {"domain", "pkg"},
-	"history":        {"domain", "pkg"},
-	"archmap":        {"domain", "pkg"},
 	"runtime":        {"pkg"},
 	"config":         {"domain", "pkg"},
 	"db":             {"domain", "pkg"},
@@ -53,8 +48,7 @@ var upperLayers = []string{"api", "service", "server", "tray", "singleinstance"}
 
 // domainLayers 是能力域全集。
 var domainLayers = []string{
-	"pi", "knowledge", "skill", "runtime", "config", "db", "repo", "git",
-	"history", "archmap",
+	"pi", "skill", "runtime", "config", "db", "repo", "git",
 }
 
 func contains(xs []string, s string) bool {
@@ -119,8 +113,8 @@ func main() {
 			if !strings.HasPrefix(imp, prefix) {
 				continue
 			}
-			// 同层互引不算越层：llm 的子包（factory / openai / anthropic）都要
-			// 引用父包 llm 的 Streamer 与归一化类型。
+			// 同层互引不算越层：子包（pi/env、pi/pitest、runtime/runtimetest）
+			// 都要引用父包的类型与接口，这是同层而非越级。
 			if strings.Split(strings.TrimPrefix(imp, prefix), "/")[0] == layer {
 				continue
 			}

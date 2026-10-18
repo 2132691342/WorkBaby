@@ -1,24 +1,21 @@
 <script setup lang="ts">
 // 历史面板：提交列表 → 单次提交差异抽屉 → 文件历史抽屉。
-// 历史不缓存：实时 git log 是唯一真相源，换分支后历史整块变正是缓存不该存在的原因（specs/09）。
+// 历史不缓存：实时 git log 是唯一真相源，换分支后历史整块变正是缓存不该存在的原因。
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import { useToastStore } from '../../stores/toast'
-import { useDrawer } from '../../composables/useDrawer'
-import type { GitCommitDetailVO, GitCommitVO, GitFileVO } from '../../types/api'
-import { fmtCount } from '../../utils/num'
+import type { GitCommitDetailVO, GitCommitVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import DiffView from './DiffView.vue'
 
 const props = defineProps<{ sessionId: string }>()
+const { t } = useI18n()
 const toast = useToastStore()
 
 const commits = ref<GitCommitVO[]>([])
 const loading = ref(true)
 const error = ref('')
-
-// 深链：从提交面板的「已提交 xxxx」跳进来时带 hash，进页就展开那一条。
-const focusHash = ref('')
 
 async function load() {
   loading.value = true
@@ -27,15 +24,12 @@ async function load() {
     commits.value = await api.git.history(props.sessionId, 100)
   } catch (e) {
     commits.value = []
-    error.value = (e as Error)?.message || '读不到提交历史'
+    error.value = (e as Error)?.message || ''
   } finally {
     loading.value = false
   }
 }
-onMounted(() => {
-  void load()
-  if (props.sessionId) focusHash.value = ''
-})
+onMounted(load)
 
 function fmtWhen(ts: number): string {
   if (!ts) return '—'
@@ -44,11 +38,10 @@ function fmtWhen(ts: number): string {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-// ---- 单次提交抽屉 ----
+// ---- 单次提交 ----
 const open = ref(false)
 const detail = ref<GitCommitDetailVO | null>(null)
 const detailLoading = ref(false)
-const { drawerRef } = useDrawer(open, () => (open.value = false))
 
 async function show(hash: string) {
   open.value = true
@@ -57,19 +50,18 @@ async function show(hash: string) {
   try {
     detail.value = await api.git.commit(hash, props.sessionId)
   } catch (e) {
-    toast.bad(`读不到这次提交：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
     open.value = false
   } finally {
     detailLoading.value = false
   }
 }
 
-// ---- 文件历史抽屉 ----
+// ---- 文件历史 ----
 const fileOpen = ref(false)
 const fileCommits = ref<GitCommitVO[]>([])
 const fileLoading = ref(false)
 const filePath = ref('')
-const { drawerRef: fileDrawerRef } = useDrawer(fileOpen, () => (fileOpen.value = false))
 
 async function showFileHistory(path: string) {
   filePath.value = path
@@ -79,356 +71,281 @@ async function showFileHistory(path: string) {
   try {
     fileCommits.value = await api.git.fileHistory(path, props.sessionId, 50)
   } catch (e) {
-    toast.bad(`读不到这个文件的历史：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
     fileOpen.value = false
   } finally {
     fileLoading.value = false
   }
 }
 
-// 从文件历史里点一条 → 关掉文件抽屉、打开那次提交的差异。
 async function openFromFile(hash: string) {
   fileOpen.value = false
   await show(hash)
 }
 
-const STATUS_TEXT: Record<string, string> = {
-  M: '改过',
-  A: '新增',
-  D: '删除',
-  R: '改名',
+function shortHash(h: string, len = 7) {
+  return (h || '').slice(0, len)
 }
-function tagText(f: GitFileVO) {
-  return STATUS_TEXT[f.status] || f.status
-}
-const totalAdd = computed(() => commits.value.reduce((n, c) => n + (c.additions || 0), 0))
-const totalDel = computed(() => commits.value.reduce((n, c) => n + (c.deletions || 0), 0))
+
+const detailDiff = computed(() => detail.value?.diff)
 </script>
 
 <template>
-  <div class="gh">
-    <div class="gh-hd">
-      <span class="cnt">{{ commits.length }} 个提交</span>
-      <span v-if="commits.length" class="sum mono">+{{ fmtCount(totalAdd) }} −{{ fmtCount(totalDel) }}</span>
-      <span class="sp" />
-      <button class="btn btn-sm" type="button" :class="{ 'is-loading': loading }" :disabled="loading" @click="load()">
-        <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
-        刷新
-      </button>
+  <div class="hist">
+    <div v-if="loading" class="hist-state"><span class="spin" />{{ t('common.loading') }}</div>
+    <div v-else-if="error" class="hist-state">
+      <AppIcon name="alert" size="ic-lg" />
+      {{ error }}
+      <el-button size="small" @click="load">{{ t('common.retry') }}</el-button>
+    </div>
+    <div v-else-if="!commits.length" class="hist-state">
+      <AppIcon name="git-branch" size="ic-lg" />
+      {{ t('workspace.historyEmpty') }}
     </div>
 
-    <p v-if="loading" class="none">正在读取…</p>
-    <p v-else-if="error" class="none is-bad">{{ error }}</p>
-    <p v-else-if="!commits.length" class="none">这个仓库还没有提交。</p>
-    <ol v-else class="gh-list">
+    <ul v-else class="hist-list">
       <li v-for="c in commits" :key="c.hash">
-        <button class="gh-row" type="button" @click="show(c.hash)">
-          <span class="gh-dot" />
-          <span class="gh-body">
-            <span class="gh-subject">{{ c.subject || '（没有提交信息）' }}</span>
-            <span class="gh-meta dim">
-              <b class="mono">{{ c.short }}</b>
+        <button class="hist-row" type="button" @click="show(c.hash)">
+          <span class="hist-dot" />
+          <span class="hist-tx">
+            <b class="hist-subject">{{ c.subject }}</b>
+            <span class="hist-meta">
+              <span class="hist-hash">{{ shortHash(c.hash) }}</span>
               <span>{{ c.author }}</span>
               <span>{{ fmtWhen(c.when) }}</span>
-              <span>{{ c.files }} 个文件</span>
+              <span>{{ t('workspace.commitCount', { n: c.files }) }}</span>
             </span>
           </span>
-          <span class="gh-num mono">+{{ c.additions }} −{{ c.deletions }}</span>
+          <span class="hist-stat">
+            <b class="is-add">+{{ c.additions }}</b>
+            <b class="is-del">−{{ c.deletions }}</b>
+          </span>
+          <AppIcon name="chevron-right" size="ic-xs" class="hist-go" />
         </button>
       </li>
-    </ol>
+    </ul>
 
-    <!-- 单次提交差异 -->
-    <div v-if="open" ref="drawerRef" class="mask" @click.self="open = false">
-      <aside class="drawer" role="dialog" aria-label="提交内容">
-        <header class="dr-hd">
-          <b>{{ detail?.subject || '提交内容' }}</b>
-          <span class="sp" />
-          <button class="btn btn-sm btn-ghost" type="button" @click="open = false">关闭</button>
+    <el-drawer v-model="open" :title="t('workspace.historyDetail')" size="560px">
+      <div v-if="detailLoading" class="hist-state"><span class="spin" />{{ t('common.loading') }}</div>
+      <div v-else-if="detail" class="det">
+        <header class="det-head">
+          <b class="det-subject">{{ detail.subject }}</b>
+          <pre v-if="detail.body" class="det-body">{{ detail.body }}</pre>
+          <dl class="det-kv">
+            <div class="wb-kv"><dt>hash</dt><dd class="wb-mono">{{ detail.hash }}</dd></div>
+            <div class="wb-kv"><dt>{{ t('common.name') }}</dt><dd>{{ detail.author }}</dd></div>
+            <div class="wb-kv"><dt>{{ t('common.status') }}</dt><dd>{{ fmtWhen(detail.when) }}</dd></div>
+          </dl>
         </header>
-        <div v-if="detailLoading" class="dr-bd">
-          <p class="none">正在读取…</p>
-        </div>
-        <div v-else-if="detail" class="dr-bd">
-          <div class="kv">
-            <div><span>提交</span><b class="mono">{{ detail.short }}</b></div>
-            <div><span>作者</span><b>{{ detail.author }}</b></div>
-            <div><span>时间</span><b>{{ fmtWhen(detail.when) }}</b></div>
-          </div>
-          <p v-if="detail.body" class="gh-body-text">{{ detail.body }}</p>
 
-          <section class="sec">
-            <h3>这次改了 {{ detail.files.length }} 个文件</h3>
-            <ul class="gh-files">
-              <li v-for="f in detail.files" :key="f.path">
-                <span class="nm mono" :title="f.path">{{ f.path }}</span>
-                <span class="tag">{{ tagText(f) }}</span>
-                <span class="pct mono">+{{ f.additions }} −{{ f.deletions }}</span>
-                <button class="btn btn-sm btn-ghost" type="button" @click="showFileHistory(f.path)">
-                  它的历史
-                </button>
-              </li>
-            </ul>
-          </section>
-
-          <section v-if="detail.diff?.lines.length" class="sec">
-            <DiffView
-              :lines="detail.diff.lines"
-              :path="detail.diff.path"
-              :truncated="!!detail.diff.truncated"
-              :dropped="detail.diff.dropped || 0"
-              :loading="false"
-            />
-          </section>
+        <div class="det-files">
+          <button
+            v-for="f in (detail.files || [])"
+            :key="f.path"
+            class="det-file"
+            type="button"
+            @click="showFileHistory(f.path)"
+          >
+            <AppIcon name="doc" size="ic-xs" />
+            <span class="det-path">{{ f.path }}</span>
+            <span class="hist-stat">
+              <b class="is-add">+{{ f.additions }}</b>
+              <b class="is-del">−{{ f.deletions }}</b>
+            </span>
+          </button>
         </div>
-      </aside>
-    </div>
 
-    <!-- 文件历史 -->
-    <div v-if="fileOpen" ref="fileDrawerRef" class="mask" @click.self="fileOpen = false">
-      <aside class="drawer" role="dialog" aria-label="文件历史">
-        <header class="dr-hd">
-          <b class="mono">{{ filePath }}</b>
-          <span class="sp" />
-          <button class="btn btn-sm btn-ghost" type="button" @click="fileOpen = false">关闭</button>
-        </header>
-        <div class="dr-bd">
-          <p v-if="fileLoading" class="none">正在读取…</p>
-          <p v-else-if="!fileCommits.length" class="none">这个文件还没有提交记录。</p>
-          <ol v-else class="gh-list">
-            <li v-for="c in fileCommits" :key="c.hash">
-              <button class="gh-row" type="button" @click="openFromFile(c.hash)">
-                <span class="gh-dot" />
-                <span class="gh-body">
-                  <span class="gh-subject">{{ c.subject || '（没有提交信息）' }}</span>
-                  <span class="gh-meta dim">
-                    <b class="mono">{{ c.short }}</b>
-                    <span>{{ fmtWhen(c.when) }}</span>
-                  </span>
-                </span>
-                <span class="gh-num mono">+{{ c.additions }} −{{ c.deletions }}</span>
-              </button>
-            </li>
-          </ol>
-        </div>
-      </aside>
-    </div>
+        <DiffView
+          v-if="detailDiff"
+          :lines="detailDiff.lines || []"
+          :path="detailDiff.path || ''"
+          :truncated="!!detailDiff.truncated"
+          :dropped="detailDiff.dropped || 0"
+          :loading="false"
+        />
+      </div>
+    </el-drawer>
+
+    <el-drawer v-model="fileOpen" :title="t('workspace.fileHistory')" size="440px">
+      <p class="det-path file-title">{{ filePath }}</p>
+      <div v-if="fileLoading" class="hist-state"><span class="spin" />{{ t('common.loading') }}</div>
+      <ul v-else class="hist-list">
+        <li v-for="c in fileCommits" :key="c.hash">
+          <button class="hist-row" type="button" @click="openFromFile(c.hash)">
+            <span class="hist-dot" />
+            <span class="hist-tx">
+              <b class="hist-subject">{{ c.subject }}</b>
+              <span class="hist-meta">
+                <span class="hist-hash">{{ shortHash(c.hash) }}</span>
+                <span>{{ fmtWhen(c.when) }}</span>
+              </span>
+            </span>
+          </button>
+        </li>
+      </ul>
+    </el-drawer>
   </div>
 </template>
 
 <style scoped>
-.gh {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-3);
+.hist {
+  min-height: 0;
 }
-.gh-hd {
+.hist-state {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-xs);
+  padding: var(--wb-sp-10) var(--wb-sp-5);
   color: var(--wb-muted);
+  font-size: var(--wb-fs-sm);
 }
-.gh-hd .sp {
-  flex: 1;
+.spin {
+  width: calc(13px * var(--wb-vw-scale));
+  height: calc(13px * var(--wb-vw-scale));
+  border-radius: var(--wb-radius-full);
+  border: 1.8px solid var(--wb-border-strong);
+  border-top-color: var(--wb-primary);
+  animation: wb-spin 0.8s linear infinite;
 }
-.gh-list {
+.hist-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  gap: 1px;
 }
-.gh-row {
+.hist-row {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-2);
-  width: 100%;
-  padding: var(--wb-sp-2) var(--wb-sp-1);
-  border: 0;
-  border-radius: var(--wb-radius-sm);
-  background: none;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-3);
+  border-radius: var(--wb-radius);
   text-align: left;
-  cursor: pointer;
-  transition: background var(--wb-dur) var(--wb-ease);
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
-.gh-row:hover {
-  background: var(--wb-tint);
+.hist-row:hover {
+  background: var(--wb-surface-2);
 }
-.gh-dot {
-  flex: none;
+.hist-row:active {
+  transform: scale(0.995);
+}
+.hist-dot {
   width: 7px;
   height: 7px;
   border-radius: var(--wb-radius-full);
-  border: 2px solid var(--wb-primary);
-  background: var(--wb-surface);
+  background: var(--wb-primary);
+  flex: none;
 }
-.gh-body {
+.hist-tx {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.gh-subject {
+.hist-subject {
   font-size: var(--wb-fs-sm);
+  font-weight: 600;
   color: var(--wb-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.gh-meta {
+.hist-meta {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--wb-sp-3);
   font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
 }
-.gh-meta b {
+.hist-hash {
+  font-family: var(--font-mono);
   color: var(--wb-primary);
 }
-.gh-num {
-  flex: none;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.gh-body-text {
-  margin: 0;
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  border-left: 2px solid var(--wb-line-2);
-  border-radius: var(--wb-radius-xs);
-  background: var(--wb-surface-2);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-ink-2);
-  white-space: pre-wrap;
-}
-.gh-files {
+.hist-stat {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.gh-files li {
-  display: flex;
-  align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-1) var(--wb-sp-2);
-  border-radius: var(--wb-radius-sm);
-  font-size: var(--wb-fs-xs);
-}
-.gh-files li:hover {
-  background: var(--wb-tint);
-}
-.gh-files .nm {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--wb-ink-2);
-}
-.tag {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: var(--wb-radius-full);
-  border: 1px solid var(--wb-line-2);
+  font-family: var(--font-mono);
   font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.pct {
   flex: none;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
 }
-.mask {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: rgb(15 23 42 / 24%);
-  display: flex;
-  justify-content: flex-end;
+.hist-stat .is-add {
+  color: var(--wb-success);
 }
-.drawer {
-  width: min(620px, 92vw);
-  display: flex;
-  flex-direction: column;
-  background: var(--wb-surface);
-  border-left: 1px solid var(--wb-line);
-  box-shadow: var(--wb-shadow-2);
-  animation: drawer-in var(--wb-dur) var(--wb-ease);
-}
-@keyframes drawer-in {
-  from {
-    transform: translateX(24px);
-    opacity: 0;
-  }
-}
-.dr-hd {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-3) var(--wb-sp-4);
-  border-bottom: 1px solid var(--wb-line);
-}
-.dr-hd b {
-  min-width: 0;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dr-bd {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: var(--wb-sp-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-3);
-}
-.kv {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: var(--wb-sp-2) var(--wb-sp-3);
-}
-.kv > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.kv span {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.kv b {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-}
-.sec h3 {
-  margin: 0 0 var(--wb-sp-2);
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-}
-.none {
-  margin: 0;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-}
-.none.is-bad {
+.hist-stat .is-del {
   color: var(--wb-danger);
 }
-.mono {
+.hist-go {
+  color: var(--wb-muted);
+  flex: none;
+}
+.det {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-4);
+}
+.det-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+}
+.det-subject {
+  font-size: var(--wb-fs-md);
+  font-weight: 700;
+  color: var(--wb-ink);
+}
+.det-body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink-2);
+  white-space: pre-wrap;
+  line-height: var(--wb-lh-base);
+}
+.det-kv {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-1);
+  padding: var(--wb-sp-3);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface-2);
+}
+.det-kv dd {
   font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-.dim {
-  color: var(--wb-muted);
-}
-.cnt,
-.sum {
   font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
+}
+.det-files {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius);
+  overflow: hidden;
+}
+.det-file {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  text-align: left;
+  transition: background var(--wb-dur-fast) var(--wb-ease);
+}
+.det-file:hover {
+  background: var(--wb-surface-2);
+}
+.det-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-title {
+  margin-bottom: var(--wb-sp-3);
 }
 </style>

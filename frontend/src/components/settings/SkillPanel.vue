@@ -2,6 +2,7 @@
 // 技能面板：列的就是 PI 会加载的那些技能（用户目录 / 工作区 / 插件包自带）。
 // 启停靠把目录移出 PI 的扫描范围，不是在自己的库里记一个开关。
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
@@ -9,20 +10,21 @@ import type { SkillVO } from '../../types/api'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 import CodeEditor from '../common/CodeEditor.vue'
-import PnHead from '../common/PnHead.vue'
+import SettingsSection from './SettingsSection.vue'
 
+const { t } = useI18n()
 const store = useSettingsStore()
 const toast = useToastStore()
+
 const busy = ref('')
+const filter = ref('')
 const opened = ref<SkillVO | null>(null)
 const content = ref('')
-const filter = ref('')
+const drawer = ref(false)
+const creating = ref(false)
+const draft = ref({ name: '', description: '', body: '' })
 
-const SOURCE: Record<string, { label: string; hint: string }> = {
-  global: { label: '我的技能', hint: '~/.pi/agent/skills' },
-  workspace: { label: '工作区', hint: '项目的 .pi/skills' },
-  package: { label: '插件包', hint: '随包安装，界面只读' },
-}
+const SOURCE_KEYS = ['global', 'workspace', 'package'] as const
 
 const list = computed(() => {
   const q = filter.value.trim().toLowerCase()
@@ -33,14 +35,16 @@ const list = computed(() => {
   )
 })
 
-const grouped = computed(() => {
-  const out: Array<{ key: string; label: string; hint: string; items: SkillVO[] }> = []
-  for (const key of ['global', 'workspace', 'package']) {
-    const items = list.value.filter((s) => s.source === key)
-    if (items.length) out.push({ key, label: SOURCE[key].label, hint: SOURCE[key].hint, items })
-  }
-  return out
-})
+const grouped = computed(() =>
+  SOURCE_KEYS.map((key) => ({ key, items: list.value.filter((s) => s.source === key) })).filter(
+    (g) => g.items.length,
+  ),
+)
+
+const counts = computed(() => ({
+  total: store.skills?.length ?? 0,
+  enabled: (store.skills ?? []).filter((s) => s.enabled).length,
+}))
 
 async function reload() {
   await store.loadSkills()
@@ -52,9 +56,8 @@ async function toggle(s: SkillVO) {
   try {
     await api.skills.toggle(s.id, !s.enabled)
     await reload()
-    toast.ok(s.enabled ? `已停用「${s.name}」` : `已启用「${s.name}」`)
   } catch (e) {
-    toast.bad(`切换失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -63,11 +66,12 @@ async function toggle(s: SkillVO) {
 async function open(s: SkillVO) {
   opened.value = s
   content.value = ''
+  drawer.value = true
   try {
     const r = await api.skills.content(s.id)
     content.value = r.content
   } catch (e) {
-    content.value = `读取失败：${(e as Error)?.message || '请重试'}`
+    content.value = t('common.loadFailed', { msg: (e as Error)?.message || '' })
   }
 }
 
@@ -77,262 +81,257 @@ async function remove(s: SkillVO) {
   try {
     await api.skills.remove(s.id)
     await reload()
-    toast.ok(`已删除「${s.name}」`)
+    toast.ok(`${t('common.delete')} ${s.name}`)
   } catch (e) {
-    toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
 }
 
-async function importFolder() {
+async function importSkill() {
   if (busy.value) return
   busy.value = 'import'
   try {
-    const path = await OpenFileDialog('选择技能目录里的 SKILL.md', 'SKILL.md')
+    const path = await OpenFileDialog(t('settings.skills.importHint'), 'SKILL.md')
     if (!path) return
     const r = await api.skills.import([path])
     await reload()
-    TOAST_IMPORT(r)
+    if (r.imported) toast.ok(`${r.imported}`)
+    if (r.skipped?.length) toast.info(r.skipped.slice(0, 3).join('; '))
   } catch (e) {
-    toast.bad(`导入失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
 }
 
-function TOAST_IMPORT(r: { imported: number; skipped: string[] }) {
-  if (r.imported) toast.ok(`导入了 ${r.imported} 个技能`)
-  if (r.skipped?.length) toast.info(`跳过：${r.skipped.slice(0, 3).join('；')}`)
-  if (!r.imported && !r.skipped?.length) toast.info('没有找到可导入的技能')
+async function createSkill() {
+  if (busy.value) return
+  if (!draft.value.name.trim()) return
+  busy.value = 'create'
+  try {
+    await api.skills.create({
+      name: draft.value.name.trim(),
+      description: draft.value.description,
+      body: draft.value.body,
+    })
+    await reload()
+    creating.value = false
+    draft.value = { name: '', description: '', body: '' }
+    toast.ok(t('common.save'))
+  } catch (e) {
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+  } finally {
+    busy.value = ''
+  }
 }
 
 onMounted(() => {
-  // 预热缓存先上屏，后台静默刷新对齐最新；没有缓存才等网络
-  if (store.warmed) void reload()
-  else void reload()
+  void reload()
 })
 </script>
 
 <template>
-  <div class="panel">
-    <PnHead icon="sparkles" title="技能">
-      <template #sub>这里是 PI 真正会加载的技能目录；停用只是把它移出扫描范围，文件还在。</template>
-      <el-input v-model="filter" class="search" placeholder="搜索技能" clearable />
-      <el-button :loading="busy === 'import'" :disabled="!!busy" @click="importFolder">导入</el-button>
-      <el-button :disabled="!!busy" @click="reload">刷新</el-button>
-    </PnHead>
+  <div class="panel-wrap">
+    <SettingsSection icon="book" :title="t('settings.skills.title')" :desc="t('settings.skills.desc')">
+      <template #actions>
+        <el-button size="small" :loading="busy === 'import'" :disabled="!!busy" @click="importSkill">
+          {{ t('settings.skills.import') }}
+        </el-button>
+        <el-button size="small" type="primary" :disabled="!!busy" @click="creating = true">
+          <AppIcon name="plus" size="ic-xs" />
+          <span class="ml-1">{{ t('settings.skills.create') }}</span>
+        </el-button>
+      </template>
 
-    <div v-if="!store.skills.length" class="empty card">
-      <span class="em-ic"><AppIcon name="book" /></span>
-      <b>还没有技能</b>
-      <p>技能是给助手的操作手册：一个目录里放一个 SKILL.md，它会在需要时自己读。</p>
-      <button class="btn" type="button" @click="importFolder">导入一个技能</button>
-    </div>
-
-    <section v-for="g in grouped" :key="g.key" class="group">
-      <div class="g-head">
-        <b>{{ g.label }}</b>
-        <span class="muted mono">{{ g.hint }}</span>
-        <span class="sp" />
-        <span class="muted">{{ g.items.length }} 个</span>
+      <div class="skill-bar">
+        <el-input v-model="filter" size="small" :placeholder="t('common.search')" clearable class="skill-search">
+          <template #prefix><AppIcon name="search" size="ic-xs" /></template>
+        </el-input>
+        <span class="wb-label">{{ counts.enabled }} / {{ counts.total }}</span>
       </div>
-      <div class="rows">
-        <article v-for="s in g.items" :key="s.id" class="row card" :class="{ 'is-off': !s.enabled }">
-          <button class="r-main" type="button" @click="open(s)">
-            <span class="r-top">
-              <b>{{ s.name }}</b>
-              <el-tag :type="s.enabled ? 'success' : 'info'" size="small" effect="plain">
-                {{ s.enabled ? '启用' : '停用' }}
-              </el-tag>
-            </span>
-            <span class="r-desc">{{ s.description || '（没有说明）' }}</span>
-          </button>
-          <div class="r-acts">
-            <el-switch
-              v-if="s.source !== 'package'"
-              :model-value="s.enabled"
-              :loading="busy === s.id"
-              :disabled="!!busy"
-              @change="toggle(s)"
-            />
-            <el-popconfirm
-              v-if="s.source === 'global'"
-              title="删除后这个技能就没了，确定？"
-              width="240"
-              @confirm="remove(s)"
-            >
-              <template #reference>
-                <el-button size="small" type="danger" plain :loading="busy === `del:${s.id}`" :disabled="!!busy">删除</el-button>
-              </template>
-            </el-popconfirm>
-          </div>
-        </article>
-      </div>
-    </section>
 
-    <Transition name="scrim">
-      <div v-if="opened" class="scrim" @click.self="opened = null">
-        <div class="drawer">
-          <header class="dr-head">
-            <b>{{ opened.name }}</b>
-            <span class="muted mono">{{ opened.location }}</span>
-            <span class="sp" />
-            <button class="icon-btn" type="button" title="关闭" @click="opened = null">
-              <AppIcon name="close" size="ic-sm" />
-            </button>
-          </header>
-          <div class="dr-body">
-            <CodeEditor :model-value="content" lang="markdown" readonly :min-height="9999" />
+      <div v-if="store.skillsLoading && !store.skills.length" class="wb-card pad">
+        <el-skeleton animated :rows="4" />
+      </div>
+
+      <div v-else-if="!grouped.length" class="wb-card empty-box">
+        <span class="wb-tile wb-tile--lg"><AppIcon name="book" size="ic-xl" /></span>
+        <b>{{ t('settings.skills.empty') }}</b>
+        <p>{{ t('settings.skills.emptyHint') }}</p>
+      </div>
+
+      <template v-else>
+        <div v-for="g in grouped" :key="g.key" class="skill-group">
+          <div class="wb-label">{{ t(`settings.skills.${g.key}`) }}</div>
+          <div class="skill-list">
+            <article v-for="s in g.items" :key="s.id" class="skill" :class="{ 'is-off': !s.enabled }">
+              <button class="skill-main" type="button" @click="open(s)">
+                <span class="skill-name">{{ s.name }}</span>
+                <span class="skill-desc">{{ s.description || '—' }}</span>
+              </button>
+              <div class="skill-acts">
+                <el-tag size="small" :type="s.enabled ? 'primary' : 'info'">
+                  {{ s.enabled ? t('settings.skills.enabled') : t('settings.skills.disabled') }}
+                </el-tag>
+                <el-switch
+                  :model-value="s.enabled"
+                  :loading="busy === s.id"
+                  :disabled="s.source === 'package' || !!busy"
+                  @change="toggle(s)"
+                />
+                <el-popconfirm
+                  v-if="s.source !== 'package'"
+                  :title="t('settings.skills.deleteTitle')"
+                  width="240"
+                  @confirm="remove(s)"
+                >
+                  <template #reference>
+                    <button class="skill-del" type="button" :disabled="!!busy">
+                      <AppIcon name="trash" size="ic-xs" />
+                    </button>
+                  </template>
+                </el-popconfirm>
+                <el-tooltip v-else :content="t('settings.skills.readOnly')" placement="top">
+                  <span class="skill-lock"><AppIcon name="shield" size="ic-xs" /></span>
+                </el-tooltip>
+              </div>
+            </article>
           </div>
         </div>
-      </div>
-    </Transition>
+      </template>
+    </SettingsSection>
+
+    <el-drawer v-model="drawer" :title="opened?.name || t('settings.skills.content')" size="640px">
+      <p v-if="opened?.description" class="skill-drawer-desc">{{ opened.description }}</p>
+      <CodeEditor :model-value="content" lang="markdown" readonly :min-height="420" />
+    </el-drawer>
+
+    <el-dialog v-model="creating" :title="t('settings.skills.create')" width="640px" destroy-on-close>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.skills.createName')">
+          <el-input v-model="draft.name" placeholder="my-skill" />
+        </el-form-item>
+        <el-form-item :label="t('settings.skills.createDesc')">
+          <el-input v-model="draft.description" />
+        </el-form-item>
+        <el-form-item :label="t('settings.skills.createBody')">
+          <el-input v-model="draft.body" type="textarea" :rows="10" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="creating = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="busy === 'create'" :disabled="!draft.name.trim()" @click="createSkill">
+          {{ t('common.create') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.panel {
+.skill-bar {
   display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-4);
-}
-.search {
-  width: 180px;
-  height: var(--wb-ctl-h-sm);
-}
-.group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
-}
-.g-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.g-head b {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-}
-.sp {
-  flex: 1;
-}
-.rows {
-  /* 响应式卡网：宽屏多列铺满主区，窄窗自动回单列 */
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
+  align-items: center;
   gap: var(--wb-sp-3);
 }
-.row {
+.skill-search {
+  max-width: calc(280px * var(--wb-vw-scale));
+}
+.skill-group {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-3) var(--wb-sp-4);
 }
-.r-top {
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+}
+.skill {
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-2);
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border-radius: var(--wb-radius);
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface);
+  transition:
+    border-color var(--wb-dur) var(--wb-ease),
+    box-shadow var(--wb-dur) var(--wb-ease);
 }
-.r-top b {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.skill:hover {
+  border-color: var(--wb-border-strong);
+  box-shadow: var(--wb-card-shadow);
 }
-.r-acts {
-  display: flex;
-  gap: var(--wb-sp-2);
-  margin-top: auto;
-}
-.row.is-off {
+.skill.is-off {
   opacity: 0.62;
 }
-.r-main {
+.skill-main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  border: none;
-  background: none;
+  gap: 1px;
   text-align: left;
-  cursor: pointer;
-  padding: 0;
 }
-.r-main b {
+.skill-name {
   font-size: var(--wb-fs-sm);
+  font-weight: 700;
   color: var(--wb-ink);
 }
-.r-desc {
-  font-size: var(--wb-fs-xs);
+.skill-desc {
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.empty {
+.skill-acts {
+  flex: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-8) var(--wb-sp-4);
-  text-align: center;
 }
-.em-ic {
-  width: var(--wb-tile);
-  height: var(--wb-tile);
-  border-radius: var(--wb-radius);
+.skill-del,
+.skill-lock {
   display: grid;
   place-items: center;
-  background: var(--wb-primary-soft);
-  color: var(--wb-primary);
-}
-.empty p {
+  width: calc(22px * var(--wb-vw-scale));
+  height: calc(22px * var(--wb-vw-scale));
+  border-radius: var(--wb-radius-xs);
   color: var(--wb-muted);
-  font-size: var(--wb-fs-xs);
-  max-width: 440px;
-  line-height: 1.7;
 }
-.scrim {
-  position: fixed;
-  inset: 0;
-  background: var(--wb-scrim);
-  display: flex;
-  justify-content: flex-end;
-  z-index: 60;
+.skill-del:hover:not(:disabled) {
+  color: var(--wb-danger);
+  background: var(--wb-danger-soft);
 }
-.drawer {
-  width: min(620px, 92vw);
-  background: var(--wb-surface);
-  border-left: 1px solid var(--wb-border);
+.skill-drawer-desc {
+  margin-bottom: var(--wb-sp-3);
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
+}
+.empty-box {
   display: flex;
   flex-direction: column;
-  animation: drawer-in var(--wb-dur) var(--wb-ease);
-}
-@keyframes drawer-in {
-  from {
-    transform: translateX(16px);
-    opacity: 0.6;
-  }
-}
-.dr-head {
-  display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-3) var(--wb-sp-4);
-  border-bottom: 1px solid var(--wb-line);
+  padding: var(--wb-sp-8) var(--wb-sp-6);
+  text-align: center;
 }
-.dr-body {
-  flex: 1;
-  overflow: auto;
-  margin: 0;
-  padding: var(--wb-sp-3);
-  display: flex;
-  flex-direction: column;
+.empty-box b {
+  font-size: var(--wb-fs-md);
+  color: var(--wb-ink);
+}
+.empty-box p {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
+}
+.pad {
+  padding: var(--wb-sp-4);
+}
+.ml-1 {
+  margin-left: var(--wb-sp-1);
 }
 </style>

@@ -65,9 +65,7 @@ func (h *Handler) Bootstrap(c *gin.Context) {
 	})
 }
 
-// Warmup 首屏预热：设置页各面板的清单一次拉齐。
-// 只读磁盘与配置，不拉起 PI 进程——MCP 在线状态与工具快照里有没有真实清单，
-// 都等对话开始后 PI 自己补；面板上如实标注数据来源。
+// Warmup 首屏预热：设置页各面板的清单一次拉齐（只读磁盘与配置，不拉起 PI 进程）。
 func (h *Handler) Warmup(c *gin.Context) {
 	var (
 		skills    []domain.SkillVO

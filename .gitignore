@@ -55,3 +55,5 @@ assets/skills/project-standard/
 /logs/
 /tmp/
 .trash/
+# 验证脚本的本地输出（scripts/check.ps1 写入，失败时用 report-failures.ps1 看）
+/.check/

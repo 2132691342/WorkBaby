@@ -1,20 +1,22 @@
 <script setup lang="ts">
 // 首屏引导：点一下就把例句发出去，降低「不知道说什么」的门槛。
 // 点击后整组禁用、被点的那张转圈——发送要走三次请求，没有反馈就像没点上。
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AppIcon from '../common/AppIcon.vue'
 
 const props = defineProps<{ busy?: boolean }>()
 const emit = defineEmits<{ pick: [text: string] }>()
 
+const { t } = useI18n()
 const picked = ref('')
+
 function pick(text: string) {
   if (props.busy || picked.value) return
   picked.value = text
   emit('pick', text)
 }
-// 发送失败时 busy 不会变真，卡片一直转圈就成了「点了没反应」；
-// 发送完成后由 busy 回落复位，超时兜底只针对失败路径。
+// 发送失败时 busy 不会变真，卡片一直转圈就成了「点了没反应」；由 busy 回落复位
 watch(
   () => props.busy,
   (busy) => {
@@ -22,19 +24,23 @@ watch(
   },
 )
 
-const examples = [
-  { icon: 'doc', title: '帮我读文件', text: '帮我看看当前工作目录里有哪些文件，挑最重要的一个给我讲讲' },
-  { icon: 'table', title: '处理表格', text: '把桌面上的 Excel 按月份汇总一下，生成一份统计报告' },
-  { icon: 'edit-pen', title: '写点东西', text: '帮我写一封请假邮件，语气礼貌一点' },
-  { icon: 'search', title: '查资料', text: '帮我查一下今天的新闻，挑三条有意思的讲给我听' },
-]
+const EXAMPLES = [
+  { icon: 'doc', titleKey: 'exReadTitle', textKey: 'exReadText' },
+  { icon: 'table', titleKey: 'exSheetTitle', textKey: 'exSheetText' },
+  { icon: 'edit-pen', titleKey: 'exWriteTitle', textKey: 'exWriteText' },
+  { icon: 'search', titleKey: 'exSearchTitle', textKey: 'exSearchText' },
+] as const
+
+const examples = computed(() =>
+  EXAMPLES.map((e) => ({ ...e, title: t(`chat.${e.titleKey}`), text: t(`chat.${e.textKey}`) })),
+)
 </script>
 
 <template>
   <div class="ex-grid">
     <button
       v-for="ex in examples"
-      :key="ex.title"
+      :key="ex.textKey"
       class="ex-card"
       type="button"
       :class="{ 'is-loading': picked === ex.text }"
@@ -49,26 +55,24 @@ const examples = [
 </template>
 
 <style scoped>
-/* 例句卡：圆角大一点、图标成「瓦片」、标题用主色。
-   整行元素不悬停放大（宽度 100% 放大必溢出），按下 0.97：与 DESIGN.md 五态表同档。 */
 .ex-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--wb-sp-3);
-  width: min(640px, 100%);
+  width: min(calc(620px * var(--wb-vw-scale)), 100%);
 }
 .ex-card {
   text-align: left;
-  display: grid;
-  gap: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-1);
   padding: var(--wb-sp-4);
-  border-radius: var(--wb-radius-lg);
+  border-radius: var(--wb-radius-xl);
   background: var(--wb-surface);
   border: 1px solid var(--wb-border);
-  cursor: pointer;
+  box-shadow: var(--wb-card-shadow);
   transition:
     border-color var(--wb-dur) var(--wb-ease),
-    background var(--wb-dur) var(--wb-ease),
     box-shadow var(--wb-dur) var(--wb-ease),
     transform var(--wb-dur-fast) var(--wb-ease);
   animation: ex-rise var(--wb-dur-slow) var(--wb-ease) backwards;
@@ -90,11 +94,11 @@ const examples = [
 }
 .ex-card:hover:not(:disabled) {
   border-color: var(--wb-primary-line);
-  background: var(--wb-surface);
-  box-shadow: var(--wb-shadow-2);
+  box-shadow: var(--wb-card-shadow-hover);
+  transform: translateY(-1px);
 }
 .ex-card:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 .ex-card:disabled {
   opacity: 0.45;
@@ -106,22 +110,17 @@ const examples = [
   cursor: progress;
   opacity: 1;
 }
-/* 加载态：标题旁一枚转圈，卡片本身保持全亮——变淡会被误读成禁用 */
 .ex-card.is-loading .ex-t::after {
   content: '';
   display: inline-block;
   width: 11px;
   height: 11px;
-  margin-left: 7px;
+  margin-left: var(--wb-sp-2);
   vertical-align: -1px;
-  border-radius: 50%;
+  border-radius: var(--wb-radius-full);
   border: 2px solid var(--wb-primary);
   border-top-color: transparent;
-  animation: wb-ic-spin 0.8s linear infinite;
-}
-.ex-card:focus-visible {
-  outline: 2px solid var(--wb-primary);
-  outline-offset: 2px;
+  animation: wb-spin 0.8s linear infinite;
 }
 .ex-ic {
   display: grid;
@@ -134,13 +133,13 @@ const examples = [
   color: var(--wb-primary);
 }
 .ex-t {
-  font-weight: 600;
-  color: var(--wb-primary);
+  font-weight: 700;
+  color: var(--wb-ink);
   font-size: var(--wb-fs-md);
 }
 .ex-s {
   color: var(--wb-muted);
-  font-size: var(--wb-fs-sm);
+  font-size: var(--wb-fs-xs);
   line-height: var(--wb-lh-base);
 }
 </style>

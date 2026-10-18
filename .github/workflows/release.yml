@@ -1,4 +1,5 @@
-# tag 触发：wails build → NSIS 安装器 → GitHub Release。设计与取舍见 docs/DEPLOYMENT.md。
+# tag 触发：wails build → NSIS 安装器 → GitHub Release。设计与取名见 docs/DEPLOYMENT.md。
+# 取名规则：WorkBaby 版本号跟随 PI 版本号（`pi --version` 的 major.minor）。
 
 name: release
 
@@ -6,31 +7,34 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:  # 手动触发：测试流水线（不会上传到正式 Release）
+  workflow_dispatch:  # 手动触发：只验证流水线，不上传到 Release
 
 permissions:
-  contents: write  # 创建 Release + 上传资产
+  contents: write
 
 jobs:
   build-windows:
     name: Build Windows installer
     runs-on: windows-latest
+    env:
+      EXE: build/bin/WorkBaby.exe
+      INSTALLER: build/bin/WorkBaby-amd64-installer.exe
     steps:
-      - name: Checkout（含 LFS）
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           lfs: true
           fetch-depth: 1
-          # tag 指向的 commit 必须先随 main 推上去，孤立 commit 会 checkout 失败。
+          # tag 指向的 commit 必须先随 main 推过，否则子模块式 checkout 会失败。
           ref: ${{ github.ref }}
 
-      - name: Setup Go（版本随 go.mod）
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Setup Node 20
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -40,43 +44,36 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
-      - name: Install NSIS（choco）
-        # runner 自带 choco，用它装源稳版本可锁。
+      - name: Install NSIS
         shell: pwsh
+        # runner 自带 choco，用它装源稳定版本可锁定。makensis 必须在 PATH 上，wails build 才拿得到。
         run: |
           choco install nsis -y --no-progress
-          # makensis 必须在 PATH 里，wails build 找得到它
           $nsisPath = "${env:ProgramFiles(x86)}\NSIS"
-          if (Test-Path $nsisPath) {
-              Write-Host "NSIS already installed"
-          } else {
-              throw "NSIS installation failed (path not found: $nsisPath)"
-          }
+          if (-not (Test-Path $nsisPath)) { throw "NSIS installation failed (path not found: $nsisPath)" }
           echo "$nsisPath" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - name: Wails doctor（环境自检）
-        run: wails doctor
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
 
-      - name: 静态检查 + 依赖方向门禁
+      - name: Verify static gate
         shell: pwsh
+        # 测试矩阵已由 main 上的 ci.yml 门禁（tag 必经 main）。这里只重验「编译与依赖方向」：
+        # 重跑全量测试与独立 npm build 都是浪费（wails build 自己会跑前端）。
         run: |
-          # 质量门禁（测试 / 类型检查）在 ci.yml，这里只验证编译与依赖方向。
-          Write-Host '== gofmt -l（应为空）==' -ForegroundColor Cyan
           $bad = gofmt -l .
-          if ($bad) { throw "gofmt 未通过：`n$bad" }
-          Write-Host '== go vet ./backend/... ==' -ForegroundColor Cyan
+          if ($bad) { throw "gofmt 未通过:`n$bad" }
           go vet ./backend/...
-          if ($LASTEXITCODE -ne 0) { throw "go vet failed" }
-          Write-Host '== go build ./backend/...（编译期验证，main 包留给 wails build）==' -ForegroundColor Cyan
+          if ($LASTEXITCODE -ne 0) { throw "go vet 失败" }
           go build ./backend/...
-          if ($LASTEXITCODE -ne 0) { throw "go build failed" }
-          Write-Host '== 依赖方向门禁 ==' -ForegroundColor Cyan
+          if ($LASTEXITCODE -ne 0) { throw "go build 失败" }
           go run ./tools/check-boundaries
-          if ($LASTEXITCODE -ne 0) { throw "check-boundaries failed" }
-      - name: 校验运行时归档（LFS 已拉取真文件）
-        # 归档经 go:embed 进 exe：LFS 没拉下来时嵌的是指针文本，构建照样成功，
-        # 用户首次启动才发现运行时不可用——构建前当场拦下。
+          if ($LASTEXITCODE -ne 0) { throw "依赖方向门禁失败" }
+
+      - name: Verify runtime archives
         shell: pwsh
+        # 归档经 go:embed 进 exe：LFS 没拉下来时嵌的是指针文本，构建会成功而运行时不可用。
         run: |
           $patterns = @(
             'backend/runtime/bundled/python-*.zip',
@@ -84,59 +81,32 @@ jobs:
           )
           foreach ($pattern in $patterns) {
             $f = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $f) { throw "缺少运行时归档: $pattern（git lfs pull 未执行？）" }
-            $fs = [System.IO.File]::OpenRead($f.FullName)
-            try {
-              $buf = New-Object byte[] 24
-              $n = $fs.Read($buf, 0, 24)
-            } finally { $fs.Close() }
-            $head = [System.Text.Encoding]::ASCII.GetString($buf, 0, $n)
+            if (-not $f) { throw "缺少运行时归档 $pattern（git lfs pull 未执行？）" }
+            $head = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($f.FullName), 0, 24)
             if ($head.StartsWith('version https://git-lfs')) {
-              throw "运行时归档是 LFS 指针，未拉取真实文件: $($f.Name)"
+              throw "运行时归档还是 LFS 指针，未取到真实文件: $($f.Name)"
             }
             Write-Host ("OK {0} {1:N1} MB" -f $f.Name, ($f.Length / 1MB))
           }
 
-      - name: Wails 构建（前端 npm ci → 嵌入 → NSIS 打包）
+      - name: Wails build
         shell: pwsh
-        # bindings 必须随构建生成（前端依赖 @/wailsjs）；-nsis 必填，缺了不产出安装器。
-        run: |
-          $ErrorActionPreference = 'Continue'
-          wails build -clean -platform windows/amd64 -trimpath -nsis 2>&1 | Tee-Object -FilePath wails-build.log
-          # 管道之后退出码只认 $LASTEXITCODE，不当场判会拖到「验证产物」才炸。
-          $wailsExit = $LASTEXITCODE
-          if ($wailsExit -ne 0) {
-            Write-Host '::error::wails build 失败，日志见 wails-build.log'
-            Get-Content wails-build.log -Tail 40 -ErrorAction SilentlyContinue
-            throw "wails build failed (exit $wailsExit)"
-          }
+        # bindings 必须随构建生成（前端依赖 @/wailsjs）；-nsis 必填，缺了不产安装器。
+        run: wails build -clean -platform windows/amd64 -trimpath -nsis
 
-          # 运行时归档由 go:embed 进 exe，产物旁不需要 runtimes 目录。
-          # exe 存在性在这里确认，NSIS 的产出在下一段确认。
-          if (-not (Test-Path 'build/bin/WorkBaby.exe')) {
-            throw "wails build 未产出 WorkBaby.exe"
-          }
-
-          # NSIS 打包失败时 wails 可能仍返回 0，必须显式确认安装器存在。
-          if (-not (Test-Path 'build/bin/WorkBaby-amd64-installer.exe')) {
-            Write-Host '::error::NSIS 安装器未产出'
-            Get-Content wails-build.log -Tail 40 -ErrorAction SilentlyContinue
-            throw "NSIS installer not produced"
-          }
-
-      - name: 验证产物
+      - name: Verify artifacts
         shell: pwsh
+        # exe 存在（含内嵌归档，故明显大于裸壳）+ 安装器真的产出。
+        # NSIS 打包失败时 wails 仍可能返回 0，所以安装器要单独确认。
         run: |
-          if (-not (Test-Path 'build/bin/WorkBaby.exe')) { throw "WorkBaby.exe missing" }
-          if (-not (Test-Path 'build/bin/WorkBaby-amd64-installer.exe')) { throw "WorkBaby-amd64-installer.exe missing" }
-          # 内嵌 Node + Python 归档约 46MB，exe 因此明显变大；
-          # 阈值按「外壳 + 归档」的实际量级定：低于它说明归档没嵌进来。
-          $exeMB = (Get-Item 'build/bin/WorkBaby.exe').Length / 1MB
-          if ($exeMB -lt 55) { throw ("WorkBaby.exe 只有 {0:N1} MB：运行时归档疑似未嵌入" -f $exeMB) }
-          Write-Host ("Build artifacts OK（exe {0:N1} MB + installer）" -f $exeMB)
+          if (-not (Test-Path $env:EXE)) { throw "wails build 没产出 $([System.IO.Path]::GetFileName($env:EXE))" }
+          if (-not (Test-Path $env:INSTALLER)) { throw "NSIS 安装器未产出 $([System.IO.Path]::GetFileName($env:INSTALLER))" }
+          $exeMB = (Get-Item $env:EXE).Length / 1MB
+          if ($exeMB -lt 55) { throw ("$([System.IO.Path]::GetFileName($env:EXE)) 只有 {0:N1} MB，运行时归档疑似没嵌进去" -f $exeMB) }
+          Write-Host ("Artifacts OK (exe {0:N1} MB + installer)" -f $exeMB)
 
-      - name: 上传失败诊断包
-        # 失败时保留产物供本地排查；成功后直接进 Release，不留重复 artifacts。
+      - name: Upload failure diagnostics
+        # 失败时保留产物供本地排查；成功后直接进 Release，不留重复 artifact。
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -146,7 +116,7 @@ jobs:
             !build/bin/*.db
           retention-days: 7
 
-      - name: 创建 GitHub Release 并上传安装器
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
@@ -154,7 +124,6 @@ jobs:
           name: WorkBaby ${{ github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          # 同名资产允许覆盖：同一版本修完问题会重推 tag
+          # 同名资产允许覆盖：同一版本号完善问题会重推 tag
           overwrite_files: true
-          files: |
-            build/bin/WorkBaby-amd64-installer.exe
+          files: build/bin/WorkBaby-amd64-installer.exe

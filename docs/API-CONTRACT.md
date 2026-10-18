@@ -21,6 +21,7 @@
 |---|---|---|
 | GET | `/health` | 存活探测 |
 | GET | `/bootstrap` | 启动引导：版本、契约版本、默认模型、工作目录、环境闸门、设置 KV |
+| GET | `/warmup` | 首屏预热聚合：一次拉齐设置页五个面板的清单（技能 / 服务商 / 工具 / 插件 / MCP），不各自去拉 |
 | GET | `/sessions?workspace=` | 会话列表（来自 PI 的会话文件，可按工作目录过滤） |
 | GET | `/sessions/:id` | 会话详情（元信息 + 投影消息） |
 | POST | `/sessions/rename/:id` | 改名（PI 的 `set_session_name`） |
@@ -108,8 +109,12 @@ data: {"seq":42,"event":"chat:delta","data":{"entry_id":"run-…","kind":"text",
 | `chat:ask_closed` | 提问已结束（answered / cancelled / gone） |
 | `chat:done` | stop_reason / usage / max_tokens |
 | `chat:stopped` / `chat:error` / `chat:gap` | 停止 / 出错 / 重放缺口 |
+| `chat:switched` | 会话被切走（换工作区 / 引擎重启），前端必须拉新快照 |
 | `chat:setup` | 安装进度（phase / progress / message） |
-```
+| `chat:notify` | 引擎扩展的即时通知（level: info/warning/error，无需应答） |
+| `chat:status` | 引擎扩展设的状态条（空 text 即清除） |
+| `chat:widget` | 引擎扩展推的小部件文本行（空行即清除） |
+| `chat:title` | 引擎请求改标题（写进标题栏，不进会话名） |
 
 ## 契约版本
 

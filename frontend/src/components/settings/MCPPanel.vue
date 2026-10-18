@@ -2,16 +2,19 @@
 // MCP 面板：配置读写的是 PI 的 mcp.json（全局 + 项目各一份），
 // 在线状态与工具清单来自 `pi mcp list --json`——连没连上只有 PI 知道。
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { MCPListRESP, MCPServerVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import CodeEditor from '../common/CodeEditor.vue'
-import PnHead from '../common/PnHead.vue'
+import SettingsSection from './SettingsSection.vue'
 
+const { t } = useI18n()
 const toast = useToastStore()
 const settingsStore = useSettingsStore()
+
 const data = ref<MCPListRESP | null>(null)
 const scope = ref<'global' | 'project'>('global')
 const raw = ref('')
@@ -20,23 +23,22 @@ const busy = ref('')
 const servers = computed(() => data.value?.servers ?? [])
 const hasProject = computed(() => !!data.value?.project_path)
 
-const STATE: Record<string, { label: string; cls: string }> = {
-  connected: { label: '已连接', cls: 'ok' },
-  error: { label: '连接失败', cls: 'bad' },
-  unknown: { label: '未探测', cls: '' },
+const STATE: Record<string, { key: string; tone: string }> = {
+  connected: { key: 'online', tone: 'ok' },
+  error: { key: 'offline', tone: 'bad' },
+  unknown: { key: 'unknown', tone: '' },
 }
 
 async function reload() {
   try {
     data.value = await api.mcp.list()
     settingsStore.mcp = data.value
-    raw.value = scope.value === 'global' ? data.value.global_raw : data.value.project_raw
+    raw.value = scope.value === 'global' ? data.value.global_raw || '{}' : data.value.project_raw || '{}'
   } catch (e) {
-    toast.bad(`读取 MCP 失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   }
 }
 
-// 切换作用域时把配置原文换成对应那份
 watch(scope, (next) => {
   raw.value = next === 'global' ? data.value?.global_raw || '{}' : data.value?.project_raw || '{}'
 })
@@ -47,9 +49,9 @@ async function save() {
   try {
     await api.mcp.save(scope.value, raw.value)
     await reload()
-    toast.ok('已保存，PI 进程已重启')
+    toast.ok(t('settings.mcp.saved'))
   } catch (e) {
-    toast.bad(`保存失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad((e as Error)?.message || t('settings.mcp.invalidJson'))
   } finally {
     busy.value = ''
   }
@@ -61,9 +63,9 @@ async function refresh() {
   try {
     await api.mcp.reload()
     await reload()
-    toast.ok('已重连')
+    toast.ok(t('settings.mcp.reloaded'))
   } catch (e) {
-    toast.bad(`重连失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -75,9 +77,9 @@ async function remove(s: MCPServerVO) {
   try {
     await api.mcp.remove(s.name, s.scope)
     await reload()
-    toast.ok(`已删除 ${s.name}`)
+    toast.ok(`${t('common.remove')} ${s.name}`)
   } catch (e) {
-    toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -88,217 +90,195 @@ async function login(s: MCPServerVO) {
   busy.value = `login:${s.name}`
   try {
     await api.mcp.login(s.name)
-    toast.info('已在浏览器里打开登录页，完成后点「重连」')
+    toast.info(t('settings.mcp.login'))
   } catch (e) {
-    toast.bad(`发起登录失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
 }
 
 function addTemplate() {
-  const tpl = {
-    mcpServers: {
-      'my-server': { command: 'node', args: ['C:/path/to/server.js'] },
-    },
-  }
-  raw.value = JSON.stringify(tpl, null, 2)
+  raw.value = JSON.stringify(
+    { mcpServers: { 'my-server': { command: 'node', args: ['C:/path/to/server.js'] } } },
+    null,
+    2,
+  )
 }
 
 onMounted(() => {
   if (settingsStore.mcp) {
     data.value = settingsStore.mcp
-    raw.value = scope.value === 'global' ? data.value.global_raw : data.value.project_raw
-    void reload()
-  } else void reload()
+    raw.value = scope.value === 'global' ? data.value.global_raw || '{}' : data.value.project_raw || '{}'
+  }
+  void reload()
 })
 </script>
 
 <template>
-  <div class="panel">
-    <PnHead icon="globe" title="MCP 服务">
-      <template #sub>
-        配置在 <span class="mono">{{ data?.global_path || '~/.pi/agent/mcp.json' }}</span>；在线状态来自 <span class="mono">pi mcp list</span>——对话开始后 PI 进程起来才会探测，未连接不等于配置坏了。
+  <div class="panel-wrap">
+    <SettingsSection icon="globe" :title="t('settings.mcp.title')" :desc="t('settings.mcp.desc')">
+      <template #actions>
+        <el-button size="small" :loading="busy === 'reload'" :disabled="!!busy" @click="refresh">
+          {{ busy === 'reload' ? t('settings.mcp.reloading') : t('settings.mcp.reload') }}
+        </el-button>
       </template>
-      <el-button :loading="busy === 'reload'" :disabled="!!busy" @click="refresh">重连</el-button>
-    </PnHead>
 
-    <div v-if="!servers.length" class="empty card">
-      <span class="em-ic"><AppIcon name="globe" /></span>
-      <b>还没有配置 MCP 服务</b>
-      <p>MCP 让助手用上外部工具（浏览器、数据库、内部系统）。在下面粘一段配置即可。</p>
-      <el-button @click="addTemplate">填一个模板</el-button>
-    </div>
+      <div v-if="!servers.length" class="wb-card empty-box">
+        <span class="wb-tile wb-tile--lg"><AppIcon name="globe" size="ic-xl" /></span>
+        <b>{{ t('settings.mcp.empty') }}</b>
+        <p>{{ t('settings.mcp.emptyHint') }}</p>
+      </div>
 
-    <div v-else class="cards">
-      <article v-for="s in servers" :key="`${s.scope}:${s.name}`" class="mcard card">
-        <div class="m-top">
-          <span class="m-ic"><AppIcon name="globe" size="ic-sm" /></span>
-          <div class="m-id">
-            <b>{{ s.name }}</b>
-            <span class="muted sm">{{ s.scope === 'project' ? '项目级' : '全局' }} · 暴露档 {{ s.exposure }}</span>
-          </div>
-          <el-tag :type="STATE[s.state]?.cls || 'info'" size="small" effect="plain"
-            :title="s.state === 'unknown' ? 'PI 进程还没起来；对话开始后自动探测' : ''">
-            {{ STATE[s.state]?.label || s.state }}
-          </el-tag>
-        </div>
-        <div class="mono sm muted m-tr">{{ s.transport || '（没有命令或地址）' }}</div>
-        <div class="m-tools">
-          <span v-for="t in s.tools.slice(0, 6)" :key="t" class="chip sm">{{ t }}</span>
-          <span v-if="s.tools.length > 6" class="muted sm">+{{ s.tools.length - 6 }}</span>
-          <span v-if="!s.tools.length && s.state !== 'unknown'" class="muted sm">还没有工具清单</span>
-          <span v-if="!s.tools.length && s.state === 'unknown'" class="muted sm">对话开始后 PI 会自动接入并列出工具</span>
-        </div>
-        <p v-if="s.error" class="err">{{ s.error }}</p>
-        <div class="m-acts">
-          <el-button size="small" :loading="busy === `login:${s.name}`" :disabled="!!busy" @click="login(s)">登录</el-button>
-          <el-popconfirm title="删除后助手就用不上这个服务了，确定？" width="260" @confirm="remove(s)">
-            <template #reference>
-              <el-button size="small" type="danger" plain :loading="busy === `del:${s.name}`" :disabled="!!busy">删除</el-button>
-            </template>
-          </el-popconfirm>
-        </div>
-      </article>
-    </div>
+      <div v-else class="mcp-grid">
+        <article v-for="s in servers" :key="`${s.scope}:${s.name}`" class="mcp">
+          <header class="mcp-head">
+            <span class="mcp-led" :class="`is-${STATE[s.state]?.tone || 'na'}`" />
+            <span class="mcp-name">{{ s.name }}</span>
+            <el-tag size="small" :type="s.state === 'connected' ? 'success' : s.state === 'error' ? 'danger' : 'info'">
+              {{ t(`settings.mcp.${STATE[s.state]?.key || 'unknown'}`) }}
+            </el-tag>
+            <el-tag size="small" type="info">{{ s.transport }}</el-tag>
+          </header>
+          <p v-if="s.error" class="mcp-err">{{ s.error }}</p>
+          <p class="mcp-meta">
+            <span>{{ s.scope === 'project' ? t('settings.mcp.project') : t('settings.mcp.global') }}</span>
+            <span v-if="s.tools?.length">{{ t('settings.mcp.tools', { n: s.tools.length }) }}</span>
+          </p>
+          <footer class="mcp-acts">
+            <el-button size="small" :loading="busy === `login:${s.name}`" :disabled="!!busy" @click="login(s)">
+              {{ t('settings.mcp.login') }}
+            </el-button>
+            <span class="sp" />
+            <el-popconfirm :title="t('settings.mcp.removeTitle')" width="240" @confirm="remove(s)">
+              <template #reference>
+                <el-button size="small" circle :disabled="!!busy">
+                  <AppIcon name="trash" size="ic-xs" />
+                </el-button>
+              </template>
+            </el-popconfirm>
+          </footer>
+        </article>
+      </div>
 
-    <section class="editor card">
-      <div class="ed-head">
-        <b>配置原文</b>
-        <div class="seg">
+      <div class="mcp-raw">
+        <div class="raw-head">
+          <span class="wb-label">{{ t('settings.mcp.raw') }}</span>
           <el-radio-group v-model="scope" size="small">
-            <el-radio-button value="global">全局</el-radio-button>
-            <el-radio-button value="project" :disabled="!hasProject">项目</el-radio-button>
+            <el-radio-button value="global">{{ t('settings.mcp.global') }}</el-radio-button>
+            <el-radio-button value="project" :disabled="!hasProject">{{ t('settings.mcp.project') }}</el-radio-button>
           </el-radio-group>
+          <span class="sp" />
+          <el-button size="small" :disabled="!!busy" @click="addTemplate">{{ t('common.add') }}</el-button>
+          <el-button size="small" type="primary" :loading="busy === 'save'" :disabled="!!busy" @click="save">
+            {{ t('settings.mcp.save') }}
+          </el-button>
         </div>
-        <span class="sp" />
-        <el-button size="small" @click="addTemplate">填模板</el-button>
+        <p class="wb-mono raw-path">
+          {{ scope === 'global' ? data?.global_path : data?.project_path || t('settings.mcp.scopeProject') }}
+        </p>
+        <CodeEditor v-model="raw" lang="json" :min-height="260" />
       </div>
-      <CodeEditor v-model="raw" lang="json" :min-height="240" />
-      <div class="ed-acts">
-        <el-button type="primary" :loading="busy === 'save'" :disabled="!!busy" @click="save">保存</el-button>
-        <span class="muted sm">保存前会做 JSON 与 mcpServers 结构校验；不通过一个字符都不写</span>
-      </div>
-    </section>
+    </SettingsSection>
   </div>
 </template>
 
 <style scoped>
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-4);
-}
-.cards {
+.mcp-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(calc(280px * var(--wb-vw-scale)), 1fr));
   gap: var(--wb-sp-3);
 }
-.mcard {
+.mcp {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-4);
+  padding: var(--wb-sp-3);
+  border-radius: var(--wb-radius-lg);
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface);
+  box-shadow: var(--wb-card-shadow);
 }
-.m-top {
+.mcp-head {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
 }
-.m-ic {
-  width: var(--wb-tile-sm);
-  height: var(--wb-tile-sm);
-  border-radius: var(--wb-radius-sm);
-  display: grid;
-  place-items: center;
-  background: var(--wb-primary-soft);
-  color: var(--wb-primary);
+.mcp-led {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-border-strong);
   flex: none;
 }
-.m-id {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+.mcp-led.is-ok {
+  background: var(--wb-success);
+}
+.mcp-led.is-bad {
+  background: var(--wb-danger);
+}
+.mcp-name {
   flex: 1;
-}
-.m-id b {
+  min-width: 0;
+  font-family: var(--font-mono);
   font-size: var(--wb-fs-sm);
+  font-weight: 700;
   color: var(--wb-ink);
-}
-.m-tr {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.m-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.err {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-danger);
-  word-break: break-word;
-}
-.m-acts {
-  display: flex;
-  gap: var(--wb-sp-2);
-  margin-top: auto;
-}
-.sm {
+.mcp-err {
   font-size: var(--wb-fs-2xs);
+  color: var(--wb-danger);
+  overflow-wrap: anywhere;
 }
-.editor {
-  padding: var(--wb-sp-4);
+.mcp-meta {
   display: flex;
-  flex-direction: column;
   gap: var(--wb-sp-3);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
 }
-.ed-head {
+.mcp-acts {
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-3);
-  flex-wrap: wrap;
+  gap: var(--wb-sp-2);
 }
-.ed-head b {
-  font-size: var(--wb-fs-sm);
+.mcp-raw {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  padding-top: var(--wb-sp-2);
+}
+.raw-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+}
+.raw-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.empty-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-8) var(--wb-sp-6);
+  text-align: center;
+}
+.empty-box b {
+  font-size: var(--wb-fs-md);
   color: var(--wb-ink);
+}
+.empty-box p {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
+  max-width: calc(420px * var(--wb-vw-scale));
+  line-height: var(--wb-lh-base);
 }
 .sp {
   flex: 1;
-}
-.textarea {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
-  line-height: 1.7;
-  resize: vertical;
-}
-.ed-acts {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
-}
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-8) var(--wb-sp-4);
-  text-align: center;
-}
-.em-ic {
-  width: var(--wb-tile);
-  height: var(--wb-tile);
-  border-radius: var(--wb-radius);
-  display: grid;
-  place-items: center;
-  background: var(--wb-primary-soft);
-  color: var(--wb-primary);
-}
-.empty p {
-  color: var(--wb-muted);
-  font-size: var(--wb-fs-xs);
-  max-width: 440px;
-  line-height: 1.7;
 }
 </style>

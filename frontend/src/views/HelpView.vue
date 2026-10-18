@@ -2,12 +2,14 @@
 // 帮助页：内置文档目录 + Markdown 阅读；URL 是唯一真相（/help/:name）。
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import * as api from '../api'
 import type { HelpDocVO } from '../types/api'
 import { renderMarkdown } from '../utils/md'
 import AppIcon from '../components/common/AppIcon.vue'
-import PageState from '../components/common/PageState.vue'
+import SidePanel from '../components/layout/SidePanel.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
@@ -16,9 +18,19 @@ const listError = ref('')
 const html = ref('')
 const loading = ref(true)
 const docError = ref('')
+const filter = ref('')
 
 const current = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const title = computed(() => items.value.find((d) => d.name === current.value)?.title || '帮助')
+const title = computed(
+  () => items.value.find((d) => d.name === current.value)?.title || t('help.title'),
+)
+const shown = computed(() => {
+  const q = filter.value.trim().toLowerCase()
+  if (!q) return items.value
+  return items.value.filter(
+    (d) => d.title.toLowerCase().includes(q) || d.name.toLowerCase().includes(q),
+  )
+})
 
 async function loadList() {
   try {
@@ -28,7 +40,7 @@ async function loadList() {
       void router.replace(`/help/${items.value[0].name}`)
     }
   } catch (e) {
-    listError.value = (e as Error)?.message || '读不到帮助文档'
+    listError.value = (e as Error)?.message || ''
   }
 }
 
@@ -41,7 +53,7 @@ async function loadDoc(name: string) {
     // 首行 H1 就是页面头，正文里再渲染一遍会变成「标题下面还有一个同样的标题」
     html.value = renderMarkdown(doc.content.replace(/^#\s.*\r?\n?/, ''))
   } catch (e) {
-    docError.value = (e as Error)?.message || '这篇文档打不开'
+    docError.value = (e as Error)?.message || t('help.missing')
     html.value = ''
   } finally {
     loading.value = false
@@ -59,41 +71,43 @@ void loadList()
 </script>
 
 <template>
-  <div class="help wb-ui">
-    <aside class="side">
-      <div class="side-brand">
-        <div class="logo"><AppIcon name="book" size="ic-sm" /></div>
-        <div>
-          <b>帮助</b>
-          <small>使用手册</small>
-        </div>
-      </div>
-      <nav class="nav">
+  <div class="help">
+    <SidePanel :title="t('help.toc')">
+      <el-input v-model="filter" size="small" class="help-search" :placeholder="t('help.search')" clearable>
+        <template #prefix><AppIcon name="search" size="ic-xs" /></template>
+      </el-input>
+      <nav class="help-nav">
         <button
-          v-for="d in items"
+          v-for="d in shown"
           :key="d.name"
-          class="nav-item"
-          :class="{ on: d.name === current }"
+          class="help-item"
+          :class="{ 'is-on': d.name === current }"
           type="button"
           @click="router.push(`/help/${d.name}`)"
         >
-          <AppIcon name="doc" /> {{ d.title }}
+          <AppIcon name="doc" size="ic-sm" />
+          <span>{{ d.title }}</span>
         </button>
+        <p v-if="!shown.length" class="help-empty">{{ t('common.empty') }}</p>
       </nav>
-      <p v-if="listError" class="alert a-danger side-err">
-        <AppIcon name="alert" size="ic-sm" />
-        <span>{{ listError }}</span>
-      </p>
-    </aside>
+      <p v-if="listError" class="notice-bar notice-bar--bad help-err">{{ listError }}</p>
+    </SidePanel>
 
-    <div class="help-main scroll">
-      <div class="wrap-md">
-        <header class="page-head">
-          <h1>{{ title }}</h1>
-        </header>
-        <PageState :loading="loading" :error="docError">
-          <article class="card doc-card prose" v-html="html" />
-        </PageState>
+    <div class="help-main">
+      <header class="help-head">
+        <h1 class="help-title">{{ title }}</h1>
+        <p class="help-sub">{{ t('help.subtitle') }}</p>
+      </header>
+      <div class="help-scroll">
+        <div class="help-col">
+          <div v-if="loading" class="wb-card help-card"><el-skeleton animated :rows="8" /></div>
+          <div v-else-if="docError" class="wb-card help-card help-blank">
+            <AppIcon name="alert" size="ic-xl" />
+            <b>{{ docError }}</b>
+            <el-button size="small" @click="loadDoc(current)">{{ t('common.retry') }}</el-button>
+          </div>
+          <article v-else class="wb-card help-card prose" v-html="html" />
+        </div>
       </div>
     </div>
   </div>
@@ -102,55 +116,102 @@ void loadList()
 <style scoped>
 .help {
   display: flex;
-  height: 100%;
-  min-height: 0;
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
-.nav {
-  display: grid;
-  gap: 2px;
-  padding: 0 var(--wb-sp-3);
+.help-search {
+  margin-bottom: var(--wb-sp-2);
 }
-.nav-item {
-  width: 100%;
-  min-width: 0;
+.help-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
-.side-err {
-  margin: 0 var(--wb-sp-3) var(--wb-sp-3);
+.help-item {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border-radius: var(--wb-radius-sm);
+  color: var(--wb-ink-2);
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  text-align: left;
+  transition:
+    background var(--wb-dur) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease),
+    box-shadow var(--wb-dur) var(--wb-ease);
+}
+.help-item:hover {
+  background: var(--wb-nav-hover-bg);
+  color: var(--wb-ink);
+}
+.help-item.is-on {
+  background: var(--wb-nav-active-bg);
+  color: var(--wb-nav-active-ink);
+  box-shadow: inset 2px 0 0 var(--wb-primary);
+}
+.help-empty {
+  padding: var(--wb-sp-4) var(--wb-sp-3);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+}
+.help-err {
+  margin-top: var(--wb-sp-2);
 }
 .help-main {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-.wrap-md {
-  width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: var(--wb-sp-8) var(--wb-sp-6) var(--wb-sp-10);
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-4);
-  min-width: 0;
 }
-.page-head h1 {
+.help-head {
+  flex: none;
+  padding: var(--wb-sp-4) var(--wb-sp-5);
+  border-bottom: 1px solid var(--wb-border);
+}
+.help-title {
   font-family: var(--font-display);
   font-size: var(--wb-fs-xl);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.015em;
   color: var(--wb-ink);
-  letter-spacing: -0.01em;
 }
-/* 阅读版心：文档页比聊天列宽一点，长文段落更好读 */
-.doc-card {
+.help-sub {
+  margin-top: 2px;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
+}
+.help-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.help-col {
+  max-width: calc(860px * var(--wb-vw-scale));
+  margin: 0 auto;
+  padding: var(--wb-sp-5);
+}
+.help-card {
   padding: var(--wb-sp-6) var(--wb-sp-8);
-  font-size: var(--wb-fs-lg);
-  line-height: var(--wb-lh-loose);
+}
+.help-blank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-10);
+  text-align: center;
+  color: var(--wb-muted);
+}
+.help-blank b {
+  color: var(--wb-ink);
 }
 @media (max-width: 1100px) {
-  .doc-card {
-    padding: var(--wb-sp-5) var(--wb-sp-5);
+  .help-card {
+    padding: var(--wb-sp-5);
   }
 }
 </style>

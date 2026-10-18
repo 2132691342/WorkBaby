@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// 分支面板：列出分支、切换、新建。
-// 只允许普通 checkout 与 checkout -b：强删、强改指向这类动作留给用户自己的 Git 工具（specs/09）。
+// 分支面板：列出分支、切换、新建、推送。
+// 只允许普通 checkout 与 checkout -b：强删、强改指向留给用户自己的 Git 工具。
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import { useToastStore } from '../../stores/toast'
 import type { GitBranchVO, GitStatusVO } from '../../types/api'
@@ -10,7 +11,9 @@ import AppIcon from '../common/AppIcon.vue'
 const props = defineProps<{ sessionId: string }>()
 const emit = defineEmits<{ (e: 'done', status: GitStatusVO): void }>()
 
+const { t } = useI18n()
 const toast = useToastStore()
+
 const branches = ref<GitBranchVO[]>([])
 const loading = ref(true)
 const busy = ref('')
@@ -25,7 +28,7 @@ async function load() {
     branches.value = await api.git.branches(props.sessionId)
   } catch (e) {
     branches.value = []
-    toast.bad(`读不到分支列表：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     loading.value = false
   }
@@ -38,11 +41,9 @@ async function switchTo(name: string) {
   try {
     const st = await api.git.switchBranch(name, props.sessionId)
     emit('done', st)
-    toast.ok(`已切到 ${name}`)
     await load()
   } catch (e) {
-    // 切不过去多半是工作区有未提交改动挡着：原文来自 git，直接说给用户听
-    toast.bad(`切不过去：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -51,7 +52,7 @@ async function switchTo(name: string) {
 async function create() {
   const name = newName.value.trim()
   if (!name) {
-    toast.bad('先给新分支起个名字')
+    toast.bad(t('workspace.branchName'))
     return
   }
   if (busy.value) return
@@ -61,10 +62,9 @@ async function create() {
     newName.value = ''
     creating.value = false
     emit('done', st)
-    toast.ok(`已新建并切到 ${name}`)
     await load()
   } catch (e) {
-    toast.bad(`新建失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -76,11 +76,10 @@ async function push() {
   try {
     const st = await api.git.push(props.sessionId)
     emit('done', st)
-    toast.ok('已推送')
+    toast.ok(t('workspace.pushed'))
     await load()
   } catch (e) {
-    // 推送被拒最常见是远端有新提交：原文里带着该先 pull，别猜
-    toast.bad(`推送失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -88,153 +87,146 @@ async function push() {
 </script>
 
 <template>
-  <div class="gb">
-    <div class="gb-hd">
-      <span class="cur">
+  <div class="br">
+    <header class="br-head">
+      <span class="br-cur">
         <AppIcon name="git-branch" size="ic-sm" />
-        当前 <b>{{ current?.name || '（读不到）' }}</b>
+        {{ current?.name || t('workspace.branchEmpty') }}
       </span>
       <span class="sp" />
-      <button class="btn btn-sm" type="button" :class="{ 'is-loading': busy === 'push' }" :disabled="!!busy" @click="push()">
-        推送
-      </button>
-      <button class="btn btn-sm" type="button" :class="{ 'is-loading': loading }" :disabled="loading || !!busy" @click="creating = !creating">
-        新建分支
-      </button>
+      <el-button size="small" :loading="busy === 'push'" :disabled="!!busy" @click="push">
+        {{ busy === 'push' ? t('workspace.pushing') : t('workspace.push') }}
+      </el-button>
+      <el-button size="small" type="primary" :disabled="!!busy" @click="creating = !creating">
+        {{ t('workspace.branchNew') }}
+      </el-button>
+    </header>
+
+    <div v-if="creating" class="br-new">
+      <el-input
+        v-model="newName"
+        size="small"
+        :placeholder="t('workspace.branchName')"
+        @keydown.enter="create"
+      />
+      <el-button size="small" type="primary" :loading="!!busy" @click="create">
+        {{ t('common.create') }}
+      </el-button>
+      <el-button size="small" @click="creating = false">{{ t('common.cancel') }}</el-button>
     </div>
 
-    <div v-if="creating" class="gb-new">
-      <input v-model="newName" class="gb-input" type="text" maxlength="128" placeholder="例如 feature/表格导出" @keyup.enter="create()" />
-      <button class="btn btn-sm btn-primary" type="button" :class="{ 'is-loading': !!busy }" :disabled="!!busy" @click="create()">
-        新建并切过去
-      </button>
-      <button class="btn btn-sm btn-ghost" type="button" @click="creating = false">取消</button>
-    </div>
-
-    <p v-if="loading" class="none">正在读取…</p>
-    <ul v-else-if="branches.length" class="gb-list">
+    <div v-if="loading" class="br-state"><span class="spin" />{{ t('common.loading') }}</div>
+    <ul v-else-if="branches.length" class="br-list">
       <li v-for="b in branches" :key="b.name">
-        <span class="gb-name mono" :class="{ 'is-cur': b.current }">{{ b.name }}</span>
-        <span v-if="b.ahead" class="tag">领先 {{ b.ahead }}</span>
-        <span v-if="b.behind" class="tag">落后 {{ b.behind }}</span>
-        <span class="sp" />
-        <button
-          v-if="!b.current"
-          class="btn btn-sm btn-ghost"
-          type="button"
-          :class="{ 'is-loading': busy === b.name }"
-          :disabled="!!busy"
-          @click="switchTo(b.name)"
-        >
-          切换
-        </button>
-        <span v-else class="gb-cur-tag">当前</span>
+        <div class="br-row" :class="{ 'is-on': b.current }">
+          <span class="br-dot" :class="{ 'is-on': b.current }" />
+          <span class="br-name" :title="b.name">{{ b.name }}</span>
+          <el-tag v-if="b.current" size="small" type="primary">{{ t('workspace.branchCurrent') }}</el-tag>
+          <span v-if="b.ahead" class="br-ahead">{{ t('workspace.ahead', { n: b.ahead }) }}</span>
+          <span v-if="b.behind" class="br-behind">{{ t('workspace.behind', { n: b.behind }) }}</span>
+          <span class="sp" />
+          <el-button
+            v-if="!b.current"
+            size="small"
+            text
+            :loading="busy === b.name"
+            :disabled="!!busy"
+            @click="switchTo(b.name)"
+          >
+            {{ t('workspace.branchSwitch') }}
+          </el-button>
+        </div>
       </li>
     </ul>
-    <p v-else class="none">还没有其他分支。</p>
+    <div v-else class="br-state">{{ t('workspace.branchEmpty') }}</div>
   </div>
 </template>
 
 <style scoped>
-.gb {
+.br {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-3);
 }
-.gb-hd {
+.br-head {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
 }
-.gb-hd .cur {
+.br-cur {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.gb-hd .cur b {
+  gap: var(--wb-sp-2);
+  font-size: var(--wb-fs-sm);
+  font-weight: 700;
   color: var(--wb-ink);
 }
-.gb-hd .sp {
-  flex: 1;
-}
-.gb-new {
+.br-new {
   display: flex;
-  align-items: center;
   gap: var(--wb-sp-2);
 }
-.gb-input {
-  flex: 1;
-  min-width: 0;
-  height: var(--wb-ctl-h-sm);
-  padding: 0 var(--wb-sp-3);
-  border: 1px solid var(--wb-line-2);
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-surface);
-  color: var(--wb-ink);
-  font-size: var(--wb-fs-sm);
-  transition: border-color var(--wb-dur) var(--wb-ease);
-}
-.gb-input:focus {
-  outline: none;
-  border-color: var(--wb-primary);
-}
-.gb-list {
+.br-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  gap: 1px;
 }
-.gb-list li {
+.br-row {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-2) var(--wb-sp-1);
-  border-radius: var(--wb-radius-sm);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border-radius: var(--wb-radius);
+  transition: background var(--wb-dur-fast) var(--wb-ease);
+}
+.br-row:hover {
+  background: var(--wb-surface-2);
+}
+.br-row.is-on {
+  background: var(--wb-primary-soft);
+}
+.br-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-border-strong);
+  flex: none;
+}
+.br-dot.is-on {
+  background: var(--wb-primary);
+}
+.br-name {
+  font-family: var(--font-mono);
   font-size: var(--wb-fs-sm);
-  transition: background var(--wb-dur) var(--wb-ease);
-}
-.gb-list li:hover {
-  background: var(--wb-tint);
-}
-.gb-name {
-  min-width: 0;
+  color: var(--wb-ink);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--wb-ink-2);
 }
-.gb-name.is-cur {
-  font-weight: 700;
-  color: var(--wb-primary);
-}
-.gb-list .sp {
-  flex: 1;
-}
-.tag {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: var(--wb-radius-full);
-  border: 1px solid var(--wb-line-2);
+.br-ahead,
+.br-behind {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
-}
-.gb-cur-tag {
-  flex: none;
-  font-size: var(--wb-fs-2xs);
-  font-weight: 700;
-  color: var(--wb-primary);
-}
-.none {
-  margin: 0;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-}
-.mono {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+.br-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-8) 0;
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-sm);
+}
+.spin {
+  width: calc(13px * var(--wb-vw-scale));
+  height: calc(13px * var(--wb-vw-scale));
+  border-radius: var(--wb-radius-full);
+  border: 1.8px solid var(--wb-border-strong);
+  border-top-color: var(--wb-primary);
+  animation: wb-spin 0.8s linear infinite;
+}
+.sp {
+  flex: 1;
 }
 </style>

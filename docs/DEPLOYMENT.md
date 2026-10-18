@@ -12,24 +12,24 @@ build/bin/
 
 ## 流水线
 
-两条 GitHub Actions，分工是「日常门禁」与「出包」：
+两条 GitHub Actions，分工是「日常门禁」与「出包」，两条都跑与本地同一个入口：
 
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
-| `.github/workflows/ci.yml` | push main / PR / 手动 | 后端 `go vet` + `gofmt` + `go build` + 依赖方向门禁 + **全量** `go test`；前端 `npm ci` + `vue-tsc` + `vite build` |
-| `.github/workflows/release.yml` | tag `v*` / 手动 | 同样的编译与门禁 + 校验运行时归档是真文件 → `wails build -clean -nsis` → 校验产物体积 → 建 GitHub Release 并上传安装器 |
+| `.github/workflows/ci.yml` | push main / PR / 手动 | 装 Go + Node + 依赖 → 跑 `pwsh scripts/check.ps1 -Full`（gofmt / 编译 / vet / 依赖边界 / 全量测试 / 前端构建），失败时 `scripts/report-failures.ps1` 把摘要写进 job summary |
+| `.github/workflows/release.yml` | tag `v*` / 手动 | 轻量静态门禁（gofmt / vet / `go build` / 依赖方向，不重跑已由 ci 门过的测试矩阵）+ 校验运行时归档是真文件 → `wails build -clean -nsis` → 校验产物体积 → 建 GitHub Release 并上传安装器 |
 
 几个约定，改动流水线前要知道：
 
+- **门禁与出包分层**：日常质量门禁集中在 `ci.yml`（跑 `check.ps1 -Full`）；`release.yml` 只做静态编译门禁，不重跑已由 main 门过的测试与独立前端构建（`wails build` 自己会跑前端）
 - **两个 job 都跑 `windows-latest`**：目标平台只有 Windows amd64，门禁与出包必须在同一套系统调用上验
 - **checkout 必须 `lfs: true`**：运行时归档走 Git LFS，没拉下来时 `go:embed` 嵌的是指针文本，
   exe 能构建、用户首次启动才炸；`release.yml` 在打包前逐份读文件头确认不是指针
-- **`release.yml` 不重跑测试**：质量门禁在 `ci.yml`，出包这条链只验证「能编出来、产物对」
 - **tag 指向的 commit 必须先随 main 推上去**：孤立 commit 会让 tag 触发的 checkout 失败
 - **版本号与 PI 保持一致**：WorkBaby 是 PI 的外壳，tag 与 PI 的版本对齐才说得清兼容性
 
 发版顺序：确保 main 上的 `ci.yml` 全绿 → 打 tag → 观察 `release` workflow → Release 里出现安装器。
-失败时 `workbaby-windows-debug` 诊断包会带上 `build/bin/` 的全部产物，保留 7 天。
+`release` 的编译与出包失败时，`workbaby-windows-debug` 诊断包会带上 `build/bin/` 的全部产物，保留 7 天。
 
 ## 构建
 

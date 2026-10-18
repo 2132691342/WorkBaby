@@ -239,7 +239,7 @@ func TestHTTPChain(t *testing.T) {
 		}
 	})
 
-	t.Run("契约：统一信封、空数组不null、配置位置可见", func(t *testing.T) {
+	t.Run("契约：统一信封、空数组不 null、引导与预热聚合字段齐全", func(t *testing.T) {
 		code, body := call(t, base, "GET", "/bootstrap", nil)
 		if code != http.StatusOK {
 			t.Fatalf("bootstrap 失败: %d %s", code, body)
@@ -308,12 +308,10 @@ func TestHTTPChain(t *testing.T) {
 				t.Fatalf("MCP 接口缺少 %s: %s", want, body)
 			}
 		}
-	})
 
-	// 首屏预热聚合：五路清单一次拉齐且不发 null，前端进面板时不再空白。
-	t.Run("预热聚合：五路清单一次拉齐", func(t *testing.T) {
-		_, body := call(t, base, "GET", "/warmup", nil)
-		var payload struct {
+		// 首屏预热聚合：五路清单一次拉齐且不发 null，前端进面板时不再空白。
+		_, body = call(t, base, "GET", "/warmup", nil)
+		var warm struct {
 			Code string `json:"code"`
 			Data struct {
 				Skills     *[]map[string]any `json:"skills"`
@@ -323,18 +321,19 @@ func TestHTTPChain(t *testing.T) {
 				MCP        *json.RawMessage  `json:"mcp"`
 			} `json:"data"`
 		}
-		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		if err := json.Unmarshal([]byte(body), &warm); err != nil {
 			t.Fatalf("解析 warmup 失败: %v", err)
 		}
-		if payload.Code != "0" {
+		if warm.Code != "0" {
 			t.Fatalf("warmup 报错: %s", body)
 		}
-		if payload.Data.Skills == nil || payload.Data.Providers == nil || payload.Data.Tools == nil ||
-			payload.Data.Extensions == nil || payload.Data.MCP == nil {
+		if warm.Data.Skills == nil || warm.Data.Providers == nil || warm.Data.Tools == nil ||
+			warm.Data.Extensions == nil || warm.Data.MCP == nil {
 			t.Fatalf("warmup 字段缺失: %s", body)
 		}
 	})
 
+	// SSE 是唯一的运行态通道：假 PI 子进程 → Hub → 帧 → seq 递增 → 重连带游标重放。
 	t.Run("SSE 全链：子进程到帧、seq 递增、断线重连不被拒", func(t *testing.T) {
 		// 配一个服务：环境闸门的 model 判定要它。
 		code, body := call(t, base, "POST", "/providers/upsert", map[string]any{

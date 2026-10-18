@@ -66,6 +66,8 @@ export const useChatStore = defineStore('chat', () => {
   // 引擎扩展的状态条与小部件：key → 内容，多扩展共存互不覆盖
   const engineStatus = ref<Record<string, string>>({})
   const engineWidgets = ref<Record<string, string[]>>({})
+  /** 引擎给窗口起的标题（扩展的 setTitle）：标题栏用它，不写会话名 */
+  const suggestedTitle = ref('')
 
   function reset() {
     running.value = false
@@ -90,6 +92,7 @@ export const useChatStore = defineStore('chat', () => {
     retrying.value = false
     engineStatus.value = {}
     engineWidgets.value = {}
+    suggestedTitle.value = ''
   }
 
   // 思考内容可能被用户关掉：关掉后不累积，也不出现在历史渲染里。
@@ -385,8 +388,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function onTitle(data: { title: string }) {
-    if (!data.title) return
-    notice.value = `助手建议标题：${data.title}`
+    suggestedTitle.value = (data.title || '').trim()
   }
 
   return {
@@ -409,6 +411,7 @@ export const useChatStore = defineStore('chat', () => {
     retrying,
     engineStatus,
     engineWidgets,
+    suggestedTitle,
     elapsedSec,
     reset,
     send,

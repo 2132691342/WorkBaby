@@ -1,41 +1,46 @@
 <script setup lang="ts">
-// 消息流：历史消息 + 正在进行的回合（思考 / 工具 / 流式正文）。
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+// 消息流：历史回合 + 正在进行的回合（思考 / 工具 / 流式正文）+ 提问卡 + 收尾提示。
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useChatStore, type ToolRun } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
+import { useToastStore } from '../../stores/toast'
 import { renderMarkdown, renderMarkdownStream } from '../../utils/md'
 import { fmtCount, fmtInt } from '../../utils/num'
 import { groupTurns } from '../../utils/turns'
 import AppIcon from '../common/AppIcon.vue'
 import AskCard from './AskCard.vue'
-import MessageItem from './MessageItem.vue'
-import ToolRunRow from './ToolRunRow.vue'
-
-type RunBlock = { key: string; kind: 'run'; run: ToolRun }
+import ChatMessage from './ChatMessage.vue'
+import ToolCard from './ToolCard.vue'
 
 // 收尾提示条上的动作：截断续写 / 出错重试由视图实现。
-// 传回调而不是 emit：按钮要 await 到结果才能收回 loading，emit 是同步的拿不到。
 const props = defineProps<{
   onContinue?: () => Promise<void> | void
   onRetry?: () => Promise<void> | void
 }>()
 
-const acting = ref<'' | 'continue' | 'retry'>('')
+const { t } = useI18n()
+const session = useSessionStore()
+const chat = useChatStore()
+const toast = useToastStore()
+const router = useRouter()
 
-// 停止重试：失败已由 store 弹提示，这里只负责把按钮的 loading 收回去
+const acting = ref<'' | 'continue' | 'retry'>('')
 const cancellingRetry = ref(false)
+
 async function stopRetry() {
   if (cancellingRetry.value) return
   cancellingRetry.value = true
   try {
     await chat.cancelRetry(session.currentId || '')
   } catch {
-    /* store 层没有 toast，失败时保持提示条与按钮可用即可 */
+    /* store 层已弹提示，保持提示条与按钮可用即可 */
   } finally {
     cancellingRetry.value = false
   }
 }
+
 async function act(kind: 'continue' | 'retry') {
   if (acting.value || chat.running) return
   acting.value = kind
@@ -47,31 +52,24 @@ async function act(kind: 'continue' | 'retry') {
   }
 }
 
-const session = useSessionStore()
-const chat = useChatStore()
-const router = useRouter()
-
-// 模型配置类错误（重试解决不了）：服务不存在 3101、缺服务或模型名 3111、
-// 模型不识图 3113、没存 Key 3114 —— 出路都在设置页。
+// 模型配置类错误（重试解决不了）：出路都在设置页
 const SETUP_CODES = new Set(['3101', '3111', '3113', '3114'])
 const needSetup = computed(() => SETUP_CODES.has(chat.lastErrorCode))
 
 const scroller = ref<HTMLElement | null>(null)
 const stick = ref(true)
-// 流式思考块的折叠：默认展开（回复中看得见在想什么），可以收起
 const liveThinkOpen = ref(true)
 
 // 思考可能几万字：全量塞进 DOM 会让每帧重排压住主线程，也会把正文顶出屏幕。
 // 只渲染尾部——推理是流式的，用户要看的是「现在想到哪」。
 const THINK_TAIL = 4000
 const liveThink = computed(() => {
-  const t = chat.thinking
-  if (t.length <= THINK_TAIL) return t
-  return `…（前文已折叠，共 ${t.length} 字）\n${t.slice(-THINK_TAIL)}`
+  const v = chat.thinking
+  if (v.length <= THINK_TAIL) return v
+  return `…\n${v.slice(-THINK_TAIL)}`
 })
 
-// 正文一出现就自动收起思考：视线该落在答案上，而不是继续跟着推理往下滚。
-// 只自动收一次，用户随后手动展开不再被打断。
+// 正文一出现就自动收起思考：视线该落在答案上。只自动收一次。
 let autoCollapsed = false
 watch(
   () => chat.streaming,
@@ -92,16 +90,8 @@ watch(
   },
 )
 
-// 截断提示必须带出实际预算：撞的是「我们给的额度」还是「厂商硬限制」，
-// 光看提示分不出来，而两者该做的事不同（去调额度 vs 换模型或接受）。
-const truncText = computed(() =>
-  chat.truncBudget
-    ? `这一轮用满了 ${fmtInt(chat.truncBudget)} 的输出预算，后半段没有写出来。`
-    : '这一轮到了输出上限，后半段没有写出来。',
-)
-
 // 流式渲染节流：每个 delta 全量重解析 markdown 会打满主线程，SSE 被服务端判为慢消费者断连；
-// 数据照单全收、只把渲染放慢，收尾补完整渲染。长文再降一档（全量重解析是 O(n)）。
+// 数据照单全收、只把渲染放慢，收尾补完整渲染。
 const STREAM_TICK_MS = 120
 const STREAM_TICK_MS_LONG = 280
 const STREAM_LONG_CHARS = 20000
@@ -126,10 +116,12 @@ watch(
       clearTimeout(renderTimer)
       renderTimer = 0
     }
-    // 收尾用完整渲染：把流式期间跳过的代码高亮一次性补上
     renderedStream.value = renderMarkdown(chat.streaming)
   },
 )
+onBeforeUnmount(() => {
+  if (renderTimer) clearTimeout(renderTimer)
+})
 
 function onScroll() {
   if (jumping) return
@@ -138,8 +130,6 @@ function onScroll() {
   stick.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80
 }
 
-// 回到底部：滚上去看历史时流式还在继续，没有这个入口就只能手动拖回去。
-// 平滑滚动期间 scroll 事件会把 stick 判回 false、贴底逻辑也会抢着置底，都让位。
 let jumping = false
 function jumpToLatest() {
   const el = scroller.value
@@ -152,8 +142,7 @@ function jumpToLatest() {
   }, 400)
 }
 
-// 工具结果的参数不在自己身上，而在声明它的那条 assistant(tool_calls) 里。
-// 不做这层关联的话，历史工具卡只剩一个光秃秃的名字，用户完全不知道助手干了什么。
+// 工具结果的参数不在自己身上，而在声明它的那条 assistant(tool_calls) 里
 const toolArgsMap = computed(() => {
   const map = new Map<string, Record<string, unknown>>()
   for (const m of session.messages) {
@@ -164,29 +153,24 @@ const toolArgsMap = computed(() => {
   return map
 })
 
-// 引擎扩展的状态条与小部件：Record → 有序条目，模板好渲染
 const statusEntries = computed(() => Object.entries(chat.engineStatus))
 const widgetEntries = computed(() => Object.entries(chat.engineWidgets))
 
-// 运行读数：秒数直接读 store 的计时器；耗时格式 m 分 s 秒
 const fmtElapsed = computed(() => {
   const s = chat.elapsedSec
   if (s < 60) return `${s}s`
   return `${Math.floor(s / 60)}m${s % 60}s`
 })
 
-// 一次「提问 → 回答」是一整块（思考 + 多个工具 + 几段正文）；分组逻辑在 utils/turns.ts。
 type TurnBlock = import('../../utils/turns').TurnBlock<unknown>
-
 const turnBlocks = computed<TurnBlock[]>(() => groupTurns(session.messages, () => []))
 
-// 运行中的工具卡留在助手列里（缩进对齐）
+type RunBlock = { key: string; run: ToolRun }
 const runBlocks = computed<RunBlock[]>(() =>
-  chat.runs.map((r) => ({ key: `r-${r.tool_call_id}`, kind: 'run' as const, run: r })),
+  chat.runs.map((r) => ({ key: `r-${r.tool_call_id}`, run: r })),
 )
 
-// 贴底滚动走 rAF 合并：逐 delta 读 scrollHeight 会把主线程压成强制重排。
-// 提问卡也要盯：它等在正文下面，不滚过去就被输入框盖住。
+// 贴底滚动走 rAF 合并：逐 delta 读 scrollHeight 会把主线程压成强制重排
 let scrollPending = false
 function stickToBottom() {
   if (!stick.value || scrollPending || jumping) return
@@ -199,75 +183,84 @@ function stickToBottom() {
   })
 }
 watch(
-  () => [session.messages.length, chat.streaming.length, chat.thinking.length, chat.runs.length, chat.asks.length] as const,
+  () =>
+    [session.messages.length, chat.streaming.length, chat.thinking.length, chat.runs.length, chat.asks.length] as const,
   stickToBottom,
 )
 
-// 打开会话时消息往往已经加载完了才挂载本组件，watch 不会为「首次就有数据」触发，
-// 于是永远停在最上面那条。切回一个聊了一半的会话却要从头翻，是很直接的挫败感。
+// 打开会话时消息可能已经加载完了才挂载本组件，watch 不会为「首次就有数据」触发
 onMounted(async () => {
   await nextTick()
   const el = scroller.value
   if (el) el.scrollTop = el.scrollHeight
 })
+
+// 代码块复制：正文是 v-html 注入的，用事件委托接住按钮
+async function onStreamClick(e: MouseEvent) {
+  const btn = (e.target as HTMLElement | null)?.closest<HTMLElement>('.code-copy')
+  if (!btn) return
+  const code = btn.closest('.code-block')?.querySelector('pre')?.textContent || ''
+  if (!code) return
+  try {
+    await navigator.clipboard.writeText(code)
+    btn.classList.add('is-done')
+    window.setTimeout(() => btn.classList.remove('is-done'), 1200)
+  } catch {
+    toast.bad(t('common.copyFailed'))
+  }
+}
 </script>
 
 <template>
-  <div ref="scroller" class="msgs" @scroll.passive="onScroll">
-    <div class="msgs-inner">
+  <div ref="scroller" class="msg-scroll" @scroll.passive="onScroll" @click="onStreamClick">
+    <div class="msg-col">
       <template v-for="b in turnBlocks" :key="b.key">
-        <MessageItem v-if="b.kind === 'user'" :msg="b.msg" />
-        <div v-else-if="b.kind === 'assistant'" class="turn turn-a">
-          <div class="msg-a">
-            <div class="avatar"><span>WB</span></div>
-            <div class="msg-a-body">
-              <template v-for="p in b.parts" :key="p.msg.id">
-                <MessageItem :msg="p.msg" plain />
-                <!-- 工具卡和审批卡收进同一块：它们本来就是这件事的步骤。
-                     审批是这一回合要用户拍板的一步，脱离竖轨就成了悬空的独立元素。 -->
-                <div v-if="p.tools.length" class="turn-tools">
-                  <ToolRunRow
-                    v-for="t in p.tools"
-                    :key="t.id"
-                    :label="t.tool_name || '工具'"
-                    :tool="t.tool_name || ''"
-                    :args="toolArgsMap.get(t.tool_call_id || '')"
-                    :running="false"
-                    :ok="!t.is_error"
-                    :output="t.content || ''"
-                  />
-                </div>
-              </template>
-            </div>
+        <ChatMessage v-if="b.kind === 'user'" :msg="b.msg" />
+
+        <div v-else-if="b.kind === 'assistant'" class="turn">
+          <div class="turn-body">
+            <template v-for="p in b.parts" :key="p.msg.id">
+              <ChatMessage :msg="p.msg" plain />
+              <div v-if="p.tools.length" class="turn-tools">
+                <ToolCard
+                  v-for="tc in p.tools"
+                  :key="tc.id"
+                  :label="tc.tool_name || 'tool'"
+                  :tool="tc.tool_name || ''"
+                  :args="toolArgsMap.get(tc.tool_call_id || '')"
+                  :running="false"
+                  :ok="!tc.is_error"
+                  :output="tc.content || ''"
+                />
+              </div>
+            </template>
           </div>
         </div>
       </template>
 
       <!-- 正在进行的回合 -->
-      <div v-if="chat.running" class="turn turn-a">
-        <div class="msg-a">
-          <div class="avatar is-live"><span>WB</span></div>
-          <div class="msg-a-body">
-            <!-- 思考：流式期间默认展开，可手动收起；呼吸点标记「还在想」 -->
+      <div v-if="chat.running" class="turn">
+        <div class="msg-ai is-live">
+          <div class="msg-avatar is-live"><span>WB</span></div>
+          <div class="msg-ai-body">
             <div v-if="chat.thinking" class="think is-live">
               <button
-                class="think-hd"
+                class="think-head"
                 type="button"
                 :aria-expanded="liveThinkOpen"
-                aria-controls="live-think-body"
                 @click="liveThinkOpen = !liveThinkOpen"
               >
-                <span class="think-dot" aria-hidden="true" />
+                <span class="live-dot" />
                 <AppIcon name="brain" size="ic-xs" />
-                <span>正在思考</span>
-                <span class="think-hint">{{ chat.thinking.length }} 字</span>
-                <AppIcon class="chev" :name="liveThinkOpen ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
+                <span>{{ t('chat.thinkingLive') }}</span>
+                <span class="think-count">{{ t('chat.thinkChars', { n: chat.thinking.length }) }}</span>
+                <AppIcon class="think-chev" :name="liveThinkOpen ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
               </button>
-              <div v-if="liveThinkOpen" id="live-think-body" class="wb-think-body">{{ liveThink }}</div>
+              <div v-if="liveThinkOpen" class="think-body">{{ liveThink }}</div>
             </div>
 
             <div v-if="runBlocks.length" class="turn-tools">
-              <ToolRunRow
+              <ToolCard
                 v-for="b in runBlocks"
                 :key="b.key"
                 :label="b.run.label"
@@ -281,21 +274,17 @@ onMounted(async () => {
               />
             </div>
 
-            <!-- 正文：光标常驻，让「还在写」这件事一眼可见 -->
-            <div v-if="chat.streaming" class="bubble is-streaming" v-html="renderedStream" />
-            <div v-else-if="!chat.runs.length && !chat.thinking" class="bubble is-typing">
-              <span class="dot" /><span class="dot" /><span class="dot" />
-              <span class="typing-txt">正在组织回答</span>
+            <div v-if="chat.streaming" class="prose" v-html="renderedStream" />
+            <div v-if="chat.streaming" class="stream-caret" />
+
+            <div v-if="!chat.streaming && !chat.runs.length && !chat.thinking" class="typing">
+              <span class="typing-dot" /><span class="typing-dot" /><span class="typing-dot" />
             </div>
-            <!-- 运行读数：耗时随跑随长，token 走实时水位；空跑（无 thinking/runs/stream）不占位 -->
-            <div v-if="chat.running && (chat.streaming || chat.thinking || chat.runs.length)" class="run-meter">
-              <span class="rm-item">
-                <AppIcon name="clock" size="ic-2xs" />
-                {{ fmtElapsed }}
-              </span>
+
+            <div v-if="chat.streaming || chat.thinking || chat.runs.length" class="run-meter">
+              <span class="rm-item"><AppIcon name="clock" size="ic-2xs" />{{ fmtElapsed }}</span>
               <span v-if="chat.contextUsed > 0" class="rm-item">
-                <AppIcon name="chart" size="ic-2xs" />
-                {{ fmtCount(chat.contextUsed) }} tok
+                <AppIcon name="chart" size="ic-2xs" />{{ fmtCount(chat.contextUsed) }}
               </span>
             </div>
           </div>
@@ -303,14 +292,12 @@ onMounted(async () => {
       </div>
 
       <!-- 引擎在问用户：问题来自 PI 进程，不挂在某一条消息上，统一排在流末尾 -->
-      <div v-if="chat.asks.length" class="turn turn-appr">
-        <AskCard v-for="a in chat.asks" :key="a.id" :ask="a" />
-      </div>
+      <AskCard v-for="a in chat.asks" :key="a.id" :ask="a" />
 
-      <!-- 引擎扩展的状态条与小部件：来自 setStatus / setWidget，排在提问卡之后 -->
+      <!-- 引擎扩展的状态条与小部件：来自 setStatus / setWidget -->
       <div v-if="statusEntries.length || widgetEntries.length" class="engine-fx">
         <div v-for="[k, v] in statusEntries" :key="`s-${k}`" class="efx-row">
-          <span class="efx-dot" aria-hidden="true" />
+          <span class="efx-dot" />
           <span class="efx-txt">{{ v }}</span>
         </div>
         <div v-for="[k, lines] in widgetEntries" :key="`w-${k}`" class="efx-widget">
@@ -318,73 +305,68 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 重试提示条：重试期间用户唯一的主动选择是「别试了」，所以按钮必须在这一条上 -->
-      <div v-if="chat.notice" class="wb-hint" :class="{ 'tail-act': chat.retrying }">
-        <AppIcon name="info" />
+      <!-- 重试提示条：重试期间用户唯一的主动选择是「别试了」 -->
+      <div v-if="chat.notice" class="notice-bar" :class="{ 'notice-bar--warn': chat.retrying }">
+        <AppIcon name="info" size="ic-xs" />
         <span class="grow">{{ chat.notice }}</span>
-        <button
-          v-if="chat.retrying"
-          class="btn btn-sm"
-          type="button"
-          :class="{ 'is-loading': cancellingRetry }"
-          :disabled="cancellingRetry"
-          @click="stopRetry"
-        >
-          停止重试
-        </button>
+        <el-button v-if="chat.retrying" size="small" :loading="cancellingRetry" :disabled="cancellingRetry" @click="stopRetry">
+          {{ t('chat.stopRetry') }}
+        </el-button>
       </div>
-      <!-- 被截断：正文只写了一半，工具调用作废。给一键续写，别让用户自己猜要怎么办 -->
-      <div v-if="chat.truncated" class="alert a-warn tail-act">
-        <AppIcon name="alert" />
+
+      <!-- 被截断：正文只写了一半，给一键续写 -->
+      <div v-if="chat.truncated" class="notice-bar notice-bar--warn">
+        <AppIcon name="alert" size="ic-xs" />
         <div class="grow">
-          <div class="a-t">回答被截断了</div>
-          <div>{{ truncText }}</div>
-          <div class="a-sub">输出预算已按上下文窗口给足（窗口的 1/8）。仍被截断说明撞到了模型自己的硬上限：换一个支持更长输出的模型，或点「继续」接着写。</div>
+          <b>{{ t('chat.noticeTruncated', { n: chat.truncBudget ? fmtInt(chat.truncBudget) : '—' }) }}</b>
         </div>
-        <button
-          class="btn btn-sm"
-          type="button"
-          :class="{ 'is-loading': acting === 'continue' }"
+        <el-button
+          size="small"
+          :loading="acting === 'continue'"
           :disabled="chat.running || !!acting"
           @click="act('continue')"
         >
-          继续
-        </button>
+          {{ t('chat.continue') }}
+        </el-button>
       </div>
-      <div v-if="chat.lastError" class="alert a-danger tail-act">
-        <AppIcon name="alert" />
-        <div class="grow">
-          <div class="a-t">出错了</div>
-          <div>{{ chat.lastError }}</div>
-        </div>
-        <button v-if="needSetup" class="btn btn-sm" type="button" @click="router.push({ name: 'settings', params: { tab: 'providers' } })">
-          去设置
-        </button>
-        <button
-          class="btn btn-sm"
-          type="button"
-          :class="{ 'is-loading': acting === 'retry' }"
+
+      <div v-if="chat.lastError" class="notice-bar notice-bar--bad">
+        <AppIcon name="alert" size="ic-xs" />
+        <span class="grow">{{ chat.lastError }}</span>
+        <el-button
+          v-if="needSetup"
+          size="small"
+          @click="router.push({ name: 'settings', params: { tab: 'providers' } })"
+        >
+          {{ t('settings.providers.title') }}
+        </el-button>
+        <el-button
+          size="small"
+          :loading="acting === 'retry'"
           :disabled="chat.running || !!acting"
           @click="act('retry')"
         >
-          重试
-        </button>
+          {{ t('common.retry') }}
+        </el-button>
       </div>
     </div>
+
     <!-- 回到底部：sticky 钉在滚动口下缘，只有离开底部才出现 -->
     <div v-if="!stick" class="jump-row">
-      <button class="jump-btn" type="button" title="回到底部" aria-label="回到底部" @click="jumpToLatest">
-        <AppIcon name="chevron-down" size="ic" />
-      </button>
+      <el-tooltip :content="t('chat.jumpLatest', 'Bottom')" placement="left" :show-after="300">
+        <button class="jump-btn" type="button" @click="jumpToLatest">
+          <AppIcon name="chevron-down" size="ic" />
+        </button>
+      </el-tooltip>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 新回合入场：自下方轻浮入。历史消息首屏渲染带同一动画——打开会话时整屏一次性
-   淡入（一档动效内完成），比「啪」地出现柔和；新增的回合则得到明确的「来了」反馈。
-   流式期间的重渲染不重建元素，动画不会重放。 */
-.msgs-inner > * {
+.msg-avatar.is-live {
+  box-shadow: 0 0 0 3px var(--wb-live-soft);
+}
+.msg-col > * {
   animation: turn-in var(--wb-dur) var(--wb-ease);
 }
 @keyframes turn-in {
@@ -393,10 +375,6 @@ onMounted(async () => {
     transform: translateY(8px);
   }
 }
-.avatar.is-live {
-  box-shadow: 0 0 0 3px var(--wb-live-soft);
-}
-/* 引擎扩展的反馈区：状态条用活动色点，小部件用等宽凹陷块 */
 .engine-fx {
   display: flex;
   flex-direction: column;
@@ -421,16 +399,16 @@ onMounted(async () => {
 @keyframes efx-breathe {
   0%,
   100% {
-    opacity: 0.5;
+    opacity: 0.45;
   }
   50% {
     opacity: 1;
   }
 }
 .efx-widget {
-  border: 1px solid var(--wb-line);
+  border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius-sm);
-  background: var(--wb-raise);
+  background: var(--wb-surface-2);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   display: flex;
   flex-direction: column;
@@ -441,9 +419,8 @@ onMounted(async () => {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-ink-2);
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
-/* 运行读数：耗时与实时 token，弱化展示不抢正文 */
 .run-meter {
   display: flex;
   align-items: center;
@@ -451,14 +428,60 @@ onMounted(async () => {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
   font-variant-numeric: tabular-nums;
-  padding-left: var(--wb-sp-1);
 }
 .rm-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--wb-sp-1);
 }
-/* 回到底部悬浮钮：零高不占版面；单点目标档 1.02 / 0.97 */
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-live);
+  animation: wb-pulse 1.4s var(--wb-ease) infinite;
+}
+.think-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  font-weight: 500;
+}
+.think-chev {
+  margin-left: auto;
+  transition: transform var(--wb-dur-fast) var(--wb-ease);
+}
+.typing {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: var(--wb-sp-2) 0;
+}
+.typing-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-live);
+  animation: typing-blink 1.1s var(--wb-ease) infinite;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.36s;
+}
+@keyframes typing-blink {
+  50% {
+    opacity: 0.2;
+    transform: translateY(-2px);
+  }
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.notice-bar b {
+  font-weight: 700;
+}
 .jump-row {
   position: sticky;
   bottom: var(--wb-sp-3);
@@ -474,133 +497,19 @@ onMounted(async () => {
   display: grid;
   place-items: center;
   border-radius: var(--wb-radius-full);
-  background: var(--wb-surface-solid);
+  background: var(--wb-surface);
   border: 1px solid var(--wb-border-strong);
-  box-shadow: var(--wb-shadow-pop);
+  box-shadow: var(--wb-shadow-3);
   color: var(--wb-ink-2);
-  cursor: pointer;
-  transition: all var(--wb-dur-fast) var(--wb-ease);
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
 }
 .jump-btn:hover {
-  transform: scale(1.02);
+  transform: scale(1.06);
   color: var(--wb-primary);
 }
 .jump-btn:active {
-  transform: scale(0.97);
-}
-/* 思考块：流式期间带一条亮靛竖线（活动色），与正文气泡明确分开。
-   展开时占满助手列，字数提示才能顶到行尾；收起时按内容收窄。 */
-.think.is-live {
-  align-self: stretch;
-  align-items: stretch;
-  border-left: 2px solid var(--wb-live-line);
-  padding-left: var(--wb-sp-3);
-  margin-bottom: var(--wb-sp-2);
-}
-.think-hd {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: 3px 6px;
-  margin-left: -6px;
-  border: 0;
-  border-radius: var(--wb-radius-sm);
-  background: transparent;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-  cursor: pointer;
-  text-align: left;
-}
-.think-hd:hover {
-  background: var(--wb-tint);
-  color: var(--wb-ink-2);
-}
-.think-hd:active {
-  transform: scale(0.97);
-}
-.think-hd .chev {
-  margin-left: auto;
-}
-/* 呼吸点：正文开始前唯一需要盯着的信号，比图标更早被余光捕捉 */
-.think-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--wb-live);
-  animation: think-pulse 1.2s var(--wb-ease) infinite;
-}
-@keyframes think-pulse {
-  50% {
-    opacity: 0.25;
-    transform: scale(0.75);
-  }
-}
-.wb-think-body {
-  animation: think-fade var(--wb-dur) var(--wb-ease);
-}
-@keyframes think-fade {
-  from {
-    opacity: 0;
-  }
-}
-.think-hint {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.7;
-}
-/* 流式正文末尾的光标：持续输出时最重要的一个视觉信号（极光青 = 正在发生） */
-.bubble.is-streaming::after {
-  content: '';
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 2px;
-  vertical-align: -0.15em;
-  background: var(--wb-live);
-  animation: caret 1s step-end infinite;
-}
-@keyframes caret {
-  50% {
-    opacity: 0;
-  }
-}
-.is-typing {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  padding: 10px 14px;
-}
-.typing-txt {
-  margin-left: var(--wb-sp-2);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--wb-live);
-  animation: blink 1.1s ease-in-out infinite;
-}
-.dot:nth-child(2) { animation-delay: 0.18s; }
-.dot:nth-child(3) { animation-delay: 0.36s; }
-@keyframes blink {
-  50% { opacity: 0.2; transform: translateY(-2px); }
-}
-/* 收尾提示条：说明占中间，动作贴右；说明短的时候按钮也不会被拉到中缝 */
-.tail-act {
-  align-items: center;
-}
-.tail-act .grow {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.tail-act .btn {
-  flex: none;
-  margin-left: auto;
-}
-/* 重试条带按钮时靠左排：居中的一句话旁边 4 个字的按钮会被挤成两行 */
-.wb-hint.tail-act {
-  justify-content: flex-start;
-  text-align: left;
+  transform: scale(0.94);
 }
 </style>

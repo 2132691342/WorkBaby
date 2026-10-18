@@ -1,5 +1,5 @@
-# 日常质量门禁：push / PR 上跑后端测试 + 依赖方向门禁 + 前端类型与构建。
-# 出包在 release.yml（只在 tag 触发）。设计与取舍见 docs/DEPLOYMENT.md。
+# 质量门禁：push / PR 上跑完整验证链（vet + 依赖边界 + 全量测试 + 前端类型与构建）。
+# 打包在 release.yml（只在 tag 触发）；设计与取名见 docs/DEPLOYMENT.md。
 
 name: ci
 
@@ -14,80 +14,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
-    name: Backend (go test + boundaries)
+  verify:
+    name: Verify
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # 内置运行时归档走 Git LFS：embed 的是指针文本时构建会成功但运行时不可用。
           lfs: true
           fetch-depth: 1
 
-      - name: Setup Go（版本随 go.mod）
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: go vet
-        run: go vet ./...
-
-      - name: gofmt（行尾与格式门禁）
-        shell: pwsh
-        run: |
-          # .gitattributes 已把 *.go 固定为 LF：这里必须无输出，否则本地格式没对齐。
-          $bad = gofmt -l .
-          if ($bad) { throw "gofmt 未通过：`n$bad" }
-
-      - name: go build（编译期验证，main 包留给 wails build）
-        run: go build ./backend/...
-
-      - name: 依赖方向门禁
-        run: go run ./tools/check-boundaries
-
-      - name: go test（全量：真 git 链路与归档解压本地 -short 会跳过，这里必须跑到）
-        shell: pwsh
-        run: |
-          # 管道之后退出码只认 $LASTEXITCODE，不判的话测试全红这步也是绿的。
-          go test -count=1 -v ./... 2>&1 | Tee-Object test-output.log
-          if ($LASTEXITCODE -ne 0) { throw "go test failed" }
-        if: always()
-
-      - name: 汇总测试失败
-        # 失败行摘进 job summary，不必下载 artifact 就能看到原因。
-        if: failure()
-        shell: pwsh
-        run: |
-          $log = Get-Content test-output.log -ErrorAction SilentlyContinue
-          $bad = $log | Select-String -Pattern '^--- FAIL|^    --- FAIL|^FAIL\s|^panic:|\.go:\d+:' -Context 0,4
-          $body = if ($bad) { $bad | Out-String } else { ($log | Select-Object -Last 40) -join "`n" }
-          $md = "## go test 失败摘要`n`n``````text`n$body`n```````"
-          Set-Content -Path $env:GITHUB_STEP_SUMMARY -Value $md -Encoding utf8
-        continue-on-error: true
-
-  frontend:
-    name: Frontend (vue-tsc + build)
-    runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-          fetch-depth: 1
-
-      - name: Setup Node 20
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: npm ci（严格 lockfile，规避子依赖漂移）
+      - name: Install frontend dependencies
         run: npm ci
+        working-directory: frontend
 
-      - name: 类型检查 + 构建（vue-tsc + vite build）
-        run: npm run build
+      - name: Verify
+        shell: pwsh
+        # 与本地 scripts/check.ps1 -Full 同一条链：门禁只有一处实现，两边不会漂。
+        # -v 让失败时能从输出直接看到是哪个子测试；不加 tee 到文件，故障摘要另见下一���。
+        run: pwsh scripts/check.ps1 -Full
+
+      - name: Summarize failures
+        if: failure()
+        shell: pwsh
+        run: pwsh scripts/report-failures.ps1

@@ -1,22 +1,26 @@
 <script setup lang="ts">
-// 用量仪表盘：先四个关键读数（横排、各自独立），再一张全宽趋势图，最后两个分布卡——
-// 竖着一路堆卡片会让人不知道该先看哪。
+// 用量仪表盘：四张读数卡 → 全宽趋势图 → 占比与榜单并排。
+// 数据全部来自 PI 的会话文件；没有用量时整页停在空态，不画空图表。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import * as api from '../api'
 import { useSessionStore } from '../stores/session'
 import { useToastStore } from '../stores/toast'
 import type { StatsRESP } from '../types/api'
-import { fmtCount, fmtMoney } from '../utils/num'
+import { fmtCount, fmtInt, fmtMoney } from '../utils/num'
 import AppIcon from '../components/common/AppIcon.vue'
-import PageState from '../components/common/PageState.vue'
-import ShareRing from '../components/dashboard/ShareRing.vue'
-import UsageChart from '../components/dashboard/UsageChart.vue'
+import KpiCard from '../components/dashboard/KpiCard.vue'
+import ModelShare from '../components/dashboard/ModelShare.vue'
+import UsageTrend from '../components/dashboard/UsageTrend.vue'
+import PageHeader from '../components/layout/PageHeader.vue'
 
-const SPANS = [7, 14, 30]
-
+const { t } = useI18n()
 const router = useRouter()
 const session = useSessionStore()
+const toast = useToastStore()
+
+const SPANS = [7, 14, 30]
 const days = ref(14)
 const data = ref<StatsRESP | null>(null)
 const loading = ref(true)
@@ -28,7 +32,7 @@ async function load() {
   try {
     data.value = await api.stats(days.value)
   } catch (e) {
-    error.value = (e as Error)?.message || '读不到用量数据，稍后再试试'
+    error.value = (e as Error)?.message || t('errors.generic')
   } finally {
     loading.value = false
   }
@@ -41,576 +45,298 @@ onMounted(() => {
 watch(days, load)
 
 const totals = computed(() => data.value?.totals)
-// 没有任何用量时不画空图表：一张空的折线图只会让人以为坏了
 const hasUsage = computed(() => (totals.value?.total || 0) > 0)
 const topSessions = computed(() => (data.value?.sessions || []).slice(0, 6))
-// 命中率 = 命中量 / 输入量；输入为 0 时不撒谎，直接 0
+
 const hitRate = computed(() => {
-  const t = totals.value
-  if (!t?.input) return 0
-  return Math.min(100, (t.cached / t.input) * 100)
+  const tt = totals.value
+  if (!tt?.input) return 0
+  return Math.min(100, (tt.cached / tt.input) * 100)
 })
 
-// 四个读数卡：每张一个主读数 + 标签 + 一行注解。
-// 抽成数据而不是把模板抄四遍——抄错一处就是四处分叉。
 const kpis = computed(() => {
-  const t = totals.value
+  const tt = totals.value
   return [
     {
       key: 'total',
       icon: 'chart',
-      value: fmtCount(t?.total || 0),
-      label: '总 token',
-      note: `模型调用 ${t?.calls || 0} 次`,
+      value: fmtCount(tt?.total || 0),
+      label: t('dashboard.kpiTotal'),
+      note: `${t('dashboard.kpiCalls')} ${fmtInt(tt?.calls || 0)}`,
     },
     {
       key: 'io',
       icon: 'arrow-down-up',
-      value: `${fmtCount(t?.input || 0)} / ${fmtCount(t?.output || 0)}`,
-      label: '输入 / 输出',
-      note: '你发的 / 助手回的',
+      value: `${fmtCount(tt?.input || 0)} / ${fmtCount(tt?.output || 0)}`,
+      label: t('dashboard.kpiIo'),
+      note: t('dashboard.trendSub'),
     },
     {
       key: 'hit',
       icon: 'zap',
       value: `${hitRate.value.toFixed(hitRate.value >= 10 ? 0 : 1)}%`,
-      label: '缓存命中率',
-      note: `${fmtCount(t?.cached || 0)} 个输入 token 走了缓存`,
+      label: t('dashboard.kpiHit'),
+      note: `${fmtCount(tt?.cached || 0)} ${t('common.tokens')}`,
       hit: hitRate.value > 0,
     },
     {
       key: 'cost',
       icon: 'coin',
-      value: fmtMoney(t?.cost || 0),
-      label: '花费',
-      note: '按上游报价估算（美元）',
+      value: fmtMoney(tt?.cost || 0),
+      label: t('dashboard.kpiCost'),
+      note: `${t('dashboard.kpiSessions')} ${fmtInt(tt?.sessions || 0)}`,
     },
   ]
 })
 
-// 上下文水位与会话数不进读数卡：它们是背景信息，别和「花了多少」抢同一排格子
 const subline = computed(() => {
-  const t = totals.value
-  if (!t) return ''
-  return `有活动的会话 ${t.sessions} 个 · 消息 ${fmtCount(t.messages)} 条 · 模型调用 ${fmtCount(t.calls)} 次`
+  const tt = totals.value
+  if (!tt) return ''
+  return `${fmtInt(tt.sessions)} · ${fmtInt(tt.messages)} · ${fmtInt(tt.calls)}`
 })
 
-// 打开会话要等 deserialization：async 期间不给反馈，用户会以为点空了
 const opening = ref('')
 async function openSession(id: string) {
   if (opening.value) return
   opening.value = id
   try {
     await session.open(id)
-    router.push('/')
+    void router.push('/')
   } catch (e) {
-    // 打不开必须说一声：按钮转圈结束却停在原地，用户只会反复点
-    useToastStore().bad(`打不开这个会话：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     opening.value = ''
   }
 }
 
+function fmtDate(ms: number) {
+  const d = new Date(ms)
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function onRowClick(row: { session_id: string }) {
+  void openSession(row.session_id)
+}
 </script>
 
 <template>
-  <div class="dash wb-ui">
-    <div class="dash-main scroll">
-      <div class="wrap">
-        <header class="page-head">
-          <div class="ph-txt">
-            <h1>用量</h1>
-            <p>最近 {{ days }} 天，助手替你花了多少</p>
-          </div>
-          <span class="sp" />
-          <!-- 手动刷新：区间切换是唯一的重载入口，跑完一轮想看最新数只能来回切，
-               那不是刷新，是把用户当定时器用。 -->
-          <button
-            class="btn btn-sm"
-            type="button"
-            :class="{ 'is-loading': loading }"
-            :disabled="loading"
-            @click="load()"
-          >
-            <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
-            {{ loading ? '刷新中…' : '刷新' }}
-          </button>
-          <div class="seg" role="group" aria-label="统计区间">
-            <button
-              v-for="d in SPANS"
-              :key="d"
-              type="button"
-              :class="{ on: days === d }"
-              @click="days = d"
-            >
-              {{ d }} 天
-            </button>
-          </div>
-        </header>
+  <div class="view">
+    <PageHeader :title="t('dashboard.title')" :subtitle="t('dashboard.subtitle', { days })">
+      <template #actions>
+        <el-radio-group v-model="days" size="small">
+          <el-radio-button v-for="s in SPANS" :key="s" :value="s">
+            {{ t(`dashboard.range${s}`) }}
+          </el-radio-button>
+        </el-radio-group>
+        <el-button size="small" :loading="loading" @click="load">
+          <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
+          <span class="ml-1">{{ t('common.refresh') }}</span>
+        </el-button>
+      </template>
+    </PageHeader>
 
-        <PageState :loading="loading" :error="error">
-          <div v-if="!hasUsage" class="card blank">
-            <div class="blank-in">
-              <span class="bt"><AppIcon name="chart" size="ic-lg" /></span>
-              <div>
-                <b>还没有用量记录</b>
-                <p>和助手聊两句，这里就会记下你花了多少。</p>
-              </div>
-              <button class="btn btn-primary" type="button" @click="router.push('/')">去聊两句</button>
-            </div>
-          </div>
-
-          <template v-else>
-            <!-- 四个关键读数：横排，各自独立成卡 -->
-            <div class="kpis">
-              <article v-for="k in kpis" :key="k.key" class="kpi">
-                <!-- 右上角的水印图标：给卡片一个「这是什么读数」的底色，不做动画主角 -->
-                <span class="kg" aria-hidden="true"><AppIcon :name="k.icon" /></span>
-                <span class="kt"><AppIcon :name="k.icon" size="ic-sm" /></span>
-                <div class="kb">
-                  <div class="kv" :class="{ 'is-hit': k.hit }">{{ k.value }}</div>
-                  <div class="kl">{{ k.label }}</div>
-                  <div class="kn">{{ k.note }}</div>
-                </div>
-              </article>
-            </div>
-
-            <!-- 趋势：一张全宽折线图 -->
-            <section class="card chart-card">
-              <div class="card-head">
-                <h2>用量趋势</h2>
-                <div class="legend">
-                  <span><i class="sw in" /> 输入</span>
-                  <span><i class="sw out" /> 输出</span>
-                </div>
-              </div>
-              <UsageChart :daily="data?.daily || []" />
-              <p v-if="subline" class="card-foot">{{ subline }}</p>
-            </section>
-
-            <!-- 两个分布卡 -->
-            <div class="cols">
-              <section class="card">
-                <div class="card-head">
-                  <h2>按模型</h2>
-                </div>
-                <ShareRing v-if="data?.models.length" :items="data?.models || []" />
-                <p v-else class="none">还没有模型调用记录</p>
-              </section>
-
-              <section class="card">
-                <div class="card-head">
-                  <h2>用量最高的会话</h2>
-                </div>
-                <div v-if="topSessions.length" class="rowlist">
-                  <button
-                    v-for="s in topSessions"
-                    :key="s.session_id"
-                    class="rli ses"
-                    type="button"
-                    :disabled="opening !== ''"
-                    :class="{ 'is-loading': opening === s.session_id }"
-                    :title="`${s.title || '未命名对话'} · ${fmtCount(s.total)} token · ${s.workspace}`"
-                    @click="openSession(s.session_id)"
-                  >
-                    <AppIcon name="doc" size="ic-xs" />
-                    <span class="nm">{{ s.title || '未命名对话' }}</span>
-                    <span class="pct">{{ fmtCount(s.total) }}</span>
-                  </button>
-                </div>
-                <p v-else class="none">还没有会话用量</p>
-              </section>
-            </div>
-          </template>
-        </PageState>
-
+    <div class="body">
+      <div v-if="error" class="wb-card empty-box">
+        <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="alert" size="ic-xl" /></span>
+        <b>{{ t('dashboard.empty') }}</b>
+        <p>{{ error }}</p>
+        <el-button size="small" @click="load">{{ t('common.retry') }}</el-button>
       </div>
+
+      <template v-else-if="loading && !data">
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <el-skeleton v-for="i in 4" :key="i" animated :rows="2" class="wb-card p-5" />
+        </div>
+        <div class="wb-card p-5 mt-4"><el-skeleton animated :rows="6" /></div>
+      </template>
+
+      <div v-else-if="!hasUsage" class="wb-card empty-box">
+        <span class="wb-tile wb-tile--lg"><AppIcon name="chart" size="ic-xl" /></span>
+        <b>{{ t('dashboard.empty') }}</b>
+        <p>{{ t('dashboard.emptyHint') }}</p>
+        <el-button size="small" type="primary" @click="router.push('/')">{{ t('chat.newSession') }}</el-button>
+      </div>
+
+      <template v-else>
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <KpiCard
+            v-for="k in kpis"
+            :key="k.key"
+            :icon="k.icon"
+            :label="k.label"
+            :value="k.value"
+            :note="k.note"
+            :hit="k.hit"
+            :accent="k.key === 'total'"
+          />
+        </div>
+
+        <section class="wb-card card-block mt-4">
+          <header class="card-head">
+            <div>
+              <h3 class="card-title">{{ t('dashboard.trendTitle') }}</h3>
+              <p class="card-sub">{{ t('dashboard.trendSub') }}</p>
+            </div>
+            <span class="card-chip">{{ subline }}</span>
+          </header>
+          <div class="trend-box">
+            <UsageTrend :daily="data?.daily || []" />
+          </div>
+        </section>
+
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
+          <section class="wb-card card-block">
+            <header class="card-head">
+              <div>
+                <h3 class="card-title">{{ t('dashboard.modelTitle') }}</h3>
+                <p class="card-sub">{{ t('dashboard.modelSub') }}</p>
+              </div>
+            </header>
+            <ModelShare v-if="(data?.models || []).length" :models="data?.models || []" />
+            <p v-else class="card-empty">{{ t('dashboard.modelEmpty') }}</p>
+          </section>
+
+          <section class="wb-card card-block">
+            <header class="card-head">
+              <div>
+                <h3 class="card-title">{{ t('dashboard.sessionTitle') }}</h3>
+                <p class="card-sub">{{ t('dashboard.sessionSub') }}</p>
+              </div>
+            </header>
+            <el-table
+              v-if="topSessions.length"
+              :data="topSessions"
+              size="small"
+              :show-header="false"
+              class="sess-table"
+              @row-click="onRowClick"
+            >
+              <el-table-column min-width="0">
+                <template #default="{ row }">
+                  <div class="sess-cell">
+                    <span class="sess-name">{{ row.title || t('chat.newSession') }}</span>
+                    <span class="sess-meta">{{ row.workspace }} · {{ fmtDate(row.updated_at) }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column width="96" align="right">
+                <template #default="{ row }">
+                  <span class="sess-tokens">{{ fmtCount(row.total) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <p v-else class="card-empty">{{ t('dashboard.sessionEmpty') }}</p>
+          </section>
+        </div>
+      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
-.dash {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-  /* 同 ChatView：flex 子项不写 flex:1 会塌成内容宽度 */
-  flex: 1;
-  min-width: 0;
-}
-.dash-main {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
-}
-.wrap {
-  /* width:100% 与 max-width 同时给：只给 max-width 时 flex 子项会退回内容宽度 */
-  width: 100%;
-  max-width: 1060px;
-  margin: 0 auto;
-  padding: var(--wb-sp-8) var(--wb-sp-6) var(--wb-sp-10);
+.view {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-4);
-  min-width: 0;
-}
-.wrap > * {
-  min-width: 0;
-}
-.page-head {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--wb-sp-3);
-  flex-wrap: wrap;
-  margin-bottom: var(--wb-sp-1);
-}
-.ph-txt {
-  min-width: 0;
-}
-.page-head h1 {
-  font-family: var(--font-display);
-  font-size: var(--wb-fs-2xl);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: var(--wb-lh-tight);
-  color: var(--wb-ink);
-}
-.page-head p {
-  margin-top: 2px;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-}
-.page-head .sp {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
-.page-head .seg {
-  flex: none;
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--wb-sp-5);
 }
-
-/* ---- 读数卡 ---- */
-.kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--wb-sp-3);
-}
-.kpi {
-  position: relative;
-  overflow: hidden;
+.card-block {
+  padding: var(--wb-sp-5);
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: var(--wb-sp-3);
-  min-width: 0;
-  padding: var(--wb-sp-4);
-  border-radius: var(--wb-radius-lg);
-  background: var(--wb-surface);
-  border: 1px solid var(--wb-line-2);
-  transition: border-color var(--wb-dur) var(--wb-ease);
 }
-.kpi:hover {
-  border-color: var(--wb-primary-line);
-}
-/* 水印图标：右下探出卡片一角，极低透明度；悬停时轻轻放大——是「被注意到」而不是「在动」 */
-.kg {
-  position: absolute;
-  right: -6px;
-  top: -8px;
-  color: var(--wb-primary);
-  opacity: 0.07;
-  pointer-events: none;
-  transition:
-    transform var(--wb-dur) var(--wb-ease),
-    opacity var(--wb-dur) var(--wb-ease);
-}
-.kg svg {
-  width: 64px;
-  height: 64px;
-}
-.kpi:hover .kg {
-  transform: scale(1.06);
-  opacity: 0.1;
-}
-@media (prefers-reduced-motion: reduce) {
-  .kg {
-    transition: none;
-  }
-}
-.kpi .kt {
-  display: grid;
-  place-items: center;
-  width: var(--wb-tile-sm);
-  height: var(--wb-tile-sm);
-  flex: none;
-  border-radius: var(--wb-radius-sm);
-  background: var(--wb-primary-soft);
-  color: var(--wb-primary);
-}
-.kpi .kb {
-  min-width: 0;
-}
-.kpi .kv {
-  font-family: var(--font-display);
-  font-size: var(--wb-fs-xl);
-  font-weight: 700;
-  line-height: 1.15;
-  color: var(--wb-ink);
-  /* 百万级数字要有退路：不写 anywhere 会把卡片撑破 */
-  overflow-wrap: anywhere;
-}
-/* 命中率 >0 才上色：常显的绿色等于没有绿色 */
-.kpi .kv.is-hit {
-  color: var(--wb-success);
-}
-.kpi .kl {
-  margin-top: 1px;
-  font-size: var(--wb-fs-sm);
-  font-weight: 600;
-  color: var(--wb-ink-2);
-}
-.kpi .kn {
-  margin-top: 1px;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-  line-height: var(--wb-lh-base);
-}
-
-/* ---- 图表卡 ---- */
 .card-head {
   display: flex;
-  align-items: center;
-  gap: var(--wb-sp-4);
-  margin-bottom: var(--wb-sp-4);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--wb-sp-3);
 }
-.card-head h2 {
+.card-title {
   font-size: var(--wb-fs-md);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--wb-ink);
 }
-.card-head .legend {
-  margin-left: auto;
-  display: flex;
-  gap: var(--wb-sp-3);
-}
-.legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--wb-fs-xs);
+.card-sub {
+  margin-top: 2px;
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
 }
-.sw {
-  width: 14px;
-  height: 3px;
-  border-radius: var(--wb-radius-full);
-}
-.sw.in {
-  background: var(--wb-primary);
-}
-.sw.out {
-  background: var(--wb-ch-2);
-}
-/* 图表卡的悬浮提示要能探出卡片，否则首尾两天读不到 */
-.chart-card {
-  overflow: visible;
-}
-.card-foot {
-  margin-top: var(--wb-sp-3);
-  padding-top: var(--wb-sp-3);
-  border-top: 1px solid var(--wb-line);
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-
-/* ---- 两个分布卡 ---- */
-.cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: var(--wb-sp-4);
-  align-items: start;
-}
-.none {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-}
-.ses {
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  gap: var(--wb-sp-2);
-}
-.ses:hover {
-  background: var(--wb-tint);
-}
-.ses:active {
-  transform: scale(0.99);
-}
-.ses:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-/* 打开中：转圈顶掉图标位，文字与 token 数保留 */
-.ses.is-loading {
-  pointer-events: none;
-  cursor: progress;
-}
-.ses.is-loading .nm {
-  position: relative;
-  padding-left: 18px;
-}
-.ses.is-loading .nm::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 11px;
-  height: 11px;
-  margin-top: -5.5px;
-  border-radius: var(--wb-radius-full);
-  border: 1.5px solid currentColor;
-  border-top-color: transparent;
-  animation: wb-ic-spin 0.8s linear infinite;
-}
-.ses .nm {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink-2);
-}
-.ses .pct {
+.card-chip {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
+  padding: 2px var(--wb-sp-2);
+  border-radius: var(--wb-radius-sm);
+  background: var(--wb-surface-2);
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.trend-box {
+  height: calc(260px * var(--wb-vw-scale));
+}
+.card-empty {
+  padding: var(--wb-sp-6) 0;
+  text-align: center;
+  font-size: var(--wb-fs-sm);
   color: var(--wb-muted);
 }
-
-/* ---- 空态 ---- */
-.console-card .sp {
-  flex: 1;
+.empty-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-10) var(--wb-sp-6);
+  text-align: center;
 }
-.mini-stats {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--wb-sp-3);
-  margin-bottom: var(--wb-sp-3);
+.empty-box b {
+  font-size: var(--wb-fs-md);
+  color: var(--wb-ink);
 }
-.ms {
+.empty-box p {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
+  max-width: calc(420px * var(--wb-vw-scale));
+  line-height: var(--wb-lh-base);
+}
+.sess-table :deep(.el-table__row) {
+  cursor: pointer;
+}
+.sess-cell {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--wb-sp-3);
-  border: 1px solid var(--wb-line);
-  border-radius: var(--wb-radius-sm);
-  background: var(--wb-surface-2);
-}
-.ms b {
-  font-family: var(--font-display);
-  font-size: var(--wb-fs-lg);
-  color: var(--wb-ink);
-}
-.ms b.is-live { color: var(--wb-live); }
-.ms b.is-warn { color: var(--wb-warning); }
-.ms b.is-bad { color: var(--wb-danger); }
-.ms span {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.run-list {
-  display: flex;
-  flex-direction: column;
-}
-.run-row {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  width: 100%;
-  padding: var(--wb-sp-2) var(--wb-sp-1);
-  background: none;
-  border: 0;
-  border-radius: var(--wb-radius-sm);
-  cursor: pointer;
-  transition: background var(--wb-dur) var(--wb-ease), transform var(--wb-dur-fast) var(--wb-ease);
-  text-align: left;
-}
-.run-row:hover { background: var(--wb-tint); }
-.run-row:active { transform: scale(0.995); }
-.rr-name {
-  font-size: var(--wb-fs-sm);
-  font-weight: 600;
-  color: var(--wb-ink);
-  flex: none;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rr-prompt {
-  flex: 1;
   min-width: 0;
-  font-size: var(--wb-fs-xs);
+}
+.sess-name {
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sess-meta {
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rr-tok, .rr-time { flex: none; font-size: var(--wb-fs-xs); }
-.rr-tok { color: var(--wb-ink-2); }
-.dim { color: var(--wb-muted); }
-.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-@media (max-width: 860px) {
-  .mini-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-.blank {
-  padding: var(--wb-sp-6);
-}
-.blank-in {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-4);
-  color: var(--wb-muted);
-}
-.blank-in .bt {
-  display: grid;
-  place-items: center;
-  width: var(--wb-tile);
-  height: var(--wb-tile);
-  flex: none;
-  border-radius: var(--wb-radius);
-  background: var(--wb-primary-soft);
+.sess-tokens {
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-xs);
   color: var(--wb-primary);
+  font-weight: 700;
 }
-.blank-in b {
-  color: var(--wb-ink);
-  font-size: var(--wb-fs-md);
-  font-weight: 600;
-}
-.blank-in p {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-}
-.blank-in .btn {
-  margin-left: auto;
-}
-
-/* 窄窗口先塌到两列，再塌到一列：读数卡挤成 4 列时会互相压字 */
-@media (max-width: 1080px) {
-  .cols {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-@media (max-width: 860px) {
-  .kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 720px) {
-  .wrap {
-    padding: var(--wb-sp-5) var(--wb-sp-4) var(--wb-sp-8);
-  }
-  .page-head h1 {
-    font-size: var(--wb-fs-xl);
-  }
+.ml-1 {
+  margin-left: var(--wb-sp-1);
 }
 </style>

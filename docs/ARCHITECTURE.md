@@ -32,8 +32,9 @@
 | `~/.pi/agent/`（或 `PI_CODING_AGENT_DIR`） | 会话 JSONL、settings / models / mcp、技能、扩展、包 | PI（WorkBaby 只通过 RPC 或 PI 认可的字段写） |
 | `%APPDATA%\WorkBaby\` | SQLite（只有设置 KV）、内置运行时、日志、背景图、persona.md | WorkBaby |
 
-**不能有第三本账**：v1 曾给 PI 指定一个私有 agent 目录，结果界面里技能、插件、模型、
-会话全是空的——而 `pi` 命令里一切正常。现在的纪律是：agent 目录只继承、不覆盖。
+**不能有第三本账**：agent 目录只继承、不覆盖。换成私有目录的话，界面里技能、插件、模型、
+会话全是空的，而命令行里一切正常——两本账必然分叉。现在的纪律写死在
+`pi/env`：进程环境只继承 `PI_CODING_AGENT_DIR`，自己不注入也不覆盖它。
 
 ## 启动时序
 

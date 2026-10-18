@@ -40,9 +40,11 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | 业务 API | gin（回环 + 随机端口；只允许 GET / POST） |
 | 实时通信 | SSE（`/api/v1/events`） |
 | 存储 | SQLite（WAL，pure-Go 无 CGO）：**只存界面设置 KV** |
-| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router（hash） |
-| 样式 | 原生 CSS 设计令牌（`themes.css` + `wb-ui.css`），无 UI 组件库 |
-| 渲染 | marked · dompurify · highlight.js（唯一出口 `utils/md.ts`） |
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router（hash）+ Vue I18n（中英双语） |
+| UI | Element Plus（基元）+ UnoCSS（原子类，刻度接 `--wb-*` 令牌） |
+| 样式 | CSS 设计令牌（`themes.css` + `ep-theme.css` + `base.css` + `content.css`）：色值与尺寸只定义在 themes.css |
+| 图表 | ECharts（按需注册，色值走令牌；主题切换重读变量重绘） |
+| 渲染 | marked · dompurify · highlight.js（唯一出口 `utils/md.ts`）· CodeMirror 6（技能 / 配置编辑） |
 | 运行时 | 内置 Node 24 / Python 3.12（`go:embed` + 首次解压，可被系统版本替代） |
 
 ## 目录
@@ -50,7 +52,7 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 ```
 WorkBaby/
 ├── main.go                入口：embed + wails.Run + 单实例
-├── app.go                 App（嵌入 *api.Handler，生命周期委托）
+├── app.go                 App（持有 *api.Handler，生命周期委托给它；不嵌入，见 specs/04）
 ├── backend/
 │   ├── server/            gin 路由 / SSE hub / 统一响应 / 方法白名单
 │   ├── api/               薄 handler + 系统能力绑定（唯一允许 import wails 的包）
@@ -65,7 +67,7 @@ WorkBaby/
 │   ├── runtime/           路径解析 + 内置运行时
 │   ├── config/ db/ pkg/   配置 / 迁移 / 叶子工具包
 │   └── tray/ singleinstance/
-├── frontend/src/          api / components / composables / stores / types / utils / views
+├── frontend/src/          api / components / composables / locales / stores / types / utils / views + 四个 CSS
 ├── assets/docs/           内置帮助手册
 ├── docs/ specs/           项目文档与子系统规格
 └── tools/check-boundaries 依赖方向门禁
@@ -93,7 +95,22 @@ wails build                    # 产物 build/bin/WorkBaby.exe
 | [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP 与 SSE 契约 |
 | [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 页面与组件地图 |
 | [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 错误码与前端分流 |
-| [specs/](specs) | 子系统规格（运行时 / 会话 / 技能 / 模型 / 用量 / git / MCP / 监督 / 引导 / 插件） |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 打包、安装器、CI / Release 流水线 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 环境要求、验证入口、数据位置、改代码时看哪 |
+
+### 子系统规格（specs）
+
+一个子系统一篇，每篇都是「设计 / 实现 / 为什么 / 取舍」四段。
+
+| # | 子系统 | # | 子系统 |
+|---|---|---|---|
+| [01](specs/01-runtime.md) | 运行时与路径 | [08](specs/08-workspace-git.md) | 工作区版本视图 |
+| [02](specs/02-session.md) | 会话 | [09](specs/09-mcp.md) | MCP 外部工具 |
+| [03](specs/03-skill.md) | 技能 | [10](specs/10-pi-supervisor.md) | PI 监督 |
+| [04](specs/04-desktop-shell.md) | 桌面壳 | [11](specs/11-pi-bootstrap.md) | PI 引导 |
+| [05](specs/05-user-manual.md) | 用户手册 | [12](specs/12-workspace-files.md) | 工作区文件面板 |
+| [06](specs/06-prompt-and-settings.md) | 模型、提示与人设 | [13](specs/13-extensions.md) | 插件（扩展与包） |
+| [07](specs/07-usage-and-context.md) | 用量与上下文 | | |
 
 ## 许可
 

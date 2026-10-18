@@ -148,6 +148,24 @@
      与实底主按钮同屏时不竞争——一屏只允许一枚重档。 */
   --wb-lav-cta: #e0e7ff;
   --wb-on-lav: #3730a3;
+
+  /* 应用壳栅格：顶栏 / 侧栏 / 内容区页头。全部随视口比例缩放。 */
+  --wb-h-titlebar: calc(48px * var(--wb-vw-scale));
+  --wb-w-side: calc(232px * var(--wb-vw-scale));
+  --wb-h-pagehead: calc(60px * var(--wb-vw-scale));
+
+  /* 圆角七档：控件用 radius 一档，卡片用 xl，整块面板用 2xl。 */
+  --wb-radius-2xl: calc(24px * var(--wb-vw-scale));
+
+  /* 字号补两档：读数大数字与页标题 */
+  --wb-fs-display: calc(36px * var(--wb-fs-scale) * var(--wb-vw-scale));
+
+  /* 动效补一档慢速：整块视图进出与卡片入场 */
+  --wb-dur-slower: 320ms;
+  --wb-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 图表序列第 5 档与 4 档之间的过渡色；占比环超过四段时用它兜底 */
+  --wb-ch-5: #a5b4fc;
 }
 
 /* ============================================================
@@ -180,7 +198,7 @@
   --wb-border: var(--wb-line);
   --wb-border-strong: var(--wb-line-2);
 
-  /* 正文与标题走中性深 #1e293b：与案例一致，层次交给字号与字重而不是灰度差 */
+  /* 正文与标题走中性深 #1e293b：层次交给字号与字重，不靠灰度差区分。 */
   --wb-ink: #1e293b;
   --wb-ink-2: #334155;
   --wb-muted: #64748b;
@@ -263,6 +281,34 @@
   --wb-code-header-bg: #f1f5f9;
   --wb-code-fg: #1e293b;
   --wb-code-border: #e2e8f0;
+
+  /* 卡片抬升阴影：一层极淡投影，靠圆角与描边分层，不靠投影发光。 */
+  --wb-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.03);
+  --wb-card-shadow-hover: 0 4px 16px -6px rgba(15, 23, 42, 0.14), 0 1px 3px rgba(15, 23, 42, 0.05);
+
+  /* 侧栏选中态：淡底 + 主色文字，配合选中行的左侧竖条。 */
+  --wb-nav-active-bg: #eef2ff;
+  --wb-nav-active-ink: #4f46e5;
+  --wb-nav-hover-bg: #f8fafc;
+
+  /* 图表面积渐变与欢迎页光晕：只允许出现在空态引导与数据可视化 */
+  --wb-area-from: rgba(129, 140, 248, 0.24);
+  --wb-area-to: rgba(129, 140, 248, 0);
+  --wb-hero-grad: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(129, 140, 248, 0.02) 55%, transparent);
+
+  /* 消息流：用户气泡与助手正文块 */
+  --wb-bubble-me: #eef2ff;
+  --wb-bubble-me-ink: #1e293b;
+  --wb-bubble-ai: #ffffff;
+
+  /* 代码高亮：靛蓝主色相 + 中性阶，两套主题各自一组成对色值 */
+  --wb-code-comment: #94a3b8;
+  --wb-code-keyword: #4f46e5;
+  --wb-code-string: #0f766e;
+  --wb-code-number: #b45309;
+  --wb-code-fn: #1d4ed8;
+  --wb-code-attr: #7c3aed;
+  --wb-code-tag: #be123c;
 }
 
 /* ============================================================
@@ -376,6 +422,31 @@
   /* 深色底上笔画略加粗一档，抵消「亮底显粗、暗底显细」的视觉误差 */
   --wb-icon-stroke: 1.85;
   --wb-icon-stroke-strong: 2.1;
+
+  --wb-ch-5: #c7d2fe;
+
+  --wb-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --wb-card-shadow-hover: 0 6px 18px -8px rgba(0, 0, 0, 0.6), 0 1px 3px rgba(0, 0, 0, 0.35);
+
+  --wb-nav-active-bg: rgba(129, 140, 248, 0.16);
+  --wb-nav-active-ink: #c7d2fe;
+  --wb-nav-hover-bg: rgba(226, 232, 240, 0.055);
+
+  --wb-area-from: rgba(129, 140, 248, 0.3);
+  --wb-area-to: rgba(129, 140, 248, 0);
+  --wb-hero-grad: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(129, 140, 248, 0.04) 55%, transparent);
+
+  --wb-bubble-me: #263449;
+  --wb-bubble-me-ink: #e2e8f0;
+  --wb-bubble-ai: #1e293b;
+
+  --wb-code-comment: #64748b;
+  --wb-code-keyword: #a5b4fc;
+  --wb-code-string: #5eead4;
+  --wb-code-number: #fbbf24;
+  --wb-code-fn: #93c5fd;
+  --wb-code-attr: #c4b5fd;
+  --wb-code-tag: #fda4af;
 }
 
 /* 字号缩放：--wb-fs-scale 由外观设置写入，html 的 font-size 是唯一缩放点。 */

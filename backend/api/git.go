@@ -1,5 +1,5 @@
 // 工作区版本视图的 HTTP handler：status / diff / 历史 / 分支为只读，
-// stage / unstage / commit / branch / switch / push / message 为受控写入（specs/09）。
+// stage / unstage / commit / branch / switch / push / message 为受控写入（specs/08）。
 package api
 
 // 编排全部在 service 层，这里只做参数与响应。
@@ -148,7 +148,7 @@ func (h *Handler) GitSwitchBranch(c *gin.Context) {
 	ok(c, vo)
 }
 
-// GitPush 推送当前分支。只允许普通推送，禁止清单见 specs/09。
+// GitPush 推送当前分支。只允许普通推送，禁止清单见 specs/08。
 func (h *Handler) GitPush(c *gin.Context) {
 	vo, err := h.Svc.Git.Push(c.Query("session_id"))
 	if err != nil {

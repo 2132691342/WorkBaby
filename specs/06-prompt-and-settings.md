@@ -1,4 +1,4 @@
-# 07 · 模型、提示与人设
+﻿# 06 · 模型、提示与人设
 
 ## 模型配置只有一份
 
@@ -48,7 +48,9 @@ WorkBaby 的写入口只改自己掌管的字段（`name` / `api` / `baseUrl` / 
 | 设置 · 行为的「默认思考档」 | 全局默认 | `settings.json` 的 `defaultThinkingLevel` |
 | 模型条目的 `thinkingLevelMap` | 该模型支持哪些档 | `models.json` |
 
-模型不支持某个档时 PI 会自己钳制；界面只展示 `thinkingLevelMap` 里非空的档位。
+界面按当前模型 `thinkingLevelMap` 里非空的档位列出可选项（`ProviderService` 把它读成
+`thinking_levels[]` 随模型列表下发）；模型不支持的档 PI 自己会钳制。
+没配 `thinkingLevelMap` 的模型退化为完整七档。
 
 ## 压缩参数
 
@@ -56,8 +58,8 @@ WorkBaby 的写入口只改自己掌管的字段（`name` / `api` / `baseUrl` / 
 
 | 字段 | 缺省 | 含义 |
 |---|---|---|
-| `reserveTokens` | 16384 | 保留给输出的余量，低于它开始整理 |
-| `keepRecentTokens` | 20000 | 最近这些 token 不进摘要 |
+| `reserveTokens` | 由 PI 定 | 保留给输出的余量，低于它开始整理 |
+| `keepRecentTokens` | 由 PI 定 | 最近这些 token 不进摘要 |
 
 界面只暴露这两项；`enabled` 等 PI 自己的字段按字段级合并保留。
 

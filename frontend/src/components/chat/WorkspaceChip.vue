@@ -1,33 +1,37 @@
 <script setup lang="ts">
 // 工作目录芯片：在输入框底栏直接切目录。
-// 切换是双写——全局默认（KV）+ 当前会话；只改一边会出现「点了没换地方」的错觉。
+// 切换是双写——全局默认（KV）+ 重新读引导数据；只改一边会出现「点了没换地方」的错觉。
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import { OpenDirectoryDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 
+const { t } = useI18n()
 const settings = useSettingsStore()
 const toast = useToastStore()
-
 const busy = ref(false)
 
-// 芯片直接显示全路径：小白要和文件管理器对得上；太长时 CSS 省略号收住，tooltip 也是全路径
 const current = computed(() => settings.values['workspace'] || settings.boot?.workspace || '')
-const label = computed(() => current.value || '默认目录')
+const short = computed(() => {
+  const p = current.value
+  if (!p) return t('settings.behavior.workspace')
+  const parts = p.split(/[\\/]/).filter(Boolean)
+  return parts.length > 2 ? `…\\${parts.slice(-2).join('\\')}` : p
+})
 
 async function pick() {
   if (busy.value) return
   busy.value = true
   try {
-    const dir = await OpenDirectoryDialog('选择工作目录')
-    // 没选或选了同一个目录：不动
+    const dir = await OpenDirectoryDialog(t('settings.behavior.workspacePick'))
     if (!dir || dir === current.value) return
     await settings.setValue('workspace', dir)
     await settings.loadBoot()
-    toast.ok(`工作目录已切换：${dir}`)
+    toast.ok(dir)
   } catch (e) {
-    toast.bad(`切换工作目录失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = false
   }
@@ -35,36 +39,60 @@ async function pick() {
 </script>
 
 <template>
-  <button
-    class="chip ws-chip"
-    type="button"
-    :class="{ 'is-loading': busy, 'is-default': !current }"
-    :disabled="busy"
-    :title="current || '还没设置工作目录；点这里选一个，助手读写文件、跑命令都在这里面'"
-    :aria-label="current ? `工作目录：${current}，点击更换` : '还没设置工作目录，点击选择一个'"
-    @click="pick"
-  >
-    <AppIcon name="folder" size="ic-xs" />
-    <span class="ws-name">{{ label }}</span>
-  </button>
+  <el-tooltip :content="current || t('settings.behavior.workspaceHint')" placement="top" :show-after="250">
+    <button
+      class="ws-chip"
+      type="button"
+      :class="{ 'is-default': !current, 'is-busy': busy }"
+      :disabled="busy"
+      @click="pick"
+    >
+      <AppIcon name="folder" size="ic-2xs" />
+      <span class="ws-t">{{ short }}</span>
+      <AppIcon v-if="busy" name="loader" size="ic-2xs" spin />
+    </button>
+  </el-tooltip>
 </template>
 
 <style scoped>
-/* 底栏 chips 行的一员：全路径过长省略号收住，title 给全路径 */
 .ws-chip {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 420px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  height: var(--wb-ctl-h-sm);
+  max-width: calc(260px * var(--wb-vw-scale));
+  padding: 0 var(--wb-sp-2);
+  border-radius: var(--wb-radius-full);
+  border: 1px solid var(--wb-border);
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
+  transition:
+    background var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
-.ws-chip .ws-name {
+.ws-chip:hover:not(:disabled) {
+  background: var(--wb-surface-2);
+  border-color: var(--wb-border-strong);
+  color: var(--wb-ink-2);
+  transform: scale(1.02);
+}
+.ws-chip:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.ws-chip.is-default {
+  border-style: dashed;
+}
+.ws-chip:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.ws-t {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-/* 未设置时虚线灰态：一眼看出「还没选」，和已选的实线区分开 */
-.ws-chip.is-default {
-  border-style: dashed;
-  color: var(--wb-muted);
 }
 </style>

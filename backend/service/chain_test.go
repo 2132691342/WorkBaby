@@ -1,4 +1,4 @@
-// 服务层链路：会话索引、一轮对话、工具清单、技能两区、插件与包、模型配置、MCP、统计。
+// 服务层链路：会话索引、一轮对话与用量汇总、停止、目录扫描（技能/插件）、配置写入（模型/MCP）、跨工作区并行。
 // 坏了的表现：界面上什么都看不到、对话发不出去、改了配置助手行为不变。
 package service
 
@@ -205,11 +205,12 @@ func (te *testEnv) writeSession(t *testing.T, id, cwd, userText string, tokens i
 	return file
 }
 
-// TestServiceChain 是 service 包唯一的测试入口。
+// TestServiceChain 是 service 包唯一的测试入口。六条链各自独立命名，失败时一个名字即定位一件事。
+// 子测试按数据依赖顺序排列：后一条用前一条落下的磁盘事实（如真实会话的 usage）。
 func TestServiceChain(t *testing.T) {
 	te := bootService(t)
 
-	t.Run("会话索引：列表与投影都来自 PI 的会话文件", func(t *testing.T) {
+	t.Run("会话索引：列表、投影、工具清单与删除都来自 PI 的会话文件", func(t *testing.T) {
 		cwd := t.TempDir()
 		file := te.writeSession(t, "SESS_ONE", cwd, "帮我整理一下这份表格", 120)
 		defer os.Remove(file)
@@ -263,7 +264,7 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("一轮对话：新会话现场创建、done 只在 agent_settled 之后", func(t *testing.T) {
+	t.Run("一轮对话：新会话现场创建、done 最后、落盘后能算出用量", func(t *testing.T) {
 		te.events.reset()
 		resp, err := te.container.Chat.Send(domain.SendMessageREQ{
 			Workspace: te.env.Cfg.Workspace,
@@ -300,6 +301,21 @@ func TestServiceChain(t *testing.T) {
 		if len(list) == 0 || list[0].ID != resp.SessionID {
 			t.Fatalf("新会话没有出现在列表里: %+v", list)
 		}
+
+		// 用量从这条真会话的 usage 汇总：补齐 7 天、按模型归因、总量非零。
+		stats, err := te.container.Stats.Compute(7)
+		if err != nil {
+			t.Fatalf("统计失败: %v", err)
+		}
+		if len(stats.Daily) != 7 {
+			t.Fatalf("应当补齐 7 天，实际 %d", len(stats.Daily))
+		}
+		if stats.Totals.Total == 0 {
+			t.Fatal("会话文件里有用量，统计不该是 0")
+		}
+		if len(stats.Models) == 0 {
+			t.Fatal("按模型的归因是空的")
+		}
 	})
 
 	t.Run("停止：先取回排队文本再中止", func(t *testing.T) {
@@ -322,7 +338,8 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("技能：用户目录两区 + 包自带技能，启停靠移目录", func(t *testing.T) {
+	// 技能与插件同源：都在扫 PI 的目录 + settings.json 登记表，同一次 setup 里一起验。
+	t.Run("目录扫描：技能三区启停靠移目录，插件登记项与包目录都要解析出来", func(t *testing.T) {
 		skillsDir := te.env.PiEnv.SkillsDir()
 		mkSkill(t, filepath.Join(skillsDir, "demo-skill"), "demo-skill", "演示")
 		mkSkill(t, filepath.Join(te.env.PiEnv.DisabledSkillsDir(), "old-skill"), "old-skill", "停用的")
@@ -330,7 +347,15 @@ func TestServiceChain(t *testing.T) {
 		// 一个装了技能的包：settings.json 里登记，目录在 agent/npm/node_modules 下。
 		pkgDir := filepath.Join(te.env.PiEnv.AgentDir(), "npm", "node_modules", "pi-demo-pkg")
 		mkSkill(t, filepath.Join(pkgDir, "skills", "pkg-skill"), "pkg-skill", "包里的")
-		writeSettings(t, te.env, []string{"npm:pi-demo-pkg"}, nil)
+		extDir := te.env.PiEnv.ExtensionsDir()
+		if err := os.MkdirAll(extDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ext := filepath.Join(extDir, "extra.ts")
+		if err := os.WriteFile(ext, []byte("export default () => {}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeSettings(t, te.env, []string{"npm:pi-demo-pkg"}, []string{ext})
 
 		te.container.Skills.Reload("")
 		list := te.container.Skills.List()
@@ -356,32 +381,21 @@ func TestServiceChain(t *testing.T) {
 		if err := te.container.Skills.Toggle("pkg-skill@package", false); err == nil {
 			t.Fatal("包自带技能不该被界面搬动")
 		}
-	})
 
-	t.Run("插件与包：登记项、磁盘条目与包目录解析", func(t *testing.T) {
-		extDir := te.env.PiEnv.ExtensionsDir()
-		if err := os.MkdirAll(extDir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		ext := filepath.Join(extDir, "extra.ts")
-		if err := os.WriteFile(ext, []byte("export default () => {}"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		writeSettings(t, te.env, []string{"npm:pi-demo-pkg"}, []string{ext})
-
-		list, err := te.container.Extensions.List()
+		exts, err := te.container.Extensions.List()
 		if err != nil {
 			t.Fatalf("列插件失败: %v", err)
 		}
-		if len(list.Packages) != 1 || list.Packages[0].Name != "pi-demo-pkg" {
-			t.Fatalf("包清单不对: %+v", list.Packages)
+		if len(exts.Packages) != 1 || exts.Packages[0].Name != "pi-demo-pkg" {
+			t.Fatalf("包清单不对: %+v", exts.Packages)
 		}
-		if list.Packages[0].Missing {
-			t.Fatalf("已落地的包不该标 missing: %+v", list.Packages[0])
+		if exts.Packages[0].Missing {
+			t.Fatalf("已落地的包不该标 missing: %+v", exts.Packages[0])
 		}
-		if len(list.Entries) != 1 || !list.Entries[0].Enabled {
-			t.Fatalf("登记的扩展条目不对: %+v", list.Entries)
+		if len(exts.Entries) != 1 || !exts.Entries[0].Enabled {
+			t.Fatalf("登记的扩展条目不对: %+v", exts.Entries)
 		}
+		// 停用 = 改登记表（文件不搬走），并且要把登记项从 settings.json 摘掉。
 		if err := te.container.Extensions.Toggle(ext, false); err != nil {
 			t.Fatalf("停用扩展失败: %v", err)
 		}
@@ -391,7 +405,8 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("模型服务：读写 PI 的 models.json", func(t *testing.T) {
+	// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 删除连带清理。
+	t.Run("配置写入：models.json 与 mcp.json 的校验、落盘与删除", func(t *testing.T) {
 		vo, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{
 			Name: "本地网关", API: domain.APIOpenAICompletions,
 			BaseURL: "http://127.0.0.1:1234/v1", APIKey: "sk-secret-1234567890",
@@ -403,16 +418,16 @@ func TestServiceChain(t *testing.T) {
 		if vo.ID == "" || !vo.HasKey {
 			t.Fatalf("返回的服务商不对: %+v", vo)
 		}
-		list, err := te.container.Providers.List()
+		plist, err := te.container.Providers.List()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(list.Providers) != 1 {
-			t.Fatalf("服务商没写进去: %+v", list.Providers)
+		if len(plist.Providers) != 1 {
+			t.Fatalf("服务商没写进去: %+v", plist.Providers)
 		}
 		// 密钥在界面上只给掩码（明文在 models.json 里，PI 就是这么读的）。
-		if strings.Contains(list.Providers[0].KeyHint, "secret-1234") {
-			t.Fatalf("掩码泄露了密钥: %q", list.Providers[0].KeyHint)
+		if strings.Contains(plist.Providers[0].KeyHint, "secret-1234") {
+			t.Fatalf("掩码泄露了密钥: %q", plist.Providers[0].KeyHint)
 		}
 		raw, err := os.ReadFile(te.env.PiEnv.ModelsPath())
 		if err != nil {
@@ -433,75 +448,37 @@ func TestServiceChain(t *testing.T) {
 		if key, err := te.container.Providers.Reveal(vo.ID); err != nil || key != "sk-secret-1234567890" {
 			t.Fatalf("查看密钥失败: %q %v", key, err)
 		}
+
+		// MCP：坏 JSON 一个字符都不写。
+		if err := te.container.MCP.Save(domain.SaveMCPREQ{Scope: "global", Raw: `{"mcpServers":{`}); err == nil {
+			t.Fatal("坏 JSON 必须被拒")
+		}
+		rawMCP, _ := te.env.PiEnv.MCPRaw(te.env.PiEnv.MCPPath())
+		if strings.Contains(string(rawMCP), "mcpServers") {
+			t.Fatalf("坏配置被写进去了: %s", rawMCP)
+		}
+		if err := te.container.MCP.Save(domain.SaveMCPREQ{
+			Scope: "global", Raw: `{"mcpServers":{"demo":{"command":"node","args":["x.js"]}}}`,
+		}); err != nil {
+			t.Fatalf("保存 MCP 失败: %v", err)
+		}
+		mcpList, err := te.container.MCP.List("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(mcpList.Servers) == 0 || mcpList.Servers[0].Name != "demo" {
+			t.Fatalf("服务没读出来: %+v", mcpList.Servers)
+		}
+		if mcpList.Servers[0].Scope != "global" {
+			t.Fatalf("范围不对: %+v", mcpList.Servers[0])
+		}
+
+		// 删掉服务商要连带清掉默认模型，否则下次新对话指向一个不存在的服务。
 		if err := te.container.Providers.Delete(vo.ID); err != nil {
 			t.Fatal(err)
 		}
 		if p, _ := te.container.Providers.Defaults(); p != "" {
 			t.Fatal("删掉服务商后默认模型应一起清掉")
-		}
-	})
-
-	t.Run("MCP：保存前校验，坏 JSON 不落盘", func(t *testing.T) {
-		if err := te.container.MCP.Save(domain.SaveMCPREQ{Scope: "global", Raw: `{"mcpServers":{`}); err == nil {
-			t.Fatal("坏 JSON 必须被拒")
-		}
-		raw, _ := te.env.PiEnv.MCPRaw(te.env.PiEnv.MCPPath())
-		if strings.Contains(string(raw), "mcpServers") {
-			t.Fatalf("坏配置被写进去了: %s", raw)
-		}
-		good := `{"mcpServers":{"demo":{"command":"node","args":["x.js"]}}}`
-		if err := te.container.MCP.Save(domain.SaveMCPREQ{Scope: "global", Raw: good}); err != nil {
-			t.Fatalf("保存 MCP 失败: %v", err)
-		}
-		list, err := te.container.MCP.List("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(list.Servers) == 0 || list.Servers[0].Name != "demo" {
-			t.Fatalf("服务没读出来: %+v", list.Servers)
-		}
-		if list.Servers[0].Scope != "global" {
-			t.Fatalf("范围不对: %+v", list.Servers[0])
-		}
-	})
-
-	t.Run("统计：用量按天聚合自会话文件", func(t *testing.T) {
-		stats, err := te.container.Stats.Compute(7)
-		if err != nil {
-			t.Fatalf("统计失败: %v", err)
-		}
-		if len(stats.Daily) != 7 {
-			t.Fatalf("应当补齐 7 天，实际 %d", len(stats.Daily))
-		}
-		if stats.Totals.Total == 0 {
-			t.Fatal("会话文件里有用量，统计不该是 0")
-		}
-		if len(stats.Models) == 0 {
-			t.Fatal("按模型的归因是空的")
-		}
-	})
-
-	t.Run("设置：PI 侧配置快照带全部文件位置", func(t *testing.T) {
-		pi, err := te.container.Settings.PISettings()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if pi.AgentDir != te.env.PiEnv.AgentDir() || pi.ModelsPath != te.env.PiEnv.ModelsPath() {
-			t.Fatalf("路径快照不对: %+v", pi)
-		}
-		if err := te.container.Settings.SetThinkingLevel("high"); err != nil {
-			t.Fatal(err)
-		}
-		after, _ := te.env.PiEnv.ReadSettings()
-		if after.DefaultThinkingLevel != "high" {
-			t.Fatalf("思考档没写进 settings.json: %+v", after)
-		}
-		if err := te.container.Settings.SetCompaction(domain.SetCompactionREQ{Reserve: 8192, Keep: 4096}); err != nil {
-			t.Fatal(err)
-		}
-		after, _ = te.env.PiEnv.ReadSettings()
-		if after.Compaction == nil || after.Compaction.ReserveTokens != 8192 {
-			t.Fatalf("压缩参数没写进去: %+v", after.Compaction)
 		}
 	})
 

@@ -10,10 +10,10 @@ import { i18n } from './i18n'
 import './bootstrap'
 import { useToastStore } from './stores/toast'
 import './themes.css'
-import './wb-ui.css'
+import './base.css'
 import './ep-theme.css'
+import './content.css'
 import 'virtual:uno.css'
-import 'highlight.js/styles/github.css'
 
 // 组件基元逐步从 wb-ui.css 迁到 Element Plus（阶段迁移期两者共存）；
 // EP 的文案跟随 i18n。

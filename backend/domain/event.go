@@ -2,6 +2,7 @@
 package domain
 
 // 事件名：SSE 的 event 字段取值。
+// 一串 chat:* 里带上下文含义的那几个在下面单独注解，其余看名字即知。
 const (
 	EventChatStart      = "chat:start"
 	EventChatDelta      = "chat:delta"
@@ -21,7 +22,7 @@ const (
 	// EventChatSetup 是环境安装进度（npm 装 PI 可能几十秒）。
 	EventChatSetup = "chat:setup"
 	// EventChatAsk 是引擎里的扩展在问用户（confirm / select / input）。
-	// 问题来自 PI 进程，工作区级通道，所以 session_id 可能为空。
+	// 问题来自 PI 进程且走工作区级通道，所以 session_id 可能为空。
 	EventChatAsk = "chat:ask"
 	// EventChatAskClosed 是那条问题已经不需要再答了（已答 / 会话中止 / 进程退出）。
 	EventChatAskClosed = "chat:ask_closed"

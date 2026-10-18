@@ -1,4 +1,4 @@
-// 受控写入：stage / unstage / commit / 新建分支 / 切分支 / push 六种白名单动作（specs/09）。
+// 受控写入：stage / unstage / commit / 新建分支 / 切分支 / push 六种白名单动作（specs/08）。
 // 写入不可逆，因此每个动作都显式列举参数，命中禁止清单一律拒绝——不解析、不猜测。
 package git
 

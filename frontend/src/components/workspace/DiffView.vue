@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// 差异视图：把后端折好的行结构渲染成等宽两栏（旧 / 新行号 + 正文）。
+// 差异视图：把后端折好的行结构渲染成等宽行（旧 / 新行号 + 正文）。
 // 只做展示——提交与回滚都交给版本工具，界面不替用户决定不可逆操作。
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { GitDiffLineVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 
@@ -13,197 +14,126 @@ const props = defineProps<{
   loading: boolean
 }>()
 
+const { t } = useI18n()
+
 const adds = computed(() => props.lines.filter((l) => l.kind === 'add').length)
 const dels = computed(() => props.lines.filter((l) => l.kind === 'del').length)
-// 方向用行首符号说（+ / -）：语义交给符号与淡底，描边继续只承担分层
-const SIGN: Record<string, string> = { add: '+', del: '-' }
 const blank = computed(() => !props.loading && props.lines.length === 0)
-// 「整个工作区」与「某个文件」的空态不是一回事：前者是没改动，后者是与上一次提交一致
 const blankText = computed(() =>
-  props.path ? '这个文件现在和上一次提交一致' : '工作区还没有改动',
+  props.path ? t('workspace.diffEmpty') : t('workspace.noChanges'),
 )
 </script>
 
 <template>
-  <section class="diff card">
-    <div class="df-head">
-      <span class="df-ic"><AppIcon name="git-diff" size="ic-sm" /></span>
-      <span class="df-path mono" :title="path || '整个工作区'">{{ path || '整个工作区' }}</span>
-      <span class="df-num">
-        <b class="up">+{{ adds }}</b>
-        <b class="down">-{{ dels }}</b>
+  <section class="wb-card diff-card">
+    <header class="dc-head">
+      <span class="dc-path" :title="path">{{ path || t('workspace.changes') }}</span>
+      <span v-if="lines.length" class="dc-stat">
+        <b class="is-add">+{{ adds }}</b>
+        <b class="is-del">−{{ dels }}</b>
       </span>
-      <span v-if="loading" class="df-spin" aria-live="polite"><AppIcon name="loader" size="ic-xs" spin /></span>
+    </header>
+
+    <div v-if="loading" class="dc-state">
+      <span class="dc-spin" />
+      {{ t('common.loading') }}
     </div>
 
-    <div v-if="loading" class="df-wait">正在读改动…</div>
-    <div v-else-if="blank" class="df-wait">{{ blankText }}</div>
-    <div v-else class="df-body scroll">
+    <div v-else-if="blank" class="dc-state">
+      <AppIcon name="git-diff" size="ic-lg" />
+      {{ blankText }}
+    </div>
+
+    <div v-else class="diff dc-body">
       <div
         v-for="(l, i) in lines"
         :key="i"
-        class="dl"
-        :class="l.kind"
+        class="diff-row"
+        :class="{ 'is-add': l.kind === 'add', 'is-del': l.kind === 'del', 'is-hunk': l.kind === 'hunk' }"
       >
-        <template v-if="l.kind === 'file'">
-          <span class="dl-file mono">{{ l.text }}</span>
-        </template>
-        <template v-else-if="l.kind === 'hunk'">
-          <span class="dl-hunk mono">{{ l.text }}</span>
-        </template>
-        <template v-else>
-          <span class="no">{{ l.old_no || '' }}</span>
-          <span class="no">{{ l.new_no || '' }}</span>
-          <span class="sg" :class="l.kind">{{ SIGN[l.kind] || ' ' }}</span>
-          <span class="tx mono">{{ l.text }}</span>
-        </template>
+        <span>{{ l.old_no || '' }}</span>
+        <span>{{ l.new_no || '' }}</span>
+        <span>{{ l.text }}</span>
       </div>
     </div>
 
-    <p v-if="!loading && truncated" class="df-cut">
-      还有 {{ dropped }} 行没显示：改动太大，只取前面这些
-    </p>
+    <footer v-if="truncated" class="dc-trunc">
+      <AppIcon name="alert" size="ic-xs" />
+      {{ t('workspace.diffTruncated', { n: dropped }) }}
+    </footer>
   </section>
 </template>
 
 <style scoped>
-.diff {
+.diff-card {
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  padding: var(--wb-sp-4);
+  min-height: 0;
+  overflow: hidden;
 }
-.df-head {
+.dc-head {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  margin-bottom: var(--wb-sp-3);
-  min-width: 0;
+  padding: var(--wb-sp-3) var(--wb-sp-4);
+  border-bottom: 1px solid var(--wb-border);
 }
-.df-ic {
-  display: grid;
-  place-items: center;
-  width: var(--wb-tile-sm);
-  height: var(--wb-tile-sm);
-  flex: none;
-  border-radius: var(--wb-radius-sm);
-  background: var(--wb-primary-soft);
-  color: var(--wb-primary);
-}
-.df-path {
+.dc-path {
+  flex: 1;
   min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--wb-fs-sm);
-  font-weight: 600;
-  color: var(--wb-ink);
 }
-.df-num {
-  margin-left: auto;
-  flex: none;
+.dc-stat {
   display: flex;
   gap: var(--wb-sp-2);
   font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
+  font-size: var(--wb-fs-2xs);
+  flex: none;
 }
-.df-num .up {
+.dc-stat .is-add {
   color: var(--wb-success);
 }
-.df-num .down {
+.dc-stat .is-del {
   color: var(--wb-danger);
 }
-.df-spin {
-  flex: none;
-  color: var(--wb-live);
-}
-
-.df-body {
-  border: 1px solid var(--wb-line);
-  border-radius: var(--wb-radius);
-  background: var(--wb-surface-2);
+.dc-body {
+  border: 0;
+  border-radius: 0;
+  max-height: calc(560px * var(--wb-vw-scale));
   overflow: auto;
-  /* 差异自己滚：几百行的改动不撑长整页，列表与分支条始终在视野里 */
-  max-height: 62vh;
-  min-height: 0;
 }
-.dl {
+.dc-state {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
   gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-xs);
-  line-height: 1.55;
-}
-.dl .no {
-  flex: none;
-  width: 40px;
-  padding: 0 var(--wb-sp-1);
-  text-align: right;
+  padding: var(--wb-sp-10) var(--wb-sp-5);
   color: var(--wb-muted);
-  user-select: none;
-  opacity: 0.75;
-}
-.dl .tx {
-  flex: 1 1 auto;
-  min-width: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--wb-ink);
-}
-/* 新增 / 删除：淡底 + 行首符号。描边是分层符号，不能被语义色占掉 */
-.dl.add {
-  background: var(--wb-success-soft);
-}
-.dl.del {
-  background: var(--wb-danger-soft);
-}
-.dl .sg {
-  flex: none;
-  width: 10px;
-  text-align: center;
-  color: var(--wb-muted);
-  user-select: none;
-}
-.dl .sg.add {
-  color: var(--wb-success);
-}
-.dl .sg.del {
-  color: var(--wb-danger);
-}
-.dl.hunk {
-  background: var(--wb-tint);
-  color: var(--wb-muted);
-}
-.dl-hunk {
-  padding: 2px var(--wb-sp-2);
-}
-.dl.file {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--wb-surface);
-  border-top: 1px solid var(--wb-line);
-}
-.dl.file:first-child {
-  border-top: none;
-}
-.dl-file {
-  padding: 4px var(--wb-sp-2);
-  font-size: var(--wb-fs-xs);
-  font-weight: 600;
-  color: var(--wb-ink-2);
-}
-
-.df-wait {
-  padding: var(--wb-sp-6) var(--wb-sp-4);
-  text-align: center;
   font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
+  text-align: center;
 }
-.df-cut {
-  margin-top: var(--wb-sp-2);
-  font-size: var(--wb-fs-hint);
-  color: var(--wb-muted);
+.dc-spin {
+  width: calc(13px * var(--wb-vw-scale));
+  height: calc(13px * var(--wb-vw-scale));
+  border-radius: var(--wb-radius-full);
+  border: 1.8px solid var(--wb-border-strong);
+  border-top-color: var(--wb-primary);
+  animation: wb-spin 0.8s linear infinite;
 }
-
+.dc-trunc {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2) var(--wb-sp-4);
+  border-top: 1px solid var(--wb-border);
+  background: var(--wb-warning-soft);
+  color: var(--wb-warning);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 600;
+}
 </style>

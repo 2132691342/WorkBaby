@@ -1,18 +1,23 @@
 <script setup lang="ts">
 // 模型服务面板：读写的就是 PI 的 models.json，界面与 pi 命令共用同一份配置。
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { ModelREQ, ProviderVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
-import PnHead from '../common/PnHead.vue'
+import SettingsSection from './SettingsSection.vue'
 
+const { t } = useI18n()
 const store = useSettingsStore()
 const toast = useToastStore()
 
+// 父级（环境向导）据此重检闸门
+const emit = defineEmits<{ (e: 'changed'): void }>()
+
 const APIS = [
-  { key: 'openai-completions', label: 'OpenAI 兼容（最常用）' },
+  { key: 'openai-completions', label: 'OpenAI Completions' },
   { key: 'openai-responses', label: 'OpenAI Responses' },
   { key: 'anthropic-messages', label: 'Anthropic Messages' },
   { key: 'google-generative-ai', label: 'Google Generative AI' },
@@ -21,7 +26,7 @@ const APIS = [
 
 const editing = ref('')
 const busy = ref('')
-const picked = ref<ProviderVO | null>(null)
+const dialog = ref(false)
 
 const form = reactive({
   id: '',
@@ -35,11 +40,11 @@ const fetched = ref<string[]>([])
 const manual = ref('')
 
 const providers = computed(() => store.providers?.providers ?? [])
+const defaultId = computed(() => store.providers?.default_provider || '')
 const path = computed(() => store.providers?.path || '')
 
 function reset() {
   editing.value = ''
-  picked.value = null
   form.id = ''
   form.name = ''
   form.api = 'openai-completions'
@@ -50,9 +55,13 @@ function reset() {
   manual.value = ''
 }
 
+function createNew() {
+  reset()
+  dialog.value = true
+}
+
 function edit(p: ProviderVO) {
   editing.value = p.id
-  picked.value = p
   form.id = p.id
   form.name = p.name
   form.api = p.api || 'openai-completions'
@@ -68,6 +77,7 @@ function edit(p: ProviderVO) {
   }))
   fetched.value = []
   manual.value = ''
+  dialog.value = true
 }
 
 function addModel(id: string) {
@@ -81,6 +91,10 @@ function addManual() {
   manual.value = ''
 }
 
+function dropModel(id: string) {
+  form.models = form.models.filter((m) => m.id !== id)
+}
+
 async function fetchModels() {
   if (busy.value) return
   busy.value = 'fetch'
@@ -92,9 +106,9 @@ async function fetchModels() {
       id: form.id || undefined,
     })
     fetched.value = resp.models ?? []
-    if (!fetched.value.length) toast.info('上游没有返回模型列表，手动填也行')
+    toast.ok(t('settings.providers.fetched', { n: fetched.value.length }))
   } catch (e) {
-    toast.bad(`拉取模型失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -103,7 +117,11 @@ async function fetchModels() {
 async function save() {
   if (busy.value) return
   if (!form.name.trim() && !form.id) {
-    toast.bad('先给它起个名字')
+    toast.bad(t('settings.providers.invalid'))
+    return
+  }
+  if (!form.models.length) {
+    toast.bad(t('settings.providers.invalid'))
     return
   }
   busy.value = 'save'
@@ -117,10 +135,12 @@ async function save() {
       models: form.models,
     })
     await store.refreshProviderData()
-    toast.ok('已写进 PI 的 models.json')
+    toast.ok(t('common.save'))
+    dialog.value = false
     reset()
+    emit('changed')
   } catch (e) {
-    toast.bad(`保存失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -132,10 +152,14 @@ async function remove(p: ProviderVO) {
   try {
     await api.providers.remove(p.id)
     await store.refreshProviderData()
-    if (editing.value === p.id) reset()
-    toast.ok(`已删除 ${p.name}`)
+    if (editing.value === p.id) {
+      dialog.value = false
+      reset()
+    }
+    toast.ok(`${t('common.delete')} ${p.name}`)
+    emit('changed')
   } catch (e) {
-    toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -146,10 +170,10 @@ async function test(p: ProviderVO) {
   busy.value = `test:${p.id}`
   try {
     const r = await api.providers.test(p.id)
-    if (r.ok) toast.ok(r.message || '连上了')
-    else toast.bad(r.message || '连不上')
+    if (r.ok) toast.ok(t('settings.providers.testOk', { model: r.model }))
+    else toast.bad(t('settings.providers.testFail', { msg: r.message }))
   } catch (e) {
-    toast.bad(`测试失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('settings.providers.testFail', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -160,9 +184,14 @@ async function reveal(p: ProviderVO) {
   busy.value = `key:${p.id}`
   try {
     const r = await api.providers.reveal(p.id)
-    toast.ok(`密钥：${r.api_key || '（空）'}`)
+    try {
+      await navigator.clipboard.writeText(r.api_key || '')
+      toast.ok(t('common.copied'))
+    } catch {
+      toast.info(r.api_key || '—')
+    }
   } catch (e) {
-    toast.bad(`读取密钥失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
@@ -171,7 +200,7 @@ async function reveal(p: ProviderVO) {
 async function setDefault(p: ProviderVO) {
   const model = p.models[0]?.id
   if (!model) {
-    toast.bad('这个服务下还没有模型')
+    toast.bad(t('settings.providers.invalid'))
     return
   }
   if (busy.value) return
@@ -180,11 +209,19 @@ async function setDefault(p: ProviderVO) {
     await api.providers.setDefault(p.id, model)
     await store.refreshBoot()
     await store.loadProviders()
-    toast.ok(`默认模型：${model}`)
+    toast.ok(`${t('settings.providers.default')}: ${model}`)
   } catch (e) {
-    toast.bad(`设默认失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
+  }
+}
+
+function baseHost(url: string) {
+  try {
+    return new URL(url).host
+  } catch {
+    return url || '—'
   }
 }
 
@@ -194,151 +231,222 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="panel">
-    <PnHead icon="cpu" title="模型服务">
-      <template #sub>
-        读写的就是 PI 的 <span class="mono">{{ path || 'models.json' }}</span>：这里加的，<span class="mono">pi</span> 命令也立刻能用。
-      </template>
-      <el-button type="primary" @click="reset">新增服务</el-button>
-    </PnHead>
-
-    <div v-if="!providers.length" class="empty card">
-      <span class="em-ic"><AppIcon name="cpu" /></span>
-      <b>还没有任何服务商</b>
-      <p>填一个 OpenAI 兼容的地址与密钥即可开始（大多数中转网关都属于这一类）。</p>
-      <el-button @click="reset">新增服务</el-button>
-    </div>
-
-    <div class="cards">
-      <article v-for="p in providers" :key="p.id" class="pcard card" :class="{ 'is-on': editing === p.id }">
-        <div class="pc-top">
-          <span class="pc-avatar">{{ (p.name || p.id).slice(0, 1).toUpperCase() }}</span>
-          <div class="pc-id">
-            <b>{{ p.name || p.id }}</b>
-            <span class="pc-meta">{{ p.api }} · {{ p.models.length }} 个模型</span>
-          </div>
-          <span v-if="p.is_default" class="tag ok">默认</span>
-        </div>
-        <div class="pc-url mono">{{ p.base_url || '（未填地址）' }}</div>
-        <div class="pc-key">
-          <AppIcon name="shield" size="ic-2xs" />
-          <span class="mono">{{ p.has_key ? p.key_hint : '（没配密钥）' }}</span>
-          <button v-if="p.has_key" class="lnk" type="button" @click="reveal(p)">显示</button>
-        </div>
-        <div class="pc-models">
-          <span v-for="m in p.models.slice(0, 4)" :key="m.id" class="chip sm">{{ m.name || m.id }}</span>
-          <span v-if="p.models.length > 4" class="muted">+{{ p.models.length - 4 }}</span>
-        </div>
-        <div class="pc-acts">
-          <el-button size="small" :loading="busy === `test:${p.id}`" :disabled="!!busy" @click="test(p)">测试</el-button>
-          <el-button size="small" type="primary" plain :loading="busy === `def:${p.id}`" :disabled="!!busy || p.is_default" @click="setDefault(p)">设默认</el-button>
-          <el-button size="small" :disabled="!!busy" @click="edit(p)">编辑</el-button>
-          <el-popconfirm title="删除后 pi 命令也用不了它，确定？" width="240" @confirm="remove(p)">
-            <template #reference>
-              <el-button size="small" type="danger" plain :loading="busy === `del:${p.id}`" :disabled="!!busy">删除</el-button>
-            </template>
-          </el-popconfirm>
-        </div>
-      </article>
-    </div>
-
-    <section class="editor card">
-      <header class="ed-head">
-        <b>{{ editing ? `编辑 ${picked?.name || editing}` : '新增服务' }}</b>
-        <span class="muted">字段与 PI 的 models.json 一一对应</span>
-      </header>
-      <div class="grid2">
-        <label class="field">
-          <span>显示名</span>
-          <el-input v-model="form.name" placeholder="例：本地网关 / DeepSeek" />
-        </label>
-        <label class="field">
-          <span>接口类型</span>
-          <el-select v-model="form.api">
-            <el-option v-for="a in APIS" :key="a.key" :label="a.label" :value="a.key" />
-          </el-select>
-        </label>
-        <label class="field">
-          <span>接口地址</span>
-          <el-input v-model="form.base_url" class="mono" placeholder="https://api.example.com/v1" />
-        </label>
-        <label class="field">
-          <span>API Key {{ editing ? '（留空表示不改）' : '' }}</span>
-          <el-input v-model="form.api_key" class="mono" type="password" show-password placeholder="sk-…" />
-        </label>
-      </div>
-
-      <div class="models">
-        <div class="md-head">
-          <b>模型</b>
-          <span class="muted">{{ form.models.length }} 个</span>
-          <span class="sp" />
-          <el-button size="small" :loading="busy === 'fetch'" :disabled="!!busy" @click="fetchModels">
-            从上游拉取
-          </el-button>
-        </div>
-        <div class="md-add">
-          <el-input v-model="manual" placeholder="手动填模型名，空格或逗号分隔" @keydown.enter.prevent="addManual" />
-          <el-button size="small" @click="addManual">加入</el-button>
-        </div>
-        <div v-if="fetched.length" class="md-pick">
-          <button v-for="m in fetched" :key="m" class="chip sm" type="button" :disabled="form.models.some((x) => x.id === m)" @click="addModel(m)">
-            {{ m }}
-          </button>
-        </div>
-        <div v-if="form.models.length" class="md-list">
-          <div v-for="(m, i) in form.models" :key="m.id" class="md-row">
-            <el-input v-model="m.id" class="mono" placeholder="模型 id" size="small" />
-            <el-input v-model="m.name" placeholder="显示名" size="small" />
-            <el-input-number v-model="m.context_window" placeholder="窗口" size="small" :min="0" :controls="false" class="num" />
-            <el-input-number v-model="m.max_tokens" placeholder="输出上限" size="small" :min="0" :controls="false" class="num" />
-            <el-checkbox v-model="m.vision" size="small">识图</el-checkbox>
-            <el-checkbox v-model="m.reasoning" size="small">思考</el-checkbox>
-            <el-button size="small" type="danger" link @click="form.models.splice(i, 1)">移除</el-button>
-          </div>
-        </div>
-        <p v-else class="muted">还没加模型：模型清单决定界面上的模型选择器里有什么。</p>
-      </div>
-
-      <div class="ed-acts">
-        <el-button type="primary" :loading="busy === 'save'" :disabled="!!busy" @click="save">
-          保存
+  <div class="panel-wrap">
+    <SettingsSection
+      icon="sparkles"
+      :title="t('settings.providers.title')"
+      :desc="t('settings.providers.desc')"
+    >
+      <template #actions>
+        <el-button size="small" type="primary" @click="createNew">
+          <AppIcon name="plus" size="ic-xs" />
+          <span class="ml-1">{{ t('settings.providers.add') }}</span>
         </el-button>
-        <el-button v-if="editing" @click="reset">取消</el-button>
-        <span class="sp" />
-        <span class="muted">保存后重启空闲的 PI 进程，新配置立刻生效</span>
+      </template>
+
+      <p v-if="path" class="wb-mono">{{ path }}</p>
+
+      <div v-if="store.providersLoading && !providers.length" class="grid gap-3">
+        <el-skeleton animated :rows="3" class="card-box" />
       </div>
-    </section>
+
+      <div v-else-if="!providers.length" class="wb-card empty-box">
+        <span class="wb-tile wb-tile--lg"><AppIcon name="cpu" size="ic-xl" /></span>
+        <b>{{ t('settings.providers.empty') }}</b>
+        <p>{{ t('settings.providers.emptyHint') }}</p>
+        <el-button size="small" type="primary" @click="createNew">{{ t('settings.providers.add') }}</el-button>
+      </div>
+
+      <div v-else class="prov-grid">
+        <article v-for="p in providers" :key="p.id" class="prov">
+          <header class="prov-head">
+            <span class="prov-avatar">{{ (p.name || p.id).slice(0, 1).toUpperCase() }}</span>
+            <div class="prov-tx">
+              <div class="prov-name">
+                {{ p.name || p.id }}
+                <el-tag v-if="p.id === defaultId" size="small" type="primary">
+                  {{ t('settings.providers.default') }}
+                </el-tag>
+              </div>
+              <div class="prov-sub">{{ p.api }} · {{ baseHost(p.base_url) }}</div>
+            </div>
+            <el-tag :type="p.has_key ? 'success' : 'info'" size="small">
+              {{ p.has_key ? t('settings.providers.key') : t('common.unknown') }}
+            </el-tag>
+          </header>
+
+          <div class="prov-models">
+            <el-tag v-for="m in p.models.slice(0, 4)" :key="m.id" size="small" class="prov-model">
+              {{ m.name || m.id }}
+            </el-tag>
+            <span v-if="p.models.length > 4" class="prov-more">+{{ p.models.length - 4 }}</span>
+            <span v-if="!p.models.length" class="prov-more">{{ t('common.empty') }}</span>
+          </div>
+
+          <footer class="prov-acts">
+            <el-button
+              size="small"
+              :loading="busy === `test:${p.id}`"
+              :disabled="!!busy"
+              @click="test(p)"
+            >
+              {{ t('settings.providers.test') }}
+            </el-button>
+            <el-button size="small" :disabled="!!busy || !p.has_key" @click="reveal(p)">
+              {{ t('settings.providers.reveal') }}
+            </el-button>
+            <el-button
+              v-if="p.id !== defaultId"
+              size="small"
+              :loading="busy === `def:${p.id}`"
+              :disabled="!!busy"
+              @click="setDefault(p)"
+            >
+              {{ t('settings.providers.setDefault') }}
+            </el-button>
+            <span class="sp" />
+            <el-tooltip :content="t('common.edit')" placement="top" :show-after="400">
+              <el-button size="small" circle :disabled="!!busy" @click="edit(p)">
+                <AppIcon name="pencil" size="ic-xs" />
+              </el-button>
+            </el-tooltip>
+            <el-popconfirm
+              :title="t('settings.providers.deleteTitle')"
+              width="260"
+              @confirm="remove(p)"
+            >
+              <template #reference>
+                <el-button size="small" circle :disabled="!!busy">
+                  <AppIcon name="trash" size="ic-xs" />
+                </el-button>
+              </template>
+            </el-popconfirm>
+          </footer>
+        </article>
+      </div>
+    </SettingsSection>
+
+    <el-dialog
+      v-model="dialog"
+      :title="editing ? t('common.edit') : t('settings.providers.add')"
+      width="680px"
+      destroy-on-close
+    >
+      <el-form label-position="top" @submit.prevent>
+        <div class="form-grid">
+          <el-form-item :label="t('settings.providers.api')">
+            <el-select v-model="form.api" :disabled="!!busy">
+              <el-option v-for="a in APIS" :key="a.key" :label="a.label" :value="a.key" />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('common.name')">
+            <el-input v-model="form.name" :placeholder="form.id || 'my-provider'" :disabled="!!busy" />
+            <p v-if="form.id" class="hint">{{ t('settings.providers.idLocked') }}</p>
+          </el-form-item>
+        </div>
+
+        <el-form-item :label="t('settings.providers.baseUrl')">
+          <el-input v-model="form.base_url" placeholder="https://api.example.com/v1" :disabled="!!busy" />
+        </el-form-item>
+
+        <el-form-item :label="t('settings.providers.key')">
+          <el-input
+            v-model="form.api_key"
+            type="password"
+            show-password
+            :placeholder="form.id ? t('settings.providers.keySaved') : t('settings.providers.keyPlaceholder')"
+            :disabled="!!busy"
+          />
+        </el-form-item>
+
+        <el-form-item :label="t('settings.providers.models')">
+          <div class="models">
+            <div class="models-bar">
+              <el-input
+                v-model="manual"
+                size="small"
+                :placeholder="t('settings.providers.modelId')"
+                @keydown.enter="addManual"
+              />
+              <el-button size="small" :disabled="!!busy" @click="addManual">{{ t('common.add') }}</el-button>
+              <el-button size="small" :loading="busy === 'fetch'" :disabled="!!busy" @click="fetchModels">
+                {{ t('settings.providers.fetchModels') }}
+              </el-button>
+            </div>
+
+            <div v-if="fetched.length" class="models-fetched">
+              <span class="wb-label">{{ t('settings.providers.fetched', { n: fetched.length }) }}</span>
+              <div class="models-chips">
+                <button
+                  v-for="m in fetched"
+                  :key="m"
+                  class="model-chip"
+                  type="button"
+                  :class="{ 'is-on': form.models.some((x) => x.id === m) }"
+                  @click="addModel(m)"
+                >
+                  {{ m }}
+                </button>
+              </div>
+            </div>
+
+            <ul v-if="form.models.length" class="models-list">
+              <li v-for="m in form.models" :key="m.id" class="model-row">
+                <el-input v-model="m.id" size="small" class="w-id" :placeholder="t('settings.providers.modelId')" />
+                <el-input v-model="m.name" size="small" class="w-name" :placeholder="t('settings.providers.modelName')" />
+                <el-input-number v-model="m.context_window" size="small" :min="0" :step="1000" controls-position="right" class="w-num" />
+                <el-input-number v-model="m.max_tokens" size="small" :min="0" :step="1000" controls-position="right" class="w-num" />
+                <el-checkbox v-model="m.reasoning" size="small">{{ t('settings.providers.reasoning') }}</el-checkbox>
+                <el-checkbox v-model="m.vision" size="small">{{ t('settings.providers.vision') }}</el-checkbox>
+                <button class="model-del" type="button" @click="dropModel(m.id)">
+                  <AppIcon name="close" size="ic-xs" />
+                </button>
+              </li>
+            </ul>
+            <p v-else class="hint">{{ t('settings.providers.invalid') }}</p>
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button :disabled="!!busy" @click="dialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="busy === 'save'" :disabled="!!busy" @click="save">
+          {{ t('common.save') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-4);
-}
-.cards {
+.prov-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(calc(320px * var(--wb-vw-scale)), 1fr));
   gap: var(--wb-sp-3);
 }
-.pcard {
+.prov {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-2);
+  gap: var(--wb-sp-3);
   padding: var(--wb-sp-4);
-  transition: border-color var(--wb-dur-fast) var(--wb-ease);
+  border-radius: var(--wb-radius-xl);
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface);
+  box-shadow: var(--wb-card-shadow);
+  transition:
+    box-shadow var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease);
 }
-.pcard.is-on {
-  border-color: var(--wb-primary);
+.prov:hover {
+  box-shadow: var(--wb-card-shadow-hover);
+  border-color: var(--wb-border-strong);
 }
-.pc-top {
+.prov-head {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-3);
 }
-.pc-avatar {
+.prov-avatar {
   width: var(--wb-tile-sm);
   height: var(--wb-tile-sm);
   border-radius: var(--wb-radius-sm);
@@ -347,155 +455,168 @@ onMounted(() => {
   background: var(--wb-primary-soft);
   color: var(--wb-primary);
   font-weight: 700;
+  flex: none;
 }
-.pc-id {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+.prov-tx {
   flex: 1;
+  min-width: 0;
 }
-.pc-id b {
+.prov-name {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
   font-size: var(--wb-fs-sm);
+  font-weight: 700;
   color: var(--wb-ink);
-}
-.pc-meta {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.pc-url {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pc-key {
+.prov-sub {
+  margin-top: 1px;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prov-models {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  font-size: var(--wb-fs-xs);
+  gap: var(--wb-sp-1);
+}
+.prov-model {
+  font-family: var(--font-mono);
+}
+.prov-more {
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
 }
-.pc-models {
+.prov-acts {
   display: flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
   flex-wrap: wrap;
-  gap: 4px;
 }
-.pc-acts {
-  display: flex;
-  gap: var(--wb-sp-2);
-  flex-wrap: wrap;
-  margin-top: auto;
-}
-.editor {
+.empty-box {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-3);
-  padding: var(--wb-sp-4);
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-10) var(--wb-sp-6);
+  text-align: center;
 }
-.ed-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--wb-sp-3);
-}
-.ed-head b {
+.empty-box b {
   font-size: var(--wb-fs-md);
   color: var(--wb-ink);
 }
-.grid2 {
+.empty-box p {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
+  max-width: calc(420px * var(--wb-vw-scale));
+  line-height: var(--wb-lh-base);
+}
+.form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: var(--wb-sp-3);
 }
-/* 窄窗时表单双列会挤：单列兜底 */
-@media (max-width: 720px) {
-  .grid2 {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-size: var(--wb-fs-xs);
+.hint {
+  margin-top: var(--wb-sp-1);
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
 }
 .models {
-  border-top: 1px solid var(--wb-line);
-  padding-top: var(--wb-sp-3);
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-2);
 }
-.md-head {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-}
-.md-add {
+.models-bar {
   display: flex;
   gap: var(--wb-sp-2);
 }
-.md-pick {
+.models-fetched {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-1);
+}
+.models-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  max-height: 120px;
-  overflow: auto;
+  gap: var(--wb-sp-1);
+  max-height: calc(120px * var(--wb-vw-scale));
+  overflow-y: auto;
 }
-.md-list {
+.model-chip {
+  padding: 2px var(--wb-sp-2);
+  border-radius: var(--wb-radius-sm);
+  border: 1px solid var(--wb-border);
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink-2);
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
+}
+.model-chip:hover {
+  border-color: var(--wb-primary-line);
+  color: var(--wb-primary);
+  background: var(--wb-primary-soft);
+}
+.model-chip.is-on {
+  background: var(--wb-primary-soft);
+  border-color: var(--wb-primary);
+  color: var(--wb-primary);
+}
+.models-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--wb-sp-1);
+  max-height: calc(260px * var(--wb-vw-scale));
+  overflow-y: auto;
 }
-.md-row {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 100px 100px auto auto auto;
-  gap: 6px;
-  align-items: center;
-}
-.md-row .num {
-  width: 100%;
-}
-.ed-acts {
+.model-row {
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-2);
+  gap: var(--wb-sp-1);
+}
+.w-id {
+  flex: 1.4;
+  min-width: 0;
+}
+.w-name {
+  flex: 1;
+  min-width: 0;
+}
+.w-num {
+  width: calc(120px * var(--wb-vw-scale));
+  flex: none;
+}
+.model-del {
+  display: grid;
+  place-items: center;
+  width: calc(22px * var(--wb-vw-scale));
+  height: calc(22px * var(--wb-vw-scale));
+  border-radius: var(--wb-radius-xs);
+  color: var(--wb-muted);
+  flex: none;
+}
+.model-del:hover {
+  color: var(--wb-danger);
+  background: var(--wb-danger-soft);
 }
 .sp {
   flex: 1;
 }
-.lnk {
-  border: none;
-  background: none;
-  color: var(--wb-primary);
-  font-size: var(--wb-fs-xs);
-  cursor: pointer;
+.ml-1 {
+  margin-left: var(--wb-sp-1);
 }
-.lnk.danger {
-  color: var(--wb-danger);
-}
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-8) var(--wb-sp-4);
-  text-align: center;
-}
-.em-ic {
-  width: var(--wb-tile);
-  height: var(--wb-tile);
-  border-radius: var(--wb-radius);
-  display: grid;
-  place-items: center;
-  background: var(--wb-primary-soft);
-  color: var(--wb-primary);
-}
-.empty p {
-  color: var(--wb-muted);
-  font-size: var(--wb-fs-xs);
-  max-width: 420px;
-  line-height: 1.7;
+@media (max-width: 900px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

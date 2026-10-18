@@ -196,8 +196,7 @@ type SettingsFile struct {
 }
 
 // settingsOwnedKeys 是本结构占据的顶层键：写入前先摘下旧值，零值才真的等于清空。
-// packages 不在里面：它归 PI 的包管理（pi install / pi remove）管，
-// 当成自己的键会把用户用 CLI 装的包抹掉。
+// packages 不在里面：它归 PI 管，当成自己的键会抹掉用户用 CLI 装的包。
 var settingsOwnedKeys = []string{
 	"defaultProvider", "defaultModel", "defaultThinkingLevel",
 	"defaultTools", "compaction", "extensions",
@@ -224,9 +223,8 @@ func (e *Env) ReadSettingsMap() (map[string]json.RawMessage, error) {
 	return e.settingsMap()
 }
 
-// WriteSettings 写 settings.json：只覆盖 WorkBaby 掌管的顶层键，其余原样保留。
-// 整体重写会把 PI 自己写的字段（cacheWarming / codemode / prompts…）抹掉，
-// 也会抹掉用户用 pi install 加进来的包。
+// WriteSettings 写 settings.json：只覆盖 WorkBaby 掌管的顶层键，其余原样保留
+// （整体重写会抹掉 PI 自己写的字段与用户用 pi install 装的包）。
 func (e *Env) WriteSettings(file *SettingsFile) error {
 	raw, err := e.settingsMap()
 	if err != nil {

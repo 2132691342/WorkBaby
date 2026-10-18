@@ -1,4 +1,4 @@
-# AGENTS.md · WorkBaby 工程规范
+﻿# AGENTS.md · WorkBaby 工程规范
 
 > 本文件是代码风格 / 分包 / 依赖方向 / 工作流的唯一权威。
 > 设计说明见 `docs/` 与 `specs/`；冲突时以本文件为准。
@@ -19,9 +19,9 @@
 | UI 组件库 | Element Plus | ^2.14.x（弹窗 / 表单 / 下拉 / 开关 / 确认气泡；文案跟随 i18n） |
 | 原子 CSS | UnoCSS | ^66.x（布局与间距；色值仍走 --wb-* 令牌） |
 | 图表 | ECharts | ^6.x（按需引入：Line / Pie + Grid / Tooltip；主题色接 --wb-ch-*） |
-| 代码编辑器 | CodeMirror 6 | markdown / json 高亮 + one-dark；技能正文与 MCP 配置编辑 |
+| 代码编辑器 | CodeMirror 6 | markdown / json 高亮；技能正文与 MCP 配置编辑 |
 | 国际化 | Vue I18n | ^9.14.x（zh-CN 默认 + en；设置页可切换，Element Plus 文案同步） |
-| 样式 | 原生 CSS 设计令牌（`themes.css` + `ep-theme.css`） | 色值与尺寸只在 themes.css 定义；EP 变量经 ep-theme.css 接到 --wb-* 令牌 |
+| 样式 | 原生 CSS 设计令牌（`themes.css` + `ep-theme.css` + `base.css` + `content.css`） | 色值与尺寸只在 themes.css 定义；EP 变量经 ep-theme.css 接到 --wb-* 令牌 |
 | 渲染 | marked · dompurify · highlight.js | markdown 唯一出口 `utils/md.ts` |
 | ORM | GORM + glebarez/sqlite | ^1.30.x（pure-Go，无 CGO） |
 | 数据库 | SQLite | WAL；只存界面设置 KV——会话、消息与用量都在 PI 的会话文件里 |
@@ -54,7 +54,7 @@ Agent 内核是外部 PI 进程（`pi --mode rpc`），本项目**不重写内�
 暴露它，不自研第二份。
 
 PI 不强制用户预先安装：内置 Node 与内置 npm 前缀可代装；用户机器上已有可用 PI 时
-直接复用（specs/18）。
+直接复用（specs/11）。
 
 ---
 
@@ -110,7 +110,7 @@ WorkBaby/
 - `backend/pi` import wails / api / server / gin / service，或让上层直接复制一份子进程与协议
 - 任何层向 PI 的 JSONL 写入（只有 PI 能写它）
 - 用字符串拼 git 写命令：`backend/git` 的写入走显式白名单（stage / unstage / commit / 新建分支 /
-  切分支 / push），`--force` / `reset --hard` / `--amend` / `--no-verify` / `-C <dir>` 一律拒绝（specs/09）
+  切分支 / push），`--force` / `reset --hard` / `--amend` / `--no-verify` / `-C <dir>` 一律拒绝（specs/08）
 
 ### 2.2 依赖方向（强制）
 
@@ -183,8 +183,21 @@ Go 的 nil slice / nil map 编码成 `null`，前端按数组读就是一句
 ### 2.3.3 前端目录（强制）
 
 `frontend/src` 是唯一源码目录，只有一层：
-`api / components / composables / stores / types / utils / views / router`，
-外加两个 CSS（`themes.css` 是色值与字体唯一来源，`wb-ui.css` 是组件基元唯一实现）。
+`api / components / composables / locales / stores / types / utils / views / router`，
+外加四个 CSS：
+
+| 文件 | 职责 |
+|---|---|
+| `themes.css` | 色值与尺寸刻度的**唯一来源**（`--wb-*` 令牌 + 两套 `[data-theme]`） |
+| `ep-theme.css` | Element Plus 变量 → `--wb-*` 的桥，外加按钮五态等细节对齐 |
+| `base.css` | 重置、排版基线、滚动条、可复用的面与图标基元 |
+| `content.css` | EP 没有对应物的自绘区：消息流 / markdown / 代码块 / 工具卡 / 思考块 / diff |
+
+`components/` 下按域分子目录：`layout`（顶栏 / 页头 / 左栏外壳）、`chat`、`dashboard`、
+`settings`、`workspace`、`common`（图标、代码编辑器、轻提示）。
+
+**禁止**：新增第五个顶层 CSS；在组件里写死色值；把布局间距写成裸像素。
+布局与间距用 UnoCSS 原子类（其刻度已接到 `--wb-*` 令牌）。
 
 Wails 生成的绑定落在 `frontend/wailsjs`（`wails.json` 的 `wailsjsdir`）：
 不进 `src`、不手改。绑定与源码分开，才不会出现 `src/src` 这种嵌套。
@@ -280,7 +293,7 @@ json tag 必须忠实协议字段名（camelCase：`parentId` / `toolCallId` / `
 
 - 根级：`README.md`（入口与能力全景）/ `AGENTS.md`（工程规范，唯一权威）/ `DESIGN.md`（视觉语言）
 - `docs/`：项目级说明（架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署）
-- `specs/`：子系统规格，编号 01-22，一个子系统一个文件
+- `specs/`：子系统规格，编号 01-13，一个子系统一个文件
 - 每篇只写现状：定位 → 设计 → 契约 → 关键流程 → 约束 → 取舍。**优势与代价必须写出来**
 - 表格与短段落优先；能用表就不用列表
 - **不写改动过程**：不建 CHANGELOG，不记录「本次改了什么」「之前坏在哪」，
@@ -341,22 +354,27 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
   `#e0e7ff`（淡强调）· `#f8fafc`（更淡的底）· `#1e293b`（中性深）。
   数据可视化取 `--wb-ch-1..4`（靛蓝明度递减），其中 3/4 两档是两档淡靛，不是中性灰
 - 组件禁止写死颜色：用 `var(--wb-*)`，不用 hex
-- 分层只靠「1px 中性描边 + 极轻阴影」：禁渐变、禁彩色描边、禁 backdrop-blur 叠层
+- 分层靠「圆角 + 1px 中性描边 + 一层极轻阴影」（`--wb-card-shadow`）：禁彩色描边、禁 backdrop-blur 叠层。
+  渐变只允许三处：图表面积（`--wb-area-*`）、欢迎页光晕、用户自选的背景图
+- 布局与间距用 UnoCSS 原子类：`uno.config.ts` 已把 spacing / fontSize / borderRadius / colors
+  全部接到 `--wb-*` 令牌，`gap-4` 就是 `var(--wb-sp-4)`。禁止在原子类里写裸像素或 hex
 - 控件高度四档：`--wb-ctl-h-sm`(26px) / `--wb-ctl-h`(34px) / `--wb-ctl-h-lg`(38px) / `--wb-ctl-h-xl`(44px)，另有图标钮 `--wb-ctl-icon`(32px)；禁止裸像素高度
 - 装饰性图标瓦片用 `--wb-tile-sm`(30px) / `--wb-tile`(40px) / `--wb-tile-lg`(52px)：它们不是控件，但同一组尺寸反复出现，散成裸像素就会各自漂
 - 按钮五态必须齐全（默认 / 悬停放大 / 按下缩小 / 禁用 / 加载）：每个可点元素都要给「点到了」的反馈
 - 危险按钮用中性描边 + 危险色文字：彩色描边违反分层纪律，语义交给文字与底色
 - 字号用刻度 `--wb-fs-*`；禁止任意像素值
 - 字体只有三个语义变量：`--font-sans` / `--font-mono` / `--font-display`，全部在 `themes.css` 定义；`html, body` 必须显式声明 `font-family` 与 `font-size`
-- 组件基元优先用 Element Plus（按钮 / 表单 / 开关 / 下拉 / 弹窗 / 气泡确认 / 标签）；
+- 组件基元优先用 Element Plus（按钮 / 表单 / 开关 / 下拉 / 弹窗 / 气泡确认 / 标签 / 表格 / 抽屉 / 页签）；
   EP 变量经 `ep-theme.css` 接到 `--wb-*`，组件里禁止另写色值
-- 图表一律 ECharts（按需注册），色值取 `--wb-ch-*`；主题切换后重读 CSS 变量重绘
-- 代码编辑一律 `CodeEditor`（CodeMirror 6）：markdown / json 高亮 + one-dark
+- 图表一律 ECharts（`utils/echarts.ts` 唯一装配点，按需注册），色值取 `--wb-ch-*`；主题切换后重读 CSS 变量重绘
+- 代码编辑一律 `CodeEditor`（CodeMirror 6）：markdown / json 高亮
 - 文案一律走 i18n（`src/locales/`，key 按域分层）；用户可见的字符串禁止硬编码在模板里
-- 消息流 / markdown 渲染 / 工具卡保留自绘（它们是内容渲染不是表单基元，EP 没有对应物）
-- 一级导航只在 `NavRail`（56px 轨道，对话/仪表盘/帮助/设置）：各视图不得自画返回或主页入口；
-  选中态 = 淡底 + 左侧 2px 竖条 + 主色（`.rail-item.is-on` / `.sess-item.is-on` / `.nav-item.on` 同一语言）
-- 图标统一走内联 SVG（`.ic` 类已按 24 网格写好 `stroke-width`）；禁止用 Unicode 字符或 Emoji 冒充图标
+- 消息流 / markdown 渲染 / 代码块 / 工具卡 / 思考块 / 提问卡保留自绘
+  （它们是内容渲染不是表单基元，EP 没有对应物）；提问卡内部仍用 EP 的按钮与输入
+- 一级导航只在顶栏（`layout/TitleBar.vue` 的三区分段 + 帮助 / 设置图标）：
+  各视图不得自画返回或主页入口；左栏只放**当前区**的导航（会话列表 / 设置分组 / 文档目录）
+- 选中态 = 淡底 + 左侧 2px 竖条 + 主色（`.sess-row.is-on` / `.set-item.is-on` / `.help-item.is-on` 同一语言）
+- 图标统一走 `AppIcon` 内联 SVG（24 网格，`--wb-icon-stroke`）；禁止用 Unicode 字符或 Emoji 冒充图标
 - 事件 data 的字段名必须与后端 json tag 一致（snake_case）；禁止 `as never` 之类的强转绕过类型检查
 
 ### 2.11 数据库迁移
@@ -465,7 +483,7 @@ type Record struct {
 | 环境 `Ready` 判定在 spawn 之前 | 没配模型就 spawn，失败点会推到第一次对话，错误难以归因 |
 | 会话/消息/提问等界面词表不变 | 前端只认自己的 `chat:*`；换词表等于重写整个前端 |
 
-详见 `specs/17-pi-supervisor.md` / `18-pi-bootstrap.md`。
+详见 `specs/10-pi-supervisor.md` / `11-pi-bootstrap.md`。
 
 ---
 
@@ -495,7 +513,8 @@ type Record struct {
   文件名 `<subject>_test.go`。同包内其余函数一律是 `check*` 辅助（不是 `Test*`），
   由入口用 `t.Run` 调起
 - **一个入口讲一条链路**：同类断言用 `t.Run` 归到同一个入口下，
-  失败时从输出就能看出是哪条链路、哪个分支坏了
+  失败时从输出就能看出是哪条链路、哪个分支坏了。子测试名写成一句话
+  （说清「坏的现象是什么」），它就是 grep 的把手
 - **查找靠命名，不靠搜代码**：`-run Chain` 抓全部入口；`-run TestMCPChain/重复服务名`
   直接落到一个分支。名称就是索引，所以入口名不许随手起
 - **昂贵的 setup 只在父测试准备一次**：起 HTTP 服务、装配服务容器都属于这一类。
@@ -531,7 +550,7 @@ CI 常跑全量，所以本地不跑不等于没人跑。
 ### 3.4 测试索引
 
 保留判据只有两条：**它坏了会指向一条真实链路**、**必须跨模块 / 跨轮次 / 跨协议**。
-全包共 8 个入口 / 8 个文件（一包一入口），每个入口只收复杂流程与长链路：
+全包共 8 个入口 / 8 个文件（一包一入口），共 23 条子测试：
 简单 CRUD、字段映射、构造冒烟这类「坏了也不知道哪里坏」的断言一律不写——
 它们撑不起一条链路，只会稀释失败信息、拖慢每次验证。
 没列进来的包（server / config / db / domain / pkg / repo / tray / singleinstance）
@@ -539,11 +558,11 @@ CI 常跑全量，所以本地不跑不等于没人跑。
 
 | 入口 | 覆盖的链路 |
 |---|---|
-| `app_test.go` · TestAppChain | 启动等待判据（慢装配不误判 / 失败如实报 / 卡死有上限）；关闭去向（托盘开关与退出流程决定收托盘还是真退出） |
-| `pi/pi_test.go` · TestPiChain | 真假 PI 进程下的协议链，五个子测试各守一条不变量：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、可用模型清单）；**事件顺序**（agent_end → 重试 → settled，done 只挂最后）；**事件翻译**（流式增量两类、工具结果内容块与元数据、压缩前后 token）；**提问请求解析与回写响应**（请求字段完整解析、响应写回同一 id）；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程） |
-| `pi/env/env_test.go` · TestPiEnvChain | **agent 目录与进程环境**（跟随 `PI_CODING_AGENT_DIR`、不覆盖它）；**环境闸门**（node → pi → model 报首个阻塞项并给原因）；**models.json 形状与未知字段保留**（camelCase、`$schema` / 服务商内未知键往返不丢）；**settings.json 只改掌管键**（PI 自己的字段与已装的包不丢、compaction 字段级合并）；**packages 两种写法**；**mcp.json 原文往返**与项目级路径 |
-| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈，三个子测试：**闸门**（预检放行 + 方法白名单 + 路径穿越门口拒绝）；**契约**（统一信封、空数组永不 null、`/env` 带 agent_dir、`/runtime` 字段、各资源列表可读）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、会话出现在列表里）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
-| `service/chain_test.go` · TestServiceChain | 十条链：**会话索引**（列表/详情/用量都来自会话文件、标题取 session_info、工具清单来自工具声明、删除删的是文件）；**一轮对话**（新会话现场创建、done 最后、重试事件、会话出现在列表）；**停止**（先取回排队文本再中止）；**技能**（用户/停用区/包自带三源、启停靠移目录、包内技能不可搬）；**插件与包**（登记项、包目录解析、停用摘登记）；**模型服务**（models.json 读写、密钥掩码、默认模型进 settings.json、能力回读、删除连带清默认）；**MCP**（坏 JSON 不落盘、保存后可读、范围正确）；**统计**（按天补齐、总量与模型归因）；**设置**（PI 配置快照与路径、思考档与压缩参数落盘）；不同工作区并行不串会话 |
+| `app_test.go` · TestAppChain | **启动等待判据**（慢装配不误判 / 失败如实报 / 卡死有上限）；**关闭去向**（托盘开关与退出流程决定收托盘还是真退出） |
+| `pi/pi_test.go` · TestPiChain | 五条链：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、可用模型清单）；**事件顺序**（agent_end → 重试 → settled，done 只挂最后）；**事件翻译**（流式增量两类、工具结果内容块与元数据、压缩前后 token、四种 fire-and-forget 扩展请求）；**提问请求解析与回写响应**（请求字段完整解析、响应写回同一 id）；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程） |
+| `pi/env/env_test.go` · TestPiEnvChain | 四条链：**agent 目录与进程环境**（跟随 `PI_CODING_AGENT_DIR`、不覆盖它）；**环境闸门**（node → pi → model 报首个阻塞项并给原因）；**models.json 形状与未知字段保留**（camelCase、`$schema` / 服务商内未知键往返不丢）；**settings.json 只改掌管键**（PI 自己的字段与已装的包不丢、compaction 字段级合并、packages 两种写法、原子替换不留临时文件）；**mcp.json 原文往返**与项目级路径 |
+| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈，三个子测试：**闸门**（预检放行 + 方法白名单 + 路径穿越门口拒绝）；**契约**（统一信封、空数组永不 null、`/env` 带 agent_dir、`/runtime` 字段、`/bootstrap` 与 `/warmup` 字段齐全、各资源列表可读）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、会话出现在列表里）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
+| `service/chain_test.go` · TestServiceChain | 六条链：**会话索引**（列表/详情/工具清单都来自会话文件、标题取 session_info、删除删的是文件）；**一轮对话与用量**（新会话现场创建、done 最后、重试事件、落盘后能算出用量与按模型归因）；**停止**（先取回排队文本再中止）；**目录扫描**（技能三区启停靠移目录、包内技能不可搬、扩展登记项与包目录解析）；**配置写入**（models.json 密钥掩码与能力回读、默认模型落盘、坏 MCP JSON 不落盘、删除连带清默认）；**跨工作区并行**（各自一个进程，不串会话） |
 | `git/git_test.go` · TestGitChain | 真仓库端到端（唯一用真子进程的测试，约 9 秒），按坏法分三条链：读（status 归类 / 中文带空格路径还原 / 行号归属 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；写（参数白名单 → 勾选入栈 → 空信息被拒 → 提交带 hash → 历史与文件历史可读 → 出栈只动索引）；分支（名字白名单 → 新建切换 → 历史隔离）。`-short` 与没装 git 都跳过 |
 | `skill/skill_test.go` · TestSkillRegistryChain | **frontmatter 混合类型解析**（列表 / 行内数组 / 标量混排，解析失败会被静默跳过）；**两区扫描**（停用区可见可读、正文可取）；**工作区切换**（换目录换技能不残留、全局技能不被清掉） |
 | `runtime/runtime_test.go` · TestBundledRuntimeChain | 两份归档 SHA 与常量一致、解压路径穿越拒绝；Node 剥掉顶层单目录、Python 平铺；真解压（`-short` 跳过） |
@@ -564,8 +583,10 @@ CI 常跑全量，所以本地不跑不等于没人跑。
 | 改了前端 | `cd frontend; npm run build`（或直接跑 `-Full`） |
 | 提交前 / CI | `pwsh scripts/check.ps1 -Full` |
 
-耗时大头是**编译**（前端依赖之外，Go 侧二十几个包 + wails / gin / gorm），测试本体多在亚秒级。
+耗时大头是**编译与链接测试二进制**（8 个入口各约 1.1 秒固定开销），
+断言本体多在亚秒级（23 条子测试加起来不到 1 秒）。
 所以「只跑一个包」省的是编译，不是断言——这就是 `-Pkg` 存在的理由。
+想更快就先用 `-Pkg <包>` 或 `go test -run '<入口>/<那条链>'` 定位，确认后再跑一次全量。
 
 
 ---

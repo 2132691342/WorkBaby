@@ -178,7 +178,7 @@ func TestPiChain(t *testing.T) {
 	})
 
 	// 翻译层把协议记录还原成界面能用的形态：增量分两类、工具结果带元数据、压缩带前后量。
-	t.Run("事件翻译：增量、工具结果与压缩", func(t *testing.T) {
+	t.Run("事件翻译：增量、工具结果、压缩与即时反馈", func(t *testing.T) {
 		client, rec := start(t, exe, "tools")
 		if _, err := client.Prompt(context.Background(), "读文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
@@ -218,6 +218,35 @@ func TestPiChain(t *testing.T) {
 		if cev.CompactResult == nil || cev.CompactResult.TokensBefore != 9000 || cev.CompactResult.EstimatedTokensAfter != 2000 {
 			t.Fatalf("压缩结果没解析出来: %+v", cev.CompactResult)
 		}
+
+		// fire-and-forget 四种：字段完整解析、无需应答、不阻塞命令通道。
+		fc, frec := start(t, exe, "notify")
+		if _, err := fc.Prompt(context.Background(), "打招呼", "", nil); err != nil {
+			t.Fatalf("prompt 失败: %v", err)
+		}
+		waitExtension := func(id string) Event {
+			waitFor(t, func() bool {
+				_, ok := frec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == id })
+				return ok
+			})
+			ev, _ := frec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == id })
+			return ev
+		}
+		if ev := waitExtension("n1"); ev.Method != "notify" || ev.Body != "命令被用户拒绝" || ev.NotifyType != "warning" {
+			t.Fatalf("notify 字段不对: %+v", ev)
+		}
+		if ev := waitExtension("n2"); ev.Method != "setStatus" || ev.StatusKey != "my-ext" || ev.StatusText != "Turn 3 running..." {
+			t.Fatalf("setStatus 字段不对: %+v", ev)
+		}
+		if ev := waitExtension("n3"); ev.Method != "setWidget" || len(ev.WidgetLines) != 2 || ev.WidgetLines[0] != "--- My Widget ---" {
+			t.Fatalf("setWidget 字段不对: %+v", ev)
+		}
+		if ev := waitExtension("n4"); ev.Method != "setTitle" || ev.Title != "pi - demo" {
+			t.Fatalf("setTitle 字段不对: %+v", ev)
+		}
+		if _, err := fc.GetState(context.Background()); err != nil {
+			t.Fatalf("fire-and-forget 之后命令通道被堵: %v", err)
+		}
 	})
 
 	// 提问桥的双向：请求字段完整解析，响应必须写回同一个 stdin。
@@ -246,38 +275,6 @@ func TestPiChain(t *testing.T) {
 			"type": "extension_ui_response", "id": "confirm-1", "confirmed": true,
 		}); err != nil {
 			t.Fatalf("回提问响应失败: %v", err)
-		}
-	})
-
-	// fire-and-forget 四种：字段完整解析、无需应答、不阻塞命令通道。
-	t.Run("即时反馈事件解析", func(t *testing.T) {
-		client, rec := start(t, exe, "notify")
-		if _, err := client.Prompt(context.Background(), "打招呼", "", nil); err != nil {
-			t.Fatalf("prompt 失败: %v", err)
-		}
-		waitExtension := func(id string) Event {
-			waitFor(t, func() bool {
-				_, ok := rec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == id })
-				return ok
-			})
-			ev, _ := rec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == id })
-			return ev
-		}
-		if ev := waitExtension("n1"); ev.Method != "notify" || ev.Body != "命令被用户拒绝" || ev.NotifyType != "warning" {
-			t.Fatalf("notify 字段不对: %+v", ev)
-		}
-		if ev := waitExtension("n2"); ev.Method != "setStatus" || ev.StatusKey != "my-ext" || ev.StatusText != "Turn 3 running..." {
-			t.Fatalf("setStatus 字段不对: %+v", ev)
-		}
-		if ev := waitExtension("n3"); ev.Method != "setWidget" || len(ev.WidgetLines) != 2 || ev.WidgetLines[0] != "--- My Widget ---" {
-			t.Fatalf("setWidget 字段不对: %+v", ev)
-		}
-		if ev := waitExtension("n4"); ev.Method != "setTitle" || ev.Title != "pi - demo" {
-			t.Fatalf("setTitle 字段不对: %+v", ev)
-		}
-		// 无需应答：不回写也不该卡住后续命令。
-		if _, err := client.GetState(context.Background()); err != nil {
-			t.Fatalf("fire-and-forget 之后命令通道被堵: %v", err)
 		}
 	})
 

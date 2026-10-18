@@ -31,9 +31,8 @@ func New(env *Env) (*Container, error) {
 	chat := NewChatService(env, sessions, providers)
 	env.Chat, env.Sessions = chat, sessions
 
-	// PI 监督器：进程配置由 PiEnv 提供（注入的 PATH 与可执行路径），
-	// 事件交给按工作区划分的翻译器。人设走 --append-system-prompt，
-	// 不写用户自己的 APPEND_SYSTEM.md：那是他的文件，不是我们的。
+	// PI 监督器：进程配置由 PiEnv 提供，事件交给按工作区划分的翻译器。
+	// 人设走 --append-system-prompt，不写用户的 APPEND_SYSTEM.md。
 	sup := pi.NewSupervisor(
 		func(workspace string) (pi.Config, error) {
 			exe, _ := env.PiEnv.PiExe()

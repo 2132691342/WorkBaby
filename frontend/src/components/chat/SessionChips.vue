@@ -1,22 +1,18 @@
 <script setup lang="ts">
 // 输入区的两个会话开关：模型 chip 与思考档 chip。
-// 模型清单来自 PI 的 models.json——界面选的与 pi 命令用的是同一份配置。
+// 面板自绘（绝对定位 + 外部点击关闭）：它是带键盘导航与两列联动的菜单，不是表单基元。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '../../stores/session'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import AppIcon from '../common/AppIcon.vue'
 
-const THINKING = [
-  { key: 'off', name: '不思考' },
-  { key: 'minimal', name: '很少' },
-  { key: 'low', name: '少' },
-  { key: 'medium', name: '适中' },
-  { key: 'high', name: '多' },
-  { key: 'xhigh', name: '很多' },
-  { key: 'max', name: '最多' },
-] as const
+const THINKING = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
+const { t } = useI18n()
+const router = useRouter()
 const session = useSessionStore()
 const settings = useSettingsStore()
 const toast = useToastStore()
@@ -31,25 +27,23 @@ const providers = computed(() => settings.providers?.providers ?? [])
 const currentProvider = computed(() => session.current?.provider || settings.boot?.default_provider || '')
 const currentModel = computed(() => session.current?.model || settings.boot?.default_model || '')
 
-const providerName = computed(
-  () => providers.value.find((p) => p.id === currentProvider.value)?.name || currentProvider.value || '未选模型',
-)
 const modelLabel = computed(() => {
   const p = providers.value.find((x) => x.id === currentProvider.value)
-  return p?.models.find((m) => m.id === currentModel.value)?.name || currentModel.value || '选模型'
+  return p?.models.find((m) => m.id === currentModel.value)?.name || currentModel.value || t('chat.modelPickerTitle')
 })
-const thinkingName = computed(
-  () => THINKING.find((t) => t.key === session.current?.thinking_level)?.name || '默认',
-)
+const thinkingKey = computed(() => session.current?.thinking_level || 'medium')
+const thinkingName = computed(() => t(`thinking.${thinkingKey.value}`))
 
-const activeVendor = computed(() => providers.value.find((p) => p.id === vendor.value) || providers.value[0])
+const activeVendor = computed(
+  () => providers.value.find((p) => p.id === vendor.value) || providers.value[0],
+)
 const activeModels = computed(() => activeVendor.value?.models ?? [])
 
-function toggle(next: Panel) {
+function open(next: Exclude<Panel, null>) {
   panel.value = panel.value === next ? null : next
   if (panel.value === 'model') {
     vendor.value = currentProvider.value || providers.value[0]?.id || ''
-    void settings.loadProviders()
+    if (!providers.value.length) void settings.loadProviders()
   }
 }
 
@@ -61,25 +55,23 @@ function show(which: 'model' | 'thinking') {
     void settings.loadProviders()
   }
 }
-
 function close() {
   panel.value = null
 }
 
 async function chooseModel(providerId: string, modelId: string) {
   if (!session.currentId) {
-    toast.info('先发一句话再换模型：模型属于某一条对话')
+    toast.info(t('chat.modelPickerTitle'))
     close()
     return
   }
   applying.value = `${providerId}/${modelId}`
   try {
     await session.setModel(providerId, modelId)
-    // 没有服务商条目时把默认模型也写一次：下一次新对话才跟着变。
     if (!session.current?.provider) await settings.refreshBoot()
     close()
   } catch (e) {
-    toast.bad(`换模型失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('chat.sendFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     applying.value = ''
   }
@@ -87,7 +79,7 @@ async function chooseModel(providerId: string, modelId: string) {
 
 async function chooseThinking(level: string) {
   if (!session.currentId) {
-    toast.info('先发一句话再调思考档：它属于某一条对话')
+    toast.info(t('chat.thinkingPickerTitle'))
     close()
     return
   }
@@ -96,25 +88,30 @@ async function chooseThinking(level: string) {
     await session.setThinking(level)
     close()
   } catch (e) {
-    toast.bad(`调整思考档失败：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('chat.sendFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     applying.value = ''
   }
 }
 
-function onDocClick(e: MouseEvent) {
-  if (!root.value) return
-  if (!root.value.contains(e.target as Node)) close()
+function goProviders() {
+  close()
+  void router.push('/settings/providers')
+}
+
+function onDocPointerDown(e: PointerEvent) {
+  if (root.value?.contains(e.target as Node)) return
+  close()
 }
 function onEsc(e: KeyboardEvent) {
   if (e.key === 'Escape') close()
 }
 onMounted(() => {
-  document.addEventListener('mousedown', onDocClick)
+  document.addEventListener('pointerdown', onDocPointerDown)
   document.addEventListener('keydown', onEsc)
 })
 onBeforeUnmount(() => {
-  document.removeEventListener('mousedown', onDocClick)
+  document.removeEventListener('pointerdown', onDocPointerDown)
   document.removeEventListener('keydown', onEsc)
 })
 
@@ -123,95 +120,85 @@ defineExpose({ show, close })
 
 <template>
   <div ref="root" class="chips">
-    <button
-      class="chip"
-      type="button"
-      :class="{ 'is-hi': panel === 'model' }"
-      :title="`模型：${providerName} / ${modelLabel}`"
-      @click="toggle('model')"
-    >
+    <button class="chip" type="button" :class="{ 'is-on': panel === 'model' }" @click="open('model')">
       <AppIcon name="sparkles" size="ic-2xs" />
       <span class="chip-t">{{ modelLabel }}</span>
+      <AppIcon :name="panel === 'model' ? 'chevron-down' : 'chevron-up'" size="ic-2xs" class="chip-caret" />
     </button>
-    <button
-      class="chip"
-      type="button"
-      :class="{ 'is-hi': panel === 'thinking' }"
-      :title="`思考档：${thinkingName}`"
-      @click="toggle('thinking')"
-    >
+    <button class="chip" type="button" :class="{ 'is-on': panel === 'thinking' }" @click="open('thinking')">
       <AppIcon name="brain" size="ic-2xs" />
-      <span class="chip-t">思考 {{ thinkingName }}</span>
+      <span class="chip-t">{{ thinkingName }}</span>
     </button>
 
     <Transition name="pop">
-      <div v-if="panel === 'model'" class="pop pop-model no-pop-anim">
-        <div class="pm-head">
-          <span>{{ providers.length ? '选择模型' : '还没有服务商' }}</span>
-          <RouterLink class="pm-link" to="/settings/providers">去配置</RouterLink>
+      <div v-if="panel === 'model'" class="panel mp">
+        <div class="mp-head">
+          <span class="wb-label">{{ t('chat.modelPickerTitle') }}</span>
+          <button class="mp-link" type="button" @click="goProviders">{{ t('chat.goProviders') }}</button>
         </div>
-        <div v-if="!providers.length" class="pm-empty">
-          先在「设置 · 模型服务」里加一个服务商，这里就会列出它的模型。
-        </div>
-        <div v-else class="pm-body">
-          <div class="pm-vendors">
+        <div v-if="!providers.length" class="mp-empty">{{ t('chat.noProviders') }}</div>
+        <div v-else class="mp-body">
+          <div class="mp-vendors">
             <button
               v-for="p in providers"
               :key="p.id"
-              class="pm-vendor"
+              class="mp-vendor"
               type="button"
               :class="{ 'is-on': p.id === activeVendor?.id }"
               @click="vendor = p.id"
               @mouseenter="vendor = p.id"
             >
-              <span class="pm-avatar">{{ (p.name || p.id).slice(0, 1).toUpperCase() }}</span>
-              <span class="pm-vname">{{ p.name || p.id }}</span>
-              <span class="pm-count">{{ p.models.length }}</span>
+              <span class="mp-avatar">{{ (p.name || p.id).slice(0, 1).toUpperCase() }}</span>
+              <span class="mp-vname">{{ p.name || p.id }}</span>
+              <span class="mp-count">{{ p.models.length }}</span>
             </button>
           </div>
-          <div class="pm-models">
+          <div class="mp-models">
             <button
               v-for="m in activeModels"
               :key="m.id"
-              class="pm-model"
+              class="mp-model"
               type="button"
               :class="{
                 'is-on': m.id === currentModel && activeVendor?.id === currentProvider,
-                'is-loading': applying === `${activeVendor?.id}/${m.id}`,
+                'is-busy': applying === `${activeVendor?.id}/${m.id}`,
               }"
+              :disabled="!!applying"
               @click="chooseModel(activeVendor!.id, m.id)"
             >
-              <span class="pm-mname">{{ m.name || m.id }}</span>
-              <span class="pm-meta">
+              <span class="mp-mname">{{ m.name || m.id }}</span>
+              <span class="mp-meta">
                 <span v-if="m.context_window">{{ Math.round(m.context_window / 1000) }}k</span>
-                <span v-if="m.vision">识图</span>
-                <span v-if="!m.reasoning">无思考</span>
+                <span v-if="m.vision">img</span>
+                <span v-if="m.reasoning">think</span>
               </span>
               <AppIcon
                 v-if="m.id === currentModel && activeVendor?.id === currentProvider"
                 name="check"
                 size="ic-2xs"
-                class="pm-check"
+                class="mp-check"
               />
             </button>
-            <div v-if="!activeModels.length" class="pm-empty">这个服务下还没有模型</div>
+            <div v-if="!activeModels.length" class="mp-empty">{{ t('common.empty') }}</div>
           </div>
         </div>
       </div>
     </Transition>
 
     <Transition name="pop">
-      <div v-if="panel === 'thinking'" class="pop pop-think no-pop-anim">
+      <div v-if="panel === 'thinking'" class="panel tp">
+        <div class="wb-label tp-head">{{ t('chat.thinkingPickerTitle') }}</div>
         <button
-          v-for="t in THINKING"
-          :key="t.key"
-          class="pr"
+          v-for="k in THINKING"
+          :key="k"
+          class="tp-item"
           type="button"
-          :class="{ 'is-hi': t.key === session.current?.thinking_level, 'is-loading': applying === `t:${t.key}` }"
-          @click="chooseThinking(t.key)"
+          :class="{ 'is-on': k === thinkingKey }"
+          :disabled="!!applying"
+          @click="chooseThinking(k)"
         >
-          <span>{{ t.name }}</span>
-          <AppIcon v-if="t.key === session.current?.thinking_level" name="check" size="ic-2xs" />
+          <span>{{ t(`thinking.${k}`) }}</span>
+          <AppIcon v-if="k === thinkingKey" name="check" size="ic-2xs" />
         </button>
       </div>
     </Transition>
@@ -220,80 +207,120 @@ defineExpose({ show, close })
 
 <style scoped>
 .chips {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
-  position: relative;
+  gap: var(--wb-sp-1);
   min-width: 0;
 }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  height: var(--wb-ctl-h-sm);
+  padding: 0 var(--wb-sp-2);
+  border-radius: var(--wb-radius-full);
+  border: 1px solid var(--wb-border);
+  background: transparent;
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
+  max-width: calc(200px * var(--wb-vw-scale));
+  transition:
+    background var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.chip:hover {
+  background: var(--wb-surface-2);
+  border-color: var(--wb-border-strong);
+  color: var(--wb-ink-2);
+  transform: scale(1.02);
+}
+.chip:active {
+  transform: scale(0.97);
+}
+.chip.is-on {
+  background: var(--wb-primary-soft);
+  border-color: var(--wb-primary-line);
+  color: var(--wb-primary);
+}
 .chip-t {
-  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
-.pop {
+.chip-caret {
+  opacity: 0.6;
+}
+.panel {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + var(--wb-sp-2));
   left: 0;
-  z-index: 40;
+  z-index: var(--wb-z-pop);
   background: var(--wb-surface);
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius-lg);
-  box-shadow: var(--wb-shadow-pop);
-  overflow: hidden;
+  box-shadow: var(--wb-shadow-3);
+  padding: var(--wb-sp-2);
 }
-.pop-model {
-  width: 460px;
+.mp {
+  width: calc(468px * var(--wb-vw-scale));
 }
-.pm-head {
+.mp-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--wb-line);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
+  padding: var(--wb-sp-1) var(--wb-sp-2) var(--wb-sp-2);
 }
-.pm-link {
+.mp-link {
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
   color: var(--wb-primary);
-  text-decoration: none;
-  font-weight: 600;
 }
-.pm-body {
+.mp-link:hover {
+  text-decoration: underline;
+}
+.mp-body {
   display: grid;
-  grid-template-columns: 176px 1fr;
-  max-height: 340px;
+  grid-template-columns: calc(168px * var(--wb-vw-scale)) 1fr;
+  max-height: calc(320px * var(--wb-vw-scale));
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius);
+  overflow: hidden;
 }
-.pm-vendors {
+.mp-vendors {
   background: var(--wb-surface-2);
-  border-right: 1px solid var(--wb-line);
+  border-right: 1px solid var(--wb-border);
   overflow-y: auto;
-  padding: 6px;
+  padding: var(--wb-sp-1);
 }
-.pm-vendor {
+.mp-vendor {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: none;
-  background: none;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2);
   border-radius: var(--wb-radius-sm);
-  cursor: pointer;
   color: var(--wb-ink-2);
   font-size: var(--wb-fs-sm);
   text-align: left;
+  transition: background var(--wb-dur-fast) var(--wb-ease);
 }
-.pm-vendor.is-on {
+.mp-vendor:hover {
+  background: var(--wb-tint);
+}
+.mp-vendor.is-on {
   background: var(--wb-primary-soft);
   color: var(--wb-primary);
-  font-weight: 600;
+  font-weight: 700;
 }
-.pm-avatar {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+.mp-avatar {
+  width: calc(20px * var(--wb-vw-scale));
+  height: calc(20px * var(--wb-vw-scale));
+  border-radius: var(--wb-radius-xs);
   display: grid;
   place-items: center;
   background: var(--wb-primary-soft);
@@ -302,87 +329,115 @@ defineExpose({ show, close })
   font-weight: 700;
   flex: none;
 }
-.pm-vname {
+.mp-vname {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pm-count {
+.mp-count {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
+  flex: none;
 }
-.pm-models {
+.mp-models {
   overflow-y: auto;
-  padding: 6px;
+  padding: var(--wb-sp-1);
 }
-.pm-model {
+.mp-model {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
-  border: none;
-  background: none;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
   border-radius: var(--wb-radius-sm);
-  cursor: pointer;
   color: var(--wb-ink);
   font-size: var(--wb-fs-sm);
   text-align: left;
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
-.pm-model:hover:not(:disabled) {
+.mp-model:hover:not(:disabled) {
   background: var(--wb-surface-2);
 }
-.pm-model.is-on {
+.mp-model.is-on {
   color: var(--wb-primary);
-  font-weight: 600;
+  font-weight: 700;
+  background: var(--wb-primary-soft);
 }
-.pm-mname {
+.mp-model.is-busy {
+  opacity: 1;
+  cursor: progress;
+}
+.mp-model:disabled:not(.is-busy) {
+  opacity: 0.55;
+  cursor: progress;
+}
+.mp-mname {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pm-meta {
+.mp-meta {
   display: flex;
-  gap: 6px;
+  gap: var(--wb-sp-2);
   font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
-}
-.pm-check {
-  color: var(--wb-ok);
   flex: none;
 }
-.pm-empty {
-  padding: 14px 12px;
+.mp-check {
+  color: var(--wb-primary);
+  flex: none;
+}
+.mp-empty {
+  padding: var(--wb-sp-4) var(--wb-sp-3);
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
-  line-height: 1.6;
+  line-height: var(--wb-lh-base);
 }
-.pop-think {
-  min-width: 148px;
-  padding: 6px;
+.tp {
+  width: calc(180px * var(--wb-vw-scale));
 }
-.pr {
+.tp-head {
+  padding: var(--wb-sp-1) var(--wb-sp-2) var(--wb-sp-2);
+}
+.tp-item {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 7px 9px;
-  border: none;
-  background: none;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
   border-radius: var(--wb-radius-sm);
-  cursor: pointer;
   color: var(--wb-ink-2);
   font-size: var(--wb-fs-sm);
+  transition: background var(--wb-dur-fast) var(--wb-ease);
 }
-.pr:hover:not(:disabled) {
+.tp-item:hover:not(:disabled) {
   background: var(--wb-surface-2);
 }
-.pr.is-hi {
+.tp-item.is-on {
   color: var(--wb-primary);
-  font-weight: 600;
+  font-weight: 700;
   background: var(--wb-primary-soft);
+}
+.tp-item:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.pop-enter-active,
+.pop-leave-active {
+  transition:
+    opacity var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 </style>

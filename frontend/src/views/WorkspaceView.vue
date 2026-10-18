@@ -1,18 +1,20 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 // 工作区视图：助手改了哪些文件、改了什么、这个仓库发生过什么，以及把改动收成一次提交。
-// 读全开放（status / diff / 历史），写受控六动作（specs/09）——提交这一下始终由用户点下去。
+// 读全开放（status / diff / 历史），写受控六动作（specs/08）——提交这一下始终由用户点下去。
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as api from '../api'
 import { useSessionStore } from '../stores/session'
 import { useToastStore } from '../stores/toast'
 import type { GitDiffVO, GitFileVO, GitStatusVO } from '../types/api'
 import AppIcon from '../components/common/AppIcon.vue'
-import PageState from '../components/common/PageState.vue'
+import PageHeader from '../components/layout/PageHeader.vue'
 import DiffView from '../components/workspace/DiffView.vue'
 import GitBranchPanel from '../components/workspace/GitBranchPanel.vue'
 import GitCommitPanel from '../components/workspace/GitCommitPanel.vue'
 import GitHistoryPanel from '../components/workspace/GitHistoryPanel.vue'
 
+const { t } = useI18n()
 const toast = useToastStore()
 const session = useSessionStore()
 
@@ -23,35 +25,20 @@ const status = ref<GitStatusVO | null>(null)
 const diff = ref<GitDiffVO | null>(null)
 const loading = ref(true)
 const error = ref('')
-// 选中文件与正在读差异的文件分开存：行上的转圈只该出现在被点的那一行
 const selected = ref('')
 const loadingDiff = ref(false)
 
 const files = computed<GitFileVO[]>(() => status.value?.files || [])
 const readable = computed(() => !!status.value?.available && !!status.value?.is_repo)
 
-const STATUS_TEXT: Record<string, string> = {
-  M: '改过',
-  A: '新增',
-  D: '删除',
-  R: '改名',
-  '?': '未跟踪',
-}
-const STATUS_CLASS: Record<string, string> = {
-  M: 'is-mod',
-  A: 'is-add',
-  D: 'is-del',
-  R: 'is-mod',
-  '?': 'is-new',
+const TAGS: Record<string, { text: string; tone: string }> = {
+  M: { text: 'M', tone: 'is-mod' },
+  A: { text: 'A', tone: 'is-add' },
+  D: { text: 'D', tone: 'is-del' },
+  R: { text: 'R', tone: 'is-mod' },
+  '?': { text: 'U', tone: 'is-new' },
 }
 
-function tagText(s: string) {
-  return STATUS_TEXT[s] || s
-}
-function tagClass(s: string) {
-  return STATUS_CLASS[s] || ''
-}
-// 长路径只留末尾两段：目录前缀在工作区条里已经给过了
 function shortPath(p: string) {
   const parts = p.split('/').filter(Boolean)
   return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : p
@@ -65,7 +52,7 @@ async function load() {
     await openDiff('')
   } catch (e) {
     status.value = null
-    error.value = (e as Error)?.message || '读不到工作区状态，稍后再试试'
+    error.value = (e as Error)?.message || ''
   } finally {
     loading.value = false
   }
@@ -77,8 +64,7 @@ async function openDiff(path: string) {
   try {
     diff.value = await api.git.diff(path, sessionId.value)
   } catch (e) {
-    // 读不出差异不能静默：列表里那一行还亮着，用户不知道是没改动还是读失败
-    toast.bad(`读不出 ${shortPath(path) || '改动'}：${(e as Error)?.message || '请重试'}`)
+    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
     diff.value = null
   } finally {
     loadingDiff.value = false
@@ -86,24 +72,20 @@ async function openDiff(path: string) {
 }
 
 onMounted(() => {
-  // 直接进这一页时会话列表可能还没拉过：拿不到当前会话就只能看全局目录
   if (!session.current) void session.loadList()
   void load()
 })
-// 换会话就换目录：不跟着切，这一页会一直显示上一个会话的改动
 watch(sessionId, load)
 
-// ---- 页签：改动 / 提交 / 历史 / 分支 ----
 const TABS = [
-  { key: 'changes', label: '改动' },
-  { key: 'commit', label: '提交' },
-  { key: 'history', label: '历史' },
-  { key: 'branch', label: '分支' },
+  { key: 'changes', labelKey: 'workspace.changes' },
+  { key: 'commit', labelKey: 'workspace.commit' },
+  { key: 'history', labelKey: 'workspace.history' },
+  { key: 'branch', labelKey: 'workspace.branches' },
 ]
 const tab = ref('changes')
 
-// 写操作后由子面板回传重读的状态：整个页面用同一份数据刷新，
-// 而不是每个面板各拉一次、各显示一个时刻的样子。
+// 写操作后由子面板回传重读的状态：整页用同一份数据刷新
 async function afterWrite(st: GitStatusVO) {
   status.value = st
   if (tab.value === 'changes') await openDiff('')
@@ -111,413 +93,303 @@ async function afterWrite(st: GitStatusVO) {
 </script>
 
 <template>
-  <div class="wk wb-ui">
-    <div class="wk-main scroll">
-      <div class="wrap">
-        <header class="page-head">
-          <div class="ph-txt">
-            <h1>工作区</h1>
-            <p>助手在你的文件夹里改了什么，这里逐行对账</p>
-          </div>
+  <div class="view">
+    <PageHeader :title="t('workspace.title')" :subtitle="t('workspace.subtitle')">
+      <template #actions>
+        <el-button size="small" :loading="loading" @click="load">
+          <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
+          <span class="ml-1">{{ t('workspace.reload') }}</span>
+        </el-button>
+      </template>
+    </PageHeader>
+
+    <div class="body">
+      <div v-if="loading && !status" class="wb-card pad">
+        <el-skeleton animated :rows="6" />
+      </div>
+
+      <div v-else-if="error" class="wb-card empty-box">
+        <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="alert" size="ic-xl" /></span>
+        <b>{{ t('errors.generic') }}</b>
+        <p>{{ error }}</p>
+        <el-button size="small" @click="load">{{ t('common.retry') }}</el-button>
+      </div>
+
+      <div v-else-if="!readable" class="wb-card empty-box">
+        <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="git-branch" size="ic-xl" /></span>
+        <b>{{ status?.reason || t('workspace.notRepo') }}</b>
+        <p>{{ t('workspace.notRepoHint') }}</p>
+        <p class="wb-mono">{{ status?.workspace }}</p>
+      </div>
+
+      <template v-else>
+        <div class="git-bar">
+          <span class="gb-branch">
+            <AppIcon name="git-branch" size="ic-xs" />
+            {{ status?.branch || '—' }}
+          </span>
+          <el-tag v-if="status?.ahead" size="small" type="primary">
+            {{ t('workspace.ahead', { n: status.ahead }) }}
+          </el-tag>
+          <el-tag v-if="status?.behind" size="small" type="warning">
+            {{ t('workspace.behind', { n: status.behind }) }}
+          </el-tag>
           <span class="sp" />
-          <button
-            class="btn btn-sm"
-            type="button"
-            :class="{ 'is-loading': loading }"
-            :disabled="loading"
-            @click="load()"
-          >
-            <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
-            {{ loading ? '刷新中…' : '刷新' }}
-          </button>
-        </header>
+          <span class="gb-path wb-mono" :title="status?.workspace || ''">{{ status?.workspace }}</span>
+        </div>
 
-        <PageState :loading="loading" :error="error">
-          <!-- 分支与目录：先说清「看的是哪个文件夹的哪个分支」，再看改了什么 -->
-          <div v-if="readable" class="wk-bar">
-            <span class="br">
-              <AppIcon name="git-branch" size="ic-sm" />
-              {{ status?.branch || '（无分支）' }}
-            </span>
-            <span v-if="status?.ahead" class="tag is-mod">领先 {{ status.ahead }} 个提交</span>
-            <span v-if="status?.behind" class="tag is-mod">落后 {{ status.behind }} 个提交</span>
-            <span class="sp" />
-            <span class="pt mono" :title="status?.workspace || ''">{{ status?.workspace }}</span>
-          </div>
+        <el-tabs v-model="tab" class="git-tabs">
+          <el-tab-pane v-for="tt in TABS" :key="tt.key" :label="t(tt.labelKey)" :name="tt.key" />
+        </el-tabs>
 
-          <!-- 页签：改动是默认，提交 / 历史 / 分支是这次新增的三块 -->
-          <div class="wk-tabs" role="tablist" aria-label="工作区视图">
-            <button
-              v-for="t in TABS"
-              :key="t.key"
-              type="button"
-              role="tab"
-              :class="{ on: tab === t.key }"
-              :aria-selected="tab === t.key"
-              @click="tab = t.key"
-            >
-              {{ t.label }}
-            </button>
-          </div>
+        <div v-if="tab === 'commit'" class="wb-card pad">
+          <GitCommitPanel :status="status" :session-id="sessionId" @done="afterWrite" />
+        </div>
 
-          <div v-if="!readable" class="card blank">
-            <div class="blank-in">
-              <span class="bt"><AppIcon name="git-branch" size="ic-lg" /></span>
-              <div>
-                <b>{{ status?.reason || '这里看不了改动' }}</b>
-                <p>
-                  工作区是「助手能读写的那个文件夹」，装上 Git 并在这个文件夹里执行一次
-                  <span class="wb-code-inline">git init</span> 就能看到改动明细。
-                </p>
-              </div>
+        <div v-else-if="tab === 'history'" class="wb-card pad">
+          <GitHistoryPanel :session-id="sessionId" />
+        </div>
+
+        <div v-else-if="tab === 'branch'" class="wb-card pad">
+          <GitBranchPanel :session-id="sessionId" @done="afterWrite" />
+        </div>
+
+        <div v-else class="changes">
+          <section class="wb-card file-card">
+            <header class="fc-head">
+              <span class="wb-label">{{ t('workspace.files') }}</span>
+              <span class="fc-count">{{ files.length }}</span>
+            </header>
+            <div v-if="!files.length" class="fc-empty">
+              <AppIcon name="check" size="ic-lg" />
+              <b>{{ t('workspace.noChanges') }}</b>
+              <p>{{ t('workspace.noChangesHint') }}</p>
             </div>
-          </div>
-
-          <div v-else-if="tab === 'commit'" class="card tab-body">
-            <div class="card-head">
-              <h2>提交</h2>
-              <p class="hint">勾选要入这次提交的文件，写一句这次改了什么。</p>
-            </div>
-            <GitCommitPanel :status="status" :session-id="sessionId" @done="afterWrite" />
-          </div>
-
-          <div v-else-if="tab === 'history'" class="card tab-body">
-            <div class="card-head">
-              <h2>提交历史</h2>
-            </div>
-            <GitHistoryPanel :session-id="sessionId" />
-          </div>
-
-          <div v-else-if="tab === 'branch'" class="card tab-body">
-            <div class="card-head">
-              <h2>分支</h2>
-            </div>
-            <GitBranchPanel :session-id="sessionId" @done="afterWrite" />
-          </div>
-
-          <div v-else class="cols">
-            <section class="card list-card">
-              <div class="card-head">
-                <h2>改动文件</h2>
-                <span class="cnt">{{ files.length }}</span>
-              </div>
-              <div v-if="files.length" class="rowlist">
+            <ul v-else class="fc-list">
+              <li v-for="f in files" :key="f.path">
                 <button
-                  v-for="f in files"
-                  :key="f.path"
-                  class="rli chg"
+                  class="fc-row"
                   type="button"
-                  :class="{ 'is-on': selected === f.path, 'is-loading': loadingDiff && selected === f.path }"
+                  :class="{ 'is-on': selected === f.path }"
                   :title="f.path"
                   @click="openDiff(f.path)"
                 >
-                  <AppIcon name="doc" size="ic-xs" />
-                  <span class="nm mono">{{ shortPath(f.path) }}</span>
-                  <span class="tag" :class="tagClass(f.status)">{{ tagText(f.status) }}</span>
-                  <span class="pct">+{{ f.additions }} −{{ f.deletions }}</span>
+                  <span class="fc-tag" :class="TAGS[f.status]?.tone || 'is-mod'">
+                    {{ TAGS[f.status]?.text || f.status }}
+                  </span>
+                  <span class="fc-path">{{ shortPath(f.path) }}</span>
+                  <span class="fc-stat">
+                    <b class="is-add">+{{ f.additions }}</b>
+                    <b class="is-del">−{{ f.deletions }}</b>
+                  </span>
                 </button>
-              </div>
-              <p v-else class="none">工作区干干净净，还没有改动</p>
-            </section>
+              </li>
+            </ul>
+          </section>
 
-            <DiffView
-              :lines="diff?.lines || []"
-              :path="diff?.path || ''"
-              :truncated="!!diff?.truncated"
-              :dropped="diff?.dropped || 0"
-              :loading="loadingDiff"
-            />
-          </div>
-        </PageState>
-      </div>
+          <DiffView
+            :lines="diff?.lines || []"
+            :path="diff?.path || ''"
+            :truncated="!!diff?.truncated"
+            :dropped="diff?.dropped || 0"
+            :loading="loadingDiff"
+          />
+        </div>
+      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
-.wk {
+.view {
   display: flex;
-  height: 100%;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
   min-height: 0;
-  flex: 1;
-  min-width: 0;
 }
-.wk-main {
+.body {
   flex: 1;
-  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
-}
-.wrap {
-  width: 100%;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: var(--wb-sp-8) var(--wb-sp-6) var(--wb-sp-10);
+  padding: var(--wb-sp-5);
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-4);
-  min-width: 0;
 }
-.wrap > * {
-  min-width: 0;
-}
-.page-head {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--wb-sp-3);
-  flex-wrap: wrap;
-}
-.ph-txt {
-  min-width: 0;
-}
-.page-head h1 {
-  font-family: var(--font-display);
-  font-size: var(--wb-fs-2xl);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: var(--wb-lh-tight);
-  color: var(--wb-ink);
-}
-.page-head p {
-  margin-top: 2px;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-}
-.page-head .sp {
-  flex: 1;
-}
-
-/* 页签：与设置页同一套语言——淡底 + 主色文字，不用描边抢层级 */
-.wk-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--wb-line);
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-surface);
-  align-self: flex-start;
-}
-.wk-tabs button {
-  height: var(--wb-ctl-h-sm);
-  padding: 0 var(--wb-sp-3);
-  border: 0;
-  border-radius: var(--wb-radius-full);
-  background: transparent;
-  color: var(--wb-muted);
-  font-size: var(--wb-fs-xs);
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--wb-dur) var(--wb-ease),
-    color var(--wb-dur) var(--wb-ease);
-}
-.wk-tabs button:hover {
-  color: var(--wb-ink);
-}
-.wk-tabs button.on {
-  background: var(--wb-primary-soft);
-  color: var(--wb-primary);
-}
-.tab-body {
+.pad {
   padding: var(--wb-sp-4);
 }
-.tab-body .hint {
-  margin: 2px 0 0;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-
-/* 分支条：一行说清分支、与上游的差距、目录 */
-.wk-bar {
+.git-bar {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  flex-wrap: wrap;
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border-radius: var(--wb-radius);
   background: var(--wb-surface);
-  border: 1px solid var(--wb-line);
+  border: 1px solid var(--wb-border);
   font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
 }
-.wk-bar .br {
+.gb-branch {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  color: var(--wb-ink-2);
+  gap: var(--wb-sp-1);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--wb-primary);
 }
-.wk-bar .sp {
-  flex: 1;
-}
-.wk-bar .pt {
+.gb-path {
   max-width: 46%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.cols {
+.git-tabs {
+  margin-bottom: calc(var(--wb-sp-2) * -1);
+}
+.git-tabs :deep(.el-tabs__header) {
+  margin-bottom: var(--wb-sp-2);
+}
+.changes {
   display: grid;
   grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
   gap: var(--wb-sp-4);
   align-items: start;
   min-height: 0;
 }
-.list-card {
-  padding: var(--wb-sp-4);
+.file-card {
+  overflow: hidden;
 }
-.card-head {
+.fc-head {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  margin-bottom: var(--wb-sp-3);
+  padding: var(--wb-sp-3) var(--wb-sp-3) var(--wb-sp-2);
+  border-bottom: 1px solid var(--wb-border);
 }
-.card-head h2 {
-  font-size: var(--wb-fs-md);
-  font-weight: 600;
-  color: var(--wb-ink);
-}
-.cnt {
-  margin-left: auto;
+.fc-count {
   font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
+  font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
 }
-.none {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
+.fc-list {
+  max-height: calc(520px * var(--wb-vw-scale));
+  overflow-y: auto;
+  padding: var(--wb-sp-1);
 }
-
-/* 改动行：整行不放大（侧栏里放大 1% 会被裁掉边缘），点击感交给底色与缩小 */
-.chg {
+.fc-row {
   width: 100%;
-  text-align: left;
+  display: flex;
+  align-items: center;
   gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2);
+  border-radius: var(--wb-radius-sm);
+  text-align: left;
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    box-shadow var(--wb-dur-fast) var(--wb-ease);
 }
-.chg:hover {
-  background: var(--wb-tint);
+.fc-row:hover {
+  background: var(--wb-surface-2);
 }
-.chg:active {
-  transform: scale(0.99);
-}
-.chg.is-on {
-  background: var(--wb-sel);
+.fc-row.is-on {
+  background: var(--wb-primary-soft);
   box-shadow: inset 2px 0 0 var(--wb-primary);
 }
-.chg:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.fc-tag {
+  width: calc(16px * var(--wb-vw-scale));
+  height: calc(16px * var(--wb-vw-scale));
+  border-radius: var(--wb-radius-xs);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
+  flex: none;
 }
-/* 读差异中：转圈顶掉图标位，路径与行数保留——只换文案不转圈等于没给反馈 */
-.chg.is-loading {
-  pointer-events: none;
-  cursor: progress;
+.fc-tag.is-add {
+  background: var(--wb-success-soft);
+  color: var(--wb-success);
 }
-.chg.is-loading .nm {
-  position: relative;
-  padding-left: 18px;
+.fc-tag.is-del {
+  background: var(--wb-danger-soft);
+  color: var(--wb-danger);
 }
-.chg.is-loading .nm::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 11px;
-  height: 11px;
-  margin-top: -5.5px;
-  border-radius: var(--wb-radius-full);
-  border: 1.5px solid currentColor;
-  border-top-color: transparent;
-  animation: wb-ic-spin 0.8s linear infinite;
+.fc-tag.is-mod {
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
 }
-.chg .nm {
-  flex: 1 1 auto;
+.fc-tag.is-new {
+  background: var(--wb-live-soft);
+  color: var(--wb-live);
+}
+.fc-path {
+  flex: 1;
   min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-ink-2);
 }
-.chg .pct {
-  flex: none;
+.fc-stat {
+  display: flex;
+  gap: var(--wb-sp-1);
   font-family: var(--font-mono);
   font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.tag {
   flex: none;
-  padding: 0 6px;
-  border-radius: var(--wb-radius-full);
-  border: 1px solid var(--wb-line-2);
-  font-size: var(--wb-fs-2xs);
-  font-weight: 600;
-  color: var(--wb-muted);
 }
-.tag.is-add {
+.fc-stat .is-add {
   color: var(--wb-success);
-  background: var(--wb-success-soft);
 }
-.tag.is-del {
+.fc-stat .is-del {
   color: var(--wb-danger);
-  background: var(--wb-danger-soft);
 }
-.tag.is-mod {
-  color: var(--wb-primary);
-  background: var(--wb-primary-soft);
-}
-.tag.is-new {
-  color: var(--wb-live);
-  background: var(--wb-live-soft);
-}
-
-/* ---- 空态 ---- */
-.blank {
-  padding: var(--wb-sp-6);
-}
-.blank-in {
+.fc-empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--wb-sp-4);
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-8) var(--wb-sp-4);
+  text-align: center;
   color: var(--wb-muted);
 }
-.blank-in .bt {
-  display: grid;
-  place-items: center;
-  width: var(--wb-tile);
-  height: var(--wb-tile);
-  flex: none;
-  border-radius: var(--wb-radius);
-  background: var(--wb-primary-soft);
-  color: var(--wb-primary);
-}
-.blank-in b {
-  color: var(--wb-ink);
-  font-size: var(--wb-fs-md);
-  font-weight: 600;
-}
-.blank-in p {
-  margin-top: 2px;
+.fc-empty b {
   font-size: var(--wb-fs-sm);
+  color: var(--wb-ink);
+}
+.fc-empty p {
+  font-size: var(--wb-fs-2xs);
   line-height: var(--wb-lh-base);
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .chg:active {
-    transform: none;
-  }
+.empty-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-10) var(--wb-sp-6);
+  text-align: center;
 }
-@media (max-width: 980px) {
-  .cols {
+.empty-box b {
+  font-size: var(--wb-fs-md);
+  color: var(--wb-ink);
+}
+.empty-box p {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
+  max-width: calc(440px * var(--wb-vw-scale));
+  line-height: var(--wb-lh-base);
+}
+.sp {
+  flex: 1;
+}
+.ml-1 {
+  margin-left: var(--wb-sp-1);
+}
+@media (max-width: 1000px) {
+  .changes {
     grid-template-columns: minmax(0, 1fr);
-  }
-}
-@media (max-width: 720px) {
-  .wrap {
-    padding: var(--wb-sp-5) var(--wb-sp-4) var(--wb-sp-8);
-  }
-  .page-head h1 {
-    font-size: var(--wb-fs-xl);
   }
 }
 </style>

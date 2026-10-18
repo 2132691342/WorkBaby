@@ -132,11 +132,12 @@ func TestPiEnvChain(t *testing.T) {
 	})
 
 	// 整体重写会把 PI 自己写的字段与用户用 CLI 装的包抹掉——这是最贵的一类回归。
-	t.Run("settings.json 只改自己掌管的键", func(t *testing.T) {
+	// packages 的两种写法（pi install 两种都会写）也在这条链上验。
+	t.Run("settings.json 只改自己掌管的键，packages 两种写法都要认", func(t *testing.T) {
 		e := New(pathsOf(t))
 		original := `{
   "defaultModel": "old",
-  "packages": ["npm:@scope/pi-tools"],
+  "packages": ["npm:@scope/a", {"source":"git:github.com/x/y"}],
   "cacheWarming": "idle",
   "codemode": {"mode": "only"}
 }
@@ -159,6 +160,21 @@ func TestPiEnvChain(t *testing.T) {
 		}
 		if strings.Contains(text, `"old"`) {
 			t.Fatalf("旧值没被覆盖:\n%s", text)
+		}
+
+		// packages 的两种写法（pi install 两种都会写）都要认：在下一轮覆盖前读完。
+		list, err := e.ReadPackages()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"npm:@scope/a", "git:github.com/x/y"}
+		if len(list) != len(want) {
+			t.Fatalf("packages 读到 %d 条，期望 %d: %v", len(list), len(want), list)
+		}
+		for i := range want {
+			if list[i] != want[i] {
+				t.Fatalf("packages 第 %d 条是 %q，期望 %q", i, list[i], want[i])
+			}
 		}
 
 		// 嵌套对象按字段合并：compaction 里的 enabled 归 PI 管，不能被我们写丢。
@@ -184,28 +200,6 @@ func TestPiEnvChain(t *testing.T) {
 		for _, entry := range entries {
 			if strings.HasPrefix(entry.Name(), ".tmp-") {
 				t.Fatalf("残留了临时文件: %s", entry.Name())
-			}
-		}
-	})
-
-	// 包清单两种写法（字符串 / 对象）都要认：pi install 两种都会写。
-	t.Run("packages 清单兼容字符串与对象两种写法", func(t *testing.T) {
-		e := New(pathsOf(t))
-		original := `{"packages":["npm:@scope/a","npm:b@1.2",{"source":"git:github.com/x/y"}]}`
-		if err := WriteFileAtomic(e.SettingsPath(), []byte(original), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		list, err := e.ReadPackages()
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := []string{"npm:@scope/a", "npm:b@1.2", "git:github.com/x/y"}
-		if len(list) != len(want) {
-			t.Fatalf("读到 %d 条，期望 %d: %v", len(list), len(want), list)
-		}
-		for i := range want {
-			if list[i] != want[i] {
-				t.Fatalf("第 %d 条是 %q，期望 %q", i, list[i], want[i])
 			}
 		}
 	})

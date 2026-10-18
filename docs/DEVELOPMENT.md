@@ -1,4 +1,4 @@
-# 开发指南
+﻿# 开发指南
 
 ## 环境要求
 
@@ -26,6 +26,10 @@ cd frontend
 npm install
 npm run build                                 # vue-tsc + vite build → frontend/dist
 ```
+
+验证脚本把测试输出落到 `.check/test-output.log`；失败时
+`pwsh scripts/report-failures.ps1` 会把“哪条链坏了、错在哪一行”摘出来
+（本地直接打印，CI 里写进 job summary）。
 
 ## 调试真实 PI
 
@@ -86,12 +90,16 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 
 | 目录 | 注意 |
 |---|---|
-| `views/` | 五个路由视图；视图内不再自画导航入口 |
-| `components/` | 按视图分目录；基元在 `common/` |
+| `views/` | 六个路由视图；视图内不再自画导航入口 |
+| `components/` | 按域分目录：`layout` / `chat` / `dashboard` / `settings` / `workspace` / `common` |
 | `stores/` | Pinia Setup Store；SSE 只放临时态，权威态一律来自快照 |
 | `types/api.ts` | 与后端 RESP 的 json tag 一一对应；改字段必须同步 `ContractVersion` |
-| `themes.css` | 色值与字体的唯一来源；组件里禁止写 hex |
-| `wb-ui.css` | 组件基元（按钮五态 / 卡片 / chip / 开关 / 表格 / 空态）的唯一实现 |
+| `locales/` | 中英两套文案，key 按域分层；组件里不写用户可见字符串 |
+| `themes.css` | 色值与尺寸刻度的唯一来源；组件里禁止写 hex |
+| `ep-theme.css` | Element Plus 变量 → `--wb-*` 的桥；按钮五态等细节对齐 |
+| `base.css` | 重置、排版基线、滚动条、面与图标基元 |
+| `content.css` | EP 没有对应物的自绘区：消息流 / markdown / 代码块 / 工具卡 / 思考块 / diff |
+| `uno.config.ts` | 原子类刻度已接到 `--wb-*`：`gap-4` = `var(--wb-sp-4)`，禁止写裸像素 |
 
 浏览器里看界面：`npm run dev` 会因为没有后端而显示空态——
 要连真后端请用 `wails dev`。
@@ -104,4 +112,4 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 | 发了消息没反应 | 环境闸门是否 ready；日志里 `chat: 已发送` 有没有出现 |
 | 同一目录第二条对话报 5005 | 这是内核约束（一个目录一个当前会话），等第一条跑完 |
 | 提问卡点了没反应 | `POST /chat/answer` 的 5010 说明它已失效；看 PI 是否还在跑这一轮 |
-| 仪表盘数字与账单不一致 | 正常：单价是静态的，见 specs/08 |
+| 仪表盘数字与账单不一致 | 正常：单价是静态的，见 specs/07 |
