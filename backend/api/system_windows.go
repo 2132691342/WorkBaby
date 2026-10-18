@@ -22,3 +22,12 @@ func (h *Handler) OpenFileDialog(title, filter string) (string, error) {
 func (h *Handler) OpenDirectoryDialog(title string) (string, error) {
 	return runtime.OpenDirectoryDialog(h.ctx, runtime.OpenDialogOptions{Title: title})
 }
+
+// SaveFileDialog 打开保存框（导出对话 HTML）：默认名与扩展名由调用方给。
+func (h *Handler) SaveFileDialog(title, defaultName, filter string) (string, error) {
+	opts := runtime.SaveDialogOptions{Title: title, DefaultFilename: defaultName}
+	if f := strings.TrimSpace(filter); f != "" {
+		opts.Filters = []runtime.FileFilter{{DisplayName: "保存为", Pattern: f}}
+	}
+	return runtime.SaveFileDialog(h.ctx, opts)
+}

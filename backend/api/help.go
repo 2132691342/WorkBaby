@@ -94,8 +94,10 @@ func docRank(name string) int {
 		return 3
 	case "knowledge-and-skills":
 		return 4
-	case "faq":
+	case "plugins":
 		return 5
+	case "faq":
+		return 6
 	}
 	return 100
 }

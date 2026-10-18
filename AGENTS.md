@@ -21,7 +21,6 @@
 | ORM | GORM + glebarez/sqlite | ^1.30.x（pure-Go，无 CGO） |
 | 数据库 | SQLite | WAL + FTS5 trigram |
 | 配置 | Viper | ^1.19.x（YAML + ENV；运行时配置走 KV 表） |
-| Schema 校验 | santhosh-tekuri/jsonschema/v6 | ^6.0.x |
 | 日志 | log/slog（标准库） | info/warn/error 分文件落盘 |
 | 实时通信 | SSE | 业务实时通信全部走 SSE（`/api/v1/events`），不引入 WebSocket |
 | 测试 | testing（标准库） | 一包一入口、一条链一子测试；`scripts/check.ps1` 分三档收口验证（快门 / -Pkg / -Full），耗时以编译为主 |
@@ -29,7 +28,6 @@
 | 加密 | AES-256-GCM（标准库） | Provider API Key |
 | 托盘 | getlantern/systray | 关闭到托盘 |
 | 内置运行时 | Node + Python | `backend/runtime/bundled/`（go:embed 进 exe，归档经 LFS 托管），其余一律不内置 |
-| 平台 | Windows | 本期只考虑 Windows；平台特定代码按 `//go:build windows` 分文件，不写 `runtime.GOOS` 大分支 |
 | 平台 | Windows | 本期只考虑 Windows；平台特定代码按 `//go:build windows` 分文件，不写 `runtime.GOOS` 大分支 |
 
 ### 1.1 依赖原则
@@ -87,7 +85,7 @@ WorkBaby/
 ├── assets/                       # 应用内帮助文档（embed；Skill 管理见 specs/03）
 ├── build/                        # 平台资源与产物
 ├── docs/                         # 项目级文档：架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署
-├── specs/                        # 子系统规格（01-21）
+├── specs/                        # 子系统规格（01-22）
 └── tools/                        # Go 写的独立门禁工具（check-boundaries）
 ```
 
@@ -283,7 +281,7 @@ json tag 必须忠实协议字段名（camelCase：`parentId` / `toolCallId` / `
 
 - 根级：`README.md`（入口与能力全景）/ `AGENTS.md`（工程规范，唯一权威）/ `DESIGN.md`（视觉语言）
 - `docs/`：项目级说明（架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署）
-- `specs/`：子系统规格，编号 01-21，一个子系统一个文件
+- `specs/`：子系统规格，编号 01-22，一个子系统一个文件
 - 每篇只写现状：定位 → 设计 → 契约 → 关键流程 → 约束 → 取舍。**优势与代价必须写出来**
 - 表格与短段落优先；能用表就不用列表
 - **不写改动过程**：不建 CHANGELOG，不记录「本次改了什么」「之前坏在哪」，
@@ -448,6 +446,7 @@ type Record struct {
 | 事件出口仍按会话串行化 | 沿用 `service.Emitter`：并行工具的表现层仍在同一会话里竞争 seq |
 | 绝不写 PI 的 JSONL | 格式是 PI 私有契约，写坏它 PI 自己都读不回来 |
 | 会话运行中不删会话文件 | 不等 `agent_settled` 就删，PI 会往已删文件继续追加 |
+| 写 `settings.json` 只改自己掌管的顶层键 | PI 与用户还在里面写 `packages` / `cacheWarming` / `codemode`，整体重写会把它们连同已装的包一起抹掉 |
 | 子代理必须用独立 PI 进程 | 一个进程只有一个 streaming 状态，同进程起子会话会把父会话的流顶掉 |
 | 内置 Node 解压必须平铺到根 | 多一层目录会让 `npm.cmd` 找错 node，表现为「npm 装了但 PI 起不来」 |
 | PATH 注入必须前置拼接 | 后置拼接会被用户 PATH 上的旧 node 抢先，内置 node 等于没生效 |
@@ -508,8 +507,7 @@ type Record struct {
 |---|---|---|
 | `pwsh scripts/check.ps1` | 格式 → 编译 → 所有包短测试 | 日常快门 |
 | `pwsh scripts/check.ps1 -Pkg backend/pi` | 格式 → 编译该包 → 测该包（短） | 明确只碰了一个包 |
-| `pwsh scripts/check.ps1 -All` | 快门 + 前端构建 | 改了前端 |
-| `pwsh scripts/check.ps1 -Full` | 再加 vet、依赖边界、全量测试、前端构建 | 发版前；CI 跑这一档 |
+| `pwsh scripts/check.ps1 -Full` | vet、依赖边界、全量测试、前端构建 | 改了前端 / 发版前；CI 跑这一档 |
 
 失败即退出且不吞退出码。`-Pkg` 模式下不跑边界与前端——它只回答「这个包坏没坏」。
 
@@ -530,10 +528,10 @@ singleinstance / mcp / git 之外的能力域）不单独设测试：它们的�
 | 入口 | 覆盖的链路 |
 |---|---|
 | `app_test.go` · TestAppChain | 启动等待判据（慢装配不误判 / 失败如实报 / 卡死有上限）；关闭去向（托盘开关与退出流程决定收托盘还是真退出） |
-| `pi/pi_test.go` · TestPiChain | 真假 PI 进程下的协议链：LF 分帧（含 U+2028 在字符串内）+ 未知记录不挡命令 + 响应按 id 关联；事件顺序不变量（`agent_end` → 重试 → `agent_settled`，done 不早到）；流式增量与工具结果内容块；压缩前后 token；审批请求解析与决策回写；停止先取回排队文本；有序退出与崩溃报错；可执行文件识别与工作区进程归属 |
-| `pi/env/env_test.go` · TestPiEnvChain | 环境闸门按 node → pi → model 报首个阻塞项（模型就绪不等于环境就绪）；系统已装 PI 被识别为 `system` 来源并优先复用；进程环境的 PATH 前置与 agent 目录唯一；`models.json` / `settings.json` 写出 PI 认识的形状且写入是原子替换；`mcp.json` 补内置条目、未知字段保留、坏文件不覆盖 |
-| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈：预检放行 + 方法白名单 + 路径穿越在门口拒绝；统一信封与空数组契约；SSE 全链（子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋）与 Last-Event-ID 重放。服务只启一次，子测试共用 |
-| `service/chain_test.go` · TestServiceChain | 会话生命周期（懒创建 → 发送回写指针 → 删除同时清行与文件）；一轮跑完后的运行记录收尾与用量口径；停止链路；JSONL 投影（含坏行只跳过自己）；**技能启停 = 移目录**（停用后 skills/ 清空、skills.disabled/ 可列可读可恢复）；权限档写进策略文件；审批桥（登记 → 工具名解析 → 会话级放行 → Forget 清干净 → 4102）；工作区切换重建进程；子代理独立进程与隐藏会话不进列表；配置同步写出 PI 的全部文件并登记审批扩展；`APPEND_SYSTEM` 只改受控块；设置与工具开关同步进 `settings.json`；MCP 校验不过不落盘且内置条目删不掉；并发发送不串会话 |
+| `pi/pi_test.go` · TestPiChain | 真假 PI 进程下的协议链，六个子测试各守一条不变量：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、斜杠命令 / 导出 / 取消重试的负载解码）；**done 只在 agent_settled 之后**（agent_end → 重试 → settled 的顺序）；**事件翻译**（流式增量两类、工具结果内容块与元数据、压缩前后 token）；**审批请求解析与决策回写**；**停止先取回排队文本**；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、ResolveExe、一个工作区一个进程） |
+| `pi/env/env_test.go` · TestPiEnvChain | **环境闸门与进程环境**（node → pi → model 报首个阻塞项、system 来源优先复用、PATH 前置、agent 目录唯一）；**models.json / settings.json 形状**（PI 认识的 camelCase、原子替换）；**settings.json 只改掌管键**（PI 自己的字段与已装的包不丢、compaction 字段级合并）；**mcp.json**（内置条目补回、未知字段保留、坏文件不覆盖） |
+| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈：**闸门**（预检放行 + 方法白名单 + 路径穿越门口拒绝）；**契约**（统一信封、空数组永不 null、/env 与 /runtime 字段、插件列表数组与内置闸门拒停 9717）；**SSE 全链**（子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋）与 Last-Event-ID 重放。服务只启一次，子测试共用 |
+| `service/chain_test.go` · TestServiceChain | 十一条链：会话生命周期（懒创建 → 发送回写指针 → 删除同时清行与文件）；一轮对话（运行记录收尾、用量口径、中途停止收回运行态）；JSONL 投影（坏行只跳过自己）；技能启停 = 移目录；插件启停 = 改 settings.json 清单 + 重启 PI（内置闸门拒停，删除连文件一并清）；审批桥（权限档落策略文件、会话级放行记忆、Forget 清干净、在途决策 4102）；工作区切换重建进程；子代理独立进程与隐藏会话不进列表；配置同步（PI 全部文件、APPEND_SYSTEM 受控块、设置与工具开关进 settings.json）；MCP 校验不过不落盘且内置条目删不掉；并发发送不串会话 |
 | `knowledge/knowledge_test.go` · TestKnowledgeChain | 建索引 → 检索（短查询子串兜底）→ 删除级联；pptx 按页号抽取且可检索；重建索引后台任务（进度跑满、拒绝重入、结束后取消返回 false）；MCP 出口（握手按客户端版本回、通知不回帧、工具声明、检索命中与零命中的话术、未知方法报错） |
 | `git/git_test.go` · TestGitChain | 真仓库端到端，按坏法分三条链：读（status 归类 / 中文带空格路径还原 / 行号归属 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；写（参数白名单 → 勾选入栈 → 空信息被拒 → 提交带 hash → 历史与文件历史可读 → 出栈只动索引）；分支（名字白名单 → 新建切换 → 历史隔离）。`-short` 与没装 git 都跳过 |
 | `skill/skill_test.go` · TestSkillRegistryChain | 两区目录扫描与来源优先级（skills/ 启用、skills.disabled/ 停用但可见可读）；切换工作目录换掉工作区技能且不残留 |

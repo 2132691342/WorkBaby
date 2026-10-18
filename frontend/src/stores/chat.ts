@@ -223,6 +223,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function onDone(data: DoneData) {
     running.value = false
+    retrying.value = false
     // stop_reason 决定收尾的界面表达（取值见 DoneData）：length 截断、max_turns 停步。
     switch (data.stop_reason) {
       case 'length':
@@ -255,12 +256,14 @@ export const useChatStore = defineStore('chat', () => {
   // 后端随后仍会补发 chat:done 做最终对账，两者幂等。
   function onStopped() {
     running.value = false
+    retrying.value = false
     notice.value = '已停止'
     queued.value = []
   }
 
   function onError(data: ErrorData) {
     running.value = false
+    retrying.value = false
     lastError.value = data.message
     lastErrorCode.value = data.code || ''
     queued.value = []
@@ -272,11 +275,21 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // onRetry 显示「上游拒绝，正在重试」。PI 的自动重试可能持续几秒到几十秒，
-  // 没有这条提示界面看上去就是卡死。
+  // 没有这条提示界面看上去就是卡死；retrying 让提示条能把它叫停。
+  const retrying = ref(false)
   function onRetry(data: RetryData) {
+    retrying.value = true
     notice.value = data.message
       ? `上游拒绝，正在重试（${data.attempt}/${data.max}）：${data.message}`
       : `正在重试（${data.attempt}/${data.max}）`
+  }
+
+  /** cancelRetry 叫停自动重试：重试期间用户唯一的主动选择，不给就只能看着它重试到失败 */
+  async function cancelRetry(sessionId: string) {
+    if (!sessionId) return
+    await api.chat.cancelRetry(sessionId)
+    retrying.value = false
+    notice.value = '已停止重试'
   }
 
   function onContext(data: ContextData) {
@@ -412,6 +425,8 @@ export const useChatStore = defineStore('chat', () => {
     onError,
     onCompressed,
     onRetry,
+    retrying,
+    cancelRetry,
     onContext,
     onGap,
     syncApprovals,

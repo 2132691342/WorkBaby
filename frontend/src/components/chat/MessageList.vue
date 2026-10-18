@@ -25,6 +25,20 @@ const props = defineProps<{
 }>()
 
 const acting = ref<'' | 'continue' | 'retry'>('')
+
+// 停止重试：失败已由 store 弹提示，这里只负责把按钮的 loading 收回去
+const cancellingRetry = ref(false)
+async function stopRetry() {
+  if (cancellingRetry.value) return
+  cancellingRetry.value = true
+  try {
+    await chat.cancelRetry(session.currentId || '')
+  } catch {
+    /* store 层没有 toast，失败时保持提示条与按钮可用即可 */
+  } finally {
+    cancellingRetry.value = false
+  }
+}
 async function act(kind: 'continue' | 'retry') {
   if (acting.value || chat.running) return
   acting.value = kind
@@ -338,9 +352,20 @@ onMounted(async () => {
         />
       </div>
 
-      <div v-if="chat.notice" class="wb-hint">
+      <!-- 重试提示条：重试期间用户唯一的主动选择是「别试了」，所以按钮必须在这一条上 -->
+      <div v-if="chat.notice" class="wb-hint" :class="{ 'tail-act': chat.retrying }">
         <AppIcon name="info" />
-        <span>{{ chat.notice }}</span>
+        <span class="grow">{{ chat.notice }}</span>
+        <button
+          v-if="chat.retrying"
+          class="btn btn-sm"
+          type="button"
+          :class="{ 'is-loading': cancellingRetry }"
+          :disabled="cancellingRetry"
+          @click="stopRetry"
+        >
+          停止重试
+        </button>
       </div>
       <!-- 被截断：正文只写了一半，工具调用作废。给一键续写，别让用户自己猜要怎么办 -->
       <div v-if="chat.truncated" class="alert a-warn tail-act">
@@ -544,5 +569,10 @@ onMounted(async () => {
 .tail-act .btn {
   flex: none;
   margin-left: auto;
+}
+/* 重试条带按钮时靠左排：居中的一句话旁边 4 个字的按钮会被挤成两行 */
+.wb-hint.tail-act {
+  justify-content: flex-start;
+  text-align: left;
 }
 </style>

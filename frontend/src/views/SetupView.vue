@@ -5,6 +5,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import * as api from '../api'
+import { useSetupLog } from '../composables/useSetupLog'
 import { useSettingsStore } from '../stores/settings'
 import { useToastStore } from '../stores/toast'
 import type { PiEnvVO } from '../types/api'
@@ -20,7 +21,9 @@ const loading = ref(true)
 const loadErr = ref('')
 const installing = ref(false)
 // 安装日志：npm 可能跑几十秒，没有实时输出用户会以为卡死。
-const installLog = ref<string[]>([])
+// 输出经 SSE 的全局通道回传（安装发生在任何会话之前）。
+const { lines: installLines, begin: beginInstallLog, end: endInstallLog } = useSetupLog()
+const installLog = computed(() => installLines.value)
 
 const steps = computed(() => {
   const e = env.value
@@ -67,7 +70,7 @@ async function load() {
 async function install() {
   if (installing.value) return
   installing.value = true
-  installLog.value = []
+  beginInstallLog()
   try {
     await api.env.install()
     // 安装是后台动作：接口立刻返回，进度靠轮询 env + 日志轮询拉回来。
@@ -88,6 +91,7 @@ async function install() {
     toast.bad(`安装失败：${(e as Error)?.message || '请重试'}`)
   } finally {
     installing.value = false
+    endInstallLog()
   }
 }
 

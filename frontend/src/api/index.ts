@@ -10,7 +10,10 @@ import type {
   BaselineVO,
   BootstrapVO,
   CompareVO,
+  CommandVO,
   EvalVO,
+  ExportSessionRESP,
+  ExtensionListRESP,
   FileListVO,
   GitBranchVO,
   GitCommitDetailVO,
@@ -75,6 +78,9 @@ export const sessions = {
     post<boolean>(`/sessions/workspace/${id}`, { workspace }),
   setThinking: (id: string, level: string) =>
     post<boolean>(`/sessions/thinking/${id}`, { level }),
+  /** 导出成 HTML：path 由保存对话框给出，导出实现在 PI 里 */
+  exportHTML: (id: string, path: string) =>
+    post<ExportSessionRESP>(`/sessions/export/${id}`, { path }),
   /** 从某条历史分叉成新会话：PI 没有「改 leaf」的协议面，所以是分叉而不是回退 */
   fork: (id: string, entry_id: string) => post<SessionVO>(`/sessions/fork/${id}`, { entry_id }),
 }
@@ -87,6 +93,8 @@ export const chat = {
     post<boolean>('/chat/steer', { session_id, content }),
   followUp: (session_id: string, content: string) =>
     post<boolean>('/chat/followup', { session_id, content }),
+  /** 叫停正在进行的自动重试 */
+  cancelRetry: (session_id: string) => post<boolean>('/chat/retry-cancel', { session_id }),
 }
 
 export const approvals = {
@@ -129,6 +137,26 @@ export const skills = {
 /** 工作区文件浏览：path 为相对工作区的目录，空串即根目录 */
 export const files = {
   list: (path = '') => get<FileListVO>('/files', { path }),
+}
+
+/** 插件（PI 扩展与包）：目录即真相源，settings.json 的 extensions / packages 是启用清单 */
+export const extensions = {
+  list: () => get<ExtensionListRESP>('/extensions'),
+  /** 启停：登记 / 注销 settings.json，后端会重启 PI 让它重读 */
+  toggle: (path: string, enabled: boolean) =>
+    post<boolean>('/extensions/toggle', { path, enabled }),
+  /** 导入磁盘上的 .ts / .js 文件或扩展目录 */
+  import: (paths: string[]) =>
+    post<{ imported: number; skipped: string[] }>('/extensions/import', { paths }),
+  remove: (path: string) => post<boolean>('/extensions/delete', { path }),
+  /** 装包 / 卸包：进度走 chat:setup 事件流式回传，接口立刻返回 */
+  install: (source: string) => post<boolean>('/extensions/install', { source }),
+  uninstall: (source: string) => post<boolean>('/extensions/remove', { source }),
+}
+
+/** 斜杠命令清单：没有会话时后端直接给空数组（没有进程就没有命令） */
+export const commands = {
+  list: (session_id = '') => get<CommandVO[]>('/commands', pick({ session_id })),
 }
 
 export const knowledge = {

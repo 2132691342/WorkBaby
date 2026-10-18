@@ -15,6 +15,7 @@ type Container struct {
 	Approvals   *ApprovalService
 	Providers   *ProviderService
 	Skills      *SkillService
+	Extensions  *ExtensionService
 	Files       *FileService
 	Tools       *ToolService
 	Knowledge   *knowledge.Service
@@ -77,6 +78,7 @@ func New(env *Env) (*Container, error) {
 		Approvals:   approvals,
 		Providers:   providers,
 		Skills:      NewSkillService(env),
+		Extensions:  NewExtensionService(env),
 		Files:       NewFileService(env),
 		Tools:       NewToolService(env),
 		Knowledge:   env.Knowledge,

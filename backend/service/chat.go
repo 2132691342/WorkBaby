@@ -205,6 +205,79 @@ func (c *ChatService) IsRunning(sessionID string) bool {
 	return c.running[sessionID]
 }
 
+// Commands 取当前会话能跑的斜杠命令（扩展命令 / 提示模板 / 技能）。
+// 真相在 PI 进程里：目录扫描只能看到磁盘上的技能，看不到扩展注册的命令。
+func (c *ChatService) Commands(sessionID string) ([]domain.CommandVO, error) {
+	sess, err := c.env.Repo.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.ensureClient(sessionID, sess)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	list, err := client.GetCommands(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.CommandVO, 0, len(list))
+	for _, cmd := range list {
+		out = append(out, domain.CommandVO{
+			Name: cmd.Name, Description: cmd.Description, Source: cmd.Source,
+		})
+	}
+	return out, nil
+}
+
+// AbortRetry 叫停 PI 正在进行的自动重试。
+// 重试期间界面看上去就是卡死，光有一条提示不够——要能把它停掉。
+func (c *ChatService) AbortRetry(sessionID string) error {
+	sess, err := c.env.Repo.GetSession(sessionID)
+	if err != nil {
+		return err
+	}
+	client := c.env.PiSupervisor().Get(sess.Workspace)
+	if client == nil || !client.Alive() {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := client.AbortRetry(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ExportHTML 把一条会话导成一份自带样式的 HTML 文件。
+// 导出在 PI 里做（它才知道条目链的完整形态），本层只负责切到那条会话并传路径。
+// 切会话会动进程的当前指针，所以同工作区有对话在跑时直接拒绝，不抢正在写的那条。
+func (c *ChatService) ExportHTML(sessionID, outputPath string) (string, error) {
+	sess, err := c.env.Repo.GetSession(sessionID)
+	if err != nil {
+		return "", err
+	}
+	if sess.PiSessionFile == "" {
+		return "", pkg.New("5004", "这条对话还没有落盘，先聊一轮再导出", "")
+	}
+	for _, other := range c.sessionsIn(sess.Workspace) {
+		if c.IsRunning(other) {
+			return "", pkg.New("5005", "同一个文件夹里还有对话在跑，等它停下再导出", "")
+		}
+	}
+	client, err := c.ensureClient(sessionID, sess)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 95*time.Second)
+	defer cancel()
+	if err := client.SwitchSession(ctx, sess.PiSessionFile); err != nil {
+		return "", err
+	}
+	return client.ExportHTML(ctx, outputPath)
+}
+
 // saveResult 把本轮的助手正文暂存，供子代理取结论。
 // 只留最近一次：父会话的正文不需要在工作进程里累积。
 func (c *ChatService) saveResult(sessionID, text string) {

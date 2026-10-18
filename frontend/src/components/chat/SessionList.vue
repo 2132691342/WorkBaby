@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 侧栏会话列表：分组展示 + 相对时间 + 重命名 / 删除。
 import { computed, onBeforeUnmount, ref } from 'vue'
+import * as api from '../../api'
 import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
 import { fmtRel } from '../../utils/time'
+import { SaveFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 
 const emit = defineEmits<{ newSession: [] }>()
@@ -80,6 +82,25 @@ function askRemove(s: { id: string; title: string }) {
   confirmTimer = window.setTimeout(() => (confirmingId.value = ''), 3000)
 }
 
+// 导出：把整段对话写成一份自带样式的 HTML，双击就能看，不依赖本应用。
+// 先选保存位置再发请求：导出在 PI 里做，路径必须由用户定。
+const exportingId = ref('')
+async function exportSession(s: { id: string; title: string }) {
+  if (exportingId.value) return
+  const name = (s.title || 'WorkBaby 对话').replace(/[\\/:*?"<>|]/g, '-').slice(0, 60)
+  const target = await SaveFileDialog('导出对话', `${name}.html`, '*.html')
+  if (!target) return
+  exportingId.value = s.id
+  try {
+    const r = await api.sessions.exportHTML(s.id, target)
+    toast.ok(`已导出到 ${r.path}`)
+  } catch (e) {
+    toast.bad(`导出失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    exportingId.value = ''
+  }
+}
+
 const busyId = ref('')
 async function doRemove(s: { id: string; title: string }) {
   if (busyId.value) return
@@ -141,6 +162,17 @@ async function more() {
                 @click.stop="startEdit(s.id, s.title)"
               >
                 <AppIcon name="pencil" size="ic-sm" />
+              </button>
+              <button
+                class="icon-btn"
+                type="button"
+                title="导出为 HTML"
+                :aria-label="`导出「${s.title || '未命名对话'}」为 HTML`"
+                :class="{ 'is-loading': exportingId === s.id }"
+                :disabled="!!busyId || !!exportingId"
+                @click.stop="exportSession(s)"
+              >
+                <AppIcon name="download" size="ic-sm" />
               </button>
               <button
                 class="icon-btn danger"

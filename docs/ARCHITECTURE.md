@@ -71,6 +71,7 @@ backend/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任�
 | Harness 控制面（runs / checkpoints / evals / stats 总纲） | [specs/21](../specs/21-harness-console.md) |
 | 记忆 | [specs/14](../specs/14-memory.md) |
 | 子代理 | [specs/16](../specs/16-subagent.md) |
+| 插件（PI 扩展与包） | [specs/22](../specs/22-extensions.md) |
 
 ## 3. 一次对话的生命周期
 
@@ -150,6 +151,10 @@ PI 进程与它派生的所有工具共享这份环境。PowerShell 不内置：
 | 技能 | 目录即 PI 的 `<agent-dir>/skills/`，同一份 SKILL.md 两边都读 |
 | 知识库 | 自己暴露成 stdio MCP server（`--mcp-knowledge`），写进 `mcp.json` |
 | 记忆 | 写进 `<agent-dir>/APPEND_SYSTEM.md` 的受控标记块 |
+| 插件 | 就是 PI 自己的 `extensions/` + `settings.json`，界面只做清单与启停（[specs/22](../specs/22-extensions.md)） |
+
+**写 `settings.json` 只动自己掌管的顶层键**：PI 与用户还在里面写 `packages` / `cacheWarming` /
+`codemode` 等字段，整体重写会把它们连同已装的包一起抹掉。
 
 ## 5. 两处存储
 

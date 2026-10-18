@@ -3,10 +3,11 @@
 // 顶部一行放待发送文件，底部一行放模型、规矩、上下文水位与发送键。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useChatStore } from '../../stores/chat'
+import { useSessionStore } from '../../stores/session'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import * as api from '../../api'
-import type { AttachmentREQ, FileEntryVO } from '../../types/api'
+import type { AttachmentREQ, CommandVO, FileEntryVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import ContextMeter from './ContextMeter.vue'
 import SessionChips from './SessionChips.vue'
@@ -52,6 +53,7 @@ const COMMANDS = [
 ] as const
 
 const chat = useChatStore()
+const session = useSessionStore()
 const settings = useSettingsStore()
 const toast = useToastStore()
 // 「设置 → 行为」的回车发送开关：界面提示必须跟着它切，否则承诺的行为不成立。
@@ -69,12 +71,34 @@ const cmdIndex = ref(0)
 const outsideCount = computed(() => files.value.filter((f) => f.outside).length)
 const full = computed(() => files.value.length >= MAX_ATTACH)
 
-// ---- 斜杠菜单：内置命令 + 已启用技能，输入 / 名字过滤 ----
+// ---- 斜杠菜单：内置命令 + 助手引擎的斜杠命令 + 已启用技能，输入 / 名字过滤 ----
 interface SlashItem {
-  kind: 'cmd' | 'skill'
+  kind: 'cmd' | 'skill' | 'pi'
   key: string
   name: string
   desc: string
+}
+
+// PI 报上来的命令（扩展注册的与提示模板）：真相在进程里，不在本地目录里。
+// 没会话就没进程，这一列为空，菜单只用本地那一份。
+const piCommands = ref<CommandVO[]>([])
+// 已经问过哪个会话的命令：换会话才重问，别每次打 / 都往进程里跑一趟
+let piCmdLoadedFor = ''
+const piSourceName: Record<string, string> = { extension: '插件', prompt: '模板' }
+
+async function loadPiCommands() {
+  const sid = session.currentId || ''
+  if (!sid) return
+  piCmdLoadedFor = sid
+  try {
+    const list = await api.commands.list(sid)
+    // 技能已经按本地目录列过一次了，这里只留扩展与模板，不让同一条技能出现两遍
+    piCommands.value = (list ?? []).filter((c) => c.source !== 'skill')
+  } catch {
+    // 拉不到就只显示本地命令：菜单少几项不该弹错
+    piCommands.value = []
+    piCmdLoadedFor = ''
+  }
 }
 
 const MAX_SKILL_MATCH = 8
@@ -85,12 +109,21 @@ const slashItems = computed<SlashItem[]>(() => {
     kind: 'cmd', key: c.key, name: c.name, desc: c.desc,
   }))
   const kw = q.slice(1).toLowerCase()
+  const match = (name: string, desc: string) =>
+    !kw || name.toLowerCase().includes(kw) || desc.toLowerCase().includes(kw)
+  const fromPi: SlashItem[] = piCommands.value
+    .filter((c) => match(c.name, c.description || ''))
+    .slice(0, MAX_SKILL_MATCH)
+    .map((c) => ({
+      kind: 'pi', key: c.name, name: `/${c.name}`,
+      desc: `${piSourceName[c.source] || c.source} · ${c.description || '无说明'}`,
+    }))
   const skills: SlashItem[] = settings.skills
     .filter((s) => s.enabled)
-    .filter((s) => !kw || s.name.toLowerCase().includes(kw) || s.description.toLowerCase().includes(kw))
+    .filter((s) => match(s.name, s.description))
     .slice(0, MAX_SKILL_MATCH)
     .map((s) => ({ kind: 'skill', key: s.name, name: s.name, desc: s.description }))
-  return [...cmds, ...skills]
+  return [...cmds, ...fromPi, ...skills]
 })
 
 // 选技能后填入 /skill:名字，需求说明交给用户补；发送时后端把正文注入这条消息
@@ -100,7 +133,8 @@ function runSlash(item: SlashItem) {
     return
   }
   clearInput()
-  text.value = `/skill:${item.key} `
+  // PI 的命令直接发 /名字：扩展命令与提示模板都由它自己展开
+  text.value = item.kind === 'pi' ? `/${item.key} ` : `/skill:${item.key} `
   nextTick(() => ta.value?.focus())
 }
 
@@ -255,6 +289,8 @@ function onInput() {
     cmdIndex.value = 0
     // 技能清单懒加载：第一次打 / 才拉，之后用缓存
     if (!settings.skills.length && !settings.skillsLoading) void settings.loadSkills()
+    // 扩展命令与提示模板同理：每个会话只问一次，换了会话再问
+    if (piCmdLoadedFor !== session.currentId) void loadPiCommands()
   } else {
     menu.value = null
   }
@@ -590,12 +626,14 @@ defineExpose({ focus: () => ta.value?.focus(), attachPath })
             @click="runSlash(it)"
           >
             <span v-if="it.kind === 'cmd'" class="cm">/{{ it.key }}</span>
+            <AppIcon v-else-if="it.kind === 'pi'" name="zap" size="ic-xs" />
             <AppIcon v-else name="sparkles" size="ic-xs" />
             <span class="grow">
               <b class="pr-t">{{ it.kind === 'cmd' ? it.name : it.key }}</b>
               <span class="pr-d">{{ it.desc }}</span>
             </span>
             <span v-if="it.kind === 'skill'" class="tag">技能</span>
+            <span v-else-if="it.kind === 'pi'" class="tag is-brand">引擎</span>
           </button>
         </template>
       </div>

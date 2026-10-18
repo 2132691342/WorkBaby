@@ -92,6 +92,19 @@ func handle(scenario, id, typ, message string) {
 			"sessionId":   "forked-session",
 			"sessionFile": "/tmp/forked.jsonl",
 		})
+	case "get_commands":
+		// 三种来源各一条：扩展命令只有进程知道，磁盘扫描看不到。
+		respond(id, "get_commands", map[string]any{
+			"commands": []any{
+				map[string]any{"name": "review", "description": "跑一遍审查", "source": "extension"},
+				map[string]any{"name": "weekly", "description": "写周报", "source": "prompt"},
+				map[string]any{"name": "skill:demo", "description": "演示技能", "source": "skill"},
+			},
+		})
+	case "export_html":
+		respond(id, "export_html", map[string]any{"path": "C:/tmp/session.html"})
+	case "abort_retry":
+		respond(id, "abort_retry", nil)
 	case "prompt":
 		// prompt 的响应只表示「已接受」，不代表答完。
 		respond(id, "prompt", map[string]any{"disposition": "started"})

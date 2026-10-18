@@ -139,7 +139,6 @@ export interface FileEntryVO {
   name: string
   dir: boolean
 }
-
 /** 工作区目录列举：path 是相对工作区的目录，空串即根目录 */
 export interface FileListVO {
   path: string
@@ -769,3 +768,38 @@ export interface ArchGraph {
 }
 /** kind：main = 程序入口；config = 工程配置文件 */
 export interface ArchEntrypointVO { path: string; kind: string; label: string }
+
+/** 插件（PI 扩展）条目：kind 取 file / dir / pattern / missing */
+export interface ExtensionVO {
+  name: string
+  /** 绝对路径（Windows 路径带盘符，所以启停 / 删除都走请求体） */
+  path: string
+  kind: string
+  /** 是否登记在 settings.json 的 extensions 里（登记即启用） */
+  enabled: boolean
+  /** WorkBaby 自带的审批闸门：不能停用或删除 */
+  builtin: boolean
+}
+
+/** 通过 pi install 装进来的包来源 */
+export interface PackageVO {
+  source: string
+}
+
+export interface ExtensionListRESP {
+  dir: string
+  settings_path: string
+  entries: ExtensionVO[]
+  packages: PackageVO[]
+}
+
+/** 斜杠命令来源：extension = 扩展注册；prompt = 提示模板；skill = 技能 */
+export interface CommandVO {
+  name: string
+  description: string
+  source: string
+}
+
+export interface ExportSessionRESP {
+  path: string
+}

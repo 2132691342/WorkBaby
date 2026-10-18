@@ -1,15 +1,11 @@
 <#
 验证入口：一个脚本收口全部验证动作（格式 / 编译 / 依赖边界 / 测试 / 前端）。
-按「改了多大」选档，失败即退出不吞退出码。
 
   pwsh scripts/check.ps1                 快门：格式 → 编译 → 全包短测试
-  pwsh scripts/check.ps1 -Pkg ./backend/pi   只验一个包（改单个能力域时用）
+  pwsh scripts/check.ps1 -Pkg backend/pi 只验一个包（改单个能力域时用，省的是编译）
   pwsh scripts/check.ps1 -Full           全量：vet + 依赖边界 + 全量测试 + 前端构建；提交前 / CI 跑这一档
 
-耗时大头是编译而不是断言：测试本体多在亚秒级，包的编译才是分钟级。
-所以「只跑一个包」省的是编译——这就是 -Pkg 存在的理由。
-短测试（-short）跳过真 git 子进程链路与归档真解压；这两条只在 -Full 跑到。
-前端改了就直接跑 -Full；单独验证前端时进 frontend 跑 npm run build。
+短测试（-short）跳过真 git 子进程链路与归档真解压，这两条只在 -Full 跑到。
 #>
 [CmdletBinding()]
 param(
@@ -31,11 +27,9 @@ function Step($name, $block) {
 
 # gofmt 必须无输出：.gitattributes 把 *.go 钉成 LF，CRLF 文件会被一律报成未格式化。
 Step 'gofmt' {
-    $bad = gofmt -l . 2>&1 | Where-Object { $_ -and $_ -notmatch '^frontend' }
-    if ($bad) {
-        $bad | ForEach-Object { Write-Host "      需要格式化：$_" -ForegroundColor Yellow }
-        $global:LASTEXITCODE = 1
-    } else { $global:LASTEXITCODE = 0 }
+    $bad = @(gofmt -l . 2>&1 | Where-Object { $_ -and $_ -notmatch '^frontend' })
+    foreach ($f in $bad) { Write-Host "      需要格式化：$f" -ForegroundColor Yellow }
+    $global:LASTEXITCODE = [int][bool]$bad
 }
 
 if ($Pkg) {

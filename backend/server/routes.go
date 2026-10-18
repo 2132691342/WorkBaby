@@ -32,6 +32,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			sessions.POST("/permission/:id", h.SetSessionPermission)
 			sessions.POST("/thinking/:id", h.SetSessionThinking)
 			sessions.POST("/fork/:id", h.ForkSession)
+			sessions.POST("/export/:id", h.ExportSession)
 		}
 
 		chat := v1.Group("/chat")
@@ -40,6 +41,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			chat.POST("/stop", h.StopRun)
 			chat.POST("/steer", h.SteerMessage)
 			chat.POST("/followup", h.FollowUpMessage)
+			chat.POST("/retry-cancel", h.CancelRetry)
 		}
 
 		approvals := v1.Group("/approvals")
@@ -71,6 +73,20 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			skills.POST("/delete/:id", h.DeleteSkill)
 			skills.GET("/content/:id", h.SkillContent)
 		}
+
+		// 插件（PI 扩展与包）：路径里有盘符与斜杠，所以路径目标都走请求体。
+		extensions := v1.Group("/extensions")
+		{
+			extensions.GET("", h.ListExtensions)
+			extensions.POST("/toggle", h.ToggleExtension)
+			extensions.POST("/import", h.ImportExtensions)
+			extensions.POST("/delete", h.DeleteExtension)
+			extensions.POST("/install", h.InstallPackage)
+			extensions.POST("/remove", h.RemovePackage)
+		}
+
+		// 斜杠命令清单：真相在 PI 进程里（扩展命令只有它知道）。
+		v1.GET("/commands", h.ListCommands)
 
 		knowledge := v1.Group("/knowledge")
 		{
@@ -193,16 +209,12 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 }
 
 // sseHandler 是事件流端点：订阅维度是会话，支持 Last-Event-ID 重放。
+// session_id 留空表示全局通道——环境与插件的安装进度发生在任何会话之前，
+// 拿会话 id 绑它们就永远收不到。
 // seq 优先取 query（前端手动重建 EventSource 时拿不到自动附加的 header），header 兜底。
 func sseHandler(hub *Hub) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID := c.Query("session_id")
-		if sessionID == "" {
-			// 走统一错误契约而不是手写响应：前端按 code 分流，1101 与「会话不存在」同处置动作。
-			err := pkg.New("1101", "事件流连接缺少 session_id", "")
-			c.JSON(http.StatusOK, domain.Resp{Code: pkg.CodeOf(err), Message: err.Error()})
-			return
-		}
 		client := hub.Subscribe(sessionID)
 		defer hub.Unsubscribe(client)
 

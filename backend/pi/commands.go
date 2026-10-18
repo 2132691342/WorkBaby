@@ -222,3 +222,52 @@ type Image struct {
 func NewImage(mime, base64Data string) Image {
 	return Image{Type: "image", Data: base64Data, MimeType: mime}
 }
+
+// Command 是 get_commands 报上来的一个斜杠命令。
+// Source 取 extension（扩展注册）/ prompt（提示模板）/ skill（技能）。
+type Command struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Source      string `json:"source"`
+}
+
+// GetCommands 取当前进程能跑的斜杠命令：扩展命令、提示模板与技能。
+// 它是 `/` 菜单的真相源——目录扫描只能看到磁盘上的技能，看不到扩展注册的命令。
+func (c *Client) GetCommands(ctx context.Context) ([]Command, error) {
+	raw, err := c.Call(ctx, "get_commands", nil)
+	if err != nil {
+		return nil, err
+	}
+	var res struct {
+		Commands []Command `json:"commands"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return nil, ErrCommandFailed
+	}
+	if res.Commands == nil {
+		res.Commands = []Command{}
+	}
+	return res.Commands, nil
+}
+
+// ExportHTML 把当前会话导成一个 HTML 文件（自带样式，可直接双击看）。
+// 写文件耗时随会话长度增长，走长超时。
+func (c *Client) ExportHTML(ctx context.Context, outputPath string) (string, error) {
+	raw, err := c.CallLong(ctx, "export_html", map[string]any{"outputPath": outputPath})
+	if err != nil {
+		return "", err
+	}
+	var res struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return "", ErrCommandFailed
+	}
+	return res.Path, nil
+}
+
+// AbortRetry 叫停正在进行中的自动重试（含剩余等待与后续尝试）。
+func (c *Client) AbortRetry(ctx context.Context) error {
+	_, err := c.Call(ctx, "abort_retry", nil)
+	return err
+}

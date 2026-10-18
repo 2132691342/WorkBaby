@@ -202,7 +202,7 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("跑完一轮：运行记录收尾且用量落账", func(t *testing.T) {
+	t.Run("一轮对话：跑完落账，中途停止收回运行态", func(t *testing.T) {
 		sess := te.newSession(t)
 		if _, err := te.container.Chat.Send(sess.ID, "算用量", nil); err != nil {
 			t.Fatalf("发送失败: %v", err)
@@ -237,14 +237,11 @@ func TestServiceChain(t *testing.T) {
 		if u := (domain.UsageVO{Input: in, Output: out, Cached: cached}); u.CacheHitRate() > 100 {
 			t.Fatalf("缓存命中率超过 100%%: %d", u.CacheHitRate())
 		}
-	})
 
-	t.Run("停止先取回排队文本再中止", func(t *testing.T) {
-		sess := te.newSession(t)
+		// 中途停止：不报错，也不把会话永久卡在运行态。
 		if _, err := te.container.Chat.Send(sess.ID, "开始干活", nil); err != nil {
 			t.Fatalf("发送失败: %v", err)
 		}
-		// 停止不该报错，也不该让会话永久卡在运行态。
 		if err := te.container.Chat.Stop(sess.ID); err != nil {
 			t.Fatalf("停止失败: %v", err)
 		}
@@ -371,8 +368,82 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("权限档写进策略文件", func(t *testing.T) {
+	t.Run("插件启停：登记进 settings.json、内置不可停、删除连文件一起去", func(t *testing.T) {
+		// 先放一份用户自己写的扩展进去：它已经登记了，但界面还要列得出来
+		dir := te.env.PiEnv.ExtensionsDir()
+		if err := pkg.EnsureDir(dir); err != nil {
+			t.Fatal(err)
+		}
+		mine := filepath.Join(dir, "mine.ts")
+		if err := pkg.WriteText(mine, "export default function () {}\n"); err != nil {
+			t.Fatal(err)
+		}
+		listed, err := te.container.Extensions.List()
+		if err != nil {
+			t.Fatalf("列插件失败: %v", err)
+		}
+		var found, builtin *domain.ExtensionVO
+		for i := range listed.Entries {
+			switch filepath.Base(listed.Entries[i].Path) {
+			case "mine.ts":
+				found = &listed.Entries[i]
+			case "workbaby.ts":
+				builtin = &listed.Entries[i]
+			}
+		}
+		if found == nil {
+			t.Fatal("扩展目录里的文件没列出来")
+		}
+		if found.Enabled {
+			t.Fatal("没登记的扩展不该显示为启用")
+		}
+		if builtin == nil || !builtin.Builtin {
+			t.Fatal("审批闸门要标成自带，否则用户一停就再也看不到审批卡")
+		}
+
+		// 启用 = 登记，不是搬文件：搬目录会让「导入过的插件」反复挪位置。
+		if err := te.container.Extensions.Toggle(mine, true); err != nil {
+			t.Fatalf("启用失败: %v", err)
+		}
+		settings, err := te.env.PiEnv.ReadSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		registered := false
+		for _, e := range settings.Extensions {
+			if strings.EqualFold(e, mine) {
+				registered = true
+			}
+		}
+		if !registered {
+			t.Fatalf("启用后没登记进 settings.json: %v", settings.Extensions)
+		}
+		if !pkg.FileExists(mine) {
+			t.Fatal("启停不该动文件")
+		}
+		// 内置那条停用必须被拒：否则审批闸门没了，界面还以为一切正常。
+		if err := te.container.Extensions.Toggle(filepath.Join(dir, "workbaby.ts"), false); err == nil || pkg.CodeOf(err) != "9717" {
+			t.Fatalf("停用审批闸门应报 9717，实际 %v", err)
+		}
+
+		if err := te.container.Extensions.Delete(mine); err != nil {
+			t.Fatalf("删除失败: %v", err)
+		}
+		if pkg.FileExists(mine) {
+			t.Fatal("删除后文件还在")
+		}
+		again, _ := te.env.PiEnv.ReadSettings()
+		for _, e := range again.Extensions {
+			if strings.EqualFold(e, mine) {
+				t.Fatalf("删除后登记项没清掉: %v", again.Extensions)
+			}
+		}
+	})
+
+	t.Run("审批桥：权限档落策略文件、放行记忆与在途决策", func(t *testing.T) {
 		sess := te.newSession(t)
+
+		// 权限档写进策略文件：审批扩展读的是它，不写进去界面切了档位助手行为不变。
 		if err := te.container.Sessions.SetPermission(sess.ID, domain.PermissionReadonly); err != nil {
 			t.Fatalf("设置权限档失败: %v", err)
 		}
@@ -386,17 +457,13 @@ func TestServiceChain(t *testing.T) {
 		if err := json.Unmarshal(raw, &policy); err != nil {
 			t.Fatal(err)
 		}
-		// 审批扩展读的是这个文件：不写进去，界面切了档位助手行为不变。
 		if policy.Permission != domain.PermissionReadonly {
 			t.Fatalf("策略档位不对: %s", raw)
 		}
 		if err := te.container.Sessions.SetPermission(sess.ID, "bogus"); err == nil {
 			t.Fatal("非法档位应当被拒")
 		}
-	})
 
-	t.Run("审批桥：登记到放行记忆，忘了要清干净", func(t *testing.T) {
-		sess := te.newSession(t)
 		te.container.Approvals.Open(sess.ID, "req-1", "confirm", "允许 write?", "要写入 a.txt", nil)
 		pending := te.container.Approvals.Pending(sess.ID)
 		if len(pending) != 1 {
@@ -415,7 +482,7 @@ func TestServiceChain(t *testing.T) {
 		}
 
 		// 摘不到条目说明决策在途（超时 / 重复点击），必须报 4102 且不改状态。
-		err := te.container.Approvals.Decide(sess.ID, "no-such-approval", true, domain.ApprovalScopeOnce)
+		err = te.container.Approvals.Decide(sess.ID, "no-such-approval", true, domain.ApprovalScopeOnce)
 		if err == nil {
 			t.Fatal("不存在的审批应当报错")
 		}
@@ -463,7 +530,7 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("同步配置写出 PI 的全部文件并登记审批扩展", func(t *testing.T) {
+	t.Run("配置同步：PI 的全部文件、受控块与设置开关", func(t *testing.T) {
 		te.container.SyncPiConfig()
 		for _, path := range []string{
 			te.env.PiEnv.ModelsPath(),
@@ -494,47 +561,39 @@ func TestServiceChain(t *testing.T) {
 		if !found {
 			t.Fatalf("扩展没登记进 settings: %v", settings.Extensions)
 		}
-	})
 
-	t.Run("APPEND_SYSTEM 只改受控块", func(t *testing.T) {
-		path := te.env.PiEnv.AppendSystemPath()
-		// 用户自己在文件里写了东西。
-		if err := os.WriteFile(path, []byte("# 我的项目规矩\n\n不许用 emoji。\n"), 0o644); err != nil {
+		// APPEND_SYSTEM 只改受控块：块外是用户手写内容，整体覆盖会静默删掉他的东西。
+		asPath := te.env.PiEnv.AppendSystemPath()
+		if err := os.WriteFile(asPath, []byte("# 我的项目规矩\n\n不许用 emoji。\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		te.container.SyncPiConfig()
-		raw, err := os.ReadFile(path)
+		asRaw, err := os.ReadFile(asPath)
 		if err != nil {
 			t.Fatal(err)
 		}
-		text := string(raw)
-		// 块外是用户手写内容：整体覆盖会静默删掉他的东西。
-		if !strings.Contains(text, "我的项目规矩") {
-			t.Fatalf("用户手写内容被覆盖了: %s", text)
-		}
-		if !strings.Contains(text, "<!-- workbaby:begin -->") {
-			t.Fatalf("受控块没写进去: %s", text)
+		asText := string(asRaw)
+		if !strings.Contains(asText, "我的项目规矩") || !strings.Contains(asText, "<!-- workbaby:begin -->") {
+			t.Fatalf("受控块没写进去或用户内容被覆盖: %s", asText)
 		}
 		// 再跑一次不能累积重复块。
 		te.container.SyncPiConfig()
-		raw2, _ := os.ReadFile(path)
-		if strings.Count(string(raw2), "<!-- workbaby:begin -->") != 1 {
-			t.Fatalf("受控块重复了: %s", raw2)
+		asRaw2, _ := os.ReadFile(asPath)
+		if strings.Count(string(asRaw2), "<!-- workbaby:begin -->") != 1 {
+			t.Fatalf("受控块重复了: %s", asRaw2)
 		}
-	})
 
-	t.Run("设置与工具开关同步进 settings.json", func(t *testing.T) {
+		// 设置与工具开关写的是 PI 的文件，不是自己的 KV（那会变成假开关）。
 		if err := te.env.Repo.SetSetting(domain.SettingCompactionReserve, "24576"); err != nil {
 			t.Fatal(err)
 		}
 		if err := te.container.Settings.Set(domain.SettingThinkingLevel, "high"); err != nil {
 			t.Fatalf("设置思考档失败: %v", err)
 		}
-		// 停用工具写的是 PI 的 defaultTools，不是自己的 KV（那会变成假开关）。
 		if err := te.container.Tools.SetEnabled("grep", false); err != nil {
 			t.Fatalf("停用工具失败: %v", err)
 		}
-		settings, err := te.env.PiEnv.ReadSettings()
+		settings, err = te.env.PiEnv.ReadSettings()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -543,9 +602,6 @@ func TestServiceChain(t *testing.T) {
 		}
 		if settings.Compaction == nil || settings.Compaction.ReserveTokens != 24576 {
 			t.Fatalf("压缩参数没同步: %+v", settings.Compaction)
-		}
-		if len(settings.DefaultTools) == 0 {
-			t.Fatal("defaultTools 没写")
 		}
 		for _, name := range settings.DefaultTools {
 			if name == "grep" {

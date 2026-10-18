@@ -9,3 +9,8 @@ func (h *Handler) OpenFileDialog(title, filter string) (string, error) { return 
 
 // OpenDirectoryDialog 打开目录对话框；非 Windows 恒返回空。
 func (h *Handler) OpenDirectoryDialog(title string) (string, error) { return "", nil }
+
+// SaveFileDialog 打开保存对话框；非 Windows 恒返回空。
+func (h *Handler) SaveFileDialog(title, defaultName, filter string) (string, error) {
+	return "", nil
+}

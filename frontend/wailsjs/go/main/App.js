@@ -18,6 +18,10 @@ export function OpenFileDialog(arg1, arg2) {
   return window['go']['main']['App']['OpenFileDialog'](arg1, arg2);
 }
 
+export function SaveFileDialog(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveFileDialog'](arg1, arg2, arg3);
+}
+
 export function SetAutoStart(arg1) {
   return window['go']['main']['App']['SetAutoStart'](arg1);
 }

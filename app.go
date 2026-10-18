@@ -207,6 +207,11 @@ func (a *App) OpenDirectoryDialog(title string) (string, error) {
 	return a.handler.OpenDirectoryDialog(title)
 }
 
+// SaveFileDialog 打开保存框（导出对话 HTML）。
+func (a *App) SaveFileDialog(title, defaultName, filter string) (string, error) {
+	return a.handler.SaveFileDialog(title, defaultName, filter)
+}
+
 // AutoStartEnabled 报告当前是否已设置开机自启。
 func (a *App) AutoStartEnabled() bool { return a.handler.AutoStartEnabled() }
 

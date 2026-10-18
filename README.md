@@ -20,6 +20,7 @@
 | 私有资料 | 知识库：本地文档（PDF / Word / Excel / Markdown / 文本）建索引，通过 MCP 工具按需检索 |
 | 记得住 | 记忆：跨对话保留你的习惯与约定；界面上写、或对话里对助手说「记住…」，之后每轮对话自动带上 |
 | 外部工具 | MCP：把本地 MCP server 配进来，由 PI 自己连接并在对话里使用 |
+| 加插件 | 插件：往助手身上加新动作（新工具 / 新命令）。界面上装包、导入 `.ts`、一键停；它写的斜杠命令直接出现在 `/` 菜单里 |
 | 分头干活 | 子代理：助手把「读一堆东西只要一个结论」的活派到独立进程去跑，结论回填进当前对话 |
 | 干完能复盘 | 每次 run 一行账：花了多少 token、第几轮涨到多少上下文、每个工具动作耗时与成败 |
 | 走错能回头 | 检查点：从任意一轮分叉成一条新会话，原对话完整保留 |
@@ -29,6 +30,7 @@
 | 改了什么看得见 | 工作区：助手在你的文件夹里改了哪些文件、每一处改了什么，逐行对账 |
 | 收成一次提交 | 勾要入栈的文件 → 写一句这次改了什么（可让助手按改动起草）→ 确认提交；还能看提交历史、某个文件的历史、切分支与推送 |
 | 回放与瀑布图 | 一次运行的每个动作按真实时间轴重走一遍（播放 / 单步 / 0.5×–4×），瀑布图一眼看出哪一步拖了后腿 |
+| 带得走 | 任意一段对话导成一份自带样式的 HTML，双击就能看，不依赖本应用 |
 | 看得见 | 对话时实时显示上下文占用；仪表盘按天 / 按模型统计 token 用量与缓存命中 |
 | 看得懂 | 应用内「帮助」页：内置手册，离线可查 |
 | 开箱即跑 | Node / Python 已嵌进程序，首次启动自动解开；PI 也由它装好 |
@@ -111,7 +113,7 @@ build/windows/ 平台资源与 NSIS 安装器脚本（installer/project.nsi 是�
 scripts/      check.ps1：统一验证入口（快门 / -Pkg / -Full）
 tools/        依赖方向门禁（Go 写的独立程序）
 docs/         项目级文档（架构 / 契约 / 数据模型 / 页面 / 开发 / 部署 / 错误码）
-specs/        子系统规格 01-21，一个子系统一个文件
+specs/        子系统规格 01-22，一个子系统一个文件
 ```
 
 运行观测不单独设包：`service/runs.go` + `repo/run.go` + `domain/run.go`。
@@ -133,7 +135,7 @@ go test ./backend/pi/ -run 'TestPiChain/审批请求解析与回写响应'  # �
 |---|---|---|
 | PI 子进程 / 协议 / 翻译 | `backend/pi` `TestPiChain` | 按 LF 分帧（U+2028 不截断）、未知记录不挡命令、命令按 id 关联、`done` 只在 `agent_settled`、停止先取回排队文本、崩溃报错不自动重发、一个工作区一个进程 |
 | 环境引导 / 配置互通 | `backend/pi/env` `TestPiEnvChain` | 闸门按 node → pi → model 报首个阻塞项、PATH 前置注入、`models.json` 与 `settings.json` 的形状、原子写入不留临时文件、`mcp.json` 未知字段保留且坏文件不覆盖 |
-| 对话编排 / 审批桥 / 投影 / 用量 | `backend/service` `TestServiceChain` | 会话懒创建 → 发送回写指针 → 删除清行清文件、一轮跑完的运行记录与用量口径、JSONL 投影（坏行只跳过自己）、策略文件、审批桥全链、子代理独立进程、配置同步幂等、并发不串会话 |
+| 对话编排 / 审批桥 / 投影 / 用量 | `backend/service` `TestServiceChain` | 会话懒创建 → 发送回写指针 → 删除清行清文件、一轮跑完的运行记录与用量口径及中途停止、JSONL 投影（坏行只跳过自己）、技能启停移目录、插件启停改清单、策略文件与审批桥全链、子代理独立进程、配置同步幂等（含 APPEND_SYSTEM 受控块）、MCP 校验不落盘、并发不串会话 |
 | HTTP 面 / SSE | `backend/api` `TestHTTPChain` | 装配完整与端口握手、预检与方法白名单、路径穿越在门口拒绝、统一信封与空数组契约、SSE 全链（seq 递增、用量落袋）与断线重放 |
 | 知识库 | `backend/knowledge` `TestKnowledgeChain` | 加文档→索引→检索→删除级联、Office 页序、重建索引后台任务、MCP 出口（握手 / 工具声明 / 检索 / 零命中的话术） |
 | Skill | `backend/skill` `TestSkillRegistryChain` | 目录解析与来源优先级、工作区切换后不残留 |
@@ -144,7 +146,7 @@ go test ./backend/pi/ -run 'TestPiChain/审批请求解析与回写响应'  # �
 ## 文档
 
 读法：`README.md`（这个项目是什么）→ `docs/ARCHITECTURE.md`（全貌与每个模块的设计）→
-`specs/01-21`（某个子系统怎么实现）→ `AGENTS.md`（动手改代码时的规范）。
+`specs/01-22`（某个子系统怎么实现）→ `AGENTS.md`（动手改代码时的规范）。
 只看设计不看规范的，读到 `ARCHITECTURE.md` 就够了。
 
 | 文档 | 内容 |
@@ -160,7 +162,7 @@ go test ./backend/pi/ -run 'TestPiChain/审批请求解析与回写响应'  # �
 | [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 错误码 1000–9799 的含义与处置动作 |
 | [specs/06 用户手册](specs/06-user-manual.md) | 应用内帮助页：内置文档组织、`/docs` 接口与阅读界面 |
 
-子系统规格 `specs/01-21`，一个子系统一个文件：
+子系统规格 `specs/01-22`，一个子系统一个文件：
 [01 内置运行时](specs/01-runtime.md) ·
 [02 会话模型](specs/02-session.md) ·
 [03 Skill 系统](specs/03-skill.md) ·
@@ -181,4 +183,5 @@ go test ./backend/pi/ -run 'TestPiChain/审批请求解析与回写响应'  # �
 [18 环境引导](specs/18-pi-bootstrap.md) ·
 [19 审批与 WorkBaby 扩展](specs/19-approval-bridge.md) ·
 [20 工作区文件面板](specs/20-workspace-files.md) ·
-[21 Harness 控制面](specs/21-harness-console.md)
+[21 Harness 控制面](specs/21-harness-console.md) ·
+[22 插件](specs/22-extensions.md)

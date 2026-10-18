@@ -25,7 +25,7 @@ func pathsOf(t *testing.T) runtime.Paths {
 
 // TestPiEnvChain 是 env 包唯一的测试入口。
 func TestPiEnvChain(t *testing.T) {
-	t.Run("环境闸门：阻塞项按 node → pi → model，模型就绪不等于环境就绪", func(t *testing.T) {
+	t.Run("环境闸门与进程环境：阻塞顺序、Node 前置、agent 目录唯一", func(t *testing.T) {
 		e := New(pathsOf(t))
 		// 三个都没配：阻塞项必须是第一个不满足的，而不是随便一个。
 		vo := e.Detect(false)
@@ -57,11 +57,9 @@ func TestPiEnvChain(t *testing.T) {
 		if withModel.Ready && (!withModel.NodeReady || !withModel.PiReady) {
 			t.Fatal("缺 node / pi 却报告就绪")
 		}
-	})
 
-	t.Run("进程环境：内置 Node 前置、agent 目录只出现一次", func(t *testing.T) {
-		p := pathsOf(t)
-		e := New(p)
+		// 进程环境：内置 Node 必须前置（后置会被用户 PATH 上的旧版本抢先），
+		// agent 目录只能出现一次（重复会让「哪个生效」不可预测）。
 		var path string
 		agentDirTimes := 0
 		for _, kv := range e.Env() {
@@ -70,7 +68,7 @@ func TestPiEnvChain(t *testing.T) {
 				path = kv[len("PATH="):]
 			case strings.HasPrefix(kv, "PI_CODING_AGENT_DIR="):
 				agentDirTimes++
-				if !strings.HasSuffix(kv, p.PiAgentDir) {
+				if !strings.HasSuffix(kv, e.Paths().PiAgentDir) {
 					t.Fatalf("agent 目录不对: %q", kv)
 				}
 			}
@@ -78,11 +76,9 @@ func TestPiEnvChain(t *testing.T) {
 		if path == "" {
 			t.Fatal("没有 PATH")
 		}
-		// 必须前置：后置拼接会被用户 PATH 上的旧版本抢先，内置运行时等于没生效。
-		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(p.NodeDir)) {
+		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(e.Paths().NodeDir)) {
 			t.Fatalf("内置 Node 没有前置: %q", path)
 		}
-		// 重复的 agent-dir 会让「哪个生效」变得不可预测；不写就等于 PI 的状态不在应用目录里。
 		if agentDirTimes != 1 {
 			t.Fatalf("agent 目录出现了 %d 次", agentDirTimes)
 		}
@@ -162,6 +158,54 @@ func TestPiEnvChain(t *testing.T) {
 		}
 		if again, _ := e.ReadSettings(); again.DefaultModel != "b" {
 			t.Fatalf("最后写入的值没生效: %+v", again)
+		}
+	})
+
+	t.Run("settings.json：只改自己掌管的键，PI 自己写的字段与已装的包不能被抹掉", func(t *testing.T) {
+		e := New(pathsOf(t))
+		// 用户先用 PI 自己的 CLI 装过包，并调过缓存相关设置。
+		original := `{
+  "defaultModel": "old",
+  "packages": ["npm:@scope/pi-tools"],
+  "cacheWarming": "idle",
+  "codemode": {"mode": "only"}
+}
+`
+		if err := WriteFileAtomic(e.SettingsPath(), []byte(original), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.WriteSettings(&SettingsFile{DefaultModel: "new"}); err != nil {
+			t.Fatalf("写 settings.json 失败: %v", err)
+		}
+		raw, err := os.ReadFile(e.SettingsPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(raw)
+		for _, want := range []string{`"cacheWarming"`, `"codemode"`, `"packages"`, `"new"`} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("写入后丢了 %s（整体重写会抹掉用户的设置）\n%s", want, text)
+			}
+		}
+		// 自己掌管的键要被完全接管：旧值不得残留成两份。
+		if strings.Contains(text, `"old"`) {
+			t.Fatalf("旧值没被覆盖:\n%s", text)
+		}
+
+		// 嵌套对象按字段合并：compaction 里的 enabled 归 PI 管，不能被我们写丢。
+		withCompaction := `{"compaction": {"enabled": true, "reserveTokens": 1000}}`
+		if err := WriteFileAtomic(e.SettingsPath(), []byte(withCompaction), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.WriteSettings(&SettingsFile{Compaction: &CompactionSettings{KeepRecentTokens: 20000}}); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ = os.ReadFile(e.SettingsPath())
+		text = string(raw)
+		for _, want := range []string{`"enabled": true`, `"reserveTokens": 1000`, `"keepRecentTokens": 20000`} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("写压缩参数时丢了 %s\n%s", want, text)
+			}
 		}
 	})
 

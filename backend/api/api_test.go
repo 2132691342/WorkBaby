@@ -255,7 +255,7 @@ func TestHTTPChain(t *testing.T) {
 		}
 	})
 
-	t.Run("统一信封与空数组契约", func(t *testing.T) {
+	t.Run("HTTP 契约：统一信封、空数组与插件接口", func(t *testing.T) {
 		code, body := call(t, base, "GET", "/bootstrap", nil)
 		if code != http.StatusOK {
 			t.Fatalf("bootstrap 失败: %d %s", code, body)
@@ -296,6 +296,36 @@ func TestHTTPChain(t *testing.T) {
 			if !strings.Contains(body, want) {
 				t.Fatalf("运行时状态缺少 %s: %s", want, body)
 			}
+		}
+
+		// 插件列表：数组字段直接被前端 .length，发成 null 就是一句运行时错误。
+		code, body = call(t, base, "GET", "/extensions", nil)
+		if code != http.StatusOK {
+			t.Fatalf("列插件失败: %d %s", code, body)
+		}
+		var ext struct {
+			Code string `json:"code"`
+			Data struct {
+				Dir      string            `json:"dir"`
+				Entries  *[]map[string]any `json:"entries"`
+				Packages *[]map[string]any `json:"packages"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(body), &ext); err != nil {
+			t.Fatalf("解析插件列表失败: %v", err)
+		}
+		if ext.Data.Entries == nil || ext.Data.Packages == nil {
+			t.Fatalf("插件列表的数组字段发成了 null: %s", body)
+		}
+		// 审批闸门（workbaby.ts）永远不可停：它是「动手前问你一句」的唯一实现。
+		code, body = call(t, base, "POST", "/extensions/toggle", map[string]any{
+			"path": filepath.Join(ext.Data.Dir, "workbaby.ts"), "enabled": false,
+		})
+		if code != http.StatusOK {
+			t.Fatalf("停内置闸门应当返回 200 带业务码，实际: %d %s", code, body)
+		}
+		if !strings.Contains(body, `"9717"`) {
+			t.Fatalf("停内置闸门应报 9717: %s", body)
 		}
 	})
 

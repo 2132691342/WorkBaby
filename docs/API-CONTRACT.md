@@ -29,6 +29,7 @@
 | POST | /sessions/permission/:id | `{permission}`：`auto` / `ask_write` / `readonly`。写进 `workbaby-policy.json` 供审批扩展读取（specs/19） |
 | POST | /sessions/workspace/:id | `{workspace}` 切换本会话工作目录（必须真实存在）。因为 `cwd` 是进程级属性，切换会按新工作区重新 spawn（下一条消息生效） |
 | POST | /sessions/fork/:id | `{entry_id}` 从历史某条分叉成新会话 → `SessionVO`（发 PI 的 `fork`）。**不是移动 leaf**：PI 没有改 leaf 的协议面 |
+| POST | /sessions/export/:id | `{path}` → `{path}`：导成自带样式的 HTML（发 PI 的 `export_html`）。`path` 由保存对话框给出；5004 = 这条会话还没落盘，5005 = 同一工作区有对话在跑（切会话会抢进程指针） |
 
 ## 对话
 
@@ -38,6 +39,7 @@
 | POST | /chat/stop | `{session_id}`：先 `clear_queue` 取回未消费文本，再 `abort` |
 | POST | /chat/steer | `{session_id, content}` 插话：发 PI 的 `steer`，当前轮工具跑完后立即生效 |
 | POST | /chat/followup | `{session_id, content}` 排队：发 PI 的 `follow_up`，等助手自然停下才投递 |
+| POST | /chat/retry-cancel | `{session_id}`：发 PI 的 `abort_retry`，叫停正在进行的自动重试 |
 
 `attachments` 是 `@` 引用文件：`[{path, name}]`，`path` 相对路径按工作目录解析，
 绝对路径必须落在工作目录内——越界的文件**不读取**，在正文里写明原因后继续发送
@@ -48,6 +50,27 @@
 `followup` 与 `steer` **不再共用队列**：它们在 PI 里是两种语义。
 `steer` 在当前轮的工具跑完后介入（“别这么干了”），`follow_up` 等助手彻底停下才投递（“做完了再干这个”）。
 这个区别是用户真能感觉到的，所以 UI 必须给两个入口而不是一个。
+
+## 插件（PI 扩展与包）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | /extensions | `ExtensionListRESP`：`dir` / `settings_path` / `entries[]` / `packages[]` |
+| POST | /extensions/toggle | `{path, enabled}`：启停 = 登记 / 注销 `settings.json` 的 `extensions`，随后重启 PI 让它重读。文件不搬 |
+| POST | /extensions/import | `{paths}` → `{imported, skipped[]}`：把磁盘上的 `.ts` / `.js` 或扩展目录复制进 `extensions/` 并登记启用 |
+| POST | /extensions/delete | `{path}`：删文件或目录 + 注销登记项 |
+| POST | /extensions/install | `{source}`：跑 PI 的 `pi install`，进度走 `chat:setup`（phase=`package-install`） |
+| POST | /extensions/remove | `{source}`：跑 PI 的 `pi remove`（phase=`package-remove`） |
+
+路径目标（`path` / `source`）一律走请求体：Windows 绝对路径带盘符与斜杠，拼不进路径参数。
+`entries[].kind` 取 `file` / `dir` / `pattern`（`settings.json` 里的通配登记，界面只读）/ `missing`（登记了但磁盘上没有）。
+`builtin=true` 的是 `workbaby.ts` 审批闸门：停用与删除报 9717。完整设计见 [specs/22](../specs/22-extensions.md)。
+
+## 斜杠命令
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | /commands?session_id= | `CommandVO[]`：`{name, description, source}`，`source` 取 `extension` / `prompt` / `skill`。发 PI 的 `get_commands`，**真相在进程里**——扩展注册的命令磁盘上看不到。`session_id` 为空时直接返回空数组（没有会话就没有进程） |
 
 ## 审批
 
@@ -395,6 +418,7 @@ v1 来源：`claude-code`（`~/.claude/projects/**/*.jsonl`）、
 ## SSE 事件（`/api/v1/events`）
 
 信封：`{seq, event, data}`，`seq` 是该会话内单调递增的整数。
+`session_id` 留空表示**全局通道**：环境与插件的安装进度发生在任何会话之前，绑会话就永远收不到。
 
 | event | data |
 |---|---|
@@ -412,7 +436,7 @@ v1 来源：`claude-code`（`~/.claude/projects/**/*.jsonl`）、
 | chat:error | `{code, message}`（含 PI 进程死亡的 `9701`） |
 | chat:switched | `{session_id, reason}`：会话被切走了（回退分叉 / 工作区重建进程）。前端必须拉新会话的快照 |
 | chat:gap | `{reason}`：重放窗口已滚过，前端应拉会话快照对账 |
-| chat:setup | `{phase, progress, message}`：环境安装进度（npm 装 PI）。**安装可能几十秒，没有进度界面会被当成卡死** |
+| chat:setup | `{phase, progress, message}`：环境与插件安装进度（`install` / `package-install` / `package-remove`）。**安装可能几十秒，没有进度界面会被当成卡死**。它走全局通道（`session_id=` 为空） |
 
 ### 为什么 `chat:done` 只挂在 `agent_settled`
 

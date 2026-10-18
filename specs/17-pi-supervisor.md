@@ -126,6 +126,9 @@ PI 在流式中拒绝无 `streamingBehavior` 的 prompt。所以：
 | 流式中发消息并选「插话」 | `steer` |
 | 流式中发消息并选「排队」 | `follow_up` |
 | 停止 | `abort`（先 `clear_queue` 取回未消费文本还给输入框） |
+| 不想等自动重试 | `abort_retry` |
+| 打开 `/` 菜单 | `get_commands`（扩展命令与提示模板只有进程知道） |
+| 导出对话 | `export_html`（先 `switch_session` 切到那条会话） |
 
 `abort` 会等待会话空闲后才响应，因此它本身是阻塞命令，必须有超时。
 

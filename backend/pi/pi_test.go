@@ -119,7 +119,7 @@ func waitFor(t *testing.T, cond func() bool) {
 func TestPiChain(t *testing.T) {
 	exe := buildFakePI(t)
 
-	t.Run("分帧、未知记录与命令关联", func(t *testing.T) {
+	t.Run("协议分帧与命令响应解码", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		// 两条 setStatus 都要到：按 U+2028 切分会把第二条截成半截 JSON 而丢掉。
 		waitFor(t, func() bool { return rec.count(KindExtensionUI) >= 2 })
@@ -138,6 +138,32 @@ func TestPiChain(t *testing.T) {
 		}
 		if stats.TotalTokens != 1200 {
 			t.Fatalf("统计读串了: %+v", stats)
+		}
+
+		// 响应负载的解码：三种来源的斜杠命令、导出路径与取消重试。
+		cmds, err := client.GetCommands(context.Background())
+		if err != nil {
+			t.Fatalf("get_commands 失败: %v", err)
+		}
+		// `/` 菜单靠 source 决定一条命令属于扩展、模板还是技能。
+		seen := map[string]string{}
+		for _, c := range cmds {
+			seen[c.Name] = c.Source
+		}
+		for name, source := range map[string]string{"review": "extension", "weekly": "prompt", "skill:demo": "skill"} {
+			if seen[name] != source {
+				t.Fatalf("命令 %s 的来源不对: %q", name, seen[name])
+			}
+		}
+		path, err := client.ExportHTML(context.Background(), "C:/tmp/session.html")
+		if err != nil {
+			t.Fatalf("export_html 失败: %v", err)
+		}
+		if path != "C:/tmp/session.html" {
+			t.Fatalf("导出路径没带回来: %q", path)
+		}
+		if err := client.AbortRetry(context.Background()); err != nil {
+			t.Fatalf("abort_retry 失败: %v", err)
 		}
 	})
 
@@ -169,7 +195,7 @@ func TestPiChain(t *testing.T) {
 		}
 	})
 
-	t.Run("流式增量、工具事件与结果内容块", func(t *testing.T) {
+	t.Run("事件翻译：增量、工具结果与压缩", func(t *testing.T) {
 		client, rec := start(t, exe, "tools")
 		if _, err := client.Prompt(context.Background(), "读文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
@@ -201,20 +227,19 @@ func TestPiChain(t *testing.T) {
 		if ev.DurationMs != 12 || ev.IsError {
 			t.Fatalf("工具元数据不对: %+v", ev)
 		}
-	})
 
-	t.Run("压缩事件带前后 token", func(t *testing.T) {
-		client, rec := start(t, exe, "compact")
-		if _, err := client.Prompt(context.Background(), "聊聊", "", nil); err != nil {
+		// 压缩事件要带前后 token：上下文水位靠它回填。
+		cc, crec := start(t, exe, "compact")
+		if _, err := cc.Prompt(context.Background(), "聊聊", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
-		waitFor(t, func() bool { return rec.count(KindCompactionEnd) >= 1 })
-		ev, _ := rec.find(KindCompactionEnd)
-		if ev.CompactResult == nil {
+		waitFor(t, func() bool { return crec.count(KindCompactionEnd) >= 1 })
+		cev, _ := crec.find(KindCompactionEnd)
+		if cev.CompactResult == nil {
 			t.Fatal("压缩结果没解析出来")
 		}
-		if ev.CompactResult.TokensBefore != 9000 || ev.CompactResult.EstimatedTokensAfter != 2000 {
-			t.Fatalf("压缩前后数字不对: %+v", ev.CompactResult)
+		if cev.CompactResult.TokensBefore != 9000 || cev.CompactResult.EstimatedTokensAfter != 2000 {
+			t.Fatalf("压缩前后数字不对: %+v", cev.CompactResult)
 		}
 	})
 
@@ -273,7 +298,36 @@ func TestPiChain(t *testing.T) {
 		waitFor(t, func() bool { return rec.count(KindAgentSettled) >= 1 })
 	})
 
-	t.Run("退出：关 stdin 有序，崩溃要报错且不自动重启", func(t *testing.T) {
+	t.Run("命令目录、导出与取消重试的响应解码", func(t *testing.T) {
+		client, _ := start(t, exe, "basic")
+		ctx := context.Background()
+		cmds, err := client.GetCommands(ctx)
+		if err != nil {
+			t.Fatalf("get_commands 失败: %v", err)
+		}
+		// 三种来源必须原样带回来：`/` 菜单靠 source 决定它属于扩展、模板还是技能。
+		seen := map[string]string{}
+		for _, c := range cmds {
+			seen[c.Name] = c.Source
+		}
+		for name, source := range map[string]string{"review": "extension", "weekly": "prompt", "skill:demo": "skill"} {
+			if seen[name] != source {
+				t.Fatalf("命令 %s 的来源不对: %q", name, seen[name])
+			}
+		}
+		path, err := client.ExportHTML(ctx, "C:/tmp/session.html")
+		if err != nil {
+			t.Fatalf("export_html 失败: %v", err)
+		}
+		if path != "C:/tmp/session.html" {
+			t.Fatalf("导出路径没带回来: %q", path)
+		}
+		if err := client.AbortRetry(ctx); err != nil {
+			t.Fatalf("abort_retry 失败: %v", err)
+		}
+	})
+
+	t.Run("生命周期与进程归属：有序退出、崩溃报错、工作区映射", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		client.Stop()
 		waitFor(t, func() bool { return rec.isExited() })
@@ -297,9 +351,6 @@ func TestPiChain(t *testing.T) {
 		if _, err := bad.GetState(ctx); err == nil {
 			t.Fatal("死进程上的命令应当报错")
 		}
-	})
-
-	t.Run("进程归属：ResolveExe 与一个工作区一个进程", func(t *testing.T) {
 		dir := t.TempDir()
 		if got := ResolveExe(dir); got != "" {
 			t.Fatalf("空目录不该找到可执行文件: %s", got)

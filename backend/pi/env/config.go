@@ -103,6 +103,15 @@ type SettingsFile struct {
 	DefaultTools         []string            `json:"defaultTools,omitempty"`
 	Compaction           *CompactionSettings `json:"compaction,omitempty"`
 	Extensions           []string            `json:"extensions,omitempty"`
+	Packages             []string            `json:"packages,omitempty"`
+}
+
+// settingsOwnedKeys 是本结构占据的顶层键：写入前先删掉，零值才真的等于清空。
+// packages 不在里面：它归 PI 的包管理（pi install / pi remove）管，我们只在装 / 卸时追加，
+// 当成自己的键会把用户用 CLI 装的包抹掉。
+var settingsOwnedKeys = []string{
+	"defaultProvider", "defaultModel", "defaultThinkingLevel",
+	"defaultTools", "compaction", "extensions",
 }
 
 // CompactionSettings 是 PI 的压缩参数。
@@ -121,9 +130,78 @@ func (e *Env) ReadSettings() (*SettingsFile, error) {
 	return file, nil
 }
 
-// WriteSettings 写 settings.json（原子替换）。
+// WriteSettings 写 settings.json：只覆盖 WorkBaby 掌管的顶层键，其余原样保留。
+// 整体重写会把 PI 自己写的字段（cacheWarming / codemode / prompts…）抹掉，
+// 也会抹掉用户用 pi install 加进来的包。
 func (e *Env) WriteSettings(file *SettingsFile) error {
-	return WriteJSON(e.SettingsPath(), file)
+	raw, err := e.settingsMap()
+	if err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(file)
+	if err != nil {
+		return pkg.Wrap("9712", "配置无法序列化", err)
+	}
+	owned := map[string]json.RawMessage{}
+	if err := json.Unmarshal(encoded, &owned); err != nil {
+		return pkg.Wrap("9712", "配置无法序列化", err)
+	}
+	// 先摘下旧值：既要能清空（零值不在 owned 里），又要能对嵌套对象做字段级合并。
+	previous := map[string]json.RawMessage{}
+	for _, key := range settingsOwnedKeys {
+		if old, ok := raw[key]; ok {
+			previous[key] = old
+			delete(raw, key)
+		}
+	}
+	for key, value := range owned {
+		if old, ok := previous[key]; ok {
+			raw[key] = mergeSettingsObjects(old, value)
+			continue
+		}
+		raw[key] = value
+	}
+	return writeSettingsMap(e.SettingsPath(), raw)
+}
+
+// mergeSettingsObjects 把新对象里的键合进旧对象，而不是整个替掉。
+// 用于 compaction 这类「我们只改其中几个字段」的嵌套对象：PI 还往里写 enabled。
+// 任一侧不是对象时直接取新值。
+func mergeSettingsObjects(oldValue, newValue json.RawMessage) json.RawMessage {
+	var oldObj, newObj map[string]json.RawMessage
+	if json.Unmarshal(oldValue, &oldObj) != nil || json.Unmarshal(newValue, &newObj) != nil {
+		return newValue
+	}
+	for k, v := range newObj {
+		oldObj[k] = v
+	}
+	merged, err := json.Marshal(oldObj)
+	if err != nil {
+		return newValue
+	}
+	return merged
+}
+
+// settingsMap 读 settings.json 的顶层键值对；文件不存在按空对象处理。
+func (e *Env) settingsMap() (map[string]json.RawMessage, error) {
+	body, err := ReadFileOrEmpty(e.SettingsPath(), []byte("{}"))
+	if err != nil {
+		return nil, err
+	}
+	raw := map[string]json.RawMessage{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, pkg.Wrap("9713", "settings.json 格式不对", err)
+	}
+	return raw, nil
+}
+
+// writeSettingsMap 把顶层键值对缩进写回（原子替换）。
+func writeSettingsMap(path string, raw map[string]json.RawMessage) error {
+	body, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return pkg.Wrap("9712", "配置无法序列化", err)
+	}
+	return WriteFileAtomic(path, append(body, '\n'), 0o600)
 }
 
 // MCPFile 是 mcp.json 的形态。未知字段靠 raw 保留：从别的客户端拷来的配置

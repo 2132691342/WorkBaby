@@ -90,6 +90,11 @@ PI 因此看到一个 `knowledge_search` 工具。这正是 PI 的 MCP 通路的
 界面只显示一个「设置」页，但底层分两个存放点。这是有意的：
 凡是 PI 需要知道的东西就写 PI 的文件，纯界面偏好留在 SQLite。
 
+**写 `settings.json` 只动自己掌管的顶层键**（`defaultProvider` / `defaultModel` /
+`defaultThinkingLevel` / `defaultTools` / `compaction` / `extensions`）。文件里还有 PI 自己写的
+`packages` / `cacheWarming` / `codemode`，以及用户用 `pi install` 加的包——
+整体重写会把它们一次抹掉。实现与理由见 [22](22-extensions.md#settings-json-的写入纪律)。
+
 ## 5. 启动时的配置同步
 
 ```text
