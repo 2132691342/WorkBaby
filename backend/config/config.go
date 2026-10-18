@@ -1,4 +1,4 @@
-// Package config 负责应用配置：config.yaml 由 Viper 读写，密钥主密钥首启生成。
+// Package config 负责应用配置：config.yaml 由 Viper 读写，只存不适合放 KV 表的固定项。
 package config
 
 import (
@@ -10,22 +10,20 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Config 是应用级配置，只有不适合放进数据库的东西才放这里。
+// Config 是应用级配置，只有不适合放进 KV 表的东西才放这里。
 type Config struct {
-	MasterKey string
 	Workspace string
 	LogLevel  string
 	v         *viper.Viper
 }
 
-// Load 读取配置；不存在则生成主密钥后写入。
+// Load 读取配置；不存在时按默认值创建。
 func Load(path string) (*Config, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
 	v.SetConfigType("yaml")
 	v.SetDefault("log_level", "info")
 	v.SetDefault("workspace", "")
-	v.SetDefault("master_key", "")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -36,7 +34,6 @@ func Load(path string) (*Config, error) {
 	}
 
 	c := &Config{
-		MasterKey: v.GetString("master_key"),
 		Workspace: v.GetString("workspace"),
 		LogLevel:  v.GetString("log_level"),
 		v:         v,
@@ -44,22 +41,11 @@ func Load(path string) (*Config, error) {
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
 	}
-	if c.MasterKey == "" {
-		key, err := pkg.NewMasterKey()
-		if err != nil {
-			return nil, err
-		}
-		c.MasterKey = key
-		if err := c.Save(); err != nil {
-			return nil, err
-		}
-	}
 	return c, nil
 }
 
 // Save 落盘配置。
 func (c *Config) Save() error {
-	c.v.Set("master_key", c.MasterKey)
 	c.v.Set("workspace", c.Workspace)
 	c.v.Set("log_level", c.LogLevel)
 	if err := c.v.WriteConfig(); err != nil {

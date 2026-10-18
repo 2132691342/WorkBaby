@@ -1,4 +1,4 @@
-// Package api 是业务 handler 与系统能力绑定的所在；也是唯一允许 import wails runtime 的包。
+// Package api 是业务 handler 与系统能力绑定所在；也是唯一允许 import wails runtime 的包。
 // 它同时是组合根：Startup 是唯一的装配入口，顺序即依赖顺序。
 package api
 
@@ -8,8 +8,6 @@ import (
 
 	"WorkBaby/backend/config"
 	"WorkBaby/backend/db"
-	"WorkBaby/backend/domain"
-	"WorkBaby/backend/knowledge"
 	pienv "WorkBaby/backend/pi/env"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/repo"
@@ -20,21 +18,20 @@ import (
 
 // Handler 持有全部业务服务与共享设施；port / startErr 跨 goroutine 并发读写，必须走原子量。
 type Handler struct {
-	Version   string
-	ctx       context.Context
-	Paths     runtime.Paths
-	Cfg       *config.Config
-	Repo      *repo.Repo
-	Skills    *skill.Registry
-	Knowledge *knowledge.Service
-	PiEnv     *pienv.Env
-	Emitter   *service.Emitter
-	Svc       *service.Container
-	Log       *pkg.Logger
-	// expiredApprovals 是本次启动收口的「上次没处理完的确认」。
-	expiredApprovals []domain.ApprovalVO
-	port             atomic.Int64
-	startErr         atomic.Pointer[string]
+	Version string
+	ctx     context.Context
+	Paths   runtime.Paths
+	Cfg     *config.Config
+	Repo    *repo.Repo
+	Skills  *skill.Registry
+	// PiEnv 是 PI 的运行环境：运行时复用、PI 发现与配置互通都在它手里。
+	PiEnv   *pienv.Env
+	Emitter *service.Emitter
+	Svc     *service.Container
+	Log     *pkg.Logger
+
+	port     atomic.Int64
+	startErr atomic.Pointer[string]
 }
 
 // New 构造 handler；真正的资源装配在 Startup 里做。
@@ -55,9 +52,6 @@ func (h *Handler) SetStartupError(err error) {
 	h.startErr.Store(&msg)
 	pkg.Errorf("startup: %v", err)
 }
-
-// ExpiredApprovals 返回本次启动被按拒绝收口的审批清单；空表示没有残留。
-func (h *Handler) ExpiredApprovals() []domain.ApprovalVO { return h.expiredApprovals }
 
 // StartupError 返回启动失败原因；空串表示一切正常。
 func (h *Handler) StartupError() string {
@@ -99,64 +93,36 @@ func (h *Handler) Startup(ctx context.Context) error {
 	}
 	h.Repo = repo.New(gdb)
 
-	// 启动横幅：出问题时第一个要问的是「哪个版本、数据在哪」，先记下来。
-	pkg.Infof("startup: WorkBaby %s 启动（数据目录 %s）", h.Version, paths.DataDir)
+	// 启动横幅：出问题时第一个要问的是「哪个版本、数据在哪、PI 的配置在哪」。
+	pkg.Infof("startup: WorkBaby %s 启动（数据目录 %s，PI 配置目录 %s）", h.Version, paths.DataDir, paths.AgentDir)
 
-	// 内置运行时：失败只告警不阻断启动，但原因必须写清楚——
-	// 只说「不可用」，用户无从判断是包没嵌进来、解压失败还是被安全软件拦了。
+	// 内置运行时：失败只告警不阻断启动，但原因必须写清楚。
 	reportRuntime(paths)
 
-	// PI 的运行环境：内置 Node 优先，PI 的发现与安装都在这一层。
+	// PI 的运行环境：优先复用系统里已有的 Node / Python / PI。
 	h.PiEnv = pienv.New(paths)
 
-	h.Knowledge = knowledge.New(h.Repo)
-
 	h.Skills = skill.New()
-	// 全局技能两区都扫：skills/ 启用、skills.disabled/ 停用——停用只是对模型隐形，
-	// 界面仍要列得出（specs/03）。清单注入由 PI 原生完成，WorkBaby 不再渲染第二份。
-	for _, s := range skill.LoadDir(paths.SkillsDir, domain.SkillSourceGlobal) {
-		h.Skills.Add(s)
-	}
-	for _, s := range skill.LoadDisabledDir(paths.DisabledSkillsDir, domain.SkillSourceGlobal) {
-		h.Skills.Add(s)
-	}
-	skill.LoadWorkspace(h.Skills, cfg.Workspace)
-
 	h.Emitter = service.NewEmitter()
 	env := &service.Env{
 		Repo: h.Repo, Paths: paths, Cfg: cfg, Emitter: h.Emitter,
-		Skills: h.Skills, Knowledge: h.Knowledge, PiEnv: h.PiEnv,
+		Skills: h.Skills, PiEnv: h.PiEnv,
 	}
 	svc, err := service.New(env)
 	if err != nil {
 		return err
 	}
 	h.Svc = svc
-	expired, err := svc.Bootstrap()
-	if err != nil {
-		return err
-	}
-	h.expiredApprovals = expired
-	return nil
+	return svc.Bootstrap()
 }
 
-// reportRuntime 解压并留痕三套内置运行时。
-// 提前做是为了让失败点落在启动日志里，而不是某次工具调用时。
+// reportRuntime 解压并留痕内置运行时：提前做是为了让失败点落在启动日志里。
 func reportRuntime(paths runtime.Paths) {
 	if st := runtime.NodeStatusOf(paths); st.Exe == "" {
 		pkg.Warnf("startup: 内置 Node 不可用（将回退系统 node）：%s", st.Err)
-	} else {
-		pkg.Infof("startup: 内置 Node 已就绪（%s）", st.Version)
 	}
 	if st := runtime.Status(paths); st.Exe == "" {
-		pkg.Warnf("startup: 内置 Python 不可用：%s", st.Err)
-	} else {
-		pkg.Infof("startup: 内置 Python 已就绪（%s）", st.Version)
-	}
-	if st := runtime.NodeStatusOf(paths); st.Exe == "" {
-		pkg.Warnf("startup: 内置 Node 不可用（将回退系统 node）：%s", st.Err)
-	} else {
-		pkg.Infof("startup: 内置 Node 已就绪（%s）", st.Version)
+		pkg.Warnf("startup: 内置 Python 不可用（将回退系统 python）：%s", st.Err)
 	}
 }
 

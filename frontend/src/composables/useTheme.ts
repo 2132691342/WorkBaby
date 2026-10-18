@@ -1,5 +1,6 @@
 // 主题切换：写入 [data-theme] 并落 KV 设置，主题清单与 themes.css 令牌块一一对应。
 import { ref, watch } from 'vue'
+import { useSettingsStore } from '../stores/settings'
 
 // 与 themes.css 的 [data-theme] 令牌块一一对应；改这里必须同步 CSS。
 // swatch 走 tokens 里的主题预览色：切到深色时浅色卡也要显示自己的强调色，不能跟着变。
@@ -24,7 +25,6 @@ watch(theme, applyTheme, { immediate: true })
 // 「启动时以库为准」这条路径也就不存在。落库失败不打断本地切换，下次会再试。
 async function persist(next: string) {
   try {
-    const { useSettingsStore } = await import('../stores/settings')
     await useSettingsStore().setValue('theme', next)
   } catch {
     /* 本地已生效；库里没写进去不阻塞用户 */

@@ -1,198 +1,109 @@
-# 架构设计
+# 架构
 
-WorkBaby 是一个 Windows 单进程桌面壳（Wails 出窗口、gin 出本地 HTTP），
-**Agent 内核是外部的 PI 进程**。本机这层只做四件事：发现与安装 PI、
-拉起并守护它、编解码它的 RPC 协议、把它的会话事件翻译成界面能读的 SSE。
-SQLite 存 WorkBaby 自己的账（会话元数据、用量、运行记录、技能、知识库、记忆）。
+## 一句话
 
-一句话定位：**PI 负责跑 Agent，WorkBaby 负责让你看见并控制它怎么跑。**
+**内核归 PI，界面归 WorkBaby**：Agent 循环在外部 `pi --mode rpc` 进程里，
+本项目做发现 / 拉起 / 守护 / 协议编解码 / 事件翻译 / 会话文件索引，以及一层能操作它的界面。
 
-工程规范（编码 / 依赖 / 工作流）见 `AGENTS.md`；数据模型见 `docs/DATA-MODEL.md`，
-接口契约见 `docs/API-CONTRACT.md`。
+## 分层
 
-## 1. 技术栈与形态
+```
+┌──────────────────────────────────────────────┐
+│ 前端（Vue 3 + TS）：视图 / Pinia / SSE 订阅      │
+└───────────────┬──────────────────────────────┘
+        HTTP（gin，回环随机端口）+ SSE
+┌───────────────▼──────────────────────────────┐
+│ server（路由 / SSE hub / 统一响应 / 方法白名单） │
+│ api（薄 handler + 系统能力绑定 + 组合根）         │
+│ service（编排：会话 / 对话 / 模型 / 技能 / 插件…） │
+│ 能力域：pi（子进程 + 协议 + 会话索引）· skill · git │
+│ repo（GORM，只有设置 KV）· domain（域模型）        │
+│ pkg（叶子工具包：AppError / ID / 日志 / httprules） │
+└──────────────────────────────────────────────┘
+```
 
-| 层 | 选型 | 为什么 |
+依赖方向由 `tools/check-boundaries` 按真实 import 图检查：
+上层可依赖下层，能力域不得回指 api / service / server，`pkg` 不依赖任何业务包。
+
+## 两个真相源
+
+| 根 | 内容 | 谁写 |
 |---|---|---|
-| 语言 | Go 1.24 单 module | 并发模型贴合「流式事件 + 多子进程守护」的形态；单二进制分发 |
-| 桌面壳 | Wails v2（Frameless） | 系统 WebView 复用，不打包 Chromium；前端自绘标题栏 |
-| HTTP / 实时 | gin + SSE | 业务 API 与事件流统一走 HTTP，一个通信面 |
-| 存储 | GORM + SQLite（WAL + FTS5 trigram，pure-Go） | 本机单用户零运维；FTS5 解决中文分词检索 |
-| 前端 | Vue 3 + TS + Vite + Pinia + 原生 CSS 令牌 | 无 UI 组件库，控件全自绘，色值 / 字体只在 `themes.css` |
-| **内核** | **PI（`pi --mode rpc`，Node 子进程）** | Agent 能力由 PI 演进，本机不追版本 |
-| **运行时** | **Node 24 / Python 3.12，内置；PowerShell 走系统** | 双击即用，用户不装环境 |
+| `~/.pi/agent/`（或 `PI_CODING_AGENT_DIR`） | 会话 JSONL、settings / models / mcp、技能、扩展、包 | PI（WorkBaby 只通过 RPC 或 PI 认可的字段写） |
+| `%APPDATA%\WorkBaby\` | SQLite（只有设置 KV）、内置运行时、日志、背景图、persona.md | WorkBaby |
 
-## 2. 分层与依赖方向
+**不能有第三本账**：v1 曾给 PI 指定一个私有 agent 目录，结果界面里技能、插件、模型、
+会话全是空的——而 `pi` 命令里一切正常。现在的纪律是：agent 目录只继承、不覆盖。
+
+## 启动时序
 
 ```
-WebView (Vue3 SPA)
-   │  axios（HTTP）               ▲ SSE /api/v1/events
-   ▼                              │
-backend/server ──► backend/api ──► backend/service ──► 能力域
-                                                        pi / skill / knowledge / git / history / archmap
-                                                          │
-                                                          ▼ (stdio JSONL)
-                                                       PI 子进程
-                                     backend/repo ──► backend/domain
-backend/pkg：叶子工具包（错误 / ID / 日志 / 加密 / 路径），任何层可用，自身不依赖业务包
-系统集成（不进依赖链）：backend/tray、backend/singleinstance、backend/config、backend/db
+wails.Run
+ └─ app.startup → api.Handler.Startup
+     ├─ runtime.Resolve()        数据目录 + agent 目录（只解析，不创建 agent 子目录）
+     ├─ InitLog / config.Load / db.Open / repo.New
+     ├─ reportRuntime()          内置运行时探测（失败只告警）
+     ├─ pienv.New(paths)         PI 的发现（PATH → npm 前缀）
+     ├─ skill.New() + Emitter
+     ├─ service.New(env)         装配全部服务 + PI 监督器
+     └─ container.Bootstrap()    设置默认值 / 生成 persona / 扫技能
+ └─ domReady → 前端握手拿端口 → bootstrap / SSE 订阅
 ```
 
-依赖方向由 `tools/check-boundaries` 门禁强制（`go run ./tools/check-boundaries`，
-读编译器视角的真实 import 关系）。
+**环境闸门在 spawn 之前**：前端读 `bootstrap.pi_env`，`ready=false` 就整屏进向导，
+不会出现「第一条消息必然失败，十几秒后才浮现」的体验。
 
-要点：`backend/pi` 不依赖 api / service / server / domain / repo——
-它只认 `pkg` 与 `runtime`，通过接口把事件交给上层。
-因此它可以被一个假 PI 进程驱动着做全链路测试。
+## 一次对话
 
-### 2.1 模块与规格对照
+```
+前端 POST /chat/send {workspace, content, session_id?}
+  → ChatService.Send
+      ├─ session_id 为空 → supervisor.Ensure(cwd) → new_session → get_state
+      ├─ 已有会话 → 若进程停在别处则 switch_session（要求该目录空闲）
+      ├─ Prompt()（运行中带 streamingBehavior=steer）
+      └─ 返回 {run_id, session_id}
+PI 子进程 stdout（JSONL）
+  → pi.Client 分帧 → 记录分类 → translator.OnEvent
+  → 翻译成 chat:* → Emitter（seq + 按会话串行）→ Hub → SSE
+  → agent_settled → chat:done → 前端拉会话快照对账
+```
 
-概要在本文件，实现细节在对应规格：
+### 事件出口
 
-| 模块 | 规格 |
+`service.Emitter` 是唯一出口：注入会话归属、分配 seq、按会话分道串行化。
+SSE Hub 每个会话维护重放缓冲；慢客户端先挤 delta 保关键事件，
+缓冲裁掉中段时主动发 `chat:gap`，前端据此拉快照对账。
+
+### 引擎提问
+
+PI 的扩展可以 `ctx.ui.confirm/select/input/editor` 问用户。这些请求走
+`extension_ui_request` → `chat:ask` → 界面卡片 → `POST /chat/answer` → 回写响应。
+WorkBaby 自己不判断「该不该问」：闸门由扩展决定，界面只负责显示与回传。
+
+## 前端状态归属
+
+| store | 管什么 |
 |---|---|
-| PI 子进程监督（进程 / 协议 / 翻译） | [specs/17](../specs/17-pi-supervisor.md) |
-| 环境引导（Node / PI 安装 / config 互通） | [specs/18](../specs/18-pi-bootstrap.md) |
-| 会话模型（两处存储的分工） | [specs/02](../specs/02-session.md) |
-| 系统提示与设置（`defaultTools` / 拓展模块注入） | [specs/07](../specs/07-prompt-and-settings.md) |
-| `skill` | [specs/03](../specs/03-skill.md) |
-| `knowledge` | [specs/04](../specs/04-knowledge.md) |
-| `git` 工作区版本视图 | [specs/09](../specs/09-workspace-git.md) |
-| `runtime` 内置运行时 | [specs/01](../specs/01-runtime.md) |
-| 桌面壳（窗口 / 托盘 / 单实例） | [specs/05](../specs/05-desktop-shell.md) |
-| 用量与上下文水位 | [specs/08](../specs/08-usage-and-context.md) |
-| 应用内帮助页（内置文档 + `/docs`） | [specs/06](../specs/06-user-manual.md) |
-| MCP 外部工具接入 | [specs/10](../specs/10-mcp.md) |
-| 运行观测与检查点 | [specs/15](../specs/15-runs-and-checkpoints.md) |
-| 评估与回归 | [specs/11](../specs/11-eval-regression.md) |
-| `history` 通用会话历史 | [specs/12](../specs/12-universal-history.md) |
-| `archmap` 项目架构图 | [specs/13](../specs/13-arch-map.md) |
-| 工作区文件面板（`/files` 列举） | [specs/20](../specs/20-workspace-files.md) |
-| Harness 控制面（runs / checkpoints / evals / stats 总纲） | [specs/21](../specs/21-harness-console.md) |
-| 记忆 | [specs/14](../specs/14-memory.md) |
-| 子代理 | [specs/16](../specs/16-subagent.md) |
-| 插件（PI 扩展与包） | [specs/22](../specs/22-extensions.md) |
+| `session` | 会话列表、当前会话、消息快照（来自 `/sessions`） |
+| `chat` | 当前 run 的流式正文、工具卡、提问卡、上下文水位、错误与重试 |
+| `settings` | bootstrap 快照、服务商列表、技能列表、PI 配置快照、设置 KV |
+| `toast` | 轻提示 |
 
-## 3. 一次对话的生命周期
+规则：**SSE 只推进行中的临时态**，任何一次 `chat:done` / 断线重连都拉一次权威快照，
+前端不做增量合并——合并逻辑是「两个会话叠在一起」这类 bug 的温床。
 
-1. 前端 `POST /chat/send` → `ChatService.Send`：校验 → 落一条 user 消息意图 → 返回 runID
-2. service 检查该工作区的 PI 进程：没有则 spawn，有的直接复用
-3. 会话首次使用 → `new_session` 拿 `sessionId` 与 `sessionFile` 回写 SQLite
-4. 发 `prompt` 命令（空闲）或 `steer` / `follow_up`（流式中），响应只表示"已接受"
-5. PI 开始吐事件：`agent_start` → `turn_start` → `message_update`（逐字）→
-   `tool_execution_*` → `turn_end` → …… → `agent_end` → `agent_settled`
-6. 翻译层把每条事件转成 `chat:*` 并经 `service.Emitter`（分配 seq）→ `server.Hub` → SSE
-7. `message_end` 时记 usage；`turn_end` 时更新上下文水位与运行记录
-8. `agent_settled` → 记 `chat:done`，运行记录收尾，检查点落位
+## 模块边界
 
-**`agent_end` 不是结束**：重试、溢出恢复、压缩、插话都可能接在它后面。
-只有 `agent_settled` 表示「不会再自动继续了」。
+界面只保留四块页面，各自回答一个真问题：**聊得怎么样（对话）**、**它动了什么（工作区）**、
+**花了多少（仪表盘）**、**怎么配（设置 + 帮助）**。
 
-## 4. 模块设计
+不在 WorkBaby 里实现的能力：运行记录与用量（PI 的会话文件里有权威的一份）、
+审批策略（审批闸门属于扩展生态，内核默认不打断）、知识库与架构图（与「操作 PI」无关）。
+这条边界的判据是「PI 是否已有」：已有就在界面上暴露它，不自研第二份。
 
-### 4.1 backend/pi —— PI 监督
+## 端口与安全
 
-**设计**：一个工作区一个 PI 进程，生命周期由 `Supervisor` 管。
-`Client` 负责 JSONL 编解码与命令关联，`Translator` 负责事件映射。
-三者分开是因为它们的失效方式不同：进程死了要重启，协议错了要忽略，
-翻译错了要改映射表——混在一起就无法判断是哪一类。
-
-**为什么不做成自研内核**：那意味着永久追赶 PI 的每次工具与协议变更，
-而收益只是省一个 Node 依赖。
-
-**关键不变量**：
-- stdout 只按 LF 分帧（U+2028/U+2029 在 JSON 字符串里合法）
-- 未知记录忽略，不报错（装了扩展的环境首帧就是 `extension_ui_request`）
-- 命令按 id 关联，不按顺序
-- `chat:done` 只在 `agent_settled`
-- 进程死亡不自动重发本轮（工具可能已有副作用）
-
-**代价**：启动多一跳（首次 spawn 含扩展加载约 6s，用启动时预热抵掉）；
-协议是 PI 的私有契约，PI 改事件名时要跟。
-
-### 4.2 backend/service —— 业务编排
-
-**设计**：会话、对话、配置、拓展模块的业务编排都在这层。事务边界在这层，
-不写 SQL（走 repo），不引 gin / Wails。对话这里是「向 PI 发命令并翻译它的事件」，
-不是自己跑 Agent 循环。
-
-**关键不变量**：
-- 事件出口串行化（沿用 `Emitter`，按会话分道）
-- 停止必先 `clear_queue` 再 `abort`
-- 会话运行中不删会话文件
-- 同一工作区串行（一个 PI 进程只有一个 streaming 状态）
-
-**代价**：同一工作区的两个会话不能并发跑。
-
-### 4.3 backend/domain —— 域模型
-
-一个聚合根一个文件，DO / DTO / REQ / VO / RESP 同居一处。
-会话表只存归属、配置快照与 PI 会话指针（`pi_session_id` / `pi_session_file`）：
-消息真身在 PI 的 JSONL 里，WorkBaby 不另持一份条目链，避免两份真相各自漂移。
-
-### 4.4 backend/runtime —— 内置运行时
-
-Node 24.21 / Python 3.12.8，两份归档 `go:embed` 进 exe，
-首次启动解压到数据目录。Node 的解压必须剥掉归档顶层单目录并平铺到根——
-多一层目录会让 `npm.cmd` 找错 node。
-
-**注入 PATH**：`<node>;<npm-global>;<python>;<原 PATH>`，前置拼接。
-PI 进程与它派生的所有工具共享这份环境。PowerShell 不内置：Windows 自带 5.1，
-助手要跑命令时直接用系统那份，再嵌一份 110MB 的 pwsh 换不来新能力。
-
-**代价**：exe 因此约 90MB。
-
-### 4.5 拓展模块
-
-三个 WorkBaby 自己的模块，各自接到 PI 能读的地方：
-
-| 模块 | 接法 |
-|---|---|
-| 技能 | 目录即 PI 的 `<agent-dir>/skills/`，同一份 SKILL.md 两边都读 |
-| 知识库 | 自己暴露成 stdio MCP server（`--mcp-knowledge`），写进 `mcp.json` |
-| 记忆 | 写进 `<agent-dir>/APPEND_SYSTEM.md` 的受控标记块 |
-| 插件 | 就是 PI 自己的 `extensions/` + `settings.json`，界面只做清单与启停（[specs/22](../specs/22-extensions.md)） |
-
-**写 `settings.json` 只动自己掌管的顶层键**：PI 与用户还在里面写 `packages` / `cacheWarming` /
-`codemode` 等字段，整体重写会把它们连同已装的包一起抹掉。
-
-## 5. 两处存储
-
-| 数据 | 位置 | 谁写 |
-|---|---|---|
-| 消息、工具结果、压缩摘要、分支树 | PI 的 JSONL | 只有 PI |
-| 会话标题 / 工作区 / 模型 / 权限 | SQLite `sessions` | 只有 WorkBaby |
-| 用量、运行记录、检查点、评估 | SQLite | 只有 WorkBaby |
-| 技能、知识库、记忆、MCP 配置 | SQLite + 文件 | 只有 WorkBaby |
-
-**绝不写 PI 的 JSONL**：格式是 PI 的私有契约，写坏它 PI 自己都读不回来。
-
-## 6. 端口与启动时序
-
-```
-OnStartup
-  ├─ 解析路径、打开 SQLite、跑迁移
-  ├─ 解压内置运行时（幂等，命版本标记即跳过）
-  ├─ 环境闸门：node? pi? model? → 写进 BootstrapVO
-  ├─ 装配服务容器
-  ├─ 启动 gin 监听（127.0.0.1:随机端口）
-  ├─ 端口就绪 → 允许 domReady 广播 app:ready
-  └─ 环境就绪则异步预热一个 PI 进程
-```
-
-端口握手必须早于 `domReady` 广播：监听器晚一步端口就为空，前端所有接口 404。
-
-## 7. 为什么不重写 PI
-
-| 取 | 舍 |
-|---|---|
-| 工具、压缩、重试、缓存、编辑、MCP、扩展、子代理全由 PI 演进 | 依赖 Node 与 PI 的存在，启动前必须过环境闸门 |
-| 会话是纯 JSONL，可只读投影，不复制状态 | 两处持久化，删会话要删两处 |
-| 协议是 JSONL over stdio，语言无关 | PI 改事件名要跟 |
-| 崩溃隔离：PI 挂了不带走桌面进程 | 要一套重启与对账逻辑 |
-
-重写的收益只是省一个 Node 依赖，成本是永久追版本。
-
-**PI 不强制用户预先安装**。启动时按「系统已装 > 内置那一份」的顺序找：
-用户机器上已经 `npm i -g` 过 PI 时直接复用它（带他自己的包与版本，命令行里改的配置也认），
-只有找不到才退到内置那份。因此老用户不会被强制迁移，新用户也不用自己装环境。
+- 只绑 `127.0.0.1`，随机端口；端口经 `app:ready` 事件告知前端。
+- CORS 只放行本机来源（`wails://`、`localhost`、`127.0.0.1`、`wails.localhost`）。
+- 方法白名单只有 GET / POST；路径变量必须在末尾。
+- 密钥明文只在「显式点显示」时回传一次，界面默认掩码。

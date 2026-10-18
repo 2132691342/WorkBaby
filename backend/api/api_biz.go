@@ -2,13 +2,15 @@
 package api
 
 import (
-	"WorkBaby/backend/domain"
-	"WorkBaby/backend/pkg"
-	"WorkBaby/backend/service"
 	"errors"
-	"github.com/gin-gonic/gin"
 	"io"
 	"strconv"
+
+	"WorkBaby/backend/domain"
+	"WorkBaby/backend/pi"
+	"WorkBaby/backend/pkg"
+
+	"github.com/gin-gonic/gin"
 )
 
 // bindOptionalBody 解析「可带可不带」的请求体。
@@ -43,25 +45,34 @@ func fail(c *gin.Context, err error) {
 // Health 存活探测。
 func (h *Handler) Health(c *gin.Context) { ok(c, domain.HealthRESP{OK: true}) }
 
-// Bootstrap 启动引导数据。
+// Bootstrap 启动引导数据：一次给全前端起步要读的东西。
 func (h *Handler) Bootstrap(c *gin.Context) {
 	settings, err := h.Svc.Settings.All()
 	if err != nil {
 		fail(c, err)
 		return
 	}
+	provider, model := h.Svc.Providers.EffectiveDefaults()
 	ok(c, domain.BootstrapVO{
-		Version:           h.Version,
-		ContractVersion:   domain.ContractVersion,
-		DefaultProviderID: settings[domain.SettingDefaultProvider],
-		DefaultModel:      settings[domain.SettingDefaultModel],
-		Workspace:         h.Cfg.Workspace,
-		Permission:        service.PermissionOf(settings[domain.SettingPermission]),
-		PiEnv:             h.piEnvVO(),
-		Settings:          settings,
-		ExpiredApprovals:  h.ExpiredApprovals(),
+		Version:         h.Version,
+		ContractVersion: domain.ContractVersion,
+		DefaultProvider: provider,
+		DefaultModel:    model,
+		Workspace:       h.workspace(),
+		PiEnv:           h.buildPiEnv(),
+		Settings:        settings,
 	})
 }
 
-// piEnvVO 跑一遍环境闸门：ready=false 时前端进向导且不 spawn PI。
-func (h *Handler) piEnvVO() *domain.PiEnvVO { return h.buildPiEnv() }
+// workspace 返回当前默认工作目录（配置项优先）。
+func (h *Handler) workspace() string {
+	if h.Svc != nil {
+		if ws := h.Svc.Env.Workspace(); ws != "" {
+			return ws
+		}
+	}
+	return h.Cfg.Workspace
+}
+
+// 编译期确认 pi 包被引用（session 索引在 service 层使用）。
+var _ = pi.ListSessions

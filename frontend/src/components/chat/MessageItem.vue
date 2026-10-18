@@ -156,8 +156,6 @@ const metrics = computed(() => {
               <b>{{ m.k }}</b>{{ m.v }}
             </span>
           </template>
-          <span v-if="msg.latency_ms" class="sep" />
-          <span v-if="msg.latency_ms" class="act is-dim">{{ (msg.latency_ms / 1000).toFixed(1) }}s</span>
         </div>
       </div>
     </div>

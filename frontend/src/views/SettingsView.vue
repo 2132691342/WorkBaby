@@ -6,8 +6,6 @@ import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/common/AppIcon.vue'
 import AppearancePanel from '../components/settings/AppearancePanel.vue'
 import BehaviorPanel from '../components/settings/BehaviorPanel.vue'
-import KnowledgePanel from '../components/settings/KnowledgePanel.vue'
-import MemoryPanel from '../components/settings/MemoryPanel.vue'
 import MCPPanel from '../components/settings/MCPPanel.vue'
 import ExtensionPanel from '../components/settings/ExtensionPanel.vue'
 import ProviderPanel from '../components/settings/ProviderPanel.vue'
@@ -19,16 +17,7 @@ const router = useRouter()
 const route = useRoute()
 const settings = useSettingsStore()
 
-type TabKey =
-  | 'providers'
-  | 'skills'
-  | 'extensions'
-  | 'knowledge'
-  | 'memory'
-  | 'tools'
-  | 'mcp'
-  | 'appearance'
-  | 'behavior'
+type TabKey = 'providers' | 'skills' | 'extensions' | 'tools' | 'mcp' | 'appearance' | 'behavior'
 
 // tab 直接反映 URL：设置页支持前进后退，刷新后停在原处。
 const tab = ref<TabKey>('providers')
@@ -36,11 +25,9 @@ const tab = ref<TabKey>('providers')
 const tabs: { key: TabKey; name: string; icon: string; title: string; sub: string }[] = [
   { key: 'providers', name: '模型服务', icon: 'cpu', title: '模型服务', sub: '告诉助手用哪家服务、哪个模型' },
   { key: 'skills', name: '技能', icon: 'sparkles', title: '技能', sub: '把「怎么做一件事」写成秘籍，助手会照着做' },
-  { key: 'extensions', name: '插件', icon: 'zap', title: '插件', sub: '给助手加新动作：新工具、新命令' },
-  { key: 'knowledge', name: '知识库', icon: 'book', title: '知识库', sub: '把你的资料放进来，助手回答时会去查' },
-  { key: 'memory', name: '记忆', icon: 'brain', title: '记忆', sub: '让助手一直记得你的习惯与约定' },
-  { key: 'tools', name: '工具', icon: 'wrench', title: '工具', sub: '助手现在能干什么、哪些要先问你' },
-{ key: 'mcp', name: 'MCP', icon: 'braces', title: 'MCP 外部工具', sub: '把外部服务的工具接进来' },
+  { key: 'extensions', name: '插件', icon: 'zap', title: '插件', sub: 'PI 的扩展与包：新工具、新命令、新技能' },
+  { key: 'tools', name: '工具', icon: 'wrench', title: '工具', sub: 'PI 当前声明给模型的工具（含 MCP 与插件）' },
+  { key: 'mcp', name: 'MCP', icon: 'braces', title: 'MCP 外部工具', sub: '把外部服务的工具接进来' },
   { key: 'appearance', name: '外观', icon: 'contrast', title: '外观', sub: '主题、字体与字号' },
   { key: 'behavior', name: '行为', icon: 'sliders', title: '行为', sub: '执行方式、后台驻留与工作目录' },
 ]
@@ -120,8 +107,6 @@ onMounted(async () => {
           <ProviderPanel v-if="tab === 'providers'" :key="tab" />
           <SkillPanel v-else-if="tab === 'skills'" :key="tab" />
           <ExtensionPanel v-else-if="tab === 'extensions'" :key="tab" />
-          <KnowledgePanel v-else-if="tab === 'knowledge'" :key="tab" />
-      <MemoryPanel v-else-if="tab === 'memory'" :key="tab" />
           <ToolPanel v-else-if="tab === 'tools'" :key="tab" />
           <MCPPanel v-else-if="tab === 'mcp'" :key="tab" />
           <AppearancePanel v-else-if="tab === 'appearance'" :key="tab" />

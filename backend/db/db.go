@@ -1,4 +1,5 @@
-// Package db 负责打开 SQLite、执行迁移与创建 FTS5 虚表。
+// Package db 负责打开 SQLite 与执行迁移。
+// 会话、消息与用量都在 PI 的会话文件里，这里只剩 WorkBaby 自己的界面设置。
 package db
 
 import (
@@ -8,33 +9,15 @@ import (
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-
-	"github.com/glebarez/sqlite"
 )
 
 // 连接期 PRAGMA：WAL 提升读写并发，busy_timeout 规避瞬时写锁失败。
 const pragmas = `PRAGMA journal_mode=WAL;
 PRAGMA busy_timeout=5000;
-PRAGMA synchronous=NORMAL;
-PRAGMA foreign_keys=ON;`
-
-// FTS5 必须用 trigram：默认 unicode61 不按字切分 CJK，整句中文会退化成单个 token。
-// 拆成多条语句逐条执行：一次 Exec 多条在建表场景下不可靠。
-var ftsStatements = []string{
-	`CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks_fts
-USING fts5(content, doc_id UNINDEXED, chunk_id UNINDEXED, tokenize='trigram')`,
-	`CREATE TRIGGER IF NOT EXISTS knowledge_chunks_ai AFTER INSERT ON knowledge_chunks BEGIN
-  INSERT INTO knowledge_chunks_fts(content, doc_id, chunk_id) VALUES (new.content, new.doc_id, new.id);
-END`,
-	`CREATE TRIGGER IF NOT EXISTS knowledge_chunks_ad AFTER DELETE ON knowledge_chunks BEGIN
-  DELETE FROM knowledge_chunks_fts WHERE chunk_id = old.id;
-END`,
-	`CREATE TRIGGER IF NOT EXISTS knowledge_chunks_au AFTER UPDATE ON knowledge_chunks BEGIN
-  UPDATE knowledge_chunks_fts SET content = new.content WHERE chunk_id = new.id;
-END`,
-}
+PRAGMA synchronous=NORMAL;`
 
 // Open 打开（或创建）数据库并完成迁移。连接数固定为 1：单连接 + WAL 让写行为完全可预测。
 func Open(path string) (*gorm.DB, error) {
@@ -56,8 +39,7 @@ func Open(path string) (*gorm.DB, error) {
 
 	if err := pool.Ping(); err != nil {
 		_ = pool.Close()
-		// 「数据库被占用」几乎总是另一个 WorkBaby 进程还活着。这个错误必须说人话，
-		// 否则用户只会看到空窗口。
+		// 「数据库被占用」几乎总是另一个 WorkBaby 进程还活着。这个错误必须说人话。
 		if isLocked(err) {
 			return nil, pkg.Wrap("2101", "数据库被占用，另一个 WorkBaby 还在运行，请先在任务管理器里结束它", err)
 		}
@@ -84,31 +66,10 @@ func isLocked(err error) bool {
 		strings.Contains(msg, "busy")
 }
 
-// Migrate 执行表迁移与 FTS 建表。只增不删，零值兜底。
+// Migrate 执行表迁移。只增不删，零值兜底。
 func Migrate(gdb *gorm.DB) error {
-	if err := gdb.AutoMigrate(
-		&domain.SessionDO{},
-		&domain.ApprovalDO{},
-		&domain.ApprovalDO{},
-		&domain.ProviderDO{},
-		&domain.ModelConfigDO{},
-		&domain.KnowledgeDocDO{},
-		&domain.KnowledgeChunkDO{},
-		&domain.SettingDO{},
-		&domain.TokenUsageDO{},
-		&domain.RunDO{},
-		&domain.ContextSnapshotDO{},
-		&domain.CheckpointDO{},
-		&domain.EvalDO{},
-		&domain.BaselineDO{},
-		&domain.MemoryDO{},
-	); err != nil {
+	if err := gdb.AutoMigrate(&domain.SettingDO{}); err != nil {
 		return pkg.Wrap("2103", "数据库迁移失败", err)
-	}
-	for _, stmt := range ftsStatements {
-		if err := gdb.Exec(stmt).Error; err != nil {
-			return pkg.Wrap("2104", "创建全文索引失败", err)
-		}
 	}
 	return nil
 }

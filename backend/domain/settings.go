@@ -1,7 +1,6 @@
-// 设置项聚合根：KV 表、可写键白名单、背景图与全部缺省值。
+// 设置项聚合根：WorkBaby 自己的界面偏好、背景图与缺省值。
+// PI 侧的配置（默认模型、工具集、压缩参数）不在这里——它们属于 settings.json。
 package domain
-
-import "strconv"
 
 // SettingDO 键值设置。值统一存文本，读取方自行解析。
 type SettingDO struct {
@@ -21,26 +20,15 @@ type SetSettingREQ struct {
 
 // 设置键。
 const (
-	SettingTheme           = "theme"
-	SettingFontSize        = "font_size"
-	SettingWorkspace       = "workspace"
-	SettingPermission      = "permission"
-	SettingDefaultProvider = "default_provider"
-	SettingDefaultModel    = "default_model"
-	SettingDisabledTools   = "disabled_tools"
-	SettingContextReserve  = "context_reserve_tokens"
-	SettingContextWindow   = "context_window"
-	SettingMinimizeToTray  = "minimize_to_tray"
-	SettingFontFamily      = "font_family"
-	SettingSendOnEnter     = "send_on_enter"
-	SettingShowThinking    = "show_thinking"
-	// 压缩参数：直接写进 PI 的 settings.json（compaction.reserveTokens / keepRecentTokens）。
-	SettingCompactionReserve = "compaction_reserve_tokens"
-	SettingCompactionKeep    = "compaction_keep_recent"
-	// 思考档位：off/minimal/low/medium/high/xhigh/max，写 PI 的 defaultThinkingLevel。
-	SettingThinkingLevel = "thinking_level"
-	// 隐藏会话（子代理）的保留期（天），0 = 永久保留：过期只丢逐字对话链。
-	SettingRetentionDays = "orchestra_retention_days"
+	SettingTheme          = "theme"
+	SettingFontSize       = "font_size"
+	SettingFontFamily     = "font_family"
+	SettingWorkspace      = "workspace"
+	SettingMinimizeToTray = "minimize_to_tray"
+	SettingSendOnEnter    = "send_on_enter"
+	SettingShowThinking   = "show_thinking"
+	// 上下文水位的手填覆盖；留空表示按 models.json 里的窗口算。
+	SettingContextWindow = "context_window"
 	// 自定义背景：bg_image 存数据目录内副本的绝对路径，另两项是叠层参数。
 	SettingBgImage   = "bg_image"
 	SettingBgOpacity = "bg_opacity"
@@ -58,8 +46,8 @@ const (
 // BackgroundREQ 设置自定义背景入参；Path 为空表示清除背景。
 type BackgroundREQ struct {
 	Path    string  `json:"path"`
-	Opacity float64 `json:"opacity"` // 0–0.9，图片强度
-	Blur    float64 `json:"blur"`    // 0–24 px
+	Opacity float64 `json:"opacity"`
+	Blur    float64 `json:"blur"`
 }
 
 // BackgroundVO 自定义背景出参；Image 为空表示没有背景。
@@ -69,27 +57,44 @@ type BackgroundVO struct {
 	Blur    float64 `json:"blur"`
 }
 
-// Agent 运行护栏缺省值：轮数与并发都是内核参数，现在由 PI 管；
-// 这里只留 WorkBaby 自己的保留期。
-const (
-	// DefaultRetentionDays 隐藏会话默认保留 30 天，0 表示永不归档。
-	DefaultRetentionDays = 30
-	// MaxRetentionDays 保留期上限（10 年）。
-	MaxRetentionDays = 3650
-)
+// PISettingsVO 是 PI 侧配置的只读快照：界面要能回答「我的配置到底在哪」。
+type PISettingsVO struct {
+	DefaultProvider      string   `json:"default_provider"`
+	DefaultModel         string   `json:"default_model"`
+	DefaultThinkingLevel string   `json:"default_thinking_level"`
+	DefaultTools         []string `json:"default_tools"`
+	CompactionReserve    int      `json:"compaction_reserve"`
+	CompactionKeep       int      `json:"compaction_keep"`
 
-// DefaultSettings 首启写入的默认值；context_reserve_tokens 留空表示跟随模型真实输出预算。
+	AgentDir      string `json:"agent_dir"`
+	SettingsPath  string `json:"settings_path"`
+	ModelsPath    string `json:"models_path"`
+	MCPPath       string `json:"mcp_path"`
+	SessionsDir   string `json:"sessions_dir"`
+	ExtensionsDir string `json:"extensions_dir"`
+	SkillsDir     string `json:"skills_dir"`
+}
+
+// SetCompactionREQ 设置 PI 的压缩参数；0 表示恢复默认。
+type SetCompactionREQ struct {
+	Reserve int `json:"reserve"`
+	Keep    int `json:"keep"`
+}
+
+// WorkspacesRESP 最近用过的工作目录。
+type WorkspacesRESP struct {
+	Workspaces []string `json:"workspaces"`
+	Current    string   `json:"current"`
+}
+
+// DefaultSettings 首启写入的默认值。
 func DefaultSettings() map[string]string {
 	return map[string]string{
 		SettingTheme:          "light",
 		SettingFontSize:       "md",
-		SettingPermission:     PermissionAskWrite,
-		SettingContextReserve: "",
-		SettingDisabledTools:  "",
 		SettingMinimizeToTray: "true",
 		SettingFontFamily:     "system",
 		SettingSendOnEnter:    "true",
 		SettingShowThinking:   "true",
-		SettingRetentionDays:  strconv.Itoa(DefaultRetentionDays),
 	}
 }

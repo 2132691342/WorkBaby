@@ -5,7 +5,6 @@ import "WorkBaby/backend/pkg"
 
 var (
 	ErrExtensionNotFound = pkg.New("9716", "这个插件不存在", "刷新列表再试")
-	ErrExtensionBuiltin  = pkg.New("9717", "审批闸门是 WorkBaby 自带的，不能停用或删除", "")
 	ErrPackageSource     = pkg.New("9718", "插件来源格式不对", "例：npm:@scope/pkg、git:github.com/owner/repo、./本地目录")
 )
 
@@ -23,12 +22,15 @@ type ExtensionVO struct {
 	Path    string `json:"path"`
 	Kind    string `json:"kind"`
 	Enabled bool   `json:"enabled"`
-	Builtin bool   `json:"builtin"`
 }
 
-// PackageVO 是一条通过 pi install 装进来的包来源（settings.json 的 packages）。
+// PackageVO 是一条通过 pi install 装进来的包：来源 + 解包目录。
+// Path 为空表示登记了但没落地（装到一半失败，或者目录被删了）。
 type PackageVO struct {
-	Source string `json:"source"`
+	Source  string `json:"source"`
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Missing bool   `json:"missing"`
 }
 
 // ExtensionListRESP 是插件面板一次要的全部东西。

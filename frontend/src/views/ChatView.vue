@@ -2,7 +2,6 @@
 // 聊天主视图：会话面板 + 消息流 + 输入区；没有会话时给引导页。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import * as api from '../api'
 import { useSse } from '../composables/useSse'
 import { intentFile, intentNewSession, SHELL_INTENT_EVENT } from '../composables/shellIntent'
 import { useChatStore } from '../stores/chat'
@@ -25,21 +24,20 @@ const route = useRoute()
 const inputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 const creating = ref(false)
 
-const empty = computed(() => !session.currentId || (!session.messages.length && !chat.running))
+const empty = computed(() => !session.messages.length && !chat.running)
 
 // 没配默认模型时，欢迎页先把「去配置」顶到最前——不然用户的第一条消息必然失败，
 // 而失败提示要十几秒后才出现，那一刻他已经认定「这软件是坏的」。
-const needsSetup = computed(() => !settings.boot?.default_provider_id || !settings.boot?.default_model)
+const needsSetup = computed(() => settings.boot?.pi_env?.model_ready === false)
 
-async function newSession() {
+/** 新对话：不建空会话——PI 那边第一条消息才落盘，这里只把界面切到草稿态 */
+function newSession() {
   if (creating.value) return
   creating.value = true
   try {
     chat.reset()
-    await session.create({})
+    session.draft()
     inputRef.value?.focus()
-  } catch (e) {
-    toast.bad(`新建对话失败：${(e as Error)?.message || '请重试'}`)
   } finally {
     creating.value = false
   }
@@ -54,17 +52,18 @@ async function send(text: string, attachments: AttachmentREQ[]) {
   // 反馈晚于点击一秒以上，用户就会以为没点上而重复点。
   sending.value = true
   try {
-    if (!session.currentId) await newSession()
-    // 自动建会话失败时 newSession 已经弹过 toast，这里必须再兜一句并退出：
-    // 静默 return 的表现是「点了发送，什么都没发生」。
-    if (!session.currentId) {
-      toast.bad('没有可用的对话，发送已取消')
-      return
+    // session_id 为空就是新对话：后端现场创建并把编号带回来。
+    const sent = await chat.send(session.currentId || '', text, attachments)
+    // 立刻回显这条消息：等 chat:done 拉快照才显示的话，用户会以为消息没发出去。
+    session.echoUserMessage(text)
+    if (!session.currentId && sent?.session_id) {
+      const fresh = sent.session_id
+      await session.adopt(fresh)
+      // 新会话刚建立时订阅可能晚于首批事件：给一次延迟对账，避免「很短的回合完全没出现」。
+      window.setTimeout(() => {
+        if (!chat.running && session.currentId === fresh) void reload()
+      }, 1500)
     }
-    const sent = await chat.send(session.currentId, text, attachments)
-    // 发送后立刻回显这条消息：等 chat:done 拉快照才显示的话，
-    // 用户会以为消息没发出去（助手还没回，观感上就是「什么都没发生」）。
-    if (sent?.run_id) session.echoUserMessage(sent.run_id, text)
   } catch (e) {
     // 发送被拒（会话忙 / 没配模型服务）必须立刻说清楚，不能让消息无声消失
     toast.bad(`发送失败：${(e as Error)?.message || '请重试'}`)
@@ -125,26 +124,10 @@ async function reload() {
   }
 }
 
-// /clear：把叶子指回第一条消息，历史保留，聊天从头上重来
+// 「回到开头」= 直接开一条新对话，原对话完整保留在列表里。
 const clearing = ref(false)
-async function clearSession() {
-  if (!session.currentId || clearing.value) return
-  const first = session.messages[0]
-  if (!first) {
-    chat.notify('这个会话还没有历史')
-    return
-  }
-  clearing.value = true
-  try {
-    // PI 没有「改 leaf」的协议面：从开头重来 = 分叉成一条新会话，原会话完整保留。
-    const forked = await api.sessions.fork(session.currentId, first.id)
-    await session.open(forked.id)
-    chat.notify('已从开头开了一条新会话，原对话还在')
-  } catch (e) {
-    chat.notify(`没能回到开头：${(e as Error)?.message || '请重试'}`)
-  } finally {
-    clearing.value = false
-  }
+function clearSession() {
+  newSession()
 }
 
 function pickExample(text: string) {
@@ -171,7 +154,6 @@ async function retry() {
 // 退出运行态 → 拉权威快照 → 对齐未决审批；少做一件，界面就可能永远停在「运行中」。
 async function reconcile() {
   chat.onGap()
-  await chat.syncApprovals(session.currentId || '')
   await reload()
 }
 
@@ -192,8 +174,11 @@ useSse(
       case 'chat:tool_end':
         chat.onToolEnd(env.data)
         break
-      case 'chat:approval':
-        chat.onApproval(env.data)
+      case 'chat:ask':
+        chat.onAsk(env.data)
+        break
+      case 'chat:ask_closed':
+        chat.onAskClosed(env.data)
         break
       case 'chat:compressed':
         chat.onCompressed(env.data)
@@ -201,7 +186,7 @@ useSse(
       case 'chat:user':
         // 插话 / 排队消息在注入时刻落库后广播：把它补进时间线，
         // 位置与真实对话一致（运行中落在上一轮工具结果之后）。
-        session.echoUserMessage(env.data.entry_id, env.data.content)
+        session.echoUserMessage(env.data.content)
         chat.onDequeued(env.data.content)
         break
       case 'chat:context':
@@ -214,6 +199,8 @@ useSse(
       case 'chat:done':
         chat.onDone(env.data)
         await reload()
+        // 列表里的标题 / token / 时间要跟着这一轮更新：不刷的话侧栏永远是旧的
+        void session.loadList()
         break
       case 'chat:stopped':
         chat.onStopped()
@@ -225,7 +212,6 @@ useSse(
         break
       case 'chat:gap':
         chat.onGap()
-        await chat.syncApprovals(session.currentId || '')
         await reload()
         break
       case 'chat:switched':
@@ -260,13 +246,7 @@ function consumeShellIntent() {
 // 先退运行态再拉快照，run 若还在跑，后续 delta 会把它补回来。
 async function syncOnMount() {
   chat.reset()
-  if (session.currentId) {
-    await chat.syncApprovals(session.currentId)
-    await reload()
-    // 上次退出时挂着的确认已经被按拒绝收口：这条提示只在打开那个会话时念一次。
-    const text = session.takeStaleText(session.currentId)
-    if (text) chat.notify(text)
-  }
+  if (session.currentId) await reload()
 }
 
 onMounted(async () => {
@@ -275,15 +255,10 @@ onMounted(async () => {
   const want = typeof route.query.session === 'string' ? route.query.session : ''
   if (want && want !== session.currentId) {
     await session.open(want)
-  } else if (!session.list.length) {
-    try {
-      await session.create({})
-    } catch (e) {
-      // 打开应用就失败时给一句人话，别让它以「界面出现异常」的面目冒出来
-      toast.bad(`新建对话失败：${(e as Error)?.message || '请重试'}`)
-    }
   } else if (!session.currentId) {
-    await session.open(session.list[0].id)
+    // 有历史就接着上次那条：没有就停在欢迎页（草稿态，第一次发送才落盘）。
+    if (session.list.length) await session.open(session.list[0].id)
+    else session.draft()
   }
   // 消费掉参数：刷新时再打开一次会把用户拽回旧的执行现场。
   if (want) router.replace({ query: { ...route.query, session: undefined } })
@@ -306,7 +281,10 @@ watch(
 // 快照到手就回填上下文水位：打开 / 切换 / 新建 / 收尾刷新后输入框立刻有读数，
 // 不必等下一轮 chat:context——那之前底栏是空的，用户以为这个功能不存在。
 function seedContext() {
-  if (!chat.running) void chat.seedContext(session.current, session.messages)
+  if (chat.running) return
+  const provider = session.current?.provider || settings.boot?.default_provider || ''
+  const model = session.current?.model || settings.boot?.default_model || ''
+  void chat.seedContext(provider, model, session.messages)
 }
 
 watch(() => [session.currentId, session.messages] as const, seedContext, { immediate: true })
@@ -357,7 +335,7 @@ watch(() => settings.boot?.default_model, seedContext)
               <ExampleCards :busy="sending || chat.running" @pick="pickExample" />
             </div>
 
-            <p class="hero-foot rise">对话与文件都留在这台机器上 · 动手之前会先问你一句</p>
+            <p class="hero-foot rise">对话与配置都留在这台机器上 · 与你的 pi 命令共用同一份配置</p>
           </div>
         </div>
       </template>

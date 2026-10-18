@@ -2,15 +2,12 @@
 // 工作目录芯片：在输入框底栏直接切目录。
 // 切换是双写——全局默认（KV）+ 当前会话；只改一边会出现「点了没换地方」的错觉。
 import { computed, ref } from 'vue'
-import * as api from '../../api'
-import { useSessionStore } from '../../stores/session'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import { OpenDirectoryDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 
 const settings = useSettingsStore()
-const session = useSessionStore()
 const toast = useToastStore()
 
 const busy = ref(false)
@@ -27,15 +24,6 @@ async function pick() {
     // 没选或选了同一个目录：不动
     if (!dir || dir === current.value) return
     await settings.setValue('workspace', dir)
-    if (session.currentId) {
-      try {
-        await api.sessions.setWorkspace(session.currentId, dir)
-      } catch (e) {
-        // 全局默认已切、当前会话没切成：必须说清楚，不能装作都成功了
-        toast.bad(`全局默认已切换，但当前会话切换失败：${(e as Error)?.message || '请重试'}`)
-        return
-      }
-    }
     await settings.loadBoot()
     toast.ok(`工作目录已切换：${dir}`)
   } catch (e) {

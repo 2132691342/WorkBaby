@@ -1,31 +1,33 @@
-// 服务层内部共用件：时间戳、字符串数组编解码、工具名与角色规整。
+// 服务层内部共用件：文件树复制与路径比较。
 package service
 
 import (
-	"encoding/json"
-	"strings"
+	"os"
+	"path/filepath"
+
+	"WorkBaby/backend/pkg"
 )
 
-// decodeStringSlice 解析存成 JSON 串的字符串数组；坏 JSON 按空处理。
-func decodeStringSlice(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	var out []string
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return nil
-	}
-	return out
-}
-
-// encodeStringSlice 把字符串切片编成 JSON 列；空切片给空串（不占空间）。
-func encodeStringSlice(list []string) string {
-	if len(list) == 0 {
-		return ""
-	}
-	raw, err := json.Marshal(list)
+// copyTree 递归复制目录（符号链接按普通文件处理，扩展目录里不该出现链接）。
+func copyTree(src, dst string) error {
+	info, err := os.Stat(src)
 	if err != nil {
-		return ""
+		return err
 	}
-	return string(raw)
+	if !info.IsDir() {
+		return pkg.CopyFile(src, dst)
+	}
+	if err := pkg.EnsureDir(dst); err != nil {
+		return err
+	}
+	children, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, child := range children {
+		if err := copyTree(filepath.Join(src, child.Name()), filepath.Join(dst, child.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }

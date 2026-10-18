@@ -72,8 +72,10 @@ func (s *Skill) ToVO() SkillVO {
 	}
 }
 
-// 技能来源。
+// 技能来源。工作区 > 包 > 用户目录：同名时优先级高的那个生效。
 const (
 	SkillSourceGlobal    = "global"
 	SkillSourceWorkspace = "workspace"
+	// SkillSourcePackage 是 PI 包里带的技能：随包安装与卸载，界面只读。
+	SkillSourcePackage = "package"
 )

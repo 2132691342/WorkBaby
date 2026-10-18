@@ -4,18 +4,15 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore, type ToolRun } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
-import type { ApprovalVO, MessageVO } from '../../types/api'
 import { renderMarkdown, renderMarkdownStream } from '../../utils/md'
 import { fmtInt } from '../../utils/num'
 import { groupTurns } from '../../utils/turns'
 import AppIcon from '../common/AppIcon.vue'
-import ApprovalCard from './ApprovalCard.vue'
+import AskCard from './AskCard.vue'
 import MessageItem from './MessageItem.vue'
 import ToolRunRow from './ToolRunRow.vue'
 
-type RunBlock =
-  | { key: string; kind: 'run'; run: ToolRun }
-  | { key: string; kind: 'approval'; approval: ApprovalVO }
+type RunBlock = { key: string; kind: 'run'; run: ToolRun }
 
 // 收尾提示条上的动作：截断续写 / 出错重试由视图实现。
 // 传回调而不是 emit：按钮要 await 到结果才能收回 loading，emit 是同步的拿不到。
@@ -58,14 +55,6 @@ const router = useRouter()
 // 模型不识图 3113、没存 Key 3114 —— 出路都在设置页。
 const SETUP_CODES = new Set(['3101', '3111', '3113', '3114'])
 const needSetup = computed(() => SETUP_CODES.has(chat.lastErrorCode))
-
-// 审批卡回调只写一遍；必须把 Promise 交回卡片，否则按钮 loading 会瞬间结束。
-// PI 的审批请求要回到发出它的那个进程，所以必须带会话 id。
-function onDecide(id: string, ok: boolean, scope: string) {
-  const sessionId = useSessionStore().currentId
-  if (!sessionId) return Promise.resolve()
-  return chat.decide(sessionId, id, ok, scope)
-}
 
 const scroller = ref<HTMLElement | null>(null)
 const stick = ref(true)
@@ -163,11 +152,6 @@ function jumpToLatest() {
   }, 400)
 }
 
-function callIds(m: MessageVO): string[] {
-  if (m.role === 'tool') return m.tool_call_id ? [m.tool_call_id] : []
-  return (m.tool_calls || []).map((t) => t.id)
-}
-
 // 工具结果的参数不在自己身上，而在声明它的那条 assistant(tool_calls) 里。
 // 不做这层关联的话，历史工具卡只剩一个光秃秃的名字，用户完全不知道助手干了什么。
 const toolArgsMap = computed(() => {
@@ -181,49 +165,17 @@ const toolArgsMap = computed(() => {
 })
 
 // 一次「提问 → 回答」是一整块（思考 + 多个工具 + 几段正文）；分组逻辑在 utils/turns.ts。
-type TurnBlock = import('../../utils/turns').TurnBlock<ApprovalVO[]>
+type TurnBlock = import('../../utils/turns').TurnBlock<unknown>
 
-// 审批要认领它的 tool_call：声明在这条 assistant 上，结果在紧随的 tool 上，任一边命中即可。
-function approvalsFor(msg: MessageVO, tools: MessageVO[]): ApprovalVO[] {
-  const ids = new Set(callIds(msg))
-  for (const t of tools) if (t.tool_call_id) ids.add(t.tool_call_id)
-  return chat.approvals.filter((a) => a.tool_call_id && ids.has(a.tool_call_id))
-}
+const turnBlocks = computed<TurnBlock[]>(() => groupTurns(session.messages, () => []))
 
-const turnBlocks = computed<TurnBlock[]>(() =>
-  groupTurns(session.messages, (msg, tools) => approvalsFor(msg, tools)),
+// 运行中的工具卡留在助手列里（缩进对齐）
+const runBlocks = computed<RunBlock[]>(() =>
+  chat.runs.map((r) => ({ key: `r-${r.tool_call_id}`, kind: 'run' as const, run: r })),
 )
 
-// 已经收进某一回合的审批：剩下的才算孤儿，避免同一张卡在两处都渲染。
-const placedApprovalIds = computed(() => {
-  const out = new Set<string>()
-  for (const b of turnBlocks.value) {
-    if (b.kind !== 'assistant') continue
-    for (const p of b.parts) for (const a of p.approvals ?? []) out.add(a.id)
-  }
-  return out
-})
-
-// 运行中的工具卡留在助手列里（缩进对齐），审批卡跟在其后
-const runBlocks = computed<RunBlock[]>(() => {
-  const out: RunBlock[] = []
-  for (const r of chat.runs) {
-    out.push({ key: `r-${r.tool_call_id}`, kind: 'run', run: r })
-    const hit = chat.approvals.find((a) => a.tool_call_id === r.tool_call_id)
-    if (hit) out.push({ key: `ra-${hit.id}`, kind: 'approval', approval: hit })
-  }
-  return out
-})
-
-// 对不上触发点的审批（新 run 刚到、消息还没落库）兜底排在流末尾
-const orphanApprovals = computed(() => {
-  const placed = new Set<string>(placedApprovalIds.value)
-  for (const b of runBlocks.value) if (b.kind === 'approval') placed.add(b.approval.id)
-  return chat.approvals.filter((a) => !placed.has(a.id))
-})
-
 // 贴底滚动走 rAF 合并：逐 delta 读 scrollHeight 会把主线程压成强制重排。
-// approvals 也要盯：审批卡等在正文下面，不滚过去就被输入框盖住。
+// 提问卡也要盯：它等在正文下面，不滚过去就被输入框盖住。
 let scrollPending = false
 function stickToBottom() {
   if (!stick.value || scrollPending || jumping) return
@@ -236,7 +188,7 @@ function stickToBottom() {
   })
 }
 watch(
-  () => [session.messages.length, chat.streaming.length, chat.thinking.length, chat.runs.length, chat.approvals.length] as const,
+  () => [session.messages.length, chat.streaming.length, chat.thinking.length, chat.runs.length, chat.asks.length] as const,
   stickToBottom,
 )
 
@@ -262,7 +214,7 @@ onMounted(async () => {
                 <MessageItem :msg="p.msg" plain />
                 <!-- 工具卡和审批卡收进同一块：它们本来就是这件事的步骤。
                      审批是这一回合要用户拍板的一步，脱离竖轨就成了悬空的独立元素。 -->
-                <div v-if="p.tools.length || (p.approvals?.length ?? 0)" class="turn-tools">
+                <div v-if="p.tools.length" class="turn-tools">
                   <ToolRunRow
                     v-for="t in p.tools"
                     :key="t.id"
@@ -272,13 +224,6 @@ onMounted(async () => {
                     :running="false"
                     :ok="!t.is_error"
                     :output="t.content || ''"
-                    :duration_ms="t.latency_ms"
-                  />
-                  <ApprovalCard
-                    v-for="a in p.approvals"
-                    :key="a.id"
-                    :approval="a"
-                    :on-decide="onDecide"
                   />
                 </div>
               </template>
@@ -311,24 +256,18 @@ onMounted(async () => {
             </div>
 
             <div v-if="runBlocks.length" class="turn-tools">
-              <template v-for="b in runBlocks" :key="b.key">
-                <ToolRunRow
-                  v-if="b.kind === 'run'"
-                  :label="b.run.label"
-                  :tool="b.run.tool"
-                  :args="b.run.args"
-                  :running="b.run.running"
-                  :ok="b.run.ok"
-                  :title="b.run.title"
-                  :output="b.run.output"
-                  :duration_ms="b.run.duration_ms"
-                />
-                <ApprovalCard
-                  v-else
-                  :approval="b.approval"
-                  :on-decide="onDecide"
-                />
-              </template>
+              <ToolRunRow
+                v-for="b in runBlocks"
+                :key="b.key"
+                :label="b.run.label"
+                :tool="b.run.tool"
+                :args="b.run.args"
+                :running="b.run.running"
+                :ok="b.run.ok"
+                :title="b.run.title"
+                :output="b.run.output"
+                :duration_ms="b.run.duration_ms"
+              />
             </div>
 
             <!-- 正文：光标常驻，让「还在写」这件事一眼可见 -->
@@ -341,15 +280,9 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 对不上触发点的审批（新 run 刚到、消息还没落库）：仍然走竖轨和对齐，
-           贴到容器左边缘只会让它看着不属于任何一回合。 -->
-      <div v-if="orphanApprovals.length" class="turn turn-appr">
-        <ApprovalCard
-          v-for="a in orphanApprovals"
-          :key="a.id"
-          :approval="a"
-          :on-decide="onDecide"
-        />
+      <!-- 引擎在问用户：问题来自 PI 进程，不挂在某一条消息上，统一排在流末尾 -->
+      <div v-if="chat.asks.length" class="turn turn-appr">
+        <AskCard v-for="a in chat.asks" :key="a.id" :ask="a" />
       </div>
 
       <!-- 重试提示条：重试期间用户唯一的主动选择是「别试了」，所以按钮必须在这一条上 -->

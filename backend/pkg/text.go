@@ -38,27 +38,6 @@ func DecodeText(b []byte) string {
 	return string(out)
 }
 
-// LooksBinary 判断字节流是否二进制：UTF-16 文本在字节层面也含大量 NUL，
-// 必须先按文本形态排除，再找控制字符，否则记事本存的 txt 会被判成二进制。
-func LooksBinary(b []byte) bool {
-	if len(b) == 0 {
-		return false
-	}
-	if _, ok := looksUTF16(b); ok || bytes.HasPrefix(b, []byte{0xEF, 0xBB, 0xBF}) {
-		return false
-	}
-	n := len(b)
-	if n > 8192 {
-		n = 8192
-	}
-	for i := 0; i < n; i++ {
-		if b[i] == 0 {
-			return true
-		}
-	}
-	return false
-}
-
 func decodeUTF16(b []byte, bigEndian bool) string {
 	if len(b)%2 != 0 {
 		b = b[:len(b)-1]
@@ -103,17 +82,4 @@ func looksUTF16(b []byte) (bigEndian bool, ok bool) {
 		return true, true
 	}
 	return false, false
-}
-
-// Cut 按字节上限截断，且不切在多字节字符中间。
-// 尾部标记计入返回内容，调用方给的 max 是「正文上限」而不是总长上限。
-func Cut(s string, max int) string {
-	if max <= 0 || len(s) <= max {
-		return s
-	}
-	cut := max
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "\n……（内容过长已截断）"
 }

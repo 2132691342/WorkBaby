@@ -1,23 +1,24 @@
-// 模型服务 handler：增删改、连通测试、取回密钥、设为默认与拉模型列表。
+// 模型服务 handler：models.json 的增删改查、连通测试、拉模型列表与默认模型。
 package api
 
 import (
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
+
 	"github.com/gin-gonic/gin"
 )
 
-// ListProviders 模型服务列表。
+// ListProviders 列出服务商（密钥只给掩码）。
 func (h *Handler) ListProviders(c *gin.Context) {
-	list, err := h.Svc.Providers.List()
+	vo, err := h.Svc.Providers.List()
 	if err != nil {
 		fail(c, err)
 		return
 	}
-	ok(c, list)
+	ok(c, vo)
 }
 
-// UpsertProvider 新增或更新模型服务。
+// UpsertProvider 新增或更新一个服务商。
 func (h *Handler) UpsertProvider(c *gin.Context) {
 	var req domain.UpsertProviderREQ
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -32,53 +33,34 @@ func (h *Handler) UpsertProvider(c *gin.Context) {
 	ok(c, vo)
 }
 
-// UpdateProvider 更新指定模型服务。
-func (h *Handler) UpdateProvider(c *gin.Context) {
-	var req domain.UpsertProviderREQ
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
-		return
-	}
-	req.ID = c.Param("id")
-	vo, err := h.Svc.Providers.Upsert(req)
-	if err != nil {
+// DeleteProvider 删除一个服务商。
+func (h *Handler) DeleteProvider(c *gin.Context) {
+	var req domain.ProviderIDREQ
+	if err := bindOptionalBody(c, &req); err != nil {
 		fail(c, err)
 		return
 	}
-	ok(c, vo)
-}
-
-// DeleteProvider 删除模型服务。
-func (h *Handler) DeleteProvider(c *gin.Context) {
-	if err := h.Svc.Providers.Delete(c.Param("id")); err != nil {
+	if req.ID == "" {
+		req.ID = c.Param("id")
+	}
+	if err := h.Svc.Providers.Delete(req.ID); err != nil {
 		fail(c, err)
 		return
 	}
 	ok(c, true)
 }
 
-// TestProvider 连通测试。
-func (h *Handler) TestProvider(c *gin.Context) {
-	var req domain.TestProviderREQ
+// RevealProviderKey 显式查看密钥明文。
+func (h *Handler) RevealProviderKey(c *gin.Context) {
+	var req domain.ProviderIDREQ
 	if err := bindOptionalBody(c, &req); err != nil {
 		fail(c, err)
 		return
 	}
-	id := req.ID
-	if id == "" {
-		id = c.Param("id")
+	if req.ID == "" {
+		req.ID = c.Param("id")
 	}
-	resp, err := h.Svc.Providers.Test(c.Request.Context(), id)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	ok(c, resp)
-}
-
-// RevealProviderKey 返回解密后的 API Key：只在用户显式点「显示」时调用。
-func (h *Handler) RevealProviderKey(c *gin.Context) {
-	key, err := h.Svc.Providers.Reveal(c.Param("id"))
+	key, err := h.Svc.Providers.Reveal(req.ID)
 	if err != nil {
 		fail(c, err)
 		return
@@ -86,21 +68,62 @@ func (h *Handler) RevealProviderKey(c *gin.Context) {
 	ok(c, domain.RevealProviderKeyVO{APIKey: key})
 }
 
-// SetDefaultProvider 设为默认。
+// TestProvider 连通测试。
+func (h *Handler) TestProvider(c *gin.Context) {
+	var req domain.ProviderIDREQ
+	if err := bindOptionalBody(c, &req); err != nil {
+		fail(c, err)
+		return
+	}
+	if req.ID == "" {
+		req.ID = c.Param("id")
+	}
+	vo, err := h.Svc.Providers.Test(c.Request.Context(), req.ID)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// SetDefaultProvider 设默认模型（写 PI 的 settings.json）。
 func (h *Handler) SetDefaultProvider(c *gin.Context) {
-	if err := h.Svc.Providers.SetDefault(c.Param("id")); err != nil {
+	var req domain.SetDefaultREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	if err := h.Svc.Providers.SetDefault(req); err != nil {
 		fail(c, err)
 		return
 	}
 	ok(c, true)
 }
 
-// ListModels 拉取上游模型列表。
-func (h *Handler) ListModels(c *gin.Context) {
-	models, err := h.Svc.Providers.Models(c.Request.Context(), c.Query("provider_id"))
+// FetchModels 用给定连接信息向上游要模型列表。
+func (h *Handler) FetchModels(c *gin.Context) {
+	var req domain.FetchModelsREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	if req.API == "" {
+		req.API = domain.APIOpenAICompletions
+	}
+	vo, err := h.Svc.Providers.FetchModels(c.Request.Context(), req)
 	if err != nil {
 		fail(c, err)
 		return
 	}
-	ok(c, models)
+	ok(c, vo)
+}
+
+// AvailableModels 向 PI 进程要它眼下的可用模型（含内置服务商与登录态）。
+func (h *Handler) AvailableModels(c *gin.Context) {
+	list, err := h.Svc.Providers.Available(c.Request.Context(), c.Query("workspace"))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, list)
 }

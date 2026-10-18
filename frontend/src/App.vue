@@ -15,7 +15,7 @@ import NavRail from './components/common/NavRail.vue'
 import ToastHost from './components/common/ToastHost.vue'
 import { status, message, retryHandshake } from './bootstrap'
 import { ForceQuit } from '../wailsjs/go/main/App'
-import { EventsOn } from '../wailsjs/runtime/runtime'
+import { EventsOn, Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime'
 
 const booted = ref(false)
 const settings = useSettingsStore()
@@ -46,13 +46,11 @@ const closeHint = computed(() =>
 )
 
 function winctl(action: string) {
-  void import('../wailsjs/runtime/runtime').then((rt) => {
-    if (action === 'min') rt.WindowMinimise()
-    else if (action === 'max') rt.WindowToggleMaximise()
-    // 关闭必须走 Quit：它触发 Go 侧 OnBeforeClose 判定——收进托盘还是真退出
-    // 由设置与退出流程决定。直接 WindowHide 会绕过判定，把「关闭」一律变成收托盘。
-    else if (action === 'close') rt.Quit()
-  })
+  if (action === 'min') WindowMinimise()
+  else if (action === 'max') WindowToggleMaximise()
+  // 关闭必须走 Quit：它触发 Go 侧 OnBeforeClose 判定——收进托盘还是真退出
+  // 由设置与退出流程决定。直接 WindowHide 会绕过判定，把「关闭」一律变成收托盘。
+  else if (action === 'close') Quit()
 }
 
 async function loadBoot() {
@@ -64,8 +62,6 @@ async function loadBoot() {
   // 已保存的外观与显示偏好要落到 DOM 上，否则刷新后主题之外的设置全部失效。
   syncFromSettings()
   chat.setShowThinking(settings.values['show_thinking'] !== 'false')
-  // 上次退出没处理完的确认已被后端按拒绝收口：交给会话层，打开那段对话时说清楚。
-  session.setStaleApprovals(settings.boot?.expired_approvals || [])
   booted.value = true
   // 环境未就绪就进向导：没有 PI 就没有对话，留一个空壳只会让用户以为程序坏了。
   const envReady = settings.boot?.pi_env?.ready !== false

@@ -1,27 +1,5 @@
-// 事件与计量：SSE 信封、各事件 data 形态、每次调用的用量记录与启动引导出参。
+// 事件与引导出参：SSE 信封、各事件 data 形态、启动引导数据。
 package domain
-
-// TokenUsageDO 每次上游调用一行，用于用量归因与会话统计。
-type TokenUsageDO struct {
-	ID        string `gorm:"primaryKey;size:64" json:"id"`
-	SessionID string `gorm:"size:64;index" json:"session_id"`
-	EntryID   string `gorm:"size:64" json:"entry_id"`
-	Provider  string `gorm:"size:64" json:"provider"`
-	Model     string `gorm:"size:128" json:"model"`
-	Input     int    `json:"input"`
-	Output    int    `json:"output"`
-	// Cached 是 Input 里命中上游缓存的部分（恒 ≤ Input）；和 Input 分开看才知道长对话省没省钱。
-	Cached int `json:"cached"`
-	Total  int `json:"total"`
-	// Context 这一轮发出去时上下文占用的窗口量，按轮次看占用是涨还是被整理过。
-	Context   int   `json:"context"`
-	LatencyMs int64 `json:"latency_ms"`
-	// CreatedAt 带索引：仪表盘三个聚合全按它过滤，没索引就是每次打开全表扫。
-	CreatedAt int64 `gorm:"autoCreateTime:milli;index" json:"created_at"`
-}
-
-// TableName 显式指定表名：GORM 会把 DO 后缀复数化成 _dos。
-func (TokenUsageDO) TableName() string { return "token_usages" }
 
 // 事件名：SSE 的 event 字段取值。
 const (
@@ -29,20 +7,24 @@ const (
 	EventChatDelta      = "chat:delta"
 	EventChatToolStart  = "chat:tool_start"
 	EventChatToolEnd    = "chat:tool_end"
-	EventChatApproval   = "chat:approval"
-	EventChatCompressed = "chat:compressed"
 	EventChatUser       = "chat:user"
 	EventChatDone       = "chat:done"
 	EventChatStopped    = "chat:stopped"
 	EventChatError      = "chat:error"
 	EventChatContext    = "chat:context"
 	EventChatGap        = "chat:gap"
+	EventChatCompressed = "chat:compressed"
 	// EventChatRetry 是 PI 正在自动重试上游：没有它，界面在重试期间看上去就是卡死。
 	EventChatRetry = "chat:retry"
-	// EventChatSwitched 是会话被切走了（回退分叉 / 工作区重建进程），前端必须拉新快照。
+	// EventChatSwitched 是会话被切走了（换工作区 / 引擎重启），前端必须拉新快照。
 	EventChatSwitched = "chat:switched"
 	// EventChatSetup 是环境安装进度（npm 装 PI 可能几十秒）。
 	EventChatSetup = "chat:setup"
+	// EventChatAsk 是引擎里的扩展在问用户（confirm / select / input）。
+	// 问题来自 PI 进程，工作区级通道，所以 session_id 可能为空。
+	EventChatAsk = "chat:ask"
+	// EventChatAskClosed 是那条问题已经不需要再答了（已答 / 会话中止 / 进程退出）。
+	EventChatAskClosed = "chat:ask_closed"
 )
 
 // Envelope 是 SSE 帧的统一外壳；Data 按事件名对应到下面各结构体。
@@ -82,15 +64,19 @@ type ToolEndData struct {
 	DurationMs int64  `json:"duration_ms"`
 }
 
-// ApprovalData chat:approval。
-type ApprovalData struct {
-	ApprovalID string         `json:"approval_id"`
-	ToolCallID string         `json:"tool_call_id"`
-	Tool       string         `json:"tool"`
-	Label      string         `json:"label"`
-	Args       map[string]any `json:"args"`
-	Risk       string         `json:"risk"` // Risk* 取值
-	Reason     string         `json:"reason"`
+// AskData chat:ask：引擎（或其扩展）在等用户回答。
+type AskData struct {
+	ID      string   `json:"id"`
+	Method  string   `json:"method"` // confirm / select / input
+	Title   string   `json:"title"`
+	Message string   `json:"message"`
+	Options []string `json:"options"`
+}
+
+// AskClosedData chat:ask_closed。
+type AskClosedData struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"` // answered / cancelled / gone
 }
 
 // CompressedData chat:compressed。
@@ -99,7 +85,7 @@ type CompressedData struct {
 	TokensAfter  int `json:"tokens_after"`
 }
 
-// UserData chat:user：插话 / 排队消息已注入上下文并落库，界面据此把它补进时间线。
+// UserData chat:user：插话 / 排队消息已注入上下文，界面据此把它补进时间线。
 type UserData struct {
 	EntryID string `json:"entry_id"`
 	Content string `json:"content"`
@@ -109,18 +95,17 @@ type UserData struct {
 type ContextData struct {
 	Used    int  `json:"used"`
 	Window  int  `json:"window"`
-	Ratio   int  `json:"ratio"`   // 0-100 的整数百分比，前端不必自己算
-	Known   bool `json:"known"`   // false 表示窗口是估算值，界面读数加「约」前缀
-	Reserve int  `json:"reserve"` // 留给模型输出的余量
+	Ratio   int  `json:"ratio"`
+	Known   bool `json:"known"`
+	Reserve int  `json:"reserve"`
 }
 
 // DoneData chat:done。
 type DoneData struct {
 	EntryID    string   `json:"entry_id"`
-	StopReason string   `json:"stop_reason"` // completed / length / max_turns / aborted / error
+	StopReason string   `json:"stop_reason"`
 	Usage      *UsageVO `json:"usage"`
-	// MaxTokens 是本轮实际下发的输出预算：撞 length 时界面靠它说清是哪个上限用尽了。
-	MaxTokens int `json:"max_tokens"`
+	MaxTokens  int      `json:"max_tokens"`
 }
 
 // ErrorData chat:error。code 是数字字符串，与 HTTP 状态码的 int 分开。
@@ -131,12 +116,12 @@ type ErrorData struct {
 
 // StoppedData chat:stopped：停止可能来自托盘或快捷键，由后端广播权威信号。
 type StoppedData struct {
-	Reason string `json:"reason"` // 恒为 "user"：托盘与快捷键也归为用户主动停止
+	Reason string `json:"reason"`
 }
 
 // GapData chat:gap：重放窗口溢出，前端需拉快照对账。
 type GapData struct {
-	Reason string `json:"reason"` // replay_overflow：缓冲里已没有 Last-Event-ID 之后的事件
+	Reason string `json:"reason"`
 }
 
 // RetryData chat:retry：PI 正在自动重试上游。
@@ -149,7 +134,7 @@ type RetryData struct {
 // SwitchedData chat:switched：会话被切走。
 type SwitchedData struct {
 	SessionID string `json:"session_id"`
-	Reason    string `json:"reason"` // fork / workspace_restart
+	Reason    string `json:"reason"`
 }
 
 // SetupData chat:setup：环境安装进度。
@@ -161,17 +146,15 @@ type SetupData struct {
 
 // BootstrapVO 启动引导数据：一次请求把前端起步要读的东西全给到，省掉一串往返。
 type BootstrapVO struct {
-	Version           string            `json:"version"`
-	ContractVersion   int               `json:"contract_version"` // 与前端 types/api.ts 同键
-	DefaultProviderID string            `json:"default_provider_id"`
-	DefaultModel      string            `json:"default_model"`
-	Workspace         string            `json:"workspace"`
-	Permission        string            `json:"permission"` // Permission* 取值
-	Settings          map[string]string `json:"settings"`   // 全量 KV 设置
+	Version         string `json:"version"`
+	ContractVersion int    `json:"contract_version"`
+	// DefaultProvider / DefaultModel 来自 PI 的 settings.json。
+	DefaultProvider string `json:"default_provider"`
+	DefaultModel    string `json:"default_model"`
+	Workspace       string `json:"workspace"`
 	// PiEnv 是环境闸门：ready=false 时前端进向导且不 spawn PI。
-	PiEnv *PiEnvVO `json:"pi_env"`
-	// ExpiredApprovals 是启动时按拒绝收口的上次残留确认。
-	ExpiredApprovals []ApprovalVO `json:"expired_approvals"`
+	PiEnv    *PiEnvVO          `json:"pi_env"`
+	Settings map[string]string `json:"settings"`
 }
 
 // PiEnvVO 是 PI 运行环境的判定结果（形态由 pi/env 产出，这里避免 domain 反向依赖）。
@@ -181,12 +164,20 @@ type PiEnvVO struct {
 	NodeVersion string `json:"node_version"`
 	NodeSource  string `json:"node_source"`
 	NodeError   string `json:"node_error"`
-	PiReady     bool   `json:"pi_ready"`
-	PiPath      string `json:"pi_path"`
-	PiVersion   string `json:"pi_version"`
-	PiSource    string `json:"pi_source"`
-	PiError     string `json:"pi_error"`
-	ModelReady  bool   `json:"model_ready"`
-	Ready       bool   `json:"ready"`
-	Blocking    string `json:"blocking"`
+
+	PythonReady   bool   `json:"python_ready"`
+	PythonPath    string `json:"python_path"`
+	PythonVersion string `json:"python_version"`
+	PythonSource  string `json:"python_source"`
+
+	PiReady   bool   `json:"pi_ready"`
+	PiPath    string `json:"pi_path"`
+	PiVersion string `json:"pi_version"`
+	PiSource  string `json:"pi_source"`
+	PiError   string `json:"pi_error"`
+
+	AgentDir   string `json:"agent_dir"`
+	ModelReady bool   `json:"model_ready"`
+	Ready      bool   `json:"ready"`
+	Blocking   string `json:"blocking"`
 }

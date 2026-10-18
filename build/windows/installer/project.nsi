@@ -6,32 +6,15 @@
 ## If the keyword is not defined, "wails_tools.nsh" will populate them with the values from ProjectInfo.
 ## If they are defined here, "wails_tools.nsh" will not touch them. This allows to use this project.nsi manually
 ## from outside of Wails for debugging and development of the installer.
-##
 ## For development first make a wails nsis build to populate the "wails_tools.nsh":
 ## > wails build --target windows/amd64 --nsis
 ## Then you can call makensis on this file with specifying the path to your binary:
 ## For a AMD64 only installer:
 ## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app.exe
-## For a ARM64 only installer:
-## > makensis -DARG_WAILS_ARM64_BINARY=..\..\bin\app.exe
 ## For a installer with both architectures:
 ## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app-amd64.exe -DARG_WAILS_ARM64_BINARY=..\..\bin\app-arm64.exe
 ####
-## The following information is taken from the ProjectInfo file, but they can be overwritten here.
-####
-## !define INFO_PROJECTNAME    "MyProject" # Default "{{.Name}}"
-## !define INFO_COMPANYNAME    "MyCompany" # Default "{{.Info.CompanyName}}"
-## !define INFO_PRODUCTNAME    "MyProduct" # Default "{{.Info.ProductName}}"
-## !define INFO_PRODUCTVERSION "1.0.0"     # Default "{{.Info.ProductVersion}}"
-## !define INFO_COPYRIGHT      "Copyright" # Default "{{.Info.Copyright}}"
-###
-## !define PRODUCT_EXECUTABLE  "Application.exe"      # Default "${INFO_PROJECTNAME}.exe"
-## !define UNINST_KEY_NAME     "UninstKeyInRegistry"  # Default "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
-####
-## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
-####
-## Include the wails tools
-####
+
 !include "wails_tools.nsh"
 
 # The version information for this two must consist of 4 parts
@@ -45,22 +28,20 @@ VIAddVersionKey "FileVersion"     "${INFO_PRODUCTVERSION}"
 VIAddVersionKey "LegalCopyright"  "${INFO_COPYRIGHT}"
 VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 
-# Enable HiDPI support. https://nsis.sourceforge.io/Reference/ManifestDPIAware
 ManifestDPIAware true
 
 !include "MUI.nsh"
 !include "LogicLib.nsh"
 
 # ---------------------------------------------------------------------------
-# 本文件是唯一可持久化定制的安装器脚本。
-# build/windows/installer/wails_tools.nsh 每次 wails build 都会从模板重新生成，
+# 唯一可持久化定制的安装器脚本：wails_tools.nsh 每次 wails build 都会重新生成，
 # 写进去的改动会被冲掉；只有 project.nsi 会被保留。
 # ---------------------------------------------------------------------------
 
 # 开机自启的注册表位置，装/卸都要清干净，否则卸载后还会开机弹窗。
 !define AUTOSTART_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 
-# 用户数据目录：数据库、配置（含 API Key）、日志、技能、知识库索引、内置运行时解压产物。
+# 本机数据目录：界面设置、日志、内置运行时、背景图、人设。
 # 必须与 backend/runtime 的 Resolve 一致（%APPDATA%\WorkBaby）；设了 WORKBABY_HOME
 # 的便携用法安装器不认——那种情况下数据由用户自己保管。
 !define USER_DATA_DIR "$APPDATA\${INFO_PROJECTNAME}"
@@ -84,57 +65,48 @@ ManifestDPIAware true
     ${EndIf}
 !macroend
 
-# 覆盖安装时发现旧数据就问一句要不要先清空。
-# 默认保留：静默安装（/S）从不删数据——无人值守时删掉用户的对话记录不可接受。
-!macro promptCleanUserData
-    IfFileExists "${USER_DATA_DIR}\workbaby.db" 0 wb_userdata_done
-    IfSilent wb_userdata_done
-    MessageBox MB_YESNO|MB_ICONEXCLAMATION "检测到本机已有 WorkBaby 数据：$\r$\n${USER_DATA_DIR}$\r$\n$\r$\n其中有对话记录、模型服务配置（含 API Key）、知识库索引、技能与内置运行时。$\r$\n$\r$\n是否在安装前清空这些数据？选「否」将保留，安装后继续使用。" IDNO wb_userdata_done
-    RMDir /r "${USER_DATA_DIR}"
-    RMDir /r "${LEGACY_WEBVIEW_DIR}"
-    DetailPrint "已清空旧的本地数据（对话记录 / 配置 / 知识库 / 运行时）"
-    wb_userdata_done:
-!macroend
-
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
-# !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
-!define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
-!define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
+!define MUI_FINISHPAGE_NOAUTOCLOSE
+!define MUI_ABORTWARNING
 
-!insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
-# !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
-!insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
-!insertmacro MUI_PAGE_INSTFILES # Installing page.
-!insertmacro MUI_PAGE_FINISH # Finished installation page.
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_DIRECTORY
+# 数据的去留用组件页的勾选框表达，不弹窗：
+# 默认只有「安装」必选项（隐藏），「清空旧数据」默认不勾；
+# 静默安装（/S）跳过页面，未勾选的 section 不会执行——无人值守永不删数据。
+!insertmacro MUI_PAGE_COMPONENTS
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_PAGE_FINISH
 
-!insertmacro MUI_UNPAGE_INSTFILES # Uinstalling page
+# 卸载同理：勾选「删除本机数据」才删，默认不勾，静默卸载（/S）保持不删。
+!insertmacro MUI_UNPAGE_COMPONENTS
+!insertmacro MUI_UNPAGE_INSTFILES
 
-!insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
-
-## The following two statements can be used to sign the installer and the uninstaller. The path to the binaries are provided in %1
-#!uninstfinalize 'signtool --file "%1"'
-#!finalize 'signtool --file "%1"'
+!insertmacro MUI_LANGUAGE "SimpChinese"
 
 Name "${INFO_PRODUCTNAME}"
-OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
-ShowInstDetails show # This will always show the installation details.
+OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe"
+InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}"
+ShowInstDetails show
 
-Function .onInit
-   !insertmacro wails.checkArchitecture
-   !insertmacro killRunningInstance
-FunctionEnd
+# ---------------------------------------------------------------------------
+# 安装
+# ---------------------------------------------------------------------------
 
-Section
+# 可选项：清空旧数据。/o 前缀 = 默认不勾；文本里写清后果，勾了才真的删。
+Section /o "清空旧数据（对话外的本机数据：设置、日志、内置运行时）" SEC_CLEAN_DATA
+    RMDir /r "${USER_DATA_DIR}"
+    RMDir /r "${LEGACY_WEBVIEW_DIR}"
+    DetailPrint "已清空本机数据目录：${USER_DATA_DIR}"
+SectionEnd
+
+# 主安装（名字为空 = 隐藏，组件页不显示也不能取消勾选）。
+Section "" SEC_CORE
     # Disk space estimate: the exe carries the embedded runtimes (~50MB) and is
     # the only file we install. Without this the installer under-reports required
     # space and can fail mid-copy.
     AddSize 140000
-
-    # 覆盖安装：在动任何文件之前问一句要不要清空旧数据（用户此刻已经点过「安装」，
-    # 回答的就是他刚做的决定）。清空后首启会重新解压内置运行时，属预期。
-    !insertmacro promptCleanUserData
 
     !insertmacro wails.setShellContext
 
@@ -167,21 +139,35 @@ Section
     !insertmacro wails.writeUninstaller
 SectionEnd
 
-Section "uninstall"
+# 组件页的说明文字：勾选框旁边只有一行，后果写在描述区。
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+    !insertmacro MUI_DESCRIPTION_TEXT ${SEC_CLEAN_DATA} "删除 ${USER_DATA_DIR}：界面设置、日志、内置运行时、背景图。不清空则安装后沿用现有设置。"
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+Function .onInit
+   !insertmacro wails.checkArchitecture
+   !insertmacro killRunningInstance
+FunctionEnd
+
+# ---------------------------------------------------------------------------
+# 卸载
+# ---------------------------------------------------------------------------
+
+# 可选项：删除本机数据。/o = 默认不勾，重装后接着用；静默卸载（/S）保持不删。
+# 注意：对话、模型、技能等 PI 状态在 ~/.pi/agent，永远不从这里删。
+Section /o "un.删除本机数据（设置、日志、内置运行时）" UNSEC_DATA
+    RMDir /r "${USER_DATA_DIR}"
+    DetailPrint "已删除本机数据目录：${USER_DATA_DIR}"
+SectionEnd
+
+Section "un." UNSEC_CORE
     !insertmacro wails.setShellContext
 
     !insertmacro killRunningInstance
     DeleteRegValue HKCU "${AUTOSTART_KEY}" "${INFO_PROJECTNAME}"
 
-    # 本机数据默认保留（重装后接着用），所以问一句。静默卸载（/S）保持默认：不删。
-    IfSilent wb_keep_userdata
-    MessageBox MB_YESNO|MB_ICONQUESTION "是否同时删除本机数据？$\r$\n$\r$\n会删除 ${USER_DATA_DIR}：$\r$\n对话记录、模型服务配置（含 API Key）、知识库索引、技能、日志与内置运行时。$\r$\n$\r$\n选「否」保留数据，下次安装后可以继续用。" IDNO wb_keep_userdata
-    RMDir /r "${USER_DATA_DIR}"
-    DetailPrint "已删除本机数据"
-    wb_keep_userdata:
-
     # 旧版 WebView2 profile（%APPDATA%\<exe 名>）：纯缓存，卸载一律清掉；
-    # 新版的 profile 在数据目录的 webview\ 里，随上面那次选择一起处理。
+    # 新版的 profile 在数据目录的 webview\ 里，随上面的勾选一起处理。
     RMDir /r "${LEGACY_WEBVIEW_DIR}"
 
     RMDir /r $INSTDIR
@@ -195,3 +181,7 @@ Section "uninstall"
 
     !insertmacro wails.deleteUninstaller
 SectionEnd
+
+!insertmacro MUI_UNFUNCTION_DESCRIPTION_BEGIN
+    !insertmacro MUI_DESCRIPTION_TEXT ${UNSEC_DATA} "删除 ${USER_DATA_DIR}：界面设置、日志、内置运行时。对话与模型配置属于 PI（~/.pi/agent），不会被删除。"
+!insertmacro MUI_UNFUNCTION_DESCRIPTION_END

@@ -40,6 +40,27 @@ func (e *Env) RunCLI(args []string, onLine func(string)) error {
 	return nil
 }
 
+// RunCLIOutput 跑一条 PI CLI 命令并返回完整 stdout（用于 `pi mcp list --json` 这类结构化输出）。
+func (e *Env) RunCLIOutput(args ...string) (string, error) {
+	exe, _ := e.PiExe()
+	if exe == "" {
+		return "", pkg.New("9709", "还没有安装助手引擎（PI）", "先去环境向导装它")
+	}
+	cmd := exec.Command(exe, args...)
+	cmd.Env = e.Env()
+	cmd.Dir = e.AgentDir()
+	hideWindow(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		// 退出码非零时 stdout 仍可能有内容（例如某个 MCP 服务连不上），一并交给调用方判断。
+		if len(out) > 0 {
+			return string(out), nil
+		}
+		return "", pkg.Wrap("9719", "插件命令失败", err)
+	}
+	return string(out), nil
+}
+
 // pumpLines 逐行读管道并回调；没有回调也要排空，否则子进程写满管道会卡住。
 func pumpLines(r io.Reader, onLine func(string)) {
 	scanner := bufio.NewScanner(r)

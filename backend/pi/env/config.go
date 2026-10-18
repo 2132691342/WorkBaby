@@ -1,5 +1,5 @@
-// WorkBaby ↔ PI 的配置互通：WorkBaby 是 models.json / settings.json 的唯一写入者，
-// PI 只读。写进去的必须是 PI 认识的字段，否则它忽略而界面以为生效。
+// WorkBaby ↔ PI 的配置互通：读写的就是用户 pi 命令读写的那一份文件。
+// 写进去的必须是 PI 认识的字段，否则它忽略而界面以为生效。
 package env
 
 import (
@@ -10,26 +10,42 @@ import (
 )
 
 // ModelsPath 返回 PI 的 models.json 路径。
-func (e *Env) ModelsPath() string { return filepath.Join(e.paths.PiAgentDir, "models.json") }
+func (e *Env) ModelsPath() string { return filepath.Join(e.paths.AgentDir, "models.json") }
 
 // SettingsPath 返回 PI 的 settings.json 路径。
-func (e *Env) SettingsPath() string { return filepath.Join(e.paths.PiAgentDir, "settings.json") }
+func (e *Env) SettingsPath() string { return filepath.Join(e.paths.AgentDir, "settings.json") }
 
-// MCPPath 返回 PI 的 mcp.json 路径。
-func (e *Env) MCPPath() string { return filepath.Join(e.paths.PiAgentDir, "mcp.json") }
+// MCPPath 返回用户级 mcp.json 路径。
+func (e *Env) MCPPath() string { return filepath.Join(e.paths.AgentDir, "mcp.json") }
 
-// AppendSystemPath 返回 PI 的 APPEND_SYSTEM.md 路径。
-func (e *Env) AppendSystemPath() string { return filepath.Join(e.paths.PiAgentDir, "APPEND_SYSTEM.md") }
+// ProjectMCPPath 返回某个工作区的 .pi/mcp.json 路径。
+func (e *Env) ProjectMCPPath(workspace string) string {
+	if workspace == "" {
+		return ""
+	}
+	return filepath.Join(workspace, ".pi", "mcp.json")
+}
 
-// ExtensionsDir 返回 PI 的扩展目录。
-func (e *Env) ExtensionsDir() string { return filepath.Join(e.paths.PiAgentDir, "extensions") }
+// AuthPath 返回 PI 的 auth.json（/login 存下的凭据）。
+func (e *Env) AuthPath() string { return filepath.Join(e.paths.AgentDir, "auth.json") }
 
-// PolicyPath 返回审批策略文件路径（由 WorkBaby 的扩展读取）。
-func (e *Env) PolicyPath() string { return filepath.Join(e.paths.PiAgentDir, "workbaby-policy.json") }
+// ExtensionsDir 返回 PI 的用户扩展目录。
+func (e *Env) ExtensionsDir() string { return e.paths.ExtensionsDir }
 
-// ModelsFile 是 models.json 的最小形态：只保留 providers 表。
+// SkillsDir 返回 PI 的用户技能目录。
+func (e *Env) SkillsDir() string { return e.paths.SkillsDir }
+
+// DisabledSkillsDir 返回停用技能区（不在 PI 的扫描路径里）。
+func (e *Env) DisabledSkillsDir() string { return e.paths.DisabledSkillsDir }
+
+// SessionsDir 返回 PI 的会话目录。
+func (e *Env) SessionsDir() string { return e.paths.SessionsDir }
+
+// ModelsFile 是 models.json 的最小形态：providers 表 + 其余原样保留。
 type ModelsFile struct {
-	Providers map[string]ProviderConfig `json:"providers"`
+	Providers map[string]ProviderConfig
+	// Extra 是不认识的顶层键（$schema 等），写回时原样带上。
+	Extra map[string]json.RawMessage
 }
 
 // ProviderConfig 是 PI 的一个服务商条目。字段名必须与 PI 一致。
@@ -44,17 +60,18 @@ type ProviderConfig struct {
 	ModelOverrides map[string]ModelOverride `json:"modelOverrides,omitempty"`
 }
 
-// ModelConfig 是 PI 的一个模型条目。
+// ModelConfig 是 PI 的一个模型条目；未覆盖的字段由 PI 的内置目录提供。
 type ModelConfig struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name,omitempty"`
-	API           string   `json:"api,omitempty"`
-	BaseURL       string   `json:"baseUrl,omitempty"`
-	Reasoning     bool     `json:"reasoning,omitempty"`
-	Input         []string `json:"input,omitempty"`
-	ContextWindow int      `json:"contextWindow,omitempty"`
-	MaxTokens     int      `json:"maxTokens,omitempty"`
-	Cost          *Cost    `json:"cost,omitempty"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name,omitempty"`
+	API           string            `json:"api,omitempty"`
+	BaseURL       string            `json:"baseUrl,omitempty"`
+	Reasoning     bool              `json:"reasoning,omitempty"`
+	Input         []string          `json:"input,omitempty"`
+	ContextWindow int               `json:"contextWindow,omitempty"`
+	MaxTokens     int               `json:"maxTokens,omitempty"`
+	Cost          *Cost             `json:"cost,omitempty"`
+	ThinkingMap   map[string]string `json:"thinkingLevelMap,omitempty"`
 }
 
 // Cost 是模型单价（美元 / 百万 token）。
@@ -67,31 +84,103 @@ type Cost struct {
 
 // ModelOverride 是对内置模型的覆写。
 type ModelOverride struct {
-	Name          string   `json:"name,omitempty"`
-	Reasoning     *bool    `json:"reasoning,omitempty"`
-	Input         []string `json:"input,omitempty"`
-	ContextWindow int      `json:"contextWindow,omitempty"`
-	MaxTokens     int      `json:"maxTokens,omitempty"`
+	Name          string            `json:"name,omitempty"`
+	Reasoning     *bool             `json:"reasoning,omitempty"`
+	Input         []string          `json:"input,omitempty"`
+	ContextWindow int               `json:"contextWindow,omitempty"`
+	MaxTokens     int               `json:"maxTokens,omitempty"`
+	ThinkingMap   map[string]string `json:"thinkingLevelMap,omitempty"`
+}
+
+// rawModels 是 models.json 的落盘形态。
+type rawModels struct {
+	Providers map[string]json.RawMessage `json:"providers"`
+}
+
+// ReadModelsRaw 读 models.json 的两层原始形态：顶层其余键与服务商表。
+// 服务层靠它只改自己掌管的字段，不动别人写的未知字段。
+func (e *Env) ReadModelsRaw() (map[string]json.RawMessage, map[string]json.RawMessage, error) {
+	extra := map[string]json.RawMessage{}
+	providers := map[string]json.RawMessage{}
+	body, err := ReadFileOrEmpty(e.ModelsPath(), []byte("{}"))
+	if err != nil {
+		return nil, nil, err
+	}
+	top := map[string]json.RawMessage{}
+	if err := json.Unmarshal(body, &top); err != nil {
+		return nil, nil, pkg.Wrap("9713", "models.json 格式不对", err)
+	}
+	for key, raw := range top {
+		if key == "providers" {
+			if err := json.Unmarshal(raw, &providers); err != nil {
+				return nil, nil, pkg.Wrap("9713", "models.json 的 providers 不是对象表", err)
+			}
+			continue
+		}
+		extra[key] = raw
+	}
+	return extra, providers, nil
+}
+
+// WriteModelsRaw 写回两层原始形态（原子替换）。
+func (e *Env) WriteModelsRaw(extra, providers map[string]json.RawMessage) error {
+	providersRaw, err := json.Marshal(providers)
+	if err != nil {
+		return pkg.Wrap("9712", "models.json 无法序列化", err)
+	}
+	top := map[string]json.RawMessage{}
+	for k, v := range extra {
+		top[k] = v
+	}
+	top["providers"] = providersRaw
+	body, err := json.MarshalIndent(top, "", "  ")
+	if err != nil {
+		return pkg.Wrap("9712", "models.json 无法序列化", err)
+	}
+	return WriteFileAtomic(e.ModelsPath(), append(body, '\n'), 0o600)
 }
 
 // ReadModels 读 models.json；不存在返回空表（供首次生成）。
 func (e *Env) ReadModels() (*ModelsFile, error) {
-	file := &ModelsFile{Providers: map[string]ProviderConfig{}}
-	if err := ReadJSON(e.ModelsPath(), file); err != nil {
+	file := &ModelsFile{Providers: map[string]ProviderConfig{}, Extra: map[string]json.RawMessage{}}
+	body, err := ReadFileOrEmpty(e.ModelsPath(), []byte("{}"))
+	if err != nil {
 		return nil, err
 	}
-	if file.Providers == nil {
-		file.Providers = map[string]ProviderConfig{}
+	top := map[string]json.RawMessage{}
+	if err := json.Unmarshal(body, &top); err != nil {
+		return nil, pkg.Wrap("9713", "models.json 格式不对", err)
+	}
+	for key, raw := range top {
+		if key != "providers" {
+			file.Extra[key] = raw
+			continue
+		}
+		providers := map[string]ProviderConfig{}
+		if err := json.Unmarshal(raw, &providers); err != nil {
+			return nil, pkg.Wrap("9713", "models.json 的 providers 不是对象表", err)
+		}
+		file.Providers = providers
 	}
 	return file, nil
 }
 
-// WriteModels 写 models.json（原子替换）。
+// WriteModels 写 models.json：已知字段与我们无关的顶层键都原样保留。
 func (e *Env) WriteModels(file *ModelsFile) error {
-	if file.Providers == nil {
-		file.Providers = map[string]ProviderConfig{}
+	providers, err := json.Marshal(file.Providers)
+	if err != nil {
+		return pkg.Wrap("9712", "models.json 无法序列化", err)
 	}
-	return WriteJSON(e.ModelsPath(), file)
+	top := map[string]json.RawMessage{}
+	for k, v := range file.Extra {
+		top[k] = v
+	}
+	top["providers"] = providers
+	body, err := json.MarshalIndent(top, "", "  ")
+	if err != nil {
+		return pkg.Wrap("9712", "models.json 无法序列化", err)
+	}
+	return WriteFileAtomic(e.ModelsPath(), append(body, '\n'), 0o600)
 }
 
 // SettingsFile 是 settings.json 里 WorkBaby 会写的那部分。
@@ -106,8 +195,8 @@ type SettingsFile struct {
 	Packages             []string            `json:"packages,omitempty"`
 }
 
-// settingsOwnedKeys 是本结构占据的顶层键：写入前先删掉，零值才真的等于清空。
-// packages 不在里面：它归 PI 的包管理（pi install / pi remove）管，我们只在装 / 卸时追加，
+// settingsOwnedKeys 是本结构占据的顶层键：写入前先摘下旧值，零值才真的等于清空。
+// packages 不在里面：它归 PI 的包管理（pi install / pi remove）管，
 // 当成自己的键会把用户用 CLI 装的包抹掉。
 var settingsOwnedKeys = []string{
 	"defaultProvider", "defaultModel", "defaultThinkingLevel",
@@ -128,6 +217,11 @@ func (e *Env) ReadSettings() (*SettingsFile, error) {
 		return nil, err
 	}
 	return file, nil
+}
+
+// ReadSettingsMap 读 settings.json 的顶层键值对，供只读展示与包清单读取。
+func (e *Env) ReadSettingsMap() (map[string]json.RawMessage, error) {
+	return e.settingsMap()
 }
 
 // WriteSettings 写 settings.json：只覆盖 WorkBaby 掌管的顶层键，其余原样保留。
@@ -166,7 +260,6 @@ func (e *Env) WriteSettings(file *SettingsFile) error {
 
 // mergeSettingsObjects 把新对象里的键合进旧对象，而不是整个替掉。
 // 用于 compaction 这类「我们只改其中几个字段」的嵌套对象：PI 还往里写 enabled。
-// 任一侧不是对象时直接取新值。
 func mergeSettingsObjects(oldValue, newValue json.RawMessage) json.RawMessage {
 	var oldObj, newObj map[string]json.RawMessage
 	if json.Unmarshal(oldValue, &oldObj) != nil || json.Unmarshal(newValue, &newObj) != nil {
@@ -204,60 +297,44 @@ func writeSettingsMap(path string, raw map[string]json.RawMessage) error {
 	return WriteFileAtomic(path, append(body, '\n'), 0o600)
 }
 
-// MCPFile 是 mcp.json 的形态。未知字段靠 raw 保留：从别的客户端拷来的配置
-// 带 timeout / headers 等，按自己的理解裁剪会让它失效。
-type MCPFile struct {
-	Servers map[string]json.RawMessage `json:"mcpServers"`
-	Extra   map[string]json.RawMessage `json:"-"`
+// ReadPackages 读 settings.json 的 packages 清单（PI 的包声明）。
+func (e *Env) ReadPackages() ([]string, error) {
+	raw, err := e.settingsMap()
+	if err != nil {
+		return nil, err
+	}
+	body, ok := raw["packages"]
+	if !ok {
+		return []string{}, nil
+	}
+	// 条目可能是字符串，也可能是 {source, ...} 对象：只取 source。
+	var entries []json.RawMessage
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return []string{}, nil
+	}
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		var s string
+		if err := json.Unmarshal(entry, &s); err == nil {
+			out = append(out, s)
+			continue
+		}
+		var obj struct {
+			Source string `json:"source"`
+		}
+		if err := json.Unmarshal(entry, &obj); err == nil && obj.Source != "" {
+			out = append(out, obj.Source)
+		}
+	}
+	return out, nil
 }
 
-// ReadMCPRaw 读 mcp.json 原文；不存在返回空对象。
-func (e *Env) ReadMCPRaw() ([]byte, error) {
-	return ReadFileOrEmpty(e.MCPPath(), []byte("{}\n"))
+// MCPRaw 读一个 mcp.json 原文；不存在返回空对象。
+func (e *Env) MCPRaw(path string) ([]byte, error) {
+	return ReadFileOrEmpty(path, []byte("{}\n"))
 }
 
 // WriteMCPRaw 写 mcp.json 原文。
-func (e *Env) WriteMCPRaw(raw []byte) error {
-	return WriteFileAtomic(e.MCPPath(), raw, 0o600)
-}
-
-// KnowledgeMCPEntry 是知识库的 MCP 出口条目：WorkBaby 自动维护，用户不能删。
-type KnowledgeMCPEntry struct {
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-}
-
-// EnsureKnowledgeMCP 把知识库的 MCP 条目写进 mcp.json 并保持存在。
-// 它由程序管：用户删掉它，知识库工具就消失，而症状是「搜索没结果」不是「配置丢了」。
-func (e *Env) EnsureKnowledgeMCP(exePath string) error {
-	raw, err := e.ReadMCPRaw()
-	if err != nil {
-		return err
-	}
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		// 用户把文件改坏了：不覆盖它（那会毁掉他的东西），只报错让他自己修。
-		return pkg.Wrap("9106", "mcp.json 格式不对，无法写入内置条目", err)
-	}
-	servers := map[string]json.RawMessage{}
-	if existing, ok := doc["mcpServers"]; ok {
-		if err := json.Unmarshal(existing, &servers); err != nil {
-			return pkg.Wrap("9106", "mcp.json 的 mcpServers 不是对象", err)
-		}
-	}
-	entry, err := json.Marshal(KnowledgeMCPEntry{Command: exePath, Args: []string{"--mcp-knowledge"}})
-	if err != nil {
-		return pkg.Wrap("9106", "内置 MCP 条目无法序列化", err)
-	}
-	servers["workbaby-knowledge"] = entry
-	serversRaw, err := json.Marshal(servers)
-	if err != nil {
-		return pkg.Wrap("9106", "内置 MCP 条目无法序列化", err)
-	}
-	doc["mcpServers"] = serversRaw
-	out, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return pkg.Wrap("9106", "mcp.json 无法序列化", err)
-	}
-	return e.WriteMCPRaw(append(out, '\n'))
+func (e *Env) WriteMCPRaw(path string, raw []byte) error {
+	return WriteFileAtomic(path, raw, 0o600)
 }

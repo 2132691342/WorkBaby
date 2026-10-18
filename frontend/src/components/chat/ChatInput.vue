@@ -49,7 +49,7 @@ const COMMANDS = [
   { key: 'new', name: '新对话', desc: '开一段全新的对话' },
   { key: 'clear', name: '回到开头', desc: '保留这个会话，从第一条消息重新开始' },
   { key: 'model', name: '换个模型', desc: '为这个会话换一个模型' },
-  { key: 'permission', name: '动手前规矩', desc: '改文件、跑命令要不要先问你' },
+  { key: 'thinking', name: '思考档', desc: '这一轮想多深' },
 ] as const
 
 const chat = useChatStore()
@@ -301,7 +301,7 @@ function runCommand(key: (typeof COMMANDS)[number]['key']) {
   clearInput()
   if (key === 'new') emit('newSession')
   else if (key === 'clear') emit('clearSession')
-  else chipsRef.value?.show(key === 'model' ? 'model' : 'perm')
+  else chipsRef.value?.show(key === 'model' ? 'model' : 'thinking')
 }
 
 function onKeydown(e: KeyboardEvent) {

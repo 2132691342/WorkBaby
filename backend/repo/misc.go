@@ -47,8 +47,3 @@ func (r *Repo) AllSettings() (map[string]string, error) {
 	}
 	return out, nil
 }
-
-// AddUsage 记一行上游调用用量。
-func (r *Repo) AddUsage(u *domain.TokenUsageDO) error {
-	return wrapDB("记录用量", r.db.Create(u).Error)
-}

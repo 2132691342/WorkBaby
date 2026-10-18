@@ -1,18 +1,11 @@
 // 前端 API 层：路径与 backend/server/routes.go 一一对应，字段名照后端 json tag。
 import { get, getBaseURL, post } from './http'
 import type {
-  ApprovalVO,
-  ArchEntrypointVO,
-  ArchGraph,
-  ArchiveVO,
   AttachmentREQ,
+  AvailableModelVO,
   BackgroundVO,
-  BaselineVO,
   BootstrapVO,
-  CompareVO,
   CommandVO,
-  EvalVO,
-  ExportSessionRESP,
   ExtensionListRESP,
   FileListVO,
   GitBranchVO,
@@ -24,33 +17,20 @@ import type {
   GitStatusVO,
   HelpDocRESP,
   HelpDocVO,
-  HistoryEntry,
-  HistoryScanRESP,
-  KnowledgeDocVO,
-  MCPServerVO,
-  MCPConfigRESP,
-  MCPTemplateVO,
-  MCPToolVO,
+  MCPListRESP,
   PiEnvVO,
-  ListMemoriesRESP,
-  MemoryVO,
-  ModelCapability,
-  ModelConfigVO,
+  PISettingsVO,
+  ProviderListRESP,
   ProviderVO,
   RuntimeInfo,
-  ReindexJobVO,
-  SaveMCPConfigREQ,
-  SearchHitVO,
   SendMessageRESP,
   SessionDetailVO,
   SessionVO,
   SkillVO,
   StatsRESP,
-  RunVO,
-  RunDetailVO,
-  CheckpointVO,
-  ToolVO,
-  UpsertModelConfigREQ,
+  ToolListRESP,
+  UpsertProviderREQ,
+  WorkspacesRESP,
 } from '../types/api'
 
 /** 丢掉空值再拼查询串：不带空参数，后端「没给」与「给了空串」就不用分开判 */
@@ -64,68 +44,53 @@ export const bootstrap = () => get<BootstrapVO>('/bootstrap')
 
 /** 路径约定：变量参数一律落在路径末尾（`/{resource}/{action}/:id`） */
 export const sessions = {
-  list: (offset = 0) => get<SessionVO[]>('/sessions', offset > 0 ? { offset } : undefined),
-  create: (body: { title?: string; workspace?: string; provider_id?: string; model?: string }) =>
-    post<SessionVO>('/sessions', body),
+  /** workspace 为空表示「全部工作目录」 */
+  list: (workspace = '') => get<SessionVO[]>('/sessions', pick({ workspace })),
   detail: (id: string) => get<SessionDetailVO>(`/sessions/${id}`),
   rename: (id: string, title: string) => post<boolean>(`/sessions/rename/${id}`, { title }),
   remove: (id: string) => post<boolean>(`/sessions/delete/${id}`),
-  setModel: (id: string, provider_id: string, model: string) =>
-    post<boolean>(`/sessions/model/${id}`, { provider_id, model }),
-  setPermission: (id: string, permission: string) =>
-    post<boolean>(`/sessions/permission/${id}`, { permission }),
-  setWorkspace: (id: string, workspace: string) =>
-    post<boolean>(`/sessions/workspace/${id}`, { workspace }),
-  setThinking: (id: string, level: string) =>
-    post<boolean>(`/sessions/thinking/${id}`, { level }),
+  setModel: (id: string, provider: string, model: string) =>
+    post<boolean>(`/sessions/model/${id}`, { provider, model }),
+  setThinking: (id: string, level: string) => post<boolean>(`/sessions/thinking/${id}`, { level }),
   /** 导出成 HTML：path 由保存对话框给出，导出实现在 PI 里 */
-  exportHTML: (id: string, path: string) =>
-    post<ExportSessionRESP>(`/sessions/export/${id}`, { path }),
-  /** 从某条历史分叉成新会话：PI 没有「改 leaf」的协议面，所以是分叉而不是回退 */
-  fork: (id: string, entry_id: string) => post<SessionVO>(`/sessions/fork/${id}`, { entry_id }),
+  exportHTML: (id: string, path: string) => post<string>(`/sessions/export/${id}`, { path }),
 }
 
 export const chat = {
-  send: (session_id: string, content: string, attachments?: AttachmentREQ[]) =>
-    post<SendMessageRESP>('/chat/send', { session_id, content, attachments }),
+  /** session_id 为空 = 新对话：后端会现场创建并回传 session_id */
+  send: (body: { session_id?: string; workspace?: string; content: string; attachments?: AttachmentREQ[] }) =>
+    post<SendMessageRESP>('/chat/send', body),
   stop: (session_id: string) => post<boolean>('/chat/stop', { session_id }),
-  steer: (session_id: string, content: string) =>
-    post<boolean>('/chat/steer', { session_id, content }),
+  steer: (session_id: string, content: string) => post<boolean>('/chat/steer', { session_id, content }),
   followUp: (session_id: string, content: string) =>
     post<boolean>('/chat/followup', { session_id, content }),
   /** 叫停正在进行的自动重试 */
   cancelRetry: (session_id: string) => post<boolean>('/chat/retry-cancel', { session_id }),
-}
-
-export const approvals = {
-  pending: (session_id: string) => get<ApprovalVO[]>(`/approvals?session_id=${session_id}`),
-  /** allow / deny 共用一个端点：动作走请求体，id 才能落在路径末尾。
-   *  session_id 必须带上：决策要回给发出请求的那个 PI 进程。 */
-  decide: (id: string, session_id: string, action: 'allow' | 'deny', scope = 'once') =>
-    post<boolean>(`/approvals/decide/${id}`, { session_id, action, scope }),
+  /** 回答引擎抛回来的问题 */
+  answer: (body: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean }) =>
+    post<boolean>('/chat/answer', body),
 }
 
 export const providers = {
-  list: () => get<ProviderVO[]>('/providers'),
-  upsert: (body: Record<string, unknown>) => post<ProviderVO>('/providers', body),
-  update: (id: string, body: Record<string, unknown>) => post<ProviderVO>(`/providers/update/${id}`, body),
-  remove: (id: string) => post<boolean>(`/providers/delete/${id}`),
-  test: (id: string) => post<{ ok: boolean; model: string; detail: string }>(`/providers/test/${id}`, { id }),
+  list: () => get<ProviderListRESP>('/providers'),
+  upsert: (body: UpsertProviderREQ) => post<ProviderVO>('/providers/upsert', body),
+  remove: (id: string) => post<boolean>('/providers/delete', { id }),
+  test: (id: string) => post<{ ok: boolean; model: string; message: string }>('/providers/test', { id }),
   /** 显式查看已保存的密钥（用户点「显示」时才调用） */
-  reveal: (id: string) => post<{ api_key: string }>(`/providers/reveal/${id}`),
-  setDefault: (id: string) => post<boolean>(`/providers/default/${id}`),
-  models: (provider_id: string) => get<string[]>(`/providers/models?provider_id=${provider_id}`),
-  /** 新增服务还没保存时也能拉：直接把连接信息发给后端 */
-  fetchModels: (body: { api: string; base_url: string; api_key?: string }) =>
-    post<string[]>('/providers/models/fetch', body),
+  reveal: (id: string) => post<{ api_key: string }>('/providers/reveal', { id }),
+  setDefault: (provider: string, model: string) =>
+    post<boolean>('/providers/default', { provider, model }),
+  /** 拉上游模型清单：编辑已存在的服务时可以只给 id 复用已存密钥 */
+  fetchModels: (body: { api?: string; base_url?: string; api_key?: string; id?: string }) =>
+    post<{ models: string[] }>('/providers/models/fetch', body),
+  /** PI 眼下的可用模型（含内置服务商与登录态） */
+  available: (workspace = '') => get<AvailableModelVO[]>('/models/available', pick({ workspace })),
 }
 
 export const skills = {
   list: () => get<SkillVO[]>('/skills'),
-  create: (body: { name: string; description: string; body: string }) =>
-    post<SkillVO>('/skills', body),
-  import: (paths: string[]) =>
-    post<{ imported: number; skipped: string[] }>('/skills/import', { paths }),
+  create: (body: { name: string; description: string; body: string }) => post<SkillVO>('/skills/create', body),
+  import: (paths: string[]) => post<{ imported: number; skipped: string[] }>('/skills/import', { paths }),
   /** 导入 zip 技能包：data 是 zip 原始字节的 base64 */
   importZip: (filename: string, data: string) =>
     post<{ imported: number; skipped: string[] }>('/skills/import-zip', { filename, data }),
@@ -142,16 +107,14 @@ export const files = {
 /** 插件（PI 扩展与包）：目录即真相源，settings.json 的 extensions / packages 是启用清单 */
 export const extensions = {
   list: () => get<ExtensionListRESP>('/extensions'),
-  /** 启停：登记 / 注销 settings.json，后端会重启 PI 让它重读 */
-  toggle: (path: string, enabled: boolean) =>
-    post<boolean>('/extensions/toggle', { path, enabled }),
-  /** 导入磁盘上的 .ts / .js 文件或扩展目录 */
+  toggle: (path: string, enabled: boolean) => post<boolean>('/extensions/toggle', { path, enabled }),
   import: (paths: string[]) =>
     post<{ imported: number; skipped: string[] }>('/extensions/import', { paths }),
   remove: (path: string) => post<boolean>('/extensions/delete', { path }),
   /** 装包 / 卸包：进度走 chat:setup 事件流式回传，接口立刻返回 */
   install: (source: string) => post<boolean>('/extensions/install', { source }),
   uninstall: (source: string) => post<boolean>('/extensions/remove', { source }),
+  reload: () => post<boolean>('/extensions/reload'),
 }
 
 /** 斜杠命令清单：没有会话时后端直接给空数组（没有进程就没有命令） */
@@ -159,30 +122,30 @@ export const commands = {
   list: (session_id = '') => get<CommandVO[]>('/commands', pick({ session_id })),
 }
 
-export const knowledge = {
-  docs: () => get<KnowledgeDocVO[]>('/knowledge/docs'),
-  add: (paths: string[]) => post<{ added: number }>('/knowledge/docs/add', { paths }),
-  remove: (id: string) => post<boolean>(`/knowledge/docs/delete/${id}`),
-  /** 启动后台重建：大库要跑几十秒，同步等一个请求既占连接也没法停 */
-  reindex: () => post<{ started: boolean }>('/knowledge/reindex'),
-  reindexStatus: () => get<ReindexJobVO>('/knowledge/reindex'),
-  cancelReindex: () => post<boolean>('/knowledge/reindex/cancel'),
-  search: (query: string, limit = 5) =>
-    post<{ hits: SearchHitVO[] }>('/knowledge/search', { query, limit }),
+export const tools = {
+  list: () => get<ToolListRESP>('/tools'),
+  toggle: (name: string, enabled: boolean) => post<boolean>('/tools/toggle', { name, enabled }),
 }
 
-export const memories = {
-  list: () => get<ListMemoriesRESP>('/memories'),
-  add: (content: string) => post<MemoryVO>('/memories', { content }),
-  /** content 留空表示只改开关 */
-  update: (id: string, patch: { content?: string; enabled?: boolean }) =>
-    post<MemoryVO>(`/memories/update/${id}`, patch),
-  remove: (id: string) => post<boolean>(`/memories/delete/${id}`),
+export const mcp = {
+  list: (workspace = '') => get<MCPListRESP>('/mcp', pick({ workspace })),
+  /** 保存配置原文：后端先校验再落盘，解析不过一个字符都不写 */
+  save: (scope: string, raw: string) => post<boolean>('/mcp/save', { scope, raw }),
+  remove: (name: string, scope: string) => post<boolean>('/mcp/remove', { name, scope }),
+  login: (name: string) => post<boolean>('/mcp/login', { name }),
+  logout: (name: string) => post<boolean>('/mcp/logout', { name }),
+  reload: () => post<boolean>('/mcp/reload'),
 }
 
 export const settings = {
   all: () => get<Record<string, string>>('/settings'),
   set: (key: string, value: string) => post<boolean>('/settings', { key, value }),
+  /** PI 侧配置快照：默认模型、思考档、压缩参数与全部文件位置 */
+  pi: () => get<PISettingsVO>('/settings/pi'),
+  setThinking: (level: string) => post<boolean>('/settings/pi/thinking', { level }),
+  setCompaction: (reserve: number, keep: number) =>
+    post<boolean>('/settings/pi/compaction', { reserve, keep }),
+  workspaces: () => get<WorkspacesRESP>('/settings/workspaces'),
   background: () => get<BackgroundVO>('/settings/background'),
   setBackground: (path: string, opacity: number, blur: number) =>
     post<BackgroundVO>('/settings/background', { path, opacity, blur }),
@@ -191,35 +154,15 @@ export const settings = {
 /** 背景图本体：前端拿不到数据目录里的文件路径，只能走这个 URL */
 export const backgroundUrl = () => `${getBaseURL()}/assets/background`
 
-export const tools = {
-  list: () => get<ToolVO[]>('/tools'),
-  toggle: (name: string, enabled: boolean) => post<boolean>(`/tools/toggle/${name}`, { enabled }),
-}
-
-export const models = {
-  capability: (model: string, provider_id?: string) =>
-    get<ModelCapability>(
-      `/models/capability?model=${encodeURIComponent(model)}${provider_id ? `&provider_id=${provider_id}` : ''}`,
-    ),
-  /** 批量能力：换模型下拉一次列几十上百个模型，逐个查会打出 N+1 */
-  capabilities: (provider_id: string, models: string[]) =>
-    post<ModelCapability[]>('/models/capabilities', { provider_id, models }),
-  /** 一次取回某服务下全部模型的覆写：展开参数面板时用它，避免逐个 models/config 打成 N+1 */
-  configs: (provider_id?: string) =>
-    get<ModelConfigVO[]>(`/models/configs${provider_id ? `?provider_id=${provider_id}` : ''}`),
-  saveConfig: (body: UpsertModelConfigREQ) => post<ModelConfigVO>('/models/config', body),
-}
-
 export const runtime = {
   status: () => get<RuntimeInfo>('/runtime'),
-  /** 重新探测：后端先清探测缓存再跑一遍，运行期放入归档后点这里生效 */
+  /** 重新探测：后端先清探测缓存再跑一遍 */
   redetect: () => post<RuntimeInfo>('/runtime/redetect'),
 }
 
-/** 环境引导：闸门快照与 PI 的安装更新（specs/18） */
+/** 环境引导：闸门快照与 PI 的安装更新 */
 export const env = {
   status: () => get<PiEnvVO>('/env'),
-  /** 安装 PI：进度走 chat:setup 事件流式回传，接口立刻返回 */
   install: () => post<boolean>('/env/install'),
   update: () => post<boolean>('/env/update'),
   recheck: () => post<PiEnvVO>('/env/recheck'),
@@ -233,21 +176,17 @@ export const docs = {
   content: (name: string) => get<HelpDocRESP>(`/docs/${name}`),
 }
 
-/** 工作区版本状态：只读，path 为空表示整个工作区。
- *  带 session_id 时看该会话的工作目录——会话级目录才是这次改动真正发生的地方 */
+/** 工作区版本状态：带 session_id 时看该会话的工作目录 */
 export const git = {
   status: (session_id = '') => get<GitStatusVO>('/git/status', pick({ session_id })),
   diff: (path = '', session_id = '') => get<GitDiffVO>('/git/diff', pick({ path, session_id })),
-  /** 提交列表，按时间倒序 */
   history: (session_id = '', limit = 50) =>
     get<GitCommitVO[]>('/git/history', pick({ session_id, limit: String(limit) })),
-  /** 单次提交：元信息 + 文件清单 + 逐行差异 */
-  commit: (hash: string, session_id = '') => get<GitCommitDetailVO>('/git/commit', pick({ hash, session_id })),
-  /** 一个文件的提交历史 */
+  commit: (hash: string, session_id = '') =>
+    get<GitCommitDetailVO>('/git/commit', pick({ hash, session_id })),
   fileHistory: (path: string, session_id = '', limit = 50) =>
     get<GitCommitVO[]>('/git/file-history', pick({ path, session_id, limit: String(limit) })),
   branches: (session_id = '') => get<GitBranchVO[]>('/git/branches', pick({ session_id })),
-  /** 受控写入：写后返回重读的状态，界面用一份数据刷新列表 */
   stage: (paths: string[], session_id = '') => post<GitStatusVO>('/git/stage', { paths, session_id }),
   unstage: (paths: string[], session_id = '') => post<GitStatusVO>('/git/unstage', { paths, session_id }),
   commit_: (message: string, session_id = '') =>
@@ -255,69 +194,6 @@ export const git = {
   createBranch: (name: string, session_id = '') => post<GitStatusVO>('/git/branch', { name, session_id }),
   switchBranch: (name: string, session_id = '') => post<GitStatusVO>('/git/switch', { name, session_id }),
   push: (session_id = '') => post<GitStatusVO>('/git/push', { session_id }),
-  /** 助手按 diff 起草提交信息；Err 非空时界面回落到手写 */
-  draftMessage: (paths: string[], session_id = '') => post<GitMessageRESP>('/git/message', { paths, session_id }),
-}
-
-/* ================= 指挥台 API（specs/11-13 / 15） ================= */
-
-export const mcp = {
-  /** 读回配置原文、解析结果与解析错误（界面左侧编辑、右侧对照） */
-  config: () => get<MCPConfigRESP>('/mcp/config'),
-  /** 保存原文：后端先校验再落盘，成功即重载；解析不过不写文件 */
-  save: (body: SaveMCPConfigREQ) => post<MCPConfigRESP>('/mcp/config', body),
-  /** 内置模板三档（blank / stdio / example），一次给全 */
-  templates: () => get<MCPTemplateVO[]>('/mcp/template'),
-  /** 按当前文件重新拉起全部服务 */
-  reload: () => post<MCPConfigRESP>('/mcp/reload'),
-  /** 配置里的服务条目：只有声明（命令 / 参数 / 是否停用），连接结果不在这一层 */
-  servers: () => get<MCPServerVO[]>('/mcp/servers'),
-  /** 内核报上来的外部工具前缀 */
-  tools: () => get<MCPToolVO[]>('/mcp/tools'),
-}
-
-/** 运行观测：这一轮干了什么、花了多少、从哪能回去（specs/15）。 */
-export const runs = {
-  list: (session_id = '', limit = 50) =>
-    get<RunVO[]>('/runs', pick({ session_id, limit: String(limit) })),
-  detail: (id: string) => get<RunDetailVO>(`/runs/${id}`),
-}
-
-export const checkpoints = {
-  list: (session_id: string) => get<CheckpointVO[]>('/checkpoints', { session_id }),
-  /** 从某轮重开：PI 没有「改 leaf」的协议面，所以是分叉出一条新会话，原会话完整保留 */
-  fork: (session_id: string, id: string) => post<SessionVO>(`/checkpoints/fork/${id}`, { session_id }),
-}
-
-/** 评估与回归：一次对话打几分，与基线比差在哪。 */
-export const evals = {
-  list: (scope?: string, scopeId?: string) =>
-    get<EvalVO[]>('/evals', pick({ scope: scope || '', scope_id: scopeId || '' })),
-  register: (body: { run_id: string; score: number; note?: string }) =>
-    post<EvalVO>('/evals', body),
-  baselines: () => get<BaselineVO[]>('/evals/baselines'),
-  saveBaseline: (evalId: string, scope: string) =>
-    post<BaselineVO>('/evals/baselines', { eval_id: evalId, scope }),
-  removeBaseline: (id: string) => post<null>(`/evals/baselines/delete/${id}`),
-  compare: (baselineId: string, runId: string) =>
-    get<CompareVO>('/evals/compare', pick({ baseline_id: baselineId, run_id: runId })),
-}
-
-/** 归档：按保留期回收过期的隐藏会话（只丢逐字对话，留结论 / 时间线 / 用量账） */
-export const archive = {
-  now: () => post<ArchiveVO>('/archive'),
-}
-export const history = {
-  scan: () => get<HistoryScanRESP>('/history/entries'),
-  read: (id: string) => get<HistoryEntry>('/history/entry', { id }),
-  folders: () => get<Record<string, string>>('/history/folders'),
-  addFolder: (source: string, path: string) => post<null>('/history/folders', { source, path }),
-  removeFolder: (source: string) => post<null>('/history/folders/delete', { source }),
-  continueChat: (entryId: string, next = '') =>
-    post<SessionVO>('/history/continue', { entry_id: entryId, next }),
-}
-
-export const archmap = {
-  analyze: (path = '') => post<ArchGraph>('/archmap/analyze', { path }),
-  entrypoints: (path = '') => get<ArchEntrypointVO[]>('/archmap/entrypoints', pick({ path })),
+  draftMessage: (paths: string[], session_id = '') =>
+    post<GitMessageRESP>('/git/message', { paths, session_id }),
 }

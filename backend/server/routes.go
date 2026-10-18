@@ -23,15 +23,11 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		sessions := v1.Group("/sessions")
 		{
 			sessions.GET("", h.ListSessions)
-			sessions.POST("", h.CreateSession)
 			sessions.GET("/:id", h.GetSession)
 			sessions.POST("/rename/:id", h.RenameSession)
-			sessions.POST("/workspace/:id", h.SetSessionWorkspace)
 			sessions.POST("/delete/:id", h.DeleteSession)
 			sessions.POST("/model/:id", h.SetSessionModel)
-			sessions.POST("/permission/:id", h.SetSessionPermission)
 			sessions.POST("/thinking/:id", h.SetSessionThinking)
-			sessions.POST("/fork/:id", h.ForkSession)
 			sessions.POST("/export/:id", h.ExportSession)
 		}
 
@@ -42,31 +38,28 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			chat.POST("/steer", h.SteerMessage)
 			chat.POST("/followup", h.FollowUpMessage)
 			chat.POST("/retry-cancel", h.CancelRetry)
+			chat.POST("/answer", h.Answer)
 		}
 
-		approvals := v1.Group("/approvals")
-		{
-			approvals.GET("", h.ListApprovals)
-			approvals.POST("/decide/:id", h.DecideApproval)
-		}
+		// 斜杠命令清单：真相在 PI 进程里（扩展命令只有它知道）。
+		v1.GET("/commands", h.ListCommands)
 
 		providers := v1.Group("/providers")
 		{
 			providers.GET("", h.ListProviders)
-			providers.POST("", h.UpsertProvider)
-			providers.POST("/update/:id", h.UpdateProvider)
-			providers.POST("/delete/:id", h.DeleteProvider)
-			providers.POST("/test/:id", h.TestProvider)
-			providers.POST("/reveal/:id", h.RevealProviderKey)
-			providers.POST("/default/:id", h.SetDefaultProvider)
-			providers.GET("/models", h.ListModels)
+			providers.POST("/upsert", h.UpsertProvider)
+			providers.POST("/delete", h.DeleteProvider)
+			providers.POST("/test", h.TestProvider)
+			providers.POST("/reveal", h.RevealProviderKey)
+			providers.POST("/default", h.SetDefaultProvider)
 			providers.POST("/models/fetch", h.FetchModels)
 		}
+		v1.GET("/models/available", h.AvailableModels)
 
 		skills := v1.Group("/skills")
 		{
 			skills.GET("", h.ListSkills)
-			skills.POST("", h.CreateSkill)
+			skills.POST("/create", h.CreateSkill)
 			skills.POST("/import", h.ImportSkills)
 			skills.POST("/import-zip", h.ImportSkillZip)
 			skills.POST("/toggle/:id", h.ToggleSkill)
@@ -83,41 +76,27 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			extensions.POST("/delete", h.DeleteExtension)
 			extensions.POST("/install", h.InstallPackage)
 			extensions.POST("/remove", h.RemovePackage)
-		}
-
-		// 斜杠命令清单：真相在 PI 进程里（扩展命令只有它知道）。
-		v1.GET("/commands", h.ListCommands)
-
-		knowledge := v1.Group("/knowledge")
-		{
-			knowledge.GET("/docs", h.ListDocs)
-			knowledge.POST("/docs/add", h.AddDocs)
-			knowledge.POST("/docs/delete/:id", h.DeleteDoc)
-			knowledge.POST("/reindex", h.StartReindex)
-			knowledge.GET("/reindex", h.ReindexStatus)
-			knowledge.POST("/reindex/cancel", h.CancelReindex)
-			knowledge.POST("/search", h.SearchKnowledge)
-		}
-
-		memories := v1.Group("/memories")
-		{
-			memories.GET("", h.ListMemories)
-			memories.POST("", h.AddMemory)
-			memories.POST("/update/:id", h.UpdateMemory)
-			memories.POST("/delete/:id", h.DeleteMemory)
+			extensions.POST("/reload", h.ReloadExtensions)
 		}
 
 		v1.GET("/tools", h.ListTools)
-		v1.POST("/tools/toggle/:name", h.ToggleTool)
+		v1.POST("/tools/toggle", h.ToggleTool)
+
+		mcp := v1.Group("/mcp")
+		{
+			mcp.GET("", h.ListMCPServers)
+			mcp.POST("/save", h.SaveMCPConfig)
+			mcp.POST("/remove", h.RemoveMCPServer)
+			mcp.POST("/login", h.LoginMCPServer)
+			mcp.POST("/logout", h.LogoutMCPServer)
+			mcp.POST("/reload", h.ReloadMCP)
+		}
+
 		v1.GET("/files", h.ListFiles)
-		v1.GET("/models/capability", h.ModelCapability)
-		v1.POST("/models/capabilities", h.ModelCapabilities)
-		v1.GET("/models/config", h.GetModelConfig)
-		v1.GET("/models/configs", h.ListModelConfigs)
-		v1.POST("/models/config", h.UpsertModelConfig)
 		v1.GET("/runtime", h.RuntimeStatus)
 		v1.POST("/runtime/redetect", h.RedetectRuntime)
-		// 环境引导（specs/18）：闸门快照与 PI 的安装更新。
+
+		// 环境引导：闸门快照与 PI 的安装更新。
 		v1.GET("/env", h.EnvStatus)
 		v1.POST("/env/install", h.InstallPi)
 		v1.POST("/env/update", h.InstallPi)
@@ -127,7 +106,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		{
 			git.GET("/status", h.GitStatus)
 			git.GET("/diff", h.GitDiff)
-			// 版本历史（specs/09）：提交列表、单次提交、文件历史、分支清单。
+			// 版本历史：提交列表、单次提交、文件历史、分支清单。
 			git.GET("/history", h.GitHistory)
 			git.GET("/commit", h.GitCommitDetail)
 			git.GET("/file-history", h.GitFileHistory)
@@ -142,63 +121,16 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			git.POST("/message", h.GitDraftMessage)
 		}
 
-		mcp := v1.Group("/mcp")
-		{
-			mcp.GET("/config", h.GetMCPConfig)
-			mcp.POST("/config", h.SaveMCPConfig)
-			mcp.GET("/template", h.MCPTemplate)
-			mcp.POST("/reload", h.ReloadMCP)
-			mcp.GET("/servers", h.ListMCPServers)
-
-			mcp.GET("/tools", h.ListMCPTools)
-		}
-
-		runs := v1.Group("/runs")
-		{
-			runs.GET("", h.ListRuns)
-			runs.GET("/:id", h.RunDetail)
-		}
-
-		checkpoints := v1.Group("/checkpoints")
-		{
-			checkpoints.GET("", h.ListCheckpoints)
-			checkpoints.POST("/fork/:id", h.ForkCheckpoint)
-		}
-
-		evals := v1.Group("/evals")
-		{
-			evals.GET("", h.ListEvals)
-			evals.POST("", h.RegisterEval)
-			evals.GET("/baselines", h.ListBaselines)
-			evals.POST("/baselines", h.SaveBaseline)
-			evals.POST("/baselines/delete/:id", h.DeleteBaseline)
-			evals.GET("/compare", h.CompareEval)
-		}
-
-		v1.POST("/archive", h.ArchiveNow)
-
 		v1.GET("/docs", h.ListHelpDocs)
 		v1.GET("/docs/:name", h.HelpDocContent)
 
-		history := v1.Group("/history")
-		{
-			history.GET("/entries", h.ScanHistory)
-			// id 里带盘符与斜杠（source:path），做不了路径参数，走 query
-			history.GET("/entry", h.ReadHistory)
-			history.GET("/folders", h.HistoryFolders)
-			history.POST("/folders", h.AddHistoryFolder)
-			history.POST("/folders/delete", h.RemoveHistoryFolder)
-			history.POST("/continue", h.ContinueHistory)
-		}
-
-		archmap := v1.Group("/archmap")
-		{
-			archmap.POST("/analyze", h.AnalyzeArch)
-			archmap.GET("/entrypoints", h.ArchEntrypoints)
-		}
-
 		v1.GET("/settings", h.AllSettings)
 		v1.POST("/settings", h.SetSetting)
+		// PI 侧的配置：默认模型、思考档、压缩参数与全部文件位置。
+		v1.GET("/settings/pi", h.GetPISettings)
+		v1.POST("/settings/pi/thinking", h.SetPIThinking)
+		v1.POST("/settings/pi/compaction", h.SetPICompaction)
+		v1.GET("/settings/workspaces", h.ListWorkspaces)
 		v1.GET("/settings/background", h.GetBackground)
 		v1.POST("/settings/background", h.SetBackground)
 		v1.GET("/assets/background", h.BackgroundAsset)
@@ -209,9 +141,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 }
 
 // sseHandler 是事件流端点：订阅维度是会话，支持 Last-Event-ID 重放。
-// session_id 留空表示全局通道——环境与插件的安装进度发生在任何会话之前，
-// 拿会话 id 绑它们就永远收不到。
-// seq 优先取 query（前端手动重建 EventSource 时拿不到自动附加的 header），header 兜底。
+// session_id 留空表示全局通道（安装进度发生在任何会话之前）；seq 优先取 query，header 兜底。
 func sseHandler(hub *Hub) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID := c.Query("session_id")

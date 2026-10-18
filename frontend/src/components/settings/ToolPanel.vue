@@ -1,54 +1,38 @@
 <script setup lang="ts">
-// 工具面板：按分类展示助手可用的工具（用途 / 风险 / 参数），可按个停用。
-// 清单来自 /tools，与模型每轮拿到的是同一份注册表投影。
+// 工具面板：清单来自 PI（最近一次会话声明给模型的工具 + MCP 在线工具）。
+// 启停写的是 PI settings.json 的 defaultTools，不自己实现任何工具。
 import { computed, onMounted, ref } from 'vue'
 import * as api from '../../api'
-import type { ToolVO } from '../../types/api'
 import { useToastStore } from '../../stores/toast'
+import type { ToolListRESP, ToolVO } from '../../types/api'
+import { fmtRel } from '../../utils/time'
 import AppIcon from '../common/AppIcon.vue'
-import PageState from '../common/PageState.vue'
 
-const tools = ref<ToolVO[]>([])
-const loading = ref(true)
-const error = ref('')
-const busy = ref('')
 const toast = useToastStore()
+const data = ref<ToolListRESP | null>(null)
+const busy = ref('')
+const filter = ref('')
 
-// 分类的展示顺序与中文名：顺序按「用户最常打交道的」排前面。
-const CATEGORY_ORDER = ['file', 'shell', 'code', 'web', 'data'] as const
-const CATEGORY_META: Record<string, { name: string; icon: string; desc: string }> = {
-  file: { name: '文件', icon: 'doc', desc: '读你的文件、列目录、找内容' },
-  shell: { name: '命令', icon: 'terminal', desc: '在 Windows 上执行命令' },
-  code: { name: '代码', icon: 'braces', desc: '跑内置 Python 做计算与处理' },
-  web: { name: '联网', icon: 'globe', desc: '搜网页、抓正文' },
-  data: { name: '资料', icon: 'database', desc: '查你自己导入的知识库' },
-}
+const SOURCE: Record<string, string> = { builtin: '内置', extension: '插件', mcp: 'MCP' }
 
-const RISK_META: Record<string, { name: string; cls: string }> = {
-  low: { name: '低风险', cls: 'r-low' },
-  medium: { name: '中风险', cls: 'r-medium' },
-  high: { name: '高风险', cls: 'r-high' },
-}
+const groups = computed(() => {
+  const q = filter.value.trim().toLowerCase()
+  const items = (data.value?.tools ?? []).filter(
+    (t) => !q || t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q),
+  )
+  const out: Array<{ key: string; items: ToolVO[] }> = []
+  for (const key of ['builtin', 'extension', 'mcp']) {
+    const list = items.filter((t) => t.source === key)
+    if (list.length) out.push({ key, items: list })
+  }
+  return out
+})
 
-const grouped = computed(() =>
-  CATEGORY_ORDER.map((key) => ({
-    key,
-    meta: CATEGORY_META[key],
-    items: tools.value.filter((t) => t.category === key),
-  })).filter((g) => g.items.length > 0),
-)
-
-const enabledCount = computed(() => tools.value.filter((t) => t.enabled).length)
-
-async function load() {
-  loading.value = true
-  error.value = ''
+async function reload() {
   try {
-    tools.value = await api.tools.list()
+    data.value = await api.tools.list()
   } catch (e) {
-    error.value = (e as Error)?.message || '读取工具清单失败'
-  } finally {
-    loading.value = false
+    toast.bad(`读取工具失败：${(e as Error)?.message || '请重试'}`)
   }
 }
 
@@ -57,8 +41,7 @@ async function toggle(t: ToolVO) {
   busy.value = t.name
   try {
     await api.tools.toggle(t.name, !t.enabled)
-    t.enabled = !t.enabled
-    toast.ok(t.enabled ? `${t.label} 已启用，下一轮生效` : `${t.label} 已停用，下一轮生效`)
+    await reload()
   } catch (e) {
     toast.bad(`切换失败：${(e as Error)?.message || '请重试'}`)
   } finally {
@@ -66,210 +49,157 @@ async function toggle(t: ToolVO) {
   }
 }
 
-onMounted(load)
+onMounted(() => void reload())
 </script>
 
 <template>
-  <div class="tp">
-    <div class="tp-bar">
-      <span class="tp-sum">
-        共 <b>{{ tools.length }}</b> 个工具，当前启用 <b>{{ enabledCount }}</b> 个
-      </span>
-      <span class="tp-tip">助手每轮对话都会看到下面这些能力，停用后下一轮生效</span>
-      <button
-        class="btn btn-sm btn-ghost"
-        type="button"
-        :class="{ 'is-loading': loading }"
-        :disabled="loading"
-        @click="load"
-      >
-        <AppIcon v-if="!loading" name="refresh" size="ic-xs" /> 刷新
-      </button>
-    </div>
+  <div class="panel">
+    <header class="pn-head">
+      <div>
+        <h3>工具</h3>
+        <p class="pn-sub">
+          <template v-if="data?.snapshot === 'session'">
+            来自最近一次会话的工具声明（{{ fmtRel(data.snapshot_at) }}）：这就是模型此刻真能调到的工具。
+          </template>
+          <template v-else>
+            还没有会话快照，这里按 PI 的内置工具表推断；聊过一轮之后会显示真实声明。
+          </template>
+        </p>
+      </div>
+      <div class="acts">
+        <input v-model="filter" class="input search" placeholder="搜索工具" />
+        <button class="btn" type="button" @click="reload">刷新</button>
+      </div>
+    </header>
 
-    <!-- 三态交给 PageState 统一处理：它内部有 pswap 过渡，
-         这里再用 v-if 硬切会把过渡绕过去。空态用 PageState 自己的 empty 槽，
-         不套 EmptyState —— 后者自带一块图标瓦片，套进去会变成双层。 -->
-    <PageState
-      :loading="loading"
-      :error="error"
-      :empty="!grouped.length"
-      empty-title="还没有可用工具"
-      empty-sub="检查一下程序目录下的内置资源是否完整。"
-    >
-      <section v-for="g in grouped" :key="g.key" class="grp">
-        <header class="grp-head">
-          <AppIcon :name="g.meta.icon" size="ic-sm" />
-          <b>{{ g.meta.name }}</b>
-          <span class="grp-desc">{{ g.meta.desc }}</span>
-        </header>
+    <section v-for="g in groups" :key="g.key" class="group">
+      <div class="g-head">
+        <b>{{ SOURCE[g.key] }}</b>
+        <span class="sp" />
+        <span class="muted">{{ g.items.length }} 个</span>
+      </div>
+      <div class="rows">
+        <article v-for="t in g.items" :key="t.name" class="row card" :class="{ 'is-off': !t.enabled }">
+          <span class="rk"><AppIcon name="wrench" size="ic-sm" /></span>
+          <div class="rr">
+            <b class="mono">{{ t.name }}</b>
+            <span class="r-desc">{{ t.description }}</span>
+          </div>
+          <span v-if="g.key === 'mcp'" class="muted sm">{{ t.server }}</span>
+          <button
+            v-else
+            class="btn btn-sm"
+            type="button"
+            :class="{ 'is-loading': busy === t.name }"
+            :disabled="!!busy"
+            @click="toggle(t)"
+          >
+            {{ t.enabled ? '停用' : '启用' }}
+          </button>
+        </article>
+      </div>
+    </section>
 
-        <div class="cards">
-          <article v-for="t in g.items" :key="t.name" class="card tcard" :class="{ off: !t.enabled }">
-            <div class="tc-top">
-              <b class="tc-name">{{ t.label }}</b>
-              <code class="tc-code">{{ t.name }}</code>
-            </div>
-            <p class="tc-desc">{{ t.description }}</p>
-            <div class="tc-meta">
-              <span class="risk" :class="RISK_META[t.risk]?.cls || 'r-low'">
-                {{ RISK_META[t.risk]?.name || '低风险' }}
-              </span>
-              <span v-if="t.approval" class="tag">先问你</span>
-              <span class="tag tag-quiet">{{ t.mode === 'parallel' ? '可并发' : '按顺序' }}</span>
-            </div>
-            <div v-if="t.params.length" class="tc-params">
-              <span v-for="p in t.params" :key="p" class="param">{{ p }}</span>
-            </div>
-            <div class="tc-foot">
-              <button
-                class="btn btn-sm"
-                :class="[t.enabled ? 'btn-outline' : 'btn-primary', { 'is-loading': busy === t.name }]"
-                type="button"
-                :disabled="!!busy"
-                @click="toggle(t)"
-              >
-                {{ t.enabled ? '停用' : '启用' }}
-              </button>
-            </div>
-          </article>
-        </div>
-      </section>
-    </PageState>
+    <p v-if="!groups.length" class="muted">
+      没有工具：先配好模型并聊一轮，PI 会在会话里写下它声明的工具。
+    </p>
   </div>
 </template>
 
 <style scoped>
-.tp {
+.panel {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-5);
-  min-width: 0;
+  gap: var(--wb-sp-4);
 }
-.tp-bar {
+.pn-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: var(--wb-sp-3);
   flex-wrap: wrap;
-  padding-bottom: var(--wb-sp-1);
 }
-.tp-sum {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink-2);
-}
-.tp-sum b {
+.pn-head h3 {
+  font-size: var(--wb-fs-lg);
   color: var(--wb-ink);
-  font-variant-numeric: tabular-nums;
 }
-.tp-tip {
-  flex: 1;
-  min-width: 0;
+.pn-sub {
+  margin-top: 4px;
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
+  max-width: 640px;
+  line-height: 1.7;
 }
-.grp {
+.acts {
   display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-3);
-  min-width: 0;
-}
-.grp-head {
-  display: flex;
-  align-items: center;
   gap: var(--wb-sp-2);
-  color: var(--wb-ink-2);
 }
-.grp-head b {
-  font-size: var(--wb-fs-md);
-  color: var(--wb-ink);
+.search {
+  width: 180px;
+  height: var(--wb-ctl-h-sm);
 }
-.grp-desc {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--wb-sp-3);
-  min-width: 0;
-}
-.tcard {
+.group {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-2);
-  min-width: 0;
 }
-/* 停用的工具不隐藏：用户要能看见「有这个能力，但我关掉了」 */
-.tcard.off {
-  opacity: 0.62;
-}
-.tc-top {
+.g-head {
   display: flex;
   align-items: baseline;
   gap: var(--wb-sp-2);
-  min-width: 0;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
 }
-.tc-name {
-  font-size: var(--wb-fs-md);
+.g-head b {
+  font-size: var(--wb-fs-sm);
   color: var(--wb-ink);
 }
-.tc-code {
-  font-family: var(--font-mono);
+.sp {
+  flex: 1;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-3);
+  padding: 9px var(--wb-sp-4);
+}
+.row.is-off {
+  opacity: 0.6;
+}
+.rk {
+  width: var(--wb-tile-sm);
+  height: var(--wb-tile-sm);
+  border-radius: var(--wb-radius-sm);
+  display: grid;
+  place-items: center;
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
+  flex: none;
+}
+.rr {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rr b {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink);
+}
+.r-desc {
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.tc-desc {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink-2);
-  line-height: var(--wb-lh-base);
-}
-.tc-meta {
-  display: flex;
-  gap: var(--wb-sp-2);
-  flex-wrap: wrap;
-}
-.risk,
-.tag {
-  font-size: var(--wb-fs-xs);
-  padding: 1px 7px;
-  border-radius: var(--wb-radius-full);
-  border: 1px solid var(--wb-line-2);
-  color: var(--wb-muted);
   white-space: nowrap;
 }
-.r-low {
-  border-color: var(--wb-success);
-  color: var(--wb-success);
-}
-.r-medium {
-  border-color: var(--wb-warning);
-  color: var(--wb-warning);
-}
-.r-high {
-  border-color: var(--wb-danger);
-  color: var(--wb-danger);
-}
-.tag-quiet {
-  opacity: 0.75;
-}
-.tc-params {
-  display: flex;
-  gap: var(--wb-sp-1);
-  flex-wrap: wrap;
-}
-.param {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
-  padding: 1px 6px;
-  border-radius: var(--wb-radius-xs);
-  background: var(--wb-raise);
-  border: 1px solid var(--wb-line);
-  color: var(--wb-ink-2);
-}
-.tc-foot {
-  margin-top: auto;
-  padding-top: var(--wb-sp-1);
+.sm {
+  font-size: var(--wb-fs-2xs);
 }
 </style>

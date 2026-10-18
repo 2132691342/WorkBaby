@@ -1,20 +1,22 @@
-// 模型服务编排：凭据加密、模型的增删改，并把结果写进 PI 的 models.json。
-// WorkBaby 是 models.json 的唯一写入者，PI 只读——两边都能写会让「改了没生效」无法归因。
+// 模型服务编排：读写 PI 的 models.json 与 settings.json 里的默认选项。
+// WorkBaby 不再自存一份服务商表——用户在别处（cc-switch、pi、手工编辑）配的服务商
+// 打开就能看到，界面上改的也立刻是 pi 命令读到的那份。
 package service
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
-	"slices"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"WorkBaby/backend/domain"
-	envfile "WorkBaby/backend/pi/env"
+	pienv "WorkBaby/backend/pi/env"
 	"WorkBaby/backend/pkg"
-	"WorkBaby/backend/repo"
 )
 
 // modelListTimeout 是拉模型列表的整请求上限。
@@ -28,547 +30,539 @@ type ProviderService struct {
 // NewProviderService 构造模型服务。
 func NewProviderService(env *Env) *ProviderService { return &ProviderService{env: env} }
 
-// List 列出模型服务，不返回密钥。
-func (p *ProviderService) List() ([]domain.ProviderVO, error) {
-	list, err := p.env.Repo.ListProviders()
+// List 列出 models.json 里的服务商 + settings.json 的默认模型。
+func (p *ProviderService) List() (*domain.ProviderListRESP, error) {
+	_, providers, err := p.env.PiEnv.ReadModelsRaw()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]domain.ProviderVO, 0, len(list))
-	for i := range list {
-		out = append(out, providerVO(&list[i], parseModels(list[i].Models)))
+	settings, err := p.env.PiEnv.ReadSettings()
+	if err != nil {
+		settings = &pienv.SettingsFile{}
+	}
+	out := &domain.ProviderListRESP{
+		Providers:    make([]domain.ProviderVO, 0, len(providers)),
+		DefaultID:    settings.DefaultProvider,
+		DefaultModel: settings.DefaultModel,
+		Path:         p.env.PiEnv.ModelsPath(),
+	}
+	keys := make([]string, 0, len(providers))
+	for key := range providers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		var cfg pienv.ProviderConfig
+		if err := json.Unmarshal(providers[key], &cfg); err != nil {
+			continue
+		}
+		out.Providers = append(out.Providers, toProviderVO(key, cfg, settings.DefaultProvider == key))
 	}
 	return out, nil
 }
 
-// HasUsable 报告是否至少有一个可用服务配了模型：环境闸门的 model 判定。
+// toProviderVO 把 models.json 的一条转成出参：密钥只给掩码。
+func toProviderVO(id string, cfg pienv.ProviderConfig, isDefault bool) domain.ProviderVO {
+	vo := domain.ProviderVO{
+		ID: id, Name: cfg.Name, API: cfg.API, BaseURL: cfg.BaseURL,
+		HasKey: strings.TrimSpace(cfg.APIKey) != "", KeyHint: maskKey(cfg.APIKey),
+		IsDefault: isDefault, Models: make([]domain.ModelVO, 0, len(cfg.Models)),
+	}
+	if vo.Name == "" {
+		vo.Name = id
+	}
+	for _, m := range cfg.Models {
+		vo.Models = append(vo.Models, modelVO(m))
+	}
+	return vo
+}
+
+// modelVO 转一个模型条目；视觉能力由 input 里有没有 image 决定。
+func modelVO(m pienv.ModelConfig) domain.ModelVO {
+	v := domain.ModelVO{
+		ID: m.ID, Name: m.Name, Reasoning: m.Reasoning,
+		ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens,
+	}
+	if v.Name == "" {
+		v.Name = m.ID
+	}
+	for _, in := range m.Input {
+		if in == "image" {
+			v.Vision = true
+		}
+	}
+	levels := make([]string, 0, len(m.ThinkingMap))
+	for level, mapped := range m.ThinkingMap {
+		if mapped != "" {
+			levels = append(levels, level)
+		}
+	}
+	sort.Strings(levels)
+	v.ThinkingLevel = levels
+	return v
+}
+
+// maskKey 只暗示密钥的头尾，界面里永远看不到完整明文。
+func maskKey(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	// $ENV / !command 是 PI 的取值表达式，不是密钥本身：原样显示更有信息量。
+	if strings.HasPrefix(key, "$") || strings.HasPrefix(key, "!") {
+		return key
+	}
+	if len(key) <= 10 {
+		return "••••"
+	}
+	return key[:4] + "••••" + key[len(key)-4:]
+}
+
+// HasUsable 报告是否至少有一个服务配了密钥与模型：环境闸门的 model 判定。
 func (p *ProviderService) HasUsable() bool {
-	list, err := p.env.Repo.ListProviders()
+	_, providers, err := p.env.PiEnv.ReadModelsRaw()
 	if err != nil {
 		return false
 	}
-	for i := range list {
-		if list[i].Enabled && len(parseModels(list[i].Models)) > 0 {
+	for _, raw := range providers {
+		var cfg pienv.ProviderConfig
+		if json.Unmarshal(raw, &cfg) != nil {
+			continue
+		}
+		if len(cfg.Models) > 0 && (cfg.APIKey != "" || cfg.BaseURL != "") {
 			return true
 		}
 	}
 	return false
 }
 
-// Upsert 新增或更新；密钥用 AES-GCM 加密后落库，随后同步进 models.json。
+// Upsert 新增或更新一个服务商：只改我们掌管的字段，其余键原样保留。
 func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.ProviderVO, error) {
-	if req.Name == "" {
-		return nil, pkg.New("3109", "请给这个服务起个名字", "")
+	if strings.TrimSpace(req.Name) == "" && strings.TrimSpace(req.ID) == "" {
+		return nil, domain.ErrProviderName
 	}
-	if !slices.Contains(domain.APIAll, req.API) {
-		return nil, pkg.New("3108", "不支持的模型服务类型", req.API)
+	api := req.API
+	if api == "" {
+		api = domain.APIOpenAICompletions
 	}
-
-	d := &domain.ProviderDO{
-		ID:      req.ID,
-		Name:    req.Name,
-		API:     req.API,
-		BaseURL: req.BaseURL,
-		Enabled: true,
+	if !isKnownAPI(api) {
+		return nil, pkg.Wrap("3108", domain.ErrProviderAPI.Message, fmt.Errorf("%s", api))
 	}
-	if req.ID == "" {
-		d.ID = pkg.NewID(domain.PrefixProvider)
-	} else {
-		old, err := p.env.Repo.GetProvider(req.ID)
-		if err != nil {
-			return nil, err
-		}
-		d.Enabled = old.Enabled
-		d.IsDefault = old.IsDefault
-		d.Models = old.Models
-		if req.APIKey == "" {
-			d.APIKeyEnc = old.APIKeyEnc
-		}
-	}
-	if req.APIKey != "" {
-		enc, err := pkg.Encrypt(p.env.Cfg.MasterKey, req.APIKey)
-		if err != nil {
-			return nil, err
-		}
-		d.APIKeyEnc = enc
-	}
-	// nil 表示「这次没提交模型列表」，沿用旧的；空切片表示「清空」，要真的写空。
-	if req.Models != nil {
-		raw, _ := json.Marshal(req.Models)
-		d.Models = string(raw)
-	}
-	// 「落服务」与「定默认」必须一起生效：中途失败会留下「配好了却没有默认服务」。
-	vo := domain.ProviderVO{}
-	if err := p.env.Repo.WithTx(func(tx *repo.Repo) error {
-		if err := tx.UpsertProvider(d); err != nil {
-			return err
-		}
-		all, err := tx.ListProviders()
-		if err != nil {
-			return err
-		}
-		if len(all) == 1 {
-			if err := p.setDefaultIn(tx, d.ID); err != nil {
-				return err
-			}
-			d.IsDefault = true
-		} else if err := p.refreshDefaultModelIn(tx, d); err != nil {
-			return err
-		}
-		vo = providerVO(d, parseModels(d.Models))
-		return nil
-	}); err != nil {
+	extra, providers, err := p.env.PiEnv.ReadModelsRaw()
+	if err != nil {
 		return nil, err
 	}
-	// 落库成功后再同步到 PI 的配置：同步失败不该让保存看起来失败，
-	// 但必须让用户看到原因，否则下一次对话会莫名其妙报模型不可用。
-	if err := p.SyncToPi(); err != nil {
-		pkg.Warnf("provider: 同步 models.json 失败: %v", err)
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id = slugOf(req.Name)
 	}
+	raw := providers[id]
+	fields := map[string]json.RawMessage{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, pkg.Wrap("3105", "这个服务商的配置读不出来", err)
+		}
+	}
+	set := func(key string, v any) {
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return
+		}
+		fields[key] = encoded
+	}
+	set("name", firstNonEmpty(req.Name, id))
+	set("api", api)
+	set("baseUrl", strings.TrimSpace(req.BaseURL))
+	// 空密钥表示「不改」：界面上掩码是空的，用户没动它就不该把已存的密钥清掉。
+	if strings.TrimSpace(req.APIKey) != "" {
+		set("apiKey", strings.TrimSpace(req.APIKey))
+	}
+	if req.Models != nil {
+		set("models", toModelConfigs(req.Models))
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return nil, pkg.Wrap("3105", "这个服务商的配置写不出去", err)
+	}
+	providers[id] = encoded
+	if err := p.env.PiEnv.WriteModelsRaw(extra, providers); err != nil {
+		return nil, err
+	}
+	settings, _ := p.env.PiEnv.ReadSettings()
+	if settings == nil {
+		settings = &pienv.SettingsFile{}
+	}
+	vo := toProviderVO(id, providerConfigOf(fields), settings.DefaultProvider == id)
 	return &vo, nil
 }
 
-// Delete 删除模型服务，并级联清理它的模型级配置与默认指向。
+// toModelConfigs 把界面上的模型行转成 PI 的模型条目。
+func toModelConfigs(list []domain.ModelREQ) []pienv.ModelConfig {
+	out := make([]pienv.ModelConfig, 0, len(list))
+	for _, m := range list {
+		if strings.TrimSpace(m.ID) == "" {
+			continue
+		}
+		cfg := pienv.ModelConfig{
+			ID: m.ID, Name: firstNonEmpty(m.Name, m.ID),
+			Reasoning: m.Reasoning, ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens,
+		}
+		if m.Vision {
+			cfg.Input = []string{"text", "image"}
+		}
+		out = append(out, cfg)
+	}
+	return out
+}
+
+// providerConfigOf 把原始字段解成结构体（写回后给界面回显）。
+func providerConfigOf(fields map[string]json.RawMessage) pienv.ProviderConfig {
+	encoded, _ := json.Marshal(fields)
+	var cfg pienv.ProviderConfig
+	_ = json.Unmarshal(encoded, &cfg)
+	return cfg
+}
+
+// Delete 删掉一个服务商。
 func (p *ProviderService) Delete(id string) error {
-	if err := p.env.Repo.WithTx(func(tx *repo.Repo) error {
-		if err := tx.DeleteModelConfigsByProvider(id); err != nil {
-			return err
-		}
-		if err := tx.DeleteProvider(id); err != nil {
-			return err
-		}
-		return p.resetDefaultIfDeletedIn(tx, id)
-	}); err != nil {
-		return err
-	}
-	if err := p.SyncToPi(); err != nil {
-		pkg.Warnf("provider: 同步 models.json 失败: %v", err)
-	}
-	return nil
-}
-
-// resetDefaultIfDeletedIn 删掉的正是默认服务时，把默认转交给还活着的服务。
-func (p *ProviderService) resetDefaultIfDeletedIn(tx *repo.Repo, id string) error {
-	cur, _ := tx.GetSetting(domain.SettingDefaultProvider)
-	if cur != id {
-		return nil
-	}
-	all, err := tx.ListProviders()
+	extra, providers, err := p.env.PiEnv.ReadModelsRaw()
 	if err != nil {
 		return err
 	}
-	if len(all) == 0 {
-		if err := tx.SetSetting(domain.SettingDefaultProvider, ""); err != nil {
+	if _, ok := providers[id]; !ok {
+		return domain.ErrProviderNotFound
+	}
+	delete(providers, id)
+	if err := p.env.PiEnv.WriteModelsRaw(extra, providers); err != nil {
+		return err
+	}
+	// 默认模型指向它时一起清掉，否则 PI 启动会去找一个不存在的服务商。
+	settings, _ := p.env.PiEnv.ReadSettings()
+	if settings != nil && settings.DefaultProvider == id {
+		settings.DefaultProvider = ""
+		settings.DefaultModel = ""
+		if err := p.env.PiEnv.WriteSettings(settings); err != nil {
 			return err
 		}
-		return tx.SetSetting(domain.SettingDefaultModel, "")
 	}
-	return p.setDefaultIn(tx, all[0].ID)
+	return p.restartIdle()
 }
 
-// SetDefault 设为默认；同时写入设置便于会话缺省继承。
-func (p *ProviderService) SetDefault(id string) error {
-	if err := p.env.Repo.WithTx(func(tx *repo.Repo) error { return p.setDefaultIn(tx, id) }); err != nil {
-		return err
-	}
-	if err := p.SyncToPi(); err != nil {
-		pkg.Warnf("provider: 同步 models.json 失败: %v", err)
-	}
-	return nil
-}
-
-func (p *ProviderService) setDefaultIn(tx *repo.Repo, id string) error {
-	if err := tx.ClearDefault(); err != nil {
-		return err
-	}
-	d, err := tx.GetProvider(id)
+// SetDefault 设默认模型：写 PI settings.json 的 defaultProvider / defaultModel。
+func (p *ProviderService) SetDefault(req domain.SetDefaultREQ) error {
+	_, providers, err := p.env.PiEnv.ReadModelsRaw()
 	if err != nil {
 		return err
 	}
-	d.IsDefault = true
-	if err := tx.UpsertProvider(d); err != nil {
+	if _, ok := providers[req.Provider]; !ok {
+		return domain.ErrProviderNotFound
+	}
+	settings, err := p.env.PiEnv.ReadSettings()
+	if err != nil {
 		return err
 	}
-	if err := tx.SetSetting(domain.SettingDefaultProvider, id); err != nil {
-		return err
+	if settings == nil {
+		settings = &pienv.SettingsFile{}
 	}
-	return p.refreshDefaultModelIn(tx, d)
+	settings.DefaultProvider = req.Provider
+	settings.DefaultModel = req.Model
+	return p.env.PiEnv.WriteSettings(settings)
 }
 
-// refreshDefaultModelIn 校正默认模型：没有就取列表第一个，指向不存在的模型时也跟着换。
-func (p *ProviderService) refreshDefaultModelIn(tx *repo.Repo, d *domain.ProviderDO) error {
-	cur, _ := tx.GetSetting(domain.SettingDefaultModel)
-	models := parseModels(d.Models)
-	if len(models) == 0 {
-		return nil
+// Defaults 返回 PI 当前的默认模型。
+func (p *ProviderService) Defaults() (string, string) {
+	settings, err := p.env.PiEnv.ReadSettings()
+	if err != nil || settings == nil {
+		return "", ""
 	}
-	if cur != "" && slices.Contains(models, cur) {
-		return nil
-	}
-	return tx.SetSetting(domain.SettingDefaultModel, models[0])
+	return settings.DefaultProvider, settings.DefaultModel
 }
 
-// Reveal 返回解密后的 API Key：设置页「显示密钥」时才会调用。
+// EffectiveDefaults 返回界面要显示的默认模型：settings.json 里没设时，
+// 取第一个有模型的服务——PI 自己也是这么自动选的，界面不能显示「没配模型」。
+func (p *ProviderService) EffectiveDefaults() (string, string) {
+	provider, model := p.Defaults()
+	if provider != "" && model != "" {
+		return provider, model
+	}
+	_, providers, err := p.env.PiEnv.ReadModelsRaw()
+	if err != nil {
+		return provider, model
+	}
+	keys := make([]string, 0, len(providers))
+	for key := range providers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		cfg := providerConfigOf(rawToFields(providers[key]))
+		if len(cfg.Models) == 0 {
+			continue
+		}
+		return key, cfg.Models[0].ID
+	}
+	return provider, model
+}
+
+// Reveal 显式查看某个服务商的密钥明文（界面上点眼睛才走这一步）。
 func (p *ProviderService) Reveal(id string) (string, error) {
-	d, err := p.env.Repo.GetProvider(id)
+	_, providers, err := p.env.PiEnv.ReadModelsRaw()
 	if err != nil {
 		return "", err
 	}
-	if d.APIKeyEnc == "" {
-		return "", pkg.New("3114", "这个服务还没有保存 API Key", "")
+	raw, ok := providers[id]
+	if !ok {
+		return "", domain.ErrProviderNotFound
 	}
-	return p.keyOf(d)
+	cfg := providerConfigOf(rawToFields(raw))
+	return cfg.APIKey, nil
 }
 
-// modelsHTTP 复用同一个连接池。
-var modelsHTTP = &http.Client{
-	Timeout: modelListTimeout,
-	Transport: &http.Transport{
-		MaxIdleConns:        8,
-		MaxIdleConnsPerHost: 4,
-		IdleConnTimeout:     60 * time.Second,
-	},
+// rawToFields 把一条原始 JSON 解成字段表。
+func rawToFields(raw json.RawMessage) map[string]json.RawMessage {
+	fields := map[string]json.RawMessage{}
+	_ = json.Unmarshal(raw, &fields)
+	return fields
 }
 
-// Test 连通测试：直接打上游的 models 端点，用 HTTP 状态码回答地址与密钥对不对。
-// 不经过 PI：那要先进一次会话才知道成不成，用户在这一步只想知道这一件事。
+// Test 连通测试：用第一个模型向上游要一次模型列表。
 func (p *ProviderService) Test(ctx context.Context, id string) (*domain.TestProviderRESP, error) {
-	d, err := p.env.Repo.GetProvider(id)
+	_, providers, err := p.env.PiEnv.ReadModelsRaw()
 	if err != nil {
 		return nil, err
 	}
-	models := parseModels(d.Models)
-	if len(models) == 0 {
-		return &domain.TestProviderRESP{OK: false, Model: "", Detail: "这个服务还没有添加模型"}, nil
+	raw, ok := providers[id]
+	if !ok {
+		return nil, domain.ErrProviderNotFound
 	}
-	model := models[0]
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	key, err := p.keyOf(d)
+	cfg := providerConfigOf(rawToFields(raw))
+	if len(cfg.Models) == 0 {
+		return nil, domain.ErrProviderModel
+	}
+	names, err := listRemoteModels(ctx, cfg.API, cfg.BaseURL, cfg.APIKey)
 	if err != nil {
-		return nil, err
+		return &domain.TestProviderRESP{OK: false, Model: cfg.Models[0].ID, Message: err.Error()}, nil
 	}
-	_, err = p.fetch(ctx, d, key)
-	if err != nil {
-		return &domain.TestProviderRESP{OK: false, Model: model, Detail: err.Error()}, nil
-	}
-	return &domain.TestProviderRESP{OK: true, Model: model, Detail: "连通正常"}, nil
+	return &domain.TestProviderRESP{
+		OK: true, Model: cfg.Models[0].ID,
+		Message: fmt.Sprintf("连上了，上游报告 %d 个模型", len(names)),
+	}, nil
 }
 
-// Models 拉取上游模型列表。
-func (p *ProviderService) Models(ctx context.Context, id string) ([]string, error) {
-	d, err := p.env.Repo.GetProvider(id)
-	if err != nil {
-		return nil, err
-	}
-	key, err := p.keyOf(d)
-	if err != nil {
-		return nil, err
-	}
-	return p.fetch(ctx, d, key)
-}
-
-// fetch 按服务的接口类型请求上游模型列表。
-func (p *ProviderService) fetch(ctx context.Context, d *domain.ProviderDO, key string) ([]string, error) {
-	endpoint := modelsEndpoint(d)
-	if endpoint == "" {
-		return parseModels(d.Models), nil
-	}
-	ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, pkg.Wrap("3103", "构造模型列表请求失败", err)
-	}
-	if key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	if d.API == domain.APIAnthropicMessages {
-		req.Header.Set("x-api-key", key)
-		req.Header.Set("anthropic-version", "2023-06-01")
-	}
-	resp, err := modelsHTTP.Do(req)
-	if err != nil {
-		return nil, pkg.Wrap("3103", "拉取模型列表失败", err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 400 {
-		return nil, pkg.New("3103", "拉取模型列表失败", strings.TrimSpace(string(raw)))
-	}
-	var payload struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-		Models []struct {
-			Name string `json:"name"`
-		} `json:"models"`
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return parseModels(d.Models), nil
-	}
-	out := []string{}
-	for _, m := range payload.Data {
-		if m.ID != "" {
-			out = append(out, m.ID)
-		}
-	}
-	for _, m := range payload.Models {
-		if m.Name != "" {
-			out = append(out, m.Name)
-		}
-	}
-	if len(out) == 0 {
-		return parseModels(d.Models), nil
-	}
-	return out, nil
-}
-
-// SyncToPi 把全部服务与模型写进 PI 的 models.json。
-// 每次启动与每次改动后都跑一遍：内容由当前状态决定，幂等。
-func (p *ProviderService) SyncToPi() error {
-	list, err := p.env.Repo.ListProviders()
-	if err != nil {
-		return err
-	}
-	file, err := p.env.PiEnv.ReadModels()
-	if err != nil {
-		// 用户把 models.json 改坏了：覆盖它（它本来就归 WorkBaby 管），
-		// 但只警告不阻断——界面上看到的就是 WorkBaby 里的配置。
-		pkg.Warnf("provider: models.json 无法解析，将覆盖: %v", err)
-		file = nil
-	}
-	if file == nil {
-		file = &envfile.ModelsFile{}
-	}
-	file.Providers = map[string]envfile.ProviderConfig{}
-	for i := range list {
-		d := &list[i]
-		if !d.Enabled {
-			continue
-		}
-		key, err := p.keyOf(d)
-		if err != nil {
-			pkg.Warnf("provider: 解不开 %s 的密钥，跳过同步: %v", d.ID, err)
-			continue
-		}
-		cfg := envfile.ProviderConfig{
-			Name:       d.Name,
-			BaseURL:    d.BaseURL,
-			APIKey:     key,
-			API:        d.API,
-			AuthHeader: boolPtr(true),
-		}
-		for _, model := range parseModels(d.Models) {
-			cfg.Models = append(cfg.Models, p.modelConfigOf(d, model))
-		}
-		file.Providers[d.ID] = cfg
-	}
-	return p.env.PiEnv.WriteModels(file)
-}
-
-// modelConfigOf 把一个模型连同它的覆写配置翻译成 PI 的模型条目。
-func (p *ProviderService) modelConfigOf(d *domain.ProviderDO, model string) envfile.ModelConfig {
-	cap := domain.ModelCapabilityOf(model)
-	out := envfile.ModelConfig{
-		ID:            model,
-		Name:          model,
-		ContextWindow: cap.ContextWindow,
-		MaxTokens:     cap.MaxOutput,
-		Reasoning:     cap.Thinking,
-		Input:         []string{"text"},
-	}
-	if cap.Vision {
-		out.Input = append(out.Input, "image")
-	}
-	// 用户覆写优先于内置目录。
-	if cfg, err := p.env.Repo.GetModelConfig(d.ID, model); err == nil && cfg != nil {
-		merged := cap.WithConfig(cfg)
-		if merged.ContextWindow > 0 {
-			out.ContextWindow = merged.ContextWindow
-		}
-		if merged.MaxOutput > 0 {
-			out.MaxTokens = merged.MaxOutput
-		}
-		out.Reasoning = merged.Thinking
-		if merged.Vision {
-			out.Input = []string{"text", "image"}
-		} else {
-			out.Input = []string{"text"}
-		}
-	}
-	return out
-}
-
-// ModelConfig 返回「内置目录 + 用户覆写」合并后的模型配置。
-func (p *ProviderService) ModelConfig(providerID, model string) (*domain.ModelConfigVO, error) {
-	if providerID == "" {
-		providerID = defaultProviderID(p.env)
-	}
-	cap := domain.ModelCapabilityOf(model)
-	vo := &domain.ModelConfigVO{
-		ProviderID: providerID, Model: model,
-		ContextWindow: cap.ContextWindow, WindowKnown: cap.Known,
-		MaxOutput: cap.MaxOutput, Thinking: cap.Thinking,
-		Vision: cap.Vision, ToolCall: cap.ToolCall,
-		Temperature: domain.SamplingUnset, TopP: domain.SamplingUnset,
-	}
-	d, err := p.env.Repo.GetModelConfig(providerID, model)
-	if err != nil {
-		return nil, err
-	}
-	return applyOverride(cap, vo, d), nil
-}
-
-// applyOverride 把用户覆写叠到目录能力上；d 为 nil 表示没有覆写。
-func applyOverride(cap domain.ModelCapability, vo *domain.ModelConfigVO, d *domain.ModelConfigDO) *domain.ModelConfigVO {
-	if d == nil {
-		return vo
-	}
-	merged := cap.WithConfig(d)
-	vo.ContextWindow = merged.ContextWindow
-	if d.ContextWindow > 0 {
-		vo.WindowKnown = true
-	}
-	vo.MaxOutput = merged.MaxOutput
-	vo.MaxOutputSet = d.MaxOutput > 0
-	vo.Thinking = merged.Thinking
-	vo.Vision = merged.Vision
-	vo.ToolCall = merged.ToolCall
-	vo.Temperature = d.Temperature
-	vo.TopP = d.TopP
-	return vo
-}
-
-// ListModelConfigs 列出一个服务下的全部模型配置。
-func (p *ProviderService) ListModelConfigs(providerID string) ([]domain.ModelConfigVO, error) {
-	if providerID == "" {
-		providerID = defaultProviderID(p.env)
-	}
-	list, err := p.env.Repo.ListModelConfigs(providerID)
-	if err != nil {
-		return nil, err
-	}
-	// 一次取回全部覆写再在内存里合并：逐个 ModelConfig 会为每个模型多打一条查询。
-	out := make([]domain.ModelConfigVO, 0, len(list))
-	for _, d := range list {
-		item := d
-		cap := domain.ModelCapabilityOf(item.Model)
-		vo := &domain.ModelConfigVO{
-			ProviderID: providerID, Model: item.Model,
-			ContextWindow: cap.ContextWindow, WindowKnown: cap.Known,
-			MaxOutput: cap.MaxOutput, Thinking: cap.Thinking,
-			Vision: cap.Vision, ToolCall: cap.ToolCall,
-			Temperature: domain.SamplingUnset, TopP: domain.SamplingUnset,
-		}
-		out = append(out, *applyOverride(cap, vo, &item))
-	}
-	return out, nil
-}
-
-// UpsertModelConfig 保存模型级配置并同步进 models.json。
-func (p *ProviderService) UpsertModelConfig(req domain.UpsertModelConfigREQ) (*domain.ModelConfigVO, error) {
-	if req.ProviderID == "" {
-		return nil, pkg.New("3111", "缺少模型服务", "")
-	}
-	if req.Model == "" {
-		return nil, pkg.New("3111", "缺少模型名", "")
-	}
-	if _, err := p.env.Repo.GetProvider(req.ProviderID); err != nil {
-		return nil, err
-	}
-	d := &domain.ModelConfigDO{
-		ProviderID: req.ProviderID, Model: req.Model,
-		ContextWindow: req.ContextWindow,
-		MaxOutput:     req.MaxOutput,
-		Temperature:   domain.ClampSampling(req.Temperature),
-		TopP:          domain.ClampSampling(req.TopP),
-		Vision:        req.Vision, ToolCall: req.ToolCall, Thinking: req.Thinking,
-	}
-	if err := p.env.Repo.UpsertModelConfig(d); err != nil {
-		return nil, err
-	}
-	if err := p.SyncToPi(); err != nil {
-		pkg.Warnf("provider: 同步 models.json 失败: %v", err)
-	}
-	return p.ModelConfig(req.ProviderID, req.Model)
-}
-
-// FetchModels 用未保存的连接信息拉模型列表。
-func (p *ProviderService) FetchModels(ctx context.Context, api, baseURL, apiKey string) ([]string, error) {
-	d := &domain.ProviderDO{API: api, BaseURL: baseURL}
-	if apiKey != "" {
-		enc, err := pkg.Encrypt(p.env.Cfg.MasterKey, apiKey)
+// FetchModels 用给定连接信息向上游要模型列表；ID 非空时可复用已存密钥。
+func (p *ProviderService) FetchModels(ctx context.Context, req domain.FetchModelsREQ) (*domain.FetchModelsRESP, error) {
+	api, base, key := req.API, req.BaseURL, req.APIKey
+	if req.ID != "" {
+		_, providers, err := p.env.PiEnv.ReadModelsRaw()
 		if err != nil {
 			return nil, err
 		}
-		d.APIKeyEnc = enc
+		if raw, ok := providers[req.ID]; ok {
+			cfg := providerConfigOf(rawToFields(raw))
+			if api == "" {
+				api = cfg.API
+			}
+			if base == "" {
+				base = cfg.BaseURL
+			}
+			if key == "" {
+				key = cfg.APIKey
+			}
+		}
 	}
-	key, err := p.keyOf(d)
+	names, err := listRemoteModels(ctx, api, base, key)
 	if err != nil {
 		return nil, err
 	}
-	return p.fetch(ctx, d, key)
+	return &domain.FetchModelsRESP{Models: names}, nil
 }
 
-// keyOf 解密密钥；本地部署常在无需鉴权的端点后面。
-func (p *ProviderService) keyOf(d *domain.ProviderDO) (string, error) {
-	if d.APIKeyEnc == "" {
-		return "", nil
+// Available 向 PI 进程要它眼下的可用模型（含内置服务商与登录态）。
+func (p *ProviderService) Available(ctx context.Context, workspace string) ([]domain.AvailableModelVO, error) {
+	if workspace == "" {
+		workspace = p.env.Workspace()
 	}
-	return pkg.Decrypt(p.env.Cfg.MasterKey, d.APIKeyEnc)
+	sup := p.env.PiSupervisor()
+	if sup == nil || workspace == "" {
+		return nil, pkg.New("3112", "还没有可用的工作目录", "")
+	}
+	client, err := sup.Ensure(background(60*time.Second), workspace)
+	if err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	list, err := client.AvailableModels(cctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.AvailableModelVO, 0, len(list))
+	for _, m := range list {
+		vo := domain.AvailableModelVO{
+			ID: m.ID, Name: m.Name, Provider: m.Provider,
+			ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens, Reasoning: m.Reasoning,
+		}
+		for _, in := range m.Input {
+			if in == "image" {
+				vo.Vision = true
+			}
+		}
+		out = append(out, vo)
+	}
+	return out, nil
 }
 
-func modelsEndpoint(d *domain.ProviderDO) string {
-	base := strings.TrimRight(d.BaseURL, "/")
-	switch d.API {
+// ModelSpec 取一个模型的能力（上下文窗口 / 输出上限），供水位环与预算用。
+// 查不到返回 0，前端按「约」显示。
+func (p *ProviderService) ModelSpec(provider, model string) (int, int) {
+	_, providers, err := p.env.PiEnv.ReadModelsRaw()
+	if err != nil {
+		return 0, 0
+	}
+	if raw, ok := providers[provider]; ok {
+		cfg := providerConfigOf(rawToFields(raw))
+		for _, m := range cfg.Models {
+			if m.ID == model {
+				return m.ContextWindow, m.MaxTokens
+			}
+		}
+	}
+	// 服务商没写模型条目时，翻一遍全部服务商：同名模型的能力是一样的。
+	for _, raw := range providers {
+		cfg := providerConfigOf(rawToFields(raw))
+		for _, m := range cfg.Models {
+			if m.ID == model {
+				return m.ContextWindow, m.MaxTokens
+			}
+		}
+	}
+	return 0, 0
+}
+
+// listRemoteModels 按接口类型向上游要模型清单。
+func listRemoteModels(ctx context.Context, api, baseURL, apiKey string) ([]string, error) {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if base == "" {
+		return nil, pkg.New("3106", "先填接口地址", "")
+	}
+	url := base + "/models"
+	switch api {
 	case domain.APIAnthropicMessages:
-		if base == "" {
-			base = "https://api.anthropic.com"
+		if !strings.Contains(base, "/v1") {
+			url = base + "/v1/models"
 		}
-		return base + "/v1/models"
-	case domain.APIGoogle:
-		if base == "" {
-			base = "https://generativelanguage.googleapis.com/v1beta"
+	case domain.APIGoogleGenerative:
+		url = base + "/models"
+		if apiKey != "" {
+			url += "?key=" + apiKey
 		}
-		return base + "/models"
-	default:
-		if base == "" {
-			base = "https://api.openai.com/v1"
-		}
-		return base + "/models"
 	}
+
+	cctx, cancel := context.WithTimeout(ctx, modelListTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, pkg.Wrap("3106", "接口地址不正确", err)
+	}
+	if apiKey != "" && !strings.HasPrefix(apiKey, "!") && !strings.HasPrefix(apiKey, "$") {
+		switch api {
+		case domain.APIAnthropicMessages:
+			req.Header.Set("x-api-key", apiKey)
+			req.Header.Set("anthropic-version", "2023-06-01")
+		case domain.APIGoogleGenerative:
+			req.Header.Set("x-goog-api-key", apiKey)
+		default:
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, pkg.Wrap("3106", "连不上这个接口，检查地址与网络", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode != http.StatusOK {
+		return nil, pkg.New("3107", fmt.Sprintf("上游返回 %d", resp.StatusCode), clipText(string(body), 240))
+	}
+	return parseModelNames(body), nil
 }
 
-func providerVO(d *domain.ProviderDO, models []string) domain.ProviderVO {
-	return domain.ProviderVO{
-		ID: d.ID, Name: d.Name, API: d.API, BaseURL: d.BaseURL,
-		HasKey: d.APIKeyEnc != "", Models: models, IsDefault: d.IsDefault,
-		Enabled: d.Enabled, CreatedAt: d.CreatedAt,
+// parseModelNames 兼容三种上游形状：OpenAI 的 data[]、Anthropic 的 data[]、
+// Google 的 models[]。认不出就返回空表——报错比编一个模型名更有用。
+func parseModelNames(body []byte) []string {
+	var doc struct {
+		Data []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			DisplayName string `json:"displayName"`
+		} `json:"data"`
+		Models []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"models"`
 	}
-}
-
-// defaultProviderID 取默认服务 id；没有默认就取第一个。
-func defaultProviderID(env *Env) string {
-	if id, err := env.Repo.GetSetting(domain.SettingDefaultProvider); err == nil && id != "" {
-		return id
-	}
-	list, err := env.Repo.ListProviders()
-	if err != nil || len(list) == 0 {
-		return ""
-	}
-	return list[0].ID
-}
-
-func parseModels(raw string) []string {
-	if raw == "" {
+	if err := json.Unmarshal(body, &doc); err != nil {
 		return []string{}
 	}
-	var out []string
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return []string{}
+	seen := map[string]bool{}
+	out := []string{}
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
 	}
+	for _, m := range doc.Data {
+		add(firstNonEmpty(m.ID, m.Name))
+	}
+	for _, m := range doc.Models {
+		// Google 的 name 形如 models/gemini-2.0，界面只留最后一段。
+		add(strings.TrimPrefix(firstNonEmpty(m.ID, m.Name), "models/"))
+	}
+	sort.Strings(out)
 	return out
 }
 
-func boolPtr(b bool) *bool { return &b }
+// restartIdle 重启空闲进程，让新的配置生效。
+func (p *ProviderService) restartIdle() error {
+	sup := p.env.PiSupervisor()
+	if sup == nil {
+		return nil
+	}
+	return sup.RestartIdle(context.Background())
+}
+
+// isKnownAPI 校验接口类型在我们认识的范围内。
+func isKnownAPI(api string) bool {
+	for _, v := range domain.APIAll {
+		if v == api {
+			return true
+		}
+	}
+	return false
+}
+
+// slugOf 从显示名生成一个可用的服务商键。
+var nonSlug = regexp.MustCompile(`[^a-z0-9._-]+`)
+
+func slugOf(name string) string {
+	slug := strings.ToLower(strings.TrimSpace(name))
+	slug = nonSlug.ReplaceAllString(slug, "-")
+	slug = strings.Trim(slug, "-")
+	if slug == "" {
+		slug = "provider"
+	}
+	return slug
+}
+
+// firstNonEmpty 返回第一个非空值。
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}

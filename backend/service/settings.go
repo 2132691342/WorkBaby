@@ -1,4 +1,5 @@
-// 设置编排：KV 读写与校验，背景图落盘，用量统计组装。
+// 设置编排：WorkBaby 自己的界面偏好（KV）与 PI 侧配置的读写（settings.json）。
+// 两者的边界很硬：默认模型、工具集、压缩参数属于 PI，不再存第二份。
 package service
 
 import (
@@ -6,14 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"WorkBaby/backend/domain"
+	"WorkBaby/backend/pi"
 	pienv "WorkBaby/backend/pi/env"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/runtime"
 )
 
-// SettingsService 负责键值设置与外观项。
+// SettingsService 负责键值设置、背景图与 PI 配置的读写。
 type SettingsService struct {
 	env   *Env
 	paths runtime.Paths
@@ -49,18 +52,7 @@ func (s *SettingsService) Set(key, value string) error {
 	switch key {
 	case domain.SettingTheme:
 		if value != "light" && value != "dark" {
-			return pkg.New("2007", "主题只有晴空和夜蓝两种", value)
-		}
-	case domain.SettingPermission:
-		switch value {
-		case domain.PermissionAuto, domain.PermissionAskWrite, domain.PermissionReadonly:
-		default:
-			return pkg.New("1106", "权限档位不正确", value)
-		}
-	case domain.SettingRetentionDays:
-		n, perr := strconv.Atoi(value)
-		if perr != nil || n < 0 || n > domain.MaxRetentionDays {
-			return pkg.New("2008", "保留期要填 0 到 3650 之间的整数（0 = 永久保留）", value)
+			return pkg.New("2007", "主题只有浅色和暗色两种", value)
 		}
 	case domain.SettingWorkspace:
 		if value != "" && !pkg.DirExists(value) {
@@ -69,60 +61,101 @@ func (s *SettingsService) Set(key, value string) error {
 		if err := s.env.Cfg.SetWorkspace(value); err != nil {
 			return err
 		}
+		// 换工作目录要重扫工作区技能：旧目录的技能不该留在列表里。
+		NewSkillService(s.env).Reload(value)
 	}
-	if err := s.env.Repo.SetSetting(key, value); err != nil {
-		return err
-	}
-	// 与 PI 共享的几项写完要同步：不同步的话界面改了、助手行为不变。
-	return s.SyncToPi()
+	return s.env.Repo.SetSetting(key, value)
 }
 
-// SyncToPi 把 WorkBaby 掌管的设置写进 PI 的 settings.json。
-// 只写那几项，其余字段原样保留——PI 的配置里还有大量我们不管的东西。
-func (s *SettingsService) SyncToPi() error {
-	if s.env.PiEnv == nil {
-		return nil
+// SeedDefaults 首启写入默认值。
+func (s *SettingsService) SeedDefaults() error {
+	for k, v := range domain.DefaultSettings() {
+		cur, err := s.env.Repo.GetSetting(k)
+		if err != nil {
+			return err
+		}
+		if cur == "" {
+			if err := s.env.Repo.SetSetting(k, v); err != nil {
+				return err
+			}
+		}
 	}
+	return nil
+}
+
+// PISettings 返回 PI 侧配置快照与全部文件位置。
+func (s *SettingsService) PISettings() (*domain.PISettingsVO, error) {
 	file, err := s.env.PiEnv.ReadSettings()
 	if err != nil {
-		file = nil
+		return nil, err
 	}
 	if file == nil {
 		file = &pienv.SettingsFile{}
 	}
-	file.DefaultProvider = s.get(domain.SettingDefaultProvider)
-	file.DefaultModel = s.get(domain.SettingDefaultModel)
-	if v := s.get(domain.SettingThinkingLevel); v != "" {
-		file.DefaultThinkingLevel = v
+	vo := &domain.PISettingsVO{
+		DefaultProvider: file.DefaultProvider, DefaultModel: file.DefaultModel,
+		DefaultThinkingLevel: file.DefaultThinkingLevel,
+		DefaultTools:         file.DefaultTools,
+		AgentDir:             s.env.PiEnv.AgentDir(),
+		SettingsPath:         s.env.PiEnv.SettingsPath(),
+		ModelsPath:           s.env.PiEnv.ModelsPath(),
+		MCPPath:              s.env.PiEnv.MCPPath(),
+		SessionsDir:          s.env.PiEnv.SessionsDir(),
+		ExtensionsDir:        s.env.PiEnv.ExtensionsDir(),
+		SkillsDir:            s.env.PiEnv.SkillsDir(),
 	}
-	if v := s.getInt(domain.SettingCompactionReserve); v > 0 {
-		if file.Compaction == nil {
-			file.Compaction = &pienv.CompactionSettings{}
-		}
-		file.Compaction.ReserveTokens = v
+	if vo.DefaultTools == nil {
+		vo.DefaultTools = []string{}
 	}
-	if v := s.getInt(domain.SettingCompactionKeep); v > 0 {
-		if file.Compaction == nil {
-			file.Compaction = &pienv.CompactionSettings{}
-		}
-		file.Compaction.KeepRecentTokens = v
+	if file.Compaction != nil {
+		vo.CompactionReserve = file.Compaction.ReserveTokens
+		vo.CompactionKeep = file.Compaction.KeepRecentTokens
 	}
+	return vo, nil
+}
+
+// SetThinkingLevel 写 PI 的默认思考档。
+func (s *SettingsService) SetThinkingLevel(level string) error {
+	switch level {
+	case "off", "minimal", "low", "medium", "high", "xhigh", "max", "":
+	default:
+		return pkg.New("1107", "思考档位不正确", level)
+	}
+	file, err := s.readSettings()
+	if err != nil {
+		return err
+	}
+	file.DefaultThinkingLevel = level
 	return s.env.PiEnv.WriteSettings(file)
 }
 
-// get 读一个设置值（缺省空串）。
-func (s *SettingsService) get(key string) string {
-	v, _ := s.env.Repo.GetSetting(key)
-	return v
+// SetCompaction 写 PI 的压缩参数；0 表示交回默认。
+func (s *SettingsService) SetCompaction(req domain.SetCompactionREQ) error {
+	if req.Reserve < 0 || req.Keep < 0 {
+		return pkg.New("2008", "压缩参数不能是负数", "")
+	}
+	file, err := s.readSettings()
+	if err != nil {
+		return err
+	}
+	if file.Compaction == nil {
+		file.Compaction = &pienv.CompactionSettings{}
+	}
+	file.Compaction.ReserveTokens = req.Reserve
+	file.Compaction.KeepRecentTokens = req.Keep
+	return s.env.PiEnv.WriteSettings(file)
 }
 
-// getInt 读一个整数设置值（缺省 0）。
-func (s *SettingsService) getInt(key string) int {
-	n, err := parseInt(s.get(key))
+// readSettings 读 PI 的 settings.json；不存在给空结构。
+func (s *SettingsService) readSettings() (*pienv.SettingsFile, error) {
+	file, err := s.env.PiEnv.ReadSettings()
 	if err != nil {
-		return 0
+		return nil, err
 	}
-	return n
+	if file == nil {
+		file = &pienv.SettingsFile{}
+	}
+	return file, nil
 }
 
 // Background 取当前自定义背景；没设置时 Image 为空串。
@@ -150,7 +183,7 @@ func (s *SettingsService) SetBackground(path string, opacity, blur float64) (dom
 		return domain.BackgroundVO{Opacity: opacity, Blur: blur}, nil
 	}
 	if !pkg.FileExists(path) {
-		return domain.BackgroundVO{}, pkg.Wrap("1005", "这张图片不存在，可能已经被挪走或删掉了", nil)
+		return domain.BackgroundVO{}, pkg.New("1005", "这张图片不存在，可能已经被挪走或删掉了", path)
 	}
 	if !bgExts[pkg.Ext(path)] {
 		return domain.BackgroundVO{}, pkg.New("1014", "这张图不是能当背景的格式（支持 png / jpg / webp / bmp）", path)
@@ -198,8 +231,7 @@ func (s *SettingsService) clearBackground() error {
 	return nil
 }
 
-// removeBgFilesExcept 删掉背景目录里除 keep 之外的文件：换图与清除都会留下旧副本，
-// 不清就是无上界的磁盘增长，而用户根本不知道数据目录里堆着一堆旧图。
+// removeBgFilesExcept 删掉背景目录里除 keep 之外的文件：换图与清除都会留下旧副本。
 func (s *SettingsService) removeBgFilesExcept(keep string) {
 	entries, err := os.ReadDir(s.paths.BackgroundDir)
 	if err != nil {
@@ -217,6 +249,32 @@ func (s *SettingsService) removeBgFilesExcept(keep string) {
 			pkg.Warnf("settings: 删除旧背景图失败 %s: %v", full, err)
 		}
 	}
+}
+
+// WorkspaceCandidates 返回最近用过的工作目录（从会话文件里取），供界面上快速切换。
+func (s *SettingsService) WorkspaceCandidates() []string {
+	out := []string{}
+	seen := map[string]bool{}
+	if cur := s.env.Workspace(); cur != "" {
+		out = append(out, cur)
+		seen[strings.ToLower(filepath.Clean(cur))] = true
+	}
+	metas, err := pi.ListSessions(s.env.PiEnv.SessionsDir())
+	if err != nil {
+		return out
+	}
+	for _, m := range metas {
+		if m.Cwd == "" {
+			continue
+		}
+		key := strings.ToLower(filepath.Clean(m.Cwd))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, m.Cwd)
+	}
+	return out
 }
 
 // bgExts 是允许作为背景的图片格式。
@@ -243,31 +301,4 @@ func numOr(s string, def float64) float64 {
 		return def
 	}
 	return v
-}
-
-// SeedDefaults 首启写入默认值。
-func (s *SettingsService) SeedDefaults() error {
-	for k, v := range domain.DefaultSettings() {
-		cur, err := s.env.Repo.GetSetting(k)
-		if err != nil {
-			return err
-		}
-		if cur == "" {
-			if err := s.env.Repo.SetSetting(k, v); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// MigrateLegacy 清掉历史版本写死的默认值，让这些设置回到「跟随模型」的语义。
-func (s *SettingsService) MigrateLegacy() error {
-	legacyReserve := "16384"
-	if v, err := s.env.Repo.GetSetting(domain.SettingContextReserve); err == nil && v == legacyReserve {
-		if err := s.env.Repo.SetSetting(domain.SettingContextReserve, ""); err != nil {
-			return err
-		}
-	}
-	return nil
 }

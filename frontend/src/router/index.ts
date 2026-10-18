@@ -10,7 +10,6 @@ const router = createRouter({
     // 环境向导：pi_env.ready=false 时强制进这里，没有 PI 就没有对话。
     { path: '/setup', name: 'setup', component: () => import('../views/SetupView.vue') },
     { path: '/workspace', name: 'workspace', component: () => import('../views/WorkspaceView.vue') },
-    { path: '/console/:tab?', name: 'console', component: () => import('../views/ConsoleView.vue') },
     { path: '/dashboard', name: 'dashboard', component: () => import('../views/DashboardView.vue') },
     { path: '/help/:name?', name: 'help', component: () => import('../views/HelpView.vue') },
     { path: '/settings/:tab?', name: 'settings', component: () => import('../views/SettingsView.vue') },

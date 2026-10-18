@@ -1,17 +1,18 @@
-// MCP 编排：编辑 PI 的 mcp.json，并从 PI 读回它报上来的工具。
-// 客户端是 PI——它自己拉子进程、自己握手、自己把工具声明并进模型请求。
+// MCP 编排：配置读写的是 PI 的 mcp.json，在线状态与工具清单来自 `pi mcp list --json`。
+// WorkBaby 不再自己维护一份 MCP 清单——用户用 pi mcp add 加的，打开界面就该看到。
 package service
 
 import (
+	"context"
 	"encoding/json"
-	"sort"
+	"path/filepath"
 	"strings"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 )
 
-// MCPService 编排 MCP 配置（文件即唯一真相源）。
+// MCPService 是 MCP 面板的数据出口。
 type MCPService struct {
 	env *Env
 }
@@ -19,165 +20,197 @@ type MCPService struct {
 // NewMCPService 构造 MCP 服务。
 func NewMCPService(env *Env) *MCPService { return &MCPService{env: env} }
 
-// Config 返回配置面板要的全部东西：文件路径、原文、解析结果与解析错误。
-func (s *MCPService) Config() (*domain.MCPConfigRESP, error) {
-	raw, err := s.env.PiEnv.ReadMCPRaw()
+// List 返回服务列表与两份配置原文。
+func (s *MCPService) List(workspace string) (*domain.MCPListRESP, error) {
+	if workspace == "" {
+		workspace = s.env.Workspace()
+	}
+	globalPath := s.env.PiEnv.MCPPath()
+	projectPath := s.env.PiEnv.ProjectMCPPath(workspace)
+
+	globalRaw, err := s.env.PiEnv.MCPRaw(globalPath)
 	if err != nil {
 		return nil, err
 	}
-	servers, parseErr := parseMCPServers(raw)
-	return &domain.MCPConfigRESP{
-		Path:       s.env.PiEnv.MCPPath(),
-		Raw:        string(raw),
-		Servers:    servers,
-		ParseError: parseErr,
+	projectRaw := []byte("{}\n")
+	if projectPath != "" {
+		if raw, err := s.env.PiEnv.MCPRaw(projectPath); err == nil {
+			projectRaw = raw
+		}
+	}
+
+	servers := []domain.MCPServerVO{}
+	servers = append(servers, parseConfigured(globalRaw, "global", globalPath)...)
+	if projectPath != "" {
+		servers = append(servers, parseConfigured(projectRaw, "project", projectPath)...)
+	}
+	// 在线状态覆盖配置里的占位：连上了就把工具清单带回来。
+	for _, live := range s.live() {
+		replaced := false
+		for i := range servers {
+			if servers[i].Name == live.Name && samePath(servers[i].Source, live.Source) {
+				live.Scope = servers[i].Scope
+				servers[i] = live
+				replaced = true
+			}
+		}
+		if !replaced {
+			servers = append(servers, live)
+		}
+	}
+
+	return &domain.MCPListRESP{
+		Servers:     servers,
+		GlobalPath:  globalPath,
+		ProjectPath: projectPath,
+		GlobalRaw:   string(globalRaw),
+		ProjectRaw:  string(projectRaw),
 	}, nil
 }
 
-// SaveConfig 保存配置原文：先校验再落盘。
-// 解析不过返回 9106 且文件一个字符都不动：半写坏的配置会把整个面板变成连不上。
-func (s *MCPService) SaveConfig(req domain.SaveMCPConfigREQ) (*domain.MCPConfigRESP, error) {
-	if _, parseErr := parseMCPServers([]byte(req.Raw)); parseErr != "" {
-		return nil, pkg.New("9106", "配置有问题，没有保存", parseErr)
-	}
-	if err := s.env.PiEnv.WriteMCPRaw([]byte(req.Raw)); err != nil {
-		return nil, err
-	}
-	// 知识库那条由程序维护，保存后补回：用户可能整段替换掉了它。
-	if err := s.env.PiEnv.EnsureKnowledgeMCP(selfExe()); err != nil {
-		pkgWarn("mcp: 补回知识库条目失败", err)
-	}
-	return s.Config()
-}
-
-// Templates 返回内置模板（一次给全：面板要列三个按钮）。
-func (s *MCPService) Templates() []domain.MCPTemplateVO {
-	return []domain.MCPTemplateVO{
-		{
-			Kind: "blank", Label: "空白", Hint: "从零写一份",
-			Raw: "{\n  \"mcpServers\": {}\n}\n",
-		},
-		{
-			Kind: "local", Label: "本地命令", Hint: "一个本地可执行程序",
-			Raw: `{
-  "mcpServers": {
-    "my-tool": {
-      "command": "python",
-      "args": ["-m", "my_mcp_server"],
-      "cwd": "D:\\tools\\my-mcp"
-    }
-  }
-}
-`,
-		},
-		{
-			Kind: "example", Label: "常见示例", Hint: "文件系统服务",
-			Raw: `{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "D:\\WorkBaby"]
-    }
-  }
-}
-`,
-		},
-	}
-}
-
-// List 列出配置里的服务。
-func (s *MCPService) List() []domain.MCPServerVO {
-	raw, err := s.env.PiEnv.ReadMCPRaw()
-	if err != nil {
-		return []domain.MCPServerVO{}
-	}
-	servers, _ := parseMCPServers(raw)
-	return servers
-}
-
-// Tools 当前 PI 报上来的 MCP 工具（从工具目录里按前缀筛）。
-func (s *MCPService) Tools() []domain.MCPToolVO {
-	out := []domain.MCPToolVO{}
-	for _, name := range s.mcpToolNames() {
-		parts := strings.Split(name, "__")
-		server := ""
-		if len(parts) >= 3 {
-			server = parts[1]
-		}
-		out = append(out, domain.MCPToolVO{Name: name, Label: name, Server: server})
-	}
-	return out
-}
-
-// mcpToolNames 从 mcp.json 推断各服务的前缀（具体工具名要 PI 跑起来才知道）。
-func (s *MCPService) mcpToolNames() []string {
-	raw, err := s.env.PiEnv.ReadMCPRaw()
-	if err != nil {
-		return nil
-	}
-	servers, _ := parseMCPServers(raw)
-	out := make([]string, 0, len(servers))
-	for _, sv := range servers {
-		if sv.Disabled {
-			continue
-		}
-		out = append(out, "mcp__"+sv.Name+"__*")
-	}
-	sort.Strings(out)
-	return out
-}
-
-// parseMCPServers 解析 mcp.json；返回服务条目与解析错误（空串表示没问题）。
-// 未知字段原样保留：拷来的配置带 timeout / headers 等，按自己的理解裁剪会让它失效。
-func parseMCPServers(raw []byte) ([]domain.MCPServerVO, string) {
-	if len(strings.TrimSpace(string(raw))) == 0 {
-		return []domain.MCPServerVO{}, ""
-	}
+// parseConfigured 从一份 mcp.json 里抽出服务条目（不带在线状态）。
+func parseConfigured(raw []byte, scope, source string) []domain.MCPServerVO {
+	out := []domain.MCPServerVO{}
 	var doc struct {
-		Servers map[string]json.RawMessage `json:"mcpServers"`
+		Servers map[string]struct {
+			Type     string   `json:"type"`
+			URL      string   `json:"url"`
+			Command  string   `json:"command"`
+			Args     []string `json:"args"`
+			Disabled bool     `json:"disabled"`
+			Exposure string   `json:"exposure"`
+		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return []domain.MCPServerVO{}, "不是合法的 JSON：" + err.Error()
+		return out
 	}
-	if doc.Servers == nil {
-		// 缺失通常是把 mcpServers 写错了名字，静默当成空配置会让用户以为保存成功。
-		return []domain.MCPServerVO{}, "缺少 mcpServers 字段"
-	}
-	out := make([]domain.MCPServerVO, 0, len(doc.Servers))
-	for name, body := range doc.Servers {
-		var entry struct {
-			Command  string            `json:"command"`
-			Args     []string          `json:"args"`
-			Env      map[string]string `json:"env"`
-			Cwd      string            `json:"cwd"`
-			Disabled bool              `json:"disabled"`
+	for name, cfg := range doc.Servers {
+		transport := cfg.URL
+		if transport == "" {
+			transport = strings.TrimSpace(cfg.Command + " " + strings.Join(cfg.Args, " "))
 		}
-		_ = json.Unmarshal(body, &entry)
-		if strings.TrimSpace(name) == "" {
-			return []domain.MCPServerVO{}, "有服务的名字是空的"
+		exposure := cfg.Exposure
+		if exposure == "" {
+			exposure = "codemode"
 		}
-		if entry.Command == "" {
-			return []domain.MCPServerVO{}, "服务「" + name + "」缺少 command"
-		}
-		keys := make([]string, 0, len(entry.Env))
-		for k := range entry.Env {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
 		out = append(out, domain.MCPServerVO{
-			Name:     name,
-			Command:  entry.Command,
-			Args:     entry.Args,
-			EnvKeys:  keys,
-			Cwd:      entry.Cwd,
-			Disabled: entry.Disabled,
+			Name: name, Scope: scope, Source: source,
+			Enabled: !cfg.Disabled, Exposure: exposure, Transport: transport,
+			State: "unknown", Tools: []string{},
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, ""
+	return out
 }
 
-// Reload 触发 PI 重扫：mcp.json 是进程启动期读的，改文件不重启等于没改。
+// live 读 PI 报的在线状态；PI 未就绪或命令失败时返回空表（界面显示「未连接」）。
+func (s *MCPService) live() []domain.MCPServerVO {
+	out := []domain.MCPServerVO{}
+	if exe, _ := s.env.PiEnv.PiExe(); exe == "" {
+		return out
+	}
+	raw, err := s.env.PiEnv.RunCLIOutput("mcp", "list", "--json")
+	if err != nil {
+		return out
+	}
+	body := raw
+	if idx := strings.Index(body, "{"); idx > 0 {
+		body = body[idx:]
+	}
+	var doc struct {
+		Servers []struct {
+			Name      string   `json:"name"`
+			Scope     string   `json:"scope"`
+			Source    string   `json:"source"`
+			Enabled   bool     `json:"enabled"`
+			Exposure  string   `json:"exposure"`
+			Transport string   `json:"transport"`
+			State     string   `json:"state"`
+			Error     string   `json:"error"`
+			Tools     []string `json:"tools"`
+		} `json:"servers"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		return out
+	}
+	for _, srv := range doc.Servers {
+		tools := srv.Tools
+		if tools == nil {
+			tools = []string{}
+		}
+		out = append(out, domain.MCPServerVO{
+			Name: srv.Name, Scope: srv.Scope, Source: srv.Source, Enabled: srv.Enabled,
+			Exposure: srv.Exposure, Transport: srv.Transport, State: srv.State,
+			Error: srv.Error, Tools: tools,
+		})
+	}
+	return out
+}
+
+// Save 校验并写入一份 mcp.json；scope 决定写哪一份。
+// 只做结构校验，不判断某个服务连不连得上——那是 `pi mcp list` 的事。
+func (s *MCPService) Save(req domain.SaveMCPREQ) error {
+	path, err := s.pathOf(req.Scope)
+	if err != nil {
+		return err
+	}
+	raw := strings.TrimSpace(req.Raw)
+	if raw == "" {
+		raw = "{}"
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		return pkg.Wrap("9101", "这段 JSON 解析不了", err)
+	}
+	if servers, ok := doc["mcpServers"]; ok {
+		var table map[string]json.RawMessage
+		if err := json.Unmarshal(servers, &table); err != nil {
+			return pkg.New("9101", "mcpServers 必须是一个对象（服务名 → 配置）", "")
+		}
+	} else {
+		doc["mcpServers"] = json.RawMessage("{}")
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return pkg.Wrap("9102", "配置无法序列化", err)
+	}
+	if err := s.env.PiEnv.WriteMCPRaw(path, append(out, '\n')); err != nil {
+		return err
+	}
+	return s.Reload()
+}
+
+// Remove 删掉一个服务（走 PI 的命令，它知道全局与项目两种落点）。
+func (s *MCPService) Remove(req domain.RemoveMCPServerREQ) error {
+	if strings.TrimSpace(req.Name) == "" {
+		return domain.ErrMCPServer
+	}
+	args := []string{"mcp", "remove", req.Name}
+	if req.Scope == "project" {
+		args = append(args, "--local")
+	}
+	if err := s.env.PiEnv.RunCLI(args, nil); err != nil {
+		return err
+	}
+	return s.Reload()
+}
+
+// Login 给 OAuth 服务发起登录。
+func (s *MCPService) Login(name string, onLine func(string)) error {
+	if strings.TrimSpace(name) == "" {
+		return domain.ErrMCPServer
+	}
+	return s.env.PiEnv.RunCLI([]string{"mcp", "login", name}, onLine)
+}
+
+// Logout 清掉某个服务的 OAuth 凭据。
+func (s *MCPService) Logout(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return domain.ErrMCPServer
+	}
+	return s.env.PiEnv.RunCLI([]string{"mcp", "logout", name}, nil)
+}
+
+// Reload 重启 PI 进程让新的 MCP 配置生效。
 func (s *MCPService) Reload() error {
 	sup := s.env.PiSupervisor()
 	if sup == nil {
@@ -185,3 +218,39 @@ func (s *MCPService) Reload() error {
 	}
 	return sup.RestartAll()
 }
+
+// pathOf 把 scope 映射到配置文件路径。
+func (s *MCPService) pathOf(scope string) (string, error) {
+	switch scope {
+	case "", "global":
+		return s.env.PiEnv.MCPPath(), nil
+	case "project":
+		workspace := s.env.Workspace()
+		if workspace == "" {
+			return "", pkg.New("9104", "还没有选工作目录，无法保存项目级 MCP 配置", "")
+		}
+		return filepath.Join(workspace, ".pi", "mcp.json"), nil
+	default:
+		return "", pkg.New("9104", "不支持的配置范围", scope)
+	}
+}
+
+// MCPTools 把在线服务的工具展开成工具清单（工具页与清单合并用）。
+func (s *MCPService) MCPTools() []domain.ToolVO {
+	out := []domain.ToolVO{}
+	for _, srv := range s.live() {
+		for _, tool := range srv.Tools {
+			out = append(out, domain.ToolVO{
+				Name:        "mcp__" + srv.Name + "__" + tool,
+				Description: srv.Name + " 提供的工具",
+				Source:      domain.ToolSourceMCP,
+				Server:      srv.Name,
+				Enabled:     srv.Enabled,
+			})
+		}
+	}
+	return out
+}
+
+// 编译期确认 context 被引用（未来给 mcp list 加超时用）。
+var _ = context.Background

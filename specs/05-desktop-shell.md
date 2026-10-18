@@ -120,8 +120,8 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 | 事项 | 做法 |
 |---|---|
 | 覆盖安装 | 写 exe 前先 `ExecWait 'taskkill /F /IM WorkBaby.exe /T' $0`——托盘常驻时 exe 仍被占用；必须用 `ExecWait`，`Exec` 不写退出码，判断等于没判；杀掉后等 1.5 秒释放文件句柄 |
-| 旧数据 | 检测到 `%APPDATA%\WorkBaby\workbaby.db` 时问一句要不要在装前清空；默认保留，静默安装（`/S`）从不删 |
-| 卸载数据 | 问一句是否删除本机数据（对话记录 / 配置含 API Key / 知识库 / 技能 / 日志 / 运行时）；默认保留，静默卸载同样不删 |
+| 旧数据 | 数据的去留在组件页用**勾选框**表达，不弹窗：安装页一个「清空旧数据」可选项（默认不勾），卸载页同理。勾选框比弹窗少了两次打断，且选择在安装前就可见、可改。静默安装 / 卸载（`/S`）跳过页面，未勾选的 section 不执行——无人值守永不删数据 |
+| 卸载数据 | 只删 `%APPDATA%\WorkBaby`（界面设置 / 日志 / 内置运行时）。`~/.pi/agent` 属于 PI（对话、模型、技能），卸载一律不动 |
 | 文件关联 | 模板的 `wails.associateFiles` 是空宏，直接在 `project.nsi` 里调 `APP_ASSOCIATE` |
 | 脚本编码 | `project.nsi` 必须带 UTF-8 BOM，否则中文注释与字符串会被按系统代码页解析而报错 |
 | 插件 | 该打包环境不带任何 NSIS 插件，只能用 `ExecWait` / `taskkill` 这类内置能力 |

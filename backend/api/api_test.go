@@ -23,11 +23,12 @@ import (
 )
 
 // bootServer 在干净家目录起一套完整装配 + 真实 HTTP 栈。
-// 运行时标记先预置好：配置 / DB / 服务全链路照常跑，只跳过归档解压。
+// agent 目录也隔离：测试绝不能动用户真实的 ~/.pi/agent。
 func bootServer(t *testing.T) (string, *api.Handler) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("WORKBABY_HOME", home)
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(home, "agent"))
 	// 假设 PI 就是那个假进程：它说同一套协议，链路照常全跑。
 	t.Setenv("WORKBABY_PI_EXE", buildFakePI(t))
 	// 装配期不要去解压上百 MB 的归档（真解压在 runtime 包里测一次）。
@@ -40,8 +41,8 @@ func bootServer(t *testing.T) (string, *api.Handler) {
 	t.Cleanup(h.Shutdown)
 
 	// 装配缺任何一样，界面都是空窗口 + 接口全 404。
-	if h.Svc == nil || h.Repo == nil || h.Skills == nil || h.Cfg.MasterKey == "" || h.PiEnv == nil {
-		t.Fatal("服务容器没有装配完整（Svc/Repo/Skills/PiEnv/MasterKey）")
+	if h.Svc == nil || h.Repo == nil || h.Skills == nil || h.PiEnv == nil {
+		t.Fatal("服务容器没有装配完整（Svc/Repo/Skills/PiEnv）")
 	}
 	if h.ServerPort() != 0 {
 		t.Fatal("端口应由后续握手阶段写入，Startup 阶段应为 0")
@@ -111,24 +112,6 @@ func call(t *testing.T, base, method, path string, body any) (int, string) {
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(raw)
-}
-
-// unwrapID 从统一响应信封里取 data.id。
-func unwrapID(t *testing.T, body string) string {
-	t.Helper()
-	var payload struct {
-		Code string `json:"code"`
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(body), &payload); err != nil {
-		t.Fatalf("解析响应失败: %v body=%s", err, body)
-	}
-	if payload.Data.ID == "" {
-		t.Fatalf("响应里没有 id: %s", body)
-	}
-	return payload.Data.ID
 }
 
 // sseFrame 是一条被解析出来的 SSE 帧。
@@ -222,7 +205,8 @@ func keysOf(m map[string]bool) []string {
 
 // TestHTTPChain 是 api 包唯一的测试入口。服务只启动一次，子测试共用。
 func TestHTTPChain(t *testing.T) {
-	base, _ := bootServer(t)
+	base, h := bootServer(t)
+	workspace := h.Svc.Env.Workspace()
 
 	t.Run("HTTP 闸门：预检放行、方法白名单、越界入参在门口拒绝", func(t *testing.T) {
 		// 预检不放行的话前端所有 POST 都在浏览器层就被拦掉，接口本身根本没被调用。
@@ -241,7 +225,7 @@ func TestHTTPChain(t *testing.T) {
 			t.Fatalf("预检被拒: %d", resp.StatusCode)
 		}
 
-		// 方法白名单：DELETE / PUT 一律走统一外壳报 1002，而不是让 gin 自己回 404/405。
+		// 方法白名单：DELETE / PUT 一律走统一外壳报 1002。
 		for _, m := range []string{http.MethodPut, http.MethodDelete} {
 			if _, body := call(t, base, m, "/sessions/whatever", nil); !strings.Contains(body, `"code":"1002"`) {
 				t.Fatalf("%s 应当被白名单拦下: %s", m, body)
@@ -255,7 +239,7 @@ func TestHTTPChain(t *testing.T) {
 		}
 	})
 
-	t.Run("HTTP 契约：统一信封、空数组与插件接口", func(t *testing.T) {
+	t.Run("契约：统一信封、空数组不null、配置位置可见", func(t *testing.T) {
 		code, body := call(t, base, "GET", "/bootstrap", nil)
 		if code != http.StatusOK {
 			t.Fatalf("bootstrap 失败: %d %s", code, body)
@@ -263,10 +247,9 @@ func TestHTTPChain(t *testing.T) {
 		var payload struct {
 			Code string `json:"code"`
 			Data struct {
-				ContractVersion  int                `json:"contract_version"`
-				PiEnv            *json.RawMessage   `json:"pi_env"`
-				ExpiredApprovals *[]map[string]any  `json:"expired_approvals"`
-				Settings         *map[string]string `json:"settings"`
+				ContractVersion int                `json:"contract_version"`
+				PiEnv           *json.RawMessage   `json:"pi_env"`
+				Settings        *map[string]string `json:"settings"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
@@ -275,21 +258,17 @@ func TestHTTPChain(t *testing.T) {
 		if payload.Code != "0" {
 			t.Fatalf("成功响应的 code 必须是字符串 \"0\": %s", body)
 		}
-		// 没有 pi_env 的话前端进不了环境向导，只会看到一个永远发不出消息的输入框。
-		if payload.Data.PiEnv == nil {
-			t.Fatalf("bootstrap 里没有 pi_env: %s", body)
-		}
-		// 切片与 map 是 null 还是 []，前端读法完全不同：契约说是数组就永远发数组。
-		if payload.Data.ExpiredApprovals == nil {
-			t.Fatalf("expired_approvals 发成了 null: %s", body)
-		}
-		if payload.Data.Settings == nil {
-			t.Fatalf("settings 发成了 null: %s", body)
+		// 没有 pi_env 的话前端进不了环境向导；没有 settings 外观设置读不到。
+		if payload.Data.PiEnv == nil || payload.Data.Settings == nil {
+			t.Fatalf("bootstrap 字段缺失: %s", body)
 		}
 
-		// 环境状态与运行时状态是设置页与向导的唯一数据源，字段名不能漂。
-		if _, body := call(t, base, "GET", "/env", nil); !strings.Contains(body, `"pi_path"`) {
-			t.Fatalf("环境接口缺少 pi_path: %s", body)
+		// 环境与运行时状态是向导与设置页的唯一数据源，字段名不能漂。
+		_, body = call(t, base, "GET", "/env", nil)
+		for _, want := range []string{`"pi_path"`, `"agent_dir"`, `"python_path"`} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("环境接口缺少 %s: %s", want, body)
+			}
 		}
 		_, body = call(t, base, "GET", "/runtime", nil)
 		for _, want := range []string{`"node_exe"`, `"python_exe"`} {
@@ -298,12 +277,8 @@ func TestHTTPChain(t *testing.T) {
 			}
 		}
 
-		// 插件列表：数组字段直接被前端 .length，发成 null 就是一句运行时错误。
-		code, body = call(t, base, "GET", "/extensions", nil)
-		if code != http.StatusOK {
-			t.Fatalf("列插件失败: %d %s", code, body)
-		}
-		var ext struct {
+		// 数组字段直接被前端 .length，发成 null 就是一句运行时错误。
+		var list struct {
 			Code string `json:"code"`
 			Data struct {
 				Dir      string            `json:"dir"`
@@ -311,53 +286,103 @@ func TestHTTPChain(t *testing.T) {
 				Packages *[]map[string]any `json:"packages"`
 			} `json:"data"`
 		}
-		if err := json.Unmarshal([]byte(body), &ext); err != nil {
+		_, body = call(t, base, "GET", "/extensions", nil)
+		if err := json.Unmarshal([]byte(body), &list); err != nil {
 			t.Fatalf("解析插件列表失败: %v", err)
 		}
-		if ext.Data.Entries == nil || ext.Data.Packages == nil {
+		if list.Data.Entries == nil || list.Data.Packages == nil {
 			t.Fatalf("插件列表的数组字段发成了 null: %s", body)
 		}
-		// 审批闸门（workbaby.ts）永远不可停：它是「动手前问你一句」的唯一实现。
-		code, body = call(t, base, "POST", "/extensions/toggle", map[string]any{
-			"path": filepath.Join(ext.Data.Dir, "workbaby.ts"), "enabled": false,
-		})
-		if code != http.StatusOK {
-			t.Fatalf("停内置闸门应当返回 200 带业务码，实际: %d %s", code, body)
+
+		for _, path := range []string{"/skills", "/tools", "/providers"} {
+			_, body = call(t, base, "GET", path, nil)
+			if strings.Contains(body, `"code":"99`) {
+				t.Fatalf("%s 报错了: %s", path, body)
+			}
 		}
-		if !strings.Contains(body, `"9717"`) {
-			t.Fatalf("停内置闸门应报 9717: %s", body)
+
+		// MCP 的服务列表与两份配置原文都要在。
+		_, body = call(t, base, "GET", "/mcp", nil)
+		for _, want := range []string{`"servers"`, `"global_raw"`, `"project_raw"`} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("MCP 接口缺少 %s: %s", want, body)
+			}
 		}
 	})
 
-	t.Run("SSE 全链：子进程到帧、seq 递增、断线重放", func(t *testing.T) {
-		// 配一个服务：环境闸门的 model 判定要它，发送也要求有可用模型。
-		code, body := call(t, base, "POST", "/providers", map[string]any{
-			"name": "t", "api": "openai-completions",
-			"base_url": "https://api.example.com/v1",
-			"models":   []string{"test-model"},
+	t.Run("SSE 全链：子进程到帧、seq 递增、断线重连不被拒", func(t *testing.T) {
+		// 配一个服务：环境闸门的 model 判定要它。
+		code, body := call(t, base, "POST", "/providers/upsert", map[string]any{
+			"name": "测试网关", "api": "openai-completions",
+			"base_url": "https://api.example.com/v1", "api_key": "sk-test",
+			"models": []map[string]any{{"id": "test-model", "name": "测试模型"}},
 		})
-		if code != http.StatusOK {
+		if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
 			t.Fatalf("创建模型服务失败: %d %s", code, body)
 		}
-		provID := unwrapID(t, body)
-		if code, body := call(t, base, "POST", "/providers/default/"+provID, nil); code != http.StatusOK {
-			t.Fatalf("设为默认失败: %d %s", code, body)
+		if code, body := call(t, base, "POST", "/providers/default", map[string]any{
+			"provider": "测试网关", "model": "test-model",
+		}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
+			// 名字会被 slug 成 provider 键：拿列表里的真实键再设一次。
+			_, listing := call(t, base, "GET", "/providers", nil)
+			var parsed struct {
+				Data struct {
+					Providers []struct {
+						ID string `json:"id"`
+					} `json:"providers"`
+				} `json:"data"`
+			}
+			_ = json.Unmarshal([]byte(listing), &parsed)
+			if len(parsed.Data.Providers) == 0 {
+				t.Fatalf("服务商没落盘: %s", listing)
+			}
+			id := parsed.Data.Providers[0].ID
+			if code, body := call(t, base, "POST", "/providers/default", map[string]any{
+				"provider": id, "model": "test-model",
+			}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
+				t.Fatalf("设为默认失败: %d %s", code, body)
+			}
 		}
 
-		code, body = call(t, base, "POST", "/sessions", map[string]any{})
-		if code != http.StatusOK {
-			t.Fatalf("建会话失败: %d %s", code, body)
+		// 第一次发送：新对话由后端现场创建，返回 session_id。
+		code, body = call(t, base, "POST", "/chat/send", map[string]any{
+			"workspace": workspace, "content": "在吗",
+		})
+		if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
+			t.Fatalf("首次发送失败: %d %s", code, body)
 		}
-		sessID := unwrapID(t, body)
+		var sent struct {
+			Data struct {
+				SessionID string `json:"session_id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(body), &sent); err != nil || sent.Data.SessionID == "" {
+			t.Fatalf("新对话没有返回 session_id: %s", body)
+		}
+		sessID := sent.Data.SessionID
+
+		// 会话文件是 PI 写的：给它一点时间落盘，再确认列表里能看到。
+		var listed bool
+		for i := 0; i < 100 && !listed; i++ {
+			_, listing := call(t, base, "GET", "/sessions", nil)
+			listed = strings.Contains(listing, sessID)
+			if !listed {
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+		if !listed {
+			t.Fatal("发送之后会话没有出现在列表里（会话索引没读到 PI 的文件）")
+		}
 
 		frames, stop := subscribeSSE(t, base, sessID, "")
 		defer stop()
+		time.Sleep(120 * time.Millisecond) // 让订阅先进 Hub，避免错过首帧
 
 		code, body = call(t, base, "POST", "/chat/send", map[string]any{
-			"session_id": sessID, "content": "在吗",
+			"session_id": sessID, "content": "再来一轮",
 		})
 		if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
-			t.Fatalf("发送失败: %d %s", code, body)
+			t.Fatalf("第二次发送失败: %d %s", code, body)
 		}
 		got := drainUntil(t, frames, "chat:start", "chat:delta", "chat:done")
 
@@ -389,7 +414,6 @@ func TestHTTPChain(t *testing.T) {
 		if text.String() != "你好" {
 			t.Fatalf("流式正文拼接不对: %q", text.String())
 		}
-		// seq 必须严格递增：前端靠它做断线重放，乱序会在对账时重复渲染。
 		for i := 1; i < len(seqs); i++ {
 			if seqs[i] <= seqs[i-1] {
 				t.Fatalf("事件 seq 非递增: %v", seqs)
@@ -406,7 +430,7 @@ func TestHTTPChain(t *testing.T) {
 		}
 		select {
 		case <-frames2:
-		case <-time.After(5 * time.Second):
+		case <-time.After(3 * time.Second):
 			// 没有新事件也算通过：这条只验证「重连不被拒绝」。
 		}
 	})

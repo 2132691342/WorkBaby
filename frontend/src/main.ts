@@ -1,12 +1,10 @@
 // 应用入口：装配状态、路由、样式并挂载根组件。
-// 开发态假后端必须是第一个 import——bootstrap 在模块顶层就注册事件监听。
-import './dev/preview'
-
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 import './bootstrap'
+import { useToastStore } from './stores/toast'
 import './themes.css'
 import './wb-ui.css'
 import 'highlight.js/styles/github.css'
@@ -17,11 +15,11 @@ const app = createApp(App)
 // toast 在 pinia 装好后才可用，启动早期的错误只落 console。
 app.config.errorHandler = (err, _inst, info) => {
   console.error('[WorkBaby]', info, err)
-  import('./stores/toast')
-    .then(({ useToastStore }) =>
-      useToastStore().bad(`界面出现异常：${(err as Error)?.message || '请重启应用'}`),
-    )
-    .catch(() => {})
+  try {
+    useToastStore().bad(`界面出现异常：${(err as Error)?.message || '请重启应用'}`)
+  } catch {
+    /* toast 还没装好（pinia 之前）：只落 console */
+  }
 }
 app.use(createPinia())
 app.use(router)

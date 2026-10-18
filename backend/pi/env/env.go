@@ -1,5 +1,6 @@
-// Package env 负责 PI 的运行环境：内置 Node、PI 的发现与安装、注入的 PATH，
-// 以及与 PI 的配置互通（models.json / settings.json / mcp.json）。只有 pi 需要它。
+// Package env 负责 PI 的运行环境：运行时的发现与复用、PI 自身的发现与安装、
+// 子进程 PATH 注入，以及与 PI 的配置互通（models.json / settings.json / mcp.json）。
+// 它只服务 pi 包：上层拿不到这里的实现细节。
 package env
 
 import (
@@ -8,25 +9,23 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/runtime"
 )
 
-// minNodeMajor 是 PI 对 Node 的下界（PI 要求 >= 22.19）。
+// minNodeMajor 是 PI 对 Node 的下界（PI 要求 >= 22）。
 const minNodeMajor = 22
 
 // 错误码 9700-9799 与 pi 包同段：环境不通与进程不通是同一类故障的不同层次。
 var (
-	ErrNodeMissing  = pkg.New("9707", "内置 Node 运行时不可用", "归档缺失或解压失败")
+	ErrNodeMissing  = pkg.New("9707", "找不到可用的 Node 运行时", "内置运行时不可用，系统里也没有 node")
 	ErrNodeTooOld   = pkg.New("9708", "Node 版本太旧，跑不了 PI", "")
 	ErrPiMissing    = pkg.New("9709", "还没有安装助手引擎（PI）", "")
-	ErrInstallFail  = pkg.New("9710", "安装助手引擎失败", "")
 	ErrModelMissing = pkg.New("9711", "还没有配置可用的模型服务", "")
 )
 
-// EnvVO 是环境闸门的快照，直接进 BootstrapVO 下发给前端。
+// EnvVO 是环境快照，直接进 BootstrapVO 下发给前端。
 type EnvVO struct {
 	NodeReady   bool   `json:"node_ready"`
 	NodePath    string `json:"node_path"`
@@ -34,11 +33,19 @@ type EnvVO struct {
 	NodeSource  string `json:"node_source"`
 	NodeError   string `json:"node_error"`
 
+	PythonReady   bool   `json:"python_ready"`
+	PythonPath    string `json:"python_path"`
+	PythonVersion string `json:"python_version"`
+	PythonSource  string `json:"python_source"`
+
 	PiReady   bool   `json:"pi_ready"`
 	PiPath    string `json:"pi_path"`
 	PiVersion string `json:"pi_version"`
 	PiSource  string `json:"pi_source"`
 	PiError   string `json:"pi_error"`
+
+	// AgentDir 是 PI 的配置目录：界面上「我的技能/插件/模型在哪」都以它为准。
+	AgentDir string `json:"agent_dir"`
 
 	ModelReady bool `json:"model_ready"`
 	Ready      bool `json:"ready"`
@@ -49,7 +56,7 @@ type EnvVO struct {
 // Env 是环境解析的持有者：一次解析，全局复用。
 type Env struct {
 	paths runtime.Paths
-	// override 供测试注入假路径，空表示走真实探测。
+	// overridePi 供测试注入假路径，空表示走真实探测。
 	overridePi string
 }
 
@@ -60,10 +67,16 @@ func New(paths runtime.Paths) *Env { return &Env{paths: paths} }
 func (e *Env) Paths() runtime.Paths { return e.paths }
 
 // AgentDir 返回 PI 的 agent 目录。
-func (e *Env) AgentDir() string { return e.paths.PiAgentDir }
+func (e *Env) AgentDir() string { return e.paths.AgentDir }
 
-// NodeExe 返回跑 PI 用的 node：内置优先，其次系统。
+// NodeExe 返回跑 PI 用的 node：系统已有合规版本就用系统的，否则用内置的。
+// 复用系统版本可以省掉一次解压，也让 `pi` 在终端与界面里跑在同一个 Node 上。
 func (e *Env) NodeExe() (string, string) {
+	if exe := runtime.NodeSystemExe(); exe != "" {
+		if nodeSatisfies(nodeVersionOf(exe)) {
+			return exe, "system"
+		}
+	}
 	if exe, err := runtime.EnsureNode(e.paths); err == nil {
 		return exe, "bundled"
 	}
@@ -73,20 +86,30 @@ func (e *Env) NodeExe() (string, string) {
 	return "", ""
 }
 
-// NpmCmd 返回装包用的 npm：内置优先，其次系统。
-func (e *Env) NpmCmd() string {
-	if cmd := runtime.NpmCmd(e.paths); cmd != "" {
-		return cmd
+// PythonExe 返回给 PI 用的 python：系统优先，其次内置。
+func (e *Env) PythonExe() (string, string) {
+	if exe := pythonSystemExe(); exe != "" {
+		return exe, "system"
 	}
-	for _, name := range []string{"npm.cmd", "npm"} {
-		if exe, err := exec.LookPath(name); err == nil {
-			return exe
-		}
+	if exe, err := runtime.EnsurePython(e.paths); err == nil {
+		return exe, "bundled"
 	}
-	return ""
+	return "", ""
 }
 
-// nodeVersionOf 取 node 的版本号（去掉前缀 v）。
+// NpmCmd 返回装包用的 npm：与 node 保持同一套（系统优先，其次内置）。
+func (e *Env) NpmCmd() string {
+	if _, err := exec.LookPath("node"); err == nil {
+		for _, name := range []string{"npm.cmd", "npm"} {
+			if exe, err := exec.LookPath(name); err == nil {
+				return exe
+			}
+		}
+	}
+	return runtime.NpmCmd(e.paths)
+}
+
+// nodeSystemExe 返回系统 PATH 上的 node。
 func nodeVersionOf(nodeExe string) string {
 	if nodeExe == "" {
 		return ""
@@ -113,7 +136,23 @@ func nodeSatisfies(version string) bool {
 	return major >= minNodeMajor
 }
 
-// PiExe 定位 PI 的入口：显式指定 > 内置 npm 前缀 > 系统 PATH。
+// pythonSystemExe 找系统 python；内置 embeddable 版没有 pip 与 venv，
+// 用户机器上已有完整 Python 时没有理由不用它。
+func pythonSystemExe() string {
+	for _, name := range []string{"python.exe", "python3.exe", "python", "python3"} {
+		exe, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		// Windows 商店占位符会返回 9009，跑一次 -V 才能确认它能用。
+		if out, err := exec.Command(exe, "-V").Output(); err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Python 3") {
+			return exe
+		}
+	}
+	return ""
+}
+
+// PiExe 定位 PI 的入口：显式指定 > 系统 PATH > 各 npm 全局前缀。
 // WORKBABY_PI_EXE 让测试与高级用户指定一份特定的 PI。
 func (e *Env) PiExe() (string, string) {
 	if e.overridePi != "" {
@@ -122,23 +161,37 @@ func (e *Env) PiExe() (string, string) {
 	if explicit := strings.TrimSpace(os.Getenv("WORKBABY_PI_EXE")); explicit != "" {
 		return explicit, "env"
 	}
-	// npm 全局前缀下的布局：<prefix>/node_modules/.bin/pi.cmd 或直接落在 <prefix>/pi.cmd。
-	candidates := []string{
-		filepath.Join(e.paths.NpmGlobalDir, "pi.cmd"),
-		filepath.Join(e.paths.NpmGlobalDir, "node_modules", ".bin", "pi.cmd"),
-	}
-	for _, c := range candidates {
-		if pkg.FileExists(c) {
-			return c, "npm-global"
+	for _, name := range []string{"pi.cmd", "pi.exe", "pi"} {
+		if exe, err := exec.LookPath(name); err == nil {
+			return exe, "system"
 		}
 	}
-	if exe, err := exec.LookPath("pi.cmd"); err == nil {
-		return exe, "system"
-	}
-	if exe, err := exec.LookPath("pi"); err == nil {
-		return exe, "system"
+	for _, prefix := range e.npmPrefixes() {
+		for _, c := range []string{
+			filepath.Join(prefix, "pi.cmd"),
+			filepath.Join(prefix, "pi.exe"),
+			filepath.Join(prefix, "node_modules", ".bin", "pi.cmd"),
+		} {
+			if pkg.FileExists(c) {
+				return c, "npm-global"
+			}
+		}
 	}
 	return "", ""
+}
+
+// npmPrefixes 列出要找 PI 的 npm 全局前缀：系统 npm 的配置优先，其次应用内那份。
+func (e *Env) npmPrefixes() []string {
+	out := []string{}
+	if npm := e.NpmCmd(); npm != "" {
+		if raw, err := exec.Command(npm, "config", "get", "prefix").Output(); err == nil {
+			if p := strings.TrimSpace(string(raw)); p != "" && pkg.DirExists(p) {
+				out = append(out, p)
+			}
+		}
+	}
+	out = append(out, e.paths.NpmGlobalDir)
+	return out
 }
 
 // PiVersion 跑一次 `pi --version` 拿版本号。
@@ -153,9 +206,9 @@ func (e *Env) PiVersion(piExe string) string {
 	return strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
 }
 
-// Detect 跑一遍环境闸门。modelReady 由上层传入（它知道 provider 配置）。
+// Detect 跑一遍环境闸门。modelReady 由上层传入（它读过 models.json）。
 func (e *Env) Detect(modelReady bool) EnvVO {
-	vo := EnvVO{ModelReady: modelReady}
+	vo := EnvVO{ModelReady: modelReady, AgentDir: e.paths.AgentDir}
 
 	nodeExe, nodeSource := e.NodeExe()
 	vo.NodePath = nodeExe
@@ -165,8 +218,14 @@ func (e *Env) Detect(modelReady bool) EnvVO {
 	if nodeExe == "" {
 		vo.NodeError = ErrNodeMissing.Error()
 	} else if !vo.NodeReady {
-		vo.NodeError = "Node 版本 " + vo.NodeVersion + " 低于要求（需要 22.19 或更高）"
+		vo.NodeError = "Node 版本 " + vo.NodeVersion + " 低于要求（需要 22 或更高）"
 	}
+
+	pyExe, pySource := e.PythonExe()
+	vo.PythonPath = pyExe
+	vo.PythonSource = pySource
+	vo.PythonVersion = pythonVersionOf(pyExe)
+	vo.PythonReady = pyExe != ""
 
 	piExe, piSource := e.PiExe()
 	vo.PiPath = piExe
@@ -189,17 +248,29 @@ func (e *Env) Detect(modelReady bool) EnvVO {
 	return vo
 }
 
-// Env 返回 PI 子进程要用的完整环境变量：注入内置运行时的 PATH（前置拼接）。
-// 前置拼接是硬要求：后置会被用户 PATH 上的旧版本抢先，内置运行时等于没生效。
+// pythonVersionOf 取 Python 版本号（形如 3.12.8）。
+func pythonVersionOf(exe string) string {
+	if exe == "" {
+		return ""
+	}
+	out, err := exec.Command(exe, "-V").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "Python "))
+}
+
+// Env 返回 PI 子进程要用的完整环境变量：把选中的运行时前置进 PATH。
+// 前置拼接是硬要求：后置会被用户 PATH 上的旧版本抢先，选中的运行时等于没生效。
 func (e *Env) Env() []string {
 	dirs := []string{}
-	if d := e.paths.NodeDir; d != "" {
-		dirs = append(dirs, d)
+	if node, source := e.NodeExe(); node != "" && source == "bundled" {
+		dirs = append(dirs, filepath.Dir(node))
 	}
-	if d := e.paths.NpmGlobalDir; d != "" {
-		dirs = append(dirs, d)
+	if py, source := e.PythonExe(); py != "" && source == "bundled" {
+		dirs = append(dirs, filepath.Dir(py))
 	}
-	if d := e.paths.PythonDir; d != "" {
+	if d := e.paths.NpmGlobalDir; d != "" && pkg.DirExists(d) {
 		dirs = append(dirs, d)
 	}
 
@@ -207,12 +278,9 @@ func (e *Env) Env() []string {
 	current := os.Getenv("PATH")
 	prefix := strings.Join(dirs, string(os.PathListSeparator))
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(strings.ToUpper(kv), "PATH=") {
-			continue
-		}
-		// PI 的 agent 目录必须显式指定：把 PI 的状态收进应用目录，卸载即清，
-		// 同时保证它的 skills/ 就是我们的技能目录。
-		if strings.HasPrefix(strings.ToUpper(kv), "PI_CODING_AGENT_DIR=") {
+		upper := strings.ToUpper(kv)
+		// PATH 自己重新拼；npm 前缀由本层决定，继承来的会指向别处。
+		if strings.HasPrefix(upper, "PATH=") || strings.HasPrefix(upper, "NPM_CONFIG_PREFIX=") {
 			continue
 		}
 		out = append(out, kv)
@@ -224,14 +292,13 @@ func (e *Env) Env() []string {
 	} else if current != "" {
 		out = append(out, "PATH="+current)
 	}
-	out = append(out, "PI_CODING_AGENT_DIR="+e.paths.PiAgentDir)
-
-	// npm 全局前缀落在应用目录：系统前缀要管理员权限，写失败时 npm 报的是权限错。
-	out = append(out, "npm_config_prefix="+e.paths.NpmGlobalDir)
+	// PI 的 agent 目录不覆盖：它必须就是用户 pi 命令读写的那一份。
+	// Windows 下 Python 的中文输出默认走 GBK，工具结果会变成乱码。
+	out = append(out, "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
 	return out
 }
 
-// InstallPi 用内置 npm 全局安装 PI，输出按行回调（前端要看到进度）。
+// InstallPi 用 npm 全局安装 PI，输出按行回调（前端要看到进度）。
 // 安装可能几十秒，没有输出界面会被当成卡死。
 func (e *Env) InstallPi(onLine func(string)) error {
 	npm := e.NpmCmd()
@@ -240,7 +307,7 @@ func (e *Env) InstallPi(onLine func(string)) error {
 	}
 	args := []string{"install", "-g", "--ignore-scripts", piPackage}
 	cmd := exec.Command(npm, args...)
-	cmd.Env = e.Env()
+	cmd.Env = append(e.Env(), "npm_config_prefix="+e.paths.NpmGlobalDir)
 	hideWindow(cmd)
 
 	stdout, err := cmd.StdoutPipe()
@@ -268,10 +335,6 @@ func (e *Env) InstallPi(onLine func(string)) error {
 // piPackage 是 PI 的 npm 包名。
 const piPackage = "@earendil-works/pi-coding-agent"
 
-// ModelReady 判断是否至少有一个服务配了密钥与模型。
-// 没有可用模型就 spawn，失败点会推到第一次对话，错误还埋在协议流里。
-func ModelReady(hasProvider bool) bool { return hasProvider }
-
 // WriteFileAtomic 原子替换写入：磁盘写满或进程被杀留下半截配置比写失败更糟。
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
@@ -296,10 +359,7 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return pkg.Wrap("9712", "写配置文件失败", err)
 	}
-	if err := os.Chmod(name, perm); err != nil {
-		// 权限设置失败在 Windows 上常见（不支持 POSIX 位），不阻断写入。
-		_ = err
-	}
+	_ = os.Chmod(name, perm)
 	if err := os.Rename(name, path); err != nil {
 		return pkg.Wrap("9712", "写配置文件失败", err)
 	}
@@ -345,9 +405,5 @@ func WriteJSON(path string, v any) error {
 	if err != nil {
 		return pkg.Wrap("9712", "配置无法序列化", err)
 	}
-	raw = append(raw, '\n')
-	return WriteFileAtomic(path, raw, 0o600)
+	return WriteFileAtomic(path, append(raw, '\n'), 0o600)
 }
-
-// 编译期确认 time 被引用（版本探测的未来扩展点）。
-var _ = time.Second

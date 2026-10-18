@@ -12,7 +12,6 @@ const { theme, setTheme } = useTheme()
 const items = [
   { key: 'chat', to: '/', icon: 'chat', label: '对话' },
   { key: 'workspace', to: '/workspace', icon: 'git-branch', label: '工作区' },
-  { key: 'console', to: '/console', icon: 'braces', label: '指挥台' },
   { key: 'dashboard', to: '/dashboard', icon: 'chart', label: '仪表盘' },
   { key: 'help', to: '/help', icon: 'book', label: '帮助' },
   { key: 'settings', to: '/settings', icon: 'settings', label: '设置' },

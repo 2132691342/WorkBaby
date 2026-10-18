@@ -6,8 +6,8 @@ import { useRouter } from 'vue-router'
 import * as api from '../api'
 import { useSessionStore } from '../stores/session'
 import { useToastStore } from '../stores/toast'
-import type { RunVO, StatsRESP } from '../types/api'
-import { fmtCount, fmtMs } from '../utils/num'
+import type { StatsRESP } from '../types/api'
+import { fmtCount, fmtMoney } from '../utils/num'
 import AppIcon from '../components/common/AppIcon.vue'
 import PageState from '../components/common/PageState.vue'
 import ShareRing from '../components/dashboard/ShareRing.vue'
@@ -44,8 +44,12 @@ const totals = computed(() => data.value?.totals)
 // 没有任何用量时不画空图表：一张空的折线图只会让人以为坏了
 const hasUsage = computed(() => (totals.value?.total || 0) > 0)
 const topSessions = computed(() => (data.value?.sessions || []).slice(0, 6))
-// 上限 100%：老数据的输入量按「未命中部分」记，命中量可能大于输入量（后端已归一，这里兜显示）
-const hitRate = computed(() => Math.min(100, (totals.value?.cache_hit_rate || 0) * 100))
+// 命中率 = 命中量 / 输入量；输入为 0 时不撒谎，直接 0
+const hitRate = computed(() => {
+  const t = totals.value
+  if (!t?.input) return 0
+  return Math.min(100, (t.cached / t.input) * 100)
+})
 
 // 四个读数卡：每张一个主读数 + 标签 + 一行注解。
 // 抽成数据而不是把模板抄四遍——抄错一处就是四处分叉。
@@ -75,11 +79,11 @@ const kpis = computed(() => {
       hit: hitRate.value > 0,
     },
     {
-      key: 'latency',
-      icon: 'clock',
-      value: fmtMs(t?.avg_latency_ms || 0),
-      label: '平均耗时',
-      note: `合计 ${fmtMs(t?.latency_ms || 0)}`,
+      key: 'cost',
+      icon: 'coin',
+      value: fmtMoney(t?.cost || 0),
+      label: '花费',
+      note: '按上游报价估算（美元）',
     },
   ]
 })
@@ -88,7 +92,7 @@ const kpis = computed(() => {
 const subline = computed(() => {
   const t = totals.value
   if (!t) return ''
-  return `平均上下文 ${fmtCount(t.avg_context)} · 峰值 ${fmtCount(t.peak_context)} · 有记录的会话 ${t.sessions} 个`
+  return `有活动的会话 ${t.sessions} 个 · 消息 ${fmtCount(t.messages)} 条 · 模型调用 ${fmtCount(t.calls)} 次`
 })
 
 // 打开会话要等 deserialization：async 期间不给反馈，用户会以为点空了
@@ -107,50 +111,7 @@ async function openSession(id: string) {
   }
 }
 
-// ---- 运行概览：最近的 run 也是「花了多少、走到哪」的账，混进 token 总量里却看不出头绪 ----
-const recentRuns = ref<RunVO[]>([])
-const runsLoading = ref(true)
-
-async function loadRuns() {
-  runsLoading.value = true
-  try {
-    recentRuns.value = (await api.runs.list('', 30)).slice(0, 6)
-  } catch {
-    // 读不到就空着：仪表盘的主体是用量，不该被一块概览拖垮
-    recentRuns.value = []
-  } finally {
-    runsLoading.value = false
-  }
-}
-onMounted(() => {
-  void loadRuns()
-})
-
-const runningNow = computed(() => recentRuns.value.filter((r) => r.status === 'running').length)
-const failedNow = computed(() => recentRuns.value.filter((r) => r.status === 'failed').length)
-const runTokens = computed(() => recentRuns.value.reduce((n, r) => n + (r.tokens || 0), 0))
-
-const runStatusText: Record<string, string> = {
-  running: '进行中',
-  done: '已完成',
-  failed: '失败',
-  aborted: '已停止',
-}
-const runLed: Record<string, string> = {
-  running: 'is-live',
-  done: 'is-ok',
-  failed: 'is-bad',
-  aborted: 'is-warn',
-}
-function fmtWhen(ts: number): string {
-  if (!ts) return ''
-  const d = new Date(ts)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-function openRun(id: string) {
-  router.push(`/console/runs?run=${encodeURIComponent(id)}`)
-}</script>
+</script>
 
 <template>
   <div class="dash wb-ui">
@@ -249,7 +210,7 @@ function openRun(id: string) {
                     type="button"
                     :disabled="opening !== ''"
                     :class="{ 'is-loading': opening === s.session_id }"
-                    :title="`${s.title || '未命名对话'} · ${fmtCount(s.total)} token`"
+                    :title="`${s.title || '未命名对话'} · ${fmtCount(s.total)} token · ${s.workspace}`"
                     @click="openSession(s.session_id)"
                   >
                     <AppIcon name="doc" size="ic-xs" />
@@ -263,52 +224,6 @@ function openRun(id: string) {
           </template>
         </PageState>
 
-        <!-- 运行概览：最近的 run 也是「花了多少、走到哪」的账 -->
-        <section class="card console-card">
-          <div class="card-head">
-            <h2>最近运行</h2>
-            <span class="sp" />
-            <button class="btn btn-sm btn-ghost" type="button" @click="router.push('/console/runs')">
-              <AppIcon name="activity" size="ic-xs" /> 去指挥台
-            </button>
-          </div>
-          <p v-if="runsLoading" class="none">正在读取…</p>
-          <p v-else-if="!recentRuns.length" class="none">
-            还没有运行记录。回对话页说句话，这里就会留下「那一次干了什么」。
-          </p>
-          <template v-else>
-            <div class="mini-stats">
-              <div class="ms">
-                <b :class="{ 'is-live': runningNow > 0 }">{{ runningNow }}</b>
-                <span>正在跑</span>
-              </div>
-              <div class="ms">
-                <b :class="{ 'is-bad': failedNow > 0 }">{{ failedNow }}</b>
-                <span>失败了</span>
-              </div>
-              <div class="ms">
-                <b>{{ recentRuns.length }}</b>
-                <span>最近记录</span>
-              </div>
-              <div class="ms">
-                <b>{{ fmtCount(runTokens) }}</b>
-                <span>这些 run 的 token</span>
-              </div>
-            </div>
-            <ul class="run-list">
-              <li v-for="r in recentRuns" :key="r.id">
-                <button class="run-row" type="button" @click="openRun(r.id)">
-                  <span class="led" :class="runLed[r.status]" />
-                  <span class="rr-name">{{ r.session_title || '已归档会话' }}</span>
-                  <span class="rr-prompt">{{ r.model }}</span>
-                  <span class="tag">{{ runStatusText[r.status] || r.status }}</span>
-                  <span class="rr-tok mono">{{ fmtCount(r.tokens || 0) }}</span>
-                  <span class="rr-time dim">{{ fmtWhen(r.started_at) }}</span>
-                </button>
-              </li>
-            </ul>
-          </template>
-        </section>
       </div>
     </div>
   </div>

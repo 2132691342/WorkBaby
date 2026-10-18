@@ -1,64 +1,52 @@
-// MCP 外部服务聚合根：配置文件里的一项启动声明与它的运行期状态（specs/10）。
+// MCP 聚合根：配置来自 mcp.json，在线状态与工具清单来自 `pi mcp list --json`。
 package domain
 
-// MCPDefaultTimeout 是单次调用的缺省超时（秒）；配置文件没写就用它。
-const MCPDefaultTimeout = 30
+import "WorkBaby/backend/pkg"
 
-// MCPConfigFileName 是配置文件名，落在数据目录下（与 workbaby.db 同级）。
-const MCPConfigFileName = "mcp.json"
+var (
+	ErrMCPConfig = pkg.New("9101", "MCP 配置格式不正确", "")
+	ErrMCPSave   = pkg.New("9102", "保存 MCP 配置失败", "")
+	ErrMCPServer = pkg.New("9103", "MCP 服务不存在", "")
+)
 
-// MCPEntry 是 mcp.json 里的一项，解析后带上名字（名字即 JSON 的键）。
-// 文件是唯一真相源：不落库，改完重载即生效。
-type MCPEntry struct {
-	Name     string            `json:"name"`
-	Command  string            `json:"command"`
-	Args     []string          `json:"args"`
-	Env      map[string]string `json:"env"`
-	Cwd      string            `json:"cwd"`
-	Disabled bool              `json:"disabled"`
-	Timeout  int               `json:"timeout"`
-}
-
-// MCPServerVO 出参：命令与参数给界面展示，环境变量只回键名——值里常写着密钥。
-// 只有「声明」没有「连接结果」：连接由 PI 负责，它不回报每个服务的成败，就没有可信的状态可画。
+// MCPServerVO 一个 MCP 服务：配置 + 在线状态。
 type MCPServerVO struct {
-	Name     string   `json:"name"`
-	Command  string   `json:"command"`
-	Args     []string `json:"args"`
-	EnvKeys  []string `json:"env_keys"`
-	Cwd      string   `json:"cwd"`
-	Disabled bool     `json:"disabled"`
-	Timeout  int      `json:"timeout"`
+	Name string `json:"name"`
+	// Scope 是 global（~/.pi/agent/mcp.json）或 project（<workspace>/.pi/mcp.json）。
+	Scope   string `json:"scope"`
+	Source  string `json:"source"`
+	Enabled bool   `json:"enabled"`
+	// Exposure 是 PI 的工具暴露档：direct / codemode / deferred。
+	Exposure  string   `json:"exposure"`
+	Transport string   `json:"transport"`
+	State     string   `json:"state"`
+	Error     string   `json:"error"`
+	Tools     []string `json:"tools"`
 }
 
-// SaveMCPConfigREQ 保存配置原文：后端先校验再落盘，解析不过不写文件。
-type SaveMCPConfigREQ struct {
+// MCPListRESP MCP 面板的完整出参：列表 + 两份配置原文（高级编辑用）。
+type MCPListRESP struct {
+	Servers     []MCPServerVO `json:"servers"`
+	GlobalPath  string        `json:"global_path"`
+	ProjectPath string        `json:"project_path"`
+	GlobalRaw   string        `json:"global_raw"`
+	ProjectRaw  string        `json:"project_raw"`
+}
+
+// SaveMCPREQ 保存配置原文：scope 决定写哪一份。
+type SaveMCPREQ struct {
+	Scope string `json:"scope"`
+	// Raw 是 JSON 原文；保存前会做语法与 mcpServers 结构校验。
 	Raw string `json:"raw"`
 }
 
-// MCPConfigRESP 是配置面板要的全部东西：文件在哪、原文是什么、解析出了什么。
-type MCPConfigRESP struct {
-	Path       string        `json:"path"`
-	Raw        string        `json:"raw"`
-	Servers    []MCPServerVO `json:"servers"`
-	ParseError string        `json:"parse_error"`
+// RemoveMCPServerREQ 删掉一个服务（走 `pi mcp remove`）。
+type RemoveMCPServerREQ struct {
+	Name  string `json:"name"`
+	Scope string `json:"scope"`
 }
 
-// MCPTemplateVO 一个内置模板：界面按 kinds 列按钮，点哪个填哪个。
-type MCPTemplateVO struct {
-	Kind string `json:"kind"`
-	// Label 是按钮上的字：模板的用途只有一句话，说清了用户才知道点它。
-	Label string `json:"label"`
-	Hint  string `json:"hint"`
-	Raw   string `json:"raw"`
-}
-
-// MCPToolVO 一个已发现的外部工具。
-type MCPToolVO struct {
-	Name        string         `json:"name"`
-	Label       string         `json:"label"`
-	Description string         `json:"description"`
-	Server      string         `json:"server"`
-	Parameters  map[string]any `json:"parameters"`
-	Enabled     bool           `json:"enabled"`
+// MCPServerNameREQ 只带名字的入参（登录 / 登出）。
+type MCPServerNameREQ struct {
+	Name string `json:"name"`
 }

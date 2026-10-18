@@ -23,7 +23,6 @@ const names = [
   'chat:delta',
   'chat:tool_start',
   'chat:tool_end',
-  'chat:approval',
   'chat:compressed',
   'chat:user',
   'chat:context',
@@ -37,6 +36,9 @@ const names = [
   'chat:switched',
   // 环境安装进度。
   'chat:setup',
+  // 引擎里的扩展在问用户（confirm / select / input）。
+  'chat:ask',
+  'chat:ask_closed',
 ]
 
 let source: EventSource | null = null

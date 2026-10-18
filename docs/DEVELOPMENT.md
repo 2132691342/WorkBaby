@@ -3,188 +3,105 @@
 ## 环境要求
 
 - Go 1.24+
-- Node.js 20+（前端）
-- Wails CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`（与 CI 同一个 pin，避免本地 CLI 版本漂移）
+- Node.js 20+（前端构建）
+- Wails CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`（与 CI 同一个 pin）
 - Windows 10/11（唯一目标平台）
+- 可选：`pi`（调试真实内核时用；不装也能开发，`pitest` 提供假进程）
 
 ## 常用命令
 
 ```powershell
 # 验证入口：一个脚本收口，别在本地与 CI 各写一套（分档说明见 AGENTS.md §3.3）
-pwsh scripts/check.ps1                                      # 快门：格式 → 编译 → 所有包短测试
-pwsh scripts/check.ps1 -Pkg backend/service                 # 只验一个包
-pwsh scripts/check.ps1 -Full                                # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
+pwsh scripts/check.ps1                        # 快门：格式 → 编译 → 所有包短测试
+pwsh scripts/check.ps1 -Pkg backend/service   # 只验一个包
+pwsh scripts/check.ps1 -Full                  # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
 
 # 单独跑某一步时才手敲
-go test -short -count=1 ./...                               # 所有包短测试：跳过真 git 链路与归档真实解压
-go test -count=1 ./...                                      # 全量：9 个入口，两条慢链路都跑到
-go test -run 'TestServiceChain/审批桥' ./backend/service      # 定点链上的一段
-go test -race ./backend/...                                 # 竞态检测，改并发相关代码时用（需 CGO 与 gcc）
+go test -short -count=1 ./...                 # 短测试：跳过真 git 链路与归档真实解压
+go test -count=1 ./...                        # 全量
+go test -run 'TestServiceChain/会话索引' ./backend/service   # 定点链上的一段
+go run ./tools/check-boundaries               # 依赖方向门禁
 
-# 依赖方向门禁（改包结构或调整依赖后必跑）
-go run ./tools/check-boundaries
-
-# 前端类型检查 / 构建
 cd frontend
 npm install
-npm run build        # vue-tsc + vite build，产物 frontend/dist
-
-# 桌面应用（重新生成 Wails 绑定 + 编译 Go + 构建前端）
-wails build          # 产物 build/bin/WorkBaby.exe
-
-# 开发模式（前端热更 + Go 重编译）
-wails dev
+npm run build                                 # vue-tsc + vite build → frontend/dist
 ```
 
-## 改界面时：先在浏览器里看
+## 调试真实 PI
 
-`wails dev` 每次都要开窗、重编 Go，慢。而界面是纯 HTTP + 事件驱动的，
-所以 `frontend/src/dev/` 备了一套假后端：`npm run dev` 直接在普通浏览器里
-跑出成品界面，改完刷新就看到，不必每次 `wails build`。
+界面里的 PI 进程由 `backend/pi` 拉起。想让它用某一份特定的 `pi`：
 
 ```powershell
-cd frontend
-npm.cmd run dev    # 打开 http://127.0.0.1:5173
+$env:WORKBABY_PI_EXE = 'C:\path\to\pi.cmd'
 ```
 
-- 假数据在 `dev/fixtures.ts`，会话/技能/文档支持增删，能真的点「新建技能」
-- `?empty=1` 打开空态，用来检查「什么都没有」时的界面
-- 生产构建下 `import.meta.env.DEV` 为 false，整段被摇掉，不进包
+想隔离数据（不碰你真实的 `~/.pi/agent`）：
 
-> PowerShell 下必须写 `npm.cmd`，`npm` 会被执行策略拦下。
-
-**局限**：这只验证界面，不代表后端联调通过。真联调仍要 `wails dev`。
-
-## 布局纪律（改界面前必读）
-
-界面「歪」的根因几乎全是布局，不是配色：
-
-| 症状 | 病因 |
-|---|---|
-| 页面横向撑破、右侧被裁 | flex 子项默认 `min-width:auto`，不写 `min-width:0` 就会退回内容宽度 |
-| 一行文字竖着排成几列 | 容器是 `flex` 但漏了 `flex-direction: column` |
-| 读数被压成「3.9 / 秒」两行 | `flex:1` 等分在窄窗口宽度不够，改 `auto-fit + minmax()` 自行换行 |
-| 按钮被挤出可视区 | 行内长文本不设 `min-width:0` + 省略号 |
-
-窗口最窄 960px，所有布局都要在这个宽度下成立。
-
-## 目录速查
-
-| 路径 | 内容 |
-|---|---|
-| `backend/pi` | PI 子进程监督：进程 / RPC 编解码 / 事件翻译（不引 gin/wails，只能靠 pkg 与 runtime） |
-| `backend/pi/env` | 环境引导：内置 Node、PI 的发现与安装、models.json / settings.json / mcp.json 互通 |
-| `backend/service` | 编排层：会话 / 对话 / 审批桥 / 配置同步 / 运行观测 / 记忆 / 子代理（一个关注点一个文件） |
-| `backend/service/memory.go` | 记忆：跨对话的长期事实，注入 APPEND_SYSTEM.md（不单独成包，见 `specs/14`） |
-| `backend/api` | HTTP handler + 组合根：`api_biz.go` 只放统一响应外壳与引导，其余按资源分文件（`sessions.go` / `chat.go` / `providers.go` / `models.go` / `skills.go` / `knowledge.go` / `tools.go` / `runtime.go` / `settings.go` / `mcp.go` / `git.go` / `memory.go` / `observe.go` / `history.go` / `archmap.go` / `help.go` / `env.go`），一个资源一个文件 |
-| `backend/history` | 通用会话历史：只读扫描本机其它 AI 客户端的会话文件 |
-| `backend/archmap` | 项目架构分析：import 解析 → 分层图数据 |
-| `backend/server/routes.go` | 路由注册唯一入口 |
-| `backend/server/sse.go` | SSE Hub：分发 / 重放 / 慢客户端策略 |
-| `tools/check-boundaries` | 依赖方向门禁实现（独立 Go 程序，`go run ./tools/check-boundaries`） |
-| `frontend/src` | 前端源码（唯一一层；`api / components / stores / views` 等平级） |
-| `frontend/src/themes.css` | 色值与字体的唯一定义处 |
-| `frontend/src/wb-ui.css` | 组件基元唯一实现 |
-| `frontend/wailsjs` | Wails 生成的绑定（`wails.json` 的 `wailsjsdir`），不手改、不进 `src` |
-
-## 数据目录（运行时）
-
-```
-%APPDATA%/WorkBaby/            # = C:\Users\<你>\AppData\Roaming\WorkBaby
-├── workbaby.db                # SQLite（WAL）：会话元数据 / 用量 / 运行记录 / 技能 / 知识库 / 记忆
-├── config.yaml                # Viper 配置（MasterKey 等）
-├── logs/                      # app.log（全量）+ warn.log（warn 与 error）
-├── runtime/node/              # 内置 Node 解压后（PI 靠它跑）
-├── runtime/npm-global/        # npm 全局前缀，PI 装在这里
-├── runtime/python/            # 内置 Python 解压后
-├── pi-agent/                  # PI 的 agent 目录（PI_CODING_AGENT_DIR 指向它）
-│   ├── settings.json          #   默认模型 / 思考档 / defaultTools / 压缩参数
-│   ├── models.json            #   服务商与模型（WorkBaby 是唯一写入者）
-│   ├── mcp.json               #   MCP server（含内置的 workbaby-knowledge）
-│   ├── APPEND_SYSTEM.md       #   人设 + 记忆（受控标记块；技能清单由 PI 原生注入，不在这）
-│   ├── workbaby-policy.json   #   审批档（由审批扩展读）
-│   ├── extensions/            #   workbaby.ts：审批闸门 + 记忆写入工具
-│   ├── skills/                #   PI 的技能目录（= WorkBaby 的用户技能目录）
-│   ├── skills.disabled/       #   停用的技能住这里：不在 PI 扫描范围，对模型不存在
-│   └── sessions/              #   PI 的会话 JSONL：对话真身在这里
-├── site-packages/             # 内置 Python 装的第三方包（跨运行时版本保留）
-└── tmp/                       # 超限输出的全文
+```powershell
+$env:WORKBABY_HOME = "$env:TEMP\wb-dev"
+$env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 ```
 
-**两处存储**：`workbaby.db` 存 WorkBaby 自己的账（会话元数据 / 用量 / 运行记录），
-`pi-agent/sessions/` 存对话真身（PI 写的 JSONL）。WorkBaby **绝不写**后者。
+**两个变量都必须设**：`WORKBABY_HOME` 只管数据目录，`PI_CODING_AGENT_DIR` 才管 PI 的配置与会话。
+只设前者会读写你真实的 PI 状态。
 
-`site-packages` 不放进 `runtime/python/`：后者在内置 Python 换版本时整个清场，
-装过的包会跟着一起没。它同时被写进 `python312._pth`（embeddable 版只按这个文件
-决定 `sys.path`，不认 `PYTHONPATH`），否则表现是「包装上了但 import 不到」。
+## 数据落在哪
 
-`npm-global` 单独一层是必要的：系统 npm 全局前缀通常需要管理员权限，
-写失败时 npm 报的是权限错，用户完全看不懂。
+```
+%APPDATA%\WorkBaby\            （或 WORKBABY_HOME）
+├── workbaby.db                SQLite（WAL）：只有界面设置 KV
+├── logs\                      app.log / error.log
+├── runtime\node|python\       内置运行时（首次用时解压）
+├── background\                自定义背景图副本
+├── persona.md                 附加系统提示（--append-system-prompt 传给它）
+└── config.yaml                工作目录等固定项
 
-`WORKBABY_HOME` 环境变量可覆盖根目录，便于便携版与测试隔离。
-`WORKBABY_PI_EXE` 可指定一份特定的 PI（测试与高级用户用）。
-工作目录默认用户主目录，可放 `.pi/skills/` 提供工作区级技能。
+~/.pi/agent\                   （或 PI_CODING_AGENT_DIR）
+├── settings.json              defaultProvider/Model/ThinkingLevel、defaultTools、compaction、packages、extensions
+├── models.json                服务商与模型
+├── mcp.json                   MCP 服务（全局）
+├── sessions\--<cwd>--\*.jsonl 会话（界面读这里）
+├── skills\                    用户技能（停用的在 skills.disabled\）
+├── extensions\                用户扩展
+└── npm\node_modules\          pi install 装下来的包
+```
 
-## 测试怎么写
+排障第一步永远是看 `logs\app.log` 的启动横幅：它同时打印数据目录与 PI 配置目录。
 
-**只保留「失败即意味着某条真实链路坏了」的测试**。判据：这条断言失败时，是否有某个跨模块 /
-跨轮次 / 跨协议的行为出了问题？纯函数的输入输出、字段映射、构造冒烟一律不写——它们不缩短排错时间，
-只增加每次改动后的阅读成本与上下文负担。
+## 改后端时
 
-- **一个包一个入口**：入口统一叫 `Test<Domain>Chain`，同包内其余函数是小写辅助
-  （不带 `Test` 前缀就不会被单独跑起）。多入口会让「这个包测了什么」分散在若干个函数里，
-  失败时也不知道该看哪一个
-- **一条链路一个入口**：同类分支用 `t.Run` 归到同一个入口下，
-  失败时从输出直接看出是哪条链路、哪个分支坏了，
-  **只有一个分支的 `t.Run` 不要写**——它只多一层缩进，不提供任何定位信息
-- **重成本低层级只准备一次**：起 HTTP 服务、解压归档这类昂贵 setup 放在父测试里，
-  子测试共享；否则每次加分支都在给总时长做乘法
-- **装配类测试不真解压归档**：`backend/runtime/runtimetest.SeedMarkers` 预置
-  「已解压 + 版本标记」，装配只跑配置 / DB / 服务 / 工具注册的真实链路。
-  真解压只在 `runtime` 包的 `TestBundledRuntimeChain` 做一次——那是全量测试
-  唯一的慢点，日常用 `-short` 跳过，是刻意的
-- 多轮对话用 `backend/pi/pitest` 的**假 PI 进程**驱动：它是真实子进程，走真实
-  stdin/stdout 协议，所以测的是编解码与生命周期本身，不是 mock。真 PI 只在 `-short`
-  外的集成检查里跑一次。
-- 环境依赖（系统 shell、真实网络、内置运行时归档、真 git）必须先探测再决定跳过，
-  而不是喂假数据让测试「绿着跑」
-- 首行注释写清楚这条链路覆盖什么、坏了的表现是什么；文件里不留「曾经坏过」这类历史叙述
-- 临时数据用 `t.TempDir()`，不要写进真实数据目录
-
-保留哪几条链路、每条覆盖什么，见 `AGENTS.md §3.4` 的测试索引。
-
-## 验证命令
-
-分档与命令的唯一权威是 [`AGENTS.md` §3.3](../AGENTS.md)（本节不重复表格，避免两处各写一套后走样）。
-取舍只有一句：**改哪里跑哪里**。日常用快门档（所有包的短测试）；只碰了一个包就用
-`-Pkg` 把编译范围一起收窄；前端单独验证直接 `cd frontend; npm run build`；
-真 git 链路与归档真解压只在 `-Full`（提交前与 CI）跑到。
-
-单独跑某一步时才手敲原生命令：
-
-| 目的 | 命令 |
+| 目录 | 注意 |
 |---|---|
-| 单个包 | `go test -count=1 ./backend/pi` |
-| 定点一条链路 | `go test -run 'TestPiChain/审批请求解析与回写响应' ./backend/pi` |
-| 依赖方向门禁 | `go run ./tools/check-boundaries` |
-| 竞态检测 | `go test -race ./backend/...`（需 CGO 与 gcc，分钟级） |
+| `backend/pi` | 协议编解码与会话索引都在这里；**不要**在这里 import 任何上层包 |
+| `backend/pi/env` | 配置文件路径与写入都在这里；写 `settings.json` 只改掌管键 |
+| `backend/service` | 编排层：一个关注点一个文件；不写 SQL、不引 gin |
+| `backend/api` | 薄 handler：解析参数 → 调 service → `ok/fail`；组合根在 `handler.go` |
+| `backend/server` | 路由表与 SSE；路径与前端 `api/index.ts` 一一对应 |
+| `backend/domain` | 入参 / 出参 / 实体都放这里，四层不得就地声明结构体 |
 
-耗时大头是**编译**（20 个包 + wails / gin / gorm 依赖），测试本体多在亚秒级——
-`-Pkg` 省的是编译，不是断言。CI（`.github/workflows/ci.yml`）跑的就是 `-Full` 那档。
+新增一个能力时的顺序：`domain` → `repo`（若要落库）→ `service` → `api` → `server/routes.go`
+→ `frontend/src/api/index.ts` → `types/api.ts` → 组件。
 
-运行时归档（`backend/runtime/bundled/*.zip`）直接随仓库托管（Git LFS），
-升级时手工替换 zip 并同步版本常量与 SHA 常量，没有取包脚本。
+## 改前端时
 
-## 排错
-
-| 现象 | 检查 |
+| 目录 | 注意 |
 |---|---|
-| 启动即闪退 | `%APPDATA%/WorkBaby/logs/warn.log`（warn 与 error 共落此文件） |
-| 前端连不上后端 | 是否走 `wails dev`（端口靠 `app:ready` 注入）；单独 `npm run dev` 调不到后端，但能看界面 |
-| FTS 检索无结果 | `db.go` 里 ftsStatements 是否全部执行成功（逐条 Exec） |
-| 界面一直转圈 | PI 进程没吐 `agent_settled`：看 `pi-agent/` 是否存在、Node 是否就绪；`/env` 给闸门快照 |
-| 声称完成但还在跑 | `chat:done` 是否错挂在 `agent_end` 上（应只在 `agent_settled`） |
-| 审批卡点了没反应 | `workbaby.ts` 扩展是否在 `settings.json` 的 `extensions` 里；决策是否带了正确的 `session_id` |
-| 模型 400 | 多半是 PI 侧的协议配对；看 PI 的 stderr 尾部（`Client.Stderr()`） |
-| 改了 `mcp.json` 没生效 | PI 在启动期读它；必须走重载（重启进程）才能生效 |
-| 样式改动没生效 | 硬编码颜色与裸像素字号会绕过 `themes.css` / `wb-ui.css`；用 `grep` 查 hex 与 `font-size: Npx` |
+| `views/` | 五个路由视图；视图内不再自画导航入口 |
+| `components/` | 按视图分目录；基元在 `common/` |
+| `stores/` | Pinia Setup Store；SSE 只放临时态，权威态一律来自快照 |
+| `types/api.ts` | 与后端 RESP 的 json tag 一一对应；改字段必须同步 `ContractVersion` |
+| `themes.css` | 色值与字体的唯一来源；组件里禁止写 hex |
+| `wb-ui.css` | 组件基元（按钮五态 / 卡片 / chip / 开关 / 表格 / 空态）的唯一实现 |
+
+浏览器里看界面：`npm run dev` 会因为没有后端而显示空态——
+要连真后端请用 `wails dev`。
+
+## 常见问题
+
+| 现象 | 先看 |
+|---|---|
+| 技能 / 插件 / 模型全是空 | `PI_CODING_AGENT_DIR` 是否被覆盖；日志里的「PI 配置目录」是不是你期望的那个 |
+| 发了消息没反应 | 环境闸门是否 ready；日志里 `chat: 已发送` 有没有出现 |
+| 同一目录第二条对话报 5005 | 这是内核约束（一个目录一个当前会话），等第一条跑完 |
+| 提问卡点了没反应 | `POST /chat/answer` 的 5010 说明它已失效；看 PI 是否还在跑这一轮 |
+| 仪表盘数字与账单不一致 | 正常：单价是静态的，见 specs/08 |

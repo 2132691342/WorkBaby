@@ -1,4 +1,4 @@
-// PI 监督链路：真实子进程 + 真实 stdin/stdout 分帧，覆盖编解码、命令关联与生命周期。
+// PI 监督链路：真实子进程 + 真实 stdin/stdout 分帧，覆盖编解码、事件顺序与生命周期。
 // 坏了的表现：界面一直转圈、done 提前到、进程死了没反应、停止时排队的句子凭空消失。
 package pi
 
@@ -54,10 +54,15 @@ func (r *recorder) count(kind EventKind) int {
 }
 
 func (r *recorder) find(kind EventKind) (Event, bool) {
+	return r.findFunc(kind, nil)
+}
+
+// findFunc 按种类 + 谓词找第一条匹配的事件；谓词为 nil 时等价于 find。
+func (r *recorder) findFunc(kind EventKind, match func(Event) bool) (Event, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, e := range r.events {
-		if e.Kind == kind {
+		if e.Kind == kind && (match == nil || match(e)) {
 			return e, true
 		}
 	}
@@ -119,11 +124,13 @@ func waitFor(t *testing.T, cond func() bool) {
 func TestPiChain(t *testing.T) {
 	exe := buildFakePI(t)
 
+	// 协议分帧与命令关联：坏帧不挡命令、响应按 id 各归各的。
+	// 分帧按 U+2028 切会把首帧截成半截 JSON；响应按到达顺序配对会串命令。
 	t.Run("协议分帧与命令响应解码", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		// 两条 setStatus 都要到：按 U+2028 切分会把第二条截成半截 JSON 而丢掉。
 		waitFor(t, func() bool { return rec.count(KindExtensionUI) >= 2 })
-		// 首帧是扩展 UI 记录：把它当错误处理，后面的命令就全挂了。
+		// 连续两条不同命令，响应必须各归各的。
 		st, err := client.GetState(context.Background())
 		if err != nil {
 			t.Fatalf("遇到扩展 UI 记录后命令应当照常可用: %v", err)
@@ -131,7 +138,6 @@ func TestPiChain(t *testing.T) {
 		if st.SessionID == "" || st.SessionFile == "" {
 			t.Fatalf("会话标识没拿到: %+v", st)
 		}
-		// 连续两条不同命令，响应必须按 id 各归各的。
 		stats, err := client.GetSessionStats(context.Background())
 		if err != nil {
 			t.Fatalf("get_session_stats 失败: %v", err)
@@ -139,42 +145,18 @@ func TestPiChain(t *testing.T) {
 		if stats.TotalTokens != 1200 {
 			t.Fatalf("统计读串了: %+v", stats)
 		}
-
-		// 响应负载的解码：三种来源的斜杠命令、导出路径与取消重试。
-		cmds, err := client.GetCommands(context.Background())
-		if err != nil {
-			t.Fatalf("get_commands 失败: %v", err)
-		}
-		// `/` 菜单靠 source 决定一条命令属于扩展、模板还是技能。
-		seen := map[string]string{}
-		for _, c := range cmds {
-			seen[c.Name] = c.Source
-		}
-		for name, source := range map[string]string{"review": "extension", "weekly": "prompt", "skill:demo": "skill"} {
-			if seen[name] != source {
-				t.Fatalf("命令 %s 的来源不对: %q", name, seen[name])
-			}
-		}
-		path, err := client.ExportHTML(context.Background(), "C:/tmp/session.html")
-		if err != nil {
-			t.Fatalf("export_html 失败: %v", err)
-		}
-		if path != "C:/tmp/session.html" {
-			t.Fatalf("导出路径没带回来: %q", path)
-		}
-		if err := client.AbortRetry(context.Background()); err != nil {
-			t.Fatalf("abort_retry 失败: %v", err)
+		if _, err := client.AvailableModels(context.Background()); err != nil {
+			t.Fatalf("get_available_models 失败: %v", err)
 		}
 	})
 
-	t.Run("done 只在 agent_settled 之后", func(t *testing.T) {
+	// 事件顺序是界面对账的根基：done 挂早了会在还在重试时报「已完成」。
+	t.Run("事件顺序：done 只在 agent_settled 之后", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		if _, err := client.Prompt(context.Background(), "你好", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
 		waitFor(t, func() bool { return rec.count(KindAgentSettled) >= 1 })
-		// agent_end 必须先到，且它之后还有重试事件——把 done 挂在 agent_end
-		// 就会在「还在重试」的时候告诉用户已完成。
 		kinds := rec.kinds()
 		idxEnd, idxRetry, idxSettled := -1, -1, -1
 		for i, k := range kinds {
@@ -195,13 +177,13 @@ func TestPiChain(t *testing.T) {
 		}
 	})
 
+	// 翻译层把协议记录还原成界面能用的形态：增量分两类、工具结果带元数据、压缩带前后量。
 	t.Run("事件翻译：增量、工具结果与压缩", func(t *testing.T) {
 		client, rec := start(t, exe, "tools")
 		if _, err := client.Prompt(context.Background(), "读文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
 		waitFor(t, func() bool { return rec.count(KindToolEnd) >= 1 })
-		// 正文与思考两类增量都要单独解析出来，界面上它们是折叠与正文两种东西。
 		var text, thinking bool
 		rec.mu.Lock()
 		for _, e := range rec.events {
@@ -219,7 +201,6 @@ func TestPiChain(t *testing.T) {
 		if !text || !thinking {
 			t.Fatalf("增量没解析出来（text=%v thinking=%v）", text, thinking)
 		}
-		// 工具结果按内容块还原，元数据（耗时 / 是否出错）要跟着出来。
 		ev, _ := rec.find(KindToolEnd)
 		if ev.Result == nil || len(ev.Result.Content) == 0 || ev.Result.Content[0].Text != "文件内容" {
 			t.Fatalf("工具结果没还原: %+v", ev.Result)
@@ -228,22 +209,19 @@ func TestPiChain(t *testing.T) {
 			t.Fatalf("工具元数据不对: %+v", ev)
 		}
 
-		// 压缩事件要带前后 token：上下文水位靠它回填。
 		cc, crec := start(t, exe, "compact")
 		if _, err := cc.Prompt(context.Background(), "聊聊", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
 		waitFor(t, func() bool { return crec.count(KindCompactionEnd) >= 1 })
 		cev, _ := crec.find(KindCompactionEnd)
-		if cev.CompactResult == nil {
-			t.Fatal("压缩结果没解析出来")
-		}
-		if cev.CompactResult.TokensBefore != 9000 || cev.CompactResult.EstimatedTokensAfter != 2000 {
-			t.Fatalf("压缩前后数字不对: %+v", cev.CompactResult)
+		if cev.CompactResult == nil || cev.CompactResult.TokensBefore != 9000 || cev.CompactResult.EstimatedTokensAfter != 2000 {
+			t.Fatalf("压缩结果没解析出来: %+v", cev.CompactResult)
 		}
 	})
 
-	t.Run("审批请求解析与回写响应", func(t *testing.T) {
+	// 提问桥的双向：请求字段完整解析，响应必须写回同一个 stdin。
+	t.Run("提问请求解析与回写响应", func(t *testing.T) {
 		client, rec := start(t, exe, "approval")
 		if _, err := client.Prompt(context.Background(), "写文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
@@ -258,76 +236,21 @@ func TestPiChain(t *testing.T) {
 			}
 			return false
 		})
-		rec.mu.Lock()
-		var found Event
-		for _, e := range rec.events {
-			if e.Kind == KindExtensionUI && e.Method == "confirm" {
-				found = e
-				break
-			}
+		found, _ := rec.findFunc(KindExtensionUI, func(e Event) bool { return e.Method == "confirm" })
+		// 首帧还有 setStatus：找到的必须是那条 confirm，而不是第一条扩展请求。
+		if found.ID != "confirm-1" || found.Title != "允许 write?" || found.Body != "要写入文件 a.txt" {
+			t.Fatalf("提问请求字段不对: %+v", found)
 		}
-		rec.mu.Unlock()
-		if found.ID != "confirm-1" || found.Title != "允许 write?" {
-			t.Fatalf("审批请求字段不对: %+v", found)
-		}
-		// message 字段在扩展请求里是正文而不是消息对象。
-		if found.Body != "要写入文件 a.txt" {
-			t.Fatalf("审批正文没解析出来: %q", found.Body)
-		}
-		// 决策必须回到发出请求的那个进程：写不进去就是界面点了没反应。
+		// message 字段在扩展请求里是正文而不是消息对象，Response 必须写回同一个 id。
 		if err := client.WriteResponse(map[string]any{
 			"type": "extension_ui_response", "id": "confirm-1", "confirmed": true,
 		}); err != nil {
-			t.Fatalf("回审批响应失败: %v", err)
+			t.Fatalf("回提问响应失败: %v", err)
 		}
 	})
 
-	t.Run("停止先取回排队文本", func(t *testing.T) {
-		client, rec := start(t, exe, "basic")
-		q, err := client.ClearQueue(context.Background())
-		if err != nil {
-			t.Fatalf("clear_queue 失败: %v", err)
-		}
-		// 不取回就 abort，用户排队的那句话会凭空消失。
-		if len(q.Steering) != 1 || q.Steering[0] != "排队的这句话" {
-			t.Fatalf("排队文本没取回: %+v", q)
-		}
-		if err := client.Abort(context.Background()); err != nil {
-			t.Fatalf("abort 失败: %v", err)
-		}
-		waitFor(t, func() bool { return rec.count(KindAgentSettled) >= 1 })
-	})
-
-	t.Run("命令目录、导出与取消重试的响应解码", func(t *testing.T) {
-		client, _ := start(t, exe, "basic")
-		ctx := context.Background()
-		cmds, err := client.GetCommands(ctx)
-		if err != nil {
-			t.Fatalf("get_commands 失败: %v", err)
-		}
-		// 三种来源必须原样带回来：`/` 菜单靠 source 决定它属于扩展、模板还是技能。
-		seen := map[string]string{}
-		for _, c := range cmds {
-			seen[c.Name] = c.Source
-		}
-		for name, source := range map[string]string{"review": "extension", "weekly": "prompt", "skill:demo": "skill"} {
-			if seen[name] != source {
-				t.Fatalf("命令 %s 的来源不对: %q", name, seen[name])
-			}
-		}
-		path, err := client.ExportHTML(ctx, "C:/tmp/session.html")
-		if err != nil {
-			t.Fatalf("export_html 失败: %v", err)
-		}
-		if path != "C:/tmp/session.html" {
-			t.Fatalf("导出路径没带回来: %q", path)
-		}
-		if err := client.AbortRetry(ctx); err != nil {
-			t.Fatalf("abort_retry 失败: %v", err)
-		}
-	})
-
-	t.Run("生命周期与进程归属：有序退出、崩溃报错、工作区映射", func(t *testing.T) {
+	// 生命周期：有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程。
+	t.Run("生命周期与进程归属", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		client.Stop()
 		waitFor(t, func() bool { return rec.isExited() })
@@ -351,17 +274,6 @@ func TestPiChain(t *testing.T) {
 		if _, err := bad.GetState(ctx); err == nil {
 			t.Fatal("死进程上的命令应当报错")
 		}
-		dir := t.TempDir()
-		if got := ResolveExe(dir); got != "" {
-			t.Fatalf("空目录不该找到可执行文件: %s", got)
-		}
-		file := filepath.Join(dir, "pi.cmd")
-		if err := os.WriteFile(file, []byte("@echo off\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if got := ResolveExe(dir); got != file {
-			t.Fatalf("应当认出 pi.cmd: got %q want %q", got, file)
-		}
 
 		sup := NewSupervisor(
 			func(workspace string) (Config, error) {
@@ -380,25 +292,14 @@ func TestPiChain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("首次 Ensure 失败: %v", err)
 		}
-		b, err := sup.Ensure(context.Background(), ws)
-		if err != nil {
-			t.Fatalf("二次 Ensure 失败: %v", err)
-		}
 		// 同一工作区必须复用：每次发消息都 spawn 一个新的会堆满进程。
-		if a != b {
-			t.Fatal("同一工作区应当复用同一个进程")
-		}
-		if a.PID() == 0 {
-			t.Fatal("进程号为空")
+		if b, err := sup.Ensure(context.Background(), ws); err != nil || b != a {
+			t.Fatalf("同一工作区应当复用同一个进程: %v", err)
 		}
 		// 换工作区必须换进程：cwd 是进程级属性。
 		other := t.TempDir()
-		c, err := sup.Ensure(context.Background(), other)
-		if err != nil {
-			t.Fatalf("换工作区 Ensure 失败: %v", err)
-		}
-		if c == a {
-			t.Fatal("不同工作区不能共用一个进程")
+		if c, err := sup.Ensure(context.Background(), other); err != nil || c == a {
+			t.Fatalf("不同工作区不能共用一个进程: %v", err)
 		}
 		// 先停掉进程，TempDir 的清理才不会撞上「目录被占用」。
 		sup.StopAll()

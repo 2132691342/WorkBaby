@@ -23,3 +23,12 @@ export function fmtMs(ms: number): string {
   if (v < 1000) return `${v} 毫秒`
   return `${trim(v / 1000)} 秒`
 }
+
+/** 花费（美元）：小额保留三位，大额两位——0.003 显示成 0.00 等于没说 */
+export function fmtMoney(usd: number): string {
+  const v = Math.max(0, usd || 0)
+  if (v === 0) return '$0'
+  if (v < 0.01) return `$${v.toFixed(4)}`
+  if (v < 1) return `$${v.toFixed(3)}`
+  return `$${v.toFixed(2)}`
+}

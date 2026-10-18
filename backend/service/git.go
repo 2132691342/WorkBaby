@@ -129,23 +129,19 @@ func (s *GitService) Push(sessionID string) (*domain.GitStatusVO, error) {
 // 只用全局会看错地方——会话级工作目录才是这次改动真正发生的地方。
 func (s *GitService) workspace(sessionID string) (string, error) {
 	if id := strings.TrimSpace(sessionID); id != "" {
-		sess, err := s.env.Repo.GetSession(id)
-		if err != nil {
-			// 会话不存在退回全局即可；其余（数据库故障）必须让用户看见，不能静默换目录
-			if pkg.CodeOf(err) != "1101" {
-				return "", err
-			}
-		} else if sess != nil {
-			if ws := strings.TrimSpace(sess.Workspace); ws != "" {
-				if !pkg.DirExists(ws) {
-					return "", pkg.New("1003", "这个会话的工作目录不存在", ws)
+		if s.env.Sessions != nil {
+			if sess, err := s.env.Sessions.Get(id); err == nil && sess != nil {
+				if ws := strings.TrimSpace(sess.Workspace); ws != "" {
+					if !pkg.DirExists(ws) {
+						return "", pkg.New("1003", "这个会话的工作目录不存在", ws)
+					}
+					return ws, nil
 				}
-				return ws, nil
 			}
 		}
 		// 会话查不到就退回全局：会话可能刚被删掉，此时不该让这一页变成错误页。
 	}
-	root := strings.TrimSpace(s.env.Cfg.Workspace)
+	root := strings.TrimSpace(s.env.Workspace())
 	if root == "" {
 		return "", pkg.New("1001", "还没有设置工作目录，先在对话页顶部选一个文件夹", "")
 	}

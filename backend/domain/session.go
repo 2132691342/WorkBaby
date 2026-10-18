@@ -1,5 +1,5 @@
-// 会话聚合根：WorkBaby 的元数据与指向 PI 会话的指针。
-// 消息真身在 PI 的 JSONL 里；ID 与 PiSessionID 分开，后者要 new_session 之后才有。
+// 会话聚合根：一条 PI 会话文件的投影形态与迁移入参。
+// 消息真身与元数据都在 PI 的 JSONL 里，这里只是它的一张视图。
 package domain
 
 import "WorkBaby/backend/pkg"
@@ -7,43 +7,39 @@ import "WorkBaby/backend/pkg"
 var (
 	ErrSessionNotFound = pkg.New("1101", "会话不存在", "")
 	ErrEmptyContent    = pkg.New("1104", "说点什么再发送吧", "")
+	ErrSessionRunning  = pkg.New("5005", "同一个文件夹里还有对话在跑，等它停下再操作", "")
 )
 
-// SessionDO 会话聚合根。
-type SessionDO struct {
-	ID         string `gorm:"primaryKey;size:64" json:"id"`
-	Title      string `gorm:"size:256" json:"title"`
-	Workspace  string `gorm:"size:512" json:"workspace"`
-	ProviderID string `gorm:"size:64;index" json:"provider_id"`
-	Model      string `gorm:"size:128" json:"model"`
+// SessionVO 是会话列表项；字段全部来自会话文件与进程状态。
+type SessionVO struct {
+	// ID 是 PI 的会话编号（文件头 id），也是前端路由用的键。
+	ID string `json:"id"`
+	// File 是会话 JSONL 的绝对路径。
+	File      string `json:"file"`
+	Title     string `json:"title"`
+	Workspace string `json:"workspace"`
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
 	// ThinkingLevel 取 off/minimal/low/medium/high/xhigh/max；空 = 跟随 PI 默认。
-	ThinkingLevel string `gorm:"size:16" json:"thinking_level"`
-	Permission    string `gorm:"size:16" json:"permission"`
-	// PiSessionID 与 PiSessionFile 指向 PI 的那条会话：谁都不是对方的副本。
-	PiSessionID   string `gorm:"size:64;index" json:"pi_session_id"`
-	PiSessionFile string `gorm:"size:1024" json:"pi_session_file"`
-	// AllowedTools 是本会话「总是允许」的工具（JSON 数组），由审批桥写入 policy。
-	AllowedTools string `gorm:"type:text" json:"-"`
-	MessageCount int    `json:"message_count"`
-	TotalTokens  int    `json:"total_tokens"`
-	// Hidden 是子代理与历史导入的载体会话：全部机制复用普通会话，
-	// 但不进用户会话列表——列表里出现一堆来路不明的会话就是乱账。
-	Hidden    bool  `json:"hidden"`
-	CreatedAt int64 `gorm:"autoCreateTime:milli;index" json:"created_at"`
-	UpdatedAt int64 `gorm:"autoUpdateTime:milli;index" json:"updated_at"`
+	ThinkingLevel string  `json:"thinking_level"`
+	MessageCount  int     `json:"message_count"`
+	TotalTokens   int     `json:"total_tokens"`
+	Cost          float64 `json:"cost"`
+	// Running 表示这条会话现在有 run 在跑。
+	Running   bool  `json:"running"`
+	CreatedAt int64 `json:"created_at"`
+	UpdatedAt int64 `json:"updated_at"`
 }
 
-// TableName 显式指定表名：GORM 会把 DO 后缀复数化成 _dos。
-func (SessionDO) TableName() string { return "sessions" }
+// SessionDetailVO 会话详情：元信息 + 从 JSONL 投影的消息。
+type SessionDetailVO struct {
+	Session  SessionVO   `json:"session"`
+	Messages []MessageVO `json:"messages"`
+}
 
-// CreateSessionREQ 新建会话入参；字段全部可选，缺省用全局设置兜底。
+// CreateSessionREQ 新建会话入参：会话在工作区里创建，其余用全局设置兜底。
 type CreateSessionREQ struct {
-	Title      string `json:"title"`
-	Workspace  string `json:"workspace"`
-	ProviderID string `json:"provider_id"`
-	Model      string `json:"model"`
-	Hidden     bool   `json:"hidden"`
-	Permission string `json:"permission"`
+	Workspace string `json:"workspace"`
 }
 
 // RenameSessionREQ 重命名入参。
@@ -51,10 +47,10 @@ type RenameSessionREQ struct {
 	Title string `json:"title"`
 }
 
-// SetModelREQ 切换模型入参。
+// SetModelREQ 切换模型入参（服务商名即 models.json 的键）。
 type SetModelREQ struct {
-	ProviderID string `json:"provider_id"`
-	Model      string `json:"model"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
 }
 
 // SetThinkingREQ 切换思考档入参。
@@ -62,59 +58,38 @@ type SetThinkingREQ struct {
 	Level string `json:"level"`
 }
 
-// SetPermissionREQ 切换权限档入参。
-type SetPermissionREQ struct {
-	Permission string `json:"permission"`
+// SendMessageREQ 发送入参：session_id 为空表示这条对话还没落地，由 PI 现场新建。
+type SendMessageREQ struct {
+	SessionID   string          `json:"session_id"`
+	Workspace   string          `json:"workspace"`
+	Content     string          `json:"content"`
+	Attachments []AttachmentREQ `json:"attachments"`
 }
 
-// SetWorkspaceREQ 切换工作目录入参。
-type SetWorkspaceREQ struct {
-	Workspace string `json:"workspace"`
+// AttachmentREQ 一条引用：工作区内的相对路径，或粘贴进来的图片。
+type AttachmentREQ struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	ImageBase64 string `json:"image_base64"`
 }
 
-// ForkREQ 从某条历史分叉入参。
-type ForkREQ struct {
-	EntryID string `json:"entry_id"`
+// SendMessageRESP 发送出参：session_id 可能是刚建出来的那条。
+type SendMessageRESP struct {
+	RunID     string `json:"run_id"`
+	SessionID string `json:"session_id"`
 }
 
-// SessionVO 会话列表项。
-type SessionVO struct {
-	ID            string `json:"id"`
-	Title         string `json:"title"`
-	Workspace     string `json:"workspace"`
-	ProviderID    string `json:"provider_id"`
-	Model         string `json:"model"`
-	ThinkingLevel string `json:"thinking_level"`
-	Permission    string `json:"permission"`
-	PiSessionID   string `json:"pi_session_id"`
-	PiSessionFile string `json:"pi_session_file"`
-	MessageCount  int    `json:"message_count"`
-	TotalTokens   int    `json:"total_tokens"`
-	CreatedAt     int64  `json:"created_at"`
-	UpdatedAt     int64  `json:"updated_at"`
+// SteerREQ 插话 / 排队 / 停止的入参。
+type SteerREQ struct {
+	SessionID string `json:"session_id"`
+	Content   string `json:"content"`
 }
 
-// SessionDetailVO 会话详情：会话 + 从 JSONL 投影的消息。
-type SessionDetailVO struct {
-	Session  SessionVO   `json:"session"`
-	Messages []MessageVO `json:"messages"`
-}
-
-// ToVO 把 DO 转成出参。
-func (s *SessionDO) ToVO() SessionVO {
-	return SessionVO{
-		ID:            s.ID,
-		Title:         s.Title,
-		Workspace:     s.Workspace,
-		ProviderID:    s.ProviderID,
-		Model:         s.Model,
-		ThinkingLevel: s.ThinkingLevel,
-		Permission:    s.Permission,
-		PiSessionID:   s.PiSessionID,
-		PiSessionFile: s.PiSessionFile,
-		MessageCount:  s.MessageCount,
-		TotalTokens:   s.TotalTokens,
-		CreatedAt:     s.CreatedAt,
-		UpdatedAt:     s.UpdatedAt,
-	}
+// AnswerREQ 回答引擎抛回来的问题（confirm / select / input）。
+type AnswerREQ struct {
+	// ID 是 PI 那次 extension_ui_request 的编号。
+	ID        string `json:"id"`
+	Value     string `json:"value"`
+	Confirmed bool   `json:"confirmed"`
+	Cancelled bool   `json:"cancelled"`
 }

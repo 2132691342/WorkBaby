@@ -21,9 +21,6 @@ type ExtensionService struct {
 // NewExtensionService 构造插件服务。
 func NewExtensionService(env *Env) *ExtensionService { return &ExtensionService{env: env} }
 
-// builtinExtension 是 WorkBaby 自己装的审批闸门文件名：停掉它，审批卡就再也不会出现。
-const builtinExtension = "workbaby.ts"
-
 // List 列出扩展目录里的条目与已登记的包。
 // 登记了但磁盘上找不到的条目也列出来（Kind=missing）：静默消失会让人以为设置没保存。
 func (s *ExtensionService) List() (*domain.ExtensionListRESP, error) {
@@ -46,7 +43,6 @@ func (s *ExtensionService) List() (*domain.ExtensionListRESP, error) {
 			Path:    path,
 			Kind:    kindOf(path),
 			Enabled: enabled,
-			Builtin: strings.EqualFold(filepath.Base(path), builtinExtension),
 		})
 	}
 
@@ -63,17 +59,17 @@ func (s *ExtensionService) List() (*domain.ExtensionListRESP, error) {
 		appendEntry(filepath.Join(dir, child.Name()), false)
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].Builtin != entries[j].Builtin {
-			return entries[i].Builtin
+		if entries[i].Enabled != entries[j].Enabled {
+			return entries[i].Enabled
 		}
 		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
 	})
 
 	packages := []domain.PackageVO{}
-	if settings != nil {
-		for _, p := range settings.Packages {
-			packages = append(packages, domain.PackageVO{Source: p})
-		}
+	for _, pkg := range resolvePackages(s.env) {
+		packages = append(packages, domain.PackageVO{
+			Source: pkg.Source, Name: pkg.Name, Path: pkg.Path, Missing: pkg.Missing,
+		})
 	}
 	return &domain.ExtensionListRESP{
 		Dir:          dir,
@@ -84,14 +80,11 @@ func (s *ExtensionService) List() (*domain.ExtensionListRESP, error) {
 }
 
 // Toggle 启停一条扩展：登记 / 注销 settings.json 的 extensions。
-// 文件不搬走——PI 只读登记表，登记表就是开关；搬目录会让「导入过的插件」在磁盘上反复挪位置。
+// 文件不搬走——PI 只读登记表，登记表就是开关。
 func (s *ExtensionService) Toggle(path string, enabled bool) error {
 	target := filepath.Clean(path)
 	if target == "" {
 		return domain.ErrExtensionNotFound
-	}
-	if strings.EqualFold(filepath.Base(target), builtinExtension) && !enabled {
-		return domain.ErrExtensionBuiltin
 	}
 	settings, err := s.readSettings()
 	if err != nil {
@@ -154,14 +147,14 @@ func (s *ExtensionService) Import(paths []string) (*domain.ImportExtensionsRESP,
 	return resp, nil
 }
 
-// Delete 删掉一条扩展：磁盘上的文件或目录 + 登记项。内置审批闸门不许删。
+// Delete 删掉一条扩展：磁盘上的文件或目录 + 登记项。
 func (s *ExtensionService) Delete(path string) error {
 	target := filepath.Clean(path)
-	if strings.EqualFold(filepath.Base(target), builtinExtension) {
-		return domain.ErrExtensionBuiltin
-	}
 	if kindOf(target) == domain.ExtensionKindMissing {
 		return domain.ErrExtensionNotFound
+	}
+	if kindOf(target) == domain.ExtensionKindPattern {
+		return pkg.New("9718", "这是设置里的通配条目，请直接编辑 settings.json", target)
 	}
 	settings, err := s.readSettings()
 	if err != nil {
@@ -189,7 +182,7 @@ func (s *ExtensionService) Install(source string, onLine func(string)) error {
 	if err := s.env.PiEnv.RunCLI([]string{"install", source}, onLine); err != nil {
 		return err
 	}
-	return s.reloadPi()
+	return s.reload()
 }
 
 // Remove 卸掉一个包：登记项由 PI 自己从 settings.json 里删。
@@ -200,7 +193,20 @@ func (s *ExtensionService) Remove(source string, onLine func(string)) error {
 	if err := s.env.PiEnv.RunCLI([]string{"remove", source}, onLine); err != nil {
 		return err
 	}
-	return s.reloadPi()
+	return s.reload()
+}
+
+// Reload 重启全部 PI 进程并重扫技能：装完包之后技能列表也会变。
+func (s *ExtensionService) Reload() error { return s.reload() }
+
+// reload 重启进程 + 重扫技能。
+func (s *ExtensionService) reload() error {
+	NewSkillService(s.env).Reload(s.env.Workspace())
+	sup := s.env.PiSupervisor()
+	if sup == nil {
+		return nil
+	}
+	return sup.RestartAll()
 }
 
 // readSettings 读 settings.json；不存在时给一份空配置。
@@ -220,16 +226,7 @@ func (s *ExtensionService) saveAndReload(settings *pienv.SettingsFile) error {
 	if err := s.env.PiEnv.WriteSettings(settings); err != nil {
 		return err
 	}
-	return s.reloadPi()
-}
-
-// reloadPi 重启全部 PI 进程。
-func (s *ExtensionService) reloadPi() error {
-	sup := s.env.PiSupervisor()
-	if sup == nil {
-		return nil
-	}
-	return sup.RestartAll()
+	return s.reload()
 }
 
 // resolve 把 settings 里的登记项解成绝对路径：相对路径按 agent 目录解析，与 PI 一致。
@@ -238,7 +235,8 @@ func (s *ExtensionService) resolve(raw string) string {
 	if raw == "" {
 		return raw
 	}
-	if strings.HasPrefix(raw, "!") || strings.HasPrefix(raw, "+") || strings.HasPrefix(raw, "-") {
+	if strings.HasPrefix(raw, "!") || strings.HasPrefix(raw, "+") || strings.HasPrefix(raw, "-") ||
+		strings.HasPrefix(raw, "builtin:") {
 		return raw
 	}
 	if filepath.IsAbs(raw) {
@@ -250,6 +248,11 @@ func (s *ExtensionService) resolve(raw string) string {
 // entryName 给条目一个能显示的名字：文件去扩展名，目录取目录名。
 func entryName(path string) string {
 	name := filepath.Base(path)
+	for _, prefix := range []string{"builtin:", "+builtin:", "-builtin:"} {
+		if strings.HasPrefix(name, prefix) {
+			return "内置 " + strings.TrimPrefix(name, prefix)
+		}
+	}
 	if ext := filepath.Ext(name); ext != "" {
 		name = strings.TrimSuffix(name, ext)
 	}
@@ -259,7 +262,8 @@ func entryName(path string) string {
 // kindOf 判断条目在磁盘上的形态。
 func kindOf(path string) string {
 	if strings.ContainsAny(path, "*?[]") || strings.HasPrefix(path, "!") ||
-		strings.HasPrefix(path, "+") || strings.HasPrefix(path, "-") {
+		strings.HasPrefix(path, "+") || strings.HasPrefix(path, "-") ||
+		strings.HasPrefix(path, "builtin:") {
 		return domain.ExtensionKindPattern
 	}
 	switch {
@@ -285,11 +289,6 @@ func isExtensionPath(path string) bool {
 	}
 }
 
-// samePath 比较两个路径是否指向同一处（Windows 大小写不敏感）。
-func samePath(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
-}
-
 // validPackageSource 放行 PI 认的四种来源写法。
 func validPackageSource(source string) bool {
 	source = strings.TrimSpace(source)
@@ -305,28 +304,4 @@ func validPackageSource(source string) bool {
 		// 裸包名（@scope/pkg、pkg@1.2）按 npm 处理，PI 也认。
 		return !strings.ContainsAny(source, " \t")
 	}
-}
-
-// copyTree 递归复制目录（符号链接按普通文件处理，扩展目录里不该出现链接）。
-func copyTree(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return pkg.CopyFile(src, dst)
-	}
-	if err := pkg.EnsureDir(dst); err != nil {
-		return err
-	}
-	children, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	for _, child := range children {
-		if err := copyTree(filepath.Join(src, child.Name()), filepath.Join(dst, child.Name())); err != nil {
-			return err
-		}
-	}
-	return nil
 }

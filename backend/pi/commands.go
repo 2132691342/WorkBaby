@@ -63,6 +63,34 @@ type ForkResult struct {
 	SessionFile string `json:"sessionFile"`
 }
 
+// ModelInfo 是 get_available_models 返回的一项。
+type ModelInfo struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Provider      string   `json:"provider"`
+	API           string   `json:"api"`
+	Reasoning     bool     `json:"reasoning"`
+	Input         []string `json:"input"`
+	ContextWindow int      `json:"contextWindow"`
+	MaxTokens     int      `json:"maxTokens"`
+}
+
+// AvailableModels 取 PI 眼下的全部可用模型（含内置服务商与已存凭据）。
+// 它是「这个模型现在真的能用吗」的唯一真相：models.json 里有的还差凭据。
+func (c *Client) AvailableModels(ctx context.Context) ([]ModelInfo, error) {
+	raw, err := c.Call(ctx, "get_available_models", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Models []ModelInfo `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, ErrCommandFailed
+	}
+	return out.Models, nil
+}
+
 // GetState 读当前会话状态。
 func (c *Client) GetState(ctx context.Context) (*State, error) {
 	raw, err := c.Call(ctx, "get_state", nil)

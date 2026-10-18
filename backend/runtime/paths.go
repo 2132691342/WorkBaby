@@ -1,4 +1,6 @@
-// Package runtime 负责数据目录定位与内置 Python 运行时解压。
+// Package runtime 负责数据目录定位与内置运行时解压。
+// 数据目录是 WorkBaby 自己的（库/日志/内置运行时）；PI 的 agent 目录不在这里：
+// 它必须就是用户那份 ~/.pi/agent，否则用户装好的技能、插件、模型全都看不见。
 package runtime
 
 import (
@@ -16,21 +18,24 @@ type Paths struct {
 	LogDir     string
 	TmpDir     string
 	RuntimeDir string
-	PythonDir  string
-	// NodeDir 与 NpmGlobalDir 是跑 PI 的那套：Node 必须内置优先，
-	// npm 全局前缀必须落在应用目录（系统前缀要管理员权限，写失败时用户完全看不懂）。
+	// NodeDir / PythonDir 是内置运行时；NpmGlobalDir 是「缺 PI 时」的安装前缀。
 	NodeDir      string
+	PythonDir    string
 	NpmGlobalDir string
-	PiAgentDir   string
-	SkillsDir    string
+
+	// AgentDir 是 PI 的 agent 目录：默认 ~/.pi/agent，可用 PI_CODING_AGENT_DIR 覆盖。
+	// 它是唯一的配置真相源，WorkBaby 读写的就是用户 pi 命令读写的那一份。
+	AgentDir  string
+	SkillsDir string
 	// DisabledSkillsDir 不是技能目录：PI 只扫 skills/，停用的技能住在这里——
 	// 对模型不存在，对界面仍要可见可恢复。
 	DisabledSkillsDir string
-	ConfigFile        string
-	BackgroundDir     string
-	// SitePackages 是给内置 Python 装第三方包的地方。落在数据根而不是
-	// runtime/python 里：后者升级时会整个清场，装过的包跟着一起没。
-	SitePackages string
+	SessionsDir       string
+	ExtensionsDir     string
+
+	ConfigFile    string
+	BackgroundDir string
+	SitePackages  string
 }
 
 // Resolve 定位数据根并展开全部子路径。WORKBABY_HOME 优先，便于便携版与测试隔离。
@@ -52,6 +57,7 @@ func ResolveAt(root string) (Paths, error) {
 	if err != nil {
 		return Paths{}, pkg.Wrap("1001", "解析数据目录失败", err)
 	}
+	agent := AgentDir()
 	p := Paths{
 		DataDir:      root,
 		DBPath:       filepath.Join(root, "workbaby.db"),
@@ -61,23 +67,42 @@ func ResolveAt(root string) (Paths, error) {
 		PythonDir:    filepath.Join(root, "runtime", "python"),
 		NodeDir:      filepath.Join(root, "runtime", "node"),
 		NpmGlobalDir: filepath.Join(root, "runtime", "npm-global"),
-		// PiAgentDir 是 PI 的 agent 目录：WorkBaby 显式指定它，把 PI 的状态收进
-		// 应用目录，卸载即清；同时保证它的 skills/ 就是我们的技能目录。
-		PiAgentDir: filepath.Join(root, "pi-agent"),
-		SkillsDir:  filepath.Join(root, "pi-agent", "skills"),
+		AgentDir:     agent,
+		SkillsDir:    filepath.Join(agent, "skills"),
 		// 停用的技能移出 PI 的扫描范围才算真停用；同层目录，不嵌套进 skills/。
-		DisabledSkillsDir: filepath.Join(root, "pi-agent", "skills.disabled"),
+		DisabledSkillsDir: filepath.Join(agent, "skills.disabled"),
+		SessionsDir:       filepath.Join(agent, "sessions"),
+		ExtensionsDir:     filepath.Join(agent, "extensions"),
 		ConfigFile:        filepath.Join(root, "config.yaml"),
 		BackgroundDir:     filepath.Join(root, "background"),
 		SitePackages:      filepath.Join(root, "site-packages"),
 	}
-	for _, dir := range []string{p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir, p.SkillsDir, p.DisabledSkillsDir, p.BackgroundDir, p.SitePackages, p.NodeDir, p.NpmGlobalDir, p.PiAgentDir} {
+	for _, dir := range []string{
+		p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir,
+		p.BackgroundDir, p.SitePackages, p.NodeDir, p.NpmGlobalDir,
+	} {
 		if err := pkg.EnsureDir(dir); err != nil {
 			return Paths{}, err
 		}
 	}
 	sweepTmp(p.TmpDir)
 	return p, nil
+}
+
+// AgentDir 解析 PI 的 agent 目录：显式环境变量优先，其次 ~/.pi/agent。
+// 这里只解析不创建——用户没装过 PI 时不该凭空出现一堆空目录。
+func AgentDir() string {
+	if v := os.Getenv("PI_CODING_AGENT_DIR"); v != "" {
+		if abs, err := filepath.Abs(v); err == nil {
+			return abs
+		}
+		return filepath.Clean(v)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(".", ".pi", "agent")
+	}
+	return filepath.Join(home, ".pi", "agent")
 }
 
 // sweepTmp 清理临时目录里超过 7 天的溢出文件（工具截断的完整输出落在这里）。

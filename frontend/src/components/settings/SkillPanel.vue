@@ -1,384 +1,341 @@
 <script setup lang="ts">
-// 技能面板：新建 / 导入 / 开关 / 看正文 / 删除。
-// 只有开关的面板不叫「能用」：想把自己那套流程固化下来，必须有条不依赖命令行的路。
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+// 技能面板：列的就是 PI 会加载的那些技能（用户目录 / 工作区 / 插件包自带）。
+// 启停靠把目录移出 PI 的扫描范围，不是在自己的库里记一个开关。
+import { computed, onMounted, ref } from 'vue'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
+import type { SkillVO } from '../../types/api'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
-import PageState from '../common/PageState.vue'
 
 const store = useSettingsStore()
 const toast = useToastStore()
-const open = ref<string | null>(null)
-const body = ref('')
-const busy = ref(false)
-const err = ref('')
-const creating = ref(false)
-const draft = ref({ name: '', description: '', body: '' })
+const busy = ref('')
+const opened = ref<SkillVO | null>(null)
+const content = ref('')
+const filter = ref('')
 
-const TEMPLATE = `## 什么时候用
-
-（写清触发场景，例如：用户提到要做周报时）
-
-## 怎么做
-
-1. 第一步…
-2. 第二步…
-
-## 注意
-
-（容易出错的地方、需要的工具）`
-
-const sourceName: Record<string, string> = {
-  global: '我的',
-  workspace: '工作区',
+const SOURCE: Record<string, { label: string; hint: string }> = {
+  global: { label: '我的技能', hint: '~/.pi/agent/skills' },
+  workspace: { label: '工作区', hint: '项目的 .pi/skills' },
+  package: { label: '插件包', hint: '随包安装，界面只读' },
 }
 
-// busyId 标记正在操作的行：开关 / 展开 / 删除共用，同一时刻只跑一个，
-// 否则连点会打出重复请求，开关状态最后谁赢取决于返回顺序。
-const busyId = ref('')
+const list = computed(() => {
+  const q = filter.value.trim().toLowerCase()
+  const items = store.skills ?? []
+  if (!q) return items
+  return items.filter(
+    (s) => s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q),
+  )
+})
 
-async function toggle(id: string, enabled: boolean) {
-  if (busyId.value) return
-  busyId.value = id
-  err.value = ''
+const grouped = computed(() => {
+  const out: Array<{ key: string; label: string; hint: string; items: SkillVO[] }> = []
+  for (const key of ['global', 'workspace', 'package']) {
+    const items = list.value.filter((s) => s.source === key)
+    if (items.length) out.push({ key, label: SOURCE[key].label, hint: SOURCE[key].hint, items })
+  }
+  return out
+})
+
+async function reload() {
+  await store.loadSkills()
+}
+
+async function toggle(s: SkillVO) {
+  if (busy.value) return
+  busy.value = s.id
   try {
-    await api.skills.toggle(id, enabled)
-    await store.loadSkills()
-    toast.ok(enabled ? '技能已启用' : '技能已停用')
+    await api.skills.toggle(s.id, !s.enabled)
+    await reload()
+    toast.ok(s.enabled ? `已停用「${s.name}」` : `已启用「${s.name}」`)
   } catch (e) {
-    err.value = (e as Error).message
+    toast.bad(`切换失败：${(e as Error)?.message || '请重试'}`)
   } finally {
-    busyId.value = ''
+    busy.value = ''
   }
 }
 
-async function expand(id: string) {
-  if (open.value === id) {
-    open.value = null
-    return
-  }
-  if (busyId.value) return
-  err.value = ''
-  busyId.value = id
+async function open(s: SkillVO) {
+  opened.value = s
+  content.value = ''
   try {
-    const r = await api.skills.content(id)
-    body.value = r.content
-    open.value = id
+    const r = await api.skills.content(s.id)
+    content.value = r.content
   } catch (e) {
-    err.value = (e as Error).message
-  } finally {
-    busyId.value = ''
+    content.value = `读取失败：${(e as Error)?.message || '请重试'}`
   }
 }
 
-function startCreate() {
-  creating.value = true
-  err.value = ''
-  draft.value = { name: '', description: '', body: TEMPLATE }
-}
-
-async function submitCreate() {
-  err.value = ''
-  if (!draft.value.name.trim()) {
-    err.value = '先给它起个名字（只能用小写字母、数字和连字符）'
-    return
-  }
-  busy.value = true
+async function remove(s: SkillVO) {
+  if (busy.value) return
+  busy.value = `del:${s.id}`
   try {
-    await api.skills.create({ ...draft.value })
-    creating.value = false
-    await store.loadSkills()
-    toast.ok('技能已创建')
+    await api.skills.remove(s.id)
+    await reload()
+    toast.ok(`已删除「${s.name}」`)
   } catch (e) {
-    err.value = (e as Error).message
+    toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
   } finally {
-    busy.value = false
+    busy.value = ''
   }
 }
 
-// importing 覆盖真正的导入请求段：原生对话框本身有系统反馈，
-// 选完文件后的解析与落盘才是需要转圈的那一段。
-const importing = ref(false)
-async function importMd() {
-  if (importing.value) return
-  err.value = ''
-  const p = await OpenFileDialog('', '*.md')
-  if (!p) return
-  importing.value = true
+async function importFolder() {
+  if (busy.value) return
+  busy.value = 'import'
   try {
-    const r = await api.skills.import([p])
-    if (!r.imported) {
-      err.value = '这个文件里没有解析出技能。技能是一个 SKILL.md，或一个 zip 包。'
-      return
-    }
-    await store.loadSkills()
-    toast.ok(`已导入 ${r.imported} 个技能`)
+    const path = await OpenFileDialog('选择技能目录里的 SKILL.md', 'SKILL.md')
+    if (!path) return
+    const r = await api.skills.import([path])
+    await reload()
+    TOAST_IMPORT(r)
   } catch (e) {
-    err.value = (e as Error).message
+    toast.bad(`导入失败：${(e as Error)?.message || '请重试'}`)
   } finally {
-    importing.value = false
+    busy.value = ''
   }
 }
 
-// 技能包导入：浏览器读 zip 内容转 base64 上传，后端解压落盘。
-// 用 <input type=file> 而不是原生对话框：前端要拿到文件字节，对话框只给路径。
-const zipInput = ref<HTMLInputElement | null>(null)
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf)
-  let bin = ''
-  const CHUNK = 0x8000
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return btoa(bin)
+function TOAST_IMPORT(r: { imported: number; skipped: string[] }) {
+  if (r.imported) toast.ok(`导入了 ${r.imported} 个技能`)
+  if (r.skipped?.length) toast.info(`跳过：${r.skipped.slice(0, 3).join('；')}`)
+  if (!r.imported && !r.skipped?.length) toast.info('没有找到可导入的技能')
 }
 
-async function importZipFile(file: File) {
-  if (importing.value) return
-  err.value = ''
-  importing.value = true
-  try {
-    const data = arrayBufferToBase64(await file.arrayBuffer())
-    const r = await api.skills.importZip(file.name, data)
-    if (!r.imported) {
-      err.value = r.skipped.length
-        ? `没有可导入的技能：${r.skipped.join('、')}`
-        : '压缩包里没有找到 SKILL.md。技能包里每个技能一个文件夹，各含一个 SKILL.md。'
-      return
-    }
-    await store.loadSkills()
-    toast.ok(`已导入 ${r.imported} 个技能`)
-  } catch (e) {
-    err.value = (e as Error).message
-  } finally {
-    importing.value = false
-    if (zipInput.value) zipInput.value.value = ''
-  }
-}
-
-function onZipChange(e: Event) {
-  const f = (e.target as HTMLInputElement).files?.[0]
-  if (f) void importZipFile(f)
-}
-
-// 删除两段式确认：与模型服务删除同一交互
-const confirming = ref('')
-let confirmTimer = 0
-function askRemove(id: string) {
-  if (confirming.value === id) {
-    confirming.value = ''
-    void remove(id)
-    return
-  }
-  confirming.value = id
-  clearTimeout(confirmTimer)
-  confirmTimer = window.setTimeout(() => (confirming.value = ''), 3000)
-}
-onBeforeUnmount(() => clearTimeout(confirmTimer))
-
-async function remove(id: string) {
-  if (busyId.value) return
-  busyId.value = id
-  err.value = ''
-  try {
-    await api.skills.remove(id)
-    if (open.value === id) open.value = null
-    await store.loadSkills()
-    toast.ok('技能已删除')
-  } catch (e) {
-    err.value = (e as Error).message
-  } finally {
-    busyId.value = ''
-  }
-}
-
-onMounted(() => store.loadSkills())
+onMounted(() => void reload())
 </script>
 
 <template>
-  <div class="skills">
-    <div class="toolbar">
-      <button class="btn btn-primary" type="button" @click="startCreate">
-        <AppIcon name="plus" size="ic-xs" /> 新建技能
-      </button>
-      <button
-        class="btn"
-        type="button"
-        :class="{ 'is-loading': importing }"
-        :disabled="importing"
-        @click="zipInput?.click()"
-      >
-        <AppIcon name="download" size="ic-xs" /> 导入技能包（.zip）
-      </button>
-      <input
-        ref="zipInput"
-        type="file"
-        accept=".zip"
-        hidden
-        @change="onZipChange"
-      />
-      <button
-        class="btn"
-        type="button"
-        :class="{ 'is-loading': importing }"
-        :disabled="importing"
-        @click="importMd"
-      >
-        <AppIcon name="doc" size="ic-xs" /> 导入 SKILL.md
-      </button>
-    </div>
-    <p class="hint">
-      技能是给助手的「操作秘籍」。写清什么时候用、怎么做，它就会照着做。
-      导入支持别人分享的技能包（zip）或单个 SKILL.md 文件。
-    </p>
-
-    <p v-if="err" class="alert is-bad">{{ err }}</p>
-
-    <div v-if="creating" class="card p-sm draft">
-      <h3>新建技能</h3>
-      <div class="field">
-        <label>名字</label>
-        <input v-model="draft.name" class="input" placeholder="例如 monthly-report" />
-        <span class="hint">只能用小写字母、数字和连字符</span>
-      </div>
-      <div class="field">
-        <label>一句话说明</label>
-        <input v-model="draft.description" class="input" placeholder="做什么用，什么时候会用它" />
-      </div>
-      <div class="field">
-        <label>怎么做</label>
-        <textarea v-model="draft.body" class="textarea" rows="12" />
+  <div class="panel">
+    <header class="pn-head">
+      <div>
+        <h3>技能</h3>
+        <p class="pn-sub">这里是 PI 真正会加载的技能目录；停用只是把它移出扫描范围，文件还在。</p>
       </div>
       <div class="acts">
-        <button class="btn" type="button" @click="creating = false">取消</button>
-        <button class="btn btn-primary" type="button" :class="{ 'is-loading': busy }" :disabled="busy" @click="submitCreate">
-          保存
+        <input v-model="filter" class="input search" placeholder="搜索技能" />
+        <button class="btn" type="button" :class="{ 'is-loading': busy === 'import' }" :disabled="!!busy" @click="importFolder">
+          导入
         </button>
+        <button class="btn" type="button" :disabled="!!busy" @click="reload">刷新</button>
       </div>
+    </header>
+
+    <div v-if="!store.skills.length" class="empty card">
+      <span class="em-ic"><AppIcon name="book" /></span>
+      <b>还没有技能</b>
+      <p>技能是给助手的操作手册：一个目录里放一个 SKILL.md，它会在需要时自己读。</p>
+      <button class="btn" type="button" @click="importFolder">导入一个技能</button>
     </div>
 
-    <PageState
-      :loading="store.skillsLoading"
-      :error="store.error"
-      :empty="!store.skills.length && !creating"
-      empty-title="还没有技能"
-      empty-sub="点右上角「新建技能」写一个，或导入别人分享的 SKILL.md"
-    >
-      <div class="rowlist">
-        <div
-          v-for="s in store.skills"
-          :key="s.id"
-          class="rli skill"
-          :class="{ 'is-open': open === s.id }"
-        >
-          <!-- 展开区用 button 而不是 div：键盘要能 Tab 到，读屏要知道它是可展开的 -->
+    <section v-for="g in grouped" :key="g.key" class="group">
+      <div class="g-head">
+        <b>{{ g.label }}</b>
+        <span class="muted mono">{{ g.hint }}</span>
+        <span class="sp" />
+        <span class="muted">{{ g.items.length }} 个</span>
+      </div>
+      <div class="rows">
+        <article v-for="s in g.items" :key="s.id" class="row card" :class="{ 'is-off': !s.enabled }">
+          <button class="r-main" type="button" @click="open(s)">
+            <b>{{ s.name }}</b>
+            <span class="r-desc">{{ s.description || '（没有说明）' }}</span>
+          </button>
+          <span class="tag" :class="{ ok: s.enabled }">{{ s.enabled ? '启用' : '停用' }}</span>
           <button
-            class="grow main"
+            v-if="s.source !== 'package'"
+            class="btn btn-sm"
             type="button"
-            :class="{ 'is-loading': busyId === s.id }"
-            :aria-expanded="open === s.id"
-            @click="expand(s.id)"
+            :class="{ 'is-loading': busy === s.id }"
+            :disabled="!!busy"
+            @click="toggle(s)"
           >
-            <h5>
-              {{ s.name }}
-              <span class="tag">{{ sourceName[s.source] || s.source }}</span>
-            </h5>
-            <p>{{ s.description || '（无描述）' }}</p>
+            {{ s.enabled ? '停用' : '启用' }}
           </button>
           <button
-            class="switch"
+            v-if="s.source === 'global'"
+            class="btn btn-sm danger"
             type="button"
-            role="switch"
-            :aria-checked="s.enabled"
-            :aria-label="s.enabled ? `停用技能 ${s.name}` : `启用技能 ${s.name}`"
-            :class="{ 'is-on': s.enabled, 'is-loading': busyId === s.id }"
-            :title="s.enabled ? '点击停用' : '点击启用'"
-            :disabled="busyId === s.id"
-            @click.stop="toggle(s.id, !s.enabled)"
-          />
-          <button
-            v-if="s.source !== 'workspace'"
-            class="icon-btn is-sm is-danger"
-            :class="{ 'is-confirm': confirming === s.id, 'is-loading': busyId === s.id }"
-            type="button"
-            :title="confirming === s.id ? '再点一次确认删除' : '删除'"
-            :disabled="busyId === s.id"
-            @click.stop="askRemove(s.id)"
+            :class="{ 'is-loading': busy === `del:${s.id}` }"
+            :disabled="!!busy"
+            @click="remove(s)"
           >
-            <AppIcon name="trash" size="ic-xs" />
+            删除
           </button>
+        </article>
+      </div>
+    </section>
+
+    <Transition name="scrim">
+      <div v-if="opened" class="scrim" @click.self="opened = null">
+        <div class="drawer">
+          <header class="dr-head">
+            <b>{{ opened.name }}</b>
+            <span class="muted mono">{{ opened.location }}</span>
+            <span class="sp" />
+            <button class="icon-btn" type="button" title="关闭" @click="opened = null">
+              <AppIcon name="close" size="ic-sm" />
+            </button>
+          </header>
+          <pre class="dr-body">{{ content || '读取中…' }}</pre>
         </div>
       </div>
-      <pre v-if="open" class="skill-body"><code>{{ body }}</code></pre>
-    </PageState>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
-.skills {
+.panel {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-3);
-  min-width: 0;
+  gap: var(--wb-sp-4);
 }
-.toolbar {
+.pn-head {
   display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--wb-sp-3);
   flex-wrap: wrap;
-  min-width: 0;
 }
-.hint {
-  margin: 0;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
+.pn-head h3 {
+  font-size: var(--wb-fs-lg);
+  color: var(--wb-ink);
 }
-.draft {
-  margin-bottom: var(--wb-sp-3);
-}
-.field {
-  display: grid;
-  gap: var(--wb-sp-1);
-  margin-bottom: var(--wb-sp-3);
-  min-width: 0;
-}
-.field label {
-  font-size: var(--wb-fs-sm);
+.pn-sub {
+  margin-top: 4px;
+  font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
 }
 .acts {
   display: flex;
   gap: var(--wb-sp-2);
-  justify-content: flex-end;
+  align-items: center;
 }
-.skill {
-  cursor: pointer;
+.search {
+  width: 180px;
+  height: var(--wb-ctl-h-sm);
 }
-/* 技能行是「标题 + 开关 + 删除」的紧凑行：不能吃 .grow 的整行独占规则；
-   flex-basis 必须 0——auto 会按最长内容（nowrap 描述）预估宽度，把开关挤到下一行 */
-.skill .main {
-  flex: 1 1 0;
-  min-width: 0;
-  cursor: pointer;
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
 }
-/* 删除钮走全局 .icon-btn（五态齐全），这里只叠「二次确认」的常亮态：
-   scoped 重定义 .icon-btn 会连带抹掉 :active 缩放 / :disabled / .is-loading 三态。 */
-.icon-btn.is-confirm {
-  color: var(--wb-danger);
-  background: var(--wb-danger-soft);
+.g-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--wb-sp-2);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
 }
-.skill-body {
-  margin-top: var(--wb-sp-3);
-  max-height: 420px;
-  overflow: auto;
-  padding: var(--wb-sp-4);
-  border-radius: var(--wb-radius);
-  background: var(--wb-surface-2);
-  border: 1px solid var(--wb-border);
+.g-head b {
   font-size: var(--wb-fs-sm);
+  color: var(--wb-ink);
+}
+.sp {
+  flex: 1;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-3) var(--wb-sp-4);
+}
+.row.is-off {
+  opacity: 0.62;
+}
+.r-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.r-main b {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink);
+}
+.r-desc {
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-8) var(--wb-sp-4);
+  text-align: center;
+}
+.em-ic {
+  width: var(--wb-tile);
+  height: var(--wb-tile);
+  border-radius: var(--wb-radius);
+  display: grid;
+  place-items: center;
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
+}
+.empty p {
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-xs);
+  max-width: 440px;
+  line-height: 1.7;
+}
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--wb-scrim);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 60;
+}
+.drawer {
+  width: min(620px, 92vw);
+  background: var(--wb-surface);
+  border-left: 1px solid var(--wb-border);
+  display: flex;
+  flex-direction: column;
+  animation: drawer-in var(--wb-dur) var(--wb-ease);
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0.6;
+  }
+}
+.dr-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-3) var(--wb-sp-4);
+  border-bottom: 1px solid var(--wb-line);
+}
+.dr-body {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: var(--wb-sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-xs);
+  line-height: 1.7;
+  color: var(--wb-ink-2);
   white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

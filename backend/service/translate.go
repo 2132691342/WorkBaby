@@ -1,10 +1,8 @@
-// 事件翻译与运行记账：把 PI 的会话事件转成 WorkBaby 的 chat:* 事件并落账。
+// 事件翻译：把 PI 的会话事件转成 WorkBaby 的 chat:* 事件。
 // 它是唯一知道「PI 事件 → 界面事件」映射的地方。
 package service
 
 import (
-	"context"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,27 +12,20 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// runState 收集一次 PI run 过程中的落账位点。
-// 它不是会话状态：消息真身在 PI 的 JSONL 里，这里只记 WorkBaby 自己的账。
+// runState 收集一次 PI run 过程中的记账位点。
+// 它不是会话状态：消息真身在 PI 的 JSONL 里，这里只记本轮要广播的读数。
 type runState struct {
 	sessionID  string
 	runID      string
 	model      string
 	provider   string
-	turns      int
 	tokens     int
-	compressed int
 	context    int
 	window     int
 	maxTokens  int
 	stopReason string
-	// usage 是本轮累计（由 message_end 覆盖成权威值）。
-	usage *domain.UsageVO
-	// text 累积本轮助手正文：子代理与「继续」都靠它拿结论。
-	// 从事件流里攒而不去读 JSONL：文件由 PI 写，时机不在我们手上。
-	text strings.Builder
-	// started 是 run 开始时刻，用于算耗时。
-	started int64
+	usage      *domain.UsageVO
+	started    int64
 }
 
 // translator 是 pi.Handler 的实现：一个工作区一个实例，按会话分派。
@@ -45,21 +36,18 @@ type translator struct {
 	mu sync.Mutex
 	// states 按会话 id 索引正在跑的 run。
 	states map[string]*runState
+	// current 是进程当前停着的会话 id：扩展在会话开始时提问时只有它有值。
+	current string
 }
 
 // OnEvent 分派一条 PI 事件。
 func (t *translator) OnEvent(ev pi.Event) {
 	sessionID, st := t.sessionOf()
-	if sessionID == "" {
-		return
-	}
-	t.svc.onEvent(sessionID, st, ev)
+	t.svc.onEvent(t.workspace, sessionID, st, ev)
 }
 
 // OnExit 在 PI 进程退出时收口。
-func (t *translator) OnExit(err error) {
-	t.svc.onProcessExit(t.workspace, err)
-}
+func (t *translator) OnExit(err error) { t.svc.onProcessExit(t.workspace, err) }
 
 // sessionOf 取当前活跃会话与其 run 状态。
 func (t *translator) sessionOf() (string, *runState) {
@@ -68,18 +56,26 @@ func (t *translator) sessionOf() (string, *runState) {
 	for sid, st := range t.states {
 		return sid, st
 	}
-	return "", nil
+	return t.current, nil
 }
 
 // setSession 绑定当前活跃会话。
 func (t *translator) setSession(sessionID string, st *runState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.current = sessionID
 	if st == nil {
 		delete(t.states, sessionID)
 		return
 	}
 	t.states[sessionID] = st
+}
+
+// setCurrent 只更新当前会话指针（切会话但还没发消息时用）。
+func (t *translator) setCurrent(sessionID string) {
+	t.mu.Lock()
+	t.current = sessionID
+	t.mu.Unlock()
 }
 
 // clearSession 摘掉会话的 run 状态。
@@ -89,30 +85,27 @@ func (t *translator) clearSession(sessionID string) {
 	delete(t.states, sessionID)
 }
 
-// clearAll 摘掉全部（进程退出时）。
-func (t *translator) clearAll() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.states = map[string]*runState{}
-}
-
-// onEvent 把一条 PI 事件翻译成界面事件并落账。
-func (c *ChatService) onEvent(sessionID string, st *runState, ev pi.Event) {
+// onEvent 把一条 PI 事件翻译成界面事件。
+func (c *ChatService) onEvent(workspace, sessionID string, st *runState, ev pi.Event) {
 	switch ev.Kind {
 	case pi.KindAgentStart:
+		if st == nil {
+			return
+		}
 		st.started = nowMillis()
 		c.emit(sessionID, domain.EventChatStart, domain.StartData{
 			RunID: st.runID, SessionID: sessionID,
 		})
-		c.env.Runs.Start(st.runID, sessionID, st.provider, st.model)
 
 	case pi.KindMessageUpdate:
+		if st == nil {
+			return
+		}
 		c.onMessageUpdate(sessionID, st, ev)
 
-	case pi.KindMessageStart, pi.KindMessageEnd:
-		// message_end 带权威用量与停下的原因；只统计助手的消息（工具结果也带 usage）。
-		if ev.Kind == pi.KindMessageEnd && (ev.Role == "assistant" || ev.Usage != nil) {
-			c.onMessageEnd(sessionID, st, ev)
+	case pi.KindMessageEnd:
+		if st != nil && (ev.Role == "assistant" || ev.Usage != nil) {
+			c.onMessageEnd(st, ev)
 			if ev.StopReason != "" {
 				st.stopReason = ev.StopReason
 			}
@@ -135,10 +128,8 @@ func (c *ChatService) onEvent(sessionID string, st *runState, ev pi.Event) {
 		})
 
 	case pi.KindTurnEnd:
-		st.turns++
-		c.env.Runs.Touch(st.runID, st.turns, st.tokens, st.context, st.compressed)
-		if st.context > 0 {
-			c.env.Checkpoints.Touch(st.runID, sessionID, st.turns, st.context, st.window, st.compressed)
+		if st == nil {
+			return
 		}
 		c.emit(sessionID, domain.EventChatContext, domain.ContextData{
 			Used: st.context, Window: st.window, Known: st.window > 0,
@@ -149,7 +140,6 @@ func (c *ChatService) onEvent(sessionID string, st *runState, ev pi.Event) {
 		if ev.CompactResult == nil {
 			return
 		}
-		st.compressed++
 		c.emit(sessionID, domain.EventChatCompressed, domain.CompressedData{
 			TokensBefore: ev.CompactResult.TokensBefore,
 			TokensAfter:  ev.CompactResult.EstimatedTokensAfter,
@@ -162,13 +152,21 @@ func (c *ChatService) onEvent(sessionID string, st *runState, ev pi.Event) {
 		})
 
 	case pi.KindAgentEnd:
-		st.stopReason = stopReasonOf(ev)
+		if st != nil {
+			st.stopReason = stopReasonOf(ev)
+		}
 
 	case pi.KindAgentSettled:
-		c.finishSettled(sessionID, st, ev.Aborted)
+		if st != nil {
+			c.finishSettled(sessionID, st, ev.Aborted)
+		}
 
 	case pi.KindExtensionUI:
-		c.onExtensionUI(sessionID, ev)
+		// 只有需要用户回答的方法才进问答桥；fire-and-forget 方法一律忽略。
+		switch ev.Method {
+		case "confirm", "select", "input", "editor":
+			c.openAsk(workspace, sessionID, ev)
+		}
 	}
 }
 
@@ -179,7 +177,6 @@ func (c *ChatService) onMessageUpdate(sessionID string, st *runState, ev pi.Even
 		if ev.Delta == "" {
 			return
 		}
-		st.text.WriteString(ev.Delta)
 		c.emit(sessionID, domain.EventChatDelta, domain.DeltaData{
 			EntryID: st.runID, Kind: "text", Delta: ev.Delta,
 		})
@@ -207,19 +204,15 @@ func (c *ChatService) onMessageUpdate(sessionID string, st *runState, ev pi.Even
 	}
 }
 
-// onMessageEnd 落一次用量。
-func (c *ChatService) onMessageEnd(sessionID string, st *runState, ev pi.Event) {
+// onMessageEnd 记一次用量读数。
+func (c *ChatService) onMessageEnd(st *runState, ev pi.Event) {
 	if ev.Usage == nil {
 		return
 	}
 	u := &domain.UsageVO{
-		Input:     ev.Usage.Input,
-		Output:    ev.Usage.Output,
-		Cached:    ev.Usage.CacheRead,
-		Total:     ev.Usage.TotalTokens,
-		Context:   st.context,
-		Cost:      ev.Usage.Cost.Total,
-		LatencyMs: nowMillis() - st.started,
+		Input: ev.Usage.Input, Output: ev.Usage.Output,
+		Cached: ev.Usage.CacheRead, Total: ev.Usage.TotalTokens,
+		Context: st.context, Cost: ev.Usage.Cost.Total,
 	}
 	// 上游给的总量小于两者之和时以两者之和为准：仪表盘上「总量比输入+输出还小」只会让人以为统计坏了。
 	if u.Total < u.Input+u.Output {
@@ -229,23 +222,9 @@ func (c *ChatService) onMessageEnd(sessionID string, st *runState, ev pi.Event) 
 	if u.Cached > u.Input {
 		u.Input = u.Cached
 	}
-	if u.Total < u.Input+u.Output {
-		u.Total = u.Input + u.Output
-	}
 	st.usage = u
 	if st.context < u.Input {
 		st.context = u.Input
-	}
-	c.recordUsage(sessionID, st.provider, st.model, st.context, *u)
-}
-
-// onExtensionUI 处理扩展 UI 请求：confirm / select 就是审批闸门的通道。
-func (c *ChatService) onExtensionUI(sessionID string, ev pi.Event) {
-	switch ev.Method {
-	case "confirm", "select":
-		c.env.Approvals.Open(sessionID, ev.ID, ev.Method, ev.Title, ev.Body, ev.Options)
-	default:
-		// 只回响需要回响的两种；给 fire-and-forget 方法回响应会让 PI 的匹配表积垃圾。
 	}
 }
 
@@ -255,45 +234,46 @@ func (c *ChatService) finishSettled(sessionID string, st *runState, aborted bool
 	if aborted {
 		reason = "aborted"
 	}
-	usage := st.usage
 	c.emit(sessionID, domain.EventChatDone, domain.DoneData{
-		EntryID: st.runID, StopReason: reason, Usage: usage, MaxTokens: st.maxTokens,
+		EntryID: st.runID, StopReason: reason, Usage: st.usage, MaxTokens: st.maxTokens,
 	})
-	c.env.Runs.Finish(st.runID, runStatusOf(reason), reason, usage, st.context, st.maxTokens)
-	c.env.Evals.Auto(sessionID, st.runID)
-	c.env.Archive.Maybe()
-	// 结论交给子代理读取方：它不能用 JSONL（写入时机不在我们手上）。
-	c.saveResult(sessionID, st.text.String())
-	c.releaseSession(sessionID)
-	c.translatorOf(st).clearSession(sessionID)
+	c.release(sessionID)
+	c.translatorOfWorkspace(sessionWorkspace(c, sessionID)).clearSession(sessionID)
 }
 
 // onProcessExit 在 PI 进程退出时收口：本轮标记失败，但不自动重发。
 func (c *ChatService) onProcessExit(workspace string, err error) {
 	// 不自动重发是纪律：工具可能已经写过文件，重发等于执行两次。
-	sessions := c.sessionsIn(workspace)
-	for _, sid := range sessions {
-		st := c.translatorOfWorkspace(workspace).stateOf(sid)
-		if st == nil {
-			continue
-		}
+	tr := c.translatorOfWorkspace(workspace)
+	tr.mu.Lock()
+	ids := make([]string, 0, len(tr.states))
+	for sid := range tr.states {
+		ids = append(ids, sid)
+	}
+	tr.mu.Unlock()
+	for _, sid := range ids {
 		pkg.Warnf("chat: PI 进程退出，会话 %s 的本轮按失败收口: %v", sid, err)
 		c.emit(sid, domain.EventChatError, domain.ErrorData{
 			Code: pkg.CodeOf(pi.ErrProcessDown), Message: "助手进程退出了，这一轮没做完",
 		})
-		c.env.Runs.Finish(st.runID, domain.RunFailed, "error", st.usage, st.context, st.maxTokens)
-		c.releaseSession(sid)
-		c.translatorOfWorkspace(workspace).clearSession(sid)
+		c.release(sid)
+		tr.clearSession(sid)
+		c.closeAsksOf(sid, "gone")
 	}
 }
 
-// UsageVO 扩展：成本字段。
-// 直接放在 domain 里更合适，这里通过构造已带上。
+// sessionWorkspace 取会话所在工作目录；查不到返回空串。
+func sessionWorkspace(c *ChatService, sessionID string) string {
+	if c.sessions == nil {
+		return ""
+	}
+	return c.workspaceOf(sessionID)
+}
 
 // labelOf 给工具名一个中文短名；未知工具用原名（编一个好听的反而对不上）。
 func labelOf(name string) string {
 	switch name {
-	case "read":
+	case "read", "ffread":
 		return "读文件"
 	case "write":
 		return "写文件"
@@ -303,18 +283,20 @@ func labelOf(name string) string {
 		return "跑命令"
 	case "python":
 		return "跑脚本"
-	case "grep":
+	case "grep", "ffgrep":
 		return "搜内容"
-	case "find", "ls":
+	case "find", "ls", "fffind":
 		return "找文件"
 	case "web_search":
 		return "搜网页"
-	case "web_fetch":
+	case "fetch_content", "web_fetch":
 		return "开网页"
 	case "codemode":
 		return "写代码调用工具"
-	case "subagent":
-		return "派子代理"
+	case "tool_search":
+		return "找工具"
+	case "ask_user_question":
+		return "征求意见"
 	default:
 		if strings.HasPrefix(name, "mcp__") {
 			parts := strings.Split(name, "__")
@@ -340,24 +322,12 @@ func plainTextOf(blocks []pi.ContentBlock) string {
 	return b.String()
 }
 
-// stopReasonOf 取 PI 的收尾原因：优先用 message_end 里带出的。
+// stopReasonOf 取 PI 的收尾原因。
 func stopReasonOf(ev pi.Event) string {
 	if ev.StopReason != "" {
 		return ev.StopReason
 	}
 	return "stop"
-}
-
-// runStatusOf 把 stop reason 归成运行状态。
-func runStatusOf(stopReason string) string {
-	switch stopReason {
-	case "aborted":
-		return domain.RunAborted
-	case "error":
-		return domain.RunFailed
-	default:
-		return domain.RunDone
-	}
 }
 
 // ratioOf 换算成整数百分比，分母是可用预算（窗口减输出余量）。
@@ -378,16 +348,3 @@ func ratioOf(used, window, reserve int) int {
 
 // nowMillis 是毫秒时间戳的单一取法。
 func nowMillis() int64 { return time.Now().UnixMilli() }
-
-// 编译期确认 context 被引用（译量表将来要在这里接 ctx）。
-var _ = context.Background
-
-// stateOf 取会话的 run 状态。
-func (t *translator) stateOf(sessionID string) *runState {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.states[sessionID]
-}
-
-// 让 strconv 的引用有落点（seq 日志格式化用）。
-var _ = strconv.Itoa

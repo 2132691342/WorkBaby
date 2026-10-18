@@ -54,9 +54,9 @@ wails build
    改 `nodeVersion` / `pythonVersion` → 算出新归档 SHA-256 填进对应的
    `*ArchiveSHA256` 常量 → `go test ./backend/runtime/` 守护两者一致
 
-没有内置 Python 时应用照常运行：`python` 工具返回明确错误，
-设置页状态灯显示未就绪，系统 PATH 上的 Python 会被自动采用。
-Node 同理兜底系统 `node.exe`；PowerShell 从不内置，走系统自带的 5.1。
+内置运行时是**兜底**：系统已有合规版本（Node ≥ 22、Python 3.x）时直接复用，
+没有才解压内置那份。两个都没装也不阻断启动，只有对应的工具会报错。
+PowerShell 从不内置，走系统自带的 5.1。
 
 ## 用户数据
 
@@ -64,26 +64,34 @@ Node 同理兜底系统 `node.exe`；PowerShell 从不内置，走系统自带�
 
 | 内容 | 位置 |
 |---|---|
-| 数据库（会话 / 条目 / 用量 / 审批） | `workbaby.db`（WAL） |
-| 配置（含 MasterKey） | `config.yaml` |
+| 数据库（只有界面设置 KV） | `workbaby.db`（WAL） |
+| 配置（工作目录等固定项） | `config.yaml` |
 | 日志 | `logs/app.log`（全量）、`logs/warn.log`（warn 与 error） |
 | 内置运行时解压产物 | `runtime/node/`、`runtime/npm-global/`、`runtime/python/` |
-| 技能与知识库索引 | `pi-agent/skills/`、`pi-agent/skills.disabled/`、DB 内的分块 |
+| 人设（附加系统提示） | `persona.md` |
+| 自定义背景图副本 | `background/` |
 | WebView2 profile（纯缓存） | `webview/` |
 | 单实例锁与 IPC 端口 | `app.lock`、`ipc.port` |
 
+**会话、消息、用量、模型、技能、插件都不在这里**：它们是 PI 的状态，住在
+`~/.pi/agent/`（或用户设的 `PI_CODING_AGENT_DIR`）。卸载 WorkBaby 不会清掉它们——
+这是设计目标：换掉外壳不该丢用户的对话与配置。
+
 安装器把程序装进 `$PROGRAMFILES64`，建桌面与开始菜单快捷方式，并注册卸载器与
-文件关联（md / txt）。**覆盖安装**会问一句要不要先清空本机数据（默认保留，
-静默安装 `/S` 不删）；**卸载**同样问一句是否删除本机数据——选「否」数据留在
-`%APPDATA%\WorkBaby`，下次装回来接着用。`webview/` 里的 WebView2 profile 属纯缓存，
-卸载时直接清掉。绿色版（只用 `WorkBaby.exe`）同样可用：卸载就是删 exe，
+文件关联（md / txt）。数据去留在**组件页勾选框**里表达，不弹窗：
+
+- 安装页的可选项「清空旧数据」与卸载页的「删除本机数据」默认都不勾；
+- 静默安装 / 卸载（`/S`）跳过页面，未勾选的 section 不执行，永不删数据；
+- `webview/` 里的 WebView2 profile 属纯缓存，卸载时直接清掉；
+- `~/.pi/agent` 属于 PI，任何情况下都不删。
+
+绿色版（只用 `WorkBaby.exe`）同样可用：卸载就是删 exe，
 用户数据留在 `%APPDATA%` 里。
 
 ## 分发注意
 
 - 单实例锁 + 本地 TCP IPC：二次启动会唤起已有窗口并转交文件路径
 - 端口随机绑定 127.0.0.1，无外网暴露面
-- API Key 以 AES-256-GCM 加密存库，MasterKey 在 config.yaml（首启生成）
 - Wails 绑定面只有 `*main.App` 的 5 个系统能力方法（ForceQuit / 打开文件与目录
   对话框 / 自启读写）：`App` 持有而不是嵌入 `*api.Handler`，gin handler 不会被
   绑成 JS 方法；窗口控制由前端直接调 `wailsjs/runtime`，复制走 `navigator.clipboard`

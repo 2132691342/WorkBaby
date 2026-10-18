@@ -15,8 +15,7 @@ import (
 	"WorkBaby/backend/skill"
 )
 
-// 技能的新建 / 导入 / 删除：固化自己的流程要有一条不依赖命令行的路径。
-// Create 新建一个用户技能，写进数据目录的 skills 下并立刻注册。
+// Create 新建一个用户技能，写进 PI 的 skills 目录并立刻注册。
 func (s *SkillService) Create(req domain.CreateSkillREQ) (*domain.SkillVO, error) {
 	if s.env.Skills == nil {
 		return nil, domain.ErrSkillNotFound
@@ -25,8 +24,7 @@ func (s *SkillService) Create(req domain.CreateSkillREQ) (*domain.SkillVO, error
 	if name == "" {
 		return nil, pkg.New("8105", "给这个技能起个名字", "")
 	}
-	// 名字先过词法校验再拼路径：不带这一步，`..` 与路径分隔符能写出技能目录之外；
-	// 非法名写盘成功后才在 Parse 失败，也会留下注册不了的脏目录。
+	// 名字先过词法校验再拼路径：不带这一步，`..` 与路径分隔符能写出技能目录之外。
 	if !skill.ValidName(name) {
 		return nil, pkg.New("8101", "技能名只能用小写字母、数字和连字符", name)
 	}
@@ -39,7 +37,7 @@ func (s *SkillService) Create(req domain.CreateSkillREQ) (*domain.SkillVO, error
 		desc = firstLineOf(body)
 	}
 
-	dir := filepath.Join(s.env.Paths.SkillsDir, name)
+	dir := filepath.Join(s.env.PiEnv.SkillsDir(), name)
 	if err := pkg.EnsureDir(dir); err != nil {
 		return nil, err
 	}
@@ -54,18 +52,18 @@ func (s *SkillService) Create(req domain.CreateSkillREQ) (*domain.SkillVO, error
 		return nil, err
 	}
 	s.env.Skills.Add(parsed)
+	s.Reload(s.env.Workspace())
 	vo := parsed.ToVO()
 	return &vo, nil
 }
 
 // Import 从磁盘导入技能：支持 SKILL.md 文件、含 SKILL.md 的文件夹、
-// 以及装满技能的大目录（只取一层）。
+// 以及装满技能的大目录（只取一层）。文件夹里的脚本与素材一起复制。
 func (s *SkillService) Import(paths []string) (*domain.ImportSkillsRESP, error) {
 	if s.env.Skills == nil {
 		return nil, domain.ErrSkillNotFound
 	}
 	resp := &domain.ImportSkillsRESP{Skipped: []string{}}
-	needReload := false
 	for _, p := range paths {
 		p = strings.TrimSpace(p)
 		if p == "" {
@@ -77,25 +75,15 @@ func (s *SkillService) Import(paths []string) (*domain.ImportSkillsRESP, error) 
 			continue
 		}
 		for _, src := range found {
-			name, err := s.copySkill(src)
-			if err != nil {
-				resp.Skipped = append(resp.Skipped, filepath.Base(src))
+			if _, err := s.copySkillDir(src); err != nil {
+				resp.Skipped = append(resp.Skipped, filepath.Base(filepath.Dir(src))+"："+err.Error())
 				pkg.Warnf("skill: 导入 %s 失败: %v", src, err)
 				continue
 			}
 			resp.Imported++
-			// copySkill 已经把文件放进 skills 目录，扫一次盘即可注册
-			if _, ok := s.env.Skills.Get(name); !ok {
-				needReload = true
-			}
 		}
 	}
-	// 扫盘放在循环外：每个技能都整目录重扫一遍是 O(n²)，一包 20 个技能扫 20 次。
-	if needReload {
-		for _, sk := range skill.LoadDir(s.env.Paths.SkillsDir, domain.SkillSourceGlobal) {
-			s.env.Skills.Add(sk)
-		}
-	}
+	s.Reload(s.env.Workspace())
 	return resp, nil
 }
 
@@ -118,27 +106,17 @@ func (s *SkillService) ImportZip(filename string, data []byte) (*domain.ImportSk
 	}
 	found := locateSkillFiles(tmp)
 	if len(found) == 0 {
-		return nil, pkg.New("8109", "压缩包里没有 SKILL.md：技能包里每个技能一个文件夹，各含一个 SKILL.md", filename)
+		return nil, pkg.New("8109", "压缩包里没有 SKILL.md：每个技能一个文件夹，各含一个 SKILL.md", filename)
 	}
 	resp := &domain.ImportSkillsRESP{Skipped: []string{}}
-	needReload := false
 	for _, src := range found {
-		name, err := s.copySkill(src)
-		if err != nil {
-			resp.Skipped = append(resp.Skipped, filepath.Base(filepath.Dir(src)))
-			pkg.Warnf("skill: 从压缩包导入 %s 失败: %v", src, err)
+		if _, err := s.copySkillDir(src); err != nil {
+			resp.Skipped = append(resp.Skipped, filepath.Base(filepath.Dir(src))+"："+err.Error())
 			continue
 		}
 		resp.Imported++
-		if _, ok := s.env.Skills.Get(name); !ok {
-			needReload = true
-		}
 	}
-	if needReload {
-		for _, sk := range skill.LoadDir(s.env.Paths.SkillsDir, domain.SkillSourceGlobal) {
-			s.env.Skills.Add(sk)
-		}
-	}
+	s.Reload(s.env.Workspace())
 	return resp, nil
 }
 
@@ -166,8 +144,7 @@ func unzipSkill(data []byte, dst string) error {
 			}
 			continue
 		}
-		// 符号链接条目必须拦掉：写文件时它会被当成普通文件写出内容，
-		// 等于让压缩包决定往磁盘哪个位置落东西。
+		// 符号链接条目必须拦掉：写文件时它会被当成普通文件写出内容。
 		if f.Mode()&os.ModeSymlink != 0 {
 			return pkg.New("8108", "压缩包里有符号链接条目，不安全的技能包", f.Name)
 		}
@@ -197,32 +174,28 @@ func unzipSkill(data []byte, dst string) error {
 	return nil
 }
 
-// copySkill 把一个 SKILL.md 复制进数据目录，名字冲突时自动加序号。
-func (s *SkillService) copySkill(src string) (string, error) {
+// copySkillDir 把一个技能目录整体复制进 PI 的 skills 目录，名字冲突时自动加序号。
+func (s *SkillService) copySkillDir(src string) (string, error) {
 	parsed, err := skill.Parse(src, domain.SkillSourceGlobal)
 	if err != nil {
 		return "", err
 	}
 	name := parsed.Name
-	dir := filepath.Join(s.env.Paths.SkillsDir, name)
+	root := s.env.PiEnv.SkillsDir()
+	dir := filepath.Join(root, name)
 	for i := 2; pkg.DirExists(dir); i++ {
 		name = fmt.Sprintf("%s-%d", parsed.Name, i)
-		dir = filepath.Join(s.env.Paths.SkillsDir, name)
+		dir = filepath.Join(root, name)
 	}
-	if err := pkg.EnsureDir(dir); err != nil {
-		return "", err
-	}
-	raw, err := os.ReadFile(src)
-	if err != nil {
-		return "", err
-	}
-	if err := pkg.WriteText(filepath.Join(dir, "SKILL.md"), string(raw)); err != nil {
+	// SKILL.md 所在目录就是技能根：脚本与 references 一起搬过去。
+	srcDir := filepath.Dir(src)
+	if err := copyTree(srcDir, dir); err != nil {
 		return "", err
 	}
 	return name, nil
 }
 
-// Delete 删除用户技能；工作区级技能不从这里删——那是用户的文件，只从界面摘除。
+// Delete 删除用户技能；工作区与包里的技能不从这里删。
 func (s *SkillService) Delete(id string) error {
 	if s.env.Skills == nil {
 		return domain.ErrSkillNotFound
@@ -231,16 +204,20 @@ func (s *SkillService) Delete(id string) error {
 	if !ok {
 		return domain.ErrSkillNotFound
 	}
-	if sk.Source == domain.SkillSourceWorkspace {
-		return pkg.New("8106", "工作区技能请到工作区目录里删除", "")
+	switch sk.Source {
+	case domain.SkillSourceWorkspace:
+		return pkg.New("8106", "工作区技能请到项目的 .pi/skills 里删除", "")
+	case domain.SkillSourcePackage:
+		return pkg.New("8112", "这个技能随插件包安装，请卸掉那个包", "")
 	}
-	// 用 Location 反推目录：导入时同名会自动加序号，重算 skillsDir/name 会指错地方
+	// 用 Location 反推目录：导入时同名会自动加序号，重算 skillsDir/name 会指错地方。
 	if dir := filepath.Dir(sk.Location); dir != "" && dir != "." {
 		if err := os.RemoveAll(dir); err != nil {
 			return pkg.Wrap("8107", "删除技能失败", err)
 		}
 	}
 	s.env.Skills.Remove(id)
+	s.Reload(s.env.Workspace())
 	return nil
 }
 

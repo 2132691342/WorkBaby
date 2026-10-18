@@ -19,13 +19,12 @@
 | 样式 | 原生 CSS 设计令牌（`themes.css` + `wb-ui.css`） | 无 CSS 引擎依赖；组件全自绘，无 UI 组件库 |
 | 渲染 | marked · dompurify · highlight.js | markdown 唯一出口 `utils/md.ts` |
 | ORM | GORM + glebarez/sqlite | ^1.30.x（pure-Go，无 CGO） |
-| 数据库 | SQLite | WAL + FTS5 trigram |
+| 数据库 | SQLite | WAL；只存界面设置 KV——会话、消息与用量都在 PI 的会话文件里 |
 | 配置 | Viper | ^1.19.x（YAML + ENV；运行时配置走 KV 表） |
 | 日志 | log/slog（标准库） | info/warn/error 分文件落盘 |
 | 实时通信 | SSE | 业务实时通信全部走 SSE（`/api/v1/events`），不引入 WebSocket |
 | 测试 | testing（标准库） | 一包一入口、一条链一子测试；`scripts/check.ps1` 分三档收口验证（快门 / -Pkg / -Full），耗时以编译为主 |
 | ID | oklog/ulid/v2 | 业务 ULID 带前缀 |
-| 加密 | AES-256-GCM（标准库） | Provider API Key |
 | 托盘 | getlantern/systray | 关闭到托盘 |
 | 内置运行时 | Node + Python | `backend/runtime/bundled/`（go:embed 进 exe，归档经 LFS 托管），其余一律不内置 |
 | 平台 | Windows | 本期只考虑 Windows；平台特定代码按 `//go:build windows` 分文件，不写 `runtime.GOOS` 大分支 |
@@ -37,8 +36,8 @@
 **明确不引入**：UI 组件库、工作流引擎、微前端、富文本编辑器、原子化 CSS 引擎、
 图表库与图编辑库、国际化框架、通用工具库——当前功能面用不到，引入只增维护成本。
 
-需要哪一类能力时，先问「几百行自绘能不能覆盖」：运行观测（specs/15）是自己从
-条目链投影，架构图（specs/13）是自绘 SVG，仪表盘的两张图也是自绘——
+需要哪一类能力时，先问「几百行自绘能不能覆盖」：仪表盘的两张图都是自绘 SVG，
+界面基元（开关 / 弹层 / 表格 / 折叠）也都在 `wb-ui.css` 里自己写——
 这些都是几百行就能覆盖的场景，不因为「有现成的库」就开禁。
 
 ### 1.2 内核归 PI，界面归 WorkBaby
@@ -65,34 +64,31 @@ WorkBaby/
 ├── backend/
 │   ├── server/                   # ① HTTP 层（gin）：路由 / SSE hub / 统一响应 / 方法白名单
 │   ├── api/                      # ② 业务 handler（薄）+ 系统能力绑定（唯一允许 import wails 的包）
-│   ├── pi/                       # ③ 能力域：PI 子进程监督（进程 / RPC 编解码 / 事件翻译 / 环境引导）
-│   │   └── env/                  #    内置 Node 解压、PI 安装与探测、config 互通
+│   ├── pi/                       # ③ 能力域：PI 子进程监督（进程 / RPC 编解码 / 事件翻译 / 会话文件索引）
+│   │   ├── env/                  #    运行时复用、PI 安装与探测、models/settings/mcp 互通
+│   │   └── pitest/               #    测试夹具：假 PI 进程（按脚本回 RPC，也落会话文件）
 │   ├── service/                  # ④ 业务编排层（事务边界；不写 SQL；不引 gin/Wails）
 │   ├── repo/                     # ⑤ 持久层（GORM；不引上层）
 │   ├── domain/                   # ⑥ 域模型（一个聚合根一个文件，DO/DTO/REQ/VO/RESP 同居一处）
 │   ├── skill/                    # ⑦ Skill（parser/registry/loader，目录即 PI 的技能目录）
-│   ├── knowledge/                # ⑧ 知识库（loader/chunker/service + FTS5 检索；另挂一个 MCP server 出口）
-│   ├── git/                      # ⑨ 工作区版本视图（读 status/diff/历史，写限白名单六动作，走系统 git）
-│   ├── runtime/                  # ⑩ 路径解析 + 内置 Node / Python 运行时（bundled/ 归档 go:embed + 解压）
+│   ├── git/                      # ⑧ 工作区版本视图（读 status/diff/历史，写限白名单六动作，走系统 git）
+│   ├── runtime/                  # ⑨ 路径解析 + 内置 Node / Python 运行时（bundled/ 归档 go:embed + 解压）
 │   │   └── runtimetest/          #    测试夹具：预置运行时标记，装配类测试跳过解压（只被测试引用）
-│   ├── config/                   # ⑪ 配置（Viper YAML + MasterKey）
-│   ├── db/                       # ⑫ SQLite 打开 + 迁移 + FTS5 虚表
-│   ├── pkg/                      # ⑬ 叶子工具包（AppError/ID/日志/加密/httprules/fsutil）
-│   ├── tray/                     # ⑭ 系统托盘
-│   ├── singleinstance/           # ⑮ 单实例保护（文件锁 + 本地 TCP IPC）
-│   ├── history/                  # ⑯ 通用会话历史（只读扫描 + 解析器注册表）
-│   └── archmap/                  # ⑰ 项目架构分析（import 解析 + 分层图数据）
+│   ├── config/                   # ⑩ 配置（Viper YAML：工作目录与固定项）
+│   ├── db/                       # ⑪ SQLite 打开 + 迁移
+│   ├── pkg/                      # ⑫ 叶子工具包（AppError/ID/日志/httprules/fsutil）
+│   ├── tray/                     # ⑬ 系统托盘
+│   └── singleinstance/           # ⑭ 单实例保护（文件锁 + 本地 TCP IPC）
 ├── assets/                       # 应用内帮助文档（embed；Skill 管理见 specs/03）
 ├── build/                        # 平台资源与产物
 ├── docs/                         # 项目级文档：架构 / 数据模型 / API 契约 / 页面 / 开发 / 部署
-├── specs/                        # 子系统规格（01-22）
+├── specs/                        # 子系统规格（01-03 · 05-10 · 17-18 · 20 · 22）
 └── tools/                        # Go 写的独立门禁工具（check-boundaries）
 ```
 
-运行观测与评估不单独设包：`service/{runs,checkpoint,eval,archive,observe}.go`、
-`repo/{run,eval}.go`、`domain/{run,eval}.go`。
-记忆同理（一张表、一个服务）：`service/memory.go` / `repo/memory.go` / `domain/memory.go`——
-只有一张表的能力不值得开一个目录，开包的门槛是「它有自己的一组概念」，不是「它是一块功能」。
+不单独设包的能力一律留在 `service/` + `domain/`：模型服务、技能、插件、工具、MCP、统计、
+设置各自一个文件，它们只是「某个文件类型 / 某份配置」的编排，不值得开目录。
+开包的门槛是「它有自己的一组概念 + 独立生命周期」，`pi` 与 `git` 满足，其余不满足。
 
 **`backend/pi` 是能力域，不是胶水层**：它拥有“子进程 + 协议 + 翻译”这三个自洽概念，
 有独立的生命周期（spawn / 守护 / 重启 / 退出）、独立的错误段（9700-9799）与独立的测试入口。
@@ -113,7 +109,7 @@ WorkBaby/
 ### 2.2 依赖方向（强制）
 
 ```
-backend/server ──► backend/api ──► backend/service ──► 能力域（pi/skill/knowledge/git/history/archmap）
+backend/server ──► backend/api ──► backend/service ──► 能力域（pi/skill/git）
                                           │
                                           ▼
                                      backend/repo ──► backend/domain
@@ -213,18 +209,15 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 | 1000–1999 | 通用 / 文件 / 路径 |
 | 2000–2999 | 配置 / 持久化 / DB |
 | 3000–3999 | Provider / 模型配置 |
-| 4000–4999 | 审批（4101–4103）。工具执行在 PI 里，本段不再产生工具执行码 |
-| 5000–5999 | 会话运行（忙 / 插话队列 / 收尾） |
-| 6000–6999 | Knowledge |
+| 4000–4999 | 已退役（原审批段）：工具执行与确认都在 PI 里，本段不再产生码 |
+| 5000–5999 | 会话运行（忙 / 插话队列 / 收尾 / 引擎提问） |
 | 7000–7999 | Runtime（内置运行时） |
 | 8000–8999 | Skill |
 | 9100–9199 | MCP（外部工具接入） |
-| 9200–9299 | 评估与回归 |
-| 9300–9399 | 通用历史 |
-| 9400–9499 | 项目架构图 |
-| 9500–9599 | 记忆 |
-| 9600–9699 | 运行观测（run / 检查点） |
 | 9700–9799 | PI 子进程 / 协议 / 环境引导 |
+
+6000 / 9200–9699 段位已随知识库、评估、通用历史、架构图、记忆、运行观测一并退役；
+这些码不再产生，文档里也不再保留。
 
 每个码的完整含义与处置动作见 [`docs/ERROR-CODES.md`](docs/ERROR-CODES.md)。
 
@@ -233,7 +226,7 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 | 类别 | 风格 | 示例 |
 |---|---|---|
 | 文件名 | snake_case.go | ai_provider.go |
-| 包名 | 全小写无下划线 | pi / env / knowledge |
+| 包名 | 全小写无下划线 | pi / env / skill |
 | 类型 / 接口 | PascalCase（不加 I 前缀） | ProviderDO / Client |
 | 函数 | 导出 PascalCase / 私有 camelCase | ListProviders / resolveOne |
 | 变量 | camelCase | runID / compressRatio |
@@ -324,9 +317,8 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 | 工具输出 | 由 PI 截断；WorkBaby 只做展示层截断（UI 不渲染万行） |
 | PI 进程 | 一个工作区一个进程；归 `backend/pi` 独有，其他层不得 `os/exec` 拉起 PI |
 | 事件出口 | `service.Emitter` 唯一出口（注入归属 + 分配 seq + sink 注入，按会话串行化） |
-| Token 计量 | 每次 `message_end` 一行 token_usages；`GET /stats` 按天/模型/会话聚合 |
-| 配置 | Viper + settings KV 表 |
-| 加密 | AES-256-GCM（Provider API Key） |
+| Token 计量 | 用量读自 PI 的会话文件（assistant 消息上的 usage）；`GET /stats` 按天/模型/会话聚合 |
+| 配置 | Viper（工作目录等固定项）+ settings KV 表（界面偏好） |
 | 单实例 | 文件锁 + 本地 TCP IPC 转交文件路径 |
 
 禁止引入：OpenTelemetry / Prometheus 客户端；AOP 框架；全局可变状态。
@@ -357,7 +349,8 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 ### 2.11 数据库迁移
 
 - GORM AutoMigrate：新增字段只增不删、零值兜底；废弃字段留在表里（改语义靠代码兼容）
-- FTS5 虚拟表与触发器用 raw SQL 启动期逐条创建（多语句一次 Exec 不可靠）
+- 旧版本留下的表（sessions / providers / runs / knowledge_docs 等）**不主动 DROP**：
+  它们不再被读写，留着不影响任何路径；删除动作只在用户自己迁移数据时做
 
 ### 2.12 HTTP 与 API 路径约定（强制）
 
@@ -370,8 +363,8 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 
 **路径风格唯一标准**：`/api/v1/{resource}/{action}/:id`——动作段在 id 之前，id 永远是最后一段
 （`POST /api/v1/sessions/delete/:id`、`GET /api/v1/skills/content/:id`）。没有 id 的动作直接
-`/api/v1/{resource}/{action}`（`POST /api/v1/knowledge/reindex`）。
-一个动作需要两个变量（如审批的 `approve` / `deny`）时，把第二个变量移进请求体，
+`/api/v1/{resource}/{action}`（`POST /api/v1/extensions/reload`）。
+一个动作需要两个变量（如 `providers/test` 的 `id`）时，把第二个变量移进请求体，
 不要拼成 `/:id/:action`。前端 API 层收敛在 `frontend/src/api/index.ts`，
 路径与 `backend/server/routes.go` 一一对应。
 
@@ -410,7 +403,7 @@ type Record struct {
 |---|---|---|
 | 命令响应 | `type == "response"` | 按 `id` 唤醒等待者 |
 | 会话事件 | 已知事件名 | 进翻译层 |
-| 扩展 UI | `type == "extension_ui_request"` | `confirm`/`select` 转 `chat:approval`；其余方法忽略 |
+| 扩展 UI | `type == "extension_ui_request"` | `confirm`/`select`/`input`/`editor` 转 `chat:ask`；其余方法忽略 |
 | 未知 | 其余 | debug 日志后丢弃 |
 
 #### 2.13.3 事件翻译映射
@@ -427,7 +420,7 @@ type Record struct {
 | `compaction_end` | `chat:compressed` |
 | `auto_retry_start` | `chat:retry` |
 | `agent_settled` | `chat:done` |
-| `extension_ui_request`（`confirm`/`select`） | `chat:approval` |
+| `extension_ui_request`（`confirm`/`select`/`input`/`editor`） | `chat:ask` |
 
 #### 2.13.4 不变量
 
@@ -435,7 +428,9 @@ type Record struct {
 |---|---|
 | stdout 分帧只按 LF | U+2028/U+2029 在 JSON 字符串里合法，按 Unicode 行分隔切分会截断记录 |
 | 未知记录忽略，不报错 | 装了扩展的环境首帧就是 `extension_ui_request`，当错误处理则处处起不来 |
-| 审批只靠 `confirm` 对话对 | PI 默认不问审批，闸门只能由扩展拦 `tool_call` 并走 `ctx.ui.confirm` |
+| 提问只靠 `extension_ui_request` 对话对 | PI 默认不问审批；闸门只能由扩展拦 `tool_call` 并走 `ctx.ui.confirm`，界面只负责显示与回传 |
+| agent 目录不覆盖 | `PI_CODING_AGENT_DIR` 只能继承：换成私有目录，用户装好的技能 / 插件 / 模型 / 会话全部看不见 |
+| 一个工作区一个当前会话 | 进程的会话指针只有一个：同目录另一条对话还在跑时，切会话前必须先等它停下 |
 | 命令按 id 关联 | PI 异步处理，响应顺序与发送顺序无保证 |
 | `chat:done` 只在 `agent_settled` | 自动重试/压缩/插话都挂在 `agent_end` 之后，提前完成会让界面自相矛盾 |
 | 一个工作区一个进程 | `cwd` 是进程级属性，跨工作区共进程会让工具写到错的目录 |
@@ -451,7 +446,7 @@ type Record struct {
 | 内置 Node 解压必须平铺到根 | 多一层目录会让 `npm.cmd` 找错 node，表现为「npm 装了但 PI 起不来」 |
 | PATH 注入必须前置拼接 | 后置拼接会被用户 PATH 上的旧 node 抢先，内置 node 等于没生效 |
 | 环境 `Ready` 判定在 spawn 之前 | 没配模型就 spawn，失败点会推到第一次对话，错误难以归因 |
-| 会话/消息/审批等界面词表不变 | 前端只认自己的 `chat:*`；换词表等于重写整个前端 |
+| 会话/消息/提问等界面词表不变 | 前端只认自己的 `chat:*`；换词表等于重写整个前端 |
 
 详见 `specs/17-pi-supervisor.md` / `18-pi-bootstrap.md`。
 
@@ -469,7 +464,7 @@ type Record struct {
 |---|---|
 | 多轮循环 / 工具顺序回填 / 中断收尾 | 单个纯函数的输入输出 |
 | CleanForProtocol 等协议硬约束 | 简单 CRUD、字段映射、枚举转换 |
-| 审批闭环 / 路径穿越 / 写前必读等安全护栏 | 幂等 setter、构造函数冒烟 |
+| 会话索引 / 提问桥 / 路径穿越 / 受控 git 写入等安全护栏 | 幂等 setter、构造函数冒烟 |
 | FTS 检索与短查询兜底 | 只验证「不 panic」「非 nil」的弱断言 |
 | 服务层集成：建会话→发送→落库 | 同一行为在不同文件里的重复断言 |
 | 跨进程边界的端到端（HTTP / SSE / IPC） | 结构存在性检查（某张表在不在） |
@@ -519,22 +514,21 @@ CI 常跑全量，所以本地不跑不等于没人跑。
 ### 3.4 测试索引
 
 保留判据只有两条：**它坏了会指向一条真实链路**、**必须跨模块 / 跨轮次 / 跨协议**。
-全包共 9 个入口 / 9 个文件（一包一入口）。同族场景收进同一个入口的子测试，
-不按「一个断言一个测试」散开——散开只会在改动时逼你跑一大堆、失败时又定位不到是哪条链。
-只打日志不做断言的「测试」不是测试，删掉。
-没列进来的包（server / config / db / domain / pkg / repo / history / archmap / tray /
-singleinstance / mcp / git 之外的能力域）不单独设测试：它们的正确性由流经它的链路断言。
+全包共 8 个入口 / 8 个文件（一包一入口），每个入口只收复杂流程与长链路：
+简单 CRUD、字段映射、构造冒烟这类「坏了也不知道哪里坏」的断言一律不写——
+它们撑不起一条链路，只会稀释失败信息、拖慢每次验证。
+没列进来的包（server / config / db / domain / pkg / repo / tray / singleinstance）
+不单独设测试：它们的正确性由流经它的链路断言。
 
 | 入口 | 覆盖的链路 |
 |---|---|
 | `app_test.go` · TestAppChain | 启动等待判据（慢装配不误判 / 失败如实报 / 卡死有上限）；关闭去向（托盘开关与退出流程决定收托盘还是真退出） |
-| `pi/pi_test.go` · TestPiChain | 真假 PI 进程下的协议链，六个子测试各守一条不变量：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、斜杠命令 / 导出 / 取消重试的负载解码）；**done 只在 agent_settled 之后**（agent_end → 重试 → settled 的顺序）；**事件翻译**（流式增量两类、工具结果内容块与元数据、压缩前后 token）；**审批请求解析与决策回写**；**停止先取回排队文本**；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、ResolveExe、一个工作区一个进程） |
-| `pi/env/env_test.go` · TestPiEnvChain | **环境闸门与进程环境**（node → pi → model 报首个阻塞项、system 来源优先复用、PATH 前置、agent 目录唯一）；**models.json / settings.json 形状**（PI 认识的 camelCase、原子替换）；**settings.json 只改掌管键**（PI 自己的字段与已装的包不丢、compaction 字段级合并）；**mcp.json**（内置条目补回、未知字段保留、坏文件不覆盖） |
-| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈：**闸门**（预检放行 + 方法白名单 + 路径穿越门口拒绝）；**契约**（统一信封、空数组永不 null、/env 与 /runtime 字段、插件列表数组与内置闸门拒停 9717）；**SSE 全链**（子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋）与 Last-Event-ID 重放。服务只启一次，子测试共用 |
-| `service/chain_test.go` · TestServiceChain | 十一条链：会话生命周期（懒创建 → 发送回写指针 → 删除同时清行与文件）；一轮对话（运行记录收尾、用量口径、中途停止收回运行态）；JSONL 投影（坏行只跳过自己）；技能启停 = 移目录；插件启停 = 改 settings.json 清单 + 重启 PI（内置闸门拒停，删除连文件一并清）；审批桥（权限档落策略文件、会话级放行记忆、Forget 清干净、在途决策 4102）；工作区切换重建进程；子代理独立进程与隐藏会话不进列表；配置同步（PI 全部文件、APPEND_SYSTEM 受控块、设置与工具开关进 settings.json）；MCP 校验不过不落盘且内置条目删不掉；并发发送不串会话 |
-| `knowledge/knowledge_test.go` · TestKnowledgeChain | 建索引 → 检索（短查询子串兜底）→ 删除级联；pptx 按页号抽取且可检索；重建索引后台任务（进度跑满、拒绝重入、结束后取消返回 false）；MCP 出口（握手按客户端版本回、通知不回帧、工具声明、检索命中与零命中的话术、未知方法报错） |
-| `git/git_test.go` · TestGitChain | 真仓库端到端，按坏法分三条链：读（status 归类 / 中文带空格路径还原 / 行号归属 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；写（参数白名单 → 勾选入栈 → 空信息被拒 → 提交带 hash → 历史与文件历史可读 → 出栈只动索引）；分支（名字白名单 → 新建切换 → 历史隔离）。`-short` 与没装 git 都跳过 |
-| `skill/skill_test.go` · TestSkillRegistryChain | 两区目录扫描与来源优先级（skills/ 启用、skills.disabled/ 停用但可见可读）；切换工作目录换掉工作区技能且不残留 |
+| `pi/pi_test.go` · TestPiChain | 真假 PI 进程下的协议链，五个子测试各守一条不变量：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、可用模型清单）；**事件顺序**（agent_end → 重试 → settled，done 只挂最后）；**事件翻译**（流式增量两类、工具结果内容块与元数据、压缩前后 token）；**提问请求解析与回写响应**（请求字段完整解析、响应写回同一 id）；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程） |
+| `pi/env/env_test.go` · TestPiEnvChain | **agent 目录与进程环境**（跟随 `PI_CODING_AGENT_DIR`、不覆盖它）；**环境闸门**（node → pi → model 报首个阻塞项并给原因）；**models.json 形状与未知字段保留**（camelCase、`$schema` / 服务商内未知键往返不丢）；**settings.json 只改掌管键**（PI 自己的字段与已装的包不丢、compaction 字段级合并）；**packages 两种写法**；**mcp.json 原文往返**与项目级路径 |
+| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈，三个子测试：**闸门**（预检放行 + 方法白名单 + 路径穿越门口拒绝）；**契约**（统一信封、空数组永不 null、`/env` 带 agent_dir、`/runtime` 字段、各资源列表可读）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、会话出现在列表里）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
+| `service/chain_test.go` · TestServiceChain | 十条链：**会话索引**（列表/详情/用量都来自会话文件、标题取 session_info、工具清单来自工具声明、删除删的是文件）；**一轮对话**（新会话现场创建、done 最后、重试事件、会话出现在列表）；**停止**（先取回排队文本再中止）；**技能**（用户/停用区/包自带三源、启停靠移目录、包内技能不可搬）；**插件与包**（登记项、包目录解析、停用摘登记）；**模型服务**（models.json 读写、密钥掩码、默认模型进 settings.json、能力回读、删除连带清默认）；**MCP**（坏 JSON 不落盘、保存后可读、范围正确）；**统计**（按天补齐、总量与模型归因）；**设置**（PI 配置快照与路径、思考档与压缩参数落盘）；不同工作区并行不串会话 |
+| `git/git_test.go` · TestGitChain | 真仓库端到端（唯一用真子进程的测试，约 9 秒），按坏法分三条链：读（status 归类 / 中文带空格路径还原 / 行号归属 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；写（参数白名单 → 勾选入栈 → 空信息被拒 → 提交带 hash → 历史与文件历史可读 → 出栈只动索引）；分支（名字白名单 → 新建切换 → 历史隔离）。`-short` 与没装 git 都跳过 |
+| `skill/skill_test.go` · TestSkillRegistryChain | **frontmatter 混合类型解析**（列表 / 行内数组 / 标量混排，解析失败会被静默跳过）；**两区扫描**（停用区可见可读、正文可取）；**工作区切换**（换目录换技能不残留、全局技能不被清掉） |
 | `runtime/runtime_test.go` · TestBundledRuntimeChain | 两份归档 SHA 与常量一致、解压路径穿越拒绝；Node 剥掉顶层单目录、Python 平铺；真解压（`-short` 跳过） |
 
 **改这里 → 只跑这条**（定位与验证都从这张表进；单包一律用脚本）：
@@ -545,15 +539,15 @@ singleinstance / mcp / git 之外的能力域）不单独设测试：它们的�
 | `pi/env/`（Node 探测、PI 安装、config 互通） | `pwsh scripts/check.ps1 -Pkg backend/pi/env` |
 | `service/`（会话、对话、落库、编排） | `pwsh scripts/check.ps1 -Pkg backend/service` |
 | `api/` · `server/`（端到端 HTTP + SSE） | `pwsh scripts/check.ps1 -Pkg backend/api` |
-| `skill/` · `knowledge/` | `pwsh scripts/check.ps1 -Pkg backend/skill` 等 |
+| `skill/` | `pwsh scripts/check.ps1 -Pkg backend/skill` |
 | 壳层（`app.go`） | `pwsh scripts/check.ps1 -Pkg .` |
 | `runtime/`（含真解压）· `git/`（含真 git） | `pwsh scripts/check.ps1 -Full` |
-| 某一条子测试 | `go test -count=1 -run 'TestPiChain/审批请求解析与回写响应' ./backend/pi` |
+| 某一条子测试 | `go test -count=1 -run 'TestPiChain/提问请求解析与回写响应' ./backend/pi` |
 | 拿不准 | `pwsh scripts/check.ps1` |
 | 改了前端 | `cd frontend; npm run build`（或直接跑 `-Full`） |
 | 提交前 / CI | `pwsh scripts/check.ps1 -Full` |
 
-耗时大头是**编译**（前端依赖之外，Go 侧 26 个包 + wails / gin / gorm），测试本体多在亚秒级。
+耗时大头是**编译**（前端依赖之外，Go 侧二十几个包 + wails / gin / gorm），测试本体多在亚秒级。
 所以「只跑一个包」省的是编译，不是断言——这就是 `-Pkg` 存在的理由。
 
 

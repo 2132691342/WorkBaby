@@ -1,5 +1,5 @@
-// 工具目录：从 PI 进程读出当前声明的工具，并承接启停（写 PI 的 defaultTools）。
-// 工具的实现与执行都在 PI 里，WorkBaby 只负责展示与开关。
+// 工具面板：清单来自 PI（最近一次会话写给模型的工具声明 + MCP 在线工具），
+// 启停写的是 PI settings.json 的 defaultTools。WorkBaby 不自己实现任何工具。
 package service
 
 import (
@@ -21,134 +21,143 @@ type ToolService struct {
 // NewToolService 构造工具服务。
 func NewToolService(env *Env) *ToolService { return &ToolService{env: env} }
 
-// builtinTools 是 PI 自带工具的中文名与分类；不在这张表里的按原名显示。
-// 它是**展示用**的静态表，不是「有哪些工具」的真相——真相从 PI 读。
-var builtinTools = map[string]struct {
-	Label    string
-	Category string
-	Risk     string
-	Desc     string
-}{
-	"read":        {"读文件", domain.CategoryFile, domain.RiskLow, "读一个文件的正文"},
-	"write":       {"写文件", domain.CategoryFile, domain.RiskMedium, "新建或整体覆盖一个文件"},
-	"edit":        {"改文件", domain.CategoryFile, domain.RiskMedium, "在一个文件里做精确替换"},
-	"bash":        {"跑命令", domain.CategoryShell, domain.RiskHigh, "执行一条 shell 命令"},
-	"powershell":  {"跑命令", domain.CategoryShell, domain.RiskHigh, "在 Windows 上执行一条命令"},
-	"python":      {"跑脚本", domain.CategoryCode, domain.RiskMedium, "执行一段 Python 脚本"},
-	"grep":        {"搜内容", domain.CategoryFile, domain.RiskLow, "在文件里搜文本"},
-	"find":        {"找文件", domain.CategoryFile, domain.RiskLow, "按名字或模式找文件"},
-	"ls":          {"看目录", domain.CategoryFile, domain.RiskLow, "列一个目录里有什么"},
-	"web_search":  {"搜网页", domain.CategoryWeb, domain.RiskLow, "在网上搜信息"},
-	"web_fetch":   {"开网页", domain.CategoryWeb, domain.RiskLow, "打开一个网页读正文"},
-	"codemode":    {"写代码调用工具", domain.CategoryCode, domain.RiskMedium, "把多步工具调用写成一段脚本一次执行"},
-	"tool_search": {"找工具", domain.CategoryData, domain.RiskLow, "在工具很多时按需查找"},
-	"subagent":    {"派子代理", domain.CategoryCode, domain.RiskMedium, "把一件独立活交给一个单独的助手去做"},
+// builtinTools 是 PI 自带工具的中文名与说明；它只是**展示**用的静态表，
+// 「当前有哪些工具」的真相来自会话里的工具声明。
+var builtinTools = map[string]struct{ Label, Desc string }{
+	"read":        {"读文件", "读一个文件的正文"},
+	"write":       {"写文件", "新建或整体覆盖一个文件"},
+	"edit":        {"改文件", "在一个文件里做精确替换"},
+	"bash":        {"跑命令", "执行一条 shell 命令"},
+	"powershell":  {"跑命令", "在 Windows 上执行一条命令"},
+	"grep":        {"搜内容", "在文件里搜文本"},
+	"find":        {"找文件", "按名字或模式找文件"},
+	"ls":          {"看目录", "列一个目录里有什么"},
+	"codemode":    {"写代码调用工具", "把多步工具调用写成一段脚本一次执行"},
+	"tool_search": {"找工具", "在工具很多时按需查找"},
 }
 
+// builtinOrder 是没有会话快照时的兜底顺序。
+var builtinOrder = []string{"read", "write", "edit", "bash", "powershell", "grep", "find", "ls", "codemode", "tool_search"}
+
+// defaultTools 是 PI 在没有 defaultTools 配置时的默认集。
+var defaultTools = []string{"read", "bash", "edit", "write"}
+
 // Catalog 列出 PI 当前声明的工具。
-// PI 未就绪时返回空列表：不编造一份静态表——那会让界面显示一批实际调不动的工具。
-func (s *ToolService) Catalog() []domain.ToolVO {
-	declared, ok := s.declared()
-	if !ok {
-		return []domain.ToolVO{}
-	}
+func (s *ToolService) Catalog() *domain.ToolListRESP {
 	enabled := s.enabledSet()
-	out := make([]domain.ToolVO, 0, len(declared))
-	for _, name := range declared {
-		out = append(out, s.toolVO(name, enabled))
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Category != out[j].Category {
-			return out[i].Category < out[j].Category
+	resp := &domain.ToolListRESP{Tools: []domain.ToolVO{}, Snapshot: "static"}
+
+	// 找最近一条带工具声明的会话：那就是模型此刻真能调到的工具。
+	metas, _ := pi.ListSessions(s.env.PiEnv.SessionsDir())
+	var declared []pi.SessionTool
+	for _, m := range metas {
+		if len(m.Tools) > 0 {
+			declared, resp.SnapshotAt = m.Tools, m.UpdatedAt
+			resp.Snapshot = "session"
+			break
 		}
-		return out[i].Name < out[j].Name
+	}
+
+	seen := map[string]bool{}
+	for _, t := range declared {
+		if strings.HasPrefix(t.Name, "mcp__") {
+			continue // MCP 工具从在线服务取，清单更完整
+		}
+		seen[t.Name] = true
+		resp.Tools = append(resp.Tools, s.toolVO(t.Name, t.Description, enabled))
+	}
+	if len(declared) == 0 {
+		for _, name := range builtinOrder {
+			seen[name] = true
+			resp.Tools = append(resp.Tools, s.toolVO(name, "", enabled))
+		}
+	}
+	for _, t := range NewMCPService(s.env).MCPTools() {
+		if seen[t.Name] {
+			continue
+		}
+		resp.Tools = append(resp.Tools, t)
+	}
+	sort.SliceStable(resp.Tools, func(i, j int) bool {
+		if resp.Tools[i].Source != resp.Tools[j].Source {
+			return resp.Tools[i].Source < resp.Tools[j].Source
+		}
+		return resp.Tools[i].Name < resp.Tools[j].Name
 	})
-	return out
+	return resp
 }
 
 // toolVO 把一个工具名翻译成视图对象。
-func (s *ToolService) toolVO(name string, enabled map[string]bool) domain.ToolVO {
-	vo := domain.ToolVO{
-		Name: name, Label: name, Category: domain.CategoryData,
-		Risk: domain.RiskLow, Approval: false,
-		Mode: "sequential", Params: []string{},
-		Enabled: enabled[name], Builtin: true,
-	}
+func (s *ToolService) toolVO(name, desc string, enabled map[string]bool) domain.ToolVO {
+	vo := domain.ToolVO{Name: name, Description: desc, Source: domain.ToolSourceExtension}
 	if meta, ok := builtinTools[name]; ok {
-		vo.Label, vo.Category, vo.Risk, vo.Description = meta.Label, meta.Category, meta.Risk, meta.Desc
-		vo.Approval = meta.Risk != domain.RiskLow
+		vo.Source = domain.ToolSourceBuiltin
+		label := meta.Label
+		vo.Description = "「" + label + "」 " + meta.Desc
 	}
-	// MCP 工具：名字带 mcp__{server}__{tool} 前缀，外部代码不可审计，一律高危必问。
-	if strings.HasPrefix(name, "mcp__") {
-		parts := strings.Split(name, "__")
-		if len(parts) >= 3 {
-			vo.Label = parts[1] + " / " + parts[2]
-		}
-		vo.Category = domain.CategoryData
-		vo.Risk = domain.RiskHigh
-		vo.Approval = true
-		vo.Builtin = false
-		vo.Description = "来自 MCP 服务的外部工具"
+	if vo.Description == "" {
+		vo.Description = "由插件注册的工具"
 	}
+	vo.Enabled = enabled[name]
 	return vo
 }
 
-// declared 从 PI 读当前声明的工具名：读 defaultTools 与内置表的组合。
-// 进程没跑起来时问不到，返回未就绪——事件积累对刚起的进程不可靠。
-func (s *ToolService) declared() ([]string, bool) {
-	settings, err := s.env.PiEnv.ReadSettings()
-	if err != nil {
-		settings = nil
-	}
-	enabled := s.enabledSet()
-	out := make([]string, 0, len(builtinTools))
-	for name := range builtinTools {
-		out = append(out, name)
-	}
-	// MCP 工具从 mcp.json 推断前缀（不知道具体工具名，但知道有哪几个 server）。
-	for server := range s.mcpServers() {
-		out = append(out, "mcp__"+server+"__*")
-	}
-	sort.Strings(out)
-	_ = settings
-	_ = enabled
-	return out, true
-}
-
-// enabledSet 从 PI 的 settings.json 读 defaultTools。
-// 空表表示「跟随默认集」，此时内置工具全开。
+// enabledSet 按 PI 的语义算出启用的工具集。
+// defaultTools 为空 = 默认集；纯名字列表 = 替换；只有 +name / -name = 在默认集上增减。
 func (s *ToolService) enabledSet() map[string]bool {
 	out := map[string]bool{}
 	settings, err := s.env.PiEnv.ReadSettings()
 	if err != nil || settings == nil || len(settings.DefaultTools) == 0 {
-		for name := range builtinTools {
+		for _, name := range defaultTools {
 			out[name] = true
+		}
+		// 没有显式配置时，声明过的扩展工具默认是启用的（注册即激活）。
+		return out
+	}
+	var plain, add, remove []string
+	for _, raw := range settings.DefaultTools {
+		name := strings.TrimSpace(raw)
+		switch {
+		case name == "":
+		case strings.HasPrefix(name, "+"):
+			add = append(add, strings.TrimPrefix(name, "+"))
+		case strings.HasPrefix(name, "-"):
+			remove = append(remove, strings.TrimPrefix(name, "-"))
+		default:
+			plain = append(plain, name)
+		}
+	}
+	if len(plain) > 0 {
+		for _, name := range plain {
+			out[name] = true
+		}
+		for _, name := range add {
+			out[name] = true
+		}
+		for _, name := range remove {
+			delete(out, name)
 		}
 		return out
 	}
-	for _, name := range settings.DefaultTools {
-		// 纯名字列表 = 替换整个集；+name / -name 是增减语法，在这条路径上不出现。
-		if strings.HasPrefix(name, "+") || strings.HasPrefix(name, "-") {
-			continue
-		}
+	for _, name := range defaultTools {
 		out[name] = true
 	}
-	return out
-}
-
-// mcpServers 读 mcp.json 里的服务名。
-func (s *ToolService) mcpServers() map[string]bool {
-	out := map[string]bool{}
-	mcp := s.env.MCPConfig()
-	for name := range mcp {
+	for _, name := range add {
 		out[name] = true
+	}
+	for _, name := range remove {
+		delete(out, name)
 	}
 	return out
 }
 
 // SetEnabled 启停单个工具：写 PI 的 defaultTools，用纯名字列表替换整个集。
 // 增减语法会依赖 PI 的默认集，让新增工具绕过用户勾选自动出现在界面上。
-func (s *ToolService) SetEnabled(name string, enabled bool) error {
+func (s *ToolService) SetEnabled(req domain.ToggleToolREQ) error {
+	if strings.HasPrefix(req.Name, "mcp__") {
+		// MCP 工具的开关在 PI 里属于暴露档（mcp.json 的 exposure），不归 defaultTools。
+		return nil
+	}
 	settings, err := s.env.PiEnv.ReadSettings()
 	if err != nil {
 		return err
@@ -157,18 +166,31 @@ func (s *ToolService) SetEnabled(name string, enabled bool) error {
 		settings = &pienv.SettingsFile{}
 	}
 	current := s.enabledSet()
-	if enabled {
-		current[name] = true
+	// 声明过但没被算进来的工具（例如扩展工具）也要进列表，否则一保存就丢了。
+	declared, _ := pi.ListSessions(s.env.PiEnv.SessionsDir())
+	for _, m := range declared {
+		for _, t := range m.Tools {
+			if strings.HasPrefix(t.Name, "mcp__") {
+				continue
+			}
+			if _, ok := current[t.Name]; !ok {
+				current[t.Name] = false
+			}
+		}
+		if len(m.Tools) > 0 {
+			break
+		}
+	}
+	if req.Enabled {
+		current[req.Name] = true
 	} else {
-		delete(current, name)
+		delete(current, req.Name)
 	}
 	names := make([]string, 0, len(current))
-	for n := range current {
-		// MCP 的 * 前缀是界面占位，不写进配置。
-		if strings.HasSuffix(n, "__*") {
-			continue
+	for name, on := range current {
+		if on {
+			names = append(names, name)
 		}
-		names = append(names, n)
 	}
 	sort.Strings(names)
 	settings.DefaultTools = names
@@ -176,21 +198,11 @@ func (s *ToolService) SetEnabled(name string, enabled bool) error {
 		return err
 	}
 	// 工具集是进程启动期读的：写文件不重载等于没改。
-	s.restartIdleProcesses()
-	return nil
-}
-
-// restartIdleProcesses 重启当前没有跑着的 PI 进程，让新的工具集生效。
-// 正在跑的会话不打断：半途换工具集比多等一轮更难排查。
-func (s *ToolService) restartIdleProcesses() {
 	sup := s.env.PiSupervisor()
 	if sup == nil {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_ = sup.RestartIdle(ctx)
+	return sup.RestartIdle(ctx)
 }
-
-// 编译期确认 pi 包被引用（Catalog 将来要直接向进程要工具清单）。
-var _ = pi.KindToolStart

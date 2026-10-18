@@ -1,11 +1,11 @@
-// 设置与用量 handler：全量 KV、背景图、单项设置、统计。
+// 设置与统计 handler：全量 KV、背景图、单项设置、PI 配置快照、工作目录候选与用量统计。
 package api
 
 import (
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
+
 	"github.com/gin-gonic/gin"
-	"strconv"
 )
 
 // AllSettings 全部设置。
@@ -16,6 +16,66 @@ func (h *Handler) AllSettings(c *gin.Context) {
 		return
 	}
 	ok(c, all)
+}
+
+// SetSetting 写入设置。
+func (h *Handler) SetSetting(c *gin.Context) {
+	var req domain.SetSettingREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	if err := h.Svc.Settings.Set(req.Key, req.Value); err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, true)
+}
+
+// GetPISettings PI 侧配置快照与全部文件位置。
+func (h *Handler) GetPISettings(c *gin.Context) {
+	vo, err := h.Svc.Settings.PISettings()
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// SetPIThinking 写 PI 的默认思考档。
+func (h *Handler) SetPIThinking(c *gin.Context) {
+	var req domain.SetThinkingREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	if err := h.Svc.Settings.SetThinkingLevel(req.Level); err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, true)
+}
+
+// SetPICompaction 写 PI 的压缩参数。
+func (h *Handler) SetPICompaction(c *gin.Context) {
+	var req domain.SetCompactionREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	if err := h.Svc.Settings.SetCompaction(req); err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, true)
+}
+
+// ListWorkspaces 最近用过的工作目录。
+func (h *Handler) ListWorkspaces(c *gin.Context) {
+	ok(c, domain.WorkspacesRESP{
+		Workspaces: h.Svc.Settings.WorkspaceCandidates(),
+		Current:    h.Svc.Env.Workspace(),
+	})
 }
 
 // GetBackground 取当前自定义背景。
@@ -59,27 +119,9 @@ func (h *Handler) BackgroundAsset(c *gin.Context) {
 	c.File(bg.Image)
 }
 
-// SetSetting 写入设置。
-func (h *Handler) SetSetting(c *gin.Context) {
-	var req domain.SetSettingREQ
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
-		return
-	}
-	if err := h.Svc.Settings.Set(req.Key, req.Value); err != nil {
-		fail(c, err)
-		return
-	}
-	ok(c, true)
-}
-
 // Stats 仪表盘统计：token 用量按天 / 按模型 / 按会话。
 func (h *Handler) Stats(c *gin.Context) {
-	days := 0
-	if v := c.Query("days"); v != "" {
-		days, _ = strconv.Atoi(v)
-	}
-	resp, err := h.Svc.Settings.Stats(days)
+	resp, err := h.Svc.Stats.Compute(queryInt(c, "days"))
 	if err != nil {
 		fail(c, err)
 		return

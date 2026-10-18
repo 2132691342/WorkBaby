@@ -92,8 +92,8 @@ async function exportSession(s: { id: string; title: string }) {
   if (!target) return
   exportingId.value = s.id
   try {
-    const r = await api.sessions.exportHTML(s.id, target)
-    toast.ok(`已导出到 ${r.path}`)
+    const path = await api.sessions.exportHTML(s.id, target)
+    toast.ok(`已导出到 ${path}`)
   } catch (e) {
     toast.bad(`导出失败：${(e as Error)?.message || '请重试'}`)
   } finally {
@@ -112,20 +112,6 @@ async function doRemove(s: { id: string; title: string }) {
     toast.bad(`删除失败：${(e as Error)?.message || '请重试'}`)
   } finally {
     busyId.value = ''
-  }
-}
-
-// 一次性加载全部旧会话既慢又没必要；超过一页时给一个显式的入口，
-// 否则用了几个月后旧对话在界面上凭空消失（数据其实还在）。
-const loadingMore = ref(false)
-async function more() {
-  loadingMore.value = true
-  try {
-    await session.loadMore()
-  } catch (e) {
-    toast.bad(`加载更多失败：${(e as Error)?.message || '请重试'}`)
-  } finally {
-    loadingMore.value = false
   }
 }
 </script>
@@ -190,16 +176,6 @@ async function more() {
         </button>
       </TransitionGroup>
     </div>
-    <button
-      v-if="session.hasMore"
-      class="more"
-      type="button"
-      :class="{ 'is-loading': loadingMore }"
-      :disabled="loadingMore"
-      @click="more"
-    >
-      {{ loadingMore ? '加载中…' : '加载更早的对话' }}
-    </button>
     <!-- 一条会话都没有（数据被清空 / 首次进入还没自动建会话）：给一个能往下走的出口 -->
     <div v-if="!session.list.length" class="sess-empty">
       <span class="se-ic"><AppIcon name="chat" size="ic-lg" /></span>

@@ -1,357 +1,299 @@
 <script setup lang="ts">
-// 插件面板：PI 的扩展与包。
-// 扩展是「往助手脑子里加一个新动作」的东西，代价是它能执行代码——所以默认来源要说清、要能一键停掉。
+// 插件面板：PI 的扩展（extensions 目录 + settings.json 登记）与包（pi install）。
+// 装 / 卸都走 PI 自己的 CLI，进度经 chat:setup 事件流式回传。
 import { computed, onMounted, ref } from 'vue'
 import * as api from '../../api'
-import { useSetupLog } from '../../composables/useSetupLog'
 import { useToastStore } from '../../stores/toast'
-import type { ExtensionListRESP } from '../../types/api'
+import type { ExtensionListRESP, ExtensionVO, PackageVO } from '../../types/api'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
-import PageState from '../common/PageState.vue'
 
 const toast = useToastStore()
-const { lines: setupLines, begin: beginSetup, end: endSetup } = useSetupLog()
-
 const data = ref<ExtensionListRESP | null>(null)
-const loading = ref(true)
-const err = ref('')
-const busyPath = ref('')
-const importing = ref(false)
-
-const kindName: Record<string, string> = {
-  file: '文件',
-  dir: '目录',
-  pattern: '通配登记',
-  missing: '磁盘上找不到',
-}
+const busy = ref('')
+const source = ref('')
+const log = ref<string[]>([])
 
 const entries = computed(() => data.value?.entries ?? [])
 const packages = computed(() => data.value?.packages ?? [])
 
-async function load() {
-  err.value = ''
+async function reload() {
   try {
     data.value = await api.extensions.list()
   } catch (e) {
-    err.value = (e as Error).message
-  } finally {
-    loading.value = false
+    toast.bad(`读取插件失败：${(e as Error)?.message || '请重试'}`)
   }
 }
 
-async function toggle(path: string, enabled: boolean) {
-  if (busyPath.value) return
-  busyPath.value = path
-  err.value = ''
+async function toggle(e: ExtensionVO) {
+  if (busy.value) return
+  busy.value = `t:${e.path}`
   try {
-    await api.extensions.toggle(path, enabled)
-    await load()
-    toast.ok(enabled ? '插件已启用' : '插件已停用')
-  } catch (e) {
-    err.value = (e as Error).message
+    await api.extensions.toggle(e.path, !e.enabled)
+    await reload()
+    toast.ok(e.enabled ? `已停用 ${e.name}` : `已启用 ${e.name}`)
+  } catch (err) {
+    toast.bad(`切换失败：${(err as Error)?.message || '请重试'}`)
   } finally {
-    busyPath.value = ''
+    busy.value = ''
   }
 }
 
-async function importPlugin() {
-  if (importing.value) return
-  err.value = ''
-  const p = await OpenFileDialog('选择插件文件', '*.ts;*.js')
-  if (!p) return
-  importing.value = true
+async function remove(e: ExtensionVO) {
+  if (busy.value) return
+  busy.value = `d:${e.path}`
   try {
-    const r = await api.extensions.import([p])
-    if (!r.imported) {
-      err.value = r.skipped[0] || '这个文件导入不了：插件是一个 .ts / .js 文件'
-      return
-    }
-    await load()
-    toast.ok('插件已导入并启用')
-  } catch (e) {
-    err.value = (e as Error).message
+    await api.extensions.remove(e.path)
+    await reload()
+    toast.ok(`已删除 ${e.name}`)
+  } catch (err) {
+    toast.bad(`删除失败：${(err as Error)?.message || '请重试'}`)
   } finally {
-    importing.value = false
+    busy.value = ''
   }
 }
 
-// 删除两段式确认：与技能 / 模型服务同一交互
-const confirming = ref('')
-let confirmTimer = 0
-function askRemove(path: string) {
-  if (confirming.value === path) {
-    confirming.value = ''
-    clearTimeout(confirmTimer)
-    void remove(path)
-    return
-  }
-  confirming.value = path
-  clearTimeout(confirmTimer)
-  confirmTimer = window.setTimeout(() => (confirming.value = ''), 3000)
-}
-
-async function remove(path: string) {
-  if (busyPath.value) return
-  busyPath.value = path
-  err.value = ''
+async function importExt() {
+  if (busy.value) return
+  busy.value = 'import'
   try {
-    await api.extensions.remove(path)
-    await load()
-    toast.ok('插件已删除')
+    const path = await OpenFileDialog('选择扩展文件', '*.ts;*.js;*.mjs')
+    if (!path) return
+    const r = await api.extensions.import([path])
+    await reload()
+    if (r.imported) toast.ok('已导入并启用')
+    if (r.skipped?.length) toast.info(r.skipped.join('；'))
   } catch (e) {
-    err.value = (e as Error).message
+    toast.bad(`导入失败：${(e as Error)?.message || '请重试'}`)
   } finally {
-    busyPath.value = ''
+    busy.value = ''
   }
 }
 
-// 装包：来源写法照 pi install（npm: / git: / 本地路径 / 裸包名）。
-// 进度走 SSE 的全局通道，接口立刻返回，所以这里轮询列表直到装上或超时。
-const source = ref('')
-const installing = ref(false)
 async function install() {
-  const raw = source.value.trim()
-  if (!raw) {
-    err.value = '先填来源：例如 npm:@scope/pi-tools、git:github.com/owner/repo、./本地目录'
-    return
-  }
-  if (installing.value) return
-  err.value = ''
-  installing.value = true
-  beginSetup()
+  const src = source.value.trim()
+  if (!src || busy.value) return
+  busy.value = 'install'
+  log.value = []
   try {
-    await api.extensions.install(raw)
-    // 装包是后台动作：pull 包可能要几十秒，轮询列表比空等一个请求体面
-    const deadline = Date.now() + 5 * 60 * 1000
-    let ok = false
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 1500))
-      await load()
-      if (packages.value.some((p) => p.source === raw)) {
-        ok = true
-        break
-      }
-    }
-    if (ok) {
-      source.value = ''
-      toast.ok('插件包已装上')
-    } else {
-      err.value = '还没装上，看下面的输出确认卡在哪一步'
-    }
+    await api.extensions.install(src)
+    toast.ok('已提交安装，进度见下方')
+    source.value = ''
+    // 装包是后台动作：稍等再刷一次，让列表跟上。
+    window.setTimeout(() => void reload(), 3000)
   } catch (e) {
-    err.value = (e as Error).message
+    toast.bad(`安装失败：${(e as Error)?.message || '请重试'}`)
   } finally {
-    installing.value = false
-    endSetup()
+    busy.value = ''
   }
 }
 
-const removingPkg = ref('')
-async function uninstall(pkgSource: string) {
-  if (removingPkg.value) return
-  err.value = ''
-  removingPkg.value = pkgSource
-  beginSetup()
+async function uninstall(p: PackageVO) {
+  if (busy.value) return
+  busy.value = `u:${p.source}`
+  log.value = []
   try {
-    await api.extensions.uninstall(pkgSource)
-    const deadline = Date.now() + 3 * 60 * 1000
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 1200))
-      await load()
-      if (!packages.value.some((p) => p.source === pkgSource)) break
-    }
-    toast.ok('插件包已卸载')
+    await api.extensions.uninstall(p.source)
+    await reload()
+    toast.ok(`已卸载 ${p.name}`)
   } catch (e) {
-    err.value = (e as Error).message
+    toast.bad(`卸载失败：${(e as Error)?.message || '请重试'}`)
   } finally {
-    removingPkg.value = ''
-    endSetup()
+    busy.value = ''
   }
 }
 
-onMounted(load)
+async function restart() {
+  if (busy.value) return
+  busy.value = 'reload'
+  try {
+    await api.extensions.reload()
+    await reload()
+    toast.ok('已重载，PI 进程已重启')
+  } catch (e) {
+    toast.bad(`重载失败：${(e as Error)?.message || '请重试'}`)
+  } finally {
+    busy.value = ''
+  }
+}
+
+function onSetup(line: string) {
+  log.value = [...log.value.slice(-200), line]
+}
+
+defineExpose({ onSetup })
+onMounted(() => void reload())
 </script>
 
 <template>
-  <div class="plugins">
-    <div class="toolbar">
-      <button
-        class="btn"
-        type="button"
-        :class="{ 'is-loading': importing }"
-        :disabled="importing"
-        @click="importPlugin"
-      >
-        <AppIcon name="download" size="ic-xs" /> 导入插件文件
-      </button>
-    </div>
-    <p class="hint">
-      插件给助手加新动作（新工具、新命令）。它能在你的电脑上执行代码，只装你信得过的来源。
-      停用只是把它从助手的清单里摘掉，文件还在。启停会让引擎重读一遍配置：正在跑的对话会被中断。
-    </p>
-
-    <p v-if="err" class="alert is-bad">{{ err }}</p>
-
-    <PageState
-      :loading="loading"
-      :error="err && !entries.length ? err : ''"
-      :empty="!entries.length"
-      empty-title="还没有装插件"
-      empty-sub="导入一个 .ts / .js 插件文件，或在下面填来源装一个插件包"
-    >
-      <div class="rowlist">
-        <div
-          v-for="e in entries"
-          :key="e.path"
-          class="rli"
-          :class="{ 'is-off': !e.enabled }"
-        >
-          <div class="grow main">
-            <h5>
-              {{ e.name }}
-              <span class="tag">{{ kindName[e.kind] || e.kind }}</span>
-              <span v-if="e.builtin" class="tag is-brand">自带</span>
-            </h5>
-            <p class="path" :title="e.path">{{ e.path }}</p>
-          </div>
-          <button
-            v-if="!e.builtin && e.kind !== 'pattern' && e.kind !== 'missing'"
-            class="switch"
-            type="button"
-            role="switch"
-            :aria-checked="e.enabled"
-            :aria-label="e.enabled ? `停用插件 ${e.name}` : `启用插件 ${e.name}`"
-            :class="{ 'is-on': e.enabled, 'is-loading': busyPath === e.path }"
-            :title="e.enabled ? '点击停用' : '点击启用'"
-            :disabled="busyPath === e.path"
-            @click="toggle(e.path, !e.enabled)"
-          />
-          <button
-            v-if="!e.builtin"
-            class="icon-btn is-sm is-danger"
-            :class="{ 'is-confirm': confirming === e.path, 'is-loading': busyPath === e.path }"
-            type="button"
-            :title="confirming === e.path ? '再点一次确认删除' : '删除'"
-            :disabled="busyPath === e.path"
-            @click="askRemove(e.path)"
-          >
-            <AppIcon name="trash" size="ic-xs" />
-          </button>
-        </div>
+  <div class="panel">
+    <header class="pn-head">
+      <div>
+        <h3>插件</h3>
+        <p class="pn-sub">
+          包走 <span class="mono">pi install</span>（npm / git / 本地），扩展走 <span class="mono">extensions</span> 目录 + settings.json 登记。
+        </p>
       </div>
-    </PageState>
+      <div class="acts">
+        <button class="btn" type="button" :class="{ 'is-loading': busy === 'reload' }" :disabled="!!busy" @click="restart">重载</button>
+        <button class="btn" type="button" :class="{ 'is-loading': busy === 'import' }" :disabled="!!busy" @click="importExt">导入扩展</button>
+      </div>
+    </header>
 
-    <div class="card p-sm pkg">
-      <h3>插件包</h3>
-      <p class="hint">
-        用助手引擎自己的包管理装：<code>npm:@scope/pkg</code>、<code>git:github.com/owner/repo</code>，
-        或本地目录 <code>./某个目录</code>。装完需要重启对话进程让它加载，这一步自动做。
-      </p>
-      <div class="install-row">
-        <input
-          v-model="source"
-          class="input grow"
-          placeholder="npm:@scope/pi-tools"
-          :disabled="installing"
-          @keydown.enter.prevent="install"
-        />
-        <button
-          class="btn btn-primary"
-          type="button"
-          :class="{ 'is-loading': installing }"
-          :disabled="installing"
-          @click="install"
-        >
-          装上
+    <section class="block card">
+      <div class="b-head">
+        <b>包（{{ packages.length }}）</b>
+        <span class="muted">随包安装的技能、扩展、提示模板一起生效</span>
+      </div>
+      <div class="inst">
+        <input v-model="source" class="input mono" placeholder="npm:@scope/pkg 或 git:github.com/owner/repo 或 ./本地目录" @keydown.enter="install" />
+        <button class="btn btn-primary" type="button" :class="{ 'is-loading': busy === 'install' }" :disabled="!!busy || !source.trim()" @click="install">
+          安装
         </button>
       </div>
-      <div v-if="packages.length" class="rowlist">
-        <div v-for="p in packages" :key="p.source" class="rli">
-          <div class="grow main">
-            <h5>{{ p.source }}</h5>
-            <p class="path">已登记在 settings.json</p>
+      <div v-if="!packages.length" class="muted small">还没有装过包。</div>
+      <div v-else class="rows">
+        <div v-for="p in packages" :key="p.source" class="row">
+          <span class="rk" :class="{ bad: p.missing }"><AppIcon name="database" size="ic-sm" /></span>
+          <div class="rr">
+            <b>{{ p.name }}</b>
+            <span class="mono sm muted">{{ p.source }}</span>
           </div>
-          <button
-            class="btn btn-sm"
-            type="button"
-            :class="{ 'is-loading': removingPkg === p.source }"
-            :disabled="!!removingPkg"
-            @click="uninstall(p.source)"
-          >
+          <span v-if="p.missing" class="tag bad">目录缺失</span>
+          <button class="btn btn-sm danger" type="button" :class="{ 'is-loading': busy === `u:${p.source}` }" :disabled="!!busy" @click="uninstall(p)">
             卸载
           </button>
         </div>
       </div>
-      <pre v-if="setupLines.length" class="log"><code>{{ setupLines.join('\n') }}</code></pre>
-    </div>
+    </section>
+
+    <section class="block card">
+      <div class="b-head">
+        <b>扩展（{{ entries.length }}）</b>
+        <span class="mono muted">{{ data?.dir || '' }}</span>
+      </div>
+      <div v-if="!entries.length" class="muted small">extensions 目录里还没有条目。</div>
+      <div v-else class="rows">
+        <div v-for="e in entries" :key="e.path" class="row">
+          <span class="rk"><AppIcon name="zap" size="ic-sm" /></span>
+          <div class="rr">
+            <b>{{ e.name }}</b>
+            <span class="mono sm muted">{{ e.path }}</span>
+          </div>
+          <span class="tag" :class="{ ok: e.enabled }">{{ e.enabled ? '已启用' : '未启用' }}</span>
+          <button class="btn btn-sm" type="button" :class="{ 'is-loading': busy === `t:${e.path}` }" :disabled="!!busy" @click="toggle(e)">
+            {{ e.enabled ? '停用' : '启用' }}
+          </button>
+          <button class="btn btn-sm danger" type="button" :class="{ 'is-loading': busy === `d:${e.path}` }" :disabled="!!busy" @click="remove(e)">
+            删除
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="log.length" class="block card">
+      <div class="b-head"><b>输出</b></div>
+      <pre class="log">{{ log.join('\n') }}</pre>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.plugins {
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-4);
+}
+.pn-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--wb-sp-3);
+  flex-wrap: wrap;
+}
+.pn-head h3 {
+  font-size: var(--wb-fs-lg);
+  color: var(--wb-ink);
+}
+.pn-sub {
+  margin-top: 4px;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+}
+.acts {
+  display: flex;
+  gap: var(--wb-sp-2);
+}
+.block {
+  padding: var(--wb-sp-4);
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-3);
-  min-width: 0;
 }
-.toolbar {
+.b-head {
   display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  flex-wrap: wrap;
-  min-width: 0;
+  align-items: baseline;
+  gap: var(--wb-sp-3);
 }
-.hint {
-  margin: 0;
+.b-head b {
   font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
+  color: var(--wb-ink);
 }
-/* 行内主列要能吃满宽度：flex-basis 必须 0，auto 会按最长内容（长路径）预估 */
-.main {
-  flex: 1 1 0;
-  min-width: 0;
+.inst {
+  display: flex;
+  gap: var(--wb-sp-2);
 }
-.path {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rli.is-off .main h5 {
-  color: var(--wb-muted);
-}
-.tag.is-brand {
-  color: var(--wb-primary);
-  border-color: var(--wb-primary);
-}
-.icon-btn.is-confirm {
-  color: var(--wb-danger);
-  background: var(--wb-danger-soft);
-}
-.pkg {
+.rows {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-2);
+  gap: 6px;
 }
-.install-row {
+.row {
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-2);
+  gap: var(--wb-sp-3);
+  padding: 8px 10px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-radius-sm);
+}
+.rk {
+  width: var(--wb-tile-sm);
+  height: var(--wb-tile-sm);
+  border-radius: var(--wb-radius-sm);
+  display: grid;
+  place-items: center;
+  background: var(--wb-primary-soft);
+  color: var(--wb-primary);
+  flex: none;
+}
+.rk.bad {
+  background: var(--wb-danger-soft);
+  color: var(--wb-danger);
+}
+.rr {
+  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rr b {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink);
+}
+.sm {
+  font-size: var(--wb-fs-2xs);
 }
 .log {
   margin: 0;
   max-height: 220px;
   overflow: auto;
-  padding: var(--wb-sp-3);
-  border-radius: var(--wb-radius);
-  background: var(--wb-surface-2);
-  border: 1px solid var(--wb-border);
   font-family: var(--font-mono);
   font-size: var(--wb-fs-2xs);
+  line-height: 1.7;
+  color: var(--wb-ink-2);
   white-space: pre-wrap;
+}
+.small {
+  font-size: var(--wb-fs-xs);
 }
 </style>

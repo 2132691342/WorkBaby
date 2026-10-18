@@ -77,6 +77,15 @@ func (h *Handler) RemovePackage(c *gin.Context) {
 	h.runPackage(c, false)
 }
 
+// ReloadExtensions 重扫扩展与包并重启 PI。
+func (h *Handler) ReloadExtensions(c *gin.Context) {
+	if err := h.Svc.Extensions.Reload(); err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, true)
+}
+
 // runPackage 是装 / 卸的共同实现：同一把锁 + 同一路事件。
 func (h *Handler) runPackage(c *gin.Context, install bool) {
 	var req domain.PackageREQ
@@ -110,56 +119,4 @@ func (h *Handler) runPackage(c *gin.Context, install bool) {
 		h.emitSetup(phase, 100, "插件已就绪")
 	}()
 	ok(c, true)
-}
-
-// ListCommands 取当前会话能跑的斜杠命令（扩展命令 / 提示模板 / 技能）。
-func (h *Handler) ListCommands(c *gin.Context) {
-	sessionID := c.Query("session_id")
-	if sessionID == "" {
-		// 没有会话就没有 PI 进程：宁可返回空列表，也不要凭空编一份命令表。
-		ok(c, []domain.CommandVO{})
-		return
-	}
-	list, err := h.Svc.Chat.Commands(sessionID)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	ok(c, list)
-}
-
-// CancelRetry 叫停正在进行的自动重试。
-func (h *Handler) CancelRetry(c *gin.Context) {
-	var req domain.StopRunREQ
-	if err := bindOptionalBody(c, &req); err != nil {
-		fail(c, err)
-		return
-	}
-	if req.SessionID == "" {
-		req.SessionID = c.Query("session_id")
-	}
-	if err := h.Svc.Chat.AbortRetry(req.SessionID); err != nil {
-		fail(c, err)
-		return
-	}
-	ok(c, true)
-}
-
-// ExportSession 把会话导成 HTML：path 由前端的保存对话框给出。
-func (h *Handler) ExportSession(c *gin.Context) {
-	var req domain.ExportSessionREQ
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
-		return
-	}
-	if req.Path == "" {
-		fail(c, pkg.New("1108", "没有给导出路径", ""))
-		return
-	}
-	path, err := h.Svc.Chat.ExportHTML(c.Param("id"), req.Path)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	ok(c, domain.ExportSessionRESP{Path: path})
 }
