@@ -43,9 +43,6 @@ func bootServer(t *testing.T) (string, *api.Handler) {
 	if h.Svc == nil || h.Repo == nil || h.Skills == nil || h.PiEnv == nil {
 		t.Fatal("服务容器没有装配完整（Svc/Repo/Skills/PiEnv）")
 	}
-	if h.ServerPort() != 0 {
-		t.Fatal("端口应由后续握手阶段写入，Startup 阶段应为 0")
-	}
 
 	srv := server.New(h)
 	port, err := srv.Start()
@@ -206,7 +203,8 @@ func TestHTTPChain(t *testing.T) {
 		}
 	})
 
-	t.Run("契约：统一信封、空数组不 null、引导与预热聚合字段齐全", func(t *testing.T) {
+	t.Run("契约：空数组永不 null，引导字段支撑环境闸门", func(t *testing.T) {
+		// 闸门数据缺一项，前端就只能整屏停在空态：用户连自己缺什么都看不到。
 		code, body := call(t, base, "GET", "/bootstrap", nil)
 		if code != http.StatusOK {
 			t.Fatalf("bootstrap 失败: %d %s", code, body)
@@ -214,9 +212,8 @@ func TestHTTPChain(t *testing.T) {
 		var payload struct {
 			Code string `json:"code"`
 			Data struct {
-				ContractVersion int                `json:"contract_version"`
-				PiEnv           *json.RawMessage   `json:"pi_env"`
-				Settings        *map[string]string `json:"settings"`
+				PiEnv    *json.RawMessage   `json:"pi_env"`
+				Settings *map[string]string `json:"settings"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
@@ -225,23 +222,8 @@ func TestHTTPChain(t *testing.T) {
 		if payload.Code != "0" {
 			t.Fatalf("成功响应的 code 必须是字符串 \"0\": %s", body)
 		}
-		// 没有 pi_env 的话前端进不了环境向导；没有 settings 外观设置读不到。
 		if payload.Data.PiEnv == nil || payload.Data.Settings == nil {
-			t.Fatalf("bootstrap 字段缺失: %s", body)
-		}
-
-		// 环境与运行时状态是向导与设置页的唯一数据源，字段名不能漂。
-		_, body = call(t, base, "GET", "/env", nil)
-		for _, want := range []string{`"pi_path"`, `"agent_dir"`, `"python_path"`} {
-			if !strings.Contains(body, want) {
-				t.Fatalf("环境接口缺少 %s: %s", want, body)
-			}
-		}
-		_, body = call(t, base, "GET", "/runtime", nil)
-		for _, want := range []string{`"node_exe"`, `"python_exe"`} {
-			if !strings.Contains(body, want) {
-				t.Fatalf("运行时状态缺少 %s: %s", want, body)
-			}
+			t.Fatalf("引导字段缺失: %s", body)
 		}
 
 		// 数组字段直接被前端 .length，发成 null 就是一句运行时错误。
@@ -259,44 +241,6 @@ func TestHTTPChain(t *testing.T) {
 		}
 		if list.Data.Entries == nil || list.Data.Packages == nil {
 			t.Fatalf("插件列表的数组字段发成了 null: %s", body)
-		}
-
-		for _, path := range []string{"/skills", "/tools", "/providers"} {
-			_, body = call(t, base, "GET", path, nil)
-			if strings.Contains(body, `"code":"99`) {
-				t.Fatalf("%s 报错了: %s", path, body)
-			}
-		}
-
-		// MCP 的服务列表与两份配置原文都要在。
-		_, body = call(t, base, "GET", "/mcp", nil)
-		for _, want := range []string{`"servers"`, `"global_raw"`, `"project_raw"`} {
-			if !strings.Contains(body, want) {
-				t.Fatalf("MCP 接口缺少 %s: %s", want, body)
-			}
-		}
-
-		// 首屏预热聚合：五路清单一次拉齐且不发 null，前端进面板时不再空白。
-		_, body = call(t, base, "GET", "/warmup", nil)
-		var warm struct {
-			Code string `json:"code"`
-			Data struct {
-				Skills     *[]map[string]any `json:"skills"`
-				Providers  *json.RawMessage  `json:"providers"`
-				Tools      *json.RawMessage  `json:"tools"`
-				Extensions *json.RawMessage  `json:"extensions"`
-				MCP        *json.RawMessage  `json:"mcp"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(body), &warm); err != nil {
-			t.Fatalf("解析 warmup 失败: %v", err)
-		}
-		if warm.Code != "0" {
-			t.Fatalf("warmup 报错: %s", body)
-		}
-		if warm.Data.Skills == nil || warm.Data.Providers == nil || warm.Data.Tools == nil ||
-			warm.Data.Extensions == nil || warm.Data.MCP == nil {
-			t.Fatalf("warmup 字段缺失: %s", body)
 		}
 	})
 

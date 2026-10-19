@@ -72,6 +72,7 @@ const ICONS: Record<string, string> = {
     '<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 8v8"/><path d="M18 6h-2.5A3.5 3.5 0 0 0 12 9.5v1"/>',
   'git-diff': '<path d="M6 3v18"/><path d="M18 3v18"/><path d="M3 8h6"/><path d="M15 16h6"/><path d="M3 16h6"/>',
   'arrow-down-up': '<path d="M7 21V3"/><path d="m3 7 4-4 4 4"/><path d="M17 3v18"/><path d="m13 17 4 4 4-4"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10"/><path d="M15 9.6A3.2 3.2 0 0 0 12 8.2c-1.7 0-3 .9-3 2.1 0 2.9 6 1.5 6 4.4 0 1.2-1.3 2.1-3 2.1a3.2 3.2 0 0 1-3-1.4"/>',
   'chevron-up': '<path d="m18 15-6-6-6 6"/>',
   'alert-triangle':
     '<path d="m10.3 3.9-8.5 14.1A2 2 0 0 0 3.5 21h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
@@ -79,6 +80,13 @@ const ICONS: Record<string, string> = {
 }
 
 withDefaults(defineProps<{ name: string; size?: string; spin?: boolean }>(), { size: 'ic', spin: false })
+
+// 名字写错时 v-html 会渲染成空 svg，图标就这样静默消失：开发期至少喊一声。
+function paths(name: string): string {
+  const hit = ICONS[name]
+  if (!hit && import.meta.env.DEV) console.warn(`AppIcon: 没有名为「${name}」的图标`)
+  return hit || ''
+}
 </script>
 
 <template>
@@ -88,6 +96,6 @@ withDefaults(defineProps<{ name: string; size?: string; spin?: boolean }>(), { s
     fill="none"
     stroke="currentColor"
     aria-hidden="true"
-    v-html="ICONS[name] || ''"
+    v-html="paths(name)"
   />
 </template>

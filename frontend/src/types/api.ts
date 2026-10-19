@@ -90,10 +90,15 @@ export interface AttachmentREQ {
 /** 引擎抛回来的问题（confirm / select / input） */
 export interface AskData {
   id: string
+  /** confirm / select / input / editor：PI 只有这四个提问基元，多选题走扩展自己的 input 回退 */
   method: string
   title: string
   message: string
   options: string[]
+  placeholder: string
+  prefill: string
+  /** 等待上限（毫秒）：0 表示不限时 */
+  timeout_ms: number
 }
 
 export interface AskClosedData {

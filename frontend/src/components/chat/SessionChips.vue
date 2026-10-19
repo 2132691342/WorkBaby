@@ -146,7 +146,6 @@ defineExpose({ show, close })
               type="button"
               :class="{ 'is-on': p.id === activeVendor?.id }"
               @click="vendor = p.id"
-              @mouseenter="vendor = p.id"
             >
               <span class="mp-avatar">{{ (p.name || p.id).slice(0, 1).toUpperCase() }}</span>
               <span class="mp-vname">{{ p.name || p.id }}</span>

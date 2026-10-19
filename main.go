@@ -65,6 +65,7 @@ func main() {
 		MinHeight: 640,
 		// Frameless：启用前端自绘标题栏（--wails-draggable:drag 声明拖拽区）。
 		Frameless:        true,
+		StartHidden:      hasArg("--hidden"),
 		BackgroundColour: &options.RGBA{R: 242, G: 246, B: 252, A: 1},
 		AssetServer: &assetserver.Options{
 			Assets: assets,
@@ -89,6 +90,7 @@ func main() {
 }
 
 // hasArg 判断命令行里有没有某个标志。
+// 目前只用于 --hidden：开机自启时只拉起托盘，不往屏幕上弹一个空窗口。
 func hasArg(flag string) bool {
 	for _, arg := range os.Args[1:] {
 		if arg == flag {

@@ -198,8 +198,13 @@ func (h *Hub) armTimer(sessionID string) {
 func (h *Hub) publishNow(sessionID string, env domain.Envelope) {
 	h.mu.Lock()
 	buf := append(h.replay[sessionID], env)
-	if len(buf) > replayWindow {
-		buf = buf[len(buf)-replayWindow:]
+	// 攒到两倍窗口再整体搬家：贴着上限每发一条裁一次，会让“满窗之后”的每一次
+	// 推送都重新分配一块 512 条目的数组——长回合里就是一串纯粋的垃圾。
+	if len(buf) > replayWindow*2 {
+		tail := buf[len(buf)-replayWindow:]
+		compact := make([]domain.Envelope, replayWindow)
+		copy(compact, tail)
+		buf = compact
 	}
 	h.replay[sessionID] = buf
 	targets := make([]*Client, 0, 4)

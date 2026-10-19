@@ -89,14 +89,14 @@ async function chooseLanguage(locale: Locale) {
 
 // ---- 背景：浓度与模糊用离散档，这两项不需要连续取值 ----
 const BG_STRENGTHS = [
-  { key: 'soft', value: 0.25 },
-  { key: 'mid', value: 0.5 },
-  { key: 'bold', value: 0.75 },
+  { key: 'soft', label: 'Soft', value: 0.25 },
+  { key: 'mid', label: 'Mid', value: 0.5 },
+  { key: 'bold', label: 'Bold', value: 0.75 },
 ]
 const BG_BLURS = [
-  { key: 'none', value: 0 },
-  { key: 'light', value: 6 },
-  { key: 'mid', value: 14 },
+  { key: 'none', label: 'None', value: 0 },
+  { key: 'light', label: 'Light', value: 6 },
+  { key: 'mid', label: 'Mid', value: 14 },
 ]
 
 const bgBusy = ref(false)
@@ -159,7 +159,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="panel-wrap">
+  <div class="panel-wrap wb-form">
     <SettingsSection icon="contrast" :title="t('settings.appearance.theme')">
       <div class="theme-grid">
         <button
@@ -186,31 +186,36 @@ onMounted(async () => {
       </div>
     </SettingsSection>
 
-    <SettingsSection icon="globe" :title="t('settings.appearance.language')">
-      <el-radio-group :model-value="currentLocale" @change="(v: string | number | boolean | undefined) => chooseLanguage(v as Locale)">
-        <el-radio-button v-for="l in LOCALES" :key="l.key" :value="l.key">{{ l.name }}</el-radio-button>
-      </el-radio-group>
+    <SettingsSection icon="type" :title="t('settings.appearance.textSection')" divided>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx"><b>{{ t('settings.appearance.language') }}</b></div>
+        <el-radio-group :model-value="currentLocale" @change="(v: string | number | boolean | undefined) => chooseLanguage(v as Locale)">
+          <el-radio-button v-for="l in LOCALES" :key="l.key" :value="l.key">{{ l.name }}</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx"><b>{{ t('settings.appearance.fontFamily') }}</b></div>
+        <el-radio-group :model-value="currentFont" @change="(v: string | number | boolean | undefined) => setFont(String(v))">
+          <el-radio-button v-for="f in FONTS" :key="f.key" :value="f.key">
+            {{ t(`settings.appearance.${FONT_KEYS[f.key]}`) }}
+          </el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx"><b>{{ t('settings.appearance.fontSize') }}</b></div>
+        <el-radio-group :model-value="currentSize" @change="(v: string | number | boolean | undefined) => setSize(String(v))">
+          <el-radio-button v-for="s in FONT_SIZES" :key="s.key" :value="s.key">
+            {{ t(`settings.appearance.${SIZE_KEYS[s.key]}`) }}
+          </el-radio-button>
+        </el-radio-group>
+      </div>
     </SettingsSection>
 
-    <SettingsSection icon="type" :title="t('settings.appearance.fontFamily')">
-      <el-radio-group :model-value="currentFont" @change="(v: string | number | boolean | undefined) => setFont(String(v))">
-        <el-radio-button v-for="f in FONTS" :key="f.key" :value="f.key">
-          {{ t(`settings.appearance.${FONT_KEYS[f.key]}`) }}
-        </el-radio-button>
-      </el-radio-group>
-    </SettingsSection>
-
-    <SettingsSection icon="text-size" :title="t('settings.appearance.fontSize')">
-      <el-radio-group :model-value="currentSize" @change="(v: string | number | boolean | undefined) => setSize(String(v))">
-        <el-radio-button v-for="s in FONT_SIZES" :key="s.key" :value="s.key">
-          {{ t(`settings.appearance.${SIZE_KEYS[s.key]}`) }}
-        </el-radio-button>
-      </el-radio-group>
-    </SettingsSection>
-
-    <SettingsSection icon="brain" :title="t('settings.appearance.showThinking')">
-      <div class="row">
-        <div class="row-tx">
+    <SettingsSection icon="brain" :title="t('settings.appearance.messageSection')" divided>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
           <b>{{ t('settings.appearance.showThinking') }}</b>
           <p>{{ t('settings.appearance.showThinkingHint') }}</p>
         </div>
@@ -218,7 +223,7 @@ onMounted(async () => {
       </div>
     </SettingsSection>
 
-    <SettingsSection icon="image" :title="t('settings.appearance.background')" :desc="t('settings.appearance.backgroundHint')">
+    <SettingsSection icon="image" :title="t('settings.appearance.background')" :desc="t('settings.appearance.backgroundHint')" divided>
       <template #actions>
         <el-button size="small" :loading="bgBusy" @click="pickBackground">
           {{ t('settings.appearance.backgroundPick') }}
@@ -228,31 +233,31 @@ onMounted(async () => {
         </el-button>
       </template>
 
-      <div class="row">
-        <div class="row-tx">
-          <b>{{ t('settings.appearance.opacity') }}</b>
-        </div>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx"><b>{{ t('settings.appearance.opacity') }}</b></div>
         <el-radio-group
           :model-value="strengthKey"
           size="small"
           :disabled="!hasBg || bgBusy"
           @change="(v: string | number | boolean | undefined) => saveBg(bgImage, BG_STRENGTHS.find((x) => x.key === v)?.value ?? 0.5, bgBlur)"
         >
-          <el-radio-button v-for="s in BG_STRENGTHS" :key="s.key" :value="s.key">{{ s.key }}</el-radio-button>
+          <el-radio-button v-for="s in BG_STRENGTHS" :key="s.key" :value="s.key">
+            {{ t(`settings.appearance.opacity${s.label}`) }}
+          </el-radio-button>
         </el-radio-group>
       </div>
 
-      <div class="row">
-        <div class="row-tx">
-          <b>{{ t('settings.appearance.blur') }}</b>
-        </div>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx"><b>{{ t('settings.appearance.blur') }}</b></div>
         <el-radio-group
           :model-value="blurKey"
           size="small"
           :disabled="!hasBg || bgBusy"
           @change="(v: string | number | boolean | undefined) => saveBg(bgImage, bgStrength, BG_BLURS.find((x) => x.key === v)?.value ?? 0)"
         >
-          <el-radio-button v-for="b in BG_BLURS" :key="b.key" :value="b.key">{{ b.key }}</el-radio-button>
+          <el-radio-button v-for="b in BG_BLURS" :key="b.key" :value="b.key">
+            {{ t(`settings.appearance.blur${b.label}`) }}
+          </el-radio-button>
         </el-radio-group>
       </div>
     </SettingsSection>
@@ -260,6 +265,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 表单类面板收窄：控件列与标签列都靠左，面板宽 920px 时右侧会拖出一片空地 */
+.panel-wrap {
+  --wb-panel-w: calc(720px * var(--wb-vw-scale));
+}
 .theme-grid {
   display: flex;
   gap: var(--wb-sp-3);
@@ -358,26 +367,5 @@ onMounted(async () => {
 }
 .tc-check {
   color: var(--wb-primary);
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-4);
-  padding: var(--wb-sp-2) 0;
-}
-.row-tx {
-  flex: 1;
-  min-width: 0;
-}
-.row-tx b {
-  display: block;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-  font-weight: 600;
-}
-.row-tx p {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  line-height: var(--wb-lh-base);
 }
 </style>

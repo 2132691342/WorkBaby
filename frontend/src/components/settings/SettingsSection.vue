@@ -3,14 +3,20 @@
 // 七个面板共用同一套行距与描边，避免每个面板自己拼一遍「卡片头」。
 import AppIcon from '../common/AppIcon.vue'
 
-withDefaults(defineProps<{ title: string; desc?: string; icon?: string }>(), {
-  desc: '',
-  icon: '',
-})
+withDefaults(
+  defineProps<{
+    title: string
+    desc?: string
+    icon?: string
+    /** 上面还有一组设置：画一条分隔线，否则六七组分节读起来是一整片 */
+    divided?: boolean
+  }>(),
+  { desc: '', icon: '', divided: false },
+)
 </script>
 
 <template>
-  <section class="sec">
+  <section class="sec" :class="{ 'is-divided': divided }">
     <header class="sec-head">
       <span v-if="icon" class="sec-tile"><AppIcon :name="icon" size="ic-sm" /></span>
       <div class="sec-tx">
@@ -19,7 +25,7 @@ withDefaults(defineProps<{ title: string; desc?: string; icon?: string }>(), {
       </div>
       <div class="sec-acts"><slot name="actions" /></div>
     </header>
-    <div class="sec-body"><slot /></div>
+    <div v-if="$slots.default" class="sec-body"><slot /></div>
   </section>
 </template>
 
@@ -29,9 +35,13 @@ withDefaults(defineProps<{ title: string; desc?: string; icon?: string }>(), {
   flex-direction: column;
   gap: var(--wb-sp-3);
 }
+.sec.is-divided {
+  border-top: 1px solid var(--wb-border);
+  padding-top: var(--wb-sp-5);
+}
 .sec-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--wb-sp-3);
 }
 .sec-tile {
@@ -69,6 +79,6 @@ withDefaults(defineProps<{ title: string; desc?: string; icon?: string }>(), {
 .sec-body {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-3);
+  gap: var(--wb-sp-2);
 }
 </style>

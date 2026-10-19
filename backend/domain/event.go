@@ -22,7 +22,6 @@ const (
 	// EventChatSetup 是环境安装进度（npm 装 PI 可能几十秒）。
 	EventChatSetup = "chat:setup"
 	// EventChatAsk 是引擎里的扩展在问用户（confirm / select / input）。
-	// 问题来自 PI 进程且走工作区级通道，所以 session_id 可能为空。
 	EventChatAsk = "chat:ask"
 	// EventChatAskClosed 是那条问题已经不需要再答了（已答 / 会话中止 / 进程退出）。
 	EventChatAskClosed = "chat:ask_closed"
@@ -76,10 +75,16 @@ type ToolEndData struct {
 // AskData chat:ask：引擎（或其扩展）在等用户回答。
 type AskData struct {
 	ID      string   `json:"id"`
-	Method  string   `json:"method"` // confirm / select / input
+	Method  string   `json:"method"` // confirm / select / input / editor
 	Title   string   `json:"title"`
 	Message string   `json:"message"`
 	Options []string `json:"options"`
+	// Placeholder / Prefill 给 input 与 editor：多选题在 RPC 里就是一条带编号列表的 input，
+	// 丢掉 placeholder 就等于让用户自己去猜该填什么格式。
+	Placeholder string `json:"placeholder"`
+	Prefill     string `json:"prefill"`
+	// TimeoutMs 是该提问的等待上限（PI 到点自己关），0 表示不限时。
+	TimeoutMs int64 `json:"timeout_ms"`
 }
 
 // AskClosedData chat:ask_closed。

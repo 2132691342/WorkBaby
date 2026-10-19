@@ -14,6 +14,7 @@ import (
 	"WorkBaby/backend/config"
 	"WorkBaby/backend/db"
 	"WorkBaby/backend/domain"
+	"WorkBaby/backend/pi"
 	pienv "WorkBaby/backend/pi/env"
 	"WorkBaby/backend/pi/piptest"
 	"WorkBaby/backend/repo"
@@ -143,6 +144,24 @@ func (te *testEnv) waitIdle(t *testing.T, sessionID string) {
 	t.Fatal("等待会话空闲超时")
 }
 
+// waitAbortMarker 等假 PI 把「收到 abort」写进会话文件。
+// abort 是后台命令，界面广播 stopped 时它可能还在路上，所以只能轮询。
+func waitAbortMarker(t *testing.T, file string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, err := pi.LoadSession(file); err == nil {
+			for _, e := range data.Entries {
+				if e.Type == "custom" && e.CustomType == "aborted" {
+					return
+				}
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("停止没送到内核：界面说了已停止，助手其实还在跑")
+}
+
 // writeSession 手写一份会话文件：会话索引的断言都基于它。
 func (te *testEnv) writeSession(t *testing.T, id, cwd, userText string, tokens int) string {
 	t.Helper()
@@ -201,23 +220,15 @@ func TestServiceChain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("列会话失败: %v", err)
 		}
-		found := false
+		var hit domain.SessionVO
 		for _, s := range list {
 			if s.ID == "SESS_ONE" {
-				found = true
-				if s.Title != "手写的会话" {
-					t.Fatalf("标题应取 session_info: %q", s.Title)
-				}
-				if s.Workspace != cwd {
-					t.Fatalf("工作目录不对: %q", s.Workspace)
-				}
-				if s.TotalTokens != 120 {
-					t.Fatalf("用量没统计上: %d", s.TotalTokens)
-				}
+				hit = s
 			}
 		}
-		if !found {
-			t.Fatal("会话目录里的会话没出现在列表里")
+		// 标题取 session_info、工作目录来自会话头：界面读到的就是 PI 记的。
+		if hit.Title != "手写的会话" || hit.Workspace != cwd || hit.TotalTokens != 120 {
+			t.Fatalf("会话元信息不对: %+v", hit)
 		}
 
 		detail, err := te.container.Sessions.Detail("SESS_ONE")
@@ -261,21 +272,19 @@ func TestServiceChain(t *testing.T) {
 		te.waitIdle(t, resp.SessionID)
 
 		names := te.events.names()
-		if len(names) == 0 {
-			t.Fatal("没有任何事件")
-		}
 		// done 必须是最后一个「结束」信号：重试与压缩都挂在 agent_end 之后。
 		if names[len(names)-1] != domain.EventChatDone {
 			t.Fatalf("最后一个事件应当是 chat:done，实际 %q", names[len(names)-1])
 		}
+		// 自动重试期间界面必须收到 chat:retry，否则会以为卡死。
 		if !te.events.has(domain.EventChatRetry) {
-			t.Fatal("自动重试期间界面必须收到 chat:retry，否则会以为卡死")
+			t.Fatalf("没有 chat:retry: %v", names)
 		}
 		if !te.events.has(domain.EventChatStart) || !te.events.has(domain.EventChatDelta) {
 			t.Fatalf("流式事件没出来: %v", names)
 		}
 
-		// 假 PI 也落了盘：这条会话应当出现在列表里。
+		// 假 PI 也落了盘：这条会话应当出现在列表里（会话索引与对话是两条独立的读路径）。
 		list, err := te.container.Sessions.List(te.env.Cfg.Workspace)
 		if err != nil {
 			t.Fatal(err)
@@ -318,6 +327,12 @@ func TestServiceChain(t *testing.T) {
 		if !te.events.has(domain.EventChatStopped) {
 			t.Fatal("停止必须立刻广播 chat:stopped")
 		}
+		// 广播了 stopped 不等于内核真停了：abort 是后台命令，得看内核自己落的标记。
+		vo, err := te.container.Sessions.Get(resp.SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitAbortMarker(t, vo.File)
 	})
 
 	// 回归：空闲时收到的 follow_up 等价于一轮新发送。

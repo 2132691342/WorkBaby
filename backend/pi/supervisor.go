@@ -22,13 +22,12 @@ type Supervisor struct {
 }
 
 // Proc 是一个工作区上的 PI 进程与其客户端。
+// mu 是拉起闸门：同一工作区的并发首启要串行，否则会同时 spawn 两个进程。
 type Proc struct {
 	Workspace string
 	Client    *Client
 
-	mu      sync.Mutex
-	booting bool
-	err     error
+	mu sync.Mutex
 }
 
 // NewSupervisor 构造监督器。
@@ -50,6 +49,8 @@ func keyOf(workspace string) string {
 }
 
 // Ensure 取（必要时拉起）某工作区的进程。
+// ctx 只用于闸门判定：拉起本身是同步的 cmd.Start，没法中途取消，
+// 但用户已经点了取消时不该再白起一个进程。
 func (s *Supervisor) Ensure(ctx context.Context, workspace string) (*Client, error) {
 	key := keyOf(workspace)
 	if key == "" {
@@ -70,20 +71,20 @@ func (s *Supervisor) Ensure(ctx context.Context, workspace string) (*Client, err
 	if p.Client != nil && p.Client.Alive() {
 		return p.Client, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, pkg.Wrap("9703", "启动助手被取消", err)
+	}
 
 	cfg, err := s.factory(key)
 	if err != nil {
-		p.err = err
 		return nil, err
 	}
 	cfg.Workspace = key
 	client, err := Start(cfg, s.handler(key))
 	if err != nil {
-		p.err = err
 		return nil, err
 	}
 	p.Client = client
-	p.err = nil
 	return client, nil
 }
 

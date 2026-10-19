@@ -52,7 +52,8 @@ func (h *Handler) SetAutoStart(enabled bool) error {
 		return pkg.Wrap("2304", "写入注册表失败", err)
 	}
 	defer k.Close()
-	cmd := `"` + filepath.Clean(exe) + `"`
+	// 带 --hidden：登录后只拉起托盘，不往屏幕上弹一个空窗口（用户点托盘再出窗口）。
+	cmd := `"` + filepath.Clean(exe) + `" --hidden`
 	if err := k.SetStringValue(autoStartValue, cmd); err != nil {
 		return pkg.Wrap("2304", "设置开机自启失败", err)
 	}

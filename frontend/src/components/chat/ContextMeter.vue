@@ -64,27 +64,32 @@ const tip = computed(() => {
 </template>
 
 <style scoped>
-/* 读数胶囊：与工具行里的模型 / 思考档 chip 同一语言（1px 中性描边 + 全圆角），
-   让水位读数从「散落的文字」变成「底栏的一员」。 */
+/* 裸读数：只有环与数字，不套描边胶囊——底栏已有模型 / 思考两个 chip，
+   再给水位加一个盒子就是第三个「看起来能点」的框，而它只读。 */
 .ctx {
   display: inline-flex;
   align-items: center;
   gap: var(--wb-sp-1);
   flex: none;
   height: var(--wb-ctl-h-sm);
-  padding: 0 var(--wb-sp-2);
-  border-radius: var(--wb-radius-full);
-  border: 1px solid var(--wb-border);
-  color: var(--wb-ink-2);
+  color: var(--wb-muted);
   cursor: default;
-  transition:
-    background var(--wb-dur-fast) var(--wb-ease),
-    border-color var(--wb-dur-fast) var(--wb-ease);
+  /* 读数不可选、不画焦点框：拖选正文时扫过它，浏览器会给 16px 的环套一个淡蓝方块，
+     比读数本身显眼得多（el-tooltip 会把触发器标成可聚焦）。键盘聚焦时 tooltip 自己会出来。 */
+  user-select: none;
+  border-radius: var(--wb-radius-full);
+  transition: color var(--wb-dur-fast) var(--wb-ease);
 }
-/* 只给底色提示、不做缩放：它是读数不是控件，悬停放大等于骗用户去点。 */
+/* 显式写全：base.css 的 :focus-visible 画全局焦点环，同权重时靠源序赢，不靠猜。 */
+.ctx:focus,
+.ctx:focus-visible,
+.ctx *:focus,
+.ctx *:focus-visible {
+  outline: none;
+}
+/* 只换字色、不缩放不铺底：它是读数不是控件，任何「按下去」的暗示都是骗点击。 */
 .ctx:hover {
-  background: var(--wb-elev-hover);
-  border-color: var(--wb-border-strong);
+  color: var(--wb-ink-2);
 }
 /* 仪表环：细轨 + 平头弧。圆头 + 深轨在低占比时会读成一个转圈加载图标，
    这里刻意的平头 + 浅轨就是为了让它一眼是「水位表」不是「spinner」。 */
@@ -113,9 +118,11 @@ const tip = computed(() => {
 .is-danger .ring-f {
   stroke: var(--wb-danger);
 }
-.is-warn .txt,
+.is-warn .txt {
+  color: var(--wb-warning);
+}
 .is-danger .txt {
-  color: var(--wb-ink);
+  color: var(--wb-danger);
 }
 .txt {
   font-size: var(--wb-fs-2xs);

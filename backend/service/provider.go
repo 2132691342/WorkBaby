@@ -385,7 +385,9 @@ func (p *ProviderService) Available(ctx context.Context, workspace string) ([]do
 	if sup == nil || workspace == "" {
 		return nil, pkg.New("3112", "还没有可用的工作目录", "")
 	}
-	client, err := sup.Ensure(background(60*time.Second), workspace)
+	ensureCtx, ensureCancel := background(60 * time.Second)
+	defer ensureCancel()
+	client, err := sup.Ensure(ensureCtx, workspace)
 	if err != nil {
 		return nil, err
 	}

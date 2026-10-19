@@ -276,6 +276,22 @@ func TestPiChain(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("回提问响应失败: %v", err)
 		}
+
+		// 多选 / 自定义答案靠 input 的 placeholder 与 timeout 传给用户，丢一个就不成。
+		waitFor(t, func() bool {
+			rec.mu.Lock()
+			defer rec.mu.Unlock()
+			for _, e := range rec.events {
+				if e.ID == "input-1" {
+					return true
+				}
+			}
+			return false
+		})
+		typed, _ := rec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == "input-1" })
+		if typed.Method != "input" || typed.Placeholder != "1,3; 自定义答案" || typed.TimeoutMs != 30000 {
+			t.Fatalf("input 提问的 placeholder / timeout 没解析: %+v", typed)
+		}
 	})
 
 	// 生命周期：有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程。

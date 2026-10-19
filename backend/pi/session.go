@@ -4,6 +4,7 @@ package pi
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -261,9 +262,10 @@ func eachLine(r io.Reader, fn func([]byte)) error {
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			trimmed := strings.TrimSpace(string(line))
-			if trimmed != "" {
-				fn([]byte(trimmed))
+			// 直接裁字节：先换成 string 再转回 []byte 会给每行多扫两遍、多拄两份内存，
+			// 而带图片的会话文件一行就能到几 MB。
+			if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
+				fn(trimmed)
 			}
 		}
 		if err != nil {

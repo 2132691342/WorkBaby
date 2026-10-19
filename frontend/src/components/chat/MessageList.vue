@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useChatStore, type ToolRun } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
+import type { MessageVO } from '../../types/api'
 import { renderMarkdown, renderMarkdownStream, resetStreamRender } from '../../utils/md'
 import { fmtCount, fmtInt } from '../../utils/num'
 import { groupTurns } from '../../utils/turns'
@@ -203,6 +204,17 @@ onMounted(async () => {
   if (el) el.scrollTop = el.scrollHeight
 })
 
+// 一条消息有没有可读内容：只有 toolCall 的回合不画正文外壳（工具卡单独列出）。
+// 不滤的话，从命令行跑出来的会话里会有上百个空框（那类会话平均只 7 条带正文、
+// 89 条只有工具调用）。
+function hasBody(msg: MessageVO): boolean {
+  return !!(msg.content?.trim() || msg.thinking?.trim() || msg.images?.length)
+}
+type TurnPart = { msg: MessageVO; tools: MessageVO[] }
+function shownTurn(parts: TurnPart[]): boolean {
+  return parts.some((p) => hasBody(p.msg) || p.tools.length > 0)
+}
+
 // 代码块复制：正文是 v-html 注入的，用事件委托接住按钮
 async function onStreamClick(e: MouseEvent) {
   const btn = (e.target as HTMLElement | null)?.closest<HTMLElement>('.code-copy')
@@ -225,10 +237,10 @@ async function onStreamClick(e: MouseEvent) {
       <template v-for="b in turnBlocks" :key="b.key">
         <ChatMessage v-if="b.kind === 'user'" :msg="b.msg" />
 
-        <div v-else-if="b.kind === 'assistant'" class="turn">
+        <div v-else-if="b.kind === 'assistant' && shownTurn(b.parts)" class="turn">
           <div class="turn-body">
             <template v-for="p in b.parts" :key="p.msg.id">
-              <ChatMessage :msg="p.msg" plain />
+              <ChatMessage v-if="hasBody(p.msg)" :msg="p.msg" plain />
               <div v-if="p.tools.length" class="turn-tools">
                 <ToolCard
                   v-for="tc in p.tools"

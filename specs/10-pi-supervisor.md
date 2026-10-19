@@ -60,6 +60,24 @@ GUI 没有终端语义，翻译层对全部面向用户的文本（增量 / 状�
 | `extension_ui_request`（setWidget） | `chat:widget`（文本行小部件，空行即清除） |
 | `extension_ui_request`（setTitle） | `chat:title` |
 
+### 提问在界面上的形态
+
+协议只有四个提问基元（`confirm` / `select` / `input` / `editor`），界面**不自己发明第五种**：
+
+| 基元 | 界面 | 回写 |
+|---|---|---|
+| `confirm` | 标题 + 正文 + 「确认 / 拒绝」 | `{id, confirmed}` |
+| `select` | 选项清单（整行原文换行显示，↑↓ / 数字 / 回车选中） | `{id, value}` |
+| `input` | 单行输入 + 扩展给的 `placeholder` | `{id, value}` |
+| `editor` | 多行输入 + `prefill` 预填 | `{id, value}` |
+
+多选与「输入自己的想法」不是协议特性，而是扩展自己的回退路径：
+`select` 末尾追加一条哨兵行 → 用户点它 → 扩展再发一条 `input`；多选题则直接把
+带编号的选项清单折进 `input` 的标题、格式说明放在 `placeholder` 里。
+所以 `placeholder` / `prefill` / `timeout` 必须原样透传——丢了它们，
+用户只能猜该按什么格式回答。界面也不把那张清单改画成复选框：
+PI 认不出我们编出来的 `"1,3"` 之外的形态，重写出一个漂亮的复选框反而是假支持。
+
 ## 会话文件索引
 
 `pi/session.go` 读 `~/.pi/agent/sessions/**/*.jsonl`：
@@ -86,6 +104,7 @@ GUI 没有终端语义，翻译层对全部面向用户的文本（增量 / 状�
 | agent 目录不覆盖 | 换成私有目录，用户的技能 / 插件 / 模型 / 会话全部看不见 |
 | 会话运行中不删它的文件 | 不等 `agent_settled` 就删，PI 会往已删文件继续追加 |
 | 写 `settings.json` 只改掌管键 | PI 与用户还在里面写 `packages` / `cacheWarming` / `codemode`，整体重写会抹掉它们 |
+| 提问只按四个基元渲染 | 多选与自定义答案是扩展层的回退组合，界面自造控件会产出一个 PI 认不出的回答 |
 
 ## 取舍
 

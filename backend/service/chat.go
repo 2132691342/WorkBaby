@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/base64"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -35,10 +36,11 @@ type ChatService struct {
 	mu sync.Mutex
 	// locks 是会话级互斥：同一会话不并发发命令。
 	locks map[string]*sync.Mutex
-	// running 标记会话是否在跑（从 agent_start 到 agent_settled）。
+	// running 标记会话是否在跑（agent_start 到 agent_settled）；runs 记当前 runID。
 	running map[string]bool
-	// runs 记每个会话当前的 runID，供事件对上。
-	runs map[string]string
+	runs    map[string]string
+	// runWs 记每个在跑的会话属于哪个工作区：RunningIn 要在锁内直接读出。
+	runWs map[string]string
 	// asks 是按 id 索引的在途提问。
 	asks map[string]*pendingAsk
 	// current 记每个工作区进程当前停在哪条会话文件上。
@@ -54,6 +56,7 @@ func NewChatService(env *Env, sessions *SessionService, providers *ProviderServi
 		locks:       map[string]*sync.Mutex{},
 		running:     map[string]bool{},
 		runs:        map[string]string{},
+		runWs:       map[string]string{},
 		asks:        map[string]*pendingAsk{},
 		current:     map[string]string{},
 		translators: map[string]*translator{},
@@ -91,7 +94,9 @@ func (c *ChatService) Send(req domain.SendMessageREQ) (*domain.SendMessageRESP, 
 
 	text, images := buildPrompt(content, req.Attachments)
 
-	client, err := c.env.PiSupervisor().Ensure(background(30*time.Second), workspace)
+	ensureCtx, ensureCancel := background(30 * time.Second)
+	defer ensureCancel()
+	client, err := c.env.PiSupervisor().Ensure(ensureCtx, workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +158,7 @@ func (c *ChatService) beginRun(
 	}
 	tr := c.translatorOfWorkspace(workspace)
 	tr.setSession(sessionID, rs)
-	c.markBusy(sessionID, runID)
+	c.markBusy(sessionID, runID, workspace)
 
 	ackCtx, ackCancel := context.WithTimeout(context.Background(), promptAckTimeout)
 	defer ackCancel()
@@ -184,7 +189,9 @@ func (c *ChatService) queueMessage(sessionID, content string, steer bool) error 
 	if err != nil {
 		return err
 	}
-	client, err := c.env.PiSupervisor().Ensure(background(30*time.Second), m.Cwd)
+	ensureCtx, ensureCancel := background(30 * time.Second)
+	defer ensureCancel()
+	client, err := c.env.PiSupervisor().Ensure(ensureCtx, m.Cwd)
 	if err != nil {
 		return err
 	}
@@ -234,7 +241,8 @@ func (c *ChatService) Stop(sessionID string) error {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 95*time.Second)
-	defer cancel()
+	// 这里刻意不 defer cancel：abort 在后台等内核收尾，Stop 一返回就取消会让它
+	// 立刻报 9703（白打一条「中止失败」日志，也丢掉了等内核空闲的那次等待）。
 
 	// 不取回就 abort，用户排队的那句话会凭空消失。
 	if q, err := client.ClearQueue(ctx); err == nil && q != nil {
@@ -249,6 +257,7 @@ func (c *ChatService) Stop(sessionID string) error {
 	c.emit(sessionID, domain.EventChatStopped, domain.StoppedData{Reason: "user"})
 
 	go func() {
+		defer cancel()
 		if err := client.Abort(ctx); err != nil {
 			pkg.Warnf("chat: 中止失败 session=%s: %v", sessionID, err)
 		}
@@ -264,11 +273,13 @@ func (c *ChatService) IsRunning(sessionID string) bool {
 }
 
 // RunningIn 报告某个工作目录下有没有会话在跑。
+// 工作区跟着运行态一起记录，所以这里只在锁内查内存：去翻会话文件会把 I/O
+// 塞进全局锁，而 RunningIn 在发送、切会话、导出的主路径上都要调一次。
 func (c *ChatService) RunningIn(workspace string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for sessionID := range c.running {
-		if samePath(c.workspaceOf(sessionID), workspace) {
+		if samePath(c.runWs[sessionID], workspace) {
 			return true
 		}
 	}
@@ -282,7 +293,9 @@ func (c *ChatService) Commands(sessionID string) ([]domain.CommandVO, error) {
 	if err != nil {
 		return nil, err
 	}
-	client, err := c.env.PiSupervisor().Ensure(background(30*time.Second), m.Cwd)
+	ensureCtx, ensureCancel := background(30 * time.Second)
+	defer ensureCancel()
+	client, err := c.env.PiSupervisor().Ensure(ensureCtx, m.Cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +339,9 @@ func (c *ChatService) ExportHTML(sessionID, outputPath string) (string, error) {
 	if c.RunningIn(m.Cwd) {
 		return "", domain.ErrSessionRunning
 	}
-	client, err := c.env.PiSupervisor().Ensure(background(30*time.Second), m.Cwd)
+	ensureCtx, ensureCancel := background(30 * time.Second)
+	defer ensureCancel()
+	client, err := c.env.PiSupervisor().Ensure(ensureCtx, m.Cwd)
 	if err != nil {
 		return "", err
 	}
@@ -375,6 +390,7 @@ func (c *ChatService) Forget(sessionID string) {
 	c.mu.Lock()
 	delete(c.running, sessionID)
 	delete(c.runs, sessionID)
+	delete(c.runWs, sessionID)
 	c.mu.Unlock()
 	c.closeAsksOf(sessionID, "gone")
 	c.env.Emitter.Forget(sessionID)
@@ -392,31 +408,22 @@ func (c *ChatService) bindSession(ctx context.Context, client *pi.Client, worksp
 func (c *ChatService) currentFile(workspace string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for key, file := range c.current {
-		if samePath(key, workspace) {
-			return file
-		}
-	}
-	return ""
+	return c.current[wsKey(workspace)]
 }
 
 // setCurrent 记下工作区进程当前停的会话文件。
 func (c *ChatService) setCurrent(workspace, file string) {
 	c.mu.Lock()
-	c.current[workspace] = file
+	c.current[wsKey(workspace)] = file
 	c.mu.Unlock()
 }
 
-// workspaceOf 取会话所在工作目录；查不到返回空串。
-func (c *ChatService) workspaceOf(sessionID string) string {
-	if c.sessions == nil {
+// wsKey 是工作区在 map 里的键：盘符大小写与分隔符写法不同不能算两条。
+func wsKey(workspace string) string {
+	if workspace == "" {
 		return ""
 	}
-	m, err := c.sessions.meta(sessionID)
-	if err != nil {
-		return ""
-	}
-	return m.Cwd
+	return strings.ToLower(filepath.Clean(workspace))
 }
 
 // emit 是本服务的事件出口。
@@ -424,11 +431,12 @@ func (c *ChatService) emit(sessionID, event string, data any) {
 	c.env.Emitter.Emit(sessionID, event, data)
 }
 
-// markBusy 标记会话在跑。
-func (c *ChatService) markBusy(sessionID, runID string) {
+// markBusy 标记会话在跑，并记下它所在的工作区。
+func (c *ChatService) markBusy(sessionID, runID, workspace string) {
 	c.mu.Lock()
 	c.running[sessionID] = true
 	c.runs[sessionID] = runID
+	c.runWs[sessionID] = workspace
 	c.mu.Unlock()
 }
 
@@ -437,6 +445,7 @@ func (c *ChatService) release(sessionID string) {
 	c.mu.Lock()
 	delete(c.running, sessionID)
 	delete(c.runs, sessionID)
+	delete(c.runWs, sessionID)
 	c.mu.Unlock()
 }
 
@@ -482,7 +491,14 @@ func (c *ChatService) openAsk(workspace, sessionID string, ev pi.Event) {
 	c.asks[ev.ID] = ask
 	c.mu.Unlock()
 	c.emit(sessionID, domain.EventChatAsk, domain.AskData{
-		ID: ev.ID, Method: ev.Method, Title: pkg.StripANSI(ev.Title), Message: pkg.StripANSI(ev.Body), Options: ev.Options,
+		ID: ev.ID, Method: ev.Method,
+		Title:   pkg.StripANSI(ev.Title),
+		Message: pkg.StripANSI(ev.Body),
+		Options: ev.Options,
+		// 提示语里可能带扩展自己的格式说明（多选题就是靠它告诉用户怎么填），原样转给界面。
+		Placeholder: pkg.StripANSI(ev.Placeholder),
+		Prefill:     pkg.StripANSI(ev.Prefill),
+		TimeoutMs:   ev.TimeoutMs,
 	})
 }
 
@@ -548,9 +564,8 @@ func guessMIME(b64 string) string {
 	}
 }
 
-// background 返回一个带超时的 context，用于不需要生命周期绑定的短动作。
-func background(d time.Duration) context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), d)
-	go func() { <-ctx.Done(); cancel() }()
-	return ctx
+// background 返回一个带超时的 context；调用方必须 defer 取消，否则定时器与它的
+// goroutine 会滞留到超时那一刻（快路径里那个时间可能是一次对话的好几倍）。
+func background(d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), d)
 }

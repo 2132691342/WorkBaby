@@ -85,9 +85,13 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 
 ## 开机自启
 
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，值是当前 exe 的绝对路径。
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，值是当前 exe 的绝对路径加 `--hidden`。
 走 HKCU 而非 HKLM：不需要管理员权限，也不会在多用户机器上互相干扰。
 设置页有开关；卸载器会清掉这个值，否则卸载后开机还会弹窗。
+
+`--hidden` 让入口把 Wails 的 `StartHidden` 打开：登录后只拉起托盘与本地服务，
+不往屏幕上弹一个空窗口，用户点托盘再出窗口（二次启动也会把窗口带出来，
+所以托盘就算没起来也还有救）。
 
 ## 单实例
 

@@ -48,10 +48,5 @@ jobs:
       - name: Verify
         shell: pwsh
         # 与本地 scripts/check.ps1 -Full 同一条链：门禁只有一处实现，两边不会漂。
-        # -v 让失败时能从输出直接看到是哪个子测试；失败摘要由下一步统一摘。
+        # -v 让失败时能从输出直接看到是哪个子测试；失败摘要由脚本自己写进 job summary。
         run: pwsh scripts/check.ps1 -Full
-
-      - name: Summarize failures
-        if: failure()
-        shell: pwsh
-        run: pwsh scripts/report-failures.ps1

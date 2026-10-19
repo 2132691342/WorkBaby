@@ -236,8 +236,7 @@ return errors.New("provider not ready")   // 丢 code，前端无法分流
 | 9100–9199 | MCP（外部工具接入） |
 | 9700–9799 | PI 子进程 / 协议 / 环境引导 |
 
-6000 / 9200–9699 段位已随知识库、评估、通用历史、架构图、记忆、运行观测一并退役；
-这些码不再产生，文档里也不再保留。
+6000 / 9200–9699 段位随一批已退役模块一起停用：这些码不再产生，文档里也不再保留。
 
 每个码的完整含义与处置动作见 [`docs/ERROR-CODES.md`](docs/ERROR-CODES.md)。
 
@@ -394,11 +393,17 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 - **有 rail 之后，二级目录必须用 `SidePanel width="sub"`**（`--wb-w-subside` 188px，浅一档底）：
   rail 已在左侧占位，二级目录再占 232px 就是两根侧栏并排，读作两套导航系统
 - 消息流用**统一容器 + 角色徽章胶囊**（`.msg-badge`），不做「用户右气泡 / 助手左头像」——
-  助手列的身份由正文面板的左侧 2px 脊线承担。长会话必须给 `.msg-col > *` 加
+  助手列的身份由正文面板的左侧 2px 脊线承担。**没有可读正文的助手消息不渲染外壳**
+  （只有 toolCall 的回合就只出工具卡，否则从命令行跑出来的会话满屏都是空框）。
+  长会话必须给 `.msg-col > *` 加
   `content-visibility: auto` + `contain-intrinsic-size: auto 120px`（末两条除外），
   并给 `.msg-scroll` 加 `overflow-anchor: none`，贴底由 JS 管——否则浏览器滚动锚定
   与 stick-to-bottom 打架，表现为「明明在底部却跳走了」
 - 选中态 = 淡底 + 左侧 2px 竖条 + 主色（`.sess-row.is-on` / `.set-item.is-on` / `.help-item.is-on` 同一语言）
+- 设置页的开关行一律用 `base.css` 的 `.wb-set-row`（说明在左、控件在右、整行宽度封在
+  `--wb-w-desc`）：让控件贴右边缘时，中间空出半屏、相邻两行的开关挤成同一列，容易误点
+- 只读读数（上下文水位 / 耗时 / 模型名）不套描边胶囊、不做悬停缩放：有盒子没动作等于骗点击，
+  要反馈就换字色不换几何
 - 图标统一走 `AppIcon` 内联 SVG（24 网格，`--wb-icon-stroke`）；禁止用 Unicode 字符或 Emoji 冒充图标
 - 事件 data 的字段名必须与后端 json tag 一致（snake_case）；禁止 `as never` 之类的强转绕过类型检查
 
@@ -578,6 +583,10 @@ type Record struct {
 失败即退出且不吞退出码。`-Pkg` 只回答「这个包坏没坏」，因此不跑 vet / 边界 / 前端，
 它与 `-Full` 互斥（同时传会报错，不会默默降档）。
 
+`-Full` 档把测试输出同时写到 `.check/test-output.log`（不进 Git），失败时自动打印
+失败摘要——子测试名是定位的第一个把手，`.go:行号` 直接指到断言；CI 里同一份内容
+追加进 job summary。失败摘要收在脚本内，不另起一个脚本：两个文件就要维护两处。
+
 短测试（`-short`）跳过真 git 子进程链路、归档真解压与本机 PI 真实回合；
 这三条只在 `-Full` 跑到，CI 跑全量，所以本地不跑不等于没人跑。
 `-race` 需要 cgo（本项目默认关 CGO 以保持 SQLite 纯 Go），要跑得先装 MinGW 再
@@ -597,7 +606,7 @@ type Record struct {
 | `app_test.go` · TestAppChain | **启动等待判据**（慢装配不误判 / 失败如实报 / 卡死有上限）；**关闭去向**（托盘开关与退出流程决定收托盘还是真退出） |
 | `pi/pi_test.go` · TestPiChain | 六条链：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、可用模型清单）；**事件顺序**（agent_end → 重试 → settled，done 只挂最后）；**事件翻译**（流式增量两类、工具结果内容块与元数据、压缩前后 token、四种 fire-and-forget 扩展请求及其字段原样透传）；**提问请求解析与回写响应**（请求字段完整解析、响应写回同一 id）；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程）；**本机 PI 真实回合**（`-short` 跳过：经 npm shim 还原出 node + 入口脚本，起进程、等就绪、建会话、两轮对话、进程复用与会话文件落盘） |
 | `pi/env/env_test.go` · TestPiEnvChain | 六条链：**agent 目录与进程环境**（跟随 `PI_CODING_AGENT_DIR`、不覆盖它）；**环境闸门**（node → pi → model 报首个阻塞项并给原因）；**models.json 形状与未知字段保留**（camelCase、`$schema` / 服务商内未知键往返不丢）；**settings.json 只改掌管键**（PI 自己的字段与已装的包不丢、compaction 字段级合并、packages 两种写法、原子替换不留临时文件）；**mcp.json 原文往返**与项目级路径；**PI 入口从 npm shim 还原成 node + 脚本**（解析结果不得是 cmd.exe，且必须真的跑得起来） |
-| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈，三个子测试：**闸门**（预检放行 + 方法白名单 + 路径穿越门口拒绝）；**契约**（统一信封、空数组永不 null、`/env` 带 agent_dir、`/runtime` 字段、`/bootstrap` 与 `/warmup` 字段齐全、各资源列表可读）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、会话出现在列表里）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
+| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈，三个子测试：**闸门**（预检放行 + 方法白名单 + 路径穿越门口拒绝）；**契约**（空数组永不 null、引导字段支撑环境闸门）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、会话出现在列表里）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
 | `service/chain_test.go` · TestServiceChain | 八条链：**会话索引**（列表/详情/工具清单都来自会话文件、标题取 session_info、删除删的是文件）；**一轮对话与用量**（新会话现场创建、done 最后、重试事件、落盘后能算出用量与按模型归因）；**停止**（先取回排队文本再中止）；**空闲排队**（follow_up 在没有 run 时按一轮完整发送记账）；**界面文本剥掉终端色码**（扩展带的 ANSI 码进界面前被剥成纯文本）；**目录扫描**（技能三区启停靠移目录、包内技能不可搬、扩展登记项与包目录解析）；**配置写入**（models.json 密钥掩码与能力回读、默认模型落盘、坏 MCP JSON 不落盘、删除连带清默认）；**跨工作区并行**（各自一个进程，不串会话） |
 | `git/git_test.go` · TestGitChain | 真仓库端到端（唯一用真 git 子进程的测试，约 10 秒），按坏法分三条链：读（status 归类 / 中文带空格路径还原 / 行号归属 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；写（参数白名单 → 勾选入栈 → 空信息被拒 → 提交带 hash → 历史与文件历史可读 → 出栈只动索引）；分支（名字白名单 → 新建切换 → 历史隔离）。`-short` 与没装 git 都跳过 |
 | `skill/skill_test.go` · TestSkillRegistryChain | **frontmatter 混合类型解析**（列表 / 行内数组 / 标量混排，解析失败会被静默跳过）；**两区扫描**（停用区可见可读、正文可取）；**工作区切换**（换目录换技能不残留、全局技能不被清掉） |
@@ -619,11 +628,11 @@ type Record struct {
 | 改了前端 | `cd frontend; npm run build`（或直接跑 `-Full`） |
 | 提交前 / CI | `pwsh scripts/check.ps1 -Full` |
 
-耗时大头是**编译与链接测试二进制**（实测 `go build ./...` 单独就要 4s），
-断言本体多在亚秒级。所以「只跑一个包」省的是编译，不是断言——这就是 `-Pkg` 存在的理由。
-想更快就先用 `-Pkg <包>` 或 `go test -run '<入口>/<那条链>'` 定位，确认后再跑一次全量。
+耗时大头是**编译与链接测试二进制**，断言本体多在亚秒级。所以「只跑一个包」省的是
+编译，不是断言——这就是 `-Pkg` 存在的理由。想更快就先用 `-Pkg <包>` 或
+`go test -run '<入口>/<那条链>'` 定位，确认后再跑一次全量。
 
-实测耗时（本机）：`-Pkg` 约 3s、快门约 14s、`-Full` 约 42s。
+实测耗时（本机）：`-Pkg` 约 5s、快门约 14s、`-Full` 约 42s。
 
 
 ---

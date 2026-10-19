@@ -168,7 +168,8 @@ const activePanel = computed(() => PANELS[tab.value as keyof typeof PANELS])
   padding: var(--wb-sp-6);
 }
 .set-body :deep(.panel-wrap) {
-  max-width: calc(920px * var(--wb-vw-scale));
+  /* 面板自己可以改 --wb-panel-w：表单类面板要收窄，列表类面板需要宽度 */
+  max-width: var(--wb-panel-w, calc(920px * var(--wb-vw-scale)));
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-6);

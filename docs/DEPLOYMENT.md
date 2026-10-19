@@ -16,7 +16,7 @@ build/bin/
 
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
-| `.github/workflows/ci.yml` | push main / PR / 手动（**tag 不触发**） | 装 Go + Node + 依赖 → 跑 `pwsh scripts/check.ps1 -Full`（gofmt / 编译 / vet / 依赖边界 / 全量测试 / 前端构建），失败时 `scripts/report-failures.ps1` 把摘要写进 job summary |
+| `.github/workflows/ci.yml` | push main / PR / 手动（**tag 不触发**） | 装 Go + Node + 依赖 → 跑 `pwsh scripts/check.ps1 -Full`（gofmt / 编译 / vet / 依赖边界 / 全量测试 / 前端构建）；失败时脚本自己把「哪条链坏了、错在哪一行」写进 job summary |
 | `.github/workflows/release.yml` | tag `v<major>.<minor>.<patch>` / 手动 | 轻量静态门禁（gofmt / vet / `go build` / 依赖方向，不重跑已由 ci 门过的测试矩阵）+ 校验运行时归档是真文件 → `wails build -clean -nsis` → 校验产物体积 → 建 GitHub Release 并上传安装器 |
 
 **「推 main 不发版、只有推 tag 才发版」是靠两个工作流各自的触发条件锁死的**，

@@ -24,8 +24,7 @@ var (
 	ErrNotReady      = pkg.New("9704", "助手环境还没准备好", "")
 )
 
-// commandTimeout 是单条命令的默认等待上限。prompt 只等"已接受"，很快；
-// abort 要等会话真正空闲，所以它单独给长超时。
+// 命令超时：prompt 只等「已接受」，很快；abort 要等会话真正空闲，所以单独给长超时。
 const (
 	commandTimeout = 30 * time.Second
 	abortTimeout   = 90 * time.Second
@@ -296,24 +295,18 @@ func (c *Client) dispatch(line []byte) {
 		return
 	}
 	var probe struct {
-		Type      string          `json:"type"`
-		ID        string          `json:"id"`
-		Method    string          `json:"method"`
-		Success   bool            `json:"success"`
-		Command   string          `json:"command"`
-		Error     string          `json:"error"`
-		Data      json.RawMessage `json:"data"`
-		Timestamp int64           `json:"-"`
+		Type    string          `json:"type"`
+		ID      string          `json:"id"`
+		Success bool            `json:"success"`
+		Command string          `json:"command"`
+		Error   string          `json:"error"`
+		Data    json.RawMessage `json:"data"`
 	}
-	// 拷一份给事件解析用：Event 需要额外字段，先在这里只做分类。
-	raw := make([]byte, len(line))
-	copy(raw, line)
 	if err := json.Unmarshal(line, &probe); err != nil {
 		// 无法解析的行不致命：PI 的日志偶发混入，忽略即可，但不能让它中断读循环。
 		return
 	}
-	switch probe.Type {
-	case "response":
+	if probe.Type == "response" {
 		c.mu.Lock()
 		ch := c.waits[probe.ID]
 		delete(c.waits, probe.ID)
@@ -321,21 +314,16 @@ func (c *Client) dispatch(line []byte) {
 		if ch != nil {
 			ch <- response{Command: probe.Command, Success: probe.Success, Error: probe.Error, Data: probe.Data}
 		}
-	case "extension_ui_request":
-		ev, ok := parseEvent(raw)
-		if !ok {
-			return
-		}
-		c.h.OnEvent(ev)
-	default:
-		ev, ok := parseEvent(raw)
-		if !ok {
-			// 未知记录必须忽略而不是报错：装了扩展的环境首帧就是 setStatus/setWidget，
-			// 当错误处理会让每个装扩展的环境都起不来。
-			return
-		}
-		c.h.OnEvent(ev)
+		return
 	}
+	// 缓冲区由 ReadBytes 每次新分配，记录可以就地交给解析器，不必再拷一份。
+	ev, ok := parseEvent(line, probe.Type)
+	if !ok {
+		// 未知记录必须忽略而不是报错：装了扩展的环境首帧就是 setStatus/setWidget，
+		// 当错误处理会让每个装扩展的环境都起不来。
+		return
+	}
+	c.h.OnEvent(ev)
 }
 
 // settle 在读写协程退出后统一收尾：唤醒所有等待者、通知 handler、关 done。

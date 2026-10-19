@@ -27,9 +27,9 @@ npm install
 npm run build                                 # vue-tsc + vite build → frontend/dist
 ```
 
-验证脚本把测试输出落到 `.check/test-output.log`；失败时
-`pwsh scripts/report-failures.ps1` 会把“哪条链坏了、错在哪一行”摘出来
-（本地直接打印，CI 里写进 job summary）。
+验证脚本把测试输出落到 `.check/test-output.log`；失败时它会自动打印失败摘要——
+先抓 `--- FAIL` / `panic` / `文件:行号`，抓不到再退回末尾若干行。
+本地直接看屏幕，CI 里同一份内容追加进 job summary，不必下载 artifact。
 
 ## 调试真实 PI
 

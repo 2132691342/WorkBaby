@@ -133,6 +133,7 @@ func handle(scenario, id, typ, message string) {
 		})
 	case "abort":
 		respond(id, "abort", nil)
+		abortMarker(id)
 		emit(map[string]any{"type": "agent_settled", "aborted": true})
 	case "fork":
 		respond(id, "fork", map[string]any{
@@ -305,10 +306,16 @@ func goScript(scenario, message string) {
 		})
 	}
 	if scenario == "approval" {
-		// 审批闸门：扩展发 confirm，客户端回 extension_ui_response 后才继续。
+		// 审批闸门（confirm）：扩展发 confirm，客户端回 extension_ui_response 后才继续。
 		emit(map[string]any{
 			"type": "extension_ui_request", "id": "confirm-1", "method": "confirm",
 			"title": "允许 write?", "message": "要写入文件 a.txt",
+		})
+		// 多选 / 自定义答案在 RPC 里就是一条带编号清单的 input：
+		// placeholder 与 timeout 必须原样传到界面，丢了它们用户只能猜格式。
+		emit(map[string]any{
+			"type": "extension_ui_request", "id": "input-1", "method": "input",
+			"title": "要改哪几项？", "placeholder": "1,3; 自定义答案", "timeout": 30000,
 		})
 	}
 	emit(map[string]any{"type": "message_end", "message": map[string]any{
@@ -345,6 +352,15 @@ func goScript(scenario, message string) {
 	})
 	emit(map[string]any{"type": "auto_retry_end", "success": true, "attempt": 1})
 	emit(map[string]any{"type": "agent_settled", "aborted": false})
+}
+
+// abortMarker 把“收到 abort”写进会话文件：上层据此断言停止真的送到了内核，
+// 而不是只在界面上广播了一句 chat:stopped（内核还在跑）。
+func abortMarker(id string) {
+	appendEntry(map[string]any{
+		"type": "custom", "customType": "aborted", "id": "abort-" + id,
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+	})
 }
 
 func respond(id, command string, data any) {

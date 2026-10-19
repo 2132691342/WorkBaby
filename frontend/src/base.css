@@ -219,6 +219,35 @@ hr {
   color: var(--wb-muted);
 }
 
+/* 设置行：标签定宽在左、控件紧随其后。
+   标签列定宽是关键：控件若被推到面板右边缘，短标签与它的开关之间会空出半屏，
+   相邻两行的开关又挤成同一列——误点一次就改错一项。 */
+.wb-set-row {
+  display: grid;
+  grid-template-columns: calc(240px * var(--wb-vw-scale)) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--wb-sp-4);
+  padding: var(--wb-sp-2) 0;
+  max-width: calc(640px * var(--wb-vw-scale));
+}
+.wb-set-row-tx b {
+  display: block;
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink);
+}
+.wb-set-row-tx p {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  line-height: var(--wb-lh-base);
+}
+
+/* 多组设置的表单面板：正文缩进到分节标题那条左边缘。
+   不缩进时正文在 0、标题在图标之后，两三条竖线并排，读起来就是「乱」。 */
+.wb-form .sec-body {
+  padding-left: calc(var(--wb-tile-sm) + var(--wb-sp-3));
+}
+
 /* 图标瓦片：卡片头 / 空态 / 列表项前的方块底 */
 .wb-tile {
   display: grid;

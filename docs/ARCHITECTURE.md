@@ -22,8 +22,21 @@
 └──────────────────────────────────────────────┘
 ```
 
-依赖方向由 `tools/check-boundaries` 按真实 import 图检查：
-上层可依赖下层，能力域不得回指 api / service / server，`pkg` 不依赖任何业务包。
+| 层 | 职责 | 禁止 |
+|---|---|---|
+| `server` | 路由、SSE hub、统一响应、方法白名单 | 引 service / repo / 能力域 |
+| `api` | 薄 handler（解析参数 → 调 service → 统一信封）+ 系统能力绑定 + 组合根 | handler 绕过 service 直写业务 |
+| `service` | 业务编排、事务边界、事件翻译 | 引 gin / wails / api / server；写 SQL |
+| 能力域 `pi` / `skill` / `git` | 子进程与协议 / 技能目录 / 受控 git 写入 | 回引 api / service / server |
+| `repo` | GORM 持久化 | 引上层 |
+| `domain` | 域模型（DO / DTO / REQ / VO / RESP 同居一处） | 引任何上层 |
+| `pkg` | 叶子工具包 | 引任何其他 backend 业务包 |
+
+依赖方向由 `tools/check-boundaries` 按编译器视角的真实 import 图检查（`go list -json`），
+不做文本 grep——注释与字符串里的 import 字样会让 grep 得出错误结论。
+
+**api = 组合根**：`Handler.Startup` 是唯一装配入口，持有 Repo / Cfg / 子进程句柄。
+业务 handler 方法必须经 service 走流程，唯一例外是查询型系统能力（运行时状态检测）。
 
 ## 两个真相源
 
@@ -33,8 +46,11 @@
 | `%APPDATA%\WorkBaby\` | SQLite（只有设置 KV）、内置运行时、日志、背景图、persona.md | WorkBaby |
 
 **不能有第三本账**：agent 目录只继承、不覆盖。换成私有目录的话，界面里技能、插件、模型、
-会话全是空的，而命令行里一切正常——两本账必然分叉。现在的纪律写死在
-`pi/env`：进程环境只继承 `PI_CODING_AGENT_DIR`，自己不注入也不覆盖它。
+会话全是空的，而命令行里一切正常——两本账必然分叉。这条纪律写死在 `pi/env`：
+进程环境只继承 `PI_CODING_AGENT_DIR`，自己不注入也不覆盖它。
+
+WorkBaby 不另存一份会话与用量：它们是 PI 写的文件，界面只读。
+「再存一份」的代价是两处需要失效，而任何一处漏失效都会让界面与内核对不上。
 
 ## 启动时序
 
@@ -48,11 +64,14 @@ wails.Run
      ├─ skill.New() + Emitter
      ├─ service.New(env)         装配全部服务 + PI 监督器
      └─ container.Bootstrap()    设置默认值 / 生成 persona / 扫技能
- └─ domReady → 前端握手拿端口 → bootstrap / SSE 订阅
+ └─ domReady → 起 HTTP → 广播端口（app:ready，重复若干次防漏）→ 前端握手 → SSE 订阅
 ```
 
 **环境闸门在 spawn 之前**：前端读 `bootstrap.pi_env`，`ready=false` 就整屏进向导，
 不会出现「第一条消息必然失败，十几秒后才浮现」的体验。
+
+端口握手是硬约束：`app:ready` 先于前端 axios 初始化就会漏掉事件，
+所以启动后头几秒会重复广播同一个端口，直到前端接住。
 
 ## 一次对话
 
@@ -64,7 +83,7 @@ wails.Run
       ├─ Prompt()（运行中带 streamingBehavior=steer）
       └─ 返回 {run_id, session_id}
 PI 子进程 stdout（JSONL）
-  → pi.Client 分帧 → 记录分类 → translator.OnEvent
+  → pi.Client 按 LF 分帧 → 记录分类 → translator.OnEvent
   → 翻译成 chat:* → Emitter（seq + 按会话串行）→ Hub → SSE
   → agent_settled → chat:done → 前端拉会话快照对账
 ```
@@ -72,14 +91,21 @@ PI 子进程 stdout（JSONL）
 ### 事件出口
 
 `service.Emitter` 是唯一出口：注入会话归属、分配 seq、按会话分道串行化。
+「分配 seq」与「投递」是一次原子步，否则前端按 seq 去重会把先到的当旧事件丢掉。
+
 SSE Hub 每个会话维护重放缓冲；慢客户端先挤 delta 保关键事件，
-缓冲裁掉中段时主动发 `chat:gap`，前端据此拉快照对账。
+回灌再丢关键事件就断开并提示对账；缓冲裁掉中段时主动发 `chat:gap`。
 
 ### 引擎提问
 
 PI 的扩展可以 `ctx.ui.confirm/select/input/editor` 问用户。这些请求走
 `extension_ui_request` → `chat:ask` → 界面卡片 → `POST /chat/answer` → 回写响应。
-WorkBaby 自己不判断「该不该问」：闸门由扩展决定，界面只负责显示与回传。
+
+协议只有这四个提问基元，界面**不自己发明第五种**：多选与「输入自己的想法」是
+扩展层的回退组合（`select` 末尾追加哨兵行再发 `input`，或把编号清单折进 `input`
+的标题、格式说明放进 `placeholder`）。所以 `placeholder` / `prefill` / `timeout`
+必须原样透传，界面也不把清单重画成复选框——PI 认不出我们编出来的答案形态。
+详见 `specs/10-pi-supervisor.md`「提问在界面上的形态」。
 
 ## 前端状态归属
 
@@ -93,18 +119,31 @@ WorkBaby 自己不判断「该不该问」：闸门由扩展决定，界面只�
 规则：**SSE 只推进行中的临时态**，任何一次 `chat:done` / 断线重连都拉一次权威快照，
 前端不做增量合并——合并逻辑是「两个会话叠在一起」这类 bug 的温床。
 
-## 模块边界
+## 页面边界
 
 界面只保留四块页面，各自回答一个真问题：**聊得怎么样（对话）**、**它动了什么（工作区）**、
 **花了多少（仪表盘）**、**怎么配（设置 + 帮助）**。
 
-不在 WorkBaby 里实现的能力：运行记录与用量（PI 的会话文件里有权威的一份）、
-审批策略（审批闸门属于扩展生态，内核默认不打断）、知识库与架构图（与「操作 PI」无关）。
-这条边界的判据是「PI 是否已有」：已有就在界面上暴露它，不自研第二份。
+不为「看起来全」加总览页。这条边界的判据是「PI 是否已有」：已有就在界面上暴露它，
+不自研第二份。
 
 ## 端口与安全
 
-- 只绑 `127.0.0.1`，随机端口；端口经 `app:ready` 事件告知前端。
-- CORS 只放行本机来源（`wails://`、`localhost`、`127.0.0.1`、`wails.localhost`）。
-- 方法白名单只有 GET / POST；路径变量必须在末尾。
-- 密钥明文只在「显式点显示」时回传一次，界面默认掩码。
+| 面 | 措施 |
+|---|---|
+| 网络 | 只绑 `127.0.0.1`，随机端口；端口经 `app:ready` 事件告知前端 |
+| CORS | 只放行本机来源（`wails://`、`localhost`、`127.0.0.1`、`wails.localhost`） |
+| 方法 | 白名单只有 GET / POST；路径变量必须在末尾 |
+| 路径 | 文件列举 / 文档名 / 附件都过 `pkg.SafeJoin`，越界在门口拒绝 |
+| 密钥 | 明文只在「显式点显示」时回传一次，界面默认掩码 |
+| 子进程 | 入口不走 shell（npm shim 还原成 node + 脚本），全部子进程设 `CREATE_NO_WINDOW` |
+
+## 关键取舍
+
+| 取舍 | 优势 | 代价 |
+|---|---|---|
+| 内核归 PI | 工具 / 压缩 / 重试 / MCP / 扩展全由内核演进，界面零维护 | 界面能力受协议面约束，不能「先做出来再说」 |
+| 会话文件即真相 | 与命令行天然一致，不会两本账 | 列表要扫盘（几百文件毫秒级，按 size+mtime 缓存） |
+| 业务走 HTTP 而非 Wails 绑定 | 前端在浏览器里就能跑通，调试不必开窗 | 启动顺序变成硬约束（端口握手必须早于 domReady） |
+| 一个工作区一个进程 | cwd 是进程级属性，工具不会写错目录 | 同目录多条对话不能并行（内核约束，如实报 5005） |
+| SQLite 只存设置 KV | 没有需要迁移的业务表，卸载即净 | 界面偏好之外的状态都在 PI 的文件里 |

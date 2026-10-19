@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 行为面板：工作目录、回车与托盘、默认思考档、压缩参数，以及 PI 的配置文件位置。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
@@ -72,6 +72,20 @@ async function saveCompaction() {
   }
 }
 
+// 数字框每点一下就存一次会连着写盘、连着弹提示：按一下步进按钮五次就是五条「已保存」。
+// 合流成一次写，提示也只说一句。
+let compactionTimer = 0
+function queueCompaction() {
+  if (compactionTimer) clearTimeout(compactionTimer)
+  compactionTimer = window.setTimeout(() => {
+    compactionTimer = 0
+    void saveCompaction()
+  }, 400)
+}
+onBeforeUnmount(() => {
+  if (compactionTimer) clearTimeout(compactionTimer)
+})
+
 async function toggleAutoStart() {
   const next = !autoStart.value
   try {
@@ -106,7 +120,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="panel-wrap">
+  <div class="panel-wrap wb-form">
     <SettingsSection icon="folder" :title="t('settings.behavior.workspace')" :desc="t('settings.behavior.workspaceHint')">
       <template #actions>
         <el-button size="small" @click="pickWorkspace">{{ t('settings.behavior.workspacePick') }}</el-button>
@@ -114,62 +128,72 @@ onMounted(async () => {
       <p class="path-line" :title="workspace">{{ workspace || '—' }}</p>
     </SettingsSection>
 
-    <SettingsSection icon="sliders" :title="t('settings.behavior.title')">
-      <div class="row">
-        <div class="row-tx">
+    <SettingsSection icon="sliders" :title="t('settings.behavior.title')" divided>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
           <b>{{ t('settings.behavior.sendOnEnter') }}</b>
           <p>{{ t('settings.behavior.sendOnEnterHint') }}</p>
         </div>
         <el-switch :model-value="sendOnEnter" @change="toggleValue('send_on_enter', !sendOnEnter)" />
       </div>
-      <div class="row">
-        <div class="row-tx">
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
           <b>{{ t('settings.behavior.minimizeToTray') }}</b>
           <p>{{ t('settings.behavior.minimizeToTrayHint') }}</p>
         </div>
         <el-switch :model-value="tray" @change="toggleValue('minimize_to_tray', !tray)" />
       </div>
-      <div class="row">
-        <div class="row-tx">
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
           <b>{{ t('settings.behavior.autostart') }}</b>
+          <p>{{ t('settings.behavior.autostartHint') }}</p>
         </div>
         <el-switch :model-value="autoStart" @change="toggleAutoStart" />
       </div>
     </SettingsSection>
 
-    <SettingsSection icon="brain" :title="t('settings.behavior.thinking')" :desc="t('settings.behavior.thinkingHint')">
-      <template #actions>
-        <el-button size="small" type="primary" :loading="busy === 'thinking'" :disabled="!!busy" @click="saveThinking">
-          {{ t('common.save') }}
-        </el-button>
-      </template>
-      <el-select v-model="level" class="sel">
-        <el-option value="" :label="t('settings.behavior.thinkingDefault')" />
-        <el-option v-for="l in LEVELS" :key="l" :value="l" :label="t(`thinking.${l}`)" />
-      </el-select>
-    </SettingsSection>
-
-    <SettingsSection icon="arrow-down-up" :title="t('settings.behavior.compaction')">
-      <template #actions>
-        <el-button size="small" type="primary" :loading="busy === 'compaction'" :disabled="!!busy" @click="saveCompaction">
-          {{ t('common.save') }}
-        </el-button>
-      </template>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="field">
-          <label class="wb-label">{{ t('settings.behavior.compactionReserve') }}</label>
-          <el-input-number v-model="reserve" :min="0" :step="1000" controls-position="right" />
-          <p class="hint">{{ t('settings.behavior.compactionReserveHint') }}</p>
-        </div>
-        <div class="field">
-          <label class="wb-label">{{ t('settings.behavior.compactionKeep') }}</label>
-          <el-input-number v-model="keep" :min="0" :step="1000" controls-position="right" />
-          <p class="hint">{{ t('settings.behavior.compactionKeepHint') }}</p>
-        </div>
+    <SettingsSection icon="brain" :title="t('settings.behavior.thinking')" :desc="t('settings.behavior.thinkingHint')" divided>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx"><b>{{ t('settings.behavior.thinkingLevel') }}</b></div>
+        <el-select v-model="level" class="sel" :disabled="!!busy" @change="saveThinking">
+          <el-option value="" :label="t('settings.behavior.thinkingDefault')" />
+          <el-option v-for="l in LEVELS" :key="l" :value="l" :label="t(`thinking.${l}`)" />
+        </el-select>
       </div>
     </SettingsSection>
 
-    <SettingsSection icon="braces" :title="t('settings.behavior.piPaths')" :desc="t('settings.behavior.piPathsHint')">
+    <SettingsSection icon="arrow-down-up" :title="t('settings.behavior.compaction')" divided>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
+          <b>{{ t('settings.behavior.compactionReserve') }}</b>
+          <p>{{ t('settings.behavior.compactionReserveHint') }}</p>
+        </div>
+        <el-input-number
+          v-model="reserve"
+          :min="0"
+          :step="1000"
+          controls-position="right"
+          :disabled="!!busy"
+          @change="queueCompaction"
+        />
+      </div>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
+          <b>{{ t('settings.behavior.compactionKeep') }}</b>
+          <p>{{ t('settings.behavior.compactionKeepHint') }}</p>
+        </div>
+        <el-input-number
+          v-model="keep"
+          :min="0"
+          :step="1000"
+          controls-position="right"
+          :disabled="!!busy"
+          @change="queueCompaction"
+        />
+      </div>
+    </SettingsSection>
+
+    <SettingsSection icon="braces" :title="t('settings.behavior.piPaths')" :desc="t('settings.behavior.piPathsHint')" divided>
       <div class="paths">
         <button
           v-for="p in [
@@ -197,26 +221,12 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.row {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-4);
-  padding: var(--wb-sp-2) 0;
+/* 表单类面板收窄：控件列与标签列都靠左，面板宽 920px 时右侧会拖出一片空地 */
+.panel-wrap {
+  --wb-panel-w: calc(720px * var(--wb-vw-scale));
 }
-.row-tx {
-  flex: 1;
-  min-width: 0;
-}
-.row-tx b {
-  display: block;
-  font-size: var(--wb-fs-sm);
-  font-weight: 600;
-  color: var(--wb-ink);
-}
-.row-tx p {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  line-height: var(--wb-lh-base);
+.sel {
+  max-width: calc(220px * var(--wb-vw-scale));
 }
 .path-line {
   font-family: var(--font-mono);
@@ -226,15 +236,6 @@ onMounted(async () => {
 }
 .sel {
   max-width: calc(220px * var(--wb-vw-scale));
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-1);
-}
-.hint {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
 }
 .paths {
   display: flex;

@@ -158,7 +158,7 @@ func (c *ChatService) onEvent(workspace, sessionID string, st *runState, ev pi.E
 
 	case pi.KindAgentSettled:
 		if st != nil {
-			c.finishSettled(sessionID, st, ev.Aborted)
+			c.finishSettled(workspace, sessionID, st, ev.Aborted)
 		}
 
 	case pi.KindExtensionUI:
@@ -261,7 +261,8 @@ func (c *ChatService) onMessageEnd(st *runState, ev pi.Event) {
 }
 
 // finishSettled 在 agent_settled 时收尾：这是唯一「真的结束」信号。
-func (c *ChatService) finishSettled(sessionID string, st *runState, aborted bool) {
+// workspace 由调用方（已持有它）传进来：为了找一个翻译器去反查会话目录不划算。
+func (c *ChatService) finishSettled(workspace, sessionID string, st *runState, aborted bool) {
 	reason := st.stopReason
 	if aborted {
 		reason = "aborted"
@@ -270,7 +271,7 @@ func (c *ChatService) finishSettled(sessionID string, st *runState, aborted bool
 		EntryID: st.runID, StopReason: reason, Usage: st.usage, MaxTokens: st.maxTokens,
 	})
 	c.release(sessionID)
-	c.translatorOfWorkspace(sessionWorkspace(c, sessionID)).clearSession(sessionID)
+	c.translatorOfWorkspace(workspace).clearSession(sessionID)
 }
 
 // onProcessExit 在 PI 进程退出时收口：本轮标记失败，但不自动重发。
@@ -292,14 +293,6 @@ func (c *ChatService) onProcessExit(workspace string, err error) {
 		tr.clearSession(sid)
 		c.closeAsksOf(sid, "gone")
 	}
-}
-
-// sessionWorkspace 取会话所在工作目录；查不到返回空串。
-func sessionWorkspace(c *ChatService, sessionID string) string {
-	if c.sessions == nil {
-		return ""
-	}
-	return c.workspaceOf(sessionID)
 }
 
 // labelOf 给工具名一个中文短名；未知工具用原名（编一个好听的反而对不上）。

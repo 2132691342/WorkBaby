@@ -37,6 +37,12 @@ const hasText = computed(() => split.value.text.trim().length > 0)
 const thinking = computed(() => props.msg.thinking || split.value.think)
 const thinkOpen = ref(false)
 
+// 只有 toolCall 的助手消息没有可读正文：工具卡已经单独列出，
+// 再给它画一个空壳就是一个没内容的框（从命令行跑出来的会话满屏都是）。
+const visible = computed(
+  () => hasText.value || thinking.value.trim().length > 0 || !!props.msg.images?.length,
+)
+
 const copied = ref(false)
 let copiedTimer = 0
 onBeforeUnmount(() => clearTimeout(copiedTimer))
@@ -107,7 +113,7 @@ const metrics = computed(() => {
   </div>
 
   <!-- 助手回答：容器代替头像做分区，纯工具声明回合不重复打徽章 -->
-  <div v-else class="msg-ai" :class="{ 'is-plain': plain }">
+  <div v-else-if="visible" class="msg-ai" :class="{ 'is-plain': plain }">
     <div v-if="hasText && !plain" class="msg-badge" :class="{ 'is-bad': msg.is_error }">
       <span>{{ assistantName }}</span>
       <AppIcon v-if="msg.is_error" name="alert" size="ic-2xs" />

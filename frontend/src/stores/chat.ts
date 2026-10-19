@@ -44,6 +44,12 @@ export interface PendingAsk {
   title: string
   message: string
   options: string[]
+  /** 输入类提问的预置提示（多选题的「1,3; 自定义答案」就靠它）*/
+  placeholder: string
+  /** editor 的预填内容 */
+  prefill: string
+  /** 等待上限（毫秒）：0 表示不限时 */
+  timeoutMs: number
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -239,6 +245,9 @@ export const useChatStore = defineStore('chat', () => {
       title: data.title,
       message: data.message,
       options: data.options ?? [],
+      placeholder: data.placeholder ?? '',
+      prefill: data.prefill ?? '',
+      timeoutMs: data.timeout_ms ?? 0,
     })
   }
 

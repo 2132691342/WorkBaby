@@ -55,6 +55,11 @@ type Event struct {
 	// WidgetLines 是 setWidget 的文本行；空表示清除。
 	WidgetLines     []string `json:"widgetLines"`
 	WidgetPlacement string   `json:"widgetPlacement"`
+	// Placeholder / Prefill 是 input 与 editor 的预置提示与预填内容。
+	Placeholder string `json:"placeholder"`
+	Prefill     string `json:"prefill"`
+	// TimeoutMs 是 PI 给这个提问留的等待上限；缺失为 0（不限时）。
+	TimeoutMs int64 `json:"timeout"`
 
 	// —— 消息 ——
 	// 同一个 json 字段两种形态：扩展 UI 的 message 是字符串，消息事件的 message 是对象。
@@ -174,17 +179,12 @@ type assistantUpdate struct {
 	Content      string    `json:"content"`
 }
 
-// parseEvent 把一条原始记录解析成 Event；未知类型返回 ok=false。
-func parseEvent(raw []byte) (Event, bool) {
-	var head struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal(raw, &head); err != nil {
-		return Event{}, false
-	}
-	ev := Event{Kind: EventKind(head.Type), Raw: raw}
+// parseEvent 把一条原始记录与它的 type 解析成 Event；未知类型返回 ok=false。
+// 类型由调用方（已解过一遍的外层）传入：每条记录再解一次 type 是纯浪费。
+func parseEvent(raw []byte, typ string) (Event, bool) {
+	ev := Event{Kind: EventKind(typ), Raw: raw}
 
-	switch head.Type {
+	switch typ {
 	case "agent_start", "agent_end", "agent_settled", "turn_start", "turn_end",
 		"compaction_start", "compaction_end", "auto_retry_start", "auto_retry_end",
 		"queue_update", "message_start", "message_end", "tool_execution_start",
@@ -193,7 +193,7 @@ func parseEvent(raw []byte) (Event, bool) {
 			return Event{}, false
 		}
 		// result 在工具事件与压缩事件里是两种类型，收起一个 json 字段就得分开解一遍。
-		switch head.Type {
+		switch typ {
 		case "tool_execution_end":
 			var wrap struct {
 				Result *ToolResult `json:"result"`
@@ -210,7 +210,7 @@ func parseEvent(raw []byte) (Event, bool) {
 			}
 		}
 		// 扩展 UI 的 message 是给人读的正文，消息事件的 message 是消息对象。
-		if head.Type == "extension_ui_request" {
+		if typ == "extension_ui_request" {
 			var wrap struct {
 				Message string `json:"message"`
 			}
@@ -220,7 +220,7 @@ func parseEvent(raw []byte) (Event, bool) {
 		}
 		// fire-and-forget 的字段不在 wrap 里，直接按 Event 的 tag 解：
 		// notify（notifyType）、setStatus（statusKey/statusText）、setWidget（widgetLines）。
-		if head.Type == "extension_ui_request" {
+		if typ == "extension_ui_request" {
 			var extra struct {
 				NotifyType      string   `json:"notifyType"`
 				StatusKey       string   `json:"statusKey"`
@@ -237,7 +237,7 @@ func parseEvent(raw []byte) (Event, bool) {
 			}
 		}
 		// message_end / message_start 的 usage 与 stopReason 在 message 对象里，不在顶层。
-		if head.Type == "message_end" || head.Type == "message_start" {
+		if typ == "message_end" || typ == "message_start" {
 			var wrap struct {
 				Message struct {
 					Usage      *Usage `json:"usage"`
@@ -255,15 +255,18 @@ func parseEvent(raw []byte) (Event, bool) {
 		}
 		return ev, true
 	case "message_update":
-		if err := json.Unmarshal(raw, &ev); err != nil {
-			return Event{}, false
-		}
+		// 流式增量是最高频的记录（每个 token 一条）：一次解包同时拿顶层字段与嵌套增量，
+		// 分两次解等于把最热的那条路的 JSON 工作量翻倍。
 		var wrap struct {
+			Event
 			Assistant assistantUpdate `json:"assistantMessageEvent"`
 		}
 		if err := json.Unmarshal(raw, &wrap); err != nil {
 			return Event{}, false
 		}
+		ev = wrap.Event
+		ev.Kind = EventKind(typ)
+		ev.Raw = raw
 		ev.DeltaType = wrap.Assistant.Type
 		if ev.Delta == "" {
 			ev.Delta = wrap.Assistant.Delta

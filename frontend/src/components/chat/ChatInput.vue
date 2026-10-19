@@ -732,6 +732,9 @@ defineExpose({
   flex-wrap: wrap;
   gap: var(--wb-sp-2);
   padding: var(--wb-sp-2) var(--wb-sp-3) var(--wb-sp-3);
+  /* 工具行不是可复制的正文：拖选输入框里的字时扫过这排，浏览器会把 chip 与水位环
+     一起框成一片淡蓝色块。只有输入框里的文字该被选中。 */
+  user-select: none;
 }
 .bar-hint,
 .bar-warn {
