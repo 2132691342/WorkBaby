@@ -431,7 +431,7 @@ onMounted(() => {
   padding: var(--wb-sp-4);
   border-radius: var(--wb-radius-xl);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   box-shadow: var(--wb-card-shadow);
   transition:
     box-shadow var(--wb-dur) var(--wb-ease),
@@ -452,7 +452,7 @@ onMounted(() => {
   border-radius: var(--wb-radius-sm);
   display: grid;
   place-items: center;
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
   font-weight: 700;
   flex: none;
@@ -564,10 +564,10 @@ onMounted(() => {
 .model-chip:hover {
   border-color: var(--wb-primary-line);
   color: var(--wb-primary);
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
 }
 .model-chip.is-on {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   border-color: var(--wb-primary);
   color: var(--wb-primary);
 }

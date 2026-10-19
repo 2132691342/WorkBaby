@@ -214,7 +214,7 @@ const needStage = computed(() => pickedFiles.value.some((f) => !f.staged))
   gap: var(--wb-sp-2);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border-bottom: 1px solid var(--wb-border);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .cmt-count {
   font-family: var(--font-mono);
@@ -234,10 +234,10 @@ const needStage = computed(() => pickedFiles.value.some((f) => !f.staged))
   transition: background var(--wb-dur-fast) var(--wb-ease);
 }
 .cmt-row:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .cmt-row.is-on {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
 }
 .cmt-path {
   flex: 1;

@@ -193,7 +193,7 @@ const metrics = computed(() => {
 }
 .me-act:hover:not(:disabled),
 .ai-act:hover:not(:disabled) {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-ink);
   transform: scale(1.06);
 }

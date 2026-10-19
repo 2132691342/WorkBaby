@@ -196,7 +196,7 @@ onMounted(() => {
   padding: var(--wb-sp-3);
   border-radius: var(--wb-radius-lg);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   box-shadow: var(--wb-card-shadow);
 }
 .mcp-head {

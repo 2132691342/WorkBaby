@@ -75,7 +75,7 @@ function open() {
   padding: var(--wb-sp-3);
   border-radius: var(--wb-radius-lg);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   text-align: left;
   transition:
     border-color var(--wb-dur) var(--wb-ease),
@@ -139,7 +139,7 @@ function open() {
 .eg-bar {
   height: 3px;
   border-radius: var(--wb-radius-full);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   overflow: hidden;
 }
 .eg-fill {

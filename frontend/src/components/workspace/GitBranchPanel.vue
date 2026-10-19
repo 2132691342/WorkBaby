@@ -179,10 +179,10 @@ async function push() {
   transition: background var(--wb-dur-fast) var(--wb-ease);
 }
 .br-row:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .br-row.is-on {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
 }
 .br-dot {
   width: 7px;

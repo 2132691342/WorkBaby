@@ -1,17 +1,14 @@
-/* 内容层：EP 没有对应物的自绘区域——消息流、markdown 正文、代码块、
-   思考块、工具卡、提问卡、欢迎页。其余一律走 Element Plus + UnoCSS 原子类。
-   本文件不写死色值（只允许指向 --wb-* 与 --font-*）。 */
+/* 鍐呭灞傦細EP 娌℃湁瀵瑰簲鐗╃殑鑷粯鍖哄煙鈥斺€旀秷鎭祦銆乵arkdown 姝ｆ枃銆佷唬鐮佸潡銆?   鎬濊€冨潡銆佸伐鍏峰崱銆佹彁闂崱銆佹杩庨〉銆傚叾浣欎竴寰嬭蛋 Element Plus + UnoCSS 鍘熷瓙绫汇€?   鏈枃浠朵笉鍐欐鑹插€硷紙鍙厑璁告寚鍚?--wb-* 涓?--font-*锛夈€?*/
 
 /* ============================================================
-   消息流栅格
-   ============================================================ */
+   娑堟伅娴佹爡鏍?   ============================================================ */
 .msg-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  /* 浏览器滚动锚定会与「贴底」打架：副量一屏外消息（content-visibility）时
-     scrollTop 被改动，看起来像用户自己离开了最新一轮。贴底由 JS 自己管。 */
+  /* 娴忚鍣ㄦ粴鍔ㄩ敋瀹氫細涓庛€岃创搴曘€嶆墦鏋讹細鍓噺涓€灞忓娑堟伅锛坈ontent-visibility锛夋椂
+     scrollTop 琚敼鍔紝鐪嬭捣鏉ュ儚鐢ㄦ埛鑷繁绂诲紑浜嗘渶鏂颁竴杞€傝创搴曠敱 JS 鑷繁绠°€?*/
   overflow-anchor: none;
 }
 
@@ -25,10 +22,8 @@
   gap: var(--wb-sp-6);
 }
 
-/* 长会话的关键优化：屏幕外的消息不参与 layout 与 paint。
-   auto 的记忆尺寸让滚动条几何与滚动位置保持稳定（首次估值 120px），
-   否则跳过渲染会让滚动条来回跳。
-   最后两条例外——正在写的那一轮必须实时反映高度变化。 */
+/* 闀夸細璇濈殑鍏抽敭浼樺寲锛氬睆骞曞鐨勬秷鎭笉鍙備笌 layout 涓?paint銆?   auto 鐨勮蹇嗗昂瀵歌婊氬姩鏉″嚑浣曚笌婊氬姩浣嶇疆淇濇寔绋冲畾锛堥娆′及鍊?120px锛夛紝
+   鍚﹀垯璺宠繃娓叉煋浼氳婊氬姩鏉℃潵鍥炶烦銆?   鏈€鍚庝袱鏉′緥澶栤€斺€旀鍦ㄥ啓鐨勯偅涓€杞繀椤诲疄鏃跺弽鏄犻珮搴﹀彉鍖栥€?*/
 .msg-col > * {
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
@@ -37,7 +32,7 @@
   content-visibility: visible;
 }
 
-/* 一跳回合：一次「用户说 → 助手答」是整块，靠一条不断开的竖线串起来 */
+/* 涓€璺冲洖鍚堬細涓€娆°€岀敤鎴疯 鈫?鍔╂墜绛斻€嶆槸鏁村潡锛岄潬涓€鏉′笉鏂紑鐨勭珫绾夸覆璧锋潵 */
 .turn {
   display: flex;
   flex-direction: column;
@@ -60,7 +55,7 @@
   width: 1px;
   background: var(--wb-border);
 }
-/* 竖线顶端的节点：代替头像当「这是助手那一列」的锤子 */
+/* 绔栫嚎椤剁鐨勮妭鐐癸細浠ｆ浛澶村儚褰撱€岃繖鏄姪鎵嬮偅涓€鍒椼€嶇殑閿ゅ瓙 */
 .turn-body::after {
   content: '';
   position: absolute;
@@ -70,11 +65,11 @@
   height: 7px;
   border-radius: var(--wb-radius-full);
   background: var(--wb-primary);
-  box-shadow: 0 0 0 3px var(--wb-surface);
+  box-shadow: 0 0 0 3px var(--wb-elev-raised);
 }
 
 /* ============================================================
-   用户气泡 / 助手正文
+   鐢ㄦ埛姘旀场 / 鍔╂墜姝ｆ枃
    ============================================================ */
 .msg-me {
   display: flex;
@@ -95,8 +90,7 @@
   border: 1px solid var(--wb-border);
 }
 
-/* 助手消息是一条完整容器，不是「头像 + 散装正文」。
-   角色徽章胶囊统一交代说话权属，正文有独立的面板边框承担分区。 */
+/* 鍔╂墜娑堟伅鏄竴鏉″畬鏁村鍣紝涓嶆槸銆屽ご鍍?+ 鏁ｈ姝ｆ枃銆嶃€?   瑙掕壊寰界珷鑳跺泭缁熶竴浜や唬璇磋瘽鏉冨睘锛屾鏂囨湁鐙珛鐨勯潰鏉胯竟妗嗘壙鎷呭垎鍖恒€?*/
 .msg-ai {
   display: flex;
   flex-direction: column;
@@ -105,8 +99,7 @@
   min-width: 0;
 }
 
-/* 角色徽章：用户与助手同一语言（胶囊 + 大写的极小程序编号），
-   用户侧右对齐并染点强调色，助手侧保持中性。 */
+/* 瑙掕壊寰界珷锛氱敤鎴蜂笌鍔╂墜鍚屼竴璇█锛堣兌鍥?+ 澶у啓鐨勬瀬灏忕▼搴忕紪鍙凤級锛?   鐢ㄦ埛渚у彸瀵归綈骞舵煋鐐瑰己璋冭壊锛屽姪鎵嬩晶淇濇寔涓€с€?*/
 .msg-badge {
   display: flex;
   align-items: center;
@@ -139,7 +132,7 @@
   background: var(--wb-accent-tint);
   color: var(--wb-primary);
 }
-/* 正在生成：徽章内一枚呼吸点，比单独画头像省地方也更准 */
+/* 姝ｅ湪鐢熸垚锛氬窘绔犲唴涓€鏋氬懠鍚哥偣锛屾瘮鍗曠嫭鐢诲ご鍍忕渷鍦版柟涔熸洿鍑?*/
 .bd-dot {
   width: 6px;
   height: 6px;
@@ -167,13 +160,12 @@
   margin-top: 2px;
 }
 .msg-avatar--me {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-ink-2);
   border: 1px solid var(--wb-border);
 }
 
-/* 助手正文：独立面板承担分区（头像的锚点职责迁到这里的边框与徽章）。
-   左侧脊线 2px 是「助手列」的身份线，不要改成彩色抽边。 */
+/* 鍔╂墜姝ｆ枃锛氱嫭绔嬮潰鏉挎壙鎷呭垎鍖猴紙澶村儚鐨勯敋鐐硅亴璐ｈ縼鍒拌繖閲岀殑杈规涓庡窘绔狅級銆?   宸︿晶鑴婄嚎 2px 鏄€屽姪鎵嬪垪銆嶇殑韬唤绾匡紝涓嶈鏀规垚褰╄壊鎶借竟銆?*/
 .msg-ai-body {
   min-width: 0;
   padding: var(--wb-sp-3) var(--wb-sp-4);
@@ -197,7 +189,7 @@
   color: var(--wb-muted);
 }
 
-/* 正文末尾的流式光标 */
+/* 姝ｆ枃鏈熬鐨勬祦寮忓厜鏍?*/
 .stream-caret {
   display: inline-block;
   width: 2px;
@@ -209,7 +201,7 @@
   animation: wb-caret 1s steps(1, end) infinite;
 }
 
-/* 消息级操作：悬停才显形，常驻就是视觉噪声 */
+/* 娑堟伅绾ф搷浣滐細鎮仠鎵嶆樉褰紝甯搁┗灏辨槸瑙嗚鍣０ */
 .msg-acts {
   display: flex;
   align-items: center;
@@ -223,7 +215,7 @@
   opacity: 1;
 }
 
-/* 分隔提示条（已压缩 / 已停止 / 重试中 / 输出被截断） */
+/* 鍒嗛殧鎻愮ず鏉★紙宸插帇缂?/ 宸插仠姝?/ 閲嶈瘯涓?/ 杈撳嚭琚埅鏂級 */
 .notice-bar {
   display: flex;
   align-items: flex-start;
@@ -231,7 +223,7 @@
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border-radius: var(--wb-radius);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   font-size: var(--wb-fs-xs);
   color: var(--wb-muted);
   line-height: var(--wb-lh-base);
@@ -248,8 +240,7 @@
 }
 
 /* ============================================================
-   markdown 正文（marked + dompurify 唯一出口）
-   ============================================================ */
+   markdown 姝ｆ枃锛坢arked + dompurify 鍞竴鍑哄彛锛?   ============================================================ */
 .prose {
   font-size: var(--wb-fs-md);
   line-height: var(--wb-lh-loose);
@@ -308,7 +299,7 @@
   margin: 0 0 var(--wb-sp-3);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border-left: 2px solid var(--wb-primary-line);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   border-radius: 0 var(--wb-radius-sm) var(--wb-radius-sm) 0;
   color: var(--wb-ink-2);
 }
@@ -330,7 +321,7 @@
 .prose :not(pre) > code {
   padding: 0.1em 0.35em;
   border-radius: var(--wb-radius-xs);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   border: 1px solid var(--wb-border);
   font-size: 0.9em;
   color: var(--wb-ink-2);
@@ -350,7 +341,7 @@
   text-align: left;
 }
 .prose th {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   font-weight: 700;
   color: var(--wb-ink);
 }
@@ -361,8 +352,7 @@
 }
 
 /* ============================================================
-   代码块
-   ============================================================ */
+   浠ｇ爜鍧?   ============================================================ */
 .code-block {
   margin: 0 0 var(--wb-sp-3);
   border: 1px solid var(--wb-code-border);
@@ -433,7 +423,7 @@
   opacity: 1;
 }
 
-/* 语法着色：highlight.js 的类名映射到令牌，两套主题各自成对 */
+/* 璇硶鐫€鑹诧細highlight.js 鐨勭被鍚嶆槧灏勫埌浠ょ墝锛屼袱濂椾富棰樺悇鑷垚瀵?*/
 .hljs-comment,
 .hljs-quote {
   color: var(--wb-code-comment);
@@ -492,12 +482,12 @@
 }
 
 /* ============================================================
-   思考块
+   鎬濊€冨潡
    ============================================================ */
 .think {
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   overflow: hidden;
 }
 .think-head {
@@ -533,12 +523,11 @@
 }
 
 /* ============================================================
-   工具执行卡
-   ============================================================ */
+   宸ュ叿鎵ц鍗?   ============================================================ */
 .tool {
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   overflow: hidden;
   transition: border-color var(--wb-dur) var(--wb-ease);
 }
@@ -583,7 +572,7 @@
 .tool-bd {
   border-top: 1px solid var(--wb-border);
   padding: var(--wb-sp-2) var(--wb-sp-3) var(--wb-sp-3);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .tool-out {
   margin: 0;
@@ -601,8 +590,7 @@
 }
 
 /* ============================================================
-   欢迎页
-   ============================================================ */
+   娆㈣繋椤?   ============================================================ */
 .hero {
   position: relative;
   flex: 1;
@@ -646,7 +634,7 @@
   line-height: var(--wb-lh-base);
 }
 
-/* 入场错峰：一拍 60ms，只演一次 */
+/* 鍏ュ満閿欏嘲锛氫竴鎷?60ms锛屽彧婕斾竴娆?*/
 .rise {
   animation: wb-rise var(--wb-dur-slow) var(--wb-ease) backwards;
 }
@@ -667,8 +655,7 @@
 }
 
 /* ============================================================
-   输入区（EP 组件外壳，仍需要几处布局拼接）
-   ============================================================ */
+   杈撳叆鍖猴紙EP 缁勪欢澶栧３锛屼粛闇€瑕佸嚑澶勫竷灞€鎷兼帴锛?   ============================================================ */
 .composer {
   position: relative;
   border-top: 1px solid var(--wb-border);
@@ -683,7 +670,7 @@
 .composer-box {
   border: 1px solid var(--wb-border-strong);
   border-radius: var(--wb-radius-xl);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   box-shadow: var(--wb-card-shadow);
   transition:
     border-color var(--wb-dur) var(--wb-ease),
@@ -691,7 +678,7 @@
 }
 .composer-box:focus-within {
   border-color: var(--wb-primary);
-  box-shadow: 0 0 0 3px var(--wb-primary-soft);
+  box-shadow: 0 0 0 3px var(--wb-accent-tint);
 }
 .composer-grip {
   height: 10px;
@@ -714,8 +701,7 @@
 }
 
 /* ============================================================
-   diff（工作区）
-   ============================================================ */
+   diff锛堝伐浣滃尯锛?   ============================================================ */
 .diff {
   font-family: var(--font-mono);
   font-size: var(--wb-fs-sm);
@@ -723,7 +709,7 @@
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius);
   overflow: hidden;
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
 }
 .diff-row {
   display: grid;
@@ -752,6 +738,6 @@
   color: var(--wb-danger);
 }
 .diff-row.is-hunk {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-primary);
 }

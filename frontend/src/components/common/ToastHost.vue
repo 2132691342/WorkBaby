@@ -52,7 +52,7 @@ const ICONS: Record<string, string> = { ok: 'check', bad: 'alert', info: 'info' 
   padding: var(--wb-sp-2) var(--wb-sp-2) var(--wb-sp-2) var(--wb-sp-3);
   border-radius: var(--wb-radius-lg);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   box-shadow: var(--wb-shadow-3);
 }
 .toast-ic {
@@ -73,7 +73,7 @@ const ICONS: Record<string, string> = { ok: 'check', bad: 'alert', info: 'info' 
   color: var(--wb-danger);
 }
 .toast.is-info .toast-ic {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
 }
 .toast-text {
@@ -100,7 +100,7 @@ const ICONS: Record<string, string> = { ok: 'check', bad: 'alert', info: 'info' 
     transform var(--wb-dur-fast) var(--wb-ease);
 }
 .toast-close:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-ink);
   transform: scale(1.06);
 }

@@ -40,7 +40,7 @@ withDefaults(defineProps<{ title: string; desc?: string; icon?: string }>(), {
   border-radius: var(--wb-radius-sm);
   display: grid;
   place-items: center;
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
   flex: none;
 }

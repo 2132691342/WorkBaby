@@ -97,7 +97,7 @@ hr {
 }
 
 ::selection {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-ink);
 }
 
@@ -185,11 +185,14 @@ hr {
 /* ============================================================
    面基元
    ============================================================ */
+/* 卡片基元：全站复用的「一块抬升的面」。
+   显式引用阶梯的 raised 级（而不是别名 --wb-surface），
+   让读代码的人一眼看出它在层级里的位置。 */
 .wb-card {
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius-xl);
-  box-shadow: var(--wb-card-shadow);
+  box-shadow: var(--wb-shadow-1);
 }
 
 .wb-card--flat {
@@ -203,7 +206,7 @@ hr {
     transform var(--wb-dur) var(--wb-ease);
 }
 .wb-card--hover:hover {
-  box-shadow: var(--wb-card-shadow-hover);
+  box-shadow: var(--wb-shadow-2);
   border-color: var(--wb-border-strong);
 }
 
@@ -223,7 +226,7 @@ hr {
   width: var(--wb-tile);
   height: var(--wb-tile);
   border-radius: var(--wb-radius);
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
   flex: none;
 }
@@ -238,7 +241,7 @@ hr {
   border-radius: var(--wb-radius-lg);
 }
 .wb-tile--neutral {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-muted);
 }
 

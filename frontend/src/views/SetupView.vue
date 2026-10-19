@@ -258,7 +258,7 @@ onMounted(() => {
   padding: var(--wb-sp-4);
   border-radius: var(--wb-radius-xl);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   box-shadow: var(--wb-card-shadow);
   transition:
     border-color var(--wb-dur) var(--wb-ease),
@@ -279,7 +279,7 @@ onMounted(() => {
   flex: none;
   font-size: var(--wb-fs-sm);
   font-weight: 700;
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-muted);
 }
 .step.is-done .step-num {

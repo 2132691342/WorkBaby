@@ -23,19 +23,19 @@
   --el-color-error: var(--wb-danger);
   --el-color-error-light-9: var(--wb-danger-soft);
   --el-color-info: var(--wb-muted);
-  --el-color-info-light-9: var(--wb-surface-2);
+  --el-color-info-light-9: var(--wb-elev-hover);
 
   /* 面与文字 */
-  --el-bg-color: var(--wb-surface);
-  --el-bg-color-overlay: var(--wb-surface);
+  --el-bg-color: var(--wb-elev-raised);
+  --el-bg-color-overlay: var(--wb-elev-raised);
   --el-bg-color-page: var(--wb-bg);
-  --el-fill-color: var(--wb-surface-2);
-  --el-fill-color-light: var(--wb-surface-2);
-  --el-fill-color-lighter: var(--wb-surface-2);
-  --el-fill-color-extra-light: var(--wb-surface-2);
+  --el-fill-color: var(--wb-elev-hover);
+  --el-fill-color-light: var(--wb-elev-hover);
+  --el-fill-color-lighter: var(--wb-elev-hover);
+  --el-fill-color-extra-light: var(--wb-elev-hover);
   --el-fill-color-dark: var(--wb-surface-hover);
   --el-fill-color-darker: var(--wb-surface-hover);
-  --el-fill-color-blank: var(--wb-surface);
+  --el-fill-color-blank: var(--wb-elev-raised);
 
   --el-text-color-primary: var(--wb-ink);
   --el-text-color-regular: var(--wb-ink-2);
@@ -68,7 +68,7 @@
   --el-box-shadow-dark: var(--wb-shadow-3);
   --el-box-shadow-lighter: var(--wb-shadow-1);
 
-  --el-disabled-bg-color: var(--wb-surface-2);
+  --el-disabled-bg-color: var(--wb-elev-hover);
   --el-disabled-text-color: var(--wb-muted);
   --el-disabled-border-color: var(--wb-border);
 
@@ -94,10 +94,10 @@
 .el-button {
   --el-button-border-color: var(--wb-border-strong);
   --el-button-hover-border-color: var(--wb-primary);
-  --el-button-hover-bg-color: var(--wb-primary-soft);
+  --el-button-hover-bg-color: var(--wb-accent-tint);
   --el-button-hover-text-color: var(--wb-primary);
   --el-button-active-border-color: var(--wb-primary);
-  --el-button-active-bg-color: var(--wb-primary-soft);
+  --el-button-active-bg-color: var(--wb-accent-tint);
   font-weight: 600;
   border-radius: var(--wb-radius);
   transition:
@@ -180,7 +180,7 @@
 .el-textarea__inner,
 .el-select__wrapper {
   border-radius: var(--wb-radius);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   box-shadow: 0 0 0 1px var(--wb-border) inset;
   transition: box-shadow var(--wb-dur) var(--wb-ease);
 }
@@ -196,7 +196,7 @@
 }
 .el-input.is-disabled .el-input__wrapper,
 .el-textarea.is-disabled .el-textarea__inner {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   box-shadow: 0 0 0 1px var(--wb-border) inset;
 }
 .el-textarea__inner {
@@ -210,7 +210,7 @@
 }
 .el-input-group__append,
 .el-input-group__prepend {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   border-radius: var(--wb-radius);
   box-shadow: 0 0 0 1px var(--wb-border) inset;
   color: var(--wb-muted);
@@ -241,7 +241,7 @@
 .el-card {
   --el-card-border-color: var(--wb-border);
   --el-card-border-radius: var(--wb-radius-xl);
-  --el-card-bg-color: var(--wb-surface);
+  --el-card-bg-color: var(--wb-elev-raised);
   border-radius: var(--wb-radius-xl);
   box-shadow: var(--wb-card-shadow) !important;
 }
@@ -261,11 +261,11 @@
   border-radius: var(--wb-radius-lg) !important;
   border: 1px solid var(--wb-border) !important;
   box-shadow: var(--wb-shadow-3) !important;
-  background: var(--wb-surface) !important;
+  background: var(--wb-elev-raised) !important;
 }
 .el-popper__arrow::before {
   border-color: var(--wb-border) !important;
-  background: var(--wb-surface) !important;
+  background: var(--wb-elev-raised) !important;
 }
 .el-dropdown-menu {
   background: transparent;
@@ -281,7 +281,7 @@
 }
 .el-dropdown-menu__item:not(.is-disabled):hover,
 .el-dropdown-menu__item:not(.is-disabled):focus {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-primary);
 }
 .el-dropdown-menu__item.is-danger:not(.is-disabled):hover {
@@ -342,12 +342,12 @@
   border: 1px solid transparent;
 }
 .el-tag--primary {
-  --el-tag-bg-color: var(--wb-primary-soft);
+  --el-tag-bg-color: var(--wb-accent-tint);
   --el-tag-border-color: transparent;
   --el-tag-text-color: var(--wb-primary);
 }
 .el-tag--info {
-  --el-tag-bg-color: var(--wb-surface-2);
+  --el-tag-bg-color: var(--wb-elev-hover);
   --el-tag-border-color: transparent;
   --el-tag-text-color: var(--wb-muted);
 }
@@ -371,7 +371,7 @@
   border-radius: 0 var(--wb-radius) var(--wb-radius) 0;
 }
 .el-radio-button__original-radio:checked + .el-radio-button__inner {
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border-color: var(--wb-border-strong);
   color: var(--wb-primary);
   box-shadow: var(--wb-card-shadow);
@@ -408,10 +408,10 @@
    ============================================================ */
 .el-table {
   --el-table-border-color: var(--wb-border);
-  --el-table-header-bg-color: var(--wb-surface-2);
+  --el-table-header-bg-color: var(--wb-elev-hover);
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
-  --el-table-row-hover-bg-color: var(--wb-surface-2);
+  --el-table-row-hover-bg-color: var(--wb-elev-hover);
   --el-table-text-color: var(--wb-ink-2);
   --el-table-header-text-color: var(--wb-muted);
   font-size: var(--wb-fs-sm);
@@ -464,7 +464,7 @@
 }
 
 .el-skeleton {
-  --el-skeleton-color: var(--wb-surface-2);
+  --el-skeleton-color: var(--wb-elev-hover);
   --el-skeleton-to-color: var(--wb-surface-hover);
 }
 
@@ -476,7 +476,7 @@
 }
 
 .el-loading-mask {
-  background: color-mix(in srgb, var(--wb-surface) 72%, transparent);
+  background: color-mix(in srgb, var(--wb-elev-raised) 72%, transparent);
 }
 
 .el-message-box {
@@ -518,8 +518,8 @@
 }
 
 .el-segmented {
-  --el-segmented-bg-color: var(--wb-surface-2);
-  --el-segmented-item-selected-bg-color: var(--wb-surface);
+  --el-segmented-bg-color: var(--wb-elev-hover);
+  --el-segmented-item-selected-bg-color: var(--wb-elev-raised);
   --el-segmented-item-selected-color: var(--wb-ink);
   --el-segmented-item-hover-bg-color: transparent;
   --el-segmented-item-hover-color: var(--wb-ink);
@@ -540,7 +540,7 @@
 }
 
 .el-progress-bar__outer {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 
 .el-form-item__label {
@@ -555,7 +555,7 @@
   border-color: var(--wb-border);
 }
 .el-divider__text {
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   color: var(--wb-muted);
   font-size: var(--wb-fs-xs);
   font-weight: 600;

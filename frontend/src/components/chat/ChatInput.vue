@@ -623,7 +623,7 @@ defineExpose({
   padding: 0 var(--wb-sp-1) 0 var(--wb-sp-2);
   border-radius: var(--wb-radius-full);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-ink-2);
   font-size: var(--wb-fs-2xs);
   font-weight: 600;
@@ -677,7 +677,7 @@ defineExpose({
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border-radius: var(--wb-radius);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -755,7 +755,7 @@ defineExpose({
     transform var(--wb-dur-fast) var(--wb-ease);
 }
 .bar-btn:hover:not(:disabled) {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   border-color: var(--wb-border-strong);
   color: var(--wb-ink);
   transform: scale(1.06);
@@ -787,7 +787,7 @@ defineExpose({
   bottom: calc(100% - var(--wb-sp-2));
   max-height: calc(320px * var(--wb-vw-scale));
   overflow-y: auto;
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius-lg);
   box-shadow: var(--wb-shadow-3);
@@ -823,7 +823,7 @@ defineExpose({
 }
 .pop-row:hover:not(:disabled),
 .pop-row.is-hi:not(:disabled) {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
 }
 .pop-row:disabled {
@@ -870,13 +870,13 @@ defineExpose({
   flex: none;
   padding: 1px var(--wb-sp-1);
   border-radius: var(--wb-radius-xs);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-muted);
   font-size: var(--wb-fs-2xs);
   font-weight: 700;
 }
 .pop-tag.is-engine {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
 }
 .pop-spin {
@@ -905,7 +905,7 @@ defineExpose({
   color: var(--wb-muted);
 }
 .mb-btn:hover:not(:disabled) {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-ink);
 }
 .mb-btn:disabled {
@@ -932,7 +932,7 @@ defineExpose({
     color var(--wb-dur-fast) var(--wb-ease);
 }
 .crumb:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-ink);
 }
 .crumb.is-cur {
@@ -949,7 +949,7 @@ defineExpose({
   flex: none;
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius-sm);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   color: var(--wb-ink);
   font-size: var(--wb-fs-2xs);
   outline: none;

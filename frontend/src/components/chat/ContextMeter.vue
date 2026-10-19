@@ -81,7 +81,7 @@ const tip = computed(() => {
 }
 /* 只给底色提示、不做缩放：它是读数不是控件，悬停放大等于骗用户去点 */
 .ctx:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   border-color: var(--wb-border);
 }
 .ring {

@@ -226,7 +226,7 @@ async function afterWrite(st: GitStatusVO) {
   gap: var(--wb-sp-2);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border-radius: var(--wb-radius);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border);
   font-size: var(--wb-fs-xs);
 }
@@ -290,10 +290,10 @@ async function afterWrite(st: GitStatusVO) {
     box-shadow var(--wb-dur-fast) var(--wb-ease);
 }
 .fc-row:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .fc-row.is-on {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   box-shadow: inset 2px 0 0 var(--wb-primary);
 }
 .fc-tag {
@@ -316,7 +316,7 @@ async function afterWrite(st: GitStatusVO) {
   color: var(--wb-danger);
 }
 .fc-tag.is-mod {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
 }
 .fc-tag.is-new {

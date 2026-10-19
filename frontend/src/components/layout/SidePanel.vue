@@ -30,7 +30,7 @@ withDefaults(defineProps<{ title?: string; width?: 'normal' | 'wide' | 'sub' }>(
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border-right: 1px solid var(--wb-border);
 }
 .side-panel.is-wide {

@@ -273,7 +273,7 @@ onMounted(async () => {
   padding: var(--wb-sp-2);
   border-radius: var(--wb-radius-lg);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   transition:
     border-color var(--wb-dur) var(--wb-ease),
     transform var(--wb-dur-fast) var(--wb-ease),
@@ -288,7 +288,7 @@ onMounted(async () => {
 }
 .theme-card.is-on {
   border-color: var(--wb-primary);
-  box-shadow: 0 0 0 2px var(--wb-primary-soft);
+  box-shadow: 0 0 0 2px var(--wb-accent-tint);
 }
 .tc-preview {
   display: flex;

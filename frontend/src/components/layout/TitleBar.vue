@@ -123,7 +123,7 @@ function winctl(action: 'min' | 'max' | 'close') {
   align-items: center;
   gap: var(--wb-sp-3);
   padding: 0 0 0 var(--wb-sp-3);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border-bottom: 1px solid var(--wb-border);
   position: relative;
   z-index: var(--wb-z-panel);
@@ -246,7 +246,7 @@ function winctl(action: 'min' | 'max' | 'close') {
     color var(--wb-dur) var(--wb-ease);
 }
 .win-btn:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-ink);
 }
 .win-btn:active {

@@ -226,7 +226,7 @@ const detailDiff = computed(() => detail.value?.diff)
     transform var(--wb-dur-fast) var(--wb-ease);
 }
 .hist-row:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .hist-row:active {
   transform: scale(0.995);
@@ -310,7 +310,7 @@ const detailDiff = computed(() => detail.value?.diff)
   gap: var(--wb-sp-1);
   padding: var(--wb-sp-3);
   border-radius: var(--wb-radius);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .det-kv dd {
   font-family: var(--font-mono);
@@ -333,7 +333,7 @@ const detailDiff = computed(() => detail.value?.diff)
   transition: background var(--wb-dur-fast) var(--wb-ease);
 }
 .det-file:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .det-path {
   flex: 1;

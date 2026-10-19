@@ -256,7 +256,7 @@ onMounted(() => {
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border-radius: var(--wb-radius);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   transition:
     border-color var(--wb-dur) var(--wb-ease),
     box-shadow var(--wb-dur) var(--wb-ease);

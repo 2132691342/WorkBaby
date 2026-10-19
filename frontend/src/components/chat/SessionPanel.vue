@@ -43,7 +43,7 @@ const { collapsed } = useSessionPanel()
   flex: none;
   min-height: 0;
   display: flex;
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border-right: 1px solid var(--wb-border);
   overflow: hidden;
   /* 折叠用负边距 + 宽度归零：display 切换无法过渡 */

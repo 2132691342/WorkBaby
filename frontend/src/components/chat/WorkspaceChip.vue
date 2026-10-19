@@ -74,7 +74,7 @@ async function pick() {
     transform var(--wb-dur-fast) var(--wb-ease);
 }
 .ws-chip:hover:not(:disabled) {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   border-color: var(--wb-border-strong);
   color: var(--wb-ink-2);
   transform: scale(1.06);

@@ -145,7 +145,7 @@ onMounted(() => {
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border-radius: var(--wb-radius);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
 }
 .tool-row.is-off {
   opacity: 0.6;
@@ -156,7 +156,7 @@ onMounted(() => {
   border-radius: var(--wb-radius-sm);
   display: grid;
   place-items: center;
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-muted);
   flex: none;
 }

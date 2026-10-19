@@ -421,7 +421,7 @@ async function onStreamClick(e: MouseEvent) {
 .efx-widget {
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius-sm);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   display: flex;
   flex-direction: column;
@@ -510,7 +510,7 @@ async function onStreamClick(e: MouseEvent) {
   display: grid;
   place-items: center;
   border-radius: var(--wb-radius-full);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border-strong);
   box-shadow: var(--wb-shadow-3);
   color: var(--wb-ink-2);

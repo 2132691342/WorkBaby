@@ -391,7 +391,7 @@ watch(() => settings.boot?.default_model, seedContext)
   height: var(--wb-ctl-h-sm);
   padding: 0 var(--wb-sp-3);
   border-radius: var(--wb-radius-full);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border);
   box-shadow: var(--wb-card-shadow);
   color: var(--wb-primary);
@@ -411,7 +411,7 @@ watch(() => settings.boot?.default_model, seedContext)
   gap: var(--wb-sp-3);
   padding: var(--wb-sp-4);
   border-radius: var(--wb-radius-xl);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border);
   box-shadow: var(--wb-card-shadow);
   text-align: left;

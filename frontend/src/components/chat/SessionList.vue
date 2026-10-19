@@ -317,7 +317,7 @@ onBeforeUnmount(() => {
     transform var(--wb-dur-fast) var(--wb-ease);
 }
 .sess-act:hover:not(:disabled) {
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   color: var(--wb-ink);
   transform: scale(1.06);
 }
@@ -339,7 +339,7 @@ onBeforeUnmount(() => {
   padding: 0 var(--wb-sp-2);
   border: 1px solid var(--wb-primary);
   border-radius: var(--wb-radius-sm);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   color: var(--wb-ink);
   font-size: var(--wb-fs-sm);
   outline: none;
@@ -362,7 +362,7 @@ onBeforeUnmount(() => {
 .sess-more:hover {
   color: var(--wb-primary);
   border-color: var(--wb-primary-line);
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   transform: scale(1.01);
 }
 .sess-more:active {

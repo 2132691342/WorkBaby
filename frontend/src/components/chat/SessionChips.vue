@@ -233,7 +233,7 @@ defineExpose({ show, close })
     transform var(--wb-dur-fast) var(--wb-ease);
 }
 .chip:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   border-color: var(--wb-border-strong);
   color: var(--wb-ink-2);
   transform: scale(1.06);
@@ -242,7 +242,7 @@ defineExpose({ show, close })
   transform: scale(0.92);
 }
 .chip.is-on {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   border-color: var(--wb-primary-line);
   color: var(--wb-primary);
 }
@@ -260,7 +260,7 @@ defineExpose({ show, close })
   bottom: calc(100% + var(--wb-sp-2));
   left: 0;
   z-index: var(--wb-z-pop);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius-lg);
   box-shadow: var(--wb-shadow-3);
@@ -292,7 +292,7 @@ defineExpose({ show, close })
   overflow: hidden;
 }
 .mp-vendors {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   border-right: 1px solid var(--wb-border);
   overflow-y: auto;
   padding: var(--wb-sp-1);
@@ -313,7 +313,7 @@ defineExpose({ show, close })
   background: var(--wb-tint);
 }
 .mp-vendor.is-on {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
   font-weight: 700;
 }
@@ -323,7 +323,7 @@ defineExpose({ show, close })
   border-radius: var(--wb-radius-xs);
   display: grid;
   place-items: center;
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
   font-size: var(--wb-fs-2xs);
   font-weight: 700;
@@ -360,12 +360,12 @@ defineExpose({ show, close })
     transform var(--wb-dur-fast) var(--wb-ease);
 }
 .mp-model:hover:not(:disabled) {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .mp-model.is-on {
   color: var(--wb-primary);
   font-weight: 700;
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
 }
 .mp-model.is-busy {
   opacity: 1;
@@ -418,12 +418,12 @@ defineExpose({ show, close })
   transition: background var(--wb-dur-fast) var(--wb-ease);
 }
 .tp-item:hover:not(:disabled) {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .tp-item.is-on {
   color: var(--wb-primary);
   font-weight: 700;
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
 }
 .tp-item:disabled {
   opacity: 0.55;

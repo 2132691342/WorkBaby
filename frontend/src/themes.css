@@ -514,7 +514,7 @@ body {
 :root {
   --wb-c-bg: var(--wb-bg);
   --wb-c-panel: var(--wb-panel);
-  --wb-c-card: var(--wb-surface);
+  --wb-c-card: var(--wb-elev-raised);
   --wb-c-raise: var(--wb-raise);
   --wb-c-line: var(--wb-line);
   --wb-c-line-2: var(--wb-line-2);
@@ -531,7 +531,7 @@ body {
 /* 面基元（唯一定义处）：结构面板 = 纯色底 + 1px 中性描边；弹层 / 输入 = 纯白底 + 深一档描边 + 浮层阴影。
    组件不得自行拼 backdrop-filter 或写 rgba 白色描边。 */
 .wb-glass {
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border);
 }
 .wb-glass-solid {

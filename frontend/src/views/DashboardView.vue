@@ -273,7 +273,7 @@ function onRowClick(row: { session_id: string }) {
   flex: none;
   padding: 2px var(--wb-sp-2);
   border-radius: var(--wb-radius-sm);
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-muted);
   font-size: var(--wb-fs-2xs);
   font-weight: 700;

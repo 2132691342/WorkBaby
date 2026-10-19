@@ -68,7 +68,7 @@ const examples = computed(() =>
   gap: var(--wb-sp-1);
   padding: var(--wb-sp-4);
   border-radius: var(--wb-radius-xl);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border);
   box-shadow: var(--wb-card-shadow);
   transition:
@@ -129,7 +129,7 @@ const examples = computed(() =>
   height: var(--wb-tile-sm);
   margin-bottom: var(--wb-sp-2);
   border-radius: var(--wb-radius);
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
 }
 .ex-t {

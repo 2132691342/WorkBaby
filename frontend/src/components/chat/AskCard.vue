@@ -139,7 +139,7 @@ onMounted(() => {
   border: 1px solid var(--wb-border);
   border-left: 2px solid var(--wb-primary);
   border-radius: var(--wb-radius-lg);
-  background: var(--wb-surface);
+  background: var(--wb-elev-raised);
   padding: var(--wb-sp-4);
   display: flex;
   flex-direction: column;
@@ -158,7 +158,7 @@ onMounted(() => {
   border-radius: var(--wb-radius-sm);
   display: grid;
   place-items: center;
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
   flex: none;
 }
@@ -218,7 +218,7 @@ onMounted(() => {
 }
 .ask-opt:hover:not(:disabled),
 .ask-opt.is-hi:not(:disabled) {
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
   border-color: var(--wb-primary-line);
 }

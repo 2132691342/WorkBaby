@@ -262,7 +262,7 @@ function quitApp() {
   border-radius: var(--wb-radius-full);
   display: grid;
   place-items: center;
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
   color: var(--wb-success);
   flex: none;
 }

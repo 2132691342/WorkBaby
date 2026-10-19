@@ -253,7 +253,7 @@ onMounted(async () => {
   transition: background var(--wb-dur-fast) var(--wb-ease);
 }
 .path-row:hover {
-  background: var(--wb-surface-2);
+  background: var(--wb-elev-hover);
 }
 .path-k {
   width: calc(120px * var(--wb-vw-scale));
