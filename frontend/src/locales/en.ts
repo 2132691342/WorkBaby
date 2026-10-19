@@ -385,6 +385,7 @@ export default {
     },
     appearance: {
       title: 'Appearance',
+      desc: 'Theme, language and interface density; applied immediately and saved locally.',
       theme: 'Theme',
       themeLight: 'Light',
       themeDark: 'Dark',
@@ -412,6 +413,7 @@ export default {
     },
     behavior: {
       title: 'Behavior',
+      desc: 'Workspace, send keys and other defaults; written into the settings KV table.',
       workspace: 'Workspace',
       workspaceHint: 'Tools run inside this folder; one folder, one process.',
       workspacePick: 'Choose folder',

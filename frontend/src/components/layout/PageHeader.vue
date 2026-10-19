@@ -25,7 +25,7 @@ defineProps<{ title: string; subtitle?: string }>()
   gap: var(--wb-sp-4);
   padding: var(--wb-sp-4) var(--wb-sp-5);
   border-bottom: 1px solid var(--wb-border);
-  background: var(--wb-bg);
+  background: var(--wb-elev-workspace);
   position: sticky;
   top: 0;
   z-index: 2;

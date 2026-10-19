@@ -385,6 +385,7 @@ export default {
     },
     appearance: {
       title: '外观',
+      desc: '主题、语言与界面密度；即时生效并保存在本机。',
       theme: '主题',
       themeLight: '浅白',
       themeDark: '深色',
@@ -412,6 +413,7 @@ export default {
     },
     behavior: {
       title: '行为',
+      desc: '工作目录、发送键与其他默认项；写入 settings KV 表。',
       workspace: '工作目录',
       workspaceHint: '助手的工具都在这个目录里执行；一个目录一个进程。',
       workspacePick: '选择目录',

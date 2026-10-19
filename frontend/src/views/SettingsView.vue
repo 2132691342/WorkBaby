@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../components/common/AppIcon.vue'
+import PageHeader from '../components/layout/PageHeader.vue'
 import SidePanel from '../components/layout/SidePanel.vue'
 import AppearancePanel from '../components/settings/AppearancePanel.vue'
 import BehaviorPanel from '../components/settings/BehaviorPanel.vue'
@@ -73,7 +74,7 @@ const activePanel = computed(() => PANELS[tab.value as keyof typeof PANELS])
 
 <template>
   <div class="settings">
-    <SidePanel :title="t('nav.settings')">
+    <SidePanel width="sub" :title="t('nav.settings')">
       <nav class="set-nav">
         <div v-for="g in GROUPS" :key="g.key" class="set-group">
           <div class="wb-label set-grp">{{ t(`settings.groups.${g.key}`) }}</div>
@@ -92,8 +93,11 @@ const activePanel = computed(() => PANELS[tab.value as keyof typeof PANELS])
       </nav>
     </SidePanel>
 
-    <div class="set-body">
-      <component :is="activePanel" :key="tab" />
+    <div class="set-main">
+      <PageHeader :title="t(`settings.${tab}.title`)" :subtitle="t(`settings.${tab}.desc`)" />
+      <div class="set-body">
+        <component :is="activePanel" :key="tab" />
+      </div>
     </div>
   </div>
 </template>
@@ -147,6 +151,14 @@ const activePanel = computed(() => PANELS[tab.value as keyof typeof PANELS])
   background: var(--wb-nav-active-bg);
   color: var(--wb-nav-active-ink);
   box-shadow: inset 2px 0 0 var(--wb-primary);
+}
+.set-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--wb-elev-window);
 }
 .set-body {
   flex: 1;

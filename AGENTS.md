@@ -352,6 +352,9 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
   组件禁止自己选灰阶，一律引用阶梯；**表单控件另走 `--wb-control-*` 一组**
   （bg / bg-hover / bg-disabled / border / border-hover / shadow / shadow-focus），
   控件要有「可以点进去」的浮凸感，与普通面区分开
+- **旧名 `--wb-surface*` / `--wb-side` / `--wb-panel` / `--wb-raise` / `--wb-sunken` 是别名**，
+  在 `themes.css` 里指向阶梯对应级（两套主题各一份）。它们只是兼容既有引用的桥梁，
+  **新代码一律写 `--wb-elev-*`，不得新增旧名引用**；别名不许单独赋色值，否则会盖掉阶梯
 - 尺寸令牌全部乘 `--wb-vw-scale`（由 `useViewportScale` 按「窗口宽 ÷ 1440」写入，
 上下限 0.8~1.35）：分辨率不同的机器上整套刻度等比跟随，不改代码；
 组件层写死裸像素只允许在令牌定义处
@@ -387,6 +390,8 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
   对话 / 工作区 / 技能 / 用量 / 帮助 / 设置全部平级——设置是 rail 底部的一等入口，
   不是顶栏角落的图标。顶栏只留品牌、当前区标题、连接灯与窗控；
   各视图不得自画返回或主页入口；左栏（会话列表 / 设置分组 / 文档目录）只放**当前区**的导航
+- **有 rail 之后，二级目录必须用 `SidePanel width="sub"`**（`--wb-w-subside` 188px，浅一档底）：
+  rail 已在左侧占位，二级目录再占 232px 就是两根侧栏并排，读作两套导航系统
 - 消息流用**统一容器 + 角色徽章胶囊**（`.msg-badge`），不做「用户右气泡 / 助手左头像」——
   助手列的身份由正文面板的左侧 2px 脊线承担。长会话必须给 `.msg-col > *` 加
   `content-visibility: auto` + `contain-intrinsic-size: auto 120px`（末两条除外），

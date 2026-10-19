@@ -7,6 +7,7 @@ import * as api from '../api'
 import type { HelpDocVO } from '../types/api'
 import { renderMarkdown } from '../utils/md'
 import AppIcon from '../components/common/AppIcon.vue'
+import PageHeader from '../components/layout/PageHeader.vue'
 import SidePanel from '../components/layout/SidePanel.vue'
 
 const { t } = useI18n()
@@ -72,7 +73,7 @@ void loadList()
 
 <template>
   <div class="help">
-    <SidePanel :title="t('help.toc')">
+    <SidePanel width="sub" :title="t('help.toc')">
       <el-input v-model="filter" size="small" class="help-search" :placeholder="t('help.search')" clearable>
         <template #prefix><AppIcon name="search" size="ic-xs" /></template>
       </el-input>
@@ -98,15 +99,18 @@ void loadList()
         <h1 class="help-title">{{ title }}</h1>
         <p class="help-sub">{{ t('help.subtitle') }}</p>
       </header>
-      <div class="help-scroll">
-        <div class="help-col">
-          <div v-if="loading" class="wb-card help-card"><el-skeleton animated :rows="8" /></div>
-          <div v-else-if="docError" class="wb-card help-card help-blank">
-            <AppIcon name="alert" size="ic-xl" />
-            <b>{{ docError }}</b>
-            <el-button size="small" @click="loadDoc(current)">{{ t('common.retry') }}</el-button>
+      <div class="help-main">
+        <PageHeader :title="title" />
+        <div class="help-scroll">
+          <div class="help-col">
+            <div v-if="loading" class="wb-card help-card"><el-skeleton animated :rows="8" /></div>
+            <div v-else-if="docError" class="wb-card help-card help-blank">
+              <AppIcon name="alert" size="ic-xl" />
+              <b>{{ docError }}</b>
+              <el-button size="small" @click="loadDoc(current)">{{ t('common.retry') }}</el-button>
+            </div>
+            <article v-else class="wb-card help-card prose" v-html="html" />
           </div>
-          <article v-else class="wb-card help-card prose" v-html="html" />
         </div>
       </div>
     </div>
@@ -119,6 +123,14 @@ void loadList()
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+.help-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--wb-elev-window);
 }
 .help-search {
   margin-bottom: var(--wb-sp-2);

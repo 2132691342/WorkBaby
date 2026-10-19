@@ -43,8 +43,8 @@ withDefaults(
   min-height: calc(112px * var(--wb-vw-scale));
   border-radius: var(--wb-radius-xl);
   border: 1px solid var(--wb-border);
-  background: var(--wb-surface);
-  box-shadow: var(--wb-card-shadow);
+  background: var(--wb-elev-raised);
+  box-shadow: var(--wb-shadow-1);
   transition:
     box-shadow var(--wb-dur) var(--wb-ease),
     border-color var(--wb-dur) var(--wb-ease),
@@ -56,8 +56,8 @@ withDefaults(
   transform: translateY(-1px);
 }
 .kpi.is-accent {
-  background: var(--wb-primary-soft);
-  border-color: var(--wb-primary-line);
+  background: var(--wb-accent-tint-soft);
+  border-color: var(--wb-accent-border);
 }
 /* 水印图标：右上角，透明度极低，悬停轻微放大 */
 .kpi-mark {
@@ -93,7 +93,7 @@ withDefaults(
   width: calc(26px * var(--wb-vw-scale));
   height: calc(26px * var(--wb-vw-scale));
   border-radius: var(--wb-radius-sm);
-  background: var(--wb-primary-soft);
+  background: var(--wb-accent-tint);
   color: var(--wb-primary);
 }
 .kpi-value {

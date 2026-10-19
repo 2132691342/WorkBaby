@@ -152,8 +152,10 @@
   /* 应用壳栅格：顶栏 / 侧栏 / 内容区页头。全部随视口比例缩放。 */
   --wb-h-titlebar: calc(48px * var(--wb-vw-scale));
   --wb-w-side: calc(232px * var(--wb-vw-scale));
-  /* 一级导航 rail：60px 只放图标 + 一行短标签，宽了就变成第二根侧栏 */
+  /* 一级导航 rail：62px 只放图标 + 一行短标签，宽了就变成第二根侧栏 */
   --wb-w-rail: calc(62px * var(--wb-vw-scale));
+  /* 二级目录：rail 已在左侧占位，这里再宽就是两根侧栏并排了 */
+  --wb-w-subside: calc(188px * var(--wb-vw-scale));
   --wb-h-pagehead: calc(60px * var(--wb-vw-scale));
 
   /* 圆角七档：控件用 radius 一档，卡片用 xl，整块面板用 2xl。 */
@@ -183,16 +185,6 @@
   --wb-bg: #f8fafc;
   --wb-page-gradient: none;
 
-  /* 面：页面底 → 侧栏与面板 → 卡片 → 抬升底 → 凹陷底 */
-  --wb-side: #ffffff;
-  --wb-surface: #ffffff;
-  --wb-surface-2: #f8fafc;
-  --wb-surface-hover: #f1f5f9;
-  --wb-surface-solid: #ffffff;
-  --wb-raise: #f1f5f9;
-  --wb-sunken: #f1f5f9;
-  --wb-panel: #ffffff;
-
   /* 表面阶梯：相邻两级只差 2%~5% 亮度，读起来是一片连续工作区而不是卡片叠卡片。
      由外到内：窗口 → 工作区 → 表单/行 → 抬升面 → 悬停 → 选中；组件一律引用这组，不自己选灰阶。 */
   --wb-elev-window: #f8fafc;
@@ -210,6 +202,18 @@
   --wb-control-border-hover: #cbd5e1;
   --wb-control-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 1px 2px rgba(15, 23, 42, 0.05);
   --wb-control-shadow-focus: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 0 0 3px rgba(99, 102, 241, 0.12);
+
+  /* 旧名别名：全站 28 个文件仍在引用 --wb-surface*，逐个替换风险高于收益。
+     让旧名指向阶梯上的对应级，全站自动继承正确的层级差；
+     新代码一律用 --wb-elev-*（上面那组是唯一真相源），旧名不再新增引用。 */
+  --wb-surface: var(--wb-elev-surface);
+  --wb-surface-2: var(--wb-elev-hover);
+  --wb-surface-hover: var(--wb-elev-hover);
+  --wb-surface-solid: var(--wb-elev-raised);
+  --wb-side: var(--wb-elev-raised);
+  --wb-panel: var(--wb-elev-raised);
+  --wb-raise: var(--wb-elev-raised);
+  --wb-sunken: var(--wb-elev-window);
 
   /* 中性叠加：hover 底色用它，避免「一屏几十个彩色块」 */
   --wb-tint: rgba(15, 23, 42, 0.04);
@@ -351,15 +355,6 @@
   --wb-bg: #0f172a;
   --wb-page-gradient: none;
 
-  --wb-side: #131c31;
-  --wb-surface: #1e293b;
-  --wb-surface-2: #172033;
-  --wb-surface-hover: #263449;
-  --wb-surface-solid: #1e293b;
-  --wb-raise: #263449;
-  --wb-sunken: #0b1220;
-  --wb-panel: #131c31;
-
   /* 深色同样走六级阶梯：由外向内逐级抬 2%~5% 亮度 */
   --wb-elev-window: #0b1220;
   --wb-elev-workspace: #131c31;
@@ -375,6 +370,16 @@
   --wb-control-border-hover: #475569;
   --wb-control-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.3);
   --wb-control-shadow-focus: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 0 3px rgba(129, 140, 248, 0.2);
+
+  /* 旧名别名（与浅色对称）：让仍在用 --wb-surface* 的组件自动继承阶梯层级 */
+  --wb-surface: var(--wb-elev-surface);
+  --wb-surface-2: var(--wb-elev-hover);
+  --wb-surface-hover: var(--wb-elev-hover);
+  --wb-surface-solid: var(--wb-elev-raised);
+  --wb-side: var(--wb-elev-raised);
+  --wb-panel: var(--wb-elev-raised);
+  --wb-raise: var(--wb-elev-raised);
+  --wb-sunken: var(--wb-elev-window);
 
   --wb-tint: rgba(226, 232, 240, 0.055);
   --wb-tint-lg: rgba(226, 232, 240, 0.09);
