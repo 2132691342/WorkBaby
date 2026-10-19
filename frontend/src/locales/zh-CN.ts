@@ -132,7 +132,7 @@ export default {
     earlier: '更早',
     noSessions: '还没有对话',
     noSessionsHint: '在下面说一句话，我就开始干活。',
-    inputPlaceholder: '有什么要帮忙的？直接说，打 @ 选文件，打 / 用技能，可粘贴截图',
+    inputPlaceholder: "有什么要帮忙的？直接说，打 {'@'} 选文件，打 / 用技能，可粘贴截图",
     send: '发送',
     stop: '停止',
     steer: '插话',

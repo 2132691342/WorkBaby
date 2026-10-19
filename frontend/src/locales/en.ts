@@ -132,7 +132,7 @@ export default {
     earlier: 'Earlier',
     noSessions: 'No conversations yet',
     noSessionsHint: 'Say something below and I will get to work.',
-    inputPlaceholder: 'What do you need? Type @ to reference files, / for skills, paste screenshots',
+    inputPlaceholder: "What do you need? Type {'@'} to reference files, / for skills, paste screenshots",
     send: 'Send',
     stop: 'Stop',
     steer: 'Steer',
