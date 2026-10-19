@@ -90,11 +90,11 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 
 | 目录 | 注意 |
 |---|---|
-| `views/` | 六个路由视图；视图内不再自画导航入口 |
+| `views/` | 六个路由视图；一级导航只在 `layout/NavRail.vue`，视图内不再自画导航入口 |
 | `components/` | 按域分目录：`layout` / `chat` / `dashboard` / `settings` / `workspace` / `common` |
 | `stores/` | Pinia Setup Store；SSE 只放临时态，权威态一律来自快照 |
 | `types/api.ts` | 与后端 RESP 的 json tag 一一对应；改字段必须同步 `ContractVersion` |
-| `locales/` | 中英两套文案，key 按域分层；组件里不写用户可见字符串 |
+| `locales/` | 中英两套文案，key 按域分层；组件里不写用户可见字符串；文案里的裸 `@` 必须写成 `{'@'}`，否则被 intlify 当 linked 语法报「Invalid linked format」 |
 | `themes.css` | 色值与尺寸刻度的唯一来源；组件里禁止写 hex |
 | `ep-theme.css` | Element Plus 变量 → `--wb-*` 的桥；按钮五态等细节对齐 |
 | `base.css` | 重置、排版基线、滚动条、面与图标基元 |

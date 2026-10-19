@@ -48,9 +48,8 @@ export default defineConfig({
           if (id.includes('echarts') || id.includes('zrender')) {
             return 'vendor-echarts'
           }
-          // EP 不归堆：unplugin-vue-components 已按模板标签导入实际用到的组件，
-          // 再强行归到一个 vendor chunk 会把它们连同内部依赖一起拉回首屏，
-          // 等于把懒加载路由自己带的组件提前付了钱。让组件跟随各自的视图走。
+          // EP 不归堆：按需导入的组件归进单个 chunk 会把内部依赖一起拉回首屏，
+          // 让未使用组件的 tree-shaking 与各视图的懒加载同时失效。
           if (id.includes('element-plus') || id.includes('@element-plus')) return undefined
           if (id.includes('@vueuse')) return 'vendor-ep'
           if (id.includes('codemirror')) {

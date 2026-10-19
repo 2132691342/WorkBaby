@@ -30,8 +30,7 @@ app.config.errorHandler = (err, _inst, info) => {
 app.use(createPinia())
 app.use(router)
 app.use(i18n)
-// 组件由 unplugin-vue-components 按模板标签按需注册，不再全量 app.use(ElementPlus)：
-// 全量注册会把没用到的组件与全部样式一并打进首屏。
-// EP 的内置文案跟随当前语言：由 App.vue 根部的 ElConfigProvider 消费这个 computed。
+// 组件由 unplugin-vue-components 按模板标签按需注册，不再全量 app.use(ElementPlus)。
+// EP 内置文案跟随当前语言：由 App.vue 根部的 ElConfigProvider 消费这个 computed。
 app.provide('epLocale', computed(() => (i18n.global.locale.value === 'en' ? enUs : zhCn)))
 app.mount('#app')

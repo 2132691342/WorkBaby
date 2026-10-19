@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// 视图左侧面板外壳：固定宽度 + 头（标题 / 动作）+ 可滚动列表 + 可选底部。
-// 对话的会话列表、设置的板块目录、帮助的文档目录共用同一套尺寸与分隔规则。
-// sub 档给已经有一级 rail 的视图用——二级目录要比一级窄，否则读作两根侧栏。
+// 视图左侧面板外壳：头 / 可滚动列表 / 可选底部；会话列表、设置分组、文档目录共用。
+// width：normal 232px；sub 188px（rail 已占一级位，二级目录再宽就读作两根侧栏）；wide 加宽。
 withDefaults(defineProps<{ title?: string; width?: 'normal' | 'wide' | 'sub' }>(), {
   title: '',
   width: 'normal',

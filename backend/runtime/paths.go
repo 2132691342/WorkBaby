@@ -1,6 +1,5 @@
 // Package runtime 负责数据目录定位与内置运行时解压。
-// 数据目录是 WorkBaby 自己的（库/日志/内置运行时）；PI 的 agent 目录不在这里：
-// 它必须就是用户那份 ~/.pi/agent，否则用户装好的技能、插件、模型全都看不见。
+// PI 的 agent 目录不在这里：它必须就是用户那份 ~/.pi/agent，否则已装的技能插件模型全都看不见。
 package runtime
 
 import (

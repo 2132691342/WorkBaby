@@ -1,6 +1,5 @@
-// Package env 负责 PI 的运行环境：运行时的发现与复用、PI 自身的发现与安装、
-// 子进程 PATH 注入，以及与 PI 的配置互通（models.json / settings.json / mcp.json）。
-// 它只服务 pi 包：上层拿不到这里的实现细节。
+// Package env 负责 PI 的运行环境：运行时与 PI 的发现 / 安装、子进程 PATH 注入、
+// 与 PI 的配置互通（models / settings / mcp.json）；只服务 pi 包，上层不直接依赖这里。
 package env
 
 import (

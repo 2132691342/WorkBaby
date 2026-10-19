@@ -50,8 +50,7 @@ export function renderMarkdown(src: string): string {
 }
 
 // ── 流式增量渲染 ──
-// 全量重解析是 O(n²)：每 120ms 把累计数万字的正文重新 parse + sanitize 一遍，
-// 主线程被打满，SSE 反而会被判成慢消费者断连。按块缓存后只有正在写的那块需要重渲染。
+// 全量重解析是 O(字数²)；按块缓存后每个 tick 只重渲染变化中的尾块。
 interface Rendered {
   src: string
   html: string

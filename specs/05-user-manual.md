@@ -11,7 +11,7 @@
 |---|---|---|
 | 内容 | `assets/docs/*.md`（`go:embed`） | 快速上手 / 模型服务 / 技能与插件 / 工具与 MCP / 用量与花费 / 常见问题 |
 | 接口 | `GET /api/v1/docs` · `GET /api/v1/docs/:name` | 目录（首行 `# 标题` 即目录标题）+ 单篇 Markdown |
-| 界面 | `views/HelpView.vue`（`/help/:name?`） | 左栏文档目录（可搜索）+ 主区 `.prose` 渲染；入口是顶栏的帮助图标 |
+| 界面 | `views/HelpView.vue`（`/help/:name?`） | 二级目录（188px，可搜索）+ 主区 `.prose` 渲染 + 页头；入口是一级 rail 的帮助项 |
 
 ## 契约
 
@@ -23,7 +23,7 @@
 
 ## 关键流程
 
-1. 顶栏帮助图标 → `/help` → 无文档名时 replace 到第一篇
+1. rail 帮助项 → `/help` → 无文档名时 replace 到第一篇
 2. 欢迎页「看教程」直达 `/help/models`：没配模型服务时的主路径
 
 ## 约束
