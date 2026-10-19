@@ -15,8 +15,13 @@
 /build/windows/*
 !/build/windows/installer/
 /build/windows/installer/*
+# 手写的安装脚本源码：项目自己的 .nsi 与 .nsh
 !/build/windows/installer/*.nsi
 !/build/windows/installer/*.nsh
+# 但 wails 每次 `wails build` 都会按 wails.json 自动重写这个工具脚本
+# （文件头就写着 DO NOT EDIT - Generated automatically），入库只会让
+# 每次本地构建都产生一条无意义的版本号 diff。删掉后 wails 会重新生成。
+/build/windows/installer/wails_tools.nsh
 
 # Frontend
 /frontend/node_modules/
