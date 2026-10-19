@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '../api'
 import type { MessageVO, SessionVO } from '../types/api'
+import { useChatStore } from './chat'
 
 export const useSessionStore = defineStore('session', () => {
   const list = ref<SessionVO[]>([])
@@ -47,6 +48,9 @@ export const useSessionStore = defineStore('session', () => {
       const idx = list.value.findIndex((s) => s.id === id)
       if (idx >= 0) list.value[idx] = detail.session
       currentSession.value = detail.session
+      // 快照带运行态：切回一条还在跑的会话时立刻回到运行中（插话 / 排队模式），
+      // 不能等下一帧事件才「发现」它在跑——它可能已经跑完了整轮。
+      if (detail.session.running) useChatStore().resumeRunning()
     } finally {
       if (openingId.value === id) openingId.value = null
     }

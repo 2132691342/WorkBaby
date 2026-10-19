@@ -12,11 +12,11 @@ import (
 // RunCLI 跑一条 PI CLI 命令（`pi install` / `pi remove` / …），输出逐行回调。
 // 它复用与子进程完全相同的那份环境：内置 Node、agent 目录、npm 前缀。
 func (e *Env) RunCLI(args []string, onLine func(string)) error {
-	exe, _ := e.PiExe()
+	exe, extra := e.PiCommand()
 	if exe == "" {
 		return pkg.New("9709", "还没有安装助手引擎（PI）", "先去环境向导装它")
 	}
-	cmd := exec.Command(exe, args...)
+	cmd := exec.Command(exe, append(append([]string{}, extra...), args...)...)
 	cmd.Env = e.Env()
 	cmd.Dir = e.AgentDir()
 	hideWindow(cmd)
@@ -42,11 +42,12 @@ func (e *Env) RunCLI(args []string, onLine func(string)) error {
 
 // RunCLIOutput 跑一条 PI CLI 命令并返回完整 stdout（用于 `pi mcp list --json` 这类结构化输出）。
 func (e *Env) RunCLIOutput(args ...string) (string, error) {
-	exe, _ := e.PiExe()
+	exe, extra := e.PiCommand()
 	if exe == "" {
 		return "", pkg.New("9709", "还没有安装助手引擎（PI）", "先去环境向导装它")
 	}
-	cmd := exec.Command(exe, args...)
+	argv := append(append([]string{}, extra...), args...)
+	cmd := exec.Command(exe, argv...)
 	cmd.Env = e.Env()
 	cmd.Dir = e.AgentDir()
 	hideWindow(cmd)

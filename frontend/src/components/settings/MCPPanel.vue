@@ -134,12 +134,17 @@ onMounted(() => {
         <article v-for="s in servers" :key="`${s.scope}:${s.name}`" class="mcp">
           <header class="mcp-head">
             <span class="mcp-led" :class="`is-${STATE[s.state]?.tone || 'na'}`" />
-            <span class="mcp-name">{{ s.name }}</span>
+            <span class="mcp-name" :title="s.name">{{ s.name || t('settings.mcp.unnamed') }}</span>
             <el-tag size="small" :type="s.state === 'connected' ? 'success' : s.state === 'error' ? 'danger' : 'info'">
               {{ t(`settings.mcp.${STATE[s.state]?.key || 'unknown'}`) }}
             </el-tag>
-            <el-tag size="small" type="info">{{ s.transport }}</el-tag>
           </header>
+          <!-- 传输地址（URL 或启动命令）可能很长：独立一行 + 省略号，
+               混进头部会把服务名挤到零宽、把文字顶出卡片边界 -->
+          <p v-if="s.transport" class="mcp-transport" :title="s.transport">
+            <AppIcon :name="s.transport.startsWith('http') ? 'globe' : 'terminal'" size="ic-2xs" />
+            <span class="mcp-transport-tx">{{ s.transport }}</span>
+          </p>
           <p v-if="s.error" class="mcp-err">{{ s.error }}</p>
           <p class="mcp-meta">
             <span>{{ s.scope === 'project' ? t('settings.mcp.project') : t('settings.mcp.global') }}</span>
@@ -227,6 +232,24 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.mcp-transport {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  min-width: 0;
+  padding: var(--wb-sp-1) var(--wb-sp-2);
+  border-radius: var(--wb-radius-sm);
+  background: var(--wb-elev-hover);
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-2xs);
+}
+.mcp-transport-tx {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
 }
 .mcp-err {
   font-size: var(--wb-fs-2xs);

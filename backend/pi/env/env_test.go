@@ -5,6 +5,7 @@ package env
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -226,4 +227,39 @@ func TestPiEnvChain(t *testing.T) {
 			t.Fatal("没有工作区时不该给出项目级路径")
 		}
 	})
+
+	// shim 解析：经 cmd.exe 起进程会弹控制台窗口，必须还原成 node + 入口脚本。
+	t.Run("PI 入口从 npm shim 还原成 node 与脚本", func(t *testing.T) {
+		checkPiShimResolution(t)
+	})
+}
+
+// checkPiShimResolution 验本机 PI 的入口解析。
+// 只在装了 PI 的机器上跑；没装就跳过——它是「本机体验」的断言，不是协议断言。
+func checkPiShimResolution(t *testing.T) {
+	t.Helper()
+	shim, lookErr := exec.LookPath("pi.cmd")
+	if lookErr != nil {
+		shim, lookErr = exec.LookPath("pi.exe")
+	}
+	if lookErr != nil {
+		t.Skip("本机没有 PI")
+	}
+	resolved, args := resolvePiExe(shim)
+	if filepath.Base(resolved) == "cmd.exe" {
+		t.Fatalf("解析结果仍是 cmd.exe：%s（会弹控制台窗口）", resolved)
+	}
+	if len(args) == 0 || filepath.Ext(args[0]) != ".js" {
+		t.Fatalf("没有解析出入口脚本: %v", args)
+	}
+	// 解析出来的入口必须真的能跑：跑不起来的话「不弹窗」也没意义。
+	cmd := exec.Command(resolved, append(append([]string{}, args...), "--version")...)
+	hideWindow(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("入口跑不起来: %v", err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(string(out)), "1.") {
+		t.Fatalf("版本号不像 PI: %q", string(out))
+	}
 }

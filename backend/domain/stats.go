@@ -15,7 +15,8 @@ type StatsTotalsVO struct {
 	Messages int `json:"messages"`
 }
 
-// StatsDailyVO 每日一柱，date 形如 2026-09-28。
+// StatsDailyVO 一个聚合桶；天粒度 date 形如 2026-09-28，
+// 小时粒度形如 2026-10-19 14:00。
 type StatsDailyVO struct {
 	Date   string  `json:"date"`
 	Input  int     `json:"input"`
@@ -50,9 +51,12 @@ type StatsSessionVO struct {
 
 // StatsRESP 仪表盘出参。一次返回全部，前端不需要拼多个接口。
 type StatsRESP struct {
-	Days     int              `json:"days"`
-	Totals   StatsTotalsVO    `json:"totals"`
-	Daily    []StatsDailyVO   `json:"daily"`
-	Models   []StatsModelVO   `json:"models"`
-	Sessions []StatsSessionVO `json:"sessions"`
+	// Span 是请求的时间范围：24h / today / 7d / 14d / 30d。
+	Span string `json:"span"`
+	// Granularity 是 Daily 的聚合粒度：day（按天）或 hour（24h / today 按小时）。
+	Granularity string           `json:"granularity"`
+	Totals      StatsTotalsVO    `json:"totals"`
+	Daily       []StatsDailyVO   `json:"daily"`
+	Models      []StatsModelVO   `json:"models"`
+	Sessions    []StatsSessionVO `json:"sessions"`
 }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // 工具面板：清单来自 PI（最近一次会话声明给模型的工具 + MCP 在线工具）。
 // 启停写的是 PI settings.json 的 defaultTools，不自己实现任何工具。
-import { computed, onMounted, ref } from 'vue'
+// 长清单走分页（默认 10 行，5/10/20/50 可选）；来源用行内标签区分，不再整组铺开。
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import { useSettingsStore } from '../../stores/settings'
@@ -15,19 +16,45 @@ const { t } = useI18n()
 const toast = useToastStore()
 const settingsStore = useSettingsStore()
 
+const PAGE_SIZES = [5, 10, 20, 50]
+
 const data = ref<ToolListRESP | null>(null)
 const busy = ref('')
 const filter = ref('')
+const source = ref<string>('all')
+const page = ref(1)
+const pageSize = ref(10)
 
-const groups = computed(() => {
+const SOURCES = ['builtin', 'extension', 'mcp'] as const
+
+// 组内保持 PI 的原序，组间按内置 → 插件 → MCP 排，来源改成行内标签后顺序仍可读
+const filtered = computed(() => {
   const q = filter.value.trim().toLowerCase()
   const items = (data.value?.tools ?? []).filter(
     (x) => !q || x.name.toLowerCase().includes(q) || (x.description || '').toLowerCase().includes(q),
   )
-  return ['builtin', 'extension', 'mcp']
-    .map((key) => ({ key, items: items.filter((x) => x.source === key) }))
-    .filter((g) => g.items.length)
+  const bySource = SOURCES.map((key) => items.filter((x) => x.source === key)).flat()
+  return source.value === 'all' ? bySource : bySource.filter((x) => x.source === source.value)
 })
+
+const paged = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filtered.value.slice(start, start + pageSize.value)
+})
+
+// 搜索词 / 来源 / 每页行数一变就回第一页；页码越界时收回最后一页
+watch([filter, source, pageSize], () => {
+  page.value = 1
+})
+watch(
+  () => filtered.value.length,
+  (n) => {
+    const last = Math.max(1, Math.ceil(n / pageSize.value))
+    if (page.value > last) page.value = last
+  },
+)
+
+const sourceLabel = (s: string) => t((SOURCES as readonly string[]).includes(s) ? `settings.tools.${s}` : 'common.unknown')
 
 const enabledCount = computed(() => (data.value?.tools ?? []).filter((x) => x.enabled).length)
 const snapshot = computed(() =>
@@ -73,8 +100,14 @@ onMounted(() => {
         <el-input v-model="filter" size="small" :placeholder="t('common.search')" clearable class="tool-search">
           <template #prefix><AppIcon name="search" size="ic-xs" /></template>
         </el-input>
-        <span class="wb-label">{{ enabledCount }} / {{ data?.tools?.length ?? 0 }}</span>
+        <el-radio-group v-model="source" size="small">
+          <el-radio-button value="all">{{ t('common.all') }}</el-radio-button>
+          <el-radio-button v-for="s in SOURCES" :key="s" :value="s">
+            {{ t(`settings.tools.${s}`) }}
+          </el-radio-button>
+        </el-radio-group>
         <span class="sp" />
+        <span class="wb-label">{{ enabledCount }} / {{ data?.tools?.length ?? 0 }}</span>
         <span v-if="data?.snapshot_at" class="tool-snap">
           {{ t('settings.tools.snapshot') }}: {{ snapshot }} · {{ fmtRel(data.snapshot_at) }}
         </span>
@@ -82,33 +115,45 @@ onMounted(() => {
 
       <div v-if="!data" class="wb-card pad"><el-skeleton animated :rows="4" /></div>
 
-      <div v-else-if="!groups.length" class="wb-card empty-box">
+      <div v-else-if="!(data?.tools ?? []).length" class="wb-card empty-box">
         <span class="wb-tile wb-tile--lg"><AppIcon name="wrench" size="ic-xl" /></span>
         <b>{{ t('settings.tools.empty') }}</b>
         <p>{{ t('settings.tools.emptyHint') }}</p>
       </div>
 
       <template v-else>
-        <div v-for="g in groups" :key="g.key" class="tool-group">
-          <div class="wb-label">{{ t(`settings.tools.${g.key}`) }}</div>
-          <div class="tool-list">
-            <article v-for="tool in g.items" :key="tool.name" class="tool-row" :class="{ 'is-off': !tool.enabled }">
-              <span class="tool-tile"><AppIcon name="terminal" size="ic-sm" /></span>
-              <div class="tool-tx">
-                <span class="tool-name">
-                  {{ tool.name }}
-                  <el-tag v-if="tool.server" size="small" type="info">{{ tool.server }}</el-tag>
-                </span>
-                <span class="tool-desc">{{ tool.description || '—' }}</span>
-              </div>
-              <el-switch
-                :model-value="tool.enabled"
-                :loading="busy === tool.name"
-                :disabled="!!busy"
-                @change="toggle(tool)"
-              />
-            </article>
-          </div>
+        <div class="tool-list">
+          <article v-for="tool in paged" :key="tool.name" class="tool-row" :class="{ 'is-off': !tool.enabled }">
+            <span class="tool-tile"><AppIcon name="terminal" size="ic-sm" /></span>
+            <div class="tool-tx">
+              <span class="tool-name">
+                {{ tool.name.replace(/^mcp__/, '') }}
+                <el-tag size="small" :class="`is-src-${tool.source}`">{{ sourceLabel(tool.source) }}</el-tag>
+                <el-tag v-if="tool.server" size="small" type="info">{{ tool.server }}</el-tag>
+              </span>
+              <span class="tool-desc">{{ tool.description || '—' }}</span>
+            </div>
+            <el-switch
+              :model-value="tool.enabled"
+              :loading="busy === tool.name"
+              :disabled="!!busy"
+              @change="toggle(tool)"
+            />
+          </article>
+
+          <div v-if="!paged.length" class="wb-card no-match">{{ t('settings.tools.noMatch') }}</div>
+        </div>
+
+        <div class="pager">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            size="small"
+            background
+            layout="total, sizes, prev, pager, next"
+            :total="filtered.length"
+            :page-sizes="PAGE_SIZES"
+          />
         </div>
       </template>
     </SettingsSection>
@@ -119,19 +164,15 @@ onMounted(() => {
 .tool-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--wb-sp-3);
 }
 .tool-search {
-  max-width: calc(280px * var(--wb-vw-scale));
+  max-width: calc(220px * var(--wb-vw-scale));
 }
 .tool-snap {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
-}
-.tool-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
 }
 .tool-list {
   display: flex;
@@ -175,6 +216,7 @@ onMounted(() => {
   font-size: var(--wb-fs-sm);
   font-weight: 700;
   color: var(--wb-ink);
+  min-width: 0;
 }
 .tool-desc {
   font-size: var(--wb-fs-2xs);
@@ -182,6 +224,27 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 来源标签：内置 / 插件 / MCP 一眼可分，色值仍走令牌 */
+.tool-name :deep(.el-tag) {
+  font-family: var(--font-sans);
+  flex: none;
+}
+.tool-name :deep(.el-tag.is-src-mcp) {
+  background: var(--wb-accent-tint);
+  border-color: transparent;
+  color: var(--wb-primary);
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--wb-sp-2);
+}
+.no-match {
+  padding: var(--wb-sp-6) 0;
+  text-align: center;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-muted);
 }
 .pad {
   padding: var(--wb-sp-4);

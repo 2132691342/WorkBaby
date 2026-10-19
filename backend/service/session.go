@@ -231,12 +231,12 @@ func projectEntry(e *pi.SessionEntry) (domain.MessageVO, bool) {
 	case "compaction":
 		return domain.MessageVO{
 			ID: e.ID, Role: domain.RoleNotice, Type: "notice",
-			Notice: "已压缩上下文", Content: e.Summary, CreatedAt: pi.IsoMillis(e.Timestamp),
+			Notice: "已压缩上下文", Content: pkg.StripANSI(e.Summary), CreatedAt: pi.IsoMillis(e.Timestamp),
 		}, true
 	case "branch_summary":
 		return domain.MessageVO{
 			ID: e.ID, Role: domain.RoleNotice, Type: "notice",
-			Notice: "分支摘要", Content: e.Summary, CreatedAt: pi.IsoMillis(e.Timestamp),
+			Notice: "分支摘要", Content: pkg.StripANSI(e.Summary), CreatedAt: pi.IsoMillis(e.Timestamp),
 		}, true
 	case "model_change":
 		return domain.MessageVO{
@@ -289,9 +289,9 @@ func projectMessage(e *pi.SessionEntry) (domain.MessageVO, bool) {
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
-			texts = append(texts, b.Text)
+			texts = append(texts, pkg.StripANSI(b.Text))
 		case "thinking":
-			vo.Thinking += b.Thinking
+			vo.Thinking += pkg.StripANSI(b.Thinking)
 		case "toolCall":
 			vo.ToolCalls = append(vo.ToolCalls, domain.ToolCall{
 				ID: b.ID, Name: b.Name, Label: labelOf(b.Name), Args: b.Arguments,

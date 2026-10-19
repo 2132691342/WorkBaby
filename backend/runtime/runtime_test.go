@@ -35,59 +35,66 @@ func pythonStdlibZip() string {
 	return "python" + parts[0] + parts[1] + ".zip"
 }
 
+// TestBundledRuntimeChain 是 runtime 包唯一的测试入口。三条链按坏法分：
+// 归档与常量不一致、LFS 没拉下来、zip-slip 写到数据目录外、官方 zip 布局变了。
 func TestBundledRuntimeChain(t *testing.T) {
 	// 换归档忘了同步 SHA 常量，或构建机没拉 LFS，都会一直滑到用户机器上才暴露。
-	for _, c := range []struct{ name, want string }{
-		{pythonArchiveName(), PythonArchiveSHA256},
-		{nodeArchiveName(), NodeArchiveSHA256},
-	} {
-		data := hasEmbeddedArchive(t, c.name)
-		if c.want == "" {
-			t.Fatalf("SHA 常量为空：用 sha256sum 实测 %s 后填进 Go 常量", c.name)
-		}
-		sum := sha256.Sum256(data)
-		if got := hex.EncodeToString(sum[:]); got != c.want {
-			t.Fatalf("%s 归档与常量不一致：归档 %s，常量 %s", c.name, got, c.want)
-		}
-	}
-
-	// zip-slip：归档里的 ..\ 与绝对路径必须被拒，否则解压能把文件写到数据目录之外。
-	dest := t.TempDir()
-	for _, name := range []string{`..\evil.exe`, `/abs/evil.exe`, `a/../../evil.exe`} {
-		if _, err := safeExtractPath(dest, name); err == nil {
-			t.Fatalf("穿越路径未被拒绝: %q", name)
-		}
-	}
-	if _, err := safeExtractPath(dest, `python/tools/x.exe`); err != nil {
-		t.Fatalf("正常路径被误拒: %v", err)
-	}
-
-	// 真实解压两份归档：全仓最慢的一步，-short 只跳过它。
-	if testing.Short() {
-		t.Log("真实解压：-short 跳过，碰运行时归档时跑全量")
-		return
-	}
-	for _, c := range []struct {
-		name  string
-		strip string
-		want  []string
-	}{
-		{pythonArchiveName(), "", []string{"python.exe", pythonStdlibZip()}},
-		// Node 的官方 zip 多一层顶层目录，必须剥掉它平铺，否则 npm.cmd 指错路径。
-		{nodeArchiveName(), nodeArchiveRooted, []string{"node.exe", "npm.cmd"}},
-	} {
-		zr, err := newZipReader(hasEmbeddedArchive(t, c.name))
-		if err != nil {
-			t.Fatalf("%s 归档格式不正确: %v", c.name, err)
-		}
-		dir := t.TempDir()
-		if err := extractZipStripped(zr, dir, c.strip); err != nil {
-			t.Fatalf("%s 解压失败: %v", c.name, err)
-		}
-		for _, w := range c.want {
-			if !pkg.FileExists(filepath.Join(dir, w)) {
-				t.Fatalf("%s 解压后根目录下缺少 %s——官方 zip 布局变了？", c.name, w)
+	t.Run("归档与 SHA 常量一致，LFS 指针当场识破", func(t *testing.T) {
+		for _, c := range []struct{ name, want string }{
+			{pythonArchiveName(), PythonArchiveSHA256},
+			{nodeArchiveName(), NodeArchiveSHA256},
+		} {
+			data := hasEmbeddedArchive(t, c.name)
+			if c.want == "" {
+				t.Fatalf("SHA 常量为空：用 sha256sum 实测 %s 后填进 Go 常量", c.name)
+			}
+			sum := sha256.Sum256(data)
+			if got := hex.EncodeToString(sum[:]); got != c.want {
+				t.Fatalf("%s 归档与常量不一致：归档 %s，常量 %s", c.name, got, c.want)
 			}
 		}
-	}
+	})
+
+	// zip-slip：归档里的 ..\ 与绝对路径必须被拒，否则解压能把文件写到数据目录之外。
+	t.Run("解压拒绝路径穿越，正常路径不误伤", func(t *testing.T) {
+		dest := t.TempDir()
+		for _, name := range []string{`..\evil.exe`, `/abs/evil.exe`, `a/../../evil.exe`} {
+			if _, err := safeExtractPath(dest, name); err == nil {
+				t.Fatalf("穿越路径未被拒绝: %q", name)
+			}
+		}
+		if _, err := safeExtractPath(dest, `python/tools/x.exe`); err != nil {
+			t.Fatalf("正常路径被误拒: %v", err)
+		}
+	})
+
+	// 真实解压两份归档：全仓最慢的一步，-short 只跳过它。
+	// Node 的官方 zip 多一层顶层目录，必须剥掉平铺，否则 npm.cmd 指错路径。
+	t.Run("真实解压的根目录布局正确", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("真实解压：-short 跳过，碰运行时归档时跑全量")
+		}
+		for _, c := range []struct {
+			name  string
+			strip string
+			want  []string
+		}{
+			{pythonArchiveName(), "", []string{"python.exe", pythonStdlibZip()}},
+			{nodeArchiveName(), nodeArchiveRooted, []string{"node.exe", "npm.cmd"}},
+		} {
+			zr, err := newZipReader(hasEmbeddedArchive(t, c.name))
+			if err != nil {
+				t.Fatalf("%s 归档格式不正确: %v", c.name, err)
+			}
+			dir := t.TempDir()
+			if err := extractZipStripped(zr, dir, c.strip); err != nil {
+				t.Fatalf("%s 解压失败: %v", c.name, err)
+			}
+			for _, w := range c.want {
+				if !pkg.FileExists(filepath.Join(dir, w)) {
+					t.Fatalf("%s 解压后根目录下缺少 %s——官方 zip 布局变了？", c.name, w)
+				}
+			}
+		}
+	})
 }

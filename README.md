@@ -58,7 +58,8 @@ WorkBaby/
 │   ├── api/               薄 handler + 系统能力绑定（唯一允许 import wails 的包）
 │   ├── pi/                能力域：子进程监督 / RPC 编解码 / 事件翻译 / 会话文件索引
 │   │   ├── env/           运行时复用、PI 安装、models/settings/mcp 互通
-│   │   └── pitest/        假 PI 进程（测试夹具）
+│   │   ├── pitest/        假 PI 进程（测试夹具：走真管道的 RPC 替身）
+│   │   └── piptest/       编译假 PI、定位仓库根（测试夹具）
 │   ├── service/           编排：会话 / 对话 / 模型 / 技能 / 插件 / 工具 / MCP / 统计 / 设置
 │   ├── repo/              GORM（只有设置 KV）
 │   ├── domain/            域模型（一个聚合根一个文件）
@@ -78,6 +79,7 @@ WorkBaby/
 ```bash
 wails dev                      # 热重载（前端改完自动刷新）
 pwsh scripts/check.ps1         # 格式 + 编译 + 短测试（日常）
+pwsh scripts/check.ps1 -Pkg .  # 只验一个包（只碰一个能力域时）
 pwsh scripts/check.ps1 -Full   # vet + 依赖边界 + 全量测试 + 前端构建（发版前 / CI）
 wails build                    # 产物 build/bin/WorkBaby.exe
 ```

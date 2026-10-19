@@ -35,7 +35,7 @@ func (s *GitService) DraftCommitMessage(sessionID string, paths []string) *domai
 	if err != nil {
 		return &domain.GitMessageRESP{Err: err.Error()}
 	}
-	exe := s.piExe()
+	exe, args := s.piCommand()
 	if exe == "" {
 		return &domain.GitMessageRESP{Err: "还没有可用的助手引擎，先完成环境引导"}
 	}
@@ -52,7 +52,7 @@ func (s *GitService) DraftCommitMessage(sessionID string, paths []string) *domai
 
 	// 短命进程 + 不落会话：这次调用不该在用户的会话列表里留下一行。
 	cli, err := pi.Start(pi.Config{
-		Exe: exe, Workspace: root, NoSession: true,
+		Exe: exe, Args: args, Workspace: root, NoSession: true,
 		Env: s.env.PiEnv.Env(),
 	}, draftHandler{})
 	if err != nil {
@@ -76,13 +76,11 @@ func (s *GitService) DraftCommitMessage(sessionID string, paths []string) *domai
 	return &domain.GitMessageRESP{Message: msg}
 }
 
-// piExe 取内核可执行文件；空表示还没装。
-func (s *GitService) piExe() string {
+func (s *GitService) piCommand() (string, []string) {
 	if s.env == nil || s.env.PiEnv == nil {
-		return ""
+		return "", nil
 	}
-	exe, _ := s.env.PiEnv.PiExe()
-	return exe
+	return s.env.PiEnv.PiCommand()
 }
 
 // textOf 从 get_last_assistant_text 的响应里取出正文字段。

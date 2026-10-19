@@ -6,18 +6,18 @@
 - Node.js 20+（前端构建）
 - Wails CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`（与 CI 同一个 pin）
 - Windows 10/11（唯一目标平台）
-- 可选：`pi`（调试真实内核时用；不装也能开发，`pitest` 提供假进程）
+- 可选：`pi`（调试真实内核时用；不装也能开发，`pi/pitest` 提供假进程）
 
 ## 常用命令
 
 ```powershell
 # 验证入口：一个脚本收口，别在本地与 CI 各写一套（分档说明见 AGENTS.md §3.3）
 pwsh scripts/check.ps1                        # 快门：格式 → 编译 → 所有包短测试
-pwsh scripts/check.ps1 -Pkg backend/service   # 只验一个包
+pwsh scripts/check.ps1 -Pkg backend/service   # 只验一个包（与 -Full 互斥）
 pwsh scripts/check.ps1 -Full                  # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
 
 # 单独跑某一步时才手敲
-go test -short -count=1 ./...                 # 短测试：跳过真 git 链路与归档真实解压
+go test -short -count=1 ./...                 # 短测试：跳过真 git 链路、归档真解压与本机 PI 真实回合
 go test -count=1 ./...                        # 全量
 go test -run 'TestServiceChain/会话索引' ./backend/service   # 定点链上的一段
 go run ./tools/check-boundaries               # 依赖方向门禁

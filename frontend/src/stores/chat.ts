@@ -22,6 +22,7 @@ import type {
 } from '../types/api'
 import { useSettingsStore } from './settings'
 import { useToastStore } from './toast'
+import { stripAnsi } from '../utils/text'
 
 // 当前正在跑的工具调用：流式期间只做「展示」，chat:done 后用权威快照覆盖。
 export interface ToolRun {
@@ -197,9 +198,11 @@ export const useChatStore = defineStore('chat', () => {
 
   function onDelta(data: DeltaData) {
     running.value = true
+    // 后端已剥离 ANSI；这里再兜一层——缓存里的旧响应与假后端都可能带着转义序列。
+    const delta = stripAnsi(data.delta || '')
     if (data.kind === 'thinking') {
-      if (showThinking) thinking.value += data.delta
-    } else streaming.value += data.delta
+      if (showThinking) thinking.value += delta
+    } else streaming.value += delta
   }
 
   function onToolStart(data: ToolStartData) {
@@ -273,6 +276,18 @@ export const useChatStore = defineStore('chat', () => {
     notice.value = '已停止'
     queued.value = []
     asks.value = []
+  }
+
+  /** 切回一条还在跑的会话：SSE 不会补发 chat:start，把运行态从快照种回来。
+   *  计时从接入点起算（真实起点只有内核知道），文本流从现在开始累积，
+   *  chat:done 之后的权威快照会把整段补齐。 */
+  function resumeRunning() {
+    if (running.value) return
+    running.value = true
+    startedAt.value = Date.now()
+    elapsedSec.value = 0
+    startTicker()
+    notice.value = ''
   }
 
   function onError(data: ErrorData) {
@@ -368,21 +383,24 @@ export const useChatStore = defineStore('chat', () => {
 
   function onNotify(data: NotifyData) {
     const t = useToastStore()
-    if (data.level === 'error') t.bad(data.message)
-    else if (data.level === 'warning') t.info(`⚠ ${data.message}`)
-    else t.info(data.message)
+    const msg = stripAnsi(data.message || '')
+    if (data.level === 'error') t.bad(msg)
+    else if (data.level === 'warning') t.info(`⚠ ${msg}`)
+    else t.info(msg)
   }
 
   function onStatus(data: StatusData) {
     const next = { ...engineStatus.value }
-    if (data.text) next[data.key] = data.text
+    const text = stripAnsi(data.text || '')
+    if (text) next[data.key] = text
     else delete next[data.key]
     engineStatus.value = next
   }
 
   function onWidget(data: WidgetData) {
     const next = { ...engineWidgets.value }
-    if (data.lines?.length) next[data.key] = data.lines
+    const lines = (data.lines || []).map(stripAnsi)
+    if (lines.length) next[data.key] = lines
     else delete next[data.key]
     engineWidgets.value = next
   }
@@ -430,6 +448,7 @@ export const useChatStore = defineStore('chat', () => {
     onAsk,
     onAskClosed,
     onDone,
+    resumeRunning,
     onStopped,
     onError,
     onCompressed,

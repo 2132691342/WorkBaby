@@ -1,11 +1,14 @@
-# 质量门禁：push / PR 上跑完整验证链（vet + 依赖边界 + 全量测试 + 前端类型与构建）。
-# 打包在 release.yml（只在 tag 触发）；设计与取名见 docs/DEPLOYMENT.md。
+# 质量门禁：push main / PR 上跑完整验证链（vet + 依赖边界 + 全量测试 + 前端类型与构建）。
+# 这里只验证、从不发版：发版只由 release.yml 在 tag 上触发。
+# 两者必须错开——push main 不得触发任何发版动作，否则每次提交都会进 Release。
 
 name: ci
 
 on:
   push:
     branches: [main]
+    # tag 一律不发版：排除掉才能保证「只有 release.yml 认 tag」。
+    tags-ignore: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -45,7 +48,7 @@ jobs:
       - name: Verify
         shell: pwsh
         # 与本地 scripts/check.ps1 -Full 同一条链：门禁只有一处实现，两边不会漂。
-        # -v 让失败时能从输出直接看到是哪个子测试；不加 tee 到文件，故障摘要另见下一���。
+        # -v 让失败时能从输出直接看到是哪个子测试；失败摘要由下一步统一摘。
         run: pwsh scripts/check.ps1 -Full
 
       - name: Summarize failures

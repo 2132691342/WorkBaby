@@ -10,14 +10,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"WorkBaby/backend/api"
+	"WorkBaby/backend/pi/piptest"
 	"WorkBaby/backend/runtime/runtimetest"
 	"WorkBaby/backend/server"
 )
@@ -30,7 +29,7 @@ func bootServer(t *testing.T) (string, *api.Handler) {
 	t.Setenv("WORKBABY_HOME", home)
 	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(home, "agent"))
 	// 假设 PI 就是那个假进程：它说同一套协议，链路照常全跑。
-	t.Setenv("WORKBABY_PI_EXE", buildFakePI(t))
+	t.Setenv("WORKBABY_PI_EXE", piptest.Build(t))
 	// 装配期不要去解压上百 MB 的归档（真解压在 runtime 包里测一次）。
 	runtimetest.SeedMarkers(t, home)
 
@@ -55,38 +54,6 @@ func bootServer(t *testing.T) (string, *api.Handler) {
 	}
 	t.Cleanup(srv.Stop)
 	return fmt.Sprintf("http://127.0.0.1:%d/api/v1", port), h
-}
-
-// buildFakePI 编译假 PI 到临时目录。
-func buildFakePI(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "fakepi.exe")
-	cmd := exec.Command("go", "build", "-o", exe, "./backend/pi/pitest")
-	cmd.Dir = repoRoot(t)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("编译假 PI 失败: %v\n%s", err, out)
-	}
-	return exe
-}
-
-// repoRoot 从测试工作目录往上找 go.mod。
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("找不到仓库根目录")
-		}
-		dir = parent
-	}
 }
 
 // call 发一个带 WebView2 来源的请求，返回状态码与响应体。

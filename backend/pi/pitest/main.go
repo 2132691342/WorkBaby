@@ -1,5 +1,6 @@
 // 假 PI：按脚本回应 RPC 命令并吐事件，用于让 pi 包的协议链路在离线环境跑通。
 // 它不是 mock：走真实 stdin/stdout 与 LF 分帧，也会像真 PI 一样把会话写进 JSONL。
+// 场景由 --scenario 或 PI_FAKE_SCENARIO 选：basic / tools / approval / compact / notify / crash。
 package main
 
 import (
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,10 +26,17 @@ var (
 	mu          sync.Mutex
 	sessionID   = testSessionID
 	sessionFile = ""
+	// busy 模拟「有 run 在跑」：steer / follow_up 只有空闲时才会变成一轮新的 prompt。
+	busy atomic.Bool
 )
 
 func main() {
-	scenario := "basic"
+	// --scenario 是命令行覆盖；PI_FAKE_SCENARIO 是环境变量默认值，供上层测试
+	// （走 PiCommand 拉起、拿不到额外参数）也能选到带扩展事件的场景。
+	scenario := os.Getenv("PI_FAKE_SCENARIO")
+	if scenario == "" {
+		scenario = "basic"
+	}
 	for i, a := range os.Args {
 		if a == "--scenario" && i+1 < len(os.Args) {
 			scenario = os.Args[i+1]
@@ -157,6 +166,22 @@ func handle(scenario, id, typ, message string) {
 		})
 		goScript(scenario, message)
 	case "steer", "follow_up":
+		// 空闲时没有 run 在消费队列：与真 PI 一致，等价于一轮新的 prompt。
+		if !busy.Load() {
+			respond(id, typ, map[string]any{"disposition": "started"})
+			if sessionFile == "" {
+				startSession("")
+			}
+			appendEntry(map[string]any{
+				"type": "message", "id": "u1", "parentId": nil,
+				"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+				"message": map[string]any{
+					"role": "user", "content": message, "timestamp": time.Now().UnixMilli(),
+				},
+			})
+			go goScript(scenario, message)
+			return
+		}
 		respond(id, typ, map[string]any{"disposition": "queued"})
 	default:
 		respond(id, typ, map[string]any{})
@@ -229,14 +254,21 @@ func cwd() string {
 // goScript 吐一轮完整的事件序列：agent_end 之后还有一条自动重试，最后才 agent_settled。
 // done 必须挂在 agent_settled 上，挂早了会在还在跑的时候显示「完成」。
 func goScript(scenario, message string) {
+	busy.Store(true)
+	defer busy.Store(false)
 	emit(map[string]any{"type": "agent_start"})
 	emit(map[string]any{"type": "turn_start"})
+	// 状态条带终端色码：内核与扩展按终端习惯上色，GUI 没有终端语义，
+	// 不剥就是消息流里的 [39m[2mIndexing[22;39m 这种乱码。
+	emit(map[string]any{"type": "extension_ui_request", "id": "s1", "method": "setStatus",
+		"statusKey": "lsp", "statusText": "\x1b[39m\x1b[2mIndexing workspace...\x1b[22;39m"})
 	if scenario == "notify" {
 		// fire-and-forget 四种：通知 / 状态条 / 小部件 / 标题。无需应答，客户端只能展示或忽略。
+		// 文字里带终端色码：内核与扩展按终端习惯上色，GUI 没有终端语义，原样显示就是乱码。
 		emit(map[string]any{"type": "extension_ui_request", "id": "n1", "method": "notify",
 			"message": "命令被用户拒绝", "notifyType": "warning"})
 		emit(map[string]any{"type": "extension_ui_request", "id": "n2", "method": "setStatus",
-			"statusKey": "my-ext", "statusText": "Turn 3 running..."})
+			"statusKey": "my-ext", "statusText": "\x1b[39m\x1b[2mTurn 3 running...\x1b[22;39m"})
 		emit(map[string]any{"type": "extension_ui_request", "id": "n3", "method": "setWidget",
 			"widgetKey": "my-ext", "widgetLines": []any{"--- My Widget ---", "Line 1"},
 			"widgetPlacement": "aboveEditor"})

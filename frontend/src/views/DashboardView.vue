@@ -7,7 +7,7 @@ import { useI18n } from 'vue-i18n'
 import * as api from '../api'
 import { useSessionStore } from '../stores/session'
 import { useToastStore } from '../stores/toast'
-import type { StatsRESP } from '../types/api'
+import type { StatsRESP, StatsSpan } from '../types/api'
 import { fmtCount, fmtInt, fmtMoney } from '../utils/num'
 import AppIcon from '../components/common/AppIcon.vue'
 import KpiCard from '../components/dashboard/KpiCard.vue'
@@ -20,8 +20,8 @@ const router = useRouter()
 const session = useSessionStore()
 const toast = useToastStore()
 
-const SPANS = [7, 14, 30]
-const days = ref(14)
+const SPANS: StatsSpan[] = ['24h', 'today', '7d', '14d', '30d']
+const span = ref<StatsSpan>('7d')
 const data = ref<StatsRESP | null>(null)
 const loading = ref(true)
 const error = ref('')
@@ -30,7 +30,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    data.value = await api.stats(days.value)
+    data.value = await api.stats(span.value)
   } catch (e) {
     error.value = (e as Error)?.message || t('errors.generic')
   } finally {
@@ -42,8 +42,9 @@ onMounted(() => {
   void load()
   void session.loadList()
 })
-watch(days, load)
+watch(span, load)
 
+const spanLabel = computed(() => t(`dashboard.range_${span.value}`))
 const totals = computed(() => data.value?.totals)
 const hasUsage = computed(() => (totals.value?.total || 0) > 0)
 const topSessions = computed(() => (data.value?.sessions || []).slice(0, 6))
@@ -69,7 +70,7 @@ const kpis = computed(() => {
       icon: 'arrow-down-up',
       value: `${fmtCount(tt?.input || 0)} / ${fmtCount(tt?.output || 0)}`,
       label: t('dashboard.kpiIo'),
-      note: t('dashboard.trendSub'),
+      note: t(data.value?.granularity === 'hour' ? 'dashboard.trendHour' : 'dashboard.trendDay'),
     },
     {
       key: 'hit',
@@ -121,11 +122,11 @@ function onRowClick(row: { session_id: string }) {
 
 <template>
   <div class="view">
-    <PageHeader :title="t('dashboard.title')" :subtitle="t('dashboard.subtitle', { days })">
+    <PageHeader :title="t('dashboard.title')" :subtitle="t('dashboard.subtitle', { range: spanLabel })">
       <template #actions>
-        <el-radio-group v-model="days" size="small">
+        <el-radio-group v-model="span" size="small">
           <el-radio-button v-for="s in SPANS" :key="s" :value="s">
-            {{ t(`dashboard.range${s}`) }}
+            {{ t(`dashboard.range_${s}`) }}
           </el-radio-button>
         </el-radio-group>
         <el-button size="small" :loading="loading" @click="load">
@@ -175,12 +176,14 @@ function onRowClick(row: { session_id: string }) {
           <header class="card-head">
             <div>
               <h3 class="card-title">{{ t('dashboard.trendTitle') }}</h3>
-              <p class="card-sub">{{ t('dashboard.trendSub') }}</p>
+              <p class="card-sub">
+                {{ t(data?.granularity === 'hour' ? 'dashboard.trendHour' : 'dashboard.trendDay') }}
+              </p>
             </div>
             <span class="card-chip">{{ subline }}</span>
           </header>
           <div class="trend-box">
-            <UsageTrend :daily="data?.daily || []" />
+            <UsageTrend :daily="data?.daily || []" :granularity="data?.granularity || 'day'" />
           </div>
         </section>
 

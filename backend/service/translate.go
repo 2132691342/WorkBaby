@@ -120,7 +120,7 @@ func (c *ChatService) onEvent(workspace, sessionID string, st *runState, ev pi.E
 	case pi.KindToolEnd:
 		out := ""
 		if ev.Result != nil {
-			out = plainTextOf(ev.Result.Content)
+			out = pkg.StripANSI(plainTextOf(ev.Result.Content))
 		}
 		c.emit(sessionID, domain.EventChatToolEnd, domain.ToolEndData{
 			ToolCallID: ev.ToolCallID, OK: !ev.IsError,
@@ -148,7 +148,7 @@ func (c *ChatService) onEvent(workspace, sessionID string, st *runState, ev pi.E
 	case pi.KindRetryStart:
 		// 没有这个事件，界面在自动重试期间看上去就是卡死。
 		c.emit(sessionID, domain.EventChatRetry, domain.RetryData{
-			Attempt: ev.Attempt, Max: ev.MaxAttempts, Message: ev.ErrorMessage,
+			Attempt: ev.Attempt, Max: ev.MaxAttempts, Message: pkg.StripANSI(ev.ErrorMessage),
 		})
 
 	case pi.KindAgentEnd:
@@ -168,22 +168,26 @@ func (c *ChatService) onEvent(workspace, sessionID string, st *runState, ev pi.E
 			c.openAsk(workspace, sessionID, ev)
 		case "notify":
 			c.emit(sessionID, domain.EventChatNotify, domain.NotifyData{
-				Level: notifyLevelOf(ev.NotifyType), Message: ev.Body,
+				Level: notifyLevelOf(ev.NotifyType), Message: pkg.StripANSI(ev.Body),
 			})
 		case "setStatus":
 			c.emit(sessionID, domain.EventChatStatus, domain.StatusData{
-				Key: ev.StatusKey, Text: ev.StatusText,
+				Key: ev.StatusKey, Text: pkg.StripANSI(ev.StatusText),
 			})
 		case "setWidget":
 			lines := []string{}
 			if ev.WidgetLines != nil {
 				lines = ev.WidgetLines
 			}
+			clean := make([]string, 0, len(lines))
+			for _, ln := range lines {
+				clean = append(clean, pkg.StripANSI(ln))
+			}
 			c.emit(sessionID, domain.EventChatWidget, domain.WidgetData{
-				Key: ev.ID, Lines: lines, Placement: ev.WidgetPlacement,
+				Key: ev.ID, Lines: clean, Placement: ev.WidgetPlacement,
 			})
 		case "setTitle":
-			c.emit(sessionID, domain.EventChatTitle, domain.TitleData{Title: ev.Title})
+			c.emit(sessionID, domain.EventChatTitle, domain.TitleData{Title: pkg.StripANSI(ev.Title)})
 		}
 	}
 }
@@ -206,14 +210,14 @@ func (c *ChatService) onMessageUpdate(sessionID string, st *runState, ev pi.Even
 			return
 		}
 		c.emit(sessionID, domain.EventChatDelta, domain.DeltaData{
-			EntryID: st.runID, Kind: "text", Delta: ev.Delta,
+			EntryID: st.runID, Kind: "text", Delta: pkg.StripANSI(ev.Delta),
 		})
 	case "thinking_delta":
 		if ev.Delta == "" {
 			return
 		}
 		c.emit(sessionID, domain.EventChatDelta, domain.DeltaData{
-			EntryID: st.runID, Kind: "thinking", Delta: ev.Delta,
+			EntryID: st.runID, Kind: "thinking", Delta: pkg.StripANSI(ev.Delta),
 		})
 	case "toolcall_end":
 		if ev.ToolCall == nil {

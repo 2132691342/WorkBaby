@@ -35,12 +35,12 @@ func New(env *Env) (*Container, error) {
 	// 人设走 --append-system-prompt，不写用户的 APPEND_SYSTEM.md。
 	sup := pi.NewSupervisor(
 		func(workspace string) (pi.Config, error) {
-			exe, _ := env.PiEnv.PiExe()
-			cfg := pi.Config{Exe: exe, Env: env.PiEnv.Env()}
+			exe, args := env.PiEnv.PiCommand()
 			if env.PersonaPath != "" {
-				cfg.Args = []string{"--append-system-prompt", env.PersonaPath}
+				// 人设参数排在 --mode 之前：pi.Config.Args 由客户端原样前置。
+				args = append(args, "--append-system-prompt", env.PersonaPath)
 			}
-			return cfg, nil
+			return pi.Config{Exe: exe, Args: args, Env: env.PiEnv.Env()}, nil
 		},
 		func(workspace string) pi.Handler {
 			return chat.translatorOfWorkspace(workspace)

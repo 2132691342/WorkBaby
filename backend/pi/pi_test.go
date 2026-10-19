@@ -1,15 +1,19 @@
 // PI 监督链路：真实子进程 + 真实 stdin/stdout 分帧，覆盖编解码、事件顺序与生命周期。
-// 坏了的表现：界面一直转圈、done 提前到、进程死了没反应、停止时排队的句子凭空消失。
+// 坏了的表现：界面一直转圈、done 提前到、进程死了没反应、停止时排队的句子凭空消失、
+// 本机装了 PI 却起不来（入口解析错、就绪握手超时、第二轮对话换错了进程）。
 package pi
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"WorkBaby/backend/pi/piptest"
 )
 
 // recorder 收集 handler 收到的全部事件，供断言。
@@ -75,20 +79,6 @@ func (r *recorder) isExited() bool {
 	return r.exited
 }
 
-// buildFakePI 编译假 PI 到临时目录，返回可执行路径。
-// 编译一次给全部子测试用：每个子测试各编一次会把总时长做乘法。
-func buildFakePI(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "fakepi.exe")
-	cmd := exec.Command("go", "build", "-o", exe, "./backend/pi/pitest")
-	cmd.Dir = "../.."
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("编译假 PI 失败: %v\n%s", err, out)
-	}
-	return exe
-}
-
 // start 拉起一个假 PI 并等到它开始吐事件。
 func start(t *testing.T, exe, scenario string) (*Client, *recorder) {
 	t.Helper()
@@ -110,19 +100,27 @@ func start(t *testing.T, exe, scenario string) (*Client, *recorder) {
 // waitFor 轮询等待条件成立，超时即判定链路卡住。
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	if !waitQuiet(t, cond, 5*time.Second) {
+		t.Fatal("等待超时：链路没有按预期推进")
+	}
+}
+
+// waitQuiet 是 waitFor 的可超时版本：真内核冷启动要几十秒，5 秒不够。
+func waitQuiet(t *testing.T, cond func() bool, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if cond() {
-			return
+			return true
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatal("等待超时：链路没有按预期推进")
+	return cond()
 }
 
 // TestPiChain 是 pi 包唯一的测试入口。
 func TestPiChain(t *testing.T) {
-	exe := buildFakePI(t)
+	exe := piptest.Build(t)
 
 	// 协议分帧与命令关联：坏帧不挡命令、响应按 id 各归各的。
 	// 分帧按 U+2028 切会把首帧截成半截 JSON；响应按到达顺序配对会串命令。
@@ -235,7 +233,9 @@ func TestPiChain(t *testing.T) {
 		if ev := waitExtension("n1"); ev.Method != "notify" || ev.Body != "命令被用户拒绝" || ev.NotifyType != "warning" {
 			t.Fatalf("notify 字段不对: %+v", ev)
 		}
-		if ev := waitExtension("n2"); ev.Method != "setStatus" || ev.StatusKey != "my-ext" || ev.StatusText != "Turn 3 running..." {
+		if ev := waitExtension("n2"); ev.Method != "setStatus" || ev.StatusKey != "my-ext" ||
+			// 状态文字带终端色码：协议层不剥，原样传给上层（service 翻译时才剥）。
+			ev.StatusText != "\x1b[39m\x1b[2mTurn 3 running...\x1b[22;39m" {
 			t.Fatalf("setStatus 字段不对: %+v", ev)
 		}
 		if ev := waitExtension("n3"); ev.Method != "setWidget" || len(ev.WidgetLines) != 2 || ev.WidgetLines[0] != "--- My Widget ---" {
@@ -333,4 +333,119 @@ func TestPiChain(t *testing.T) {
 		// 先停掉进程，TempDir 的清理才不会撞上「目录被占用」。
 		sup.StopAll()
 	})
+
+	// 真内核链路：只在 -short 之外跑（起真的 PI，一轮对话要几十秒）。
+	// 假进程验协议形状，这条验「本机这份 PI 真的能对话」——两者坏的地方不一样：
+	// 假进程坏在编解码，真内核坏在入口解析、就绪握手、进程复用与会话落盘。
+	t.Run("本机 PI 真实回合：就绪、建会话、两轮对话与进程复用", func(t *testing.T) {
+		checkLocalPITurn(t)
+	})
+}
+
+// checkLocalPITurn 拿本机装的 PI 跑两轮真实对话。
+// 入口经 npm 的 Windows shim 解析成 node + 脚本：经 cmd.exe 起进程会弹控制台窗口。
+func checkLocalPITurn(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("真内核链路只在 -short 之外跑")
+	}
+	pienv := localPiEnv(t)
+	ws := t.TempDir()
+
+	rec := &recorder{}
+	client, err := Start(Config{
+		Exe: pienv.exe, Args: pienv.args, Workspace: ws, Env: pienv.env,
+	}, rec)
+	if err != nil {
+		t.Fatalf("起不了 PI 进程: %v", err)
+	}
+	t.Cleanup(client.Stop)
+
+	// 立刻就死说明入口或参数不对：stderr 里带着真实原因。
+	time.Sleep(3 * time.Second)
+	if !client.Alive() {
+		t.Fatalf("PI 进程启动后立刻退出（stderr: %s）", client.Stderr())
+	}
+
+	ctx := context.Background()
+	// 就绪：真进程冷启动要加载扩展，get_state 重试到通为止。
+	var st *State
+	for i := 0; i < 60; i++ {
+		if st, err = client.GetState(ctx); err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("PI 一直没就绪: %v（stderr: %s）", err, client.Stderr())
+	}
+	if st.Model.ID == "" {
+		t.Fatal("get_state 没带回模型：models.json 或登录态有问题")
+	}
+	// 建一条真会话：会话指针与落盘文件是界面会话索引的两条命脉。
+	if err := client.NewSession(ctx, ""); err != nil {
+		t.Fatalf("new_session 失败: %v", err)
+	}
+	if st, err = client.GetState(ctx); err != nil {
+		t.Fatalf("新会话后取状态失败: %v", err)
+	}
+	if st.SessionID == "" || st.SessionFile == "" {
+		t.Fatalf("新会话没有落地: %+v", st)
+	}
+	sessionID, sessionFile := st.SessionID, st.SessionFile
+
+	for turn := 1; turn <= 2; turn++ {
+		if _, err := client.Prompt(ctx, fmt.Sprintf("只回一个字：第%d轮", turn), "", nil); err != nil {
+			t.Fatalf("第 %d 轮 prompt 被拒绝: %v", turn, err)
+		}
+		// PI 起完扩展才开始跑：给足等待，一条事件都没有就是链路断了。
+		if !waitQuiet(t, func() bool { return rec.count(KindAgentSettled) >= turn }, 180*time.Second) {
+			t.Fatalf("第 %d 轮没跑完（stderr: %s）", turn, client.Stderr())
+		}
+	}
+
+	// 进程复用：第二个 prompt 不允许换进程，指针仍停在同一条会话上。
+	st2, err := client.GetState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st2.SessionID != sessionID || st2.SessionFile != sessionFile {
+		t.Fatalf("会话指针漂了: %s -> %s", sessionID, st2.SessionID)
+	}
+	if _, err := os.Stat(sessionFile); err != nil {
+		t.Fatalf("会话文件没落盘: %v", err)
+	}
+}
+
+// localPiEnv 解析本机 PI 的启动入口与进程环境；没装 PI 就跳过这条链。
+// 入口必须还原成 node + 脚本：经 cmd.exe 起进程会弹控制台窗口，且 CREATE_NO_WINDOW 只作用于 cmd.exe。
+func localPiEnv(t *testing.T) struct {
+	exe  string
+	args []string
+	env  []string
+} {
+	t.Helper()
+	shim, err := exec.LookPath("pi.cmd")
+	if err != nil {
+		shim, err = exec.LookPath("pi.exe")
+	}
+	if err != nil {
+		t.Skip("本机没有 PI")
+	}
+	dir := filepath.Dir(shim)
+	script := filepath.Join(dir, `node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.js`)
+	if _, err := os.Stat(script); err != nil {
+		t.Skip("找不到 PI 的入口脚本")
+	}
+	node := filepath.Join(dir, "node.exe")
+	if _, err := os.Stat(node); err != nil {
+		t.Skip("找不到 node.exe")
+	}
+	// 前置拼接内置 node：后置会被用户 PATH 上的旧 node 抢先。
+	env := append([]string{"PATH=" + dir + ";" + os.Getenv("PATH")}, os.Environ()...)
+	return struct {
+		exe  string
+		args []string
+		env  []string
+	}{exe: node, args: []string{script, "--mode", "rpc"}, env: env}
 }

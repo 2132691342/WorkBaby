@@ -10,7 +10,8 @@
 
 ```
 一个工作目录 = 一个 PI 进程
-  ├─ spawn: pi --mode rpc --append-system-prompt <persona.md>   (cwd = 工作目录)
+  ├─ spawn: node <pi>/dist/bundle/cli.js --mode rpc --append-system-prompt <persona.md>  (cwd = 工作目录)
+  │        npm 的 pi.cmd / npm.cmd 先还原成 node + 入口脚本，且子进程一律 CREATE_NO_WINDOW
   ├─ stdout: 按 LF 切分 → 记录分类 → 事件翻译
   ├─ stderr: 只进日志尾部缓冲，不解析为协议
   └─ 退出: 关 stdin → 等 agent_settled 或 5s → kill
@@ -19,13 +20,24 @@
 `cwd` 是进程级属性，所以跨工作目录的会话不能共用一个进程；
 同一目录的多个会话通过 `switch_session` 在同一个进程里切换（串行）。
 
+**入口不走 shell**：npm 在 Windows 上装的 `pi.cmd` / `npm.cmd` 是批处理 shim，
+经 `cmd.exe /c` 起进程每调一次就闪一个控制台窗口，且 `CREATE_NO_WINDOW`
+只作用于 cmd.exe 本身，它再拉起的 node 仍会带窗口。因此入口一律解析成
+`node.exe` + 包内 `cli.js`（shim 同目录的 node 优先，其次 PATH），
+并给本层全部子进程设 `CREATE_NO_WINDOW`。
+
+**界面文本剥掉 ANSI**：内核与扩展按终端习惯给状态文字上色
+（`theme.fg("dim", "Cache 0.0%")` 经 RPC 原样送达，形如 `\x1b[39m\x1b[2m…\x1b[22;39m`）。
+GUI 没有终端语义，翻译层对全部面向用户的文本（增量 / 状态 / 小部件 / 通知 /
+提问 / 重试原因 / 工具输出 / 历史消息）统一剥掉转义序列。
+
 ## 协议记录分类
 
 | 记录 | 判据 | 处置 |
 |---|---|---|
 | 命令响应 | `type == "response"` | 按 `id` 唤醒等待者 |
 | 会话事件 | 已知事件名 | 进翻译层 |
-| 扩展 UI | `type == "extension_ui_request"` | `confirm`/`select`/`input`/`editor` 转 `chat:ask`；`notify`/`setStatus`/`setWidget`/`setTitle` 转只读反馈事件；其余忽略 |
+| 扩展 UI | `type == "extension_ui_request"` | `confirm`/`select`/`input`/`editor` 转 `chat:ask`；`notify`/`setStatus`/`setWidget`/`setTitle` 转只读反馈事件（文本剥 ANSI）；其余忽略 |
 | 未知 | 其余 | debug 日志后丢弃 |
 
 ## 事件翻译
@@ -35,6 +47,7 @@
 | `agent_start` | `chat:start` |
 | `message_update` / `text_delta` | `chat:delta`（kind=text） |
 | `message_update` / `thinking_delta` | `chat:delta`（kind=thinking） |
+| `tool_execution_start` | `chat:tool_start` |
 | `message_update` / `toolcall_end` | `chat:tool_start`（参数到这里才完整） |
 | `tool_execution_end` | `chat:tool_end` |
 | `turn_end` | `chat:context` |

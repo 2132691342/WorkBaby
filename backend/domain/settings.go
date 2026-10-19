@@ -29,8 +29,6 @@ const (
 	SettingShowThinking   = "show_thinking"
 	// 界面语言：zh-CN / en，前端 i18n 与 Element Plus 文案都读它。
 	SettingLanguage = "language"
-	// 上下文水位的手填覆盖；留空表示按 models.json 里的窗口算。
-	SettingContextWindow = "context_window"
 	// 自定义背景：bg_image 存数据目录内副本的绝对路径，另两项是叠层参数。
 	SettingBgImage   = "bg_image"
 	SettingBgOpacity = "bg_opacity"

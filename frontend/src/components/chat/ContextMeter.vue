@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 上下文水位：输入框底栏常驻的圆环 + 读数。
+// 上下文水位：输入框底栏常驻的仪表环 + 读数。
 // 无论是否开始对话、窗口是否已知，这里都必须有内容——什么都不显示等于用户没有这个信息。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -20,7 +20,7 @@ const exact = computed(() => props.known !== false)
 const pct = computed(() => Math.max(0, Math.min(100, props.ratio || 0)))
 const level = computed(() => (pct.value >= 95 ? 'is-danger' : pct.value >= 80 ? 'is-warn' : ''))
 
-const RING_R = 6.5
+const RING_R = 7
 const RING_C = 2 * Math.PI * RING_R
 const dash = computed(() => `${((RING_C * pct.value) / 100).toFixed(2)} ${RING_C.toFixed(2)}`)
 
@@ -64,42 +64,45 @@ const tip = computed(() => {
 </template>
 
 <style scoped>
+/* 读数胶囊：与工具行里的模型 / 思考档 chip 同一语言（1px 中性描边 + 全圆角），
+   让水位读数从「散落的文字」变成「底栏的一员」。 */
 .ctx {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--wb-sp-1);
   flex: none;
   height: var(--wb-ctl-h-sm);
-  padding: 0 var(--wb-sp-2) 0 var(--wb-sp-1);
+  padding: 0 var(--wb-sp-2);
   border-radius: var(--wb-radius-full);
-  border: 1px solid transparent;
+  border: 1px solid var(--wb-border);
   color: var(--wb-ink-2);
   cursor: default;
   transition:
     background var(--wb-dur-fast) var(--wb-ease),
     border-color var(--wb-dur-fast) var(--wb-ease);
 }
-/* 只给底色提示、不做缩放：它是读数不是控件，悬停放大等于骗用户去点 */
+/* 只给底色提示、不做缩放：它是读数不是控件，悬停放大等于骗用户去点。 */
 .ctx:hover {
   background: var(--wb-elev-hover);
-  border-color: var(--wb-border);
+  border-color: var(--wb-border-strong);
 }
+/* 仪表环：细轨 + 平头弧。圆头 + 深轨在低占比时会读成一个转圈加载图标，
+   这里刻意的平头 + 浅轨就是为了让它一眼是「水位表」不是「spinner」。 */
 .ring {
-  width: calc(18px * var(--wb-vw-scale));
-  height: calc(18px * var(--wb-vw-scale));
+  width: calc(16px * var(--wb-vw-scale));
+  height: calc(16px * var(--wb-vw-scale));
   flex: none;
   transform: rotate(-90deg);
 }
 .ring-b {
   fill: none;
-  stroke: var(--wb-border-strong);
-  stroke-width: 2.4;
+  stroke: var(--wb-border);
+  stroke-width: 2;
 }
 .ring-f {
   fill: none;
   stroke: var(--wb-primary);
-  stroke-width: 2.4;
-  stroke-linecap: round;
+  stroke-width: 2;
   transition:
     stroke-dasharray var(--wb-dur) var(--wb-ease),
     stroke var(--wb-dur) var(--wb-ease);

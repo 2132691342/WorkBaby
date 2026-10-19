@@ -46,6 +46,11 @@ WORKBABY_PI_EXE（显式/测试）
 
 找到之后跑一次 `pi --version` 填进环境闸门；版本号只用于展示与排障。
 
+找到的是 npm 的 shim（`pi.cmd` / `pi`）时，**起进程前先还原成 `node.exe` + 包内
+`cli.js`**：经 `cmd.exe /c` 起进程每调一次闪一个控制台窗口，且
+`CREATE_NO_WINDOW` 只作用于 cmd.exe 本身，它再拉起的 node 仍会带窗口。
+`npm.cmd` 同理还原成 `npm-cli.js`。解析结果带缓存（shim 文本不会自己变）。
+
 ## 环境闸门
 
 按 `node → pi → model` 的顺序报**首个**阻塞项，并给原因。`ready` 三者全满足才为真；

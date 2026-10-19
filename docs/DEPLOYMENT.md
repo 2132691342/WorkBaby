@@ -16,10 +16,21 @@ build/bin/
 
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
-| `.github/workflows/ci.yml` | push main / PR / 手动 | 装 Go + Node + 依赖 → 跑 `pwsh scripts/check.ps1 -Full`（gofmt / 编译 / vet / 依赖边界 / 全量测试 / 前端构建），失败时 `scripts/report-failures.ps1` 把摘要写进 job summary |
-| `.github/workflows/release.yml` | tag `v*` / 手动 | 轻量静态门禁（gofmt / vet / `go build` / 依赖方向，不重跑已由 ci 门过的测试矩阵）+ 校验运行时归档是真文件 → `wails build -clean -nsis` → 校验产物体积 → 建 GitHub Release 并上传安装器 |
+| `.github/workflows/ci.yml` | push main / PR / 手动（**tag 不触发**） | 装 Go + Node + 依赖 → 跑 `pwsh scripts/check.ps1 -Full`（gofmt / 编译 / vet / 依赖边界 / 全量测试 / 前端构建），失败时 `scripts/report-failures.ps1` 把摘要写进 job summary |
+| `.github/workflows/release.yml` | tag `v<major>.<minor>.<patch>` / 手动 | 轻量静态门禁（gofmt / vet / `go build` / 依赖方向，不重跑已由 ci 门过的测试矩阵）+ 校验运行时归档是真文件 → `wails build -clean -nsis` → 校验产物体积 → 建 GitHub Release 并上传安装器 |
 
-几个约定，改动流水线前要知道：
+**「推 main 不发版、只有推 tag 才发版」是靠两个工作流各自的触发条件锁死的**，
+两条同时生效：
+
+- `ci.yml` 的 `push` 显式写了 `branches: [main]` **与** `tags-ignore: ['v*']`。
+  只写 `branches` 时，GitHub 的过滤器是「或」关系，tag 推送仍会命中 `push` 触发器；
+  补上 `tags-ignore` 才能把 tag 彻底排除在这条之外
+- `release.yml` 只认 `push.tags`，且用 `v[0-9]+.[0-9]+.[0-9]+` 而不是 `v*`：
+  形如 `v1.3.0` 的 tag 才会发版，顺带挡掉误推的 `v-next` 之类分支式 tag
+- 建 Release 那一步额外判一次 `startsWith(github.ref, 'refs/tags/v')`，
+  防的是「tag 事后被移动」——那时产物与版本号就对不上了
+
+其余约定，改动流水线前要知道：
 
 - **门禁与出包分层**：日常质量门禁集中在 `ci.yml`（跑 `check.ps1 -Full`）；`release.yml` 只做静态编译门禁，不重跑已由 main 门过的测试与独立前端构建（`wails build` 自己会跑前端）
 - **两个 job 都跑 `windows-latest`**：目标平台只有 Windows amd64，门禁与出包必须在同一套系统调用上验

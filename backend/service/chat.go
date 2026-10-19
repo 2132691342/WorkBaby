@@ -120,6 +120,29 @@ func (c *ChatService) Send(req domain.SendMessageREQ) (*domain.SendMessageRESP, 
 	}
 	c.setCurrent(workspace, st.SessionFile)
 
+	// 运行中必须带 streamingBehavior 发 prompt，否则 PI 直接拒绝。
+	behavior := ""
+	if c.IsRunning(sessionID) {
+		behavior = "steer"
+	}
+	runID, err := c.beginRun(client, workspace, sessionID, st, text, behavior, images)
+	if err != nil {
+		return nil, err
+	}
+
+	// 首条消息之后会话文件才出现：让下一次列表刷新读到它。
+	pi.InvalidateSessionCache(st.SessionFile)
+	pkg.Infof("chat: 已发送 session=%s run=%s model=%s", sessionID, runID, st.Model.ID)
+	return &domain.SendMessageRESP{RunID: runID, SessionID: sessionID}, nil
+}
+
+// beginRun 给一轮运行记账并发 prompt：runState + busy 标记 + 等「已接受」。
+// 空闲会话无论从 Send 还是从排队投递进来都必须走它——翻译器没有 runState 时
+// 这一轮的界面事件会被整轮丢掉，用户看到自己发了话却永远等不到回应。
+func (c *ChatService) beginRun(
+	client *pi.Client, workspace, sessionID string, st *pi.State,
+	text, behavior string, images []pi.Image,
+) (string, error) {
 	runID := pkg.NewTraceID()
 	rs := &runState{
 		sessionID: sessionID, runID: runID,
@@ -130,12 +153,6 @@ func (c *ChatService) Send(req domain.SendMessageREQ) (*domain.SendMessageRESP, 
 	}
 	tr := c.translatorOfWorkspace(workspace)
 	tr.setSession(sessionID, rs)
-
-	// 运行中必须带 streamingBehavior 发 prompt，否则 PI 直接拒绝。
-	behavior := ""
-	if c.IsRunning(sessionID) {
-		behavior = "steer"
-	}
 	c.markBusy(sessionID, runID)
 
 	ackCtx, ackCancel := context.WithTimeout(context.Background(), promptAckTimeout)
@@ -143,13 +160,9 @@ func (c *ChatService) Send(req domain.SendMessageREQ) (*domain.SendMessageRESP, 
 	if _, err := client.Prompt(ackCtx, text, behavior, images); err != nil {
 		c.release(sessionID)
 		tr.clearSession(sessionID)
-		return nil, err
+		return "", err
 	}
-
-	// 首条消息之后会话文件才出现：让下一次列表刷新读到它。
-	pi.InvalidateSessionCache(st.SessionFile)
-	pkg.Infof("chat: 已发送 session=%s run=%s model=%s", sessionID, runID, st.Model.ID)
-	return &domain.SendMessageRESP{RunID: runID, SessionID: sessionID}, nil
+	return runID, nil
 }
 
 // Steer 插话：当前轮工具跑完后生效。
@@ -178,10 +191,24 @@ func (c *ChatService) queueMessage(sessionID, content string, steer bool) error 
 	ctx, cancel := context.WithTimeout(context.Background(), promptAckTimeout)
 	defer cancel()
 
-	// 空闲时没有 run 在消费队列：直接发一条 prompt，否则这句话会永远排在空队列里。
+	// 空闲时没有 run 在消费队列：走一次完整的发送记账，并回显这条消息。
+	// 与 Send 同一把会话锁，堵住「查空闲时还没人跑、发出去时已有新一轮」的窗口；
+	// 锁住后复查，真有 run 进来了就落到下面的 steer / follow_up。
 	if !c.IsRunning(sessionID) {
-		_, err := client.Prompt(ctx, content, "", nil)
-		return err
+		lock := c.lockOf(sessionID)
+		lock.Lock()
+		defer lock.Unlock()
+		if !c.IsRunning(sessionID) {
+			st, err := client.GetState(ctx)
+			if err != nil {
+				return err
+			}
+			if _, err := c.beginRun(client, m.Cwd, sessionID, st, content, "", nil); err != nil {
+				return err
+			}
+			c.emit(sessionID, domain.EventChatUser, domain.UserData{EntryID: "", Content: content})
+			return nil
+		}
 	}
 	if steer {
 		_, err = client.Steer(ctx, content, nil)
@@ -455,7 +482,7 @@ func (c *ChatService) openAsk(workspace, sessionID string, ev pi.Event) {
 	c.asks[ev.ID] = ask
 	c.mu.Unlock()
 	c.emit(sessionID, domain.EventChatAsk, domain.AskData{
-		ID: ev.ID, Method: ev.Method, Title: ev.Title, Message: ev.Body, Options: ev.Options,
+		ID: ev.ID, Method: ev.Method, Title: pkg.StripANSI(ev.Title), Message: pkg.StripANSI(ev.Body), Options: ev.Options,
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/runtime"
@@ -22,6 +23,14 @@ var (
 	ErrNodeTooOld   = pkg.New("9708", "Node 版本太旧，跑不了 PI", "")
 	ErrPiMissing    = pkg.New("9709", "还没有安装助手引擎（PI）", "")
 	ErrModelMissing = pkg.New("9711", "还没有配置可用的模型服务", "")
+)
+
+// piCmdCache 记住 shim 的解析结果：每次调用都读一遍 shim 文本，会把「点一下」放大成几十次磁盘读。
+var (
+	piCmdMu     sync.Mutex
+	piCmdExe    string
+	piCmdArgs   []string
+	piCmdCached bool
 )
 
 // EnvVO 是环境快照，直接进 BootstrapVO 下发给前端。
@@ -97,6 +106,7 @@ func (e *Env) PythonExe() (string, string) {
 }
 
 // NpmCmd 返回装包用的 npm：与 node 保持同一套（系统优先，其次内置）。
+// 返回的是 npm.cmd 之类的 shim；真要起进程请用 NpmCommand，别把 shim 直接交给 exec。
 func (e *Env) NpmCmd() string {
 	if _, err := exec.LookPath("node"); err == nil {
 		for _, name := range []string{"npm.cmd", "npm"} {
@@ -108,12 +118,35 @@ func (e *Env) NpmCmd() string {
 	return runtime.NpmCmd(e.paths)
 }
 
+// NpmCommand 把 npm 的 shim 还原成 node + npm-cli.js，与 PI 的解析同一条路子。
+func (e *Env) NpmCommand() (string, []string) {
+	shim := e.NpmCmd()
+	if shim == "" {
+		return "", nil
+	}
+	dir := filepath.Dir(shim)
+	for _, rel := range []string{
+		`node_modules\npm\bin\npm-cli.js`,
+		`node_modules\npm\bin\npm-cli.mjs`,
+	} {
+		for _, base := range []string{dir, filepath.Dir(dir)} {
+			candidate := filepath.Join(base, rel)
+			if pkg.FileExists(candidate) {
+				return shimNode(dir), []string{candidate}
+			}
+		}
+	}
+	return shimNode(dir), []string{}
+}
+
 // nodeSystemExe 返回系统 PATH 上的 node。
 func nodeVersionOf(nodeExe string) string {
 	if nodeExe == "" {
 		return ""
 	}
-	out, err := exec.Command(nodeExe, "-v").Output()
+	cmd := exec.Command(nodeExe, "-v")
+	hideWindow(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
@@ -144,7 +177,9 @@ func pythonSystemExe() string {
 			continue
 		}
 		// Windows 商店占位符会返回 9009，跑一次 -V 才能确认它能用。
-		if out, err := exec.Command(exe, "-V").Output(); err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Python 3") {
+		cmd := exec.Command(exe, "-V")
+		hideWindow(cmd)
+		if out, err := cmd.Output(); err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Python 3") {
 			return exe
 		}
 	}
@@ -179,11 +214,29 @@ func (e *Env) PiExe() (string, string) {
 	return "", ""
 }
 
+// PiCommand 返回可直接交给 os/exec 的 PI 入口与附加参数：shim 还原成 node + 脚本，不经 shell。
+func (e *Env) PiCommand() (string, []string) {
+	exe, _ := e.PiExe()
+	if exe == "" {
+		return "", nil
+	}
+	piCmdMu.Lock()
+	defer piCmdMu.Unlock()
+	if piCmdCached && piCmdExe == exe {
+		return piCmdExe, piCmdArgs
+	}
+	resolved, args := resolvePiExe(exe)
+	piCmdExe, piCmdArgs, piCmdCached = resolved, args, true
+	return resolved, args
+}
+
 // npmPrefixes 列出要找 PI 的 npm 全局前缀：系统 npm 的配置优先，其次应用内那份。
 func (e *Env) npmPrefixes() []string {
 	out := []string{}
 	if npm := e.NpmCmd(); npm != "" {
-		if raw, err := exec.Command(npm, "config", "get", "prefix").Output(); err == nil {
+		cmd := exec.Command(npm, "config", "get", "prefix")
+		hideWindow(cmd)
+		if raw, err := cmd.Output(); err == nil {
 			if p := strings.TrimSpace(string(raw)); p != "" && pkg.DirExists(p) {
 				out = append(out, p)
 			}
@@ -198,7 +251,11 @@ func (e *Env) PiVersion(piExe string) string {
 	if piExe == "" {
 		return ""
 	}
-	out, err := exec.Command(piExe, "--version").Output()
+	exe, args := resolvePiExe(piExe)
+	argv := append(append([]string{}, args...), "--version")
+	cmd := exec.Command(exe, argv...)
+	hideWindow(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
@@ -252,7 +309,9 @@ func pythonVersionOf(exe string) string {
 	if exe == "" {
 		return ""
 	}
-	out, err := exec.Command(exe, "-V").Output()
+	cmd := exec.Command(exe, "-V")
+	hideWindow(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
@@ -300,11 +359,11 @@ func (e *Env) Env() []string {
 // InstallPi 用 npm 全局安装 PI，输出按行回调（前端要看到进度）。
 // 安装可能几十秒，没有输出界面会被当成卡死。
 func (e *Env) InstallPi(onLine func(string)) error {
-	npm := e.NpmCmd()
+	npm, npmArgs := e.NpmCommand()
 	if npm == "" {
 		return pkg.New("9710", "找不到 npm，无法安装助手引擎", "内置 Node 未就绪且系统也没有 npm")
 	}
-	args := []string{"install", "-g", "--ignore-scripts", piPackage}
+	args := append(append([]string{}, npmArgs...), "install", "-g", "--ignore-scripts", piPackage)
 	cmd := exec.Command(npm, args...)
 	cmd.Env = append(e.Env(), "npm_config_prefix="+e.paths.NpmGlobalDir)
 	hideWindow(cmd)

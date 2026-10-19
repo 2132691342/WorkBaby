@@ -2,6 +2,8 @@
 package api
 
 import (
+	"strconv"
+
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 
@@ -119,9 +121,16 @@ func (h *Handler) BackgroundAsset(c *gin.Context) {
 	c.File(bg.Image)
 }
 
-// Stats 仪表盘统计：token 用量按天 / 按模型 / 按会话。
+// Stats 仪表盘统计：token 用量按天 / 按小时 / 按模型 / 按会话。
+// span 取 24h / today / 7d / 14d / 30d；旧的 days 数字参数兜底换算。
 func (h *Handler) Stats(c *gin.Context) {
-	resp, err := h.Svc.Stats.Compute(queryInt(c, "days"))
+	span := c.Query("span")
+	if span == "" {
+		if days := queryInt(c, "days"); days > 0 {
+			span = strconv.Itoa(days) + "d"
+		}
+	}
+	resp, err := h.Svc.Stats.Compute(span)
 	if err != nil {
 		fail(c, err)
 		return

@@ -3,10 +3,8 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,6 +15,7 @@ import (
 	"WorkBaby/backend/db"
 	"WorkBaby/backend/domain"
 	pienv "WorkBaby/backend/pi/env"
+	"WorkBaby/backend/pi/piptest"
 	"WorkBaby/backend/repo"
 	"WorkBaby/backend/runtime"
 	"WorkBaby/backend/runtime/runtimetest"
@@ -54,6 +53,21 @@ func (s *eventSink) names() []string {
 	return out
 }
 
+// payloadOf 返回第一条指定事件的名字与载荷；没找到就 ok=false。
+func (s *eventSink) payloadOf(event string) (map[string]any, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.list {
+		if e.Event == event {
+			raw, _ := json.Marshal(e.Data)
+			var m map[string]any
+			_ = json.Unmarshal(raw, &m)
+			return m, true
+		}
+	}
+	return nil, false
+}
+
 func (s *eventSink) reset() {
 	s.mu.Lock()
 	s.list = nil
@@ -78,7 +92,7 @@ func bootService(t *testing.T) *testEnv {
 	t.Setenv("WORKBABY_HOME", home)
 	// agent 目录必须隔离：测试绝不能动用户真实的 ~/.pi/agent。
 	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(home, "agent"))
-	t.Setenv("WORKBABY_PI_EXE", buildFakePI(t))
+	t.Setenv("WORKBABY_PI_EXE", piptest.Build(t))
 	runtimetest.SeedMarkers(t, home)
 
 	paths, err := runtime.Resolve()
@@ -114,38 +128,6 @@ func bootService(t *testing.T) *testEnv {
 	}
 	t.Cleanup(func() { env.PiSupervisor().StopAll() })
 	return &testEnv{env: env, container: container, home: home, events: sink}
-}
-
-// buildFakePI 编译假 PI。
-func buildFakePI(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "fakepi.exe")
-	cmd := exec.Command("go", "build", "-o", exe, "./backend/pi/pitest")
-	cmd.Dir = repoRootOf(t)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("编译假 PI 失败: %v\n%s", err, out)
-	}
-	return exe
-}
-
-// repoRootOf 往上找 go.mod。
-func repoRootOf(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("找不到仓库目录")
-		}
-		dir = parent
-	}
 }
 
 // waitIdle 等到会话不再运行。
@@ -303,7 +285,7 @@ func TestServiceChain(t *testing.T) {
 		}
 
 		// 用量从这条真会话的 usage 汇总：补齐 7 天、按模型归因、总量非零。
-		stats, err := te.container.Stats.Compute(7)
+		stats, err := te.container.Stats.Compute("7d")
 		if err != nil {
 			t.Fatalf("统计失败: %v", err)
 		}
@@ -335,6 +317,54 @@ func TestServiceChain(t *testing.T) {
 		}
 		if !te.events.has(domain.EventChatStopped) {
 			t.Fatal("停止必须立刻广播 chat:stopped")
+		}
+	})
+
+	// 回归：空闲时收到的 follow_up 等价于一轮新发送。
+	// 不记账直接发 prompt 的话，翻译器没有 runState，这一轮回应在界面上会整轮消失。
+	t.Run("空闲排队：follow_up 在没有 run 时按一轮完整发送记账", func(t *testing.T) {
+		resp, err := te.container.Chat.Send(domain.SendMessageREQ{
+			Workspace: te.env.Cfg.Workspace, Content: "先来一轮",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		te.waitIdle(t, resp.SessionID)
+		te.events.reset()
+		if err := te.container.Chat.FollowUp(domain.SteerREQ{
+			SessionID: resp.SessionID, Content: "空闲时排的队",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		te.waitIdle(t, resp.SessionID)
+		if !te.events.has(domain.EventChatStart) {
+			t.Fatalf("空闲排队那一轮没有 chat:start: %v", te.events.names())
+		}
+		if !te.events.has(domain.EventChatDelta) || !te.events.has(domain.EventChatDone) {
+			t.Fatalf("空闲排队那一轮的回应没有出来: %v", te.events.names())
+		}
+		if !te.events.has(domain.EventChatUser) {
+			t.Fatal("空闲排队的消息没有回显")
+		}
+	})
+
+	// 内核与扩展按终端习惯给文字上色，GUI 没有终端语义：
+	// 不剥就是消息流里的 [39m[2mCache 0.0%[22;39m 这种乱码。
+	t.Run("界面文本剥掉终端色码", func(t *testing.T) {
+		te.events.reset()
+		resp, err := te.container.Chat.Send(domain.SendMessageREQ{
+			Workspace: te.env.Cfg.Workspace, Content: "触发状态条",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		te.waitIdle(t, resp.SessionID)
+		status, ok := te.events.payloadOf(domain.EventChatStatus)
+		if !ok {
+			t.Fatalf("扩展的状态条事件没到: %v", te.events.names())
+		}
+		if text, _ := status["text"].(string); text != "Indexing workspace..." {
+			t.Fatalf("状态条文本没剥成纯文本（实际 %q）", text)
 		}
 	})
 
@@ -582,6 +612,3 @@ func dirExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.IsDir()
 }
-
-// 编译期确认 context 被引用（停止链路里用到）。
-var _ = context.Background

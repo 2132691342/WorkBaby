@@ -178,7 +178,7 @@ export const env = {
   recheck: () => post<PiEnvVO>('/env/recheck'),
 }
 
-export const stats = (days: number) => get<StatsRESP>('/stats', { days })
+export const stats = (span: string) => get<StatsRESP>('/stats', { span })
 
 /** 内置帮助文档（只读，随应用打包） */
 export const docs = {

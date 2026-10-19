@@ -133,7 +133,9 @@ func EnsurePip(exe string) error {
 	if exe == "" {
 		return pkg.New("7004", "没有可用的 Python", "内置运行时没解压，系统里也没找到")
 	}
-	if err := exec.Command(exe, "-m", "pip", "--version").Run(); err == nil {
+	probe := exec.Command(exe, "-m", "pip", "--version")
+	hideWindow(probe)
+	if err := probe.Run(); err == nil {
 		return nil
 	}
 	dir, err := os.MkdirTemp("", "workbaby-pip")
@@ -146,7 +148,9 @@ func EnsurePip(exe string) error {
 	if err := downloadFile(pipBootstrapURL, script); err != nil {
 		return pkg.Wrap("7004", "下载 pip 引导脚本失败（需要联网）", err)
 	}
-	out, err := exec.Command(exe, script, "--no-warn-script-location").CombinedOutput()
+	boot := exec.Command(exe, script, "--no-warn-script-location")
+	hideWindow(boot)
+	out, err := boot.CombinedOutput()
 	if err != nil {
 		return pkg.New("7004", "引导 pip 失败", clip(string(out), 400))
 	}

@@ -81,7 +81,7 @@
 | GET | `/settings/workspaces` | 最近用过的工作目录 |
 | GET/POST | `/settings/background` | 自定义背景 |
 | GET | `/assets/background` | 背景图本体 |
-| GET | `/stats?days=` | 用量统计（按天 / 模型 / 会话） |
+| GET | `/stats?span=` | 用量统计；`span` 取 `24h` / `today` / `7d` / `14d` / `30d`（按小时或按天聚合），旧 `days` 数字参数兜底 |
 | GET | `/api/v1/events?session_id=` | SSE 事件流（`last_event_id` 重放） |
 
 ## SSE

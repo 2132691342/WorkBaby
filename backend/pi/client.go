@@ -8,9 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,13 +34,13 @@ const (
 
 // Config 是一次 spawn 的全部参数。
 type Config struct {
-	// Exe 是 PI 的入口（Windows 下通常是 pi.cmd）。
+	// Exe 是 PI 的入口（node.exe，脚本在 Args[0]）；测试里也可以是假 PI 的可执行文件。
 	Exe string
 	// Workspace 是子进程工作目录，即 PI 的 cwd。
 	Workspace string
 	// Env 是完整环境（含注入的 PATH），nil 表示继承当前进程。
 	Env []string
-	// Args 是附加命令行参数（不含 --mode rpc，由客户端补）。
+	// Args 是入口脚本与附加参数（不含 --mode rpc，由客户端补，且必须排在它前面）。
 	Args []string
 	// NoSession 为 true 时不落 PI 的会话文件。
 	NoSession bool
@@ -95,11 +93,14 @@ func Start(cfg Config, h Handler) (*Client, error) {
 	if cfg.Exe == "" {
 		return nil, ErrNotReady
 	}
-	args := []string{"--mode", "rpc"}
+	// cfg.Args 是入口脚本（或扩展参数），必须排在 --mode 之前：node 把第一个非选项
+	// 参数当脚本，之后的原样交给它；反过来 node 会自己去解析 --mode，报 "bad option"。
+	args := make([]string, 0, len(cfg.Args)+3)
+	args = append(args, cfg.Args...)
+	args = append(args, "--mode", "rpc")
 	if cfg.NoSession {
 		args = append(args, "--no-session")
 	}
-	args = append(args, cfg.Args...)
 
 	cmd := exec.Command(cfg.Exe, args...)
 	cmd.Dir = cfg.Workspace
@@ -455,15 +456,4 @@ func (t *tailBuffer) String() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return strings.Join(t.lines, "\n")
-}
-
-// ResolveExe 在给定目录里找一个可执行入口（pi.cmd / pi.exe / pi）。
-func ResolveExe(dir string) string {
-	for _, name := range []string{"pi.cmd", "pi.exe", "pi"} {
-		p := filepath.Join(dir, name)
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			return p
-		}
-	}
-	return ""
 }

@@ -340,7 +340,7 @@ export interface StatsTotals {
 }
 
 export interface StatsDailyItem {
-  /** 本地日期，格式 YYYY-MM-DD */
+  /** 桶键：天粒度 YYYY-MM-DD；小时粒度 YYYY-MM-DD HH:00 */
   date: string
   input: number
   output: number
@@ -367,10 +367,15 @@ export interface StatsSessionItem {
   updated_at: number
 }
 
+export type StatsSpan = '24h' | 'today' | '7d' | '14d' | '30d'
+
 export interface StatsRESP {
-  days: number
+  /** 请求的时间范围：24h / today / 7d / 14d / 30d */
+  span: StatsSpan
+  /** daily 的聚合粒度：day 按天；24h 与 today 按小时 */
+  granularity: 'day' | 'hour'
   totals: StatsTotals
-  /** 长度恒等于 days，缺的日子后端已补零 */
+  /** 长度恒等于桶数（天数或小时数），缺的桶后端已补零 */
   daily: StatsDailyItem[]
   models: StatsModelItem[]
   sessions: StatsSessionItem[]
