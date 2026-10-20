@@ -47,12 +47,33 @@ jobs:
 
       - name: Install NSIS
         shell: pwsh
-        # runner 自带 choco，用它装源稳定版本可锁定。makensis 必须在 PATH 上，wails build 才拿得到。
+        # windows-latest(2025 镜像)不带 NSIS,只能现装;而 choco 社区源有间歇故障(HTTP 499/503,
+        # 已知问题,见 keycloak/keycloak#28510)。策略:镜像预装则零网络直接用 → choco 重试 4 次 →
+        # 仍失败用 NSIS 官方便携包兜底。makensis 必须在 PATH 上,wails build 才拿得到。
         run: |
-          choco install nsis -y --no-progress
-          $nsisPath = "${env:ProgramFiles(x86)}\NSIS"
-          if (-not (Test-Path $nsisPath)) { throw "NSIS installation failed (path not found: $nsisPath)" }
-          echo "$nsisPath" | Out-File -FilePath $env:GITHUB_PATH -Append
+          $ErrorActionPreference = 'Stop'
+          $nsisDir = "${env:ProgramFiles(x86)}\NSIS"
+          function Use-Nsis([string]$dir) {
+            if (-not (Test-Path "$dir\makensis.exe")) { return $false }
+            Add-Content -Path $env:GITHUB_PATH -Value $dir
+            Write-Host ('makensis ' + (& "$dir\makensis.exe" /VERSION) + " @ $dir")
+            return $true
+          }
+          if (Use-Nsis $nsisDir) { exit 0 }   # 预装镜像(windows-2022 等)零网络通过
+          $ok = $false
+          for ($i = 1; $i -le 4; $i++) {      # CCR 抖动重试,递增退避
+            if ($i -gt 1) { Start-Sleep -Seconds (15 * $i) }
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE -eq 0 -and (Use-Nsis $nsisDir)) { $ok = $true; break }
+            Write-Warning "choco install nsis 第 $i 次尝试失败"
+          }
+          if (-not $ok) {                     # 兜底:官方发行便携 zip,版本随 NSIS 官方更新而 pin
+            $ver = '3.13'
+            $zip = "$env:RUNNER_TEMP\nsis-$ver.zip"
+            curl.exe -L --fail --retry 3 -o "$zip" "https://downloads.sourceforge.net/project/nsis/NSIS%203/$ver/nsis-$ver.zip"
+            Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\nsis" -Force
+            if (-not (Use-Nsis "$env:RUNNER_TEMP\nsis\nsis-$ver")) { throw "NSIS 便携包不可用" }
+          }
 
       - name: Install frontend dependencies
         run: npm ci
