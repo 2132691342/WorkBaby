@@ -3,13 +3,15 @@
 
   pwsh scripts/check.ps1                      快门：gofmt → 编译 → 全包 -short 测试
   pwsh scripts/check.ps1 -Pkg backend/pi      只验一个包（只碰一个能力域时用）
-  pwsh scripts/check.ps1 -Full                全量：+ vet + 依赖边界 + 全量测试 + 前端构建
+  pwsh scripts/check.ps1 -Full                全量：+ 前端构建 + vet + 依赖边界 + 全量测试
 
 分档规则：
   -Pkg 只回答「这个包坏没坏」，因此不跑 vet / 边界 / 前端；它与 -Full 互斥。
   -short 跳过真 git 子进程链路、运行时归档真解压与本机 PI 真实回合，
   这三条只在 -Full 跑到；CI 跑 -Full，所以本地不跑不等于没人跑。
   耗时大头是编译与链接测试二进制，不是断言——所以 -Pkg 省下的正是这一段。
+  任何编译前都保证 frontend/dist 就位：它是 //go:embed 的硬依赖且被 .gitignore
+  排除，全新 checkout（CI）上没有。-Full 每次重建，其余档 dist 已在则跳过。
 
 失败摘要：
   -Full 档把测试输出同时写到 .check/test-output.log（不进 Git）。失败时自动打印
@@ -93,6 +95,23 @@ Invoke-Step 'gofmt' {
     $global:LASTEXITCODE = [int][bool]$bad
 }
 
+# 前端必须在编译前就位：main.go 的 //go:embed all:frontend/dist 在 dist 不存在时直接编译失败，
+# 而 dist 被 .gitignore 排除，全新 checkout（CI）上没有——本地有残留才掩盖至今。
+# -Full 每次重建（门禁验证的是「最新前端 + Go」的真实组合）；其余档 dist 已在则跳过，保住快。
+# npm run build 里已串了 vue-tsc，不必再单独跑类型检查。
+if ($Full -or -not (Test-Path 'frontend/dist/index.html')) {
+    if (-not (Test-Path 'frontend/node_modules')) {
+        Invoke-Step 'frontend deps' {
+            Push-Location frontend
+            try { npm ci } finally { Pop-Location }
+        }
+    }
+    Invoke-Step 'frontend build' {
+        Push-Location frontend
+        try { npm run build } finally { Pop-Location }
+    }
+}
+
 # -Pkg 档：只回答「这个包坏没坏」。包路径写成 backend/pi 或 ./backend/pi 都行，这里补前缀。
 if ($Pkg) {
     if ($Pkg -notmatch '^(\.|WorkBaby)') { $Pkg = "./$Pkg" }
@@ -112,13 +131,5 @@ if ($Full) {
 
 # 全量档跑全量测试并落盘（失败摘要靠它）；快门档只求快，不留日志。
 Invoke-Step 'test' { Invoke-Test -Target './...' -ToFile:$Full -Verbose:$Full }
-
-# 前端只有一档：npm run build 里已串了 vue-tsc，不必再单独跑类型检查。
-if ($Full) {
-    Invoke-Step 'frontend build' {
-        Push-Location frontend
-        try { npm run build } finally { Pop-Location }
-    }
-}
 
 Write-Host '全部通过。' -ForegroundColor Green

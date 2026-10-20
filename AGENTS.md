@@ -576,9 +576,9 @@ type Record struct {
 
 | 命令 | 跑什么 | 什么时候用 |
 |---|---|---|
-| `pwsh scripts/check.ps1` | 格式 → 编译 → 所有包短测试 | 日常快门 |
+| `pwsh scripts/check.ps1` | 格式 → 编译 → 所有包短测试（dist 缺失先建前端） | 日常快门 |
 | `pwsh scripts/check.ps1 -Pkg backend/pi` | 格式 → 编译该包 → 测该包（短） | 明确只碰了一个包 |
-| `pwsh scripts/check.ps1 -Full` | vet、依赖边界、全量测试、前端构建 | 改了前端 / 发版前；CI 跑这一档 |
+| `pwsh scripts/check.ps1 -Full` | 前端构建、vet、依赖边界、全量测试（前端先建，编译才能 embed dist） | 改了前端 / 发版前；CI 跑这一档 |
 
 失败即退出且不吞退出码。`-Pkg` 只回答「这个包坏没坏」，因此不跑 vet / 边界 / 前端，
 它与 `-Full` 互斥（同时传会报错，不会默默降档）。
@@ -640,7 +640,7 @@ type Record struct {
 ## 4. 架构门禁
 
 ```bash
-pwsh scripts/check.ps1 -Full         # 格式 + 编译 + vet + 依赖边界 + 全量测试 + 前端构建
+pwsh scripts/check.ps1 -Full         # 格式 + 前端构建 + 编译 + vet + 依赖边界 + 全量测试
 wails build                          # 产物 build/bin/WorkBaby.exe
 ```
 
