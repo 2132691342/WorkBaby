@@ -307,6 +307,7 @@ onMounted(async () => {
   overflow: hidden;
   border: 1px solid var(--wb-border);
 }
+/* 下面两张缩略图要同时展示浅色与深色两套主题，因此用两套主题的字面值，不跟当前主题走。 */
 .tc-preview.is-light {
   background: #f8fafc;
 }

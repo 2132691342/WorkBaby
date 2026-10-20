@@ -3,7 +3,6 @@
 package git
 
 import (
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -148,11 +147,11 @@ func pathsArg(dir string, paths []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		rel, err := filepath.Rel(dir, joined)
+		rel, err := relTo(dir, joined)
 		if err != nil {
 			return nil, pkg.New("1004", "路径越出工作目录", p)
 		}
-		out = append(out, filepath.ToSlash(rel))
+		out = append(out, rel)
 	}
 	if len(out) == 0 {
 		return []string{"."}, nil

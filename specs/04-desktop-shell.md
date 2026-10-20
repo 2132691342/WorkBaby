@@ -51,7 +51,7 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 | 钩子 | 职责 |
 |---|---|
 | OnStartup | `api.Handler.Startup`：路径 → 日志 → 配置 → DB → 工具 → 技能 → 服务装配 |
-| OnDomReady | 启动 gin（回环随机端口）→ 广播 `app:ready`（立即一次 + 之后 20 次 × 300ms，约 6 秒的重复广播窗口，覆盖前端任意时刻才注册的监听；绑定面不加端口查询方法，握手通道只有这一条）→ 拉起托盘 |
+| OnDomReady | 启动 gin（回环随机端口）→ 广播一次 `app:ready` → 拉起托盘 |
 | OnBeforeClose | 按「关闭到托盘」设置收托盘或放行（见上） |
 | OnShutdown | 停 HTTP → 退托盘并等它摘掉图标 → 关数据库 → 放实例锁 → 结束进程 |
 
@@ -62,8 +62,10 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 
 ## Wails 绑定面（仅系统能力）
 
-`ForceQuit` / `OpenFileDialog` / `OpenDirectoryDialog` / `AutoStartEnabled` / `SetAutoStart`。
+`ServerPort` / `ForceQuit` / `OpenFileDialog` / `OpenDirectoryDialog` / `AutoStartEnabled` / `SetAutoStart`。
 
+- `ServerPort` 是拿端口的第二条路：事件不缓冲给后注册的监听器，而绑定方法随时可调、幂等；
+  前端模块顶层同时监听 `app:ready` 与轮询 `ServerPort`，谁先到用谁
 - `App` 持有 `*api.Handler` 而不是嵌入它：嵌入会把几十个 gin handler 一起绑成
   JS 方法（签名里带 `gin.Context`，永远调不通），绑定面就废了
 - 窗口控制与剪贴板由前端直接调 wails runtime 包（`wailsjs/runtime`），
@@ -141,7 +143,7 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 
 | Wails 事件 | 语义 |
 |---|---|
-| app:ready | `{server_port}`：前端据此设置 axios baseURL 与 SSE 地址 |
+| app:ready | `{server_port}`：前端据此设置 axios baseURL 与 SSE 地址（只在启动时发一次，漏了靠 `ServerPort()` 补） |
 | app:startup-error | `{message}`：装配失败，前端显示错误屏 |
 | app:to-tray | 正在收进托盘：前端先提示一句，1.1 秒后窗口才隐藏 |
 | app:new-session | 托盘「新建对话」：切回对话页并新建 |
@@ -149,7 +151,7 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 
 ## 取舍
 
-- **绑定面只留 5 个系统方法**：业务接口全走 HTTP，前端在浏览器里就能跑通界面（开发不必开窗）。
+- **绑定面只留 6 个系统方法**：业务接口全走 HTTP，前端在浏览器里就能跑通界面（开发不必开窗）。
   代价是启动顺序变成硬约束——端口没起来之前，界面所有请求都会 404，所以握手必须早于 `domReady`。
 - **窗口控制不进绑定面**：前端直接调 wails runtime，少一层转发；
   代价是前端代码同时依赖 `wailsjs/runtime` 与 HTTP 两套通道，调试时要知道在哪一侧。

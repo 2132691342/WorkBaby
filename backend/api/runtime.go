@@ -10,12 +10,9 @@ import (
 // RuntimeStatus 报告内置运行时是否就绪，附带失败原因。
 func (h *Handler) RuntimeStatus(c *gin.Context) { ok(c, h.runtimeInfo()) }
 
-// RedetectRuntime 重新探测内置运行时：先清探测缓存再跑一遍，
-// 首次解压失败（磁盘满、被安全软件拦）修好后，这里点一下就能重试。
-func (h *Handler) RedetectRuntime(c *gin.Context) {
-	runtime.ResetProbe()
-	ok(c, h.runtimeInfo())
-}
+// RedetectRuntime 重新探测内置运行时。探测本身不缓存（只读版本标记），
+// 这里只是给界面一个确定的“再试一次”入口：首次解压失败（磁盘满、被安全软件拦）修好后点一下就能看到结果。
+func (h *Handler) RedetectRuntime(c *gin.Context) { ok(c, h.runtimeInfo()) }
 
 // runtimeInfo 把运行时探测结果整成界面能直接显示的形状。
 // 内置缺失但系统装了可用版本时标注 source=system，而不是报不可用。
@@ -59,6 +56,3 @@ func (h *Handler) runtimeInfo() domain.RuntimeInfoVO {
 		PythonError:   py.Err,
 	}
 }
-
-// runtimeReady 报告内置 Python 是否可用。
-func runtimeReady(p runtime.Paths) bool { return runtime.PythonExe(p) != "" }

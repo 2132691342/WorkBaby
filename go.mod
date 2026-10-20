@@ -9,7 +9,6 @@ require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/google/uuid v1.6.0
-	github.com/oklog/ulid/v2 v2.1.0
 	github.com/spf13/viper v1.19.0
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/sys v0.30.0

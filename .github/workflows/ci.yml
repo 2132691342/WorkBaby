@@ -1,13 +1,10 @@
-# 质量门禁：push main / PR 上跑完整验证链（vet + 依赖边界 + 全量测试 + 前端类型与构建）。
-# 这里只验证、从不发版：发版只由 release.yml 在 tag 上触发。
-# 两者必须错开——push main 不得触发任何发版动作，否则每次提交都会进 Release。
-
+# 质量门禁：push main / PR 上跑完整验证链（gofmt + 前端构建 + vet + 依赖边界 + 全量测试）。
+# 只验证、从不发版：发版只由 release.yml 在 tag 上触发。
 name: ci
 
 on:
   push:
     branches: [main]
-    # tag 一律不发版：排除掉才能保证「只有 release.yml 认 tag」。
     tags-ignore: ['v*']
   pull_request:
   workflow_dispatch:
@@ -16,28 +13,33 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: Verify
     runs-on: windows-latest
+    timeout-minutes: 40
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # 内置运行时归档走 Git LFS：embed 的是指针文本时构建会成功但运行时不可用。
           lfs: true
           fetch-depth: 1
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          # 与内置 Node 同一大版本：CI 验的就是用户拿到的运行时组合。
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -47,6 +49,6 @@ jobs:
 
       - name: Verify
         shell: pwsh
-        # 与本地 scripts/check.ps1 -Full 同一条链：门禁只有一处实现，两边不会漂。
-        # -v 让失败时能从输出直接看到是哪个子测试；失败摘要由脚本自己写进 job summary。
+        # 与本机 scripts/check.ps1 -Full 同一条链：门禁只有一处实现，两边不会漂。
+        # 失败摘要由脚本自己写进 job summary（子测试名 + .go 行号）。
         run: pwsh scripts/check.ps1 -Full

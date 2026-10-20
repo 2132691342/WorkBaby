@@ -142,7 +142,7 @@ function winctl(action: 'min' | 'max' | 'close') {
   display: grid;
   place-items: center;
   background: var(--wb-primary);
-  color: #ffffff;
+  color: var(--wb-primary-ink);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: var(--wb-fs-2xs);
@@ -254,6 +254,6 @@ function winctl(action: 'min' | 'max' | 'close') {
 }
 .win-btn.is-close:hover {
   background: var(--wb-danger);
-  color: #ffffff;
+  color: var(--wb-primary-ink);
 }
 </style>

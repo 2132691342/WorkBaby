@@ -28,7 +28,7 @@
 | 配置 | Viper | ^1.19.x（YAML + ENV；运行时配置走 KV 表） |
 | 日志 | log/slog（标准库） | info/warn/error 分文件落盘 |
 | 实时通信 | SSE | 业务实时通信全部走 SSE（`/api/v1/events`），不引入 WebSocket |
-| 测试 | testing（标准库） | 一包一入口、一条链一子测试；`scripts/check.ps1` 分三档收口验证（快门 / -Pkg / -Full），耗时以编译为主 |
+| 测试 | testing（标准库） | 一包一入口、一条链一子测试；`scripts/check.ps1` 分四档收口验证（快门 / -Pkg / -Chain / -Full），耗时以编译为主 |
 | ID | oklog/ulid/v2 | 业务 ULID 带前缀 |
 | 托盘 | getlantern/systray | 关闭到托盘 |
 | 内置运行时 | Node + Python | `backend/runtime/bundled/`（go:embed 进 exe，归档经 LFS 托管），其余一律不内置 |
@@ -339,6 +339,7 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 | Token 计量 | 用量读自 PI 的会话文件（assistant 消息上的 usage）；`GET /stats` 按天/模型/会话聚合 |
 | 配置 | Viper（工作目录等固定项）+ settings KV 表（界面偏好） |
 | 单实例 | 文件锁 + 本地 TCP IPC 转交文件路径 |
+| 路径比较 | 同一份路径的短名（`RUNNER~1`）与长名、符号链接形式字面不等；取相对路径或判越界前先过 `pkg.RealPath` |
 
 禁止引入：OpenTelemetry / Prometheus 客户端；AOP 框架；全局可变状态。
 
@@ -578,10 +579,12 @@ type Record struct {
 |---|---|---|
 | `pwsh scripts/check.ps1` | 格式 → 编译 → 所有包短测试（dist 缺失先建前端） | 日常快门 |
 | `pwsh scripts/check.ps1 -Pkg backend/pi` | 格式 → 编译该包 → 测该包（短） | 明确只碰了一个包 |
+| `pwsh scripts/check.ps1 -Chain 提问` | 格式 → 编译 → 跨包只跑命中名字的链路（`-run` 子串） | 改了某一条行为，要一眼看到它 |
+| `pwsh scripts/check.ps1 -List` | 列出全部 `Test<Domain>Chain` 入口与所在文件 | 不知道去哪找时先拿索引 |
 | `pwsh scripts/check.ps1 -Full` | 前端构建、vet、依赖边界、全量测试（前端先建，编译才能 embed dist） | 改了前端 / 发版前；CI 跑这一档 |
 
-失败即退出且不吞退出码。`-Pkg` 只回答「这个包坏没坏」，因此不跑 vet / 边界 / 前端，
-它与 `-Full` 互斥（同时传会报错，不会默默降档）。
+失败即退出且不吞退出码。`-Pkg` 只回答「这个包坏没坏」，因此不跑 vet / 边界 / 前端；
+它与 `-Full`、`-Chain` 互斥（同时传会报错，不会默默降档）。
 
 `-Full` 档把测试输出同时写到 `.check/test-output.log`（不进 Git），失败时自动打印
 失败摘要——子测试名是定位的第一个把手，`.go:行号` 直接指到断言；CI 里同一份内容
@@ -595,7 +598,7 @@ type Record struct {
 ### 3.4 测试索引
 
 保留判据只有两条：**它坏了会指向一条真实链路**、**必须跨模块 / 跨轮次 / 跨协议**。
-全包共 8 个入口 / 8 个文件（一包一入口），共 33 条子测试：
+全包共 8 个入口 / 8 个文件（一包一入口），共 27 条子测试：
 简单 CRUD、字段映射、构造冒烟这类「坏了也不知道哪里坏」的断言一律不写——
 它们撑不起一条链路，只会稀释失败信息、拖慢每次验证。
 没列进来的包（server / config / db / domain / pkg / repo / tray / singleinstance）
@@ -604,13 +607,13 @@ type Record struct {
 | 入口 | 覆盖的链路 |
 |---|---|
 | `app_test.go` · TestAppChain | **启动等待判据**（慢装配不误判 / 失败如实报 / 卡死有上限）；**关闭去向**（托盘开关与退出流程决定收托盘还是真退出） |
-| `pi/pi_test.go` · TestPiChain | 六条链：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、可用模型清单）；**事件顺序**（agent_end → 重试 → settled，done 只挂最后）；**事件翻译**（流式增量两类、工具结果内容块与元数据、压缩前后 token、四种 fire-and-forget 扩展请求及其字段原样透传）；**提问请求解析与回写响应**（请求字段完整解析、响应写回同一 id）；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程）；**本机 PI 真实回合**（`-short` 跳过：经 npm shim 还原出 node + 入口脚本，起进程、等就绪、建会话、两轮对话、进程复用与会话文件落盘） |
-| `pi/env/env_test.go` · TestPiEnvChain | 六条链：**agent 目录与进程环境**（跟随 `PI_CODING_AGENT_DIR`、不覆盖它）；**环境闸门**（node → pi → model 报首个阻塞项并给原因）；**models.json 形状与未知字段保留**（camelCase、`$schema` / 服务商内未知键往返不丢）；**settings.json 只改掌管键**（PI 自己的字段与已装的包不丢、compaction 字段级合并、packages 两种写法、原子替换不留临时文件）；**mcp.json 原文往返**与项目级路径；**PI 入口从 npm shim 还原成 node + 脚本**（解析结果不得是 cmd.exe，且必须真的跑得起来） |
-| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈，三个子测试：**闸门**（预检放行 + 方法白名单 + 路径穿越门口拒绝）；**契约**（空数组永不 null、引导字段支撑环境闸门）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、会话出现在列表里）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
-| `service/chain_test.go` · TestServiceChain | 八条链：**会话索引**（列表/详情/工具清单都来自会话文件、标题取 session_info、删除删的是文件）；**一轮对话与用量**（新会话现场创建、done 最后、重试事件、落盘后能算出用量与按模型归因）；**停止**（先取回排队文本再中止）；**空闲排队**（follow_up 在没有 run 时按一轮完整发送记账）；**界面文本剥掉终端色码**（扩展带的 ANSI 码进界面前被剥成纯文本）；**目录扫描**（技能三区启停靠移目录、包内技能不可搬、扩展登记项与包目录解析）；**配置写入**（models.json 密钥掩码与能力回读、默认模型落盘、坏 MCP JSON 不落盘、删除连带清默认）；**跨工作区并行**（各自一个进程，不串会话） |
+| `pi/pi_test.go` · TestPiChain | 五条链：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、可用模型清单）；**事件顺序与翻译**（agent_end → 重试 → settled 且 done 只挂最后；流式增量两类、工具结果内容块与元数据、压缩前后 token、四种 fire-and-forget 扩展请求及其字段原样透传）；**提问请求解析与回写响应**（请求字段完整解析、响应写回同一 id）；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程）；**本机 PI 真实回合**（`-short` 跳过：经 npm shim 还原出 node + 入口脚本，起进程、等就绪、建会话、两轮对话、进程复用与会话文件落盘） |
+| `pi/env/env_test.go` · TestPiEnvChain | 四条链：**agent 目录与进程环境**（跟随 `PI_CODING_AGENT_DIR`、不覆盖它）；**环境闸门**（node → pi → model 报首个阻塞项并给原因）；**配置文件**（models.json 的 camelCase 形状与未知字段保留、settings.json 只改掌管键且 compaction 字段级合并、packages 两种写法、原子替换不留临时文件、mcp.json 原文往返与项目级路径）；**PI 入口从 npm shim 还原成 node + 脚本**（解析结果不得是 cmd.exe，且必须真的跑得起来） |
+| `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈，两个子测试：**闸门与信封契约**（预检放行 + 方法白名单 + 路径穿越门口拒绝 + 空数组永不 null + 引导字段支撑环境闸门）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、会话出现在列表里、上一轮收尾后再发下一轮）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
+| `service/chain_test.go` · TestServiceChain | 七条链：**会话索引**（列表/详情/工具清单都来自会话文件、标题取 session_info、删除删的是文件）；**一轮对话与用量**（新会话现场创建、done 最后、重试事件、落盘后能算出用量与按模型归因）；**停止**（先取回排队文本再中止）；**空闲排队与界面文本**（follow_up 在没有 run 时按一轮完整发送记账、扩展带的 ANSI 码进界面前被剥成纯文本）；**目录扫描**（技能三区启停靠移目录、包内技能不可搬、扩展登记项与包目录解析）；**配置写入**（models.json 密钥掩码与能力回读、默认模型落盘、坏 MCP JSON 不落盘、删除连带清默认）；**跨工作区并行**（各自一个进程，不串会话） |
 | `git/git_test.go` · TestGitChain | 真仓库端到端（唯一用真 git 子进程的测试，约 10 秒），按坏法分三条链：读（status 归类 / 中文带空格路径还原 / 行号归属 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；写（参数白名单 → 勾选入栈 → 空信息被拒 → 提交带 hash → 历史与文件历史可读 → 出栈只动索引）；分支（名字白名单 → 新建切换 → 历史隔离）。`-short` 与没装 git 都跳过 |
 | `skill/skill_test.go` · TestSkillRegistryChain | **frontmatter 混合类型解析**（列表 / 行内数组 / 标量混排，解析失败会被静默跳过）；**两区扫描**（停用区可见可读、正文可取）；**工作区切换**（换目录换技能不残留、全局技能不被清掉） |
-| `runtime/runtime_test.go` · TestBundledRuntimeChain | 三条链：**归档与 SHA 常量一致**（LFS 指针当场识破）；**解压拒绝路径穿越**（zip-slip，正常路径不误伤）；**真实解压的根目录布局正确**（Node 剥掉顶层单目录、Python 平铺；`-short` 跳过） |
+| `runtime/runtime_test.go` · TestBundledRuntimeChain | 两条链：**归档完整性与解压安全**（SHA 常量一致、LFS 指针当场识破、zip-slip 拒绝且正常路径不误伤）；**真实解压的根目录布局正确**（Node 剥掉顶层单目录、Python 平铺；`-short` 跳过） |
 
 **改这里 → 只跑这条**（定位与验证都从这张表进；单包一律用脚本）：
 
@@ -623,16 +626,16 @@ type Record struct {
 | `skill/` | `pwsh scripts/check.ps1 -Pkg backend/skill` |
 | 壳层（`app.go`） | `pwsh scripts/check.ps1 -Pkg .` |
 | `runtime/`（含真解压）· `git/`（含真 git）· `pi/`（含真 PI 回合） | `pwsh scripts/check.ps1 -Full` |
-| 某一条子测试 | `go test -count=1 -run 'TestPiChain/提问请求解析与回写响应' ./backend/pi` |
+| 某一条子测试 | `pwsh scripts/check.ps1 -Chain 'TestPiChain/提问'` 或 `go test -count=1 -run 'TestPiChain/提问' ./backend/pi` |
+| 不知道入口叫什么 | `pwsh scripts/check.ps1 -List` |
 | 拿不准 | `pwsh scripts/check.ps1` |
 | 改了前端 | `cd frontend; npm run build`（或直接跑 `-Full`） |
 | 提交前 / CI | `pwsh scripts/check.ps1 -Full` |
 
-耗时大头是**编译与链接测试二进制**，断言本体多在亚秒级。所以「只跑一个包」省的是
-编译，不是断言——这就是 `-Pkg` 存在的理由。想更快就先用 `-Pkg <包>` 或
-`go test -run '<入口>/<那条链>'` 定位，确认后再跑一次全量。
+耗时大头是**编译与链接测试二进制**，断言本体多在亚秒级。所以「只跑一个包 / 只跑一条链」省的是
+编译，不是断言——这就是 `-Pkg` 与 `-Chain` 存在的理由。
 
-实测耗时（本机）：`-Pkg` 约 5s、快门约 14s、`-Full` 约 42s。
+实测耗时（本机）：`-Pkg` 约 5s、`-Chain` 约 6s、快门约 14s、`-Full` 约 40s。
 
 
 ---

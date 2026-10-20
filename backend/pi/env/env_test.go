@@ -132,9 +132,10 @@ func TestPiEnvChain(t *testing.T) {
 		}
 	})
 
-	// 整体重写会把 PI 自己写的字段与用户用 CLI 装的包抹掉——这是最贵的一类回归。
-	// packages 的两种写法（pi install 两种都会写）也在这条链上验。
-	t.Run("settings.json 只改自己掌管的键，packages 两种写法都要认", func(t *testing.T) {
+	// 整体重写会把 PI 自己写的字段与用户用 CLI 装的包抹掉——这是最贵的一类回归；
+	// packages 的两种写法（pi install 两种都会写）、mcp.json 的原文往返也在这条链上验。
+	// settings.json 只改自己掌管的键，packages 两种写法都要认；mcp.json 只做原文往返。
+	t.Run("配置文件：models.json 形状、settings.json 掌管键、mcp.json 原文往返", func(t *testing.T) {
 		e := New(pathsOf(t))
 		original := `{
   "defaultModel": "old",
@@ -203,16 +204,13 @@ func TestPiEnvChain(t *testing.T) {
 				t.Fatalf("残留了临时文件: %s", entry.Name())
 			}
 		}
-	})
-
-	// mcp.json 由用户与其它客户端共管：WorkBaby 只做原文往返，不碰内容。
-	t.Run("mcp.json 原文往返不改一个字节，项目级路径跟着工作区", func(t *testing.T) {
-		e := New(pathsOf(t))
-		original := `{"mcpServers":{"user-server":{"command":"node","args":["srv.js"],"timeout":60}},"_comment":"我自己写的说明"}`
-		if err := e.WriteMCPRaw(e.MCPPath(), []byte(original)); err != nil {
+		// mcp.json 由用户与其它客户端共管：WorkBaby 只做原文往返，不碰内容。
+		e2 := New(pathsOf(t))
+		original = `{"mcpServers":{"user-server":{"command":"node","args":["srv.js"],"timeout":60}},"_comment":"我自己写的说明"}`
+		if err := e2.WriteMCPRaw(e2.MCPPath(), []byte(original)); err != nil {
 			t.Fatal(err)
 		}
-		raw, err := e.MCPRaw(e.MCPPath())
+		raw, err = e2.MCPRaw(e2.MCPPath())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -220,7 +218,7 @@ func TestPiEnvChain(t *testing.T) {
 			t.Fatalf("原文被改写了:\n%s", raw)
 		}
 		workspace := filepath.Join(t.TempDir(), "proj")
-		if got := e.ProjectMCPPath(workspace); got != filepath.Join(workspace, ".pi", "mcp.json") {
+		if got := e2.ProjectMCPPath(workspace); got != filepath.Join(workspace, ".pi", "mcp.json") {
 			t.Fatalf("项目级 mcp.json 路径不对: %s", got)
 		}
 		if e.ProjectMCPPath("") != "" {

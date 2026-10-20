@@ -22,6 +22,10 @@ export function SaveFileDialog(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveFileDialog'](arg1, arg2, arg3);
 }
 
+export function ServerPort() {
+  return window['go']['main']['App']['ServerPort']();
+}
+
 export function SetAutoStart(arg1) {
   return window['go']['main']['App']['SetAutoStart'](arg1);
 }

@@ -71,13 +71,6 @@ func (t *translator) setSession(sessionID string, st *runState) {
 	t.states[sessionID] = st
 }
 
-// setCurrent 只更新当前会话指针（切会话但还没发消息时用）。
-func (t *translator) setCurrent(sessionID string) {
-	t.mu.Lock()
-	t.current = sessionID
-	t.mu.Unlock()
-}
-
 // clearSession 摘掉会话的 run 状态。
 func (t *translator) clearSession(sessionID string) {
 	t.mu.Lock()

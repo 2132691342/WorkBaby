@@ -335,9 +335,9 @@ func TestServiceChain(t *testing.T) {
 		waitAbortMarker(t, vo.File)
 	})
 
-	// 回归：空闲时收到的 follow_up 等价于一轮新发送。
-	// 不记账直接发 prompt 的话，翻译器没有 runState，这一轮回应在界面上会整轮消失。
-	t.Run("空闲排队：follow_up 在没有 run 时按一轮完整发送记账", func(t *testing.T) {
+	// 回归：空闲时收到的 follow_up 等价于一轮新发送。不记账直接发 prompt 的话，
+	// 翻译器没有 runState，这一轮回应在界面上会整轮消失；界面文本还必须先把终端色码剥掉。
+	t.Run("空闲排队与界面文本：follow_up 按完整一轮记账，色码不上屏", func(t *testing.T) {
 		resp, err := te.container.Chat.Send(domain.SendMessageREQ{
 			Workspace: te.env.Cfg.Workspace, Content: "先来一轮",
 		})
@@ -361,19 +361,17 @@ func TestServiceChain(t *testing.T) {
 		if !te.events.has(domain.EventChatUser) {
 			t.Fatal("空闲排队的消息没有回显")
 		}
-	})
 
-	// 内核与扩展按终端习惯给文字上色，GUI 没有终端语义：
-	// 不剥就是消息流里的 [39m[2mCache 0.0%[22;39m 这种乱码。
-	t.Run("界面文本剥掉终端色码", func(t *testing.T) {
+		// 内核与扩展按终端习惯给文字上色，GUI 没有终端语义：
+		// 不剥就是消息流里的 [39m[2mCache 0.0%[22;39m 这种乱码。
 		te.events.reset()
-		resp, err := te.container.Chat.Send(domain.SendMessageREQ{
+		resp2, err := te.container.Chat.Send(domain.SendMessageREQ{
 			Workspace: te.env.Cfg.Workspace, Content: "触发状态条",
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		te.waitIdle(t, resp.SessionID)
+		te.waitIdle(t, resp2.SessionID)
 		status, ok := te.events.payloadOf(domain.EventChatStatus)
 		if !ok {
 			t.Fatalf("扩展的状态条事件没到: %v", te.events.names())

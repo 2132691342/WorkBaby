@@ -3,15 +3,10 @@
 package runtime
 
 import (
-	"context"
-	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"WorkBaby/backend/pkg"
 )
@@ -29,15 +24,6 @@ func pythonArchiveName() string { return "python-" + pythonVersion + "-embed-amd
 // 它必须与版本常量同时改：否则版本标记命中会跳过解压，机器上永远用旧运行时。
 const PythonArchiveSHA256 = "8d3f33be9eb810f23c102f08475af2854e50484b8e4e06275e937be61ce3d2fb"
 
-// PythonExe 返回可用的 Python 可执行文件路径；内置优先，其次系统。
-// 结果被缓存：每次工具调用都问一遍，会把「首次启动等几秒」变成「每次调用都卡一下」。
-func PythonExe(p Paths) string {
-	if exe, err := resolvePython(p); err == nil {
-		return exe
-	}
-	return PythonSystemExe()
-}
-
 // PythonStatus 报告内置运行时的可用状态与失败原因，供启动日志与设置页展示。
 type PythonStatus struct {
 	Exe     string // 非空表示内置 Python 可用
@@ -46,8 +32,8 @@ type PythonStatus struct {
 	Version string
 }
 
-// Status 探测内置 Python 并带上失败原因。它内部走 EnsurePython：首次调用会
-// 真解压归档（装配期即由它完成首装），已解压则按 .version 直接命中。
+// Status 探测内置 Python 并带上失败原因。首次调用会真解压归档（装配期即由它完成首装），
+// 已解压则按 .version 直接命中。
 func Status(p Paths) PythonStatus {
 	exe, err := EnsurePython(p)
 	if err != nil {
@@ -56,22 +42,14 @@ func Status(p Paths) PythonStatus {
 	return PythonStatus{Exe: exe, Source: "bundled", Version: pythonVersion}
 }
 
-// resolvePython 只解析一次：并发调用共享同一个结果；缓存可被 ResetProbe 清空。
-// 真正的解压在 probeFlight 闸门下做，缓存命中的读路径不被它阻塞。
-func resolvePython(p Paths) (string, error) {
-	return probeOnce(&pythonProbed, &pythonPath, &pythonErr, func() (string, error) {
-		return EnsurePython(p)
-	})
-}
-
-// EnsurePythonOrEmpty 是 EnsurePython 的静默版本，供只想拿到路径、
-// 不关心失败原因的调用方使用。
-func EnsurePythonOrEmpty(p Paths) string {
-	exe, err := EnsurePython(p)
-	if err != nil {
-		return ""
+// PythonSystemExe 返回系统 PATH 上的 Python（内置不可用时的兜底）。
+func PythonSystemExe() string {
+	for _, name := range []string{"python.exe", "python"} {
+		if exe, err := exec.LookPath(name); err == nil {
+			return exe
+		}
 	}
-	return exe
+	return ""
 }
 
 // EnsurePython 保证内置 Python 已解压并返回其路径。
@@ -122,73 +100,6 @@ func enableSite(dir, version, packages string) {
 		text = strings.TrimRight(text, "\r\n") + "\n" + packages + "\n"
 	}
 	_ = os.WriteFile(path, []byte(text), 0o644)
-}
-
-// pipBootstrapURL 引导 pip 用的脚本地址。
-const pipBootstrapURL = "https://bootstrap.pypa.io/get-pip.py"
-
-// EnsurePip 保证这个解释器上能跑 -m pip：官方 embeddable 包不带 pip，
-// 有就直接返回，没有就下载引导脚本装一次（需联网）。
-func EnsurePip(exe string) error {
-	if exe == "" {
-		return pkg.New("7004", "没有可用的 Python", "内置运行时没解压，系统里也没找到")
-	}
-	probe := exec.Command(exe, "-m", "pip", "--version")
-	hideWindow(probe)
-	if err := probe.Run(); err == nil {
-		return nil
-	}
-	dir, err := os.MkdirTemp("", "workbaby-pip")
-	if err != nil {
-		return pkg.Wrap("7004", "准备 pip 引导目录失败", err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-
-	script := filepath.Join(dir, "get-pip.py")
-	if err := downloadFile(pipBootstrapURL, script); err != nil {
-		return pkg.Wrap("7004", "下载 pip 引导脚本失败（需要联网）", err)
-	}
-	boot := exec.Command(exe, script, "--no-warn-script-location")
-	hideWindow(boot)
-	out, err := boot.CombinedOutput()
-	if err != nil {
-		return pkg.New("7004", "引导 pip 失败", clip(string(out), 400))
-	}
-	return nil
-}
-
-// clip 截断到 n 个 rune：外部命令的输出可能很长，错误详情只放得下关键几行。
-func clip(s string, n int) string {
-	r := []rune(strings.TrimSpace(s))
-	if len(r) <= n {
-		return string(r)
-	}
-	return string(r[:n]) + "…"
-}
-
-// downloadFile 下载到指定路径，30 秒超时。
-func downloadFile(url, dest string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	f, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
 }
 
 // dropStaleRuntime 清掉旧版本现场：只在版本标记存在且不一致时动手，

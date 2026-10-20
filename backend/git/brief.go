@@ -114,8 +114,10 @@ func statusWord(s string) string {
 func itoa(n int) string { return strconv.Itoa(n) }
 
 // relTo 把绝对路径折成相对 dir 的斜杠形式，与 status 报的路径同一套写法。
+// 两侧都先取真实路径：SafeJoin 交出的是 EvalSymlinks 之后的长名，而调用方手里的 dir
+// 可能是短名（Windows 临时目录常见），字面不同形时 Rel 会算出 ../.. ，git 会判成越界。
 func relTo(dir, full string) (string, error) {
-	rel, err := filepath.Rel(dir, full)
+	rel, err := filepath.Rel(pkg.RealPath(dir), pkg.RealPath(full))
 	if err != nil {
 		return "", err
 	}

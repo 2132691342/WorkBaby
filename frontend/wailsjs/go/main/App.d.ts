@@ -11,4 +11,6 @@ export function OpenFileDialog(arg1:string,arg2:string):Promise<string>;
 
 export function SaveFileDialog(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function ServerPort():Promise<number>;
+
 export function SetAutoStart(arg1:boolean):Promise<void>;

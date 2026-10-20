@@ -64,14 +64,15 @@ wails.Run
      ├─ skill.New() + Emitter
      ├─ service.New(env)         装配全部服务 + PI 监督器
      └─ container.Bootstrap()    设置默认值 / 生成 persona / 扫技能
- └─ domReady → 起 HTTP → 广播端口（app:ready，重复若干次防漏）→ 前端握手 → SSE 订阅
+ └─ domReady → 起 HTTP → 广播端口一次（app:ready）→ 前端握手（事件 + 绑定方法拉取）→ SSE 订阅
 ```
 
 **环境闸门在 spawn 之前**：前端读 `bootstrap.pi_env`，`ready=false` 就整屏进向导，
 不会出现「第一条消息必然失败，十几秒后才浮现」的体验。
 
-端口握手是硬约束：`app:ready` 先于前端 axios 初始化就会漏掉事件，
-所以启动后头几秒会重复广播同一个端口，直到前端接住。
+端口握手是硬约束：`app:ready` 先于前端 axios 初始化就会漏掉事件。
+所以端口有两条路可拿：事件（已注册监听器的场景）与 `ServerPort()` 绑定方法（随时可拉，幂等），
+前端启动时两条并行，谁先到算谁的——不靠重复广播去蒙一个时间窗口。
 
 ## 一次对话
 
@@ -131,7 +132,7 @@ PI 的扩展可以 `ctx.ui.confirm/select/input/editor` 问用户。这些请求
 
 | 面 | 措施 |
 |---|---|
-| 网络 | 只绑 `127.0.0.1`，随机端口；端口经 `app:ready` 事件告知前端 |
+| 网络 | 只绑 `127.0.0.1`，随机端口；端口经 `app:ready` 事件或 `ServerPort()` 绑定方法告知前端 |
 | CORS | 只放行本机来源（`wails://`、`localhost`、`127.0.0.1`、`wails.localhost`） |
 | 方法 | 白名单只有 GET / POST；路径变量必须在末尾 |
 | 路径 | 文件列举 / 文档名 / 附件都过 `pkg.SafeJoin`，越界在门口拒绝 |

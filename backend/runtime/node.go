@@ -24,22 +24,6 @@ const NodeArchiveSHA256 = "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721c
 // nodeArchiveName 返回内嵌归档文件名。
 func nodeArchiveName() string { return nodeArchiveRooted + ".zip" }
 
-// NodeExe 返回可用的 Node 路径：内置优先于系统。
-// PI 对 Node 版本有下界且行为随小版本变，用系统上某个旧版会让错误出现在协议层。
-func NodeExe(p Paths) string {
-	if exe, err := resolveNode(p); err == nil {
-		return exe
-	}
-	return NodeSystemExe()
-}
-
-// resolveNode 只解析一次：并发调用共享同一个结果；缓存可被 ResetProbe 清空。
-func resolveNode(p Paths) (string, error) {
-	return probeOnce(&nodeProbed, &nodePath, &nodeErr, func() (string, error) {
-		return EnsureNode(p)
-	})
-}
-
 // NodeStatus 报告内置 Node 的可用状态与失败原因。
 type NodeStatus struct {
 	Exe     string

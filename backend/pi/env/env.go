@@ -456,12 +456,3 @@ func ReadFileOrEmpty(path string, fallback []byte) ([]byte, error) {
 	}
 	return raw, nil
 }
-
-// WriteJSON 把值缩进写进配置文件（原子替换）。
-func WriteJSON(path string, v any) error {
-	raw, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return pkg.Wrap("9712", "配置无法序列化", err)
-	}
-	return WriteFileAtomic(path, append(raw, '\n'), 0o600)
-}

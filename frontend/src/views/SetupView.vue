@@ -284,7 +284,7 @@ onMounted(() => {
 }
 .step.is-done .step-num {
   background: var(--wb-primary);
-  color: #ffffff;
+  color: var(--wb-primary-ink);
 }
 .step-body {
   flex: 1;

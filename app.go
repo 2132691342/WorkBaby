@@ -83,11 +83,10 @@ func (a *App) domReady(ctx context.Context) {
 		return
 	}
 	pkg.Infof("app: 本地服务已启动，端口 %d", port)
-	// 兜底通道：绑定方法随时可调，不存在事件竞态。
+	// 端口两条路交给前端：事件发一次（早注册的就收到），绑定方法随时可拉（晚注册的也不丢）。
+	// 端口不变，重复拉取是幂等的，比反复广播省事。
 	a.handler.SetServerPort(port)
-	// 监听器注册晚于本次派发就漏掉端口（表现是全接口 404），故下面还会重发几次。
 	wruntime.EventsEmit(ctx, "app:ready", map[string]any{"server_port": port})
-	go repeatReady(ctx, port, 20)
 
 	a.tray = tray.New(tray.Menu{
 		Title: "WorkBaby", ShowText: "打开窗口", QuitText: "退出",
@@ -124,22 +123,6 @@ const toTrayHintDwell = 1100 * time.Millisecond
 
 // trayExitWait 退出时等托盘把图标从通知区摘掉的时长上限。
 const trayExitWait = 300 * time.Millisecond
-
-// repeatReady 在启动后的头几秒里重复广播端口，直到前端接住。
-// 这是对「事件先于监听器发出」的唯一可靠解法，成本可以忽略。
-func repeatReady(ctx context.Context, port, times int) {
-	// 用 Ticker 而不是循环里 time.After：后者每轮都新建一个定时器，取消时也留不住。
-	ticker := time.NewTicker(300 * time.Millisecond)
-	defer ticker.Stop()
-	for i := 0; i < times; i++ {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			wruntime.EventsEmit(ctx, "app:ready", map[string]any{"server_port": port})
-		}
-	}
-}
 
 // closeAllowed 报告这次关闭是否应当真正放行（拆出来是为了能单测）。
 func (a *App) closeAllowed() bool { return a.quitting.Load() }
@@ -185,6 +168,10 @@ func (a *App) quit(ctx context.Context) {
 		os.Exit(0)
 	}()
 }
+
+// ServerPort 返回本地 HTTP 端口，0 表示还没起来。
+// 前端晚于 app:ready 注册监听时靠它补上：绑定方法永远可调，不存在事件竞态。
+func (a *App) ServerPort() int { return a.handler.ServerPort() }
 
 // ForceQuit 给前端调用的退出入口：启动失败 / 托盘异常时需要一条确定能走通的真退出路径。
 func (a *App) ForceQuit() {

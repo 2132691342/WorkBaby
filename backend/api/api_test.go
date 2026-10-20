@@ -158,6 +158,28 @@ func drainUntil(t *testing.T, frames <-chan sseFrame, wanted ...string) []sseFra
 	return got
 }
 
+// waitIdle 等到会话没有 run 在跑（running 字段回到 false）。
+func waitIdle(t *testing.T, base, sessionID string) {
+	t.Helper()
+	for i := 0; i < 250; i++ {
+		code, body := call(t, base, "GET", "/sessions/"+sessionID, nil)
+		if code == http.StatusOK {
+			var got struct {
+				Data struct {
+					Session struct {
+						Running bool `json:"running"`
+					} `json:"session"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal([]byte(body), &got); err == nil && !got.Data.Session.Running {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("会话一直没有回到空闲，上一轮没人收尾")
+}
+
 // keysOf 把待定事件集变成可打印的列表（失败信息里要能看出缺哪几个）。
 func keysOf(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
@@ -172,7 +194,7 @@ func TestHTTPChain(t *testing.T) {
 	base, h := bootServer(t)
 	workspace := h.Svc.Env.Workspace()
 
-	t.Run("HTTP 闸门：预检放行、方法白名单、越界入参在门口拒绝", func(t *testing.T) {
+	t.Run("HTTP 闸门与信封契约：预检、白名单、越界拒绝、空数组永不 null", func(t *testing.T) {
 		// 预检不放行的话前端所有 POST 都在浏览器层就被拦掉，接口本身根本没被调用。
 		req, err := http.NewRequest(http.MethodOptions, base+"/chat/send", nil)
 		if err != nil {
@@ -201,9 +223,7 @@ func TestHTTPChain(t *testing.T) {
 			strings.Contains(body, `"code":"0"`) {
 			t.Fatalf("非法文档名没有被拦下: %d %s", code, body)
 		}
-	})
 
-	t.Run("契约：空数组永不 null，引导字段支撑环境闸门", func(t *testing.T) {
 		// 闸门数据缺一项，前端就只能整屏停在空态：用户连自己缺什么都看不到。
 		code, body := call(t, base, "GET", "/bootstrap", nil)
 		if code != http.StatusOK {
@@ -308,6 +328,10 @@ func TestHTTPChain(t *testing.T) {
 		if !listed {
 			t.Fatal("发送之后会话没有出现在列表里（会话索引没读到 PI 的文件）")
 		}
+
+		// 会话文件在 message_end 就落盘了，running 要到 agent_settled 才归零（done 挂在那里）。
+		// 不等它归零就发下一轮，本轮尾巴的重试 / done 会混进接下来的事件流，拼出的正文就少一段。
+		waitIdle(t, base, sessID)
 
 		frames, stop := subscribeSSE(t, base, sessID, "")
 		defer stop()

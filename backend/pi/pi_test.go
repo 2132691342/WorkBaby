@@ -148,8 +148,9 @@ func TestPiChain(t *testing.T) {
 		}
 	})
 
-	// 事件顺序是界面对账的根基：done 挂早了会在还在重试时报「已完成」。
-	t.Run("事件顺序：done 只在 agent_settled 之后", func(t *testing.T) {
+	// 事件顺序是界面对账的根基：done 挂早了会在还在重试时报「已完成」；
+	// 翻译层还要把协议记录还原成界面能用的形态：增量分两类、工具结果带元数据、压缩带前后量。
+	t.Run("事件顺序与翻译：done 在最后，增量 / 工具 / 压缩 / 即时反馈都对", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		if _, err := client.Prompt(context.Background(), "你好", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
@@ -173,11 +174,9 @@ func TestPiChain(t *testing.T) {
 		if !(idxEnd < idxRetry && idxRetry < idxSettled) {
 			t.Fatalf("顺序不对（agent_end → retry → settled）: %v", kinds)
 		}
-	})
 
-	// 翻译层把协议记录还原成界面能用的形态：增量分两类、工具结果带元数据、压缩带前后量。
-	t.Run("事件翻译：增量、工具结果、压缩与即时反馈", func(t *testing.T) {
-		client, rec := start(t, exe, "tools")
+		// 翻译层：同一套协议记录换成工具场景再跑一遍。
+		client, rec = start(t, exe, "tools")
 		if _, err := client.Prompt(context.Background(), "读文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}

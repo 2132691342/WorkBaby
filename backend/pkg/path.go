@@ -63,6 +63,15 @@ func SafeJoin(root, target string) (string, error) {
 	return realFull, nil
 }
 
+// RealPath 返回解析过符号链接与 Windows 短名（RUNNER~1 这类 8.3 名）的真实路径。
+// 同一份文件用短名与长名表示时字面不相等，取相对路径会算出 ../..，需要比较的地方都要先过它。
+func RealPath(p string) string {
+	if real, err := resolveReal(p); err == nil {
+		return real
+	}
+	return filepath.Clean(p)
+}
+
 // resolveReal 解析真实路径。目标尚不存在（新建文件）时，
 // 解析其最深的存在祖先再拼接剩余部分，避免绕过 EvalSymlinks 放过符号链接穿越。
 func resolveReal(p string) (string, error) {

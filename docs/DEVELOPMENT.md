@@ -3,7 +3,7 @@
 ## 环境要求
 
 - Go 1.24+
-- Node.js 20+（前端构建）
+- Node.js 24（前端构建；与内置 Node 同一大版本）
 - Wails CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`（与 CI 同一个 pin）
 - Windows 10/11（唯一目标平台）
 - 可选：`pi`（调试真实内核时用；不装也能开发，`pi/pitest` 提供假进程）
@@ -11,9 +11,11 @@
 ## 常用命令
 
 ```powershell
-# 验证入口：一个脚本收口，别在本地与 CI 各写一套（分档说明见 AGENTS.md §3.3）
+# 验证入口：一个脚本收口，不要在本机与 CI 各写一套（分档说明见 AGENTS.md §3.3）
 pwsh scripts/check.ps1                        # 快门：格式 → 编译 → 所有包短测试
-pwsh scripts/check.ps1 -Pkg backend/service   # 只验一个包（与 -Full 互斥）
+pwsh scripts/check.ps1 -Pkg backend/service   # 只验一个包（与 -Full / -Chain 互斥）
+pwsh scripts/check.ps1 -Chain 提问             # 跨包只跑命中名字的链路
+pwsh scripts/check.ps1 -List                  # 列全部测试入口与所在文件
 pwsh scripts/check.ps1 -Full                  # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
 
 # 单独跑某一步时才手敲
@@ -23,9 +25,13 @@ go test -run 'TestServiceChain/会话索引' ./backend/service   # 定点链上�
 go run ./tools/check-boundaries               # 依赖方向门禁
 
 cd frontend
-npm install
+npm install                                   # 首次
 npm run build                                 # vue-tsc + vite build → frontend/dist
 ```
+
+测试入口一律叫 `Test<Domain>Chain`，一包一个入口、一个入口一条链路：
+定位先跑 `-List` 拿索引，再用 `-Chain <关键字>` 或 `-run '入口/子测试名'` 直接落到一段，
+不用翻测试文件。完整的入口 × 链路对照表在 AGENTS.md §3.4。
 
 验证脚本把测试输出落到 `.check/test-output.log`；失败时它会自动打印失败摘要——
 先抓 `--- FAIL` / `panic` / `文件:行号`，抓不到再退回末尾若干行。

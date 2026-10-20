@@ -3,6 +3,7 @@ package service
 
 import (
 	"WorkBaby/backend/pi"
+	"WorkBaby/backend/pkg"
 )
 
 // Container 是全部编排服务的组合根。
@@ -71,7 +72,7 @@ func (c *Container) Bootstrap() error {
 	}
 	path, err := EnsurePersona(c.Env)
 	if err != nil {
-		pkgWarn("bootstrap: 生成人设文件失败", err)
+		pkg.Warnf("bootstrap: 生成人设文件失败: %v", err)
 	}
 	c.Env.PersonaPath = path
 	c.Skills.Reload(c.Env.Workspace())

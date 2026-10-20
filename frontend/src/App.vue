@@ -196,7 +196,7 @@ function quitApp() {
   display: grid;
   place-items: center;
   background: var(--wb-primary);
-  color: #ffffff;
+  color: var(--wb-primary-ink);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: var(--wb-fs-xl);

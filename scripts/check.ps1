@@ -1,15 +1,17 @@
 <#
-验证入口：一个脚本收口全部验证动作，按「改了多大」分档，不要每次全跑。
+验证入口：一个脚本收口全部验证动作，按「改了多大」选档，不要每次全跑。
 
-  pwsh scripts/check.ps1                      快门：gofmt → 编译 → 全包 -short 测试
-  pwsh scripts/check.ps1 -Pkg backend/pi      只验一个包（只碰一个能力域时用）
-  pwsh scripts/check.ps1 -Full                全量：+ 前端构建 + vet + 依赖边界 + 全量测试
+  pwsh scripts/check.ps1                     快门：gofmt → 编译 → 全包 -short 测试
+  pwsh scripts/check.ps1 -Pkg backend/pi     只验一个包（gofmt → 编译 → 短测试）
+  pwsh scripts/check.ps1 -Chain 提问          只跑命中名字的链路（跨包，grep 式定位）
+  pwsh scripts/check.ps1 -List               列出全部测试入口与所在文件
+  pwsh scripts/check.ps1 -Full               全量：+ 前端构建 + vet + 依赖边界 + 全量测试
 
 分档规则：
-  -Pkg 只回答「这个包坏没坏」，因此不跑 vet / 边界 / 前端；它与 -Full 互斥。
+  -Pkg 只回答「这个包坏没坏」，因此不跑 vet / 边界；它与 -Full、-Chain 互斥。
   -short 跳过真 git 子进程链路、运行时归档真解压与本机 PI 真实回合，
   这三条只在 -Full 跑到；CI 跑 -Full，所以本地不跑不等于没人跑。
-  耗时大头是编译与链接测试二进制，不是断言——所以 -Pkg 省下的正是这一段。
+  耗时大头是编译与链接测试二进制，不是断言——-Pkg / -Chain 省下的正是这一段。
   任何编译前都保证 frontend/dist 就位：它是 //go:embed 的硬依赖且被 .gitignore
   排除，全新 checkout（CI）上没有。-Full 每次重建，其余档 dist 已在则跳过。
 
@@ -21,14 +23,31 @@
 [CmdletBinding()]
 param(
     [switch]$Full,
-    [string]$Pkg
+    [string]$Pkg,
+    [string]$Chain,
+    [switch]$List
 )
 
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
-if ($Pkg -and $Full) {
-    throw '-Pkg 与 -Full 互斥：-Pkg 只验一个包（gofmt + 编译 + 短测试），-Full 才跑 vet / 依赖边界 / 全量测试 / 前端构建。'
+if ($List) {
+    # 查找靠命名不靠搜代码：入口函数一律叫 Test<Domain>Chain，这里就是唯一索引。
+    Get-ChildItem -Recurse -Include *_test.go -Path . |
+        Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
+        ForEach-Object {
+            $file = $_.FullName.Replace((Get-Location).Path + '\', '')
+            Select-String -Path $_.FullName -Pattern '^func (Test\w+Chain)\(' |
+                ForEach-Object { '{0,-28} {1}' -f $_.Matches[0].Groups[1].Value, $file }
+        }
+    exit 0
+}
+
+if ($Pkg -and ($Full -or $Chain)) {
+    throw '-Pkg 只验一个包，不能与 -Full / -Chain 同时用。'
+}
+if ($Full -and $Chain) {
+    throw '-Chain 是定点定位，-Full 是全量门禁，二选一。'
 }
 
 # 只有 -Full 需要失败摘要：快门档一失败当场就能看到输出。
@@ -43,27 +62,9 @@ function Invoke-Step {
     & $Body
     if ($LASTEXITCODE -ne 0) {
         Write-Host "    FAILED: $Name（退出码 $LASTEXITCODE）" -ForegroundColor Red
-        # 摘要放在退出前：本地立刻看见是哪条链，CI 则落进 job summary。
         Write-FailureSummary
         exit $LASTEXITCODE
     }
-}
-
-# 跑测试并把输出同时送屏幕与日志。go test 的退出码必须手动取：管道会吃掉它。
-function Invoke-Test {
-    param([string]$Target, [switch]$Verbose, [switch]$ToFile)
-
-    if ($ToFile) {
-        New-Item -ItemType Directory -Force -Path '.check' | Out-Null
-        $args = @('test', '-count=1')
-        if ($Verbose) { $args += '-v' } else { $args += '-short' }
-        $args += $Target
-        go @args 2>&1 | Tee-Object $TestLog
-        $global:LASTEXITCODE = $LASTEXITCODE
-        return
-    }
-    $args = @('test', '-short', '-count=1', $Target)
-    go @args
 }
 
 # Write-FailureSummary 从测试日志里摘出可定位的片段：子测试名是定位的第一个把手。
@@ -80,8 +81,7 @@ function Write-FailureSummary {
     Write-Host '=== 失败摘要 ===' -ForegroundColor Red
     Write-Host $body
     if ($env:GITHUB_STEP_SUMMARY) {
-        # 围栏用拼接而不是直接写在字符串里：反引号在 PowerShell 里是转义符，
-        # 连续的奇数个会在收尾处把引号吃掉，字符串就再也闭合不了。
+        # 围栏用拼接而不是直接写在字符串里：反引号在 PowerShell 里是转义符。
         $fence = ([string][char]96) * 3
         $md = "## 验证失败摘要`n`n${fence}text`n$body`n$fence"
         Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $md -Encoding utf8
@@ -96,8 +96,8 @@ Invoke-Step 'gofmt' {
 }
 
 # 前端必须在编译前就位：main.go 的 //go:embed all:frontend/dist 在 dist 不存在时直接编译失败，
-# 而 dist 被 .gitignore 排除，全新 checkout（CI）上没有——本地有残留才掩盖至今。
-# -Full 每次重建（门禁验证的是「最新前端 + Go」的真实组合）；其余档 dist 已在则跳过，保住快。
+# 而 dist 被 .gitignore 排除，全新 checkout（CI）上没有。
+# -Full 每次重建（门禁验的是「最新前端 + Go」的真实组合）；其余档 dist 已在则跳过，保住快。
 # npm run build 里已串了 vue-tsc，不必再单独跑类型检查。
 if ($Full -or -not (Test-Path 'frontend/dist/index.html')) {
     if (-not (Test-Path 'frontend/node_modules')) {
@@ -116,7 +116,7 @@ if ($Full -or -not (Test-Path 'frontend/dist/index.html')) {
 if ($Pkg) {
     if ($Pkg -notmatch '^(\.|WorkBaby)') { $Pkg = "./$Pkg" }
     Invoke-Step "build $Pkg" { go build $Pkg }
-    Invoke-Step "test $Pkg" { Invoke-Test -Target $Pkg }
+    Invoke-Step "test $Pkg" { go test -short -count=1 $Pkg }
     Write-Host '全部通过。' -ForegroundColor Green
     exit 0
 }
@@ -129,7 +129,24 @@ if ($Full) {
     Invoke-Step 'boundaries' { go run ./tools/check-boundaries }
 }
 
+if ($Chain) {
+    # 定点定位：-run 接受 RE2 子串，子测试名本身就写成一句话，直接拿它当把手。
+    Invoke-Step "test -run $Chain" {
+        go test -short -count=1 -v -run $Chain ./...
+    }
+    Write-Host '全部通过。' -ForegroundColor Green
+    exit 0
+}
+
 # 全量档跑全量测试并落盘（失败摘要靠它）；快门档只求快，不留日志。
-Invoke-Step 'test' { Invoke-Test -Target './...' -ToFile:$Full -Verbose:$Full }
+if ($Full) {
+    New-Item -ItemType Directory -Force -Path '.check' | Out-Null
+    Invoke-Step 'test' {
+        go test -count=1 -v ./... 2>&1 | Tee-Object $TestLog
+        $global:LASTEXITCODE = $LASTEXITCODE
+    }
+} else {
+    Invoke-Step 'test' { go test -short -count=1 ./... }
+}
 
 Write-Host '全部通过。' -ForegroundColor Green

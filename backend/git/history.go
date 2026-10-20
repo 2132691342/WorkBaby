@@ -73,11 +73,10 @@ func FileHistory(dir, rel string, limit int) ([]domain.GitCommitVO, error) {
 	if err != nil {
 		return nil, err
 	}
-	path, err := filepath.Rel(dir, joined)
+	path, err := relTo(dir, joined)
 	if err != nil {
 		return nil, pkg.New("1004", "路径越出工作目录", rel)
 	}
-	path = filepath.ToSlash(path)
 	if limit <= 0 || limit > maxCommits {
 		limit = maxCommits
 	}

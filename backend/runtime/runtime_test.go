@@ -35,11 +35,12 @@ func pythonStdlibZip() string {
 	return "python" + parts[0] + parts[1] + ".zip"
 }
 
-// TestBundledRuntimeChain 是 runtime 包唯一的测试入口。三条链按坏法分：
-// 归档与常量不一致、LFS 没拉下来、zip-slip 写到数据目录外、官方 zip 布局变了。
+// TestBundledRuntimeChain 是 runtime 包唯一的测试入口。两条链按坏法分：
+// 归档字节与常量 / 解压安全对不上，以及官方 zip 布局变了。
 func TestBundledRuntimeChain(t *testing.T) {
-	// 换归档忘了同步 SHA 常量，或构建机没拉 LFS，都会一直滑到用户机器上才暴露。
-	t.Run("归档与 SHA 常量一致，LFS 指针当场识破", func(t *testing.T) {
+	// 换归档忘了同步 SHA 常量、构建机没拉 LFS（嵌进去的是指针文本）、归档里的 `..\`
+	// 与绝对路径把文件写到数据目录之外——三类问题都在同一份归档字节上，一条链验完。
+	t.Run("归档完整性与解压安全：SHA 一致、LFS 指针识破、zip-slip 拒绝", func(t *testing.T) {
 		for _, c := range []struct{ name, want string }{
 			{pythonArchiveName(), PythonArchiveSHA256},
 			{nodeArchiveName(), NodeArchiveSHA256},
@@ -53,10 +54,7 @@ func TestBundledRuntimeChain(t *testing.T) {
 				t.Fatalf("%s 归档与常量不一致：归档 %s，常量 %s", c.name, got, c.want)
 			}
 		}
-	})
 
-	// zip-slip：归档里的 ..\ 与绝对路径必须被拒，否则解压能把文件写到数据目录之外。
-	t.Run("解压拒绝路径穿越，正常路径不误伤", func(t *testing.T) {
 		dest := t.TempDir()
 		for _, name := range []string{`..\evil.exe`, `/abs/evil.exe`, `a/../../evil.exe`} {
 			if _, err := safeExtractPath(dest, name); err == nil {

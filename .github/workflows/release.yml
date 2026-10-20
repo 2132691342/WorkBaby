@@ -1,14 +1,12 @@
-# 发版：只由 tag 触发。push main / PR 不得触发本工作流——那是 ci.yml 的职责。
-# 取名规则：WorkBaby 版本号跟随 PI 版本号（pi --version 的 major.minor）。
-# tag 形如 v1.3.0，push 后同步到 main 保证 tag 能 checkout 到。
-
+# 发版：只由 tag 触发（push main / PR 不触发，那是 ci.yml 的职责）。
+# 版本号跟随 PI 的 major.minor（tag 形如 v1.3.0），tag 必须指向 main 上的提交。
 name: release
 
 on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-  workflow_dispatch:  # 手动触发：只验证流水线，不上传到 Release
+  workflow_dispatch: # 手动触发：只跑流水线验证，不建 Release
 
 permissions:
   contents: write
@@ -17,28 +15,27 @@ jobs:
   build-windows:
     name: Build Windows installer
     runs-on: windows-latest
+    timeout-minutes: 60
     env:
       EXE: build/bin/WorkBaby.exe
       INSTALLER: build/bin/WorkBaby-amd64-installer.exe
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           lfs: true
           fetch-depth: 1
-          # tag 指向的 commit 必须先随 main 推过，否则子模块式 checkout 会失败。
-          ref: ${{ github.ref }}
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -47,9 +44,8 @@ jobs:
 
       - name: Install NSIS
         shell: pwsh
-        # windows-latest(2025 镜像)不带 NSIS,只能现装;而 choco 社区源有间歇故障(HTTP 499/503,
-        # 已知问题,见 keycloak/keycloak#28510)。策略:镜像预装则零网络直接用 → choco 重试 4 次 →
-        # 仍失败用 NSIS 官方便携包兜底。makensis 必须在 PATH 上,wails build 才拿得到。
+        # windows-latest 不带 NSIS，只能现装；choco 社区源有间歇故障。
+        # 策略：镜像预装则零网络直接用 → choco 重试 4 次 → NSIS 官方便携包兜底。
         run: |
           $ErrorActionPreference = 'Stop'
           $nsisDir = "${env:ProgramFiles(x86)}\NSIS"
@@ -59,15 +55,15 @@ jobs:
             Write-Host ('makensis ' + (& "$dir\makensis.exe" /VERSION) + " @ $dir")
             return $true
           }
-          if (Use-Nsis $nsisDir) { exit 0 }   # 预装镜像(windows-2022 等)零网络通过
+          if (Use-Nsis $nsisDir) { exit 0 }
           $ok = $false
-          for ($i = 1; $i -le 4; $i++) {      # CCR 抖动重试,递增退避
+          for ($i = 1; $i -le 4; $i++) {
             if ($i -gt 1) { Start-Sleep -Seconds (15 * $i) }
             choco install nsis -y --no-progress
             if ($LASTEXITCODE -eq 0 -and (Use-Nsis $nsisDir)) { $ok = $true; break }
             Write-Warning "choco install nsis 第 $i 次尝试失败"
           }
-          if (-not $ok) {                     # 兜底:官方发行便携 zip,版本随 NSIS 官方更新而 pin
+          if (-not $ok) {
             $ver = '3.13'
             $zip = "$env:RUNNER_TEMP\nsis-$ver.zip"
             curl.exe -L --fail --retry 3 -o "$zip" "https://downloads.sourceforge.net/project/nsis/NSIS%203/$ver/nsis-$ver.zip"
@@ -81,21 +77,22 @@ jobs:
 
       - name: Verify static gate
         shell: pwsh
-        # 测试矩阵已由 main 上的 ci.yml 门禁（tag 必经 main）。这里只重验「编译与依赖方向」：
-        # 重跑全量测试与独立 npm build 都是浪费（wails build 自己会跑前端）。
+        # 测试矩阵已由 main 上的 ci.yml 门禁（tag 必经 main）。这里只重验编译与依赖方向：
+        # 再跑一遍全量测试是重复劳动，wails build 自己会构建前端。
+        # 只门后端：main 包 //go:embed frontend/dist，而 dist 此刻还不存在（由 wails build 生成）。
         run: |
           $bad = gofmt -l .
           if ($bad) { throw "gofmt 未通过:`n$bad" }
-          go vet ./backend/...
+          go vet ./backend/... ./tools/...
           if ($LASTEXITCODE -ne 0) { throw "go vet 失败" }
-          go build ./backend/...
+          go build ./backend/... ./tools/...
           if ($LASTEXITCODE -ne 0) { throw "go build 失败" }
           go run ./tools/check-boundaries
           if ($LASTEXITCODE -ne 0) { throw "依赖方向门禁失败" }
 
       - name: Verify runtime archives
         shell: pwsh
-        # 归档经 go:embed 进 exe：LFS 没拉下来时嵌的是指针文本，构建会成功而运行时不可用。
+        # 归档经 go:embed 进 exe：LFS 没拉下来时嵌的是指针文本，构建成功而运行时不可用。
         run: |
           $patterns = @(
             'backend/runtime/bundled/python-*.zip',
@@ -113,13 +110,12 @@ jobs:
 
       - name: Wails build
         shell: pwsh
-        # bindings 必须随构建生成（前端依赖 @/wailsjs）；-nsis 必填，缺了不产安装器。
+        # -nsis 必填：缺了不产安装器。bindings 随构建生成，前端依赖 wailsjs。
         run: wails build -clean -platform windows/amd64 -trimpath -nsis
 
       - name: Verify artifacts
         shell: pwsh
-        # exe 存在（含内嵌归档，故明显大于裸壳）+ 安装器真的产出。
-        # NSIS 打包失败时 wails 仍可能返回 0，所以安装器要单独确认。
+        # NSIS 打包失败时 wails 仍可能返回 0，安装器要单独确认。
         run: |
           if (-not (Test-Path $env:EXE)) { throw "wails build 没产出 $([System.IO.Path]::GetFileName($env:EXE))" }
           if (-not (Test-Path $env:INSTALLER)) { throw "NSIS 安装器未产出 $([System.IO.Path]::GetFileName($env:INSTALLER))" }
@@ -128,9 +124,8 @@ jobs:
           Write-Host ("Artifacts OK (exe {0:N1} MB + installer)" -f $exeMB)
 
       - name: Upload failure diagnostics
-        # 失败时保留产物供本地排查；成功后直接进 Release，不留重复 artifact。
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: workbaby-windows-debug
           path: |
@@ -139,15 +134,13 @@ jobs:
           retention-days: 7
 
       - name: Create GitHub Release
-        # 双保险：触发条件已是 tag，这里再判一次，引用的 commit 确实落在该 tag 上。
-        # 防的是「tag 被事后移动」——那种情况下的产物对不上版本号。
+        # 触发条件已是 tag，这里再判一次：防「tag 被事后移动」时产物与版本号对不上。
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: WorkBaby ${{ github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          # 同名资产允许覆盖：同一版本号完善问题会重推 tag
           overwrite_files: true
           files: build/bin/WorkBaby-amd64-installer.exe
