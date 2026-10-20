@@ -266,7 +266,7 @@ func TestHTTPChain(t *testing.T) {
 
 	// SSE 是唯一的运行态通道：假 PI 子进程 → Hub → 帧 → seq 递增 → 重连带游标重放。
 	t.Run("SSE 全链：子进程到帧、seq 递增、断线重连不被拒", func(t *testing.T) {
-		// 配一个服务：环境闸门的 model 判定要它。
+		// 配一个服务并设为默认：环境闸门的 model 判定要它。
 		code, body := call(t, base, "POST", "/providers/upsert", map[string]any{
 			"name": "测试网关", "api": "openai-completions",
 			"base_url": "https://api.example.com/v1", "api_key": "sk-test",
@@ -275,28 +275,23 @@ func TestHTTPChain(t *testing.T) {
 		if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
 			t.Fatalf("创建模型服务失败: %d %s", code, body)
 		}
-		if code, body := call(t, base, "POST", "/providers/default", map[string]any{
-			"provider": "测试网关", "model": "test-model",
+		// 名字会被 slug 成 models.json 的键：拿列表里的真实键再设默认。
+		_, listing := call(t, base, "GET", "/providers", nil)
+		var parsed struct {
+			Data struct {
+				Providers []struct {
+					ID string `json:"id"`
+				} `json:"providers"`
+			} `json:"data"`
+		}
+		_ = json.Unmarshal([]byte(listing), &parsed)
+		if len(parsed.Data.Providers) == 0 {
+			t.Fatalf("服务商没落盘: %s", listing)
+		}
+		if code, body = call(t, base, "POST", "/providers/default", map[string]any{
+			"provider": parsed.Data.Providers[0].ID, "model": "test-model",
 		}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
-			// 名字会被 slug 成 provider 键：拿列表里的真实键再设一次。
-			_, listing := call(t, base, "GET", "/providers", nil)
-			var parsed struct {
-				Data struct {
-					Providers []struct {
-						ID string `json:"id"`
-					} `json:"providers"`
-				} `json:"data"`
-			}
-			_ = json.Unmarshal([]byte(listing), &parsed)
-			if len(parsed.Data.Providers) == 0 {
-				t.Fatalf("服务商没落盘: %s", listing)
-			}
-			id := parsed.Data.Providers[0].ID
-			if code, body := call(t, base, "POST", "/providers/default", map[string]any{
-				"provider": id, "model": "test-model",
-			}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
-				t.Fatalf("设为默认失败: %d %s", code, body)
-			}
+			t.Fatalf("设为默认失败: %d %s", code, body)
 		}
 
 		// 第一次发送：新对话由后端现场创建，返回 session_id。

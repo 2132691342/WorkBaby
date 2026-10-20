@@ -10,7 +10,7 @@
 
 ```
 一个工作目录 = 一个 PI 进程
-  ├─ spawn: node <pi>/dist/bundle/cli.js --mode rpc --append-system-prompt <persona.md>  (cwd = 工作目录)
+  ├─ spawn: node <pi>/dist/bundle/cli.js --mode rpc --append-system-prompt <persona.md>（cwd = 工作目录；提交信息草稿等短调用用 --no-session）
   │        npm 的 pi.cmd / npm.cmd 先还原成 node + 入口脚本，且子进程一律 CREATE_NO_WINDOW
   ├─ stdout: 按 LF 切分 → 记录分类 → 事件翻译
   ├─ stderr: 只进日志尾部缓冲，不解析为协议

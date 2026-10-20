@@ -22,7 +22,13 @@ import type {
 } from '../types/api'
 import { useSettingsStore } from './settings'
 import { useToastStore } from './toast'
+import { i18n } from '../i18n'
 import { stripAnsi } from '../utils/text'
+
+/** 状态条的文案在 store 里也走 i18n：语言一换，提示条不能还是中文 */
+function tt(key: string, args?: Record<string, string | number>): string {
+  return i18n.global.t(key, args || {})
+}
 
 // 当前正在跑的工具调用：流式期间只做「展示」，chat:done 后用权威快照覆盖。
 export interface ToolRun {
@@ -163,10 +169,10 @@ export const useChatStore = defineStore('chat', () => {
       const code = (e as { code?: string })?.code
       if (code === '5010') {
         asks.value = asks.value.filter((a) => a.id !== ask.id)
-        useToastStore().info('这个问题已经不需要回答了')
+        useToastStore().info(tt('chat.askClosed'))
         return
       }
-      useToastStore().bad(`回答失败：${(e as Error)?.message || '请重试'}`)
+      useToastStore().bad(tt('chat.askAnswerFailed', { msg: (e as Error)?.message || '' }))
     }
   }
 
@@ -265,7 +271,7 @@ export const useChatStore = defineStore('chat', () => {
         truncBudget.value = data.max_tokens || 0
         break
       case 'max_turns':
-        notice.value = '这一轮步骤太多，已经停下。可以点「继续」接着做'
+        notice.value = tt('chat.noticeMaxTurns')
         break
     }
     if (data.usage) {
@@ -282,7 +288,7 @@ export const useChatStore = defineStore('chat', () => {
     running.value = false
     stopTicker()
     retrying.value = false
-    notice.value = '已停止'
+    notice.value = tt('chat.noticeStopped')
     queued.value = []
     asks.value = []
   }
@@ -309,21 +315,24 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function onCompressed(data: CompressedData) {
-    notice.value = `对话太长了，已整理较早的内容（${data.tokens_before} → ${data.tokens_after}）`
+    notice.value = tt('chat.noticeCompressed', {
+      before: data.tokens_before,
+      after: data.tokens_after,
+    })
   }
 
   function onRetry(data: RetryData) {
     retrying.value = true
     notice.value = data.message
-      ? `上游拒绝，正在重试（${data.attempt}/${data.max}）：${data.message}`
-      : `正在重试（${data.attempt}/${data.max}）`
+      ? tt('chat.noticeRetryReason', { attempt: data.attempt, max: data.max, msg: data.message })
+      : tt('chat.noticeRetry', { attempt: data.attempt, max: data.max })
   }
 
   async function cancelRetry(sessionId: string) {
     if (!sessionId) return
     await api.chat.cancelRetry(sessionId)
     retrying.value = false
-    notice.value = '已停止重试'
+    notice.value = tt('chat.noticeCancelRetry')
   }
 
   function onContext(data: ContextData) {
@@ -381,7 +390,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function onGap() {
-    notice.value = '连接出现过中断，正在对账刷新'
+    notice.value = tt('chat.noticeGap')
     running.value = false
     runs.value = []
     streaming.value = ''

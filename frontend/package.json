@@ -6,8 +6,7 @@
   "description": "WorkBaby frontend - Vue3 + TS + Vite (Wails v2 embedded)",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
-    "typecheck": "vue-tsc --noEmit"
+    "build": "vue-tsc -b && vite build"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",

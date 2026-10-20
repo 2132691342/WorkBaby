@@ -35,12 +35,12 @@ func pythonStdlibZip() string {
 	return "python" + parts[0] + parts[1] + ".zip"
 }
 
-// TestBundledRuntimeChain 是 runtime 包唯一的测试入口。两条链按坏法分：
-// 归档字节与常量 / 解压安全对不上，以及官方 zip 布局变了。
+// TestBundledRuntimeChain 是 runtime 包唯一的测试入口：归档字节、解压安全与真实布局
+// 都在同一份归档上，一条链验完。
 func TestBundledRuntimeChain(t *testing.T) {
 	// 换归档忘了同步 SHA 常量、构建机没拉 LFS（嵌进去的是指针文本）、归档里的 `..\`
-	// 与绝对路径把文件写到数据目录之外——三类问题都在同一份归档字节上，一条链验完。
-	t.Run("归档完整性与解压安全：SHA 一致、LFS 指针识破、zip-slip 拒绝", func(t *testing.T) {
+	// 与绝对路径把文件写到数据目录之外、官方 zip 布局变了——同一份归档字节上一条链全验。
+	t.Run("归档完整性、解压安全与真实解压布局", func(t *testing.T) {
 		for _, c := range []struct{ name, want string }{
 			{pythonArchiveName(), PythonArchiveSHA256},
 			{nodeArchiveName(), NodeArchiveSHA256},
@@ -64,11 +64,9 @@ func TestBundledRuntimeChain(t *testing.T) {
 		if _, err := safeExtractPath(dest, `python/tools/x.exe`); err != nil {
 			t.Fatalf("正常路径被误拒: %v", err)
 		}
-	})
 
-	// 真实解压两份归档：全仓最慢的一步，-short 只跳过它。
-	// Node 的官方 zip 多一层顶层目录，必须剥掉平铺，否则 npm.cmd 指错路径。
-	t.Run("真实解压的根目录布局正确", func(t *testing.T) {
+		// 真实解压两份归档：全仓最慢的一步，-short 只跳过它。
+		// Node 的官方 zip 多一层顶层目录，必须剥掉平铺，否则 npm.cmd 指错路径。
 		if testing.Short() {
 			t.Skip("真实解压：-short 跳过，碰运行时归档时跑全量")
 		}

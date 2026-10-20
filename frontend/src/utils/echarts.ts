@@ -32,7 +32,7 @@ export function chartBase() {
     ink: cssVar('--wb-ink'),
     muted: cssVar('--wb-muted'),
     line: cssVar('--wb-border'),
-    surface: cssVar('--wb-surface'),
+    surface: cssVar('--wb-elev-raised'),
     strong: cssVar('--wb-border-strong'),
   }
 }
@@ -45,6 +45,7 @@ export function tooltipStyle() {
     borderWidth: 1,
     padding: [8, 12] as [number, number],
     textStyle: { color: base.ink, fontSize: 12 },
-    extraCssText: 'border-radius:10px;box-shadow:0 10px 30px -8px rgba(15,23,42,.18);',
+    extraCssText:
+      'border-radius:var(--wb-radius);box-shadow:0 10px 30px -8px rgba(15,23,42,.18);',
   }
 }

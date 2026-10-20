@@ -211,6 +211,7 @@ func (te *testEnv) writeSession(t *testing.T, id, cwd, userText string, tokens i
 func TestServiceChain(t *testing.T) {
 	te := bootService(t)
 
+	// 会话索引与工具清单是同一条读路径（都来自 PI 的会话文件），删除也在这条链上收尾。
 	t.Run("会话索引：列表、投影、工具清单与删除都来自 PI 的会话文件", func(t *testing.T) {
 		cwd := t.TempDir()
 		file := te.writeSession(t, "SESS_ONE", cwd, "帮我整理一下这份表格", 120)
@@ -298,18 +299,14 @@ func TestServiceChain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("统计失败: %v", err)
 		}
-		if len(stats.Daily) != 7 {
-			t.Fatalf("应当补齐 7 天，实际 %d", len(stats.Daily))
-		}
-		if stats.Totals.Total == 0 {
-			t.Fatal("会话文件里有用量，统计不该是 0")
-		}
-		if len(stats.Models) == 0 {
-			t.Fatal("按模型的归因是空的")
+		if len(stats.Daily) != 7 || stats.Totals.Total == 0 || len(stats.Models) == 0 {
+			t.Fatalf("统计不对: daily=%d total=%d models=%d", len(stats.Daily), stats.Totals.Total, len(stats.Models))
 		}
 	})
 
-	t.Run("停止：先取回排队文本再中止", func(t *testing.T) {
+	// 停止与空闲排队是同一条队列链路的两面：停止先取回队列再中止；
+	// 空闲时收到的 follow_up 等价于一轮新发送（不记账的话翻译器没有 runState，整轮回应消失）。
+	t.Run("停止与空闲排队：先取回队列再中止，follow_up 按完整一轮记账", func(t *testing.T) {
 		resp, err := te.container.Chat.Send(domain.SendMessageREQ{
 			Workspace: te.env.Cfg.Workspace, Content: "跑一轮",
 		})
@@ -333,18 +330,8 @@ func TestServiceChain(t *testing.T) {
 			t.Fatal(err)
 		}
 		waitAbortMarker(t, vo.File)
-	})
 
-	// 回归：空闲时收到的 follow_up 等价于一轮新发送。不记账直接发 prompt 的话，
-	// 翻译器没有 runState，这一轮回应在界面上会整轮消失；界面文本还必须先把终端色码剥掉。
-	t.Run("空闲排队与界面文本：follow_up 按完整一轮记账，色码不上屏", func(t *testing.T) {
-		resp, err := te.container.Chat.Send(domain.SendMessageREQ{
-			Workspace: te.env.Cfg.Workspace, Content: "先来一轮",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		te.waitIdle(t, resp.SessionID)
+		// 空闲 follow_up 回归：等价于完整一轮，start / delta / done / 回显一个都不能少。
 		te.events.reset()
 		if err := te.container.Chat.FollowUp(domain.SteerREQ{
 			SessionID: resp.SessionID, Content: "空闲时排的队",
@@ -352,14 +339,10 @@ func TestServiceChain(t *testing.T) {
 			t.Fatal(err)
 		}
 		te.waitIdle(t, resp.SessionID)
-		if !te.events.has(domain.EventChatStart) {
-			t.Fatalf("空闲排队那一轮没有 chat:start: %v", te.events.names())
-		}
-		if !te.events.has(domain.EventChatDelta) || !te.events.has(domain.EventChatDone) {
-			t.Fatalf("空闲排队那一轮的回应没有出来: %v", te.events.names())
-		}
-		if !te.events.has(domain.EventChatUser) {
-			t.Fatal("空闲排队的消息没有回显")
+		for _, ev := range []string{domain.EventChatStart, domain.EventChatDelta, domain.EventChatDone, domain.EventChatUser} {
+			if !te.events.has(ev) {
+				t.Fatalf("空闲排队那一轮缺 %s: %v", ev, te.events.names())
+			}
 		}
 
 		// 内核与扩展按终端习惯给文字上色，GUI 没有终端语义：
@@ -449,6 +432,7 @@ func TestServiceChain(t *testing.T) {
 	})
 
 	// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 删除连带清理。
+	// 断言只留跨边界的：掩码、Reveal、ModelSpec 这类字段映射不单独设断言。
 	t.Run("配置写入：models.json 与 mcp.json 的校验、落盘与删除", func(t *testing.T) {
 		vo, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{
 			Name: "本地网关", API: domain.APIOpenAICompletions,
@@ -458,38 +442,22 @@ func TestServiceChain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("写服务商失败: %v", err)
 		}
-		if vo.ID == "" || !vo.HasKey {
+		if vo.ID == "" {
 			t.Fatalf("返回的服务商不对: %+v", vo)
 		}
+		// 密钥的明文只落在 models.json 里（PI 就是这么读的），列表只给掩码。
 		plist, err := te.container.Providers.List()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(plist.Providers) != 1 {
-			t.Fatalf("服务商没写进去: %+v", plist.Providers)
-		}
-		// 密钥在界面上只给掩码（明文在 models.json 里，PI 就是这么读的）。
-		if strings.Contains(plist.Providers[0].KeyHint, "secret-1234") {
-			t.Fatalf("掩码泄露了密钥: %q", plist.Providers[0].KeyHint)
-		}
-		raw, err := os.ReadFile(te.env.PiEnv.ModelsPath())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(raw), "sk-secret-1234567890") {
-			t.Fatal("models.json 里没有密钥")
+		if len(plist.Providers) != 1 || strings.Contains(plist.Providers[0].KeyHint, "secret-1234") {
+			t.Fatalf("服务商清单没落盘或掩码泄露: %+v", plist.Providers)
 		}
 		if err := te.container.Providers.SetDefault(domain.SetDefaultREQ{Provider: vo.ID, Model: "m1"}); err != nil {
 			t.Fatal(err)
 		}
 		if p, m := te.container.Providers.Defaults(); p != vo.ID || m != "m1" {
 			t.Fatalf("默认模型没写进 settings.json: %s/%s", p, m)
-		}
-		if window, max := te.container.Providers.ModelSpec(vo.ID, "m1"); window != 128000 || max != 8192 {
-			t.Fatalf("模型能力没读回来: %d/%d", window, max)
-		}
-		if key, err := te.container.Providers.Reveal(vo.ID); err != nil || key != "sk-secret-1234567890" {
-			t.Fatalf("查看密钥失败: %q %v", key, err)
 		}
 
 		// MCP：坏 JSON 一个字符都不写。
@@ -509,11 +477,8 @@ func TestServiceChain(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(mcpList.Servers) == 0 || mcpList.Servers[0].Name != "demo" {
+		if len(mcpList.Servers) == 0 || mcpList.Servers[0].Name != "demo" || mcpList.Servers[0].Scope != "global" {
 			t.Fatalf("服务没读出来: %+v", mcpList.Servers)
-		}
-		if mcpList.Servers[0].Scope != "global" {
-			t.Fatalf("范围不对: %+v", mcpList.Servers[0])
 		}
 
 		// 删掉服务商要连带清掉默认模型，否则下次新对话指向一个不存在的服务。

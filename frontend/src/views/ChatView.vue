@@ -120,8 +120,6 @@ async function reload() {
   }
 }
 
-const clearing = computed(() => false)
-
 function pickExample(text: string) {
   void send(text, [])
 }
@@ -333,13 +331,11 @@ watch(() => settings.boot?.default_model, seedContext)
         :sending="sending"
         :stopping="stopping"
         :acting="steering ? 'steer' : queueing ? 'queue' : ''"
-        :clearing="clearing"
         @send="send"
         @steer="steer"
         @queue="queueUp"
         @stop="stop"
         @new-session="newSession"
-        @clear-session="newSession"
       />
       <StatusHud />
     </div>

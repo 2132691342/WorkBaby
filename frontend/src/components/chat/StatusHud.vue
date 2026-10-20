@@ -23,7 +23,10 @@ const provider = computed(() => {
   return s?.provider || settings.boot?.default_provider || ''
 })
 
-const thinking = computed(() => session.current?.thinking_level || '')
+const thinking = computed(() => {
+  const level = session.current?.thinking_level
+  return level ? t(`thinking.${level}`) : ''
+})
 
 const ctxTone = computed(() => {
   const r = chat.contextRatio

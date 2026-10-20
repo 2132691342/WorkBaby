@@ -62,7 +62,7 @@ async function pick() {
   height: var(--wb-ctl-h-sm);
   max-width: calc(260px * var(--wb-vw-scale));
   padding: 0 var(--wb-sp-2);
-  border-radius: var(--wb-radius-full);
+  border-radius: var(--wb-radius-sm);
   border: 1px solid var(--wb-border);
   color: var(--wb-muted);
   font-size: var(--wb-fs-2xs);

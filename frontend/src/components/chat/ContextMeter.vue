@@ -20,9 +20,8 @@ const exact = computed(() => props.known !== false)
 const pct = computed(() => Math.max(0, Math.min(100, props.ratio || 0)))
 const level = computed(() => (pct.value >= 95 ? 'is-danger' : pct.value >= 80 ? 'is-warn' : ''))
 
-const RING_R = 7
-const RING_C = 2 * Math.PI * RING_R
-const dash = computed(() => `${((RING_C * pct.value) / 100).toFixed(2)} ${RING_C.toFixed(2)}`)
+// 环的弧长：直接给圆锥渐变一个百分比停点，不必再算圆周长
+const arc = computed(() => `${pct.value}%`)
 
 const reading = computed(() => {
   const used = fmtCount(props.used || 0)
@@ -53,11 +52,14 @@ const tip = computed(() => {
 
 <template>
   <el-tooltip :content="tip" placement="top" :show-after="250">
-    <span class="ctx" :class="[level, { 'is-est': !exact }]" role="img" :aria-label="tip">
-      <svg class="ring" viewBox="0 0 18 18" aria-hidden="true">
-        <circle class="ring-b" cx="9" cy="9" :r="RING_R" />
-        <circle class="ring-f" cx="9" cy="9" :r="RING_R" :style="{ strokeDasharray: dash }" />
-      </svg>
+    <span
+      class="ctx"
+      :class="[level, { 'is-est': !exact }]"
+      role="img"
+      :aria-label="tip"
+      :style="{ '--ctx-arc': arc }"
+    >
+      <span class="ring" aria-hidden="true" />
       <span class="txt">{{ reading }}</span>
     </span>
   </el-tooltip>
@@ -74,11 +76,17 @@ const tip = computed(() => {
   height: var(--wb-ctl-h-sm);
   color: var(--wb-muted);
   cursor: default;
-  /* 读数不可选、不画焦点框：拖选正文时扫过它，浏览器会给 16px 的环套一个淡蓝方块，
-     比读数本身显眼得多（el-tooltip 会把触发器标成可聚焦）。键盘聚焦时 tooltip 自己会出来。 */
+  /* 读数不可选、不画焦点框：拖选正文时扫过它，浏览器会给环套一个淡蓝方块，
+     比读数本身显眼得多。选区高亮由下面两条一起压掉，焦点环显式关掉。 */
+  -webkit-user-select: none;
   user-select: none;
   border-radius: var(--wb-radius-full);
   transition: color var(--wb-dur-fast) var(--wb-ease);
+}
+/* 环是 svg 时选区底色由浏览器自己涂（::selection 管不到它）；换成纯 CSS 环后一起压掉 */
+.ctx::selection,
+.ctx *::selection {
+  background: transparent;
 }
 /* 显式写全：base.css 的 :focus-visible 画全局焦点环，同权重时靠源序赢，不靠猜。 */
 .ctx:focus,
@@ -92,31 +100,27 @@ const tip = computed(() => {
   color: var(--wb-ink-2);
 }
 /* 仪表环：细轨 + 平头弧。圆头 + 深轨在低占比时会读成一个转圈加载图标，
-   这里刻意的平头 + 浅轨就是为了让它一眼是「水位表」不是「spinner」。 */
+   这里刻意的平头 + 浅轨就是为了让它一眼是「水位表」不是「spinner」。
+   一个元素画完：圆锥渐变当弧，径向遮罩挖内圈——不必再放 svg。 */
 .ring {
+  --wb-ring-ink: var(--wb-primary);
   width: calc(16px * var(--wb-vw-scale));
   height: calc(16px * var(--wb-vw-scale));
   flex: none;
-  transform: rotate(-90deg);
+  border-radius: var(--wb-radius-full);
+  background: conic-gradient(
+    from -90deg,
+    var(--wb-ring-ink) var(--ctx-arc, 0%),
+    var(--wb-border) 0
+  );
+  -webkit-mask: radial-gradient(closest-side, #0000 74%, #000 76%);
+  mask: radial-gradient(closest-side, #0000 74%, #000 76%);
 }
-.ring-b {
-  fill: none;
-  stroke: var(--wb-border);
-  stroke-width: 2;
+.is-warn .ring {
+  --wb-ring-ink: var(--wb-warning);
 }
-.ring-f {
-  fill: none;
-  stroke: var(--wb-primary);
-  stroke-width: 2;
-  transition:
-    stroke-dasharray var(--wb-dur) var(--wb-ease),
-    stroke var(--wb-dur) var(--wb-ease);
-}
-.is-warn .ring-f {
-  stroke: var(--wb-warning);
-}
-.is-danger .ring-f {
-  stroke: var(--wb-danger);
+.is-danger .ring {
+  --wb-ring-ink: var(--wb-danger);
 }
 .is-warn .txt {
   color: var(--wb-warning);

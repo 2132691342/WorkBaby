@@ -271,7 +271,7 @@ onMounted(() => {
               <div class="prov-sub">{{ p.api }} · {{ baseHost(p.base_url) }}</div>
             </div>
             <el-tag :type="p.has_key ? 'success' : 'info'" size="small">
-              {{ p.has_key ? t('settings.providers.key') : t('common.unknown') }}
+              {{ p.has_key ? t('settings.providers.key') : t('settings.providers.keyMissing') }}
             </el-tag>
           </header>
 
@@ -329,7 +329,7 @@ onMounted(() => {
     <el-dialog
       v-model="dialog"
       :title="editing ? t('common.edit') : t('settings.providers.add')"
-      width="680px"
+      :width="`calc(760px * var(--wb-vw-scale))`"
       destroy-on-close
     >
       <el-form label-position="top" @submit.prevent>
@@ -391,16 +391,45 @@ onMounted(() => {
             </div>
 
             <ul v-if="form.models.length" class="models-list">
-              <li v-for="m in form.models" :key="m.id" class="model-row">
-                <el-input v-model="m.id" size="small" class="w-id" :placeholder="t('settings.providers.modelId')" />
-                <el-input v-model="m.name" size="small" class="w-name" :placeholder="t('settings.providers.modelName')" />
-                <el-input-number v-model="m.context_window" size="small" :min="0" :step="1000" controls-position="right" class="w-num" />
-                <el-input-number v-model="m.max_tokens" size="small" :min="0" :step="1000" controls-position="right" class="w-num" />
-                <el-checkbox v-model="m.reasoning" size="small">{{ t('settings.providers.reasoning') }}</el-checkbox>
-                <el-checkbox v-model="m.vision" size="small">{{ t('settings.providers.vision') }}</el-checkbox>
-                <button class="model-del" type="button" @click="dropModel(m.id)">
-                  <AppIcon name="close" size="ic-xs" />
-                </button>
+              <li v-for="m in form.models" :key="m.id" class="model-card">
+                <div class="model-head">
+                  <el-input v-model="m.id" size="small" class="w-id" :placeholder="t('settings.providers.modelId')" />
+                  <el-input v-model="m.name" size="small" class="w-name" :placeholder="t('settings.providers.modelName')" />
+                  <button class="model-del" type="button" :title="t('common.delete')" @click="dropModel(m.id)">
+                    <AppIcon name="close" size="ic-xs" />
+                  </button>
+                </div>
+                <!-- 第二行只放读数：两行分开之后每个控件都有足够宽度，不再被挤掉 -->
+                <div class="model-meta">
+                  <label class="model-field">
+                    <span class="model-cap">{{ t('settings.providers.contextWindow') }}</span>
+                    <el-input-number
+                      v-model="m.context_window"
+                      size="small"
+                      :min="0"
+                      :step="1000"
+                      :controls="false"
+                      class="w-num"
+                    />
+                  </label>
+                  <label class="model-field">
+                    <span class="model-cap">{{ t('settings.providers.maxTokens') }}</span>
+                    <el-input-number
+                      v-model="m.max_tokens"
+                      size="small"
+                      :min="0"
+                      :step="1000"
+                      :controls="false"
+                      class="w-num"
+                    />
+                  </label>
+                  <el-checkbox v-model="m.reasoning" size="small">
+                    {{ t('settings.providers.reasoning') }}
+                  </el-checkbox>
+                  <el-checkbox v-model="m.vision" size="small">
+                    {{ t('settings.providers.vision') }}
+                  </el-checkbox>
+                </div>
               </li>
             </ul>
             <p v-else class="hint">{{ t('settings.providers.invalid') }}</p>
@@ -574,17 +603,43 @@ onMounted(() => {
 .models-list {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-1);
-  max-height: calc(260px * var(--wb-vw-scale));
+  gap: var(--wb-sp-2);
+  max-height: calc(320px * var(--wb-vw-scale));
   overflow-y: auto;
 }
-.model-row {
+/* 一条模型 = 一张小卡：上行标识 / 下行读数。挤成一行时名字与四个读数只能互相截断 */
+.model-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2);
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius-sm);
+  background: var(--wb-elev-hover);
+}
+.model-head {
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-1);
+  gap: var(--wb-sp-2);
+}
+.model-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--wb-sp-2) var(--wb-sp-4);
+}
+.model-field {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+}
+.model-cap {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  white-space: nowrap;
 }
 .w-id {
-  flex: 1.4;
+  flex: 1.3;
   min-width: 0;
 }
 .w-name {
@@ -592,7 +647,7 @@ onMounted(() => {
   min-width: 0;
 }
 .w-num {
-  width: calc(120px * var(--wb-vw-scale));
+  width: calc(112px * var(--wb-vw-scale));
   flex: none;
 }
 .model-del {

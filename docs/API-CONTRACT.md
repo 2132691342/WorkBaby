@@ -26,7 +26,7 @@
 | GET | `/sessions/:id` | 会话详情（元信息 + 投影消息） |
 | POST | `/sessions/rename/:id` | 改名（PI 的 `set_session_name`） |
 | POST | `/sessions/delete/:id` | 删除（删 PI 的会话文件） |
-| POST | `/sessions/model/:id` | 换模型 `{provider, model}` |
+| POST | `/sessions/model/:id` | 换模型 `{provider, model}`（无会话路径见 `/providers/default`） |
 | POST | `/sessions/thinking/:id` | 换思考档 `{level}` |
 | POST | `/sessions/export/:id` | 导出 HTML `{path}` |
 | POST | `/chat/send` | 发送（`session_id` 空 = 新对话，返回体带回新建的 id） |

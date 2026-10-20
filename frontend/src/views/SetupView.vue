@@ -166,7 +166,7 @@ onMounted(() => {
               <div class="step-row">
                 <b class="step-title">{{ s.title }}</b>
                 <el-tag size="small" :type="s.done ? 'success' : blocking === s.key ? 'warning' : 'info'">
-                  {{ s.done ? t('common.ok') : blocking === s.key ? t('setup.blocking') : t('common.loading') }}
+                  {{ s.done ? t('common.ok') : blocking === s.key ? t('setup.blocking') : t('setup.pending') }}
                 </el-tag>
               </div>
               <p class="step-desc">{{ s.desc }}</p>

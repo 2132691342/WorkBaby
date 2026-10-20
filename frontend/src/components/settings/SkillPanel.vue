@@ -118,8 +118,8 @@ async function importSkill() {
     if (!path) return
     const r = await api.skills.import([path])
     await reload()
-    if (r.imported) toast.ok(`${r.imported}`)
-    if (r.skipped?.length) toast.info(r.skipped.slice(0, 3).join('; '))
+    if (r.imported) toast.ok(t('common.imported', { n: r.imported }))
+    if (r.skipped?.length) toast.info(t('common.skipped', { n: r.skipped.length }))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {

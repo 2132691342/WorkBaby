@@ -55,12 +55,13 @@
   --wb-sp-10: calc(40px * var(--wb-vw-scale));
   --wb-sp-12: calc(48px * var(--wb-vw-scale));
 
-  /* 圆角 4 级 + 胶囊：圆润靠圆角与阴影，不靠描边 */
-  --wb-radius-xs: calc(6px * var(--wb-vw-scale));
-  --wb-radius-sm: calc(8px * var(--wb-vw-scale));
-  --wb-radius: calc(10px * var(--wb-vw-scale));
-  --wb-radius-lg: calc(16px * var(--wb-vw-scale));
-  --wb-radius-xl: calc(20px * var(--wb-vw-scale));
+  /* 圆角七档：控件的 8px 是基准档，卡片再上一级，弹窗封顶 16px。
+     高处不再往上加——20px 以上的圆角在小控件上会把方框读成胶囊。 */
+  --wb-radius-xs: calc(4px * var(--wb-vw-scale));
+  --wb-radius-sm: calc(6px * var(--wb-vw-scale));
+  --wb-radius: calc(8px * var(--wb-vw-scale));
+  --wb-radius-lg: calc(12px * var(--wb-vw-scale));
+  --wb-radius-xl: calc(14px * var(--wb-vw-scale));
   --wb-radius-full: 999px;
   --wb-radius-ctl: var(--wb-radius);
 
@@ -159,7 +160,7 @@
   --wb-h-pagehead: calc(60px * var(--wb-vw-scale));
 
   /* 圆角七档：控件用 radius 一档，卡片用 xl，整块面板用 2xl。 */
-  --wb-radius-2xl: calc(24px * var(--wb-vw-scale));
+  --wb-radius-2xl: calc(16px * var(--wb-vw-scale));
 
   /* 字号补两档：读数大数字与页标题 */
   --wb-fs-display: calc(36px * var(--wb-fs-scale) * var(--wb-vw-scale));

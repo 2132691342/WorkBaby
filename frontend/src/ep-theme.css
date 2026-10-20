@@ -199,6 +199,12 @@
   background: var(--wb-elev-hover);
   box-shadow: 0 0 0 1px var(--wb-border) inset;
 }
+/* 小号控件再降一档圆角：26px 高的框套 8px 圆角就快成胶囊了 */
+.el-input--small .el-input__wrapper,
+.el-input-number--small .el-input__wrapper,
+.el-select--small .el-select__wrapper {
+  border-radius: var(--wb-radius-sm);
+}
 .el-textarea__inner {
   padding: var(--wb-sp-2) var(--wb-sp-3);
   line-height: var(--wb-lh-base);

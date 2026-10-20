@@ -23,7 +23,9 @@ const modelName = computed(() => {
   const p = list.find((x) => x.id === provider.value)
   return p?.models.find((m) => m.id === model.value)?.name || model.value || t('engine.noModel')
 })
-const thinking = computed(() => t(`thinking.${session.current?.thinking_level || 'medium'}`))
+const thinking = computed(() =>
+  t(`thinking.${session.current?.thinking_level || settings.piSettings?.default_thinking_level || 'medium'}`),
+)
 const contextPct = computed(() => {
   if (!chat.contextKnown) return 0
   return Math.max(0, Math.min(100, chat.contextRatio))
@@ -72,7 +74,7 @@ function open() {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-3);
+  padding: var(--wb-sp-2);
   border-radius: var(--wb-radius-lg);
   border: 1px solid var(--wb-border);
   background: var(--wb-elev-raised);

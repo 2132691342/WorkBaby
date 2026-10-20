@@ -20,7 +20,6 @@ const props = defineProps<{
   stopping?: boolean
   /** 运行中正在发的是哪一类：'steer' / 'queue' / '' */
   acting?: 'steer' | 'queue' | ''
-  clearing?: boolean
   disabled?: boolean
   placeholder?: string
 }>()
@@ -30,7 +29,6 @@ const emit = defineEmits<{
   queue: [text: string]
   stop: []
   newSession: []
-  clearSession: []
 }>()
 
 const { t } = useI18n()
@@ -51,7 +49,6 @@ interface PendingFile {
 
 const COMMANDS = [
   { key: 'new', nameKey: 'chat.slashNew', descKey: 'chat.slashNewDesc' },
-  { key: 'clear', nameKey: 'chat.slashClear', descKey: 'chat.slashClearDesc' },
   { key: 'model', nameKey: 'chat.slashModel', descKey: 'chat.slashModelDesc' },
   { key: 'thinking', nameKey: 'chat.slashThinking', descKey: 'chat.slashThinkingDesc' },
 ] as const
@@ -170,7 +167,6 @@ function runSlash(item: SlashItem) {
 function runCommand(key: (typeof COMMANDS)[number]['key']) {
   clearInput()
   if (key === 'new') emit('newSession')
-  else if (key === 'clear') emit('clearSession')
   else chipsRef.value?.show(key === 'model' ? 'model' : 'thinking')
 }
 
@@ -551,7 +547,6 @@ defineExpose({
             class="pop-row"
             :class="{ 'is-hi': i === cmdIndex }"
             type="button"
-            :disabled="!!clearing"
             @mouseenter="cmdIndex = i"
             @click="runSlash(it)"
           >
@@ -621,7 +616,7 @@ defineExpose({
   gap: var(--wb-sp-1);
   height: var(--wb-ctl-h-sm);
   padding: 0 var(--wb-sp-1) 0 var(--wb-sp-2);
-  border-radius: var(--wb-radius-full);
+  border-radius: var(--wb-radius-sm);
   border: 1px solid var(--wb-border);
   background: var(--wb-elev-hover);
   color: var(--wb-ink-2);
@@ -747,7 +742,7 @@ defineExpose({
   place-items: center;
   width: var(--wb-ctl-h-sm);
   height: var(--wb-ctl-h-sm);
-  border-radius: var(--wb-radius-full);
+  border-radius: var(--wb-radius-sm);
   border: 1px solid var(--wb-border);
   color: var(--wb-muted);
   flex: none;

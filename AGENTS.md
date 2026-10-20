@@ -1,4 +1,4 @@
-﻿# AGENTS.md · WorkBaby 工程规范
+# AGENTS.md · WorkBaby 工程规范
 
 > 本文件是代码风格 / 分包 / 依赖方向 / 工作流的唯一权威。
 > 设计说明见 `docs/` 与 `specs/`；冲突时以本文件为准。
@@ -368,6 +368,8 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 - 布局与间距用 UnoCSS 原子类：`uno.config.ts` 已把 spacing / fontSize / borderRadius / colors
   全部接到 `--wb-*` 令牌，`gap-4` 就是 `var(--wb-sp-4)`。禁止在原子类里写裸像素或 hex
 - 控件高度四档：`--wb-ctl-h-sm`(26px) / `--wb-ctl-h`(34px) / `--wb-ctl-h-lg`(38px) / `--wb-ctl-h-xl`(44px)，另有图标钮 `--wb-ctl-icon`(32px)；禁止裸像素高度
+- 圆角只走七档：`xs`(4) / `sm`(6) / `radius`(8) / `lg`(12) / `xl`(14) / `2xl`(16) / `full`；
+  `full` 只给真正的圆形（头像 / 状态点 / 水位环），chip 与小号输入框用 `sm`——胶囊会让小控件失去边界
 - 装饰性图标瓦片用 `--wb-tile-sm`(30px) / `--wb-tile`(40px) / `--wb-tile-lg`(52px)：它们不是控件，但同一组尺寸反复出现，散成裸像素就会各自漂
 - 按钮五态必须齐全（默认 / 悬停放大 / 按下缩小 / 禁用 / 加载）：每个可点元素都要给「点到了」的反馈
 - **五态刻度全站统一 `1.06` / `0.92`**：EP 按钮在 `ep-theme.css` 里定，自绘按钮在各自组件里定，两边必须同一档——
@@ -443,7 +445,7 @@ CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 
 ```text
 一个工作区 = 一个 PI 进程
-  ├─ spawn: node <pi>/dist/bundle/cli.js --mode rpc --no-session (cwd = 工作区)
+  ├─ spawn: node <pi>/dist/bundle/cli.js --mode rpc --append-system-prompt <persona.md>（cwd = 工作区；提交信息草稿等短调用用 --no-session）
   │        npm 的 pi.cmd / npm.cmd 先解析成 node + 脚本：经 cmd.exe 起进程会弹控制台窗口
   ├─ stdout: 按 LF 切分 → 记录分类 → 事件翻译
   ├─ stderr: 只进日志尾部缓冲，不解析为协议
@@ -598,7 +600,7 @@ type Record struct {
 ### 3.4 测试索引
 
 保留判据只有两条：**它坏了会指向一条真实链路**、**必须跨模块 / 跨轮次 / 跨协议**。
-全包共 8 个入口 / 8 个文件（一包一入口），共 27 条子测试：
+全包共 8 个入口 / 8 个文件（一包一入口），共 18 条子测试：
 简单 CRUD、字段映射、构造冒烟这类「坏了也不知道哪里坏」的断言一律不写——
 它们撑不起一条链路，只会稀释失败信息、拖慢每次验证。
 没列进来的包（server / config / db / domain / pkg / repo / tray / singleinstance）
@@ -607,13 +609,13 @@ type Record struct {
 | 入口 | 覆盖的链路 |
 |---|---|
 | `app_test.go` · TestAppChain | **启动等待判据**（慢装配不误判 / 失败如实报 / 卡死有上限）；**关闭去向**（托盘开关与退出流程决定收托盘还是真退出） |
-| `pi/pi_test.go` · TestPiChain | 五条链：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、可用模型清单）；**事件顺序与翻译**（agent_end → 重试 → settled 且 done 只挂最后；流式增量两类、工具结果内容块与元数据、压缩前后 token、四种 fire-and-forget 扩展请求及其字段原样透传）；**提问请求解析与回写响应**（请求字段完整解析、响应写回同一 id）；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程）；**本机 PI 真实回合**（`-short` 跳过：经 npm shim 还原出 node + 入口脚本，起进程、等就绪、建会话、两轮对话、进程复用与会话文件落盘） |
-| `pi/env/env_test.go` · TestPiEnvChain | 四条链：**agent 目录与进程环境**（跟随 `PI_CODING_AGENT_DIR`、不覆盖它）；**环境闸门**（node → pi → model 报首个阻塞项并给原因）；**配置文件**（models.json 的 camelCase 形状与未知字段保留、settings.json 只改掌管键且 compaction 字段级合并、packages 两种写法、原子替换不留临时文件、mcp.json 原文往返与项目级路径）；**PI 入口从 npm shim 还原成 node + 脚本**（解析结果不得是 cmd.exe，且必须真的跑得起来） |
+| `pi/pi_test.go` · TestPiChain | 四条链 + 真实回合：**协议分帧与命令响应解码**（U+2028 不切帧、未知记录不挡命令、按 id 关联、可用模型清单）；**事件顺序与翻译**（agent_end → 重试 → settled 且 done 只挂最后；流式增量两类、工具结果内容块与元数据、压缩前后 token、四种 fire-and-forget 扩展请求及其字段原样透传）；**提问请求解析与回写响应**（请求字段完整解析、响应写回同一 id）；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程）；**本机 PI 真实回合**（`-short` 跳过：经 npm shim 还原出 node + 入口脚本，起进程、等就绪、建会话、两轮对话、进程复用与会话文件落盘） |
+| `pi/env/env_test.go` · TestPiEnvChain | 四条链：**agent 目录与进程环境**（跟随 `PI_CODING_AGENT_DIR`、不覆盖它）；**环境闸门**（node → pi → model 报首个阻塞项并给原因）；**配置文件**（models.json 的 camelCase 形状、未知字段保留，settings.json 只改掌管键且 compaction 字段级合并、packages 两种写法、原子替换不留临时文件，mcp.json 原文往返与项目级路径）；**PI 入口从 npm shim 还原成 node + 脚本**（解析结果不得是 cmd.exe，且必须真的跑得起来） |
 | `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈，两个子测试：**闸门与信封契约**（预检放行 + 方法白名单 + 路径穿越门口拒绝 + 空数组永不 null + 引导字段支撑环境闸门）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、会话出现在列表里、上一轮收尾后再发下一轮）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
-| `service/chain_test.go` · TestServiceChain | 七条链：**会话索引**（列表/详情/工具清单都来自会话文件、标题取 session_info、删除删的是文件）；**一轮对话与用量**（新会话现场创建、done 最后、重试事件、落盘后能算出用量与按模型归因）；**停止**（先取回排队文本再中止）；**空闲排队与界面文本**（follow_up 在没有 run 时按一轮完整发送记账、扩展带的 ANSI 码进界面前被剥成纯文本）；**目录扫描**（技能三区启停靠移目录、包内技能不可搬、扩展登记项与包目录解析）；**配置写入**（models.json 密钥掩码与能力回读、默认模型落盘、坏 MCP JSON 不落盘、删除连带清默认）；**跨工作区并行**（各自一个进程，不串会话） |
+| `service/chain_test.go` · TestServiceChain | 六条链：**会话索引**（列表/详情/工具清单都来自会话文件、标题取 session_info、删除删的是文件）；**一轮对话与用量**（新会话现场创建、done 最后、重试事件、落盘后能算出用量与按模型归因）；**停止与空闲排队**（先取回排队文本再中止、abort 落内核标记、空闲 follow_up 等价完整一轮、扩展 ANSI 码进界面前被剥成纯文本）；**目录扫描**（技能三区启停靠移目录、包内技能不可搬、扩展登记项与包目录解析）；**配置写入**（models.json 密钥掩码、默认模型落盘、坏 MCP JSON 不落盘、删除连带清默认）；**跨工作区并行**（各自一个进程，不串会话） |
 | `git/git_test.go` · TestGitChain | 真仓库端到端（唯一用真 git 子进程的测试，约 10 秒），按坏法分三条链：读（status 归类 / 中文带空格路径还原 / 行号归属 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；写（参数白名单 → 勾选入栈 → 空信息被拒 → 提交带 hash → 历史与文件历史可读 → 出栈只动索引）；分支（名字白名单 → 新建切换 → 历史隔离）。`-short` 与没装 git 都跳过 |
-| `skill/skill_test.go` · TestSkillRegistryChain | **frontmatter 混合类型解析**（列表 / 行内数组 / 标量混排，解析失败会被静默跳过）；**两区扫描**（停用区可见可读、正文可取）；**工作区切换**（换目录换技能不残留、全局技能不被清掉） |
-| `runtime/runtime_test.go` · TestBundledRuntimeChain | 两条链：**归档完整性与解压安全**（SHA 常量一致、LFS 指针当场识破、zip-slip 拒绝且正常路径不误伤）；**真实解压的根目录布局正确**（Node 剥掉顶层单目录、Python 平铺；`-short` 跳过） |
+| `skill/skill_test.go` · TestSkillRegistryChain | 一条链：**两区扫描与工作区切换**（frontmatter 混合类型解析、停用区可见可读、`.pi/skills` 目录归属、换目录换技能不残留、全局技能不被清掉） |
+| `runtime/runtime_test.go` · TestBundledRuntimeChain | 一条链：**归档完整性、解压安全与真实布局**（SHA 常量一致、LFS 指针当场识破、zip-slip 拒绝且正常路径不误伤；真实解压验根目录布局——Node 剥掉顶层单目录、Python 平铺；`-short` 跳过真解压） |
 
 **改这里 → 只跑这条**（定位与验证都从这张表进；单包一律用脚本）：
 

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-// 对话页左侧面板：新对话 + 搜索 + 会话列表 + 引擎状态卡。
-// 折叠由顶栏按钮控制（useSessionPanel），走 class 让过渡可见。
+// 对话页左侧面板：新对话 + 会话列表 + 引擎状态卡。
+// 与设置页 / 帮助页共用 SidePanel 的 sub 档：rail 已在左侧占位，二级目录再宽就读作两根侧栏。
+// 折叠由顶栏按钮控制（useSessionPanel），外层包一层只为让宽度过渡可见。
 import { useI18n } from 'vue-i18n'
 import { useSessionPanel } from '../../composables/useSessionPanel'
 import AppIcon from '../common/AppIcon.vue'
+import SidePanel from '../layout/SidePanel.vue'
 import EngineCard from './EngineCard.vue'
 import SessionList from './SessionList.vue'
 
@@ -15,74 +17,52 @@ const { collapsed } = useSessionPanel()
 </script>
 
 <template>
-  <aside class="side-panel" :class="{ 'is-collapsed': collapsed }">
-    <div class="side-in">
-      <div class="side-head">
-        <span class="wb-label">{{ t('nav.menu') }}</span>
-      </div>
+  <div class="side-wrap" :class="{ 'is-collapsed': collapsed }">
+    <SidePanel width="sub" :title="t('nav.menu')">
+      <template #head>
+        <el-button
+          size="small"
+          type="primary"
+          :loading="props.creating"
+          :disabled="props.creating"
+          @click="emit('newSession')"
+        >
+          <AppIcon v-if="!props.creating" name="plus" size="ic-2xs" />
+          <span class="ml-1">{{ t('chat.newSession') }}</span>
+        </el-button>
+      </template>
 
-      <el-button class="side-new" type="primary" :loading="props.creating" :disabled="props.creating" @click="emit('newSession')">
-        <AppIcon v-if="!props.creating" name="plus" size="ic-xs" />
-        <span>{{ t('chat.newSession') }}</span>
-      </el-button>
+      <SessionList @new-session="emit('newSession')" />
 
-      <div class="side-list">
-        <SessionList @new-session="emit('newSession')" />
-      </div>
-
-      <div class="side-foot">
+      <template #foot>
         <EngineCard />
-      </div>
-    </div>
-  </aside>
+      </template>
+    </SidePanel>
+  </div>
 </template>
 
 <style scoped>
-.side-panel {
-  width: var(--wb-w-side);
-  flex: none;
-  min-height: 0;
+/* 折叠用宽度归零：display 切换无法过渡，负边距会连带消息列抖动一下 */
+.side-wrap {
   display: flex;
-  background: var(--wb-elev-raised);
-  border-right: 1px solid var(--wb-border);
+  flex: none;
+  width: var(--wb-w-subside);
+  min-height: 0;
   overflow: hidden;
-  /* 折叠用负边距 + 宽度归零：display 切换无法过渡 */
-  transition:
-    width var(--wb-dur-slow) var(--wb-ease),
-    margin-left var(--wb-dur-slow) var(--wb-ease),
-    border-color var(--wb-dur-slow) var(--wb-ease);
+  transition: width var(--wb-dur-slow) var(--wb-ease);
 }
-.side-panel.is-collapsed {
+.side-wrap.is-collapsed {
   width: 0;
-  margin-left: calc(-1px * var(--wb-vw-scale));
-  border-right-color: transparent;
   pointer-events: none;
 }
-.side-in {
-  width: var(--wb-w-side);
-  flex: none;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-4) var(--wb-sp-2) var(--wb-sp-3);
-}
-.side-head {
-  padding: 0 var(--wb-sp-2);
-}
-.side-new {
+.side-wrap :deep(.side-panel) {
   width: 100%;
-  height: var(--wb-ctl-h-lg);
-  gap: var(--wb-sp-1);
 }
-.side-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 var(--wb-sp-1);
+/* 窄档里底部卡片的留白让给内容：188px 再扣两圈 padding，读数会先被挤掉 */
+.side-wrap :deep(.sp-foot) {
+  padding: var(--wb-sp-2);
 }
-.side-foot {
-  flex: none;
-  padding: 0 var(--wb-sp-1);
+.ml-1 {
+  margin-left: var(--wb-sp-1);
 }
 </style>

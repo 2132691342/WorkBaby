@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '../api'
+import { i18n } from '../i18n'
 import type { MessageVO, SessionVO } from '../types/api'
 import { useChatStore } from './chat'
 
@@ -42,7 +43,7 @@ export const useSessionStore = defineStore('session', () => {
       currentId.value = id
       const detail = await api.sessions.detail(id)
       if (!detail || !Array.isArray(detail.messages)) {
-        throw new Error('会话快照格式异常，已保留当前内容')
+        throw new Error(i18n.global.t('chat.snapshotBroken'))
       }
       messages.value = detail.messages
       const idx = list.value.findIndex((s) => s.id === id)

@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api'
+import { i18n } from '../i18n'
 import type { BootstrapVO, ExtensionListRESP, MCPListRESP, PISettingsVO, ProviderListRESP, SkillVO, ToolListRESP } from '../types/api'
 import { useToastStore } from './toast'
 
@@ -22,7 +23,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const error = ref('')
 
   function fail(e: unknown) {
-    error.value = (e as Error)?.message || '加载失败，请稍后再试'
+    error.value = (e as Error)?.message || i18n.global.t('common.loadFailed', { msg: '' })
   }
 
   // 只重读设置表：主题、字体、字号只依赖它，不该被别的子项连坐。
@@ -119,7 +120,9 @@ export const useSettingsStore = defineStore('settings', () => {
       await api.settings.set(key, value)
     } catch (e) {
       values.value = { ...values.value, [key]: prev }
-      useToastStore().bad(`保存设置失败：${(e as Error)?.message || '请重试'}`)
+      useToastStore().bad(
+        i18n.global.t('common.saveFailed', { msg: (e as Error)?.message || '' }),
+      )
       throw e
     }
   }

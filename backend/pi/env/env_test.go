@@ -75,12 +75,13 @@ func TestPiEnvChain(t *testing.T) {
 		}
 	})
 
-	// 写出去的必须是 PI 认识的 camelCase，且不认识的字段（$schema、compat）不能裁。
-	t.Run("models.json 写出 PI 认识的形状，未知字段原样保留", func(t *testing.T) {
-		p := pathsOf(t)
-		e := New(p)
+	// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 未知字段保留。
+	// 写出去的必须是 PI 认识的 camelCase；整体重写会把 PI 自己写的字段与用户用
+	// CLI 装的包抹掉——这是最贵的一类回归，packages / compaction / mcp 都在这条链上验。
+	t.Run("配置文件：models.json 形状、settings.json 掌管键、mcp.json 原文往返", func(t *testing.T) {
+		e := New(pathsOf(t))
 		authHeader := true
-		file := &ModelsFile{Providers: map[string]ProviderConfig{
+		models := &ModelsFile{Providers: map[string]ProviderConfig{
 			"my-provider": {
 				Name: "我的服务", BaseURL: "https://api.example.com/v1",
 				APIKey: "sk-test", API: "openai-completions", AuthHeader: &authHeader,
@@ -91,7 +92,7 @@ func TestPiEnvChain(t *testing.T) {
 				}},
 			},
 		}}
-		if err := e.WriteModels(file); err != nil {
+		if err := e.WriteModels(models); err != nil {
 			t.Fatalf("写 models.json 失败: %v", err)
 		}
 		raw, err := os.ReadFile(e.ModelsPath())
@@ -112,6 +113,7 @@ func TestPiEnvChain(t *testing.T) {
 			t.Fatalf("读回的值不对: %+v", back.Providers["my-provider"])
 		}
 
+		// 未知字段（$schema、compat）不能被整体重写裁掉：用户手写的注释字段也是。
 		manual := `{"$schema":"x","providers":{"p1":{"baseUrl":"u","compat":{"a":1}}}}`
 		if err := WriteFileAtomic(e.ModelsPath(), []byte(manual), 0o600); err != nil {
 			t.Fatal(err)
@@ -130,13 +132,7 @@ func TestPiEnvChain(t *testing.T) {
 				t.Fatalf("写入后丢了 %s\n%s", want, raw)
 			}
 		}
-	})
 
-	// 整体重写会把 PI 自己写的字段与用户用 CLI 装的包抹掉——这是最贵的一类回归；
-	// packages 的两种写法（pi install 两种都会写）、mcp.json 的原文往返也在这条链上验。
-	// settings.json 只改自己掌管的键，packages 两种写法都要认；mcp.json 只做原文往返。
-	t.Run("配置文件：models.json 形状、settings.json 掌管键、mcp.json 原文往返", func(t *testing.T) {
-		e := New(pathsOf(t))
 		original := `{
   "defaultModel": "old",
   "packages": ["npm:@scope/a", {"source":"git:github.com/x/y"}],
@@ -150,11 +146,11 @@ func TestPiEnvChain(t *testing.T) {
 		if err := e.WriteSettings(&SettingsFile{DefaultModel: "new"}); err != nil {
 			t.Fatalf("写 settings.json 失败: %v", err)
 		}
-		raw, err := os.ReadFile(e.SettingsPath())
+		raw, err = os.ReadFile(e.SettingsPath())
 		if err != nil {
 			t.Fatal(err)
 		}
-		text := string(raw)
+		text = string(raw)
 		for _, want := range []string{`"cacheWarming"`, `"codemode"`, `"packages"`, `"new"`} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("写入后丢了 %s\n%s", want, text)

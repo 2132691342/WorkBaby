@@ -117,7 +117,9 @@ wails build                    # 产物 build/bin/WorkBaby.exe
 | [03](specs/03-skill.md) | 技能 | [10](specs/10-pi-supervisor.md) | PI 监督 |
 | [04](specs/04-desktop-shell.md) | 桌面壳 | [11](specs/11-pi-bootstrap.md) | PI 引导 |
 | [05](specs/05-user-manual.md) | 应用内手册 | [12](specs/12-workspace-files.md) | 工作区文件面板 |
-| [06](specs/06-prompt-and-settings.md) | 模型、提示与设置 | [13](specs/13-extensions.md) | 扩展（插件与包） |
+| [06](specs/06-prompt-and-settings.md) | 模型、提示与人设 | [13](specs/13-extensions.md) | 扩展（插件与包） |
 | [07](specs/07-usage-and-context.md) | 用量与上下文 | | |
+
+应用内置手册面向用户（`assets/docs/`），specs 与 docs 面向开发，两者不重复维护同一份话术。
 
 内部项目，未公开发布。

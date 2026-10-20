@@ -53,7 +53,7 @@ func (SettingDO) TableName() string { return "settings" }
 | `theme` / `font_family` / `font_size` / `show_thinking` | 外观 |
 | `minimize_to_tray` / `send_on_enter` / `workspace` | 行为 |
 | `bg_image` / `bg_opacity` / `bg_blur` | 自定义背景（图片复制进数据目录） |
-| `context_window` | 手填覆盖 `models.json` 里的窗口 |
+| `language` | 界面语言（zh-CN / en，前端 i18n 与 Element Plus 文案同步） |
 
 **为什么只留一张表**：会话与消息在 PI 的文件里，再存一份就是两本账——两本账迟早分叉，
 症状是「界面里有的对话，命令行里看不到」。单一真相源让这类分叉不可能发生。

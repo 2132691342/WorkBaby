@@ -1,9 +1,7 @@
 <script setup lang="ts">
 // 引擎提问卡：PI 里的扩展（含内置提问工具）在等用户回答。
-// PI 的 RPC 只有四个提问基元：confirm / select / input / editor。
-// 多选题与「输入自己的想法」都不是协议特性——扩展会用 select 的哨兵行 + input 依次问，
-// 或者直接把编号列表塞进 input 的标题里。所以这里只做一件事：把四个基元渲染到位，
-// 不自造复选框（PI 认不出我们编出来的答案）。
+// PI 的 RPC 只有四个提问基元：confirm / select / input / editor。多选与自定义答案是
+// 扩展用哨兵行 + input 拼出来的，不是协议特性——这里只把四个基元渲染到位，不自造复选框。
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatStore, type PendingAsk } from '../../stores/chat'

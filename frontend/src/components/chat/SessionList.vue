@@ -152,7 +152,7 @@ onBeforeUnmount(() => {
               @click="openSession(s.id)"
             >
               <span class="sess-dot" :class="{ 'is-live': s.running }" />
-              <span class="sess-name">{{ s.title || t('chat.newSession') }}</span>
+              <span class="sess-name" :title="s.title">{{ s.title || t('chat.newSession') }}</span>
               <span class="sess-time">{{ fmtRel(s.updated_at) }}</span>
             </button>
             <span class="sess-acts">
@@ -245,7 +245,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-2) var(--wb-sp-3);
+  padding: var(--wb-sp-2);
   text-align: left;
   border-radius: var(--wb-radius-sm);
   transition: transform var(--wb-dur-fast) var(--wb-ease);

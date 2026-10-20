@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // 插件面板：PI 的扩展（extensions 目录 + settings.json 登记）与包（pi install）。
 // 装 / 卸都走 PI 自己的 CLI，进度经 chat:setup 事件流式回传。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
+import { useSetupLog } from '../../composables/useSetupLog'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { ExtensionListRESP, ExtensionVO, PackageVO } from '../../types/api'
@@ -18,7 +19,9 @@ const settingsStore = useSettingsStore()
 const data = ref<ExtensionListRESP | null>(null)
 const busy = ref('')
 const source = ref('')
-const log = ref<string[]>([])
+// 装 / 卸的进度挂在 SSE 的全局通道上（发生在任何会话之外）
+const { lines: log, begin: beginLog, end: endLog } = useSetupLog()
+let logTimer = 0
 
 const entries = computed(() => data.value?.entries ?? [])
 const packages = computed(() => data.value?.packages ?? [])
@@ -67,8 +70,8 @@ async function importExt() {
     if (!path) return
     const r = await api.extensions.import([path])
     await reload()
-    if (r.imported) toast.ok(`${r.imported}`)
-    if (r.skipped?.length) toast.info(r.skipped.join('; '))
+    if (r.imported) toast.ok(t('common.imported', { n: r.imported }))
+    if (r.skipped?.length) toast.info(t('common.skipped', { n: r.skipped.length }))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
@@ -80,23 +83,34 @@ async function install() {
   const src = source.value.trim()
   if (!src || busy.value) return
   busy.value = 'install'
-  log.value = []
+  watchInstall()
   try {
     await api.extensions.install(src)
     toast.ok(t('settings.extensions.installing'))
     source.value = ''
-    window.setTimeout(() => void reload(), 3000)
   } catch (e) {
+    endLog()
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
   }
 }
 
+/** 装 / 卸都是后台动作：接口立刻返回，进度靠事件流回来，几秒后再拉一次清单 */
+function watchInstall() {
+  beginLog()
+  if (logTimer) clearTimeout(logTimer)
+  logTimer = window.setTimeout(() => {
+    logTimer = 0
+    void reload()
+    endLog()
+  }, 4000)
+}
+
 async function uninstall(p: PackageVO) {
   if (busy.value) return
   busy.value = `u:${p.source}`
-  log.value = []
+  watchInstall()
   try {
     await api.extensions.uninstall(p.source)
     await reload()
@@ -122,15 +136,13 @@ async function restart() {
   }
 }
 
-function onSetup(line: string) {
-  log.value = [...log.value.slice(-200), line]
-}
-
-defineExpose({ onSetup })
-
 onMounted(() => {
   if (settingsStore.extensions) data.value = settingsStore.extensions
   void reload()
+})
+onBeforeUnmount(() => {
+  if (logTimer) clearTimeout(logTimer)
+  endLog()
 })
 </script>
 

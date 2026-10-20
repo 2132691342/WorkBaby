@@ -4,6 +4,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import * as api from '../../api'
 import { useSessionStore } from '../../stores/session'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
@@ -31,7 +32,9 @@ const modelLabel = computed(() => {
   const p = providers.value.find((x) => x.id === currentProvider.value)
   return p?.models.find((m) => m.id === currentModel.value)?.name || currentModel.value || t('chat.modelPickerTitle')
 })
-const thinkingKey = computed(() => session.current?.thinking_level || 'medium')
+const thinkingKey = computed(
+  () => session.current?.thinking_level || settings.piSettings?.default_thinking_level || 'medium',
+)
 const thinkingName = computed(() => t(`thinking.${thinkingKey.value}`))
 
 const activeVendor = computed(
@@ -45,6 +48,7 @@ function open(next: Exclude<Panel, null>) {
     vendor.value = currentProvider.value || providers.value[0]?.id || ''
     if (!providers.value.length) void settings.loadProviders()
   }
+  if (panel.value === 'thinking' && !settings.piSettings) void settings.loadPISettings()
 }
 
 /** 供 /model 命令直接打开面板 */
@@ -54,41 +58,54 @@ function show(which: 'model' | 'thinking') {
     vendor.value = currentProvider.value || providers.value[0]?.id || ''
     void settings.loadProviders()
   }
+  if (which === 'thinking' && !settings.piSettings) void settings.loadPISettings()
 }
 function close() {
   panel.value = null
 }
 
 async function chooseModel(providerId: string, modelId: string) {
-  if (!session.currentId) {
-    toast.info(t('chat.modelPickerTitle'))
-    close()
-    return
-  }
   applying.value = `${providerId}/${modelId}`
   try {
+    // 新对话还没会话文件：改的是 PI 的默认模型，下一条会话直接用它
+    if (!session.currentId) {
+      await api.providers.setDefault(providerId, modelId)
+      await settings.refreshProviderData()
+      toast.ok(t('chat.modelDefaultSet', { model: modelLabelOf(providerId, modelId) }))
+      close()
+      return
+    }
     await session.setModel(providerId, modelId)
-    if (!session.current?.provider) await settings.refreshBoot()
+    await settings.refreshBoot()
     close()
   } catch (e) {
-    toast.bad(t('chat.sendFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('chat.modelSwitchFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     applying.value = ''
   }
 }
 
+/** 面板里显示的名字：有显示名就用显示名，没有就退回模型 id */
+function modelLabelOf(providerId: string, modelId: string) {
+  const p = providers.value.find((x) => x.id === providerId)
+  return p?.models.find((m) => m.id === modelId)?.name || modelId
+}
+
 async function chooseThinking(level: string) {
-  if (!session.currentId) {
-    toast.info(t('chat.thinkingPickerTitle'))
-    close()
-    return
-  }
   applying.value = `t:${level}`
   try {
+    // 同上：没有会话时改的是 PI 的默认思考档
+    if (!session.currentId) {
+      await api.settings.setThinking(level)
+      await settings.loadPISettings()
+      toast.ok(t('chat.thinkingDefaultSet', { level: t(`thinking.${level}`) }))
+      close()
+      return
+    }
     await session.setThinking(level)
     close()
   } catch (e) {
-    toast.bad(t('chat.sendFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('chat.thinkingSwitchFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     applying.value = ''
   }
@@ -109,6 +126,8 @@ function onEsc(e: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('pointerdown', onDocPointerDown)
   document.addEventListener('keydown', onEsc)
+  // chip 上的档位就靠它：没会话时显示的是 PI 的默认思考档
+  if (!settings.piSettings) void settings.loadPISettings()
 })
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocPointerDown)
@@ -218,7 +237,7 @@ defineExpose({ show, close })
   gap: var(--wb-sp-1);
   height: var(--wb-ctl-h-sm);
   padding: 0 var(--wb-sp-2);
-  border-radius: var(--wb-radius-full);
+  border-radius: var(--wb-radius-sm);
   border: 1px solid var(--wb-border);
   background: transparent;
   color: var(--wb-muted);

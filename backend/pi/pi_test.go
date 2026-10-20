@@ -148,8 +148,9 @@ func TestPiChain(t *testing.T) {
 		}
 	})
 
-	// 事件顺序是界面对账的根基：done 挂早了会在还在重试时报「已完成」；
-	// 翻译层还要把协议记录还原成界面能用的形态：增量分两类、工具结果带元数据、压缩带前后量。
+	// 事件顺序是界面对账的根基：done 挂早了会在还在重试时报「已完成」。
+	// 翻译层把协议记录还原成界面形态：增量分两类、工具结果带元数据、压缩带前后量、
+	// 四种 fire-and-forget 即时反馈字段完整且不堵命令通道——各场景在同一个子测试里逐段验。
 	t.Run("事件顺序与翻译：done 在最后，增量 / 工具 / 压缩 / 即时反馈都对", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		if _, err := client.Prompt(context.Background(), "你好", "", nil); err != nil {
@@ -168,11 +169,8 @@ func TestPiChain(t *testing.T) {
 				idxSettled = i
 			}
 		}
-		if idxEnd < 0 || idxRetry < 0 || idxSettled < 0 {
-			t.Fatalf("事件序列不完整: %v", kinds)
-		}
-		if !(idxEnd < idxRetry && idxRetry < idxSettled) {
-			t.Fatalf("顺序不对（agent_end → retry → settled）: %v", kinds)
+		if idxEnd < 0 || idxRetry < 0 || idxSettled < 0 || !(idxEnd < idxRetry && idxRetry < idxSettled) {
+			t.Fatalf("事件顺序不对（agent_end → retry → settled）: %v", kinds)
 		}
 
 		// 翻译层：同一套协议记录换成工具场景再跑一遍。
@@ -199,11 +197,9 @@ func TestPiChain(t *testing.T) {
 			t.Fatalf("增量没解析出来（text=%v thinking=%v）", text, thinking)
 		}
 		ev, _ := rec.find(KindToolEnd)
-		if ev.Result == nil || len(ev.Result.Content) == 0 || ev.Result.Content[0].Text != "文件内容" {
-			t.Fatalf("工具结果没还原: %+v", ev.Result)
-		}
-		if ev.DurationMs != 12 || ev.IsError {
-			t.Fatalf("工具元数据不对: %+v", ev)
+		if ev.Result == nil || len(ev.Result.Content) == 0 || ev.Result.Content[0].Text != "文件内容" ||
+			ev.DurationMs != 12 || ev.IsError {
+			t.Fatalf("工具结果与元数据没还原: %+v", ev)
 		}
 
 		cc, crec := start(t, exe, "compact")
