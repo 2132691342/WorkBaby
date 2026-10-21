@@ -1,6 +1,5 @@
-// 假 PI：按脚本回应 RPC 命令并吐事件，用于让 pi 包的协议链路在离线环境跑通。
-// 它不是 mock：走真实 stdin/stdout 与 LF 分帧，也会像真 PI 一样把会话写进 JSONL。
-// 场景由 --scenario 或 PI_FAKE_SCENARIO 选：basic / tools / approval / compact / notify / crash。
+// 假 PI：按脚本回应 RPC 并吐事件（走真实 stdin/stdout 与 LF 分帧，也写会话 JSONL）。
+// 场景由 --scenario 选：basic / tools / approval / compact / notify / crash。
 package main
 
 import (

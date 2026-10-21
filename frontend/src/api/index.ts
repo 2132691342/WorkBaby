@@ -14,6 +14,8 @@ import type {
   GitCommitVO,
   GitDiffVO,
   GitMessageRESP,
+  GitPullREQ,
+  GitPushREQ,
   GitStatusVO,
   HelpDocRESP,
   HelpDocVO,
@@ -199,13 +201,43 @@ export const git = {
   fileHistory: (path: string, session_id = '', limit = 50) =>
     get<GitCommitVO[]>('/git/file-history', pick({ path, session_id, limit: String(limit) })),
   branches: (session_id = '') => get<GitBranchVO[]>('/git/branches', pick({ session_id })),
+
   stage: (paths: string[], session_id = '') => post<GitStatusVO>('/git/stage', { paths, session_id }),
-  unstage: (paths: string[], session_id = '') => post<GitStatusVO>('/git/unstage', { paths, session_id }),
-  commit_: (message: string, session_id = '') =>
-    post<GitCommitRESP>('/git/commit', { message, session_id }),
-  createBranch: (name: string, session_id = '') => post<GitStatusVO>('/git/branch', { name, session_id }),
-  switchBranch: (name: string, session_id = '') => post<GitStatusVO>('/git/switch', { name, session_id }),
-  push: (session_id = '') => post<GitStatusVO>('/git/push', { session_id }),
+  unstage: (paths: string[], session_id = '') =>
+    post<GitStatusVO>('/git/unstage', { paths, session_id }),
+  /** 丢弃工作区改动；必须显式给文件，后端不提供「全部丢弃」 */
+  discard: (paths: string[], session_id = '') =>
+    post<GitStatusVO>('/git/discard', { paths, session_id }),
+  /** 把冲突文件标记为已解决（等同 add，但不代为提交） */
+  resolve: (paths: string[], session_id = '') =>
+    post<GitStatusVO>('/git/resolve', { paths, session_id }),
+
+  commit_: (message: string, session_id = '', amend = false) =>
+    post<GitCommitRESP>('/git/commit', { message, session_id, amend }),
+
+  createBranch: (name: string, session_id = '') =>
+    post<GitStatusVO>('/git/branch', { name, session_id }),
+  switchBranch: (name: string, session_id = '') =>
+    post<GitStatusVO>('/git/switch', { name, session_id }),
+  deleteBranch: (name: string, session_id = '') =>
+    post<GitStatusVO>('/git/branch/delete', { name, session_id }),
+  /** 合并或变基；冲突时返回带 state 的状态而不是错误 */
+  merge: (name: string, rebase: boolean, session_id = '') =>
+    post<GitStatusVO>('/git/merge', { name, rebase, session_id }),
+  /** 继续或中止未完成的合并 / 变基 */
+  state: (action: 'continue' | 'abort', session_id = '') =>
+    post<GitStatusVO>('/git/state', { action, session_id }),
+
+  pull: (req: GitPullREQ, session_id = '') => post<GitStatusVO>('/git/pull', { ...req, session_id }),
+  /** 取回远端最新状态；不改工作区也不改本地分支 */
+  fetch: (remote = '', session_id = '') => post<GitStatusVO>('/git/fetch', { remote, session_id }),
+  push: (req: GitPushREQ = {}, session_id = '') =>
+    post<GitStatusVO>('/git/push', { ...req, session_id }),
+
+  init: (branch: string, session_id = '') => post<GitStatusVO>('/git/init', { branch, session_id }),
+  addRemote: (name: string, url: string, session_id = '') =>
+    post<GitStatusVO>('/git/remote', { name, url, session_id }),
+
   draftMessage: (paths: string[], session_id = '') =>
     post<GitMessageRESP>('/git/message', { paths, session_id }),
 }

@@ -142,8 +142,7 @@ func (c *ChatService) Send(req domain.SendMessageREQ) (*domain.SendMessageRESP, 
 }
 
 // beginRun 给一轮运行记账并发 prompt：runState + busy 标记 + 等「已接受」。
-// 空闲会话无论从 Send 还是从排队投递进来都必须走它——翻译器没有 runState 时
-// 这一轮的界面事件会被整轮丢掉，用户看到自己发了话却永远等不到回应。
+// 翻译器没有 runState 时这一轮的界面事件会被整轮丢掉，所以空闲会话也必须走它。
 func (c *ChatService) beginRun(
 	client *pi.Client, workspace, sessionID string, st *pi.State,
 	text, behavior string, images []pi.Image,
@@ -272,9 +271,8 @@ func (c *ChatService) IsRunning(sessionID string) bool {
 	return c.running[sessionID]
 }
 
-// RunningIn 报告某个工作目录下有没有会话在跑。
-// 工作区跟着运行态一起记录，所以这里只在锁内查内存：去翻会话文件会把 I/O
-// 塞进全局锁，而 RunningIn 在发送、切会话、导出的主路径上都要调一次。
+// RunningIn 报告某个工作目录下有没有会话在跑；只在锁内查内存——
+// 翻会话文件的 I/O 不能塞进全局锁，它在发送 / 切会话 / 导出的主路径上都要调。
 func (c *ChatService) RunningIn(workspace string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()

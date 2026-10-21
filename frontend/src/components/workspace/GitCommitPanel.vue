@@ -16,8 +16,9 @@ const toast = useToastStore()
 
 const picked = ref<Set<string>>(new Set())
 const message = ref('')
-const busy = ref(false)
+const busy = ref('')
 const drafting = ref(false)
+const amend = ref(false)
 
 const files = computed<GitFileVO[]>(() => props.status?.files || [])
 const pickedFiles = computed(() => files.value.filter((f) => picked.value.has(f.path)))
@@ -58,25 +59,38 @@ syncPicked()
 async function stage() {
   const paths = pickedFiles.value.filter((f) => !f.staged).map((f) => f.path)
   if (!paths.length) return
-  busy.value = true
+  busy.value = 'stage'
   try {
     emit('done', await api.git.stage(paths, props.sessionId))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
-    busy.value = false
+    busy.value = ''
   }
 }
 
 async function unstageAll() {
   if (!stagedFiles.value.length) return
-  busy.value = true
+  busy.value = 'unstage'
   try {
     emit('done', await api.git.unstage(stagedFiles.value.map((f) => f.path), props.sessionId))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
-    busy.value = false
+    busy.value = ''
+  }
+}
+
+// 撤销单个文件的改动：不可逆，因此走二次确认而不是直接执行
+async function discardOne(path: string) {
+  busy.value = 'discard:' + path
+  try {
+    emit('done', await api.git.discard([path], props.sessionId))
+    toast.ok(t('workspace.discardOk', { n: 1 }))
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    busy.value = ''
   }
 }
 
@@ -102,21 +116,29 @@ async function commit() {
     toast.bad(t('workspace.commitEmpty'))
     return
   }
-  busy.value = true
+  busy.value = 'commit'
   try {
-    const res = await api.git.commit_(message.value.trim(), props.sessionId)
+    const res = await api.git.commit_(message.value.trim(), props.sessionId, amend.value)
     message.value = ''
+    const wasAmend = amend.value
+    amend.value = false
     emit('done', res.status)
-    toast.ok(t('workspace.commitOk', { hash: res.hash.slice(0, 7) }))
+    toast.ok(
+      wasAmend
+        ? t('workspace.amendOk', { hash: res.hash.slice(0, 7) })
+        : t('workspace.commitOk', { hash: res.hash.slice(0, 7) }),
+    )
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
   } finally {
-    busy.value = false
+    busy.value = ''
   }
 }
 
-const canCommit = computed(() => pickedFiles.value.length > 0 && !!message.value.trim())
+const canCommit = computed(() => pickedFiles.value.length > 0 && !!message.value.trim() && !busy.value)
 const needStage = computed(() => pickedFiles.value.some((f) => !f.staged))
+// 有冲突时 git 不接受提交，这时要先把冲突文件标记已解决
+const hasConflict = computed(() => files.value.some((f) => f.conflict))
 </script>
 
 <template>
@@ -126,10 +148,15 @@ const needStage = computed(() => pickedFiles.value.some((f) => !f.staged))
         <span class="wb-label">{{ t('workspace.files') }}</span>
         <span class="cmt-count">{{ pickedFiles.length }} / {{ files.length }}</span>
         <span class="sp" />
-        <el-button size="small" text :disabled="busy || !pickedFiles.length || !needStage" @click="stage">
+        <el-button
+          size="small"
+          text
+          :disabled="!!busy || !pickedFiles.length || !needStage"
+          @click="stage"
+        >
           {{ t('workspace.stage') }}
         </el-button>
-        <el-button size="small" text :disabled="busy || !stagedFiles.length" @click="unstageAll">
+        <el-button size="small" text :disabled="!!busy || !stagedFiles.length" @click="unstageAll">
           {{ t('workspace.unstageAll') }}
         </el-button>
       </header>
@@ -137,20 +164,39 @@ const needStage = computed(() => pickedFiles.value.some((f) => !f.staged))
       <div v-if="!files.length" class="cmt-empty">{{ t('workspace.noChanges') }}</div>
       <ul v-else class="cmt-list">
         <li v-for="f in files" :key="f.path">
-          <label class="cmt-row" :class="{ 'is-on': picked.has(f.path) }">
+          <div class="cmt-row" :class="{ 'is-on': picked.has(f.path), 'is-conflict': f.conflict }">
             <el-checkbox
               :model-value="picked.has(f.path)"
-              :disabled="busy"
+              :disabled="!!busy"
               @change="toggle(f.path)"
             />
-            <AppIcon name="doc" size="ic-xs" />
+            <AppIcon :name="f.conflict ? 'alert' : 'doc'" size="ic-xs" />
             <span class="cmt-path" :title="f.path">{{ shortPath(f.path) }}</span>
-            <el-tag v-if="f.staged" size="small" type="primary">{{ t('workspace.staged') }}</el-tag>
+            <el-tag v-if="f.conflict" size="small" type="warning">{{ t('workspace.conflict') }}</el-tag>
+            <el-tag v-else-if="f.staged" size="small" type="primary">{{ t('workspace.staged') }}</el-tag>
             <span class="cmt-stat">
               <b class="is-add">+{{ f.additions }}</b>
               <b class="is-del">−{{ f.deletions }}</b>
             </span>
-          </label>
+            <el-popconfirm
+              :title="t('workspace.discardConfirm')"
+              :confirm-button-text="t('workspace.discard')"
+              :cancel-button-text="t('common.cancel')"
+              width="250"
+              @confirm="discardOne(f.path)"
+            >
+              <template #reference>
+                <button
+                  class="cmt-drop"
+                  type="button"
+                  :disabled="!!busy"
+                  :title="t('workspace.discardHint')"
+                >
+                  <AppIcon name="trash" size="ic-2xs" />
+                </button>
+              </template>
+            </el-popconfirm>
+          </div>
         </li>
       </ul>
     </div>
@@ -169,26 +215,41 @@ const needStage = computed(() => pickedFiles.value.some((f) => !f.staged))
         type="textarea"
         :rows="4"
         :placeholder="t('workspace.commitPlaceholder')"
-        :disabled="busy"
+        :disabled="!!busy"
         maxlength="400"
         show-word-limit
       />
+
+      <!-- amend 会改写已有提交：放着不动最安全，打开时把代价写在旁边 -->
+      <el-checkbox v-model="amend" :disabled="!!busy" class="cmt-amend">
+        {{ t('workspace.amend') }}
+      </el-checkbox>
+      <p v-if="amend" class="cmt-warn">
+        <AppIcon name="alert" size="ic-2xs" />
+        {{ t('workspace.amendHint') }}
+      </p>
+
       <div class="cmt-acts">
-        <el-button size="small" :loading="drafting" :disabled="busy || !pickedFiles.length" @click="draft">
+        <el-button size="small" :loading="drafting" :disabled="!!busy || !pickedFiles.length" @click="draft">
           {{ drafting ? t('workspace.committing') : t('workspace.commitDraft') }}
         </el-button>
         <span class="sp" />
         <el-button
           size="small"
           type="primary"
-          :loading="busy"
-          :disabled="!canCommit || busy"
+          :loading="busy === 'commit'"
+          :disabled="!canCommit || hasConflict"
           @click="commit"
         >
           {{ t('workspace.commitAction') }}
         </el-button>
       </div>
-      <p v-if="needStage && pickedFiles.length" class="cmt-hint">
+
+      <p v-if="hasConflict" class="cmt-hint">
+        <AppIcon name="info" size="ic-2xs" />
+        {{ t('workspace.conflictResolveHint') }}
+      </p>
+      <p v-else-if="needStage && pickedFiles.length" class="cmt-hint">
         <AppIcon name="info" size="ic-2xs" />
         {{ t('workspace.stage') }} · {{ t('workspace.commitNothing') }}
       </p>
@@ -230,7 +291,7 @@ const needStage = computed(() => pickedFiles.value.some((f) => !f.staged))
   align-items: center;
   gap: var(--wb-sp-2);
   padding: var(--wb-sp-2) var(--wb-sp-3);
-  cursor: pointer;
+  cursor: default;
   transition: background var(--wb-dur-fast) var(--wb-ease);
 }
 .cmt-row:hover {
@@ -238,6 +299,49 @@ const needStage = computed(() => pickedFiles.value.some((f) => !f.staged))
 }
 .cmt-row.is-on {
   background: var(--wb-accent-tint);
+}
+.cmt-row.is-conflict {
+  box-shadow: inset 2px 0 0 var(--wb-warning);
+}
+.cmt-drop {
+  display: grid;
+  place-items: center;
+  width: var(--wb-ctl-icon);
+  height: var(--wb-ctl-icon);
+  border-radius: var(--wb-radius-sm);
+  color: var(--wb-muted);
+  opacity: 0;
+  transition:
+    opacity var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    background var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.cmt-row:hover .cmt-drop {
+  opacity: 1;
+}
+.cmt-drop:hover:not(:disabled) {
+  color: var(--wb-danger);
+  background: var(--wb-danger-soft);
+  transform: scale(1.06);
+}
+.cmt-drop:active:not(:disabled) {
+  transform: scale(0.92);
+}
+.cmt-drop:disabled {
+  opacity: 0;
+  cursor: not-allowed;
+}
+.cmt-amend {
+  align-self: flex-start;
+}
+.cmt-warn {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-warning);
+  line-height: var(--wb-lh-base);
 }
 .cmt-path {
   flex: 1;

@@ -181,11 +181,12 @@
 助手干完活之后「它到底动了什么」要有地方对账；改动也能在这一页收成一次提交。
 页签四个：**改动 / 提交 / 历史 / 分支**。
 
-- 看的是**当前会话的工作目录**（切会话即重载）
-- 写入只开放受控六动作（stage / unstage / commit / 新建分支 / 切分支 / push），
-  提交这一下永远由用户点下去；禁止清单见 specs/08
+- 看的是**当前会话的工作目录**（切会话即重载）；工作目录不是仓库时给「初始化仓库」输入框
+- 写入只开放白名单动作（specs/08）：入栈 / 出栈 / 丢弃 / 提交（含改写上次）/ 新建 / 切换 /
+  删除已合并分支 / 合并 / 变基 / 拉取 / 取回远端 / 推送 / 添加远端；冲突时顶部横幅给出
+  「标记已解决 → 继续 / 中止」的完整处置链，强制推送分三级且纯 `--force` 要输分支名确认
 - 变更列表 + 差异视图并排；历史与分支各自独立面板，提交详情与文件历史走抽屉
-- 没装 Git 或不是仓库时给空态 + 一句可执行的下一步
+- 没装 Git 时给空态 + 一句可执行的下一步
 
 ## SettingsView
 
@@ -250,9 +251,10 @@ URL 是唯一真相（`/help/:name`）。
 | `settings/SettingsSection.vue` | 设置分节（标题 + 说明 + 动作 + 内容） |
 | `settings/*Panel.vue` | 七个设置面板 |
 | `workspace/DiffView.vue` | 差异渲染 |
-| `workspace/GitCommitPanel.vue` | 提交页签 |
+| `workspace/GitStateBanner.vue` | 合并 / 变基中横幅：冲突计数、继续、中止 |
+| `workspace/GitCommitPanel.vue` | 提交页签（勾选、入栈、丢弃、起草、提交、改写） |
 | `workspace/GitHistoryPanel.vue` | 历史页签 |
-| `workspace/GitBranchPanel.vue` | 分支页签 |
+| `workspace/GitBranchPanel.vue` | 分支页签（切、合、变基、删、拉、取回、推送与分级强制推送） |
 
 ## 设置项
 

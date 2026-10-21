@@ -276,7 +276,6 @@ func TestHTTPChain(t *testing.T) {
 			t.Fatalf("创建模型服务失败: %d %s", code, body)
 		}
 		// 名字会被 slug 成 models.json 的键：拿列表里的真实键再设默认。
-		// 名字会被 slug 成 models.json 的键：拿列表里的真实键再设默认。
 		_, listing := call(t, base, "GET", "/providers", nil)
 		var parsed struct {
 			Data struct {

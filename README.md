@@ -69,7 +69,7 @@ WorkBaby/
 │   ├── repo/                GORM（只有设置 KV）
 │   ├── domain/              域模型（一个聚合根一个文件）
 │   ├── skill/               技能解析与注册表（目录即 PI 的技能目录）
-│   ├── git/                 工作区版本视图（读 + 白名单六动作）
+│   ├── git/                 工作区版本视图（读全开放 + 写白名单动作；冲突处置与分级强制推送）
 │   ├── runtime/             路径解析 + 内置 Node / Python 运行时
 │   ├── config/ db/ pkg/     配置 / 迁移 / 叶子工具包
 │   └── tray/ singleinstance/
@@ -100,6 +100,7 @@ wails build                    # 产物 build/bin/WorkBaby.exe
 | [AGENTS.md](AGENTS.md) | 工程规范（唯一权威：分包 / 依赖方向 / 错误码 / 测试 / 命名） |
 | [DESIGN.md](DESIGN.md) | 视觉语言与交互原则 |
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | **项目全景**：能力清单、模块地图、两个真相源、一次对话的链路、关键取舍 |
+| [docs/MODULES.md](docs/MODULES.md) | **模块设计**：每个模块是什么、怎么实现、为什么、优势与代价 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、启动时序、事件出口、消息顺序、前端状态归属 |
 | [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 哪些数据属于 PI、哪些属于 WorkBaby、会话文件里读什么 |
 | [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP 与 SSE 契约（路径表 + 事件表） |

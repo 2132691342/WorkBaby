@@ -32,8 +32,6 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 
 # 有测试文件的包。写死在这里而不是用 go list 现算：go list 要加载整个模块图，
 # 单那一步就 3 秒，比整轮短测试还贵。清单漂了由 -Full 档的校验拦住（见 AssertTestPackages）。
-# 有测试文件的包。写死在这里而不是用 go list 现算：go list 要加载整个模块图，
-# 单那一步就 3 秒，比整轮短测试还贵。清单漂了由 -Full 档的校验拦住（见 AssertTestPackages）。
 $TestPackages = @(
     '.'
     './backend/api'
@@ -167,8 +165,7 @@ if ($Full) {
     AssertTestPackages
 }
 
-# -Chain 档：子测试名要带入口名前缀才能命中，所以给 -run 拼一个空前缀——
-# -run 把参数按 '/' 分段，每段对应名字的一层，空段匹配任意入口名。
+# -Chain 档：给 -run 拼一个空前缀（-run 按 '/' 分段，空段匹配任意入口名），
 # 于是「提问」不必知道它挂在哪个 Chain 下也能直接跑；给了完整路径就原样用。
 if ($Chain) {
     # 测试源码里 grep 关键字，只编可能命中的包：编全部测试二进制要 6 秒，grep 是毫秒级。

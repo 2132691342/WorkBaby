@@ -78,7 +78,7 @@ WorkBaby/
 │   ├── repo/                     # ⑤ 持久层（GORM；不引上层）
 │   ├── domain/                   # ⑥ 域模型（一个聚合根一个文件，DO/DTO/REQ/VO/RESP 同居一处）
 │   ├── skill/                    # ⑦ Skill（parser/registry/loader，目录即 PI 的技能目录）
-│   ├── git/                      # ⑧ 工作区版本视图（读 status/diff/历史，写限白名单六动作，走系统 git）
+│   ├── git/                      # ⑧ 工作区版本视图（读 status/diff/历史，写限白名单动作，走系统 git）
 │   ├── runtime/                  # ⑨ 路径解析 + 内置 Node / Python 运行时（bundled/ 归档 go:embed + 解压）
 │   │   └── runtimetest/          #    测试夹具：预置运行时标记，装配类测试跳过解压（只被测试引用）
 │   ├── config/                   # ⑩ 配置（Viper YAML：工作目录与固定项）
@@ -112,9 +112,11 @@ WorkBaby/
 - `backend/pkg/` 依赖任何其他 `backend/` 业务包（叶子工具包铁律）
 - `backend/pi` import wails / api / server / gin / service，或让上层直接复制一份子进程与协议
 - 任何层向 PI 的 JSONL 写入（只有 PI 能写它）
-- 用字符串拼 git 写命令：`backend/git` 的写入走显式白名单（stage / unstage / commit / 新建分支 /
-  切分支 / push），`--force` / `reset --hard` / `--amend` / `--no-verify` / `-C <dir>` 一律拒绝（specs/08）
-
+- 用字符串拼 git 写命令：`backend/git` 的写入走显式白名单（stage / unstage / resolve / discard /
+  commit（含 --amend）/ 新建分支 / 切分支 / 删已合并分支 / merge / rebase / pull / fetch / push /
+  init / remote add / 冲突继续与中止），`reset --hard` / `clean -fd` / `--no-verify` /
+  `branch -D` / `-C <dir>` 一律拒绝；强制推送只走分级（`--force-with-lease` 或经分支名确认的 `--force`）
+  （specs/08）
 ### 2.2 依赖方向（强制）
 
 ```
@@ -567,10 +569,12 @@ type Record struct {
 
 两个硬规则：
 
-1. **一个子测试只讲一种坏法**。能写成「A、B、C 都对」的子测试，失败时报文说不清坏的是哪个——
-   拆成 A / B / C 三个子测试，名字就是它们各自的坏法。
+1. **一个子测试只讲一种坏法**。子测试是定位与 `-Chain` 的把手，失败报文必须能直接指到坏的是什么；
+   同一条链路里紧密相关的几个坏法（如事件顺序与字段还原）合并进一个子测试，共享昂贵 setup。
 2. **同一个行为只断言一次**。能力域自己的语义归能力域的链，编排层的语义归 service 链，
    不在两处各断一遍。
+3. **场景尽量共用仓库与进程**。一份仓库 / 一个假进程是几十次子进程调用；
+   能在同一份 setup 上推进场景就不要另起一份——日常验证的耗时大头在这里。
 
 ### 3.2 规模与速度约束
 
@@ -642,7 +646,7 @@ CI 跑这一档，所以本地不跑不等于没人跑。
 | `pi/env/env_test.go` · TestPiEnvChain | 三条链：**环境闸门与 agent 目录**（node → pi → model 报首个阻塞项并给原因；agent 目录跟随 `PI_CODING_AGENT_DIR` 且不被进程环境覆盖）；**配置写入**（models.json 的 camelCase 形状与未知字段保留，settings.json 只改掌管键且 compaction 字段级合并、packages 两种写法、原子替换不留临时文件，mcp.json 原文往返）；**PI 入口从 npm shim 还原成 node + 脚本**（不得是 cmd.exe，且必须真能跑起来） |
 | `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈两条链：**闸门与信封契约**（预检放行 + 方法白名单 + 路径穿越门口拒绝 + 空数组永不 null + 引导字段支撑环境闸门）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、上一轮收尾后再发下一轮）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
 | `service/chain_test.go` · TestServiceChain | 五条链：**会话索引**（列表 / 详情 / 内容块顺序 / 用量口径 / 工具清单 / 删除删的是文件）；**一轮对话与用量**（新会话现场创建、done 最后、重试事件、落盘后能算出用量与按模型归因）；**停止与空闲排队**（先取回排队文本再中止、abort 落内核标记、空闲 follow_up 等价完整一轮、ANSI 码进界面前被剥）；**配置落盘与回读**（技能三区启停靠移目录、包内技能不可搬、插件登记项、models.json 密钥掩码与默认模型、坏 MCP JSON 不落盘、删除连带清默认）；**跨工作区并行**（各自一个进程，不串会话） |
-| `git/git_test.go` · TestGitChain | 真仓库端到端（唯一用真 git 子进程的链，约 10 秒），按坏法分三条：**读**（状态归类 / 中文带空格路径还原 / 行号归属 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；**写**（参数白名单 → 勾选入栈 → 空信息被拒 → 提交带 hash → 历史与文件历史可读 → 出栈只动索引）；**分支**（名字白名单 → 新建切换 → 历史隔离）。`-short` 与没装 git 都跳过 |
+| `git/git_test.go` · TestGitChain | 真仓库端到端（唯一用真 git 子进程的链，约 30 秒），按坏法分五条：**读**（路径换算与状态归类 / 中文带空格路径还原 / 差异行号与文件头 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；**提交**（勾选入栈 → 空信息被拒 → 提交带 hash → 历史与提交详情可读 → 出栈只动索引 → 丢弃与 amend 的护栏 → 失败归因报 1017/1020 而不是 exit status 1）；**推送**（首次推送自动建上游 / 远端领先报 1024 / 带租约强制推送报 1027 / 确认后的纯强制推送能过）；**合并冲突**（冲突落地为可继续状态 / 未解决就提交或继续报 1021 / 逐文件标记后继续 / 中止回原状）；**分支**（注入面白名单 → 新建切换 → 合并 → 历史隔离 → 删已合并）。场景共用仓库；`-short` 与没装 git 都跳过 |
 | `skill/skill_test.go` · TestSkillRegistryChain | 两条链：**工作区切换**（换目录换技能不残留、停用区可见可读、全局技能不被清掉）；**frontmatter 解析**（混合类型照样解析，坏文件只跳自己不中断扫描——解析失败是静默的） |
 | `runtime/runtime_test.go` · TestBundledRuntimeChain | 一条链：**归档完整性、解压安全与真实布局**（SHA 常量一致、LFS 指针当场识破、zip-slip 拒绝且正常路径不误伤；真实解压验根目录布局——Node 剥掉顶层单目录、Python 平铺；`-short` 跳过真解压） |
 

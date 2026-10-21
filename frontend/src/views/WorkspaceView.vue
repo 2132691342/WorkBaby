@@ -13,6 +13,7 @@ import DiffView from '../components/workspace/DiffView.vue'
 import GitBranchPanel from '../components/workspace/GitBranchPanel.vue'
 import GitCommitPanel from '../components/workspace/GitCommitPanel.vue'
 import GitHistoryPanel from '../components/workspace/GitHistoryPanel.vue'
+import GitStateBanner from '../components/workspace/GitStateBanner.vue'
 
 const { t } = useI18n()
 const toast = useToastStore()
@@ -36,6 +37,9 @@ const TAGS: Record<string, { text: string; tone: string }> = {
   A: { text: 'A', tone: 'is-add' },
   D: { text: 'D', tone: 'is-del' },
   R: { text: 'R', tone: 'is-mod' },
+  C: { text: 'C', tone: 'is-mod' },
+  T: { text: 'T', tone: 'is-mod' },
+  U: { text: '!', tone: 'is-conflict' },
   '?': { text: 'U', tone: 'is-new' },
 }
 
@@ -90,6 +94,59 @@ async function afterWrite(st: GitStatusVO) {
   status.value = st
   if (tab.value === 'changes') await openDiff('')
 }
+
+// 不是仓库时给一条可执行的下一步：界面不能只告诉用户「这里用不了」
+const initName = ref('main')
+const initing = ref(false)
+async function initRepo() {
+  initing.value = true
+  try {
+    status.value = await api.git.init(initName.value.trim() || 'main', sessionId.value)
+    toast.ok(t('workspace.initOk'))
+    await load()
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    initing.value = false
+  }
+}
+
+// 冲突文件逐个标记已解决：git 只在标记之后才接受提交
+const resolving = ref('')
+async function resolveOne(path: string) {
+  resolving.value = path
+  try {
+    status.value = await api.git.resolve([path], sessionId.value)
+    toast.ok(t('workspace.conflictResolveOk', { n: 1 }))
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    resolving.value = ''
+  }
+}
+
+// 远端地址：没配远端时推送根本无处可去，这一步不能只留在命令行
+const remoteOpen = ref(false)
+const remoteName = ref('origin')
+const remoteUrl = ref('')
+const remoteBusy = ref(false)
+async function addRemote() {
+  remoteBusy.value = true
+  try {
+    status.value = await api.git.addRemote(
+      remoteName.value.trim(),
+      remoteUrl.value.trim(),
+      sessionId.value,
+    )
+    toast.ok(t('workspace.remoteAddOk', { name: remoteName.value.trim() }))
+    remoteOpen.value = false
+    remoteUrl.value = ''
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    remoteBusy.value = false
+  }
+}
 </script>
 
 <template>
@@ -118,15 +175,26 @@ async function afterWrite(st: GitStatusVO) {
       <div v-else-if="!readable" class="wb-card empty-box">
         <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="git-branch" size="ic-xl" /></span>
         <b>{{ status?.reason || t('workspace.notRepo') }}</b>
-        <p>{{ t('workspace.notRepoHint') }}</p>
+        <p>{{ t('workspace.initRepoHint') }}</p>
         <p class="wb-mono">{{ status?.workspace }}</p>
+        <div v-if="status?.available" class="init-box">
+          <el-input v-model="initName" size="small" class="init-name" :placeholder="t('workspace.initBranch')" />
+          <el-button size="small" type="primary" :loading="initing" @click="initRepo">
+            {{ t('workspace.initRepo') }}
+          </el-button>
+        </div>
       </div>
 
       <template v-else>
+        <GitStateBanner :status="status" :session-id="sessionId" @done="afterWrite" />
+
         <div class="git-bar">
           <span class="gb-branch">
             <AppIcon name="git-branch" size="ic-xs" />
             {{ status?.branch || '—' }}
+          </span>
+          <span v-if="status?.upstream" class="gb-up wb-mono" :title="status.upstream">
+            {{ status.upstream }}
           </span>
           <el-tag v-if="status?.ahead" size="small" type="primary">
             {{ t('workspace.ahead', { n: status.ahead }) }}
@@ -135,7 +203,21 @@ async function afterWrite(st: GitStatusVO) {
             {{ t('workspace.behind', { n: status.behind }) }}
           </el-tag>
           <span class="sp" />
+          <el-button size="small" text @click="initName = ''; remoteOpen = !remoteOpen">
+            {{ t('workspace.remoteAdd') }}
+          </el-button>
           <span class="gb-path wb-mono" :title="status?.workspace || ''">{{ status?.workspace }}</span>
+        </div>
+
+        <div v-if="remoteOpen" class="wb-card pad remote-form">
+          <span class="wb-label">{{ t('workspace.remoteAdd') }}</span>
+          <el-input v-model="remoteName" size="small" class="rf-name" :placeholder="t('workspace.remoteName')" />
+          <el-input v-model="remoteUrl" size="small" class="wb-mono" :placeholder="t('workspace.remoteUrl')" />
+          <el-button size="small" type="primary" :loading="remoteBusy" @click="addRemote">
+            {{ t('common.create') }}
+          </el-button>
+          <el-button size="small" @click="remoteOpen = false">{{ t('common.cancel') }}</el-button>
+          <p class="rf-hint">{{ t('workspace.remoteUrlHint') }}</p>
         </div>
 
         <el-tabs v-model="tab" class="git-tabs">
@@ -151,7 +233,7 @@ async function afterWrite(st: GitStatusVO) {
         </div>
 
         <div v-else-if="tab === 'branch'" class="wb-card pad">
-          <GitBranchPanel :session-id="sessionId" @done="afterWrite" />
+          <GitBranchPanel :session-id="sessionId" :status="status" @done="afterWrite" />
         </div>
 
         <div v-else class="changes">
@@ -177,8 +259,19 @@ async function afterWrite(st: GitStatusVO) {
                   <span class="fc-tag" :class="TAGS[f.status]?.tone || 'is-mod'">
                     {{ TAGS[f.status]?.text || f.status }}
                   </span>
-                  <span class="fc-path">{{ shortPath(f.path) }}</span>
-                  <span class="fc-stat">
+                  <span class="fc-path" :title="f.path">{{ shortPath(f.path) }}</span>
+                  <el-button
+                    v-if="f.conflict"
+                    size="small"
+                    text
+                    class="fc-resolve"
+                    :loading="resolving === f.path"
+                    :title="t('workspace.conflictResolveHint')"
+                    @click.stop="resolveOne(f.path)"
+                  >
+                    {{ t('workspace.conflictResolve') }}
+                  </el-button>
+                  <span v-else class="fc-stat">
                     <b class="is-add">+{{ f.additions }}</b>
                     <b class="is-del">−{{ f.deletions }}</b>
                   </span>
@@ -238,11 +331,51 @@ async function afterWrite(st: GitStatusVO) {
   font-weight: 700;
   color: var(--wb-primary);
 }
+.gb-up {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  max-width: calc(160px * var(--wb-vw-scale));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .gb-path {
   max-width: 46%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.init-box {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  margin-top: var(--wb-sp-2);
+  animation: wb-sink var(--wb-dur) var(--wb-ease);
+}
+.init-name {
+  width: calc(150px * var(--wb-vw-scale));
+}
+.remote-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  animation: wb-sink var(--wb-dur) var(--wb-ease);
+}
+.rf-name {
+  width: calc(120px * var(--wb-vw-scale));
+}
+.rf-hint {
+  width: 100%;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+}
+.fc-resolve {
+  flex: none;
+}
+.fc-tag.is-conflict {
+  background: var(--wb-warning-soft);
+  color: var(--wb-warning);
 }
 .git-tabs {
   margin-bottom: calc(var(--wb-sp-2) * -1);

@@ -114,13 +114,22 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			git.GET("/commit", h.GitCommitDetail)
 			git.GET("/file-history", h.GitFileHistory)
 			git.GET("/branches", h.GitBranches)
-			// 受控写入：白名单六动作，命中禁止清单一律 1018。
+			// 受控写入：白名单动作，命中禁止清单一律 1018。
 			git.POST("/stage", h.GitStage)
 			git.POST("/unstage", h.GitUnstage)
+			git.POST("/discard", h.GitDiscard)
+			git.POST("/resolve", h.GitResolve)
 			git.POST("/commit", h.GitCommit)
 			git.POST("/branch", h.GitCreateBranch)
 			git.POST("/switch", h.GitSwitchBranch)
+			git.POST("/branch/delete", h.GitDeleteBranch)
+			git.POST("/merge", h.GitMerge)
+			git.POST("/state", h.GitState)
+			git.POST("/pull", h.GitPull)
+			git.POST("/fetch", h.GitFetch)
 			git.POST("/push", h.GitPush)
+			git.POST("/init", h.GitInit)
+			git.POST("/remote", h.GitRemote)
 			git.POST("/message", h.GitDraftMessage)
 		}
 

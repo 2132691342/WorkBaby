@@ -1,6 +1,5 @@
 // PI 监督链路：真实子进程 + 真实 stdin/stdout 分帧，覆盖编解码、事件顺序与生命周期。
-// 坏了的表现：界面一直转圈、done 提前到、进程死了没反应、停止时排队的句子凭空消失、
-// 本机装了 PI 却起不来（入口解析错、就绪握手超时、第二轮对话换错了进程）。
+// 坏了的表现：界面一直转圈、done 提前到、进程死了没反应、提问答不回去、本机装了 PI 却起不来。
 package pi
 
 import (
@@ -37,31 +36,18 @@ func (r *recorder) OnExit(err error) {
 	r.exitErr = err
 }
 
-func (r *recorder) kinds() []EventKind {
+func (r *recorder) count(kind EventKind) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]EventKind, 0, len(r.events))
-	for _, e := range r.events {
-		out = append(out, e.Kind)
-	}
-	return out
-}
-
-func (r *recorder) count(kind EventKind) int {
 	n := 0
-	for _, k := range r.kinds() {
-		if k == kind {
+	for _, e := range r.events {
+		if e.Kind == kind {
 			n++
 		}
 	}
 	return n
 }
 
-func (r *recorder) find(kind EventKind) (Event, bool) {
-	return r.findFunc(kind, nil)
-}
-
-// findFunc 按种类 + 谓词找第一条匹配的事件；谓词为 nil 时等价于 find。
 func (r *recorder) findFunc(kind EventKind, match func(Event) bool) (Event, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -79,7 +65,7 @@ func (r *recorder) isExited() bool {
 	return r.exited
 }
 
-// start 拉起一个假 PI 并等到它开始吐事件。
+// start 拉起一个假 PI 并等到它开始吐事件（首帧扩展请求到了 = 读循环已跑起来）。
 func start(t *testing.T, exe, scenario string) (*Client, *recorder) {
 	t.Helper()
 	rec := &recorder{}
@@ -92,7 +78,6 @@ func start(t *testing.T, exe, scenario string) (*Client, *recorder) {
 		t.Fatalf("拉起假 PI 失败: %v", err)
 	}
 	t.Cleanup(client.Stop)
-	// 首帧扩展请求到了就说明读循环已经跑起来了。
 	waitFor(t, func() bool { return rec.count(KindExtensionUI) >= 1 })
 	return client, rec
 }
@@ -119,17 +104,16 @@ func waitQuiet(t *testing.T, cond func() bool, timeout time.Duration) bool {
 	return cond()
 }
 
-// TestPiChain 是 pi 包唯一的测试入口。
+// TestPiChain 是 pi 包唯一的测试入口。四个子测试按「协议 → 事件 → 交互 → 生命周期」排列。
 func TestPiChain(t *testing.T) {
 	exe := piptest.Build(t)
 
-	// 协议分帧与命令关联：坏帧不挡命令、响应按 id 各归各的。
-	// 分帧按 U+2028 切会把首帧截成半截 JSON；响应按到达顺序配对会串命令。
-	t.Run("协议分帧与命令响应解码", func(t *testing.T) {
+	// 协议层一条链验完：分帧（U+2028 是合法 JSON 字符，按它切会截断记录）、
+	// 未知记录不挡命令、响应按 id 各归各的、fire-and-forget 四种扩展请求字段完整。
+	// 分帧与命令关联坏掉的共同表现是「命令全部超时」。
+	t.Run("协议：分帧、未知记录、按 id 关联与扩展请求字段", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
-		// 两条 setStatus 都要到：按 U+2028 切分会把第二条截成半截 JSON 而丢掉。
-		waitFor(t, func() bool { return rec.count(KindExtensionUI) >= 2 })
-		// 两条 setStatus 都要到：按 U+2028 切分会把第二条截成半截 JSON 而丢掉。
+		// 假 PI 首帧就发两条 setStatus（中间隔着 U+2028）：都到齐才算分帧正确。
 		waitFor(t, func() bool { return rec.count(KindExtensionUI) >= 2 })
 		// 连续两条不同命令，响应必须各归各的：按到达顺序配对会串命令。
 		st, err := client.GetState(context.Background())
@@ -146,35 +130,43 @@ func TestPiChain(t *testing.T) {
 		if stats.TotalTokens != 1200 {
 			t.Fatalf("统计读串了: %+v", stats)
 		}
-	})
 
-	// 事件顺序是界面对账的根基：done 挂早了会在还在重试时报「已完成」。
-	t.Run("事件顺序：agent_end → 重试 → settled，done 只挂在最后", func(t *testing.T) {
-		client, rec := start(t, exe, "basic")
-		if _, err := client.Prompt(context.Background(), "你好", "", nil); err != nil {
+		// notify / setStatus / setWidget / setTitle 四种 fire-and-forget：
+		// 字段解析丢一个，界面上就少一种反馈；ANSI 色码协议层不剥（service 翻译时才剥）。
+		nc, nrec := start(t, exe, "notify")
+		if _, err := nc.Prompt(context.Background(), "打招呼", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
-		waitFor(t, func() bool { return rec.count(KindAgentSettled) >= 1 })
-		kinds := rec.kinds()
-		idxEnd, idxRetry, idxSettled := -1, -1, -1
-		for i, k := range kinds {
-			switch k {
-			case KindAgentEnd:
-				idxEnd = i
-			case KindRetryStart:
-				idxRetry = i
-			case KindAgentSettled:
-				idxSettled = i
-			}
+		waitExtension := func(id string) Event {
+			waitFor(t, func() bool {
+				_, ok := nrec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == id })
+				return ok
+			})
+			ev, _ := nrec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == id })
+			return ev
 		}
-		if idxEnd < 0 || idxRetry < 0 || idxSettled < 0 || !(idxEnd < idxRetry && idxRetry < idxSettled) {
-			t.Fatalf("事件顺序不对（agent_end → retry → settled）: %v", kinds)
+		if ev := waitExtension("n1"); ev.Method != "notify" || ev.Body != "命令被用户拒绝" || ev.NotifyType != "warning" {
+			t.Fatalf("notify 字段不对: %+v", ev)
+		}
+		if ev := waitExtension("n2"); ev.Method != "setStatus" ||
+			ev.StatusText != "\x1b[39m\x1b[2mTurn 3 running...\x1b[22;39m" {
+			t.Fatalf("setStatus 字段不对: %+v", ev)
+		}
+		if ev := waitExtension("n3"); ev.Method != "setWidget" || len(ev.WidgetLines) != 2 {
+			t.Fatalf("setWidget 字段不对: %+v", ev)
+		}
+		if ev := waitExtension("n4"); ev.Method != "setTitle" || ev.Title != "pi - demo" {
+			t.Fatalf("setTitle 字段不对: %+v", ev)
+		}
+		// fire-and-forget 不需要应答，也绝不能堵住命令通道。
+		if _, err := nc.GetState(context.Background()); err != nil {
+			t.Fatalf("fire-and-forget 之后命令通道被堵: %v", err)
 		}
 	})
 
-	// 翻译层：协议记录 → 界面形态。一轮里同时发生工具、增量、压缩。
-	// 任何一段的字段还原错了，界面上就是「工具没输出」或「压缩了但没提示」。
-	t.Run("翻译层：工具结果与增量、压缩前后量都对", func(t *testing.T) {
+	// 事件顺序与翻译层一起验：一轮对话里同时发生增量、工具调用、压缩与自动重试，
+	// 任何一段的字段或顺序还原错了，界面上就是「正文少一段」「工具没输出」或「还在重试却说完成」。
+	t.Run("事件与翻译：顺序、增量、工具结果与压缩", func(t *testing.T) {
 		client, rec := start(t, exe, "tools")
 		if _, err := client.Prompt(context.Background(), "读文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
@@ -197,94 +189,76 @@ func TestPiChain(t *testing.T) {
 		if !text || !thinking {
 			t.Fatalf("增量没解析出来（text=%v thinking=%v）", text, thinking)
 		}
-		ev, _ := rec.find(KindToolEnd)
+		ev, _ := rec.findFunc(KindToolEnd, nil)
 		if ev.Result == nil || len(ev.Result.Content) == 0 || ev.Result.Content[0].Text != "文件内容" ||
 			ev.DurationMs != 12 || ev.IsError {
 			t.Fatalf("工具结果与元数据没还原: %+v", ev)
 		}
 
+		// 压缩：前后的 token 量是「上下文省了多少」的唯一来源。
 		cc, crec := start(t, exe, "compact")
 		if _, err := cc.Prompt(context.Background(), "聊聊", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
 		waitFor(t, func() bool { return crec.count(KindCompactionEnd) >= 1 })
-		cev, _ := crec.find(KindCompactionEnd)
+		cev, _ := crec.findFunc(KindCompactionEnd, nil)
 		if cev.CompactResult == nil || cev.CompactResult.TokensBefore != 9000 || cev.CompactResult.EstimatedTokensAfter != 2000 {
 			t.Fatalf("压缩结果没解析出来: %+v", cev.CompactResult)
 		}
-	})
 
-	// fire-and-forget 四种：字段完整解析、无需应答、不阻塞命令通道。
-	t.Run("即时反馈：四种扩展请求字段完整且不堵命令通道", func(t *testing.T) {
-		fc, frec := start(t, exe, "notify")
-		if _, err := fc.Prompt(context.Background(), "打招呼", "", nil); err != nil {
+		// 顺序：done 只挂 agent_settled——自动重试 / 压缩都发生在 agent_end 之后，
+		// done 挂早了会在还在重试时报「已完成」。
+		bc, brec := start(t, exe, "basic")
+		if _, err := bc.Prompt(context.Background(), "你好", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
-		waitExtension := func(id string) Event {
-			waitFor(t, func() bool {
-				_, ok := frec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == id })
-				return ok
-			})
-			ev, _ := frec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == id })
-			return ev
+		waitFor(t, func() bool { return brec.count(KindAgentSettled) >= 1 })
+		brec.mu.Lock()
+		kinds := make([]EventKind, 0, len(brec.events))
+		for _, e := range brec.events {
+			kinds = append(kinds, e.Kind)
 		}
-		if ev := waitExtension("n1"); ev.Method != "notify" || ev.Body != "命令被用户拒绝" || ev.NotifyType != "warning" {
-			t.Fatalf("notify 字段不对: %+v", ev)
+		brec.mu.Unlock()
+		idxEnd, idxRetry, idxSettled := -1, -1, -1
+		for i, k := range kinds {
+			switch k {
+			case KindAgentEnd:
+				idxEnd = i
+			case KindRetryStart:
+				idxRetry = i
+			case KindAgentSettled:
+				idxSettled = i
+			}
 		}
-		if ev := waitExtension("n2"); ev.Method != "setStatus" || ev.StatusKey != "my-ext" ||
-			// 状态文字带终端色码：协议层不剥，原样传给上层（service 翻译时才剥）。
-			ev.StatusText != "\x1b[39m\x1b[2mTurn 3 running...\x1b[22;39m" {
-			t.Fatalf("setStatus 字段不对: %+v", ev)
-		}
-		if ev := waitExtension("n3"); ev.Method != "setWidget" || len(ev.WidgetLines) != 2 || ev.WidgetLines[0] != "--- My Widget ---" {
-			t.Fatalf("setWidget 字段不对: %+v", ev)
-		}
-		if ev := waitExtension("n4"); ev.Method != "setTitle" || ev.Title != "pi - demo" {
-			t.Fatalf("setTitle 字段不对: %+v", ev)
-		}
-		if _, err := fc.GetState(context.Background()); err != nil {
-			t.Fatalf("fire-and-forget 之后命令通道被堵: %v", err)
+		if idxEnd < 0 || idxRetry < 0 || idxSettled < 0 || !(idxEnd < idxRetry && idxRetry < idxSettled) {
+			t.Fatalf("事件顺序不对（agent_end → retry → settled）: %v", kinds)
 		}
 	})
 
-	// 提问桥的双向：请求字段完整解析，响应必须写回同一个 stdin。
-	t.Run("提问请求解析与回写响应", func(t *testing.T) {
+	// 提问桥的双向：confirm 字段完整解析，响应必须写回同一个 id；input 的 placeholder / timeout 不许丢。
+	// 坏了 = 界面弹了提问、点了确认却石沉大海，助手永远等在那里。
+	t.Run("提问桥：请求解析与按 id 回写", func(t *testing.T) {
 		client, rec := start(t, exe, "approval")
 		if _, err := client.Prompt(context.Background(), "写文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
 		waitFor(t, func() bool {
-			rec.mu.Lock()
-			defer rec.mu.Unlock()
-			for _, e := range rec.events {
-				if e.Kind == KindExtensionUI && e.Method == "confirm" {
-					return true
-				}
-			}
-			return false
+			_, ok := rec.findFunc(KindExtensionUI, func(e Event) bool { return e.Method == "confirm" })
+			return ok
 		})
-		found, _ := rec.findFunc(KindExtensionUI, func(e Event) bool { return e.Method == "confirm" })
 		// 首帧还有 setStatus：找到的必须是那条 confirm，而不是第一条扩展请求。
+		found, _ := rec.findFunc(KindExtensionUI, func(e Event) bool { return e.Method == "confirm" })
 		if found.ID != "confirm-1" || found.Title != "允许 write?" || found.Body != "要写入文件 a.txt" {
 			t.Fatalf("提问请求字段不对: %+v", found)
 		}
-		// message 字段在扩展请求里是正文而不是消息对象，Response 必须写回同一个 id。
 		if err := client.WriteResponse(map[string]any{
 			"type": "extension_ui_response", "id": "confirm-1", "confirmed": true,
 		}); err != nil {
 			t.Fatalf("回提问响应失败: %v", err)
 		}
-
-		// 多选 / 自定义答案靠 input 的 placeholder 与 timeout 传给用户，丢一个就不成。
 		waitFor(t, func() bool {
-			rec.mu.Lock()
-			defer rec.mu.Unlock()
-			for _, e := range rec.events {
-				if e.ID == "input-1" {
-					return true
-				}
-			}
-			return false
+			_, ok := rec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == "input-1" })
+			return ok
 		})
 		typed, _ := rec.findFunc(KindExtensionUI, func(e Event) bool { return e.ID == "input-1" })
 		if typed.Method != "input" || typed.Placeholder != "1,3; 自定义答案" || typed.TimeoutMs != 30000 {
@@ -293,7 +267,8 @@ func TestPiChain(t *testing.T) {
 	})
 
 	// 生命周期：有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程。
-	t.Run("生命周期与进程归属", func(t *testing.T) {
+	// 坏了 = 关窗之后进程留在后台、界面在死进程上等超时、两个工作区串了会话。
+	t.Run("生命周期：退出、崩溃与工作区归属", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		client.Stop()
 		waitFor(t, func() bool { return rec.isExited() })

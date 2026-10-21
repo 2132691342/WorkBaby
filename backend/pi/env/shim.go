@@ -11,9 +11,8 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// resolvePiExe 把 PI 入口解析成 (exe, args)：
-// shim 走 node + 入口脚本，已经是 .exe 就原样用。
-// 解析不出脚本时退回原入口：跑错比不跑好，错误信息里带着真实原因。
+// resolvePiExe 把 PI 入口解析成 (exe, args)：shim 还原成 node + 入口脚本，.exe 原样用；
+// 解析不出脚本时退回原入口——跑错比不跑好，错误信息里带着真实原因。
 func resolvePiExe(exe string) (string, []string) {
 	ext := strings.ToLower(filepath.Ext(exe))
 	switch ext {

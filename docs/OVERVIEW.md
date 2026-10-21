@@ -57,7 +57,7 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | `backend/runtime` | 路径解析 + 内置 Node / Python 运行时（embed + 解压） | [01](specs/01-runtime.md) |
 | `backend/service` | 全部业务编排与事件翻译 | 各规格 |
 | `backend/skill` | 技能解析与注册表（目录即 PI 的技能目录） | [03](specs/03-skill.md) |
-| `backend/git` | 工作区版本视图（读全开放 + 写白名单六动作） | [08](specs/08-workspace-git.md) |
+| `backend/git` | 工作区版本视图（读全开放 + 写白名单动作；冲突处置、拉取推送、分级强制推送） | [08](specs/08-workspace-git.md) |
 | `backend/server` | 路由表、SSE hub、统一信封 | [API-CONTRACT](docs/API-CONTRACT.md) |
 | `frontend/src` | 界面：四块页面 + 一套设计令牌 | [PAGE-STRUCTURE](docs/PAGE-STRUCTURE.md) · [DESIGN](../DESIGN.md) |
 | 壳层（`app.go`） | Wails 生命周期、托盘、单实例、退出流程 | [04](specs/04-desktop-shell.md) |
@@ -123,7 +123,7 @@ PI 子进程 stdout（JSONL）
 | 业务走 HTTP 而非 Wails 绑定 | 前端在浏览器里就能跑通，调试不必开窗 | 启动顺序变成硬约束（端口握手必须早于 domReady） |
 | 一个工作区一个进程 | 工具落到对的目录 | 同目录多条对话不能并行（内核约束，如实报 5005） |
 | SQLite 只存设置 KV | 没有需要迁移的业务表，卸载即净 | 界面偏好之外的状态都在 PI 的文件里 |
-| 写 git 走白名单六动作 | 「准备一次提交」在应用内闭环 | `rebase` / `cherry-pick` / `stash` 仍要回用户自己的 Git 工具 |
+| 写 git 走白名单动作 | 提交、合并、拉推在应用内闭环；冲突处置留在界面里 | `cherry-pick` / `stash` / `reset --soft` 仍要回用户自己的 Git 工具 |
 | 内置运行时只做兜底 | 用户机器上什么都没装也能起来 | 安装包大 48MB，首启多等一次解压 |
 | 归档嵌进 exe | 分发只有一个文件 | exe 约 90MB，构建期强依赖 LFS 拉取 |
 

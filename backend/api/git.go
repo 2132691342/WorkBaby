@@ -1,6 +1,5 @@
-// 工作区版本视图的 HTTP handler：status / diff / 历史 / 分支为只读，
-// stage / unstage / commit / branch / switch / push / message 为受控写入（specs/08）。
-// 编排全部在 service 层，这里只做参数与响应。
+// 工作区版本视图的 HTTP handler：状态 / 差异 / 历史 / 分支为只读，
+// 白名单写入动作各自一个端点（specs/08）。编排全部在 service 层，这里只做参数与响应。
 package api
 
 import (
@@ -74,27 +73,32 @@ func (h *Handler) GitBranches(c *gin.Context) {
 
 // GitStage 入栈。写后返回重读的状态，界面用一份数据刷新列表。
 func (h *Handler) GitStage(c *gin.Context) {
-	var req domain.GitPathsREQ
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
-		return
-	}
-	vo, err := h.Svc.Git.Stage(c.Query("session_id"), req.Paths)
-	if err != nil {
-		fail(c, err)
-		return
-	}
-	ok(c, vo)
+	h.gitPaths(c, h.Svc.Git.Stage)
 }
 
 // GitUnstage 出栈。只动索引，不动工作区文件。
 func (h *Handler) GitUnstage(c *gin.Context) {
+	h.gitPaths(c, h.Svc.Git.Unstage)
+}
+
+// GitDiscard 丢弃工作区改动。必须显式给文件，没有「全部丢弃」。
+func (h *Handler) GitDiscard(c *gin.Context) {
+	h.gitPaths(c, h.Svc.Git.Discard)
+}
+
+// GitResolve 把冲突文件标记为已解决。
+func (h *Handler) GitResolve(c *gin.Context) {
+	h.gitPaths(c, h.Svc.Git.ResolveConflict)
+}
+
+// gitPaths 四个「按文件操作」端点的共用入参解析：它们的入参形状与出参完全一致。
+func (h *Handler) gitPaths(c *gin.Context, fn func(string, []string) (*domain.GitStatusVO, error)) {
 	var req domain.GitPathsREQ
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
 		return
 	}
-	vo, err := h.Svc.Git.Unstage(c.Query("session_id"), req.Paths)
+	vo, err := fn(c.Query("session_id"), req.Paths)
 	if err != nil {
 		fail(c, err)
 		return
@@ -109,7 +113,7 @@ func (h *Handler) GitCommit(c *gin.Context) {
 		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
 		return
 	}
-	vo, err := h.Svc.Git.Commit(c.Query("session_id"), req.Message)
+	vo, err := h.Svc.Git.Commit(c.Query("session_id"), req.Message, req.Amend)
 	if err != nil {
 		fail(c, err)
 		return
@@ -147,9 +151,111 @@ func (h *Handler) GitSwitchBranch(c *gin.Context) {
 	ok(c, vo)
 }
 
-// GitPush 推送当前分支。只允许普通推送，禁止清单见 specs/08。
+// GitDeleteBranch 删除已合并的本地分支。
+func (h *Handler) GitDeleteBranch(c *gin.Context) {
+	var req domain.GitBranchREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	vo, err := h.Svc.Git.DeleteBranch(c.Query("session_id"), req.Name)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// GitMerge 合并或变基。冲突时返回带 state 的状态（不是错误）。
+func (h *Handler) GitMerge(c *gin.Context) {
+	var req domain.GitBranchREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	vo, err := h.Svc.Git.Merge(c.Query("session_id"), req.Name, req.Rebase)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// GitState 继续或中止未完成的合并 / 变基。
+func (h *Handler) GitState(c *gin.Context) {
+	var req domain.GitStateREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	vo, err := h.Svc.Git.UpdateState(c.Query("session_id"), req.Action)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// GitPull 从远端拉取并合入。冲突时同 Merge，返回带 state 的状态。
+func (h *Handler) GitPull(c *gin.Context) {
+	var req domain.GitPullREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	vo, err := h.Svc.Git.Pull(c.Query("session_id"), req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// GitFetch 取回远端最新状态，不动工作区也不动本地分支。
+func (h *Handler) GitFetch(c *gin.Context) {
+	var req domain.GitPullREQ
+	_ = c.ShouldBindJSON(&req)
+	vo, err := h.Svc.Git.Fetch(c.Query("session_id"), req.Remote)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// GitPush 推送当前分支；强制推送分级，纯 --force 需要前端输分支名确认。
 func (h *Handler) GitPush(c *gin.Context) {
-	vo, err := h.Svc.Git.Push(c.Query("session_id"))
+	var req domain.GitPushREQ
+	// 空 body 是合法的：普通推送不需要任何参数。
+	_ = c.ShouldBindJSON(&req)
+	vo, err := h.Svc.Git.Push(c.Query("session_id"), req)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// GitInit 在当前工作目录初始化仓库。
+func (h *Handler) GitInit(c *gin.Context) {
+	var req domain.GitInitREQ
+	_ = c.ShouldBindJSON(&req)
+	vo, err := h.Svc.Git.Init(c.Query("session_id"), req.Branch)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// GitRemote 添加远端地址。
+func (h *Handler) GitRemote(c *gin.Context) {
+	var req domain.GitRemoteREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	vo, err := h.Svc.Git.AddRemote(c.Query("session_id"), req.Name, req.URL)
 	if err != nil {
 		fail(c, err)
 		return

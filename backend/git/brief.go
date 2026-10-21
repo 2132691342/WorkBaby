@@ -3,13 +3,11 @@
 package git
 
 import (
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
 	"WorkBaby/backend/domain"
-	"WorkBaby/backend/pkg"
 )
 
 // maxBriefFiles 概览里最多列几个文件：列满 500 个对摘要没有帮助，只会挤掉差异片段。
@@ -26,10 +24,8 @@ func Brief(dir string, paths []string) string {
 	if len(paths) > 0 {
 		want := map[string]bool{}
 		for _, p := range paths {
-			if joined, err := pkg.SafeJoin(dir, strings.TrimSpace(p)); err == nil {
-				if rel, err := relTo(dir, joined); err == nil {
-					want[rel] = true
-				}
+			if p = strings.TrimSpace(p); p != "" {
+				want[strings.ReplaceAll(p, "\\", "/")] = true
 			}
 		}
 		kept := make([]domain.GitFileVO, 0, len(files))
@@ -58,9 +54,9 @@ func Brief(dir string, paths []string) string {
 	if len(names) > maxBriefFiles {
 		names = append(names[:maxBriefFiles], "  ……（其余文件略）")
 	}
-	head := "共 " + itoa(len(files)) + " 个文件，+" + itoa(add) + " / -" + itoa(del)
+	head := "共 " + strconv.Itoa(len(files)) + " 个文件，+" + strconv.Itoa(add) + " / -" + strconv.Itoa(del)
 	if untracked > 0 {
-		head += "，其中 " + itoa(untracked) + " 个是新文件"
+		head += "，其中 " + strconv.Itoa(untracked) + " 个是新文件"
 	}
 	return head + "\n" + strings.Join(names, "\n")
 }
@@ -104,22 +100,12 @@ func statusWord(s string) string {
 		return "删除"
 	case domain.GitChangeRenamed:
 		return "改名"
+	case domain.GitChangeCopied:
+		return "复制"
 	case domain.GitChangeUntracked:
 		return "新文件"
+	case domain.GitChangeConflict:
+		return "冲突"
 	}
 	return s
-}
-
-// itoa 走标准库；这里包一层是因为 brief.go 与 history.go 都要用，各自 import 更吵。
-func itoa(n int) string { return strconv.Itoa(n) }
-
-// relTo 把绝对路径折成相对 dir 的斜杠形式，与 status 报的路径同一套写法。
-// 两侧都先取真实路径：SafeJoin 交出的是 EvalSymlinks 之后的长名，而调用方手里的 dir
-// 可能是短名（Windows 临时目录常见），字面不同形时 Rel 会算出 ../.. ，git 会判成越界。
-func relTo(dir, full string) (string, error) {
-	rel, err := filepath.Rel(pkg.RealPath(dir), pkg.RealPath(full))
-	if err != nil {
-		return "", err
-	}
-	return filepath.ToSlash(rel), nil
 }

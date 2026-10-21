@@ -435,10 +435,18 @@ export interface FileListVO {
 
 export interface GitFileVO {
   path: string
+  /** M 改过 / A 新增 / D 删除 / R 改名 / C 复制 / T 类型变化 / ? 未跟踪 / U 冲突 */
   status: string
   staged: boolean
+  /** 该文件有未解决冲突；解决后要显式标记，否则 git 不接受提交 */
+  conflict: boolean
   additions: number
   deletions: number
+}
+
+export interface GitRemoteVO {
+  name: string
+  url: string
 }
 
 export interface GitStatusVO {
@@ -446,10 +454,19 @@ export interface GitStatusVO {
   reason: string
   is_repo: boolean
   workspace: string
+  /** 仓库根；工作区是仓库子目录时与 workspace 不同 */
+  repo_root: string
   branch: string
+  /** 上游引用（如 origin/main）；没有上游为空 */
+  upstream: string
   ahead: number
   behind: number
+  /** none / merge / rebase / cherry-pick / revert */
+  state: string
+  state_detail: string
+  remotes: GitRemoteVO[]
   files: GitFileVO[]
+  conflict: boolean
   git: string
 }
 
@@ -493,8 +510,29 @@ export interface GitCommitDetailVO {
 export interface GitBranchVO {
   name: string
   current: boolean
+  /** 远端分支所属远端名；本地分支为空 */
+  remote: string
   ahead: number
   behind: number
+}
+
+/** 推送的强制级别。默认 none，逐级需要更多确认 */
+export type GitForce = 'none' | 'lease' | 'force'
+
+export interface GitPushREQ {
+  remote?: string
+  branch?: string
+  /** 把这次推送的远端建立为上游（首次推送必须） */
+  set_upstream?: boolean
+  force?: GitForce
+  /** 强制推送时必须与 branch 完全一致的分支名 */
+  confirm?: string
+}
+
+export interface GitPullREQ {
+  remote?: string
+  branch?: string
+  rebase?: boolean
 }
 
 export interface GitCommitRESP {

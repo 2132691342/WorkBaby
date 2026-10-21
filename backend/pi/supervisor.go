@@ -48,9 +48,8 @@ func keyOf(workspace string) string {
 	return filepath.Clean(w)
 }
 
-// Ensure 取（必要时拉起）某工作区的进程。
-// ctx 只用于闸门判定：拉起本身是同步的 cmd.Start，没法中途取消，
-// 但用户已经点了取消时不该再白起一个进程。
+// Ensure 取（必要时拉起）某工作区的进程；ctx 只用于闸门判定，
+// 拉起本身是同步的 cmd.Start——用户已取消时不再白起进程。
 func (s *Supervisor) Ensure(ctx context.Context, workspace string) (*Client, error) {
 	key := keyOf(workspace)
 	if key == "" {

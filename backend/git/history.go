@@ -6,136 +6,129 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 )
 
-// maxCommits 单次列举的提交上限：翻页靠 limit，一次全拉会把深历史的解析时间推到界面上。
+// maxCommits 单次列举的提交上限：翻页面 limit，一次全拉会把深历史的解析时间推到界面上。
 const maxCommits = 200
+
+// logSep 是 pretty 格式里的字段分隔符：提交信息里出现制表符的概率比出现这个串低得多。
+const logSep = "\x1f"
 
 // History 列出 dir 当前分支最近的提交，按时间倒序。
 func History(dir string, limit int) ([]domain.GitCommitVO, error) {
-	if err := requireRepo(dir); err != nil {
+	sc, err := requireScope(dir)
+	if err != nil {
 		return nil, err
 	}
 	if limit <= 0 || limit > maxCommits {
 		limit = maxCommits
 	}
-	// 用罕见的分隔符切字段：提交信息里出现制表符的概率比出现这个串低得多，
-	// 且短 hash 固定 40 位以内，按它切比按 tab 切稳。
-	const sep = "\x1f"
-	res, err := run(dir, statusTimeout, "log",
-		"-n", strconv.Itoa(limit),
-		"--date=unix",
-		"--pretty=format:%H"+sep+"%h"+sep+"%s"+sep+"%an"+sep+"%at"+sep,
-		"--numstat")
+	// 没有第一次提交时 git log 会失败；那不是错误，是这个仓库还没有历史。
+	if !sc.hasHead() {
+		return []domain.GitCommitVO{}, nil
+	}
+	args := []string{"log", "-n", strconv.Itoa(limit), "--date=unix",
+		"--pretty=format:%H" + logSep + "%h" + logSep + "%s" + logSep + "%an" + logSep + "%at" + logSep,
+		"--numstat"}
+	args = append(args, sc.pathspec("")...)
+	res, err := run(sc.root, statusTimeout, args...)
 	if err != nil {
 		return nil, err
 	}
-	return parseLog(res.out, sep)
+	return parseLog(res.stdout), nil
 }
 
 // CommitDetail 取一次提交的元信息、文件清单与逐行差异。
 func CommitDetail(dir, hash string) (*domain.GitCommitDetailVO, error) {
-	if err := requireRepo(dir); err != nil {
+	sc, err := requireScope(dir)
+	if err != nil {
 		return nil, err
 	}
 	if !validRef(hash) {
 		return nil, pkg.New("1005", "提交号不合法", hash)
 	}
-	const sep = "\x1f"
-	res, err := run(dir, statusTimeout, "show", "--no-color", "--no-ext-diff",
-		"--date=unix",
-		"--pretty=format:%H"+sep+"%h"+sep+"%s"+sep+"%b"+sep+"%an"+sep+"%at"+sep+"%P",
+	res, err := run(sc.root, statusTimeout, "show", "--no-color", "--no-ext-diff", "--date=unix",
+		"--pretty=format:%H"+logSep+"%h"+logSep+"%s"+logSep+"%b"+logSep+"%an"+logSep+"%at"+logSep+"%P",
 		hash)
 	if err != nil {
 		return nil, err
 	}
-	vo, err := parseShow(dir, res.out, sep)
+	vo, err := parseShow(sc, res.stdout)
 	if err != nil {
 		return nil, err
 	}
 	// 差异复用既有解析：一条链路两处配色规则，改格式只改一处。
-	lines, dropped := parseDiff(res.out)
+	// show 输出的路径是仓库根相对；历史抽屉展示的也是它，无需折回工作区。
+	lines, dropped := parseDiff(res.stdout, nil)
 	vo.Diff = &domain.GitDiffVO{Path: "", Lines: lines, Dropped: dropped, Truncated: dropped > 0}
 	return vo, nil
 }
 
 // FileHistory 列出一个文件的提交历史，按时间倒序。
 func FileHistory(dir, rel string, limit int) ([]domain.GitCommitVO, error) {
-	if err := requireRepo(dir); err != nil {
-		return nil, err
-	}
-	// 路径必须落进工作目录：改写与读取同一道路障，这里也不例外。
-	joined, err := pkg.SafeJoin(dir, strings.TrimSpace(rel))
+	sc, err := requireScope(dir)
 	if err != nil {
 		return nil, err
 	}
-	path, err := relTo(dir, joined)
+	// 路径必须落进工作目录：改写与读取同一道路闸，这里也不例外。
+	full, err := pkg.SafeJoin(dir, strings.TrimSpace(rel))
+	if err != nil {
+		return nil, err
+	}
+	wsRel, err := relTo(dir, full)
 	if err != nil {
 		return nil, pkg.New("1004", "路径越出工作目录", rel)
 	}
 	if limit <= 0 || limit > maxCommits {
 		limit = maxCommits
 	}
-	const sep = "\x1f"
-	res, err := run(dir, statusTimeout, "log",
-		"-n", strconv.Itoa(limit),
-		"--date=unix",
-		"--pretty=format:%H"+sep+"%h"+sep+"%s"+sep+"%an"+sep+"%at"+sep,
-		"--numstat", "--", path)
+	if !sc.hasHead() {
+		return []domain.GitCommitVO{}, nil
+	}
+	args := []string{"log", "-n", strconv.Itoa(limit), "--date=unix",
+		"--pretty=format:%H" + logSep + "%h" + logSep + "%s" + logSep + "%an" + logSep + "%at" + logSep,
+		"--numstat", "--", sc.relFromRoot(wsRel)}
+	res, err := run(sc.root, statusTimeout, args...)
 	if err != nil {
 		return nil, err
 	}
-	return parseLog(res.out, sep)
+	return parseLog(res.stdout), nil
 }
 
-// Branches 列出全部分支，标注当前所在与各自相对上游的领先 / 落后数。
+// Branches 列出本地与远端分支，标注当前所在与各自相对上游的领先 / 落后数。
 func Branches(dir string) ([]domain.GitBranchVO, error) {
-	if err := requireRepo(dir); err != nil {
-		return nil, err
-	}
-	res, err := run(dir, statusTimeout, "branch", "-vv", "--no-color")
+	sc, err := requireScope(dir)
 	if err != nil {
 		return nil, err
 	}
-	return parseBranches(res.out), nil
-}
-
-// requireRepo 统一的前置校验：装了 git 且这个目录在仓库里。
-func requireRepo(dir string) error {
-	if !Available() {
-		return pkg.New("1015", "这台电脑上还没有 Git，装好后这里就能看到历史", "")
+	list := make([]domain.GitBranchVO, 0, 8)
+	if res, err := run(sc.root, statusTimeout, "branch", "-vv", "--no-color"); err == nil {
+		list = append(list, parseBranches(res.stdout)...)
 	}
-	inside, err := insideWorkTree(dir)
-	if err != nil {
-		return err
+	// 远端分支单列：只列本地会让「拉别人的分支」这件事在界面上无处可去。
+	if res, err := run(sc.root, statusTimeout, "branch", "-r", "--no-color"); err == nil {
+		list = append(list, parseRemoteBranches(res.stdout)...)
 	}
-	if !inside {
-		return pkg.New("1015", "这个工作目录还不是 Git 仓库，初始化后才能看历史", "")
-	}
-	return nil
+	return list, nil
 }
 
 // parseLog 解析 log + numstat 的输出：每个提交一段，段首是 pretty 行，随后是 numstat 行。
-func parseLog(out, sep string) ([]domain.GitCommitVO, error) {
+func parseLog(out string) []domain.GitCommitVO {
 	commits := make([]domain.GitCommitVO, 0, 16)
-	var cur *domain.GitCommitVO
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
-			continue
-		}
-		if !strings.Contains(line, sep) {
+	for _, line := range splitLines(out) {
+		if !strings.Contains(line, logSep) {
 			// numstat 行：add<TAB>del<TAB>path；二进制文件前两列是 `-`。
-			if cur == nil {
+			if len(commits) == 0 {
 				continue
 			}
 			cols := strings.Split(line, "\t")
 			if len(cols) < 3 {
 				continue
 			}
+			cur := &commits[len(commits)-1]
 			cur.Files++
 			if a, err := strconv.Atoi(strings.TrimSpace(cols[0])); err == nil {
 				cur.Additions += a
@@ -145,8 +138,8 @@ func parseLog(out, sep string) ([]domain.GitCommitVO, error) {
 			}
 			continue
 		}
-		f := strings.Split(line, sep)
-		if len(f) < 6 {
+		f := strings.Split(line, logSep)
+		if len(f) < 5 {
 			continue
 		}
 		when, _ := strconv.ParseInt(strings.TrimSpace(f[4]), 10, 64)
@@ -157,18 +150,17 @@ func parseLog(out, sep string) ([]domain.GitCommitVO, error) {
 			Hash: strings.TrimSpace(f[0]), Short: strings.TrimSpace(f[1]),
 			Subject: strings.TrimSpace(f[2]), Author: strings.TrimSpace(f[3]), When: when,
 		})
-		cur = &commits[len(commits)-1]
 	}
-	return commits, nil
+	return commits
 }
 
-// parseShow 解析单次提交的元信息段（差异部分由 parseDiff 另走）。dir 用于补一次 numstat 查询。
-func parseShow(dir, out, sep string) (*domain.GitCommitDetailVO, error) {
+// parseShow 解析单次提交的元信息段（差异部分另走 parseDiff）。
+func parseShow(sc *scope, out string) (*domain.GitCommitDetailVO, error) {
 	head, _, _ := strings.Cut(out, "\ndiff --git")
-	if !strings.Contains(head, sep) {
+	if !strings.Contains(head, logSep) {
 		return nil, pkg.New("1015", "读不到这次提交的内容", "")
 	}
-	f := strings.Split(head, sep)
+	f := strings.Split(head, logSep)
 	if len(f) < 7 {
 		return nil, pkg.New("1015", "这次提交的信息读不完整", "")
 	}
@@ -180,7 +172,7 @@ func parseShow(dir, out, sep string) (*domain.GitCommitDetailVO, error) {
 		Hash: strings.TrimSpace(f[0]), Short: strings.TrimSpace(f[1]),
 		Subject: strings.TrimSpace(f[2]), Body: strings.TrimSpace(f[3]),
 		Author: strings.TrimSpace(f[4]), When: when,
-		Files: []domain.GitFileVO{},
+		Parents: []string{}, Files: []domain.GitFileVO{},
 	}
 	for _, p := range strings.Fields(strings.TrimSpace(f[6])) {
 		if p != "" {
@@ -188,26 +180,27 @@ func parseShow(dir, out, sep string) (*domain.GitCommitDetailVO, error) {
 		}
 	}
 	// 文件清单从 numstat 拿：show 默认不给，补一次带 --numstat 的查询比解析 diff 头更省。
-	if ns, err := run(dir, statusTimeout, "show", "--no-color", "--numstat",
-		"--pretty=format:", vo.Hash); err == nil {
-		for _, line := range strings.Split(ns.out, "\n") {
-			cols := strings.Split(line, "\t")
-			if len(cols) < 3 {
-				continue
-			}
-			path := unquotePath(filepath.ToSlash(strings.TrimSpace(cols[len(cols)-1])))
-			if path == "" {
-				continue
-			}
-			fv := domain.GitFileVO{Path: path, Status: domain.GitChangeModified}
-			if a, err := strconv.Atoi(strings.TrimSpace(cols[0])); err == nil {
-				fv.Additions = a
-			}
-			if d, err := strconv.Atoi(strings.TrimSpace(cols[1])); err == nil {
-				fv.Deletions = d
-			}
-			vo.Files = append(vo.Files, fv)
+	res, err := run(sc.root, statusTimeout, "show", "--no-color", "--numstat", "--pretty=format:", vo.Hash)
+	if err != nil {
+		return vo, nil
+	}
+	for _, line := range splitLines(res.stdout) {
+		cols := strings.Split(line, "\t")
+		if len(cols) < 3 {
+			continue
 		}
+		path := sc.unquote(cols[len(cols)-1])
+		if path == "" {
+			continue
+		}
+		fv := domain.GitFileVO{Path: path, Status: domain.GitChangeModified}
+		if a, err := strconv.Atoi(strings.TrimSpace(cols[0])); err == nil {
+			fv.Additions = a
+		}
+		if d, err := strconv.Atoi(strings.TrimSpace(cols[1])); err == nil {
+			fv.Deletions = d
+		}
+		vo.Files = append(vo.Files, fv)
 	}
 	return vo, nil
 }
@@ -215,14 +208,13 @@ func parseShow(dir, out, sep string) (*domain.GitCommitDetailVO, error) {
 // parseBranches 解析 branch -vv：`* main abc1234 [origin/main] 信息`。
 func parseBranches(out string) []domain.GitBranchVO {
 	list := make([]domain.GitBranchVO, 0, 8)
-	for _, line := range strings.Split(out, "\n") {
+	for _, line := range splitLines(out) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		cur := false
-		// 无论是否当前分支都要先去前导空白：非当前分支行以两个空格开头，
-		// 不去的话按空格切名字会得到空串，整条分支被静默丢掉。
-		rest := strings.TrimLeft(line, " 	")
+		// 非当前分支行以两个空格开头，不去前缀按空格切名字会得到空串。
+		rest := strings.TrimLeft(line, " \t")
 		if strings.HasPrefix(rest, "*") {
 			cur = true
 			rest = strings.TrimSpace(rest[1:])
@@ -242,6 +234,23 @@ func parseBranches(out string) []domain.GitBranchVO {
 			}
 		}
 		list = append(list, vo)
+	}
+	return list
+}
+
+// parseRemoteBranches 解析 branch -r：`origin/main`、`origin/HEAD -> origin/main`。
+func parseRemoteBranches(out string) []domain.GitBranchVO {
+	list := make([]domain.GitBranchVO, 0, 8)
+	for _, line := range splitLines(out) {
+		name := strings.TrimSpace(line)
+		if name == "" || strings.Contains(name, "->") {
+			continue // HEAD 指针别名不是可切换的分支
+		}
+		remote, _, ok := strings.Cut(name, "/")
+		if !ok {
+			continue
+		}
+		list = append(list, domain.GitBranchVO{Name: name, Remote: remote})
 	}
 	return list
 }
@@ -272,8 +281,12 @@ func validRef(s string) bool {
 	return true
 }
 
-// writeTimeout 写操作超时：commit 可能触发钩子，push 可能真的慢，都比读给得足。
-const writeTimeout = 30 * time.Second
-
-// pushTimeout 推送超时：远端慢时一分钟都算客气，超时报错让用户自己重试。
-const pushTimeout = 60 * time.Second
+// relTo 把绝对路径折成相对 dir 的斜杠形式，与 status 报的路径同一套写法。
+// 两侧先取真实路径：短名（RUNNER~1）与长名字面不等时 Rel 会算出 ../..，git 会判成越界。
+func relTo(dir, full string) (string, error) {
+	rel, err := filepath.Rel(pkg.RealPath(dir), pkg.RealPath(full))
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
+}

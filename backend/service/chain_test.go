@@ -475,12 +475,6 @@ func TestServiceChain(t *testing.T) {
 		if len(plist.Providers) != 1 || strings.Contains(plist.Providers[0].KeyHint, "secret-1234") {
 			t.Fatalf("服务商清单没落盘或掩码泄露: %+v", plist.Providers)
 		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(plist.Providers) != 1 || strings.Contains(plist.Providers[0].KeyHint, "secret-1234") {
-			t.Fatalf("服务商清单没落盘或掩码泄露: %+v", plist.Providers)
-		}
 		if err := te.container.Providers.SetDefault(domain.SetDefaultREQ{Provider: vo.ID, Model: "m1"}); err != nil {
 			t.Fatal(err)
 		}

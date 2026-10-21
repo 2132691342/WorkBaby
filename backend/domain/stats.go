@@ -1,9 +1,7 @@
 // 统计聚合根：用量按天 / 模型 / 会话的聚合形态，来源是 PI 的会话文件。
 package domain
 
-// StatsTotalsVO 区间总量。
-// 上游把缓存命中与未命中分两个字段报：提示词量 = Input + Cached + CacheWrite，
-// 命中率的分母是它，不是 Input。
+// StatsTotalsVO 区间总量：提示词量 = Input + Cached + CacheWrite（命中率用它做分母）。
 type StatsTotalsVO struct {
 	// Input 是未命中缓存的提示词；Cached 是命中部分；CacheWrite 是新写入部分。
 	Input      int `json:"input"`
