@@ -10,8 +10,10 @@ export interface Resp<T> {
 export interface UsageVO {
   input: number
   output: number
-  /** 命中上游缓存的输入量 */
+  /** 命中上游缓存的输入量（与 input 并列，不含在 input 里） */
   cached: number
+  /** 写入上游缓存的输入量；同样不含在 input 里 */
+  cache_write?: number
   total: number
   /** 这一轮发出时上下文占用的窗口量 */
   context: number
@@ -32,6 +34,16 @@ export interface MessageImage {
   base64: string
 }
 
+export interface MessageBlock {
+  /** text = 正文；thinking = 思考；tool = 工具调用（结果在紧随其后的 tool 消息里） */
+  kind: 'text' | 'thinking' | 'tool'
+  text?: string
+  tool_call_id?: string
+  tool_name?: string
+  label?: string
+  args?: Record<string, unknown>
+}
+
 export interface MessageVO {
   id: string
   role: 'user' | 'assistant' | 'tool' | 'notice'
@@ -39,6 +51,8 @@ export interface MessageVO {
   type: string
   thinking?: string
   content?: string
+  /** 正文 / 思考 / 工具调用的原始顺序；渲染按它来，不按字段类型分组 */
+  blocks?: MessageBlock[]
   tool_calls?: ToolCall[]
   tool_call_id?: string
   tool_name?: string
@@ -337,6 +351,7 @@ export interface StatsTotals {
   input: number
   output: number
   cached: number
+  cache_write: number
   total: number
   cost: number
   calls: number
@@ -350,6 +365,7 @@ export interface StatsDailyItem {
   input: number
   output: number
   cached: number
+  cache_write: number
   total: number
   cost: number
   calls: number
@@ -358,6 +374,10 @@ export interface StatsDailyItem {
 export interface StatsModelItem {
   provider: string
   model: string
+  input: number
+  output: number
+  cached: number
+  cache_write: number
   total: number
   cost: number
   calls: number

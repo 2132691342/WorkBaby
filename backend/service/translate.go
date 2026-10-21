@@ -225,7 +225,7 @@ func (c *ChatService) onMessageUpdate(sessionID string, st *runState, ev pi.Even
 	// 流式期间的 usage 是累计读数：拿它实时更新水位。
 	if ev.Usage != nil {
 		st.tokens = ev.Usage.TotalTokens
-		st.context = ev.Usage.Input + ev.Usage.CacheRead
+		st.context = promptTokensOf(ev.Usage)
 	}
 }
 
@@ -234,23 +234,19 @@ func (c *ChatService) onMessageEnd(st *runState, ev pi.Event) {
 	if ev.Usage == nil {
 		return
 	}
+	prompt := promptTokensOf(ev.Usage)
 	u := &domain.UsageVO{
 		Input: ev.Usage.Input, Output: ev.Usage.Output,
-		Cached: ev.Usage.CacheRead, Total: ev.Usage.TotalTokens,
-		Context: st.context, Cost: ev.Usage.Cost.Total,
+		Cached: ev.Usage.CacheRead, CacheWrite: ev.Usage.CacheWrite,
+		Total:   ev.Usage.TotalTokens,
+		Context: prompt, Cost: ev.Usage.Cost.Total,
 	}
 	// 上游给的总量小于两者之和时以两者之和为准：仪表盘上「总量比输入+输出还小」只会让人以为统计坏了。
-	if u.Total < u.Input+u.Output {
-		u.Total = u.Input + u.Output
-	}
-	// 命中量不可能超过输入量；上游按「未命中口径」报 input 时补回总量。
-	if u.Cached > u.Input {
-		u.Input = u.Cached
+	if u.Total < prompt+u.Output {
+		u.Total = prompt + u.Output
 	}
 	st.usage = u
-	if st.context < u.Input {
-		st.context = u.Input
-	}
+	st.context = prompt
 }
 
 // finishSettled 在 agent_settled 时收尾：这是唯一「真的结束」信号。

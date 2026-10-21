@@ -1,8 +1,7 @@
 // 工作区版本视图的 HTTP handler：status / diff / 历史 / 分支为只读，
 // stage / unstage / commit / branch / switch / push / message 为受控写入（specs/08）。
-package api
-
 // 编排全部在 service 层，这里只做参数与响应。
+package api
 
 import (
 	"strconv"

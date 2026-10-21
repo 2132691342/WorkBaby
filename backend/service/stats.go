@@ -106,6 +106,7 @@ func (s *StatsService) Compute(span string) (*domain.StatsRESP, error) {
 			d.Input += usage.Input
 			d.Output += usage.Output
 			d.Cached += usage.CacheRead
+			d.CacheWrite += usage.CacheWrite
 			d.Total += usage.TotalTokens
 			d.Cost += usage.Cost.Total
 			d.Calls++
@@ -118,6 +119,8 @@ func (s *StatsService) Compute(span string) (*domain.StatsRESP, error) {
 			}
 			m.Input += usage.Input
 			m.Output += usage.Output
+			m.Cached += usage.CacheRead
+			m.CacheWrite += usage.CacheWrite
 			m.Total += usage.TotalTokens
 			m.Cost += usage.Cost.Total
 			m.Calls++
@@ -125,9 +128,11 @@ func (s *StatsService) Compute(span string) (*domain.StatsRESP, error) {
 			resp.Totals.Input += usage.Input
 			resp.Totals.Output += usage.Output
 			resp.Totals.Cached += usage.CacheRead
+			resp.Totals.CacheWrite += usage.CacheWrite
 			resp.Totals.Total += usage.TotalTokens
 			resp.Totals.Cost += usage.Cost.Total
 			resp.Totals.Calls++
+			resp.Totals.Messages++
 			sessionTotal += usage.TotalTokens
 			sessionCost += usage.Cost.Total
 		}

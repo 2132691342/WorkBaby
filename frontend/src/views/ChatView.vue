@@ -12,7 +12,9 @@ import { useToastStore } from '../stores/toast'
 import type { AttachmentREQ } from '../types/api'
 import AppIcon from '../components/common/AppIcon.vue'
 import ChatInput from '../components/chat/ChatInput.vue'
+import EngineStatusBar from '../components/chat/EngineStatusBar.vue'
 import ExampleCards from '../components/chat/ExampleCards.vue'
+import FilePeek from '../components/chat/FilePeek.vue'
 import MessageList from '../components/chat/MessageList.vue'
 import SessionPanel from '../components/chat/SessionPanel.vue'
 import StatusHud from '../components/chat/StatusHud.vue'
@@ -117,6 +119,9 @@ async function reload() {
     await session.refresh()
   } catch (e) {
     chat.notify(t('chat.refreshFailed', { msg: (e as Error)?.message || '' }))
+  } finally {
+    // 快照接上（或失败已告知）之后才把流式那一轮换成历史投影
+    chat.clearLive()
   }
 }
 
@@ -325,6 +330,8 @@ watch(() => settings.boot?.default_model, seedContext)
         <MessageList v-else :on-continue="resume" :on-retry="retry" />
       </Transition>
 
+      <EngineStatusBar />
+
       <ChatInput
         ref="inputRef"
         :running="chat.running"
@@ -338,6 +345,7 @@ watch(() => settings.boot?.default_model, seedContext)
         @new-session="newSession"
       />
       <StatusHud />
+      <FilePeek />
     </div>
   </div>
 </template>

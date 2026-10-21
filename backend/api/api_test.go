@@ -276,6 +276,7 @@ func TestHTTPChain(t *testing.T) {
 			t.Fatalf("创建模型服务失败: %d %s", code, body)
 		}
 		// 名字会被 slug 成 models.json 的键：拿列表里的真实键再设默认。
+		// 名字会被 slug 成 models.json 的键：拿列表里的真实键再设默认。
 		_, listing := call(t, base, "GET", "/providers", nil)
 		var parsed struct {
 			Data struct {
@@ -293,7 +294,6 @@ func TestHTTPChain(t *testing.T) {
 		}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
 			t.Fatalf("设为默认失败: %d %s", code, body)
 		}
-
 		// 第一次发送：新对话由后端现场创建，返回 session_id。
 		code, body = call(t, base, "POST", "/chat/send", map[string]any{
 			"workspace": workspace, "content": "在吗",

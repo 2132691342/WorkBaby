@@ -185,12 +185,21 @@ func (te *testEnv) writeSession(t *testing.T, id, cwd, userText string, tokens i
 		{"type": "message", "id": "a1", "parentId": "u1", "timestamp": "2026-01-01T00:00:03Z",
 			"message": map[string]any{
 				"role": "assistant", "provider": "p", "model": "m",
-				"content":    []map[string]any{{"type": "text", "text": "答复"}},
+				// 内容是块数组：思考 → 正文 → 工具调用。顺序就是界面该渲染的顺序。
+				"content": []map[string]any{
+					{"type": "thinking", "thinking": "想了想"},
+					{"type": "text", "text": "答复"},
+					{"type": "toolCall", "id": "tc1", "name": "read", "arguments": map[string]any{"path": "a.txt"}},
+				},
 				"stopReason": "stop", "timestamp": 1767225603000,
 				"usage": map[string]any{
-					"input": 100, "output": 20, "cacheRead": 30, "totalTokens": tokens,
+					"input": 100, "output": 20, "cacheRead": 30, "cacheWrite": 10, "totalTokens": tokens,
 					"cost": map[string]any{"total": 0.02},
 				},
+			}},
+		{"type": "message", "id": "t1", "parentId": "a1", "timestamp": "2026-01-01T00:00:03Z",
+			"message": map[string]any{
+				"role": "toolResult", "toolCallId": "tc1", "toolName": "read", "content": "文件内容",
 			}},
 		{"type": "session_info", "id": "n1", "parentId": "a1", "timestamp": "2026-01-01T00:00:04Z", "name": "手写的会话"},
 	}
@@ -206,7 +215,7 @@ func (te *testEnv) writeSession(t *testing.T, id, cwd, userText string, tokens i
 	return file
 }
 
-// TestServiceChain 是 service 包唯一的测试入口。六条链各自独立命名，失败时一个名字即定位一件事。
+// TestServiceChain 是 service 包唯一的测试入口。五条链各自独立命名，失败时一个名字即定位一件事。
 // 子测试按数据依赖顺序排列：后一条用前一条落下的磁盘事实（如真实会话的 usage）。
 func TestServiceChain(t *testing.T) {
 	te := bootService(t)
@@ -236,11 +245,30 @@ func TestServiceChain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("取详情失败: %v", err)
 		}
-		if len(detail.Messages) != 2 {
-			t.Fatalf("投影出 %d 条消息，期望 2 条（用户 + 助手）", len(detail.Messages))
+		if len(detail.Messages) != 3 {
+			t.Fatalf("投影出 %d 条消息，期望 3 条（用户 + 助手 + 工具结果）", len(detail.Messages))
 		}
 		if detail.Messages[1].Content != "答复" || detail.Messages[1].Usage == nil {
 			t.Fatalf("助手消息投影不对: %+v", detail.Messages[1])
+		}
+
+		// 内容块顺序：界面按它就地渲染。工具卡被整体搬到正文前面 = 顺序丢了。
+		blocks := detail.Messages[1].Blocks
+		if len(blocks) != 3 || blocks[0].Kind != domain.BlockThinking ||
+			blocks[1].Kind != domain.BlockText || blocks[2].Kind != domain.BlockTool {
+			t.Fatalf("内容块顺序不对: %+v", blocks)
+		}
+		if blocks[2].ToolCallID != "tc1" || blocks[2].Args["path"] != "a.txt" {
+			t.Fatalf("工具块参数丢了: %+v", blocks[2])
+		}
+		if detail.Messages[2].Role != domain.RoleTool || detail.Messages[2].ToolCallID != "tc1" {
+			t.Fatalf("工具结果投影不对: %+v", detail.Messages[2])
+		}
+
+		// 用量口径：提示词总量 = 未命中 + 命中 + 写入；命中量不与 input 混在一起。
+		usage := detail.Messages[1].Usage
+		if usage.Cached != 30 || usage.CacheWrite != 10 || usage.Context != 140 {
+			t.Fatalf("用量口径不对: %+v", usage)
 		}
 
 		// 工具清单来自会话里的工具声明：这才是 PI 真能调到的工具。
@@ -364,8 +392,9 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	// 技能与插件同源：都在扫 PI 的目录 + settings.json 登记表，同一次 setup 里一起验。
-	t.Run("目录扫描：技能三区启停靠移目录，插件登记项与包目录都要解析出来", func(t *testing.T) {
+	// 配置与目录扫描是同一条回路：界面上改的东西都要落到 PI 的目录与文件里，
+	// 再从那里读回来。坏了的表现是「界面显示改好了，助手行为没变」。
+	t.Run("配置落盘与回读：技能三区启停、插件登记项、models.json 与 mcp.json", func(t *testing.T) {
 		skillsDir := te.env.PiEnv.SkillsDir()
 		mkSkill(t, filepath.Join(skillsDir, "demo-skill"), "demo-skill", "演示")
 		mkSkill(t, filepath.Join(te.env.PiEnv.DisabledSkillsDir(), "old-skill"), "old-skill", "停用的")
@@ -421,7 +450,7 @@ func TestServiceChain(t *testing.T) {
 		if len(exts.Entries) != 1 || !exts.Entries[0].Enabled {
 			t.Fatalf("登记的扩展条目不对: %+v", exts.Entries)
 		}
-		// 停用 = 改登记表（文件不搬走），并且要把登记项从 settings.json 摘掉。
+		// 停用扩展 = 改登记表（文件不搬走），并且要把登记项从 settings.json 摘掉。
 		if err := te.container.Extensions.Toggle(ext, false); err != nil {
 			t.Fatalf("停用扩展失败: %v", err)
 		}
@@ -429,24 +458,23 @@ func TestServiceChain(t *testing.T) {
 		if len(after.Extensions) != 0 {
 			t.Fatalf("停用后登记项应当被摘掉: %v", after.Extensions)
 		}
-	})
 
-	// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 删除连带清理。
-	// 断言只留跨边界的：掩码、Reveal、ModelSpec 这类字段映射不单独设断言。
-	t.Run("配置写入：models.json 与 mcp.json 的校验、落盘与删除", func(t *testing.T) {
+		// 服务商：密钥明文只落在 models.json 里（PI 就是这么读的），列表只给掩码。
 		vo, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{
 			Name: "本地网关", API: domain.APIOpenAICompletions,
 			BaseURL: "http://127.0.0.1:1234/v1", APIKey: "sk-secret-1234567890",
 			Models: []domain.ModelREQ{{ID: "m1", Name: "模型一", ContextWindow: 128000, MaxTokens: 8192, Vision: true}},
 		})
-		if err != nil {
-			t.Fatalf("写服务商失败: %v", err)
+		if err != nil || vo.ID == "" {
+			t.Fatalf("写服务商失败: %v vo=%+v", err, vo)
 		}
-		if vo.ID == "" {
-			t.Fatalf("返回的服务商不对: %+v", vo)
-		}
-		// 密钥的明文只落在 models.json 里（PI 就是这么读的），列表只给掩码。
 		plist, err := te.container.Providers.List()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(plist.Providers) != 1 || strings.Contains(plist.Providers[0].KeyHint, "secret-1234") {
+			t.Fatalf("服务商清单没落盘或掩码泄露: %+v", plist.Providers)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}

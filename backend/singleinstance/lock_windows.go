@@ -1,5 +1,7 @@
 //go:build windows
 
+// Windows 单实例锁：文件锁独占首字节 + 本地 TCP IPC 转交二次启动。
+
 package singleinstance
 
 import (

@@ -34,6 +34,7 @@
 | POST | `/chat/steer` | 插话 |
 | POST | `/chat/followup` | 排队 |
 | POST | `/chat/retry-cancel` | 叫停自动重试 |
+| POST | `/chat/compact` | 手动压缩上下文 `{session_id}`（PI 的 `/compact`） |
 | POST | `/chat/answer` | 回答引擎提问 `{id, value, confirmed, cancelled}` |
 | GET | `/commands?session_id=` | 斜杠命令（扩展 / 提示模板 / 技能） |
 | GET | `/providers` | 服务商列表 + 默认模型 + models.json 路径 |
@@ -84,6 +85,24 @@
 | GET | `/stats?span=` | 用量统计；`span` 取 `24h` / `today` / `7d` / `14d` / `30d`（按小时或按天聚合），旧 `days` 数字参数兜底 |
 | GET | `/api/v1/events?session_id=` | SSE 事件流（`last_event_id` 重放） |
 
+## 载荷形态
+
+字段逐条在 `docs/DATA-MODEL.md` 与 `frontend/src/types/api.ts` 里，这里只讲契约面要守的三件事：
+
+**消息按顺序给。** `MessageVO.blocks` 是助手消息里正文 / 思考 / 工具调用的**原始顺序**，
+界面按它就地渲染。`content` 与 `thinking` 只是 `blocks` 的拼接结果（供复制与旧前端兜底），
+不是渲染依据。工具调用的**结果**不挂在块上，在紧随其后的一条 `role=tool` 消息里，
+按 `tool_call_id` 对上号。
+
+**用量分三段报。** `UsageVO` 的 `input` 是**未命中**上游缓存的提示词，`cached` 是命中部分，
+`cache_write` 是新写入部分，三者相加才是 `context`（一次调用的提示词总量）。
+缓存命中率的分母是 `context`，不是 `input`。`/stats` 的 totals / daily / models 同口径。
+
+**命令清单只是引擎报上来的那部分。** `GET /commands` 返回扩展命令、提示模板与技能；
+PI 自己那一组内置命令（`/compact` `/export` `/copy` `/name` …）**不在这个列表里**，
+它们靠解析输入文本触发。界面把内置动作做成本地命令项，再映射到对应端点
+（如 `/compact` → `POST /chat/compact`），而不是等引擎把它们报上来。
+
 ## SSE
 
 ```
@@ -112,8 +131,8 @@ data: {"seq":42,"event":"chat:delta","data":{"entry_id":"run-…","kind":"text",
 | `chat:switched` | 会话被切走（换工作区 / 引擎重启），前端必须拉新快照 |
 | `chat:setup` | 安装进度（phase / progress / message） |
 | `chat:notify` | 引擎扩展的即时通知（level: info/warning/error，无需应答） |
-| `chat:status` | 引擎扩展设的状态条（空 text 即清除） |
-| `chat:widget` | 引擎扩展推的小部件文本行（空行即清除） |
+| `chat:status` | 引擎扩展设的状态条（空 text 即清除）；界面排在输入框上沿，不进消息流 |
+| `chat:widget` | 引擎扩展推的小部件文本行（空行即清除）；同上一条位置 |
 | `chat:title` | 引擎请求改标题（写进标题栏，不进会话名） |
 
 ## 契约版本

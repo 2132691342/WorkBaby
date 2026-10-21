@@ -39,35 +39,6 @@
   gap: var(--wb-sp-3);
 }
 
-.turn-body {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-3);
-  padding-left: calc(var(--wb-avatar-size) + var(--wb-sp-3));
-}
-.turn-body::before {
-  content: '';
-  position: absolute;
-  left: calc(var(--wb-avatar-size) / 2);
-  top: 4px;
-  bottom: 2px;
-  width: 1px;
-  background: var(--wb-border);
-}
-/* 绔栫嚎椤剁鐨勮妭鐐癸細浠ｆ浛澶村儚褰撱€岃繖鏄姪鎵嬮偅涓€鍒椼€嶇殑閿ゅ瓙 */
-.turn-body::after {
-  content: '';
-  position: absolute;
-  left: calc(var(--wb-avatar-size) / 2 - 3px);
-  top: 7px;
-  width: 7px;
-  height: 7px;
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-primary);
-  box-shadow: 0 0 0 3px var(--wb-elev-raised);
-}
-
 /* ============================================================
    鐢ㄦ埛姘旀场 / 鍔╂墜姝ｆ枃
    ============================================================ */
@@ -148,23 +119,6 @@
   color: var(--wb-danger);
 }
 
-.msg-avatar {
-  width: var(--wb-avatar-size);
-  height: var(--wb-avatar-size);
-  border-radius: var(--wb-radius-sm);
-  display: grid;
-  place-items: center;
-  flex: none;
-  background: var(--wb-primary);
-  color: #ffffff;
-  margin-top: 2px;
-}
-.msg-avatar--me {
-  background: var(--wb-elev-hover);
-  color: var(--wb-ink-2);
-  border: 1px solid var(--wb-border);
-}
-
 /* 鍔╂墜姝ｆ枃锛氱嫭绔嬮潰鏉挎壙鎷呭垎鍖猴紙澶村儚鐨勯敋鐐硅亴璐ｈ縼鍒拌繖閲岀殑杈规涓庡窘绔狅級銆?   宸︿晶鑴婄嚎 2px 鏄€屽姪鎵嬪垪銆嶇殑韬唤绾匡紝涓嶈鏀规垚褰╄壊鎶借竟銆?*/
 .msg-ai-body {
   min-width: 0;
@@ -180,17 +134,8 @@
   gap: var(--wb-sp-2);
 }
 
-.msg-name {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-xs);
-  font-weight: 700;
-  color: var(--wb-muted);
-}
-
 /* 姝ｆ枃鏈熬鐨勬祦寮忓厜鏍?*/
-.stream-caret {
+.prose.is-last::after {
   display: inline-block;
   width: 2px;
   height: 1em;

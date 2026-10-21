@@ -1,5 +1,7 @@
 //go:build windows
 
+// Windows 上起 PI 子进程：入口不走 shell，并给进程设 CREATE_NO_WINDOW。
+
 package pi
 
 import (

@@ -2,6 +2,7 @@
 // 输入区：多行输入 + 待发送附件 + @ 引用 + / 命令菜单 + 模型与思考档 + 发送 / 停止。
 // 运行中发送即插话（steer）或排队（follow_up），Esc 在输入框为空时停下当前回合。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
@@ -32,13 +33,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const router = useRouter()
 const chat = useChatStore()
 const session = useSessionStore()
 const settings = useSettingsStore()
 const toast = useToastStore()
-
-// 后端最多认 5 个，前端先卡住
-const MAX_ATTACH = 5
 
 interface PendingFile {
   path: string
@@ -47,11 +46,32 @@ interface PendingFile {
   image?: string
 }
 
-const COMMANDS = [
+// 内置命令：都是 WorkBaby 真的能执行的动作，不是空壳条目。
+// PI 终端里还有一批只活在 TUI 上的命令（/tree /share /bug /hotkeys …），这里不列。
+type BuiltinKey =
+  | 'new'
+  | 'model'
+  | 'thinking'
+  | 'compact'
+  | 'session'
+  | 'export'
+  | 'copy'
+  | 'reload'
+  | 'login'
+  | 'settings'
+
+const COMMANDS: { key: BuiltinKey; nameKey: string; descKey: string }[] = [
   { key: 'new', nameKey: 'chat.slashNew', descKey: 'chat.slashNewDesc' },
   { key: 'model', nameKey: 'chat.slashModel', descKey: 'chat.slashModelDesc' },
   { key: 'thinking', nameKey: 'chat.slashThinking', descKey: 'chat.slashThinkingDesc' },
-] as const
+  { key: 'compact', nameKey: 'chat.slashCompact', descKey: 'chat.slashCompactDesc' },
+  { key: 'session', nameKey: 'chat.slashSession', descKey: 'chat.slashSessionDesc' },
+  { key: 'export', nameKey: 'chat.slashExport', descKey: 'chat.slashExportDesc' },
+  { key: 'copy', nameKey: 'chat.slashCopy', descKey: 'chat.slashCopyDesc' },
+  { key: 'reload', nameKey: 'chat.slashReload', descKey: 'chat.slashReloadDesc' },
+  { key: 'login', nameKey: 'chat.slashLogin', descKey: 'chat.slashLoginDesc' },
+  { key: 'settings', nameKey: 'chat.slashSettings', descKey: 'chat.slashSettingsDesc' },
+]
 
 // ── 草稿：按会话 id 存，无会话用 '__new__'（新建态） ──
 const DRAFT_KEY = 'wb-composer-drafts'
@@ -91,7 +111,6 @@ watch(() => session.currentId, loadDraft)
 
 const files = ref<PendingFile[]>([])
 const outsideCount = computed(() => files.value.filter((f) => f.outside).length)
-const full = computed(() => files.value.length >= MAX_ATTACH)
 
 // ── 菜单：斜杠命令 / @ 引用 ──
 const menu = ref<'slash' | 'mention' | null>(null)
@@ -105,7 +124,6 @@ interface SlashItem {
   name: string
   desc: string
 }
-
 const piCommands = ref<CommandVO[]>([])
 let piCmdLoadedFor = ''
 
@@ -122,19 +140,19 @@ async function loadPiCommands() {
   }
 }
 
-const MAX_MATCH = 8
+const MAX_MATCH = 20
 const slashItems = computed<SlashItem[]>(() => {
   const q = menu.value === 'slash' ? text.value : ''
   if (!q || /\s/.test(q)) return []
-  const cmds: SlashItem[] = COMMANDS.filter((c) => `/${c.key}`.startsWith(q)).map((c) => ({
+  const kw = q.slice(1).toLowerCase()
+  const match = (name: string, desc: string) =>
+    !kw || name.toLowerCase().includes(kw) || desc.toLowerCase().includes(kw)
+  const cmds: SlashItem[] = COMMANDS.filter((c) => match(c.key, t(c.descKey))).map((c) => ({
     kind: 'cmd',
     key: c.key,
     name: t(c.nameKey),
     desc: t(c.descKey),
   }))
-  const kw = q.slice(1).toLowerCase()
-  const match = (name: string, desc: string) =>
-    !kw || name.toLowerCase().includes(kw) || desc.toLowerCase().includes(kw)
   const fromPi: SlashItem[] = piCommands.value
     .filter((c) => match(c.name, c.description || ''))
     .slice(0, MAX_MATCH)
@@ -153,10 +171,13 @@ const slashItems = computed<SlashItem[]>(() => {
 })
 
 const chipsRef = ref<InstanceType<typeof SessionChips> | null>(null)
+const slashList = ref<HTMLElement | null>(null)
+/** 正在执行的内置命令：执行中不接受第二条命令 */
+const busyCmd = ref('')
 
 function runSlash(item: SlashItem) {
   if (item.kind === 'cmd') {
-    runCommand(item.key as (typeof COMMANDS)[number]['key'])
+    void runCommand(item.key as BuiltinKey)
     return
   }
   clearInput()
@@ -164,10 +185,130 @@ function runSlash(item: SlashItem) {
   nextTick(() => ta.value?.focus())
 }
 
-function runCommand(key: (typeof COMMANDS)[number]['key']) {
+async function runCommand(key: BuiltinKey) {
+  if (busyCmd.value) return
   clearInput()
-  if (key === 'new') emit('newSession')
-  else chipsRef.value?.show(key === 'model' ? 'model' : 'thinking')
+  switch (key) {
+    case 'new':
+      emit('newSession')
+      return
+    case 'model':
+      chipsRef.value?.show('model')
+      return
+    case 'thinking':
+      chipsRef.value?.show('thinking')
+      return
+    case 'compact':
+      await compact()
+      return
+    case 'session':
+      showSessionInfo()
+      return
+    case 'export':
+      await exportHTML()
+      return
+    case 'copy':
+      await copyLastAnswer()
+      return
+    case 'reload':
+      await reloadAll()
+      return
+    case 'login':
+      void router.push({ name: 'settings', params: { tab: 'providers' } })
+      return
+    case 'settings':
+      void router.push({ name: 'settings' })
+      return
+  }
+}
+
+// ── 内置命令的实际动作 ──
+
+async function compact() {
+  const sid = session.currentId
+  if (!sid) {
+    toast.info(t('chat.slashNeedSession'))
+    return
+  }
+  if (chat.running) {
+    toast.bad(t('chat.slashBusy'))
+    return
+  }
+  busyCmd.value = 'compact'
+  try {
+    await api.chat.compact(sid)
+    toast.ok(t('chat.slashCompactDone'))
+    await session.refresh()
+  } catch (e) {
+    toast.bad(t('chat.slashFailed', { msg: (e as Error)?.message || '' }))
+  } finally {
+    busyCmd.value = ''
+  }
+}
+
+function showSessionInfo() {
+  const s = session.current
+  if (!s) {
+    toast.info(t('chat.slashNeedSession'))
+    return
+  }
+  toast.info(
+    t('chat.slashSessionInfo', {
+      n: s.message_count,
+      tokens: s.total_tokens,
+      model: s.model || '—',
+    }),
+  )
+}
+
+async function exportHTML() {
+  const sid = session.currentId
+  if (!sid) {
+    toast.info(t('chat.slashNeedSession'))
+    return
+  }
+  busyCmd.value = 'export'
+  try {
+    const { SaveFileDialog } = await import('../../../wailsjs/go/main/App')
+    const name = `${(session.current?.title || 'session').replace(/[\\/:*?"<>|]/g, '_')}.html`
+    const target = await SaveFileDialog(t('chat.slashExportTitle'), name, '*.html')
+    if (!target) return
+    const saved = await api.sessions.exportHTML(sid, target)
+    toast.ok(t('chat.slashExportDone', { path: saved }))
+  } catch (e) {
+    toast.bad(t('chat.slashFailed', { msg: (e as Error)?.message || '' }))
+  } finally {
+    busyCmd.value = ''
+  }
+}
+
+async function copyLastAnswer() {
+  const last = [...session.messages].reverse().find((m) => m.role === 'assistant' && m.content?.trim())
+  if (!last?.content) {
+    toast.info(t('chat.slashCopyEmpty'))
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(last.content)
+    toast.ok(t('chat.slashCopyDone'))
+  } catch {
+    toast.bad(t('common.copyFailed'))
+  }
+}
+
+async function reloadAll() {
+  busyCmd.value = 'reload'
+  try {
+    await api.extensions.reload()
+    await settings.loadSkills()
+    piCmdLoadedFor = ''
+    if (session.currentId) await loadPiCommands()
+    toast.ok(t('chat.slashReloadDone'))
+  } catch (e) {
+    toast.bad(t('chat.slashFailed', { msg: (e as Error)?.message || '' }))
+  } finally {
+    busyCmd.value = ''
+  }
 }
 
 // ── @ 引用：工作区文件逐级浏览 ──
@@ -215,16 +356,14 @@ function pickFromTree(entry: FileEntryVO) {
     void loadDir(browsePath.value ? `${browsePath.value}/${entry.name}` : entry.name)
     return
   }
-  if (full.value) {
-    toast.bad(t('chat.attachLimit', { n: MAX_ATTACH }))
-    return
-  }
   const rel = browsePath.value ? `${browsePath.value}/${entry.name}` : entry.name
   if (!files.value.some((f) => f.path === rel)) {
     files.value.push({ path: rel, name: entry.name, outside: false })
   }
   text.value = text.value.replace(/@\S*$/, '').trimEnd()
   menu.value = null
+  saveDraft()
+  nextTick(() => ta.value?.focus())
 }
 
 function browseUp() {
@@ -248,10 +387,6 @@ function toRelative(base: string, fullPath: string): string | null {
 }
 
 function attachPath(picked: string) {
-  if (full.value) {
-    toast.bad(t('chat.attachLimit', { n: MAX_ATTACH }))
-    return
-  }
   const base = settings.boot?.workspace || ''
   const rel = base ? toRelative(base, picked) : null
   if (rel === null) {
@@ -263,13 +398,13 @@ function attachPath(picked: string) {
 }
 
 async function pickFile() {
-  if (full.value) return
   menu.value = null
   text.value = text.value.replace(/@\S*$/, '').trimEnd()
   const { OpenFileDialog } = await import('../../../wailsjs/go/main/App')
   const picked = await OpenFileDialog('', '')
   if (!picked) return
   attachPath(picked)
+  nextTick(() => ta.value?.focus())
 }
 
 function removeFile(path: string) {
@@ -286,10 +421,6 @@ function onPaste(e: ClipboardEvent) {
   }
   e.preventDefault()
   for (const f of imgs) {
-    if (full.value) {
-      toast.bad(t('chat.attachLimit', { n: MAX_ATTACH }))
-      break
-    }
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = String(reader.result || '')
@@ -343,22 +474,85 @@ function onInput() {
   }
 }
 
+// 键盘高亮必须跟手：列表超过可视高度时，光标跑下去了但看不见选中项等于导航失效。
+// 用容器自己的 scrollTop 算，不用 scrollIntoView——后者会把外层页面也一起滚。
+function ensureSlashVisible(i: number) {
+  const box = slashList.value
+  if (!box) return
+  const el = box.querySelector<HTMLElement>(`[data-idx="${i}"]`)
+  if (!el) return
+  const top = el.offsetTop - box.offsetTop
+  const bottom = top + el.offsetHeight
+  if (top < box.scrollTop) box.scrollTop = top
+  else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight
+}
+
+// 菜单里用鼠标滚轮 / 拖滚动条 / 点选项时不能让输入框丢焦点：
+// 一旦焦点跑到按钮上，↑↓ 与回车就都不再送到输入框了。
+function keepFocus(e: PointerEvent) {
+  const el = e.target as HTMLElement | null
+  if (el?.closest('input, textarea')) return
+  e.preventDefault()
+}
+
+const mentionIndex = ref(0)
+const mentionList = ref<HTMLElement | null>(null)
+watch(
+  () => browsePath.value,
+  () => (mentionIndex.value = 0),
+)
+watch(browseFilter, () => (mentionIndex.value = 0))
+
+function ensureMentionVisible(i: number) {
+  const box = mentionList.value
+  if (!box) return
+  const rows = box.querySelectorAll<HTMLElement>('.pop-row')
+  const el = rows[i]
+  if (!el) return
+  const top = el.offsetTop - box.offsetTop
+  const bottom = top + el.offsetHeight
+  if (top < box.scrollTop) box.scrollTop = top
+  else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (menu.value === 'slash' && slashItems.value.length) {
     const n = slashItems.value.length
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       cmdIndex.value = (cmdIndex.value + 1) % n
+      ensureSlashVisible(cmdIndex.value)
       return
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
       cmdIndex.value = (cmdIndex.value - 1 + n) % n
+      ensureSlashVisible(cmdIndex.value)
       return
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault()
       runSlash(slashItems.value[Math.min(cmdIndex.value, n - 1)])
+      return
+    }
+  }
+  if (menu.value === 'mention' && browseShown.value.length) {
+    const n = browseShown.value.length
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      mentionIndex.value = (mentionIndex.value + 1) % n
+      ensureMentionVisible(mentionIndex.value)
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      mentionIndex.value = (mentionIndex.value - 1 + n) % n
+      ensureMentionVisible(mentionIndex.value)
+      return
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault()
+      pickFromTree(browseShown.value[Math.min(mentionIndex.value, n - 1)])
       return
     }
   }
@@ -431,7 +625,7 @@ defineExpose({
   <div ref="root" class="composer">
     <div class="composer-in">
       <div class="composer-box">
-        <!-- 待发送文件 -->
+        <!-- 待发送文件：数量不设上限，超过两行就在本区内部滚动，不把输入框顶出屏 -->
         <div v-if="files.length" class="attach-row">
           <span
             v-for="(f, i) in files"
@@ -446,7 +640,7 @@ defineExpose({
               <AppIcon name="close" size="ic-2xs" />
             </button>
           </span>
-          <span class="attach-tip">{{ files.length }}/{{ MAX_ATTACH }}</span>
+          <span class="attach-tip">{{ files.length }}</span>
         </div>
 
         <!-- 运行态提示 -->
@@ -484,7 +678,7 @@ defineExpose({
         <!-- 工具行：与输入块用一条分隔线切开，不再抢输入框的横向空间 -->
         <div class="composer-bar is-divided">
           <el-tooltip :content="t('chat.attachPick')" placement="top" :show-after="400">
-            <button class="bar-btn" type="button" :disabled="disabled || full" @click="pickFile">
+            <button class="bar-btn" type="button" :disabled="disabled" @click="pickFile">
               <AppIcon name="folder" size="ic-xs" />
             </button>
           </el-tooltip>
@@ -534,37 +728,39 @@ defineExpose({
       </div>
 
       <!-- 斜杠菜单 -->
-      <div v-if="menu === 'slash'" class="pop menu-pop">
+      <div v-if="menu === 'slash'" class="pop menu-pop" @pointerdown="keepFocus">
         <div v-if="settings.skillsLoading && !settings.skills.length" class="pop-row is-muted">
           <span class="pop-spin" />
           {{ t('chat.slashLoading') }}
         </div>
         <div v-else-if="!slashItems.length" class="pop-row is-muted">{{ t('chat.slashNoMatch') }}</div>
-        <template v-else>
+        <div v-else ref="slashList" class="pop-list">
           <button
             v-for="(it, i) in slashItems"
             :key="`${it.kind}-${it.key}`"
+            :data-idx="i"
             class="pop-row"
             :class="{ 'is-hi': i === cmdIndex }"
             type="button"
             @mouseenter="cmdIndex = i"
             @click="runSlash(it)"
           >
-            <span v-if="it.kind === 'cmd'" class="pop-cmd">/{{ it.key }}</span>
-            <AppIcon v-else-if="it.kind === 'pi'" name="zap" size="ic-xs" />
-            <AppIcon v-else name="sparkles" size="ic-xs" />
+            <AppIcon v-if="it.kind === 'pi'" name="zap" size="ic-xs" />
+            <AppIcon v-else-if="it.kind === 'skill'" name="sparkles" size="ic-xs" />
+            <AppIcon v-else name="terminal" size="ic-xs" />
             <span class="pop-grow">
-              <b class="pop-t">{{ it.kind === 'cmd' ? it.name : it.key }}</b>
-              <span class="pop-d">{{ it.desc }}</span>
+              <b class="pop-t">{{ it.kind === 'cmd' ? `/${it.key}` : it.name }}</b>
+              <span class="pop-d">{{ it.kind === 'cmd' ? it.name + ' · ' + it.desc : it.desc }}</span>
             </span>
             <span v-if="it.kind === 'skill'" class="pop-tag">{{ t('chat.slashTagSkill') }}</span>
             <span v-else-if="it.kind === 'pi'" class="pop-tag is-engine">{{ t('chat.slashTagEngine') }}</span>
+            <span v-else class="pop-tag is-builtin">{{ t('chat.slashTagBuiltin') }}</span>
           </button>
-        </template>
+        </div>
       </div>
 
       <!-- @ 引用 -->
-      <div v-else-if="menu === 'mention'" class="pop menu-pop is-mention">
+      <div v-else-if="menu === 'mention'" class="pop menu-pop is-mention" @pointerdown="keepFocus">
         <div class="mb-head">
           <button class="mb-btn" type="button" :title="t('chat.mentionUp')" :disabled="!browsePath" @click="browseUp">
             <AppIcon name="chevron-left" size="ic-xs" />
@@ -579,18 +775,26 @@ defineExpose({
           </div>
           <input v-model="browseFilter" class="mb-filter" :placeholder="t('chat.mentionFilter')" />
         </div>
-        <div class="mb-list">
+        <div ref="mentionList" class="mb-list">
           <div v-if="browseLoading" class="pop-row is-muted"><span class="pop-spin" />{{ t('common.loading') }}</div>
           <div v-else-if="!browseShown.length" class="pop-row is-muted">
             {{ browseFilter ? t('chat.mentionNoMatch') : t('chat.mentionEmpty') }}
           </div>
-          <button v-for="e in browseShown" :key="e.name" class="pop-row" type="button" @click="pickFromTree(e)">
+          <button
+            v-for="(e, i) in browseShown"
+            :key="e.name"
+            class="pop-row"
+            :class="{ 'is-hi': i === mentionIndex }"
+            type="button"
+            @mouseenter="mentionIndex = i"
+            @click="pickFromTree(e)"
+          >
             <AppIcon :name="e.dir ? 'folder' : 'doc'" size="ic-xs" />
             <span class="pop-grow"><b class="pop-t">{{ e.name }}</b></span>
             <AppIcon v-if="e.dir" name="chevron-right" size="ic-xs" />
           </button>
         </div>
-        <button class="pop-row mb-out" type="button" :disabled="full" @click="pickFile">
+        <button class="pop-row mb-out" type="button" @click="pickFile">
           <AppIcon name="search" size="ic-xs" />
           <span class="pop-grow">
             <b class="pop-t">{{ t('chat.attachPick') }}</b>
@@ -609,6 +813,10 @@ defineExpose({
   align-items: center;
   gap: var(--wb-sp-2);
   padding: var(--wb-sp-2) var(--wb-sp-3) 0;
+  /* 数量不设上限：超过两行就在本区内部滚动，不把输入框顶出屏 */
+  max-height: calc(var(--wb-ctl-h-sm) * 2 + var(--wb-sp-4));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .attach {
   display: inline-flex;
@@ -783,8 +991,7 @@ defineExpose({
   left: var(--wb-sp-3);
   right: var(--wb-sp-3);
   bottom: calc(100% - var(--wb-sp-2));
-  max-height: calc(320px * var(--wb-vw-scale));
-  overflow-y: auto;
+  max-height: calc(340px * var(--wb-vw-scale));
   background: var(--wb-elev-raised);
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius-lg);
@@ -792,12 +999,21 @@ defineExpose({
   padding: var(--wb-sp-1);
   animation: pop-in var(--wb-dur) var(--wb-ease);
   z-index: var(--wb-z-pop);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 @keyframes pop-in {
   from {
     opacity: 0;
     transform: translateY(4px);
   }
+}
+/* 滚动在列表层而不是弹层上：键盘高亮要靠它自己的 scrollTop 算可视区 */
+.pop-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .menu-pop.is-mention {
   display: flex;
@@ -857,13 +1073,6 @@ defineExpose({
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pop-cmd {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
-  font-weight: 700;
-  color: var(--wb-primary);
-  flex: none;
-}
 .pop-tag {
   flex: none;
   padding: 1px var(--wb-sp-1);
@@ -876,6 +1085,11 @@ defineExpose({
 .pop-tag.is-engine {
   background: var(--wb-accent-tint);
   color: var(--wb-primary);
+}
+.pop-tag.is-builtin {
+  background: var(--wb-elev-raised);
+  border: 1px solid var(--wb-border);
+  color: var(--wb-muted);
 }
 .pop-spin {
   width: calc(12px * var(--wb-vw-scale));

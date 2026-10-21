@@ -33,6 +33,28 @@ var (
 	piCmdCached bool
 )
 
+// 版本号探测缓存：node -v / python -V / pi --version 都是真实进程启动（约 0.25s），
+// 而闸门与引导页会反复问同一批可执行文件的版本。按被问的那个 exe 索引。
+var (
+	versionMu    sync.Mutex
+	versionCache = map[string]string{}
+)
+
+// cachedVersion 按可执行文件路径缓存版本号；拿不到（路径为空或启动失败）就缓存空串。
+func cachedVersion(exe string, probe func() string) string {
+	if exe == "" {
+		return ""
+	}
+	versionMu.Lock()
+	defer versionMu.Unlock()
+	if hit, ok := versionCache[exe]; ok {
+		return hit
+	}
+	v := probe()
+	versionCache[exe] = v
+	return v
+}
+
 // EnvVO 是环境快照，直接进 BootstrapVO 下发给前端。
 type EnvVO struct {
 	NodeReady   bool   `json:"node_ready"`
@@ -141,16 +163,18 @@ func (e *Env) NpmCommand() (string, []string) {
 
 // nodeSystemExe 返回系统 PATH 上的 node。
 func nodeVersionOf(nodeExe string) string {
-	if nodeExe == "" {
-		return ""
-	}
-	cmd := exec.Command(nodeExe, "-v")
-	hideWindow(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimPrefix(strings.TrimSpace(string(out)), "v")
+	return cachedVersion(nodeExe, func() string {
+		if nodeExe == "" {
+			return ""
+		}
+		cmd := exec.Command(nodeExe, "-v")
+		hideWindow(cmd)
+		out, err := cmd.Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimPrefix(strings.TrimSpace(string(out)), "v")
+	})
 }
 
 // nodeSatisfies 检查主版本是否满足 PI 的下界。
@@ -246,20 +270,22 @@ func (e *Env) npmPrefixes() []string {
 	return out
 }
 
-// PiVersion 跑一次 `pi --version` 拿版本号。
+// PiVersion 取 PI 的版本号；同一个入口只起一次进程。
 func (e *Env) PiVersion(piExe string) string {
-	if piExe == "" {
-		return ""
-	}
-	exe, args := resolvePiExe(piExe)
-	argv := append(append([]string{}, args...), "--version")
-	cmd := exec.Command(exe, argv...)
-	hideWindow(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+	return cachedVersion(piExe, func() string {
+		if piExe == "" {
+			return ""
+		}
+		exe, args := resolvePiExe(piExe)
+		argv := append(append([]string{}, args...), "--version")
+		cmd := exec.Command(exe, argv...)
+		hideWindow(cmd)
+		out, err := cmd.Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+	})
 }
 
 // Detect 跑一遍环境闸门。modelReady 由上层传入（它读过 models.json）。
@@ -306,16 +332,18 @@ func (e *Env) Detect(modelReady bool) EnvVO {
 
 // pythonVersionOf 取 Python 版本号（形如 3.12.8）。
 func pythonVersionOf(exe string) string {
-	if exe == "" {
-		return ""
-	}
-	cmd := exec.Command(exe, "-V")
-	hideWindow(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "Python "))
+	return cachedVersion(exe, func() string {
+		if exe == "" {
+			return ""
+		}
+		cmd := exec.Command(exe, "-V")
+		hideWindow(cmd)
+		out, err := cmd.Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "Python "))
+	})
 }
 
 // Env 返回 PI 子进程要用的完整环境变量：把选中的运行时前置进 PATH。

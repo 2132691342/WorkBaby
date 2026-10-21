@@ -76,6 +76,8 @@ export const chat = {
     post<boolean>('/chat/followup', { session_id, content }),
   /** 叫停正在进行的自动重试 */
   cancelRetry: (session_id: string) => post<boolean>('/chat/retry-cancel', { session_id }),
+  /** 手动压缩上下文（PI 的 /compact） */
+  compact: (session_id: string) => post<boolean>('/chat/compact', { session_id }),
   /** 回答引擎抛回来的问题 */
   answer: (body: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean }) =>
     post<boolean>('/chat/answer', body),

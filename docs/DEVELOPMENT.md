@@ -10,31 +10,35 @@
 
 ## 常用命令
 
-```powershell
-# 验证入口：一个脚本收口，不要在本机与 CI 各写一套（分档说明见 AGENTS.md §3.3）
-pwsh scripts/check.ps1                        # 快门：格式 → 编译 → 所有包短测试
-pwsh scripts/check.ps1 -Pkg backend/service   # 只验一个包（与 -Full / -Chain 互斥）
-pwsh scripts/check.ps1 -Chain 提问             # 跨包只跑命中名字的链路
-pwsh scripts/check.ps1 -List                  # 列全部测试入口与所在文件
-pwsh scripts/check.ps1 -Full                  # 提交前 / CI：vet + 依赖门禁 + 全量测试 + 前端构建
+验证只有一个入口：`scripts/check.ps1`。分档规则、为什么这么分、入口索引都在
+AGENTS.md §3.3 / §3.4，这里只留平时手边那几条：
 
-# 单独跑某一步时才手敲
-go test -short -count=1 ./...                 # 短测试：跳过真 git 链路、归档真解压与本机 PI 真实回合
-go test -count=1 ./...                        # 全量
-go test -run 'TestServiceChain/会话索引' ./backend/service   # 定点链上的一段
-go run ./tools/check-boundaries               # 依赖方向门禁
+```powershell
+pwsh scripts/check.ps1                        # 日常快门（格式 → 编译 → 各包短测试）
+pwsh scripts/check.ps1 -Pkg backend/service   # 明确只碰了一个包
+pwsh scripts/check.ps1 -Chain 提问             # 只编并跑名字命中的包（不必知道它挂在哪个入口下）
+pwsh scripts/check.ps1 -List                  # 入口与子测试名的索引
+pwsh scripts/check.ps1 -Full                  # 提交前 / CI：vet + 依赖门禁 + 清单校验 + 全量 + 前端构建
 
 cd frontend
 npm install                                   # 首次
 npm run build                                 # vue-tsc + vite build → frontend/dist
 ```
 
-测试入口一律叫 `Test<Domain>Chain`，一包一个入口、一个入口一条链路：
-定位先跑 `-List` 拿索引，再用 `-Chain <关键字>` 或 `-run '入口/子测试名'` 直接落到一段，
-不用翻测试文件。完整的入口 × 链路对照表在 AGENTS.md §3.4。
+定位测试的标准动作：先 `-List` 拿索引，再 `-Chain <关键字>` 落到一段，不翻测试文件。
+入口一律叫 `Test<Domain>Chain`，一个包一个入口，一个子测试只讲一种坏法。
 
-验证脚本把测试输出落到 `.check/test-output.log`；失败时它会自动打印失败摘要——
-先抓 `--- FAIL` / `panic` / `文件:行号`，抓不到再退回末尾若干行。
+单独跑某一步时才手敲：
+
+```powershell
+go build ./...                                  # 比测试更早暴露类型错误，覆盖全部包
+go test -short -count=1 ./backend/service       # 只测一个包
+go test -count=1 -run 'TestServiceChain/会话索引' -v ./backend/service   # 定点到一段
+go run ./tools/check-boundaries                 # 依赖方向门禁
+```
+
+验证脚本在 `-Full` 档把测试输出落到 `.check/test-output.log`；失败时自动打印失败摘要——
+先抓 `--- FAIL` / `panic` / `文件:行号`，抽不到再退回末尾若干行。
 本地直接看屏幕，CI 里同一份内容追加进 job summary，不必下载 artifact。
 
 ## 调试真实 PI

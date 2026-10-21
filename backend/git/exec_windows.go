@@ -1,5 +1,7 @@
 //go:build windows
 
+// Windows 上起 git 子进程必须 CREATE_NO_WINDOW：否则每次调用闪一个控制台窗口。
+
 package git
 
 import (

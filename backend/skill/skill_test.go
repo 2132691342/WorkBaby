@@ -1,8 +1,10 @@
-// 技能注册表链路：两区目录扫描 → 列表与正文，以及来源优先级与工作区切换。
-// 坏了的表现：技能被静默丢弃、停用的技能混进启用清单、旧工作区的技能残留。
+// 技能注册表链路：工作区切换与停用区的可见性。
+// 坏了的表现：换工作目录后技能不跟着换、旧工作区的技能残留、
+// 停用的技能从列表里消失（用户就再也开不回来了）。
 package skill
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,21 +12,6 @@ import (
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 )
-
-// multiTypeFrontmatter 刻意混合标量、列表与行内数组，覆盖手写技能的常见写法。
-const multiTypeFrontmatter = `---
-name: office-docs
-version: 1.0.0
-when_to_use:
-  - .docx
-  - .xlsx
-description: 在本机处理 Word / Excel / PPT / PDF。
-allowed_tools: ["read", "write"]
----
-
-# 正文
-步骤一。
-`
 
 // writeSkill 在 dir 下写一个技能，返回它的 SKILL.md 路径。
 func writeSkill(t *testing.T, dir, name, body string) string {
@@ -40,17 +27,18 @@ func writeSkill(t *testing.T, dir, name, body string) string {
 	return p
 }
 
+// TestSkillRegistryChain 是 skill 包唯一的测试入口。
 func TestSkillRegistryChain(t *testing.T) {
-	// frontmatter 混合类型必须照样解析（解析失败会被静默跳过，用户看不到任何提示）；
-	// 来源优先级与工作区切换在同一份注册表上验：重载只换工作区那部分，全局技能不动。
-	t.Run("两区扫描、frontmatter 混合类型与工作区切换", func(t *testing.T) {
-		dir := t.TempDir()
-		writeSkill(t, dir, "office-docs", multiTypeFrontmatter)
+	// 重载只换工作区那部分：全局技能一条都不能少，工作区技能不能留上一家的。
+	// 停用区的技能也要列得出、正文可读——界面要能一键恢复它。
+	t.Run("工作区技能随目录切换、停用区可见可读、全局技能不被清掉", func(t *testing.T) {
+		globalDir := t.TempDir()
+		writeSkill(t, globalDir, "office-docs", "---\nname: office-docs\ndescription: 在本机处理 Word / Excel。\n---\n\n正文\n")
 		disabled := filepath.Join(t.TempDir(), "skills.disabled")
 		writeSkill(t, disabled, "paused", "---\nname: paused\ndescription: 停用中的技能。\n---\n\n正文\n")
 
 		r := New()
-		for _, s := range LoadDir(dir, domain.SkillSourceGlobal) {
+		for _, s := range LoadDir(globalDir, domain.SkillSourceGlobal) {
 			r.Add(s)
 		}
 		for _, s := range LoadDisabledDir(disabled, domain.SkillSourceGlobal) {
@@ -59,11 +47,6 @@ func TestSkillRegistryChain(t *testing.T) {
 		if n := len(r.List()); n != 2 {
 			t.Fatalf("应装入 2 个技能（1 启用 + 1 停用），实际 %d", n)
 		}
-		off, ok := r.Get("office-docs")
-		if !ok || off.Description == "" || !off.Enabled || len(off.WhenToUse) != 2 {
-			t.Fatalf("启用技能没装进来或触发词没解析: %+v", off)
-		}
-		// 停用的技能也在列表里、正文可读——界面要列得出、能一键恢复，只是模型看不见它。
 		paused, ok := r.Get("paused")
 		if !ok || paused.Enabled {
 			t.Fatalf("停用技能应存在且标记未启用: %+v", paused)
@@ -74,8 +57,10 @@ func TestSkillRegistryChain(t *testing.T) {
 
 		// 工作区技能读的是 PI 自己扫的目录（.pi/skills）；换目录必须换掉它。
 		old, neu := t.TempDir(), t.TempDir()
-		first := writeSkill(t, filepath.Join(old, ".pi", "skills"), "ws-skill", "---\nname: ws-skill\ndescription: 工作区技能。\n---\n\n正文\n")
-		writeSkill(t, filepath.Join(neu, ".pi", "skills"), "ws-skill", "---\nname: ws-skill\ndescription: 工作区技能。\n---\n\n正文\n")
+		first := writeSkill(t, filepath.Join(old, ".pi", "skills"), "ws-skill",
+			"---\nname: ws-skill\ndescription: 工作区技能。\n---\n\n正文\n")
+		writeSkill(t, filepath.Join(neu, ".pi", "skills"), "ws-skill",
+			"---\nname: ws-skill\ndescription: 工作区技能。\n---\n\n正文\n")
 
 		LoadWorkspace(r, old)
 		sk, ok := r.Get("ws-skill")
@@ -99,6 +84,37 @@ func TestSkillRegistryChain(t *testing.T) {
 		}
 		if _, ok := r.Get("office-docs"); !ok {
 			t.Fatal("全局技能不该被工作区重载清掉")
+		}
+	})
+
+	// frontmatter 解析失败会被静默跳过：用户看不到任何提示，技能等于没装。
+	// 标量、列表、行内数组三种写法在真实技能里都常见，收进 map[string]string 会整份解析失败。
+	t.Run("frontmatter 混合类型照样解析，坏文件只跳自己不中断扫描", func(t *testing.T) {
+		dir := t.TempDir()
+		writeSkill(t, dir, "office-docs", `---
+name: office-docs
+version: 1.0.0
+when_to_use:
+  - .docx
+  - .xlsx
+description: 在本机处理 Word / Excel / PPT / PDF。
+allowed_tools: ["read", "write"]
+---
+
+# 正文
+步骤一。
+`)
+		// 一个坏文件：不能让它把整次扫描带崩。
+		if err := os.WriteFile(filepath.Join(dir, "broken.md"), []byte("没有 frontmatter"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		got := LoadDir(dir, domain.SkillSourceGlobal)
+		if len(got) != 1 {
+			t.Fatalf("应只装入 1 个可用技能，实际 %d: %+v", len(got), got)
+		}
+		if s := got[0]; s.Description == "" || len(s.WhenToUse) != 2 {
+			t.Fatalf("frontmatter 没解析全: %+v", s)
 		}
 	})
 }

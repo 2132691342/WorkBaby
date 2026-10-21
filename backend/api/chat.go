@@ -100,6 +100,24 @@ func (h *Handler) Answer(c *gin.Context) {
 	ok(c, true)
 }
 
+// Compact 手动压缩上下文：等价于 PI 终端里的 /compact。
+func (h *Handler) Compact(c *gin.Context) {
+	var req domain.SteerREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	if req.SessionID == "" {
+		fail(c, pkg.New("1107", "缺少会话编号", ""))
+		return
+	}
+	if err := h.Svc.Chat.Compact(req.SessionID); err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, true)
+}
+
 // ListCommands 列出当前会话能跑的斜杠命令（引擎里注册的那些）。
 func (h *Handler) ListCommands(c *gin.Context) {
 	sessionID := c.Query("session_id")

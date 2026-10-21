@@ -7,6 +7,7 @@ package api
 
 import "WorkBaby/backend/pkg"
 
+// ErrAutoStartUnsupported 是本平台不支持开机自启的固定错误。
 var ErrAutoStartUnsupported = pkg.New("2304", "当前系统不支持开机自启", "")
 
 // AutoStartEnabled 恒为 false。

@@ -1,5 +1,7 @@
 //go:build windows
 
+// Windows 上把 npm shim 还原成 node + 入口脚本：经 cmd.exe 起进程会弹控制台窗口。
+
 package env
 
 import (

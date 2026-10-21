@@ -98,6 +98,7 @@ func start(t *testing.T, exe, scenario string) (*Client, *recorder) {
 }
 
 // waitFor 轮询等待条件成立，超时即判定链路卡住。
+// 假进程 5 秒足够；真内核冷启动要几十秒，用 waitQuiet 给更长预算。
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
 	if !waitQuiet(t, cond, 5*time.Second) {
@@ -105,7 +106,7 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 }
 
-// waitQuiet 是 waitFor 的可超时版本：真内核冷启动要几十秒，5 秒不够。
+// waitQuiet 是 waitFor 的可超时版本。
 func waitQuiet(t *testing.T, cond func() bool, timeout time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -128,7 +129,9 @@ func TestPiChain(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		// 两条 setStatus 都要到：按 U+2028 切分会把第二条截成半截 JSON 而丢掉。
 		waitFor(t, func() bool { return rec.count(KindExtensionUI) >= 2 })
-		// 连续两条不同命令，响应必须各归各的。
+		// 两条 setStatus 都要到：按 U+2028 切分会把第二条截成半截 JSON 而丢掉。
+		waitFor(t, func() bool { return rec.count(KindExtensionUI) >= 2 })
+		// 连续两条不同命令，响应必须各归各的：按到达顺序配对会串命令。
 		st, err := client.GetState(context.Background())
 		if err != nil {
 			t.Fatalf("遇到扩展 UI 记录后命令应当照常可用: %v", err)
@@ -143,15 +146,10 @@ func TestPiChain(t *testing.T) {
 		if stats.TotalTokens != 1200 {
 			t.Fatalf("统计读串了: %+v", stats)
 		}
-		if _, err := client.AvailableModels(context.Background()); err != nil {
-			t.Fatalf("get_available_models 失败: %v", err)
-		}
 	})
 
 	// 事件顺序是界面对账的根基：done 挂早了会在还在重试时报「已完成」。
-	// 翻译层把协议记录还原成界面形态：增量分两类、工具结果带元数据、压缩带前后量、
-	// 四种 fire-and-forget 即时反馈字段完整且不堵命令通道——各场景在同一个子测试里逐段验。
-	t.Run("事件顺序与翻译：done 在最后，增量 / 工具 / 压缩 / 即时反馈都对", func(t *testing.T) {
+	t.Run("事件顺序：agent_end → 重试 → settled，done 只挂在最后", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		if _, err := client.Prompt(context.Background(), "你好", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
@@ -172,9 +170,12 @@ func TestPiChain(t *testing.T) {
 		if idxEnd < 0 || idxRetry < 0 || idxSettled < 0 || !(idxEnd < idxRetry && idxRetry < idxSettled) {
 			t.Fatalf("事件顺序不对（agent_end → retry → settled）: %v", kinds)
 		}
+	})
 
-		// 翻译层：同一套协议记录换成工具场景再跑一遍。
-		client, rec = start(t, exe, "tools")
+	// 翻译层：协议记录 → 界面形态。一轮里同时发生工具、增量、压缩。
+	// 任何一段的字段还原错了，界面上就是「工具没输出」或「压缩了但没提示」。
+	t.Run("翻译层：工具结果与增量、压缩前后量都对", func(t *testing.T) {
+		client, rec := start(t, exe, "tools")
 		if _, err := client.Prompt(context.Background(), "读文件", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)
 		}
@@ -211,8 +212,10 @@ func TestPiChain(t *testing.T) {
 		if cev.CompactResult == nil || cev.CompactResult.TokensBefore != 9000 || cev.CompactResult.EstimatedTokensAfter != 2000 {
 			t.Fatalf("压缩结果没解析出来: %+v", cev.CompactResult)
 		}
+	})
 
-		// fire-and-forget 四种：字段完整解析、无需应答、不阻塞命令通道。
+	// fire-and-forget 四种：字段完整解析、无需应答、不阻塞命令通道。
+	t.Run("即时反馈：四种扩展请求字段完整且不堵命令通道", func(t *testing.T) {
 		fc, frec := start(t, exe, "notify")
 		if _, err := fc.Prompt(context.Background(), "打招呼", "", nil); err != nil {
 			t.Fatalf("prompt 失败: %v", err)

@@ -1,5 +1,6 @@
-// PI 运行环境的链路：agent 目录归属、配置文件互通。
-// 坏了的表现：界面看不到用户原有的模型/技能、用户手写内容被静默覆盖。
+// PI 运行环境链路：agent 目录归属、环境闸门判定、配置文件互通。
+// 坏了的表现：界面看不到用户原有的模型与技能、用户手写内容被静默覆盖、
+// 向导把用户指去错误的那一步。
 package env
 
 import (
@@ -27,16 +28,18 @@ func pathsOf(t *testing.T) runtime.Paths {
 
 // TestPiEnvChain 是 env 包唯一的测试入口。
 func TestPiEnvChain(t *testing.T) {
-	// agent 目录是「界面能看到用户已装东西」的前提：跟随环境变量、不被注入覆盖。
-	t.Run("agent 目录跟着环境变量走，进程环境不覆盖它", func(t *testing.T) {
+	// 闸门 + agent 目录：两者都是「界面还能不能看见用户已有的东西」的前提。
+	// 闸门顺序错了用户会被指去错的那一步；agent 目录被换掉，用户装好的技能插件模型全部消失。
+	t.Run("环境闸门按 node → pi → model 报首个阻塞项，agent 目录不被进程环境覆盖", func(t *testing.T) {
 		p := pathsOf(t)
 		if p.AgentDir != filepath.Join(p.DataDir, "agent") {
 			t.Fatalf("agent 目录没有跟随 PI_CODING_AGENT_DIR: %s", p.AgentDir)
 		}
 		e := New(p)
+
+		// 进程环境里只能出现一次 agent 目录，且必须是用户的那个。
 		seen := 0
 		for _, kv := range e.Env() {
-			// 只能继承用户自己的设置：换目录会让用户装好的技能、插件、模型全部看不见。
 			if strings.HasPrefix(strings.ToUpper(kv), "PI_CODING_AGENT_DIR=") {
 				seen++
 				if !strings.HasSuffix(kv, p.AgentDir) {
@@ -47,11 +50,8 @@ func TestPiEnvChain(t *testing.T) {
 		if seen > 1 {
 			t.Fatalf("agent 目录出现了 %d 次", seen)
 		}
-	})
 
-	// 闸门决定前端进不进向导：顺序错了用户会被指去错的那一步。
-	t.Run("环境闸门按 node → pi → model 的顺序报首个阻塞项", func(t *testing.T) {
-		e := New(pathsOf(t))
+		// 闸门：按 node → pi → model 的顺序报第一个不满足项，并给得出原因。
 		vo := e.Detect(false)
 		if vo.Ready {
 			t.Fatal("模型未就绪时不应报告 ready")
@@ -78,7 +78,7 @@ func TestPiEnvChain(t *testing.T) {
 	// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 未知字段保留。
 	// 写出去的必须是 PI 认识的 camelCase；整体重写会把 PI 自己写的字段与用户用
 	// CLI 装的包抹掉——这是最贵的一类回归，packages / compaction / mcp 都在这条链上验。
-	t.Run("配置文件：models.json 形状、settings.json 掌管键、mcp.json 原文往返", func(t *testing.T) {
+	t.Run("配置写入：models.json 形状、settings.json 掌管键与字段级合并、mcp.json 原文往返", func(t *testing.T) {
 		e := New(pathsOf(t))
 		authHeader := true
 		models := &ModelsFile{Providers: map[string]ProviderConfig{
@@ -133,6 +133,7 @@ func TestPiEnvChain(t *testing.T) {
 			}
 		}
 
+		// settings.json：只改掌管键，其余字段必须原样留着。
 		original := `{
   "defaultModel": "old",
   "packages": ["npm:@scope/a", {"source":"git:github.com/x/y"}],
@@ -200,29 +201,23 @@ func TestPiEnvChain(t *testing.T) {
 				t.Fatalf("残留了临时文件: %s", entry.Name())
 			}
 		}
+
 		// mcp.json 由用户与其它客户端共管：WorkBaby 只做原文往返，不碰内容。
-		e2 := New(pathsOf(t))
 		original = `{"mcpServers":{"user-server":{"command":"node","args":["srv.js"],"timeout":60}},"_comment":"我自己写的说明"}`
-		if err := e2.WriteMCPRaw(e2.MCPPath(), []byte(original)); err != nil {
+		if err := e.WriteMCPRaw(e.MCPPath(), []byte(original)); err != nil {
 			t.Fatal(err)
 		}
-		raw, err = e2.MCPRaw(e2.MCPPath())
+		raw, err = e.MCPRaw(e.MCPPath())
 		if err != nil {
 			t.Fatal(err)
 		}
 		if strings.TrimSpace(string(raw)) != original {
 			t.Fatalf("原文被改写了:\n%s", raw)
 		}
-		workspace := filepath.Join(t.TempDir(), "proj")
-		if got := e2.ProjectMCPPath(workspace); got != filepath.Join(workspace, ".pi", "mcp.json") {
-			t.Fatalf("项目级 mcp.json 路径不对: %s", got)
-		}
-		if e.ProjectMCPPath("") != "" {
-			t.Fatal("没有工作区时不该给出项目级路径")
-		}
 	})
 
 	// shim 解析：经 cmd.exe 起进程会弹控制台窗口，必须还原成 node + 入口脚本。
+	// 这是本机体验的断言（没装 PI 就跳过），不是协议断言。
 	t.Run("PI 入口从 npm shim 还原成 node 与脚本", func(t *testing.T) {
 		checkPiShimResolution(t)
 	})

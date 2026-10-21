@@ -314,6 +314,37 @@ func (c *ChatService) Commands(sessionID string) ([]domain.CommandVO, error) {
 	return out, nil
 }
 
+// Compact 手动压缩一次上下文（PI 的 /compact 命令在本层的入口）。
+// 运行中不允许压缩：压缩会重写条目链，与流式写入撞在一起。
+func (c *ChatService) Compact(sessionID string) error {
+	m, err := c.sessions.meta(sessionID)
+	if err != nil {
+		return err
+	}
+	if c.RunningIn(m.Cwd) {
+		return domain.ErrSessionRunning
+	}
+	ensureCtx, ensureCancel := background(30 * time.Second)
+	defer ensureCancel()
+	client, err := c.env.PiSupervisor().Ensure(ensureCtx, m.Cwd)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 95*time.Second)
+	defer cancel()
+	if c.currentFile(m.Cwd) != m.File {
+		if err := client.SwitchSession(ctx, m.File); err != nil {
+			return err
+		}
+		c.setCurrent(m.Cwd, m.File)
+	}
+	if err := client.Compact(ctx); err != nil {
+		return err
+	}
+	pi.InvalidateSessionCache(m.File)
+	return nil
+}
+
 // AbortRetry 叫停 PI 正在进行的自动重试。
 func (c *ChatService) AbortRetry(sessionID string) error {
 	m, err := c.sessions.meta(sessionID)

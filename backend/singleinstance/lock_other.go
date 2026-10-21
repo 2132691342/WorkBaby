@@ -1,5 +1,7 @@
 //go:build !windows
 
+// 非 Windows 平台的单实例锁：只保留接口，实际加锁在 lock_windows.go。
+
 package singleinstance
 
 import (

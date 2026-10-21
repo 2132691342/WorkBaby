@@ -10,38 +10,64 @@ interface TurnPart<A> {
 }
 
 export type TurnBlock<A> =
+  | { key: string; kind: 'notice'; msg: MessageVO }
   | { key: string; kind: 'user'; msg: MessageVO }
   | { key: string; kind: 'assistant'; parts: TurnPart<A>[] }
 
-export function groupTurns<A>(msgs: MessageVO[], approvalsFor?: (msg: MessageVO, tools: MessageVO[]) => A): TurnBlock<A>[] {
+export function groupTurns<A>(
+  msgs: MessageVO[],
+  approvalsFor?: (msg: MessageVO, tools: MessageVO[]) => A,
+): TurnBlock<A>[] {
   const out: TurnBlock<A>[] = []
+  // parts 为 null 表示「还不在某个回合里」：首个 user 之前的零星助手消息不单独成块
+  let parts: TurnPart<A>[] | null = null
+  let open = false
+
+  const flush = () => {
+    if (parts && parts.length) {
+      out.push({ key: `a-${parts[0].msg.id}`, kind: 'assistant', parts })
+    }
+    parts = null
+  }
+
   let i = 0
   while (i < msgs.length) {
     const m = msgs[i]
-    if (m.role !== 'user') {
-      i++ // 游离的助手/工具消息不单独成块
-      continue
-    }
-    out.push({ key: `t-${m.id}`, kind: 'user', msg: m })
-    i++
-    // 收下这条提问之后的全部助手内容，直到下一条 user 为止
-    const parts: TurnPart<A>[] = []
-    while (i < msgs.length && msgs[i].role !== 'user') {
-      const cur = msgs[i]
-      i++
-      if (cur.role !== 'assistant') continue // 工具结果由声明它的 assistant 收纳
-      const tools: MessageVO[] = []
-      while (i < msgs.length && msgs[i].role === 'tool') {
-        tools.push(msgs[i])
+    switch (m.role) {
+      case 'user':
+        flush()
+        out.push({ key: `t-${m.id}`, kind: 'user', msg: m })
+        open = true
+        parts = []
         i++
+        break
+      case 'notice':
+        // 压缩 / 换模型这类分隔条插在流里：它属于两个回合之间，不吞掉后续段
+        flush()
+        out.push({ key: `n-${m.id}`, kind: 'notice', msg: m })
+        parts = open ? [] : null
+        i++
+        break
+      case 'assistant': {
+        i++
+        const tools: MessageVO[] = []
+        while (i < msgs.length && msgs[i].role === 'tool') {
+          tools.push(msgs[i])
+          i++
+        }
+        if (parts) {
+          const part: TurnPart<A> = { msg: m, tools }
+          if (approvalsFor) part.approvals = approvalsFor(m, tools)
+          parts.push(part)
+        }
+        break
       }
-      const part: TurnPart<A> = { msg: cur, tools }
-      if (approvalsFor) part.approvals = approvalsFor(cur, tools)
-      parts.push(part)
-    }
-    if (parts.length) {
-      out.push({ key: `t-${m.id}-a`, kind: 'assistant', parts })
+      default:
+        // 工具结果由声明它的 assistant 收纳；其它游离消息不单独成块
+        i++
+        break
     }
   }
+  flush()
   return out
 }

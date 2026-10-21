@@ -56,13 +56,22 @@ PI 的进程模型是「一个 cwd 一个进程」，进程的当前会话只有
 | 条目 | 投影成 |
 |---|---|
 | `message`（user / assistant） | 气泡；assistant 带 usage 脚注（入 / 出 / 缓存命中 / 上下文） |
-| `message`（toolResult） | 工具卡（与声明它的 assistant 收在同一回回合） |
+| `message`（toolResult） | 工具卡，挂在声明它的那条 assistant 上（按 `tool_call_id` 对上号） |
 | `compaction` | 「已压缩上下文」提示条 + 摘要 |
 | `branch_summary` | 「分支摘要」提示条 |
 | `model_change` / `thinking_level_change` | 「换了模型 / 调整了思考档」提示条 |
 | `session` / `usage` / `custom` / `label` / `session_info` / `context_edit` | 不产消息 |
 
 坏行只跳过自己：一行 JSON 解析失败不该让整条会话打不开。
+
+### 内容块保留原始顺序
+
+assistant 消息的 `content` 是一个有序块数组（`thinking` / `text` / `toolCall`）。投影时按数组顺序
+产出 `blocks`，界面就按这个顺序就地渲染：思考段、正文、工具卡谁先谁后就按谁先谁后。
+`content` 与 `thinking` 两个字段仍然保留，但它们只是 `blocks` 的拼接结果（复制、历史缓存兜底用）。
+
+把「正文 / 思考 / 工具」按字段类型分组渲染，会把一轮里所有工具卡顶到正文前面——顺序一丢，
+用户就没法从消息流里读出助手到底先干了什么。
 
 ## 取舍
 

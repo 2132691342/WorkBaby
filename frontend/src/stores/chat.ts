@@ -1,6 +1,6 @@
 // 对话流状态：一次 run 的增量正文、工具卡、引擎提问卡与截断态都在这里落地。
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import * as api from '../api'
 import type {
   AskClosedData,
@@ -43,6 +43,13 @@ export interface ToolRun {
   duration_ms: number
 }
 
+// 本轮的一条有序段：思考 / 正文 / 工具。顺序就是内核吐出来的顺序，
+// 不按类型分组——分组会把工具卡全部顶到正文前面。
+export type LivePart =
+  | { key: string; kind: 'thinking'; text: string }
+  | { key: string; kind: 'text'; text: string }
+  | { key: string; kind: 'tool'; toolCallId: string }
+
 // 引擎抛回来的一条提问：来源是 PI 里的扩展（含内置的提问工具）。
 export interface PendingAsk {
   id: string
@@ -60,9 +67,20 @@ export interface PendingAsk {
 
 export const useChatStore = defineStore('chat', () => {
   const running = ref(false)
-  const thinking = ref('')
-  const streaming = ref('')
-  const runs = ref<ToolRun[]>([])
+  // 收尾中：内核已 settled，但权威快照还没拉到。这段时间继续显示本轮已写好的内容，
+  // 否则用户会看到「答案凭空消失一下又回来」。
+  const finalizing = ref(false)
+  const parts = ref<LivePart[]>([])
+  /** 工具记录按 tool_call_id 索引；parts 只记顺序 */
+  const runMap = ref<Record<string, ToolRun>>({})
+  const runs = computed(() => Object.values(runMap.value))
+  /** 思考 / 正文的全文：都从 parts 拼出来，单一真相 */
+  const thinking = computed(() =>
+    parts.value.map((p) => (p.kind === 'thinking' ? p.text : '')).join(''),
+  )
+  const streaming = computed(() =>
+    parts.value.map((p) => (p.kind === 'text' ? p.text : '')).join(''),
+  )
   const asks = ref<PendingAsk[]>([])
   const lastError = ref('')
   const lastErrorCode = ref('')
@@ -84,12 +102,12 @@ export const useChatStore = defineStore('chat', () => {
 
   function reset() {
     running.value = false
+    finalizing.value = false
     stopTicker()
     startedAt.value = 0
     elapsedSec.value = 0
-    thinking.value = ''
-    streaming.value = ''
-    runs.value = []
+    parts.value = []
+    runMap.value = {}
     asks.value = []
     lastError.value = ''
     lastErrorCode.value = ''
@@ -113,7 +131,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function setShowThinking(on: boolean) {
     showThinking = on
-    if (!on) thinking.value = ''
+    if (!on) parts.value = parts.value.filter((p) => p.kind !== 'thinking')
   }
 
   /** 发送；sessionId 为空表示新对话，返回体里带着后端真正建出来的会话编号 */
@@ -194,13 +212,13 @@ export const useChatStore = defineStore('chat', () => {
 
   function onStart(_data: StartData) {
     running.value = true
+    finalizing.value = false
     startedAt.value = Date.now()
     elapsedSec.value = 0
     startTicker()
     retrying.value = false
-    thinking.value = ''
-    streaming.value = ''
-    runs.value = []
+    parts.value = []
+    runMap.value = {}
     lastError.value = ''
     lastErrorCode.value = ''
     truncated.value = false
@@ -208,19 +226,36 @@ export const useChatStore = defineStore('chat', () => {
     notice.value = ''
   }
 
+  // 段序号只在一次 run 内递增：key 用于 v-for 与增量渲染缓存
+  let partSeq = 0
+
+  /** 往最后一段追加文字；段型变了就开新段。 */
+  function appendText(kind: 'text' | 'thinking', delta: string) {
+    const last = parts.value[parts.value.length - 1]
+    if (last && last.kind === kind) {
+      last.text += delta
+      return
+    }
+    partSeq++
+    parts.value.push({ key: `${kind}-${partSeq}`, kind, text: delta })
+  }
+
   function onDelta(data: DeltaData) {
     running.value = true
     // 后端已剥离 ANSI；这里再兜一层——缓存里的旧响应与假后端都可能带着转义序列。
     const delta = stripAnsi(data.delta || '')
+    if (!delta) return
     if (data.kind === 'thinking') {
-      if (showThinking) thinking.value += delta
-    } else streaming.value += delta
+      if (showThinking) appendText('thinking', delta)
+    } else {
+      appendText('text', delta)
+    }
   }
 
   function onToolStart(data: ToolStartData) {
     // 断线重连重放可能把同一条 tool_start 再送一次：按 tool_call_id 去重。
-    if (runs.value.some((r) => r.tool_call_id === data.tool_call_id)) return
-    runs.value.push({
+    if (runMap.value[data.tool_call_id]) return
+    runMap.value[data.tool_call_id] = {
       tool_call_id: data.tool_call_id,
       tool: data.tool,
       label: data.label || data.tool,
@@ -230,11 +265,13 @@ export const useChatStore = defineStore('chat', () => {
       title: '',
       output: '',
       duration_ms: 0,
-    })
+    }
+    partSeq++
+    parts.value.push({ key: `tool-${partSeq}`, kind: 'tool', toolCallId: data.tool_call_id })
   }
 
   function onToolEnd(data: ToolEndData) {
-    const run = runs.value.find((r) => r.tool_call_id === data.tool_call_id)
+    const run = runMap.value[data.tool_call_id]
     if (!run) return
     run.running = false
     run.ok = data.ok
@@ -277,15 +314,23 @@ export const useChatStore = defineStore('chat', () => {
     if (data.usage) {
       seed(data.usage.context, contextWindow.value, contextKnown.value)
     }
-    runs.value = []
-    thinking.value = ''
-    streaming.value = ''
+    // 不在这时丢 parts：快照到手后由 clearLive() 换掉，中间不留空白。
+    finalizing.value = true
     asks.value = []
     queued.value = []
   }
 
+  /** 权威快照已经接上：把流式那一轮的段清掉，后续渲染交给历史投影。 */
+  function clearLive() {
+    if (running.value) return
+    finalizing.value = false
+    parts.value = []
+    runMap.value = {}
+  }
+
   function onStopped() {
     running.value = false
+    finalizing.value = true
     stopTicker()
     retrying.value = false
     notice.value = tt('chat.noticeStopped')
@@ -392,9 +437,9 @@ export const useChatStore = defineStore('chat', () => {
   function onGap() {
     notice.value = tt('chat.noticeGap')
     running.value = false
-    runs.value = []
-    streaming.value = ''
-    thinking.value = ''
+    finalizing.value = false
+    parts.value = []
+    runMap.value = {}
   }
 
   // ---- 引擎扩展的 fire-and-forget 反馈 ----
@@ -429,9 +474,13 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     running,
+    finalizing,
+    parts,
     thinking,
     streaming,
     runs,
+    /** 按 tool_call_id 取本轮工具记录：模板里逐段渲染时要用 */
+    runOf: (id: string) => runMap.value[id],
     asks,
     lastError,
     lastErrorCode,
@@ -466,6 +515,7 @@ export const useChatStore = defineStore('chat', () => {
     onAsk,
     onAskClosed,
     onDone,
+    clearLive,
     resumeRunning,
     onStopped,
     onError,

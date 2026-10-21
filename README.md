@@ -11,7 +11,8 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 
 | | 能力 |
 |---|---|
-| 对话 | 流式正文、思考过程、工具卡（参数 / 输出 / 耗时）、插话、排队、停止、自动重试提示 |
+| 对话 | 流式正文、思考段、工具卡（参数 / 输出 / 耗时 / 就地看改动）按**原始顺序**内联；插话、排队、停止、自动重试提示 |
+| 命令 | 输入 `/` 开菜单：内置动作（压缩上下文 / 导出 / 复制 / 重载 / 换模型 …）+ 引擎报上来的扩展命令与提示模板 + 技能 |
 | 会话 | 读 PI 的会话目录：终端里聊过的这里也看得到，点开接着聊 |
 | 提问 | PI 的扩展要确认 / 单选 / 填空时，界面出卡，回答写回内核 |
 | 模型 | 读写 PI 的 `models.json`：这里加的服务商，`pi` 命令立刻能用 |
@@ -19,8 +20,8 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | 插件 | 包走 `pi install/remove`，扩展走 `extensions/` + 登记表；安装进度流式打到面板 |
 | 工具 | 清单来自 PI 写的工具声明（内置 / 插件 / MCP），开关写 `defaultTools` |
 | MCP | 配置原文编辑 + 在线状态与工具清单，支持 OAuth 登录 |
-| 工作区 | 改动 / 提交 / 历史 / 分支：助手动了什么，在这里对账并收成一次提交 |
-| 仪表盘 | token 与花费（按天 / 模型 / 会话），全部来自会话文件 |
+| 工作区 | 改动 / 提交 / 历史 / 分支：助手动了什么，在这里对账并收成一次提交；对话里也能直接看单个文件的改动 |
+| 仪表盘 | token 与估算花费（按天 / 模型 / 会话），全部来自会话文件 |
 | 环境 | 复用系统已有的 Node / Python / PI；缺了才用内置运行时兜底 |
 
 「能看见」的落点是工具卡、提问卡、工作区差异与用量仪表盘；
@@ -60,7 +61,7 @@ WorkBaby/
 ├── backend/
 │   ├── server/              gin 路由 / SSE hub / 统一响应 / 方法白名单
 │   ├── api/                 薄 handler + 系统能力绑定（唯一允许 import wails 的包）
-│   ├── pi/                  能力域：子进程监督 / RPC 编解码 / 事件翻译 / 会话文件索引
+│   ├── pi/                  能力域：子进程监督 / RPC 编解码 / 事件归一 / 会话文件索引
 │   │   ├── env/             运行时复用、PI 安装与探测、models/settings/mcp 互通
 │   │   ├── pitest/          假 PI 进程（测试夹具：走真管道的 RPC 替身）
 │   │   └── piptest/         编译假 PI、定位仓库根（测试夹具）
@@ -84,7 +85,7 @@ WorkBaby/
 wails dev                      # 热重载（前端改完自动刷新）
 pwsh scripts/check.ps1         # 快门：格式 + 编译 + 短测试（日常）
 pwsh scripts/check.ps1 -Pkg .  # 只验一个包（只碰一个能力域时）
-pwsh scripts/check.ps1 -Chain 提问   # 跨包只跑命中名字的链路
+pwsh scripts/check.ps1 -Chain 提问   # 跨包只跑命中名字的链路（只编命中的包）
 pwsh scripts/check.ps1 -List   # 列全部测试入口与所在文件
 pwsh scripts/check.ps1 -Full   # vet + 依赖边界 + 全量测试 + 前端构建（发版前 / CI）
 wails build                    # 产物 build/bin/WorkBaby.exe
@@ -98,7 +99,8 @@ wails build                    # 产物 build/bin/WorkBaby.exe
 |---|---|
 | [AGENTS.md](AGENTS.md) | 工程规范（唯一权威：分包 / 依赖方向 / 错误码 / 测试 / 命名） |
 | [DESIGN.md](DESIGN.md) | 视觉语言与交互原则 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、两个真相源、启动时序、一次对话的完整链路 |
+| [docs/OVERVIEW.md](docs/OVERVIEW.md) | **项目全景**：能力清单、模块地图、两个真相源、一次对话的链路、关键取舍 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、启动时序、事件出口、消息顺序、前端状态归属 |
 | [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 哪些数据属于 PI、哪些属于 WorkBaby、会话文件里读什么 |
 | [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP 与 SSE 契约（路径表 + 事件表） |
 | [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 页面与组件地图 |
@@ -117,7 +119,7 @@ wails build                    # 产物 build/bin/WorkBaby.exe
 | [03](specs/03-skill.md) | 技能 | [10](specs/10-pi-supervisor.md) | PI 监督 |
 | [04](specs/04-desktop-shell.md) | 桌面壳 | [11](specs/11-pi-bootstrap.md) | PI 引导 |
 | [05](specs/05-user-manual.md) | 应用内手册 | [12](specs/12-workspace-files.md) | 工作区文件面板 |
-| [06](specs/06-prompt-and-settings.md) | 模型、提示与人设 | [13](specs/13-extensions.md) | 扩展（插件与包） |
+| [06](specs/06-prompt-and-settings.md) | 模型、提示与人设 | [13](specs/13-extensions.md) | 插件（扩展与包） |
 | [07](specs/07-usage-and-context.md) | 用量与上下文 | | |
 
 应用内置手册面向用户（`assets/docs/`），specs 与 docs 面向开发，两者不重复维护同一份话术。

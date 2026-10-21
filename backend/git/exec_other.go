@@ -1,5 +1,7 @@
 //go:build !windows
 
+// 非 Windows 平台不起控制台窗口：这里只保留统一接口，实际逻辑在 exec_windows.go。
+
 package git
 
 import (

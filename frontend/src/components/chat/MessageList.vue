@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// 消息流：历史回合 + 正在进行的回合（思考 / 工具 / 流式正文）+ 提问卡 + 收尾提示。
+// 消息流：历史回合 + 正在进行的回合（思考 / 工具 / 流式正文按原始顺序）+ 提问卡 + 收尾提示。
+// 顺序由 PI 的内容块决定：正文、思考、工具卡谁先谁后就按谁先谁后渲染。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useChatStore, type ToolRun } from '../../stores/chat'
+import { useChatStore } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
 import type { MessageVO } from '../../types/api'
@@ -12,7 +13,9 @@ import { fmtCount, fmtInt } from '../../utils/num'
 import { groupTurns } from '../../utils/turns'
 import AppIcon from '../common/AppIcon.vue'
 import AskCard from './AskCard.vue'
+import AssistantTurn from './AssistantTurn.vue'
 import ChatMessage from './ChatMessage.vue'
+import ThinkingBlock from './ThinkingBlock.vue'
 import ToolCard from './ToolCard.vue'
 
 // 收尾提示条上的动作：截断续写 / 出错重试由视图实现。
@@ -61,76 +64,73 @@ const needSetup = computed(() => SETUP_CODES.has(chat.lastErrorCode))
 
 const scroller = ref<HTMLElement | null>(null)
 const stick = ref(true)
-const liveThinkOpen = ref(true)
 
-// 思考可能几万字：全量塞进 DOM 会让每帧重排压住主线程，也会把正文顶出屏幕。
-// 只渲染尾部——推理是流式的，用户要看的是「现在想到哪」。
-const THINK_TAIL = 4000
-const liveThink = computed(() => {
-  const v = chat.thinking
-  if (v.length <= THINK_TAIL) return v
-  return `…\n${v.slice(-THINK_TAIL)}`
-})
+// 流式正文按段渲染：每段各自缓存 HTML，只有正在增长的那一段重算。
+const partHtml = ref<Record<string, string>>({})
+const renderedLen: Record<string, number> = {}
+let renderTimer = 0
 
-// 正文一出现就自动收起思考：视线该落在答案上。只自动收一次。
-let autoCollapsed = false
-watch(
-  () => chat.streaming,
-  (text) => {
-    if (text && !autoCollapsed) {
-      autoCollapsed = true
-      liveThinkOpen.value = false
-    }
-  },
-)
-watch(
-  () => chat.running,
-  (running) => {
-    if (running) {
-      autoCollapsed = false
-      liveThinkOpen.value = true
-    }
-  },
-)
+function renderGrowingParts() {
+  for (const p of chat.parts) {
+    if (p.kind !== 'text') continue
+    if (renderedLen[p.key] === p.text.length) continue
+    renderedLen[p.key] = p.text.length
+    partHtml.value[p.key] = renderMarkdownStream(p.text)
+  }
+}
 
-// 流式渲染节流：渲染走块级增量缓存（见 utils/md），节流只负责把刷新放慢，
-// 不让每个 delta 都触发一次重排。
+// 节流只负责把刷新放慢，不让每个 delta 都触发一次重排。
 const STREAM_TICK_MS = 120
 const STREAM_TICK_MS_LONG = 280
 const STREAM_LONG_CHARS = 20000
-const renderedStream = ref('')
-let renderTimer = 0
+const partsKey = computed(() =>
+  chat.parts.map((p) => (p.kind === 'text' ? p.text.length : p.kind === 'tool' ? 1 : 0)).join(','),
+)
+
 watch(
-  () => chat.streaming,
+  partsKey,
   () => {
     if (renderTimer) return
     const tick = chat.streaming.length > STREAM_LONG_CHARS ? STREAM_TICK_MS_LONG : STREAM_TICK_MS
     renderTimer = window.setTimeout(() => {
       renderTimer = 0
-      renderedStream.value = renderMarkdownStream(chat.streaming)
+      renderGrowingParts()
     }, tick)
   },
   { immediate: true },
 )
+
 watch(
   () => chat.running,
   (running) => {
-    if (running) {
-      // 新回合：上一轮的块缓存若留着，内容相同的块会被误判为未变而复用错误结果
-      resetStreamRender()
-      return
-    }
     if (renderTimer) {
       clearTimeout(renderTimer)
       renderTimer = 0
     }
+    if (running) {
+      // 新回合：上一轮的块缓存若留着，内容相同的块会被误判为未变而复用错误结果
+      resetStreamRender()
+      partHtml.value = {}
+      for (const k of Object.keys(renderedLen)) delete renderedLen[k]
+      return
+    }
     // 收尾补一次高亮完整渲染：流式期间跳过了 hljs
-    renderedStream.value = renderMarkdown(chat.streaming)
+    const out: Record<string, string> = {}
+    for (const p of chat.parts) if (p.kind === 'text') out[p.key] = renderMarkdown(p.text)
+    partHtml.value = out
   },
 )
 onBeforeUnmount(() => {
   if (renderTimer) clearTimeout(renderTimer)
 })
+
+// 正文一出现，正在思考的那段就自动收起：视线该落在答案上。
+const answerStarted = computed(() => chat.streaming.length > 0)
+
+// 工具记录按 id 直取（store 里就是一张表）：模板里逐段取多次也不变成 O(n²)
+function runOf(id: string) {
+  return chat.runOf(id)
+}
 
 function onScroll() {
   if (jumping) return
@@ -151,20 +151,6 @@ function jumpToLatest() {
   }, 400)
 }
 
-// 工具结果的参数不在自己身上，而在声明它的那条 assistant(tool_calls) 里
-const toolArgsMap = computed(() => {
-  const map = new Map<string, Record<string, unknown>>()
-  for (const m of session.messages) {
-    for (const tc of m.tool_calls || []) {
-      if (tc.args) map.set(tc.id, tc.args)
-    }
-  }
-  return map
-})
-
-const statusEntries = computed(() => Object.entries(chat.engineStatus))
-const widgetEntries = computed(() => Object.entries(chat.engineWidgets))
-
 const fmtElapsed = computed(() => {
   const s = chat.elapsedSec
   if (s < 60) return `${s}s`
@@ -173,11 +159,6 @@ const fmtElapsed = computed(() => {
 
 type TurnBlock = import('../../utils/turns').TurnBlock<unknown>
 const turnBlocks = computed<TurnBlock[]>(() => groupTurns(session.messages, () => []))
-
-type RunBlock = { key: string; run: ToolRun }
-const runBlocks = computed<RunBlock[]>(() =>
-  chat.runs.map((r) => ({ key: `r-${r.tool_call_id}`, run: r })),
-)
 
 // 贴底滚动走 rAF 合并：逐 delta 读 scrollHeight 会把主线程压成强制重排
 let scrollPending = false
@@ -191,28 +172,78 @@ function stickToBottom() {
     if (el) el.scrollTop = el.scrollHeight
   })
 }
+
+// 进页 / 切回会话时钉底：content-visibility 让远处回合先按 120px 估高，
+// 一帧之后才展开成真实高度。只钉一次会被后续的高度变化抛在后面，表现为「打开就在中间」。
+async function pinBottom(rounds = 3) {
+  for (let i = 0; i < rounds; i++) {
+    await new Promise<void>((r) => requestAnimationFrame(() => r()))
+    const el = scroller.value
+    if (!el || !stick.value) return
+    el.scrollTop = el.scrollHeight
+  }
+}
 watch(
   () =>
-    [session.messages.length, chat.streaming.length, chat.thinking.length, chat.runs.length, chat.asks.length] as const,
+    [
+      session.messages.length,
+      chat.parts.length,
+      chat.streaming.length,
+      chat.asks.length,
+    ] as const,
   stickToBottom,
 )
 
 // 打开会话时消息可能已经加载完了才挂载本组件，watch 不会为「首次就有数据」触发
 onMounted(async () => {
   await nextTick()
-  const el = scroller.value
-  if (el) el.scrollTop = el.scrollHeight
+  stick.value = true
+  await pinBottom()
 })
 
 // 一条消息有没有可读内容：只有 toolCall 的回合不画正文外壳（工具卡单独列出）。
-// 不滤的话，从命令行跑出来的会话里会有上百个空框（那类会话平均只 7 条带正文、
-// 89 条只有工具调用）。
+// 不滤的话，从命令行跑出来的会话里会有上百个空框。
 function hasBody(msg: MessageVO): boolean {
-  return !!(msg.content?.trim() || msg.thinking?.trim() || msg.images?.length)
+  return !!(
+    msg.content?.trim() ||
+    msg.thinking?.trim() ||
+    msg.images?.length ||
+    msg.tool_calls?.length
+  )
 }
 type TurnPart = { msg: MessageVO; tools: MessageVO[] }
 function shownTurn(parts: TurnPart[]): boolean {
   return parts.some((p) => hasBody(p.msg) || p.tools.length > 0)
+}
+
+/** 一个回合的用量脚注取最后一条带 usage 的助手消息 */
+function turnUsage(parts: TurnPart[]) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const u = parts[i].msg.usage
+    if (u) return u
+  }
+  return null
+}
+
+function fmtTime(ms: number) {
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// 用量读数四件：提示词总量（命中 + 未命中 + 写入）/ 输出 / 缓存命中率 / 上下文占用。
+function metricsOf(u: ReturnType<typeof turnUsage>) {
+  if (!u) return []
+  const prompt = u.input + u.cached + (u.cache_write || 0)
+  const out: { k: string; v: string; hi?: boolean }[] = [
+    { k: '↓', v: fmtCount(prompt) },
+    { k: '↑', v: fmtCount(u.output) },
+  ]
+  if (prompt > 0) {
+    const rate = Math.round((u.cached / prompt) * 100)
+    out.push({ k: 'cache', v: `${rate}%`, hi: rate > 0 })
+  }
+  if (u.context > 0) out.push({ k: 'ctx', v: fmtCount(u.context) })
+  return out
 }
 
 // 代码块复制：正文是 v-html 注入的，用事件委托接住按钮
@@ -229,6 +260,20 @@ async function onStreamClick(e: MouseEvent) {
     toast.bad(t('common.copyFailed'))
   }
 }
+
+const copiedTurn = ref('')
+async function copyTurn(text: string, key: string) {
+  if (!text.trim()) return
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedTurn.value = key
+    window.setTimeout(() => {
+      if (copiedTurn.value === key) copiedTurn.value = ''
+    }, 1200)
+  } catch {
+    toast.bad(t('common.copyFailed'))
+  }
+}
 </script>
 
 <template>
@@ -237,29 +282,57 @@ async function onStreamClick(e: MouseEvent) {
       <template v-for="b in turnBlocks" :key="b.key">
         <ChatMessage v-if="b.kind === 'user'" :msg="b.msg" />
 
+        <!-- 分隔条：已压缩上下文 / 换了模型 / 调整了思考档 -->
+        <div v-else-if="b.kind === 'notice'" class="turn-divider">
+          <span class="td-label">{{ b.msg.notice }}</span>
+          <span v-if="b.msg.content" class="td-text" :title="b.msg.content">{{ b.msg.content }}</span>
+        </div>
+
         <div v-else-if="b.kind === 'assistant' && shownTurn(b.parts)" class="turn">
-          <div class="turn-body">
-            <template v-for="p in b.parts" :key="p.msg.id">
-              <ChatMessage v-if="hasBody(p.msg)" :msg="p.msg" plain />
-              <div v-if="p.tools.length" class="turn-tools">
-                <ToolCard
-                  v-for="tc in p.tools"
-                  :key="tc.id"
-                  :label="tc.tool_name || 'tool'"
-                  :tool="tc.tool_name || ''"
-                  :args="toolArgsMap.get(tc.tool_call_id || '')"
-                  :running="false"
-                  :ok="!tc.is_error"
-                  :output="tc.content || ''"
-                />
+          <div class="msg-ai">
+            <div class="msg-badge"><span>{{ assistantName }}</span></div>
+            <div class="msg-ai-body">
+              <AssistantTurn
+                v-for="p in b.parts"
+                :key="p.msg.id"
+                :msg="p.msg"
+                :tools="p.tools"
+              />
+              <div v-if="metricsOf(turnUsage(b.parts)).length" class="msg-acts is-on turn-foot">
+                <button
+                  class="ai-act"
+                  type="button"
+                  :disabled="copiedTurn === b.key"
+                  @click="
+                    copyTurn(
+                      b.parts.map((p) => p.msg.content || '').filter(Boolean).join('\n\n'),
+                      b.key,
+                    )
+                  "
+                >
+                  <AppIcon :name="copiedTurn === b.key ? 'check' : 'copy'" size="ic-2xs" />
+                  <span>{{ copiedTurn === b.key ? t('common.copied') : t('common.copy') }}</span>
+                </button>
+                <span
+                  v-for="m in metricsOf(turnUsage(b.parts))"
+                  :key="m.k"
+                  class="ai-metric"
+                  :class="{ 'is-hit': m.hi }"
+                >
+                  <b>{{ m.k }}</b>{{ m.v }}
+                </span>
+                <time v-if="b.parts[b.parts.length - 1]?.msg.created_at" class="ai-time">
+                  {{ fmtTime(b.parts[b.parts.length - 1].msg.created_at) }}
+                </time>
               </div>
-            </template>
+            </div>
           </div>
         </div>
       </template>
 
-      <!-- 正在进行的回合 -->
-      <div v-if="chat.running" class="turn">
+      <!-- 正在进行的回合：段顺序就是内核吐出的顺序。
+           收尾期间（finalizing）继续挂在这儿，等权威快照接上再换掉。 -->
+      <div v-if="chat.running || chat.finalizing" class="turn">
         <div class="msg-ai is-live">
           <div class="msg-badge is-live">
             <span>
@@ -268,45 +341,37 @@ async function onStreamClick(e: MouseEvent) {
             </span>
           </div>
           <div class="msg-ai-body">
-            <div v-if="chat.thinking" class="think is-live">
-              <button
-                class="think-head"
-                type="button"
-                :aria-expanded="liveThinkOpen"
-                @click="liveThinkOpen = !liveThinkOpen"
-              >
-                <span class="live-dot" />
-                <AppIcon name="brain" size="ic-xs" />
-                <span>{{ t('chat.thinkingLive') }}</span>
-                <span class="think-count">{{ t('chat.thinkChars', { n: chat.thinking.length }) }}</span>
-                <AppIcon class="think-chev" :name="liveThinkOpen ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
-              </button>
-              <div v-if="liveThinkOpen" class="think-body">{{ liveThink }}</div>
-            </div>
-
-            <div v-if="runBlocks.length" class="turn-tools">
-              <ToolCard
-                v-for="b in runBlocks"
-                :key="b.key"
-                :label="b.run.label"
-                :tool="b.run.tool"
-                :args="b.run.args"
-                :running="b.run.running"
-                :ok="b.run.ok"
-                :title="b.run.title"
-                :output="b.run.output"
-                :duration_ms="b.run.duration_ms"
+            <template v-for="p in chat.parts" :key="p.key">
+              <ThinkingBlock
+                v-if="p.kind === 'thinking'"
+                :text="p.text"
+                live
+                :collapse="answerStarted"
               />
-            </div>
+              <div
+                v-else-if="p.kind === 'text'"
+                class="prose"
+                :class="{ 'is-last': p.key === chat.parts[chat.parts.length - 1]?.key }"
+                v-html="partHtml[p.key] || ''"
+              />
+              <ToolCard
+                v-else
+                :label="runOf(p.toolCallId)?.label || 'tool'"
+                :tool="runOf(p.toolCallId)?.tool || ''"
+                :args="runOf(p.toolCallId)?.args"
+                :running="runOf(p.toolCallId)?.running ?? true"
+                :ok="runOf(p.toolCallId)?.ok ?? true"
+                :title="runOf(p.toolCallId)?.title"
+                :output="runOf(p.toolCallId)?.output"
+                :duration_ms="runOf(p.toolCallId)?.duration_ms"
+              />
+            </template>
 
-            <div v-if="chat.streaming" class="prose" v-html="renderedStream" />
-            <div v-if="chat.streaming" class="stream-caret" />
-
-            <div v-if="!chat.streaming && !chat.runs.length && !chat.thinking" class="typing">
+            <div v-if="chat.running && !chat.parts.length" class="typing">
               <span class="typing-dot" /><span class="typing-dot" /><span class="typing-dot" />
             </div>
 
-            <div v-if="chat.streaming || chat.thinking || chat.runs.length" class="run-meter">
+            <div v-if="chat.parts.length && chat.running" class="run-meter">
               <span class="rm-item"><AppIcon name="clock" size="ic-2xs" />{{ fmtElapsed }}</span>
               <span v-if="chat.contextUsed > 0" class="rm-item">
                 <AppIcon name="chart" size="ic-2xs" />{{ fmtCount(chat.contextUsed) }}
@@ -318,17 +383,6 @@ async function onStreamClick(e: MouseEvent) {
 
       <!-- 引擎在问用户：问题来自 PI 进程，不挂在某一条消息上，统一排在流末尾 -->
       <AskCard v-for="a in chat.asks" :key="a.id" :ask="a" />
-
-      <!-- 引擎扩展的状态条与小部件：来自 setStatus / setWidget -->
-      <div v-if="statusEntries.length || widgetEntries.length" class="engine-fx">
-        <div v-for="[k, v] in statusEntries" :key="`s-${k}`" class="efx-row">
-          <span class="efx-dot" />
-          <span class="efx-txt">{{ v }}</span>
-        </div>
-        <div v-for="[k, lines] in widgetEntries" :key="`w-${k}`" class="efx-widget">
-          <div v-for="(ln, i) in lines" :key="i" class="efx-line">{{ ln }}</div>
-        </div>
-      </div>
 
       <!-- 重试提示条：重试期间用户唯一的主动选择是「别试了」 -->
       <div v-if="chat.notice" class="notice-bar" :class="{ 'notice-bar--warn': chat.retrying }">
@@ -376,21 +430,19 @@ async function onStreamClick(e: MouseEvent) {
       </div>
     </div>
 
-    <!-- 回到底部：sticky 钉在滚动口下缘，只有离开底部才出现 -->
-    <div v-if="!stick" class="jump-row">
-      <el-tooltip :content="t('chat.jumpLatest', 'Bottom')" placement="left" :show-after="300">
+    <!-- 回到底部：离开底部才出现，带文字说明，一眼知道是干什么的 -->
+    <Transition name="jump-fade">
+      <div v-if="!stick" class="jump-row">
         <button class="jump-btn" type="button" @click="jumpToLatest">
-          <AppIcon name="chevron-down" size="ic" />
+          <AppIcon name="chevron-down" size="ic-xs" />
+          <span>{{ t('chat.jumpLatest') }}</span>
         </button>
-      </el-tooltip>
-    </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
-.msg-avatar.is-live {
-  box-shadow: 0 0 0 3px var(--wb-live-soft);
-}
 .msg-col > * {
   animation: turn-in var(--wb-dur) var(--wb-ease);
 }
@@ -400,51 +452,84 @@ async function onStreamClick(e: MouseEvent) {
     transform: translateY(8px);
   }
 }
-.engine-fx {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
-  padding-left: calc(var(--wb-avatar-size) + var(--wb-sp-3));
+.turn-foot {
+  margin-top: var(--wb-sp-1);
+  padding-top: var(--wb-sp-1);
+  border-top: 1px solid var(--wb-border);
 }
-.efx-row {
+/* 分隔条：两侧细线夹一行小字，比一整张卡片安静，也不会被当成一条回答 */
+.turn-divider {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-ink-2);
-}
-.efx-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-live);
-  animation: efx-breathe 1.6s var(--wb-ease) infinite;
-  flex: none;
-}
-@keyframes efx-breathe {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-.efx-widget {
-  border: 1px solid var(--wb-border);
-  border-radius: var(--wb-radius-sm);
-  background: var(--wb-elev-hover);
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.efx-line {
-  font-family: var(--font-mono);
   font-size: var(--wb-fs-2xs);
-  color: var(--wb-ink-2);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  color: var(--wb-muted);
+}
+.turn-divider::before,
+.turn-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--wb-border);
+}
+.td-label {
+  flex: none;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.td-text {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.ai-act {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  height: calc(22px * var(--wb-vw-scale));
+  padding: 0 var(--wb-sp-2);
+  border-radius: var(--wb-radius-sm);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 600;
+  color: var(--wb-muted);
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.ai-act:hover:not(:disabled) {
+  background: var(--wb-elev-hover);
+  color: var(--wb-ink);
+  transform: scale(1.06);
+}
+.ai-act:active:not(:disabled) {
+  transform: scale(0.92);
+}
+.ai-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 0 var(--wb-sp-2);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--wb-border);
+}
+.ai-metric b {
+  font-weight: 600;
+  opacity: 0.7;
+}
+.ai-metric.is-hit {
+  color: var(--wb-success);
+}
+.ai-time {
+  margin-left: auto;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  font-variant-numeric: tabular-nums;
 }
 .run-meter {
   display: flex;
@@ -458,22 +543,6 @@ async function onStreamClick(e: MouseEvent) {
   display: inline-flex;
   align-items: center;
   gap: var(--wb-sp-1);
-}
-.live-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-live);
-  animation: wb-pulse 1.4s var(--wb-ease) infinite;
-}
-.think-count {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.75;
-  font-weight: 500;
-}
-.think-chev {
-  margin-left: auto;
-  transition: transform var(--wb-dur-fast) var(--wb-ease);
 }
 .typing {
   display: inline-flex;
@@ -509,32 +578,50 @@ async function onStreamClick(e: MouseEvent) {
 }
 .jump-row {
   position: sticky;
-  bottom: var(--wb-sp-3);
+  bottom: var(--wb-sp-4);
   height: 0;
-  display: flex;
-  justify-content: center;
   pointer-events: none;
+  z-index: 2;
 }
+/* 行高是 0（不吃滚动内容的高度，也不会因为 v-if 切换把列表顶来顶去）：
+   按钮以这行为基准往上贴，否则它会从这条零高的线往下长，下半截被滚动口切掉。 */
 .jump-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
   pointer-events: auto;
-  width: var(--wb-ctl-icon);
-  height: var(--wb-ctl-icon);
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  height: var(--wb-ctl-h-sm);
+  padding: 0 var(--wb-sp-3);
   border-radius: var(--wb-radius-full);
-  background: var(--wb-elev-raised);
-  border: 1px solid var(--wb-border-strong);
+  background: var(--wb-primary);
+  border: 1px solid var(--wb-primary);
   box-shadow: var(--wb-shadow-3);
-  color: var(--wb-ink-2);
+  color: #fff;
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
   transition:
     transform var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
+    box-shadow var(--wb-dur-fast) var(--wb-ease);
 }
 .jump-btn:hover {
-  transform: scale(1.06);
-  color: var(--wb-primary);
+  transform: translateX(-50%) scale(1.06);
+  box-shadow: var(--wb-shadow-4, var(--wb-shadow-3));
 }
 .jump-btn:active {
-  transform: scale(0.94);
+  transform: translateX(-50%) scale(0.92);
+}
+.jump-fade-enter-active,
+.jump-fade-leave-active {
+  transition:
+    opacity var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.jump-fade-enter-from,
+.jump-fade-leave-to {
+  opacity: 0;
 }
 </style>

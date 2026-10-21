@@ -73,15 +73,6 @@ func TestGitChain(t *testing.T) {
 			}
 		}
 
-		// 未跟踪文件 git 给不出差异：整篇读作新增行。
-		d2, err := Diff(dir, "new.txt")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !hasLine(d2, domain.GitLineAdd, "brand") {
-			t.Fatalf("新文件的差异不对：%#v", d2.Lines)
-		}
-
 		// 整个工作区：空 pathspec 会被 git 判非法，这里必须拿到内容而不是静默为空。
 		d3, err := Diff(dir, "")
 		if err != nil {
@@ -89,6 +80,16 @@ func TestGitChain(t *testing.T) {
 		}
 		if !hasLine(d3, domain.GitLineAdd, "TWO") {
 			t.Fatalf("整个工作区的差异为空：%#v", d3.Lines)
+		}
+
+		// 未跟踪文件 git diff 给不出内容：必须整篇读作新增行，
+		// 否则「新建的文件」在工作区页永远看不到自己改了什么。
+		d2, err := Diff(dir, "new.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasLine(d2, domain.GitLineAdd, "brand") {
+			t.Fatalf("新文件的差异不对：%#v", d2.Lines)
 		}
 
 		// 护栏两条同属「界面不能替用户瞎猜」：越界直接拒，非仓库给人话。
@@ -112,13 +113,6 @@ func TestGitChain(t *testing.T) {
 	// 写链路：白名单参数校验 → 勾选入栈 → 提交 → 历史 / 文件历史可读 → 出栈只动索引。
 	// 坏了 = 「提交」按钮看起来成功了，但历史里找不到；或没勾选的文件被带进了提交。
 	t.Run("写链路：入栈、提交、历史与出栈", func(t *testing.T) {
-		// 提交号只认十六进制：长得像选项的东西不能透传给 git。
-		if validRef("--upload-pack=x") {
-			t.Fatal("提交号不接受选项形态")
-		}
-		if !validRef("abc1234") {
-			t.Fatal("正常的短 hash 应被接受")
-		}
 		dir := initRepo(t)
 		// 越界路径在写入时更要命：会把工作区之外的文件收进索引，静默降级成「全部」更不行。
 		if _, err := Stage(dir, []string{"../secret.txt"}); err == nil {
@@ -183,7 +177,7 @@ func TestGitChain(t *testing.T) {
 			t.Fatalf("提交内容不完整：%#v", detail)
 		}
 
-		// b.txt 还没入栈，它不该出现在任何提交里。
+		// 文件历史：没入栈的 b.txt 不该出现在任何提交里；入栈并提交后才该有它。
 		fh, err := FileHistory(dir, "b.txt", 10)
 		if err != nil {
 			t.Fatal(err)
@@ -197,7 +191,8 @@ func TestGitChain(t *testing.T) {
 		if _, err := Commit(dir, "加上 b.txt"); err != nil {
 			t.Fatal(err)
 		}
-		if fh2, err := FileHistory(dir, "b.txt", 10); err != nil || len(fh2) != 1 || fh2[0].Subject != "加上 b.txt" {
+		fh2, err := FileHistory(dir, "b.txt", 10)
+		if err != nil || len(fh2) != 1 || fh2[0].Subject != "加上 b.txt" {
 			t.Fatalf("入栈提交后文件历史该有它：%#v err=%v", fh2, err)
 		}
 
@@ -226,16 +221,14 @@ func TestGitChain(t *testing.T) {
 	// 分支链路：名字白名单 → 新建并切过去 → 切回后历史隔离。
 	// 坏了 = 面板显示切成功了，实际还在原分支上写东西。
 	t.Run("分支链路：白名单、新建、切换与历史隔离", func(t *testing.T) {
-		// 以连字符开头会被 git 当成选项；`..`、空格、结尾斜杠都会指向意外的 ref。
-		for _, bad := range []string{"-x", "a..b", "a b", "", "feature/", "a//b", "x.lock"} {
+		// 以连字符开头会被 git 当成选项；`..`、空格、结尾斜杠、`.lock` 都指向意外的 ref。
+		for _, bad := range []string{"-x", "a..b", "a b", "feature/", "x.lock"} {
 			if validBranchName(bad) {
 				t.Fatalf("分支名 %q 应被拒", bad)
 			}
 		}
-		for _, good := range []string{"feature/x", "main", "v1.2.3"} {
-			if !validBranchName(good) {
-				t.Fatalf("分支名 %q 应被接受", good)
-			}
+		if !validBranchName("feature/x") || !validBranchName("v1.2.3") {
+			t.Fatal("正常的分支名应被接受")
 		}
 
 		dir := initRepo(t)

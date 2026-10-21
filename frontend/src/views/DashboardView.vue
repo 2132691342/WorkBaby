@@ -49,10 +49,19 @@ const totals = computed(() => data.value?.totals)
 const hasUsage = computed(() => (totals.value?.total || 0) > 0)
 const topSessions = computed(() => (data.value?.sessions || []).slice(0, 6))
 
+// 命中率分母是提示词总量：上游把命中（cached）/ 写入（cache_write）/ 未命中（input）分三个字段报，
+// 只除 input 会把命中率算到 100% 以上再把图拉满，看起来就“全是错的”。
+const promptTotal = computed(() => {
+  const tt = totals.value
+  if (!tt) return 0
+  return (tt.input || 0) + (tt.cached || 0) + (tt.cache_write || 0)
+})
+
 const hitRate = computed(() => {
   const tt = totals.value
-  if (!tt?.input) return 0
-  return Math.min(100, (tt.cached / tt.input) * 100)
+  const prompt = promptTotal.value
+  if (!tt || prompt <= 0) return 0
+  return Math.min(100, (tt.cached / prompt) * 100)
 })
 
 const kpis = computed(() => {
@@ -77,7 +86,7 @@ const kpis = computed(() => {
       icon: 'zap',
       value: `${hitRate.value.toFixed(hitRate.value >= 10 ? 0 : 1)}%`,
       label: t('dashboard.kpiHit'),
-      note: `${fmtCount(tt?.cached || 0)} ${t('common.tokens')}`,
+      note: `${fmtCount(tt?.cached || 0)} / ${fmtCount(promptTotal.value)}`,
       hit: hitRate.value > 0,
     },
     {
@@ -85,7 +94,7 @@ const kpis = computed(() => {
       icon: 'coin',
       value: fmtMoney(tt?.cost || 0),
       label: t('dashboard.kpiCost'),
-      note: `${t('dashboard.kpiSessions')} ${fmtInt(tt?.sessions || 0)}`,
+      note: t('dashboard.kpiCostNote'),
     },
   ]
 })

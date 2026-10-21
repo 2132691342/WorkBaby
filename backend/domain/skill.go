@@ -10,24 +10,28 @@ var (
 
 // Skill 是磁盘上一个 SKILL.md 的解析结果，不落库——文件即真相源。
 type Skill struct {
+	// ID 形如 name@source：前端拿到的就是它，删除 / 启停都按它寻址。
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	WhenToUse   []string `json:"when_to_use,omitempty"`
 	Location    string   `json:"location"`
-	Source      string   `json:"source"`
-	Enabled     bool     `json:"enabled"`
+	// Source 取 global / workspace / package。
+	Source  string `json:"source"`
+	Enabled bool   `json:"enabled"`
 }
 
 // SkillVO 出参与 Skill 同形，单独声明避免内部字段外泄。
 type SkillVO struct {
+	// ID 形如 name@source：前端拿到的就是它，删除 / 启停都按它寻址。
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	WhenToUse   []string `json:"when_to_use,omitempty"`
 	Location    string   `json:"location"`
-	Source      string   `json:"source"`
-	Enabled     bool     `json:"enabled"`
+	// Source 取 global / workspace / package。
+	Source  string `json:"source"`
+	Enabled bool   `json:"enabled"`
 }
 
 // ToggleSkillREQ 启停入参。

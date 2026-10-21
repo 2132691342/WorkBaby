@@ -40,6 +40,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			chat.POST("/steer", h.SteerMessage)
 			chat.POST("/followup", h.FollowUpMessage)
 			chat.POST("/retry-cancel", h.CancelRetry)
+			chat.POST("/compact", h.Compact)
 			chat.POST("/answer", h.Answer)
 		}
 

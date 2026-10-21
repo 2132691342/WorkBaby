@@ -35,6 +35,50 @@
 | `session_info` | 会话显示名 |
 | `usage` | 不参与上下文但计入花费的用量（例如缓存保温） |
 
+## 消息投影的字段形态
+
+一条 assistant 消息的 `content` 是**有序块数组**（`thinking` / `text` / `toolCall` / `image`）。
+投影成 `MessageVO` 时按数组顺序产出 `blocks`，界面就按这个顺序就地渲染：
+
+```go
+type MessageBlock struct {
+    Kind       string         // text / thinking / tool
+    Text       string         // text 与 thinking 的正文
+    ToolCallID string         // tool：对上不存在的 tool 消息（结果在它之后一条）
+    ToolName   string
+    Label      string         // 中文短名；未知工具用原名
+    Args       map[string]any // 工具参数：在这里，不在结果消息上
+}
+```
+
+`content` 与 `thinking` 两个字段仍然保留，但它们只是 `blocks` 的拼接结果（复制、
+旧响应兜底用）。**渲染只读 `blocks`**：按字段类型分组会把一轮里所有工具卡顶到正文前面，
+一次动作的先后就读不出来了。没有 `blocks` 的旧响应按 thinking → 正文 → 工具 兜底。
+
+工具调用与它的结果分属两条消息：声明在 assistant 的块里，结果在紧随其后的
+`tool` 消息上（按 `tool_call_id` 对上号）。所以界面是一张卡，数据是两行。
+
+`MessageVO` 上另有两个渲染开关：`hidden` 是扩展注入的隐藏内容（不渲染成气泡），
+`notice` 非空时渲染成分隔提示条（已压缩 / 换模型 / 调整思考档）而不是气泡。
+
+## 用量的字段口径
+
+上游把提示词拆成三段报，`UsageVO` 原样存三段：
+
+| 字段 | 含义 |
+|---|---|
+| `input` | **未命中**上游缓存的那部分提示词 |
+| `cached` | 命中缓存的部分（`cacheRead`） |
+| `cache_write` | 本次新写进缓存的部分 |
+| `context` | 一次调用的提示词总量 = `input + cached + cache_write` |
+| `total` | `context + output`（上游给的总量小于它时以它为准） |
+
+两个容易算错的地方：
+
+- **缓存命中率 = `cached / context`**，不是 `cached / input`。分母只取 `input` 时读数会超过
+  100%，再钳到 100% 就成了「这个读数永远是对的」。
+- **`input` 不含命中量**：Anthropic / OpenAI 系都是分字段报，把它们相加才是发出去的提示词。
+
 ## WorkBaby 自己的库
 
 SQLite 只有一个业务表：
@@ -58,9 +102,9 @@ func (SettingDO) TableName() string { return "settings" }
 **为什么只留一张表**：会话与消息在 PI 的文件里，再存一份就是两本账——两本账迟早分叉，
 症状是「界面里有的对话，命令行里看不到」。单一真相源让这类分叉不可能发生。
 
-旧版本留下的表（sessions / providers / token_usages / approvals / runs / evals /
-knowledge_docs / memories …）不再迁移也不再读写；迁移函数只创建 `settings`。
-「只增不删」的迁移纪律在这里体现为：**不主动 DROP**，旧表留在库里不影响任何路径。
+迁移纪律是**只增不删**：`Migrate` 只创建 `settings` 一张表，不做任何 DROP。
+数据目录里可能残留历史版本写过的表，它们不被读写也不被清理——留着不影响任何路径，
+而一次错误的 DROP 会把用户的对话抹掉。
 
 ## 内存里的索引
 

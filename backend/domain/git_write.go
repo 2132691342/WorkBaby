@@ -1,19 +1,16 @@
-// 版本历史与受控写入的域模型：提交元信息、分支、写结果（specs/08）。
-package domain
-
 // 版本历史：一次提交的元信息与它改动的文件清单。
-// 历史不另建表：实时 git log 是唯一真相源，换分支后历史整块变正是缓存不该存在的原因。
+package domain
 
 // GitCommitVO 历史列表里的一次提交。
 type GitCommitVO struct {
 	Hash      string `json:"hash"`      // 完整 hash
 	Short     string `json:"short"`     // 短 hash，界面显示用
 	Subject   string `json:"subject"`   // 首行提交信息
-	Author    string `json:"author"`    //
+	Author    string `json:"author"`    // 作者名
 	When      int64  `json:"when"`      // 提交时间，毫秒
 	Files     int    `json:"files"`     // 这次提交涉及的文件数
-	Additions int    `json:"additions"` //
-	Deletions int    `json:"deletions"` //
+	Additions int    `json:"additions"` // 新增行数
+	Deletions int    `json:"deletions"` // 删除行数
 }
 
 // GitCommitDetailVO 一次提交的完整内容：元信息 + 每个文件 + 逐行差异。

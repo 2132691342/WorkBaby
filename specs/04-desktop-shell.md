@@ -62,7 +62,8 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 
 ## Wails 绑定面（仅系统能力）
 
-`ServerPort` / `ForceQuit` / `OpenFileDialog` / `OpenDirectoryDialog` / `AutoStartEnabled` / `SetAutoStart`。
+`ServerPort` / `ForceQuit` / `OpenFileDialog` / `OpenDirectoryDialog` / `SaveFileDialog` /
+`AutoStartEnabled` / `SetAutoStart`（共 7 个）。
 
 - `ServerPort` 是拿端口的第二条路：事件不缓冲给后注册的监听器，而绑定方法随时可调、幂等；
   前端模块顶层同时监听 `app:ready` 与轮询 `ServerPort`，谁先到用谁
@@ -151,7 +152,7 @@ Wails 的 `Quit()` 会**先调 `OnBeforeClose`**，返回 true 就直接 return�
 
 ## 取舍
 
-- **绑定面只留 6 个系统方法**：业务接口全走 HTTP，前端在浏览器里就能跑通界面（开发不必开窗）。
+- **绑定面只留 7 个系统方法**：业务接口全走 HTTP，前端在浏览器里就能跑通界面（开发不必开窗）。
   代价是启动顺序变成硬约束——端口没起来之前，界面所有请求都会 404，所以握手必须早于 `domReady`。
 - **窗口控制不进绑定面**：前端直接调 wails runtime，少一层转发；
   代价是前端代码同时依赖 `wailsjs/runtime` 与 HTTP 两套通道，调试时要知道在哪一侧。

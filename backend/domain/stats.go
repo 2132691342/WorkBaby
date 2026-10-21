@@ -2,14 +2,18 @@
 package domain
 
 // StatsTotalsVO 区间总量。
+// 上游把缓存命中与未命中分两个字段报：提示词量 = Input + Cached + CacheWrite，
+// 命中率的分母是它，不是 Input。
 type StatsTotalsVO struct {
-	Input  int `json:"input"`
-	Output int `json:"output"`
-	// Cached 命中上游缓存的输入量；命中率 = Cached / Input。
-	Cached int     `json:"cached"`
-	Total  int     `json:"total"`
-	Cost   float64 `json:"cost"`
-	Calls  int     `json:"calls"`
+	// Input 是未命中缓存的提示词；Cached 是命中部分；CacheWrite 是新写入部分。
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	Cached     int `json:"cached"`
+	CacheWrite int `json:"cache_write"`
+	// Total 是提示词总量加输出；上游给的总量小于两者之和时以两者之和为准。
+	Total int     `json:"total"`
+	Cost  float64 `json:"cost"`
+	Calls int     `json:"calls"`
 	// Sessions / Messages 是区间内有活动的会话数与消息数。
 	Sessions int `json:"sessions"`
 	Messages int `json:"messages"`
@@ -18,25 +22,27 @@ type StatsTotalsVO struct {
 // StatsDailyVO 一个聚合桶；天粒度 date 形如 2026-09-28，
 // 小时粒度形如 2026-10-19 14:00。
 type StatsDailyVO struct {
-	Date   string  `json:"date"`
-	Input  int     `json:"input"`
-	Output int     `json:"output"`
-	Cached int     `json:"cached"`
-	Total  int     `json:"total"`
-	Cost   float64 `json:"cost"`
-	Calls  int     `json:"calls"`
+	Date       string  `json:"date"`
+	Input      int     `json:"input"`
+	Output     int     `json:"output"`
+	Cached     int     `json:"cached"`
+	CacheWrite int     `json:"cache_write"`
+	Total      int     `json:"total"`
+	Cost       float64 `json:"cost"`
+	Calls      int     `json:"calls"`
 }
 
 // StatsModelVO 按模型归因。
 type StatsModelVO struct {
-	Provider string  `json:"provider"`
-	Model    string  `json:"model"`
-	Input    int     `json:"input"`
-	Output   int     `json:"output"`
-	Cached   int     `json:"cached"`
-	Total    int     `json:"total"`
-	Cost     float64 `json:"cost"`
-	Calls    int     `json:"calls"`
+	Provider   string  `json:"provider"`
+	Model      string  `json:"model"`
+	Input      int     `json:"input"`
+	Output     int     `json:"output"`
+	Cached     int     `json:"cached"`
+	CacheWrite int     `json:"cache_write"`
+	Total      int     `json:"total"`
+	Cost       float64 `json:"cost"`
+	Calls      int     `json:"calls"`
 }
 
 // StatsSessionVO 用量最高的会话。

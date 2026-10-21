@@ -75,10 +75,26 @@ WorkBaby 的说话方式（不用 emoji、不客套、直接报结果）以
 
 ## 提示模板与斜杠命令
 
-命令清单来自 `get_commands`（扩展命令 + 提示模板 + 技能），不在本地拼：
+`/` 菜单上三类东西来自三个不同的地方，这个分别必须讲清楚：
 
-- 扩展注册的命令只有进程知道；
-- 磁盘扫描看不到「这个模板是否被包过滤掉」。
+| 种类 | 来源 | 怎么生效 |
+|---|---|---|
+| 扩展命令 | `get_commands` 的 `source=extension` | 把 `/名字 ` 填回输入框，发送后由 PI 展开 |
+| 提示模板与技能 | `get_commands` 的 `source=prompt` / `skill`（技能名带 `skill:` 前缀） | 同上：发文本，PI 自己把模板与正文展开 |
+| 内置命令 | **不在 `get_commands` 里** | 界面自己执行，映射到对应端点 / 路由 |
+
+`get_commands` 只报扩展、模板与技能三类：PI 那一组内置命令（`compact` / `model` / `thinking` /
+`new` / `export` / `copy` / `name` / `session` / `reload` / `login` …）是它的终端界面自己解析
+输入文本实现的，RPC 模式下不会报上来，把 `/compact` 当正文发出去只会被当成一句话。
+
+所以菜单里那十项内置命令是界面的动作项，名字与 PI 对齐、干活走我们自己的端点：
+`/new` → 新建会话、`/model` `/thinking` → 开对应 chip 的弹层、`/compact` → `POST /chat/compact`（PI 的 `compact`）、
+`/session` → 会话信息、`/export` → `POST /sessions/export/:id`、`/copy` → 复制本轮、
+`/reload` → 重扫技能与命令、`/login` `/settings` → 路由。
+只活在终端里、GUI 没有对应动作的（`/tree` `/share` `/bug` `/hotkeys` `/quit`）不列入：
+列一条执行不了的命令比不列更坏——它看起来是个入口，点下去什么也不会发生。
+
+命令清单不在本地拼盘：扩展注册的命令只有进程知道，磁盘扫描看不到「这个模板是否被包过滤掉」。
 
 ## 取舍
 

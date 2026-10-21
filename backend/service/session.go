@@ -280,8 +280,9 @@ func projectMessage(e *pi.SessionEntry) (domain.MessageVO, bool) {
 	if m.Usage != nil {
 		vo.Usage = &domain.UsageVO{
 			Input: m.Usage.Input, Output: m.Usage.Output,
-			Cached: m.Usage.CacheRead, Total: m.Usage.TotalTokens,
-			Cost: m.Usage.Cost.Total, Context: m.Usage.Input + m.Usage.CacheRead,
+			Cached: m.Usage.CacheRead, CacheWrite: m.Usage.CacheWrite,
+			Total: m.Usage.TotalTokens, Cost: m.Usage.Cost.Total,
+			Context: promptTokensOf(m.Usage),
 		}
 	}
 	blocks := decodeBlocks(m.Content)
@@ -289,12 +290,19 @@ func projectMessage(e *pi.SessionEntry) (domain.MessageVO, bool) {
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
-			texts = append(texts, pkg.StripANSI(b.Text))
+			text := pkg.StripANSI(b.Text)
+			texts = append(texts, text)
+			vo.Blocks = append(vo.Blocks, domain.MessageBlock{Kind: domain.BlockText, Text: text})
 		case "thinking":
-			vo.Thinking += pkg.StripANSI(b.Thinking)
+			think := pkg.StripANSI(b.Thinking)
+			vo.Thinking += think
+			vo.Blocks = append(vo.Blocks, domain.MessageBlock{Kind: domain.BlockThinking, Text: think})
 		case "toolCall":
-			vo.ToolCalls = append(vo.ToolCalls, domain.ToolCall{
-				ID: b.ID, Name: b.Name, Label: labelOf(b.Name), Args: b.Arguments,
+			call := domain.ToolCall{ID: b.ID, Name: b.Name, Label: labelOf(b.Name), Args: b.Arguments}
+			vo.ToolCalls = append(vo.ToolCalls, call)
+			vo.Blocks = append(vo.Blocks, domain.MessageBlock{
+				Kind: domain.BlockTool, ToolCallID: call.ID, ToolName: call.Name,
+				Label: call.Label, Args: call.Args,
 			})
 		case "image":
 			vo.Images = append(vo.Images, domain.MessageImage{MIME: b.MimeType, Base64: b.Data})
@@ -305,6 +313,11 @@ func projectMessage(e *pi.SessionEntry) (domain.MessageVO, bool) {
 		vo.Type = "tool"
 	}
 	return vo, true
+}
+
+// promptTokensOf 是一次调用的提示词总量：上游把命中与未命中分两个字段报。
+func promptTokensOf(u *pi.Usage) int {
+	return u.Input + u.CacheRead + u.CacheWrite
 }
 
 // jsonlBlock 是内容块。

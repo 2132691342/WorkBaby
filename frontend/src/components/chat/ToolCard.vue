@@ -5,6 +5,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { summarizeArgs } from '../../utils/md'
 import { fmtMs } from '../../utils/num'
+import { openFilePeek } from '../../composables/filePeek'
 import AppIcon from '../common/AppIcon.vue'
 
 const props = defineProps<{
@@ -45,6 +46,16 @@ const diffRows = computed<DiffRow[] | null>(() => {
 const argsJson = computed(() =>
   props.args && Object.keys(props.args).length ? JSON.stringify(props.args, null, 2) : '',
 )
+
+// 改了哪些文件是这一轮最该看的：路径就在参数里，点一下就地看改动，不用切到工作区。
+const filePath = computed(() => {
+  const a = props.args || {}
+  const raw = a.path ?? a.file_path ?? a.filePath
+  return typeof raw === 'string' ? raw : ''
+})
+const canPeek = computed(
+  () => !!filePath.value && ['edit', 'write', 'read', 'ffread'].includes(props.tool || ''),
+)
 </script>
 
 <template>
@@ -62,6 +73,14 @@ const argsJson = computed(() =>
         <AppIcon class="tool-chev" :name="open ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
       </span>
     </button>
+
+    <!-- 文件类工具：就地看改动，不必切走工作区再切回来 -->
+    <div v-if="canPeek" class="tool-acts">
+      <button class="tool-peek" type="button" :title="filePath" @click.stop="openFilePeek(filePath)">
+        <AppIcon name="git-diff" size="ic-2xs" />
+        <span>{{ t('chat.toolPeek') }}</span>
+      </button>
+    </div>
 
     <div v-if="open" class="tool-bd">
       <template v-if="argsJson">
@@ -86,6 +105,32 @@ const argsJson = computed(() =>
 </template>
 
 <style scoped>
+.tool-acts {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--wb-sp-2) var(--wb-sp-1);
+}
+.tool-peek {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  height: calc(20px * var(--wb-vw-scale));
+  padding: 0 var(--wb-sp-2);
+  border-radius: var(--wb-radius-xs);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
+  color: var(--wb-primary);
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.tool-peek:hover {
+  background: var(--wb-accent-tint);
+  transform: scale(1.06);
+}
+.tool-peek:active {
+  transform: scale(0.92);
+}
 .tool-dot {
   width: calc(17px * var(--wb-vw-scale));
   height: calc(17px * var(--wb-vw-scale));

@@ -1,5 +1,7 @@
 //go:build windows
 
+// Windows 平台系统能力：开机自启读写、窗控与剪贴板之外的系统绑定都在这里落地。
+
 package api
 
 import (

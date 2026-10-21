@@ -29,9 +29,10 @@ const thinking = computed(() => {
 })
 
 const ctxTone = computed(() => {
+  // 阈值与上下文水位环（ContextMeter）同一对：同一个读数在同一屏上不能给两种颜色。
   const r = chat.contextRatio
-  if (r >= 90) return 'is-bad'
-  if (r >= 70) return 'is-warn'
+  if (r >= 95) return 'is-bad'
+  if (r >= 80) return 'is-warn'
   return ''
 })
 
