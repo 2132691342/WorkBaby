@@ -22,6 +22,8 @@ const loading = ref(true)
 const loadErr = ref('')
 const installing = ref(false)
 const rechecking = ref(false)
+// 上一次安装失败的原因：闸门快照里带回来，比只看日志尾巴靠谱
+const installErr = ref('')
 
 // 安装日志：npm 可能跑几十秒，没有实时输出用户会以为卡死
 const { lines: installLines, begin: beginInstallLog, end: endInstallLog } = useSetupLog()
@@ -70,6 +72,7 @@ async function load() {
   loadErr.value = ''
   try {
     env.value = await api.env.status()
+    installErr.value = env.value?.install_error || ''
   } catch (e) {
     loadErr.value = (e as Error)?.message || t('errors.generic')
   } finally {
@@ -82,6 +85,7 @@ async function recheck() {
   rechecking.value = true
   try {
     env.value = await api.env.recheck()
+    installErr.value = env.value?.install_error || ''
     void settings.loadBoot()
   } catch (e) {
     toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
@@ -90,24 +94,34 @@ async function recheck() {
   }
 }
 
+/**
+ * 安装是后台动作：接口立刻返回，结果靠轮询。
+ * 失败要看得见原因——只报「还没装好」等于把用户丢在那里。
+ */
 async function install() {
   if (installing.value) return
   installing.value = true
+  installErr.value = ''
   beginInstallLog()
   try {
     await api.env.install()
-    // 安装是后台动作：接口立刻返回，进度靠轮询拉回来
-    const deadline = Date.now() + 5 * 60 * 1000
+    const deadline = Date.now() + 6 * 60 * 1000
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 1500))
       env.value = await api.env.recheck()
       if (env.value?.pi_ready) break
+      if (env.value?.install_error) {
+        installErr.value = env.value.install_error
+        break
+      }
     }
     if (env.value?.pi_ready) {
       toast.ok(t('setup.piInstalled', { version: env.value.pi_version || '' }))
       void settings.loadBoot()
+    } else if (installErr.value) {
+      toast.bad(t('setup.piInstallFailed', { msg: installErr.value }))
     } else {
-      toast.bad(t('setup.installLog'))
+      toast.bad(t('setup.piTimeout'))
     }
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
@@ -179,15 +193,26 @@ onMounted(() => {
                 :disabled="installing"
                 @click="install"
               >
-                {{ installing ? t('setup.piInstalling') : t('setup.piInstall') }}
+                {{ installing ? t('setup.piInstalling') : installErr ? t('setup.piRetry') : t('setup.piInstall') }}
               </el-button>
+
+              <!-- 失败要说清楚下一步：原因 + 能自己动手的那条路 -->
+              <div v-if="s.key === 'pi' && !s.done && installErr" class="step-fail">
+                <p class="step-fail-line">
+                  <AppIcon name="alert" size="ic-2xs" />
+                  {{ t('setup.piInstallFailed', { msg: installErr }) }}
+                </p>
+                <p class="step-fail-hint">{{ t('setup.piInstallHint') }}</p>
+              </div>
+              <p v-else-if="s.key === 'pi' && !s.done" class="step-hint">{{ t('setup.piManual') }}</p>
             </div>
           </li>
         </ol>
 
-        <div v-if="installLines.length" class="wb-card setup-card">
+        <div v-if="installLines.length || installing" class="wb-card setup-card">
           <div class="wb-label">{{ t('setup.installLog') }}</div>
-          <pre class="setup-log">{{ installLines.join('\n') }}</pre>
+          <pre v-if="installLines.length" class="setup-log">{{ installLines.join('\n') }}</pre>
+          <p v-else class="step-hint">{{ t('setup.installLogEmpty') }}</p>
         </div>
 
         <section v-if="!allDone" class="wb-card setup-card">
@@ -313,6 +338,34 @@ onMounted(() => {
 }
 .step-meta {
   overflow-wrap: anywhere;
+}
+.step-fail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-1);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border-radius: var(--wb-radius);
+  background: var(--wb-danger-soft);
+  width: 100%;
+}
+.step-fail-line {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-danger);
+  line-height: var(--wb-lh-base);
+  overflow-wrap: anywhere;
+}
+.step-fail-hint {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink-2);
+  line-height: var(--wb-lh-base);
+}
+.step-hint {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  line-height: var(--wb-lh-base);
 }
 .setup-log {
   margin: 0;

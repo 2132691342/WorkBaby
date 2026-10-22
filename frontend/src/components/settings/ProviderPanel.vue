@@ -38,6 +38,8 @@ const form = reactive({
 })
 const fetched = ref<string[]>([])
 const manual = ref('')
+// 字段级错误：EP 的 el-form-item 接 error 就变红并显示这句，不再用 toast 说一句含糊的「校验失败」
+const errors = reactive({ name: '', base_url: '', models: '' })
 
 const providers = computed(() => store.providers?.providers ?? [])
 const defaultId = computed(() => store.providers?.default_provider || '')
@@ -53,7 +55,32 @@ function reset() {
   form.models = []
   fetched.value = []
   manual.value = ''
+  clearErrors()
 }
+
+function clearErrors() {
+  errors.name = ''
+  errors.base_url = ''
+  errors.models = ''
+}
+
+/**
+ * 校验顺序 = 界面上字段的顺序：一次只报第一个不对的地方，
+ * 否则用户得来回试三次才知道到底差什么（名字与模型 ID 都空时报模型 ID 是最招人烦的）。
+ */
+function validate(): boolean {
+  clearErrors()
+  if (!form.name.trim()) errors.name = t('settings.providers.nameRequired')
+  if (!form.base_url.trim()) errors.base_url = t('settings.providers.baseUrlRequired')
+  if (!form.models.length) {
+    errors.models = t('settings.providers.modelsRequired')
+  } else if (form.models.some((m) => !m.id.trim())) {
+    errors.models = t('settings.providers.modelIdRequired')
+  }
+  return !errors.name && !errors.base_url && !errors.models
+}
+
+const blankModel = (id: string) => !id.trim()
 
 function createNew() {
   reset()
@@ -116,23 +143,19 @@ async function fetchModels() {
 
 async function save() {
   if (busy.value) return
-  if (!form.name.trim() && !form.id) {
-    toast.bad(t('settings.providers.invalid'))
-    return
-  }
-  if (!form.models.length) {
-    toast.bad(t('settings.providers.invalid'))
+  if (!validate()) {
+    toast.bad(t('settings.providers.fixHint'))
     return
   }
   busy.value = 'save'
   try {
     await api.providers.upsert({
       id: form.id || undefined,
-      name: form.name,
+      name: form.name.trim(),
       api: form.api,
-      base_url: form.base_url,
+      base_url: form.base_url.trim(),
       api_key: form.api_key || undefined,
-      models: form.models,
+      models: form.models.map((m) => ({ ...m, id: m.id.trim(), name: m.name.trim() || m.id.trim() })),
     })
     await store.refreshProviderData()
     toast.ok(t('common.save'))
@@ -339,14 +362,24 @@ onMounted(() => {
               <el-option v-for="a in APIS" :key="a.key" :label="a.label" :value="a.key" />
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('common.name')">
-            <el-input v-model="form.name" :placeholder="form.id || 'my-provider'" :disabled="!!busy" />
+          <el-form-item :label="t('common.name')" required :error="errors.name">
+            <el-input
+              v-model="form.name"
+              :placeholder="form.id || t('settings.providers.namePlaceholder')"
+              :disabled="!!busy"
+              @input="errors.name = ''"
+            />
             <p v-if="form.id" class="hint">{{ t('settings.providers.idLocked') }}</p>
           </el-form-item>
         </div>
 
-        <el-form-item :label="t('settings.providers.baseUrl')">
-          <el-input v-model="form.base_url" placeholder="https://api.example.com/v1" :disabled="!!busy" />
+        <el-form-item :label="t('settings.providers.baseUrl')" required :error="errors.base_url">
+          <el-input
+            v-model="form.base_url"
+            placeholder="https://api.example.com/v1"
+            :disabled="!!busy"
+            @input="errors.base_url = ''"
+          />
         </el-form-item>
 
         <el-form-item :label="t('settings.providers.key')">
@@ -359,7 +392,7 @@ onMounted(() => {
           />
         </el-form-item>
 
-        <el-form-item :label="t('settings.providers.models')">
+        <el-form-item :label="t('settings.providers.models')" required :error="errors.models">
           <div class="models">
             <div class="models-bar">
               <el-input
@@ -391,9 +424,16 @@ onMounted(() => {
             </div>
 
             <ul v-if="form.models.length" class="models-list">
-              <li v-for="m in form.models" :key="m.id" class="model-card">
+              <li v-for="m in form.models" :key="m.id || form.models.indexOf(m)" class="model-card">
                 <div class="model-head">
-                  <el-input v-model="m.id" size="small" class="w-id" :placeholder="t('settings.providers.modelId')" />
+                  <el-input
+                    v-model="m.id"
+                    size="small"
+                    class="w-id"
+                    :class="{ 'is-bad': blankModel(m.id) }"
+                    :placeholder="t('settings.providers.modelId')"
+                    @input="errors.models = ''"
+                  />
                   <el-input v-model="m.name" size="small" class="w-name" :placeholder="t('settings.providers.modelName')" />
                   <button class="model-del" type="button" :title="t('common.delete')" @click="dropModel(m.id)">
                     <AppIcon name="close" size="ic-xs" />
@@ -432,7 +472,7 @@ onMounted(() => {
                 </div>
               </li>
             </ul>
-            <p v-else class="hint">{{ t('settings.providers.invalid') }}</p>
+            <p v-else class="hint">{{ t('settings.providers.modelsRequired') }}</p>
           </div>
         </el-form-item>
       </el-form>
@@ -641,6 +681,10 @@ onMounted(() => {
 .w-id {
   flex: 1.3;
   min-width: 0;
+}
+/* 空白模型 ID 当场标红：等点保存才报就得多找一遍哪一行漏了 */
+.w-id.is-bad :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--wb-danger) inset;
 }
 .w-name {
   flex: 1;

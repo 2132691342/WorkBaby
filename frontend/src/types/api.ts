@@ -214,6 +214,13 @@ export interface PackageVO {
   name: string
   path: string
   missing: boolean
+  /** npm / git / local：只有前两种能被 pi update 搬到新版本 */
+  kind: string
+  /** 本地装着的版本；git 与本地目录可能读不到 */
+  version: string
+  /** 联网查到的最新版本；空表示未检查或查不到 */
+  latest_version: string
+  updateable: boolean
 }
 
 export interface ExtensionListRESP {
@@ -332,6 +339,52 @@ export interface PiEnvVO {
   ready: boolean
   /** 首个不满足项：node / pi / model / 空 */
   blocking: string
+  /** 最近一次安装 / 升级失败的原因；空表示没有失败记录 */
+  install_error: string
+}
+
+// ---- 引擎（PI 与运行时）----
+
+export interface EngineStatusVO {
+  pi_ready: boolean
+  pi_version: string
+  pi_path: string
+  pi_source: string
+  /** true = 这份 PI 是 WorkBaby 自己装的，升级写回本应用的前缀 */
+  managed: boolean
+  /** PI 的包目录（版本文件与升级落点） */
+  install_root: string
+  /** 当前活着的 PI 进程数：升级后它们会重启 */
+  running: number
+  node_ready: boolean
+  node_version: string
+  node_path: string
+  node_source: string
+  node_error: string
+  python_ready: boolean
+  python_version: string
+  python_path: string
+  python_source: string
+  agent_dir: string
+  model_ready: boolean
+  /** 已声明的插件包数量 */
+  packages: number
+  blocking: string
+  install_error: string
+}
+
+export interface PackageLatestVO {
+  source: string
+  latest_version: string
+  update_available: boolean
+  err: string
+}
+
+export interface EngineLatestVO {
+  pi_version: string
+  registry_error: string
+  update_available: boolean
+  packages: PackageLatestVO[]
 }
 
 export interface BootstrapVO {

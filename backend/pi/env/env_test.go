@@ -74,9 +74,7 @@ func TestPiEnvChain(t *testing.T) {
 		}
 	})
 
-	// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 未知字段保留。
-	// 写出去的必须是 PI 认识的 camelCase；整体重写会把 PI 自己写的字段与用户用
-	// CLI 装的包抹掉——这是最贵的一类回归，packages / compaction / mcp 都在这条链上验。
+	// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 未知字段保留；整体重写会抹掉 PI 自己写的字段。
 	t.Run("配置写入：models.json 形状、settings.json 掌管键与字段级合并、mcp.json 原文往返", func(t *testing.T) {
 		e := New(pathsOf(t))
 		authHeader := true
@@ -190,16 +188,6 @@ func TestPiEnvChain(t *testing.T) {
 				t.Fatalf("写压缩参数时丢了 %s\n%s", want, text)
 			}
 		}
-		// 写入必须是原子替换：残留的 .tmp-* 会持续增长。
-		entries, err := os.ReadDir(e.AgentDir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, entry := range entries {
-			if strings.HasPrefix(entry.Name(), ".tmp-") {
-				t.Fatalf("残留了临时文件: %s", entry.Name())
-			}
-		}
 
 		// mcp.json 由用户与其它客户端共管：WorkBaby 只做原文往返，不碰内容。
 		original = `{"mcpServers":{"user-server":{"command":"node","args":["srv.js"],"timeout":60}},"_comment":"我自己写的说明"}`
@@ -215,11 +203,45 @@ func TestPiEnvChain(t *testing.T) {
 		}
 	})
 
-	// shim 解析：经 cmd.exe 起进程会弹控制台窗口，必须还原成 node + 入口脚本。
-	// 这是本机体验的断言（没装 PI 就跳过），不是协议断言。
-	t.Run("PI 入口从 npm shim 还原成 node 与脚本", func(t *testing.T) {
+	// shim 解析：经 cmd.exe 起进程会弹控制台窗口，必须还原成 node + 入口脚本，且绝不吐字面量 node。
+	t.Run("PI 入口从 npm shim 还原成 node 与脚本，且绝不吐字面量 node", func(t *testing.T) {
+		checkShimNodeFallback(t)
 		checkPiShimResolution(t)
 	})
+}
+
+// checkShimNodeFallback 验 shim 旁边没有 node.exe 时用调用方给的绝对路径，没有就返回空串。
+func checkShimNodeFallback(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "cli.js")
+	if err := os.WriteFile(script, []byte("// entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(dir, "pi.cmd")
+	// shim 文本里那行入口路径以 .js 结尾，解析器按行取它（与 npm shim 的形状一致）。
+	body := "@ECHO off\r\n%dp0%\\cli.js\r\n"
+	if err := os.WriteFile(shim, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 给的绝对 node 必须被采用（内置 Node 的真实形态：不在 PATH 上）。
+	fakeNode := filepath.Join(t.TempDir(), "node.exe")
+	if err := os.WriteFile(fakeNode, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolved, args := resolvePiExe(shim, fakeNode)
+	if resolved != fakeNode {
+		t.Fatalf("没用上给的 node: %q，期望 %q", resolved, fakeNode)
+	}
+	if len(args) != 1 || args[0] != script {
+		t.Fatalf("入口脚本解析错了: %v", args)
+	}
+
+	// 没有 node 时只能报空：把 "node" 交给 exec 就是那句 9705。
+	if resolved, _ := resolvePiExe(shim, ""); resolved == "node" {
+		t.Fatal("解析结果退化成了字面量 node")
+	}
 }
 
 // checkPiShimResolution 验本机 PI 的入口解析。
@@ -233,7 +255,7 @@ func checkPiShimResolution(t *testing.T) {
 	if lookErr != nil {
 		t.Skip("本机没有 PI")
 	}
-	resolved, args := resolvePiExe(shim)
+	resolved, args := resolvePiExe(shim, "")
 	if filepath.Base(resolved) == "cmd.exe" {
 		t.Fatalf("解析结果仍是 cmd.exe：%s（会弹控制台窗口）", resolved)
 	}

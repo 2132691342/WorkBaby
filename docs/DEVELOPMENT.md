@@ -10,8 +10,8 @@
 
 ## 常用命令
 
-验证只有一个入口：`scripts/check.ps1`。分档规则、为什么这么分、入口索引都在
-AGENTS.md §3.3 / §3.4，这里只留平时手边那几条：
+验证只有一个入口：`scripts/check.ps1`。分档规则、保留判据与全部入口索引都在
+AGENTS.md §3，这里只留平时手边那几条：
 
 ```powershell
 pwsh scripts/check.ps1                        # 日常快门（格式 → 编译 → 各包短测试）
@@ -26,7 +26,8 @@ npm run build                                 # vue-tsc + vite build → fronten
 ```
 
 定位测试的标准动作：先 `-List` 拿索引，再 `-Chain <关键字>` 落到一段，不翻测试文件。
-入口一律叫 `Test<Domain>Chain`，一个包一个入口，一个子测试只讲一种坏法。
+入口一律叫 `Test<Domain>Chain`，一个包一个入口，一个子测试只讲一种坏法；
+保留判据与全部索引在 AGENTS.md §3。
 
 单独跑某一步时才手敲：
 

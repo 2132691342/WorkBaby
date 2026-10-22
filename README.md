@@ -83,10 +83,10 @@ WorkBaby/
 
 ```bash
 wails dev                      # 热重载（前端改完自动刷新）
-pwsh scripts/check.ps1         # 快门：格式 + 编译 + 短测试（日常）
-pwsh scripts/check.ps1 -Pkg .  # 只验一个包（只碰一个能力域时）
+pwsh scripts/check.ps1         # 快门：格式 + 编译 + 短测试（日常，约 10s）
+pwsh scripts/check.ps1 -Pkg backend/pi   # 只验一个包（只碰一个能力域时，约 5s）
 pwsh scripts/check.ps1 -Chain 提问   # 跨包只跑命中名字的链路（只编命中的包）
-pwsh scripts/check.ps1 -List   # 列全部测试入口与所在文件
+pwsh scripts/check.ps1 -List   # 列全部测试入口与子测试名
 pwsh scripts/check.ps1 -Full   # vet + 依赖边界 + 全量测试 + 前端构建（发版前 / CI）
 wails build                    # 产物 build/bin/WorkBaby.exe
 ```

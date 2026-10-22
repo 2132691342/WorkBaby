@@ -115,8 +115,16 @@ func handle(scenario, id, typ, message string) {
 			},
 		})
 	case "get_session_stats":
+		// 形状照 PI 1.4：tokens / contextUsage 都是嵌套对象。
 		respond(id, "get_session_stats", map[string]any{
-			"totalTokens": 1200, "input": 1000, "output": 200, "messages": 4, "context": 1000,
+			"totalMessages": 4, "userMessages": 2, "assistantMessages": 2,
+			"tokens": map[string]any{
+				"input": 1000, "output": 200, "cacheRead": 0, "cacheWrite": 0, "total": 1200,
+			},
+			"cost": 0.02,
+			"contextUsage": map[string]any{
+				"tokens": 1000, "contextWindow": 200000, "percent": 1,
+			},
 		})
 	case "new_session":
 		startSession("")

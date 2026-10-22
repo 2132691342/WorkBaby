@@ -23,8 +23,11 @@
 **入口不走 shell**：npm 在 Windows 上装的 `pi.cmd` / `npm.cmd` 是批处理 shim，
 经 `cmd.exe /c` 起进程每调一次就闪一个控制台窗口，且 `CREATE_NO_WINDOW`
 只作用于 cmd.exe 本身，它再拉起的 node 仍会带窗口。因此入口一律解析成
-`node.exe` + 包内 `cli.js`（shim 同目录的 node 优先，其次 PATH），
-并给本层全部子进程设 `CREATE_NO_WINDOW`。
+`node.exe` + 包内 `cli.js`。
+
+**node 用上层选定的绝对路径**：`exec.Command` 只按本进程的 PATH 找可执行文件，
+内置 node 不在 PATH 上时把字面量 `node` 交给它就是一句 `executable file not found`。
+顺序上先试闸门选中的那份（可能比 shim 旁边那个新），再试 shim 同目录，最后才问 PATH。
 
 **界面文本剥掉 ANSI**：内核与扩展按终端习惯给状态文字上色
 （`theme.fg("dim", "Cache 0.0%")` 经 RPC 原样送达，形如 `\x1b[39m\x1b[2m…\x1b[22;39m`）。
@@ -110,9 +113,11 @@ PI 认不出我们编出来的 `"1,3"` 之外的形态，重写出一个漂亮�
 | 会话运行中不删它的文件 | 不等 `agent_settled` 就删，PI 会往已删文件继续追加 |
 | 写 `settings.json` 只改掌管键 | PI 与用户还在里面写 `packages` / `cacheWarming` / `codemode`，整体重写会抹掉它们 |
 | 提问只按四个基元渲染 | 多选与自定义答案是扩展层的回退组合，界面自造控件会产出一个 PI 认不出的回答 |
+| 协议字段跟 PI 1.4 对齐 | `get_session_stats` 的 `tokens` / `contextUsage` 是嵌套对象，`steer` / `follow_up` 回的是 `disposition`；按旧形状解会静默拿到零值 |
 
 ## 取舍
 
 - **JSONL over stdio**：进程隔离干净、可离线测试（`pitest` 就是走真管道的假 PI）；代价是没有请求多路复用之外的背压手段。
 - **按工作目录分进程**：工具落到对的目录；代价是跨目录会话不能同时跑。
 - **不自动重启重发**：绝不重复副作用；代价是用户要手动点「重试」。
+- **升级后重启全部进程**：新内核与新插件都是启动期读的；代价是正在跑的对话会被中断。

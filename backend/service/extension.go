@@ -68,7 +68,8 @@ func (s *ExtensionService) List() (*domain.ExtensionListRESP, error) {
 	packages := []domain.PackageVO{}
 	for _, pkg := range resolvePackages(s.env) {
 		packages = append(packages, domain.PackageVO{
-			Source: pkg.Source, Name: pkg.Name, Path: pkg.Path, Missing: pkg.Missing,
+			Source: pkg.Source, Name: pkg.Name, Path: pkg.Path,
+			Missing: pkg.Missing, Kind: pkg.Kind, Version: pkg.Version,
 		})
 	}
 	return &domain.ExtensionListRESP{

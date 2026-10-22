@@ -9,6 +9,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useFilePeek } from '../../composables/filePeek'
 import type { GitDiffLineVO } from '../../types/api'
 import DiffView from '../workspace/DiffView.vue'
+import ResizableDrawer from '../common/ResizableDrawer.vue'
 
 const { t } = useI18n()
 const session = useSessionStore()
@@ -67,13 +68,12 @@ watch(
 </script>
 
 <template>
-  <el-drawer
+  <ResizableDrawer
     :model-value="!!peekPath"
-    direction="rtl"
-    size="720px"
+    storage-key="chat-file-peek"
     :title="relPath || peekPath"
     class="peek-drawer"
-    @close="closePeek()"
+    @update:model-value="(v: boolean) => { if (!v) closePeek() }"
   >
     <p v-if="error" class="peek-err">{{ error }}</p>
     <DiffView
@@ -84,7 +84,7 @@ watch(
       :dropped="dropped"
       :loading="loading"
     />
-  </el-drawer>
+  </ResizableDrawer>
 </template>
 
 <style scoped>

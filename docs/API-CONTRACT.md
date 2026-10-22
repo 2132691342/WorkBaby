@@ -69,9 +69,13 @@
 | GET | `/files?path=` | 工作区目录列举（@ 引用面板） |
 | GET | `/runtime` | 运行时状态（Node / Python / PI） |
 | POST | `/runtime/redetect` | 重新探测 |
-| GET | `/env` | 环境闸门快照 |
-| POST | `/env/install` / `/env/update` | 安装或更新 PI（进度走 `chat:setup`） |
+| GET | `/env` | 环境闸门快照（含 `install_error`：最近一次安装失败的原因） |
+| POST | `/env/install` / `/env/update` | 安装 / 升级 PI（进度走 `chat:setup`） |
 | POST | `/env/recheck` | 重新判定闸门 |
+| GET | `/engine/status` | 引擎本地快照：PI 版本与来源、运行中的进程数、运行时、插件包数量 |
+| GET | `/engine/latest` | 联网查最新版本：PI + npm 来源的插件包（查不到只报 `registry_error`） |
+| POST | `/engine/update` | 升级 PI 自身（装回它原来的前缀，完成后重启进程） |
+| POST | `/engine/packages/update` | 更新插件包 `{source}`（空 = 全部，走 `pi update`） |
 | GET | `/git/status` `/git/diff` `/git/history` `/git/commit` `/git/file-history` `/git/branches` | 只读版本视图；`/git/branches` 返回本地与远端分支 |
 | POST | `/git/stage` `/git/unstage` `/git/resolve` `/git/discard` `/git/commit` `/git/branch` `/git/branch/delete` `/git/switch` `/git/merge` `/git/state` `/git/pull` `/git/fetch` `/git/push` `/git/init` `/git/remote` `/git/message` | 受控写入（白名单动作）；`resolve` 标记冲突已解决、`state` 继续/中止未完成的合并或变基、`push` 支持分级强制推送、`message` 起草提交信息 |
 | GET | `/docs` / `/docs/:name` | 内置帮助文档 |

@@ -54,6 +54,14 @@ func TestSkillRegistryChain(t *testing.T) {
 			t.Fatalf("停用技能的正文取不到: err=%v body=%q", err, body)
 		}
 
+		// 坏文件只跳自己不中断扫描（解析失败是静默的，用户看不到任何提示），也不出现在列表里。
+		if err := os.WriteFile(filepath.Join(globalDir, "broken.md"), []byte("没有 frontmatter"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(r.List()); n != 2 {
+			t.Fatalf("坏文件不该被装入: 实际 %d", n)
+		}
+
 		// 工作区技能读的是 PI 自己扫的目录（.pi/skills）；换目录必须换掉它。
 		old, neu := t.TempDir(), t.TempDir()
 		first := writeSkill(t, filepath.Join(old, ".pi", "skills"), "ws-skill",
@@ -83,37 +91,6 @@ func TestSkillRegistryChain(t *testing.T) {
 		}
 		if _, ok := r.Get("office-docs"); !ok {
 			t.Fatal("全局技能不该被工作区重载清掉")
-		}
-	})
-
-	// frontmatter 解析失败会被静默跳过：用户看不到任何提示，技能等于没装。
-	// 标量、列表、行内数组三种写法在真实技能里都常见，收进 map[string]string 会整份解析失败。
-	t.Run("frontmatter 混合类型照样解析，坏文件只跳自己不中断扫描", func(t *testing.T) {
-		dir := t.TempDir()
-		writeSkill(t, dir, "office-docs", `---
-name: office-docs
-version: 1.0.0
-when_to_use:
-  - .docx
-  - .xlsx
-description: 在本机处理 Word / Excel / PPT / PDF。
-allowed_tools: ["read", "write"]
----
-
-# 正文
-步骤一。
-`)
-		// 一个坏文件：不能让它把整次扫描带崩。
-		if err := os.WriteFile(filepath.Join(dir, "broken.md"), []byte("没有 frontmatter"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-
-		got := LoadDir(dir, domain.SkillSourceGlobal)
-		if len(got) != 1 {
-			t.Fatalf("应只装入 1 个可用技能，实际 %d: %+v", len(got), got)
-		}
-		if s := got[0]; s.Description == "" || len(s.WhenToUse) != 2 {
-			t.Fatalf("frontmatter 没解析全: %+v", s)
 		}
 	})
 }

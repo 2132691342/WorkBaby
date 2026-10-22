@@ -11,6 +11,7 @@ import type { SkillVO } from '../../types/api'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 import CodeEditor from '../common/CodeEditor.vue'
+import ResizableDrawer from '../common/ResizableDrawer.vue'
 import SettingsSection from './SettingsSection.vue'
 
 const { t } = useI18n()
@@ -245,10 +246,14 @@ onMounted(() => {
       </template>
     </SettingsSection>
 
-    <el-drawer v-model="drawer" :title="opened?.name || t('settings.skills.content')" size="640px">
+    <ResizableDrawer
+      v-model="drawer"
+      storage-key="skill-content"
+      :title="opened?.name || t('settings.skills.content')"
+    >
       <p v-if="opened?.description" class="skill-drawer-desc">{{ opened.description }}</p>
       <CodeEditor :model-value="content" lang="markdown" readonly :min-height="420" />
-    </el-drawer>
+    </ResizableDrawer>
 
     <el-dialog v-model="creating" :title="t('settings.skills.create')" width="640px" destroy-on-close>
       <el-form label-position="top">

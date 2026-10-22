@@ -29,6 +29,8 @@ type Env struct {
 	// Chat 在容器装配期填入：会话服务要问它「这条会话在跑吗」。
 	Chat     *ChatService
 	Sessions *SessionService
+	// Providers 在容器装配期填入：引擎页与闸门要问它「有没有能用的模型」。
+	Providers *ProviderService
 	// PersonaPath 是附加系统提示文件，spawn PI 时用 --append-system-prompt 传入。
 	PersonaPath string
 

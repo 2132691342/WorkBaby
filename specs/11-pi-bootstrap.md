@@ -1,4 +1,4 @@
-﻿# 11 · PI 引导
+# 11 · PI 引导
 
 ## 目标
 
@@ -9,31 +9,53 @@
 
 | 步骤 | 判定 | 缺失时的动作 |
 |---|---|---|
-| Node | 系统 `node` ≥ 22 → 内置 | 直接用内置（首次用时解压） |
+| Node | 系统 `node` ≥ 22.19.0（PI 1.4 的 engines）→ 内置 | 直接用内置（首次用时解压） |
 | PI | `pi` 在 PATH 或 npm 全局前缀里 | 用内置 npm 全局装到应用目录 |
 | 模型 | `models.json` 里有带模型与密钥的服务 | 引导去设置页填一个 |
 
 闸门按上述顺序报**首个**阻塞项并给原因。前端 `bootstrap.pi_env.ready = false` 时强制进向导。
 
+**下界是完整版本号而不是主版本**：22.15 这类「看着够」的版本会让 PI 1.4 的依赖
+一路 `EBADENGINE`，所以系统 Node 不够时选内置那份，而不是将就着用。
+
 ## 装 PI
 
 ```
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+npm install -g --ignore-scripts --prefix <prefix> @earendil-works/pi-coding-agent
 ```
 
 | 规则 | 原因 |
 |---|---|
-| 有系统 npm 就用系统的 | 与用户自己的 `pi` 装在同一个前缀，终端里也能用 |
-| 没有则用内置 npm，前缀指向应用目录 | 系统前缀通常要管理员权限，写失败时用户完全看不懂错误 |
+| 前缀显式给出（首次装 = 应用目录） | 系统前缀通常要管理员权限，写失败时用户完全看不懂错误 |
+| npm 起进程用 `node + npm-cli.js`，且 node 用绝对路径 | `exec.Command` 只按本进程的 PATH 找可执行文件；内置 node 不在 PATH 上时，字面量 `node` 就是一句 `executable file not found` |
+| 内置 npm 的缓存落在数据目录 | 装失败不牵走用户的全局缓存，重试也干净 |
 | 输出按行回传（`chat:setup`） | npm 可能跑几十秒，没有进度界面会被当成卡死 |
+| 失败把最后一行输出带进错误 | 界面只剩「安装失败」时用户无从下手 |
 | `--ignore-scripts` | 不在安装期执行三方脚本 |
 
 装完再探一次：找不到 `pi` 就报「装好像成功了但找不到命令」，并提示检查前缀可写。
+失败原因同时记在引擎服务里，向导下一轮轮询就能看到 `pi_env.install_error`。
 
 ## 更新
 
-`POST /env/update` 与安装同一条路径（重跑一次 npm install -g）。
-更新 PI 后要重启进程：配置与扩展都是启动期读的。
+`POST /engine/update`（别名 `POST /env/update`）升级 PI 自身：
+
+| 情况 | 动作 |
+|---|---|
+| WorkBaby 自己装的那份 | `npm install -g --prefix <应用目录> @latest`，不另起一份 |
+| 系统里那份 | 从包目录反推前缀（`…/node_modules/<pkg>` 的父目录）后直装，装回原处 |
+| 直装失败 | 兜底交给 PI 自己的 `pi update` |
+
+升级完重启全部 PI 进程并重扫技能：配置与扩展都是启动期读的。
+
+## 版本对账
+
+| 读的是什么 | 来源 |
+|---|---|
+| 本地版本 | 包目录里 `package.json` 的 `version`（`pi --version` 只在探测入口时跑一次） |
+| 最新版本 | npm 注册表的 `dist-tags.latest`（abbreviated 元数据，缓存 5 分钟） |
+
+查询超时 12 秒、失败只说明「查不到」：网络断了面板仍要把本地状态说清楚。
 
 ## 首次启动留痕
 
@@ -51,3 +73,4 @@ startup: 内置 Python 不可用（将回退系统 python）：<原因>
 - **复用系统安装**：不重复下载 40MB+、终端与界面行为一致；代价是版本差异要靠闸门挡住。
 - **应用目录兜底安装**：免管理员权限；代价是这份 `pi` 只在 WorkBaby 的环境里可见（PATH 注入）。
 - **不预置模型配置**：密钥是用户的东西；代价是首次启动必须自己填一次（向导兜住）。
+- **升级走 npm 直装而不是只靠 `pi update`**：前缀说得准，代价是要自己维护这份参数。

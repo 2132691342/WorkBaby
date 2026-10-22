@@ -154,6 +154,24 @@ func (s *Supervisor) Running(workspace string) bool {
 	return s.Get(workspace) != nil
 }
 
+// RunningCount 数一数当前活着的进程：引擎页用它说明「升级后需要重启几个」。
+func (s *Supervisor) RunningCount() int {
+	s.mu.Lock()
+	procs := make([]*Proc, 0, len(s.procs))
+	for _, p := range s.procs {
+		procs = append(procs, p)
+	}
+	s.mu.Unlock()
+
+	n := 0
+	for _, p := range procs {
+		if p.Client != nil && p.Client.Alive() {
+			n++
+		}
+	}
+	return n
+}
+
 // RestartIdle 重启进程。这一层看不出「哪个工作区有会话在跑」，所以保守地全部重启。
 func (s *Supervisor) RestartIdle(ctx context.Context) error {
 	return s.RestartAll()

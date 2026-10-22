@@ -7,6 +7,7 @@ import * as api from '../../api'
 import { useToastStore } from '../../stores/toast'
 import type { GitCommitDetailVO, GitCommitVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
+import ResizableDrawer from '../common/ResizableDrawer.vue'
 import DiffView from './DiffView.vue'
 
 const props = defineProps<{ sessionId: string }>()
@@ -125,7 +126,7 @@ const detailDiff = computed(() => detail.value?.diff)
       </li>
     </ul>
 
-    <el-drawer v-model="open" :title="t('workspace.historyDetail')" size="560px">
+    <ResizableDrawer v-model="open" storage-key="git-commit-detail" :title="t('workspace.historyDetail')">
       <div v-if="detailLoading" class="hist-state"><span class="spin" />{{ t('common.loading') }}</div>
       <div v-else-if="detail" class="det">
         <header class="det-head">
@@ -164,9 +165,9 @@ const detailDiff = computed(() => detail.value?.diff)
           :loading="false"
         />
       </div>
-    </el-drawer>
+    </ResizableDrawer>
 
-    <el-drawer v-model="fileOpen" :title="t('workspace.fileHistory')" size="440px">
+    <ResizableDrawer v-model="fileOpen" storage-key="git-file-history" :title="t('workspace.fileHistory')">
       <p class="det-path file-title">{{ filePath }}</p>
       <div v-if="fileLoading" class="hist-state"><span class="spin" />{{ t('common.loading') }}</div>
       <ul v-else class="hist-list">
@@ -183,7 +184,7 @@ const detailDiff = computed(() => detail.value?.diff)
           </button>
         </li>
       </ul>
-    </el-drawer>
+    </ResizableDrawer>
   </div>
 </template>
 

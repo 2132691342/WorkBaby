@@ -102,8 +102,17 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		// 环境引导：闸门快照与 PI 的安装更新。
 		v1.GET("/env", h.EnvStatus)
 		v1.POST("/env/install", h.InstallPi)
-		v1.POST("/env/update", h.InstallPi)
+		v1.POST("/env/update", h.EngineUpdate)
 		v1.POST("/env/recheck", h.EnvStatus)
+
+		// 引擎：PI 与运行时的状态、版本对账、升级（设置页「助手引擎」）。
+		en := v1.Group("/engine")
+		{
+			en.GET("/status", h.EngineStatus)
+			en.GET("/latest", h.EngineLatest)
+			en.POST("/update", h.EngineUpdate)
+			en.POST("/packages/update", h.EngineUpdatePackages)
+		}
 
 		git := v1.Group("/git")
 		{

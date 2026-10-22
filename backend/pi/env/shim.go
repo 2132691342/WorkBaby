@@ -11,34 +11,30 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// resolvePiExe 把 PI 入口解析成 (exe, args)：shim 还原成 node + 入口脚本，.exe 原样用；
-// 解析不出脚本时退回原入口——跑错比不跑好，错误信息里带着真实原因。
-func resolvePiExe(exe string) (string, []string) {
+// resolvePiExe 把 PI 入口解析成 (exe, args)：shim 还原成 node + 入口脚本，.exe 原样用。
+// nodeExe 是上层选定的绝对 node 路径；解析不出任何可执行文件时返回空串，由调用方报错。
+func resolvePiExe(exe, nodeExe string) (string, []string) {
 	ext := strings.ToLower(filepath.Ext(exe))
-	switch ext {
-	case ".exe":
+	if ext == ".exe" {
 		return exe, nil
-	case ".cmd", ".bat":
-		// npm 的 shim 只做一件事：找到同目录的 node 与包里的 cli.js。
-		dir := filepath.Dir(exe)
-		script := shimScript(exe)
-		if script == "" {
-			return exe, nil
-		}
-		return shimNode(dir), []string{script}
-	default:
-		// .ps1 与无扩展名的 shim 同样是 node 脚本的包装。
-		dir := filepath.Dir(exe)
-		script := shimScript(exe)
-		if script == "" {
-			return exe, nil
-		}
-		return shimNode(dir), []string{script}
 	}
+	// .cmd / .bat / .ps1 与无扩展名的 shim 都是 node 脚本的包装。
+	dir := filepath.Dir(exe)
+	script := shimScript(exe)
+	if script == "" {
+		// 抽不到脚本时退回原入口：跑错比不跑好，错误信息里带着真实原因。
+		return exe, nil
+	}
+	return shimNode(dir, nodeExe), []string{script}
 }
 
-// shimNode 取 shim 同目录的 node.exe，没有则用 PATH 上的 node。
-func shimNode(dir string) string {
+// shimNode 取上层选定的绝对 node；没有才用 shim 同目录的，最后才问 PATH。
+// 绝不能退化成字面量 "node"：exec.Command 只查本进程的 PATH，内置 node 不在上面就是一句 not found。
+func shimNode(dir, nodeExe string) string {
+	// 顺序不能反：系统那份 pi.cmd 旁边的 node 往往比 PI 要求的版本旧。
+	if nodeExe != "" && pkg.FileExists(nodeExe) {
+		return nodeExe
+	}
 	local := filepath.Join(dir, "node.exe")
 	if pkg.FileExists(local) {
 		return local
@@ -49,7 +45,7 @@ func shimNode(dir string) string {
 	if exe, err := exec.LookPath("node"); err == nil {
 		return exe
 	}
-	return "node"
+	return ""
 }
 
 // shimScript 从 shim 文本里抽出入参脚本路径。

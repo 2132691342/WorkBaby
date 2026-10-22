@@ -262,6 +262,12 @@ func TestHTTPChain(t *testing.T) {
 		if list.Data.Entries == nil || list.Data.Packages == nil {
 			t.Fatalf("插件列表的数组字段发成了 null: %s", body)
 		}
+
+		// 引擎页能吐出一份可渲染的快照即可（字段与 UI 的对应关系归前端类型检查管）。
+		code, body = call(t, base, "GET", "/engine/status", nil)
+		if code != http.StatusOK || !strings.Contains(body, `"pi_ready":`) {
+			t.Fatalf("引擎状态读不到: %d %s", code, body)
+		}
 	})
 
 	// SSE 是唯一的运行态通道：假 PI 子进程 → Hub → 帧 → seq 递增 → 重连带游标重放。

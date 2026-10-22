@@ -302,15 +302,13 @@ func TestServiceChain(t *testing.T) {
 
 		names := te.events.names()
 		// done 必须是最后一个「结束」信号：重试与压缩都挂在 agent_end 之后。
+		// （流式增量与正文拼接的还原在 api 的 SSE 全链里断言，这里只管收尾次序。）
 		if names[len(names)-1] != domain.EventChatDone {
 			t.Fatalf("最后一个事件应当是 chat:done，实际 %q", names[len(names)-1])
 		}
 		// 自动重试期间界面必须收到 chat:retry，否则会以为卡死。
 		if !te.events.has(domain.EventChatRetry) {
 			t.Fatalf("没有 chat:retry: %v", names)
-		}
-		if !te.events.has(domain.EventChatStart) || !te.events.has(domain.EventChatDelta) {
-			t.Fatalf("流式事件没出来: %v", names)
 		}
 
 		// 假 PI 也落了盘：这条会话应当出现在列表里（会话索引与对话是两条独立的读路径）。
@@ -447,6 +445,10 @@ func TestServiceChain(t *testing.T) {
 		if exts.Packages[0].Missing {
 			t.Fatalf("已落地的包不该标 missing: %+v", exts.Packages[0])
 		}
+		// 版本与种类直接决定插件页能不能显示「可更新」：认错种类就不会走到 pi update。
+		if exts.Packages[0].Kind != domain.PackageKindNpm {
+			t.Fatalf("npm 包种类识别错了: %+v", exts.Packages[0])
+		}
 		if len(exts.Entries) != 1 || !exts.Entries[0].Enabled {
 			t.Fatalf("登记的扩展条目不对: %+v", exts.Entries)
 		}
@@ -460,6 +462,26 @@ func TestServiceChain(t *testing.T) {
 		}
 
 		// 服务商：密钥明文只落在 models.json 里（PI 就是这么读的），列表只给掩码。
+		// 校验顺序与界面字段顺序一致：名字 → 地址 → 模型，一次只说一件事。
+		if _, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{
+			API: domain.APIOpenAICompletions, BaseURL: "http://127.0.0.1:1234/v1",
+			Models: []domain.ModelREQ{{ID: "m1"}},
+		}); err == nil || !strings.Contains(err.Error(), domain.ErrProviderName.Message) {
+			t.Fatalf("空名字应当报 3109，而不是拿模型 ID 顶包: %v", err)
+		}
+		if _, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{
+			Name: "没地址", API: domain.APIOpenAICompletions,
+			Models: []domain.ModelREQ{{ID: "m1"}},
+		}); err == nil || !strings.Contains(err.Error(), domain.ErrProviderBaseURL.Message) {
+			t.Fatalf("空地址应当报 3113: %v", err)
+		}
+		if _, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{
+			Name: "空模型行", API: domain.APIOpenAICompletions, BaseURL: "http://127.0.0.1:1234/v1",
+			Models: []domain.ModelREQ{{ID: ""}},
+		}); err == nil || !strings.Contains(err.Error(), domain.ErrProviderModelID.Message) {
+			t.Fatalf("空白模型 ID 应当报 3111（而不是静默丢掉）: %v", err)
+		}
+
 		vo, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{
 			Name: "本地网关", API: domain.APIOpenAICompletions,
 			BaseURL: "http://127.0.0.1:1234/v1", APIKey: "sk-secret-1234567890",

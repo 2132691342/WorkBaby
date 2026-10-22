@@ -1,11 +1,11 @@
 <#
 验证入口：一个脚本收口全部验证动作。按「改了多大」选档，不要每次全跑。
 
-  pwsh scripts/check.ps1                  快门：格式 → 编译 → 各包短测试
-  pwsh scripts/check.ps1 -Pkg backend/pi  只验一个包
-  pwsh scripts/check.ps1 -Chain 提问       只跑名字命中的子测试（只编可能命中的包）
-  pwsh scripts/check.ps1 -List            列出全部测试入口与所在文件
-  pwsh scripts/check.ps1 -Full            全量门禁：+ 前端构建 + vet + 依赖边界 + 全量测试
+  pwsh scripts/check.ps1                  快门：格式 → 编译 → 各包短测试（约 10s）
+  pwsh scripts/check.ps1 -Pkg backend/pi  只验一个包（约 5s）
+  pwsh scripts/check.ps1 -Chain 提问       只跑名字命中的子测试（只编可能命中的包，约 9s）
+  pwsh scripts/check.ps1 -List            列出全部测试入口与子测试名（一棵可 grep 的索引）
+  pwsh scripts/check.ps1 -Full            全量门禁：+ 前端构建 + vet + 依赖边界 + 全量测试（约 65s）
   加 -Detail 把每个子测试都打出来（默认安静：几百行刷屏对定位没有帮助）
 
 档位怎么选：
@@ -13,6 +13,10 @@
   -short 跳过三条慢链路（真 git 子进程、运行时归档真解压、本机真 PI 回合），
   它们只在 -Full 跑到；CI 跑 -Full，所以本地不跑不等于没人跑。
   耗时大头是编译，不是断言——-Pkg / -Chain 省下的正是编译那一段。
+
+测试组织（与 AGENTS.md §3 同一份约定）：
+  一包一个入口 Test<Domain>Chain，子测试名就是一句「坏的现象」——
+  查找靠 -List 的索引与 -Chain 的名字片段，不靠搜代码。
 
 前端必须先于 Go 编译就位：main.go 的 //go:embed all:frontend/dist 在 dist 不存在时
 直接编译失败，而 dist 被 .gitignore 排除，全新 checkout（CI）上没有。
@@ -33,7 +37,6 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 # 有测试文件的包。写死在这里而不是用 go list 现算：go list 要加载整个模块图，
 # 单那一步就 3 秒，比整轮短测试还贵。清单漂了由 -Full 档的校验拦住（见 AssertTestPackages）。
 $TestPackages = @(
-    '.'
     './backend/api'
     './backend/git'
     './backend/pi'
@@ -174,7 +177,7 @@ if ($Chain) {
     # 关键字按中文标点与空白切段：链名里的「：」「、」不该让 grep 落空。
     $keys = @($Chain -split '[\s：:、,，]+' | Where-Object { $_ -and $_.Length -ge 2 } | Sort-Object -Unique)
     $testFiles = @(Get-ChildItem -Recurse -Include *_test.go -Path . |
-        Where-Object { $_.FullName -notmatch '\node_modules\\' })
+        Where-Object { $_.FullName -notmatch '\\node_modules\\' })
     $hit = @()
     foreach ($k in $keys) {
         $hit += @($testFiles | Where-Object { Select-String -Path $_.FullName -Pattern ([regex]::Escape($k)) -Quiet })

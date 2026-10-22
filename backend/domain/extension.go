@@ -24,14 +24,25 @@ type ExtensionVO struct {
 	Enabled bool   `json:"enabled"`
 }
 
-// PackageVO 是一条通过 pi install 装进来的包：来源 + 解包目录。
-// Path 为空表示登记了但没落地（装到一半失败，或者目录被删了）。
+// PackageVO 是一条通过 pi install 装进来的包：来源 + 解包目录 + 版本；Path 空表示登记了但没落地。
+// Version 只有本地包目录里读得到；LatestVersion 由联网检查填，空表示未检查或查不到。
 type PackageVO struct {
-	Source  string `json:"source"`
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	Missing bool   `json:"missing"`
+	Source        string `json:"source"`
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	Missing       bool   `json:"missing"`
+	Kind          string `json:"kind"`
+	Version       string `json:"version"`
+	LatestVersion string `json:"latest_version"`
+	Updateable    bool   `json:"updateable"`
 }
+
+// 包来源的种类：只有 npm 与 git 能被 pi update 搬到新版本。
+const (
+	PackageKindNpm   = "npm"
+	PackageKindGit   = "git"
+	PackageKindLocal = "local"
+)
 
 // ExtensionListRESP 是插件面板一次要的全部东西。
 type ExtensionListRESP struct {

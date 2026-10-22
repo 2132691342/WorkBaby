@@ -23,9 +23,10 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | 工具 | 设置 · 工具 | 清单来自会话里的工具声明，开关写 `defaultTools` |
 | MCP | 设置 · MCP | 配置原文编辑 + 在线状态与工具清单，支持 OAuth 登录 |
 | 技能 | 设置 · 技能 | 列出 PI 真正会加载的技能（用户目录 / 工作区 / 插件包），启停靠移目录 |
-| 插件 | 设置 · 插件 | 包走 `pi install/remove`，扩展走登记表；安装进度流式打到面板 |
+| 插件 | 设置 · 插件 | 包走 `pi install/remove/update`，扩展走登记表；安装进度流式打到面板，版本可对账 |
 | 工作区 | 工作区页 | 改动 / 提交 / 历史 / 分支：助手动了什么在这里对账并收成一次提交 |
 | 用量 | 仪表盘 | token 与估算花费（按天 / 模型 / 会话），全部来自会话文件 |
+| 引擎 | 设置 · 助手引擎 | PI 与内置运行时的状态、当前与最新版本、一键升级（完成后重启进程） |
 | 环境 | 环境向导 | 复用系统已有的 Node / Python / PI；缺了才用内置运行时兜底 |
 
 **界面只做「已有就在界面上暴露」**：不自研第二份 agent 能力，不另装审批闸门，
@@ -42,7 +43,7 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 │ server    路由 / SSE hub / 统一响应 / 方法白名单                 │
 │ api       薄 handler + 系统能力绑定 + 组合根（唯一 import wails） │
 │ service   编排：会话 / 对话 / 模型 / 技能 / 插件 / 工具 / MCP /   │
-│           统计 / 设置 / 工作区 / 文件 / 事件翻译                  │
+│           统计 / 引擎 / 设置 / 工作区 / 文件 / 事件翻译            │
 │ 能力域    pi（子进程 + 协议 + 会话索引）· skill · git · runtime   │
 │ repo      GORM（只有设置 KV）                                   │
 │ domain    域模型（DO / DTO / REQ / VO / RESP 同居一处）           │
@@ -61,6 +62,8 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | `backend/server` | 路由表、SSE hub、统一信封 | [API-CONTRACT](docs/API-CONTRACT.md) |
 | `frontend/src` | 界面：四块页面 + 一套设计令牌 | [PAGE-STRUCTURE](docs/PAGE-STRUCTURE.md) · [DESIGN](../DESIGN.md) |
 | 壳层（`app.go`） | Wails 生命周期、托盘、单实例、退出流程 | [04](specs/04-desktop-shell.md) |
+| `backend/domain` · `pkg` · `repo` | 域模型 / 叶子工具包 / 设置 KV | [DATA-MODEL](docs/DATA-MODEL.md) |
+| `backend/tray` · `singleinstance` | 托盘与单实例 | [04](specs/04-desktop-shell.md) |
 
 依赖方向是单向的：`server → api → service → 能力域 → repo → domain → pkg`，
 由 `tools/check-boundaries` 按编译器视角的真实 import 图把关。**能力域之间不互引**，

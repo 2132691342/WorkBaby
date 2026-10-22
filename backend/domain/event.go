@@ -228,4 +228,6 @@ type PiEnvVO struct {
 	ModelReady bool   `json:"model_ready"`
 	Ready      bool   `json:"ready"`
 	Blocking   string `json:"blocking"`
+	// InstallError 是最近一次安装失败的原因，向导页据此给出可执行的下一步。
+	InstallError string `json:"install_error"`
 }

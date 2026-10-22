@@ -5,9 +5,11 @@ import "WorkBaby/backend/pkg"
 
 var (
 	ErrProviderNotFound = pkg.New("3101", "模型服务不存在", "")
-	ErrProviderName     = pkg.New("3109", "请给这个服务起个能认的名字", "")
+	ErrProviderName     = pkg.New("3109", "给这个服务起个名字（会作为它的标识）", "")
 	ErrProviderAPI      = pkg.New("3108", "不支持的接口类型", "")
-	ErrProviderModel    = pkg.New("3110", "这个服务下还没有模型", "")
+	ErrProviderModel    = pkg.New("3110", "这个服务下还没有模型，至少加一个", "")
+	ErrProviderModelID  = pkg.New("3111", "有一个模型的 ID 是空的，补上或删掉它", "")
+	ErrProviderBaseURL  = pkg.New("3113", "先填接口地址（形如 https://api.example.com/v1）", "")
 )
 
 // API 取值：与 PI 的 models.json 一致。

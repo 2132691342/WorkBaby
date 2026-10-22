@@ -6,6 +6,8 @@ import type {
   BackgroundVO,
   BootstrapVO,
   CommandVO,
+  EngineLatestVO,
+  EngineStatusVO,
   ExtensionListRESP,
   FileListVO,
   GitBranchVO,
@@ -180,6 +182,18 @@ export const env = {
   install: () => post<boolean>('/env/install'),
   update: () => post<boolean>('/env/update'),
   recheck: () => post<PiEnvVO>('/env/recheck'),
+}
+
+/** 引擎：PI 与内置运行时的状态、版本对账与升级 */
+export const engine = {
+  /** 本地快照：不联网 */
+  status: () => get<EngineStatusVO>('/engine/status'),
+  /** 联网查最新版本（PI + npm 来源的插件包） */
+  latest: () => get<EngineLatestVO>('/engine/latest'),
+  /** 升级 PI；进度走 chat:setup 事件流 */
+  update: () => post<boolean>('/engine/update'),
+  /** 更新插件包；source 为空表示全部 */
+  updatePackages: (source = '') => post<boolean>('/engine/packages/update', { source }),
 }
 
 export const stats = (span: string) => get<StatsRESP>('/stats', { span })

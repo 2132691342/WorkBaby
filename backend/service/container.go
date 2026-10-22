@@ -20,6 +20,7 @@ type Container struct {
 	Git        *GitService
 	MCP        *MCPService
 	Stats      *StatsService
+	Engine     *EngineService
 }
 
 // New 装配全部服务；缺核心依赖即返回错误，不在运行期静默失效。
@@ -30,13 +31,16 @@ func New(env *Env) (*Container, error) {
 	sessions := NewSessionService(env)
 	providers := NewProviderService(env)
 	chat := NewChatService(env, sessions, providers)
-	env.Chat, env.Sessions = chat, sessions
+	env.Chat, env.Sessions, env.Providers = chat, sessions, providers
 
 	// PI 监督器：进程配置由 PiEnv 提供，事件交给按工作区划分的翻译器。
 	// 人设走 --append-system-prompt，不写用户的 APPEND_SYSTEM.md。
 	sup := pi.NewSupervisor(
 		func(workspace string) (pi.Config, error) {
-			exe, args := env.PiEnv.PiCommand()
+			exe, args, err := env.PiEnv.PiCommand()
+			if err != nil {
+				return pi.Config{}, err
+			}
 			if env.PersonaPath != "" {
 				// 人设参数排在 --mode 之前：pi.Config.Args 由客户端原样前置。
 				args = append(args, "--append-system-prompt", env.PersonaPath)
@@ -62,6 +66,7 @@ func New(env *Env) (*Container, error) {
 		Git:        NewGitService(env),
 		MCP:        NewMCPService(env),
 		Stats:      NewStatsService(env),
+		Engine:     NewEngineService(env),
 	}, nil
 }
 

@@ -9,7 +9,7 @@
 | 安装 | `pi install <source>` | 复制进 `extensions/` 并登记 |
 | 记录在 | `settings.json` 的 `packages` | `settings.json` 的 `extensions` |
 | 落地位置 | `~/.pi/agent/npm/node_modules/<name>` | `~/.pi/agent/extensions/<name>` |
-| 界面动作 | 安装 / 卸载 / 看目录 | 启用 / 停用 / 导入 / 删除 |
+| 界面动作 | 安装 / 卸载 / 看目录 / 看版本 / 更新 | 启用 / 停用 / 导入 / 删除 |
 
 ## 包
 
@@ -17,11 +17,22 @@
 来源写法：npm:@scope/pkg[@ver] · git:github.com/owner/repo[@ref] · ./本地目录 · https://…
 ```
 
-- 装 / 卸都调 PI 自己的 CLI，WorkBaby 不重写一遍包的解析与版本规则；
+- 装 / 卸 / 更新都调 PI 自己的 CLI，WorkBaby 不重写一遍包的解析与版本规则；
 - 输出按行回传（`chat:setup`）：npm 拉包可能几十秒，没有进度界面会被当成卡死；
-- 同一时刻只允许一个装 / 卸动作（并发 npm 会写坏同一个目录）；
+- 同一时刻只允许一个装 / 卸 / 更新动作（并发 npm 会写坏同一个目录）；
 - 清单里的包若目录不在，界面标「目录缺失」——静默消失会让人以为设置没保存；
 - 包自带的技能随包装卸，技能页把它们标为「插件包」且不可搬动。
+
+## 版本与更新
+
+| 读的 / 做的 | 怎么做 |
+|---|---|
+| 本地版本 | 读包目录里的 `package.json`（npm 与 git 都要能读） |
+| 最新版本 | npm 注册表的 `dist-tags.latest`；git 与本地目录不参与（它们的「新版」不是一个数字） |
+| 更新一个包 | `pi update <source>` |
+| 更新全部 | `pi update --extensions` |
+
+更新完同样重启进程。版本查不到不是错误：界面只不显示「可更新」。
 
 ## 扩展
 

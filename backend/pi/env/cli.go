@@ -1,36 +1,42 @@
-// PI 自带的包管理命令：装 / 卸插件包走 PI 自己的 CLI，WorkBaby 不重写一遍解析规则。
+// PI 自带的包管理命令：装 / 卸 / 升级插件包走 PI 自己的 CLI，WorkBaby 不重写一遍解析规则。
 package env
 
 import (
 	"bufio"
 	"io"
 	"os/exec"
+	"strings"
 
 	"WorkBaby/backend/pkg"
 )
 
-// RunCLI 跑一条 PI CLI 命令（`pi install` / `pi remove` / …），输出逐行回调。
+// RunCLI 跑一条 PI CLI 命令（`pi install` / `pi remove` / `pi update` / …），输出逐行回调。
 // 它复用与子进程完全相同的那份环境：内置 Node、agent 目录、npm 前缀。
 func (e *Env) RunCLI(args []string, onLine func(string)) error {
-	exe, extra := e.PiCommand()
-	if exe == "" {
-		return pkg.New("9709", "还没有安装助手引擎（PI）", "先去环境向导装它")
+	return e.runCLI(args, e.Env(), onLine)
+}
+
+// runCLI 是带环境覆盖的 CLI 调用；升级 PI 时要多带一层 npm 前缀，见 UpdatePi。
+func (e *Env) runCLI(args []string, env []string, onLine func(string)) error {
+	exe, extra, err := e.PiCommand()
+	if err != nil {
+		return err
 	}
 	cmd := exec.Command(exe, append(append([]string{}, extra...), args...)...)
-	cmd.Env = e.Env()
+	cmd.Env = env
 	cmd.Dir = e.AgentDir()
 	hideWindow(cmd)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return pkg.Wrap("9719", "无法读取插件命令输出", err)
+	stdout, perr := cmd.StdoutPipe()
+	if perr != nil {
+		return pkg.Wrap("9719", "无法读取插件命令输出", perr)
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return pkg.Wrap("9719", "无法读取插件命令输出", err)
+	stderr, perr := cmd.StderrPipe()
+	if perr != nil {
+		return pkg.Wrap("9719", "无法读取插件命令输出", perr)
 	}
-	if err := cmd.Start(); err != nil {
-		return pkg.Wrap("9719", "插件命令起不来", err)
+	if perr := cmd.Start(); perr != nil {
+		return pkg.Wrap("9719", "插件命令起不来", perr)
 	}
 	pumpLines(stdout, onLine)
 	pumpLines(stderr, onLine)
@@ -40,11 +46,11 @@ func (e *Env) RunCLI(args []string, onLine func(string)) error {
 	return nil
 }
 
-// RunCLIOutput 跑一条 PI CLI 命令并返回完整 stdout（用于 `pi mcp list --json` 这类结构化输出）。
+// RunCLIOutput 跑一条 PI CLI 命令并返回完整 stdout（用于 `pi list --json` 这类结构化输出）。
 func (e *Env) RunCLIOutput(args ...string) (string, error) {
-	exe, extra := e.PiCommand()
-	if exe == "" {
-		return "", pkg.New("9709", "还没有安装助手引擎（PI）", "先去环境向导装它")
+	exe, extra, err := e.PiCommand()
+	if err != nil {
+		return "", err
 	}
 	argv := append(append([]string{}, extra...), args...)
 	cmd := exec.Command(exe, argv...)
@@ -71,4 +77,41 @@ func pumpLines(r io.Reader, onLine func(string)) {
 			onLine(scanner.Text())
 		}
 	}
+}
+
+// lineTail 保留最后 N 行：命令失败时这几行就是给人看的唯一线索。
+type lineTail struct {
+	lines []string
+	max   int
+}
+
+func newLineTail(max int) *lineTail { return &lineTail{lines: make([]string, 0, max), max: max} }
+
+func (t *lineTail) add(line string) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
+	t.lines = append(t.lines, line)
+	if len(t.lines) > t.max {
+		t.lines = t.lines[len(t.lines)-t.max:]
+	}
+}
+
+// last 取最后一个非空行作为摘要；空时给一句兜底。
+func (t *lineTail) last() string {
+	for i := len(t.lines) - 1; i >= 0; i-- {
+		if s := strings.TrimSpace(t.lines[i]); s != "" {
+			return clipLine(s, 300)
+		}
+	}
+	return "命令没有输出，检查网络与 npm 注册表"
+}
+
+// clipLine 截断过长的一行，保留可读前缀。
+func clipLine(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }

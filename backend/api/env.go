@@ -3,16 +3,10 @@
 package api
 
 import (
-	"sync"
-
 	"WorkBaby/backend/domain"
-	"WorkBaby/backend/pkg"
 
 	"github.com/gin-gonic/gin"
 )
-
-// installMu 保证同一时刻只有一次安装：两次 npm install 并发会把 node_modules 写坏。
-var installMu sync.Mutex
 
 // EnvStatus 返回环境闸门快照。
 func (h *Handler) EnvStatus(c *gin.Context) {
@@ -26,7 +20,7 @@ func (h *Handler) buildPiEnv() *domain.PiEnvVO {
 	}
 	modelReady := h.Svc != nil && h.Svc.Providers.HasUsable()
 	vo := h.PiEnv.Detect(modelReady)
-	return &domain.PiEnvVO{
+	out := &domain.PiEnvVO{
 		NodeReady: vo.NodeReady, NodePath: vo.NodePath,
 		NodeVersion: vo.NodeVersion, NodeSource: vo.NodeSource, NodeError: vo.NodeError,
 		PythonReady: vo.PythonReady, PythonPath: vo.PythonPath,
@@ -36,33 +30,20 @@ func (h *Handler) buildPiEnv() *domain.PiEnvVO {
 		AgentDir:   vo.AgentDir,
 		ModelReady: vo.ModelReady, Ready: vo.Ready, Blocking: vo.Blocking,
 	}
+	if h.Svc != nil && h.Svc.Engine != nil {
+		out.InstallError = h.Svc.Engine.LastInstallError()
+	}
+	return out
 }
 
-// InstallPi 安装或更新 PI。
-// 系统能力绑定之外它只是触发一次 npm，进度走 SSE（install 是后台动作，接口立刻返回）。
+// InstallPi 安装 PI；进度走 SSE（安装是后台动作，接口立刻返回）。
+// 失败原因同时落进引擎服务的记录，向导页下一轮轮询就能看到「上一步到底为什么失败」。
 func (h *Handler) InstallPi(c *gin.Context) {
-	if h.PiEnv == nil {
-		fail(c, pkg.New("9704", "运行环境未装配", ""))
+	if h.Svc == nil || h.Svc.Engine == nil {
+		fail(c, domain.ErrEngineMissing)
 		return
 	}
-	if !installMu.TryLock() {
-		fail(c, pkg.New("9710", "正在安装，等这一趟结束", ""))
-		return
-	}
-	go func() {
-		defer installMu.Unlock()
-		h.emitSetup("install", 0, "正在安装助手引擎…")
-		err := h.PiEnv.InstallPi(func(line string) {
-			// npm 的每行输出都推给前端：看不到动就是在卡死。
-			h.emitSetup("install", 0, line)
-		})
-		if err != nil {
-			h.emitSetup("install", 0, "安装失败："+err.Error())
-			pkg.Errorf("env: 安装 PI 失败: %v", err)
-			return
-		}
-		h.emitSetup("install", 100, "助手引擎已就绪")
-	}()
+	go h.Svc.Engine.Install("", h.setupSink())
 	ok(c, true)
 }
 
@@ -75,4 +56,9 @@ func (h *Handler) emitSetup(phase string, progress int, message string) {
 	h.Emitter.Emit("", domain.EventChatSetup, domain.SetupData{
 		Phase: phase, Progress: progress, Message: message,
 	})
+}
+
+// setupSink 把安装输出接到事件流，同时保留最后一行给人看。
+func (h *Handler) setupSink() func(string) {
+	return func(line string) { h.emitSetup("install", 0, line) }
 }

@@ -108,9 +108,7 @@ func waitQuiet(t *testing.T, cond func() bool, timeout time.Duration) bool {
 func TestPiChain(t *testing.T) {
 	exe := piptest.Build(t)
 
-	// 协议层一条链验完：分帧（U+2028 是合法 JSON 字符，按它切会截断记录）、
-	// 未知记录不挡命令、响应按 id 各归各的、fire-and-forget 四种扩展请求字段完整。
-	// 分帧与命令关联坏掉的共同表现是「命令全部超时」。
+	// 协议层一条链验完：分帧、未知记录、按 id 关联、fire-and-forget 字段——坏了都是「命令全部超时」。
 	t.Run("协议：分帧、未知记录、按 id 关联与扩展请求字段", func(t *testing.T) {
 		client, rec := start(t, exe, "basic")
 		// 假 PI 首帧就发两条 setStatus（中间隔着 U+2028）：都到齐才算分帧正确。
@@ -127,7 +125,7 @@ func TestPiChain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get_session_stats 失败: %v", err)
 		}
-		if stats.TotalTokens != 1200 {
+		if stats.TotalTokens() != 1200 || stats.ContextTokens() != 1000 {
 			t.Fatalf("统计读串了: %+v", stats)
 		}
 
@@ -323,9 +321,7 @@ func TestPiChain(t *testing.T) {
 		sup.StopAll()
 	})
 
-	// 真内核链路：只在 -short 之外跑（起真的 PI，一轮对话要几十秒）。
-	// 假进程验协议形状，这条验「本机这份 PI 真的能对话」——两者坏的地方不一样：
-	// 假进程坏在编解码，真内核坏在入口解析、就绪握手、进程复用与会话落盘。
+	// 真内核链路：假进程验协议形状，这条验「本机这份 PI 真的能对话」（-short 跳过）。
 	t.Run("本机 PI 真实回合：就绪、建会话、两轮对话与进程复用", func(t *testing.T) {
 		checkLocalPITurn(t)
 	})

@@ -17,10 +17,12 @@ type Paths struct {
 	LogDir     string
 	TmpDir     string
 	RuntimeDir string
-	// NodeDir / PythonDir 是内置运行时；NpmGlobalDir 是「缺 PI 时」的安装前缀。
+	// NodeDir / PythonDir 是内置运行时；NpmGlobalDir 是「缺 PI 时」的安装前缀，
+	// NpmCacheDir 把它自己的缓存也收在数据目录里，装包失败时不会牵走用户的全局缓存。
 	NodeDir      string
 	PythonDir    string
 	NpmGlobalDir string
+	NpmCacheDir  string
 
 	// AgentDir 是 PI 的 agent 目录：默认 ~/.pi/agent，可用 PI_CODING_AGENT_DIR 覆盖。
 	// 它是唯一的配置真相源，WorkBaby 读写的就是用户 pi 命令读写的那一份。
@@ -66,6 +68,7 @@ func ResolveAt(root string) (Paths, error) {
 		PythonDir:    filepath.Join(root, "runtime", "python"),
 		NodeDir:      filepath.Join(root, "runtime", "node"),
 		NpmGlobalDir: filepath.Join(root, "runtime", "npm-global"),
+		NpmCacheDir:  filepath.Join(root, "runtime", "npm-cache"),
 		AgentDir:     agent,
 		SkillsDir:    filepath.Join(agent, "skills"),
 		// 停用的技能移出 PI 的扫描范围才算真停用；同层目录，不嵌套进 skills/。
@@ -78,7 +81,7 @@ func ResolveAt(root string) (Paths, error) {
 	}
 	for _, dir := range []string{
 		p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir,
-		p.BackgroundDir, p.SitePackages, p.NodeDir, p.NpmGlobalDir,
+		p.BackgroundDir, p.SitePackages, p.NodeDir, p.NpmGlobalDir, p.NpmCacheDir,
 	} {
 		if err := pkg.EnsureDir(dir); err != nil {
 			return Paths{}, err

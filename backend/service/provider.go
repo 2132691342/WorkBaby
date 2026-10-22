@@ -136,8 +136,11 @@ func (p *ProviderService) HasUsable() bool {
 }
 
 // Upsert 新增或更新一个服务商：只改我们掌管的字段，其余键原样保留。
+// 校验顺序就是界面从上到下的字段顺序（名字 → 地址 → 模型），一次只说一件不对的事。
 func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.ProviderVO, error) {
-	if strings.TrimSpace(req.Name) == "" && strings.TrimSpace(req.ID) == "" {
+	name := strings.TrimSpace(req.Name)
+	id := strings.TrimSpace(req.ID)
+	if name == "" && id == "" {
 		return nil, domain.ErrProviderName
 	}
 	api := req.API
@@ -147,13 +150,21 @@ func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.Provider
 	if !isKnownAPI(api) {
 		return nil, pkg.Wrap("3108", domain.ErrProviderAPI.Message, fmt.Errorf("%s", api))
 	}
+	// 自定义服务商没有内置接口地址可用，地址不填就无从上上游要东西。
+	baseURL := strings.TrimSpace(req.BaseURL)
+	if baseURL == "" {
+		return nil, domain.ErrProviderBaseURL
+	}
+	models, err := normalizeModels(req.Models)
+	if err != nil {
+		return nil, err
+	}
 	extra, providers, err := p.env.PiEnv.ReadModelsRaw()
 	if err != nil {
 		return nil, err
 	}
-	id := strings.TrimSpace(req.ID)
 	if id == "" {
-		id = slugOf(req.Name)
+		id = slugOf(name)
 	}
 	raw := providers[id]
 	fields := map[string]json.RawMessage{}
@@ -169,16 +180,14 @@ func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.Provider
 		}
 		fields[key] = encoded
 	}
-	set("name", firstNonEmpty(req.Name, id))
+	set("name", firstNonEmpty(name, id))
 	set("api", api)
-	set("baseUrl", strings.TrimSpace(req.BaseURL))
+	set("baseUrl", baseURL)
 	// 空密钥表示「不改」：界面上掩码是空的，用户没动它就不该把已存的密钥清掉。
 	if strings.TrimSpace(req.APIKey) != "" {
 		set("apiKey", strings.TrimSpace(req.APIKey))
 	}
-	if req.Models != nil {
-		set("models", toModelConfigs(req.Models))
-	}
+	set("models", toModelConfigs(models))
 	encoded, err := json.Marshal(fields)
 	if err != nil {
 		return nil, pkg.Wrap("3105", "这个服务商的配置写不出去", err)
@@ -193,6 +202,33 @@ func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.Provider
 	}
 	vo := toProviderVO(id, providerConfigOf(fields), settings.DefaultProvider == id)
 	return &vo, nil
+}
+
+// normalizeModels 校验模型清单：至少一个，且每个都得有 ID。
+// 空 ID 静默跳过会让界面「填了却没存」，所以它是一条错误而不是一次过滤。
+func normalizeModels(list []domain.ModelREQ) ([]domain.ModelREQ, error) {
+	if len(list) == 0 {
+		return nil, domain.ErrProviderModel
+	}
+	out := make([]domain.ModelREQ, 0, len(list))
+	seen := map[string]bool{}
+	for _, m := range list {
+		id := strings.TrimSpace(m.ID)
+		if id == "" {
+			return nil, domain.ErrProviderModelID
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		m.ID = id
+		m.Name = firstNonEmpty(m.Name, id)
+		out = append(out, m)
+	}
+	if len(out) == 0 {
+		return nil, domain.ErrProviderModel
+	}
+	return out, nil
 }
 
 // toModelConfigs 把界面上的模型行转成 PI 的模型条目。

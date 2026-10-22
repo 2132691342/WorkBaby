@@ -35,8 +35,8 @@ func (s *GitService) DraftCommitMessage(sessionID string, paths []string) *domai
 	if err != nil {
 		return &domain.GitMessageRESP{Err: err.Error()}
 	}
-	exe, args := s.piCommand()
-	if exe == "" {
+	exe, args, err := s.piCommand()
+	if err != nil || exe == "" {
 		return &domain.GitMessageRESP{Err: "还没有可用的助手引擎，先完成环境引导"}
 	}
 	// 只送统计与截断后的差异：全文可能几万行，塞进提示词既慢又贵，
@@ -76,9 +76,9 @@ func (s *GitService) DraftCommitMessage(sessionID string, paths []string) *domai
 	return &domain.GitMessageRESP{Message: msg}
 }
 
-func (s *GitService) piCommand() (string, []string) {
+func (s *GitService) piCommand() (string, []string, error) {
 	if s.env == nil || s.env.PiEnv == nil {
-		return "", nil
+		return "", nil, nil
 	}
 	return s.env.PiEnv.PiCommand()
 }

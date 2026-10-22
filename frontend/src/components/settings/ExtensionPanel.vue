@@ -7,7 +7,7 @@ import * as api from '../../api'
 import { useSetupLog } from '../../composables/useSetupLog'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
-import type { ExtensionListRESP, ExtensionVO, PackageVO } from '../../types/api'
+import type { ExtensionListRESP, ExtensionVO, PackageLatestVO, PackageVO } from '../../types/api'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 import SettingsSection from './SettingsSection.vue'
@@ -26,6 +26,53 @@ let logTimer = 0
 const entries = computed(() => data.value?.entries ?? [])
 const packages = computed(() => data.value?.packages ?? [])
 
+// 版本对账：本地版本读自包目录，最新版本联网查（引擎页同一个接口）。
+// 查不到不影响列表：只是不显示「可更新」。
+const latestMap = ref<Record<string, PackageLatestVO>>({})
+const checkingVer = ref(false)
+const outdated = computed(() =>
+  packages.value.filter((p) => latestMap.value[p.source]?.update_available),
+)
+
+async function checkVersions() {
+  if (checkingVer.value) return
+  checkingVer.value = true
+  try {
+    const r = await api.engine.latest()
+    const map: Record<string, PackageLatestVO> = {}
+    for (const item of r.packages ?? []) map[item.source] = item
+    latestMap.value = map
+  } catch {
+    latestMap.value = {}
+  } finally {
+    checkingVer.value = false
+  }
+}
+
+function versionOf(p: PackageVO): string {
+  const latest = latestMap.value[p.source]?.latest_version
+  if (p.version && latest && latest !== p.version) return `${p.version} → ${latest}`
+  return p.version ? `v${p.version}` : ''
+}
+
+/** 更新一个包或全部包：走 pi update，进度与装包同一路事件 */
+async function updatePackage(source = '') {
+  if (busy.value) return
+  busy.value = source ? `up:${source}` : 'update-all'
+  watchInstall()
+  try {
+    await api.engine.updatePackages(source)
+    await new Promise((r) => setTimeout(r, 2500))
+    await reload()
+    await checkVersions()
+    toast.ok(t('settings.extensions.reloaded'))
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    busy.value = ''
+  }
+}
+
 async function reload() {
   try {
     data.value = await api.extensions.list()
@@ -34,7 +81,6 @@ async function reload() {
     toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   }
 }
-
 async function toggle(e: ExtensionVO) {
   if (busy.value) return
   busy.value = `t:${e.path}`
@@ -138,7 +184,7 @@ async function restart() {
 
 onMounted(() => {
   if (settingsStore.extensions) data.value = settingsStore.extensions
-  void reload()
+  void reload().then(() => checkVersions())
 })
 onBeforeUnmount(() => {
   if (logTimer) clearTimeout(logTimer)
@@ -154,6 +200,24 @@ onBeforeUnmount(() => {
       :desc="t('settings.extensions.desc')"
     >
       <template #actions>
+        <el-button
+          size="small"
+          :loading="checkingVer"
+          :disabled="!!busy || checkingVer"
+          @click="checkVersions"
+        >
+          {{ checkingVer ? t('settings.engine.checking') : t('settings.engine.check') }}
+        </el-button>
+        <el-button
+          v-if="outdated.length"
+          size="small"
+          type="primary"
+          :loading="busy === 'update-all'"
+          :disabled="!!busy"
+          @click="updatePackage()"
+        >
+          {{ t('settings.extensions.updateAll') }}
+        </el-button>
         <el-button size="small" :loading="busy === 'import'" :disabled="!!busy" @click="importExt">
           {{ t('settings.extensions.import') }}
         </el-button>
@@ -217,9 +281,23 @@ onBeforeUnmount(() => {
                 <span class="ext-name">
                   {{ p.name }}
                   <el-tag v-if="p.missing" size="small" type="warning">{{ t('common.unknown') }}</el-tag>
+                  <el-tag v-if="versionOf(p)" size="small" type="info" class="ext-ver">{{ versionOf(p) }}</el-tag>
+                  <el-tag v-if="latestMap[p.source]?.update_available" size="small" type="warning">
+                    {{ t('settings.extensions.latest', { version: latestMap[p.source].latest_version }) }}
+                  </el-tag>
                 </span>
-                <span class="wb-mono" :title="p.path">{{ p.source }}</span>
+                <span class="wb-mono" :title="p.path || p.source">{{ p.source }}</span>
               </div>
+              <el-button
+                v-if="latestMap[p.source]?.update_available"
+                size="small"
+                type="primary"
+                :loading="busy === `up:${p.source}`"
+                :disabled="!!busy"
+                @click="updatePackage(p.source)"
+              >
+                {{ t('settings.extensions.update') }}
+              </el-button>
               <el-popconfirm :title="t('settings.extensions.removeTitle')" width="260" @confirm="uninstall(p)">
                 <template #reference>
                   <el-button size="small" :loading="busy === `u:${p.source}`" :disabled="!!busy">
@@ -299,6 +377,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ext-ver {
+  font-family: var(--font-mono);
 }
 .ext-del {
   display: grid;

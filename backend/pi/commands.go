@@ -32,19 +32,48 @@ type State struct {
 	PendingMessageCount   int    `json:"pendingMessageCount"`
 }
 
-// SessionStats 是 get_session_stats 的响应。
+// SessionStats 是 get_session_stats 的响应（PI 1.4 的形状：tokens / contextUsage 都是嵌套对象）。
 type SessionStats struct {
-	TotalTokens int     `json:"totalTokens"`
-	Input       int     `json:"input"`
-	Output      int     `json:"output"`
-	CacheRead   int     `json:"cacheRead"`
-	CacheWrite  int     `json:"cacheWrite"`
-	Cost        float64 `json:"cost"`
-	Context     int     `json:"context"`
-	Messages    int     `json:"messages"`
+	SessionFile string `json:"sessionFile"`
+	SessionID   string `json:"sessionId"`
+	User        int    `json:"userMessages"`
+	Assistant   int    `json:"assistantMessages"`
+	ToolCalls   int    `json:"toolCalls"`
+	ToolResults int    `json:"toolResults"`
+	Messages    int    `json:"totalMessages"`
+	Tokens      struct {
+		Input      int `json:"input"`
+		Output     int `json:"output"`
+		CacheRead  int `json:"cacheRead"`
+		CacheWrite int `json:"cacheWrite"`
+		Total      int `json:"total"`
+	} `json:"tokens"`
+	Cost float64 `json:"cost"`
+	// ContextUsage 在没有模型或认不出窗口时整段缺席。
+	ContextUsage *struct {
+		Tokens        *int `json:"tokens"`
+		ContextWindow int  `json:"contextWindow"`
+		Percent       *int `json:"percent"`
+	} `json:"contextUsage"`
 }
 
-// PromptResult 是 prompt 的响应数据。
+// TotalTokens 是会话累计用量（含工具与压缩调用）。
+func (s *SessionStats) TotalTokens() int {
+	if s == nil {
+		return 0
+	}
+	return s.Tokens.Total
+}
+
+// ContextTokens 是当前上下文占用；没有数据时返回 0。
+func (s *SessionStats) ContextTokens() int {
+	if s == nil || s.ContextUsage == nil || s.ContextUsage.Tokens == nil {
+		return 0
+	}
+	return *s.ContextUsage.Tokens
+}
+
+// PromptResult 是 prompt / steer / follow_up 的响应数据。
 type PromptResult struct {
 	// Disposition 取 started（开启了新 run）/ queued（运行中排队）/ handled（被扩展消费）。
 	Disposition string `json:"disposition"`
@@ -136,7 +165,7 @@ func (c *Client) Prompt(ctx context.Context, message, streamingBehavior string, 
 }
 
 // Steer 插话：当前轮工具跑完后生效。
-func (c *Client) Steer(ctx context.Context, message string, images []Image) (*QueueResult, error) {
+func (c *Client) Steer(ctx context.Context, message string, images []Image) (*PromptResult, error) {
 	body := map[string]any{"message": message}
 	if len(images) > 0 {
 		body["images"] = images
@@ -145,13 +174,13 @@ func (c *Client) Steer(ctx context.Context, message string, images []Image) (*Qu
 	if err != nil {
 		return nil, err
 	}
-	var res QueueResult
+	var res PromptResult
 	_ = json.Unmarshal(raw, &res)
 	return &res, nil
 }
 
 // FollowUp 排队：等助手彻底停下才投递。
-func (c *Client) FollowUp(ctx context.Context, message string, images []Image) (*QueueResult, error) {
+func (c *Client) FollowUp(ctx context.Context, message string, images []Image) (*PromptResult, error) {
 	body := map[string]any{"message": message}
 	if len(images) > 0 {
 		body["images"] = images
@@ -160,7 +189,7 @@ func (c *Client) FollowUp(ctx context.Context, message string, images []Image) (
 	if err != nil {
 		return nil, err
 	}
-	var res QueueResult
+	var res PromptResult
 	_ = json.Unmarshal(raw, &res)
 	return &res, nil
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 设置视图：左侧板块目录（三组）+ 右侧面板。当前板块落在 URL（/settings/:tab）上。
+// 设置视图：左侧板块目录（四组八项）+ 右侧面板。当前板块落在 URL（/settings/:tab）上。
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -8,6 +8,7 @@ import PageHeader from '../components/layout/PageHeader.vue'
 import SidePanel from '../components/layout/SidePanel.vue'
 import AppearancePanel from '../components/settings/AppearancePanel.vue'
 import BehaviorPanel from '../components/settings/BehaviorPanel.vue'
+import EnginePanel from '../components/settings/EnginePanel.vue'
 import ExtensionPanel from '../components/settings/ExtensionPanel.vue'
 import MCPPanel from '../components/settings/MCPPanel.vue'
 import ProviderPanel from '../components/settings/ProviderPanel.vue'
@@ -19,6 +20,10 @@ const route = useRoute()
 const router = useRouter()
 
 const GROUPS = [
+  {
+    key: 'engine',
+    items: [{ key: 'engine', icon: 'cpu' }],
+  },
   {
     key: 'model',
     items: [
@@ -58,8 +63,9 @@ watch(tab, (next) => {
   if (route.params.tab !== next) void router.replace({ name: 'settings', params: { tab: next } })
 })
 
-// 七个面板 v-if 懒挂载：只打开「外观」时不去拉模型服务与技能列表
+// 八个面板 v-if 懒挂载：只打开「外观」时不去拉模型服务与技能列表
 const PANELS = {
+  engine: EnginePanel,
   providers: ProviderPanel,
   skills: SkillPanel,
   extensions: ExtensionPanel,

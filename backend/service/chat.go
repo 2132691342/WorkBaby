@@ -197,9 +197,7 @@ func (c *ChatService) queueMessage(sessionID, content string, steer bool) error 
 	ctx, cancel := context.WithTimeout(context.Background(), promptAckTimeout)
 	defer cancel()
 
-	// 空闲时没有 run 在消费队列：走一次完整的发送记账，并回显这条消息。
-	// 与 Send 同一把会话锁，堵住「查空闲时还没人跑、发出去时已有新一轮」的窗口；
-	// 锁住后复查，真有 run 进来了就落到下面的 steer / follow_up。
+	// 空闲时没有 run 在消费队列：与 Send 同一把会话锁防竞态，锁住后复查再落到下面的 steer / follow_up。
 	if !c.IsRunning(sessionID) {
 		lock := c.lockOf(sessionID)
 		lock.Lock()

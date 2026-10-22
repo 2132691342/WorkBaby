@@ -47,6 +47,17 @@ function toggle(path: string) {
   picked.value = next
 }
 
+// 全选 / 取消全选：改动几十个文件时逐个点选是不现实的
+const allPicked = computed(() => files.value.length > 0 && pickedFiles.value.length === files.value.length)
+const somePicked = computed(() => pickedFiles.value.length > 0 && !allPicked.value)
+
+function toggleAll() {
+  if (busy.value) return
+  const next = new Set<string>()
+  if (!allPicked.value) for (const f of files.value) next.add(f.path)
+  picked.value = next
+}
+
 // 换了一批文件（提交完 / 刷新后）就按新状态重算勾选：留着上一次的勾会提交错东西
 function syncPicked() {
   const next = new Set<string>()
@@ -145,6 +156,18 @@ const hasConflict = computed(() => files.value.some((f) => f.conflict))
   <div class="cmt">
     <div class="cmt-files">
       <header class="cmt-head">
+        <el-tooltip
+          :content="allPicked ? t('workspace.unselectAll') : t('workspace.selectAll')"
+          placement="top"
+          :show-after="400"
+        >
+          <el-checkbox
+            :model-value="allPicked"
+            :indeterminate="somePicked"
+            :disabled="!!busy || !files.length"
+            @change="toggleAll"
+          />
+        </el-tooltip>
         <span class="wb-label">{{ t('workspace.files') }}</span>
         <span class="cmt-count">{{ pickedFiles.length }} / {{ files.length }}</span>
         <span class="sp" />
