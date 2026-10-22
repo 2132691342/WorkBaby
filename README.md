@@ -12,7 +12,7 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | | 能力 |
 |---|---|
 | 对话 | 流式正文、思考段、工具卡（参数 / 输出 / 耗时 / 就地看改动）按**原始顺序**内联；插话、排队、停止、自动重试提示 |
-| 命令 | 输入 `/` 开菜单：内置动作（压缩上下文 / 导出 / 复制 / 重载 / 换模型 …）+ 引擎报上来的扩展命令与提示模板 + 技能 |
+| 斜杠命令 | 输入 `/` 开菜单：内置动作（压缩上下文 / 导出 / 复制 / 重载 / 换模型 …）+ 引擎报上来的扩展命令与提示模板 + 技能 |
 | 会话 | 读 PI 的会话目录：终端里聊过的这里也看得到，点开接着聊 |
 | 提问 | PI 的扩展要确认 / 单选 / 填空时，界面出卡，回答写回内核 |
 | 模型 | 读写 PI 的 `models.json`：这里加的服务商，`pi` 命令立刻能用 |
@@ -22,7 +22,9 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | MCP | 配置原文编辑 + 在线状态与工具清单，支持 OAuth 登录 |
 | 工作区 | 改动 / 提交 / 历史 / 分支：助手动了什么，在这里对账并收成一次提交；对话里也能直接看单个文件的改动 |
 | 仪表盘 | token 与估算花费（按天 / 模型 / 会话），全部来自会话文件 |
-| 环境 | 复用系统已有的 Node / Python / PI；缺了才用内置运行时兜底 |
+| 环境 | 复用系统已有的 Node / Python / PI；缺了才用内置运行时兜底；装 PI 固定用内置 Node + 内置 npm，官方源与国内镜像自动选快的那个 |
+| 命令执行 | 自动找出真正可用的 bash（Git Bash / MSYS2 / Cygwin，含自定义安装目录），剔掉跑不动的 WSL 启动器；没有 bash 就改用 PowerShell 工具 |
+| 终端 | 生成 `pi` 的终端入口并挂到当前用户 PATH：新开一个终端就能直接敲 `pi` |
 
 「能看见」的落点是工具卡、提问卡、工作区差异与用量仪表盘；
 「能控制」的落点是每一个落盘配置的开关与 PI 自己的命令行。
@@ -82,13 +84,13 @@ WorkBaby/
 ## 开发
 
 ```bash
-wails dev                      # 热重载（前端改完自动刷新）
-pwsh scripts/check.ps1         # 快门：格式 + 编译 + 短测试（日常，约 10s）
-pwsh scripts/check.ps1 -Pkg backend/pi   # 只验一个包（只碰一个能力域时，约 5s）
-pwsh scripts/check.ps1 -Chain 提问   # 跨包只跑命中名字的链路（只编命中的包）
-pwsh scripts/check.ps1 -List   # 列全部测试入口与子测试名
-pwsh scripts/check.ps1 -Full   # vet + 依赖边界 + 全量测试 + 前端构建（发版前 / CI）
-wails build                    # 产物 build/bin/WorkBaby.exe
+wails dev                                # 热重载（前端改完自动刷新）
+pwsh scripts/check.ps1                   # 快门：格式 + 编译 + 短测试（日常，约 12s）
+pwsh scripts/check.ps1 -Pkg backend/pi    # 只验一个包（约 5s）
+pwsh scripts/check.ps1 -Run 冲突          # 只跑名字命中的子测试（约 12s）
+pwsh scripts/check.ps1 -List              # 列全部测试入口与子测试名（索引）
+pwsh scripts/check.ps1 -Full              # 前端构建 + vet + 依赖边界 + 全量测试（发版前 / CI）
+wails build                               # 产物 build/bin/WorkBaby.exe
 ```
 
 跑起来要 Go 1.24+、Node 24+、Wails CLI。PI 与模型不预装也行：环境向导会带用户装。
@@ -99,9 +101,8 @@ wails build                    # 产物 build/bin/WorkBaby.exe
 |---|---|
 | [AGENTS.md](AGENTS.md) | 工程规范（唯一权威：分包 / 依赖方向 / 错误码 / 测试 / 命名） |
 | [DESIGN.md](DESIGN.md) | 视觉语言与交互原则 |
-| [docs/OVERVIEW.md](docs/OVERVIEW.md) | **项目全景**：能力清单、模块地图、两个真相源、一次对话的链路、关键取舍 |
-| [docs/MODULES.md](docs/MODULES.md) | **模块设计**：每个模块是什么、怎么实现、为什么、优势与代价 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、启动时序、事件出口、消息顺序、前端状态归属 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层与依赖、启动时序、一次对话的链路、事件出口、消息顺序、前端状态归属、关键取舍 |
+| [docs/MODULES.md](docs/MODULES.md) | **模块设计**：模块与规格索引；每个模块是什么、怎么实现、为什么、优势与代价 |
 | [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 哪些数据属于 PI、哪些属于 WorkBaby、会话文件里读什么 |
 | [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP 与 SSE 契约（路径表 + 事件表） |
 | [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 页面与组件地图 |

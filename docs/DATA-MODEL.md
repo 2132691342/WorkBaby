@@ -5,7 +5,7 @@
 | 属于谁 | 存在哪 | 内容 |
 |---|---|---|
 | **PI** | `~/.pi/agent/`（或 `PI_CODING_AGENT_DIR`） | 会话 JSONL、`settings.json`、`models.json`、`mcp.json`、技能、扩展、包 |
-| **WorkBaby** | `%APPDATA%\WorkBaby\` | 只有界面偏好（KV 表）、内置运行时、日志、背景图副本 |
+| **WorkBaby** | `%APPDATA%\WorkBaby\` | 只有界面偏好（KV 表）、内置运行时、终端入口、日志、背景图副本 |
 
 会话、消息、用量都不在 WorkBaby 的库里：它们是 PI 写的文件，WorkBaby 只读。
 
@@ -52,8 +52,8 @@ type MessageBlock struct {
 ```
 
 `content` 与 `thinking` 两个字段仍然保留，但它们只是 `blocks` 的拼接结果（复制、
-旧响应兜底用）。**渲染只读 `blocks`**：按字段类型分组会把一轮里所有工具卡顶到正文前面，
-一次动作的先后就读不出来了。没有 `blocks` 的旧响应按 thinking → 正文 → 工具 兜底。
+旧响应兜底用）。**渲染只读 `blocks`**，顺序为什么是契约见 [ARCHITECTURE](ARCHITECTURE.md)
+「消息顺序」；没有 `blocks` 的旧响应按 thinking → 正文 → 工具 兜底。
 
 工具调用与它的结果分属两条消息：声明在 assistant 的块里，结果在紧随其后的
 `tool` 消息上（按 `tool_call_id` 对上号）。所以界面是一张卡，数据是两行。
@@ -99,8 +99,8 @@ func (SettingDO) TableName() string { return "settings" }
 | `bg_image` / `bg_opacity` / `bg_blur` | 自定义背景（图片复制进数据目录） |
 | `language` | 界面语言（zh-CN / en，前端 i18n 与 Element Plus 文案同步） |
 
-**为什么只留一张表**：会话与消息在 PI 的文件里，再存一份就是两本账——两本账迟早分叉，
-症状是「界面里有的对话，命令行里看不到」。单一真相源让这类分叉不可能发生。
+**为什么只留一张表**：会话与消息在 PI 的文件里，再存一份就会分叉，症状是
+「界面里有的对话，命令行里看不到」。单一真相源的纪律见 [ARCHITECTURE](ARCHITECTURE.md)「两个真相源」。
 
 迁移纪律是**只增不删**：`Migrate` 只创建 `settings` 一张表，不做任何 DROP。
 数据目录里可能残留历史版本写过的表，它们不被读写也不被清理——留着不影响任何路径，

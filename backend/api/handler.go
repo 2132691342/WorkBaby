@@ -101,6 +101,7 @@ func (h *Handler) Startup(ctx context.Context) error {
 
 	// PI 的运行环境：优先复用系统里已有的 Node / Python / PI。
 	h.PiEnv = pienv.New(paths)
+	preparePiEnv(h.PiEnv)
 
 	h.Skills = skill.New()
 	h.Emitter = service.NewEmitter()
@@ -114,6 +115,27 @@ func (h *Handler) Startup(ctx context.Context) error {
 	}
 	h.Svc = svc
 	return svc.Bootstrap()
+}
+
+// preparePiEnv 在装了 PI 的机器上顺手修两件事：命令执行环境、终端入口。
+// 都是幂等动作：配置已经对就什么都不写；用户只想用界面、不需要终端也不会受影响。
+func preparePiEnv(e *pienv.Env) {
+	if exe, _ := e.PiExe(); exe == "" {
+		return
+	}
+	if st, err := e.EnsureShell(); err != nil {
+		pkg.Warnf("startup: 修正命令执行环境失败: %v", err)
+	} else if st.Applied {
+		pkg.Infof("startup: 命令执行环境已改为 %s（%s）", st.Kind, st.Path)
+	}
+	// 只有自己装的 PI 才自动挂 PATH：系统里那份归用户自己管。
+	if e.OwnsInstall() {
+		if st := e.TerminalStatusOf(); !st.Ready {
+			if _, err := e.EnsureTerminal(); err != nil {
+				pkg.Warnf("startup: 生成终端入口失败: %v", err)
+			}
+		}
+	}
 }
 
 // reportRuntime 解压并留痕内置运行时：提前做是为了让失败点落在启动日志里。

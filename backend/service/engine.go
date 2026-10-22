@@ -42,10 +42,36 @@ func (s *EngineService) Status() *domain.EngineStatusVO {
 		Packages:     len(resolvePackages(s.env)),
 		InstallError: s.LastInstallError(),
 	}
+	shell := s.env.PiEnv.ShellStatusOf()
+	vo.ShellKind, vo.ShellPath = shell.Kind, shell.Path
+	vo.ShellUsable, vo.ShellError = shell.Usable, shell.Error
+	terminal := s.env.PiEnv.TerminalStatusOf()
+	vo.TerminalReady, vo.TerminalPath = terminal.Ready, terminal.Shim
+	vo.TerminalOnPath, vo.TerminalError = terminal.OnPath, terminal.Error
 	if sup := s.env.PiSupervisor(); sup != nil {
 		vo.Running = sup.RunningCount()
 	}
 	return vo
+}
+
+// FixShell 重新探测命令执行环境并写回 PI；用户刚装了 Git 之后点这个。
+func (s *EngineService) FixShell() (pienv.ShellStatus, error) {
+	st, err := s.env.PiEnv.EnsureShell()
+	if err != nil {
+		return st, err
+	}
+	// 工具集是进程启动期读的：改了 defaultTools 就得让旧进程换新。
+	if st.Applied {
+		if sup := s.env.PiSupervisor(); sup != nil {
+			_ = sup.RestartAll()
+		}
+	}
+	return st, nil
+}
+
+// EnableTerminal 生成终端入口并挂到用户 PATH，让终端里也能敲 pi。
+func (s *EngineService) EnableTerminal() (pienv.TerminalStatus, error) {
+	return s.env.PiEnv.EnsureTerminal()
 }
 
 // Latest 联网查最新版本：PI 与全部 npm 来源的插件包。
@@ -85,9 +111,34 @@ func (s *EngineService) Install(target string, onLine func(string)) error {
 	err := s.env.PiEnv.InstallPi(target, onLine)
 	s.record(err)
 	if err == nil {
+		s.prepareRuntime(onLine)
 		s.restartAll()
 	}
 	return err
+}
+
+// prepareRuntime 装完顺手办掉两件环境事：命令执行环境与终端入口。
+// 少了这两步，用户装完只会遇到「命令跑不了」和「终端里没有 pi」。
+func (s *EngineService) prepareRuntime(onLine func(string)) {
+	if onLine != nil {
+		onLine("正在准备命令执行环境…")
+	}
+	if st, err := s.env.PiEnv.EnsureShell(); err != nil {
+		if onLine != nil {
+			onLine("命令执行环境未能自动修复：" + err.Error())
+		}
+	} else if onLine != nil {
+		onLine("命令执行环境：" + pienv.ShellLabel(st) + "（" + st.Path + "）")
+	}
+	st, err := s.env.PiEnv.EnsureTerminal()
+	switch {
+	case err != nil:
+		if onLine != nil {
+			onLine("终端入口生成失败：" + err.Error())
+		}
+	case onLine != nil:
+		onLine("终端入口：" + st.Shim + "（新开的终端里可直接敲 pi）")
+	}
 }
 
 // Update 升级已装的 PI，升级完重启全部进程让新内核生效。
@@ -105,6 +156,10 @@ func (s *EngineService) Update(onLine func(string)) error {
 	defer s.restartAll()
 	err := s.env.PiEnv.UpdatePi(onLine)
 	s.record(err)
+	// 自己装的那份才有终端入口要刷新；系统那份本来就在用户 PATH 上。
+	if err == nil && s.env.PiEnv.OwnsInstall() {
+		_, _ = s.env.PiEnv.EnsureTerminal()
+	}
 	return err
 }
 

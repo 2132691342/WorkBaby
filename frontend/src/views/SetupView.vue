@@ -22,6 +22,8 @@ const loading = ref(true)
 const loadErr = ref('')
 const installing = ref(false)
 const rechecking = ref(false)
+const fixingShell = ref(false)
+const enablingTerminal = ref(false)
 // 上一次安装失败的原因：闸门快照里带回来，比只看日志尾巴靠谱
 const installErr = ref('')
 
@@ -131,6 +133,47 @@ async function install() {
   }
 }
 
+/**
+ * 命令执行环境坏了，助手一条命令都跑不了。
+ * 这一步不阻塞对话，所以不做成第四步，只在装好 PI 之后给一条带修复按钮的提示。
+ */
+const shellBroken = computed(() => {
+  const e = env.value
+  return !!e?.pi_ready && (!e.shell_usable || e.shell_kind === 'powershell')
+})
+
+const terminalMissing = computed(() => !!env.value?.pi_ready && !env.value?.terminal_ready)
+
+async function fixShell() {
+  if (fixingShell.value) return
+  fixingShell.value = true
+  try {
+    env.value = await api.env.fixShell()
+    if (!env.value?.shell_usable) {
+      toast.bad(t('setup.shellBroken', { msg: env.value?.shell_error || '' }))
+      return
+    }
+    toast.ok(env.value.shell_kind === 'powershell' ? t('setup.shellNoBash') : t('setup.shellFixed'))
+  } catch (e) {
+    toast.bad(t('setup.shellBroken', { msg: (e as Error)?.message || '' }))
+  } finally {
+    fixingShell.value = false
+  }
+}
+
+async function enableTerminal() {
+  if (enablingTerminal.value) return
+  enablingTerminal.value = true
+  try {
+    env.value = await api.env.enableTerminal()
+    toast.ok(t('setup.terminalDone'))
+  } catch (e) {
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+  } finally {
+    enablingTerminal.value = false
+  }
+}
+
 async function afterProviderSaved() {
   await recheck()
 }
@@ -208,6 +251,35 @@ onMounted(() => {
             </div>
           </li>
         </ol>
+
+        <!-- 装好引擎之后才谈得上命令执行环境：这两条都是「能用」与「好用」的差别 -->
+        <div v-if="shellBroken" class="notice-bar notice-bar--warn setup-note">
+          <AppIcon name="alert" size="ic-xs" />
+          <div class="setup-note-tx">
+            <p>
+              {{
+                env?.shell_usable
+                  ? t('setup.shellNoBash')
+                  : t('setup.shellBroken', { msg: env?.shell_error || '' })
+              }}
+            </p>
+            <p class="step-hint">{{ t('setup.shellFixHint') }}</p>
+          </div>
+          <el-button size="small" :loading="fixingShell" :disabled="fixingShell" @click="fixShell">
+            {{ fixingShell ? t('setup.shellFixing') : t('setup.shellFix') }}
+          </el-button>
+        </div>
+
+        <div v-if="terminalMissing" class="notice-bar setup-note">
+          <AppIcon name="info" size="ic-xs" />
+          <div class="setup-note-tx">
+            <p>{{ t('setup.terminalMissing') }}</p>
+            <p class="step-hint">{{ t('setup.terminalHint') }}</p>
+          </div>
+          <el-button size="small" :loading="enablingTerminal" :disabled="enablingTerminal" @click="enableTerminal">
+            {{ enablingTerminal ? t('setup.terminalEnabling') : t('setup.terminalEnable') }}
+          </el-button>
+        </div>
 
         <div v-if="installLines.length || installing" class="wb-card setup-card">
           <div class="wb-label">{{ t('setup.installLog') }}</div>
@@ -379,6 +451,28 @@ onMounted(() => {
   font-size: var(--wb-fs-2xs);
   line-height: 1.6;
   white-space: pre-wrap;
+}
+.setup-note {
+  align-items: center;
+  animation: setup-note-in var(--wb-dur) var(--wb-ease);
+}
+.setup-note-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: var(--wb-lh-base);
+}
+@keyframes setup-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-4px * var(--wb-vw-scale)));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .setup-foot {
   display: flex;

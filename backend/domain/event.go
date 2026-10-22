@@ -230,4 +230,15 @@ type PiEnvVO struct {
 	Blocking   string `json:"blocking"`
 	// InstallError 是最近一次安装失败的原因，向导页据此给出可执行的下一步。
 	InstallError string `json:"install_error"`
+
+	// 命令执行环境：PI 的 bash / powershell 工具靠它跑命令，坏了助手一条命令都执行不了。
+	ShellKind   string `json:"shell_kind"`
+	ShellPath   string `json:"shell_path"`
+	ShellUsable bool   `json:"shell_usable"`
+	ShellError  string `json:"shell_error"`
+	// 终端入口：让用户在 PowerShell / cmd 里也能敲 pi。
+	TerminalReady  bool   `json:"terminal_ready"`
+	TerminalPath   string `json:"terminal_path"`
+	TerminalOnPath bool   `json:"terminal_on_path"`
+	TerminalError  string `json:"terminal_error"`
 }

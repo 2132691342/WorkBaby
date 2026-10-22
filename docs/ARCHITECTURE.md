@@ -8,32 +8,24 @@
 ## 分层
 
 ```
-┌──────────────────────────────────────────────┐
-│ 前端（Vue 3 + TS）：视图 / Pinia / SSE 订阅      │
-└───────────────┬──────────────────────────────┘
-        HTTP（gin，回环随机端口）+ SSE
-┌───────────────▼──────────────────────────────┐
-│ server（路由 / SSE hub / 统一响应 / 方法白名单） │
-│ api（薄 handler + 系统能力绑定 + 组合根）         │
-│ service（编排：会话 / 对话 / 模型 / 技能 / 插件…） │
-│ 能力域：pi（子进程 + 协议 + 会话索引）· skill · git │
-│ repo（GORM，只有设置 KV）· domain（域模型）        │
-│ pkg（叶子工具包：AppError / ID / 日志 / httprules） │
-└──────────────────────────────────────────────┘
+前端（Vue 3 + TS）：视图 / Pinia store / SSE 订阅
+  ↓ HTTP（gin，回环随机端口）+ SSE
+server    路由 / SSE hub / 统一响应 / 方法白名单
+  ↓
+api       薄 handler + 系统能力绑定 + 组合根（唯一 import wails 的包）
+  ↓
+service   编排：会话 / 对话 / 模型 / 技能 / 插件 / 工具 / MCP / 统计 / 引擎 / 工作区 …
+  ↓
+能力域    pi（子进程 + 协议 + 会话索引）· skill · git · runtime
+  ↓
+repo      GORM（只有设置 KV）
+domain    域模型（DO / DTO / REQ / VO / RESP 同居一处）
+pkg       叶子工具包（AppError / ID / 日志 / httprules / fsutil）
 ```
 
-| 层 | 职责 | 禁止 |
-|---|---|---|
-| `server` | 路由、SSE hub、统一响应、方法白名单 | 引 service / repo / 能力域 |
-| `api` | 薄 handler（解析参数 → 调 service → 统一信封）+ 系统能力绑定 + 组合根 | handler 绕过 service 直写业务 |
-| `service` | 业务编排、事务边界、事件翻译 | 引 gin / wails / api / server；写 SQL |
-| 能力域 `pi` / `skill` / `git` | 子进程与协议 / 技能目录 / 受控 git 写入 | 回引 api / service / server |
-| `repo` | GORM 持久化 | 引上层 |
-| `domain` | 域模型（DO / DTO / REQ / VO / RESP 同居一处） | 引任何上层 |
-| `pkg` | 叶子工具包 | 引任何其他 backend 业务包 |
-
-依赖方向由 `tools/check-boundaries` 按编译器视角的真实 import 图检查（`go list -json`），
-不做文本 grep——注释与字符串里的 import 字样会让 grep 得出错误结论。
+每层能依赖谁、禁止依赖谁，唯一权威表在 [`AGENTS.md` §2.2](../AGENTS.md)；
+这张图只表达顺序与数据流。依赖方向由 `tools/check-boundaries` 按编译器视角的真实
+import 图检查（`go list -json`），不做文本 grep——注释与字符串里的 import 字样会让 grep 得出错误结论。
 
 **api = 组合根**：`Handler.Startup` 是唯一装配入口，持有 Repo / Cfg / 子进程句柄。
 业务 handler 方法必须经 service 走流程，唯一例外是查询型系统能力（运行时状态检测）。
@@ -73,6 +65,14 @@ wails.Run
 端口握手是硬约束：`app:ready` 先于前端 axios 初始化就会漏掉事件。
 所以端口有两条路可拿：事件（已注册监听器的场景）与 `ServerPort()` 绑定方法（随时可拉，幂等），
 前端启动时两条并行，谁先到算谁的——不靠重复广播去蒙一个时间窗口。
+
+## 运行态通道
+
+| 通道 | 用途 |
+|---|---|
+| HTTP（gin，只绑 127.0.0.1 + 随机端口） | 全部业务接口；只允许 GET / POST，路径变量必须在末尾 |
+| SSE `/api/v1/events` | 唯一运行态通道：事件流 + `last_event_id` 重放 + 缓冲溢出时 `chat:gap` |
+| Wails 绑定（7 个方法） | 只保留系统能力：端口查询 / 退出 / 对话框 / 自启 |
 
 ## 一次对话
 
@@ -165,11 +165,11 @@ PI 的扩展可以 `ctx.ui.confirm/select/input/editor` 问用户。这些请求
 
 ## 页面边界
 
-界面只保留四块页面，各自回答一个真问题：**聊得怎么样（对话）**、**它动了什么（工作区）**、
-**花了多少（仪表盘）**、**怎么配（设置 + 帮助）**。
+六个路由，各自回答一个真问题：**聊得怎么样（对话）**、**它动了什么（工作区）**、
+**花了多少（仪表盘）**、**怎么配（设置 + 帮助）**，外加首次启动的**环境向导**。
 
 不为「看起来全」加总览页。这条边界的判据是「PI 是否已有」：已有就在界面上暴露它，
-不自研第二份。
+不自研第二份。路由与每页内容的细节见 [PAGE-STRUCTURE](PAGE-STRUCTURE.md)。
 
 ## 端口与安全
 

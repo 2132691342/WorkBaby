@@ -4,6 +4,22 @@
 包结构与依赖方向的硬规则在 `AGENTS.md`，启动与请求时序在 `ARCHITECTURE.md`；
 这里是每个模块自己的设计账。
 
+## 模块与规格索引
+
+| 模块 | 负责什么 | 规格 |
+|---|---|---|
+| `backend/server` | 路由表、SSE hub、统一信封、方法白名单 | [API-CONTRACT](API-CONTRACT.md) |
+| `backend/api` | 薄 handler + 系统能力绑定 + 组合根 | [API-CONTRACT](API-CONTRACT.md) |
+| `backend/service` | 全部业务编排与事件翻译 | 各规格 |
+| `backend/pi` | PI 子进程监督、RPC 编解码、事件归一、会话文件索引 | [10](../specs/10-pi-supervisor.md) |
+| `backend/pi/env` | 运行时复用、PI 安装与探测、命令执行环境、终端入口、配置互通 | [11](../specs/11-pi-bootstrap.md) |
+| `backend/skill` | 技能解析与注册表（目录即 PI 的技能目录） | [03](../specs/03-skill.md) |
+| `backend/git` | 工作区版本视图（读全开放 + 写白名单动作） | [08](../specs/08-workspace-git.md) |
+| `backend/runtime` | 路径解析 + 内置 Node / Python 运行时 | [01](../specs/01-runtime.md) |
+| `backend/repo` · `domain` · `pkg` | 设置 KV / 域模型 / 叶子工具包 | [DATA-MODEL](DATA-MODEL.md) |
+| `frontend/src` | 六个路由视图 + 一套设计令牌 | [PAGE-STRUCTURE](PAGE-STRUCTURE.md) · [DESIGN](../DESIGN.md) |
+| 壳层（`app.go`）· `tray` · `singleinstance` | Wails 生命周期、托盘、单实例、退出流程 | [04](../specs/04-desktop-shell.md) |
+
 目录顺序即依赖顺序（上层在先、叶子在后）。
 
 ## server — HTTP 边界
@@ -108,25 +124,25 @@ PI 改协议这里最先碎。
 
 ## backend/pi/env — 环境引导与配置互通
 
-**是什么**：PI 的发现与安装、环境闸门判定、`models.json` / `settings.json` / `mcp.json` 的读写。
+**是什么**：PI 的发现与安装、环境闸门判定、命令执行环境与终端入口的准备、
+`models.json` / `settings.json` / `mcp.json` 的读写。
 
 **怎么实现**：
 
 - 发现：PATH → npm 前缀（内置 npm-global）逐级找 `pi.cmd`；找到后把 shim 还原成
-  `node + cli.js`（入口解析）。**node 永远是绝对路径**：`exec.Command` 只按本进程的 PATH
-  找可执行文件，内置 node 不在 PATH 上时把字面量 `node` 交给它就是一句 `not found`
-- 安装 / 升级：npm 起进程用 `node + npm-cli.js`，前缀显式给出（自己那份写回应用目录，
-  系统那份从包目录反推）；装完清掉版本与入口解析缓存
+  `node + cli.js`。**node 永远是绝对路径**：`exec.Command` 只按本进程的 PATH 找可执行文件
+- 安装 / 升级：固定用**内置** `node + npm-cli.js`，前缀显式给出；官方源与国内镜像并联探测，
+  一趟失败换另一个源整跑一遍（完整流程与原因见 [specs/11](../specs/11-pi-bootstrap.md)）
 - 版本对账：本地版本读包目录的 `package.json`，最新版本问 npm 注册表的
-  `dist-tags.latest`（abbreviated 元数据 + 5 分钟缓存 + 12 秒超时）
-- 闸门 `Detect`：按 node → pi → model 顺序报**第一个**不满足项并给原因——
-  用户只需要知道下一步做什么，不需要一次看到三个问题
-- `WriteModels`：camelCase 字段（PI 认的形状）+ 未知字段原样保留（`$schema`、`compat`
-  这些用户手写的东西不能被整体重写裁掉）
-- `WriteSettings`：**只改掌管键**（默认模型、思考档、压缩参数、defaultTools、packages、extensions），
-  其余字段字段级合并——PI 和用户还在里面写 `cacheWarming` / `codemode`
-- `mcp.json` 由用户与其它客户端共管：只做原文往返，不碰内容
-- 全部写入走 `WriteFileAtomic`：临时文件 + 原子替换，不留 `.tmp-*` 残留
+  `dist-tags.latest`（abbreviated 元数据 + 5 分钟缓存 + 12 秒超时 + 换源重试）
+- 命令执行环境（`shell.go`）：找真 bash（环境变量 / 注册表 / PATH 上的 `git.exe` 反推安装根）、
+  按路径剔除 WSL 启动器、真跑一次验证；有 bash 写 `shellPath`，没有就把 `defaultTools`
+  增量换成 `+powershell` / `-bash`。自己写过的值记在 `runtime/shell.json` 才敢撤回
+- 终端入口（`terminal.go`）：写 `<data>/bin/pi.cmd`（钉死内置 node）+ 追加到 HKCU
+  `Environment\Path`，写后广播 `WM_SETTINGCHANGE`
+- 闸门 `Detect`：按 node → pi → model 顺序报**第一个**不满足项并给原因
+- `WriteModels` / `WriteSettings`：camelCase 形状、未知字段原样保留、只改掌管键、字段级合并；
+  `mcp.json` 只做原文往返；全部写入走 `WriteFileAtomic`
 
 **为什么**：agent 目录是用户的（`PI_CODING_AGENT_DIR` 只继承不覆盖），WorkBaby 是
 「共享租户」不是「所有者」——写配置的每一条纪律都从这来。
@@ -208,7 +224,7 @@ PI 改协议这里最先碎。
 - 归档经 `go:embed` 进 exe（Git LFS 托管源文件），启动装配期解压到数据目录，
   `.version` 标记命中版本跳过；解压前逐条目路径检查（拒绝绝对路径与 `..`）、512MB 上限；
   嵌进去的是 LFS 指针文本时按「包不可用」报错
-- 内置运行时是**兜底**：系统已有合规版本（Node ≥ 22、Python 3.x）直接复用；
+- 内置运行时是**兜底**：系统已有合规版本（Node ≥ 22.19.0、Python 3.x）直接复用；
   Node 官方 zip 多一层顶层目录，解压时剥掉平铺（否则 `npm.cmd` 找错 node）
 - PowerShell 从不内置，走系统自带的 5.1
 
@@ -233,8 +249,8 @@ PI 改协议这里最先碎。
 - `pkg.FillNilSlices` 在 HTTP 出口统一兜底 nil 切片；构造处也一律初始化——
   双保险，兜底只救漏掉的那一次
 
-**为什么**：会话、消息、用量都是 PI 的文件，再存一份就是两本账（两本账迟早分叉）。
-SQLite 只存界面偏好，让「界面与命令行看到的不一样」这类分叉在结构上不可能发生。
+**为什么**：会话、消息、用量都是 PI 的文件，再存一份就会分叉（见 [ARCHITECTURE](ARCHITECTURE.md)
+「两个真相源」）；SQLite 只存界面偏好，让这类分叉在结构上不可能发生。
 
 **优势**：没有需要迁移的业务表，卸载即净；域模型与数据库形态一处可查。
 **代价**：所有跨层数据都要显式定义类型（不能就地声明结构体），类型文件较多。
@@ -280,7 +296,7 @@ SQLite 只存界面偏好，让「界面与命令行看到的不一样」这类�
 
 ## frontend/src — 界面
 
-**是什么**：Vue 3 + TypeScript 单页应用，四个页面 + 一套设计令牌。
+**是什么**：Vue 3 + TypeScript 单页应用，六个路由视图 + 一套设计令牌。
 
 **怎么实现**：
 
@@ -320,20 +336,21 @@ SQLite 只存界面偏好，让「界面与命令行看到的不一样」这类�
 
 ## scripts/check.ps1 — 验证入口
 
-**是什么**：唯一验证入口，分档收口：gofmt → 前端构建 → 编译 → vet → 依赖边界 → 测试。
+**是什么**：唯一验证入口，分档收口：gofmt → 注释规范 → 前端构建（dist 缺失或 `-Full` 时）→
+编译 → vet 与依赖边界（仅 `-Full`）→ 测试。
 
 **怎么实现**：
 
-- 档位：无参快门（短测试，约 10s）；`-Pkg` 单包（约 5s）；`-Chain <关键字>` 定点
-  （测试源码 grep 关键字，只编命中的包，`-run` 拼空前缀让子测试名不必带入口名，约 9s）；
-  `-Full` 全量门禁（约 65s）
-- 有测试的包清单写死（`go list` 要加载整个模块图，单那一步 3 秒）；清单漂移由
-  `-Full` 的 `AssertTestPackages` 拦住
+- 档位：无参快门（全部短测试，约 12s）；`-Pkg` 单包（约 5s）；`-Run <关键字>` 定点
+  （`-run` 拼空前缀让子测试名不必带入口名，约 12s）；`-Full` 全量门禁（约 60s）；
+  `-List` 打印入口与子测试索引
+- 测试一律跑 `./...`：不维护「有测试的包」清单，也不会漏跑新包的测试
 - 失败时从日志摘摘要（`--- FAIL` / `panic` / `文件:行号`）打印，CI 里追加进 job summary
+- `comments` 步骤把 §2.6 的「连续注释 ≤ 2 行」变成门禁（`gofmt` 给 `//go:` 指令补的分隔行豁免）
 - `-short` 跳过三条慢链路（真 git 子进程、归档真解压、本机真 PI 回合），只在 `-Full` 跑到
 
 **为什么**：验证命令散在文档 / CI / 本地各写一套必然漂移；一个脚本一个入口，
 改验证流程只改一处。
 
-**优势**：改一个小功能时快门 10 秒、单包 5 秒；失败摘要直接给到行号。
-**代价**：脚本本身有档位逻辑（约 220 行），改它要理解四档的关系。
+**优势**：改一个小功能时单包 5 秒、定点 12 秒；失败摘要直接给到行号。
+**代价**：脚本本身有档位逻辑（约 140 行），改它要理解各档的关系。

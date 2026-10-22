@@ -94,6 +94,11 @@ type Env struct {
 	paths runtime.Paths
 	// overridePi 供测试注入假路径，空表示走真实探测。
 	overridePi string
+
+	// npm 前缀要起一次 npm 进程（约 1.5s），而闸门每轮都会问；没装 PI 时每轮都要白跑一遍。
+	prefixMu    sync.Mutex
+	prefixCache []string
+	prefixDone  bool
 }
 
 // New 构造环境解析器。
@@ -133,8 +138,7 @@ func (e *Env) PythonExe() (string, string) {
 	return "", ""
 }
 
-// NpmCmd 返回装包用的 npm：必须与 NodeExe 选中的那份 node 配套。
-// 返回的是 npm.cmd 之类的 shim；真要起进程请用 NpmCommand，别把 shim 直接交给 exec。
+// NpmCmd 返回 npm 的 shim，只用来问「npm 全局前缀在哪」；装包走 bundledNpm，不用它。
 func (e *Env) NpmCmd() string {
 	node, source := e.NodeExe()
 	if source == "bundled" {
@@ -157,29 +161,7 @@ func (e *Env) NpmCmd() string {
 	return runtime.NpmCmd(e.paths)
 }
 
-// NpmCommand 把 npm 的 shim 还原成 node + npm-cli.js，与 PI 的解析同一条路子。
-func (e *Env) NpmCommand() (string, []string) {
-	shim := e.NpmCmd()
-	if shim == "" {
-		return "", nil
-	}
-	dir := filepath.Dir(shim)
-	nodeExe, _ := e.NodeExe()
-	for _, rel := range []string{
-		`node_modules\npm\bin\npm-cli.js`,
-		`node_modules\npm\bin\npm-cli.mjs`,
-	} {
-		for _, base := range []string{dir, filepath.Dir(dir)} {
-			candidate := filepath.Join(base, rel)
-			if pkg.FileExists(candidate) {
-				return shimNode(dir, nodeExe), []string{candidate}
-			}
-		}
-	}
-	return shimNode(dir, nodeExe), []string{}
-}
-
-// nodeSystemExe 返回系统 PATH 上的 node。
+// nodeVersionOf 取 node 的版本号（不带 v 前缀）。
 func nodeVersionOf(nodeExe string) string {
 	return cachedVersion(nodeExe, func() string {
 		if nodeExe == "" {
@@ -265,18 +247,32 @@ func (e *Env) PiExe() (string, string) {
 			return exe, "system"
 		}
 	}
+	// 先看自己装的那份：命中就省掉一次「问 npm 全局前缀」的进程启动。
+	for _, c := range prefixCandidates(e.paths.NpmGlobalDir) {
+		if pkg.FileExists(c) {
+			return c, "npm-global"
+		}
+	}
 	for _, prefix := range e.npmPrefixes() {
-		for _, c := range []string{
-			filepath.Join(prefix, "pi.cmd"),
-			filepath.Join(prefix, "pi.exe"),
-			filepath.Join(prefix, "node_modules", ".bin", "pi.cmd"),
-		} {
+		for _, c := range prefixCandidates(prefix) {
 			if pkg.FileExists(c) {
 				return c, "npm-global"
 			}
 		}
 	}
 	return "", ""
+}
+
+// prefixCandidates 列出一个 npm 全局前缀下 PI 可能的入口。
+func prefixCandidates(prefix string) []string {
+	if prefix == "" {
+		return nil
+	}
+	return []string{
+		filepath.Join(prefix, "pi.cmd"),
+		filepath.Join(prefix, "pi.exe"),
+		filepath.Join(prefix, "node_modules", ".bin", "pi.cmd"),
+	}
 }
 
 // PiCommand 返回可直接交给 os/exec 的 PI 入口与附加参数：shim 还原成 node + 脚本，不经 shell。
@@ -301,7 +297,16 @@ func (e *Env) PiCommand() (string, []string, error) {
 }
 
 // npmPrefixes 列出要找 PI 的 npm 全局前缀：系统 npm 的配置优先，其次应用内那份。
+// 结果按实例缓存：装完 / 升级完由 resetProbes 作废。
 func (e *Env) npmPrefixes() []string {
+	e.prefixMu.Lock()
+	if e.prefixDone {
+		out := e.prefixCache
+		e.prefixMu.Unlock()
+		return out
+	}
+	e.prefixMu.Unlock()
+
 	out := []string{}
 	if npm := e.NpmCmd(); npm != "" {
 		cmd := exec.Command(npm, "config", "get", "prefix")
@@ -313,6 +318,10 @@ func (e *Env) npmPrefixes() []string {
 		}
 	}
 	out = append(out, e.paths.NpmGlobalDir)
+
+	e.prefixMu.Lock()
+	e.prefixCache, e.prefixDone = out, true
+	e.prefixMu.Unlock()
 	return out
 }
 
@@ -472,32 +481,31 @@ func (e *Env) Env() []string {
 	return out
 }
 
-// InstallPi 用 npm 全局安装 PI（target 为空表示最新版），输出按行回调。
+// InstallPi 用内置 Node 与内置 npm 全局安装 PI（target 为空表示最新版），输出按行回调。
 // 失败时把最后几行输出带进错误里，否则界面只剩一句「安装失败」，用户无从下手。
 func (e *Env) InstallPi(target string, onLine func(string)) error {
 	return e.installAt(e.paths.NpmGlobalDir, target, onLine)
 }
 
 // installAt 把 PI 装到指定 npm 全局前缀（<prefix>/node_modules/<pkg>）。
+// 两件事是硬要求：npm 必须来自内置 Node；一个源装不上就换另一个源再试一趟。
 func (e *Env) installAt(prefix, target string, onLine func(string)) error {
+	node, npmArgs, err := e.bundledNpm()
+	if err != nil {
+		return err
+	}
 	spec := piPackage
 	if v := strings.TrimSpace(target); v != "" {
 		spec = piPackage + "@" + v
 	}
-	npm, npmArgs := e.NpmCommand()
-	if npm == "" {
-		return pkg.New("9710", "找不到 npm，无法安装助手引擎", "内置 Node 未就绪且系统也没有 npm")
-	}
-	args := append(append([]string{}, npmArgs...),
+	args := []string{
 		"install", "-g", "--ignore-scripts", "--no-fund", "--no-audit",
-		"--loglevel=http", "--fetch-retries=3")
+		"--loglevel=http", "--fetch-retries=3", "--fetch-timeout=120000",
+	}
 	if prefix != "" {
 		args = append(args, "--prefix", prefix)
 	}
 	args = append(args, spec)
-	cmd := exec.Command(npm, args...)
-	cmd.Env = e.npmEnv(prefix)
-	hideWindow(cmd)
 
 	tail := newLineTail(24)
 	report := func(line string) {
@@ -506,6 +514,59 @@ func (e *Env) installAt(prefix, target string, onLine func(string)) error {
 			onLine(line)
 		}
 	}
+
+	registry := Registry()
+	if onLine != nil {
+		onLine("下载源：" + RegistryLabel(registry) + "（" + registry + "）")
+	}
+	waitErr := e.runNpmInstall(node, npmArgs, args, prefix, registry, report)
+	if waitErr != nil {
+		// 直连官方源在无代理的网络下经常超时：换镜像再跑一趟，别让用户自己配环境。
+		alt := AlternateRegistry(registry)
+		if onLine != nil {
+			onLine("这一趟没装成，换 " + RegistryLabel(alt) + " 再试一次…")
+		}
+		ResetRegistry()
+		waitErr = e.runNpmInstall(node, npmArgs, args, prefix, alt, report)
+	}
+	// 装完不论成败都要重探：旧版本号与旧入口解析结果都不能留着。
+	e.resetProbes()
+	if waitErr != nil {
+		return pkg.New("9710", "安装助手引擎失败", tail.last())
+	}
+	if exe, _ := e.PiExe(); exe == "" {
+		return pkg.New("9710", "安装好像成功了，但找不到 pi 命令", "检查 npm 全局前缀是否可写")
+	}
+	return nil
+}
+
+// bundledNpm 固定用内置 Node 与内置 npm：用户 PATH 上的 node 可能低于 PI 的下界，
+// 装出来的包最终也要在这份解释器上跑，两者必须一致。
+func (e *Env) bundledNpm() (string, []string, error) {
+	node, err := runtime.EnsureNode(e.paths)
+	if err != nil {
+		return "", nil, pkg.Wrap("9707", "内置 Node 解压失败，装不了助手引擎", err)
+	}
+	for _, rel := range []string{
+		`node_modules\npm\bin\npm-cli.js`,
+		`node_modules\npm\bin\npm-cli.mjs`,
+	} {
+		script := filepath.Join(e.paths.NodeDir, rel)
+		if pkg.FileExists(script) {
+			return node, []string{script}, nil
+		}
+	}
+	return "", nil, pkg.New("9707", "内置 npm 缺失，装不了助手引擎", e.paths.NodeDir)
+}
+
+// runNpmInstall 跑一趟 npm 安装，输出逐行回调；返回等待结果供调用方决定是否换源。
+func (e *Env) runNpmInstall(node string, npmArgs, args []string, prefix, registry string, report func(string)) error {
+	argv := append(append([]string{}, npmArgs...), args...)
+	argv = append(argv, "--registry", registry)
+	cmd := exec.Command(node, argv...)
+	cmd.Env = e.npmEnv(prefix)
+	hideWindow(cmd)
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return pkg.Wrap("9710", "无法读取安装进度", err)
@@ -519,16 +580,7 @@ func (e *Env) installAt(prefix, target string, onLine func(string)) error {
 	}
 	pumpPipe(stdout, report)
 	pumpPipe(stderr, report)
-	waitErr := cmd.Wait()
-	// 装完不论成败都要重探：旧版本号与旧入口解析结果都不能留着。
-	e.resetProbes()
-	if waitErr != nil {
-		return pkg.New("9710", "安装助手引擎失败", tail.last())
-	}
-	if exe, _ := e.PiExe(); exe == "" {
-		return pkg.New("9710", "安装好像成功了，但找不到 pi 命令", "检查 npm 全局前缀是否可写")
-	}
-	return nil
+	return cmd.Wait()
 }
 
 // UpdatePi 升级已装的 PI：装回它原来所在的那个前缀，不另起一份。
@@ -584,7 +636,7 @@ func (e *Env) npmEnv(prefix string) []string {
 	return env
 }
 
-// resetProbes 清掉版本号与入口解析缓存：装完 / 升级完必须重新探测。
+// resetProbes 清掉版本号、入口解析与 npm 前缀缓存：装完 / 升级完必须重新探测。
 func (e *Env) resetProbes() {
 	piCmdMu.Lock()
 	piCmdShim, piCmdExe, piCmdArgs, piCmdCached = "", "", nil, false
@@ -592,6 +644,9 @@ func (e *Env) resetProbes() {
 	versionMu.Lock()
 	versionCache = map[string]string{}
 	versionMu.Unlock()
+	e.prefixMu.Lock()
+	e.prefixCache, e.prefixDone = nil, false
+	e.prefixMu.Unlock()
 }
 
 // piPackage 是 PI 的 npm 包名。

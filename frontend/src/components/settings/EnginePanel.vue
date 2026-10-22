@@ -18,6 +18,8 @@ const latest = ref<EngineLatestVO | null>(null)
 const loading = ref(true)
 const checking = ref(false)
 const updating = ref(false)
+const fixingShell = ref(false)
+const enablingTerminal = ref(false)
 
 // 安装 / 升级的输出也挂在全局 SSE 通道上
 const { lines: log, begin: beginLog, end: endLog } = useSetupLog()
@@ -105,6 +107,60 @@ function sourceLabel(src: string) {
 
 function runtimeSource(src: string) {
   return src === 'bundled' ? t('settings.engine.sourceBundled') : t('settings.engine.sourceSys')
+}
+
+/** 命令执行环境的几种形态：认不出的一律按「没有」说，别把内部名字丢给用户看 */
+function shellKindLabel(kind: string) {
+  switch (kind) {
+    case 'git-bash':
+      return t('settings.engine.shellKindGitBash')
+    case 'msys':
+      return t('settings.engine.shellKindMSYS')
+    case 'cygwin':
+      return t('settings.engine.shellKindCygwin')
+    case 'powershell':
+      return t('settings.engine.shellKindPowerShell')
+    default:
+      return t('settings.engine.shellKindNone')
+  }
+}
+
+/** 重新探测并写回 PI：用户装了 Git 或改过 PATH 之后点这里 */
+async function fixShell() {
+  if (fixingShell.value) return
+  fixingShell.value = true
+  try {
+    const vo = await api.env.fixShell()
+    await loadStatus()
+    if (!vo.shell_usable) {
+      toast.bad(t('settings.engine.shellFailed', { msg: vo.shell_error || '' }))
+      return
+    }
+    toast.ok(
+      vo.shell_kind === 'powershell'
+        ? t('settings.engine.shellFixedPS')
+        : t('settings.engine.shellFixedBash', { kind: shellKindLabel(vo.shell_kind) }),
+    )
+  } catch (e) {
+    toast.bad(t('settings.engine.shellFailed', { msg: (e as Error)?.message || '' }))
+  } finally {
+    fixingShell.value = false
+  }
+}
+
+/** 生成终端入口并挂 PATH：界面里能用不等于终端里能用，两者要各自说清楚 */
+async function enableTerminal() {
+  if (enablingTerminal.value) return
+  enablingTerminal.value = true
+  try {
+    await api.env.enableTerminal()
+    await loadStatus()
+    toast.ok(t('settings.engine.terminalDone'))
+  } catch (e) {
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+  } finally {
+    enablingTerminal.value = false
+  }
 }
 
 onMounted(() => {
@@ -214,6 +270,40 @@ onMounted(() => {
             <p class="eng-mono">{{ status.agent_dir || '—' }}</p>
             <p v-if="status.install_root" class="eng-mono muted">{{ status.install_root }}</p>
           </div>
+
+          <div class="eng-kv">
+            <span class="wb-label">{{ t('settings.engine.shell') }}</span>
+            <p class="eng-line">
+              <AppIcon :name="status.shell_usable ? 'check' : 'alert'" size="ic-2xs" :class="status.shell_usable ? 'ok' : 'bad'" />
+              {{ shellKindLabel(status.shell_kind) }}
+            </p>
+            <p class="eng-mono muted">{{ status.shell_path || status.shell_error || '—' }}</p>
+            <p class="eng-meta">{{ t('settings.engine.shellDesc') }}</p>
+            <div class="eng-row">
+              <el-button size="small" :loading="fixingShell" :disabled="fixingShell" @click="fixShell">
+                {{ fixingShell ? t('settings.engine.shellFixing') : t('settings.engine.shellFix') }}
+              </el-button>
+            </div>
+
+            <span class="wb-label eng-gap">{{ t('settings.engine.terminal') }}</span>
+            <p class="eng-line">
+              <AppIcon :name="status.terminal_ready ? 'check' : 'info'" size="ic-2xs" :class="status.terminal_ready ? 'ok' : 'bad'" />
+              {{ status.terminal_ready ? t('settings.engine.terminalReady') : t('settings.engine.terminalMissing') }}
+            </p>
+            <p class="eng-mono muted">{{ status.terminal_path || status.terminal_error || '—' }}</p>
+            <div class="eng-row">
+              <el-button
+                v-if="!status.terminal_ready"
+                size="small"
+                :loading="enablingTerminal"
+                :disabled="enablingTerminal || !status.pi_ready"
+                @click="enableTerminal"
+              >
+                {{ enablingTerminal ? t('settings.engine.terminalEnabling') : t('settings.engine.terminalEnable') }}
+              </el-button>
+              <p v-else class="eng-meta">{{ t('settings.engine.terminalHint') }}</p>
+            </div>
+          </div>
         </div>
 
         <div class="eng-pkgs">
@@ -295,6 +385,15 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-1);
+}
+.eng-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  margin-top: var(--wb-sp-1);
+}
+.eng-gap {
+  margin-top: var(--wb-sp-3);
 }
 .eng-line {
   display: flex;

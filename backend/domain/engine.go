@@ -40,6 +40,17 @@ type EngineStatusVO struct {
 	Blocking string `json:"blocking"`
 	// InstallError 是最近一次安装 / 升级失败的原因（空表示没有失败记录）。
 	InstallError string `json:"install_error"`
+
+	// 命令执行环境：kind 为 git-bash / msys / cygwin / powershell / none。
+	ShellKind   string `json:"shell_kind"`
+	ShellPath   string `json:"shell_path"`
+	ShellUsable bool   `json:"shell_usable"`
+	ShellError  string `json:"shell_error"`
+	// 终端入口：终端里 `pi` 能不能直接用。
+	TerminalReady  bool   `json:"terminal_ready"`
+	TerminalPath   string `json:"terminal_path"`
+	TerminalOnPath bool   `json:"terminal_on_path"`
+	TerminalError  string `json:"terminal_error"`
 }
 
 // EngineLatestVO 是联网查回来的最新版本：与本地快照分开，网络慢不拖累面板首屏。

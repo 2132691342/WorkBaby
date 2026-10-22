@@ -30,8 +30,8 @@ var (
 	latestCache = map[string]versionHit{}
 )
 
-// LatestVersion 问 npm 注册表要某个包的最新版本号。
-// 取 abbreviated 元数据（只有 dist-tags 与版本清单），比完整文档小两个数量级。
+// LatestVersion 问 npm 注册表要某个包的最新版本号（abbreviated 元数据）。
+// 当前源查不到就换另一个源再问一次：界面不该因为一个源挂了就说「查不到」。
 func LatestVersion(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -44,7 +44,26 @@ func LatestVersion(name string) (string, error) {
 	}
 	latestMu.Unlock()
 
-	url := "https://registry.npmjs.org/" + strings.ReplaceAll(name, "/", "%2F")
+	first := Registry()
+	version, err := fetchLatest(first, name)
+	if err != nil {
+		alt := AlternateRegistry(first)
+		if v, altErr := fetchLatest(alt, name); altErr == nil {
+			version, err = v, nil
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	latestMu.Lock()
+	latestCache[name] = versionHit{version: version, at: time.Now()}
+	latestMu.Unlock()
+	return version, nil
+}
+
+// fetchLatest 从指定源拉一个包的 dist-tags.latest。
+func fetchLatest(registry, name string) (string, error) {
+	url := normalizeRegistry(registry) + "/" + strings.ReplaceAll(name, "/", "%2F")
 	client := &http.Client{Timeout: registryTimeout}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -70,9 +89,6 @@ func LatestVersion(name string) (string, error) {
 	if version == "" {
 		return "", pkg.New("9721", "注册表没有这个包的版本信息", name)
 	}
-	latestMu.Lock()
-	latestCache[name] = versionHit{version: version, at: time.Now()}
-	latestMu.Unlock()
 	return version, nil
 }
 

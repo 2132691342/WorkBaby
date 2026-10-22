@@ -182,9 +182,7 @@ func (a *App) ForceQuit() {
 	a.quit(ctx)
 }
 
-// ---- Wails 绑定面：系统能力转发（api 包是 wails 能力的实现处，这里只做薄转发）----
-
-// OpenFileDialog 打开文件选择框（知识库导入、附件）。
+// OpenFileDialog 打开文件选择框（知识库导入、附件）；系统能力的实现都在 api 包，这里只做薄转发。
 func (a *App) OpenFileDialog(title, filter string) (string, error) {
 	return a.handler.OpenFileDialog(title, filter)
 }

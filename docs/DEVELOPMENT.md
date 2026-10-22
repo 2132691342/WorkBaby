@@ -14,18 +14,18 @@
 AGENTS.md §3，这里只留平时手边那几条：
 
 ```powershell
-pwsh scripts/check.ps1                        # 日常快门（格式 → 编译 → 各包短测试）
+pwsh scripts/check.ps1                        # 日常快门（格式 → 编译 → 全部短测试）
 pwsh scripts/check.ps1 -Pkg backend/service   # 明确只碰了一个包
-pwsh scripts/check.ps1 -Chain 提问             # 只编并跑名字命中的包（不必知道它挂在哪个入口下）
+pwsh scripts/check.ps1 -Run 冲突               # 只跑名字命中的子测试（不必知道它挂在哪个入口下）
 pwsh scripts/check.ps1 -List                  # 入口与子测试名的索引
-pwsh scripts/check.ps1 -Full                  # 提交前 / CI：vet + 依赖门禁 + 清单校验 + 全量 + 前端构建
+pwsh scripts/check.ps1 -Full                  # 提交前 / CI：前端构建 + vet + 依赖门禁 + 全量测试
 
 cd frontend
-npm install                                   # 首次
+npm ci                                        # 首次（锁文件优先）
 npm run build                                 # vue-tsc + vite build → frontend/dist
 ```
 
-定位测试的标准动作：先 `-List` 拿索引，再 `-Chain <关键字>` 落到一段，不翻测试文件。
+定位测试的标准动作：先 `-List` 拿索引，再 `-Run <关键字>` 落到一段，不翻测试文件。
 入口一律叫 `Test<Domain>Chain`，一个包一个入口，一个子测试只讲一种坏法；
 保留判据与全部索引在 AGENTS.md §3。
 
@@ -34,7 +34,7 @@ npm run build                                 # vue-tsc + vite build → fronten
 ```powershell
 go build ./...                                  # 比测试更早暴露类型错误，覆盖全部包
 go test -short -count=1 ./backend/service       # 只测一个包
-go test -count=1 -run 'TestServiceChain/会话索引' -v ./backend/service   # 定点到一段
+go test -short -count=1 -run 'TestServiceChain/会话索引' -v ./backend/service   # 定点到一段
 go run ./tools/check-boundaries                 # 依赖方向门禁
 ```
 
@@ -65,11 +65,17 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 ```
 %APPDATA%\WorkBaby\            （或 WORKBABY_HOME）
 ├── workbaby.db                SQLite（WAL）：只有界面设置 KV
-├── logs\                      app.log / error.log
+├── config.yaml                工作目录等固定项
+├── logs\                      app.log（全量）/ warn.log（warn 与 error）
+├── bin\pi.cmd                 终端里的 pi 入口（这个目录同时挂在用户 PATH 上）
 ├── runtime\node|python\       内置运行时（首次用时解压）
+├── runtime\npm-global\        内置 npm 装 PI 与前缀
+├── runtime\shell.json         命令执行环境的自愈记录（写过什么才敢撤回什么）
+├── runtime\npm-cache\         内置 npm 缓存
+├── tmp\                       临时解压与中转（启动时清扫）
+├── site-packages\             Python 工具装的包
 ├── background\                自定义背景图副本
-├── persona.md                 附加系统提示（--append-system-prompt 传给它）
-└── config.yaml                工作目录等固定项
+└── persona.md                 附加系统提示（--append-system-prompt 传给它）
 
 ~/.pi/agent\                   （或 PI_CODING_AGENT_DIR）
 ├── settings.json              defaultProvider/Model/ThinkingLevel、defaultTools、compaction、packages、extensions
@@ -120,6 +126,8 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 | 现象 | 先看 |
 |---|---|
 | 技能 / 插件 / 模型全是空 | `PI_CODING_AGENT_DIR` 是否被覆盖；日志里的「PI 配置目录」是不是你期望的那个 |
+| 助手执行命令报 WSL 的错 | 命令执行环境选中了 WSL 启动器；点「设置 · 助手引擎 → 重新检测并修复」，或装 Git for Windows 后重跑 |
+| 终端里敲 `pi` 找不到 | 「设置 · 助手引擎 → 终端命令」生成入口并挂 PATH，**新开**终端才生效 |
 | 发了消息没反应 | 环境闸门是否 ready；日志里 `chat: 已发送` 有没有出现 |
 | 同一目录第二条对话报 5005 | 这是内核约束（一个目录一个当前会话），等第一条跑完 |
 | 提问卡点了没反应 | `POST /chat/answer` 的 5010 说明它已失效；看 PI 是否还在跑这一轮 |

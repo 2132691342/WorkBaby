@@ -65,7 +65,7 @@ wails build
    改 `nodeVersion` / `pythonVersion` → 算出新归档 SHA-256 填进对应的
    `*ArchiveSHA256` 常量 → `go test ./backend/runtime/` 守护两者一致
 
-内置运行时是**兜底**：系统已有合规版本（Node ≥ 22、Python 3.x）时直接复用，
+内置运行时是**兜底**：系统已有合规版本（Node ≥ 22.19.0、Python 3.x）时直接复用，
 没有才解压内置那份。两个都没装也不阻断启动，只有对应的工具会报错。
 PowerShell 从不内置，走系统自带的 5.1。
 
@@ -79,6 +79,8 @@ PowerShell 从不内置，走系统自带的 5.1。
 | 配置（工作目录等固定项） | `config.yaml` |
 | 日志 | `logs/app.log`（全量）、`logs/warn.log`（warn 与 error） |
 | 内置运行时解压产物 | `runtime/node/`、`runtime/npm-global/`、`runtime/python/` |
+| 运行时落盘记录 | `runtime/shell.json`（命令执行环境改了什么）、`runtime/npm-cache/` |
+| 终端里的 `pi` 入口 | `bin/pi.cmd`（同时把这个目录挂进当前用户 PATH） |
 | 人设（附加系统提示） | `persona.md` |
 | 自定义背景图副本 | `background/` |
 | WebView2 profile（纯缓存） | `webview/` |
@@ -103,8 +105,8 @@ PowerShell 从不内置，走系统自带的 5.1。
 
 - 单实例锁 + 本地 TCP IPC：二次启动会唤起已有窗口并转交文件路径
 - 端口随机绑定 127.0.0.1，无外网暴露面
-- Wails 绑定面只有 `*main.App` 的 5 个系统能力方法（ForceQuit / 打开文件与目录
-  对话框 / 自启读写）：`App` 持有而不是嵌入 `*api.Handler`，gin handler 不会被
+- Wails 绑定面只有 `*main.App` 的 7 个系统能力方法（端口查询 / 强制退出 / 打开文件、
+  目录与保存对话框 / 自启读写）：`App` 持有而不是嵌入 `*api.Handler`，gin handler 不会被
   绑成 JS 方法；窗口控制由前端直接调 `wailsjs/runtime`，复制走 `navigator.clipboard`
 
 ## 取舍

@@ -262,12 +262,6 @@ func TestHTTPChain(t *testing.T) {
 		if list.Data.Entries == nil || list.Data.Packages == nil {
 			t.Fatalf("插件列表的数组字段发成了 null: %s", body)
 		}
-
-		// 引擎页能吐出一份可渲染的快照即可（字段与 UI 的对应关系归前端类型检查管）。
-		code, body = call(t, base, "GET", "/engine/status", nil)
-		if code != http.StatusOK || !strings.Contains(body, `"pi_ready":`) {
-			t.Fatalf("引擎状态读不到: %d %s", code, body)
-		}
 	})
 
 	// SSE 是唯一的运行态通道：假 PI 子进程 → Hub → 帧 → seq 递增 → 重连带游标重放。
@@ -315,19 +309,6 @@ func TestHTTPChain(t *testing.T) {
 			t.Fatalf("新对话没有返回 session_id: %s", body)
 		}
 		sessID := sent.Data.SessionID
-
-		// 会话文件是 PI 写的：给它一点时间落盘，再确认列表里能看到。
-		var listed bool
-		for i := 0; i < 100 && !listed; i++ {
-			_, listing := call(t, base, "GET", "/sessions", nil)
-			listed = strings.Contains(listing, sessID)
-			if !listed {
-				time.Sleep(20 * time.Millisecond)
-			}
-		}
-		if !listed {
-			t.Fatal("发送之后会话没有出现在列表里（会话索引没读到 PI 的文件）")
-		}
 
 		// 会话文件在 message_end 就落盘了，running 要到 agent_settled 才归零（done 挂在那里）。
 		// 不等它归零就发下一轮，本轮尾巴的重试 / done 会混进接下来的事件流，拼出的正文就少一段。

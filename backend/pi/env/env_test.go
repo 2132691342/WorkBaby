@@ -208,6 +208,105 @@ func TestPiEnvChain(t *testing.T) {
 		checkShimNodeFallback(t)
 		checkPiShimResolution(t)
 	})
+
+	// 命令执行环境：WSL 启动器必须被剔除，工具增量能加能撤，自己写过的 shellPath 才会被撤回。
+	t.Run("命令执行环境自愈：剔除 WSL 启动器、工具增量可加可撤", func(t *testing.T) {
+		checkWSLStubSkipped(t)
+		checkShellSelfHeal(t)
+	})
+}
+
+// checkWSLStubSkipped 验 System32 下的 bash.exe 不会被当成候选 bash。
+func checkWSLStubSkipped(t *testing.T) {
+	t.Helper()
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		t.Skip("没有 SystemRoot，跳过 WSL 桩判定")
+	}
+	stub := filepath.Join(root, "System32", "bash.exe")
+	if !isWSLStub(stub) {
+		t.Fatalf("WSL 启动器没被认出来: %s", stub)
+	}
+	for _, c := range bashCandidates() {
+		if strings.EqualFold(c.path, stub) {
+			t.Fatalf("候选 bash 里混进了 WSL 启动器: %s", c.path)
+		}
+	}
+}
+
+// checkShellSelfHeal 验两种形态的落盘：没有 bash 写工具增量，有 bash 时撤回并写 shellPath。
+func checkShellSelfHeal(t *testing.T) {
+	t.Helper()
+	e := New(pathsOf(t))
+	if err := e.WriteSettings(&SettingsFile{DefaultModel: "m"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 没有 bash：把 bash 工具换成 powershell，其余配置一动不动。
+	applied, err := e.applyShell(ShellStatus{Kind: ShellKindPowerShell, Path: `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, Usable: true})
+	if err != nil || !applied {
+		t.Fatalf("没有 bash 时应当写工具增量: applied=%v err=%v", applied, err)
+	}
+	raw, err := e.settingsMap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := toolList(raw)
+	if !ok || len(list) != 2 || list[0] != "+powershell" || list[1] != "-bash" {
+		t.Fatalf("工具增量写错了: %+v", list)
+	}
+	if _, err := e.ReadSettings(); err != nil {
+		t.Fatal(err)
+	}
+	file, _ := e.ReadSettings()
+	if file.DefaultModel != "m" {
+		t.Fatal("写工具增量时抹掉了别的字段")
+	}
+
+	// 之后找到了 git bash：撤回增量（列表删空就把键去掉），并写上 shellPath。
+	applied, err = e.applyShell(ShellStatus{Kind: ShellKindGitBash, Path: `C:\wb-test\Git\bin\bash.exe`, Usable: true})
+	if err != nil || !applied {
+		t.Fatalf("找到 bash 后应当撤增量并写 shellPath: applied=%v err=%v", applied, err)
+	}
+	raw, err = e.settingsMap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["defaultTools"]; ok {
+		t.Fatalf("增量删空后应当把 defaultTools 交回 PI 默认集: %s", raw["defaultTools"])
+	}
+	if got := e.settingString("shellPath"); got != `C:\wb-test\Git\bin\bash.exe` {
+		t.Fatalf("shellPath 没写对: %q", got)
+	}
+
+	// bash 又不可用了：撤掉自己写过的 shellPath，并把工具换回 powershell。
+	if _, err := e.applyShell(ShellStatus{Kind: ShellKindPowerShell, Usable: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.settingString("shellPath"); got != "" {
+		t.Fatalf("自己写的 shellPath 没撤回: %q", got)
+	}
+
+	// 用户在工具面板里自己勾过（纯名字列表）之后，找到 bash 也不再替用户改回去。
+	mine, err := e.ReadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine.DefaultTools = []string{"read", "edit", "write", "powershell"}
+	if err := e.WriteSettings(mine); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.applyShell(ShellStatus{Kind: ShellKindGitBash, Path: `C:\wb-test\Git\bin\bash.exe`, Usable: true}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = e.settingsMap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, _ = toolList(raw)
+	if len(list) != 4 || list[3] != "powershell" {
+		t.Fatalf("用户自己勾的工具被改回去了: %+v", list)
+	}
 }
 
 // checkShimNodeFallback 验 shim 旁边没有 node.exe 时用调用方给的绝对路径，没有就返回空串。

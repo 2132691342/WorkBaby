@@ -99,11 +99,13 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		v1.GET("/runtime", h.RuntimeStatus)
 		v1.POST("/runtime/redetect", h.RedetectRuntime)
 
-		// 环境引导：闸门快照与 PI 的安装更新。
+		// 环境引导：闸门快照、PI 的安装更新、命令执行环境与终端入口。
 		v1.GET("/env", h.EnvStatus)
 		v1.POST("/env/install", h.InstallPi)
 		v1.POST("/env/update", h.EngineUpdate)
-		v1.POST("/env/recheck", h.EnvStatus)
+		v1.POST("/env/recheck", h.EnvRecheck)
+		v1.POST("/env/shell", h.EnvFixShell)
+		v1.POST("/env/terminal", h.EnvEnableTerminal)
 
 		// 引擎：PI 与运行时的状态、版本对账、升级（设置页「助手引擎」）。
 		en := v1.Group("/engine")

@@ -21,7 +21,7 @@
 |---|---|---|
 | GET | `/health` | 存活探测 |
 | GET | `/bootstrap` | 启动引导：版本、契约版本、默认模型、工作目录、环境闸门、设置 KV |
-| GET | `/warmup` | 首屏预热聚合：一次拉齐设置页五个面板的清单（技能 / 服务商 / 工具 / 插件 / MCP），不各自去拉 |
+| GET | `/warmup` | 首屏预热聚合：一次拉齐设置页五个列表板块（技能 / 服务商 / 工具 / 插件 / MCP），不各自去拉 |
 | GET | `/sessions?workspace=` | 会话列表（来自 PI 的会话文件，可按工作目录过滤） |
 | GET | `/sessions/:id` | 会话详情（元信息 + 投影消息） |
 | POST | `/sessions/rename/:id` | 改名（PI 的 `set_session_name`） |
@@ -69,9 +69,11 @@
 | GET | `/files?path=` | 工作区目录列举（@ 引用面板） |
 | GET | `/runtime` | 运行时状态（Node / Python / PI） |
 | POST | `/runtime/redetect` | 重新探测 |
-| GET | `/env` | 环境闸门快照（含 `install_error`：最近一次安装失败的原因） |
+| GET | `/env` | 环境闸门快照（含 `install_error`、`shell_*`、`terminal_*`） |
 | POST | `/env/install` / `/env/update` | 安装 / 升级 PI（进度走 `chat:setup`） |
-| POST | `/env/recheck` | 重新判定闸门 |
+| POST | `/env/recheck` | 重新判定闸门，并重新探测 / 修一次命令执行环境 |
+| POST | `/env/shell` | 重新探测命令执行环境并写回 PI（`shellPath` 或 `+powershell/-bash`） |
+| POST | `/env/terminal` | 生成终端里的 `pi` 入口并挂到当前用户 PATH |
 | GET | `/engine/status` | 引擎本地快照：PI 版本与来源、运行中的进程数、运行时、插件包数量 |
 | GET | `/engine/latest` | 联网查最新版本：PI + npm 来源的插件包（查不到只报 `registry_error`） |
 | POST | `/engine/update` | 升级 PI 自身（装回它原来的前缀，完成后重启进程） |

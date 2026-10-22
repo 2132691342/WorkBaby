@@ -182,6 +182,10 @@ export const env = {
   install: () => post<boolean>('/env/install'),
   update: () => post<boolean>('/env/update'),
   recheck: () => post<PiEnvVO>('/env/recheck'),
+  /** 重新探测命令执行环境并写回 PI（装了 Git 之后点这个） */
+  fixShell: () => post<PiEnvVO>('/env/shell'),
+  /** 生成终端里的 pi 入口并挂到用户 PATH */
+  enableTerminal: () => post<PiEnvVO>('/env/terminal'),
 }
 
 /** 引擎：PI 与内置运行时的状态、版本对账与升级 */

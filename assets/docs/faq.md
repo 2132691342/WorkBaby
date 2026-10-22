@@ -24,6 +24,19 @@ WorkBaby 用的就是 `~/.pi/agent`（如果设了 `PI_CODING_AGENT_DIR` 环境�
 
 日志在 `%APPDATA%\WorkBaby\logs\`。
 
+## 助手执行命令时报 WSL 的错 / 说 bash 不存在
+
+Windows 上 `C:\Windows\System32\bash.exe` 只是 WSL 的启动器，机器上没装 WSL 发行版时它一条命令都跑不了。
+WorkBaby 会主动找 Git Bash（含自定义安装目录）并写进 PI 的 `shellPath`；找不到 bash 就把工具换成 PowerShell。
+
+点「设置 · 助手引擎 → 命令执行环境 → 重新检测并修复」可以手动重跑一次。
+装了 Git for Windows 之后重跑就能用回 bash 工具。
+
+## 终端里敲 pi 提示找不到命令
+
+点「设置 · 助手引擎 → 终端命令 → 让终端也能用 pi」：它会生成一个固定指向内置 Node 的入口，
+并把这个目录加进你的用户 PATH。**已经开着的终端要重开**才会读到新 PATH。
+
 ## 同一个文件夹里为什么不能同时开两个对话？
 
 PI 的进程模型是「一个工作目录一个进程」，进程的当前会话只有一个。

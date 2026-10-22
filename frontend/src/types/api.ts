@@ -341,6 +341,16 @@ export interface PiEnvVO {
   blocking: string
   /** 最近一次安装 / 升级失败的原因；空表示没有失败记录 */
   install_error: string
+  /** 命令执行环境：git-bash / msys / cygwin / powershell / none */
+  shell_kind: string
+  shell_path: string
+  shell_usable: boolean
+  shell_error: string
+  /** 终端里能不能直接敲 pi */
+  terminal_ready: boolean
+  terminal_path: string
+  terminal_on_path: boolean
+  terminal_error: string
 }
 
 // ---- 引擎（PI 与运行时）----
@@ -371,6 +381,16 @@ export interface EngineStatusVO {
   packages: number
   blocking: string
   install_error: string
+  /** 命令执行环境：git-bash / msys / cygwin / powershell / none */
+  shell_kind: string
+  shell_path: string
+  shell_usable: boolean
+  shell_error: string
+  /** 终端里能不能直接敲 pi */
+  terminal_ready: boolean
+  terminal_path: string
+  terminal_on_path: boolean
+  terminal_error: string
 }
 
 export interface PackageLatestVO {
