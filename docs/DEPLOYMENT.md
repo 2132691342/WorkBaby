@@ -26,7 +26,7 @@ build/bin/
   只写 `branches` 时，GitHub 的过滤器是「或」关系，tag 推送仍会命中 `push` 触发器；
   补上 `tags-ignore` 才能把 tag 彻底排除在这条之外
 - `release.yml` 只认 `push.tags`，且用 `v[0-9]+.[0-9]+.[0-9]+` 而不是 `v*`：
-  形如 `v1.3.0` 的 tag 才会发版，顺带挡掉误推的 `v-next` 之类分支式 tag
+  形如 `v1.4.0` 的 tag 才会发版，顺带挡掉误推的 `v-next` 之类分支式 tag
 - 建 Release 那一步额外判一次 `startsWith(github.ref, 'refs/tags/v')`，
   防的是「tag 事后被移动」——那时产物与版本号就对不上了
 

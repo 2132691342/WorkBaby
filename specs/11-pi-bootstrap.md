@@ -105,7 +105,7 @@ WorkBaby 在启动 / 装完 / 手动修复时跑一次自愈（`pi/env/shell.go`
 ## 首次启动留痕
 
 ```
-startup: WorkBaby 1.3.0 启动（数据目录 <data>，PI 配置目录 <agent>）
+startup: WorkBaby 1.4.0 启动（数据目录 <data>，PI 配置目录 <agent>）
 startup: 内置 Node 不可用（将回退系统 node）：<原因>
 startup: 内置 Python 不可用（将回退系统 python）：<原因>
 ```

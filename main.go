@@ -17,7 +17,7 @@ import (
 )
 
 // version 是应用版本，与 wails.json 的 productVersion 及 git tag 保持一致。
-const version = "1.3.0"
+const version = "1.4.0"
 
 //go:embed all:frontend/dist
 var assets embed.FS
