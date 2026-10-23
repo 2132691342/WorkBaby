@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"WorkBaby/backend/pkg"
@@ -26,15 +25,6 @@ func hasEmbeddedArchive(t *testing.T, name string) []byte {
 	return data
 }
 
-// pythonStdlibZip 是 embeddable 包里的标准库归档名，随 Python 版本变化。
-func pythonStdlibZip() string {
-	parts := strings.Split(pythonVersion, ".")
-	if len(parts) < 2 {
-		return "python.zip"
-	}
-	return "python" + parts[0] + parts[1] + ".zip"
-}
-
 // TestBundledRuntimeChain 是 runtime 包唯一的测试入口：归档字节、解压安全与真实布局
 // 都在同一份归档上，一条链验完。
 func TestBundledRuntimeChain(t *testing.T) {
@@ -42,12 +32,12 @@ func TestBundledRuntimeChain(t *testing.T) {
 	// 与绝对路径把文件写到数据目录之外、官方 zip 布局变了——同一份归档字节上一条链全验。
 	t.Run("归档完整性、解压安全与真实解压布局", func(t *testing.T) {
 		for _, c := range []struct{ name, want string }{
-			{pythonArchiveName(), PythonArchiveSHA256},
 			{nodeArchiveName(), NodeArchiveSHA256},
+			{gitBashArchiveName(), GitBashArchiveSHA256},
 		} {
 			data := hasEmbeddedArchive(t, c.name)
-			if c.want == "" {
-				t.Fatalf("SHA 常量为空：用 sha256sum 实测 %s 后填进 Go 常量", c.name)
+			if c.want == "" || c.want == "PENDING" {
+				t.Fatalf("SHA 常量未填：用 sha256sum 实测 %s 后填进 Go 常量", c.name)
 			}
 			sum := sha256.Sum256(data)
 			if got := hex.EncodeToString(sum[:]); got != c.want {
@@ -61,36 +51,38 @@ func TestBundledRuntimeChain(t *testing.T) {
 				t.Fatalf("穿越路径未被拒绝: %q", name)
 			}
 		}
-		if _, err := safeExtractPath(dest, `python/tools/x.exe`); err != nil {
+		if _, err := safeExtractPath(dest, `usr/bin/bash.exe`); err != nil {
 			t.Fatalf("正常路径被误拒: %v", err)
 		}
 
-		// 真实解压两份归档：全仓最慢的一步，-short 只跳过它。
-		// Node 的官方 zip 多一层顶层目录，必须剥掉平铺，否则 npm.cmd 指错路径。
+		// 真实解压两份归档：全仓最慢的一步，-short 只跳过它。Node 剥顶层目录平铺；
+		// MinGit 走 EnsureGitBash 全链（它只带 sh.exe，bash.exe 是解压后补出来的）。
 		if testing.Short() {
 			t.Skip("真实解压：-short 跳过，碰运行时归档时跑全量")
 		}
-		for _, c := range []struct {
-			name  string
-			strip string
-			want  []string
-		}{
-			{pythonArchiveName(), "", []string{"python.exe", pythonStdlibZip()}},
-			{nodeArchiveName(), nodeArchiveRooted, []string{"node.exe", "npm.cmd"}},
-		} {
-			zr, err := newZipReader(hasEmbeddedArchive(t, c.name))
-			if err != nil {
-				t.Fatalf("%s 归档格式不正确: %v", c.name, err)
+		zr, err := newZipReader(hasEmbeddedArchive(t, nodeArchiveName()))
+		if err != nil {
+			t.Fatalf("%s 归档格式不正确: %v", nodeArchiveName(), err)
+		}
+		nodeDir := t.TempDir()
+		if err := extractZipStripped(zr, nodeDir, nodeArchiveRooted); err != nil {
+			t.Fatalf("%s 解压失败: %v", nodeArchiveName(), err)
+		}
+		for _, w := range []string{"node.exe", "npm.cmd"} {
+			if !pkg.FileExists(filepath.Join(nodeDir, w)) {
+				t.Fatalf("%s 解压后根目录下缺少 %s——官方 zip 布局变了？", nodeArchiveName(), w)
 			}
-			dir := t.TempDir()
-			if err := extractZipStripped(zr, dir, c.strip); err != nil {
-				t.Fatalf("%s 解压失败: %v", c.name, err)
-			}
-			for _, w := range c.want {
-				if !pkg.FileExists(filepath.Join(dir, w)) {
-					t.Fatalf("%s 解压后根目录下缺少 %s——官方 zip 布局变了？", c.name, w)
-				}
-			}
+		}
+		gitDir := t.TempDir()
+		bashExe, err := EnsureGitBash(Paths{GitBashDir: gitDir})
+		if err != nil {
+			t.Fatalf("EnsureGitBash 失败: %v", err)
+		}
+		if !pkg.FileExists(bashExe) || !pkg.FileExists(filepath.Join(gitDir, `cmd\git.exe`)) {
+			t.Fatalf("内置 Git Bash 解压布局不对: bash=%s", bashExe)
+		}
+		if again, err := EnsureGitBash(Paths{GitBashDir: gitDir}); err != nil || again != bashExe {
+			t.Fatalf("EnsureGitBash 第二次应命中标记直接返回: %s != %s, err=%v", again, bashExe, err)
 		}
 	})
 }

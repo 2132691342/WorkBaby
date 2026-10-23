@@ -1,4 +1,4 @@
-// 终端里的 pi 命令：写一个固定指向内置 Node 的入口，并把它的目录挂到用户 PATH。
+// 终端里的 pi 命令：写一个指向当前生效 Node 与 PI 的入口，并把它的目录挂到用户 PATH。
 package env
 
 import (
@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"WorkBaby/backend/pkg"
-	"WorkBaby/backend/runtime"
 )
 
 // TerminalStatus 是「在终端里敲 pi」这件事的可用状态。
@@ -127,15 +126,11 @@ func (e *Env) EnsureTerminal() (TerminalStatus, error) {
 // terminalDir 是放 pi.cmd 的目录：与 npm 的前缀分开，升级 npm 包不会覆盖它。
 func (e *Env) terminalDir() string { return filepath.Join(e.paths.DataDir, "bin") }
 
-// writeTerminalShim 生成 pi.cmd（node + 入口脚本，不经 npm shim）。
-// 不写 .ps1：PowerShell 会优先跑它，而 Restricted 执行策略下 `pi` 会直接报错。
+// writeTerminalShim 生成 pi.cmd（CMD / PowerShell）与 pi（Git Bash 的 sh 脚本），两者都钉
+// 当前生效的 node 与 PI（漂移时启动会刷新）。不写 .ps1：Restricted 执行策略下 `pi` 会直接报错。
 func (e *Env) writeTerminalShim() error {
 	exe, _ := e.PiExe()
-	// 入口钉死内置 node：它随应用走，不会因为用户升级或卸载系统 node 而失效。
 	node, _ := e.NodeExe()
-	if bundled, err := runtime.EnsureNode(e.paths); err == nil {
-		node = bundled
-	}
 	resolved, args := resolvePiExe(exe, node)
 	// 直接指定脚本文件时补上解释器，否则「入口」等于让系统去执行 .js。
 	if strings.EqualFold(filepath.Ext(resolved), ".js") {
@@ -147,7 +142,10 @@ func (e *Env) writeTerminalShim() error {
 	if err := pkg.EnsureDir(e.terminalDir()); err != nil {
 		return err
 	}
-	return WriteFileAtomic(filepath.Join(e.terminalDir(), "pi.cmd"), []byte(terminalShimBody(resolved, args)), 0o755)
+	if err := WriteFileAtomic(filepath.Join(e.terminalDir(), "pi.cmd"), []byte(terminalShimBody(resolved, args)), 0o755); err != nil {
+		return err
+	}
+	return WriteFileAtomic(filepath.Join(e.terminalDir(), "pi"), []byte(piShBody(resolved, args)), 0o755)
 }
 
 // terminalShimBody 生成 pi.cmd 的正文；args 非空且是 .js 时走 node + 脚本。
@@ -161,6 +159,19 @@ func terminalShimBody(resolved string, args []string) string {
 	} else {
 		// 抽不到脚本路径时退回原入口：跑错比不跑好，错误信息里带着真实原因。
 		b.WriteString("call \"" + resolved + "\" %*\r\n")
+	}
+	return b.String()
+}
+
+// piShBody 生成 Git Bash 敲 `pi` 走的 sh 脚本；路径转正斜杠，反斜杠在 sh 双引号里是转义符。
+func piShBody(resolved string, args []string) string {
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\n")
+	b.WriteString("# 由 WorkBaby 生成：换 PI 版本或重装后会自动刷新。\n")
+	if len(args) > 0 && strings.EqualFold(filepath.Ext(args[0]), ".js") {
+		b.WriteString("exec \"" + filepath.ToSlash(resolved) + "\" \"" + filepath.ToSlash(args[0]) + "\" \"$@\"\n")
+	} else {
+		b.WriteString("exec \"" + filepath.ToSlash(resolved) + "\" \"$@\"\n")
 	}
 	return b.String()
 }

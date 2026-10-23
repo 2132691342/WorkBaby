@@ -302,21 +302,6 @@ export interface WorkspacesRESP {
 
 // ---- 运行时与环境 ----
 
-export interface RuntimeInfo {
-  node_exe: string
-  node_source: string
-  node_version: string
-  node_error: string
-  python_exe: string
-  python_source: string
-  python_version: string
-  python_error: string
-  pi_exe: string
-  pi_source: string
-  pi_version: string
-  pi_error: string
-}
-
 /** PI 运行环境闸门快照 */
 export interface PiEnvVO {
   node_ready: boolean
@@ -324,10 +309,6 @@ export interface PiEnvVO {
   node_version: string
   node_source: string
   node_error: string
-  python_ready: boolean
-  python_path: string
-  python_version: string
-  python_source: string
   pi_ready: boolean
   pi_path: string
   pi_version: string
@@ -375,10 +356,6 @@ export interface EngineStatusVO {
   node_path: string
   node_source: string
   node_error: string
-  python_ready: boolean
-  python_version: string
-  python_path: string
-  python_source: string
   agent_dir: string
   model_ready: boolean
   /** 已声明的插件包数量 */
@@ -388,6 +365,8 @@ export interface EngineStatusVO {
   /** 命令执行环境：git-bash / msys / cygwin / powershell / none */
   shell_kind: string
   shell_path: string
+  /** 来源：settings / git / path / bundled */
+  shell_source: string
   shell_usable: boolean
   shell_error: string
   /** 终端里能不能直接敲 pi */

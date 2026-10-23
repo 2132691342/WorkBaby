@@ -100,7 +100,7 @@ func (h *Handler) Startup(ctx context.Context) error {
 	// 内置运行时：失败只告警不阻断启动，但原因必须写清楚。
 	reportRuntime(paths)
 
-	// PI 的运行环境：优先复用系统里已有的 Node / Python / PI。
+	// PI 的运行环境：优先复用系统里已有的 Node / PI。
 	h.PiEnv = pienv.New(paths)
 	preparePiEnv(h.PiEnv)
 
@@ -129,10 +129,6 @@ func preparePiEnv(e *pienv.Env) {
 	} else if st.Applied {
 		pkg.Infof("startup: 命令执行环境已改为 %s（%s）", st.Kind, st.Path)
 	}
-	// 自己装的那份才自动挂 PATH：系统里那份归用户自己管。
-	if !e.OwnsInstall() {
-		return
-	}
 	st := e.TerminalStatusOf()
 	if len(st.Others) > 0 {
 		pkg.Warnf("startup: PATH 上还有其它 pi 入口（本应用入口优先）：%s", strings.Join(st.Others, "、"))
@@ -142,20 +138,19 @@ func preparePiEnv(e *pienv.Env) {
 		pkg.Warnf("startup: 终端里的 pi 会被 %s 抢先，请在系统环境变量里清掉那份旧安装", st.ShadowedBy)
 		return
 	}
-	// 每次都刷一遍：入口里的 node 路径可能随运行时重建而变，
-	// 而入口目录必须始终在用户 PATH 最前面（后面再有别的 pi 也抢不走名额）。
-	if _, err := e.EnsureTerminal(); err != nil {
-		pkg.Warnf("startup: 生成终端入口失败: %v", err)
+	// 自装或入口已存在（用户开过「让终端也能用 pi」）时每次启动都刷：当前生效的 node / PI
+	// 漂移了入口必须跟着改，否则界面与终端跑在两个内核上；入口目录也必须始终在 PATH 最前面。
+	if e.OwnsInstall() || pkg.FileExists(st.Shim) || st.OnPath {
+		if _, err := e.EnsureTerminal(); err != nil {
+			pkg.Warnf("startup: 生成终端入口失败: %v", err)
+		}
 	}
 }
 
-// reportRuntime 解压并留痕内置运行时：提前做是为了让失败点落在启动日志里。
+// reportRuntime 留痕内置 Node 可用性：提前做是为了让失败点落在启动日志里。
 func reportRuntime(paths runtime.Paths) {
 	if st := runtime.NodeStatusOf(paths); st.Exe == "" {
 		pkg.Warnf("startup: 内置 Node 不可用（将回退系统 node）：%s", st.Err)
-	}
-	if st := runtime.Status(paths); st.Exe == "" {
-		pkg.Warnf("startup: 内置 Python 不可用（将回退系统 python）：%s", st.Err)
 	}
 }
 

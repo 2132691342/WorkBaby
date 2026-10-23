@@ -215,11 +215,6 @@ type PiEnvVO struct {
 	NodeSource  string `json:"node_source"`
 	NodeError   string `json:"node_error"`
 
-	PythonReady   bool   `json:"python_ready"`
-	PythonPath    string `json:"python_path"`
-	PythonVersion string `json:"python_version"`
-	PythonSource  string `json:"python_source"`
-
 	PiReady   bool   `json:"pi_ready"`
 	PiPath    string `json:"pi_path"`
 	PiVersion string `json:"pi_version"`

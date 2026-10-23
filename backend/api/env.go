@@ -62,8 +62,6 @@ func (h *Handler) buildPiEnv() *domain.PiEnvVO {
 	out := &domain.PiEnvVO{
 		NodeReady: vo.NodeReady, NodePath: vo.NodePath,
 		NodeVersion: vo.NodeVersion, NodeSource: vo.NodeSource, NodeError: vo.NodeError,
-		PythonReady: vo.PythonReady, PythonPath: vo.PythonPath,
-		PythonVersion: vo.PythonVersion, PythonSource: vo.PythonSource,
 		PiReady: vo.PiReady, PiPath: vo.PiPath,
 		PiVersion: vo.PiVersion, PiSource: vo.PiSource, PiError: vo.PiError,
 		AgentDir:   vo.AgentDir,

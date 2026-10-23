@@ -62,3 +62,4 @@ assets/skills/project-standard/
 .trash/
 # 验证脚本的本地输出（scripts/check.ps1 写入，失败摘要同时打印到屏幕与 job summary）
 /.check/
+.zcode/

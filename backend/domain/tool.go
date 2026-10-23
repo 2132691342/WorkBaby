@@ -33,21 +33,3 @@ type ToggleToolREQ struct {
 	Name    string `json:"name"`
 	Enabled bool   `json:"enabled"`
 }
-
-// RuntimeInfoVO 运行时状态出参：内置/系统运行时与 PI 的可用状态 + 失败原因。
-type RuntimeInfoVO struct {
-	NodeExe     string `json:"node_exe"`
-	NodeSource  string `json:"node_source"`
-	NodeVersion string `json:"node_version"`
-	NodeError   string `json:"node_error"`
-
-	PythonExe     string `json:"python_exe"`
-	PythonSource  string `json:"python_source"`
-	PythonVersion string `json:"python_version"`
-	PythonError   string `json:"python_error"`
-
-	PiExe     string `json:"pi_exe"`
-	PiSource  string `json:"pi_source"`
-	PiVersion string `json:"pi_version"`
-	PiError   string `json:"pi_error"`
-}

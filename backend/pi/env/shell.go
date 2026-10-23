@@ -1,5 +1,5 @@
-// 命令执行环境：PI 的 bash 工具在 Windows 上只认真 bash，
-// 而 System32 下的 bash.exe 只是 WSL 启动器——没装发行版时每次都失败。
+// 命令执行环境：PI 的 bash 工具在 Windows 上只认真 bash，而 System32 下的 bash.exe
+// 只是 WSL 启动器——没装发行版时每次都失败。本机一份 bash 都没有时解压内置 Git Bash 兜住。
 package env
 
 import (
@@ -13,9 +13,10 @@ import (
 	"time"
 
 	"WorkBaby/backend/pkg"
+	"WorkBaby/backend/runtime"
 )
 
-// ShellKind* 是命令执行环境的形态：前三种是真 bash，powershell 是兜底工具。
+// ShellKind* 是命令执行环境的形态：前三种是真 bash，powershell 只用于状态展示。
 const (
 	ShellKindGitBash    = "git-bash"
 	ShellKindMSYS       = "msys"
@@ -23,9 +24,6 @@ const (
 	ShellKindPowerShell = "powershell"
 	ShellKindNone       = "none"
 )
-
-// shellToolMods 是没有 bash 时写进 defaultTools 的增量：把 bash 换成 powershell。
-var shellToolMods = []string{"+powershell", "-bash"}
 
 // bashProbeTimeout 是「这份 bash 能不能跑」的试跑上限：坏掉的 WSL 桩会卡在这里。
 const bashProbeTimeout = 3 * time.Second
@@ -35,7 +33,7 @@ type ShellStatus struct {
 	Kind   string
 	Path   string
 	Usable bool
-	// Source 是这份 shell 的来源：settings / git / path / system。
+	// Source 是这份 shell 的来源：settings / git / path / bundled / system。
 	Source string
 	Error  string
 	// Applied 表示这一次探测顺手改写了 PI 的 settings.json。
@@ -66,8 +64,8 @@ func (e *Env) RefreshShell() ShellStatus {
 	return e.ShellStatusOf()
 }
 
-// EnsureShell 把探测结果落到 PI 的 settings.json：有真 bash 就写 shellPath，
-// 没有就把工具集从 bash 换成 powershell。Applied 表示这次真的改了文件。
+// EnsureShell 把探测结果落到 PI 的 settings.json：选中 PI 自己找不到的 bash 时写 shellPath
+// 引导过去。Applied 表示这次真的改了文件。
 func (e *Env) EnsureShell() (ShellStatus, error) {
 	st := e.RefreshShell()
 	applied, err := e.applyShell(st)
@@ -79,19 +77,22 @@ func (e *Env) EnsureShell() (ShellStatus, error) {
 func ShellLabel(st ShellStatus) string {
 	switch st.Kind {
 	case ShellKindGitBash:
+		if st.Source == "bundled" {
+			return "Git Bash（内置）"
+		}
 		return "Git Bash"
 	case ShellKindMSYS:
 		return "MSYS2 Bash"
 	case ShellKindCygwin:
 		return "Cygwin Bash"
 	case ShellKindPowerShell:
-		return "PowerShell（没有找到可用的 bash）"
+		return "PowerShell（没有可用的 bash，PI 的 bash 工具跑不了）"
 	default:
 		return "没有可用的命令执行环境"
 	}
 }
 
-// probeShell 依次看：用户指定的 shellPath → 各处的真 bash → PowerShell。
+// probeShell 依次看：用户指定的 shellPath → 各处的真 bash → 内置 Git Bash → PowerShell。
 func (e *Env) probeShell() ShellStatus {
 	var broken string
 	if custom := strings.TrimSpace(e.settingString("shellPath")); custom != "" {
@@ -105,6 +106,15 @@ func (e *Env) probeShell() ShellStatus {
 		if bashWorks(c.path) {
 			return ShellStatus{Kind: shellKindOf(c.path), Path: c.path, Usable: true, Source: c.source}
 		}
+	}
+	// 本机一份能跑的 bash 都没有：解压内置 Git Bash（懒解压，只在这里发生）。
+	if exe, err := runtime.EnsureGitBash(e.paths); err == nil {
+		if bashWorks(exe) {
+			return ShellStatus{Kind: ShellKindGitBash, Path: exe, Usable: true, Source: "bundled"}
+		}
+		broken = "内置 Git Bash 解压了但跑不起来：" + exe
+	} else if broken == "" {
+		broken = "内置 Git Bash 不可用：" + err.Error()
 	}
 	if ps := powershellExe(); ps != "" {
 		return ShellStatus{Kind: ShellKindPowerShell, Path: ps, Usable: true, Source: "system"}
@@ -290,14 +300,9 @@ func (e *Env) settingString(key string) string {
 	return value
 }
 
-// shellMarker 记录我们往 settings.json 写过什么：只有自己写的东西才敢撤回。
-// ToolList 是写入后的完整列表：用户之后动过工具开关，就跟它对不上，那时不再替用户做主。
+// shellMarker 记录我们往 settings.json 写过的 shellPath：只有自己写的东西才敢撤回。
 type shellMarker struct {
-	ShellPath  string   `json:"shell_path,omitempty"`
-	ToolMods   []string `json:"tool_mods,omitempty"`
-	ToolList   []string `json:"tool_list,omitempty"`
-	ToolBefore []string `json:"tool_before,omitempty"`
-	ToolHadKey bool     `json:"tool_had_key,omitempty"`
+	ShellPath string `json:"shell_path,omitempty"`
 }
 
 // markerPath 是自愈记录的落点；它不进 PI 的配置目录，免得被当成用户配置。
@@ -325,8 +330,8 @@ func (e *Env) writeShellMarker(marker shellMarker) error {
 	return WriteFileAtomic(e.markerPath(), append(body, '\n'), 0o600)
 }
 
-// applyShell 只改自己该改的键：shellPath 与 defaultTools 里的工具增量。
-// 有真 bash 时把之前改过的工具集原样还回去，让 bash 工具回到默认集。
+// applyShell 只改 shellPath 这一个键：选中的 bash 是 PI 自己找不到的（非标准位置或内置）
+// 才写进去引导；PI 自己找得到就保持用户配置原样。工具集（defaultTools）归工具面板管，这里不碰。
 func (e *Env) applyShell(st ShellStatus) (bool, error) {
 	if st.Kind == ShellKindNone {
 		return false, pkg.New("9717", "这台机器上没有可用的命令执行环境", st.Error)
@@ -336,119 +341,36 @@ func (e *Env) applyShell(st ShellStatus) (bool, error) {
 		return false, err
 	}
 	marker := e.readShellMarker()
-	current, listOK := toolList(raw)
-	changed, markerDirty := false, false
+	current := e.settingString("shellPath")
+	changed := false
 
-	if st.Kind == ShellKindPowerShell {
-		hadKey := hasDefaultTools(raw)
-		if marker.ToolList == nil && listOK {
-			if next, added := withToolMods(current, shellToolMods); len(added) > 0 {
-				raw["defaultTools"] = encodeToolList(next)
-				marker.ToolMods = added
-				marker.ToolList = next
-				marker.ToolBefore = current
-				marker.ToolHadKey = hadKey
-				changed = true
-			}
-		}
-		// 我们自己写过、如今已经不能用的 shellPath 必须撤掉，否则 PI 每次起 shell 都报错。
-		if marker.ShellPath != "" && strings.EqualFold(e.settingString("shellPath"), marker.ShellPath) {
-			delete(raw, "shellPath")
-			marker.ShellPath = ""
-			changed, markerDirty = true, true
-		}
-	} else {
-		if len(marker.ToolMods) > 0 {
-			if marker.ToolList != nil && listOK && equalNames(current, marker.ToolList) {
-				if marker.ToolHadKey {
-					raw["defaultTools"] = encodeToolList(marker.ToolBefore)
-				} else {
-					delete(raw, "defaultTools")
-				}
-				changed = true
-			}
-			// 记下的一律清掉：列表对不上说明用户自己动过，之后不再替用户做主。
-			marker.ToolMods, marker.ToolList, marker.ToolBefore, marker.ToolHadKey = nil, nil, nil, false
-			markerDirty = true
-		}
-		if needsShellPath(st.Path) && !strings.EqualFold(e.settingString("shellPath"), st.Path) {
-			encoded, _ := json.Marshal(st.Path)
-			raw["shellPath"] = encoded
-			marker.ShellPath = st.Path
-			changed = true
-		}
+	switch {
+	case st.Kind == ShellKindPowerShell && marker.ShellPath != "" && strings.EqualFold(current, marker.ShellPath):
+		// 我们写过、如今已经不能用的 shellPath 必须撤掉，否则 PI 每次起 shell 都报错。
+		delete(raw, "shellPath")
+		marker.ShellPath = ""
+		changed = true
+	case st.Kind != ShellKindPowerShell && needsShellPath(st.Path) && !strings.EqualFold(current, st.Path):
+		// 选中了 PI 找不到的 bash（含内置）：写 shellPath 指过去。
+		encoded, _ := json.Marshal(st.Path)
+		raw["shellPath"] = encoded
+		marker.ShellPath = st.Path
+		changed = true
+	case st.Kind != ShellKindPowerShell && !needsShellPath(st.Path) && marker.ShellPath != "" && strings.EqualFold(current, marker.ShellPath):
+		// 我们写过的 shellPath 已被更好的 bash 取代（PI 自己找得到那份）：撤掉，别一直吊在内置上。
+		delete(raw, "shellPath")
+		marker.ShellPath = ""
+		changed = true
 	}
 	if changed {
 		if err := writeSettingsMap(e.SettingsPath(), raw); err != nil {
 			return false, err
 		}
-	}
-	if changed || markerDirty {
 		if err := e.writeShellMarker(marker); err != nil {
 			return false, err
 		}
 	}
 	return changed, nil
-}
-
-// toolList 读 defaultTools；键不存在返回空表（空表 = 之后可能被增量填上）。
-func toolList(raw map[string]json.RawMessage) ([]string, bool) {
-	body, ok := raw["defaultTools"]
-	if !ok {
-		return []string{}, true
-	}
-	var list []string
-	if json.Unmarshal(body, &list) != nil {
-		return nil, false
-	}
-	return list, true
-}
-
-// hasDefaultTools 报告 defaultTools 键是否存在。
-func hasDefaultTools(raw map[string]json.RawMessage) bool {
-	_, ok := raw["defaultTools"]
-	return ok
-}
-
-// withToolMods 追加增量并返回真正新增的那几项；已有同名项不算新增。
-func withToolMods(current, mods []string) ([]string, []string) {
-	present := map[string]bool{}
-	for _, name := range current {
-		present[name] = true
-	}
-	next := append([]string{}, current...)
-	added := []string{}
-	for _, mod := range mods {
-		if present[mod] {
-			continue
-		}
-		next = append(next, mod)
-		present[mod] = true
-		added = append(added, mod)
-	}
-	return next, added
-}
-
-// equalNames 比两份工具名列表是否完全一致（顺序敏感：它就是写进文件的那一行）。
-func equalNames(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// encodeToolList 把工具名列表编码回 JSON。
-func encodeToolList(list []string) json.RawMessage {
-	if list == nil {
-		list = []string{}
-	}
-	body, _ := json.Marshal(list)
-	return body
 }
 
 // needsShellPath 判断 PI 自己找不找得到这份 bash：找得到就别改用户的配置。

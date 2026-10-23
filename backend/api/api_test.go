@@ -357,18 +357,14 @@ func TestHTTPChain(t *testing.T) {
 			}
 		}
 
-		// 断线重连：带 Last-Event-ID 回来必须能重新接入，而不是被拒绝。
+		// 断线重连：带 Last-Event-ID 回来必须能重新接入并收到后续事件，而不是被拒绝后变成哑流。
 		frames2, stop2 := subscribeSSE(t, base, sessID, got[len(got)-1].ID)
 		defer stop2()
 		if code, body = call(t, base, "POST", "/chat/followup", map[string]any{
 			"session_id": sessID, "content": "再补一句",
-		}); code != http.StatusOK && !strings.Contains(body, `"code":"0"`) {
+		}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
 			t.Fatalf("排队消息失败: %s", body)
 		}
-		select {
-		case <-frames2:
-		case <-time.After(3 * time.Second):
-			// 没有新事件也算通过：这条只验证「重连不被拒绝」。
-		}
+		drainUntil(t, frames2, "chat:done")
 	})
 }

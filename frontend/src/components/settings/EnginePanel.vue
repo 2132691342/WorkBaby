@@ -101,10 +101,12 @@ function runtimeSource(src: string) {
 }
 
 /** 命令执行环境的几种形态：认不出的一律按「没有」说，别把内部名字丢给用户看 */
-function shellKindLabel(kind: string) {
+function shellKindLabel(kind: string, source = '') {
   switch (kind) {
     case 'git-bash':
-      return t('settings.engine.shellKindGitBash')
+      return source === 'bundled'
+        ? t('settings.engine.shellKindBundled')
+        : t('settings.engine.shellKindGitBash')
     case 'msys':
       return t('settings.engine.shellKindMSYS')
     case 'cygwin':
@@ -251,17 +253,6 @@ onMounted(() => {
                   : t('settings.engine.nodeMissing', { msg: status.node_error })
               }}
             </p>
-            <p class="eng-line">
-              <AppIcon :name="status.python_ready ? 'check' : 'info'" size="ic-2xs" :class="status.python_ready ? 'ok' : 'bad'" />
-              {{
-                status.python_ready
-                  ? t('settings.engine.pythonOk', {
-                      version: status.python_version,
-                      source: runtimeSource(status.python_source),
-                    })
-                  : t('settings.engine.pythonMissing')
-              }}
-            </p>
           </div>
 
           <div class="eng-kv">
@@ -274,7 +265,7 @@ onMounted(() => {
             <span class="wb-label">{{ t('settings.engine.shell') }}</span>
             <p class="eng-line">
               <AppIcon :name="status.shell_usable ? 'check' : 'alert'" size="ic-2xs" :class="status.shell_usable ? 'ok' : 'bad'" />
-              {{ shellKindLabel(status.shell_kind) }}
+              {{ shellKindLabel(status.shell_kind, status.shell_source) }}
             </p>
             <p class="eng-mono muted">{{ status.shell_path || status.shell_error || '—' }}</p>
             <p class="eng-meta">{{ t('settings.engine.shellDesc') }}</p>

@@ -26,7 +26,6 @@ import type {
   PISettingsVO,
   ProviderListRESP,
   ProviderVO,
-  RuntimeInfo,
   SendMessageRESP,
   SessionDetailVO,
   SessionVO,
@@ -169,12 +168,6 @@ export const settings = {
 
 /** 背景图本体：前端拿不到数据目录里的文件路径，只能走这个 URL */
 export const backgroundUrl = () => `${getBaseURL()}/assets/background`
-
-export const runtime = {
-  status: () => get<RuntimeInfo>('/runtime'),
-  /** 重新探测：后端先清探测缓存再跑一遍 */
-  redetect: () => post<RuntimeInfo>('/runtime/redetect'),
-}
 
 /** 环境引导：闸门快照与 PI 的安装更新 */
 export const env = {

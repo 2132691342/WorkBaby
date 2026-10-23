@@ -96,8 +96,6 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		}
 
 		v1.GET("/files", h.ListFiles)
-		v1.GET("/runtime", h.RuntimeStatus)
-		v1.POST("/runtime/redetect", h.RedetectRuntime)
 
 		// 环境引导：闸门快照、PI 的安装更新、命令执行环境与终端入口。
 		v1.GET("/env", h.EnvStatus)

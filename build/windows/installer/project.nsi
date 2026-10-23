@@ -120,7 +120,7 @@ Section "" SEC_CORE
 
     !insertmacro wails.files
 
-    # Bundled runtimes (Node / Python) are embedded in the exe by go:embed
+    # Bundled runtimes (Node / MinGit Git Bash) are embedded in the exe by go:embed
     # and unpacked into the user data directory on first launch -- nothing else to
     # package here.
 

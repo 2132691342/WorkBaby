@@ -29,11 +29,6 @@ type EngineStatusVO struct {
 	NodeSource  string `json:"node_source"`
 	NodeError   string `json:"node_error"`
 
-	PythonReady   bool   `json:"python_ready"`
-	PythonVersion string `json:"python_version"`
-	PythonPath    string `json:"python_path"`
-	PythonSource  string `json:"python_source"`
-
 	AgentDir   string `json:"agent_dir"`
 	ModelReady bool   `json:"model_ready"`
 	// Packages 是已声明的插件包数量：插件页才看得见细节，引擎页只给个总数。
@@ -43,9 +38,10 @@ type EngineStatusVO struct {
 	// InstallError 是最近一次安装 / 升级失败的原因（空表示没有失败记录）。
 	InstallError string `json:"install_error"`
 
-	// 命令执行环境：kind 为 git-bash / msys / cygwin / powershell / none。
+	// 命令执行环境：kind 为 git-bash / msys / cygwin / powershell / none；source 为 settings / git / path / bundled。
 	ShellKind   string `json:"shell_kind"`
 	ShellPath   string `json:"shell_path"`
+	ShellSource string `json:"shell_source"`
 	ShellUsable bool   `json:"shell_usable"`
 	ShellError  string `json:"shell_error"`
 	// 终端入口：终端里 `pi` 能不能直接用。

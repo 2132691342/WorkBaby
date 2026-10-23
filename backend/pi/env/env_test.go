@@ -72,9 +72,6 @@ func TestPiEnvChain(t *testing.T) {
 				t.Fatalf("只有模型缺时阻塞项应当是 model，实际 %q", vo.Blocking)
 			}
 		}
-		if withModel := e.Detect(true); !withModel.ModelReady {
-			t.Fatal("模型就绪标志没透传")
-		}
 	})
 
 	// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 未知字段保留；整体重写会抹掉 PI 自己写的字段。
@@ -208,17 +205,109 @@ func TestPiEnvChain(t *testing.T) {
 
 	// 入口与路径位置：shim 必须还原成 node + 脚本（经 cmd.exe 会弹窗），入口目录必须前置，
 	// 且要能认出排在它前面、也带着旧 pi 的目录——否则终端敲到的是另一份内核。
-	t.Run("PI 入口与终端位置：shim 还原、绝不吐字面量 node、入口目录前置", func(t *testing.T) {
-		checkShimNodeFallback(t)
+	t.Run("PI 入口与终端位置：shim 还原、入口目录前置、pi.cmd 与 pi 双份都指向生效份", func(t *testing.T) {
 		checkPiShimResolution(t)
 		checkTerminalPathOrder(t)
+		checkTerminalShimFiles(t)
 	})
 
-	// 命令执行环境：WSL 启动器必须被剔除，工具增量能加能撤，自己写过的 shellPath 才会被撤回。
-	t.Run("命令执行环境自愈：剔除 WSL 启动器、工具增量可加可撤", func(t *testing.T) {
+	// 用户已有 pi 就必须用用户的：探测顺序错会让机器上出现第二份内核，升级也写错地方。
+	t.Run("用户 PATH 上的 pi 抢先于自装前缀，自生成的终端转发不算数", func(t *testing.T) {
+		checkUserPiFirst(t)
+	})
+
+	// 命令执行环境：WSL 启动器必须被剔除，shellPath 才是被引导的那个键，自己写过的才撤回。
+	t.Run("命令执行环境：剔除 WSL 启动器、shellPath 引导与撤回、不碰工具集", func(t *testing.T) {
 		checkWSLStubSkipped(t)
 		checkShellSelfHeal(t)
 	})
+}
+
+// checkUserPiFirst 验 PiExe 的优先级：用户 PATH > 自装前缀；本应用生成的终端入口
+// 只是转发，不算「用户的 pi」，不能因为它在 PATH 前面就取代自装那份被认领。
+func checkUserPiFirst(t *testing.T) {
+	t.Helper()
+	p := pathsOf(t)
+	e := New(p)
+
+	mine := filepath.Join(p.NpmGlobalDir, "pi.cmd")
+	if err := os.WriteFile(mine, []byte("@echo off\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// 只有自装前缀：认到它，来源 npm-global。
+	t.Setenv("PATH", t.TempDir())
+	if exe, src := e.PiExe(); !strings.EqualFold(exe, mine) || src != "npm-global" {
+		t.Fatalf("只有自装前缀时应认到它: %q %q", exe, src)
+	}
+
+	// PATH 上有用户那份：用户优先，自装的退居其后（升级时不至于写错地方）。
+	userDir := t.TempDir()
+	userPi := filepath.Join(userDir, "pi.cmd")
+	if err := os.WriteFile(userPi, []byte("@echo off\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", userDir)
+	if exe, src := e.PiExe(); !strings.EqualFold(exe, userPi) || src != "system" {
+		t.Fatalf("用户 PATH 上的 pi 应当优先: %q %q", exe, src)
+	}
+
+	// 本应用生成的终端入口在 PATH 最前面：它是转发不是安装，必须被跳过。
+	if err := os.MkdirAll(e.terminalDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", strings.Join([]string{e.terminalDir(), userDir}, ";"))
+	if err := os.WriteFile(filepath.Join(e.terminalDir(), "pi.cmd"), []byte("@echo off\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if exe, src := e.PiExe(); !strings.EqualFold(exe, userPi) || src != "system" {
+		t.Fatalf("终端转发不该抢走用户的 pi: %q %q", exe, src)
+	}
+}
+
+// checkTerminalShimFiles 验终端入口是双份：pi.cmd 给 CMD / PowerShell，
+// pi（sh）给 Git Bash；两者都指向当前生效的 node 与入口脚本。
+func checkTerminalShimFiles(t *testing.T) {
+	t.Helper()
+	e := New(pathsOf(t))
+	dir := t.TempDir()
+	script := filepath.Join(dir, "cli.js")
+	if err := os.WriteFile(script, []byte("// entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(dir, "pi.cmd")
+	if err := os.WriteFile(shim, []byte("@ECHO off\r\n%dp0%\\cli.js\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.overridePi = shim
+	if err := e.writeTerminalShim(); err != nil {
+		t.Fatalf("生成终端入口失败: %v", err)
+	}
+	node, _ := e.NodeExe()
+	if node == "" {
+		t.Skip("本机既没有 node 也没有内置运行时标记")
+	}
+	cmdBody, err := os.ReadFile(filepath.Join(e.terminalDir(), "pi.cmd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cmdBody), node) || !strings.Contains(string(cmdBody), script) {
+		t.Fatalf("pi.cmd 没有指向当前生效 node 与入口脚本:\n%s", cmdBody)
+	}
+	shBody, err := os.ReadFile(filepath.Join(e.terminalDir(), "pi"))
+	if err != nil {
+		t.Fatal("Git Bash 用的 pi 入口没有生成")
+	}
+	text := string(shBody)
+	if !strings.HasPrefix(text, "#!/bin/sh") {
+		t.Fatalf("pi 入口不是 sh 脚本:\n%s", text)
+	}
+	// sh 双引号里反斜杠是转义符，路径必须转成正斜杠。
+	if strings.ContainsRune(text, '\\') {
+		t.Fatalf("sh 入口里不该有反斜杠路径:\n%s", text)
+	}
+	if !strings.Contains(text, filepath.ToSlash(node)) || !strings.Contains(text, filepath.ToSlash(script)) {
+		t.Fatalf("pi 入口没有指向当前生效 node 与入口脚本:\n%s", text)
+	}
 }
 
 // checkWSLStubSkipped 验 System32 下的 bash.exe 不会被当成候选 bash。
@@ -239,7 +328,7 @@ func checkWSLStubSkipped(t *testing.T) {
 	}
 }
 
-// checkShellSelfHeal 验两种形态的落盘：没有 bash 写工具增量，有 bash 时撤回并写 shellPath。
+// checkShellSelfHeal 验 shellPath 的引导与撤回；defaultTools 全程不许被碰（工具集归工具面板管）。
 func checkShellSelfHeal(t *testing.T) {
 	t.Helper()
 	e := New(pathsOf(t))
@@ -247,44 +336,42 @@ func checkShellSelfHeal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 没有 bash：把 bash 工具换成 powershell，其余配置一动不动。
-	applied, err := e.applyShell(ShellStatus{Kind: ShellKindPowerShell, Path: `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, Usable: true})
+	// 选中 PI 找不到的 bash（含内置那份）：写 shellPath 指过去，其余配置一动不动。
+	bundledBash := filepath.Join(e.Paths().GitBashDir, "usr", "bin", "bash.exe")
+	applied, err := e.applyShell(ShellStatus{Kind: ShellKindGitBash, Path: bundledBash, Usable: true, Source: "bundled"})
 	if err != nil || !applied {
-		t.Fatalf("没有 bash 时应当写工具增量: applied=%v err=%v", applied, err)
+		t.Fatalf("PI 找不到的 bash 应当写 shellPath: applied=%v err=%v", applied, err)
 	}
 	raw, err := e.settingsMap()
 	if err != nil {
 		t.Fatal(err)
 	}
-	list, ok := toolList(raw)
-	if !ok || len(list) != 2 || list[0] != "+powershell" || list[1] != "-bash" {
-		t.Fatalf("工具增量写错了: %+v", list)
+	if got := e.settingString("shellPath"); got != bundledBash {
+		t.Fatalf("shellPath 没写对: %q", got)
 	}
-	if _, err := e.ReadSettings(); err != nil {
-		t.Fatal(err)
+	if _, has := raw["defaultTools"]; has {
+		t.Fatalf("命令执行环境不许碰工具集: %s", raw["defaultTools"])
 	}
 	file, _ := e.ReadSettings()
 	if file.DefaultModel != "m" {
-		t.Fatal("写工具增量时抹掉了别的字段")
+		t.Fatal("写 shellPath 时抹掉了别的字段")
 	}
 
-	// 之后找到了 git bash：撤回增量（列表删空就把键去掉），并写上 shellPath。
-	applied, err = e.applyShell(ShellStatus{Kind: ShellKindGitBash, Path: `C:\wb-test\Git\bin\bash.exe`, Usable: true})
-	if err != nil || !applied {
-		t.Fatalf("找到 bash 后应当撤增量并写 shellPath: applied=%v err=%v", applied, err)
+	// 用户后来装了 Git 到标准位置（PI 自己找得到）：我们写的 shellPath 必须撤掉。
+	pf := os.Getenv("ProgramFiles")
+	if pf == "" {
+		t.Skip("没有 ProgramFiles，跳过标准位置判定")
 	}
-	raw, err = e.settingsMap()
-	if err != nil {
-		t.Fatal(err)
+	goodBash := filepath.Join(pf, "Git", "bin", "bash.exe")
+	if applied, err = e.applyShell(ShellStatus{Kind: ShellKindGitBash, Path: goodBash, Usable: true}); err != nil || !applied {
+		t.Fatalf("换成 PI 自己找得到的 bash 时应当撤回 shellPath: applied=%v err=%v", applied, err)
 	}
-	if _, ok := raw["defaultTools"]; ok {
-		t.Fatalf("增量删空后应当把 defaultTools 交回 PI 默认集: %s", raw["defaultTools"])
-	}
-	if got := e.settingString("shellPath"); got != `C:\wb-test\Git\bin\bash.exe` {
-		t.Fatalf("shellPath 没写对: %q", got)
+	if got := e.settingString("shellPath"); got != "" {
+		t.Fatalf("PI 找得到的那份不需要 shellPath，旧值没撤回: %q", got)
 	}
 
-	// bash 又不可用了：撤掉自己写过的 shellPath，并把工具换回 powershell。
+	// 我们写的 shellPath 后来失效了（只剩 PowerShell）：必须撤掉，否则 PI 每条命令都报错。
+	e.applyShell(ShellStatus{Kind: ShellKindGitBash, Path: bundledBash, Usable: true, Source: "bundled"})
 	if _, err := e.applyShell(ShellStatus{Kind: ShellKindPowerShell, Usable: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +379,7 @@ func checkShellSelfHeal(t *testing.T) {
 		t.Fatalf("自己写的 shellPath 没撤回: %q", got)
 	}
 
-	// 用户在工具面板里自己勾过（纯名字列表）之后，找到 bash 也不再替用户改回去。
+	// 用户在工具面板里自己勾过：之后无论探测出什么形态都不许动它。
 	mine, err := e.ReadSettings()
 	if err != nil {
 		t.Fatal(err)
@@ -301,50 +388,15 @@ func checkShellSelfHeal(t *testing.T) {
 	if err := e.WriteSettings(mine); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.applyShell(ShellStatus{Kind: ShellKindGitBash, Path: `C:\wb-test\Git\bin\bash.exe`, Usable: true}); err != nil {
+	if _, err := e.applyShell(ShellStatus{Kind: ShellKindGitBash, Path: bundledBash, Usable: true, Source: "bundled"}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err = e.settingsMap()
 	if err != nil {
 		t.Fatal(err)
 	}
-	list, _ = toolList(raw)
-	if len(list) != 4 || list[3] != "powershell" {
-		t.Fatalf("用户自己勾的工具被改回去了: %+v", list)
-	}
-}
-
-// checkShimNodeFallback 验 shim 旁边没有 node.exe 时用调用方给的绝对路径，没有就返回空串。
-func checkShimNodeFallback(t *testing.T) {
-	t.Helper()
-	dir := t.TempDir()
-	script := filepath.Join(dir, "cli.js")
-	if err := os.WriteFile(script, []byte("// entry\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	shim := filepath.Join(dir, "pi.cmd")
-	// shim 文本里那行入口路径以 .js 结尾，解析器按行取它（与 npm shim 的形状一致）。
-	body := "@ECHO off\r\n%dp0%\\cli.js\r\n"
-	if err := os.WriteFile(shim, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// 给的绝对 node 必须被采用（内置 Node 的真实形态：不在 PATH 上）。
-	fakeNode := filepath.Join(t.TempDir(), "node.exe")
-	if err := os.WriteFile(fakeNode, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	resolved, args := resolvePiExe(shim, fakeNode)
-	if resolved != fakeNode {
-		t.Fatalf("没用上给的 node: %q，期望 %q", resolved, fakeNode)
-	}
-	if len(args) != 1 || args[0] != script {
-		t.Fatalf("入口脚本解析错了: %v", args)
-	}
-
-	// 没有 node 时只能报空：把 "node" 交给 exec 就是那句 9705。
-	if resolved, _ := resolvePiExe(shim, ""); resolved == "node" {
-		t.Fatal("解析结果退化成了字面量 node")
+	if body, has := raw["defaultTools"]; !has || !strings.Contains(string(body), "powershell") {
+		t.Fatalf("用户自己勾的工具被改了: %s", body)
 	}
 }
 

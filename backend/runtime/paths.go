@@ -17,10 +17,10 @@ type Paths struct {
 	LogDir     string
 	TmpDir     string
 	RuntimeDir string
-	// NodeDir / PythonDir 是内置运行时；NpmGlobalDir 是「缺 PI 时」的安装前缀，
+	// NodeDir / GitBashDir 是内置运行时；NpmGlobalDir 是「缺 PI 时」的安装前缀，
 	// NpmCacheDir 把它自己的缓存也收在数据目录里，装包失败时不会牵走用户的全局缓存。
 	NodeDir      string
-	PythonDir    string
+	GitBashDir   string
 	NpmGlobalDir string
 	NpmCacheDir  string
 
@@ -36,7 +36,6 @@ type Paths struct {
 
 	ConfigFile    string
 	BackgroundDir string
-	SitePackages  string
 }
 
 // Resolve 定位数据根并展开全部子路径。WORKBABY_HOME 优先，便于便携版与测试隔离。
@@ -65,8 +64,8 @@ func ResolveAt(root string) (Paths, error) {
 		LogDir:       filepath.Join(root, "logs"),
 		TmpDir:       filepath.Join(root, "tmp"),
 		RuntimeDir:   filepath.Join(root, "runtime"),
-		PythonDir:    filepath.Join(root, "runtime", "python"),
 		NodeDir:      filepath.Join(root, "runtime", "node"),
+		GitBashDir:   filepath.Join(root, "runtime", "gitbash"),
 		NpmGlobalDir: filepath.Join(root, "runtime", "npm-global"),
 		NpmCacheDir:  filepath.Join(root, "runtime", "npm-cache"),
 		AgentDir:     agent,
@@ -77,11 +76,10 @@ func ResolveAt(root string) (Paths, error) {
 		ExtensionsDir:     filepath.Join(agent, "extensions"),
 		ConfigFile:        filepath.Join(root, "config.yaml"),
 		BackgroundDir:     filepath.Join(root, "background"),
-		SitePackages:      filepath.Join(root, "site-packages"),
 	}
 	for _, dir := range []string{
 		p.DataDir, p.LogDir, p.TmpDir, p.RuntimeDir,
-		p.BackgroundDir, p.SitePackages, p.NodeDir, p.NpmGlobalDir, p.NpmCacheDir,
+		p.BackgroundDir, p.NodeDir, p.GitBashDir, p.NpmGlobalDir, p.NpmCacheDir,
 	} {
 		if err := pkg.EnsureDir(dir); err != nil {
 			return Paths{}, err

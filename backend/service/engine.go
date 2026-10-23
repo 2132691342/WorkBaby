@@ -35,8 +35,6 @@ func (s *EngineService) Status() *domain.EngineStatusVO {
 		InstallRoot: s.env.PiEnv.PiPackageDir(),
 		NodeReady:   det.NodeReady, NodeVersion: det.NodeVersion,
 		NodePath: det.NodePath, NodeSource: det.NodeSource, NodeError: det.NodeError,
-		PythonReady: det.PythonReady, PythonVersion: det.PythonVersion,
-		PythonPath: det.PythonPath, PythonSource: det.PythonSource,
 		AgentDir:   det.AgentDir,
 		ModelReady: det.ModelReady, Blocking: det.Blocking,
 		Packages:     len(resolvePackages(s.env)),
@@ -44,7 +42,7 @@ func (s *EngineService) Status() *domain.EngineStatusVO {
 	}
 	shell := s.env.PiEnv.ShellStatusOf()
 	vo.ShellKind, vo.ShellPath = shell.Kind, shell.Path
-	vo.ShellUsable, vo.ShellError = shell.Usable, shell.Error
+	vo.ShellSource, vo.ShellUsable, vo.ShellError = shell.Source, shell.Usable, shell.Error
 	terminal := s.env.PiEnv.TerminalStatusOf()
 	vo.TerminalReady, vo.TerminalPath = terminal.Ready, terminal.Shim
 	vo.TerminalOnPath, vo.TerminalError = terminal.OnPath, terminal.Error
@@ -65,7 +63,7 @@ func (s *EngineService) FixShell() (pienv.ShellStatus, error) {
 	if err != nil {
 		return st, err
 	}
-	// 工具集是进程启动期读的：改了 defaultTools 就得让旧进程换新。
+	// shellPath 是进程启动期读的：改了就得让旧进程换新。
 	if st.Applied {
 		if sup := s.env.PiSupervisor(); sup != nil {
 			_ = sup.RestartAll()
@@ -168,9 +166,11 @@ func (s *EngineService) Update(onLine func(string)) error {
 	s.stopAll()
 	defer s.restartAll()
 	err := s.env.PiEnv.UpdatePi(onLine)
-	// 自己装的那份才有终端入口要刷新；系统那份本来就在用户 PATH 上。
-	if err == nil && s.env.PiEnv.OwnsInstall() {
-		_, _ = s.env.PiEnv.EnsureTerminal()
+	// 升级会换内核：入口钉的是当前生效 PI，升完刷一遍让终端也用上新版。
+	if err == nil {
+		if _, termErr := s.env.PiEnv.EnsureTerminal(); termErr != nil {
+			report(onLine, "终端入口刷新失败："+termErr.Error())
+		}
 	}
 	s.env.PiEnv.RefreshProbes()
 	s.record(err)

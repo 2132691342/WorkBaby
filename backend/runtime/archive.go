@@ -1,5 +1,5 @@
-// 归档解压：内置运行时只认 zip——Windows 原生格式，且官方 Python embeddable 与
-// PowerShell 都只发 zip。穿越拒绝与体积上限是解压外部归档的唯一安全边界。
+// 归档解压：内置运行时只认 zip——Windows 原生格式，官方 Node / MinGit 也都只发 zip。
+// 穿越拒绝与体积上限是解压外部归档的唯一安全边界。
 package runtime
 
 import (
@@ -12,6 +12,9 @@ import (
 
 	"WorkBaby/backend/pkg"
 )
+
+// maxTotalBytes 是解压体积上限，防压缩包炸弹。
+const maxTotalBytes = 512 << 20
 
 // newZipReader 把内存里的 zip 归档打开成逐条目读取器。
 func newZipReader(data []byte) (*zip.Reader, error) {
@@ -29,7 +32,7 @@ func extractZip(reader *zip.Reader, dest string) error {
 }
 
 // extractZipStripped 解压并可选地剥掉归档顶层的一个目录前缀。
-// Node 的上游 zip 多一层目录需要剥掉；Python 的平铺，stripRoot 传空串。
+// Node 的上游 zip 多一层目录需要剥掉；MinGit 是平铺的，stripRoot 传空串。
 func extractZipStripped(reader *zip.Reader, dest, stripRoot string) error {
 	if err := pkg.EnsureDir(dest); err != nil {
 		return err
@@ -102,4 +105,17 @@ func writeEntry(target string, r io.Reader, total *int64) error {
 		return pkg.New("7001", "运行时压缩包体积超限", "")
 	}
 	return nil
+}
+
+// dropStaleRuntime 清掉旧版本现场：只在版本标记存在且不一致时动手，
+// 目录缺失或残留半份解压时不删——覆盖解压本身就能修好。
+func dropStaleRuntime(dir, want string) error {
+	raw, err := os.ReadFile(filepath.Join(dir, ".version"))
+	if err != nil {
+		return nil
+	}
+	if strings.TrimSpace(string(raw)) == want {
+		return nil
+	}
+	return os.RemoveAll(dir)
 }

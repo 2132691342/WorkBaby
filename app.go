@@ -115,7 +115,7 @@ func (a *App) domReady(ctx context.Context) {
 	}
 }
 
-// 内置 Python 首次解压要几秒，装配等待留够余量；超时只判「卡死」，不误判「慢」。
+// 内置 Node 首次解压要几秒，装配等待留够余量；超时只判「卡死」，不误判「慢」。
 const defaultStartWait = 45 * time.Second
 
 // toTrayHintDwell 收进托盘前留给「已收进托盘」提示的可见时间。

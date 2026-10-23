@@ -35,7 +35,7 @@ var (
 	piCmdCached bool
 )
 
-// 版本号探测缓存：node -v / python -V / pi --version 都是真实进程启动（约 0.25s），
+// 版本号探测缓存：node -v / pi --version 都是真实进程启动（约 0.25s），
 // 而闸门与引导页会反复问同一批可执行文件的版本。按被问的那个 exe 索引。
 var (
 	versionMu    sync.Mutex
@@ -68,11 +68,6 @@ type EnvVO struct {
 	NodeVersion string `json:"node_version"`
 	NodeSource  string `json:"node_source"`
 	NodeError   string `json:"node_error"`
-
-	PythonReady   bool   `json:"python_ready"`
-	PythonPath    string `json:"python_path"`
-	PythonVersion string `json:"python_version"`
-	PythonSource  string `json:"python_source"`
 
 	PiReady   bool   `json:"pi_ready"`
 	PiPath    string `json:"pi_path"`
@@ -127,18 +122,7 @@ func (e *Env) NodeExe() (string, string) {
 	return "", ""
 }
 
-// PythonExe 返回给 PI 用的 python：系统优先，其次内置。
-func (e *Env) PythonExe() (string, string) {
-	if exe := pythonSystemExe(); exe != "" {
-		return exe, "system"
-	}
-	if exe, err := runtime.EnsurePython(e.paths); err == nil {
-		return exe, "bundled"
-	}
-	return "", ""
-}
-
-// NpmCmd 返回 npm 的 shim，只用来问「npm 全局前缀在哪」；装包走 bundledNpm，不用它。
+// NpmCmd 返回 npm 的 shim，只用来问「npm 全局前缀在哪」；装包走 npmFor，不用它。
 func (e *Env) NpmCmd() string {
 	node, source := e.NodeExe()
 	if source == "bundled" {
@@ -215,25 +199,7 @@ func versionParts(v string) []int {
 	return out
 }
 
-// pythonSystemExe 找系统 python；内置 embeddable 版没有 pip 与 venv，
-// 用户机器上已有完整 Python 时没有理由不用它。
-func pythonSystemExe() string {
-	for _, name := range []string{"python.exe", "python3.exe", "python", "python3"} {
-		exe, err := exec.LookPath(name)
-		if err != nil {
-			continue
-		}
-		// Windows 商店占位符会返回 9009，跑一次 -V 才能确认它能用。
-		cmd := exec.Command(exe, "-V")
-		hideWindow(cmd)
-		if out, err := cmd.Output(); err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Python 3") {
-			return exe
-		}
-	}
-	return ""
-}
-
-// PiExe 定位 PI 的入口：显式指定 > 本应用自装（npm 全局前缀）> 系统 PATH > 其它 npm 全局前缀。
+// PiExe 定位 PI 的入口：显式指定 > 用户 PATH > 本应用自装前缀 > 其它 npm 全局前缀。
 // WORKBABY_PI_EXE 让测试与高级用户指定一份特定的 PI。
 func (e *Env) PiExe() (string, string) {
 	if e.overridePi != "" {
@@ -242,16 +208,22 @@ func (e *Env) PiExe() (string, string) {
 	if explicit := strings.TrimSpace(os.Getenv("WORKBABY_PI_EXE")); explicit != "" {
 		return explicit, "env"
 	}
-	// 自己装的那份优先：终端入口（PATH 前置）指向的就是它，
-	// 两份同时存在时若这边取系统那份，界面与终端就会跑在两个不同内核上。
+	// 用户自己装的那份优先：机器上已有 PI 就复用它，绝不另装一份。按 PATH 目录顺序扫
+	//（LookPath 只回第一个命中，撞上终端转发就拿不到后面的了）；转发目录只是指向当前生效 PI 的入口，要跳过。
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		for _, name := range []string{"pi.cmd", "pi.exe", "pi"} {
+			candidate := filepath.Join(dir, name)
+			if pkg.FileExists(candidate) && !e.isOwnShim(candidate) {
+				return candidate, "system"
+			}
+		}
+	}
 	for _, c := range prefixCandidates(e.paths.NpmGlobalDir) {
 		if pkg.FileExists(c) {
 			return c, "npm-global"
-		}
-	}
-	for _, name := range []string{"pi.cmd", "pi.exe", "pi"} {
-		if exe, err := exec.LookPath(name); err == nil {
-			return exe, "system"
 		}
 	}
 	for _, prefix := range e.npmPrefixes() {
@@ -262,6 +234,13 @@ func (e *Env) PiExe() (string, string) {
 		}
 	}
 	return "", ""
+}
+
+// isOwnShim 判断一个入口是不是本应用生成的终端转发（<数据目录>/bin 下）。
+func (e *Env) isOwnShim(exe string) bool {
+	dir := strings.ToLower(filepath.Clean(e.terminalDir()))
+	target := strings.ToLower(filepath.Clean(exe))
+	return strings.HasPrefix(target, dir+string(filepath.Separator))
 }
 
 // prefixCandidates 列出一个 npm 全局前缀下 PI 可能的入口。
@@ -401,12 +380,6 @@ func (e *Env) Detect(modelReady bool) EnvVO {
 		vo.NodeError = "Node 版本 " + vo.NodeVersion + " 低于要求（需要 " + minNodeVersion + " 或更高）"
 	}
 
-	pyExe, pySource := e.PythonExe()
-	vo.PythonPath = pyExe
-	vo.PythonSource = pySource
-	vo.PythonVersion = pythonVersionOf(pyExe)
-	vo.PythonReady = pyExe != ""
-
 	piExe, piSource := e.PiExe()
 	vo.PiPath = piExe
 	vo.PiSource = piSource
@@ -428,37 +401,20 @@ func (e *Env) Detect(modelReady bool) EnvVO {
 	return vo
 }
 
-// pythonVersionOf 取 Python 版本号（形如 3.12.8）。
-func pythonVersionOf(exe string) string {
-	return cachedVersion(exe, func() string {
-		if exe == "" {
-			return ""
-		}
-		cmd := exec.Command(exe, "-V")
-		hideWindow(cmd)
-		out, err := cmd.Output()
-		if err != nil {
-			return ""
-		}
-		return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "Python "))
-	})
-}
-
-// Env 返回 PI 子进程要用的完整环境变量：把选中的运行时前置进 PATH。
-// 前置拼接是硬要求：后置会被用户 PATH 上的旧版本抢先，选中的运行时等于没生效。
+// Env 返回 PI 子进程要用的环境变量：选中的运行时前置进 PATH（后置会被旧版本抢先），且只注入
+// 当前生效来源的目录——用户 node / PI 生效时注入自家数据目录，会遮住用户正在用的工具。
 func (e *Env) Env() []string {
 	dirs := []string{}
 	if node, source := e.NodeExe(); node != "" && source == "bundled" {
 		dirs = append(dirs, filepath.Dir(node))
 	}
-	if py, source := e.PythonExe(); py != "" && source == "bundled" {
-		dirs = append(dirs, filepath.Dir(py))
-	}
-	if d := e.paths.NpmGlobalDir; d != "" && pkg.DirExists(d) {
-		dirs = append(dirs, d)
+	if e.OwnsInstall() {
+		if d := e.paths.NpmGlobalDir; d != "" && pkg.DirExists(d) {
+			dirs = append(dirs, d)
+		}
 	}
 
-	out := make([]string, 0, len(os.Environ())+4)
+	out := make([]string, 0, len(os.Environ())+2)
 	current := os.Getenv("PATH")
 	prefix := strings.Join(dirs, string(os.PathListSeparator))
 	for _, kv := range os.Environ() {
@@ -476,22 +432,19 @@ func (e *Env) Env() []string {
 	} else if current != "" {
 		out = append(out, "PATH="+current)
 	}
-	// PI 的 agent 目录不覆盖：它必须就是用户 pi 命令读写的那一份。
-	// Windows 下 Python 的中文输出默认走 GBK，工具结果会变成乱码。
-	out = append(out, "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
 	return out
 }
 
-// InstallPi 用内置 Node 与内置 npm 全局安装 PI（target 为空表示最新版），输出按行回调。
+// InstallPi 全局安装 PI（target 为空表示最新版），输出按行回调。
 // 失败时把最后几行输出带进错误里，否则界面只剩一句「安装失败」，用户无从下手。
 func (e *Env) InstallPi(target string, onLine func(string)) error {
 	return e.installAt(e.paths.NpmGlobalDir, target, onLine)
 }
 
 // installAt 把 PI 装到指定 npm 全局前缀（<prefix>/node_modules/<pkg>）。
-// 两件事是硬要求：npm 必须来自内置 Node；一个源装不上就换另一个源再试一趟。
+// 硬要求：npm 跟随当前生效的 node（别无故解压内置）；一个源装不上就换另一个源再试一趟。
 func (e *Env) installAt(prefix, target string, onLine func(string)) error {
-	node, npmArgs, err := e.bundledNpm()
+	node, npmArgs, err := e.npmFor()
 	if err != nil {
 		return err
 	}
@@ -541,23 +494,44 @@ func (e *Env) installAt(prefix, target string, onLine func(string)) error {
 	return nil
 }
 
-// bundledNpm 固定用内置 Node 与内置 npm：用户 PATH 上的 node 可能低于 PI 的下界，
-// 装出来的包最终也要在这份解释器上跑，两者必须一致。
-func (e *Env) bundledNpm() (string, []string, error) {
+// npmFor 返回装包用的 node 与 npm 入口参数：用户的 node 满足下界（≥22.19.0）就用它的
+// npm，内置的只在用户没有合规 node 时才解压——装出来的包要在这份解释器上跑，两者必须同源。
+func (e *Env) npmFor() (string, []string, error) {
+	node, source := e.NodeExe()
+	if source == "system" && nodeSatisfies(nodeVersionOf(node)) {
+		if script := npmScriptAt(filepath.Dir(node)); script != "" {
+			return node, []string{script}, nil
+		}
+		// 用户 node 旁边没有 npm（少见）：npm 是自包含 JS，解压内置取 npm-cli.js 配用户 node。
+		if _, err := runtime.EnsureNode(e.paths); err == nil {
+			if script := npmScriptAt(e.paths.NodeDir); script != "" {
+				return node, []string{script}, nil
+			}
+		}
+		return "", nil, pkg.New("9707", "找不到可用的 npm，装不了助手引擎", node)
+	}
 	node, err := runtime.EnsureNode(e.paths)
 	if err != nil {
 		return "", nil, pkg.Wrap("9707", "内置 Node 解压失败，装不了助手引擎", err)
 	}
+	if script := npmScriptAt(e.paths.NodeDir); script != "" {
+		return node, []string{script}, nil
+	}
+	return "", nil, pkg.New("9707", "内置 npm 缺失，装不了助手引擎", e.paths.NodeDir)
+}
+
+// npmScriptAt 找一个目录下的 npm 入口脚本（Windows 标准布局：node.exe 与 node_modules/npm 同目录）。
+func npmScriptAt(dir string) string {
 	for _, rel := range []string{
 		`node_modules\npm\bin\npm-cli.js`,
 		`node_modules\npm\bin\npm-cli.mjs`,
 	} {
-		script := filepath.Join(e.paths.NodeDir, rel)
+		script := filepath.Join(dir, rel)
 		if pkg.FileExists(script) {
-			return node, []string{script}, nil
+			return script
 		}
 	}
-	return "", nil, pkg.New("9707", "内置 npm 缺失，装不了助手引擎", e.paths.NodeDir)
+	return ""
 }
 
 // runNpmInstall 跑一趟 npm 安装，输出逐行回调；返回等待结果供调用方决定是否换源。

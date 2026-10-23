@@ -69,7 +69,7 @@ func EnsureNode(p Paths) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// stripRoot 剥掉归档顶层那一个目录：Node 的 zip 与 Python / PowerShell 不同，
+	// stripRoot 剥掉归档顶层那一个目录：Node 的 zip 与 MinGit 不同，
 	// 它不是平铺的，不剥层会让 node.exe 多一层路径。
 	if err := extractZipStripped(reader, p.NodeDir, nodeArchiveRooted); err != nil {
 		return "", err

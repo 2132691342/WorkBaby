@@ -95,8 +95,8 @@ jobs:
         # 归档经 go:embed 进 exe：LFS 没拉下来时嵌的是指针文本，构建成功而运行时不可用。
         run: |
           $patterns = @(
-            'backend/runtime/bundled/python-*.zip',
-            'backend/runtime/bundled/node-v*-win-x64.zip'
+            'backend/runtime/bundled/node-v*-win-x64.zip',
+            'backend/runtime/bundled/MinGit-*-64-bit.zip'
           )
           foreach ($pattern in $patterns) {
             $f = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1

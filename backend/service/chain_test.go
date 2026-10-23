@@ -1,4 +1,4 @@
-// 服务层链路：会话索引、一轮对话与用量汇总、停止、目录扫描（技能/插件）、配置写入（模型/MCP）、跨工作区并行。
+// 服务层链路：会话索引、一轮对话与用量汇总、停止与排队、技能与插件目录扫描、模型服务与 MCP 配置、跨工作区并行。
 // 坏了的表现：界面上什么都看不到、对话发不出去、改了配置助手行为不变。
 package service
 
@@ -215,7 +215,7 @@ func (te *testEnv) writeSession(t *testing.T, id, cwd, userText string, tokens i
 	return file
 }
 
-// TestServiceChain 是 service 包唯一的测试入口。五条链各自独立命名，失败时一个名字即定位一件事。
+// TestServiceChain 是 service 包唯一的测试入口。六条链各自独立命名，失败时一个名字即定位一件事。
 // 子测试按数据依赖顺序排列：后一条用前一条落下的磁盘事实（如真实会话的 usage）。
 func TestServiceChain(t *testing.T) {
 	te := bootService(t)
@@ -390,9 +390,9 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	// 配置与目录扫描是同一条回路：界面上改的东西都要落到 PI 的目录与文件里，
-	// 再从那里读回来。坏了的表现是「界面显示改好了，助手行为没变」。
-	t.Run("配置落盘与回读：技能三区启停、插件登记项、models.json 与 mcp.json", func(t *testing.T) {
+	// 技能与插件是同一条目录扫描回路：界面上启停的东西都要落到 PI 的目录与登记表里，
+	// 再从那里读回来。坏了的表现是「界面显示停用了，助手照样调到它」。
+	t.Run("技能与插件：三区启停、坏文件只跳自己、包登记与种类", func(t *testing.T) {
 		skillsDir := te.env.PiEnv.SkillsDir()
 		mkSkill(t, filepath.Join(skillsDir, "demo-skill"), "demo-skill", "演示")
 		mkSkill(t, filepath.Join(te.env.PiEnv.DisabledSkillsDir(), "old-skill"), "old-skill", "停用的")
@@ -468,7 +468,10 @@ func TestServiceChain(t *testing.T) {
 		if len(after.Extensions) != 0 {
 			t.Fatalf("停用后登记项应当被摘掉: %v", after.Extensions)
 		}
+	})
 
+	// 模型服务与 MCP 共用同一份配置落盘通道：校验顺序、密钥掩码、默认模型的生命周期都在这。
+	t.Run("模型服务与 MCP：校验分流、密钥掩码、默认模型与删除连带", func(t *testing.T) {
 		// 服务商：密钥明文只落在 models.json 里（PI 就是这么读的），列表只给掩码。
 		// 校验顺序与界面字段顺序一致：名字 → 地址 → 模型，一次只说一件事。
 		if _, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{
