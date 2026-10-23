@@ -15,6 +15,8 @@ type TerminalStatus struct {
 	Shim   string
 	Dir    string
 	OnPath bool
+	// Level 是入口目录挂在哪一级 PATH：system / user / both / none。
+	Level string
 	// PathFirst 表示 PATH 上排在入口目录之前的其它地方没有 pi：
 	// 有的话终端会敲到那份，界面与终端就不是同一个内核。
 	PathFirst bool
@@ -34,8 +36,11 @@ func (e *Env) TerminalStatusOf() TerminalStatus {
 	}
 	shimExists := pkg.FileExists(st.Shim)
 	// 新开的终端走的是「系统级 PATH + 用户级 PATH」，只看进程 PATH 会漏掉后者。
-	st.OnPath = pathHasEntry(effectivePathValue(), dir)
-	shadow, others := scanPiShims(effectivePathValue(), dir)
+	machine, user := machinePathValue(), userPathValue()
+	effective := joinPathValues(machine, user)
+	st.OnPath = pathHasEntry(effective, dir)
+	st.Level = pathLevelOf(machine, user, dir)
+	shadow, others := scanPiShims(effective, dir)
 	st.ShadowedBy = shadow
 	st.Others = others
 	st.PathFirst = shadow == ""
@@ -44,17 +49,59 @@ func (e *Env) TerminalStatusOf() TerminalStatus {
 	case !shimExists:
 		st.Error = "还没有生成终端入口"
 	case !st.OnPath:
-		st.Error = "入口已生成，但还没加进用户 PATH"
+		st.Error = "入口已生成，但还没加进 PATH"
 	case !st.PathFirst:
 		st.Error = "PATH 上还有排在前面、带着另一份 pi 的目录：" + shadow
 	}
 	return st
 }
 
-// effectivePathValue 拼出新开终端会看到的那条 PATH：系统级在前，用户级在后。
-func effectivePathValue() string {
-	machine := machinePathValue()
-	user := userPathValue()
+// SwitchTerminalLevel 把终端入口在用户级与系统级 PATH 之间挪动：
+// 写系统级需要管理员，经 UAC 提权的本程序子进程完成；取消授权时保持原样返回。
+func (e *Env) SwitchTerminalLevel(level string) (TerminalStatus, error) {
+	dir := e.terminalDir()
+	st := e.TerminalStatusOf()
+	if !pkg.FileExists(st.Shim) {
+		return st, pkg.New("9723", "先生成终端入口，再切换 PATH 级别", "")
+	}
+	var err error
+	switch level {
+	case "system":
+		if st.Level == "system" {
+			return st, nil
+		}
+		err = elevatePathAdmin("system", dir)
+	case "user":
+		if st.Level == "user" {
+			return st, nil
+		}
+		err = elevatePathAdmin("user", dir)
+	default:
+		return st, pkg.New("9723", "PATH 级别只有 system 与 user 两种", level)
+	}
+	if err != nil {
+		return e.TerminalStatusOf(), err
+	}
+	return e.TerminalStatusOf(), nil
+}
+
+// pathLevelOf 判定目录挂在哪一级 PATH：system / user / both / none。
+func pathLevelOf(machine, user, dir string) string {
+	inMachine, inUser := pathHasEntry(machine, dir), pathHasEntry(user, dir)
+	switch {
+	case inMachine && inUser:
+		return "both"
+	case inMachine:
+		return "system"
+	case inUser:
+		return "user"
+	default:
+		return "none"
+	}
+}
+
+// joinPathValues 拼出新开终端会看到的那条 PATH：系统级在前，用户级在后。
+func joinPathValues(machine, user string) string {
 	switch {
 	case machine != "" && user != "":
 		return strings.TrimRight(machine, ";") + ";" + strings.TrimLeft(user, ";")
@@ -188,6 +235,46 @@ func pathHasEntry(value, dir string) bool {
 		}
 	}
 	return false
+}
+
+// withPathFirst 返回「dir 在最前、其余条目保持原顺序、重复项去掉」的 PATH 串。
+func withPathFirst(current, dir string) string {
+	rest := splitPathEntries(current, dir)
+	if len(rest) == 0 {
+		return dir
+	}
+	return dir + ";" + strings.Join(rest, ";")
+}
+
+// withPathLast 返回「dir 追加在末尾、重复项去掉」的 PATH 串：
+// 系统级整段排在用户级之前，末尾也已领先任何用户级条目。
+func withPathLast(current, dir string) string {
+	rest := splitPathEntries(current, dir)
+	if len(rest) == 0 {
+		return dir
+	}
+	return strings.Join(rest, ";") + ";" + dir
+}
+
+// withoutPathEntry 返回去掉 dir（含重复项）后的 PATH 串。
+func withoutPathEntry(current, dir string) string {
+	return strings.Join(splitPathEntries(current, dir), ";")
+}
+
+// splitPathEntries 把 PATH 切成条目并去掉目标目录与空项；移除和重排共用一个口径。
+func splitPathEntries(current, dir string) []string {
+	target := normalizePathKey(dir)
+	rest := make([]string, 0, 24)
+	for _, entry := range strings.Split(current, ";") {
+		if strings.TrimSpace(entry) == "" {
+			continue
+		}
+		if target != "" && normalizePathKey(entry) == target {
+			continue
+		}
+		rest = append(rest, entry)
+	}
+	return rest
 }
 
 // normalizePathKey 把一条 PATH 项压成可比较的键；空串保持空（Clean 会把它变成 "."）。

@@ -72,6 +72,13 @@ func (h *Handler) InstallPackage(c *gin.Context) {
 	h.runPackage(c, true)
 }
 
+// MarketList 插件市场清单：按 PI 官方发现机制（npm 关键字 pi-package）搜包并对账已装。
+// 注册表连不上不算失败：清单给空、Error 带原因，面板仍能显示空态。
+func (h *Handler) MarketList(c *gin.Context) {
+	refresh := c.Query("refresh") == "1"
+	ok(c, h.Svc.Market.List(refresh))
+}
+
 // RemovePackage 卸一个包：同上。
 func (h *Handler) RemovePackage(c *gin.Context) {
 	h.runPackage(c, false)

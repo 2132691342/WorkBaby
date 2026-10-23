@@ -47,6 +47,7 @@ func (s *EngineService) Status() *domain.EngineStatusVO {
 	vo.TerminalReady, vo.TerminalPath = terminal.Ready, terminal.Shim
 	vo.TerminalOnPath, vo.TerminalError = terminal.OnPath, terminal.Error
 	vo.TerminalShadowedBy = terminal.ShadowedBy
+	vo.TerminalLevel = terminal.Level
 	vo.OtherPis = terminal.Others
 	if vo.OtherPis == nil {
 		vo.OtherPis = []string{}
@@ -75,6 +76,11 @@ func (s *EngineService) FixShell() (pienv.ShellStatus, error) {
 // EnableTerminal 生成终端入口并挂到用户 PATH，让终端里也能敲 pi。
 func (s *EngineService) EnableTerminal() (pienv.TerminalStatus, error) {
 	return s.env.PiEnv.EnsureTerminal()
+}
+
+// SwitchTerminalLevel 把终端入口在用户级与系统级 PATH 之间挪：写系统级经 UAC 提权完成。
+func (s *EngineService) SwitchTerminalLevel(level string) (pienv.TerminalStatus, error) {
+	return s.env.PiEnv.SwitchTerminalLevel(level)
 }
 
 // Latest 联网查最新版本：PI 与全部 npm 来源的插件包。

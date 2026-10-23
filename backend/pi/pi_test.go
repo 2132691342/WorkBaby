@@ -104,7 +104,7 @@ func waitQuiet(t *testing.T, cond func() bool, timeout time.Duration) bool {
 	return cond()
 }
 
-// TestPiChain 是 pi 包唯一的测试入口。四个子测试按「协议 → 事件 → 交互 → 生命周期」排列。
+// TestPiChain 是 pi 包唯一的测试入口。五个子测试按「协议 → 事件 → 交互 → 生命周期 → 真内核」排列。
 func TestPiChain(t *testing.T) {
 	exe := piptest.Build(t)
 

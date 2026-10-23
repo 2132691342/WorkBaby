@@ -59,6 +59,7 @@
 | POST | `/extensions/install` | 装包 `{source}`（进度走 `chat:setup`） |
 | POST | `/extensions/remove` | 卸包 `{source}` |
 | POST | `/extensions/reload` | 重扫并重启 PI |
+| GET | `/extensions/market?refresh=` | 插件市场清单：按 npm 关键字 `pi-package` 搜包并对账已装（连不上只报 `error` 字段） |
 | GET | `/tools` | 工具清单（`snapshot` 说明来源） |
 | POST | `/tools/toggle` | 启停工具 `{name, enabled}`（写 `defaultTools`） |
 | GET | `/mcp?workspace=` | MCP 服务 + 在线状态 + 两份配置原文 |
@@ -72,6 +73,7 @@
 | POST | `/env/recheck` | 重新判定闸门，并重新探测 / 修一次命令执行环境 |
 | POST | `/env/shell` | 重新探测命令执行环境并写回 PI（只在需要时写 `shellPath` 引导） |
 | POST | `/env/terminal` | 生成终端里的 `pi` 入口并挂到当前用户 PATH |
+| POST | `/env/terminal-level` | 切换入口的 PATH 级别 `{level: system\|user}`；写系统级经 UAC 提权子进程完成，取消授权报 9723 |
 | GET | `/engine/status` | 引擎本地快照：PI 版本与来源、运行中的进程数、运行时、插件包数量、终端入口状态（含 `terminal_shadowed_by` / `other_pis`） |
 | GET | `/engine/latest` | 联网查最新版本：PI + npm 来源的插件包（查不到只报 `registry_error`） |
 | POST | `/engine/update` | 升级 PI 自身（装回它原来的前缀，完成后重启进程；有对话在跑时拒绝） |

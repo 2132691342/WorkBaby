@@ -141,16 +141,12 @@ if ($Pkg) {
     exit 0
 }
 
+# 前端只在要编译 main 包（dist 缺失）或 -Full 时才建；vet 与依赖边界只在 -Full 跑。
+if ($Full -or -not (Test-Path 'frontend/dist/index.html')) { Build-Frontend }
+Invoke-Step 'build' { go build ./... }
 if ($Full) {
-    Build-Frontend
-    Invoke-Step 'build' { go build ./... }
     Invoke-Step 'vet' { go vet ./... }
     Invoke-Step 'boundaries' { go run ./tools/check-boundaries }
-} elseif (-not (Test-Path 'frontend/dist/index.html')) {
-    Build-Frontend
-    Invoke-Step 'build' { go build ./... }
-} else {
-    Invoke-Step 'build' { go build ./... }
 }
 
 # -Run 只编译含测试的包：'/' 分段的空段匹配任意入口，于是「冲突」不必知道它挂在哪个 Chain 下。

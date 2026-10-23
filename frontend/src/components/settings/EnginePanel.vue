@@ -20,6 +20,7 @@ const checking = ref(false)
 const updating = ref(false)
 const fixingShell = ref(false)
 const enablingTerminal = ref(false)
+const switchingLevel = ref('')
 
 // 安装 / 升级的输出也挂在全局 SSE 通道上
 const { lines: log, begin: beginLog, end: endLog, whenDone } = useSetupLog()
@@ -164,6 +165,39 @@ async function enableTerminal() {
   }
 }
 
+/** 入口当前挂在哪一级 PATH：system 全机可用，user 只影响本账户 */
+function levelLabel(level: string | undefined) {
+  switch (level) {
+    case 'system':
+      return t('settings.engine.levelSystem')
+    case 'user':
+      return t('settings.engine.levelUser')
+    case 'both':
+      return t('settings.engine.levelBoth')
+    default:
+      return t('settings.engine.levelNone')
+  }
+}
+
+/** 切换 PATH 级别：后端会拉起 UAC 授权并等它完成，这一趟可能要等用户输密码 */
+async function switchLevel(level: 'system' | 'user') {
+  if (switchingLevel.value) return
+  switchingLevel.value = level
+  try {
+    const vo = await api.env.switchTerminalLevel(level)
+    await loadStatus()
+    if (vo.ready) {
+      toast.ok(t('settings.engine.levelSwitched', { level: levelLabel(vo.level) }))
+    } else {
+      toast.info(t('settings.engine.terminalStill', { msg: vo.error || '' }))
+    }
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    switchingLevel.value = ''
+  }
+}
+
 onMounted(() => {
   void loadStatus()
 })
@@ -300,6 +334,37 @@ onMounted(() => {
               </p>
               <p v-else class="eng-meta">{{ t('settings.engine.terminalHint') }}</p>
             </div>
+            <div v-if="status.terminal_on_path" class="eng-row">
+              <span class="eng-level">{{ t('settings.engine.levelLabel') }}</span>
+              <el-tag size="small" :type="status.terminal_level === 'system' ? 'success' : 'info'">
+                {{ levelLabel(status.terminal_level) }}
+              </el-tag>
+              <el-popconfirm
+                v-if="status.terminal_level !== 'system'"
+                :title="t('settings.engine.levelUpHint')"
+                width="280"
+                @confirm="switchLevel('system')"
+              >
+                <template #reference>
+                  <el-button size="small" :loading="switchingLevel === 'system'" :disabled="!!switchingLevel">
+                    {{ t('settings.engine.levelUp') }}
+                  </el-button>
+                </template>
+              </el-popconfirm>
+              <el-popconfirm
+                v-if="status.terminal_level !== 'user'"
+                :title="t('settings.engine.levelDownHint')"
+                width="280"
+                @confirm="switchLevel('user')"
+              >
+                <template #reference>
+                  <el-button size="small" :loading="switchingLevel === 'user'" :disabled="!!switchingLevel">
+                    {{ t('settings.engine.levelDown') }}
+                  </el-button>
+                </template>
+              </el-popconfirm>
+            </div>
+            <p v-if="status.terminal_on_path" class="eng-meta">{{ t('settings.engine.levelHint') }}</p>
           </div>
         </div>
 
@@ -391,6 +456,11 @@ onMounted(() => {
 }
 .eng-gap {
   margin-top: var(--wb-sp-3);
+}
+.eng-level {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  flex: none;
 }
 .eng-line {
   display: flex;

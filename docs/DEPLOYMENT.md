@@ -50,8 +50,8 @@ wails build
 ```
 
 产物只有一个 exe：Node 与 Git Bash（MinGit）的归档由 `go:embed` 打进主程序，
-首次需要时解压到用户数据目录。exe 因此明显变大（约 125MB），
-发布流程用「不到 80MB 视为归档未嵌入」兜底。
+首次需要时解压到用户数据目录。exe 因此明显变大（约 74MB），
+发布流程用「不到 55MB 视为归档未嵌入」兜底。
 
 ## 内置运行时
 
@@ -81,7 +81,7 @@ PowerShell 从不内置，走系统自带的 5.1。
 | 日志 | `logs/app.log`（全量）、`logs/warn.log`（warn 与 error） |
 | 内置运行时解压产物 | `runtime/node/`、`runtime/gitbash/`（无本机 bash 才有）、`runtime/npm-global/` |
 | 运行时落盘记录 | `runtime/shell.json`（命令执行环境改了什么）、`runtime/npm-cache/` |
-| 终端里的 `pi` 入口 | `bin/pi.cmd` + `bin/pi`（Git Bash 用；目录挂进当前用户 PATH） |
+| 终端里的 `pi` 入口 | `bin/pi.cmd` + `bin/pi`（Git Bash 用；目录挂进 PATH，默认用户级、引擎页可切系统级） |
 | 人设（附加系统提示） | `persona.md` |
 | 自定义背景图副本 | `background/` |
 | WebView2 profile（纯缓存） | `webview/` |
@@ -113,7 +113,7 @@ PowerShell 从不内置，走系统自带的 5.1。
 ## 取舍
 
 - **归档嵌进 exe**：分发只有一个文件，没有「忘了拷 runtimes 目录」这种失败模式；
-  代价是 exe 90MB、构建期强依赖 LFS 拉取，以及首次用到内置运行时的那一次要等解压。
+  代价是 exe 约 74MB、构建期强依赖 LFS 拉取，以及首次用到内置运行时的那一次要等解压。
 - **不做自动更新**：没有更新服务与签名校验链路，安装包就是全部；
   代价是修 bug 要靠用户重新下载安装，覆盖安装时先杀常驻进程。
 - **只发 Windows amd64**：单平台让托盘、WebView2、路径分隔符都不必抽象；

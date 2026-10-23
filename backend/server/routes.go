@@ -80,6 +80,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 			extensions.POST("/install", h.InstallPackage)
 			extensions.POST("/remove", h.RemovePackage)
 			extensions.POST("/reload", h.ReloadExtensions)
+			extensions.GET("/market", h.MarketList)
 		}
 
 		v1.GET("/tools", h.ListTools)
@@ -104,6 +105,7 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		v1.POST("/env/recheck", h.EnvRecheck)
 		v1.POST("/env/shell", h.EnvFixShell)
 		v1.POST("/env/terminal", h.EnvEnableTerminal)
+		v1.POST("/env/terminal-level", h.EnvTerminalLevel)
 
 		// 引擎：PI 与运行时的状态、版本对账、升级（设置页「助手引擎」）。
 		en := v1.Group("/engine")

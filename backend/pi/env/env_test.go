@@ -1,5 +1,5 @@
-// PI 运行环境链路：agent 目录归属、环境闸门判定、配置文件互通、入口解析与命令环境自愈。
-// 坏了的表现：界面看不到用户原有的模型与技能、用户手写内容被静默覆盖、向导指错下一步。
+// PI 运行环境链路：agent 目录归属、环境闸门判定、配置文件互通、入口解析与 PATH 级别、命令环境自愈。
+// 坏了的表现：用户原有模型技能不可见、手写内容被覆盖、向导指错步、终端敲到另一份内核。
 package env
 
 import (
@@ -204,8 +204,8 @@ func TestPiEnvChain(t *testing.T) {
 	})
 
 	// 入口与路径位置：shim 必须还原成 node + 脚本（经 cmd.exe 会弹窗），入口目录必须前置，
-	// 且要能认出排在它前面、也带着旧 pi 的目录——否则终端敲到的是另一份内核。
-	t.Run("PI 入口与终端位置：shim 还原、入口目录前置、pi.cmd 与 pi 双份都指向生效份", func(t *testing.T) {
+	// 级别判定要说对挂在哪一级，且要能认出排在它前面、也带着旧 pi 的目录——否则终端敲到的是另一份内核。
+	t.Run("PI 入口与终端位置：shim 还原、入口目录前置、PATH 级别与抢先目录都判定对", func(t *testing.T) {
 		checkPiShimResolution(t)
 		checkTerminalPathOrder(t)
 		checkTerminalShimFiles(t)
@@ -468,5 +468,26 @@ func checkTerminalPathOrder(t *testing.T) {
 	}
 	if len(others) != 1 || normalizePathKey(others[0]) != normalizePathKey(old) {
 		t.Fatalf("其它 pi 目录识别错了: %v", others)
+	}
+
+	// 级别判定要说对挂在哪一级（含大小写与尾斜杠差异），否则「系统级」按钮会把入口挪错地方。
+	bin := `D:\Apps\WorkBaby\bin`
+	machine, user := `C:\Windows;C:\Tools`, bin+`;C:\Users\me\scripts`
+	for _, c := range []struct{ m, u, want string }{
+		{machine, user, "user"},
+		{machine + ";" + bin, user, "both"},
+		{machine + ";" + bin, `C:\Users\me\scripts`, "system"},
+		{machine, strings.ToLower(bin) + `\`, "user"},
+	} {
+		if got := pathLevelOf(c.m, c.u, bin); got != c.want {
+			t.Fatalf("级别判定错: machine=%q user=%q 得 %s，期望 %s", c.m, c.u, got, c.want)
+		}
+	}
+	// 系统级追加放末尾且去重，移除连重复项一起清：否则级别读数永远是 both、系统 PATH 越写越长。
+	if last := withPathLast(`C:\Windows;`+bin+`;C:\Tools`, bin); last != `C:\Windows;C:\Tools;`+bin {
+		t.Fatalf("系统级追加算错: %q", last)
+	}
+	if rest := withoutPathEntry(bin+`;C:\A;`+bin+`;C:\B`, bin); rest != `C:\A;C:\B` {
+		t.Fatalf("移除算错: %q", rest)
 	}
 }

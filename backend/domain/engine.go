@@ -53,6 +53,21 @@ type EngineStatusVO struct {
 	TerminalShadowedBy string `json:"terminal_shadowed_by"`
 	// OtherPis 是 PATH 上其它装过 pi 的目录：同时存在多份时界面要能说清楚用的是哪份。
 	OtherPis []string `json:"other_pis"`
+	// TerminalLevel 是入口目录挂在哪一级 PATH：system / user / both / none。
+	TerminalLevel string `json:"terminal_level"`
+}
+
+// TerminalLevelREQ 切换 PATH 级别入参：Level 为 system 或 user；写系统级经 UAC 提权。
+type TerminalLevelREQ struct {
+	Level string `json:"level"`
+}
+
+// TerminalLevelRESP 是切换后的终端入口读数。
+type TerminalLevelRESP struct {
+	Level  string `json:"level"`
+	OnPath bool   `json:"on_path"`
+	Ready  bool   `json:"ready"`
+	Error  string `json:"error"`
 }
 
 // EngineLatestVO 是联网查回来的最新版本：与本地快照分开，网络慢不拖累面板首屏。

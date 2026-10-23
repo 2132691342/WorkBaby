@@ -2,13 +2,20 @@
 // 插件面板：PI 的扩展（extensions 目录 + settings.json 登记）与包（pi install）。
 // 装 / 卸 / 更新都走 PI 自己的 CLI，结束信号来自 chat:setup 的 done 帧：
 // 靠定时器猜结束会提前弹「已更新」，用户刷新后看到的还是旧版本。
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import { useSetupLog } from '../../composables/useSetupLog'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
-import type { ExtensionListRESP, ExtensionVO, PackageLatestVO, PackageVO } from '../../types/api'
+import type {
+  ExtensionListRESP,
+  ExtensionVO,
+  MarketListRESP,
+  MarketPackageVO,
+  PackageLatestVO,
+  PackageVO,
+} from '../../types/api'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
 import AppIcon from '../common/AppIcon.vue'
 import SettingsSection from './SettingsSection.vue'
@@ -28,6 +35,66 @@ const UPDATE_TIMEOUT = 5 * 60 * 1000
 
 const entries = computed(() => data.value?.entries ?? [])
 const packages = computed(() => data.value?.packages ?? [])
+
+// 插件市场：按 PI 官方发现机制（npm 关键字 pi-package）搜包；首次切到市场页才拉清单。
+const tab = ref<'installed' | 'market'>('installed')
+const market = ref<MarketListRESP | null>(null)
+const marketLoading = ref(false)
+const marketFilter = ref('')
+const marketPackages = computed(() => {
+  const kw = marketFilter.value.trim().toLowerCase()
+  const list = market.value?.packages ?? []
+  if (!kw) return list
+  return list.filter(
+    (p) => p.name.toLowerCase().includes(kw) || (p.description || '').toLowerCase().includes(kw),
+  )
+})
+
+watch(tab, (v) => {
+  if (v === 'market' && !market.value && !marketLoading.value) void loadMarket()
+})
+
+async function loadMarket(refresh = false) {
+  if (marketLoading.value) return
+  marketLoading.value = true
+  try {
+    market.value = await api.extensions.market(refresh)
+  } catch (e) {
+    market.value = { packages: [], error: (e as Error)?.message || '' }
+  } finally {
+    marketLoading.value = false
+  }
+}
+
+/** 市场卡片的发布者与时间一行读数；没有的段就省掉 */
+function marketMeta(p: MarketPackageVO): string {
+  const parts: string[] = []
+  if (p.publisher) parts.push(p.publisher)
+  if (p.published_at) parts.push(new Date(p.published_at).toLocaleDateString())
+  return parts.join(' · ')
+}
+
+/** 从市场装一个包：与手填来源同一条链路，结束信号同样是 chat:setup 的 done 帧 */
+async function installFromMarket(p: MarketPackageVO) {
+  if (busy.value) return
+  busy.value = `mkt:${p.name}`
+  beginLog('package-install')
+  const waiter = whenDone(UPDATE_TIMEOUT)
+  try {
+    await api.extensions.install(`npm:${p.name}`)
+    const result = await waiter
+    await reload()
+    await loadMarket(true)
+    if (!result.done) toast.info(t('settings.extensions.updateTimeout'))
+    else if (result.ok) toast.ok(t('settings.extensions.installDone'))
+    else toast.bad(t('settings.extensions.installFailed', { msg: await failureReason() }))
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    busy.value = ''
+    endLog()
+  }
+}
 
 // 版本对账：本地版本读自包目录，最新版本联网查（引擎页同一个接口）。
 // 查不到不影响列表：只是不显示「可更新」。
@@ -242,32 +309,51 @@ onBeforeUnmount(() => {
       :desc="t('settings.extensions.desc')"
     >
       <template #actions>
+        <template v-if="tab === 'installed'">
+          <el-button
+            size="small"
+            :loading="checkingVer"
+            :disabled="!!busy || checkingVer"
+            @click="checkVersions"
+          >
+            {{ checkingVer ? t('settings.engine.checking') : t('settings.engine.check') }}
+          </el-button>
+          <el-button
+            v-if="outdated.length"
+            size="small"
+            type="primary"
+            :loading="busy === 'update-all'"
+            :disabled="!!busy"
+            @click="updatePackage()"
+          >
+            {{ t('settings.extensions.updateAll') }}
+          </el-button>
+          <el-button size="small" :loading="busy === 'import'" :disabled="!!busy" @click="importExt">
+            {{ t('settings.extensions.import') }}
+          </el-button>
+          <el-button size="small" :loading="busy === 'reload'" :disabled="!!busy" @click="restart">
+            {{ t('settings.extensions.reload') }}
+          </el-button>
+        </template>
         <el-button
+          v-else
           size="small"
-          :loading="checkingVer"
-          :disabled="!!busy || checkingVer"
-          @click="checkVersions"
+          :loading="marketLoading"
+          :disabled="marketLoading"
+          @click="loadMarket(true)"
         >
-          {{ checkingVer ? t('settings.engine.checking') : t('settings.engine.check') }}
-        </el-button>
-        <el-button
-          v-if="outdated.length"
-          size="small"
-          type="primary"
-          :loading="busy === 'update-all'"
-          :disabled="!!busy"
-          @click="updatePackage()"
-        >
-          {{ t('settings.extensions.updateAll') }}
-        </el-button>
-        <el-button size="small" :loading="busy === 'import'" :disabled="!!busy" @click="importExt">
-          {{ t('settings.extensions.import') }}
-        </el-button>
-        <el-button size="small" :loading="busy === 'reload'" :disabled="!!busy" @click="restart">
-          {{ t('settings.extensions.reload') }}
+          {{ t('settings.extensions.marketRefresh') }}
         </el-button>
       </template>
 
+      <div class="ext-tabs">
+        <el-radio-group v-model="tab" size="small">
+          <el-radio-button value="installed">{{ t('settings.extensions.tabInstalled') }}</el-radio-button>
+          <el-radio-button value="market">{{ t('settings.extensions.tabMarket') }}</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <template v-if="tab === 'installed'">
       <div class="ext-bar">
         <el-input
           v-model="source"
@@ -351,6 +437,60 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </template>
+      </template>
+
+      <div v-else class="ext-group">
+        <div class="ext-bar">
+          <el-input
+            v-model="marketFilter"
+            size="small"
+            class="ext-input"
+            clearable
+            :placeholder="t('settings.extensions.marketFilter')"
+          />
+        </div>
+        <p v-if="market?.error" class="ext-warn">
+          <AppIcon name="alert" size="ic-2xs" />
+          {{ t('settings.extensions.marketFail', { msg: market.error }) }}
+        </p>
+        <div v-else-if="marketLoading && !market" class="wb-card ext-card">
+          <el-skeleton animated :rows="4" />
+        </div>
+        <div v-else-if="marketPackages.length" class="ext-list">
+          <article v-for="p in marketPackages" :key="p.name" class="ext-row">
+            <span class="ext-tile"><AppIcon name="database" size="ic-sm" /></span>
+            <div class="ext-tx">
+              <span class="ext-name">
+                {{ p.name }}
+                <el-tag size="small" type="info" class="ext-ver">v{{ p.version }}</el-tag>
+              </span>
+              <span class="ext-desc" :title="p.description">{{ p.description || '—' }}</span>
+              <span v-if="marketMeta(p)" class="ext-meta">{{ marketMeta(p) }}</span>
+            </div>
+            <el-tag v-if="p.installed" size="small" type="success" class="ext-installed">
+              {{ t('settings.extensions.marketInstalled') }}
+            </el-tag>
+            <el-tag v-else-if="p.installed_version" size="small" type="info" class="ext-ver">
+              {{ p.installed_version }}
+            </el-tag>
+            <el-button
+              v-if="!p.installed"
+              size="small"
+              type="primary"
+              :loading="busy === `mkt:${p.name}`"
+              :disabled="!!busy"
+              @click="installFromMarket(p)"
+            >
+              {{ t('settings.extensions.marketInstall') }}
+            </el-button>
+          </article>
+        </div>
+        <div v-else class="wb-card empty-box">
+          <span class="wb-tile wb-tile--lg"><AppIcon name="braces" size="ic-xl" /></span>
+          <b>{{ marketFilter ? t('settings.extensions.marketNoHit') : t('settings.extensions.marketEmpty') }}</b>
+          <p>{{ t('settings.extensions.marketEmptyHint') }}</p>
+        </div>
+      </div>
 
       <div v-if="log.length" class="ext-log">
         <div class="wb-label">{{ t('setup.installLog') }}</div>
@@ -361,6 +501,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.ext-tabs {
+  display: flex;
+  margin-bottom: var(--wb-sp-2);
+}
 .ext-bar {
   display: flex;
   gap: var(--wb-sp-2);
@@ -377,6 +521,32 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-2);
+}
+.ext-card {
+  padding: var(--wb-sp-4);
+}
+.ext-desc {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ext-meta {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+}
+.ext-warn {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-warning);
+  line-height: var(--wb-lh-base);
+}
+.ext-installed {
+  flex: none;
 }
 .ext-row {
   display: flex;

@@ -52,6 +52,27 @@ func (h *Handler) EnvEnableTerminal(c *gin.Context) {
 	ok(c, h.buildPiEnv())
 }
 
+// EnvTerminalLevel 切换终端入口的 PATH 级别：写系统级时后端会拉起 UAC 授权。
+func (h *Handler) EnvTerminalLevel(c *gin.Context) {
+	var req domain.TerminalLevelREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	if h.Svc == nil || h.Svc.Engine == nil {
+		fail(c, domain.ErrEngineMissing)
+		return
+	}
+	st, err := h.Svc.Engine.SwitchTerminalLevel(req.Level)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, domain.TerminalLevelRESP{
+		Level: st.Level, OnPath: st.OnPath, Ready: st.Ready, Error: st.Error,
+	})
+}
+
 // buildPiEnv 跑一遍闸门判定。
 func (h *Handler) buildPiEnv() *domain.PiEnvVO {
 	if h.PiEnv == nil {

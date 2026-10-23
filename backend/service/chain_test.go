@@ -468,6 +468,15 @@ func TestServiceChain(t *testing.T) {
 		if len(after.Extensions) != 0 {
 			t.Fatalf("停用后登记项应当被摘掉: %v", after.Extensions)
 		}
+
+		// 同一条包登记链路的另一头是市场对账：已装的包没标出来，用户会重复安装。
+		mkt := reconcileMarket(
+			[]pienv.MarketEntry{{Name: "pi-demo-pkg", Version: "2.0.0"}, {Name: "@scope/other", Version: "1.0.0"}},
+			map[string]string{"pi-demo-pkg": "1.4.0"},
+		)
+		if !mkt[0].Installed || mkt[0].InstalledVersion != "1.4.0" || mkt[1].Installed {
+			t.Fatalf("市场对账错了: %+v", mkt)
+		}
 	})
 
 	// 模型服务与 MCP 共用同一份配置落盘通道：校验顺序、密钥掩码、默认模型的生命周期都在这。

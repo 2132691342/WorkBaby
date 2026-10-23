@@ -230,6 +230,26 @@ export interface ExtensionListRESP {
   packages: PackageVO[]
 }
 
+// ---- 插件市场 ----
+
+export interface MarketPackageVO {
+  name: string
+  description: string
+  version: string
+  publisher: string
+  repo: string
+  /** 最近发布时间（毫秒；0 表示注册表没给） */
+  published_at: number
+  installed: boolean
+  installed_version: string
+}
+
+export interface MarketListRESP {
+  packages: MarketPackageVO[]
+  /** 非空表示注册表没连上（不是失败，面板显示空态） */
+  error: string
+}
+
 // ---- 工具 ----
 
 export interface ToolVO {
@@ -336,6 +356,15 @@ export interface PiEnvVO {
   terminal_shadowed_by?: string
   /** PATH 上其它装过 pi 的目录 */
   other_pis?: string[]
+  /** 入口目录挂在哪一级 PATH：system / user / both / none */
+  terminal_level: string
+}
+
+export interface TerminalLevelRESP {
+  level: string
+  on_path: boolean
+  ready: boolean
+  error: string
 }
 
 // ---- 引擎（PI 与运行时）----
@@ -378,6 +407,8 @@ export interface EngineStatusVO {
   terminal_shadowed_by?: string
   /** PATH 上其它装过 pi 的目录 */
   other_pis?: string[]
+  /** 入口目录挂在哪一级 PATH：system / user / both / none */
+  terminal_level: string
 }
 
 export interface PackageLatestVO {

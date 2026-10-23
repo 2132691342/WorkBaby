@@ -78,3 +78,22 @@ type DeleteExtensionREQ struct {
 type PackageREQ struct {
 	Source string `json:"source"`
 }
+
+// MarketPackageVO 是插件市场里的一个可装包（npm 关键字 pi-package，PI 官方的发现机制）。
+type MarketPackageVO struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     string `json:"version"`
+	Publisher   string `json:"publisher"`
+	Repo        string `json:"repo"`
+	PublishedAt int64  `json:"published_at"`
+	// Installed 由本地已装清单对账得出；InstalledVersion 是磁盘上那一份的版本。
+	Installed        bool   `json:"installed"`
+	InstalledVersion string `json:"installed_version"`
+}
+
+// MarketListRESP 是插件市场一次要的清单；Error 非空表示注册表没连上（不是失败，面板仍要能显示空态）。
+type MarketListRESP struct {
+	Packages []MarketPackageVO `json:"packages"`
+	Error    string            `json:"error"`
+}

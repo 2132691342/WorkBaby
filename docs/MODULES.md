@@ -84,6 +84,8 @@ handler 不含逻辑，改业务永远不用碰它。
   ANSI 色码在这里剥（GUI 没有终端语义）
 - `engine.go` 是引擎页的数据出口：汇总 PI / 运行时 / 插件包的版本与运行状态，
   管住「安装 / 升级只有一个在跑」的闸门，升级完重启全部进程让新内核生效
+- `market.go` 是插件市场页的数据出口：注册表条目与已装清单（npm 包名 → 本地版本）
+  对账后交出「已装标记 + 本地版本」，安装复用 `extension.go` 的 CLI 链路
 
 **为什么**：编排层是事务边界与词汇表边界。能力域（pi/skill/git）只交出原始事实，
 把事实翻成界面能直接渲染的东西是 service 的职责——这样能力域才能脱离界面独立测试与演进。
@@ -143,7 +145,12 @@ PI 改协议这里最先碎。
   `defaultTools` 永远不碰。自己写过的值记在 `runtime/shell.json` 才敢撤回
 - 终端入口（`terminal.go`）：写 `<data>/bin/pi.cmd`（CMD / PowerShell）与
   `<data>/bin/pi`（Git Bash 的 sh 脚本），两者钉当前生效 node + PI，启动时对齐刷新；
-  目录前置到 HKCU `Environment\Path`，写后广播 `WM_SETTINGCHANGE`
+  目录前置到 HKCU `Environment\Path`，写后广播 `WM_SETTINGCHANGE`。
+  PATH 级别可用户级 ⇄ 系统级互切（`elevate_windows.go`）：写 HKLM 一律经
+  ShellExecute `runas` 重跑本程序（`--path-admin`，main 在单实例守卫前拦截），
+  提权进程改完注册表即退出，结果只经退出码回传
+- 插件市场（`market.go`）：按 npm 关键字 `pi-package` 搜包（PI 官方的发现机制，
+  双源回退 + 5 分钟缓存）；只做发现与回包解析，装卸走 PI 的 CLI
 - 闸门 `Detect`：按 node → pi → model 顺序报**第一个**不满足项并给原因
 - `WriteModels` / `WriteSettings`：camelCase 形状、未知字段原样保留、只改掌管键、字段级合并；
   `mcp.json` 只做原文往返；全部写入走 `WriteFileAtomic`
@@ -239,7 +246,7 @@ PI 改协议这里最先碎。
 用户自己装的高版本运行时体验更好，能复用就复用。
 
 **优势**：分发只有一个 exe；不联网也能完成环境引导。
-**代价**：exe 约 125MB；构建期强依赖 LFS 拉取；首次用到内置时多等一次解压（约 3 秒）。
+**代价**：exe 约 74MB；构建期强依赖 LFS 拉取；首次用到内置时多等一次解压（约 3 秒）。
 
 ---
 

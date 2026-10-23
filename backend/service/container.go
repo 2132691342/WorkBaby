@@ -14,6 +14,7 @@ type Container struct {
 	Providers  *ProviderService
 	Skills     *SkillService
 	Extensions *ExtensionService
+	Market     *MarketService
 	Files      *FileService
 	Tools      *ToolService
 	Settings   *SettingsService
@@ -60,6 +61,7 @@ func New(env *Env) (*Container, error) {
 		Providers:  providers,
 		Skills:     NewSkillService(env),
 		Extensions: NewExtensionService(env),
+		Market:     NewMarketService(env),
 		Files:      NewFileService(env),
 		Tools:      NewToolService(env),
 		Settings:   NewSettingsService(env, env.Paths),

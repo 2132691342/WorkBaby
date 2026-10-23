@@ -22,6 +22,7 @@ import type {
   HelpDocRESP,
   HelpDocVO,
   MCPListRESP,
+  MarketListRESP,
   PiEnvVO,
   PISettingsVO,
   ProviderListRESP,
@@ -31,6 +32,7 @@ import type {
   SessionVO,
   SkillVO,
   StatsRESP,
+  TerminalLevelRESP,
   ToolListRESP,
   UpsertProviderREQ,
   WorkspacesRESP,
@@ -130,6 +132,8 @@ export const extensions = {
   install: (source: string) => post<boolean>('/extensions/install', { source }),
   uninstall: (source: string) => post<boolean>('/extensions/remove', { source }),
   reload: () => post<boolean>('/extensions/reload'),
+  /** 插件市场：按 PI 官方发现机制（npm 关键字 pi-package）搜包并对账已装 */
+  market: (refresh = false) => get<MarketListRESP>('/extensions/market', pick({ refresh: refresh ? '1' : '' })),
 }
 
 /** 斜杠命令清单：没有会话时后端直接给空数组（没有进程就没有命令） */
@@ -179,6 +183,9 @@ export const env = {
   fixShell: () => post<PiEnvVO>('/env/shell'),
   /** 生成终端里的 pi 入口并挂到用户 PATH */
   enableTerminal: () => post<PiEnvVO>('/env/terminal'),
+  /** 切换入口的 PATH 级别：写系统级时后端会拉起 UAC 授权，可能要等用户确认 */
+  switchTerminalLevel: (level: 'system' | 'user') =>
+    post<TerminalLevelRESP>('/env/terminal-level', { level }),
 }
 
 /** 引擎：PI 与内置运行时的状态、版本对账与升级 */

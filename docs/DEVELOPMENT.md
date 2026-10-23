@@ -67,7 +67,7 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 ├── workbaby.db                SQLite（WAL）：只有界面设置 KV
 ├── config.yaml                工作目录等固定项
 ├── logs\                      app.log（全量）/ warn.log（warn 与 error）
-├── bin\pi.cmd · pi            终端里的 pi 入口（cmd/PowerShell 用 .cmd，Git Bash 用 pi；目录挂在用户 PATH 上）
+├── bin\pi.cmd · pi            终端里的 pi 入口（cmd/PowerShell 用 .cmd，Git Bash 用 pi；目录挂在 PATH 上，默认用户级、引擎页可切系统级）
 ├── runtime\node\              内置 Node（首次用时解压）
 ├── runtime\gitbash\           内置 Git Bash（本机没有可用 bash 时才解压）
 ├── runtime\npm-global\        WorkBaby 代装 PI 的 npm 前缀
@@ -127,7 +127,7 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 |---|---|
 | 技能 / 插件 / 模型全是空 | `PI_CODING_AGENT_DIR` 是否被覆盖；日志里的「PI 配置目录」是不是你期望的那个 |
 | 助手执行命令报 WSL 的错 | 命令执行环境选中了 WSL 启动器；点「设置 · 助手引擎 → 重新检测并修复」，或装 Git for Windows 后重跑 |
-| 终端里敲 `pi` 找不到 | 「设置 · 助手引擎 → 终端命令」生成入口并挂 PATH，**新开**终端才生效 |
+| 终端里敲 `pi` 找不到 | 「设置 · 助手引擎 → 终端命令」生成入口并挂 PATH，**新开**终端才生效；管理员或其它账户的终端读的是系统级 PATH，可在引擎页把入口切到系统级 |
 | 发了消息没反应 | 环境闸门是否 ready；日志里 `chat: 已发送` 有没有出现 |
 | 同一目录第二条对话报 5005 | 这是内核约束（一个目录一个当前会话），等第一条跑完 |
 | 提问卡点了没反应 | `POST /chat/answer` 的 5010 说明它已失效；看 PI 是否还在跑这一轮 |

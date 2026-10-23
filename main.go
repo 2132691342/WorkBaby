@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	pienv "WorkBaby/backend/pi/env"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/singleinstance"
 
@@ -23,6 +24,12 @@ const version = "1.4.0"
 var assets embed.FS
 
 func main() {
+	// 提权子进程：--path-admin <system|user> <dir>，由引擎页的 PATH 级别切换拉起，
+	// 改完注册表即退出——必须在单实例守卫与 Wails 装配之前退出。
+	if code, handled := pienv.RunPathAdminMode(os.Args); handled {
+		os.Exit(code)
+	}
+
 	app := NewApp()
 
 	// 单实例：二次启动一律把这次启动交给主实例——带文件就转交文件，
