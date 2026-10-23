@@ -28,6 +28,11 @@ const editing = ref('')
 const busy = ref('')
 const dialog = ref(false)
 
+// 模型能力的兵底：留空不能等于 0。0 会让水位环永远显示 0%，
+// PI 也拿不到可用预算。与后端 domain.DefaultContextWindow / DefaultMaxTokens 一致。
+const DEFAULT_CONTEXT_WINDOW = 300000
+const DEFAULT_MAX_TOKENS = 64000
+
 const form = reactive({
   id: '',
   name: '',
@@ -110,7 +115,14 @@ function edit(p: ProviderVO) {
 function addModel(id: string) {
   const name = id.trim()
   if (!name || form.models.some((m) => m.id === name)) return
-  form.models.push({ id: name, name, reasoning: false, vision: true, context_window: 0, max_tokens: 0 })
+  form.models.push({
+    id: name,
+    name,
+    reasoning: false,
+    vision: true,
+    context_window: DEFAULT_CONTEXT_WINDOW,
+    max_tokens: DEFAULT_MAX_TOKENS,
+  })
 }
 
 function addManual() {
@@ -155,7 +167,15 @@ async function save() {
       api: form.api,
       base_url: form.base_url.trim(),
       api_key: form.api_key || undefined,
-      models: form.models.map((m) => ({ ...m, id: m.id.trim(), name: m.name.trim() || m.id.trim() })),
+      // 清空输入框时 el-input-number 会给 null / 0：落盘前补回默认值，
+      // 否则后端只能收到 0，水位与预算全跟着失效。
+      models: form.models.map((m) => ({
+        ...m,
+        id: m.id.trim(),
+        name: m.name.trim() || m.id.trim(),
+        context_window: m.context_window > 0 ? m.context_window : DEFAULT_CONTEXT_WINDOW,
+        max_tokens: m.max_tokens > 0 ? m.max_tokens : DEFAULT_MAX_TOKENS,
+      })),
     })
     await store.refreshProviderData()
     toast.ok(t('common.save'))
@@ -449,6 +469,7 @@ onMounted(() => {
                       :min="0"
                       :step="1000"
                       :controls="false"
+                      :placeholder="String(DEFAULT_CONTEXT_WINDOW)"
                       class="w-num"
                     />
                   </label>
@@ -460,6 +481,7 @@ onMounted(() => {
                       :min="0"
                       :step="1000"
                       :controls="false"
+                      :placeholder="String(DEFAULT_MAX_TOKENS)"
                       class="w-num"
                     />
                   </label>

@@ -194,7 +194,7 @@ func TestHTTPChain(t *testing.T) {
 	base, h := bootServer(t)
 	workspace := h.Svc.Env.Workspace()
 
-	t.Run("HTTP 闸门与信封契约：预检、白名单、越界拒绝、空数组永不 null", func(t *testing.T) {
+	t.Run("HTTP 闸门：预检放行、方法白名单、路径穿越与空数组契约", func(t *testing.T) {
 		// 预检不放行的话前端所有 POST 都在浏览器层就被拦掉，接口本身根本没被调用。
 		req, err := http.NewRequest(http.MethodOptions, base+"/chat/send", nil)
 		if err != nil {
@@ -224,7 +224,7 @@ func TestHTTPChain(t *testing.T) {
 			t.Fatalf("非法文档名没有被拦下: %d %s", code, body)
 		}
 
-		// 闸门数据缺一项，前端就只能整屏停在空态：用户连自己缺什么都看不到。
+		// 闸门与列表的契约：前端直接对数组字段取 .length，发成 null 就是一句运行时错误。
 		code, body := call(t, base, "GET", "/bootstrap", nil)
 		if code != http.StatusOK {
 			t.Fatalf("bootstrap 失败: %d %s", code, body)
@@ -246,11 +246,8 @@ func TestHTTPChain(t *testing.T) {
 			t.Fatalf("引导字段缺失: %s", body)
 		}
 
-		// 数组字段直接被前端 .length，发成 null 就是一句运行时错误。
 		var list struct {
-			Code string `json:"code"`
 			Data struct {
-				Dir      string            `json:"dir"`
 				Entries  *[]map[string]any `json:"entries"`
 				Packages *[]map[string]any `json:"packages"`
 			} `json:"data"`

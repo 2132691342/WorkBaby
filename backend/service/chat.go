@@ -70,6 +70,9 @@ func (c *ChatService) Send(req domain.SendMessageREQ) (*domain.SendMessageRESP, 
 	if content == "" && len(req.Attachments) == 0 {
 		return nil, domain.ErrEmptyContent
 	}
+	if c.env.Maintenance() {
+		return nil, domain.ErrEngineBusy
+	}
 
 	workspace := strings.TrimSpace(req.Workspace)
 	sessionID := strings.TrimSpace(req.SessionID)
@@ -267,6 +270,13 @@ func (c *ChatService) IsRunning(sessionID string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.running[sessionID]
+}
+
+// AnyRunning 报告是否有任何会话在跑：升级内核与更新插件要停进程，先问一句再动手。
+func (c *ChatService) AnyRunning() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.running) > 0
 }
 
 // RunningIn 报告某个工作目录下有没有会话在跑；只在锁内查内存——
@@ -474,6 +484,20 @@ func (c *ChatService) release(sessionID string) {
 	delete(c.runs, sessionID)
 	delete(c.runWs, sessionID)
 	c.mu.Unlock()
+}
+
+// releaseRun 只在会话仍属于这一轮 run 时摘除运行态。
+// 进程死亡回调可能晚于同一会话的下一次发送：无条件摘会抹掉新那一轮的 busy 标记。
+func (c *ChatService) releaseRun(sessionID, runID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.runs[sessionID] != runID {
+		return false
+	}
+	delete(c.running, sessionID)
+	delete(c.runs, sessionID)
+	delete(c.runWs, sessionID)
+	return true
 }
 
 // lockOf 取会话级互斥锁。

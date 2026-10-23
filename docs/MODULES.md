@@ -31,12 +31,12 @@
 
 - `routes.go` 一张表收口全部路由：`/api/v1/{resource}/{action}/:id`，动作段在 id 之前，
   删除统一走 `POST /{resource}/delete/:id`，只允许 GET 与 POST
-- `middleware.go` 三件事：CORS（只放行本机来源）、方法白名单（PUT/DELETE 直接 1002）、
+- `server.go` 三件事：CORS（只放行本机来源）、方法白名单（PUT/DELETE 直接 1002）、
   路径参数穿越检查（`:id` 里的 `..`、`%2F` 在门口拒绝）
 - `sse.go` 是事件 hub：每个会话一条缓冲队列，支持 `Last-Event-ID` 重放；
   缓冲溢出先丢 delta 保关键事件，再溢出就断开并让前端拉快照对账（`chat:gap`）
-- `response.go` 出口统一：`ok()` 对切片 / map 做 nil 兜底（Go 的 nil slice 编码成 `null`，
-  前端按数组读就是运行时错误）
+- 响应信封在 `api/api_biz.go`：`ok()` 对切片 / map 做 nil 兜底（Go 的 nil slice 编码成
+  `null`，前端按数组读就是运行时错误）
 
 **为什么**：边界集中在一处，才能保证「所有出参永远是同一个形状、所有入口过同一组闸」。
 分散到各 handler 的写法在第十个接口之后必然漂移。
@@ -132,13 +132,13 @@ PI 改协议这里最先碎。
 - 发现：PATH → npm 前缀（内置 npm-global）逐级找 `pi.cmd`；找到后把 shim 还原成
   `node + cli.js`。**node 永远是绝对路径**：`exec.Command` 只按本进程的 PATH 找可执行文件
 - 安装 / 升级：固定用**内置** `node + npm-cli.js`，前缀显式给出；官方源与国内镜像并联探测，
-  一趟失败换另一个源整跑一遍（完整流程与原因见 [specs/11](../specs/11-pi-bootstrap.md)）
+  一趟失败换另一个源整跑一遍（完整流程与原因见 [specs/11](../specs/11-pi-bootstrap.md）)
 - 版本对账：本地版本读包目录的 `package.json`，最新版本问 npm 注册表的
   `dist-tags.latest`（abbreviated 元数据 + 5 分钟缓存 + 12 秒超时 + 换源重试）
 - 命令执行环境（`shell.go`）：找真 bash（环境变量 / 注册表 / PATH 上的 `git.exe` 反推安装根）、
   按路径剔除 WSL 启动器、真跑一次验证；有 bash 写 `shellPath`，没有就把 `defaultTools`
   增量换成 `+powershell` / `-bash`。自己写过的值记在 `runtime/shell.json` 才敢撤回
-- 终端入口（`terminal.go`）：写 `<data>/bin/pi.cmd`（钉死内置 node）+ 追加到 HKCU
+- 终端入口（`terminal.go`）：写 `<data>/bin/pi.cmd`（钉死内置 node）+ 前置到 HKCU
   `Environment\Path`，写后广播 `WM_SETTINGCHANGE`
 - 闸门 `Detect`：按 node → pi → model 顺序报**第一个**不满足项并给原因
 - `WriteModels` / `WriteSettings`：camelCase 形状、未知字段原样保留、只改掌管键、字段级合并；
@@ -304,7 +304,9 @@ PI 改协议这里最先碎。
   settings / workspace / common）/ `composables` / `locales` / `stores`（Pinia Setup Store）/
   `types` / `utils` / `views` / `router`（hash 模式）
 - 状态归属：`session`（权威快照）/ `chat`（当前 run 的临时态）/ `settings`（配置）/
-  `toast`。**SSE 只推进行中的临时态**，任何 done / 重连都拉一次权威快照，前端不做增量合并
+  `toast`。**SSE 只推进行中的临时态**，任何 done / 重连都拉一次权威快照，前端不做增量合并。
+  事件消费在 `composables/chatBridge.ts`（应用壳装一次），不随对话页卸载：
+  离开对话页时 run 还在跑，事件必须继续落进 store
 - 四个 CSS 分工：`themes.css`（色值与尺寸刻度唯一来源，`--wb-*` 令牌 + 两套主题）/
   `ep-theme.css`（Element Plus 变量接到 `--wb-*`）/ `base.css`（重置与基元）/
   `content.css`（EP 没有对应物的自绘区：消息流 / markdown / 工具卡 / diff）
@@ -341,10 +343,12 @@ PI 改协议这里最先碎。
 
 **怎么实现**：
 
-- 档位：无参快门（全部短测试，约 12s）；`-Pkg` 单包（约 5s）；`-Run <关键字>` 定点
-  （`-run` 拼空前缀让子测试名不必带入口名，约 12s）；`-Full` 全量门禁（约 60s）；
-  `-List` 打印入口与子测试索引
-- 测试一律跑 `./...`：不维护「有测试的包」清单，也不会漏跑新包的测试
+- 档位：无参快门（全部短测试，约 12s）；`-Pkg` 单包（约 5s，**不建前端**）；
+  `-Run <关键字>` 定点（`-run` 拼空前缀让子测试名不必带入口名，且只编译含测试的包，约 12s）；
+  `-Full` 全量门禁（约 50s）；`-List` 打印入口与子测试索引
+- 前端只在要编译 main 包时才建：`frontend/dist` 只是 `main.go` 的 `go:embed` 硬依赖，
+  其余包一概不依赖它——否则验一个后端包要白等十几秒的前端构建
+- 测试一律跑 `./...`（`-Run` 除外：按磁盘上的 `*_test.go` 现算包清单）
 - 失败时从日志摘摘要（`--- FAIL` / `panic` / `文件:行号`）打印，CI 里追加进 job summary
 - `comments` 步骤把 §2.6 的「连续注释 ≤ 2 行」变成门禁（`gofmt` 给 `//go:` 指令补的分隔行豁免）
 - `-short` 跳过三条慢链路（真 git 子进程、归档真解压、本机真 PI 回合），只在 `-Full` 跑到
@@ -353,4 +357,4 @@ PI 改协议这里最先碎。
 改验证流程只改一处。
 
 **优势**：改一个小功能时单包 5 秒、定点 12 秒；失败摘要直接给到行号。
-**代价**：脚本本身有档位逻辑（约 140 行），改它要理解各档的关系。
+**代价**：脚本本身有档位逻辑（约 180 行），改它要理解各档的关系。

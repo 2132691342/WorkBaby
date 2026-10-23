@@ -4,6 +4,7 @@ import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { syncFromSettings } from './composables/useAppearance'
+import { installChatBridge } from './composables/chatBridge'
 import { useViewportScale } from './composables/useViewportScale'
 import { intentFile, intentNewSession, pushShellIntent } from './composables/shellIntent'
 import { useChatStore } from './stores/chat'
@@ -27,6 +28,9 @@ const router = useRouter()
 useViewportScale()
 // EP 内置文案的当前语言（main.ts 提供）
 const epLocale = inject<Ref>('epLocale')
+
+// 事件桥挂在应用壳上：对话流不随视图卸载而丢失，切换到设置再回来还能接上。
+installChatBridge()
 
 const failed = computed(() => status.value === 'failed')
 const ready = computed(() => booted.value && !failed.value)

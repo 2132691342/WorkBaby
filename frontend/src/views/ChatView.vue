@@ -3,7 +3,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useSse } from '../composables/useSse'
+import { reloadChatSnapshot } from '../composables/chatBridge'
 import { intentFile, intentNewSession, SHELL_INTENT_EVENT } from '../composables/shellIntent'
 import { useChatStore } from '../stores/chat'
 import { useSessionStore } from '../stores/session'
@@ -37,6 +37,11 @@ const needsSetup = computed(() => settings.boot?.pi_env?.model_ready === false)
 /** 新对话：不建空会话——PI 那边第一条消息才落盘，这里只把界面切到草稿态 */
 function newSession() {
   if (creating.value) return
+  // 正在跑的回合只挂在当前会话上：开新对话等于把它抛下，事件再也接不回来。
+  if (chat.running || chat.finalizing) {
+    toast.info(t('chat.busyNewSession'))
+    return
+  }
   creating.value = true
   try {
     chat.reset()
@@ -59,11 +64,7 @@ async function send(text: string, attachments: AttachmentREQ[]) {
     // 立刻回显：等 chat:done 拉快照才显示的话，用户会以为消息没发出去
     session.echoUserMessage(text)
     if (!session.currentId && sent?.session_id) {
-      const fresh = sent.session_id
-      await session.adopt(fresh)
-      window.setTimeout(() => {
-        if (!chat.running && session.currentId === fresh) void reload()
-      }, 1500)
+      await session.adopt(sent.session_id)
     }
   } catch (e) {
     toast.bad(t('chat.sendFailed', { msg: (e as Error)?.message || '' }))
@@ -113,22 +114,6 @@ async function stop() {
   }
 }
 
-// 收尾后拉权威快照。拉失败必须说出来：静默失败的表现是用户盯着一条已经结束的旧对话
-async function reload() {
-  try {
-    await session.refresh()
-  } catch (e) {
-    chat.notify(t('chat.refreshFailed', { msg: (e as Error)?.message || '' }))
-  } finally {
-    // 快照接上（或失败已告知）之后才把流式那一轮换成历史投影
-    chat.clearLive()
-  }
-}
-
-function pickExample(text: string) {
-  void send(text, [])
-}
-
 // 续写：截断后接着写。发一句「继续」是唯一协议安全的方式
 async function resume() {
   if (chat.running) return
@@ -142,90 +127,6 @@ async function retry() {
   if (!last?.content) return
   await send(last.content, [])
 }
-
-// 断线重连后的对账：退出运行态 → 拉权威快照
-async function reconcile() {
-  chat.onGap()
-  await reload()
-}
-
-// SSE 事件 → store；结束后拉一次权威快照，前端不做复杂合并
-useSse(
-  () => session.currentId,
-  async (env) => {
-    switch (env.event) {
-      case 'chat:start':
-        chat.onStart(env.data)
-        break
-      case 'chat:delta':
-        chat.onDelta(env.data)
-        break
-      case 'chat:tool_start':
-        chat.onToolStart(env.data)
-        break
-      case 'chat:tool_end':
-        chat.onToolEnd(env.data)
-        break
-      case 'chat:ask':
-        chat.onAsk(env.data)
-        break
-      case 'chat:ask_closed':
-        chat.onAskClosed(env.data)
-        break
-      case 'chat:notify':
-        chat.onNotify(env.data)
-        break
-      case 'chat:status':
-        chat.onStatus(env.data)
-        break
-      case 'chat:widget':
-        chat.onWidget(env.data)
-        break
-      case 'chat:title':
-        chat.onTitle(env.data)
-        break
-      case 'chat:compressed':
-        chat.onCompressed(env.data)
-        break
-      case 'chat:user':
-        session.echoUserMessage(env.data.content)
-        chat.onDequeued(env.data.content)
-        break
-      case 'chat:context':
-        chat.onContext(env.data)
-        break
-      case 'chat:retry':
-        chat.onRetry(env.data)
-        break
-      case 'chat:done':
-        chat.onDone(env.data)
-        await reload()
-        void session.loadList()
-        break
-      case 'chat:stopped':
-        chat.onStopped()
-        await reload()
-        break
-      case 'chat:error':
-        chat.onError(env.data)
-        await reload()
-        break
-      case 'chat:gap':
-        chat.onGap()
-        await reload()
-        break
-      case 'chat:switched':
-        chat.onStopped()
-        if (env.data?.session_id && env.data.session_id !== session.currentId) {
-          await session.open(env.data.session_id)
-        } else {
-          await reload()
-        }
-        break
-    }
-  },
-  reconcile,
-)
 
 // 桌面壳意图（托盘「新建对话」/ 外部打开文件）在这里落地
 function consumeShellIntent() {
@@ -241,8 +142,9 @@ function consumeShellIntent() {
 }
 
 async function syncOnMount() {
-  chat.reset()
-  if (session.currentId) await reload()
+  // 回到对话页只补快照，不重置 store：离开期间 run 可能还在跑，
+  // 清掉流式段就再也接不上了，只能等到下一次 done 才恢复。
+  if (session.currentId && !chat.running) await reloadChatSnapshot()
 }
 
 onMounted(async () => {
@@ -264,11 +166,18 @@ onBeforeUnmount(() => {
   window.removeEventListener(SHELL_INTENT_EVENT, consumeShellIntent)
 })
 
-// 切会话必须把流式状态清干净
+// 切会话必须把流式状态清干净；刚发出的消息把界面绑到新会话（adopt）不算切换。
 watch(
   () => session.currentId,
-  () => chat.reset(),
+  () => {
+    if (session.adopting) return
+    chat.reset()
+  },
 )
+
+function pickExample(text: string) {
+  void send(text, [])
+}
 
 // 快照到手就回填上下文水位
 function seedContext() {

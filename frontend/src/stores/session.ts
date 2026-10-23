@@ -34,6 +34,9 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   const openingId = ref<string | null>(null)
+  /** 刚发出一条消息、把界面绑到后端新建的会话上：这不算「用户切换会话」，
+   *  对话页据此跳过重置，否则会把刚收到的流式内容清掉。 */
+  const adopting = ref(false)
 
   async function open(id: string) {
     openingId.value = id
@@ -65,6 +68,7 @@ export const useSessionStore = defineStore('session', () => {
    * 先设 currentId（SSE 订阅跟着它切，切得越早丢帧越少），再补列表。 */
   async function adopt(id: string) {
     const prev = currentId.value
+    adopting.value = true
     currentId.value = id
     currentSession.value = null
     try {
@@ -74,6 +78,8 @@ export const useSessionStore = defineStore('session', () => {
     } catch {
       // 列表没刷出来不影响这一轮：会话编号已经切过去了
       currentId.value = id || prev
+    } finally {
+      adopting.value = false
     }
   }
 
@@ -124,6 +130,7 @@ export const useSessionStore = defineStore('session', () => {
     currentSession,
     messages,
     openingId,
+    adopting,
     workspaceFilter,
     loadList,
     draft,

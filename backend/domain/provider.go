@@ -27,6 +27,13 @@ var APIAll = []string{
 	APIAnthropicMessages, APIGoogleGenerative, APIAzureOpenAIResponse,
 }
 
+// 模型能力的兜底：没填上下文窗口 / 输出上限时按这两个值走。
+// 留空不能等于 0：水位环会一直显示 0%，PI 也拿不到可用的预算。
+const (
+	DefaultContextWindow = 300000
+	DefaultMaxTokens     = 64000
+)
+
 // ProviderVO 一个服务商；密钥不回传明文，只给掩码。
 type ProviderVO struct {
 	// ID 是 models.json 里的键，也是 PI 的 provider 名。

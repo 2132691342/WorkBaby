@@ -233,7 +233,7 @@ func pythonSystemExe() string {
 	return ""
 }
 
-// PiExe 定位 PI 的入口：显式指定 > 系统 PATH > 各 npm 全局前缀。
+// PiExe 定位 PI 的入口：显式指定 > 本应用自装（npm 全局前缀）> 系统 PATH > 其它 npm 全局前缀。
 // WORKBABY_PI_EXE 让测试与高级用户指定一份特定的 PI。
 func (e *Env) PiExe() (string, string) {
 	if e.overridePi != "" {
@@ -242,15 +242,16 @@ func (e *Env) PiExe() (string, string) {
 	if explicit := strings.TrimSpace(os.Getenv("WORKBABY_PI_EXE")); explicit != "" {
 		return explicit, "env"
 	}
-	for _, name := range []string{"pi.cmd", "pi.exe", "pi"} {
-		if exe, err := exec.LookPath(name); err == nil {
-			return exe, "system"
-		}
-	}
-	// 先看自己装的那份：命中就省掉一次「问 npm 全局前缀」的进程启动。
+	// 自己装的那份优先：终端入口（PATH 前置）指向的就是它，
+	// 两份同时存在时若这边取系统那份，界面与终端就会跑在两个不同内核上。
 	for _, c := range prefixCandidates(e.paths.NpmGlobalDir) {
 		if pkg.FileExists(c) {
 			return c, "npm-global"
+		}
+	}
+	for _, name := range []string{"pi.cmd", "pi.exe", "pi"} {
+		if exe, err := exec.LookPath(name); err == nil {
+			return exe, "system"
 		}
 	}
 	for _, prefix := range e.npmPrefixes() {
@@ -578,8 +579,7 @@ func (e *Env) runNpmInstall(node string, npmArgs, args []string, prefix, registr
 	if err := cmd.Start(); err != nil {
 		return pkg.Wrap("9710", "装不了助手引擎（npm 起不来）", err)
 	}
-	pumpPipe(stdout, report)
-	pumpPipe(stderr, report)
+	pumpBoth(stdout, stderr, report)
 	return cmd.Wait()
 }
 
@@ -647,6 +647,13 @@ func (e *Env) resetProbes() {
 	e.prefixMu.Lock()
 	e.prefixCache, e.prefixDone = nil, false
 	e.prefixMu.Unlock()
+}
+
+// RefreshProbes 作废全部缓存：装完 / 更新完 PI 与插件包后必须重新探测，
+// 否则引擎页读到的还是旧版本号，用户会以为「更新没生效」。
+func (e *Env) RefreshProbes() {
+	e.resetProbes()
+	ResetLatestCache()
 }
 
 // piPackage 是 PI 的 npm 包名。

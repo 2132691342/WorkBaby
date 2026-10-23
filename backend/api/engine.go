@@ -4,6 +4,7 @@ package api
 
 import (
 	"WorkBaby/backend/domain"
+	"WorkBaby/backend/pkg"
 
 	"github.com/gin-gonic/gin"
 )
@@ -35,15 +36,15 @@ func (h *Handler) EngineUpdate(c *gin.Context) {
 	go func() {
 		h.emitSetup("update", 0, "正在升级助手引擎…")
 		if err := h.Svc.Engine.Update(func(line string) { h.emitSetup("update", 0, line) }); err != nil {
-			h.emitSetup("update", 0, "升级失败："+err.Error())
+			h.emitSetupDone("update", false, "升级失败："+err.Error())
 			return
 		}
-		h.emitSetup("update", 100, "助手引擎已是最新版本")
+		h.emitSetupDone("update", true, "助手引擎已是最新版本")
 	}()
 	ok(c, true)
 }
 
-// EngineUpdatePackages 更新插件包：source 为空表示全部。
+// EngineUpdatePackages 更新插件包：source 为空表示全部需要更新的包。
 func (h *Handler) EngineUpdatePackages(c *gin.Context) {
 	if h.Svc == nil || h.Svc.Engine == nil {
 		fail(c, domain.ErrEngineMissing)
@@ -57,10 +58,11 @@ func (h *Handler) EngineUpdatePackages(c *gin.Context) {
 			h.emitSetup("packages", 0, line)
 		})
 		if err != nil {
-			h.emitSetup("packages", 0, "更新失败："+err.Error())
+			pkg.Errorf("engine: 更新插件包失败: %v", err)
+			h.emitSetupDone("packages", false, "更新失败："+err.Error())
 			return
 		}
-		h.emitSetup("packages", 100, "插件包已更新")
+		h.emitSetupDone("packages", true, "插件包已更新")
 	}()
 	ok(c, true)
 }

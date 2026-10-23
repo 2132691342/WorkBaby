@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 
 	"WorkBaby/backend/config"
@@ -128,13 +129,23 @@ func preparePiEnv(e *pienv.Env) {
 	} else if st.Applied {
 		pkg.Infof("startup: 命令执行环境已改为 %s（%s）", st.Kind, st.Path)
 	}
-	// 只有自己装的 PI 才自动挂 PATH：系统里那份归用户自己管。
-	if e.OwnsInstall() {
-		if st := e.TerminalStatusOf(); !st.Ready {
-			if _, err := e.EnsureTerminal(); err != nil {
-				pkg.Warnf("startup: 生成终端入口失败: %v", err)
-			}
-		}
+	// 自己装的那份才自动挂 PATH：系统里那份归用户自己管。
+	if !e.OwnsInstall() {
+		return
+	}
+	st := e.TerminalStatusOf()
+	if len(st.Others) > 0 {
+		pkg.Warnf("startup: PATH 上还有其它 pi 入口（本应用入口优先）：%s", strings.Join(st.Others, "、"))
+	}
+	if st.ShadowedBy != "" {
+		// 系统级 PATH 排在用户级前面，改不了：只能把冲突说清楚，让用户自己清掉旧入口。
+		pkg.Warnf("startup: 终端里的 pi 会被 %s 抢先，请在系统环境变量里清掉那份旧安装", st.ShadowedBy)
+		return
+	}
+	// 每次都刷一遍：入口里的 node 路径可能随运行时重建而变，
+	// 而入口目录必须始终在用户 PATH 最前面（后面再有别的 pi 也抢不走名额）。
+	if _, err := e.EnsureTerminal(); err != nil {
+		pkg.Warnf("startup: 生成终端入口失败: %v", err)
 	}
 }
 

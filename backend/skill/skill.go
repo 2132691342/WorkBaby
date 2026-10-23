@@ -138,22 +138,6 @@ func (r *Registry) DropSource(source string) {
 	r.order = kept
 }
 
-// LoadWorkspace 换入一个工作区的技能：先摘掉上一个工作区的，再装入新的。
-// workspace 为空表示不再使用工作区技能，必须摘干净。
-func LoadWorkspace(r *Registry, workspace string) {
-	if r == nil {
-		return
-	}
-	r.DropSource(domain.SkillSourceWorkspace)
-	if workspace == "" {
-		return
-	}
-	dir := filepath.Join(workspace, ".pi", "skills")
-	for _, s := range LoadDir(dir, domain.SkillSourceWorkspace) {
-		r.Add(s)
-	}
-}
-
 // Content 读技能正文：按 Location 从磁盘读；停用的技能也要能打开来看。
 func (r *Registry) Content(name string) (string, error) {
 	s, ok := r.Get(name)

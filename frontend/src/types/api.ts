@@ -351,6 +351,10 @@ export interface PiEnvVO {
   terminal_path: string
   terminal_on_path: boolean
   terminal_error: string
+  /** PATH 上排在入口目录之前、带着另一份 pi 的目录（空表示没有） */
+  terminal_shadowed_by?: string
+  /** PATH 上其它装过 pi 的目录 */
+  other_pis?: string[]
 }
 
 // ---- 引擎（PI 与运行时）----
@@ -391,6 +395,10 @@ export interface EngineStatusVO {
   terminal_path: string
   terminal_on_path: boolean
   terminal_error: string
+  /** PATH 上排在入口目录之前、带着另一份 pi 的目录（空表示没有） */
+  terminal_shadowed_by?: string
+  /** PATH 上其它装过 pi 的目录 */
+  other_pis?: string[]
 }
 
 export interface PackageLatestVO {
@@ -642,7 +650,15 @@ export interface DoneData {
 export interface ErrorData { code: string; message: string }
 export interface RetryData { attempt: number; max: number; message: string }
 export interface SwitchedData { session_id: string; reason: string }
-export interface SetupData { phase: string; progress: number; message: string }
+export interface SetupData {
+  phase: string
+  progress: number
+  message: string
+  /** 这一趟动作结束了（成功或失败） */
+  done?: boolean
+  /** 仅在 done=true 时可信 */
+  ok?: boolean
+}
 export interface GapData { reason: string }
 export interface StoppedData { reason: string }
 

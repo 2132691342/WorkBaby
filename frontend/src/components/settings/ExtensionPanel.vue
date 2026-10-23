@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 插件面板：PI 的扩展（extensions 目录 + settings.json 登记）与包（pi install）。
-// 装 / 卸都走 PI 自己的 CLI，进度经 chat:setup 事件流式回传。
+// 装 / 卸 / 更新都走 PI 自己的 CLI，结束信号来自 chat:setup 的 done 帧：
+// 靠定时器猜结束会提前弹「已更新」，用户刷新后看到的还是旧版本。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
@@ -19,9 +20,11 @@ const settingsStore = useSettingsStore()
 const data = ref<ExtensionListRESP | null>(null)
 const busy = ref('')
 const source = ref('')
-// 装 / 卸的进度挂在 SSE 的全局通道上（发生在任何会话之外）
-const { lines: log, begin: beginLog, end: endLog } = useSetupLog()
-let logTimer = 0
+// 装 / 卸 / 更新的进度挂在 SSE 的全局通道上（发生在任何会话之外）
+const { lines: log, begin: beginLog, end: endLog, whenDone } = useSetupLog()
+
+/** 更新动作可能跑几分钟（npm 拉包），等真正的结束帧而不是定时器 */
+const UPDATE_TIMEOUT = 5 * 60 * 1000
 
 const entries = computed(() => data.value?.entries ?? [])
 const packages = computed(() => data.value?.packages ?? [])
@@ -55,21 +58,60 @@ function versionOf(p: PackageVO): string {
   return p.version ? `v${p.version}` : ''
 }
 
-/** 更新一个包或全部包：走 pi update，进度与装包同一路事件 */
+/** 更新前的版本快照：更新完用它对账，说「更新了几个」而不是无条件报成功 */
+function snapshotVersions(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const p of packages.value) out[p.source] = p.version || ''
+  return out
+}
+
+function changedCount(before: Record<string, string>): number {
+  let n = 0
+  for (const p of packages.value) {
+    if (before[p.source] !== undefined && before[p.source] !== (p.version || '')) n++
+  }
+  return n
+}
+
+/** 更新失败时后端把原因记在 install_error 里，比日志最后一行更准 */
+async function failureReason(): Promise<string> {
+  try {
+    const st = await api.engine.status()
+    if (st.install_error) return st.install_error
+  } catch {
+    // 拿不到状态就退回日志末行
+  }
+  return log.value[log.value.length - 1] || t('errors.generic')
+}
+
+/** 更新一个包或全部：等真正结束，再按版本对账说结果 */
 async function updatePackage(source = '') {
   if (busy.value) return
   busy.value = source ? `up:${source}` : 'update-all'
-  watchInstall()
+  const before = snapshotVersions()
+  beginLog('packages')
+  const waiter = whenDone(UPDATE_TIMEOUT)
   try {
     await api.engine.updatePackages(source)
-    await new Promise((r) => setTimeout(r, 2500))
+    const result = await waiter
     await reload()
     await checkVersions()
-    toast.ok(t('settings.extensions.reloaded'))
+    if (!result.done) {
+      toast.info(t('settings.extensions.updateTimeout'))
+      return
+    }
+    if (!result.ok) {
+      toast.bad(t('settings.extensions.updateFailed', { msg: await failureReason() }))
+      return
+    }
+    const n = changedCount(before)
+    if (n > 0) toast.ok(t('settings.extensions.updatedN', { n }))
+    else toast.ok(t('settings.extensions.upToDate'))
   } catch (e) {
     toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
   } finally {
     busy.value = ''
+    endLog()
   }
 }
 
@@ -129,42 +171,43 @@ async function install() {
   const src = source.value.trim()
   if (!src || busy.value) return
   busy.value = 'install'
-  watchInstall()
+  beginLog('package-install')
+  const waiter = whenDone(UPDATE_TIMEOUT)
   try {
     await api.extensions.install(src)
     toast.ok(t('settings.extensions.installing'))
     source.value = ''
+    const result = await waiter
+    await reload()
+    await checkVersions()
+    if (!result.done) toast.info(t('settings.extensions.updateTimeout'))
+    else if (result.ok) toast.ok(t('settings.extensions.installDone'))
+    else toast.bad(t('settings.extensions.installFailed', { msg: await failureReason() }))
   } catch (e) {
-    endLog()
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
-  }
-}
-
-/** 装 / 卸都是后台动作：接口立刻返回，进度靠事件流回来，几秒后再拉一次清单 */
-function watchInstall() {
-  beginLog()
-  if (logTimer) clearTimeout(logTimer)
-  logTimer = window.setTimeout(() => {
-    logTimer = 0
-    void reload()
     endLog()
-  }, 4000)
+  }
 }
 
 async function uninstall(p: PackageVO) {
   if (busy.value) return
   busy.value = `u:${p.source}`
-  watchInstall()
+  beginLog('package-remove')
+  const waiter = whenDone(UPDATE_TIMEOUT)
   try {
     await api.extensions.uninstall(p.source)
+    const result = await waiter
     await reload()
-    toast.ok(`${t('common.remove')} ${p.name}`)
+    if (!result.done) toast.info(t('settings.extensions.updateTimeout'))
+    else if (result.ok) toast.ok(`${t('common.remove')} ${p.name}`)
+    else toast.bad(t('settings.extensions.installFailed', { msg: await failureReason() }))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     busy.value = ''
+    endLog()
   }
 }
 
@@ -187,7 +230,6 @@ onMounted(() => {
   void reload().then(() => checkVersions())
 })
 onBeforeUnmount(() => {
-  if (logTimer) clearTimeout(logTimer)
   endLog()
 })
 </script>

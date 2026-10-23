@@ -151,11 +151,13 @@ type SwitchedData struct {
 	Reason    string `json:"reason"`
 }
 
-// SetupData chat:setup：环境安装进度。
+// SetupData chat:setup：环境安装进度；Done/OK 是这一趟的结束信号，前端靠它收 loading。
 type SetupData struct {
 	Phase    string `json:"phase"`
 	Progress int    `json:"progress"`
 	Message  string `json:"message"`
+	Done     bool   `json:"done"`
+	OK       bool   `json:"ok"`
 }
 
 // NotifyData chat:notify：扩展的即时通知。Level 是 info / warning / error。

@@ -22,7 +22,7 @@ const fixingShell = ref(false)
 const enablingTerminal = ref(false)
 
 // 安装 / 升级的输出也挂在全局 SSE 通道上
-const { lines: log, begin: beginLog, end: endLog } = useSetupLog()
+const { lines: log, begin: beginLog, end: endLog, whenDone } = useSetupLog()
 
 const updateAvailable = computed(() => !!status.value?.pi_ready && !!latest.value?.update_available)
 
@@ -57,29 +57,20 @@ async function checkLatest() {
 async function upgrade() {
   if (updating.value) return
   updating.value = true
-  beginLog()
+  beginLog('update')
+  // 后端在动作真结束时发一帧 done：等它，比“每两秒拉一次版本”又快又准。
+  const waiter = whenDone(6 * 60 * 1000)
   try {
     await api.engine.update()
-    // 升级是后台动作：轮询到版本变了或超时为止
-    const before = status.value?.pi_version || ''
-    const deadline = Date.now() + 5 * 60 * 1000
-    let done = false
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 2000))
-      await loadStatus()
-      const now = status.value?.pi_version || ''
-      if (now && now !== before) {
-        done = true
-        break
-      }
-    }
-    if (done) {
+    const result = await waiter
+    await loadStatus()
+    if (!result.done) {
+      toast.info(t('setup.piTimeout'))
+    } else if (!result.ok) {
+      toast.bad(t('settings.engine.installError', { msg: status.value?.install_error || t('errors.generic') }))
+    } else {
       toast.ok(t('settings.engine.updated', { version: status.value?.pi_version || '' }))
       await checkLatest()
-    } else if (status.value?.install_error) {
-      toast.bad(t('settings.engine.installError', { msg: status.value.install_error }))
-    } else {
-      toast.info(t('setup.piTimeout'))
     }
   } catch (e) {
     toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
@@ -155,7 +146,15 @@ async function enableTerminal() {
   try {
     await api.env.enableTerminal()
     await loadStatus()
-    toast.ok(t('settings.engine.terminalDone'))
+    if (status.value?.terminal_ready) {
+      toast.ok(t('settings.engine.terminalDone'))
+    } else {
+      toast.info(
+        t('settings.engine.terminalStill', {
+          msg: status.value?.terminal_error || status.value?.terminal_shadowed_by || '',
+        }),
+      )
+    }
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
@@ -291,9 +290,13 @@ onMounted(() => {
               {{ status.terminal_ready ? t('settings.engine.terminalReady') : t('settings.engine.terminalMissing') }}
             </p>
             <p class="eng-mono muted">{{ status.terminal_path || status.terminal_error || '—' }}</p>
+            <p v-if="status.other_pis?.length" class="eng-warn">
+              <AppIcon name="alert" size="ic-2xs" />
+              {{ t('settings.engine.terminalConflict', { paths: status.other_pis.join('；') }) }}
+            </p>
             <div class="eng-row">
               <el-button
-                v-if="!status.terminal_ready"
+                v-if="!status.terminal_ready && !status.terminal_shadowed_by"
                 size="small"
                 :loading="enablingTerminal"
                 :disabled="enablingTerminal || !status.pi_ready"
@@ -301,6 +304,9 @@ onMounted(() => {
               >
                 {{ enablingTerminal ? t('settings.engine.terminalEnabling') : t('settings.engine.terminalEnable') }}
               </el-button>
+              <p v-else-if="status.terminal_shadowed_by" class="eng-meta">
+                {{ t('settings.engine.terminalShadowHint') }}
+              </p>
               <p v-else class="eng-meta">{{ t('settings.engine.terminalHint') }}</p>
             </div>
           </div>

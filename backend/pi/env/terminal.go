@@ -2,6 +2,7 @@
 package env
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -15,27 +16,99 @@ type TerminalStatus struct {
 	Shim   string
 	Dir    string
 	OnPath bool
+	// PathFirst 表示 PATH 上排在入口目录之前的其它地方没有 pi：
+	// 有的话终端会敲到那份，界面与终端就不是同一个内核。
+	PathFirst bool
+	// ShadowedBy 是排在入口目录之前、且真的含 pi 入口的目录（空表示没有）。
+	ShadowedBy string
+	// Others 是 PATH 上所有其它含 pi 入口的目录，用于提示「你机器上有几份 pi」。
+	Others []string
 	Error  string
 }
 
 // TerminalStatusOf 检查入口与 PATH，不起任何进程。
 func (e *Env) TerminalStatusOf() TerminalStatus {
 	dir := e.terminalDir()
-	st := TerminalStatus{Dir: dir, Shim: filepath.Join(dir, "pi.cmd")}
+	st := TerminalStatus{
+		Dir: dir, Shim: filepath.Join(dir, "pi.cmd"),
+		Others: []string{},
+	}
 	shimExists := pkg.FileExists(st.Shim)
-	st.OnPath = pathHasEntry(userPathValue(), dir)
-	st.Ready = shimExists && st.OnPath
+	// 新开的终端走的是「系统级 PATH + 用户级 PATH」，只看进程 PATH 会漏掉后者。
+	st.OnPath = pathHasEntry(effectivePathValue(), dir)
+	shadow, others := scanPiShims(effectivePathValue(), dir)
+	st.ShadowedBy = shadow
+	st.Others = others
+	st.PathFirst = shadow == ""
+	st.Ready = shimExists && st.OnPath && st.PathFirst
 	switch {
 	case !shimExists:
 		st.Error = "还没有生成终端入口"
 	case !st.OnPath:
 		st.Error = "入口已生成，但还没加进用户 PATH"
+	case !st.PathFirst:
+		st.Error = "PATH 上还有排在前面、带着另一份 pi 的目录：" + shadow
 	}
 	return st
 }
 
-// EnsureTerminal 生成 / 刷新终端入口，并确保它所在目录在用户 PATH 上。
-// 入口写绝对路径：用户 PATH 上的 node 可能低于 PI 要求的下界。
+// effectivePathValue 拼出新开终端会看到的那条 PATH：系统级在前，用户级在后。
+func effectivePathValue() string {
+	machine := machinePathValue()
+	user := userPathValue()
+	switch {
+	case machine != "" && user != "":
+		return strings.TrimRight(machine, ";") + ";" + strings.TrimLeft(user, ";")
+	case machine != "":
+		return machine
+	default:
+		return user
+	}
+}
+
+// scanPiShims 扫 PATH，返回排在 wantDir 之前的 pi 目录与全部其它 pi 目录。
+// 判定一个目录「有 pi」只看有没有 pi / pi.cmd / pi.exe / pi.ps1 这几个名字。
+func scanPiShims(pathValue, wantDir string) (shadow string, others []string) {
+	target := normalizePathKey(wantDir)
+	seen := map[string]bool{}
+	reached := false
+	for _, entry := range strings.Split(pathValue, ";") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		key := normalizePathKey(entry)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		if key == target {
+			reached = true
+			continue
+		}
+		if !dirHasPi(entry) {
+			continue
+		}
+		others = append(others, filepath.Clean(entry))
+		if !reached && shadow == "" {
+			shadow = filepath.Clean(entry)
+		}
+	}
+	return shadow, others
+}
+
+// dirHasPi 判断一个目录里有没有 pi 的入口文件。
+func dirHasPi(dir string) bool {
+	for _, name := range []string{"pi.cmd", "pi.exe", "pi.ps1", "pi"} {
+		if pkg.FileExists(filepath.Join(dir, name)) {
+			return true
+		}
+	}
+	return false
+}
+
+// EnsureTerminal 生成 / 刷新终端入口，并把入口目录放到用户 PATH 最前面：
+// 入口写绝对 node，目录必须前置，否则系统里另一份 pi 会抢先。
 func (e *Env) EnsureTerminal() (TerminalStatus, error) {
 	if exe, _ := e.PiExe(); exe == "" {
 		st := e.TerminalStatusOf()
@@ -45,11 +118,8 @@ func (e *Env) EnsureTerminal() (TerminalStatus, error) {
 	if err := e.writeTerminalShim(); err != nil {
 		return e.TerminalStatusOf(), err
 	}
-	dir := e.terminalDir()
-	if !pathHasEntry(userPathValue(), dir) {
-		if err := addUserPath(dir); err != nil {
-			return e.TerminalStatusOf(), err
-		}
+	if err := prependUserPath(e.terminalDir()); err != nil {
+		return e.TerminalStatusOf(), err
 	}
 	return e.TerminalStatusOf(), nil
 }
@@ -57,7 +127,8 @@ func (e *Env) EnsureTerminal() (TerminalStatus, error) {
 // terminalDir 是放 pi.cmd 的目录：与 npm 的前缀分开，升级 npm 包不会覆盖它。
 func (e *Env) terminalDir() string { return filepath.Join(e.paths.DataDir, "bin") }
 
-// writeTerminalShim 生成 pi.cmd：node + PI 的入口脚本，不经 npm 的 shim 中转。
+// writeTerminalShim 生成 pi.cmd（node + 入口脚本，不经 npm shim）。
+// 不写 .ps1：PowerShell 会优先跑它，而 Restricted 执行策略下 `pi` 会直接报错。
 func (e *Env) writeTerminalShim() error {
 	exe, _ := e.PiExe()
 	// 入口钉死内置 node：它随应用走，不会因为用户升级或卸载系统 node 而失效。
@@ -66,22 +137,32 @@ func (e *Env) writeTerminalShim() error {
 		node = bundled
 	}
 	resolved, args := resolvePiExe(exe, node)
+	// 直接指定脚本文件时补上解释器，否则「入口」等于让系统去执行 .js。
+	if strings.EqualFold(filepath.Ext(resolved), ".js") {
+		resolved, args = node, append([]string{exe}, args...)
+	}
 	if resolved == "" {
 		return ErrNodeMissing
-	}
-	var body strings.Builder
-	body.WriteString("@ECHO off\r\n")
-	body.WriteString("@REM 由 WorkBaby 生成：换 PI 版本或重装后会自动刷新。\r\n")
-	if len(args) > 0 && strings.EqualFold(filepath.Ext(args[0]), ".js") {
-		body.WriteString("\"" + resolved + "\" \"" + args[0] + "\" %*\r\n")
-	} else {
-		// 抽不到脚本路径时退回原入口：跑错比不跑好，错误信息里带着真实原因。
-		body.WriteString("call \"" + resolved + "\" %*\r\n")
 	}
 	if err := pkg.EnsureDir(e.terminalDir()); err != nil {
 		return err
 	}
-	return WriteFileAtomic(filepath.Join(e.terminalDir(), "pi.cmd"), []byte(body.String()), 0o755)
+	return WriteFileAtomic(filepath.Join(e.terminalDir(), "pi.cmd"), []byte(terminalShimBody(resolved, args)), 0o755)
+}
+
+// terminalShimBody 生成 pi.cmd 的正文；args 非空且是 .js 时走 node + 脚本。
+func terminalShimBody(resolved string, args []string) string {
+	scripted := len(args) > 0 && strings.EqualFold(filepath.Ext(args[0]), ".js")
+	var b strings.Builder
+	b.WriteString("@ECHO off\r\n")
+	b.WriteString("@REM 由 WorkBaby 生成：换 PI 版本或重装后会自动刷新。\r\n")
+	if scripted {
+		b.WriteString("\"" + resolved + "\" \"" + args[0] + "\" %*\r\n")
+	} else {
+		// 抽不到脚本路径时退回原入口：跑错比不跑好，错误信息里带着真实原因。
+		b.WriteString("call \"" + resolved + "\" %*\r\n")
+	}
+	return b.String()
 }
 
 // pathHasEntry 判断 PATH 串里有没有某目录（Windows 不区分大小写与尾斜杠）。
@@ -105,4 +186,28 @@ func normalizePathKey(entry string) string {
 		return ""
 	}
 	return strings.ToLower(strings.Trim(filepath.Clean(entry), `\/`))
+}
+
+// expandPathValue 展开 %VAR% 形式的引用：系统级 PATH 常写成 %SystemRoot%\system32。
+// 认不出的变量原样保留，不影响其余条目的判定。
+func expandPathValue(v string) string {
+	if !strings.ContainsRune(v, '%') {
+		return v
+	}
+	var b strings.Builder
+	b.Grow(len(v))
+	for i := 0; i < len(v); {
+		if v[i] == '%' {
+			if j := strings.IndexByte(v[i+1:], '%'); j > 0 {
+				if value, ok := os.LookupEnv(v[i+1 : i+1+j]); ok {
+					b.WriteString(value)
+					i += j + 2
+					continue
+				}
+			}
+		}
+		b.WriteByte(v[i])
+		i++
+	}
+	return b.String()
 }

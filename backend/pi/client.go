@@ -123,6 +123,8 @@ func Start(cfg Config, h Handler) (*Client, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, pkg.Wrap("9705", "拉不起助手进程（PI）", err)
 	}
+	// 进程组兜底：应用被强杀时系统会一起带走它，不留孤儿内核。
+	attachToJob(cmd)
 
 	c := &Client{
 		cfg: cfg, h: h, cmd: cmd,

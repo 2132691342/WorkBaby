@@ -94,6 +94,9 @@ export const useChatStore = defineStore('chat', () => {
   const contextReserve = ref(0)
   const queued = ref<string[]>([])
   const retrying = ref(false)
+  // 停止请求已发出、内核还在收尾：这段时间不准把运行态重新种回来，
+  // 否则界面会在「已停止」与「运行中」之间反复跳。
+  const stopping = ref(false)
   // 引擎扩展的状态条与小部件：key → 内容，多扩展共存互不覆盖
   const engineStatus = ref<Record<string, string>>({})
   const engineWidgets = ref<Record<string, string[]>>({})
@@ -121,6 +124,7 @@ export const useChatStore = defineStore('chat', () => {
     contextReserve.value = 0
     queued.value = []
     retrying.value = false
+    stopping.value = false
     engineStatus.value = {}
     engineWidgets.value = {}
     suggestedTitle.value = ''
@@ -144,13 +148,26 @@ export const useChatStore = defineStore('chat', () => {
       attachments,
     })
     running.value = true
+    // chat:start 可能已经先到（也可能被会话切换挤丢）：计时从那一边起算，
+    // 两边都不设就永远停在 0s，用户会以为界面卡了。
+    if (!startedAt.value) {
+      startedAt.value = Date.now()
+      elapsedSec.value = 0
+      startTicker()
+    }
     return resp
   }
 
   // 停止：后端广播 chat:stopped 才是权威信号，这里只负责把请求发出去。
   async function stop(sessionId: string) {
     if (!sessionId) return
-    await api.chat.stop(sessionId)
+    stopping.value = true
+    try {
+      await api.chat.stop(sessionId)
+    } catch (e) {
+      stopping.value = false
+      throw e
+    }
   }
 
   async function steer(sessionId: string, content: string) {
@@ -241,7 +258,16 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function onDelta(data: DeltaData) {
-    running.value = true
+    // 丢了 chat:start（例如第一条消息建会话时 SSE 刚切到新编号）也要回到运行态：
+    // 增量已经在路上，这时界面还显示「可以发送」就是自相矛盾。
+    if (!running.value) {
+      running.value = true
+      if (!startedAt.value) {
+        startedAt.value = Date.now()
+        elapsedSec.value = 0
+        startTicker()
+      }
+    }
     // 后端已剥离 ANSI；这里再兜一层——缓存里的旧响应与假后端都可能带着转义序列。
     const delta = stripAnsi(data.delta || '')
     if (!delta) return
@@ -300,6 +326,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function onDone(data: DoneData) {
     running.value = false
+    stopping.value = false
     stopTicker()
     retrying.value = false
     switch (data.stop_reason) {
@@ -342,7 +369,7 @@ export const useChatStore = defineStore('chat', () => {
    *  计时从接入点起算（真实起点只有内核知道），文本流从现在开始累积，
    *  chat:done 之后的权威快照会把整段补齐。 */
   function resumeRunning() {
-    if (running.value) return
+    if (running.value || stopping.value) return
     running.value = true
     startedAt.value = Date.now()
     elapsedSec.value = 0
@@ -352,6 +379,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function onError(data: ErrorData) {
     running.value = false
+    stopping.value = false
     stopTicker()
     retrying.value = false
     lastError.value = data.message
@@ -410,18 +438,23 @@ export const useChatStore = defineStore('chat', () => {
     return 0
   }
 
-  /** 模型窗口从 models.json 读：SessionVO.model 找到同 id 的条目 */
+  /** 模型窗口从 models.json 读：SessionVO.model 找到同 id 的条目。
+   *  配置里留空（0）时按兵底值算：0 会让水位环永远显示 0%。 */
   function windowOf(provider: string, model: string): { window: number; max: number } {
     const list = useSettingsStore().providers?.providers ?? []
+    const pick = (m: { context_window: number; max_tokens: number }) => ({
+      window: m.context_window > 0 ? m.context_window : 300000,
+      max: m.max_tokens > 0 ? m.max_tokens : 64000,
+    })
     const target = list.find((p) => p.id === provider) ?? list[0]
-    if (!target) return { window: 0, max: 0 }
+    if (!target) return { window: 300000, max: 64000 }
     const hit = target.models.find((m) => m.id === model)
-    if (hit) return { window: hit.context_window, max: hit.max_tokens }
+    if (hit) return pick(hit)
     for (const p of list) {
       const m = p.models.find((x) => x.id === model)
-      if (m) return { window: m.context_window, max: m.max_tokens }
+      if (m) return pick(m)
     }
-    return { window: 0, max: 0 }
+    return { window: 300000, max: 64000 }
   }
 
   async function seedContext(provider: string, model: string, messages: MessageVO[]) {
@@ -437,6 +470,7 @@ export const useChatStore = defineStore('chat', () => {
   function onGap() {
     notice.value = tt('chat.noticeGap')
     running.value = false
+    stopping.value = false
     finalizing.value = false
     parts.value = []
     runMap.value = {}
@@ -494,6 +528,7 @@ export const useChatStore = defineStore('chat', () => {
     contextReserve,
     queued,
     retrying,
+    stopping,
     engineStatus,
     engineWidgets,
     suggestedTitle,

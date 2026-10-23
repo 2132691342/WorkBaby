@@ -80,7 +80,7 @@ func toProviderVO(id string, cfg pienv.ProviderConfig, isDefault bool) domain.Pr
 func modelVO(m pienv.ModelConfig) domain.ModelVO {
 	v := domain.ModelVO{
 		ID: m.ID, Name: m.Name, Reasoning: m.Reasoning,
-		ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens,
+		ContextWindow: effectiveWindow(m.ContextWindow), MaxTokens: effectiveMaxTokens(m.MaxTokens),
 	}
 	if v.Name == "" {
 		v.Name = m.ID
@@ -204,8 +204,7 @@ func (p *ProviderService) Upsert(req domain.UpsertProviderREQ) (*domain.Provider
 	return &vo, nil
 }
 
-// normalizeModels 校验模型清单：至少一个，且每个都得有 ID。
-// 空 ID 静默跳过会让界面「填了却没存」，所以它是一条错误而不是一次过滤。
+// normalizeModels 校验模型清单：至少一个、每个都得有 ID，留空的能力按默认值落盘。
 func normalizeModels(list []domain.ModelREQ) ([]domain.ModelREQ, error) {
 	if len(list) == 0 {
 		return nil, domain.ErrProviderModel
@@ -223,12 +222,30 @@ func normalizeModels(list []domain.ModelREQ) ([]domain.ModelREQ, error) {
 		seen[id] = true
 		m.ID = id
 		m.Name = firstNonEmpty(m.Name, id)
+		m.ContextWindow = effectiveWindow(m.ContextWindow)
+		m.MaxTokens = effectiveMaxTokens(m.MaxTokens)
 		out = append(out, m)
 	}
 	if len(out) == 0 {
 		return nil, domain.ErrProviderModel
 	}
 	return out, nil
+}
+
+// effectiveWindow 给未填 / 填 0 的上下文窗口一个可用值。
+func effectiveWindow(v int) int {
+	if v > 0 {
+		return v
+	}
+	return domain.DefaultContextWindow
+}
+
+// effectiveMaxTokens 给未填 / 填 0 的输出上限一个可用值。
+func effectiveMaxTokens(v int) int {
+	if v > 0 {
+		return v
+	}
+	return domain.DefaultMaxTokens
 }
 
 // toModelConfigs 把界面上的模型行转成 PI 的模型条目。
@@ -240,7 +257,9 @@ func toModelConfigs(list []domain.ModelREQ) []pienv.ModelConfig {
 		}
 		cfg := pienv.ModelConfig{
 			ID: m.ID, Name: firstNonEmpty(m.Name, m.ID),
-			Reasoning: m.Reasoning, ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens,
+			Reasoning:     m.Reasoning,
+			ContextWindow: effectiveWindow(m.ContextWindow),
+			MaxTokens:     effectiveMaxTokens(m.MaxTokens),
 		}
 		if m.Vision {
 			cfg.Input = []string{"text", "image"}
@@ -450,17 +469,17 @@ func (p *ProviderService) Available(ctx context.Context, workspace string) ([]do
 }
 
 // ModelSpec 取一个模型的能力（上下文窗口 / 输出上限），供水位环与预算用。
-// 查不到返回 0，前端按「约」显示。
+// 配置里留空（0）时给默认值：前端显示 0 会被读成「没有上下文」。
 func (p *ProviderService) ModelSpec(provider, model string) (int, int) {
 	_, providers, err := p.env.PiEnv.ReadModelsRaw()
 	if err != nil {
-		return 0, 0
+		return domain.DefaultContextWindow, domain.DefaultMaxTokens
 	}
 	if raw, ok := providers[provider]; ok {
 		cfg := providerConfigOf(rawToFields(raw))
 		for _, m := range cfg.Models {
 			if m.ID == model {
-				return m.ContextWindow, m.MaxTokens
+				return effectiveWindow(m.ContextWindow), effectiveMaxTokens(m.MaxTokens)
 			}
 		}
 	}
@@ -469,11 +488,11 @@ func (p *ProviderService) ModelSpec(provider, model string) (int, int) {
 		cfg := providerConfigOf(rawToFields(raw))
 		for _, m := range cfg.Models {
 			if m.ID == model {
-				return m.ContextWindow, m.MaxTokens
+				return effectiveWindow(m.ContextWindow), effectiveMaxTokens(m.MaxTokens)
 			}
 		}
 	}
-	return 0, 0
+	return domain.DefaultContextWindow, domain.DefaultMaxTokens
 }
 
 // listRemoteModels 按接口类型向上游要模型清单。
@@ -562,10 +581,13 @@ func parseModelNames(body []byte) []string {
 	return out
 }
 
-// restartIdle 重启空闲进程，让新的配置生效。
+// restartIdle 重启进程让新配置生效；有对话在跑时跳过——配置已落盘，下一轮拉起自然生效。
 func (p *ProviderService) restartIdle() error {
 	sup := p.env.PiSupervisor()
 	if sup == nil {
+		return nil
+	}
+	if p.env.Chat != nil && p.env.Chat.AnyRunning() {
 		return nil
 	}
 	return sup.RestartIdle(context.Background())

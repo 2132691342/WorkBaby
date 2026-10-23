@@ -421,6 +421,14 @@ func TestServiceChain(t *testing.T) {
 		if !hasSkill(list, "pkg-skill", domain.SkillSourcePackage) {
 			t.Fatalf("包自带技能没扫到: %+v", list)
 		}
+		// 坏文件只跳自己不中断扫描（解析失败是静默的，用户看不到任何提示），也不进列表。
+		if err := os.WriteFile(filepath.Join(skillsDir, "broken.md"), []byte("没有 frontmatter"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		te.container.Skills.Reload("")
+		if after := te.container.Skills.List(); len(after) != len(list) {
+			t.Fatalf("坏文件不该被装入: 前 %d 条，后 %d 条", len(list), len(after))
+		}
 
 		if err := te.container.Skills.Toggle("demo-skill@global", false); err != nil {
 			t.Fatalf("停用技能失败: %v", err)
@@ -531,6 +539,25 @@ func TestServiceChain(t *testing.T) {
 		}
 		if p, _ := te.container.Providers.Defaults(); p != "" {
 			t.Fatal("删掉服务商后默认模型应一起清掉")
+		}
+
+		// 模型能力留空（0）必须按默认值落盘并回显：
+		// 0 会让输入区永远显示「0 / 0」，水位环与输出预算全跟着失效。
+		dflt, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{
+			Name: "留空的网关", API: domain.APIOpenAICompletions,
+			BaseURL: "http://127.0.0.1:1234/v1",
+			Models:  []domain.ModelREQ{{ID: "m2"}},
+		})
+		if err != nil {
+			t.Fatalf("写默认能力模型失败: %v", err)
+		}
+		if dflt.Models[0].ContextWindow != domain.DefaultContextWindow ||
+			dflt.Models[0].MaxTokens != domain.DefaultMaxTokens {
+			t.Fatalf("留空的模型能力没兜底: %+v", dflt.Models[0])
+		}
+		win, out := te.container.Providers.ModelSpec(dflt.ID, "m2")
+		if win != domain.DefaultContextWindow || out != domain.DefaultMaxTokens {
+			t.Fatalf("水位读到的窗口/输出上限不对: %d/%d", win, out)
 		}
 	})
 

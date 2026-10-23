@@ -103,6 +103,17 @@ func (h *Handler) emitSetup(phase string, progress int, message string) {
 	})
 }
 
+// emitSetupDone 推一条「这一趟结束」事件：前端靠它把 loading 收回来，
+// 不靠定时器猜「应该好了」。
+func (h *Handler) emitSetupDone(phase string, ok bool, message string) {
+	if h.Emitter == nil {
+		return
+	}
+	h.Emitter.Emit("", domain.EventChatSetup, domain.SetupData{
+		Phase: phase, Progress: 100, Message: message, Done: true, OK: ok,
+	})
+}
+
 // setupSink 把安装输出接到事件流，同时保留最后一行给人看。
 func (h *Handler) setupSink() func(string) {
 	return func(line string) { h.emitSetup("install", 0, line) }

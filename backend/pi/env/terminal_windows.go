@@ -26,11 +26,26 @@ func userPathValue() string {
 	if err != nil {
 		return ""
 	}
-	return value
+	return expandPathValue(value)
 }
 
-// addUserPath 把目录追加到用户 PATH 末尾并广播变更通知。
-func addUserPath(dir string) error {
+// machinePathValue 读系统级 PATH（只读）：新开的终端先走系统级，再走用户级。
+func machinePathValue() string {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer key.Close()
+	value, _, err := key.GetStringValue("Path")
+	if err != nil {
+		return ""
+	}
+	return expandPathValue(value)
+}
+
+// prependUserPath 把目录放到用户 PATH 最前面并广播变更通知。
+// 必须前置：系统里可能还有另一份 pi，只有排在最前面，终端敲到的才是本应用管的那份。
+func prependUserPath(dir string) error {
 	key, err := registry.OpenKey(registry.CURRENT_USER, "Environment", registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
 		return pkg.Wrap("9720", "打不开用户环境变量，改不了 PATH", err)
@@ -41,14 +56,10 @@ func addUserPath(dir string) error {
 	if err != nil && !errors.Is(err, registry.ErrNotExist) {
 		return pkg.Wrap("9720", "读不到用户 PATH", err)
 	}
-	if pathHasEntry(current, dir) {
+	next := withPathFirst(current, dir)
+	if strings.EqualFold(next, strings.TrimSpace(current)) {
 		return nil
 	}
-	next := strings.TrimRight(current, ";")
-	if next != "" {
-		next += ";"
-	}
-	next += dir
 	// 原值是 REG_SZ 就还写 REG_SZ：改类型会让已有的 %VAR% 语义跟着变。
 	if kind == registry.SZ {
 		err = key.SetStringValue("Path", next)
@@ -59,7 +70,27 @@ func addUserPath(dir string) error {
 		return pkg.Wrap("9720", "写不进用户 PATH", err)
 	}
 	broadcastSettingChange()
+	pkg.Infof("env: 终端入口已置于用户 PATH 最前面：%s", dir)
 	return nil
+}
+
+// withPathFirst 返回「dir 在最前、其余条目保持原顺序、重复项去掉」的 PATH 串。
+func withPathFirst(current, dir string) string {
+	target := normalizePathKey(dir)
+	rest := make([]string, 0, 24)
+	for _, entry := range strings.Split(current, ";") {
+		if strings.TrimSpace(entry) == "" {
+			continue
+		}
+		if normalizePathKey(entry) == target {
+			continue
+		}
+		rest = append(rest, entry)
+	}
+	if len(rest) == 0 {
+		return dir
+	}
+	return dir + ";" + strings.Join(rest, ";")
 }
 
 // broadcastSettingChange 告诉系统环境变量变了：新开的终端才会带上新 PATH。

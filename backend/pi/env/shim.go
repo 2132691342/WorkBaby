@@ -48,8 +48,7 @@ func shimNode(dir, nodeExe string) string {
 	return ""
 }
 
-// shimScript 从 shim 文本里抽出入参脚本路径。
-// npm 的 shim 把入口写成 "%dp0%\node_modules\...\cli.js"，按行找 .js 即可。
+// shimScript 从 shim 文本里抽出入参脚本路径：认整行就是 .js，也认引号包在中间的形状。
 func shimScript(shim string) string {
 	raw, err := os.ReadFile(shim)
 	if err != nil {
@@ -60,20 +59,49 @@ func shimScript(shim string) string {
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), "\r"))
 		if !strings.HasSuffix(strings.ToLower(line), ".js") {
+			if path := quotedJsPath(line, dir); path != "" {
+				return path
+			}
 			continue
 		}
 		// shim 里的 %dp0% / $basedir 指的是 shim 自身所在目录。
-		replacer := strings.NewReplacer("%dp0%", dir, "%dp0", dir, "$basedir", dir, "${dp0}", dir)
-		path := replacer.Replace(strings.Trim(line, `"'`))
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(dir, path)
-		}
+		path := expandShimPath(strings.Trim(line, `"'`), dir)
 		if pkg.FileExists(path) {
 			return path
 		}
 	}
 	// shim 不含脚本路径时，按 npm 全局布局再猜一次：<prefix>/node_modules/<pkg>/dist/bundle/cli.js
 	return guessBundleScript(dir)
+}
+
+// quotedJsPath 从一行里找第一个引号包起来、以 .js 结尾的路径。
+func quotedJsPath(line, dir string) string {
+	for i := 0; i < len(line); i++ {
+		if line[i] != '"' {
+			continue
+		}
+		rest := line[i+1:]
+		end := strings.IndexByte(rest, '"')
+		if end <= 0 {
+			return ""
+		}
+		candidate := expandShimPath(rest[:end], dir)
+		i += end + 1
+		if strings.HasSuffix(strings.ToLower(candidate), ".js") && pkg.FileExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// expandShimPath 把 %dp0% / $basedir 换回 shim 目录，并补成绝对路径。
+func expandShimPath(raw, dir string) string {
+	replacer := strings.NewReplacer("%dp0%", dir, "%dp0", dir, "$basedir", dir, "${dp0}", dir)
+	path := replacer.Replace(raw)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+	return path
 }
 
 // guessBundleScript 按 npm 全局包的固定布局找 PI 的入口脚本。

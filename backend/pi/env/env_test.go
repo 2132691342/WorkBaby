@@ -1,4 +1,4 @@
-// PI 运行环境链路：agent 目录归属、环境闸门判定、配置文件互通。
+// PI 运行环境链路：agent 目录归属、环境闸门判定、配置文件互通、入口解析与命令环境自愈。
 // 坏了的表现：界面看不到用户原有的模型与技能、用户手写内容被静默覆盖、向导指错下一步。
 package env
 
@@ -11,13 +11,16 @@ import (
 	"testing"
 
 	"WorkBaby/backend/runtime"
+	"WorkBaby/backend/runtime/runtimetest"
 )
 
-// pathsOf 造一套指向临时目录的路径；agent 目录也隔离到临时目录，绝不碰真实配置。
+// pathsOf 造一套指向临时目录的路径（agent 目录也隔离）；SeedMarkers 让运行时命中「已解压」。
+// 本包验的是判定逻辑，归档解压的真实性由 runtime 包守着。
 func pathsOf(t *testing.T) runtime.Paths {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(root, "agent"))
+	runtimetest.SeedMarkers(t, root)
 	p, err := runtime.ResolveAt(root)
 	if err != nil {
 		t.Fatalf("解析路径失败: %v", err)
@@ -203,10 +206,12 @@ func TestPiEnvChain(t *testing.T) {
 		}
 	})
 
-	// shim 解析：经 cmd.exe 起进程会弹控制台窗口，必须还原成 node + 入口脚本，且绝不吐字面量 node。
-	t.Run("PI 入口从 npm shim 还原成 node 与脚本，且绝不吐字面量 node", func(t *testing.T) {
+	// 入口与路径位置：shim 必须还原成 node + 脚本（经 cmd.exe 会弹窗），入口目录必须前置，
+	// 且要能认出排在它前面、也带着旧 pi 的目录——否则终端敲到的是另一份内核。
+	t.Run("PI 入口与终端位置：shim 还原、绝不吐字面量 node、入口目录前置", func(t *testing.T) {
 		checkShimNodeFallback(t)
 		checkPiShimResolution(t)
+		checkTerminalPathOrder(t)
 	})
 
 	// 命令执行环境：WSL 启动器必须被剔除，工具增量能加能撤，自己写过的 shellPath 才会被撤回。
@@ -370,5 +375,46 @@ func checkPiShimResolution(t *testing.T) {
 	}
 	if !strings.HasPrefix(strings.TrimSpace(string(out)), "1.") {
 		t.Fatalf("版本号不像 PI: %q", string(out))
+	}
+}
+
+// checkTerminalPathOrder 验两条硬约束：入口目录被前置（且去掉重复项），
+// 以及排在它前面、也带着 pi 入口的目录会被认出来（否则终端敲到的是别人那份）。
+func checkTerminalPathOrder(t *testing.T) {
+	t.Helper()
+	old := t.TempDir()
+	newDir := t.TempDir()
+	for _, dir := range []string{old, newDir} {
+		if err := os.WriteFile(filepath.Join(dir, "pi.cmd"), []byte("@echo off\r\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pathValue := strings.Join([]string{old, `C:\Windows`, newDir, newDir}, ";")
+
+	next := withPathFirst(pathValue, newDir)
+	parts := strings.Split(next, ";")
+	if normalizePathKey(parts[0]) != normalizePathKey(newDir) {
+		t.Fatalf("入口目录没有被前置: %q", next)
+	}
+	if strings.Count(strings.ToLower(next), strings.ToLower(newDir)) != 1 {
+		t.Fatalf("入口目录重复了: %q", next)
+	}
+
+	// 旧 pi 仍排在入口目录之前时，必须报 shadow，不然界面会误报「终端已就绪」。
+	shadow, others := scanPiShims(pathValue, newDir)
+	if normalizePathKey(shadow) != normalizePathKey(old) {
+		t.Fatalf("抢先的旧 pi 没被认出来: %q", shadow)
+	}
+	if len(others) != 1 {
+		t.Fatalf("其它 pi 目录应当只有旧那一份: %v", others)
+	}
+
+	// 入口目录在最前面时不应再有 shadow。
+	shadow, others = scanPiShims(next, newDir)
+	if shadow != "" {
+		t.Fatalf("入口已在前，却仍报被抢先: %q", shadow)
+	}
+	if len(others) != 1 || normalizePathKey(others[0]) != normalizePathKey(old) {
+		t.Fatalf("其它 pi 目录识别错了: %v", others)
 	}
 }

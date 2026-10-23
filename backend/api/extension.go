@@ -112,11 +112,11 @@ func (h *Handler) runPackage(c *gin.Context, install bool) {
 		}
 		err := run(req.Source, func(line string) { h.emitSetup(phase, 0, line) })
 		if err != nil {
-			h.emitSetup(phase, 0, "失败："+err.Error())
 			pkg.Errorf("extensions: 插件命令失败 source=%s: %v", req.Source, err)
+			h.emitSetupDone(phase, false, "失败："+err.Error())
 			return
 		}
-		h.emitSetup(phase, 100, "插件已就绪")
+		h.emitSetupDone(phase, true, "插件已就绪")
 	}()
 	ok(c, true)
 }

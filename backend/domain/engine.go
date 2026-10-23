@@ -6,6 +6,8 @@ import "WorkBaby/backend/pkg"
 var (
 	// ErrEngineMissing 表示还没装 PI：升级无从谈起，只能先安装。
 	ErrEngineMissing = pkg.New("9722", "还没有安装助手引擎，先装再升级", "")
+	// ErrEngineBusy 表示正在装 / 升 / 卸：此时发消息会 spawn 到写到一半的文件上。
+	ErrEngineBusy = pkg.New("5006", "正在安装或升级引擎，完成后再发消息", "")
 )
 
 // EngineStatusVO 是引擎页的本地快照：不发网络请求，点开就能看。
@@ -51,6 +53,10 @@ type EngineStatusVO struct {
 	TerminalPath   string `json:"terminal_path"`
 	TerminalOnPath bool   `json:"terminal_on_path"`
 	TerminalError  string `json:"terminal_error"`
+	// TerminalShadowedBy 是 PATH 上排在入口目录之前、带着另一份 pi 的目录（空表示没有）。
+	TerminalShadowedBy string `json:"terminal_shadowed_by"`
+	// OtherPis 是 PATH 上其它装过 pi 的目录：同时存在多份时界面要能说清楚用的是哪份。
+	OtherPis []string `json:"other_pis"`
 }
 
 // EngineLatestVO 是联网查回来的最新版本：与本地快照分开，网络慢不拖累面板首屏。

@@ -112,3 +112,11 @@ func LocalVersion(dir string) string {
 	}
 	return strings.TrimSpace(manifest.Version)
 }
+
+// ResetLatestCache 丢掉「最新版本」缓存：更新完一个包必须重新问一次注册表，
+// 否则五分钟内界面还会用旧读数说「已是最新」。
+func ResetLatestCache() {
+	latestMu.Lock()
+	latestCache = map[string]versionHit{}
+	latestMu.Unlock()
+}

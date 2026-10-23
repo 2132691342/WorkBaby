@@ -4,6 +4,7 @@ package service
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"WorkBaby/backend/config"
 	"WorkBaby/backend/domain"
@@ -34,8 +35,18 @@ type Env struct {
 	// PersonaPath 是附加系统提示文件，spawn PI 时用 --append-system-prompt 传入。
 	PersonaPath string
 
+	// maintenance 在装 / 升 / 卸引擎与插件时置位：
+	// 期间 spawn 进程会读到写到一半的文件，发送必须被挡在外面。
+	maintenance atomic.Bool
+
 	mu sync.RWMutex
 }
+
+// SetMaintenance 标记 / 解除维护态。
+func (e *Env) SetMaintenance(on bool) { e.maintenance.Store(on) }
+
+// Maintenance 报告当前是不是维护态。
+func (e *Env) Maintenance() bool { return e.maintenance.Load() }
 
 // SetPi 注入 PI 监督器。
 func (e *Env) SetPi(s *pi.Supervisor) {

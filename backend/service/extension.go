@@ -174,12 +174,17 @@ func (s *ExtensionService) Delete(path string) error {
 	return s.saveAndReload(settings)
 }
 
-// Install 用 PI 自己的 CLI 装一个包（npm / git / 本地路径）。
-// 输出按行回传：npm 拉包可能几十秒，没有进度界面会被当成卡死。
+// Install 用 PI 自己的 CLI 装一个包（npm / git / 本地路径）；输出按行回传。
+// 装包会重启 PI 进程，有对话在跑时先拒绝，不让用户一半的回合凭空断掉。
 func (s *ExtensionService) Install(source string, onLine func(string)) error {
 	if !validPackageSource(source) {
 		return domain.ErrPackageSource
 	}
+	if err := s.refuseWhileRunning("安装插件"); err != nil {
+		return err
+	}
+	s.env.SetMaintenance(true)
+	defer s.env.SetMaintenance(false)
 	if err := s.env.PiEnv.RunCLI([]string{"install", source}, onLine); err != nil {
 		return err
 	}
@@ -191,14 +196,32 @@ func (s *ExtensionService) Remove(source string, onLine func(string)) error {
 	if strings.TrimSpace(source) == "" {
 		return domain.ErrPackageSource
 	}
+	if err := s.refuseWhileRunning("卸载插件"); err != nil {
+		return err
+	}
+	s.env.SetMaintenance(true)
+	defer s.env.SetMaintenance(false)
 	if err := s.env.PiEnv.RunCLI([]string{"remove", source}, onLine); err != nil {
 		return err
 	}
 	return s.reload()
 }
 
+// refuseWhileRunning 在会重启进程的动作前确认没有对话在跑。
+func (s *ExtensionService) refuseWhileRunning(action string) error {
+	if s.env.Chat == nil || !s.env.Chat.AnyRunning() {
+		return nil
+	}
+	return pkg.New("9719", "有对话正在跑，先等它结束或停止它再"+action, "")
+}
+
 // Reload 重启全部 PI 进程并重扫技能：装完包之后技能列表也会变。
-func (s *ExtensionService) Reload() error { return s.reload() }
+func (s *ExtensionService) Reload() error {
+	if err := s.refuseWhileRunning("重载插件"); err != nil {
+		return err
+	}
+	return s.reload()
+}
 
 // reload 重启进程 + 重扫技能。
 func (s *ExtensionService) reload() error {

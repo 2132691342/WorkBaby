@@ -8,5 +8,8 @@ import "os"
 // userPathValue 返回进程 PATH。
 func userPathValue() string { return os.Getenv("PATH") }
 
-// addUserPath 在非 Windows 上不改环境变量。
-func addUserPath(string) error { return nil }
+// machinePathValue 在非 Windows 上没有系统级 PATH 可读。
+func machinePathValue() string { return "" }
+
+// prependUserPath 在非 Windows 上不改环境变量。
+func prependUserPath(string) error { return nil }

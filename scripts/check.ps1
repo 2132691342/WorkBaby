@@ -1,19 +1,16 @@
 <#
 验证入口：一个脚本收口全部验证动作，按改动面选档。
 
-  pwsh scripts/check.ps1                 快门（约 12s）：格式 → 注释规范 → 编译 → 全部短测试
-  pwsh scripts/check.ps1 -Pkg backend/pi  只验一个包（约 5s）
-  pwsh scripts/check.ps1 -Run 冲突        只跑名字命中的子测试（约 12s）
-  pwsh scripts/check.ps1 -Full            门禁（约 60s）：+ 前端构建 + vet + 依赖边界 + 全量测试
-  pwsh scripts/check.ps1 -List            列出测试入口与子测试，可当索引 grep
+  pwsh scripts/check.ps1                    快门（约 10s）：格式 → 注释 → 编译 → 全部短测试
+  pwsh scripts/check.ps1 -Pkg backend/pi/env 只验一个包（约 5s，不建前端）
+  pwsh scripts/check.ps1 -Run 冲突           只跑名字命中的子测试（只编译含测试的包）
+  pwsh scripts/check.ps1 -Full              门禁（约 60s）：+ 前端构建 + vet + 依赖边界 + 全量测试
+  pwsh scripts/check.ps1 -List              列出测试入口与子测试，当索引用
 
-短测试（-short）跳过三条慢链路：真 git 子进程、运行时归档真解压、本机真 PI 回合。
-它们只在 -Full 跑到，CI 跑 -Full。
-测试组织：一包一个入口 Test<Domain>Chain，子测试名就是一句「坏的现象」；
-定位靠 -List 与 -Run，不靠翻代码。
+短测试（-short）跳过三条慢链路：真 git 子进程、运行时归档真解压、本机真 PI 回合，只在 -Full 跑。
+测试组织：一包一个入口 Test<Domain>Chain，子测试名就是一句「坏的现象」；定位靠 -List 与 -Run。
 
-前端必须先于 Go 编译就位：main.go 的 //go:embed all:frontend/dist 在 dist 不存在时直接编译失败，
-而 dist 被 .gitignore 排除，全新 checkout 上没有。
+前端只在需要时构建：main 包的 //go:embed all:frontend/dist 是硬依赖，其余包都不依赖它。
 #>
 [CmdletBinding()]
 param(
@@ -40,7 +37,7 @@ function Invoke-Step {
     }
 }
 
-# Write-FailureSummary 把失败片段打出来（子测试名 + .go 行号），CI 里同时进 job summary。
+# Write-FailureSummary 摘出失败片段（子测试名 + .go 行号），同时进 CI 的 job summary。
 function Write-FailureSummary {
     if (-not (Test-Path $TestLog)) { return }
     $log = Get-Content $TestLog -ErrorAction SilentlyContinue
@@ -58,6 +55,14 @@ function Write-FailureSummary {
         $fence = ([string][char]96) * 3
         Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## 验证失败摘要`n`n${fence}text`n$body`n$fence" -Encoding utf8
     }
+}
+
+# Test-PkgList 列出真正含测试文件的包目录（``./backend/pi/env`` 这类写法）。
+function Test-PkgList {
+    Get-ChildItem -Recurse -Include *_test.go -Path . |
+        Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
+        ForEach-Object { './' + $_.DirectoryName.Replace((Get-Location).Path + '\', '').Replace('\', '/') } |
+        Sort-Object -Unique
 }
 
 if ($List) {
@@ -109,7 +114,8 @@ Invoke-Step 'comments' {
     $global:LASTEXITCODE = [int][bool]$bad
 }
 
-if ($Full -or -not (Test-Path 'frontend/dist/index.html')) {
+# 前端只在要编译 main 包时才建：dist 是 main.go 的 go:embed 硬依赖，其余包不依赖它。
+function Build-Frontend {
     if (-not (Test-Path 'frontend/node_modules')) {
         Invoke-Step 'frontend deps' {
             Push-Location frontend
@@ -122,28 +128,37 @@ if ($Full -or -not (Test-Path 'frontend/dist/index.html')) {
     }
 }
 
-# -Pkg：只回答「这个包坏没坏」。./backend/pi 与 backend/pi 两种写法都收。
+# -Pkg：只回答「这个包坏没坏」。./backend/pi 与 backend/pi 两种写法都收，不碰前端。
 if ($Pkg) {
     if ($Pkg -notmatch '^(\.|WorkBaby)') { $Pkg = "./$Pkg" }
+    if ($Pkg -match '^(\./)?(WorkBaby)?$') { Build-Frontend }
     Invoke-Step "build $Pkg" { go build $Pkg }
     Invoke-Step "test $Pkg" { go test -short -count=1 $Pkg }
     Write-Host '全部通过。' -ForegroundColor Green
     exit 0
 }
 
-# 编译比测试更早暴露类型错误，且覆盖全部包（包括没有测试的那些）。
-Invoke-Step 'build' { go build ./... }
-
 if ($Full) {
+    Build-Frontend
+    Invoke-Step 'build' { go build ./... }
     Invoke-Step 'vet' { go vet ./... }
     Invoke-Step 'boundaries' { go run ./tools/check-boundaries }
+} elseif (-not (Test-Path 'frontend/dist/index.html')) {
+    Build-Frontend
+    Invoke-Step 'build' { go build ./... }
+} else {
+    Invoke-Step 'build' { go build ./... }
 }
 
-# -Run 用空前缀交给 go 的 -run：'/' 分段的空段匹配任意入口，于是「冲突」不必知道它挂在哪个 Chain 下。
+# -Run 只编译含测试的包：'/' 分段的空段匹配任意入口，于是「冲突」不必知道它挂在哪个 Chain 下。
 $testArgs = @('test', '-count=1')
 if (-not $Full) { $testArgs += '-short' }
-if ($Run) { $testArgs += @('-v', '-run', "/$Run") }
-$testArgs += './...'
+if ($Run) {
+    $testArgs += @('-v', '-run', "/$Run")
+    $testArgs += @(Test-PkgList)
+} else {
+    $testArgs += './...'
+}
 
 if ($Full) {
     New-Item -ItemType Directory -Force -Path '.check' | Out-Null

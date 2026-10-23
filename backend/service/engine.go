@@ -48,6 +48,11 @@ func (s *EngineService) Status() *domain.EngineStatusVO {
 	terminal := s.env.PiEnv.TerminalStatusOf()
 	vo.TerminalReady, vo.TerminalPath = terminal.Ready, terminal.Shim
 	vo.TerminalOnPath, vo.TerminalError = terminal.OnPath, terminal.Error
+	vo.TerminalShadowedBy = terminal.ShadowedBy
+	vo.OtherPis = terminal.Others
+	if vo.OtherPis == nil {
+		vo.OtherPis = []string{}
+	}
 	if sup := s.env.PiSupervisor(); sup != nil {
 		vo.Running = sup.RunningCount()
 	}
@@ -108,6 +113,10 @@ func (s *EngineService) Install(target string, onLine func(string)) error {
 		return pkg.New("9710", "正在装，等这一趟结束", "")
 	}
 	defer s.end()
+	if err := s.refuseWhileRunning("安装引擎"); err != nil {
+		s.record(err)
+		return err
+	}
 	err := s.env.PiEnv.InstallPi(target, onLine)
 	s.record(err)
 	if err == nil {
@@ -148,6 +157,10 @@ func (s *EngineService) Update(onLine func(string)) error {
 		return pkg.New("9710", "正在升级，等这一趟结束", "")
 	}
 	defer s.end()
+	if err := s.refuseWhileRunning("升级引擎"); err != nil {
+		s.record(err)
+		return err
+	}
 	if exe := mustPiExe(s.env); exe == "" {
 		s.record(domain.ErrEngineMissing)
 		return domain.ErrEngineMissing
@@ -155,30 +168,140 @@ func (s *EngineService) Update(onLine func(string)) error {
 	s.stopAll()
 	defer s.restartAll()
 	err := s.env.PiEnv.UpdatePi(onLine)
-	s.record(err)
 	// 自己装的那份才有终端入口要刷新；系统那份本来就在用户 PATH 上。
 	if err == nil && s.env.PiEnv.OwnsInstall() {
 		_, _ = s.env.PiEnv.EnsureTerminal()
 	}
+	s.env.PiEnv.RefreshProbes()
+	s.record(err)
 	return err
 }
 
-// UpdatePackages 更新插件包：source 为空表示全部（`pi update --extensions`）。
+// UpdatePackages 更新插件包：source 为空表示全部需要更新的包。
+// 不走 `pi update --extensions`：它跳过固定版本，而 pi install 写下的正是固定版本。
 func (s *EngineService) UpdatePackages(source string, onLine func(string)) error {
 	if !s.begin() {
-		return pkg.New("9719", "正在装，等这一趟结束", "")
+		return pkg.New("9710", "正在装，等这一趟结束", "")
 	}
 	defer s.end()
-	args := []string{"update", "--extensions"}
-	if src := strings.TrimSpace(source); src != "" {
-		args = []string{"update", src}
+	if err := s.refuseWhileRunning("更新插件"); err != nil {
+		s.record(err)
+		return err
 	}
+
+	targets := []packageEntry{}
+	if src := strings.TrimSpace(source); src != "" {
+		entry, ok := findPackage(s.env, src)
+		if !ok {
+			return pkg.New("9719", "settings.json 里没有这个包", src)
+		}
+		targets = append(targets, entry)
+	} else {
+		targets = pendingPackages(s.env, onLine)
+	}
+	if len(targets) == 0 {
+		if onLine != nil {
+			onLine("所有插件都已是最新版本")
+		}
+		return nil
+	}
+
 	// 与升级 PI 同理：先让开被锁的文件，再更新，最后统一重启。
 	s.stopAll()
 	defer s.restartAll()
-	err := s.env.PiEnv.RunCLI(args, onLine)
-	s.record(err)
-	return err
+	for _, entry := range targets {
+		if err := s.updatePackage(entry, onLine); err != nil {
+			s.record(err)
+			return err
+		}
+	}
+	s.env.PiEnv.RefreshProbes()
+	s.record(nil)
+	return nil
+}
+
+// updatePackage 更新一个包：npm 装注册表上的最新版，git 交给 PI 自己的 update。
+// npm 必须带确切版本号，只写 `npm:<name>` 会按包的根 package.json 里的 ^旧版本 范围装回旧版。
+func (s *EngineService) updatePackage(entry packageEntry, onLine func(string)) error {
+	switch entry.Kind {
+	case domain.PackageKindNpm:
+		latest, err := pienv.LatestVersion(entry.Name)
+		if err != nil {
+			return pkg.Wrap("9721", "查不到 "+entry.Name+" 的最新版本", err)
+		}
+		if latest == entry.Version {
+			report(onLine, entry.Name+" 已是最新版本 "+latest)
+			return nil
+		}
+		spec := "npm:" + entry.Name + "@" + latest
+		report(onLine, "正在更新 "+entry.Name+"："+firstNonEmpty(entry.Version, "?")+" → "+latest)
+		if err := s.env.PiEnv.RunCLI([]string{"install", spec}, onLine); err != nil {
+			return err
+		}
+		after := pienv.LocalVersion(entry.Path)
+		if after != latest {
+			return pkg.New("9719", "命令结束了，但磁盘上还是 "+firstNonEmpty(after, "未知版本"), entry.Name)
+		}
+		return nil
+	case domain.PackageKindGit:
+		report(onLine, "正在更新 "+entry.Source+"…")
+		return s.env.PiEnv.RunCLI([]string{"update", entry.Source}, onLine)
+	default:
+		report(onLine, "本地目录包不参与更新："+entry.Source)
+		return nil
+	}
+}
+
+// refuseWhileRunning 在更新前确认没有对话在跑：更新会停掉 PI 进程，跑着一半的回合会断。
+func (s *EngineService) refuseWhileRunning(action string) error {
+	if s.env.Chat == nil || !s.env.Chat.AnyRunning() {
+		return nil
+	}
+	return pkg.New("9719", "有对话正在跑，先等它结束或停止它再"+action, "")
+}
+
+// pendingPackages 列出需要更新的包：npm 按注册表最新版本比，git 一律交给 update 判定。
+func pendingPackages(env *Env, onLine func(string)) []packageEntry {
+	out := []packageEntry{}
+	for _, entry := range resolvePackages(env) {
+		switch entry.Kind {
+		case domain.PackageKindGit:
+			out = append(out, entry)
+		case domain.PackageKindNpm:
+			if entry.Missing {
+				out = append(out, entry)
+				continue
+			}
+			latest, err := pienv.LatestVersion(entry.Name)
+			if err != nil {
+				report(onLine, "查不到 "+entry.Name+" 的最新版本："+err.Error())
+				continue
+			}
+			if newerThan(latest, entry.Version) {
+				out = append(out, entry)
+			}
+		}
+	}
+	return out
+}
+
+// findPackage 按来源或包名在已声明的包里找一个。
+func findPackage(env *Env, source string) (packageEntry, bool) {
+	target := strings.ToLower(strings.TrimSpace(source))
+	name := strings.ToLower(packageNameOf(source))
+	for _, entry := range resolvePackages(env) {
+		if strings.ToLower(entry.Source) == target || strings.ToLower(entry.Name) == name {
+			return entry, true
+		}
+	}
+	return packageEntry{}, false
+}
+
+// report 向安装日志投一行；调用方不关心回调有没有接。
+func report(onLine func(string), line string) {
+	if onLine != nil {
+		onLine(line)
+	}
 }
 
 // LastInstallError 返回最近一次失败的原文（成功后清空）。
@@ -189,6 +312,7 @@ func (s *EngineService) LastInstallError() string {
 }
 
 // begin 抢安装锁；返回 false 表示已经有一趟在跑。
+// 抢到就进入维护态：这期间发消息会 spawn 到写到一半的文件上。
 func (s *EngineService) begin() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -196,14 +320,16 @@ func (s *EngineService) begin() bool {
 		return false
 	}
 	s.busy = true
+	s.env.SetMaintenance(true)
 	return true
 }
 
-// end 放开安装锁。
+// end 放开安装锁并退出维护态。
 func (s *EngineService) end() {
 	s.mu.Lock()
 	s.busy = false
 	s.mu.Unlock()
+	s.env.SetMaintenance(false)
 }
 
 // record 记下这一趟的结果：失败要留原因，成功要把上一次的失败清掉。

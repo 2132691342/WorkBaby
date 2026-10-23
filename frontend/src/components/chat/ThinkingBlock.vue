@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 思考段：就地折叠在消息流里，不单独浮到回合顶部。
-// 流式期间默认展开、只渲染尾部；正文一出现就自动收起（用户要看的是答案）。
+// 默认收起：思考是过程而非结果，展开与否由用户自己决定；
+// 流式期间只渲染尾部，展开时也不会把主线程压住。
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../common/AppIcon.vue'
@@ -14,14 +15,9 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
-const open = ref(!!props.live)
+const open = ref(false)
 
-watch(
-  () => props.live,
-  (on) => {
-    if (on) open.value = true
-  },
-)
+// 正文已经开始时再收一次：用户可能自己展开了、但正文一出现视线应该落在答案上。
 watch(
   () => props.collapse,
   (on) => {

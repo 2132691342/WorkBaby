@@ -74,10 +74,10 @@
 | POST | `/env/recheck` | 重新判定闸门，并重新探测 / 修一次命令执行环境 |
 | POST | `/env/shell` | 重新探测命令执行环境并写回 PI（`shellPath` 或 `+powershell/-bash`） |
 | POST | `/env/terminal` | 生成终端里的 `pi` 入口并挂到当前用户 PATH |
-| GET | `/engine/status` | 引擎本地快照：PI 版本与来源、运行中的进程数、运行时、插件包数量 |
+| GET | `/engine/status` | 引擎本地快照：PI 版本与来源、运行中的进程数、运行时、插件包数量、终端入口状态（含 `terminal_shadowed_by` / `other_pis`） |
 | GET | `/engine/latest` | 联网查最新版本：PI + npm 来源的插件包（查不到只报 `registry_error`） |
-| POST | `/engine/update` | 升级 PI 自身（装回它原来的前缀，完成后重启进程） |
-| POST | `/engine/packages/update` | 更新插件包 `{source}`（空 = 全部，走 `pi update`） |
+| POST | `/engine/update` | 升级 PI 自身（装回它原来的前缀，完成后重启进程；有对话在跑时拒绝） |
+| POST | `/engine/packages/update` | 更新插件包 `{source}`（空 = 全部需要更新的包；npm 包重装最新版，git 包走 `pi update`；有对话在跑时拒绝） |
 | GET | `/git/status` `/git/diff` `/git/history` `/git/commit` `/git/file-history` `/git/branches` | 只读版本视图；`/git/branches` 返回本地与远端分支 |
 | POST | `/git/stage` `/git/unstage` `/git/resolve` `/git/discard` `/git/commit` `/git/branch` `/git/branch/delete` `/git/switch` `/git/merge` `/git/state` `/git/pull` `/git/fetch` `/git/push` `/git/init` `/git/remote` `/git/message` | 受控写入（白名单动作）；`resolve` 标记冲突已解决、`state` 继续/中止未完成的合并或变基、`push` 支持分级强制推送、`message` 起草提交信息 |
 | GET | `/docs` / `/docs/:name` | 内置帮助文档 |
@@ -135,7 +135,7 @@ data: {"seq":42,"event":"chat:delta","data":{"entry_id":"run-…","kind":"text",
 | `chat:done` | stop_reason / usage / max_tokens |
 | `chat:stopped` / `chat:error` / `chat:gap` | 停止 / 出错 / 重放缺口 |
 | `chat:switched` | 会话被切走（换工作区 / 引擎重启），前端必须拉新快照 |
-| `chat:setup` | 安装进度（phase / progress / message） |
+| `chat:setup` | 安装 / 更新进度（phase / progress / message）；`done` 与 `ok` 标记这一趟结束及成败，前端据此收 loading |
 | `chat:notify` | 引擎扩展的即时通知（level: info/warning/error，无需应答） |
 | `chat:status` | 引擎扩展设的状态条（空 text 即清除）；界面排在输入框上沿，不进消息流 |
 | `chat:widget` | 引擎扩展推的小部件文本行（空行即清除）；同上一条位置 |

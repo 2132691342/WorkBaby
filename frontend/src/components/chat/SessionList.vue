@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
+import { useChatStore } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
 import { fmtRel } from '../../utils/time'
@@ -13,6 +14,7 @@ const emit = defineEmits<{ newSession: [] }>()
 
 const { t } = useI18n()
 const session = useSessionStore()
+const chat = useChatStore()
 const toast = useToastStore()
 
 const query = ref('')
@@ -55,6 +57,11 @@ const hiddenCount = computed(() =>
 )
 
 async function openSession(id: string) {
+  // 正在跑的回合只挂在当前会话那条流上：切走就再也接不上了，直接说清楚。
+  if (id !== session.currentId && (chat.running || chat.finalizing)) {
+    toast.info(t('chat.busySwitch'))
+    return
+  }
   try {
     await session.open(id)
   } catch (e) {

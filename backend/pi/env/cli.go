@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"WorkBaby/backend/pkg"
 )
@@ -38,8 +39,7 @@ func (e *Env) runCLI(args []string, env []string, onLine func(string)) error {
 	if perr := cmd.Start(); perr != nil {
 		return pkg.Wrap("9719", "插件命令起不来", perr)
 	}
-	pumpLines(stdout, onLine)
-	pumpLines(stderr, onLine)
+	pumpBoth(stdout, stderr, onLine)
 	if err := cmd.Wait(); err != nil {
 		return pkg.Wrap("9719", "插件命令失败", err)
 	}
@@ -66,6 +66,16 @@ func (e *Env) RunCLIOutput(args ...string) (string, error) {
 		return "", pkg.Wrap("9719", "插件命令失败", err)
 	}
 	return string(out), nil
+}
+
+// pumpBoth 并行排空 stdout 与 stderr：串行读会让写满 stderr 的 npm 卡住，
+// 而 stdout 要等进程退出才 EOF，两边互等就是「更新一直没动静」。
+func pumpBoth(stdout, stderr io.Reader, onLine func(string)) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); pumpLines(stdout, onLine) }()
+	go func() { defer wg.Done(); pumpLines(stderr, onLine) }()
+	wg.Wait()
 }
 
 // pumpLines 逐行读管道并回调；没有回调也要排空，否则子进程写满管道会卡住。

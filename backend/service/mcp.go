@@ -211,7 +211,11 @@ func (s *MCPService) Logout(name string) error {
 }
 
 // Reload 重启 PI 进程让新的 MCP 配置生效。
+// 有对话在跑时拒绝：重启会把跑着的那一轮掐断，而配置已经落盘，不会丢。
 func (s *MCPService) Reload() error {
+	if s.env.Chat != nil && s.env.Chat.AnyRunning() {
+		return pkg.New("9105", "配置已保存；有对话在跑，先停下再重连 MCP", "")
+	}
 	sup := s.env.PiSupervisor()
 	if sup == nil {
 		return nil

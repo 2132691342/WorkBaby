@@ -78,6 +78,18 @@ func (t *translator) clearSession(sessionID string) {
 	delete(t.states, sessionID)
 }
 
+// clearSessionIf 只在会话仍绑定着这一轮 run 时才摘：进程退出与重启之间
+// 可能已经在同一会话里开了新的一轮，旧进程的退出回调不能把新 run 收掉。
+func (t *translator) clearSessionIf(sessionID string, st *runState) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.states[sessionID] != st {
+		return false
+	}
+	delete(t.states, sessionID)
+	return true
+}
+
 // onEvent 把一条 PI 事件翻译成界面事件。
 func (c *ChatService) onEvent(workspace, sessionID string, st *runState, ev pi.Event) {
 	switch ev.Kind {
@@ -249,18 +261,23 @@ func (c *ChatService) onMessageEnd(st *runState, ev pi.Event) {
 	st.context = prompt
 }
 
-// finishSettled 在 agent_settled 时收尾：这是唯一「真的结束」信号。
-// workspace 由调用方（已持有它）传进来：为了找一个翻译器去反查会话目录不划算。
+// finishSettled 在 agent_settled 时收尾（唯一「真的结束」信号）。
+// 先摘运行态再广播：否则 done 后那份快照还会带着 running=true。
 func (c *ChatService) finishSettled(workspace, sessionID string, st *runState, aborted bool) {
 	reason := st.stopReason
 	if aborted {
 		reason = "aborted"
 	}
+	// 先摘运行态再广播：前端收到 done 会立刻拉快照，先 emit 后 release
+	// 会让那一份快照仍然带着 running=true，界面重新回到「运行中」的僵尸态。
+	tr := c.translatorOfWorkspace(workspace)
+	if !tr.clearSessionIf(sessionID, st) {
+		return
+	}
+	c.releaseRun(sessionID, st.runID)
 	c.emit(sessionID, domain.EventChatDone, domain.DoneData{
 		EntryID: st.runID, StopReason: reason, Usage: st.usage, MaxTokens: st.maxTokens,
 	})
-	c.release(sessionID)
-	c.translatorOfWorkspace(workspace).clearSession(sessionID)
 }
 
 // onProcessExit 在 PI 进程退出时收口：本轮标记失败，但不自动重发。
@@ -268,19 +285,23 @@ func (c *ChatService) onProcessExit(workspace string, err error) {
 	// 不自动重发是纪律：工具可能已经写过文件，重发等于执行两次。
 	tr := c.translatorOfWorkspace(workspace)
 	tr.mu.Lock()
-	ids := make([]string, 0, len(tr.states))
-	for sid := range tr.states {
-		ids = append(ids, sid)
+	snapshot := make(map[string]*runState, len(tr.states))
+	for sid, st := range tr.states {
+		snapshot[sid] = st
 	}
 	tr.mu.Unlock()
-	for _, sid := range ids {
+	for sid, st := range snapshot {
 		pkg.Warnf("chat: PI 进程退出，会话 %s 的本轮按失败收口: %v", sid, err)
+		// 与 done 同理：先摘运行态再广播，否则前端拉到的快照还会是 running。
+		// 先看这一轮是不还是当前那一轮：重启后新 run 可能已经占了这个会话。
+		if !tr.clearSessionIf(sid, st) {
+			continue
+		}
+		c.releaseRun(sid, st.runID)
+		c.closeAsksOf(sid, "gone")
 		c.emit(sid, domain.EventChatError, domain.ErrorData{
 			Code: pkg.CodeOf(pi.ErrProcessDown), Message: "助手进程退出了，这一轮没做完",
 		})
-		c.release(sid)
-		tr.clearSession(sid)
-		c.closeAsksOf(sid, "gone")
 	}
 }
 
