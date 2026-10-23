@@ -17,7 +17,7 @@ Wails 只负责「窗口 + 系统能力」，业务全部走内嵌 gin。
 ### OnStartup 与 OnDomReady 没有顺序保证
 
 Wails 把 `OnStartup` 放在**独立 goroutine** 里跑，`OnDomReady` 由 WebView2 的
-导航回调触发。首次启动要解压内置 Python（约两秒），`domReady` 必然先到。
+导航回调触发。首次启动可能要解压内置运行时（几秒），`domReady` 必然先到。
 
 因此**不能**用「`Svc` 是不是 nil」判断启动失败——慢启动会被误判成失败。
 正确做法是显式握手：

@@ -67,13 +67,13 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 ├── workbaby.db                SQLite（WAL）：只有界面设置 KV
 ├── config.yaml                工作目录等固定项
 ├── logs\                      app.log（全量）/ warn.log（warn 与 error）
-├── bin\pi.cmd                 终端里的 pi 入口（这个目录同时挂在用户 PATH 上）
-├── runtime\node|python\       内置运行时（首次用时解压）
-├── runtime\npm-global\        内置 npm 装 PI 与前缀
+├── bin\pi.cmd · pi            终端里的 pi 入口（cmd/PowerShell 用 .cmd，Git Bash 用 pi；目录挂在用户 PATH 上）
+├── runtime\node\              内置 Node（首次用时解压）
+├── runtime\gitbash\           内置 Git Bash（本机没有可用 bash 时才解压）
+├── runtime\npm-global\        WorkBaby 代装 PI 的 npm 前缀
 ├── runtime\shell.json         命令执行环境的自愈记录（写过什么才敢撤回什么）
-├── runtime\npm-cache\         内置 npm 缓存
+├── runtime\npm-cache\         npm 缓存
 ├── tmp\                       临时解压与中转（启动时清扫）
-├── site-packages\             Python 工具装的包
 ├── background\                自定义背景图副本
 └── persona.md                 附加系统提示（--append-system-prompt 传给它）
 

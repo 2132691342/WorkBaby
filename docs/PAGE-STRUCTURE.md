@@ -145,8 +145,8 @@
 
 | 提示 | 触发 | 动作 |
 |---|---|---|
-| 命令执行环境 | `shell_usable=false` 或 `shell_kind=powershell`（没找到真 bash） | `POST /env/shell`：重探并写回 `shellPath` / `+powershell -bash` |
-| 终端命令 | `pi_ready && !terminal_ready` | `POST /env/terminal`：生成 `<data>/bin/pi.cmd` 并挂到用户 PATH |
+| 命令执行环境 | `shell_usable=false`（含 `shell_kind=powershell`：一份能跑的 bash 都没有） | `POST /env/shell`：重探，必要时解压内置 Git Bash 并写回 `shellPath` |
+| 终端命令 | `pi_ready && !terminal_ready` | `POST /env/terminal`：生成 `<data>/bin/pi.cmd`（及 Git Bash 用的 `pi`）并挂到用户 PATH |
 
 ## DashboardView
 
@@ -179,7 +179,7 @@ URL 是唯一真相（`/settings/:tab?`），主区带页头显示当前板块�
 
 | 组 | 板块 | 要点 |
 |---|---|---|
-| 引擎 | 助手引擎 | PI 当前版本 / 最新版本（取 npm 注册表）/ 来源与位置 / 眼下跑着的进程数；升级按钮（完成后自动重启进程）；内置 Node / Python 版本与 agent 目录；命令执行环境（形态 / 路径 / 重新探测）与终端入口（生成 / 挂 PATH）；插件包总数 |
+| 引擎 | 助手引擎 | PI 当前版本 / 最新版本（取 npm 注册表）/ 来源与位置 / 眼下跑着的进程数；升级按钮（完成后自动重启进程）；内置 Node 版本与 agent 目录；命令执行环境（形态 / 路径 / 重新探测）与终端入口（生成 / 挂 PATH）；插件包总数 |
 | 模型 | 模型服务 | 读写 PI 的 `models.json`：服务商卡片 + 编辑弹窗（接口类型 / 地址 / 密钥 / 模型行）；必填项当场标红；测试连通、显示密钥、设默认、从上游拉模型 |
 | 模型 | 工具 | PI 此刻能调到的工具（内置 / 插件 / MCP），来源筛选 + 分页（默认 10 行，5/10/20/50 可选），开关写 `defaultTools` |
 | 模型 | MCP | 服务卡片（名称 + 在线状态 + 传输地址行 + 工具数 + 登录）+ 配置原文编辑（全局 / 项目两份）+ 重连 |

@@ -28,7 +28,7 @@ pkg       叶子工具包（AppError / ID / 日志 / httprules / fsutil）
 import 图检查（`go list -json`），不做文本 grep——注释与字符串里的 import 字样会让 grep 得出错误结论。
 
 **api = 组合根**：`Handler.Startup` 是唯一装配入口，持有 Repo / Cfg / 子进程句柄。
-业务 handler 方法必须经 service 走流程，唯一例外是查询型系统能力（运行时状态检测）。
+业务 handler 方法必须经 service 走流程，唯一例外是查询型系统能力。
 
 ## 两个真相源
 
@@ -52,7 +52,7 @@ wails.Run
      ├─ runtime.Resolve()        数据目录 + agent 目录（只解析，不创建 agent 子目录）
      ├─ InitLog / config.Load / db.Open / repo.New
      ├─ reportRuntime()          内置运行时探测（失败只告警）
-     ├─ pienv.New(paths)         PI 的发现（PATH → npm 前缀）
+     ├─ pienv.New(paths)         PI 的发现（用户 PATH 优先 → 自装前缀 → 其它 npm 前缀）
      ├─ skill.New() + Emitter
      ├─ service.New(env)         装配全部服务 + PI 监督器
      └─ container.Bootstrap()    设置默认值 / 生成 persona / 扫技能

@@ -31,7 +31,7 @@
 | 测试 | testing（标准库） | 一包一入口、一个子测试一种坏法；`scripts/check.ps1` 收口全部验证（快门 / `-Pkg` / `-Run` / `-List` / `-Full`），耗时以编译为主 |
 | ID | 沿用 PI 的 id；本轮 runID 用 google/uuid | 不自造业务 id，见 §2.7 |
 | 托盘 | getlantern/systray | 关闭到托盘 |
-| 内置运行时 | Node + Python | `backend/runtime/bundled/`（go:embed 进 exe，归档经 LFS 托管），其余一律不内置 |
+| 内置运行时 | Node + Git Bash（MinGit） | `backend/runtime/bundled/`（go:embed 进 exe，归档经 LFS 托管），其余一律不内置 |
 | 平台 | Windows | 本期只考虑 Windows；平台特定代码按 `//go:build windows` 分文件，不写 `runtime.GOOS` 大分支 |
 
 ### 1.1 依赖原则
@@ -79,7 +79,7 @@ WorkBaby/
 │   ├── domain/                   # ⑥ 域模型（一个聚合根一个文件，DO/DTO/REQ/VO/RESP 同居一处）
 │   ├── skill/                    # ⑦ Skill（parser/registry/loader，目录即 PI 的技能目录）
 │   ├── git/                      # ⑧ 工作区版本视图（读 status/diff/历史，写限白名单动作，走系统 git）
-│   ├── runtime/                  # ⑨ 路径解析 + 内置 Node / Python 运行时（bundled/ 归档 go:embed + 解压）
+│   ├── runtime/                  # ⑨ 路径解析 + 内置 Node / Git Bash 运行时（bundled/ 归档 go:embed + 解压）
 │   │   └── runtimetest/          #    测试夹具：预置运行时标记，装配类测试跳过解压（只被测试引用）
 │   ├── config/                   # ⑩ 配置（Viper YAML：工作目录与固定项）
 │   ├── db/                       # ⑪ SQLite 打开 + 迁移
@@ -132,7 +132,7 @@ backend/server ──► backend/api ──► backend/service ──► 能力�
 | 层 | 允许依赖 | 禁止依赖 |
 |---|---|---|
 | server | api / domain / pkg / gin | service / repo / 能力域 |
-| api | service / domain / pkg / gin / wails；**装配期**持有 repo / config / db / 能力域句柄（组合根） | handler 方法绕过 service 直写业务（查询型系统能力如 runtime 状态检测除外） |
+| api | service / domain / pkg / gin / wails；**装配期**持有 repo / config / db / 能力域句柄（组合根） | handler 方法绕过 service 直写业务（查询型系统能力除外） |
 | service | repo / domain / pkg / config / db / runtime / skill / git / pi | api / server / gin / wails |
 | repo | domain / pkg / gorm | api / service / 能力域 |
 | domain | pkg | 任何上层 |
@@ -544,10 +544,12 @@ type Record struct {
 | 会话运行中不删会话文件 | 不等 `agent_settled` 就删，PI 会往已删文件继续追加 |
 | 写 `settings.json` 只改自己掌管的顶层键 | PI 与用户还在里面写 `packages` / `cacheWarming` / `codemode`，整体重写会把它们连同已装的包一起抹掉 |
 | 子代理必须用独立 PI 进程 | 一个进程只有一个 streaming 状态，同进程起子会话会把父会话的流顶掉 |
-| 内置 Node 解压必须平铺到根 | 多一层目录会让 `npm.cmd` 找错 node，表现为「npm 装了但 PI 起不来」 |
-| PATH 注入必须前置拼接 | 后置拼接会被用户 PATH 上的旧 node 抢先，内置 node 等于没生效 |
+| 内置 Node 解压必须平铺到根 | 多一层目录会让 `npm.cmd` 找错 node，表现为「npm 装了但 PI 起不来」；MinGit 同为平铺，且只带 `sh.exe`，解压后复制一份命名 `bash.exe` 才有 bash 可用 |
+| PATH 注入必须前置拼接，且只注入当前生效来源的目录 | 后置拼接会被用户 PATH 上的旧 node 抢先，内置 node 等于没生效；用户 node / PI 生效时把自家数据目录也塞进去，会在 PI 子进程里遮住用户正在用的工具 |
+| npm 装包跟随当前生效 node | 用户 node 合规（≥下界）就用它的 npm-cli.js，不无故解压内置；npm 与 node 必须同源，装出来的包要在这份解释器上跑 |
 | 终端入口目录必须前置到用户 PATH，并扫出抢先的旧 pi | 两份 pi 共存时，界面与终端跑在不同内核上；系统级 PATH 无法修改时只能把冲突显式说出来 |
-| 自己装过 PI 就不再复用 PATH 上那份 | 终端入口钉的是自装那份，界面跟随另一份就是两套内核 |
+| 用户本机已有 pi 优先，自装的只在缺装时兜底 | 用户已有 PI 就复用它，绝不装出第二份内核；PATH 扫描按目录顺序进行且跳过自建的终端转发目录 |
+| 终端入口钉当前生效那份 PI 与 node，漂移即刷新 | 入口（`pi.cmd` + 给 Git Bash 的 `pi`）指向的不是当前生效份时，界面与终端就是两套内核；启动与升级后都要重刷 |
 | 更新是否成功看版本，不看命令退出码 | `pi update --extensions` 会跳过固定版本并成功返回，权限与网络故障也可能成功返回 |
 | 交给 exec 的 node 必须是绝对路径 | `exec.Command` 只按本进程的 PATH 找可执行文件；内置 node 不在 PATH 上时，字面量 `node` 就是一句 9705 |
 | Node 下界是 22.19.0 | PI 1.4 的 engines 要求；只比主版本会把 22.15 放进来，装包与运行一路 EBADENGINE |
@@ -595,7 +597,7 @@ type Record struct {
   每个子测试各起一套，加一条分支就在给总时长做乘法。
 - **假 PI 夹具全局只编译一次**：`pi/piptest.Build` 按夹具源码内容寻址产物路径并带跨进程锁，
   三个包共用同一份 exe。自己再写一遍 `go build` 会让总时长做三次乘法。
-- **不重复起版本探测进程**：`node -v` / `python -V` / `pi --version` 都是真实进程启动
+- **不重复起版本探测进程**：`node -v` / `pi --version` 都是真实进程启动
   （约 0.25s），`pi/env` 按可执行文件路径缓存。闸门被反复问同一个问题是常态。
 - **装配类测试不真解压归档**：`runtime/runtimetest.SeedMarkers` 预置「已解压 + 版本标记」后，
   装配只跑配置 / DB / 服务 / 工具注册的真实链路。真解压只在 `runtime` 包做一次。
@@ -639,18 +641,18 @@ CI 跑这一档，所以本地不跑不等于没人跑。
 
 ### 3.4 测试索引
 
-6 个入口 / 6 个文件（一包一入口），共 22 条子测试，每条只讲一种坏法。
+6 个入口 / 6 个文件（一包一入口），共 24 条子测试，每条只讲一种坏法。
 没列进来的包（server / config / db / domain / pkg / repo / skill / tray / singleinstance，以及壳层）
 不单独设测试：它们的正确性由流经它的链路断言。
 
 | 入口 | 覆盖的链路 |
 |---|---|
 | `pi/pi_test.go` · TestPiChain | 五条链：**协议**（分帧、未知记录、按 id 关联与四种 fire-and-forget 扩展请求字段）；**事件与翻译**（顺序 agent_end → 重试 → settled、流式增量两类、工具结果与压缩）；**提问桥**（请求字段解析、响应写回同一 id）；**生命周期与进程归属**（有序退出、崩溃报错、死进程命令立刻失败、一个工作区一个进程）；**本机 PI 真实回合**（`-short` 跳过） |
-| `pi/env/env_test.go` · TestPiEnvChain | 四条链：**环境闸门与 agent 目录**（node → pi → model 报首个阻塞项并给原因；agent 目录跟随 `PI_CODING_AGENT_DIR` 且不被进程环境覆盖）；**配置写入**（models.json 的 camelCase 形状与未知字段保留，settings.json 只改掌管键且 compaction 字段级合并、packages 两种写法、原子替换，mcp.json 原文往返）；**入口与终端位置**（shim 还原成 node + 脚本且绝不吐字面量 node；入口目录被前置且能认出抢先的旧 pi）；**命令执行环境自愈**（WSL 启动器被剔除；工具增量可加可撤、自己写过的 `shellPath` 才撤回、用户改过的工具集不被动） |
+| `pi/env/env_test.go` · TestPiEnvChain | 五条链：**环境闸门与 agent 目录**（node → pi → model 报首个阻塞项并给原因；agent 目录跟随 `PI_CODING_AGENT_DIR` 且不被进程环境覆盖）；**配置写入**（models.json 的 camelCase 形状与未知字段保留，settings.json 只改掌管键且 compaction 字段级合并、packages 两种写法、原子替换，mcp.json 原文往返）；**入口与终端位置**（shim 还原成 node + 脚本且绝不吐字面量 node；入口目录被前置且能认出抢先的旧 pi；入口是 pi.cmd + pi 双份、sh 里只有正斜杠路径）；**用户 pi 优先**（PATH 上那份抢先于自装前缀，自生成的终端转发不算数）；**命令执行环境**（WSL 启动器被剔除；shellPath 引导、更好的 bash 出现时撤换、自己写过的才撤回；defaultTools 永不被碰） |
 | `api/api_test.go` · TestHTTPChain | 真实 HTTP 栈两条链：**闸门与契约**（预检放行 + 方法白名单 + 路径穿越门口拒绝 + 空数组永不 null + 引导字段支撑环境闸门）；**SSE 全链**（新对话现场创建 → 子进程 → 翻译 → Hub → 帧，seq 递增、`data` 回带 `event`、用量落袋、上一轮收尾后再发下一轮）与 Last-Event-ID 重连。服务只启一次，子测试共用 |
-| `service/chain_test.go` · TestServiceChain | 五条链：**会话索引**（列表 / 详情 / 内容块顺序 / 用量口径 / 工具清单 / 删除删的是文件）；**一轮对话与用量**（新会话现场创建、done 最后、重试事件、落盘后能算出用量与按模型归因）；**停止与空闲排队**（先取回排队文本再中止、abort 落内核标记、空闲 follow_up 等价完整一轮、ANSI 码进界面前被剥）；**配置落盘与回读**（技能三区启停靠移目录、包内技能不可搬、坏技能文件只跳自己、插件登记项与包的来源种类、models.json 密钥掩码与默认模型、服务商缺少名字 / 地址 / 模型 ID 分别报 3109 / 3113 / 3111、坏 MCP JSON 不落盘、删除连带清默认）；**跨工作区并行**（各自一个进程，不串会话） |
+| `service/chain_test.go` · TestServiceChain | 六条链：**会话索引**（列表 / 详情 / 内容块顺序 / 用量口径 / 工具清单 / 删除删的是文件）；**一轮对话与用量**（新会话现场创建、done 最后、重试事件、落盘后能算出用量与按模型归因）；**停止与空闲排队**（先取回排队文本再中止、abort 落内核标记、空闲 follow_up 等价完整一轮、ANSI 码进界面前被剥）；**技能与插件**（技能三区启停靠移目录、包内技能不可搬、坏技能文件只跳自己、插件登记项与包的来源种类、停用扩展摘登记项）；**模型服务与 MCP**（models.json 密钥掩码与默认模型、服务商缺少名字 / 地址 / 模型 ID 分别报 3109 / 3113 / 3111、坏 MCP JSON 不落盘、删除连带清默认、留空的模型能力按默认值兜底）；**跨工作区并行**（各自一个进程，不串会话） |
 | `git/git_test.go` · TestGitChain | 真仓库端到端（唯一用真 git 子进程的链，约 30 秒），按坏法分五条：**读**（路径换算与状态归类 / 中文带空格路径还原 / 差异行号与文件头 / 未跟踪整篇新增 / 越界拒绝 / 非仓库给人话）；**提交**（勾选入栈 → 空信息被拒 → 提交带 hash → 历史与提交详情可读 → 出栈只动索引 → 丢弃与 amend 的护栏 → 失败归因报 1017/1020 而不是 exit status 1）；**推送**（首次推送自动建上游 / 远端领先报 1024 / 带租约强制推送报 1027 / 确认后的纯强制推送能过）；**合并冲突**（冲突落地为可继续状态 / 未解决就提交或继续报 1021 / 逐文件标记后继续 / 中止回原状）；**分支**（注入面白名单 → 新建切换 → 合并 → 历史隔离 → 删已合并）。场景共用仓库；`-short` 与没装 git 都跳过 |
-| `runtime/runtime_test.go` · TestBundledRuntimeChain | 一条链：**归档完整性、解压安全与真实布局**（SHA 常量一致、LFS 指针当场识破、zip-slip 拒绝且正常路径不误伤；真实解压验根目录布局——Node 剥掉顶层单目录、Python 平铺；`-short` 跳过真解压） |
+| `runtime/runtime_test.go` · TestBundledRuntimeChain | 一条链：**归档完整性、解压安全与真实布局**（SHA 常量一致、LFS 指针当场识破、zip-slip 拒绝且正常路径不误伤；真实解压验布局——Node 剥掉顶层单目录、EnsureGitBash 全链产出 bash.exe 与二次命中标记；`-short` 跳过真解压） |
 
 **改这里 → 只跑这条**（定位与验证都从这张表进；单包一律用脚本）：
 

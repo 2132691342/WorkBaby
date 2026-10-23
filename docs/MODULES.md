@@ -15,7 +15,7 @@
 | `backend/pi/env` | 运行时复用、PI 安装与探测、命令执行环境、终端入口、配置互通 | [11](../specs/11-pi-bootstrap.md) |
 | `backend/skill` | 技能解析与注册表（目录即 PI 的技能目录） | [03](../specs/03-skill.md) |
 | `backend/git` | 工作区版本视图（读全开放 + 写白名单动作） | [08](../specs/08-workspace-git.md) |
-| `backend/runtime` | 路径解析 + 内置 Node / Python 运行时 | [01](../specs/01-runtime.md) |
+| `backend/runtime` | 路径解析 + 内置 Node / Git Bash 运行时 | [01](../specs/01-runtime.md) |
 | `backend/repo` · `domain` · `pkg` | 设置 KV / 域模型 / 叶子工具包 | [DATA-MODEL](DATA-MODEL.md) |
 | `frontend/src` | 六个路由视图 + 一套设计令牌 | [PAGE-STRUCTURE](PAGE-STRUCTURE.md) · [DESIGN](../DESIGN.md) |
 | 壳层（`app.go`）· `tray` · `singleinstance` | Wails 生命周期、托盘、单实例、退出流程 | [04](../specs/04-desktop-shell.md) |
@@ -55,7 +55,7 @@
 - `Handler.Startup` 是唯一装配入口：解析路径 → 打开 DB → 装配 repo / config / 各服务容器 /
   PI 监督器 / 技能注册表。装配结果挂在 `Handler` 与 `service.Env` 上
 - 每个 handler 方法只做三件事：解析入参 → 调 service → `ok()/fail()` 包信封；
-  唯一例外是查询型系统能力（运行时状态检测、对话框、自启），它们与业务编排无关
+  唯一例外是查询型系统能力（对话框、自启），它们与业务编排无关
 - 系统能力绑定（剪贴板、窗口、对话框、自启）分 Windows 与其它平台两个文件（`//go:build`），
   不写 `runtime.GOOS` 大分支
 
@@ -129,17 +129,21 @@ PI 改协议这里最先碎。
 
 **怎么实现**：
 
-- 发现：PATH → npm 前缀（内置 npm-global）逐级找 `pi.cmd`；找到后把 shim 还原成
+- 发现：用户 PATH（按目录顺序扫，跳过本应用生成的终端转发目录）→ 自装前缀 →
+  其它 npm 前缀逐级找 `pi.cmd`——用户已有 PI 优先，绝不装第二份；找到后把 shim 还原成
   `node + cli.js`。**node 永远是绝对路径**：`exec.Command` 只按本进程的 PATH 找可执行文件
-- 安装 / 升级：固定用**内置** `node + npm-cli.js`，前缀显式给出；官方源与国内镜像并联探测，
-  一趟失败换另一个源整跑一遍（完整流程与原因见 [specs/11](../specs/11-pi-bootstrap.md）)
+- 安装 / 升级：npm 跟随当前生效 node（用户 node 合规就用它旁边的 `npm-cli.js`，没有才
+  解压内置），前缀显式给到应用目录；官方源与国内镜像并联探测，
+  一趟失败换另一个源整跑一遍（完整流程与原因见 [specs/11](../specs/11-pi-bootstrap.md)）
 - 版本对账：本地版本读包目录的 `package.json`，最新版本问 npm 注册表的
   `dist-tags.latest`（abbreviated 元数据 + 5 分钟缓存 + 12 秒超时 + 换源重试）
 - 命令执行环境（`shell.go`）：找真 bash（环境变量 / 注册表 / PATH 上的 `git.exe` 反推安装根）、
-  按路径剔除 WSL 启动器、真跑一次验证；有 bash 写 `shellPath`，没有就把 `defaultTools`
-  增量换成 `+powershell` / `-bash`。自己写过的值记在 `runtime/shell.json` 才敢撤回
-- 终端入口（`terminal.go`）：写 `<data>/bin/pi.cmd`（钉死内置 node）+ 前置到 HKCU
-  `Environment\Path`，写后广播 `WM_SETTINGCHANGE`
+  按路径剔除 WSL 启动器、真跑一次验证；全都没有才解压内置 Git Bash 兜底。
+  选中 PI 自己找不到的 bash 时写 `shellPath` 引导（更好的 bash 出现时撤换），
+  `defaultTools` 永远不碰。自己写过的值记在 `runtime/shell.json` 才敢撤回
+- 终端入口（`terminal.go`）：写 `<data>/bin/pi.cmd`（CMD / PowerShell）与
+  `<data>/bin/pi`（Git Bash 的 sh 脚本），两者钉当前生效 node + PI，启动时对齐刷新；
+  目录前置到 HKCU `Environment\Path`，写后广播 `WM_SETTINGCHANGE`
 - 闸门 `Detect`：按 node → pi → model 顺序报**第一个**不满足项并给原因
 - `WriteModels` / `WriteSettings`：camelCase 形状、未知字段原样保留、只改掌管键、字段级合并；
   `mcp.json` 只做原文往返；全部写入走 `WriteFileAtomic`
@@ -215,24 +219,27 @@ PI 改协议这里最先碎。
 ## backend/runtime — 路径解析与内置运行时
 
 **是什么**：两件事：数据目录 / agent 目录 / 各文件路径的唯一解析点；
-内置 Node 24 / Python 3.12 的 embed 与解压。
+内置 Node 24 / Git Bash（MinGit）的 embed 与解压。
 
 **怎么实现**：
 
 - `Resolve` 按优先级定目录：`WORKBABY_HOME` → `%APPDATA%\WorkBaby`；
   agent 目录跟随 `PI_CODING_AGENT_DIR`，**只继承不注入**
-- 归档经 `go:embed` 进 exe（Git LFS 托管源文件），启动装配期解压到数据目录，
+- 归档经 `go:embed` 进 exe（Git LFS 托管源文件），首次用到才解压到数据目录，
   `.version` 标记命中版本跳过；解压前逐条目路径检查（拒绝绝对路径与 `..`）、512MB 上限；
   嵌进去的是 LFS 指针文本时按「包不可用」报错
-- 内置运行时是**兜底**：系统已有合规版本（Node ≥ 22.19.0、Python 3.x）直接复用；
-  Node 官方 zip 多一层顶层目录，解压时剥掉平铺（否则 `npm.cmd` 找错 node）
+- 内置运行时是**兜底**：系统已有合规 Node（≥ 22.19.0）或任何可用 bash 直接复用；
+  Node 官方 zip 多一层顶层目录，解压时剥掉平铺（否则 `npm.cmd` 找错 node）；
+  MinGit 平铺解压，且只带 `sh.exe`——复制一份命名 `bash.exe`（同一二进制），
+  并补根下 `tmp` 目录消掉 MSYS 启动告警
+- Git Bash 懒解压：只在 shell 探测确认本机没有 bash 时发生（`pi/env` 决定时机）
 - PowerShell 从不内置，走系统自带的 5.1
 
 **为什么**：目标是「用户机器上什么都没装也能起来」；但内置只是兜底——
 用户自己装的高版本运行时体验更好，能复用就复用。
 
 **优势**：分发只有一个 exe；不联网也能完成环境引导。
-**代价**：exe 约 90MB；构建期强依赖 LFS 拉取；首启多等一次解压（约 3 秒）。
+**代价**：exe 约 125MB；构建期强依赖 LFS 拉取；首次用到内置时多等一次解压（约 3 秒）。
 
 ---
 

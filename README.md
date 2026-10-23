@@ -22,8 +22,8 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | MCP | 配置原文编辑 + 在线状态与工具清单，支持 OAuth 登录 |
 | 工作区 | 改动 / 提交 / 历史 / 分支：助手动了什么，在这里对账并收成一次提交；对话里也能直接看单个文件的改动 |
 | 仪表盘 | token 与估算花费（按天 / 模型 / 会话），全部来自会话文件 |
-| 环境 | 复用系统已有的 Node / Python / PI；缺了才用内置运行时兜底。装 PI 与插件包用内置 Node + 内置 npm，官方源与国内镜像自动选快的那个 |
-| 命令执行 | 自动找出真正可用的 bash（Git Bash / MSYS2 / Cygwin，含自定义安装目录），剔掉跑不动的 WSL 启动器；没有 bash 就改用 PowerShell 工具 |
+| 环境 | 优先复用本机已有的 PI 与 Node（够新就用你的）；缺了才用内置运行时兜底。装 PI 与插件包的 npm 跟随当前生效的 Node，官方源与国内镜像自动选快的那个 |
+| 命令执行 | 自动找出真正可用的 bash（Git Bash / MSYS2 / Cygwin，含自定义安装目录），剔掉跑不动的 WSL 启动器；本机一份都没有时解压内置 Git Bash 兜底 |
 | 终端 | 生成 `pi` 的终端入口并挂到当前用户 PATH：新开一个终端就能直接敲 `pi` |
 
 「能看见」的落点是工具卡、提问卡、工作区差异与用量仪表盘；
@@ -52,7 +52,7 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | 渲染 | marked + DOMPurify + highlight.js（唯一出口 `utils/md.ts`） |
 | 编辑 | CodeMirror 6（markdown / json） |
 | 国际化 | Vue I18n（zh-CN 默认 + en） |
-| 运行时 | 内置 Node 24 / Python 3.12（`go:embed`，解压后可被系统版替代） |
+| 运行时 | 内置 Node 24 / Git Bash（MinGit）（`go:embed`，能复用本机的就不解压） |
 
 ## 目录
 
@@ -70,8 +70,9 @@ WorkBaby/
 │   ├── service/             编排：会话 / 对话 / 模型 / 技能 / 插件 / 工具 / MCP / 统计 / 设置
 │   ├── repo/                GORM（只有设置 KV）
 │   ├── domain/              域模型（一个聚合根一个文件）
-│   ├── skill/               技能解析与注册表（目录即 PI 的技能目录）│   ├── git/                 工作区版本视图（读全开放 + 写白名单动作；冲突处置与分级强制推送）
-│   ├── runtime/             路径解析 + 内置 Node / Python 运行时
+│   ├── skill/               技能解析与注册表（目录即 PI 的技能目录）
+│   ├── git/                 工作区版本视图（读全开放 + 写白名单动作；冲突处置与分级强制推送）
+│   ├── runtime/             路径解析 + 内置 Node / Git Bash 运行时
 │   ├── config/ db/ pkg/     配置 / 迁移 / 叶子工具包
 │   └── tray/ singleinstance/
 ├── frontend/src/            api / components / composables / locales / stores / types / utils / views + 四个 CSS

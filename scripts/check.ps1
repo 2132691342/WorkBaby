@@ -57,30 +57,33 @@ function Write-FailureSummary {
     }
 }
 
-# Test-PkgList 列出真正含测试文件的包目录（``./backend/pi/env`` 这类写法）。
-function Test-PkgList {
+# Get-TestFiles 列出全部含测试的 Go 文件（排除 node_modules），-List 与 -Run 共用这一份枚举。
+function Get-TestFiles {
     Get-ChildItem -Recurse -Include *_test.go -Path . |
-        Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
+        Where-Object { $_.FullName -notmatch '\\node_modules\\' }
+}
+
+# Test-PkgList 把测试文件换成包目录（``./backend/pi/env`` 这类写法）。
+function Test-PkgList {
+    Get-TestFiles |
         ForEach-Object { './' + $_.DirectoryName.Replace((Get-Location).Path + '\', '').Replace('\', '/') } |
         Sort-Object -Unique
 }
 
 if ($List) {
-    Get-ChildItem -Recurse -Include *_test.go -Path . |
-        Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
-        ForEach-Object {
-            $file = $_.FullName.Replace((Get-Location).Path + '\', '')
-            $lines = Get-Content $_.FullName
-            $entries = @($lines | Select-String -Pattern '^func (Test\w+Chain)\(')
-            if (-not $entries.Count) { return }
-            Write-Host $file -ForegroundColor Cyan
-            foreach ($e in $entries) {
-                Write-Host ('  {0}' -f $e.Matches[0].Groups[1].Value) -ForegroundColor Green
-                $lines | Select-String -Pattern 't\.Run\("([^"]+)"' |
-                    ForEach-Object { '    - {0}' -f $_.Matches[0].Groups[1].Value } |
-                    ForEach-Object { Write-Host $_ }
-            }
+    Get-TestFiles | ForEach-Object {
+        $file = $_.FullName.Replace((Get-Location).Path + '\', '')
+        $lines = Get-Content $_.FullName
+        $entries = @($lines | Select-String -Pattern '^func (Test\w+Chain)\(')
+        if (-not $entries.Count) { return }
+        Write-Host $file -ForegroundColor Cyan
+        foreach ($e in $entries) {
+            Write-Host ('  {0}' -f $e.Matches[0].Groups[1].Value) -ForegroundColor Green
+            $lines | Select-String -Pattern 't\.Run\("([^"]+)"' |
+                ForEach-Object { '    - {0}' -f $_.Matches[0].Groups[1].Value } |
+                ForEach-Object { Write-Host $_ }
         }
+    }
     exit 0
 }
 

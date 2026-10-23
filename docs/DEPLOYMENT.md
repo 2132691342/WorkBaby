@@ -49,25 +49,25 @@ git lfs pull   # 首建必做：内置运行时归档经 LFS 托管
 wails build
 ```
 
-产物只有一个 exe：Node 与 Python 的归档由 `go:embed` 打进主程序，
-首次启动解压到用户数据目录。exe 因此明显变大（约 90MB），
-发布流程用「不到 55MB 视为归档未嵌入」兜底。
+产物只有一个 exe：Node 与 Git Bash（MinGit）的归档由 `go:embed` 打进主程序，
+首次需要时解压到用户数据目录。exe 因此明显变大（约 125MB），
+发布流程用「不到 80MB 视为归档未嵌入」兜底。
 
 ## 内置运行时
 
 1. 归档在 `backend/runtime/bundled/`（`node-v24.21.0-win-x64.zip` +
-   `python-3.12.8-embed-amd64.zip`，Git LFS 托管，构建时嵌入 exe）
-2. 启动装配期（`Handler.Startup` → `reportRuntime`）探测内置运行时；**真正解压发生在首次需要它的时候**
-   （选中内置 Node / 首次装 PI），解压后打开 `site` 并写 `.version` 标记，命中版本跳过；
+   `MinGit-2.56.0.3-64-bit.zip`，Git LFS 托管，构建时嵌入 exe）
+2. 启动装配期（`Handler.Startup` → `reportRuntime`）只探测不落盘；**真正解压发生在首次需要它的时候**
+   （选中内置 Node / 本机没有 bash 时取内置 Git Bash），解压后写 `.version` 标记，命中版本跳过；
    网络 / 文件系统问题不影响启动
 3. 解压校验：逐条目路径检查（拒绝绝对路径与 `..`）、512MB 解压上限、
    版本切换先清旧目录、内嵌字节是 LFS 指针文本时按「包不可用」报错
 4. 升级归档：从官方渠道下载新 zip 替换 `bundled/` 下的文件 →
-   改 `nodeVersion` / `pythonVersion` → 算出新归档 SHA-256 填进对应的
+   改 `nodeVersion` / `gitBashVersion` → 算出新归档 SHA-256 填进对应的
    `*ArchiveSHA256` 常量 → `go test ./backend/runtime/` 守护两者一致
 
-内置运行时是**兜底**：系统已有合规版本（Node ≥ 22.19.0、Python 3.x）时直接复用，
-没有才解压内置那份。两个都没装也不阻断启动，只有对应的工具会报错。
+内置运行时是**兜底**：系统已有合规 Node（≥ 22.19.0）或任何可用 bash（Git Bash /
+MSYS2 / Cygwin）时直接复用，没有才解压内置那份。都没装也不阻断启动。
 PowerShell 从不内置，走系统自带的 5.1。
 
 ## 用户数据
@@ -79,9 +79,9 @@ PowerShell 从不内置，走系统自带的 5.1。
 | 数据库（只有界面设置 KV） | `workbaby.db`（WAL） |
 | 配置（工作目录等固定项） | `config.yaml` |
 | 日志 | `logs/app.log`（全量）、`logs/warn.log`（warn 与 error） |
-| 内置运行时解压产物 | `runtime/node/`、`runtime/npm-global/`、`runtime/python/` |
+| 内置运行时解压产物 | `runtime/node/`、`runtime/gitbash/`（无本机 bash 才有）、`runtime/npm-global/` |
 | 运行时落盘记录 | `runtime/shell.json`（命令执行环境改了什么）、`runtime/npm-cache/` |
-| 终端里的 `pi` 入口 | `bin/pi.cmd`（同时把这个目录挂进当前用户 PATH） |
+| 终端里的 `pi` 入口 | `bin/pi.cmd` + `bin/pi`（Git Bash 用；目录挂进当前用户 PATH） |
 | 人设（附加系统提示） | `persona.md` |
 | 自定义背景图副本 | `background/` |
 | WebView2 profile（纯缓存） | `webview/` |

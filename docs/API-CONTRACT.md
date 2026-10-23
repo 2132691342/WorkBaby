@@ -67,12 +67,10 @@
 | POST | `/mcp/login` / `/mcp/logout` | OAuth 登录 / 登出 `{name}` |
 | POST | `/mcp/reload` | 重启 PI |
 | GET | `/files?path=` | 工作区目录列举（@ 引用面板） |
-| GET | `/runtime` | 运行时状态（Node / Python / PI） |
-| POST | `/runtime/redetect` | 重新探测 |
 | GET | `/env` | 环境闸门快照（含 `install_error`、`shell_*`、`terminal_*`） |
 | POST | `/env/install` / `/env/update` | 安装 / 升级 PI（进度走 `chat:setup`） |
 | POST | `/env/recheck` | 重新判定闸门，并重新探测 / 修一次命令执行环境 |
-| POST | `/env/shell` | 重新探测命令执行环境并写回 PI（`shellPath` 或 `+powershell/-bash`） |
+| POST | `/env/shell` | 重新探测命令执行环境并写回 PI（只在需要时写 `shellPath` 引导） |
 | POST | `/env/terminal` | 生成终端里的 `pi` 入口并挂到当前用户 PATH |
 | GET | `/engine/status` | 引擎本地快照：PI 版本与来源、运行中的进程数、运行时、插件包数量、终端入口状态（含 `terminal_shadowed_by` / `other_pis`） |
 | GET | `/engine/latest` | 联网查最新版本：PI + npm 来源的插件包（查不到只报 `registry_error`） |
