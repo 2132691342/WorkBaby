@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -28,6 +29,24 @@ func hasEmbeddedArchive(t *testing.T, name string) []byte {
 // TestBundledRuntimeChain 是 runtime 包唯一的测试入口：归档字节、解压安全与真实布局
 // 都在同一份归档上，一条链验完。
 func TestBundledRuntimeChain(t *testing.T) {
+	// 探测动作不许解压：系统里已有合规 Node 时，用户目录里不该凭空多出上百 MB 运行时。
+	t.Run("探测只读版本标记，不往用户目录落任何运行时", func(t *testing.T) {
+		root := t.TempDir()
+		p := Paths{NodeDir: filepath.Join(root, "node"), GitBashDir: filepath.Join(root, "gitbash")}
+		if st := InspectNode(p); st.Ready || st.Exe != "" || st.Dir != p.NodeDir {
+			t.Fatalf("空目录不该报告就绪: %+v", st)
+		}
+		if _, err := os.Stat(p.NodeDir); !os.IsNotExist(err) {
+			t.Fatal("探测 Node 时创建了运行时目录（应当只在真正要用时才解压）")
+		}
+		if st := InspectGitBash(p); st.Ready || st.Git != "" || st.Bash != "" {
+			t.Fatalf("空目录不该报告就绪: %+v", st)
+		}
+		if _, err := os.Stat(p.GitBashDir); !os.IsNotExist(err) {
+			t.Fatal("探测 Git 时创建了运行时目录")
+		}
+	})
+
 	// 换归档忘了同步 SHA 常量、构建机没拉 LFS（嵌进去的是指针文本）、归档里的 `..\`
 	// 与绝对路径把文件写到数据目录之外、官方 zip 布局变了——同一份归档字节上一条链全验。
 	t.Run("归档完整性、解压安全与真实解压布局", func(t *testing.T) {

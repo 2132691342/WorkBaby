@@ -28,6 +28,14 @@ type EngineStatusVO struct {
 	NodePath    string `json:"node_path"`
 	NodeSource  string `json:"node_source"`
 	NodeError   string `json:"node_error"`
+	// NodeLevel 是 node 目录挂在哪一级 PATH：system / user / both / none。
+	NodeLevel string `json:"node_level"`
+	// Git* 是当前生效的 git：助手跑命令与界面读状态用的是同一份。
+	GitReady   bool   `json:"git_ready"`
+	GitVersion string `json:"git_version"`
+	GitPath    string `json:"git_path"`
+	GitSource  string `json:"git_source"`
+	GitLevel   string `json:"git_level"`
 
 	AgentDir   string `json:"agent_dir"`
 	ModelReady bool   `json:"model_ready"`
@@ -57,9 +65,55 @@ type EngineStatusVO struct {
 	TerminalLevel string `json:"terminal_level"`
 }
 
-// TerminalLevelREQ 切换 PATH 级别入参：Level 为 system 或 user；写系统级经 UAC 提权。
+// TerminalLevelREQ 切换 PATH 级别入参：Level 为 system / user / none；写系统级经 UAC 提权。
 type TerminalLevelREQ struct {
 	Level string `json:"level"`
+}
+
+// LinkVO 是一个运行时组件（node / git / pi）在 PATH 上的落地情况。
+type LinkVO struct {
+	Ready   bool   `json:"ready"`
+	Source  string `json:"source"`
+	Version string `json:"version"`
+	Path    string `json:"path"`
+	// Level 是目录挂在哪一级 PATH：system / user / both / none。
+	Level string `json:"level"`
+	// Promotable 表示这个组件有目录可以提级 / 降级。
+	Promotable bool `json:"promotable"`
+	// Conflict 是提到系统级会遮住的已有安装（空表示不冲突）。
+	Conflict string `json:"conflict"`
+	Error    string `json:"error"`
+}
+
+// ToolchainVO 是 node / git / pi 的工具链快照：装引擎用的是哪份、能不能换、能不能提级。
+type ToolchainVO struct {
+	Node LinkVO `json:"node"`
+	Git  LinkVO `json:"git"`
+	Pi   LinkVO `json:"pi"`
+	// InstallPrefix 是 PI 安装 / 升级落点的 npm 全局前缀。
+	InstallPrefix string `json:"install_prefix"`
+	// Bound 表示 node 是装 PI 时钉下来的那份：后续升级与插件都回到它。
+	Bound bool `json:"bound"`
+	// Alt 是另一份可切换的 node（当前用内置时给出系统那份，反之给出内置那份），空表示没有可换的。
+	Alt *NodeOptionVO `json:"alt"`
+}
+
+// NodeOptionVO 是一份可切换的 node。
+type NodeOptionVO struct {
+	Exe     string `json:"exe"`
+	Version string `json:"version"`
+	Source  string `json:"source"`
+}
+
+// PromoteREQ 是运行时提级 / 降级入参：Component 为 node / git / pi，Level 为 system / user / none。
+type PromoteREQ struct {
+	Component string `json:"component"`
+	Level     string `json:"level"`
+}
+
+// NodeSwitchREQ 是切换运行时入参：Exe 为目标 node 的绝对路径，空表示回到自动选择。
+type NodeSwitchREQ struct {
+	Exe string `json:"exe"`
 }
 
 // TerminalLevelRESP 是切换后的终端入口读数。

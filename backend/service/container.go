@@ -2,6 +2,7 @@
 package service
 
 import (
+	"WorkBaby/backend/git"
 	"WorkBaby/backend/pi"
 	"WorkBaby/backend/pkg"
 )
@@ -33,6 +34,8 @@ func New(env *Env) (*Container, error) {
 	providers := NewProviderService(env)
 	chat := NewChatService(env, sessions, providers)
 	env.Chat, env.Sessions, env.Providers = chat, sessions, providers
+	// 助手跑命令与界面读状态必须是同一份 git：选定的来源在这里一次注入。
+	git.SetExe(env.PiEnv.GitExe())
 
 	// PI 监督器：进程配置由 PiEnv 提供，事件交给按工作区划分的翻译器。
 	// 人设走 --append-system-prompt，不写用户的 APPEND_SYSTEM.md。

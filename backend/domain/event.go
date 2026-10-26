@@ -214,6 +214,18 @@ type PiEnvVO struct {
 	NodeVersion string `json:"node_version"`
 	NodeSource  string `json:"node_source"`
 	NodeError   string `json:"node_error"`
+	// NodeBound 表示这份 node 是装 PI 时钉下来的那份。
+	NodeBound bool `json:"node_bound"`
+	// NodeLevel 是 node 目录挂在哪一级 PATH：system / user / both / none。
+	NodeLevel string `json:"node_level"`
+	// NodeConflict 是提级会遮住的已有 node 目录（空表示不冲突）。
+	NodeConflict string `json:"node_conflict"`
+
+	GitReady   bool   `json:"git_ready"`
+	GitPath    string `json:"git_path"`
+	GitVersion string `json:"git_version"`
+	GitSource  string `json:"git_source"`
+	GitLevel   string `json:"git_level"`
 
 	PiReady   bool   `json:"pi_ready"`
 	PiPath    string `json:"pi_path"`

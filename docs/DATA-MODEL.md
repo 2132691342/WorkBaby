@@ -5,7 +5,7 @@
 | 属于谁 | 存在哪 | 内容 |
 |---|---|---|
 | **PI** | `~/.pi/agent/`（或 `PI_CODING_AGENT_DIR`） | 会话 JSONL、`settings.json`、`models.json`、`mcp.json`、技能、扩展、包 |
-| **WorkBaby** | `%APPDATA%\WorkBaby\` | 界面偏好（KV 表）、内置运行时与解压现场、npm 全局前缀与缓存、终端入口、日志、背景图副本 |
+| **WorkBaby** | `%APPDATA%\WorkBaby\` | 界面偏好（KV 表）、内置运行时与解压现场、npm 全局前缀与缓存、终端入口、工具链绑定、日志、背景图副本 |
 
 会话、消息、用量都不在 WorkBaby 的库里：它们是 PI 写的文件，WorkBaby 只读。
 

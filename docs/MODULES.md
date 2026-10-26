@@ -59,7 +59,7 @@
 - 系统能力绑定（剪贴板、窗口、对话框、自启）分 Windows 与其它平台两个文件（`//go:build`），
   不写 `runtime.GOOS` 大分支
 
-**为什么**：装配点只有一个，依赖图才可审计（`tools/check-boundaries` 按这个点放行）；
+**为什么**：装配点只有一个，依赖图才可审计（装配期持有下层句柄是允许的唯一例外）；
 handler 薄，业务逻辑才有且只有一处（service）。
 
 **优势**：测试可以直接起 `Startup` 拿到完整装配（api/api_test.go 就这么干）；
@@ -82,8 +82,9 @@ handler 不含逻辑，改业务永远不用碰它。
   「分配 seq」与「投递」是一次原子步，否则前端按 seq 去重会丢事件
 - `translate.go` 把 `pi.Event` 翻成界面词汇表：这一层是「协议 → 界面」的唯一翻译点，
   ANSI 色码在这里剥（GUI 没有终端语义）
-- `engine.go` 是引擎页的数据出口：汇总 PI / 运行时 / 插件包的版本与运行状态，
-  管住「安装 / 升级只有一个在跑」的闸门，升级完重启全部进程让新内核生效
+- `engine.go` 是「运行时环境」与「助手引擎」两个面板的数据出口：汇总 PI / Node / Git 的来源、
+  版本与 PATH 级别，管住「安装 / 升级只有一个在跑」的闸门，升级完重启全部进程让新内核生效；
+  提级 / 换解释器也在这层编排（`Promote` / `SwitchNode`）
 - `market.go` 是插件市场页的数据出口：注册表条目与已装清单（npm 包名 → 本地版本）
   对账后交出「已装标记 + 本地版本」，安装复用 `extension.go` 的 CLI 链路
 
@@ -131,12 +132,19 @@ PI 改协议这里最先碎。
 
 **怎么实现**：
 
+- 工具链（`toolchain.go`）：一次解析出「用哪份 node / git / npm 前缀」，进程内缓存。
+  候选顺序 = 绑定记录 → `WORKBABY_NODE_EXE` → **注册表里的当前 PATH**（进程环境是启动快照）
+  → 常见安装根（`Program Files\nodejs`、注册表 `SOFTWARE\Node.js`、nvm / fnm / scoop / winget）
+  → 已解压的内置运行时；合规候选里取版本最高的那份，一份能跑的都没有才解压内置
+- 绑定：装引擎时把 node / npm 脚本 / 前缀 / git 写进 `<data>/runtime/toolchain.json`，
+  升级与插件增删改一律回到这份；失效或用户显式切换时重新绑定（清掉旧前缀）
 - 发现：用户 PATH（按目录顺序扫，跳过本应用生成的终端转发目录）→ 自装前缀 →
-  其它 npm 前缀逐级找 `pi.cmd`——用户已有 PI 优先，绝不装第二份；找到后把 shim 还原成
+  当前 node 的 npm 前缀逐级找 `pi.cmd`——用户已有 PI 优先，绝不装第二份；找到后把 shim 还原成
   `node + cli.js`。**node 永远是绝对路径**：`exec.Command` 只按本进程的 PATH 找可执行文件
 - 安装 / 升级：npm 跟随当前生效 node（用户 node 合规就用它旁边的 `npm-cli.js`，没有才
-  解压内置），前缀显式给到应用目录；官方源与国内镜像并联探测，
-  一趟失败换另一个源整跑一遍（完整流程与原因见 [specs/11](../specs/11-pi-bootstrap.md)）
+  解压内置），前缀跟着 node 走（系统 node 用它自己的 npm 前缀，不可写或内置 node 时落回
+  应用目录）；官方源与国内镜像并联探测，一趟失败换另一个源整跑一遍
+  （完整流程与原因见 [specs/11](../specs/11-pi-bootstrap.md)）
 - 版本对账：本地版本读包目录的 `package.json`，最新版本问 npm 注册表的
   `dist-tags.latest`（abbreviated 元数据 + 5 分钟缓存 + 12 秒超时 + 换源重试）
 - 命令执行环境（`shell.go`）：找真 bash（环境变量 / 注册表 / PATH 上的 `git.exe` 反推安装根）、
@@ -145,10 +153,11 @@ PI 改协议这里最先碎。
   `defaultTools` 永远不碰。自己写过的值记在 `runtime/shell.json` 才敢撤回
 - 终端入口（`terminal.go`）：写 `<data>/bin/pi.cmd`（CMD / PowerShell）与
   `<data>/bin/pi`（Git Bash 的 sh 脚本），两者钉当前生效 node + PI，启动时对齐刷新；
-  目录前置到 HKCU `Environment\Path`，写后广播 `WM_SETTINGCHANGE`。
-  PATH 级别可用户级 ⇄ 系统级互切（`elevate_windows.go`）：写 HKLM 一律经
-  ShellExecute `runas` 重跑本程序（`--path-admin`，main 在单实例守卫前拦截），
-  提权进程改完注册表即退出，结果只经退出码回传
+  目录前置到 HKCU `Environment\Path`，写后广播 `WM_SETTINGCHANGE`
+- 提级（`promote.go`）：node / git / pi 三个组件各自可挂 系统级 / 用户级 / 不挂。
+  纯用户级增删直接写 HKCU；写 HKLM 或从 HKLM 摘掉一律经 ShellExecute `runas` 重跑本程序
+  （`--path-admin <level> <dir;dir>`，main 在单实例守卫前拦截），提权进程改完注册表即退出，
+  结果只经退出码回传。提级前查冲突：PATH 上已有另一份合规的同类运行时就拒绝（9725）
 - 插件市场（`market.go`）：按 npm 关键字 `pi-package` 搜包（PI 官方的发现机制，
   双源回退 + 5 分钟缓存）；只做发现与回包解析，装卸走 PI 的 CLI
 - 闸门 `Detect`：按 node → pi → model 顺序报**第一个**不满足项并给原因
@@ -235,6 +244,8 @@ PI 改协议这里最先碎。
 - 归档经 `go:embed` 进 exe（Git LFS 托管源文件），首次用到才解压到数据目录，
   `.version` 标记命中版本跳过；解压前逐条目路径检查（拒绝绝对路径与 `..`）、512MB 上限；
   嵌进去的是 LFS 指针文本时按「包不可用」报错
+- 探测（`InspectNode` / `InspectGitBash`）只读版本标记与占位，**不解压**；
+  解压只在 `EnsureNode` / `EnsureGitBash` 被真正需要时发生
 - 内置运行时是**兜底**：系统已有合规 Node（≥ 22.19.0）或任何可用 bash 直接复用；
   Node 官方 zip 多一层顶层目录，解压时剥掉平铺（否则 `npm.cmd` 找错 node）；
   MinGit 平铺解压，且只带 `sh.exe`——复制一份命名 `bash.exe`（同一二进制），
@@ -245,7 +256,7 @@ PI 改协议这里最先碎。
 **为什么**：目标是「用户机器上什么都没装也能起来」；但内置只是兜底——
 用户自己装的高版本运行时体验更好，能复用就复用。
 
-**优势**：分发只有一个 exe；不联网也能完成环境引导。
+**优势**：分发只有一个 exe；不联网也能完成环境引导；系统里有合规运行时则一个字节都不落盘。
 **代价**：exe 约 74MB；构建期强依赖 LFS 拉取；首次用到内置时多等一次解压（约 3 秒）。
 
 ---
@@ -338,37 +349,20 @@ PI 改协议这里最先碎。
 
 ---
 
-## tools/check-boundaries — 依赖门禁
+## 验证：四条标准命令
 
-**是什么**：读编译器视角的真实 import 关系（`go list -json`），逐层比对允许表。
-
-**怎么实现**：按包枚举 import，对照 AGENTS.md §2.2 的允许 / 禁止表；
-额外检查能力域不回引上层。不做文本 grep——注释与字符串里的 import 字样会让 grep 得出错误结论。
-
-**优势**：架构规则可机械验证，`check.ps1 -Full` 里跑。
-**代价**：改包结构或调整依赖时要同步改它的规则表。
-
----
-
-## scripts/check.ps1 — 验证入口
-
-**是什么**：唯一验证入口，分档收口：gofmt → 注释规范 → 前端构建（dist 缺失或 `-Full` 时）→
-编译 → vet 与依赖边界（仅 `-Full`）→ 测试。
+**是什么**：`gofmt` / `go build` / `go vet` / `go test`——不另造包装脚本，CI 与本地跑同一组命令。
 
 **怎么实现**：
 
-- 档位：无参快门（全部短测试，约 12s）；`-Pkg` 单包（约 5s，**不建前端**）；
-  `-Run <关键字>` 定点（`-run` 拼空前缀让子测试名不必带入口名，且只编译含测试的包，约 12s）；
-  `-Full` 全量门禁（约 50s）；`-List` 打印入口与子测试索引
-- 前端只在要编译 main 包时才建：`frontend/dist` 只是 `main.go` 的 `go:embed` 硬依赖，
-  其余包一概不依赖它——否则验一个后端包要白等十几秒的前端构建
-- 测试一律跑 `./...`（`-Run` 除外：按磁盘上的 `*_test.go` 现算包清单）
-- 失败时从日志摘摘要（`--- FAIL` / `panic` / `文件:行号`）打印，CI 里追加进 job summary
-- `comments` 步骤把 §2.6 的「连续注释 ≤ 2 行」变成门禁（`gofmt` 给 `//go:` 指令补的分隔行豁免）
-- `-short` 跳过三条慢链路（真 git 子进程、归档真解压、本机真 PI 回合），只在 `-Full` 跑到
+- 日常：`go test ./... -short -count=1`（跳过真 git 子进程与归档真解压两条慢链路）
+- 单包：`go test ./backend/pi/env -short -count=1`（不建前端：`frontend/dist` 只是 `main.go` 的
+  `go:embed` 硬依赖）
+- 定点：`go test ./... -run 'TestPiChain/冲突' -count=1`（`-run` 按 `/` 分段匹配，不必带入口名）
+- 提交前 / CI：`gofmt -l backend main.go app.go` → `go vet ./...` → `go test ./... -count=1`
 
-**为什么**：验证命令散在文档 / CI / 本地各写一套必然漂移；一个脚本一个入口，
-改验证流程只改一处。
+**为什么**：验证命令散在文档 / CI / 本地各写一套必然漂移。四种动作本来就是标准命令，
+包一层只多一份要维护的档位逻辑。
 
-**优势**：改一个小功能时单包 5 秒、定点 12 秒；失败摘要直接给到行号。
-**代价**：脚本本身有档位逻辑（约 180 行），改它要理解各档的关系。
+**优势**：任何人 `go test` 就知道怎么验；CI 与本地一字不差。
+**代价**：没有「一次性跑全套」的开关，提交前要按顺序敲几条；依赖方向靠评审守（见 §2.2）。

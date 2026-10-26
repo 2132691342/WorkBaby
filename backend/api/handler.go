@@ -97,11 +97,9 @@ func (h *Handler) Startup(ctx context.Context) error {
 	// 启动横幅：出问题时第一个要问的是「哪个版本、数据在哪、PI 的配置在哪」。
 	pkg.Infof("startup: WorkBaby %s 启动（数据目录 %s，PI 配置目录 %s）", h.Version, paths.DataDir, paths.AgentDir)
 
-	// 内置运行时：失败只告警不阻断启动，但原因必须写清楚。
-	reportRuntime(paths)
-
-	// PI 的运行环境：优先复用系统里已有的 Node / PI。
+	// 运行时：只读现状并按需解压，失败只告警不阻断启动，但原因必须写清楚。
 	h.PiEnv = pienv.New(paths)
+	reportRuntime(h.PiEnv)
 	preparePiEnv(h.PiEnv)
 
 	h.Skills = skill.New()
@@ -138,20 +136,34 @@ func preparePiEnv(e *pienv.Env) {
 		pkg.Warnf("startup: 终端里的 pi 会被 %s 抢先，请在系统环境变量里清掉那份旧安装", st.ShadowedBy)
 		return
 	}
-	// 自装或入口已存在（用户开过「让终端也能用 pi」）时每次启动都刷：当前生效的 node / PI
-	// 漂移了入口必须跟着改，否则界面与终端跑在两个内核上；入口目录也必须始终在 PATH 最前面。
-	if e.OwnsInstall() || pkg.FileExists(st.Shim) || st.OnPath {
+	// 入口已存在或 PI 装在我们自己的前缀里时每次启动都刷：当前生效的 node / PI 漂移了入口必须跟着改。
+	// pi 本来就在 PATH 上（用户自己的 npm 前缀）时不再生成一份——PATH 上不能有两个 pi。
+	if pkg.FileExists(st.Shim) || st.OnPath || (e.OwnsInstall() && !e.PiOnPath()) {
 		if _, err := e.EnsureTerminal(); err != nil {
 			pkg.Warnf("startup: 生成终端入口失败: %v", err)
 		}
 	}
 }
 
-// reportRuntime 留痕内置 Node 可用性：提前做是为了让失败点落在启动日志里。
-func reportRuntime(paths runtime.Paths) {
-	if st := runtime.NodeStatusOf(paths); st.Exe == "" {
-		pkg.Warnf("startup: 内置 Node 不可用（将回退系统 node）：%s", st.Err)
+// reportRuntime 留痕这一轮选中的运行时：出问题时第一个要问的就是「用的哪份 node / git」。
+func reportRuntime(e *pienv.Env) {
+	tc := e.Toolchain()
+	if tc.Node.Exe == "" {
+		pkg.Warnf("startup: 没有可用的 Node（系统里没有合规版本，内置运行时也未就位）")
+	} else {
+		pkg.Infof("startup: Node %s（%s），Git %s",
+			tc.Node.Version, pienv.ToolchainLabel(tc), firstNonEmptyString(tc.Git.Version, "未找到"))
 	}
+}
+
+// firstNonEmptyString 取第一个非空值，只为日志兜底。
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Ctx 暴露 Wails 生命周期上下文，供系统能力绑定使用。

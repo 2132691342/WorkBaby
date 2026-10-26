@@ -45,7 +45,7 @@ WorkBaby 的写入口只改自己掌管的字段（`name` / `api` / `baseUrl` / 
 | 位置 | 作用域 | 写入 |
 |---|---|---|
 | 输入框的思考档 chip | 当前会话 | `set_thinking_level`（写进会话文件） |
-| 设置 · 行为的「默认思考档」 | 全局默认 | `settings.json` 的 `defaultThinkingLevel` |
+| 设置 · 助手引擎 →「运行参数」的思考档 | 全局默认 | `settings.json` 的 `defaultThinkingLevel` |
 | 模型条目的 `thinkingLevelMap` | 该模型支持哪些档 | `models.json` |
 
 界面按当前模型 `thinkingLevelMap` 里非空的档位列出可选项（`ProviderService` 把它读成

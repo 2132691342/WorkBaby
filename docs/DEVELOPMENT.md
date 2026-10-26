@@ -10,37 +10,27 @@
 
 ## 常用命令
 
-验证只有一个入口：`scripts/check.ps1`。分档规则、保留判据与全部入口索引都在
-AGENTS.md §3，这里只留平时手边那几条：
+验证就是标准 Go 命令，没有包装脚本。分档规则与全部入口索引在 AGENTS.md §3：
 
 ```powershell
-pwsh scripts/check.ps1                        # 日常快门（格式 → 编译 → 全部短测试）
-pwsh scripts/check.ps1 -Pkg backend/service   # 明确只碰了一个包
-pwsh scripts/check.ps1 -Run 冲突               # 只跑名字命中的子测试（不必知道它挂在哪个入口下）
-pwsh scripts/check.ps1 -List                  # 入口与子测试名的索引
-pwsh scripts/check.ps1 -Full                  # 提交前 / CI：前端构建 + vet + 依赖门禁 + 全量测试
+go test ./... -short -count=1                   # 日常：全部短测试（跳过真 git / 真解压 / 本机真 PI）
+go test ./backend/service -short -count=1       # 明确只碰了一个包
+go test ./... -run 'TestServiceChain/会话索引' -count=1   # 定点到一段（不必知道它挂在哪个入口下）
+go test ./... -count=1                          # 提交前 / CI：含两条慢链路（真 git、真解压）
+gofmt -l backend main.go app.go                 # 必须无输出
+go vet ./...
 
 cd frontend
-npm ci                                        # 首次（锁文件优先）
-npm run build                                 # vue-tsc + vite build → frontend/dist
+npm ci                                          # 首次（锁文件优先）
+npm run build                                   # vue-tsc + vite build → frontend/dist
 ```
 
-定位测试的标准动作：先 `-List` 拿索引，再 `-Run <关键字>` 落到一段，不翻测试文件。
-入口一律叫 `Test<Domain>Chain`，一个包一个入口，一个子测试只讲一种坏法；
-保留判据与全部索引在 AGENTS.md §3。
+定位测试的标准动作：先看 AGENTS.md §3.4 的索引（或 `grep -n 'func Test' backend/**/*_test.go`），
+再用 `-run` 落到一段，不翻测试文件。入口一律叫 `Test<Domain>Chain`，一个包一个入口，
+一个子测试只讲一种坏法。
 
-单独跑某一步时才手敲：
-
-```powershell
-go build ./...                                  # 比测试更早暴露类型错误，覆盖全部包
-go test -short -count=1 ./backend/service       # 只测一个包
-go test -short -count=1 -run 'TestServiceChain/会话索引' -v ./backend/service   # 定点到一段
-go run ./tools/check-boundaries                 # 依赖方向门禁
-```
-
-验证脚本在 `-Full` 档把测试输出落到 `.check/test-output.log`；失败时自动打印失败摘要——
-先抓 `--- FAIL` / `panic` / `文件:行号`，抽不到再退回末尾若干行。
-本地直接看屏幕，CI 里同一份内容追加进 job summary，不必下载 artifact。
+依赖方向（AGENTS.md §2.2）没有机械门禁：编译器只挡循环依赖，挡不住越层引用；
+评审时先看 `git diff` 里的新 import。
 
 ## 调试真实 PI
 
@@ -67,11 +57,12 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 ├── workbaby.db                SQLite（WAL）：只有界面设置 KV
 ├── config.yaml                工作目录等固定项
 ├── logs\                      app.log（全量）/ warn.log（warn 与 error）
-├── bin\pi.cmd · pi            终端里的 pi 入口（cmd/PowerShell 用 .cmd，Git Bash 用 pi；目录挂在 PATH 上，默认用户级、引擎页可切系统级）
-├── runtime\node\              内置 Node（首次用时解压）
+├── bin\pi.cmd · pi            终端里的 pi 入口（cmd/PowerShell 用 .cmd，Git Bash 用 pi；目录挂在 PATH 上，默认用户级、设置页可切系统级）
+├── runtime\node\              内置 Node（系统里一份能跑的都没有时才解压）
 ├── runtime\gitbash\           内置 Git Bash（本机没有可用 bash 时才解压）
-├── runtime\npm-global\        WorkBaby 代装 PI 的 npm 前缀
+├── runtime\npm-global\        WorkBaby 代装 PI 的 npm 前缀（内置 node 或系统前缀不可写时用）
 ├── runtime\shell.json         命令执行环境的自愈记录（写过什么才敢撤回什么）
+├── runtime\toolchain.json     工具链绑定：装引擎用的是哪份 node / 哪个前缀 / 哪份 git
 ├── runtime\npm-cache\         npm 缓存
 ├── tmp\                       临时解压与中转（启动时清扫）
 ├── background\                自定义背景图副本
@@ -126,8 +117,8 @@ $env:PI_CODING_AGENT_DIR = "$env:TEMP\wb-dev\agent"
 | 现象 | 先看 |
 |---|---|
 | 技能 / 插件 / 模型全是空 | `PI_CODING_AGENT_DIR` 是否被覆盖；日志里的「PI 配置目录」是不是你期望的那个 |
-| 助手执行命令报 WSL 的错 | 命令执行环境选中了 WSL 启动器；点「设置 · 助手引擎 → 重新检测并修复」，或装 Git for Windows 后重跑 |
-| 终端里敲 `pi` 找不到 | 「设置 · 助手引擎 → 终端命令」生成入口并挂 PATH，**新开**终端才生效；管理员或其它账户的终端读的是系统级 PATH，可在引擎页把入口切到系统级 |
+| 助手执行命令报 WSL 的错 | 命令执行环境选中了 WSL 启动器；点「设置 · 运行时环境 → 重新检测并修复」，或装 Git for Windows 后重跑 |
+| 终端里敲 `pi` 找不到 | 「设置 · 运行时环境 → 命令与终端」生成入口并挂 PATH，**新开**终端才生效；管理员或其它账户的终端读的是系统级 PATH，可在同一处把入口切到系统级 |
 | 发了消息没反应 | 环境闸门是否 ready；日志里 `chat: 已发送` 有没有出现 |
 | 同一目录第二条对话报 5005 | 这是内核约束（一个目录一个当前会话），等第一条跑完 |
 | 提问卡点了没反应 | `POST /chat/answer` 的 5010 说明它已失效；看 PI 是否还在跑这一轮 |

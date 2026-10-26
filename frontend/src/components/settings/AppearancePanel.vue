@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 外观面板：主题、语言、字体、字号、消息显示与背景。
-// 影响「怎么做事」的选项都在「行为」面板——用户找设置时是带着目的来的。
+// 外观面板：只看「看得见的样子」——主题、字体字号、消息显示与背景。
+// 语言与各项开关在「行为」面板；助手参数在「引擎」面板。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
@@ -18,7 +18,6 @@ import { useTheme } from '../../composables/useTheme'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
-import { LOCALES, setLocale, type Locale } from '../../i18n'
 import AppIcon from '../common/AppIcon.vue'
 import SettingsSection from './SettingsSection.vue'
 import { OpenFileDialog } from '../../../wailsjs/go/main/App'
@@ -73,17 +72,6 @@ async function toggleThinking() {
     /* setValue 已提示并回滚 */
   } finally {
     thinkingBusy.value = false
-  }
-}
-
-const currentLocale = computed<Locale>(() => (store.values['language'] === 'en' ? 'en' : 'zh-CN'))
-async function chooseLanguage(locale: Locale) {
-  if (locale === currentLocale.value) return
-  try {
-    await store.setValue('language', locale)
-    setLocale(locale)
-  } catch {
-    /* setValue 已提示 */
   }
 }
 
@@ -187,13 +175,6 @@ onMounted(async () => {
     </SettingsSection>
 
     <SettingsSection icon="type" :title="t('settings.appearance.textSection')" divided>
-      <div class="wb-set-row">
-        <div class="wb-set-row-tx"><b>{{ t('settings.appearance.language') }}</b></div>
-        <el-radio-group :model-value="currentLocale" @change="(v: string | number | boolean | undefined) => chooseLanguage(v as Locale)">
-          <el-radio-button v-for="l in LOCALES" :key="l.key" :value="l.key">{{ l.name }}</el-radio-button>
-        </el-radio-group>
-      </div>
-
       <div class="wb-set-row">
         <div class="wb-set-row-tx"><b>{{ t('settings.appearance.fontFamily') }}</b></div>
         <el-radio-group :model-value="currentFont" @change="(v: string | number | boolean | undefined) => setFont(String(v))">

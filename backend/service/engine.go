@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"WorkBaby/backend/domain"
+	"WorkBaby/backend/git"
 	pienv "WorkBaby/backend/pi/env"
 	"WorkBaby/backend/pkg"
 )
@@ -35,6 +36,9 @@ func (s *EngineService) Status() *domain.EngineStatusVO {
 		InstallRoot: s.env.PiEnv.PiPackageDir(),
 		NodeReady:   det.NodeReady, NodeVersion: det.NodeVersion,
 		NodePath: det.NodePath, NodeSource: det.NodeSource, NodeError: det.NodeError,
+		NodeLevel: det.NodeLevel,
+		GitReady:  det.GitReady, GitVersion: det.GitVersion,
+		GitPath: det.GitPath, GitSource: det.GitSource, GitLevel: det.GitLevel,
 		AgentDir:   det.AgentDir,
 		ModelReady: det.ModelReady, Blocking: det.Blocking,
 		Packages:     len(resolvePackages(s.env)),
@@ -44,7 +48,7 @@ func (s *EngineService) Status() *domain.EngineStatusVO {
 	vo.ShellKind, vo.ShellPath = shell.Kind, shell.Path
 	vo.ShellSource, vo.ShellUsable, vo.ShellError = shell.Source, shell.Usable, shell.Error
 	terminal := s.env.PiEnv.TerminalStatusOf()
-	vo.TerminalReady, vo.TerminalPath = terminal.Ready, terminal.Shim
+	vo.TerminalReady, vo.TerminalPath = terminal.Ready, terminal.Path
 	vo.TerminalOnPath, vo.TerminalError = terminal.OnPath, terminal.Error
 	vo.TerminalShadowedBy = terminal.ShadowedBy
 	vo.TerminalLevel = terminal.Level
@@ -56,6 +60,80 @@ func (s *EngineService) Status() *domain.EngineStatusVO {
 		vo.Running = sup.RunningCount()
 	}
 	return vo
+}
+
+// Toolchain 汇总 node / git / pi 的工具链快照：装引擎用的是哪份、能不能换、能不能提级。
+func (s *EngineService) Toolchain() *domain.ToolchainVO {
+	e := s.env.PiEnv
+	tc := e.Toolchain()
+	// 读一次工具链就同步一次 git：用户刚装了 Git 时不用重启应用才能用上。
+	git.SetExe(tc.Git.Exe)
+	vo := &domain.ToolchainVO{InstallPrefix: e.InstallPrefix(), Bound: tc.Bound}
+	vo.Node = domain.LinkVO{
+		Ready:  tc.Node.Exe != "" && pienv.NodeOK(tc.Node.Version),
+		Source: tc.Node.Source, Version: tc.Node.Version, Path: tc.Node.Exe,
+	}
+	fillLink(&vo.Node, e.LinkOf(pienv.ComponentNode))
+	vo.Git = domain.LinkVO{
+		Ready: tc.Git.Exe != "", Source: tc.Git.Source, Version: tc.Git.Version, Path: tc.Git.Exe,
+	}
+	fillLink(&vo.Git, e.LinkOf(pienv.ComponentGit))
+	fillLink(&vo.Pi, e.LinkOf(pienv.ComponentPi))
+	if exe, src := e.PiExe(); exe != "" {
+		vo.Pi.Ready, vo.Pi.Path, vo.Pi.Source, vo.Pi.Version = true, exe, src, e.PiVersion(exe)
+	}
+	if alt, ok := e.AlternateNode(); ok {
+		vo.Alt = &domain.NodeOptionVO{Exe: alt.Exe, Version: alt.Version, Source: alt.Source}
+	}
+	return vo
+}
+
+// fillLink 把 PATH 落地状态并进组件快照。
+func fillLink(vo *domain.LinkVO, st pienv.LinkStatus) {
+	vo.Level, vo.Promotable, vo.Conflict = st.Level, st.Promotable, st.Conflict
+}
+
+// Promote 把运行时的目录提到系统级或降回用户级；写系统级由后端拉起 UAC。
+func (s *EngineService) Promote(component, level string) (*domain.ToolchainVO, error) {
+	if _, err := s.env.PiEnv.Promote(component, level); err != nil {
+		return s.Toolchain(), err
+	}
+	if component == pienv.ComponentNode || component == pienv.ComponentGit {
+		if sup := s.env.PiSupervisor(); sup != nil {
+			_ = sup.RestartAll()
+		}
+	}
+	return s.Toolchain(), nil
+}
+
+// SwitchNode 换一份 node 重新绑定：后续升级与插件管理都跟着走这份解释器。
+func (s *EngineService) SwitchNode(exe string) (*domain.ToolchainVO, error) {
+	if err := s.refuseWhileRunning("切换运行时"); err != nil {
+		return s.Toolchain(), err
+	}
+	s.stopAll()
+	defer s.restartAll()
+	if err := s.env.PiEnv.Rebinding(exe); err != nil {
+		return s.Toolchain(), s.recordAnd(err)
+	}
+	git.SetExe(s.env.PiEnv.GitExe())
+	return s.Toolchain(), nil
+}
+
+// EnableBundledGit 解压内置 MinGit 并接管 git：机器上一份 git 都没有时用它兜底。
+func (s *EngineService) EnableBundledGit() (*domain.ToolchainVO, error) {
+	pick, err := s.env.PiEnv.EnableBundledGit()
+	if err != nil {
+		return s.Toolchain(), s.recordAnd(err)
+	}
+	git.SetExe(pick.Exe)
+	return s.Toolchain(), nil
+}
+
+// recordAnd 记下失败原因再原样返回，省掉每个分支各写一次。
+func (s *EngineService) recordAnd(err error) error {
+	s.record(err)
+	return err
 }
 
 // FixShell 重新探测命令执行环境并写回 PI；用户刚装了 Git 之后点这个。
@@ -142,6 +220,11 @@ func (s *EngineService) prepareRuntime(onLine func(string)) {
 		}
 	} else if onLine != nil {
 		onLine("命令执行环境：" + pienv.ShellLabel(st) + "（" + st.Path + "）")
+	}
+	// 装回了用户自己的 npm 前缀时 pi 已在 PATH 上：再生成转发入口就是第二个 pi 条目。
+	if s.env.PiEnv.PiOnPath() {
+		report(onLine, "pi 已在 PATH 上，不再生成额外的终端入口")
+		return
 	}
 	st, err := s.env.PiEnv.EnsureTerminal()
 	switch {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 设置视图：左侧板块目录（四组八项）+ 右侧面板。当前板块落在 URL（/settings/:tab）上。
+// 设置视图：左侧板块目录（四组九项）+ 右侧面板。当前板块落在 URL（/settings/:tab）上。
+// 分组按「谁的事」划：助手（运行条件）· 模型 · 能力 · 应用（这个程序自己）。
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -12,6 +13,7 @@ import EnginePanel from '../components/settings/EnginePanel.vue'
 import ExtensionPanel from '../components/settings/ExtensionPanel.vue'
 import MCPPanel from '../components/settings/MCPPanel.vue'
 import ProviderPanel from '../components/settings/ProviderPanel.vue'
+import RuntimePanel from '../components/settings/RuntimePanel.vue'
 import SkillPanel from '../components/settings/SkillPanel.vue'
 import ToolPanel from '../components/settings/ToolPanel.vue'
 
@@ -21,8 +23,11 @@ const router = useRouter()
 
 const GROUPS = [
   {
-    key: 'engine',
-    items: [{ key: 'engine', icon: 'cpu' }],
+    key: 'assistant',
+    items: [
+      { key: 'runtime', icon: 'terminal' },
+      { key: 'engine', icon: 'cpu' },
+    ],
   },
   {
     key: 'model',
@@ -40,7 +45,7 @@ const GROUPS = [
     ],
   },
   {
-    key: 'interface',
+    key: 'app',
     items: [
       { key: 'appearance', icon: 'contrast' },
       { key: 'behavior', icon: 'sliders' },
@@ -49,6 +54,7 @@ const GROUPS = [
 ] as const
 
 const VALID = new Set<string>(GROUPS.flatMap((g) => g.items.map((i) => i.key)))
+// 落点保持「模型服务」：设置页最常被点开的目的是加一个模型，不是看引擎版本。
 const tab = ref<string>(
   typeof route.params.tab === 'string' && VALID.has(route.params.tab) ? route.params.tab : 'providers',
 )
@@ -63,8 +69,9 @@ watch(tab, (next) => {
   if (route.params.tab !== next) void router.replace({ name: 'settings', params: { tab: next } })
 })
 
-// 八个面板 v-if 懒挂载：只打开「外观」时不去拉模型服务与技能列表
+// 九个面板 v-if 懒挂载：只打开「外观」时不去拉模型服务与技能列表
 const PANELS = {
+  runtime: RuntimePanel,
   engine: EnginePanel,
   providers: ProviderPanel,
   skills: SkillPanel,

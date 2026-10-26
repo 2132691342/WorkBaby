@@ -22,9 +22,11 @@ PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行�
 | MCP | 配置原文编辑 + 在线状态与工具清单，支持 OAuth 登录 |
 | 工作区 | 改动 / 提交 / 历史 / 分支：助手动了什么，在这里对账并收成一次提交；对话里也能直接看单个文件的改动 |
 | 仪表盘 | token 与估算花费（按天 / 模型 / 会话），全部来自会话文件 |
-| 环境 | 优先复用本机已有的 PI 与 Node（够新就用你的）；缺了才用内置运行时兜底。装 PI 与插件包的 npm 跟随当前生效的 Node，官方源与国内镜像自动选快的那个 |
+| 环境 | 优先复用本机已有的 PI / Node / Git：合规就直接用，一个字节都不解压；一份能跑的都没有才解压内置运行时。装 PI 与插件包的 npm 跟随当前生效的 Node，官方源与国内镜像自动选快的那个 |
+| 工具链 | 用哪份 Node 装的引擎就绑定哪份：之后升级、插件增删改、终端入口全回到它；系统里后来装了 Node 可以一键换过去 |
+| 提级 | Node / Git / PI 三个组件各自可挂系统级 / 用户级 / 不挂：写系统级经 UAC，提级前先查「会不会遮住已经在用的那份」 |
 | 命令执行 | 自动找出真正可用的 bash（Git Bash / MSYS2 / Cygwin，含自定义安装目录），剔掉跑不动的 WSL 启动器；本机一份都没有时解压内置 Git Bash 兜底 |
-| 终端 | 生成 `pi` 的终端入口并挂 PATH（默认用户级，可经 UAC 切系统级）：新开一个终端就能直接敲 `pi` |
+| 终端 | 生成 `pi` 的终端入口并挂 PATH：新开一个终端就能直接敲 `pi`；`pi` 本来就在 PATH 上时不重复生成 |
 
 「能看见」的落点是工具卡、提问卡、工作区差异与用量仪表盘；
 「能控制」的落点是每一个落盘配置的开关与 PI 自己的命令行。
@@ -77,20 +79,19 @@ WorkBaby/
 │   └── tray/ singleinstance/
 ├── frontend/src/            api / components / composables / locales / stores / types / utils / views + 四个 CSS
 ├── assets/docs/             内置帮助手册
-├── docs/ specs/             项目级文档与子系统规格
-└── tools/check-boundaries   依赖方向门禁
+└── docs/ specs/             项目级文档与子系统规格
 ```
 
 ## 开发
 
 ```bash
-wails dev                                # 热重载（前端改完自动刷新）
-pwsh scripts/check.ps1                   # 快门：格式 + 编译 + 短测试（日常，约 12s）
-pwsh scripts/check.ps1 -Pkg backend/pi/env  # 只验一个包（约 5s，不建前端）
-pwsh scripts/check.ps1 -Run 冲突          # 只跑名字命中的子测试（约 12s）
-pwsh scripts/check.ps1 -List              # 列全部测试入口与子测试名（索引）
-pwsh scripts/check.ps1 -Full              # 前端构建 + vet + 依赖边界 + 全量测试（发版前 / CI）
-wails build                               # 产物 build/bin/WorkBaby.exe
+wails dev                            # 热重载（前端改完自动刷新）
+go test ./... -short -count=1        # 日常：全部短测试（跳过真 git / 真解压 / 本机真 PI）
+go test ./backend/pi/env -count=1    # 只验一个包
+go test ./... -run 'TestPiChain/冲突' -count=1   # 只跑名字命中的子测试
+go test ./... -count=1               # 全量（提交前 / CI）
+cd frontend && npm run build         # 改了前端：vue-tsc -b && vite build
+wails build                          # 产物 build/bin/WorkBaby.exe
 ```
 
 跑起来要 Go 1.24+、Node 24+、Wails CLI。PI 与模型不预装也行：环境向导会带用户装。
@@ -120,10 +121,10 @@ wails build                               # 产物 build/bin/WorkBaby.exe
 | [02](specs/02-session.md) | 会话 | [09](specs/09-mcp.md) | MCP 外部工具 |
 | [03](specs/03-skill.md) | 技能 | [10](specs/10-pi-supervisor.md) | PI 监督 |
 | [04](specs/04-desktop-shell.md) | 桌面壳 | [11](specs/11-pi-bootstrap.md) | PI 引导 |
-| [05](specs/05-user-manual.md) | 应用内手册 | [12](specs/12-workspace-files.md) | 工作区文件面板 |
-| [06](specs/06-prompt-and-settings.md) | 模型、提示与人设 | [13](specs/13-extensions.md) | 插件（扩展与包） |
-| [07](specs/07-usage-and-context.md) | 用量与上下文 | | |
+| [06](specs/06-prompt-and-settings.md) | 模型、提示与人设 | [12](specs/12-workspace-files.md) | 工作区文件面板 |
+| [07](specs/07-usage-and-context.md) | 用量与上下文 | [13](specs/13-extensions.md) | 插件（扩展与包） |
 
-应用内置手册面向用户（`assets/docs/`），specs 与 docs 面向开发，两者不重复维护同一份话术。
+应用内置手册面向用户（`assets/docs/`，实现见 [PAGE-STRUCTURE](docs/PAGE-STRUCTURE.md)「HelpView」），
+specs 与 docs 面向开发，两者不重复维护同一份话术。
 
 内部项目，未公开发布。

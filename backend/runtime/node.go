@@ -1,10 +1,9 @@
-// 内置 Node 运行时：上游 win-x64 zip 随二进制内嵌，首次启动解压到数据目录。
+// 内置 Node 运行时：上游 win-x64 zip 随二进制内嵌，真正要用时才解压到数据目录。
 // 归档含单层目录，解压必须剥掉它平铺到根，否则 npm.cmd 内部的相对路径指错。
 package runtime
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -24,32 +23,27 @@ const NodeArchiveSHA256 = "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721c
 // nodeArchiveName 返回内嵌归档文件名。
 func nodeArchiveName() string { return nodeArchiveRooted + ".zip" }
 
-// NodeStatus 报告内置 Node 的可用状态与失败原因。
-type NodeStatus struct {
+// NodeState 是内置 Node 的落盘现状：只读版本标记与占位，不解压。
+// 系统里已有合规 node 时，一个字节都不该落到用户目录。
+type NodeState struct {
+	Dir     string
 	Exe     string
-	Err     string
-	Source  string
 	Version string
+	Ready   bool
 }
 
-// NodeStatusOf 探测内置 Node。
-func NodeStatusOf(p Paths) NodeStatus {
-	exe, err := EnsureNode(p)
-	if err != nil {
-		return NodeStatus{Err: err.Error()}
+// InspectNode 读内置 Node 的现状，不触发解压。
+func InspectNode(p Paths) NodeState {
+	st := NodeState{Dir: p.NodeDir}
+	if !nodeVersionMatches(p) {
+		return st
 	}
-	return NodeStatus{Exe: exe, Source: "bundled", Version: nodeVersion}
-}
-
-// NpmCmd 返回内置 npm 的入口（Windows 上是 npm.cmd）。
-func NpmCmd(p Paths) string {
-	for _, name := range []string{"npm.cmd", "npm"} {
-		candidate := filepath.Join(p.NodeDir, name)
-		if pkg.FileExists(candidate) {
-			return candidate
-		}
+	exe := filepath.Join(p.NodeDir, "node.exe")
+	if !pkg.FileExists(exe) {
+		return st
 	}
-	return ""
+	st.Exe, st.Version, st.Ready = exe, nodeVersion, true
+	return st
 }
 
 // EnsureNode 保证内置 Node 已解压并返回 node 的路径。
@@ -90,14 +84,4 @@ func nodeVersionMatches(p Paths) bool {
 		return false
 	}
 	return strings.TrimSpace(string(raw)) == nodeVersion
-}
-
-// NodeSystemExe 返回系统 PATH 上的 node（内置不可用时兜底）。
-func NodeSystemExe() string {
-	for _, name := range []string{"node.exe", "node"} {
-		if exe, err := exec.LookPath(name); err == nil {
-			return exe
-		}
-	}
-	return ""
 }

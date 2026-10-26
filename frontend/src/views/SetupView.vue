@@ -8,7 +8,7 @@ import * as api from '../api'
 import { useSetupLog } from '../composables/useSetupLog'
 import { useSettingsStore } from '../stores/settings'
 import { useToastStore } from '../stores/toast'
-import type { PiEnvVO } from '../types/api'
+import type { PiEnvVO, ToolchainVO } from '../types/api'
 import AppIcon from '../components/common/AppIcon.vue'
 import ProviderPanel from '../components/settings/ProviderPanel.vue'
 
@@ -18,12 +18,15 @@ const settings = useSettingsStore()
 const toast = useToastStore()
 
 const env = ref<PiEnvVO | null>(null)
+const toolchain = ref<ToolchainVO | null>(null)
 const loading = ref(true)
 const loadErr = ref('')
 const installing = ref(false)
 const rechecking = ref(false)
 const fixingShell = ref(false)
 const enablingTerminal = ref(false)
+const promotingNode = ref(false)
+const switchingNode = ref(false)
 // 上一次安装失败的原因：闸门快照里带回来，比只看日志尾巴靠谱
 const installErr = ref('')
 
@@ -75,10 +78,20 @@ async function load() {
   try {
     env.value = await api.env.status()
     installErr.value = env.value?.install_error || ''
+    void loadToolchain()
   } catch (e) {
     loadErr.value = (e as Error)?.message || t('errors.generic')
   } finally {
     loading.value = false
+  }
+}
+
+/** 运行时工具链：向导页只用它判断「有没有更合适的 Node 可换、能不能提级」 */
+async function loadToolchain() {
+  try {
+    toolchain.value = await api.env.toolchain()
+  } catch {
+    toolchain.value = null
   }
 }
 
@@ -88,11 +101,43 @@ async function recheck() {
   try {
     env.value = await api.env.recheck()
     installErr.value = env.value?.install_error || ''
+    void loadToolchain()
     void settings.loadBoot()
   } catch (e) {
     toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   } finally {
     rechecking.value = false
+  }
+}
+
+/** 把内置 Node 提到系统级：之后终端与其它程序也能用它（要过一次 UAC） */
+async function promoteNodeSystem() {
+  if (promotingNode.value) return
+  promotingNode.value = true
+  try {
+    toolchain.value = await api.env.promote('node', 'system')
+    env.value = await api.env.recheck()
+    toast.ok(t('settings.runtime.promoteDone', { level: t('settings.runtime.levelSystem') }))
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    promotingNode.value = false
+  }
+}
+
+/** 系统里另有一份合规 Node：换过去，后续升级与插件都跟着它 */
+async function switchNode() {
+  const alt = toolchain.value?.alt
+  if (!alt || switchingNode.value) return
+  switchingNode.value = true
+  try {
+    toolchain.value = await api.env.switchNode(alt.exe)
+    env.value = await api.env.recheck()
+    toast.ok(t('settings.runtime.nodeSwitchDone', { version: alt.version }))
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    switchingNode.value = false
   }
 }
 
@@ -228,6 +273,37 @@ onMounted(() => {
               </div>
               <p class="step-desc">{{ s.desc }}</p>
               <p class="step-meta wb-mono">{{ s.meta }}</p>
+
+              <!-- 用的是内置 Node：说清怎么换成系统的，或提到系统级让终端也能用 -->
+              <div v-if="s.key === 'node' && s.done && env?.node_source === 'bundled'" class="step-fix">
+                <p class="step-hint">{{ t('setup.nodeBundledHint') }}</p>
+                <div class="step-acts">
+                  <el-button
+                    v-if="toolchain?.alt"
+                    size="small"
+                    :loading="switchingNode"
+                    :disabled="switchingNode"
+                    @click="switchNode"
+                  >
+                    {{ t('settings.runtime.nodeSwitch') }}
+                  </el-button>
+                  <el-popconfirm
+                    :title="t('settings.runtime.promoteUpHint')"
+                    width="300"
+                    @confirm="promoteNodeSystem"
+                  >
+                    <template #reference>
+                      <el-button size="small" :loading="promotingNode" :disabled="promotingNode">
+                        {{ t('settings.runtime.levelUp') }}
+                      </el-button>
+                    </template>
+                  </el-popconfirm>
+                </div>
+                <p v-if="toolchain?.node.conflict" class="step-hint">
+                  {{ t('settings.runtime.levelConflict', { path: toolchain.node.conflict }) }}
+                </p>
+              </div>
+
               <el-button
                 v-if="s.key === 'pi' && !s.done"
                 size="small"
@@ -438,6 +514,20 @@ onMounted(() => {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
   line-height: var(--wb-lh-base);
+}
+.step-fix {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  width: 100%;
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border-radius: var(--wb-radius);
+  background: var(--wb-elev-hover);
+}
+.step-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
 }
 .setup-log {
   margin: 0;

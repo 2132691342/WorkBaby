@@ -1,6 +1,5 @@
-// 对话事件桥：SSE → chat store 的全站唯一入口。
-// 挂在应用壳上而不是对话页：离开对话页时 run 还在跑，事件必须继续落进 store；
-// 否则切回来只剩一份「运行中」的僵尸快照，正文与工具卡全部接不上。
+// 对话事件桥：SSE → chat store 的全站唯一入口。挂在应用壳上而不是对话页：
+// 离开时 run 还在跑，事件必须继续落进 store，否则切回来只剩一份「运行中」的僵尸快照。
 import { i18n } from '../i18n'
 import type { ServerEvent } from '../types/api'
 import { useChatStore } from '../stores/chat'

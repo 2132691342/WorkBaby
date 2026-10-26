@@ -24,7 +24,7 @@ const version = "1.4.0"
 var assets embed.FS
 
 func main() {
-	// 提权子进程：--path-admin <system|user> <dir>，由引擎页的 PATH 级别切换拉起，
+	// 提权子进程：--path-admin <system|user|none> <dir;dir>，由引擎页 / 向导页的提级动作拉起，
 	// 改完注册表即退出——必须在单实例守卫与 Wails 装配之前退出。
 	if code, handled := pienv.RunPathAdminMode(os.Args); handled {
 		os.Exit(code)

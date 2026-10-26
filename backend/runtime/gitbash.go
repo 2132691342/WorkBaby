@@ -20,6 +20,40 @@ func gitBashArchiveName() string { return "MinGit-" + gitBashVersion + "-64-bit.
 // 必须同时改，否则版本标记命中会跳过解压，机器上永远用旧运行时。
 const GitBashArchiveSHA256 = "2e5619966e588fde5f8122c5557cad50c0fbafcaed736689f40ec1dfb1d78ea7"
 
+// GitBashState 是内置 MinGit 的落盘现状：只读版本标记，不解压。
+type GitBashState struct {
+	Dir     string
+	Bash    string
+	Git     string
+	Version string
+	Ready   bool
+}
+
+// InspectGitBash 读内置 Git Bash 的现状，不触发解压。
+func InspectGitBash(p Paths) GitBashState {
+	st := GitBashState{Dir: p.GitBashDir}
+	if !gitBashVersionMatches(p) {
+		return st
+	}
+	st.Bash, st.Git, st.Version = GitBashExe(p), GitExe(p), gitBashVersion
+	st.Ready = st.Bash != "" || st.Git != ""
+	return st
+}
+
+// GitExe 返回已解压的内置 git.exe 路径；没解压过返回空串，不触发解压。
+func GitExe(p Paths) string {
+	if !gitBashVersionMatches(p) {
+		return ""
+	}
+	for _, rel := range []string{`cmd\git.exe`, `bin\git.exe`, `mingw64\bin\git.exe`} {
+		candidate := filepath.Join(p.GitBashDir, rel)
+		if pkg.FileExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
 // GitBashExe 返回已解压的内置 bash.exe 路径；没解压过返回空串，不触发解压。
 func GitBashExe(p Paths) string {
 	if !gitBashVersionMatches(p) {

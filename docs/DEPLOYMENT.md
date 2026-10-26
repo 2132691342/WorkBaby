@@ -16,7 +16,7 @@ build/bin/
 
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
-| `.github/workflows/ci.yml` | push main / PR / 手动（**tag 不触发**） | 装 Go + Node + 依赖 → 跑 `pwsh scripts/check.ps1 -Full`（gofmt / 编译 / vet / 依赖边界 / 全量测试 / 前端构建）；失败时脚本自己把「哪条链坏了、错在哪一行」写进 job summary |
+| `.github/workflows/ci.yml` | push main / PR / 手动（**tag 不触发**） | 装 Go + Node + 依赖 → 前端构建 → `gofmt -l` → `go vet` → `go test ./... -count=1`（全量，含真 git / 真解压 / 真 PI 三条慢链路） |
 | `.github/workflows/release.yml` | tag `v<major>.<minor>.<patch>` / 手动 | 轻量静态门禁（gofmt / vet / `go build` / 依赖方向，不重跑已由 ci 门过的测试矩阵）+ 校验运行时归档是真文件 → `wails build -clean -nsis` → 校验产物体积 → 建 GitHub Release 并上传安装器 |
 
 **「推 main 不发版、只有推 tag 才发版」是靠两个工作流各自的触发条件锁死的**，
@@ -32,7 +32,7 @@ build/bin/
 
 其余约定，改动流水线前要知道：
 
-- **门禁与出包分层**：日常质量门禁集中在 `ci.yml`（跑 `check.ps1 -Full`）；`release.yml` 只做静态编译门禁，不重跑已由 main 门过的测试与独立前端构建（`wails build` 自己会跑前端）
+- **门禁与出包分层**：日常质量门禁集中在 `ci.yml`（gofmt / vet / 全量测试 / 前端构建）；`release.yml` 只做静态编译门禁，不重跑已由 main 门过的测试与独立前端构建（`wails build` 自己会跑前端）
 - **两个 job 都跑 `windows-latest`**：目标平台只有 Windows amd64，门禁与出包必须在同一套系统调用上验
 - **checkout 必须 `lfs: true`**：运行时归档走 Git LFS，没拉下来时 `go:embed` 嵌的是指针文本，
   exe 能构建、用户首次启动才炸；`release.yml` 在打包前逐份读文件头确认不是指针
@@ -80,8 +80,8 @@ PowerShell 从不内置，走系统自带的 5.1。
 | 配置（工作目录等固定项） | `config.yaml` |
 | 日志 | `logs/app.log`（全量）、`logs/warn.log`（warn 与 error） |
 | 内置运行时解压产物 | `runtime/node/`、`runtime/gitbash/`（无本机 bash 才有）、`runtime/npm-global/` |
-| 运行时落盘记录 | `runtime/shell.json`（命令执行环境改了什么）、`runtime/npm-cache/` |
-| 终端里的 `pi` 入口 | `bin/pi.cmd` + `bin/pi`（Git Bash 用；目录挂进 PATH，默认用户级、引擎页可切系统级） |
+| 运行时落盘记录 | `runtime/shell.json`（命令执行环境改了什么）、`runtime/toolchain.json`（装引擎用的哪份 node / 前缀 / git）、`runtime/npm-cache/` |
+| 终端里的 `pi` 入口 | `bin/pi.cmd` + `bin/pi`（Git Bash 用；目录挂进 PATH，默认用户级、「运行时环境」页可切系统级） |
 | 人设（附加系统提示） | `persona.md` |
 | 自定义背景图副本 | `background/` |
 | WebView2 profile（纯缓存） | `webview/` |

@@ -92,7 +92,7 @@ func ShellLabel(st ShellStatus) string {
 	}
 }
 
-// probeShell 依次看：用户指定的 shellPath → 各处的真 bash → 内置 Git Bash → PowerShell。
+// probeShell 依次看：用户指定的 shellPath → 选定 git 自带的 bash → 各处的真 bash → 内置 Git Bash → PowerShell。
 func (e *Env) probeShell() ShellStatus {
 	var broken string
 	if custom := strings.TrimSpace(e.settingString("shellPath")); custom != "" {
@@ -102,6 +102,10 @@ func (e *Env) probeShell() ShellStatus {
 		}
 		broken = "settings.json 里的 shellPath 用不了：" + path
 	}
+	// 与助手的 git 同源：选定那份 git 自带 bash 时优先用它，别在两处各挑一份。
+	if git := e.Toolchain().Git; git.Bash != "" && bashWorks(git.Bash) {
+		return ShellStatus{Kind: shellKindOf(git.Bash), Path: git.Bash, Usable: true, Source: gitSourceLabel(git)}
+	}
 	for _, c := range bashCandidates() {
 		if bashWorks(c.path) {
 			return ShellStatus{Kind: shellKindOf(c.path), Path: c.path, Usable: true, Source: c.source}
@@ -109,6 +113,8 @@ func (e *Env) probeShell() ShellStatus {
 	}
 	// 本机一份能跑的 bash 都没有：解压内置 Git Bash（懒解压，只在这里发生）。
 	if exe, err := runtime.EnsureGitBash(e.paths); err == nil {
+		// 解压完工具链多了内置 git：让它参与后续解析（界面上的 git 状态也要跟着变）。
+		e.resetProbes()
 		if bashWorks(exe) {
 			return ShellStatus{Kind: ShellKindGitBash, Path: exe, Usable: true, Source: "bundled"}
 		}
@@ -246,6 +252,14 @@ func bashWorks(exe string) bool {
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	return err == nil && strings.Contains(string(out), "wb-shell-ok")
+}
+
+// gitSourceLabel 把 git 来源翻成 shell 的 source 口径：git（系统的）/ bundled（内置）。
+func gitSourceLabel(git GitPick) string {
+	if git.Source == SourceBundled {
+		return "bundled"
+	}
+	return "git"
 }
 
 // shellKindOf 按路径认出 bash 的家族。

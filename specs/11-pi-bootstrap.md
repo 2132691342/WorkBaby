@@ -9,8 +9,9 @@
 
 | 步骤 | 判定 | 缺失时的动作 |
 |---|---|---|
-| Node | 系统 `node` ≥ 22.19.0（PI 1.4 的 engines）→ 内置 | 直接用内置（首次用时解压） |
-| PI | 用户 PATH → 本应用自装前缀 → 其它 npm 全局前缀 | 装一份（npm 跟随当前生效 node） |
+| Node | 绑定的那份 → 系统（注册表 PATH + 常见安装根，≥ 22.19.0）→ 内置 | 一份能跑的都没有才解压内置 |
+| Git | 系统 git（PATH / 注册表 / 常见安装根）→ 已解压的内置 MinGit | 引擎页可主动「启用内置 Git」 |
+| PI | 用户 PATH → 本应用自装前缀 → 当前 node 的 npm 前缀 | 装一份（npm 与 node 同源） |
 | 模型 | `models.json` 里有带模型与密钥的服务 | 引导去设置页填一个 |
 
 闸门按上述顺序报**首个**阻塞项并给原因。前端 `bootstrap.pi_env.ready = false` 时强制进向导。
@@ -26,21 +27,27 @@
 
 ```
 <当前生效 node> <npm-cli.js> install -g --ignore-scripts --no-fund --no-audit
-  --fetch-retries=3 --fetch-timeout=120000 --prefix <runtime/npm-global> --registry <源> @earendil-works/pi-coding-agent
+  --fetch-retries=3 --fetch-timeout=120000 --prefix <安装前缀> --registry <源> @earendil-works/pi-coding-agent
 ```
 
 | 规则 | 原因 |
 |---|---|
 | npm 跟随当前生效 node（`npmFor`）：用户 node 合规就用它旁边的 `npm-cli.js`，没有才解压内置 | 用户的 node 能用就不该白解压一份内置；装出来的包要在这份解释器上跑，npm 与 node 必须同源。两处都没有才报 9707 |
-| 装到应用目录前缀 `runtime/npm-global`，不改用户 npm 前缀 | 单一权威副本：nvm/fnm 切版本不会让 pi 凭空消失或出现多份；写系统前缀通常还要管理员权限 |
+| 安装前缀跟随当前 node（`installPrefix`）：系统 node 用它自己的 npm 全局前缀（可写时），内置 node 用 `runtime/npm-global` | 用系统 node 装到用户 npm 前缀，`pi` 天然落在已生效的 PATH 上，不会多出第二份；内置 node 不污染用户全局目录 |
+| 前缀不可写（`C:\Program Files\nodejs` 这类）就退回 `runtime/npm-global` | 写系统前缀要管理员权限，装引擎不该先弹一次 UAC；退回后靠终端入口保证全局可达 |
+| 装完把 node / npm 脚本 / 前缀 / git 写进 `<data>/runtime/toolchain.json` | 后续升级与插件管理必须回到同一份解释器与同一个前缀，否则机器上会出现两个 `pi` |
 | npm 起进程用 `node + npm-cli.js`，且 node 用绝对路径 | `exec.Command` 只按本进程的 PATH 找可执行文件；内置 node 不在 PATH 上时，字面量 `node` 就是一句 `executable file not found` |
 | npm 缓存落在数据目录 | 装失败不牵走用户的全局缓存，重试也干净 |
-| 输出按行回传（`chat:setup`） | npm 可能跑几十秒，没有进度界面会被当成卡死 |
+| 输出按行回传（`chat:setup`），并把「用的哪份 Node」打进第一行 | npm 可能跑几十秒；出问题时用户要先知道是哪个解释器在装 |
 | 失败把最后一行输出带进错误 | 界面只剩「安装失败」时用户无从下手 |
 | `--ignore-scripts` | 不在安装期执行三方脚本 |
 
 **全局可达靠终端入口**：装在应用目录前缀里的 pi，cmd / PowerShell / Git Bash 都能
-直接敲 `pi` 拉起，机制见「终端入口」一节。
+直接敲 `pi` 拉起，机制见「终端入口」一节。装在用户 npm 前缀里时它本来就在 PATH 上。
+
+**换运行时**（`POST /env/node`）：用户机器上后来装了 Node、而引擎当初是内置那份装的，
+运行时环境页 / 向导页会给出「改用系统那份」。切换会清掉旧前缀的绑定、重启 PI 进程并重刷终端入口，
+但**不重装引擎包本身**。
 
 **源**：官方源（`registry.npmjs.org`）与国内镜像（`registry.npmmirror.com`）并联探测
 「PI 的最新版本元数据」，先返回的那个就是当前网络下更快的那个，结果缓存 10 分钟。
@@ -64,6 +71,7 @@ WorkBaby 在启动 / 装完 / 手动修复时跑一次探测（`pi/env/shell.go`
 | 步骤 | 判定 |
 |---|---|
 | 用户指定的 `shellPath` | 真跑 `bash -c "echo …"` 验证 |
+| 选定 git 自带的 bash | 与助手跑 git 命令用的是同一份，别在两处各挑一个 |
 | Git / MSYS2 / Cygwin | 从 `ProgramFiles`、注册表 `SOFTWARE\GitForWindows`、PATH 上的 `git.exe` 反推安装根 |
 | PATH 上的 bash | 按顺序试跑；WSL 启动器（`%SystemRoot%\System32\bash.exe`、`WindowsApps\bash.exe`）按路径直接剔除，不参与试跑 |
 | 内置 Git Bash | 以上全都没有才解压 `runtime/gitbash` 并真跑验证 |
@@ -79,7 +87,10 @@ WorkBaby 在启动 / 装完 / 手动修复时跑一次探测（`pi/env/shell.go`
 
 ## 终端入口
 
-WorkBaby 装的 pi 不在用户 PATH 上，用户开个终端敲 `pi` 会得到「不是内部或外部命令」。
+装进应用目录前缀的 pi 不在用户 PATH 上，用户开个终端敲 `pi` 会得到「不是内部或外部命令」。
+装回用户自己的 npm 前缀时它本来就在 PATH 上——这种机器不再生成转发入口（PATH 上不能有两个
+`pi` 条目），`terminal_ready` 直接为真并给出那份 pi 的位置。
+
 `EnsureTerminal` 做两件事：
 
 | 动作 | 细节 |
@@ -90,13 +101,17 @@ WorkBaby 装的 pi 不在用户 PATH 上，用户开个终端敲 `pi` 会得到�
 **为什么前置**：Windows 的有效 PATH 是「系统级 + 用户级」。用户级里排在后面的 `pi`
 会被前面的 node 全局目录抢先；前置后，用户级这一段里永远是我们这份先被找到。
 
-**PATH 级别**：默认挂用户级（不动系统、不需要管理员）。引擎页提供两级互切
-（`POST /env/terminal-level`），因为用户级 PATH 只对当前账户生效——以别的账户
-开终端（管理员终端是另一份 HKCU）时 `pi` 会「不是内部或外部命令」。切到系统级 = 把
-入口目录追加到 HKLM PATH 末尾并从用户级移除；切回用户级反之。写 HKLM 需要管理员：
-由 ShellExecute `runas` 重跑本程序自己（`--path-admin <mode> <dir>`，在单实例守卫之前
+**PATH 级别**：默认挂用户级（不动系统、不需要管理员）。运行时环境页提供三档（`POST /env/promote`，
+组件为 `node` / `git` / `pi`）：系统级 / 用户级 / 不挂，因为用户级 PATH 只对当前账户生效——
+以别的账户开终端（管理员终端是另一份 HKCU）时 `pi` 会「不是内部或外部命令」。切到系统级 = 把
+目录追加到 HKLM PATH 末尾并从用户级移除；切回用户级反之；不挂 = 两级都摘掉。写 HKLM 需要管理员：
+由 ShellExecute `runas` 重跑本程序自己（`--path-admin <level> <dir;dir>`，在单实例守卫之前
 拦截），提权进程改完注册表、广播后即退出，结果只经退出码回传。半途失败宁可留在
 `both` 也不留在 `none`。用户在 UAC 点「否」是 9723，PATH 保持原样。
+
+**提级前查冲突**：系统里已经有另一份同类运行时（合规的 node / 任意 git）在 PATH 上时
+拒绝提级（9725）并指出是哪一份——PATH 上多一份比没有更糟。node 只在已有那份**不合规**
+时才允许提级（旧版本本来跑不了 PI）。
 
 同一份状态还会列出 PATH 上其它装过 pi 的目录（`other_pis`），并按「系统级 + 用户级」
 的真实顺序扫出排在入口之前、也带着 pi 入口的目录（`terminal_shadowed_by`），
@@ -113,8 +128,8 @@ WorkBaby 装的 pi 不在用户 PATH 上，用户开个终端敲 `pi` 会得到�
 
 | 情况 | 动作 |
 |---|---|
-| WorkBaby 自己装的那份 | `npm install -g --prefix <应用目录> @latest`，不另起一份 |
-| 系统里那份 | 从包目录反推前缀（`…/node_modules/<pkg>` 的父目录）后直装，装回原处 |
+| 有绑定记录（我们装的那份） | `npm install -g --prefix <绑定前缀> @latest`，用绑定的那份 node，不另起一份 |
+| 用户自己装的那份 | 从包目录反推前缀（`…/node_modules/<pkg>` 的父目录）后直装，装回原处 |
 | 直装失败 | 兜底交给 PI 自己的 `pi update` |
 
 升级完重启全部 PI 进程、刷新终端入口并重扫技能：配置与扩展都是启动期读的。
@@ -133,16 +148,19 @@ WorkBaby 装的 pi 不在用户 PATH 上，用户开个终端敲 `pi` 会得到�
 
 ```
 startup: WorkBaby 1.4.0 启动（数据目录 <data>，PI 配置目录 <agent>）
-startup: 内置 Node 不可用（将回退系统 node）：<原因>
+startup: Node 24.22.0（系统 Node），Git git version 2.47.1.windows.1
+startup: 没有可用的 Node（系统里没有合规版本，内置运行时也未就位）
 ```
 
-内置运行时解压失败只告警不阻断：系统里那份可能好使。但原因必须写清楚——
+运行时探测失败只告警不阻断：系统里那份可能好使。但原因必须写清楚——
 只说「不可用」，用户无从判断是包没嵌进来、解压失败还是被安全软件拦了。
 
 ## 取舍
 
-- **用户已有 pi / node 一律优先**：不装第二份内核、不白解压内置运行时；代价是用户那份版本太旧时只能靠引擎页的升级按钮解决。
-- **装到应用目录前缀而不是用户 npm 前缀**：免疫 nvm/fnm 切版本导致的「多份 pi」；代价是要靠终端入口 + HKCU PATH 前置实现全局可达，用户得重开终端才看得见。
+- **用户已有 pi / node / git 一律优先**：不装第二份内核、不白解压内置运行时；代价是用户那份版本太旧时只能靠引擎页的升级按钮解决。
+- **绑定记录**：装引擎用哪份 node、哪个前缀，后续一律沿用；这种「记住当初」的代价是用户手动换 node 版本后要显式切换一次（界面会提示）。
+- **系统 node 装到它自己的 npm 前缀**：`pi` 落在用户已有 PATH 上，不会出现两份；代价是前缀不可写（Program Files）时要退回应用目录前缀，此时全局可达又得靠终端入口。
+- **内置运行时按需解压**：不占磁盘；代价是首次需要它的机器要多等几秒（解压期间界面有进度）。
 - **系统级 PATH 只在用户主动切换时写（经 UAC 提权的自身子进程）**：默认不动系统、不要管理员；代价是多用户机器上其它账户的终端会看到一条指向当前用户数据目录的 PATH（无权限执行，无害但存在）。
 - **装包跟随当前生效 node**：不无故解压内置；代价是用户 node 旁边缺 npm 时要回退内置 npm-cli.js（罕见路径）。
 - **双源并联探测 + 失败换源**：无代理网络下也能装上；代价是每次装包多一次探测（约 0.3~4 秒）。

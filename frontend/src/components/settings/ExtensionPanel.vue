@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// 插件面板：PI 的扩展（extensions 目录 + settings.json 登记）与包（pi install）。
-// 装 / 卸 / 更新都走 PI 自己的 CLI，结束信号来自 chat:setup 的 done 帧：
-// 靠定时器猜结束会提前弹「已更新」，用户刷新后看到的还是旧版本。
+// 插件面板：扩展（目录 + settings.json 登记）与包（pi install）。装 / 卸 / 更新都走 PI 的 CLI，
+// 结束信号来自 chat:setup 的 done 帧——靠定时器猜结束会提前弹「已更新」。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'

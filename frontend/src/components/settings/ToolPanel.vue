@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// 工具面板：清单来自 PI（最近一次会话声明给模型的工具 + MCP 在线工具）。
-// 启停写的是 PI settings.json 的 defaultTools，不自己实现任何工具。
-// 长清单走分页（默认 10 行，5/10/20/50 可选）；来源用行内标签区分，不再整组铺开。
+// 工具面板：清单来自 PI（会话声明的工具 + MCP 在线工具）；启停写 settings.json 的 defaultTools，
+// 不自己实现任何工具。长清单走分页，来源用行内标签区分。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'

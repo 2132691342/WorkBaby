@@ -33,27 +33,43 @@ const maxLineBytes = 256 * 1024
 // 超了就得说清楚而不是把整文件闷进内存。
 const maxUntrackedBytes = 8 << 20
 
-// gitExeOnce / gitExe 缓存 git 可执行文件的解析结果：一次进程只解析一次，
-// 状态页反复打开不再反复探盘。
+// gitExeMu / gitExe 缓存 git 可执行文件的解析结果：一次进程只解析一次，
+// 状态页反复打开不再反复探盘。装配期注入的那份优先（与助手用的是同一份）。
 var (
-	gitExeOnce sync.Once
-	gitExe     string
+	gitExeMu sync.Mutex
+	gitExe   string
+	gitDone  bool
 )
 
-// resolveGit 解析 git 可执行文件：PATH 优先，其次常见安装位置（便携版与 winget 版不在 PATH 上）。
+// SetExe 注入当前生效的 git：助手用它跑命令，界面也用它读状态，两处不能各挑一份。
+func SetExe(exe string) {
+	if exe == "" {
+		return
+	}
+	gitExeMu.Lock()
+	gitExe, gitDone = exe, true
+	gitExeMu.Unlock()
+}
+
+// resolveGit 解析 git 可执行文件：注入的那份优先，其次 PATH 与常见安装位置。
 func resolveGit() string {
-	gitExeOnce.Do(func() {
-		if p, err := exec.LookPath("git"); err == nil {
-			gitExe = p
-			return
+	gitExeMu.Lock()
+	defer gitExeMu.Unlock()
+	if gitDone {
+		return gitExe
+	}
+	if p, err := exec.LookPath("git"); err == nil {
+		gitExe = p
+		gitDone = true
+		return gitExe
+	}
+	for _, cand := range gitCandidatePaths() {
+		if pkg.FileExists(cand) {
+			gitExe = cand
+			break
 		}
-		for _, cand := range gitCandidatePaths() {
-			if pkg.FileExists(cand) {
-				gitExe = cand
-				return
-			}
-		}
-	})
+	}
+	gitDone = true
 	return gitExe
 }
 

@@ -23,16 +23,19 @@ import type {
   HelpDocVO,
   MCPListRESP,
   MarketListRESP,
+  PathLevel,
   PiEnvVO,
   PISettingsVO,
   ProviderListRESP,
   ProviderVO,
+  RuntimeComponent,
   SendMessageRESP,
   SessionDetailVO,
   SessionVO,
   SkillVO,
   StatsRESP,
   TerminalLevelRESP,
+  ToolchainVO,
   ToolListRESP,
   UpsertProviderREQ,
   WorkspacesRESP,
@@ -186,6 +189,15 @@ export const env = {
   /** 切换入口的 PATH 级别：写系统级时后端会拉起 UAC 授权，可能要等用户确认 */
   switchTerminalLevel: (level: 'system' | 'user') =>
     post<TerminalLevelRESP>('/env/terminal-level', { level }),
+  /** 运行时工具链：用哪份 node / git、装引擎用的是哪份 */
+  toolchain: () => get<ToolchainVO>('/env/toolchain'),
+  /** 把 node / git / pi 的目录提到系统级、降回用户级或摘掉（系统级走 UAC） */
+  promote: (component: RuntimeComponent, level: PathLevel) =>
+    post<ToolchainVO>('/env/promote', { component, level }),
+  /** 换一份 node 重新绑定：后续升级与插件管理都跟着走这份 */
+  switchNode: (exe: string) => post<ToolchainVO>('/env/node', { exe }),
+  /** 解压内置 Git 并接管（机器上一份 git 都没有时） */
+  enableBundledGit: () => post<ToolchainVO>('/env/git/enable'),
 }
 
 /** 引擎：PI 与内置运行时的状态、版本对账与升级 */

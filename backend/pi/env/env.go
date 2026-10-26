@@ -15,7 +15,7 @@ import (
 )
 
 // minNodeVersion 是 PI 对 Node 的下界。PI 1.4 的 engines 写的是 >=22.19.0：
-// 只比主版本会把 22.15 这类“看着够”的版本放进来，装包与运行时会一直EBADENGINE。
+// 只比主版本会把 22.15 这类“看着够”的版本放进来，装包与运行时会一直 EBADENGINE。
 const minNodeVersion = "22.19.0"
 
 // 错误码 9700-9799 与 pi 包同段：环境不通与进程不通是同一类故障的不同层次。
@@ -42,32 +42,46 @@ var (
 	versionCache = map[string]string{}
 )
 
-// cachedVersion 按可执行文件路径缓存版本号；拿不到（路径为空或启动失败）就缓存空串。
-// 探测过程不持锁：探测会回调到 NodeExe → cachedVersion 自己，持锁即自锁。
-func cachedVersion(exe string, probe func() string) string {
-	if exe == "" {
+// cachedVersion 按 key 缓存版本号；拿不到（路径为空或启动失败）就缓存空串。
+// 探测过程不持锁：探测会回调到 nodeVersionOf → cachedVersion 自己，持锁即自锁。
+func cachedVersion(key string, probe func() string) string {
+	if key == "" {
 		return ""
 	}
 	versionMu.Lock()
-	hit, ok := versionCache[exe]
+	hit, ok := versionCache[key]
 	versionMu.Unlock()
 	if ok {
 		return hit
 	}
 	v := probe()
 	versionMu.Lock()
-	versionCache[exe] = v
+	versionCache[key] = v
 	versionMu.Unlock()
 	return v
 }
 
 // EnvVO 是环境快照，直接进 BootstrapVO 下发给前端。
+// 工具链判定结果一并带上：界面据此说清「用的是哪份 node / git、能不能提级」。
 type EnvVO struct {
 	NodeReady   bool   `json:"node_ready"`
 	NodePath    string `json:"node_path"`
 	NodeVersion string `json:"node_version"`
 	NodeSource  string `json:"node_source"`
 	NodeError   string `json:"node_error"`
+	// NodeBound 表示这份 node 是装 PI 时钉下来的（后续升级与插件都回到它）。
+	NodeBound bool `json:"node_bound"`
+	// NodeLevel 是 node 所在目录挂在哪一级 PATH：system / user / both / none。
+	NodeLevel    string `json:"node_level"`
+	NodeConflict string `json:"node_conflict"`
+
+	GitReady   bool   `json:"git_ready"`
+	GitPath    string `json:"git_path"`
+	GitVersion string `json:"git_version"`
+	GitSource  string `json:"git_source"`
+	GitLevel   string `json:"git_level"`
+	// GitConflict 是 git 提级会遮住的已有安装（空表示不冲突）。
+	GitConflict string `json:"git_conflict"`
 
 	PiReady   bool   `json:"pi_ready"`
 	PiPath    string `json:"pi_path"`
@@ -90,10 +104,19 @@ type Env struct {
 	// overridePi 供测试注入假路径，空表示走真实探测。
 	overridePi string
 
+	// 工具链解析结果（node / git）按实例缓存：探测本身要起进程，闸门每轮都会问。
+	tcMu    sync.Mutex
+	tcCache *Toolchain
+
 	// npm 前缀要起一次 npm 进程（约 1.5s），而闸门每轮都会问；没装 PI 时每轮都要白跑一遍。
 	prefixMu    sync.Mutex
 	prefixCache []string
 	prefixDone  bool
+
+	// 安装前缀按实例缓存：spawn 一次问一次，每次都探盘（还要建临时文件验可写）没有必要。
+	installMu   sync.Mutex
+	installPath string
+	installDone bool
 }
 
 // New 构造环境解析器。
@@ -105,44 +128,11 @@ func (e *Env) Paths() runtime.Paths { return e.paths }
 // AgentDir 返回 PI 的 agent 目录。
 func (e *Env) AgentDir() string { return e.paths.AgentDir }
 
-// NodeExe 返回跑 PI 用的 node：系统已有合规版本就用系统的，否则用内置的。
-// 复用系统版本可以省掉一次解压，也让 `pi` 在终端与界面里跑在同一个 Node 上。
+// NodeExe 返回跑 PI 用的 node 与来源：系统已装合规版本就用系统的，否则内置。
+// 复用系统版本既有更好的性能，也让 `pi` 在终端与界面里跑在同一个 Node 上。
 func (e *Env) NodeExe() (string, string) {
-	if exe := runtime.NodeSystemExe(); exe != "" {
-		if nodeSatisfies(nodeVersionOf(exe)) {
-			return exe, "system"
-		}
-	}
-	if exe, err := runtime.EnsureNode(e.paths); err == nil {
-		return exe, "bundled"
-	}
-	if exe := runtime.NodeSystemExe(); exe != "" {
-		return exe, "system"
-	}
-	return "", ""
-}
-
-// NpmCmd 返回 npm 的 shim，只用来问「npm 全局前缀在哪」；装包走 npmFor，不用它。
-func (e *Env) NpmCmd() string {
-	node, source := e.NodeExe()
-	if source == "bundled" {
-		return runtime.NpmCmd(e.paths)
-	}
-	// 系统 node 的旁边通常就是配套的 npm；找不到再退回 PATH 与内置。
-	if dir := filepath.Dir(node); node != "" {
-		for _, name := range []string{"npm.cmd", "npm"} {
-			candidate := filepath.Join(dir, name)
-			if pkg.FileExists(candidate) {
-				return candidate
-			}
-		}
-	}
-	for _, name := range []string{"npm.cmd", "npm"} {
-		if exe, err := exec.LookPath(name); err == nil {
-			return exe
-		}
-	}
-	return runtime.NpmCmd(e.paths)
+	tc := e.Toolchain()
+	return tc.Node.Exe, tc.Node.Source
 }
 
 // nodeVersionOf 取 node 的版本号（不带 v 前缀）。
@@ -160,6 +150,9 @@ func nodeVersionOf(nodeExe string) string {
 		return strings.TrimPrefix(strings.TrimSpace(string(out)), "v")
 	})
 }
+
+// NodeOK 报告一个版本号是否满足 PI 的下界（界面与编排层共用同一个判据）。
+func NodeOK(version string) bool { return nodeSatisfies(version) }
 
 // nodeSatisfies 检查版本是否满足 PI 的下界（按数字段逐段比）。
 func nodeSatisfies(version string) bool {
@@ -276,7 +269,7 @@ func (e *Env) PiCommand() (string, []string, error) {
 	return resolved, args, nil
 }
 
-// npmPrefixes 列出要找 PI 的 npm 全局前缀：系统 npm 的配置优先，其次应用内那份。
+// npmPrefixes 列出要找 PI 的 npm 全局前缀：当前 node 的 npm 配置优先，其次应用内那份。
 // 结果按实例缓存：装完 / 升级完由 resetProbes 作废。
 func (e *Env) npmPrefixes() []string {
 	e.prefixMu.Lock()
@@ -288,14 +281,8 @@ func (e *Env) npmPrefixes() []string {
 	e.prefixMu.Unlock()
 
 	out := []string{}
-	if npm := e.NpmCmd(); npm != "" {
-		cmd := exec.Command(npm, "config", "get", "prefix")
-		hideWindow(cmd)
-		if raw, err := cmd.Output(); err == nil {
-			if p := strings.TrimSpace(string(raw)); p != "" && pkg.DirExists(p) {
-				out = append(out, p)
-			}
-		}
+	if prefix := e.npmPrefix(); prefix != "" {
+		out = append(out, prefix)
 	}
 	out = append(out, e.paths.NpmGlobalDir)
 
@@ -354,30 +341,61 @@ func (e *Env) PiPackageDir() string {
 	return ""
 }
 
-// OwnsInstall 报告这份 PI 是否由本应用装进自己的前缀（升级只写回自家目录）。
-func (e *Env) OwnsInstall() bool {
+// PiOnPath 报告当前生效的 PI 是否已经躺在 PATH 上：是的话终端本来就能敲 pi，
+// 再生成一份转发入口只会让 PATH 上出现两个 pi 条目。
+func (e *Env) PiOnPath() bool {
 	exe, _ := e.PiExe()
-	if exe == "" || e.paths.NpmGlobalDir == "" {
+	if exe == "" || e.isOwnShim(exe) {
 		return false
 	}
-	prefix := strings.ToLower(filepath.Clean(e.paths.NpmGlobalDir))
-	target := strings.ToLower(filepath.Clean(exe))
-	return strings.HasPrefix(target, prefix+string(filepath.Separator))
+	dir := filepath.Clean(filepath.Dir(exe))
+	for _, entry := range filepath.SplitList(os.Getenv("PATH")) {
+		if entry = strings.TrimSpace(entry); entry != "" && strings.EqualFold(filepath.Clean(entry), dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// OwnsInstall 报告这份 PI 是不是本应用装的：入口在自装前缀里，或就是绑定记录里的那一份。
+func (e *Env) OwnsInstall() bool {
+	exe, _ := e.PiExe()
+	if exe == "" {
+		return false
+	}
+	if b := e.readBinding(); b.PiPrefix != "" && pkg.IsInside(b.PiPrefix, exe) {
+		return true
+	}
+	if e.paths.NpmGlobalDir == "" {
+		return false
+	}
+	return pkg.IsInside(e.paths.NpmGlobalDir, exe)
 }
 
 // Detect 跑一遍环境闸门。modelReady 由上层传入（它读过 models.json）。
 func (e *Env) Detect(modelReady bool) EnvVO {
 	vo := EnvVO{ModelReady: modelReady, AgentDir: e.paths.AgentDir}
 
-	nodeExe, nodeSource := e.NodeExe()
-	vo.NodePath = nodeExe
-	vo.NodeSource = nodeSource
-	vo.NodeVersion = nodeVersionOf(nodeExe)
-	vo.NodeReady = nodeExe != "" && nodeSatisfies(vo.NodeVersion)
-	if nodeExe == "" {
+	tc := e.Toolchain()
+	vo.NodePath, vo.NodeSource, vo.NodeVersion = tc.Node.Exe, tc.Node.Source, tc.Node.Version
+	vo.NodeBound = tc.Bound
+	vo.NodeReady = tc.Node.Exe != "" && nodeSatisfies(vo.NodeVersion)
+	if link := e.LinkOf(ComponentNode); link.Dir != "" {
+		vo.NodeLevel, vo.NodeConflict = link.Level, link.Conflict
+	}
+	switch {
+	case tc.Node.Exe == "":
 		vo.NodeError = ErrNodeMissing.Error()
-	} else if !vo.NodeReady {
+	case vo.NodeVersion == "":
+		vo.NodeError = "这份 Node 跑不起来（node -v 没有输出）：" + tc.Node.Exe
+	case !vo.NodeReady:
 		vo.NodeError = "Node 版本 " + vo.NodeVersion + " 低于要求（需要 " + minNodeVersion + " 或更高）"
+	}
+
+	vo.GitReady = tc.Git.Exe != ""
+	vo.GitPath, vo.GitVersion, vo.GitSource = tc.Git.Exe, tc.Git.Version, tc.Git.Source
+	if gitLink := e.LinkOf(ComponentGit); gitLink.Dir != "" {
+		vo.GitLevel, vo.GitConflict = gitLink.Level, gitLink.Conflict
 	}
 
 	piExe, piSource := e.PiExe()
@@ -401,44 +419,31 @@ func (e *Env) Detect(modelReady bool) EnvVO {
 	return vo
 }
 
-// Env 返回 PI 子进程要用的环境变量：选中的运行时前置进 PATH（后置会被旧版本抢先），且只注入
-// 当前生效来源的目录——用户 node / PI 生效时注入自家数据目录，会遮住用户正在用的工具。
+// Env 返回 PI 子进程要用的环境变量：选中的运行时前置进 PATH（后置会被旧版本抢先），
+// 且只注入自装来源的目录——用户 node / PI 生效时注入自家目录会遮住用户正在用的工具。
 func (e *Env) Env() []string {
-	dirs := []string{}
-	if node, source := e.NodeExe(); node != "" && source == "bundled" {
-		dirs = append(dirs, filepath.Dir(node))
-	}
-	if e.OwnsInstall() {
-		if d := e.paths.NpmGlobalDir; d != "" && pkg.DirExists(d) {
-			dirs = append(dirs, d)
-		}
-	}
-
-	out := make([]string, 0, len(os.Environ())+2)
-	current := os.Getenv("PATH")
-	prefix := strings.Join(dirs, string(os.PathListSeparator))
-	for _, kv := range os.Environ() {
-		upper := strings.ToUpper(kv)
-		// PATH 自己重新拼；npm 前缀由本层决定，继承来的会指向别处。
-		if strings.HasPrefix(upper, "PATH=") || strings.HasPrefix(upper, "NPM_CONFIG_PREFIX=") {
-			continue
-		}
-		out = append(out, kv)
-	}
-	if prefix != "" && current != "" {
-		out = append(out, "PATH="+prefix+string(os.PathListSeparator)+current)
-	} else if prefix != "" {
-		out = append(out, "PATH="+prefix)
-	} else if current != "" {
-		out = append(out, "PATH="+current)
-	}
-	return out
+	return procEnv(e.injectDirs())
 }
 
-// InstallPi 全局安装 PI（target 为空表示最新版），输出按行回调。
-// 失败时把最后几行输出带进错误里，否则界面只剩一句「安装失败」，用户无从下手。
+// injectDirs 返回要前置进子进程 PATH 的目录：内置 node 生效才注入它，自装 PI 才注入前缀。
+func (e *Env) injectDirs() []string {
+	dirs := []string{}
+	tc := e.Toolchain()
+	if tc.Node.Exe != "" && tc.Node.Source == SourceBundled {
+		dirs = append(dirs, filepath.Dir(tc.Node.Exe))
+	}
+	if e.OwnsInstall() {
+		if prefix := e.installPrefix(); prefix != "" && pkg.DirExists(prefix) && !dirIn(dirs, prefix) {
+			dirs = append(dirs, prefix)
+		}
+	}
+	return dirs
+}
+
+// InstallPi 全局安装 PI（target 为空表示最新版）：装到 installPrefix 定的前缀，装完把 node / npm / git 钉进绑定记录。
+// 输出按行回调；失败时把最后几行带进错误里，否则界面只剩一句「安装失败」，用户无从下手。
 func (e *Env) InstallPi(target string, onLine func(string)) error {
-	return e.installAt(e.paths.NpmGlobalDir, target, onLine)
+	return e.installAt(e.installPrefix(), target, onLine)
 }
 
 // installAt 把 PI 装到指定 npm 全局前缀（<prefix>/node_modules/<pkg>）。
@@ -472,6 +477,7 @@ func (e *Env) installAt(prefix, target string, onLine func(string)) error {
 	registry := Registry()
 	if onLine != nil {
 		onLine("下载源：" + RegistryLabel(registry) + "（" + registry + "）")
+		onLine("使用 Node：" + node + "（" + ToolchainLabel(e.Toolchain()) + "）")
 	}
 	waitErr := e.runNpmInstall(node, npmArgs, args, prefix, registry, report)
 	if waitErr != nil {
@@ -491,47 +497,31 @@ func (e *Env) installAt(prefix, target string, onLine func(string)) error {
 	if exe, _ := e.PiExe(); exe == "" {
 		return pkg.New("9710", "安装好像成功了，但找不到 pi 命令", "检查 npm 全局前缀是否可写")
 	}
+	// 绑定在这一步落盘：后续升级与插件管理必须回到这份 node 与这份前缀。
+	if err := e.bindInstall(prefix); err != nil {
+		pkg.Warnf("env: 记录运行时绑定失败: %v", err)
+	}
 	return nil
 }
 
-// npmFor 返回装包用的 node 与 npm 入口参数：用户的 node 满足下界（≥22.19.0）就用它的
-// npm，内置的只在用户没有合规 node 时才解压——装出来的包要在这份解释器上跑，两者必须同源。
+// npmFor 返回装包用的 node 与 npm 入口参数：用户的 node 满足下界（≥22.19.0）就用它的 npm，
+// 内置的只在用户没有合规 node 时才解压——装出来的包要在这份解释器上跑，两者必须同源。
 func (e *Env) npmFor() (string, []string, error) {
-	node, source := e.NodeExe()
-	if source == "system" && nodeSatisfies(nodeVersionOf(node)) {
-		if script := npmScriptAt(filepath.Dir(node)); script != "" {
+	tc := e.Toolchain()
+	node := tc.Node.Exe
+	if node == "" {
+		return "", nil, ErrNodeMissing
+	}
+	if tc.Node.Npm != "" {
+		return node, []string{tc.Node.Npm}, nil
+	}
+	// node 旁边没有 npm（少见）：解压内置取 npm-cli.js，仍然配这份 node。
+	if _, err := runtime.EnsureNode(e.paths); err == nil {
+		if script := npmScriptAt(e.paths.NodeDir); script != "" {
 			return node, []string{script}, nil
 		}
-		// 用户 node 旁边没有 npm（少见）：npm 是自包含 JS，解压内置取 npm-cli.js 配用户 node。
-		if _, err := runtime.EnsureNode(e.paths); err == nil {
-			if script := npmScriptAt(e.paths.NodeDir); script != "" {
-				return node, []string{script}, nil
-			}
-		}
-		return "", nil, pkg.New("9707", "找不到可用的 npm，装不了助手引擎", node)
 	}
-	node, err := runtime.EnsureNode(e.paths)
-	if err != nil {
-		return "", nil, pkg.Wrap("9707", "内置 Node 解压失败，装不了助手引擎", err)
-	}
-	if script := npmScriptAt(e.paths.NodeDir); script != "" {
-		return node, []string{script}, nil
-	}
-	return "", nil, pkg.New("9707", "内置 npm 缺失，装不了助手引擎", e.paths.NodeDir)
-}
-
-// npmScriptAt 找一个目录下的 npm 入口脚本（Windows 标准布局：node.exe 与 node_modules/npm 同目录）。
-func npmScriptAt(dir string) string {
-	for _, rel := range []string{
-		`node_modules\npm\bin\npm-cli.js`,
-		`node_modules\npm\bin\npm-cli.mjs`,
-	} {
-		script := filepath.Join(dir, rel)
-		if pkg.FileExists(script) {
-			return script
-		}
-	}
-	return ""
+	return "", nil, pkg.New("9707", "找不到可用的 npm，装不了助手引擎", node)
 }
 
 // runNpmInstall 跑一趟 npm 安装，输出逐行回调；返回等待结果供调用方决定是否换源。
@@ -577,26 +567,6 @@ func (e *Env) UpdatePi(onLine func(string)) error {
 	return err
 }
 
-// installPrefix 返回 PI 应该装回哪里：自己装的那份是本应用前缀，
-// 系统那份就是它所在包目录里的 node_modules 的父目录。
-func (e *Env) installPrefix() string {
-	if e.OwnsInstall() {
-		return e.paths.NpmGlobalDir
-	}
-	dir := e.PiPackageDir()
-	for i := 0; i < 6 && dir != ""; i++ {
-		if strings.EqualFold(filepath.Base(dir), "node_modules") {
-			return filepath.Dir(dir)
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return ""
-}
-
 // npmEnv 是 npm 子进程的环境：与 PI 同一份 PATH，外加本次要写的前缀与自带的缓存。
 func (e *Env) npmEnv(prefix string) []string {
 	env := e.Env()
@@ -610,7 +580,7 @@ func (e *Env) npmEnv(prefix string) []string {
 	return env
 }
 
-// resetProbes 清掉版本号、入口解析与 npm 前缀缓存：装完 / 升级完必须重新探测。
+// resetProbes 清掉版本号、入口解析、工具链与 npm 前缀缓存：装完 / 升级完必须重新探测。
 func (e *Env) resetProbes() {
 	piCmdMu.Lock()
 	piCmdShim, piCmdExe, piCmdArgs, piCmdCached = "", "", nil, false
@@ -618,9 +588,15 @@ func (e *Env) resetProbes() {
 	versionMu.Lock()
 	versionCache = map[string]string{}
 	versionMu.Unlock()
+	e.tcMu.Lock()
+	e.tcCache = nil
+	e.tcMu.Unlock()
 	e.prefixMu.Lock()
 	e.prefixCache, e.prefixDone = nil, false
 	e.prefixMu.Unlock()
+	e.installMu.Lock()
+	e.installPath, e.installDone = "", false
+	e.installMu.Unlock()
 }
 
 // RefreshProbes 作废全部缓存：装完 / 更新完 PI 与插件包后必须重新探测，

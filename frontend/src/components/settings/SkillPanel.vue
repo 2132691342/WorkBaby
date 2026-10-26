@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// 技能面板：列的就是 PI 会加载的那些技能（用户目录 / 工作区 / 插件包自带）。
-// 启停靠把目录移出 PI 的扫描范围，不是在自己的库里记一个开关。
-// 长清单走分页（默认 10 行，5/10/20/50 可选）；来源用行内标签区分。
+// 技能面板：列的就是 PI 会加载的那些技能（用户 / 工作区 / 插件包）；启停靠把目录移出扫描范围，
+// 不在自己库里记开关。长清单走分页，来源用行内标签区分。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'

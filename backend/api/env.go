@@ -14,9 +14,11 @@ func (h *Handler) EnvStatus(c *gin.Context) {
 	ok(c, h.buildPiEnv())
 }
 
-// EnvRecheck 重新探测环境并落盘自愈结果：用户刚装了 Git / 刚改过 PATH 时点这个。
+// EnvRecheck 重新探测环境并落盘自愈结果：用户刚装了 Node / Git、刚改过 PATH 时点这个。
 func (h *Handler) EnvRecheck(c *gin.Context) {
 	if h.PiEnv != nil {
+		// 工具链解析是进程内缓存：用户刚装完运行时，不先作废就还是走旧结论。
+		h.PiEnv.RefreshProbes()
 		if exe, _ := h.PiEnv.PiExe(); exe != "" {
 			if _, err := h.PiEnv.EnsureShell(); err != nil {
 				pkg.Warnf("env: 重新探测命令执行环境失败: %v", err)
@@ -73,6 +75,67 @@ func (h *Handler) EnvTerminalLevel(c *gin.Context) {
 	})
 }
 
+// EnvToolchain 返回运行时工具链快照：node / git / pi 各自的来源、版本与 PATH 落地情况。
+func (h *Handler) EnvToolchain(c *gin.Context) {
+	if h.Svc == nil || h.Svc.Engine == nil {
+		fail(c, domain.ErrEngineMissing)
+		return
+	}
+	ok(c, h.Svc.Engine.Toolchain())
+}
+
+// EnvPromote 把运行时目录提到系统级 / 降回用户级 / 摘掉：写系统级由后端拉起 UAC。
+func (h *Handler) EnvPromote(c *gin.Context) {
+	var req domain.PromoteREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	if h.Svc == nil || h.Svc.Engine == nil {
+		fail(c, domain.ErrEngineMissing)
+		return
+	}
+	vo, err := h.Svc.Engine.Promote(req.Component, req.Level)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// EnvSwitchNode 换一份 node 重新绑定：后续升级与插件增删改都跟着走这份解释器。
+func (h *Handler) EnvSwitchNode(c *gin.Context) {
+	var req domain.NodeSwitchREQ
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, pkg.Wrap("1107", "请求格式不正确", err))
+		return
+	}
+	if h.Svc == nil || h.Svc.Engine == nil {
+		fail(c, domain.ErrEngineMissing)
+		return
+	}
+	vo, err := h.Svc.Engine.SwitchNode(req.Exe)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
+// EnvEnableBundledGit 解压内置 Git 并接管：机器上一份 git 都没有时的兜底。
+func (h *Handler) EnvEnableBundledGit(c *gin.Context) {
+	if h.Svc == nil || h.Svc.Engine == nil {
+		fail(c, domain.ErrEngineMissing)
+		return
+	}
+	vo, err := h.Svc.Engine.EnableBundledGit()
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, vo)
+}
+
 // buildPiEnv 跑一遍闸门判定。
 func (h *Handler) buildPiEnv() *domain.PiEnvVO {
 	if h.PiEnv == nil {
@@ -83,6 +146,9 @@ func (h *Handler) buildPiEnv() *domain.PiEnvVO {
 	out := &domain.PiEnvVO{
 		NodeReady: vo.NodeReady, NodePath: vo.NodePath,
 		NodeVersion: vo.NodeVersion, NodeSource: vo.NodeSource, NodeError: vo.NodeError,
+		NodeBound: vo.NodeBound, NodeLevel: vo.NodeLevel, NodeConflict: vo.NodeConflict,
+		GitReady: vo.GitReady, GitPath: vo.GitPath,
+		GitVersion: vo.GitVersion, GitSource: vo.GitSource, GitLevel: vo.GitLevel,
 		PiReady: vo.PiReady, PiPath: vo.PiPath,
 		PiVersion: vo.PiVersion, PiSource: vo.PiSource, PiError: vo.PiError,
 		AgentDir:   vo.AgentDir,
@@ -92,7 +158,7 @@ func (h *Handler) buildPiEnv() *domain.PiEnvVO {
 	out.ShellKind, out.ShellPath = shell.Kind, shell.Path
 	out.ShellUsable, out.ShellError = shell.Usable, shell.Error
 	terminal := h.PiEnv.TerminalStatusOf()
-	out.TerminalReady, out.TerminalPath = terminal.Ready, terminal.Shim
+	out.TerminalReady, out.TerminalPath = terminal.Ready, terminal.Path
 	out.TerminalOnPath, out.TerminalError = terminal.OnPath, terminal.Error
 	if h.Svc != nil && h.Svc.Engine != nil {
 		out.InstallError = h.Svc.Engine.LastInstallError()

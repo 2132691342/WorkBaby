@@ -6,8 +6,8 @@ package env
 import "WorkBaby/backend/pkg"
 
 // elevatePathAdmin 在非 Windows 上不支持。
-func elevatePathAdmin(mode, dir string) error {
-	return pkg.New("9723", "该平台不支持 PATH 级别切换", mode)
+func elevatePathAdmin(level string, dirs []string) error {
+	return pkg.New("9723", "该平台不支持 PATH 级别切换", level)
 }
 
 // RunPathAdminMode 在非 Windows 上不命中任何标志。

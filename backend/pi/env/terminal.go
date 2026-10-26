@@ -11,10 +11,14 @@ import (
 
 // TerminalStatus 是「在终端里敲 pi」这件事的可用状态。
 type TerminalStatus struct {
-	Ready  bool
-	Shim   string
-	Dir    string
+	Ready bool
+	Shim  string
+	Dir   string
+	// Path 是终端里敲 pi 实际会跑起来的那份；PiOnPath 时为 PATH 上已有的 pi。
+	Path   string
 	OnPath bool
+	// PiOnPath 表示 pi 本来就在 PATH 上（用户自己的 npm 前缀），不需要转发入口。
+	PiOnPath bool
 	// Level 是入口目录挂在哪一级 PATH：system / user / both / none。
 	Level string
 	// PathFirst 表示 PATH 上排在入口目录之前的其它地方没有 pi：
@@ -31,7 +35,7 @@ type TerminalStatus struct {
 func (e *Env) TerminalStatusOf() TerminalStatus {
 	dir := e.terminalDir()
 	st := TerminalStatus{
-		Dir: dir, Shim: filepath.Join(dir, "pi.cmd"),
+		Dir: dir, Shim: filepath.Join(dir, "pi.cmd"), Path: filepath.Join(dir, "pi.cmd"),
 		Others: []string{},
 	}
 	shimExists := pkg.FileExists(st.Shim)
@@ -44,6 +48,12 @@ func (e *Env) TerminalStatusOf() TerminalStatus {
 	st.ShadowedBy = shadow
 	st.Others = others
 	st.PathFirst = shadow == ""
+	// pi 本来就在 PATH 上（装回了用户自己的 npm 前缀）：终端本来就敲得到，不需要入口。
+	st.PiOnPath = e.PiOnPath()
+	if st.PiOnPath && !shimExists {
+		st.Ready, st.Path = true, firstNonEmpty(e.PiExe())
+		return st
+	}
 	st.Ready = shimExists && st.OnPath && st.PathFirst
 	switch {
 	case !shimExists:
@@ -56,7 +66,17 @@ func (e *Env) TerminalStatusOf() TerminalStatus {
 	return st
 }
 
-// SwitchTerminalLevel 把终端入口在用户级与系统级 PATH 之间挪动：
+// firstNonEmpty 取第一个非空值（终端展示路径的兜底）。
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// SwitchTerminalLevel 把终端入口在三档 PATH 之间挪动：system / user / none。
 // 写系统级需要管理员，经 UAC 提权的本程序子进程完成；取消授权时保持原样返回。
 func (e *Env) SwitchTerminalLevel(level string) (TerminalStatus, error) {
 	dir := e.terminalDir()
@@ -64,22 +84,15 @@ func (e *Env) SwitchTerminalLevel(level string) (TerminalStatus, error) {
 	if !pkg.FileExists(st.Shim) {
 		return st, pkg.New("9723", "先生成终端入口，再切换 PATH 级别", "")
 	}
-	var err error
 	switch level {
-	case "system":
-		if st.Level == "system" {
-			return st, nil
-		}
-		err = elevatePathAdmin("system", dir)
-	case "user":
-		if st.Level == "user" {
-			return st, nil
-		}
-		err = elevatePathAdmin("user", dir)
+	case PathLevelSystem, PathLevelUser, PathLevelNone:
 	default:
-		return st, pkg.New("9723", "PATH 级别只有 system 与 user 两种", level)
+		return st, pkg.New("9723", "PATH 级别只有 system / user / none 三种", level)
 	}
-	if err != nil {
+	if st.Level == level {
+		return st, nil
+	}
+	if err := setPathLevel(level, []string{dir}); err != nil {
 		return e.TerminalStatusOf(), err
 	}
 	return e.TerminalStatusOf(), nil

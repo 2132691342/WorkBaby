@@ -24,8 +24,8 @@ pkg       叶子工具包（AppError / ID / 日志 / httprules / fsutil）
 ```
 
 每层能依赖谁、禁止依赖谁，唯一权威表在 [`AGENTS.md` §2.2](../AGENTS.md)；
-这张图只表达顺序与数据流。依赖方向由 `tools/check-boundaries` 按编译器视角的真实
-import 图检查（`go list -json`），不做文本 grep——注释与字符串里的 import 字样会让 grep 得出错误结论。
+这张图只表达顺序与数据流。依赖方向按 AGENTS.md §2.2 的允许表人工守——编译器只挡循环依赖，
+挡不住越层引用；改包结构时逐条对照那张表。
 
 **api = 组合根**：`Handler.Startup` 是唯一装配入口，持有 Repo / Cfg / 子进程句柄。
 业务 handler 方法必须经 service 走流程，唯一例外是查询型系统能力。
@@ -51,8 +51,10 @@ wails.Run
  └─ app.startup → api.Handler.Startup
      ├─ runtime.Resolve()        数据目录 + agent 目录（只解析，不创建 agent 子目录）
      ├─ InitLog / config.Load / db.Open / repo.New
-     ├─ reportRuntime()          内置运行时探测（失败只告警）
-     ├─ pienv.New(paths)         PI 的发现（用户 PATH 优先 → 自装前缀 → 其它 npm 前缀）
+     ├─ pienv.New(paths)         运行时工具链（系统 Node / Git 优先 → 按需解压内置）
+     ├─ reportRuntime()          留痕选中的 node / git（失败只告警）
+     ├─ preparePiEnv()           命令执行环境 + 终端入口（幂等）
+     ├─ git.SetExe(...)          界面读状态与助手跑命令用同一份 git
      ├─ skill.New() + Emitter
      ├─ service.New(env)         装配全部服务 + PI 监督器
      └─ container.Bootstrap()    设置默认值 / 生成 persona / 扫技能

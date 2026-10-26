@@ -106,6 +106,11 @@ func registerRoutes(e *gin.Engine, h *api.Handler, hub *Hub) {
 		v1.POST("/env/shell", h.EnvFixShell)
 		v1.POST("/env/terminal", h.EnvEnableTerminal)
 		v1.POST("/env/terminal-level", h.EnvTerminalLevel)
+		// 运行时工具链：用哪份 node / git、装引擎用的是哪份，以及提级与切换。
+		v1.GET("/env/toolchain", h.EnvToolchain)
+		v1.POST("/env/promote", h.EnvPromote)
+		v1.POST("/env/node", h.EnvSwitchNode)
+		v1.POST("/env/git/enable", h.EnvEnableBundledGit)
 
 		// 引擎：PI 与运行时的状态、版本对账、升级（设置页「助手引擎」）。
 		en := v1.Group("/engine")

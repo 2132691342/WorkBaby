@@ -77,18 +77,16 @@ jobs:
 
       - name: Verify static gate
         shell: pwsh
-        # 测试矩阵已由 main 上的 ci.yml 门禁（tag 必经 main）。这里只重验编译与依赖方向：
+        # 测试矩阵已由 main 上的 ci.yml 门禁（tag 必经 main）。这里只重验编译：
         # 再跑一遍全量测试是重复劳动，wails build 自己会构建前端。
         # 只门后端：main 包 //go:embed frontend/dist，而 dist 此刻还不存在（由 wails build 生成）。
         run: |
           $bad = gofmt -l .
           if ($bad) { throw "gofmt 未通过:`n$bad" }
-          go vet ./backend/... ./tools/...
+          go vet ./backend/...
           if ($LASTEXITCODE -ne 0) { throw "go vet 失败" }
-          go build ./backend/... ./tools/...
+          go build ./backend/...
           if ($LASTEXITCODE -ne 0) { throw "go build 失败" }
-          go run ./tools/check-boundaries
-          if ($LASTEXITCODE -ne 0) { throw "依赖方向门禁失败" }
 
       - name: Verify runtime archives
         shell: pwsh

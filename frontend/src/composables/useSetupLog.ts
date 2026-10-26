@@ -1,6 +1,5 @@
-// 安装 / 更新进度流：这类动作发生在任何会话之外，挂在 SSE 的全局通道（session_id 为空）上。
-// 除了收集日志，还负责把「这一趟真的结束了」变成可 await 的信号——
-// 靠定时器猜结束会让按钮提前说成功，用户刷新后看到的还是旧版本。
+// 安装 / 更新进度流：挂在 SSE 的全局通道（无 session_id）上，除了收集日志，
+// 还把「这一趟真的结束了」变成可 await 的信号——定时器会让按钮提前说成功。
 import { onBeforeUnmount, ref } from 'vue'
 import { getBaseURL } from '../api/http'
 import type { Envelope, SetupData } from '../types/api'

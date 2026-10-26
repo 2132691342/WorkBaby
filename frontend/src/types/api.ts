@@ -329,6 +329,18 @@ export interface PiEnvVO {
   node_version: string
   node_source: string
   node_error: string
+  /** 装引擎时钉下来的就是这份 Node */
+  node_bound: boolean
+  /** 目录挂在哪一级 PATH：system / user / both / none */
+  node_level: string
+  /** 提级会遮住的已有 Node 目录（空表示不冲突） */
+  node_conflict: string
+  /** 助手与界面共用的那份 Git */
+  git_ready: boolean
+  git_path: string
+  git_version: string
+  git_source: string
+  git_level: string
   pi_ready: boolean
   pi_path: string
   pi_version: string
@@ -385,6 +397,13 @@ export interface EngineStatusVO {
   node_path: string
   node_source: string
   node_error: string
+  /** 目录挂在哪一级 PATH：system / user / both / none */
+  node_level: string
+  git_ready: boolean
+  git_version: string
+  git_path: string
+  git_source: string
+  git_level: string
   agent_dir: string
   model_ready: boolean
   /** 已声明的插件包数量 */
@@ -410,6 +429,45 @@ export interface EngineStatusVO {
   /** 入口目录挂在哪一级 PATH：system / user / both / none */
   terminal_level: string
 }
+
+/** 一个运行时组件在 PATH 上的落地情况 */
+export interface LinkVO {
+  ready: boolean
+  /** system / bundled / npm-global / env … */
+  source: string
+  version: string
+  path: string
+  /** 目录挂在哪一级 PATH：system / user / both / none */
+  level: string
+  /** 有目录可以提级 / 降级 */
+  promotable: boolean
+  /** 提到系统级会遮住的已有安装（空表示不冲突） */
+  conflict: string
+  error: string
+}
+
+/** 一份可切换的 node */
+export interface NodeOptionVO {
+  exe: string
+  version: string
+  source: string
+}
+
+/** 运行时工具链：用哪份 node / git，装引擎用的是哪份，能不能换 */
+export interface ToolchainVO {
+  node: LinkVO
+  git: LinkVO
+  pi: LinkVO
+  /** PI 安装 / 升级落点的 npm 前缀 */
+  install_prefix: string
+  /** Node 是装引擎时钉下来的那份 */
+  bound: boolean
+  /** 另一份可切换的 node（没有则为 null） */
+  alt: NodeOptionVO | null
+}
+
+export type RuntimeComponent = 'node' | 'git' | 'pi'
+export type PathLevel = 'system' | 'user' | 'none'
 
 export interface PackageLatestVO {
   source: string

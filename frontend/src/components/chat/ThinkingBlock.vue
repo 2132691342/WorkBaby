@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// 思考段：就地折叠在消息流里，不单独浮到回合顶部。
-// 默认收起：思考是过程而非结果，展开与否由用户自己决定；
-// 流式期间只渲染尾部，展开时也不会把主线程压住。
+// 思考段：就地折叠在消息流里，默认收起（思考是过程不是结果）。
+// 流式期间只渲染尾部，展开也不会把主线程压住。
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../common/AppIcon.vue'

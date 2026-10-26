@@ -68,12 +68,16 @@
 | POST | `/mcp/login` / `/mcp/logout` | OAuth 登录 / 登出 `{name}` |
 | POST | `/mcp/reload` | 重启 PI |
 | GET | `/files?path=` | 工作区目录列举（@ 引用面板） |
-| GET | `/env` | 环境闸门快照（含 `install_error`、`shell_*`、`terminal_*`） |
+| GET | `/env` | 环境闸门快照（含 `install_error`、`shell_*`、`terminal_*`、`node_*`、`git_*`） |
+| GET | `/env/toolchain` | 运行时工具链：node / git / pi 的来源、版本与 PATH 级别，`install_prefix`、`bound`、可切换的 `alt` |
+| POST | `/env/promote` | 提级 / 降级 `{component: node\|git\|pi, level: system\|user\|none}`；写系统级经 UAC 提权，冲突报 9725 |
+| POST | `/env/node` | 换一份 node 重新绑定 `{exe}`：后续升级与插件管理都跟着走这份 |
+| POST | `/env/git/enable` | 解压内置 MinGit 并接管 git（机器上一份 git 都没有时） |
 | POST | `/env/install` / `/env/update` | 安装 / 升级 PI（进度走 `chat:setup`） |
 | POST | `/env/recheck` | 重新判定闸门，并重新探测 / 修一次命令执行环境 |
 | POST | `/env/shell` | 重新探测命令执行环境并写回 PI（只在需要时写 `shellPath` 引导） |
 | POST | `/env/terminal` | 生成终端里的 `pi` 入口并挂到当前用户 PATH |
-| POST | `/env/terminal-level` | 切换入口的 PATH 级别 `{level: system\|user}`；写系统级经 UAC 提权子进程完成，取消授权报 9723 |
+| POST | `/env/terminal-level` | 切换入口的 PATH 级别 `{level: system\|user\|none}`；写系统级经 UAC 提权子进程完成，取消授权报 9723 |
 | GET | `/engine/status` | 引擎本地快照：PI 版本与来源、运行中的进程数、运行时、插件包数量、终端入口状态（含 `terminal_shadowed_by` / `other_pis`） |
 | GET | `/engine/latest` | 联网查最新版本：PI + npm 来源的插件包（查不到只报 `registry_error`） |
 | POST | `/engine/update` | 升级 PI 自身（装回它原来的前缀，完成后重启进程；有对话在跑时拒绝） |

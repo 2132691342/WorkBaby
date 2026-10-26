@@ -13,3 +13,6 @@ func machinePathValue() string { return "" }
 
 // prependUserPath 在非 Windows 上不改环境变量。
 func prependUserPath(string) error { return nil }
+
+// removeUserPathEntry 在非 Windows 上不改环境变量。
+func removeUserPathEntry(string) error { return nil }

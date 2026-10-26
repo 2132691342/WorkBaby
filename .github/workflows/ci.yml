@@ -47,8 +47,20 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Verify
+      - name: Build frontend
+        # main 包 //go:embed frontend/dist：不先建前端，go build 直接失败。
+        run: npm run build
+        working-directory: frontend
+
+      - name: gofmt
         shell: pwsh
-        # 与本机 scripts/check.ps1 -Full 同一条链：门禁只有一处实现，两边不会漂。
-        # 失败摘要由脚本自己写进 job summary（子测试名 + .go 行号）。
-        run: pwsh scripts/check.ps1 -Full
+        run: |
+          $bad = gofmt -l backend main.go app.go
+          if ($bad) { Write-Host "未格式化（gofmt -w 后重提）："; Write-Host $bad; exit 1 }
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        # 全量：短测试与慢链路（真 git、运行时解压、真 PI 回合）都跑。
+        run: go test ./... -count=1

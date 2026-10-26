@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// 对话页左侧面板：新对话 + 会话列表 + 引擎状态卡。
-// 与设置页 / 帮助页共用 SidePanel 的 sub 档：rail 已在左侧占位，二级目录再宽就读作两根侧栏。
-// 折叠由顶栏按钮控制（useSessionPanel），外层包一层只为让宽度过渡可见。
+// 对话页左侧面板：新对话 + 会话列表 + 引擎状态卡。与设置 / 帮助页共用 SidePanel 的 sub 档
+// （rail 已占位，二级目录再宽就读作两根侧栏）；折叠由顶栏按钮控制，外层只为宽度过渡可见。
 import { useI18n } from 'vue-i18n'
 import { useSessionPanel } from '../../composables/useSessionPanel'
 import AppIcon from '../common/AppIcon.vue'

@@ -1,10 +1,11 @@
-<!-- 助手引擎：PI 与本机运行时的状态、版本与升级。
-     版本对账是唯一联网的读操作，与本地快照分开：网络断了面板仍要把本地状态说清楚。 -->
+<!-- 助手引擎：PI 内核的版本、升级与它读的运行参数（思考档、压缩预算）。
+     运行时（Node / Git / bash / 终端）在运行时环境面板——这里不重复。 -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import { useSetupLog } from '../../composables/useSetupLog'
+import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { EngineLatestVO, EngineStatusVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
@@ -12,15 +13,21 @@ import SettingsSection from './SettingsSection.vue'
 
 const { t } = useI18n()
 const toast = useToastStore()
+const settings = useSettingsStore()
+
+const LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
 const status = ref<EngineStatusVO | null>(null)
 const latest = ref<EngineLatestVO | null>(null)
 const loading = ref(true)
 const checking = ref(false)
 const updating = ref(false)
-const fixingShell = ref(false)
-const enablingTerminal = ref(false)
-const switchingLevel = ref('')
+
+// 运行参数：思考档与压缩预算，写入 PI 的 settings.json
+const level = ref('')
+const reserve = ref(0)
+const keep = ref(0)
+const busy = ref('')
 
 // 安装 / 升级的输出也挂在全局 SSE 通道上
 const { lines: log, begin: beginLog, end: endLog, whenDone } = useSetupLog()
@@ -97,119 +104,58 @@ function sourceLabel(src: string) {
   }
 }
 
-function runtimeSource(src: string) {
-  return src === 'bundled' ? t('settings.engine.sourceBundled') : t('settings.engine.sourceSys')
-}
-
-/** 命令执行环境的几种形态：认不出的一律按「没有」说，别把内部名字丢给用户看 */
-function shellKindLabel(kind: string, source = '') {
-  switch (kind) {
-    case 'git-bash':
-      return source === 'bundled'
-        ? t('settings.engine.shellKindBundled')
-        : t('settings.engine.shellKindGitBash')
-    case 'msys':
-      return t('settings.engine.shellKindMSYS')
-    case 'cygwin':
-      return t('settings.engine.shellKindCygwin')
-    case 'powershell':
-      return t('settings.engine.shellKindPowerShell')
-    default:
-      return t('settings.engine.shellKindNone')
-  }
-}
-
-/** 重新探测并写回 PI：用户装了 Git 或改过 PATH 之后点这里 */
-async function fixShell() {
-  if (fixingShell.value) return
-  fixingShell.value = true
+async function saveThinking() {
+  busy.value = 'thinking'
   try {
-    const vo = await api.env.fixShell()
-    await loadStatus()
-    if (!vo.shell_usable) {
-      toast.bad(t('settings.engine.shellFailed', { msg: vo.shell_error || '' }))
-      return
-    }
-    toast.ok(
-      vo.shell_kind === 'powershell'
-        ? t('settings.engine.shellFixedPS')
-        : t('settings.engine.shellFixedBash', { kind: shellKindLabel(vo.shell_kind) }),
-    )
-  } catch (e) {
-    toast.bad(t('settings.engine.shellFailed', { msg: (e as Error)?.message || '' }))
-  } finally {
-    fixingShell.value = false
-  }
-}
-
-/** 生成终端入口并挂 PATH：界面里能用不等于终端里能用，两者要各自说清楚 */
-async function enableTerminal() {
-  if (enablingTerminal.value) return
-  enablingTerminal.value = true
-  try {
-    await api.env.enableTerminal()
-    await loadStatus()
-    if (status.value?.terminal_ready) {
-      toast.ok(t('settings.engine.terminalDone'))
-    } else {
-      toast.info(
-        t('settings.engine.terminalStill', {
-          msg: status.value?.terminal_error || status.value?.terminal_shadowed_by || '',
-        }),
-      )
-    }
+    await api.settings.setThinking(level.value)
+    await settings.loadPISettings()
+    toast.ok(t('common.save'))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
-    enablingTerminal.value = false
+    busy.value = ''
   }
 }
 
-/** 入口当前挂在哪一级 PATH：system 全机可用，user 只影响本账户 */
-function levelLabel(level: string | undefined) {
-  switch (level) {
-    case 'system':
-      return t('settings.engine.levelSystem')
-    case 'user':
-      return t('settings.engine.levelUser')
-    case 'both':
-      return t('settings.engine.levelBoth')
-    default:
-      return t('settings.engine.levelNone')
-  }
-}
-
-/** 切换 PATH 级别：后端会拉起 UAC 授权并等它完成，这一趟可能要等用户输密码 */
-async function switchLevel(level: 'system' | 'user') {
-  if (switchingLevel.value) return
-  switchingLevel.value = level
+async function saveCompaction() {
+  busy.value = 'compaction'
   try {
-    const vo = await api.env.switchTerminalLevel(level)
-    await loadStatus()
-    if (vo.ready) {
-      toast.ok(t('settings.engine.levelSwitched', { level: levelLabel(vo.level) }))
-    } else {
-      toast.info(t('settings.engine.terminalStill', { msg: vo.error || '' }))
-    }
+    await api.settings.setCompaction(Number(reserve.value) || 0, Number(keep.value) || 0)
+    await settings.loadPISettings()
+    toast.ok(t('common.save'))
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
-    switchingLevel.value = ''
+    busy.value = ''
   }
 }
 
-onMounted(() => {
+// 数字框每点一下就存一次会连着写盘、连着弹提示：按一下步进按钮五次就是五条「已保存」。
+// 合流成一次写，提示也只说一句。
+let compactionTimer = 0
+function queueCompaction() {
+  if (compactionTimer) clearTimeout(compactionTimer)
+  compactionTimer = window.setTimeout(() => {
+    compactionTimer = 0
+    void saveCompaction()
+  }, 400)
+}
+onBeforeUnmount(() => {
+  if (compactionTimer) clearTimeout(compactionTimer)
+})
+
+onMounted(async () => {
   void loadStatus()
+  if (!settings.piSettings) await settings.loadPISettings()
+  level.value = settings.piSettings?.default_thinking_level || ''
+  reserve.value = settings.piSettings?.compaction_reserve || 0
+  keep.value = settings.piSettings?.compaction_keep || 0
 })
 </script>
 
 <template>
   <div class="panel-wrap">
-    <SettingsSection
-      icon="cpu"
-      :title="t('settings.engine.title')"
-      :desc="t('settings.engine.desc')"
-    >
+    <SettingsSection icon="cpu" :title="t('settings.engine.kernel')" :desc="t('settings.engine.desc')">
       <template #actions>
         <el-button size="small" :loading="checking" :disabled="checking || loading" @click="checkLatest">
           {{ checking ? t('settings.engine.checking') : t('settings.engine.check') }}
@@ -273,120 +219,52 @@ onMounted(() => {
           {{ t('settings.engine.installError', { msg: status.install_error }) }}
         </p>
 
-        <div class="eng-grid">
-          <div class="eng-kv">
-            <span class="wb-label">{{ t('settings.engine.runtime') }}</span>
-            <p class="eng-line">
-              <AppIcon name="check" size="ic-2xs" :class="status.node_ready ? 'ok' : 'bad'" />
-              {{
-                status.node_ready
-                  ? t('settings.engine.nodeOk', {
-                      version: status.node_version,
-                      source: runtimeSource(status.node_source),
-                    })
-                  : t('settings.engine.nodeMissing', { msg: status.node_error })
-              }}
-            </p>
-          </div>
-
-          <div class="eng-kv">
-            <span class="wb-label">{{ t('settings.engine.agentDir') }}</span>
-            <p class="eng-mono">{{ status.agent_dir || '—' }}</p>
-            <p v-if="status.install_root" class="eng-mono muted">{{ status.install_root }}</p>
-          </div>
-
-          <div class="eng-kv">
-            <span class="wb-label">{{ t('settings.engine.shell') }}</span>
-            <p class="eng-line">
-              <AppIcon :name="status.shell_usable ? 'check' : 'alert'" size="ic-2xs" :class="status.shell_usable ? 'ok' : 'bad'" />
-              {{ shellKindLabel(status.shell_kind, status.shell_source) }}
-            </p>
-            <p class="eng-mono muted">{{ status.shell_path || status.shell_error || '—' }}</p>
-            <p class="eng-meta">{{ t('settings.engine.shellDesc') }}</p>
-            <div class="eng-row">
-              <el-button size="small" :loading="fixingShell" :disabled="fixingShell" @click="fixShell">
-                {{ fixingShell ? t('settings.engine.shellFixing') : t('settings.engine.shellFix') }}
-              </el-button>
-            </div>
-
-            <span class="wb-label eng-gap">{{ t('settings.engine.terminal') }}</span>
-            <p class="eng-line">
-              <AppIcon :name="status.terminal_ready ? 'check' : 'info'" size="ic-2xs" :class="status.terminal_ready ? 'ok' : 'bad'" />
-              {{ status.terminal_ready ? t('settings.engine.terminalReady') : t('settings.engine.terminalMissing') }}
-            </p>
-            <p class="eng-mono muted">{{ status.terminal_path || status.terminal_error || '—' }}</p>
-            <p v-if="status.other_pis?.length" class="eng-warn">
-              <AppIcon name="alert" size="ic-2xs" />
-              {{ t('settings.engine.terminalConflict', { paths: status.other_pis.join('；') }) }}
-            </p>
-            <div class="eng-row">
-              <el-button
-                v-if="!status.terminal_ready && !status.terminal_shadowed_by"
-                size="small"
-                :loading="enablingTerminal"
-                :disabled="enablingTerminal || !status.pi_ready"
-                @click="enableTerminal"
-              >
-                {{ enablingTerminal ? t('settings.engine.terminalEnabling') : t('settings.engine.terminalEnable') }}
-              </el-button>
-              <p v-else-if="status.terminal_shadowed_by" class="eng-meta">
-                {{ t('settings.engine.terminalShadowHint') }}
-              </p>
-              <p v-else class="eng-meta">{{ t('settings.engine.terminalHint') }}</p>
-            </div>
-            <div v-if="status.terminal_on_path" class="eng-row">
-              <span class="eng-level">{{ t('settings.engine.levelLabel') }}</span>
-              <el-tag size="small" :type="status.terminal_level === 'system' ? 'success' : 'info'">
-                {{ levelLabel(status.terminal_level) }}
-              </el-tag>
-              <el-popconfirm
-                v-if="status.terminal_level !== 'system'"
-                :title="t('settings.engine.levelUpHint')"
-                width="280"
-                @confirm="switchLevel('system')"
-              >
-                <template #reference>
-                  <el-button size="small" :loading="switchingLevel === 'system'" :disabled="!!switchingLevel">
-                    {{ t('settings.engine.levelUp') }}
-                  </el-button>
-                </template>
-              </el-popconfirm>
-              <el-popconfirm
-                v-if="status.terminal_level !== 'user'"
-                :title="t('settings.engine.levelDownHint')"
-                width="280"
-                @confirm="switchLevel('user')"
-              >
-                <template #reference>
-                  <el-button size="small" :loading="switchingLevel === 'user'" :disabled="!!switchingLevel">
-                    {{ t('settings.engine.levelDown') }}
-                  </el-button>
-                </template>
-              </el-popconfirm>
-            </div>
-            <p v-if="status.terminal_on_path" class="eng-meta">{{ t('settings.engine.levelHint') }}</p>
-          </div>
-        </div>
-
-        <div class="eng-pkgs">
-          <header class="eng-pkg-head">
-            <span class="wb-label">{{ t('settings.engine.packages') }}</span>
-            <span class="sp" />
-            <el-tag size="small" type="info">{{ status.packages }}</el-tag>
-          </header>
-          <p class="eng-meta">{{ t('settings.engine.packagesDesc') }}</p>
-        </div>
-
         <div v-if="log.length" class="eng-log">
           <div class="wb-label">{{ t('setup.installLog') }}</div>
           <pre class="log-body">{{ log.join('\n') }}</pre>
         </div>
       </template>
     </SettingsSection>
+
+    <SettingsSection icon="sliders" :title="t('settings.engine.params')" :desc="t('settings.engine.paramsHint')" divided>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
+          <b>{{ t('settings.engine.thinkingLevel') }}</b>
+          <p>{{ t('settings.engine.thinkingHint') }}</p>
+        </div>
+        <el-select v-model="level" class="sel" :disabled="!!busy" @change="saveThinking">
+          <el-option value="" :label="t('settings.engine.thinkingDefault')" />
+          <el-option v-for="l in LEVELS" :key="l" :value="l" :label="t(`thinking.${l}`)" />
+        </el-select>
+      </div>
+
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
+          <b>{{ t('settings.engine.compactionReserve') }}</b>
+          <p>{{ t('settings.engine.compactionReserveHint') }}</p>
+        </div>
+        <el-input-number v-model="reserve" :min="0" :step="1000" controls-position="right" :disabled="!!busy" @change="queueCompaction" />
+      </div>
+
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
+          <b>{{ t('settings.engine.compactionKeep') }}</b>
+          <p>{{ t('settings.engine.compactionKeepHint') }}</p>
+        </div>
+        <el-input-number v-model="keep" :min="0" :step="1000" controls-position="right" :disabled="!!busy" @change="queueCompaction" />
+      </div>
+    </SettingsSection>
   </div>
 </template>
 
 <style scoped>
+/* 表单类面板收窄：控件列与标签列都靠左，面板宽 920px 时右侧会拖出一片空地 */
+.panel-wrap {
+  --wb-panel-w: calc(720px * var(--wb-vw-scale));
+}
+.sel {
+  max-width: calc(220px * var(--wb-vw-scale));
+}
 .eng-card {
   padding: var(--wb-sp-4);
 }
@@ -437,69 +315,11 @@ onMounted(() => {
   color: var(--wb-warning);
   line-height: var(--wb-lh-base);
 }
-.eng-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(calc(300px * var(--wb-vw-scale)), 1fr));
-  gap: var(--wb-sp-4);
-  padding: var(--wb-sp-3) 0;
-}
-.eng-kv {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-1);
-}
-.eng-row {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  margin-top: var(--wb-sp-1);
-}
-.eng-gap {
-  margin-top: var(--wb-sp-3);
-}
-.eng-level {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  flex: none;
-}
-.eng-line {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-1);
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink-2);
-}
-.ok {
-  color: var(--wb-success);
-}
-.bad {
-  color: var(--wb-warning);
-}
-.eng-mono {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-ink-2);
-  overflow-wrap: anywhere;
-}
-.eng-mono.muted {
-  color: var(--wb-muted);
-}
-.eng-pkgs {
+.eng-log {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-1);
   padding-top: var(--wb-sp-3);
-  border-top: 1px solid var(--wb-border);
-}
-.eng-pkg-head {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-}
-.eng-log {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
 }
 .log-body {
   margin: 0;
@@ -514,8 +334,5 @@ onMounted(() => {
   line-height: 1.6;
   color: var(--wb-ink-2);
   white-space: pre-wrap;
-}
-.sp {
-  flex: 1;
 }
 </style>

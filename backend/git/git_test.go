@@ -324,9 +324,9 @@ func TestGitChain(t *testing.T) {
 		}
 	})
 
-	// 合并冲突是「界面说成了但其实没成」的最高发区：冲突必须落地为可继续的状态，
-	// 每一步（未解决就提交 / 未解决就继续）都要被点名拦住，解决后继续、中途都能中止。
-	t.Run("合并冲突：落地为状态、逐文件解决、继续与中止", func(t *testing.T) {
+	// 合并与分支是同一条引用操作链路：冲突必须落地为可继续的状态（未解决就提交要报 1021），
+	// 分支名是注入面（以 - 开头会被 git 当成选项），生命周期是界面动作序列。
+	t.Run("合并与分支：冲突落地、继续与中止、新建切换合并删除", func(t *testing.T) {
 		dir := initRepo(t)
 		mustGit(t, dir, "checkout", "-q", "-b", "feature")
 		writeFile(t, dir, "a.txt", "feature-side\n")
@@ -381,17 +381,13 @@ func TestGitChain(t *testing.T) {
 		if err != nil || aborted.State != domain.GitStateNone || aborted.Conflict || len(aborted.Files) != 0 {
 			t.Fatalf("中止后应回到干净状态：%#v err=%v", aborted, err)
 		}
-	})
 
-	// 分支链路：白名单是注入面（以 - 开头会被 git 当成选项），生命周期是界面动作序列。
-	// 坏了 = 面板显示切成功了实际还在原分支上写东西，或者删分支删掉了未合并的提交。
-	t.Run("分支链路：名字白名单、新建切换合并删除", func(t *testing.T) {
 		// 白名单只各验一个代表：以 - 开头（选项注入）与 --upload-pack 形态（命令注入）。
 		if validBranchName("-x") || validRemoteName("-x") || validRemoteURL("--upload-pack=evil") {
 			t.Fatal("以 - 开头的名字与地址必须被拒（会被 git 当成选项）")
 		}
 
-		dir := initRepo(t)
+		dir = initRepo(t)
 		base, err := Status(dir)
 		if err != nil {
 			t.Fatal(err)

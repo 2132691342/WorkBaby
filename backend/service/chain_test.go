@@ -286,7 +286,8 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	t.Run("一轮对话：新会话现场创建、done 最后、落盘后能算出用量", func(t *testing.T) {
+	// 一轮对话的完整回路：现场建会话 → 事件次序 → 落盘后可索引可统计 → 停止与排队 → 状态条剥色。
+	t.Run("对话全链：建会话、收尾次序、用量、停止与排队、状态条剥色", func(t *testing.T) {
 		te.events.reset()
 		resp, err := te.container.Chat.Send(domain.SendMessageREQ{
 			Workspace: te.env.Cfg.Workspace,
@@ -328,12 +329,10 @@ func TestServiceChain(t *testing.T) {
 		if len(stats.Daily) != 7 || stats.Totals.Total == 0 || len(stats.Models) == 0 {
 			t.Fatalf("统计不对: daily=%d total=%d models=%d", len(stats.Daily), stats.Totals.Total, len(stats.Models))
 		}
-	})
 
-	// 停止与空闲排队是同一条队列链路的两面：停止先取回队列再中止；
-	// 空闲时收到的 follow_up 等价于一轮新发送（不记账的话翻译器没有 runState，整轮回应消失）。
-	t.Run("停止与空闲排队：先取回队列再中止，follow_up 按完整一轮记账", func(t *testing.T) {
-		resp, err := te.container.Chat.Send(domain.SendMessageREQ{
+		// 停止与空闲排队是同一条队列链路的两面：停止先取回队列再中止；
+		// 空闲时收到的 follow_up 等价于一轮新发送（不记账的话翻译器没有 runState，整轮回应消失）。
+		resp, err = te.container.Chat.Send(domain.SendMessageREQ{
 			Workspace: te.env.Cfg.Workspace, Content: "跑一轮",
 		})
 		if err != nil {
@@ -390,9 +389,9 @@ func TestServiceChain(t *testing.T) {
 		}
 	})
 
-	// 技能与插件是同一条目录扫描回路：界面上启停的东西都要落到 PI 的目录与登记表里，
-	// 再从那里读回来。坏了的表现是「界面显示停用了，助手照样调到它」。
-	t.Run("技能与插件：三区启停、坏文件只跳自己、包登记与种类", func(t *testing.T) {
+	// 能力与配置是同一条「落盘再读回」的回路：界面改的东西要落到 PI 的目录与 JSON 里，
+	// 再从那里读回来。坏了的表现是「界面显示改了，助手照旧」。
+	t.Run("能力与配置：技能三区、插件登记、模型服务校验与 MCP 落盘", func(t *testing.T) {
 		skillsDir := te.env.PiEnv.SkillsDir()
 		mkSkill(t, filepath.Join(skillsDir, "demo-skill"), "demo-skill", "演示")
 		mkSkill(t, filepath.Join(te.env.PiEnv.DisabledSkillsDir(), "old-skill"), "old-skill", "停用的")
@@ -477,10 +476,7 @@ func TestServiceChain(t *testing.T) {
 		if !mkt[0].Installed || mkt[0].InstalledVersion != "1.4.0" || mkt[1].Installed {
 			t.Fatalf("市场对账错了: %+v", mkt)
 		}
-	})
 
-	// 模型服务与 MCP 共用同一份配置落盘通道：校验顺序、密钥掩码、默认模型的生命周期都在这。
-	t.Run("模型服务与 MCP：校验分流、密钥掩码、默认模型与删除连带", func(t *testing.T) {
 		// 服务商：密钥明文只落在 models.json 里（PI 就是这么读的），列表只给掩码。
 		// 校验顺序与界面字段顺序一致：名字 → 地址 → 模型，一次只说一件事。
 		if _, err := te.container.Providers.Upsert(domain.UpsertProviderREQ{

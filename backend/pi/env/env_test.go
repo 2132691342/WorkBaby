@@ -28,11 +28,11 @@ func pathsOf(t *testing.T) runtime.Paths {
 	return p
 }
 
-// TestPiEnvChain 是 env 包唯一的测试入口。
+// TestPiEnvChain 是 env 包唯一的测试入口：四条链，一条链一类坏法。
 func TestPiEnvChain(t *testing.T) {
 	// 闸门 + agent 目录：两者都是「界面还能不能看见用户已有的东西」的前提。
 	// 闸门顺序错了用户会被指去错的那一步；agent 目录被换掉，用户装好的技能插件模型全部消失。
-	t.Run("环境闸门按 node → pi → model 报首个阻塞项，agent 目录不被进程环境覆盖", func(t *testing.T) {
+	t.Run("环境闸门与配置互通：agent 目录不被覆盖，写入只改掌管键", func(t *testing.T) {
 		p := pathsOf(t)
 		if p.AgentDir != filepath.Join(p.DataDir, "agent") {
 			t.Fatalf("agent 目录没有跟随 PI_CODING_AGENT_DIR: %s", p.AgentDir)
@@ -72,11 +72,9 @@ func TestPiEnvChain(t *testing.T) {
 				t.Fatalf("只有模型缺时阻塞项应当是 model，实际 %q", vo.Blocking)
 			}
 		}
-	})
 
-	// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 未知字段保留；整体重写会抹掉 PI 自己写的字段。
-	t.Run("配置写入：models.json 形状、settings.json 掌管键与字段级合并、mcp.json 原文往返", func(t *testing.T) {
-		e := New(pathsOf(t))
+		// 两份配置同一条回路：写 → 校验 → 落盘 → 读回 → 未知字段保留；
+		// 整体重写会抹掉 PI 自己写的字段与用户手写的条目。
 		authHeader := true
 		models := &ModelsFile{Providers: map[string]ProviderConfig{
 			"my-provider": {
@@ -204,15 +202,11 @@ func TestPiEnvChain(t *testing.T) {
 	})
 
 	// 入口与路径位置：shim 必须还原成 node + 脚本（经 cmd.exe 会弹窗），入口目录必须前置，
-	// 级别判定要说对挂在哪一级，且要能认出排在它前面、也带着旧 pi 的目录——否则终端敲到的是另一份内核。
-	t.Run("PI 入口与终端位置：shim 还原、入口目录前置、PATH 级别与抢先目录都判定对", func(t *testing.T) {
+	// 用户自己的 pi 必须优先，本应用生成的转发不算「用户的 pi」——否则终端与升级都指向另一份内核。
+	t.Run("PI 入口：shim 还原、入口前置、用户 pi 优先、PATH 级别判定", func(t *testing.T) {
 		checkPiShimResolution(t)
 		checkTerminalPathOrder(t)
 		checkTerminalShimFiles(t)
-	})
-
-	// 用户已有 pi 就必须用用户的：探测顺序错会让机器上出现第二份内核，升级也写错地方。
-	t.Run("用户 PATH 上的 pi 抢先于自装前缀，自生成的终端转发不算数", func(t *testing.T) {
 		checkUserPiFirst(t)
 	})
 
@@ -221,6 +215,59 @@ func TestPiEnvChain(t *testing.T) {
 		checkWSLStubSkipped(t)
 		checkShellSelfHeal(t)
 	})
+
+	// 运行时工具链：系统有合规 node 就先用系统的（别白解压内置），装引擎那份钉住后优先复用。
+	// 任一条错了就是「机器上多出第二份 PI / 第二个 node」。
+	t.Run("运行时工具链：系统优先、绑定往返", func(t *testing.T) {
+		checkSystemNodePriority(t)
+		checkBindingRoundTrip(t)
+	})
+}
+
+// checkSystemNodePriority 是本机回归：系统里明明有合规 node，却仍然用了内置那份。
+// 只在装了合规 node 的机器上跑；没装就跳过（没有可断言的场景）。
+func checkSystemNodePriority(t *testing.T) {
+	t.Helper()
+	exe, err := exec.LookPath("node.exe")
+	if err != nil {
+		t.Skip("本机没有 node，跳过系统优先判定")
+	}
+	if !nodeSatisfies(nodeVersionOf(exe)) {
+		t.Skipf("本机 node 低于 PI 的下界（%s），跳过", nodeVersionOf(exe))
+	}
+	e := New(pathsOf(t))
+	tc := e.Toolchain()
+	if tc.Node.Source == SourceBundled {
+		t.Fatalf("系统里有合规 Node（%s），却选了内置那份: %s", exe, tc.Node.Exe)
+	}
+}
+
+// checkBindingRoundTrip 验绑定记录往返与来源判定：装引擎那份与安装前缀必须落得下来。
+func checkBindingRoundTrip(t *testing.T) {
+	t.Helper()
+	e := New(pathsOf(t))
+	want := binding{
+		NodeExe: `C:\nodejs\node.exe`, NodeSource: SourceSystem, NodeVersion: "24.22.0",
+		NpmScript: `C:\nodejs\node_modules\npm\bin\npm-cli.js`,
+		PiPrefix:  `C:\Users\me\AppData\Roaming\npm`,
+	}
+	if err := e.writeBinding(want); err != nil {
+		t.Fatalf("写绑定记录失败: %v", err)
+	}
+	got := e.readBinding()
+	if got.NodeExe != want.NodeExe || got.PiPrefix != want.PiPrefix || got.NpmScript != want.NpmScript {
+		t.Fatalf("绑定记录读回不一致: %+v", got)
+	}
+	if got.UpdatedAt == 0 {
+		t.Fatal("绑定记录没有时间戳")
+	}
+	// 来源判定按路径归属：本应用运行时目录里的算内置，别处算系统。
+	if src := e.sourceOfNode(filepath.Join(e.Paths().NodeDir, "node.exe")); src != SourceBundled {
+		t.Fatalf("运行时目录里的 node 应当算内置: %s", src)
+	}
+	if src := e.sourceOfNode(`D:\nodejs\node.exe`); src != SourceSystem {
+		t.Fatalf("别处的 node 应当算系统: %s", src)
+	}
 }
 
 // checkUserPiFirst 验 PiExe 的优先级：用户 PATH > 自装前缀；本应用生成的终端入口

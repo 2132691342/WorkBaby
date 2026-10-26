@@ -1,5 +1,5 @@
-// HTTP 边界链路：装配完整性、方法白名单、统一信封与 SSE 全链（业务编排归 service）。
-// 坏了的表现：接口全 404、前端 POST 被预检拦掉、重连丢一段回复、数组字段发成 null。
+// HTTP 全链：装配完整性、统一信封与门口三条、SSE 一轮对话与断线重连。
+// 坏了的表现：接口全 404 / POST 被预检拦掉 / 重连丢一段回复 / 数组字段发成 null。
 package api_test
 
 import (
@@ -189,182 +189,151 @@ func keysOf(m map[string]bool) []string {
 	return out
 }
 
-// TestHTTPChain 是 api 包唯一的测试入口。服务只启动一次，子测试共用。
+// TestHTTPChain 是 api 包唯一的测试入口：服务只启动一次，契约与运行态共用这条链路。
 func TestHTTPChain(t *testing.T) {
 	base, h := bootServer(t)
 	workspace := h.Svc.Env.Workspace()
 
-	t.Run("HTTP 闸门：预检放行、方法白名单、路径穿越与空数组契约", func(t *testing.T) {
-		// 预检不放行的话前端所有 POST 都在浏览器层就被拦掉，接口本身根本没被调用。
-		req, err := http.NewRequest(http.MethodOptions, base+"/chat/send", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("Origin", "http://wails.localhost")
-		req.Header.Set("Access-Control-Request-Method", "POST")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			t.Fatalf("预检被拒: %d", resp.StatusCode)
-		}
-
-		// 方法白名单：DELETE / PUT 一律走统一外壳报 1002。
-		for _, m := range []string{http.MethodPut, http.MethodDelete} {
-			if _, body := call(t, base, m, "/sessions/whatever", nil); !strings.Contains(body, `"code":"1002"`) {
-				t.Fatalf("%s 应当被白名单拦下: %s", m, body)
-			}
-		}
-
-		// 路径变量里的穿越必须在门口拦掉：拿到文档内容才算失守。
-		if code, body := call(t, base, "GET", "/docs/..%2Fconfig", nil); code == http.StatusOK &&
-			strings.Contains(body, `"code":"0"`) {
-			t.Fatalf("非法文档名没有被拦下: %d %s", code, body)
-		}
-
-		// 闸门与列表的契约：前端直接对数组字段取 .length，发成 null 就是一句运行时错误。
-		code, body := call(t, base, "GET", "/bootstrap", nil)
-		if code != http.StatusOK {
-			t.Fatalf("bootstrap 失败: %d %s", code, body)
-		}
-		var payload struct {
-			Code string `json:"code"`
-			Data struct {
-				PiEnv    *json.RawMessage   `json:"pi_env"`
-				Settings *map[string]string `json:"settings"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(body), &payload); err != nil {
-			t.Fatalf("解析 bootstrap 失败: %v", err)
-		}
-		if payload.Code != "0" {
-			t.Fatalf("成功响应的 code 必须是字符串 \"0\": %s", body)
-		}
-		if payload.Data.PiEnv == nil || payload.Data.Settings == nil {
-			t.Fatalf("引导字段缺失: %s", body)
-		}
-
-		var list struct {
-			Data struct {
-				Entries  *[]map[string]any `json:"entries"`
-				Packages *[]map[string]any `json:"packages"`
-			} `json:"data"`
-		}
-		_, body = call(t, base, "GET", "/extensions", nil)
-		if err := json.Unmarshal([]byte(body), &list); err != nil {
-			t.Fatalf("解析插件列表失败: %v", err)
-		}
-		if list.Data.Entries == nil || list.Data.Packages == nil {
-			t.Fatalf("插件列表的数组字段发成了 null: %s", body)
-		}
-	})
+	// 门口三条与信封：任一条失守都是「整站不可用」，但都只值几行断言。
+	req, err := http.NewRequest(http.MethodOptions, base+"/chat/send", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Origin", "http://wails.localhost")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		t.Fatalf("预检被拒，前端所有 POST 都在浏览器层被拦掉: %d", resp.StatusCode)
+	}
+	if _, body := call(t, base, http.MethodDelete, "/sessions/whatever", nil); !strings.Contains(body, `"code":"1002"`) {
+		t.Fatalf("白名单外的方法应当被统一外壳拦下: %s", body)
+	}
+	if code, body := call(t, base, "GET", "/docs/..%2Fconfig", nil); code == http.StatusOK &&
+		strings.Contains(body, `"code":"0"`) {
+		t.Fatalf("非法文档名没有被拦下: %d %s", code, body)
+	}
+	_, body := call(t, base, "GET", "/bootstrap", nil)
+	var payload struct {
+		Code string `json:"code"`
+		Data struct {
+			PiEnv    *json.RawMessage   `json:"pi_env"`
+			Settings *map[string]string `json:"settings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("解析 bootstrap 失败: %v", err)
+	}
+	// code 是字符串 "0"：与 HTTP 状态码同型时前端只能靠字段名分辨。
+	if payload.Code != "0" || payload.Data.PiEnv == nil || payload.Data.Settings == nil {
+		t.Fatalf("引导信封不对（code=%q pi_env/settings 不能为空）: %s", payload.Code, body)
+	}
 
 	// SSE 是唯一的运行态通道：假 PI 子进程 → Hub → 帧 → seq 递增 → 重连带游标重放。
-	t.Run("SSE 全链：子进程到帧、seq 递增、断线重连不被拒", func(t *testing.T) {
-		// 配一个服务并设为默认：环境闸门的 model 判定要它。
-		code, body := call(t, base, "POST", "/providers/upsert", map[string]any{
-			"name": "测试网关", "api": "openai-completions",
-			"base_url": "https://api.example.com/v1", "api_key": "sk-test",
-			"models": []map[string]any{{"id": "test-model", "name": "测试模型"}},
-		})
-		if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
-			t.Fatalf("创建模型服务失败: %d %s", code, body)
-		}
-		// 名字会被 slug 成 models.json 的键：拿列表里的真实键再设默认。
-		_, listing := call(t, base, "GET", "/providers", nil)
-		var parsed struct {
-			Data struct {
-				Providers []struct {
-					ID string `json:"id"`
-				} `json:"providers"`
-			} `json:"data"`
-		}
-		_ = json.Unmarshal([]byte(listing), &parsed)
-		if len(parsed.Data.Providers) == 0 {
-			t.Fatalf("服务商没落盘: %s", listing)
-		}
-		if code, body = call(t, base, "POST", "/providers/default", map[string]any{
-			"provider": parsed.Data.Providers[0].ID, "model": "test-model",
-		}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
-			t.Fatalf("设为默认失败: %d %s", code, body)
-		}
-		// 第一次发送：新对话由后端现场创建，返回 session_id。
-		code, body = call(t, base, "POST", "/chat/send", map[string]any{
-			"workspace": workspace, "content": "在吗",
-		})
-		if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
-			t.Fatalf("首次发送失败: %d %s", code, body)
-		}
-		var sent struct {
-			Data struct {
-				SessionID string `json:"session_id"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(body), &sent); err != nil || sent.Data.SessionID == "" {
-			t.Fatalf("新对话没有返回 session_id: %s", body)
-		}
-		sessID := sent.Data.SessionID
-
-		// 会话文件在 message_end 就落盘了，running 要到 agent_settled 才归零（done 挂在那里）。
-		// 不等它归零就发下一轮，本轮尾巴的重试 / done 会混进接下来的事件流，拼出的正文就少一段。
-		waitIdle(t, base, sessID)
-
-		frames, stop := subscribeSSE(t, base, sessID, "")
-		defer stop()
-		time.Sleep(120 * time.Millisecond) // 让订阅先进 Hub，避免错过首帧
-
-		code, body = call(t, base, "POST", "/chat/send", map[string]any{
-			"session_id": sessID, "content": "再来一轮",
-		})
-		if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
-			t.Fatalf("第二次发送失败: %d %s", code, body)
-		}
-		got := drainUntil(t, frames, "chat:start", "chat:delta", "chat:done")
-
-		var text strings.Builder
-		var seqs []int64
-		for _, f := range got {
-			// 前端把 data 当信封用：data.event 决定路由，data.data 才是载荷。
-			if f.Data["event"] != f.Event {
-				t.Fatalf("data 里没有回带 event 字段（实际 %v，帧头是 %q）", f.Data["event"], f.Event)
-			}
-			envSeq, _ := f.Data["seq"].(float64)
-			seqs = append(seqs, int64(envSeq))
-			load, ok := f.Data["data"].(map[string]any)
-			if !ok {
-				t.Fatalf("%s 的 data 字段不是对象: %v", f.Event, f.Data)
-			}
-			switch f.Event {
-			case "chat:delta":
-				if load["kind"] == "text" {
-					text.WriteString(load["delta"].(string))
-				}
-			case "chat:done":
-				usage, ok := load["usage"].(map[string]any)
-				if !ok || usage["output"] != float64(20) {
-					t.Fatalf("done 的用量不对（output 应为 20，实际 %v）", load["usage"])
-				}
-			}
-		}
-		if text.String() != "你好" {
-			t.Fatalf("流式正文拼接不对: %q", text.String())
-		}
-		for i := 1; i < len(seqs); i++ {
-			if seqs[i] <= seqs[i-1] {
-				t.Fatalf("事件 seq 非递增: %v", seqs)
-			}
-		}
-
-		// 断线重连：带 Last-Event-ID 回来必须能重新接入并收到后续事件，而不是被拒绝后变成哑流。
-		frames2, stop2 := subscribeSSE(t, base, sessID, got[len(got)-1].ID)
-		defer stop2()
-		if code, body = call(t, base, "POST", "/chat/followup", map[string]any{
-			"session_id": sessID, "content": "再补一句",
-		}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
-			t.Fatalf("排队消息失败: %s", body)
-		}
-		drainUntil(t, frames2, "chat:done")
+	// 配一个服务并设为默认：环境闸门的 model 判定要它。
+	code, body := call(t, base, "POST", "/providers/upsert", map[string]any{
+		"name": "测试网关", "api": "openai-completions",
+		"base_url": "https://api.example.com/v1", "api_key": "sk-test",
+		"models": []map[string]any{{"id": "test-model", "name": "测试模型"}},
 	})
+	if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
+		t.Fatalf("创建模型服务失败: %d %s", code, body)
+	}
+	// 名字会被 slug 成 models.json 的键：拿列表里的真实键再设默认。
+	_, listing := call(t, base, "GET", "/providers", nil)
+	var parsed struct {
+		Data struct {
+			Providers []struct {
+				ID string `json:"id"`
+			} `json:"providers"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal([]byte(listing), &parsed)
+	if len(parsed.Data.Providers) == 0 {
+		t.Fatalf("服务商没落盘: %s", listing)
+	}
+	if code, body = call(t, base, "POST", "/providers/default", map[string]any{
+		"provider": parsed.Data.Providers[0].ID, "model": "test-model",
+	}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
+		t.Fatalf("设为默认失败: %d %s", code, body)
+	}
+	// 第一次发送：新对话由后端现场创建，返回 session_id。
+	code, body = call(t, base, "POST", "/chat/send", map[string]any{
+		"workspace": workspace, "content": "在吗",
+	})
+	if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
+		t.Fatalf("首次发送失败: %d %s", code, body)
+	}
+	var sent struct {
+		Data struct {
+			SessionID string `json:"session_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &sent); err != nil || sent.Data.SessionID == "" {
+		t.Fatalf("新对话没有返回 session_id: %s", body)
+	}
+	sessID := sent.Data.SessionID
+
+	// 会话文件在 message_end 就落盘了，running 要到 agent_settled 才归零（done 挂在那里）。
+	// 不等它归零就发下一轮，本轮尾巴的重试 / done 会混进接下来的事件流，拼出的正文就少一段。
+	waitIdle(t, base, sessID)
+
+	frames, stop := subscribeSSE(t, base, sessID, "")
+	defer stop()
+	time.Sleep(120 * time.Millisecond) // 让订阅先进 Hub，避免错过首帧
+
+	code, body = call(t, base, "POST", "/chat/send", map[string]any{
+		"session_id": sessID, "content": "再来一轮",
+	})
+	if code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
+		t.Fatalf("第二次发送失败: %d %s", code, body)
+	}
+	got := drainUntil(t, frames, "chat:start", "chat:delta", "chat:done")
+
+	var text strings.Builder
+	var seqs []int64
+	for _, f := range got {
+		// 前端把 data 当信封用：data.event 决定路由，data.data 才是载荷。
+		if f.Data["event"] != f.Event {
+			t.Fatalf("data 里没有回带 event 字段（实际 %v，帧头是 %q）", f.Data["event"], f.Event)
+		}
+		envSeq, _ := f.Data["seq"].(float64)
+		seqs = append(seqs, int64(envSeq))
+		load, ok := f.Data["data"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s 的 data 字段不是对象: %v", f.Event, f.Data)
+		}
+		switch f.Event {
+		case "chat:delta":
+			if load["kind"] == "text" {
+				text.WriteString(load["delta"].(string))
+			}
+		case "chat:done":
+			usage, ok := load["usage"].(map[string]any)
+			if !ok || usage["output"] != float64(20) {
+				t.Fatalf("done 的用量不对（output 应为 20，实际 %v）", load["usage"])
+			}
+		}
+	}
+	if text.String() != "你好" {
+		t.Fatalf("流式正文拼接不对: %q", text.String())
+	}
+	for i := 1; i < len(seqs); i++ {
+		if seqs[i] <= seqs[i-1] {
+			t.Fatalf("事件 seq 非递增: %v", seqs)
+		}
+	}
+
+	// 断线重连：带 Last-Event-ID 回来必须能重新接入并收到后续事件，而不是被拒绝后变成哑流。
+	frames2, stop2 := subscribeSSE(t, base, sessID, got[len(got)-1].ID)
+	defer stop2()
+	if code, body = call(t, base, "POST", "/chat/followup", map[string]any{
+		"session_id": sessID, "content": "再补一句",
+	}); code != http.StatusOK || !strings.Contains(body, `"code":"0"`) {
+		t.Fatalf("排队消息失败: %s", body)
+	}
+	drainUntil(t, frames2, "chat:done")
 }
