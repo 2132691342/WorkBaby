@@ -1,7 +1,6 @@
 //! 子代理：隔离子会话跑一段任务，只把结论回灌父上下文。
-//!
-//! 父上下文不塞中间过程——子代理的每轮采样、每次工具调用都发生在它自己的
-//! 会话文件里，父会话只拿到最后一段结论文本。
+//! 父上下文不塞中间过程——每轮采样与工具调用都发生在子会话文件里，
+//! 父会话只拿到最后一段结论文本。
 
 use std::time::Instant;
 
@@ -15,7 +14,7 @@ use wb_provider::{
 };
 
 use crate::agent::AgentConfig;
-use crate::blocks::{execute_tool, last_tool_mut, push_text, push_thinking, upsert_tool};
+use crate::blocks::{execute_tool, push_text, push_thinking, upsert_tool};
 use crate::session::{now_ms, Block, Entry, Msg, SessionFile};
 
 /// 子代理的运行结果。
@@ -50,9 +49,7 @@ pub struct SubagentConfig {
 }
 
 /// 跑一个子代理：独立会话文件、独立上下文，跑完只回结论。
-///
-/// 父会话的 `cfg` 提供模型客户端与工具注册表；子代理沿用同一模型，
-/// 工具集由 `tool_names` 收窄（防止子代理反过来再派子代理）。
+/// 父会话的 `cfg` 提供模型客户端与工具注册表；工具集由 `tool_names` 收窄。
 pub async fn run_subagent(
     cfg: &AgentConfig,
     sc: SubagentConfig,
@@ -142,10 +139,8 @@ pub async fn run_subagent(
                     ModelEvent::Start => {}
                     ModelEvent::TextDelta(_, t) => push_text(&mut blocks, t),
                     ModelEvent::ThinkingDelta(_, t) => push_thinking(&mut blocks, t),
-                    ModelEvent::ToolCallDelta(_, d) => {
-                        if let Some(Block::ToolCall { arguments, .. }) = last_tool_mut(&mut blocks) {
-                            arguments.push_str(&d);
-                        }
+                    ModelEvent::ToolCallDelta(_, _) => {
+                        // 参数分片由 provider 侧累积，定稿事件带的是完整参数——这里不重复累加。
                     }
                     ModelEvent::ToolCallEnd(_, done) => upsert_tool(&mut blocks, done),
                     ModelEvent::Done(u, s) => {
@@ -247,8 +242,7 @@ pub async fn run_subagent(
     // 轮次用尽时模型可能还停在工具调用上——退回到它最后说的正文，
     // 总比给父会话一句「没有产出结论」有用。
     if conclusion.trim().is_empty() {
-        conclusion = last_text
-            .unwrap_or_else(|| "（子代理没有产出结论）".into());
+        conclusion = last_text.unwrap_or_else(|| "（子代理没有产出结论）".into());
     }
     Ok(SubagentOutcome {
         session_id,

@@ -11,7 +11,8 @@
 ```markdown
 ---
 name: tdd
-description: 用测试驱动开发推进功能修改。先写失败测试，再写实现。
+description: |
+  用测试驱动开发推进功能修改。先写失败测试，再写实现。
 description_zh: 用测试驱动开发推进功能修改
 version: 1.0.0
 allowed-tools: Read,Write,Bash
@@ -26,14 +27,17 @@ allowed-tools: Read,Write,Bash
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `name` | 是 | 技能名即身份；小写字母数字与单连字符 |
+| `name` | 是 | 技能名即身份；小写字母数字与单连字符，≤64 字符 |
 | `description` | 是 | 何时用这个技能；≤ 1024 字符（会进系统提示词） |
 | `description_zh` / `description_en` | 否 | 分语言描述，界面展示用 |
 | `version` | 否 | 版本号 |
-| `allowed-tools` | 否 | 限定可用的工具名，逗号分隔 |
+| `license` / `homepage` / `author` | 否 | 元信息 |
+| `allowed-tools` | 否 | 建议工具名 |
 | `triggers` / `keywords` | 否 | 触发词与关键词 |
 | `metadata` | 否 | 自由嵌套，原样保留 |
 | `disable-model-invocation` | 否 | true 则只允许 `/skill:名` 显式调用 |
+
+未知键不报错，原样保留在兜底字段里。
 
 **description 用块标量**（`description: |`）写多行——单行写不下完整触发条件。
 
@@ -53,6 +57,10 @@ allowed-tools: Read,Write,Bash
 
 `wb-skills::SkillRegistry` 扫描三个区，建立 `技能名 → 条目` 的映射。
 条目含 frontmatter、来源标记与位置路径。
+
+扫描时的跳过规则：目录不存在、没有 `SKILL.md`、frontmatter 解析失败、
+description 缺失或超长——**坏技能只跳过自己，不挡整表**。
+一个技能写坏了不该让所有技能都不可用。
 
 开关状态存在 `wb-repo` 的 `skill_toggle` 表（**未记录 = 开**）。
 内置技能的开关可用，但不可删除也不可改名——内置包是应用的一部分。
@@ -107,8 +115,8 @@ allowed-tools: Read,Write,Bash
 
 | 规则 | 不通过的后果 |
 |---|---|
-| 技能名合法（小写字母数字 + 单连字符） | 拒绝导入 |
-| description 非空且 ≤ 1024 字符 | 拒绝导入（超长会撑爆系统提示词） |
+| 技能名合法（小写字母数字 + 单连字符，≤64 字符） | 跳过该技能 |
+| description 非空且 ≤ 1024 字符 | 跳过该技能（超长会撑爆系统提示词） |
 | 目录含 SKILL.md | 跳过并记录原因 |
 
 ## 取舍
@@ -120,3 +128,4 @@ allowed-tools: Read,Write,Bash
 | 只注入名称与描述 | 正文按需加载，省上下文 | 模型得自己决定要不要 read |
 | 技能不产生工具 | 避免无谓的调用往返 | 技能无法直接执行动作，只能指导模型 |
 | description 上限 1024 | 它进系统提示词，长了挤占上下文 | 复杂技能要写得精炼 |
+| 坏技能跳过而非整表失败 | 一个写坏的技能不该让全部不可用 | 出错只体现在日志里 |

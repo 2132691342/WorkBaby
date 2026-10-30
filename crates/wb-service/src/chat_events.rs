@@ -5,7 +5,6 @@ use wb_kernel::KernelEvent;
 use super::Emitter;
 
 /// KernelEvent → SSE 事件。
-///
 /// 载荷一律走 wb_domain::events 里的结构体——那是前后端契约的唯一出处，
 /// 手写 json! 字面量早晚会与前端对不上。
 pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent) {
@@ -111,9 +110,7 @@ pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent) {
                 em,
                 sid,
                 "chat:compressed",
-                &wb_domain::events::CompressedData {
-                    tokens_before: *t,
-                },
+                &wb_domain::events::CompressedData { tokens_before: *t },
             );
         }
         KernelEvent::CompactionEnd {

@@ -11,8 +11,8 @@ use wb_kernel::{Entry, KernelEvent};
 use wb_pkg::{AppError, Result};
 use wb_provider::StopReason;
 
-use super::store;
 use super::chat_events::translate;
+use super::store;
 use super::{steer_channel, Services};
 
 /// 目标连续续跑上限：超过就停下来并告知用户，不让模型空转。
@@ -249,11 +249,8 @@ pub fn stop(sv: &Arc<Services>, session_id: &str) -> bool {
 }
 
 /// 目标续跑：一轮结束后若活跃目标还有未完成步骤，自动开下一轮。
-///
-/// 续跑是“后台接着跑”而不是“用户又发了一条消息”——所以走内部 run 路径，
-/// 不占用界面输入框。被中止的轮次不续跑。
-///
-/// 连续续跑次数有上限：模型没能推进目标却一直挂着目标时，不能无限转下去。
+/// 走内部 run 路径，不占用界面输入框；被中止的轮次不续跑。
+/// 连续续跑有上限——模型没推进目标却一直挂着目标时，不能无限转下去。
 fn maybe_resume_goal(sv: &Arc<Services>, session_id: &str) {
     let Some(prompt) = super::features::goal_continuation(sv) else {
         // 目标没了（达成 / 放弃 / 功能关掉）：清计数。

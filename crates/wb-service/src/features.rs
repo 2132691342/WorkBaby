@@ -83,7 +83,9 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
                 reg.register(Arc::new(wb_features::memory::MemorySearchTool::new(
                     store.clone(),
                 )));
-                reg.register(Arc::new(wb_features::memory::MemoryRemoveTool::new(store.clone())));
+                reg.register(Arc::new(wb_features::memory::MemoryRemoveTool::new(
+                    store.clone(),
+                )));
                 reg.register(Arc::new(wb_features::memory::MemoryConsolidateTool::new(
                     store.clone(),
                 )));
@@ -124,7 +126,9 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
             store.clone(),
             ctx.clone(),
         )));
-        reg.register(Arc::new(wb_features::plan::PlanInboxTool::new(store.clone())));
+        reg.register(Arc::new(wb_features::plan::PlanInboxTool::new(
+            store.clone(),
+        )));
         reg.register(Arc::new(wb_features::plan_annotate::PlanAnnotateTool::new(
             store,
             ctx.clone(),

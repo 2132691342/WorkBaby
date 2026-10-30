@@ -229,10 +229,10 @@ pub async fn remove(sv: &Arc<Services>, req: &McpNameREQ) -> Result<()> {
     reload(sv).await
 }
 
-/// OAuth 登录：v1 不支持（远端鉴权 server 用 header / 环境变量凭据）。
+/// OAuth 登录：远端鉴权 server 请用 header 或环境变量传凭据。
 pub async fn login(_sv: &Arc<Services>, _req: &McpNameREQ) -> Result<()> {
     Err(AppError::new(
         mcpcode::CONFIG_INVALID,
-        "OAuth 登录在 v1 暂不支持，请在配置里用 headers 传凭据",
+        "OAuth 登录暂不支持，请在配置里用 headers 传凭据",
     ))
 }

@@ -150,7 +150,7 @@ impl FrecencyStore {
         })
     }
 
-    /// user_version 步进迁移：v1 建 frecency 与 query_history 两张表。
+    /// user_version 步进迁移：建 frecency 与 query_history 两张表。
     fn migrate(conn: &Connection) -> Result<()> {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))

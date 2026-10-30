@@ -1,7 +1,6 @@
 //! 视频理解：取视频页面的元数据与字幕轨。
-//!
 //! 字幕是理解视频的主要入口——有字幕就抽字幕，没有就取页面上的标题与描述，
-//! 两者都没有就如实说明，不编造视频内容。
+//! 都没有就如实说明，不编造视频内容。
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -95,7 +94,10 @@ impl Tool for VideoTool {
         if !(url.to_lowercase().starts_with("http://")
             || url.to_lowercase().starts_with("https://"))
         {
-            return Err(AppError::new(toolcode::ARG_INVALID, "只允许 http/https 地址"));
+            return Err(AppError::new(
+                toolcode::ARG_INVALID,
+                "只允许 http/https 地址",
+            ));
         }
         let max_chars = args
             .get("max_chars")
@@ -129,7 +131,8 @@ impl Tool for VideoTool {
 
         let mut out = String::new();
         let title = meta_content(&html, "og:title").or_else(|| page_title(&html));
-        let desc = meta_content(&html, "og:description").or_else(|| meta_content(&html, "description"));
+        let desc =
+            meta_content(&html, "og:description").or_else(|| meta_content(&html, "description"));
         if let Some(t) = title {
             out.push_str(&format!("标题：{t}\n"));
         }

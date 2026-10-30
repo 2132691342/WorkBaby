@@ -13,7 +13,7 @@ use wb_provider::{
     ThinkingLevel, ToolDef, Usage,
 };
 
-use crate::blocks::{execute_tool, last_tool_mut, push_text, push_thinking, upsert_tool};
+use crate::blocks::{execute_tool, push_text, push_thinking, upsert_tool};
 use crate::compaction;
 use crate::events::{EmitFn, KernelEvent};
 use crate::session::{now_ms, Block, Entry, Msg, SessionFile};
@@ -175,11 +175,8 @@ pub async fn run(
                         emit(&KernelEvent::ThinkingDelta { delta: t.clone() });
                         push_thinking(&mut blocks, t);
                     }
-                    ModelEvent::ToolCallDelta(_, d) => {
-                        if let Some(Block::ToolCall { arguments, .. }) = last_tool_mut(&mut blocks)
-                        {
-                            arguments.push_str(&d);
-                        }
+                    ModelEvent::ToolCallDelta(_, _) => {
+                        // 参数分片由 provider 侧累积，定稿事件带的是完整参数——这里不重复累加。
                     }
                     ModelEvent::ToolCallEnd(_, done) => {
                         upsert_tool(&mut blocks, done);

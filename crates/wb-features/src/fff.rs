@@ -18,7 +18,7 @@ use wb_tools::{Tool, ToolAnnotations, ToolOutput};
 use self::store::{
     best_lines, bonus_from, clip, glob_regex, now_ms, LINE_CLIP_CHARS, MAX_FILE_BYTES,
 };
-pub use self::store::{walk_files, FrecencyStore};
+pub use self::store::{frecency_score, walk_files, FrecencyStore};
 use crate::FeatureCtx;
 
 /// 单文件的内容命中：按最高行分参与排序。

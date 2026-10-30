@@ -48,7 +48,10 @@ impl PlanAnnotation {
     /// 单行渲染：整体标注带前缀，步骤标注带序号。
     pub fn render_line(&self) -> String {
         match self.annotation_scope.as_str() {
-            "step" => format!("[标注·步骤 {}] {}", self.annotation_step, self.annotation_text),
+            "step" => format!(
+                "[标注·步骤 {}] {}",
+                self.annotation_step, self.annotation_text
+            ),
             _ => format!("[标注] {}", self.annotation_text),
         }
     }
@@ -144,7 +147,11 @@ pub fn push_widget(ctx: &crate::FeatureCtx, p: &PlanState) {
     for a in &p.plan_annotations {
         lines.push(a.render_line());
     }
-    (ctx.emit)("", "chat:widget", serde_json::json!({ "key": "plan", "lines": lines }));
+    (ctx.emit)(
+        "",
+        "chat:widget",
+        serde_json::json!({ "key": "plan", "lines": lines }),
+    );
 }
 
 /// 状态常量给测试用。

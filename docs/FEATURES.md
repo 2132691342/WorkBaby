@@ -96,7 +96,9 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 | 参数 | 值 | 理由 |
 |---|---|---|
 | 相似度阈值 | 0.5 | 字符级词元交并比 |
+| 分词口径 | 中文按字，西文按词 | 中文不分词时改写句能对上，分词切错就完全对不上 |
 | 特征词门槛 | 两段必须共用特征词 | 「我喜欢猫」与「我不喜欢狗」字面重合高但不是一回事 |
+| 单次扫描上限 | 300 条 | 控制整合的扫描成本 |
 | 自动触发阈值 | 40 条 | 到量就整合，不等模型手动叫 |
 | 合并方向 | 保留较早创建的 | 早的通常是原始陈述，后的是补充 |
 
@@ -140,7 +142,7 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 
 沙箱支持 12 种语言（javascript / typescript / python / shell / powershell /
 ruby / php / perl / go / dotnet / java / lua），脚本落盘后用对应解释器执行，
-执行完即删。
+执行完即删。解释器不在 PATH 上时报 7200（沙箱解释器不可用）。
 
 知识库是 SQLite FTS5，正文按段落切块入库。检索用**双路召回 + RRF 融合**：
 一路 FTS5 词面匹配（BM25 排序），一路逐字 LIKE（覆盖缩写与专有名词），
@@ -150,10 +152,12 @@ ruby / php / perl / go / dotnet / java / lua），脚本落盘后用对应解释
 
 `lsp_diagnostics`（工作区静态诊断）与 `lsp_fix`（快速修复）。
 
-自带 stdio JSON-RPC 客户端（按 Content-Length 分帧），与 14 个语言服务器的目录表：
+自带 stdio JSON-RPC 客户端（按 Content-Length 分帧），配 15 个语言服务器：
 rust-analyzer / gopls / ruff / ty / biome / typescript-language-server / clangd /
 jdtls / yaml-language-server / lua-language-server / intelephense / zls /
-bash-language-server / terraform-ls。
+bash-language-server / terraform-ls / rubocop。
+
+每个服务器带自己的扩展名映射与跳过目录（如 rust-analyzer 跳过 `target` 与 `.git`）。
 
 **server 按需启停**：一次工具调用内启动、用完即关，不留常驻进程。
 语言服务器需用户自装（不下载），未装的语言在诊断结果里列为「跳过」。

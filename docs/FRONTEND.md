@@ -103,6 +103,8 @@ UnoCSS 的刻度已接到令牌上，布局用原子类不绕开令牌。
 | 禁用 | 降透明、不参与形变、指针禁用 |
 | 加载 | 锁定尺寸（不参与缩放）+ 转圈指示器 |
 
+刻度令牌：`--wb-btn-scale-hover`（1.06）/ `--wb-btn-scale-press`（0.92）。
+
 **Element Plus 按钮与自绘按钮共用同一套刻度令牌**
 （`--wb-btn-scale-hover` / `--wb-btn-scale-press`）——同一个操作条里两种按钮并排时，
 点击手感必须一致。加载与禁用两态一律 `transform: none`，否则连点会让按钮持续抖动。
@@ -125,6 +127,9 @@ PDF、表格、文档、图谱四个依赖体积可观，一律**动态导入**�
 | `vendor-xlsx` | XLSX |
 | `vendor-docx` | docx-preview |
 | `vendor-graph` | AntV X6 + BPMN-JS |
+
+另有 `vendor-markdown`（marked + dompurify + highlight.js）、`vendor-echarts`、
+`vendor-cm`（CodeMirror）三块，以及承载 Vue / Pinia / Router / Axios 的 `vendor` 主块。
 
 不进对应页面就不下载它们的代码。Element Plus 不整体归堆——
 按需导入的组件归进单个 chunk 会把内部依赖一起拉回首屏，

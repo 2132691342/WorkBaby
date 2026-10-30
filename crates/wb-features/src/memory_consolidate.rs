@@ -1,8 +1,6 @@
 //! 知识整合：把散落的记忆去重、合并、提炼成更少的条目。
-//!
-//! 记忆库只增不减的话，半年后会变成一堆互相重复的碎片——检索时召回一堆近似内容，
-//! 上下文被占满，模型也分不清哪条更新。整合按「同一类别 → 逐对判重 → 合并」跑，
-//! 合并后条目变少、内容更全，检索质量才稳得住。
+//! 记忆库只增不减就会堆满互相重复的碎片——检索召回一堆近似内容，模型也分不清哪条更新。
+//! 整合按「同一类别 → 逐对判重 → 合并」跑，合并后条目变少、内容更全。
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -30,10 +28,8 @@ pub struct ConsolidateReport {
 }
 
 /// 相似度：两段文本的字符级词元集合交并比。
-///
-/// 中文不分词（按字切），西文按词切。字级切分对中文短句更稳——
-/// 「项目用 pnpm 管理依赖」与「这个项目依赖由 pnpm 管」这类改写能对上，
-/// 而分词切错一点就完全对不上。
+/// 中文按字切、西文按词切。字级切分对中文短句更稳——「项目用 pnpm 管理依赖」
+/// 与「这个项目依赖由 pnpm 管」这类改写能对上，分词切错就完全对不上。
 fn similarity(a: &str, b: &str) -> f64 {
     let ta = tokens(a);
     let tb = tokens(b);
@@ -53,7 +49,9 @@ fn tokens(text: &str) -> std::collections::BTreeSet<String> {
         .filter(|w| !is_stop_word(w))
         .flat_map(|w| {
             // 连续汉字拆成单字；西文词原样保留。
-            if w.chars().all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit()) {
+            if w.chars()
+                .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit())
+            {
                 vec![w.to_string()]
             } else {
                 w.chars().map(|c| c.to_string()).collect()
@@ -63,15 +61,17 @@ fn tokens(text: &str) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-/// 特征词：西文词与数字（包名、命令、路径、数字）。
-///
+/// 特征词：西文词与数字（包名、命令、路径）。
 /// 纯中文句子没有特征词，所以两段纯中文若没有共同特征词就不合并——
-/// 「我喜欢猫」与「我不喜欢狗」字面重合很高，但它们说的不是一回事。
+/// 「我喜欢猫」与「我不喜欢狗」字面重合很高，但说的不是一回事。
 fn distinctive_tokens(text: &str) -> std::collections::BTreeSet<String> {
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.len() >= 2 && !is_stop_word(w))
-        .filter(|w| w.chars().any(|c| c.is_ascii_alphabetic() || c.is_ascii_digit()))
+        .filter(|w| {
+            w.chars()
+                .any(|c| c.is_ascii_alphabetic() || c.is_ascii_digit())
+        })
         .map(|w| w.to_string())
         .collect()
 }
@@ -83,8 +83,8 @@ fn is_stop_word(w: &str) -> bool {
 
 /// 停用词（高頻虚词，不参与判重）。
 const STOP_WORDS: &[&str] = &[
-    "the", "and", "for", "with", "that", "this", "from", "are", "was", "you", "your", "not",
-    "的", "了", "是", "在", "和", "与", "或", "也", "就", "都", "而", "及", "着", "过",
+    "the", "and", "for", "with", "that", "this", "from", "are", "was", "you", "your", "not", "的",
+    "了", "是", "在", "和", "与", "或", "也", "就", "都", "而", "及", "着", "过",
 ];
 
 /// 相似度阈值：高于它就判为重复并合并。
@@ -94,15 +94,12 @@ const MERGE_THRESHOLD: f64 = 0.5;
 const MAX_SCAN: usize = 300;
 
 /// 自动整合的触发阈值：记忆条数超过它就自动跑一轮整合。
-///
-/// 不设阈值的话整合永远只靠模型手动调用；记忆库是只增不减的，
-/// 到一定量就会堆满互相重复的碎片，检索质量断崖下跌。
+/// 不设阈值的话整合永远只靠模型手动调用；记忆库只增不减，到量就堆满重复碎片。
 const AUTO_CONSOLIDATE_THRESHOLD: usize = 40;
 
 /// 整合记忆库：同类别内逐对判重，重复的合并成一条。
-///
 /// 合并方向：保留较早创建的那条（内容并进去），删掉后创建的那条——
-/// 早的条目通常是原始陈述，后的是补充，合起来才不丢信息。
+/// 早的是原始陈述，后的是补充，合起来才不丢信息。
 pub fn consolidate(store: &Arc<MemoryStore>) -> ConsolidateReport {
     let mut scanned = 0usize;
     let mut merged = 0usize;

@@ -107,26 +107,21 @@ impl Tool for PdfReadTool {
             let meta = std::fs::metadata(p)
                 .map_err(|e| AppError::new(toolcode::ARG_INVALID, format!("读不到文件：{e}")))?;
             if meta.len() as usize > MAX_PDF_BYTES {
-                return Err(AppError::new(
-                    toolcode::ARG_INVALID,
-                    "PDF 超过 64MB 上限",
-                ));
+                return Err(AppError::new(toolcode::ARG_INVALID, "PDF 超过 64MB 上限"));
             }
             std::fs::read(p)
                 .map_err(|e| AppError::new(toolcode::ARG_INVALID, format!("读文件失败：{e}")))?
         };
 
-        let text = tokio::task::spawn_blocking(move || {
-            pdf_extract::extract_text_from_mem(&bytes)
-        })
-        .await
-        .map_err(|e| AppError::new(toolcode::ARG_INVALID, format!("PDF 解析任务失败：{e}")))?
-        .map_err(|e| {
-            AppError::new(
-                toolcode::ARG_INVALID,
-                format!("PDF 解析失败（可能是扫描版，没有文字层）：{e}"),
-            )
-        })?;
+        let text = tokio::task::spawn_blocking(move || pdf_extract::extract_text_from_mem(&bytes))
+            .await
+            .map_err(|e| AppError::new(toolcode::ARG_INVALID, format!("PDF 解析任务失败：{e}")))?
+            .map_err(|e| {
+                AppError::new(
+                    toolcode::ARG_INVALID,
+                    format!("PDF 解析失败（可能是扫描版，没有文字层）：{e}"),
+                )
+            })?;
 
         let text = text.trim().to_string();
         if text.is_empty() {
@@ -235,7 +230,8 @@ impl Tool for GithubCloneTool {
             dest.clone(),
         ];
         if let Some(branch) = args.get("branch").and_then(|v| v.as_str()) {
-            if branch.is_empty() || branch.contains(char::is_whitespace) || branch.starts_with('-') {
+            if branch.is_empty() || branch.contains(char::is_whitespace) || branch.starts_with('-')
+            {
                 return Err(AppError::new(toolcode::ARG_INVALID, "branch 非法"));
             }
             argv.push("--branch".to_string());

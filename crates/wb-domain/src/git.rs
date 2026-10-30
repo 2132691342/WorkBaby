@@ -187,7 +187,7 @@ pub struct GitBranchVO {
 pub struct GitPathsREQ {
     /// 相对工作区的文件路径
     pub git_paths: Vec<String>,
-    /// 会话 id（预留；v1 用当前工作区）
+    /// 会话 id（当前一律用工作区）
     pub git_session_id: String,
 }
 
@@ -197,7 +197,7 @@ pub struct GitPathsREQ {
 pub struct GitCommitREQ {
     /// 提交信息（非空）
     pub git_message: String,
-    /// 会话 id（预留）
+    /// 会话 id（当前一律用工作区）
     pub git_session_id: String,
     /// 仅 HEAD 未推送时允许 amend
     pub git_amend: bool,
@@ -209,7 +209,7 @@ pub struct GitCommitREQ {
 pub struct GitNameREQ {
     /// 分支名
     pub git_name: String,
-    /// 会话 id（预留）
+    /// 会话 id（当前一律用工作区）
     pub git_session_id: String,
 }
 
@@ -221,7 +221,7 @@ pub struct GitMergeREQ {
     pub git_name: String,
     /// true = 变基，false = 合并
     pub git_rebase: bool,
-    /// 会话 id（预留）
+    /// 会话 id（当前一律用工作区）
     pub git_session_id: String,
 }
 
@@ -231,7 +231,7 @@ pub struct GitMergeREQ {
 pub struct GitStateREQ {
     /// continue / abort
     pub git_action: String,
-    /// 会话 id（预留）
+    /// 会话 id（当前一律用工作区）
     pub git_session_id: String,
 }
 
@@ -245,7 +245,7 @@ pub struct GitPullREQ {
     pub git_branch: String,
     /// true = 变基方式拉取
     pub git_rebase: bool,
-    /// 会话 id（预留）
+    /// 会话 id（当前一律用工作区）
     pub git_session_id: String,
 }
 
@@ -263,7 +263,7 @@ pub struct GitPushREQ {
     pub git_force: String,
     /// force 级别必须与分支名完全一致的确认串
     pub git_confirm: String,
-    /// 会话 id（预留）
+    /// 会话 id（当前一律用工作区）
     pub git_session_id: String,
 }
 
@@ -273,7 +273,7 @@ pub struct GitPushREQ {
 pub struct GitInitREQ {
     /// 初始分支名（空 = git 默认）
     pub git_branch: String,
-    /// 会话 id（预留）
+    /// 会话 id（当前一律用工作区）
     pub git_session_id: String,
 }
 
@@ -285,7 +285,7 @@ pub struct GitRemoteREQ {
     pub git_name: String,
     /// 仓库地址
     pub git_url: String,
-    /// 会话 id（预留）
+    /// 会话 id（当前一律用工作区）
     pub git_session_id: String,
 }
 

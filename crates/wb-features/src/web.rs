@@ -321,7 +321,13 @@ impl Tool for SearchTool {
             }
             let mut out = format!("（搜索源：{}）\n", p.label);
             for (i, r) in results.iter().take(limit).enumerate() {
-                out.push_str(&format!("{}. {}\n  {}\n  {}\n", i + 1, r.title, r.url, r.snippet));
+                out.push_str(&format!(
+                    "{}. {}\n  {}\n  {}\n",
+                    i + 1,
+                    r.title,
+                    r.url,
+                    r.snippet
+                ));
             }
             return Ok(ToolOutput {
                 text: out,
@@ -330,7 +336,10 @@ impl Tool for SearchTool {
             });
         }
         Ok(ToolOutput {
-            text: format!("所有搜索源都没有返回可解析的结果：\n{}", failures.join("\n")),
+            text: format!(
+                "所有搜索源都没有返回可解析的结果：\n{}",
+                failures.join("\n")
+            ),
             is_error: false,
             duration_ms: started.elapsed().as_millis() as i64,
         })

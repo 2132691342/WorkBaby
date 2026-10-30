@@ -1,7 +1,6 @@
 //! 审查 PR：拿分支与基线之间的 diff，让模型逐文件给审查意见。
-//!
-//! 审查的是本地分支差异——PR 的内容在本地就是「基线分支 vs 特性分支」的 diff，
-//! 所以不需要连 GitHub API，也不需要用户配令牌。
+//! 审查的是本地分支差异——PR 在本地就是「基线分支 vs 特性分支」的 diff，
+//! 所以不需要连 GitHub API，也不需要令牌。
 
 use std::path::Path;
 use std::time::Instant;

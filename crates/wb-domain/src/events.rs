@@ -1,8 +1,6 @@
 //! SSE 事件载荷：与前端 types/api.ts 的 ServerEvent 一一对应，字段 snake_case。
-//!
-//! 字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——业务前缀是为领域对象
-//! 消歧的，而事件载荷的字段名就是协议本身（前端按 `data.kind` / `data.name` 读）。
-//! 改这里的字段名必须同步改前端 `types/api.ts` 与 `stores/chat.ts`。
+//! 字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——前缀是为领域对象消歧的，
+//! 事件载荷的字段名就是协议本身。改这里必须同步改前端。
 
 use serde::Serialize;
 
@@ -73,9 +71,8 @@ pub struct UserData {
 }
 
 /// chat:context 载荷。
-///
-/// 注意：这里的 usage 是 SSE 线格式（裸字段名），与界面用的 `UsageVO`
-/// （带 `usage_` 前缀）不是同一个东西——两者都出现在会话详情与实时流里。
+/// 这里的 usage 是 SSE 线格式（裸字段名），与界面用的 `UsageVO`（带前缀）
+/// 不是同一个东西——两者都出现在会话详情与实时流里。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ContextData {
@@ -236,9 +233,7 @@ pub struct AskClosedData {
 }
 
 /// chat:notify 载荷。
-///
-/// 字段名是 SSE 线格式，与前端 `types/api.ts` 的 NotifyData 严格一致——
-/// 事件载荷是前后端契约，不走业务前缀规则。
+/// 字段名与前端 `types/api.ts` 的 NotifyData 严格一致——事件载荷是前后端契约。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct NotifyData {

@@ -98,19 +98,27 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 `GET /events?session_id={sid}`，请求头 `Last-Event-ID` 重放。
 帧：`id: {seq}` + `event: {name}` + `data: {…}`。
 
-| 事件 | 载荷要点 |
-|---|---|
-| chat:start | run_id, session_id |
-| chat:delta | kind(text/thinking), delta |
-| chat:tool_start / chat:tool_end | tool_call_id, name, args / result, is_error, duration_ms |
-| chat:user | 用户消息回显 |
-| chat:context | tokens_used, context_window, ratio |
-| chat:compressed | tokens_before |
-| chat:retry | attempt, max, delay_ms |
-| chat:ask / chat:ask_closed | 提问卡（confirm/select/input/editor/问卷）与关闭 |
-| chat:notify / chat:status / chat:widget | 通知 / 状态行 / 小部件行 |
-| chat:title | 标题建议 |
-| chat:done | 本轮结算 |
+| 事件 | 载荷要点 | 来源 |
+|---|---|---|
+| chat:start | run_id, session_id | 内核 |
+| chat:delta | kind(text/thinking), delta | 内核 |
+| chat:tool_start / chat:tool_end | tool_call_id, name, args / result, is_error, duration_ms | 内核 |
+| chat:context | usage{input,output,cached,cache_write,total,context,cost}, context_window, ratio | 内核 |
+| chat:compressed | tokens_before | 内核 |
+| chat:retry | attempt, max, delay_ms | 内核 |
+| chat:stopped | run_id | 内核 |
+| chat:done | run_id, message | 内核 |
+| chat:error | run_id, code, message | 内核 |
+| chat:ask / chat:ask_closed | 提问卡（confirm/select/input/editor/问卷）与关闭 | ask_user / plan 功能 |
+| chat:notify | level(info/warning/error), text | service |
+| chat:status | key, text（空 text 即清除该 key） | goal 功能 |
+| chat:widget | key, lines（空行组即清除该 key） | todo / plan 功能 |
+
+载荷字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——前端按 `data.kind` / `data.name` 读。
+事件名与载荷结构体定义在 `wb-domain/src/events.rs`，那是前后端契约的唯一出处。
+
+前端另监听 `chat:user` / `chat:title` / `chat:switched` / `chat:gap`：
+前三个是会话切换与标题建议的预留通道，`chat:gap` 是断线重连后的对账信号。
 
 ## 错误响应
 

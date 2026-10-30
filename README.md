@@ -22,7 +22,7 @@
 | 桌面壳 | Tauri 2（WebView2，Frameless 自绘标题栏，托盘常驻，单实例） |
 | 业务服务 | 内嵌 axum HTTP（127.0.0.1 随机端口）+ SSE 实时事件流 |
 | Agent 内核 | `wb-kernel`：会话树 / 工具批执行 / 上下文压缩 / 重试 / 子代理 |
-| 模型接入 | OpenAI 兼容 · Anthropic Messages · Google Generative AI 三族 wire API，`models.json` 自定义 Provider |
+| 模型接入 | OpenAI 兼容 wire API（覆盖 OpenAI / DeepSeek / Moonshot / OpenRouter 等网关），`models.json` 自定义 Provider |
 | 存储 | 会话 JSONL（树形条目，可分支编辑）+ SQLite（设置 / 索引 / 统计 / 记忆 FTS5） |
 | 前端 | Vue 3.5 + TypeScript + Vite 6 + Element Plus（按需）+ UnoCSS + ECharts + Vue I18n |
 
@@ -51,7 +51,7 @@ src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-feature
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 整体架构、进程模型、数据流、关键取舍 |
 | [docs/KERNEL.md](docs/KERNEL.md) | Agent 内核：会话树、循环、压缩、重试 |
 | [docs/TOOLS.md](docs/TOOLS.md) | 工具体系：Tool 契约、内置工具、执行纪律 |
-| [docs/PROVIDER.md](docs/PROVIDER.md) | 模型接入：三族 wire API、流式解析、错误分类 |
+| [docs/PROVIDER.md](docs/PROVIDER.md) | 模型接入：wire API、流式解析、错误分类 |
 | [docs/SESSIONS.md](docs/SESSIONS.md) | 会话存储：条目类型、回放算法 |
 | [docs/SKILLS.md](docs/SKILLS.md) | 技能体系：SKILL.md 格式、三区发现、注入 |
 | [docs/FEATURES.md](docs/FEATURES.md) | 12 项内置功能 |

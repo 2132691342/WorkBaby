@@ -46,7 +46,7 @@ pub fn doc_content(name: &str) -> Result<HelpDocRESP> {
     })
 }
 
-/// 斜杠命令：启用技能即命令（/skill:名），v1 只列技能。
+/// 斜杠命令：启用技能即命令（/skill:名）。
 pub fn commands_list(sv: &Arc<Services>) -> Vec<CommandVO> {
     sv.skills
         .read()

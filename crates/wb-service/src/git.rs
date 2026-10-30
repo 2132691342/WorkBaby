@@ -146,7 +146,7 @@ pub fn remote_add(sv: &Services, name: &str, url: &str) -> Result<GitStatusVO> {
     Ok(status(sv))
 }
 
-/// 提交信息起草：依赖内核 no-session 短轮询，v1 预留（走 chat 通道外接入后补）。
+/// 提交信息起草：依赖内核 no-session 短轮询。
 pub fn draft_message(sv: &Services, _paths: &[String]) -> Result<GitMessageRESP> {
     let _ = sv;
     Ok(GitMessageRESP {

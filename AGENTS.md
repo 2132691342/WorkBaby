@@ -85,7 +85,7 @@ WorkBaby/
     ├── wb-pkg/                    # 叶子工具：AppError、ulid、fsutil、realpath、ansi、httprules
     ├── wb-domain/                 # 纯类型：DO/DTO/REQ/RESP/VO + 错误码常量（只依赖 wb-pkg）
     ├── wb-repo/                   # SQLite：连接与迁移、设置 KV、技能/功能开关、会话索引、统计
-    ├── wb-provider/               # 模型接入：wire API（openai / anthropic / google）、SSE 解析、usage、auth
+    ├── wb-provider/               # 模型接入：wire API（openai-completions）、SSE 解析、usage、凭据
     ├── wb-tools/                  # Tool trait + 注册表 + 内置工具（read/bash/edit/write/grep/find/ls）
     ├── wb-kernel/                 # Agent 内核：会话树、循环、事件、压缩、重试、子代理
     ├── wb-skills/                 # SKILL.md 解析、三区发现注册表、内置技能包
@@ -190,8 +190,8 @@ impl AppError {
 | 3000–3999 | Provider / 模型配置 |
 | 5000–5999 | 会话运行（忙 / 队列 / 收尾 / 内核提问） |
 | 7000–7999 | 工具执行与外部进程（bash / LSP / 沙箱） |
-| 7200–7299 | 沙箱与知识库 |
-| 7300–7399 | 知识库操作 |
+| 7200–7299 | 沙箱 |
+| 7300–7399 | 知识库与记忆 |
 | 8000–8999 | Skill |
 | 9100–9199 | MCP |
 | 9700–9799 | 内核（agent 循环 / 压缩 / 子代理） |
@@ -342,9 +342,11 @@ if version < 1 { conn.execute_batch(SCHEMA_V1)?; }
 **组织方式**
 
 - 场景测试放 crate 的 `tests/` 目录（`cargo test -p wb-xxx` 精确跑一个子系统）
+- 一个 crate 一个测试文件；文件内按「被测场景」分节，用 `// ---- 场景名 ----` 分隔
 - 单元测试只在「同一文件内私有逻辑」且值得守时写
 - 命名说清断言的是什么：`memory_roundtrip_searches_and_dedups` 而不是 `test_memory_1`
 - 断言带失败信息（`"got {seen:?}"`），失败时能直接看出差在哪
+- 测不了的路径要说清原因（如「需要真 git 仓库」），不留悬空的 `#[ignore]`
 
 ---
 
@@ -356,8 +358,11 @@ if version < 1 { conn.execute_batch(SCHEMA_V1)?; }
 bash scripts/check.sh
 ```
 
-包含四道：后端编译（无警告）、后端测试全绿、前端类型检查、前端构建成功。
+包含六道：格式检查、静态检查（clippy）、后端编译（无警告）、后端测试全绿、
+前端类型检查、前端构建成功——与 CI 跑同一套。
 依赖真实外部环境的测试另跑 `bash scripts/check-slow.sh`。
+
+只改后端或只改前端时用 `bash scripts/check.sh backend` / `frontend` 少跑几道。
 
 **硬性约束**
 
@@ -369,6 +374,7 @@ bash scripts/check.sh
 | 字段带业务前缀 | `wb-domain` 里每个 struct 逐个看 |
 | 无编译警告 | `cargo build` 输出必须干净 |
 | 注释不含外部项目名 | 提交前搜一遍 |
+| 注释不写过程痕迹 | 不写「v1 / 预留 / 规划内 / 旧版如何」 |
 
 ---
 

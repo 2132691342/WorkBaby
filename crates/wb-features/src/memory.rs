@@ -150,13 +150,12 @@ impl Tool for MemorySaveTool {
         };
         // 自动整合：条目堆到阈值就合并重复项，不等模型手动叫。
         if fresh {
-            if let Some(report) =
-                tokio::task::spawn_blocking({
-                    let store = self.store.clone();
-                    move || crate::memory_consolidate::auto_consolidate(&store)
-                })
-                .await
-                .map_err(|e| AppError::new("7001", e.to_string()))?
+            if let Some(report) = tokio::task::spawn_blocking({
+                let store = self.store.clone();
+                move || crate::memory_consolidate::auto_consolidate(&store)
+            })
+            .await
+            .map_err(|e| AppError::new("7001", e.to_string()))?
             {
                 return Ok(ToolOutput {
                     text: format!(
@@ -457,11 +456,10 @@ impl Tool for MemoryConsolidateTool {
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let store = self.store.clone();
-        let report = tokio::task::spawn_blocking(move || {
-            crate::memory_consolidate::consolidate(&store)
-        })
-        .await
-        .map_err(|e| AppError::new("7001", e.to_string()))?;
+        let report =
+            tokio::task::spawn_blocking(move || crate::memory_consolidate::consolidate(&store))
+                .await
+                .map_err(|e| AppError::new("7001", e.to_string()))?;
         let mut out = format!(
             "扫描 {} 条，合并 {} 条，保留 {} 条。\n",
             report.scanned, report.merged, report.remaining

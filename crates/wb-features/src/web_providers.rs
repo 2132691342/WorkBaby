@@ -1,6 +1,5 @@
 //! 搜索源：多服务商适配与结果归一。
-//!
-//! 每个搜索源返回自己的页面结构，适配器负责把页面转成统一的 `SearchResult` 列表。
+//! 每个源有自己的页面结构，适配器负责转成统一的 `SearchResult` 列表。
 //! 解析失败就少一个源，不编造结果。
 
 use serde_json::Value;
@@ -111,10 +110,7 @@ pub fn parse_wikipedia(body: &str) -> Vec<SearchResult> {
                 .and_then(|s| s.as_str())
                 .map(clean_text)
                 .unwrap_or_default();
-            let url = format!(
-                "https://en.wikipedia.org/wiki/{}",
-                title.replace(' ', "_")
-            );
+            let url = format!("https://en.wikipedia.org/wiki/{}", title.replace(' ', "_"));
             Some(SearchResult {
                 title,
                 url,

@@ -1,4 +1,5 @@
-//! git 域测试入口：porcelain 协议解析（快）+ 真 git 子进程全链路（慢，#[ignore] 提交前显式跑）。
+//! wb-git 场景测试：porcelain 协议解析（快）+ 真 git 仓库全链路（慢，#[ignore]）。
+//! 真仓库链路依赖系统 git，只在提交前显式跑：cargo test -p wb-git -- --ignored
 
 use wb_git::parse::{classify, porcelain_z};
 
@@ -13,9 +14,10 @@ fn porcelain_z_keeps_unicode_and_spaces() {
     assert_eq!((entries[1].staged, entries[1].unstaged), ('?', '?'));
 }
 
-/// 未跟踪条目只归一条（?），不产生空 status 重复行。
+/// 未跟踪条目只归一条（?）；MM 拆两条（已暂存 + 未暂存）；UU 标冲突。
+/// 归类错了界面就会把同一文件显示成两行、或把冲突显示成普通修改。
 #[test]
-fn classify_splits_staged_and_unstaged() {
+fn classify_splits_staged_and_unstaged_and_flags_conflict() {
     let entries = porcelain_z("MM a.txt\0M  b.txt\0 D c.txt\0UU d.txt\0?? e.txt\0");
     let rows = classify(&entries);
     // MM→2 条；M 空格→1 条；空格 D→1 条；UU→1 条冲突；??→1 条
@@ -33,7 +35,6 @@ fn classify_splits_staged_and_unstaged() {
 }
 
 /// 真 git 链路：建仓 → 写文件 → status → 暂存 → 提交 → 历史 → 分支 → 越界拒绝。
-/// 依赖系统 git，标注 ignore；提交前显式：cargo test -p wb-git -- --ignored
 #[test]
 #[ignore]
 fn full_repo_roundtrip_works() {
@@ -93,7 +94,7 @@ fn full_repo_roundtrip_works() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// 孤立文件被放进仓库前的 diff 请求不 panic、行号稳定。
+/// 仓库里不存在的文件做 diff 应报错而不是给出空结果或 panic。
 #[test]
 #[ignore]
 fn diff_missing_path_is_error_not_panic() {

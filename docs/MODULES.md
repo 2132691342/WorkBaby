@@ -9,13 +9,13 @@
 
 | 模块 | 职责 |
 |---|---|
-| error | AppError：`code`(String) + message + details；new / wrap 两个构造 |
+| error | AppError：`code`(String) + message + details；new / wrap / with_details |
 | ulid | `{PREFIX}_{26位ULID}` 生成与校验；裸 ULID 供自拼前缀实体 |
-| fsutil | 原子写（临时文件 + rename）、ensure_dir、目录体积、深浅拷贝 |
+| fsutil | 原子写（临时文件 + rename）、ensure_dir、目录列举、mtime |
 | realpath | 短名与符号链接归一（`\\?\` 前缀处理），路径比较前置 |
-| ansi | 剥 ANSI 转义序列（模型与工具输出进界面必经） |
-| httprules | GET/POST 白名单与路径风格校验（api 注册路由时调用） |
-| json | Resp 信封构造、nil 数组兜底 |
+| ansi | 剥 ANSI 转义序列 |
+| httprules | GET/POST 白名单与 `/api/v1/{resource}/{action}/:id` 路径风格校验 |
+| resp | Resp 信封构造 |
 
 ## wb-domain（纯类型）
 
@@ -24,29 +24,32 @@
 | 文件 | 内容 |
 |---|---|
 | `session.rs` | 会话与消息类型：列表 VO、详情消息、索引 DO |
-| `chat.rs` | 对话入出参与事件 VO |
-| `provider.rs` | 模型配置、凭据、可选模型 |
+| `chat.rs` | 对话入出参 |
+| `provider.rs` | 模型配置、凭据、可用模型；`models.json` / `auth.json` 外部契约 |
 | `skill.rs` | 技能 frontmatter 与管理 REQ |
 | `feature.rs` | 内置功能 VO 与装载预设 |
 | `tool.rs` | 工具 VO 与开关 REQ |
 | `git.rs` | Git 视图类型与写操作 REQ |
-| `mcp.rs` | MCP 服务器 VO 与配置 REQ |
+| `mcp.rs` | MCP 服务器 VO、配置 REQ 与 wire 配置 |
 | `resource.rs` | 文件树、帮助文档、斜杠命令、工作区历史、背景图、上下文分解、自省快照、文件字节 |
-| `settings.rs` | 设置 KV |
+| `settings.rs` | 设置 KV 与启动数据 VO |
 | `stats.rs` | 用量聚合 |
+| `subagent.rs` | 子代理角色 VO 与运行结果 |
 | `error.rs` | 错误码常量（按段位分组） |
 | `events.rs` | SSE 事件载荷类型 |
 
 ## wb-repo（SQLite）
 
-| 表 | 用途 |
+| 模块 | 职责 |
 |---|---|
-| settings_kv | 界面偏好（key TEXT PRIMARY KEY, value TEXT） |
-| session_index | 会话列表索引（id/名称/工作目录/模型/最后活动/消息数/摘要） |
-| usage_daily | 统计聚合（日期/模型/会话/input/output/cache/成本） |
-| feature_toggle | 内置功能开关（feature_code, enabled, config） |
-| skill_toggle | 技能开关（skill_name, enabled） |
-| tool_toggle | 工具开关（tool_name, enabled） |
+| db | 连接打开（WAL + busy_timeout）与 `user_version` 步进迁移 |
+| settings | 设置 KV 读写 |
+| session_index | 会话列表索引 |
+| usage | 用量聚合写入与查询 |
+| toggle | 内置功能 / 技能 / 工具三类开关 |
+
+主库表：`settings_kv`、`session_index`、`usage_daily`、`feature_toggle`、`skill_toggle`、
+`tool_toggle`。
 
 连接：单写多读（WAL + busy_timeout）；迁移 `PRAGMA user_version` 步进。
 `wb-features` 的自有库（记忆 / frecency / 知识库）不在本仓管——各自开自己的 DB 文件。
@@ -55,20 +58,17 @@
 
 | 模块 | 职责 |
 |---|---|
-| config | `models.json` 读写（provider 键 → baseUrl/api/apiKey/models[]），凭据解析（`$ENV`） |
-| auth | `auth.json` 凭据存取（api_key / oauth refresh），文件锁 |
-| client | ModelClient trait：`stream(req) -> Stream<ModelEvent>` |
+| config | `models.json` / `auth.json` 读写与解析后的可请求形态 |
+| client | 客户端工厂：按 `api` 字段选 wire 实现 |
 | openai | openai-completions wire（覆盖 OpenAI/DeepSeek/Moonshot/OpenRouter 等）；流式累加器 |
-| anthropic | anthropic-messages wire（thinking 签名、cache tokens） |
-| google | google-generative-ai wire |
-| events | ModelEvent：delta（text/thinking/toolcall）/ done（usage/stop_reason）/ error |
+| types | `ModelClient` trait 与 `ModelEvent` / `Usage` / `StopReason` 等基础类型 |
 
 ## wb-tools（工具体系）
 
 | 模块 | 职责 |
 |---|---|
 | registry | Tool trait（name/label/description/parameters/annotations/execute）+ ToolRegistry |
-| builtin | 内置 7 工具：read / bash / edit / write / grep / find / ls |
+| builtin | 内置 7 工具：read / write / edit / bash / grep / find / ls |
 | exec | 唯一的子进程出口：CREATE_NO_WINDOW / 超时 / 取消 / 输出上限 |
 | truncate | 输出截断（2000 行 / 50KB / 单行 500 字符），按字符边界切 |
 
@@ -77,24 +77,23 @@
 | 模块 | 职责 |
 |---|---|
 | session | 会话树：JSONL 追加、条目类型、leaf→root 回放、分支编辑 |
-| agent | 主循环：turn 状态机、steering/followUp 队列、工具批执行、事件发射 |
+| agent | 主循环：turn 状态机、steering 队列、工具批执行、事件发射、自动重试 |
 | blocks | 消息块构造：文本与思考合并、工具调用定稿、工具执行 |
-| system_prompt | 有序命名段组装（tools/rules/skills/project_context/cwd/addendum） |
 | compaction | 阈值触发（reserve 16384 / keepRecent 20000）、切点算法、清洗与结构化摘要 |
-| retry | agent_end 后错误恢复：剔除失败批 + 退避重试 |
 | subagent | 子代理：隔离子会话跑任务，只把结论回灌父上下文 |
+| events | 内核事件枚举（唯一出参语言） |
 
 对上只暴露：`run()`、`AgentConfig`、`RunOutcome`、`run_subagent()`、`SubagentConfig`。
-内核事件枚举是唯一出参语言，不含任何界面词汇。
+系统提示词在 service 层组装（`wb-service::prompt`），内核只接收成品字符串。
 
 ## wb-skills（技能）
 
 | 模块 | 职责 |
 |---|---|
-| frontmatter | SKILL.md 解析（name/description/description_zh\|en/version/triggers/metadata 自由嵌套）与校验 |
+| frontmatter | SKILL.md 解析与校验（名称规则、description 必填且 ≤1024） |
 | registry | 三区扫描（内置包 / 用户 / 工作区）、同名先到先得、开关、提示词注入文本 |
 
-内置技能包（21 个）以 `include_dir` 编译进二进制，首次运行时解压到数据目录。
+内置技能包（21 个）以 `include_dir` 编译进二进制，首次扫描时解压到数据目录。
 
 ## wb-features（12 项内置功能）
 
@@ -112,9 +111,9 @@
 | lsp | 语言诊断与修复（`adapters.rs` 服务器目录、`client.rs` JSON-RPC 客户端、`edits.rs` 文本编辑、`diagnostics.rs` / `fix.rs` 工具层） |
 | plan | 计划评审（`plan.rs` 提交 / 勾选 / 收件箱、`plan_types.rs` 数据形态、`plan_annotate.rs` 标注） |
 | goal | 目标追踪（单活跃目标状态机）+ 续跑提示 |
-| loadout | 工具与技能开关的命名预设 |
-| inspect | 自省快照数据面 |
-| context_view | 上下文占用分解数据面 |
+| loadout | 工具与技能开关的命名预设（service 层） |
+| inspect | 自省快照数据面（service 层） |
+| context_view | 上下文占用分解数据面（service 层） |
 
 开关停用即整体撤出（service 装配时按 `feature_toggle` 表过滤，重建注册表）。
 
@@ -122,7 +121,7 @@
 
 | 模块 | 职责 |
 |---|---|
-| exec | git 命令执行（argv 数组直传、超时、CREATE_NO_WINDOW） |
+| exec | git 命令执行（argv 数组直传、超时、CREATE_NO_WINDOW、`core.quotepath=false`） |
 | parse | porcelain `-z` 输出解析、分支与领先落后 |
 | write | 写白名单动作；危险参数拒绝 |
 
@@ -145,14 +144,14 @@
 | chat | 对话 run 管理：校验、排队、唤醒内核、目标续跑 |
 | chat_events | KernelEvent → SSE 事件翻译（载荷走 `wb_domain::events` 结构体） |
 | prompt | 系统提示词组装（工具 / 规则 / 技能 / 项目上下文 / 工作目录） |
-| features | 功能装配：构造 FeatureCtx + 按开关并入功能工具 |
+| features | 功能装配：构造 FeatureCtx + 按开关并入功能工具 + 功能清单 + 自省快照 |
 | task | task 工具：派子代理干活（需内核与运行上下文） |
 | review | 分支差异审查（PR 的本地等价物） |
 | resources | 技能管理（建 / 导 / 删 / 正文）与工具视图 |
 | files | 文件树与单文件字节读取（文档预览的数据源） |
 | misc | 内置文档、斜杠命令、工作区历史、背景图 |
 | providers | Provider 增删改查、连通测试、模型清单拉取 |
-| mcp | MCP 工具并入注册表 |
+| mcp | MCP 工具并入注册表与连接编排 |
 | git | Git 读写编排 |
 | loadout | 装载预设管理 |
 | context | 上下文分解 |
@@ -172,9 +171,12 @@
 | git_routes | Git 路由 |
 | mcp_routes | MCP 路由 |
 | hub | SSE Hub：订阅 / 心跳 / seq / last_event_id 重放 / 慢客户端策略 |
+| bin/standalone | 独立调试入口：不起壳直接起 HTTP 服务 |
 
 ## src-tauri（壳）
 
-main.rs（tauri builder + 单实例 + 托盘 + 端口握手事件）、app.rs（窗口与菜单）、
-shell_cmd.rs（系统能力命令）、tray.rs（托盘菜单）。
+`lib.rs`（tauri builder + 单实例 + 托盘 + 端口握手事件 + 窗控）、
+`main.rs`（入口，只调 `workbaby_lib::run`）、
+`cmds.rs`（8 项系统能力命令）。
+
 壳内不写业务。

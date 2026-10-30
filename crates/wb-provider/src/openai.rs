@@ -30,6 +30,8 @@ pub struct Acc {
     tools: Vec<Option<(String, String, String)>>,
     /// 累积用量
     usage: Usage,
+    /// 上游 finish_reason 归一化后的停止原因
+    pub stop: Option<StopReason>,
     /// 是否已见过 finish_reason
     finished: bool,
 }
@@ -197,11 +199,17 @@ fn unfold_sse(
     let sse: Pin<
         Box<dyn Stream<Item = std::result::Result<eventsource_stream::Event, String>> + Send>,
     > = Box::pin(sse.map(|item| item.map_err(|e| e.to_string())));
+    // 状态：(SSE 流, 累积器, 已结束, 待发事件队列)
     Box::pin(futures::stream::unfold(
-        (sse, Acc::default(), false),
-        move |(mut sse, mut acc, done)| {
+        (sse, Acc::default(), false, Vec::new()),
+        move |(mut sse, mut acc, done, mut pending)| {
             let cancel = cancel.clone();
             async move {
+                // 先把本帧攒下的事件逐个发完，再去读下一帧。
+                if let Some(ev) = pending.first().cloned() {
+                    pending.remove(0);
+                    return Some((ev, (sse, acc, done, pending)));
+                }
                 if done {
                     return None;
                 }
@@ -209,13 +217,13 @@ fn unfold_sse(
                     let next = tokio::time::timeout(IDLE_TIMEOUT, sse.next());
                     let item = tokio::select! {
                         _ = cancel.cancelled() => {
-                            return Some((ModelEvent::Done(acc.usage.clone(), StopReason::Aborted), (sse, acc, true)));
+                            return Some((ModelEvent::Done(acc.usage.clone(), StopReason::Aborted), (sse, acc, true, pending)));
                         }
                         r = next => match r {
                             Err(_) => {
                                 return Some((
                                     ModelEvent::Error(true, "模型流空闲超时（90s 无数据）".into()),
-                                    (sse, acc, true),
+                                    (sse, acc, true, pending),
                                 ));
                             }
                             Ok(item) => item,
@@ -223,37 +231,35 @@ fn unfold_sse(
                     };
                     match item {
                         None => {
-                            let reason = if acc.finished {
-                                StopReason::ToolUse
-                            } else {
-                                StopReason::Stop
-                            };
                             return Some((
-                                ModelEvent::Done(acc.usage.clone(), reason),
-                                (sse, acc, true),
+                                ModelEvent::Done(
+                                    acc.usage.clone(),
+                                    acc.stop.unwrap_or(StopReason::Stop),
+                                ),
+                                (sse, acc, true, pending),
                             ));
                         }
                         Some(Err(e)) => {
                             return Some((
                                 ModelEvent::Error(true, format!("模型流解析失败：{e}")),
-                                (sse, acc, true),
+                                (sse, acc, true, pending),
                             ));
                         }
                         Some(Ok(ev)) => {
                             let data = ev.data.trim().to_string();
                             if data == "[DONE]" {
-                                let reason = if acc.finished {
-                                    StopReason::ToolUse
-                                } else {
-                                    StopReason::Stop
-                                };
                                 return Some((
-                                    ModelEvent::Done(acc.usage.clone(), reason),
-                                    (sse, acc, true),
+                                    ModelEvent::Done(
+                                        acc.usage.clone(),
+                                        acc.stop.unwrap_or(StopReason::Stop),
+                                    ),
+                                    (sse, acc, true, pending),
                                 ));
                             }
-                            if let Some(out) = handle_chunk(&data, &mut acc) {
-                                return Some((out, (sse, acc, false)));
+                            let mut events = handle_chunk(&data, &mut acc);
+                            if !events.is_empty() {
+                                let first = events.remove(0);
+                                return Some((first, (sse, acc, false, events)));
                             }
                         }
                     }
@@ -263,9 +269,14 @@ fn unfold_sse(
     ))
 }
 
-/// 处理单个 chunk；要立刻上抛的事件返回 Some。
-pub fn handle_chunk(data: &str, acc: &mut Acc) -> Option<ModelEvent> {
-    let v: Value = serde_json::from_str(data).ok()?;
+/// 处理单个 chunk；返回本帧产生的事件序列。
+/// 一帧可能同时带正文、思考与多个工具调用的分片——所以返回列表而非单值：
+/// 并行调用各占一个 index，逐个定稿，漏一个就是丢掉一次调用。
+pub fn handle_chunk(data: &str, acc: &mut Acc) -> Vec<ModelEvent> {
+    let mut out: Vec<ModelEvent> = Vec::new();
+    let Ok(v) = serde_json::from_str::<Value>(data) else {
+        return out;
+    };
     if let Some(u) = v.get("usage").filter(|u| !u.is_null()) {
         acc.usage.input = u["prompt_tokens"].as_i64().unwrap_or(acc.usage.input);
         acc.usage.output = u["completion_tokens"].as_i64().unwrap_or(acc.usage.output);
@@ -279,17 +290,22 @@ pub fn handle_chunk(data: &str, acc: &mut Acc) -> Option<ModelEvent> {
             .as_i64()
             .unwrap_or(acc.usage.reasoning);
     }
-    let choice = v["choices"].as_array()?.first()?.clone();
+    let Some(choices) = v["choices"].as_array() else {
+        return out;
+    };
+    let Some(choice) = choices.first() else {
+        return out;
+    };
     let delta = &choice["delta"];
     // 思考增量（deepseek 风格 reasoning_content）
     if let Some(t) = delta["reasoning_content"].as_str() {
         if !t.is_empty() {
-            return Some(ModelEvent::ThinkingDelta(0, t.to_string()));
+            out.push(ModelEvent::ThinkingDelta(0, t.to_string()));
         }
     }
     if let Some(t) = delta["content"].as_str() {
         if !t.is_empty() {
-            return Some(ModelEvent::TextDelta(0, t.to_string()));
+            out.push(ModelEvent::TextDelta(0, t.to_string()));
         }
     }
     if let Some(calls) = delta["tool_calls"].as_array() {
@@ -323,21 +339,21 @@ pub fn handle_chunk(data: &str, acc: &mut Acc) -> Option<ModelEvent> {
                 }
             }
             if !args.is_empty() {
-                return Some(ModelEvent::ToolCallDelta(idx, args));
+                out.push(ModelEvent::ToolCallDelta(idx, args));
             }
         }
     }
     if acc.finished {
-        return None;
+        return out;
     }
     match choice["finish_reason"].as_str() {
         Some("tool_calls") | Some("function_call") => {
             acc.finished = true;
-            // 按 index 序补发完整调用；参数累积已在中途完成
-            let mut last = None;
+            acc.stop = Some(StopReason::ToolUse);
+            // 按 index 序逐个定稿；并行调用一个都不能少
             for (idx, slot) in acc.tools.iter().enumerate() {
                 if let Some((id, name, args)) = slot.clone() {
-                    last = Some(ModelEvent::ToolCallEnd(
+                    out.push(ModelEvent::ToolCallEnd(
                         idx,
                         ToolCallDone {
                             call_id: id,
@@ -347,16 +363,16 @@ pub fn handle_chunk(data: &str, acc: &mut Acc) -> Option<ModelEvent> {
                     ));
                 }
             }
-            last
         }
         Some("length") => {
             acc.finished = true;
-            Some(ModelEvent::Done(acc.usage.clone(), StopReason::Length))
+            acc.stop = Some(StopReason::Length);
         }
         Some(_) => {
             acc.finished = true;
-            None
+            acc.stop = Some(StopReason::Stop);
         }
-        None => None,
+        None => {}
     }
+    out
 }

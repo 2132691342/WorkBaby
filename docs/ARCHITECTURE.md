@@ -47,10 +47,10 @@ WorkBaby 是 Windows 桌面单机 AI 助手：Tauri 壳 + 内嵌 HTTP 服务 + �
 
 1. 前端 `POST /chat/send`（session_id + 文本）→ `wb-api` handler → `wb-service::chat`
 2. service 校验忙闲与队列，生成 `RUN_` id，把用户消息写进内核会话，唤醒内核
-3. `wb-kernel` 组装上下文（leaf→root 回放 + 系统提示词段）→ 调 `wb-provider` 流式采样
+3. `wb-kernel` 组装上下文（leaf→root 回放 + service 侧组装的系统提示词）→ 调 `wb-provider` 流式采样
 4. 内核事件经 service 翻译成 `chat:*` SSE 事件（Emitter 分配 seq、按会话串行）推 Hub
 5. 工具调用在内核执行（`wb-tools` 注册表 + `wb-features`/`wb-mcp` 提供的扩展工具），结果截断后回灌
-6. `Settled` 触发 `chat:done`；前端断线重连凭 `last_event_id` 对账
+6. `Settled` 触发 `chat:done`；前端断线重连凭 `Last-Event-ID` 对账
 
 ## 双通道职责边界
 

@@ -1,5 +1,4 @@
 //! task 工具：派一个子代理去干活，只把结论带回来。
-//!
 //! 子代理在隔离子会话里跑，中间过程不进父上下文——这是把「一次要扫 47 个文件」
 //! 的活摘出主上下文的唯一手段。
 
@@ -74,10 +73,7 @@ pub fn roles_vo() -> Vec<wb_domain::subagent::SubagentRoleVO> {
 
 /// 按角色码取预设；未知角色回落到 worker。
 fn role_of(code: &str) -> &'static RolePreset {
-    ROLES
-        .iter()
-        .find(|r| r.code == code)
-        .unwrap_or(&ROLES[1])
+    ROLES.iter().find(|r| r.code == code).unwrap_or(&ROLES[1])
 }
 
 /// task 工具：派子代理干活。

@@ -35,21 +35,29 @@
 | 动作 | 命令形态 | 护栏 |
 |---|---|---|
 | stage / unstage | `add` / `restore --staged` | 路径必须在工作区内 |
-| discard | `restore`（工作区） | 未跟踪文件删除；危险确认气泡 |
+| discard | `restore`（工作区） | 未跟踪文件单独删；危险确认气泡 |
 | resolve | `add`（冲突文件） | 仅合并 / 变基中间态 |
 | commit | `commit -F <信息文件>` | 信息非空；`--amend` 仅限 HEAD 提交 |
 | branch | `branch` / `switch` | 分支名合法 |
-| merge | `merge` | 默认 `--ff-only` |
-| pull | `pull --ff-only` | 同上 |
-| push | `push` | 强制推送需显式分级与租约确认 |
+| merge | `merge` | 支持 `--rebase` 变体 |
+| pull | `pull` | 支持 `--rebase` 变体；分叉时报 1024 |
+| push | `push` | 强制级别逐级升级，见下 |
 | init | `init` | 目录为空或已是仓库 |
-| remote | `remote add/remove` | URL 合法 |
+| remote | `remote add` | URL 合法 |
 
-**危险参数直接拒绝**：`reset --hard` / `clean -fd` / `--no-verify` / `branch -D`。
+**危险参数直接拒绝**：`reset --hard` / `clean -fd` / 裸 `--force` / `branch -D`。
 这些不是「不给界面按钮」就够——助手用 bash 也能跑，所以执行层也要拦。
 
 **信息走文件不走参数**：`commit -F <信息文件>` 而非 `commit -m "<消息>"`——
 消息里有引号或换行时，参数传递会被 shell 解析搞坏。
+
+**强制推送分级**：`force` 字段从弱到强分三档——
+
+| 档 | 命令 | 护栏 |
+|---|---|---|
+| （不填） | 普通 push | 远端领先时报 1024，要求先 pull |
+| `lease` | `--force-with-lease` | 用远端当前提交做租约校验 |
+| `force` | `--force` | 必须带与分支名一致的 confirm 才放行 |
 
 ## 冲突中间态
 

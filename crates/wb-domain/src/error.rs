@@ -98,6 +98,8 @@ pub mod tool {
     pub const SANDBOX_TIMEOUT: &str = "7201";
     /// 知识库操作失败
     pub const KNOWLEDGE_FAILED: &str = "7300";
+    /// 记忆条目不存在
+    pub const MEMORY_NOT_FOUND: &str = "7301";
 }
 
 /// Skill

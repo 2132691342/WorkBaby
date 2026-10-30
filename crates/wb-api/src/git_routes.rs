@@ -42,10 +42,10 @@ pub fn routes() -> Router<AppState> {
         .route("/api/v1/git/message", post(git_message))
 }
 
-/// 会话 id 查询参数（v1 预留：一律用当前工作区）。
+/// 会话 id 查询参数（当前一律用工作区，解析后忽略）。
 #[derive(serde::Deserialize)]
 struct GitQuery {
-    /// 会话 id（预留：v1 一律用当前工作区，解析后忽略）
+    /// 会话 id（当前一律用工作区，解析后忽略）
     #[allow(dead_code)]
     session_id: Option<String>,
     /// 文件相对路径

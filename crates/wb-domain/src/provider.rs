@@ -134,7 +134,7 @@ pub struct AvailableModelVO {
     pub model_vision: bool,
 }
 
-// ---- models.json 外部契约（camelCase，与前端面板直读的历史一致）----
+// ---- models.json 外部契约（camelCase，与前端面板直读）----
 
 /// models.json 里的模型条目。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -189,7 +189,7 @@ pub enum AuthEntry {
         /// 密钥本体
         key: String,
     },
-    /// OAuth 凭据（预留）
+    /// OAuth 凭据
     OAuth {
         /// 刷新令牌
         refresh: String,

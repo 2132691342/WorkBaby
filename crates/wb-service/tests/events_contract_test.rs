@@ -1,6 +1,8 @@
-
 //! SSE 载荷契约测试：事件字段名是前后端协议，改名必须同步改前端。
+//! 载荷字段名不走业务前缀规则（前端按 `data.kind` / `data.name` 读），
+//! 正因为不走，改名时最容易两边对不上。这里钉住前端实际会读的那几个。
 
+use serde_json::json;
 use wb_domain::events::{
     AskClosedData, AskData, AskOption, AskQuestion, CompressedData, ContextData, ContextUsage,
     DeltaData, DoneData, ErrorData, NotifyData, RetryData, StartData, StatusData, SwitchedData,
@@ -8,9 +10,6 @@ use wb_domain::events::{
 };
 
 /// 载荷字段名与前端 `types/api.ts` / `stores/chat.ts` 的读取一致。
-///
-/// 这些字段名是 SSE 线格式，不走业务前缀规则——但正因为不走，
-/// 改名时最容易两边对不上。这里逐个钉住。
 #[test]
 fn sse_payload_field_names_match_frontend_contract() {
     let start = serde_json::to_value(StartData {
@@ -26,7 +25,7 @@ fn sse_payload_field_names_match_frontend_contract() {
         delta: "x".into(),
     })
     .unwrap();
-    assert_eq!(delta["kind"], "thinking");
+    assert_eq!(delta["kind"], "thinking", "前端按 kind 分流正文与思考");
     assert_eq!(delta["delta"], "x");
 
     let ts = serde_json::to_value(ToolStartData {
@@ -39,6 +38,7 @@ fn sse_payload_field_names_match_frontend_contract() {
     assert_eq!(ts["tool_call_id"], "TC_1");
     assert_eq!(ts["name"], "read");
     assert!(ts["label"].is_null(), "label 可空但字段必须在");
+    assert!(ts["args"].is_null(), "args 可空但字段必须在");
 
     let te = serde_json::to_value(ToolEndData {
         tool_call_id: "TC_1".into(),
@@ -70,7 +70,9 @@ fn sse_payload_field_names_match_frontend_contract() {
     .unwrap();
     assert_eq!(ctx["usage"]["context"], 10, "前端读的是 usage.context");
     assert_eq!(ctx["usage"]["input"], 1);
+    assert_eq!(ctx["usage"]["cached"], 3, "前端读的是 usage.cached");
     assert_eq!(ctx["context_window"], 128000);
+    assert_eq!(ctx["ratio"], 0.1);
 
     let notify = serde_json::to_value(NotifyData {
         level: "error".into(),
@@ -130,7 +132,11 @@ fn sse_payload_field_names_match_frontend_contract() {
     })
     .unwrap();
     assert_eq!(switched["session_id"], "SESS_2");
+}
 
+/// 提问载荷的问卷结构：前端按 questions[].question_options[].option_label 渲染选项。
+#[test]
+fn ask_payload_carries_questionnaire_shape() {
     let ask = serde_json::to_value(AskData {
         id: "ASK_1".into(),
         method: "questionnaire".into(),
@@ -154,7 +160,10 @@ fn sse_payload_field_names_match_frontend_contract() {
     assert_eq!(ask["id"], "ASK_1");
     assert_eq!(ask["method"], "questionnaire");
     assert_eq!(ask["questions"][0]["question_title"], "用哪个");
-    assert_eq!(ask["questions"][0]["question_options"][0]["option_label"], "A");
+    assert_eq!(
+        ask["questions"][0]["question_options"][0]["option_label"], "A",
+        "选项标签名是前端渲染的契约"
+    );
 
     let closed = serde_json::to_value(AskClosedData {
         id: "ASK_1".into(),
@@ -163,4 +172,24 @@ fn sse_payload_field_names_match_frontend_contract() {
     .unwrap();
     assert_eq!(closed["id"], "ASK_1");
     assert_eq!(closed["reason"], "answered");
+}
+
+/// 提问关闭原因取全集：前端按 reason 分流提示语。
+/// 新增原因时前端必须同步，否则会落到「未知原因」兜底分支。
+#[test]
+fn ask_closed_reasons_are_enumerated() {
+    let reasons = ["answered", "cancelled", "expired", "session_gone"];
+    for r in reasons {
+        let v = serde_json::to_value(AskClosedData {
+            id: "ASK_1".into(),
+            reason: r.into(),
+        })
+        .unwrap();
+        assert_eq!(v["reason"], r);
+    }
+    assert_eq!(
+        json!({"reason": "answered"}),
+        json!({"reason": "answered"}),
+        "reason 原样透传，不做改写"
+    );
 }

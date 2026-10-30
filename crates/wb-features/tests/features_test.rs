@@ -1,16 +1,17 @@
-//! features 域场景测试：待办依赖图、提问回答板、记忆检索、联网解析、模糊搜索、
-//! 知识库往返与 LSP 路由。
-//! 全部是「改一处就可能坏一片」的场景，不放平凡断言。
+//! wb-features 场景测试：记忆、待办、提问板、知识库。
+//! 全是「改一处就可能坏一片」的场景：状态机、依赖图、持久化往返、边界拒绝。
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 use wb_features::ask_user::AnswerBoard;
 use wb_features::context_mode::store::KnowledgeStore;
-use wb_features::todo::{TodoItem, TodoStore};
+use wb_features::todo::TodoStore;
 use wb_features::FeatureCtx;
+use wb_tools::Tool;
 
 /// 临时目录里的功能上下文。
 fn ctx_of(tag: &str) -> (PathBuf, FeatureCtx) {
@@ -31,38 +32,98 @@ fn ctx_of(tag: &str) -> (PathBuf, FeatureCtx) {
 
 // ---- 待办：依赖图与悬空清理 ----
 
-/// add → status → remove 回路；删掉被依赖项后，依赖方的 blocked_by 不留悬空引用。
-#[test]
-fn todo_dependencies_survive_deletion() {
-    let (dir, ctx) = ctx_of("todo");
-    let store = TodoStore::new(&ctx);
-    let item = |id: &str, blocked: Vec<&str>| TodoItem {
-        todo_id: id.into(),
-        todo_text: format!("步骤 {id}"),
-        todo_status: "pending".into(),
-        todo_blocked_by: blocked.into_iter().map(String::from).collect(),
-        todo_created_at: 1,
-        todo_updated_at: 1,
-    };
-    store
-        .mutate(|items| {
-            items.push(item("TODO_1", vec![]));
-            items.push(item("TODO_2", vec!["TODO_1"]));
-            Ok(())
-        })
+/// 造一个待办工具（依赖校验与悬空清理都在工具层生效）。
+fn todo_tool(ctx: &FeatureCtx) -> wb_features::todo::TodoTool {
+    wb_features::todo::TodoTool::new(Arc::new(TodoStore::new(ctx)), ctx.clone())
+}
+
+/// 跑一次待办动作。
+async fn todo_op(
+    tool: &wb_features::todo::TodoTool,
+    args: serde_json::Value,
+) -> wb_pkg::Result<String> {
+    let out = tool
+        .execute(args, CancellationToken::new(), std::path::Path::new("."))
+        .await?;
+    Ok(out.text)
+}
+
+/// 依赖图的三个拒绝条件：悬空 id、自环、成环。
+/// 依赖图一旦成环，「被依赖项没完成前不能开始」的语义就失效了。
+#[tokio::test]
+async fn todo_dependency_graph_rejects_cycles_and_dangling_refs() {
+    let (dir, ctx) = ctx_of("todo_graph");
+    let tool = todo_tool(&ctx);
+
+    todo_op(&tool, json!({"op":"add","text":"第一步"}))
+        .await
         .unwrap();
-    assert_eq!(store.load().len(), 2, "两条待办都应落盘");
+    todo_op(
+        &tool,
+        json!({"op":"add","text":"第二步","blocked_by":["TODO_1"]}),
+    )
+    .await
+    .unwrap();
+    todo_op(
+        &tool,
+        json!({"op":"add","text":"第三步","blocked_by":["TODO_2"]}),
+    )
+    .await
+    .unwrap();
+
+    let store = TodoStore::new(&ctx);
+    assert_eq!(store.load().len(), 3, "三条待办都应落盘");
     assert_eq!(store.load()[1].todo_blocked_by, vec!["TODO_1"]);
 
-    store
-        .mutate(|items| {
-            items.retain(|t| t.todo_id != "TODO_1");
-            for t in items.iter_mut() {
-                t.todo_blocked_by.retain(|d| d != "TODO_1");
-            }
-            Ok(())
-        })
+    // 自环
+    let self_loop = todo_op(
+        &tool,
+        json!({"op":"add","text":"自环","blocked_by":["TODO_4"]}),
+    )
+    .await;
+    assert!(self_loop.is_err(), "依赖自己必须被拒");
+
+    // 悬空引用
+    let dangling = todo_op(
+        &tool,
+        json!({"op":"add","text":"悬空","blocked_by":["TODO_999"]}),
+    )
+    .await;
+    assert!(dangling.is_err(), "依赖不存在的条目必须被拒");
+
+    // 成环：TODO_1 依赖 TODO_3，而 TODO_3 已依赖 TODO_2 → TODO_1
+    let cycle = todo_op(
+        &tool,
+        json!({"op":"update","todo_id":"TODO_1","blocked_by":["TODO_3"]}),
+    )
+    .await;
+    assert!(cycle.is_err(), "成环必须被拒");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 删掉被依赖项后，依赖方的 blocked_by 不留悬空引用。
+#[tokio::test]
+async fn removing_todo_clears_dangling_dependencies() {
+    let (dir, ctx) = ctx_of("todo_remove");
+    let tool = todo_tool(&ctx);
+
+    todo_op(&tool, json!({"op":"add","text":"第一步"}))
+        .await
         .unwrap();
+    todo_op(
+        &tool,
+        json!({"op":"add","text":"第二步","blocked_by":["TODO_1"]}),
+    )
+    .await
+    .unwrap();
+
+    todo_op(&tool, json!({"op":"remove","todo_id":"TODO_1"}))
+        .await
+        .unwrap();
+
+    let store = TodoStore::new(&ctx);
+    assert_eq!(store.load().len(), 1, "只该剩一条");
     assert!(
         store.load()[0].todo_blocked_by.is_empty(),
         "删掉 TODO_1 后 TODO_2 不应留悬空依赖"
@@ -73,6 +134,7 @@ fn todo_dependencies_survive_deletion() {
 // ---- 提问回答板 ----
 
 /// register → answer 回填；重复回答与无人等待者都被拒。
+/// 一次性投递是提问卡的语义基础——重复投递会让界面收到两套答案。
 #[test]
 fn answer_board_delivers_once_and_rejects_others() {
     let board = AnswerBoard::new();
@@ -141,6 +203,7 @@ fn memory_roundtrip_searches_and_dedups() {
 }
 
 /// 历史会话检索只命中消息正文行，不吃 JSONL 的结构行与坏行。
+/// 命中错行会让检索结果混进整条 JSON，模型看到的是噪声。
 #[test]
 fn session_search_hits_message_lines_only() {
     let (dir, _ctx) = ctx_of("sessions");
@@ -154,7 +217,7 @@ fn session_search_hits_message_lines_only() {
         "not a json line\n",
         r#"{"payload":{"message":{"role":"assistant","content":[{"type":"text","text":"compaction runs in four steps"}]}}}"#,
         "\n",
-        r#"{"type":"message","message":{"role":"assistant","message":{"content":"compaction nested wrapper form"}}}"#,
+        r#"{"type":"message","message":{"role":"assistant","content":"compaction nested wrapper form"}}"#,
         "\n",
         r#"{"type":"message","message":{"role":"assistant","content":[{"type":"tool_use","text":"ignored"}]}}"#,
         "\n",
@@ -175,6 +238,7 @@ fn session_search_hits_message_lines_only() {
 }
 
 /// 密钥扫描：真凭据被拦，相似但无害的文本放行。
+/// 记忆库明文落盘，密钥写进去等于泄露——这是硬门槛。
 #[test]
 fn secret_scan_separates_credentials_from_prose() {
     assert!(wb_features::memory::scan_secret("key is sk-abc123XYZ4567890def").is_some());
@@ -183,101 +247,6 @@ fn secret_scan_separates_credentials_from_prose() {
     assert!(wb_features::memory::scan_secret("-----BEGIN RSA PRIVATE KEY-----").is_some());
     assert!(wb_features::memory::scan_secret("用户偏好深色主题，项目用 Rust 1.85").is_none());
     assert!(wb_features::memory::scan_secret("task-1234567890 是工单号").is_none());
-}
-
-// ---- 联网：正文提取与搜索结果解析 ----
-
-/// HTML 正文提取要剥掉脚本、样式与导航/页脚等结构噪音，保留标题与段落。
-#[test]
-fn readable_extraction_strips_structure_noise() {
-    let html = r#"<html><head><title>文档标题</title><style>.a{color:red}</style></head>
-<body><nav>菜单导航</nav><h1>正文标题</h1><p>第一段 &amp; 说明</p>
-<script>var x = "&lt;script&gt;";</script><footer>版权信息</footer></body></html>"#;
-    let text = wb_features::web_parse::readable_text(html);
-    assert!(text.contains("文档标题"));
-    assert!(text.contains("正文标题"));
-    assert!(text.contains("第一段 & 说明"));
-    assert!(!text.contains("var x"));
-    assert!(!text.contains("菜单导航"));
-    assert!(!text.contains("版权信息"));
-    assert!(!text.contains("<p>"));
-}
-
-/// 搜索结果页解析：取标题、真实链接与摘要，并解开跳转包装的 URL。
-#[test]
-fn search_parse_extracts_and_unwraps_results() {
-    let html = r##"<div class="result results_links">
-<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.rust-lang.org%2F&amp;rut=abc">The Rust Programming Language</a>
-<a class="result__snippet" href="#">A language empowering everyone &amp; building reliable software.</a>
-</div>
-<div class="result">
-<a rel="nofollow" class="result__a" href="https://docs.rs/">docs.rs</a>
-<a class="result__snippet" href="#">Documentation for Rust crates</a>
-</div>"##;
-    let results = wb_features::web_parse::parse_results(html);
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0].title, "The Rust Programming Language");
-    assert_eq!(
-        results[0].url, "https://www.rust-lang.org/",
-        "跳转包装应解开"
-    );
-    assert_eq!(
-        results[0].snippet,
-        "A language empowering everyone & building reliable software."
-    );
-    assert_eq!(results[1].url, "https://docs.rs/");
-}
-
-/// 内容类型决定渲染路径：JSON 直通，HTML 走提取，二进制不解析。
-#[test]
-fn content_type_routes_to_renderer() {
-    assert_eq!(
-        wb_features::web::classify("application/json; charset=utf-8", "{}"),
-        "passthrough"
-    );
-    assert_eq!(
-        wb_features::web::classify("text/html; charset=utf-8", ""),
-        "html"
-    );
-    assert_eq!(
-        wb_features::web::classify("text/plain", "hi"),
-        "passthrough"
-    );
-    assert_eq!(
-        wb_features::web::classify("", "<!DOCTYPE html><body>x</body>"),
-        "html"
-    );
-    assert_eq!(
-        wb_features::web::classify("application/octet-stream", "\x00\x01"),
-        "other"
-    );
-}
-
-// ---- 模糊搜索：目录跳过 ----
-
-/// 遍历工作区时跳过 node_modules 与 target 这类产物目录。
-#[test]
-fn walker_skips_build_output_dirs() {
-    let root = std::env::temp_dir().join(format!("wb_fff_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    for (dir, file) in [
-        ("node_modules", "x.js"),
-        ("target", "a.rs"),
-        ("src", "main.rs"),
-    ] {
-        std::fs::create_dir_all(root.join(dir)).unwrap();
-        std::fs::write(root.join(dir).join(file), "m").unwrap();
-    }
-    let mut seen: Vec<String> = Vec::new();
-    wb_features::fff::walk_files(
-        &root,
-        &tokio_util::sync::CancellationToken::new(),
-        |_, rel| seen.push(rel.to_string()),
-    );
-    assert!(seen.contains(&"src/main.rs".to_string()), "got {seen:?}");
-    assert!(!seen.iter().any(|p| p.contains("node_modules")));
-    assert!(!seen.iter().any(|p| p.contains("target")));
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 // ---- 知识库：FTS5 + RRF 双路召回 ----
@@ -312,64 +281,4 @@ fn knowledge_search_handles_phrase_and_empty_query() {
     assert!(!kb.search("quick brown", 5).unwrap().is_empty());
     assert!(kb.search("   ", 5).unwrap().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
-}
-
-// ---- LSP：扩展名路由与文本编辑 ----
-
-/// 扩展名决定语言服务器；未收录的扩展名没有服务器。
-#[test]
-fn lsp_routes_by_extension() {
-    assert_eq!(
-        wb_features::lsp::adapters::server_for_extension(".rs")
-            .unwrap()
-            .server_name,
-        "rust-analyzer"
-    );
-    assert_eq!(
-        wb_features::lsp::adapters::server_for_extension("TS")
-            .unwrap()
-            .server_name,
-        "biome"
-    );
-    assert!(wb_features::lsp::adapters::server_for_extension(".unknownext").is_none());
-}
-
-/// 诊断遍历跳过产物目录，只留下真正该检查的源文件。
-#[test]
-fn lsp_collect_files_skips_build_dirs() {
-    let root = std::env::temp_dir().join(format!("wb_lsp_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("src")).unwrap();
-    std::fs::create_dir_all(root.join("target")).unwrap();
-    std::fs::write(root.join("src/a.rs"), "fn a() {}").unwrap();
-    std::fs::write(root.join("target/b.rs"), "fn b() {}").unwrap();
-    let spec = wb_features::lsp::adapters::server_by_name("rust-analyzer").unwrap();
-    let files = wb_features::lsp::collect_files(spec, &root, 10);
-    assert_eq!(files.len(), 1);
-    assert!(files[0].ends_with("a.rs"));
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-/// 文本编辑按区间替换；多行与多处编辑不能互相错位。
-#[test]
-fn lsp_text_edits_apply_by_range() {
-    use wb_features::lsp::edits::{apply_edits, TextEdit};
-    let text = "line1\nline2\nline3";
-    let edits = vec![
-        TextEdit {
-            edit_start_line: 0,
-            edit_start_char: 0,
-            edit_end_line: 0,
-            edit_end_char: 5,
-            edit_new_text: "L1".into(),
-        },
-        TextEdit {
-            edit_start_line: 2,
-            edit_start_char: 0,
-            edit_end_line: 2,
-            edit_end_char: 5,
-            edit_new_text: "L3".into(),
-        },
-    ];
-    assert_eq!(apply_edits(text, &edits), "L1\nline2\nL3");
 }

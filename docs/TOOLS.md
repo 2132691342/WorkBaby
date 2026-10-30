@@ -44,16 +44,17 @@ pub trait Tool: Send + Sync {
 
 | 工具 | 参数 | 要点 |
 |---|---|---|
-| read | path, offset?(1 起), limit? | 文本按行截断；图片转 image 块 |
-| bash | command, timeout?(秒) | 命令执行；CREATE_NO_WINDOW；输出走截断 |
-| edit | path, edits[{old_text(唯一), new_text}] | 多处编辑一次调用；old_text 不唯一或区间重叠即拒绝 |
+| read | path, offset?(1 起), limit? | 文本按行截断；二进制文件只报类型与字节数 |
+| bash | command, timeout?(秒，默认 120，上限 600) | 经 Git Bash 执行；CREATE_NO_WINDOW；输出走截断 |
+| edit | path, edits[{old_text(唯一), new_text}] | 多处编辑一次调用；old_text 不唯一即拒绝 |
 | write | path, content | 自动建父目录；原子写 |
 | grep | pattern, path?, glob?, ignore_case?, literal?, context?, limit?(100) | 尊重 .gitignore |
 | find | pattern(glob), path?, limit?(1000) | 同上 |
 | ls | path?, limit?(500) | 目录在前，目录名带 `/` 后缀 |
-| task | role?(scout/worker/reviewer), task, max_turns? | 派子代理干活；只把结论回灌主上下文 |
 
-默认激活集是 `read / bash / edit / write`，其余可经工具开关或装载预设开启。
+`task` 工具不属内置工具集，由 service 单独装配（见下）。
+
+内置工具全部默认启用，可经工具开关或装载预设关掉。
 
 ## 功能工具
 
@@ -95,12 +96,14 @@ pub trait Tool: Send + Sync {
 |---|---|
 | 不闪控制台 | Windows 下加 `CREATE_NO_WINDOW` |
 | 不进 shell 解释 | argv 数组直传，命令字符串永不拼接 |
-| 工作目录 | 当前工作区（服务层保证进程 cwd 等于工作区） |
+| 工作目录 | 进程当前工作目录 |
 | 可超时可取消 | 超时或取消令牌触发即杀进程，返回 7001 / 7002 |
 | 输出有上限 | 单次执行 1MB 上限，再交给工具层截断 |
 
-**PATH 注入**：用户 PATH 前置当前工作区所需的目录（如 Git Bash 的 bin），
-不注入数据目录——数据目录里没有可执行文件，注入了只会让「命令找不到」更难查。
+**bash 工具的 shell 定位**：先在 PATH 里找 `bash.exe`，找不到就退回常见 Git 安装位
+（`C:\Program Files\Git\bin` 等），都找不到就用 `bash` 交给系统解析。
+命令以 `bash -c <command>` 形式执行——命令串在这一层才进入 shell 解释，
+其余工具的 argv 一律直传。
 
 ## 扩展工具如何并入
 

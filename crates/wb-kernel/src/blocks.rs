@@ -53,21 +53,12 @@ pub fn push_thinking(blocks: &mut Vec<Block>, t: String) {
     }
 }
 
-pub fn last_tool_mut(blocks: &mut [Block]) -> Option<&mut Block> {
-    blocks.last_mut()
-}
-
-/// 工具调用定稿：新建或补全槽位。
+/// 工具调用定稿：按 call_id 归位，重复定稿只补空字段。
+/// 并行调用各占一个块：不同 call_id 是新的一次调用，塞进同一块模型就只看到一个。
 pub fn upsert_tool(blocks: &mut Vec<Block>, done: ToolCallDone) {
-    if let Some(Block::ToolCall {
-        tool_call_id,
-        name,
-        arguments,
-    }) = blocks.last_mut()
-    {
-        if tool_call_id.is_empty() {
-            *tool_call_id = done.call_id;
-        }
+    if let Some(Block::ToolCall { name, arguments, .. }) = blocks.iter_mut().rev().find(|b| {
+        matches!(b, Block::ToolCall { tool_call_id, .. } if !tool_call_id.is_empty() && *tool_call_id == done.call_id)
+    }) {
         if name.is_empty() {
             *name = done.name;
         }
@@ -76,6 +67,7 @@ pub fn upsert_tool(blocks: &mut Vec<Block>, done: ToolCallDone) {
         }
         return;
     }
+    // 没有可归位的槽位：新建一个块。
     blocks.push(Block::ToolCall {
         tool_call_id: done.call_id,
         name: done.name,

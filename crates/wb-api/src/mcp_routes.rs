@@ -53,7 +53,7 @@ async fn mcp_login(st: State<AppState>, axum::Json(req): axum::Json<McpNameREQ>)
 }
 
 async fn mcp_logout(st: State<AppState>, axum::Json(req): axum::Json<McpNameREQ>) -> Response {
-    // 与 login 同因：v1 无 OAuth，登出无意义
+    // 与 login 同因：无 OAuth，登出无意义
     match wb_service::mcp::login(&sv(st), &req).await {
         Ok(_) => ok_json(serde_json::Value::Null),
         Err(e) => err_json(&e),

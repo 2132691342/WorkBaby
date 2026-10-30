@@ -138,9 +138,7 @@ impl MemoryStore {
             )
             .map_err(db_err)?;
         let rows = stmt
-            .query_map(params![kind, limit as i64], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_map(params![kind, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))
             .map_err(db_err)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(db_err)
@@ -159,7 +157,10 @@ impl MemoryStore {
             )
             .ok();
         let Some(into_text) = into_text else {
-            return Err(AppError::new("7301", "待合并的记忆不存在"));
+            return Err(AppError::new(
+                wb_domain::error::tool::MEMORY_NOT_FOUND,
+                "待合并的记忆不存在",
+            ));
         };
         let from_text: Option<String> = conn
             .query_row(
@@ -169,7 +170,10 @@ impl MemoryStore {
             )
             .ok();
         let Some(from_text) = from_text else {
-            return Err(AppError::new("7301", "待合并的记忆不存在"));
+            return Err(AppError::new(
+                wb_domain::error::tool::MEMORY_NOT_FOUND,
+                "待合并的记忆不存在",
+            ));
         };
         let merged = if into_text.contains(&from_text) {
             into_text
@@ -183,11 +187,8 @@ impl MemoryStore {
             params![merged, now, into_id],
         )
         .map_err(db_err)?;
-        conn.execute(
-            "DELETE FROM memory WHERE memory_id = ?1",
-            params![from_id],
-        )
-        .map_err(db_err)?;
+        conn.execute("DELETE FROM memory WHERE memory_id = ?1", params![from_id])
+            .map_err(db_err)?;
         Ok(())
     }
 

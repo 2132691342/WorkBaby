@@ -26,28 +26,32 @@ assets/               打包进二进制的资源（内置技能与帮助文档�
 | 场景 | 命令 |
 |---|---|
 | 整体开发（壳+热更） | `npm run tauri dev`（frontend 目录内） |
-| 仅后端编译检查 | `cargo check --workspace` |
-| 仅前端开发 | `npm run dev`（需桌面壳已启动，端口走 localStorage dev 兜底） |
+| 仅后端编译检查 | `cargo check --workspace --all-targets` |
+| 仅前端开发 | `npm run dev`（需把 `localStorage.wb_dev_port` 设成后端端口） |
 | 后端测试 | `cargo test --workspace` |
+| 单个子系统测试 | `cargo test -p wb-kernel` |
 | 前端类型检查 | `cd frontend && npm run typecheck` |
-| 全量验证 | `bash scripts/check.sh` |
-| 慢速验证（真实外部依赖） | `bash scripts/check-slow.sh` |
-| 格式与静态检查 | `cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings` |
-| 出包 | `npm run tauri build`（产物 `src-tauri/target/release/bundle/`） |
+| 全量门禁 | `bash scripts/check.sh` |
+| 只跑后端门禁 | `bash scripts/check.sh backend` |
+| 只跑前端门禁 | `bash scripts/check.sh frontend` |
+| 慢速门禁（真实外部依赖） | `bash scripts/check-slow.sh` |
+| 出包 | `npm run tauri build`（frontend 目录内） |
+
+`cargo xt`（测试）与 `cargo xchk`（编译检查）是 `.cargo/config.toml` 里的别名。
 
 ## 调试
 
-- 日志：`{数据目录}\logs\`（info/warn/error 分文件）；数据目录默认 `%APPDATA%\WorkBaby`。
-- 纯浏览器调前端：壳未启动时，`shell.ts` 读 `localStorage.wb_dev_port` 连指定端口；
+- 日志：`{数据目录}\logs\`（按天分文件）；数据目录默认 `%APPDATA%\WorkBaby`。
+- 纯浏览器调前端：壳未启动时，`api/shell.ts` 读 `localStorage.wb_dev_port` 连指定端口；
   用 `cargo run -p wb-api --bin wb-api-standalone` 单独起 HTTP 服务。
 - SSE 调试：浏览器 DevTools 的 EventSource 面板；seq 断档会看到 `chat:gap`。
-- 内核单测假 Provider：`wb-kernel` 测试夹具按脚本回放 SSE 流，不起真网络。
+- 内核测试用假 Provider：按脚本回放模型事件流，不起真网络。
 
 ## 约定提醒（写代码前扫一眼）
 
 - domain 字段 `xxx_` 前缀；JSON 全 snake_case；ID 带 `SESS_/ENT_/MSG_/RUN_/TC_` 前缀
-- 错误码先在 `docs/ERROR-CODES.md` 落档再使用
+- 错误码先在 `docs/ERROR-CODES.md` 落档，再在 `wb-domain/src/error.rs` 声明常量
 - 每文件 ≤500 行、连续注释 ≤3 行、struct 字段必带注释
 - HTTP 只 GET/POST；删除走 `POST /xxx/delete/:id`
 - 色值只在 `themes.css`；文案只在 i18n；图标只用 AppIcon
-- `std::process` 只出现在 wb-tools 与 wb-features
+- 子进程只经 `wb-tools::exec` 启动

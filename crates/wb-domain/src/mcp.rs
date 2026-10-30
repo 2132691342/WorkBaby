@@ -82,7 +82,7 @@ pub struct McpServerConfig {
     pub headers: std::collections::BTreeMap<String, String>,
     /// 是否启用
     pub enabled: bool,
-    /// direct / deferred / hidden（v1 一律按 direct 并入）
+    /// direct / deferred / hidden
     pub exposure: String,
     /// 启动等待秒
     pub timeout: u64,

@@ -83,7 +83,10 @@ impl Tool for PlanAnnotateTool {
             return Err(AppError::new(toolcode::ARG_INVALID, "text 不能为空"));
         }
         let author = {
-            let a = args.get("author").and_then(|v| v.as_str()).unwrap_or("assistant");
+            let a = args
+                .get("author")
+                .and_then(|v| v.as_str())
+                .unwrap_or("assistant");
             if !matches!(a, "user" | "assistant") {
                 return Err(AppError::new(
                     toolcode::ARG_INVALID,
