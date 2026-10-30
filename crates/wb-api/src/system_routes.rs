@@ -49,10 +49,21 @@ pub fn routes() -> Router<AppState> {
         .route("/api/v1/assets/background", get(background_bytes))
         // 上下文分解
         .route("/api/v1/context/breakdown", get(context_breakdown))
+        // 子代理角色
+        .route("/api/v1/subagents/roles", get(subagent_roles))
 }
 
 fn sv(State(st): State<AppState>) -> Arc<Services> {
     st.sv.clone()
+}
+
+// ---- 子代理 ----
+
+/// 子代理角色预设清单。
+async fn subagent_roles(_st: State<AppState>) -> Response {
+    ok_json(wb_domain::subagent::SubagentListRESP {
+        resp_roles: wb_service::task::roles_vo(),
+    })
 }
 
 // ---- Provider ----

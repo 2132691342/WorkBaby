@@ -51,8 +51,30 @@ pub trait Tool: Send + Sync {
 | grep | pattern, path?, glob?, ignore_case?, literal?, context?, limit?(100) | 尊重 .gitignore |
 | find | pattern(glob), path?, limit?(1000) | 同上 |
 | ls | path?, limit?(500) | 目录在前，目录名带 `/` 后缀 |
+| task | role?(scout/worker/reviewer), task, max_turns? | 派子代理干活；只把结论回灌主上下文 |
 
 默认激活集是 `read / bash / edit / write`，其余可经工具开关或装载预设开启。
+
+## 功能工具
+
+功能工具随对应内置功能一起装配，关掉功能即从工具表撤出（docs/FEATURES.md）。
+
+| 工具 | 所属功能 | 要点 |
+|---|---|---|
+| todo | todo | 待办增删改查与依赖图 |
+| ask_user_question | ask_user | ≤4 题结构化提问，阻塞等回答 |
+| fffind / ffgrep | fff | frecency 排序的模糊搜索 |
+| memory_save / memory_search / memory_remove / memory_consolidate | memory | 持久记忆与自动去重整合 |
+| session_search | memory | 历史会话正文检索 |
+| web_search / fetch_content | web | 多搜索源检索与网页抓取 |
+| pdf_read / github_clone / video_understand | web | PDF 取文、仓库浅克隆、视频字幕 |
+| ctx_execute / ctx_batch_execute / ctx_index / ctx_search | context_mode | 沙箱执行与本地知识库 |
+| lsp_diagnostics / lsp_fix | lsp | 静态诊断与快速修复 |
+| plan_submit / plan_mark_done / plan_inbox / plan_annotate | plan | 计划评审与逐步标注 |
+| review_diff | plan | 分支差异审查（PR 的本地等价物） |
+| create_goal / get_goal / update_goal | goal | 目标状态机与步骤清单 |
+
+`task` 工具不属任何功能：它是把大块活摘出主上下文的手段，常驻。
 
 ## 输出截断
 
@@ -95,7 +117,7 @@ pub trait Tool: Send + Sync {
 
 | 取舍 | 理由 | 代价 |
 |---|---|---|
-| 不实现独立 task / glob 工具 | find 覆盖 glob；批量任务属子代理 | — |
+| 不实现独立 glob 工具 | find 覆盖 glob；批量任务属子代理 | — |
 | JSON Schema 手写常量 | 工具参数固定，不引 schema 生成宏 | 改参数要同步 schema 与解析代码两处 |
 | edit 用唯一 old_text 而非补丁语法 | 模型友好、失败可归因（不唯一即报错） | 大改文件不如直接 write |
 | 只经一个执行器起进程 | 便于统一超时、取消与截断纪律 | 执行器本身成为关键路径 |

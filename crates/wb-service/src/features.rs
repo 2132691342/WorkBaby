@@ -27,10 +27,22 @@ fn enabled(sv: &Arc<Services>, code: &str, default_on: bool) -> bool {
         .unwrap_or(default_on)
 }
 
+/// 目标续跑提示：功能开启且存在活跃目标时给下一步提示，否则 None。
+///
+/// 目标功能关掉时不续跑——旧的目标文件不该在功能关闭后还驱动对话。
+pub fn goal_continuation(sv: &Arc<Services>) -> Option<String> {
+    if !enabled(sv, "goal", false) {
+        return None;
+    }
+    wb_features::goal::continuation_prompt(&feature_ctx(sv))
+}
+
 /// 组装完整注册表：内置工具打底，功能工具按开关并入，MCP 桥最后（同名可覆盖）。
 pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
     let mut reg = wb_tools::ToolRegistry::new();
     wb_tools::builtin::install(&mut reg);
+    // task 工具常驻：它是把大块活摘出主上下文的手段，关掉就等于没有子代理。
+    reg.register(Arc::new(super::task::TaskTool::new(sv.clone())));
     let ctx = feature_ctx(sv);
     if enabled(sv, "ask_user", true) {
         reg.register(Arc::new(wb_features::ask_user::AskUserTool::new(
@@ -71,7 +83,10 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
                 reg.register(Arc::new(wb_features::memory::MemorySearchTool::new(
                     store.clone(),
                 )));
-                reg.register(Arc::new(wb_features::memory::MemoryRemoveTool::new(store)));
+                reg.register(Arc::new(wb_features::memory::MemoryRemoveTool::new(store.clone())));
+                reg.register(Arc::new(wb_features::memory::MemoryConsolidateTool::new(
+                    store.clone(),
+                )));
                 reg.register(Arc::new(wb_features::memory::SessionSearchTool::new(
                     ctx.clone(),
                 )));
@@ -82,6 +97,9 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
     if enabled(sv, "web", false) {
         reg.register(Arc::new(wb_features::web::FetchTool::new()));
         reg.register(Arc::new(wb_features::web::SearchTool::new()));
+        reg.register(Arc::new(wb_features::web_files::PdfReadTool::new()));
+        reg.register(Arc::new(wb_features::web_files::GithubCloneTool));
+        reg.register(Arc::new(wb_features::web_video::VideoTool::new()));
     }
     if enabled(sv, "goal", false) {
         let store = Arc::new(wb_features::goal::GoalStore::new(&ctx));
@@ -96,7 +114,7 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
         )));
     }
     if enabled(sv, "plan", false) {
-        let store = Arc::new(wb_features::plan::PlanStore::new(&ctx));
+        let store = Arc::new(wb_features::plan_types::PlanStore::new(&ctx));
         reg.register(Arc::new(wb_features::plan::PlanSubmitTool::new(
             store.clone(),
             ctx.clone(),
@@ -106,7 +124,13 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
             store.clone(),
             ctx.clone(),
         )));
-        reg.register(Arc::new(wb_features::plan::PlanInboxTool::new(store)));
+        reg.register(Arc::new(wb_features::plan::PlanInboxTool::new(store.clone())));
+        reg.register(Arc::new(wb_features::plan_annotate::PlanAnnotateTool::new(
+            store,
+            ctx.clone(),
+        )));
+        // PR 审查：本地分支差异就是 PR 的本地等价物，不需连远端。
+        reg.register(Arc::new(super::review::ReviewDiffTool::new(sv.clone())));
     }
     if enabled(sv, "context_mode", false) {
         reg.register(Arc::new(wb_features::context_mode::CtxExecuteTool::new(
@@ -227,9 +251,16 @@ pub fn list_vo(sv: &Arc<Services>) -> Vec<wb_domain::feature::FeatureVO> {
                         "memory_save".into(),
                         "memory_search".into(),
                         "memory_remove".into(),
+                        "memory_consolidate".into(),
                         "session_search".into(),
                     ],
-                    "web" => vec!["fetch_content".into(), "web_search".into()],
+                    "web" => vec![
+                        "fetch_content".into(),
+                        "web_search".into(),
+                        "pdf_read".into(),
+                        "github_clone".into(),
+                        "video_understand".into(),
+                    ],
                     "context_mode" => vec![
                         "ctx_execute".into(),
                         "ctx_batch_execute".into(),
@@ -246,6 +277,8 @@ pub fn list_vo(sv: &Arc<Services>) -> Vec<wb_domain::feature::FeatureVO> {
                         "plan_submit".into(),
                         "plan_mark_done".into(),
                         "plan_inbox".into(),
+                        "plan_annotate".into(),
+                        "review_diff".into(),
                     ],
                     _ => Vec::new(),
                 },

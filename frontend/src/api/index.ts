@@ -202,6 +202,19 @@ export interface InspectSnapshotRESP {
 }
 export const inspect = () => get<InspectSnapshotRESP>('/inspect')
 
+/** 子代理角色预设（task 工具可选的角色与职责）。 */
+export interface SubagentRoleVO {
+  role_code: string
+  role_name: string
+  role_prompt: string
+  role_tools: string[]
+  role_max_turns: number
+}
+
+/** 子代理角色清单。 */
+export const subagentRoles = () =>
+  get<{ resp_roles: SubagentRoleVO[] }>('/subagents/roles')
+
 export const stats = (span: string) => get<StatsRESP>('/stats', { span })
 
 /** 内置帮助文档（只读，随应用打包） */

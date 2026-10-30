@@ -19,3 +19,4 @@ reqwest = { workspace = true }
 futures = { workspace = true }
 ignore = { workspace = true }
 regex = { workspace = true }
+pdf-extract = "0.12"

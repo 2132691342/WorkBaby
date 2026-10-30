@@ -49,7 +49,7 @@ fn html_unescape(s: &str) -> String {
 }
 
 /// 去标签 + 解实体 + 压空白，得到纯文本。
-fn clean_html_text(s: &str) -> String {
+pub fn clean_text(s: &str) -> String {
     let no_tags = tag_re().replace_all(s, "");
     ws_re()
         .replace_all(html_unescape(&no_tags).trim(), " ")
@@ -62,7 +62,7 @@ pub fn readable_text(html: &str) -> String {
     for rule in strip_rules() {
         s = rule.replace_all(&s, "").into_owned();
     }
-    clean_html_text(&s)
+    clean_text(&s)
 }
 
 /// 一条搜索结果。
@@ -107,12 +107,12 @@ pub fn parse_results(html: &str) -> Vec<SearchResult> {
             let anchor = cap.get(0)?.as_str();
             let open = anchor.split_once('>')?.0;
             let href = href_re().captures(open)?.get(1)?.as_str();
-            Some((unwrap_redirect_href(href), clean_html_text(&cap[1])))
+            Some((unwrap_redirect_href(href), clean_text(&cap[1])))
         })
         .collect();
     let snippets: Vec<String> = snippet_re()
         .captures_iter(html)
-        .map(|cap| clean_html_text(&cap[1]))
+        .map(|cap| clean_text(&cap[1]))
         .collect();
     items
         .into_iter()

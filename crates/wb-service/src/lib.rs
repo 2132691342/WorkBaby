@@ -2,6 +2,7 @@
 //! 依赖全部能力域，但不引 axum / tauri。
 
 pub mod chat;
+pub mod chat_events;
 pub mod context;
 pub mod features;
 pub mod files;
@@ -12,7 +13,9 @@ pub mod misc;
 pub mod prompt;
 pub mod providers;
 pub mod resources;
+pub mod review;
 pub mod store;
+pub mod task;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -23,6 +26,15 @@ use tokio::sync::mpsc;
 pub trait Emitter: Send + Sync {
     /// 发一条 SSE 事件（event 名 + JSON 载荷）；session_id 为空 = 全局通道。
     fn emit(&self, session_id: &str, event: &str, data: serde_json::Value);
+}
+
+/// 一轮运行的上下文快照：task 工具据此知道「当前父会话是谁、用哪个模型」。
+#[derive(Clone)]
+pub struct RunScope {
+    /// 父会话 id
+    pub session_id: String,
+    /// 父会话的运行参数
+    pub cfg: Arc<wb_kernel::AgentConfig>,
 }
 
 /// 服务容器：组合根（wb-api::Startup）构造一次，全部 handler 共享。
@@ -47,6 +59,10 @@ pub struct Services {
     pub chat: std::sync::Mutex<chat::ChatBoard>,
     /// 事件出口
     pub emitter: std::sync::Mutex<Option<Arc<dyn Emitter>>>,
+    /// 当前运行上下文（task 工具派子代理时取父会话参数）
+    pub scope: std::sync::Mutex<Option<RunScope>>,
+    /// 目标续跑计数：会话 id → 连续续跑次数（防无限循环）
+    pub goal_resumes: std::sync::Mutex<std::collections::HashMap<String, i64>>,
 }
 
 impl Services {
@@ -71,6 +87,8 @@ impl Services {
             asks: wb_features::ask_user::AnswerBoard::new(),
             chat: std::sync::Mutex::new(chat::ChatBoard::new()),
             emitter: std::sync::Mutex::new(None),
+            scope: std::sync::Mutex::new(None),
+            goal_resumes: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
     }
 

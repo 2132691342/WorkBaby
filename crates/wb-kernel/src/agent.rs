@@ -19,6 +19,7 @@ use crate::events::{EmitFn, KernelEvent};
 use crate::session::{now_ms, Block, Entry, Msg, SessionFile};
 
 /// 一轮运行的装配参数。
+#[derive(Clone)]
 pub struct AgentConfig {
     /// 模型客户端
     pub client: Arc<dyn ModelClient>,

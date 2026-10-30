@@ -11,16 +11,15 @@ use wb_domain::error::tool as toolcode;
 use wb_pkg::{AppError, Result};
 use wb_tools::{Tool, ToolAnnotations, ToolOutput};
 
-use crate::web_parse::{parse_results, readable_text};
+use crate::web_parse::readable_text;
+use crate::web_providers;
 
 /// 统一 UA，便于目标方识别流量来源。
-const USER_AGENT: &str = "WorkBaby/2.0";
+pub const USER_AGENT: &str = "WorkBaby/2.0";
 /// 单请求超时。
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 /// 最多跟随的重定向次数。
 const MAX_REDIRECTS: usize = 3;
-/// 搜索源 HTML 版入口。
-const SEARCH_ENDPOINT: &str = "https://html.duckduckgo.com/html/";
 
 /// 取字符串参数（缺省空串）。
 fn arg_str(args: &Value, key: &str) -> String {
@@ -223,18 +222,13 @@ impl Tool for FetchTool {
     }
 }
 
-/// web_search 工具：公共搜索源 HTML 版检索。
-pub struct SearchTool {
-    /// 复用的 HTTP 客户端
-    http: reqwest::Client,
-}
+/// web_search 工具：多搜索源检索。
+pub struct SearchTool;
 
 impl SearchTool {
     /// 装配。
     pub fn new() -> Self {
-        Self {
-            http: http_client(),
-        }
+        Self
     }
 }
 
@@ -255,7 +249,9 @@ impl Tool for SearchTool {
     }
 
     fn description(&self) -> &str {
-        "联网搜索并返回编号的结果清单（标题 / URL / 摘要）。需要最新信息、外部文档或事实核查而本地上下文不足时使用；拿到结果后通常再用 fetch_content 抓取目标页面。搜索源解析失败时会如实说明。"
+        "联网搜索并返回编号的结果清单（标题 / URL / 摘要）。需要最新信息、外部文档或事实核查而本地上下文不足时使用；拿到结果后通常再用 fetch_content 抓取目标页面。\
+         默认依次尝试多个搜索源（duckduckgo / bing / wikipedia），第一个解析出结果即返回；\
+         可用 provider 指定单一搜索源。搜索源解析失败时会如实说明。"
     }
 
     fn parameters(&self) -> Value {
@@ -263,7 +259,12 @@ impl Tool for SearchTool {
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "搜索词" },
-                "limit": { "type": "number", "description": "返回条数，默认 8" }
+                "limit": { "type": "number", "description": "返回条数，默认 8" },
+                "provider": {
+                    "type": "string",
+                    "enum": ["duckduckgo", "bing", "wikipedia"],
+                    "description": "指定搜索源；不填则依次尝试"
+                }
             },
             "required": ["query"]
         })
@@ -288,34 +289,48 @@ impl Tool for SearchTool {
             return Err(AppError::new(toolcode::ARG_INVALID, "query 必填"));
         }
         let limit = arg_usize(&args, "limit", 8).clamp(1, 20);
-        let (html, _) = finish(
-            self.http
-                .post(SEARCH_ENDPOINT)
-                .form(&[("q", query.as_str())])
-                .send(),
-            &cancel,
-        )
-        .await?;
-        let results = parse_results(&html);
-        if results.is_empty() {
+        let wanted = arg_str(&args, "provider");
+        let candidates: Vec<&'static web_providers::SearchProvider> = if wanted.is_empty() {
+            web_providers::PROVIDERS.iter().collect()
+        } else {
+            match web_providers::by_code(&wanted) {
+                Some(p) => vec![p],
+                None => {
+                    return Err(AppError::new(
+                        toolcode::ARG_INVALID,
+                        format!("未知搜索源 {wanted}"),
+                    ))
+                }
+            }
+        };
+
+        let mut failures: Vec<String> = Vec::new();
+        for p in candidates {
+            let body = finish((p.build)(&query).send(), &cancel).await;
+            let (body, _) = match body {
+                Ok(v) => v,
+                Err(e) => {
+                    failures.push(format!("{}: {}", p.label, e.message));
+                    continue;
+                }
+            };
+            let results = (p.parse)(&body);
+            if results.is_empty() {
+                failures.push(format!("{}: 结果页无法解析", p.label));
+                continue;
+            }
+            let mut out = format!("（搜索源：{}）\n", p.label);
+            for (i, r) in results.iter().take(limit).enumerate() {
+                out.push_str(&format!("{}. {}\n  {}\n  {}\n", i + 1, r.title, r.url, r.snippet));
+            }
             return Ok(ToolOutput {
-                text: "搜索源返回了无法解析的页面".into(),
+                text: out,
                 is_error: false,
                 duration_ms: started.elapsed().as_millis() as i64,
             });
         }
-        let mut out = String::new();
-        for (i, r) in results.iter().take(limit).enumerate() {
-            out.push_str(&format!(
-                "{}. {}\n  {}\n  {}\n",
-                i + 1,
-                r.title,
-                r.url,
-                r.snippet
-            ));
-        }
         Ok(ToolOutput {
-            text: out,
+            text: format!("所有搜索源都没有返回可解析的结果：\n{}", failures.join("\n")),
             is_error: false,
             duration_ms: started.elapsed().as_millis() as i64,
         })

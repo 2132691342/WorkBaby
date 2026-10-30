@@ -1,11 +1,11 @@
 //! 计划评审：模型提交计划 → 用户批准/驳回 → 执行期勾选（widget checklist + ask 桥）。
+//! 数据形态与标注见 plan_types。
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use wb_domain::error::tool as toolcode;
@@ -13,117 +13,15 @@ use wb_pkg::{AppError, Result};
 use wb_tools::{Tool, ToolOutput};
 
 use crate::ask_user::AnswerBoard;
+use crate::plan_types::{now_ms, push_widget, render, PlanState, PlanStore};
 use crate::FeatureCtx;
 
-/// 计划状态：draft 提交待审 / approved 批准执行中 / rejected 已驳回 / done 全部完成。
-const STATUSES: [&str; 4] = ["draft", "approved", "rejected", "done"];
-
-/// 计划状态。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PlanState {
-    /// 计划 id（PLAN_ 前缀）
-    pub plan_id: String,
-    /// 计划标题
-    pub plan_title: String,
-    /// draft / approved / rejected / done
-    pub plan_status: String,
-    /// 用户驳回时留下的意见（approved 后为空）
-    pub plan_reject_note: String,
-    /// 计划步骤
-    pub plan_steps: Vec<PlanStep>,
-    /// 更新时间（毫秒）
-    pub plan_updated_at: i64,
-}
-
-/// 计划的一个步骤。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlanStep {
-    /// 步骤内容
-    pub step_text: String,
-    /// 是否已完成
-    pub step_done: bool,
-}
-
-/// 当前毫秒时间戳。
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
-}
-
-/// 计划存储：feature_dir\plan.json。
-pub struct PlanStore {
-    path: std::path::PathBuf,
-}
-
-impl PlanStore {
-    /// 按 FeatureCtx 定位。
-    pub fn new(ctx: &FeatureCtx) -> Self {
-        Self {
-            path: ctx.feature_dir().join("plan.json"),
-        }
-    }
-
-    /// 读当前计划（缺失 = None）。
-    pub fn load(&self) -> Option<PlanState> {
-        std::fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-    }
-
-    /// 读改写一次；闭包报错则不落盘。
-    pub fn mutate(
-        &self,
-        f: impl FnOnce(&mut Option<PlanState>) -> Result<()>,
-    ) -> Result<Option<PlanState>> {
-        let mut state = self.load();
-        f(&mut state)?;
-        if let Some(g) = &state {
-            std::fs::create_dir_all(self.path.parent().unwrap_or(Path::new(".")))
-                .map_err(|e| AppError::wrap("1002", "建计划目录失败", e))?;
-            let text = serde_json::to_string_pretty(g)
-                .map_err(|e| AppError::new("1002", format!("计划序列化失败：{e}")))?;
-            std::fs::write(&self.path, text)
-                .map_err(|e| AppError::wrap("1002", "写计划文件失败", e))?;
-        }
-        Ok(state)
-    }
-}
-
-/// checklist 渲染（模型可读）。
-fn render(p: &PlanState) -> String {
-    let head = format!("[{}] {}", p.plan_status, p.plan_title);
-    if p.plan_steps.is_empty() {
-        return head;
-    }
-    let mut out = vec![head];
-    for (i, s) in p.plan_steps.iter().enumerate() {
-        let mark = if s.step_done { "[x]" } else { "[ ]" };
-        out.push(format!("{}. {} {}", i + 1, mark, s.step_text));
-    }
-    if !p.plan_reject_note.is_empty() {
-        out.push(format!("驳回意见：{}", p.plan_reject_note));
-    }
-    out.join("\n")
-}
-
-/// widget 行推送。
-fn push_widget(ctx: &FeatureCtx, p: &PlanState) {
-    let mut lines = vec![format!("计划：{}", p.plan_title)];
-    for (i, s) in p.plan_steps.iter().enumerate() {
-        let mark = if s.step_done { "[x]" } else { "[ ]" };
-        lines.push(format!("{}. {} {}", i + 1, mark, s.step_text));
-    }
-    (ctx.emit)("", "chat:widget", json!({ "key": "plan", "lines": lines }));
-}
-
 /// 解析步骤清单参数。
-fn parse_steps(steps: &[Value]) -> Result<Vec<PlanStep>> {
-    let out: Vec<PlanStep> = steps
+fn parse_steps(steps: &[Value]) -> Result<Vec<crate::plan_types::PlanStep>> {
+    let out: Vec<crate::plan_types::PlanStep> = steps
         .iter()
         .filter_map(|v| {
-            v.as_str().map(|s| PlanStep {
+            v.as_str().map(|s| crate::plan_types::PlanStep {
                 step_text: s.to_string(),
                 step_done: false,
             })
@@ -212,6 +110,7 @@ impl Tool for PlanSubmitTool {
                     plan_status: "draft".into(),
                     plan_reject_note: String::new(),
                     plan_steps: steps,
+                    plan_annotations: Vec::new(),
                     plan_updated_at: now_ms(),
                 });
                 Ok(())
@@ -434,9 +333,4 @@ impl Tool for PlanInboxTool {
             duration_ms: started.elapsed().as_millis() as i64,
         })
     }
-}
-
-/// 状态常量给测试用。
-pub fn known_statuses() -> [&'static str; 4] {
-    STATUSES
 }

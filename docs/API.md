@@ -91,6 +91,7 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 |---|---|---|
 | GET | /kernel/status | 就绪状态 + 阻塞原因（无模型配置即 not_ready） |
 | GET | /context/breakdown?session_id= | 上下文占用分解 |
+| GET | /subagents/roles | 子代理角色预设清单（code / 名称 / 职责 / 工具白名单 / 轮次上限） |
 
 ## SSE
 

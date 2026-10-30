@@ -127,6 +127,89 @@ impl MemoryStore {
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(db_err)
     }
+
+    /// 列出某类别的全部记忆（按更新时间倒序）。
+    pub fn list_by_kind(&self, kind: &str, limit: usize) -> Result<Vec<(String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT memory_id, memory_text FROM memory WHERE memory_kind = ?1
+                 ORDER BY memory_updated_at DESC LIMIT ?2",
+            )
+            .map_err(db_err)?;
+        let rows = stmt
+            .query_map(params![kind, limit as i64], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .map_err(db_err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_err)
+    }
+
+    /// 合并两条记忆：把 from 的正文并入 into，并删掉 from。
+    ///
+    /// 用于知识整合：两条说的是同一件事时保留一条，把另一条的内容并进去。
+    pub fn merge(&self, into_id: &str, from_id: &str, now: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let into_text: Option<String> = conn
+            .query_row(
+                "SELECT memory_text FROM memory WHERE memory_id = ?1",
+                params![into_id],
+                |r| r.get(0),
+            )
+            .ok();
+        let Some(into_text) = into_text else {
+            return Err(AppError::new("7301", "待合并的记忆不存在"));
+        };
+        let from_text: Option<String> = conn
+            .query_row(
+                "SELECT memory_text FROM memory WHERE memory_id = ?1",
+                params![from_id],
+                |r| r.get(0),
+            )
+            .ok();
+        let Some(from_text) = from_text else {
+            return Err(AppError::new("7301", "待合并的记忆不存在"));
+        };
+        let merged = if into_text.contains(&from_text) {
+            into_text
+        } else if from_text.contains(&into_text) {
+            from_text
+        } else {
+            format!("{into_text}\n{from_text}")
+        };
+        conn.execute(
+            "UPDATE memory SET memory_text = ?1, memory_updated_at = ?2 WHERE memory_id = ?3",
+            params![merged, now, into_id],
+        )
+        .map_err(db_err)?;
+        conn.execute(
+            "DELETE FROM memory WHERE memory_id = ?1",
+            params![from_id],
+        )
+        .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// 统计各类别的条数。
+    pub fn count_by_kind(&self) -> Result<Vec<(String, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT memory_kind, COUNT(*) FROM memory GROUP BY memory_kind")
+            .map_err(db_err)?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(db_err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_err)
+    }
+
+    /// 记忆总条数。
+    pub fn total(&self) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT COUNT(*) FROM memory", [], |r| r.get(0))
+            .map_err(db_err)
+    }
 }
 
 /// 记忆命中。

@@ -1,8 +1,12 @@
 //! SSE 事件载荷：与前端 types/api.ts 的 ServerEvent 一一对应，字段 snake_case。
+//!
+//! 字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——业务前缀是为领域对象
+//! 消歧的，而事件载荷的字段名就是协议本身（前端按 `data.kind` / `data.name` 读）。
+//! 改这里的字段名必须同步改前端 `types/api.ts` 与 `stores/chat.ts`。
 
 use serde::Serialize;
 
-use crate::session::{MessageVO, UsageVO};
+use crate::session::MessageVO;
 
 /// chat:start 载荷。
 #[derive(Debug, Clone, Serialize)]
@@ -37,7 +41,6 @@ pub struct ToolStartData {
     /// 完整参数对象（参数补齐后才发事件）
     pub args: Option<serde_json::Value>,
 }
-
 /// chat:tool_end 载荷。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -53,7 +56,6 @@ pub struct ToolEndData {
     /// 耗时（毫秒）
     pub duration_ms: i64,
 }
-
 /// chat:compressed 载荷。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -71,15 +73,38 @@ pub struct UserData {
 }
 
 /// chat:context 载荷。
+///
+/// 注意：这里的 usage 是 SSE 线格式（裸字段名），与界面用的 `UsageVO`
+/// （带 `usage_` 前缀）不是同一个东西——两者都出现在会话详情与实时流里。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ContextData {
     /// 用量读数
-    pub usage: UsageVO,
+    pub usage: ContextUsage,
     /// 上下文窗口大小
     pub context_window: i64,
     /// 占用比（0-1）
     pub ratio: f64,
+}
+
+/// chat:context 里的用量读数（SSE 线格式）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ContextUsage {
+    /// 输入 token
+    pub input: i64,
+    /// 输出 token
+    pub output: i64,
+    /// 缓存命中
+    pub cached: i64,
+    /// 缓存写入
+    pub cache_write: i64,
+    /// 总量
+    pub total: i64,
+    /// 上下文占用
+    pub context: i64,
+    /// 成本
+    pub cost: f64,
 }
 
 /// chat:done 载荷。
@@ -211,23 +236,25 @@ pub struct AskClosedData {
 }
 
 /// chat:notify 载荷。
+///
+/// 字段名是 SSE 线格式，与前端 `types/api.ts` 的 NotifyData 严格一致——
+/// 事件载荷是前后端契约，不走业务前缀规则。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct NotifyData {
     /// info / warning / error
-    pub notify_type: String,
+    pub level: String,
     /// 内容
-    pub message: String,
+    pub text: String,
 }
-
 /// chat:status 载荷（空 text 即清除）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct StatusData {
     /// 状态键
-    pub status_key: String,
+    pub key: String,
     /// 状态文本
-    pub status_text: String,
+    pub text: String,
 }
 
 /// chat:widget 载荷（空行组即清除）。
@@ -235,9 +262,9 @@ pub struct StatusData {
 #[serde(rename_all = "snake_case")]
 pub struct WidgetData {
     /// 小部件键
-    pub widget_key: String,
+    pub key: String,
     /// 行文本组
-    pub widget_lines: Vec<String>,
+    pub lines: Vec<String>,
 }
 
 /// chat:title 载荷。

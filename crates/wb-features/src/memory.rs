@@ -148,6 +148,27 @@ impl Tool for MemorySaveTool {
         } else {
             "已更新既有"
         };
+        // 自动整合：条目堆到阈值就合并重复项，不等模型手动叫。
+        if fresh {
+            if let Some(report) =
+                tokio::task::spawn_blocking({
+                    let store = self.store.clone();
+                    move || crate::memory_consolidate::auto_consolidate(&store)
+                })
+                .await
+                .map_err(|e| AppError::new("7001", e.to_string()))?
+            {
+                return Ok(ToolOutput {
+                    text: format!(
+                        "{verb}记忆 {memory_id}（{kind_display}）。\n\
+                         自动整合：合并了 {} 条重复记忆，现有 {} 条。",
+                        report.merged, report.remaining
+                    ),
+                    is_error: false,
+                    duration_ms: started.elapsed().as_millis() as i64,
+                });
+            }
+        }
         Ok(ToolOutput {
             text: format!("{verb}记忆 {memory_id}（{kind_display}）"),
             is_error: false,
@@ -379,6 +400,74 @@ impl Tool for SessionSearchTool {
         }
         if out.is_empty() {
             out = "历史会话中没有匹配内容".into();
+        }
+        Ok(ToolOutput {
+            text: out,
+            is_error: false,
+            duration_ms: started.elapsed().as_millis() as i64,
+        })
+    }
+}
+
+/// memory_consolidate 工具：去重合并记忆库条目。
+pub struct MemoryConsolidateTool {
+    /// 共享记忆库
+    store: Arc<MemoryStore>,
+}
+
+impl MemoryConsolidateTool {
+    /// 装配。
+    pub fn new(store: Arc<MemoryStore>) -> Self {
+        Self { store }
+    }
+}
+
+#[async_trait]
+impl Tool for MemoryConsolidateTool {
+    fn name(&self) -> &str {
+        "memory_consolidate"
+    }
+
+    fn label(&self) -> &str {
+        "整合记忆"
+    }
+
+    fn description(&self) -> &str {
+        "整合记忆库：找出说的是同一件事的重复条目并合并成一条（内容并入较早的那条）。\
+         记忆库堆积了大量互相重复的碎片后调用——合并后条目更少、检索召回更准。\
+         返回扫描 / 合并 / 保留的条数。"
+    }
+
+    fn parameters(&self) -> Value {
+        json!({ "type": "object", "properties": {} })
+    }
+
+    fn annotations(&self) -> ToolAnnotations {
+        ToolAnnotations {
+            read_only: false,
+            destructive: false,
+        }
+    }
+
+    async fn execute(
+        &self,
+        _args: Value,
+        _cancel: CancellationToken,
+        _workdir: &Path,
+    ) -> Result<ToolOutput> {
+        let started = Instant::now();
+        let store = self.store.clone();
+        let report = tokio::task::spawn_blocking(move || {
+            crate::memory_consolidate::consolidate(&store)
+        })
+        .await
+        .map_err(|e| AppError::new("7001", e.to_string()))?;
+        let mut out = format!(
+            "扫描 {} 条，合并 {} 条，保留 {} 条。\n",
+            report.scanned, report.merged, report.remaining
+        );
+        for (kind, n) in &report.by_kind {
+            out.push_str(&format!("  {kind}: {n} 条\n"));
         }
         Ok(ToolOutput {
             text: out,

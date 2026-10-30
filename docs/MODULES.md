@@ -82,8 +82,9 @@
 | system_prompt | 有序命名段组装（tools/rules/skills/project_context/cwd/addendum） |
 | compaction | 阈值触发（reserve 16384 / keepRecent 20000）、切点算法、清洗与结构化摘要 |
 | retry | agent_end 后错误恢复：剔除失败批 + 退避重试 |
+| subagent | 子代理：隔离子会话跑任务，只把结论回灌父上下文 |
 
-对上只暴露：`run()`、`AgentConfig`、`RunOutcome`。
+对上只暴露：`run()`、`AgentConfig`、`RunOutcome`、`run_subagent()`、`SubagentConfig`。
 内核事件枚举是唯一出参语言，不含任何界面词汇。
 
 ## wb-skills（技能）
@@ -104,13 +105,13 @@
 |---|---|
 | todo | 待办清单与依赖图（文件存储） |
 | ask_user | 结构化提问 + AnswerBoard（一次性投递） |
-| memory | 记忆工具 + `memory_store`（FTS5 + 密钥扫描） |
-| web | 搜索与抓取工具 + `web_parse`（正文提取、结果解析） |
+| memory | 记忆工具 + `memory_store`（FTS5 + 密钥扫描）+ `memory_consolidate`（去重整合） |
+| web | 搜索与抓取工具 + `web_parse`（正文提取）+ `web_providers`（多搜索源）+ `web_files`（PDF / 克隆）+ `web_video`（字幕） |
 | fff | 模糊搜索 + `fff/store`（frecency 库） |
 | context_mode | 沙箱执行 + 知识库（`sandbox.rs` 运行时表、`store.rs` FTS5 + RRF） |
 | lsp | 语言诊断与修复（`adapters.rs` 服务器目录、`client.rs` JSON-RPC 客户端、`edits.rs` 文本编辑、`diagnostics.rs` / `fix.rs` 工具层） |
-| plan | 计划评审（提交 / 勾选 / 收件箱） |
-| goal | 目标追踪（单活跃目标状态机） |
+| plan | 计划评审（`plan.rs` 提交 / 勾选 / 收件箱、`plan_types.rs` 数据形态、`plan_annotate.rs` 标注） |
+| goal | 目标追踪（单活跃目标状态机）+ 续跑提示 |
 | loadout | 工具与技能开关的命名预设 |
 | inspect | 自省快照数据面 |
 | context_view | 上下文占用分解数据面 |
@@ -141,9 +142,12 @@
 
 | 模块 | 职责 |
 |---|---|
-| chat | 对话 run 管理：校验、排队、唤醒内核、事件翻译 |
+| chat | 对话 run 管理：校验、排队、唤醒内核、目标续跑 |
+| chat_events | KernelEvent → SSE 事件翻译（载荷走 `wb_domain::events` 结构体） |
 | prompt | 系统提示词组装（工具 / 规则 / 技能 / 项目上下文 / 工作目录） |
 | features | 功能装配：构造 FeatureCtx + 按开关并入功能工具 |
+| task | task 工具：派子代理干活（需内核与运行上下文） |
+| review | 分支差异审查（PR 的本地等价物） |
 | resources | 技能管理（建 / 导 / 删 / 正文）与工具视图 |
 | files | 文件树与单文件字节读取（文档预览的数据源） |
 | misc | 内置文档、斜杠命令、工作区历史、背景图 |

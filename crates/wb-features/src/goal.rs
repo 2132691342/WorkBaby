@@ -74,7 +74,7 @@ impl GoalStore {
     }
 
     /// 写回。
-    fn save(&self, g: &GoalState) -> Result<()> {
+    pub fn save(&self, g: &GoalState) -> Result<()> {
         std::fs::create_dir_all(self.path.parent().unwrap_or(Path::new(".")))
             .map_err(|e| AppError::wrap("1002", "建目标目录失败", e))?;
         let text = serde_json::to_string_pretty(g)
@@ -113,6 +113,35 @@ fn push_status(ctx: &FeatureCtx, g: &GoalState) {
         )
     };
     (ctx.emit)("", "chat:status", json!({ "key": "goal", "text": text }));
+}
+
+/// 续跑提示：活跃目标且仍有未完成步骤时给出下一步提示，否则 None。
+///
+/// 没有步骤清单的目标不自动续跑——无从判断「还差什么」，硬推只会空转。
+pub fn continuation_prompt(ctx: &FeatureCtx) -> Option<String> {
+    let store = GoalStore::new(ctx);
+    let g = store.load()?;
+    if g.goal_status != "active" || g.goal_steps.is_empty() {
+        return None;
+    }
+    let remaining: Vec<&GoalStep> = g.goal_steps.iter().filter(|s| !s.step_done).collect();
+    if remaining.is_empty() {
+        return None;
+    }
+    let mut prompt = format!(
+        "继续推进目标「{}」。已完成 {}/{} 步。\n\n待办步骤：\n",
+        g.goal_text,
+        g.goal_steps.len() - remaining.len(),
+        g.goal_steps.len()
+    );
+    for (i, s) in remaining.iter().enumerate() {
+        prompt.push_str(&format!("{}. {}\n", i + 1, s.step_text));
+    }
+    if !g.goal_note.is_empty() {
+        prompt.push_str(&format!("\n最近进展：{}\n", g.goal_note));
+    }
+    prompt.push_str("\n接着做下一步；做完了用 update_goal 勾选步骤。目标达成就置 achieved。");
+    Some(prompt)
 }
 
 /// create_goal 工具：建目标（已有活跃目标时要求先更新或放弃它）。

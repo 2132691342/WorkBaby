@@ -12,4 +12,5 @@ pub mod session;
 pub mod settings;
 pub mod skill;
 pub mod stats;
+pub mod subagent;
 pub mod tool;

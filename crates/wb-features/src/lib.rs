@@ -6,11 +6,17 @@ pub mod fff;
 pub mod goal;
 pub mod lsp;
 pub mod memory;
+pub mod memory_consolidate;
 pub mod memory_store;
 pub mod plan;
+pub mod plan_annotate;
+pub mod plan_types;
 pub mod todo;
 pub mod web;
+pub mod web_files;
 pub mod web_parse;
+pub mod web_providers;
+pub mod web_video;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

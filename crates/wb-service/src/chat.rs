@@ -12,7 +12,11 @@ use wb_pkg::{AppError, Result};
 use wb_provider::StopReason;
 
 use super::store;
-use super::{steer_channel, Emitter, Services};
+use super::chat_events::translate;
+use super::{steer_channel, Services};
+
+/// 目标连续续跑上限：超过就停下来并告知用户，不让模型空转。
+const MAX_GOAL_RESUMES: i64 = 20;
 
 /// 一次运行句柄。
 pub struct RunHandle {
@@ -125,6 +129,17 @@ pub(crate) fn resolve_default(
 
 /// 发送（新会话现场创建）。
 pub async fn send(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> {
+    // 用户自己发消息：续跑计数归零（人介入了，计数从头算）。
+    if let Some(id) = &req.chat_session_id {
+        if !id.is_empty() {
+            sv.goal_resumes.lock().unwrap().remove(id);
+        }
+    }
+    start_run(sv, req).await
+}
+
+/// 起一轮运行（发送与目标续跑共用）。
+async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> {
     let (pid, mid, context_window, resolved) = resolve_default(&sv)?;
     if resolved.api_key.is_empty() {
         return Err(AppError::new(code::NOT_READY, "该服务商还没有配置 API key"));
@@ -160,7 +175,7 @@ pub async fn send(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> {
         let reg = sv.registry.read().unwrap();
         Arc::new(wb_tools::ToolRegistry::snapshot(&reg))
     };
-    let cfg = wb_kernel::AgentConfig {
+    let cfg = Arc::new(wb_kernel::AgentConfig {
         client,
         registry,
         enabled_tools,
@@ -171,10 +186,15 @@ pub async fn send(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> {
         max_tokens: 16_384,
         thinking: wb_provider::ThinkingLevel::Off,
         max_retries: 3,
-    };
+    });
     let run_session_id = session_id.clone();
     let svc = sv.clone();
     let run_id = wb_pkg::ulid::new_id(wb_pkg::Prefix::Run);
+    // 运行上下文：task 工具据此知道父会话是谁、用哪个模型。
+    *sv.scope.lock().unwrap() = Some(super::RunScope {
+        session_id: session_id.clone(),
+        cfg: cfg.clone(),
+    });
     tokio::spawn(async move {
         let emit_fn: wb_kernel::EmitFn = {
             let sid = run_session_id.clone();
@@ -187,7 +207,7 @@ pub async fn send(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> {
         };
         let outcome = wb_kernel::run(
             session_file,
-            cfg,
+            (*cfg).clone(),
             emit_fn,
             cancel.clone(),
             steer_rx,
@@ -195,8 +215,16 @@ pub async fn send(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> {
         )
         .await;
         svc.chat.lock().unwrap().finish(&run_session_id);
+        // 运行结束：清掉运行上下文，避免 task 工具拿到已结束的父会话参数。
+        *svc.scope.lock().unwrap() = None;
         match outcome {
-            Ok(_) => refresh_index(&svc, &run_session_id),
+            Ok(o) => {
+                refresh_index(&svc, &run_session_id);
+                // 目标续跑：活跃目标还有未完成步骤就自动开下一轮。
+                if !o.aborted {
+                    maybe_resume_goal(&svc, &run_session_id);
+                }
+            }
             Err(e) => {
                 if let Some(em) = &emitter {
                     em.emit(
@@ -218,6 +246,60 @@ pub async fn send(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> {
 /// 停止。
 pub fn stop(sv: &Arc<Services>, session_id: &str) -> bool {
     sv.chat.lock().unwrap().stop(session_id)
+}
+
+/// 目标续跑：一轮结束后若活跃目标还有未完成步骤，自动开下一轮。
+///
+/// 续跑是“后台接着跑”而不是“用户又发了一条消息”——所以走内部 run 路径，
+/// 不占用界面输入框。被中止的轮次不续跑。
+///
+/// 连续续跑次数有上限：模型没能推进目标却一直挂着目标时，不能无限转下去。
+fn maybe_resume_goal(sv: &Arc<Services>, session_id: &str) {
+    let Some(prompt) = super::features::goal_continuation(sv) else {
+        // 目标没了（达成 / 放弃 / 功能关掉）：清计数。
+        sv.goal_resumes.lock().unwrap().remove(session_id);
+        return;
+    };
+    // 同一会话已在跑（用户又发了消息）就不插手。
+    if sv.chat.lock().unwrap().is_running(session_id) {
+        return;
+    }
+    let mut count = sv.goal_resumes.lock().unwrap();
+    let n = count.entry(session_id.to_string()).or_insert(0);
+    if *n >= MAX_GOAL_RESUMES {
+        count.remove(session_id);
+        tracing::info!(
+            session_id,
+            "目标连续续跑达到上限，停止自动续跑（目标仍未完结）"
+        );
+        if let Some(em) = sv.emitter.lock().unwrap().clone() {
+            em.emit(
+                session_id,
+                "chat:notify",
+                serde_json::json!({
+                    "level": "warning",
+                    "text": format!("目标已连续续跑 {MAX_GOAL_RESUMES} 轮仍未完结，已停止自动续跑。"),
+                }),
+            );
+        }
+        return;
+    }
+    *n += 1;
+    drop(count);
+
+    let sv2 = sv.clone();
+    let sid = session_id.to_string();
+    tokio::spawn(async move {
+        let req = ChatSendREQ {
+            chat_session_id: Some(sid),
+            chat_text: prompt,
+            chat_attachments: Vec::new(),
+        };
+        // 走 start_run 而非 send：续跑不重置计数，否则上限形同虚设。
+        if let Err(e) = start_run(sv2, req).await {
+            tracing::warn!(code = %e.code, "目标续跑启动失败");
+        }
+    });
 }
 
 /// 插话。
@@ -272,114 +354,6 @@ pub async fn compact(
         );
     }
     Ok((tokens_before, summary))
-}
-
-/// KernelEvent → SSE 事件（docs/API.md 事件表）。
-fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent) {
-    match ev {
-        KernelEvent::AgentStart { run_id } => {
-            em.emit(
-                sid,
-                "chat:start",
-                serde_json::json!({ "run_id": run_id, "session_id": sid }),
-            );
-        }
-        KernelEvent::TextDelta { delta } => {
-            em.emit(
-                sid,
-                "chat:delta",
-                serde_json::json!({ "kind": "text", "delta": delta }),
-            );
-        }
-        KernelEvent::ThinkingDelta { delta } => {
-            em.emit(
-                sid,
-                "chat:delta",
-                serde_json::json!({ "kind": "thinking", "delta": delta }),
-            );
-        }
-        KernelEvent::ToolExecutionStart {
-            call_id,
-            name,
-            args,
-        } => {
-            em.emit(
-                sid,
-                "chat:tool_start",
-                serde_json::json!({ "tool_call_id": call_id, "name": name, "label": null, "args": args }),
-            );
-        }
-        KernelEvent::ToolExecutionEnd {
-            call_id,
-            name,
-            result,
-            is_error,
-            duration_ms,
-        } => {
-            em.emit(
-                sid,
-                "chat:tool_end",
-                serde_json::json!({ "tool_call_id": call_id, "name": name, "result": result, "is_error": is_error, "duration_ms": duration_ms }),
-            );
-        }
-        KernelEvent::TurnEnd { usage, stop_reason } => {
-            if let Some(u) = usage {
-                let total = u.input + u.output + u.cache_read + u.cache_write;
-                em.emit(
-                    sid,
-                    "chat:context",
-                    serde_json::json!({
-                        "usage": { "input": u.input, "output": u.output, "cached": u.cache_read, "cache_write": u.cache_write, "total": total, "context": total, "cost": 0.0 },
-                        "context_window": 128000,
-                        "ratio": total as f64 / 128000.0,
-                    }),
-                );
-            }
-            let _ = stop_reason;
-        }
-        KernelEvent::CompactionEnd {
-            tokens_before: Some(t),
-        } => {
-            em.emit(
-                sid,
-                "chat:compressed",
-                serde_json::json!({ "tokens_before": t }),
-            );
-        }
-        KernelEvent::CompactionEnd {
-            tokens_before: None,
-        } => {}
-        KernelEvent::AutoRetry {
-            attempt,
-            max,
-            delay_ms,
-        } => {
-            em.emit(
-                sid,
-                "chat:retry",
-                serde_json::json!({ "attempt": attempt, "max": max, "delay_ms": delay_ms }),
-            );
-        }
-        KernelEvent::Settled { aborted } => {
-            if *aborted {
-                em.emit(sid, "chat:stopped", serde_json::json!({ "run_id": "" }));
-            } else {
-                em.emit(
-                    sid,
-                    "chat:done",
-                    serde_json::json!({ "run_id": "", "message": null }),
-                );
-            }
-        }
-        KernelEvent::Failed { code, message } => {
-            em.emit(
-                sid,
-                "chat:error",
-                serde_json::json!({ "run_id": "", "code": code, "message": message }),
-            );
-        }
-        _ => {}
-    }
 }
 
 /// 收尾刷新索引（消息数 / 活动时间 / 预览）。

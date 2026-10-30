@@ -17,6 +17,8 @@ pub enum Prefix {
     Tc,
     /// 内核提问（chat:ask 桥）
     Ask,
+    /// 子代理会话
+    Sub,
 }
 
 impl Prefix {
@@ -29,6 +31,7 @@ impl Prefix {
             Prefix::Run => "RUN",
             Prefix::Tc => "TC",
             Prefix::Ask => "ASK",
+            Prefix::Sub => "SUB",
         }
     }
 }
@@ -48,7 +51,7 @@ pub fn is_valid(id: &str) -> bool {
     let Some((prefix, body)) = id.split_once('_') else {
         return false;
     };
-    let ok_prefix = ["SESS", "ENT", "MSG", "RUN", "TC", "ASK"].contains(&prefix);
+    let ok_prefix = ["SESS", "ENT", "MSG", "RUN", "TC", "ASK", "SUB"].contains(&prefix);
     ok_prefix && body.len() == 26 && body.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
