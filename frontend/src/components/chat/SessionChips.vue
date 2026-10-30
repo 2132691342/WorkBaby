@@ -24,41 +24,45 @@ const vendor = ref('')
 const applying = ref('')
 const root = ref<HTMLElement | null>(null)
 
-const providers = computed(() => settings.providers?.providers ?? [])
-const currentProvider = computed(() => session.current?.provider || settings.boot?.default_provider || '')
-const currentModel = computed(() => session.current?.model || settings.boot?.default_model || '')
+const providers = computed(() => settings.providers ?? [])
+const currentProvider = computed(
+  () => session.current?.session_provider || settings.boot?.boot_default_provider || '',
+)
+const currentModel = computed(
+  () => session.current?.session_model || settings.boot?.boot_default_model || '',
+)
 
 const modelLabel = computed(() => {
-  const p = providers.value.find((x) => x.id === currentProvider.value)
-  return p?.models.find((m) => m.id === currentModel.value)?.name || currentModel.value || t('chat.modelPickerTitle')
+  const p = providers.value.find((x) => x.provider_id === currentProvider.value)
+  return (
+    p?.provider_models.find((m) => m.model_id === currentModel.value)?.model_name ||
+    currentModel.value ||
+    t('chat.modelPickerTitle')
+  )
 })
-const thinkingKey = computed(
-  () => session.current?.thinking_level || settings.piSettings?.default_thinking_level || 'medium',
-)
+const thinkingKey = computed(() => session.current?.session_thinking_level || 'medium')
 const thinkingName = computed(() => t(`thinking.${thinkingKey.value}`))
 
 const activeVendor = computed(
-  () => providers.value.find((p) => p.id === vendor.value) || providers.value[0],
+  () => providers.value.find((p) => p.provider_id === vendor.value) || providers.value[0],
 )
-const activeModels = computed(() => activeVendor.value?.models ?? [])
+const activeModels = computed(() => activeVendor.value?.provider_models ?? [])
 
 function open(next: Exclude<Panel, null>) {
   panel.value = panel.value === next ? null : next
   if (panel.value === 'model') {
-    vendor.value = currentProvider.value || providers.value[0]?.id || ''
+    vendor.value = currentProvider.value || providers.value[0]?.provider_id || ''
     if (!providers.value.length) void settings.loadProviders()
   }
-  if (panel.value === 'thinking' && !settings.piSettings) void settings.loadPISettings()
 }
 
 /** 供 /model 命令直接打开面板 */
 function show(which: 'model' | 'thinking') {
   panel.value = which
   if (which === 'model') {
-    vendor.value = currentProvider.value || providers.value[0]?.id || ''
+    vendor.value = currentProvider.value || providers.value[0]?.provider_id || ''
     void settings.loadProviders()
   }
-  if (which === 'thinking' && !settings.piSettings) void settings.loadPISettings()
 }
 function close() {
   panel.value = null
@@ -67,7 +71,7 @@ function close() {
 async function chooseModel(providerId: string, modelId: string) {
   applying.value = `${providerId}/${modelId}`
   try {
-    // 新对话还没会话文件：改的是 PI 的默认模型，下一条会话直接用它
+    // 新对话还没会话文件：改的是全局默认模型，下一条会话直接用它
     if (!session.currentId) {
       await api.providers.setDefault(providerId, modelId)
       await settings.refreshProviderData()
@@ -87,21 +91,18 @@ async function chooseModel(providerId: string, modelId: string) {
 
 /** 面板里显示的名字：有显示名就用显示名，没有就退回模型 id */
 function modelLabelOf(providerId: string, modelId: string) {
-  const p = providers.value.find((x) => x.id === providerId)
-  return p?.models.find((m) => m.id === modelId)?.name || modelId
+  const p = providers.value.find((x) => x.provider_id === providerId)
+  return p?.provider_models.find((m) => m.model_id === modelId)?.model_name || modelId
 }
 
 async function chooseThinking(level: string) {
+  // 思考档只按会话存：没有会话就没有可写的默认档
+  if (!session.currentId) {
+    toast.info(t('chat.slashNeedSession'))
+    return
+  }
   applying.value = `t:${level}`
   try {
-    // 同上：没有会话时改的是 PI 的默认思考档
-    if (!session.currentId) {
-      await api.settings.setThinking(level)
-      await settings.loadPISettings()
-      toast.ok(t('chat.thinkingDefaultSet', { level: t(`thinking.${level}`) }))
-      close()
-      return
-    }
     await session.setThinking(level)
     close()
   } catch (e) {
@@ -126,8 +127,6 @@ function onEsc(e: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('pointerdown', onDocPointerDown)
   document.addEventListener('keydown', onEsc)
-  // chip 上的档位就靠它：没会话时显示的是 PI 的默认思考档
-  if (!settings.piSettings) void settings.loadPISettings()
 })
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocPointerDown)
@@ -160,38 +159,38 @@ defineExpose({ show, close })
           <div class="mp-vendors">
             <button
               v-for="p in providers"
-              :key="p.id"
+              :key="p.provider_id"
               class="mp-vendor"
               type="button"
-              :class="{ 'is-on': p.id === activeVendor?.id }"
-              @click="vendor = p.id"
+              :class="{ 'is-on': p.provider_id === activeVendor?.provider_id }"
+              @click="vendor = p.provider_id"
             >
-              <span class="mp-avatar">{{ (p.name || p.id).slice(0, 1).toUpperCase() }}</span>
-              <span class="mp-vname">{{ p.name || p.id }}</span>
-              <span class="mp-count">{{ p.models.length }}</span>
+              <span class="mp-avatar">{{ (p.provider_name || p.provider_id).slice(0, 1).toUpperCase() }}</span>
+              <span class="mp-vname">{{ p.provider_name || p.provider_id }}</span>
+              <span class="mp-count">{{ p.provider_models.length }}</span>
             </button>
           </div>
           <div class="mp-models">
             <button
               v-for="m in activeModels"
-              :key="m.id"
+              :key="m.model_id"
               class="mp-model"
               type="button"
               :class="{
-                'is-on': m.id === currentModel && activeVendor?.id === currentProvider,
-                'is-busy': applying === `${activeVendor?.id}/${m.id}`,
+                'is-on': m.model_id === currentModel && activeVendor?.provider_id === currentProvider,
+                'is-busy': applying === `${activeVendor?.provider_id}/${m.model_id}`,
               }"
               :disabled="!!applying"
-              @click="chooseModel(activeVendor!.id, m.id)"
+              @click="chooseModel(activeVendor!.provider_id, m.model_id)"
             >
-              <span class="mp-mname">{{ m.name || m.id }}</span>
+              <span class="mp-mname">{{ m.model_name || m.model_id }}</span>
               <span class="mp-meta">
-                <span v-if="m.context_window">{{ Math.round(m.context_window / 1000) }}k</span>
-                <span v-if="m.vision">img</span>
-                <span v-if="m.reasoning">think</span>
+                <span v-if="m.model_context_window">{{ Math.round(m.model_context_window / 1000) }}k</span>
+                <span v-if="m.model_vision">img</span>
+                <span v-if="m.model_reasoning">think</span>
               </span>
               <AppIcon
-                v-if="m.id === currentModel && activeVendor?.id === currentProvider"
+                v-if="m.model_id === currentModel && activeVendor?.provider_id === currentProvider"
                 name="check"
                 size="ic-2xs"
                 class="mp-check"

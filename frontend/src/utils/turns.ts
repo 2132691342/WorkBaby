@@ -25,7 +25,7 @@ export function groupTurns<A>(
 
   const flush = () => {
     if (parts && parts.length) {
-      out.push({ key: `a-${parts[0].msg.id}`, kind: 'assistant', parts })
+      out.push({ key: `a-${parts[0].msg.message_id}`, kind: 'assistant', parts })
     }
     parts = null
   }
@@ -33,10 +33,10 @@ export function groupTurns<A>(
   let i = 0
   while (i < msgs.length) {
     const m = msgs[i]
-    switch (m.role) {
+    switch (m.message_role) {
       case 'user':
         flush()
-        out.push({ key: `t-${m.id}`, kind: 'user', msg: m })
+        out.push({ key: `t-${m.message_id}`, kind: 'user', msg: m })
         open = true
         parts = []
         i++
@@ -44,14 +44,14 @@ export function groupTurns<A>(
       case 'notice':
         // 压缩 / 换模型这类分隔条插在流里：它属于两个回合之间，不吞掉后续段
         flush()
-        out.push({ key: `n-${m.id}`, kind: 'notice', msg: m })
+        out.push({ key: `n-${m.message_id}`, kind: 'notice', msg: m })
         parts = open ? [] : null
         i++
         break
       case 'assistant': {
         i++
         const tools: MessageVO[] = []
-        while (i < msgs.length && msgs[i].role === 'tool') {
+        while (i < msgs.length && msgs[i].message_role === 'tool') {
           tools.push(msgs[i])
           i++
         }

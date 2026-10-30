@@ -1,0 +1,259 @@
+/* 按钮五态体系：默认 / 悬停 / 按下 / 禁用 / 加载。
+   规则：所有按钮共用同一套形变刻度（--wb-btn-scale-hover / --wb-btn-scale-press），
+   自绘按钮走 .wb-btn，Element Plus 按钮由 ep-theme.css 覆写，两边手感一致。
+   形变只给「实心/描边」按钮；文字与链接按钮缩放会带动整行文字抖动，只给颜色反馈。 */
+
+/* ============================================================
+   形变基元：给任意按钮容器挂上五态行为
+   ============================================================ */
+.wb-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--wb-sp-2);
+  font-weight: 600;
+  border-radius: var(--wb-radius);
+  cursor: pointer;
+  user-select: none;
+  transform-origin: center;
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease),
+    box-shadow var(--wb-dur) var(--wb-ease),
+    opacity var(--wb-dur) var(--wb-ease);
+}
+
+/* 悬停态：放大 + 抬阴影 */
+.wb-btn:not(.is-disabled):not(.is-loading):hover {
+  transform: scale(var(--wb-btn-scale-hover));
+  box-shadow: var(--wb-shadow-2);
+}
+
+/* 按下态：缩小 + 阴影收窄（实体按压感） */
+.wb-btn:not(.is-disabled):not(.is-loading):active {
+  transform: scale(var(--wb-btn-scale-press));
+  box-shadow: none;
+  transition-duration: 60ms;
+}
+
+/* 键盘聚焦：焦点环 + 不缩放（键盘操作不该有指针语义） */
+.wb-btn:focus-visible {
+  outline: 2px solid var(--wb-primary);
+  outline-offset: 2px;
+}
+
+/* 禁用态：不参与形变，降透明并禁用指针 */
+.wb-btn.is-disabled,
+.wb-btn:disabled {
+  transform: none;
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+/* 加载态：锁定尺寸，避免连点时按钮持续抖动 */
+.wb-btn.is-loading {
+  transform: none;
+  cursor: progress;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* ============================================================
+   变体：primary / default / ghost / danger
+   ============================================================ */
+.wb-btn--primary {
+  background: var(--wb-primary);
+  border: 1px solid var(--wb-primary);
+  color: var(--wb-primary-ink);
+  box-shadow: var(--wb-btn-shadow);
+}
+.wb-btn--primary:not(.is-disabled):not(.is-loading):hover {
+  background: var(--wb-primary-strong);
+  border-color: var(--wb-primary-strong);
+}
+.wb-btn--primary:not(.is-disabled):not(.is-loading):active {
+  background: var(--wb-primary-deep);
+}
+
+.wb-btn--default {
+  background: var(--wb-elev-raised);
+  border: 1px solid var(--wb-border-strong);
+  color: var(--wb-ink);
+}
+.wb-btn--default:not(.is-disabled):not(.is-loading):hover {
+  border-color: var(--wb-primary);
+  background: var(--wb-accent-tint);
+  color: var(--wb-primary);
+}
+
+.wb-btn--ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--wb-muted);
+}
+.wb-btn--ghost:not(.is-disabled):not(.is-loading):hover {
+  background: var(--wb-elev-hover);
+  color: var(--wb-ink);
+}
+
+.wb-btn--danger {
+  background: transparent;
+  border: 1px solid var(--wb-border-strong);
+  color: var(--wb-danger);
+}
+.wb-btn--danger:not(.is-disabled):not(.is-loading):hover {
+  background: var(--wb-danger-soft);
+  border-color: var(--wb-danger);
+  color: var(--wb-danger);
+}
+
+/* 尺寸 */
+.wb-btn--sm {
+  height: calc(26px * var(--wb-vw-scale));
+  padding: 0 var(--wb-sp-3);
+  font-size: var(--wb-fs-xs);
+}
+.wb-btn--md {
+  height: calc(32px * var(--wb-vw-scale));
+  padding: 0 var(--wb-sp-4);
+  font-size: var(--wb-fs-sm);
+}
+.wb-btn--lg {
+  height: calc(38px * var(--wb-vw-scale));
+  padding: 0 var(--wb-sp-5);
+  font-size: var(--wb-fs-md);
+}
+
+/* ============================================================
+   加载指示器：自绘按钮用（Element Plus 自带 el-icon.is-loading）
+   ============================================================ */
+.wb-btn__spinner {
+  width: 1em;
+  height: 1em;
+  border-radius: var(--wb-radius-full);
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  opacity: 0.85;
+  animation: wb-spin 720ms linear infinite;
+  flex: none;
+}
+
+@keyframes wb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================================
+   文字/链接按钮：只给颜色反馈，不做缩放
+   ============================================================ */
+.wb-btn--text {
+  background: transparent;
+  border: 0;
+  color: var(--wb-primary);
+  box-shadow: none;
+}
+.wb-btn--text:not(.is-disabled):not(.is-loading):hover {
+  transform: none;
+  color: var(--wb-primary-strong);
+  background: var(--wb-accent-tint);
+}
+.wb-btn--text:not(.is-disabled):not(.is-loading):active {
+  transform: none;
+  color: var(--wb-primary-deep);
+}
+
+/* ============================================================
+   过渡动画：列表与面板的进入/离开
+   ============================================================ */
+.wb-fade-enter-active,
+.wb-fade-leave-active {
+  transition: opacity var(--wb-dur) var(--wb-ease);
+}
+.wb-fade-enter-from,
+.wb-fade-leave-to {
+  opacity: 0;
+}
+
+/* 列表项进入：淡入 + 轻微上移，逐项错开由 inline style 的 delay 控制 */
+.wb-rise-enter-active {
+  transition:
+    opacity var(--wb-dur-slow) var(--wb-ease-out),
+    transform var(--wb-dur-slow) var(--wb-ease-out);
+}
+.wb-rise-leave-active {
+  transition:
+    opacity var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.wb-rise-enter-from,
+.wb-rise-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+/* 缩放弹出：卡片、对话框、菜单的入场 */
+.wb-pop-enter-active {
+  transition:
+    opacity var(--wb-dur) var(--wb-ease-out),
+    transform var(--wb-dur) var(--wb-ease-out);
+}
+.wb-pop-leave-active {
+  transition:
+    opacity var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.wb-pop-enter-from,
+.wb-pop-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+/* 骨架屏：加载占位（数据未到时的呼吸感） */
+.wb-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--wb-elev-hover) 25%,
+    var(--wb-elev-raised) 37%,
+    var(--wb-elev-hover) 63%
+  );
+  background-size: 400% 100%;
+  animation: wb-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--wb-radius-sm);
+}
+
+@keyframes wb-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/* 尊重系统的“减少动态效果”偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .wb-btn,
+  .wb-fade-enter-active,
+  .wb-fade-leave-active,
+  .wb-rise-enter-active,
+  .wb-rise-leave-active,
+  .wb-pop-enter-active,
+  .wb-pop-leave-active {
+    transition-duration: 1ms;
+    animation-duration: 1ms;
+  }
+  .wb-btn:not(.is-disabled):not(.is-loading):hover,
+  .wb-btn:not(.is-disabled):not(.is-loading):active {
+    transform: none;
+  }
+  .wb-btn__spinner,
+  .wb-skeleton {
+    animation: none;
+  }
+}

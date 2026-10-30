@@ -26,7 +26,7 @@ const relPath = ref('')
 // 工具参数里的路径可能是绝对的：git 的 diff 只认工作区内的相对路径，
 // 先按工作目录归一，落到工作区外面就直说看不了。
 function toRel(target: string): string | null {
-  const root = (session.current?.workspace || settings.boot?.workspace || '').replace(/[\\/]+$/, '')
+  const root = (session.current?.session_workspace || settings.boot?.boot_workspace || '').replace(/[\\/]+$/, '')
   if (!root) return target
   const key = (s: string) => s.replace(/\//g, '\\').toLowerCase()
   if (!key(target).startsWith(key(root) + '\\')) return key(target) === key(root) ? '' : null
@@ -47,9 +47,9 @@ async function load(target: string) {
     }
     relPath.value = rel
     const d = await api.git.diff(rel, session.currentId || '')
-    lines.value = d?.lines ?? []
-    truncated.value = !!d?.truncated
-    dropped.value = d?.dropped || 0
+    lines.value = d?.git_lines ?? []
+    truncated.value = !!d?.git_truncated
+    dropped.value = d?.git_dropped || 0
   } catch (e) {
     error.value = (e as Error)?.message || t('errors.generic')
     lines.value = []

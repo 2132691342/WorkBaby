@@ -1,4 +1,4 @@
-// 与后端 RESP 的 json tag 一一对应；字段名一律 snake_case。
+// 与后端 domain 类型的 serde json 字段逐字一致；字段一律 snake_case 且带业务前缀。
 
 export interface Resp<T> {
   /** 业务码是数字字符串（"0" 成功）；与 HTTP 状态码的 int 从类型上分开 */
@@ -7,104 +7,99 @@ export interface Resp<T> {
   data: T
 }
 
+// ---- 会话与消息 ----
+
 export interface UsageVO {
-  input: number
-  output: number
-  /** 命中上游缓存的输入量（与 input 并列，不含在 input 里） */
-  cached: number
-  /** 写入上游缓存的输入量；同样不含在 input 里 */
-  cache_write?: number
-  total: number
-  /** 这一轮发出时上下文占用的窗口量 */
-  context: number
-  cost: number
+  usage_input: number
+  usage_output: number
+  /** 命中上游缓存的输入量（与 usage_input 并列） */
+  usage_cached: number
+  /** 写入上游缓存的输入量 */
+  usage_cache_write: number
+  /** 总量 */
+  usage_total: number
+  /** 这一轮发出时的上下文窗口占用 */
+  usage_context: number
+  /** 成本（美元） */
+  usage_cost: number
 }
 
-export interface ToolCall {
-  id: string
-  name: string
-  /** 显示名；界面按 label || name 取 */
-  label?: string
-  args?: Record<string, unknown>
-}
-
-export interface MessageImage {
-  mime: string
-  /** 纯 base64，不含 data: 前缀 */
-  base64: string
+export interface ToolCallVO {
+  tool_call_id: string
+  tool_name: string
+  tool_label?: string
+  tool_args?: Record<string, unknown>
 }
 
 export interface MessageBlock {
   /** text = 正文；thinking = 思考；tool = 工具调用（结果在紧随其后的 tool 消息里） */
-  kind: 'text' | 'thinking' | 'tool'
-  text?: string
+  block_kind: string
+  block_text?: string
   tool_call_id?: string
   tool_name?: string
-  label?: string
-  args?: Record<string, unknown>
+  tool_label?: string
+  tool_args?: Record<string, unknown>
 }
 
 export interface MessageVO {
-  id: string
-  role: 'user' | 'assistant' | 'tool' | 'notice'
+  message_id: string
+  message_role: 'user' | 'assistant' | 'tool' | 'notice'
   /** 条目类型：text / tool / notice */
-  type: string
-  thinking?: string
-  content?: string
+  message_type: string
+  message_thinking?: string
+  message_content?: string
   /** 正文 / 思考 / 工具调用的原始顺序；渲染按它来，不按字段类型分组 */
-  blocks?: MessageBlock[]
-  tool_calls?: ToolCall[]
-  tool_call_id?: string
-  tool_name?: string
-  is_error?: boolean
-  /** 仅 assistant：stop / length / toolUse / aborted / error */
-  stop_reason?: string
-  images?: MessageImage[]
-  usage?: UsageVO
-  created_at: number
-  hidden?: boolean
+  message_blocks: MessageBlock[]
+  message_tool_calls: ToolCallVO[]
+  message_tool_call_id?: string
+  message_tool_name?: string
+  message_is_error?: boolean
+  /** 仅 assistant：stop / length / tool_use / aborted / error */
+  message_stop_reason?: string
+  message_usage?: UsageVO
+  message_created_at: number
+  message_hidden?: boolean
   /** 非空时渲染成分隔提示条（已压缩 / 换模型）而不是气泡 */
-  notice?: string
+  message_notice?: string
 }
 
-/** 一条 PI 会话：id 与 file 都来自 PI 的会话文件 */
 export interface SessionVO {
-  id: string
-  file: string
-  title: string
-  workspace: string
-  provider: string
-  model: string
-  thinking_level: string
-  message_count: number
-  total_tokens: number
-  cost: number
-  running: boolean
-  created_at: number
-  updated_at: number
+  session_id: string
+  session_file: string
+  session_title: string
+  session_workspace: string
+  session_provider: string
+  session_model: string
+  session_thinking_level: string
+  session_message_count: number
+  session_total_tokens: number
+  session_cost: number
+  session_running: boolean
+  session_created_at: number
+  session_updated_at: number
 }
 
-export interface SessionDetailVO {
-  session: SessionVO
-  messages: MessageVO[]
+export interface SessionDetailRESP {
+  detail_session: SessionVO
+  detail_messages: MessageVO[]
 }
 
 export interface SendMessageRESP {
-  run_id: string
-  session_id: string
+  resp_run_id: string
+  resp_session_id: string
+  resp_queued: boolean
 }
 
 /** @ 引用：相对工作区的路径；粘贴的图片直接带 base64 */
 export interface AttachmentREQ {
-  path: string
-  name: string
-  image_base64?: string
+  attach_path: string
+  attach_name: string
+  attach_image_base64?: string
 }
 
-/** 引擎抛回来的问题（confirm / select / input） */
+/** 引擎抛回来的问题（confirm / select / input / editor） */
 export interface AskData {
   id: string
-  /** confirm / select / input / editor：PI 只有这四个提问基元，多选题走扩展自己的 input 回退 */
   method: string
   title: string
   message: string
@@ -117,657 +112,376 @@ export interface AskData {
 
 export interface AskClosedData {
   id: string
-  reason: string
 }
 
-// ---- 模型服务（PI 的 models.json）----
+// ---- 模型服务 ----
 
 export interface ModelVO {
-  id: string
-  name: string
-  reasoning: boolean
-  vision: boolean
-  context_window: number
-  max_tokens: number
-  thinking_levels?: string[]
+  model_id: string
+  model_name: string
+  model_reasoning: boolean
+  model_vision: boolean
+  model_context_window: number
+  model_max_tokens: number
 }
 
 export interface ProviderVO {
-  /** models.json 里的键，也是 PI 的 provider 名 */
-  id: string
-  name: string
-  api: string
-  base_url: string
-  has_key: boolean
-  /** 掩码：sk-1••••abcd */
-  key_hint: string
-  models: ModelVO[]
-  is_default: boolean
+  /** models.json 里的键 */
+  provider_id: string
+  provider_name: string
+  provider_api: string
+  provider_base_url: string
+  provider_has_key: boolean
+  /** 掩码：••••abcd */
+  provider_key_hint: string
+  provider_models: ModelVO[]
+  provider_is_default: boolean
 }
 
 export interface ProviderListRESP {
-  providers: ProviderVO[]
-  default_provider: string
-  default_model: string
-  path: string
+  resp_providers: ProviderVO[]
+  resp_default_provider: string
+  resp_default_model: string
+  resp_config_path: string
 }
 
 export interface ModelREQ {
-  id: string
-  name: string
-  reasoning: boolean
-  vision: boolean
-  context_window: number
-  max_tokens: number
-  thinking_levels?: string[]
+  model_id: string
+  model_name: string
+  model_reasoning: boolean
+  model_vision: boolean
+  model_context_window: number
+  model_max_tokens: number
 }
 
 export interface UpsertProviderREQ {
-  id?: string
-  name: string
-  api: string
-  base_url: string
-  api_key?: string
-  models: ModelREQ[]
+  req_provider_id?: string
+  req_provider_name: string
+  req_provider_api: string
+  req_provider_base_url: string
+  req_provider_api_key?: string
+  req_models: ModelREQ[]
 }
 
 export interface TestProviderRESP {
-  ok: boolean
-  model: string
-  message: string
+  resp_ok: boolean
+  resp_model: string
+  resp_message: string
+}
+
+export interface RevealProviderRESP {
+  resp_provider_id: string
+  resp_api_key: string
 }
 
 export interface AvailableModelVO {
-  id: string
-  name: string
-  provider: string
-  context_window: number
-  max_tokens: number
-  reasoning: boolean
-  vision: boolean
+  model_id: string
+  model_name: string
+  model_provider: string
+  model_context_window: number
+  model_max_tokens: number
+  model_reasoning: boolean
+  model_vision: boolean
 }
 
 // ---- 技能 ----
 
 export interface SkillVO {
-  id: string
-  name: string
-  description: string
-  when_to_use?: string[]
-  location: string
-  /** global = 用户目录；workspace = 工作区；package = 插件包自带 */
-  source: string
-  enabled: boolean
+  /** 技能名即身份 */
+  skill_name: string
+  skill_description: string
+  skill_description_zh?: string
+  skill_description_en?: string
+  skill_version?: string
+  /** builtin / user / workspace */
+  skill_source: string
+  skill_location: string
+  skill_enabled: boolean
 }
 
-// ---- 插件与包 ----
-
-export interface ExtensionVO {
-  name: string
-  path: string
-  kind: string
-  enabled: boolean
+export interface SkillImportRESP {
+  resp_imported: number
+  resp_skipped: string[]
 }
 
-export interface PackageVO {
-  source: string
-  name: string
-  path: string
-  missing: boolean
-  /** npm / git / local：只有前两种能被 pi update 搬到新版本 */
-  kind: string
-  /** 本地装着的版本；git 与本地目录可能读不到 */
-  version: string
-  /** 联网查到的最新版本；空表示未检查或查不到 */
-  latest_version: string
-  updateable: boolean
-}
-
-export interface ExtensionListRESP {
-  dir: string
-  settings_path: string
-  entries: ExtensionVO[]
-  packages: PackageVO[]
-}
-
-// ---- 插件市场 ----
-
-export interface MarketPackageVO {
-  name: string
-  description: string
-  version: string
-  publisher: string
-  repo: string
-  /** 最近发布时间（毫秒；0 表示注册表没给） */
-  published_at: number
-  installed: boolean
-  installed_version: string
-}
-
-export interface MarketListRESP {
-  packages: MarketPackageVO[]
-  /** 非空表示注册表没连上（不是失败，面板显示空态） */
-  error: string
+export interface SkillContentRESP {
+  resp_content: string
 }
 
 // ---- 工具 ----
 
 export interface ToolVO {
-  name: string
-  description: string
-  /** builtin / extension / mcp */
-  source: string
-  server?: string
-  enabled: boolean
+  tool_name: string
+  tool_label: string
+  tool_description: string
+  /** builtin / mcp */
+  tool_source: string
+  tool_enabled: boolean
+  tool_read_only: boolean
 }
 
-export interface ToolListRESP {
-  tools: ToolVO[]
-  /** session = 来自最近一次会话的工具声明；static = 没有会话时的内置表 */
-  snapshot: string
-  snapshot_at: number
+// ---- 内置功能 ----
+
+export interface FeatureVO {
+  feature_code: string
+  feature_name: string
+  feature_description: string
+  feature_enabled: boolean
+  feature_configurable: boolean
+  feature_tools: string[]
+  /** p1 / p2 */
+  feature_phase: string
 }
 
 // ---- MCP ----
 
 export interface MCPServerVO {
-  name: string
-  scope: string
-  source: string
-  enabled: boolean
-  exposure: string
-  transport: string
-  /** connected / error / unknown 等，来自 pi mcp list */
-  state: string
-  error: string
-  tools: string[]
+  mcp_name: string
+  mcp_scope: string
+  mcp_source: string
+  mcp_enabled: boolean
+  mcp_exposure: string
+  mcp_transport: string
+  /** 连接目标：stdio 为启动命令行，http 为 URL */
+  mcp_target: string
+  /** connected / error / unknown */
+  mcp_state: string
+  mcp_error: string
+  mcp_tools: string[]
 }
 
 export interface MCPListRESP {
-  servers: MCPServerVO[]
-  global_path: string
-  project_path: string
-  global_raw: string
-  project_raw: string
+  resp_servers: MCPServerVO[]
+  resp_global_path: string
+  resp_workspace_path: string
+  resp_global_raw: string
+  resp_workspace_raw: string
 }
 
-// ---- 设置 ----
+// ---- 引导与设置 ----
 
-export interface BackgroundVO {
-  image: string
-  opacity: number
-  blur: number
+export interface SettingKV {
+  setting_key: string
+  setting_value: string
 }
 
-export interface PISettingsVO {
-  default_provider: string
-  default_model: string
-  default_thinking_level: string
-  default_tools: string[]
-  compaction_reserve: number
-  compaction_keep: number
-  agent_dir: string
-  settings_path: string
-  models_path: string
-  mcp_path: string
-  sessions_dir: string
-  extensions_dir: string
-  skills_dir: string
+export interface BootVO {
+  boot_version: string
+  boot_data_dir: string
+  boot_workspace: string
+  boot_ready: boolean
+  boot_block_reason: string
+  boot_default_provider: string
+  boot_default_model: string
+  boot_settings: Record<string, string>
 }
 
 export interface WorkspacesRESP {
-  workspaces: string[]
-  current: string
+  resp_workspaces: { workspace_path: string; workspace_last_used: number }[]
 }
 
-// ---- 运行时与环境 ----
-
-/** PI 运行环境闸门快照 */
-export interface PiEnvVO {
-  node_ready: boolean
-  node_path: string
-  node_version: string
-  node_source: string
-  node_error: string
-  /** 装引擎时钉下来的就是这份 Node */
-  node_bound: boolean
-  /** 目录挂在哪一级 PATH：system / user / both / none */
-  node_level: string
-  /** 提级会遮住的已有 Node 目录（空表示不冲突） */
-  node_conflict: string
-  /** 助手与界面共用的那份 Git */
-  git_ready: boolean
-  git_path: string
-  git_version: string
-  git_source: string
-  git_level: string
-  pi_ready: boolean
-  pi_path: string
-  pi_version: string
-  pi_source: string
-  pi_error: string
-  agent_dir: string
-  model_ready: boolean
-  /** 三项全满足才能开始对话 */
-  ready: boolean
-  /** 首个不满足项：node / pi / model / 空 */
-  blocking: string
-  /** 最近一次安装 / 升级失败的原因；空表示没有失败记录 */
-  install_error: string
-  /** 命令执行环境：git-bash / msys / cygwin / powershell / none */
-  shell_kind: string
-  shell_path: string
-  shell_usable: boolean
-  shell_error: string
-  /** 终端里能不能直接敲 pi */
-  terminal_ready: boolean
-  terminal_path: string
-  terminal_on_path: boolean
-  terminal_error: string
-  /** PATH 上排在入口目录之前、带着另一份 pi 的目录（空表示没有） */
-  terminal_shadowed_by?: string
-  /** PATH 上其它装过 pi 的目录 */
-  other_pis?: string[]
-  /** 入口目录挂在哪一级 PATH：system / user / both / none */
-  terminal_level: string
-}
-
-export interface TerminalLevelRESP {
-  level: string
-  on_path: boolean
-  ready: boolean
-  error: string
-}
-
-// ---- 引擎（PI 与运行时）----
-
-export interface EngineStatusVO {
-  pi_ready: boolean
-  pi_version: string
-  pi_path: string
-  pi_source: string
-  /** true = 这份 PI 是 WorkBaby 自己装的，升级写回本应用的前缀 */
-  managed: boolean
-  /** PI 的包目录（版本文件与升级落点） */
-  install_root: string
-  /** 当前活着的 PI 进程数：升级后它们会重启 */
-  running: number
-  node_ready: boolean
-  node_version: string
-  node_path: string
-  node_source: string
-  node_error: string
-  /** 目录挂在哪一级 PATH：system / user / both / none */
-  node_level: string
-  git_ready: boolean
-  git_version: string
-  git_path: string
-  git_source: string
-  git_level: string
-  agent_dir: string
-  model_ready: boolean
-  /** 已声明的插件包数量 */
-  packages: number
-  blocking: string
-  install_error: string
-  /** 命令执行环境：git-bash / msys / cygwin / powershell / none */
-  shell_kind: string
-  shell_path: string
-  /** 来源：settings / git / path / bundled */
-  shell_source: string
-  shell_usable: boolean
-  shell_error: string
-  /** 终端里能不能直接敲 pi */
-  terminal_ready: boolean
-  terminal_path: string
-  terminal_on_path: boolean
-  terminal_error: string
-  /** PATH 上排在入口目录之前、带着另一份 pi 的目录（空表示没有） */
-  terminal_shadowed_by?: string
-  /** PATH 上其它装过 pi 的目录 */
-  other_pis?: string[]
-  /** 入口目录挂在哪一级 PATH：system / user / both / none */
-  terminal_level: string
-}
-
-/** 一个运行时组件在 PATH 上的落地情况 */
-export interface LinkVO {
-  ready: boolean
-  /** system / bundled / npm-global / env … */
-  source: string
-  version: string
-  path: string
-  /** 目录挂在哪一级 PATH：system / user / both / none */
-  level: string
-  /** 有目录可以提级 / 降级 */
-  promotable: boolean
-  /** 提到系统级会遮住的已有安装（空表示不冲突） */
-  conflict: string
-  error: string
-}
-
-/** 一份可切换的 node */
-export interface NodeOptionVO {
-  exe: string
-  version: string
-  source: string
-}
-
-/** 运行时工具链：用哪份 node / git，装引擎用的是哪份，能不能换 */
-export interface ToolchainVO {
-  node: LinkVO
-  git: LinkVO
-  pi: LinkVO
-  /** PI 安装 / 升级落点的 npm 前缀 */
-  install_prefix: string
-  /** Node 是装引擎时钉下来的那份 */
-  bound: boolean
-  /** 另一份可切换的 node（没有则为 null） */
-  alt: NodeOptionVO | null
-}
-
-export type RuntimeComponent = 'node' | 'git' | 'pi'
-export type PathLevel = 'system' | 'user' | 'none'
-
-export interface PackageLatestVO {
-  source: string
-  latest_version: string
-  update_available: boolean
-  err: string
-}
-
-export interface EngineLatestVO {
-  pi_version: string
-  registry_error: string
-  update_available: boolean
-  packages: PackageLatestVO[]
-}
-
-export interface BootstrapVO {
-  version: string
-  contract_version: number
-  default_provider: string
-  default_model: string
-  workspace: string
-  /** 环境闸门：ready=false 时进向导且不 spawn PI */
-  pi_env?: PiEnvVO
-  settings: Record<string, string>
+export interface BackgroundVO {
+  resp_background_file: string
+  resp_background_opacity: number
+  resp_background_blur: number
 }
 
 // ---- 统计 ----
 
-export interface StatsTotals {
-  input: number
-  output: number
-  cached: number
-  cache_write: number
-  total: number
-  cost: number
-  calls: number
-  sessions: number
-  messages: number
-}
-
 export interface StatsDailyItem {
-  /** 桶键：天粒度 YYYY-MM-DD；小时粒度 YYYY-MM-DD HH:00 */
-  date: string
-  input: number
-  output: number
-  cached: number
-  cache_write: number
-  total: number
-  cost: number
-  calls: number
+  daily_day: string
+  daily_input: number
+  daily_output: number
+  daily_cache_read: number
+  daily_cache_write: number
+  daily_cost: number
 }
 
 export interface StatsModelItem {
-  provider: string
-  model: string
-  input: number
-  output: number
-  cached: number
-  cache_write: number
-  total: number
-  cost: number
-  calls: number
+  model_provider: string
+  model_id: string
+  model_input: number
+  model_output: number
+  model_cost: number
 }
-
-export interface StatsSessionItem {
-  session_id: string
-  title: string
-  workspace: string
-  total: number
-  cost: number
-  updated_at: number
-}
-
-export type StatsSpan = '24h' | 'today' | '7d' | '14d' | '30d'
 
 export interface StatsRESP {
-  /** 请求的时间范围：24h / today / 7d / 14d / 30d */
-  span: StatsSpan
-  /** daily 的聚合粒度：day 按天；24h 与 today 按小时 */
-  granularity: 'day' | 'hour'
-  totals: StatsTotals
-  /** 长度恒等于桶数（天数或小时数），缺的桶后端已补零 */
-  daily: StatsDailyItem[]
-  models: StatsModelItem[]
-  sessions: StatsSessionItem[]
+  resp_daily: StatsDailyItem[]
+  resp_by_model: StatsModelItem[]
 }
 
 // ---- 帮助文档 ----
 
 export interface HelpDocVO {
-  name: string
-  title: string
+  doc_name: string
+  doc_title: string
 }
 
 export interface HelpDocRESP {
-  name: string
-  title: string
-  content: string
+  resp_name: string
+  resp_content: string
 }
 
 // ---- 工作区文件 ----
 
 export interface FileEntryVO {
-  name: string
-  dir: boolean
+  entry_name: string
+  entry_path: string
+  entry_is_dir: boolean
+  entry_size: number
+  entry_mtime: number
 }
 
-export interface FileListVO {
-  path: string
-  entries: FileEntryVO[]
+export interface FileBytesRESP {
+  /** 文件名（带扩展名，前端据此选渲染器） */
+  resp_file_name: string
+  resp_mime: string
+  /** 文件字节的 base64 */
+  resp_content_base64: string
+  resp_size: number
+}
+
+export interface FileListRESP {
+  resp_path: string
+  resp_entries: FileEntryVO[]
+}
+
+// ---- 斜杠命令 ----
+
+export interface CommandVO {
+  command_name: string
+  command_description: string
+  command_source: string
+}
+
+// ---- 上下文分解 ----
+
+export interface ContextSegmentVO {
+  segment_name: string
+  segment_tokens: number
+}
+
+export interface ContextBreakdownRESP {
+  resp_segments: ContextSegmentVO[]
+  resp_total_tokens: number
+  resp_context_window: number
+  resp_ratio: number
 }
 
 // ---- Git（工作区版本视图）----
 
 export interface GitFileVO {
-  path: string
+  git_path: string
   /** M 改过 / A 新增 / D 删除 / R 改名 / C 复制 / T 类型变化 / ? 未跟踪 / U 冲突 */
-  status: string
-  staged: boolean
+  git_status: string
+  git_staged: boolean
   /** 该文件有未解决冲突；解决后要显式标记，否则 git 不接受提交 */
-  conflict: boolean
-  additions: number
-  deletions: number
+  git_conflict: boolean
+  git_additions: number
+  git_deletions: number
 }
 
 export interface GitRemoteVO {
-  name: string
-  url: string
+  git_remote_name: string
+  git_remote_url: string
 }
 
 export interface GitStatusVO {
-  available: boolean
-  reason: string
-  is_repo: boolean
-  workspace: string
+  git_available: boolean
+  git_reason: string
+  git_is_repo: boolean
+  git_workspace: string
   /** 仓库根；工作区是仓库子目录时与 workspace 不同 */
-  repo_root: string
-  branch: string
+  git_repo_root: string
+  git_branch: string
   /** 上游引用（如 origin/main）；没有上游为空 */
-  upstream: string
-  ahead: number
-  behind: number
+  git_upstream: string
+  git_ahead: number
+  git_behind: number
   /** none / merge / rebase / cherry-pick / revert */
-  state: string
-  state_detail: string
-  remotes: GitRemoteVO[]
-  files: GitFileVO[]
-  conflict: boolean
-  git: string
+  git_state: string
+  git_state_detail: string
+  git_remotes: GitRemoteVO[]
+  git_files: GitFileVO[]
+  git_conflict: boolean
+  git_version: string
 }
 
 export interface GitDiffLineVO {
-  kind: string
-  old_no: number
-  new_no: number
-  text: string
+  git_line_kind: string
+  git_line_old_no: number
+  git_line_new_no: number
+  git_line_text: string
 }
 
 export interface GitDiffVO {
-  path: string
-  truncated: boolean
-  dropped: number
-  lines: GitDiffLineVO[]
+  git_diff_path: string
+  git_truncated: boolean
+  git_dropped: number
+  git_lines: GitDiffLineVO[]
 }
 
 export interface GitCommitVO {
-  hash: string
-  short: string
-  subject: string
-  author: string
-  when: number
-  files: number
-  additions: number
-  deletions: number
+  git_hash: string
+  git_short: string
+  git_subject: string
+  git_author: string
+  /** 提交时间（毫秒） */
+  git_when: number
+  git_files: number
+  git_additions: number
+  git_deletions: number
 }
 
 export interface GitCommitDetailVO {
-  hash: string
-  short: string
-  subject: string
-  body: string
-  author: string
-  when: number
-  parents: string[]
-  files: GitFileVO[]
-  diff?: GitDiffVO
+  git_hash: string
+  git_short: string
+  git_subject: string
+  git_body: string
+  git_author: string
+  git_when: number
+  git_parents: string[]
+  git_files: GitFileVO[]
+  /** 单文件详情时附带的 diff */
+  git_diff?: GitDiffVO
 }
 
 export interface GitBranchVO {
-  name: string
-  current: boolean
+  git_name: string
+  git_current: boolean
   /** 远端分支所属远端名；本地分支为空 */
-  remote: string
-  ahead: number
-  behind: number
+  git_remote: string
+  git_ahead: number
+  git_behind: number
 }
 
 /** 推送的强制级别。默认 none，逐级需要更多确认 */
 export type GitForce = 'none' | 'lease' | 'force'
 
 export interface GitPushREQ {
-  remote?: string
-  branch?: string
+  git_remote?: string
+  git_branch?: string
   /** 把这次推送的远端建立为上游（首次推送必须） */
-  set_upstream?: boolean
-  force?: GitForce
-  /** 强制推送时必须与 branch 完全一致的分支名 */
-  confirm?: string
+  git_set_upstream?: boolean
+  git_force?: GitForce
+  /** 强制推送时必须与分支名完全一致的分支名 */
+  git_confirm?: string
+  git_session_id?: string
 }
 
 export interface GitPullREQ {
-  remote?: string
-  branch?: string
-  rebase?: boolean
+  git_remote?: string
+  git_branch?: string
+  git_rebase?: boolean
+  git_session_id?: string
 }
 
 export interface GitCommitRESP {
-  status: GitStatusVO
-  hash: string
+  resp_status: GitStatusVO
+  resp_hash: string
 }
 
 export interface GitMessageRESP {
-  message: string
-  err: string
+  resp_message: string
+  resp_err: string
 }
-
-export interface CommandVO {
-  name: string
-  description: string
-  /** extension = 扩展注册；prompt = 提示模板；skill = 技能 */
-  source: string
-}
-
-// ---- SSE 事件载荷 ----
-
-export interface StartData { run_id: string; session_id: string }
-export interface DeltaData { entry_id: string; kind: string; delta: string }
-export interface ToolStartData { tool_call_id: string; tool: string; label: string; args: Record<string, unknown> }
-export interface ToolEndData { tool_call_id: string; ok: boolean; title: string; output: string; duration_ms: number }
-export interface CompressedData { tokens_before: number; tokens_after: number }
-export interface UserData { entry_id: string; content: string }
-export interface DoneData {
-  entry_id: string
-  stop_reason: string
-  usage?: UsageVO
-  max_tokens?: number
-}
-export interface ErrorData { code: string; message: string }
-export interface RetryData { attempt: number; max: number; message: string }
-export interface SwitchedData { session_id: string; reason: string }
-export interface SetupData {
-  phase: string
-  progress: number
-  message: string
-  /** 这一趟动作结束了（成功或失败） */
-  done?: boolean
-  /** 仅在 done=true 时可信 */
-  ok?: boolean
-}
-export interface GapData { reason: string }
-export interface StoppedData { reason: string }
-
-export interface NotifyData { level: 'info' | 'warning' | 'error'; message: string }
-export interface StatusData { key: string; text: string }
-export interface WidgetData { key: string; lines: string[]; placement: string }
-export interface TitleData { title: string }
-
-export interface Envelope<T = unknown> {
-  seq: number
-  event: string
-  data: T
-}
-
-export interface ContextData {
-  used: number
-  window: number
-  ratio: number
-  known: boolean
-  reserve?: number
-}
-
-/** SSE 事件的判别联合：切换 event 就能把 data 收窄到对应载荷。 */
-export type ServerEvent =
-  | (Envelope<StartData> & { event: 'chat:start' })
-  | (Envelope<DeltaData> & { event: 'chat:delta' })
-  | (Envelope<ToolStartData> & { event: 'chat:tool_start' })
-  | (Envelope<ToolEndData> & { event: 'chat:tool_end' })
-  | (Envelope<CompressedData> & { event: 'chat:compressed' })
-  | (Envelope<UserData> & { event: 'chat:user' })
-  | (Envelope<ContextData> & { event: 'chat:context' })
-  | (Envelope<DoneData> & { event: 'chat:done' })
-  | (Envelope<StoppedData> & { event: 'chat:stopped' })
-  | (Envelope<ErrorData> & { event: 'chat:error' })
-  | (Envelope<GapData> & { event: 'chat:gap' })
-  | (Envelope<RetryData> & { event: 'chat:retry' })
-  | (Envelope<SwitchedData> & { event: 'chat:switched' })
-  | (Envelope<SetupData> & { event: 'chat:setup' })
-  | (Envelope<AskData> & { event: 'chat:ask' })
-  | (Envelope<AskClosedData> & { event: 'chat:ask_closed' })
-  | (Envelope<NotifyData> & { event: 'chat:notify' })
-  | (Envelope<StatusData> & { event: 'chat:status' })
-  | (Envelope<WidgetData> & { event: 'chat:widget' })
-  | (Envelope<TitleData> & { event: 'chat:title' })

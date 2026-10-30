@@ -7,7 +7,7 @@ import { useChatStore } from '../../stores/chat'
 import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
 import { fmtRel } from '../../utils/time'
-import { SaveFileDialog } from '../../../wailsjs/go/main/App'
+import { pickFileSave } from '../../api/shell'
 import AppIcon from '../common/AppIcon.vue'
 
 const emit = defineEmits<{ newSession: [] }>()
@@ -26,7 +26,7 @@ const exportingId = ref('')
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return session.list
-  return session.list.filter((s) => (s.title || '').toLowerCase().includes(q))
+  return session.list.filter((s) => (s.session_title || '').toLowerCase().includes(q))
 })
 
 // 分页：默认只渲染最新 10 条，「更多」每次追加 20 条
@@ -42,8 +42,8 @@ const groups = computed(() => {
   dayStart.setHours(0, 0, 0, 0)
   const weekAgo = dayStart.getTime() - 6 * 86400_000
   for (const s of filtered.value.slice(0, query.value ? Number.MAX_SAFE_INTEGER : shown.value)) {
-    if (s.updated_at >= dayStart.getTime()) today.push(s)
-    else if (s.updated_at >= weekAgo) week.push(s)
+    if (s.session_updated_at >= dayStart.getTime()) today.push(s)
+    else if (s.session_updated_at >= weekAgo) week.push(s)
     else earlier.push(s)
   }
   const out: Array<{ key: string; items: typeof session.list }> = []
@@ -98,15 +98,15 @@ async function doRemove(id: string) {
   }
 }
 
-// 导出：先选保存位置再发请求（导出在 PI 里做，路径必须由用户定）
-async function exportSession(s: { id: string; title: string }) {
+// 导出：先选保存位置再发请求（导出在服务端做，路径必须由用户定）
+async function exportSession(s: { session_id: string; session_title: string }) {
   if (exportingId.value) return
-  const name = (s.title || t('chat.newSession')).replace(/[\\/:*?"<>|]/g, '-').slice(0, 60)
-  const target = await SaveFileDialog(t('chat.exportTitle'), `${name}.html`, '*.html')
+  const name = (s.session_title || t('chat.newSession')).replace(/[\\/:*?"<>|]/g, '-').slice(0, 60)
+  const target = await pickFileSave(t('chat.exportTitle'), `${name}.html`, '*.html')
   if (!target) return
-  exportingId.value = s.id
+  exportingId.value = s.session_id
   try {
-    const path = await api.sessions.exportHTML(s.id, target)
+    const path = await api.sessions.exportHTML(s.session_id, target)
     toast.ok(t('chat.noticeExport', { path }))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
@@ -137,11 +137,11 @@ onBeforeUnmount(() => {
       <TransitionGroup name="slist">
         <div
           v-for="s in g.items"
-          :key="s.id"
+          :key="s.session_id"
           class="sess-row"
-          :class="{ 'is-on': s.id === session.currentId, 'is-busy': session.openingId === s.id }"
+          :class="{ 'is-on': s.session_id === session.currentId, 'is-busy': session.openingId === s.session_id }"
         >
-          <template v-if="editingId === s.id">
+          <template v-if="editingId === s.session_id">
             <input
               v-model="draft"
               class="sess-rename"
@@ -155,16 +155,16 @@ onBeforeUnmount(() => {
             <button
               class="sess-hit"
               type="button"
-              :disabled="!!session.openingId && session.openingId !== s.id"
-              @click="openSession(s.id)"
+              :disabled="!!session.openingId && session.openingId !== s.session_id"
+              @click="openSession(s.session_id)"
             >
-              <span class="sess-dot" :class="{ 'is-live': s.running }" />
-              <span class="sess-name" :title="s.title">{{ s.title || t('chat.newSession') }}</span>
-              <span class="sess-time">{{ fmtRel(s.updated_at) }}</span>
+              <span class="sess-dot" :class="{ 'is-live': s.session_running }" />
+              <span class="sess-name" :title="s.session_title">{{ s.session_title || t('chat.newSession') }}</span>
+              <span class="sess-time">{{ fmtRel(s.session_updated_at) }}</span>
             </button>
             <span class="sess-acts">
               <el-tooltip :content="t('common.rename')" placement="top" :show-after="400">
-                <button class="sess-act" type="button" @click.stop="startEdit(s.id, s.title)">
+                <button class="sess-act" type="button" @click.stop="startEdit(s.session_id, s.session_title)">
                   <AppIcon name="pencil" size="ic-2xs" />
                 </button>
               </el-tooltip>
@@ -183,7 +183,7 @@ onBeforeUnmount(() => {
                 :confirm-button-text="t('common.delete')"
                 :cancel-button-text="t('common.cancel')"
                 width="220"
-                @confirm="doRemove(s.id)"
+                @confirm="doRemove(s.session_id)"
               >
                 <template #reference>
                   <button class="sess-act is-danger" type="button" :disabled="!!busyId" @click.stop>

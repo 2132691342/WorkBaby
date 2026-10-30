@@ -18,9 +18,9 @@ let copiedTimer = 0
 onBeforeUnmount(() => clearTimeout(copiedTimer))
 
 async function copy() {
-  if (!props.msg.content || copied.value) return
+  if (!props.msg.message_content || copied.value) return
   try {
-    await navigator.clipboard.writeText(props.msg.content)
+    await navigator.clipboard.writeText(props.msg.message_content)
     copied.value = true
     clearTimeout(copiedTimer)
     copiedTimer = window.setTimeout(() => (copied.value = false), 1200)
@@ -41,21 +41,12 @@ function fmtTime(ms: number) {
     <div class="msg-me-col">
       <div class="msg-badge"><span>{{ meName }}</span></div>
       <div class="msg-me-bubble">
-        <div v-if="msg.images?.length" class="me-imgs">
-          <img
-            v-for="(im, i) in msg.images"
-            :key="i"
-            class="me-img"
-            :src="`data:${im.mime};base64,${im.base64}`"
-            :alt="`${i + 1}`"
-          />
-        </div>
-        <div v-if="msg.content">{{ msg.content }}</div>
+        <div v-if="msg.message_content">{{ msg.message_content }}</div>
       </div>
       <div class="msg-acts is-end">
-        <time class="me-time">{{ fmtTime(msg.created_at) }}</time>
+        <time class="me-time">{{ fmtTime(msg.message_created_at) }}</time>
         <el-tooltip :content="copied ? t('common.copied') : t('common.copy')" placement="top" :show-after="300">
-          <button class="me-act" type="button" :disabled="copied || !msg.content" @click="copy">
+          <button class="me-act" type="button" :disabled="copied || !msg.message_content" @click="copy">
             <AppIcon :name="copied ? 'check' : 'copy'" size="ic-2xs" />
           </button>
         </el-tooltip>
@@ -76,19 +67,6 @@ function fmtTime(ms: number) {
 }
 .msg-me-col > .msg-badge {
   align-self: stretch;
-}
-.me-imgs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--wb-sp-2);
-  margin-bottom: var(--wb-sp-2);
-}
-.me-img {
-  max-width: calc(180px * var(--wb-vw-scale));
-  max-height: calc(120px * var(--wb-vw-scale));
-  border-radius: var(--wb-radius-sm);
-  border: 1px solid var(--wb-border);
-  object-fit: cover;
 }
 .me-time {
   font-size: var(--wb-fs-2xs);

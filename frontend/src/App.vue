@@ -15,8 +15,7 @@ import NavRail from './components/layout/NavRail.vue'
 import ToastHost from './components/common/ToastHost.vue'
 import TitleBar from './components/layout/TitleBar.vue'
 import { status, stage, message, retryHandshake } from './bootstrap'
-import { ForceQuit } from '../wailsjs/go/main/App'
-import { EventsOn } from '../wailsjs/runtime/runtime'
+import { onShellEvent, quitApp } from './api/shell'
 
 const { t } = useI18n()
 const booted = ref(false)
@@ -37,7 +36,6 @@ const ready = computed(() => booted.value && !failed.value)
 
 async function loadBoot() {
   try {
-    stage.value = 'env'
     await settings.loadBoot()
     stage.value = 'done'
     // 预热在后台跑：不等它，对话页立即可用
@@ -49,9 +47,9 @@ async function loadBoot() {
   syncFromSettings()
   chat.setShowThinking(settings.values['show_thinking'] !== 'false')
   booted.value = true
-  // 环境未就绪就进向导：没有 PI 就没有对话，留一个空壳只会让用户以为程序坏了
-  if (settings.boot?.pi_env?.ready === false && router.currentRoute.value.name !== 'setup') {
-    void router.replace('/setup')
+  // 未就绪就进设置页：没配模型就没有对话，留一个空壳只会让用户以为程序坏了
+  if (settings.boot?.boot_ready === false && router.currentRoute.value.path !== '/settings') {
+    void router.replace('/settings')
   }
 }
 
@@ -61,37 +59,28 @@ onMounted(() => {
     if (s === 'ready' && !booted.value) void loadBoot()
   })
   // 收进托盘前外壳会提示一句再隐藏，否则窗口「凭空消失」最让人困惑
-  EventsOn('app:to-tray', () => toast.info(t('boot.toTray')))
+  void onShellEvent('app:to-tray', () => toast.info(t('boot.toTray')))
   // 托盘「新建对话」与外部打开文件：切回对话页，落到对话视图里执行。
   // 先存意图再广播——视图可能还没挂载，事件不能作为唯一载体。
-  EventsOn('app:new-session', () => {
+  void onShellEvent('app:new-session', () => {
     intentNewSession.value = true
     void router.push('/')
     pushShellIntent()
   })
-  EventsOn('app:open-file', (data: { path?: string }) => {
+  void onShellEvent('app:open-file', (data) => {
     if (!data?.path) return
-    intentFile.value = data.path
+    intentFile.value = String(data.path)
     void router.push('/')
     pushShellIntent()
   })
 })
 
-/** 启动阶段三段读数：把「正在启动」拆成可感知的进度 */
+/** 启动阶段两段读数：把「正在启动」拆成可感知的进度 */
 const bootSteps = computed(() => [
   { key: 'handshake', label: t('boot.handshake'), done: stage.value !== 'handshake' },
-  { key: 'bootstrap', label: t('boot.bootstrap'), done: stage.value === 'env' || stage.value === 'done' },
-  { key: 'env', label: t('boot.env'), done: stage.value === 'done' },
+  { key: 'bootstrap', label: t('boot.bootstrap'), done: stage.value === 'done' },
 ])
 
-// 退不掉的进程是最糟糕的失败：给一个一定走真正退出流程的入口
-function quitApp() {
-  try {
-    ForceQuit()
-  } catch {
-    window.close()
-  }
-}
 </script>
 
 <template>

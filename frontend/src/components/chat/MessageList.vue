@@ -9,7 +9,7 @@ import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
 import type { MessageVO } from '../../types/api'
 import { renderMarkdown, renderMarkdownStream, resetStreamRender } from '../../utils/md'
-import { fmtCount, fmtInt } from '../../utils/num'
+import { fmtCount } from '../../utils/num'
 import { groupTurns } from '../../utils/turns'
 import AppIcon from '../common/AppIcon.vue'
 import AskCard from './AskCard.vue'
@@ -205,10 +205,9 @@ onMounted(async () => {
 // 不滤的话，从命令行跑出来的会话里会有上百个空框。
 function hasBody(msg: MessageVO): boolean {
   return !!(
-    msg.content?.trim() ||
-    msg.thinking?.trim() ||
-    msg.images?.length ||
-    msg.tool_calls?.length
+    msg.message_content?.trim() ||
+    msg.message_thinking?.trim() ||
+    msg.message_tool_calls?.length
   )
 }
 type TurnPart = { msg: MessageVO; tools: MessageVO[] }
@@ -219,7 +218,7 @@ function shownTurn(parts: TurnPart[]): boolean {
 /** 一个回合的用量脚注取最后一条带 usage 的助手消息 */
 function turnUsage(parts: TurnPart[]) {
   for (let i = parts.length - 1; i >= 0; i--) {
-    const u = parts[i].msg.usage
+    const u = parts[i].msg.message_usage
     if (u) return u
   }
   return null
@@ -233,16 +232,16 @@ function fmtTime(ms: number) {
 // 用量读数四件：提示词总量（命中 + 未命中 + 写入）/ 输出 / 缓存命中率 / 上下文占用。
 function metricsOf(u: ReturnType<typeof turnUsage>) {
   if (!u) return []
-  const prompt = u.input + u.cached + (u.cache_write || 0)
+  const prompt = u.usage_input + u.usage_cached + (u.usage_cache_write || 0)
   const out: { k: string; v: string; hi?: boolean }[] = [
     { k: '↓', v: fmtCount(prompt) },
-    { k: '↑', v: fmtCount(u.output) },
+    { k: '↑', v: fmtCount(u.usage_output) },
   ]
   if (prompt > 0) {
-    const rate = Math.round((u.cached / prompt) * 100)
+    const rate = Math.round((u.usage_cached / prompt) * 100)
     out.push({ k: 'cache', v: `${rate}%`, hi: rate > 0 })
   }
-  if (u.context > 0) out.push({ k: 'ctx', v: fmtCount(u.context) })
+  if (u.usage_context > 0) out.push({ k: 'ctx', v: fmtCount(u.usage_context) })
   return out
 }
 
@@ -284,8 +283,8 @@ async function copyTurn(text: string, key: string) {
 
         <!-- 分隔条：已压缩上下文 / 换了模型 / 调整了思考档 -->
         <div v-else-if="b.kind === 'notice'" class="turn-divider">
-          <span class="td-label">{{ b.msg.notice }}</span>
-          <span v-if="b.msg.content" class="td-text" :title="b.msg.content">{{ b.msg.content }}</span>
+          <span class="td-label">{{ b.msg.message_notice }}</span>
+          <span v-if="b.msg.message_content" class="td-text" :title="b.msg.message_content">{{ b.msg.message_content }}</span>
         </div>
 
         <div v-else-if="b.kind === 'assistant' && shownTurn(b.parts)" class="turn">
@@ -294,7 +293,7 @@ async function copyTurn(text: string, key: string) {
             <div class="msg-ai-body">
               <AssistantTurn
                 v-for="p in b.parts"
-                :key="p.msg.id"
+                :key="p.msg.message_id"
                 :msg="p.msg"
                 :tools="p.tools"
               />
@@ -305,7 +304,7 @@ async function copyTurn(text: string, key: string) {
                   :disabled="copiedTurn === b.key"
                   @click="
                     copyTurn(
-                      b.parts.map((p) => p.msg.content || '').filter(Boolean).join('\n\n'),
+                      b.parts.map((p) => p.msg.message_content || '').filter(Boolean).join('\n\n'),
                       b.key,
                     )
                   "
@@ -321,8 +320,8 @@ async function copyTurn(text: string, key: string) {
                 >
                   <b>{{ m.k }}</b>{{ m.v }}
                 </span>
-                <time v-if="b.parts[b.parts.length - 1]?.msg.created_at" class="ai-time">
-                  {{ fmtTime(b.parts[b.parts.length - 1].msg.created_at) }}
+                <time v-if="b.parts[b.parts.length - 1]?.msg.message_created_at" class="ai-time">
+                  {{ fmtTime(b.parts[b.parts.length - 1].msg.message_created_at) }}
                 </time>
               </div>
             </div>
@@ -381,7 +380,7 @@ async function copyTurn(text: string, key: string) {
         </div>
       </div>
 
-      <!-- 引擎在问用户：问题来自 PI 进程，不挂在某一条消息上，统一排在流末尾 -->
+      <!-- 内核在问用户：提问不挂在某一条消息上，统一排在流末尾 -->
       <AskCard v-for="a in chat.asks" :key="a.id" :ask="a" />
 
       <!-- 重试提示条：重试期间用户唯一的主动选择是「别试了」 -->
@@ -390,22 +389,6 @@ async function copyTurn(text: string, key: string) {
         <span class="grow">{{ chat.notice }}</span>
         <el-button v-if="chat.retrying" size="small" :loading="cancellingRetry" :disabled="cancellingRetry" @click="stopRetry">
           {{ t('chat.stopRetry') }}
-        </el-button>
-      </div>
-
-      <!-- 被截断：正文只写了一半，给一键续写 -->
-      <div v-if="chat.truncated" class="notice-bar notice-bar--warn">
-        <AppIcon name="alert" size="ic-xs" />
-        <div class="grow">
-          <b>{{ t('chat.noticeTruncated', { n: chat.truncBudget ? fmtInt(chat.truncBudget) : '—' }) }}</b>
-        </div>
-        <el-button
-          size="small"
-          :loading="acting === 'continue'"
-          :disabled="chat.running || !!acting"
-          @click="act('continue')"
-        >
-          {{ t('chat.continue') }}
         </el-button>
       </div>
 

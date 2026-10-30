@@ -1,0 +1,122 @@
+# 技能体系 · SKILLS
+
+技能是「一份可复用的工作方法」：一份带 frontmatter 的 Markdown，
+告诉模型在什么场景下该按什么步骤做。
+
+技能不是工具——它是提示词注入 + 用 read 加载正文。
+做成工具会让模型多一层无谓的调用往返。
+
+## SKILL.md 格式
+
+```markdown
+---
+name: tdd
+description: 用测试驱动开发推进功能修改。先写失败测试，再写实现。
+description_zh: 用测试驱动开发推进功能修改
+version: 1.0.0
+allowed-tools: Read,Write,Bash
+---
+
+# 正文
+
+方法步骤、命令、模板……
+```
+
+### frontmatter 字段
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `name` | 是 | 技能名即身份；小写字母数字与单连字符 |
+| `description` | 是 | 何时用这个技能；≤ 1024 字符（会进系统提示词） |
+| `description_zh` / `description_en` | 否 | 分语言描述，界面展示用 |
+| `version` | 否 | 版本号 |
+| `allowed-tools` | 否 | 限定可用的工具名，逗号分隔 |
+| `triggers` / `keywords` | 否 | 触发词与关键词 |
+| `metadata` | 否 | 自由嵌套，原样保留 |
+| `disable-model-invocation` | 否 | true 则只允许 `/skill:名` 显式调用 |
+
+**description 用块标量**（`description: |`）写多行——单行写不下完整触发条件。
+
+## 三区发现
+
+| 区 | 位置 | 优先级 | 可否删改 |
+|---|---|---|---|
+| 内置包 | 编译期打进二进制，解压到 `{数据目录}\skills\builtin` | 最高 | 否（只读） |
+| 用户区 | `{数据目录}\skills\user\{技能名}\SKILL.md` | 次之 | 可 |
+| 工作区 | `{工作区}\.workbaby\skills\{技能名}\SKILL.md` | 最低 | 可 |
+
+**同名先到先得**：内置 > 用户 > 工作区。
+工作区优先级最低是刻意的——工作区的技能最可能是一次性的，
+让它覆盖内置包会让用户失去稳定的内置能力。
+
+## 注册表
+
+`wb-skills::SkillRegistry` 扫描三个区，建立 `技能名 → 条目` 的映射。
+条目含 frontmatter、来源标记与位置路径。
+
+开关状态存在 `wb-repo` 的 `skill_toggle` 表（**未记录 = 开**）。
+内置技能的开关可用，但不可删除也不可改名——内置包是应用的一部分。
+
+## 注入系统提示词
+
+启用的技能在组装系统提示词时注入：
+
+```xml
+<available_skills>
+<skill><name>tdd</name><description>…</description><location>…</location></skill>
+</available_skills>
+```
+
+只注入名称与描述，不注入正文——正文按需用 read 加载。
+21 个技能全注入也只有几十行，正文全注入会占掉大量上下文。
+
+`disable-model-invocation` 的技能不进这段注入，只能通过 `/skill:名` 显式调用。
+
+## 斜杠命令
+
+启用的技能对应 `/skill:技能名` 命令，走 `/commands` 端点列出。
+显式调用会把正文直接送进上下文。
+
+## 内置技能包
+
+21 个技能随二进制分发，覆盖几类场景：
+
+| 类别 | 技能 |
+|---|---|
+| 开发流程 | tdd、diagnose、task-alignment、task-implement、handoff |
+| 前端与设计 | 前端开发、全栈开发、canvas-design、Impeccable（前端设计工具集） |
+| 文档处理 | minimax-docx、minimax-xlsx、minimax-pdf、markitdown-skill、md-to-pdf-cjk |
+| 工程质量 | setup-pre-commit、skill-creator、skill-scanner、skill-vetter |
+| 其他 | github、prompt-engineering-expert、summarize |
+
+内置技能里的脚本随包分发（如文档转换的 shell 脚本），执行时按技能自身的说明调用。
+
+## 导入与创建
+
+| 操作 | 端点 | 说明 |
+|---|---|---|
+| 从目录导入 | `POST /skills/import` | 源目录必须含 SKILL.md，拷入用户区 |
+| 从 zip 导入 | `POST /skills/import-zip` | base64 传字节 |
+| 新建 | `POST /skills/create` | 写用户区 SKILL.md |
+| 删除 | `POST /skills/delete/{id}` | 内置技能拒绝 |
+| 读正文 | `GET /skills/content/{id}` | 给界面抽屉用 |
+
+导入与创建后会重扫注册表——三区发现是启动时扫的，运行时新增文件要触发重扫。
+
+## 校验
+
+| 规则 | 不通过的后果 |
+|---|---|
+| 技能名合法（小写字母数字 + 单连字符） | 拒绝导入 |
+| description 非空且 ≤ 1024 字符 | 拒绝导入（超长会撑爆系统提示词） |
+| 目录含 SKILL.md | 跳过并记录原因 |
+
+## 取舍
+
+| 取舍 | 理由 | 代价 |
+|---|---|---|
+| 三区发现而非单一目录 | 内置随包分发，用户与工作区各管一段 | 优先级规则要讲清 |
+| 内置只读 | 内置包是应用的一部分，改了就对不上版本 | 用户不能微调内置技能 |
+| 只注入名称与描述 | 正文按需加载，省上下文 | 模型得自己决定要不要 read |
+| 技能不产生工具 | 避免无谓的调用往返 | 技能无法直接执行动作，只能指导模型 |
+| description 上限 1024 | 它进系统提示词，长了挤占上下文 | 复杂技能要写得精炼 |

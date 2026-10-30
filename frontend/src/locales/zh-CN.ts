@@ -6,7 +6,12 @@ export default {
     tagline: '会干活的个人 AI 工作台',
   },
 
+  // ---- 文档预览与图谱 ----
   common: {
+    docEmpty: '这份表格没有可显示的数据',
+    docUnsupported: '不支持预览这种文件格式',
+    bpmnEmpty: '还没有工作流定义',
+    bpmnInvalid: '工作流定义解析失败',
     ok: '确定',
     cancel: '取消',
     save: '保存',
@@ -78,6 +83,11 @@ export default {
     menu: '主菜单',
     chat: '对话',
     workspace: '工作区',
+    overview: '概览',
+    features: '功能',
+    skills: '技能',
+    files: '文件',
+    sessions: '会话',
     dashboard: '仪表盘',
     help: '帮助',
     settings: '设置',
@@ -92,7 +102,11 @@ export default {
   navShort: {
     chat: '对话',
     workspace: '工作区',
+    overview: '概览',
+    features: '功能',
     skills: '技能',
+    files: '文件',
+    sessions: '会话',
     dashboard: '用量',
     help: '帮助',
     settings: '设置',
@@ -283,17 +297,6 @@ export default {
     thinkingSwitchFailed: '切换思考档失败：{msg}',
     snapshotBroken: '会话快照格式异常，已保留当前内容',
   },
-
-  thinking: {
-    off: '关闭',
-    minimal: '极少',
-    low: '较少',
-    medium: '标准',
-    high: '较多',
-    xhigh: '很多',
-    max: '最大',
-  },
-
   settings: {
     title: '设置',
     groups: {
@@ -534,7 +537,7 @@ export default {
     },
     tools: {
       title: '工具',
-      desc: '清单来自 PI 最近一次会话的工具声明；开关写进 settings.json 的 defaultTools。',
+      desc: '清单来自当前装配的工具声明；开关会重建工具注册表。',
       builtin: '内置',
       extension: '插件',
       mcp: 'MCP',
@@ -564,7 +567,7 @@ export default {
       removeTitle: '移除这个服务？',
       removeBody: '会从 {scope} 配置里删掉「{name}」。',
       global: '全局',
-      project: '项目',
+      workspace: '工作区',
       raw: '配置原文',
       save: '保存配置',
       saved: '配置已保存',
@@ -573,8 +576,8 @@ export default {
       reloading: '正在重连…',
       reloaded: 'MCP 已重连',
       unnamed: '未命名服务',
-      scopeGlobal: '全局（~/.pi/agent/mcp.json）',
-      scopeProject: '项目（工作区 .pi/mcp.json）',
+      scopeGlobal: '全局（数据目录 mcp.json）',
+      scopeProject: '工作区（.workbaby/mcp.json）',
     },
     appearance: {
       title: '外观',
@@ -630,6 +633,60 @@ export default {
       autostart: '开机自动启动',
       autostartHint: '登录 Windows 后直接拉起 WorkBaby，不弹窗。',
     },
+  },
+
+  // ---- 概览页 ----
+  overview: {
+    title: '概览',
+    subtitle: '一屏看清当前状态与可继续的事',
+    capFeatures: '内置功能',
+    capSkills: '技能',
+    capTools: '工具',
+    capMcp: 'MCP 服务',
+    recent: '最近的对话',
+    recentHint: '接着上次的地方继续',
+    allSessions: '全部会话',
+    noSessions: '还没有对话',
+    justNow: '刚刚',
+    minutesAgo: '{n} 分钟前',
+    hoursAgo: '{n} 小时前',
+    daysAgo: '{n} 天前',
+  },
+
+  // ---- 功能页 ----
+  features: {
+    title: '内置功能',
+    subtitle: '开一个功能，它带的工具就并入助手的工具表',
+  },
+
+  // ---- 技能页 ----
+  skills: {
+    title: '技能',
+    subtitle: '内置技能包与自建技能；内置技能只读',
+  },
+
+  // ---- 会话页 ----
+  sessions: {
+    title: '会话',
+    subtitle: '全部对话记录',
+    model: '模型',
+    provider: '服务商',
+    messages: '消息数',
+    tokens: 'token',
+    cost: '花费',
+    workspace: '工作区',
+    open: '打开对话',
+    noSelection: '还没选会话',
+    noSelectionHint: '在左边挑一条，或者直接开新对话',
+  },
+
+  // ---- 文件页 ----
+  files: {
+    title: '文件',
+    subtitle: '浏览工作区，文档可就地预览',
+    root: '工作区',
+    empty: '这个目录是空的',
+    noPreview: '{name} 暂不支持预览',
   },
 
   dashboard: {
@@ -782,62 +839,6 @@ export default {
     missing: '找不到这篇文档',
     search: '搜索文档',
   },
-
-  setup: {
-    title: '准备运行环境',
-    subtitle: '三步就能开始：运行时 → 助手 → 模型服务',
-    intro: '首次启动需要准备运行环境。跟着下面的三步走，每步都会显示真实探测结果。',
-    node: '运行时',
-    nodeDesc: '助手要用 Node 跑起来。系统已有 22+ 就直接用，没有就用应用内置的那份。',
-    nodeBundled: '内置',
-    nodeSystem: '系统',
-    nodeVersion: '版本',
-    nodeMissing: '未检测到可用的 Node',
-    nodeError: 'Node 不可用：{msg}',
-    nodeBundledHint: '现在用的是应用内置的 Node：装引擎、升级、插件管理都跟着它。系统里装了 Node 的话可以换过去，或者把内置这份提到系统级，终端里也能直接用。',
-    pi: '助手（PI）',
-    piDesc: '内核是外部 PI 进程。没装的话，这里会用内置 npm 前缀代装。',
-    piBundled: '内置',
-    piSystem: '系统',
-    piInstall: '安装助手',
-    piInstalling: '正在安装…',
-    piRetry: '重试安装',
-    piInstallFailed: '安装失败：{msg}',
-    piInstallHint: '可以让 WorkBaby 重试（优先用系统里可用的 Node，没有才用内置）；也可以自己装好 PI 后点「重新检测」，WorkBaby 会直接复用系统里那一份。',
-    piTimeout: '等了 5 分钟还没装完。先看下面的安装输出定位原因，再重试。',
-    piManual: '自己装好了 PI？点「重新检测」即可。',
-    piUpdate: '更新助手',
-    piInstalled: '已安装 {version}',
-    piMissing: '还没有安装助手',
-    shellNoBash: '没有可用的 bash（内置 Git Bash 也不可用），助手的 bash 工具跑不了命令。',
-    shellBroken: '命令执行环境不可用：{msg}',
-    shellFix: '一键修复',
-    shellFixing: '正在修复…',
-    shellFixHint: '点「一键修复」会解压内置 Git Bash；自己装 Git for Windows 也行，WorkBaby 会优先用它。',
-    shellFixed: '命令执行环境已修复',
-    terminalMissing: '终端里还不能敲 pi。',
-    terminalHint: '配置一次即可：把入口目录加进当前用户的 PATH，新开的终端生效。',
-    terminalEnable: '配置终端命令',
-    terminalEnabling: '正在配置…',
-    terminalDone: '已配置：新开一个终端敲 pi 试试',
-    model: '模型服务',
-    modelDesc: '至少要配一个服务商与一个模型，助手才能回答。',
-    modelReady: '已配置：{provider} / {model}',
-    modelMissing: '还没有配置模型服务',
-    modelGo: '去配置',
-    ready: '环境已就绪',
-    readyHint: '可以开始对话了',
-    goChat: '开始对话',
-    recheck: '重新检测',
-    rechecking: '正在检测…',
-    blocking: '下一步',
-    pending: '待完成',
-    agentDir: '助手目录',
-    installLog: '安装输出',
-    installLogEmpty: '还没有输出',
-    skip: '稍后再说',
-  },
-
   errors: {
     generic: '出错了，请重试',
     needSetup: '还没配好模型服务，先去设置页配一个。',

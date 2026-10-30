@@ -1,66 +1,53 @@
-# 质量门禁：push main / PR 上跑完整验证链（gofmt + 前端构建 + vet + 依赖边界 + 全量测试）。
-# 只验证、从不发版：发版只由 release.yml 在 tag 上触发。
-name: ci
+name: CI
 
 on:
   push:
     branches: [main]
-    tags-ignore: ['v*']
   pull_request:
-  workflow_dispatch:
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
+    branches: [main]
 
 jobs:
-  verify:
-    name: Verify
+  check:
+    name: 编译 · 测试 · 类型检查
     runs-on: windows-latest
-    timeout-minutes: 40
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          # 内置运行时归档走 Git LFS：embed 的是指针文本时构建会成功但运行时不可用。
-          lfs: true
-          fetch-depth: 1
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v7
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          go-version-file: go.mod
-          cache: true
+          components: rustfmt, clippy
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
+      - name: 缓存 cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          # 与内置 Node 同一大版本：CI 验的就是用户拿到的运行时组合。
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          workspaces: . -> target
 
-      - name: Install frontend dependencies
+      - name: 编译检查
+        run: cargo check --workspace --all-targets
+
+      - name: 格式检查
+        run: cargo fmt --all -- --check
+
+      - name: 静态检查
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: 单元与集成测试
+        run: cargo test --workspace
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装前端依赖
+        working-directory: frontend
         run: npm ci
-        working-directory: frontend
 
-      - name: Build frontend
-        # main 包 //go:embed frontend/dist：不先建前端，go build 直接失败。
+      - name: 前端类型检查
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: 前端构建
+        working-directory: frontend
         run: npm run build
-        working-directory: frontend
-
-      - name: gofmt
-        shell: pwsh
-        run: |
-          $bad = gofmt -l backend main.go app.go
-          if ($bad) { Write-Host "未格式化（gofmt -w 后重提）："; Write-Host $bad; exit 1 }
-
-      - name: vet
-        run: go vet ./...
-
-      - name: test
-        # 全量：短测试与慢链路（真 git、运行时解压、真 PI 回合）都跑。
-        run: go test ./... -count=1

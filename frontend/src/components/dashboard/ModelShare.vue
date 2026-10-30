@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 按模型占比：环形图 + 右侧图例列表（颜色点 + 模型名 + 占比 + token 量）。
-// 最多五段，其余归「其他」——超过五段就没有人能分辨颜色了。
+// 占比按输出 token 计（model_output 按模型求和）；最多五段，其余归「其他」。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { theme } from '../../composables/useTheme'
@@ -18,12 +18,19 @@ let ro: ResizeObserver | null = null
 const MAX_SEG = 5
 
 const segments = computed(() => {
-  const list = [...props.models].sort((a, b) => b.total - a.total)
+  // 同一模型可能在多个服务商下出现：先按模型 id 求和再排序
+  const byModel = new Map<string, number>()
+  for (const m of props.models) {
+    byModel.set(m.model_id, (byModel.get(m.model_id) ?? 0) + (m.model_output || 0))
+  }
+  const list = [...byModel.entries()]
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
   const top = list.slice(0, MAX_SEG)
   const rest = list.slice(MAX_SEG)
-  const out = top.map((m) => ({ name: m.model || m.provider, value: m.total }))
+  const out = top.map((m) => ({ name: m.name, value: m.value }))
   if (rest.length) {
-    out.push({ name: t('dashboard.other'), value: rest.reduce((s, m) => s + m.total, 0) })
+    out.push({ name: t('dashboard.other'), value: rest.reduce((s, m) => s + m.value, 0) })
   }
   return out
 })

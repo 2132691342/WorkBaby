@@ -1,39 +1,45 @@
 <script setup lang="ts">
-// 工具面板：清单来自 PI（会话声明的工具 + MCP 在线工具）；启停写 settings.json 的 defaultTools，
-// 不自己实现任何工具。长清单走分页，来源用行内标签区分。
+// 工具面板：清单来自内核注册表（内置工具 + MCP 工具），后端直接给数组；开关落设置库。
+// 长清单走分页，来源用行内标签区分；顶部是装载预设（loadout）一键切换。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
-import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
-import type { ToolListRESP, ToolVO } from '../../types/api'
-import { fmtRel } from '../../utils/time'
+import type { ToolVO } from '../../types/api'
+import type { LoadoutPresetVO } from '../../api'
 import AppIcon from '../common/AppIcon.vue'
 import SettingsSection from './SettingsSection.vue'
 
 const { t } = useI18n()
 const toast = useToastStore()
-const settingsStore = useSettingsStore()
 
 const PAGE_SIZES = [5, 10, 20, 50]
 
-const data = ref<ToolListRESP | null>(null)
+const data = ref<ToolVO[] | null>(null)
 const busy = ref('')
 const filter = ref('')
 const source = ref<string>('all')
 const page = ref(1)
 const pageSize = ref(10)
 
-const SOURCES = ['builtin', 'extension', 'mcp'] as const
+// 装载预设
+const presets = ref<LoadoutPresetVO[]>([])
+const presetName = ref('')
+const presetBusy = ref(false)
 
-// 组内保持 PI 的原序，组间按内置 → 插件 → MCP 排，来源改成行内标签后顺序仍可读
+const SOURCES = ['builtin', 'mcp'] as const
+
+// 组内保持注册表原序，组间按内置 → MCP 排，来源改成行内标签后顺序仍可读
 const filtered = computed(() => {
   const q = filter.value.trim().toLowerCase()
-  const items = (data.value?.tools ?? []).filter(
-    (x) => !q || x.name.toLowerCase().includes(q) || (x.description || '').toLowerCase().includes(q),
+  const items = (data.value ?? []).filter(
+    (x) =>
+      !q ||
+      x.tool_name.toLowerCase().includes(q) ||
+      (x.tool_description || '').toLowerCase().includes(q),
   )
-  const bySource = SOURCES.map((key) => items.filter((x) => x.source === key)).flat()
-  return source.value === 'all' ? bySource : bySource.filter((x) => x.source === source.value)
+  const bySource = SOURCES.map((key) => items.filter((x) => x.tool_source === key)).flat()
+  return source.value === 'all' ? bySource : bySource.filter((x) => x.tool_source === source.value)
 })
 
 const paged = computed(() => {
@@ -55,25 +61,75 @@ watch(
 
 const sourceLabel = (s: string) => t((SOURCES as readonly string[]).includes(s) ? `settings.tools.${s}` : 'common.unknown')
 
-const enabledCount = computed(() => (data.value?.tools ?? []).filter((x) => x.enabled).length)
-const snapshot = computed(() =>
-  data.value?.snapshot === 'session' ? t('settings.tools.snapshotSession') : t('settings.tools.snapshotStatic'),
-)
+const enabledCount = computed(() => (data.value ?? []).filter((x) => x.tool_enabled).length)
 
 async function reload() {
   try {
     data.value = await api.tools.list()
-    settingsStore.tools = data.value
   } catch (e) {
     toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   }
 }
 
+async function reloadPresets() {
+  try {
+    presets.value = (await api.loadout.list()).resp_presets || []
+  } catch {
+    presets.value = []
+  }
+}
+
+async function applyPreset(name: string) {
+  if (presetBusy.value) return
+  presetBusy.value = true
+  try {
+    await api.loadout.apply(name)
+    await Promise.all([reload(), reloadPresets()])
+    toast.ok(`已应用预设 ${name}`)
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    presetBusy.value = false
+  }
+}
+
+async function savePreset() {
+  const name = presetName.value.trim()
+  if (!name || presetBusy.value) return
+  presetBusy.value = true
+  try {
+    await api.loadout.save(name)
+    presetName.value = ''
+    await reloadPresets()
+    toast.ok(`预设 ${name} 已保存`)
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    presetBusy.value = false
+  }
+}
+
+async function removePreset(name: string) {
+  if (presetBusy.value) return
+  presetBusy.value = true
+  try {
+    await api.loadout.remove(name)
+    await reloadPresets()
+  } catch (e) {
+    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  } finally {
+    presetBusy.value = false
+  }
+}
+
+/** 内置预设（full/minimal）不可删 */
+const isBuiltinPreset = (name: string) => name === 'full' || name === 'minimal'
+
 async function toggle(tool: ToolVO) {
   if (busy.value) return
-  busy.value = tool.name
+  busy.value = tool.tool_name
   try {
-    await api.tools.toggle(tool.name, !tool.enabled)
+    await api.tools.toggle(tool.tool_name, !tool.tool_enabled)
     await reload()
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
@@ -83,8 +139,8 @@ async function toggle(tool: ToolVO) {
 }
 
 onMounted(() => {
-  if (settingsStore.tools) data.value = settingsStore.tools
   void reload()
+  void reloadPresets()
 })
 </script>
 
@@ -106,15 +162,36 @@ onMounted(() => {
           </el-radio-button>
         </el-radio-group>
         <span class="sp" />
-        <span class="wb-label">{{ enabledCount }} / {{ data?.tools?.length ?? 0 }}</span>
-        <span v-if="data?.snapshot_at" class="tool-snap">
-          {{ t('settings.tools.snapshot') }}: {{ snapshot }} · {{ fmtRel(data.snapshot_at) }}
-        </span>
+        <span class="wb-label">{{ enabledCount }} / {{ (data ?? []).length }}</span>
+      </div>
+
+      <div class="wb-card pad presets">
+        <span class="wb-label">装载预设</span>
+        <el-tag
+          v-for="p in presets"
+          :key="p.loadout_name"
+          :closable="!isBuiltinPreset(p.loadout_name)"
+          class="preset-tag"
+          @click="applyPreset(p.loadout_name)"
+          @close="removePreset(p.loadout_name)"
+        >
+          {{ p.loadout_name }}
+        </el-tag>
+        <el-input
+          v-model="presetName"
+          size="small"
+          class="preset-new"
+          placeholder="存当前为预设…"
+          @keydown.enter="savePreset"
+        />
+        <el-button size="small" :loading="presetBusy" :disabled="!presetName.trim()" @click="savePreset">
+          保存
+        </el-button>
       </div>
 
       <div v-if="!data" class="wb-card pad"><el-skeleton animated :rows="4" /></div>
 
-      <div v-else-if="!(data?.tools ?? []).length" class="wb-card empty-box">
+      <div v-else-if="!(data ?? []).length" class="wb-card empty-box">
         <span class="wb-tile wb-tile--lg"><AppIcon name="wrench" size="ic-xl" /></span>
         <b>{{ t('settings.tools.empty') }}</b>
         <p>{{ t('settings.tools.emptyHint') }}</p>
@@ -122,19 +199,18 @@ onMounted(() => {
 
       <template v-else>
         <div class="tool-list">
-          <article v-for="tool in paged" :key="tool.name" class="tool-row" :class="{ 'is-off': !tool.enabled }">
+          <article v-for="tool in paged" :key="tool.tool_name" class="tool-row" :class="{ 'is-off': !tool.tool_enabled }">
             <span class="tool-tile"><AppIcon name="terminal" size="ic-sm" /></span>
             <div class="tool-tx">
               <span class="tool-name">
-                {{ tool.name.replace(/^mcp__/, '') }}
-                <el-tag size="small" :class="`is-src-${tool.source}`">{{ sourceLabel(tool.source) }}</el-tag>
-                <el-tag v-if="tool.server" size="small" type="info">{{ tool.server }}</el-tag>
+                {{ tool.tool_name.replace(/^mcp__/, '') }}
+                <el-tag size="small" :class="`is-src-${tool.tool_source}`">{{ sourceLabel(tool.tool_source) }}</el-tag>
               </span>
-              <span class="tool-desc">{{ tool.description || '—' }}</span>
+              <span class="tool-desc">{{ tool.tool_description || '—' }}</span>
             </div>
             <el-switch
-              :model-value="tool.enabled"
-              :loading="busy === tool.name"
+              :model-value="tool.tool_enabled"
+              :loading="busy === tool.tool_name"
               :disabled="!!busy"
               @change="toggle(tool)"
             />
@@ -166,12 +242,21 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: var(--wb-sp-3);
 }
+.presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-3);
+}
+.preset-tag {
+  cursor: pointer;
+}
+.preset-new {
+  width: calc(150px * var(--wb-vw-scale));
+}
 .tool-search {
   max-width: calc(220px * var(--wb-vw-scale));
-}
-.tool-snap {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
 }
 .tool-list {
   display: flex;
@@ -224,7 +309,7 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 来源标签：内置 / 插件 / MCP 一眼可分，色值仍走令牌 */
+/* 来源标签：内置 / MCP 一眼可分，色值仍走令牌 */
 .tool-name :deep(.el-tag) {
   font-family: var(--font-sans);
   flex: none;

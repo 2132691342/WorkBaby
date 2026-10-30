@@ -1,0 +1,5 @@
+# Cargo 命令别名：把常用长命令缩短。
+# 用法：cargo xt（跑测试）/ cargo xchk（编译检查）
+[alias]
+xt = "test --workspace"
+xchk = "check --workspace --all-targets"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 模型服务面板：读写的就是 PI 的 models.json，界面与 pi 命令共用同一份配置。
+// 模型服务面板：读写的 models.json；服务商卡片、接口类型、密钥与模型清单都在这里。
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
@@ -12,9 +12,6 @@ import SettingsSection from './SettingsSection.vue'
 const { t } = useI18n()
 const store = useSettingsStore()
 const toast = useToastStore()
-
-// 父级（环境向导）据此重检闸门
-const emit = defineEmits<{ (e: 'changed'): void }>()
 
 const APIS = [
   { key: 'openai-completions', label: 'OpenAI Completions' },
@@ -46,9 +43,9 @@ const manual = ref('')
 // 字段级错误：EP 的 el-form-item 接 error 就变红并显示这句，不再用 toast 说一句含糊的「校验失败」
 const errors = reactive({ name: '', base_url: '', models: '' })
 
-const providers = computed(() => store.providers?.providers ?? [])
-const defaultId = computed(() => store.providers?.default_provider || '')
-const path = computed(() => store.providers?.path || '')
+const providers = computed(() => store.providers ?? [])
+// 默认模型只活在引导快照里：setDefault 之后由 refreshBoot 重拉
+const defaultId = computed(() => store.boot?.boot_default_provider || '')
 
 function reset() {
   editing.value = ''
@@ -79,7 +76,7 @@ function validate(): boolean {
   if (!form.base_url.trim()) errors.base_url = t('settings.providers.baseUrlRequired')
   if (!form.models.length) {
     errors.models = t('settings.providers.modelsRequired')
-  } else if (form.models.some((m) => !m.id.trim())) {
+  } else if (form.models.some((m) => !m.model_id.trim())) {
     errors.models = t('settings.providers.modelIdRequired')
   }
   return !errors.name && !errors.base_url && !errors.models
@@ -93,19 +90,19 @@ function createNew() {
 }
 
 function edit(p: ProviderVO) {
-  editing.value = p.id
-  form.id = p.id
-  form.name = p.name
-  form.api = p.api || 'openai-completions'
-  form.base_url = p.base_url
+  editing.value = p.provider_id
+  form.id = p.provider_id
+  form.name = p.provider_name
+  form.api = p.provider_api || 'openai-completions'
+  form.base_url = p.provider_base_url
   form.api_key = ''
-  form.models = p.models.map((m) => ({
-    id: m.id,
-    name: m.name,
-    reasoning: m.reasoning,
-    vision: m.vision,
-    context_window: m.context_window,
-    max_tokens: m.max_tokens,
+  form.models = p.provider_models.map((m) => ({
+    model_id: m.model_id,
+    model_name: m.model_name,
+    model_reasoning: m.model_reasoning,
+    model_vision: m.model_vision,
+    model_context_window: m.model_context_window,
+    model_max_tokens: m.model_max_tokens,
   }))
   fetched.value = []
   manual.value = ''
@@ -114,14 +111,14 @@ function edit(p: ProviderVO) {
 
 function addModel(id: string) {
   const name = id.trim()
-  if (!name || form.models.some((m) => m.id === name)) return
+  if (!name || form.models.some((m) => m.model_id === name)) return
   form.models.push({
-    id: name,
-    name,
-    reasoning: false,
-    vision: true,
-    context_window: DEFAULT_CONTEXT_WINDOW,
-    max_tokens: DEFAULT_MAX_TOKENS,
+    model_id: name,
+    model_name: name,
+    model_reasoning: false,
+    model_vision: true,
+    model_context_window: DEFAULT_CONTEXT_WINDOW,
+    model_max_tokens: DEFAULT_MAX_TOKENS,
   })
 }
 
@@ -131,7 +128,7 @@ function addManual() {
 }
 
 function dropModel(id: string) {
-  form.models = form.models.filter((m) => m.id !== id)
+  form.models = form.models.filter((m) => m.model_id !== id)
 }
 
 async function fetchModels() {
@@ -144,7 +141,7 @@ async function fetchModels() {
       api_key: form.api_key || undefined,
       id: form.id || undefined,
     })
-    fetched.value = resp.models ?? []
+    fetched.value = resp.resp_models ?? []
     toast.ok(t('settings.providers.fetched', { n: fetched.value.length }))
   } catch (e) {
     toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
@@ -162,26 +159,25 @@ async function save() {
   busy.value = 'save'
   try {
     await api.providers.upsert({
-      id: form.id || undefined,
-      name: form.name.trim(),
-      api: form.api,
-      base_url: form.base_url.trim(),
-      api_key: form.api_key || undefined,
+      req_provider_id: form.id || undefined,
+      req_provider_name: form.name.trim(),
+      req_provider_api: form.api,
+      req_provider_base_url: form.base_url.trim(),
+      req_provider_api_key: form.api_key || undefined,
       // 清空输入框时 el-input-number 会给 null / 0：落盘前补回默认值，
       // 否则后端只能收到 0，水位与预算全跟着失效。
-      models: form.models.map((m) => ({
+      req_models: form.models.map((m) => ({
         ...m,
-        id: m.id.trim(),
-        name: m.name.trim() || m.id.trim(),
-        context_window: m.context_window > 0 ? m.context_window : DEFAULT_CONTEXT_WINDOW,
-        max_tokens: m.max_tokens > 0 ? m.max_tokens : DEFAULT_MAX_TOKENS,
+        model_id: m.model_id.trim(),
+        model_name: m.model_name.trim() || m.model_id.trim(),
+        model_context_window: m.model_context_window > 0 ? m.model_context_window : DEFAULT_CONTEXT_WINDOW,
+        model_max_tokens: m.model_max_tokens > 0 ? m.model_max_tokens : DEFAULT_MAX_TOKENS,
       })),
     })
     await store.refreshProviderData()
     toast.ok(t('common.save'))
     dialog.value = false
     reset()
-    emit('changed')
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
@@ -191,16 +187,15 @@ async function save() {
 
 async function remove(p: ProviderVO) {
   if (busy.value) return
-  busy.value = `del:${p.id}`
+  busy.value = `del:${p.provider_id}`
   try {
-    await api.providers.remove(p.id)
+    await api.providers.remove(p.provider_id)
     await store.refreshProviderData()
-    if (editing.value === p.id) {
+    if (editing.value === p.provider_id) {
       dialog.value = false
       reset()
     }
-    toast.ok(`${t('common.delete')} ${p.name}`)
-    emit('changed')
+    toast.ok(`${t('common.delete')} ${p.provider_name}`)
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
@@ -210,11 +205,11 @@ async function remove(p: ProviderVO) {
 
 async function test(p: ProviderVO) {
   if (busy.value) return
-  busy.value = `test:${p.id}`
+  busy.value = `test:${p.provider_id}`
   try {
-    const r = await api.providers.test(p.id)
-    if (r.ok) toast.ok(t('settings.providers.testOk', { model: r.model }))
-    else toast.bad(t('settings.providers.testFail', { msg: r.message }))
+    const r = await api.providers.test(p.provider_id)
+    if (r.resp_ok) toast.ok(t('settings.providers.testOk', { model: r.resp_model }))
+    else toast.bad(t('settings.providers.testFail', { msg: r.resp_message }))
   } catch (e) {
     toast.bad(t('settings.providers.testFail', { msg: (e as Error)?.message || '' }))
   } finally {
@@ -224,14 +219,14 @@ async function test(p: ProviderVO) {
 
 async function reveal(p: ProviderVO) {
   if (busy.value) return
-  busy.value = `key:${p.id}`
+  busy.value = `key:${p.provider_id}`
   try {
-    const r = await api.providers.reveal(p.id)
+    const r = await api.providers.reveal(p.provider_id)
     try {
-      await navigator.clipboard.writeText(r.api_key || '')
+      await navigator.clipboard.writeText(r.resp_api_key || '')
       toast.ok(t('common.copied'))
     } catch {
-      toast.info(r.api_key || '—')
+      toast.info(r.resp_api_key || '—')
     }
   } catch (e) {
     toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
@@ -241,15 +236,15 @@ async function reveal(p: ProviderVO) {
 }
 
 async function setDefault(p: ProviderVO) {
-  const model = p.models[0]?.id
+  const model = p.provider_models[0]?.model_id
   if (!model) {
     toast.bad(t('settings.providers.invalid'))
     return
   }
   if (busy.value) return
-  busy.value = `def:${p.id}`
+  busy.value = `def:${p.provider_id}`
   try {
-    await api.providers.setDefault(p.id, model)
+    await api.providers.setDefault(p.provider_id, model)
     await store.refreshBoot()
     await store.loadProviders()
     toast.ok(`${t('settings.providers.default')}: ${model}`)
@@ -287,8 +282,6 @@ onMounted(() => {
         </el-button>
       </template>
 
-      <p v-if="path" class="wb-mono">{{ path }}</p>
-
       <div v-if="store.providersLoading && !providers.length" class="grid gap-3">
         <el-skeleton animated :rows="3" class="card-box" />
       </div>
@@ -301,47 +294,47 @@ onMounted(() => {
       </div>
 
       <div v-else class="prov-grid">
-        <article v-for="p in providers" :key="p.id" class="prov">
+        <article v-for="p in providers" :key="p.provider_id" class="prov">
           <header class="prov-head">
-            <span class="prov-avatar">{{ (p.name || p.id).slice(0, 1).toUpperCase() }}</span>
+            <span class="prov-avatar">{{ (p.provider_name || p.provider_id).slice(0, 1).toUpperCase() }}</span>
             <div class="prov-tx">
               <div class="prov-name">
-                {{ p.name || p.id }}
-                <el-tag v-if="p.id === defaultId" size="small" type="primary">
+                {{ p.provider_name || p.provider_id }}
+                <el-tag v-if="p.provider_id === defaultId" size="small" type="primary">
                   {{ t('settings.providers.default') }}
                 </el-tag>
               </div>
-              <div class="prov-sub">{{ p.api }} · {{ baseHost(p.base_url) }}</div>
+              <div class="prov-sub">{{ p.provider_api }} · {{ baseHost(p.provider_base_url) }}</div>
             </div>
-            <el-tag :type="p.has_key ? 'success' : 'info'" size="small">
-              {{ p.has_key ? t('settings.providers.key') : t('settings.providers.keyMissing') }}
+            <el-tag :type="p.provider_has_key ? 'success' : 'info'" size="small">
+              {{ p.provider_has_key ? t('settings.providers.key') : t('settings.providers.keyMissing') }}
             </el-tag>
           </header>
 
           <div class="prov-models">
-            <el-tag v-for="m in p.models.slice(0, 4)" :key="m.id" size="small" class="prov-model">
-              {{ m.name || m.id }}
+            <el-tag v-for="m in p.provider_models.slice(0, 4)" :key="m.model_id" size="small" class="prov-model">
+              {{ m.model_name || m.model_id }}
             </el-tag>
-            <span v-if="p.models.length > 4" class="prov-more">+{{ p.models.length - 4 }}</span>
-            <span v-if="!p.models.length" class="prov-more">{{ t('common.empty') }}</span>
+            <span v-if="p.provider_models.length > 4" class="prov-more">+{{ p.provider_models.length - 4 }}</span>
+            <span v-if="!p.provider_models.length" class="prov-more">{{ t('common.empty') }}</span>
           </div>
 
           <footer class="prov-acts">
             <el-button
               size="small"
-              :loading="busy === `test:${p.id}`"
+              :loading="busy === `test:${p.provider_id}`"
               :disabled="!!busy"
               @click="test(p)"
             >
               {{ t('settings.providers.test') }}
             </el-button>
-            <el-button size="small" :disabled="!!busy || !p.has_key" @click="reveal(p)">
+            <el-button size="small" :disabled="!!busy || !p.provider_has_key" @click="reveal(p)">
               {{ t('settings.providers.reveal') }}
             </el-button>
             <el-button
-              v-if="p.id !== defaultId"
+              v-if="p.provider_id !== defaultId"
               size="small"
-              :loading="busy === `def:${p.id}`"
+              :loading="busy === `def:${p.provider_id}`"
               :disabled="!!busy"
               @click="setDefault(p)"
             >
@@ -435,7 +428,7 @@ onMounted(() => {
                   :key="m"
                   class="model-chip"
                   type="button"
-                  :class="{ 'is-on': form.models.some((x) => x.id === m) }"
+                  :class="{ 'is-on': form.models.some((x) => x.model_id === m) }"
                   @click="addModel(m)"
                 >
                   {{ m }}
@@ -444,18 +437,18 @@ onMounted(() => {
             </div>
 
             <ul v-if="form.models.length" class="models-list">
-              <li v-for="m in form.models" :key="m.id || form.models.indexOf(m)" class="model-card">
+              <li v-for="m in form.models" :key="m.model_id || form.models.indexOf(m)" class="model-card">
                 <div class="model-head">
                   <el-input
-                    v-model="m.id"
+                    v-model="m.model_id"
                     size="small"
                     class="w-id"
-                    :class="{ 'is-bad': blankModel(m.id) }"
+                    :class="{ 'is-bad': blankModel(m.model_id) }"
                     :placeholder="t('settings.providers.modelId')"
                     @input="errors.models = ''"
                   />
-                  <el-input v-model="m.name" size="small" class="w-name" :placeholder="t('settings.providers.modelName')" />
-                  <button class="model-del" type="button" :title="t('common.delete')" @click="dropModel(m.id)">
+                  <el-input v-model="m.model_name" size="small" class="w-name" :placeholder="t('settings.providers.modelName')" />
+                  <button class="model-del" type="button" :title="t('common.delete')" @click="dropModel(m.model_id)">
                     <AppIcon name="close" size="ic-xs" />
                   </button>
                 </div>
@@ -464,7 +457,7 @@ onMounted(() => {
                   <label class="model-field">
                     <span class="model-cap">{{ t('settings.providers.contextWindow') }}</span>
                     <el-input-number
-                      v-model="m.context_window"
+                      v-model="m.model_context_window"
                       size="small"
                       :min="0"
                       :step="1000"
@@ -476,7 +469,7 @@ onMounted(() => {
                   <label class="model-field">
                     <span class="model-cap">{{ t('settings.providers.maxTokens') }}</span>
                     <el-input-number
-                      v-model="m.max_tokens"
+                      v-model="m.model_max_tokens"
                       size="small"
                       :min="0"
                       :step="1000"
@@ -485,10 +478,10 @@ onMounted(() => {
                       class="w-num"
                     />
                   </label>
-                  <el-checkbox v-model="m.reasoning" size="small">
+                  <el-checkbox v-model="m.model_reasoning" size="small">
                     {{ t('settings.providers.reasoning') }}
                   </el-checkbox>
-                  <el-checkbox v-model="m.vision" size="small">
+                  <el-checkbox v-model="m.model_vision" size="small">
                     {{ t('settings.providers.vision') }}
                   </el-checkbox>
                 </div>

@@ -9,7 +9,8 @@ import { useSessionStore } from '../../stores/session'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import * as api from '../../api'
-import type { AttachmentREQ, CommandVO, FileEntryVO } from '../../types/api'
+import { pickFile, pickFileSave } from '../../api/shell'
+import type { AttachmentREQ, FileEntryVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import ContextMeter from './ContextMeter.vue'
 import SessionChips from './SessionChips.vue'
@@ -47,7 +48,6 @@ interface PendingFile {
 }
 
 // 内置命令：都是 WorkBaby 真的能执行的动作，不是空壳条目。
-// PI 终端里还有一批只活在 TUI 上的命令（/tree /share /bug /hotkeys …），这里不列。
 type BuiltinKey =
   | 'new'
   | 'model'
@@ -119,25 +119,10 @@ const root = ref<HTMLElement | null>(null)
 const ta = ref<{ focus: () => void; textarea?: HTMLTextAreaElement; ref?: HTMLTextAreaElement } | null>(null)
 
 interface SlashItem {
-  kind: 'cmd' | 'skill' | 'pi'
+  kind: 'cmd' | 'skill'
   key: string
   name: string
   desc: string
-}
-const piCommands = ref<CommandVO[]>([])
-let piCmdLoadedFor = ''
-
-async function loadPiCommands() {
-  const sid = session.currentId || ''
-  if (!sid) return
-  piCmdLoadedFor = sid
-  try {
-    const list = await api.commands.list(sid)
-    piCommands.value = (list ?? []).filter((c) => c.source !== 'skill')
-  } catch {
-    piCommands.value = []
-    piCmdLoadedFor = ''
-  }
 }
 
 const MAX_MATCH = 20
@@ -153,21 +138,17 @@ const slashItems = computed<SlashItem[]>(() => {
     name: t(c.nameKey),
     desc: t(c.descKey),
   }))
-  const fromPi: SlashItem[] = piCommands.value
-    .filter((c) => match(c.name, c.description || ''))
-    .slice(0, MAX_MATCH)
-    .map((c) => ({
-      kind: 'pi',
-      key: c.name,
-      name: `/${c.name}`,
-      desc: c.description || t('chat.slashTagEngine'),
-    }))
   const skills: SlashItem[] = settings.skills
-    .filter((s) => s.enabled)
-    .filter((s) => match(s.name, s.description))
+    .filter((s) => s.skill_enabled)
+    .filter((s) => match(s.skill_name, s.skill_description))
     .slice(0, MAX_MATCH)
-    .map((s) => ({ kind: 'skill', key: s.name, name: s.name, desc: s.description }))
-  return [...cmds, ...fromPi, ...skills]
+    .map((s) => ({
+      kind: 'skill',
+      key: s.skill_name,
+      name: s.skill_name,
+      desc: s.skill_description,
+    }))
+  return [...cmds, ...skills]
 })
 
 const chipsRef = ref<InstanceType<typeof SessionChips> | null>(null)
@@ -181,7 +162,7 @@ function runSlash(item: SlashItem) {
     return
   }
   clearInput()
-  text.value = item.kind === 'pi' ? `/${item.key} ` : `/skill:${item.key} `
+  text.value = `/skill:${item.key} `
   nextTick(() => ta.value?.focus())
 }
 
@@ -254,9 +235,9 @@ function showSessionInfo() {
   }
   toast.info(
     t('chat.slashSessionInfo', {
-      n: s.message_count,
-      tokens: s.total_tokens,
-      model: s.model || '—',
+      n: s.session_message_count,
+      tokens: s.session_total_tokens,
+      model: s.session_model || '—',
     }),
   )
 }
@@ -269,9 +250,8 @@ async function exportHTML() {
   }
   busyCmd.value = 'export'
   try {
-    const { SaveFileDialog } = await import('../../../wailsjs/go/main/App')
-    const name = `${(session.current?.title || 'session').replace(/[\\/:*?"<>|]/g, '_')}.html`
-    const target = await SaveFileDialog(t('chat.slashExportTitle'), name, '*.html')
+    const name = `${(session.current?.session_title || 'session').replace(/[\\/:*?"<>|]/g, '_')}.html`
+    const target = await pickFileSave(t('chat.slashExportTitle'), name, '*.html')
     if (!target) return
     const saved = await api.sessions.exportHTML(sid, target)
     toast.ok(t('chat.slashExportDone', { path: saved }))
@@ -283,13 +263,15 @@ async function exportHTML() {
 }
 
 async function copyLastAnswer() {
-  const last = [...session.messages].reverse().find((m) => m.role === 'assistant' && m.content?.trim())
-  if (!last?.content) {
+  const last = [...session.messages]
+    .reverse()
+    .find((m) => m.message_role === 'assistant' && m.message_content?.trim())
+  if (!last?.message_content) {
     toast.info(t('chat.slashCopyEmpty'))
     return
   }
   try {
-    await navigator.clipboard.writeText(last.content)
+    await navigator.clipboard.writeText(last.message_content)
     toast.ok(t('chat.slashCopyDone'))
   } catch {
     toast.bad(t('common.copyFailed'))
@@ -299,10 +281,7 @@ async function copyLastAnswer() {
 async function reloadAll() {
   busyCmd.value = 'reload'
   try {
-    await api.extensions.reload()
     await settings.loadSkills()
-    piCmdLoadedFor = ''
-    if (session.currentId) await loadPiCommands()
     toast.ok(t('chat.slashReloadDone'))
   } catch (e) {
     toast.bad(t('chat.slashFailed', { msg: (e as Error)?.message || '' }))
@@ -327,7 +306,9 @@ const browseCrumbs = computed(() => {
 })
 const browseShown = computed(() => {
   const q = browseFilter.value.trim().toLowerCase()
-  return q ? browseEntries.value.filter((e) => e.name.toLowerCase().includes(q)) : browseEntries.value
+  return q
+    ? browseEntries.value.filter((e) => e.entry_name.toLowerCase().includes(q))
+    : browseEntries.value
 })
 
 // 目录请求用序号判新旧：连点两个目录时两次请求并发返回，只看 loading 会错位
@@ -338,7 +319,7 @@ async function loadDir(path: string) {
   browsePath.value = path
   browseFilter.value = ''
   try {
-    const entries = (await api.files.list(path)).entries
+    const entries = (await api.files.list(path)).resp_entries
     if (seq !== browseSeq) return
     browseEntries.value = entries ?? []
     browseLoaded.value = true
@@ -352,13 +333,13 @@ async function loadDir(path: string) {
 }
 
 function pickFromTree(entry: FileEntryVO) {
-  if (entry.dir) {
-    void loadDir(browsePath.value ? `${browsePath.value}/${entry.name}` : entry.name)
+  if (entry.entry_is_dir) {
+    void loadDir(browsePath.value ? `${browsePath.value}/${entry.entry_name}` : entry.entry_name)
     return
   }
-  const rel = browsePath.value ? `${browsePath.value}/${entry.name}` : entry.name
+  const rel = browsePath.value ? `${browsePath.value}/${entry.entry_name}` : entry.entry_name
   if (!files.value.some((f) => f.path === rel)) {
-    files.value.push({ path: rel, name: entry.name, outside: false })
+    files.value.push({ path: rel, name: entry.entry_name, outside: false })
   }
   text.value = text.value.replace(/@\S*$/, '').trimEnd()
   menu.value = null
@@ -387,7 +368,7 @@ function toRelative(base: string, fullPath: string): string | null {
 }
 
 function attachPath(picked: string) {
-  const base = settings.boot?.workspace || ''
+  const base = settings.boot?.boot_workspace || ''
   const rel = base ? toRelative(base, picked) : null
   if (rel === null) {
     files.value.push({ path: picked, name: baseName(picked), outside: true })
@@ -397,11 +378,10 @@ function attachPath(picked: string) {
   files.value.push({ path: rel, name: baseName(rel), outside: false })
 }
 
-async function pickFile() {
+async function pickAttachment() {
   menu.value = null
   text.value = text.value.replace(/@\S*$/, '').trimEnd()
-  const { OpenFileDialog } = await import('../../../wailsjs/go/main/App')
-  const picked = await OpenFileDialog('', '')
+  const picked = await pickFile('', '')
   if (!picked) return
   attachPath(picked)
   nextTick(() => ta.value?.focus())
@@ -468,7 +448,6 @@ function onInput() {
     menu.value = 'slash'
     cmdIndex.value = 0
     if (!settings.skills.length && !settings.skillsLoading) void settings.loadSkills()
-    if (piCmdLoadedFor !== session.currentId) void loadPiCommands()
   } else {
     menu.value = null
   }
@@ -592,7 +571,11 @@ function submit() {
   emit(
     'send',
     value,
-    files.value.map((f) => ({ path: f.path, name: f.name, image_base64: f.image })),
+    files.value.map((f) => ({
+      attach_path: f.path,
+      attach_name: f.name,
+      attach_image_base64: f.image,
+    })),
   )
   clearInput()
   files.value = []
@@ -678,7 +661,7 @@ defineExpose({
         <!-- 工具行：与输入块用一条分隔线切开，不再抢输入框的横向空间 -->
         <div class="composer-bar is-divided">
           <el-tooltip :content="t('chat.attachPick')" placement="top" :show-after="400">
-            <button class="bar-btn" type="button" :disabled="disabled" @click="pickFile">
+            <button class="bar-btn" type="button" :disabled="disabled" @click="pickAttachment">
               <AppIcon name="folder" size="ic-xs" />
             </button>
           </el-tooltip>
@@ -690,6 +673,7 @@ defineExpose({
             :ratio="chat.contextRatio"
             :known="chat.contextKnown"
             :reserve="chat.contextReserve"
+            :session-id="session.currentId || ''"
           />
           <span v-if="outsideCount" class="bar-warn">
             {{ t('chat.attachOutsideCount', { n: outsideCount }) }}
@@ -745,15 +729,13 @@ defineExpose({
             @mouseenter="cmdIndex = i"
             @click="runSlash(it)"
           >
-            <AppIcon v-if="it.kind === 'pi'" name="zap" size="ic-xs" />
-            <AppIcon v-else-if="it.kind === 'skill'" name="sparkles" size="ic-xs" />
+            <AppIcon v-if="it.kind === 'skill'" name="sparkles" size="ic-xs" />
             <AppIcon v-else name="terminal" size="ic-xs" />
             <span class="pop-grow">
               <b class="pop-t">{{ it.kind === 'cmd' ? `/${it.key}` : it.name }}</b>
               <span class="pop-d">{{ it.kind === 'cmd' ? it.name + ' · ' + it.desc : it.desc }}</span>
             </span>
             <span v-if="it.kind === 'skill'" class="pop-tag">{{ t('chat.slashTagSkill') }}</span>
-            <span v-else-if="it.kind === 'pi'" class="pop-tag is-engine">{{ t('chat.slashTagEngine') }}</span>
             <span v-else class="pop-tag is-builtin">{{ t('chat.slashTagBuiltin') }}</span>
           </button>
         </div>
@@ -782,19 +764,19 @@ defineExpose({
           </div>
           <button
             v-for="(e, i) in browseShown"
-            :key="e.name"
+            :key="e.entry_name"
             class="pop-row"
             :class="{ 'is-hi': i === mentionIndex }"
             type="button"
             @mouseenter="mentionIndex = i"
             @click="pickFromTree(e)"
           >
-            <AppIcon :name="e.dir ? 'folder' : 'doc'" size="ic-xs" />
-            <span class="pop-grow"><b class="pop-t">{{ e.name }}</b></span>
-            <AppIcon v-if="e.dir" name="chevron-right" size="ic-xs" />
+            <AppIcon :name="e.entry_is_dir ? 'folder' : 'doc'" size="ic-xs" />
+            <span class="pop-grow"><b class="pop-t">{{ e.entry_name }}</b></span>
+            <AppIcon v-if="e.entry_is_dir" name="chevron-right" size="ic-xs" />
           </button>
         </div>
-        <button class="pop-row mb-out" type="button" @click="pickFile">
+        <button class="pop-row mb-out" type="button" @click="pickAttachment">
           <AppIcon name="search" size="ic-xs" />
           <span class="pop-grow">
             <b class="pop-t">{{ t('chat.attachPick') }}</b>
@@ -1081,10 +1063,6 @@ defineExpose({
   color: var(--wb-muted);
   font-size: var(--wb-fs-2xs);
   font-weight: 700;
-}
-.pop-tag.is-engine {
-  background: var(--wb-accent-tint);
-  color: var(--wb-primary);
 }
 .pop-tag.is-builtin {
   background: var(--wb-elev-raised);

@@ -1,22 +1,22 @@
-// 全局设置与引导数据：外观、模型服务、技能与 PI 配置快照的共享状态。
+// 全局设置与引导数据：外观取值、模型服务与首屏预热清单的共享状态。
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api'
 import { i18n } from '../i18n'
-import type { BootstrapVO, ExtensionListRESP, MCPListRESP, PISettingsVO, ProviderListRESP, SkillVO, ToolListRESP } from '../types/api'
+import type { BootVO, FeatureVO, ProviderVO, SkillVO, ToolVO } from '../types/api'
 import { useToastStore } from './toast'
 
 export const useSettingsStore = defineStore('settings', () => {
-  const boot = ref<BootstrapVO | null>(null)
-  const providers = ref<ProviderListRESP | null>(null)
+  const boot = ref<BootVO | null>(null)
+  /** 模型服务清单：providers.list() 与 warmup() 都落这里（扁平 VO，不带默认值信封） */
+  const providers = ref<ProviderVO[]>([])
   const skills = ref<SkillVO[]>([])
-  const piSettings = ref<PISettingsVO | null>(null)
+  const tools = ref<ToolVO[]>([])
+  const features = ref<FeatureVO[]>([])
   const values = ref<Record<string, string>>({})
-  // 预热数据：工具 / 插件 / MCP 面板共用，warmup() 一次拉齐后各面板直接读
-  const tools = ref<ToolListRESP | null>(null)
-  const extensions = ref<ExtensionListRESP | null>(null)
-  const mcp = ref<MCPListRESP | null>(null)
+  // 预热数据：设置页各面板共用，warmup() 一次拉齐后各面板直接读
   const warmed = ref(false)
+  /** 引导数据已加载；引擎是否就绪看 boot.boot_ready */
   const ready = ref(false)
   const providersLoading = ref(false)
   const skillsLoading = ref(false)
@@ -39,8 +39,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function loadBoot() {
     try {
-      boot.value = await api.bootstrap()
-      values.value = boot.value.settings || {}
+      const b = await api.bootstrap()
+      boot.value = b
+      values.value = b.boot_settings || {}
       ready.value = true
       return boot.value
     } catch (e) {
@@ -54,7 +55,8 @@ export const useSettingsStore = defineStore('settings', () => {
     providersLoading.value = true
     error.value = ''
     try {
-      providers.value = await api.providers.list()
+      const resp = await api.providers.list()
+      providers.value = resp.resp_providers ?? []
     } catch (e) {
       fail(e)
     } finally {
@@ -65,8 +67,9 @@ export const useSettingsStore = defineStore('settings', () => {
   /** 默认模型只活在 bootstrap 快照里：改了要重拉 */
   async function refreshBoot() {
     try {
-      boot.value = await api.bootstrap()
-      values.value = boot.value.settings || {}
+      const b = await api.bootstrap()
+      boot.value = b
+      values.value = b.boot_settings || {}
     } catch (e) {
       fail(e)
     }
@@ -89,26 +92,17 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  /** 首屏预热：五路清单一次拉齐；失败静默，各面板自带重拉与错误态。 */
+  /** 首屏预热：四路清单一次拉齐；失败静默，各面板自带重拉与错误态。 */
   async function warmup() {
     try {
       const r = await api.warmup()
+      providers.value = r.providers ?? []
       skills.value = r.skills ?? []
-      if (r.providers) providers.value = r.providers
-      if (r.tools) tools.value = r.tools
-      if (r.extensions) extensions.value = r.extensions
-      if (r.mcp) mcp.value = r.mcp
+      tools.value = r.tools ?? []
+      features.value = r.features ?? []
       warmed.value = true
     } catch {
       /* 预热失败不阻断：面板自己会再拉 */
-    }
-  }
-
-  async function loadPISettings() {
-    try {
-      piSettings.value = await api.settings.pi()
-    } catch (e) {
-      fail(e)
     }
   }
 
@@ -131,11 +125,9 @@ export const useSettingsStore = defineStore('settings', () => {
     boot,
     providers,
     skills,
-    piSettings,
-    values,
     tools,
-    extensions,
-    mcp,
+    features,
+    values,
     warmed,
     ready,
     providersLoading,
@@ -147,7 +139,6 @@ export const useSettingsStore = defineStore('settings', () => {
     refreshBoot,
     refreshProviderData,
     loadSkills,
-    loadPISettings,
     warmup,
     setValue,
   }

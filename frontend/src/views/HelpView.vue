@@ -23,13 +23,13 @@ const filter = ref('')
 
 const current = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 const title = computed(
-  () => items.value.find((d) => d.name === current.value)?.title || t('help.title'),
+  () => items.value.find((d) => d.doc_name === current.value)?.doc_title || t('help.title'),
 )
 const shown = computed(() => {
   const q = filter.value.trim().toLowerCase()
   if (!q) return items.value
   return items.value.filter(
-    (d) => d.title.toLowerCase().includes(q) || d.name.toLowerCase().includes(q),
+    (d) => d.doc_title.toLowerCase().includes(q) || d.doc_name.toLowerCase().includes(q),
   )
 })
 
@@ -38,7 +38,7 @@ async function loadList() {
     items.value = await api.docs.list()
     // 直接进 /help 时落到第一篇（新手最需要的「快速上手」）
     if (!current.value && items.value.length) {
-      void router.replace(`/help/${items.value[0].name}`)
+      void router.replace(`/help/${items.value[0].doc_name}`)
     }
   } catch (e) {
     listError.value = (e as Error)?.message || ''
@@ -52,7 +52,7 @@ async function loadDoc(name: string) {
   try {
     const doc = await api.docs.content(name)
     // 首行 H1 就是页面头，正文里再渲染一遍会变成「标题下面还有一个同样的标题」
-    html.value = renderMarkdown(doc.content.replace(/^#\s.*\r?\n?/, ''))
+    html.value = renderMarkdown(doc.resp_content.replace(/^#\s.*\r?\n?/, ''))
   } catch (e) {
     docError.value = (e as Error)?.message || t('help.missing')
     html.value = ''
@@ -80,14 +80,14 @@ void loadList()
       <nav class="help-nav">
         <button
           v-for="d in shown"
-          :key="d.name"
+          :key="d.doc_name"
           class="help-item"
-          :class="{ 'is-on': d.name === current }"
+          :class="{ 'is-on': d.doc_name === current }"
           type="button"
-          @click="router.push(`/help/${d.name}`)"
+          @click="router.push(`/help/${d.doc_name}`)"
         >
           <AppIcon name="doc" size="ic-sm" />
-          <span>{{ d.title }}</span>
+          <span>{{ d.doc_title }}</span>
         </button>
         <p v-if="!shown.length" class="help-empty">{{ t('common.empty') }}</p>
       </nav>

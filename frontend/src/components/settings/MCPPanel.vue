@@ -1,10 +1,9 @@
 <script setup lang="ts">
-// MCP 面板：配置读写的是 PI 的 mcp.json（全局 + 项目各一份），
-// 在线状态与工具清单来自 `pi mcp list --json`——连没连上只有 PI 知道。
+// MCP 面板：配置读写全局（数据目录）与工作区（.workbaby）两份 mcp.json，
+// 在线状态与工具清单来自后端连接池的真实握手结果。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
-import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { MCPListRESP, MCPServerVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
@@ -13,15 +12,14 @@ import SettingsSection from './SettingsSection.vue'
 
 const { t } = useI18n()
 const toast = useToastStore()
-const settingsStore = useSettingsStore()
 
 const data = ref<MCPListRESP | null>(null)
-const scope = ref<'global' | 'project'>('global')
+const scope = ref<'global' | 'workspace'>('global')
 const raw = ref('')
 const busy = ref('')
 
-const servers = computed(() => data.value?.servers ?? [])
-const hasProject = computed(() => !!data.value?.project_path)
+const servers = computed(() => data.value?.resp_servers ?? [])
+const hasProject = computed(() => !!data.value?.resp_workspace_path)
 
 const STATE: Record<string, { key: string; tone: string }> = {
   connected: { key: 'online', tone: 'ok' },
@@ -32,15 +30,14 @@ const STATE: Record<string, { key: string; tone: string }> = {
 async function reload() {
   try {
     data.value = await api.mcp.list()
-    settingsStore.mcp = data.value
-    raw.value = scope.value === 'global' ? data.value.global_raw || '{}' : data.value.project_raw || '{}'
+    raw.value = scope.value === 'global' ? data.value.resp_global_raw || '{}' : data.value.resp_workspace_raw || '{}'
   } catch (e) {
     toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
   }
 }
 
 watch(scope, (next) => {
-  raw.value = next === 'global' ? data.value?.global_raw || '{}' : data.value?.project_raw || '{}'
+  raw.value = next === 'global' ? data.value?.resp_global_raw || '{}' : data.value?.resp_workspace_raw || '{}'
 })
 
 async function save() {
@@ -73,11 +70,11 @@ async function refresh() {
 
 async function remove(s: MCPServerVO) {
   if (busy.value) return
-  busy.value = `del:${s.name}`
+  busy.value = `del:${s.mcp_name}`
   try {
-    await api.mcp.remove(s.name, s.scope)
+    await api.mcp.remove(s.mcp_name, s.mcp_scope)
     await reload()
-    toast.ok(`${t('common.remove')} ${s.name}`)
+    toast.ok(`${t('common.remove')} ${s.mcp_name}`)
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
@@ -87,9 +84,9 @@ async function remove(s: MCPServerVO) {
 
 async function login(s: MCPServerVO) {
   if (busy.value) return
-  busy.value = `login:${s.name}`
+  busy.value = `login:${s.mcp_name}`
   try {
-    await api.mcp.login(s.name)
+    await api.mcp.login(s.mcp_name)
     toast.info(t('settings.mcp.login'))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
@@ -107,10 +104,6 @@ function addTemplate() {
 }
 
 onMounted(() => {
-  if (settingsStore.mcp) {
-    data.value = settingsStore.mcp
-    raw.value = scope.value === 'global' ? data.value.global_raw || '{}' : data.value.project_raw || '{}'
-  }
   void reload()
 })
 </script>
@@ -131,27 +124,27 @@ onMounted(() => {
       </div>
 
       <div v-else class="mcp-grid">
-        <article v-for="s in servers" :key="`${s.scope}:${s.name}`" class="mcp">
+        <article v-for="s in servers" :key="`${s.mcp_scope}:${s.mcp_name}`" class="mcp">
           <header class="mcp-head">
-            <span class="mcp-led" :class="`is-${STATE[s.state]?.tone || 'na'}`" />
-            <span class="mcp-name" :title="s.name">{{ s.name || t('settings.mcp.unnamed') }}</span>
-            <el-tag size="small" :type="s.state === 'connected' ? 'success' : s.state === 'error' ? 'danger' : 'info'">
-              {{ t(`settings.mcp.${STATE[s.state]?.key || 'unknown'}`) }}
+            <span class="mcp-led" :class="`is-${STATE[s.mcp_state]?.tone || 'na'}`" />
+            <span class="mcp-name" :title="s.mcp_name">{{ s.mcp_name || t('settings.mcp.unnamed') }}</span>
+            <el-tag size="small" :type="s.mcp_state === 'connected' ? 'success' : s.mcp_state === 'error' ? 'danger' : 'info'">
+              {{ t(`settings.mcp.${STATE[s.mcp_state]?.key || 'unknown'}`) }}
             </el-tag>
           </header>
           <!-- 传输地址（URL 或启动命令）可能很长：独立一行 + 省略号，
                混进头部会把服务名挤到零宽、把文字顶出卡片边界 -->
-          <p v-if="s.transport" class="mcp-transport" :title="s.transport">
-            <AppIcon :name="s.transport.startsWith('http') ? 'globe' : 'terminal'" size="ic-2xs" />
-            <span class="mcp-transport-tx">{{ s.transport }}</span>
+          <p v-if="s.mcp_target" class="mcp-transport" :title="s.mcp_target">
+            <AppIcon :name="s.mcp_target.startsWith('http') ? 'globe' : 'terminal'" size="ic-2xs" />
+            <span class="mcp-transport-tx">{{ s.mcp_target }}</span>
           </p>
-          <p v-if="s.error" class="mcp-err">{{ s.error }}</p>
+          <p v-if="s.mcp_error" class="mcp-err">{{ s.mcp_error }}</p>
           <p class="mcp-meta">
-            <span>{{ s.scope === 'project' ? t('settings.mcp.project') : t('settings.mcp.global') }}</span>
-            <span v-if="s.tools?.length">{{ t('settings.mcp.tools', { n: s.tools.length }) }}</span>
+            <span>{{ s.mcp_scope === 'workspace' ? t('settings.mcp.workspace') : t('settings.mcp.global') }}</span>
+            <span v-if="s.mcp_tools?.length">{{ t('settings.mcp.tools', { n: s.mcp_tools.length }) }}</span>
           </p>
           <footer class="mcp-acts">
-            <el-button size="small" :loading="busy === `login:${s.name}`" :disabled="!!busy" @click="login(s)">
+            <el-button size="small" :loading="busy === `login:${s.mcp_name}`" :disabled="!!busy" @click="login(s)">
               {{ t('settings.mcp.login') }}
             </el-button>
             <span class="sp" />
@@ -171,7 +164,7 @@ onMounted(() => {
           <span class="wb-label">{{ t('settings.mcp.raw') }}</span>
           <el-radio-group v-model="scope" size="small">
             <el-radio-button value="global">{{ t('settings.mcp.global') }}</el-radio-button>
-            <el-radio-button value="project" :disabled="!hasProject">{{ t('settings.mcp.project') }}</el-radio-button>
+            <el-radio-button value="project" :disabled="!hasProject">{{ t('settings.mcp.workspace') }}</el-radio-button>
           </el-radio-group>
           <span class="sp" />
           <el-button size="small" :disabled="!!busy" @click="addTemplate">{{ t('common.add') }}</el-button>
@@ -180,7 +173,7 @@ onMounted(() => {
           </el-button>
         </div>
         <p class="wb-mono raw-path">
-          {{ scope === 'global' ? data?.global_path : data?.project_path || t('settings.mcp.scopeProject') }}
+          {{ scope === 'global' ? data?.resp_global_path : data?.resp_workspace_path || t('settings.mcp.scopeProject') }}
         </p>
         <CodeEditor v-model="raw" lang="json" :min-height="260" />
       </div>

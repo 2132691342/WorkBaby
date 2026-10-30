@@ -1,11 +1,11 @@
 <!-- 行为面板：这个程序自己的习惯——默认工作区、界面语言与窗口 / 启动行为。
-     助手的运行参数（思考档、压缩）在引擎面板；视觉（主题、字体、背景）在外观面板。 -->
+     视觉（主题、字体、背景）在外观面板；内置能力的开关在功能面板。 -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
-import { AutoStartEnabled, OpenDirectoryDialog, SetAutoStart } from '../../../wailsjs/go/main/App'
+import { autostartGet, autostartSet, pickFolder } from '../../api/shell'
 import { LOCALES, setLocale, type Locale } from '../../i18n'
 import SettingsSection from './SettingsSection.vue'
 
@@ -16,13 +16,13 @@ const toast = useToastStore()
 const busy = ref('')
 const autoStart = ref(false)
 
-const workspace = computed(() => settings.values['workspace'] || settings.boot?.workspace || '')
+const workspace = computed(() => settings.values['workspace'] || settings.boot?.boot_workspace || '')
 const sendOnEnter = computed(() => settings.values['send_on_enter'] !== 'false')
 const tray = computed(() => settings.values['minimize_to_tray'] !== 'false')
 const currentLocale = computed<Locale>(() => (settings.values['language'] === 'en' ? 'en' : 'zh-CN'))
 
 async function pickWorkspace() {
-  const dir = await OpenDirectoryDialog(t('settings.behavior.workspacePick'))
+  const dir = await pickFolder(t('settings.behavior.workspacePick'))
   if (!dir || dir === workspace.value) return
   try {
     await settings.setValue('workspace', dir)
@@ -55,7 +55,7 @@ async function toggleAutoStart() {
   const next = !autoStart.value
   busy.value = 'autostart'
   try {
-    await SetAutoStart(next)
+    await autostartSet(next)
     autoStart.value = next
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
@@ -66,7 +66,7 @@ async function toggleAutoStart() {
 
 onMounted(async () => {
   try {
-    autoStart.value = await AutoStartEnabled()
+    autoStart.value = await autostartGet()
   } catch {
     autoStart.value = false
   }

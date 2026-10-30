@@ -16,8 +16,8 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-const adds = computed(() => props.lines.filter((l) => l.kind === 'add').length)
-const dels = computed(() => props.lines.filter((l) => l.kind === 'del').length)
+const adds = computed(() => props.lines.filter((l) => l.git_line_kind === 'add').length)
+const dels = computed(() => props.lines.filter((l) => l.git_line_kind === 'del').length)
 const blank = computed(() => !props.loading && props.lines.length === 0)
 const blankText = computed(() =>
   props.path ? t('workspace.diffEmpty') : t('workspace.noChanges'),
@@ -49,11 +49,11 @@ const blankText = computed(() =>
         v-for="(l, i) in lines"
         :key="i"
         class="diff-row"
-        :class="{ 'is-add': l.kind === 'add', 'is-del': l.kind === 'del', 'is-hunk': l.kind === 'hunk' }"
+        :class="{ 'is-add': l.git_line_kind === 'add', 'is-del': l.git_line_kind === 'del', 'is-hunk': l.git_line_kind === 'hunk' }"
       >
-        <span>{{ l.old_no || '' }}</span>
-        <span>{{ l.new_no || '' }}</span>
-        <span>{{ l.text }}</span>
+        <span>{{ l.git_line_old_no || '' }}</span>
+        <span>{{ l.git_line_new_no || '' }}</span>
+        <span>{{ l.git_line_text }}</span>
       </div>
     </div>
 

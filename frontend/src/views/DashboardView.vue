@@ -1,14 +1,12 @@
 <script setup lang="ts">
-// 用量仪表盘：四张读数卡 → 全宽趋势图 → 占比与榜单并排。
-// 数据全部来自 PI 的会话文件；没有用量时整页停在空态，不画空图表。
+// 用量仪表盘：四张读数卡 → 全宽趋势图 → 模型占比。
+// 数据来自统计接口的 resp_daily（天粒度）与 resp_by_model（按模型）；没有用量时整页停在空态，不画空图表。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import * as api from '../api'
-import { useSessionStore } from '../stores/session'
-import { useToastStore } from '../stores/toast'
-import type { StatsRESP, StatsSpan } from '../types/api'
-import { fmtCount, fmtInt, fmtMoney } from '../utils/num'
+import type { StatsDailyItem, StatsRESP } from '../types/api'
+import { fmtCount, fmtMoney } from '../utils/num'
 import AppIcon from '../components/common/AppIcon.vue'
 import KpiCard from '../components/dashboard/KpiCard.vue'
 import ModelShare from '../components/dashboard/ModelShare.vue'
@@ -17,11 +15,11 @@ import PageHeader from '../components/layout/PageHeader.vue'
 
 const { t } = useI18n()
 const router = useRouter()
-const session = useSessionStore()
-const toast = useToastStore()
 
-const SPANS: StatsSpan[] = ['24h', 'today', '7d', '14d', '30d']
-const span = ref<StatsSpan>('7d')
+// span 只认 day7 / day30 / all；「全部」没有专属键，沿用 common.all
+const SPANS = ['day7', 'day30', 'all'] as const
+type Span = (typeof SPANS)[number]
+const span = ref<Span>('day30')
 const data = ref<StatsRESP | null>(null)
 const loading = ref(true)
 const error = ref('')
@@ -40,93 +38,69 @@ async function load() {
 
 onMounted(() => {
   void load()
-  void session.loadList()
 })
 watch(span, load)
 
-const spanLabel = computed(() => t(`dashboard.range_${span.value}`))
-const totals = computed(() => data.value?.totals)
-const hasUsage = computed(() => (totals.value?.total || 0) > 0)
-const topSessions = computed(() => (data.value?.sessions || []).slice(0, 6))
+const spanName = (s: Span) =>
+  s === 'all' ? t('common.all') : t(s === 'day7' ? 'dashboard.range_7d' : 'dashboard.range_30d')
+const spanLabel = computed(() => spanName(span.value))
 
-// 命中率分母是提示词总量：上游把命中（cached）/ 写入（cache_write）/ 未命中（input）分三个字段报，
-// 只除 input 会把命中率算到 100% 以上再把图拉满，看起来就“全是错的”。
-const promptTotal = computed(() => {
-  const tt = totals.value
-  if (!tt) return 0
-  return (tt.input || 0) + (tt.cached || 0) + (tt.cache_write || 0)
+// 后端不承诺顺序：图表与求和都按天升序
+const daily = computed<StatsDailyItem[]>(() =>
+  [...(data.value?.resp_daily ?? [])].sort((a, b) => a.daily_day.localeCompare(b.daily_day)),
+)
+const models = computed(() => data.value?.resp_by_model ?? [])
+
+const sumTokens = (items: StatsDailyItem[]) =>
+  items.reduce((s, d) => s + (d.daily_input || 0) + (d.daily_output || 0), 0)
+const sumCost = (items: StatsDailyItem[]) => items.reduce((s, d) => s + (d.daily_cost || 0), 0)
+
+const rangeInput = computed(() => daily.value.reduce((s, d) => s + (d.daily_input || 0), 0))
+const rangeOutput = computed(() => daily.value.reduce((s, d) => s + (d.daily_output || 0), 0))
+const hasUsage = computed(() => rangeInput.value + rangeOutput.value > 0)
+
+// 「今日」按本地日期匹配 daily_day（YYYY-MM-DD）：统计服务与本机同一天
+const todayKey = computed(() => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 })
+const today = computed(() => daily.value.find((d) => d.daily_day === todayKey.value))
+const todayTokens = computed(() => (today.value ? sumTokens([today.value]) : 0))
+const todayCost = computed(() => today.value?.daily_cost || 0)
+const todayInput = computed(() => today.value?.daily_input || 0)
+const todayOutput = computed(() => today.value?.daily_output || 0)
 
-const hitRate = computed(() => {
-  const tt = totals.value
-  const prompt = promptTotal.value
-  if (!tt || prompt <= 0) return 0
-  return Math.min(100, (tt.cached / prompt) * 100)
-})
-
-const kpis = computed(() => {
-  const tt = totals.value
-  return [
-    {
-      key: 'total',
-      icon: 'chart',
-      value: fmtCount(tt?.total || 0),
-      label: t('dashboard.kpiTotal'),
-      note: `${t('dashboard.kpiCalls')} ${fmtInt(tt?.calls || 0)}`,
-    },
-    {
-      key: 'io',
-      icon: 'arrow-down-up',
-      value: `${fmtCount(tt?.input || 0)} / ${fmtCount(tt?.output || 0)}`,
-      label: t('dashboard.kpiIo'),
-      note: t(data.value?.granularity === 'hour' ? 'dashboard.trendHour' : 'dashboard.trendDay'),
-    },
-    {
-      key: 'hit',
-      icon: 'zap',
-      value: `${hitRate.value.toFixed(hitRate.value >= 10 ? 0 : 1)}%`,
-      label: t('dashboard.kpiHit'),
-      note: `${fmtCount(tt?.cached || 0)} / ${fmtCount(promptTotal.value)}`,
-      hit: hitRate.value > 0,
-    },
-    {
-      key: 'cost',
-      icon: 'coin',
-      value: fmtMoney(tt?.cost || 0),
-      label: t('dashboard.kpiCost'),
-      note: t('dashboard.kpiCostNote'),
-    },
-  ]
-})
-
-const subline = computed(() => {
-  const tt = totals.value
-  if (!tt) return ''
-  return `${fmtInt(tt.sessions)} · ${fmtInt(tt.messages)} · ${fmtInt(tt.calls)}`
-})
-
-const opening = ref('')
-async function openSession(id: string) {
-  if (opening.value) return
-  opening.value = id
-  try {
-    await session.open(id)
-    void router.push('/')
-  } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
-  } finally {
-    opening.value = ''
-  }
-}
-
-function fmtDate(ms: number) {
-  const d = new Date(ms)
-  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
-function onRowClick(row: { session_id: string }) {
-  void openSession(row.session_id)
-}
+const kpis = computed(() => [
+  {
+    key: 'total',
+    icon: 'chart',
+    value: fmtCount(rangeInput.value + rangeOutput.value),
+    label: t('dashboard.kpiTotal'),
+    note: `${t('dashboard.input')} ${fmtCount(rangeInput.value)} / ${t('dashboard.output')} ${fmtCount(rangeOutput.value)}`,
+  },
+  {
+    key: 'cost',
+    icon: 'coin',
+    value: fmtMoney(sumCost(daily.value)),
+    label: t('dashboard.kpiCost'),
+    note: t('dashboard.kpiCostNote'),
+  },
+  {
+    key: 'today',
+    icon: 'zap',
+    value: fmtCount(todayTokens.value),
+    label: t('dashboard.range_today'),
+    note: `${t('dashboard.kpiCost')} ${fmtMoney(todayCost.value)}`,
+  },
+  {
+    key: 'todayIo',
+    icon: 'clock',
+    value: `${fmtCount(todayInput.value)} / ${fmtCount(todayOutput.value)}`,
+    label: t('dashboard.kpiIo'),
+    note: t('dashboard.range_today'),
+  },
+])
 </script>
 
 <template>
@@ -135,7 +109,7 @@ function onRowClick(row: { session_id: string }) {
       <template #actions>
         <el-radio-group v-model="span" size="small">
           <el-radio-button v-for="s in SPANS" :key="s" :value="s">
-            {{ t(`dashboard.range_${s}`) }}
+            {{ spanName(s) }}
           </el-radio-button>
         </el-radio-group>
         <el-button size="small" :loading="loading" @click="load">
@@ -176,7 +150,6 @@ function onRowClick(row: { session_id: string }) {
             :label="k.label"
             :value="k.value"
             :note="k.note"
-            :hit="k.hit"
             :accent="k.key === 'total'"
           />
         </div>
@@ -185,61 +158,25 @@ function onRowClick(row: { session_id: string }) {
           <header class="card-head">
             <div>
               <h3 class="card-title">{{ t('dashboard.trendTitle') }}</h3>
-              <p class="card-sub">
-                {{ t(data?.granularity === 'hour' ? 'dashboard.trendHour' : 'dashboard.trendDay') }}
-              </p>
+              <p class="card-sub">{{ t('dashboard.trendDay') }}</p>
             </div>
-            <span class="card-chip">{{ subline }}</span>
+            <span class="card-chip">{{ spanLabel }}</span>
           </header>
           <div class="trend-box">
-            <UsageTrend :daily="data?.daily || []" :granularity="data?.granularity || 'day'" />
+            <UsageTrend :daily="daily" />
           </div>
         </section>
 
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
-          <section class="wb-card card-block">
-            <header class="card-head">
-              <div>
-                <h3 class="card-title">{{ t('dashboard.modelTitle') }}</h3>
-                <p class="card-sub">{{ t('dashboard.modelSub') }}</p>
-              </div>
-            </header>
-            <ModelShare v-if="(data?.models || []).length" :models="data?.models || []" />
-            <p v-else class="card-empty">{{ t('dashboard.modelEmpty') }}</p>
-          </section>
-
-          <section class="wb-card card-block">
-            <header class="card-head">
-              <div>
-                <h3 class="card-title">{{ t('dashboard.sessionTitle') }}</h3>
-                <p class="card-sub">{{ t('dashboard.sessionSub') }}</p>
-              </div>
-            </header>
-            <el-table
-              v-if="topSessions.length"
-              :data="topSessions"
-              size="small"
-              :show-header="false"
-              class="sess-table"
-              @row-click="onRowClick"
-            >
-              <el-table-column min-width="0">
-                <template #default="{ row }">
-                  <div class="sess-cell">
-                    <span class="sess-name">{{ row.title || t('chat.newSession') }}</span>
-                    <span class="sess-meta">{{ row.workspace }} · {{ fmtDate(row.updated_at) }}</span>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column width="96" align="right">
-                <template #default="{ row }">
-                  <span class="sess-tokens">{{ fmtCount(row.total) }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-            <p v-else class="card-empty">{{ t('dashboard.sessionEmpty') }}</p>
-          </section>
-        </div>
+        <section class="wb-card card-block mt-4">
+          <header class="card-head">
+            <div>
+              <h3 class="card-title">{{ t('dashboard.modelTitle') }}</h3>
+              <p class="card-sub">{{ t('dashboard.modelSub') }}</p>
+            </div>
+          </header>
+          <ModelShare v-if="models.length" :models="models" />
+          <p v-else class="card-empty">{{ t('dashboard.modelEmpty') }}</p>
+        </section>
       </template>
     </div>
   </div>
@@ -317,36 +254,6 @@ function onRowClick(row: { session_id: string }) {
   color: var(--wb-muted);
   max-width: calc(420px * var(--wb-vw-scale));
   line-height: var(--wb-lh-base);
-}
-.sess-table :deep(.el-table__row) {
-  cursor: pointer;
-}
-.sess-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.sess-name {
-  font-size: var(--wb-fs-sm);
-  font-weight: 600;
-  color: var(--wb-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sess-meta {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sess-tokens {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-primary);
-  font-weight: 700;
 }
 .ml-1 {
   margin-left: var(--wb-sp-1);

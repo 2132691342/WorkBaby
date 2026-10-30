@@ -1,0 +1,28 @@
+//! 系统提示词组装：有序命名段（specs/01）。
+
+use wb_skills::SkillRegistry;
+
+/// 组装系统提示词：正文 + tools/rules/skills/cwd 命名段。
+pub fn build_system_prompt(
+    workspace: &str,
+    skills: &SkillRegistry,
+    enabled_tools: &[String],
+) -> String {
+    let mut out = String::from(
+        "You are WorkBaby, a capable personal assistant running on the user's Windows desktop. \
+         You help by reading files, executing commands, editing code, and writing files. \
+         Be concise. Show file paths clearly when working with files.\n",
+    );
+    out.push_str(&format!("\n<cwd>{}</cwd>\n", workspace.replace('\\', "/")));
+    if !enabled_tools.is_empty() {
+        out.push_str("\n<tools>\n");
+        for n in enabled_tools {
+            out.push_str(&format!("- {n}\n"));
+        }
+        out.push_str("</tools>\n");
+    }
+    out.push_str("\n<skills>\n");
+    out.push_str(&skills.format_available_skills(|_| true));
+    out.push_str("\n</skills>\n");
+    out
+}

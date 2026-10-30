@@ -17,8 +17,8 @@ const props = defineProps<{
 function splitInlineThink(list: MessageBlock[]): MessageBlock[] {
   const out: MessageBlock[] = []
   for (const b of list) {
-    const text = b.text || ''
-    if (b.kind !== 'text' || !text.includes('<think>')) {
+    const text = b.block_text || ''
+    if (b.block_kind !== 'text' || !text.includes('<think>')) {
       out.push(b)
       continue
     }
@@ -27,13 +27,13 @@ function splitInlineThink(list: MessageBlock[]): MessageBlock[] {
     let m = re.exec(text)
     while (m) {
       const before = text.slice(last, m.index).trim()
-      if (before) out.push({ kind: 'text', text: before })
-      if (m[1].trim()) out.push({ kind: 'thinking', text: m[1].trim() })
+      if (before) out.push({ block_kind: 'text', block_text: before })
+      if (m[1].trim()) out.push({ block_kind: 'thinking', block_text: m[1].trim() })
       last = m.index + m[0].length
       m = re.exec(text)
     }
     const rest = text.slice(last).replace(/<\/?think>/g, '').trim()
-    if (rest) out.push({ kind: 'text', text: rest })
+    if (rest) out.push({ block_kind: 'text', block_text: rest })
   }
   return out
 }
@@ -41,17 +41,17 @@ function splitInlineThink(list: MessageBlock[]): MessageBlock[] {
 // 老响应（缓存里没有 blocks）按 thinking → 正文 → 工具 的旧口径兜底
 const blocks = computed<MessageBlock[]>(() => {
   const m = props.msg
-  if (m.blocks?.length) return splitInlineThink(m.blocks)
+  if (m.message_blocks?.length) return splitInlineThink(m.message_blocks)
   const out: MessageBlock[] = []
-  if (m.thinking?.trim()) out.push({ kind: 'thinking', text: m.thinking })
-  if (m.content?.trim()) out.push({ kind: 'text', text: m.content })
-  for (const tc of m.tool_calls ?? []) {
+  if (m.message_thinking?.trim()) out.push({ block_kind: 'thinking', block_text: m.message_thinking })
+  if (m.message_content?.trim()) out.push({ block_kind: 'text', block_text: m.message_content })
+  for (const tc of m.message_tool_calls ?? []) {
     out.push({
-      kind: 'tool',
-      tool_call_id: tc.id,
-      tool_name: tc.name,
-      label: tc.label,
-      args: tc.args,
+      block_kind: 'tool',
+      tool_call_id: tc.tool_call_id,
+      tool_name: tc.tool_name,
+      tool_label: tc.tool_label,
+      tool_args: tc.tool_args,
     })
   }
   return splitInlineThink(out)
@@ -59,51 +59,51 @@ const blocks = computed<MessageBlock[]>(() => {
 
 function resultOf(id?: string): MessageVO | undefined {
   if (!id) return undefined
-  return props.tools.find((t) => t.tool_call_id === id)
+  return props.tools.find((t) => t.message_tool_call_id === id)
 }
 
 function argsOf(b: MessageBlock): Record<string, unknown> | undefined {
-  if (b.args && Object.keys(b.args).length) return b.args
-  const hit = (props.msg.tool_calls ?? []).find((tc) => tc.id === b.tool_call_id)
-  return hit?.args
+  if (b.tool_args && Object.keys(b.tool_args).length) return b.tool_args
+  const hit = (props.msg.message_tool_calls ?? []).find((tc) => tc.tool_call_id === b.tool_call_id)
+  return hit?.tool_args
 }
 
 function htmlOf(b: MessageBlock): string {
-  return b.text ? renderMarkdown(b.text) : ''
+  return b.block_text ? renderMarkdown(b.block_text) : ''
 }
 
 // 兵底：结果消息存在、但内容块里找不到它的调用（老数据 / 不完整的投影）时，
 // 宁可按顺序补在末尾，也不要把一次真的工具调用藏起来。
 const orphans = computed(() => {
   const declared = new Set(blocks.value.filter((b) => b.tool_call_id).map((b) => b.tool_call_id))
-  return props.tools.filter((t) => !declared.has(t.tool_call_id || ''))
+  return props.tools.filter((t) => !declared.has(t.message_tool_call_id || ''))
 })
 </script>
 
 <template>
-  <template v-for="(b, i) in blocks" :key="`${msg.id}-${i}`">
-    <ThinkingBlock v-if="b.kind === 'thinking'" :text="b.text || ''" />
-    <div v-else-if="b.kind === 'text'" class="prose" :class="{ 'is-error': msg.is_error }" v-html="htmlOf(b)" />
+  <template v-for="(b, i) in blocks" :key="`${msg.message_id}-${i}`">
+    <ThinkingBlock v-if="b.block_kind === 'thinking'" :text="b.block_text || ''" />
+    <div v-else-if="b.block_kind === 'text'" class="prose" :class="{ 'is-error': msg.message_is_error }" v-html="htmlOf(b)" />
     <ToolCard
       v-else
       class="turn-tool"
-      :label="b.label || b.tool_name || 'tool'"
+      :label="b.tool_label || b.tool_name || 'tool'"
       :tool="b.tool_name || ''"
       :args="argsOf(b)"
       :running="false"
-      :ok="!resultOf(b.tool_call_id)?.is_error"
-      :output="resultOf(b.tool_call_id)?.content || ''"
+      :ok="!resultOf(b.tool_call_id)?.message_is_error"
+      :output="resultOf(b.tool_call_id)?.message_content || ''"
     />
   </template>
   <ToolCard
     v-for="t in orphans"
-    :key="`orphan-${t.id}`"
+    :key="`orphan-${t.message_id}`"
     class="turn-tool"
-    :label="t.tool_name || 'tool'"
-    :tool="t.tool_name || ''"
+    :label="t.message_tool_name || 'tool'"
+    :tool="t.message_tool_name || ''"
     :running="false"
-    :ok="!t.is_error"
-    :output="t.content || ''"
+    :ok="!t.message_is_error"
+    :output="t.message_content || ''"
   />
 </template>
 

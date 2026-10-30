@@ -17,7 +17,7 @@ const busy = ref('')
 
 // 状态名走 i18n：直接显示 state 会冒出英文 merge / rebase，与界面语言不一致
 const stateLabel = computed(() => {
-  switch (props.status?.state) {
+  switch (props.status?.git_state) {
     case 'merge':
       return t('workspace.stateMerge')
     case 'rebase':
@@ -31,7 +31,7 @@ const stateLabel = computed(() => {
   }
 })
 
-const conflicts = computed(() => (props.status?.files || []).filter((f) => f.conflict))
+const conflicts = computed(() => (props.status?.git_files || []).filter((f) => f.git_conflict))
 const blocked = computed(() => conflicts.value.length > 0)
 
 async function act(action: 'continue' | 'abort') {
@@ -49,12 +49,12 @@ async function act(action: 'continue' | 'abort') {
 </script>
 
 <template>
-  <div v-if="status && status.state && status.state !== 'none'" class="st">
+  <div v-if="status && status.git_state && status.git_state !== 'none'" class="st">
     <span class="st-icon"><AppIcon name="alert" size="ic-sm" /></span>
     <div class="st-text">
       <b>{{ stateLabel }}</b>
-      <span v-if="status.state_detail" class="st-detail wb-mono" :title="status.state_detail">
-        {{ status.state_detail }}
+      <span v-if="status.git_state_detail" class="st-detail wb-mono" :title="status.git_state_detail">
+        {{ status.git_state_detail }}
       </span>
       <span v-if="blocked" class="st-count">
         {{ t('workspace.stateConflictCount', { n: conflicts.length }) }}

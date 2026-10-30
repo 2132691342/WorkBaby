@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 外观面板：只看「看得见的样子」——主题、字体字号、消息显示与背景。
-// 语言与各项开关在「行为」面板；助手参数在「引擎」面板。
+// 语言与各项开关在「行为」面板；内置能力的开关在「功能」面板。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
@@ -20,7 +20,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import AppIcon from '../common/AppIcon.vue'
 import SettingsSection from './SettingsSection.vue'
-import { OpenFileDialog } from '../../../wailsjs/go/main/App'
+import { pickFile } from '../../api/shell'
 
 const { t } = useI18n()
 const { theme, setTheme, THEMES } = useTheme()
@@ -107,7 +107,7 @@ async function saveBg(path: string, strength: number, blur: number) {
   bgBusy.value = true
   try {
     const vo = await api.settings.setBackground(path, strength, blur)
-    applyBgVo(vo.image, vo.opacity, vo.blur)
+    applyBgVo(vo.resp_background_file, vo.resp_background_opacity, vo.resp_background_blur)
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
@@ -117,7 +117,7 @@ async function saveBg(path: string, strength: number, blur: number) {
 
 async function pickBackground() {
   if (bgBusy.value) return
-  const p = await OpenFileDialog(t('settings.appearance.backgroundPick'), '*.png;*.jpg;*.jpeg;*.webp;*.bmp')
+  const p = await pickFile(t('settings.appearance.backgroundPick'), '*.png;*.jpg;*.jpeg;*.webp;*.bmp')
   if (!p) return
   await saveBg(p, bgStrength.value, bgBlur.value)
 }
@@ -134,7 +134,7 @@ const blurKey = computed(() => {
 async function loadBg() {
   try {
     const vo = await api.settings.background()
-    applyBgVo(vo.image, vo.opacity, vo.blur)
+    applyBgVo(vo.resp_background_file, vo.resp_background_opacity, vo.resp_background_blur)
   } catch {
     /* 背景不是关键设置，读不到就保持上一次显示 */
   }

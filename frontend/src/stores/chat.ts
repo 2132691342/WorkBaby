@@ -1,25 +1,8 @@
-// 对话流状态：一次 run 的增量正文、工具卡、引擎提问卡与截断态都在这里落地。
+// 对话流状态：一次 run 的增量正文、工具卡、引擎提问卡与上下文水位都在这里落地。
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '../api'
-import type {
-  AskClosedData,
-  AskData,
-  AttachmentREQ,
-  CompressedData,
-  ContextData,
-  DeltaData,
-  DoneData,
-  ErrorData,
-  MessageVO,
-  NotifyData,
-  RetryData,
-  StartData,
-  StatusData,
-  ToolEndData,
-  ToolStartData,
-  WidgetData,
-} from '../types/api'
+import type { AskClosedData, AskData, MessageVO, ModelVO } from '../types/api'
 import { useSettingsStore } from './settings'
 import { useToastStore } from './toast'
 import { i18n } from '../i18n'
@@ -28,6 +11,124 @@ import { stripAnsi } from '../utils/text'
 /** 状态条的文案在 store 里也走 i18n：语言一换，提示条不能还是中文 */
 function tt(key: string, args?: Record<string, string | number>): string {
   return i18n.global.t(key, args || {})
+}
+
+// ---- SSE 事件载荷：与后端 emit 的 JSON 逐字一致（载荷类型不进 types/api.ts）----
+
+/** chat:start */
+export interface StartData {
+  run_id: string
+  session_id: string
+}
+
+/** chat:delta：增量类型 text / thinking */
+export interface DeltaData {
+  kind: 'text' | 'thinking'
+  delta: string
+}
+
+/** chat:tool_start */
+export interface ToolStartData {
+  tool_call_id: string
+  /** 工具名 */
+  name: string
+  /** 显示名；可为 null，前端按 label || name 取 */
+  label: string | null
+  args?: Record<string, unknown> | null
+}
+
+/** chat:tool_end */
+export interface ToolEndData {
+  tool_call_id: string
+  name: string
+  /** 结果文本（后端已截断） */
+  result: string
+  is_error: boolean
+  duration_ms: number
+}
+
+/** chat:context 里的用量读数（载荷内不带业务前缀） */
+export interface ContextUsage {
+  input: number
+  output: number
+  cached: number
+  cache_write: number
+  total: number
+  /** 这一轮发出时的上下文占用 */
+  context: number
+  cost: number
+}
+
+/** chat:context */
+export interface ContextData {
+  usage: ContextUsage
+  context_window: number
+  /** 占用比（0-1） */
+  ratio: number
+}
+
+/** chat:compressed */
+export interface CompressedData {
+  tokens_before: number
+}
+
+/** chat:done；message 目前恒为 null，定稿消息以快照回放为准 */
+export interface DoneData {
+  run_id: string
+  message?: MessageVO | null
+}
+
+/** chat:error */
+export interface ErrorData {
+  run_id: string
+  code: string
+  message: string
+}
+
+/** chat:retry */
+export interface RetryData {
+  attempt: number
+  max: number
+  delay_ms: number
+}
+
+/** chat:user */
+export interface UserData {
+  content: string
+}
+
+/** chat:notify */
+export interface NotifyData {
+  /** info / warning / error */
+  level: string
+  text: string
+}
+
+/** chat:status：空 text 即清除该 key */
+export interface StatusData {
+  key: string
+  text: string
+}
+
+/** chat:widget：空 lines 即清除该 key */
+export interface WidgetData {
+  key: string
+  lines: string[]
+}
+
+/** chat:title */
+export interface TitleData {
+  title: string
+}
+
+/** chat:switched */
+export interface SwitchedData {
+  session_id: string
+}
+
+/** chat:gap */
+export interface GapData {
+  missing: number
 }
 
 // 当前正在跑的工具调用：流式期间只做「展示」，chat:done 后用权威快照覆盖。
@@ -50,7 +151,7 @@ export type LivePart =
   | { key: string; kind: 'text'; text: string }
   | { key: string; kind: 'tool'; toolCallId: string }
 
-// 引擎抛回来的一条提问：来源是 PI 里的扩展（含内置的提问工具）。
+// 引擎抛回来的一条提问：confirm / select / input / editor。
 export interface PendingAsk {
   id: string
   method: string
@@ -85,8 +186,6 @@ export const useChatStore = defineStore('chat', () => {
   const lastError = ref('')
   const lastErrorCode = ref('')
   const notice = ref('')
-  const truncated = ref(false)
-  const truncBudget = ref(0)
   const contextUsed = ref(0)
   const contextWindow = ref(0)
   const contextRatio = ref(0)
@@ -97,10 +196,10 @@ export const useChatStore = defineStore('chat', () => {
   // 停止请求已发出、内核还在收尾：这段时间不准把运行态重新种回来，
   // 否则界面会在「已停止」与「运行中」之间反复跳。
   const stopping = ref(false)
-  // 引擎扩展的状态条与小部件：key → 内容，多扩展共存互不覆盖
+  // 引擎的状态条与小部件：key → 内容，多来源共存互不覆盖
   const engineStatus = ref<Record<string, string>>({})
   const engineWidgets = ref<Record<string, string[]>>({})
-  /** 引擎给窗口起的标题（扩展的 setTitle）：标题栏用它，不写会话名 */
+  /** 引擎给窗口起的标题：标题栏用它，不写会话名 */
   const suggestedTitle = ref('')
 
   function reset() {
@@ -115,8 +214,6 @@ export const useChatStore = defineStore('chat', () => {
     lastError.value = ''
     lastErrorCode.value = ''
     notice.value = ''
-    truncated.value = false
-    truncBudget.value = 0
     contextUsed.value = 0
     contextWindow.value = 0
     contextRatio.value = 0
@@ -139,13 +236,11 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /** 发送；sessionId 为空表示新对话，返回体里带着后端真正建出来的会话编号 */
-  async function send(sessionId: string, content: string, attachments?: AttachmentREQ[]) {
+  async function send(sessionId: string, content: string) {
     lastError.value = ''
     const resp = await api.chat.send({
       session_id: sessionId || undefined,
-      workspace: useSettingsStore().values.workspace || undefined,
       content,
-      attachments,
     })
     running.value = true
     // chat:start 可能已经先到（也可能被会话切换挤丢）：计时从那一边起算，
@@ -238,8 +333,6 @@ export const useChatStore = defineStore('chat', () => {
     runMap.value = {}
     lastError.value = ''
     lastErrorCode.value = ''
-    truncated.value = false
-    truncBudget.value = 0
     notice.value = ''
   }
 
@@ -283,9 +376,9 @@ export const useChatStore = defineStore('chat', () => {
     if (runMap.value[data.tool_call_id]) return
     runMap.value[data.tool_call_id] = {
       tool_call_id: data.tool_call_id,
-      tool: data.tool,
-      label: data.label || data.tool,
-      args: data.args,
+      tool: data.name,
+      label: data.label || data.name,
+      args: data.args ?? {},
       running: true,
       ok: true,
       title: '',
@@ -300,9 +393,8 @@ export const useChatStore = defineStore('chat', () => {
     const run = runMap.value[data.tool_call_id]
     if (!run) return
     run.running = false
-    run.ok = data.ok
-    run.title = data.title
-    run.output = data.output
+    run.ok = !data.is_error
+    run.output = data.result
     run.duration_ms = data.duration_ms
   }
 
@@ -324,23 +416,11 @@ export const useChatStore = defineStore('chat', () => {
     asks.value = asks.value.filter((a) => a.id !== data.id)
   }
 
-  function onDone(data: DoneData) {
+  function onDone(_data: DoneData) {
     running.value = false
     stopping.value = false
     stopTicker()
     retrying.value = false
-    switch (data.stop_reason) {
-      case 'length':
-        truncated.value = true
-        truncBudget.value = data.max_tokens || 0
-        break
-      case 'max_turns':
-        notice.value = tt('chat.noticeMaxTurns')
-        break
-    }
-    if (data.usage) {
-      seed(data.usage.context, contextWindow.value, contextKnown.value)
-    }
     // 不在这时丢 parts：快照到手后由 clearLive() 换掉，中间不留空白。
     finalizing.value = true
     asks.value = []
@@ -390,15 +470,14 @@ export const useChatStore = defineStore('chat', () => {
   function onCompressed(data: CompressedData) {
     notice.value = tt('chat.noticeCompressed', {
       before: data.tokens_before,
-      after: data.tokens_after,
+      // 压缩后读数事件里没有，留空占位
+      after: '',
     })
   }
 
   function onRetry(data: RetryData) {
     retrying.value = true
-    notice.value = data.message
-      ? tt('chat.noticeRetryReason', { attempt: data.attempt, max: data.max, msg: data.message })
-      : tt('chat.noticeRetry', { attempt: data.attempt, max: data.max })
+    notice.value = tt('chat.noticeRetry', { attempt: data.attempt, max: data.max })
   }
 
   async function cancelRetry(sessionId: string) {
@@ -409,11 +488,11 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function onContext(data: ContextData) {
-    contextUsed.value = data.used
-    contextWindow.value = data.window
-    contextKnown.value = data.known !== false
-    contextReserve.value = data.reserve || 0
-    contextRatio.value = Math.max(0, Math.min(100, Math.round(data.ratio || 0)))
+    contextUsed.value = Math.max(0, data.usage?.context || 0)
+    if (data.context_window > 0) contextWindow.value = data.context_window
+    contextKnown.value = data.context_window > 0
+    // 后端给的是 0-1 占用比；store 统一存百分比，与 seed() 口径一致
+    contextRatio.value = Math.max(0, Math.min(100, Math.round((data.ratio || 0) * 100)))
   }
 
   // ---- 快照回填：进入 / 切换会话立刻有水位读数 ----
@@ -433,25 +512,26 @@ export const useChatStore = defineStore('chat', () => {
   function lastContextOf(messages: MessageVO[]): number {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
-      if (m.role === 'assistant' && (m.usage?.context || 0) > 0) return m.usage?.context || 0
+      if (m.message_role === 'assistant' && (m.message_usage?.usage_context || 0) > 0)
+        return m.message_usage?.usage_context || 0
     }
     return 0
   }
 
-  /** 模型窗口从 models.json 读：SessionVO.model 找到同 id 的条目。
-   *  配置里留空（0）时按兵底值算：0 会让水位环永远显示 0%。 */
+  /** 模型窗口从模型配置读：按 provider/model id 找同 id 的条目。
+   *  配置里留空（0）时按兜底值算：0 会让水位环永远显示 0%。 */
   function windowOf(provider: string, model: string): { window: number; max: number } {
-    const list = useSettingsStore().providers?.providers ?? []
-    const pick = (m: { context_window: number; max_tokens: number }) => ({
-      window: m.context_window > 0 ? m.context_window : 300000,
-      max: m.max_tokens > 0 ? m.max_tokens : 64000,
+    const list = useSettingsStore().providers ?? []
+    const pick = (m: ModelVO) => ({
+      window: m.model_context_window > 0 ? m.model_context_window : 300000,
+      max: m.model_max_tokens > 0 ? m.model_max_tokens : 64000,
     })
-    const target = list.find((p) => p.id === provider) ?? list[0]
+    const target = list.find((p) => p.provider_id === provider) ?? list[0]
     if (!target) return { window: 300000, max: 64000 }
-    const hit = target.models.find((m) => m.id === model)
+    const hit = target.provider_models.find((m) => m.model_id === model)
     if (hit) return pick(hit)
     for (const p of list) {
-      const m = p.models.find((x) => x.id === model)
+      const m = p.provider_models.find((x) => x.model_id === model)
       if (m) return pick(m)
     }
     return { window: 300000, max: 64000 }
@@ -467,7 +547,7 @@ export const useChatStore = defineStore('chat', () => {
     notice.value = text
   }
 
-  function onGap() {
+  function onGap(_data?: GapData) {
     notice.value = tt('chat.noticeGap')
     running.value = false
     stopping.value = false
@@ -476,11 +556,11 @@ export const useChatStore = defineStore('chat', () => {
     runMap.value = {}
   }
 
-  // ---- 引擎扩展的 fire-and-forget 反馈 ----
+  // ---- 引擎的 fire-and-forget 反馈 ----
 
   function onNotify(data: NotifyData) {
     const t = useToastStore()
-    const msg = stripAnsi(data.message || '')
+    const msg = stripAnsi(data.text || '')
     if (data.level === 'error') t.bad(msg)
     else if (data.level === 'warning') t.info(`⚠ ${msg}`)
     else t.info(msg)
@@ -502,7 +582,7 @@ export const useChatStore = defineStore('chat', () => {
     engineWidgets.value = next
   }
 
-  function onTitle(data: { title: string }) {
+  function onTitle(data: TitleData) {
     suggestedTitle.value = (data.title || '').trim()
   }
 
@@ -519,8 +599,6 @@ export const useChatStore = defineStore('chat', () => {
     lastError,
     lastErrorCode,
     notice,
-    truncated,
-    truncBudget,
     contextUsed,
     contextWindow,
     contextRatio,

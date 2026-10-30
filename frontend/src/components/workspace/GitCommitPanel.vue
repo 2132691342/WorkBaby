@@ -20,15 +20,15 @@ const busy = ref('')
 const drafting = ref(false)
 const amend = ref(false)
 
-const files = computed<GitFileVO[]>(() => props.status?.files || [])
-const pickedFiles = computed(() => files.value.filter((f) => picked.value.has(f.path)))
-const stagedFiles = computed(() => files.value.filter((f) => f.staged))
+const files = computed<GitFileVO[]>(() => props.status?.git_files || [])
+const pickedFiles = computed(() => files.value.filter((f) => picked.value.has(f.git_path)))
+const stagedFiles = computed(() => files.value.filter((f) => f.git_staged))
 
 const sum = computed(() =>
   pickedFiles.value.reduce(
     (n, f) => {
-      n.add += f.additions
-      n.del += f.deletions
+      n.add += f.git_additions
+      n.del += f.git_deletions
       return n
     },
     { add: 0, del: 0 },
@@ -54,21 +54,21 @@ const somePicked = computed(() => pickedFiles.value.length > 0 && !allPicked.val
 function toggleAll() {
   if (busy.value) return
   const next = new Set<string>()
-  if (!allPicked.value) for (const f of files.value) next.add(f.path)
+  if (!allPicked.value) for (const f of files.value) next.add(f.git_path)
   picked.value = next
 }
 
 // 换了一批文件（提交完 / 刷新后）就按新状态重算勾选：留着上一次的勾会提交错东西
 function syncPicked() {
   const next = new Set<string>()
-  for (const f of files.value) if (f.staged) next.add(f.path)
+  for (const f of files.value) if (f.git_staged) next.add(f.git_path)
   picked.value = next
 }
 watch(() => props.status, syncPicked)
 syncPicked()
 
 async function stage() {
-  const paths = pickedFiles.value.filter((f) => !f.staged).map((f) => f.path)
+  const paths = pickedFiles.value.filter((f) => !f.git_staged).map((f) => f.git_path)
   if (!paths.length) return
   busy.value = 'stage'
   try {
@@ -84,7 +84,7 @@ async function unstageAll() {
   if (!stagedFiles.value.length) return
   busy.value = 'unstage'
   try {
-    emit('done', await api.git.unstage(stagedFiles.value.map((f) => f.path), props.sessionId))
+    emit('done', await api.git.unstage(stagedFiles.value.map((f) => f.git_path), props.sessionId))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
@@ -109,12 +109,12 @@ async function draft() {
   if (drafting.value) return
   drafting.value = true
   try {
-    const res = await api.git.draftMessage(pickedFiles.value.map((f) => f.path), props.sessionId)
-    if (res.err) {
-      toast.bad(t('common.saveFailed', { msg: res.err }))
+    const res = await api.git.draftMessage(pickedFiles.value.map((f) => f.git_path), props.sessionId)
+    if (res.resp_err) {
+      toast.bad(t('common.saveFailed', { msg: res.resp_err }))
       return
     }
-    message.value = res.message
+    message.value = res.resp_message
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
   } finally {
@@ -133,11 +133,11 @@ async function commit() {
     message.value = ''
     const wasAmend = amend.value
     amend.value = false
-    emit('done', res.status)
+    emit('done', res.resp_status)
     toast.ok(
       wasAmend
-        ? t('workspace.amendOk', { hash: res.hash.slice(0, 7) })
-        : t('workspace.commitOk', { hash: res.hash.slice(0, 7) }),
+        ? t('workspace.amendOk', { hash: res.resp_hash.slice(0, 7) })
+        : t('workspace.commitOk', { hash: res.resp_hash.slice(0, 7) }),
     )
   } catch (e) {
     toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
@@ -147,9 +147,9 @@ async function commit() {
 }
 
 const canCommit = computed(() => pickedFiles.value.length > 0 && !!message.value.trim() && !busy.value)
-const needStage = computed(() => pickedFiles.value.some((f) => !f.staged))
+const needStage = computed(() => pickedFiles.value.some((f) => !f.git_staged))
 // 有冲突时 git 不接受提交，这时要先把冲突文件标记已解决
-const hasConflict = computed(() => files.value.some((f) => f.conflict))
+const hasConflict = computed(() => files.value.some((f) => f.git_conflict))
 </script>
 
 <template>
@@ -186,27 +186,27 @@ const hasConflict = computed(() => files.value.some((f) => f.conflict))
 
       <div v-if="!files.length" class="cmt-empty">{{ t('workspace.noChanges') }}</div>
       <ul v-else class="cmt-list">
-        <li v-for="f in files" :key="f.path">
-          <div class="cmt-row" :class="{ 'is-on': picked.has(f.path), 'is-conflict': f.conflict }">
+        <li v-for="f in files" :key="f.git_path">
+          <div class="cmt-row" :class="{ 'is-on': picked.has(f.git_path), 'is-conflict': f.git_conflict }">
             <el-checkbox
-              :model-value="picked.has(f.path)"
+              :model-value="picked.has(f.git_path)"
               :disabled="!!busy"
-              @change="toggle(f.path)"
+              @change="toggle(f.git_path)"
             />
-            <AppIcon :name="f.conflict ? 'alert' : 'doc'" size="ic-xs" />
-            <span class="cmt-path" :title="f.path">{{ shortPath(f.path) }}</span>
-            <el-tag v-if="f.conflict" size="small" type="warning">{{ t('workspace.conflict') }}</el-tag>
-            <el-tag v-else-if="f.staged" size="small" type="primary">{{ t('workspace.staged') }}</el-tag>
+            <AppIcon :name="f.git_conflict ? 'alert' : 'doc'" size="ic-xs" />
+            <span class="cmt-path" :title="f.git_path">{{ shortPath(f.git_path) }}</span>
+            <el-tag v-if="f.git_conflict" size="small" type="warning">{{ t('workspace.conflict') }}</el-tag>
+            <el-tag v-else-if="f.git_staged" size="small" type="primary">{{ t('workspace.staged') }}</el-tag>
             <span class="cmt-stat">
-              <b class="is-add">+{{ f.additions }}</b>
-              <b class="is-del">−{{ f.deletions }}</b>
+              <b class="is-add">+{{ f.git_additions }}</b>
+              <b class="is-del">−{{ f.git_deletions }}</b>
             </span>
             <el-popconfirm
               :title="t('workspace.discardConfirm')"
               :confirm-button-text="t('workspace.discard')"
               :cancel-button-text="t('common.cancel')"
               width="250"
-              @confirm="discardOne(f.path)"
+              @confirm="discardOne(f.git_path)"
             >
               <template #reference>
                 <button

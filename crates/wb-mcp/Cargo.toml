@@ -1,0 +1,14 @@
+[package]
+name = "wb-mcp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wb-pkg = { workspace = true }
+wb-domain = { workspace = true }
+rmcp = { version = "3.8.0", features = ["client", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+http = "1"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }

@@ -1,4 +1,4 @@
-// 会话列表与当前会话：会话目录即真相，列表来自 PI 的会话文件。
+// 会话列表与当前会话：列表来自后端会话索引，详情来自会话文件回放。
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '../api'
@@ -12,21 +12,19 @@ export const useSessionStore = defineStore('session', () => {
   const currentId = ref<string | null>(null)
   const currentSession = ref<SessionVO | null>(null)
   const messages = ref<MessageVO[]>([])
-  /** 侧栏的工作目录过滤；空串表示全部 */
-  const workspaceFilter = ref('')
 
   const current = computed(
     () =>
-      list.value.find((s) => s.id === currentId.value) ||
-      (currentSession.value?.id === currentId.value ? currentSession.value : null),
+      list.value.find((s) => s.session_id === currentId.value) ||
+      (currentSession.value?.session_id === currentId.value ? currentSession.value : null),
   )
 
   async function loadList() {
-    list.value = await api.sessions.list(workspaceFilter.value)
+    list.value = await api.sessions.list()
     return list.value
   }
 
-  /** 新对话：不建会话——PI 那边要等第一条消息才肯落盘 */
+  /** 新对话：不建会话——要等第一条消息才落盘 */
   function draft() {
     currentId.value = null
     currentSession.value = null
@@ -45,16 +43,16 @@ export const useSessionStore = defineStore('session', () => {
       if (currentId.value !== id) messages.value = []
       currentId.value = id
       const detail = await api.sessions.detail(id)
-      if (!detail || !Array.isArray(detail.messages)) {
+      if (!detail || !Array.isArray(detail.detail_messages)) {
         throw new Error(i18n.global.t('chat.snapshotBroken'))
       }
-      messages.value = detail.messages
-      const idx = list.value.findIndex((s) => s.id === id)
-      if (idx >= 0) list.value[idx] = detail.session
-      currentSession.value = detail.session
+      messages.value = detail.detail_messages
+      const idx = list.value.findIndex((s) => s.session_id === id)
+      if (idx >= 0) list.value[idx] = detail.detail_session
+      currentSession.value = detail.detail_session
       // 快照带运行态：切回一条还在跑的会话时立刻回到运行中（插话 / 排队模式），
       // 不能等下一帧事件才「发现」它在跑——它可能已经跑完了整轮。
-      if (detail.session.running) useChatStore().resumeRunning()
+      if (detail.detail_session.session_running) useChatStore().resumeRunning()
     } finally {
       if (openingId.value === id) openingId.value = null
     }
@@ -73,7 +71,7 @@ export const useSessionStore = defineStore('session', () => {
     currentSession.value = null
     try {
       await loadList()
-      const found = list.value.find((s) => s.id === id)
+      const found = list.value.find((s) => s.session_id === id)
       if (found) currentSession.value = found
     } catch {
       // 列表没刷出来不影响这一轮：会话编号已经切过去了
@@ -86,7 +84,15 @@ export const useSessionStore = defineStore('session', () => {
   function echoUserMessage(content: string) {
     messages.value = [
       ...messages.value,
-      { id: `local-${Date.now()}`, role: 'user', type: 'text', content, created_at: Date.now() },
+      {
+        message_id: `local-${Date.now()}`,
+        message_role: 'user',
+        message_type: 'text',
+        message_content: content,
+        message_blocks: [],
+        message_tool_calls: [],
+        message_created_at: Date.now(),
+      },
     ]
   }
 
@@ -95,7 +101,7 @@ export const useSessionStore = defineStore('session', () => {
     await loadList()
     if (currentId.value === id) {
       const next = list.value[0]
-      if (next) await open(next.id)
+      if (next) await open(next.session_id)
       else draft()
     }
   }
@@ -118,11 +124,6 @@ export const useSessionStore = defineStore('session', () => {
     await loadList()
   }
 
-  function setWorkspaceFilter(workspace: string) {
-    workspaceFilter.value = workspace
-    void loadList()
-  }
-
   return {
     list,
     currentId,
@@ -131,7 +132,6 @@ export const useSessionStore = defineStore('session', () => {
     messages,
     openingId,
     adopting,
-    workspaceFilter,
     loadList,
     draft,
     open,
@@ -141,7 +141,6 @@ export const useSessionStore = defineStore('session', () => {
     rename,
     setModel,
     setThinking,
-    setWorkspaceFilter,
     echoUserMessage,
   }
 })

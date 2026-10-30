@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "src-tauri"]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2021"
+rust-version = "1.85"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs", "io-util", "net", "signal"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+async-trait = "0.1"
+thiserror = "2"
+ulid = { version = "1", features = ["serde"] }
+regex = "1"
+dunce = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip"] }
+eventsource-stream = "0.2"
+futures = "0.3"
+axum = { version = "0.8", features = ["json", "query"] }
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+tracing-appender = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+ignore = "0.4"
+walkdir = "2"
+
+wb-pkg = { path = "crates/wb-pkg" }
+wb-domain = { path = "crates/wb-domain" }
+wb-repo = { path = "crates/wb-repo" }
+wb-provider = { path = "crates/wb-provider" }
+wb-tools = { path = "crates/wb-tools" }
+wb-kernel = { path = "crates/wb-kernel" }
+wb-skills = { path = "crates/wb-skills" }
+wb-features = { path = "crates/wb-features" }
+wb-git = { path = "crates/wb-git" }
+wb-mcp = { path = "crates/wb-mcp" }
+wb-service = { path = "crates/wb-service" }
+wb-api = { path = "crates/wb-api" }

@@ -1,130 +1,92 @@
 # WorkBaby
 
-**PI 的桌面工作台。** 它不自己实现 AI——它做一件更实际的事：把只会在终端里跑的
-coding agent 引擎，变成一个能看、能点、能管的工作台。
+一个能干活的个人 AI 助手——Windows 桌面客户端。Rust 内核 + Tauri 壳，
+12 项内置 agent 能力与 21 个内置技能，全部可开关。
 
-```
-PI 负责运行 Agent，WorkBaby 负责让你看见并控制它是怎么运行的。
-```
+## 它是什么
 
-## 你会得到什么
+- **对话即工作**：选好模型直接开聊，助手会读文件、跑命令、改代码、查资料、写文档；
+  全过程流式可见——工具执行有卡片、思考有折叠块、上下文有水位环。
+- **自带内核**：会话循环、工具执行、上下文压缩、自动重试、子代理全部是 Rust 实现，
+  进程内运行，不依赖外部 agent 进程，也不需要 Node 运行时。
+- **能力可开关**：待办清单、结构化提问、持久记忆、联网搜索、省上下文沙箱、模糊搜索、
+  LSP 诊断、计划评审、目标追踪、装载配置、内省面板、上下文用量地图——12 项功能原生实现，
+  一键启停，关掉即从工具表撤出。
+- **技能随应用分发**：前端与全栈开发、Office 三件套（docx/xlsx/pdf）、文档转换、TDD、
+  诊断、任务对齐与执行等 21 个技能打包进二进制，也可导入用户自己的技能。
 
-| | 能力 |
-|---|---|
-| 对话 | 流式正文、思考段、工具卡（参数 / 输出 / 耗时 / 就地看改动）按**原始顺序**内联；插话、排队、停止、自动重试提示 |
-| 斜杠命令 | 输入 `/` 开菜单：内置动作（压缩上下文 / 导出 / 复制 / 重载 / 换模型 …）+ 引擎报上来的扩展命令与提示模板 + 技能 |
-| 会话 | 读 PI 的会话目录：终端里聊过的这里也看得到，点开接着聊 |
-| 提问 | PI 的扩展要确认 / 单选 / 填空时，界面出卡，回答写回内核 |
-| 模型 | 读写 PI 的 `models.json`：这里加的服务商，`pi` 命令立刻能用 |
-| 技能 | 列出 PI 真正会加载的技能（用户目录 / 工作区 / 插件包），启停靠移目录 |
-| 插件 | 包走 `pi install/remove`，扩展走 `extensions/` + 登记表；安装进度流式打到面板；插件市场按 npm 关键字列出生态里的可装包并标出已装 |
-| 工具 | 清单来自 PI 写的工具声明（内置 / 插件 / MCP），开关写 `defaultTools` |
-| MCP | 配置原文编辑 + 在线状态与工具清单，支持 OAuth 登录 |
-| 工作区 | 改动 / 提交 / 历史 / 分支：助手动了什么，在这里对账并收成一次提交；对话里也能直接看单个文件的改动 |
-| 仪表盘 | token 与估算花费（按天 / 模型 / 会话），全部来自会话文件 |
-| 环境 | 优先复用本机已有的 PI / Node / Git：合规就直接用，一个字节都不解压；一份能跑的都没有才解压内置运行时。装 PI 与插件包的 npm 跟随当前生效的 Node，官方源与国内镜像自动选快的那个 |
-| 工具链 | 用哪份 Node 装的引擎就绑定哪份：之后升级、插件增删改、终端入口全回到它；系统里后来装了 Node 可以一键换过去 |
-| 提级 | Node / Git / PI 三个组件各自可挂系统级 / 用户级 / 不挂：写系统级经 UAC，提级前先查「会不会遮住已经在用的那份」 |
-| 命令执行 | 自动找出真正可用的 bash（Git Bash / MSYS2 / Cygwin，含自定义安装目录），剔掉跑不动的 WSL 启动器；本机一份都没有时解压内置 Git Bash 兜底 |
-| 终端 | 生成 `pi` 的终端入口并挂 PATH：新开一个终端就能直接敲 `pi`；`pi` 本来就在 PATH 上时不重复生成 |
-
-「能看见」的落点是工具卡、提问卡、工作区差异与用量仪表盘；
-「能控制」的落点是每一个落盘配置的开关与 PI 自己的命令行。
-
-## 它不做什么
-
-- 不重写 Agent 内核：工具、压缩、重试、缓存、编辑、MCP、扩展、子代理全由 PI 演进；
-- 不另装一道审批闸门、不改 PI 的默认行为（默认不打断是 PI 的设计，要闸门就装一个扩展）；
-- 不再存一份会话与用量：那是两本账，两本账迟早分叉。
-
-## 技术栈
+## 技术形态
 
 | 层 | 选型 |
 |---|---|
-| 语言 | Go 1.24（单 module） |
-| 桌面壳 | Wails v2（Frameless，前端自绘标题栏） |
-| 业务 API | gin（回环 + 随机端口，只允许 GET / POST） |
-| 实时通信 | SSE（`/api/v1/events`） |
-| 存储 | SQLite（WAL，pure-Go 无 CGO）：**只存界面设置 KV** |
-| 配置 | Viper（工作目录等固定项） |
-| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router（hash） |
-| UI | Element Plus（基元）+ UnoCSS（原子类，刻度接 `--wb-*` 令牌） |
-| 样式 | CSS 设计令牌：`themes.css` + `ep-theme.css` + `base.css` + `content.css` |
-| 图表 | ECharts（按需注册，色值取 `--wb-ch-*`） |
-| 渲染 | marked + DOMPurify + highlight.js（唯一出口 `utils/md.ts`） |
-| 编辑 | CodeMirror 6（markdown / json） |
-| 国际化 | Vue I18n（zh-CN 默认 + en） |
-| 运行时 | 内置 Node 24 / Git Bash（MinGit）（`go:embed`，能复用本机的就不解压） |
+| 桌面壳 | Tauri 2（WebView2，Frameless 自绘标题栏，托盘常驻，单实例） |
+| 业务服务 | 内嵌 axum HTTP（127.0.0.1 随机端口）+ SSE 实时事件流 |
+| Agent 内核 | `wb-kernel`：会话树 / 工具批执行 / 上下文压缩 / 重试 / 子代理 |
+| 模型接入 | OpenAI 兼容 · Anthropic Messages · Google Generative AI 三族 wire API，`models.json` 自定义 Provider |
+| 存储 | 会话 JSONL（树形条目，可分支编辑）+ SQLite（设置 / 索引 / 统计 / 记忆 FTS5） |
+| 前端 | Vue 3.5 + TypeScript + Vite 6 + Element Plus（按需）+ UnoCSS + ECharts + Vue I18n |
 
-## 目录
+## 架构分层
 
 ```
-WorkBaby/
-├── main.go                  入口：embed + wails.Run + 单实例守卫
-├── app.go                   App（持有 *api.Handler，生命周期委托给它；不嵌入，见 specs/04）
-├── backend/
-│   ├── server/              gin 路由 / SSE hub / 统一响应 / 方法白名单
-│   ├── api/                 薄 handler + 系统能力绑定（唯一允许 import wails 的包）
-│   ├── pi/                  能力域：子进程监督 / RPC 编解码 / 事件归一 / 会话文件索引
-│   │   ├── env/             运行时复用、PI 安装与探测、models/settings/mcp 互通
-│   │   ├── pitest/          假 PI 进程（测试夹具：走真管道的 RPC 替身）
-│   │   └── piptest/         编译假 PI、定位仓库根（测试夹具）
-│   ├── service/             编排：会话 / 对话 / 模型 / 技能 / 插件 / 工具 / MCP / 统计 / 设置
-│   ├── repo/                GORM（只有设置 KV）
-│   ├── domain/              域模型（一个聚合根一个文件）
-│   ├── skill/               技能解析与注册表（目录即 PI 的技能目录）
-│   ├── git/                 工作区版本视图（读全开放 + 写白名单动作；冲突处置与分级强制推送）
-│   ├── runtime/             路径解析 + 内置 Node / Git Bash 运行时
-│   ├── config/ db/ pkg/     配置 / 迁移 / 叶子工具包
-│   └── tray/ singleinstance/
-├── frontend/src/            api / components / composables / locales / stores / types / utils / views + 四个 CSS
-├── assets/docs/             内置帮助手册
-└── docs/ specs/             项目级文档与子系统规格
+src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-features, wb-skills, wb-git, wb-mcp, wb-repo}
+                                            │
+              wb-kernel ──► {wb-tools, wb-provider, wb-domain, wb-pkg}
+              wb-features ──► {wb-tools, wb-repo, wb-domain, wb-pkg}
+                                            │
+                              wb-provider ──► {wb-domain, wb-pkg}
+                                            │
+                                wb-domain ──► wb-pkg
 ```
 
-## 开发
-
-```bash
-wails dev                            # 热重载（前端改完自动刷新）
-go test ./... -short -count=1        # 日常：全部短测试（跳过真 git / 真解压 / 本机真 PI）
-go test ./backend/pi/env -count=1    # 只验一个包
-go test ./... -run 'TestPiChain/冲突' -count=1   # 只跑名字命中的子测试
-go test ./... -count=1               # 全量（提交前 / CI）
-cd frontend && npm run build         # 改了前端：vue-tsc -b && vite build
-wails build                          # 产物 build/bin/WorkBaby.exe
-```
-
-跑起来要 Go 1.24+、Node 24+、Wails CLI。PI 与模型不预装也行：环境向导会带用户装。
+依赖方向由 Cargo 编译期强制：`wb-domain` 是叶子（只依赖 `wb-pkg`），
+`wb-api` 是唯一知道 HTTP 的地方，`wb-service` 编排而不实现细节。
 
 ## 文档
 
 | 文档 | 内容 |
 |---|---|
-| [AGENTS.md](AGENTS.md) | 工程规范（唯一权威：分包 / 依赖方向 / 错误码 / 测试 / 命名） |
-| [DESIGN.md](DESIGN.md) | 视觉语言与交互原则 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层与依赖、启动时序、一次对话的链路、事件出口、消息顺序、前端状态归属、关键取舍 |
-| [docs/MODULES.md](docs/MODULES.md) | **模块设计**：模块与规格索引；每个模块是什么、怎么实现、为什么、优势与代价 |
-| [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 哪些数据属于 PI、哪些属于 WorkBaby、会话文件里读什么 |
-| [docs/API-CONTRACT.md](docs/API-CONTRACT.md) | HTTP 与 SSE 契约（路径表 + 事件表） |
-| [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 页面与组件地图 |
-| [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 错误码段位与前端分流 |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 构建、安装器、CI 与 Release |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 环境要求、验证入口、数据位置、改代码时看什么 |
+| [AGENTS.md](AGENTS.md) | 工程规范唯一权威：分层 / 命名 / 错误码 / 注释 / 门禁 |
+| [DESIGN.md](DESIGN.md) | 视觉语言：令牌 / 表面阶梯 / 按钮五态 / 布局 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 整体架构、进程模型、数据流、关键取舍 |
+| [docs/MODULES.md](docs/MODULES.md) | 每个 crate 的职责 / 对外接口 / 边界 |
+| [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 数据模型：会话树 / 设置 / 索引 / 统计 / 记忆 |
+| [docs/API.md](docs/API.md) | HTTP 契约：端点 / 信封 / 事件流 |
+| [docs/PAGES.md](docs/PAGES.md) | 前端页面与组件结构 |
+| [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 业务错误码全表与处置建议 |
+| [docs/DEV.md](docs/DEV.md) | 开发环境、构建、验证流程 |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | 打包与分发 |
 
-### 子系统规格（specs）
+## 开发
 
-一个子系统一篇，每篇都是「定位 → 设计 → 契约 → 关键流程 → 约束 → 取舍」。
+```bash
+# 后端
+cargo check --workspace          # 编译检查
+cargo test --workspace           # 测试
 
-| # | 子系统 | # | 子系统 |
-|---|---|---|---|
-| [01](specs/01-runtime.md) | 运行时与路径 | [08](specs/08-workspace-git.md) | 工作区版本视图 |
-| [02](specs/02-session.md) | 会话 | [09](specs/09-mcp.md) | MCP 外部工具 |
-| [03](specs/03-skill.md) | 技能 | [10](specs/10-pi-supervisor.md) | PI 监督 |
-| [04](specs/04-desktop-shell.md) | 桌面壳 | [11](specs/11-pi-bootstrap.md) | PI 引导 |
-| [06](specs/06-prompt-and-settings.md) | 模型、提示与人设 | [12](specs/12-workspace-files.md) | 工作区文件面板 |
-| [07](specs/07-usage-and-context.md) | 用量与上下文 | [13](specs/13-extensions.md) | 插件（扩展与包） |
+# 前端
+cd frontend && npm install
+npm run typecheck                # 类型检查
+npm run build                    # 构建到 frontend/dist
+npm run dev                      # 前端开发服务器
+npm run tauri dev                # 整体开发模式（壳 + 热更）
 
-应用内置手册面向用户（`assets/docs/`，实现见 [PAGE-STRUCTURE](docs/PAGE-STRUCTURE.md)「HelpView」），
-specs 与 docs 面向开发，两者不重复维护同一份话术。
+# 一键验证
+bash scripts/check.sh            # 编译 + 测试 + 类型检查 + 构建
+bash scripts/check-slow.sh       # 需要真实外部环境的慢速测试
+```
 
-内部项目，未公开发布。
+## 优势与局限
+
+**优势**
+
+- 内核在进程内：没有子进程通信的协议漂移，也没有 Node 运行时依赖，响应延迟与错误可诊断性都更好。
+- 能力全部原生：12 项功能共用同一套 `Tool` 契约，开关即装配，不存在插件加载失败的可能。
+- 单色相设计系统：强调色只有靛蓝五档，界面层级靠明度与圆角表达，一眼能看出哪里可点。
+- 数据全在本地：会话是 JSONL、设置与索引是 SQLite，不依赖任何云端服务即可完整使用。
+
+**局限**
+
+- 仅支持 Windows：路径处理、进程启动与 UI 缩放都做了平台假设，不做跨平台抽象。
+- 模型服务商需要用户自备密钥：不内置任何免费额度。
+- 联网与语言诊断依赖外部依赖：搜索需要可达的网络，语言服务器需要用户自行安装。

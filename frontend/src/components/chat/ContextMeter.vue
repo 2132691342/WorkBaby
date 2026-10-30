@@ -1,8 +1,10 @@
 <script setup lang="ts">
-// 上下文水位：输入框底栏常驻的仪表环 + 读数。
+// 上下文水位：输入框底栏常驻的仪表环 + 读数；点开是 context_view 分解面板。
 // 无论是否开始对话、窗口是否已知，这里都必须有内容——什么都不显示等于用户没有这个信息。
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import * as api from '../../api'
+import type { ContextBreakdownRESP } from '../../types/api'
 import { fmtCount } from '../../utils/num'
 
 const props = defineProps<{
@@ -12,9 +14,32 @@ const props = defineProps<{
   known?: boolean
   /** 给模型输出留的余量：环的分母是「窗口 - 余量」，与助手开始整理的位置一致 */
   reserve?: number
+  /** 当前会话：非空时点开可拉上下文分解 */
+  sessionId?: string
 }>()
 
 const { t } = useI18n()
+
+// 分解面板：首次点开才拉取（懒加载），会话切换后重置
+const popOpen = ref(false)
+const breakdown = ref<ContextBreakdownRESP | null>(null)
+const breakdownLoading = ref(false)
+const breakdownErr = ref('')
+async function loadBreakdown() {
+  breakdownLoading.value = true
+  breakdownErr.value = ''
+  try {
+    breakdown.value = await api.contextBreakdown(props.sessionId || '')
+  } catch (e) {
+    breakdownErr.value = (e as Error)?.message || ''
+  } finally {
+    breakdownLoading.value = false
+  }
+}
+function onToggle(open: boolean) {
+  popOpen.value = open
+  if (open) void loadBreakdown()
+}
 
 const exact = computed(() => props.known !== false)
 const pct = computed(() => Math.max(0, Math.min(100, props.ratio || 0)))
@@ -51,18 +76,48 @@ const tip = computed(() => {
 </script>
 
 <template>
-  <el-tooltip :content="tip" placement="top" :show-after="250">
-    <span
-      class="ctx"
-      :class="[level, { 'is-est': !exact }]"
-      role="img"
-      :aria-label="tip"
-      :style="{ '--ctx-arc': arc }"
-    >
-      <span class="ring" aria-hidden="true" />
-      <span class="txt">{{ reading }}</span>
-    </span>
-  </el-tooltip>
+  <el-popover placement="top-start" :width="320" trigger="click" @show="onToggle(true)" @hide="onToggle(false)">
+    <template #reference>
+      <el-tooltip :content="tip" placement="top" :show-after="250">
+        <span
+          class="ctx"
+          :class="[level, { 'is-est': !exact }]"
+          role="img"
+          :aria-label="tip"
+          :style="{ '--ctx-arc': arc }"
+        >
+          <span class="ring" aria-hidden="true" />
+          <span class="txt">{{ reading }}</span>
+        </span>
+      </el-tooltip>
+    </template>
+
+    <div class="bd">
+      <div class="bd-head">
+        <b>上下文占用</b>
+        <span class="wb-mono bd-total">
+          {{ breakdown ? `${fmtCount(breakdown.resp_total_tokens)} / ${fmtCount(breakdown.resp_context_window)}` : reading }}
+        </span>
+      </div>
+      <div v-if="breakdownLoading" class="bd-state">加载中…</div>
+      <div v-else-if="breakdownErr" class="bd-state">{{ breakdownErr }}</div>
+      <template v-else-if="breakdown">
+        <div v-for="s in breakdown.resp_segments" :key="s.segment_name" class="bd-row">
+          <span class="bd-name">{{ s.segment_name }}</span>
+          <span class="bd-bar">
+            <span
+              class="bd-fill"
+              :style="{
+                width: `${breakdown.resp_total_tokens > 0 ? Math.min(100, (s.segment_tokens / breakdown.resp_total_tokens) * 100) : 0}%`,
+              }"
+            />
+          </span>
+          <span class="wb-mono bd-num">{{ fmtCount(s.segment_tokens) }}</span>
+        </div>
+        <p class="bd-hint">估算口径：字符数 / 4；用量以服务端返回为准。</p>
+      </template>
+    </div>
+  </el-popover>
 </template>
 
 <style scoped>
@@ -137,5 +192,63 @@ const tip = computed(() => {
 /* 窗口是估算值时读数降一档亮度：数字给全，但别当成实测值看 */
 .is-est .txt {
   opacity: 0.72;
+}
+/* 分解面板（context_view）：分段条形 + 读数，全部走令牌 */
+.bd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+}
+.bd-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: var(--wb-fs-sm);
+}
+.bd-total {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+}
+.bd-state {
+  padding: var(--wb-sp-3) 0;
+  text-align: center;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-muted);
+}
+.bd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  font-size: var(--wb-fs-2xs);
+}
+.bd-name {
+  width: calc(72px * var(--wb-vw-scale));
+  flex: none;
+  color: var(--wb-ink-2);
+}
+.bd-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-elev-hover);
+  overflow: hidden;
+}
+.bd-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-primary);
+  transition: width var(--wb-dur) var(--wb-ease);
+}
+.bd-num {
+  width: calc(56px * var(--wb-vw-scale));
+  text-align: right;
+  flex: none;
+  color: var(--wb-muted);
+}
+.bd-hint {
+  margin: 0;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
 }
 </style>

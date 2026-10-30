@@ -24,6 +24,14 @@ export function fmtMs(ms: number): string {
   return `${trim(v / 1000)} 秒`
 }
 
+/** 字节数按量级缩写：1536 → 1.5 KB */
+export function fmtBytes(n: number): string {
+  const v = Math.max(0, Math.round(n || 0))
+  if (v < 1024) return `${v} B`
+  if (v < 1024 * 1024) return `${trim(v / 1024)} KB`
+  return `${trim(v / 1024 / 1024)} MB`
+}
+
 /** 花费（美元）：小额保留三位，大额两位——0.003 显示成 0.00 等于没说 */
 export function fmtMoney(usd: number): string {
   const v = Math.max(0, usd || 0)

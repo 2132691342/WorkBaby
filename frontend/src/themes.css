@@ -111,6 +111,14 @@
   --wb-dur-slow: 240ms;
   --wb-ease: cubic-bezier(0.2, 0.6, 0.3, 1);
 
+  /* 按钮形变刻度：悬停放大 / 按下缩小。幅度决定“点击感”强度，
+     太大显轻浮、太小无感；1.06 / 0.92 是全站统一值，Element Plus 按钮与
+     自绘按钮必须共用，否则并排时两种手感对不上。 */
+  --wb-btn-scale-hover: 1.06;
+  --wb-btn-scale-press: 0.92;
+  /* 自绘按钮的按压深度（阴影收窄量），让“按下去”有实体感 */
+  --wb-btn-press-depth: 1px;
+
   --wb-z-panel: 20;
   --wb-z-pop: 60;
   --wb-z-modal: 80;

@@ -1,0 +1,21 @@
+[package]
+name = "wb-features"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wb-pkg = { workspace = true }
+wb-domain = { workspace = true }
+wb-tools = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+nucleo = "0.5"
+rusqlite = { workspace = true }
+reqwest = { workspace = true }
+futures = { workspace = true }
+ignore = { workspace = true }
+regex = { workspace = true }

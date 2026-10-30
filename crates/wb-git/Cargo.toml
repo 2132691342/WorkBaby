@@ -1,0 +1,8 @@
+[package]
+name = "wb-git"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wb-pkg = { workspace = true }
+wb-domain = { workspace = true }

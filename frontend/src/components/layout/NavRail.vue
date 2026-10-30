@@ -12,6 +12,13 @@ const router = useRouter()
 const ITEMS = [
   { key: 'chat', path: '/', icon: 'chat', labelKey: 'nav.chat', shortKey: 'navShort.chat' },
   {
+    key: 'overview',
+    path: '/overview',
+    icon: 'cpu',
+    labelKey: 'nav.overview',
+    shortKey: 'navShort.overview',
+  },
+  {
     key: 'workspace',
     path: '/workspace',
     icon: 'git-branch',
@@ -19,11 +26,32 @@ const ITEMS = [
     shortKey: 'navShort.workspace',
   },
   {
+    key: 'features',
+    path: '/features',
+    icon: 'zap',
+    labelKey: 'nav.features',
+    shortKey: 'navShort.features',
+  },
+  {
     key: 'skills',
-    path: '/settings/skills',
+    path: '/skills',
     icon: 'sparkles',
-    labelKey: 'settings.skills.title',
+    labelKey: 'nav.skills',
     shortKey: 'navShort.skills',
+  },
+  {
+    key: 'files',
+    path: '/files',
+    icon: 'folder',
+    labelKey: 'nav.files',
+    shortKey: 'navShort.files',
+  },
+  {
+    key: 'sessions',
+    path: '/sessions',
+    icon: 'doc',
+    labelKey: 'nav.sessions',
+    shortKey: 'navShort.sessions',
   },
   {
     key: 'dashboard',

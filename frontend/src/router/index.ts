@@ -7,9 +7,12 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     { path: '/', name: 'chat', component: () => import('../views/ChatView.vue') },
-    // 环境向导：pi_env.ready=false 时强制进这里，没有 PI 就没有对话。
-    { path: '/setup', name: 'setup', component: () => import('../views/SetupView.vue') },
+    { path: '/overview', name: 'overview', component: () => import('../views/OverviewView.vue') },
     { path: '/workspace', name: 'workspace', component: () => import('../views/WorkspaceView.vue') },
+    { path: '/features', name: 'features', component: () => import('../views/FeaturesView.vue') },
+    { path: '/skills', name: 'skills', component: () => import('../views/SkillsView.vue') },
+    { path: '/files', name: 'files', component: () => import('../views/FilesView.vue') },
+    { path: '/sessions', name: 'sessions', component: () => import('../views/SessionsView.vue') },
     { path: '/dashboard', name: 'dashboard', component: () => import('../views/DashboardView.vue') },
     { path: '/help/:name?', name: 'help', component: () => import('../views/HelpView.vue') },
     { path: '/settings/:tab?', name: 'settings', component: () => import('../views/SettingsView.vue') },

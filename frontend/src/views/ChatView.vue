@@ -32,7 +32,7 @@ const creating = ref(false)
 const empty = computed(() => !session.messages.length && !chat.running)
 
 // 没配默认模型时，欢迎页先把「去配置」顶到最前——不然第一条消息必然失败
-const needsSetup = computed(() => settings.boot?.pi_env?.model_ready === false)
+const needsSetup = computed(() => settings.boot?.boot_ready === false)
 
 /** 新对话：不建空会话——PI 那边第一条消息才落盘，这里只把界面切到草稿态 */
 function newSession() {
@@ -55,16 +55,17 @@ function newSession() {
 const sending = ref(false)
 const stopping = ref(false)
 
-async function send(text: string, attachments: AttachmentREQ[]) {
+async function send(text: string, _attachments: AttachmentREQ[]) {
   if (sending.value) return
   // loading 必须挂在最前面：没有会话时要先建会话，反馈晚于点击一秒以上会被当成没点上
   sending.value = true
   try {
-    const sent = await chat.send(session.currentId || '', text, attachments)
+    // chat.send 契约只带正文（附件由会话内 @ 引用链路承接），发送体不再携带文件
+    const sent = await chat.send(session.currentId || '', text)
     // 立刻回显：等 chat:done 拉快照才显示的话，用户会以为消息没发出去
     session.echoUserMessage(text)
-    if (!session.currentId && sent?.session_id) {
-      await session.adopt(sent.session_id)
+    if (!session.currentId && sent?.resp_session_id) {
+      await session.adopt(sent.resp_session_id)
     }
   } catch (e) {
     toast.bad(t('chat.sendFailed', { msg: (e as Error)?.message || '' }))
@@ -123,9 +124,9 @@ async function resume() {
 // 重试：把最后一条用户消息原样再发一次
 async function retry() {
   if (chat.running) return
-  const last = [...session.messages].reverse().find((m) => m.role === 'user')
-  if (!last?.content) return
-  await send(last.content, [])
+  const last = [...session.messages].reverse().find((m) => m.message_role === 'user')
+  if (!last?.message_content) return
+  await send(last.message_content, [])
 }
 
 // 桌面壳意图（托盘「新建对话」/ 外部打开文件）在这里落地
@@ -153,7 +154,7 @@ onMounted(async () => {
   if (want && want !== session.currentId) {
     await session.open(want)
   } else if (!session.currentId) {
-    if (session.list.length) await session.open(session.list[0].id)
+    if (session.list.length) await session.open(session.list[0].session_id)
     else session.draft()
   }
   if (want) router.replace({ query: { ...route.query, session: undefined } })
@@ -182,12 +183,12 @@ function pickExample(text: string) {
 // 快照到手就回填上下文水位
 function seedContext() {
   if (chat.running) return
-  const provider = session.current?.provider || settings.boot?.default_provider || ''
-  const model = session.current?.model || settings.boot?.default_model || ''
+  const provider = session.current?.session_provider || settings.boot?.boot_default_provider || ''
+  const model = session.current?.session_model || settings.boot?.boot_default_model || ''
   void chat.seedContext(provider, model, session.messages)
 }
 watch(() => [session.currentId, session.messages] as const, seedContext, { immediate: true })
-watch(() => settings.boot?.default_model, seedContext)
+watch(() => settings.boot?.boot_default_model, seedContext)
 </script>
 
 <template>

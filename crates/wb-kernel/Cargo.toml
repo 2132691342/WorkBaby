@@ -1,0 +1,18 @@
+[package]
+name = "wb-kernel"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wb-pkg = { workspace = true }
+wb-domain = { workspace = true }
+wb-provider = { workspace = true }
+wb-tools = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }

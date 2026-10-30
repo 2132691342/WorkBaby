@@ -16,15 +16,15 @@ const settings = useSettingsStore()
 
 const model = computed(() => {
   const s = session.current
-  return s?.model || settings.boot?.default_model || ''
+  return s?.session_model || settings.boot?.boot_default_model || ''
 })
 const provider = computed(() => {
   const s = session.current
-  return s?.provider || settings.boot?.default_provider || ''
+  return s?.session_provider || settings.boot?.boot_default_provider || ''
 })
 
 const thinking = computed(() => {
-  const level = session.current?.thinking_level
+  const level = session.current?.session_thinking_level
   return level ? t(`thinking.${level}`) : ''
 })
 

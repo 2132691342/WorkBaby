@@ -5,7 +5,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
-import { OpenDirectoryDialog } from '../../../wailsjs/go/main/App'
+import { pickFolder } from '../../api/shell'
 import AppIcon from '../common/AppIcon.vue'
 
 const { t } = useI18n()
@@ -13,7 +13,7 @@ const settings = useSettingsStore()
 const toast = useToastStore()
 const busy = ref(false)
 
-const current = computed(() => settings.values['workspace'] || settings.boot?.workspace || '')
+const current = computed(() => settings.values['workspace'] || settings.boot?.boot_workspace || '')
 const short = computed(() => {
   const p = current.value
   if (!p) return t('settings.behavior.workspace')
@@ -25,7 +25,7 @@ async function pick() {
   if (busy.value) return
   busy.value = true
   try {
-    const dir = await OpenDirectoryDialog(t('settings.behavior.workspacePick'))
+    const dir = await pickFolder(t('settings.behavior.workspacePick'))
     if (!dir || dir === current.value) return
     await settings.setValue('workspace', dir)
     await settings.loadBoot()

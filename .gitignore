@@ -1,65 +1,28 @@
-# Go
-/WorkBaby
-/WorkBaby.exe
-*.exe
-# 构建产物：本地 wails build 输出，**不入库**（含可执行文件与 NSIS 安装器）；
-# 安装器走 GitHub Actions tag 触发构建并上传到 GitHub Release，
-# 避免每次本地构建触发 LFS pointer 变化、git status 永远 modified。
-/build/bin/
+# Rust 构建产物
+/target/
+frontend/target/
 
-# Wails
-/build/darwin/
-/build/windows/
-# 安装脚本源码入库（installer/tmp 等构建产物仍忽略）
-!/build/windows/
-/build/windows/*
-!/build/windows/installer/
-/build/windows/installer/*
-# 手写的安装脚本源码：项目自己的 .nsi 与 .nsh
-!/build/windows/installer/*.nsi
-!/build/windows/installer/*.nsh
-# 但 wails 每次 `wails build` 都会按 wails.json 自动重写这个工具脚本
-# （文件头就写着 DO NOT EDIT - Generated automatically），入库只会让
-# 每次本地构建都产生一条无意义的版本号 diff。删掉后 wails 会重新生成。
-/build/windows/installer/wails_tools.nsh
-
-# Frontend
+# 前端
 /frontend/node_modules/
 /frontend/dist/
-# wails 判断是否需要重跑 npm install 的指纹缓存
-/frontend/package.json.md5
-# TS 增量构建缓存（vue-tsc -b 产物，不应入库）
+/frontend/.vite/
+# TS 增量构建缓存（vue-tsc -b 产物）
 *.tsbuildinfo
-# 注：wailsjs 绑定（go/、runtime/）现纳入版本控制。CI 的 frontend job 仅安装 Node、不执行
-# wails build，若不提交则 vue-tsc 找不到 @/wailsjs/* 模块而失败。代价：本地每次 wails
-# build/dev 会重生成这些文件（git status 显示 modified）；修改 Go 导出接口后须本地重新生成
-# 并提交，否则 CI 类型门禁会用过期类型。
 
-# Local config / data
-/config.local.yaml
-/workbaby.db
-/workbaby.db-journal
-/workbaby.db-wal
-/workbaby.db-shm
+# Tauri CLI 自动生成的 schema（权限变更时会重生成）
+/src-tauri/gen/
+
+# 本地配置与运行数据
+*.log
+/tmp/
+.env
+.env.local
 
 # IDE
 .idea/
 .vscode/
 *.iml
 
-# Local user dir
-*.log
-
-# Nested git repos (submodules)
-assets/skills/project-standard/
-
-# WORKBABY_HOME 被指到源码树时的落盘产物：纯粹本地产物，入库只会污染工作区
-/runtime/
-/builtin-skills/
-/skills/
-/logs/
-/tmp/
-.trash/
-# 测试运行的临时输出
-/.check/
-.zcode/
+# 操作系统
+.DS_Store
+Thumbs.db

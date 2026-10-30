@@ -16,16 +16,20 @@ const chat = useChatStore()
 const session = useSessionStore()
 const settings = useSettingsStore()
 
-const provider = computed(() => session.current?.provider || settings.boot?.default_provider || '')
-const model = computed(() => session.current?.model || settings.boot?.default_model || '')
-const modelName = computed(() => {
-  const list = settings.providers?.providers ?? []
-  const p = list.find((x) => x.id === provider.value)
-  return p?.models.find((m) => m.id === model.value)?.name || model.value || t('engine.noModel')
-})
-const thinking = computed(() =>
-  t(`thinking.${session.current?.thinking_level || settings.piSettings?.default_thinking_level || 'medium'}`),
+const provider = computed(
+  () => session.current?.session_provider || settings.boot?.boot_default_provider || '',
 )
+const model = computed(() => session.current?.session_model || settings.boot?.boot_default_model || '')
+const modelName = computed(() => {
+  const list = settings.providers ?? []
+  const p = list.find((x) => x.provider_id === provider.value)
+  return (
+    p?.provider_models.find((m) => m.model_id === model.value)?.model_name ||
+    model.value ||
+    t('engine.noModel')
+  )
+})
+const thinking = computed(() => t(`thinking.${session.current?.session_thinking_level || 'medium'}`))
 const contextPct = computed(() => {
   if (!chat.contextKnown) return 0
   return Math.max(0, Math.min(100, chat.contextRatio))

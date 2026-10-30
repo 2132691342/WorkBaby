@@ -24,11 +24,11 @@ const forceOpen = ref(false)
 const forceLevel = ref<GitForce>('lease')
 const forceConfirm = ref('')
 
-const locals = computed(() => branches.value.filter((b) => !b.remote))
-const remotes = computed(() => branches.value.filter((b) => !!b.remote))
-const current = computed(() => branches.value.find((b) => b.current))
-const hasUpstream = computed(() => !!props.status?.upstream)
-const dirty = computed(() => (props.status?.files || []).length > 0)
+const locals = computed(() => branches.value.filter((b) => !b.git_remote))
+const remotes = computed(() => branches.value.filter((b) => !!b.git_remote))
+const current = computed(() => branches.value.find((b) => b.git_current))
+const hasUpstream = computed(() => !!props.status?.git_upstream)
+const dirty = computed(() => (props.status?.git_files || []).length > 0)
 
 async function load() {
   loading.value = true
@@ -104,7 +104,7 @@ function push() {
 }
 
 function pushForce() {
-  const branch = current.value?.name || props.status?.branch || ''
+  const branch = current.value?.git_name || props.status?.git_branch || ''
   if (forceLevel.value === 'force' && forceConfirm.value.trim() !== branch) {
     toast.bad(t('workspace.pushForceMismatch'))
     return
@@ -114,9 +114,9 @@ function pushForce() {
     () =>
       api.git.push(
         {
-          force: forceLevel.value,
+          git_force: forceLevel.value,
           // 只有纯 --force 需要确认串；lease 靠远端租约自证安全
-          confirm: forceLevel.value === 'force' ? forceConfirm.value.trim() : undefined,
+          git_confirm: forceLevel.value === 'force' ? forceConfirm.value.trim() : undefined,
         },
         props.sessionId,
       ),
@@ -133,7 +133,7 @@ function pushForce() {
     <header class="br-head">
       <span class="br-cur">
         <AppIcon name="git-branch" size="ic-sm" />
-        {{ current?.name || status?.branch || t('workspace.branchEmpty') }}
+        {{ current?.git_name || status?.git_branch || t('workspace.branchEmpty') }}
       </span>
       <el-tag v-if="!hasUpstream" size="small" type="info">{{ t('workspace.upstreamNone') }}</el-tag>
       <span class="sp" />
@@ -168,49 +168,49 @@ function pushForce() {
 
     <template v-else>
       <ul v-if="locals.length" class="br-list">
-        <li v-for="b in locals" :key="'l:' + b.name">
-          <div class="br-row" :class="{ 'is-on': b.current }">
-            <span class="br-dot" :class="{ 'is-on': b.current }" />
-            <span class="br-name" :title="b.name">{{ b.name }}</span>
-            <el-tag v-if="b.current" size="small" type="primary">{{ t('workspace.branchCurrent') }}</el-tag>
-            <span v-if="b.ahead" class="br-num">{{ t('workspace.ahead', { n: b.ahead }) }}</span>
-            <span v-if="b.behind" class="br-num">{{ t('workspace.behind', { n: b.behind }) }}</span>
+        <li v-for="b in locals" :key="'l:' + b.git_name">
+          <div class="br-row" :class="{ 'is-on': b.git_current }">
+            <span class="br-dot" :class="{ 'is-on': b.git_current }" />
+            <span class="br-name" :title="b.git_name">{{ b.git_name }}</span>
+            <el-tag v-if="b.git_current" size="small" type="primary">{{ t('workspace.branchCurrent') }}</el-tag>
+            <span v-if="b.git_ahead" class="br-num">{{ t('workspace.ahead', { n: b.git_ahead }) }}</span>
+            <span v-if="b.git_behind" class="br-num">{{ t('workspace.behind', { n: b.git_behind }) }}</span>
             <span class="sp" />
-            <template v-if="!b.current">
+            <template v-if="!b.git_current">
               <el-button
                 size="small"
                 text
-                :loading="busy === 'switch:' + b.name"
+                :loading="busy === 'switch:' + b.git_name"
                 :disabled="!!busy || dirty"
                 :title="dirty ? t('workspace.discardHint') : ''"
-                @click="switchTo(b.name)"
+                @click="switchTo(b.git_name)"
               >
                 {{ t('workspace.branchSwitch') }}
               </el-button>
               <el-button
                 size="small"
                 text
-                :loading="busy === 'merge:' + b.name"
-                :disabled="!!busy || dirty || !!status?.state"
-                @click="merge(b.name, false)"
+                :loading="busy === 'merge:' + b.git_name"
+                :disabled="!!busy || dirty || !!status?.git_state"
+                @click="merge(b.git_name, false)"
               >
                 {{ t('workspace.merge') }}
               </el-button>
               <el-button
                 size="small"
                 text
-                :loading="busy === 'rebase:' + b.name"
-                :disabled="!!busy || dirty || !!status?.state"
-                @click="merge(b.name, true)"
+                :loading="busy === 'rebase:' + b.git_name"
+                :disabled="!!busy || dirty || !!status?.git_state"
+                @click="merge(b.git_name, true)"
               >
                 {{ t('workspace.rebase') }}
               </el-button>
               <el-popconfirm
-                :title="t('workspace.branchDeleteConfirm', { name: b.name })"
+                :title="t('workspace.branchDeleteConfirm', { name: b.git_name })"
                 :confirm-button-text="t('workspace.branchDelete')"
                 :cancel-button-text="t('common.cancel')"
                 width="260"
-                @confirm="del(b.name)"
+                @confirm="del(b.git_name)"
               >
                 <template #reference>
                   <button class="br-drop" type="button" :disabled="!!busy" :title="t('workspace.branchDeleteHint')">
@@ -227,26 +227,26 @@ function pushForce() {
       <template v-if="remotes.length">
         <div class="br-div">{{ t('workspace.branchRemote') }}</div>
         <ul class="br-list">
-          <li v-for="b in remotes" :key="'r:' + b.name">
+          <li v-for="b in remotes" :key="'r:' + b.git_name">
             <div class="br-row">
               <span class="br-dot" />
-              <span class="br-name is-remote" :title="b.name">{{ b.name }}</span>
+              <span class="br-name is-remote" :title="b.git_name">{{ b.git_name }}</span>
               <span class="sp" />
               <el-button
                 size="small"
                 text
-                :loading="busy === 'switch:' + b.name"
+                :loading="busy === 'switch:' + b.git_name"
                 :disabled="!!busy || dirty"
-                @click="checkoutRemote(b.name)"
+                @click="checkoutRemote(b.git_name)"
               >
                 {{ t('workspace.branchSwitch') }}
               </el-button>
               <el-button
                 size="small"
                 text
-                :loading="busy === 'merge:' + b.name"
-                :disabled="!!busy || dirty || !!status?.state"
-                @click="merge(b.name, false)"
+                :loading="busy === 'merge:' + b.git_name"
+                :disabled="!!busy || dirty || !!status?.git_state"
+                @click="merge(b.git_name, false)"
               >
                 {{ t('workspace.merge') }}
               </el-button>
@@ -280,7 +280,7 @@ function pushForce() {
           v-model="forceConfirm"
           size="small"
           class="wb-mono"
-          :placeholder="t('workspace.pushForceConfirm', { branch: current?.name || status?.branch || '' })"
+          :placeholder="t('workspace.pushForceConfirm', { branch: current?.git_name || status?.git_branch || '' })"
         />
         <div class="br-danger-acts">
           <span class="sp" />

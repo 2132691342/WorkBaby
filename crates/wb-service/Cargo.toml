@@ -1,0 +1,27 @@
+[package]
+name = "wb-service"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wb-pkg = { workspace = true }
+wb-domain = { workspace = true }
+wb-repo = { workspace = true }
+wb-provider = { workspace = true }
+wb-tools = { workspace = true }
+wb-kernel = { workspace = true }
+wb-skills = { workspace = true }
+wb-git = { workspace = true }
+wb-mcp = { workspace = true }
+wb-features = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+zip = { version = "9.1.3", default-features = false, features = ["deflate"] }
+reqwest = { workspace = true }
+base64 = "0.22"
+include_dir = "0.7"

@@ -88,7 +88,7 @@ function shortHash(h: string, len = 7) {
   return (h || '').slice(0, len)
 }
 
-const detailDiff = computed(() => detail.value?.diff)
+const detailDiff = computed(() => detail.value?.git_diff)
 </script>
 
 <template>
@@ -105,21 +105,21 @@ const detailDiff = computed(() => detail.value?.diff)
     </div>
 
     <ul v-else class="hist-list">
-      <li v-for="c in commits" :key="c.hash">
-        <button class="hist-row" type="button" @click="show(c.hash)">
+      <li v-for="c in commits" :key="c.git_hash">
+        <button class="hist-row" type="button" @click="show(c.git_hash)">
           <span class="hist-dot" />
           <span class="hist-tx">
-            <b class="hist-subject">{{ c.subject }}</b>
+            <b class="hist-subject">{{ c.git_subject }}</b>
             <span class="hist-meta">
-              <span class="hist-hash">{{ shortHash(c.hash) }}</span>
-              <span>{{ c.author }}</span>
-              <span>{{ fmtWhen(c.when) }}</span>
-              <span>{{ t('workspace.commitCount', { n: c.files }) }}</span>
+              <span class="hist-hash">{{ shortHash(c.git_hash) }}</span>
+              <span>{{ c.git_author }}</span>
+              <span>{{ fmtWhen(c.git_when) }}</span>
+              <span>{{ t('workspace.commitCount', { n: c.git_files }) }}</span>
             </span>
           </span>
           <span class="hist-stat">
-            <b class="is-add">+{{ c.additions }}</b>
-            <b class="is-del">−{{ c.deletions }}</b>
+            <b class="is-add">+{{ c.git_additions }}</b>
+            <b class="is-del">−{{ c.git_deletions }}</b>
           </span>
           <AppIcon name="chevron-right" size="ic-xs" class="hist-go" />
         </button>
@@ -130,38 +130,38 @@ const detailDiff = computed(() => detail.value?.diff)
       <div v-if="detailLoading" class="hist-state"><span class="spin" />{{ t('common.loading') }}</div>
       <div v-else-if="detail" class="det">
         <header class="det-head">
-          <b class="det-subject">{{ detail.subject }}</b>
-          <pre v-if="detail.body" class="det-body">{{ detail.body }}</pre>
+          <b class="det-subject">{{ detail.git_subject }}</b>
+          <pre v-if="detail.git_body" class="det-body">{{ detail.git_body }}</pre>
           <dl class="det-kv">
-            <div class="wb-kv"><dt>hash</dt><dd class="wb-mono">{{ detail.hash }}</dd></div>
-            <div class="wb-kv"><dt>{{ t('common.name') }}</dt><dd>{{ detail.author }}</dd></div>
-            <div class="wb-kv"><dt>{{ t('common.status') }}</dt><dd>{{ fmtWhen(detail.when) }}</dd></div>
+            <div class="wb-kv"><dt>hash</dt><dd class="wb-mono">{{ detail.git_hash }}</dd></div>
+            <div class="wb-kv"><dt>{{ t('common.name') }}</dt><dd>{{ detail.git_author }}</dd></div>
+            <div class="wb-kv"><dt>{{ t('common.status') }}</dt><dd>{{ fmtWhen(detail.git_when) }}</dd></div>
           </dl>
         </header>
 
         <div class="det-files">
           <button
-            v-for="f in (detail.files || [])"
-            :key="f.path"
+            v-for="f in (detail.git_files || [])"
+            :key="f.git_path"
             class="det-file"
             type="button"
-            @click="showFileHistory(f.path)"
+            @click="showFileHistory(f.git_path)"
           >
             <AppIcon name="doc" size="ic-xs" />
-            <span class="det-path">{{ f.path }}</span>
+            <span class="det-path">{{ f.git_path }}</span>
             <span class="hist-stat">
-              <b class="is-add">+{{ f.additions }}</b>
-              <b class="is-del">−{{ f.deletions }}</b>
+              <b class="is-add">+{{ f.git_additions }}</b>
+              <b class="is-del">−{{ f.git_deletions }}</b>
             </span>
           </button>
         </div>
 
         <DiffView
           v-if="detailDiff"
-          :lines="detailDiff.lines || []"
-          :path="detailDiff.path || ''"
-          :truncated="!!detailDiff.truncated"
-          :dropped="detailDiff.dropped || 0"
+          :lines="detailDiff.git_lines || []"
+          :path="detailDiff.git_diff_path || ''"
+          :truncated="!!detailDiff.git_truncated"
+          :dropped="detailDiff.git_dropped || 0"
           :loading="false"
         />
       </div>
@@ -171,14 +171,14 @@ const detailDiff = computed(() => detail.value?.diff)
       <p class="det-path file-title">{{ filePath }}</p>
       <div v-if="fileLoading" class="hist-state"><span class="spin" />{{ t('common.loading') }}</div>
       <ul v-else class="hist-list">
-        <li v-for="c in fileCommits" :key="c.hash">
-          <button class="hist-row" type="button" @click="openFromFile(c.hash)">
+        <li v-for="c in fileCommits" :key="c.git_hash">
+          <button class="hist-row" type="button" @click="openFromFile(c.git_hash)">
             <span class="hist-dot" />
             <span class="hist-tx">
-              <b class="hist-subject">{{ c.subject }}</b>
+              <b class="hist-subject">{{ c.git_subject }}</b>
               <span class="hist-meta">
-                <span class="hist-hash">{{ shortHash(c.hash) }}</span>
-                <span>{{ fmtWhen(c.when) }}</span>
+                <span class="hist-hash">{{ shortHash(c.git_hash) }}</span>
+                <span>{{ fmtWhen(c.git_when) }}</span>
               </span>
             </span>
           </button>

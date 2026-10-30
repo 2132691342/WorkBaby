@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 用量趋势：按天 / 按小时的输入 / 输出双面积线。主题切换后重读 --wb-* 重绘。
+// 用量趋势：天粒度的输入 / 输出双序列堆叠面积线。主题切换后重读 --wb-* 重绘。
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { theme } from '../../composables/useTheme'
@@ -8,9 +8,8 @@ import { chartBase, chartPalette, cssVar, echarts, tooltipStyle } from '../../ut
 import { fmtCount } from '../../utils/num'
 
 const props = defineProps<{
+  /** 天粒度序列：daily_day（YYYY-MM-DD）+ daily_input / daily_output */
   daily: StatsDailyItem[]
-  /** day = 每天一柱；hour = 24h / today 的每小时一柱 */
-  granularity?: 'day' | 'hour'
 }>()
 const { t } = useI18n()
 
@@ -21,15 +20,11 @@ let ro: ResizeObserver | null = null
 function buildOption(): echarts.EChartsCoreOption {
   const base = chartBase()
   const pal = chartPalette()
-  const hourly = props.granularity === 'hour'
-  // 天粒度 x 轴用「月/日」，小时粒度用「时:分」；tooltip 里给完整键
-  const dates = props.daily.map((d) => {
-    const raw = d.date || ''
-    return hourly ? raw.slice(11, 16) : raw.slice(5).replace('-', '/')
-  })
-  const titles = props.daily.map((d) => d.date || '')
-  const input = props.daily.map((d) => d.input || 0)
-  const output = props.daily.map((d) => d.output || 0)
+  // x 轴用「月/日」，tooltip 里给完整日期
+  const dates = props.daily.map((d) => (d.daily_day || '').slice(5).replace('-', '/'))
+  const titles = props.daily.map((d) => d.daily_day || '')
+  const input = props.daily.map((d) => d.daily_input || 0)
+  const output = props.daily.map((d) => d.daily_output || 0)
   const from = cssVar('--wb-area-from')
   const to = cssVar('--wb-area-to')
 
@@ -99,6 +94,7 @@ function buildOption(): echarts.EChartsCoreOption {
       {
         name: t('dashboard.input'),
         type: 'line',
+        stack: 'total',
         smooth: 0.3,
         symbol: 'circle',
         symbolSize: 0,
@@ -111,6 +107,7 @@ function buildOption(): echarts.EChartsCoreOption {
       {
         name: t('dashboard.output'),
         type: 'line',
+        stack: 'total',
         smooth: 0.3,
         symbol: 'circle',
         symbolSize: 0,

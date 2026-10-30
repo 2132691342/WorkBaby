@@ -20,7 +20,7 @@ const toast = useToastStore()
 const session = useSessionStore()
 
 // 看的是当前会话的工作目录：会话自己选过目录时，全局目录不是改动发生的地方
-const sessionId = computed(() => session.current?.id || '')
+const sessionId = computed(() => session.current?.session_id || '')
 
 const status = ref<GitStatusVO | null>(null)
 const diff = ref<GitDiffVO | null>(null)
@@ -29,8 +29,8 @@ const error = ref('')
 const selected = ref('')
 const loadingDiff = ref(false)
 
-const files = computed<GitFileVO[]>(() => status.value?.files || [])
-const readable = computed(() => !!status.value?.available && !!status.value?.is_repo)
+const files = computed<GitFileVO[]>(() => status.value?.git_files || [])
+const readable = computed(() => !!status.value?.git_available && !!status.value?.git_is_repo)
 
 const TAGS: Record<string, { text: string; tone: string }> = {
   M: { text: 'M', tone: 'is-mod' },
@@ -174,10 +174,10 @@ async function addRemote() {
 
       <div v-else-if="!readable" class="wb-card empty-box">
         <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="git-branch" size="ic-xl" /></span>
-        <b>{{ status?.reason || t('workspace.notRepo') }}</b>
+        <b>{{ status?.git_reason || t('workspace.notRepo') }}</b>
         <p>{{ t('workspace.initRepoHint') }}</p>
-        <p class="wb-mono">{{ status?.workspace }}</p>
-        <div v-if="status?.available" class="init-box">
+        <p class="wb-mono">{{ status?.git_workspace }}</p>
+        <div v-if="status?.git_available" class="init-box">
           <el-input v-model="initName" size="small" class="init-name" :placeholder="t('workspace.initBranch')" />
           <el-button size="small" type="primary" :loading="initing" @click="initRepo">
             {{ t('workspace.initRepo') }}
@@ -191,22 +191,22 @@ async function addRemote() {
         <div class="git-bar">
           <span class="gb-branch">
             <AppIcon name="git-branch" size="ic-xs" />
-            {{ status?.branch || '—' }}
+            {{ status?.git_branch || '—' }}
           </span>
-          <span v-if="status?.upstream" class="gb-up wb-mono" :title="status.upstream">
-            {{ status.upstream }}
+          <span v-if="status?.git_upstream" class="gb-up wb-mono" :title="status.git_upstream">
+            {{ status.git_upstream }}
           </span>
-          <el-tag v-if="status?.ahead" size="small" type="primary">
-            {{ t('workspace.ahead', { n: status.ahead }) }}
+          <el-tag v-if="status?.git_ahead" size="small" type="primary">
+            {{ t('workspace.ahead', { n: status.git_ahead }) }}
           </el-tag>
-          <el-tag v-if="status?.behind" size="small" type="warning">
-            {{ t('workspace.behind', { n: status.behind }) }}
+          <el-tag v-if="status?.git_behind" size="small" type="warning">
+            {{ t('workspace.behind', { n: status.git_behind }) }}
           </el-tag>
           <span class="sp" />
           <el-button size="small" text @click="initName = ''; remoteOpen = !remoteOpen">
             {{ t('workspace.remoteAdd') }}
           </el-button>
-          <span class="gb-path wb-mono" :title="status?.workspace || ''">{{ status?.workspace }}</span>
+          <span class="gb-path wb-mono" :title="status?.git_workspace || ''">{{ status?.git_workspace }}</span>
         </div>
 
         <div v-if="remoteOpen" class="wb-card pad remote-form">
@@ -248,32 +248,32 @@ async function addRemote() {
               <p>{{ t('workspace.noChangesHint') }}</p>
             </div>
             <ul v-else class="fc-list">
-              <li v-for="f in files" :key="f.path">
+              <li v-for="f in files" :key="f.git_path">
                 <button
                   class="fc-row"
                   type="button"
-                  :class="{ 'is-on': selected === f.path }"
-                  :title="f.path"
-                  @click="openDiff(f.path)"
+                  :class="{ 'is-on': selected === f.git_path }"
+                  :title="f.git_path"
+                  @click="openDiff(f.git_path)"
                 >
-                  <span class="fc-tag" :class="TAGS[f.status]?.tone || 'is-mod'">
-                    {{ TAGS[f.status]?.text || f.status }}
+                  <span class="fc-tag" :class="TAGS[f.git_status]?.tone || 'is-mod'">
+                    {{ TAGS[f.git_status]?.text || f.git_status }}
                   </span>
-                  <span class="fc-path" :title="f.path">{{ shortPath(f.path) }}</span>
+                  <span class="fc-path" :title="f.git_path">{{ shortPath(f.git_path) }}</span>
                   <el-button
-                    v-if="f.conflict"
+                    v-if="f.git_conflict"
                     size="small"
                     text
                     class="fc-resolve"
-                    :loading="resolving === f.path"
+                    :loading="resolving === f.git_path"
                     :title="t('workspace.conflictResolveHint')"
-                    @click.stop="resolveOne(f.path)"
+                    @click.stop="resolveOne(f.git_path)"
                   >
                     {{ t('workspace.conflictResolve') }}
                   </el-button>
                   <span v-else class="fc-stat">
-                    <b class="is-add">+{{ f.additions }}</b>
-                    <b class="is-del">−{{ f.deletions }}</b>
+                    <b class="is-add">+{{ f.git_additions }}</b>
+                    <b class="is-del">−{{ f.git_deletions }}</b>
                   </span>
                 </button>
               </li>
@@ -281,10 +281,10 @@ async function addRemote() {
           </section>
 
           <DiffView
-            :lines="diff?.lines || []"
-            :path="diff?.path || ''"
-            :truncated="!!diff?.truncated"
-            :dropped="diff?.dropped || 0"
+            :lines="diff?.git_lines || []"
+            :path="diff?.git_diff_path || ''"
+            :truncated="!!diff?.git_truncated"
+            :dropped="diff?.git_dropped || 0"
             :loading="loadingDiff"
           />
         </div>

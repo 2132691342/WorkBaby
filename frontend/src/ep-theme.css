@@ -108,13 +108,14 @@
     box-shadow var(--wb-dur) var(--wb-ease);
 }
 /* 五态：默认 / 悬停放大 / 按下缩小 / 禁用 / 加载。
-   刻度与全站自绘按钮统一（1.06 / 0.92），两种按钮并排时点击手感才一致。
+   刻度与自绘按钮共用（--wb-btn-scale-hover / --wb-btn-scale-press），
+   两种按钮并排时点击手感才一致。
    text 与 link 是文字级控件，缩放会带动整行文字抖动，只给颜色反馈。 */
 .el-button:not(.is-disabled):not(.is-text):not(.is-link):not(.is-loading):hover {
-  transform: scale(1.06);
+  transform: scale(var(--wb-btn-scale-hover));
 }
 .el-button:not(.is-disabled):not(.is-text):not(.is-link):not(.is-loading):active {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .el-button.is-disabled,
 .el-button.is-disabled:hover,

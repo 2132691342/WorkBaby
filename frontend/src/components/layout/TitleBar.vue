@@ -9,7 +9,7 @@ import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { useSessionStore } from '../../stores/session'
 import { useSessionPanel } from '../../composables/useSessionPanel'
-import { Quit, WindowMinimise, WindowToggleMaximise } from '../../../wailsjs/runtime/runtime'
+import { windowCtl } from '../../api/shell'
 import AppIcon from '../common/AppIcon.vue'
 
 const props = defineProps<{ ready: boolean }>()
@@ -27,7 +27,6 @@ const section = computed(() => {
   if (p.startsWith('/dashboard')) return 'dashboard'
   if (p.startsWith('/settings')) return 'settings'
   if (p.startsWith('/help')) return 'help'
-  if (p.startsWith('/setup')) return 'setup'
   return 'chat'
 })
 
@@ -42,10 +41,8 @@ const pageName = computed(() => {
       return t('nav.settings')
     case 'help':
       return t('nav.help')
-    case 'setup':
-      return t('setup.title')
     default:
-      return session.current?.title || chat.suggestedTitle || t('chat.newSession')
+      return session.current?.session_title || chat.suggestedTitle || t('chat.newSession')
   }
 })
 
@@ -61,10 +58,8 @@ const closeHint = computed(() =>
 )
 
 function winctl(action: 'min' | 'max' | 'close') {
-  if (action === 'min') WindowMinimise()
-  else if (action === 'max') WindowToggleMaximise()
-  // 关闭必须走 Quit：Go 侧 OnBeforeClose 才能判定收进托盘还是真退出
-  else Quit()
+  // 关闭走后端：由关窗策略（收进托盘 / 真退出）决定行为
+  windowCtl(action)
 }
 </script>
 

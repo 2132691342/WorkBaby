@@ -1,8 +1,13 @@
-# Go 源码统一 LF：Windows 上 core.autocrlf=true 会把检出内容写成 CRLF，
-# 而 gofmt -l 把 CRLF 文件一律报成「未格式化」——行尾不统一，这个门禁就没法用。
-*.go text eol=lf
-# 运行时归档经 Git LFS 跟踪：它们随 go:embed 进 exe，仓库里必须存真文件。
-# 构建前未执行 git lfs pull 时内嵌的是 pointer 文本，exe 能构建、用户首次启动才炸——
-# release.yml 有构建前校验，TestBundledRuntimeChain 有 SHA 守护。
-backend/runtime/bundled/* filter=lfs diff=lfs merge=lfs -text
-# build/bin/* 已整体忽略，不入库；构建产物改走 GitHub Actions tag 触发发布到 GitHub Release。
+# 文本统一 LF：Windows 上 core.autocrlf=true 会把检出内容写成 CRLF，
+# 而 diff 工具与部分格式化器对行尾敏感——行尾不统一，评审与合并都容易出乱子。
+* text=auto eol=lf
+
+# 二进制资源不参与行尾转换与差异计算
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# 内置技能包里有 shell 脚本，明确 LF——在 Windows 上被检出成 CRLF 时无法执行
+*.sh text eol=lf

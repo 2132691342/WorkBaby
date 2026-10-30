@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 引擎提问卡：PI 的扩展在等用户回答。协议只有 confirm / select / input / editor 四个基元，
+// 内核提问卡：内核在等用户回答。协议只有 confirm / select / input / editor 四个基元，
 // 多选与自定义答案是扩展用哨兵行拼的——这里只把四个基元渲染到位，不自造复选框。
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
