@@ -5662,7 +5662,7 @@ dependencies = [
 
 [[package]]
 name = "wb-api"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "axum",
  "futures",
@@ -5684,7 +5684,7 @@ dependencies = [
 
 [[package]]
 name = "wb-domain"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5693,7 +5693,7 @@ dependencies = [
 
 [[package]]
 name = "wb-features"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -5714,7 +5714,7 @@ dependencies = [
 
 [[package]]
 name = "wb-git"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "wb-domain",
  "wb-pkg",
@@ -5722,7 +5722,7 @@ dependencies = [
 
 [[package]]
 name = "wb-kernel"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -5740,7 +5740,7 @@ dependencies = [
 
 [[package]]
 name = "wb-mcp"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "http",
  "rmcp",
@@ -5754,7 +5754,7 @@ dependencies = [
 
 [[package]]
 name = "wb-pkg"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "dunce",
  "regex",
@@ -5765,7 +5765,7 @@ dependencies = [
 
 [[package]]
 name = "wb-provider"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "eventsource-stream",
@@ -5782,7 +5782,7 @@ dependencies = [
 
 [[package]]
 name = "wb-repo"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "rusqlite",
@@ -5792,7 +5792,7 @@ dependencies = [
 
 [[package]]
 name = "wb-service"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5819,7 +5819,7 @@ dependencies = [
 
 [[package]]
 name = "wb-skills"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "include_dir",
  "serde",
@@ -5833,7 +5833,7 @@ dependencies = [
 
 [[package]]
 name = "wb-tools"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "globset",
@@ -6362,7 +6362,7 @@ dependencies = [
 
 [[package]]
 name = "workbaby"
-version = "2.0.0"
+version = "1.0.0"
 dependencies = [
  "rfd 0.15.4",
  "serde",

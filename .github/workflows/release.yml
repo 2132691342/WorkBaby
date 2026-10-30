@@ -1,0 +1,68 @@
+name: Release
+
+# 打 tag 即触发：v* 形式的 tag 会构建安装包并创建 GitHub Release。
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建安装包并发布
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装前端依赖
+        working-directory: frontend
+        run: npm ci
+
+      - name: 安装 Tauri CLI
+        uses: tauri-apps/tauri-action@v0
+        with:
+          version: latest
+
+      # tag 版本必须与 tauri.conf.json 的 version 一致，否则安装包与 tag 对不上
+      - name: 校验版本号一致
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME.TrimStart('v')
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          if ($conf.version -ne $tag) {
+            Write-Error "版本不一致：tag=$tag 而 tauri.conf.json version=$($conf.version)"
+            exit 1
+          }
+          Write-Output "版本一致：$tag"
+
+      - name: 构建 Tauri 应用
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: WorkBaby ${{ github.ref_name }}
+          releaseBody: |
+            Windows 桌面 AI 助手。
+
+            安装包：`WorkBaby_${version}_x64-setup.exe`（per-user 安装，无需管理员）。
+
+            数据目录：`%APPDATA%\WorkBaby`
+          releaseDraft: false
+          prerelease: false
+          args: --target x86_64-pc-windows-msvc
