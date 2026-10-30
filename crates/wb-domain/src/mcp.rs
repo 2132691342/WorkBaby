@@ -1,4 +1,4 @@
-//! MCP 客户端类型：server 清单 VO、配置读写请求。配置文件形态见 specs/10。
+//! MCP 客户端类型：server 清单 VO、配置读写请求。配置文件形态见 docs/MCP.md。
 
 use serde::{Deserialize, Serialize};
 

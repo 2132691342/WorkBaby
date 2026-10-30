@@ -1,4 +1,4 @@
-//! 白名单写动作：动作集合封闭，拒绝面清晰（specs/08）。一律拒绝 reset --hard / clean -fd / 裸 --force。
+//! 白名单写动作：动作集合封闭，拒绝面清晰（docs/WORKSPACE.md）。一律拒绝 reset --hard / clean -fd / 裸 --force。
 
 use std::path::{Path, PathBuf};
 

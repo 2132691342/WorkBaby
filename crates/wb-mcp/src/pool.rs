@@ -1,4 +1,4 @@
-//! 连接池：按配置连 MCP server，缓存工具清单；断线不自动重连（specs/10）。
+//! 连接池：按配置连 MCP server，缓存工具清单；断线不自动重连（docs/MCP.md）。
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

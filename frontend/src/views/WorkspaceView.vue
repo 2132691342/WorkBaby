@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 // 工作区视图：助手改了哪些文件、改了什么、这个仓库发生过什么，以及把改动收成一次提交。
-// 读全开放（status / diff / 历史），写受控六动作（specs/08）——提交这一下始终由用户点下去。
+// 读全开放（status / diff / 历史），写受控六动作（docs/WORKSPACE.md）——提交这一下始终由用户点下去。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../api'

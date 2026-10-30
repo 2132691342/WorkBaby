@@ -1,4 +1,4 @@
-//! 系统提示词组装：有序命名段（specs/01）。
+//! 系统提示词组装：有序命名段（docs/KERNEL.md）。
 
 use wb_skills::SkillRegistry;
 

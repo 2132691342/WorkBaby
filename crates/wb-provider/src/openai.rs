@@ -192,7 +192,7 @@ fn unfold_sse(
         + 'static,
     cancel: CancellationToken,
 ) -> ProviderStream {
-    // SSE 空闲上限：超过即按可重试错误收尾（对齐 specs/03）
+    // SSE 空闲上限：超过即按可重试错误收尾（对齐 docs/PROVIDER.md）
     const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
     let sse: Pin<
         Box<dyn Stream<Item = std::result::Result<eventsource_stream::Event, String>> + Send>,

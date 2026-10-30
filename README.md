@@ -49,6 +49,16 @@ src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-feature
 | [AGENTS.md](AGENTS.md) | 工程规范唯一权威：分层 / 命名 / 错误码 / 注释 / 门禁 |
 | [DESIGN.md](DESIGN.md) | 视觉语言：令牌 / 表面阶梯 / 按钮五态 / 布局 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 整体架构、进程模型、数据流、关键取舍 |
+| [docs/KERNEL.md](docs/KERNEL.md) | Agent 内核：会话树、循环、压缩、重试 |
+| [docs/TOOLS.md](docs/TOOLS.md) | 工具体系：Tool 契约、内置工具、执行纪律 |
+| [docs/PROVIDER.md](docs/PROVIDER.md) | 模型接入：三族 wire API、流式解析、错误分类 |
+| [docs/SESSIONS.md](docs/SESSIONS.md) | 会话存储：条目类型、回放算法 |
+| [docs/SKILLS.md](docs/SKILLS.md) | 技能体系：SKILL.md 格式、三区发现、注入 |
+| [docs/FEATURES.md](docs/FEATURES.md) | 12 项内置功能 |
+| [docs/WORKSPACE.md](docs/WORKSPACE.md) | 工作区与 Git 写白名单 |
+| [docs/MCP.md](docs/MCP.md) | MCP 客户端与连接池 |
+| [docs/FRONTEND.md](docs/FRONTEND.md) | 前端架构、令牌、构建分块 |
+| [docs/SHELL.md](docs/SHELL.md) | 桌面壳、进程模型、数据目录 |
 | [docs/MODULES.md](docs/MODULES.md) | 每个 crate 的职责 / 对外接口 / 边界 |
 | [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 数据模型：会话树 / 设置 / 索引 / 统计 / 记忆 |
 | [docs/API.md](docs/API.md) | HTTP 契约：端点 / 信封 / 事件流 |

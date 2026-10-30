@@ -1,4 +1,4 @@
-//! 内核事件：内核 → service 的唯一出参语言（specs/01 事件表）。
+//! 内核事件：内核 → service 的唯一出参语言（docs/KERNEL.md 事件表）。
 
 use serde::Serialize;
 

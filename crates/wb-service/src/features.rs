@@ -18,7 +18,7 @@ fn feature_ctx(sv: &Arc<Services>) -> wb_features::FeatureCtx {
     }
 }
 
-/// 功能是否启用（repo 开关；缺省按 specs/06 的默认值）。
+/// 功能是否启用（repo 开关；缺省按 docs/FEATURES.md 的默认值）。
 fn enabled(sv: &Arc<Services>, code: &str, default_on: bool) -> bool {
     sv.repo
         .feature_enabled(code)
@@ -139,7 +139,7 @@ pub fn refresh_registry(sv: &Arc<Services>) {
     *sv.registry.write().unwrap() = build_registry(sv);
 }
 
-/// 12 项内置功能的静态清单（阶段与默认值见 specs/06）。
+/// 12 项内置功能的静态清单（默认值见 docs/FEATURES.md）。
 pub fn list_vo(sv: &Arc<Services>) -> Vec<wb_domain::feature::FeatureVO> {
     const FEATURES: [(&str, &str, &str, bool, &str); 12] = [
         (

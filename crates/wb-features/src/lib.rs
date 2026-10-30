@@ -1,4 +1,4 @@
-//! 内置功能：FeatureCtx 注入 + 功能工具（specs/06）。开关与注册表装配在 service。
+//! 内置功能：FeatureCtx 注入 + 功能工具（docs/FEATURES.md）。开关与注册表装配在 service。
 
 pub mod ask_user;
 pub mod context_mode;

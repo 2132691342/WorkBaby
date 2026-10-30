@@ -71,7 +71,7 @@ impl SkillRegistry {
             };
             let (fm, _) = match crate::parse_skill_md(&text) {
                 Ok(v) => v,
-                // 坏文件只跳过自己，不挡整表（specs/04）
+                // 坏文件只跳过自己，不挡整表（docs/SKILLS.md）
                 Err(e) => {
                     tracing::warn!(path = %skill_md.display(), "技能解析失败: {e}");
                     continue;

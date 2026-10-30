@@ -1,4 +1,4 @@
-//! 会话 JSONL：只追加文件 + 树形条目 + leaf→root 回放（specs/05）。
+//! 会话 JSONL：只追加文件 + 树形条目 + leaf→root 回放（docs/SESSIONS.md）。
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

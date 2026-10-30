@@ -274,7 +274,7 @@ pub async fn compact(
     Ok((tokens_before, summary))
 }
 
-/// KernelEvent → SSE 事件（specs/07 映射表）。
+/// KernelEvent → SSE 事件（docs/API.md 事件表）。
 fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent) {
     match ev {
         KernelEvent::AgentStart { run_id } => {
@@ -427,7 +427,7 @@ fn refresh_index(sv: &Arc<Services>, session_id: &str) {
     let _ = StopReason::Stop; // 保持导入（映射表后续补 turn_end 终态语义）
 }
 
-/// 就绪检查：默认模型可解析即就绪（specs/09：Ready 判定在发送之前）。
+/// 就绪检查：默认模型可解析即就绪（就绪判定在发送之前）。
 pub fn default_model_state(sv: &Arc<Services>) -> Result<(String, String)> {
     let (pid, mid, _, _) = resolve_default(sv)?;
     Ok((pid, mid))
