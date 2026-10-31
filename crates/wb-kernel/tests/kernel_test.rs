@@ -136,11 +136,9 @@ fn event_name(ev: &KernelEvent) -> &'static str {
         KernelEvent::MessageEnd { .. } => "message_end",
         KernelEvent::TextDelta { .. } => "text_delta",
         KernelEvent::ThinkingDelta { .. } => "thinking_delta",
-        KernelEvent::ToolCallDelta { .. } => "tool_call_delta",
         KernelEvent::ToolExecutionStart { .. } => "tool_start",
         KernelEvent::ToolExecutionEnd { .. } => "tool_end",
         KernelEvent::TurnEnd { .. } => "turn_end",
-        KernelEvent::QueueUpdate { .. } => "queue_update",
         KernelEvent::CompactionStart { .. } => "compaction_start",
         KernelEvent::CompactionEnd { .. } => "compaction_end",
         KernelEvent::AutoRetry { .. } => "retry",
@@ -392,10 +390,12 @@ fn session_file_survives_reload_compaction_and_context_edit() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 子代理跑完只把结论带回来，中间过程留在子会话文件里；
-/// 提示词继承角色与工作区段，但不带父提示词正文。
+/// 子代理三面：跑完只把结论带回父会话（中间过程留在独立子会话文件里）；
+/// 提示词继承角色与工作区但不带父提示词正文；工具白名单收窄且剔除 task 防止再派子代理；
+/// 轮次用尽时回退到最后一段正文，不给父会话一句空话。
 #[tokio::test]
-async fn subagent_isolates_context_and_returns_conclusion() {
+async fn subagent_isolates_context_narrows_tools_and_falls_back() {
+    // 面一：隔离与提示词继承
     let tmp = temp_dir("subagent");
     let provider = FakeProvider::new(vec![
         // 第二轮：收尾结论
@@ -423,7 +423,6 @@ async fn subagent_isolates_context_and_returns_conclusion() {
     );
     assert_eq!(outcome.usage.input, 60, "两轮用量应累加");
 
-    // 隔离：子会话文件独立落盘，父上下文看不到中间过程
     let msgs = load_session(&tmp).replay_messages();
     assert_eq!(
         role_names(&msgs),
@@ -434,7 +433,6 @@ async fn subagent_isolates_context_and_returns_conclusion() {
     };
     assert_eq!(content, "扫描结果", "工具结果应留在子会话里");
 
-    // 子提示词带角色与工作区段，不带父提示词正文
     let sys = provider.first_system_text();
     assert!(sys.contains("你是探查员"), "子提示词应含角色职责");
     assert!(sys.contains("D:/ws"), "子提示词应继承工作区");
@@ -443,23 +441,16 @@ async fn subagent_isolates_context_and_returns_conclusion() {
         "不应把父提示词正文整段灌进子代理"
     );
 
-    let _ = std::fs::remove_dir_all(&tmp);
-}
-
-/// 工具白名单收窄：子代理拿不到父会话之外的工具，也不能再派子代理。
-#[tokio::test]
-async fn subagent_tool_list_is_narrowed() {
+    // 面二：工具白名单收窄——task 被剔除，子代理不能递归派生
     let tmp = temp_dir("subagent-tools");
     let provider = FakeProvider::new(vec![vec![delta("结论"), done(0, StopReason::Stop)]]);
     let mut cfg = agent_cfg(provider.clone());
     cfg.enabled_tools = vec!["echo".into(), "task".into()];
     let mut sc = sub_cfg(&tmp, &["echo"]);
     sc.tool_names = vec!["echo".into(), "task".into()];
-
     wb_kernel::run_subagent(&cfg, sc, CancellationToken::new())
         .await
         .expect("子代理不应失败");
-
     let names: Vec<String> = provider.seen.lock().unwrap()[0]
         .tools
         .iter()
@@ -467,12 +458,7 @@ async fn subagent_tool_list_is_narrowed() {
         .collect();
     assert_eq!(names, ["echo"], "task 应被剔除，避免子代理再派子代理");
 
-    let _ = std::fs::remove_dir_all(&tmp);
-}
-
-/// 轮次用尽时回退到子代理最后说的正文，不给父会话一句空话。
-#[tokio::test]
-async fn subagent_falls_back_to_last_text_when_turn_limit_hit() {
+    // 面三：轮次用尽回退到最后正文
     let tmp = temp_dir("subagent-limit");
     let provider = FakeProvider::new(vec![
         // 第二轮：只调工具不说话
@@ -484,7 +470,6 @@ async fn subagent_falls_back_to_last_text_when_turn_limit_hit() {
             tool_use(),
         ],
     ]);
-
     let mut sc = sub_cfg(&tmp, &["echo"]);
     sc.max_turns = 2;
     let outcome = wb_kernel::run_subagent(&agent_cfg(provider), sc, CancellationToken::new())

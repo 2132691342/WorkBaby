@@ -4,10 +4,10 @@
 use wb_skills::frontmatter::{parse_skill_md, valid_description, valid_name};
 use wb_skills::registry::BUILTIN_SKILLS;
 
-/// 块标量（`description: |`）是最常见的写法，多行要完整拼回来。
-/// 未知键不报错，原样落进兜底字段。
+/// frontmatter 解析的正反两面：块标量多行拼回、未知键保留、缺起始行 / 未闭合报 8001、
+/// 技能名与描述规则（小写字母数字单连字符；描述非空不超长）。
 #[test]
-fn block_scalar_description_is_parsed_and_unknown_keys_kept() {
+fn frontmatter_parser_accepts_valid_and_rejects_bad_input() {
     let md = "---\nname: tdd\ndescription: |\n  line one\n  line two\nversion: 1.0.0\ncustom: {a: 1}\n---\n\n# 正文\n内容";
     let (fm, body) = parse_skill_md(md).unwrap();
     assert_eq!(fm.name.as_deref(), Some("tdd"));
@@ -19,28 +19,24 @@ fn block_scalar_description_is_parsed_and_unknown_keys_kept() {
         fm.extra
     );
     assert!(body.contains("# 正文"));
-}
 
-/// frontmatter 缺起始行或未闭合都要报 8001（解析失败）。
-#[test]
-fn malformed_frontmatter_is_rejected() {
-    let no_start = parse_skill_md("# 正文\n没有 frontmatter").unwrap_err();
-    assert_eq!(no_start.code, "8001", "缺起始行应报 8001");
-    let not_closed = parse_skill_md("---\nname: tdd\n\n# 正文").unwrap_err();
-    assert_eq!(not_closed.code, "8001", "未闭合应报 8001");
-}
+    assert_eq!(
+        parse_skill_md("# 正文\n没有 frontmatter").unwrap_err().code,
+        "8001"
+    );
+    assert_eq!(
+        parse_skill_md("---\nname: tdd\n\n# 正文").unwrap_err().code,
+        "8001"
+    );
 
-/// 技能名规则：小写字母数字与单连字符；description 不能为空也不能超长。
-#[test]
-fn skill_name_and_description_rules_are_enforced() {
-    assert!(!valid_description("  "));
-    assert!(!valid_description(&"x".repeat(1025)));
-    assert!(valid_description(&"x".repeat(1024)));
     assert!(valid_name("tdd"));
     assert!(!valid_name("-bad-"));
     assert!(!valid_name("has--double"));
     assert!(!valid_name("Has-Capitals"));
     assert!(!valid_name(&"x".repeat(65)));
+    assert!(!valid_description("  "));
+    assert!(!valid_description(&"x".repeat(1025)));
+    assert!(valid_description(&"x".repeat(1024)));
 }
 
 /// 内置包里每个技能目录都必须带可解析的 SKILL.md，且元数据合法。

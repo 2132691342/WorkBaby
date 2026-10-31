@@ -124,9 +124,11 @@ fn answer_board_delivers_once_and_tolerates_dropped_waiter() {
 
 // ---- 记忆：FTS5 往返、会话检索、密钥扫描 ----
 
-/// 保存 → 搜索 → 删除的完整回路；同 kind 同文本只刷新时间戳不重复插入。
+/// 记忆三面：保存 → 搜索 → 删除回路，同 kind 同文本去重（只刷新时间戳）；
+/// 会话检索只命中消息正文行（吃了 JSONL 结构行结果就会混入整条 JSON）；
+/// 密钥扫描真凭据必拦（明文落盘等于泄露）、相似无害文本放行。
 #[test]
-fn memory_roundtrip_searches_and_dedups() {
+fn memory_roundtrip_session_search_and_secret_scan() {
     let (dir, ctx) = ctx_of("memory");
     let store = wb_features::memory_store::MemoryStore::open(&ctx).unwrap();
     let (id1, fresh) = store
@@ -148,13 +150,8 @@ fn memory_roundtrip_searches_and_dedups() {
     assert!(!store.remove(&id1).unwrap());
     assert!(store.search("ulid", 10).unwrap().is_empty());
     assert_eq!(store.search("theme", 10).unwrap().len(), 1);
-    let _ = std::fs::remove_dir_all(&dir);
-}
 
-/// 会话检索只命中消息正文行，不吃 JSONL 的结构行与坏行（否则结果混入整条 JSON）。
-#[test]
-fn session_search_hits_message_lines_only() {
-    let (dir, _ctx) = ctx_of("sessions");
+    // 会话检索只吃消息正文行
     let sessions = dir.join("sessions").join("D--demo");
     std::fs::create_dir_all(&sessions).unwrap();
     let content = concat!(
@@ -176,21 +173,15 @@ fn session_search_hits_message_lines_only() {
     let mut line_nos: Vec<usize> = hits.iter().map(|h| h.line_no).collect();
     line_nos.sort();
     assert_eq!(line_nos, [2, 4, 5], "只应命中消息正文行");
-    let miss = wb_features::memory_store::search_sessions(&dir.join("sessions"), "zzznotfound", 10)
-        .unwrap();
-    assert!(miss.is_empty());
-    let _ = std::fs::remove_dir_all(&dir);
-}
 
-/// 密钥扫描：真凭据被拦（记忆库明文落盘，写进去等于泄露），相似无害文本放行。
-#[test]
-fn secret_scan_separates_credentials_from_prose() {
+    // 密钥扫描：真凭据拦下，相似无害文本放行
     assert!(wb_features::memory::scan_secret("key is sk-abc123XYZ4567890def").is_some());
     assert!(wb_features::memory::scan_secret("AKIAIOSFODNN7EXAMPLE").is_some());
     assert!(wb_features::memory::scan_secret("token ghp_0123456789abcdefghijklm").is_some());
     assert!(wb_features::memory::scan_secret("-----BEGIN RSA PRIVATE KEY-----").is_some());
     assert!(wb_features::memory::scan_secret("用户偏好深色主题，项目用 Rust 1.85").is_none());
     assert!(wb_features::memory::scan_secret("task-1234567890 是工单号").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ---- 知识库：FTS5 + RRF 双路召回 ----

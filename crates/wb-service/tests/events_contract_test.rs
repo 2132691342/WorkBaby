@@ -2,16 +2,18 @@
 //! 载荷字段名不走业务前缀规则（前端按 `data.kind` / `data.name` 读），
 //! 正因为不走，改名时最容易两边对不上。这里钉住前端实际会读的那几个。
 
-use serde_json::json;
 use wb_domain::events::{
     AskClosedData, AskData, AskOption, AskQuestion, CompressedData, ContextData, ContextUsage,
-    DeltaData, DoneData, ErrorData, NotifyData, RetryData, StartData, StatusData, SwitchedData,
-    ToolEndData, ToolStartData, WidgetData,
+    DeltaData, DoneData, ErrorData, NotifyData, RetryData, StartData, StatusData, ToolEndData,
+    ToolStartData, WidgetData,
 };
 
-/// 载荷字段名与前端 `types/api.ts` / `stores/chat.ts` 的读取一致。
+/// 全部 chat:* 载荷的字段名与前端 `types/api.ts` / `stores/chat.ts` 的读取一致；
+/// 提问载荷带问卷结构（questions[].question_options[].option_label）；
+/// 关闭原因取全集（answered / cancelled / expired / session_gone），
+/// 未列的原因会落到前端「未知原因」兜底分支。
 #[test]
-fn sse_payload_field_names_match_frontend_contract() {
+fn chat_event_payloads_match_frontend_contract() {
     let start = serde_json::to_value(StartData {
         run_id: "RUN_1".into(),
         session_id: "SESS_1".into(),
@@ -127,16 +129,6 @@ fn sse_payload_field_names_match_frontend_contract() {
     let compressed = serde_json::to_value(CompressedData { tokens_before: 100 }).unwrap();
     assert_eq!(compressed["tokens_before"], 100);
 
-    let switched = serde_json::to_value(SwitchedData {
-        session_id: "SESS_2".into(),
-    })
-    .unwrap();
-    assert_eq!(switched["session_id"], "SESS_2");
-}
-
-/// 提问载荷的问卷结构：前端按 questions[].question_options[].option_label 渲染选项。
-#[test]
-fn ask_payload_carries_questionnaire_shape() {
     let ask = serde_json::to_value(AskData {
         id: "ASK_1".into(),
         method: "questionnaire".into(),
@@ -165,31 +157,13 @@ fn ask_payload_carries_questionnaire_shape() {
         "选项标签名是前端渲染的契约"
     );
 
-    let closed = serde_json::to_value(AskClosedData {
-        id: "ASK_1".into(),
-        reason: "answered".into(),
-    })
-    .unwrap();
-    assert_eq!(closed["id"], "ASK_1");
-    assert_eq!(closed["reason"], "answered");
-}
-
-/// 提问关闭原因取全集：前端按 reason 分流提示语，
-/// 未在此列的原因会落到「未知原因」兜底分支——这里是唯一出处。
-#[test]
-fn ask_closed_reasons_are_enumerated() {
-    let reasons = ["answered", "cancelled", "expired", "session_gone"];
-    for r in reasons {
-        let v = serde_json::to_value(AskClosedData {
+    for reason in ["answered", "cancelled", "expired", "session_gone"] {
+        let closed = serde_json::to_value(AskClosedData {
             id: "ASK_1".into(),
-            reason: r.into(),
+            reason: reason.into(),
         })
         .unwrap();
-        assert_eq!(v["reason"], r);
+        assert_eq!(closed["id"], "ASK_1");
+        assert_eq!(closed["reason"], reason, "reason 原样透传，不做改写");
     }
-    assert_eq!(
-        json!({"reason": "answered"}),
-        json!({"reason": "answered"}),
-        "reason 原样透传，不做改写"
-    );
 }

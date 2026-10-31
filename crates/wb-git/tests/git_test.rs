@@ -3,23 +3,19 @@
 
 use wb_git::parse::{classify, porcelain_z};
 
-/// 中文与空格路径在 -z 输出里原样保留；丢了就是列表里出现乱码或漏文件。
+/// 状态解析两头验：-z 输出里中文与空格路径原样保留；
+/// 归类把 MM 拆两条、未跟踪归 ?、UU 标冲突——错了界面就把同一文件显示成两行。
 #[test]
-fn porcelain_z_keeps_unicode_and_spaces() {
-    let raw = "M  src/界 面.rs\0?? 未跟踪 文件.txt\0";
-    let entries = porcelain_z(raw);
+fn status_parsing_keeps_unicode_and_classifies_rows() {
+    let entries = porcelain_z("M  src/界 面.rs\0?? 未跟踪 文件.txt\0");
     assert_eq!(entries.len(), 2, "两条 NUL 分隔条目都应解析出来");
     assert_eq!(entries[0].path, "src/界 面.rs");
     assert_eq!(entries[1].path, "未跟踪 文件.txt");
     assert_eq!((entries[1].staged, entries[1].unstaged), ('?', '?'));
-}
 
-/// 未跟踪条目只归一条（?）；MM 拆两条（已暂存 + 未暂存）；UU 标冲突。
-/// 归类错了界面就会把同一文件显示成两行、或把冲突显示成普通修改。
-#[test]
-fn classify_splits_staged_and_unstaged_and_flags_conflict() {
-    let entries = porcelain_z("MM a.txt\0M  b.txt\0 D c.txt\0UU d.txt\0?? e.txt\0");
-    let rows = classify(&entries);
+    let rows = classify(&porcelain_z(
+        "MM a.txt\0M  b.txt\0 D c.txt\0UU d.txt\0?? e.txt\0",
+    ));
     // MM→2 条；M 空格→1 条；空格 D→1 条；UU→1 条冲突；??→1 条
     assert_eq!(rows.len(), 6, "MM 双条 + 单条 4 = 6");
     let conflict = rows
@@ -34,7 +30,8 @@ fn classify_splits_staged_and_unstaged_and_flags_conflict() {
     assert!(!untracked.2, "未跟踪不算已暂存");
 }
 
-/// 真 git 链路：建仓 → 写文件 → status → 暂存 → 提交 → 历史 → 分支 → 越界拒绝。
+/// 真 git 链路：建仓 → 写文件 → status → diff → 暂存 → 提交 → 历史 → 分支，
+/// 外加两个拒绝边界：空提交信息、工作区外路径；不存在的文件 diff 报错不 panic。
 #[test]
 #[ignore]
 fn full_repo_roundtrip_works() {
@@ -58,6 +55,10 @@ fn full_repo_roundtrip_works() {
 
     let diff = wb_git::diff(&tmp, "界 面.txt").unwrap();
     assert_eq!(diff.git_lines.len(), 2, "未跟踪文件整篇是新增行");
+    assert!(
+        wb_git::diff(&tmp, "不存在.txt").is_err(),
+        "不存在的文件 diff 应报错而不是空结果"
+    );
 
     wb_git::write::stage(&tmp, &["界 面.txt".into()]).unwrap();
     let st = wb_git::status(&tmp);
@@ -91,20 +92,5 @@ fn full_repo_roundtrip_works() {
         "工作区外路径必须被拒绝"
     );
 
-    let _ = std::fs::remove_dir_all(&tmp);
-}
-
-/// 仓库里不存在的文件做 diff 应报错而不是给出空结果或 panic。
-#[test]
-#[ignore]
-fn diff_missing_path_is_error_not_panic() {
-    let tmp = std::env::temp_dir().join(format!("wb-git-diff-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&tmp);
-    std::fs::create_dir_all(&tmp).unwrap();
-    wb_git::write::init(&tmp, "main").unwrap();
-    assert!(
-        wb_git::diff(&tmp, "不存在.txt").is_err(),
-        "不存在的文件 diff 应报错而不是空结果"
-    );
     let _ = std::fs::remove_dir_all(&tmp);
 }
