@@ -299,6 +299,11 @@ export default {
   },
   settings: {
     title: '设置',
+    groups: {
+      model: '模型与接入',
+      capability: '能力',
+      app: '应用',
+    },
     providers: {
       title: '模型服务',
       desc: '写的是本机 models.json：服务商卡片、接口类型、密钥与模型清单。',
@@ -449,7 +454,7 @@ export default {
       title: '行为',
       desc: '这个程序自己的习惯：默认工作区、界面语言与窗口行为；写入 settings KV 表。',
       workspace: '默认工作区',
-      workspaceHint: '助手的工具都在这个目录里执行；一个目录一个进程。',
+      workspaceHint: '助手的工具都在这个目录里执行；改选后重启应用生效，一个目录一份会话。',
       workspacePick: '选择目录',
       input: '输入',
       inputHint: '语言与发送键只影响界面，不改助手行为。',

@@ -44,7 +44,8 @@ pub async fn connect(
     Arc<RunningService<RoleClient, ()>>,
     Vec<(String, String, Option<serde_json::Value>)>,
 )> {
-    let timeout = Duration::from_secs(cfg.timeout.max(1));
+    // 未配置按 10 秒起步：1 秒对多数 MCP server 的启动握手太紧
+    let timeout = Duration::from_secs(if cfg.timeout > 0 { cfg.timeout } else { 10 });
     match cfg.transport.as_str() {
         "stdio" => {
             let mut cmd = Command::new(&cfg.command);

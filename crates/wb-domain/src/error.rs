@@ -28,8 +28,6 @@ pub mod config {
     pub const CONFIG_INVALID: &str = "2001";
     /// 数据库失败
     pub const DB_FAILED: &str = "2002";
-    /// 设置键非法
-    pub const SETTING_KEY_INVALID: &str = "2003";
     /// 数据目录不可写
     pub const DATA_DIR_READONLY: &str = "2004";
 }
@@ -42,14 +40,10 @@ pub mod provider {
     pub const MODEL_NOT_FOUND: &str = "3002";
     /// API key 缺失
     pub const KEY_MISSING: &str = "3003";
-    /// 默认模型未设置
-    pub const DEFAULT_MODEL_MISSING: &str = "3004";
-    /// baseUrl 非法
+    /// baseUrl 非法 / wire api 不支持
     pub const BASE_URL_INVALID: &str = "3005";
-    /// 校验失败（字段缺失）
+    /// 上游响应解析失败
     pub const VALIDATE_FAILED: &str = "3109";
-    /// 密钥格式非法
-    pub const KEY_INVALID: &str = "3113";
     /// 名称重复
     pub const NAME_DUP: &str = "3111";
     /// 连通测试失败
@@ -76,11 +70,11 @@ pub mod session {
 
 /// 工具执行与外部进程
 pub mod tool {
-    /// 命令执行超时
+    /// 后台任务失败 / 外部调用超时（功能任务、LSP、MCP 调用、克隆）
     pub const EXEC_TIMEOUT: &str = "7001";
     /// 命令被取消
     pub const EXEC_CANCELLED: &str = "7002";
-    /// 工具不存在或已停用
+    /// 工具不存在或已停用 / 外部进程启动失败
     pub const NOT_AVAILABLE: &str = "7003";
     /// 工具参数校验失败
     pub const ARG_INVALID: &str = "7004";
@@ -92,12 +86,6 @@ pub mod tool {
     pub const LSP_NOT_INSTALLED: &str = "7102";
     /// 没有匹配该文件类型的语言服务器
     pub const LSP_NO_MATCH: &str = "7103";
-    /// 沙箱解释器不可用
-    pub const SANDBOX_RUNTIME_MISSING: &str = "7200";
-    /// 沙箱执行超时
-    pub const SANDBOX_TIMEOUT: &str = "7201";
-    /// 知识库操作失败
-    pub const KNOWLEDGE_FAILED: &str = "7300";
     /// 记忆条目不存在
     pub const MEMORY_NOT_FOUND: &str = "7301";
 }
@@ -114,8 +102,6 @@ pub mod skill {
     pub const NAME_DUP: &str = "8004";
     /// 内置技能不可删改
     pub const BUILTIN_LOCKED: &str = "8005";
-    /// 导入失败
-    pub const IMPORT_FAILED: &str = "8006";
 }
 
 /// MCP
@@ -126,16 +112,12 @@ pub mod mcp {
     pub const START_FAILED: &str = "9102";
     /// 工具调用失败
     pub const CALL_FAILED: &str = "9103";
-    /// server 名冲突
-    pub const NAME_DUP: &str = "9104";
 }
 
 /// 内核
 pub mod kernel {
     /// 会话文件损坏
     pub const FILE_CORRUPT: &str = "9701";
-    /// 压缩后仍溢出
-    pub const STILL_OVERFLOW: &str = "9702";
     /// 模型流中断（不可重试）
     pub const STREAM_BROKEN: &str = "9703";
     /// 子代理启动失败

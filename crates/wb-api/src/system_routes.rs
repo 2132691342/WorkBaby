@@ -41,7 +41,6 @@ pub fn routes() -> Router<AppState> {
         .route("/api/v1/docs/{name}", get(docs_content))
         .route("/api/v1/commands", get(commands_list))
         // 设置附属
-        .route("/api/v1/settings/workspaces", get(settings_workspaces))
         .route(
             "/api/v1/settings/background",
             get(background_get).post(background_save),
@@ -270,10 +269,6 @@ async fn commands_list(st: State<AppState>) -> Response {
 }
 
 // ---- 设置附属 ----
-
-async fn settings_workspaces(st: State<AppState>) -> Response {
-    ok_json(wb_service::misc::workspaces(&sv(st)))
-}
 
 async fn background_get(st: State<AppState>) -> Response {
     ok_json(wb_service::misc::background_get(&sv(st)))

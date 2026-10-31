@@ -74,24 +74,6 @@ pub struct CommandVO {
     pub command_source: String,
 }
 
-/// 工作区历史条目。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct WorkspaceVO {
-    /// 工作区绝对路径
-    pub workspace_path: String,
-    /// 最近使用时间（毫秒）
-    pub workspace_last_used: i64,
-}
-
-/// 工作区历史响应。
-#[derive(Debug, Clone, Default, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct WorkspacesRESP {
-    /// 按最近使用排序
-    pub resp_workspaces: Vec<WorkspaceVO>,
-}
-
 /// 背景图设置响应。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]

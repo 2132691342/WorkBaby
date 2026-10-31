@@ -92,11 +92,6 @@ export interface RetryData {
   delay_ms: number
 }
 
-/** chat:user */
-export interface UserData {
-  content: string
-}
-
 /** chat:notify */
 export interface NotifyData {
   /** info / warning / error */
@@ -114,21 +109,6 @@ export interface StatusData {
 export interface WidgetData {
   key: string
   lines: string[]
-}
-
-/** chat:title */
-export interface TitleData {
-  title: string
-}
-
-/** chat:switched */
-export interface SwitchedData {
-  session_id: string
-}
-
-/** chat:gap */
-export interface GapData {
-  missing: number
 }
 
 // 当前正在跑的工具调用：流式期间只做「展示」，chat:done 后用权威快照覆盖。
@@ -199,8 +179,6 @@ export const useChatStore = defineStore('chat', () => {
   // 引擎的状态条与小部件：key → 内容，多来源共存互不覆盖
   const engineStatus = ref<Record<string, string>>({})
   const engineWidgets = ref<Record<string, string[]>>({})
-  /** 引擎给窗口起的标题：标题栏用它，不写会话名 */
-  const suggestedTitle = ref('')
 
   function reset() {
     running.value = false
@@ -224,7 +202,6 @@ export const useChatStore = defineStore('chat', () => {
     stopping.value = false
     engineStatus.value = {}
     engineWidgets.value = {}
-    suggestedTitle.value = ''
   }
 
   // 思考内容可能被用户关掉：关掉后不累积，也不出现在历史渲染里。
@@ -272,12 +249,6 @@ export const useChatStore = defineStore('chat', () => {
   async function followUp(sessionId: string, content: string) {
     await api.chat.followUp(sessionId, content)
     queued.value.push(content)
-  }
-
-  function onDequeued(content: string) {
-    const i = queued.value.indexOf(content)
-    if (i >= 0) queued.value.splice(i, 1)
-    else if (queued.value.length) queued.value.shift()
   }
 
   function clearQueued() {
@@ -547,7 +518,7 @@ export const useChatStore = defineStore('chat', () => {
     notice.value = text
   }
 
-  function onGap(_data?: GapData) {
+  function onGap() {
     notice.value = tt('chat.noticeGap')
     running.value = false
     stopping.value = false
@@ -582,10 +553,6 @@ export const useChatStore = defineStore('chat', () => {
     engineWidgets.value = next
   }
 
-  function onTitle(data: TitleData) {
-    suggestedTitle.value = (data.title || '').trim()
-  }
-
   return {
     running,
     finalizing,
@@ -609,14 +576,12 @@ export const useChatStore = defineStore('chat', () => {
     stopping,
     engineStatus,
     engineWidgets,
-    suggestedTitle,
     elapsedSec,
     reset,
     send,
     stop,
     steer,
     followUp,
-    onDequeued,
     clearQueued,
     answer,
     notify,
@@ -640,7 +605,6 @@ export const useChatStore = defineStore('chat', () => {
     onNotify,
     onStatus,
     onWidget,
-    onTitle,
     seedContext,
   }
 })

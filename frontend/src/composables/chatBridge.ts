@@ -13,11 +13,8 @@ import type {
   RetryData,
   StartData,
   StatusData,
-  SwitchedData,
-  TitleData,
   ToolEndData,
   ToolStartData,
-  UserData,
   WidgetData,
 } from '../stores/chat'
 import { useSessionStore } from '../stores/session'
@@ -74,18 +71,9 @@ export function installChatBridge() {
       case 'chat:widget':
         chat.onWidget(frame.data as WidgetData)
         break
-      case 'chat:title':
-        chat.onTitle(frame.data as TitleData)
-        break
       case 'chat:compressed':
         chat.onCompressed(frame.data as CompressedData)
         break
-      case 'chat:user': {
-        const d = frame.data as UserData
-        session.echoUserMessage(d.content)
-        chat.onDequeued(d.content)
-        break
-      }
       case 'chat:context':
         chat.onContext(frame.data as ContextData)
         break
@@ -105,20 +93,6 @@ export function installChatBridge() {
         chat.onError(frame.data as ErrorData)
         await reloadChatSnapshot()
         break
-      case 'chat:gap':
-        chat.onGap(frame.data as { missing: number })
-        await reloadChatSnapshot()
-        break
-      case 'chat:switched': {
-        chat.onStopped()
-        const d = frame.data as SwitchedData
-        if (d?.session_id && d.session_id !== session.currentId) {
-          await session.open(d.session_id)
-        } else {
-          await reloadChatSnapshot()
-        }
-        break
-      }
     }
   }
 

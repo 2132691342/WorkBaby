@@ -5908,11 +5908,8 @@ dependencies = [
  "wb-domain",
  "wb-kernel",
  "wb-pkg",
- "wb-provider",
  "wb-repo",
  "wb-service",
- "wb-skills",
- "wb-tools",
 ]
 
 [[package]]

@@ -62,14 +62,6 @@ pub struct CompressedData {
     pub tokens_before: i64,
 }
 
-/// chat:user 载荷。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct UserData {
-    /// 消息本体
-    pub message: MessageVO,
-}
-
 /// chat:context 载荷。
 /// 这里的 usage 是 SSE 线格式（裸字段名），与界面用的 `UsageVO`（带前缀）
 /// 不是同一个东西——两者都出现在会话详情与实时流里。
@@ -134,16 +126,6 @@ pub struct ErrorData {
     pub message: String,
 }
 
-/// chat:gap 载荷。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct GapData {
-    /// 客户端最后的 seq
-    pub last_seq: i64,
-    /// 服务端当前 seq
-    pub current_seq: i64,
-}
-
 /// chat:retry 载荷。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -154,24 +136,6 @@ pub struct RetryData {
     pub max: i64,
     /// 退避毫秒
     pub delay_ms: i64,
-}
-
-/// chat:switched 载荷。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct SwitchedData {
-    /// 切换到的会话
-    pub session_id: String,
-}
-
-/// chat:setup 载荷（全局通道，无 session_id）。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct SetupData {
-    /// 阶段：start / progress / done / error
-    pub phase: String,
-    /// 人话进度
-    pub message: String,
 }
 
 /// chat:ask 载荷。
@@ -260,12 +224,4 @@ pub struct WidgetData {
     pub key: String,
     /// 行文本组
     pub lines: Vec<String>,
-}
-
-/// chat:title 载荷。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct TitleData {
-    /// 建议的会话标题
-    pub title: String,
 }

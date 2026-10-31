@@ -245,8 +245,7 @@ pub fn list_vo(sv: &Arc<Services>) -> Vec<wb_domain::feature::FeatureVO> {
                 feature_name: name.to_string(),
                 feature_description: desc.to_string(),
                 feature_enabled: enabled(sv, code, *default_on),
-                feature_configurable: matches!(*code, "web" | "memory" | "context_mode"),
-                // 已落地的功能报出工具全名；其余按阶段推进后补
+                // 有工具的功能报出工具全名；loadout / inspect / context_view 是纯数据面，不带模型工具
                 feature_tools: match *code {
                     "todo" => vec!["todo".into()],
                     "ask_user" => vec!["ask_user_question".into()],

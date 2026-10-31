@@ -297,6 +297,11 @@ export default {
   },
   settings: {
     title: 'Settings',
+    groups: {
+      model: 'Model & Access',
+      capability: 'Capabilities',
+      app: 'App',
+    },
     providers: {
       title: 'Model services',
       desc: 'Edits the local models.json: provider cards, API type, keys and model list.',
@@ -447,7 +452,7 @@ export default {
       title: 'Behavior',
       desc: 'This app own habits: default workspace, UI language and window behaviour; written into the settings KV table.',
       workspace: 'Default workspace',
-      workspaceHint: 'Tools run inside this folder; one folder, one process.',
+      workspaceHint: 'Tools run inside this folder; picking a new one applies after restart, one folder per session store.',
       workspacePick: 'Choose folder',
       input: 'Input',
       inputHint: 'Language and send key only affect the interface, not the assistant.',

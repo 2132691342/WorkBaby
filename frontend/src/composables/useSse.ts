@@ -31,24 +31,19 @@ const names = [
   'chat:tool_start',
   'chat:tool_end',
   'chat:compressed',
-  'chat:user',
   'chat:context',
   'chat:done',
   'chat:stopped',
   'chat:error',
-  'chat:gap',
   // 正在自动重试：没有这个监听，重试期间界面看上去就是卡死。
   'chat:retry',
-  // 会话被切走（回退分叉 / 工作区重建进程）：必须拉新快照。
-  'chat:switched',
   // 引擎在问用户（confirm / select / input）。
   'chat:ask',
   'chat:ask_closed',
-  // 引擎的 fire-and-forget 反馈：通知 / 状态条 / 小部件 / 标题。
+  // 引擎的 fire-and-forget 反馈：通知 / 状态条 / 小部件。
   'chat:notify',
   'chat:status',
   'chat:widget',
-  'chat:title',
 ]
 
 let source: EventSource | null = null

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use wb_domain::error::common;
-use wb_domain::resource::{BackgroundVO, CommandVO, HelpDocRESP, HelpDocVO, WorkspacesRESP};
+use wb_domain::resource::{BackgroundVO, CommandVO, HelpDocRESP, HelpDocVO};
 use wb_pkg::{AppError, Result};
 
 use super::resources::DOCS;
@@ -61,41 +61,7 @@ pub fn commands_list(sv: &Arc<Services>) -> Vec<CommandVO> {
         .collect()
 }
 
-// ---- 工作区历史 / 背景图 ----
-
-/// 追加工作区到历史（去重置顶，上限 20）。
-pub fn touch_workspace_history(sv: &Arc<Services>, path: &str) {
-    let now = wb_kernel::now_ms();
-    let mut list: Vec<wb_domain::resource::WorkspaceVO> = workspaces(sv)
-        .resp_workspaces
-        .into_iter()
-        .filter(|w| w.workspace_path != path)
-        .collect();
-    list.insert(
-        0,
-        wb_domain::resource::WorkspaceVO {
-            workspace_path: path.to_string(),
-            workspace_last_used: now,
-        },
-    );
-    list.truncate(20);
-    if let Ok(text) = serde_json::to_string(&list) {
-        let _ = sv.repo.settings_set("workspace_history", &text);
-    }
-}
-
-/// 工作区历史。
-pub fn workspaces(sv: &Arc<Services>) -> WorkspacesRESP {
-    let raw = sv
-        .repo
-        .settings_get("workspace_history")
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    WorkspacesRESP {
-        resp_workspaces: serde_json::from_str(&raw).unwrap_or_default(),
-    }
-}
+// ---- 背景图 ----
 
 /// 背景图设置视图。
 pub fn background_get(sv: &Arc<Services>) -> BackgroundVO {

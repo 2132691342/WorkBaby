@@ -49,7 +49,7 @@ async function reload() {
 }
 
 async function toggle(f: FeatureVO) {
-  if (busy.value || !f.feature_configurable) return
+  if (busy.value) return
   busy.value = f.feature_code
   try {
     await post<boolean>('/features/toggle', {
@@ -104,7 +104,7 @@ defineExpose({ reload, items, enabledCount })
             <el-switch
               :model-value="f.feature_enabled"
               :loading="busy === f.feature_code"
-              :disabled="!f.feature_configurable || !!busy"
+              :disabled="!!busy"
               @change="toggle(f)"
             />
           </article>

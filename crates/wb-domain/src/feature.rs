@@ -15,8 +15,6 @@ pub struct FeatureVO {
     pub feature_description: String,
     /// 开关
     pub feature_enabled: bool,
-    /// 是否有功能级配置页
-    pub feature_configurable: bool,
     /// 提供的工具名清单
     pub feature_tools: Vec<String>,
     /// 阶段：p1 / p2（p2 功能在界面上标注「即将可用」）

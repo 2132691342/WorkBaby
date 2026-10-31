@@ -30,13 +30,6 @@ pub enum KernelEvent {
         /// 文本
         delta: String,
     },
-    /// 工具调用参数增量
-    ToolCallDelta {
-        /// 调用 id
-        call_id: String,
-        /// 增量
-        delta: String,
-    },
     /// 工具批开始（参数已完整）
     ToolExecutionStart {
         /// 调用 id
@@ -66,16 +59,9 @@ pub enum KernelEvent {
         /// 停止原因
         stop_reason: StopReason,
     },
-    /// 队列变化
-    QueueUpdate {
-        /// 插话队列长度
-        steering: usize,
-        /// 追问队列长度
-        follow_up: usize,
-    },
     /// 压缩开始
     CompactionStart {
-        /// manual / threshold / overflow
+        /// 阈值触发
         reason: String,
     },
     /// 压缩结束（成功才有 tokens_before）

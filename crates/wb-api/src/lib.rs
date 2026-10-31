@@ -37,6 +37,8 @@ pub fn data_dir() -> PathBuf {
 pub async fn startup(data_dir: PathBuf, workspace: String) -> Result<Startup> {
     wb_pkg::fsutil::ensure_dir(&data_dir)?;
     let repo = Arc::new(wb_repo::Repo::open(&data_dir.join("settings.db"))?);
+    // 工作区以设置 KV 为准：界面上选过的目录重启后继续生效
+    let workspace = resolve_workspace(&repo, workspace);
     let sv = wb_service::Services::new(data_dir, workspace, repo);
     let hub = Hub::new();
     sv.set_emitter(hub.clone());
@@ -61,4 +63,15 @@ pub async fn startup(data_dir: PathBuf, workspace: String) -> Result<Startup> {
         axum::serve(listener, routes::router(state)).await.ok();
     });
     Ok(Startup { port, sv, hub })
+}
+
+/// 工作区解析：设置 KV 里存过且目录仍存在则用之；否则用传入目录并写回 KV 作初始值。
+fn resolve_workspace(repo: &Arc<wb_repo::Repo>, fallback: String) -> String {
+    if let Ok(Some(dir)) = repo.settings_get("workspace") {
+        if !dir.trim().is_empty() && std::path::Path::new(&dir).is_dir() {
+            return dir;
+        }
+    }
+    let _ = repo.settings_set("workspace", &fallback);
+    fallback
 }

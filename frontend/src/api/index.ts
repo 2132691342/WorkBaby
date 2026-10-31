@@ -34,7 +34,6 @@ import type {
   TestProviderRESP,
   ToolVO,
   UpsertProviderREQ,
-  WorkspacesRESP,
 } from '../types/api'
 
 /** 丢掉空值再拼查询串：不带空参数，后端「没给」与「给了空串」就不用分开判 */
@@ -161,7 +160,6 @@ export const settings = {
   all: () => get<Record<string, string>>('/settings'),
   set: (key: string, value: string) => post<boolean>('/settings', { req_values: [{ setting_key: key, setting_value: value }] }),
   setMany: (pairs: { setting_key: string; setting_value: string }[]) => post<boolean>('/settings', { req_values: pairs }),
-  workspaces: () => get<WorkspacesRESP>('/settings/workspaces'),
   background: () => get<BackgroundVO>('/settings/background'),
   setBackground: (path: string, opacity: number, blur: number) =>
     post<BackgroundVO>('/settings/background', {

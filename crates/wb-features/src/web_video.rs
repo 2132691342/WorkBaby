@@ -55,8 +55,9 @@ impl Tool for VideoTool {
 
     fn description(&self) -> &str {
         "理解一个视频页面：取标题、时长、描述与字幕轨的文本。\
-         有字幕时返回字幕全文（按时间轴分段），没有字幕就返回页面元信息并说明。\
-         url 可以是 youtube / bilibili 等常见视频站，也可以是任意带 <video> 的页面。"
+         YouTube 有字幕轨专门解析（按时间轴分段返回全文）；其余站点（含 bilibili）\
+         解析页面元信息，能挖到字幕就用，挖不到就如实说明并回退元信息。\
+         url 也可以是任意带 <video> 的页面。"
     }
 
     fn parameters(&self) -> Value {

@@ -227,7 +227,6 @@ export interface FeatureVO {
   feature_name: string
   feature_description: string
   feature_enabled: boolean
-  feature_configurable: boolean
   feature_tools: string[]
   /** p1 / p2 */
   feature_phase: string
@@ -274,10 +273,6 @@ export interface BootVO {
   boot_default_provider: string
   boot_default_model: string
   boot_settings: Record<string, string>
-}
-
-export interface WorkspacesRESP {
-  resp_workspaces: { workspace_path: string; workspace_last_used: number }[]
 }
 
 export interface BackgroundVO {

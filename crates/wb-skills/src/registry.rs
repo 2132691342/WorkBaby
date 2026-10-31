@@ -158,14 +158,40 @@ impl SkillRegistry {
     }
 }
 
-/// 内置包解压：带版本哨兵（包内任一文件变化即重解压，简化为目录缺失即解压 + 总字节数校验）。
+/// 内置包解压：以包内文件数与总字节数为指纹（递归统计），指纹不符即清空重解压，旧包残留随之清除。
 fn ensure_builtin_extracted(target: &Path) {
-    if target.is_dir() && fsutil::list_dir(target).len() >= 5 {
-        return; // 已解压过（首次发布即含 22 个技能目录）
+    let (count, total) = pack_stamp(&BUILTIN_SKILLS);
+    let stamp = format!("{count}:{total}");
+    let marker = target.join(".pack_stamp");
+    if target.is_dir() && fsutil::read_to_string(&marker).is_ok_and(|s| s == stamp) {
+        return;
     }
-    if extract_dir(&BUILTIN_SKILLS, target).is_err() {
-        tracing::warn!("内置技能解压失败");
+    // 指纹不符先清空：包内已删除的技能目录不会自己消失
+    let _ = std::fs::remove_dir_all(target);
+    match extract_dir(&BUILTIN_SKILLS, target) {
+        Ok(()) => {
+            if let Err(e) = fsutil::write_atomic(&marker, stamp.as_bytes()) {
+                tracing::warn!("技能包指纹写入失败：{e}");
+            }
+        }
+        Err(e) => tracing::warn!("内置技能解压失败：{e}"),
     }
+}
+
+/// 递归统计包内文件数与总字节数（`Dir::files()` 只覆盖顶层）。
+fn pack_stamp(dir: &include_dir::Dir) -> (usize, usize) {
+    let mut count = 0usize;
+    let mut total = 0usize;
+    for f in dir.files() {
+        total += f.contents().len();
+        count += 1;
+    }
+    for sub in dir.dirs() {
+        let (c, t) = pack_stamp(sub);
+        count += c;
+        total += t;
+    }
+    (count, total)
 }
 
 fn extract_dir(dir: &include_dir::Dir, target: &Path) -> Result<()> {

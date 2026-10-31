@@ -98,8 +98,8 @@ const MAX_SCAN: usize = 300;
 const AUTO_CONSOLIDATE_THRESHOLD: usize = 40;
 
 /// 整合记忆库：同类别内逐对判重，重复的合并成一条。
-/// 合并方向：保留较早创建的那条（内容并进去），删掉后创建的那条——
-/// 早的是原始陈述，后的是补充，合起来才不丢信息。
+/// 合并方向：保留最近更新的那条（较早的内容并进去），删掉较早的那条——
+/// 最近更新的代表当前认知，历史陈述并进去不丢信息。
 pub fn consolidate(store: &Arc<MemoryStore>) -> ConsolidateReport {
     let mut scanned = 0usize;
     let mut merged = 0usize;

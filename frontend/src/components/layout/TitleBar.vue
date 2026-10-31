@@ -5,7 +5,6 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { sseConnected, sseSubscribed } from '../../composables/useSse'
-import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { useSessionStore } from '../../stores/session'
 import { useSessionPanel } from '../../composables/useSessionPanel'
@@ -17,7 +16,6 @@ const props = defineProps<{ ready: boolean }>()
 const { t } = useI18n()
 const route = useRoute()
 const session = useSessionStore()
-const chat = useChatStore()
 const settings = useSettingsStore()
 const { collapsed, toggle } = useSessionPanel()
 
@@ -42,7 +40,7 @@ const pageName = computed(() => {
     case 'help':
       return t('nav.help')
     default:
-      return session.current?.session_title || chat.suggestedTitle || t('chat.newSession')
+      return session.current?.session_title || t('chat.newSession')
   }
 })
 
