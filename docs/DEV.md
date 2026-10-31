@@ -44,7 +44,7 @@ assets/               打包进二进制的资源（内置技能与帮助文档�
 - 日志：`{数据目录}\logs\`（按天分文件）；数据目录默认 `%APPDATA%\WorkBaby`。
 - 纯浏览器调前端：壳未启动时，`api/shell.ts` 读 `localStorage.wb_dev_port` 连指定端口；
   用 `cargo run -p wb-api --bin wb-api-standalone` 单独起 HTTP 服务。
-- SSE 调试：浏览器 DevTools 的 EventSource 面板；seq 断档会看到 `chat:gap`。
+- SSE 调试：浏览器 DevTools 的 EventSource 面板；重连时观察 `last_event_id` 查询参数与 seq 重放。
 - 内核测试用假 Provider：按脚本回放模型事件流，不起真网络。
 
 ## 约定提醒（写代码前扫一眼）

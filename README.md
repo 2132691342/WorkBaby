@@ -1,7 +1,7 @@
 # WorkBaby
 
 一个能干活的个人 AI 助手——Windows 桌面客户端。Rust 内核 + Tauri 壳，
-12 项内置 agent 能力与 21 个内置技能，全部可开关。
+12 项内置 agent 能力与 9 个内置技能，全部可开关。
 
 ## 它是什么
 
@@ -11,9 +11,9 @@
   进程内运行，不依赖外部 agent 进程，也不需要 Node 运行时。
 - **能力可开关**：待办清单、结构化提问、持久记忆、联网搜索、省上下文沙箱、模糊搜索、
   LSP 诊断、计划评审、目标追踪、装载配置、内省面板、上下文用量地图——12 项功能原生实现，
-  一键启停，关掉即从工具表撤出。
-- **技能随应用分发**：前端与全栈开发、Office 三件套（docx/xlsx/pdf）、文档转换、TDD、
-  诊断、任务对齐与执行等 21 个技能打包进二进制，也可导入用户自己的技能。
+  一键启停，关掉即从装配中撤出。
+- **技能随应用分发**：前端与全栈开发、视觉创作、文档转换与安全审查等 9 个技能打包进二进制，
+  也可导入用户自己的技能。
 
 ## 技术形态
 
@@ -29,10 +29,11 @@
 ## 架构分层
 
 ```
-src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-features, wb-skills, wb-git, wb-mcp, wb-repo}
+src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-features, wb-skills, wb-git, wb-mcp, wb-repo, wb-provider, wb-tools}
                                             │
               wb-kernel ──► {wb-tools, wb-provider, wb-domain, wb-pkg}
-              wb-features ──► {wb-tools, wb-repo, wb-domain, wb-pkg}
+              wb-features ──► {wb-tools, wb-domain, wb-pkg}
+              wb-skills / wb-git / wb-mcp ──► {wb-domain, wb-pkg}
                                             │
                               wb-provider ──► {wb-domain, wb-pkg}
                                             │
@@ -90,7 +91,8 @@ bash scripts/check-slow.sh       # 需要真实外部环境的慢速测试
 **优势**
 
 - 内核在进程内：没有子进程通信的协议漂移，也没有 Node 运行时依赖，响应延迟与错误可诊断性都更好。
-- 能力全部原生：12 项功能共用同一套 `Tool` 契约，开关即装配，不存在插件加载失败的可能。
+- 能力全部原生：12 项功能原生装配，模型工具共用同一套 `Tool` 契约，开关即装配，
+  不存在插件加载失败的可能。
 - 单色相设计系统：强调色只有靛蓝五档，界面层级靠明度与圆角表达，一眼能看出哪里可点。
 - 数据全在本地：会话是 JSONL、设置与索引是 SQLite，不依赖任何云端服务即可完整使用。
 

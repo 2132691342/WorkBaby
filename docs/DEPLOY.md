@@ -9,14 +9,17 @@ npm run tauri build                   # tauri build：编译 release + 打包
 
 | 产物 | 位置 |
 |---|---|
-| 独立 exe | `src-tauri/target/release/WorkBaby.exe` |
-| NSIS 安装包 | `src-tauri/target/release/bundle/nsis/WorkBaby_x.y.z_x64-setup.exe` |
+| 独立 exe | `target\release\workbaby.exe`（安装后为 `WorkBaby.exe`） |
+| NSIS 安装包 | `target\release\bundle\nsis\WorkBaby_<版本>_x64-setup.exe` |
+
+仓库是 Cargo workspace，产物统一落在仓库根 `target\release\`，不在 `src-tauri\target\`。
 
 ## 打包内容
 
-- **内置技能包**：21 个技能目录经 `include_dir` 打进 `wb-skills`，
-  首次启动解压到数据目录 `skills\builtin\`。
-- **内置帮助文档**：`assets/docs\` 下的四篇随二进制打包，经 `/docs` 端点提供。
+- **内置技能包**：9 个技能目录经 `include_dir` 打进 `wb-skills`。
+  每次启动按包指纹（递归统计的文件数 + 总字节数）校验数据目录里的解压结果，
+  不符即清空重解压——升级与技能删减后旧文件不残留。
+- **内置帮助文档**：`assets/docs/` 下的四篇随二进制打包，经 `/docs` 端点提供。
 - **图标与元数据**：`src-tauri/icons/`、`tauri.conf.json` 的 productName/identifier/version。
 
 ## 安装形态与数据

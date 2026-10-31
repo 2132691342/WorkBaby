@@ -37,15 +37,17 @@ pub trait Tool: Send + Sync {
 注册表本身只管「当前可用集合」。
 
 - 注册同名工具后到者胜——功能工具与 MCP 工具可覆盖内置工具
-- `snapshot()` 深拷贝一份给内核线程独占，避免运行期被功能开关改动影响
-- 停用的工具不进 schema，调用时返回 7003
+- `snapshot()` 产出独立快照（新映射 + `Arc` 共享工具实例）给内核线程独占，
+  避免运行期被功能开关改动影响
+- 停用的工具不进 schema；若仍被调用（模型编造名字或开关在轮间变化），
+  内核回灌错误文本「[工具不存在或已停用]」（is_error），不抛错误码
 
 ## 内置工具
 
 | 工具 | 参数 | 要点 |
 |---|---|---|
 | read | path, offset?(1 起), limit? | 文本按行截断；二进制文件只报类型与字节数 |
-| bash | command, timeout?(秒，默认 120，上限 600) | 经 Git Bash 执行；CREATE_NO_WINDOW；输出走截断 |
+| bash | command, timeout?(秒，默认 120，上限 600) | 经 Git Bash 执行；CREATE_NO_WINDOW；非零退出码以 `[退出码 N]` 尾注、stderr 折叠进输出；输出走截断 |
 | edit | path, edits[{old_text(唯一), new_text}] | 多处编辑一次调用；old_text 不唯一即拒绝 |
 | write | path, content | 自动建父目录；原子写 |
 | grep | pattern, path?, glob?, ignore_case?, literal?, context?, limit?(100) | 尊重 .gitignore |
@@ -90,15 +92,18 @@ pub trait Tool: Send + Sync {
 
 ## 命令执行纪律
 
-子进程只能经 `wb-tools::exec` 启动，这是全仓唯一的进程出口：
+模型直接调用的 bash 统一走 `wb-tools::exec`；git、MCP stdio、LSP、github_clone
+各有独立进程出口，但全部遵守同一纪律：
 
 | 纪律 | 实现 |
 |---|---|
 | 不闪控制台 | Windows 下加 `CREATE_NO_WINDOW` |
 | 不进 shell 解释 | argv 数组直传，命令字符串永不拼接 |
 | 工作目录 | AgentConfig.workdir（当前工作区）随内核配置传入，与进程 cwd 无关 |
-| 可超时可取消 | 超时或取消令牌触发即杀进程，返回 7001 / 7002 |
+| 可超时可取消 | 超时或取消令牌触发即杀进程；取消返回 7002，超时不是错误码——exec 返回 timed_out 结果，由工具层以 is_error 文本呈现（bash 用「[超时]」标注） |
 | 输出有上限 | 单次执行 1MB 上限，再交给工具层截断 |
+
+代价：纪律靠约定不靠类型收口——新增进程出口要自觉对齐这张表。
 
 **bash 工具的 shell 定位**：先在 PATH 里找 `bash.exe`，找不到就退回常见 Git 安装位
 （`C:\Program Files\Git\bin` 等），都找不到就用 `bash` 交给系统解析。
@@ -123,4 +128,4 @@ pub trait Tool: Send + Sync {
 | 不实现独立 glob 工具 | find 覆盖 glob；批量任务属子代理 | — |
 | JSON Schema 手写常量 | 工具参数固定，不引 schema 生成宏 | 改参数要同步 schema 与解析代码两处 |
 | edit 用唯一 old_text 而非补丁语法 | 模型友好、失败可归因（不唯一即报错） | 大改文件不如直接 write |
-| 只经一个执行器起进程 | 便于统一超时、取消与截断纪律 | 执行器本身成为关键路径 |
+| bash 统一经执行器起进程 | 超时、取消、截断纪律收在一处 | 其余进程出口靠约定对齐纪律 |

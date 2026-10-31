@@ -27,7 +27,7 @@ allowed-tools: Read,Write,Bash
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `name` | 是 | 技能名即身份；小写字母数字与单连字符，≤64 字符 |
+| `name` | 否（缺省回退目录名，仍须过命名规则） | 技能名即身份；小写字母数字与单连字符，≤64 字符 |
 | `description` | 是 | 何时用这个技能；≤ 1024 字符（会进系统提示词） |
 | `description_zh` / `description_en` | 否 | 分语言描述，界面展示用 |
 | `version` | 否 | 版本号 |
@@ -43,15 +43,15 @@ allowed-tools: Read,Write,Bash
 
 ## 三区发现
 
-| 区 | 位置 | 优先级 | 可否删改 |
+| 区 | 位置 | 扫描顺序 | 可否删改 |
 |---|---|---|---|
-| 内置包 | 编译期打进二进制，解压到 `{数据目录}\skills\builtin` | 最高 | 否（只读） |
-| 用户区 | `{数据目录}\skills\user\{技能名}\SKILL.md` | 次之 | 可 |
-| 工作区 | `{工作区}\.workbaby\skills\{技能名}\SKILL.md` | 最低 | 可 |
+| 内置包 | 编译期打进二进制，解压到 `{数据目录}\skills\builtin` | 1 | 否（只读） |
+| 用户区 | `{数据目录}\skills\user\{技能名}\SKILL.md` | 2 | 可 |
+| 工作区 | `{工作区}\.workbaby\skills\{技能名}\SKILL.md` | 3 | 可 |
 
-**同名先到先得**：内置 > 用户 > 工作区。
-工作区优先级最低是刻意的——工作区的技能最可能是一次性的，
-让它覆盖内置包会让用户失去稳定的内置能力。
+**同名后扫的覆盖先扫的**：优先级 工作区 > 用户 > 内置。
+这是刻意设计——工作区技能用于就地试验与项目级覆盖，用户技能跨项目生效，
+内置包是兜底基座；上层覆盖下层，试验成熟了挪进用户区即可。
 
 ## 注册表
 
@@ -76,7 +76,7 @@ description 缺失或超长——**坏技能只跳过自己，不挡整表**。
 ```
 
 只注入名称与描述，不注入正文——正文按需用 read 加载。
-21 个技能全注入也只有几十行，正文全注入会占掉大量上下文。
+9 个技能全注入也只有几十行，正文全注入会占掉大量上下文。
 
 `disable-model-invocation` 的技能不进这段注入，只能通过 `/skill:名` 显式调用。
 
@@ -87,15 +87,17 @@ description 缺失或超长——**坏技能只跳过自己，不挡整表**。
 
 ## 内置技能包
 
-21 个技能随二进制分发，覆盖几类场景：
+9 个技能随二进制分发，覆盖几类场景：
 
 | 类别 | 技能 |
 |---|---|
-| 开发流程 | tdd、diagnose、task-alignment、task-implement、handoff |
 | 前端与设计 | 前端开发、全栈开发、canvas-design、Impeccable（前端设计工具集） |
-| 文档处理 | minimax-docx、minimax-xlsx、minimax-pdf、markitdown-skill、md-to-pdf-cjk |
-| 工程质量 | setup-pre-commit、skill-creator、skill-scanner、skill-vetter |
-| 其他 | github、prompt-engineering-expert、summarize |
+| 文档处理 | markitdown-skill、md-to-pdf-cjk |
+| 工程质量 | skill-creator、skill-scanner、skill-vetter |
+
+解压带**指纹哨兵**：每次启动递归统计包内文件数与总字节数，
+写入 `{builtin}\.pack_stamp`；与包不符即清空重解压——
+升级与技能删减后旧文件不残留，解压目录始终与打进二进制的包一致。
 
 内置技能里的脚本随包分发（如文档转换的 shell 脚本），执行时按技能自身的说明调用。
 

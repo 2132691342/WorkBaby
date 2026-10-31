@@ -54,7 +54,7 @@ Agent 内核是本仓 Rust 实现（会话循环 / 工具执行 / 上下文压�
 进程内运行，不依赖任何外部 agent 进程，也不需要 Node 运行时。
 
 扩展能力不设运行时插件市场，改为 **12 项原生化内置功能**（见 `docs/MODULES.md`
-的 wb-features 小节），每项独立开关；**21 个内置技能**作为技能包打进二进制。
+的 wb-features 小节），每项独立开关；**9 个内置技能**作为技能包打进二进制。
 
 | 概念 | 落地形态 |
 |---|---|
@@ -78,10 +78,10 @@ WorkBaby/
 │   └── src/{api,components,composables,locales,stores,types,utils,views,router}
 ├── src-tauri/                     # Tauri 壳：入口、托盘、单实例、自启、对话框、窗控
 │   ├── tauri.conf.json
-│   └── src/{main.rs, app.rs, shell_cmd.rs, tray.rs, singleinstance.rs}
+│   └── src/{main.rs, lib.rs, cmds.rs}
 ├── assets/                        # 编译期打包进二进制的资源
 │   ├── docs/                      # 内置帮助文档
-│   └── skills/                    # 21 个内置技能包
+│   └── skills/                    # 9 个内置技能包
 └── crates/
     ├── wb-pkg/                    # 叶子工具：AppError、ulid、fsutil、realpath、ansi、httprules
     ├── wb-domain/                 # 纯类型：DO/DTO/REQ/RESP/VO + 错误码常量（只依赖 wb-pkg）
@@ -104,10 +104,10 @@ WorkBaby/
 ### 2.2 依赖方向（强制，由 Cargo 编译期保证）
 
 ```text
-src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-features, wb-skills, wb-git, wb-mcp, wb-repo}
+src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-features, wb-skills, wb-git, wb-mcp, wb-repo, wb-provider, wb-tools}
                                             │
               wb-kernel ──► {wb-tools, wb-provider, wb-domain, wb-pkg}
-              wb-features ──► {wb-tools, wb-repo, wb-domain, wb-pkg}
+              wb-features ──► {wb-tools, wb-domain, wb-pkg}
               wb-skills / wb-git / wb-mcp ──► {wb-domain, wb-pkg}
                                             │
                               wb-provider ──► {wb-domain, wb-pkg}
@@ -123,11 +123,14 @@ src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-feature
 | wb-provider | wb-domain / wb-pkg | 内核 / 服务层 / 能力域 |
 | wb-tools | wb-domain / wb-pkg | 内核 / 服务层 |
 | wb-kernel | wb-tools / wb-provider / wb-domain / wb-pkg | 服务层 / api / 能力域 |
-| wb-features | wb-tools / wb-repo / wb-domain / wb-pkg | 服务层 / api / wb-kernel |
+| wb-features | wb-tools / wb-domain / wb-pkg | 服务层 / api / wb-kernel |
 | wb-skills · wb-git · wb-mcp | wb-domain / wb-pkg（wb-mcp 另加 rmcp） | 服务层 / api / 互相 |
 | wb-service | 全部能力域 + wb-domain + wb-pkg | api / tauri / axum |
-| wb-api | wb-service / wb-domain / wb-pkg / axum / tokio | 越过 service 直接摸能力域 |
-| src-tauri | wb-api / wb-domain | wb-service / wb-repo / 能力域 |
+| wb-api | wb-service / wb-repo / wb-kernel / wb-domain / wb-pkg / axum / tokio | 越过 service 直摸 provider / tools / skills / features / git / mcp |
+| src-tauri | wb-api | wb-service / wb-repo / 能力域 |
+
+**组合根例外**：api 层直接开库（`Repo::open`）与操作会话文件（`SessionFile` / `Entry`）
+是 api 的本职，不是越界；除此之外，能力域一律经 service。
 
 **为什么这么切**：`wb-domain` 是叶子，类型定义不被任何实现污染；
 `wb-service` 是唯一的编排层，能力域之间互不相识（features 不知道 kernel 的存在）；
@@ -267,7 +270,7 @@ impl AppError {
 
 | 关注点 | 落点 | 纪律 |
 |---|---|---|
-| 命令执行 | `wb-tools::exec` | 唯一的 `std::process` 出口；argv 数组直传永不进 shell；CREATE_NO_WINDOW；超时杀进程 |
+| 命令执行 | `wb-tools::exec`（模型工具）+ git / MCP stdio / LSP / github_clone 各自出口 | argv 数组直传永不进 shell；CREATE_NO_WINDOW；超时杀进程——全仓纪律，新增出口自觉对齐 |
 | 日志 | `tracing` | 业务层只 `warn!` / `error!`；`debug!` 只在调试分支 |
 | 时间 | `SystemTime::now()` | 禁止 `Local::now()`（会话索引要可跨时区比较） |
 | ID 生成 | `wb_pkg::ulid` | 禁止 `uuid` / 自造计数器 |
@@ -315,7 +318,7 @@ if version < 1 { conn.execute_batch(SCHEMA_V1)?; }
 | 工具契约唯一 | 所有工具（含功能工具与 MCP 工具）实现同一个 `Tool` trait |
 | 事件顺序是契约 | 界面时序依赖事件顺序，改动顺序等于改界面行为 |
 | 会话文件是真相 | 界面不另存状态，重启后从 JSONL 回放 |
-| 功能开关即边界 | 关掉的功能不进工具表、不注册命令、不发事件 |
+| 功能开关即边界 | 关掉的功能不进工具表、不发事件；斜杠命令只来自启用的技能 |
 
 ---
 

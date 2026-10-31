@@ -8,8 +8,11 @@
 
 ## 工作区语义
 
-- 全局一个当前工作区（settings KV `workspace` + 历史表）
-- 切换时机：内核空闲才允许（会话忙时拒绝）；切换后重扫会话目录、重建文件树与 git 视图
+- 工作区在**启动时**确定：设置 KV `workspace` 里存过且目录仍存在就用它；
+  否则用壳传入目录（桌面进程的工作目录 / standalone 的 argv 参数）并写回 KV 持久化
+- 界面上改选目录（工作目录芯片或设置页行为面板）只写 KV，**重启生效**——
+  没有运行时热切换，也就没有忙闲校验
+- 会话目录、fff 索引、知识库、git 视图都按工作区隔离
 - 路径进出全部过 `wb-pkg::realpath`（短名与符号链接归一）再判越界；越界报 1003
 
 ## 读
@@ -39,6 +42,9 @@
 | resolve | `add`（冲突文件） | 仅合并 / 变基中间态 |
 | commit | `commit -F <信息文件>` | 信息非空；`--amend` 仅限 HEAD 提交 |
 | branch | `branch` / `switch` | 分支名合法 |
+| branch 删除 | `branch -d` | 只删已合并分支，拒绝 `-D` |
+| fetch | `fetch [remote]` | 拉取远端更新，不动本地分支 |
+| state | `continue` / `abort` | 合并 / 变基中间态的继续与中止 |
 | merge | `merge` | 支持 `--rebase` 变体 |
 | pull | `pull` | 支持 `--rebase` 变体；分叉时报 1024 |
 | push | `push` | 强制级别逐级升级，见下 |

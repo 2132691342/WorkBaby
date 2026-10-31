@@ -17,7 +17,7 @@ MCP 是本项目承接第三方扩展的主通道——它加进来的是「工�
     "url": "…", "headers": {},                 // http（streamable）
     "enabled": true,
     "exposure": "direct",                      // direct / deferred / hidden
-    "timeout": 10                              // 启动等待秒（默认 10）
+    "timeout": 10                              // 启动等待秒；未配置或 0 时默认 10
 } }
 ```
 
@@ -29,8 +29,9 @@ MCP 是本项目承接第三方扩展的主通道——它加进来的是「工�
 ## 连接编排
 
 - service 持有连接池：启动时对 enabled 且 exposure ≠ hidden 的 server 并发连接
-- 超时未就绪 → 连接标记为 error，但不阻塞会话——某个 server 挂了不该让整个助手不可用
-- **stdio**：spawn server 进程（CREATE_NO_WINDOW，env 支持明文与 `${VAR}` 展开）
+- 连接失败（启动超时 / 握手失败 / 工具清单失败）报 9102 START_FAILED，
+  连接标记为 error，但不阻塞会话——某个 server 挂了不该让整个助手不可用
+- **stdio**：spawn server 进程（CREATE_NO_WINDOW，env 明文直传）
 - **http**：streamable HTTP 传输
 - **不自动重连**：会话运行中重连会让工具行为突变（同一个工具前后返回不同结果）。
   重连只在启动与显式 reload 时发生
@@ -38,21 +39,22 @@ MCP 是本项目承接第三方扩展的主通道——它加进来的是「工�
 
 ## 工具并入
 
-- 工具名 `mcp__<server>__<tool>`；描述与 schema 透传；结果作为普通 toolResult 回灌
+- 工具名 `mcp__<server>__<tool>`；描述与 schema 透传；结果作为普通工具结果回灌进会话
 - exposure 语义：
   - `direct` → 全部工具进模型 schema
   - `hidden` → 不连接
-  - `deferred` → 数据结构上预留，当前与 direct 同义
-- 单次工具调用超时 60 秒；超时归 7001（命令执行超时），取消归 7002
+  - `deferred` → 当前与 direct 同义
+- 单次工具调用超时 60 秒；超时归 7001（命令执行超时），取消归 7002，
+  调用失败（传输错误或 is_error 结果）归 9103 CALL_FAILED
 - 工具开关对 MCP 工具同样生效（按完整名 `mcp__server__tool`）
 
 ## 凭据
 
-`env` 与 `headers` 支持明文与 `${VAR}` 形式的环境变量引用——
-配置文件里不必出现真实密钥。
+`env` 与 `headers` 当前只支持明文。配置文件里的密钥是明文，
+`mcp.json` 与会话数据同目录，依赖 NTFS 用户级权限保护。
 
 **OAuth 登录当前不支持**：`POST /mcp/login` 与 `/mcp/logout` 都返回 9101 并说明
-「请在配置里用 headers 传凭据」。远端鉴权的 server 就用静态 header 或环境变量。
+「请在配置里用 headers 传凭据」。远端鉴权的 server 就用静态 header 传凭据。
 
 ## 取舍
 

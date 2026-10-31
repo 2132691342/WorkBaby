@@ -31,7 +31,7 @@
 | `tool.rs` | 工具 VO 与开关 REQ |
 | `git.rs` | Git 视图类型与写操作 REQ |
 | `mcp.rs` | MCP 服务器 VO、配置 REQ 与 wire 配置 |
-| `resource.rs` | 文件树、帮助文档、斜杠命令、工作区历史、背景图、上下文分解、自省快照、文件字节 |
+| `resource.rs` | 文件树、帮助文档、斜杠命令、背景图、上下文分解、自省快照、文件字节 |
 | `settings.rs` | 设置 KV 与启动数据 VO |
 | `stats.rs` | 用量聚合 |
 | `subagent.rs` | 子代理角色 VO 与运行结果 |
@@ -69,7 +69,7 @@
 |---|---|
 | registry | Tool trait（name/label/description/parameters/annotations/execute）+ ToolRegistry |
 | builtin | 内置 7 工具：read / write / edit / bash / grep / find / ls |
-| exec | 唯一的子进程出口：CREATE_NO_WINDOW / 超时 / 取消 / 输出上限 |
+| exec | 共享命令执行器（bash 等模型工具走这里）：CREATE_NO_WINDOW / 超时 / 取消 / 输出上限 |
 | truncate | 输出截断（2000 行 / 50KB / 单行 500 字符），按字符边界切 |
 
 ## wb-kernel（Agent 内核）
@@ -83,7 +83,8 @@
 | subagent | 子代理：隔离子会话跑任务，只把结论回灌父上下文 |
 | events | 内核事件枚举（唯一出参语言） |
 
-对上只暴露：`run()`、`AgentConfig`、`RunOutcome`、`run_subagent()`、`SubagentConfig`。
+对上暴露：运行入口（`run` / `run_subagent` 及各自的配置与结果类型）+
+会话模型（`SessionFile` / `Entry` / `Msg` / `Block`）+ 事件（`KernelEvent` / `EmitFn`）。
 系统提示词在 service 层组装（`wb-service::prompt`），内核只接收成品字符串。
 
 ## wb-skills（技能）
@@ -93,7 +94,7 @@
 | frontmatter | SKILL.md 解析与校验（名称规则、description 必填且 ≤1024） |
 | registry | 三区扫描（内置包 / 用户 / 工作区）、同名先到先得、开关、提示词注入文本 |
 
-内置技能包（21 个）以 `include_dir` 编译进二进制，首次扫描时解压到数据目录。
+内置技能包（9 个）以 `include_dir` 编译进二进制，首次扫描时解压到数据目录。
 
 ## wb-features（12 项内置功能）
 
@@ -132,7 +133,7 @@
 | 模块 | 职责 |
 |---|---|
 | config | `mcp.json` 读写（全局 / 工作区两份，后者覆盖同名） |
-| pool | 连接池：按需连接、超时不阻塞会话、不自动重连 |
+| pool | 连接池：按需连接（连接超时默认 10 秒）、超时不阻塞会话、不自动重连 |
 
 基于 rmcp 官方 SDK；stdio + streamable HTTP 两传输。
 工具并入注册表并命名 `mcp__<server>__<tool>`。
@@ -149,7 +150,7 @@
 | review | 分支差异审查（PR 的本地等价物） |
 | resources | 技能管理（建 / 导 / 删 / 正文）与工具视图 |
 | files | 文件树与单文件字节读取（文档预览的数据源） |
-| misc | 内置文档、斜杠命令、工作区历史、背景图 |
+| misc | 内置文档、斜杠命令、背景图 |
 | providers | Provider 增删改查、连通测试、模型清单拉取 |
 | mcp | MCP 工具并入注册表与连接编排 |
 | git | Git 读写编排 |
@@ -174,6 +175,22 @@
 | hub | SSE Hub：订阅 / seq / last_event_id 重放（心跳由 axum KeepAlive 提供） |
 | cors | CORS：仅放行本机来源与 Tauri webview，方法限 GET / POST |
 | bin/standalone | 独立调试入口：不起壳直接起 HTTP 服务 |
+
+依赖 wb-service / wb-repo / wb-kernel / wb-domain / wb-pkg 与 axum / tokio；
+禁止直摸 provider / tools / skills / features / git / mcp。
+组合根例外：开库（`Repo::open`）与会话文件操作（`SessionFile` / `Entry`——
+改名 / 切模型 / 切思考档 / 导出）在 api 层直接做，其余能力域一律经 service。
+
+## 第三方依赖
+
+通用第三方版本集中在根 `Cargo.toml` 的 `[workspace.dependencies]`：
+serde / serde_json / serde_yaml / tokio / tokio-util / async-trait / thiserror / ulid /
+regex / dunce / rusqlite（bundled）/ reqwest（rustls）/ eventsource-stream / futures /
+axum / tower-http / tracing 系 / chrono / ignore / walkdir。
+各 crate 以 `workspace = true` 引用，crate 内不写版本号，升级只动根表。
+
+两个例外：wb-mcp 专属的 rmcp 与 src-tauri 的 tauri 系依赖，
+版本就近写在各自 `Cargo.toml`，升级只动声明处。
 
 ## src-tauri（壳）
 

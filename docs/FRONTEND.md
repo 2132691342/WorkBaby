@@ -9,7 +9,7 @@ Vue 3 + TypeScript 的单窗口应用，通过 HTTP 与 SSE 与本地服务对�
 |---|---|---|
 | api | `src/api` | 唯一请求出口；路径与后端端点一一对应 |
 | stores | `src/stores` | chat（run 增量）/ session（列表与当前）/ settings（清单）/ toast |
-| composables | `src/composables` | chatBridge（事件→store）、useSse（连接单例）、useTheme、useAppearance |
+| composables | `src/composables` | chatBridge（SSE 事件→store 变更）、useSse（SSE 连接单例）、useTheme / useAppearance（主题切换与外观持久化）、filePeek（消息里文件路径的就地预览）、shellIntent（壳命令意图分发）、useSessionPanel（会话左栏的分组与选中状态）、useViewportScale（窗口宽→`--wb-vw-scale` 全局缩放） |
 | components | `src/components` | 按域分组：chat / settings / workspace / layout / dashboard / common / features / skills / doc / graph |
 | views | `src/views` | 路由级页面 |
 | utils | `src/utils` | md（唯一渲染出口）、echarts（按需注册）、num / text / time 格式化 |
@@ -32,7 +32,7 @@ Vue 3 + TypeScript 的单窗口应用，通过 HTTP 与 SSE 与本地服务对�
 `composables/useSse.ts` 持有唯一连接；`composables/chatBridge.ts` 把事件翻译成 store 变更。
 
 - 挂在 App 壳级，不随视图卸载（切页面不该断事件流）
-- 断线自动重连，重连后带 `Last-Event-ID` 让服务端重放遗漏事件
+- 断线自动重连，重连时以 `last_event_id` 查询参数声明断点，服务端据此重放补齐遗漏事件
 - 握手晚于挂载时也能建起来——端口是响应式的，拿普通变量 watch 等不到变化
 
 ## 路由与页面
@@ -74,7 +74,7 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。
 | EngineCard | 左栏底部内核状态卡，显示就绪/阻塞原因 |
 | ExampleCards | 首屏例句 |
 | FilePeek | 就地看文件改动 |
-| WorkspaceChip | 切工作目录 |
+| WorkspaceChip | 显示当前工作区；点击可改选目录，改选重启生效（设置页行为面板同样可改选） |
 
 ## 独立页组件
 
@@ -87,6 +87,12 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。
 | graph/RelationGraph | 关系图谱 | 能力关系可视化 |
 | graph/BpmnDiagram | 工作流图 | 只读画布，缩放平移可用 |
 
+骨架组件（多个视图共用）：settings/SettingsSection（设置面板分节容器，八个面板共用）、
+layout/TitleBar（自绘标题栏与窗控三键）、layout/NavRail（一级导航）、
+layout/SidePanel（当前区左栏，188px 窄档）、layout/PageHeader（页头标题与动作）、
+common/AppIcon（内联 SVG 图标）、common/CodeEditor（CodeMirror 封装）、
+common/ResizableDrawer（可拖宽抽屉）、common/ToastHost（轻提示宿主）。
+
 其余页面的组成：workspace（DiffView、GitStateBanner、GitCommitPanel、GitBranchPanel、
 GitHistoryPanel）、dashboard（KpiCard、UsageTrend、ModelShare）、
 overview（能力四卡 + 最近会话）、sessions（时间分组清单 + 会话概要）、
@@ -96,14 +102,12 @@ files（面包屑 + 目录列表 + 预览抽屉）、help（文档目录 + Markd
 
 | 组 | 项 |
 |---|---|
-| 通用 | 外观（主题/字体/字号/背景）、行为（语言/自启/关窗行为） |
-| 模型 | 服务商（models.json 面板）、默认模型 |
-| 能力 | 内置功能、技能、工具、MCP |
-| 内核 | 状态与数据目录、帮助 |
-| 引导 | 工作目录管理 |
+| 模型与接入 | providers 模型服务、tools 工具、mcp MCP 服务 |
+| 能力 | skills 技能、features 功能、inspect 内省 |
+| 应用 | appearance 外观、behavior 行为（工作目录管理在 behavior 里） |
 
-对应面板：AppearancePanel / BehaviorPanel / ProviderPanel / FeaturePanel /
-SkillPanel / ToolPanel / MCPPanel / InspectPanel。
+对应面板：ProviderPanel / ToolPanel / MCPPanel / SkillPanel / FeaturePanel /
+InspectPanel / AppearancePanel / BehaviorPanel，分节骨架由 settings/SettingsSection 提供。
 
 ## 界面骨架
 
@@ -179,7 +183,8 @@ PDF、表格、文档、图谱四个依赖体积可观，一律**动态导入**�
 | `vendor-graph` | AntV X6 + BPMN-JS |
 
 另有 `vendor-markdown`（marked + dompurify + highlight.js）、`vendor-echarts`、
-`vendor-cm`（CodeMirror）三块，以及承载 Vue / Pinia / Router / Axios 的 `vendor` 主块。
+`vendor-cm`（CodeMirror）、`vendor-ep`（@vueuse）四块，
+以及承载 Vue / Pinia / Router / Axios 的 `vendor` 主块。
 
 不进对应页面就不下载它们的代码。Element Plus 不整体归堆——
 按需导入的组件归进单个 chunk 会把内部依赖一起拉回首屏，
@@ -196,7 +201,7 @@ Element Plus 的内置文案由根组件的 `ElConfigProvider` 消费当前语�
 
 | 模块 | 职责 |
 |---|---|
-| chat | 一次 run 的增量落地：19 个 `chat:*` 事件处理器、发送 / 停止 / 插话 / 应答 |
+| chat | 一次 run 的增量落地：15 个 `chat:*` 事件处理器、发送 / 停止 / 插话 / 应答 |
 | session | 会话列表与当前会话；adopt（绑定到后端新建的会话）/ draft（未落盘的新对话）/ echo（本地回显） |
 | settings | 全局设置与 warmup 清单（providers / skills / tools / features） |
 | toast | 轻提示（悬停停表、最多 4 条） |

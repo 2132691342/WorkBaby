@@ -9,7 +9,8 @@
 ## 会话模型
 
 - 会话 = 一个 JSONL 文件 + 内存树
-- **上下文 = leaf→root 回放**：每个新条目是当前 leaf 的子；改 leaf 指针即切分支
+- **上下文 = leaf→root 回放**：每个新条目以当前 leaf 为父；parent 链 + leaf 指针
+  构成树形存储，当前没有切 leaf 的入口，实际运行恒为线性链
 - 回放产物：系统提示词（service 侧组装的成品字符串）+ 消息序列
 
 条目类型与存储格式见 `docs/SESSIONS.md`。
@@ -23,17 +24,18 @@
 | AgentStart | 每轮 prompt 开始 |
 | TurnStart | 每次 provider 请求前 |
 | TextDelta / ThinkingDelta | 流式增量 |
-| ToolCallDelta | 工具参数分片 |
 | ToolExecutionStart / ToolExecutionEnd | 工具批内（end 带 result / is_error / duration） |
 | TurnEnd | 一个 turn 结束（含用量与停止原因） |
-| QueueUpdate | steering 队列变化 |
 | CompactionStart / CompactionEnd | 上下文压缩前后 |
 | AutoRetry | 失败重试（带退避时长） |
 | AssistantFinal | 助手消息定稿（含完整块序与用量，供界面直接渲染） |
 | MessageEnd | 消息定稿通知 |
+| Failed | 错误终止 |
 | AgentEnd | 循环终点 |
 | Settled(aborted) | 完全结算（界面 done 挂这里） |
-| Failed | 错误终止 |
+
+失败路径的事件顺序是 Failed → AgentEnd → Settled：错误先给出原因，
+再走统一的循环终点与结算，界面只认 Settled 收尾。
 
 ## 主循环
 
@@ -41,7 +43,7 @@
 prompt(用户输入)
 → 落 user 条目 → emit AgentStart
 → loop:
-    取 steering 队列（one-at-a-time）→ 有则落条目
+    取走 steering 队列当前全部插话 → 逐条落 user 条目
     emit TurnStart → 组请求（系统提示词 + 回放上下文 + 工具 schema）
     provider.stream() → 逐事件累积内容块
     定稿 assistant 条目（含 usage / stop_reason）
@@ -49,36 +51,49 @@ prompt(用户输入)
       toolUse → 逐个执行工具调用（参数已完整）→ 结果落盘
                 → emit TurnEnd → continue
       stop   → 收尾正文 → emit TurnEnd → 跳出
-→ emit AgentEnd → Settled
+→ 失败则 emit Failed → emit AgentEnd → Settled
 ```
 
 **工具批按序执行**：一批里的工具逐个跑，结果按调用顺序回灌给模型。
 顺序稳定比并行更重要——模型看到的顺序不随谁先跑完而变化，行为可复现。
 
-**转向（steering）**：用户在助手跑的时候插话。转向在每轮循环开头取一条
-（打断当前轮但不丢弃上下文），不打断正在进行的工具调用。
+**转向（steering）**：用户在助手跑的时候插话。主循环在每个 turn 边界把队列里
+排队的**全部**插话一次取走，逐条落盘成 user 条目后合并进同一轮请求——
+插话要么整批进本轮上下文，要么继续排队等下一个边界，不会被打散到多轮；
+也不打断正在进行的工具调用。
 
 ## 上下文压缩
 
 窗口快满时自动压缩，避免请求被服务端拒绝。
 
-| 参数 | 值 | 含义 |
+| 常量 | 值 | 含义 |
 |---|---|---|
-| reserve | 16384 | 预留给「下一轮生成 + 工具结果」的空间 |
-| keepRecent | 20000 | 压缩后保留的最近消息 token 量 |
+| RESERVE_TOKENS | 16384 | 留给「下一轮生成 + 工具结果」的空间 |
+| KEEP_RECENT_TOKENS | 20000 | 选切点用的最近消息 token 预算 |
 
-触发条件：`上下文占用 > context_window - reserve`。
+触发条件：`上下文占用 > context_window − RESERVE_TOKENS`，在每个 turn 边界
+采样前检查。触发时发射 `CompactionStart`（reason=threshold）与 `CompactionEnd`。
 
-**切点算法**：从最新往回累加估算 token，达到保留量时找一条可切的位置——
-切点绝不落在 `toolResult` 上（否则会丢掉「调用了什么工具」与「工具返回了什么」的配对，
-下一轮模型会看到悬空的工具结果）。
+**切点**：按 KEEP_RECENT_TOKENS 预算从最新往回累加估算 token，在消息边界选
+切点，绝不把工具批拆开——切点候选跳过工具结果，落点自动上移到所属的
+assistant 消息，「调用了什么」与「返回了什么」永远留在同侧。切点随
+`first_kept_entry_id` 落盘进 `compaction` 条目，但**回放不读取它**。
+
+**回放语义是全量折叠**：回放遇到最后一条 compaction 条目时，它之前的全部
+历史条目直接丢弃，摘要替代一切；摘要输入也是切点无关的全量回放消息，
+更早的压缩摘要同样折叠进新摘要。优势是重启后上下文连贯、摘要不层层叠加；
+代价是压缩点前的消息全部进摘要，最近消息的细节可能丢失（keepRecent 预算
+目前只决定落盘记录的切点，不改变回放行为）。
 
 **摘要生成**：把回放消息压成纯文本（思考块丢弃，工具结果只取前 500 字符），
 交给模型产出结构化六段摘要（目标 / 约束与偏好 / 进度 / 关键决策 / 下一步 / 关键上下文）。
 这一步是一次独立的模型调用。
 
-**压缩记录落盘**：作为 `compaction` 条目写进会话文件，回放时以摘要形态进入上下文——
-重启后上下文仍然连贯。更早的摘要会折叠成一条 user 消息，不会层层叠加。
+**手动压缩**走 `POST /api/v1/chat/compact`：service 层的独立通道，直接调用
+压缩例程并发 `chat:compressed` SSE，不经内核事件；空闲会话才允许。
+
+**token 估算**：文本按 chars/4 折算，图片按 4800 chars 计——只喂压缩决策，
+不进用量统计（usage 信任服务端）。
 
 ## 自动重试
 

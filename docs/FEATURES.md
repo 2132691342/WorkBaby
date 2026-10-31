@@ -26,7 +26,8 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 
 ## 开关即装配边界
 
-关掉的功能，其工具不进 schema、命令不注册、事件不再发。
+关掉的功能，其工具不进 schema、事件不再发。斜杠命令只来自启用的技能（`/skill:名`），
+与功能开关无关——关掉的功能撤的是工具与事件。
 实现方式是 service 装配时按 `feature_toggle` 表过滤后重建注册表——不是运行时判断。
 
 | 特征 | code | 工具 | 默认 |
@@ -48,6 +49,9 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 因为它们的行为依赖用户机上的环境与网络状况——开着但不可用比关着更让人困惑。
 纯本地能力（todo / ask_user / fff / context_view）默认开。
 
+loadout / inspect / context_view 三项是纯数据面：没有模型工具，
+开关只影响界面呈现与端点可用性，不影响工具表装配。
+
 ## 逐项说明
 
 ### todo · 待办清单
@@ -63,9 +67,10 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 
 让模型在「该猜」的时候改为向你提问，而不是硬猜一个答案。
 
-工具 `ask_user_question` 一次最多 4 题，每题 2-4 个选项 + 自由输入，支持多选，
-选项可带 markdown 预览。工具调用会阻塞等待用户回答——等待经 `AnswerBoard` 桥接：
-内核发起提问 → 发 `chat:ask` 事件 → 界面出卡片 → 用户提交 → `POST /chat/answer` 回填。
+工具 `ask_user_question` 一次最多 4 题，每题 2-4 个选项（缺省自由输入）+ 说明文案。
+工具调用会阻塞等待用户回答——等待经 `AnswerBoard` 桥接：
+内核发起提问 → 发 `chat:ask` 事件 → 问卷逐题出卡片 → 用户提交 → `POST /chat/answer` 回填。
+默认等待上限 10 分钟，超时报 5005 由模型自行决策；会话取消时等待一起取消。
 
 `AnswerBoard` 保证一次投递：重复回答、无人等待者的回答都返回失败。
 
@@ -100,7 +105,7 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 | 特征词门槛 | 两段必须共用特征词 | 「我喜欢猫」与「我不喜欢狗」字面重合高但不是一回事 |
 | 单次扫描上限 | 300 条 | 控制整合的扫描成本 |
 | 自动触发阈值 | 40 条 | 到量就整合，不等模型手动叫 |
-| 合并方向 | 保留较早创建的 | 早的通常是原始陈述，后的是补充 |
+| 合并方向 | 保留最近更新的那条（较早的内容并入其中） | 最近更新的代表当前认知，历史陈述并进去不丢信息 |
 
 合并后条目更少、内容更全，检索质量才稳得住。
 
@@ -126,8 +131,10 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 **GitHub 克隆**：仓库标识必须是 `owner/name` 形态（拼 URL 前就卡住，不给注入留口子）；
 目标目录只能落在工作区下且不允许已存在——避免覆盖用户已有内容。
 
-**视频理解**：字幕是理解视频的主要入口。有字幕轨就抽字幕全文（按时间轴分段），
-没有就返回页面元信息并明确说明。语言偏好按标签与地址里的语言标记两处匹配。
+**视频理解**：字幕是理解视频的主要入口。YouTube 有专门路径——解析 `playerResponse`
+的 `captionTracks`，按语言偏好选轨，按 XML 时间轴分段抽字幕全文。
+其余站点（含 bilibili）解析页面元信息，能挖到字幕就用，挖不到就如实回退元信息——
+大多数非 YouTube 站点拿不到字幕轨，元信息回退是常态。语言偏好按标签与地址里的语言标记两处匹配。
 
 ### context_mode · 省上下文
 
@@ -142,7 +149,7 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 
 沙箱支持 12 种语言（javascript / typescript / python / shell / powershell /
 ruby / php / perl / go / dotnet / java / lua），脚本落盘后用对应解释器执行，
-执行完即删。解释器不在 PATH 上时报 7200（沙箱解释器不可用）。
+执行完即删。解释器不在 PATH 上时进程起不来，报 7003（无法启动该解释器）。
 
 知识库是 SQLite FTS5，正文按段落切块入库。检索用**双路召回 + RRF 融合**：
 一路 FTS5 词面匹配（BM25 排序），一路逐字 LIKE（覆盖缩写与专有名词），
@@ -178,7 +185,8 @@ bash-language-server / terraform-ls / rubocop。
 
 **PR 审查**：`review_diff` 拿一个分支相对基线的 diff 出来审查。
 PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以不需要连 GitHub API，
-也不需要用户配令牌。基线缺省取与当前分支的共同祖先（merge-base），否则用 `origin/main`。
+也不需要用户配令牌。基线依次兜底：显式 `base` 参数 → `merge-base(HEAD, origin/main)` →
+`origin/main` → `HEAD~1`。
 返回变更统计与逐文件 diff——改动面大时先看统计再挑重点文件。
 
 ### goal · 目标追踪
@@ -228,7 +236,6 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 | 状态行（空文本即清除） | chat:status | 状态条 |
 | 小部件行（空行组即清除） | chat:widget | 状态条 |
 | 通知（info/warning/error） | chat:notify | Toast |
-| 标题建议 | chat:title | 会话名 |
 
 ## 存储位置
 
@@ -236,9 +243,8 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 |---|---|
 | todo / plan / goal | `{数据目录}\features\{编码后工作目录}\*.json` |
 | memory | `{同上}\memory.db`（FTS5） |
-| fff | `{同上}\frecency.db` + 查询历史 |
+| fff | `{同上}\fff.db`（frecency 命中计数与查询历史） |
 | context_mode | `{同上}\knowledge.db`（FTS5）+ `sandbox\` |
-| web | `{同上}\web\`（结果缓存） |
 
 功能各自开自己的库文件，不进 `wb-repo` 的主库——主库管设置与索引，
 功能数据有自己的生命周期与清理策略。
