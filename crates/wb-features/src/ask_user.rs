@@ -185,18 +185,25 @@ impl Tool for AskUserTool {
             let answer = tokio::select! {
                 r = rx => match r {
                     Ok(v) => v,
-                    Err(_) => return Err(AppError::new(code::ASK_EXPIRED, "提问通道已关闭")),
+                    Err(_) => {
+                        (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id, "reason": "session_gone" }));
+                        return Err(AppError::new(code::ASK_EXPIRED, "提问通道已关闭"));
+                    }
                 },
                 _ = tokio::time::sleep(ANSWER_TIMEOUT) => {
-                    (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id }));
+                    (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id, "reason": "expired" }));
                     return Err(AppError::new(code::ASK_EXPIRED, "提问等待超时（10 分钟）"));
                 }
                 _ = cancel.cancelled() => {
-                    (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id }));
+                    (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id, "reason": "cancelled" }));
                     return Err(AppError::new(toolcode::EXEC_CANCELLED, "提问已随会话取消"));
                 }
             };
-            (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id }));
+            (self.ctx.emit)(
+                "",
+                "chat:ask_closed",
+                json!({ "id": ask_id, "reason": "answered" }),
+            );
             let text = if answer
                 .get("cancelled")
                 .and_then(|v| v.as_bool())

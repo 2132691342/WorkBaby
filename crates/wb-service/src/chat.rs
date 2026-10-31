@@ -199,7 +199,7 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
             let emitter = emitter.clone();
             Arc::new(move |ev: &KernelEvent| {
                 if let Some(e) = &emitter {
-                    translate(e.as_ref(), &sid, ev);
+                    translate(e.as_ref(), &sid, ev, context_window);
                 }
             })
         };

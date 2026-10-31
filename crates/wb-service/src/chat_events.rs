@@ -4,10 +4,10 @@ use wb_kernel::KernelEvent;
 
 use super::Emitter;
 
-/// KernelEvent → SSE 事件。
+/// KernelEvent → SSE 事件。context_window 来自当前默认模型（水位线口径必须与之一致）。
 /// 载荷一律走 wb_domain::events 里的结构体——那是前后端契约的唯一出处，
 /// 手写 json! 字面量早晚会与前端对不上。
-pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent) {
+pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent, context_window: i64) {
     match ev {
         KernelEvent::AgentStart { run_id } => {
             emit_data(
@@ -96,8 +96,12 @@ pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent) {
                             context: total,
                             cost: 0.0,
                         },
-                        context_window: 128000,
-                        ratio: total as f64 / 128000.0,
+                        context_window,
+                        ratio: if context_window > 0 {
+                            total as f64 / context_window as f64
+                        } else {
+                            0.0
+                        },
                     },
                 );
             }

@@ -74,7 +74,7 @@ pub struct McpServerConfig {
     pub command: String,
     /// stdio 参数
     pub args: Vec<String>,
-    /// stdio 环境变量（支持 ${VAR} 展开）
+    /// stdio 环境变量（明文直传）
     pub env: std::collections::BTreeMap<String, String>,
     /// http 地址（streamable）
     pub url: String,

@@ -127,7 +127,7 @@ seq 是服务端全局递增序号。
 | chat:stopped | run_id | 内核 |
 | chat:done | run_id, message | 内核 |
 | chat:error | run_id, code, message | 内核 |
-| chat:ask / chat:ask_closed | 提问卡（confirm/select/input/editor/问卷）与关闭 | ask_user / plan 功能 |
+| chat:ask / chat:ask_closed | 提问卡（confirm/select/input/editor/问卷）与关闭；关闭带 reason（answered / cancelled / expired / session_gone） | ask_user / plan 功能 |
 | chat:notify | level(info/warning/error), text | service |
 | chat:status | key, text（空 text 即清除该 key） | goal 功能 |
 | chat:widget | key, lines（空行组即清除该 key） | todo / plan 功能 |

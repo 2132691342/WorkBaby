@@ -329,6 +329,8 @@ async fn kernel_status(State(st): State<AppState>) -> Response {
 struct EventsQuery {
     /// 订阅的会话；空 = 全局通道
     session_id: Option<String>,
+    /// 断点序号：前端手动重连带查询参数，EventSource 原生重连带请求头
+    last_event_id: Option<i64>,
 }
 
 /// SSE 端点：Last-Event-ID 重放 + 心跳。
@@ -339,12 +341,14 @@ async fn events(
 ) -> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
     let sid = q.session_id.unwrap_or_default();
     let (tx, rx) = st.hub.subscribe(&sid);
-    // 重放：Last-Event-ID 之后的帧先推
-    if let Some(last) = headers
-        .get("last-event-id")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<i64>().ok())
-    {
+    // 重放：断点之后的帧先推（查询参数与请求头任一命中即可）
+    let last = q.last_event_id.or_else(|| {
+        headers
+            .get("last-event-id")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<i64>().ok())
+    });
+    if let Some(last) = last {
         for f in st.hub.replay_after(&sid, last) {
             let _ = tx.send(f);
         }

@@ -112,6 +112,8 @@ export interface AskData {
 
 export interface AskClosedData {
   id: string
+  /** answered / cancelled / expired */
+  reason: string
 }
 
 // ---- 模型服务 ----

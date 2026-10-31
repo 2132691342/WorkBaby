@@ -140,11 +140,15 @@ impl Tool for PlanSubmitTool {
         let answer = tokio::select! {
             r = rx => r.map_err(|_| AppError::new(toolcode::EXEC_CANCELLED, "计划评审通道已关闭"))?,
             _ = cancel.cancelled() => {
-                (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id }));
+                (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id, "reason": "cancelled" }));
                 return Err(AppError::new(toolcode::EXEC_CANCELLED, "计划评审已随会话取消"));
             }
         };
-        (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id }));
+        (self.ctx.emit)(
+            "",
+            "chat:ask_closed",
+            json!({ "id": ask_id, "reason": "answered" }),
+        );
         let rejected = answer
             .get("cancelled")
             .and_then(|v| v.as_bool())
