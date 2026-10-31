@@ -1,6 +1,7 @@
 //! 组合根：装配 Services + Hub + axum，返回端口。壳层与独立调试 bin 共用。
 
 pub mod chat_routes;
+pub mod cors;
 pub mod git_routes;
 pub mod hub;
 pub mod mcp_routes;
@@ -43,6 +44,8 @@ pub async fn startup(data_dir: PathBuf, workspace: String) -> Result<Startup> {
     wb_service::mcp::install(&sv);
     // 功能工具（todo / ask_user 等）按开关并入注册表
     wb_service::features::install(&sv);
+    // 历史会话用量一次性回填（幂等）
+    wb_service::usage::backfill(&sv);
     let state = AppState {
         sv: sv.clone(),
         hub: hub.clone(),

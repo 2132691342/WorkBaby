@@ -150,7 +150,7 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
             ctx.clone(),
         )));
     }
-    if enabled(sv, "lsp", false) {
+    if enabled(sv, "lsp", false) && wb_features::lsp::any_server_installed() {
         reg.register(Arc::new(
             wb_features::lsp::diagnostics::LspDiagnosticsTool::new(ctx.clone()),
         ));

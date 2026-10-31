@@ -111,6 +111,17 @@ fn day_key_offset(days: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// 毫秒时间戳对应的本地日期键（历史统计回填用）。
+pub fn day_key_of_ms(ms: i64) -> String {
+    use chrono::{Datelike, Local, TimeZone};
+    let date = Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .map(|t| t.date_naive())
+        .unwrap_or_else(|| Local::now().date_naive());
+    format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day())
+}
+
 /// 用 chrono 求偏移日期。
 fn chrono_days(days: i64) -> (i32, u32, u32) {
     use chrono::{Datelike, Duration, Local};

@@ -58,6 +58,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/kernel/status", get(kernel_status))
         .route("/api/v1/events", get(events))
         .with_state(state)
+        .layer(crate::cors::cors_layer())
 }
 
 // ---- 响应助手 ----

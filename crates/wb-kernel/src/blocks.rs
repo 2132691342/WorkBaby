@@ -21,7 +21,7 @@ pub async fn execute_tool(
     };
     let args: serde_json::Value =
         serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
-    match tool.execute(args, cancel.clone(), &tool_workdir()).await {
+    match tool.execute(args, cancel.clone(), &cfg.workdir).await {
         Ok(out) => (out.text, out.is_error, out.duration_ms),
         Err(e) => (
             format!("[错误 {}] {}", e.code, e.message),
@@ -29,11 +29,6 @@ pub async fn execute_tool(
             started.elapsed().as_millis() as i64,
         ),
     }
-}
-
-/// 工具的工作目录：进程当前目录（service 保证它等于工作区）。
-pub fn tool_workdir() -> std::path::PathBuf {
-    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
 }
 
 /// 追加文本块（连续文本合并）。

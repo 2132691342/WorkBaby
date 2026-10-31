@@ -16,6 +16,7 @@ pub mod resources;
 pub mod review;
 pub mod store;
 pub mod task;
+pub mod usage;
 
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -41,6 +41,8 @@ pub struct AgentConfig {
     pub thinking: ThinkingLevel,
     /// 自动重试上限（0 = 关）
     pub max_retries: i64,
+    /// 工具执行的工作目录（= 当前工作区，与进程 cwd 无关）
+    pub workdir: std::path::PathBuf,
 }
 
 /// 单轮运行结果。
@@ -49,6 +51,8 @@ pub struct RunOutcome {
     pub aborted: bool,
     /// 最后一轮助手正文（无正文为空串）
     pub last_text: String,
+    /// 各轮用量之和（供 service 入统计日表）
+    pub usage_total: Usage,
 }
 
 /// 跑一轮：先落用户消息，随后「采样→工具→回灌」直到停止/中止/失败。
@@ -77,6 +81,7 @@ pub async fn run(
     let mut last_text = String::new();
     let mut aborted = false;
     let mut failed: Option<AppError> = None;
+    let mut usage_total = Usage::default();
 
     'outer: loop {
         // turn 边界收插话（one-at-a-time）
@@ -227,6 +232,13 @@ pub async fn run(
         }
 
         // 落盘助手消息
+        if let Some(u) = &usage {
+            usage_total.input += u.input;
+            usage_total.output += u.output;
+            usage_total.cache_read += u.cache_read;
+            usage_total.cache_write += u.cache_write;
+            usage_total.reasoning += u.reasoning;
+        }
         let final_blocks = blocks.clone();
         let assistant_entry = session
             .append(Entry::Message {
@@ -337,7 +349,11 @@ pub async fn run(
         },
     });
     emit(&KernelEvent::Settled { aborted });
-    Ok(RunOutcome { aborted, last_text })
+    Ok(RunOutcome {
+        aborted,
+        last_text,
+        usage_total,
+    })
 }
 
 /// 内核消息 → provider 请求消息。

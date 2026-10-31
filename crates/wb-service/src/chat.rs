@@ -146,7 +146,8 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
     }
     let client = wb_provider::create_client(resolved)?;
 
-    // 会话：已有则加载；无则建
+    // 会话：已有则加载；无则建（工作区同时是工具执行的工作目录）
+    let workspace = sv.workspace.lock().unwrap().clone();
     let (session_id, session_file) = match &req.chat_session_id {
         Some(id) if !id.is_empty() => {
             let path = store::find_session_file(&sv, id)?;
@@ -154,11 +155,7 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
         }
         _ => {
             let sid = wb_pkg::ulid::new_id(wb_pkg::Prefix::Sess);
-            let mut sf = wb_kernel::SessionFile::create(
-                &sv.sessions_dir(),
-                &sv.workspace.lock().unwrap().clone(),
-                &sid,
-            );
+            let mut sf = wb_kernel::SessionFile::create(&sv.sessions_dir(), &workspace, &sid);
             sf.append(Entry::ModelChange {
                 provider_id: pid.clone(),
                 model_id: mid.clone(),
@@ -186,6 +183,7 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
         max_tokens: 16_384,
         thinking: wb_provider::ThinkingLevel::Off,
         max_retries: 3,
+        workdir: std::path::PathBuf::from(&workspace),
     });
     let run_session_id = session_id.clone();
     let svc = sv.clone();
@@ -220,6 +218,19 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
         match outcome {
             Ok(o) => {
                 refresh_index(&svc, &run_session_id);
+                // 用量入日表：按 天/provider/model/session 聚合（无定价配置，成本恒 0）。
+                let u = &o.usage_total;
+                let _ = svc.repo.usage_add(
+                    &wb_repo::usage::today_key(),
+                    &cfg.provider_id,
+                    &cfg.model_id,
+                    &run_session_id,
+                    u.input,
+                    u.output,
+                    u.cache_read,
+                    u.cache_write,
+                    0.0,
+                );
                 // 目标续跑：活跃目标还有未完成步骤就自动开下一轮。
                 if !o.aborted {
                     maybe_resume_goal(&svc, &run_session_id);
