@@ -57,12 +57,11 @@ src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-feature
 | [docs/FEATURES.md](docs/FEATURES.md) | 12 项内置功能 |
 | [docs/WORKSPACE.md](docs/WORKSPACE.md) | 工作区与 Git 写白名单 |
 | [docs/MCP.md](docs/MCP.md) | MCP 客户端与连接池 |
-| [docs/FRONTEND.md](docs/FRONTEND.md) | 前端架构、令牌、构建分块 |
+| [docs/FRONTEND.md](docs/FRONTEND.md) | 前端架构、页面与组件、令牌、构建分块 |
 | [docs/SHELL.md](docs/SHELL.md) | 桌面壳、进程模型、数据目录 |
 | [docs/MODULES.md](docs/MODULES.md) | 每个 crate 的职责 / 对外接口 / 边界 |
 | [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 数据模型：会话树 / 设置 / 索引 / 统计 / 记忆 |
 | [docs/API.md](docs/API.md) | HTTP 契约：端点 / 信封 / 事件流 |
-| [docs/PAGES.md](docs/PAGES.md) | 前端页面与组件结构 |
 | [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 业务错误码全表与处置建议 |
 | [docs/DEV.md](docs/DEV.md) | 开发环境、构建、验证流程 |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | 打包与分发 |

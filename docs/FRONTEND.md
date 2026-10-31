@@ -55,6 +55,56 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。
 **独立页与设置页共用组件**：`features/FeatureList` 与 `skills/SkillList` 各被两处引用——
 两处各写一份必然漂移。
 
+## ChatView 组件
+
+| 组件 | 职责 |
+|---|---|
+| SessionPanel / SessionList | 左栏：新对话、时间分组、搜索、重命名/导出/删除 |
+| MessageList | 消息流：历史回合 + 进行中回合 + 提问卡 |
+| ChatMessage | 单条消息的容器：角色布局、复制、usage 徽标 |
+| AssistantTurn | 一条助手消息：按原始顺序渲染思考/正文/工具卡 |
+| SessionChips | 输入区上方的模型 / 思考档 / 工作区 chip 行 |
+| ThinkingBlock | 思考段折叠（默认收起） |
+| ToolCard | 工具执行卡：一行摘要，展开参数/输出 |
+| AskCard | 内核提问卡：confirm/select/input/editor + 结构化问卷 |
+| ChatInput | 输入区：多行 + 附件 + @ 引用 + / 命令菜单 |
+| ContextMeter | 上下文水位环 + 读数，点击展开占用分解 |
+| EngineStatusBar | 状态条 + 小部件行（功能 setStatus/setWidget 桥） |
+| StatusHud | 底部常驻：模型/思考档/水位/耗时 |
+| EngineCard | 左栏底部内核状态卡，显示就绪/阻塞原因 |
+| ExampleCards | 首屏例句 |
+| FilePeek | 就地看文件改动 |
+| WorkspaceChip | 切工作目录 |
+
+## 独立页组件
+
+| 组件 | 归属 | 职责 |
+|---|---|---|
+| features/FeatureList | 概览 / 功能页 / 设置页 | 12 项功能清单与开关 |
+| skills/SkillList | 技能页 / 设置页 | 技能清单、开关、正文抽屉、导入与新建 |
+| doc/DocPreview | 文件页 | PDF / Word / Excel / 文本预览 |
+| doc/DocPreviewDrawer | 文件页 | 预览抽屉 |
+| graph/RelationGraph | 关系图谱 | 能力关系可视化 |
+| graph/BpmnDiagram | 工作流图 | 只读画布，缩放平移可用 |
+
+其余页面的组成：workspace（DiffView、GitStateBanner、GitCommitPanel、GitBranchPanel、
+GitHistoryPanel）、dashboard（KpiCard、UsageTrend、ModelShare）、
+overview（能力四卡 + 最近会话）、sessions（时间分组清单 + 会话概要）、
+files（面包屑 + 目录列表 + 预览抽屉）、help（文档目录 + Markdown 阅读）。
+
+## SettingsView 分组
+
+| 组 | 项 |
+|---|---|
+| 通用 | 外观（主题/字体/字号/背景）、行为（语言/自启/关窗行为） |
+| 模型 | 服务商（models.json 面板）、默认模型 |
+| 能力 | 内置功能、技能、工具、MCP |
+| 内核 | 状态与数据目录、帮助 |
+| 引导 | 工作目录管理 |
+
+对应面板：AppearancePanel / BehaviorPanel / ProviderPanel / FeaturePanel /
+SkillPanel / ToolPanel / MCPPanel / InspectPanel。
+
 ## 界面骨架
 
 ```
@@ -144,9 +194,9 @@ Element Plus 的内置文案由根组件的 `ElConfigProvider` 消费当前语�
 
 ## 状态管理
 
-| store | 职责 |
+| 模块 | 职责 |
 |---|---|
-| chat | 一次 run 的增量落地：20 个 `chat:*` 事件处理器、发送 / 停止 / 插话 / 应答 |
+| chat | 一次 run 的增量落地：19 个 `chat:*` 事件处理器、发送 / 停止 / 插话 / 应答 |
 | session | 会话列表与当前会话；adopt（绑定到后端新建的会话）/ draft（未落盘的新对话）/ echo（本地回显） |
 | settings | 全局设置与 warmup 清单（providers / skills / tools / features） |
 | toast | 轻提示（悬停停表、最多 4 条） |

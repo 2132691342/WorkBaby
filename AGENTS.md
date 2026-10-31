@@ -21,6 +21,7 @@
 | 错误 | thiserror + 自研 AppError（code 为字符串） | 见 §2.4 |
 | MCP 客户端 | rmcp（官方 Rust SDK，stdio + streamable HTTP） | 0.x |
 | 模糊匹配 | nucleo | 0.5.x |
+| HTTP 中间件 | tower-http（CORS，仅放行本机来源与 Tauri webview） | 0.6.x |
 | 内置资源打包 | include_dir | 0.7.x |
 | 前端 | Vue 3.5 + TypeScript 5.6 + Vite 6 | — |
 | 状态管理 | Pinia ^2.3（Setup Store） | — |
@@ -94,7 +95,7 @@ WorkBaby/
     ├── wb-git/                    # 工作区版本视图（读 status/diff/历史；写限白名单动作）
     ├── wb-mcp/                    # MCP 客户端编排（rmcp）：配置、连接池、工具并入
     ├── wb-service/                # 业务编排：对话 run、事件翻译、提示词组装、目录与装配
-    └── wb-api/                    # axum 路由 + SSE hub + 组合根 Startup
+    └── wb-api/                    # axum 路由 + SSE hub + CORS + 组合根 Startup
 ```
 
 **开包门槛**：有自己的一组概念 + 独立生命周期才开 crate，否则做 `wb-service` 里的一个模块。

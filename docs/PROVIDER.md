@@ -25,7 +25,7 @@
 
 ```
 Start | TextDelta(idx, s) | ThinkingDelta(idx, s) | ToolCallDelta(idx, s)
-| ToolCallEnd(idx, ToolCallDone) | Done(usage, stop_reason) | Error(msg)
+| ToolCallEnd(idx, ToolCallDone) | Done(usage, stop_reason) | Error(retryable, msg)
 ```
 
 `idx` 是同一消息内的块序号——一个回复可以同时有正文、思考与多个工具调用，

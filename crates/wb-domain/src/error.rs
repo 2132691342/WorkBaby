@@ -1,4 +1,4 @@
-//! 错误码常量：新增码先在 docs/ERROR-CODES.md 落档，再在这里声明。
+//! 错误码常量与段位定义；全表与处置建议见 docs/ERROR-CODES.md。
 
 /// 通用 / 文件 / 路径
 pub mod common {

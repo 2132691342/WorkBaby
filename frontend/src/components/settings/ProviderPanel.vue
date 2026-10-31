@@ -26,7 +26,7 @@ const busy = ref('')
 const dialog = ref(false)
 
 // 模型能力的兵底：留空不能等于 0。0 会让水位环永远显示 0%，
-// PI 也拿不到可用预算。与后端 domain.DefaultContextWindow / DefaultMaxTokens 一致。
+// 后端同样拿不到可用预算。与 domain.DefaultContextWindow / DefaultMaxTokens 一致。
 const DEFAULT_CONTEXT_WINDOW = 300000
 const DEFAULT_MAX_TOKENS = 64000
 

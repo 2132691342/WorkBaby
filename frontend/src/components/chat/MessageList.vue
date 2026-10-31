@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 消息流：历史回合 + 正在进行的回合（思考 / 工具 / 流式正文按原始顺序）+ 提问卡 + 收尾提示。
-// 顺序由 PI 的内容块决定：正文、思考、工具卡谁先谁后就按谁先谁后渲染。
+// 顺序由后端内容块决定：正文、思考、工具卡谁先谁后就按谁先谁后渲染。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

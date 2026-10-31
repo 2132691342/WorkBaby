@@ -156,6 +156,7 @@
 | loadout | 装载预设管理 |
 | context | 上下文分解 |
 | store | 会话索引与文件定位 |
+| usage | 用量统计：run 结束入日表 + 启动时回填历史 |
 
 依赖全部能力域，但不引 axum / tauri。
 
@@ -170,7 +171,8 @@
 | system_routes | Provider / 技能 / 文件 / 文档 / 命令 / 设置附属 |
 | git_routes | Git 路由 |
 | mcp_routes | MCP 路由 |
-| hub | SSE Hub：订阅 / 心跳 / seq / last_event_id 重放 / 慢客户端策略 |
+| hub | SSE Hub：订阅 / seq / last_event_id 重放（心跳由 axum KeepAlive 提供） |
+| cors | CORS：仅放行本机来源与 Tauri webview，方法限 GET / POST |
 | bin/standalone | 独立调试入口：不起壳直接起 HTTP 服务 |
 
 ## src-tauri（壳）

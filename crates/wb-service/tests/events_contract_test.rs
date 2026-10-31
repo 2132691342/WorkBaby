@@ -174,8 +174,8 @@ fn ask_payload_carries_questionnaire_shape() {
     assert_eq!(closed["reason"], "answered");
 }
 
-/// 提问关闭原因取全集：前端按 reason 分流提示语。
-/// 新增原因时前端必须同步，否则会落到「未知原因」兜底分支。
+/// 提问关闭原因取全集：前端按 reason 分流提示语，
+/// 未在此列的原因会落到「未知原因」兜底分支——这里是唯一出处。
 #[test]
 fn ask_closed_reasons_are_enumerated() {
     let reasons = ["answered", "cancelled", "expired", "session_gone"];

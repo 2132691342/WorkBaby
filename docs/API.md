@@ -3,6 +3,10 @@
 baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事件 `app:ready` 注入前端。
 信封统一 `Resp { code: string, message: string, data: T }`，`code === "0"` 成功。
 
+**CORS**：仅放行本机来源——`localhost` / `127.0.0.1`（任意端口，覆盖 dev 端口漂移）与
+`tauri.localhost` / `tauri://localhost`（webview）；方法限 GET / POST，头放行
+`Content-Type` 与 `Last-Event-ID`。服务只绑 127.0.0.1，外部站点读不到响应。
+
 **只允许 GET / POST**；路径形状 `/{resource}/{action}/:id`，id 永远最后一段。
 
 本表与前端 `src/api/index.ts` 一一对应。

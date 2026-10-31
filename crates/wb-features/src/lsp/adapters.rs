@@ -16,7 +16,7 @@ pub struct ServerSpec {
     pub server_skip_dirs: &'static [&'static str],
 }
 
-/// 内置服务器目录表：与 pi-lsp 的默认目录对齐，取常用子集。
+/// 内置服务器目录表：常用语言的常用服务器，按扩展名路由。
 pub const SERVERS: &[ServerSpec] = &[
     ServerSpec {
         server_name: "rust-analyzer",

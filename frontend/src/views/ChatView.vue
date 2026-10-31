@@ -34,7 +34,7 @@ const empty = computed(() => !session.messages.length && !chat.running)
 // 没配默认模型时，欢迎页先把「去配置」顶到最前——不然第一条消息必然失败
 const needsSetup = computed(() => settings.boot?.boot_ready === false)
 
-/** 新对话：不建空会话——PI 那边第一条消息才落盘，这里只把界面切到草稿态 */
+/** 新对话：不建空会话——第一条消息发出时后端才落盘，这里只把界面切到草稿态 */
 function newSession() {
   if (creating.value) return
   // 正在跑的回合只挂在当前会话上：开新对话等于把它抛下，事件再也接不回来。

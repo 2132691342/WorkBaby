@@ -96,7 +96,7 @@ pub trait Tool: Send + Sync {
 |---|---|
 | 不闪控制台 | Windows 下加 `CREATE_NO_WINDOW` |
 | 不进 shell 解释 | argv 数组直传，命令字符串永不拼接 |
-| 工作目录 | 进程当前工作目录 |
+| 工作目录 | AgentConfig.workdir（当前工作区）随内核配置传入，与进程 cwd 无关 |
 | 可超时可取消 | 超时或取消令牌触发即杀进程，返回 7001 / 7002 |
 | 输出有上限 | 单次执行 1MB 上限，再交给工具层截断 |
 

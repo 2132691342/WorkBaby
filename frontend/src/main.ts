@@ -15,8 +15,7 @@ import './ep-theme.css'
 import './content.css'
 import 'virtual:uno.css'
 
-// 组件基元逐步从 wb-ui.css 迁到 Element Plus（阶段迁移期两者共存）；
-// EP 的文案跟随 i18n。
+// 组件基元来自 Element Plus（按需引入），EP 的内置文案跟随 i18n。
 const app = createApp(App)
 // 渲染层异常必须浮出水面：无声白屏是「对话全没了」这类报告的温床。
 // toast 在 pinia 装好后才可用，启动早期的错误只落 console。

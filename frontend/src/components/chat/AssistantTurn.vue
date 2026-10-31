@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 一条助手消息的内容段：按 PI 内容块的原始顺序就地渲染思考 / 正文 / 工具卡。
+// 一条助手消息的内容段：按后端内容块的原始顺序就地渲染思考 / 正文 / 工具卡。
 // 不按字段类型分组——分组会把这一轮所有工具卡顶到正文前面，顺序就丢了。
 import { computed } from 'vue'
 import type { MessageBlock, MessageVO } from '../../types/api'

@@ -34,7 +34,7 @@ WorkBaby 是 Windows 桌面单机 AI 助手：Tauri 壳 + 内嵌 HTTP 服务 + �
 |---|---|
 | Agent 内核：会话树、循环、压缩、重试 | [KERNEL.md](KERNEL.md) |
 | 工具体系：Tool 契约、内置工具、执行纪律 | [TOOLS.md](TOOLS.md) |
-| 模型接入：三族 wire API、流式解析、错误分类 | [PROVIDER.md](PROVIDER.md) |
+| 模型接入：wire API、流式解析、错误分类 | [PROVIDER.md](PROVIDER.md) |
 | 会话存储：JSONL 条目类型、回放算法 | [SESSIONS.md](SESSIONS.md) |
 | 技能体系：SKILL.md 格式、三区发现、注入 | [SKILLS.md](SKILLS.md) |
 | 12 项内置功能 | [FEATURES.md](FEATURES.md) |
