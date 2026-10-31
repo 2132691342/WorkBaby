@@ -52,7 +52,6 @@ fn parallel_tool_calls_are_all_finalized() {
     handle_chunk(chunk, &mut acc);
     let done = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#;
     let events = handle_chunk(done, &mut acc);
-
     let calls: Vec<&ToolCallDone> = events
         .iter()
         .filter_map(|e| match e {
@@ -94,42 +93,44 @@ fn one_frame_yields_text_and_tool_events() {
     );
 }
 
-/// 正文增量透传；finish_reason=stop 收尾且不再产出增量事件。
+/// 三种 finish_reason 各归各位：stop 只收尾不产事件；length 表示截断（内核据此重试）；
+/// tool_calls 映射为 tool_use——混淆会让内核在正文收尾后继续空转烧 token。
 #[test]
-fn text_delta_is_forwarded_and_stop_ends_stream() {
+fn stop_reasons_follow_finish_reason() {
     let mut acc = Acc::default();
-    let chunk = r#"{"choices":[{"index":0,"delta":{"content":"你好"},"finish_reason":null}]}"#;
-    let events = handle_chunk(chunk, &mut acc);
+    let events = handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{"content":"你好"},"finish_reason":null}]}"#,
+        &mut acc,
+    );
     assert!(events
         .iter()
         .any(|e| matches!(e, ModelEvent::TextDelta(_, s) if s == "你好")));
 
-    let stop = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#;
-    let events = handle_chunk(stop, &mut acc);
+    let events = handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#,
+        &mut acc,
+    );
     assert!(events.is_empty(), "stop 只标记收尾，不产出增量事件");
     assert_eq!(acc.stop, Some(StopReason::Stop));
-}
 
-/// finish_reason=length 表示输出被截断——参数可能不完整，内核据此走重试。
-#[test]
-fn length_finish_reason_is_recorded() {
     let mut acc = Acc::default();
-    let chunk = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}"#;
-    handle_chunk(chunk, &mut acc);
+    handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}"#,
+        &mut acc,
+    );
     assert_eq!(acc.stop, Some(StopReason::Length));
-}
 
-/// 工具调用收尾的停止原因是 tool_use，不是 stop。
-/// 两者混淆会让内核在正文收尾后继续空转，把 token 白烧掉。
-#[test]
-fn tool_calls_finish_reason_is_tool_use() {
     let mut acc = Acc::default();
-    let chunk = r#"{"choices":[{"index":0,"delta":{"tool_calls":[
+    handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{"tool_calls":[
       {"index":0,"id":"c0","function":{"name":"read","arguments":"{}"}}
-    ]}}]}"#;
-    handle_chunk(chunk, &mut acc);
-    let done = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#;
-    handle_chunk(done, &mut acc);
+    ]}}]}"#,
+        &mut acc,
+    );
+    handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#,
+        &mut acc,
+    );
     assert_eq!(acc.stop, Some(StopReason::ToolUse));
 }
 
@@ -145,16 +146,11 @@ fn reasoning_content_becomes_thinking_delta() {
         .any(|e| matches!(e, ModelEvent::ThinkingDelta(_, s) if s == "想一下")));
 }
 
-/// 上游错误体是 JSON 时要把里面的 message 提出来，而不是把整坨 JSON 甩给用户。
+/// 上游错误体：JSON 提取 message 字段；非 JSON 原样带出，不能吞掉。
 #[test]
-fn error_body_message_is_extracted() {
+fn error_message_extracts_json_field_and_keeps_plain_text() {
     let m = error_message(401, r#"{"error":{"message":"bad key"}}"#);
     assert!(m.contains("bad key"), "应提取 message 字段：{m}");
-}
-
-/// 非 JSON 错误体原样带出，不能吞掉。
-#[test]
-fn non_json_error_body_is_preserved() {
     let m = error_message(500, "upstream exploded");
     assert!(
         m.contains("upstream exploded"),
