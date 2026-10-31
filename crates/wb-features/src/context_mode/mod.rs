@@ -107,7 +107,7 @@ impl Tool for CtxExecuteTool {
         let dir = sandbox_dir(&self.ctx);
         let file = sandbox::write_script(&dir, runtime.lang_ext, &code)
             .map_err(|e| AppError::new(toolcode::ARG_INVALID, e))?;
-        let program = runtime.lang_program.to_string();
+        let program = sandbox::resolve_program(runtime);
         let argv = sandbox::build_args(runtime, &file);
         let outcome = wb_tools::exec::run(&program, &argv, workdir, timeout, &cancel).await?;
         // 清理脚本：沙箱不留下模型产生的垃圾
@@ -387,7 +387,7 @@ impl Tool for CtxBatchExecuteTool {
             .unwrap_or(sandbox::DEFAULT_TIMEOUT_SECS)
             .clamp(1, sandbox::MAX_TIMEOUT_SECS);
         let dir = sandbox_dir(&self.ctx);
-        let program = runtime.lang_program.to_string();
+        let program = sandbox::resolve_program(runtime);
         let mut parts: Vec<String> = Vec::with_capacity(commands.len());
         for (i, code) in commands.iter().enumerate() {
             let file = sandbox::write_script(&dir, runtime.lang_ext, code)

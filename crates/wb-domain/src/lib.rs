@@ -8,6 +8,7 @@ pub mod git;
 pub mod mcp;
 pub mod provider;
 pub mod resource;
+pub mod runtime;
 pub mod session;
 pub mod settings;
 pub mod skill;

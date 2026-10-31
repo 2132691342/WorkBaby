@@ -105,10 +105,11 @@ pub trait Tool: Send + Sync {
 
 代价：纪律靠约定不靠类型收口——新增进程出口要自觉对齐这张表。
 
-**bash 工具的 shell 定位**：先在 PATH 里找 `bash.exe`，找不到就退回常见 Git 安装位
-（`C:\Program Files\Git\bin` 等），都找不到就用 `bash` 交给系统解析。
+**bash 工具的 shell 定位**：内置 MinGit 运行时优先（`%APPDATA%\WorkBaby\runtime\MinGit`，
+启动时自动解压，见 docs/DEPLOY.md「打包内容」），其次 PATH 里的 `bash.exe`，
+再退常见 Git 安装位（`C:\Program Files\Git\bin` 等），都找不到就用 `bash` 交给系统解析。
 命令以 `bash -c <command>` 形式执行——命令串在这一层才进入 shell 解释，
-其余工具的 argv 一律直传。
+其余工具的 argv 一律直传。context_mode 的 shell 沙箱与 wb-git 的 git 同样先探测该运行时。
 
 ## 扩展工具如何并入
 

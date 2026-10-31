@@ -13,8 +13,16 @@ use crate::truncate;
 /// bash 工具。
 pub struct BashTool;
 
-/// 定位 bash.exe：PATH → 常见 Git 安装位。
+/// 定位 bash.exe：内置 MinGit 运行时 → PATH → 常见 Git 安装位。
 pub fn find_bash() -> Option<std::path::PathBuf> {
+    if let Some(data) = wb_domain::runtime::default_data_dir() {
+        let root = wb_domain::runtime::mingit_root(&data);
+        for p in wb_domain::runtime::mingit_bash(&root) {
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
     if let Some(p) = which_bash() {
         return Some(p);
     }

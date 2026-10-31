@@ -20,9 +20,22 @@ impl GitOut {
     }
 }
 
-/// 探测系统 git；返回版本串（如 "2.45.1"），未装返回 None。
+/// 定位 git.exe：内置 MinGit 运行时优先，其次系统 PATH。
+fn git_program() -> String {
+    if let Some(data) = wb_domain::runtime::default_data_dir() {
+        let root = wb_domain::runtime::mingit_root(&data);
+        for p in wb_domain::runtime::mingit_git(&root) {
+            if p.is_file() {
+                return p.display().to_string();
+            }
+        }
+    }
+    "git".to_string()
+}
+
+/// 探测 git；返回版本串（如 "2.45.1"），未装返回 None。
 pub fn version() -> Option<String> {
-    let out = Command::new("git").arg("--version").output().ok()?;
+    let out = Command::new(git_program()).arg("--version").output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -32,7 +45,7 @@ pub fn version() -> Option<String> {
 
 /// 在 `dir` 下跑 git（失败不 panic，退出码带出）。
 pub fn run(dir: &Path, args: &[&str]) -> GitOut {
-    let mut cmd = Command::new("git");
+    let mut cmd = Command::new(git_program());
     // quotepath=false：numstat 等输出里非 ASCII 路径保持原样，才能与 porcelain 路径对上
     cmd.args(["-c", "core.quotepath=false"])
         .args(args)

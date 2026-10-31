@@ -37,6 +37,7 @@
 | `subagent.rs` | 子代理角色 VO 与运行结果 |
 | `error.rs` | 错误码常量（按段位分组） |
 | `events.rs` | SSE 事件载荷类型 |
+| `runtime.rs` | 内置 MinGit 运行时的路径契约：数据目录名、runtime\MinGit 根、bash/git 候选定位 |
 
 ## wb-repo（SQLite）
 
@@ -94,7 +95,7 @@
 | frontmatter | SKILL.md 解析与校验（名称规则、description 必填且 ≤1024） |
 | registry | 三区扫描（内置包 / 用户 / 工作区）、同名先到先得、开关、提示词注入文本 |
 
-内置技能包（9 个）以 `include_dir` 编译进二进制，首次扫描时解压到数据目录。
+内置技能包（9 个）以 `include_dir` 编译进二进制，扫描时按包指纹校验数据目录里的解压结果，不符即清空重解压。
 
 ## wb-features（12 项内置功能）
 
@@ -122,7 +123,7 @@
 
 | 模块 | 职责 |
 |---|---|
-| exec | git 命令执行（argv 数组直传、超时、CREATE_NO_WINDOW、`core.quotepath=false`） |
+| exec | git 命令执行（argv 数组直传、超时、CREATE_NO_WINDOW、`core.quotepath=false`；内置 MinGit 运行时优先于系统 PATH） |
 | parse | porcelain `-z` 输出解析、分支与领先落后 |
 | write | 写白名单动作；危险参数拒绝 |
 
@@ -150,13 +151,14 @@
 | review | 分支差异审查（PR 的本地等价物） |
 | resources | 技能管理（建 / 导 / 删 / 正文）与工具视图 |
 | files | 文件树与单文件字节读取（文档预览的数据源） |
-| misc | 内置文档、斜杠命令、背景图 |
+| misc | 内置文档、斜杠命令、工作区历史、背景图 |
 | providers | Provider 增删改查、连通测试、模型清单拉取 |
 | mcp | MCP 工具并入注册表与连接编排 |
 | git | Git 读写编排 |
 | loadout | 装载预设管理 |
 | context | 上下文分解 |
 | store | 会话索引与文件定位 |
+| runtime | 内置 MinGit 运行时：zip 编译期嵌入，启动时按指纹解压到数据目录 |
 | usage | 用量统计：run 结束入日表 + 启动时回填历史 |
 
 依赖全部能力域，但不引 axum / tauri。

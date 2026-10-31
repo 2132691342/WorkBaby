@@ -1,6 +1,4 @@
-//! SSE 载荷契约测试：事件字段名是前后端协议，改名必须同步改前端。
-//! 载荷字段名不走业务前缀规则（前端按 `data.kind` / `data.name` 读），
-//! 正因为不走，改名时最容易两边对不上。这里钉住前端实际会读的那几个。
+//! wb-service 场景测试：SSE 载荷契约、内置 MinGit 运行时装配。
 
 use wb_domain::events::{
     AskClosedData, AskData, AskOption, AskQuestion, CompressedData, ContextData, ContextUsage,
@@ -10,8 +8,7 @@ use wb_domain::events::{
 
 /// 全部 chat:* 载荷的字段名与前端 `types/api.ts` / `stores/chat.ts` 的读取一致；
 /// 提问载荷带问卷结构（questions[].question_options[].option_label）；
-/// 关闭原因取全集（answered / cancelled / expired / session_gone），
-/// 未列的原因会落到前端「未知原因」兜底分支。
+/// 关闭原因取全集，未列的原因会落到前端「未知原因」兜底分支。
 #[test]
 fn chat_event_payloads_match_frontend_contract() {
     let start = serde_json::to_value(StartData {
@@ -166,4 +163,76 @@ fn chat_event_payloads_match_frontend_contract() {
         assert_eq!(closed["id"], "ASK_1");
         assert_eq!(closed["reason"], reason, "reason 原样透传，不做改写");
     }
+}
+
+// ---- 内置 MinGit 运行时 ----
+
+/// 解压后 bash / git 真实可执行；指纹幂等，坏指纹触发重解压自愈。
+#[test]
+fn mingit_runtime_extracted_and_bash_runs() {
+    let dir = std::env::temp_dir().join(format!("wb-mingit-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let root = wb_domain::runtime::mingit_root(&dir);
+    let bash = wb_domain::runtime::mingit_bash(&root);
+    let git = wb_domain::runtime::mingit_git(&root);
+
+    wb_service::runtime::ensure_mingit(&dir);
+    let sh = bash
+        .iter()
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| panic!("内置 bash 未解压：{}", bash[0].display()));
+    let git_exe = git
+        .iter()
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| panic!("内置 git 未解压：{}", git[0].display()));
+
+    // 真跑一把：$BASH_VERSION 非空证明是 bash 而非 dash
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let out = wb_tools::exec::run(
+            &sh.display().to_string(),
+            &[
+                "-c".into(),
+                "if test -n \"$BASH_VERSION\"; then echo ok; else echo not-bash; fi".into(),
+            ],
+            &dir,
+            60,
+            &cancel,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            out.stdout.trim(),
+            "ok",
+            "内置 bash 行为异常：{}",
+            out.stdout
+        );
+        let g = wb_tools::exec::run(
+            &git_exe.display().to_string(),
+            &["--version".into()],
+            &dir,
+            60,
+            &cancel,
+        )
+        .await
+        .unwrap();
+        assert!(
+            g.stdout.contains("git version"),
+            "内置 git 异常：{}",
+            g.stdout
+        );
+    });
+
+    let marker = root.join(".pack_stamp");
+    let stamp = std::fs::read_to_string(&marker).unwrap();
+    assert_eq!(stamp, wb_service::runtime::MINGIT_ZIP.len().to_string());
+    std::fs::write(&marker, "0").unwrap();
+    wb_service::runtime::ensure_mingit(&dir);
+    assert_eq!(
+        std::fs::read_to_string(&marker).unwrap(),
+        stamp,
+        "坏指纹应触发重解压并修复"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

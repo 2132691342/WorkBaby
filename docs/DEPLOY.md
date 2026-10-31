@@ -20,6 +20,10 @@ npm run tauri build                   # tauri build：编译 release + 打包
   每次启动按包指纹（递归统计的文件数 + 总字节数）校验数据目录里的解压结果，
   不符即清空重解压——升级与技能删减后旧文件不残留。
 - **内置帮助文档**：`assets/docs/` 下的四篇随二进制打包，经 `/docs` 端点提供。
+- **内置 MinGit 运行时**：`assets/runtime/` 的便携包（含 bash 5.x 与 git）经 `include_bytes`
+  打进 `wb-service`。启动时按 zip 字节数指纹检测数据目录的 `runtime\MinGit\`，
+  没有就解压过去；解压失败只告警，bash / git / context_mode shell 退回系统 PATH 探测。
+  用户没装 Git 也能干活，且三个消费方共用同一份运行时。
 - **图标与元数据**：`src-tauri/icons/`、`tauri.conf.json` 的 productName/identifier/version。
 
 ## 安装形态与数据
@@ -28,7 +32,7 @@ npm run tauri build                   # tauri build：编译 release + 打包
 |---|---|
 | 安装范围 | per-user（NSIS `installMode: currentUser`），不需要管理员 |
 | 打包目标 | nsis（x86_64-pc-windows-msvc） |
-| 数据目录 | `%APPDATA%\WorkBaby\`（sessions/ settings.db models.json auth.json mcp.json skills/ features/ logs/） |
+| 数据目录 | `%APPDATA%\WorkBaby\`（sessions/ settings.db models.json auth.json mcp.json skills/ features/ runtime/ logs/） |
 | 升级 | 覆盖安装；数据目录不动 |
 | 卸载 | 默认不删用户数据 |
 

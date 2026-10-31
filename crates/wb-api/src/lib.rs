@@ -29,8 +29,7 @@ pub struct Startup {
 
 /// 数据目录：`%APPDATA%\WorkBaby`。
 pub fn data_dir() -> PathBuf {
-    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
-    PathBuf::from(base).join("WorkBaby")
+    wb_domain::runtime::default_data_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// 装配并起 HTTP 服务（tokio runtime 已由调用方提供）。

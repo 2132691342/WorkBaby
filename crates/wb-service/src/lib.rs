@@ -14,6 +14,7 @@ pub mod prompt;
 pub mod providers;
 pub mod resources;
 pub mod review;
+pub mod runtime;
 pub mod store;
 pub mod task;
 pub mod usage;
@@ -69,6 +70,8 @@ pub struct Services {
 impl Services {
     /// 装配：数据目录 + 工作区。内核客户端等重物在首次对话时构建。
     pub fn new(data_dir: PathBuf, workspace: String, repo: Arc<wb_repo::Repo>) -> Arc<Self> {
+        // 内置 MinGit 先就位：bash / git 工具首次执行就能命中，无需用户装 Git
+        runtime::ensure_mingit(&data_dir);
         let providers = wb_provider::config::ProviderStore::new(&data_dir);
         let mut registry = wb_tools::ToolRegistry::new();
         wb_tools::builtin::install(&mut registry);
