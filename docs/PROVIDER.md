@@ -31,7 +31,7 @@ Start | TextDelta(idx, s) | ThinkingDelta(idx, s) | ToolCallDelta(idx, s)
 `idx` 是同一消息内的块序号——一个回复可以同时有正文、思考与多个工具调用，
 idx 用来把它们分开再按原序拼回去。
 
-`stop_reason` 归一化为 `stop` / `tool_use` / `length` / `other`。
+`stop_reason` 归一化为 `stop` / `tool_use` / `length` / `error` / `aborted`。
 内核只看这几个：`stop` 收尾、`tool_use` 继续循环、`length` 触发重试（参数可能被截断）。
 
 ### 一帧多事件
@@ -65,6 +65,8 @@ idx 用来把它们分开再按原序拼回去。
 | `stop` | Stop | 正常收尾 |
 | `tool_calls` / `function_call` | ToolUse | 要调工具，内核继续循环 |
 | `length` | Length | 输出被截断，参数可能不完整 |
+| 流错误终止 | Error | 本轮失败（不可续写） |
+| 用户取消 | Aborted | 本轮中止（不计失败） |
 | 其它 | Stop | 收尾 |
 
 **正文收尾必须是 Stop**。把它当成 ToolUse 会让内核在正文写完后继续空转，
@@ -78,22 +80,22 @@ idx 用来把它们分开再按原序拼回去。
 | 文件 | 内容 |
 |---|---|
 | `models.json` | providers 键值：`{name?, baseUrl?, api?, apiKey?, headers?, models:[{id,name?,reasoning?,vision?,contextWindow?,maxTokens?}]}` |
-| `auth.json` | `{providerId: {type:"api_key", key} \| {type:"oauth", refresh, access, expires}}` |
+| `auth.json` | `{"providers": {providerId: {type:"api_key", key} \| {type:"o_auth", refresh, access, expires}}}` |
 
 - `models.json` 与 `auth.json` 分开：前者只存服务描述，后者只存凭据
 - 密钥取用有级联：`auth.json` 优先（面板「保存密钥」落这里），
   其次取 `models.json` 的 `apiKey`；后者支持 `$ENV_NAME` 形式从环境变量读，避免密钥落盘
-- `auth.json` 的 `oauth` 形态只存数据（refresh / access / expires），当前没有刷新流程
+- `auth.json` 的 `o_auth` 形态只存数据（refresh / access / expires），当前没有刷新流程
 - 模型清单支持手工填写，也可从服务商接口拉取（写进 `models.json`）
 
 ## 上下文窗口
 
-每个模型可声明 `contextWindow` 与 `maxTokens`。压缩决策用这两个值：
+每个模型可声明 `contextWindow` 与 `maxTokens`：
 
-- `contextWindow` 决定什么时候触发压缩
-- `maxTokens` 决定单次生成上限（也影响压缩的 reserve 计算）
+- `contextWindow` 决定什么时候触发压缩（也作为界面水位线的分母）
+- `maxTokens` 仅在面板展示；生成上限当前固定 16K
 
-没声明时用保守默认值（上下文 128K、单次 16K）——宁可早压缩，不要被服务端拒绝。
+没声明 `contextWindow` 时用保守默认值 128K——宁可早压缩，不要被服务端拒绝。
 
 ## 错误分类
 

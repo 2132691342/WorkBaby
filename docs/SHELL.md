@@ -85,8 +85,8 @@ Windows 注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，
 ```
 main()
   → 装配 ShellState（启动结果 / 失败原因 / 退出信号）
-  → 建单实例监听 + 托盘 + 窗口
-  → 起 HTTP 服务（随机端口），装配 Services / 功能工具 / MCP
+  → 建单实例监听 + 窗口
+  → spawn HTTP 启动（随机端口，装配 Services / 功能工具 / MCP），随后建托盘
   → 发 app:ready（带端口）
   → 事件循环
 ```
@@ -110,6 +110,7 @@ main()
 | `models.json` | 服务商与模型配置 |
 | `auth.json` | 凭据 |
 | `mcp.json` | MCP 服务器配置 |
+| `runtime\` | 内置 MinGit 运行时（bash / git 兜底） |
 | `logs\` | tracing 日志，按天分文件 |
 
 工作区在启动时确定：设置 KV `workspace` 里存过且目录仍存在就用之，

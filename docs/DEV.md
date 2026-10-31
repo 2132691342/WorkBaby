@@ -18,7 +18,7 @@ crates/wb-*           后端各 crate（依赖方向见 AGENTS.md §2.2）
 frontend/src          前端唯一源码目录
 docs/                 文档（改行为必须同步）
 scripts/              验证脚本
-assets/               打包进二进制的资源（内置技能与帮助文档）
+assets/               打包进二进制的资源（内置技能、帮助文档与 MinGit 运行时）
 ```
 
 ## 日常命令
@@ -34,6 +34,7 @@ assets/               打包进二进制的资源（内置技能与帮助文档�
 | 全量门禁 | `bash scripts/check.sh` |
 | 只跑后端门禁 | `bash scripts/check.sh backend` |
 | 只跑前端门禁 | `bash scripts/check.sh frontend` |
+| 只验一个 crate | `bash scripts/check.sh wb-features`（crate 名即参数） |
 | 慢速门禁（真实外部依赖） | `bash scripts/check-slow.sh` |
 | 出包 | `npm run tauri build`（frontend 目录内） |
 
@@ -44,7 +45,8 @@ assets/               打包进二进制的资源（内置技能与帮助文档�
 - 日志：`{数据目录}\logs\`（按天分文件）；数据目录默认 `%APPDATA%\WorkBaby`。
 - 纯浏览器调前端：壳未启动时，`api/shell.ts` 读 `localStorage.wb_dev_port` 连指定端口；
   用 `cargo run -p wb-api --bin wb-api-standalone` 单独起 HTTP 服务。
-- SSE 调试：浏览器 DevTools 的 EventSource 面板；重连时观察 `last_event_id` 查询参数与 seq 重放。
+- SSE 调试：浏览器 DevTools 的 EventSource 面板；重连时观察 `last_event_id`
+  （手动重连走查询参数，EventSource 原生重连走 Last-Event-ID 请求头）与 seq 重放。
 - 内核测试用假 Provider：按脚本回放模型事件流，不起真网络。
 
 ## 约定提醒（写代码前扫一眼）

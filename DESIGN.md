@@ -47,12 +47,13 @@ WorkBaby 的设计对象是「第一次用 AI 的办公人员」。视觉只服�
 
 ```
 window（窗底） < workspace（区底 / rail / 页头） ≤ surface（表单行）
-≤ raised（卡片 / 面板） < hover（悬停底） < selected（选中底）
+≤ raised（卡片 / 面板） ≤ hover（悬停底） < selected（选中底）
 ```
 
-浅色系取 `#f8fafc → #ffffff → #eef2ff` 一档一档抬；相邻两级只差 2%~5% 亮度——
-读起来是一整片连续的工作区，而不是卡片叠卡片。深色对位取
-`#0b1220 → #131c31 → #1e293b → #263449 → #23305a`。
+相邻两级只差 2%~5% 亮度——读起来是一整片连续的工作区，而不是卡片叠卡片。
+浅色系取 `#f8fafc → #ffffff → #eef2ff` 一档一档抬（hover 与 workspace 同档，
+悬停不必比卡片更亮，与周边拉开即可）；深色对位取
+`#0b1220 → #131c31 → #1e293b → #263449 → #23305a`（hover 与 raised 同档）。
 
 表单控件另走一组 `--wb-control-*`（bg / bg-hover / bg-disabled / border /
 border-hover / shadow / shadow-focus）：控件要有「可以点进去」的浮凸感，

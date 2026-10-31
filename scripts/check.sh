@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# 全量门禁：格式 → 静态检查 → 编译 → 测试 → 前端类型检查 → 前端构建。
-# 与 CI（.github/workflows/ci.yml）跑同一套，提交前本地先过一遍。
+# 全量门禁：格式 → 静态检查 → 测试 → 前端类型检查 → 前端构建。
+# 与 CI（.github/workflows/ci.yml）跑同一套。
+# 编译警告由 clippy -D warnings 全量拦截、测试构建兜底链接，不再单跑 cargo build。
 #
 # 用法：
 #   bash scripts/check.sh              跑全部门禁
-#   bash scripts/check.sh backend      只跑后端四道（格式/静态/编译/测试）
+#   bash scripts/check.sh backend      只跑后端三道（格式/静态/测试）
 #   bash scripts/check.sh frontend     只跑前端两道（类型检查/构建）
+#   bash scripts/check.sh wb-features  只验一个 crate（改哪验哪）
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -20,10 +22,15 @@ step() {
   "$@"
 }
 
+run_crate() {
+  step "格式检查($1)" cargo fmt -p "$1" -- --check
+  step "静态检查($1)" cargo clippy -p "$1" --all-targets -- -D warnings
+  step "测试($1)" cargo test -p "$1"
+}
+
 run_backend() {
   step "格式检查" cargo fmt --all -- --check
   step "静态检查" cargo clippy --workspace --all-targets -- -D warnings
-  step "编译" cargo build --workspace --all-targets
   step "测试" cargo test --workspace
 }
 
@@ -34,10 +41,13 @@ run_frontend() {
 }
 
 case "$SCOPE" in
+  all)      run_backend; run_frontend ;;
   backend)  run_backend ;;
   frontend) run_frontend ;;
-  all)      run_backend; run_frontend ;;
-  *) echo "未知范围：$SCOPE（可选 all / backend / frontend）"; exit 2 ;;
+  wb-api | wb-domain | wb-features | wb-git | wb-kernel | wb-mcp | wb-pkg | wb-provider | wb-repo | wb-service | wb-skills | wb-tools)
+    run_crate "$SCOPE"
+    ;;
+  *) echo "未知范围：$SCOPE（可选 all / backend / frontend 或 crate 名）"; exit 2 ;;
 esac
 
 echo ""

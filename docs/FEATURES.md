@@ -50,7 +50,7 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 纯本地能力（todo / ask_user / fff / context_view）默认开。
 
 loadout / inspect / context_view 三项是纯数据面：没有模型工具，
-开关只影响界面呈现与端点可用性，不影响工具表装配。
+开关只影响界面呈现，数据端点恒可用，不影响工具表装配。
 
 ## 逐项说明
 

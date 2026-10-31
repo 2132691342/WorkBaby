@@ -362,11 +362,12 @@ if version < 1 { conn.execute_batch(SCHEMA_V1)?; }
 bash scripts/check.sh
 ```
 
-包含六道：格式检查、静态检查（clippy）、后端编译（无警告）、后端测试全绿、
+包含五道：格式检查、静态检查（clippy -D warnings，全量拦截编译警告）、后端测试全绿、
 前端类型检查、前端构建成功——与 CI 跑同一套。
 依赖真实外部环境的测试另跑 `bash scripts/check-slow.sh`。
 
-只改后端或只改前端时用 `bash scripts/check.sh backend` / `frontend` 少跑几道。
+缩小验证面：只改后端用 `bash scripts/check.sh backend`，只改前端用 `frontend`；
+只动一个 crate 用 `bash scripts/check.sh wb-features`（crate 名即参数），改哪验哪。
 
 **硬性约束**
 
@@ -376,7 +377,7 @@ bash scripts/check.sh
 | 依赖方向单向 | Cargo 编译期强制，不合规直接编译失败 |
 | 只用 GET / POST | 路由表逐条核对 |
 | 字段带业务前缀 | `wb-domain` 里每个 struct 逐个看 |
-| 无编译警告 | `cargo build` 输出必须干净 |
+| 无编译警告 | `cargo clippy -D warnings` 全绿（覆盖 build 的全部警告） |
 | 注释不含外部项目名 | 提交前搜一遍 |
 | 注释不写过程痕迹 | 不写「v1 / 预留 / 规划内 / 旧版如何」 |
 
