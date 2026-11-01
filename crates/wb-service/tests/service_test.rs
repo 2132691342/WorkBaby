@@ -262,3 +262,38 @@ fn bundled_runtimes_extracted_and_executable() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `child_path` 拼出的 PATH 能让裸 `git` / `python` 命中内置运行时——
+/// 这是「模型只写工具名就能用」的根据。不改进程 APPDATA，避开测试并行时的全局环境竞争。
+#[test]
+fn bundled_runtime_reachable_through_injected_path() {
+    let dir = std::env::temp_dir().join(format!("wb-path-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    wb_service::runtime::ensure_all(&dir);
+
+    let sh = wb_domain::runtime::find_bundled_bash(&dir).expect("内置 bash 未就位");
+    let py_root = wb_domain::runtime::python_root(&dir);
+    let out = std::process::Command::new(&sh)
+        .args([
+            "-c",
+            "git --version; python -c 'import sys; print(sys.prefix)'",
+        ])
+        .current_dir(&dir)
+        .env("PATH", wb_domain::runtime::child_path(&dir))
+        .output()
+        .expect("启动内置 bash 失败");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert!(
+        stdout.contains("git version"),
+        "裸 git 未命中内置运行时：{stdout}{stderr}"
+    );
+    // 比路径而不是比关键词：临时目录名里没有「runtime」，靠关键词会假失败
+    let want = py_root.display().to_string().to_lowercase();
+    assert!(
+        stdout.to_lowercase().contains(&want),
+        "裸 python 未命中内置运行时（期望 {want}）：{stdout}{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
