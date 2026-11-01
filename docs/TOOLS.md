@@ -105,11 +105,18 @@ pub trait Tool: Send + Sync {
 
 代价：纪律靠约定不靠类型收口——新增进程出口要自觉对齐这张表。
 
-**bash 工具的 shell 定位**：内置 MinGit 运行时优先（`%APPDATA%\WorkBaby\runtime\MinGit`，
-启动时自动解压，见 docs/DEPLOY.md「打包内容」），其次 PATH 里的 `bash.exe`，
-再退常见 Git 安装位（`C:\Program Files\Git\bin` 等），都找不到就用 `bash` 交给系统解析。
-命令以 `bash -c <command>` 形式执行——命令串在这一层才进入 shell 解释，
-其余工具的 argv 一律直传。context_mode 的 shell 沙箱与 wb-git 的 git 同样先探测该运行时。
+**内置运行时与子进程环境**：内置 PortableGit（`%APPDATA%\WorkBaby\runtime\PortableGit`）
+与内置 Python（`runtime\python`）启动时自动解压，见 docs/DEPLOY.md「打包内容」。
+共享执行器 `exec` 为每条子进程注入同一份环境：`PATH` 由 `runtime::child_path` 构造
+（内置 cmd/bin/usr/bin/mingw64/bin/python 在前，用户 PATH 在后）、
+`PYTHONUTF8/PYTHONIOENCODING` 锁 UTF-8、`GIT_TERMINAL_PROMPT=0` 防凭据提示挂起。
+
+**bash 工具**先探测内置 `PortableGit\bin\bash.exe`（`usr\bin\sh.exe` 同源兜底），
+其次 PATH 里的 `bash.exe`，再退常见 Git 安装位，都找不到就用 `bash` 交给系统解析。
+命令以 `bash -c <command>` 形式执行——命令串在这一层才进入 shell 解释，其余工具 argv 一律直传。
+
+**python 工具**优先用内置解释器，源码走 `-c` 直传，脚本走工作区相对路径；
+工作目录即工作区，需要额外库时由模型在 bash 里装到内置运行时（`python -m pip install`）。
 
 ## 扩展工具如何并入
 

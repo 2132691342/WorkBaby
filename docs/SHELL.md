@@ -110,7 +110,8 @@ main()
 | `models.json` | 服务商与模型配置 |
 | `auth.json` | 凭据 |
 | `mcp.json` | MCP 服务器配置 |
-| `runtime\` | 内置 MinGit 运行时（bash / git 兜底） |
+| `runtime\PortableGit\` | 内置 Git Bash / git / GNU 工具 |
+| `runtime\python\` | 内置 Python 3.13 与 pip |
 | `logs\` | tracing 日志，按天分文件 |
 
 工作区在启动时确定：设置 KV `workspace` 里存过且目录仍存在就用之，

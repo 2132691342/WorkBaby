@@ -1,10 +1,11 @@
-//! 内置工具：read / write / edit / bash / grep / find / ls。
+//! 内置工具：read / write / edit / bash / python / grep / find / ls。
 
 pub mod bash;
 pub mod edit;
 pub mod find;
 pub mod grep;
 pub mod list;
+pub mod python;
 pub mod read;
 pub mod write;
 
@@ -21,6 +22,7 @@ pub fn install(registry: &mut ToolRegistry) {
     registry.register(Arc::new(write::WriteTool));
     registry.register(Arc::new(edit::EditTool));
     registry.register(Arc::new(bash::BashTool));
+    registry.register(Arc::new(python::PythonTool));
     registry.register(Arc::new(grep::GrepTool));
     registry.register(Arc::new(find::FindTool));
     registry.register(Arc::new(list::LsTool));

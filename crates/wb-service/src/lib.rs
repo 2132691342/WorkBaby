@@ -72,8 +72,8 @@ pub struct Services {
 impl Services {
     /// 装配：数据目录 + 工作区。内核客户端等重物在首次对话时构建。
     pub fn new(data_dir: PathBuf, workspace: String, repo: Arc<wb_repo::Repo>) -> Arc<Self> {
-        // 内置 MinGit 先就位：bash / git 工具首次执行就能命中，无需用户装 Git
-        runtime::ensure_mingit(&data_dir);
+        // 内置运行时先就位：bash / git / python 首次执行即命中，无需用户装任何环境
+        runtime::ensure_all(&data_dir);
         let providers = wb_provider::config::ProviderStore::new(&data_dir);
         let data_dir_for_asks = data_dir.clone();
         let mut registry = wb_tools::ToolRegistry::new();

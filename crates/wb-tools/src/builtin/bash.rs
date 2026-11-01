@@ -1,4 +1,4 @@
-//! bash：经 Git Bash 执行命令（PATH 解析失败时退回系统 shell）。
+//! bash：经内置 PortableGit 的 Git Bash 执行命令（缺失时退回系统 shell）。
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -13,14 +13,11 @@ use crate::truncate;
 /// bash 工具。
 pub struct BashTool;
 
-/// 定位 bash.exe：内置 MinGit 运行时 → PATH → 常见 Git 安装位。
+/// 定位 bash.exe：内置运行时 → 系统 PATH → 常见 Git 安装位。
 pub fn find_bash() -> Option<std::path::PathBuf> {
     if let Some(data) = wb_domain::runtime::default_data_dir() {
-        let root = wb_domain::runtime::mingit_root(&data);
-        for p in wb_domain::runtime::mingit_bash(&root) {
-            if p.is_file() {
-                return Some(p);
-            }
+        if let Some(p) = wb_domain::runtime::find_bundled_bash(&data) {
+            return Some(p);
         }
     }
     if let Some(p) = which_bash() {
@@ -61,8 +58,9 @@ impl Tool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "在 Git Bash 里执行命令。参数：command(必填)、timeout(秒，默认 120，上限 600)。\
-         输出按 2000 行 / 50KB 截断。"
+        "在工作区执行 bash 命令（已内置 Git Bash 与 Python，PATH 已指向内置运行时）。\
+         参数：command(必填)、timeout(秒，默认 120，上限 600)。输出按 2000 行 / 50KB 截断。\
+         Python 用 `python`，git 用 `git`，不要装环境也不要改 PATH。"
     }
 
     fn parameters(&self) -> Value {

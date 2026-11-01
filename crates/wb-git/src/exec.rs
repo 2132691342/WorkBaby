@@ -20,14 +20,11 @@ impl GitOut {
     }
 }
 
-/// 定位 git.exe：内置 MinGit 运行时优先，其次系统 PATH。
+/// 定位 git.exe：内置 PortableGit 优先，其次系统 PATH。
 fn git_program() -> String {
     if let Some(data) = wb_domain::runtime::default_data_dir() {
-        let root = wb_domain::runtime::mingit_root(&data);
-        for p in wb_domain::runtime::mingit_git(&root) {
-            if p.is_file() {
-                return p.display().to_string();
-            }
+        if let Some(p) = wb_domain::runtime::find_bundled_git(&data) {
+            return p.display().to_string();
         }
     }
     "git".to_string()
@@ -52,7 +49,11 @@ pub fn run(dir: &Path, args: &[&str]) -> GitOut {
         .current_dir(dir)
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_PAGER", "cat")
-        .env("LC_ALL", "C");
+        .env("LC_ALL", "C.UTF-8");
+    // 内置运行时进 PATH：git 调 ssh / 凭据助手时也能自给自足
+    if let Some(data) = wb_domain::runtime::default_data_dir() {
+        cmd.env("PATH", wb_domain::runtime::child_path(&data));
+    }
     hide_window(&mut cmd);
     match cmd.output() {
         Ok(out) => GitOut {

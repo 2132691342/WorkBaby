@@ -54,6 +54,7 @@ pub async fn run_with_limits(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    apply_runtime_env(&mut cmd);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -123,6 +124,21 @@ async fn collect(
         .await
         .map_err(|e| AppError::wrap("7003", "等待命令退出失败", e))?;
     Ok((cap(stdout), cap(stderr), status.code()))
+}
+
+/// 子进程环境：内置运行时置于 PATH 首位，并锁定 Python / Git 的交互行为。
+fn apply_runtime_env(cmd: &mut tokio::process::Command) {
+    if let Some(data) = wb_domain::runtime::default_data_dir() {
+        cmd.env("PATH", wb_domain::runtime::child_path(&data));
+    }
+    // 解释器与输出一律 UTF-8：中文路径 / 输出不按系统 ANSI 码页走
+    cmd.env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUNBUFFERED", "1");
+    // git 永不弹凭据提示（无 TTY 会永久挂起）
+    cmd.env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_PAGER", "cat")
+        .env("LC_ALL", "C.UTF-8");
 }
 
 fn cap(mut v: Vec<u8>) -> String {

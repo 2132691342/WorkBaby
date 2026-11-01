@@ -39,11 +39,12 @@ fn frontmatter_parser_accepts_valid_and_rejects_bad_input() {
     assert!(valid_description(&"x".repeat(1024)));
 }
 
-/// 内置包里每个技能目录都必须带可解析的 SKILL.md，且元数据合法。
+/// 内置包里每个技能目录都必须带可解析的 SKILL.md，且元数据合法、无外部项目名。
 #[test]
 fn builtin_pack_is_complete_and_parseable() {
     let dirs: Vec<_> = BUILTIN_SKILLS.dirs().collect();
     assert!(!dirs.is_empty(), "内置技能包不应为空");
+    let mut names: Vec<String> = Vec::new();
     for d in dirs {
         // 不能用 d.get_file("SKILL.md")：目录名含中文与括号时，
         // include_dir 的路径组件比较对非 ASCII 不可靠，会误报「缺 SKILL.md」。
@@ -70,5 +71,11 @@ fn builtin_pack_is_complete_and_parseable() {
             "技能 {} 的 description 缺失或超长",
             d.path().display()
         );
+        names.push(fm.name.unwrap_or_default());
     }
+    // 同名技能会互相覆盖成静默丢技能，构建期就拦住
+    let mut sorted = names.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(sorted.len(), names.len(), "技能名重复：{names:?}");
 }

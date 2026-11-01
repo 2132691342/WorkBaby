@@ -1,4 +1,4 @@
-//! wb-service 场景测试：SSE 载荷契约、内置 MinGit 运行时装配。
+//! wb-service 场景测试：SSE 载荷契约、内置运行时（PortableGit + Python）装配。
 
 use wb_domain::events::{
     AskClosedData, AskData, AskOption, AskQuestion, CompressedData, ContextData, ContextUsage,
@@ -165,28 +165,33 @@ fn chat_event_payloads_match_frontend_contract() {
     }
 }
 
-// ---- 内置 MinGit 运行时 ----
+// ---- 内置运行时 ----
 
-/// 解压后 bash / git 真实可执行；指纹幂等，坏指纹触发重解压自愈。
+/// 解压后 bash / git / python 真实可执行；指纹幂等，坏指纹触发重解压自愈。
 #[test]
-fn mingit_runtime_extracted_and_bash_runs() {
-    let dir = std::env::temp_dir().join(format!("wb-mingit-test-{}", std::process::id()));
+fn bundled_runtimes_extracted_and_executable() {
+    let dir = std::env::temp_dir().join(format!("wb-runtime-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let root = wb_domain::runtime::mingit_root(&dir);
-    let bash = wb_domain::runtime::mingit_bash(&root);
-    let git = wb_domain::runtime::mingit_git(&root);
+    let git_root = wb_domain::runtime::portablegit_root(&dir);
 
-    wb_service::runtime::ensure_mingit(&dir);
-    let sh = bash
-        .iter()
-        .find(|p| p.is_file())
-        .unwrap_or_else(|| panic!("内置 bash 未解压：{}", bash[0].display()));
-    let git_exe = git
-        .iter()
-        .find(|p| p.is_file())
-        .unwrap_or_else(|| panic!("内置 git 未解压：{}", git[0].display()));
+    wb_service::runtime::ensure_all(&dir);
+    let sh = wb_domain::runtime::find_bundled_bash(&dir).unwrap_or_else(|| {
+        panic!(
+            "内置 bash 未解压：{}\n{:?}",
+            git_root.display(),
+            wb_domain::runtime::bash_candidates(&git_root)
+        )
+    });
+    let git_exe = wb_domain::runtime::find_bundled_git(&dir)
+        .unwrap_or_else(|| panic!("内置 git 未解压：{}", git_root.display()));
+    let py_exe = wb_domain::runtime::find_bundled_python(&dir).unwrap_or_else(|| {
+        panic!(
+            "内置 python 未解压：{}",
+            wb_domain::runtime::python_root(&dir).display()
+        )
+    });
 
-    // 真跑一把：$BASH_VERSION 非空证明是 bash 而非 dash
+    // 真跑一把：$BASH_VERSION 非空证明是 bash 而非 dash；python 打印版本串
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let cancel = tokio_util::sync::CancellationToken::new();
@@ -222,13 +227,32 @@ fn mingit_runtime_extracted_and_bash_runs() {
             "内置 git 异常：{}",
             g.stdout
         );
+        let p = wb_tools::exec::run(
+            &py_exe.display().to_string(),
+            &["-c".into(), "import sys; print(sys.version_info[0])".into()],
+            &dir,
+            60,
+            &cancel,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            p.stdout.trim(),
+            "3",
+            "内置 python 异常：{}{}",
+            p.stdout,
+            p.stderr
+        );
     });
 
-    let marker = root.join(".pack_stamp");
+    let marker = wb_domain::runtime::portablegit_root(&dir).join(".pack_stamp");
     let stamp = std::fs::read_to_string(&marker).unwrap();
-    assert_eq!(stamp, wb_service::runtime::MINGIT_ZIP.len().to_string());
+    assert_eq!(
+        stamp,
+        wb_service::runtime::PORTABLEGIT_ZIP.len().to_string()
+    );
     std::fs::write(&marker, "0").unwrap();
-    wb_service::runtime::ensure_mingit(&dir);
+    wb_service::runtime::ensure_all(&dir);
     assert_eq!(
         std::fs::read_to_string(&marker).unwrap(),
         stamp,

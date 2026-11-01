@@ -20,6 +20,16 @@ const CLONE_TIMEOUT: Duration = Duration::from_secs(300);
 /// CREATE_NO_WINDOW：子进程不闪控制台窗口（Windows 纪律）。
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// 定位 git.exe：内置 PortableGit 优先，其次系统 PATH。
+fn git_program() -> String {
+    if let Some(data) = wb_domain::runtime::default_data_dir() {
+        if let Some(p) = wb_domain::runtime::find_bundled_git(&data) {
+            return p.display().to_string();
+        }
+    }
+    "git".to_string()
+}
+
 /// pdf_read 工具：抽取 PDF 的文字内容。
 pub struct PdfReadTool {
     http: reqwest::Client,
@@ -238,12 +248,16 @@ impl Tool for GithubCloneTool {
             argv.push(branch.to_string());
         }
 
-        let mut cmd = tokio::process::Command::new("git");
+        let mut cmd = tokio::process::Command::new(git_program());
         cmd.args(&argv)
             .current_dir(workdir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        // 内置运行时进 PATH：clone 走内置 git，其调用的 ssh / 凭据助手也随之可用
+        if let Some(data) = wb_domain::runtime::default_data_dir() {
+            cmd.env("PATH", wb_domain::runtime::child_path(&data));
+        }
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
         let mut child = cmd

@@ -118,12 +118,18 @@ pub fn find_runtime(language: &str) -> Option<&'static Runtime> {
     RUNTIMES.iter().find(|r| r.lang_code == want)
 }
 
-/// 解析可执行程序：shell 走共享 bash 定位链（内置 MinGit 优先），其余交系统 PATH。
+/// 解析可执行程序：内置运行时能提供的语言一律走内置（bash / python），其余交系统 PATH。
 pub fn resolve_program(runtime: &Runtime) -> String {
-    if runtime.lang_program == "bash" {
-        return wb_tools::builtin::bash::find_bash()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| runtime.lang_program.to_string());
+    if let Some(data) = wb_domain::runtime::default_data_dir() {
+        let bundled = match runtime.lang_program {
+            "bash" => wb_domain::runtime::find_bundled_bash(&data),
+            "python" => wb_domain::runtime::find_bundled_python(&data),
+            "git" => wb_domain::runtime::find_bundled_git(&data),
+            _ => None,
+        };
+        if let Some(p) = bundled {
+            return p.display().to_string();
+        }
     }
     runtime.lang_program.to_string()
 }

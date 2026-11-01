@@ -37,7 +37,7 @@
 | `subagent.rs` | 子代理角色 VO 与运行结果 |
 | `error.rs` | 错误码常量（按段位分组） |
 | `events.rs` | SSE 事件载荷类型 |
-| `runtime.rs` | 内置 MinGit 运行时的路径契约：数据目录名、runtime\MinGit 根、bash/git 候选定位 |
+| `runtime.rs` | 内置运行时的路径契约：数据目录名、PortableGit / Python 根、bash/git/python 候选定位、子进程 PATH 构造 |
 
 ## wb-repo（SQLite）
 
@@ -123,7 +123,7 @@
 
 | 模块 | 职责 |
 |---|---|
-| exec | git 命令执行（argv 数组直传、超时、CREATE_NO_WINDOW、`core.quotepath=false`；内置 MinGit 运行时优先于系统 PATH） |
+| exec | git 命令执行（argv 数组直传、超时、CREATE_NO_WINDOW、`core.quotepath=false`；内置 PortableGit 优先于系统 PATH） |
 | parse | porcelain `-z` 输出解析、分支与领先落后 |
 | write | 写白名单动作；危险参数拒绝 |
 
@@ -158,7 +158,7 @@
 | loadout | 装载预设管理 |
 | context | 上下文分解 |
 | store | 会话索引与文件定位 |
-| runtime | 内置 MinGit 运行时：zip 编译期嵌入，启动时按指纹解压到数据目录 |
+| runtime | 内置运行时：PortableGit 与 Python 两份 zip 编译期嵌入，启动时按指纹解压到数据目录 |
 | usage | 用量统计：run 结束入日表 + 启动时回填历史 |
 
 依赖全部能力域，但不引 axum / tauri。

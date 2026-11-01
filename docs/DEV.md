@@ -17,7 +17,7 @@ src-tauri/            壳（tauri.conf.json / main.rs）
 crates/wb-*           后端各 crate（依赖方向见 AGENTS.md §2.2）
 frontend/src          前端唯一源码目录
 docs/                 文档（改行为必须同步）
-assets/               打包进二进制的资源（内置技能、帮助文档与 MinGit 运行时）
+assets/               打包进二进制的资源（内置技能、帮助文档与 PortableGit / Python 运行时）
 ```
 
 ## 日常命令

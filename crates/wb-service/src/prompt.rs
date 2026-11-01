@@ -14,6 +14,13 @@ pub fn build_system_prompt(
          You help by reading files, executing commands, editing code, and writing files. \
          Be concise. Show file paths clearly when working with files.\n",
     );
+    out.push_str("\n<runtime>\n");
+    out.push_str(
+        "Bundled and already on PATH: `bash`, `git`, `python` (3.13). Use them directly.\n\
+         Do not install runtime managers, do not modify PATH, do not write to system directories.\n\
+         Install extra Python packages with `python -m pip install --user <pkg>` only when necessary.",
+    );
+    out.push_str("\n</runtime>\n");
     out.push_str(&format!("\n<cwd>{}</cwd>\n", workspace.replace('\\', "/")));
     if !enabled_tools.is_empty() {
         out.push_str("\n<tools>\n");
