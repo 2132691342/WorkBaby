@@ -12,17 +12,31 @@ use super::Services;
 use wb_kernel::{Block, Msg, SessionFile};
 
 /// 会话列表（索引表）。
+/// 索引行已存有名称、provider、model 与活动时间；创建时间要回到会话头读，
+/// 否则列表里每条会话的「创建」都等于「最后一次说话」。
 pub fn list(sv: &Arc<Services>) -> Result<Vec<SessionVO>> {
     let rows = sv.repo.sessions_list()?;
     let running = sv.chat.lock().unwrap().running_ids();
+    let dir = sv.sessions_dir();
     Ok(rows
         .into_iter()
         .map(|r| {
             let is_running = running.contains(&r.session_id);
+            // 索引只做加速：真名与创建时间以会话文件为准，读不到才用索引值
+            let created_at = find_session_file(sv, &r.session_id)
+                .ok()
+                .and_then(|p| SessionFile::load(&p).ok())
+                .map(|sf| sf.header.created_at)
+                .unwrap_or(r.session_last_active_at);
+            let title = if r.session_name.trim().is_empty() {
+                r.session_summary.chars().take(40).collect()
+            } else {
+                r.session_name
+            };
             SessionVO {
                 session_id: r.session_id,
-                session_file: String::new(),
-                session_title: r.session_name,
+                session_file: dir.display().to_string(),
+                session_title: title,
                 session_workspace: r.session_workspace,
                 session_provider: r.session_provider,
                 session_model: r.session_model,
@@ -31,7 +45,7 @@ pub fn list(sv: &Arc<Services>) -> Result<Vec<SessionVO>> {
                 session_total_tokens: 0,
                 session_cost: 0.0,
                 session_running: is_running,
-                session_created_at: r.session_last_active_at,
+                session_created_at: created_at,
                 session_updated_at: r.session_last_active_at,
             }
         })
@@ -43,16 +57,17 @@ pub fn list(sv: &Arc<Services>) -> Result<Vec<SessionVO>> {
 pub fn detail(sv: &Arc<Services>, session_id: &str) -> Result<SessionDetailRESP> {
     let path = find_session_file(sv, session_id)?;
     let sf = SessionFile::load(&path)?;
+    let (provider, model) = model_of(&sf);
     let detail_session = SessionVO {
         session_id: session_id.to_string(),
         session_file: path.display().to_string(),
         session_title: session_name(&sf),
         session_workspace: sf.header.workspace.clone(),
-        session_provider: String::new(),
-        session_model: String::new(),
-        session_thinking_level: "medium".into(),
+        session_provider: provider,
+        session_model: model,
+        session_thinking_level: thinking_of(&sf),
         session_message_count: 0,
-        session_total_tokens: 0,
+        session_total_tokens: tokens_of(&sf),
         session_cost: 0.0,
         session_running: sv.chat.lock().unwrap().is_running(session_id),
         session_created_at: sf.header.created_at,
@@ -327,7 +342,7 @@ pub fn switch_leaf(
     detail(sv, session_id)
 }
 
-fn session_name(sf: &SessionFile) -> String {
+pub fn session_name(sf: &SessionFile) -> String {
     for e in sf.path_to_leaf().iter().rev() {
         if let wb_kernel::Entry::SessionInfo {
             session_name: Some(n),
@@ -337,4 +352,41 @@ fn session_name(sf: &SessionFile) -> String {
         }
     }
     String::new()
+}
+
+/// 会话当前模型：取最近一次 ModelChange（未切换过则为空，界面回落默认模型）。
+pub fn model_of(sf: &SessionFile) -> (String, String) {
+    for e in sf.path_to_leaf().iter().rev() {
+        if let wb_kernel::Entry::ModelChange {
+            provider_id,
+            model_id,
+        } = &e.payload
+        {
+            return (provider_id.clone(), model_id.clone());
+        }
+    }
+    (String::new(), String::new())
+}
+
+/// 会话当前思考档：取最近一次 ThinkingChange，缺省 medium。
+pub fn thinking_of(sf: &SessionFile) -> String {
+    for e in sf.path_to_leaf().iter().rev() {
+        if let wb_kernel::Entry::ThinkingChange { thinking_level } = &e.payload {
+            return thinking_level.clone();
+        }
+    }
+    "medium".into()
+}
+
+/// 会话累计上下文读数：最后一条带用量的助手消息即当前水位。
+pub fn tokens_of(sf: &SessionFile) -> i64 {
+    for e in sf.path_to_leaf().iter().rev() {
+        if let wb_kernel::Entry::Message {
+            message: Msg::Assistant { usage: Some(u), .. },
+        } = &e.payload
+        {
+            return u.input + u.output + u.cache_read + u.cache_write;
+        }
+    }
+    0
 }

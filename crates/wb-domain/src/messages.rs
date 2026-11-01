@@ -78,6 +78,10 @@ fn texts(code: &str) -> (&'static str, &'static str) {
         "9701" => ("会话文件损坏", "The session file is corrupt"),
         "9703" => ("模型流中断了", "The model stream broke"),
         "9704" => ("子代理启动失败", "Could not start the subagent"),
+        "9705" => (
+            "模型反复请求工具仍未收尾，已停下",
+            "The model kept calling tools without finishing; stopped",
+        ),
         _ => ("", ""),
     }
 }

@@ -50,7 +50,9 @@
   gap: var(--wb-sp-3);
 }
 .msg-me-bubble {
-  max-width: min(78%, 640px);
+  /* 640px 在 1240px 的列里只占了一半，长一点的提示词就被反复折行。
+     上限跟列宽一起放宽，但仍留出左半边空白——气泡全宽就读不出「这是我的消息」。 */
+  max-width: min(86%, calc(900px * var(--wb-vw-scale)));
   padding: var(--wb-sp-3) var(--wb-sp-4);
   border-radius: var(--wb-radius-lg);
   border-top-right-radius: var(--wb-radius-xs);

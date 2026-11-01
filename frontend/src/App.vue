@@ -165,6 +165,10 @@ const bootSteps = computed(() => [
   min-height: 0;
   display: flex;
   overflow: hidden;
+  /* 页面内的响应式按「内容区宽度」判断，而不是窗口宽度：
+     窗口宽度包含了 rail，两者在窄窗口下会差出一整根侧栏。 */
+  container-type: inline-size;
+  container-name: app;
 }
 
 .boot {

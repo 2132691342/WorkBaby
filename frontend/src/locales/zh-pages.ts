@@ -256,5 +256,6 @@ export default {
     sessionFileCorrupt: '会话文件损坏',
     streamBroken: '模型流中断了',
     subagentFailed: '子代理启动失败',
+    loopLimit: '模型反复请求工具仍未收尾，已停下',
   },
 }

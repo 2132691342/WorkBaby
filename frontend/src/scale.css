@@ -90,8 +90,10 @@
   --wb-w-panel: calc(336px * var(--wb-vw-scale));
   --wb-w-panel-wide: calc(420px * var(--wb-vw-scale));
   --wb-w-read: calc(840px * var(--wb-vw-scale));
-  /* 消息列比输入框略宽：正文是主角，输入框不能反过来压过它 */
-  --wb-w-col: calc(900px * var(--wb-vw-scale));
+  /* 消息列与输入框共用同一列宽：跟着窗口走，宽窗口里两侧不再堆空白。
+     1240 是读代码块与差异的下限之上的上限：再宽行就会拉得太长，
+     再窄则代码块反复横向滚动。100% 兑窗口很窄时不溢出。 */
+  --wb-w-col: min(calc(1240px * var(--wb-vw-scale)), 100%);
   /* 面板头部那段说明文字的排版宽度：四个指挥台面板都用它，
      各自写一遍 560px 的话改一次要动四个文件 */
   --wb-w-desc: calc(560px * var(--wb-vw-scale));

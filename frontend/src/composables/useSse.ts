@@ -72,7 +72,9 @@ function openChannel(
 ): { es: EventSource; close: () => void } | null {
   const base = getBaseURL()
   if (!base) return null
-  const q = resume > 0 ? `&last_event_id=${resume}` : ''
+  // 总是带 last_event_id（含 0）：切到一条已在跑的会话时，服务端要把缓冲里的
+  // chat:start / 增量补发回来。不带就等于放弃断点前的全部帧。
+  const q = `&last_event_id=${resume}`
   const es = new EventSource(`${base}/events?session_id=${encodeURIComponent(sid)}${q}`)
   es.onopen = onOpen
   es.onerror = onError

@@ -50,6 +50,20 @@ const { collapsed } = useSessionPanel()
   overflow: hidden;
   transition: width var(--wb-dur-slow) var(--wb-ease);
 }
+/* 窄窗口里二级面板再收一档：188px 主区就只剩半个屏幕，
+   消息列优先。用容器查询（不是媒体查询）——判断的是内容区宽度，不是窗口宽度。 */
+@container app (max-width: 1080px) {
+  .side-wrap:not(.is-collapsed) {
+    width: calc(160px * var(--wb-vw-scale));
+  }
+}
+/* 更窄时直接让位：面板与消息列抢空间时，消息列永远是主角 */
+@container app (max-width: 860px) {
+  .side-wrap:not(.is-collapsed) {
+    width: 0;
+    pointer-events: none;
+  }
+}
 .side-wrap.is-collapsed {
   width: 0;
   pointer-events: none;

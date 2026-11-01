@@ -52,6 +52,7 @@ const CODE_GROUPS: Record<string, string> = {
   '9701': 'errCode.sessionFileCorrupt',
   '9703': 'errCode.streamBroken',
   '9704': 'errCode.subagentFailed',
+  '9705': 'errCode.loopLimit',
 }
 
 /**

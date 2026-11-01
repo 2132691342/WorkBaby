@@ -25,6 +25,10 @@ pub struct ResolvedProvider {
     pub context_window: i64,
     /// 最大输出
     pub max_tokens: i64,
+    /// 是否支持思考
+    pub reasoning: bool,
+    /// 是否支持图片输入
+    pub vision: bool,
 }
 
 /// models.json + auth.json 的组合存储。
@@ -133,6 +137,8 @@ impl ProviderStore {
             } else {
                 16_384
             },
+            reasoning: model.reasoning,
+            vision: model.vision,
         })
     }
 }

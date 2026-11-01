@@ -136,3 +136,77 @@ fn frames_map_stop_thinking_and_error_payloads() {
         "非 JSON 错误体应原样带出：{m}"
     );
 }
+
+// ---- 网关夹具差异与流断开时的兜底 ----
+
+/// 空 finish_reason 不是终止态。
+/// 部分网关每个 chunk 都带 `finish_reason:""`，按终止态处理会让紧随其后的
+/// 工具调用分片全部失效——模型要求调工具，内核却当成「正文到此结束」，整轮静默丢活。
+#[test]
+fn empty_finish_reason_is_not_terminal() {
+    let mut acc = Acc::default();
+    handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"bash","arguments":""},"index":0}]},"finish_reason":""}],"usage":null}"#,
+        &mut acc,
+    );
+    assert_eq!(acc.stop, None, "空 finish_reason 不该定下停止原因");
+    handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"function":{"arguments":"{\"command\""},"index":0}]},"finish_reason":""}]}"#,
+        &mut acc,
+    );
+    let events = handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10}}"#,
+        &mut acc,
+    );
+    let done = events
+        .iter()
+        .find_map(|e| match e {
+            ModelEvent::ToolCallEnd(_, d) => Some(d),
+            _ => None,
+        })
+        .expect("finish_reason=tool_calls 应定稿调用");
+    assert_eq!(done.name, "bash");
+    assert_eq!(done.arguments, "{\"command\"", "分片参数应拼完整");
+    assert_eq!(acc.stop, Some(StopReason::ToolUse));
+}
+
+/// 上游没给 finish_reason 就断流（部分网关直接发 [DONE]）：
+/// 已经攒在手上的调用必须定稿，否则这次调用凭空消失。
+#[test]
+fn stream_end_flushes_pending_tool_calls() {
+    let mut acc = Acc::default();
+    handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{"tool_calls":[
+      {"index":0,"id":"c0","function":{"name":"read","arguments":"{}"}},
+      {"index":1,"id":"c1","function":{"name":"grep","arguments":"{}"}}
+    ]},"finish_reason":""}]}"#,
+        &mut acc,
+    );
+    let names: Vec<String> = acc
+        .flush_tools()
+        .iter()
+        .filter_map(|e| match e {
+            ModelEvent::ToolCallEnd(_, d) => Some(d.name.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, vec!["read", "grep"], "两个并行调用都要定稿");
+    assert_eq!(acc.stop, Some(StopReason::ToolUse));
+    assert!(acc.flush_tools().is_empty(), "结清后不应重复吐同一批调用");
+}
+
+/// content_filter 是「上游按策略拒绝」，不是正常结束：界面要能说清缘由。
+#[test]
+fn content_filter_reports_error() {
+    let mut acc = Acc::default();
+    let events = handle_chunk(
+        r#"{"choices":[{"index":0,"delta":{},"finish_reason":"content_filter"}]}"#,
+        &mut acc,
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ModelEvent::Error(false, _))),
+        "策略截断应作为不可重试错误上报"
+    );
+}

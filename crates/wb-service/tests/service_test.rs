@@ -233,9 +233,9 @@ fn chat_event_payloads_match_frontend_contract() {
 
 // ---- 内置运行时 ----
 
-/// 解压后 bash / git / python 真实可执行；指纹幂等，坏指纹触发重解压自愈。
+/// 内置运行时：解压一次后 bash / git / python 真实可执行，经注入 PATH 裸名可达，指纹损坏自愈重解压。
 #[test]
-fn bundled_runtimes_extracted_and_executable() {
+fn bundled_runtimes_extracted_executable_and_reachable() {
     let dir = std::env::temp_dir().join(format!("wb-runtime-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let git_root = wb_domain::runtime::portablegit_root(&dir);
@@ -272,12 +272,7 @@ fn bundled_runtimes_extracted_and_executable() {
         )
         .await
         .unwrap();
-        assert_eq!(
-            out.stdout.trim(),
-            "ok",
-            "内置 bash 行为异常：{}",
-            out.stdout
-        );
+        assert_eq!(out.stdout.trim(), "ok", "内置 bash 行为异常：{}", out.stdout);
         let g = wb_tools::exec::run(
             &git_exe.display().to_string(),
             &["--version".into()],
@@ -287,11 +282,7 @@ fn bundled_runtimes_extracted_and_executable() {
         )
         .await
         .unwrap();
-        assert!(
-            g.stdout.contains("git version"),
-            "内置 git 异常：{}",
-            g.stdout
-        );
+        assert!(g.stdout.contains("git version"), "内置 git 异常：{}", g.stdout);
         let p = wb_tools::exec::run(
             &py_exe.display().to_string(),
             &["-c".into(), "import sys; print(sys.version_info[0])".into()],
@@ -301,61 +292,37 @@ fn bundled_runtimes_extracted_and_executable() {
         )
         .await
         .unwrap();
-        assert_eq!(
-            p.stdout.trim(),
-            "3",
-            "内置 python 异常：{}{}",
-            p.stdout,
-            p.stderr
-        );
+        assert_eq!(p.stdout.trim(), "3", "内置 python 异常：{}{}", p.stdout, p.stderr);
     });
 
-    let marker = wb_domain::runtime::portablegit_root(&dir).join(".pack_stamp");
-    let stamp = std::fs::read_to_string(&marker).unwrap();
-    assert_eq!(
-        stamp,
-        wb_service::runtime::PORTABLEGIT_ZIP.len().to_string()
-    );
-    std::fs::write(&marker, "0").unwrap();
-    wb_service::runtime::ensure_all(&dir);
-    assert_eq!(
-        std::fs::read_to_string(&marker).unwrap(),
-        stamp,
-        "坏指纹应触发重解压并修复"
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// child_path 拼出的 PATH 能让裸 git / python 命中内置运行时（模型只写工具名就能用的根据）。
-#[test]
-fn bundled_runtime_reachable_through_injected_path() {
-    let dir = std::env::temp_dir().join(format!("wb-path-test-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    wb_service::runtime::ensure_all(&dir);
-
-    let sh = wb_domain::runtime::find_bundled_bash(&dir).expect("内置 bash 未就位");
+    // 经注入 PATH，bash 里裸 `git` / `python` 命中内置运行时（模型只写工具名就能用）。
     let py_root = wb_domain::runtime::python_root(&dir);
     let out = std::process::Command::new(&sh)
-        .args([
-            "-c",
-            "git --version; python -c 'import sys; print(sys.prefix)'",
-        ])
+        .args(["-c", "git --version; python -c 'import sys; print(sys.prefix)'"])
         .current_dir(&dir)
         .env("PATH", wb_domain::runtime::child_path(&dir))
         .output()
         .expect("启动内置 bash 失败");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
-
-    assert!(
-        stdout.contains("git version"),
-        "裸 git 未命中内置运行时：{stdout}{stderr}"
-    );
+    assert!(stdout.contains("git version"), "裸 git 未命中内置运行时：{stdout}{stderr}");
     // 比路径而不是比关键词：临时目录名里没有「runtime」，靠关键词会假失败。
     let want = py_root.display().to_string().to_lowercase();
     assert!(
         stdout.to_lowercase().contains(&want),
         "裸 python 未命中内置运行时（期望 {want}）：{stdout}{stderr}"
+    );
+
+    // 指纹损坏触发重解压自愈。
+    let marker = wb_domain::runtime::portablegit_root(&dir).join(".pack_stamp");
+    let stamp = std::fs::read_to_string(&marker).unwrap();
+    assert_eq!(stamp, wb_service::runtime::PORTABLEGIT_ZIP.len().to_string());
+    std::fs::write(&marker, "0").unwrap();
+    wb_service::runtime::ensure_all(&dir);
+    assert_eq!(
+        std::fs::read_to_string(&marker).unwrap(),
+        stamp,
+        "坏指纹应触发重解压并修复"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

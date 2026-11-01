@@ -12,7 +12,7 @@ use wb_pkg::{AppError, Result};
 use crate::config::ResolvedProvider;
 use crate::types::{
     ContentPart, ModelClient, ModelEvent, ProviderStream, ReqMessage, Role, StopReason,
-    StreamRequest, ToolCallDone, Usage,
+    StreamRequest, ThinkingLevel, ToolCallDone, Usage,
 };
 
 /// openai 系客户端。
@@ -32,8 +32,33 @@ pub struct Acc {
     usage: Usage,
     /// 上游 finish_reason 归一化后的停止原因
     pub stop: Option<StopReason>,
-    /// 是否已见过 finish_reason
+    /// 是否已见过有效的 finish_reason
     finished: bool,
+}
+
+impl Acc {
+    /// 结清累积中的工具调用：upstream 没给 finish_reason 时流就断了，
+    /// 这些调用必须定稿——否则模型要求调工具却被当成「正文到此结束」，整轮静默丢活。
+    pub fn flush_tools(&mut self) -> Vec<ModelEvent> {
+        let mut out = Vec::new();
+        for (idx, slot) in self.tools.iter().enumerate() {
+            if let Some((id, name, args)) = slot {
+                out.push(ModelEvent::ToolCallEnd(
+                    idx,
+                    ToolCallDone {
+                        call_id: id.clone(),
+                        name: name.clone(),
+                        arguments: args.clone(),
+                    },
+                ));
+            }
+        }
+        if !out.is_empty() {
+            self.tools.clear();
+            self.stop = Some(StopReason::ToolUse);
+        }
+        out
+    }
 }
 
 impl OpenAiClient {
@@ -99,6 +124,15 @@ impl OpenAiClient {
                     })
                     .collect(),
             );
+            // 只有确实送工具时才需要让上游选工具；否则这字段只是噪声
+            body["tool_choice"] = json!("auto");
+        }
+        // 思考档位落到各家通用字段：关 = 不送（与不支持的模型完全等价）
+        match req.thinking {
+            ThinkingLevel::Off => {}
+            ThinkingLevel::Low => body["reasoning_effort"] = json!("low"),
+            ThinkingLevel::Medium => body["reasoning_effort"] = json!("medium"),
+            ThinkingLevel::High => body["reasoning_effort"] = json!("high"),
         }
         body
     }
@@ -118,7 +152,12 @@ fn join_text(m: &ReqMessage) -> String {
 
 /// 用户消息内容：带图片时用多段数组，否则纯字符串。
 fn user_content(m: &ReqMessage) -> Value {
-    if m.parts.iter().all(|p| matches!(p, ContentPart::Text(_))) {
+    // tool 角色的 content 必须是字符串，不能是数组；只有 user 能带图
+    if !m
+        .parts
+        .iter()
+        .any(|p| matches!(p, ContentPart::Image { .. }))
+    {
         return Value::String(join_text(m));
     }
     Value::Array(
@@ -218,8 +257,7 @@ fn unfold_sse(
                     let item = tokio::select! {
                         _ = cancel.cancelled() => {
                             return Some((ModelEvent::Done(acc.usage.clone(), StopReason::Aborted), (sse, acc, true, pending)));
-                        }
-                        r = next => match r {
+                        }                        r = next => match r {
                             Err(_) => {
                                 return Some((
                                     ModelEvent::Error(true, "模型流空闲超时（90s 无数据）".into()),
@@ -231,6 +269,12 @@ fn unfold_sse(
                     };
                     match item {
                         None => {
+                            // 流断了但上游没给 finish_reason：累积中的调用必须定稿
+                            let mut flushed = acc.flush_tools();
+                            if !flushed.is_empty() {
+                                let first = flushed.remove(0);
+                                return Some((first, (sse, acc, true, flushed)));
+                            }
                             return Some((
                                 ModelEvent::Done(
                                     acc.usage.clone(),
@@ -248,13 +292,19 @@ fn unfold_sse(
                         Some(Ok(ev)) => {
                             let data = ev.data.trim().to_string();
                             if data == "[DONE]" {
-                                return Some((
-                                    ModelEvent::Done(
-                                        acc.usage.clone(),
-                                        acc.stop.unwrap_or(StopReason::Stop),
-                                    ),
-                                    (sse, acc, true, pending),
-                                ));
+                                // [DONE] 前没收到 finish_reason 的网关：同样要结清调用
+                                let mut flushed = acc.flush_tools();
+                                if flushed.is_empty() {
+                                    return Some((
+                                        ModelEvent::Done(
+                                            acc.usage.clone(),
+                                            acc.stop.unwrap_or(StopReason::Stop),
+                                        ),
+                                        (sse, acc, true, pending),
+                                    ));
+                                }
+                                let first = flushed.remove(0);
+                                return Some((first, (sse, acc, true, flushed)));
                             }
                             let mut events = handle_chunk(&data, &mut acc);
                             if !events.is_empty() {
@@ -346,8 +396,11 @@ pub fn handle_chunk(data: &str, acc: &mut Acc) -> Vec<ModelEvent> {
     if acc.finished {
         return out;
     }
-    match choice["finish_reason"].as_str() {
-        Some("tool_calls") | Some("function_call") => {
+    // 空串是「本帧还没下结论」而不是一个停止理由：部分网关（deepseek 系）
+    // 每个 chunk 都带 finish_reason:""，按终止态处理会让紧随其后的工具调用分片全部失效。
+    let reason = choice["finish_reason"].as_str().unwrap_or("");
+    match reason {
+        "tool_calls" | "function_call" => {
             acc.finished = true;
             acc.stop = Some(StopReason::ToolUse);
             // 按 index 序逐个定稿；并行调用一个都不能少
@@ -363,16 +416,29 @@ pub fn handle_chunk(data: &str, acc: &mut Acc) -> Vec<ModelEvent> {
                     ));
                 }
             }
+            acc.tools.clear();
         }
-        Some("length") => {
+        "length" => {
             acc.finished = true;
             acc.stop = Some(StopReason::Length);
         }
-        Some(_) => {
+        "content_filter" => {
+            acc.finished = true;
+            acc.stop = Some(StopReason::Stop);
+            out.push(ModelEvent::Error(
+                false,
+                "上游按内容策略截断了这一轮输出".into(),
+            ));
+        }
+        "" => {}
+        _ => {
             acc.finished = true;
             acc.stop = Some(StopReason::Stop);
         }
-        None => {}
+    }
+    if acc.finished {
+        // 定稿帧可能只带 finish_reason，正文本帧已产出的增量不能丢
+        return out;
     }
     out
 }

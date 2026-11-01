@@ -86,6 +86,13 @@ async function steer(text: string) {
     await chat.steer(session.currentId, text)
     toast.ok(t('chat.retryEvent'))
   } catch (e) {
+    // 5002 = 这一轮在用户按下回车前刚好跑完：当成新消息发出去，
+    // 而不是回一句「没有在运行」把用户刚打的字白白吞掉。
+    if ((e as { code?: string })?.code === '5002') {
+      steering.value = false
+      await send(text, [])
+      return
+    }
     toast.bad(t('chat.steerFailed', { msg: errorText(e) }))
   } finally {
     steering.value = false
@@ -98,6 +105,12 @@ async function queueUp(text: string) {
   try {
     await chat.followUp(session.currentId, text)
   } catch (e) {
+    // 同上：排队时这一轮已经跑完，直接当普通发送
+    if ((e as { code?: string })?.code === '5001' || (e as { code?: string })?.code === '5002') {
+      queueing.value = false
+      await send(text, [])
+      return
+    }
     toast.bad(t('chat.queueFailed', { msg: errorText(e) }))
   } finally {
     queueing.value = false

@@ -18,6 +18,9 @@ use crate::compaction;
 use crate::events::{EmitFn, KernelEvent};
 use crate::session::{now_ms, Block, Entry, Msg, SessionFile};
 
+/// 单轮运行的模型请求上限：模型反复调工具却不收尾时的总闸。
+const MAX_TURNS: i64 = 60;
+
 /// 一轮运行的装配参数。
 #[derive(Clone)]
 pub struct AgentConfig {
@@ -84,6 +87,8 @@ pub async fn run(
     let mut aborted = false;
     let mut failed: Option<AppError> = None;
     let mut usage_total = Usage::default();
+    // 空转防护：模型连着只调工具不说话、任务又没推进时会无限转下去。
+    let mut turn_no: i64 = 0;
 
     'outer: loop {
         // turn 边界收插话（one-at-a-time）
@@ -98,6 +103,14 @@ pub async fn run(
                 .map_err(loop_err)?;
         }
         emit(&KernelEvent::TurnStart);
+        turn_no += 1;
+        if turn_no > MAX_TURNS {
+            failed = Some(AppError::new(
+                wb_domain::error::kernel::LOOP_LIMIT,
+                format!("这一轮已连续请求模型 {MAX_TURNS} 次仍未收尾，已停下"),
+            ));
+            break 'outer;
+        }
 
         // 预采样压缩
         let msgs = session.replay_messages();
@@ -161,12 +174,13 @@ pub async fn run(
         let mut blocks: Vec<Block> = Vec::new();
         let mut usage: Option<Usage> = None;
         let mut stop = StopReason::Stop;
-        let mut stream_err: Option<String> = None;
+        // 错误本体：消息 + 上游是否标注可重试（不靠重新解析文案猜）
+        let mut stream_err: Option<(bool, String)> = None;
         {
             let mut stream = match cfg.client.stream(req, cancel.clone()).await {
                 Ok(s) => s,
                 Err(e) => {
-                    stream_err = Some(e.message);
+                    stream_err = Some((true, e.message));
                     stop = StopReason::Error;
                     Box::pin(futures::stream::empty())
                 }
@@ -194,7 +208,7 @@ pub async fn run(
                         stop = s;
                     }
                     ModelEvent::Error(retryable, m) => {
-                        stream_err = Some(format!("{}（可重试：{retryable}）", m));
+                        stream_err = Some((retryable, m));
                         stop = StopReason::Error;
                     }
                 }
@@ -206,8 +220,9 @@ pub async fn run(
             if stop == StopReason::Aborted {
                 aborted = true;
             } else {
-                let msg = stream_err.unwrap_or_default();
-                let retryable = msg.contains("可重试：true") || retryable_text(&msg);
+                let (tagged, msg) = stream_err.take().unwrap_or((false, String::new()));
+                // 上游没标注时按文本兜底判：网关五花八门，宁可多试一次
+                let retryable = tagged || retryable_text(&msg);
                 if cfg.max_retries > 0 && retryable && retry < cfg.max_retries {
                     retry += 1;
                     let delay = (2000i64 * (1 << (retry - 1).min(5))).min(60_000);
@@ -225,6 +240,8 @@ pub async fn run(
                     {
                         aborted = true;
                     } else {
+                        // 上次尝试的残留块不能带进下一次：否则重试出来的正文会接在
+                        // 已经吐了一半的旧文本后面，用户看到的是两段拼一起的内容。
                         continue 'outer;
                     }
                 } else {
@@ -233,6 +250,8 @@ pub async fn run(
                 }
             }
         }
+        // 这一轮拿到有效响应：重试计数归零，后续再出错重新从 1 数
+        retry = 0;
 
         // 落盘助手消息
         if let Some(u) = &usage {
@@ -286,7 +305,9 @@ pub async fn run(
             .collect();
 
         let stop2 = stop;
-        if stop2 == StopReason::ToolUse {
+        // 有调用就执行：部分网关把 tool_calls 帧的 finish_reason 报成 stop，
+        // 只看 stop_reason 会把模型明确要求的工具调用静默丢掉。
+        if !calls.is_empty() || stop2 == StopReason::ToolUse {
             // 同批调用并发跑：只读的并组一起执行，带副作用的单独排队。
             // join_all 保持入参顺序，会话里的 ToolResult 次序与串行版一致。
             for group in crate::blocks::group_calls_for_concurrency(&cfg.registry, &calls) {
@@ -347,7 +368,26 @@ pub async fn run(
             usage: usage.clone(),
             stop_reason: stop2,
         });
-        break 'outer;
+        // 模型刚说完话、用户恰好在同一瞬间插了一句：文本已进不了这一轮，
+        // 但绝不能就这么丢掉——另起一轮接上，用户看到的是一条回应而不是永远的行。
+        let mut pending_steer = Vec::new();
+        while let Ok(text) = steer_rx.try_recv() {
+            pending_steer.push(text);
+        }
+        if pending_steer.is_empty() || abort_flag(&cancel) {
+            break 'outer;
+        }
+        for text in pending_steer {
+            session
+                .append(Entry::Message {
+                    message: Msg::User {
+                        content: text,
+                        timestamp: now_ms(),
+                    },
+                })
+                .map_err(loop_err)?;
+        }
+        continue 'outer;
     }
 
     if let Some(e) = failed {
@@ -456,6 +496,11 @@ fn retryable_text(msg: &str) -> bool {
 
 fn loop_err(e: AppError) -> AppError {
     e
+}
+
+/// 取消令牌是否已触发（插话续跑前要看一眼：用户按了停止就不该再开一轮）。
+fn abort_flag(cancel: &CancellationToken) -> bool {
+    cancel.is_cancelled()
 }
 
 /// ToolCall 供外部引用（service 构造运行态调用时用）。

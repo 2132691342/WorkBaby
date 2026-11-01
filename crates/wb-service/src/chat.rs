@@ -9,7 +9,6 @@ use wb_domain::chat::{ChatSendREQ, ChatSendRESP};
 use wb_domain::error::session as code;
 use wb_kernel::{Entry, KernelEvent};
 use wb_pkg::{AppError, Result};
-use wb_provider::StopReason;
 
 use super::chat_events::translate;
 use super::store;
@@ -98,6 +97,22 @@ impl ChatBoard {
     }
 }
 
+/// 思考档位：模型不支持推理时一律关掉（送了也没用，只会让上游报参数错）。
+fn thinking_level(
+    session_level: Option<&str>,
+    supports_reasoning: bool,
+) -> wb_provider::ThinkingLevel {
+    if !supports_reasoning {
+        return wb_provider::ThinkingLevel::Off;
+    }
+    match session_level.unwrap_or("medium") {
+        "off" => wb_provider::ThinkingLevel::Off,
+        "low" => wb_provider::ThinkingLevel::Low,
+        "high" => wb_provider::ThinkingLevel::High,
+        _ => wb_provider::ThinkingLevel::Medium,
+    }
+}
+
 /// 解析默认模型：设置键 → 第一个有 key 的 provider。
 pub(crate) fn resolve_default(
     sv: &Arc<Services>,
@@ -123,8 +138,8 @@ pub(crate) fn resolve_default(
         }
     };
     let resolved = sv.providers.resolve(&pid, Some(&mid))?;
-    let thinking = resolved.context_window;
-    Ok((pid, mid, thinking, resolved))
+    let window = resolved.context_window;
+    Ok((pid, mid, window, resolved))
 }
 
 /// 发送（新会话现场创建）。
@@ -140,10 +155,37 @@ pub async fn send(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> {
 
 /// 起一轮运行（发送与目标续跑共用）。
 async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> {
-    let (pid, mid, context_window, resolved) = resolve_default(&sv)?;
+    // 会话已切过模型 / 思考档时以会话为准：设置页换默认模型不该默默改变老会话的语境。
+    let mut effective_provider = None::<String>;
+    let mut effective_model = None::<String>;
+    let mut effective_thinking = None::<String>;
+    if let Some(id) = req.chat_session_id.as_deref().filter(|s| !s.is_empty()) {
+        if let Ok(path) = store::find_session_file(&sv, id) {
+            if let Ok(sf) = wb_kernel::SessionFile::load(&path) {
+                let (p, m) = store::model_of(&sf);
+                if !p.is_empty() && !m.is_empty() {
+                    effective_provider = Some(p);
+                    effective_model = Some(m);
+                }
+                effective_thinking = Some(store::thinking_of(&sf));
+            }
+        }
+    }
+    let (default_pid, default_mid, _window, default_resolved) = resolve_default(&sv)?;
+    let pid = effective_provider.unwrap_or(default_pid);
+    let mid = effective_model.unwrap_or(default_mid);
+    let resolved = if pid == default_resolved.provider_id && mid == default_resolved.model_id {
+        default_resolved
+    } else {
+        sv.providers.resolve(&pid, Some(&mid))?
+    };
+    let context_window = resolved.context_window;
     if resolved.api_key.is_empty() {
         return Err(AppError::new(code::NOT_READY, "该服务商还没有配置 API key"));
     }
+    // 客户端接管 resolved 所有权，模型侧读数先取出来
+    let model_max_tokens = resolved.max_tokens;
+    let model_reasoning = resolved.reasoning;
     let client = wb_provider::create_client(resolved)?;
 
     // 会话：已有则加载；无则建（工作区同时是工具执行的工作目录）
@@ -180,13 +222,13 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
         provider_id: pid.clone(),
         model_id: mid.clone(),
         context_window,
-        max_tokens: 16_384,
+        max_tokens: model_max_tokens,
         // 压缩会把旧消息整段丢掉，此刻由 service 现场读一遍活状态回填进去
         reinforce: Some(Arc::new(Box::new({
             let svr = sv.clone();
             move || super::features::live_state(&svr)
         }))),
-        thinking: wb_provider::ThinkingLevel::Off,
+        thinking: thinking_level(effective_thinking.as_deref(), model_reasoning),
         max_retries: 3,
         workdir: std::path::PathBuf::from(&workspace),
     });
@@ -347,8 +389,8 @@ pub async fn compact(
     if sv.chat.lock().unwrap().is_running(session_id) {
         return Err(AppError::new(code::BUSY, "对话正在运行，停止后再压缩"));
     }
-    let (pid, mid, _window, resolved) = resolve_default(&sv)?;
-    let client = wb_provider::create_client(resolved)?;
+    let (_pid, _mid, _window, resolved) = resolve_default(&sv)?;
+    let client = wb_provider::create_client(resolved.clone())?;
     let path = store::find_session_file(&sv, session_id)?;
     let mut session_file = wb_kernel::SessionFile::load(&path)?;
     let reinforce: wb_kernel::compaction::ReinforceFn = {
@@ -358,7 +400,8 @@ pub async fn compact(
     let (tokens_before, summary) = wb_kernel::compaction::compact(
         &mut session_file,
         client.as_ref(),
-        &format!("{pid}/{mid}"),
+        // 摘要请求必须带真实模型 id：带 "provider/model" 会被上游当非法模型拒掉
+        &resolved.model_id,
         4096,
         Some(&reinforce),
         tokio_util::sync::CancellationToken::new(),
@@ -375,19 +418,26 @@ pub async fn compact(
 }
 
 /// 收尾刷新索引（消息数 / 活动时间 / 预览）。
+/// 会话名与模型从会话文件读：索引只做加速，不能反过来覆盖真相层的事实。
 fn refresh_index(sv: &Arc<Services>, session_id: &str) {
     let Ok(path) = store::find_session_file(sv, session_id) else {
         return;
     };
-    let Ok(sf) = wb_kernel::SessionFile::load(&path) else {
+    let Ok(mut sf) = wb_kernel::SessionFile::load(&path) else {
         return;
     };
     let mut count = 0i64;
     let mut summary = String::new();
+    let mut first_user = String::new();
     for m in sf.replay_messages() {
         count += 1;
         let text = match &m {
-            wb_kernel::Msg::User { content, .. } => Some(content.clone()),
+            wb_kernel::Msg::User { content, .. } => {
+                if first_user.is_empty() {
+                    first_user = content.clone();
+                }
+                Some(content.clone())
+            }
             wb_kernel::Msg::Assistant { content, .. } => Some(
                 content
                     .iter()
@@ -403,20 +453,29 @@ fn refresh_index(sv: &Arc<Services>, session_id: &str) {
             summary = t.chars().take(80).collect();
         }
     }
+    let (provider, model) = store::model_of(&sf);
+    let mut title = store::session_name(&sf);
+    // 没手工命名的会话用首句用户消息当标题，写进会话文件——
+    // 索引只是缓存，标题的真相必须在 JSONL 里，否则重启和导出都会丢
+    if title.trim().is_empty() && !first_user.trim().is_empty() {
+        title = first_user.trim().chars().take(40).collect();
+        let _ = sf.append(wb_kernel::Entry::SessionInfo {
+            session_name: Some(title.clone()),
+        });
+    }
     let _ = sv
         .repo
         .sessions_upsert(&wb_domain::session::SessionIndexDO {
             session_id: session_id.to_string(),
-            session_name: String::new(),
+            session_name: title,
             session_workspace: sf.header.workspace.clone(),
-            session_provider: String::new(),
-            session_model: String::new(),
+            session_provider: provider,
+            session_model: model,
             session_message_count: count,
             session_last_active_at: wb_pkg::fsutil::mtime_ms(&path)
                 .unwrap_or_else(wb_kernel::now_ms),
             session_summary: summary,
         });
-    let _ = StopReason::Stop; // 保持导入（映射表后续补 turn_end 终态语义）
 }
 
 /// 就绪检查：默认模型可解析即就绪（就绪判定在发送之前）。

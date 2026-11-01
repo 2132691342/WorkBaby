@@ -122,4 +122,6 @@ pub mod kernel {
     pub const STREAM_BROKEN: &str = "9703";
     /// 子代理启动失败
     pub const SUBAGENT_FAILED: &str = "9704";
+    /// 单轮请求数超过上限（模型反复调工具不收尾）
+    pub const LOOP_LIMIT: &str = "9705";
 }

@@ -256,5 +256,6 @@ export default {
     sessionFileCorrupt: 'The session file is corrupt',
     streamBroken: 'The model stream broke',
     subagentFailed: 'Could not start the subagent',
+    loopLimit: 'The model kept calling tools without finishing; stopped',
   },
 }
