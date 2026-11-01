@@ -1,13 +1,9 @@
-//! wb-pkg 场景测试：路径安全边界。
-//! 路径逃逸一旦漏判，助手就能读写工作区之外的文件——这是唯一值得单独守的边界。
+//! wb-pkg 场景测试：路径安全边界。路径逃逸漏判会让助手读写工作区之外文件，是唯一单独守的边界。
 
 use std::path::{Path, PathBuf};
 
 use wb_pkg::realpath::{lexical_clean, real_path, relative_to};
 
-/// 路径处理三件事一件都不能错：`..` 词法归一不触碰文件系统；
-/// 逃出允许根的路径报 1003；根内归一为相对路径、根自身归一为空串；
-/// `real_path` 剥掉长路径前缀且不存在的路径不报错（交给上层判存在性）。
 #[test]
 fn path_tools_reject_escape_and_normalize() {
     assert_eq!(

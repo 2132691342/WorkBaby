@@ -87,7 +87,7 @@ WorkBaby/
     ├── wb-domain/                 # 纯类型：DO/DTO/REQ/RESP/VO + 错误码常量（只依赖 wb-pkg）
     ├── wb-repo/                   # SQLite：连接与迁移、设置 KV、技能/功能开关、会话索引、统计
     ├── wb-provider/               # 模型接入：wire API（openai-completions）、SSE 解析、usage、凭据
-    ├── wb-tools/                  # Tool trait + 注册表 + 内置工具（read/bash/edit/write/grep/find/ls）
+    ├── wb-tools/                  # Tool trait + 注册表 + 内置工具（read/write/edit/bash/python/grep/find/ls）
     ├── wb-kernel/                 # Agent 内核：会话树、循环、事件、压缩、重试、子代理
     ├── wb-skills/                 # SKILL.md 解析、三区发现注册表、内置技能包
     ├── wb-features/               # 12 项内置功能（todo/ask_user/memory/web/context_mode/

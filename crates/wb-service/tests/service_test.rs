@@ -71,9 +71,8 @@ fn subagent_observability_tracks_lifecycle() {
     assert_eq!(frames[2].2["agent_failed"], false);
 }
 
-/// 全部 chat:* 载荷的字段名与前端 `types/api.ts` / `stores/chat.ts` 的读取一致；
-/// 提问载荷带问卷结构（questions[].question_options[].option_label）；
-/// 关闭原因取全集，未列的原因会落到前端「未知原因」兜底分支。
+/// 全部 chat:* 载荷字段名与前端 types/api.ts / stores/chat.ts 读取一致；
+/// 提问载荷带问卷结构；关闭原因取全集，未列的原因会落到前端「未知原因」兜底。
 #[test]
 fn chat_event_payloads_match_frontend_contract() {
     let start = serde_json::to_value(StartData {
@@ -258,7 +257,6 @@ fn bundled_runtimes_extracted_and_executable() {
         )
     });
 
-    // 真跑一把：$BASH_VERSION 非空证明是 bash 而非 dash；python 打印版本串
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let cancel = tokio_util::sync::CancellationToken::new();
@@ -328,8 +326,7 @@ fn bundled_runtimes_extracted_and_executable() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `child_path` 拼出的 PATH 能让裸 `git` / `python` 命中内置运行时——
-/// 这是「模型只写工具名就能用」的根据。不改进程 APPDATA，避开测试并行时的全局环境竞争。
+/// child_path 拼出的 PATH 能让裸 git / python 命中内置运行时（模型只写工具名就能用的根据）。
 #[test]
 fn bundled_runtime_reachable_through_injected_path() {
     let dir = std::env::temp_dir().join(format!("wb-path-test-{}", std::process::id()));
@@ -354,7 +351,7 @@ fn bundled_runtime_reachable_through_injected_path() {
         stdout.contains("git version"),
         "裸 git 未命中内置运行时：{stdout}{stderr}"
     );
-    // 比路径而不是比关键词：临时目录名里没有「runtime」，靠关键词会假失败
+    // 比路径而不是比关键词：临时目录名里没有「runtime」，靠关键词会假失败。
     let want = py_root.display().to_string().to_lowercase();
     assert!(
         stdout.to_lowercase().contains(&want),

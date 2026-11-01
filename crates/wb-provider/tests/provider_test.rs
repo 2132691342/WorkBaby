@@ -1,15 +1,13 @@
-//! wb-provider 场景测试：wire 协议解析。
-//! 流式分片与错误体解析决定了模型输出能否正确落到会话里——错了会静默丢内容。
+//! wb-provider 场景测试：wire 协议解析。流式分片与错误体解析决定模型输出能否正确落到会话里。
 
 use wb_provider::openai::{error_message, handle_chunk, Acc};
 use wb_provider::{ModelEvent, StopReason, ToolCallDone};
 
-/// 工具调用的完整生命周期：参数分多片到达、按 index 各自累积、与正文同帧也不互挤；
-/// finish_reason=tool_calls 时并行调用一个都不能少——漏一个就是丢一次调用，
-/// 模型以为做过了实际没做；参数没齐绝不定稿（半个 JSON 校验必失败）。
+/// 工具调用完整生命周期：参数多片到达、按 index 累积、与正文同帧不互挤；
+/// finish_reason=tool_calls 时并行调用全量定稿——漏一个就是丢一次调用；
+/// 参数没齐绝不定稿（半 JSON 校验必失败）。
 #[test]
 fn tool_calls_accumulate_and_finalize_across_chunks() {
-    // 分片到达：先吐 Delta 不定稿
     let mut acc = Acc::default();
     let first = r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":"{\"path\":"}}]},"finish_reason":null}]}"#;
     let events = handle_chunk(first, &mut acc);
@@ -17,7 +15,7 @@ fn tool_calls_accumulate_and_finalize_across_chunks() {
         events
             .iter()
             .any(|e| matches!(e, ModelEvent::ToolCallDelta(..))),
-        "参数分片应先吐 ToolCallDelta，不提前定稿"
+        "参数分片先吐 Delta 不定稿"
     );
     assert!(!events
         .iter()
@@ -40,7 +38,7 @@ fn tool_calls_accumulate_and_finalize_across_chunks() {
     assert_eq!(done.name, "read");
     assert_eq!(done.arguments, r#"{"path":"a"}"#, "分片参数应拼成完整 JSON");
 
-    // 并行调用按 index 各自累积，定稿时全量吐出
+    // 并行调用按 index 各自累积，定稿时全量吐出。
     let mut acc = Acc::default();
     handle_chunk(
         r#"{"choices":[{"index":0,"delta":{"tool_calls":[
@@ -64,7 +62,7 @@ fn tool_calls_accumulate_and_finalize_across_chunks() {
     assert_eq!(calls[0].name, "read");
     assert_eq!(calls[1].name, "grep");
 
-    // 一帧里正文 + 工具调用并存，两者都要产出
+    // 一帧里正文 + 工具调用并存，两者都产出。
     let mut acc = Acc::default();
     let events = handle_chunk(
         r#"{"choices":[{"index":0,"delta":{"content":"我去查一下","tool_calls":[
@@ -83,9 +81,9 @@ fn tool_calls_accumulate_and_finalize_across_chunks() {
     );
 }
 
-/// 帧到事件的映射与收尾语义：stop 只收尾不产事件；length 表示截断（内核据此重试）；
-/// tool_calls 映射为 tool_use——混淆会让内核在正文收尾后空转烧 token；
-/// 思考走独立 reasoning_content 通道；上游错误体提取 message 字段、非 JSON 原样带出。
+/// 帧到事件映射与收尾语义：stop 只收尾不产事件；length 表示截断（内核据此重试）；
+/// tool_calls 映射为 ToolUse——混淆会让内核在正文收尾后空转烧 token；
+/// 思考走独立 reasoning_content；上游错误体提取 message，非 JSON 原样带出。
 #[test]
 fn frames_map_stop_thinking_and_error_payloads() {
     let mut acc = Acc::default();
@@ -112,9 +110,7 @@ fn frames_map_stop_thinking_and_error_payloads() {
 
     let mut acc = Acc::default();
     handle_chunk(
-        r#"{"choices":[{"index":0,"delta":{"tool_calls":[
-      {"index":0,"id":"c0","function":{"name":"read","arguments":"{}"}}
-    ]}}]}"#,
+        r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c0","function":{"name":"read","arguments":"{}"}}]}}]}"#,
         &mut acc,
     );
     handle_chunk(
@@ -133,7 +129,7 @@ fn frames_map_stop_thinking_and_error_payloads() {
         .any(|e| matches!(e, ModelEvent::ThinkingDelta(_, s) if s == "想一下")));
 
     let m = error_message(401, r#"{"error":{"message":"bad key"}}"#);
-    assert!(m.contains("bad key"), "应提取 message 字段：{m}");
+    assert!(m.contains("bad key"), "应提取 message：{m}");
     let m = error_message(500, "upstream exploded");
     assert!(
         m.contains("upstream exploded"),

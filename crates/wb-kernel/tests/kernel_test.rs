@@ -1,5 +1,4 @@
-//! wb-kernel 长链路测试：内核循环、会话树持久化、子代理。
-//! 脚本化假 Provider 回放事件流；断言集中在事件顺序契约、落盘回放与上下文隔离。
+//! wb-kernel 长链路测试：内核循环、会话树持久化、子代理。脚本化假 Provider 回放事件流，断言集中在事件顺序契约、落盘回放与上下文隔离。
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -14,7 +13,6 @@ use wb_provider::{
 };
 use wb_tools::{Tool, ToolOutput, ToolRegistry};
 
-// 事件脚本构造器：一个场景一轮脚本，三五行说清。
 fn delta(t: &str) -> ModelEvent {
     ModelEvent::TextDelta(0, t.into())
 }
@@ -58,16 +56,16 @@ impl FakeProvider {
         })
     }
 
-    /// 首个请求里系统消息的正文拼接。
     fn first_system_text(&self) -> String {
         let seen = self.seen.lock().unwrap();
-        let parts = match &seen[0].messages[0] {
-            ReqMessage {
-                role: Role::System,
-                parts,
-                ..
-            } => parts,
-            _ => panic!("首条应是系统消息"),
+        let StreamRequest { messages, .. } = &seen[0];
+        let ReqMessage {
+            role: Role::System,
+            parts,
+            ..
+        } = &messages[0]
+        else {
+            panic!("首条应是系统消息");
         };
         parts
             .iter()
@@ -128,7 +126,6 @@ impl Tool for EchoTool {
     }
 }
 
-/// 事件名序列（断言顺序契约用）。
 fn event_name(ev: &KernelEvent) -> &'static str {
     match ev {
         KernelEvent::AgentStart { .. } => "agent_start",
@@ -149,7 +146,6 @@ fn event_name(ev: &KernelEvent) -> &'static str {
     }
 }
 
-/// 临时目录（带唯一后缀，避免并行用例互相踩）。
 fn temp_dir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("wb_kernel_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -157,7 +153,6 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
     dir
 }
 
-/// 造一个只带 echo 工具的内核配置。
 fn agent_cfg(provider: Arc<FakeProvider>) -> AgentConfig {
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(EchoTool));
@@ -172,13 +167,11 @@ fn agent_cfg(provider: Arc<FakeProvider>) -> AgentConfig {
         max_tokens: 1024,
         thinking: ThinkingLevel::Off,
         max_retries: 0,
-        // 测试不注入压缩回填闭包，默认无活状态
         reinforce: None,
         workdir: temp_dir("cfg"),
     }
 }
 
-/// 加载目录里唯一的 jsonl 会话文件。
 fn load_session(dir: &Path) -> wb_kernel::SessionFile {
     let file = std::fs::read_dir(dir)
         .unwrap()
@@ -189,7 +182,6 @@ fn load_session(dir: &Path) -> wb_kernel::SessionFile {
     wb_kernel::SessionFile::load(&file).expect("会话文件应可加载")
 }
 
-/// 回放消息的角色序。
 fn role_names(msgs: &[wb_kernel::Msg]) -> Vec<&'static str> {
     msgs.iter()
         .map(|m| match m {
@@ -200,7 +192,6 @@ fn role_names(msgs: &[wb_kernel::Msg]) -> Vec<&'static str> {
         .collect()
 }
 
-/// 子代理配置（默认探底参数，tools 覆盖工具清单）。
 fn sub_cfg(tmp: &Path, tools: &[&str]) -> SubagentConfig {
     SubagentConfig {
         parent_session_id: "SESS_parent".into(),
@@ -218,12 +209,9 @@ fn sub_cfg(tmp: &Path, tools: &[&str]) -> SubagentConfig {
 /// 内核循环全链路：单工具批的事件顺序契约 + 并行工具批一个不能少。
 #[tokio::test]
 async fn agent_loop_replays_tool_batches_end_to_end() {
-    // 阶段一：两轮采样夹一次工具调用；事件顺序、落盘回放、回灌请求三头验。
     let tmp = temp_dir("run");
     let provider = FakeProvider::new(vec![
-        // 第二轮：收尾
         vec![delta("工具结果已确认"), done(100, StopReason::Stop)],
-        // 第一轮：正文 + 工具调用
         vec![
             delta("我先调用工具"),
             tool_end(1, "call_1", r#"{"text":"你好"}"#),
@@ -250,7 +238,7 @@ async fn agent_loop_replays_tool_batches_end_to_end() {
     assert!(!outcome.aborted, "不该被中止");
     assert_eq!(outcome.last_text, "工具结果已确认", "最后一轮正文应回传");
 
-    // 事件顺序契约：final 先于 message_end，工具批夹在两 turn 之间，settled 收尾
+    // 事件顺序契约：final 先于 message_end，工具批夹在两 turn 之间，settled 收尾。
     let expect =
         "agent_start turn_start text_delta assistant_final message_end tool_start tool_end \
         turn_end turn_start text_delta assistant_final message_end turn_end agent_end settled";
@@ -260,7 +248,7 @@ async fn agent_loop_replays_tool_batches_end_to_end() {
         "事件顺序契约被破坏：界面时序依赖它"
     );
 
-    // 落盘回放：user → assistant(工具调用) → tool(结果) → assistant(正文)
+    // 落盘回放：user → assistant(工具调用) → tool(结果) → assistant(正文)。
     let msgs = load_session(&tmp).replay_messages();
     assert_eq!(
         role_names(&msgs),
@@ -268,10 +256,9 @@ async fn agent_loop_replays_tool_batches_end_to_end() {
         "回放序错乱"
     );
     let wb_kernel::Msg::ToolResult { content, .. } = &msgs[2] else {
-        panic!("第三条应是工具结果");
+        panic!("第三条应是工具结果")
     };
     assert_eq!(content, "你好", "工具结果应原样回灌");
-    // 第二轮请求应把工具结果回灌（消息数：system+user+assistant+tool = 4）
     assert_eq!(
         provider.seen.lock().unwrap()[1].messages.len(),
         4,
@@ -279,7 +266,7 @@ async fn agent_loop_replays_tool_batches_end_to_end() {
     );
     let _ = std::fs::remove_dir_all(&tmp);
 
-    // 阶段二：并行工具批——漏掉一个就是丢掉一次调用，模型以为做过了实际没做。
+    // 并行工具批——漏掉一个就是丢掉一次调用。
     let tmp = temp_dir("parallel");
     let provider = FakeProvider::new(vec![
         vec![delta("都查完了"), done(0, StopReason::Stop)],
@@ -293,8 +280,9 @@ async fn agent_loop_replays_tool_batches_end_to_end() {
     let sink = started.clone();
     let emit: wb_kernel::EmitFn = Arc::new(move |ev: &KernelEvent| {
         if let KernelEvent::ToolExecutionStart { args, .. } = ev {
-            let text = args["text"].as_str().unwrap_or("").to_string();
-            sink.lock().unwrap().push(text);
+            sink.lock()
+                .unwrap()
+                .push(args["text"].as_str().unwrap_or("").to_string());
         }
     });
     let (_tx, rx) = tokio::sync::mpsc::channel(4);
@@ -323,8 +311,7 @@ async fn agent_loop_replays_tool_batches_end_to_end() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// 会话文件语义：追加 → 重载 → 回放一字不差；压缩以摘要替代早期历史；
-/// ContextEdit 把目标条目从回放里摘掉。压缩与回溯都建立在它上面。
+/// 会话文件语义：追加 → 重载 → 回放一字不差；压缩以摘要替代早期历史；ContextEdit 把目标条目从回放摘掉。
 #[test]
 fn session_file_survives_reload_compaction_and_context_edit() {
     let dir = temp_dir("session");
@@ -357,7 +344,7 @@ fn session_file_survives_reload_compaction_and_context_edit() {
     let mut reloaded = wb_kernel::SessionFile::load(&path).unwrap();
     assert_eq!(reloaded.replay_messages().len(), 2, "重载后消息数不该变");
 
-    // 压缩记录落在树上：回放时早期消息被摘要替代
+    // 压缩记录落在树上：回放时早期消息被摘要替代。
     reloaded
         .append(wb_kernel::Entry::Compaction {
             summary: "之前聊了问候".into(),
@@ -368,16 +355,14 @@ fn session_file_survives_reload_compaction_and_context_edit() {
     let after = reloaded.replay_messages();
     assert_eq!(after.len(), 1, "压缩后只剩摘要一条");
     match &after[0] {
-        wb_kernel::Msg::User { content, .. } => {
-            assert!(
-                content.contains("之前聊了问候"),
-                "摘要应进入上下文：{content}"
-            )
-        }
+        wb_kernel::Msg::User { content, .. } => assert!(
+            content.contains("之前聊了问候"),
+            "摘要应进入上下文：{content}"
+        ),
         other => panic!("压缩后应是摘要形态的 user 消息，得到 {other:?}"),
     }
 
-    // ContextEdit：目标条目被摘出回放
+    // ContextEdit：目标条目被摘出回放。
     let bad = reloaded.append(user("bad", 3)).unwrap().entry_id.clone();
     reloaded
         .append(wb_kernel::Entry::ContextEdit {
@@ -390,21 +375,17 @@ fn session_file_survives_reload_compaction_and_context_edit() {
         1,
         "被编辑的条目不应出现在回放里"
     );
-
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 子代理三面：跑完只把结论带回父会话（中间过程留在独立子会话文件里）；
-/// 提示词继承角色与工作区但不带父提示词正文；工具白名单收窄且剔除 task 防止再派子代理；
-/// 轮次用尽时回退到最后一段正文，不给父会话一句空话。
+/// 子代理三面：只把结论带回父会话（中间过程留独立子会话文件）；
+/// 提示词继承角色与工作区但不带父提示词正文；工具白名单收窄且剔除 task 防递归派子代理；
+/// 轮次用尽时回退到最后一段正文。
 #[tokio::test]
 async fn subagent_isolates_context_narrows_tools_and_falls_back() {
-    // 面一：隔离与提示词继承
     let tmp = temp_dir("subagent");
     let provider = FakeProvider::new(vec![
-        // 第二轮：收尾结论
         vec![delta("共找到 3 个匹配文件"), done(30, StopReason::Stop)],
-        // 第一轮：调工具
         vec![
             tool_end(1, "c1", r#"{"text":"扫描结果"}"#),
             done(30, StopReason::ToolUse),
@@ -433,7 +414,7 @@ async fn subagent_isolates_context_narrows_tools_and_falls_back() {
         ["user", "assistant", "tool", "assistant"]
     );
     let wb_kernel::Msg::ToolResult { content, .. } = &msgs[2] else {
-        panic!("第三条应是工具结果");
+        panic!("第三条应是工具结果")
     };
     assert_eq!(content, "扫描结果", "工具结果应留在子会话里");
 
@@ -445,7 +426,7 @@ async fn subagent_isolates_context_narrows_tools_and_falls_back() {
         "不应把父提示词正文整段灌进子代理"
     );
 
-    // 面二：工具白名单收窄——task 被剔除，子代理不能递归派生
+    // 工具白名单收窄——task 被剔除，子代理不能递归派生。
     let tmp = temp_dir("subagent-tools");
     let provider = FakeProvider::new(vec![vec![delta("结论"), done(0, StopReason::Stop)]]);
     let mut cfg = agent_cfg(provider.clone());
@@ -462,12 +443,10 @@ async fn subagent_isolates_context_narrows_tools_and_falls_back() {
         .collect();
     assert_eq!(names, ["echo"], "task 应被剔除，避免子代理再派子代理");
 
-    // 面三：轮次用尽回退到最后正文
+    // 轮次用尽回退到最后正文。
     let tmp = temp_dir("subagent-limit");
     let provider = FakeProvider::new(vec![
-        // 第二轮：只调工具不说话
         vec![tool_end(2, "c2", r#"{"text":"y"}"#), tool_use()],
-        // 第一轮：说话 + 调工具，永远不收尾——轮次上限是唯一的出口
         vec![
             delta("我先看看文件"),
             tool_end(1, "c1", r#"{"text":"x"}"#),
@@ -484,88 +463,81 @@ async fn subagent_isolates_context_narrows_tools_and_falls_back() {
         "轮次用尽应回退到最后一段正文，实际：{}",
         outcome.conclusion
     );
-
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// 只读工具：带 read_only 注解，同批可并发。
-struct ReadOnlyTool;
-
-#[async_trait]
-impl Tool for ReadOnlyTool {
-    fn name(&self) -> &str {
-        "ro"
-    }
-    fn label(&self) -> &str {
-        "只读"
-    }
-    fn description(&self) -> &str {
-        "只读工具"
-    }
-    fn parameters(&self) -> serde_json::Value {
-        serde_json::json!({"type":"object"})
-    }
-    fn annotations(&self) -> wb_tools::ToolAnnotations {
-        wb_tools::ToolAnnotations {
-            read_only: true,
-            destructive: false,
-        }
-    }
-    async fn execute(
-        &self,
-        _args: serde_json::Value,
-        _cancel: CancellationToken,
-        _workdir: &Path,
-    ) -> wb_pkg::Result<ToolOutput> {
-        Ok(ToolOutput {
-            text: "ro".into(),
-            is_error: false,
-            duration_ms: 1,
-        })
-    }
-}
-
-/// 写工具：有副作用，必须单独排队跑。
-struct WriteTool;
-
-#[async_trait]
-impl Tool for WriteTool {
-    fn name(&self) -> &str {
-        "w"
-    }
-    fn label(&self) -> &str {
-        "写"
-    }
-    fn description(&self) -> &str {
-        "写工具"
-    }
-    fn parameters(&self) -> serde_json::Value {
-        serde_json::json!({"type":"object"})
-    }
-    fn annotations(&self) -> wb_tools::ToolAnnotations {
-        wb_tools::ToolAnnotations {
-            read_only: false,
-            destructive: true,
-        }
-    }
-    async fn execute(
-        &self,
-        _args: serde_json::Value,
-        _cancel: CancellationToken,
-        _workdir: &Path,
-    ) -> wb_pkg::Result<ToolOutput> {
-        Ok(ToolOutput {
-            text: "w".into(),
-            is_error: false,
-            duration_ms: 1,
-        })
-    }
-}
-
-/// 并发分组：相邻只读合成一组，写工具自成一组且位置不变。
-/// 两个写同时改一个文件会互相覆盖，所以绝不能进并发组。
+/// 并发分组：相邻只读合成一组，写工具自成一组且位置不变（两个写同时改一个文件会互相覆盖）。
 #[test]
 fn tool_batch_groups_merge_reads_and_isolate_writes() {
+    struct ReadOnlyTool;
+    #[async_trait]
+    impl Tool for ReadOnlyTool {
+        fn name(&self) -> &str {
+            "ro"
+        }
+        fn label(&self) -> &str {
+            "只读"
+        }
+        fn description(&self) -> &str {
+            "只读工具"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({"type":"object"})
+        }
+        fn annotations(&self) -> wb_tools::ToolAnnotations {
+            wb_tools::ToolAnnotations {
+                read_only: true,
+                destructive: false,
+            }
+        }
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+            _cancel: CancellationToken,
+            _workdir: &Path,
+        ) -> wb_pkg::Result<ToolOutput> {
+            Ok(ToolOutput {
+                text: "ro".into(),
+                is_error: false,
+                duration_ms: 1,
+            })
+        }
+    }
+    struct WriteTool;
+    #[async_trait]
+    impl Tool for WriteTool {
+        fn name(&self) -> &str {
+            "w"
+        }
+        fn label(&self) -> &str {
+            "写"
+        }
+        fn description(&self) -> &str {
+            "写工具"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({"type":"object"})
+        }
+        fn annotations(&self) -> wb_tools::ToolAnnotations {
+            wb_tools::ToolAnnotations {
+                read_only: false,
+                destructive: true,
+            }
+        }
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+            _cancel: CancellationToken,
+            _workdir: &Path,
+        ) -> wb_pkg::Result<ToolOutput> {
+            Ok(ToolOutput {
+                text: "w".into(),
+                is_error: false,
+                duration_ms: 1,
+            })
+        }
+    }
+
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(ReadOnlyTool));
     registry.register(Arc::new(WriteTool));
@@ -583,16 +555,15 @@ fn tool_batch_groups_merge_reads_and_isolate_writes() {
     .collect();
 
     let groups = wb_kernel::blocks::group_calls_for_concurrency(&registry, &calls);
-    // echo 没有 read_only 注解，按最保守的处理：单独串行
+    // echo 没有 read_only 注解，按最保守处理：单独串行。
     assert_eq!(
         groups,
         vec![vec![0, 1], vec![2], vec![3], vec![4], vec![5]],
-        "只读相邻应并组，写与未标注工具应各自串行"
+        "只读相邻应并组，写与未标注工具各自串行"
     );
 }
 
-/// 进程死在工具执行中会留下没结果的 tool_call；回放必须补齐，
-/// 否则发给模型是非法消息序（每个 tool_call 必须有对应 tool_result）。
+/// 进程死在工具执行中会留下没结果的 tool_call；回放必须补齐，否则发给模型是非法消息序。
 #[test]
 fn replay_backfills_tool_calls_that_never_got_a_result() {
     let dir = temp_dir("dangling");
@@ -604,7 +575,6 @@ fn replay_backfills_tool_calls_that_never_got_a_result() {
         },
     })
     .unwrap();
-    // 助手发起两个调用，只回了一个就崩了
     sf.append(wb_kernel::Entry::Message {
         message: wb_kernel::Msg::Assistant {
             content: vec![
@@ -661,13 +631,11 @@ fn replay_backfills_tool_calls_that_never_got_a_result() {
         vec!["TC_done", "TC_lost", "TC_lost2"],
         "三个调用都得有结果：实际 {results:?}"
     );
-    // 补齐的那两条要标成错误，模型才知道它们没真的执行
     let flagged = msgs
         .iter()
         .filter(|m| matches!(m, wb_kernel::Msg::ToolResult { is_error: true, .. }))
         .count();
     assert_eq!(flagged, 2, "补的结果要标 is_error");
-    // 补齐项必须紧跟在发起它的助手消息之后（否则模型配对不上）
     let aidx = msgs
         .iter()
         .position(|m| matches!(m, wb_kernel::Msg::Assistant { .. }))
@@ -680,7 +648,6 @@ fn replay_backfills_tool_calls_that_never_got_a_result() {
         ),
         "补的结果应紧跟在助手消息后，实际 {right_after:?}"
     );
-
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -713,12 +680,10 @@ fn session_fork_keeps_old_branch_and_switches_back() {
     sf.append(asst("第二答", 4)).unwrap();
     assert_eq!(sf.path_to_leaf().len(), 4);
 
-    // 只有用户消息适合作分支点
     let forks = wb_kernel::session::user_entry_ids(&sf);
     assert_eq!(forks.len(), 2, "两条用户消息都应可分支");
     assert!(forks.contains(&second_user));
 
-    // 从第一问之后重开：旧分支（4 条）整体保留，新分支从第一问接下去
     let first_user = forks[0].clone();
     sf.fork_at(&first_user).unwrap();
     assert_eq!(sf.path_to_leaf().len(), 1, "回到第一问处应只剩一条");
@@ -744,21 +709,8 @@ fn session_fork_keeps_old_branch_and_switches_back() {
         !new_path.iter().any(|s| s.contains("第二问")),
         "旧分支的消息不该混进新分支"
     );
-    // 旧分支的 4 条一条都不能丢：叶指针只动指针，不删行
     assert_eq!(sf.entries.len(), 6, "应是原 4 条 + 新分支 2 条，一条不删");
-    let old_branch_ids: Vec<&str> = sf
-        .entries
-        .iter()
-        .filter(|e| matches!(&e.payload, wb_kernel::Entry::Message { .. }))
-        .map(|e| e.entry_id.as_str())
-        .collect();
-    assert_eq!(old_branch_ids.len(), 6);
-    assert!(
-        sf.entries.iter().any(|e| e.entry_id == second_user),
-        "旧分支的第二问还在文件里"
-    );
 
-    // 切回旧叶子：回放要一模一样地回来
     let old_leaf = alt[0].clone();
     sf.fork_at(&old_leaf).unwrap();
     let back: Vec<String> = sf
@@ -771,7 +723,6 @@ fn session_fork_keeps_old_branch_and_switches_back() {
         .collect();
     assert_eq!(back, vec!["第一问", "第二问"], "切回后应恢复原分支");
 
-    // 叶指针落盘：重载后不会偷偷回到另一条分支
     let path = sf.path.clone();
     drop(sf);
     let reloaded = wb_kernel::SessionFile::load(&path).unwrap();
@@ -784,12 +735,10 @@ fn session_fork_keeps_old_branch_and_switches_back() {
         })
         .collect();
     assert_eq!(again, vec!["第一问", "第二问"], "重载后分支不该变");
-
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 压缩把旧消息整段丢掉，reinforce 闭包必须把仍在生效的活状态钉回上下文；
-/// 待办清单不塞回去，模型下一轮就看不见任务了——todo 功能的核心卖点就在这。
+/// 压缩把旧消息整段丢掉，reinforce 闭包必须把仍在生效的活状态钉回上下文。
 #[tokio::test]
 async fn compaction_reinjects_live_state_after_dropping_history() {
     let dir = temp_dir("reinforce");
@@ -824,7 +773,6 @@ async fn compaction_reinjects_live_state_after_dropping_history() {
     assert!(tokens_before > 0, "应估出压缩前 token 数");
     assert!(summary.contains("已摘要"), "摘要应来自模型返回");
 
-    // 压缩后回放：早期消息被折叠，但活状态必须作为新的 user 消息钉在后面
     let msgs = sf.replay_messages();
     assert!(msgs.len() < before, "压缩应减少回放条数");
     let last_user = msgs
@@ -840,8 +788,7 @@ async fn compaction_reinjects_live_state_after_dropping_history() {
         "活状态应被钉回上下文，实际：{last_user}"
     );
 
-    // 对照组：同样内容不开活状态注入，回放应正好少掉那条 user 消息。
-    // 只看单个会话分不出是「折叠变少」还是「钉回变多」，必须差量比。
+    // 对照组：同样内容不开活状态注入，回放应正好少掉那条 user 消息（差量比才分得清折叠与钉回）。
     let dir2 = temp_dir("reinforce-off");
     let mut sf2 = wb_kernel::SessionFile::create(&dir2, "D:\\t", "SESS_REINFORCE_OFF");
     for i in 0..30 {
@@ -879,6 +826,5 @@ async fn compaction_reinjects_live_state_after_dropping_history() {
         ),
         "闭包返回 None 时不应凭空插消息"
     );
-
     let _ = std::fs::remove_dir_all(&dir);
 }

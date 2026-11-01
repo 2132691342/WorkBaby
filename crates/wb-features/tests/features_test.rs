@@ -1,5 +1,4 @@
-//! wb-features 场景测试：依赖图、状态机、持久化往返、协议解析、边界拒绝。
-//! 只留「改一处就可能坏一片」的场景；分节顺序与功能清单一致。
+//! wb-features 场景测试：依赖图、状态机、持久化往返、协议解析、边界拒绝。只留「改一处就可能坏一片」的场景，分节顺序与功能清单一致。
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,7 +11,6 @@ use wb_features::todo::TodoStore;
 use wb_features::FeatureCtx;
 use wb_tools::Tool;
 
-/// 临时目录里的功能上下文（唯一后缀防并行用例互踩）。
 fn ctx_of(tag: &str) -> (PathBuf, FeatureCtx) {
     let dir = std::env::temp_dir().join(format!("wb_feat_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -25,7 +23,6 @@ fn ctx_of(tag: &str) -> (PathBuf, FeatureCtx) {
     (dir, ctx)
 }
 
-/// 跑一次待办动作并取回文本输出。
 async fn todo_op(
     tool: &wb_features::todo::TodoTool,
     args: serde_json::Value,
@@ -38,7 +35,7 @@ async fn todo_op(
 
 // ---- 待办：依赖图 ----
 
-/// 依赖图的拒绝条件（悬空 / 自环 / 成环）、落盘与删除后的悬空清理。
+/// 依赖图拒绝条件（悬空 / 自环 / 成环）、落盘与删除后悬空清理。
 #[tokio::test]
 async fn todo_dependency_graph_rejects_and_cleans_up() {
     let (dir, ctx) = ctx_of("todo");
@@ -56,7 +53,7 @@ async fn todo_dependency_graph_rejects_and_cleans_up() {
     let store = TodoStore::new(&ctx);
     let all = store.load();
     assert_eq!(all.len(), 3, "三条待办都应落盘");
-    // 序号引用必须被归一成 ULID：存成序号会让成环检测与删除清理静默失效
+    // 依赖必须归一成 ULID：存成序号会让成环检测与删除清理静默失效。
     let id1 = all[0].todo_id.clone();
     assert_eq!(
         all[1].todo_blocked_by,
@@ -68,7 +65,6 @@ async fn todo_dependency_graph_rejects_and_cleans_up() {
         "入库的依赖要是合法 ULID"
     );
 
-    // 自环 / 悬空 / 成环都必须被拒
     assert!(
         op(json!({"op":"update","todo_id":"3","blocked_by":["3"]}))
             .await
@@ -84,17 +80,15 @@ async fn todo_dependency_graph_rejects_and_cleans_up() {
         op(json!({"op":"add","text":"越界","blocked_by":["4"]}))
             .await
             .is_err(),
-        "不存在的序号不应当成有效依赖"
+        "不存在的序号不应当有效依赖"
     );
-    // 第三→第二→第一 已成链，反向让第一依赖第三就是成环
     assert!(
         op(json!({"op":"update","todo_id":id1.clone(),"blocked_by":["3"]}))
             .await
             .is_err(),
-        "用序号写法绕回环也应被拒"
+        "成环也应被拒"
     );
 
-    // 删掉被依赖项后，剩下的悬空依赖被清理；合法依赖不受影响
     op(json!({"op":"remove","todo_id":"1"})).await.unwrap();
     let todos = store.load();
     assert_eq!(todos.len(), 2, "只该剩两条");
@@ -110,8 +104,7 @@ async fn todo_dependency_graph_rejects_and_cleans_up() {
 
 // ---- 提问回答板 ----
 
-/// 回答板三面：待答问题落盘，重启后仍能弹回（会话不因无人应答卡死）；
-/// 一次性投递，重复回答 / 无人等待 / 接收端丢弃都安全拒绝；答完、取消、过期三种路径都清盘。
+/// 回答板持久化与一次性投递：待答落盘、重启仍能弹回；重复回答 / 无人等待 / 接收端丢弃都安全；答完、取消、过期都清盘。
 #[test]
 fn answer_board_persists_delivers_once_and_expires() {
     let dir = std::env::temp_dir().join(format!("wb_ask_{}", std::process::id()));
@@ -126,30 +119,23 @@ fn answer_board_persists_delivers_once_and_expires() {
     assert_eq!(board.load_pending().len(), 1);
     assert_eq!(board.load_pending()[0]["message"], "选哪个？", "要点不丢");
 
-    // 重启模拟：新板子读同一文件，问题仍在
     let reborn = AnswerBoard::with_store(path.clone());
-    let restored = reborn.load_pending();
-    assert_eq!(restored.len(), 1, "重启后应能读回待答问题");
-    assert_eq!(restored[0]["id"], "ASK_1");
+    assert_eq!(reborn.load_pending().len(), 1, "重启后应能读回待答问题");
+    assert_eq!(reborn.load_pending()[0]["id"], "ASK_1");
 
-    // 答完就从盘上消失：不该再弹一个已作废的问题
     assert!(board.answer("ASK_1", json!({ "value": "A" })));
     assert!(
         board.load_pending().is_empty(),
         "已答的问题应从待答名单消失"
     );
 
-    // 取消 / 超时路径也要清理
     let _rx2 = board.register_with_card("ASK_2", json!({ "id": "ASK_2" }));
     assert_eq!(board.load_pending().len(), 1);
     board.forget("ASK_2");
     assert!(board.load_pending().is_empty(), "取消后不应留残留");
 
-    // 过期的不再弹回
-    let stale = vec![
-        json!({ "ask_id": "ASK_OLD", "ask_card": { "id": "ASK_OLD" },
-        "ask_created_at": 0 }),
-    ];
+    let stale =
+        vec![json!({ "ask_id": "ASK_OLD", "ask_card": { "id": "ASK_OLD" }, "ask_created_at": 0 })];
     std::fs::write(&path, serde_json::to_string(&stale).unwrap()).unwrap();
     assert!(
         AnswerBoard::with_store(path.clone())
@@ -159,7 +145,6 @@ fn answer_board_persists_delivers_once_and_expires() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 
-    // 一次性投递语义
     let board = AnswerBoard::new();
     let rx = board.register("ASK_1");
     assert!(
@@ -191,9 +176,7 @@ fn answer_board_persists_delivers_once_and_expires() {
 
 // ---- 记忆：FTS5 往返、会话检索、密钥扫描 ----
 
-/// 记忆三面：保存 → 搜索 → 删除回路，同 kind 同文本去重（只刷新时间戳）；
-/// 会话检索只命中消息正文行（吃了 JSONL 结构行结果就会混入整条 JSON）；
-/// 密钥扫描真凭据必拦（明文落盘等于泄露）、相似无害文本放行。
+/// 记忆保存 → 搜索 → 删除回路，同 kind 同文本去重；会话检索只命中消息正文行；密钥扫描真凭据必拦、无害文本放行。
 #[test]
 fn memory_roundtrip_session_search_and_secret_scan() {
     let (dir, ctx) = ctx_of("memory");
@@ -218,8 +201,7 @@ fn memory_roundtrip_session_search_and_secret_scan() {
     assert!(store.search("ulid", 10).unwrap().is_empty());
     assert_eq!(store.search("theme", 10).unwrap().len(), 1);
 
-    // 中文检索：unicode61 不按词切分，整句会被当成一个 token，
-    // 只走 MATCH 的话查「深色」永远为空——LIKE 逐词召回必须在。
+    // unicode61 不按词切分，中文整句会被当成一个 token，LIKE 逐词召回必须在。
     let (zh_id, _) = store
         .save("user", "用户偏好深色主题与紧凑布局", 4000)
         .unwrap();
@@ -231,10 +213,9 @@ fn memory_roundtrip_session_search_and_secret_scan() {
         0,
         "不存在的词不应误返"
     );
-    // 中英混排查询：一边的词也要能拉回结果
     assert_eq!(store.search("主题 ulid", 10).unwrap().len(), 1);
 
-    // 会话检索只吃消息正文行
+    // 会话检索只吃消息正文行（吃了 JSONL 结构行结果会混入整条 JSON）。
     let sessions = dir.join("sessions").join("D--demo");
     std::fs::create_dir_all(&sessions).unwrap();
     let content = concat!(
@@ -256,7 +237,6 @@ fn memory_roundtrip_session_search_and_secret_scan() {
     let mut line_nos: Vec<usize> = hits.iter().map(|h| h.line_no).collect();
     line_nos.sort();
     assert_eq!(line_nos, [2, 4, 5], "只应命中消息正文行");
-    // 会话正文里的中文同样要能检索到
     std::fs::write(
         sessions.join("124_SESS_y.jsonl"),
         r#"{"type":"message","message":{"role":"user","content":"帮我看看压缩流程"}}"#,
@@ -266,7 +246,6 @@ fn memory_roundtrip_session_search_and_secret_scan() {
         wb_features::memory_store::search_sessions(&dir.join("sessions"), "压缩流程", 10).unwrap();
     assert_eq!(zh_hits.len(), 1, "会话中文子串检索应命中");
 
-    // 密钥扫描：真凭据拦下，相似无害文本放行
     assert!(wb_features::memory::scan_secret("key is sk-abc123XYZ4567890def").is_some());
     assert!(wb_features::memory::scan_secret("AKIAIOSFODNN7EXAMPLE").is_some());
     assert!(wb_features::memory::scan_secret("token ghp_0123456789abcdefghijklm").is_some());
@@ -305,8 +284,7 @@ fn knowledge_roundtrip_phrase_and_empty_query() {
 
 // ---- 联网：正文提取、搜索解析、视频字幕 ----
 
-/// 网页解析三件套：正文提取剥结构噪音；三家搜索源转统一结果（跳转解开、标签剥掉）；
-/// 字幕轨按语言偏好选轨且正文按时间轴分段。
+/// 网页解析三件套：正文提取剥结构噪音；多家搜索源转统一结果（跳转解开、标签剥掉）；字幕轨按语言偏好选轨。
 #[test]
 fn web_parsing_extracts_text_results_and_captions() {
     let html = r#"<html><head><title>文档标题</title><style>.a{color:red}</style></head>
@@ -340,7 +318,7 @@ fn web_parsing_extracts_text_results_and_captions() {
     assert_eq!(w[0].result_url, "https://en.wikipedia.org/wiki/Rust");
     assert!(!w[0].result_snippet.contains("<b>"), "摘要应剥标签");
 
-    // 四个 API 源的响应形状各异，各家解析器要认得自家的字段名
+    // 四家的 API 响应形状各异，各家解析器要认得自家字段名。
     let brave = r#"{"web":{"results":[{"title":"Brave A","url":"https://a.example","description":"desc a"}]}}"#;
     let br = wb_features::web_providers::parse_brave(brave);
     assert_eq!(br.len(), 1);
@@ -361,14 +339,13 @@ fn web_parsing_extracts_text_results_and_captions() {
         wb_features::web_providers::parse_exa(exa)[0].result_title,
         "Exa D"
     );
-    // 没给 URL 的条目要丢掉：返一条点不开的假结果比不返更坑
     assert!(
         wb_features::web_providers::parse_brave(r#"{"web":{"results":[{"title":"x"}]}}"#)
             .is_empty(),
         "缺 url 不应当成一条有效结果"
     );
 
-    // 排队：队里不该出现「需要密钥但没配」的源；免密钥公开源始终兜底
+    // 排队：未配密钥的 API 源不进队，免密钥公开源始终兜底。
     let q = wb_features::web_providers::queue_for("");
     let codes: Vec<&str> = q.iter().map(|(p, _)| p.provider_code).collect();
     for c in &codes {
@@ -388,8 +365,10 @@ fn web_parsing_extracts_text_results_and_captions() {
         ["BRAVE_API_KEY"],
         "实现里的变量名要和工具描述一致"
     );
-    // 未知源码 → 空队（工具层据此报「未知搜索源」）
-    assert!(wb_features::web_providers::queue_for("nope").is_empty());
+    assert!(
+        wb_features::web_providers::queue_for("nope").is_empty(),
+        "未知源码 → 空队"
+    );
     assert_eq!(
         wb_features::web_providers::codes().len(),
         wb_features::web_providers::PROVIDERS.len(),
@@ -437,8 +416,7 @@ fn walker_skips_build_output_dirs() {
 
 // ---- 语言服务：扩展名路由、产物目录跳过、文本编辑 ----
 
-/// 扩展名决定语言服务器；未收录的没有服务器；诊断遍历跳过产物目录；
-/// 文本编辑按区间替换且多行多处不能错位——区间算错会把修复写到错的行上。
+/// 扩展名决定语言服务器、诊断遍历跳过产物目录、文本编辑按区间替换不错位。
 #[test]
 fn lsp_routes_dirs_and_edits() {
     use wb_features::lsp::adapters::{server_by_name, server_for_extension};
@@ -500,7 +478,6 @@ fn goal_continuation_only_when_actionable() {
     };
 
     assert!(continuation_prompt(&ctx).is_none(), "没有目标时不该续跑");
-
     store
         .save(&goal("active", &[("写表单", true), ("接接口", false)]))
         .unwrap();
@@ -508,10 +485,8 @@ fn goal_continuation_only_when_actionable() {
     assert!(prompt.contains("把登录页做完"), "提示应带目标描述");
     assert!(prompt.contains("接接口"), "提示应列出待办步骤");
     assert!(!prompt.contains("写表单"), "已完成步骤不该再列");
-
     store.save(&goal("blocked", &[("接接口", false)])).unwrap();
     assert!(continuation_prompt(&ctx).is_none(), "阻塞目标不该自动续跑");
-
     store.save(&goal("active", &[("接接口", true)])).unwrap();
     assert!(continuation_prompt(&ctx).is_none(), "步骤全完成不该续跑");
     let _ = std::fs::remove_dir_all(&dir);
@@ -527,7 +502,6 @@ fn consolidation_merges_same_facts_and_keeps_distinct_ones() {
     let (dir, ctx) = ctx_of("memory_consolidate");
     let store = Arc::new(MemoryStore::open(&ctx).unwrap());
 
-    // 同一件事两种说法（pnpm）+ 不相关的两条 → 只合并那对，内容并入更早一条
     store.save("project", "项目用 pnpm 管理依赖", 1).unwrap();
     store
         .save("project", "这个项目的依赖由 pnpm 管理", 2)
@@ -558,7 +532,6 @@ fn consolidation_merges_same_facts_and_keeps_distinct_ones() {
         "不相关条目不该被动"
     );
 
-    // 说法相似但不是一回事的保持独立（部署 vs 本地起库）
     store.save("project", "部署用 docker compose", 5).unwrap();
     store
         .save("project", "本地开发用 docker compose 启动数据库", 6)
@@ -574,8 +547,7 @@ fn consolidation_merges_same_facts_and_keeps_distinct_ones() {
 
 // ---- 计划：标注按范围分别留存 ----
 
-/// 计划标注：整条计划与某一步都能标，标注随计划一起呈现且步骤标注带序号。
-/// 标注错位会让用户看到「这一步」被指向了别的步骤。
+/// 计划标注：整条计划与某一步都能标，标注随计划呈现且步骤标注带序号。
 #[test]
 fn plan_annotations_are_recorded_per_scope() {
     use wb_features::plan_types::{PlanAnnotation, PlanState, PlanStep, PlanStore};

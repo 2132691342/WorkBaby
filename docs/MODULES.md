@@ -69,7 +69,8 @@
 | 模块 | 职责 |
 |---|---|
 | registry | Tool trait（name/label/description/parameters/annotations/execute）+ ToolRegistry |
-| builtin | 内置 7 工具：read / write / edit / bash / grep / find / ls |
+| builtin/mod | 内置 8 工具注册：read / write / edit / bash / python / grep / find / ls |
+| builtin/* | 各内置工具实现：read / write / edit / bash / python / grep / find / ls |
 | exec | 共享命令执行器（bash 等模型工具走这里）：CREATE_NO_WINDOW / 超时 / 取消 / 输出上限 |
 | truncate | 输出截断（2000 行 / 50KB / 单行 500 字符），按字符边界切 |
 

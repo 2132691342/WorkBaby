@@ -3,8 +3,6 @@
 
 use wb_git::parse::{classify, porcelain_z};
 
-/// 状态解析两头验：-z 输出里中文与空格路径原样保留；
-/// 归类把 MM 拆两条、未跟踪归 ?、UU 标冲突——错了界面就把同一文件显示成两行。
 #[test]
 fn status_parsing_keeps_unicode_and_classifies_rows() {
     let entries = porcelain_z("M  src/界 面.rs\0?? 未跟踪 文件.txt\0");
@@ -30,8 +28,6 @@ fn status_parsing_keeps_unicode_and_classifies_rows() {
     assert!(!untracked.2, "未跟踪不算已暂存");
 }
 
-/// 真 git 链路：建仓 → 写文件 → status → diff → 暂存 → 提交 → 历史 → 分支，
-/// 外加两个拒绝边界：空提交信息、工作区外路径；不存在的文件 diff 报错不 panic。
 #[test]
 #[ignore]
 fn full_repo_roundtrip_works() {
@@ -80,12 +76,10 @@ fn full_repo_roundtrip_works() {
         "main 应是当前分支"
     );
 
-    // 空信息提交被拒
     assert!(
         wb_git::write::commit(&tmp, "  ", false).is_err(),
         "空提交信息必须被拒绝"
     );
-    // 越界路径被拒
     let outside = std::env::temp_dir().display().to_string();
     assert!(
         wb_git::write::stage(&tmp, &[format!("{outside}/evil.txt")]).is_err(),
