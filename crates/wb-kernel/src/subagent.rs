@@ -34,6 +34,8 @@ pub struct SubagentOutcome {
 pub struct SubagentConfig {
     /// 父会话 id（写进子会话头，便于回溯）
     pub parent_session_id: String,
+    /// 角色码（scout / worker / reviewer，只用于界面标识）
+    pub role_code: String,
     /// 角色提示词（拼在子代理系统提示词前）
     pub role_prompt: String,
     /// 任务描述
@@ -46,7 +48,79 @@ pub struct SubagentConfig {
     pub workspace: String,
     /// 最多跑几轮（模型轮次，不含工具回灌）
     pub max_turns: i64,
+    /// 过程事件出口（界面观测用）；None 即不观测
+    pub observe: Option<ObserveFn>,
 }
+
+/// 子代理过程事件：只服务「看得见他们在干什么」，不参与上下文。
+#[derive(Debug, Clone)]
+pub enum SubagentEvent {
+    /// 开跑（会话已建）
+    Started {
+        /// 子会话 id
+        session_id: String,
+        /// 角色码
+        role_code: String,
+        /// 任务描述
+        task: String,
+    },
+    /// 正文增量
+    TextDelta {
+        /// 子会话 id
+        session_id: String,
+        /// 文本
+        delta: String,
+    },
+    /// 思考增量
+    ThinkingDelta {
+        /// 子会话 id
+        session_id: String,
+        /// 文本
+        delta: String,
+    },
+    /// 工具开始
+    ToolStart {
+        /// 子会话 id
+        session_id: String,
+        /// 调用 id
+        call_id: String,
+        /// 工具名
+        name: String,
+        /// 参数
+        args: serde_json::Value,
+    },
+    /// 工具结束
+    ToolEnd {
+        /// 子会话 id
+        session_id: String,
+        /// 调用 id
+        call_id: String,
+        /// 工具名
+        name: String,
+        /// 结果（已截断）
+        result: String,
+        /// 是否错误
+        is_error: bool,
+        /// 耗时毫秒
+        duration_ms: i64,
+    },
+    /// 结束（成功或失败都发）
+    Finished {
+        /// 子会话 id
+        session_id: String,
+        /// 是否失败
+        failed: bool,
+        /// 结论
+        conclusion: String,
+        /// 累计用量
+        usage: Usage,
+        /// 耗时毫秒
+        duration_ms: i64,
+    },
+}
+
+/// 子代理事件回调。
+pub type ObserveFn = std::sync::Arc<dyn Fn(SubagentEvent) + Send + Sync>;
 
 /// 跑一个子代理：独立会话文件、独立上下文，跑完只回结论。
 /// 父会话的 `cfg` 提供模型客户端与工具注册表；工具集由 `tool_names` 收窄。
@@ -58,6 +132,16 @@ pub async fn run_subagent(
     let session_id = wb_pkg::ulid::new_id(wb_pkg::Prefix::Sub);
     let mut session = SessionFile::create(&sc.sessions_dir, &sc.workspace, &session_id);
     let started = Instant::now();
+    let observe = |ev: SubagentEvent| {
+        if let Some(f) = sc.observe.as_ref() {
+            f(ev);
+        }
+    };
+    observe(SubagentEvent::Started {
+        session_id: session_id.clone(),
+        role_code: sc.role_code.clone(),
+        task: sc.task.clone(),
+    });
 
     let tool_names: Vec<String> = if sc.tool_names.is_empty() {
         cfg.enabled_tools.clone()
@@ -137,8 +221,20 @@ pub async fn run_subagent(
             while let Some(ev) = stream.next().await {
                 match ev {
                     ModelEvent::Start => {}
-                    ModelEvent::TextDelta(_, t) => push_text(&mut blocks, t),
-                    ModelEvent::ThinkingDelta(_, t) => push_thinking(&mut blocks, t),
+                    ModelEvent::TextDelta(_, t) => {
+                        observe(SubagentEvent::TextDelta {
+                            session_id: session_id.clone(),
+                            delta: t.clone(),
+                        });
+                        push_text(&mut blocks, t);
+                    }
+                    ModelEvent::ThinkingDelta(_, t) => {
+                        observe(SubagentEvent::ThinkingDelta {
+                            session_id: session_id.clone(),
+                            delta: t.clone(),
+                        });
+                        push_thinking(&mut blocks, t);
+                    }
                     ModelEvent::ToolCallDelta(_, _) => {
                         // 参数分片由 provider 侧累积，定稿事件带的是完整参数——这里不重复累加。
                     }
@@ -213,6 +309,13 @@ pub async fn run_subagent(
                 let mut tasks = Vec::with_capacity(group.len());
                 for idx in group {
                     let (call_id, name, arguments) = calls[idx].clone();
+                    observe(SubagentEvent::ToolStart {
+                        session_id: session_id.clone(),
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        args: serde_json::from_str(&arguments)
+                            .unwrap_or(serde_json::Value::String(arguments.clone())),
+                    });
                     let run_cfg = cfg.clone();
                     let run_cancel = cancel.clone();
                     tasks.push(async move {
@@ -221,6 +324,14 @@ pub async fn run_subagent(
                     });
                 }
                 for (call_id, name, out) in futures::future::join_all(tasks).await {
+                    observe(SubagentEvent::ToolEnd {
+                        session_id: session_id.clone(),
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        result: crate::subagent::truncate_observe(&out.0),
+                        is_error: out.1,
+                        duration_ms: out.2,
+                    });
                     session
                         .append(Entry::Message {
                             message: Msg::ToolResult {
@@ -256,12 +367,29 @@ pub async fn run_subagent(
     if conclusion.trim().is_empty() {
         conclusion = last_text.unwrap_or_else(|| "（子代理没有产出结论）".into());
     }
+    observe(SubagentEvent::Finished {
+        session_id: session_id.clone(),
+        failed,
+        conclusion: conclusion.clone(),
+        usage: usage_total.clone(),
+        duration_ms: started.elapsed().as_millis() as i64,
+    });
     Ok(SubagentOutcome {
         session_id,
         conclusion,
         failed,
         usage: usage_total,
     })
+}
+
+/// 观测用的结果截断：界面只看开头一段，完整结果仍在子会话文件里。
+fn truncate_observe(text: &str) -> String {
+    const CAP: usize = 4000;
+    if text.chars().count() <= CAP {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(CAP).collect();
+    format!("{head}\n…（已截断，完整结果在子会话文件里）")
 }
 
 /// 子代理系统提示词：角色职责在前，父提示词的上下文段在后。

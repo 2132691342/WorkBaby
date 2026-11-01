@@ -45,6 +45,13 @@ export default defineConfig({
           if (id.includes('echarts') || id.includes('zrender')) {
             return 'vendor-echarts'
           }
+          // 图谱两件不手工归块：X6 / bpmn-js 与 markdown 互相引用，
+          // 强分块会触发 rollup 的 circular chunk。两者只在图谱页动态 import，
+          // 已经进了独立的懒加载块，不需要再拆。
+          // 微前端运行时：只在外部应用页动态 import，不该被并回首屏
+          if (id.includes('qiankun') || id.includes('single-spa') || id.includes('import-html-entry')) {
+            return 'vendor-micro'
+          }
           // EP 不归堆：按需导入的组件归进单个 chunk 会把内部依赖一起拉回首屏，
           // 让未使用组件的 tree-shaking 与各视图的懒加载同时失效。
           if (id.includes('element-plus') || id.includes('@element-plus')) return undefined
@@ -61,10 +68,6 @@ export default defineConfig({
           }
           if (id.includes('vue-pdf-embed') || id.includes('pdfjs-dist')) {
             return 'vendor-pdf'
-          }
-          // 图谱与流程：X6 与 bpmn-js 体积可观，用到才拉
-          if (id.includes('@antv/x6') || id.includes('@antv/x6-') || id.includes('bpmn-js') || id.includes('bpmn-moddle') || id.includes('diagram-js')) {
-            return 'vendor-graph'
           }
           if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router') || id.includes('axios')) {
             return 'vendor'

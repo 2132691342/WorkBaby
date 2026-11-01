@@ -186,14 +186,26 @@ impl Tool for TaskTool {
                 .collect()
         };
 
+        // 观测出口：子代理的流式过程只走 SSE，不进任何上下文
+        let board = self.sv.agents.clone();
+        let parent_for_obs = parent_session_id.clone();
+        let emitter = self.sv.emitter.lock().unwrap().clone();
+        let observe: wb_kernel::ObserveFn = std::sync::Arc::new(move |ev| {
+            let Some(em) = emitter.as_ref() else { return };
+            board.on_event(&parent_for_obs, ev, &|sid, event, data| {
+                em.emit(sid, event, data);
+            });
+        });
         let sc = wb_kernel::SubagentConfig {
             parent_session_id,
+            role_code: role_code.clone(),
             role_prompt: preset.prompt.to_string(),
             task: task.clone(),
             tool_names,
             sessions_dir: self.sv.sessions_dir().join("subagents"),
             workspace: self.sv.workspace.lock().unwrap().clone(),
             max_turns,
+            observe: Some(observe),
         };
         let outcome = wb_kernel::run_subagent(&parent_cfg, sc, cancel).await?;
         let text = if outcome.failed {

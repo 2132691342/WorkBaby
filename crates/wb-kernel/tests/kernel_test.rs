@@ -204,12 +204,14 @@ fn role_names(msgs: &[wb_kernel::Msg]) -> Vec<&'static str> {
 fn sub_cfg(tmp: &Path, tools: &[&str]) -> SubagentConfig {
     SubagentConfig {
         parent_session_id: "SESS_parent".into(),
+        role_code: "worker".into(),
         role_prompt: String::new(),
         task: "干活".into(),
         tool_names: tools.iter().map(|t| t.to_string()).collect(),
         sessions_dir: tmp.to_path_buf(),
         workspace: "D:/ws".into(),
         max_turns: 8,
+        observe: None,
     }
 }
 

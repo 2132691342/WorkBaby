@@ -5,6 +5,71 @@ use wb_domain::events::{
     DeltaData, DoneData, ErrorData, NotifyData, RetryData, StartData, StatusData, ToolEndData,
     ToolStartData, WidgetData,
 };
+use wb_kernel::SubagentEvent;
+
+/// 子代理观测：开始入表、增流累积、结束回结论并摘表；SSE 字段名带 `agent_` 前缀。
+#[test]
+fn subagent_observability_tracks_lifecycle() {
+    use std::sync::Mutex;
+    let board = wb_service::agents::AgentBoard::new();
+    let seen: Mutex<Vec<(String, String, serde_json::Value)>> = Mutex::new(Vec::new());
+    let emit = |sid: &str, event: &str, data: serde_json::Value| {
+        seen.lock()
+            .unwrap()
+            .push((sid.to_string(), event.to_string(), data));
+    };
+
+    board.on_event(
+        "SESS_p",
+        SubagentEvent::Started {
+            session_id: "SUB_1".into(),
+            role_code: "scout".into(),
+            task: "数文件".into(),
+        },
+        &emit,
+    );
+    assert_eq!(board.list().len(), 1, "开跑后应进活跃表");
+    assert_eq!(board.count_of("SESS_p"), 1);
+
+    board.on_event(
+        "SESS_p",
+        SubagentEvent::TextDelta {
+            session_id: "SUB_1".into(),
+            delta: "结论一半".into(),
+        },
+        &emit,
+    );
+    assert_eq!(
+        board.transcript("SUB_1").resp_transcript,
+        "结论一半",
+        "过程正文应逐段累积"
+    );
+
+    board.on_event(
+        "SESS_p",
+        SubagentEvent::Finished {
+            session_id: "SUB_1".into(),
+            failed: false,
+            conclusion: "结论一半".into(),
+            usage: wb_provider::Usage::default(),
+            duration_ms: 12,
+        },
+        &emit,
+    );
+    assert!(board.list().is_empty(), "结束应掊出活跃表");
+
+    let frames = seen.lock().unwrap();
+    let names: Vec<&str> = frames.iter().map(|f| f.1.as_str()).collect();
+    assert_eq!(
+        names,
+        ["agent:start", "agent:delta", "agent:done"],
+        "事件顺序是界面时序的契约"
+    );
+    assert_eq!(frames[0].0, "SESS_p", "事件发到父会话通道");
+    assert_eq!(frames[0].2["agent_role_code"], "scout");
+    assert_eq!(frames[2].2["agent_conclusion"], "结论一半");
+    assert_eq!(frames[2].2["agent_failed"], false);
+}
 
 /// 全部 chat:* 载荷的字段名与前端 `types/api.ts` / `stores/chat.ts` 的读取一致；
 /// 提问载荷带问卷结构（questions[].question_options[].option_label）；

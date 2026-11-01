@@ -126,6 +126,13 @@ assistant 消息，「调用了什么」与「返回了什么」永远留在同�
 子会话文件落在 `sessions\{工作区}\subagents\`，与父会话同格式（JSONL 树形条目），
 可以直接回放查看子代理的中间过程。
 
+**过程可观测**：内核向 `SubagentConfig.observe` 回调吐 `SubagentEvent`
+（Started / TextDelta / ThinkingDelta / ToolStart / ToolEnd / Finished），
+service 的 `AgentBoard` 把它翻成 `agent:start` / `agent:delta` / `agent:tool_start` /
+`agent:tool_end` / `agent:done` 五类 SSE 事件，发到**父会话通道**。
+观测通道与上下文完全分离：事件只走 SSE 与界面状态，一行都不进父会话的请求消息。
+回调为 `None` 时（测试与无界面场景）不产生任何开销。
+
 失败时用错误码 9704（子代理启动失败），结论为空时以「（子代理没有产出结论）」占位。
 轮次用尽时回退到子代理最后说的正文，不给父会话一句空话。
 

@@ -44,6 +44,12 @@ const names = [
   'chat:notify',
   'chat:status',
   'chat:widget',
+  // 子代理观测：与对话流走同一条会话通道，事件名带 agent: 前缀便于分流
+  'agent:start',
+  'agent:delta',
+  'agent:tool_start',
+  'agent:tool_end',
+  'agent:done',
 ]
 
 let source: EventSource | null = null

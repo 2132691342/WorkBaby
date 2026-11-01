@@ -3,6 +3,7 @@
 import { i18n } from '../i18n'
 import type { AskClosedData, AskData } from '../types/api'
 import { useChatStore } from '../stores/chat'
+import { useAgentsStore } from '../stores/agents'
 import type {
   CompressedData,
   ContextData,
@@ -41,8 +42,30 @@ export async function reloadChatSnapshot() {
 export function installChatBridge() {
   const session = useSessionStore()
   const chat = useChatStore()
+  const agents = useAgentsStore()
 
   async function handle(frame: SseFrame) {
+    // 子代理事件与对话事件共用一条通道：先按前缀分流，再进各自的状态机
+    if (frame.event.startsWith('agent:')) {
+      switch (frame.event) {
+        case 'agent:start':
+          agents.onStart(frame.data as never)
+          break
+        case 'agent:delta':
+          agents.onDelta(frame.data as never)
+          break
+        case 'agent:tool_start':
+          agents.onToolStart(frame.data as never)
+          break
+        case 'agent:tool_end':
+          agents.onToolEnd(frame.data as never)
+          break
+        case 'agent:done':
+          agents.onDone(frame.data as never)
+          break
+      }
+      return
+    }
     switch (frame.event) {
       case 'chat:start':
         chat.onStart(frame.data as StartData)

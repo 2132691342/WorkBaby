@@ -81,11 +81,12 @@
 | agent | 主循环：turn 状态机、steering 队列、工具批执行、事件发射、自动重试 |
 | blocks | 消息块构造：文本与思考合并、工具调用定稿、工具执行 |
 | compaction | 阈值触发（reserve 16384 / keepRecent 20000）、切点算法、清洗与结构化摘要 |
-| subagent | 子代理：隔离子会话跑任务，只把结论回灌父上下文 |
+| subagent | 子代理：隔离子会话跑任务，只把结论回灌父上下文；过程经 `observe` 回调发出供观测 |
 | events | 内核事件枚举（唯一出参语言） |
 
 对上暴露：运行入口（`run` / `run_subagent` 及各自的配置与结果类型）+
-会话模型（`SessionFile` / `Entry` / `Msg` / `Block`）+ 事件（`KernelEvent` / `EmitFn`）。
+会话模型（`SessionFile` / `Entry` / `Msg` / `Block`）+ 事件（`KernelEvent` / `EmitFn`）+
+子代理观测（`SubagentEvent` / `ObserveFn`）。
 系统提示词在 service 层组装（`wb-service::prompt`），内核只接收成品字符串。
 
 ## wb-skills（技能）
@@ -95,7 +96,7 @@
 | frontmatter | SKILL.md 解析与校验（名称规则、description 必填且 ≤1024） |
 | registry | 三区扫描（内置包 / 用户 / 工作区）、同名先到先得、开关、提示词注入文本 |
 
-内置技能包（9 个）以 `include_dir` 编译进二进制，扫描时按包指纹校验数据目录里的解压结果，不符即清空重解压。
+内置技能包（22 个）以 `include_dir` 编译进二进制，扫描时按包指纹校验数据目录里的解压结果，不符即清空重解压。
 
 ## wb-features（12 项内置功能）
 
@@ -148,6 +149,7 @@
 | prompt | 系统提示词组装（工具 / 规则 / 技能 / 项目上下文 / 工作目录） |
 | features | 功能装配：构造 FeatureCtx + 按开关并入功能工具 + 功能清单 + 自省快照 |
 | task | task 工具：派子代理干活（需内核与运行上下文） |
+| agents | 子代理观测：活跃表 + SubagentEvent → `agent:*` SSE 载荷 |
 | review | 分支差异审查（PR 的本地等价物） |
 | resources | 技能管理（建 / 导 / 删 / 正文）与工具视图 |
 | files | 文件树与单文件字节读取（文档预览的数据源） |

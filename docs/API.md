@@ -103,6 +103,8 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | GET | /kernel/status | 就绪状态（`{ready, data_dir}`；无模型配置即 ready=false） |
 | GET | /context/breakdown?session_id= | 上下文占用分解 |
 | GET | /subagents/roles | 子代理角色预设清单（code / 名称 / 职责 / 工具白名单 / 轮次上限） |
+| GET | /subagents?session_id= | 正在跑的子代理；带 session_id 只列该父会话下的 |
+| GET | /subagents/transcript/{id} | 一个子代理已累积的过程正文（结束后回看用） |
 
 阻塞原因不在 /kernel/status 里：无模型配置时 `ready=false`，
 具体原因看 /bootstrap 的 `boot_block_reason`。

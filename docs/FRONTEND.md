@@ -46,6 +46,9 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | `/chat` | ChatView | 对话主视图 |
 | `/workspace` | WorkspaceView | 文件树 + diff + Git |
 | `/sessions` | SessionsView | 全部会话与概要 |
+| `/agents` | AgentsView | 子代理观测：活跃清单 + 流式过程 + 结论 |
+| `/graph` | GraphView | 装配关系图（X6）与内核循环图（BPMN），两张重图都动态导入 |
+| `/apps` | AppsView | 外部微前端应用登记与隔离运行（qiankun） |
 | `/models` | ModelsView | 模型服务与工具配置（升格为一级页） |
 | `/skills` | SkillsView | 技能清单台 |
 | `/plugins` | FeaturesView | 12 项内置功能开关台（别名 /features） |
@@ -67,6 +70,7 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | ChatMessage | 单条消息的容器：角色布局、复制、usage 徽标 |
 | AssistantTurn | 一条助手消息：按原始顺序渲染思考/正文/工具卡 |
 | SessionChips | 输入区上方的模型 / 思考档 / 工作区 chip 行 |
+| ComposerMenu | 模型选择面板：左服务商右模型，顶部跨服务商搜索，↑↓/回车/Tab 键盘导航 |
 | ThinkingBlock | 思考段折叠（默认收起） |
 | ToolCard | 工具执行卡：一行摘要，展开参数/输出 |
 | AskCard | 内核提问卡：confirm/select/input/editor + 结构化问卷 |
@@ -91,8 +95,11 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | skills/SkillList | 技能页 / 设置页 | 技能清单、开关、正文抽屉、导入与新建 |
 | doc/DocPreview | 文件页 | PDF / Word / Excel / 文本预览 |
 | doc/DocPreviewDrawer | 文件页 | 预览抽屉 |
-| graph/RelationGraph | 关系图谱 | 能力关系可视化 |
-| graph/BpmnDiagram | 工作流图 | 只读画布，缩放平移可用 |
+| graph/RelationGraph | 图谱页 | 能力关系可视化（AntV X6，只读画布） |
+| graph/BpmnDiagram | 图谱页 | 内核循环图（BPMN-JS，只读画布，缩放平移可用） |
+| agents/AgentList | 子代理页 | 活跃清单：状态灯、角色、任务摘要、用时 |
+| agents/AgentDetail | 子代理页 | 过程详情：任务 / 思考 / 工具卡 / 正文 / 结论 |
+| apps/MicroAppHost | 外部应用页 | qiankun 容器：一个应用一个挂载点，切换即卸载重建 |
 
 骨架组件（多个视图共用）：settings/SettingsSection（设置面板分节容器，八个面板共用）、
 layout/TitleBar（自绘标题栏与窗控三键）、layout/NavRail（一级导航）、
@@ -104,6 +111,23 @@ common/ResizableDrawer（可拖宽抽屉）、common/ToastHost（轻提示宿主
 GitHistoryPanel）、dashboard（KpiCard、UsageTrend、ModelShare）、
 overview（能力四卡 + 最近会话）、sessions（时间分组清单 + 会话概要）、
 files（面包屑 + 目录列表 + 预览抽屉）、help（文档目录 + Markdown 阅读）。
+
+## 重依赖的运行时按需加载
+
+四个功能区的引擎代码只在进入对应页面时才下载，首屏包不含它们：
+
+| 页面 | 动态导入的依赖 | 分块 |
+|---|---|---|
+| /graph 关系图 | @antv/x6 | `RelationGraph-*.js`（独立懒加载块） |
+| /graph 循环图 | bpmn-js | `BpmnDiagram-*.js`（独立懒加载块） |
+| /apps | qiankun + single-spa + import-html-entry | `vendor-micro` |
+| 文档预览 | xlsx / docx-preview / pdfjs-dist | `vendor-xlsx` / `vendor-docx` / `vendor-pdf` |
+
+X6 与 bpmn-js 不做手工归块：它们与 markdown 互相引用（图内标注用 md），
+强行分块会触发 rollup 的 circular chunk 警告；懒加载本身已经把体积挡在首屏之外。
+
+**子代理事件分流**：`agent:*` 五类事件与 `chat:*` 共用同一条会话 SSE 通道，
+事件桥按前缀先分流到 agents store，再进对话状态机——一条连接、两套状态机。
 
 ## SettingsView 分组
 
@@ -211,6 +235,8 @@ Element Plus 的内置文案由根组件的 `ElConfigProvider` 消费当前语�
 | chat | 一次 run 的增量落地：15 个 `chat:*` 事件处理器、发送 / 停止 / 插话 / 应答 |
 | session | 会话列表与当前会话；adopt（绑定到后端新建的会话）/ draft（未落盘的新对话）/ echo（本地回显） |
 | settings | 全局设置与 warmup 清单（providers / skills / tools / features） |
+| agents | 子代理观测：活跃清单 + 每条的流式过程（5 个 `agent:*` 事件处理器） |
+| apps | 外部微前端应用册：登记项持久化在设置 KV `microapps`，运行态只在内存 |
 | toast | 轻提示（悬停停表、最多 4 条） |
 
 **界面不另存真相**：会话内容来自 session store，模型与思考档来自后端会话详情，
@@ -225,4 +251,5 @@ Element Plus 的内置文案由根组件的 `ElConfigProvider` 消费当前语�
 | 组件按需引入 | 首屏体积 | 新组件要记得在模板里自然引用 |
 | 重型依赖动态导入 | 不进页面就不下载 | 首次打开有加载延迟 |
 | 前端不另存状态 | 避免前后端状态漂移 | 每次切换都要拉数据 |
-| 用 hash 而非 history | 单窗口应用无服务端路由配合 | 深链接体验略差 |
+| 子代理过程只走 SSE | 观测不污染上下文，父会话只拿结论 | 断线期间的中间过程要靠 /subagents/transcript 对账 |
+| 微前端登记走设置 KV | 一份真相，不新增一张表 | 整册序列化成一个字符串，规模大了要拆表 |

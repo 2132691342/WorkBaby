@@ -48,8 +48,13 @@ pub fn routes() -> Router<AppState> {
         .route("/api/v1/assets/background", get(background_bytes))
         // 上下文分解
         .route("/api/v1/context/breakdown", get(context_breakdown))
-        // 子代理角色
+        // 子代理：角色预设 / 活跃清单 / 过程正文
         .route("/api/v1/subagents/roles", get(subagent_roles))
+        .route("/api/v1/subagents", get(subagents_list))
+        .route(
+            "/api/v1/subagents/transcript/{id}",
+            get(subagent_transcript),
+        )
 }
 
 fn sv(State(st): State<AppState>) -> Arc<Services> {
@@ -63,6 +68,31 @@ async fn subagent_roles(_st: State<AppState>) -> Response {
     ok_json(wb_domain::subagent::SubagentListRESP {
         resp_roles: wb_service::task::roles_vo(),
     })
+}
+
+/// 正在跑的子代理清单；带 session_id 时只列该父会话下的。
+async fn subagents_list(st: State<AppState>, Query(q): Query<AgentListQuery>) -> Response {
+    let all = st.sv.agents.list();
+    let items = match q.session_id.filter(|s| !s.is_empty()) {
+        Some(parent) => all
+            .into_iter()
+            .filter(|a| a.run_parent_session_id == parent)
+            .collect(),
+        None => all,
+    };
+    ok_json(wb_domain::subagent::SubagentActiveRESP { resp_agents: items })
+}
+
+/// 一个子代理已累积的过程正文（结束后回看用）。
+async fn subagent_transcript(st: State<AppState>, Path(id): Path<String>) -> Response {
+    ok_json(st.sv.agents.transcript(&id))
+}
+
+/// 活跃子代理查询参数。
+#[derive(Debug, serde::Deserialize)]
+pub struct AgentListQuery {
+    /// 父会话 id；空/缺省即全工作区的活跃子代理
+    pub session_id: Option<String>,
 }
 
 // ---- Provider ----

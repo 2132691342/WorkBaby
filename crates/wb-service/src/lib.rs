@@ -1,6 +1,7 @@
 //! 业务编排层：对话 run 管理、KernelEvent→SSE 翻译、系统提示词组装、目录与装配。
 //! 依赖全部能力域，但不引 axum / tauri。
 
+pub mod agents;
 pub mod chat;
 pub mod chat_events;
 pub mod context;
@@ -67,6 +68,8 @@ pub struct Services {
     pub goal_resumes: std::sync::Mutex<std::collections::HashMap<String, i64>>,
     /// 待办存储：压缩回填与 todo 工具共用同一份盘上状态
     pub todos: std::sync::Mutex<Option<Arc<wb_features::todo::TodoStore>>>,
+    /// 活跃子代理表（task 工具写入，界面按它显示「谁在跑」）
+    pub agents: Arc<agents::AgentBoard>,
 }
 
 impl Services {
@@ -100,6 +103,7 @@ impl Services {
             scope: std::sync::Mutex::new(None),
             goal_resumes: std::sync::Mutex::new(std::collections::HashMap::new()),
             todos: std::sync::Mutex::new(None),
+            agents: agents::AgentBoard::new(),
         })
     }
 

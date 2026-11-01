@@ -55,3 +55,21 @@ pub struct SubagentListREQ {
     /// 父会话 id
     pub req_parent_session_id: String,
 }
+
+/// 子代理活跃清单响应。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SubagentActiveRESP {
+    /// 正在跑的子代理
+    pub resp_agents: Vec<SubagentRunVO>,
+}
+
+/// 子代理过程正文响应。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SubagentTranscriptVO {
+    /// 子会话 id
+    pub resp_session_id: String,
+    /// 已累积的正文（正文与思考的拼接，供结束后回看）
+    pub resp_transcript: String,
+}

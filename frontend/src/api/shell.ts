@@ -54,6 +54,16 @@ export async function pickFolder(title?: string): Promise<string | null> {
   return invoke<string | null>('pick_folder', { title: title ?? '' })
 }
 
+/** 目录选择（可选）：非桌面环境返回 null，不抛错——微前端页可降级为手填路径。 */
+export async function pickFolderSafe(title?: string): Promise<string | null> {
+  if (!isTauri) return null
+  try {
+    return await pickFolder(title)
+  } catch {
+    return null
+  }
+}
+
 /** 开机自启状态与开关（HKCU，不需要管理员）。 */
 export async function autostartGet(): Promise<boolean> {
   return invoke<boolean>('autostart_get')

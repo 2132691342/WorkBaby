@@ -219,6 +219,24 @@ export interface SubagentRoleVO {
 export const subagentRoles = () =>
   get<{ resp_roles: SubagentRoleVO[] }>('/subagents/roles')
 
+/** 活跃子代理（正在跑的那些）；空 parentSessionId = 全部 */
+export const agents = {
+  /** 活跃清单 */
+  list: (parentSessionId = '') =>
+    get<{ resp_agents: AgentRunVO[] }>('/subagents', pick({ session_id: parentSessionId })),
+  /** 一个子代理已累积的过程正文 */
+  transcript: (id: string) => get<{ resp_transcript: string }>(`/subagents/transcript/${id}`),
+}
+
+/** 活跃子代理行（SubagentRunVO）。 */
+export interface AgentRunVO {
+  run_session_id: string
+  run_parent_session_id: string
+  run_role_code: string
+  run_task: string
+  run_started_at: number
+}
+
 export const stats = (span: string) => get<StatsRESP>('/stats', { span })
 
 /** 内置帮助文档（只读，随应用打包） */

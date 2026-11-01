@@ -31,10 +31,13 @@ const ITEMS: NavItem[] = [
   { name: 'chat', icon: 'chat', labelKey: 'nav.chat', shortKey: 'navShort.chat' },
   { name: 'workspace', icon: 'braces', labelKey: 'nav.workspace', shortKey: 'navShort.workspace' },
   { name: 'sessions', icon: 'clock', labelKey: 'nav.sessions', shortKey: 'navShort.sessions' },
-  { name: 'models', icon: 'cpu', labelKey: 'nav.models', shortKey: 'navShort.models' },
+  { name: 'agents', icon: 'cpu', labelKey: 'nav.agents', shortKey: 'navShort.agents' },
+  { name: 'models', icon: 'sliders', labelKey: 'nav.models', shortKey: 'navShort.models' },
+  { name: 'graph', icon: 'brain', labelKey: 'nav.graph', shortKey: 'navShort.graph' },
   { name: 'skills', icon: 'sparkles', labelKey: 'nav.skills', shortKey: 'navShort.skills' },
   { name: 'plugins', icon: 'zap', labelKey: 'nav.plugins', shortKey: 'navShort.plugins' },
   { name: 'mcp', icon: 'database', labelKey: 'nav.mcp', shortKey: 'navShort.mcp' },
+  { name: 'apps', icon: 'zap', labelKey: 'nav.apps', shortKey: 'navShort.apps' },
   { name: 'usage', icon: 'chart', labelKey: 'nav.usage', shortKey: 'navShort.usage' },
 ]
 
