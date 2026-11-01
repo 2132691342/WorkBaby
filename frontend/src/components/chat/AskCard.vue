@@ -3,7 +3,8 @@
 // 多选与自定义答案是扩展用哨兵行拼的——这里只把四个基元渲染到位，不自造复选框。
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useChatStore, type PendingAsk } from '../../stores/chat'
+import { useChatStore } from '../../stores/chat'
+import type { PendingAsk } from '../../types/chatEvents'
 import AppIcon from '../common/AppIcon.vue'
 
 const props = defineProps<{ ask: PendingAsk }>()

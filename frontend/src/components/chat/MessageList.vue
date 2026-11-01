@@ -17,6 +17,8 @@ import AssistantTurn from './AssistantTurn.vue'
 import ChatMessage from './ChatMessage.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
 import ToolCard from './ToolCard.vue'
+import TurnChanges from './TurnChanges.vue'
+import TurnFoot from './TurnFoot.vue'
 
 // 收尾提示条上的动作：截断续写 / 出错重试由视图实现。
 const props = defineProps<{
@@ -127,6 +129,13 @@ onBeforeUnmount(() => {
 // 正文一出现，正在思考的那段就自动收起：视线该落在答案上。
 const answerStarted = computed(() => chat.streaming.length > 0)
 
+/** 实时轮的改动来源：工具结果里有 file_path 的那些（append 工具才有）。 */
+const liveChanges = computed(() =>
+  chat.runs
+    .filter((r) => r.file_path)
+    .map((r) => ({ file_path: r.file_path, diff: r.diff })),
+)
+
 // 工具记录按 id 直取（store 里就是一张表）：模板里逐段取多次也不变成 O(n²)
 function runOf(id: string) {
   return chat.runOf(id)
@@ -215,36 +224,6 @@ function shownTurn(parts: TurnPart[]): boolean {
   return parts.some((p) => hasBody(p.msg) || p.tools.length > 0)
 }
 
-/** 一个回合的用量脚注取最后一条带 usage 的助手消息 */
-function turnUsage(parts: TurnPart[]) {
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const u = parts[i].msg.message_usage
-    if (u) return u
-  }
-  return null
-}
-
-function fmtTime(ms: number) {
-  const d = new Date(ms)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
-// 用量读数四件：提示词总量（命中 + 未命中 + 写入）/ 输出 / 缓存命中率 / 上下文占用。
-function metricsOf(u: ReturnType<typeof turnUsage>) {
-  if (!u) return []
-  const prompt = u.usage_input + u.usage_cached + (u.usage_cache_write || 0)
-  const out: { k: string; v: string; hi?: boolean }[] = [
-    { k: '↓', v: fmtCount(prompt) },
-    { k: '↑', v: fmtCount(u.usage_output) },
-  ]
-  if (prompt > 0) {
-    const rate = Math.round((u.usage_cached / prompt) * 100)
-    out.push({ k: 'cache', v: `${rate}%`, hi: rate > 0 })
-  }
-  if (u.usage_context > 0) out.push({ k: 'ctx', v: fmtCount(u.usage_context) })
-  return out
-}
-
 // 代码块复制：正文是 v-html 注入的，用事件委托接住按钮
 async function onStreamClick(e: MouseEvent) {
   const btn = (e.target as HTMLElement | null)?.closest<HTMLElement>('.code-copy')
@@ -260,19 +239,6 @@ async function onStreamClick(e: MouseEvent) {
   }
 }
 
-const copiedTurn = ref('')
-async function copyTurn(text: string, key: string) {
-  if (!text.trim()) return
-  try {
-    await navigator.clipboard.writeText(text)
-    copiedTurn.value = key
-    window.setTimeout(() => {
-      if (copiedTurn.value === key) copiedTurn.value = ''
-    }, 1200)
-  } catch {
-    toast.bad(t('common.copyFailed'))
-  }
-}
 </script>
 
 <template>
@@ -297,33 +263,9 @@ async function copyTurn(text: string, key: string) {
                 :msg="p.msg"
                 :tools="p.tools"
               />
-              <div v-if="metricsOf(turnUsage(b.parts)).length" class="msg-acts is-on turn-foot">
-                <button
-                  class="ai-act"
-                  type="button"
-                  :disabled="copiedTurn === b.key"
-                  @click="
-                    copyTurn(
-                      b.parts.map((p) => p.msg.message_content || '').filter(Boolean).join('\n\n'),
-                      b.key,
-                    )
-                  "
-                >
-                  <AppIcon :name="copiedTurn === b.key ? 'check' : 'copy'" size="ic-2xs" />
-                  <span>{{ copiedTurn === b.key ? t('common.copied') : t('common.copy') }}</span>
-                </button>
-                <span
-                  v-for="m in metricsOf(turnUsage(b.parts))"
-                  :key="m.k"
-                  class="ai-metric"
-                  :class="{ 'is-hit': m.hi }"
-                >
-                  <b>{{ m.k }}</b>{{ m.v }}
-                </span>
-                <time v-if="b.parts[b.parts.length - 1]?.msg.message_created_at" class="ai-time">
-                  {{ fmtTime(b.parts[b.parts.length - 1].msg.message_created_at) }}
-                </time>
-              </div>
+              <!-- 历史回合没有增量 diff（JSONL 只留结果），改动条只在实时轮出现 -->
+
+              <TurnFoot :parts="b.parts" :turn-key="b.key" />
             </div>
           </div>
         </div>
@@ -369,6 +311,9 @@ async function copyTurn(text: string, key: string) {
             <div v-if="chat.running && !chat.parts.length" class="typing">
               <span class="typing-dot" /><span class="typing-dot" /><span class="typing-dot" />
             </div>
+
+            <!-- 这一轮改了哪些文件：实时轮才有增量 diff，收尾后换历史投影 -->
+            <TurnChanges v-if="chat.parts.length" :sources="liveChanges" />
 
             <div v-if="chat.parts.length && chat.running" class="run-meter">
               <span class="rm-item"><AppIcon name="clock" size="ic-2xs" />{{ fmtElapsed }}</span>
@@ -467,65 +412,6 @@ async function copyTurn(text: string, key: string) {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-}
-.ai-act {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--wb-sp-1);
-  height: calc(22px * var(--wb-vw-scale));
-  padding: 0 var(--wb-sp-2);
-  border-radius: var(--wb-radius-sm);
-  font-size: var(--wb-fs-2xs);
-  font-weight: 600;
-  color: var(--wb-muted);
-  transition:
-    background var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-.ai-act:hover:not(:disabled) {
-  background: var(--wb-elev-hover);
-  color: var(--wb-ink);
-  transform: scale(1.06);
-}
-.ai-act:active:not(:disabled) {
-  transform: scale(0.92);
-}
-.ai-metric {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 2px;
-  padding: 0 var(--wb-sp-2);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  font-variant-numeric: tabular-nums;
-  border-left: 1px solid var(--wb-border);
-}
-.ai-metric b {
-  font-weight: 600;
-  opacity: 0.7;
-}
-.ai-metric.is-hit {
-  color: var(--wb-success);
-}
-.ai-time {
-  margin-left: auto;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  font-variant-numeric: tabular-nums;
-}
-.run-meter {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  font-variant-numeric: tabular-nums;
-}
-.rm-item {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--wb-sp-1);
 }
 .typing {
   display: inline-flex;

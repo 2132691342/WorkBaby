@@ -45,6 +45,8 @@ fn chat_event_payloads_match_frontend_contract() {
         result: "ok".into(),
         is_error: false,
         duration_ms: 3,
+        file_path: None,
+        diff: None,
     })
     .unwrap();
     assert_eq!(te["tool_call_id"], "TC_1");

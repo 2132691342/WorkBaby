@@ -16,7 +16,7 @@ import type {
   ToolEndData,
   ToolStartData,
   WidgetData,
-} from '../stores/chat'
+} from '../types/chatEvents'
 import { useSessionStore } from '../stores/session'
 import { useSse, type SseFrame } from './useSse'
 

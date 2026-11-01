@@ -76,7 +76,7 @@ description 缺失或超长——**坏技能只跳过自己，不挡整表**。
 ```
 
 只注入名称与描述，不注入正文——正文按需用 read 加载。
-9 个技能全注入也只有几十行，正文全注入会占掉大量上下文。
+22 个技能全注入也只有几十行，正文全注入会占掉大量上下文。
 
 `disable-model-invocation` 的技能不进这段注入，只能通过 `/skill:名` 显式调用。
 
@@ -87,13 +87,19 @@ description 缺失或超长——**坏技能只跳过自己，不挡整表**。
 
 ## 内置技能包
 
-9 个技能随二进制分发，覆盖几类场景：
+22 个技能随二进制分发，覆盖几类场景：
 
 | 类别 | 技能 |
 |---|---|
 | 前端与设计 | 前端开发、全栈开发、canvas-design、Impeccable（前端设计工具集） |
-| 文档处理 | markitdown-skill、md-to-pdf-cjk |
-| 工程质量 | skill-creator、skill-scanner、skill-vetter |
+| 文档处理 | markitdown-skill、md-to-pdf-cjk、minimax-docx、minimax-pdf、minimax-xlsx |
+| 工程质量 | diagnose、tdd、setup-pre-commit、skill-creator、skill-scanner、skill-vetter |
+| 任务协作 | task-alignment、task-implement、handoff、github |
+| 信息处理 | deep-research、summarize、prompt-engineering-expert |
+| 协议构建 | mcp-builder |
+
+筛选口径：只收**不依赖外部账号或付费凭据**的技能。依赖平台登录、支付、票务、
+邮件与社交生态的技能一律不内置——它们装进来也跑不通，只会让模型选错路。
 
 解压带**指纹哨兵**：每次启动递归统计包内文件数与总字节数，
 写入 `{builtin}\.pack_stamp`；与包不符即清空重解压——

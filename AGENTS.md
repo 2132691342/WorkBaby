@@ -54,7 +54,7 @@ Agent 内核是本仓 Rust 实现（会话循环 / 工具执行 / 上下文压�
 进程内运行，不依赖任何外部 agent 进程，也不需要 Node 运行时。
 
 扩展能力不设运行时插件市场，改为 **12 项原生化内置功能**（见 `docs/MODULES.md`
-的 wb-features 小节），每项独立开关；**9 个内置技能**作为技能包打进二进制。
+的 wb-features 小节），每项独立开关；**22 个内置技能**作为技能包打进二进制。
 
 | 概念 | 落地形态 |
 |---|---|
@@ -80,7 +80,8 @@ WorkBaby/
 │   └── src/{main.rs, lib.rs, cmds.rs}
 ├── assets/                        # 编译期打包进二进制的资源
 │   ├── docs/                      # 内置帮助文档
-│   └── skills/                    # 9 个内置技能包
+│   ├── runtime/                   # 内置 PortableGit 与 Python 归档（zip）
+│   └── skills/                    # 22 个内置技能包
 └── crates/
     ├── wb-pkg/                    # 叶子工具：AppError、ulid、fsutil、realpath、ansi、httprules
     ├── wb-domain/                 # 纯类型：DO/DTO/REQ/RESP/VO + 错误码常量（只依赖 wb-pkg）

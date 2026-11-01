@@ -16,7 +16,7 @@ npm run tauri build                   # tauri build：编译 release + 打包
 
 ## 打包内容
 
-- **内置技能包**：9 个技能目录经 `include_dir` 打进 `wb-skills`。
+- **内置技能包**：22 个技能目录经 `include_dir` 打进 `wb-skills`。
   每次启动按包指纹（递归统计的文件数 + 总字节数）校验数据目录里的解压结果，
   不符即清空重解压——升级与技能删减后旧文件不残留。
 - **内置帮助文档**：`assets/docs/` 下的四篇随二进制打包，经 `/docs` 端点提供。

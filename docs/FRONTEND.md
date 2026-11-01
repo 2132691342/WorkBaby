@@ -70,7 +70,11 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | ThinkingBlock | 思考段折叠（默认收起） |
 | ToolCard | 工具执行卡：一行摘要，展开参数/输出 |
 | AskCard | 内核提问卡：confirm/select/input/editor + 结构化问卷 |
-| ChatInput | 输入区：多行 + 附件 + @ 引用 + / 命令菜单 |
+| ChatInput | 输入区：多行 + 附件 + @ 引用 + / 命令菜单；底栏在 ComposerBar，菜单在 ComposerSlashMenu / ComposerMentionMenu |
+| ComposerBar | 输入区底栏：附件按钮 + 工作区和会话 chip + 水位 + 插话/排队 + 发送/停止 |
+| ComposerAttach | 待发送附件列表（区外文件标红并阻断发送） |
+| TurnChanges | 一轮回答改了哪些文件（实时轮才有增量 diff） |
+| TurnFoot | 回合脚注：复制 + 用量读数 + 时间 |
 | ContextMeter | 上下文水位环 + 读数，点击展开占用分解 |
 | EngineStatusBar | 状态条 + 小部件行（功能 setStatus/setWidget 桥） |
 | StatusHud | 底部常驻：模型/思考档/水位/耗时 |

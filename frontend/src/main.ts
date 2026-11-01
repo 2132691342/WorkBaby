@@ -13,6 +13,8 @@ import './base.css'
 import './buttons.css'
 import './ep-theme.css'
 import './content.css'
+import './messages.css'
+import './composer-pop.css'
 import 'virtual:uno.css'
 
 // 组件基元来自 Element Plus（按需引入），EP 的内置文案跟随 i18n。

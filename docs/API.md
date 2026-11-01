@@ -120,7 +120,7 @@ seq 是服务端全局递增序号。
 |---|---|---|
 | chat:start | run_id, session_id | 内核 |
 | chat:delta | kind(text/thinking), delta | 内核 |
-| chat:tool_start / chat:tool_end | tool_call_id, name, label?, args / result, is_error, duration_ms | 内核 |
+| chat:tool_start / chat:tool_end | tool_call_id, name, label?, args / result, is_error, duration_ms, file_path?, diff? | 内核 |
 | chat:context | usage{input,output,cached,cache_write,total,context,cost}, context_window, ratio | 内核 |
 | chat:compressed | tokens_before | 内核（阈值压缩）/ service（手动压缩） |
 | chat:retry | attempt, max, delay_ms | 内核 |
@@ -134,6 +134,9 @@ seq 是服务端全局递增序号。
 
 载荷字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——前端按 `data.kind` / `data.name` 读。
 事件名与载荷结构体定义在 `wb-domain/src/events.rs`，那是前后端契约的唯一出处。
+
+`chat:tool_end` 的 `file_path` / `diff` 是可选的改动快照：产生改动的工具带上，
+前端据此在轮尾聚合「这一轮改了什么」。两个字段缺省即不序列化，避免每条工具事件都多两个 null。
 
 ## 错误响应
 

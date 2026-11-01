@@ -47,7 +47,8 @@ pub trait Tool: Send + Sync {
 | 工具 | 参数 | 要点 |
 |---|---|---|
 | read | path, offset?(1 起), limit? | 文本按行截断；二进制文件只报类型与字节数 |
-| bash | command, timeout?(秒，默认 120，上限 600) | 经 Git Bash 执行；CREATE_NO_WINDOW；非零退出码以 `[退出码 N]` 尾注、stderr 折叠进输出；输出走截断 |
+| bash | command, timeout?(秒，默认 120，上限 600) | 经内置 Git Bash 执行；CREATE_NO_WINDOW；非零退出码以 `[退出码 N]` 尾注、stderr 折叠进输出；输出走截断 |
+| python | code 或 file(二选一), timeout?(秒，默认 120，上限 600) | 走内置 Python 3.13；`code` 以 `-c` 直传，`file` 按工作区相对路径解析；cwd 即工作区 |
 | edit | path, edits[{old_text(唯一), new_text}] | 多处编辑一次调用；old_text 不唯一即拒绝 |
 | write | path, content | 自动建父目录；原子写 |
 | grep | pattern, path?, glob?, ignore_case?, literal?, context?, limit?(100) | 尊重 .gitignore |

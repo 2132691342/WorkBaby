@@ -53,6 +53,22 @@ pub struct ToolEndData {
     pub is_error: bool,
     /// 耗时（毫秒）
     pub duration_ms: i64,
+    /// 这次调用改动的文件（相对工作区）；不产生改动的工具为 None
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+    /// 差异行；随 file_path 一起给出，前端按增删着色
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff: Option<Vec<DiffLine>>,
+}
+
+/// 差异行（工具改动的可视化最小单位）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct DiffLine {
+    /// 行类型：add / del / ctx
+    pub line_kind: String,
+    /// 行文本
+    pub line_text: String,
 }
 /// chat:compressed 载荷。
 #[derive(Debug, Clone, Serialize)]

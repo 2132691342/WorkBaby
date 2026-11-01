@@ -76,6 +76,8 @@ pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent, context_window: 
                     result: result.clone(),
                     is_error: *is_error,
                     duration_ms: *duration_ms,
+                    file_path: None,
+                    diff: None,
                 },
             );
         }

@@ -1,0 +1,107 @@
+/* 输入区弹出层：斜杠命令菜单（ComposerSlashMenu）与 @ 引用浏览（ComposerMentionMenu）共用。
+   从 content.css 拆出：两者只服务输入区，且 content.css 已顶到 500 行上限。 */
+
+.pop {
+  position: absolute;
+  left: var(--wb-sp-3);
+  right: var(--wb-sp-3);
+  bottom: calc(100% - var(--wb-sp-2));
+  max-height: calc(340px * var(--wb-vw-scale));
+  background: var(--wb-elev-raised);
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius-lg);
+  box-shadow: var(--wb-shadow-3);
+  padding: var(--wb-sp-1);
+  animation: pop-in var(--wb-dur) var(--wb-ease);
+  z-index: var(--wb-z-pop);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* 滚动在列表层而不是弹层上：键盘高亮要靠它自己的 scrollTop 算可视区 */
+.pop-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pop-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  width: 100%;
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border-radius: var(--wb-radius-sm);
+  color: var(--wb-ink-2);
+  font-size: var(--wb-fs-sm);
+  text-align: left;
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
+}
+.pop-row:hover:not(:disabled),
+.pop-row.is-hi:not(:disabled) {
+  background: var(--wb-accent-tint);
+  color: var(--wb-primary);
+}
+.pop-row:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pop-row.is-muted {
+  color: var(--wb-muted);
+  cursor: default;
+}
+.pop-grow {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.pop-t {
+  font-size: var(--wb-fs-sm);
+  font-weight: 700;
+  color: var(--wb-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pop-row.is-hi .pop-t,
+.pop-row:hover .pop-t {
+  color: var(--wb-primary);
+}
+.pop-d {
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pop-tag {
+  flex: none;
+  padding: 1px var(--wb-sp-1);
+  border-radius: var(--wb-radius-xs);
+  background: var(--wb-elev-hover);
+  color: var(--wb-muted);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
+}
+.pop-tag.is-builtin {
+  background: var(--wb-elev-raised);
+  border: 1px solid var(--wb-border);
+  color: var(--wb-muted);
+}
+.pop-spin {
+  width: calc(12px * var(--wb-vw-scale));
+  height: calc(12px * var(--wb-vw-scale));
+  border-radius: var(--wb-radius-full);
+  border: 1.6px solid var(--wb-border-strong);
+  border-top-color: var(--wb-primary);
+  animation: wb-spin 0.8s linear infinite;
+  flex: none;
+}
