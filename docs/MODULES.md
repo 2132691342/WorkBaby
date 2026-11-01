@@ -14,7 +14,8 @@
 | fsutil | 原子写（临时文件 + rename）、ensure_dir、目录列举、mtime |
 | realpath | 短名与符号链接归一（`\\?\` 前缀处理），路径比较前置 |
 | ansi | 剥 ANSI 转义序列 |
-| httprules | GET/POST 白名单与 `/api/v1/{resource}/{action}/:id` 路径风格校验 |
+| httprules | GET/POST 白名单与 `/api/v1/{resource}/action/:id` 路径风格校验 |
+| proc | 子进程纪律：CREATE_NO_WINDOW 常量与 hide_window；`resolve_command` 纯路径查找（不起子进程、自展开 .exe/.cmd） |
 | resp | Resp 信封构造 |
 
 ## wb-domain（纯类型）
@@ -36,6 +37,7 @@
 | `stats.rs` | 用量聚合 |
 | `subagent.rs` | 子代理角色 VO 与运行结果 |
 | `error.rs` | 错误码常量（按段位分组） |
+| `messages.rs` | 错误码 → 中/英默认文案（不经过界面也要能读懂：日志、调试、兜底） |
 | `events.rs` | SSE 事件载荷类型 |
 | `runtime.rs` | 内置运行时的路径契约：数据目录名、PortableGit / Python 根、bash/git/python 候选定位、子进程 PATH 构造 |
 
@@ -143,7 +145,7 @@
 
 ## wb-service（业务编排）
 
-| 模块 | 职责 |
+| modules | 职责 |
 |---|---|
 | chat | 对话 run 管理：校验、排队、唤醒内核、目标续跑 |
 | chat_events | KernelEvent → SSE 事件翻译（载荷走 `wb_domain::events` 结构体） |

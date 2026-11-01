@@ -35,3 +35,24 @@ fn path_tools_reject_escape_and_normalize() {
         "缺失路径应按词法清理原样返回：{missing:?}"
     );
 }
+
+// ---- 子进程纪律 ----
+
+/// 只有「不启子进程就能判断」才允许在界面路径上探测：
+/// 以前用 `where` 探测会闪控制台，界面上表现为「开一个菜单闪一下黑框」。
+#[test]
+fn command_resolution_never_spawns_a_process() {
+    assert!(
+        wb_pkg::proc::resolve_command("cmd").is_some(),
+        "cmd 必然在 PATH 里"
+    );
+    assert!(
+        wb_pkg::proc::resolve_command("wb-definitely-not-here-xyz").is_none(),
+        "不存在的命令必须返回 None"
+    );
+    // npm 装的工具靠 .cmd 启动，用户不会带后缀；解析必须自己展开
+    assert!(
+        wb_pkg::proc::resolve_command("npm").is_some(),
+        "npm 解析失败说明 .cmd 后缀没有展开"
+    );
+}

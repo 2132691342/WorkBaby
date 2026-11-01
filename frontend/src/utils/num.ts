@@ -1,4 +1,6 @@
 // 读数格式：仪表盘与上下文水位共用，避免各处各写一套 K/M 规则。
+// 单位走 i18n：中文跟单位、英文跟缩写是两种习惯，不能靠前端写死。
+import { i18n } from '../i18n'
 
 /** token 数按量级缩写：128000 → 128K */
 export function fmtCount(n: number): string {
@@ -20,8 +22,8 @@ export function fmtInt(n: number): string {
 /** 耗时用秒，够读就行：830 → 0.8 秒 */
 export function fmtMs(ms: number): string {
   const v = Math.max(0, Math.round(ms || 0))
-  if (v < 1000) return `${v} 毫秒`
-  return `${trim(v / 1000)} 秒`
+  if (v < 1000) return i18n.global.t('num.millis', { n: v })
+  return i18n.global.t('num.seconds', { n: trim(v / 1000) })
 }
 
 /** 字节数按量级缩写：1536 → 1.5 KB */

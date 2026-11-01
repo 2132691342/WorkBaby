@@ -1,6 +1,8 @@
 // HTTP 客户端：基址注入、统一响应解包与错误抛出。
+// 浏览器层错误翻成人话时走 i18n：错误文案也是界面文案。
 import axios from 'axios'
 import { ref } from 'vue'
+import { i18n } from '../i18n'
 import type { Resp } from '../types/api'
 
 // 端口由 app:ready 注入；开发模式走本地代理。
@@ -55,15 +57,16 @@ export async function post<T>(url: string, body?: unknown): Promise<T> {
 // 浏览器层面的失败（断连/被拦）axios 只会说 Network Error，
 // 不翻成人话，用户连该找谁都不知道。
 function humanize(e: unknown): Error {
+  const t = i18n.global.t
   if (e && typeof e === 'object' && 'isAxiosError' in e) {
     const err = e as unknown as { response?: { status: number }; code?: string; message: string }
     if (err.response) {
-      return new Error(`本地服务返回了异常状态 ${err.response.status}`)
+      return new Error(t('net.badStatus', { status: err.response.status }))
     }
     if (err.code === 'ECONNABORTED') {
-      return new Error('本地服务长时间没有响应，请重试一次')
+      return new Error(t('net.timeout'))
     }
-    return new Error(`连不上本地服务（${getBaseURL() || '尚未握手'}）。请检查是否残留了旧版进程，或代理软件拦截了本机回环地址`)
+    return new Error(t('net.unreachable', { base: getBaseURL() || t('net.noHandshake') }))
   }
   return e instanceof Error ? e : new Error(String(e))
 }
@@ -81,8 +84,9 @@ export class ApiError extends Error {
 }
 
 function unwrap<T>(payload: Resp<T>): T {
-  if (!payload) throw new Error('后端没有返回数据')
-  if (payload.code !== '0') throw new ApiError(payload.message || '请求失败', payload.code)
+  const t = i18n.global.t
+  if (!payload) throw new Error(t('net.emptyBody'))
+  if (payload.code !== '0') throw new ApiError(payload.message || t('net.requestFailed'), payload.code)
   return payload.data
 }
 

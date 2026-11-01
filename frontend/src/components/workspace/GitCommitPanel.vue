@@ -7,6 +7,7 @@ import * as api from '../../api'
 import { useToastStore } from '../../stores/toast'
 import type { GitFileVO, GitStatusVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
+import { errorText } from '../../utils/errors'
 
 const props = defineProps<{ status: GitStatusVO | null; sessionId: string }>()
 const emit = defineEmits<{ (e: 'done', status: GitStatusVO): void }>()
@@ -74,7 +75,7 @@ async function stage() {
   try {
     emit('done', await api.git.stage(paths, props.sessionId))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -86,7 +87,7 @@ async function unstageAll() {
   try {
     emit('done', await api.git.unstage(stagedFiles.value.map((f) => f.git_path), props.sessionId))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -99,7 +100,7 @@ async function discardOne(path: string) {
     emit('done', await api.git.discard([path], props.sessionId))
     toast.ok(t('workspace.discardOk', { n: 1 }))
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     busy.value = ''
   }
@@ -116,7 +117,7 @@ async function draft() {
     }
     message.value = res.resp_message
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     drafting.value = false
   }
@@ -140,7 +141,7 @@ async function commit() {
         : t('workspace.commitOk', { hash: res.resp_hash.slice(0, 7) }),
     )
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     busy.value = ''
   }
@@ -349,7 +350,7 @@ const hasConflict = computed(() => files.value.some((f) => f.git_conflict))
   transform: scale(1.06);
 }
 .cmt-drop:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .cmt-drop:disabled {
   opacity: 0;

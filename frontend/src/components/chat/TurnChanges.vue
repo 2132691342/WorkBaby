@@ -132,7 +132,7 @@ function fileName(path: string): string {
   transform: scale(1.06);
 }
 .change-chip:active {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .change-name {
   overflow: hidden;

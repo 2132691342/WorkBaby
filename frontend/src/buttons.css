@@ -4,6 +4,65 @@
    形变只给「实心/描边」按钮；文字与链接按钮缩放会带动整行文字抖动，只给颜色反馈。 */
 
 /* ============================================================
+   五态基类：任意可点元素挂上它就拿到全五态
+   .wb-press   实心 / 描边按钮（与 EP 按钮同手感）
+   .wb-row     整行元素（行宽 100%，只缩不放）
+   ============================================================ */
+
+/* 实心 / 描边：悬停放大 + 抬阴影，按下缩小 + 阴影收窄（实体按压感） */
+.wb-press {
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease),
+    box-shadow var(--wb-dur) var(--wb-ease),
+    opacity var(--wb-dur) var(--wb-ease);
+}
+.wb-press:not(:disabled):not(.is-disabled):not(.is-loading):not([aria-disabled='true']):hover {
+  transform: scale(var(--wb-btn-scale-hover));
+  box-shadow: var(--wb-shadow-2);
+}
+.wb-press:not(:disabled):not(.is-disabled):not(.is-loading):not([aria-disabled='true']):active {
+  transform: scale(var(--wb-btn-scale-press));
+  box-shadow: none;
+  transition-duration: 60ms;
+}
+
+/* 整行：不放大（会溢出），按下缩一点点；禁止位一律不形变 */
+.wb-row {
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease);
+}
+.wb-row:not(.is-disabled):not(.is-loading):hover {
+  transform: scale(var(--wb-row-scale-hover));
+}
+.wb-row:not(.is-disabled):not(.is-loading):active {
+  transform: scale(var(--wb-row-scale-press));
+}
+
+/* 禁用态：不参与形变，降透明并禁用指针 */
+.wb-press:disabled,
+.wb-press.is-disabled,
+.wb-row.is-disabled {
+  transform: none;
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+/* 加载态：锁定尺寸，避免连点时按钮持续抖动 */
+.wb-press.is-loading {
+  transform: none;
+  cursor: progress;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* ============================================================
    形变基元：给任意按钮容器挂上五态行为
    ============================================================ */
 .wb-btn {
@@ -239,6 +298,8 @@
 /* 尊重系统的“减少动态效果”偏好 */
 @media (prefers-reduced-motion: reduce) {
   .wb-btn,
+  .wb-press,
+  .wb-row,
   .wb-fade-enter-active,
   .wb-fade-leave-active,
   .wb-rise-enter-active,
@@ -249,7 +310,11 @@
     animation-duration: 1ms;
   }
   .wb-btn:not(.is-disabled):not(.is-loading):hover,
-  .wb-btn:not(.is-disabled):not(.is-loading):active {
+  .wb-btn:not(.is-disabled):not(.is-loading):active,
+  .wb-press:not(:disabled):not(.is-disabled):not(.is-loading):hover,
+  .wb-press:not(:disabled):not(.is-disabled):not(.is-loading):active,
+  .wb-row:not(.is-disabled):not(.is-loading):hover,
+  .wb-row:not(.is-disabled):not(.is-loading):active {
     transform: none;
   }
   .wb-btn__spinner,

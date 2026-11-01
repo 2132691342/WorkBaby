@@ -58,8 +58,6 @@ const ICONS: Record<string, string> = {
     '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01"/><path d="M10 9h.01"/><path d="M14 9h.01"/><path d="M18 9h.01"/><path d="M8 13h8"/>',
   sliders:
     '<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h4"/><path d="M12 12h8"/><circle cx="10" cy="12" r="2"/><path d="M4 18h10"/><path d="M18 18h2"/><circle cx="16" cy="18" r="2"/>',
-  brain:
-    '<path d="M12 5a3 3 0 0 0-5.9-.7A2.8 2.8 0 0 0 4 6.5a2.8 2.8 0 0 0 .4 1.5A2.8 2.8 0 0 0 3 10a2.8 2.8 0 0 0 1.4 2A2.8 2.8 0 0 0 4 14.5a2.8 2.8 0 0 0 2.1 2.2A3 3 0 0 0 12 17Z"/><path d="M12 5a3 3 0 0 1 5.9-.7A2.8 2.8 0 0 1 20 6.5a2.8 2.8 0 0 1-.4 1.5A2.8 2.8 0 0 1 21 10a2.8 2.8 0 0 1-1.4 2a2.8 2.8 0 0 1 1.4 2.5a2.8 2.8 0 0 1-2.1 2.2A3 3 0 0 1 12 17Z"/>',
   pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
   play: '<path d="M7 4.5v15l12-7.5-12-7.5Z"/>',
   braces:
@@ -84,7 +82,7 @@ withDefaults(defineProps<{ name: string; size?: string; spin?: boolean }>(), { s
 // 名字写错时 v-html 会渲染成空 svg，图标就这样静默消失：开发期至少喊一声。
 function paths(name: string): string {
   const hit = ICONS[name]
-  if (!hit && import.meta.env.DEV) console.warn(`AppIcon: 没有名为「${name}」的图标`)
+  if (!hit && import.meta.env.DEV) console.warn(`AppIcon: unknown icon "${name}"`)
   return hit || ''
 }
 </script>

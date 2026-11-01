@@ -14,6 +14,9 @@ import GitBranchPanel from '../components/workspace/GitBranchPanel.vue'
 import GitCommitPanel from '../components/workspace/GitCommitPanel.vue'
 import GitHistoryPanel from '../components/workspace/GitHistoryPanel.vue'
 import GitStateBanner from '../components/workspace/GitStateBanner.vue'
+import FileTree from '../components/workspace/FileTree.vue'
+import GitChangesPane from '../components/workspace/GitChangesPane.vue'
+import { errorText } from '../utils/errors'
 
 const { t } = useI18n()
 const toast = useToastStore()
@@ -32,22 +35,6 @@ const loadingDiff = ref(false)
 const files = computed<GitFileVO[]>(() => status.value?.git_files || [])
 const readable = computed(() => !!status.value?.git_available && !!status.value?.git_is_repo)
 
-const TAGS: Record<string, { text: string; tone: string }> = {
-  M: { text: 'M', tone: 'is-mod' },
-  A: { text: 'A', tone: 'is-add' },
-  D: { text: 'D', tone: 'is-del' },
-  R: { text: 'R', tone: 'is-mod' },
-  C: { text: 'C', tone: 'is-mod' },
-  T: { text: 'T', tone: 'is-mod' },
-  U: { text: '!', tone: 'is-conflict' },
-  '?': { text: 'U', tone: 'is-new' },
-}
-
-function shortPath(p: string) {
-  const parts = p.split('/').filter(Boolean)
-  return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : p
-}
-
 async function load() {
   loading.value = true
   error.value = ''
@@ -56,7 +43,7 @@ async function load() {
     await openDiff('')
   } catch (e) {
     status.value = null
-    error.value = (e as Error)?.message || ''
+    error.value = errorText(e)
   } finally {
     loading.value = false
   }
@@ -68,7 +55,7 @@ async function openDiff(path: string) {
   try {
     diff.value = await api.git.diff(path, sessionId.value)
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
     diff.value = null
   } finally {
     loadingDiff.value = false
@@ -105,7 +92,7 @@ async function initRepo() {
     toast.ok(t('workspace.initOk'))
     await load()
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     initing.value = false
   }
@@ -119,7 +106,7 @@ async function resolveOne(path: string) {
     status.value = await api.git.resolve([path], sessionId.value)
     toast.ok(t('workspace.conflictResolveOk', { n: 1 }))
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     resolving.value = ''
   }
@@ -142,7 +129,7 @@ async function addRemote() {
     remoteOpen.value = false
     remoteUrl.value = ''
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     remoteBusy.value = false
   }
@@ -237,48 +224,15 @@ async function addRemote() {
         </div>
 
         <div v-else class="changes">
-          <section class="wb-card file-card">
-            <header class="fc-head">
-              <span class="wb-label">{{ t('workspace.files') }}</span>
-              <span class="fc-count">{{ files.length }}</span>
-            </header>
-            <div v-if="!files.length" class="fc-empty">
-              <AppIcon name="check" size="ic-lg" />
-              <b>{{ t('workspace.noChanges') }}</b>
-              <p>{{ t('workspace.noChangesHint') }}</p>
-            </div>
-            <ul v-else class="fc-list">
-              <li v-for="f in files" :key="f.git_path">
-                <button
-                  class="fc-row"
-                  type="button"
-                  :class="{ 'is-on': selected === f.git_path }"
-                  :title="f.git_path"
-                  @click="openDiff(f.git_path)"
-                >
-                  <span class="fc-tag" :class="TAGS[f.git_status]?.tone || 'is-mod'">
-                    {{ TAGS[f.git_status]?.text || f.git_status }}
-                  </span>
-                  <span class="fc-path" :title="f.git_path">{{ shortPath(f.git_path) }}</span>
-                  <el-button
-                    v-if="f.git_conflict"
-                    size="small"
-                    text
-                    class="fc-resolve"
-                    :loading="resolving === f.git_path"
-                    :title="t('workspace.conflictResolveHint')"
-                    @click.stop="resolveOne(f.git_path)"
-                  >
-                    {{ t('workspace.conflictResolve') }}
-                  </el-button>
-                  <span v-else class="fc-stat">
-                    <b class="is-add">+{{ f.git_additions }}</b>
-                    <b class="is-del">−{{ f.git_deletions }}</b>
-                  </span>
-                </button>
-              </li>
-            </ul>
-          </section>
+          <FileTree class="pane-files" />
+
+          <GitChangesPane
+            :files="files"
+            :selected="selected"
+            :resolving="resolving"
+            @pick="openDiff"
+            @resolve="resolveOne"
+          />
 
           <DiffView
             :lines="diff?.git_lines || []"
@@ -288,6 +242,7 @@ async function addRemote() {
             :loading="loadingDiff"
           />
         </div>
+
       </template>
     </div>
   </div>
@@ -370,132 +325,6 @@ async function addRemote() {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
 }
-.fc-resolve {
-  flex: none;
-}
-.fc-tag.is-conflict {
-  background: var(--wb-warning-soft);
-  color: var(--wb-warning);
-}
-.git-tabs {
-  margin-bottom: calc(var(--wb-sp-2) * -1);
-}
-.git-tabs :deep(.el-tabs__header) {
-  margin-bottom: var(--wb-sp-2);
-}
-.changes {
-  display: grid;
-  grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
-  gap: var(--wb-sp-4);
-  align-items: start;
-  min-height: 0;
-}
-.file-card {
-  overflow: hidden;
-}
-.fc-head {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-3) var(--wb-sp-3) var(--wb-sp-2);
-  border-bottom: 1px solid var(--wb-border);
-}
-.fc-count {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.fc-list {
-  max-height: calc(520px * var(--wb-vw-scale));
-  overflow-y: auto;
-  padding: var(--wb-sp-1);
-}
-.fc-row {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-2);
-  border-radius: var(--wb-radius-sm);
-  text-align: left;
-  transition:
-    background var(--wb-dur-fast) var(--wb-ease),
-    box-shadow var(--wb-dur-fast) var(--wb-ease);
-}
-.fc-row:hover {
-  background: var(--wb-elev-hover);
-}
-.fc-row.is-on {
-  background: var(--wb-accent-tint);
-  box-shadow: inset 2px 0 0 var(--wb-primary);
-}
-.fc-tag {
-  width: calc(16px * var(--wb-vw-scale));
-  height: calc(16px * var(--wb-vw-scale));
-  border-radius: var(--wb-radius-xs);
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  font-weight: 700;
-  flex: none;
-}
-.fc-tag.is-add {
-  background: var(--wb-success-soft);
-  color: var(--wb-success);
-}
-.fc-tag.is-del {
-  background: var(--wb-danger-soft);
-  color: var(--wb-danger);
-}
-.fc-tag.is-mod {
-  background: var(--wb-accent-tint);
-  color: var(--wb-primary);
-}
-.fc-tag.is-new {
-  background: var(--wb-live-soft);
-  color: var(--wb-live);
-}
-.fc-path {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-ink-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fc-stat {
-  display: flex;
-  gap: var(--wb-sp-1);
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  flex: none;
-}
-.fc-stat .is-add {
-  color: var(--wb-success);
-}
-.fc-stat .is-del {
-  color: var(--wb-danger);
-}
-.fc-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-8) var(--wb-sp-4);
-  text-align: center;
-  color: var(--wb-muted);
-}
-.fc-empty b {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-}
-.fc-empty p {
-  font-size: var(--wb-fs-2xs);
-  line-height: var(--wb-lh-base);
-}
 .empty-box {
   display: flex;
   flex-direction: column;
@@ -520,9 +349,18 @@ async function addRemote() {
 .ml-1 {
   margin-left: var(--wb-sp-1);
 }
-@media (max-width: 1000px) {
+@media (max-width: 1180px) {
+  .changes {
+    grid-template-columns: minmax(0, 180px) minmax(0, 260px) minmax(0, 1fr);
+  }
+}
+/* 窄窗口下三栏挤不下：文件树让位，保住改动清单与 diff 的可用宽度 */
+@media (max-width: 960px) {
   .changes {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .pane-files {
+    display: none;
   }
 }
 </style>

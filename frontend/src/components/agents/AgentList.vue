@@ -120,7 +120,7 @@ const empty = () => props.rows.length === 0
   transform: scale(1.01);
 }
 .al-row:active {
-  transform: scale(0.99);
+  transform: scale(var(--wb-row-scale-press));
 }
 .al-row.is-on {
   background: var(--wb-accent-tint);

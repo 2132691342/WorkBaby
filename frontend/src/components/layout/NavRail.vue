@@ -33,7 +33,6 @@ const ITEMS: NavItem[] = [
   { name: 'sessions', icon: 'clock', labelKey: 'nav.sessions', shortKey: 'navShort.sessions' },
   { name: 'agents', icon: 'cpu', labelKey: 'nav.agents', shortKey: 'navShort.agents' },
   { name: 'models', icon: 'sliders', labelKey: 'nav.models', shortKey: 'navShort.models' },
-  { name: 'graph', icon: 'brain', labelKey: 'nav.graph', shortKey: 'navShort.graph' },
   { name: 'skills', icon: 'sparkles', labelKey: 'nav.skills', shortKey: 'navShort.skills' },
   { name: 'plugins', icon: 'zap', labelKey: 'nav.plugins', shortKey: 'navShort.plugins' },
   { name: 'mcp', icon: 'database', labelKey: 'nav.mcp', shortKey: 'navShort.mcp' },
@@ -41,9 +40,8 @@ const ITEMS: NavItem[] = [
   { name: 'usage', icon: 'chart', labelKey: 'nav.usage', shortKey: 'navShort.usage' },
 ]
 
-// 底部三项都是低频旁路：文件看一眼就走，帮助与设置改了影响全局。
+// 底部两项都是低频旁路：帮助与设置改了影响全局。文件已并入工作区，不再单独占位。
 const FOOTER: NavItem[] = [
-  { name: 'files', icon: 'folder', labelKey: 'nav.files', shortKey: 'navShort.files' },
   { name: 'help', icon: 'help', labelKey: 'nav.help', shortKey: 'navShort.help' },
   { name: 'settings', icon: 'settings', labelKey: 'nav.settings', shortKey: 'navShort.settings' },
 ]
@@ -135,7 +133,7 @@ const FOOTER: NavItem[] = [
   color: var(--wb-ink);
 }
 .rail-item:active {
-  transform: scale(0.92);
+  transform: scale(var(--wb-row-scale-press));
 }
 .rail-item.is-on {
   background: var(--wb-accent-tint);

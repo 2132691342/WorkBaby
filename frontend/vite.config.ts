@@ -45,9 +45,6 @@ export default defineConfig({
           if (id.includes('echarts') || id.includes('zrender')) {
             return 'vendor-echarts'
           }
-          // 图谱两件不手工归块：X6 / bpmn-js 与 markdown 互相引用，
-          // 强分块会触发 rollup 的 circular chunk。两者只在图谱页动态 import，
-          // 已经进了独立的懒加载块，不需要再拆。
           // 微前端运行时：只在外部应用页动态 import，不该被并回首屏
           if (id.includes('qiankun') || id.includes('single-spa') || id.includes('import-html-entry')) {
             return 'vendor-micro'

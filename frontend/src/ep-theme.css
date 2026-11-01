@@ -121,7 +121,7 @@
 .el-button.is-disabled:hover,
 .el-button.is-disabled:active {
   transform: none;
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 /* 加载态：锁定尺寸不参与缩放，否则连点会让按钮持续抖动 */

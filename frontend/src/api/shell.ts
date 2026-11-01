@@ -13,7 +13,7 @@ type ShellEvent =
   | 'app:open-file'
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isTauri) throw new Error(`invoke(${cmd}) 仅在桌面壳内可用`)
+  if (!isTauri) throw new Error('invoke requires the desktop shell')
   const { invoke: call } = await import('@tauri-apps/api/core')
   return call<T>(cmd, args)
 }

@@ -6,6 +6,7 @@ pub mod compaction;
 pub mod events;
 pub mod session;
 pub mod subagent;
+mod subagent_prompt;
 
 pub use agent::{run, AgentConfig, RunOutcome};
 pub use events::{EmitFn, KernelEvent};

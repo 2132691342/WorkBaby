@@ -404,7 +404,7 @@ onMounted(() => {
   opacity: 1;
 }
 .ask-opt:active:not(:disabled) {
-  transform: scale(0.995);
+  transform: scale(var(--wb-row-scale-press));
 }
 .ask-opt:disabled {
   opacity: 0.5;

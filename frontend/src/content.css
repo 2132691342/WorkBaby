@@ -67,7 +67,7 @@
   transform: scale(1.06);
 }
 .code-copy:active {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .code-copy.is-done {
   color: var(--wb-success);

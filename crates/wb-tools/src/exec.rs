@@ -8,8 +8,8 @@ use tokio_util::sync::CancellationToken;
 
 use wb_pkg::{AppError, Result};
 
-/// CREATE_NO_WINDOW：子进程不闪控制台窗口（Windows 纪律）。
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// 不闪控制台窗口（Windows 纪律唯一来源）。
+const CREATE_NO_WINDOW: u32 = wb_pkg::proc::CREATE_NO_WINDOW;
 
 /// 执行结果。
 pub struct ExecOutcome {

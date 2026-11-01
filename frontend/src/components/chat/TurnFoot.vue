@@ -115,7 +115,7 @@ function fmtTime(ms: number) {
   transform: scale(1.06);
 }
 .ai-act:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .ai-metric {
   display: inline-flex;

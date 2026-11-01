@@ -7,6 +7,7 @@ import * as api from '../../api'
 import { useToastStore } from '../../stores/toast'
 import DocPreview from './DocPreview.vue'
 import ResizableDrawer from '../common/ResizableDrawer.vue'
+import { errorText } from '../../utils/errors'
 
 const props = defineProps<{
   /** 相对工作区的文件路径；空串 = 关闭 */
@@ -53,7 +54,7 @@ async function load(path: string) {
     bytes.value = decodeBase64(r.resp_content_base64)
     fileName.value = r.resp_file_name
   } catch (e) {
-    error.value = (e as Error)?.message || t('common.loadFailed', { msg: '' })
+    error.value = errorText(e) || t('common.loadFailed', { msg: '' })
     toast.bad(error.value)
   } finally {
     loading.value = false

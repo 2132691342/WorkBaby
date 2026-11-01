@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { isTauri, onShellEvent, serverPort } from './api/shell'
 import { setBaseURL } from './api/http'
+import { i18n } from './i18n'
 
 /** 端口握手：拿到本地 HTTP 端口之前，所有业务接口都还没有 baseURL（会直接 404）。
  *  两条路同时走——壳启动后广播一次 app:ready；前端自己再拉一次 server_port 命令。
@@ -49,18 +50,15 @@ async function pullPort() {
 function armTimeout() {
   clearTimeout(timer)
   timer = setTimeout(() => {
-    fail(
-      isTauri
-        ? '本地服务没有响应。可能残留了旧版 WorkBaby 进程占用，请先在任务管理器里结束它再重试。'
-        : '未检测到桌面壳。浏览器直开调试请先设置 localStorage.wb_dev_port 指向已启动的后端端口。',
-    )
+    const t = i18n.global.t
+    fail(isTauri ? t('boot.noService') : t('boot.noShell'))
   }, HANDSHAKE_TIMEOUT_MS)
 }
 
 void onShellEvent('app:ready', (data) => adopt(Number(data?.server_port)))
 // 后端装配失败时唯一的通知通道：启动期 HTTP 还没起来，只能靠事件。
 void onShellEvent('app:startup-error', (data) => {
-  fail(String(data?.message || '后端启动失败，请查看日志目录里的 app.log'))
+  fail(String(data?.message || i18n.global.t('boot.startupFailed')))
 })
 
 armTimeout()

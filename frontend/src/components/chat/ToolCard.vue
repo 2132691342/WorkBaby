@@ -129,7 +129,7 @@ const canPeek = computed(
   transform: scale(1.06);
 }
 .tool-peek:active {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .tool-dot {
   width: calc(17px * var(--wb-vw-scale));

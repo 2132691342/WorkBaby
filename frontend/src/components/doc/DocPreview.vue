@@ -3,6 +3,7 @@
 // Excel（XLSX 读成表格）三条渲染路径。统一由父级传入 ArrayBuffer，
 // 组件不碰文件系统。
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
+import { errorText } from '../../utils/errors'
 
 // PDF 渲染器体积很大（pdfjs-dist 约 3MB）：只在真正要预览时才拉，
 // 不能让它进首屏包。Excel 同理。
@@ -57,7 +58,7 @@ async function renderWord() {
       inWrapper: true,
     })
   } catch (e) {
-    failed.value = String((e as Error)?.message || '')
+    failed.value = String(errorText(e))
   }
 }
 
@@ -71,7 +72,7 @@ function renderExcel() {
       currentSheet.value = wb.SheetNames[0] ?? ''
       renderSheet(XLSX)
     } catch (e) {
-      failed.value = String((e as Error)?.message || '')
+      failed.value = String(errorText(e))
     }
   })
 }
@@ -84,7 +85,7 @@ function renderSheet(XLSX: typeof import('xlsx')) {
     if (!sheet) return
     excelRows.value = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, blankrows: false })
   } catch (e) {
-    failed.value = String((e as Error)?.message || '')
+    failed.value = String(errorText(e))
   }
 }
 
@@ -93,7 +94,7 @@ function renderText() {
   try {
     textBody.value = new TextDecoder('utf-8').decode(new Uint8Array(props.data))
   } catch (e) {
-    failed.value = String((e as Error)?.message || '')
+    failed.value = String(errorText(e))
   }
 }
 

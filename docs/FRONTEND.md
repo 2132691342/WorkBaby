@@ -8,11 +8,11 @@ Vue 3 + TypeScript 的单窗口应用，通过 HTTP 与 SSE 与本地服务对�
 | 层 | 目录 | 职责 |
 |---|---|---|
 | api | `src/api` | 唯一请求出口；路径与后端端点一一对应 |
-| stores | `src/stores` | chat（run 增量）/ session（列表与当前）/ settings（清单）/ toast |
+| stores | `src/stores` | chat（run 增量）/ runClock（本轮秒表）/ session（列表与当前）/ settings（清单）/ toast |
 | composables | `src/composables` | chatBridge（SSE 事件→store 变更）、useSse（SSE 连接单例）、useTheme / useAppearance（主题切换与外观持久化）、filePeek（消息里文件路径的就地预览）、shellIntent（壳命令意图分发）、useSessionPanel（会话左栏的分组与选中状态）、useViewportScale（窗口宽→`--wb-vw-scale` 全局缩放） |
-| components | `src/components` | 按域分组：chat / settings / workspace / layout / dashboard / common / features / skills / doc / graph |
+| components | `src/components` | 按域分组：chat / settings / workspace / layout / dashboard / common / features / skills / doc |
 | views | `src/views` | 路由级页面 |
-| utils | `src/utils` | md（唯一渲染出口）、echarts（按需注册）、num / text / time 格式化 |
+| util | `src/utils` | md（唯一渲染出口）、errors（业务码 → 界面文案）、echarts（按需注册）、num / text / time 格式化 |
 | locales | `src/locales` | zh-CN（默认）+ en |
 
 ### api 层
@@ -38,25 +38,23 @@ Vue 3 + TypeScript 的单窗口应用，通过 HTTP 与 SSE 与本地服务对�
 ## 路由与页面
 
 hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 重定向到 `/overview`；
-`/features` 与 `/dashboard` 是旧入口别名，分别重定向到 `/plugins` 与 `/usage`。
+`/features`、`/dashboard`、`/files` 是旧入口别名，分别重定向到 `/plugins`、`/usage`、`/workspace`。
 
 | 路径 | 视图 | 说明 |
 |---|---|---|
 | `/overview` | OverviewView | 能力总览四卡 + 最近会话（落地页） |
 | `/chat` | ChatView | 对话主视图 |
-| `/workspace` | WorkspaceView | 文件树 + diff + Git |
+| `/workspace` | WorkspaceView | 文件树 + 改动清单 + diff + 提交 / 历史 / 分支 |
 | `/sessions` | SessionsView | 全部会话与概要 |
 | `/agents` | AgentsView | 子代理观测：活跃清单 + 流式过程 + 结论 |
-| `/graph` | GraphView | 装配关系图（X6）与内核循环图（BPMN），两张重图都动态导入 |
 | `/apps` | AppsView | 外部微前端应用登记与隔离运行（qiankun） |
-| `/models` | ModelsView | 模型服务与工具配置（升格为一级页） |
+| `/models` | ModelsView | 模型服务与工具配置 |
 | `/skills` | SkillsView | 技能清单台 |
 | `/plugins` | FeaturesView | 12 项内置功能开关台（别名 /features） |
-| `/mcp` | McpView | MCP 服务器配置与在线状态（升格为一级页） |
+| `/mcp` | McpView | MCP 服务器配置与在线状态 |
 | `/usage` | DashboardView | 用量仪表盘（别名 /dashboard） |
-| `/files` | FilesView | 文件浏览 + 文档就地预览 |
 | `/help/:name?` | HelpView | 内置文档阅读 |
-| `/settings/:tab?` | SettingsView | tab 落 URL（刷新与前进后退都停在原处） |
+| `/settings` | SettingsView | 单页滚动：外观 / 行为 / 内省（旧板块路径一律落这里） |
 
 **独立页与设置页共用组件**：`features/FeatureList` 与 `skills/SkillList` 各被两处引用——
 两处各写一份必然漂移。
@@ -93,10 +91,9 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 |---|---|---|
 | features/FeatureList | 概览 / 功能页 / 设置页 | 12 项功能清单与开关 |
 | skills/SkillList | 技能页 / 设置页 | 技能清单、开关、正文抽屉、导入与新建 |
-| doc/DocPreview | 文件页 | PDF / Word / Excel / 文本预览 |
-| doc/DocPreviewDrawer | 文件页 | 预览抽屉 |
-| graph/RelationGraph | 图谱页 | 能力关系可视化（AntV X6，只读画布） |
-| graph/BpmnDiagram | 图谱页 | 内核循环图（BPMN-JS，只读画布，缩放平移可用） |
+| doc/DocPreview | 工作区文件树 | PDF / Word / Excel / 文本预览 |
+| doc/DocPreviewDrawer | 工作区文件树 | 预览抽屉 |
+| workspace/FileTree | WorkspaceView | 工作区目录树 + 点文件就地预览（只读） |
 | agents/AgentList | 子代理页 | 活跃清单：状态灯、角色、任务摘要、用时 |
 | agents/AgentDetail | 子代理页 | 过程详情：任务 / 思考 / 工具卡 / 正文 / 结论 |
 | apps/MicroAppHost | 外部应用页 | qiankun 容器：一个应用一个挂载点，切换即卸载重建 |
@@ -107,38 +104,36 @@ layout/SidePanel（当前区左栏，188px 窄档）、layout/PageHeader（页�
 common/AppIcon（内联 SVG 图标）、common/CodeEditor（CodeMirror 封装）、
 common/ResizableDrawer（可拖宽抽屉）、common/ToastHost（轻提示宿主）。
 
-其余页面的组成：workspace（DiffView、GitStateBanner、GitCommitPanel、GitBranchPanel、
+其余页面的组成：workspace（FileTree、DiffView、GitStateBanner、GitCommitPanel、GitBranchPanel、
 GitHistoryPanel）、dashboard（KpiCard、UsageTrend、ModelShare）、
 overview（能力四卡 + 最近会话）、sessions（时间分组清单 + 会话概要）、
-files（面包屑 + 目录列表 + 预览抽屉）、help（文档目录 + Markdown 阅读）。
+help（文档目录 + Markdown 阅读）。
 
 ## 重依赖的运行时按需加载
 
-四个功能区的引擎代码只在进入对应页面时才下载，首屏包不含它们：
+三个功能区的引擎代码只在真正用到时才下载，首屏包不含它们：
 
 | 页面 | 动态导入的依赖 | 分块 |
 |---|---|---|
-| /graph 关系图 | @antv/x6 | `RelationGraph-*.js`（独立懒加载块） |
-| /graph 循环图 | bpmn-js | `BpmnDiagram-*.js`（独立懒加载块） |
 | /apps | qiankun + single-spa + import-html-entry | `vendor-micro` |
 | 文档预览 | xlsx / docx-preview / pdfjs-dist | `vendor-xlsx` / `vendor-docx` / `vendor-pdf` |
-
-X6 与 bpmn-js 不做手工归块：它们与 markdown 互相引用（图内标注用 md），
-强行分块会触发 rollup 的 circular chunk 警告；懒加载本身已经把体积挡在首屏之外。
+| 对话正文 | marked / dompurify / highlight.js | `vendor-markdown` |
 
 **子代理事件分流**：`agent:*` 五类事件与 `chat:*` 共用同一条会话 SSE 通道，
 事件桥按前缀先分流到 agents store，再进对话状态机——一条连接、两套状态机。
 
 ## SettingsView 分组
 
-| 组 | 项 |
-|---|---|
-| 模型与接入 | providers 模型服务、tools 工具、mcp MCP 服务 |
-| 能力 | skills 技能、features 功能、inspect 内省 |
-| 应用 | appearance 外观、behavior 行为（工作目录管理在 behavior 里） |
+设置是**单页滚动**，一节一件事；没有左侧目录也不再分二级 tab。
 
-对应面板：ProviderPanel / ToolPanel / MCPPanel / SkillPanel / FeaturePanel /
-InspectPanel / AppearancePanel / BehaviorPanel，分节骨架由 settings/SettingsSection 提供。
+| 顺序 | 面板 | 管什么 |
+|---|---|---|
+| 1 | AppearancePanel | 主题、字体、字号、自定义背景 |
+| 2 | BehaviorPanel | 默认工作区、界面语言、发送键、托盘与自启 |
+| 3 | InspectPanel | 当前装配快照（工具 / 技能 / 命令 / 功能 / 系统提示词） |
+
+模型、工具、MCP、技能、功能都有自己的**一级页**，它们的开关不再在设置里列一遍——
+两处都能改就会出现「各自认为是权威」。分节骨架由 settings/SettingsSection 提供。
 
 ## 界面骨架
 
@@ -152,23 +147,39 @@ InspectPanel / AppearancePanel / BehaviorPanel，分节骨架由 settings/Settin
 └───┴──────────┴─────────────────────────────────────────┘
 ```
 
-一级导航在左 rail（62px，图标 + 短标签竖排），设置与帮助压在 rail 底部——
-它们是旁路，但仍是 rail 里的一等入口。
+一级导航在左 rail（62px，图标 + 短标签竖排），帮助与设置压在 rail 底部——
+它们是旁路，但仍是 rail 里的一等入口。文件浏览不占 rail：它已并入工作区左栏。
+
+## 样式文件分层
+
+| 文件 | 只管 | 纪律 |
+|---|---|---|
+| `scale.css` | 尺寸 / 字体 / 动效刻度 | **不含色值**，两套主题共用 |
+| `themes.css` | 色与两套主题（`--saas_dashboard-color-1..5` 是唯一色源） | 尺寸只引用 scale.css 的刻度 |
+| `primitives.css` | 语义别名与面基元（`.wb-glass` / `.wb-code-inline` / 用户背景） | 不含任何色值，只引用 `--wb-*` |
+| `buttons.css` | 五态形变基类（`.wb-btn` / `.wb-press` / `.wb-row`）与过渡 | 缩放节奏只在这里定义 |
+| `ep-theme.css` | Element Plus 变量 → `--wb-*` 的**唯一一处**映射 | 第二份映射会静默覆盖第一份 |
+
+拆开的原因是「改色」与「改刻度」是两件事：混在一个 500 行的文件里，
+改任何一边都要通读全文，而通读之后的改动最容易误伤另一边。
 
 ## 设计令牌
 
 **色值只在 `themes.css` 定义**，组件只允许 `var(--wb-*)`。
-强调色是单一靛蓝色相的五档：
+全站唯一色源是五档 `--saas_dashboard-color-1..5`；`--wb-brand-1..5` 只是它的别名，
+不存新色值——存两处就一定会有人改了一处、漏了另一处。
 
-| 档 | 色值 | 用在哪 |
-|---|---|---|
-| 靛蓝 | `#6366f1` | 动作：主按钮、选中、强调文字、图表主序列 |
-| 淡靛 | `#818cf8` | 活动：流式光标、运行状态灯、思考中、图表次序列 |
-| 淡紫底 | `#e0e7ff` | 淡强调：hover 淡底、标签底、图表第三序列 |
-| 石板底 | `#f8fafc` | 页面底、选中淡底、提示条底 |
-| 石板深 | `#1e293b` | 正文与标题、反色按钮、图表第四序列 |
+| 档 | 浅色 | 暗色 | 用在哪 |
+|---|---|---|---|
+| 1 | `#6366f1` | `#818cf8` | 动作：主按钮、选中、强调文字、图表主序列 |
+| 2 | `#818cf8` | `#a5b4fc` | 活动：流式光标、运行灯、思考中、图表次序列 |
+| 3 | `#e0e7ff` | `#3730a3` | 淡强调：hover 淡底、标签底、用户气泡 |
+| 4 | `#f8fafc` | `#0f172a` | 页底：窗口与工作区底色 |
+| 5 | `#1e293b` | `#e2e8f0` | 正文与标题、实底反色按钮 |
 
-靛蓝给「可点的东西」，淡靛给「正在发生的事」——两个色的分工是这个体系的骨架。
+1 档给「可点的东西」，2 档给「正在发生的事」——两个色的分工是这个体系的骨架。
+暗色不是把浅色反过来，而是把五档重新排明度：相邻两档始终递亮，
+不会出现深靛压在深底上读不出的序列。
 
 尺寸走刻度（`--wb-sp-*` / `--wb-fs-*` / `--wb-radius-*` / `--wb-dur-*`），
 UnoCSS 的刻度已接到令牌上，布局用原子类不绕开令牌。
@@ -185,16 +196,20 @@ UnoCSS 的刻度已接到令牌上，布局用原子类不绕开令牌。
 | 默认 | 形状 × 权重 × 语义的静态样式 |
 | 悬停 | 放大 1.06 + 抬阴影 |
 | 按下 | 缩小 0.92 + 阴影收窄（实体按压感） |
-| 禁用 | 降透明、不参与形变、指针禁用 |
+| 禁用 | 降透明 0.45、不参与形变、指针禁用 |
 | 加载 | 锁定尺寸（不参与缩放）+ 转圈指示器 |
 
-刻度令牌：`--wb-btn-scale-hover`（1.06）/ `--wb-btn-scale-press`（0.92）。
+刻度令牌只在 `themes.css` 定义一处：`--wb-btn-scale-hover`（1.06）/ `--wb-btn-scale-press`（0.92）。
 
-**Element Plus 按钮与自绘按钮共用同一套刻度令牌**
-（`--wb-btn-scale-hover` / `--wb-btn-scale-press`）——同一个操作条里两种按钮并排时，
+| 控件类别 | 悬停 / 按下 | 基类 |
+|---|---|---|
+| 实心 / 描边按钮（含 EP） | **1.06 / 0.92** | `.wb-btn` · `.wb-press` · `.el-button` |
+| 文字 / 链接按钮 | **不缩放**（缩放带动整行文字抖），只换色 | `.wb-btn--text` |
+| 整行元素（会话行 / 技能行 / 文件行 / rail 项） | **不放大**（行宽 100%，放大会溢出被裁）/ 0.985 | `.wb-row` |
+
+**Element Plus 按钮与自绘按钮共用同一套刻度令牌**——同一个操作条里两种按钮并排时，
 点击手感必须一致。加载与禁用两态一律 `transform: none`，否则连点会让按钮持续抖动。
-
-text / link 类文字按钮不缩放（缩放带动整行文字抖动），只换色。
+组件不得自己写 `scale(0.92)`：散落的值改不到、也查不到。
 
 ## 过渡动画
 
@@ -204,17 +219,17 @@ pop（卡片与菜单缩放弹出）、skeleton（骨架屏微光）。
 
 ## 重型依赖的分块
 
-PDF、表格、文档、图谱四个依赖体积可观，一律**动态导入**并单独分块：
+PDF、表格、文档、微前端、Markdown 五个依赖体积可观，一律**按需导入**并单独分块：
 
 | 分块 | 内容 |
 |---|---|
 | `vendor-pdf` | pdfjs-dist + vue-pdf-embed |
 | `vendor-xlsx` | XLSX |
 | `vendor-docx` | docx-preview |
-| `vendor-graph` | AntV X6 + BPMN-JS |
+| `vendor-micro` | qiankun + single-spa + import-html-entry |
+| `vendor-markdown` | marked + dompurify + highlight.js |
 
-另有 `vendor-markdown`（marked + dompurify + highlight.js）、`vendor-echarts`、
-`vendor-cm`（CodeMirror）、`vendor-ep`（@vueuse）四块，
+另有 `vendor-echarts`、`vendor-cm`（CodeMirror）、`vendor-ep`（@vueuse）三块，
 以及承载 Vue / Pinia / Router / Axios 的 `vendor` 主块。
 
 不进对应页面就不下载它们的代码。Element Plus 不整体归堆——
@@ -223,10 +238,19 @@ PDF、表格、文档、图谱四个依赖体积可观，一律**动态导入**�
 
 ## 国际化
 
-Vue I18n，zh-CN 默认 + en。所有界面文案走 `t()`；
-Element Plus 的内置文案由根组件的 `ElConfigProvider` 消费当前语言。
+Vue I18n，**首次启动按系统语言**选 zh-CN / en（`navigator.language`），之后以设置表为准；
+回退链兜底中文，英文缺 key 时不会出现空白。
 
-数据目录、文件路径、模型名等专有名词不翻译。
+- 所有界面文案走 `t()`，模板里不允许硬编码用户可见字符串
+- 中英两套语言包**键集必须完全相等**：缺一个就是半边中文半边英文
+- 业务错误的界面文案按错误码查（`utils/errors.ts` → `errCode.*`），
+  **不把后端返回的中文原串直接当文案**：语言由前端当前 locale 决定，
+  后端原文只作为「具体卡在哪」的细节拼在后面
+- 时间与读数的单位（毫秒 / 秒 / 分钟前）也走语言包（`time.*` / `num.*`），
+  中文跟单位、英文跟缩写是两种习惯
+- Element Plus 的内置文案由根组件的 `ElConfigProvider` 消费当前语言
+
+数据目录、文件路径、模型名等专有名词不翻译；语言名用各自语言写（`中文` / `English`）。
 
 ## 状态管理
 

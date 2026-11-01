@@ -34,7 +34,7 @@
 | 国际化 | Vue I18n ^9.14（zh-CN 默认 + en） | — |
 | 渲染 | marked · dompurify · highlight.js | markdown 唯一出口 `utils/md.ts` |
 | 文档预览 | vue-pdf-embed · docx-preview · XLSX | 动态导入，按需加载 |
-| 图可视化 | AntV X6 ^2.18 · BPMN-JS ^16.4 | 动态导入，按需加载 |
+| 图可视化 | — | 已移除（对目标用户无用）；X6 / BPMN-JS 依赖一并去掉 |
 | 富文本 / 微前端 | WangEditor ^5.1 · Qiankun ^2.10 | 依赖已就位，按需接线 |
 | 平台 | Windows | 只考虑 Windows；平台差异用 `#[cfg(windows)]`，不写运行时大分支 |
 
@@ -45,7 +45,7 @@
 **明确不引入**：工作流引擎、ORM、迁移框架、全局可变状态。
 SQLite 手写迁移 SQL（`PRAGMA user_version` 步进）。
 
-重型前端依赖（PDF、表格、文档、图谱）一律**动态导入**并单独分块，
+重型前端依赖（PDF、表格、文档、微前端）一律**动态导入**并单独分块，
 不进首屏包——不进对应页面就不该下载它的代码。
 
 ### 1.2 内核归本仓实现
@@ -181,6 +181,8 @@ impl AppError {
 ```
 
 - **码值是数字字符串**（`"1001"`），不是数字：HTTP 状态码是 int，业务码是 string，类型上分开
+- 每个码必须在 `wb-domain/src/messages.rs` 有中 / 英默认文案，并在前端 `errCode.*` 有对应条目；
+  两侧各有一个测试与一键校验守着，漏一个就是「英文界面蹦中文」
 - 各 crate 用 `thiserror` 定义内部错误，边界上（api / service 出口）统一转 `AppError`
 - HTTP 出口统一信封 `Resp { code: String, message: String, data: T }`，`code != "0"` 即业务失败
 - 错误码常量集中在 `wb-domain/src/error.rs`，新增码先改 `docs/ERROR-CODES.md` 再写代码
@@ -271,6 +273,7 @@ impl AppError {
 | 关注点 | 落点 | 纪律 |
 |---|---|---|
 | 命令执行 | `wb-tools::exec`（模型工具）+ git / MCP stdio / LSP / github_clone 各自出口 | argv 数组直传永不进 shell；CREATE_NO_WINDOW；超时杀进程——全仓纪律，新增出口自觉对齐 |
+| 子进程静默 | `wb_pkg::proc` | 每个 `Command` 出口必须挂 `CREATE_NO_WINDOW`（直接引常量，不写十六进制）；探测程序用 `resolve_command`（纯路径查找），**禁止跑 `where` / `which`**——那会闪控制台窗口 |
 | 日志 | `tracing` | 业务层只 `warn!` / `error!`；`debug!` 只在调试分支 |
 | 时间 | `SystemTime::now()` | 禁止 `Local::now()`（会话索引要可跨时区比较） |
 | ID 生成 | `wb_pkg::ulid` | 禁止 `uuid` / 自造计数器 |
@@ -334,7 +337,7 @@ if version < 1 { conn.execute_batch(SCHEMA_V1)?; }
 | 状态机 | 待办依赖图、目标状态机、提问回答板的一次性投递 |
 | 持久化往返 | 写入 → 重载 → 回放，数据一字不差 |
 | 边界拒绝 | 路径逃逸、产物目录跳过、密钥扫描拦截 |
-| 协议解析 | SSE 分片累积、HTML 提取、搜索结果解析、BPMN/DXF 文本编辑 |
+| 协议解析 | SSE 分片累积、HTML 提取、搜索结果解析、SSE 事件顺序 |
 | 真实外部依赖 | 真 git 仓库全链路（标 `#[ignore]`，慢速脚本显式跑） |
 
 **不写什么**

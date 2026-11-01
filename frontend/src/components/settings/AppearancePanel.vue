@@ -21,25 +21,12 @@ import { useToastStore } from '../../stores/toast'
 import AppIcon from '../common/AppIcon.vue'
 import SettingsSection from './SettingsSection.vue'
 import { pickFile } from '../../api/shell'
+import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
 const { theme, setTheme, THEMES } = useTheme()
 const store = useSettingsStore()
 const toast = useToastStore()
-
-const FONT_KEYS: Record<string, string> = {
-  system: 'fontSystem',
-  song: 'fontSong',
-  kai: 'fontKai',
-  hei: 'fontHei',
-  fang: 'fontFang',
-}
-const SIZE_KEYS: Record<string, string> = {
-  sm: 'fontSizeSm',
-  md: 'fontSizeMd',
-  lg: 'fontSizeLg',
-  xl: 'fontSizeXl',
-}
 
 async function setFont(key: string) {
   currentFont.value = key
@@ -109,7 +96,7 @@ async function saveBg(path: string, strength: number, blur: number) {
     const vo = await api.settings.setBackground(path, strength, blur)
     applyBgVo(vo.resp_background_file, vo.resp_background_opacity, vo.resp_background_blur)
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     bgBusy.value = false
   }
@@ -166,7 +153,7 @@ onMounted(async () => {
             </span>
           </span>
           <span class="tc-foot">
-            <span class="tc-name">{{ t(`settings.appearance.theme${th.key === 'light' ? 'Light' : 'Dark'}`) }}</span>
+            <span class="tc-name">{{ t(th.nameKey) }}</span>
             <span class="tc-dot" :style="{ background: th.swatch }" />
             <AppIcon v-if="theme === th.key" name="check" size="ic-xs" class="tc-check" />
           </span>
@@ -179,7 +166,7 @@ onMounted(async () => {
         <div class="wb-set-row-tx"><b>{{ t('settings.appearance.fontFamily') }}</b></div>
         <el-radio-group :model-value="currentFont" @change="(v: string | number | boolean | undefined) => setFont(String(v))">
           <el-radio-button v-for="f in FONTS" :key="f.key" :value="f.key">
-            {{ t(`settings.appearance.${FONT_KEYS[f.key]}`) }}
+            {{ t(f.nameKey) }}
           </el-radio-button>
         </el-radio-group>
       </div>
@@ -188,7 +175,7 @@ onMounted(async () => {
         <div class="wb-set-row-tx"><b>{{ t('settings.appearance.fontSize') }}</b></div>
         <el-radio-group :model-value="currentSize" @change="(v: string | number | boolean | undefined) => setSize(String(v))">
           <el-radio-button v-for="s in FONT_SIZES" :key="s.key" :value="s.key">
-            {{ t(`settings.appearance.${SIZE_KEYS[s.key]}`) }}
+            {{ t(s.nameKey) }}
           </el-radio-button>
         </el-radio-group>
       </div>
@@ -274,7 +261,7 @@ onMounted(async () => {
   box-shadow: var(--wb-card-shadow-hover);
 }
 .theme-card:active {
-  transform: scale(0.98);
+  transform: scale(var(--wb-row-scale-press));
 }
 .theme-card.is-on {
   border-color: var(--wb-primary);

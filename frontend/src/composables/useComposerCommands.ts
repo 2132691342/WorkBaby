@@ -11,6 +11,7 @@ import { useSessionStore } from '../stores/session'
 import { useSettingsStore } from '../stores/settings'
 import { useToastStore } from '../stores/toast'
 import type { BuiltinKey } from '../utils/composerMenu'
+import { errorText } from '../utils/errors'
 
 /** 命令用到的界面出口：都由调用方（ChatInput）注入，composable 不碰 DOM。 */
 export interface CommandHooks {
@@ -131,7 +132,7 @@ export function useComposerCommands(hooks: CommandHooks) {
         toast.ok(t('chat.slashReloadDone'))
       }
     } catch (e) {
-      toast.bad(t('chat.slashFailed', { msg: (e as Error)?.message || '' }))
+      toast.bad(t('chat.slashFailed', { msg: errorText(e) }))
     } finally {
       busy.value = ''
     }

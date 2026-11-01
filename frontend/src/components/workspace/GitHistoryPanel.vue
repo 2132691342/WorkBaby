@@ -9,6 +9,7 @@ import type { GitCommitDetailVO, GitCommitVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import ResizableDrawer from '../common/ResizableDrawer.vue'
 import DiffView from './DiffView.vue'
+import { errorText } from '../../utils/errors'
 
 const props = defineProps<{ sessionId: string }>()
 const { t } = useI18n()
@@ -25,7 +26,7 @@ async function load() {
     commits.value = await api.git.history(props.sessionId, 100)
   } catch (e) {
     commits.value = []
-    error.value = (e as Error)?.message || ''
+    error.value = errorText(e)
   } finally {
     loading.value = false
   }
@@ -51,7 +52,7 @@ async function show(hash: string) {
   try {
     detail.value = await api.git.commit(hash, props.sessionId)
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
     open.value = false
   } finally {
     detailLoading.value = false
@@ -72,7 +73,7 @@ async function showFileHistory(path: string) {
   try {
     fileCommits.value = await api.git.fileHistory(path, props.sessionId, 50)
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
     fileOpen.value = false
   } finally {
     fileLoading.value = false
@@ -230,7 +231,7 @@ const detailDiff = computed(() => detail.value?.git_diff)
   background: var(--wb-elev-hover);
 }
 .hist-row:active {
-  transform: scale(0.995);
+  transform: scale(var(--wb-row-scale-press));
 }
 .hist-dot {
   width: 7px;

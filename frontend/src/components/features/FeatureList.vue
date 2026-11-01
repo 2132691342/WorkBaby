@@ -7,6 +7,7 @@ import { get, post } from '../../api/http'
 import { useToastStore } from '../../stores/toast'
 import type { FeatureVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
+import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
 const toast = useToastStore()
@@ -42,7 +43,7 @@ async function reload() {
   try {
     items.value = (await get<FeatureVO[]>('/features')) ?? []
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   } finally {
     loading.value = false
   }
@@ -58,7 +59,7 @@ async function toggle(f: FeatureVO) {
     })
     await reload()
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }

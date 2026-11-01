@@ -11,6 +11,7 @@ import { pickFile } from '../../api/shell'
 import AppIcon from '../common/AppIcon.vue'
 import CodeEditor from '../common/CodeEditor.vue'
 import ResizableDrawer from '../common/ResizableDrawer.vue'
+import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
 const store = useSettingsStore()
@@ -86,7 +87,7 @@ async function toggle(s: SkillVO) {
     await api.skills.toggle(s.skill_name, !s.skill_enabled)
     await reload()
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -100,7 +101,7 @@ async function open(s: SkillVO) {
     const r = await api.skills.content(s.skill_name)
     content.value = r.resp_content
   } catch (e) {
-    content.value = t('common.loadFailed', { msg: (e as Error)?.message || '' })
+    content.value = t('common.loadFailed', { msg: errorText(e) })
   }
 }
 
@@ -112,7 +113,7 @@ async function remove(s: SkillVO) {
     await reload()
     toast.ok(`${t('common.delete')} ${s.skill_name}`)
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -129,7 +130,7 @@ async function importSkill() {
     if (r.resp_imported) toast.ok(t('common.imported', { n: r.resp_imported }))
     if (r.resp_skipped?.length) toast.info(t('common.skipped', { n: r.resp_skipped.length }))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -150,7 +151,7 @@ async function createSkill() {
     draft.value = { name: '', description: '', body: '' }
     toast.ok(t('common.save'))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -380,7 +381,7 @@ defineExpose({ reload, counts, importSkill })
   transform: scale(1.08);
 }
 .skill-del:active {
-  transform: scale(0.9);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .skill-lock {
   display: flex;

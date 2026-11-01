@@ -7,20 +7,21 @@ import { useSettingsStore } from '../stores/settings'
 import { theme as themeRef } from './useTheme'
 
 // 字体族：只换正文族，标题与等宽保持各自语义。
+// name / desc 存 i18n key：取值表是数据，展示文字才是界面。
 export const FONTS = [
-  { key: 'system', name: '系统默认', stack: 'var(--font-sans)', desc: '微软雅黑 / Segoe UI，最稳' },
-  { key: 'song', name: '宋体', stack: "'SimSun', 'Songti SC', serif", desc: '正式文档观感' },
-  { key: 'kai', name: '楷体', stack: "'KaiTi', 'STKaiti', serif", desc: '偏手写，公文常用' },
-  { key: 'hei', name: '黑体', stack: "'SimHei', 'Microsoft YaHei', sans-serif", desc: '对比更强' },
-  { key: 'fang', name: '仿宋', stack: "'FangSong', 'STFangsong', serif", desc: '公文标准字体' },
+  { key: 'system', nameKey: 'settings.appearance.fontSystem', descKey: 'settings.appearance.fontSystemHint', stack: 'var(--font-sans)' },
+  { key: 'song', nameKey: 'settings.appearance.fontSong', descKey: 'settings.appearance.fontSongHint', stack: "'SimSun', 'Songti SC', serif" },
+  { key: 'kai', nameKey: 'settings.appearance.fontKai', descKey: 'settings.appearance.fontKaiHint', stack: "'KaiTi', 'STKaiti', serif" },
+  { key: 'hei', nameKey: 'settings.appearance.fontHei', descKey: 'settings.appearance.fontHeiHint', stack: "'SimHei', 'Microsoft YaHei', sans-serif" },
+  { key: 'fang', nameKey: 'settings.appearance.fontFang', descKey: 'settings.appearance.fontFangHint', stack: "'FangSong', 'STFangsong', serif" },
 ] as const
 
 // 字号档位是刻度而不是任意值：改一处全站等比跟随，布局不会错位。
 export const FONT_SIZES = [
-  { key: 'sm', name: '小', scale: 0.9 },
-  { key: 'md', name: '标准', scale: 1 },
-  { key: 'lg', name: '大', scale: 1.12 },
-  { key: 'xl', name: '特大', scale: 1.25 },
+  { key: 'sm', nameKey: 'settings.appearance.fontSizeSm', scale: 0.9 },
+  { key: 'md', nameKey: 'settings.appearance.fontSizeMd', scale: 1 },
+  { key: 'lg', nameKey: 'settings.appearance.fontSizeLg', scale: 1.12 },
+  { key: 'xl', nameKey: 'settings.appearance.fontSizeXl', scale: 1.25 },
 ] as const
 
 export const currentFont = ref('system')

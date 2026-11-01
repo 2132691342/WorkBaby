@@ -37,6 +37,9 @@ export default {
     toolPeek: 'View change',
     peekOutside: 'This file is outside the workspace; the version panel only reads workspace files',
     contextMeter: 'Context usage',
+    changesCount: 'Changed {n} files this turn',
+    contextUsage: 'Context breakdown',
+    contextEstimateHint: 'Estimated at 4 characters per token; server usage wins.',
     contextHint: '{used} / {win} used',
     contextUnknown: 'Unknown window',
     contextReserve: 'reserve {n}',
@@ -171,6 +174,8 @@ export default {
 
   settings: {
     title: 'Settings',
+    subtitle:
+      'Habits of this program: how it looks, where it stores data, how it behaves. Everything takes effect immediately.',
     groups: {
       advanced: 'Advanced',
       model: 'Model & Access',
@@ -259,6 +264,11 @@ export default {
       defaultTools: 'Default tool set',
       defaultToolsHint: 'When off, new sessions no longer include it by default.',
       noMatch: 'No matching tools',
+      presetLoad: 'Loadout presets',
+      presetPlaceholder: 'Save current as a preset…',
+      presetSave: 'Save',
+      presetApplied: 'Applied preset {name}',
+      presetSaved: 'Preset {name} saved',
     },
     mcp: {
       title: 'MCP servers',
@@ -291,6 +301,15 @@ export default {
     inspect: {
       title: 'Inspect',
       desc: 'Current assembly snapshot: tools / skills / commands / features / system prompt.',
+      filterHint: 'Filter by name or description',
+      counts: '{tools} tools · {skills} skills · {commands} commands',
+      tools: 'Tools',
+      skills: 'Skills',
+      commands: 'Slash commands',
+      features: 'Features',
+      on: 'On',
+      off: 'Off',
+      prompt: 'System prompt (read-only snapshot)',
     },
     appearance: {
       title: 'Appearance',

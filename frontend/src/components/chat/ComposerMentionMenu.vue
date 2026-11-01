@@ -6,6 +6,7 @@ import * as api from '../../api'
 import type { FileEntryVO } from '../../types/api'
 import { useToastStore } from '../../stores/toast'
 import AppIcon from '../common/AppIcon.vue'
+import { errorText } from '../../utils/errors'
 
 const emit = defineEmits<{
   /** 选中一个文件：参数是相对工作区的路径 */
@@ -62,7 +63,7 @@ async function loadDir(next: string) {
     entries.value = resp.resp_entries ?? []
   } catch (e) {
     if (mine !== seq) return
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
     entries.value = []
   } finally {
     if (mine === seq) loading.value = false

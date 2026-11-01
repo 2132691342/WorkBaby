@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorText } from '../../utils/errors'
 // 模型服务面板：读写的 models.json；服务商卡片、接口类型、密钥与模型清单都在这里。
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -7,20 +8,12 @@ import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import type { ModelREQ, ProviderVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
-import ProviderModelsField from './ProviderModelsField.vue'
+import ProviderDialog from './ProviderDialog.vue'
 import SettingsSection from './SettingsSection.vue'
 
 const { t } = useI18n()
 const store = useSettingsStore()
 const toast = useToastStore()
-
-const APIS = [
-  { key: 'openai-completions', label: 'OpenAI Completions' },
-  { key: 'openai-responses', label: 'OpenAI Responses' },
-  { key: 'anthropic-messages', label: 'Anthropic Messages' },
-  { key: 'google-generative-ai', label: 'Google Generative AI' },
-  { key: 'azure-openai-responses', label: 'Azure OpenAI Responses' },
-]
 
 const editing = ref('')
 const busy = ref('')
@@ -118,7 +111,7 @@ async function fetchModels() {
     fetched.value = resp.resp_models ?? []
     toast.ok(t('settings.providers.fetched', { n: fetched.value.length }))
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -153,7 +146,7 @@ async function save() {
     dialog.value = false
     reset()
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -171,7 +164,7 @@ async function remove(p: ProviderVO) {
     }
     toast.ok(`${t('common.delete')} ${p.provider_name}`)
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -185,7 +178,7 @@ async function test(p: ProviderVO) {
     if (r.resp_ok) toast.ok(t('settings.providers.testOk', { model: r.resp_model }))
     else toast.bad(t('settings.providers.testFail', { msg: r.resp_message }))
   } catch (e) {
-    toast.bad(t('settings.providers.testFail', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('settings.providers.testFail', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -203,7 +196,7 @@ async function reveal(p: ProviderVO) {
       toast.info(r.resp_api_key || '—')
     }
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -223,7 +216,7 @@ async function setDefault(p: ProviderVO) {
     await store.loadProviders()
     toast.ok(`${t('settings.providers.default')}: ${model}`)
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -336,70 +329,19 @@ onMounted(() => {
       </div>
     </SettingsSection>
 
-    <el-dialog
+    <ProviderDialog
       v-model="dialog"
-      :title="editing ? t('common.edit') : t('settings.providers.add')"
-      :width="`calc(760px * var(--wb-vw-scale))`"
-      destroy-on-close
-    >
-      <el-form label-position="top" @submit.prevent>
-        <div class="form-grid">
-          <el-form-item :label="t('settings.providers.api')">
-            <el-select v-model="form.api" :disabled="!!busy">
-              <el-option v-for="a in APIS" :key="a.key" :label="a.label" :value="a.key" />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('common.name')" required :error="errors.name">
-            <el-input
-              v-model="form.name"
-              :placeholder="form.id || t('settings.providers.namePlaceholder')"
-              :disabled="!!busy"
-              @input="errors.name = ''"
-            />
-            <p v-if="form.id" class="hint">{{ t('settings.providers.idLocked') }}</p>
-          </el-form-item>
-        </div>
-
-        <el-form-item :label="t('settings.providers.baseUrl')" required :error="errors.base_url">
-          <el-input
-            v-model="form.base_url"
-            placeholder="https://api.example.com/v1"
-            :disabled="!!busy"
-            @input="errors.base_url = ''"
-          />
-        </el-form-item>
-
-        <el-form-item :label="t('settings.providers.key')">
-          <el-input
-            v-model="form.api_key"
-            type="password"
-            show-password
-            :placeholder="form.id ? t('settings.providers.keySaved') : t('settings.providers.keyPlaceholder')"
-            :disabled="!!busy"
-          />
-        </el-form-item>
-
-        <el-form-item :label="t('settings.providers.models')" required :error="errors.models">
-          <ProviderModelsField
-            :models="form.models"
-            :fetched="fetched"
-            :error="errors.models"
-            :busy="busy"
-            :default-context-window="DEFAULT_CONTEXT_WINDOW"
-            :default-max-tokens="DEFAULT_MAX_TOKENS"
-            @fetch="fetchModels"
-            @changed="errors.models = ''"
-          />
-        </el-form-item>
-      </el-form>
-
-      <template #footer>
-        <el-button :disabled="!!busy" @click="dialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="busy === 'save'" :disabled="!!busy" @click="save">
-          {{ t('common.save') }}
-        </el-button>
-      </template>
-    </el-dialog>
+      :editing="editing"
+      :form="form"
+      :errors="errors"
+      :fetched="fetched"
+      :busy="busy"
+      :default-context-window="DEFAULT_CONTEXT_WINDOW"
+      :default-max-tokens="DEFAULT_MAX_TOKENS"
+      @fetch="fetchModels"
+      @clear-error="(f: 'name' | 'base_url' | 'models') => (errors[f] = '')"
+      @save="save"
+    />
   </div>
 </template>
 

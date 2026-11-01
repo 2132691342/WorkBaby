@@ -8,6 +8,7 @@ import { useToastStore } from '../../stores/toast'
 import { autostartGet, autostartSet, pickFolder } from '../../api/shell'
 import { LOCALES, setLocale, type Locale } from '../../i18n'
 import SettingsSection from './SettingsSection.vue'
+import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
@@ -29,7 +30,7 @@ async function pickWorkspace() {
     await settings.loadBoot()
     toast.ok(dir)
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   }
 }
 
@@ -58,7 +59,7 @@ async function toggleAutoStart() {
     await autostartSet(next)
     autoStart.value = next
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }

@@ -1,3 +1,4 @@
+import { errorText } from '../utils/errors'
 // 对话流状态：一次 run 的增量正文、工具卡、引擎提问卡与上下文水位都在这里落地。
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -24,6 +25,7 @@ import { useSettingsStore } from './settings'
 import { useToastStore } from './toast'
 import { i18n } from '../i18n'
 import { stripAnsi } from '../utils/text'
+import { useRunClock } from './runClock'
 
 /** 状态条的文案在 store 里也走 i18n：语言一换，提示条不能还是中文 */
 function tt(key: string, args?: Record<string, string | number>): string {
@@ -110,9 +112,7 @@ export const useChatStore = defineStore('chat', () => {
     // chat:start 可能已经先到（也可能被会话切换挤丢）：计时从那一边起算，
     // 两边都不设就永远停在 0s，用户会以为界面卡了。
     if (!startedAt.value) {
-      startedAt.value = Date.now()
-      elapsedSec.value = 0
-      startTicker()
+      restartClock()
     }
     return resp
   }
@@ -160,32 +160,18 @@ export const useChatStore = defineStore('chat', () => {
         useToastStore().info(tt('chat.askClosed'))
         return
       }
-      useToastStore().bad(tt('chat.askAnswerFailed', { msg: (e as Error)?.message || '' }))
+      useToastStore().bad(tt('chat.askAnswerFailed', { msg: errorText(e) }))
     }
   }
 
   // ---- 事件入口（SSE → store） ----
-  // run 开始时刻与本轮 token 读数：耗时读数由界面计时器消费
-  const startedAt = ref(0)
-  const elapsedSec = ref(0)
-  let tickTimer = 0
-  function startTicker() {
-    stopTicker()
-    tickTimer = window.setInterval(() => {
-      if (startedAt.value) elapsedSec.value = Math.round((Date.now() - startedAt.value) / 1000)
-    }, 1000)
-  }
-  function stopTicker() {
-    if (tickTimer) clearInterval(tickTimer)
-    tickTimer = 0
-  }
-
+  // ---- 事件入口（SSE → store） ----
+  // 本轮秒表：起跳 / 停表 / 读数都在 runClock 里，这里只用它。
+  const { startedAt, elapsedSec, stopTicker, restart: restartClock } = useRunClock()
   function onStart(_data: StartData) {
     running.value = true
     finalizing.value = false
-    startedAt.value = Date.now()
-    elapsedSec.value = 0
-    startTicker()
+    restartClock()
     retrying.value = false
     parts.value = []
     runMap.value = {}
@@ -214,9 +200,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!running.value) {
       running.value = true
       if (!startedAt.value) {
-        startedAt.value = Date.now()
-        elapsedSec.value = 0
-        startTicker()
+        restartClock()
       }
     }
     // 后端已剥离 ANSI；这里再兜一层——缓存里的旧响应与假后端都可能带着转义序列。
@@ -314,9 +298,7 @@ export const useChatStore = defineStore('chat', () => {
   function resumeRunning() {
     if (running.value || stopping.value) return
     running.value = true
-    startedAt.value = Date.now()
-    elapsedSec.value = 0
-    startTicker()
+    restartClock()
     notice.value = ''
   }
 

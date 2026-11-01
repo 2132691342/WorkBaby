@@ -5,6 +5,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppsStore, type MicroApp } from '../../stores/apps'
 import AppIcon from '../common/AppIcon.vue'
+import { errorText } from '../../utils/errors'
 
 const props = defineProps<{
   /** 要挂载的应用；为空时空态 */
@@ -66,7 +67,7 @@ async function mount() {
     apps.setState(app.app_name, {
       loading: false,
       mounted: false,
-      error: (e as Error)?.message || String(e),
+      error: errorText(e) || String(e),
     })
     emit('state', app.app_name, false)
   }

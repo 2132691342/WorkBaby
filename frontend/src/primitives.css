@@ -1,0 +1,64 @@
+/* 面基元与语义别名：主题令牌之上的最后一层命名。
+   本文件不含任何色值，全部引用 themes.css 的 --wb-*。
+   单独成文是为了让 themes.css 只谈「色与刻度」，谈「怎么用」的在这里。 */
+
+/* 语义别名（组件层只认这些名字） */
+:root {
+  --wb-c-bg: var(--wb-bg);
+  --wb-c-panel: var(--wb-panel);
+  --wb-c-card: var(--wb-elev-raised);
+  --wb-c-raise: var(--wb-raise);
+  --wb-c-line: var(--wb-line);
+  --wb-c-line-2: var(--wb-line-2);
+  --wb-c-ink: var(--wb-ink);
+  --wb-c-ink-2: var(--wb-ink-2);
+  --wb-c-ink-3: var(--wb-muted);
+  --wb-c-accent: var(--wb-primary);
+  --wb-c-accent-ink: var(--wb-primary-ink);
+  --wb-c-ok: var(--wb-success);
+  --wb-c-bad: var(--wb-danger);
+  --wb-c-warn: var(--wb-warning);
+}
+
+/* 面基元（唯一定义处）：结构面板 = 纯色底 + 1px 中性描边；弹层 / 输入 = 纯白底 + 深一档描边 + 浮层阴影。
+   组件不得自行拼 backdrop-filter 或写 rgba 白色描边。 */
+.wb-glass {
+  background: var(--wb-elev-raised);
+  border: 1px solid var(--wb-border);
+}
+.wb-glass-solid {
+  background: var(--wb-surface-solid);
+  border: 1px solid var(--wb-border-strong);
+  box-shadow: var(--wb-shadow-pop);
+}
+
+/* ============================================================
+   行内代码 / 路径：等宽 + 凹陷底（正文里的 token 观感）
+   ============================================================ */
+.wb-code-inline {
+  padding: 1px 5px;
+  border-radius: var(--wb-radius-xs);
+  background: var(--wb-raise);
+  border: 1px solid var(--wb-line);
+  color: var(--wb-ink-2);
+}
+
+/* ============================================================
+   用户自定义背景图（设置页 · 外观）
+   ============================================================ */
+body.has-custom-bg {
+  background-image: var(--wb-user-bg-url);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+body.has-custom-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: var(--wb-bg);
+  opacity: var(--wb-user-bg-opacity);
+  backdrop-filter: blur(var(--wb-user-bg-blur));
+  pointer-events: none;
+  z-index: -1;
+}

@@ -127,7 +127,7 @@
   padding: var(--wb-sp-3) var(--wb-sp-4);
   border: 1px solid var(--wb-border);
   border-left: 2px solid var(--wb-line-2);
-  border-radius: var(--wb-radius-md);
+  border-radius: var(--wb-radius);
   background: var(--wb-elev-raised);
   box-shadow: var(--wb-shadow-1);
   flex: 1;

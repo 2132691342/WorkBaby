@@ -86,17 +86,9 @@ pub fn collect_files(spec: &ServerSpec, root: &Path, limit: usize) -> Vec<std::p
     found.into_iter().map(|(_, p)| p).collect()
 }
 
-/// 探测某程序是否在 PATH 中（同步探测；Windows 用 where，其他用 which）。
+/// 探测某程序是否在 PATH 中（纯路径查找，不起子进程）。
 pub fn command_exists(command: &str) -> bool {
-    let probe = if cfg!(windows) { "where" } else { "which" };
-    std::process::Command::new(probe)
-        .arg(command)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    wb_pkg::proc::resolve_command(command).is_some()
 }
 
 /// 收集可用的语言服务器清单（界面展示用）。

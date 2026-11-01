@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorText } from '../../utils/errors'
 // 工具面板：清单来自内核注册表（内置工具 + MCP 工具），后端直接给数组；开关落设置库。
 // 长清单走分页，来源用行内标签区分；顶部是装载预设（loadout）一键切换。
 import { computed, onMounted, ref, watch } from 'vue'
@@ -67,7 +68,7 @@ async function reload() {
   try {
     data.value = await api.tools.list()
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   }
 }
 
@@ -85,9 +86,9 @@ async function applyPreset(name: string) {
   try {
     await api.loadout.apply(name)
     await Promise.all([reload(), reloadPresets()])
-    toast.ok(`已应用预设 ${name}`)
+    toast.ok(t('settings.tools.presetApplied', { name }))
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     presetBusy.value = false
   }
@@ -101,9 +102,9 @@ async function savePreset() {
     await api.loadout.save(name)
     presetName.value = ''
     await reloadPresets()
-    toast.ok(`预设 ${name} 已保存`)
+    toast.ok(t('settings.tools.presetSaved', { name }))
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     presetBusy.value = false
   }
@@ -116,7 +117,7 @@ async function removePreset(name: string) {
     await api.loadout.remove(name)
     await reloadPresets()
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     presetBusy.value = false
   }
@@ -132,7 +133,7 @@ async function toggle(tool: ToolVO) {
     await api.tools.toggle(tool.tool_name, !tool.tool_enabled)
     await reload()
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -166,7 +167,7 @@ onMounted(() => {
       </div>
 
       <div class="wb-card pad presets">
-        <span class="wb-label">装载预设</span>
+        <span class="wb-label">{{ t('settings.tools.presetLoad') }}</span>
         <el-tag
           v-for="p in presets"
           :key="p.loadout_name"
@@ -181,11 +182,11 @@ onMounted(() => {
           v-model="presetName"
           size="small"
           class="preset-new"
-          placeholder="存当前为预设…"
+          :placeholder="t('settings.tools.presetPlaceholder')"
           @keydown.enter="savePreset"
         />
         <el-button size="small" :loading="presetBusy" :disabled="!presetName.trim()" @click="savePreset">
-          保存
+          {{ t('settings.tools.presetSave') }}
         </el-button>
       </div>
 

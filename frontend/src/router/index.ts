@@ -14,19 +14,19 @@ const router = createRouter({
     { path: '/workspace', name: 'workspace', component: () => import('../views/WorkspaceView.vue') },
     { path: '/sessions', name: 'sessions', component: () => import('../views/SessionsView.vue') },
     { path: '/agents', name: 'agents', component: () => import('../views/AgentsView.vue') },
-    { path: '/graph', name: 'graph', component: () => import('../views/GraphView.vue') },
     { path: '/apps', name: 'apps', component: () => import('../views/AppsView.vue') },
     { path: '/models', name: 'models', component: () => import('../views/ModelsView.vue') },
     { path: '/skills', name: 'skills', component: () => import('../views/SkillsView.vue') },
     { path: '/plugins', name: 'plugins', component: () => import('../views/FeaturesView.vue') },
     { path: '/mcp', name: 'mcp', component: () => import('../views/McpView.vue') },
     { path: '/usage', name: 'usage', component: () => import('../views/DashboardView.vue') },
-    { path: '/files', name: 'files', component: () => import('../views/FilesView.vue') },
     { path: '/help/:name?', name: 'help', component: () => import('../views/HelpView.vue') },
+    // 设置是单页滚动，旧的板块路径一律落在同一处
     { path: '/settings/:tab?', name: 'settings', component: () => import('../views/SettingsView.vue') },
-    // 兼容旧入口：书签与托盘菜单里可能还留着 /features、/dashboard
+    // 兼容旧入口：文件已并入工作区，书签与托盘菜单里可能还留着 /files
     { path: '/features', redirect: '/plugins' },
     { path: '/dashboard', redirect: '/usage' },
+    { path: '/files', redirect: '/workspace' },
     { path: '/:pathMatch(.*)*', redirect: '/overview' },
   ],
 })

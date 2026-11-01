@@ -95,7 +95,7 @@ function open() {
   transform: scale(1.01);
 }
 .engine:active {
-  transform: scale(0.985);
+  transform: scale(var(--wb-row-scale-press));
 }
 .eg-head {
   display: flex;

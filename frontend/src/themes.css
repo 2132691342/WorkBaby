@@ -1,187 +1,5 @@
-/* 主题令牌：全项目唯一色值与尺寸刻度定义处，语义名一律 --wb-*，组件不写死色值。
-   设计语言（单色相紫罗兰五档、两套主题、三条纪律）见 DESIGN.md。 */
-
-/* ============================================================
-   刻度层：与主题无关的尺寸 / 字体 / 动效
-   ============================================================ */
-:root {
-  /* 字体三族（全站唯一来源，缺一个就是整条声明静默失效）：
-     正文 = 系统无衬线 + 中文黑体；标题/读数 = Bahnschrift（DIN 风）；路径 / ID / token = 等宽 */
-  --font-sans:
-    'Segoe UI Variable Text', 'Segoe UI', system-ui, 'Microsoft YaHei UI', 'Microsoft YaHei',
-    'PingFang SC', 'Noto Sans SC', sans-serif;
-  --font-display:
-    'Bahnschrift', 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'Microsoft YaHei UI',
-    'Microsoft YaHei', sans-serif;
-  --font-mono: 'Cascadia Mono', 'Consolas', 'JetBrains Mono', 'Sarasa Mono SC', monospace;
-
-  /* 界面可选字体族：设置页「字体」一项的取值表。
-     只改 --wb-font-ui，正文与标题仍走 --font-sans / --font-display，
-     这样换字体不会连等宽字体和标题风格一起换掉。 */
-  --wb-font-ui: var(--font-sans);
-
-  /* 全局字号缩放：外观设置只改这一个值，全站字号刻度等比跟随。
-     不引 CSS 引擎也不写 calc 包裹，直接乘系数——改一处就够。 */
-  --wb-fs-scale: 1;
-
-  /* 视口比例缩放：由 useViewportScale 按「窗口宽 ÷ 1440」写入，
-     上下限在 JS 侧鎖死（0.8~1.35）——分辨率不同的机器上整套刻度等比跟随，
-     组件层全部走令牌，无需改代码。缺省 1 保证不依赖 JS 也有一套可用尺寸。 */
-  --wb-vw-scale: 1;
-
-  /* 字号 8 级：字号 = 基准 × 用户字号缩放 × 视口比例。
-     变量里再乘 --wb-fs-scale 是为了让「外观设置只改一个值」继续成立。 */
-  --wb-fs-2xs: calc(10px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-fs-xs: calc(11px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-fs-sm: calc(12px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-fs-md: calc(13px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-fs-lg: calc(15px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-fs-xl: calc(20px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-fs-2xl: calc(28px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-fs-3xl: calc(32px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-lh-tight: 1.25;
-  --wb-lh-base: 1.6;
-  --wb-lh-loose: 1.75;
-  --wb-ls-plate: 0.08em;
-
-  /* 间距（4 的倍数）：全部随视口比例缩放 */
-  --wb-sp-1: calc(4px * var(--wb-vw-scale));
-  --wb-sp-2: calc(8px * var(--wb-vw-scale));
-  --wb-sp-3: calc(12px * var(--wb-vw-scale));
-  --wb-sp-4: calc(16px * var(--wb-vw-scale));
-  --wb-sp-5: calc(20px * var(--wb-vw-scale));
-  --wb-sp-6: calc(24px * var(--wb-vw-scale));
-  --wb-sp-8: calc(32px * var(--wb-vw-scale));
-  --wb-sp-10: calc(40px * var(--wb-vw-scale));
-  --wb-sp-12: calc(48px * var(--wb-vw-scale));
-
-  /* 圆角七档：控件的 8px 是基准档，卡片再上一级，弹窗封顶 16px。
-     高处不再往上加——20px 以上的圆角在小控件上会把方框读成胶囊。 */
-  --wb-radius-xs: calc(4px * var(--wb-vw-scale));
-  --wb-radius-sm: calc(6px * var(--wb-vw-scale));
-  --wb-radius: calc(8px * var(--wb-vw-scale));
-  --wb-radius-lg: calc(12px * var(--wb-vw-scale));
-  --wb-radius-xl: calc(14px * var(--wb-vw-scale));
-  --wb-radius-full: 999px;
-  --wb-radius-ctl: var(--wb-radius);
-
-  /* 控件高度 4 档 + 图标钮（组件禁止写裸像素高度） */
-  --wb-ctl-h-sm: calc(26px * var(--wb-vw-scale));
-  --wb-ctl-h: calc(34px * var(--wb-vw-scale));
-  --wb-ctl-h-lg: calc(38px * var(--wb-vw-scale));
-  --wb-ctl-h-xl: calc(44px * var(--wb-vw-scale));
-  --wb-ctl-icon: calc(32px * var(--wb-vw-scale));
-  --wb-switch-w: calc(48px * var(--wb-vw-scale));
-  --wb-switch-h: calc(26px * var(--wb-vw-scale));
-
-  /* 图标瓦片：卡片头的方块底（读数卡 / 空态 / 例句卡）。不是可点控件，
-     但同一组尺寸反复出现，散成裸像素就会各自漂，收口在这里。 */
-  --wb-tile-sm: calc(30px * var(--wb-vw-scale));
-  --wb-tile: calc(40px * var(--wb-vw-scale));
-  --wb-tile-lg: calc(52px * var(--wb-vw-scale));
-
-  --wb-fs-ctl: calc(12.5px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-fs-label: calc(12px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  --wb-fs-hint: calc(11px * var(--wb-fs-scale) * var(--wb-vw-scale));
-
-  /* 布局宽度 */
-  --wb-w-nav: calc(236px * var(--wb-vw-scale));
-  --wb-w-settings: calc(208px * var(--wb-vw-scale));
-  --wb-w-panel: calc(336px * var(--wb-vw-scale));
-  --wb-w-panel-wide: calc(420px * var(--wb-vw-scale));
-  --wb-w-read: calc(840px * var(--wb-vw-scale));
-  /* 消息列比输入框略宽：正文是主角，输入框不能反过来压过它 */
-  --wb-w-col: calc(900px * var(--wb-vw-scale));
-  /* 面板头部那段说明文字的排版宽度：四个指挥台面板都用它，
-     各自写一遍 560px 的话改一次要动四个文件 */
-  --wb-w-desc: calc(560px * var(--wb-vw-scale));
-  /* 标题栏中区（面包屑 / 页面名）的宽度上限 */
-  --wb-w-crumbs: calc(460px * var(--wb-vw-scale));
-
-  /* 小尺寸输入：设置页里「上下文窗口 / 温度 / Top P」这类窄数字框共用 */
-  --wb-w-input-sm: calc(96px * var(--wb-vw-scale));
-
-  /* 消息头像（正方形）。助手正文列 = 头像 + 间距，
-     纯思考回合与工具组都要按这个缩进对齐，缩进值不散落在组件里。 */
-  --wb-avatar-size: calc(26px * var(--wb-vw-scale));
-
-  /* 动效三档：只解释状态变化，不做装饰 */
-  --wb-dur-fast: 110ms;
-  --wb-dur: 160ms;
-  --wb-dur-slow: 240ms;
-  --wb-ease: cubic-bezier(0.2, 0.6, 0.3, 1);
-
-  /* 按钮形变刻度：悬停放大 / 按下缩小。幅度决定“点击感”强度，
-     太大显轻浮、太小无感；1.06 / 0.92 是全站统一值，Element Plus 按钮与
-     自绘按钮必须共用，否则并排时两种手感对不上。 */
-  --wb-btn-scale-hover: 1.06;
-  --wb-btn-scale-press: 0.92;
-  /* 自绘按钮的按压深度（阴影收窄量），让“按下去”有实体感 */
-  --wb-btn-press-depth: 1px;
-
-  --wb-z-panel: 20;
-  --wb-z-pop: 60;
-  --wb-z-modal: 80;
-  --wb-z-toast: 100;
-
-  /* 图标笔画重量：24 viewBox 线性图标在 14~18px 下的最优观感区间（细而不虚） */
-  --wb-icon-stroke: 1.7;
-  --wb-icon-stroke-strong: 2;
-
-  /* 用户自定义背景图（设置页外观） */
-  --wb-user-bg-url: none;
-  --wb-user-bg-opacity: 1;
-  --wb-user-bg-blur: 0px;
-
-  /* 欢迎页光晕的几何参数：两套主题同形。mask-ink 只给 mask 提供不透明中心点
-     （吃的是 alpha，不参与着色），放主题块里漏掉一套就是光晕静默消失。 */
-  --wb-aura-blur: 100px;
-  --wb-mask-ink: #000;
-
-  /* 主题预览色：不随当前主题变化，两张主题卡各自显示自己的强调色 */
-  --wb-swatch-light: #6366f1;
-  --wb-swatch-dark: #818cf8;
-
-  /* 品牌阶梯五档（indigo）：整套界面与图表的全部色值来源。
-     1 = 动作 #6366f1（主按钮 / 选中 / 图表主序列），2 = 活动 #818cf8（流式 / 状态灯 / 图标瓦片底），
-     3 = 淡强调 #e0e7ff（hover 淡底 / 标签底 / 图表第三序列），
-     4 = 更淡的底 #f8fafc（选中淡底 / 提示条底），5 = 中性深 #1e293b（标题 / 实底反色按钮 / 图表第四序列）。
-     只有这一个色相，明度分层是唯一的强弱手段（见 DESIGN.md）。 */
-  --wb-brand-1: #6366f1;
-  --wb-brand-2: #818cf8;
-  --wb-brand-3: #e0e7ff;
-  --wb-brand-4: #f8fafc;
-  --wb-brand-5: #1e293b;
-
-  /* 轻档主操作（新对话等次级 CTA）：淡靛实底 + 深靛字。
-     与实底主按钮同屏时不竞争——一屏只允许一枚重档。 */
-  --wb-lav-cta: #e0e7ff;
-  --wb-on-lav: #3730a3;
-
-  /* 应用壳栅格：顶栏 / 侧栏 / 内容区页头。全部随视口比例缩放。 */
-  --wb-h-titlebar: calc(48px * var(--wb-vw-scale));
-  --wb-w-side: calc(232px * var(--wb-vw-scale));
-  /* 一级导航 rail：62px 只放图标 + 一行短标签，宽了就变成第二根侧栏 */
-  --wb-w-rail: calc(62px * var(--wb-vw-scale));
-  /* 二级目录：rail 已在左侧占位，这里再宽就是两根侧栏并排了 */
-  --wb-w-subside: calc(188px * var(--wb-vw-scale));
-  --wb-h-pagehead: calc(60px * var(--wb-vw-scale));
-
-  /* 圆角七档：控件用 radius 一档，卡片用 xl，整块面板用 2xl。 */
-  --wb-radius-2xl: calc(16px * var(--wb-vw-scale));
-
-  /* 字号补两档：读数大数字与页标题 */
-  --wb-fs-display: calc(36px * var(--wb-fs-scale) * var(--wb-vw-scale));
-  /* rail 短标签：比 2xs 再小一档，两字中文竖排时不撑破 60px 宽 */
-  --wb-fs-3xs: calc(10px * var(--wb-fs-scale) * var(--wb-vw-scale));
-
-  /* 动效补一档慢速：整块视图进出与卡片入场 */
-  --wb-dur-slower: 320ms;
-  --wb-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-
-  /* 图表序列第 5 档与 4 档之间的过渡色；占比环超过四段时用它兜底 */
-  --wb-ch-5: #a5b4fc;
-}
+/* 主题令牌：全项目唯一色值定义处，语义名一律 --wb-*，组件不写死色值。
+   尺寸刻度在同目录的 scale.css；设计语言见 DESIGN.md。 */
 
 /* ============================================================
    浅白 · 石板（默认主题：data-theme 缺失时同样生效）
@@ -191,7 +9,28 @@
 [data-theme='light'] {
   color-scheme: light;
 
-  --wb-bg: #f8fafc;
+  /* 五档靛蓝 / 石板：全站唯一色源。
+     1 = 动作 #6366f1（主按钮 / 选中 / 图表主序列）
+     2 = 活动 #818cf8（流式光标 / 运行灯 / 图表次序列）
+     3 = 淡强调 #e0e7ff（hover 淡底 / 标签底 / 用户气泡）
+     4 = 页底 #f8fafc（窗口 / 工作区底色）
+     5 = 正文 #1e293b（标题 / 实底反色按钮）
+     只有这一个色相，明度分层是唯一的强弱手段；1 与 2 的分工是「动作」与「活动」。 */
+  --saas_dashboard-color-1: #6366f1;
+  --saas_dashboard-color-2: #818cf8;
+  --saas_dashboard-color-3: #e0e7ff;
+  --saas_dashboard-color-4: #f8fafc;
+  --saas_dashboard-color-5: #1e293b;
+
+  /* 品牌阶梯就是上面五档的别名，组件只认这两个名字之一。
+     阶梯本身不存新色值，否则调一次色要改两处，漏一处就是半套界面变了色。 */
+  --wb-brand-1: var(--saas_dashboard-color-1);
+  --wb-brand-2: var(--saas_dashboard-color-2);
+  --wb-brand-3: var(--saas_dashboard-color-3);
+  --wb-brand-4: var(--saas_dashboard-color-4);
+  --wb-brand-5: var(--saas_dashboard-color-5);
+
+  --wb-bg: var(--wb-brand-4);
   --wb-page-gradient: none;
 
   /* 表面阶梯：相邻两级只差 2%~5% 亮度，读起来是一片连续工作区而不是卡片叠卡片。
@@ -233,15 +72,17 @@
   --wb-border: var(--wb-line);
   --wb-border-strong: var(--wb-line-2);
 
-  /* 正文与标题走中性深 #1e293b：层次交给字号与字重，不靠灰度差区分。 */
-  --wb-ink: #1e293b;
+  /* 正文与标题走品牌 5 档：层次交给字号与字重，不靠灰度差区分。 */
+  --wb-ink: var(--saas_dashboard-color-5);
   --wb-ink-2: #334155;
   --wb-muted: #64748b;
+  /* 最弱一级文字：尾注、面包屑分隔符这类「在场但不抢」的读数 */
+  --wb-faint: #94a3b8;
 
-  /* 动作色：靛蓝 #6366f1（实底白字达标），文字 / 描边同色系靠明度分四级 */
-  --wb-primary: #6366f1;
+  /* 动作色：靛蓝（品牌 1 档，实底白字达标），文字 / 描边同色系靠明度分四级 */
+  --wb-primary: var(--wb-brand-1);
   --wb-primary-strong: #4f46e5;
-  --wb-primary-deep: #6366f1;
+  --wb-primary-deep: var(--saas_dashboard-color-1);
   --wb-primary-soft: rgba(99, 102, 241, 0.1);
   --wb-primary-line: rgba(99, 102, 241, 0.35);
   --wb-primary-ink: #ffffff;
@@ -251,18 +92,19 @@
   --wb-accent-tint-strong: rgba(99, 102, 241, 0.18);
   --wb-accent-border: rgba(99, 102, 241, 0.3);
 
-  /* 活动色：淡靛 #818cf8。只给「正在发生的事」——流式光标、运行灯、思考中；
+  /* 活动色：品牌 2 档。只给「正在发生的事」——流式光标、运行灯、思考中；
      1 档与 2 档分工是「动作」与「活动」之分，不混用 */
-  --wb-live: #818cf8;
+  --wb-live: var(--wb-brand-2);
   --wb-live-soft: rgba(129, 140, 248, 0.14);
   --wb-live-line: rgba(129, 140, 248, 0.4);
 
   /* 图表：靛蓝为唯一色相，明度递减排出四档序列。
      三、四档就是品牌阶梯本身，不用中性灰——灰会让占比环看起来像「没有数据」 */
-  --wb-ch-1: #6366f1;
-  --wb-ch-2: #818cf8;
-  --wb-ch-3: #e0e7ff;
+  --wb-ch-1: var(--saas_dashboard-color-1);
+  --wb-ch-2: var(--saas_dashboard-color-2);
+  --wb-ch-3: var(--saas_dashboard-color-3);
   --wb-ch-4: #c7d2fe;
+  --wb-ch-5: #a5b4fc;
 
   /* 状态色只留给「通过 / 出错」，降饱和，不与主色抢 */
   --wb-success: #15803d;
@@ -271,17 +113,17 @@
   --wb-danger-soft: rgba(220, 38, 38, 0.1);
   --wb-warning: #b45309;
   --wb-warning-soft: rgba(180, 83, 9, 0.12);
-  --wb-info: #6366f1;
+  --wb-info: var(--saas_dashboard-color-1);
 
   --wb-mint: var(--wb-success);
   --wb-mint-strong: #166534;
   /* 装饰色统一收口到两档靛与中性阶 */
-  --wb-lavender: #e0e7ff;
-  --wb-sky: #818cf8;
+  --wb-lavender: var(--saas_dashboard-color-3);
+  --wb-sky: var(--saas_dashboard-color-2);
   --wb-lemon: #b45309;
 
   --wb-sel: rgba(99, 102, 241, 0.12);
-  --wb-user-bubble: #e0e7ff;
+  --wb-user-bubble: var(--saas_dashboard-color-3);
 
   /* 阴影极轻：只用来「托一下」，不用来「发光」 */
   --wb-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);
@@ -357,11 +199,22 @@
   color-scheme: dark;
 
   /* 品牌阶梯在暗底下整体提明：1/2 两档换成淡靛 / 亮靛，
-     四档之间始终是「递亮」，不会出现深靛压在深底上读不出的序列 */
-  --wb-brand-1: #818cf8;
-  --wb-brand-2: #a5b4fc;
+     相邻两档始终是「递亮」，不会出现深靛压在深底上读不出的序列。
+     同样只在这里定义一次，--wb-brand-* 只做别名。 */
+  --saas_dashboard-color-1: #818cf8;
+  --saas_dashboard-color-2: #a5b4fc;
+  --saas_dashboard-color-3: #3730a3;
+  --saas_dashboard-color-4: #0f172a;
+  --saas_dashboard-color-5: #e2e8f0;
 
-  --wb-bg: #0f172a;
+  /* 品牌阶梯在暗底下整体提明 */
+  --wb-brand-1: var(--saas_dashboard-color-1);
+  --wb-brand-2: var(--saas_dashboard-color-2);
+  --wb-brand-3: var(--saas_dashboard-color-3);
+  --wb-brand-4: var(--saas_dashboard-color-4);
+  --wb-brand-5: var(--saas_dashboard-color-5);
+
+  --wb-bg: var(--saas_dashboard-color-4);
   --wb-page-gradient: none;
 
   /* 深色同样走六级阶梯：由外向内逐级抬 2%~5% 亮度 */
@@ -401,11 +254,12 @@
   --wb-ink: #e2e8f0;
   --wb-ink-2: #cbd5e1;
   --wb-muted: #94a3b8;
+  --wb-faint: #64748b;
 
-  /* 动作色：亮靛做文字与描边（暗底达标），#6366f1 做实底按钮（白字对比够） */
-  --wb-primary: #a5b4fc;
+  /* 动作色：品牌 1 档做文字与描边（暗底达标），品牌 1 档深色做实底按钮（白字对比够） */
+  --wb-primary: var(--wb-brand-1);
   --wb-primary-strong: #c7d2fe;
-  --wb-primary-deep: #6366f1;
+  --wb-primary-deep: var(--saas_dashboard-color-1);
   --wb-primary-soft: rgba(129, 140, 248, 0.18);
   --wb-primary-line: rgba(129, 140, 248, 0.45);
   --wb-primary-ink: #ffffff;
@@ -415,15 +269,16 @@
   --wb-accent-border: rgba(129, 140, 248, 0.42);
   --wb-accent-glow: rgba(129, 140, 248, 0.28);
 
-  /* 活动色：亮靛，暗底上的饱和信号色 */
-  --wb-live: #a5b4fc;
+  /* 活动色：品牌 2 档，暗底上的饱和信号色 */
+  --wb-live: var(--wb-brand-2);
   --wb-live-soft: rgba(165, 180, 252, 0.16);
   --wb-live-line: rgba(165, 180, 252, 0.45);
 
-  --wb-ch-1: #818cf8;
-  --wb-ch-2: #a5b4fc;
-  --wb-ch-3: #6366f1;
+  --wb-ch-1: var(--saas_dashboard-color-1);
+  --wb-ch-2: var(--saas_dashboard-color-2);
+  --wb-ch-3: var(--saas_dashboard-color-1);
   --wb-ch-4: #c7d2fe;
+  --wb-ch-5: #c7d2fe;
 
   --wb-success: #4ade80;
   --wb-success-soft: rgba(74, 222, 128, 0.12);
@@ -431,12 +286,12 @@
   --wb-danger-soft: rgba(248, 113, 113, 0.12);
   --wb-warning: #fbbf24;
   --wb-warning-soft: rgba(251, 191, 36, 0.12);
-  --wb-info: #818cf8;
+  --wb-info: var(--saas_dashboard-color-2);
 
   --wb-mint: var(--wb-success);
   --wb-mint-strong: #86efac;
-  --wb-lavender: #a5b4fc;
-  --wb-sky: #a5b4fc;
+  --wb-lavender: var(--saas_dashboard-color-2);
+  --wb-sky: var(--saas_dashboard-color-2);
   --wb-lemon: #fbbf24;
 
   --wb-sel: rgba(129, 140, 248, 0.22);
@@ -483,8 +338,6 @@
   --wb-icon-stroke: 1.85;
   --wb-icon-stroke-strong: 2.1;
 
-  --wb-ch-5: #c7d2fe;
-
   --wb-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --wb-card-shadow-hover: 0 6px 18px -8px rgba(0, 0, 0, 0.6), 0 1px 3px rgba(0, 0, 0, 0.35);
 
@@ -519,63 +372,3 @@ body {
   font-family: var(--wb-font-ui);
 }
 
-/* 语义别名（组件层只认这些名字） */
-:root {
-  --wb-c-bg: var(--wb-bg);
-  --wb-c-panel: var(--wb-panel);
-  --wb-c-card: var(--wb-elev-raised);
-  --wb-c-raise: var(--wb-raise);
-  --wb-c-line: var(--wb-line);
-  --wb-c-line-2: var(--wb-line-2);
-  --wb-c-ink: var(--wb-ink);
-  --wb-c-ink-2: var(--wb-ink-2);
-  --wb-c-ink-3: var(--wb-muted);
-  --wb-c-accent: var(--wb-primary);
-  --wb-c-accent-ink: var(--wb-primary-ink);
-  --wb-c-ok: var(--wb-success);
-  --wb-c-bad: var(--wb-danger);
-  --wb-c-warn: var(--wb-warning);
-}
-
-/* 面基元（唯一定义处）：结构面板 = 纯色底 + 1px 中性描边；弹层 / 输入 = 纯白底 + 深一档描边 + 浮层阴影。
-   组件不得自行拼 backdrop-filter 或写 rgba 白色描边。 */
-.wb-glass {
-  background: var(--wb-elev-raised);
-  border: 1px solid var(--wb-border);
-}
-.wb-glass-solid {
-  background: var(--wb-surface-solid);
-  border: 1px solid var(--wb-border-strong);
-  box-shadow: var(--wb-shadow-pop);
-}
-
-/* ============================================================
-   行内代码 / 路径：等宽 + 凹陷底（正文里的 token 观感）
-   ============================================================ */
-.wb-code-inline {
-  padding: 1px 5px;
-  border-radius: var(--wb-radius-xs);
-  background: var(--wb-raise);
-  border: 1px solid var(--wb-line);
-  color: var(--wb-ink-2);
-}
-
-/* ============================================================
-   用户自定义背景图（设置页 · 外观）
-   ============================================================ */
-body.has-custom-bg {
-  background-image: var(--wb-user-bg-url);
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
-}
-body.has-custom-bg::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: var(--wb-bg);
-  opacity: var(--wb-user-bg-opacity);
-  backdrop-filter: blur(var(--wb-user-bg-blur));
-  pointer-events: none;
-  z-index: -1;
-}

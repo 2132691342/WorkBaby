@@ -9,12 +9,32 @@ export default {
     tagline: '会干活的个人 AI 工作台',
   },
 
-  // ---- 文档预览与图谱 ----
+  // ---- 启动与网络：这两层出错时界面还没渲染完，文案也得先就位 ----
+  net: {
+    badStatus: '本地服务返回了异常状态 {status}',
+    timeout: '本地服务长时间没有响应，请重试一次',
+    unreachable: '连不上本地服务（{base}）。请检查是否残留了旧版进程，或代理软件拦截了本机回环地址',
+    noHandshake: '尚未握手',
+    emptyBody: '后端没有返回数据',
+    requestFailed: '请求失败',
+  },
+  // ---- 格式化单位：中文跟单位，英文跟缩写 ----
+  time: {
+    justNow: '刚刚',
+    minutesAgo: '{n} 分钟前',
+    yesterday: '昨天',
+    daysAgo: '{n} 天前',
+    monthDay: '{month}月{day}日',
+  },
+  num: {
+    millis: '{n} 毫秒',
+    seconds: '{n} 秒',
+  },
+
+  // ---- 文档预览 ----
   common: {
     docEmpty: '这份表格没有可显示的数据',
     docUnsupported: '不支持预览这种文件格式',
-    bpmnEmpty: '还没有工作流定义',
-    bpmnInvalid: '工作流定义解析失败',
     ok: '确定',
     cancel: '取消',
     save: '保存',
@@ -80,6 +100,9 @@ export default {
     quit: '退出应用',
     retryHint: '重试',
     toTray: '已收进托盘，点右下角图标重新打开',
+    noService: '本地服务没有响应。可能残留了旧版 WorkBaby 进程占用，请先在任务管理器里结束它再重试。',
+    noShell: '未检测到桌面壳。浏览器直开调试请先设置 localStorage.wb_dev_port 指向已启动的后端端口。',
+    startupFailed: '后端启动失败，请查看日志目录里的 app.log',
   },
 
   nav: {
@@ -93,10 +116,8 @@ export default {
     usage: '用量',
     plugins: '插件',
     skills: '技能',
-    files: '文件',
     sessions: '会话',
     agents: '子代理',
-    graph: '图谱',
     apps: '外部应用',
     dashboard: '仪表盘',
     help: '帮助',
@@ -119,10 +140,8 @@ export default {
     usage: '用量',
     plugins: '插件',
     skills: '技能',
-    files: '文件',
     sessions: '会话',
     agents: '子代理',
-    graph: '图谱',
     apps: '应用',
     dashboard: '用量',
     help: '帮助',
@@ -158,6 +177,16 @@ export default {
 
 
   // ---- 子代理观测页 ----
+  // ---- 思考档：档位名与长度正相关，一眼看出哪个更深 ----
+  thinking: {
+    off: '不思考',
+    minimal: '极少',
+    low: '少',
+    medium: '中',
+    high: '多',
+    xhigh: '很多',
+    max: '拉满',
+  },
   agents: {
     title: '子代理',
     desc: '模型派出去的执行单元——它们在独立会话里干活，这里能看见全过程',
@@ -181,6 +210,35 @@ export default {
       worker: '执行',
       reviewer: '审查',
     },
+  },
+  apps: {
+    title: '外部应用',
+    desc: '把你自己的前端挂进来：登记入口、隔离运行、随时停用',
+    add: '登记应用',
+    empty: '还没有登记任何应用',
+    name: '应用名',
+    namePlaceholder: '唯一标识，如 report-center',
+    entry: '入口',
+    entryPlaceholder: 'https://example.com/app/ 或 D:/apps/report/',
+    entryHint:
+      'http(s) 从远端加载；本地目录需要由本地服务代服（index.html 与 bundle 在应用根下可访问）。',
+    entryInvalid: '入口必须是 http(s) 地址或绝对本地路径',
+    container: '挂载容器选择器',
+    containerPlaceholder: '留空即用内置容器',
+    containerHint: '留空就行；只有应用必须挂在某个特定位置时才填 CSS 选择器。',
+    note: '备注',
+    enabled: '启用',
+    pick: '选目录',
+    pickEntry: '选择应用目录',
+    nameRequired: '应用名不能为空',
+    entryRequired: '入口不能为空',
+    removeTitle: '移除这条登记？',
+    dupName: '已经有一个叫 {name} 的应用了',
+    noSelection: '在左侧选一个应用',
+    noSelectionHint: '选中的应用在这里运行；停用的应用不会被加载。',
+    loading: '加载中',
+    mounted: '已挂载',
+    loadFailed: '加载失败',
   },
   ...chatCopy,
   ...pages,

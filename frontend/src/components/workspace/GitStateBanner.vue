@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorText } from '../../utils/errors'
 // 中间状态横幅：合并 / 变基 / 拣选 / 回退没做完时顶在最上面。
 // 这时 git 拒绝大多数写入，用户必须知道「继续」还是「中止」，否则页面看起来只是坏了。
 import { computed, ref } from 'vue'
@@ -41,7 +42,7 @@ async function act(action: 'continue' | 'abort') {
     emit('done', await api.git.state(action, props.sessionId))
     toast.ok(action === 'continue' ? t('workspace.stateContinueOk') : t('workspace.stateAbortOk'))
   } catch (e) {
-    toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     busy.value = ''
   }

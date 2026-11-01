@@ -1,3 +1,4 @@
+import { errorText } from '../utils/errors'
 // 全局设置与引导数据：外观取值、模型服务与首屏预热清单的共享状态。
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
@@ -23,7 +24,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const error = ref('')
 
   function fail(e: unknown) {
-    error.value = (e as Error)?.message || i18n.global.t('common.loadFailed', { msg: '' })
+    error.value = errorText(e) || i18n.global.t('common.loadFailed', { msg: '' })
   }
 
   // 只重读设置表：主题、字体、字号只依赖它，不该被别的子项连坐。
@@ -115,7 +116,7 @@ export const useSettingsStore = defineStore('settings', () => {
     } catch (e) {
       values.value = { ...values.value, [key]: prev }
       useToastStore().bad(
-        i18n.global.t('common.saveFailed', { msg: (e as Error)?.message || '' }),
+        i18n.global.t('common.saveFailed', { msg: errorText(e) }),
       )
       throw e
     }

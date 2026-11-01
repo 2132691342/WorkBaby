@@ -1,3 +1,4 @@
+import { errorText } from './utils/errors'
 // 应用入口：装配状态、路由、样式并挂载根组件。
 import { createPinia } from 'pinia'
 import { computed, createApp } from 'vue'
@@ -8,7 +9,9 @@ import router from './router'
 import { i18n } from './i18n'
 import './bootstrap'
 import { useToastStore } from './stores/toast'
+import './scale.css'
 import './themes.css'
+import './primitives.css'
 import './base.css'
 import './buttons.css'
 import './ep-theme.css'
@@ -25,7 +28,11 @@ const app = createApp(App)
 app.config.errorHandler = (err, _inst, info) => {
   console.error('[WorkBaby]', info, err)
   try {
-    useToastStore().bad(`界面出现异常：${(err as Error)?.message || '请重启应用'}`)
+    // 它可能在 pinia/i18n 装好之前就触发，所以先判可用性再取文案
+    const fallback = 'The UI hit an error; please restart the app'
+    const t = i18n.global.t
+    const msg = t('errors.renderCrashed', { msg: errorText(err) || fallback })
+    useToastStore().bad(msg)
   } catch {
     /* toast 还没装好（pinia 之前）：只落 console */
   }

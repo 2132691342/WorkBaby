@@ -9,6 +9,7 @@ import type { MCPListRESP, MCPServerVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import CodeEditor from '../common/CodeEditor.vue'
 import SettingsSection from './SettingsSection.vue'
+import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
 const toast = useToastStore()
@@ -32,7 +33,7 @@ async function reload() {
     data.value = await api.mcp.list()
     raw.value = scope.value === 'global' ? data.value.resp_global_raw || '{}' : data.value.resp_workspace_raw || '{}'
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   }
 }
 
@@ -48,7 +49,7 @@ async function save() {
     await reload()
     toast.ok(t('settings.mcp.saved'))
   } catch (e) {
-    toast.bad((e as Error)?.message || t('settings.mcp.invalidJson'))
+    toast.bad(errorText(e) || t('settings.mcp.invalidJson'))
   } finally {
     busy.value = ''
   }
@@ -62,7 +63,7 @@ async function refresh() {
     await reload()
     toast.ok(t('settings.mcp.reloaded'))
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -76,7 +77,7 @@ async function remove(s: MCPServerVO) {
     await reload()
     toast.ok(`${t('common.remove')} ${s.mcp_name}`)
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }
@@ -89,7 +90,7 @@ async function login(s: MCPServerVO) {
     await api.mcp.login(s.mcp_name)
     toast.info(t('settings.mcp.login'))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = ''
   }

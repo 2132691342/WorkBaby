@@ -89,7 +89,7 @@ const { t } = useI18n()
   transform: scale(1.06);
 }
 .attach-x:active {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .attach-tip {
   font-size: var(--wb-fs-2xs);

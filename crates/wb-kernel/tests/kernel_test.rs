@@ -1,212 +1,16 @@
-//! wb-kernel 长链路测试：内核循环、会话树持久化、子代理。脚本化假 Provider 回放事件流，断言集中在事件顺序契约、落盘回放与上下文隔离。
+//! 内核场景测试：一轮对话的循环与工具批、并发分组、回放补齐、
+//! 会话树持久化与分支、压缩、子代理隔离与续跑回退。
+//!
+//! 断言集中在「事件顺序」与「写进去读回来一字不差」两条契约上——前者是界面时序的契约，
+//! 后者是会话文件作为唯一真相的契约，任一被破坏都是行为变了。
+
+mod common;
 
 use std::path::Path;
+
+use common::*;
 use std::sync::{Arc, Mutex};
 
-use async_trait::async_trait;
-use futures::stream;
-use tokio_util::sync::CancellationToken;
-use wb_kernel::{AgentConfig, KernelEvent, SubagentConfig};
-use wb_provider::{
-    ContentPart, ModelClient, ModelEvent, ProviderStream, ReqMessage, Role, StopReason,
-    StreamRequest, ThinkingLevel, ToolCallDone, Usage,
-};
-use wb_tools::{Tool, ToolOutput, ToolRegistry};
-
-fn delta(t: &str) -> ModelEvent {
-    ModelEvent::TextDelta(0, t.into())
-}
-
-fn tool_end(idx: usize, id: &str, args: &str) -> ModelEvent {
-    ModelEvent::ToolCallEnd(
-        idx,
-        ToolCallDone {
-            call_id: id.into(),
-            name: "echo".into(),
-            arguments: args.into(),
-        },
-    )
-}
-
-fn done(input: i64, stop: StopReason) -> ModelEvent {
-    ModelEvent::Done(
-        Usage {
-            input,
-            ..Default::default()
-        },
-        stop,
-    )
-}
-
-fn tool_use() -> ModelEvent {
-    done(0, StopReason::ToolUse)
-}
-
-/// 脚本化假 Provider：stream() 弹出一段预设事件流，并记录收到的请求。
-struct FakeProvider {
-    turns: Mutex<Vec<Vec<ModelEvent>>>,
-    seen: Mutex<Vec<StreamRequest>>,
-}
-
-impl FakeProvider {
-    fn new(turns: Vec<Vec<ModelEvent>>) -> Arc<Self> {
-        Arc::new(Self {
-            turns: Mutex::new(turns),
-            seen: Mutex::new(Vec::new()),
-        })
-    }
-
-    fn first_system_text(&self) -> String {
-        let seen = self.seen.lock().unwrap();
-        let StreamRequest { messages, .. } = &seen[0];
-        let ReqMessage {
-            role: Role::System,
-            parts,
-            ..
-        } = &messages[0]
-        else {
-            panic!("首条应是系统消息");
-        };
-        parts
-            .iter()
-            .map(|p| match p {
-                ContentPart::Text(t) => t.clone(),
-                _ => String::new(),
-            })
-            .collect()
-    }
-}
-
-#[async_trait]
-impl ModelClient for FakeProvider {
-    async fn stream(
-        &self,
-        req: StreamRequest,
-        _cancel: CancellationToken,
-    ) -> wb_pkg::Result<ProviderStream> {
-        self.seen.lock().unwrap().push(req);
-        let next = self.turns.lock().unwrap().pop();
-        let script = next.unwrap_or_else(|| vec![done(0, StopReason::Stop)]);
-        Ok(Box::pin(stream::iter(script)))
-    }
-}
-
-/// 回声工具：原样返回输入。
-struct EchoTool;
-
-#[async_trait]
-impl Tool for EchoTool {
-    fn name(&self) -> &str {
-        "echo"
-    }
-    fn label(&self) -> &str {
-        "回声"
-    }
-    fn description(&self) -> &str {
-        "原样返回输入文本"
-    }
-    fn parameters(&self) -> serde_json::Value {
-        serde_json::json!({"type":"object","properties":{"text":{"type":"string"}},"required":["text"]})
-    }
-    async fn execute(
-        &self,
-        args: serde_json::Value,
-        _cancel: CancellationToken,
-        _workdir: &Path,
-    ) -> wb_pkg::Result<ToolOutput> {
-        Ok(ToolOutput {
-            text: args
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .into(),
-            is_error: false,
-            duration_ms: 1,
-        })
-    }
-}
-
-fn event_name(ev: &KernelEvent) -> &'static str {
-    match ev {
-        KernelEvent::AgentStart { .. } => "agent_start",
-        KernelEvent::TurnStart => "turn_start",
-        KernelEvent::MessageEnd { .. } => "message_end",
-        KernelEvent::TextDelta { .. } => "text_delta",
-        KernelEvent::ThinkingDelta { .. } => "thinking_delta",
-        KernelEvent::ToolExecutionStart { .. } => "tool_start",
-        KernelEvent::ToolExecutionEnd { .. } => "tool_end",
-        KernelEvent::TurnEnd { .. } => "turn_end",
-        KernelEvent::CompactionStart { .. } => "compaction_start",
-        KernelEvent::CompactionEnd { .. } => "compaction_end",
-        KernelEvent::AutoRetry { .. } => "retry",
-        KernelEvent::AssistantFinal { .. } => "assistant_final",
-        KernelEvent::AgentEnd { .. } => "agent_end",
-        KernelEvent::Settled { .. } => "settled",
-        KernelEvent::Failed { .. } => "failed",
-    }
-}
-
-fn temp_dir(tag: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("wb_kernel_{tag}_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn agent_cfg(provider: Arc<FakeProvider>) -> AgentConfig {
-    let mut registry = ToolRegistry::new();
-    registry.register(Arc::new(EchoTool));
-    AgentConfig {
-        client: provider,
-        registry: Arc::new(registry),
-        enabled_tools: vec!["echo".into()],
-        system_prompt: "你是测试助手".into(),
-        provider_id: "test".into(),
-        model_id: "fake-model".into(),
-        context_window: 100_000,
-        max_tokens: 1024,
-        thinking: ThinkingLevel::Off,
-        max_retries: 0,
-        reinforce: None,
-        workdir: temp_dir("cfg"),
-    }
-}
-
-fn load_session(dir: &Path) -> wb_kernel::SessionFile {
-    let file = std::fs::read_dir(dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|x| x == "jsonl"))
-        .expect("应有会话文件");
-    wb_kernel::SessionFile::load(&file).expect("会话文件应可加载")
-}
-
-fn role_names(msgs: &[wb_kernel::Msg]) -> Vec<&'static str> {
-    msgs.iter()
-        .map(|m| match m {
-            wb_kernel::Msg::User { .. } => "user",
-            wb_kernel::Msg::Assistant { .. } => "assistant",
-            wb_kernel::Msg::ToolResult { .. } => "tool",
-        })
-        .collect()
-}
-
-fn sub_cfg(tmp: &Path, tools: &[&str]) -> SubagentConfig {
-    SubagentConfig {
-        parent_session_id: "SESS_parent".into(),
-        role_code: "worker".into(),
-        role_prompt: String::new(),
-        task: "干活".into(),
-        tool_names: tools.iter().map(|t| t.to_string()).collect(),
-        sessions_dir: tmp.to_path_buf(),
-        workspace: "D:/ws".into(),
-        max_turns: 8,
-        observe: None,
-    }
-}
-
-/// 内核循环全链路：单工具批的事件顺序契约 + 并行工具批一个不能少。
 #[tokio::test]
 async fn agent_loop_replays_tool_batches_end_to_end() {
     let tmp = temp_dir("run");
@@ -311,162 +115,8 @@ async fn agent_loop_replays_tool_batches_end_to_end() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// 会话文件语义：追加 → 重载 → 回放一字不差；压缩以摘要替代早期历史；ContextEdit 把目标条目从回放摘掉。
-#[test]
-fn session_file_survives_reload_compaction_and_context_edit() {
-    let dir = temp_dir("session");
-    let mut sf = wb_kernel::SessionFile::create(&dir, "D:\\t", "SESS_TEST");
-    let user = |text: &str, ts: i64| wb_kernel::Entry::Message {
-        message: wb_kernel::Msg::User {
-            content: text.into(),
-            timestamp: ts,
-        },
-    };
-    sf.append(user("hi", 1)).unwrap();
-    sf.append(wb_kernel::Entry::Message {
-        message: wb_kernel::Msg::Assistant {
-            content: vec![wb_kernel::Block::Text {
-                text: "hello".into(),
-            }],
-            provider_id: "p".into(),
-            model_id: "m".into(),
-            message_id: "MSG_1".into(),
-            usage: None,
-            stop_reason: "stop".into(),
-            timestamp: 2,
-            duration_ms: 5,
-        },
-    })
-    .unwrap();
-
-    let path = sf.path.clone();
-    drop(sf);
-    let mut reloaded = wb_kernel::SessionFile::load(&path).unwrap();
-    assert_eq!(reloaded.replay_messages().len(), 2, "重载后消息数不该变");
-
-    // 压缩记录落在树上：回放时早期消息被摘要替代。
-    reloaded
-        .append(wb_kernel::Entry::Compaction {
-            summary: "之前聊了问候".into(),
-            first_kept_entry_id: String::new(),
-            tokens_before: 100,
-        })
-        .unwrap();
-    let after = reloaded.replay_messages();
-    assert_eq!(after.len(), 1, "压缩后只剩摘要一条");
-    match &after[0] {
-        wb_kernel::Msg::User { content, .. } => assert!(
-            content.contains("之前聊了问候"),
-            "摘要应进入上下文：{content}"
-        ),
-        other => panic!("压缩后应是摘要形态的 user 消息，得到 {other:?}"),
-    }
-
-    // ContextEdit：目标条目被摘出回放。
-    let bad = reloaded.append(user("bad", 3)).unwrap().entry_id.clone();
-    reloaded
-        .append(wb_kernel::Entry::ContextEdit {
-            target_entry_id: bad,
-            replacement: None,
-        })
-        .unwrap();
-    assert_eq!(
-        reloaded.replay_messages().len(),
-        1,
-        "被编辑的条目不应出现在回放里"
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// 子代理三面：只把结论带回父会话（中间过程留独立子会话文件）；
-/// 提示词继承角色与工作区但不带父提示词正文；工具白名单收窄且剔除 task 防递归派子代理；
-/// 轮次用尽时回退到最后一段正文。
-#[tokio::test]
-async fn subagent_isolates_context_narrows_tools_and_falls_back() {
-    let tmp = temp_dir("subagent");
-    let provider = FakeProvider::new(vec![
-        vec![delta("共找到 3 个匹配文件"), done(30, StopReason::Stop)],
-        vec![
-            tool_end(1, "c1", r#"{"text":"扫描结果"}"#),
-            done(30, StopReason::ToolUse),
-        ],
-    ]);
-
-    let mut cfg = agent_cfg(provider.clone());
-    cfg.system_prompt = "父助手提示词\n<cwd>D:/ws</cwd>\n<skills>\n- demo\n</skills>".into();
-    let mut sc = sub_cfg(&tmp, &["echo"]);
-    sc.role_prompt = "你是探查员".into();
-    sc.task = "扫描工作区并汇总".into();
-
-    let outcome = wb_kernel::run_subagent(&cfg, sc, CancellationToken::new())
-        .await
-        .expect("子代理不应失败");
-    assert_eq!(outcome.conclusion, "共找到 3 个匹配文件", "结论应原样带回");
-    assert!(
-        outcome.session_id.starts_with("SUB_"),
-        "会话 id 应带 SUB_ 前缀"
-    );
-    assert_eq!(outcome.usage.input, 60, "两轮用量应累加");
-
-    let msgs = load_session(&tmp).replay_messages();
-    assert_eq!(
-        role_names(&msgs),
-        ["user", "assistant", "tool", "assistant"]
-    );
-    let wb_kernel::Msg::ToolResult { content, .. } = &msgs[2] else {
-        panic!("第三条应是工具结果")
-    };
-    assert_eq!(content, "扫描结果", "工具结果应留在子会话里");
-
-    let sys = provider.first_system_text();
-    assert!(sys.contains("你是探查员"), "子提示词应含角色职责");
-    assert!(sys.contains("D:/ws"), "子提示词应继承工作区");
-    assert!(
-        !sys.contains("父助手提示词"),
-        "不应把父提示词正文整段灌进子代理"
-    );
-
-    // 工具白名单收窄——task 被剔除，子代理不能递归派生。
-    let tmp = temp_dir("subagent-tools");
-    let provider = FakeProvider::new(vec![vec![delta("结论"), done(0, StopReason::Stop)]]);
-    let mut cfg = agent_cfg(provider.clone());
-    cfg.enabled_tools = vec!["echo".into(), "task".into()];
-    let mut sc = sub_cfg(&tmp, &["echo"]);
-    sc.tool_names = vec!["echo".into(), "task".into()];
-    wb_kernel::run_subagent(&cfg, sc, CancellationToken::new())
-        .await
-        .expect("子代理不应失败");
-    let names: Vec<String> = provider.seen.lock().unwrap()[0]
-        .tools
-        .iter()
-        .map(|t| t.name.clone())
-        .collect();
-    assert_eq!(names, ["echo"], "task 应被剔除，避免子代理再派子代理");
-
-    // 轮次用尽回退到最后正文。
-    let tmp = temp_dir("subagent-limit");
-    let provider = FakeProvider::new(vec![
-        vec![tool_end(2, "c2", r#"{"text":"y"}"#), tool_use()],
-        vec![
-            delta("我先看看文件"),
-            tool_end(1, "c1", r#"{"text":"x"}"#),
-            tool_use(),
-        ],
-    ]);
-    let mut sc = sub_cfg(&tmp, &["echo"]);
-    sc.max_turns = 2;
-    let outcome = wb_kernel::run_subagent(&agent_cfg(provider), sc, CancellationToken::new())
-        .await
-        .expect("子代理不应报错");
-    assert!(
-        outcome.conclusion.contains("我先看看文件"),
-        "轮次用尽应回退到最后一段正文，实际：{}",
-        outcome.conclusion
-    );
-    let _ = std::fs::remove_dir_all(&tmp);
-}
-
 /// 并发分组：相邻只读合成一组，写工具自成一组且位置不变（两个写同时改一个文件会互相覆盖）。
+
 #[test]
 fn tool_batch_groups_merge_reads_and_isolate_writes() {
     struct ReadOnlyTool;
@@ -564,6 +214,7 @@ fn tool_batch_groups_merge_reads_and_isolate_writes() {
 }
 
 /// 进程死在工具执行中会留下没结果的 tool_call；回放必须补齐，否则发给模型是非法消息序。
+
 #[test]
 fn replay_backfills_tool_calls_that_never_got_a_result() {
     let dir = temp_dir("dangling");
@@ -651,7 +302,163 @@ fn replay_backfills_tool_calls_that_never_got_a_result() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 分支与回溯：从旧消息重开后旧分支不丢，切回去能一模一样地回放。
+// ---- 会话树：持久化、分支、压缩与子代理隔离 ----
+
+/// 会话文件语义：追加 → 重载 → 回放一字不差；压缩以摘要替代早期历史；ContextEdit 把目标条目从回放摘掉。
+#[test]
+fn session_file_survives_reload_compaction_and_context_edit() {
+    let dir = temp_dir("session");
+    let mut sf = wb_kernel::SessionFile::create(&dir, "D:\\t", "SESS_TEST");
+    let user = |text: &str, ts: i64| wb_kernel::Entry::Message {
+        message: wb_kernel::Msg::User {
+            content: text.into(),
+            timestamp: ts,
+        },
+    };
+    sf.append(user("hi", 1)).unwrap();
+    sf.append(wb_kernel::Entry::Message {
+        message: wb_kernel::Msg::Assistant {
+            content: vec![wb_kernel::Block::Text {
+                text: "hello".into(),
+            }],
+            provider_id: "p".into(),
+            model_id: "m".into(),
+            message_id: "MSG_1".into(),
+            usage: None,
+            stop_reason: "stop".into(),
+            timestamp: 2,
+            duration_ms: 5,
+        },
+    })
+    .unwrap();
+
+    let path = sf.path.clone();
+    drop(sf);
+    let mut reloaded = wb_kernel::SessionFile::load(&path).unwrap();
+    assert_eq!(reloaded.replay_messages().len(), 2, "重载后消息数不该变");
+
+    // 压缩记录落在树上：回放时早期消息被摘要替代。
+    reloaded
+        .append(wb_kernel::Entry::Compaction {
+            summary: "之前聊了问候".into(),
+            first_kept_entry_id: String::new(),
+            tokens_before: 100,
+        })
+        .unwrap();
+    let after = reloaded.replay_messages();
+    assert_eq!(after.len(), 1, "压缩后只剩摘要一条");
+    match &after[0] {
+        wb_kernel::Msg::User { content, .. } => assert!(
+            content.contains("之前聊了问候"),
+            "摘要应进入上下文：{content}"
+        ),
+        other => panic!("压缩后应是摘要形态的 user 消息，得到 {other:?}"),
+    }
+
+    // ContextEdit：目标条目被摘出回放。
+    let bad = reloaded.append(user("bad", 3)).unwrap().entry_id.clone();
+    reloaded
+        .append(wb_kernel::Entry::ContextEdit {
+            target_entry_id: bad,
+            replacement: None,
+        })
+        .unwrap();
+    assert_eq!(
+        reloaded.replay_messages().len(),
+        1,
+        "被编辑的条目不应出现在回放里"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 子代理隔离子上下文、收窄工具白名单、轮次用尽回退最后正文。
+#[tokio::test]
+async fn subagent_isolates_context_narrows_tools_and_falls_back() {
+    let tmp = temp_dir("subagent");
+    let provider = FakeProvider::new(vec![
+        vec![delta("共找到 3 个匹配文件"), done(30, StopReason::Stop)],
+        vec![
+            tool_end(1, "c1", r#"{"text":"扫描结果"}"#),
+            done(30, StopReason::ToolUse),
+        ],
+    ]);
+
+    let mut cfg = agent_cfg(provider.clone());
+    cfg.system_prompt = "父助手提示词\n<cwd>D:/ws</cwd>\n<skills>\n- demo\n</skills>".into();
+    let mut sc = sub_cfg(&tmp, &["echo"]);
+    sc.role_prompt = "你是探查员".into();
+    sc.task = "扫描工作区并汇总".into();
+
+    let outcome = wb_kernel::run_subagent(&cfg, sc, CancellationToken::new())
+        .await
+        .expect("子代理不应失败");
+    assert_eq!(outcome.conclusion, "共找到 3 个匹配文件", "结论应原样带回");
+    assert!(
+        outcome.session_id.starts_with("SUB_"),
+        "会话 id 应带 SUB_ 前缀"
+    );
+    assert_eq!(outcome.usage.input, 60, "两轮用量应累加");
+
+    let msgs = load_session(&tmp).replay_messages();
+    assert_eq!(
+        role_names(&msgs),
+        ["user", "assistant", "tool", "assistant"]
+    );
+    let wb_kernel::Msg::ToolResult { content, .. } = &msgs[2] else {
+        panic!("第三条应是工具结果")
+    };
+    assert_eq!(content, "扫描结果", "工具结果应留在子会话里");
+
+    let sys = provider.first_system_text();
+    assert!(sys.contains("你是探查员"), "子提示词应含角色职责");
+    assert!(sys.contains("D:/ws"), "子提示词应继承工作区");
+    assert!(
+        !sys.contains("父助手提示词"),
+        "不应把父提示词正文整段灌进子代理"
+    );
+
+    // 工具白名单收窄——task 被剔除，子代理不能递归派生。
+    let tmp = temp_dir("subagent-tools");
+    let provider = FakeProvider::new(vec![vec![delta("结论"), done(0, StopReason::Stop)]]);
+    let mut cfg = agent_cfg(provider.clone());
+    cfg.enabled_tools = vec!["echo".into(), "task".into()];
+    let mut sc = sub_cfg(&tmp, &["echo"]);
+    sc.tool_names = vec!["echo".into(), "task".into()];
+    wb_kernel::run_subagent(&cfg, sc, CancellationToken::new())
+        .await
+        .expect("子代理不应失败");
+    let names: Vec<String> = provider.seen.lock().unwrap()[0]
+        .tools
+        .iter()
+        .map(|t| t.name.clone())
+        .collect();
+    assert_eq!(names, ["echo"], "task 应被剔除，避免子代理再派子代理");
+
+    // 轮次用尽回退到最后正文。
+    let tmp = temp_dir("subagent-limit");
+    let provider = FakeProvider::new(vec![
+        vec![tool_end(2, "c2", r#"{"text":"y"}"#), tool_use()],
+        vec![
+            delta("我先看看文件"),
+            tool_end(1, "c1", r#"{"text":"x"}"#),
+            tool_use(),
+        ],
+    ]);
+    let mut sc = sub_cfg(&tmp, &["echo"]);
+    sc.max_turns = 2;
+    let outcome = wb_kernel::run_subagent(&agent_cfg(provider), sc, CancellationToken::new())
+        .await
+        .expect("子代理不应报错");
+    assert!(
+        outcome.conclusion.contains("我先看看文件"),
+        "轮次用尽应回退到最后一段正文，实际：{}",
+        outcome.conclusion
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// 分支编辑：从任一用户节点分叉、旧分支可切回、重载后分支不变、一条不删。
+
 #[test]
 fn session_fork_keeps_old_branch_and_switches_back() {
     let dir = temp_dir("fork");
@@ -739,6 +546,7 @@ fn session_fork_keeps_old_branch_and_switches_back() {
 }
 
 /// 压缩把旧消息整段丢掉，reinforce 闭包必须把仍在生效的活状态钉回上下文。
+
 #[tokio::test]
 async fn compaction_reinjects_live_state_after_dropping_history() {
     let dir = temp_dir("reinforce");

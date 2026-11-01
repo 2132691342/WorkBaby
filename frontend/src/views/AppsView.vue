@@ -256,7 +256,7 @@ onMounted(() => {
   transform: scale(1.01);
 }
 .app-row:active {
-  transform: scale(0.99);
+  transform: scale(var(--wb-row-scale-press));
 }
 .app-row.is-on {
   background: var(--wb-accent-tint);

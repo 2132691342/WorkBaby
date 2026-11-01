@@ -1,0 +1,178 @@
+/* 尺寸 / 字体 / 动效刻度：与主题无关，两套主题共用。
+   本文件不含色值——色只在 themes.css 定义。 */
+
+/* ============================================================
+   刻度层：与主题无关的尺寸 / 字体 / 动效
+   ============================================================ */
+:root {
+  /* 字体三族（全站唯一来源，缺一个就是整条声明静默失效）：
+     正文 = 系统无衬线 + 中文黑体；标题/读数 = Bahnschrift（DIN 风）；路径 / ID / token = 等宽 */
+  --font-sans:
+    'Segoe UI Variable Text', 'Segoe UI', system-ui, 'Microsoft YaHei UI', 'Microsoft YaHei',
+    'PingFang SC', 'Noto Sans SC', sans-serif;
+  --font-display:
+    'Bahnschrift', 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'Microsoft YaHei UI',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: 'Cascadia Mono', 'Consolas', 'JetBrains Mono', 'Sarasa Mono SC', monospace;
+
+  /* 界面可选字体族：设置页「字体」一项的取值表。
+     只改 --wb-font-ui，正文与标题仍走 --font-sans / --font-display，
+     这样换字体不会连等宽字体和标题风格一起换掉。 */
+  --wb-font-ui: var(--font-sans);
+
+  /* 全局字号缩放：外观设置只改这一个值，全站字号刻度等比跟随。
+     不引 CSS 引擎也不写 calc 包裹，直接乘系数——改一处就够。 */
+  --wb-fs-scale: 1;
+
+  /* 视口比例缩放：由 useViewportScale 按「窗口宽 ÷ 1440」写入，
+     上下限在 JS 侧鎖死（0.8~1.35）——分辨率不同的机器上整套刻度等比跟随，
+     组件层全部走令牌，无需改代码。缺省 1 保证不依赖 JS 也有一套可用尺寸。 */
+  --wb-vw-scale: 1;
+
+  /* 字号 8 级：字号 = 基准 × 用户字号缩放 × 视口比例。
+     变量里再乘 --wb-fs-scale 是为了让「外观设置只改一个值」继续成立。 */
+  --wb-fs-2xs: calc(10px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-xs: calc(11px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-sm: calc(12px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-md: calc(13px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-lg: calc(15px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-xl: calc(20px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-2xl: calc(28px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-3xl: calc(32px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-lh-tight: 1.25;
+  --wb-lh-base: 1.6;
+  --wb-lh-loose: 1.75;
+  --wb-ls-plate: 0.08em;
+
+  /* 间距（4 的倍数）：全部随视口比例缩放 */
+  --wb-sp-1: calc(4px * var(--wb-vw-scale));
+  --wb-sp-2: calc(8px * var(--wb-vw-scale));
+  --wb-sp-3: calc(12px * var(--wb-vw-scale));
+  --wb-sp-4: calc(16px * var(--wb-vw-scale));
+  --wb-sp-5: calc(20px * var(--wb-vw-scale));
+  --wb-sp-6: calc(24px * var(--wb-vw-scale));
+  --wb-sp-8: calc(32px * var(--wb-vw-scale));
+  --wb-sp-10: calc(40px * var(--wb-vw-scale));
+  --wb-sp-12: calc(48px * var(--wb-vw-scale));
+
+  /* 圆角七档：控件的 8px 是基准档，卡片再上一级，弹窗封顶 16px。
+     高处不再往上加——20px 以上的圆角在小控件上会把方框读成胶囊。 */
+  --wb-radius-xs: calc(4px * var(--wb-vw-scale));
+  --wb-radius-sm: calc(6px * var(--wb-vw-scale));
+  --wb-radius: calc(8px * var(--wb-vw-scale));
+  --wb-radius-lg: calc(12px * var(--wb-vw-scale));
+  --wb-radius-xl: calc(14px * var(--wb-vw-scale));
+  --wb-radius-full: 999px;
+  --wb-radius-ctl: var(--wb-radius);
+
+  /* 控件高度 4 档 + 图标钮（组件禁止写裸像素高度） */
+  --wb-ctl-h-sm: calc(26px * var(--wb-vw-scale));
+  --wb-ctl-h: calc(34px * var(--wb-vw-scale));
+  --wb-ctl-h-lg: calc(38px * var(--wb-vw-scale));
+  --wb-ctl-h-xl: calc(44px * var(--wb-vw-scale));
+  --wb-ctl-icon: calc(32px * var(--wb-vw-scale));
+  --wb-switch-w: calc(48px * var(--wb-vw-scale));
+  --wb-switch-h: calc(26px * var(--wb-vw-scale));
+
+  /* 图标瓦片：卡片头的方块底（读数卡 / 空态 / 例句卡）。不是可点控件，
+     但同一组尺寸反复出现，散成裸像素就会各自漂，收口在这里。 */
+  --wb-tile-sm: calc(30px * var(--wb-vw-scale));
+  --wb-tile: calc(40px * var(--wb-vw-scale));
+  --wb-tile-lg: calc(52px * var(--wb-vw-scale));
+
+  --wb-fs-ctl: calc(12.5px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-label: calc(12px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-hint: calc(11px * var(--wb-fs-scale) * var(--wb-vw-scale));
+
+  /* 布局宽度 */
+  --wb-w-nav: calc(236px * var(--wb-vw-scale));
+  --wb-w-settings: calc(208px * var(--wb-vw-scale));
+  --wb-w-panel: calc(336px * var(--wb-vw-scale));
+  --wb-w-panel-wide: calc(420px * var(--wb-vw-scale));
+  --wb-w-read: calc(840px * var(--wb-vw-scale));
+  /* 消息列比输入框略宽：正文是主角，输入框不能反过来压过它 */
+  --wb-w-col: calc(900px * var(--wb-vw-scale));
+  /* 面板头部那段说明文字的排版宽度：四个指挥台面板都用它，
+     各自写一遍 560px 的话改一次要动四个文件 */
+  --wb-w-desc: calc(560px * var(--wb-vw-scale));
+  /* 标题栏中区（面包屑 / 页面名）的宽度上限 */
+  --wb-w-crumbs: calc(460px * var(--wb-vw-scale));
+
+  /* 小尺寸输入：设置页里「上下文窗口 / 温度 / Top P」这类窄数字框共用 */
+  --wb-w-input-sm: calc(96px * var(--wb-vw-scale));
+
+  /* 消息头像（正方形）。助手正文列 = 头像 + 间距，
+     纯思考回合与工具组都要按这个缩进对齐，缩进值不散落在组件里。 */
+  --wb-avatar-size: calc(26px * var(--wb-vw-scale));
+
+  /* 动效三档：只解释状态变化，不做装饰 */
+  --wb-dur-fast: 110ms;
+  --wb-dur: 160ms;
+  --wb-dur-slow: 240ms;
+  --wb-ease: cubic-bezier(0.2, 0.6, 0.3, 1);
+
+  /* 按钮形变刻度：悬停放大 / 按下缩小。幅度决定“点击感”强度，
+     太大显轻浮、太小无感；1.06 / 0.92 是全站统一值，Element Plus 按钮与
+     自绘按钮必须共用，否则并排时两种手感对不上。 */
+  --wb-btn-scale-hover: 1.06;
+  --wb-btn-scale-press: 0.92;
+  /* 整行元素（会话行 / 技能行 / 文件行 / rail 项）只缩不放：
+     行宽是 100%，放大 1.06 会溢出被裁，看上去像“点了一下没反应”。 */
+  --wb-row-scale-hover: 1;
+  --wb-row-scale-press: 0.985;
+  /* 文字按钮不形变：缩放会带动整行文字跳动，只换颜色 */
+  --wb-btn-press-depth: 1px;
+
+  --wb-z-panel: 20;
+  --wb-z-pop: 60;
+  --wb-z-modal: 80;
+  --wb-z-toast: 100;
+
+  /* 图标笔画重量：24 viewBox 线性图标在 14~18px 下的最优观感区间（细而不虚） */
+  --wb-icon-stroke: 1.7;
+  --wb-icon-stroke-strong: 2;
+
+  /* 用户自定义背景图（设置页外观） */
+  --wb-user-bg-url: none;
+  --wb-user-bg-opacity: 1;
+  --wb-user-bg-blur: 0px;
+
+  /* 欢迎页光晕的几何参数：两套主题同形。mask-ink 只给 mask 提供不透明中心点
+     （吃的是 alpha，不参与着色），放主题块里漏掉一套就是光晕静默消失。 */
+  --wb-aura-blur: 100px;
+  --wb-mask-ink: #000;
+
+  /* 主题预览色：不随当前主题变化，两张主题卡各自显示自己的强调色 */
+  --wb-swatch-light: #6366f1;
+  --wb-swatch-dark: #818cf8;
+
+  /* 轻档主操作（新对话等次级 CTA）：淡靛实底 + 深靛字。
+     与实底主按钮同屏时不竞争——一屏只允许一枚重档。 */
+  --wb-lav-cta: #e0e7ff;
+  --wb-on-lav: #3730a3;
+
+  /* 应用壳栅格：顶栏 / 侧栏 / 内容区页头。全部随视口比例缩放。 */
+  --wb-h-titlebar: calc(48px * var(--wb-vw-scale));
+  --wb-w-side: calc(232px * var(--wb-vw-scale));
+  /* 一级导航 rail：62px 只放图标 + 一行短标签，宽了就变成第二根侧栏 */
+  --wb-w-rail: calc(62px * var(--wb-vw-scale));
+  /* 二级目录：rail 已在左侧占位，这里再宽就是两根侧栏并排了 */
+  --wb-w-subside: calc(188px * var(--wb-vw-scale));
+  --wb-h-pagehead: calc(60px * var(--wb-vw-scale));
+
+  /* 圆角七档：控件用 radius 一档，卡片用 xl，整块面板用 2xl。 */
+  --wb-radius-2xl: calc(16px * var(--wb-vw-scale));
+
+  /* 字号补两档：读数大数字与页标题 */
+  --wb-fs-display: calc(36px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  /* rail 短标签：比 2xs 再小一档，两字中文竖排时不撑破 60px 宽 */
+  --wb-fs-3xs: calc(10px * var(--wb-fs-scale) * var(--wb-vw-scale));
+
+  /* 动效补一档慢速：整块视图进出与卡片入场 */
+  --wb-dur-slower: 320ms;
+  --wb-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 图表序列第 5 档与 4 档之间的过渡色；占比环超过四段时用它兜底。
+     它是品牌阶梯 2 档的提亮，所以随主题走，不放在这里。 */
+}
+

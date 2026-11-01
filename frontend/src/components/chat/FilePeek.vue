@@ -10,6 +10,7 @@ import { useFilePeek } from '../../composables/filePeek'
 import type { GitDiffLineVO } from '../../types/api'
 import DiffView from '../workspace/DiffView.vue'
 import ResizableDrawer from '../common/ResizableDrawer.vue'
+import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
 const session = useSessionStore()
@@ -51,7 +52,7 @@ async function load(target: string) {
     truncated.value = !!d?.git_truncated
     dropped.value = d?.git_dropped || 0
   } catch (e) {
-    error.value = (e as Error)?.message || t('errors.generic')
+    error.value = errorText(e) || t('errors.generic')
     lines.value = []
   } finally {
     loading.value = false

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorText } from '../../utils/errors'
 // 输入区的两个会话开关：模型 chip 与思考档 chip。
 // 面板自绘（绝对定位 + 外部点击关闭）：它是带键盘导航与两列联动的菜单，不是表单基元。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -72,7 +73,7 @@ async function chooseModel(providerId: string, modelId: string) {
     await settings.refreshBoot()
     close()
   } catch (e) {
-    toast.bad(t('chat.modelSwitchFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('chat.modelSwitchFailed', { msg: errorText(e) }))
   } finally {
     applying.value = ''
   }
@@ -95,7 +96,7 @@ async function chooseThinking(level: string) {
     await session.setThinking(level)
     close()
   } catch (e) {
-    toast.bad(t('chat.thinkingSwitchFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('chat.thinkingSwitchFailed', { msg: errorText(e) }))
   } finally {
     applying.value = ''
   }
@@ -204,7 +205,7 @@ defineExpose({ show, close })
   transform: scale(1.06);
 }
 .chip:active {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .chip.is-on {
   background: var(--wb-accent-tint);

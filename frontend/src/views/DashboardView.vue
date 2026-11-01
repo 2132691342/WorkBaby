@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorText } from '../utils/errors'
 // 用量仪表盘：四张读数卡 → 全宽趋势图 → 模型占比。
 // 数据来自统计接口的 resp_daily（天粒度）与 resp_by_model（按模型）；没有用量时整页停在空态，不画空图表。
 import { computed, onMounted, ref, watch } from 'vue'
@@ -30,7 +31,7 @@ async function load() {
   try {
     data.value = await api.stats(span.value)
   } catch (e) {
-    error.value = (e as Error)?.message || t('errors.generic')
+    error.value = errorText(e) || t('errors.generic')
   } finally {
     loading.value = false
   }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorText } from '../utils/errors'
 // 帮助页：内置文档目录 + Markdown 阅读；URL 是唯一真相（/help/:name）。
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -41,7 +42,7 @@ async function loadList() {
       void router.replace(`/help/${items.value[0].doc_name}`)
     }
   } catch (e) {
-    listError.value = (e as Error)?.message || ''
+    listError.value = errorText(e)
   }
 }
 
@@ -54,7 +55,7 @@ async function loadDoc(name: string) {
     // 首行 H1 就是页面头，正文里再渲染一遍会变成「标题下面还有一个同样的标题」
     html.value = renderMarkdown(doc.resp_content.replace(/^#\s.*\r?\n?/, ''))
   } catch (e) {
-    docError.value = (e as Error)?.message || t('help.missing')
+    docError.value = errorText(e) || t('help.missing')
     html.value = ''
   } finally {
     loading.value = false

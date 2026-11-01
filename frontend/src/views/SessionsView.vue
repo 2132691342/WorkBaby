@@ -11,6 +11,7 @@ import { fmtRel } from '../utils/time'
 import { pickFileSave } from '../api/shell'
 import AppIcon from '../components/common/AppIcon.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import { errorText } from '../utils/errors'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -65,7 +66,7 @@ async function load() {
       )[0].session_id
     }
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   }
 }
 
@@ -85,7 +86,7 @@ async function rename(s: { session_id: string; session_title: string }) {
     await session.rename(s.session_id, title)
     toast.ok(t('common.save'))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busyId.value = ''
   }
@@ -99,7 +100,7 @@ async function remove(s: { session_id: string }) {
     if (selected.value === s.session_id) selected.value = null
     toast.ok(t('common.delete'))
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   } finally {
     busyId.value = ''
   }
@@ -115,7 +116,7 @@ async function exportSession(s: { session_id: string; session_title: string }) {
     const path = await api.sessions.exportHTML(s.session_id, target)
     toast.ok(t('chat.noticeExport', { path }))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busyId.value = ''
   }
@@ -291,7 +292,7 @@ async function exportSession(s: { session_id: string; session_title: string }) {
   transform: translateX(2px);
 }
 .row:active {
-  transform: translateX(2px) scale(0.99);
+  transform: translateX(2px) scale(var(--wb-row-scale-press));
 }
 .row.is-on {
   background: var(--wb-accent-tint);

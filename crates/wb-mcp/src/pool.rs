@@ -51,7 +51,7 @@ pub async fn connect(
             let mut cmd = Command::new(&cfg.command);
             cmd.args(&cfg.args).envs(&cfg.env);
             #[cfg(windows)]
-            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            cmd.creation_flags(wb_pkg::proc::CREATE_NO_WINDOW);
             let transport = TokioChildProcess::new(cmd)
                 .map_err(|e| AppError::new(code::START_FAILED, format!("{name}: 启动失败 {e}")))?;
             serve_with_timeout(name, transport, timeout).await

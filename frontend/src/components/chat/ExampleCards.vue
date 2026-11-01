@@ -98,7 +98,7 @@ const examples = computed(() =>
   transform: translateY(-1px);
 }
 .ex-card:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(var(--wb-row-scale-press));
 }
 .ex-card:disabled {
   opacity: 0.45;

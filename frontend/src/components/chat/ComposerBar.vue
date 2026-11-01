@@ -152,7 +152,7 @@ defineExpose({ showChip })
   transform: scale(1.06);
 }
 .bar-btn:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .bar-btn:disabled {
   opacity: 0.45;

@@ -9,6 +9,7 @@ import { useToastStore } from '../../stores/toast'
 import { fmtRel } from '../../utils/time'
 import { pickFileSave } from '../../api/shell'
 import AppIcon from '../common/AppIcon.vue'
+import { errorText } from '../../utils/errors'
 
 const emit = defineEmits<{ newSession: [] }>()
 
@@ -65,7 +66,7 @@ async function openSession(id: string) {
   try {
     await session.open(id)
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   }
 }
 
@@ -82,7 +83,7 @@ async function commitEdit() {
   try {
     await session.rename(id, title)
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   }
 }
 
@@ -92,7 +93,7 @@ async function doRemove(id: string) {
   try {
     await session.remove(id)
   } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   } finally {
     busyId.value = ''
   }
@@ -109,7 +110,7 @@ async function exportSession(s: { session_id: string; session_title: string }) {
     const path = await api.sessions.exportHTML(s.session_id, target)
     toast.ok(t('chat.noticeExport', { path }))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     exportingId.value = ''
   }
@@ -258,7 +259,7 @@ onBeforeUnmount(() => {
   transition: transform var(--wb-dur-fast) var(--wb-ease);
 }
 .sess-hit:active:not(:disabled) {
-  transform: scale(0.985);
+  transform: scale(var(--wb-row-scale-press));
 }
 .sess-hit:disabled {
   cursor: progress;
@@ -329,7 +330,7 @@ onBeforeUnmount(() => {
   transform: scale(1.06);
 }
 .sess-act:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .sess-act.is-danger:hover:not(:disabled) {
   color: var(--wb-danger);

@@ -9,13 +9,13 @@ use tokio_util::sync::CancellationToken;
 
 use wb_pkg::{AppError, Result};
 use wb_provider::{
-    ContentPart, ModelEvent, ReqMessage, ReqToolCall, Role, StopReason, StreamRequest, ToolDef,
-    Usage,
+    ContentPart, ModelEvent, ReqMessage, Role, StopReason, StreamRequest, ToolDef, Usage,
 };
 
-use crate::agent::AgentConfig;
+use crate::agent::{stop_name, AgentConfig};
 use crate::blocks::{execute_tool, push_text, push_thinking, upsert_tool};
 use crate::session::{now_ms, Block, Entry, Msg, SessionFile};
+use crate::subagent_prompt::{build_sub_prompt, to_req};
 
 /// 子代理的运行结果。
 #[derive(Debug, Clone)]
@@ -390,136 +390,4 @@ fn truncate_observe(text: &str) -> String {
     }
     let head: String = text.chars().take(CAP).collect();
     format!("{head}\n…（已截断，完整结果在子会话文件里）")
-}
-
-/// 子代理系统提示词：角色职责在前，父提示词的上下文段在后。
-fn build_sub_prompt(role_prompt: &str, parent_prompt: &str, tool_names: &[String]) -> String {
-    let mut out = String::new();
-    out.push_str(
-        "You are a subagent running inside WorkBaby. You complete one delegated task and \
-         report the conclusion. Work autonomously; the parent agent only sees your final report, \
-         so make it self-contained and concrete.\n",
-    );
-    if !role_prompt.trim().is_empty() {
-        out.push_str(&format!("\n<role>\n{}\n</role>\n", role_prompt.trim()));
-    }
-    out.push_str(&format!(
-        "\n<tools>\n{}\n</tools>\n",
-        tool_names
-            .iter()
-            .map(|n| format!("- {n}\n"))
-            .collect::<String>()
-    ));
-    // 父提示词里的 cwd / skills 段对子代理同样有效。
-    for tag in ["<cwd>", "<skills>"] {
-        if let Some(part) = extract_tag(parent_prompt, tag) {
-            out.push('\n');
-            out.push_str(&part);
-            out.push('\n');
-        }
-    }
-    out.push_str(
-        "\nReport format: state the outcome first, then the key facts you verified \
-         (file paths, line numbers, command output). If the task failed, say so and why.\n",
-    );
-    out
-}
-
-/// 从父提示词里取出一个标签段（含首尾标签）。
-fn extract_tag(text: &str, tag: &str) -> Option<String> {
-    let start = text.find(tag)?;
-    let end = text[start..].find("</")? + start;
-    Some(text[start..end].to_string())
-}
-
-/// 内核消息 → provider 请求消息（与主循环同形）。
-fn to_req(m: Msg) -> ReqMessage {
-    match m {
-        Msg::User { content, .. } => ReqMessage {
-            role: Role::User,
-            parts: vec![ContentPart::Text(content)],
-            tool_calls: Vec::new(),
-            tool_call_id: None,
-        },
-        Msg::Assistant { content, .. } => {
-            let text = content
-                .iter()
-                .filter_map(|b| match b {
-                    Block::Text { text } => Some(text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            let calls = content
-                .iter()
-                .filter_map(|b| match b {
-                    Block::ToolCall {
-                        tool_call_id,
-                        name,
-                        arguments,
-                    } => Some(ReqToolCall {
-                        call_id: tool_call_id.clone(),
-                        name: name.clone(),
-                        arguments: arguments.clone(),
-                    }),
-                    _ => None,
-                })
-                .collect();
-            ReqMessage {
-                role: Role::Assistant,
-                parts: vec![ContentPart::Text(text)],
-                tool_calls: calls,
-                tool_call_id: None,
-            }
-        }
-        Msg::ToolResult {
-            tool_call_id,
-            content,
-            ..
-        } => ReqMessage {
-            role: Role::ToolResult,
-            parts: vec![ContentPart::Text(content)],
-            tool_calls: Vec::new(),
-            tool_call_id: Some(tool_call_id),
-        },
-    }
-}
-
-/// 停止原因 → 字符串。
-fn stop_name(stop: StopReason) -> &'static str {
-    match stop {
-        StopReason::Stop => "stop",
-        StopReason::Length => "length",
-        StopReason::ToolUse => "tool_use",
-        StopReason::Error => "error",
-        StopReason::Aborted => "aborted",
-    }
-}
-
-/// 子代理任务参数解析（供 task 工具使用）。
-pub fn parse_task_args(args: &serde_json::Value) -> Result<(String, String, i64)> {
-    let role = args
-        .get("role")
-        .and_then(|v| v.as_str())
-        .unwrap_or("worker")
-        .trim()
-        .to_string();
-    let task = args
-        .get("task")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    let max_turns = args
-        .get("max_turns")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(12)
-        .clamp(1, 64);
-    if task.is_empty() {
-        return Err(AppError::new(
-            wb_domain::error::tool::ARG_INVALID,
-            "task 不能为空",
-        ));
-    }
-    Ok((role, task, max_turns))
 }

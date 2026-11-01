@@ -2,12 +2,15 @@
 // 内省面板：当前装配一屏看全 —— 工具 / 技能 / 命令 / 功能 / 系统提示词快照。
 // 数据是只读快照（/inspect），改开关请去对应面板。
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
 import type { CommandVO, FeatureVO, SkillVO, ToolVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import CodeEditor from '../common/CodeEditor.vue'
 import SettingsSection from './SettingsSection.vue'
+import { errorText } from '../../utils/errors'
 
+const { t } = useI18n()
 const tools = ref<ToolVO[]>([])
 const skills = ref<SkillVO[]>([])
 const commands = ref<CommandVO[]>([])
@@ -36,7 +39,7 @@ async function load() {
     features.value = (snap.resp_features as unknown as FeatureVO[]) || []
     prompt.value = snap.resp_system_prompt || ''
   } catch (e) {
-    err.value = (e as Error)?.message || ''
+    err.value = errorText(e)
   } finally {
     loading.value = false
   }
@@ -46,55 +49,61 @@ onMounted(load)
 
 <template>
   <div class="panel-wrap">
-    <SettingsSection icon="search" title="内省" desc="当前装配快照：助手此刻能看到哪些工具、技能、命令与系统提示词。">
+    <SettingsSection icon="search" :title="t('settings.inspect.title')" :desc="t('settings.inspect.desc')">
       <template #actions>
         <el-button size="small" :loading="loading" @click="load">
           <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
-          <span class="ml-1">刷新</span>
+          <span class="ml-1">{{ t('common.refresh') }}</span>
         </el-button>
       </template>
 
       <div v-if="err" class="wb-card empty-box">
-        <b>加载失败</b>
+        <b>{{ t('common.loadFailed', { msg: '' }) }}</b>
         <p>{{ err }}</p>
-        <el-button size="small" @click="load">重试</el-button>
+        <el-button size="small" @click="load">{{ t('common.retry') }}</el-button>
       </div>
 
       <template v-else>
         <div class="bar">
-          <el-input v-model="keyword" size="small" class="kw" placeholder="按名字或描述过滤" clearable />
+          <el-input
+            v-model="keyword"
+            size="small"
+            class="kw"
+            :placeholder="t('settings.inspect.filterHint')"
+            clearable
+          />
           <span class="cnt wb-mono">
-            {{ toolRows.length }} 工具 · {{ skillRows.length }} 技能 · {{ commandRows.length }} 命令
+            {{ t('settings.inspect.counts', { tools: toolRows.length, skills: skillRows.length, commands: commandRows.length }) }}
           </span>
         </div>
 
         <div class="grid">
           <section class="wb-card sec">
-            <header class="sec-head"><AppIcon name="wrench" size="ic-xs" /> 工具</header>
+            <header class="sec-head"><AppIcon name="wrench" size="ic-xs" /> {{ t('settings.inspect.tools') }}</header>
             <ul class="rows">
               <li v-for="x in toolRows" :key="x.tool_name" class="row">
                 <span class="nm wb-mono">{{ x.tool_name }}</span>
                 <el-tag size="small" :type="x.tool_source === 'mcp' ? 'warning' : 'info'">{{ x.tool_source }}</el-tag>
-                <el-tag v-if="!x.tool_enabled" size="small" type="danger">停用</el-tag>
+                <el-tag v-if="!x.tool_enabled" size="small" type="danger">{{ t('settings.inspect.off') }}</el-tag>
                 <span class="ds">{{ x.tool_description }}</span>
               </li>
             </ul>
           </section>
 
           <section class="wb-card sec">
-            <header class="sec-head"><AppIcon name="book" size="ic-xs" /> 技能</header>
+            <header class="sec-head"><AppIcon name="book" size="ic-xs" /> {{ t('settings.inspect.skills') }}</header>
             <ul class="rows">
               <li v-for="x in skillRows" :key="x.skill_name" class="row">
                 <span class="nm wb-mono">{{ x.skill_name }}</span>
                 <el-tag size="small" type="info">{{ x.skill_source }}</el-tag>
-                <el-tag v-if="!x.skill_enabled" size="small" type="danger">停用</el-tag>
+                <el-tag v-if="!x.skill_enabled" size="small" type="danger">{{ t('settings.inspect.off') }}</el-tag>
                 <span class="ds">{{ x.skill_description }}</span>
               </li>
             </ul>
           </section>
 
           <section class="wb-card sec">
-            <header class="sec-head"><AppIcon name="terminal" size="ic-xs" /> 斜杠命令</header>
+            <header class="sec-head"><AppIcon name="terminal" size="ic-xs" /> {{ t('settings.inspect.commands') }}</header>
             <ul class="rows">
               <li v-for="x in commandRows" :key="x.command_name" class="row">
                 <span class="nm wb-mono">/{{ x.command_name }}</span>
@@ -104,12 +113,12 @@ onMounted(load)
           </section>
 
           <section class="wb-card sec">
-            <header class="sec-head"><AppIcon name="zap" size="ic-xs" /> 功能</header>
+            <header class="sec-head"><AppIcon name="zap" size="ic-xs" /> {{ t('settings.inspect.features') }}</header>
             <ul class="rows">
               <li v-for="x in features" :key="x.feature_code" class="row">
                 <span class="nm">{{ x.feature_name }}</span>
                 <el-tag size="small" :type="x.feature_enabled ? 'success' : 'info'">
-                  {{ x.feature_enabled ? '启用' : '停用' }}
+                  {{ x.feature_enabled ? t('settings.inspect.on') : t('settings.inspect.off') }}
                 </el-tag>
                 <span class="ds">{{ x.feature_description }}</span>
               </li>
@@ -118,7 +127,7 @@ onMounted(load)
         </div>
 
         <section class="wb-card prompt-sec">
-          <header class="sec-head"><AppIcon name="doc" size="ic-xs" /> 系统提示词（只读快照）</header>
+          <header class="sec-head"><AppIcon name="doc" size="ic-xs" /> {{ t('settings.inspect.prompt') }}</header>
           <CodeEditor v-model="prompt" lang="markdown" :min-height="220" :readonly="true" />
         </section>
       </template>

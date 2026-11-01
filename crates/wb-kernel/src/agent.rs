@@ -425,7 +425,7 @@ fn to_req(m: Msg) -> ReqMessage {
     }
 }
 
-fn stop_name(s: StopReason) -> &'static str {
+pub(crate) fn stop_name(s: StopReason) -> &'static str {
     match s {
         StopReason::Stop => "stop",
         StopReason::Length => "length",

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorText } from '../../utils/errors'
 // 上下文水位：输入框底栏常驻的仪表环 + 读数；点开是 context_view 分解面板。
 // 无论是否开始对话、窗口是否已知，这里都必须有内容——什么都不显示等于用户没有这个信息。
 import { computed, ref } from 'vue'
@@ -31,7 +32,7 @@ async function loadBreakdown() {
   try {
     breakdown.value = await api.contextBreakdown(props.sessionId || '')
   } catch (e) {
-    breakdownErr.value = (e as Error)?.message || ''
+    breakdownErr.value = errorText(e)
   } finally {
     breakdownLoading.value = false
   }
@@ -94,12 +95,12 @@ const tip = computed(() => {
 
     <div class="bd">
       <div class="bd-head">
-        <b>上下文占用</b>
+        <b>{{ t('chat.contextUsage') }}</b>
         <span class="wb-mono bd-total">
           {{ breakdown ? `${fmtCount(breakdown.resp_total_tokens)} / ${fmtCount(breakdown.resp_context_window)}` : reading }}
         </span>
       </div>
-      <div v-if="breakdownLoading" class="bd-state">加载中…</div>
+      <div v-if="breakdownLoading" class="bd-state">{{ t('common.loading') }}</div>
       <div v-else-if="breakdownErr" class="bd-state">{{ breakdownErr }}</div>
       <template v-else-if="breakdown">
         <div v-for="s in breakdown.resp_segments" :key="s.segment_name" class="bd-row">
@@ -114,7 +115,7 @@ const tip = computed(() => {
           </span>
           <span class="wb-mono bd-num">{{ fmtCount(s.segment_tokens) }}</span>
         </div>
-        <p class="bd-hint">估算口径：字符数 / 4；用量以服务端返回为准。</p>
+        <p class="bd-hint">{{ t('chat.contextEstimateHint') }}</p>
       </template>
     </div>
   </el-popover>

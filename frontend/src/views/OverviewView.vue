@@ -9,6 +9,7 @@ import * as api from '../api'
 import type { FeatureVO, SessionVO, SkillVO, ToolVO } from '../types/api'
 import AppIcon from '../components/common/AppIcon.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import { errorText } from '../utils/errors'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -36,7 +37,7 @@ async function load() {
     sessions.value = sess ?? []
     mcpCount.value = mcp?.resp_servers?.length ?? 0
   } catch (e) {
-    error.value = (e as Error)?.message || t('errors.generic')
+    error.value = errorText(e) || t('errors.generic')
   } finally {
     loading.value = false
   }
@@ -251,7 +252,7 @@ function fmtTime(ts: number): string {
   border-color: var(--wb-border-strong);
 }
 .cap-card:active {
-  transform: scale(0.98);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .cap-count {
   display: flex;
@@ -296,7 +297,7 @@ function fmtTime(ts: number): string {
   transform: translateX(2px);
 }
 .session-row:active {
-  transform: translateX(2px) scale(0.99);
+  transform: translateX(2px) scale(var(--wb-row-scale-press));
 }
 .session-name {
   flex: 1;

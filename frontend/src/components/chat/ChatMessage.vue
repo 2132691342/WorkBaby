@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { errorText } from '../../utils/errors'
 // 用户消息：角色徽章交代说话权属，气泡保留右对齐的对话感。
 // 助手段的渲染在 AssistantTurn（按内容块顺序内联思考 / 正文 / 工具卡）。
 import { computed, onBeforeUnmount, ref } from 'vue'
@@ -37,7 +38,7 @@ async function branchHere() {
     await session.branchFrom(entryId)
     toast.ok(t('chat.branchDone'))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   }
 }
 
@@ -132,7 +133,7 @@ function fmtTime(ms: number) {
   transform: scale(1.06);
 }
 .me-act:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .me-act:disabled {
   opacity: 0.8;

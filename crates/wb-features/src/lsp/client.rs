@@ -12,8 +12,8 @@ use wb_pkg::{AppError, Result};
 
 use super::edits::TextEdit;
 
-/// CREATE_NO_WINDOW：子进程不闪控制台窗口（Windows 纪律）。
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// 不闪控制台窗口（调 wb_pkg::proc 的唯一常量）。
+const CREATE_NO_WINDOW: u32 = wb_pkg::proc::CREATE_NO_WINDOW;
 
 /// 一次诊断条目。
 pub struct Diagnostic {
@@ -50,7 +50,17 @@ pub struct LspClient {
 impl LspClient {
     /// 启动 server 并完成 initialize 握手。
     pub async fn start(command: &str, args: &[&str], root: &Path, timeout_ms: u64) -> Result<Self> {
-        let mut cmd = tokio::process::Command::new(command);
+        // 命中的是 .cmd 时要交给 cmd.exe 跑：Windows 不能直接 CreateProcess 一个批处理
+        let program = wb_pkg::proc::resolve_command(command)
+            .unwrap_or_else(|| Path::new(command).to_path_buf());
+        let is_batch = program
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
+        let mut cmd = tokio::process::Command::new(if is_batch { "cmd" } else { command });
+        if is_batch {
+            cmd.arg("/c").arg(&program);
+        }
         cmd.args(args)
             .current_dir(root)
             .stdin(Stdio::piped())

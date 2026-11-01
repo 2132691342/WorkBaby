@@ -32,7 +32,10 @@ fn git_program() -> String {
 
 /// 探测 git；返回版本串（如 "2.45.1"），未装返回 None。
 pub fn version() -> Option<String> {
-    let out = Command::new(git_program()).arg("--version").output().ok()?;
+    let mut cmd = Command::new(git_program());
+    cmd.arg("--version");
+    hide_window(&mut cmd);
+    let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -96,8 +99,7 @@ fn git_fail_text(args: &[&str], stderr: &str) -> String {
 
 #[cfg(windows)]
 fn hide_window(cmd: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    wb_pkg::proc::hide_window(cmd);
 }
 
 #[cfg(not(windows))]

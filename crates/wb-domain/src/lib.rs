@@ -6,6 +6,7 @@ pub mod events;
 pub mod feature;
 pub mod git;
 pub mod mcp;
+pub mod messages;
 pub mod provider;
 pub mod resource;
 pub mod runtime;

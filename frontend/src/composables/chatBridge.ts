@@ -1,3 +1,4 @@
+import { errorText } from '../utils/errors'
 // 对话事件桥：SSE → chat store 的全站唯一入口。挂在应用壳上而不是对话页：
 // 离开时 run 还在跑，事件必须继续落进 store，否则切回来只剩一份「运行中」的僵尸快照。
 import { i18n } from '../i18n'
@@ -32,7 +33,7 @@ export async function reloadChatSnapshot() {
   try {
     await session.refresh()
   } catch (e) {
-    chat.notify(tt('chat.refreshFailed', { msg: (e as Error)?.message || '' }))
+    chat.notify(tt('chat.refreshFailed', { msg: errorText(e) }))
   } finally {
     chat.clearLive()
   }
@@ -131,7 +132,7 @@ export function installChatBridge() {
       try {
         await handle(frame)
       } catch (e) {
-        console.error('[WorkBaby] 处理事件失败', frame.event, e)
+        console.error('[WorkBaby] event handler failed', frame.event, e)
       }
     },
     reconcile,

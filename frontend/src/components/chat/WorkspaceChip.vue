@@ -7,6 +7,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import { pickFolder } from '../../api/shell'
 import AppIcon from '../common/AppIcon.vue'
+import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
@@ -31,7 +32,7 @@ async function pick() {
     await settings.loadBoot()
     toast.ok(dir)
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
     busy.value = false
   }
@@ -80,7 +81,7 @@ async function pick() {
   transform: scale(1.06);
 }
 .ws-chip:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .ws-chip.is-default {
   border-style: dashed;

@@ -159,7 +159,7 @@ function winctl(action: 'min' | 'max' | 'close') {
   transform: scale(1.06);
 }
 .tb-fold:active {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .tb-ctx {
   font-size: var(--wb-fs-sm);

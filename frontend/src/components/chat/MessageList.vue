@@ -478,10 +478,10 @@ async function onStreamClick(e: MouseEvent) {
 }
 .jump-btn:hover {
   transform: translateX(-50%) scale(1.06);
-  box-shadow: var(--wb-shadow-4, var(--wb-shadow-3));
+  box-shadow: var(--wb-shadow-3);
 }
 .jump-btn:active {
-  transform: translateX(-50%) scale(0.92);
+  transform: translateX(-50%) scale(var(--wb-btn-scale-press));
 }
 .jump-fade-enter-active,
 .jump-fade-leave-active {

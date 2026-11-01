@@ -7,6 +7,7 @@ import * as api from '../../api'
 import { useToastStore } from '../../stores/toast'
 import type { GitBranchVO, GitForce, GitStatusVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
+import { errorText } from '../../utils/errors'
 
 const props = defineProps<{ sessionId: string; status: GitStatusVO | null }>()
 const emit = defineEmits<{ (e: 'done', status: GitStatusVO): void }>()
@@ -36,7 +37,7 @@ async function load() {
     branches.value = await api.git.branches(props.sessionId)
   } catch (e) {
     branches.value = []
-    toast.bad(t('common.loadFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
   } finally {
     loading.value = false
   }
@@ -44,7 +45,7 @@ async function load() {
 onMounted(load)
 
 function fail(e: unknown) {
-  toast.bad((e as Error)?.message || t('common.saveFailed', { msg: '' }))
+  toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
 }
 
 async function run(key: string, fn: () => Promise<GitStatusVO>, ok?: string) {
@@ -412,7 +413,7 @@ function pushForce() {
   transform: scale(1.06);
 }
 .br-drop:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 /* 危险区默认收起：这一整块平时不该出现在视线里 */
 .br-danger {

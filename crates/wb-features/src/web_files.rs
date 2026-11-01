@@ -17,8 +17,8 @@ use wb_tools::{Tool, ToolAnnotations, ToolOutput};
 const MAX_PDF_BYTES: usize = 64 * 1024 * 1024;
 /// 克隆超时。
 const CLONE_TIMEOUT: Duration = Duration::from_secs(300);
-/// CREATE_NO_WINDOW：子进程不闪控制台窗口（Windows 纪律）。
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// git 子进程纪律：不闪控制台窗口。
+pub const CREATE_NO_WINDOW: u32 = wb_pkg::proc::CREATE_NO_WINDOW;
 
 /// 定位 git.exe：内置 PortableGit 优先，其次系统 PATH。
 fn git_program() -> String {

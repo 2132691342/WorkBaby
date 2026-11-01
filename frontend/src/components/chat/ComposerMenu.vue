@@ -343,7 +343,7 @@ function goManage() {
   transform: scale(1.02);
 }
 .mv:active {
-  transform: scale(0.98);
+  transform: scale(var(--wb-row-scale-press));
 }
 .mv.is-on {
   background: var(--wb-accent-tint);

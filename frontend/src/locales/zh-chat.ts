@@ -37,6 +37,9 @@ export default {
     toolPeek: '看改动',
     peekOutside: '这个文件不在当前工作区里，版本面板只认工作区内的文件',
     contextMeter: '上下文水位',
+    changesCount: '本轮改了 {n} 个文件',
+    contextUsage: '上下文占用',
+    contextEstimateHint: '估算口径：字符数 / 4；用量以服务端返回为准。',
     contextHint: '已用 {used} / {win}',
     contextUnknown: '未知窗口',
     contextReserve: '预留 {n}',
@@ -172,6 +175,7 @@ export default {
 
   settings: {
     title: '设置',
+    subtitle: '这个程序自己的习惯：长什么样、存到哪、行为如何；写入口令都一样，改完即时生效。',
     groups: {
       advanced: '高级',
       model: '模型与接入',
@@ -260,6 +264,11 @@ export default {
       defaultTools: '默认工具集',
       defaultToolsHint: '关掉后新会话里不再默认带上它。',
       noMatch: '没有匹配的工具',
+      presetLoad: '装载预设',
+      presetPlaceholder: '存当前为预设…',
+      presetSave: '保存',
+      presetApplied: '已应用预设 {name}',
+      presetSaved: '预设 {name} 已保存',
     },
     mcp: {
       title: 'MCP 服务',
@@ -292,6 +301,15 @@ export default {
     inspect: {
       title: '内省',
       desc: '当前装配快照：工具 / 技能 / 命令 / 内置功能 / 系统提示词。',
+      filterHint: '按名字或描述过滤',
+      counts: '{tools} 工具 · {skills} 技能 · {commands} 命令',
+      tools: '工具',
+      skills: '技能',
+      commands: '斜杠命令',
+      features: '功能',
+      on: '启用',
+      off: '停用',
+      prompt: '系统提示词（只读快照）',
     },
     appearance: {
       title: '外观',

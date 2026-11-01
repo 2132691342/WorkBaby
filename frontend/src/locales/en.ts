@@ -9,12 +9,33 @@ export default {
     tagline: 'A personal AI workbench that actually gets things done',
   },
 
+  // ---- Startup and network: these fire before the UI is up, so the copy must be ready ----
+  net: {
+    badStatus: 'The local service returned an unexpected status {status}',
+    timeout: 'The local service took too long; please try again',
+    unreachable:
+      'Cannot reach the local service ({base}). Check for a leftover process, or a proxy blocking loopback addresses',
+    noHandshake: 'no handshake yet',
+    emptyBody: 'The backend returned no data',
+    requestFailed: 'Request failed',
+  },
+  // ---- Formatting units ----
+  time: {
+    justNow: 'Just now',
+    minutesAgo: '{n} min ago',
+    yesterday: 'Yesterday',
+    daysAgo: '{n} days ago',
+    monthDay: '{month}/{day}',
+  },
+  num: {
+    millis: '{n} ms',
+    seconds: '{n} s',
+  },
+
   common: {
     ok: 'OK',
     docEmpty: 'This sheet has nothing to show',
     docUnsupported: 'Preview is not available for this file type',
-    bpmnEmpty: 'No workflow definition yet',
-    bpmnInvalid: 'Could not parse the workflow definition',
     cancel: 'Cancel',
     save: 'Save',
     delete: 'Delete',
@@ -79,6 +100,11 @@ export default {
     quit: 'Quit',
     retryHint: 'Retry',
     toTray: 'Minimized to tray; click the tray icon to reopen',
+    noService:
+      'The local service is not responding. An older WorkBaby process may still be running — end it in Task Manager and try again.',
+    noShell:
+      'No desktop shell detected. For browser debugging, set localStorage.wb_dev_port to a running backend port first.',
+    startupFailed: 'The backend failed to start; check app.log in the log directory',
   },
 
   nav: {
@@ -92,10 +118,8 @@ export default {
     usage: 'Usage',
     plugins: 'Plugins',
     skills: 'Skills',
-    files: 'Files',
     sessions: 'Sessions',
     agents: 'Subagents',
-    graph: 'Graph',
     apps: 'Apps',
     dashboard: 'Dashboard',
     help: 'Help',
@@ -118,10 +142,8 @@ export default {
     usage: 'Usage',
     plugins: 'Plug',
     skills: 'Skills',
-    files: 'Files',
     sessions: 'Chats',
     agents: 'Agents',
-    graph: 'Graph',
     apps: 'Apps',
     dashboard: 'Stats',
     help: 'Help',
@@ -157,6 +179,16 @@ export default {
 
 
   // ---- Subagent observability ----
+  // ---- Thinking levels: names grow with depth so the order reads at a glance ----
+  thinking: {
+    off: 'Off',
+    minimal: 'Minimal',
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
+    xhigh: 'Very high',
+    max: 'Max',
+  },
   agents: {
     title: 'Subagents',
     desc: 'Work units the model dispatched — they run in their own sessions and everything is visible here',
@@ -180,25 +212,6 @@ export default {
       worker: 'Worker',
       reviewer: 'Reviewer',
     },
-  },
-  // ---- Graph page ----
-  graph: {
-    title: 'Graph',
-    desc: 'How things are wired: who provides what, who depends on whom',
-    tabRelation: 'Wiring',
-    tabWorkflow: 'Kernel loop',
-    viewFeature: 'Feature → tool',
-    viewSkill: 'Skill sources',
-    viewTool: 'Tool sources',
-    stat: '{nodes} nodes · {edges} edges',
-    emptyTitle: 'This graph is empty',
-    emptyHint: 'Enable a few features or skills first; once there are providers and consumers there is something to draw.',
-    workflowNote: 'One conversation turn through the kernel: build context → compaction check → sample → tool batch → finalise.',
-    sourceBuiltin: 'Builtin skills',
-    sourceUser: 'User skills',
-    sourceWorkspace: 'Workspace skills',
-    toolBuiltin: 'Builtin tools',
-    toolMcp: 'MCP tools',
   },
   // ---- Micro frontend apps ----
   apps: {

@@ -105,7 +105,7 @@ const ICONS: Record<string, string> = { ok: 'check', bad: 'alert', info: 'info' 
   transform: scale(1.06);
 }
 .toast-close:active {
-  transform: scale(0.92);
+  transform: scale(var(--wb-btn-scale-press));
 }
 .toast-enter-active,
 .toast-leave-active {

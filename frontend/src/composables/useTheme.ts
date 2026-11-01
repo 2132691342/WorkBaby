@@ -5,8 +5,8 @@ import { useSettingsStore } from '../stores/settings'
 // 与 themes.css 的 [data-theme] 令牌块一一对应；改这里必须同步 CSS。
 // swatch 走 tokens 里的主题预览色：切到深色时浅色卡也要显示自己的强调色，不能跟着变。
 export const THEMES = [
-  { key: 'light', name: '晴空', swatch: 'var(--wb-swatch-light)' },
-  { key: 'dark', name: '夜蓝', swatch: 'var(--wb-swatch-dark)' },
+  { key: 'light', nameKey: 'settings.appearance.themeLight', swatch: 'var(--wb-swatch-light)' },
+  { key: 'dark', nameKey: 'settings.appearance.themeDark', swatch: 'var(--wb-swatch-dark)' },
 ] as const
 
 // 主题模块级单例：localStorage 只是「设置表还没读到时的兜底」，权威在 settings。

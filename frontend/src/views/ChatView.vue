@@ -18,6 +18,7 @@ import FilePeek from '../components/chat/FilePeek.vue'
 import MessageList from '../components/chat/MessageList.vue'
 import SessionPanel from '../components/chat/SessionPanel.vue'
 import StatusHud from '../components/chat/StatusHud.vue'
+import { errorText } from '../utils/errors'
 
 const { t } = useI18n()
 const session = useSessionStore()
@@ -68,7 +69,7 @@ async function send(text: string, _attachments: AttachmentREQ[]) {
       await session.adopt(sent.resp_session_id)
     }
   } catch (e) {
-    toast.bad(t('chat.sendFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('chat.sendFailed', { msg: errorText(e) }))
   } finally {
     sending.value = false
     inputRef.value?.focus()
@@ -85,7 +86,7 @@ async function steer(text: string) {
     await chat.steer(session.currentId, text)
     toast.ok(t('chat.retryEvent'))
   } catch (e) {
-    toast.bad(t('chat.steerFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('chat.steerFailed', { msg: errorText(e) }))
   } finally {
     steering.value = false
   }
@@ -97,7 +98,7 @@ async function queueUp(text: string) {
   try {
     await chat.followUp(session.currentId, text)
   } catch (e) {
-    toast.bad(t('chat.queueFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('chat.queueFailed', { msg: errorText(e) }))
   } finally {
     queueing.value = false
   }
@@ -109,7 +110,7 @@ async function stop() {
   try {
     await chat.stop(session.currentId)
   } catch (e) {
-    toast.bad(t('chat.stopFailed', { msg: (e as Error)?.message || '' }))
+    toast.bad(t('chat.stopFailed', { msg: errorText(e) }))
   } finally {
     stopping.value = false
   }
