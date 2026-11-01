@@ -115,7 +115,7 @@ impl Tool for BashTool {
         if outcome.timed_out {
             is_error = true;
             text.push_str(&format!("\n[超时] 超过 {timeout}s 被终止"));
-        } else if let Some(code) = outcome.code {
+        } else if let Some(code) = outcome.exit_code {
             if code != 0 {
                 is_error = true;
                 text.push_str(&format!("\n[退出码 {code}]"));

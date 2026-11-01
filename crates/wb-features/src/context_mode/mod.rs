@@ -90,7 +90,7 @@ impl Tool for CtxExecuteTool {
         &self,
         args: Value,
         cancel: CancellationToken,
-        workdir: &Path,
+        _workdir: &Path,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let (language, code, timeout) =
@@ -109,7 +109,20 @@ impl Tool for CtxExecuteTool {
             .map_err(|e| AppError::new(toolcode::ARG_INVALID, e))?;
         let program = sandbox::resolve_program(runtime);
         let argv = sandbox::build_args(runtime, &file);
-        let outcome = wb_tools::exec::run(&program, &argv, workdir, timeout, &cancel).await?;
+        // 子进程 cwd 落在沙箱目录而不是真实工作区：脚本改文件改不到项目，
+        // 只有显式传绝对路径才够得着（配合作业对象的资源上限）。
+        if std::fs::create_dir_all(&dir).is_err() {
+            return Err(AppError::new(toolcode::ARG_INVALID, "建沙箱目录失败"));
+        }
+        let outcome = wb_tools::exec::run_with_limits(
+            &program,
+            &argv,
+            &dir,
+            timeout,
+            &cancel,
+            Some(wb_tools::job::JobLimits::default()),
+        )
+        .await?;
         // 清理脚本：沙箱不留下模型产生的垃圾
         let _ = std::fs::remove_file(&file);
         let mut text = outcome.stdout.trim().to_string();
@@ -122,7 +135,7 @@ impl Tool for CtxExecuteTool {
         }
         if outcome.timed_out {
             text.push_str(&format!("\n\n[超时：{timeout}s 被终止]"));
-        } else if let Some(code) = outcome.code {
+        } else if let Some(code) = outcome.exit_code {
             if code != 0 {
                 text.push_str(&format!("\n\n[退出码 {code}]"));
             }
@@ -356,7 +369,7 @@ impl Tool for CtxBatchExecuteTool {
         &self,
         args: Value,
         cancel: CancellationToken,
-        workdir: &Path,
+        _workdir: &Path,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let language = store::text_arg(&args, "language");
@@ -387,18 +400,29 @@ impl Tool for CtxBatchExecuteTool {
             .unwrap_or(sandbox::DEFAULT_TIMEOUT_SECS)
             .clamp(1, sandbox::MAX_TIMEOUT_SECS);
         let dir = sandbox_dir(&self.ctx);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| AppError::new(toolcode::ARG_INVALID, format!("建沙箱目录失败：{e}")))?;
         let program = sandbox::resolve_program(runtime);
         let mut parts: Vec<String> = Vec::with_capacity(commands.len());
         for (i, code) in commands.iter().enumerate() {
             let file = sandbox::write_script(&dir, runtime.lang_ext, code)
                 .map_err(|e| AppError::new(toolcode::ARG_INVALID, e))?;
             let argv = sandbox::build_args(runtime, &file);
-            let outcome = wb_tools::exec::run(&program, &argv, workdir, timeout, &cancel).await?;
+            // 与 ctx_execute 同一条纪律：cwd 落沙箱、套作业对象上限
+            let outcome = wb_tools::exec::run_with_limits(
+                &program,
+                &argv,
+                &dir,
+                timeout,
+                &cancel,
+                Some(wb_tools::job::JobLimits::default()),
+            )
+            .await?;
             let _ = std::fs::remove_file(&file);
             let mut part = format!("--- #{} ---\n{}", i + 1, outcome.stdout.trim());
             if outcome.timed_out {
                 part.push_str(&format!("\n[超时 {timeout}s]"));
-            } else if let Some(c) = outcome.code {
+            } else if let Some(c) = outcome.exit_code {
                 if c != 0 {
                     part.push_str(&format!("\n[退出码 {c}]"));
                 }

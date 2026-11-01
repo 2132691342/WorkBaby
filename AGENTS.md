@@ -73,7 +73,6 @@ Agent 内核是本仓 Rust 实现（会话循环 / 工具执行 / 上下文压�
 WorkBaby/
 ├── AGENTS.md / README.md / DESIGN.md
 ├── docs/                          # 架构 / 模块 / 数据模型 / API / 页面 / 错误码 / 开发 / 部署
-├── scripts/                       # check.sh（全量验证）/ check-slow.sh（慢速验证）
 ├── frontend/                      # Vue 3 前端（唯一源码目录 frontend/src）
 │   └── src/{api,components,composables,locales,stores,types,utils,views,router}
 ├── src-tauri/                     # Tauri 壳：入口、托盘、单实例、自启、对话框、窗控
@@ -356,18 +355,21 @@ if version < 1 { conn.execute_batch(SCHEMA_V1)?; }
 
 ## 4. 架构门禁
 
-提交前必须过：
+提交前必须过下面五道，一条也不用少：
 
 ```bash
-bash scripts/check.sh
+cargo fmt --all -- --check                          # 1 格式检查
+cargo clippy --workspace --all-targets -- -D warnings   # 2 静态检查（全量拦截编译警告）
+cargo test --workspace                              # 3 后端测试全绿
+cd frontend && npm run typecheck                    # 4 前端类型检查
+cd frontend && npm run build                        # 5 前端构建
 ```
 
-包含五道：格式检查、静态检查（clippy -D warnings，全量拦截编译警告）、后端测试全绿、
-前端类型检查、前端构建成功——与 CI 跑同一套。
-依赖真实外部环境的测试另跑 `bash scripts/check-slow.sh`。
+与 CI（`.github/workflows/ci.yml`）跑同一套。
+依赖真实外部环境的测试在 `cargo test --workspace -- --ignored` 里（标了 `#[ignore]`）。
 
-缩小验证面：只改后端用 `bash scripts/check.sh backend`，只改前端用 `frontend`；
-只动一个 crate 用 `bash scripts/check.sh wb-features`（crate 名即参数），改哪验哪。
+缩小验证面：只改后端跑 1–3，只改前端跑 4–5；
+只动一个 crate 时把第 1–3 条的 `--workspace` 换成 `-p wb-features`（crate 名即参数），改哪验哪。
 
 **硬性约束**
 
@@ -388,7 +390,7 @@ bash scripts/check.sh
 1. **先读约束**：动 `wb-domain` 前想清楚字段前缀与错误码段位；动前端前想清楚令牌归属
 2. **定位落点**：能放进现有 crate 就别开新 crate；能放进现有模块就别开新文件
 3. **实现**：注释只写「为什么」，不留过程痕迹
-4. **验证**：`bash scripts/check.sh`（改动涉及外部依赖时加跑 `check-slow.sh`）
+4. **验证**：跑 §4 的五道门禁（`fmt` / `clippy -D warnings` / `cargo test` / 前端 `typecheck` / 前端 `build`）
 5. **同步文档**：改了架构 / API / 错误码 / 页面结构，对应 `docs/` 一起改
 6. **提交**：一次提交只做一件事，提交信息写清做了什么与为什么
 

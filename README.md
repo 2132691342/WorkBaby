@@ -83,9 +83,14 @@ npm run build                    # 构建到 frontend/dist
 npm run dev                      # 前端开发服务器
 npm run tauri dev                # 整体开发模式（壳 + 热更）
 
-# 一键验证
-bash scripts/check.sh            # 格式 + clippy + 测试 + 前端类型检查 + 构建
-bash scripts/check-slow.sh       # 需要真实外部环境的慢速测试
+# 五道门禁（与 CI 同一套）
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cd frontend && npm run typecheck && npm run build
+
+# 需要真实外部环境的慢速测试
+cargo test --workspace -- --ignored
 ```
 
 ## 优势与局限

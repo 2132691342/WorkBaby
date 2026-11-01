@@ -46,6 +46,8 @@ pub struct UsageVO {
 pub struct MessageVO {
     /// 消息 id（MSG_ 前缀；用户消息为对应条目 id）
     pub message_id: String,
+    /// 真实会话条目 id（ENT_ 前缀）：分支点就是它，不能另造假号
+    pub message_entry_id: String,
     /// user / assistant / tool / notice
     pub message_role: String,
     /// 条目类型：text / tool / notice
@@ -81,6 +83,7 @@ impl MessageVO {
     pub fn empty(message_id: String, message_role: &str, message_created_at: i64) -> Self {
         Self {
             message_id,
+            message_entry_id: String::new(),
             message_role: message_role.to_string(),
             message_type: "text".into(),
             message_thinking: None,
@@ -153,6 +156,28 @@ pub struct SessionDetailRESP {
     pub detail_session: SessionVO,
     /// 消息回放（leaf→root 展开后的界面形态）
     pub detail_messages: Vec<MessageVO>,
+    /// 当前叶子条目 id（分支后指向新叶）
+    pub detail_leaf_entry_id: Option<String>,
+    /// 可作分支点的条目 id（用户消息）
+    pub detail_fork_entry_ids: Vec<String>,
+    /// 曾走过、现在可以再切回去的其它叶子（旧分支末端）
+    pub detail_alt_leaf_ids: Vec<String>,
+}
+
+/// 分支 / 回退入参。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SessionBranchREQ {
+    /// 从这个条目之后重新开始（必须以用户消息结尾）
+    pub branch_entry_id: String,
+}
+
+/// 切回某个叶子的入参。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SessionLeafREQ {
+    /// 目标叶子条目 id
+    pub leaf_entry_id: String,
 }
 
 /// 会话索引 DO（session_index 表）。

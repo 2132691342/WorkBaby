@@ -17,7 +17,6 @@ src-tauri/            壳（tauri.conf.json / main.rs）
 crates/wb-*           后端各 crate（依赖方向见 AGENTS.md §2.2）
 frontend/src          前端唯一源码目录
 docs/                 文档（改行为必须同步）
-scripts/              验证脚本
 assets/               打包进二进制的资源（内置技能、帮助文档与 MinGit 运行时）
 ```
 
@@ -31,11 +30,11 @@ assets/               打包进二进制的资源（内置技能、帮助文档�
 | 后端测试 | `cargo test --workspace` |
 | 单个子系统测试 | `cargo test -p wb-kernel` |
 | 前端类型检查 | `cd frontend && npm run typecheck` |
-| 全量门禁 | `bash scripts/check.sh` |
-| 只跑后端门禁 | `bash scripts/check.sh backend` |
-| 只跑前端门禁 | `bash scripts/check.sh frontend` |
-| 只验一个 crate | `bash scripts/check.sh wb-features`（crate 名即参数） |
-| 慢速门禁（真实外部依赖） | `bash scripts/check-slow.sh` |
+| 全量门禁 | `cargo fmt --all -- --check` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo test --workspace` + 下方前端两道 |
+| 只跑后端门禁 | 上面三条 cargo 命令 |
+| 只跑前端门禁 | `npm run typecheck` + `npm run build`（frontend 目录内） |
+| 只验一个 crate | 把 `--workspace` 换成 `-p wb-features`（crate 名即参数） |
+| 慢速门禁（真实外部依赖） | `cargo test --workspace -- --ignored` |
 | 出包 | `npm run tauri build`（frontend 目录内） |
 
 `cargo xt`（测试）与 `cargo xchk`（编译检查）是 `.cargo/config.toml` 里的别名。

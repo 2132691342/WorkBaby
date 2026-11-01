@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 设置视图：左侧板块目录（三组七项）+ 右侧面板。当前板块落在 URL（/settings/:tab）上。
-// 分组按「谁的事」划：模型 · 能力 · 应用（这个程序自己）。
+// 设置视图：左侧板块目录 + 右侧面板。当前板块落在 URL（/settings/:tab）上。
+// 只管「这个程序自己」：外观、行为、内省快照。
+// 模型 / 工具 / 技能 / 插件 / MCP 已升格为一级导航下的独立页面。
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -9,34 +10,13 @@ import PageHeader from '../components/layout/PageHeader.vue'
 import SidePanel from '../components/layout/SidePanel.vue'
 import AppearancePanel from '../components/settings/AppearancePanel.vue'
 import BehaviorPanel from '../components/settings/BehaviorPanel.vue'
-import FeaturePanel from '../components/settings/FeaturePanel.vue'
 import InspectPanel from '../components/settings/InspectPanel.vue'
-import MCPPanel from '../components/settings/MCPPanel.vue'
-import ProviderPanel from '../components/settings/ProviderPanel.vue'
-import SkillPanel from '../components/settings/SkillPanel.vue'
-import ToolPanel from '../components/settings/ToolPanel.vue'
 
-const { t, te } = useI18n()
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
 const GROUPS = [
-  {
-    key: 'model',
-    items: [
-      { key: 'providers', icon: 'sparkles' },
-      { key: 'tools', icon: 'wrench' },
-      { key: 'mcp', icon: 'globe' },
-    ],
-  },
-  {
-    key: 'capability',
-    items: [
-      { key: 'skills', icon: 'book' },
-      { key: 'features', icon: 'zap' },
-      { key: 'inspect', icon: 'search' },
-    ],
-  },
   {
     key: 'app',
     items: [
@@ -44,53 +24,60 @@ const GROUPS = [
       { key: 'behavior', icon: 'sliders' },
     ],
   },
+  {
+    key: 'advanced',
+    items: [{ key: 'inspect', icon: 'search' }],
+  },
 ] as const
 
 const VALID = new Set<string>(GROUPS.flatMap((g) => g.items.map((i) => i.key)))
-// 落点保持「模型服务」：设置页最常被点开的目的是加一个模型，不是看别的。
+
+// 旧二级 tab 的新归属：书签、托盘菜单与历史记录里可能还留着 /settings/providers 这类路径。
+const MOVED: Record<string, string> = {
+  providers: 'models',
+  tools: 'models',
+  mcp: 'mcp',
+  skills: 'skills',
+  features: 'plugins',
+}
+
+// 落点是「外观」：加模型这件事已经不在这里发生了。
 const tab = ref<string>(
-  typeof route.params.tab === 'string' && VALID.has(route.params.tab) ? route.params.tab : 'providers',
+  typeof route.params.tab === 'string' && VALID.has(route.params.tab)
+    ? route.params.tab
+    : 'appearance',
 )
 
 watch(
   () => route.params.tab,
   (next) => {
-    if (typeof next === 'string' && VALID.has(next)) tab.value = next
+    if (typeof next !== 'string') return
+    // 已经升成一级页的：改跳新页，别停在这里等一个搬走了的面板
+    if (MOVED[next]) {
+      void router.replace({ name: MOVED[next] })
+      return
+    }
+    if (VALID.has(next)) tab.value = next
   },
+  { immediate: true },
 )
+
 watch(tab, (next) => {
   if (route.params.tab !== next) void router.replace({ name: 'settings', params: { tab: next } })
 })
 
-// 八个面板 v-if 懒挂载：只打开「外观」时不去拉模型服务与技能列表
+// 面板按 tab 挂载：只打开「外观」时不去拉内省快照的数据
 const PANELS = {
-  providers: ProviderPanel,
-  skills: SkillPanel,
-  features: FeaturePanel,
-  inspect: InspectPanel,
-  tools: ToolPanel,
-  mcp: MCPPanel,
   appearance: AppearancePanel,
   behavior: BehaviorPanel,
+  inspect: InspectPanel,
 } as const
 
 const activePanel = computed(() => PANELS[tab.value as keyof typeof PANELS])
 
-// features 的文案键 locales 还没收录：有键用键，没键退回字面量，键补上后自动切换
-const titleOf = (key: string) => {
-  const k = `settings.${key}.title`
-  return te(k) ? t(k) : key === 'features' ? '功能' : key === 'inspect' ? '内省' : k
-}
-const descOf = (key: string) => {
-  const k = `settings.${key}.desc`
-  return te(k)
-    ? t(k)
-    : key === 'features'
-      ? '内置能力的开关：关掉后它带的工具不再进入助手的工具表。'
-      : key === 'inspect'
-        ? '当前装配快照：工具 / 技能 / 命令 / 功能 / 系统提示词。'
-        : k
-}
+// 三个板块的文案键 locales 都已收录，不再需要字面量兜底
+const titleOf = (key: string) => t(`settings.${key}.title`)
+const descOf = (key: string) => t(`settings.${key}.desc`)
 </script>
 
 <template>

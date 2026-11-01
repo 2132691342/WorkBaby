@@ -37,18 +37,21 @@ Vue 3 + TypeScript 的单窗口应用，通过 HTTP 与 SSE 与本地服务对�
 
 ## 路由与页面
 
-hash 模式（WebView 的 file 协议不接受 history 模式的路径）。
+hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 重定向到 `/overview`；
+`/features` 与 `/dashboard` 是旧入口别名，分别重定向到 `/plugins` 与 `/usage`。
 
 | 路径 | 视图 | 说明 |
 |---|---|---|
-| `/` | ChatView | 对话主视图 |
-| `/overview` | OverviewView | 能力总览四卡 + 最近会话 |
+| `/overview` | OverviewView | 能力总览四卡 + 最近会话（落地页） |
+| `/chat` | ChatView | 对话主视图 |
 | `/workspace` | WorkspaceView | 文件树 + diff + Git |
-| `/features` | FeaturesView | 12 项内置功能开关台 |
-| `/skills` | SkillsView | 技能清单台 |
-| `/files` | FilesView | 文件浏览 + 文档就地预览 |
 | `/sessions` | SessionsView | 全部会话与概要 |
-| `/dashboard` | DashboardView | 用量仪表盘 |
+| `/models` | ModelsView | 模型服务与工具配置（升格为一级页） |
+| `/skills` | SkillsView | 技能清单台 |
+| `/plugins` | FeaturesView | 12 项内置功能开关台（别名 /features） |
+| `/mcp` | McpView | MCP 服务器配置与在线状态（升格为一级页） |
+| `/usage` | DashboardView | 用量仪表盘（别名 /dashboard） |
+| `/files` | FilesView | 文件浏览 + 文档就地预览 |
 | `/help/:name?` | HelpView | 内置文档阅读 |
 | `/settings/:tab?` | SettingsView | tab 落 URL（刷新与前进后退都停在原处） |
 

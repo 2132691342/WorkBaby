@@ -208,22 +208,34 @@ pub async fn run_subagent(
             .collect();
 
         if stop == StopReason::ToolUse && !calls.is_empty() {
-            for (call_id, name, arguments) in calls {
-                let out = execute_tool(cfg, &name, &arguments, &cancel).await;
-                session
-                    .append(Entry::Message {
-                        message: Msg::ToolResult {
-                            tool_call_id: call_id,
-                            tool_name: name,
-                            content: out.0,
-                            is_error: out.1,
-                            timestamp: now_ms(),
-                            duration_ms: out.2,
-                        },
-                    })
-                    .map_err(|e| {
-                        AppError::new(wb_domain::error::kernel::SUBAGENT_FAILED, e.message)
-                    })?;
+            // 与主循环同一条纪律：只读并发、有副作用串行，结果按调用顺序入会话
+            for group in crate::blocks::group_calls_for_concurrency(&cfg.registry, &calls) {
+                let mut tasks = Vec::with_capacity(group.len());
+                for idx in group {
+                    let (call_id, name, arguments) = calls[idx].clone();
+                    let run_cfg = cfg.clone();
+                    let run_cancel = cancel.clone();
+                    tasks.push(async move {
+                        let out = execute_tool(&run_cfg, &name, &arguments, &run_cancel).await;
+                        (call_id, name, out)
+                    });
+                }
+                for (call_id, name, out) in futures::future::join_all(tasks).await {
+                    session
+                        .append(Entry::Message {
+                            message: Msg::ToolResult {
+                                tool_call_id: call_id,
+                                tool_name: name,
+                                content: out.0,
+                                is_error: out.1,
+                                timestamp: now_ms(),
+                                duration_ms: out.2,
+                            },
+                        })
+                        .map_err(|e| {
+                            AppError::new(wb_domain::error::kernel::SUBAGENT_FAILED, e.message)
+                        })?;
+                }
             }
             continue 'outer;
         }

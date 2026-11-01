@@ -6078,6 +6078,7 @@ dependencies = [
  "walkdir",
  "wb-domain",
  "wb-pkg",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

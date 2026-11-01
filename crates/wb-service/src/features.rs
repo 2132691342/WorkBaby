@@ -27,6 +27,38 @@ fn enabled(sv: &Arc<Services>, code: &str, default_on: bool) -> bool {
         .unwrap_or(default_on)
 }
 
+/// 压缩后要钉回上下文的活状态：功能关掉的不看，盘上有才算数。
+/// 只陈述事实，不下指令——模型看见清单自然会按序号继续。
+pub fn live_state(sv: &Arc<Services>) -> Option<String> {
+    let ctx = feature_ctx(sv);
+    let mut out = Vec::new();
+    if enabled(sv, "todo", true) {
+        let items = wb_features::todo::TodoStore::new(&ctx).load();
+        if !items.is_empty() {
+            let lines: Vec<String> = items
+                .iter()
+                .map(|t| format!("{}. [{}] {}", t.todo_seq, t.todo_status, t.todo_text))
+                .collect();
+            out.push(format!(
+                "待办清单（跨压缩保留，按它对齐进度）：\n{}",
+                lines.join("\n")
+            ));
+        }
+    }
+    if enabled(sv, "goal", false) {
+        if let Some(g) = wb_features::goal::GoalStore::new(&ctx).load() {
+            if g.goal_status == "active" {
+                out.push(format!("当前目标（跨压缩保留）：{}", g.goal_text));
+            }
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.join("\n\n"))
+    }
+}
+
 /// 目标续跑提示：功能开启且存在活跃目标时给下一步提示，否则 None。
 ///
 /// 目标功能关掉时不续跑——旧的目标文件不该在功能关闭后还驱动对话。
@@ -262,7 +294,7 @@ pub fn list_vo(sv: &Arc<Services>) -> Vec<wb_domain::feature::FeatureVO> {
                         "web_search".into(),
                         "pdf_read".into(),
                         "github_clone".into(),
-                        "video_understand".into(),
+                        "video_transcript".into(),
                     ],
                     "context_mode" => vec![
                         "ctx_execute".into(),

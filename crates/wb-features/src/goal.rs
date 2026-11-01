@@ -222,7 +222,7 @@ impl Tool for CreateGoalTool {
                 }
             }
             let g = GoalState {
-                goal_id: format!("GOAL_{}", wb_pkg::ulid::raw_ulid()),
+                goal_id: wb_pkg::ulid::new_id(wb_pkg::ulid::Prefix::Goal),
                 goal_text: text,
                 goal_status: "active".into(),
                 goal_note: String::new(),

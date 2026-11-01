@@ -19,6 +19,32 @@ pub fn routes() -> Router<AppState> {
         .route("/api/v1/sessions/model/{id}", post(session_model))
         .route("/api/v1/sessions/thinking/{id}", post(session_thinking))
         .route("/api/v1/sessions/export/{id}", post(session_export))
+        .route("/api/v1/sessions/branch/{id}", post(session_branch))
+        .route("/api/v1/sessions/leaf/{id}", post(session_leaf))
+}
+
+/// 从某条用户消息之后重开（旧分支保留）。
+async fn session_branch(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    axum::Json(req): axum::Json<wb_domain::session::SessionBranchREQ>,
+) -> Response {
+    match wb_service::store::branch(&st.sv, &id, &req.branch_entry_id) {
+        Ok(v) => ok_json(v),
+        Err(e) => err_json(&e),
+    }
+}
+
+/// 切回某个旧分支的叶子。
+async fn session_leaf(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    axum::Json(req): axum::Json<wb_domain::session::SessionLeafREQ>,
+) -> Response {
+    match wb_service::store::switch_leaf(&st.sv, &id, &req.leaf_entry_id) {
+        Ok(v) => ok_json(v),
+        Err(e) => err_json(&e),
+    }
 }
 
 async fn sessions_list(State(st): State<AppState>) -> Response {

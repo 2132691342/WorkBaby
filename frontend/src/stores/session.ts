@@ -32,6 +32,41 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   const openingId = ref<string | null>(null)
+  /** 当前会话的叶子与可回溯点（分支用） */
+  const leafEntryId = ref<string | null>(null)
+  const forkEntryIds = ref<string[]>([])
+  const altLeafIds = ref<string[]>([])
+
+  /** 把详情响应的分支信息同步到 store。 */
+  function applyDetail(detail: { detail_messages: MessageVO[]; detail_session: SessionVO
+    detail_leaf_entry_id?: string | null
+    detail_fork_entry_ids?: string[]
+    detail_alt_leaf_ids?: string[] }) {
+    messages.value = detail.detail_messages
+    leafEntryId.value = detail.detail_leaf_entry_id ?? null
+    forkEntryIds.value = detail.detail_fork_entry_ids ?? []
+    altLeafIds.value = detail.detail_alt_leaf_ids ?? []
+  }
+
+  /** 从某条用户消息之后重开：旧分支保留，可再切回去。 */
+  async function branchFrom(entryId: string) {
+    const id = currentId.value
+    if (!id) return
+    const detail = await api.sessions.branch(id, entryId)
+    if (!detail) return
+    applyDetail(detail)
+    currentSession.value = detail.detail_session
+  }
+
+  /** 切回某个旧分支的末端。 */
+  async function switchToLeaf(entryId: string) {
+    const id = currentId.value
+    if (!id) return
+    const detail = await api.sessions.switchLeaf(id, entryId)
+    if (!detail) return
+    applyDetail(detail)
+    currentSession.value = detail.detail_session
+  }
   /** 刚发出一条消息、把界面绑到后端新建的会话上：这不算「用户切换会话」，
    *  对话页据此跳过重置，否则会把刚收到的流式内容清掉。 */
   const adopting = ref(false)
@@ -47,6 +82,7 @@ export const useSessionStore = defineStore('session', () => {
         throw new Error(i18n.global.t('chat.snapshotBroken'))
       }
       messages.value = detail.detail_messages
+      applyDetail(detail)
       const idx = list.value.findIndex((s) => s.session_id === id)
       if (idx >= 0) list.value[idx] = detail.detail_session
       currentSession.value = detail.detail_session
@@ -132,6 +168,11 @@ export const useSessionStore = defineStore('session', () => {
     messages,
     openingId,
     adopting,
+    leafEntryId,
+    forkEntryIds,
+    altLeafIds,
+    branchFrom,
+    switchToLeaf,
     loadList,
     draft,
     open,

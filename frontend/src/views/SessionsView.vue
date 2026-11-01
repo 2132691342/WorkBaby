@@ -74,7 +74,7 @@ watch(() => session.list.length, load)
 
 function openInChat() {
   if (!selected.value) return
-  void router.push({ path: '/', query: { session: selected.value } })
+  void router.push({ path: '/chat', query: { session: selected.value } })
 }
 
 async function rename(s: { session_id: string; session_title: string }) {
@@ -126,7 +126,7 @@ async function exportSession(s: { session_id: string; session_title: string }) {
   <div class="view">
     <PageHeader :title="t('sessions.title')" :subtitle="t('sessions.subtitle')">
       <template #actions>
-        <el-button size="small" type="primary" @click="router.push('/')">
+        <el-button size="small" type="primary" @click="router.push('/chat')">
           {{ t('chat.newSession') }}
         </el-button>
       </template>

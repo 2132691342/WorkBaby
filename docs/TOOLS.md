@@ -70,7 +70,7 @@ pub trait Tool: Send + Sync {
 | memory_save / memory_search / memory_remove / memory_consolidate | memory | 持久记忆与自动去重整合 |
 | session_search | memory | 历史会话正文检索 |
 | web_search / fetch_content | web | 多搜索源检索与网页抓取 |
-| pdf_read / github_clone / video_understand | web | PDF 取文、仓库浅克隆、视频字幕 |
+| pdf_read / github_clone / video_transcript | web | PDF 取文、仓库浅克隆、视频字幕 |
 | ctx_execute / ctx_batch_execute / ctx_index / ctx_search | context_mode | 沙箱执行与本地知识库 |
 | lsp_diagnostics / lsp_fix | lsp | 静态诊断与快速修复 |
 | plan_submit / plan_mark_done / plan_inbox / plan_annotate | plan | 计划评审与逐步标注 |

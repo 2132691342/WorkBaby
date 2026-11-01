@@ -138,7 +138,7 @@ const kpis = computed(() => [
         <span class="wb-tile wb-tile--lg"><AppIcon name="chart" size="ic-xl" /></span>
         <b>{{ t('dashboard.empty') }}</b>
         <p>{{ t('dashboard.emptyHint') }}</p>
-        <el-button size="small" type="primary" @click="router.push('/')">{{ t('chat.newSession') }}</el-button>
+        <el-button size="small" type="primary" @click="router.push('/chat')">{{ t('chat.newSession') }}</el-button>
       </div>
 
       <template v-else>

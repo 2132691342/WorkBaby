@@ -114,7 +114,7 @@ async function chooseThinking(level: string) {
 
 function goProviders() {
   close()
-  void router.push('/settings/providers')
+  void router.push('/models')
 }
 
 function onDocPointerDown(e: PointerEvent) {

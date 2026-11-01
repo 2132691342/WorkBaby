@@ -210,6 +210,51 @@ fn payload_type(p: &Entry) -> &'static str {
     }
 }
 
+/// 用户消息条目 id（只有用户消息适合作分支点：
+/// 从助手回复或工具结果之后重开会留下半截对话，模型会困惑）。
+pub fn user_entry_ids(sf: &SessionFile) -> Vec<String> {
+    sf.path_to_leaf()
+        .iter()
+        .filter(|e| {
+            matches!(
+                &e.payload,
+                Entry::Message {
+                    message: Msg::User { .. }
+                }
+            )
+        })
+        .map(|e| e.entry_id.clone())
+        .collect()
+}
+
+/// 除当前叶之外、没人把它当父节点的消息条目（旧分支末端，可切回去）。
+pub fn alternate_leaves(sf: &SessionFile) -> Vec<String> {
+    use std::collections::HashSet;
+    let parents: HashSet<&str> = sf
+        .entries
+        .iter()
+        .filter_map(|e| e.parent_entry_id.as_deref())
+        .collect();
+    sf.entries
+        .iter()
+        .filter(|e| !parents.contains(e.entry_id.as_str()))
+        .filter(|e| Some(&e.entry_id) != sf.leaf.as_ref())
+        .filter(|e| matches!(&e.payload, Entry::Message { .. }))
+        .map(|e| e.entry_id.clone())
+        .collect()
+}
+
+/// 叶指针旁路文件路径：与会话文件同目录，同名加 .leaf 后缀。
+fn leaf_path(session_path: &Path) -> PathBuf {
+    let mut p = session_path.to_path_buf();
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    p.set_file_name(format!("{name}.leaf"));
+    p
+}
+
 /// 当前毫秒。
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -273,6 +318,13 @@ impl SessionFile {
             tracing::warn!(file = %path.display(), bad, "会话文件存在坏行，已跳过");
         }
         let leaf = entries.last().map(|e| e.entry_id.clone());
+        // 叶指针旁路存一文件：分支回溯后的当前叶必须跟着重启活下来，
+        // 但又不能写成树里的条目（那样它自己会占路径一位，把回放算歪）。
+        let leaf = std::fs::read_to_string(leaf_path(path))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| entries.iter().any(|e| &e.entry_id == s))
+            .or(leaf);
         Ok(Self {
             path: path.to_path_buf(),
             header,
@@ -332,10 +384,26 @@ impl SessionFile {
         chain
     }
 
+    /// 从某个条目之后重新开始：把叶子指回去，后续追加就形成新分支。
+    /// 只改叶指针、不改已有条目——旧分支完整保留，可随时切回。
+    pub fn fork_at(&mut self, entry_id: &str) -> Result<()> {
+        if !self.entries.iter().any(|e| e.entry_id == entry_id) {
+            return Err(AppError::new("5006", "分支点不存在").with_details(entry_id.to_string()));
+        }
+        self.leaf = Some(entry_id.to_string());
+        // 叶指针落盘（旁路文件），否则重启后当前分支就丢了
+        if let Err(e) = std::fs::write(leaf_path(&self.path), entry_id) {
+            tracing::warn!(err = %e, "叶指针写盘失败，重启后可能回到旧分支");
+        }
+        Ok(())
+    }
+
     /// 回放为消息序列：套 context_edit 剔除，compaction 摘要以 user 消息形态插回。
     pub fn replay_messages(&self) -> Vec<Msg> {
         let mut dropped: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for e in self.path_to_leaf() {
+        // 叶子是本体的真相：以当前叶指针为终点，未被走的分支自然不参与回放
+        let path = self.path_to_leaf();
+        for e in &path {
             if let Entry::ContextEdit {
                 target_entry_id,
                 replacement: None,
@@ -344,8 +412,6 @@ impl SessionFile {
                 dropped.insert(target_entry_id.clone());
             }
         }
-        let path = self.path_to_leaf();
-        // 最新 compaction 及其保留点
         let compact_at = path
             .iter()
             .rposition(|e| matches!(e.payload, Entry::Compaction { .. }));
@@ -374,6 +440,54 @@ impl SessionFile {
                 out.push(message.clone());
             }
         }
+        backfill_dangling_tool_results(&mut out);
         out
+    }
+}
+
+/// 补齐悬空的工具结果。
+/// 进程在工具执行中崩掉（含提问途中等不到回答）会留下没有结果的 tool_call，
+/// 直接发给模型是非法消息序（每个 tool_call 必须有对应 tool_result），
+/// 上游会报 400 且带不了任何调试信息。这里就地补一条中止说明。
+fn backfill_dangling_tool_results(msgs: &mut Vec<Msg>) {
+    use std::collections::HashSet;
+    let answered: HashSet<String> = msgs
+        .iter()
+        .filter_map(|m| match m {
+            Msg::ToolResult { tool_call_id, .. } => Some(tool_call_id.clone()),
+            _ => None,
+        })
+        .collect();
+    // 逐条检查助手消息里的调用，缺结果的补在它后面（紧跟其后位置最稳）
+    let mut extra: Vec<(usize, Msg)> = Vec::new();
+    for (idx, m) in msgs.iter().enumerate() {
+        let Msg::Assistant { content, .. } = m else {
+            continue;
+        };
+        for b in content {
+            if let Block::ToolCall {
+                tool_call_id, name, ..
+            } = b
+            {
+                if !answered.contains(tool_call_id) {
+                    extra.push((
+                        idx,
+                        Msg::ToolResult {
+                            tool_call_id: tool_call_id.clone(),
+                            tool_name: name.clone(),
+                            content: "[中断] 这条工具调用没有产生结果：运行进程在它完成前退出了。"
+                                .into(),
+                            is_error: true,
+                            timestamp: now_ms(),
+                            duration_ms: 0,
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    // 从后往前插，避免前面的插入挪动后面的下标
+    for (idx, m) in extra.into_iter().rev() {
+        msgs.insert(idx + 1, m);
     }
 }

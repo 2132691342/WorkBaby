@@ -9,9 +9,17 @@ import PageHeader from '../components/layout/PageHeader.vue'
 const { t } = useI18n()
 
 const list = ref<InstanceType<typeof SkillList> | null>(null)
+// 导入按钮自己也要有忙碌态：打开文件选择框那几百毫秒里没反馈，点下去就像失灵
+const importing = ref(false)
 
 async function importSkill() {
-  await list.value?.importSkill()
+  if (importing.value) return
+  importing.value = true
+  try {
+    await list.value?.importSkill()
+  } finally {
+    importing.value = false
+  }
 }
 </script>
 
@@ -19,7 +27,7 @@ async function importSkill() {
   <div class="view">
     <PageHeader :title="t('skills.title')" :subtitle="t('skills.subtitle')">
       <template #actions>
-        <el-button size="small" @click="importSkill">
+        <el-button size="small" :loading="importing" :disabled="importing" @click="importSkill">
           {{ t('settings.skills.import') }}
         </el-button>
       </template>

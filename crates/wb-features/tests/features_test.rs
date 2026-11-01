@@ -46,22 +46,34 @@ async fn todo_dependency_graph_rejects_and_cleans_up() {
     let op = |v: serde_json::Value| todo_op(&tool, v);
 
     op(json!({"op":"add","text":"第一步"})).await.unwrap();
-    op(json!({"op":"add","text":"第二步","blocked_by":["TODO_1"]}))
+    op(json!({"op":"add","text":"第二步","blocked_by":["1"]}))
         .await
         .unwrap();
-    op(json!({"op":"add","text":"第三步","blocked_by":["TODO_2"]}))
+    op(json!({"op":"add","text":"第三步","blocked_by":["2"]}))
         .await
         .unwrap();
 
     let store = TodoStore::new(&ctx);
-    assert_eq!(store.load().len(), 3, "三条待办都应落盘");
-    assert_eq!(store.load()[1].todo_blocked_by, ["TODO_1"]);
-
-    // 自环 / 悬空 / 成环（TODO_1 ← TODO_3 已存在链路）都必须被拒
+    let all = store.load();
+    assert_eq!(all.len(), 3, "三条待办都应落盘");
+    // 序号引用必须被归一成 ULID：存成序号会让成环检测与删除清理静默失效
+    let id1 = all[0].todo_id.clone();
+    assert_eq!(
+        all[1].todo_blocked_by,
+        [id1.as_str()],
+        "依赖应存成真实 id 而不是序号"
+    );
     assert!(
-        op(json!({"op":"add","text":"自环","blocked_by":["TODO_4"]}))
+        wb_pkg::ulid::is_valid(&all[1].todo_blocked_by[0]),
+        "入库的依赖要是合法 ULID"
+    );
+
+    // 自环 / 悬空 / 成环都必须被拒
+    assert!(
+        op(json!({"op":"update","todo_id":"3","blocked_by":["3"]}))
             .await
-            .is_err()
+            .is_err(),
+        "自己依赖自己应被拒"
     );
     assert!(
         op(json!({"op":"add","text":"悬空","blocked_by":["TODO_999"]}))
@@ -69,13 +81,21 @@ async fn todo_dependency_graph_rejects_and_cleans_up() {
             .is_err()
     );
     assert!(
-        op(json!({"op":"update","todo_id":"TODO_1","blocked_by":["TODO_3"]}))
+        op(json!({"op":"add","text":"越界","blocked_by":["4"]}))
             .await
-            .is_err()
+            .is_err(),
+        "不存在的序号不应当成有效依赖"
+    );
+    // 第三→第二→第一 已成链，反向让第一依赖第三就是成环
+    assert!(
+        op(json!({"op":"update","todo_id":id1.clone(),"blocked_by":["3"]}))
+            .await
+            .is_err(),
+        "用序号写法绕回环也应被拒"
     );
 
-    // 删掉被依赖项后，TODO_2 的悬空依赖被清理；TODO_3→TODO_2 是合法依赖不受影响
-    op(json!({"op":"remove","todo_id":"TODO_1"})).await.unwrap();
+    // 删掉被依赖项后，剩下的悬空依赖被清理；合法依赖不受影响
+    op(json!({"op":"remove","todo_id":"1"})).await.unwrap();
     let todos = store.load();
     assert_eq!(todos.len(), 2, "只该剩两条");
     let ids: Vec<&str> = todos.iter().map(|t| t.todo_id.as_str()).collect();
@@ -90,9 +110,56 @@ async fn todo_dependency_graph_rejects_and_cleans_up() {
 
 // ---- 提问回答板 ----
 
-/// 一次性投递；重复回答 / 无人等待 / 接收端被丢弃都安全拒绝。
+/// 回答板三面：待答问题落盘，重启后仍能弹回（会话不因无人应答卡死）；
+/// 一次性投递，重复回答 / 无人等待 / 接收端丢弃都安全拒绝；答完、取消、过期三种路径都清盘。
 #[test]
-fn answer_board_delivers_once_and_tolerates_dropped_waiter() {
+fn answer_board_persists_delivers_once_and_expires() {
+    let dir = std::env::temp_dir().join(format!("wb_ask_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("pending_asks.json");
+
+    let board = AnswerBoard::with_store(path.clone());
+    let card = json!({ "id": "ASK_1", "method": "select", "message": "选哪个？" });
+    let _rx = board.register_with_card("ASK_1", card.clone());
+    assert!(path.exists(), "登记时应落盘");
+    assert_eq!(board.load_pending().len(), 1);
+    assert_eq!(board.load_pending()[0]["message"], "选哪个？", "要点不丢");
+
+    // 重启模拟：新板子读同一文件，问题仍在
+    let reborn = AnswerBoard::with_store(path.clone());
+    let restored = reborn.load_pending();
+    assert_eq!(restored.len(), 1, "重启后应能读回待答问题");
+    assert_eq!(restored[0]["id"], "ASK_1");
+
+    // 答完就从盘上消失：不该再弹一个已作废的问题
+    assert!(board.answer("ASK_1", json!({ "value": "A" })));
+    assert!(
+        board.load_pending().is_empty(),
+        "已答的问题应从待答名单消失"
+    );
+
+    // 取消 / 超时路径也要清理
+    let _rx2 = board.register_with_card("ASK_2", json!({ "id": "ASK_2" }));
+    assert_eq!(board.load_pending().len(), 1);
+    board.forget("ASK_2");
+    assert!(board.load_pending().is_empty(), "取消后不应留残留");
+
+    // 过期的不再弹回
+    let stale = vec![
+        json!({ "ask_id": "ASK_OLD", "ask_card": { "id": "ASK_OLD" },
+        "ask_created_at": 0 }),
+    ];
+    std::fs::write(&path, serde_json::to_string(&stale).unwrap()).unwrap();
+    assert!(
+        AnswerBoard::with_store(path.clone())
+            .load_pending()
+            .is_empty(),
+        "超过等待上限的问题不该再弹"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // 一次性投递语义
     let board = AnswerBoard::new();
     let rx = board.register("ASK_1");
     assert!(
@@ -151,6 +218,22 @@ fn memory_roundtrip_session_search_and_secret_scan() {
     assert!(store.search("ulid", 10).unwrap().is_empty());
     assert_eq!(store.search("theme", 10).unwrap().len(), 1);
 
+    // 中文检索：unicode61 不按词切分，整句会被当成一个 token，
+    // 只走 MATCH 的话查「深色」永远为空——LIKE 逐词召回必须在。
+    let (zh_id, _) = store
+        .save("user", "用户偏好深色主题与紧凑布局", 4000)
+        .unwrap();
+    let zh = store.search("深色", 10).unwrap();
+    assert_eq!(zh.len(), 1, "中文子串应命中");
+    assert_eq!(zh[0].memory_id, zh_id);
+    assert_eq!(
+        store.search("节表", 10).unwrap().len(),
+        0,
+        "不存在的词不应误返"
+    );
+    // 中英混排查询：一边的词也要能拉回结果
+    assert_eq!(store.search("主题 ulid", 10).unwrap().len(), 1);
+
     // 会话检索只吃消息正文行
     let sessions = dir.join("sessions").join("D--demo");
     std::fs::create_dir_all(&sessions).unwrap();
@@ -173,6 +256,15 @@ fn memory_roundtrip_session_search_and_secret_scan() {
     let mut line_nos: Vec<usize> = hits.iter().map(|h| h.line_no).collect();
     line_nos.sort();
     assert_eq!(line_nos, [2, 4, 5], "只应命中消息正文行");
+    // 会话正文里的中文同样要能检索到
+    std::fs::write(
+        sessions.join("124_SESS_y.jsonl"),
+        r#"{"type":"message","message":{"role":"user","content":"帮我看看压缩流程"}}"#,
+    )
+    .unwrap();
+    let zh_hits =
+        wb_features::memory_store::search_sessions(&dir.join("sessions"), "压缩流程", 10).unwrap();
+    assert_eq!(zh_hits.len(), 1, "会话中文子串检索应命中");
 
     // 密钥扫描：真凭据拦下，相似无害文本放行
     assert!(wb_features::memory::scan_secret("key is sk-abc123XYZ4567890def").is_some());
@@ -229,21 +321,80 @@ fn web_parsing_extracts_text_results_and_captions() {
 <a class="result__snippet" href="#">A language empowering everyone &amp; building reliable software.</a>
 </div>"##;
     let dd = wb_features::web_parse::parse_results(ddg);
-    assert_eq!(dd[0].url, "https://www.rust-lang.org/", "跳转包装应解开");
     assert_eq!(
-        dd[0].snippet,
+        dd[0].result_url, "https://www.rust-lang.org/",
+        "跳转包装应解开"
+    );
+    assert_eq!(
+        dd[0].result_snippet,
         "A language empowering everyone & building reliable software."
     );
 
     let bing = r#"<li class="b_algo"><h2><a href="https://example.com/doc">Example Doc</a></h2><p>Some snippet here.</p></li>"#;
     let b = wb_features::web_providers::parse_bing(bing);
-    assert_eq!(b[0].title, "Example Doc");
-    assert_eq!(b[0].url, "https://example.com/doc");
+    assert_eq!(b[0].result_title, "Example Doc");
+    assert_eq!(b[0].result_url, "https://example.com/doc");
 
     let wiki = r#"{"query":{"search":[{"title":"Rust","snippet":"A <b>systems</b> language."}]}}"#;
     let w = wb_features::web_providers::parse_wikipedia(wiki);
-    assert_eq!(w[0].url, "https://en.wikipedia.org/wiki/Rust");
-    assert!(!w[0].snippet.contains("<b>"), "摘要应剥标签");
+    assert_eq!(w[0].result_url, "https://en.wikipedia.org/wiki/Rust");
+    assert!(!w[0].result_snippet.contains("<b>"), "摘要应剥标签");
+
+    // 四个 API 源的响应形状各异，各家解析器要认得自家的字段名
+    let brave = r#"{"web":{"results":[{"title":"Brave A","url":"https://a.example","description":"desc a"}]}}"#;
+    let br = wb_features::web_providers::parse_brave(brave);
+    assert_eq!(br.len(), 1);
+    assert_eq!(br[0].result_snippet, "desc a", "Brave 摘要取 description");
+    let tavily = r#"{"results":[{"title":"Tav B","url":"https://b.example","content":"body b"}]}"#;
+    assert_eq!(
+        wb_features::web_providers::parse_tavily(tavily)[0].result_snippet,
+        "body b"
+    );
+    let serper = r#"{"organic":[{"title":"Ser C","link":"https://c.example","snippet":"snip c"}]}"#;
+    assert_eq!(
+        wb_features::web_providers::parse_serper(serper)[0].result_url,
+        "https://c.example",
+        "Serper 的链接字段是 link"
+    );
+    let exa = r#"{"results":[{"title":"Exa D","url":"https://d.example","text":"text d"}]}"#;
+    assert_eq!(
+        wb_features::web_providers::parse_exa(exa)[0].result_title,
+        "Exa D"
+    );
+    // 没给 URL 的条目要丢掉：返一条点不开的假结果比不返更坑
+    assert!(
+        wb_features::web_providers::parse_brave(r#"{"web":{"results":[{"title":"x"}]}}"#)
+            .is_empty(),
+        "缺 url 不应当成一条有效结果"
+    );
+
+    // 排队：队里不该出现「需要密钥但没配」的源；免密钥公开源始终兜底
+    let q = wb_features::web_providers::queue_for("");
+    let codes: Vec<&str> = q.iter().map(|(p, _)| p.provider_code).collect();
+    for c in &codes {
+        let p = wb_features::web_providers::by_code(c).unwrap();
+        assert!(
+            p.provider_env_keys.is_empty() || wb_features::web_providers::key_for(p).is_some(),
+            "未配密钥的 API 源不该进队：{c}"
+        );
+    }
+    for open in ["duckduckgo", "bing", "wikipedia"] {
+        assert!(codes.contains(&open), "公开源应一直在队：{open}");
+    }
+    assert_eq!(
+        wb_features::web_providers::by_code("brave")
+            .unwrap()
+            .provider_env_keys,
+        ["BRAVE_API_KEY"],
+        "实现里的变量名要和工具描述一致"
+    );
+    // 未知源码 → 空队（工具层据此报「未知搜索源」）
+    assert!(wb_features::web_providers::queue_for("nope").is_empty());
+    assert_eq!(
+        wb_features::web_providers::codes().len(),
+        wb_features::web_providers::PROVIDERS.len(),
+        "工具参数的 enum 必须跟实际源表同步"
+    );
 
     use wb_features::web_video::{caption_tracks, parse_caption, pick_track};
     let yt = r#"{"playerResponse":{"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[

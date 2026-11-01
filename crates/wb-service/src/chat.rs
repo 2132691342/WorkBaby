@@ -181,6 +181,11 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
         model_id: mid.clone(),
         context_window,
         max_tokens: 16_384,
+        // 压缩会把旧消息整段丢掉，此刻由 service 现场读一遍活状态回填进去
+        reinforce: Some(Arc::new(Box::new({
+            let svr = sv.clone();
+            move || super::features::live_state(&svr)
+        }))),
         thinking: wb_provider::ThinkingLevel::Off,
         max_retries: 3,
         workdir: std::path::PathBuf::from(&workspace),
@@ -346,11 +351,16 @@ pub async fn compact(
     let client = wb_provider::create_client(resolved)?;
     let path = store::find_session_file(&sv, session_id)?;
     let mut session_file = wb_kernel::SessionFile::load(&path)?;
+    let reinforce: wb_kernel::compaction::ReinforceFn = {
+        let svr = sv.clone();
+        Box::new(move || super::features::live_state(&svr))
+    };
     let (tokens_before, summary) = wb_kernel::compaction::compact(
         &mut session_file,
         client.as_ref(),
         &format!("{pid}/{mid}"),
         4096,
+        Some(&reinforce),
         tokio_util::sync::CancellationToken::new(),
     )
     .await?;

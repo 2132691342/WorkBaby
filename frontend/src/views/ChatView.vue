@@ -221,7 +221,7 @@ watch(() => settings.boot?.boot_default_model, seedContext)
                 <p>{{ t('chat.setupSub') }}</p>
               </div>
               <div class="setup-acts">
-                <el-button type="primary" size="small" @click="router.push('/settings/providers')">
+                <el-button type="primary" size="small" @click="router.push('/models')">
                   {{ t('chat.setupGo') }}
                 </el-button>
                 <el-button size="small" @click="router.push('/help/models')">

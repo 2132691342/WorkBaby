@@ -9,6 +9,8 @@ use wb_provider::ToolCallDone;
 
 use crate::session::Block;
 
+/// 执行一个工具调用：取不到工具算错不算崩，返回 (正文, 是否错, 耗时)。
+/// 参数不过 schema 也不预先拒，交给工具自己报错（错误文案更具体）。
 pub async fn execute_tool(
     cfg: &AgentConfig,
     name: &str,
@@ -29,6 +31,32 @@ pub async fn execute_tool(
             started.elapsed().as_millis() as i64,
         ),
     }
+}
+
+/// 同批工具调用的并发分组：相邻只读调用并一组一起跑，
+/// 带副作用的调用自成一组串行跑——两个 write 并发改同一文件会互相踩。
+/// 返回原 calls 的下标分组，组内组间都保持调用顺序。
+pub fn group_calls_for_concurrency(
+    registry: &wb_tools::ToolRegistry,
+    calls: &[(String, String, String)],
+) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut cur_parallel = false;
+    for (idx, (_, name, _)) in calls.iter().enumerate() {
+        let parallel = registry
+            .get(name)
+            .map(|t| t.annotations().read_only)
+            .unwrap_or(false);
+        if parallel && cur_parallel {
+            if let Some(last) = groups.last_mut() {
+                last.push(idx);
+                continue;
+            }
+        }
+        groups.push(vec![idx]);
+        cur_parallel = parallel;
+    }
+    groups
 }
 
 /// 追加文本块（连续文本合并）。

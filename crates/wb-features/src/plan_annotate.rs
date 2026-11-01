@@ -116,7 +116,7 @@ impl Tool for PlanAnnotateTool {
                     ));
                 }
                 p.plan_annotations.push(PlanAnnotation {
-                    annotation_id: format!("ANN_{}", wb_pkg::ulid::raw_ulid()),
+                    annotation_id: wb_pkg::ulid::new_id(wb_pkg::ulid::Prefix::Ann),
                     annotation_scope: scope,
                     annotation_step: step_index,
                     annotation_text: text,

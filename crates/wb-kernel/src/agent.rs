@@ -43,6 +43,8 @@ pub struct AgentConfig {
     pub max_retries: i64,
     /// 工具执行的工作目录（= 当前工作区，与进程 cwd 无关）
     pub workdir: std::path::PathBuf,
+    /// 压缩后回填的活状态（如待办清单）；service 决定内容，内核不做假设
+    pub reinforce: Option<std::sync::Arc<crate::compaction::ReinforceFn>>,
 }
 
 /// 单轮运行结果。
@@ -109,6 +111,7 @@ pub async fn run(
                 cfg.client.as_ref(),
                 &cfg.model_id,
                 cfg.max_tokens,
+                cfg.reinforce.as_deref(),
                 cancel.clone(),
             )
             .await
@@ -284,32 +287,45 @@ pub async fn run(
 
         let stop2 = stop;
         if stop2 == StopReason::ToolUse {
-            for (call_id, name, arguments) in calls {
-                emit(&KernelEvent::ToolExecutionStart {
-                    args: serde_json::from_str(&arguments).unwrap_or(serde_json::Value::Null),
-                    call_id: call_id.clone(),
-                    name: name.clone(),
-                });
-                let out = execute_tool(&cfg, &name, &arguments, &cancel).await;
-                emit(&KernelEvent::ToolExecutionEnd {
-                    call_id: call_id.clone(),
-                    name: name.clone(),
-                    result: out.0.clone(),
-                    is_error: out.1,
-                    duration_ms: out.2,
-                });
-                session
-                    .append(Entry::Message {
-                        message: Msg::ToolResult {
-                            tool_call_id: call_id,
-                            tool_name: name,
-                            content: out.0,
-                            is_error: out.1,
-                            timestamp: now_ms(),
-                            duration_ms: out.2,
-                        },
-                    })
-                    .map_err(loop_err)?;
+            // 同批调用并发跑：只读的并组一起执行，带副作用的单独排队。
+            // join_all 保持入参顺序，会话里的 ToolResult 次序与串行版一致。
+            for group in crate::blocks::group_calls_for_concurrency(&cfg.registry, &calls) {
+                let mut tasks = Vec::with_capacity(group.len());
+                for idx in group {
+                    let (call_id, name, arguments) = calls[idx].clone();
+                    emit(&KernelEvent::ToolExecutionStart {
+                        args: serde_json::from_str(&arguments).unwrap_or(serde_json::Value::Null),
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                    });
+                    let run_cfg = cfg.clone();
+                    let run_cancel = cancel.clone();
+                    tasks.push(async move {
+                        let out = execute_tool(&run_cfg, &name, &arguments, &run_cancel).await;
+                        (call_id, name, out)
+                    });
+                }
+                for (call_id, name, out) in futures::future::join_all(tasks).await {
+                    emit(&KernelEvent::ToolExecutionEnd {
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        result: out.0.clone(),
+                        is_error: out.1,
+                        duration_ms: out.2,
+                    });
+                    session
+                        .append(Entry::Message {
+                            message: Msg::ToolResult {
+                                tool_call_id: call_id,
+                                tool_name: name,
+                                content: out.0,
+                                is_error: out.1,
+                                timestamp: now_ms(),
+                                duration_ms: out.2,
+                            },
+                        })
+                        .map_err(loop_err)?;
+                }
             }
             emit(&KernelEvent::TurnEnd {
                 usage: usage.clone(),

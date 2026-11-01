@@ -3,13 +3,43 @@
 // 助手段的渲染在 AssistantTurn（按内容块顺序内联思考 / 正文 / 工具卡）。
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessageBox } from 'element-plus'
 import type { MessageVO } from '../../types/api'
 import { useToastStore } from '../../stores/toast'
+import { useSessionStore } from '../../stores/session'
 import AppIcon from '../common/AppIcon.vue'
 
 const props = defineProps<{ msg: MessageVO }>()
 const { t } = useI18n()
 const toast = useToastStore()
+const session = useSessionStore()
+
+// 只有用户消息能当分支点：从助手回复之后重开会留下半截对话
+const canBranch = computed(
+  () =>
+    Boolean(props.msg.message_entry_id) &&
+    session.forkEntryIds.includes(props.msg.message_entry_id ?? ''),
+)
+
+async function branchHere() {
+  const entryId = props.msg.message_entry_id
+  if (!canBranch.value || !entryId) return
+  try {
+    await ElMessageBox.confirm(t('chat.branchConfirm'), t('chat.branchTitle'), {
+      confirmButtonText: t('chat.branchGo'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  try {
+    await session.branchFrom(entryId)
+    toast.ok(t('chat.branchDone'))
+  } catch (e) {
+    toast.bad(t('common.saveFailed', { msg: (e as Error)?.message || '' }))
+  }
+}
 
 const meName = computed(() => t('chat.you'))
 
@@ -48,6 +78,11 @@ function fmtTime(ms: number) {
         <el-tooltip :content="copied ? t('common.copied') : t('common.copy')" placement="top" :show-after="300">
           <button class="me-act" type="button" :disabled="copied || !msg.message_content" @click="copy">
             <AppIcon :name="copied ? 'check' : 'copy'" size="ic-2xs" />
+          </button>
+        </el-tooltip>
+        <el-tooltip v-if="canBranch" :content="t('chat.branchHere')" placement="top" :show-after="300">
+          <button class="me-act" type="button" @click="branchHere">
+            <AppIcon name="refresh" size="ic-2xs" />
           </button>
         </el-tooltip>
       </div>

@@ -84,6 +84,10 @@ export default {
     workspace: 'Workspace',
     overview: 'Overview',
     features: 'Features',
+    models: 'Models',
+    mcp: 'MCP',
+    usage: 'Usage',
+    plugins: 'Plugins',
     skills: 'Skills',
     files: 'Files',
     sessions: 'Sessions',
@@ -103,6 +107,10 @@ export default {
     workspace: 'Code',
     overview: 'Home',
     features: 'Feat',
+    models: 'Model',
+    mcp: 'MCP',
+    usage: 'Usage',
+    plugins: 'Plug',
     skills: 'Skills',
     files: 'Files',
     sessions: 'Chats',
@@ -139,6 +147,12 @@ export default {
   },
 
   chat: {
+
+    branchHere: 'Branch from here',
+    branchTitle: 'Restart from this message?',
+    branchConfirm: 'Everything after this message is hidden from the current branch, but not deleted — you can switch back later.',
+    branchGo: 'Restart',
+    branchDone: 'Switched to this branch',
     newSession: 'New chat',
     searchSession: 'Search chats',
     sessions: 'Chats',
@@ -298,6 +312,7 @@ export default {
   settings: {
     title: 'Settings',
     groups: {
+      advanced: 'Advanced',
       model: 'Model & Access',
       capability: 'Capabilities',
       app: 'App',
@@ -412,6 +427,10 @@ export default {
       unnamed: 'Unnamed server',
       scopeGlobal: 'Global (data dir mcp.json)',
       scopeProject: 'Workspace (.workbaby/mcp.json)',
+    },
+    inspect: {
+      title: 'Inspect',
+      desc: 'Current assembly snapshot: tools / skills / commands / features / system prompt.',
     },
     appearance: {
       title: 'Appearance',

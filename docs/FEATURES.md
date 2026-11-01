@@ -37,7 +37,7 @@ service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方
 | 模糊搜索 | fff | `fffind` / `ffgrep` | 开 |
 | 上下文地图 | context_view | 无（`/context/breakdown` 端点） | 开 |
 | 持久记忆 | memory | `memory_save` / `memory_search` / `memory_remove` / `memory_consolidate` / `session_search` | 关 |
-| 联网访问 | web | `fetch_content` / `web_search` / `pdf_read` / `github_clone` / `video_understand` | 关 |
+| 联网访问 | web | `fetch_content` / `web_search` / `pdf_read` / `github_clone` / `video_transcript` | 关 |
 | 装载配置 | loadout | 无（预设管理端点） | 关 |
 | 省上下文 | context_mode | `ctx_execute` / `ctx_batch_execute` / `ctx_index` / `ctx_search` | 关 |
 | 语言服务 | lsp | `lsp_diagnostics` / `lsp_fix` | 关 |
@@ -119,7 +119,7 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 | `fetch_content` | 抓取 URL，按类型分流（JSON 直通 / HTML 抽正文） |
 | `pdf_read` | 抽取 PDF 文字（本地路径或远程地址） |
 | `github_clone` | 浅克隆公开仓库到工作区 |
-| `video_understand` | 取视频页面元信息与字幕轨文本 |
+| `video_transcript` | 取视频页面元信息与字幕轨文本（不做画面理解） |
 
 **搜索源**：默认依次尝试 `duckduckgo` → `bing` → `wikipedia`，第一个解析出结果即返回；
 可用 `provider` 参数锁定单一源。每个源有自己的页面结构，适配器负责转成统一结果列表——
@@ -150,6 +150,11 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 沙箱支持 12 种语言（javascript / typescript / python / shell / powershell /
 ruby / php / perl / go / dotnet / java / lua），脚本落盘后用对应解释器执行，
 执行完即删。解释器不在 PATH 上时进程起不来，报 7003（无法启动该解释器）。
+
+隔离边界有两条，都落在内核层：**当前目录固定为沙箱目录**（脚本按相对路径改不到
+项目文件，只有显式绝对路径才够得着），以及**Windows 作业对象**（内存与进程数上限，
+句柄关闭时内核杀光作业内残留进程，超时另有一条兜底）。这**不是**文件系统沙箱：
+不拦截绝对路径写入，不限制网络。`deno` 以最小权限运行（不再 `--allow-all`）。
 
 知识库是 SQLite FTS5，正文按段落切块入库。检索用**双路召回 + RRF 融合**：
 一路 FTS5 词面匹配（BM25 排序），一路逐字 LIKE（覆盖缩写与专有名词），

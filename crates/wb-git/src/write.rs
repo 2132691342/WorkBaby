@@ -117,7 +117,7 @@ fn pushed_ahead(root: &Path) -> bool {
         return false;
     }
     // 上游是 HEAD 的祖先 = 本地领先 = 未推送；否则已推送
-    exec::run(root, &["merge-base", "--is-ancestor", "@{u}", "HEAD"]).code != 0
+    exec::run(root, &["merge-base", "--is-ancestor", "@{u}", "HEAD"]).git_exit_code != 0
 }
 
 /// 提交信息落临时文件（避免命令行转义与长度限制）。

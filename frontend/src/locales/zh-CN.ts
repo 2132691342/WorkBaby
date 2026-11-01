@@ -85,6 +85,10 @@ export default {
     workspace: '工作区',
     overview: '概览',
     features: '功能',
+    models: '模型',
+    mcp: 'MCP',
+    usage: '用量',
+    plugins: '插件',
     skills: '技能',
     files: '文件',
     sessions: '会话',
@@ -104,6 +108,10 @@ export default {
     workspace: '工作区',
     overview: '概览',
     features: '功能',
+    models: '模型',
+    mcp: 'MCP',
+    usage: '用量',
+    plugins: '插件',
     skills: '技能',
     files: '文件',
     sessions: '会话',
@@ -140,6 +148,12 @@ export default {
   },
 
   chat: {
+
+    branchHere: '从这里重新开始',
+    branchTitle: '从这条消息重开？',
+    branchConfirm: '这条消息之后的内容会从当前分支隐去，但不会被删除——之后还能切回来。',
+    branchGo: '重开',
+    branchDone: '已切到这个分支',
     newSession: '新对话',
     searchSession: '搜索对话',
     sessions: '对话',
@@ -300,6 +314,7 @@ export default {
   settings: {
     title: '设置',
     groups: {
+      advanced: '高级',
       model: '模型与接入',
       capability: '能力',
       app: '应用',
@@ -414,6 +429,10 @@ export default {
       unnamed: '未命名服务',
       scopeGlobal: '全局（数据目录 mcp.json）',
       scopeProject: '工作区（.workbaby/mcp.json）',
+    },
+    inspect: {
+      title: '内省',
+      desc: '当前装配快照：工具 / 技能 / 命令 / 内置功能 / 系统提示词。',
     },
     appearance: {
       title: '外观',

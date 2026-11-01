@@ -1,124 +1,83 @@
 <script setup lang="ts">
-// 一级导航 rail：图标 + 短标签竖排，全部一级页面平级（含设置）。
-// 仿管理系统惯例把导航收进左栏，顶栏只留品牌、上下文标题与窗控。
-import { useRoute, useRouter } from 'vue-router'
+// 一级导航 rail：图标 + 短标签竖排，全站唯一的一级入口。
+// 顺序：概览 → 对话 → 工作区 → 会话 → 模型 → 技能 → 插件 → MCP → 用量；
+// 低频且「改了影响全局」的（文件 / 帮助 / 设置）压在底部，不占黄金位置。
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../common/AppIcon.vue'
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 
-const ITEMS = [
-  { key: 'chat', path: '/', icon: 'chat', labelKey: 'nav.chat', shortKey: 'navShort.chat' },
-  {
-    key: 'overview',
-    path: '/overview',
-    icon: 'cpu',
-    labelKey: 'nav.overview',
-    shortKey: 'navShort.overview',
-  },
-  {
-    key: 'workspace',
-    path: '/workspace',
-    icon: 'git-branch',
-    labelKey: 'nav.workspace',
-    shortKey: 'navShort.workspace',
-  },
-  {
-    key: 'features',
-    path: '/features',
-    icon: 'zap',
-    labelKey: 'nav.features',
-    shortKey: 'navShort.features',
-  },
-  {
-    key: 'skills',
-    path: '/skills',
-    icon: 'sparkles',
-    labelKey: 'nav.skills',
-    shortKey: 'navShort.skills',
-  },
-  {
-    key: 'files',
-    path: '/files',
-    icon: 'folder',
-    labelKey: 'nav.files',
-    shortKey: 'navShort.files',
-  },
-  {
-    key: 'sessions',
-    path: '/sessions',
-    icon: 'doc',
-    labelKey: 'nav.sessions',
-    shortKey: 'navShort.sessions',
-  },
-  {
-    key: 'dashboard',
-    path: '/dashboard',
-    icon: 'chart',
-    labelKey: 'nav.dashboard',
-    shortKey: 'navShort.dashboard',
-  },
-] as const
-
-// 设置与帮助压在底部：它们是旁路，但仍是 rail 里的一等入口——
-// 用户说「找不到设置入口」的根源是把它们挤进了顶栏角落的纯图标。
-const FOOTER = [
-  { key: 'help', path: '/help', icon: 'help', labelKey: 'nav.help', shortKey: 'navShort.help' },
-  {
-    key: 'settings',
-    path: '/settings',
-    icon: 'settings',
-    labelKey: 'nav.settings',
-    shortKey: 'navShort.settings',
-  },
-] as const
-
-function isActive(path: string): boolean {
-  if (path === '/') return route.path === '/' || route.path.startsWith('/session')
-  return route.path.startsWith(path)
+/** 当前页高亮判定：按路由 name 比，路径改名不会连带失效。 */
+function isActive(name: string): boolean {
+  return route.name === name
 }
 
-function go(path: string) {
-  if (route.path !== path) void router.push(path)
+/** 一级入口：name 对齐路由命名，图标取 AppIcon 现有表。 */
+interface NavItem {
+  /** 路由 name */
+  name: string
+  /** AppIcon 图标名 */
+  icon: string
+  /** 完整文案键（tooltip 用） */
+  labelKey: string
+  /** 短文案键（rail 宽度有限，只显示这个） */
+  shortKey: string
 }
+
+const ITEMS: NavItem[] = [
+  { name: 'overview', icon: 'monitor', labelKey: 'nav.overview', shortKey: 'navShort.overview' },
+  { name: 'chat', icon: 'chat', labelKey: 'nav.chat', shortKey: 'navShort.chat' },
+  { name: 'workspace', icon: 'braces', labelKey: 'nav.workspace', shortKey: 'navShort.workspace' },
+  { name: 'sessions', icon: 'clock', labelKey: 'nav.sessions', shortKey: 'navShort.sessions' },
+  { name: 'models', icon: 'cpu', labelKey: 'nav.models', shortKey: 'navShort.models' },
+  { name: 'skills', icon: 'sparkles', labelKey: 'nav.skills', shortKey: 'navShort.skills' },
+  { name: 'plugins', icon: 'zap', labelKey: 'nav.plugins', shortKey: 'navShort.plugins' },
+  { name: 'mcp', icon: 'database', labelKey: 'nav.mcp', shortKey: 'navShort.mcp' },
+  { name: 'usage', icon: 'chart', labelKey: 'nav.usage', shortKey: 'navShort.usage' },
+]
+
+// 底部三项都是低频旁路：文件看一眼就走，帮助与设置改了影响全局。
+const FOOTER: NavItem[] = [
+  { name: 'files', icon: 'folder', labelKey: 'nav.files', shortKey: 'navShort.files' },
+  { name: 'help', icon: 'help', labelKey: 'nav.help', shortKey: 'navShort.help' },
+  { name: 'settings', icon: 'settings', labelKey: 'nav.settings', shortKey: 'navShort.settings' },
+]
 </script>
 
 <template>
   <aside class="rail" aria-label="Primary">
     <nav class="rail-nav">
-      <button
+      <RouterLink
         v-for="it in ITEMS"
-        :key="it.key"
-        type="button"
+        :key="it.name"
+        :to="{ name: it.name }"
         class="rail-item"
-        :class="{ 'is-on': isActive(it.path) }"
+        :class="{ 'is-on': isActive(it.name) }"
         :title="t(it.labelKey)"
-        :aria-current="isActive(it.path) ? 'page' : undefined"
-        @click="go(it.path)"
+        :aria-current="isActive(it.name) ? 'page' : undefined"
       >
-        <span v-if="isActive(it.path)" class="rail-bar" aria-hidden="true" />
+        <span v-if="isActive(it.name)" class="rail-bar" aria-hidden="true" />
         <AppIcon :name="it.icon" size="ic-sm" />
         <span class="rail-tx">{{ t(it.shortKey) }}</span>
-      </button>
+      </RouterLink>
     </nav>
 
     <div class="rail-foot">
-      <button
+      <RouterLink
         v-for="it in FOOTER"
-        :key="it.key"
-        type="button"
+        :key="it.name"
+        :to="{ name: it.name }"
         class="rail-item"
-        :class="{ 'is-on': isActive(it.path) }"
+        :class="{ 'is-on': isActive(it.name) }"
         :title="t(it.labelKey)"
-        :aria-current="isActive(it.path) ? 'page' : undefined"
-        @click="go(it.path)"
+        :aria-current="isActive(it.name) ? 'page' : undefined"
       >
-        <span v-if="isActive(it.path)" class="rail-bar" aria-hidden="true" />
+        <span v-if="isActive(it.name)" class="rail-bar" aria-hidden="true" />
         <AppIcon :name="it.icon" size="ic-sm" />
         <span class="rail-tx">{{ t(it.shortKey) }}</span>
-      </button>
+      </RouterLink>
     </div>
   </aside>
 </template>
@@ -149,6 +108,7 @@ function go(path: string) {
   padding: var(--wb-sp-2) var(--wb-sp-1) 0;
   border-top: 1px solid var(--wb-border);
 }
+/* 五态：默认 / 悬停放大 / 按下缩小 / 选中（淡底 + 左缘竖条 + 主色）；rail 窄，禁用放大以免溢出 */
 .rail-item {
   position: relative;
   display: flex;
@@ -160,6 +120,8 @@ function go(path: string) {
   padding: var(--wb-sp-2) 0;
   border-radius: var(--wb-radius-sm);
   color: var(--wb-muted);
+  text-decoration: none;
+  cursor: pointer;
   transition:
     background var(--wb-dur) var(--wb-ease),
     color var(--wb-dur) var(--wb-ease),
@@ -168,7 +130,6 @@ function go(path: string) {
 .rail-item:hover {
   background: var(--wb-elev-hover);
   color: var(--wb-ink);
-  transform: scale(1.06);
 }
 .rail-item:active {
   transform: scale(0.92);

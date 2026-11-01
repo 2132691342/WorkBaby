@@ -39,28 +39,71 @@ pub fn list(sv: &Arc<Services>) -> Result<Vec<SessionVO>> {
 }
 
 /// 会话详情（回放消息）。
+/// 同时给出当前叶子与可选分支点，界面据此提供「从这里重开」。
 pub fn detail(sv: &Arc<Services>, session_id: &str) -> Result<SessionDetailRESP> {
     let path = find_session_file(sv, session_id)?;
     let sf = SessionFile::load(&path)?;
-    let messages = to_message_vos(sf.replay_messages());
-    Ok(SessionDetailRESP {
-        detail_session: SessionVO {
-            session_id: session_id.to_string(),
-            session_file: path.display().to_string(),
-            session_title: session_name(&sf),
-            session_workspace: sf.header.workspace.clone(),
-            session_provider: String::new(),
-            session_model: String::new(),
-            session_thinking_level: "medium".into(),
-            session_message_count: messages.len() as i64,
-            session_total_tokens: 0,
-            session_cost: 0.0,
-            session_running: sv.chat.lock().unwrap().is_running(session_id),
-            session_created_at: sf.header.created_at,
-            session_updated_at: wb_pkg::fsutil::mtime_ms(&path).unwrap_or(sf.header.created_at),
-        },
-        detail_messages: messages,
-    })
+    let detail_session = SessionVO {
+        session_id: session_id.to_string(),
+        session_file: path.display().to_string(),
+        session_title: session_name(&sf),
+        session_workspace: sf.header.workspace.clone(),
+        session_provider: String::new(),
+        session_model: String::new(),
+        session_thinking_level: "medium".into(),
+        session_message_count: 0,
+        session_total_tokens: 0,
+        session_cost: 0.0,
+        session_running: sv.chat.lock().unwrap().is_running(session_id),
+        session_created_at: sf.header.created_at,
+        session_updated_at: wb_pkg::fsutil::mtime_ms(&path).unwrap_or(sf.header.created_at),
+    };
+    let mut messages = message_vos_with_entries(&sf);
+    let mut detail_session = detail_session;
+    detail_session.session_message_count = messages.len() as i64;
+    // 已被其他分支越过、可再次进入的叶子（旧分支的末端）
+    let leaves = wb_kernel::session::alternate_leaves(&sf);
+    // 消息 id 直接用真实条目 id，不另造假号，否则前端无从指定分支点
+    let mut out = SessionDetailRESP {
+        detail_session,
+        detail_messages: std::mem::take(&mut messages),
+        detail_leaf_entry_id: sf.leaf.clone(),
+        detail_fork_entry_ids: wb_kernel::session::user_entry_ids(&sf),
+        detail_alt_leaf_ids: leaves,
+    };
+    // 顺序保持原有字段语义：先说清可分支点，再谈现叶
+    out.detail_alt_leaf_ids = wb_kernel::session::alternate_leaves(&sf);
+    Ok(out)
+}
+
+/// 回放消息并带上真实条目 id（与「用户消息可作分支点」一一对应）。
+pub fn message_vos_with_entries(sf: &SessionFile) -> Vec<MessageVO> {
+    let mut out = Vec::new();
+    let path = sf.path_to_leaf();
+    // 仅编译期可见的映射：回放顺序 ↔ 目标条目 id
+    for e in path.iter() {
+        let msgs = match &e.payload {
+            wb_kernel::Entry::Message { message } => vec![message.clone()],
+            wb_kernel::Entry::Compaction {
+                summary,
+                first_kept_entry_id,
+                tokens_before,
+            } => {
+                let _ = (first_kept_entry_id, tokens_before);
+                vec![Msg::User {
+                    content: format!("[已压缩的早期对话摘要]\n{summary}"),
+                    timestamp: e.timestamp,
+                }]
+            }
+            _ => Vec::new(),
+        };
+        let mut vos = to_message_vos(msgs);
+        for vo in vos.iter_mut() {
+            vo.message_entry_id = e.entry_id.clone();
+        }
+        out.append(&mut vos);
+    }
+    out
 }
 
 /// 内核消息 → 界面 VO（保持原始块序）。
@@ -238,6 +281,50 @@ pre{{white-space:pre-wrap;word-break:break-word;margin:0;font-family:inherit}}</
     }
     std::fs::write(&path, html).map_err(|e| AppError::wrap("1002", "写导出文件失败", e))?;
     Ok(path.display().to_string())
+}
+
+/// 从指定用户消息之后重开：旧分支完整保留，新消息接在它后面。
+pub fn branch(sv: &Arc<Services>, session_id: &str, entry_id: &str) -> Result<SessionDetailRESP> {
+    let path = find_session_file(sv, session_id)?;
+    if sv.chat.lock().unwrap().is_running(session_id) {
+        return Err(AppError::new(code::BUSY, "会话正在跑，跑完再回溯"));
+    }
+    let mut sf = SessionFile::load(&path)?;
+    // 只能在用户消息之后分叉，否则会把工具调用和它的结果拆开
+    let ok = sf.entries.iter().any(|e| {
+        e.entry_id == entry_id
+            && matches!(
+                &e.payload,
+                wb_kernel::Entry::Message {
+                    message: Msg::User { .. }
+                }
+            )
+    });
+    if !ok {
+        return Err(AppError::new(code::NOT_FOUND, "分支点不存在或不是用户消息")
+            .with_details(entry_id.to_string()));
+    }
+    sf.fork_at(entry_id)?;
+    detail(sv, session_id)
+}
+
+/// 切回某个旧分支的叶子。
+pub fn switch_leaf(
+    sv: &Arc<Services>,
+    session_id: &str,
+    leaf_entry_id: &str,
+) -> Result<SessionDetailRESP> {
+    let path = find_session_file(sv, session_id)?;
+    if sv.chat.lock().unwrap().is_running(session_id) {
+        return Err(AppError::new(code::BUSY, "会话正在跑，跑完再切分支"));
+    }
+    let mut sf = SessionFile::load(&path)?;
+    if !sf.entries.iter().any(|e| e.entry_id == leaf_entry_id) {
+        return Err(AppError::new(code::NOT_FOUND, "目标叶子不存在")
+            .with_details(leaf_entry_id.to_string()));
+    }
+    sf.fork_at(leaf_entry_id)?;
+    detail(sv, session_id)
 }
 
 fn session_name(sf: &SessionFile) -> String {

@@ -65,6 +65,8 @@ pub struct Services {
     pub scope: std::sync::Mutex<Option<RunScope>>,
     /// 目标续跑计数：会话 id → 连续续跑次数（防无限循环）
     pub goal_resumes: std::sync::Mutex<std::collections::HashMap<String, i64>>,
+    /// 待办存储：压缩回填与 todo 工具共用同一份盘上状态
+    pub todos: std::sync::Mutex<Option<Arc<wb_features::todo::TodoStore>>>,
 }
 
 impl Services {
@@ -73,6 +75,7 @@ impl Services {
         // 内置 MinGit 先就位：bash / git 工具首次执行就能命中，无需用户装 Git
         runtime::ensure_mingit(&data_dir);
         let providers = wb_provider::config::ProviderStore::new(&data_dir);
+        let data_dir_for_asks = data_dir.clone();
         let mut registry = wb_tools::ToolRegistry::new();
         wb_tools::builtin::install(&mut registry);
         let skills = wb_skills::SkillRegistry::scan(
@@ -88,17 +91,29 @@ impl Services {
             registry: std::sync::RwLock::new(registry),
             skills: std::sync::RwLock::new(skills),
             mcp: wb_mcp::Pool::new(),
-            asks: wb_features::ask_user::AnswerBoard::new(),
+            asks: wb_features::ask_user::AnswerBoard::with_store(
+                // 待答问题跟设置库放一起：重启后还能把它们重新弹给用户
+                data_dir_for_asks.join("pending_asks.json"),
+            ),
             chat: std::sync::Mutex::new(chat::ChatBoard::new()),
             emitter: std::sync::Mutex::new(None),
             scope: std::sync::Mutex::new(None),
             goal_resumes: std::sync::Mutex::new(std::collections::HashMap::new()),
+            todos: std::sync::Mutex::new(None),
         })
     }
 
     /// 挂事件出口（Startup 时调用）。
     pub fn set_emitter(&self, emitter: Arc<dyn Emitter>) {
         *self.emitter.lock().unwrap() = Some(emitter);
+    }
+
+    /// 向全局通道推一条事件；未挂出口时静默跳过。
+    pub fn emit_event(&self, session_id: &str, event: &str, data: serde_json::Value) {
+        let guard = self.emitter.lock().unwrap();
+        if let Some(e) = guard.as_ref() {
+            e.emit(session_id, event, data);
+        }
     }
 
     /// 当前会话目录（按工作区编码）。
@@ -126,10 +141,12 @@ pub fn inputs(sv: &Arc<Services>) -> (Vec<String>, String) {
         .map(|t| t.name().to_string())
         .collect();
     let skills = sv.skills.read().unwrap();
+    let state = features::live_state(sv);
     let prompt = prompt::build_system_prompt(
         &sv.workspace.lock().unwrap().clone(),
         &skills,
         &enabled_tools,
+        state.as_deref(),
     );
     (enabled_tools, prompt)
 }

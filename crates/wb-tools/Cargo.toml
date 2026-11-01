@@ -16,3 +16,11 @@ ignore = { workspace = true }
 globset = "0.4"
 walkdir = { workspace = true }
 tracing = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }

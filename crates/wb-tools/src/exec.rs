@@ -18,7 +18,7 @@ pub struct ExecOutcome {
     /// stderr
     pub stderr: String,
     /// 退出码（被信号杀 = None）
-    pub code: Option<i32>,
+    pub exit_code: Option<i32>,
     /// 是否因超时终止
     pub timed_out: bool,
 }
@@ -34,6 +34,19 @@ pub async fn run(
     timeout_secs: u64,
     cancel: &CancellationToken,
 ) -> Result<ExecOutcome> {
+    run_with_limits(program, args, workdir, timeout_secs, cancel, None).await
+}
+
+/// 同 run，但可套 Windows 作业对象（内存 / 进程数上限，关闭即杀光残留）。
+pub async fn run_with_limits(
+    program: &str,
+    args: &[String],
+    workdir: &Path,
+    timeout_secs: u64,
+    cancel: &CancellationToken,
+    limits: Option<crate::job::JobLimits>,
+) -> Result<ExecOutcome> {
+    let mut job_opt = limits.and_then(crate::job::Job::create);
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args)
         .current_dir(workdir)
@@ -47,6 +60,13 @@ pub async fn run(
     let mut child = cmd
         .spawn()
         .map_err(|e| AppError::wrap("7003", format!("无法启动 {program}"), e))?;
+    // 越早入作业越好：进程已起但还没跑起来，收编失败的窗口极小
+    if let (Some(job), Some(pid)) = (job_opt.as_ref(), child.id()) {
+        job.assign(pid);
+    }
+    // 作业必须活到进程结束（Drop 即杀光），但它跨 await 必须先摘出来，
+    // 裸 HANDLE 不是 Send：放到阻塞段结束前由 drop 收尸。
+    let job = job_opt.take();
     let mut out_pipe: tokio::process::ChildStdout =
         child.stdout.take().expect("stdout 已声明 piped");
     let mut err_pipe: tokio::process::ChildStderr =
@@ -56,11 +76,11 @@ pub async fn run(
         std::time::Duration::from_secs(timeout_secs.max(1)),
         collect(&mut out_pipe, &mut err_pipe, &mut child, cancel),
     );
-    match deadline.await {
+    let result = match deadline.await {
         Ok(Ok((stdout, stderr, code))) => Ok(ExecOutcome {
             stdout,
             stderr,
-            code,
+            exit_code: code,
             timed_out: false,
         }),
         Ok(Err(e)) => Err(e),
@@ -69,11 +89,13 @@ pub async fn run(
             Ok(ExecOutcome {
                 stdout: String::new(),
                 stderr: String::new(),
-                code: None,
+                exit_code: None,
                 timed_out: true,
             })
         }
-    }
+    };
+    drop(job);
+    result
 }
 
 /// 收集输出并等待退出；取消令牌触发即杀进程。

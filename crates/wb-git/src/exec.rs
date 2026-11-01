@@ -6,7 +6,7 @@ use std::process::Command;
 /// 一次 git 调用的原始结果。
 pub struct GitOut {
     /// 退出码
-    pub code: i32,
+    pub git_exit_code: i32,
     /// 标准输出（UTF-8 丢失处理）
     pub stdout: String,
     /// 标准错误
@@ -16,7 +16,7 @@ pub struct GitOut {
 impl GitOut {
     /// 是否成功。
     pub fn ok(&self) -> bool {
-        self.code == 0
+        self.git_exit_code == 0
     }
 }
 
@@ -56,13 +56,13 @@ pub fn run(dir: &Path, args: &[&str]) -> GitOut {
     hide_window(&mut cmd);
     match cmd.output() {
         Ok(out) => GitOut {
-            code: out.status.code().unwrap_or(-1),
+            git_exit_code: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         },
         // git 不存在或不可执行
         Err(_) => GitOut {
-            code: -1,
+            git_exit_code: -1,
             stdout: String::new(),
             stderr: "git not found".into(),
         },

@@ -172,6 +172,8 @@ fn agent_cfg(provider: Arc<FakeProvider>) -> AgentConfig {
         max_tokens: 1024,
         thinking: ThinkingLevel::Off,
         max_retries: 0,
+        // 测试不注入压缩回填闭包，默认无活状态
+        reinforce: None,
         workdir: temp_dir("cfg"),
     }
 }
@@ -482,4 +484,399 @@ async fn subagent_isolates_context_narrows_tools_and_falls_back() {
     );
 
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// 只读工具：带 read_only 注解，同批可并发。
+struct ReadOnlyTool;
+
+#[async_trait]
+impl Tool for ReadOnlyTool {
+    fn name(&self) -> &str {
+        "ro"
+    }
+    fn label(&self) -> &str {
+        "只读"
+    }
+    fn description(&self) -> &str {
+        "只读工具"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({"type":"object"})
+    }
+    fn annotations(&self) -> wb_tools::ToolAnnotations {
+        wb_tools::ToolAnnotations {
+            read_only: true,
+            destructive: false,
+        }
+    }
+    async fn execute(
+        &self,
+        _args: serde_json::Value,
+        _cancel: CancellationToken,
+        _workdir: &Path,
+    ) -> wb_pkg::Result<ToolOutput> {
+        Ok(ToolOutput {
+            text: "ro".into(),
+            is_error: false,
+            duration_ms: 1,
+        })
+    }
+}
+
+/// 写工具：有副作用，必须单独排队跑。
+struct WriteTool;
+
+#[async_trait]
+impl Tool for WriteTool {
+    fn name(&self) -> &str {
+        "w"
+    }
+    fn label(&self) -> &str {
+        "写"
+    }
+    fn description(&self) -> &str {
+        "写工具"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({"type":"object"})
+    }
+    fn annotations(&self) -> wb_tools::ToolAnnotations {
+        wb_tools::ToolAnnotations {
+            read_only: false,
+            destructive: true,
+        }
+    }
+    async fn execute(
+        &self,
+        _args: serde_json::Value,
+        _cancel: CancellationToken,
+        _workdir: &Path,
+    ) -> wb_pkg::Result<ToolOutput> {
+        Ok(ToolOutput {
+            text: "w".into(),
+            is_error: false,
+            duration_ms: 1,
+        })
+    }
+}
+
+/// 并发分组：相邻只读合成一组，写工具自成一组且位置不变。
+/// 两个写同时改一个文件会互相覆盖，所以绝不能进并发组。
+#[test]
+fn tool_batch_groups_merge_reads_and_isolate_writes() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(ReadOnlyTool));
+    registry.register(Arc::new(WriteTool));
+    registry.register(Arc::new(EchoTool));
+    let calls: Vec<(String, String, String)> = [
+        ("c0", "ro", "{}"),
+        ("c1", "ro", "{}"),
+        ("c2", "w", "{}"),
+        ("c3", "ro", "{}"),
+        ("c4", "echo", "{}"),
+        ("c5", "ro", "{}"),
+    ]
+    .iter()
+    .map(|(id, n, a)| (id.to_string(), n.to_string(), a.to_string()))
+    .collect();
+
+    let groups = wb_kernel::blocks::group_calls_for_concurrency(&registry, &calls);
+    // echo 没有 read_only 注解，按最保守的处理：单独串行
+    assert_eq!(
+        groups,
+        vec![vec![0, 1], vec![2], vec![3], vec![4], vec![5]],
+        "只读相邻应并组，写与未标注工具应各自串行"
+    );
+}
+
+/// 进程死在工具执行中会留下没结果的 tool_call；回放必须补齐，
+/// 否则发给模型是非法消息序（每个 tool_call 必须有对应 tool_result）。
+#[test]
+fn replay_backfills_tool_calls_that_never_got_a_result() {
+    let dir = temp_dir("dangling");
+    let mut sf = wb_kernel::SessionFile::create(&dir, "D:\\t", "SESS_DANGLING");
+    sf.append(wb_kernel::Entry::Message {
+        message: wb_kernel::Msg::User {
+            content: "跑一下".into(),
+            timestamp: 1,
+        },
+    })
+    .unwrap();
+    // 助手发起两个调用，只回了一个就崩了
+    sf.append(wb_kernel::Entry::Message {
+        message: wb_kernel::Msg::Assistant {
+            content: vec![
+                wb_kernel::Block::ToolCall {
+                    tool_call_id: "TC_done".into(),
+                    name: "read".into(),
+                    arguments: "{}".into(),
+                },
+                wb_kernel::Block::ToolCall {
+                    tool_call_id: "TC_lost".into(),
+                    name: "ask_user_question".into(),
+                    arguments: "{}".into(),
+                },
+                wb_kernel::Block::ToolCall {
+                    tool_call_id: "TC_lost2".into(),
+                    name: "bash".into(),
+                    arguments: "{}".into(),
+                },
+            ],
+            provider_id: "p".into(),
+            model_id: "m".into(),
+            message_id: "MSG_1".into(),
+            usage: None,
+            stop_reason: "tool_use".into(),
+            timestamp: 2,
+            duration_ms: 1,
+        },
+    })
+    .unwrap();
+    sf.append(wb_kernel::Entry::Message {
+        message: wb_kernel::Msg::ToolResult {
+            tool_call_id: "TC_done".into(),
+            tool_name: "read".into(),
+            content: "ok".into(),
+            is_error: false,
+            timestamp: 3,
+            duration_ms: 1,
+        },
+    })
+    .unwrap();
+
+    let msgs = sf.replay_messages();
+    let results: Vec<&str> = msgs
+        .iter()
+        .filter_map(|m| match m {
+            wb_kernel::Msg::ToolResult { tool_call_id, .. } => Some(tool_call_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut sorted = results.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted,
+        vec!["TC_done", "TC_lost", "TC_lost2"],
+        "三个调用都得有结果：实际 {results:?}"
+    );
+    // 补齐的那两条要标成错误，模型才知道它们没真的执行
+    let flagged = msgs
+        .iter()
+        .filter(|m| matches!(m, wb_kernel::Msg::ToolResult { is_error: true, .. }))
+        .count();
+    assert_eq!(flagged, 2, "补的结果要标 is_error");
+    // 补齐项必须紧跟在发起它的助手消息之后（否则模型配对不上）
+    let aidx = msgs
+        .iter()
+        .position(|m| matches!(m, wb_kernel::Msg::Assistant { .. }))
+        .unwrap();
+    let right_after = &msgs[aidx + 1];
+    assert!(
+        matches!(
+            right_after,
+            wb_kernel::Msg::ToolResult { is_error: true, .. }
+        ),
+        "补的结果应紧跟在助手消息后，实际 {right_after:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 分支与回溯：从旧消息重开后旧分支不丢，切回去能一模一样地回放。
+#[test]
+fn session_fork_keeps_old_branch_and_switches_back() {
+    let dir = temp_dir("fork");
+    let mut sf = wb_kernel::SessionFile::create(&dir, "D:\\t", "SESS_FORK");
+    let user = |t: &str, ts: i64| wb_kernel::Entry::Message {
+        message: wb_kernel::Msg::User {
+            content: t.into(),
+            timestamp: ts,
+        },
+    };
+    let asst = |t: &str, ts: i64| wb_kernel::Entry::Message {
+        message: wb_kernel::Msg::Assistant {
+            content: vec![wb_kernel::Block::Text { text: t.into() }],
+            provider_id: "p".into(),
+            model_id: "m".into(),
+            message_id: format!("MSG_{ts}"),
+            usage: None,
+            stop_reason: "stop".into(),
+            timestamp: ts,
+            duration_ms: 1,
+        },
+    };
+    sf.append(user("第一问", 1)).unwrap();
+    sf.append(asst("第一答", 2)).unwrap();
+    let second_user = sf.append(user("第二问", 3)).unwrap().entry_id.clone();
+    sf.append(asst("第二答", 4)).unwrap();
+    assert_eq!(sf.path_to_leaf().len(), 4);
+
+    // 只有用户消息适合作分支点
+    let forks = wb_kernel::session::user_entry_ids(&sf);
+    assert_eq!(forks.len(), 2, "两条用户消息都应可分支");
+    assert!(forks.contains(&second_user));
+
+    // 从第一问之后重开：旧分支（4 条）整体保留，新分支从第一问接下去
+    let first_user = forks[0].clone();
+    sf.fork_at(&first_user).unwrap();
+    assert_eq!(sf.path_to_leaf().len(), 1, "回到第一问处应只剩一条");
+    let alt = wb_kernel::session::alternate_leaves(&sf);
+    assert_eq!(alt.len(), 1, "旧分支末端应该能切回去，实际：{alt:?}");
+
+    sf.append(user("另起一问", 5)).unwrap();
+    sf.append(asst("另起一答", 6)).unwrap();
+    let new_path: Vec<String> = sf
+        .replay_messages()
+        .iter()
+        .map(|m| match m {
+            wb_kernel::Msg::User { content, .. } => content.clone(),
+            wb_kernel::Msg::Assistant { content, .. } => format!("a:{content:?}"),
+            _ => String::new(),
+        })
+        .collect();
+    assert!(
+        new_path.iter().any(|s| s.contains("另起一问")),
+        "新分支应包含新提问"
+    );
+    assert!(
+        !new_path.iter().any(|s| s.contains("第二问")),
+        "旧分支的消息不该混进新分支"
+    );
+    // 旧分支的 4 条一条都不能丢：叶指针只动指针，不删行
+    assert_eq!(sf.entries.len(), 6, "应是原 4 条 + 新分支 2 条，一条不删");
+    let old_branch_ids: Vec<&str> = sf
+        .entries
+        .iter()
+        .filter(|e| matches!(&e.payload, wb_kernel::Entry::Message { .. }))
+        .map(|e| e.entry_id.as_str())
+        .collect();
+    assert_eq!(old_branch_ids.len(), 6);
+    assert!(
+        sf.entries.iter().any(|e| e.entry_id == second_user),
+        "旧分支的第二问还在文件里"
+    );
+
+    // 切回旧叶子：回放要一模一样地回来
+    let old_leaf = alt[0].clone();
+    sf.fork_at(&old_leaf).unwrap();
+    let back: Vec<String> = sf
+        .replay_messages()
+        .iter()
+        .filter_map(|m| match m {
+            wb_kernel::Msg::User { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(back, vec!["第一问", "第二问"], "切回后应恢复原分支");
+
+    // 叶指针落盘：重载后不会偷偷回到另一条分支
+    let path = sf.path.clone();
+    drop(sf);
+    let reloaded = wb_kernel::SessionFile::load(&path).unwrap();
+    let again: Vec<String> = reloaded
+        .replay_messages()
+        .iter()
+        .filter_map(|m| match m {
+            wb_kernel::Msg::User { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(again, vec!["第一问", "第二问"], "重载后分支不该变");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 压缩把旧消息整段丢掉，reinforce 闭包必须把仍在生效的活状态钉回上下文；
+/// 待办清单不塞回去，模型下一轮就看不见任务了——todo 功能的核心卖点就在这。
+#[tokio::test]
+async fn compaction_reinjects_live_state_after_dropping_history() {
+    let dir = temp_dir("reinforce");
+    let mut sf = wb_kernel::SessionFile::create(&dir, "D:\\t", "SESS_REINFORCE");
+    for i in 0..30 {
+        sf.append(wb_kernel::Entry::Message {
+            message: wb_kernel::Msg::User {
+                content: format!("{i} {}", "填充上下文".repeat(80)),
+                timestamp: i,
+            },
+        })
+        .unwrap();
+    }
+    let before = sf.replay_messages().len();
+    let provider = FakeProvider::new(vec![vec![
+        delta("已摘要前三十条"),
+        done(0, StopReason::Stop),
+    ]]);
+    let reinforce: wb_kernel::compaction::ReinforceFn =
+        Box::new(|| Some("待办清单：\n1. [in_progress] 修复沙箱".into()));
+
+    let (tokens_before, summary) = wb_kernel::compaction::compact(
+        &mut sf,
+        provider.as_ref(),
+        "m",
+        1024,
+        Some(&reinforce),
+        CancellationToken::new(),
+    )
+    .await
+    .expect("压缩不应报错");
+    assert!(tokens_before > 0, "应估出压缩前 token 数");
+    assert!(summary.contains("已摘要"), "摘要应来自模型返回");
+
+    // 压缩后回放：早期消息被折叠，但活状态必须作为新的 user 消息钉在后面
+    let msgs = sf.replay_messages();
+    assert!(msgs.len() < before, "压缩应减少回放条数");
+    let last_user = msgs
+        .iter()
+        .rev()
+        .find_map(|m| match m {
+            wb_kernel::Msg::User { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+        .expect("压缩后应有一条活状态消息");
+    assert!(
+        last_user.contains("修复沙箱"),
+        "活状态应被钉回上下文，实际：{last_user}"
+    );
+
+    // 对照组：同样内容不开活状态注入，回放应正好少掉那条 user 消息。
+    // 只看单个会话分不出是「折叠变少」还是「钉回变多」，必须差量比。
+    let dir2 = temp_dir("reinforce-off");
+    let mut sf2 = wb_kernel::SessionFile::create(&dir2, "D:\\t", "SESS_REINFORCE_OFF");
+    for i in 0..30 {
+        sf2.append(wb_kernel::Entry::Message {
+            message: wb_kernel::Msg::User {
+                content: format!("{i} {}", "填充上下文".repeat(80)),
+                timestamp: i,
+            },
+        })
+        .unwrap();
+    }
+    let empty: wb_kernel::compaction::ReinforceFn = Box::new(|| None);
+    wb_kernel::compaction::compact(
+        &mut sf2,
+        FakeProvider::new(vec![vec![
+            delta("已摘要前三十条"),
+            done(0, StopReason::Stop),
+        ]])
+        .as_ref(),
+        "m",
+        1024,
+        Some(&empty),
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        msgs.len(),
+        sf2.replay_messages().len() + 1,
+        "reinforce 开启时只应多一条活状态消息"
+    );
+    assert!(
+        sf2.replay_messages().iter().all(
+            |m| !matches!(m, wb_kernel::Msg::User { content, .. } if content.contains("修复沙箱"))
+        ),
+        "闭包返回 None 时不应凭空插消息"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

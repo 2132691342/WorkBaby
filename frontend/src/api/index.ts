@@ -66,6 +66,12 @@ export const sessions = {
     post<boolean>(`/sessions/thinking/${id}`, { session_thinking_level: level }),
   /** 导出成 HTML；path 空 = 存数据目录 exports */
   exportHTML: (id: string, path = '') => post<string>(`/sessions/export/${id}`, { path }),
+  /** 从某条用户消息之后重开：旧分支保留，返回新详情 */
+  branch: (id: string, entryId: string) =>
+    post<SessionDetailRESP>(`/sessions/branch/${id}`, { branch_entry_id: entryId }),
+  /** 切回某个旧分支的叶子 */
+  switchLeaf: (id: string, entryId: string) =>
+    post<SessionDetailRESP>(`/sessions/leaf/${id}`, { leaf_entry_id: entryId }),
 }
 
 export const chat = {

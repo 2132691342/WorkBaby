@@ -105,7 +105,7 @@ impl Tool for PlanSubmitTool {
         let plan = tokio::task::spawn_blocking(move || {
             store.mutate(|slot| {
                 *slot = Some(PlanState {
-                    plan_id: format!("PLAN_{}", wb_pkg::ulid::raw_ulid()),
+                    plan_id: wb_pkg::ulid::new_id(wb_pkg::ulid::Prefix::Plan),
                     plan_title: title2,
                     plan_status: "draft".into(),
                     plan_reject_note: String::new(),

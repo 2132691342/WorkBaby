@@ -250,7 +250,9 @@ impl Tool for SearchTool {
 
     fn description(&self) -> &str {
         "联网搜索并返回编号的结果清单（标题 / URL / 摘要）。需要最新信息、外部文档或事实核查而本地上下文不足时使用；拿到结果后通常再用 fetch_content 抓取目标页面。\
-         默认依次尝试多个搜索源（duckduckgo / bing / wikipedia），第一个解析出结果即返回；\
+         默认按优先级尝试：配了密钥的 API 源（brave / tavily / serper / exa）优先，\
+         再回落到公开抓取源（duckduckgo / bing / wikipedia），第一个解析出结果即返回；\
+         API 源靠环境变量供密钥（BRAVE_API_KEY / TAVILY_API_KEY / SERPER_API_KEY / EXA_API_KEY），未配则自动跳过。\
          可用 provider 指定单一搜索源。搜索源解析失败时会如实说明。"
     }
 
@@ -262,8 +264,8 @@ impl Tool for SearchTool {
                 "limit": { "type": "number", "description": "返回条数，默认 8" },
                 "provider": {
                     "type": "string",
-                    "enum": ["duckduckgo", "bing", "wikipedia"],
-                    "description": "指定搜索源；不填则依次尝试"
+                    "enum": web_providers::codes(),
+                    "description": "指定搜索源；不填则按优先级依次尝试"
                 }
             },
             "required": ["query"]
@@ -290,43 +292,55 @@ impl Tool for SearchTool {
         }
         let limit = arg_usize(&args, "limit", 8).clamp(1, 20);
         let wanted = arg_str(&args, "provider");
-        let candidates: Vec<&'static web_providers::SearchProvider> = if wanted.is_empty() {
-            web_providers::PROVIDERS.iter().collect()
-        } else {
-            match web_providers::by_code(&wanted) {
-                Some(p) => vec![p],
-                None => {
-                    return Err(AppError::new(
-                        toolcode::ARG_INVALID,
-                        format!("未知搜索源 {wanted}"),
-                    ))
-                }
+        if !wanted.is_empty() && web_providers::by_code(&wanted).is_none() {
+            return Err(AppError::new(
+                toolcode::ARG_INVALID,
+                format!(
+                    "未知搜索源 {wanted}；可用：{}",
+                    web_providers::codes().join(" / ")
+                ),
+            ));
+        }
+        // 排队顺序由 providers 表给出：有密钥的 API 源在前，公开抓取源兜底。
+        // 显式指定了要密钥的源却没配：直接说清缺哪个环境变量，
+        // 不要绕到「所有搜索源都无法解析」那种误导向的结论。
+        let candidates = web_providers::queue_for(&wanted);
+        if let Some((p, None)) = candidates.first() {
+            if !wanted.is_empty() {
+                return Err(AppError::new(
+                    toolcode::ARG_INVALID,
+                    format!(
+                        "搜索源 {} 需要密钥：设置环境变量 {} 后重试",
+                        p.provider_label,
+                        p.provider_env_keys.join(" 或 ")
+                    ),
+                ));
             }
-        };
+        }
 
         let mut failures: Vec<String> = Vec::new();
-        for p in candidates {
-            let body = finish((p.build)(&query).send(), &cancel).await;
+        for (p, key) in candidates {
+            let body = finish((p.build_fn)(&query, key.as_deref()).send(), &cancel).await;
             let (body, _) = match body {
                 Ok(v) => v,
                 Err(e) => {
-                    failures.push(format!("{}: {}", p.label, e.message));
+                    failures.push(format!("{}: {}", p.provider_label, e.message));
                     continue;
                 }
             };
-            let results = (p.parse)(&body);
+            let results = (p.parse_fn)(&body);
             if results.is_empty() {
-                failures.push(format!("{}: 结果页无法解析", p.label));
+                failures.push(format!("{}: 结果页无法解析", p.provider_label));
                 continue;
             }
-            let mut out = format!("（搜索源：{}）\n", p.label);
+            let mut out = format!("（搜索源：{}）\n", p.provider_label);
             for (i, r) in results.iter().take(limit).enumerate() {
                 out.push_str(&format!(
                     "{}. {}\n  {}\n  {}\n",
                     i + 1,
-                    r.title,
-                    r.url,
-                    r.snippet
+                    r.result_title,
+                    r.result_url,
+                    r.result_snippet
                 ));
             }
             return Ok(ToolOutput {

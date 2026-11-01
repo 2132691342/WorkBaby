@@ -75,7 +75,7 @@ impl KnowledgeStore {
 
     /// 收录一份文档：正文入 FTS5，按段落切块入 chunk 表。
     pub fn index(&self, source: &str, title: &str, text: &str, now: i64) -> Result<String> {
-        let doc_id = format!("DOC_{}", wb_pkg::ulid::raw_ulid());
+        let doc_id = wb_pkg::ulid::new_id(wb_pkg::ulid::Prefix::Doc);
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO doc(doc_id, doc_source, doc_title, doc_text, doc_created_at)
@@ -110,9 +110,10 @@ impl KnowledgeStore {
                 )
                 .map_err(db_err)?;
             let rows = stmt
-                .query_map(params![fts_match_query(query), (limit * 4) as i64], |r| {
-                    Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
-                })
+                .query_map(
+                    params![crate::fts::match_query(query), (limit * 4) as i64],
+                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+                )
                 .map_err(db_err)?;
             for r in rows.flatten() {
                 fts.push(r);
@@ -129,7 +130,10 @@ impl KnowledgeStore {
                 .map_err(db_err)?;
             let rows = stmt
                 .query_map(
-                    params![format!("%{}%", escape_like(query)), (limit * 4) as i64],
+                    params![
+                        format!("%{}%", crate::fts::escape_like(query)),
+                        (limit * 4) as i64
+                    ],
                     |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
                 )
                 .map_err(db_err)?;
@@ -137,30 +141,25 @@ impl KnowledgeStore {
                 like.push(r);
             }
         }
-        // RRF 融合：每路第 k 位的贡献为 1/(k+60)
-        let mut scores: std::collections::HashMap<i64, (f64, i64, i64)> =
-            std::collections::HashMap::new();
-        for (rank, (rowid, ordinal)) in fts.iter().enumerate() {
-            let e = scores.entry(*rowid).or_insert((0.0, *ordinal, 0));
-            e.0 += 1.0 / (60.0 + rank as f64 + 1.0);
-            e.2 = 1;
-        }
-        for (rank, (rowid, ordinal)) in like.iter().enumerate() {
-            let e = scores.entry(*rowid).or_insert((0.0, *ordinal, 0));
-            e.0 += 1.0 / (60.0 + rank as f64 + 1.0);
-        }
+        // RRF 融合走公共件：段序另存一张表，回查时按 rowid 取
+        let ordinals: std::collections::HashMap<i64, i64> = fts
+            .iter()
+            .chain(like.iter())
+            .map(|(r, o)| (*r, *o))
+            .collect();
+        let scores = crate::fts::rrf_scores(&[
+            fts.iter().map(|(r, _)| *r).collect::<Vec<i64>>(),
+            like.iter().map(|(r, _)| *r).collect::<Vec<i64>>(),
+        ]);
         if scores.is_empty() {
             return Ok(Vec::new());
         }
         // 取得分最高的若干 chunk，回查文档元信息
-        let mut ranked: Vec<(i64, f64, i64, i64)> = scores
-            .into_iter()
-            .map(|(rowid, (score, ordinal, _))| (rowid, score, ordinal, 0))
-            .collect();
-        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        ranked.truncate(limit);
-        let mut out = Vec::with_capacity(ranked.len());
-        for (rowid, score, ordinal, _) in ranked {
+        let ranked = crate::fts::rank_desc(&scores);
+        let mut out = Vec::with_capacity(ranked.len().min(limit));
+        for rowid in ranked.into_iter().take(limit) {
+            let score = scores[&rowid];
+            let ordinal = ordinals.get(&rowid).copied().unwrap_or(0);
             let mut stmt = conn
                 .prepare(
                     "SELECT chunk.chunk_doc_id, chunk.chunk_text, doc.doc_source, doc.doc_title
@@ -223,22 +222,6 @@ fn excerpt(text: &str) -> String {
     } else {
         format!("{}…", chars[..240].iter().collect::<String>())
     }
-}
-
-/// 用户查询转 FTS5 MATCH 串：逐词加引号，避免撞上 FTS5 语法字符。
-fn fts_match_query(query: &str) -> String {
-    query
-        .split_whitespace()
-        .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// LIKE 模式里的特殊字符转义。
-fn escape_like(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
 }
 
 /// rusqlite 错误统一转 AppError。

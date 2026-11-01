@@ -13,35 +13,22 @@ import AppIcon from '../common/AppIcon.vue'
 
 const props = defineProps<{ ready: boolean }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const session = useSessionStore()
 const settings = useSettingsStore()
 const { collapsed, toggle } = useSessionPanel()
 
-const section = computed(() => {
-  const p = route.path
-  if (p.startsWith('/workspace')) return 'workspace'
-  if (p.startsWith('/dashboard')) return 'dashboard'
-  if (p.startsWith('/settings')) return 'settings'
-  if (p.startsWith('/help')) return 'help'
-  return 'chat'
-})
+// 页面标识直接从路由 name 取：新增页面不用到这里补分支，
+// 也不会再出现「除了四个页之外全部当作对话」而把会话标题当页面标题的错认。
+const section = computed(() => (typeof route.name === 'string' ? route.name : 'chat'))
 
 const isChat = computed(() => section.value === 'chat')
 const pageName = computed(() => {
-  switch (section.value) {
-    case 'workspace':
-      return t('nav.workspace')
-    case 'dashboard':
-      return t('nav.dashboard')
-    case 'settings':
-      return t('nav.settings')
-    case 'help':
-      return t('nav.help')
-    default:
-      return session.current?.session_title || t('chat.newSession')
-  }
+  // 对话页显示当前会话名（新建则显示「新对话」），其余页显示导航名
+  if (section.value === 'chat') return session.current?.session_title || t('chat.newSession')
+  const key = `nav.${section.value}`
+  return te(key) ? t(key) : t('nav.chat')
 })
 
 const connection = computed(() => {

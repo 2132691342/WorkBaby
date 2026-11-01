@@ -1,6 +1,5 @@
-//! 视频理解：取视频页面的元数据与字幕轨。
-//! 字幕是理解视频的主要入口——有字幕就抽字幕，没有就取页面上的标题与描述，
-//! 都没有就如实说明，不编造视频内容。
+//! 视频字幕取回：只取视频页面的元数据与字幕轨文本，不做画面分析。
+//! 有字幕就抽字幕，没有就取页面上的标题与描述，都没有就如实说明，不编造视频内容。
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -19,7 +18,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 /// 字幕轨最多取几条。
 const MAX_TRACKS: usize = 5;
 
-/// video_understand 工具：抽取视频元数据与字幕。
+/// video_transcript 工具：抽取视频元数据与字幕。
 pub struct VideoTool {
     http: reqwest::Client,
 }
@@ -46,18 +45,19 @@ impl Default for VideoTool {
 #[async_trait]
 impl Tool for VideoTool {
     fn name(&self) -> &str {
-        "video_understand"
+        "video_transcript"
     }
 
     fn label(&self) -> &str {
-        "视频理解"
+        "视频字幕"
     }
 
     fn description(&self) -> &str {
-        "理解一个视频页面：取标题、时长、描述与字幕轨的文本。\
+        "取视频页面的文字信息：标题、时长、描述与字幕轨文本。\
          YouTube 有字幕轨专门解析（按时间轴分段返回全文）；其余站点（含 bilibili）\
          解析页面元信息，能挖到字幕就用，挖不到就如实说明并回退元信息。\
-         url 也可以是任意带 <video> 的页面。"
+         注意：只读文字，不理解画面——不下载视频、不抽帧、不送视觉模型。\
+         想看画面内容需要用户自己描述，或先截图再当图片处理。"
     }
 
     fn parameters(&self) -> Value {

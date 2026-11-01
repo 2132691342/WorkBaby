@@ -43,6 +43,8 @@ export interface MessageBlock {
 
 export interface MessageVO {
   message_id: string
+  /** 真实会话条目 id（ENT_ 前缀）：分支点用它；乐观插入的消息目前还没有 */
+  message_entry_id?: string
   message_role: 'user' | 'assistant' | 'tool' | 'notice'
   /** 条目类型：text / tool / notice */
   message_type: string
@@ -82,6 +84,12 @@ export interface SessionVO {
 export interface SessionDetailRESP {
   detail_session: SessionVO
   detail_messages: MessageVO[]
+  /** 当前叶子条目 id */
+  detail_leaf_entry_id?: string | null
+  /** 可作分支点的用户消息条目 id */
+  detail_fork_entry_ids?: string[]
+  /** 可切回去的其它分支末端 */
+  detail_alt_leaf_ids?: string[]
 }
 
 export interface SendMessageRESP {

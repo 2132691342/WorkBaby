@@ -68,11 +68,11 @@ pub fn readable_text(html: &str) -> String {
 /// 一条搜索结果。
 pub struct SearchResult {
     /// 标题（已去标签解实体）
-    pub title: String,
+    pub result_title: String,
     /// 目标 URL（已从跳转链接还原）
-    pub url: String,
+    pub result_url: String,
     /// 摘要（已去标签解实体，可能为空）
-    pub snippet: String,
+    pub result_snippet: String,
 }
 
 /// 结果锚点：标题在 inner，href 另行提取（不依赖属性顺序）。
@@ -118,9 +118,9 @@ pub fn parse_results(html: &str) -> Vec<SearchResult> {
         .into_iter()
         .enumerate()
         .map(|(i, (url, title))| SearchResult {
-            title,
-            url,
-            snippet: snippets.get(i).cloned().unwrap_or_default(),
+            result_title: title,
+            result_url: url,
+            result_snippet: snippets.get(i).cloned().unwrap_or_default(),
         })
         .collect()
 }

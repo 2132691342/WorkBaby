@@ -10,6 +10,9 @@ import PageHeader from '../components/layout/PageHeader.vue'
 const { t } = useI18n()
 
 const list = ref<InstanceType<typeof FeatureList> | null>(null)
+// 刷新自身的忙碌态。
+// 之前绑的是 :loading="!!list"，list 是组件 ref，挂载后恒为真——这个按钮会永久转圈。
+const refreshing = ref(false)
 
 const counts = computed(() => ({
   enabled: list.value?.enabledCount ?? 0,
@@ -17,7 +20,13 @@ const counts = computed(() => ({
 }))
 
 async function reload() {
-  await list.value?.reload()
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await list.value?.reload()
+  } finally {
+    refreshing.value = false
+  }
 }
 </script>
 
@@ -26,7 +35,7 @@ async function reload() {
     <PageHeader :title="t('features.title')" :subtitle="t('features.subtitle')">
       <template #actions>
         <span class="wb-label">{{ counts.enabled }} / {{ counts.total }}</span>
-        <el-button size="small" :loading="!!list" @click="reload">
+        <el-button size="small" :loading="refreshing" :disabled="refreshing" @click="reload">
           <AppIcon name="refresh" size="ic-xs" />
           <span class="ml-1">{{ t('common.refresh') }}</span>
         </el-button>

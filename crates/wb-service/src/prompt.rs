@@ -7,6 +7,7 @@ pub fn build_system_prompt(
     workspace: &str,
     skills: &SkillRegistry,
     enabled_tools: &[String],
+    live_state: Option<&str>,
 ) -> String {
     let mut out = String::from(
         "You are WorkBaby, a capable personal assistant running on the user's Windows desktop. \
@@ -24,5 +25,13 @@ pub fn build_system_prompt(
     out.push_str("\n<skills>\n");
     out.push_str(&skills.format_available_skills(|_| true));
     out.push_str("\n</skills>\n");
+    // 活状态（待办 / 目标）每轮重读：压缩和重启都不会让它从视野里消失
+    if let Some(state) = live_state {
+        if !state.trim().is_empty() {
+            out.push_str("\n<live_state priority=\"high\">\n");
+            out.push_str(state.trim());
+            out.push_str("\n</live_state>\n");
+        }
+    }
     out
 }

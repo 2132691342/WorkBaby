@@ -121,6 +121,12 @@ async fn warmup(State(st): State<AppState>) -> Response {
     let providers = wb_service::providers::list_vo(&st.sv)
         .map(|v| v.0)
         .unwrap_or_default();
+    // 上次进程死在提问途中：把还没答的问题重新弹出去，
+    // 否则会话卡在一个永远等不到回答的工具调用上，用户只能自己发现。
+    let pending_asks = st.sv.asks.load_pending();
+    for card in &pending_asks {
+        st.sv.emit_event("", "chat:ask", card.clone());
+    }
     let skills = st
         .sv
         .skills
@@ -129,9 +135,13 @@ async fn warmup(State(st): State<AppState>) -> Response {
         .list_vo(|n| st.sv.repo.skill_enabled(n).unwrap_or(true));
     let tools = wb_service::resources::tools_all_vo(&st.sv);
     let features = wb_service::features::list_vo(&st.sv);
-    ok_json(
-        serde_json::json!({ "providers": providers, "skills": skills, "tools": tools, "features": features }),
-    )
+    ok_json(serde_json::json!({
+        "providers": providers,
+        "skills": skills,
+        "tools": tools,
+        "features": features,
+        "pending_asks": pending_asks
+    }))
 }
 
 // ---- 设置 ----

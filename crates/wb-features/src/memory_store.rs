@@ -101,31 +101,71 @@ impl MemoryStore {
         Ok(n > 0)
     }
 
-    /// FTS5 检索；按相关度排序，返回前 limit 条。
+    /// 双路检索：FTS5 词面 + LIKE 逐字，按 RRF 融合后取前 limit 条。
+    /// 中文查询基本走不到 FTS（unicode61 把整句当一个 token），LIKE 路是命中保底；
+    /// 逐词各跑一条 LIKE，命中多个词的条目自然累加得分，排得更准。
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryHit>> {
         if query.trim().is_empty() {
             return Ok(Vec::new());
         }
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare(
-                "SELECT memory.memory_id, memory.memory_kind, memory.memory_text, memory.memory_updated_at
-                 FROM memory_fts JOIN memory ON memory.rowid = memory_fts.rowid
-                 WHERE memory_fts MATCH ?1 ORDER BY rank LIMIT ?2",
-            )
-            .map_err(db_err)?;
-        let rows = stmt
-            .query_map(params![fts_match_query(query), limit as i64], |r| {
-                Ok(MemoryHit {
-                    memory_id: r.get(0)?,
-                    memory_kind: r.get(1)?,
-                    memory_summary: summarize(&r.get::<_, String>(2)?),
-                    memory_updated_at: r.get(3)?,
+        let cand = (limit as i64) * 4;
+        // 第一路：FTS5 词面命中，rank 升序
+        let fts: Vec<i64> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT memory_fts.rowid FROM memory_fts
+                     WHERE memory_fts MATCH ?1 ORDER BY rank LIMIT ?2",
+                )
+                .map_err(db_err)?;
+            let rows = stmt
+                .query_map(params![crate::fts::match_query(query), cand], |r| {
+                    r.get::<_, i64>(0)
                 })
-            })
-            .map_err(db_err)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(db_err)
+                .map_err(db_err)?;
+            rows.flatten().collect()
+        };
+        // 第二路：逐词 LIKE 子串命中
+        let mut routes: Vec<Vec<i64>> = vec![fts];
+        for term in query.split_whitespace().filter(|t| !t.trim().is_empty()) {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT rowid FROM memory WHERE memory_text LIKE ?1 ESCAPE '\\'
+                     ORDER BY memory_updated_at DESC LIMIT ?2",
+                )
+                .map_err(db_err)?;
+            let hits = stmt
+                .query_map(
+                    params![format!("%{}%", crate::fts::escape_like(term)), cand],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map_err(db_err)?
+                .flatten()
+                .collect::<Vec<i64>>();
+            routes.push(hits);
+        }
+        let scores = crate::fts::rrf_scores(&routes);
+        let mut out = Vec::new();
+        for rowid in crate::fts::rank_desc(&scores).into_iter().take(limit) {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT memory_id, memory_kind, memory_text, memory_updated_at
+                     FROM memory WHERE rowid = ?1",
+                )
+                .map_err(db_err)?;
+            out.push(
+                stmt.query_row(params![rowid], |r| {
+                    Ok(MemoryHit {
+                        memory_id: r.get(0)?,
+                        memory_kind: r.get(1)?,
+                        memory_summary: summarize(&r.get::<_, String>(2)?),
+                        memory_updated_at: r.get(3)?,
+                    })
+                })
+                .map_err(db_err)?,
+            );
+        }
+        Ok(out)
     }
 
     /// 列出某类别的全部记忆（按更新时间倒序）。
@@ -236,6 +276,7 @@ pub struct SessionHit {
 }
 
 /// 在历史会话 JSONL 里全文检索；会话目录不存在返回空。
+/// 与记忆库同一套双路纪律：FTS 词面 + 逐词子串召回再融合，否则中文查不到。
 pub fn search_sessions(sessions_dir: &Path, query: &str, limit: usize) -> Result<Vec<SessionHit>> {
     if query.trim().is_empty() || !sessions_dir.is_dir() {
         return Ok(Vec::new());
@@ -248,8 +289,9 @@ pub fn search_sessions(sessions_dir: &Path, query: &str, limit: usize) -> Result
     let conn = Connection::open_in_memory().map_err(db_err)?;
     conn.execute_batch("CREATE VIRTUAL TABLE line_fts USING fts5(text, tokenize='unicode61');")
         .map_err(db_err)?;
-    // 行元数据按下标与 rowid 对齐，命中后回查
+    // 行元数据与正文按下标同 rowid 对齐，命中后直接回查，免二次 SQL
     let mut meta: Vec<(String, usize)> = Vec::new();
+    let mut texts: Vec<String> = Vec::new();
     for (_, path) in &files {
         let Some((prefer_payload, lines)) = read_session_lines(path) else {
             continue;
@@ -268,25 +310,49 @@ pub fn search_sessions(sessions_dir: &Path, query: &str, limit: usize) -> Result
             )
             .map_err(db_err)?;
             meta.push((name.clone(), line_no));
+            texts.push(text);
         }
     }
-    let mut stmt = conn
-        .prepare("SELECT rowid, text FROM line_fts WHERE line_fts MATCH ?1 ORDER BY rank LIMIT ?2")
-        .map_err(db_err)?;
-    let rows = stmt
-        .query_map(params![fts_match_query(query), limit as i64], |r| {
-            let rowid: i64 = r.get(0)?;
-            let (session_file, line_no) =
-                meta.get(rowid.max(0) as usize).cloned().unwrap_or_default();
-            Ok(SessionHit {
+    let cand = limit * 4;
+    let fts: Vec<i64> = {
+        let mut stmt = conn
+            .prepare("SELECT rowid FROM line_fts WHERE line_fts MATCH ?1 ORDER BY rank LIMIT ?2")
+            .map_err(db_err)?;
+        let rows = stmt
+            .query_map(params![crate::fts::match_query(query), cand as i64], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map_err(db_err)?;
+        rows.flatten().collect()
+    };
+    // 逐词子串召回：行数量级小，直接在内存里比，不另建一张 LIKE 表
+    let mut routes: Vec<Vec<i64>> = vec![fts];
+    for term in query.split_whitespace() {
+        let needle = term.to_lowercase();
+        let hits: Vec<i64> = texts
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.to_lowercase().contains(&needle))
+            .map(|(idx, _)| idx as i64)
+            .take(cand)
+            .collect();
+        routes.push(hits);
+    }
+    let scores = crate::fts::rrf_scores(&routes);
+    let out = crate::fts::rank_desc(&scores)
+        .into_iter()
+        .take(limit)
+        .filter_map(|rowid| {
+            let idx = rowid.max(0) as usize;
+            let (session_file, line_no) = meta.get(idx)?.clone();
+            Some(SessionHit {
                 session_file,
                 line_no,
-                line_summary: summarize(&r.get::<_, String>(1)?),
+                line_summary: summarize(texts.get(idx).map(|s| s.as_str()).unwrap_or_default()),
             })
         })
-        .map_err(db_err)?;
-    rows.collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(db_err)
+        .collect();
+    Ok(out)
 }
 
 /// 递归收集 .jsonl 会话文件（按工作区分层）；深度限 4。
@@ -376,15 +442,6 @@ fn extract_text(content: Option<&Value>) -> Option<String> {
     }
 }
 
-/// 用户查询转 FTS5 MATCH 串：逐词加引号，避免撞上 FTS5 语法字符。
-pub(crate) fn fts_match_query(query: &str) -> String {
-    query
-        .split_whitespace()
-        .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// 摘要：压平空白取前 120 字符，超长加省略号。
 pub(crate) fn summarize(text: &str) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -396,11 +453,9 @@ pub(crate) fn summarize(text: &str) -> String {
     }
 }
 
-/// 生成 MEM_ 前缀的记忆 id；MEM 未进 wb-pkg Prefix 枚举，取 ULID 本体重挂前缀。
+/// 生成 MEM_ 前缀的记忆 id。
 fn new_memory_id() -> String {
-    let raw = wb_pkg::ulid::new_id(wb_pkg::Prefix::Run);
-    let body = raw.split_once('_').map(|(_, b)| b).unwrap_or("");
-    format!("MEM_{body}")
+    wb_pkg::ulid::new_id(wb_pkg::Prefix::Mem)
 }
 
 /// rusqlite 错误统一转 AppError。

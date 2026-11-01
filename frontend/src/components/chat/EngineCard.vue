@@ -37,7 +37,8 @@ const contextPct = computed(() => {
 const statusText = computed(() => (chat.running ? t('engine.running') : t('engine.idle')))
 
 function open() {
-  void router.push('/settings/providers')
+  // 模型已是一等页面，不再进设置的二级 tab
+  void router.push('/models')
 }
 </script>
 

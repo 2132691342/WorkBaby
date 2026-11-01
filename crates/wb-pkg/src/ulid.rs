@@ -19,6 +19,18 @@ pub enum Prefix {
     Ask,
     /// 子代理会话
     Sub,
+    /// 待办条目
+    Todo,
+    /// 目标追踪
+    Goal,
+    /// 计划评审
+    Plan,
+    /// 计划标注
+    Ann,
+    /// 知识库文档
+    Doc,
+    /// 持久记忆
+    Mem,
 }
 
 impl Prefix {
@@ -32,6 +44,12 @@ impl Prefix {
             Prefix::Tc => "TC",
             Prefix::Ask => "ASK",
             Prefix::Sub => "SUB",
+            Prefix::Todo => "TODO",
+            Prefix::Goal => "GOAL",
+            Prefix::Plan => "PLAN",
+            Prefix::Ann => "ANN",
+            Prefix::Doc => "DOC",
+            Prefix::Mem => "MEM",
         }
     }
 }
@@ -51,7 +69,11 @@ pub fn is_valid(id: &str) -> bool {
     let Some((prefix, body)) = id.split_once('_') else {
         return false;
     };
-    let ok_prefix = ["SESS", "ENT", "MSG", "RUN", "TC", "ASK", "SUB"].contains(&prefix);
+    let ok_prefix = [
+        "SESS", "ENT", "MSG", "RUN", "TC", "ASK", "SUB", "TODO", "GOAL", "PLAN", "ANN", "DOC",
+        "MEM",
+    ]
+    .contains(&prefix);
     ok_prefix && body.len() == 26 && body.chars().all(|c| c.is_ascii_alphanumeric())
 }
 

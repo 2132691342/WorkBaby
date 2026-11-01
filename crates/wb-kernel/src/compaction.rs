@@ -100,6 +100,10 @@ fn find_cut(session: &SessionFile, keep_recent: i64) -> Option<String> {
     cut_idx.map(|i| path[i].entry_id.clone())
 }
 
+/// 关外状态回填：压缩丢掉旧消息后，把活状态（如待办清单）重新写回上下文。
+/// 返回 None 表示无需回填。
+pub type ReinforceFn = Box<dyn Fn() -> Option<String> + Send + Sync>;
+
 /// 执行压缩：先算切点 → 摘要（单次 LLM 调用，经给定 client）→ 追加 compaction 条目。
 /// 返回 (tokens_before, summary)。
 pub async fn compact(
@@ -107,6 +111,7 @@ pub async fn compact(
     client: &dyn wb_provider::ModelClient,
     model_id: &str,
     max_tokens: i64,
+    reinforce: Option<&ReinforceFn>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> Result<(i64, String)> {
     let msgs = session.replay_messages();
@@ -163,6 +168,30 @@ pub async fn compact(
             tokens_before,
         })
         .map_err(|e| wb_pkg::AppError::new(wb_domain::error::session::COMPACT_FAILED, e.message))?;
+    // 压缩把旧消息整段丢掉，此刻把仍在生效的活状态口头钉回上下文
+    if let Some(text) = reinforce.and_then(|f| f()) {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            session
+                .append(Entry::Message {
+                    message: Msg::User {
+                        content: trimmed.to_string(),
+                        timestamp: wb_kernel_now_ms(),
+                    },
+                })
+                .map_err(|e| {
+                    wb_pkg::AppError::new(wb_domain::error::session::COMPACT_FAILED, e.message)
+                })?;
+        }
+    }
     Ok((tokens_before, summary.trim().to_string()))
+}
+
+/// 当前毫秒时间戳（本机时钟，仅用于回填条目的时间字段）。
+fn wb_kernel_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 use futures::StreamExt;

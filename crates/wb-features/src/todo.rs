@@ -18,8 +18,11 @@ use crate::FeatureCtx;
 /// 单条待办。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoItem {
-    /// 条目 id（TODO_{序号}，用户可读，供 blocked_by 引用）
+    /// 条目 id（TODO_{ULID}，唯一标识，供 blocked_by 引用）
     pub todo_id: String,
+    /// 展示序号（清单内 1 起稠密编号，删除后重排）
+    #[serde(default)]
+    pub todo_seq: u32,
     /// 内容
     pub todo_text: String,
     /// pending / in_progress / completed
@@ -40,17 +43,44 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-/// TODO_7 形式的 id 取序号显示。
-fn todo_seq(id: &str) -> &str {
-    id.strip_prefix("TODO_").unwrap_or(id)
+/// 重排展示序号：按现有顺序给 1 起稠密编号，删除后列表不跳号。
+fn renumber(items: &mut [TodoItem]) {
+    for (i, t) in items.iter_mut().enumerate() {
+        t.todo_seq = i as u32 + 1;
+    }
 }
 
-/// 按 id 找条目（允许只给序号）；不存在报 7004。
+/// 按 id 或展示序号找条目；不存在报 7004。
 fn find<'a>(items: &'a mut [TodoItem], id: &str) -> Result<&'a mut TodoItem> {
+    let by_seq = id.parse::<u32>().ok();
     items
         .iter_mut()
-        .find(|t| t.todo_id == id || todo_seq(&t.todo_id) == id)
+        .find(|t| t.todo_id == id || Some(t.todo_seq) == by_seq)
         .ok_or_else(|| AppError::new(toolcode::ARG_INVALID, format!("{id} 不存在")))
+}
+
+/// 把 id 或展示序号归一成条目真 id。
+/// 两种写法混着用会让依赖图断链：成环检测与删除清理都只按 id 比，
+/// 存成序号的那条引用就静默地查不到。
+fn resolve_id(items: &[TodoItem], id: &str) -> Option<String> {
+    let by_seq = id.parse::<u32>().ok();
+    items
+        .iter()
+        .find(|t| t.todo_id == id || Some(t.todo_seq) == by_seq)
+        .map(|t| t.todo_id.clone())
+}
+
+/// 依赖清单归一：逐条解成真 id 并去重；解不出即报悬空。
+fn normalize_deps(items: &[TodoItem], deps: &[String]) -> Result<Vec<String>> {
+    let mut out: Vec<String> = Vec::with_capacity(deps.len());
+    for d in deps {
+        let real = resolve_id(items, d)
+            .ok_or_else(|| AppError::new(toolcode::ARG_INVALID, format!("依赖的 {d} 不存在")))?;
+        if !out.contains(&real) {
+            out.push(real);
+        }
+    }
+    Ok(out)
 }
 
 /// from 加一条到 target 的依赖会不会成环（沿依赖图向上走）。
@@ -71,20 +101,11 @@ fn would_cycle(items: &[TodoItem], from: &str, target: &str) -> bool {
     false
 }
 
-/// 校验 blocked_by：悬空 / 自环 / 成环都拒绝。
+/// 校验已归一的依赖：自环 / 成环都拒（悬空在归一那步就报过了）。
 fn ensure_deps(items: &[TodoItem], id: &str, deps: &[String]) -> Result<()> {
     for d in deps {
         if d == id {
             return Err(AppError::new(toolcode::ARG_INVALID, "不能依赖自己"));
-        }
-        if !items
-            .iter()
-            .any(|t| t.todo_id == *d || todo_seq(&t.todo_id) == *d)
-        {
-            return Err(AppError::new(
-                toolcode::ARG_INVALID,
-                format!("依赖的 {d} 不存在"),
-            ));
         }
         if would_cycle(items, id, d) {
             return Err(AppError::new(
@@ -109,27 +130,30 @@ impl TodoStore {
         }
     }
 
-    /// 读全量（文件缺失 = 空）。
+    /// 读全量（文件缺失 = 空）；载入即重排展示序号。
     pub fn load(&self) -> Vec<TodoItem> {
-        std::fs::read_to_string(&self.path)
+        let mut items: Vec<TodoItem> = std::fs::read_to_string(&self.path)
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        renumber(&mut items);
+        items
     }
 
-    /// 读改写一次；闭包报错则不落盘。
+    /// 读改写一次；闭包报错则不落盘（写临时文件再重命名，断电不留半截）。
     pub fn mutate(
         &self,
         f: impl FnOnce(&mut Vec<TodoItem>) -> Result<()>,
     ) -> Result<Vec<TodoItem>> {
         let mut items = self.load();
         f(&mut items)?;
-        std::fs::create_dir_all(self.path.parent().unwrap_or(Path::new(".")))
+        wb_pkg::fsutil::ensure_dir(self.path.parent().unwrap_or(Path::new(".")))
             .map_err(|e| AppError::wrap("1002", "建待办目录失败", e))?;
         let text = serde_json::to_string_pretty(&items)
             .map_err(|e| AppError::new("1002", format!("待办序列化失败：{e}")))?;
-        std::fs::write(&self.path, text)
+        wb_pkg::fsutil::write_atomic(&self.path, text.as_bytes())
             .map_err(|e| AppError::wrap("1002", "写待办文件失败", e))?;
+        renumber(&mut items);
         Ok(items)
     }
 }
@@ -166,7 +190,7 @@ impl TodoTool {
                 };
                 format!(
                     "{}. {} {}{}",
-                    todo_seq(&t.todo_id),
+                    t.todo_seq,
                     mark(&t.todo_status),
                     t.todo_text,
                     blocked
@@ -186,7 +210,7 @@ impl TodoTool {
                     "in_progress" => "[~]",
                     _ => "[ ]",
                 };
-                format!("{mark} {} {}", todo_seq(&t.todo_id), t.todo_text)
+                format!("{mark} {} {}", t.todo_seq, t.todo_text)
             })
             .collect()
     }
@@ -208,14 +232,11 @@ impl TodoTool {
                     return Err(AppError::new(toolcode::ARG_INVALID, "add 需要 text"));
                 }
                 store.mutate(|items| {
-                    let next = items
-                        .iter()
-                        .filter_map(|t| todo_seq(&t.todo_id).parse::<u32>().ok())
-                        .max()
-                        .unwrap_or(0)
-                        + 1;
+                    // 先归一再入库：存下去的依赖一律是真 id，后面的图运算才靠得住
+                    let deps = normalize_deps(items, &deps)?;
                     let item = TodoItem {
-                        todo_id: format!("TODO_{next}"),
+                        todo_id: wb_pkg::ulid::new_id(wb_pkg::ulid::Prefix::Todo),
+                        todo_seq: 0,
                         todo_text: text.to_string(),
                         todo_status: "pending".into(),
                         todo_blocked_by: deps.clone(),
@@ -228,15 +249,22 @@ impl TodoTool {
                 })
             }
             "update" => store.mutate(|items| {
-                if !deps.is_empty() {
-                    ensure_deps(items, id, &deps)?;
-                }
-                let t = find(items, id)?;
+                // 目标与依赖都先归一成 id，否则序号写法会绕开自环/成环判断
+                let target = resolve_id(items, id)
+                    .ok_or_else(|| AppError::new(toolcode::ARG_INVALID, format!("{id} 不存在")))?;
+                let deps = if deps.is_empty() {
+                    Vec::new()
+                } else {
+                    let normalized = normalize_deps(items, &deps)?;
+                    ensure_deps(items, &target, &normalized)?;
+                    normalized
+                };
+                let t = find(items, &target)?;
                 if !text.is_empty() {
                     t.todo_text = text.to_string();
                 }
                 if !deps.is_empty() {
-                    t.todo_blocked_by = deps.clone();
+                    t.todo_blocked_by = deps;
                 }
                 t.todo_updated_at = now;
                 Ok(())
@@ -253,14 +281,19 @@ impl TodoTool {
                 })
             }
             "remove" => store.mutate(|items| {
-                let before = items.len();
-                items.retain(|t| t.todo_id != id && todo_seq(&t.todo_id) != id);
-                if items.len() == before {
+                let by_seq = id.parse::<u32>().ok();
+                let doomed: Vec<String> = items
+                    .iter()
+                    .filter(|t| t.todo_id == id || Some(t.todo_seq) == by_seq)
+                    .map(|t| t.todo_id.clone())
+                    .collect();
+                if doomed.is_empty() {
                     return Err(AppError::new(toolcode::ARG_INVALID, format!("{id} 不存在")));
                 }
+                items.retain(|t| !doomed.contains(&t.todo_id));
                 // 依赖它的条目清掉悬空引用
                 for t in items.iter_mut() {
-                    t.todo_blocked_by.retain(|d| d != id);
+                    t.todo_blocked_by.retain(|d| !doomed.contains(d));
                 }
                 Ok(())
             }),

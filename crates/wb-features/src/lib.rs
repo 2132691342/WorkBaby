@@ -3,6 +3,7 @@
 pub mod ask_user;
 pub mod context_mode;
 pub mod fff;
+pub mod fts;
 pub mod goal;
 pub mod lsp;
 pub mod memory;

@@ -31,7 +31,13 @@ pub const RUNTIMES: &[Runtime] = &[
         lang_code: "typescript",
         lang_label: "TypeScript",
         lang_program: "deno",
-        lang_args: &["run", "--allow-all", "{file}"],
+        lang_args: &[
+            "run",
+            "--no-prompt",
+            "--allow-read",
+            "--allow-write",
+            "{file}",
+        ],
         lang_ext: "ts",
     },
     Runtime {

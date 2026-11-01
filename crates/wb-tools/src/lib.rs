@@ -2,6 +2,7 @@
 
 pub mod builtin;
 pub mod exec;
+pub mod job;
 pub mod registry;
 pub mod truncate;
 

@@ -63,7 +63,7 @@ const capabilityCards = computed(() => [
     label: t('overview.capFeatures'),
     enabled: enabledFeatures.value.length,
     total: features.value.length,
-    path: '/features',
+    path: '/plugins',
   },
   {
     key: 'skills',
@@ -79,7 +79,7 @@ const capabilityCards = computed(() => [
     label: t('overview.capTools'),
     enabled: enabledTools.value.length,
     total: tools.value.length,
-    path: '/settings/tools',
+    path: '/models',
   },
   {
     key: 'mcp',
@@ -87,12 +87,12 @@ const capabilityCards = computed(() => [
     label: t('overview.capMcp'),
     enabled: mcpCount.value,
     total: mcpCount.value,
-    path: '/settings/mcp',
+    path: '/mcp',
   },
 ])
 
 function openSession(id: string) {
-  void router.push({ path: '/', query: { session: id } })
+  void router.push({ path: '/chat', query: { session: id } })
 }
 
 function fmtTime(ts: number): string {
@@ -118,7 +118,7 @@ function fmtTime(ts: number): string {
           <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
           <span class="ml-1">{{ t('common.refresh') }}</span>
         </el-button>
-        <el-button size="small" type="primary" @click="router.push('/')">
+        <el-button size="small" type="primary" @click="router.push('/chat')">
           {{ t('chat.newSession') }}
         </el-button>
       </template>
@@ -169,7 +169,7 @@ function fmtTime(ts: number): string {
 
           <div v-else-if="!recentSessions.length" class="card-empty">
             <p>{{ t('overview.noSessions') }}</p>
-            <el-button size="small" type="primary" @click="router.push('/')">
+            <el-button size="small" type="primary" @click="router.push('/chat')">
               {{ t('chat.newSession') }}
             </el-button>
           </div>

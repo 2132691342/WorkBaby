@@ -47,9 +47,10 @@ async function loadBoot() {
   syncFromSettings()
   chat.setShowThinking(settings.values['show_thinking'] !== 'false')
   booted.value = true
-  // 未就绪就进设置页：没配模型就没有对话，留一个空壳只会让用户以为程序坏了
-  if (settings.boot?.boot_ready === false && router.currentRoute.value.path !== '/settings') {
-    void router.replace('/settings')
+  // 没配模型就直接送到「模型」页：那是现在唯一能配模型的地方。
+  // 送到设置页等于把用户丢在一个再也配不上模型的地方——配不了就没有对话。
+  if (settings.boot?.boot_ready === false && router.currentRoute.value.path !== '/models') {
+    void router.replace('/models')
   }
 }
 
@@ -64,13 +65,13 @@ onMounted(() => {
   // 先存意图再广播——视图可能还没挂载，事件不能作为唯一载体。
   void onShellEvent('app:new-session', () => {
     intentNewSession.value = true
-    void router.push('/')
+    void router.push('/chat')
     pushShellIntent()
   })
   void onShellEvent('app:open-file', (data) => {
     if (!data?.path) return
     intentFile.value = String(data.path)
-    void router.push('/')
+    void router.push('/chat')
     pushShellIntent()
   })
 })
