@@ -82,11 +82,21 @@ export const sessions = {
 
 export const chat = {
   /** session_id 为空 = 新对话：后端会现场创建并回传 session_id */
-  send: (body: { session_id?: string; content: string }) =>
+  send: (body: {
+    session_id?: string
+    content: string
+    skill?: string
+    images?: { mime: string; base64: string }[]
+  }) =>
     post<SendMessageRESP>('/chat/send', {
       chat_session_id: body.session_id,
       chat_text: body.content,
       chat_attachments: [],
+      chat_skill: body.skill || null,
+      chat_images: (body.images ?? []).map((i) => ({
+        image_mime: i.mime,
+        image_base64: i.base64,
+      })),
     }),
   stop: (session_id: string) => post<boolean>('/chat/stop', { chat_session_id: session_id }),
   steer: (session_id: string, content: string) =>

@@ -5,7 +5,7 @@ import { errorText } from '../../utils/errors'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import type { MessageVO } from '../../types/api'
+import type { MessageImageVO, MessageVO } from '../../types/api'
 import { useToastStore } from '../../stores/toast'
 import { useSessionStore } from '../../stores/session'
 import AppIcon from '../common/AppIcon.vue'
@@ -65,6 +65,17 @@ function fmtTime(ms: number) {
   const d = new Date(ms)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
+
+/** 点图放大：直接在容器里开一个新标签页看原图，不另做预览层。 */
+function preview(img: MessageImageVO) {
+  const win = window.open('', '_blank')
+  if (!win) return
+  win.document.write(
+    `<title>${img.image_mime}</title><body style="margin:0;background:#0b1020">` +
+      `<img src="data:${img.image_mime};base64,${img.image_base64}" style="max-width:100%;display:block;margin:0 auto">`,
+  )
+  win.document.close()
+}
 </script>
 
 <template>
@@ -72,7 +83,22 @@ function fmtTime(ms: number) {
     <div class="msg-me-col">
       <div class="msg-badge"><span>{{ meName }}</span></div>
       <div class="msg-me-bubble">
-        <div v-if="msg.message_content">{{ msg.message_content }}</div>
+        <!-- 技能芯片：回放时也显形，看得出这条消息是哪个技能带的 -->
+        <span v-if="msg.message_skill" class="me-skill">
+          <AppIcon name="sparkles" size="ic-2xs" />
+          <b>{{ msg.message_skill }}</b>
+        </span>
+        <div v-if="msg.message_images?.length" class="me-imgs">
+          <img
+            v-for="(img, i) in msg.message_images"
+            :key="i"
+            class="me-img"
+            :src="`data:${img.image_mime};base64,${img.image_base64}`"
+            :alt="t('chat.attachTitle')"
+            @click="preview(img)"
+          />
+        </div>
+        <div v-if="msg.message_content" class="me-text">{{ msg.message_content }}</div>
       </div>
       <div class="msg-acts is-end">
         <time class="me-time">{{ fmtTime(msg.message_created_at) }}</time>
@@ -108,6 +134,43 @@ function fmtTime(ms: number) {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
   font-variant-numeric: tabular-nums;
+}
+/* 技能芯片与图片都在气泡内顶部：它们是这条消息的一部分，不是旁注 */
+.me-skill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  margin-bottom: var(--wb-sp-2);
+  padding: 1px var(--wb-sp-2);
+  border-radius: var(--wb-radius-full);
+  background: var(--wb-accent-tint);
+  color: var(--wb-primary);
+  font-size: var(--wb-fs-2xs);
+}
+.me-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--wb-sp-2);
+  margin-bottom: var(--wb-sp-2);
+}
+.me-img {
+  width: calc(120px * var(--wb-vw-scale));
+  max-height: calc(160px * var(--wb-vw-scale));
+  object-fit: cover;
+  border-radius: var(--wb-radius-sm);
+  border: 1px solid var(--wb-border);
+  cursor: zoom-in;
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease);
+}
+.me-img:hover {
+  transform: scale(1.02);
+  border-color: var(--wb-primary);
+}
+.me-text {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .msg-acts.is-end {
   justify-content: flex-end;

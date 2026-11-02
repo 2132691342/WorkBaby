@@ -19,8 +19,6 @@ defineProps<{
   /** 运行中正在发的是哪一类 */
   acting?: 'steer' | 'queue' | ''
   disabled?: boolean
-  /** 区外附件条数：>0 时提示且禁止发送 */
-  outsideCount: number
   /** 能否发送 */
   canSend: boolean
   /** 回车提示文案 */
@@ -29,6 +27,8 @@ defineProps<{
 
 const emit = defineEmits<{
   pickFile: []
+  /** 选图片进待发送列表 */
+  pickImage: []
   send: []
   stop: []
   /** 运行中发送的方式变了 */
@@ -65,6 +65,11 @@ defineExpose({ showChip })
         <AppIcon name="folder" size="ic-xs" />
       </button>
     </el-tooltip>
+    <el-tooltip :content="t('chat.attachImage')" placement="top" :show-after="400">
+      <button class="bar-btn" type="button" :disabled="disabled" @click="emit('pickImage')">
+        <AppIcon name="image" size="ic-xs" />
+      </button>
+    </el-tooltip>
     <WorkspaceChip />
     <SessionChips ref="chipsRef" />
     <ContextMeter
@@ -75,9 +80,6 @@ defineExpose({ showChip })
       :reserve="chat.contextReserve"
       :session-id="session.currentId || ''"
     />
-    <span v-if="outsideCount" class="bar-warn">
-      {{ t('chat.attachOutsideCount', { n: outsideCount }) }}
-    </span>
     <span v-if="!running" class="bar-hint">{{ sendHint }}</span>
     <span class="bar-sp" />
 
@@ -120,15 +122,10 @@ defineExpose({ showChip })
      一起框成一片淡蓝色块。只有输入框里的文字该被选中。 */
   user-select: none;
 }
-.bar-hint,
-.bar-warn {
+.bar-hint {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-muted);
   white-space: nowrap;
-}
-.bar-warn {
-  color: var(--wb-danger);
-  font-weight: 600;
 }
 .bar-btn {
   display: grid;

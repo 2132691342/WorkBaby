@@ -31,7 +31,7 @@ async fn agent_loop_replays_tool_batches_end_to_end() {
         emit,
         CancellationToken::new(),
         steer_rx,
-        "请调用 echo 工具".into(),
+        wb_kernel::UserInput::text("请调用 echo 工具"),
     )
     .await
     .expect("一轮运行不应失败");
@@ -92,7 +92,7 @@ async fn agent_loop_replays_tool_batches_end_to_end() {
         emit,
         CancellationToken::new(),
         rx,
-        "并行查两个".into(),
+        wb_kernel::UserInput::text("并行查两个"),
     )
     .await
     .expect("不应失败");
@@ -209,6 +209,8 @@ fn replay_backfills_tool_calls_that_never_got_a_result() {
         message: wb_kernel::Msg::User {
             content: "跑一下".into(),
             timestamp: 1,
+            skill: None,
+            images: Vec::new(),
         },
     })
     .unwrap();
@@ -299,6 +301,8 @@ fn session_file_survives_reload_compaction_and_context_edit() {
         message: wb_kernel::Msg::User {
             content: text.into(),
             timestamp: ts,
+            skill: None,
+            images: Vec::new(),
         },
     };
     sf.append(user("hi", 1)).unwrap();
@@ -452,6 +456,8 @@ fn session_fork_keeps_old_branch_and_switches_back() {
         message: wb_kernel::Msg::User {
             content: t.into(),
             timestamp: ts,
+            skill: None,
+            images: Vec::new(),
         },
     };
     let asst = |t: &str, ts: i64| wb_kernel::Entry::Message {
@@ -540,6 +546,8 @@ async fn compaction_reinjects_live_state_after_dropping_history() {
             message: wb_kernel::Msg::User {
                 content: format!("{i} {}", "填充上下文".repeat(80)),
                 timestamp: i,
+                skill: None,
+                images: Vec::new(),
             },
         })
         .unwrap();
@@ -588,6 +596,8 @@ async fn compaction_reinjects_live_state_after_dropping_history() {
             message: wb_kernel::Msg::User {
                 content: format!("{i} {}", "填充上下文".repeat(80)),
                 timestamp: i,
+                skill: None,
+                images: Vec::new(),
             },
         })
         .unwrap();
@@ -619,4 +629,105 @@ async fn compaction_reinjects_live_state_after_dropping_history() {
         "闭包返回 None 时不应凭空插消息"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- 技能与图片进请求 ----
+
+/// 用户点名技能时，正文包在 `<skill>` 块里进请求；没点名就一个字节都不多发。
+#[tokio::test]
+async fn skill_body_is_injected_only_when_the_message_names_it() {
+    let tmp = temp_dir("skill");
+    let provider = FakeProvider::new(vec![vec![delta("好的"), done(1, StopReason::Stop)]]);
+    let mut cfg = agent_cfg(provider.clone());
+    cfg.skill_loader = Some(Arc::new(|name: &str| {
+        (name == "deep-research").then(|| "先列假设，再逐个验证。".to_string())
+    }));
+    let (_tx, rx) = tokio::sync::mpsc::channel(4);
+    let sink: wb_kernel::EmitFn = Arc::new(|_| {});
+
+    wb_kernel::run(
+        wb_kernel::SessionFile::create(&tmp, "D:/ws", "SESS_skill"),
+        cfg,
+        sink,
+        CancellationToken::new(),
+        rx,
+        wb_kernel::UserInput {
+            text: "研究一下这个仓库".into(),
+            skill: Some("deep-research".into()),
+            images: Vec::new(),
+        },
+    )
+    .await
+    .expect("不应失败");
+
+    let user_parts = {
+        let seen = provider.seen.lock().unwrap();
+        seen[0]
+            .messages
+            .iter()
+            .find(|m| m.role == Role::User)
+            .map(|m| m.parts.clone())
+            .expect("应有用户消息")
+    };
+    assert_eq!(user_parts.len(), 2, "技能正文 + 诉求两段");
+    let ContentPart::Text(first) = &user_parts[0] else {
+        panic!("第一段应是技能块")
+    };
+    assert!(
+        first.starts_with("<skill name=\"deep-research\">"),
+        "技能块开头应是标签，实际 {first}"
+    );
+    assert!(
+        first.contains("先列假设"),
+        "技能正文应原样进请求，实际 {first}"
+    );
+    let ContentPart::Text(second) = &user_parts[1] else {
+        panic!("第二段应是用户原文")
+    };
+    assert_eq!(second, "研究一下这个仓库", "人话不能被技能块吞掉");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// 图片必须进请求的 Image 片段：只落到会话文件而没进请求等于图白传了。
+#[tokio::test]
+async fn attached_images_reach_the_request_as_image_parts() {
+    let tmp = temp_dir("image");
+    let provider = FakeProvider::new(vec![vec![delta("看到了"), done(1, StopReason::Stop)]]);
+    let (_tx, rx) = tokio::sync::mpsc::channel(4);
+    let sink: wb_kernel::EmitFn = Arc::new(|_| {});
+
+    wb_kernel::run(
+        wb_kernel::SessionFile::create(&tmp, "D:/ws", "SESS_image"),
+        agent_cfg(provider.clone()),
+        sink,
+        CancellationToken::new(),
+        rx,
+        wb_kernel::UserInput {
+            text: "这张图里有错误吗".into(),
+            skill: None,
+            images: vec![wb_kernel::ImagePart {
+                mime: "image/png".into(),
+                base64: "aGVsbG8=".into(),
+            }],
+        },
+    )
+    .await
+    .expect("不应失败");
+
+    let seen = provider.seen.lock().unwrap();
+    let user = seen[0]
+        .messages
+        .iter()
+        .find(|m| m.role == Role::User)
+        .expect("应有用户消息");
+    let img = user
+        .parts
+        .iter()
+        .find_map(|p| match p {
+            ContentPart::Image { mime, base64 } => Some((mime.clone(), base64.clone())),
+            _ => None,
+        })
+        .expect("图片必须进请求");
+    assert_eq!(img, ("image/png".into(), "aGVsbG8=".into()));
+    let _ = std::fs::remove_dir_all(&tmp);
 }

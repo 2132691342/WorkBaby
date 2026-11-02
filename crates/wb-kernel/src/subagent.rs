@@ -162,10 +162,7 @@ pub async fn run_subagent(
 
     session
         .append(Entry::Message {
-            message: Msg::User {
-                content: sc.task.clone(),
-                timestamp: now_ms(),
-            },
+            message: Msg::user(sc.task.clone()),
         })
         .map_err(|e| AppError::new(wb_domain::error::kernel::SUBAGENT_FAILED, e.message))?;
 

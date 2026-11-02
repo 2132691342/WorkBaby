@@ -19,6 +19,7 @@ pub mod providers;
 pub mod resources;
 pub mod review;
 pub mod runtime;
+pub mod skills;
 pub mod store;
 pub mod task;
 pub mod usage;

@@ -117,17 +117,24 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  function echoUserMessage(content: string) {
+  function echoUserMessage(
+    content: string,
+    skill = '',
+    images: { mime: string; base64: string }[] = [],
+  ) {
     messages.value = [
       ...messages.value,
       {
         message_id: `local-${Date.now()}`,
+        message_entry_id: '',
         message_role: 'user',
         message_type: 'text',
         message_content: content,
         message_blocks: [],
         message_tool_calls: [],
         message_created_at: Date.now(),
+        message_skill: skill || null,
+        message_images: images.map((i) => ({ image_mime: i.mime, image_base64: i.base64 })),
       },
     ]
   }

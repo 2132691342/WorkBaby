@@ -31,17 +31,28 @@ const { t } = useI18n()
 const items = computed<SlashItem[]>(() => {
   const q = props.query
   if (!q || /\s/.test(q)) return []
-  const kw = q.slice(1).toLowerCase()
+  // 手打 /skill:名字 时只比技能名，不然「skill:」会把所有技能都匹配上
+  const raw = q.slice(1).toLowerCase()
+  const skillOnly = raw.startsWith('skill:')
+  const kw = skillOnly ? raw.slice('skill:'.length) : raw
   const match = (name: string, desc: string) =>
     !kw || name.toLowerCase().includes(kw) || desc.toLowerCase().includes(kw)
-  const cmds: SlashItem[] = COMMANDS.filter((c) => match(c.key, t(c.descKey))).map((c) => ({
-    kind: 'cmd',
-    key: c.key,
-    name: t(c.nameKey),
-    desc: t(c.descKey),
-  }))
+  const cmds: SlashItem[] = skillOnly
+    ? []
+    : COMMANDS.filter((c) => match(c.key, t(c.descKey))).map((c) => ({
+        kind: 'cmd',
+        key: c.key,
+        name: t(c.nameKey),
+        desc: t(c.descKey),
+      }))
+  // 名字以关键词开头的排前面：输到一半时人找的是「我说得出的那个」
   const skills: SlashItem[] = props.skills
     .filter((s) => match(s.skill_name, s.skill_description))
+    .sort((a, b) => {
+      const ra = a.skill_name.toLowerCase().startsWith(kw) ? 0 : 1
+      const rb = b.skill_name.toLowerCase().startsWith(kw) ? 0 : 1
+      return ra - rb || a.skill_name.localeCompare(b.skill_name)
+    })
     .slice(0, MAX_MATCH)
     .map((s) => ({
       kind: 'skill',

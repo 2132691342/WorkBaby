@@ -174,10 +174,7 @@ pub async fn compact(
         if !trimmed.is_empty() {
             session
                 .append(Entry::Message {
-                    message: Msg::User {
-                        content: trimmed.to_string(),
-                        timestamp: wb_kernel_now_ms(),
-                    },
+                    message: Msg::user(trimmed),
                 })
                 .map_err(|e| {
                     wb_pkg::AppError::new(wb_domain::error::session::COMPACT_FAILED, e.message)
@@ -187,11 +184,4 @@ pub async fn compact(
     Ok((tokens_before, summary.trim().to_string()))
 }
 
-/// 当前毫秒时间戳（本机时钟，仅用于回填条目的时间字段）。
-fn wb_kernel_now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
-}
 use futures::StreamExt;

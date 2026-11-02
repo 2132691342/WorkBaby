@@ -231,6 +231,7 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
         thinking: thinking_level(effective_thinking.as_deref(), model_reasoning),
         max_retries: 3,
         workdir: std::path::PathBuf::from(&workspace),
+        skill_loader: Some(super::skills::skill_loader(&sv)),
     });
     let run_session_id = session_id.clone();
     let svc = sv.clone();
@@ -256,7 +257,18 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
             emit_fn,
             cancel.clone(),
             steer_rx,
-            req.chat_text.clone(),
+            wb_kernel::UserInput {
+                text: req.chat_text.clone(),
+                skill: req.chat_skill.clone(),
+                images: req
+                    .chat_images
+                    .iter()
+                    .map(|i| wb_kernel::ImagePart {
+                        mime: i.image_mime.clone(),
+                        base64: i.image_base64.clone(),
+                    })
+                    .collect(),
+            },
         )
         .await;
         svc.chat.lock().unwrap().finish(&run_session_id);
@@ -348,7 +360,8 @@ fn maybe_resume_goal(sv: &Arc<Services>, session_id: &str) {
         let req = ChatSendREQ {
             chat_session_id: Some(sid),
             chat_text: prompt,
-            chat_attachments: Vec::new(),
+            chat_skill: None,
+            chat_images: Vec::new(),
         };
         // 走 start_run 而非 send：续跑不重置计数，否则上限形同虚设。
         if let Err(e) = start_run(sv2, req).await {
@@ -369,7 +382,8 @@ pub async fn followup(sv: Arc<Services>, session_id: &str, text: String) -> Resu
         ChatSendREQ {
             chat_session_id: Some(session_id.to_string()),
             chat_text: text,
-            chat_attachments: Vec::new(),
+            chat_skill: None,
+            chat_images: Vec::new(),
         },
     )
     .await

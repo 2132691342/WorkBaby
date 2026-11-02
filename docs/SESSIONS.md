@@ -56,7 +56,9 @@ context_edit 条目。
 
 `message.role` = user / assistant / tool_result：
 
-- **user**：`content`（文本）+ `timestamp`
+- **user**：`content`（文本）+ `timestamp`，可选 `skill`（显式调用的技能名）
+  与 `images`（`[{mime, base64}]`）。技能只存名字不存正文：正文在发请求那一刻
+  按名字读文件并展开成 `<skill>` 块，消息本身保持干净。
 - **assistant**：`content`（text / thinking / tool_call 块的有序数组）
   + `provider_id` / `model_id` / `message_id` / `usage` / `stop_reason` / `timestamp` / `duration_ms`
 - **tool_result**：`tool_call_id` / `tool_name` / `content` / `is_error` / `timestamp` / `duration_ms`

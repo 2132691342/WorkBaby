@@ -137,6 +137,7 @@ defineExpose({ loadDir, shown, pickAt, up, relativeOf, currentIndex, setIndex })
         <AppIcon v-if="e.entry_is_dir" name="chevron-right" size="ic-xs" />
       </button>
     </div>
+    <div class="mb-foot">{{ t('chat.mentionFileHint') }}</div>
     <button class="pop-row mb-out" type="button" @click="emit('pickExternal')">
       <AppIcon name="search" size="ic-xs" />
       <span class="pop-grow">
@@ -230,6 +231,13 @@ defineExpose({ loadDir, shown, pickAt, up, relativeOf, currentIndex, setIndex })
   min-height: 0;
   flex: 1;
   padding: var(--wb-sp-1);
+}
+.mb-foot {
+  flex: none;
+  padding: var(--wb-sp-1) var(--wb-sp-2);
+  border-top: 1px solid var(--wb-border);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
 }
 .mb-out {
   border-top: 1px solid var(--wb-border);

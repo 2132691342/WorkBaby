@@ -8,103 +8,7 @@ use serde::{Deserialize, Serialize};
 use wb_pkg::{AppError, Result};
 use wb_provider::Usage;
 
-/// 会话文件首行。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct SessionHeader {
-    /// 类型标记（恒为 "session"）
-    #[serde(rename = "type")]
-    pub type_: String,
-    /// 格式版本
-    pub version: i64,
-    /// 会话 id（SESS_ 前缀）
-    pub session_id: String,
-    /// 起建毫秒
-    pub created_at: i64,
-    /// 工作目录
-    pub workspace: String,
-}
-
-/// 消息内容块。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum Block {
-    /// 正文
-    Text {
-        /// 文本
-        text: String,
-    },
-    /// 思考
-    Thinking {
-        /// 思考内容
-        thinking: String,
-    },
-    /// 工具调用
-    ToolCall {
-        /// 调用 id（TC_ 前缀）
-        tool_call_id: String,
-        /// 工具名
-        name: String,
-        /// 参数 JSON 文本
-        arguments: String,
-    },
-}
-
-/// 消息体（role 区分四类）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "role", rename_all = "snake_case")]
-pub enum Msg {
-    /// 用户消息
-    User {
-        /// 文本
-        content: String,
-        /// 毫秒
-        timestamp: i64,
-    },
-    /// 助手消息
-    Assistant {
-        /// 内容块（有序）
-        content: Vec<Block>,
-        /// provider id
-        provider_id: String,
-        /// 模型 id
-        model_id: String,
-        /// 消息 id（MSG_ 前缀）
-        message_id: String,
-        /// 用量
-        #[serde(default)]
-        usage: Option<Usage>,
-        /// 停止原因：stop / length / tool_use / error / aborted
-        stop_reason: String,
-        /// 毫秒
-        timestamp: i64,
-        /// 耗时毫秒
-        #[serde(default)]
-        duration_ms: i64,
-    },
-    /// 工具结果
-    ToolResult {
-        /// 对应调用 id
-        tool_call_id: String,
-        /// 工具名
-        tool_name: String,
-        /// 结果文本（已截断）
-        content: String,
-        /// 是否错误
-        is_error: bool,
-        /// 毫秒
-        timestamp: i64,
-        /// 耗时
-        #[serde(default)]
-        duration_ms: i64,
-        /// 改动的文件（相对工作区）；没有改动的工具为 None
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        file_path: Option<String>,
-        /// 改动差异行；回放时界面直接着色
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        diff: Option<Vec<wb_domain::events::DiffLine>>,
-    },
-}
+pub use crate::session_msg::{Block, ImagePart, Msg, SessionHeader, UserInput};
 
 /// 条目载荷（type 已在外层 tag）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -434,6 +338,8 @@ impl SessionFile {
                                 "The conversation history before this point was compacted into the following summary:\n\n<summary>\n{summary}\n</summary>"
                             ),
                             timestamp: e.timestamp,
+                            skill: None,
+                            images: Vec::new(),
                         });
                     }
                     continue;

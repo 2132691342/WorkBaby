@@ -160,6 +160,7 @@ pub fn agent_cfg(provider: Arc<FakeProvider>) -> AgentConfig {
         max_retries: 0,
         reinforce: None,
         workdir: temp_dir("cfg"),
+        skill_loader: None,
     }
 }
 

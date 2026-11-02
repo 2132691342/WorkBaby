@@ -9,7 +9,6 @@ import { useChatStore } from '../stores/chat'
 import { useSessionStore } from '../stores/session'
 import { useSettingsStore } from '../stores/settings'
 import { useToastStore } from '../stores/toast'
-import type { AttachmentREQ } from '../types/api'
 import AppIcon from '../components/common/AppIcon.vue'
 import ActivityBar from '../components/chat/ActivityBar.vue'
 import ChatHeader from '../components/chat/ChatHeader.vue'
@@ -59,15 +58,14 @@ function newSession() {
 const sending = ref(false)
 const stopping = ref(false)
 
-async function send(text: string, _attachments: AttachmentREQ[]) {
+async function send(text: string, skill = '', images: { mime: string; base64: string }[] = []) {
   if (sending.value) return
   // loading 必须挂在最前面：没有会话时要先建会话，反馈晚于点击一秒以上会被当成没点上
   sending.value = true
   try {
-    // chat.send 契约只带正文（附件由会话内 @ 引用链路承接），发送体不再携带文件
-    const sent = await chat.send(session.currentId || '', text)
+    const sent = await chat.send(session.currentId || '', text, skill, images)
     // 立刻回显：等 chat:done 拉快照才显示的话，用户会以为消息没发出去
-    session.echoUserMessage(text)
+    session.echoUserMessage(text, skill, images)
     if (!session.currentId && sent?.resp_session_id) {
       await session.adopt(sent.resp_session_id)
     }
@@ -93,7 +91,7 @@ async function steer(text: string) {
     // 而不是回一句「没有在运行」把用户刚打的字白白吞掉。
     if ((e as { code?: string })?.code === '5002') {
       steering.value = false
-      await send(text, [])
+      await send(text)
       return
     }
     toast.bad(t('chat.steerFailed', { msg: errorText(e) }))
@@ -111,7 +109,7 @@ async function queueUp(text: string) {
     // 同上：排队时这一轮已经跑完，直接当普通发送
     if ((e as { code?: string })?.code === '5001' || (e as { code?: string })?.code === '5002') {
       queueing.value = false
-      await send(text, [])
+      await send(text)
       return
     }
     toast.bad(t('chat.queueFailed', { msg: errorText(e) }))
@@ -135,7 +133,7 @@ async function stop() {
 // 续写：截断后接着写。发一句「继续」是唯一协议安全的方式
 async function resume() {
   if (chat.running) return
-  await send(t('chat.continue'), [])
+  await send(t('chat.continue'))
 }
 
 // 重试：把最后一条用户消息原样再发一次
@@ -143,7 +141,7 @@ async function retry() {
   if (chat.running) return
   const last = [...session.messages].reverse().find((m) => m.message_role === 'user')
   if (!last?.message_content) return
-  await send(last.message_content, [])
+  await send(last.message_content)
 }
 
 // 桌面壳意图（托盘「新建对话」/ 外部打开文件）在这里落地
@@ -194,7 +192,7 @@ watch(
 )
 
 function pickExample(text: string) {
-  void send(text, [])
+  void send(text)
 }
 
 // 快照到手就回填上下文水位

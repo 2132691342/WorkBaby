@@ -40,6 +40,16 @@ pub struct UsageVO {
     pub usage_cost: f64,
 }
 
+/// 消息携带的图片视图。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MessageImageVO {
+    /// MIME 类型
+    pub image_mime: String,
+    /// 图片字节的纯 base64（界面拼 data URL 渲染）
+    pub image_base64: String,
+}
+
 /// 消息视图对象：会话详情与实时流的统一形态。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -76,6 +86,12 @@ pub struct MessageVO {
     pub message_hidden: bool,
     /// 非空时渲染成分隔提示条（已压缩 / 换模型）而不是气泡
     pub message_notice: Option<String>,
+    /// 用户消息显式调用的技能名：回放时渲染成技能芯片
+    #[serde(default)]
+    pub message_skill: Option<String>,
+    /// 用户消息携带的图片（纯 base64）
+    #[serde(default)]
+    pub message_images: Vec<MessageImageVO>,
     /// 工具改动的文件（相对工作区）；只有写文件类工具填
     #[serde(default)]
     pub message_file_path: Option<String>,
@@ -104,6 +120,8 @@ impl MessageVO {
             message_created_at,
             message_hidden: false,
             message_notice: None,
+            message_skill: None,
+            message_images: Vec::new(),
             message_file_path: None,
             message_diff: None,
         }

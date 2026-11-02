@@ -9,14 +9,14 @@ use tokio_util::sync::CancellationToken;
 
 use wb_pkg::{AppError, Result};
 use wb_provider::{
-    ContentPart, ModelClient, ModelEvent, ReqMessage, ReqToolCall, Role, StopReason, StreamRequest,
+    ContentPart, ModelClient, ModelEvent, ReqMessage, Role, StopReason, StreamRequest,
     ThinkingLevel, ToolDef, Usage,
 };
 
 use crate::blocks::{execute_tool, push_text, push_thinking, upsert_tool};
 use crate::compaction;
 use crate::events::{EmitFn, KernelEvent};
-use crate::session::{now_ms, Block, Entry, Msg, SessionFile};
+use crate::session::{now_ms, Block, Entry, Msg, SessionFile, UserInput};
 
 /// 单轮运行的模型请求上限：模型反复调工具却不收尾时的总闸。
 const MAX_TURNS: i64 = 60;
@@ -48,6 +48,8 @@ pub struct AgentConfig {
     pub workdir: std::path::PathBuf,
     /// 压缩后回填的活状态（如待办清单）；service 决定内容，内核不做假设
     pub reinforce: Option<std::sync::Arc<crate::compaction::ReinforceFn>>,
+    /// 技能正文加载器：用户消息点名技能时按需读正文，内核不认识技能存储
+    pub skill_loader: Option<crate::reqbuild::SkillLoader>,
 }
 
 /// 单轮运行结果。
@@ -68,14 +70,11 @@ pub async fn run(
     emit: EmitFn,
     cancel: CancellationToken,
     mut steer_rx: mpsc::Receiver<String>,
-    first_message: String,
+    first: UserInput,
 ) -> Result<RunOutcome> {
     session
         .append(Entry::Message {
-            message: Msg::User {
-                content: first_message,
-                timestamp: now_ms(),
-            },
+            message: first.into_msg(),
         })
         .map_err(loop_err)?;
     emit(&KernelEvent::AgentStart {
@@ -95,10 +94,7 @@ pub async fn run(
         while let Ok(text) = steer_rx.try_recv() {
             session
                 .append(Entry::Message {
-                    message: Msg::User {
-                        content: text,
-                        timestamp: now_ms(),
-                    },
+                    message: Msg::user(text),
                 })
                 .map_err(loop_err)?;
         }
@@ -149,7 +145,7 @@ pub async fn run(
             tool_call_id: None,
         }];
         for m in session.replay_messages() {
-            req_msgs.push(to_req(m));
+            req_msgs.push(crate::reqbuild::to_req(m, cfg.skill_loader.as_ref()));
         }
         let tools: Vec<ToolDef> = cfg
             .enabled_tools
@@ -361,10 +357,7 @@ pub async fn run(
         for text in pending_steer {
             session
                 .append(Entry::Message {
-                    message: Msg::User {
-                        content: text,
-                        timestamp: now_ms(),
-                    },
+                    message: Msg::user(text),
                 })
                 .map_err(loop_err)?;
         }
@@ -391,59 +384,6 @@ pub async fn run(
         last_text,
         usage_total,
     })
-}
-
-/// 内核消息 → provider 请求消息。
-fn to_req(m: Msg) -> ReqMessage {
-    match m {
-        Msg::User { content, .. } => ReqMessage {
-            role: Role::User,
-            parts: vec![ContentPart::Text(content)],
-            tool_calls: Vec::new(),
-            tool_call_id: None,
-        },
-        Msg::Assistant { content, .. } => {
-            let text = content
-                .iter()
-                .filter_map(|b| match b {
-                    Block::Text { text } => Some(text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            let calls = content
-                .iter()
-                .filter_map(|b| match b {
-                    Block::ToolCall {
-                        tool_call_id,
-                        name,
-                        arguments,
-                    } => Some(ReqToolCall {
-                        call_id: tool_call_id.clone(),
-                        name: name.clone(),
-                        arguments: arguments.clone(),
-                    }),
-                    _ => None,
-                })
-                .collect();
-            ReqMessage {
-                role: Role::Assistant,
-                parts: vec![ContentPart::Text(text)],
-                tool_calls: calls,
-                tool_call_id: None,
-            }
-        }
-        Msg::ToolResult {
-            tool_call_id,
-            content,
-            ..
-        } => ReqMessage {
-            role: Role::ToolResult,
-            parts: vec![ContentPart::Text(content)],
-            tool_calls: Vec::new(),
-            tool_call_id: Some(tool_call_id),
-        },
-    }
 }
 
 pub(crate) fn stop_name(s: StopReason) -> &'static str {

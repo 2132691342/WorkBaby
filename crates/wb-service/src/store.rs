@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use wb_domain::error::session as code;
 use wb_domain::session::{
-    MessageBlock, MessageVO, SessionDetailRESP, SessionVO, ToolCallVO, UsageVO,
+    MessageBlock, MessageImageVO, MessageVO, SessionDetailRESP, SessionVO, ToolCallVO, UsageVO,
 };
 use wb_pkg::{AppError, Result};
 
@@ -103,10 +103,7 @@ pub fn message_vos_with_entries(sf: &SessionFile) -> Vec<MessageVO> {
                 tokens_before,
             } => {
                 let _ = (first_kept_entry_id, tokens_before);
-                vec![Msg::User {
-                    content: format!("[已压缩的早期对话摘要]\n{summary}"),
-                    timestamp: e.timestamp,
-                }]
+                vec![Msg::user(format!("[已压缩的早期对话摘要]\n{summary}"))]
             }
             _ => Vec::new(),
         };
@@ -124,9 +121,22 @@ pub fn to_message_vos(msgs: Vec<Msg>) -> Vec<MessageVO> {
     let mut out = Vec::new();
     for (idx, m) in msgs.into_iter().enumerate() {
         match m {
-            Msg::User { content, timestamp } => {
+            Msg::User {
+                content,
+                timestamp,
+                skill,
+                images,
+            } => {
                 let mut vo = MessageVO::empty(format!("ENT_U{idx}"), "user", timestamp);
                 vo.message_content = Some(content);
+                vo.message_skill = skill;
+                vo.message_images = images
+                    .into_iter()
+                    .map(|i| MessageImageVO {
+                        image_mime: i.mime,
+                        image_base64: i.base64,
+                    })
+                    .collect();
                 out.push(vo);
             }
             Msg::Assistant {

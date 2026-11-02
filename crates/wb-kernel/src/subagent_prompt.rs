@@ -2,9 +2,9 @@
 //!
 //! 这些都是纯函数，放在这里让 subagent.rs 只管「跑一次子会话」那一件事。
 
-use wb_provider::{ContentPart, ReqMessage, ReqToolCall, Role};
+use wb_provider::ReqMessage;
 
-use crate::session::{Block, Msg};
+use crate::session::Msg;
 
 /// 子代理系统提示词：角色职责在前，父提示词的上下文段在后。
 pub(crate) fn build_sub_prompt(
@@ -50,55 +50,7 @@ fn extract_tag(text: &str, tag: &str) -> Option<String> {
     Some(text[start..end].to_string())
 }
 
-/// 内核消息 → provider 请求消息（与主循环同形）。
+/// 内核消息 → provider 请求消息（与主循环同形：技能不展开，子会话不带父会话的图片）。
 pub(crate) fn to_req(m: Msg) -> ReqMessage {
-    match m {
-        Msg::User { content, .. } => ReqMessage {
-            role: Role::User,
-            parts: vec![ContentPart::Text(content)],
-            tool_calls: Vec::new(),
-            tool_call_id: None,
-        },
-        Msg::Assistant { content, .. } => {
-            let text = content
-                .iter()
-                .filter_map(|b| match b {
-                    Block::Text { text } => Some(text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            let calls = content
-                .iter()
-                .filter_map(|b| match b {
-                    Block::ToolCall {
-                        tool_call_id,
-                        name,
-                        arguments,
-                    } => Some(ReqToolCall {
-                        call_id: tool_call_id.clone(),
-                        name: name.clone(),
-                        arguments: arguments.clone(),
-                    }),
-                    _ => None,
-                })
-                .collect();
-            ReqMessage {
-                role: Role::Assistant,
-                parts: vec![ContentPart::Text(text)],
-                tool_calls: calls,
-                tool_call_id: None,
-            }
-        }
-        Msg::ToolResult {
-            tool_call_id,
-            content,
-            ..
-        } => ReqMessage {
-            role: Role::ToolResult,
-            parts: vec![ContentPart::Text(content)],
-            tool_calls: Vec::new(),
-            tool_call_id: Some(tool_call_id),
-        },
-    }
+    crate::reqbuild::to_req(m, None)
 }

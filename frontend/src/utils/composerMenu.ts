@@ -1,5 +1,5 @@
-// 输入区斜杠菜单的命令表与类型：菜单组件与命令执行两侧共用，放在组件外避免
-// <script setup> 的「不可导出」限制，也避免两边各抄一份命令清单。
+// 输入区的斜杠菜单命令表与待发送状态：菜单组件、输入区、命令执行三处共用。
+// 抽到组件外只有一条理由——<script setup> 不能导出常量，两边各抄一份会漂移。
 
 /** 内置命令码。 */
 export type BuiltinKey =
@@ -26,16 +26,20 @@ export interface SlashItem {
   desc: string
 }
 
-/** 一条待发送附件。 */
-export interface PendingFile {
-  /** 相对工作区路径（粘贴的图片为空） */
-  path: string
-  /** 显示名 */
+/** 待发送的图片：粘贴或选择进来的图。 */
+export interface PendingImage {
+  /** 生成 id 用的单调序号（渲染 key 与删除都用它） */
+  id: number
+  /** 展示名 */
   name: string
-  /** 是否落在工作区之外（提交前必须先解决） */
-  outside: boolean
-  /** 粘贴进来的图片 base64 */
-  image?: string
+  /** MIME 类型 */
+  mime: string
+  /** 纯 base64（无 data: 前缀） */
+  base64: string
+  /** 图片自然宽度（0 = 还没解码完） */
+  width: number
+  /** 图片自然高度 */
+  height: number
 }
 
 /** 内置命令表：文案键交给 i18n，界面语言一换整表跟着换。 */
@@ -51,3 +55,10 @@ export const COMMANDS: { key: BuiltinKey; nameKey: string; descKey: string }[] =
   { key: 'login', nameKey: 'chat.slashLogin', descKey: 'chat.slashLoginDesc' },
   { key: 'settings', nameKey: 'chat.slashSettings', descKey: 'chat.slashSettingsDesc' },
 ]
+
+/** 手打 `/skill:名字 其余文字` 时拆出技能名与剩下的诉求；不是这个形态就返回 null。 */
+export function parseSkillCommand(text: string): { name: string; rest: string } | null {
+  const m = text.trim().match(/^\/skill:([a-z0-9-]+)(?:\s+([\s\S]*))?$/)
+  if (!m) return null
+  return { name: m[1], rest: (m[2] || '').trim() }
+}

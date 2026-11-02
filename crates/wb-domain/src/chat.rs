@@ -2,16 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 
-/// 附件（@ 引用的文件路径，或粘贴的图片）。
+/// 附件图片（粘贴或选择进来的图，纯 base64，无 data: 前缀）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct AttachmentREQ {
-    /// 相对或绝对路径
-    pub attach_path: String,
-    /// 展示名
-    pub attach_name: String,
-    /// 粘贴图片的纯 base64（无 data: 前缀）
-    pub attach_image_base64: Option<String>,
+pub struct ImageREQ {
+    /// MIME 类型（image/png 等）
+    pub image_mime: String,
+    /// 图片字节的纯 base64
+    pub image_base64: String,
 }
 
 /// 发送消息。
@@ -22,8 +20,12 @@ pub struct ChatSendREQ {
     pub chat_session_id: Option<String>,
     /// 用户输入文本
     pub chat_text: String,
-    /// 附件
-    pub chat_attachments: Vec<AttachmentREQ>,
+    /// 显式调用的技能名；非空时后端只记名字，正文在发请求时按需读
+    #[serde(default)]
+    pub chat_skill: Option<String>,
+    /// 随消息发送的图片
+    #[serde(default)]
+    pub chat_images: Vec<ImageREQ>,
 }
 
 /// 发送响应。

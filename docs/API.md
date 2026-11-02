@@ -41,7 +41,7 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | POST | /sessions/model/:id | 切模型 |
 | POST | /sessions/thinking/:id | 切思考档位 |
 | POST | /sessions/export/:id | 导出（body 带 `session_export_path`，兼容 `path`；空 = 存数据目录 exports） |
-| POST | /chat/send | 发送（新会话时现场创建） |
+| POST | /chat/send | 发送（新会话时现场创建；body 带 `chat_text` / `chat_skill` / `chat_images`） |
 | POST | /chat/stop | 停止（先取回队列再 abort；响应裸字段 `{"stopped"}`） |
 | POST | /chat/steer | 运行中插话 |
 | POST | /chat/followup | 空闲追问（完整一轮） |

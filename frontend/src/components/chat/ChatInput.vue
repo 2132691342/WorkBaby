@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 输入区：多行输入 + 待发送附件 + @ 引用 + / 命令菜单；底栏在 ComposerBar。
+// 输入区：多行输入 + 技能芯片 + 待发送图片 + @ 引用 + / 命令菜单；底栏在 ComposerBar。
 // 运行中发送即插话（steer）或排队（follow_up），Esc 在输入框为空时停下当前回合。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -9,13 +9,15 @@ import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import { useComposerCommands } from '../../composables/useComposerCommands'
 import { useComposerDraft } from '../../composables/useComposerDraft'
+import { readFileBase64, useComposerPayload } from '../../composables/useComposerPayload'
 import { pickFile } from '../../api/shell'
-import type { AttachmentREQ, FileEntryVO } from '../../types/api'
-import type { BuiltinKey, PendingFile, SlashItem } from '../../utils/composerMenu'
+import type { FileEntryVO } from '../../types/api'
+import { parseSkillCommand, type BuiltinKey, type SlashItem } from '../../utils/composerMenu'
 import AppIcon from '../common/AppIcon.vue'
-import ComposerAttach from './ComposerAttach.vue'
 import ComposerBar from './ComposerBar.vue'
+import ComposerImages from './ComposerImages.vue'
 import ComposerMentionMenu from './ComposerMentionMenu.vue'
+import ComposerSkill from './ComposerSkill.vue'
 import ComposerSlashMenu from './ComposerSlashMenu.vue'
 
 const props = defineProps<{
@@ -28,7 +30,7 @@ const props = defineProps<{
   placeholder?: string
 }>()
 const emit = defineEmits<{
-  send: [text: string, attachments: AttachmentREQ[]]
+  send: [text: string, skill: string, images: { mime: string; base64: string }[]]
   steer: [text: string]
   queue: [text: string]
   stop: []
@@ -42,6 +44,7 @@ const settings = useSettingsStore()
 const toast = useToastStore()
 
 const { text, save: saveDraft, loadCurrent } = useComposerDraft(() => session.currentId)
+const payload = useComposerPayload()
 
 const barRef = ref<InstanceType<typeof ComposerBar> | null>(null)
 const slashRef = ref<InstanceType<typeof ComposerSlashMenu> | null>(null)
@@ -57,8 +60,14 @@ const { run: runCommand } = useComposerCommands({
 const menu = ref<'slash' | 'mention' | null>(null)
 const cmdIndex = ref(0)
 const root = ref<HTMLElement | null>(null)
+const fileEl = ref<HTMLInputElement | null>(null)
 const ta = ref<{ focus: () => void; textarea?: HTMLTextAreaElement; ref?: HTMLTextAreaElement } | null>(
   null,
+)
+
+/** 已挂技能的描述：从技能清单里查，清单没加载到就只显示名字。 */
+const skillDesc = computed(
+  () => settings.skills.find((s) => s.skill_name === payload.skill.value)?.skill_description || '',
 )
 
 function clearInput() {
@@ -73,8 +82,18 @@ function runSlash(item: SlashItem) {
     void runCommand(item.key as BuiltinKey)
     return
   }
+  // 技能不是一段要发出去的文字：挂成芯片，正文留空给人写诉求
   clearInput()
-  text.value = `/skill:${item.key} `
+  mountSkill(item.key)
+}
+
+/** 挂技能：清单里没有这个名字就直接拒绝，否则发出去才会失败。 */
+function mountSkill(name: string) {
+  if (settings.skills.length && !settings.skills.some((s) => s.skill_name === name)) {
+    toast.bad(t('chat.skillUnknown', { name }))
+    return
+  }
+  payload.setSkill(name)
   nextTick(() => ta.value?.focus())
 }
 
@@ -98,83 +117,63 @@ function keepFocus(e: PointerEvent) {
   e.preventDefault()
 }
 
-// ── 附件 ──
-const files = ref<PendingFile[]>([])
-const outsideCount = computed(() => files.value.filter((f) => f.outside).length)
-
-function baseName(p: string): string {
-  const parts = p.split(/[\\/]/)
-  return parts[parts.length - 1] || p
-}
-
-// 逐段比大小写再拼前缀：盘符大小写与分隔符混用时不至于判错
-function toRelative(base: string, fullPath: string): string | null {
-  const rootDir = base.replace(/[\\/]+$/, '')
-  if (!rootDir) return fullPath
-  const key = (p: string) => p.replace(/\//g, '\\').toLowerCase()
-  if (!key(fullPath).startsWith(key(rootDir) + '\\')) return null
-  return fullPath.slice(rootDir.length + 1)
-}
-
-function attachPath(picked: string) {
-  const base = settings.boot?.boot_workspace || ''
-  const rel = base ? toRelative(base, picked) : null
-  if (rel === null) {
-    files.value.push({ path: picked, name: baseName(picked), outside: true })
-    return
-  }
-  if (files.value.some((f) => f.path === rel)) return
-  files.value.push({ path: rel, name: baseName(rel), outside: false })
-}
-
-function pickFromTree(entry: FileEntryVO) {
-  const rel = mentionRef.value?.relativeOf(entry) || entry.entry_name
-  if (!files.value.some((f) => f.path === rel)) {
-    files.value.push({ path: rel, name: entry.entry_name, outside: false })
-  }
-  text.value = text.value.replace(/@\S*$/, '').trimEnd()
-  menu.value = null
+// ── @ 引用：选定后在正文里内联 @相对路径，由模型用 read 工具自己取内容 ──
+/** 把相对路径插到触发菜单的那个 @ 位置，光标跟在路径后面。 */
+function insertReference(rel: string) {
+  text.value = text.value.replace(/@\S*$/, `@${rel} `)
   saveDraft()
+  menu.value = null
   nextTick(() => ta.value?.focus())
 }
 
+function pickFromTree(entry: FileEntryVO) {
+  if (entry.entry_is_dir) return
+  insertReference(mentionRef.value?.relativeOf(entry) || entry.entry_name)
+}
+
+/** 工作区之外的文件没法用相对路径引用：给绝对路径，模型按绝对路径读。 */
 async function pickExternal() {
   menu.value = null
   text.value = text.value.replace(/@\S*$/, '').trimEnd()
   const picked = await pickFile('', '')
   if (!picked) return
-  attachPath(picked)
+  insertReference(picked.replace(/\\/g, '/'))
+}
+
+// ── 图片：粘贴与选择两条入口，都落到同一份待发送列表 ──
+async function addImageFiles(files: FileList | File[]) {
+  for (const f of Array.from(files)) {
+    try {
+      const img = await readFileBase64(f)
+      const err = payload.addImage(img.name, img.mime, img.base64)
+      if (err) toast.bad(err)
+    } catch (e) {
+      toast.bad(e instanceof Error ? e.message : String(e))
+    }
+  }
+}
+
+async function pickImage() {
+  menu.value = null
+  // 浏览器文件选择框：读原始字节，不绕一圈去求后端给路径（路径副本会丢 EXIF 与 mime）
+  fileEl.value?.click()
+}
+
+function onFilePicked(e: Event) {
+  const el = e.target as HTMLInputElement
+  if (el.files?.length) void addImageFiles(el.files)
+  // 置空才能重复选同一个文件（change 只在值变化时触发）
+  el.value = ''
   nextTick(() => ta.value?.focus())
 }
 
-function removeFile(path: string) {
-  files.value = files.value.filter((f) => f.path !== path)
-}
-
-// 粘贴图片：截图后 Ctrl+V 直接进附件列表
 function onPaste(e: ClipboardEvent) {
   const all = Array.from(e.clipboardData?.files || [])
   const imgs = all.filter((f) => f.type.startsWith('image/'))
-  if (!imgs.length) {
-    if (all.length) toast.bad(t('chat.attachPickHint'))
-    return
-  }
+  // 没有图片就放行：普通文本粘进输入框是正常操作
+  if (!imgs.length) return
   e.preventDefault()
-  for (const f of imgs) {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = String(reader.result || '')
-      const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
-      if (!base64) return
-      files.value.push({
-        path: '',
-        name: f.name || `paste-${Date.now()}.png`,
-        outside: false,
-        image: base64,
-      })
-    }
-    reader.readAsDataURL(f)
-  }
+  void addImageFiles(imgs)
 }
 
 // ── 输入与键盘 ──
@@ -190,9 +189,16 @@ watch(
   },
 )
 
+// 切会话要丢掉上一段的技能与图片：它们属于那一条消息，不是输入框的持久状态
+watch(
+  () => session.currentId,
+  () => payload.clear(),
+)
+
 function onInput() {
   saveDraft()
   const v = text.value
+  // 手打 /skill:名 在提交时折成芯片：这里只负责把菜单让开，不然菜单会挡住正文
   if (/@\S*$/.test(v)) {
     menu.value = 'mention'
     void mentionRef.value?.loadDir('')
@@ -203,6 +209,15 @@ function onInput() {
   } else {
     menu.value = null
   }
+}
+
+/** 手打的 /skill:名 也要折成芯片（否则命令字会混进人话里）。 */
+function foldSkillCommand() {
+  const parsed = parseSkillCommand(text.value)
+  if (!parsed) return
+  mountSkill(parsed.name)
+  text.value = parsed.rest
+  saveDraft()
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -261,32 +276,30 @@ function onKeydown(e: KeyboardEvent) {
 const canSend = computed(() => {
   if (props.disabled || props.sending) return false
   if (props.running) return text.value.trim().length > 0
-  return (text.value.trim().length > 0 || files.value.length > 0) && outsideCount.value === 0
+  return text.value.trim().length > 0 || !payload.empty.value
 })
 
 function submit() {
-  const value = text.value.trim()
   if (props.disabled || props.sending) return
-  if (props.running) {
-    if (!value) return
-    if (mode.value === 'queue') emit('queue', value)
-    else emit('steer', value)
+  // 手打 /skill:名 先折成芯片：正文里不留命令字
+  foldSkillCommand()
+  const value = text.value.trim()
+  if (!props.running) {
+    // 非运行态只发正文与图片；芯片在发送那一刻被定格进这条消息
+    if (!value && payload.empty.value) return
+    emit('send', value, payload.skill.value, payload.imagePayload())
     clearInput()
+    payload.clear()
     return
   }
-  if (!value && !files.value.length) return
-  if (outsideCount.value) return
-  emit(
-    'send',
-    value,
-    files.value.map((f) => ({
-      attach_path: f.path,
-      attach_name: f.name,
-      attach_image_base64: f.image,
-    })),
-  )
+  // 运行态：插话 / 排队走的是纯文本通道，芯片带不过去，所以明确告知
+  if (payload.skill.value || payload.images.value.length) {
+    toast.info(t('chat.attachOnlyIdle'))
+  }
+  if (!value) return
+  if (mode.value === 'queue') emit('queue', value)
+  else emit('steer', value)
   clearInput()
-  files.value = []
 }
 
 function onDocPointerDown(e: PointerEvent) {
@@ -302,7 +315,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
 
 defineExpose({
   focus: () => ta.value?.focus(),
-  attachPath,
+  /** 桌面壳从外部打开文件时把绝对路径内联进正文 */
+  attachPath: (p: string) => insertReference(p.replace(/\\/g, '/')),
 })
 </script>
 
@@ -310,7 +324,9 @@ defineExpose({
   <div ref="root" class="composer">
     <div class="composer-in">
       <div class="composer-box">
-        <ComposerAttach :files="files" :outside-count="outsideCount" @remove="removeFile" />
+        <!-- 技能与图片各占一行，都在正文之上：正文那一块只放人话 -->
+        <ComposerSkill :skill="payload.skill.value" :description="skillDesc" @clear="payload.clearSkill()" />
+        <ComposerImages :images="payload.images.value" @remove="payload.removeImage" />
 
         <!-- 运行态提示 -->
         <div v-if="running" class="run-hint">
@@ -352,12 +368,21 @@ defineExpose({
           :stopping="stopping"
           :acting="acting"
           :disabled="disabled"
-          :outside-count="outsideCount"
           :can-send="canSend"
           :send-hint="sendHint"
           @pick-file="pickExternal"
+          @pick-image="pickImage"
           @send="submit"
           @stop="emit('stop')"
+        />
+        <!-- 图片选择的真实入口：隐藏的 input 比拦系统对话框可靠 -->
+        <input
+          ref="fileEl"
+          class="file-hidden"
+          type="file"
+          accept="image/*"
+          multiple
+          @change="onFilePicked"
         />
       </div>
 
@@ -439,5 +464,8 @@ defineExpose({
 }
 .ta :deep(.el-textarea__inner:focus) {
   box-shadow: none;
+}
+.file-hidden {
+  display: none;
 }
 </style>

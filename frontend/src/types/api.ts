@@ -65,10 +65,20 @@ export interface MessageVO {
   message_hidden?: boolean
   /** 非空时渲染成分隔提示条（已压缩 / 换模型）而不是气泡 */
   message_notice?: string
+  /** 用户消息显式调用的技能名：回放时渲染成技能芯片 */
+  message_skill?: string | null
+  /** 用户消息携带的图片 */
+  message_images?: MessageImageVO[]
   /** 工具改动的文件（相对工作区）；只有写文件类工具有 */
   message_file_path?: string
   /** 工具改动的差异行 */
   message_diff?: DiffLine[]
+}
+
+/** 消息携带的图片（纯 base64，界面拼 data URL 渲染） */
+export interface MessageImageVO {
+  image_mime: string
+  image_base64: string
 }
 
 export interface SessionVO {
@@ -102,13 +112,6 @@ export interface SendMessageRESP {
   resp_run_id: string
   resp_session_id: string
   resp_queued: boolean
-}
-
-/** @ 引用：相对工作区的路径；粘贴的图片直接带 base64 */
-export interface AttachmentREQ {
-  attach_path: string
-  attach_name: string
-  attach_image_base64?: string
 }
 
 /** 引擎抛回来的问题（confirm / select / input / editor） */

@@ -105,11 +105,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /** 发送；sessionId 为空表示新对话，返回体里带着后端真正建出来的会话编号 */
-  async function send(sessionId: string, content: string) {
+  async function send(
+    sessionId: string,
+    content: string,
+    skill = '',
+    images: { mime: string; base64: string }[] = [],
+  ) {
     lastError.value = ''
     const resp = await api.chat.send({
       session_id: sessionId || undefined,
       content,
+      skill,
+      images,
     })
     running.value = true
     // chat:start 可能已经先到（也可能被会话切换挤丢）：计时从那一边起算，
