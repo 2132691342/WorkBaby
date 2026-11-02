@@ -19,7 +19,9 @@
 | `frontend/src/utils/errors.ts` | 按码取结论，把后端细节拼在后面 |
 
 两个守恒点各有一个测试：`crates/wb-domain/tests/messages_test.rs` 守「每码两种语言齐全且不同」，
-前端 `i18n` 校验守「两套语言包键集相等」。
+`crates/wb-service/tests/service_test.rs` 守 SSE 载荷字段名与前端读取一致。
+前端语言包的键集对齐靠 TypeScript 类型（`locales/*.ts` 导出同一形态）与人工核对——
+没有自动化用例，因为 `frontend` 目录不带测试运行器。
 
 ## 1000–1999 通用 / 文件 / 路径
 

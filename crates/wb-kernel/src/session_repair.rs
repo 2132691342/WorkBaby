@@ -3,9 +3,8 @@
 use crate::session::{now_ms, Block, Msg};
 
 /// 补齐悬空的工具结果。
-/// 进程在工具执行中崩掉（含提问途中等不到回答）会留下没有结果的 tool_call，
-/// 直接发给模型是非法消息序（每个 tool_call 必须有对应 tool_result），
-/// 上游会报 400 且带不了任何调试信息。这里就地补一条中止说明。
+/// 进程在工具执行中被杀（含提问途中等不到回答）会留下没有结果的 tool_call，
+/// 直接发给模型是非法消息序，上游会报 400 且带不了任何调试信息。
 pub fn backfill_dangling_tool_results(msgs: &mut Vec<Msg>) {
     use std::collections::HashSet;
     let answered: HashSet<String> = msgs

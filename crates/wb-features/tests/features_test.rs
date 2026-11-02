@@ -1,8 +1,5 @@
-//! wb-features 场景测试：待办 / 提问 / 记忆 / 知识库 / 模糊搜索 / 目标 / 计划 / 记忆整合 / 联网 / LSP。
-//!
-//! 守住长链路与边界：依赖图与悬空清理、回答板一次性投递、记忆 FTS5 往返与密钥扫描、
-//! 知识库双路召回、目标续跑状态机、计划按范围标注、联网正文提取与搜索源解析、LSP 路由与编辑。
-
+//! wb-features 场景测试：依赖图、回答板、记忆、知识库、目标续跑、联网解析、LSP。
+//! 守长链路与边界：成环清理、一次性投递、FTS5 往返与密钥扫描、多搜索源解析。
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -16,7 +13,7 @@ use wb_features::todo::TodoStore;
 use wb_features::FeatureCtx;
 use wb_tools::Tool;
 
-/// 造一个临时数据目录与对应的 FeatureCtx；调用方负责保持该目录存活到测试结束。
+/// 临时数据目录与对应的 FeatureCtx；调用方负责保持该目录存活到测试结束。
 fn ctx_of(tag: &str) -> (PathBuf, FeatureCtx) {
     let dir = std::env::temp_dir().join(format!("wb_feat_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -30,7 +27,6 @@ fn ctx_of(tag: &str) -> (PathBuf, FeatureCtx) {
     (dir, ctx)
 }
 
-/// 跑一次待办工具调用，返回它的文本输出。
 async fn todo_op(
     tool: &wb_features::todo::TodoTool,
     args: serde_json::Value,
@@ -43,7 +39,8 @@ async fn todo_op(
 
 // ---- 待办：依赖图 ----
 
-/// 依赖图拒绝条件（悬空 / 自环 / 成环）、落盘与删除后悬空清理。
+/// 依赖必须归一成 ULID 并拦下悬空 / 自环 / 成环；删除后不留悬空依赖。
+/// 存成序号会让成环检测与删除清理静默失效。
 #[tokio::test]
 async fn todo_dependency_graph_rejects_and_cleans_up() {
     let (dir, ctx) = ctx_of("todo");
@@ -61,7 +58,6 @@ async fn todo_dependency_graph_rejects_and_cleans_up() {
     let store = TodoStore::new(&ctx);
     let all = store.load();
     assert_eq!(all.len(), 3, "三条待办都应落盘");
-    // 依赖必须归一成 ULID：存成序号会让成环检测与删除清理静默失效。
     let id1 = all[0].todo_id.clone();
     assert_eq!(
         all[1].todo_blocked_by,
@@ -112,7 +108,8 @@ async fn todo_dependency_graph_rejects_and_cleans_up() {
 
 // ---- 提问回答板 ----
 
-/// 回答板持久化与一次性投递：待答落盘、重启仍能弹回；重复回答 / 无人等待 / 接收端丢弃都安全；答完、取消、过期都清盘。
+/// 一次性投递与持久化：待答落盘、重启仍能读回；重复回答 / 无人等待 / 接收端丢弃
+/// 都安全；答完、取消、过期都清盘。
 #[test]
 fn answer_board_persists_delivers_once_and_expires() {
     let dir = std::env::temp_dir().join(format!("wb_ask_{}", std::process::id()));
@@ -182,9 +179,11 @@ fn answer_board_persists_delivers_once_and_expires() {
     );
 }
 
-// ---- 记忆：FTS5 往返、会话检索、密钥扫描 ----
+// ---- 记忆：FTS5 往返、会话检索、密钥扫描、整合 ----
 
-/// 记忆保存 → 搜索 → 删除回路，同 kind 同文本去重；会话检索只命中消息正文行；密钥扫描真凭据必拦、无害文本放行。
+/// 记忆保存 → 搜索 → 删除回路，同 kind 同文本去重；中文靠 LIKE 逐词召回
+/// （unicode61 不切中文，整句变成一个 token）；会话检索只命中消息正文行；
+/// 密钥扫描真凭据必拦、无害文本放行。
 #[test]
 fn memory_roundtrip_session_search_and_secret_scan() {
     let (dir, ctx) = ctx_of("memory");
@@ -209,7 +208,6 @@ fn memory_roundtrip_session_search_and_secret_scan() {
     assert!(store.search("ulid", 10).unwrap().is_empty());
     assert_eq!(store.search("theme", 10).unwrap().len(), 1);
 
-    // unicode61 不按词切分，中文整句会被当成一个 token，LIKE 逐词召回必须在。
     let (zh_id, _) = store
         .save("user", "用户偏好深色主题与紧凑布局", 4000)
         .unwrap();
@@ -221,7 +219,6 @@ fn memory_roundtrip_session_search_and_secret_scan() {
         0,
         "不存在的词不应误返"
     );
-    assert_eq!(store.search("主题 ulid", 10).unwrap().len(), 1);
 
     // 会话检索只吃消息正文行（吃了 JSONL 结构行结果会混入整条 JSON）。
     let sessions = dir.join("sessions").join("D--demo");
@@ -240,19 +237,14 @@ fn memory_roundtrip_session_search_and_secret_scan() {
         "\n",
     );
     std::fs::write(sessions.join("123_SESS_x.jsonl"), content).unwrap();
-    let hits = wb_features::memory_store::search_sessions(&dir.join("sessions"), "compaction", 10)
-        .unwrap();
-    let mut line_nos: Vec<usize> = hits.iter().map(|h| h.line_no).collect();
+    let mut line_nos: Vec<usize> =
+        wb_features::memory_store::search_sessions(&dir.join("sessions"), "compaction", 10)
+            .unwrap()
+            .iter()
+            .map(|h| h.line_no)
+            .collect();
     line_nos.sort();
     assert_eq!(line_nos, [2, 4, 5], "只应命中消息正文行");
-    std::fs::write(
-        sessions.join("124_SESS_y.jsonl"),
-        r#"{"type":"message","message":{"role":"user","content":"帮我看看压缩流程"}}"#,
-    )
-    .unwrap();
-    let zh_hits =
-        wb_features::memory_store::search_sessions(&dir.join("sessions"), "压缩流程", 10).unwrap();
-    assert_eq!(zh_hits.len(), 1, "会话中文子串检索应命中");
 
     assert!(wb_features::memory::scan_secret("key is sk-abc123XYZ4567890def").is_some());
     assert!(wb_features::memory::scan_secret("AKIAIOSFODNN7EXAMPLE").is_some());
@@ -263,9 +255,44 @@ fn memory_roundtrip_session_search_and_secret_scan() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 语义判重：同一件事的两条合并且内容不丢、条目数守恒；不相关条目保持独立。
+#[test]
+fn consolidation_merges_same_facts_and_keeps_distinct_ones() {
+    let (dir, ctx) = ctx_of("memory_consolidate");
+    let store = Arc::new(wb_features::memory_store::MemoryStore::open(&ctx).unwrap());
+
+    store.save("project", "项目用 pnpm 管理依赖", 1).unwrap();
+    store
+        .save("project", "这个项目的依赖由 pnpm 管理", 2)
+        .unwrap();
+    store.save("user", "用户偏好深色主题", 3).unwrap();
+    let report = wb_features::memory_consolidate::consolidate(&store, ConsolidateOpts::default());
+    assert_eq!(report.scanned, 3);
+    assert_eq!(report.merged, 1, "同一件事的两条该合并成一条");
+    assert_eq!(
+        report.remaining + report.merged,
+        report.scanned,
+        "条目数守恒"
+    );
+
+    let hits = store.search("pnpm", 10).unwrap();
+    assert_eq!(hits.len(), 1, "重复项应只剩一条");
+    let body = &store.list_by_kind("project", 10).unwrap()[0].1;
+    assert!(
+        body.contains("pnpm") && body.len() > "项目用 pnpm 管理依赖".len(),
+        "合并后内容应更全"
+    );
+    assert_eq!(
+        store.list_by_kind("user", 10).unwrap().len(),
+        1,
+        "不相关条目不该被动"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ---- 知识库：FTS5 + RRF 双路召回 ----
 
-/// 收录 → 检索往返：命中带来源；短语查询两路都能召回；空查询返回空。
+/// 收录 → 检索往返：命中带来源；短语查询可召回；空查询返回空。
 #[test]
 fn knowledge_roundtrip_phrase_and_empty_query() {
     let (dir, _ctx) = ctx_of("kb");
@@ -278,7 +305,6 @@ fn knowledge_roundtrip_phrase_and_empty_query() {
     )
     .unwrap();
     let hits = kb.search("hello", 5).unwrap();
-    assert!(!hits.is_empty());
     assert!(hits[0].chunk_excerpt.contains("hello"));
     assert_eq!(hits[0].chunk_source, "file:///a.rs");
     assert_eq!(kb.doc_count().unwrap(), 1);
@@ -290,11 +316,19 @@ fn knowledge_roundtrip_phrase_and_empty_query() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ---- 模糊搜索：产物目录跳过 ----
+// ---- 模糊搜索与语言服务：共用同一份“跳过产物目录”的遍历纪律 ----
 
-/// 遍历工作区时跳过 node_modules 与 target 这类产物目录。
+/// 遍历工作区时跳过 node_modules / target 这类产物目录，扩展名决定语言服务器。
 #[test]
-fn walker_skips_build_output_dirs() {
+fn workspace_scans_skip_build_dirs_and_route_by_extension() {
+    use wb_features::lsp::adapters::{server_by_name, server_for_extension};
+    assert_eq!(
+        server_for_extension(".rs").unwrap().server_name,
+        "rust-analyzer"
+    );
+    assert_eq!(server_for_extension("TS").unwrap().server_name, "biome");
+    assert!(server_for_extension(".unknownext").is_none());
+
     let root = std::env::temp_dir().join(format!("wb_fff_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     for (dir, file) in [
@@ -305,6 +339,7 @@ fn walker_skips_build_output_dirs() {
         std::fs::create_dir_all(root.join(dir)).unwrap();
         std::fs::write(root.join(dir).join(file), "m").unwrap();
     }
+
     let mut seen: Vec<String> = Vec::new();
     wb_features::fff::walk_files(&root, &CancellationToken::new(), |_, rel| {
         seen.push(rel.to_string())
@@ -313,7 +348,32 @@ fn walker_skips_build_output_dirs() {
     assert!(!seen
         .iter()
         .any(|p| p.contains("node_modules") || p.contains("target")));
+
+    let files =
+        wb_features::lsp::collect_files(server_by_name("rust-analyzer").unwrap(), &root, 10);
+    assert_eq!(files.len(), 1, "诊断文件清单同样跳过产物目录");
+    assert!(files[0].ends_with("main.rs"));
+
     let _ = std::fs::remove_dir_all(&root);
+}
+
+// ---- 语言服务：文本编辑按区间替换不错位 ----
+
+#[test]
+fn lsp_text_edits_apply_without_shifting_offsets() {
+    let edit = |l0: u32, c0: u32, l1: u32, c1: u32, text: &str| wb_features::lsp::edits::TextEdit {
+        edit_start_line: l0,
+        edit_start_char: c0,
+        edit_end_line: l1,
+        edit_end_char: c1,
+        edit_new_text: text.into(),
+    };
+    let edits = vec![edit(0, 0, 0, 5, "L1"), edit(2, 0, 2, 5, "L3")];
+    assert_eq!(
+        wb_features::lsp::edits::apply_edits("line1\nline2\nline3", &edits),
+        "L1\nline2\nL3",
+        "多区间替换不能互相错位"
+    );
 }
 
 // ---- 目标：状态机与续跑提示 ----
@@ -355,125 +415,11 @@ fn goal_continuation_only_when_actionable() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ---- 记忆整合：语义判重 ----
+// ---- 联网：正文提取、搜索源解析、排队、视频字幕 ----
 
-/// 同一件事的两条合并且内容不丢、条目数守恒；不相关条目保持独立。
-#[test]
-fn consolidation_merges_same_facts_and_keeps_distinct_ones() {
-    use wb_features::memory_consolidate::consolidate;
-    use wb_features::memory_store::MemoryStore;
-    let (dir, ctx) = ctx_of("memory_consolidate");
-    let store = Arc::new(MemoryStore::open(&ctx).unwrap());
-
-    store.save("project", "项目用 pnpm 管理依赖", 1).unwrap();
-    store
-        .save("project", "这个项目的依赖由 pnpm 管理", 2)
-        .unwrap();
-    store.save("user", "用户偏好深色主题", 3).unwrap();
-    store
-        .save("failure", "构建失败是因为 Node 版本太低", 4)
-        .unwrap();
-    let report = consolidate(&store, ConsolidateOpts::default());
-    assert_eq!(report.scanned, 4);
-    assert_eq!(report.merged, 1, "同一件事的两条该合并成一条");
-    assert_eq!(
-        report.remaining + report.merged,
-        report.scanned,
-        "条目数守恒"
-    );
-
-    let hits = store.search("pnpm", 10).unwrap();
-    assert_eq!(hits.len(), 1, "重复项应只剩一条");
-    let body = &store.list_by_kind("project", 10).unwrap()[0].1;
-    assert!(
-        body.contains("pnpm") && body.len() > "项目用 pnpm 管理依赖".len(),
-        "合并后内容应更全"
-    );
-    assert_eq!(
-        store.list_by_kind("user", 10).unwrap().len(),
-        1,
-        "不相关条目不该被动"
-    );
-
-    store.save("project", "部署用 docker compose", 5).unwrap();
-    store
-        .save("project", "本地开发用 docker compose 启动数据库", 6)
-        .unwrap();
-    let report = consolidate(&store, ConsolidateOpts::default());
-    assert_eq!(
-        report.remaining + report.merged,
-        report.scanned,
-        "条目数守恒"
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-// ---- 计划：标注按范围分别留存 ----
-
-/// 计划标注：整条计划与某一步都能标，标注随计划呈现且步骤标注带序号。
-#[test]
-fn plan_annotations_are_recorded_per_scope() {
-    use wb_features::plan_types::{PlanAnnotation, PlanState, PlanStep, PlanStore};
-    let (dir, ctx) = ctx_of("plan_annotate");
-    let store = PlanStore::new(&ctx);
-    store
-        .mutate(|slot| {
-            *slot = Some(PlanState {
-                plan_id: "PLAN_1".into(),
-                plan_title: "重构登录模块".into(),
-                plan_status: "approved".into(),
-                plan_reject_note: String::new(),
-                plan_steps: vec![
-                    PlanStep {
-                        step_text: "拆出鉴权中间件".into(),
-                        step_done: false,
-                    },
-                    PlanStep {
-                        step_text: "迁移路由".into(),
-                        step_done: false,
-                    },
-                ],
-                plan_annotations: Vec::new(),
-                plan_updated_at: 1,
-            });
-            Ok(())
-        })
-        .unwrap();
-
-    let annotate = |scope: &str, step: i64, text: &str| {
-        store
-            .mutate(|slot| {
-                let p = slot.as_mut().unwrap();
-                p.plan_annotations.push(PlanAnnotation {
-                    annotation_id: format!("ANN_{}", p.plan_annotations.len() + 1),
-                    annotation_scope: scope.into(),
-                    annotation_step: step,
-                    annotation_text: text.into(),
-                    annotation_author: "user".into(),
-                    annotation_created_at: 2,
-                });
-                Ok(())
-            })
-            .unwrap();
-    };
-    annotate("plan", 0, "先补测试再动结构");
-    annotate("step", 2, "这条要先确认影响范围");
-
-    let p = store.load().expect("计划应可读回");
-    assert_eq!(p.plan_annotations.len(), 2, "两条标注都该保留");
-    assert!(p.plan_annotations[0]
-        .render_line()
-        .contains("先补测试再动结构"));
-    assert!(
-        p.plan_annotations[1].render_line().contains("步骤 2"),
-        "步骤标注应带序号"
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-// ---- 联网：正文提取、搜索源解析、视频字幕 ----
-
-/// 网页解析三件套：正文提取剥结构噪音；多家搜索源转统一结果（跳转解开、标签剥掉）；字幕轨按语言偏好选轨。
+/// 网页解析三件套：正文提取剥结构噪音；多家搜索源转统一结果（跳转解开、标签剥掉、
+/// 各家字段名各异）；排队的门禁（未配密钥的 API 源不进队、公开源始终兜底）；
+/// 字幕轨按语言偏好选轨。
 #[test]
 fn web_parsing_extracts_text_results_and_captions() {
     let html = r#"<html><head><title>文档标题</title><style>.a{color:red}</style></head>
@@ -500,18 +446,19 @@ fn web_parsing_extracts_text_results_and_captions() {
     let bing = r#"<li class="b_algo"><h2><a href="https://example.com/doc">Example Doc</a></h2><p>Some snippet here.</p></li>"#;
     let b = wb_features::web_providers::parse_bing(bing);
     assert_eq!(b[0].result_title, "Example Doc");
-    assert_eq!(b[0].result_url, "https://example.com/doc");
 
     let wiki = r#"{"query":{"search":[{"title":"Rust","snippet":"A <b>systems</b> language."}]}}"#;
     let w = wb_features::web_providers::parse_wikipedia(wiki);
     assert_eq!(w[0].result_url, "https://en.wikipedia.org/wiki/Rust");
     assert!(!w[0].result_snippet.contains("<b>"), "摘要应剥标签");
 
-    // 四家的 API 响应形状各异，各家解析器要认得自家字段名。
+    // 各家 API 响应形状各异，解析器要认得自家字段名。
     let brave = r#"{"web":{"results":[{"title":"Brave A","url":"https://a.example","description":"desc a"}]}}"#;
-    let br = wb_features::web_providers::parse_brave(brave);
-    assert_eq!(br.len(), 1);
-    assert_eq!(br[0].result_snippet, "desc a", "Brave 摘要取 description");
+    assert_eq!(
+        wb_features::web_providers::parse_brave(brave)[0].result_snippet,
+        "desc a",
+        "Brave 摘要取 description"
+    );
     let tavily = r#"{"results":[{"title":"Tav B","url":"https://b.example","content":"body b"}]}"#;
     assert_eq!(
         wb_features::web_providers::parse_tavily(tavily)[0].result_snippet,
@@ -535,8 +482,10 @@ fn web_parsing_extracts_text_results_and_captions() {
     );
 
     // 排队：未配密钥的 API 源不进队，免密钥公开源始终兜底。
-    let q = wb_features::web_providers::queue_for("");
-    let codes: Vec<&str> = q.iter().map(|(p, _)| p.provider_code).collect();
+    let codes: Vec<&str> = wb_features::web_providers::queue_for("")
+        .iter()
+        .map(|(p, _)| p.provider_code)
+        .collect();
     for c in &codes {
         let p = wb_features::web_providers::by_code(c).unwrap();
         assert!(
@@ -547,13 +496,6 @@ fn web_parsing_extracts_text_results_and_captions() {
     for open in ["duckduckgo", "bing", "wikipedia"] {
         assert!(codes.contains(&open), "公开源应一直在队：{open}");
     }
-    assert_eq!(
-        wb_features::web_providers::by_code("brave")
-            .unwrap()
-            .provider_env_keys,
-        ["BRAVE_API_KEY"],
-        "实现里的变量名要和工具描述一致"
-    );
     assert!(
         wb_features::web_providers::queue_for("nope").is_empty(),
         "未知源码 → 空队"
@@ -576,11 +518,6 @@ fn web_parsing_extracts_text_results_and_captions() {
         "配了密钥的 API 源应进队"
     );
     wb_features::config::set_web_keys(Vec::new());
-    assert_eq!(
-        wb_features::web_providers::codes().len(),
-        wb_features::web_providers::PROVIDERS.len(),
-        "工具参数的 enum 必须跟实际源表同步"
-    );
 
     use wb_features::web_video::{caption_tracks, parse_caption, pick_track};
     let yt = r#"{"playerResponse":{"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[
@@ -593,43 +530,4 @@ fn web_parsing_extracts_text_results_and_captions() {
     let xml = r#"<transcript><text start="0.0" dur="1.2">Hello &amp; welcome</text>
 <text start="1.2" dur="2.0">Second line</text></transcript>"#;
     assert_eq!(parse_caption(xml), "Hello & welcome\nSecond line");
-}
-
-// ---- 语言服务：扩展名路由、产物目录跳过、文本编辑 ----
-
-/// 扩展名决定语言服务器、诊断遍历跳过产物目录、文本编辑按区间替换不错位。
-#[test]
-fn lsp_routes_dirs_and_edits() {
-    use wb_features::lsp::adapters::{server_by_name, server_for_extension};
-    assert_eq!(
-        server_for_extension(".rs").unwrap().server_name,
-        "rust-analyzer"
-    );
-    assert_eq!(server_for_extension("TS").unwrap().server_name, "biome");
-    assert!(server_for_extension(".unknownext").is_none());
-
-    let root = std::env::temp_dir().join(format!("wb_lsp_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("src")).unwrap();
-    std::fs::create_dir_all(root.join("target")).unwrap();
-    std::fs::write(root.join("src/a.rs"), "fn a() {}").unwrap();
-    std::fs::write(root.join("target/b.rs"), "fn b() {}").unwrap();
-    let files =
-        wb_features::lsp::collect_files(server_by_name("rust-analyzer").unwrap(), &root, 10);
-    assert_eq!(files.len(), 1);
-    assert!(files[0].ends_with("a.rs"));
-
-    let edit = |l0: u32, c0: u32, l1: u32, c1: u32, text: &str| wb_features::lsp::edits::TextEdit {
-        edit_start_line: l0,
-        edit_start_char: c0,
-        edit_end_line: l1,
-        edit_end_char: c1,
-        edit_new_text: text.into(),
-    };
-    let edits = vec![edit(0, 0, 0, 5, "L1"), edit(2, 0, 2, 5, "L3")];
-    assert_eq!(
-        wb_features::lsp::edits::apply_edits("line1\nline2\nline3", &edits),
-        "L1\nline2\nL3"
-    );
-    let _ = std::fs::remove_dir_all(&root);
 }

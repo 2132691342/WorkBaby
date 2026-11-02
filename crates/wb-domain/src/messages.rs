@@ -1,7 +1,19 @@
-//! 错误码的默认人话文案：后端抛错时只有 details 缺 message，或边界处补一句通用说明。
-//!
-//! 界面语言的最终裁决在前端（`utils/errors.ts` 按 code 查两套语言包），
-//! 这里只保证「不经过界面也要能读懂」：日志、CLI 调试、SSE 兜底。
+//! wb-domain 错误码文案表；全表与处置建议见 docs/ERROR-CODES.md。
+
+/// 按语言取默认文案：`lang` 传 `"en"` 取英文，其余取中文。
+pub fn default_message(code: &str, lang: &str) -> &'static str {
+    let (zh, en) = texts(code);
+    if lang.eq_ignore_ascii_case("en") {
+        en
+    } else {
+        zh
+    }
+}
+
+/// 错误码是否有默认文案（诊断与测试用）。
+pub fn is_known(code: &str) -> bool {
+    !texts(code).0.is_empty()
+}
 
 /// 错误码 → (中文, English)。未收录的码走空串，由调用方用自己的细节描述。
 fn texts(code: &str) -> (&'static str, &'static str) {
@@ -84,19 +96,4 @@ fn texts(code: &str) -> (&'static str, &'static str) {
         ),
         _ => ("", ""),
     }
-}
-
-/// 按语言取默认文案；`lang` 传 `"en"` 取英文，其余取中文。
-pub fn default_message(code: &str, lang: &str) -> &'static str {
-    let (zh, en) = texts(code);
-    if lang.eq_ignore_ascii_case("en") {
-        en
-    } else {
-        zh
-    }
-}
-
-/// 错误码是否有默认文案（诊断与测试用）。
-pub fn is_known(code: &str) -> bool {
-    !texts(code).0.is_empty()
 }

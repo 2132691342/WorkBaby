@@ -1,42 +1,42 @@
 # Agent 内核 · KERNEL
 
-内核负责「让模型持续干活」这件事：管理会话树、驱动采样→工具→回灌循环、
-维护转向队列、做自动重试与上下文压缩。
+内核负责「让模型持续干活」：管理会话树、驱动采样→工具→回灌循环、
+维护转向队列、做自动重试与上下文压缩、派生可观测的子代理。
 
-它不感知技能、功能、MCP 与界面的存在——只消费工具列表与系统提示词段，
-只产出自己的事件枚举。唯一的外来依赖是 `AgentConfig::skill_loader` 一个闭包：
+它不感知技能、功能、MCP 与界面的存在——只消费工具列表与系统提示词，
+只产出自己的事件枚举。唯一的外来闭包是 `AgentConfig::skill_loader`：
 用户消息点名技能时由它取正文，内核自己不认识技能存储。
 
 ## 会话模型
 
 - 会话 = 一个 JSONL 文件 + 内存树
 - **上下文 = leaf→root 回放**：每个新条目以当前 leaf 为父；parent 链 + leaf 指针
-  构成树形存储，当前没有切 leaf 的入口，实际运行恒为线性链
+  构成树形存储，`fork_at` 在任一用户消息处分叉
 - 回放产物：系统提示词（service 侧组装的成品字符串）+ 消息序列
 
-条目类型与存储格式见 `docs/SESSIONS.md`。
+条目类型与存储格式见 [SESSIONS.md](SESSIONS.md)。
 
 ## 事件枚举
 
-内核唯一出参语言，不含任何界面词汇。界面时序依赖事件顺序——改动顺序等于改界面行为。
+内核唯一出参语言，不含任何界面词汇。界面时序依赖事件顺序——改顺序等于改界面行为。
 
 | 事件 | 时机 |
 |---|---|
-| AgentStart | 每轮 prompt 开始 |
-| TurnStart | 每次 provider 请求前 |
-| TextDelta / ThinkingDelta | 流式增量 |
-| ToolExecutionStart / ToolExecutionEnd | 工具批内（end 带 result / is_error / duration） |
-| TurnEnd | 一个 turn 结束（含用量与停止原因） |
-| CompactionStart / CompactionEnd | 上下文压缩前后 |
-| AutoRetry | 失败重试（带退避时长） |
-| AssistantFinal | 助手消息定稿（含完整块序与用量，供界面直接渲染） |
-| MessageEnd | 消息定稿通知 |
-| Failed | 错误终止 |
-| AgentEnd | 循环终点 |
-| Settled(aborted) | 完全结算（界面 done 挂这里） |
+| `AgentStart` | 每轮 prompt 开始 |
+| `TurnStart` | 每次 provider 请求前 |
+| `TextDelta` / `ThinkingDelta` | 流式增量 |
+| `ToolExecutionStart` / `ToolExecutionEnd` | 工具批内（end 带 result / is_error / duration / file_path / diff） |
+| `TurnEnd` | 一个 turn 结束（含用量与停止原因） |
+| `CompactionStart` / `CompactionEnd` | 上下文压缩前后 |
+| `AutoRetry` | 失败重试（带尝试次数、上限与退避时长） |
+| `AssistantFinal` | 助手消息定稿（含完整块序与用量，供界面直接渲染） |
+| `MessageEnd` | 消息定稿通知 |
+| `Failed` | 错误终止 |
+| `AgentEnd` | 循环终点 |
+| `Settled` | 完全结算（界面 done 挂这里） |
 
-失败路径的事件顺序是 Failed → AgentEnd → Settled：错误先给出原因，
-再走统一的循环终点与结算，界面只认 Settled 收尾。
+失败路径的顺序是 `Failed → AgentEnd → Settled`：错误先给出原因，
+再走统一的循环终点与结算，界面只认 `Settled` 收尾。
 
 ## 主循环
 
@@ -49,19 +49,22 @@ prompt(用户输入)
     provider.stream() → 逐事件累积内容块
     定稿 assistant 条目（含 usage / stop_reason）
     stopReason:
-      toolUse → 逐个执行工具调用（参数已完整）→ 结果落盘
+      toolUse → 按并发分组执行工具调用 → 结果落盘
                 → emit TurnEnd → continue
       stop   → 收尾正文 → emit TurnEnd → 跳出
 → 失败则 emit Failed → emit AgentEnd → Settled
 ```
 
-**用户消息的图像与技能在组请求时展开**（`reqbuild::to_req`）：
+**用户消息的图像与技能在组请求时展开**（`reqbuild`）：
 带技能的 user 消息变成「`<skill name="…">` 块 + 原话」两段文本，带图的变成
 文本段 + `ContentPart::Image` 段。会话里只存技能名与图片字节，展开每次重算——
 技能升级后旧消息跟着用新正文，不用回放旧版本。
 
-**工具批按序执行**：一批里的工具逐个跑，结果按调用顺序回灌给模型。
-顺序稳定比并行更重要——模型看到的顺序不随谁先跑完而变化，行为可复现。
+**工具批的并发分组**（`blocks::group_calls_for_concurrency`）：
+相邻且标注 `read_only` 的工具合成一组并行执行，写工具与未标注注解的工具
+各自单独成组串行，**位置不变**——两个写同时改一个文件会互相覆盖，
+而未标注的工具按最保守处理。结果始终按调用顺序回灌，
+模型看到的顺序不随谁先跑完而变化，行为可复现。
 
 **转向（steering）**：用户在助手跑的时候插话。主循环在每个 turn 边界把队列里
 排队的**全部**插话一次取走，逐条落盘成 user 条目后合并进同一轮请求——
@@ -73,10 +76,17 @@ prompt(用户输入)
 一句而助手毫无反应。所以正文收尾后先尝试取一次队列，取到就另起一轮接上；
 已按停止的不再续跑。
 
+## 回放修复
+
+进程死在工具执行中会留下「有 tool_call、没有 tool_result」的会话。
+直接回放会发出非法消息序（模型看到悬空的调用），`session_repair` 在回放时
+为每个缺失结果的调用补一条 `is_error` 结果，紧跟在所属助手消息之后——
+文件不改写，只修回放视图。
+
 ## 空转防护
 
 一个 run 内模型请求次数上限为 `MAX_TURNS`（60）。模型反复调工具却始终不收尾时
-停下并发 9705，避免无人值守的无限转圈（自贡目标续跑时尤其需要）。
+停下并发 9705，避免无人值守的无限转圈（目标自动续跑时尤其需要）。
 
 这一轮拿到有效响应后重试计数归零：后续再出错从 1 数，不会因为早期失败过
 而提前放弃。
@@ -87,13 +97,13 @@ prompt(用户输入)
 
 | 常量 | 值 | 含义 |
 |---|---|---|
-| RESERVE_TOKENS | 16384 | 留给「下一轮生成 + 工具结果」的空间 |
-| KEEP_RECENT_TOKENS | 20000 | 选切点用的最近消息 token 预算 |
+| `RESERVE_TOKENS` | 16384 | 留给「下一轮生成 + 工具结果」的空间 |
+| `KEEP_RECENT_TOKENS` | 20000 | 选切点用的最近消息 token 预算 |
 
 触发条件：`上下文占用 > context_window − RESERVE_TOKENS`，在每个 turn 边界
-采样前检查。触发时发射 `CompactionStart`（reason=threshold）与 `CompactionEnd`。
+采样前检查。触发时发 `CompactionStart` 与 `CompactionEnd`。
 
-**切点**：按 KEEP_RECENT_TOKENS 预算从最新往回累加估算 token，在消息边界选
+**切点**：按 `KEEP_RECENT_TOKENS` 预算从最新往回累加估算 token，在消息边界选
 切点，绝不把工具批拆开——切点候选跳过工具结果，落点自动上移到所属的
 assistant 消息，「调用了什么」与「返回了什么」永远留在同侧。切点随
 `first_kept_entry_id` 落盘进 `compaction` 条目，但**回放不读取它**。
@@ -101,8 +111,12 @@ assistant 消息，「调用了什么」与「返回了什么」永远留在同�
 **回放语义是全量折叠**：回放遇到最后一条 compaction 条目时，它之前的全部
 历史条目直接丢弃，摘要替代一切；摘要输入也是切点无关的全量回放消息，
 更早的压缩摘要同样折叠进新摘要。优势是重启后上下文连贯、摘要不层层叠加；
-代价是压缩点前的消息全部进摘要，最近消息的细节可能丢失（keepRecent 预算
-目前只决定落盘记录的切点，不改变回放行为）。
+代价是压缩点前的消息全部进摘要，最近消息的细节可能丢失。
+
+**活状态回注**：压缩把旧消息整段丢掉，而待办清单、目标步骤这类「仍在生效的
+状态」必须活下来。`ReinforceFn` 闭包在压缩末尾产出一段文本，压缩例程把它
+作为一条 user 消息钉在回放末尾——状态由 service 从盘上读，内核只管插入。
+闭包返回 `None` 就一条都不插（测试与无状态场景零开销）。
 
 **摘要生成**：把回放消息压成纯文本（思考块丢弃，工具结果只取前 500 字符），
 交给模型产出结构化六段摘要（目标 / 约束与偏好 / 进度 / 关键决策 / 下一步 / 关键上下文）。
@@ -122,22 +136,23 @@ assistant 消息，「调用了什么」与「返回了什么」永远留在同�
 2. 退避时长与尝试次数发 `AutoRetry` 事件，界面显示「正在重试」
 3. 退避期间收到取消信号则中止
 
-不可重试错误（鉴权失败、参数非法）直接失败，不做无谓重试。
+不可重试错误（鉴权失败、参数非法、内容策略截断）直接失败，不做无谓重试。
 重试上限由 `AgentConfig::max_retries` 控制（对话运行默认 3 次）。
 
 ## 子代理
 
 子代理在独立会话文件与独立上下文中运行，用途是把「一次要扫 47 个文件」的活
-从主上下文里摘出去——主上下文只看到子代理的结论，看不到中间过程。
+从主上下文里摘出去——主上下文只看到结论，看不到中间过程。
 
-`task` 工具在父上下文里发起一轮子代理运行：子代理拿自己的会话文件、自己的系统提示词
-（角色职责 + 父提示词的工作区与技能段），跑完后把结论文本作为工具结果回灌父上下文。
+`task` 工具（在 service 层装配）发起一轮子代理运行：子代理拿自己的会话文件、
+自己的系统提示词（角色职责 + 父提示词的工作区与技能段），跑完后把结论文本
+作为工具结果回灌父上下文。
 
 | 角色 | 职责 | 工具白名单 | 上限轮次 |
 |---|---|---|---|
-| scout | 只读探查、汇总 | read / grep / find / ls | 16 |
-| worker | 动手执行并验证 | 继承父会话 | 20 |
-| reviewer | 审查既有产出 | read / grep / find / ls / bash | 12 |
+| `scout` | 只读探查、汇总 | read / grep / find / ls | 16 |
+| `worker` | 动手执行并验证 | 继承父会话 | 20 |
+| `reviewer` | 审查既有产出 | read / grep / find / ls / bash | 12 |
 
 白名单与父会话工具取交集——子代理不能调用父会话没有的工具。
 `task` 自身从子代理的工具表里剔除，避免子代理再派子代理。
@@ -146,13 +161,13 @@ assistant 消息，「调用了什么」与「返回了什么」永远留在同�
 可以直接回放查看子代理的中间过程。
 
 **过程可观测**：内核向 `SubagentConfig.observe` 回调吐 `SubagentEvent`
-（Started / TextDelta / ThinkingDelta / ToolStart / ToolEnd / Finished），
+（`Started` / `TextDelta` / `ThinkingDelta` / `ToolStart` / `ToolEnd` / `Finished`），
 service 的 `AgentBoard` 把它翻成 `agent:start` / `agent:delta` / `agent:tool_start` /
 `agent:tool_end` / `agent:done` 五类 SSE 事件，发到**父会话通道**。
 观测通道与上下文完全分离：事件只走 SSE 与界面状态，一行都不进父会话的请求消息。
 回调为 `None` 时（测试与无界面场景）不产生任何开销。
 
-失败时用错误码 9704（子代理启动失败），结论为空时以「（子代理没有产出结论）」占位。
+失败时用错误码 9704，结论为空时以「（子代理没有产出结论）」占位。
 轮次用尽时回退到子代理最后说的正文，不给父会话一句空话。
 
 ## 约束与取舍
@@ -160,7 +175,7 @@ service 的 `AgentBoard` 把它翻成 `agent:start` / `agent:delta` / `agent:too
 | 取舍 | 理由 | 代价 |
 |---|---|---|
 | 树形条目而非线性数组 | 分支与重试剔除需要不可变历史 | 回放要走指针 |
-| 工具批按序执行而非并发 | 模型看到的顺序稳定，行为可复现 | 慢工具会拖住整批 |
+| 只读相邻并发、写串行 | 拿并发又不引入写冲突 | 慢工具仍会拖住它所在的组 |
 | 预算切点不靠模型选 | 切点可复现，不会把工具配对拆散 | 摘要质量依赖提示词打磨 |
 | 无审批闸门 | 个人单机助手，少一步流程 | bash 直跑有风险 |
 | usage 信任服务端 | 估算只喂压缩决策 | 个别 provider 无 usage 时用估算兜底 |

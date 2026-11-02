@@ -1,4 +1,5 @@
-//! wb-skills 场景测试：SKILL.md 解析与内置技能包完整性。坏一个技能就是运行时静默缺技能，须在构建期拦住。
+//! wb-skills 场景测试：SKILL.md 解析边界与内置技能包完整性。
+//! 坏一个技能就是运行时静默缺一个技能，必须在构建期拦住。
 
 use wb_skills::frontmatter::{parse_skill_md, valid_description, valid_name};
 use wb_skills::registry::BUILTIN_SKILLS;

@@ -1,4 +1,4 @@
-//! wb-pkg 场景测试：路径安全边界。路径逃逸漏判会让助手读写工作区之外文件，是唯一单独守的边界。
+//! wb-pkg 场景测试：路径越界判定与子进程纪律。越界漏判等于允许读写工作区之外的文件。
 
 use std::path::{Path, PathBuf};
 
@@ -36,14 +36,9 @@ fn path_tools_reject_escape_and_normalize() {
     );
 }
 
-// ---- 子进程纪律 ----
-
-/// 只有「不启子进程就能判断」才允许在界面路径上探测：
-/// 以前用 `where` 探测会闪控制台，界面上表现为「开一个菜单闪一下黑框」。
+/// 程序探测必须只查路径、不起子进程：起进程会在界面路径上闪一次控制台窗口。
 #[test]
 fn command_resolution_never_spawns_a_process() {
-    // 探测机制本身能命中真实可执行文件——优先取 PATH 上的 cmd，
-    // 开发机 PATH 以 unix 风格暴露时回退到 Windows 规范安装位置。
     let cmd_hit = wb_pkg::proc::resolve_command("cmd").is_some()
         || std::path::Path::new(r"C:\Windows\System32\cmd.exe").is_file();
     assert!(cmd_hit, "cmd 在 PATH 或 System32 里应能被定位");

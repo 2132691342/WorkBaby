@@ -30,7 +30,7 @@ const presetBusy = ref(false)
 
 const SOURCES = ['builtin', 'mcp'] as const
 
-// 组内保持注册表原序，组间按内置 → MCP 排，来源改成行内标签后顺序仍可读
+// 组内保持注册表原序，组间按内置 → MCP 排
 const filtered = computed(() => {
   const q = filter.value.trim().toLowerCase()
   const items = (data.value ?? []).filter(

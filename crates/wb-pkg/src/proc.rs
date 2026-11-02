@@ -40,9 +40,7 @@ pub fn resolve_command(command: &str) -> Option<PathBuf> {
 }
 
 /// 可执行后缀候选；非 Windows 只有一个空后缀（即原样）。
-///
-/// 不用 PATHEXT：npm 装的 LSP（`typescript-language-server` 之类）靠 `.cmd` 启动，
-/// 而用户在图形界面里不会带上后缀，必须由这里展开。
+/// 不读 PATHEXT：用户不会带后缀，必须在这里自己展开。
 #[cfg(windows)]
 fn executable_exts() -> Vec<String> {
     vec![

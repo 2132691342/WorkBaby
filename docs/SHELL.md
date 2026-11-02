@@ -34,9 +34,9 @@ Tauri 2 壳只承担系统能力：窗口、托盘、单实例、对话框、自
 
 ## 窗口
 
-- Frameless：标题栏由前端自绘（`TitleBar.vue`），与界面同一套令牌
+- Frameless：标题栏由前端自绘（`layout/TitleBar.vue`），与界面同一套令牌
 - 窗控三键（最小化 / 最大化 / 关闭）走壳命令 `window_ctl`
-- 关闭策略可配：默认收进托盘，设置项 `close_action=quit` 时直接退出
+- 关闭策略可配：默认收进托盘（并发 `app:to-tray`），设置项 `close_action=quit` 时直接退出
 
 ## 托盘
 
@@ -44,35 +44,37 @@ Tauri 2 壳只承担系统能力：窗口、托盘、单实例、对话框、自
 
 | 项 | 行为 |
 |---|---|
-| 显示 | 唤起窗口并置前 |
-| 新对话 | 发 `app:new-session` 事件，前端切到新会话 |
+| 显示 WorkBaby | 唤起窗口并置前 |
+| 新建对话 | 发 `app:new-session` 事件，前端切到新会话 |
 | 退出 | 真正退出进程（绕过「关窗收托盘」策略） |
-
-左键单击托盘图标也会唤起窗口。
 
 ## 单实例
 
-第二次启动时不新开进程，而是把已有窗口唤到前台（单实例插件）。
+第二次启动时不新开进程，而是把已有窗口唤到前台（`tauri-plugin-single-instance`）。
 
 ## 自启
 
 Windows 注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，
-不需要管理员权限。读写都走壳命令，界面只传布尔值。
+不需要管理员权限。读写都走壳命令（`autostart_get` / `autostart_set`），
+界面只传布尔值。
 
-## 对话框
+## 壳命令
 
-| 能力 | 命令 |
+| 命令 | 用途 |
 |---|---|
-| 打开文件 | `pick_file` |
-| 另存为 | `pick_file_save` |
-| 选择目录 | `pick_folder` |
+| `server_port` | 取 HTTP 端口（`app:ready` 之外的第二条路径） |
+| `pick_file` / `pick_file_save` / `pick_folder` | 打开 / 另存为 / 选目录对话框 |
+| `autostart_get` / `autostart_set` | 自启开关读写 |
+| `window_ctl` | 最小化 / 最大化 / 关闭 |
+| `quit_app` | 真正退出 |
 
 对话框走壳命令（内部用 `rfd`），组件不直接碰 Tauri API。
-壳另注册了 clipboard-manager 与 opener 插件——剪贴板读写与外部链接打开走这两个插件，不另写命令。
+壳另注册了 clipboard-manager 与 opener 插件——剪贴板读写与外部链接打开走这两个插件，
+不另写命令。
 
 ## 文件对话框的边界
 
-对话框返回的是**绝对路径**。后端处理时一律过 `wb-pkg::realpath` 归一
+对话框返回的是**绝对路径**。后端处理时一律过 `wb_pkg::realpath` 归一
 （短名路径、符号链接）再判是否在工作区内——界面给的路径不能直接信任。
 
 ## 前端加载
@@ -90,6 +92,9 @@ main()
   → 发 app:ready（带端口）
   → 事件循环
 ```
+
+启动不等重物：内置运行时解压与 MCP 连接都在后台跑，端口与界面先就绪，
+进度经 `GET /runtime` 与 `GET /mcp` 报出。
 
 ## 独立调试入口
 
@@ -114,9 +119,9 @@ main()
 | `runtime\python\` | 内置 Python 3.13 与 pip |
 | `logs\` | tracing 日志，按天分文件 |
 
-工作区在启动时确定：设置 KV `workspace` 里存过且目录仍存在就用之，
-否则用壳传入目录（进程工作目录 / standalone 的 argv）并写回 KV 持久化；
-界面上改选目录后重启生效，没有运行时热切换。
+工作区在启动时解析一次（见 [WORKSPACE.md](WORKSPACE.md)）：设置 KV `workspace`
+里存过且目录仍存在就用之，否则用壳传入目录并写回 KV；运行期可经
+`POST /workspace/switch` 热切换。
 
 ## 取舍
 

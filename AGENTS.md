@@ -72,7 +72,7 @@ Agent 内核是本仓 Rust 实现（会话循环 / 工具执行 / 上下文压�
 ```
 WorkBaby/
 ├── AGENTS.md / README.md / DESIGN.md
-├── docs/                          # 架构 / 模块 / 数据模型 / API / 页面 / 错误码 / 开发 / 部署
+├── docs/                          # 架构 / 模块 / 内核 / 会话 / 工具 / 模型 / 技能 / 功能 / 工作区 / MCP / 前端 / 壳 / 数据 / API / 错误码 / 开发 / 部署
 ├── frontend/                      # Vue 3 前端（唯一源码目录 frontend/src）
 │   └── src/{api,components,composables,locales,stores,types,utils,views,router}
 ├── src-tauri/                     # Tauri 壳：入口、托盘、单实例、自启、对话框、窗控
@@ -237,7 +237,9 @@ impl AppError {
 文档只回答三件事：**这个项目是什么、每个模块怎么设计实现、为什么这么选型**。
 
 - 根级：`README.md`（入口与能力一览 + 优势局限）/ `AGENTS.md`（本文件，唯一权威）/ `DESIGN.md`（视觉语言）
-- `docs/`：架构 / 模块 / 数据模型 / API / 页面 / 错误码 / 开发 / 部署
+- `docs/`：架构 / 模块 / 内核 / 会话 / 工具 / 模型 / 技能 / 功能 / 工作区 / MCP /
+  前端 / 壳 / 数据 / API / 错误码 / 开发 / 部署（共 17 篇）
+  清单见 `README.md` 的「文档」表；新增文档必须同步那张表
 - **文档只写最终现状**：不记录改动过程、不写「本版新增」「旧版如何」
 - 不写外部项目名与「参考 / 借鉴 / 类似 X」——只讲自己怎么设计、为什么这么设计、代价是什么
 - 文档与代码冲突时，先判断代码是不是错了；两边都要改到一致
@@ -355,10 +357,15 @@ if version < 1 { conn.execute_batch(SCHEMA_V1)?; }
 
 - 场景测试放 crate 的 `tests/` 目录（`cargo test -p wb-xxx` 精确跑一个子系统）
 - 一个 crate 一个测试文件；文件内按「被测场景」分节，用 `// ---- 场景名 ----` 分隔
+- 同一流程的多段断言写在一个用例里（阶段之间加 `// ---- 阶段名 ----` 注释），
+  不再拆成多个只差几行的用例——拆碎了反而找不到断言的起点
+- 共享夹具放 `tests/common/mod.rs`（假 Provider / 假工具 / 临时目录 / 请求简写）
 - 单元测试只在「同一文件内私有逻辑」且值得守时写
-- 命名说清断言的是什么：`memory_roundtrip_searches_and_dedups` 而不是 `test_memory_1`
+- 命名说清断言的是什么：`memory_roundtrip_session_search_and_secret_scan` 而不是 `test_memory_1`
 - 断言带失败信息（`"got {seen:?}"`），失败时能直接看出差在哪
 - 测不了的路径要说清原因（如「需要真 git 仓库」），不留悬空的 `#[ignore]`
+- 用例总数控制在 30 上下：改一个小功能跑一遍全量测试要在十几秒内完成，
+  否则没人愿意跑，门禁就形同虚设
 
 ---
 

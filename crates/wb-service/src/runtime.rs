@@ -121,7 +121,7 @@ fn ensure_archive(
     if target.is_dir() && fsutil::read_to_string(&marker).is_ok_and(|s| s == stamp) {
         return Ok(());
     }
-    // 指纹不符先清空：旧版本残留与半成品目录一并清除
+    // 指纹不符先清空：残留与半成品目录一并清除
     let _ = std::fs::remove_dir_all(target);
     extract(target, zip_bytes, entry_root)?;
     if let Err(e) = fsutil::write_atomic(&marker, stamp.as_bytes()) {

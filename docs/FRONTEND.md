@@ -8,12 +8,12 @@ Vue 3 + TypeScript 的单窗口应用，通过 HTTP 与 SSE 与本地服务对�
 | 层 | 目录 | 职责 |
 |---|---|---|
 | api | `src/api` | 唯一请求出口；路径与后端端点一一对应 |
-| stores | `src/stores` | chat（run 增量）/ runClock（本轮秒表）/ session（列表与当前）/ settings（清单）/ toast |
-| composables | `src/composables` | chatBridge（SSE 事件→store 变更）、useSse（SSE 连接单例）、useTheme / useAppearance（主题切换与外观持久化）、filePeek（消息里文件路径的就地预览）、shellIntent（壳命令意图分发）、useSessionPanel（会话左栏的分组与选中状态）、useViewportScale（窗口宽→`--wb-vw-scale` 全局缩放） |
-| components | `src/components` | 按域分组：chat / settings / workspace / layout / dashboard / common / features / skills / doc |
-| views | `src/views` | 路由级页面 |
-| util | `src/utils` | md（唯一渲染出口）、errors（业务码 → 界面文案）、echarts（按需注册）、num / text / time 格式化 |
-| locales | `src/locales` | zh-CN（默认）+ en |
+| stores | `src/stores` | chat（run 增量）/ session（列表与当前）/ settings（清单与 KV）/ agents（子代理）/ apps（微前端册）/ runClock（本轮秒表）/ toast |
+| composables | `src/composables` | chatBridge（SSE 事件 → store 变更）、useSse（SSE 连接单例）、useTheme / useAppearance（主题与外观持久化）、useViewportScale（窗口宽 → `--wb-vw-scale`）、useSessionPanel、useComposer*（草稿 / 载荷 / 命令 / 提及）、filePeek（消息里文件路径的就地预览）、shellIntent（壳命令意图分发） |
+| components | `src/components` | 按域分组：chat / settings / workspace / layout / dashboard / common / features / skills / doc / agents / apps |
+| views | `src/views` | 路由级页面（13 个） |
+| utils | `src/utils` | md（唯一渲染出口）、errors（业务码 → 界面文案）、echarts（按需注册）、num / text / time / turns / composerMenu |
+| locales | `src/locales` | zh-CN（默认）+ en，按域拆文件后汇总 |
 
 ### api 层
 
@@ -24,7 +24,7 @@ Vue 3 + TypeScript 的单窗口应用，通过 HTTP 与 SSE 与本地服务对�
 - 浏览器层失败翻成人话（断连、超时分别给不同提示）
 
 `api/shell.ts` 是系统能力的唯一出口：端口、文件对话框、窗控、自启、退出、托盘事件。
-内部走 Tauri invoke + listen，开发模式（浏览器直开）回落 localStorage。
+内部走 Tauri invoke + listen，开发模式（浏览器直开）回落 `localStorage.wb_dev_port`。
 **组件不得直接 import `@tauri-apps/*`**——统一收口才能让开发模式与生产模式行为一致。
 
 ### SSE 连接
@@ -34,6 +34,7 @@ Vue 3 + TypeScript 的单窗口应用，通过 HTTP 与 SSE 与本地服务对�
 - 挂在 App 壳级，不随视图卸载（切页面不该断事件流）
 - 断线自动重连，重连时以 `last_event_id` 查询参数声明断点，服务端据此重放补齐遗漏事件
 - 握手晚于挂载时也能建起来——端口是响应式的，拿普通变量 watch 等不到变化
+- `agent:*` 与 `chat:*` 共用同一条连接，事件桥按前缀先分流到 agents store
 
 ## 路由与页面
 
@@ -42,96 +43,64 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 
 | 路径 | 视图 | 说明 |
 |---|---|---|
-| `/overview` | OverviewView | 能力总览四卡 + 最近会话（落地页） |
-| `/chat` | ChatView | 对话主视图 |
-| `/workspace` | WorkspaceView | 文件树 + 改动清单 + diff + 提交 / 历史 / 分支 |
-| `/sessions` | SessionsView | 全部会话与概要 |
-| `/agents` | AgentsView | 子代理观测：活跃清单 + 流式过程 + 结论 |
-| `/apps` | AppsView | 外部微前端应用登记与隔离运行（qiankun） |
-| `/models` | ModelsView | 模型服务与工具配置 |
-| `/skills` | SkillsView | 技能清单台 |
-| `/plugins` | FeaturesView | 两段：12 项内置功能开关台 + 记忆库（别名 /features） |
-| `/mcp` | McpView | MCP 服务器配置与在线状态 |
-| `/usage` | DashboardView | 用量仪表盘（别名 /dashboard） |
-| `/help/:name?` | HelpView | 内置文档阅读 |
-| `/settings` | SettingsView | 单页滚动：外观 / 行为 / 内省（旧板块路径一律落这里） |
+| `/overview` | `OverviewView` | 能力总览四卡 + 最近会话（落地页） |
+| `/chat` | `ChatView` | 对话主视图 |
+| `/workspace` | `WorkspaceView` | 文件树 + 改动清单 + diff + 提交 / 历史 / 分支 |
+| `/sessions` | `SessionsView` | 全部会话与概要 |
+| `/agents` | `AgentsView` | 子代理观测：活跃清单 + 流式过程 + 结论 |
+| `/apps` | `AppsView` | 外部微前端应用登记与隔离运行（qiankun） |
+| `/models` | `ModelsView` | 模型服务与工具配置 |
+| `/skills` | `SkillsView` | 技能清单台 |
+| `/plugins` | `FeaturesView` | 两段：12 项内置功能开关台 + 记忆库（别名 `/features`） |
+| `/mcp` | `McpView` | MCP 服务器配置与在线状态 |
+| `/usage` | `DashboardView` | 用量仪表盘（别名 `/dashboard`） |
+| `/help/:name?` | `HelpView` | 内置文档阅读 |
+| `/settings/:tab?` | `SettingsView` | 单页滚动：外观 / 行为 / 运行时 / 内省 |
 
 **独立页与设置页共用组件**：`features/FeatureList` 与 `skills/SkillList` 各被两处引用——
 两处各写一份必然漂移。
 
-## ChatView 组件
+## 对话页组件
 
 | 组件 | 职责 |
 |---|---|
-| SessionPanel / SessionList | 左栏：新对话、时间分组、搜索、重命名/导出/删除 |
-| MessageList | 消息流：历史回合 + 进行中回合 + 提问卡 |
-| ChatMessage | 单条消息的容器：角色布局、复制、usage 徽标 |
-| AssistantTurn | 一条助手消息：按原始顺序渲染思考/正文/工具卡 |
-| SessionChips | 输入区上方的模型 / 思考档 / 工作区 chip 行 |
-| ComposerMenu | 模型选择面板：左服务商右模型，顶部跨服务商搜索，↑↓/回车/Tab 键盘导航 |
-| ThinkingBlock | 思考段折叠（默认收起） |
-| ToolCard | 工具执行卡：一行摘要，展开参数/输出 |
-| AskCard | 内核提问卡：confirm/select/input/editor + 结构化问卷 |
-| ChatInput | 输入区：多行正文 + 技能芯片 + 待发送图片 + @ 引用 + / 命令菜单；底栏在 ComposerBar，菜单在 ComposerSlashMenu / ComposerMentionMenu |
-| ComposerBar | 输入区底栏：引文件按钮 + 图片按钮 + 工作区和会话 chip + 水位 + 插话/排队 + 发送/停止 |
-| ComposerSkill | 技能芯片：一条消息最多挂一个，选中后正文保持干净，可点 × 取消 |
-| ComposerImages | 待发送图片条：缩略图 + 删除，超过一行横向滚动 |
-| TurnChanges | 一轮回答改了哪些文件（实时轮才有增量 diff） |
-| TurnFoot | 回合脚注：复制 + 用量读数 + 时间 |
-| ContextMeter | 上下文水位环 + 读数，点击展开占用分解 |
-| EngineStatusBar | 状态条（功能 setStatus 桥）；只留一行状态文字 |
-| ChatHeader | 对话页页头：会话名 + 模型行 + 压缩上下文按钮 |
-| ActivityBar | 输入框上方常驻活动条：正在干什么 / 已输出多少字 / 耗时 / 安静过久提示 |
-| features/FeatureDock | 对话主区内、状态条上方：待办 / 目标 / 计划三个 panel 的 tab 抽屉；有内容才露出（端点探测，不等 widget 事件） |
-| StatusHud | 底部常驻：模型/思考档/水位/耗时 |
-| EngineCard | 左栏底部内核状态卡，显示就绪/阻塞原因 |
-| ExampleCards | 首屏例句 |
-| FilePeek | 就地看文件改动 |
-| WorkspaceChip | 显示当前工作区；点击可改选目录，**热生效**（后端重扫作用域并广播 `app:workspace`） |
+| `SessionPanel` / `SessionList` | 左栏：新对话、时间分组、搜索、重命名 / 导出 / 删除 |
+| `MessageList` | 消息流：历史回合 + 进行中回合 + 提问卡 |
+| `ChatMessage` | 单条消息容器：角色布局、复制、usage 徽标 |
+| `AssistantTurn` | 一条助手消息：按原始顺序渲染思考 / 正文 / 工具卡 |
+| `ThinkingBlock` | 思考段折叠（默认收起） |
+| `ToolCard` | 工具执行卡：一行摘要，展开参数 / 输出 |
+| `AskCard` | 内核提问卡：confirm / select / input / editor + 结构化问卷 |
+| `ChatInput` | 输入区：正文 + 技能芯片 + 待发送图片 + `@` 引用 + `/` 命令菜单 |
+| `ComposerBar` | 底栏：引文件、图片、工作区与会话 chip、水位、插话 / 排队、发送 / 停止 |
+| `ComposerMenu` | 模型选择面板：左服务商右模型，顶部跨服务商搜索，方向键 / 回车 / Tab 导航 |
+| `ComposerSkill` / `ComposerImages` | 技能芯片（一条消息最多一个）/ 待发送图片条 |
+| `ComposerSlashMenu` / `ComposerMentionMenu` | `/` 命令与 `@` 文件提及菜单 |
+| `SessionChips` | 输入区上方的模型 / 思考档 / 工作区 chip 行 |
+| `ContextMeter` | 上下文水位环 + 读数，点击展开占用分解 |
+| `ActivityBar` | 输入框上方活动条：正在干什么 / 已输出多少字 / 耗时 / 安静过久提示 |
+| `EngineStatusBar` / `StatusHud` / `EngineCard` | 状态条 / 底部常驻读数 / 左栏内核就绪卡 |
+| `TurnChanges` / `TurnFoot` | 一轮改了哪些文件 / 回合脚注（复制 + 用量 + 时间） |
+| `ChatHeader` | 页头：会话名 + 模型行 + 压缩上下文按钮 |
+| `FilePeek` / `WorkspaceChip` | 就地看文件 / 显示并可改选工作区（热生效） |
+| `features/FeatureDock` | 待办 / 目标 / 计划三个 panel 的 tab 抽屉；有内容才露出 |
+| `ExampleCards` | 首屏例句 |
 
-## 独立页组件
+## 其余组件
 
 | 组件 | 归属 | 职责 |
 |---|---|---|
-| features/FeatureList | 概览 / 功能页 / 设置页 | 12 项功能清单、开关与配置入口 |
-| features/FeatureConfigPop | 功能页 | 配置抽屉：按后端字段表渲染表单，不写死任何功能的表 |
-| features/TodoPanel | FeatureDock | 待办清单 + 依赖阻塞标记 + 进度；可勾选 / 新增 / 删除 |
-| features/GoalPanel | FeatureDock | 单活跃目标：状态灯、步骤勾选、续跑计数；可建 / 阻塞 / 恢复 / 达成 / 放弃 / 记进展 |
-| features/PlanPanel | FeatureDock | 计划：状态徽标、驳回意见、步骤勾选、逐条标注；可批准 / 驳回 / 标注意见 |
-| features/MemoryPanel | 功能页 | 四类记忆清单 + 筛选；可新增（过密钥扫描）/ 删除 |
-| chat/AskCard | 对话主区 | 提问卡：confirm / select / input / editor 单卡 + questionnaire 问卷 |
-| skills/SkillList | 技能页 / 设置页 | 技能清单、开关、正文抽屉、导入与新建 |
-| doc/DocPreview | 工作区文件树 | PDF / Word / Excel / 文本预览 |
-| doc/DocPreviewDrawer | 工作区文件树 | 预览抽屉 |
-| workspace/FileTree | WorkspaceView | 工作区目录树 + 点文件就地预览（只读） |
-| agents/AgentList | 子代理页 | 活跃清单：状态灯、角色、任务摘要、用时 |
-| agents/AgentDetail | 子代理页 | 过程详情：任务 / 思考 / 工具卡 / 正文 / 结论 |
-| apps/MicroAppHost | 外部应用页 | qiankun 容器：一个应用一个挂载点，切换即卸载重建 |
-
-骨架组件（多个视图共用）：settings/SettingsSection（设置面板分节容器，八个面板共用）、
-layout/TitleBar（自绘标题栏与窗控三键）、layout/NavRail（一级导航）、
-layout/SidePanel（当前区左栏，188px 窄档）、layout/PageHeader（页头标题与动作）、
-common/AppIcon（内联 SVG 图标）、common/CodeEditor（CodeMirror 封装）、
-common/ResizableDrawer（可拖宽抽屉）、common/ToastHost（轻提示宿主）、
-common/EmptyState（空态：图标 + 结论 + 指引，功能面板与列表共用）。
-
-其余页面的组成：workspace（FileTree、DiffView、GitStateBanner、GitCommitPanel、GitBranchPanel、
-GitHistoryPanel）、dashboard（KpiCard、UsageTrend、ModelShare）、
-overview（能力四卡 + 最近会话）、sessions（时间分组清单 + 会话概要）、
-help（文档目录 + Markdown 阅读）。
-
-## 重依赖的运行时按需加载
-
-三个功能区的引擎代码只在真正用到时才下载，首屏包不含它们：
-
-| 页面 | 动态导入的依赖 | 分块 |
-|---|---|---|
-| /apps | qiankun + single-spa + import-html-entry | `vendor-micro` |
-| 文档预览 | xlsx / docx-preview / pdfjs-dist | `vendor-xlsx` / `vendor-docx` / `vendor-pdf` |
-| 对话正文 | marked / dompurify / highlight.js | `vendor-markdown` |
-
-**子代理事件分流**：`agent:*` 五类事件与 `chat:*` 共用同一条会话 SSE 通道，
-事件桥按前缀先分流到 agents store，再进对话状态机——一条连接、两套状态机。
+| `layout/TitleBar` · `NavRail` · `SidePanel` · `PageHeader` | 骨架 | 自绘标题栏与窗控三键 / 一级导航 rail / 当前区左栏 / 页头 |
+| `common/AppIcon` · `CodeEditor` · `ResizableDrawer` · `ToastHost` · `EmptyState` | 骨架 | 内联 SVG 图标（24 网格）/ CodeMirror 封装 / 可拖宽抽屉 / 轻提示宿主 / 空态 |
+| `settings/SettingsSection` | 骨架 | 设置分节容器（四个面板共用） |
+| `features/FeatureList` · `FeatureConfigPop` · `TodoPanel` · `GoalPanel` · `PlanPanel` · `MemoryPanel` | 功能 | 功能清单与开关 / 按字段表渲染的配置抽屉 / 三块活状态面板 / 记忆库 |
+| `skills/SkillList` | 技能 | 清单、开关、正文抽屉、导入与新建 |
+| `workspace/FileTree` · `DiffView` · `GitChangesPane` · `GitCommitPanel` · `GitHistoryPanel` · `GitBranchPanel` · `GitStateBanner` | 工作区 | 目录树 / 差异 / 改动清单 / 提交 / 历史 / 分支 / 冲突横幅 |
+| `agents/AgentList` · `AgentDetail` | 子代理 | 活跃清单 / 过程详情 |
+| `apps/MicroAppHost` | 外部应用 | qiankun 容器：一个应用一个挂载点，切换即卸载重建 |
+| `dashboard/KpiCard` · `UsageTrend` · `ModelShare` | 用量 | 指标卡 / 趋势 / 模型占比 |
+| `doc/DocPreview` · `DocPreviewDrawer` | 文档预览 | PDF / Word / Excel / 文本预览 |
+| `settings/AppearancePanel` · `BehaviorPanel` · `RuntimePanel` · `InspectPanel` · `ProviderPanel` · `ToolPanel` · `MCPPanel` | 设置 | 外观 / 行为 / 内置运行时状态 / 装配快照 / 模型 / 工具 / MCP |
 
 ## SettingsView 分组
 
@@ -139,23 +108,23 @@ help（文档目录 + Markdown 阅读）。
 
 | 顺序 | 面板 | 管什么 |
 |---|---|---|
-| 1 | AppearancePanel | 主题、字体、字号、自定义背景 |
-| 2 | BehaviorPanel | 默认工作区、界面语言、发送键、托盘与自启 |
-| 3 | RuntimePanel | 内置运行时：bash / git / python 是否就位、命中路径、解压失败原因 |
-| 4 | InspectPanel | 当前装配快照（工具 / 技能 / 命令 / 功能 / 系统提示词） |
+| 1 | `AppearancePanel` | 主题、字体、字号、自定义背景 |
+| 2 | `BehaviorPanel` | 默认工作区、界面语言、发送键、托盘与自启 |
+| 3 | `RuntimePanel` | 内置运行时：bash / git / python 是否就位、命中路径、解压失败原因 |
+| 4 | `InspectPanel` | 当前装配快照（工具 / 技能 / 命令 / 功能 / 系统提示词） |
 
 模型、工具、MCP、技能、功能都有自己的**一级页**，它们的开关不再在设置里列一遍——
-两处都能改就会出现「各自认为是权威」。分节骨架由 settings/SettingsSection 提供。
+两处都能改就会出现「各自认为是权威」。
 
 ## 界面骨架
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│ 顶栏   ▢ WorkBaby │ 当前区标题…              ● ─ □ ✕ │
+│ 顶栏 48px  ▢ WorkBaby │ 当前区标题…            ● ─ □ ✕ │
 ├───┬──────────┬─────────────────────────────────────────┤
 │rail│ 当前区   │ 页头（标题 · 副标题 · 动作）             │
 │62px│ 左栏     ├─────────────────────────────────────────┤
-│   │ 188px    │ 主区                                    │
+│   │ 188px    │ 主区（消息流 / 卡片栅格 / 表格）         │
 └───┴──────────┴─────────────────────────────────────────┘
 ```
 
@@ -170,48 +139,29 @@ help（文档目录 + Markdown 阅读）。
 | `themes.css` | 色与两套主题（`--saas_dashboard-color-1..5` 是唯一色源） | 尺寸只引用 scale.css 的刻度 |
 | `primitives.css` | 语义别名与面基元（`.wb-glass` / `.wb-code-inline` / 用户背景） | 不含任何色值，只引用 `--wb-*` |
 | `buttons.css` | 五态形变基类（`.wb-btn` / `.wb-press` / `.wb-row`）与过渡 | 缩放节奏只在这里定义 |
-| `ep-theme.css` | Element Plus 变量 → `--wb-*` 的**唯一一处**映射 | 第二份映射会静默覆盖第一份 |
+| `base.css` | 布局骨架与设置行等通用形态 | 不写色值 |
+| `content.css` | 消息流 / markdown / 代码块 / 工具卡 / 思考块 | 只放原子类拼不出来、EP 也没有的东西 |
+| `messages.css` / `composer-pop.css` | 对话页与输入区弹层的局部样式 | 跟随对应组件 |
+| `ep-theme.css` / `ep-widgets.css` | Element Plus 变量 → `--wb-*` 的**唯一一处**映射与 EP 控件微调 | 第二份映射会静默覆盖第一份 |
 
-拆开的原因是「改色」与「改刻度」是两件事：混在一个 500 行的文件里，
-改任何一边都要通读全文，而通读之后的改动最容易误伤另一边。
+拆开的原因是「改色」与「改刻度」是两件事：混在一个文件里，改任何一边都要通读全文，
+而通读之后的改动最容易误伤另一边。
 
 ## 设计令牌
 
 **色值只在 `themes.css` 定义**，组件只允许 `var(--wb-*)`。
 全站唯一色源是五档 `--saas_dashboard-color-1..5`；`--wb-brand-1..5` 只是它的别名，
 不存新色值——存两处就一定会有人改了一处、漏了另一处。
-
-| 档 | 浅色 | 暗色 | 用在哪 |
-|---|---|---|---|
-| 1 | `#6366f1` | `#818cf8` | 动作：主按钮、选中、强调文字、图表主序列 |
-| 2 | `#818cf8` | `#a5b4fc` | 活动：流式光标、运行灯、思考中、图表次序列 |
-| 3 | `#e0e7ff` | `#3730a3` | 淡强调：hover 淡底、标签底、用户气泡 |
-| 4 | `#f8fafc` | `#0f172a` | 页底：窗口与工作区底色 |
-| 5 | `#1e293b` | `#e2e8f0` | 正文与标题、实底反色按钮 |
-
-1 档给「可点的东西」，2 档给「正在发生的事」——两个色的分工是这个体系的骨架。
-暗色不是把浅色反过来，而是把五档重新排明度：相邻两档始终递亮，
-不会出现深靛压在深底上读不出的序列。
+视觉细节见 [DESIGN.md](../DESIGN.md)。
 
 尺寸走刻度（`--wb-sp-*` / `--wb-fs-*` / `--wb-radius-*` / `--wb-dur-*`），
 UnoCSS 的刻度已接到令牌上，布局用原子类不绕开令牌。
 全部尺寸乘 `--wb-vw-scale`（窗口宽 ÷ 1440），不同分辨率上整套刻度等比跟随。
 
-视觉细节见 `DESIGN.md`。
-
 ## 按钮五态
 
-所有可点元素给全五个状态，缺一个就是半成品。
-
-| 状态 | 表现 |
-|---|---|
-| 默认 | 形状 × 权重 × 语义的静态样式 |
-| 悬停 | 放大 1.06 + 抬阴影 |
-| 按下 | 缩小 0.92 + 阴影收窄（实体按压感） |
-| 禁用 | 降透明 0.45、不参与形变、指针禁用 |
-| 加载 | 锁定尺寸（不参与缩放）+ 转圈指示器 |
-
-刻度令牌只在 `themes.css` 定义一处：`--wb-btn-scale-hover`（1.06）/ `--wb-btn-scale-press`（0.92）。
+所有可点元素给全五个状态：默认 / 悬停（放大 1.06）/ 按下（缩小 0.92）/ 禁用 / 加载。
+刻度令牌只在 `themes.css` 定义一处：`--wb-btn-scale-hover` / `--wb-btn-scale-press`。
 
 | 控件类别 | 悬停 / 按下 | 基类 |
 |---|---|---|
@@ -219,33 +169,24 @@ UnoCSS 的刻度已接到令牌上，布局用原子类不绕开令牌。
 | 文字 / 链接按钮 | **不缩放**（缩放带动整行文字抖），只换色 | `.wb-btn--text` |
 | 整行元素（会话行 / 技能行 / 文件行 / rail 项） | **不放大**（行宽 100%，放大会溢出被裁）/ 0.985 | `.wb-row` |
 
-**Element Plus 按钮与自绘按钮共用同一套刻度令牌**——同一个操作条里两种按钮并排时，
-点击手感必须一致。加载与禁用两态一律 `transform: none`，否则连点会让按钮持续抖动。
+加载与禁用两态一律 `transform: none`，否则连点会让按钮持续抖动。
 组件不得自己写 `scale(0.92)`：散落的值改不到、也查不到。
 
-## 过渡动画
+## 重型依赖的运行时按需加载
 
-`buttons.css` 定义四组过渡：fade（淡入淡出）、rise（列表项淡入上移）、
-pop（卡片与菜单缩放弹出）、skeleton（骨架屏微光）。
-尊重系统的「减少动态效果」偏好——该偏好下所有过渡降到 1ms。
+五个依赖体积可观，一律**按需导入**并单独分块，不进对应页面就不下载：
 
-## 重型依赖的分块
+| 分块 | 内容 | 用在哪 |
+|---|---|---|
+| `vendor-micro` | qiankun + single-spa + import-html-entry | `/apps` |
+| `vendor-xlsx` | XLSX | 文档预览 |
+| `vendor-docx` | docx-preview | 文档预览 |
+| `vendor-pdf` | pdfjs-dist + vue-pdf-embed | 文档预览 |
+| `vendor-markdown` | marked + dompurify + highlight.js | 对话正文 |
 
-PDF、表格、文档、微前端、Markdown 五个依赖体积可观，一律**按需导入**并单独分块：
-
-| 分块 | 内容 |
-|---|---|
-| `vendor-pdf` | pdfjs-dist + vue-pdf-embed |
-| `vendor-xlsx` | XLSX |
-| `vendor-docx` | docx-preview |
-| `vendor-micro` | qiankun + single-spa + import-html-entry |
-| `vendor-markdown` | marked + dompurify + highlight.js |
-
-另有 `vendor-echarts`、`vendor-cm`（CodeMirror）、`vendor-ep`（@vueuse）三块，
+另有 `vendor-echarts`、`vendor-cm`（CodeMirror）、`vendor-ep` 三块，
 以及承载 Vue / Pinia / Router / Axios 的 `vendor` 主块。
-
-不进对应页面就不下载它们的代码。Element Plus 不整体归堆——
-按需导入的组件归进单个 chunk 会把内部依赖一起拉回首屏，
+Element Plus 不整体归堆——按需导入的组件归进单个 chunk 会把内部依赖一起拉回首屏，
 让未使用组件的 tree-shaking 与各视图的懒加载同时失效。
 
 ## 国际化
@@ -258,22 +199,20 @@ Vue I18n，**首次启动按系统语言**选 zh-CN / en（`navigator.language`�
 - 业务错误的界面文案按错误码查（`utils/errors.ts` → `errCode.*`），
   **不把后端返回的中文原串直接当文案**：语言由前端当前 locale 决定，
   后端原文只作为「具体卡在哪」的细节拼在后面
-- 时间与读数的单位（毫秒 / 秒 / 分钟前）也走语言包（`time.*` / `num.*`），
-  中文跟单位、英文跟缩写是两种习惯
+- 时间与读数的单位（毫秒 / 秒 / 分钟前）也走语言包（`time.*` / `num.*`）
 - Element Plus 的内置文案由根组件的 `ElConfigProvider` 消费当前语言
-
-数据目录、文件路径、模型名等专有名词不翻译；语言名用各自语言写（`中文` / `English`）。
+- 文案里出现 `@` 必须写成 intlify 字面量 `{'@'}`——裸 `@` 会被解析成 linked 消息语法
 
 ## 状态管理
 
-| 模块 | 职责 |
+| store | 职责 |
 |---|---|
-| chat | 一次 run 的增量落地：15 个 `chat:*` 事件处理器、发送 / 停止 / 插话 / 应答 |
-| session | 会话列表与当前会话；adopt（绑定到后端新建的会话）/ draft（未落盘的新对话）/ echo（本地回显） |
-| settings | 全局设置与 warmup 清单（providers / skills / tools / features） |
-| agents | 子代理观测：活跃清单 + 每条的流式过程（5 个 `agent:*` 事件处理器） |
-| apps | 外部微前端应用册：登记项持久化在设置 KV `microapps`，运行态只在内存 |
-| toast | 轻提示（悬停停表、最多 4 条） |
+| `chat` | 一次 run 的增量落地：`chat:*` 事件处理器、发送 / 停止 / 插话 / 应答 |
+| `session` | 会话列表与当前会话；adopt（绑定后端新建的会话）/ draft（未落盘的新对话）/ echo（本地回显） |
+| `settings` | 全局设置与 warmup 清单（providers / skills / tools / features） |
+| `agents` | 子代理观测：活跃清单 + 每条的流式过程（`agent:*` 事件处理器） |
+| `apps` | 外部微前端应用册：登记项持久化在设置 KV `microapps`，运行态只在内存 |
+| `runClock` / `toast` | 本轮秒表 / 轻提示（悬停停表、最多 4 条） |
 
 **界面不另存真相**：会话内容来自 session store，模型与思考档来自后端会话详情，
 功能与工具的开关状态来自 warmup 清单。改开关后必须重拉清单，不能在前端乐观更新。
@@ -287,7 +226,7 @@ Vue I18n，**首次启动按系统语言**选 zh-CN / en（`navigator.language`�
 | 组件按需引入 | 首屏体积 | 新组件要记得在模板里自然引用 |
 | 重型依赖动态导入 | 不进页面就不下载 | 首次打开有加载延迟 |
 | 前端不另存状态 | 避免前后端状态漂移 | 每次切换都要拉数据 |
-| 子代理过程只走 SSE | 观测不污染上下文，父会话只拿结论 | 断线期间的中间过程要靠 /subagents/transcript 对账 |
+| 子代理过程只走 SSE | 观测不污染上下文，父会话只拿结论 | 断线期间的中间过程要靠 `/subagents/transcript` 对账 |
 | 微前端登记走设置 KV | 一份真相，不新增一张表 | 整册序列化成一个字符串，规模大了要拆表 |
-| 消息列跟窗口走（`min(1240px, 100%)`） | 宽窗口里两侧的大片空白没人受益，读代码块与差异时尤甚 | 极宽屏下行长需靠排版自行约束 |
-| 窄窗口按容器查询收窄侧栏 | 判断的是内容区宽度而不是窗口宽度（两者差一整根 rail） | 与媒体查询两套阈值并存时要各自维护 |
+| 消息列跟窗口走（`min(1240px, 100%)`） | 宽窗口里两侧的大片空白没人受益 | 极宽屏下行长需靠排版自行约束 |
+| 窄窗口按容器查询收窄侧栏 | 判断的是内容区宽度而不是窗口宽度 | 与媒体查询两套阈值并存时要各自维护 |

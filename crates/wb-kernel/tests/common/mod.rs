@@ -1,7 +1,6 @@
-//! 内核场景测试的共享夹具：假模型、假工具、临时目录与会话装配。
+//! 内核场景测试的共享夹具：脚本化假 Provider、假工具、临时目录与会话装配。
 //!
-//! 内核测试要控制「模型说什么、工具返回什么」，所以 provider 与工具都是假的；
-//! 夹具留在这里，测试文件按被测行为分文件（见 AGENTS.md §3）。
+//! 内核行为取决于「模型说什么、工具返回什么」，两者都必须可控且不碰网络。
 
 #![allow(dead_code)]
 
@@ -88,6 +87,42 @@ impl ModelClient for FakeProvider {
 
 /// 回声工具：原样返回输入。
 pub struct EchoTool;
+
+/// 并发分组用的探针工具：`read_only` 为 None 表示未标注注解。
+pub struct ProbeTool {
+    pub name: &'static str,
+    pub read_only: Option<bool>,
+}
+
+#[async_trait]
+impl Tool for ProbeTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn label(&self) -> &str {
+        self.name
+    }
+    fn description(&self) -> &str {
+        "探针工具"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({"type":"object"})
+    }
+    fn annotations(&self) -> wb_tools::ToolAnnotations {
+        wb_tools::ToolAnnotations {
+            read_only: self.read_only.unwrap_or(false),
+            destructive: self.read_only != Some(true),
+        }
+    }
+    async fn execute(
+        &self,
+        _args: serde_json::Value,
+        _cancel: CancellationToken,
+        _workdir: &Path,
+    ) -> wb_pkg::Result<ToolOutput> {
+        Ok(ToolOutput::plain(self.name, false, 1))
+    }
+}
 
 #[async_trait]
 impl Tool for EchoTool {

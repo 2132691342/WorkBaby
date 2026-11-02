@@ -1,8 +1,8 @@
 # 内置功能 · FEATURES
 
-12 项能力原生实现进 `wb-features`，每项独立开关。
+12 项能力原生实现进 `wb-features`（其中三项纯数据面在 `wb-service`），每项独立开关。
 
-扩展能力不设运行时插件市场：能力面已知且封闭，运行时加载第三方代码会引入
+不设运行时插件市场：能力面已知且封闭，运行时加载第三方代码会引入
 无法在编译期发现的问题（加载失败、版本不兼容、行为不可预测）。
 技能与 MCP 承接剩余的扩展需求——它们是「数据」而不是「代码」。
 
@@ -16,40 +16,40 @@ pub struct FeatureCtx {
     pub workspace: PathBuf,
     /// SSE 出口
     pub emit: Emit,
+    /// 功能级配置表（键 → 值）
+    pub configs: BTreeMap<String, Value>,
 }
 ```
 
 service 装配时注入 `FeatureCtx`，功能代码不依赖 service（依赖方向保证）。
-
 每项功能 = 0..n 个 `Tool` 实现 + 可选 UI 桥事件。
 **功能代码不感知界面**，只发事件；界面按事件词汇渲染。
 
 ## 开关即装配边界
 
-关掉的功能，其工具不进 schema、事件不再发。斜杠命令只来自启用的技能（`/skill:名`），
-与功能开关无关——关掉的功能撤的是工具与事件。
-实现方式是 service 装配时按 `feature_toggle` 表过滤后重建注册表——不是运行时判断。
+关掉的功能，其工具不进 schema、事件不再发。实现方式是 service 装配时按
+`feature_toggle` 表过滤后**重建注册表**——不是运行时判断。
 
 | 特征 | code | 工具 | 默认 |
 |---|---|---|---|
-| 待办清单 | todo | `todo` | 开 |
-| 结构化提问 | ask_user | `ask_user_question` | 开 |
-| 模糊搜索 | fff | `fffind` / `ffgrep` | 开 |
-| 上下文地图 | context_view | 无（`/context/breakdown` 端点） | 开 |
-| 持久记忆 | memory | `memory_save` / `memory_search` / `memory_remove` / `memory_consolidate` / `session_search` | 关 |
-| 联网访问 | web | `fetch_content` / `web_search` / `pdf_read` / `github_clone` / `video_transcript` | 关 |
-| 装载配置 | loadout | 无（预设管理端点） | 关 |
-| 省上下文 | context_mode | `ctx_execute` / `ctx_batch_execute` / `ctx_index` / `ctx_search` | 关 |
-| 语言服务 | lsp | `lsp_diagnostics` / `lsp_fix` | 关 |
-| 计划评审 | plan | `plan_submit` / `plan_mark_done` / `plan_inbox` / `plan_annotate` / `review_diff` | 关 |
-| 目标追踪 | goal | `create_goal` / `get_goal` / `update_goal` | 关 |
-| 内省面板 | inspect | 无（`/inspect` 快照） | 关 |
+| 待办清单 | `todo` | `todo` | 开 |
+| 结构化提问 | `ask_user` | `ask_user_question` | 开 |
+| 模糊搜索 | `fff` | `fffind` / `ffgrep` | 开 |
+| 上下文地图 | `context_view` | 无（`/context/breakdown` 端点） | 开 |
+| 持久记忆 | `memory` | `memory_save` / `memory_search` / `memory_remove` / `memory_consolidate` / `session_search` | 关 |
+| 联网访问 | `web` | `web_search` / `fetch_content` / `pdf_read` / `github_clone` / `video_transcript` | 关 |
+| 装载配置 | `loadout` | 无（预设管理端点） | 关 |
+| 省上下文 | `context_mode` | `ctx_execute` / `ctx_batch_execute` / `ctx_index` / `ctx_search` | 关 |
+| 语言服务 | `lsp` | `lsp_diagnostics` / `lsp_fix` | 关 |
+| 计划评审 | `plan` | `plan_submit` / `plan_mark_done` / `plan_inbox` / `plan_annotate` / `review_diff` | 关 |
+| 目标追踪 | `goal` | `create_goal` / `get_goal` / `update_goal` | 关 |
+| 内省面板 | `inspect` | 无（`/inspect` 快照） | 关 |
 
-**默认关的判断标准**：涉网（web）与起外部进程（context_mode / lsp）的功能默认关，
+**默认关的判断标准**：涉网（`web`）与起外部进程（`context_mode` / `lsp`）的功能默认关，
 因为它们的行为依赖用户机上的环境与网络状况——开着但不可用比关着更让人困惑。
-纯本地能力（todo / ask_user / fff / context_view）默认开。
+纯本地能力（`todo` / `ask_user` / `fff` / `context_view`）默认开。
 
-loadout / inspect / context_view 三项是纯数据面：没有模型工具，
+`loadout` / `inspect` / `context_view` 三项是纯数据面：没有模型工具，
 开关只影响界面呈现，数据端点恒可用，不影响工具表装配。
 
 ## 逐项说明
@@ -60,6 +60,8 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 
 工具 `todo` 支持增删改查与 `blocked_by` 依赖图：被依赖项没完成前，下游项不能开始。
 依赖图的三个拒绝条件——悬空 id、自环、成环——都在写入时报错。
+依赖**归一成 ULID 存储**：存序号会让成环检测与删除清理静默失效。
+删除条目时同步清理指向它的悬空依赖。
 
 状态存工作区级文件（不是会话条目），因为工具契约拿不到会话句柄。
 
@@ -73,12 +75,14 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 默认等待上限 10 分钟，超时报 5005 由模型自行决策；会话取消时等待一起取消。
 
 **一题与多题是两种卡片**：
+
 - 一题走 `select` / `input` 单卡（点一次就答完）
 - 多题合并成一张 `questionnaire` 卡（每题一组选项 + 可选自由输入），答完统一提交；
   答案按题序以换行分隔回传给模型。一条 `chat:ask` 问完 N 题，不必串行等 N 次。
 
-`AnswerBoard` 保证一次投递：重复回答、无人等待者的回答都返回失败。
-待答问题同时落一份到盘上，进程重启后能重新弹出来（`/warmup` 补发）。
+`AnswerBoard` 保证一次性投递：重复回答、无人等待者的回答、接收端已丢弃的回答都返回失败，
+且不 panic。待答问题同时落一份到盘上，进程重启后能重新弹出来（`/warmup` 补发）；
+超过等待上限的历史问题不再弹。
 
 ### fff · 模糊搜索
 
@@ -87,7 +91,8 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 用 nucleo 做模糊匹配，结果按 frecency（使用频率 + 最近访问时间）加权排序——
 最近常用且常用的文件排前面。frecency 数据存在独立 SQLite 库里。
 
-遍历工作区时跳过 `node_modules` / `target` / `dist` 等产物目录。
+遍历工作区时跳过 `node_modules` / `target` / `dist` 等产物目录——
+与语言诊断共用同一份遍历纪律。
 
 ### memory · 持久记忆
 
@@ -95,14 +100,19 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 `memory`（一般事实）/ `user`（用户偏好）/ `project`（项目事实）/ `failure`（失败教训）。
 存 SQLite FTS5 库，跨会话存活。
 
-**写前密钥扫描**：写入前扫一遍内容，命中真实凭据格式（各类 API key、私钥块）
-就拒绝写入。这条是硬门槛——记忆库是明文落盘的，密钥进去等于泄露。
+**写前密钥扫描**：写入前扫一遍内容，命中真实凭据格式（OpenAI 风格 key、AWS access key、
+GitHub token、私钥块）就拒绝写入。这条是硬门槛——记忆库是明文落盘的，密钥进去等于泄露。
+界面写入走同一套扫描，没有后门。
+
+**中文召回**：FTS5 的 `unicode61` 不切中文，整句会被当成一个 token。
+所以检索是「FTS5 + LIKE 逐词」双路——中文子串靠 LIKE 命中，西文靠 BM25 排序。
 
 `session_search` 检索历史会话正文——跨会话找回「上次那个结论」。
+它只吃 JSONL 里的消息正文行（吃了结构行会让结果混入整条 JSON），中文同样走子串匹配。
 
-**自动知识整合**：记忆库只增不减，到一定量就会堆满互相重复的碎片——检索召回一堆近似内容，
-上下文被占满，模型也分不清哪条更新。`memory_consolidate` 工具（以及写入时自动触发）
-会按类别逐对判重，把说的是同一件事的条目合并成一条。
+**自动知识整合**：记忆库只增不减，到一定量就会堆满互相重复的碎片。
+`memory_consolidate`（以及写入时按阈值自动触发）按类别逐对判重，
+把说的是同一件事的条目合并成一条。
 
 | 参数 | 值 | 理由 |
 |---|---|---|
@@ -113,7 +123,7 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 | 自动触发阈值 | 40 条 | 到量就整合，不等模型手动叫 |
 | 合并方向 | 保留最近更新的那条（较早的内容并入其中） | 最近更新的代表当前认知，历史陈述并进去不丢信息 |
 
-合并后条目更少、内容更全，检索质量才稳得住。
+条目数守恒（合并后剩余 + 合并掉的 = 扫描到的），合并不丢信息只减冗余。
 
 ### web · 联网访问
 
@@ -129,8 +139,8 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 
 **搜索源**：API 源（`brave` / `tavily` / `serper` / `exa`）配了密钥就排在前面，
 免密钥公开源（`duckduckgo` → `bing` → `wikipedia`）兜底，第一个解析出结果即返回；
-可用 `provider` 参数锁定单一源。每个源有自己的页面结构，适配器负责转成统一结果列表——
-解析失败就换一个源，不编造结果。
+可用 `provider` 参数锁定单一源。每个源有自己的响应形状，适配器转成统一结果列表——
+解析失败就换下一个源，不编造结果。缺 url 的条目不算有效结果。
 
 **密钥来源**：功能配置里的「搜索源密钥」字段（`brave=xxx` 逐行书写）优先，
 其次是环境变量（`BRAVE_API_KEY` 等）。桌面应用用户不该为了联网先去改系统环境变量，
@@ -144,8 +154,8 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 
 **视频理解**：字幕是理解视频的主要入口。YouTube 有专门路径——解析 `playerResponse`
 的 `captionTracks`，按语言偏好选轨，按 XML 时间轴分段抽字幕全文。
-其余站点（含 bilibili）解析页面元信息，能挖到字幕就用，挖不到就如实回退元信息——
-大多数非 YouTube 站点拿不到字幕轨，元信息回退是常态。语言偏好按标签与地址里的语言标记两处匹配。
+其余站点解析页面元信息，能挖到字幕就用，挖不到就如实回退元信息——
+大多数非 YouTube 站点拿不到字幕轨，元信息回退是常态。
 
 ### context_mode · 省上下文
 
@@ -159,31 +169,32 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 | `ctx_search` | 在知识库里检索片段，返回摘要与来源 |
 
 沙箱支持 12 种语言（javascript / typescript / python / shell / powershell /
-ruby / php / perl / go / dotnet / java / lua），脚本落盘后用对应解释器执行，
-执行完即删。解释器不在 PATH 上时进程起不来，报 7003（无法启动该解释器）。
+ruby / php / perl / go / dotnet / java / lua），脚本落盘后用对应解释器执行，执行完即删。
+`bash` 与 `python` 走内置运行时，其余解释器取系统 PATH；不在 PATH 上时进程起不来，
+报 7003（无法启动该解释器）。`deno` 以最小权限运行（不做 `--allow-all`）。
 
-隔离边界有两条，都落在内核层：**当前目录固定为沙箱目录**（脚本按相对路径改不到
-项目文件，只有显式绝对路径才够得着），以及**Windows 作业对象**（内存与进程数上限，
+隔离边界有两条：**当前目录固定为沙箱目录**（脚本按相对路径改不到项目文件，
+只有显式绝对路径才够得着），以及 **Windows 作业对象**（内存与进程数上限，
 句柄关闭时内核杀光作业内残留进程，超时另有一条兜底）。这**不是**文件系统沙箱：
-不拦截绝对路径写入，不限制网络。`deno` 以最小权限运行（不再 `--allow-all`）。
+不拦截绝对路径写入，不限制网络。
 
 知识库是 SQLite FTS5，正文按段落切块入库。检索用**双路召回 + RRF 融合**：
 一路 FTS5 词面匹配（BM25 排序），一路逐字 LIKE（覆盖缩写与专有名词），
-两路结果按倒数排名融合（RRF）——单路召回会漏掉另一种匹配方式能命中的内容。
+两路结果按倒数排名融合——单路召回会漏掉另一种匹配方式能命中的内容。
 
 ### lsp · 语言服务
 
 `lsp_diagnostics`（工作区静态诊断）与 `lsp_fix`（快速修复）。
 
-自带 stdio JSON-RPC 客户端（按 Content-Length 分帧），配 15 个语言服务器：
-rust-analyzer / gopls / ruff / ty / biome / typescript-language-server / clangd /
-jdtls / yaml-language-server / lua-language-server / intelephense / zls /
-bash-language-server / terraform-ls / rubocop。
+自带 stdio JSON-RPC 客户端（按 `Content-Length` 分帧），配 15 个语言服务器：
+`rust-analyzer` / `gopls` / `ruff` / `ty` / `biome` / `typescript-language-server` /
+`clangd` / `jdtls` / `yaml-language-server` / `lua-language-server` / `intelephense` /
+`zls` / `bash-language-server` / `terraform-ls` / `rubocop`。
 
 每个服务器带自己的扩展名映射与跳过目录（如 rust-analyzer 跳过 `target` 与 `.git`）。
 
 **server 按需启停**：一次工具调用内启动、用完即关，不留常驻进程。
-语言服务器需用户自装（不下载），未装的语言在诊断结果里列为「跳过」。
+语言服务器需用户自装（不下载），未装的在诊断结果里列为「跳过」。
 一台 server 都没装时功能开关即使打开，工具也不进注册表（避免死工具）。
 
 `lsp_fix` 默认只预览不写盘——模型拿到预览后自己判断，再传 `write=true` 落盘。
@@ -197,17 +208,16 @@ bash-language-server / terraform-ls / rubocop。
 
 **界面也能裁决**（`POST /plan/mutate`）：批准 / 驳回 / 逐步骤勾选 / 加标注。
 界面能做的动作是封闭集合——不改计划标题与步骤正文，那是模型起草的产物。
-全部步骤勾完自动转 `done`，避免界面一直显示「执行中」。
+全部步骤勾完自动转 `done`，避免界面一直显示「执行中」；`done` 之后不能再驳回。
 
-**标注**：`plan_annotate` 给计划或某一步加一条意见（`scope=plan` / `scope=step`）。
+**标注**：`plan_annotate` 给计划或某一步加一条意见（`annotation_scope=plan` / `step`）。
 标注只记录意见，不改变步骤状态——要终止计划走驳回。标注与计划一起呈现，
 下一轮助手会看到用户对哪一步有疑问。
 
 **PR 审查**：`review_diff` 拿一个分支相对基线的 diff 出来审查。
 PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以不需要连 GitHub API，
 也不需要用户配令牌。基线依次兜底：显式 `base` 参数 → `merge-base(HEAD, origin/main)` →
-`origin/main` → `HEAD~1`。
-返回变更统计与逐文件 diff——改动面大时先看统计再挑重点文件。
+`origin/main` → `HEAD~1`。返回变更统计与逐文件 diff——改动面大时先看统计再挑重点文件。
 
 ### goal · 目标追踪
 
@@ -216,6 +226,7 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 
 状态机：`active` / `blocked` / `achieved` / `abandoned`。
 从 `blocked` 恢复须显式置回 `active`——不自动恢复，避免助手在用户没介入时继续往下走。
+全部步骤勾完自动转 `achieved`（否则续跑会一直触发）；已有未完结目标时拒绝新建。
 
 **自动续跑**：一轮对话结束后，如果目标仍 `active` 且还有未完成步骤，助手会自己开下一轮
 接着推进（走内部运行路径，不占用界面输入框）。续跑提示里带目标描述、已完成计数与待办步骤清单。
@@ -228,7 +239,7 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 
 达到上限时停手并提示用户目标仍未完结——不静默放弃。
 
-状态行随变更推给界面（footer 显示目标与进度）。
+状态行随变更推给界面（`chat:status`，footer 显示目标与进度）。
 
 ### loadout · 装载配置
 
@@ -237,18 +248,18 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 本质是把「开哪些工具与技能」这套组合命名下来，方便在「全能」与「精简」之间快速切换。
 预设同时管两个维度：应用一个预设会先全停再按集合启用，工具与技能一起换。
 
-`minimal` 保留三个核心技能（diagnose / tdd / task-implement）——「精简」指砍工具，
+`minimal` 保留三个核心技能（`diagnose` / `tdd` / `task-implement`）——「精简」指砍工具，
 不该让用户点一下预设就失去全部技能能力。
 
 ### inspect · 内省面板
 
 一屏看全当前装配：工具清单、技能清单、斜杠命令、系统提示词全文、功能开关、会话元信息。
-快照数据走 `/inspect` 端点。
+快照数据走 `GET /inspect?session_id=`。
 
 ### context_view · 上下文地图
 
 把上下文占用拆成分段：系统提示词 / 工具定义 / 历史消息各占多少 token。
-数据走 `/context/breakdown` 端点。
+数据走 `GET /context/breakdown?session_id=`。
 
 ## UI 桥
 
@@ -256,10 +267,10 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 
 | 内核侧动作 | SSE 事件 | 界面呈现 |
 |---|---|---|
-| 提问 | chat:ask / chat:ask_closed | 提问卡 |
-| 状态行（空文本即清除） | chat:status | 状态条 |
-| 小部件行（空行组即清除） | chat:widget | 「有新变化」信号 |
-| 通知（info/warning/error） | chat:notify | Toast |
+| 提问 | `chat:ask` / `chat:ask_closed` | 提问卡 |
+| 状态行（空文本即清除该 key） | `chat:status` | 状态条 |
+| 小部件行（空行组即清除该 key） | `chat:widget` | 「有新变化」信号 |
+| 通知（info / warning / error） | `chat:notify` | Toast |
 
 **widget 只是信号，不是数据源**。todo 与 plan 每轮会推一行文本组，
 但它承载不了依赖图、步骤状态、标注这些东西——把结构塞进字符串再由界面反解，
@@ -267,16 +278,19 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 
 | key | 拉取端点 | 面板 |
 |---|---|---|
-| `todo` | GET /todo | `components/features/TodoPanel` |
-| `plan` | GET /plan | `components/features/PlanPanel` |
-| `goal`（走 chat:status） | GET /goal | `components/features/GoalPanel` |
+| `todo` | `GET /todo` | `components/features/TodoPanel` |
+| `plan` | `GET /plan` | `components/features/PlanPanel` |
+| `goal`（走 `chat:status`） | `GET /goal` | `components/features/GoalPanel` |
 
 三个面板挂在 `FeatureDock`（对话主区内、状态条上方）：默认收起，
-只在对应 widget 存在时露出 tab。`EngineStatusBar` 只保留一行状态文字。
+只在对应内容存在时露出 tab。`EngineStatusBar` 只保留一行状态文字。
+
+**面板何时出现由端点探测决定**（有内容就露出对应 tab），不能只在收到 widget 事件时才显示——
+重启应用或切回旧会话时没有事件，盘上明明有清单却看不到入口。
 
 ## 功能级配置
 
-`/features/:code/config` 返回的是**字段表**而不是裸 KV：后端给出 `field_kind`
+`GET /api/v1/features/{code}/config` 返回的是**字段表**而不是裸 KV：后端给出 `field_kind`
 （text / number / select / multi_select）、当前值与候选（含不可用原因），
 前端只负责渲染与收集，不写死任何功能的表单。
 
@@ -284,12 +298,13 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 
 | 功能码 | 字段 | 生效点 |
 |---|---|---|
-| web | `web_provider` / `web_search_limit` / `web_proxy` / `web_keys` | 搜索源排队、返回条数、HTTP 代理、搜索源密钥 |
-| memory | `memory_auto_threshold` / `memory_merge_threshold` / `memory_search_limit` | 自动整合触发条数、相似度阈值、检索条数 |
-| lsp | `lsp_servers` | 允许启用的语言服务器白名单（空 = 不限） |
+| `web` | `web_provider` / `web_search_limit` / `web_proxy` / `web_keys` | 搜索源排队、返回条数、HTTP 代理、搜索源密钥 |
+| `memory` | `memory_auto_threshold` / `memory_merge_threshold` / `memory_search_limit` | 自动整合触发条数、相似度阈值、检索条数 |
+| `lsp` | `lsp_servers` | 允许启用的语言服务器白名单（空 = 不限） |
 
 配置随 `FeatureCtx` 注入功能代码，**保存后重建注册表**——工具在构造时读配置，
 不重建的话旧值会一直生效到下次重启。提交的键名走白名单，未知键直接拒。
+数值在**读时**收口到合法区间（越界值不报错，读出来的是边界值）。
 
 ## 存储位置
 
@@ -298,20 +313,11 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 | todo / plan / goal | `{数据目录}\features\{编码后工作目录}\*.json` |
 | memory | `{同上}\memory.db`（FTS5） |
 | fff | `{同上}\fff.db`（frecency 命中计数与查询历史） |
-| context_mode | `{同上}\knowledge.db`（FTS5）+ `sandbox\` |
+| context_mode | `{同上}\knowledge.db`（FTS5） |
+| 等待回答的提问 | `{同上}\pending_asks.json` |
 
 功能各自开自己的库文件，不进 `wb-repo` 的主库——主库管设置与索引，
 功能数据有自己的生命周期与清理策略。
-
-## 取舍
-
-| 取舍 | 理由 | 代价 |
-|---|---|---|
-| 原生化而非运行时加载代码 | 加载失败、版本不兼容、行为不可预测都在编译期消失 | 失去第三方生态 |
-| 开关即装配边界 | 关掉的功能不进 schema，模型根本看不到 | 切换要重建注册表 |
-| 功能不依赖 service | 依赖方向单向，功能可单独测 | 功能拿不到 service 的能力，只能靠 FeatureCtx |
-| 涉网与外部进程默认关 | 环境不可用时开着的功能更让人困惑 | 用户要多点一次 |
-| UI 走事件桥而非直接调界面 | 内核与功能都不含界面词汇 | 事件词汇要维护 |
 
 ## 界面写入
 
@@ -323,13 +329,22 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 | `POST /todo/mutate` | add / update / status / remove | 与 `todo` 工具同一套动作与依赖图校验 |
 | `POST /goal/mutate` | create / status / done_steps / note / abandon | 已有未完结目标时拒新建；全勾完自动 `achieved` |
 | `POST /plan/mutate` | approve / reject / step_done / annotate | 只裁决不改正文；全勾完自动 `done` |
-| `POST /memory/save` | 新增一条 | 过同一套密钥扫描，界面写入不能绕过检查 |
+| `POST /memory/save` | 新增一条 | 过同一套密钥扫描 |
+| `POST /memory/delete` | 删一条 | 不存在报 7301 |
 
 写入与模型工具**共用同一份落盘与同一套规则**——不做两套，否则两边会分叉。
-
-**面板何时出现**：由一次端点探测决定（有内容就露出对应 tab），
-不能只在收到 widget 事件时才显示——重启应用或切回旧会话时没有事件，
-盘上明明有清单却看不到入口。
+写入端点返回**写入后的最新视图**，前端一次请求就能刷新面板。
 
 **LSP 不可用时给出安装方式**：未安装的服务器在配置里带 `｜安装：…`，
 只报「未安装」等于把用户丢在原地。
+
+## 取舍
+
+| 取舍 | 理由 | 代价 |
+|---|---|---|
+| 原生化而非运行时加载代码 | 加载失败、版本不兼容、行为不可预测都在编译期消失 | 失去第三方生态 |
+| 开关即装配边界 | 关掉的功能不进 schema，模型根本看不到 | 切换要重建注册表 |
+| 功能不依赖 service | 依赖方向单向，功能可单独测 | 功能拿不到 service 的能力，只能靠 FeatureCtx |
+| 涉网与外部进程默认关 | 环境不可用时开着的功能更让人困惑 | 用户要多点一次 |
+| UI 走事件桥而非直接调界面 | 内核与功能都不含界面词汇 | 事件词汇要维护 |
+| widget 只作信号 | 结构走 VO，改文案不会连带改界面 | 多一次读请求 |

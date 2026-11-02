@@ -1,16 +1,16 @@
 # 工作区与 Git · WORKSPACE
 
-`wb-git` 提供工作区版本视图：读 status / diff / 历史，写限白名单动作。
+`wb-git` 提供工作区版本视图：读 status / diff / 历史 / 分支，写限白名单动作。
 git 定位：内置 PortableGit 优先，其次系统 PATH；不做对象操作。
 
-**工作区 = 对话的 cwd**：内核进程的工作目录、文件树、git 视图三者同源。
+**工作区 = 对话的 cwd**：内核的工作目录、文件树、git 视图三者同源。
 这不是巧合——助手改的文件、界面显示的文件、git 报告的文件必须是同一批。
-所以界面上的工作区页只有一页：左栏文件树（只读浏览 + 就地预览）、中栏改动清单 /
-提交 / 历史 / 分支，右栏差异。“文件”不单开一页——它回答的是同一个问题。
+所以界面上的工作区只有一页：左栏文件树（只读浏览 + 就地预览）、
+中栏改动清单 / 提交 / 历史 / 分支，右栏差异。文件浏览不单开一页。
 
 ## 工作区语义
 
-- 工作区启动时从设置 KV `workspace` 解析：目录仍在且**适合作工作区**就用它；
+- 启动时从设置 KV `workspace` 解析：目录仍在且**适合作工作区**就用它；
   否则改用壳传入目录（桌面进程 cwd / standalone 的 argv），仍不合适就换成
   用户文档目录并写回 KV
 - **切目录热生效**：改选（工作目录芯片或设置页行为面板）调 `POST /workspace/switch`，
@@ -20,25 +20,25 @@ git 定位：内置 PortableGit 优先，其次系统 PATH；不做对象操作�
 - 系统目录与盘根不当工作区（`C:\Windows` / `System32` / `Program Files` / `C:\`）：
   从快捷方式启动时进程 cwd 往往就是这些位置
 - 会话目录、fff 索引、知识库、git 视图都按工作区隔离，会话列表也只列当前工作区的
-- 路径进出全部过 `wb-pkg::realpath`（短名与符号链接归一）再判越界；越界报 1003
+- 路径进出全部过 `wb_pkg::realpath`（短名与符号链接归一）再判越界；越界报 1003
 
 ## 读
 
 | 接口 | 实现 |
 |---|---|
-| `/files` | 工作区目录列举（惰性：只读一层，不递归） |
-| `/files/bytes` | 单文件字节（base64，文档预览用，上限 32MB） |
-| `/git/status` | `status --porcelain=v1 -z` + 分支与领先落后（`rev-list --count`）；条目归类 staged / unstaged / untracked |
-| `/git/diff` | 文件级 `diff --no-color`（未跟踪文件整篇算新增）；返回行结构（加 / 删 / 上下文 + 行号） |
-| `/git/history` | `log` 分页；单提交 `show --stat` 与文件 diff |
-| `/git/file-history` | 单文件 `log --follow` |
-| `/git/branches` | 本地与远端分支、当前分支、上游 |
+| `GET /files` | 工作区目录列举（惰性：只读一层，不递归） |
+| `GET /files/bytes` | 单文件字节（base64，文档预览用，上限 32MB） |
+| `GET /git/status` | `status --porcelain=v1 -z` + 分支与领先落后（`rev-list --count`）；条目归类 staged / unstaged / untracked |
+| `GET /git/diff` | 文件级 `diff --no-color`（未跟踪文件整篇算新增）；返回行结构（加 / 删 / 上下文 + 行号） |
+| `GET /git/history` | `log`；单提交 `show --stat` 与文件 diff（`limit` 缺省 50） |
+| `GET /git/file-history` | 单文件 `log --follow` |
+| `GET /git/branches` | 本地与远端分支、当前分支、上游 |
 
 **中文与空格路径**：用 `-z` 模式解析（NUL 分隔），展示层还原——
 按行解析会在路径含换行时崩掉。
 
 **未跟踪条目只归一条**（`?`），不产生空 status 重复行。
-`MM` 拆成两条（已暂存 + 未暂存），`UU` 标为冲突。
+`MM` 是「已暂存 + 未暂存」两条，`UU` 标为冲突。
 
 ## 写白名单
 
@@ -46,18 +46,18 @@ git 定位：内置 PortableGit 优先，其次系统 PATH；不做对象操作�
 
 | 动作 | 命令形态 | 护栏 |
 |---|---|---|
-| stage / unstage | `add` / `restore --staged` | 路径必须在工作区内 |
-| discard | `restore`（工作区） | 未跟踪文件单独删；危险确认气泡 |
-| resolve | `add`（冲突文件） | 仅合并 / 变基中间态 |
-| commit | `commit -F <信息文件>` | 信息非空；`--amend` 仅限 HEAD 提交 |
-| branch | `branch` / `switch` | 分支名合法 |
+| stage / unstage | `add --` / `restore --staged --` | 路径必须在工作区内 |
+| discard | `restore --`（未跟踪文件走删除） | 危险确认气泡 |
+| resolve | `add --`（冲突文件） | 仅中间态有意义 |
+| commit | `commit -F <信息文件>` | 信息非空；`--amend` 仅限已有提交 |
+| branch / switch | `branch` / `switch` | 分支名合法 |
 | branch 删除 | `branch -d` | 只删已合并分支，拒绝 `-D` |
 | fetch | `fetch [remote]` | 拉取远端更新，不动本地分支 |
-| state | `continue` / `abort` | 合并 / 变基中间态的继续与中止 |
-| merge | `merge` | 支持 `--rebase` 变体 |
-| pull | `pull` | 支持 `--rebase` 变体；分叉时报 1024 |
+| state | `merge --continue/--abort` · `rebase --continue/--abort` | 合并 / 变基中间态的继续与中止 |
+| merge | `merge --no-edit` | 支持 `--rebase` 变体 |
+| pull | `--ff-only`（缺省）/ `--rebase` | 分叉时报 1024 |
 | push | `push` | 强制级别逐级升级，见下 |
-| init | `init` | 目录为空或已是仓库 |
+| init | `init -b <branch>` | 目录为空或已是仓库 |
 | remote | `remote add` | URL 合法 |
 
 **危险参数直接拒绝**：`reset --hard` / `clean -fd` / 裸 `--force` / `branch -D`。

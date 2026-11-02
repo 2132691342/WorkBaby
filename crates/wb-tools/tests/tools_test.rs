@@ -1,4 +1,4 @@
-//! wb-tools 场景测试：写文件类工具必须回报改动文件与差异行（界面就地着色的唯一来源）。
+//! wb-tools 场景测试：写文件类工具必须回报改动文件与差异行——那是界面就地着色的唯一来源。
 
 use std::path::{Path, PathBuf};
 
@@ -15,13 +15,19 @@ fn workdir(tag: &str) -> PathBuf {
     dir
 }
 
-// ---- 差异行：裁剪公共前后缀，增删行分类正确 ----
+fn changes(out: &wb_tools::ToolOutput) -> Vec<(String, String)> {
+    out.diff
+        .as_ref()
+        .expect("改动必须带差异行")
+        .iter()
+        .filter(|d| d.line_kind != "ctx")
+        .map(|d| (d.line_kind.clone(), d.line_text.clone()))
+        .collect()
+}
 
 #[test]
 fn line_diff_marks_added_and_removed_lines() {
-    let before = "a\nb\nc\nd\ne\n";
-    let after = "a\nb\nX\nd\ne\n";
-    let rows = wb_tools::difftext::line_diff(before, after);
+    let rows = wb_tools::difftext::line_diff("a\nb\nc\nd\ne\n", "a\nb\nX\nd\ne\n");
     let adds: Vec<&str> = rows
         .iter()
         .filter(|r| r.line_kind == "add")
@@ -34,21 +40,19 @@ fn line_diff_marks_added_and_removed_lines() {
         .collect();
     assert_eq!(adds, vec!["X"], "新增行只有 X");
     assert_eq!(dels, vec!["c"], "删除行只有 c");
-    let ctx: Vec<&str> = rows
-        .iter()
-        .filter(|r| r.line_kind == "ctx")
-        .map(|r| r.line_text.as_str())
-        .collect();
-    assert!(ctx.contains(&"b") && ctx.contains(&"d"), "保留上下文行");
+    assert!(
+        rows.iter()
+            .filter(|r| r.line_kind == "ctx")
+            .any(|r| r.line_text == "b"),
+        "公共前后缀应保留为上下文行：{rows:?}"
+    );
 }
 
-// ---- write：整文件覆盖也要带出改动（否则用户看不见删掉了什么） ----
-
+/// 写入与编辑都必须成对给出删除行与新增行；只读工具不报改动。
 #[tokio::test]
-async fn write_tool_reports_file_and_diff() {
+async fn write_and_edit_report_paired_diff_lines_while_read_reports_none() {
     let dir = workdir("write");
-    let file = dir.join("n.txt");
-    std::fs::write(&file, "one\ntwo\n").unwrap();
+    std::fs::write(dir.join("n.txt"), "one\ntwo\n").unwrap();
 
     let out = wb_tools::builtin::write::WriteTool
         .execute(
@@ -58,27 +62,20 @@ async fn write_tool_reports_file_and_diff() {
         )
         .await
         .unwrap();
-
     assert_eq!(
         out.file_path.as_deref(),
         Some("n.txt"),
         "改动文件用工作区相对路径"
     );
-    let diff = out.diff.expect("改动必须带差异行");
-    let dels: Vec<&str> = diff
-        .iter()
-        .filter(|d| d.line_kind == "del")
-        .map(|d| d.line_text.as_str())
-        .collect();
-    assert_eq!(dels, vec!["two"], "被替换的旧行应标为删除");
-    let _ = std::fs::remove_dir_all(&dir);
-}
+    assert_eq!(
+        changes(&out),
+        vec![
+            ("del".to_string(), "two".to_string()),
+            ("add".to_string(), "TWO".to_string())
+        ],
+        "整文件覆盖也要成对给出改动行"
+    );
 
-// ---- edit：多处替换的差异行成对出现 ----
-
-#[tokio::test]
-async fn edit_tool_reports_paired_diff_lines() {
-    let dir = workdir("edit");
     std::fs::write(dir.join("e.rs"), "fn a() {}\nfn b() {}\n").unwrap();
     let out = wb_tools::builtin::edit::EditTool
         .execute(
@@ -88,23 +85,15 @@ async fn edit_tool_reports_paired_diff_lines() {
         )
         .await
         .unwrap();
-    let diff = out.diff.expect("edit 必须带差异行");
-    assert!(
-        diff.iter()
-            .any(|d| d.line_kind == "del" && d.line_text == "fn b() {}")
-            && diff
-                .iter()
-                .any(|d| d.line_kind == "add" && d.line_text == "fn c() {}"),
-        "删除行与新增行都要在：{diff:?}"
+    assert_eq!(
+        changes(&out),
+        vec![
+            ("del".to_string(), "fn b() {}".to_string()),
+            ("add".to_string(), "fn c() {}".to_string())
+        ],
+        "edit 的删除行与新增行都要在"
     );
-    let _ = std::fs::remove_dir_all(&dir);
-}
 
-// ---- read：只读工具不产生改动 ----
-
-#[tokio::test]
-async fn read_tool_reports_no_changes() {
-    let dir = workdir("read");
     std::fs::write(dir.join("r.txt"), "hello\n").unwrap();
     let out = wb_tools::builtin::read::ReadTool
         .execute(

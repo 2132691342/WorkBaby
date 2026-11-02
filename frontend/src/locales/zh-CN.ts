@@ -14,7 +14,7 @@ export default {
   net: {
     badStatus: '本地服务返回了异常状态 {status}',
     timeout: '本地服务长时间没有响应，请重试一次',
-    unreachable: '连不上本地服务（{base}）。请检查是否残留了旧版进程，或代理软件拦截了本机回环地址',
+    unreachable: '连不上本地服务（{base}）。请检查是否有残留进程，或代理软件拦截了本机回环地址',
     noHandshake: '尚未握手',
     emptyBody: '后端没有返回数据',
     requestFailed: '请求失败',
@@ -105,7 +105,7 @@ export default {
     quit: '退出应用',
     retryHint: '重试',
     toTray: '已收进托盘，点右下角图标重新打开',
-    noService: '本地服务没有响应。可能残留了旧版 WorkBaby 进程占用，请先在任务管理器里结束它再重试。',
+    noService: '本地服务没有响应。可能有一个 WorkBaby 进程残留占用，请先在任务管理器里结束它再重试。',
     noShell: '未检测到桌面壳。浏览器直开调试请先设置 localStorage.wb_dev_port 指向已启动的后端端口。',
     startupFailed: '后端启动失败，请查看日志目录里的 app.log',
   },
