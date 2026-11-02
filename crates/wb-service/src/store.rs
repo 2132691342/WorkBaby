@@ -11,11 +11,9 @@ use wb_pkg::{AppError, Result};
 use super::Services;
 use wb_kernel::{Block, Msg, SessionFile};
 
-/// 会话列表（索引表）。
-/// 索引行已存有名称、provider、model 与活动时间；创建时间要回到会话头读，
-/// 否则列表里每条会话的「创建」都等于「最后一次说话」。
+/// 会话列表（索引表），只列当前工作区的会话：工作区切了，列表就得跟着换。
 pub fn list(sv: &Arc<Services>) -> Result<Vec<SessionVO>> {
-    let rows = sv.repo.sessions_list()?;
+    let rows = sv.repo.sessions_list_in(&sv.workspace_text())?;
     let running = sv.chat.lock().unwrap().running_ids();
     let dir = sv.sessions_dir();
     Ok(rows
@@ -207,6 +205,8 @@ pub fn to_message_vos(msgs: Vec<Msg>) -> Vec<MessageVO> {
                 is_error,
                 timestamp,
                 duration_ms,
+                file_path,
+                diff,
             } => {
                 let mut vo = MessageVO::empty(format!("ENT_T{idx}"), "tool", timestamp);
                 vo.message_type = "tool".into();
@@ -214,6 +214,9 @@ pub fn to_message_vos(msgs: Vec<Msg>) -> Vec<MessageVO> {
                 vo.message_tool_name = Some(tool_name);
                 vo.message_is_error = Some(is_error);
                 vo.message_content = Some(content);
+                // 改动文件与差异行随工具结果落盘：回放会话时界面同样能就地着色
+                vo.message_file_path = file_path.clone();
+                vo.message_diff = diff.clone();
                 let _ = duration_ms;
                 out.push(vo);
             }

@@ -237,8 +237,17 @@ export const featureConfig = {
     post<null>(`/features/${code}/config`, { config_values: values }),
 }
 
-/** 内置运行时：bash / git / python 是否就位。 */
+/** 内置运行时：bash / git / python 是否就位，以及后台解压进度。 */
 export const runtimeStatus = () => get<RuntimeStatusRESP>('/runtime')
+
+/** 工作区：读取当前值与热切换（切换后立即生效，不需重启）。 */
+export const workspace = {
+  current: () => get<{ resp_workspace: string }>('/workspace'),
+  switch: (path: string) =>
+    post<{ resp_workspace: string; resp_skill_count: number }>('/workspace/switch', {
+      workspace_path: path,
+    }),
+}
 
 /** 子代理角色预设（task 工具可选的角色与职责）。 */
 export interface SubagentRoleVO {

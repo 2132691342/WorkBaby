@@ -42,3 +42,11 @@ pub fn resolve_in_workdir(workdir: &Path, raw: &str) -> Result<PathBuf> {
         wb_pkg::realpath::real_path(&workdir.join(p))
     }
 }
+
+/// 改动文件的展示路径：能相对工作区就相对（界面按工作区拼回绝对路径），
+/// 否则保留绝对路径——两者都能被界面认出来。
+pub fn rel_display(workdir: &Path, path: &Path) -> String {
+    path.strip_prefix(workdir)
+        .map(|p| p.display().to_string().replace('\\', "/"))
+        .unwrap_or_else(|_| path.display().to_string().replace('\\', "/"))
+}

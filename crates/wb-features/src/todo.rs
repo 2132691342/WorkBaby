@@ -130,6 +130,11 @@ impl TodoStore {
         }
     }
 
+    /// 盘上文件路径（切换工作区时用于确认作用域已换）。
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// 读全量（文件缺失 = 空）；载入即重排展示序号。
     pub fn load(&self) -> Vec<TodoItem> {
         let mut items: Vec<TodoItem> = std::fs::read_to_string(&self.path)
@@ -381,10 +386,10 @@ impl Tool for TodoTool {
             "chat:widget",
             json!({ "key": "todo", "lines": Self::widget_lines(&items) }),
         );
-        Ok(ToolOutput {
-            text: Self::render(&items),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            Self::render(&items),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

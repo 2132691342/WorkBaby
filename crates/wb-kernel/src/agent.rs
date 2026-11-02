@@ -326,27 +326,8 @@ pub async fn run(
                         (call_id, name, out)
                     });
                 }
-                for (call_id, name, out) in futures::future::join_all(tasks).await {
-                    emit(&KernelEvent::ToolExecutionEnd {
-                        call_id: call_id.clone(),
-                        name: name.clone(),
-                        result: out.0.clone(),
-                        is_error: out.1,
-                        duration_ms: out.2,
-                    });
-                    session
-                        .append(Entry::Message {
-                            message: Msg::ToolResult {
-                                tool_call_id: call_id,
-                                tool_name: name,
-                                content: out.0,
-                                is_error: out.1,
-                                timestamp: now_ms(),
-                                duration_ms: out.2,
-                            },
-                        })
-                        .map_err(loop_err)?;
-                }
+                let outcomes = futures::future::join_all(tasks).await;
+                crate::toolbatch::settle(&mut session, outcomes, &emit)?;
             }
             emit(&KernelEvent::TurnEnd {
                 usage: usage.clone(),

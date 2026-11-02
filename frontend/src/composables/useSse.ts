@@ -50,6 +50,8 @@ const names = [
   'agent:tool_start',
   'agent:tool_end',
   'agent:done',
+  // 壳级广播（全局通道 session_id 为空）：工作区热切换等
+  'app:workspace',
 ]
 
 let source: EventSource | null = null
@@ -201,6 +203,47 @@ export function useSse(
     if (reSink) reconnectSinks.delete(reSink)
   })
   return { connected: sseConnected }
+}
+
+/** 订阅全局广播通道（session_id 为空）：不跟会话走，断线自己重连，返回解绑函数。
+ *  用在应用壳上——工作区切换这类广播发生时，当前会话可能一条也不存在。 */
+export function subscribeGlobal(handler: EventSink): () => void {
+  let es: EventSource | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let closed = false
+
+  const stop = () => {
+    if (retryTimer) {
+      clearTimeout(retryTimer)
+      retryTimer = null
+    }
+    es?.close()
+    es = null
+  }
+  const start = () => {
+    if (closed) return
+    const base = getBaseURL()
+    if (!base) {
+      retryTimer = setTimeout(start, 800)
+      return
+    }
+    stop()
+    const ch = openChannel('', 0, () => {}, () => {
+      stop()
+      retryTimer = setTimeout(start, 1200)
+    }, handler)
+    es = ch?.es ?? null
+  }
+  start()
+  // 端口握手可能晚于壳挂载：基址就绪后补一次
+  const stopWatch = watch(getBaseURLRef, (base) => {
+    if (base && !es) start()
+  })
+  return () => {
+    closed = true
+    stopWatch()
+    stop()
+  }
 }
 
 /** 订阅一条附加会话流（子代理观测用）：独立连接、随组件卸载关闭。

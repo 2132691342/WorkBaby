@@ -75,7 +75,13 @@ pub const PROVIDERS: &[SearchProvider] = &[
 ];
 
 /// 已配置的密钥：按变量名顺序取第一个非空值。
+/// 环境变量是默认来源，界面里填的 `feature_config_web.web_keys` 优先——
+/// 让用户能在应用内配好就联网，不必先会改系统环境变量。
 pub fn key_for(provider: &'static SearchProvider) -> Option<String> {
+    let from_cfg = crate::config::web_key_for(provider.provider_code);
+    if let Some(k) = from_cfg {
+        return Some(k);
+    }
     provider
         .provider_env_keys
         .iter()
@@ -127,6 +133,22 @@ pub fn missing_key_codes() -> Vec<&'static str> {
         .iter()
         .filter(|p| needs_key(p) && key_for(p).is_none())
         .map(|p| p.provider_code)
+        .collect()
+}
+
+/// 搜索源密钥的写入格式：单个字段填 `源码=密钥`，多行分隔。
+/// 放在配置里而不是只靠环境变量：桌面应用用户没有「改环境变量」这一步。
+pub fn parse_keys(raw: &str) -> Vec<(String, String)> {
+    raw.lines()
+        .filter_map(|line| {
+            let (code, value) = line.split_once('=')?;
+            let code = code.trim().to_lowercase();
+            let value = value.trim();
+            if code.is_empty() || value.is_empty() {
+                return None;
+            }
+            Some((code, value.to_string()))
+        })
         .collect()
 }
 

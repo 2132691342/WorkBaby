@@ -16,21 +16,49 @@ pub async fn execute_tool(
     name: &str,
     arguments: &str,
     cancel: &CancellationToken,
-) -> (String, bool, i64) {
+) -> ToolResultOut {
     let started = Instant::now();
     let Some(tool) = cfg.registry.get(name) else {
-        return ("[工具不存在或已停用]".into(), true, 0);
+        return ToolResultOut {
+            result_text: "[工具不存在或已停用]".into(),
+            is_error: true,
+            duration_ms: 0,
+            file_path: None,
+            diff: None,
+        };
     };
     let args: serde_json::Value =
         serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
     match tool.execute(args, cancel.clone(), &cfg.workdir).await {
-        Ok(out) => (out.text, out.is_error, out.duration_ms),
-        Err(e) => (
-            format!("[错误 {}] {}", e.code, e.message),
-            true,
-            started.elapsed().as_millis() as i64,
-        ),
+        Ok(out) => ToolResultOut {
+            result_text: out.text,
+            is_error: out.is_error,
+            duration_ms: out.duration_ms,
+            file_path: out.file_path,
+            diff: out.diff,
+        },
+        Err(e) => ToolResultOut {
+            result_text: format!("[错误 {}] {}", e.code, e.message),
+            is_error: true,
+            duration_ms: started.elapsed().as_millis() as i64,
+            file_path: None,
+            diff: None,
+        },
     }
+}
+
+/// 一次工具执行的结果（含改动文件，供界面就地着色）。
+pub struct ToolResultOut {
+    /// 结果文本（已截断）
+    pub result_text: String,
+    /// 是否按错误处理
+    pub is_error: bool,
+    /// 耗时毫秒
+    pub duration_ms: i64,
+    /// 改动的文件（相对工作区）
+    pub file_path: Option<String>,
+    /// 改动差异行
+    pub diff: Option<Vec<wb_domain::events::DiffLine>>,
 }
 
 /// 同批工具调用的并发分组：相邻只读调用并一组一起跑，

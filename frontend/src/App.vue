@@ -15,6 +15,7 @@ import NavRail from './components/layout/NavRail.vue'
 import ToastHost from './components/common/ToastHost.vue'
 import TitleBar from './components/layout/TitleBar.vue'
 import { status, stage, message, retryHandshake } from './bootstrap'
+import { subscribeGlobal } from './composables/useSse'
 import * as api from './api'
 import type { RuntimeStatusRESP } from './types/api'
 import { onShellEvent, quitApp } from './api/shell'
@@ -38,6 +39,31 @@ installChatBridge()
 const failed = computed(() => status.value === 'failed')
 const ready = computed(() => booted.value && !failed.value)
 
+/** 运行时轮询：解压期间每 1.5 秒读一次，就绪即停。 */
+let runtimeTimer: ReturnType<typeof setTimeout> | undefined
+function pollRuntime() {
+  clearTimeout(runtimeTimer)
+  runtimeTimer = setTimeout(async () => {
+    try {
+      runtime.value = await api.runtimeStatus()
+    } catch {
+      return
+    }
+    if (runtime.value?.resp_phase === 'preparing') {
+      pollRuntime()
+    } else if (runtime.value?.resp_ready) {
+      toast.ok(t('boot.runtimeReady'))
+    }
+  }, 1500)
+}
+
+/** 工作区变了：整个界面的数据都属于旧目录，重读引导与清单。 */
+async function onWorkspaceChanged(ws: string) {
+  await settings.loadBoot()
+  await settings.warmup()
+  toast.info(t('boot.workspaceChanged', { path: ws }))
+}
+
 async function loadBoot() {
   try {
     await settings.loadBoot()
@@ -51,17 +77,20 @@ async function loadBoot() {
   // 已保存的外观与显示偏好要落到 DOM 上，否则刷新后主题之外的设置全部失效
   syncFromSettings()
   chat.setShowThinking(settings.values['show_thinking'] !== 'false')
-  // 第三段：内置运行时是否就位。解压在后端启动时同步做完，这里只是把结论读出来：
-  // 缺 bash/python 时不挡使用（工具会退回系统安装），但必须让用户看见原因。
+  // 第三段：内置运行时是否就位。解压在后台跑，这里只读一眼当前状态并起轮询：
+  // 首启不阻塞，但必须让用户看见「准备中 / 就绪 / 失败」。
   try {
     runtime.value = await api.runtimeStatus()
+    if (runtime.value.resp_phase === 'preparing') pollRuntime()
   } catch {
     // 读不到运行时状态不该让界面卡在启动页
   } finally {
     stage.value = 'done'
   }
   booted.value = true
-  if (runtime.value && !runtime.value.resp_ready) {
+  if (runtime.value && runtime.value.resp_phase === 'preparing') {
+    toast.info(t('boot.runtimePreparing'))
+  } else if (runtime.value && !runtime.value.resp_ready) {
     toast.info(t('boot.runtimeMissing'))
   }
   // 没配模型就直接送到「模型」页：那是现在唯一能配模型的地方。
@@ -91,6 +120,8 @@ onMounted(() => {
     void router.push('/chat')
     pushShellIntent()
   })
+  // 工作区热切换由后端广播：前端接到就重读快照，不再要求重启
+  watchWorkspaceBroadcast()
 })
 
 /** 启动阶段两段读数：把「正在启动」拆成可感知的进度 */
@@ -100,6 +131,16 @@ const bootSteps = computed(() => [
   { key: 'env', label: t('boot.env'), done: stage.value === 'done' },
 ])
 
+/** 监听后端的工作区广播：全局通道的 app:workspace 事件。 */
+let stopGlobal: (() => void) | null = null
+function watchWorkspaceBroadcast() {
+  if (stopGlobal) return
+  stopGlobal = subscribeGlobal((frame) => {
+    if (frame.event !== 'app:workspace') return
+    const payload = frame.data as { workspace?: string } | null
+    if (payload?.workspace) void onWorkspaceChanged(payload.workspace)
+  })
+}
 </script>
 
 <template>

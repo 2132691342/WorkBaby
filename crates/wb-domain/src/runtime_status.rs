@@ -1,4 +1,4 @@
-//! 内置运行时状态视图：界面据此显示 bash / git / python 是否就位。
+//! 内置运行时状态视图：界面据此显示 bash / git / python 是否就位、解压到哪一步。
 
 use serde::{Deserialize, Serialize};
 
@@ -26,4 +26,12 @@ pub struct RuntimeStatusRESP {
     pub resp_ready: bool,
     /// 解压或校验失败原因（成功时为空串）
     pub resp_failure: String,
+    /// 阶段：preparing（后台解压中）/ ready / failed
+    pub resp_phase: String,
+    /// 已完成件数（0..=2）
+    pub resp_done_count: i64,
+    /// 总件数（恒为 2：PortableGit + Python）
+    pub resp_total_count: i64,
+    /// 当前正在处理的件名（空闲时为空串）
+    pub resp_current: String,
 }

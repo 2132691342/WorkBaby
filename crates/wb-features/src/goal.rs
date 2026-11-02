@@ -242,11 +242,11 @@ impl Tool for CreateGoalTool {
         })
         .await
         .map_err(|e| AppError::new("7001", e.to_string()))??;
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -296,11 +296,11 @@ impl Tool for GetGoalTool {
         })
         .await
         .map_err(|e| AppError::new("7001", e.to_string()))??;
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -399,10 +399,10 @@ impl Tool for UpdateGoalTool {
         })
         .await
         .map_err(|e| AppError::new("7001", e.to_string()))??;
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

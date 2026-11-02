@@ -71,11 +71,11 @@ impl Tool for McpBridge {
                 return Err(AppError::new(toolcode::EXEC_CANCELLED, "工具调用已取消"));
             }
         };
-        Ok(ToolOutput {
-            text: wb_mcp::pool::flatten_text(&result),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            wb_mcp::pool::flatten_text(&result),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -112,7 +112,7 @@ pub fn install(sv: &Arc<Services>) {
 /// 重载：断开全部 → 重新连接 → 重建注册表。
 pub async fn reload(sv: &Arc<Services>) -> Result<()> {
     sv.mcp.shutdown_all();
-    let ws = sv.workspace.lock().unwrap().clone();
+    let ws = sv.workspace_text();
     let cfg = wb_mcp::McpConfig::load(&sv.data_dir, Path::new(&ws));
     let targets: Vec<_> = cfg
         .merged()
@@ -152,7 +152,7 @@ pub async fn reload(sv: &Arc<Services>) -> Result<()> {
 
 /// 清单视图（面板）。
 pub fn list_vo(sv: &Arc<Services>) -> McpListRESP {
-    let ws = sv.workspace.lock().unwrap().clone();
+    let ws = sv.workspace_text();
     let cfg = wb_mcp::McpConfig::load(&sv.data_dir, Path::new(&ws));
     let conns = sv.mcp.conns.lock().unwrap();
     let mut servers = Vec::new();
@@ -207,7 +207,7 @@ pub fn list_vo(sv: &Arc<Services>) -> McpListRESP {
 
 /// 保存配置并重载。
 pub async fn save(sv: &Arc<Services>, req: &McpSaveREQ) -> Result<()> {
-    let ws = sv.workspace.lock().unwrap().clone();
+    let ws = sv.workspace_text();
     let cfg = wb_mcp::McpConfig::load(&sv.data_dir, Path::new(&ws));
     let path = match req.mcp_scope.as_str() {
         "workspace" => cfg.workspace_path.clone(),
@@ -219,7 +219,7 @@ pub async fn save(sv: &Arc<Services>, req: &McpSaveREQ) -> Result<()> {
 
 /// 移除 server 并重载。
 pub async fn remove(sv: &Arc<Services>, req: &McpNameREQ) -> Result<()> {
-    let ws = sv.workspace.lock().unwrap().clone();
+    let ws = sv.workspace_text();
     let cfg = wb_mcp::McpConfig::load(&sv.data_dir, Path::new(&ws));
     let path = match req.mcp_scope.as_str() {
         "workspace" => cfg.workspace_path.clone(),

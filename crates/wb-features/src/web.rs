@@ -220,11 +220,11 @@ impl Tool for FetchTool {
                 ))
             }
         };
-        Ok(ToolOutput {
-            text: truncate_chars(text.trim(), max_chars),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            truncate_chars(text.trim(), max_chars),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -370,19 +370,19 @@ impl Tool for SearchTool {
                     r.result_snippet
                 ));
             }
-            return Ok(ToolOutput {
-                text: out,
-                is_error: false,
-                duration_ms: started.elapsed().as_millis() as i64,
-            });
+            return Ok(ToolOutput::plain(
+                out,
+                false,
+                started.elapsed().as_millis() as i64,
+            ));
         }
-        Ok(ToolOutput {
-            text: format!(
+        Ok(ToolOutput::plain(
+            format!(
                 "所有搜索源都没有返回可解析的结果：\n{}",
                 failures.join("\n")
             ),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

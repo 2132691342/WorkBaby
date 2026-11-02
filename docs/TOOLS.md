@@ -28,8 +28,14 @@ pub trait Tool: Send + Sync {
 `description` 不是装饰——模型据此决定调用谁。写得含糊，模型就不调用；
 写得太长，占上下文。所以它写「什么时候该用它」，不写「它怎么实现」。
 
-`ToolOutput { text, is_error, duration_ms }`：`text` 进模型上下文，
+`ToolOutput { text, is_error, duration_ms, file_path, diff }`：`text` 进模型上下文，
 `is_error` 让模型知道这次调用失败了（而不是当成正常结果继续往下走）。
+
+`file_path` / `diff` 是写给界面的改动快照：写文件类工具（`write` / `edit`）自己算行级差异，
+随 `chat:tool_end` 推给前端、并跟着工具结果落进会话 JSONL。它**不进模型上下文**——
+模型不需要看自己刚写的 diff，那只是重复消耗。其他工具保持 `None`。
+行级比对在 `wb-tools::difftext`：裁掉公共前后缀后逐行标注 add / del / ctx，
+只回答「改了哪几行」，不产出可 patch 的补丁。
 
 ## 注册表
 

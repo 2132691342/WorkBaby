@@ -9,6 +9,7 @@ pub mod mcp_routes;
 pub mod routes;
 pub mod session_routes;
 pub mod system_routes;
+pub mod workspace_default;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,6 +49,8 @@ pub async fn startup(data_dir: PathBuf, workspace: String) -> Result<Startup> {
     wb_service::features::install(&sv);
     // 历史会话用量一次性回填（幂等）
     wb_service::usage::backfill(&sv);
+    // 内置运行时后台解压：端口早一点交出去，首启不再等 186MB 落地
+    sv.spawn_runtime();
     let state = AppState {
         sv: sv.clone(),
         hub: hub.clone(),
@@ -65,13 +68,22 @@ pub async fn startup(data_dir: PathBuf, workspace: String) -> Result<Startup> {
     Ok(Startup { port, sv, hub })
 }
 
-/// 工作区解析：设置 KV 里存过且目录仍存在则用之；否则用传入目录并写回 KV 作初始值。
+/// 工作区解析：设置里存过的目得还存在就用它；否则用壳传入的目录（不合适就换成
+/// 用户文档目录）并写回 KV 作初始值。
 fn resolve_workspace(repo: &Arc<wb_repo::Repo>, fallback: String) -> String {
     if let Ok(Some(dir)) = repo.settings_get("workspace") {
-        if !dir.trim().is_empty() && std::path::Path::new(&dir).is_dir() {
+        if workspace_default::is_sane_workspace(&dir) {
             return dir;
         }
     }
-    let _ = repo.settings_set("workspace", &fallback);
-    fallback
+    // 壳传入的是进程 cwd：从快捷方式启动时可能是 System32，不能直接当工作区
+    let candidate = if workspace_default::is_sane_workspace(&fallback) {
+        fallback
+    } else {
+        workspace_default::suggested_workspace()
+            .display()
+            .to_string()
+    };
+    let _ = repo.settings_set("workspace", &candidate);
+    candidate
 }

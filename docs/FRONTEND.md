@@ -79,12 +79,14 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | TurnFoot | 回合脚注：复制 + 用量读数 + 时间 |
 | ContextMeter | 上下文水位环 + 读数，点击展开占用分解 |
 | EngineStatusBar | 状态条（功能 setStatus 桥）；只留一行状态文字 |
+| ChatHeader | 对话页页头：会话名 + 模型行 + 压缩上下文按钮 |
+| ActivityBar | 输入框上方常驻活动条：正在干什么 / 已输出多少字 / 耗时 / 安静过久提示 |
 | features/FeatureDock | 对话主区内、状态条上方：待办 / 目标 / 计划三个结构化面板的 tab 抽屉 |
 | StatusHud | 底部常驻：模型/思考档/水位/耗时 |
 | EngineCard | 左栏底部内核状态卡，显示就绪/阻塞原因 |
 | ExampleCards | 首屏例句 |
 | FilePeek | 就地看文件改动 |
-| WorkspaceChip | 显示当前工作区；点击可改选目录，改选重启生效（设置页行为面板同样可改选） |
+| WorkspaceChip | 显示当前工作区；点击可改选目录，**热生效**（后端重扫作用域并广播 `app:workspace`） |
 
 ## 独立页组件
 

@@ -2,12 +2,14 @@
 
 use wb_skills::SkillRegistry;
 
-/// 组装系统提示词：正文 + tools/rules/skills/cwd 命名段。
+/// 组装系统提示词：正文 + runtime/tools/skills/cwd/live_state 命名段。
+/// `skill_enabled` 决定技能段内容：关掉的技能既不出现在提示词里，也不该被模型引用。
 pub fn build_system_prompt(
     workspace: &str,
     skills: &SkillRegistry,
     enabled_tools: &[String],
     live_state: Option<&str>,
+    skill_enabled: impl Fn(&str) -> bool,
 ) -> String {
     let mut out = String::from(
         "You are WorkBaby, a capable personal assistant running on the user's Windows desktop. \
@@ -30,7 +32,7 @@ pub fn build_system_prompt(
         out.push_str("</tools>\n");
     }
     out.push_str("\n<skills>\n");
-    out.push_str(&skills.format_available_skills(|_| true));
+    out.push_str(&skills.format_available_skills(skill_enabled));
     out.push_str("\n</skills>\n");
     // 活状态（待办 / 目标）每轮重读：压缩和重启都不会让它从视野里消失
     if let Some(state) = live_state {

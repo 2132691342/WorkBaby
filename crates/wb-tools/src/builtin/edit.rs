@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use wb_pkg::{fsutil, AppError, Result};
 
+use crate::builtin::rel_display;
 use crate::registry::{Tool, ToolAnnotations, ToolOutput};
 
 /// edit 工具。
@@ -66,6 +67,8 @@ impl Tool for EditTool {
             .as_array()
             .ok_or_else(|| AppError::new("1001", "edits 必须是数组"))?;
         let mut content = fsutil::read_to_string(&path)?;
+        // 改前快照：界面要在工具卡里就地看见增删行
+        let before = content.clone();
         for (i, e) in edits.iter().enumerate() {
             let old = e["old_text"]
                 .as_str()
@@ -91,10 +94,12 @@ impl Tool for EditTool {
             }
         }
         fsutil::write_atomic(&path, content.as_bytes())?;
-        Ok(ToolOutput {
-            text: format!("已编辑 {}（{} 处）", path.display(), edits.len()),
-            is_error: false,
-            duration_ms: 0,
-        })
+        let diff = crate::difftext::line_diff(&before, &content);
+        Ok(ToolOutput::plain(
+            format!("已编辑 {}（{} 处）", path.display(), edits.len()),
+            false,
+            0,
+        )
+        .with_changes(rel_display(workdir, &path), diff))
     }
 }

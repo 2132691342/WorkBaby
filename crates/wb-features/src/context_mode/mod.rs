@@ -140,11 +140,11 @@ impl Tool for CtxExecuteTool {
                 text.push_str(&format!("\n\n[退出码 {code}]"));
             }
         }
-        Ok(ToolOutput {
+        Ok(ToolOutput::plain(
             text,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -222,11 +222,11 @@ impl Tool for CtxIndexTool {
         })
         .await
         .map_err(|e| AppError::new("7001", format!("知识库任务失败：{e}")))??;
-        Ok(ToolOutput {
-            text: format!("已收录：{doc_id}（来源 {source_text}）"),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            format!("已收录：{doc_id}（来源 {source_text}）"),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -292,11 +292,11 @@ impl Tool for CtxSearchTool {
         .await
         .map_err(|e| AppError::new("7001", format!("知识库任务失败：{e}")))??;
         if hits.is_empty() {
-            return Ok(ToolOutput {
-                text: "知识库里没有命中。".into(),
-                is_error: false,
-                duration_ms: started.elapsed().as_millis() as i64,
-            });
+            return Ok(ToolOutput::plain(
+                "知识库里没有命中。",
+                false,
+                started.elapsed().as_millis() as i64,
+            ));
         }
         let mut lines = Vec::with_capacity(hits.len());
         for h in &hits {
@@ -305,11 +305,11 @@ impl Tool for CtxSearchTool {
                 h.chunk_doc_id, h.chunk_source, h.chunk_ordinal, h.chunk_excerpt
             ));
         }
-        Ok(ToolOutput {
-            text: lines.join("\n\n"),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            lines.join("\n\n"),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -432,10 +432,10 @@ impl Tool for CtxBatchExecuteTool {
             }
             parts.push(part);
         }
-        Ok(ToolOutput {
-            text: parts.join("\n\n"),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            parts.join("\n\n"),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

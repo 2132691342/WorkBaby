@@ -50,11 +50,7 @@ async fn run_blocking<T: Send + 'static>(
 
 /// 组装带耗时的成功输出。
 fn out(text: String, started: Instant) -> ToolOutput {
-    ToolOutput {
-        text,
-        is_error: false,
-        duration_ms: started.elapsed().as_millis() as i64,
-    }
+    ToolOutput::plain(text, false, started.elapsed().as_millis() as i64)
 }
 
 /// ffind 同步体：遍历打分 + frecency 加权 + 落库；返回最终输出文本。

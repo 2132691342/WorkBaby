@@ -65,6 +65,8 @@ pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent, context_window: 
             result,
             is_error,
             duration_ms,
+            file_path,
+            diff,
         } => {
             emit_data(
                 em,
@@ -76,8 +78,8 @@ pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent, context_window: 
                     result: result.clone(),
                     is_error: *is_error,
                     duration_ms: *duration_ms,
-                    file_path: None,
-                    diff: None,
+                    file_path: file_path.clone(),
+                    diff: diff.clone(),
                 },
             );
         }

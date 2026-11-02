@@ -4,20 +4,23 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../stores/settings'
+import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
 import { autostartGet, autostartSet, pickFolder } from '../../api/shell'
+import * as api from '../../api'
 import { LOCALES, setLocale, type Locale } from '../../i18n'
 import SettingsSection from './SettingsSection.vue'
 import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
+const session = useSessionStore()
 const toast = useToastStore()
 
 const busy = ref('')
 const autoStart = ref(false)
 
-const workspace = computed(() => settings.values['workspace'] || settings.boot?.boot_workspace || '')
+const workspace = computed(() => settings.boot?.boot_workspace || settings.values['workspace'] || '')
 const sendOnEnter = computed(() => settings.values['send_on_enter'] !== 'false')
 const tray = computed(() => settings.values['minimize_to_tray'] !== 'false')
 const currentLocale = computed<Locale>(() => (settings.values['language'] === 'en' ? 'en' : 'zh-CN'))
@@ -25,12 +28,19 @@ const currentLocale = computed<Locale>(() => (settings.values['language'] === 'e
 async function pickWorkspace() {
   const dir = await pickFolder(t('settings.behavior.workspacePick'))
   if (!dir || dir === workspace.value) return
+  busy.value = 'workspace'
   try {
-    await settings.setValue('workspace', dir)
+    const resp = await api.workspace.switch(dir)
+    // 切换在后端已完成（重扫技能 / 重建注册表）：前端只重读快照与清单
     await settings.loadBoot()
-    toast.ok(dir)
+    await settings.warmup()
+    session.draft()
+    await session.loadList()
+    toast.ok(t('settings.behavior.workspaceSwitched', { path: resp.resp_workspace }))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
+  } finally {
+    busy.value = ''
   }
 }
 
@@ -78,9 +88,12 @@ onMounted(async () => {
   <div class="panel-wrap wb-form">
     <SettingsSection icon="folder" :title="t('settings.behavior.workspace')" :desc="t('settings.behavior.workspaceHint')">
       <template #actions>
-        <el-button size="small" @click="pickWorkspace">{{ t('settings.behavior.workspacePick') }}</el-button>
+        <el-button size="small" :loading="busy === 'workspace'" :disabled="busy === 'workspace'" @click="pickWorkspace">
+          {{ t('settings.behavior.workspacePick') }}
+        </el-button>
       </template>
       <p class="path-line" :title="workspace">{{ workspace || '—' }}</p>
+      <p class="hint-line">{{ t('settings.behavior.workspaceLive') }}</p>
     </SettingsSection>
 
     <SettingsSection icon="keyboard" :title="t('settings.behavior.input')" :desc="t('settings.behavior.inputHint')" divided>
@@ -132,5 +145,10 @@ onMounted(async () => {
   font-size: var(--wb-fs-xs);
   color: var(--wb-ink-2);
   overflow-wrap: anywhere;
+}
+.hint-line {
+  margin: var(--wb-sp-1) 0 0;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
 }
 </style>

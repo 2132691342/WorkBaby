@@ -147,38 +147,38 @@ impl Tool for LspFixTool {
             .await?;
         lsp.shutdown().await;
         if edits.is_empty() {
-            return Ok(ToolOutput {
-                text: format!("{} 没有可用的 {} 修复。", rel, kind),
-                is_error: false,
-                duration_ms: started.elapsed().as_millis() as i64,
-            });
+            return Ok(ToolOutput::plain(
+                format!("{} 没有可用的 {} 修复。", rel, kind),
+                false,
+                started.elapsed().as_millis() as i64,
+            ));
         }
         let fixed = apply_edits(&text, &edits);
         if write {
             std::fs::write(&file, &fixed).map_err(|e| AppError::wrap("1002", "写文件失败", e))?;
-            Ok(ToolOutput {
-                text: format!(
+            Ok(ToolOutput::plain(
+                format!(
                     "已对 {} 应用 {} 修复（{} 处编辑）。",
                     rel,
                     kind,
                     edits.len()
                 ),
-                is_error: false,
-                duration_ms: started.elapsed().as_millis() as i64,
-            })
+                false,
+                started.elapsed().as_millis() as i64,
+            ))
         } else {
             let preview = diff_preview(&text, &fixed);
-            Ok(ToolOutput {
-                text: format!(
+            Ok(ToolOutput::plain(
+                format!(
                     "{} 的 {} 修复预览（{} 处编辑，未写入）：\n{}",
                     rel,
                     kind,
                     edits.len(),
                     preview
                 ),
-                is_error: false,
-                duration_ms: started.elapsed().as_millis() as i64,
-            })
+                false,
+                started.elapsed().as_millis() as i64,
+            ))
         }
     }
 }

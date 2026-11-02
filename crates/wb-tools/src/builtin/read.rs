@@ -56,21 +56,21 @@ impl Tool for ReadTool {
         let meta = std::fs::metadata(&path)
             .map_err(|e| wb_pkg::AppError::wrap("1004", "路径不存在", e))?;
         if meta.is_dir() {
-            return Ok(ToolOutput {
-                text: format!("[目录] {}（用 ls 列出内容）", path.display()),
-                is_error: false,
-                duration_ms: 0,
-            });
+            return Ok(ToolOutput::plain(
+                format!("[目录] {}（用 ls 列出内容）", path.display()),
+                false,
+                0,
+            ));
         }
         let bytes =
             std::fs::read(&path).map_err(|e| wb_pkg::AppError::wrap("1002", "读文件失败", e))?;
         // 二进制嗅探：含 NUL 视为二进制
         if bytes.contains(&0) {
-            return Ok(ToolOutput {
-                text: format!("[二进制文件] {}，{} 字节", path.display(), bytes.len()),
-                is_error: false,
-                duration_ms: 0,
-            });
+            return Ok(ToolOutput::plain(
+                format!("[二进制文件] {}，{} 字节", path.display(), bytes.len()),
+                false,
+                0,
+            ));
         }
         let ext = path
             .extension()
@@ -100,10 +100,6 @@ impl Tool for ReadTool {
             ));
         }
         let _ = ext;
-        Ok(ToolOutput {
-            text: truncate::truncate(&out),
-            is_error: false,
-            duration_ms: 0,
-        })
+        Ok(ToolOutput::plain(truncate::truncate(&out), false, 0))
     }
 }

@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use wb_pkg::{fsutil, AppError, Result};
 
+use crate::builtin::rel_display;
 use crate::registry::{Tool, ToolAnnotations, ToolOutput};
 
 /// write 工具。
@@ -54,11 +55,16 @@ impl Tool for WriteTool {
         let content = args["content"]
             .as_str()
             .ok_or_else(|| AppError::new("1001", "content 不能为空"))?;
+        // 原文件存在就留一份用来算 diff：整文件覆盖是最容易改坏内容的方式，
+        // 用户需要在不打开编辑器的情况下看见「到底删掉了什么」。
+        let before = fsutil::read_to_string(&path).unwrap_or_default();
         fsutil::write_atomic(&path, content.as_bytes())?;
-        Ok(ToolOutput {
-            text: format!("已写入 {}（{} 字节）", path.display(), content.len()),
-            is_error: false,
-            duration_ms: 0,
-        })
+        let diff = crate::difftext::line_diff(&before, content);
+        Ok(ToolOutput::plain(
+            format!("已写入 {}（{} 字节）", path.display(), content.len()),
+            false,
+            0,
+        )
+        .with_changes(rel_display(workdir, &path), diff))
     }
 }

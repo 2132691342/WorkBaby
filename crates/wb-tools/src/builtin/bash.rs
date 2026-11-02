@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
+use wb_pkg::AppError;
 use wb_pkg::Result;
 
 use crate::exec;
@@ -92,7 +93,12 @@ impl Tool for BashTool {
             .ok_or_else(|| wb_pkg::AppError::new("1001", "command 不能为空"))?;
         let timeout = args["timeout"].as_u64().unwrap_or(120).min(600);
         let started = std::time::Instant::now();
-        let bash = find_bash().unwrap_or_else(|| std::path::PathBuf::from("bash"));
+        let Some(bash) = find_bash() else {
+            return Err(AppError::new(
+                wb_domain::error::tool::NOT_AVAILABLE,
+                "找不到 bash：内置运行时首次启动还在解压，等几秒重试；若一直失败请到设置页看运行时状态",
+            ));
+        };
         let outcome = exec::run(
             &bash.display().to_string(),
             &["-c".to_string(), command.to_string()],
@@ -119,10 +125,10 @@ impl Tool for BashTool {
                 text.push_str(&format!("\n[退出码 {code}]"));
             }
         }
-        Ok(ToolOutput {
-            text: truncate::truncate(&text),
+        Ok(ToolOutput::plain(
+            truncate::truncate(&text),
             is_error,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

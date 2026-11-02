@@ -9,7 +9,7 @@ pub(crate) fn feature_ctx(sv: &Arc<Services>) -> wb_features::FeatureCtx {
     let emitter = sv.emitter.lock().unwrap().clone();
     wb_features::FeatureCtx {
         data_dir: sv.data_dir.clone(),
-        workspace: sv.workspace.lock().unwrap().clone().into(),
+        workspace: sv.workspace_dir(),
         emit: Arc::new(move |sid, event, data| {
             if let Some(e) = &emitter {
                 e.emit(sid, event, data);
@@ -19,14 +19,24 @@ pub(crate) fn feature_ctx(sv: &Arc<Services>) -> wb_features::FeatureCtx {
     }
 }
 
-/// 读三项功能配置：库里没存过就用默认值。
+/// 同 `feature_ctx`，供工作区模块调用（不在 features 内部链路上）。
+pub(crate) fn feature_ctx_public(sv: &Arc<Services>) -> wb_features::FeatureCtx {
+    feature_ctx(sv)
+}
+
+/// 读三项功能配置：库里没存过就用默认值。搜索源密钥顺便写进快照——
+/// 工具在构造时读它，靠全局环境变量改不了。
 fn load_configs(sv: &Arc<Services>) -> wb_features::config::FeatureConfigs {
-    wb_features::config::FeatureConfigs::parse(|code| {
+    let configs = wb_features::config::FeatureConfigs::parse(|code| {
         sv.repo
             .settings_get(&format!("feature_config_{code}"))
             .ok()
             .flatten()
-    })
+    });
+    wb_features::config::set_web_keys(wb_features::web_providers::parse_keys(
+        &configs.web.web_keys,
+    ));
+    configs
 }
 
 /// 功能是否启用（repo 开关；缺省按 docs/FEATURES.md 的默认值）。
@@ -44,7 +54,10 @@ pub fn live_state(sv: &Arc<Services>) -> Option<String> {
     let ctx = feature_ctx(sv);
     let mut out = Vec::new();
     if enabled(sv, "todo", true) {
-        let items = wb_features::todo::TodoStore::new(&ctx).load();
+        let items = match sv.todos() {
+            Some(store) => store.load(),
+            None => Vec::new(),
+        };
         if !items.is_empty() {
             let lines: Vec<String> = items
                 .iter()
@@ -94,7 +107,10 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
         )));
     }
     if enabled(sv, "todo", true) {
-        let store = Arc::new(wb_features::todo::TodoStore::new(&ctx));
+        let store = match sv.todos() {
+            Some(s) => s,
+            None => Arc::new(wb_features::todo::TodoStore::new(&ctx)),
+        };
         reg.register(Arc::new(wb_features::todo::TodoTool::new(
             store,
             ctx.clone(),

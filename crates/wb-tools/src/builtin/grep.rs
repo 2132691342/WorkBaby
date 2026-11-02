@@ -151,10 +151,6 @@ impl Tool for GrepTool {
             out.push_str("[无命中]");
         }
         let _ = visited.len();
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: 0,
-        })
+        Ok(ToolOutput::plain(out, false, 0))
     }
 }

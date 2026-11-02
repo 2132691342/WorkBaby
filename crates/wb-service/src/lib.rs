@@ -21,6 +21,7 @@ pub mod runtime;
 pub mod store;
 pub mod task;
 pub mod usage;
+pub mod workspace;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -72,18 +73,15 @@ pub struct Services {
     pub todos: std::sync::Mutex<Option<Arc<wb_features::todo::TodoStore>>>,
     /// 活跃子代理表（task 工具写入，界面按它显示「谁在跑」）
     pub agents: Arc<agents::AgentBoard>,
-    /// 内置运行时解压失败原因（成功时为空串）
-    pub runtime_failures: Vec<String>,
+    /// 内置运行时解压进度（后台线程写；/runtime 与工具提示读）
+    pub runtime: runtime::RuntimeState,
 }
 
 impl Services {
     /// 装配：数据目录 + 工作区。内核客户端等重物在首次对话时构建。
     pub fn new(data_dir: PathBuf, workspace: String, repo: Arc<wb_repo::Repo>) -> Arc<Self> {
-        // 内置运行时先就位：bash / git / python 首次执行即命中，无需用户装任何环境
-        let runtime_failures = runtime::ensure_all(&data_dir);
-        for f in &runtime_failures {
-            tracing::warn!("内置运行时异常（对应工具退回系统安装）：{f}");
-        }
+        // 运行时后台解压：启动不等 186MB 落地，解压期间工具的报错文案会指明原因
+        let runtime_state = runtime::empty_state();
         let providers = wb_provider::config::ProviderStore::new(&data_dir);
         let data_dir_for_asks = data_dir.clone();
         let mut registry = wb_tools::ToolRegistry::new();
@@ -93,7 +91,7 @@ impl Services {
             &data_dir.join("skills").join("user"),
             &PathBuf::from(&workspace).join(".workbaby").join("skills"),
         );
-        Arc::new(Self {
+        let sv = Arc::new(Self {
             data_dir,
             workspace: std::sync::Mutex::new(workspace),
             repo,
@@ -111,8 +109,28 @@ impl Services {
             goal_resumes: std::sync::Mutex::new(std::collections::HashMap::new()),
             todos: std::sync::Mutex::new(None),
             agents: agents::AgentBoard::new(),
-            runtime_failures,
-        })
+            runtime: runtime_state,
+        });
+        // 待办存储与技能表共用同一份工作区解析：先装上，工具与压缩回填才有源
+        sv.reload_workspace_scoped();
+        sv
+    }
+
+    /// 后台解压内置运行时；进度由前端轮询 `/runtime` 读取，不另开事件通道。
+    pub fn spawn_runtime(&self) {
+        runtime::start_background(
+            self.data_dir.clone(),
+            self.runtime.clone(),
+            Arc::new(|p: &runtime::RuntimeProgress| {
+                if p.finished {
+                    tracing::info!(
+                        done = p.done_count,
+                        failures = p.failures.len(),
+                        "内置运行时解压结束"
+                    );
+                }
+            }),
+        );
     }
 
     /// 挂事件出口（Startup 时调用）。
@@ -130,7 +148,7 @@ impl Services {
 
     /// 当前会话目录（按工作区编码）。
     pub fn sessions_dir(&self) -> PathBuf {
-        let ws = self.workspace.lock().unwrap().clone();
+        let ws = self.workspace_text();
         let encoded = ws.replace([char::from(92), '/', ':'], "-");
         self.data_dir.join("sessions").join(encoded)
     }
@@ -155,10 +173,11 @@ pub fn inputs(sv: &Arc<Services>) -> (Vec<String>, String) {
     let skills = sv.skills.read().unwrap();
     let state = features::live_state(sv);
     let prompt = prompt::build_system_prompt(
-        &sv.workspace.lock().unwrap().clone(),
+        &sv.workspace_text(),
         &skills,
         &enabled_tools,
         state.as_deref(),
+        |name| sv.repo.skill_enabled(name).unwrap_or(true),
     );
     (enabled_tools, prompt)
 }

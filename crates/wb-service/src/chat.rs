@@ -189,7 +189,7 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
     let client = wb_provider::create_client(resolved)?;
 
     // 会话：已有则加载；无则建（工作区同时是工具执行的工作目录）
-    let workspace = sv.workspace.lock().unwrap().clone();
+    let workspace = sv.workspace_text();
     let (session_id, session_file) = match &req.chat_session_id {
         Some(id) if !id.is_empty() => {
             let path = store::find_session_file(&sv, id)?;

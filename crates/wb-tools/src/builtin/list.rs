@@ -81,10 +81,6 @@ impl Tool for LsTool {
         if count == 0 {
             out.push_str("[空目录]");
         }
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: 0,
-        })
+        Ok(ToolOutput::plain(out, false, 0))
     }
 }

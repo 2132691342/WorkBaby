@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // 工具执行卡：折叠态是一行摘要（状态 + 工具名 + 参数摘要 + 耗时），展开看参数与输出。
-// edit 的输出里带 ```diff 围栏，按增删行着色后改动一目了然。
+// 写文件类工具的后端会带回改动文件与差异行：改动就地着色，不用切到工作区页。
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { summarizeArgs } from '../../utils/md'
 import { fmtMs } from '../../utils/num'
+import type { DiffLine } from '../../types/chatEvents'
 import { openFilePeek } from '../../composables/filePeek'
 import AppIcon from '../common/AppIcon.vue'
 
@@ -18,6 +19,10 @@ const props = defineProps<{
   title?: string
   output?: string
   duration_ms?: number
+  /** 后端回报的改动文件（相对工作区） */
+  filePath?: string
+  /** 后端回报的差异行 */
+  diff?: DiffLine[]
 }>()
 
 const { t } = useI18n()
@@ -47,8 +52,23 @@ const argsJson = computed(() =>
   props.args && Object.keys(props.args).length ? JSON.stringify(props.args, null, 2) : '',
 )
 
+/** 差异行统计：折叠态也显示，一眼看出这次动了多少。 */
+const diffStat = computed(() => {
+  const rows = props.diff
+  if (!rows || !rows.length) return null
+  let add = 0
+  let del = 0
+  for (const r of rows) {
+    if (r.line_kind === 'add') add++
+    else if (r.line_kind === 'del') del++
+  }
+  return add || del ? { add, del } : null
+})
+
 // 改了哪些文件是这一轮最该看的：路径就在参数里，点一下就地看改动，不用切到工作区。
 const filePath = computed(() => {
+  // 后端回报的改动文件优先：参数里的路径可能是绝对路径或相对别处
+  if (props.filePath) return props.filePath
   const a = props.args || {}
   const raw = a.path ?? a.file_path ?? a.filePath
   return typeof raw === 'string' ? raw : ''
@@ -68,6 +88,11 @@ const canPeek = computed(
       </span>
       <span class="tool-name">{{ label }}</span>
       <span v-if="summary" class="tool-label">{{ summary }}</span>
+      <!-- 改了文件的工具：增删行数直接写在折叠态上，不必展开就知道动了多少 -->
+      <span v-if="diffStat" class="tool-stat">
+        <span class="is-add">+{{ diffStat.add }}</span>
+        <span class="is-del">-{{ diffStat.del }}</span>
+      </span>
       <span class="tool-meta">
         <span v-if="duration_ms">{{ fmtMs(duration_ms) }}</span>
         <AppIcon class="tool-chev" :name="open ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
@@ -130,6 +155,21 @@ const canPeek = computed(
 }
 .tool-peek:active {
   transform: scale(var(--wb-btn-scale-press));
+}
+.tool-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 700;
+}
+.tool-stat .is-add {
+  color: var(--wb-success);
+}
+.tool-stat .is-del {
+  color: var(--wb-danger);
 }
 .tool-dot {
   width: calc(17px * var(--wb-vw-scale));

@@ -135,17 +135,17 @@ impl Tool for PdfReadTool {
 
         let text = text.trim().to_string();
         if text.is_empty() {
-            return Ok(ToolOutput {
-                text: "PDF 没有可抽取的文字（可能是扫描版，需要 OCR）".into(),
-                is_error: false,
-                duration_ms: started.elapsed().as_millis() as i64,
-            });
+            return Ok(ToolOutput::plain(
+                "PDF 没有可抽取的文字（可能是扫描版，需要 OCR）",
+                false,
+                started.elapsed().as_millis() as i64,
+            ));
         }
-        Ok(ToolOutput {
-            text: truncate_chars(&text, max_chars),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            truncate_chars(&text, max_chars),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -280,11 +280,11 @@ impl Tool for GithubCloneTool {
                 format!("git clone 失败（退出码 {:?}）", status.code()),
             ));
         }
-        Ok(ToolOutput {
-            text: format!("已克隆 {url} 到 {}/{}", workdir.display(), dest),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            format!("已克隆 {url} 到 {}/{}", workdir.display(), dest),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 

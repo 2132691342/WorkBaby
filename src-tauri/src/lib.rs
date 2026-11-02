@@ -148,6 +148,8 @@ pub fn run() {
             init_logs(&wb_api::data_dir());
             tauri::async_runtime::spawn(async move {
                 let handle = spawn_handle;
+                // 传进程 cwd 作为候选；合规性与回退由组合根判定（快捷方式启动时
+                // cwd 可能是 System32，直接当工作区会让助手在系统目录里读写）
                 let workspace = std::env::current_dir()
                     .unwrap_or_else(|_| std::path::PathBuf::from("."))
                     .display()

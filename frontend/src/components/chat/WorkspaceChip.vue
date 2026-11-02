@@ -1,20 +1,24 @@
 <script setup lang="ts">
 // 工作目录芯片：在输入框底栏直接切目录。
-// 切换是双写——全局默认（KV）+ 重新读引导数据；只改一边会出现「点了没换地方」的错觉。
+// 切换是后端的活（重扫技能 / 重建注册表 / 广播），前端只需重读引导数据——
+// 只改设置 KV 会让界面继续显示旧目录，那正是「选了没效果」的成因。
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../stores/settings'
+import { useSessionStore } from '../../stores/session'
 import { useToastStore } from '../../stores/toast'
 import { pickFolder } from '../../api/shell'
+import * as api from '../../api'
 import AppIcon from '../common/AppIcon.vue'
 import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
+const session = useSessionStore()
 const toast = useToastStore()
 const busy = ref(false)
 
-const current = computed(() => settings.values['workspace'] || settings.boot?.boot_workspace || '')
+const current = computed(() => settings.boot?.boot_workspace || settings.values['workspace'] || '')
 const short = computed(() => {
   const p = current.value
   if (!p) return t('settings.behavior.workspace')
@@ -24,15 +28,19 @@ const short = computed(() => {
 
 async function pick() {
   if (busy.value) return
+  const dir = await pickFolder(t('settings.behavior.workspacePick'))
+  if (!dir || dir === current.value) return
   busy.value = true
   try {
-    const dir = await pickFolder(t('settings.behavior.workspacePick'))
-    if (!dir || dir === current.value) return
-    await settings.setValue('workspace', dir)
+    const resp = await api.workspace.switch(dir)
     await settings.loadBoot()
-    toast.ok(dir)
+    await settings.warmup()
+    // 工作区变了，会话清单与当前会话都属于旧目录：回到草稿态，让列表重读
+    session.draft()
+    await session.loadList()
+    toast.ok(t('settings.behavior.workspaceSwitched', { path: resp.resp_workspace }))
   } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
+    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
   } finally {
     busy.value = false
   }

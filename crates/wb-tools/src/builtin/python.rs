@@ -78,7 +78,12 @@ impl Tool for PythonTool {
             return Err(AppError::new("1001", "code 与 file 至少给一个"));
         }
         let started = std::time::Instant::now();
-        let program = find_python().unwrap_or_else(|| PathBuf::from("python.exe"));
+        let Some(program) = find_python() else {
+            return Err(AppError::new(
+                wb_domain::error::tool::NOT_AVAILABLE,
+                "找不到 python：内置运行时首次启动还在解压，等几秒重试；若一直失败请到设置页看运行时状态",
+            ));
+        };
         // code 走 -c 直传；file 走相对工作区的路径，由 python 自己按 cwd 解析
         let argv: Vec<String> = if !code.is_empty() {
             vec!["-c".to_string(), code.to_string()]
@@ -111,10 +116,10 @@ impl Tool for PythonTool {
                 text.push_str(&format!("\n[退出码 {code}]"));
             }
         }
-        Ok(ToolOutput {
-            text: truncate::truncate(&text),
+        Ok(ToolOutput::plain(
+            truncate::truncate(&text),
             is_error,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

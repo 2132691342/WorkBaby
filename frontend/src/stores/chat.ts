@@ -68,6 +68,8 @@ export const useChatStore = defineStore('chat', () => {
   // 引擎的状态条与小部件：key → 内容，多来源共存互不覆盖
   const engineStatus = ref<Record<string, string>>({})
   const engineWidgets = ref<Record<string, string[]>>({})
+  /** 最后一次有活动的时间（毫秒）：安静提示靠它判断「是不是卡住了」 */
+  const lastActivityAt = ref(0)
 
   function reset() {
     running.value = false
@@ -91,6 +93,7 @@ export const useChatStore = defineStore('chat', () => {
     stopping.value = false
     engineStatus.value = {}
     engineWidgets.value = {}
+    lastActivityAt.value = 0
   }
 
   // 思考内容可能被用户关掉：关掉后不累积，也不出现在历史渲染里。
@@ -172,6 +175,7 @@ export const useChatStore = defineStore('chat', () => {
     running.value = true
     finalizing.value = false
     restartClock()
+    lastActivityAt.value = Date.now()
     retrying.value = false
     parts.value = []
     runMap.value = {}
@@ -203,6 +207,7 @@ export const useChatStore = defineStore('chat', () => {
         restartClock()
       }
     }
+    lastActivityAt.value = Date.now()
     // 后端已剥离 ANSI；这里再兜一层——缓存里的旧响应与假后端都可能带着转义序列。
     const delta = stripAnsi(data.delta || '')
     if (!delta) return
@@ -216,6 +221,7 @@ export const useChatStore = defineStore('chat', () => {
   function onToolStart(data: ToolStartData) {
     // 断线重连重放可能把同一条 tool_start 再送一次：按 tool_call_id 去重。
     if (runMap.value[data.tool_call_id]) return
+    lastActivityAt.value = Date.now()
     runMap.value[data.tool_call_id] = {
       tool_call_id: data.tool_call_id,
       tool: data.name,
@@ -237,6 +243,7 @@ export const useChatStore = defineStore('chat', () => {
   function onToolEnd(data: ToolEndData) {
     const run = runMap.value[data.tool_call_id]
     if (!run) return
+    lastActivityAt.value = Date.now()
     run.running = false
     run.ok = !data.is_error
     run.output = data.result
@@ -313,11 +320,23 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function onCompressed(data: CompressedData) {
-    notice.value = tt('chat.noticeCompressed', {
-      before: data.tokens_before,
-      // 压缩后读数事件里没有，留空占位
-      after: '',
-    })
+    // 压缩后的占用要等下一次 chat:context 才有：这里只报压缩前的量
+    notice.value = tt('chat.noticeCompressed', { before: data.tokens_before })
+  }
+
+  /** 手动压缩：发起后由 chat:compressed 收尾；压缩中禁止重复点。 */
+  const compacting = ref(false)
+  async function compact(sessionId: string) {
+    if (!sessionId || compacting.value || running.value) return false
+    compacting.value = true
+    try {
+      return await api.chat.compact(sessionId)
+    } catch (e) {
+      useToastStore().bad(errorText(e) || tt('chat.compactFailed'))
+      return false
+    } finally {
+      compacting.value = false
+    }
   }
 
   function onRetry(data: RetryData) {
@@ -450,6 +469,9 @@ export const useChatStore = defineStore('chat', () => {
     stopping,
     engineStatus,
     engineWidgets,
+    lastActivityAt,
+    compacting,
+    compact,
     elapsedSec,
     reset,
     send,

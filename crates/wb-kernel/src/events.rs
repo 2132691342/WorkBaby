@@ -51,6 +51,10 @@ pub enum KernelEvent {
         is_error: bool,
         /// 耗时毫秒
         duration_ms: i64,
+        /// 改动的文件（相对工作区）；不改文件的工具为 None
+        file_path: Option<String>,
+        /// 改动差异行；随 file_path 一起给出
+        diff: Option<Vec<wb_domain::events::DiffLine>>,
     },
     /// 一个 turn 结束（含用量与窗口读数）
     TurnEnd {

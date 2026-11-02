@@ -140,6 +140,14 @@ fn web_fields(raw: &Option<String>) -> Vec<FeatureConfigFieldVO> {
             field_value: json!(cfg.web_proxy),
             field_options: Vec::new(),
         },
+        FeatureConfigFieldVO {
+            field_name: "web_keys".into(),
+            field_label: "搜索源密钥".into(),
+            field_description: "每行一条 `源码=密钥`，如 brave=xxx；也可以改用环境变量（BRAVE_API_KEY 等），此处优先。".into(),
+            field_kind: "text".into(),
+            field_value: json!(cfg.web_keys),
+            field_options: Vec::new(),
+        },
     ]
 }
 
@@ -210,7 +218,7 @@ fn lsp_fields(raw: &Option<String>) -> Vec<FeatureConfigFieldVO> {
 /// 提交值的键名白名单（防把任意键写进配置对象）。
 pub fn known_fields(feature_code: &str) -> &'static [&'static str] {
     match feature_code {
-        "web" => &["web_provider", "web_search_limit", "web_proxy"],
+        "web" => &["web_provider", "web_search_limit", "web_proxy", "web_keys"],
         "memory" => &[
             "memory_auto_threshold",
             "memory_merge_threshold",

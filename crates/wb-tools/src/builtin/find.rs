@@ -86,10 +86,6 @@ impl Tool for FindTool {
         if count == 0 {
             out.push_str("[无命中]");
         }
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: 0,
-        })
+        Ok(ToolOutput::plain(out, false, 0))
     }
 }

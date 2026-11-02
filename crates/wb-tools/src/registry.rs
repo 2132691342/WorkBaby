@@ -10,6 +10,8 @@ use tokio_util::sync::CancellationToken;
 
 use wb_pkg::Result;
 
+pub use wb_domain::events::DiffLine;
+
 /// 一次工具调用。
 #[derive(Debug, Clone)]
 pub struct ToolCall {
@@ -32,6 +34,30 @@ pub struct ToolOutput {
     pub is_error: bool,
     /// 耗时（毫秒）
     pub duration_ms: i64,
+    /// 改动文件（相对工作区）；不产生文件改动的工具为 None
+    pub file_path: Option<String>,
+    /// 改动差异行；与 file_path 成对出现
+    pub diff: Option<Vec<DiffLine>>,
+}
+
+impl ToolOutput {
+    /// 构造一个无文件改动的输出（大多数工具的形态）。
+    pub fn plain(text: impl Into<String>, is_error: bool, duration_ms: i64) -> Self {
+        Self {
+            text: text.into(),
+            is_error,
+            duration_ms,
+            file_path: None,
+            diff: None,
+        }
+    }
+
+    /// 带上改动文件与差异行：界面在工具卡里就地着色。
+    pub fn with_changes(mut self, file_path: impl Into<String>, diff: Vec<DiffLine>) -> Self {
+        self.file_path = Some(file_path.into());
+        self.diff = Some(diff);
+        self
+    }
 }
 
 /// 工具注解（给界面的行为提示）。

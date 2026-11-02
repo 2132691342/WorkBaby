@@ -40,7 +40,7 @@
 | `messages.rs` | 错误码 → 中/英默认文案（不经过界面也要能读懂：日志、调试、兜底） |
 | `events.rs` | SSE 事件载荷类型 |
 | `runtime.rs` | 内置运行时的路径契约：数据目录名、PortableGit / Python 根、bash/git/python 候选定位、子进程 PATH 构造 |
-| `runtime_status.rs` | 运行时状态 VO（bash / git / python 是否就位、命中路径、失败原因） |
+| `runtime_status.rs` | 运行时状态 VO（三件是否就位、命中路径、后台解压进度与失败原因） |
 | `feature_state.rs` | 功能活状态读取视图：待办 / 目标 / 计划 / 记忆的 VO 与删除 REQ |
 
 ## wb-repo（SQLite）
@@ -164,8 +164,9 @@
 | git | Git 读写编排 |
 | loadout | 装载预设管理 |
 | context | 上下文分解 |
-| store | 会话索引与文件定位 |
-| runtime | 内置运行时：PortableGit 与 Python 两份 zip 编译期嵌入，启动时按指纹解压到数据目录；解压失败原因进 `Services.runtime_failures`，`status()` 以磁盘可执行文件为准报就位情况 |
+| store | 会话索引与文件定位（列表只列当前工作区的会话） |
+| workspace | 工作区热切换：校验目录 → 重扫技能 / 重建待办存储 → 重建注册表 → 重连 MCP → 写回 KV → 广播 `app:workspace` |
+| runtime | 内置运行时：PortableGit 与 Python 两份 zip 编译期嵌入，**后台线程**按指纹解压到数据目录（启动不等落地）；进度写 `Services.runtime`（`RuntimeProgress`），`status()` 以磁盘可执行文件为准报就位情况 + `resp_phase` 准备中/就绪/失败。工具在运行时未就绪时明确报「准备中」而不是退回系统 PATH 乱猜 |
 | feature_state | 功能活状态读取：把 wb-features 落盘的 todo / goal / plan / memory 读成 VO（界面不解析 widget 文本） |
 | feature_config | 功能级配置：三项可配功能的字段表构建（类型 / 候选 / 不可用原因）与保存，键名白名单校验 |
 | usage | 用量统计：run 结束入日表 + 启动时回填历史 |
@@ -176,7 +177,8 @@
 
 | 模块 | 职责 |
 |---|---|
-| lib | 组合根 Startup：装配 Services + Hub + axum，返回端口 |
+| lib | 组合根 Startup：装配 Services + Hub + axum，返回端口；工作区解析与默认值兜底 |
+| workspace_default | 默认工作区建议与合规判定（系统目录 / 盘根一律不当工作区） |
 | routes | 主路由表与响应助手（ok_json / err_json） |
 | session_routes | 会话路由 |
 | chat_routes | 对话路由 |

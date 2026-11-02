@@ -203,7 +203,7 @@ impl Tool for TaskTool {
             task: task.clone(),
             tool_names,
             sessions_dir: self.sv.sessions_dir().join("subagents"),
-            workspace: self.sv.workspace.lock().unwrap().clone(),
+            workspace: self.sv.workspace_text(),
             max_turns,
             observe: Some(observe),
         };
@@ -213,10 +213,10 @@ impl Tool for TaskTool {
         } else {
             outcome.conclusion.clone()
         };
-        Ok(ToolOutput {
+        Ok(ToolOutput::plain(
             text,
-            is_error: outcome.failed,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+            outcome.failed,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

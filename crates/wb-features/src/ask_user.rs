@@ -359,10 +359,10 @@ impl Tool for AskUserTool {
                 }
             ));
         }
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

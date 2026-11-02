@@ -11,6 +11,8 @@ import { useSettingsStore } from '../stores/settings'
 import { useToastStore } from '../stores/toast'
 import type { AttachmentREQ } from '../types/api'
 import AppIcon from '../components/common/AppIcon.vue'
+import ActivityBar from '../components/chat/ActivityBar.vue'
+import ChatHeader from '../components/chat/ChatHeader.vue'
 import ChatInput from '../components/chat/ChatInput.vue'
 import EngineStatusBar from '../components/chat/EngineStatusBar.vue'
 import FeatureDock from '../components/features/FeatureDock.vue'
@@ -211,6 +213,7 @@ watch(() => settings.boot?.boot_default_model, seedContext)
     <SessionPanel :creating="creating" @new-session="newSession" />
 
     <div class="chat-main">
+      <ChatHeader />
       <Transition name="chat-swap" mode="out-in">
         <div v-if="empty && !chat.running" class="hero">
           <div aria-hidden="true" class="hero-aura">
@@ -256,6 +259,7 @@ watch(() => settings.boot?.boot_default_model, seedContext)
       </Transition>
 
       <EngineStatusBar />
+      <ActivityBar />
       <FeatureDock />
 
       <ChatInput

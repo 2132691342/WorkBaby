@@ -160,22 +160,22 @@ impl Tool for MemorySaveTool {
             .await
             .map_err(|e| AppError::new("7001", e.to_string()))?
             {
-                return Ok(ToolOutput {
-                    text: format!(
+                return Ok(ToolOutput::plain(
+                    format!(
                         "{verb}记忆 {memory_id}（{kind_display}）。\n\
                          自动整合：合并了 {} 条重复记忆，现有 {} 条。",
                         report.merged, report.remaining
                     ),
-                    is_error: false,
-                    duration_ms: started.elapsed().as_millis() as i64,
-                });
+                    false,
+                    started.elapsed().as_millis() as i64,
+                ));
             }
         }
-        Ok(ToolOutput {
-            text: format!("{verb}记忆 {memory_id}（{kind_display}）"),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            format!("{verb}记忆 {memory_id}（{kind_display}）"),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -249,11 +249,11 @@ impl Tool for MemorySearchTool {
         if out.is_empty() {
             out = "没有相关记忆".into();
         }
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -323,11 +323,11 @@ impl Tool for MemoryRemoveTool {
                 format!("记忆 {id_for_msg} 不存在"),
             ));
         }
-        Ok(ToolOutput {
-            text: format!("已删除 {id_for_msg}"),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            format!("已删除 {id_for_msg}"),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -405,11 +405,11 @@ impl Tool for SessionSearchTool {
         if out.is_empty() {
             out = "历史会话中没有匹配内容".into();
         }
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -476,10 +476,10 @@ impl Tool for MemoryConsolidateTool {
         for (kind, n) in &report.by_kind {
             out.push_str(&format!("  {kind}: {n} 条\n"));
         }
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

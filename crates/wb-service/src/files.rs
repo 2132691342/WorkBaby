@@ -11,7 +11,7 @@ use super::Services;
 
 /// 工作区目录清单（两级以内常用；一次一层）。
 pub fn files_list(sv: &Arc<Services>, rel: &str) -> Result<FileListRESP> {
-    let ws = sv.workspace.lock().unwrap().clone();
+    let ws = sv.workspace_text();
     let root = PathBuf::from(&ws);
     let target = if rel.is_empty() {
         root.clone()
@@ -77,7 +77,7 @@ const PREVIEW_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
 /// 读工作区内文件的字节（文档预览用；路径越界直接拒）。
 pub fn file_bytes(sv: &Arc<Services>, rel: &str) -> Result<FileBytesRESP> {
-    let ws = sv.workspace.lock().unwrap().clone();
+    let ws = sv.workspace_text();
     let root = PathBuf::from(&ws);
     let p = wb_pkg::realpath::relative_to(&root, Path::new(rel))?;
     let target = root.join(p);

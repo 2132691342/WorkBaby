@@ -22,7 +22,7 @@ fn user_skills_dir(sv: &Services) -> PathBuf {
 
 /// 三区重扫（技能文件落盘后调用）。
 fn rescan(sv: &Arc<Services>) -> Result<()> {
-    let ws = sv.workspace.lock().unwrap().clone();
+    let ws = sv.workspace_text();
     let registry = wb_skills::SkillRegistry::scan(
         &sv.data_dir.join("skills").join("builtin"),
         &user_skills_dir(sv),
@@ -220,7 +220,7 @@ pub async fn skill_delete(sv: &Arc<Services>, name: &str) -> Result<()> {
             rescan(sv)
         }
         wb_domain::skill::SkillSource::Workspace => {
-            let ws = sv.workspace.lock().unwrap().clone();
+            let ws = sv.workspace_text();
             let dir = PathBuf::from(&ws)
                 .join(".workbaby")
                 .join("skills")

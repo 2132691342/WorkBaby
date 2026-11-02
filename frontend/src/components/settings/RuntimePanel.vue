@@ -18,12 +18,18 @@ const failed = ref('')
 
 const ready = computed(() => status.value?.resp_ready ?? false)
 const binaries = computed(() => status.value?.resp_binaries ?? [])
+const preparing = computed(() => status.value?.resp_phase === 'preparing')
+const failedPhase = computed(() => status.value?.resp_phase === 'failed')
 
 async function reload() {
   loading.value = true
   failed.value = ''
   try {
     status.value = await api.runtimeStatus()
+    // 解压期间自动跟进：用户点进这一屏就是想看它什么时候好
+    if (status.value?.resp_phase === 'preparing') {
+      setTimeout(() => void reload(), 1500)
+    }
   } catch (e) {
     failed.value = errorText(e)
   } finally {
@@ -44,8 +50,17 @@ onMounted(() => {
     divided
   >
     <template #actions>
-      <span v-if="status" class="rt-flag" :class="ready ? 'is-ok' : 'is-bad'">
-        {{ ready ? t('settings.runtime.ready') : t('settings.runtime.incomplete') }}
+      <span v-if="status" class="rt-flag" :class="ready ? 'is-ok' : preparing ? 'is-busy' : 'is-bad'">
+        {{
+          ready
+            ? t('settings.runtime.ready')
+            : preparing
+              ? t('settings.runtime.preparing', {
+                  done: status.resp_done_count,
+                  total: status.resp_total_count,
+                })
+              : t('settings.runtime.incomplete')
+        }}
       </span>
       <el-button size="small" :loading="loading" :disabled="loading" @click="reload">
         {{ t('common.refresh') }}
@@ -67,6 +82,21 @@ onMounted(() => {
         </span>
         <AppIcon :name="b.binary_ready ? 'check' : 'alert'" size="ic-xs" class="rt-ico" :class="b.binary_ready ? 'is-ok' : 'is-bad'" />
       </div>
+
+      <p v-if="preparing" class="rt-busy">
+        {{ t('settings.runtime.preparingHint', { name: status?.resp_current || '—' }) }}
+        <el-progress
+          :percentage="Math.round(((status?.resp_done_count || 0) / (status?.resp_total_count || 2)) * 100)"
+          :stroke-width="4"
+          :show-text="false"
+          class="rt-bar"
+        />
+      </p>
+
+      <p v-else-if="failedPhase" class="rt-why">
+        {{ t('settings.runtime.phaseFailed') }}
+        <span v-if="status?.resp_failure">{{ status.resp_failure }}</span>
+      </p>
 
       <p v-if="status?.resp_failure" class="rt-why">{{ status.resp_failure }}</p>
 
@@ -92,6 +122,19 @@ onMounted(() => {
   color: var(--wb-danger);
   border-color: var(--wb-danger);
   background: var(--wb-danger-soft);
+}
+.rt-flag.is-busy {
+  color: var(--wb-warning);
+  border-color: var(--wb-warning);
+  background: var(--wb-accent-tint);
+}
+.rt-busy {
+  margin: var(--wb-sp-1) 0 0;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-muted);
+}
+.rt-bar {
+  margin-top: var(--wb-sp-1);
 }
 .rt-skel {
   padding: var(--wb-sp-2) 0;

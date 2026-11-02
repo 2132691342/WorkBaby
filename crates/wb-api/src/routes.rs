@@ -59,6 +59,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/kernel/status", get(kernel_status))
         // 内置运行时：bash / git / python 是否就位（帮助页与启动引导读它）
         .route("/api/v1/runtime", get(runtime_status))
+        // 工作区：热切换与当前值（不靠重启生效）
+        .route("/api/v1/workspace", get(workspace_get))
+        .route("/api/v1/workspace/switch", post(workspace_switch))
         .route("/api/v1/events", get(events))
         .with_state(state)
         .layer(crate::cors::cors_layer())
@@ -81,7 +84,7 @@ pub(crate) fn err_json(e: &AppError) -> Response {
 // ---- 引导 ----
 
 async fn bootstrap(State(st): State<AppState>) -> Response {
-    let ws = st.sv.workspace.lock().unwrap().clone();
+    let ws = st.sv.workspace_text();
     let (ready, reason) = match wb_service::chat::default_model_state(&st.sv) {
         Ok(_) => (true, String::new()),
         Err(e) => (false, e.message),
@@ -319,6 +322,53 @@ async fn feature_toggle(
     }
 }
 
+/// 工作区切换请求。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkspaceSwitchREQ {
+    /// 目标目录绝对路径
+    pub workspace_path: String,
+}
+
+/// 工作区切换响应。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkspaceSwitchRESP {
+    /// 生效后的工作区
+    pub resp_workspace: String,
+    /// 技能数量（切换后重扫结果，界面据此确认索引已换）
+    pub resp_skill_count: i64,
+}
+
+/// 工作区当前值。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkspaceGetRESP {
+    /// 当前工作区
+    pub resp_workspace: String,
+}
+
+/// 工作区切换：热生效，不需重启。
+async fn workspace_switch(
+    State(st): State<AppState>,
+    axum::Json(req): axum::Json<WorkspaceSwitchREQ>,
+) -> Response {
+    match st.sv.switch_workspace(&req.workspace_path) {
+        Ok(sw) => ok_json(WorkspaceSwitchRESP {
+            resp_workspace: sw.to.display().to_string(),
+            resp_skill_count: st.sv.skills.read().unwrap().count() as i64,
+        }),
+        Err(e) => err_json(&e),
+    }
+}
+
+/// 工作区当前值。
+async fn workspace_get(State(st): State<AppState>) -> Response {
+    ok_json(WorkspaceGetRESP {
+        resp_workspace: st.sv.workspace_text(),
+    })
+}
+
 // ---- 统计 / 内核状态 / SSE ----
 
 async fn stats(
@@ -344,10 +394,7 @@ async fn kernel_status(State(st): State<AppState>) -> Response {
 
 /// 内置运行时状态：以磁盘可执行文件为准，并带上启动时的解压失败原因。
 async fn runtime_status(State(st): State<AppState>) -> Response {
-    ok_json(wb_service::runtime::status(
-        &st.sv.data_dir,
-        &st.sv.runtime_failures,
-    ))
+    ok_json(wb_service::runtime::status(&st.sv.data_dir, &st.sv.runtime))
 }
 
 #[derive(serde::Deserialize)]

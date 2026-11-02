@@ -93,6 +93,8 @@ const orphans = computed(() => {
       :running="false"
       :ok="!resultOf(b.tool_call_id)?.message_is_error"
       :output="resultOf(b.tool_call_id)?.message_content || ''"
+      :file-path="resultOf(b.tool_call_id)?.message_file_path || ''"
+      :diff="resultOf(b.tool_call_id)?.message_diff || []"
     />
   </template>
   <ToolCard

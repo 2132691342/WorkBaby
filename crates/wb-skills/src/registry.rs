@@ -107,9 +107,14 @@ impl SkillRegistry {
         }
     }
 
-    /// 全部技能视图（开关由调用方合成）。
+    /// 全部条目（跨三区去重后）。
     pub fn list(&self) -> Vec<SkillEntry> {
         self.entries.values().cloned().collect()
+    }
+
+    /// 技能条数（切换工作区后界面确认索引已换）。
+    pub fn count(&self) -> usize {
+        self.entries.len()
     }
 
     /// 按名取条目。

@@ -109,15 +109,11 @@ impl Tool for EchoTool {
         _cancel: CancellationToken,
         _workdir: &Path,
     ) -> wb_pkg::Result<ToolOutput> {
-        Ok(ToolOutput {
-            text: args
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .into(),
-            is_error: false,
-            duration_ms: 1,
-        })
+        Ok(ToolOutput::plain(
+            args.get("text").and_then(|v| v.as_str()).unwrap_or(""),
+            false,
+            1,
+        ))
     }
 }
 

@@ -155,11 +155,11 @@ impl Tool for LspDiagnosticsTool {
             }
         }
         if targets.is_empty() {
-            return Ok(ToolOutput {
-                text: "没有可诊断的文件（工作区里没有受支持的语言，或语言服务器未安装）。".into(),
-                is_error: false,
-                duration_ms: started.elapsed().as_millis() as i64,
-            });
+            return Ok(ToolOutput::plain(
+                "没有可诊断的文件（工作区里没有受支持的语言，或语言服务器未安装）。",
+                false,
+                started.elapsed().as_millis() as i64,
+            ));
         }
         // 按服务器分组执行
         let mut all: Vec<client::Diagnostic> = Vec::new();
@@ -198,11 +198,11 @@ impl Tool for LspDiagnosticsTool {
             if !skipped.is_empty() {
                 text.push_str(&format!("\n跳过的服务器：{}", skipped.join("、")));
             }
-            return Ok(ToolOutput {
+            return Ok(ToolOutput::plain(
                 text,
-                is_error: false,
-                duration_ms: started.elapsed().as_millis() as i64,
-            });
+                false,
+                started.elapsed().as_millis() as i64,
+            ));
         }
         let mut lines = Vec::with_capacity(all.len());
         for d in &all {
@@ -223,10 +223,10 @@ impl Tool for LspDiagnosticsTool {
         if !skipped.is_empty() {
             text.push_str(&format!("\n跳过的服务器：{}", skipped.join("、")));
         }
-        Ok(ToolOutput {
+        Ok(ToolOutput::plain(
             text,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

@@ -27,8 +27,8 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | GET/POST | /settings/background | 背景图读取 / 设置 |
 | GET | /assets/background | 背景图本体（直引 URL） |
 
-工作区没有历史清单端点：启动时按设置 KV `workspace` 解析（存过且目录存在
-则用之，否则用壳传入目录并写回），界面改选后重启生效。
+| GET | /workspace | 当前工作区 |
+| POST | /workspace/switch | 热切换工作区（`workspace_path`）；重扫技能 / 重建注册表 / 重连 MCP，运行中报 5001 |
 
 ## 会话与对话
 
@@ -113,7 +113,7 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | /kernel/status | 就绪状态（`{ready, data_dir}`；无模型配置即 ready=false） |
-| GET | /runtime | 内置运行时状态：bash / git / python 是否就位、命中路径、解压失败原因 |
+| GET | /runtime | 内置运行时状态：三件可执行文件是否就位、命中路径、后台解压进度（`resp_phase` preparing/ready/failed + `resp_done_count`）与失败原因 |
 | GET | /context/breakdown?session_id= | 上下文占用分解 |
 | GET | /subagents/roles | 子代理角色预设清单（code / 名称 / 职责 / 工具白名单 / 轮次上限） |
 | GET | /subagents?session_id= | 正在跑的子代理；带 session_id 只列该父会话下的 |
@@ -158,12 +158,17 @@ seq 是服务端全局递增序号。
 | chat:notify | level(info/warning/error), text | service |
 | chat:status | key, text（空 text 即清除该 key） | goal 功能 |
 | chat:widget | key, lines（空行组即清除该 key） | todo / plan 功能 |
+| app:workspace | workspace（全局通道） | service（工作区热切换） |
 
 载荷字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——前端按 `data.kind` / `data.name` 读。
 事件名与载荷结构体定义在 `wb-domain/src/events.rs`，那是前后端契约的唯一出处。
 
-`chat:tool_end` 的 `file_path` / `diff` 是可选的改动快照：产生改动的工具带上，
-前端据此在轮尾聚合「这一轮改了什么」。两个字段缺省即不序列化，避免每条工具事件都多两个 null。
+`chat:tool_end` 的 `file_path` / `diff` 是可选的改动快照：产生改动的工具带上
+（`write` / `edit` 由工具自己算行级差异），前端据此在工具卡就地着色、并在轮尾聚合
+「这一轮改了什么」。同一份快照随工具结果一起落进会话 JSONL，
+所以重开会话时改动同样可见。两个字段缺省即不序列化，避免每条工具事件都多两个 null。
+
+`app:workspace` 是壳级广播（全局通道，`session_id` 为空）：工作区热切换后前端据此重读引导。
 
 ## 错误响应
 

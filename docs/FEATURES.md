@@ -121,9 +121,14 @@ loadout / inspect / context_view 三项是纯数据面：没有模型工具，
 | `github_clone` | 浅克隆公开仓库到工作区 |
 | `video_transcript` | 取视频页面元信息与字幕轨文本（不做画面理解） |
 
-**搜索源**：默认依次尝试 `duckduckgo` → `bing` → `wikipedia`，第一个解析出结果即返回；
+**搜索源**：API 源（`brave` / `tavily` / `serper` / `exa`）配了密钥就排在前面，
+免密钥公开源（`duckduckgo` → `bing` → `wikipedia`）兜底，第一个解析出结果即返回；
 可用 `provider` 参数锁定单一源。每个源有自己的页面结构，适配器负责转成统一结果列表——
 解析失败就换一个源，不编造结果。
+
+**密钥来源**：功能配置里的「搜索源密钥」字段（`brave=xxx` 逐行书写）优先，
+其次是环境变量（`BRAVE_API_KEY` 等）。桌面应用用户不该为了联网先去改系统环境变量，
+所以界面里能填的那份才算一等入口。
 
 **PDF 抽取**：走本地解析，文件不出机器。扫描版 PDF 没有文字层，如实说明并提示需要 OCR，
 不返回空白冒充内容。远程 PDF 先下载再解析，大小上限 64MB。
@@ -265,7 +270,7 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 
 | 功能码 | 字段 | 生效点 |
 |---|---|---|
-| web | `web_provider` / `web_search_limit` / `web_proxy` | 搜索源排队、返回条数、HTTP 代理 |
+| web | `web_provider` / `web_search_limit` / `web_proxy` / `web_keys` | 搜索源排队、返回条数、HTTP 代理、搜索源密钥 |
 | memory | `memory_auto_threshold` / `memory_merge_threshold` / `memory_search_limit` | 自动整合触发条数、相似度阈值、检索条数 |
 | lsp | `lsp_servers` | 允许启用的语言服务器白名单（空 = 不限） |
 

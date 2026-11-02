@@ -12,7 +12,7 @@ use super::Services;
 
 /// 当前工作区目录。
 fn ws_dir(sv: &Services) -> PathBuf {
-    PathBuf::from(sv.workspace.lock().unwrap().clone())
+    PathBuf::from(sv.workspace_text())
 }
 
 /// 状态快照。

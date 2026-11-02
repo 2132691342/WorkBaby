@@ -5,8 +5,10 @@ pub mod blocks;
 pub mod compaction;
 pub mod events;
 pub mod session;
+pub mod session_repair;
 pub mod subagent;
 mod subagent_prompt;
+pub mod toolbatch;
 
 pub use agent::{run, AgentConfig, RunOutcome};
 pub use events::{EmitFn, KernelEvent};

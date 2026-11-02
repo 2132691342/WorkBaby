@@ -184,11 +184,11 @@ impl Tool for PlanSubmitTool {
         })
         .await
         .map_err(|e| AppError::new("7001", e.to_string()))??;
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -277,11 +277,11 @@ impl Tool for PlanMarkDoneTool {
         })
         .await
         .map_err(|e| AppError::new("7001", e.to_string()))??;
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 
@@ -331,10 +331,10 @@ impl Tool for PlanInboxTool {
         })
         .await
         .map_err(|e| AppError::new("7001", e.to_string()))??;
-        Ok(ToolOutput {
-            text: out,
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            out,
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }

@@ -13,15 +13,18 @@ pub struct WebConfig {
     pub web_search_limit: usize,
     /// HTTP 代理；空 = 直连
     pub web_proxy: String,
+    /// 搜索源密钥，形如 `brave=xxx` 逐行书写；优先于环境变量
+    pub web_keys: String,
 }
 
 impl Default for WebConfig {
-    /// 默认：不锁源、8 条、直连。
+    /// 默认：不锁源、8 条、直连、无内置密钥。
     fn default() -> Self {
         Self {
             web_provider: String::new(),
             web_search_limit: 8,
             web_proxy: String::new(),
+            web_keys: String::new(),
         }
     }
 }
@@ -32,8 +35,33 @@ impl WebConfig {
         self.web_search_limit = self.web_search_limit.clamp(1, 20);
         self.web_provider = self.web_provider.trim().to_string();
         self.web_proxy = self.web_proxy.trim().to_string();
+        self.web_keys = self.web_keys.trim().to_string();
         self
     }
+}
+
+/// 进程内快照：搜索源密钥从设置来，但工具构造时不方便把配置表传进去，
+/// 所以装配时写一份只读快照。写一次、读多次，不复用全局可变状态。
+static WEB_KEYS: std::sync::OnceLock<std::sync::RwLock<Vec<(String, String)>>> =
+    std::sync::OnceLock::new();
+
+/// 写入搜索源密钥快照（功能装配 / 配置保存时调用）。
+pub fn set_web_keys(pairs: Vec<(String, String)>) {
+    let lock = WEB_KEYS.get_or_init(|| std::sync::RwLock::new(Vec::new()));
+    *lock.write().unwrap() = pairs;
+}
+
+/// 取某源码的密钥（未配置返回 None）。
+pub fn web_key_for(provider_code: &str) -> Option<String> {
+    WEB_KEYS
+        .get()
+        .and_then(|l| l.read().ok())
+        .and_then(|pairs| {
+            pairs
+                .iter()
+                .find(|(code, _)| code == provider_code)
+                .map(|(_, key)| key.clone())
+        })
 }
 
 /// memory 功能配置。

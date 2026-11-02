@@ -134,4 +134,9 @@ export interface RuntimeStatusRESP {
   resp_binaries: RuntimeBinaryVO[]
   resp_ready: boolean
   resp_failure: string
+  /** preparing（后台解压中）/ ready / failed */
+  resp_phase: string
+  resp_done_count: number
+  resp_total_count: number
+  resp_current: string
 }

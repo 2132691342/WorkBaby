@@ -2,7 +2,7 @@
 //! 字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——前缀是为领域对象消歧的，
 //! 事件载荷的字段名就是协议本身。改这里必须同步改前端。
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::session::MessageVO;
 
@@ -62,7 +62,7 @@ pub struct ToolEndData {
 }
 
 /// 差异行（工具改动的可视化最小单位）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct DiffLine {
     /// 行类型：add / del / ctx

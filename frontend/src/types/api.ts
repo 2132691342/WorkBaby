@@ -1,5 +1,7 @@
 // 与后端 domain 类型的 serde json 字段逐字一致；字段一律 snake_case 且带业务前缀。
 
+import type { DiffLine } from './chatEvents'
+
 export interface Resp<T> {
   /** 业务码是数字字符串（"0" 成功）；与 HTTP 状态码的 int 从类型上分开 */
   code: string
@@ -63,6 +65,10 @@ export interface MessageVO {
   message_hidden?: boolean
   /** 非空时渲染成分隔提示条（已压缩 / 换模型）而不是气泡 */
   message_notice?: string
+  /** 工具改动的文件（相对工作区）；只有写文件类工具有 */
+  message_file_path?: string
+  /** 工具改动的差异行 */
+  message_diff?: DiffLine[]
 }
 
 export interface SessionVO {

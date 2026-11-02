@@ -76,6 +76,12 @@ pub struct MessageVO {
     pub message_hidden: bool,
     /// 非空时渲染成分隔提示条（已压缩 / 换模型）而不是气泡
     pub message_notice: Option<String>,
+    /// 工具改动的文件（相对工作区）；只有写文件类工具填
+    #[serde(default)]
+    pub message_file_path: Option<String>,
+    /// 工具改动的差异行：界面就地着色
+    #[serde(default)]
+    pub message_diff: Option<Vec<crate::events::DiffLine>>,
 }
 
 impl MessageVO {
@@ -98,6 +104,8 @@ impl MessageVO {
             message_created_at,
             message_hidden: false,
             message_notice: None,
+            message_file_path: None,
+            message_diff: None,
         }
     }
 }

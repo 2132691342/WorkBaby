@@ -8,16 +8,25 @@ use super::db::Repo;
 impl Repo {
     /// 全量会话索引（按最后活动倒序）。
     pub fn sessions_list(&self) -> Result<Vec<SessionIndexDO>> {
+        self.sessions_query("", &[])
+    }
+
+    /// 按工作区过滤的会话索引（工作区切换后列表只显示当前目录的会话）。
+    pub fn sessions_list_in(&self, workspace: &str) -> Result<Vec<SessionIndexDO>> {
+        self.sessions_query(" WHERE session_workspace = ?1", &[workspace])
+    }
+
+    /// 会话索引查询（where 为空即全量）。
+    fn sessions_query(&self, where_sql: &str, params: &[&str]) -> Result<Vec<SessionIndexDO>> {
         let conn = self.conn.lock().unwrap();
-        let mut st = conn
-            .prepare(
-                "SELECT session_id, session_name, session_workspace, session_provider,
-                        session_model, session_message_count, session_last_active_at, session_summary
-                 FROM session_index ORDER BY session_last_active_at DESC",
-            )
-            .map_err(super::db::db_err)?;
+        let sql = format!(
+            "SELECT session_id, session_name, session_workspace, session_provider,
+                    session_model, session_message_count, session_last_active_at, session_summary
+             FROM session_index{where_sql} ORDER BY session_last_active_at DESC"
+        );
+        let mut st = conn.prepare(&sql).map_err(super::db::db_err)?;
         let rows = st
-            .query_map([], |r| {
+            .query_map(rusqlite::params_from_iter(params.iter()), |r| {
                 Ok(SessionIndexDO {
                     session_id: r.get(0)?,
                     session_name: r.get(1)?,

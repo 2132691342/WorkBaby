@@ -166,11 +166,11 @@ impl Tool for VideoTool {
             }
         }
 
-        Ok(ToolOutput {
-            text: truncate_chars(out.trim(), max_chars),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            truncate_chars(out.trim(), max_chars),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 

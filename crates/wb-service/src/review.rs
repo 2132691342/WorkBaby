@@ -73,7 +73,7 @@ impl Tool for ReviewDiffTool {
         _workdir: &Path,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
-        let ws = self.sv.workspace.lock().unwrap().clone();
+        let ws = self.sv.workspace_text();
         let ws = Path::new(&ws);
         let max_chars = args
             .get("max_chars")
@@ -103,11 +103,11 @@ impl Tool for ReviewDiffTool {
         out.push_str(&diff.stat);
         out.push_str("\n\n逐文件 diff：\n");
         out.push_str(&diff.body);
-        Ok(ToolOutput {
-            text: truncate_chars(out.trim(), max_chars),
-            is_error: false,
-            duration_ms: started.elapsed().as_millis() as i64,
-        })
+        Ok(ToolOutput::plain(
+            truncate_chars(out.trim(), max_chars),
+            false,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 }
 

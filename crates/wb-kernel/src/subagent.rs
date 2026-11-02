@@ -328,19 +328,21 @@ pub async fn run_subagent(
                         session_id: session_id.clone(),
                         call_id: call_id.clone(),
                         name: name.clone(),
-                        result: crate::subagent::truncate_observe(&out.0),
-                        is_error: out.1,
-                        duration_ms: out.2,
+                        result: crate::subagent::truncate_observe(&out.result_text),
+                        is_error: out.is_error,
+                        duration_ms: out.duration_ms,
                     });
                     session
                         .append(Entry::Message {
                             message: Msg::ToolResult {
                                 tool_call_id: call_id,
                                 tool_name: name,
-                                content: out.0,
-                                is_error: out.1,
+                                content: out.result_text,
+                                is_error: out.is_error,
                                 timestamp: now_ms(),
-                                duration_ms: out.2,
+                                duration_ms: out.duration_ms,
+                                file_path: out.file_path,
+                                diff: out.diff,
                             },
                         })
                         .map_err(|e| {
