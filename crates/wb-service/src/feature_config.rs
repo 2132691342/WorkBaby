@@ -189,10 +189,14 @@ fn lsp_fields(raw: &Option<String>) -> Vec<FeatureConfigFieldVO> {
     let options = wb_features::lsp::adapters::SERVERS
         .iter()
         .map(|spec| {
+            // 不可用原因带上安装方式：界面只报「未安装」等于把用户丢在原地
             let reason = if wb_features::lsp::command_exists(spec.server_command) {
                 String::new()
             } else {
-                format!("未安装 {}", spec.server_command)
+                format!(
+                    "未安装 {}｜安装：{}",
+                    spec.server_command, spec.server_install_hint
+                )
             };
             FeatureConfigOptionVO {
                 option_value: spec.server_name.to_string(),

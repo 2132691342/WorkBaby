@@ -81,7 +81,7 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | EngineStatusBar | 状态条（功能 setStatus 桥）；只留一行状态文字 |
 | ChatHeader | 对话页页头：会话名 + 模型行 + 压缩上下文按钮 |
 | ActivityBar | 输入框上方常驻活动条：正在干什么 / 已输出多少字 / 耗时 / 安静过久提示 |
-| features/FeatureDock | 对话主区内、状态条上方：待办 / 目标 / 计划三个结构化面板的 tab 抽屉 |
+| features/FeatureDock | 对话主区内、状态条上方：待办 / 目标 / 计划三个 panel 的 tab 抽屉；有内容才露出（端点探测，不等 widget 事件） |
 | StatusHud | 底部常驻：模型/思考档/水位/耗时 |
 | EngineCard | 左栏底部内核状态卡，显示就绪/阻塞原因 |
 | ExampleCards | 首屏例句 |
@@ -94,10 +94,11 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 |---|---|---|
 | features/FeatureList | 概览 / 功能页 / 设置页 | 12 项功能清单、开关与配置入口 |
 | features/FeatureConfigPop | 功能页 | 配置抽屉：按后端字段表渲染表单，不写死任何功能的表 |
-| features/TodoPanel | FeatureDock | 待办清单 + 依赖阻塞标记 + 完成进度 |
-| features/GoalPanel | FeatureDock | 单活跃目标：状态灯、步骤清单、续跑计数 |
-| features/PlanPanel | FeatureDock | 计划：状态徽标、驳回意见、步骤勾选、逐条标注 |
-| features/MemoryPanel | 功能页「记忆库」段 | 记忆库：四类筛选、全文查看、单条删除 |
+| features/TodoPanel | FeatureDock | 待办清单 + 依赖阻塞标记 + 进度；可勾选 / 新增 / 删除 |
+| features/GoalPanel | FeatureDock | 单活跃目标：状态灯、步骤勾选、续跑计数；可建 / 阻塞 / 恢复 / 达成 / 放弃 / 记进展 |
+| features/PlanPanel | FeatureDock | 计划：状态徽标、驳回意见、步骤勾选、逐条标注；可批准 / 驳回 / 标注意见 |
+| features/MemoryPanel | 功能页 | 四类记忆清单 + 筛选；可新增（过密钥扫描）/ 删除 |
+| chat/AskCard | 对话主区 | 提问卡：confirm / select / input / editor 单卡 + questionnaire 问卷 |
 | skills/SkillList | 技能页 / 设置页 | 技能清单、开关、正文抽屉、导入与新建 |
 | doc/DocPreview | 工作区文件树 | PDF / Word / Excel / 文本预览 |
 | doc/DocPreviewDrawer | 工作区文件树 | 预览抽屉 |

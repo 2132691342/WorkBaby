@@ -1,20 +1,31 @@
 <script setup lang="ts">
 // 目标面板：单个活跃目标 + 步骤清单 + 状态机。
 // 目标只有一个（不是列表）——多目标会让「现在在推进哪件事」变得含糊。
-import { computed, onMounted, ref } from 'vue'
+// 用户做裁决：勾步骤、置阻塞/恢复、达成、放弃、记进展；起草目标仍是模型的事。
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '../../api'
+import { useToastStore } from '../../stores/toast'
 import type { GoalVO } from '../../types/api'
 import { errorText } from '../../utils/errors'
 import EmptyState from '../common/EmptyState.vue'
 import AppIcon from '../common/AppIcon.vue'
 
 const { t } = useI18n()
+const toast = useToastStore()
 
 const goal = ref<GoalVO | null>(null)
 const resumeCount = ref(0)
 const loading = ref(true)
 const failed = ref('')
+/** 正在写的动作名（空串 = 空闲） */
+const busy = ref('')
+const creating = ref(false)
+const draftText = ref('')
+const draftSteps = ref('')
+const draftInput = ref<{ focus: () => void } | null>(null)
+const noteEditing = ref(false)
+const noteDraft = ref('')
 
 const totalSteps = computed(() => goal.value?.goal_steps.length ?? 0)
 const pct = computed(() => {
@@ -36,18 +47,85 @@ const tone = computed(() => {
   }
 })
 
+function adopt(resp: { resp_goal: GoalVO | null; resp_resume_count: number }) {
+  goal.value = resp.resp_goal ?? null
+  resumeCount.value = resp.resp_resume_count ?? 0
+}
+
 async function reload() {
   loading.value = true
   failed.value = ''
   try {
-    const resp = await api.goal.get()
-    goal.value = resp?.resp_goal ?? null
-    resumeCount.value = resp?.resp_resume_count ?? 0
+    adopt(await api.goal.get())
   } catch (e) {
     failed.value = errorText(e)
   } finally {
     loading.value = false
   }
+}
+
+/** 所有写入走同一出口：统一忙态、统一提示、统一回填。 */
+async function write(key: string, body: Parameters<typeof api.goal.mutate>[0]) {
+  if (busy.value) return false
+  busy.value = key
+  try {
+    adopt(await api.goal.mutate(body))
+    return true
+  } catch (e) {
+    toast.bad(errorText(e))
+    return false
+  } finally {
+    busy.value = ''
+  }
+}
+
+/** 勾一个步骤：勾完最后一步时后端自动置 achieved */
+async function markStep(seq: number) {
+  await write('step-' + seq, { op: 'done_steps', done_steps: [seq] })
+}
+
+/** 阻塞 / 恢复：状态机要求恢复必须显式置回 active */
+async function toggleBlocked() {
+  const next = goal.value?.goal_status === 'blocked' ? 'active' : 'blocked'
+  await write('status', { op: 'status', status: next })
+}
+
+async function achieve() {
+  await write('status', { op: 'status', status: 'achieved' })
+}
+
+async function abandon() {
+  await write('abandon', { op: 'abandon' })
+}
+
+async function startCreate() {
+  creating.value = true
+  await nextTick()
+  draftInput.value?.focus()
+}
+
+async function submitCreate() {
+  const text = draftText.value.trim()
+  if (!text) return
+  // 步骤按行拆：用户写清单的习惯就是一行一步
+  const steps = draftSteps.value
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (await write('create', { op: 'create', text, steps })) {
+    creating.value = false
+    draftText.value = ''
+    draftSteps.value = ''
+  }
+}
+
+function startNote() {
+  noteDraft.value = goal.value?.goal_note ?? ''
+  noteEditing.value = true
+}
+
+async function saveNote() {
+  if (await write('note', { op: 'note', note: noteDraft.value })) noteEditing.value = false
 }
 
 onMounted(() => {
@@ -68,12 +146,47 @@ defineExpose({ reload })
       <el-button size="small" @click="reload">{{ t('common.retry') }}</el-button>
     </div>
 
-    <EmptyState
-      v-else-if="!goal"
-      icon="target"
-      :title="t('featurePanel.goalEmpty')"
-      :desc="t('featurePanel.goalEmptyHint')"
-    />
+    <template v-else-if="!goal">
+      <div v-if="creating" class="create-box">
+        <el-input
+          ref="draftInput"
+          v-model="draftText"
+          size="small"
+          :placeholder="t('featurePanel.goalCreatePlaceholder')"
+        />
+        <el-input
+          v-model="draftSteps"
+          type="textarea"
+          :autosize="{ minRows: 2, maxRows: 6 }"
+          :placeholder="t('featurePanel.goalCreateSteps')"
+        />
+        <div class="create-acts">
+          <el-button
+            size="small"
+            type="primary"
+            :loading="busy === 'create'"
+            :disabled="!draftText.trim() || !!busy"
+            @click="submitCreate"
+          >
+            {{ t('common.confirm') }}
+          </el-button>
+          <el-button size="small" :disabled="!!busy" @click="creating = false">
+            {{ t('common.cancel') }}
+          </el-button>
+        </div>
+      </div>
+      <template v-else>
+        <EmptyState
+          icon="target"
+          :title="t('featurePanel.goalEmpty')"
+          :desc="t('featurePanel.goalEmptyHint')"
+        />
+        <el-button size="small" class="mk-btn" :disabled="!!busy" @click="startCreate">
+          <AppIcon name="plus" size="ic-2xs" />
+          <span class="ml-1">{{ t('featurePanel.goalCreate') }}</span>
+        </el-button>
+      </template>
+    </template>
 
     <template v-else>
       <div class="head">
@@ -85,7 +198,43 @@ defineExpose({ reload })
       </div>
 
       <p class="goal-text">{{ goal.goal_text }}</p>
-      <p v-if="goal.goal_note" class="goal-note">{{ goal.goal_note }}</p>
+
+      <!-- 状态动作：裁决权在用户，按钮只在当前状态合法时出现 -->
+      <div class="acts">
+        <template v-if="goal.goal_status === 'active' || goal.goal_status === 'blocked'">
+          <el-button size="small" :loading="busy === 'status'" :disabled="!!busy" @click="toggleBlocked">
+            {{ goal.goal_status === 'blocked' ? t('featurePanel.goalResumeIt') : t('featurePanel.goalBlock') }}
+          </el-button>
+          <el-button
+            size="small"
+            type="primary"
+            :loading="busy === 'status'"
+            :disabled="!!busy"
+            @click="achieve"
+          >
+            {{ t('featurePanel.goalAchieve') }}
+          </el-button>
+          <el-button size="small" :loading="busy === 'abandon'" :disabled="!!busy" @click="abandon">
+            {{ t('featurePanel.goalAbandon') }}
+          </el-button>
+        </template>
+        <el-button v-if="!noteEditing" size="small" :disabled="!!busy" @click="startNote">
+          {{ t('featurePanel.goalNoteEdit') }}
+        </el-button>
+        <el-button v-else size="small" :loading="busy === 'note'" :disabled="!!busy" @click="saveNote">
+          {{ t('common.save') }}
+        </el-button>
+      </div>
+
+      <div v-if="noteEditing" class="note-edit">
+        <el-input
+          v-model="noteDraft"
+          size="small"
+          :placeholder="t('featurePanel.goalNotePlaceholder')"
+          @keydown.enter="saveNote"
+        />
+      </div>
+      <p v-else-if="goal.goal_note" class="goal-note">{{ goal.goal_note }}</p>
 
       <template v-if="totalSteps">
         <div class="cap">
@@ -102,9 +251,16 @@ defineExpose({ reload })
         </div>
         <ul class="steps">
           <li v-for="(s, i) in goal.goal_steps" :key="i" class="step" :class="{ 'is-done': s.step_done }">
-            <span class="step-mark" :class="{ 'is-done': s.step_done }">
+            <button
+              class="step-mark"
+              :class="{ 'is-done': s.step_done }"
+              type="button"
+              :title="t('featurePanel.goalMarkStep')"
+              :disabled="s.step_done || !!busy"
+              @click="markStep(i + 1)"
+            >
               <AppIcon v-if="s.step_done" name="check" size="ic-xs" />
-            </span>
+            </button>
             <span class="step-tx">{{ s.step_text }}</span>
           </li>
         </ul>
@@ -210,15 +366,47 @@ defineExpose({ reload })
 .step:hover {
   background: var(--wb-elev-hover);
 }
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--wb-sp-2);
+}
+.note-edit,
+.create-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+}
+.create-acts {
+  display: flex;
+  gap: var(--wb-sp-2);
+}
+.mk-btn {
+  align-self: flex-start;
+}
 .step-mark {
   flex: none;
-  width: calc(14px * var(--wb-vw-scale));
-  height: calc(14px * var(--wb-vw-scale));
+  width: calc(15px * var(--wb-vw-scale));
+  height: calc(15px * var(--wb-vw-scale));
   border-radius: var(--wb-radius-full);
   border: 1.5px solid var(--wb-border-strong);
   display: grid;
   place-items: center;
   margin-top: 2px;
+  transition:
+    border-color var(--wb-dur) var(--wb-ease),
+    background-color var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.step-mark:hover:not(:disabled) {
+  border-color: var(--wb-primary);
+  transform: scale(1.15);
+}
+.step-mark:active:not(:disabled) {
+  transform: scale(var(--wb-btn-scale-press));
+}
+.step-mark:disabled {
+  cursor: default;
 }
 .step-mark.is-done {
   background: var(--wb-success);

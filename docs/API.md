@@ -82,17 +82,26 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | GET | /loadout · POST /loadout/save · /loadout/apply · /loadout/delete | 装载预设（full / minimal 内置） |
 | GET | /inspect?session_id= | 自省快照：工具/技能/命令/系统提示词/会话元 |
 
-## 功能活状态（待办 / 目标 / 计划 / 记忆）
+## 功能活状态（读 + 写）
 
 界面读结构化 VO，不解析 widget 文本——依赖图与步骤状态是结构，不是字符串。
+三块面板与记忆库都是**可操作**的：写入与模型侧对应工具共用同一份落盘与同一套校验。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | /todo | 待办清单（含 `todo_blocked_by` 依赖与已完成计数） |
+| POST | /todo/mutate | 待办写入：`todo_op` = add / update / status / remove |
 | GET | /goal | 当前目标 + 步骤 + 续跑次数；无目标时 `resp_goal` 为 null |
+| POST | /goal/mutate | 目标写入：`goal_op` = create / status / done_steps / note / abandon |
 | GET | /plan | 当前计划 + 步骤 + 标注；无计划时 `resp_plan` 为 null |
+| POST | /plan/mutate | 计划写入：`plan_op` = approve / reject / step_done / annotate |
 | GET | /memory | 记忆清单（四类计数 + 全局按更新时间倒序的条目） |
+| POST | /memory/save | 手动新增一条（过密钥扫描，与 `memory_save` 同一套规则） |
 | POST | /memory/delete | 删一条记忆（body `{memory_id}`）；不存在报 7301 |
+
+写入端点返回**写入后的最新视图**，前端一次请求就能刷新面板，不必再读一次。
+界面能做的动作是封闭集合：目标与计划的状态机在写入侧强制执行
+（已有未完结目标时拒新建、全勾完自动收口），界面不能绕过这些不变量。
 
 ## MCP / Git / 文件 / 统计
 

@@ -168,15 +168,23 @@ onMounted(() => {
 
       <div class="wb-card pad presets">
         <span class="wb-label">{{ t('settings.tools.presetLoad') }}</span>
+        <!-- 预设同时管工具与技能：标签上直接写出它包含多少，点之前就知道会切掉什么 -->
         <el-tag
           v-for="p in presets"
           :key="p.loadout_name"
           :closable="!isBuiltinPreset(p.loadout_name)"
           class="preset-tag"
+          :title="
+            t('settings.tools.presetContent', {
+              tools: p.loadout_tools.length,
+              skills: p.loadout_skills.length,
+            })
+          "
           @click="applyPreset(p.loadout_name)"
           @close="removePreset(p.loadout_name)"
         >
           {{ p.loadout_name }}
+          <span class="preset-meta">{{ p.loadout_tools.length }}/{{ p.loadout_skills.length }}</span>
         </el-tag>
         <el-input
           v-model="presetName"
@@ -242,6 +250,12 @@ onMounted(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--wb-sp-3);
+}
+.preset-meta {
+  margin-left: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-3xs);
+  opacity: 0.7;
 }
 .presets {
   display: flex;

@@ -260,6 +260,7 @@ export const useChatStore = defineStore('chat', () => {
       title: data.title,
       message: data.message,
       options: data.options ?? [],
+      questions: data.questions ?? [],
       placeholder: data.placeholder ?? '',
       prefill: data.prefill ?? '',
       timeoutMs: data.timeout_ms ?? 0,

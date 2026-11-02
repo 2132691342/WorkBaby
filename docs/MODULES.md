@@ -111,7 +111,8 @@
 | 模块 | 内容 |
 |---|---|
 | todo | 待办清单与依赖图（文件存储） |
-| ask_user | 结构化提问 + AnswerBoard（一次性投递） |
+| ask_user | 结构化提问工具：一题走单卡、多题合并成一张问卷（一次问完 N 题） |
+| answer_board | 回答板：ask_id → 等待通道，待答问题落盘一份供重启后重弹（一次性投递） |
 | memory | 记忆工具 + `memory_store`（FTS5 + 密钥扫描）+ `memory_consolidate`（去重整合） |
 | web | 搜索与抓取工具 + `web_parse`（正文提取）+ `web_providers`（多搜索源）+ `web_files`（PDF / 克隆）+ `web_video`（字幕） |
 | fff | 模糊搜索 + `fff/store`（frecency 库） |
@@ -168,6 +169,7 @@
 | workspace | 工作区热切换：校验目录 → 重扫技能 / 重建待办存储 → 重建注册表 → 重连 MCP → 写回 KV → 广播 `app:workspace` |
 | runtime | 内置运行时：PortableGit 与 Python 两份 zip 编译期嵌入，**后台线程**按指纹解压到数据目录（启动不等落地）；进度写 `Services.runtime`（`RuntimeProgress`），`status()` 以磁盘可执行文件为准报就位情况 + `resp_phase` 准备中/就绪/失败。工具在运行时未就绪时明确报「准备中」而不是退回系统 PATH 乱猜 |
 | feature_state | 功能活状态读取：把 wb-features 落盘的 todo / goal / plan / memory 读成 VO（界面不解析 widget 文本） |
+| feature_write | 功能活状态写入：界面上的勾选 / 批准 / 标注 / 删改走与模型工具同一份落盘与同一套校验 |
 | feature_config | 功能级配置：三项可配功能的字段表构建（类型 / 候选 / 不可用原因）与保存，键名白名单校验 |
 | usage | 用量统计：run 结束入日表 + 启动时回填历史 |
 

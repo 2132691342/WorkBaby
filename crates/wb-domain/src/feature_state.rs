@@ -178,3 +178,65 @@ pub struct MemoryDeleteREQ {
     /// 要删除的记忆 id
     pub memory_id: String,
 }
+
+/// 待办写入请求（界面上直接增删改，与模型走的 todo 工具同一份落盘）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TodoMutateREQ {
+    /// 动作：add / update / status / remove
+    pub todo_op: String,
+    /// 目标条目 id（add 时可空）
+    pub todo_id: String,
+    /// add / update 的正文
+    pub todo_text: String,
+    /// status 动作的目标状态：pending / in_progress / completed
+    pub todo_status: String,
+    /// 依赖条目 id（add / update 时设置）
+    pub todo_blocked_by: Vec<String>,
+}
+
+/// 目标写入请求：切状态 / 勾选步骤 / 记录进展 / 新建 / 放弃。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct GoalMutateREQ {
+    /// 动作：create / status / done_steps / note / abandon
+    pub goal_op: String,
+    /// create 时的目标描述
+    pub goal_text: String,
+    /// create 时的步骤清单
+    pub goal_steps: Vec<String>,
+    /// status 动作的目标状态：active / blocked / achieved / abandoned
+    pub goal_status: String,
+    /// done_steps 动作要勾选完成的步骤序号（1 起）
+    pub goal_done_steps: Vec<i64>,
+    /// note 动作的进展备注
+    pub goal_note: String,
+}
+
+/// 计划写入请求：批准 / 驳回 / 勾选步骤 / 标注。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct PlanMutateREQ {
+    /// 动作：approve / reject / step_done / annotate
+    pub plan_op: String,
+    /// reject 时的驳回意见
+    pub plan_reject_note: String,
+    /// step_done 动作要勾选完成的步骤序号（1 起）
+    pub plan_step_index: i64,
+    /// annotate 的标注对象：plan / step
+    pub annotation_scope: String,
+    /// annotate 且 scope=step 时的步骤序号（1 起）
+    pub annotation_step: i64,
+    /// annotate 的标注内容
+    pub annotation_text: String,
+}
+
+/// 记忆写入请求：界面新增一条（模型走 memory_save 工具）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MemorySaveREQ {
+    /// 类别：memory / user / project / failure
+    pub memory_kind: String,
+    /// 正文
+    pub memory_text: String,
+}

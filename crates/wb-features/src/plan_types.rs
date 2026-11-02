@@ -114,6 +114,93 @@ impl PlanStore {
     }
 }
 
+/// 界面侧写入：批准 / 驳回 / 勾步骤 / 加标注。
+/// 界面能做的动作是封闭集合——不允许从界面改计划标题或步骤正文，
+/// 那是模型起草的产物，用户只能裁决与勾选。
+pub fn apply_op(
+    store: &PlanStore,
+    ctx: &crate::FeatureCtx,
+    req: &wb_domain::feature_state::PlanMutateREQ,
+) -> Result<PlanState> {
+    let now = now_ms();
+    let op = req.plan_op.as_str();
+    let mut updated: Option<PlanState> = None;
+    store.mutate(|slot| {
+        let p = slot
+            .as_mut()
+            .ok_or_else(|| AppError::new("7004", "当前没有计划"))?;
+        match op {
+            "approve" => {
+                if p.plan_status != "draft" && p.plan_status != "rejected" {
+                    return Err(AppError::new(
+                        "7004",
+                        format!("计划状态 {} 不能批准", p.plan_status),
+                    ));
+                }
+                p.plan_status = "approved".into();
+                p.plan_reject_note.clear();
+            }
+            "reject" => {
+                if p.plan_status == "done" {
+                    return Err(AppError::new("7004", "已完成的计划不能再驳回"));
+                }
+                p.plan_status = "rejected".into();
+                p.plan_reject_note = req.plan_reject_note.trim().to_string();
+            }
+            "step_done" => {
+                let idx = (req.plan_step_index - 1).max(0) as usize;
+                let total = p.plan_steps.len();
+                let Some(step) = p.plan_steps.get_mut(idx) else {
+                    return Err(AppError::new(
+                        "7004",
+                        format!("步骤 {} 不存在", req.plan_step_index),
+                    ));
+                };
+                step.step_done = true;
+                // 全部勾完自动收口：留着 approved 会让界面一直显示「执行中」
+                if total > 0 && p.plan_steps.iter().all(|s| s.step_done) {
+                    p.plan_status = "done".into();
+                }
+            }
+            "annotate" => {
+                let text = req.annotation_text.trim();
+                if text.is_empty() {
+                    return Err(AppError::new("7004", "标注内容不能为空"));
+                }
+                let scope = if req.annotation_scope == "step" {
+                    "step"
+                } else {
+                    "plan"
+                };
+                if scope == "step" && req.annotation_step <= 0 {
+                    return Err(AppError::new("7004", "标注某一步需要 step_index"));
+                }
+                p.plan_annotations.push(PlanAnnotation {
+                    annotation_id: wb_pkg::ulid::new_id(wb_pkg::ulid::Prefix::Ann),
+                    annotation_scope: scope.to_string(),
+                    annotation_step: if scope == "step" {
+                        req.annotation_step
+                    } else {
+                        0
+                    },
+                    annotation_text: text.to_string(),
+                    annotation_author: "user".into(),
+                    annotation_created_at: now,
+                });
+            }
+            other => return Err(AppError::new("7004", format!("不认识的计划动作 {other}"))),
+        }
+        p.plan_updated_at = now;
+        updated = Some(p.clone());
+        Ok(())
+    })?;
+    if let Some(p) = &updated {
+        push_widget(ctx, p);
+        return Ok(p.clone());
+    }
+    Err(AppError::new("7004", "当前没有计划"))
+}
+
 /// checklist 渲染（模型可读）。
 pub fn render(p: &PlanState) -> String {
     let head = format!("[{}] {}", p.plan_status, p.plan_title);

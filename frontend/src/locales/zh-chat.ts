@@ -143,6 +143,8 @@ export default {
     askInputPlaceholder: '在这里回答',
     askKindConfirm: '确认',
     askKindSelect: '单选',
+    askKindForm: '问卷',
+    askFormFreeHint: '也可以直接写你自己的答案（优先于上面的选项）',
     askKindInput: '填空',
     askKindEditor: '多行填空',
     askTimeout: '{n} 秒后自动关闭',
@@ -280,6 +282,7 @@ export default {
       presetSave: '保存',
       presetApplied: '已应用预设 {name}',
       presetSaved: '预设 {name} 已保存',
+      presetContent: '应用后：{tools} 个工具 / {skills} 个技能',
     },
     mcp: {
       title: 'MCP 服务',

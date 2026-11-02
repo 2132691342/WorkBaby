@@ -143,6 +143,8 @@ export default {
     askInputPlaceholder: 'Type your answer',
     askKindConfirm: 'Confirm',
     askKindSelect: 'Choose one',
+    askKindForm: 'Questionnaire',
+    askFormFreeHint: 'Or type your own answer (it wins over the option above)',
     askKindInput: 'Fill in',
     askKindEditor: 'Multi-line',
     askTimeout: 'Closes in {n}s',
@@ -280,6 +282,7 @@ export default {
       presetSave: 'Save',
       presetApplied: 'Applied preset {name}',
       presetSaved: 'Preset {name} saved',
+      presetContent: 'After applying: {tools} tools / {skills} skills',
     },
     mcp: {
       title: 'MCP servers',

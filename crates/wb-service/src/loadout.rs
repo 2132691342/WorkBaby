@@ -14,6 +14,10 @@ const KV_KEY: &str = "loadout_presets";
 /// 内置最小集：只保留浏览与编辑类工具。
 const MINIMAL_TOOLS: [&str; 6] = ["read", "write", "edit", "grep", "find", "ls"];
 
+/// 最小集保留的技能：全都关掉等于把技能能力一并关死，
+/// 「精简」应当只砍工具，不该让用户点一下预设就失去全部技能。
+const MINIMAL_SKILLS: [&str; 3] = ["diagnose", "tdd", "task-implement"];
+
 /// 读用户预设（KV 损坏按空处理）。
 fn user_presets(sv: &Services) -> Vec<LoadoutPreset> {
     sv.repo
@@ -57,7 +61,18 @@ pub fn list(sv: &Arc<Services>) -> LoadoutListRESP {
         LoadoutPreset {
             loadout_name: "minimal".into(),
             loadout_tools: MINIMAL_TOOLS.iter().map(|s| s.to_string()).collect(),
-            loadout_skills: Vec::new(),
+            loadout_skills: MINIMAL_SKILLS
+                .iter()
+                .filter(|s| {
+                    sv.skills
+                        .read()
+                        .unwrap()
+                        .list()
+                        .iter()
+                        .any(|e| e.name == **s)
+                })
+                .map(|s| s.to_string())
+                .collect(),
         },
     ];
     out.extend(user_presets(sv));
@@ -126,7 +141,18 @@ pub async fn apply(sv: &Arc<Services>, name: &str) -> Result<()> {
         }
         "minimal" => {
             tools = MINIMAL_TOOLS.iter().map(|s| s.to_string()).collect();
-            skills = Vec::new();
+            skills = MINIMAL_SKILLS
+                .iter()
+                .filter(|s| {
+                    sv.skills
+                        .read()
+                        .unwrap()
+                        .list()
+                        .iter()
+                        .any(|e| e.name == **s)
+                })
+                .map(|s| s.to_string())
+                .collect();
         }
         other => {
             let preset = user_presets(sv)

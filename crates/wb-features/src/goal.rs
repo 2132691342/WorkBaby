@@ -99,6 +99,92 @@ fn render(g: &GoalState) -> String {
     format!("[{}] {}{}{}", g.goal_status, g.goal_text, steps, note)
 }
 
+/// 界面侧写入：与工具同一份落盘与状态机，不做第二套规则。
+/// 界面能做的只有「切状态 / 勾步骤 / 记进展 / 新建 / 放弃」这五件事。
+pub fn apply_op(
+    store: &GoalStore,
+    ctx: &FeatureCtx,
+    req: &wb_domain::feature_state::GoalMutateREQ,
+) -> Result<GoalState> {
+    let now = now_ms();
+    match req.goal_op.as_str() {
+        "create" => {
+            if req.goal_text.trim().is_empty() {
+                return Err(AppError::new(toolcode::ARG_INVALID, "目标描述不能为空"));
+            }
+            if let Some(g) = store.load() {
+                if g.goal_status == "active" || g.goal_status == "blocked" {
+                    return Err(AppError::new(
+                        toolcode::ARG_INVALID,
+                        format!("已有未完结目标「{}」，先放弃它再建新的", g.goal_text),
+                    ));
+                }
+            }
+            let g = GoalState {
+                goal_id: wb_pkg::ulid::new_id(wb_pkg::ulid::Prefix::Goal),
+                goal_text: req.goal_text.trim().to_string(),
+                goal_status: "active".into(),
+                goal_note: String::new(),
+                goal_steps: req
+                    .goal_steps
+                    .iter()
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| GoalStep {
+                        step_text: s.trim().to_string(),
+                        step_done: false,
+                    })
+                    .collect(),
+                goal_created_at: now,
+                goal_updated_at: now,
+            };
+            store.save(&g)?;
+            push_status(ctx, &g);
+            Ok(g)
+        }
+        op => {
+            let mut g = store
+                .load()
+                .ok_or_else(|| AppError::new(toolcode::ARG_INVALID, "当前没有目标"))?;
+            match op {
+                "status" => {
+                    if !STATUSES.contains(&req.goal_status.as_str()) {
+                        return Err(AppError::new(toolcode::ARG_INVALID, "目标状态取值非法"));
+                    }
+                    g.goal_status = req.goal_status.clone();
+                }
+                "done_steps" => {
+                    for seq in &req.goal_done_steps {
+                        let idx = (*seq - 1).max(0) as usize;
+                        let Some(step) = g.goal_steps.get_mut(idx) else {
+                            return Err(AppError::new(
+                                toolcode::ARG_INVALID,
+                                format!("步骤 {seq} 不存在"),
+                            ));
+                        };
+                        step.step_done = true;
+                    }
+                    // 全部勾完就自动收口：留着 active 会让续跑一直触发
+                    if !g.goal_steps.is_empty() && g.goal_steps.iter().all(|s| s.step_done) {
+                        g.goal_status = "achieved".into();
+                    }
+                }
+                "note" => g.goal_note = req.goal_note.trim().to_string(),
+                "abandon" => g.goal_status = "abandoned".into(),
+                other => {
+                    return Err(AppError::new(
+                        toolcode::ARG_INVALID,
+                        format!("不认识的目标动作 {other}"),
+                    ))
+                }
+            }
+            g.goal_updated_at = now;
+            store.save(&g)?;
+            push_status(ctx, &g);
+            Ok(g)
+        }
+    }
+}
+
 /// 推送状态行（footer）。
 fn push_status(ctx: &FeatureCtx, g: &GoalState) {
     let done = g.goal_steps.iter().filter(|s| s.step_done).count();

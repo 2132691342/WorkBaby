@@ -140,6 +140,8 @@ export interface PendingAsk {
   method: string
   title: string
   message: string
+  /** 问卷（method=questionnaire）：一次问多题 */
+  questions?: import('./api').AskQuestion[]
   options: string[]
   /** 输入类提问的预置提示（多选题的「1,3; 自定义答案」就靠它）*/
   placeholder: string

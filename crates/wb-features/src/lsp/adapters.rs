@@ -14,6 +14,8 @@ pub struct ServerSpec {
     pub server_extensions: &'static [&'static str],
     /// 遍历时跳过的目录名
     pub server_skip_dirs: &'static [&'static str],
+    /// 安装方式（界面提示用；不自动执行——装什么由用户决定）
+    pub server_install_hint: &'static str,
 }
 
 /// 内置服务器目录表：常用语言的常用服务器，按扩展名路由。
@@ -24,6 +26,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &[],
         server_extensions: &[".rs"],
         server_skip_dirs: &["target", ".git"],
+        server_install_hint: "rustup component add rust-analyzer",
     },
     ServerSpec {
         server_name: "gopls",
@@ -31,6 +34,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &[],
         server_extensions: &[".go"],
         server_skip_dirs: &["vendor", ".git"],
+        server_install_hint: "go install golang.org/x/tools/gopls@latest",
     },
     ServerSpec {
         server_name: "ruff",
@@ -38,6 +42,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &["server"],
         server_extensions: &[".py", ".pyi"],
         server_skip_dirs: &[".venv", "venv", "__pycache__"],
+        server_install_hint: "pip install ruff  或  uv tool install ruff",
     },
     ServerSpec {
         server_name: "ty",
@@ -45,6 +50,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &["server"],
         server_extensions: &[".py", ".pyi"],
         server_skip_dirs: &[".venv", "venv"],
+        server_install_hint: "pip install ty  或  uv tool install ty",
     },
     ServerSpec {
         server_name: "biome",
@@ -55,6 +61,7 @@ pub const SERVERS: &[ServerSpec] = &[
             ".css", ".graphql", ".gql", ".html", ".vue", ".astro", ".svelte",
         ],
         server_skip_dirs: &["node_modules", "dist", ".git"],
+        server_install_hint: "npm i -g @biomejs/biome",
     },
     ServerSpec {
         server_name: "typescript-language-server",
@@ -62,6 +69,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &["--stdio"],
         server_extensions: &[".ts", ".tsx", ".js", ".jsx"],
         server_skip_dirs: &["node_modules", "dist", ".git"],
+        server_install_hint: "npm i -g typescript-language-server typescript",
     },
     ServerSpec {
         server_name: "clangd",
@@ -69,6 +77,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &["--background-index"],
         server_extensions: &[".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh"],
         server_skip_dirs: &["build", ".git"],
+        server_install_hint: "随 LLVM 发布：apt install clangd / 下载 LLVM 官方包",
     },
     ServerSpec {
         server_name: "jdtls",
@@ -76,6 +85,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &[],
         server_extensions: &[".java"],
         server_skip_dirs: &[".gradle", "build"],
+        server_install_hint: "下载 Eclipse JDT Language Server 并加入 PATH",
     },
     ServerSpec {
         server_name: "yaml-language-server",
@@ -83,6 +93,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &["--stdio"],
         server_extensions: &[".yaml", ".yml"],
         server_skip_dirs: &[".git"],
+        server_install_hint: "npm i -g yaml-language-server",
     },
     ServerSpec {
         server_name: "lua-language-server",
@@ -90,6 +101,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &[],
         server_extensions: &[".lua"],
         server_skip_dirs: &[".git"],
+        server_install_hint: "下载 lua-language-server release 并加入 PATH",
     },
     ServerSpec {
         server_name: "intelephense",
@@ -97,6 +109,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &["--stdio"],
         server_extensions: &[".php"],
         server_skip_dirs: &["vendor", ".git"],
+        server_install_hint: "npm i -g intelephense",
     },
     ServerSpec {
         server_name: "zls",
@@ -104,6 +117,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &[],
         server_extensions: &[".zig", ".zon"],
         server_skip_dirs: &[".zig-cache", "zig-out"],
+        server_install_hint: "下载 zls release 并加入 PATH",
     },
     ServerSpec {
         server_name: "bash-language-server",
@@ -111,6 +125,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &["start"],
         server_extensions: &[".sh", ".bash"],
         server_skip_dirs: &[".git"],
+        server_install_hint: "npm i -g bash-language-server",
     },
     ServerSpec {
         server_name: "terraform-ls",
@@ -118,6 +133,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &["serve"],
         server_extensions: &[".tf", ".tfvars"],
         server_skip_dirs: &[".git"],
+        server_install_hint: "下载 terraform-ls release 并加入 PATH",
     },
     ServerSpec {
         server_name: "rubocop",
@@ -125,6 +141,7 @@ pub const SERVERS: &[ServerSpec] = &[
         server_args: &["--lsp"],
         server_extensions: &[".rb", ".rake", ".gemspec"],
         server_skip_dirs: &[".git"],
+        server_install_hint: "gem install rubocop",
     },
 ];
 

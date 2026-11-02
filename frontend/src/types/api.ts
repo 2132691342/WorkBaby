@@ -112,6 +112,20 @@ export interface AttachmentREQ {
 }
 
 /** 引擎抛回来的问题（confirm / select / input / editor） */
+/** 问卷单题（method=questionnaire 时出现）。 */
+export interface AskQuestion {
+  question_title: string
+  question_options: AskOption[]
+  question_multi: boolean
+}
+
+/** 问卷选项。 */
+export interface AskOption {
+  option_label: string
+  option_description: string
+  option_preview?: string | null
+}
+
 export interface AskData {
   id: string
   method: string
@@ -120,6 +134,8 @@ export interface AskData {
   options: string[]
   placeholder: string
   prefill: string
+  /** 问卷（method=questionnaire）：一次问多题，答案按行回传 */
+  questions?: AskQuestion[]
   /** 等待上限（毫秒）：0 表示不限时 */
   timeout_ms: number
 }

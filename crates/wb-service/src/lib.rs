@@ -7,6 +7,7 @@ pub mod chat_events;
 pub mod context;
 pub mod feature_config;
 pub mod feature_state;
+pub mod feature_write;
 pub mod features;
 pub mod files;
 pub mod git;

@@ -220,8 +220,8 @@ impl TodoTool {
             .collect()
     }
 
-    /// 应用一次变更；返回新清单。
-    fn apply(
+    /// 应用一次变更；返回新清单（工具与界面写入共用同一套动作）。
+    pub fn apply(
         store: &TodoStore,
         op: &str,
         id: &str,
@@ -392,4 +392,17 @@ impl Tool for TodoTool {
             started.elapsed().as_millis() as i64,
         ))
     }
+}
+
+/// 界面侧写入入口：执行一次动作并返回最新清单（与工具同一条路径，不做第二套规则）。
+/// widget 推送由调用方决定——界面本来就在看这块面板，不必再发一次事件。
+pub fn apply_op(
+    store: &TodoStore,
+    op: &str,
+    id: &str,
+    text: &str,
+    status: &str,
+    deps: Vec<String>,
+) -> Result<Vec<TodoItem>> {
+    TodoTool::apply(store, op, id, text, status, deps, now_ms())
 }

@@ -24,6 +24,12 @@ pub(crate) fn feature_ctx_public(sv: &Arc<Services>) -> wb_features::FeatureCtx 
     feature_ctx(sv)
 }
 
+/// 测试用：外部测试需要 FeatureCtx 才能直接摆一份盘上状态。
+#[doc(hidden)]
+pub fn feature_ctx_for_test(sv: &Arc<Services>) -> wb_features::FeatureCtx {
+    feature_ctx(sv)
+}
+
 /// 读三项功能配置：库里没存过就用默认值。搜索源密钥顺便写进快照——
 /// 工具在构造时读它，靠全局环境变量改不了。
 fn load_configs(sv: &Arc<Services>) -> wb_features::config::FeatureConfigs {

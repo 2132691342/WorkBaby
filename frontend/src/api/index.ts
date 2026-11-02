@@ -215,18 +215,67 @@ export const inspect = () => get<InspectSnapshotRESP>('/inspect')
 /** 功能活状态：待办 / 目标 / 计划 / 记忆（struct VO，界面不解析 widget 文本）。 */
 export const todo = {
   list: () => get<TodoListRESP>('/todo'),
+  /** 界面写入：与模型走的 todo 工具同一套动作与规则 */
+  mutate: (body: {
+    op: string
+    id?: string
+    text?: string
+    status?: string
+    blocked_by?: string[]
+  }) =>
+    post<TodoListRESP>('/todo/mutate', {
+      todo_op: body.op,
+      todo_id: body.id ?? '',
+      todo_text: body.text ?? '',
+      todo_status: body.status ?? '',
+      todo_blocked_by: body.blocked_by ?? [],
+    }),
 }
 
 export const goal = {
   get: () => get<GoalRESP>('/goal'),
+  mutate: (body: {
+    op: string
+    text?: string
+    steps?: string[]
+    status?: string
+    done_steps?: number[]
+    note?: string
+  }) =>
+    post<GoalRESP>('/goal/mutate', {
+      goal_op: body.op,
+      goal_text: body.text ?? '',
+      goal_steps: body.steps ?? [],
+      goal_status: body.status ?? '',
+      goal_done_steps: body.done_steps ?? [],
+      goal_note: body.note ?? '',
+    }),
 }
 
 export const plan = {
   get: () => get<PlanRESP>('/plan'),
+  mutate: (body: {
+    op: string
+    reject_note?: string
+    step_index?: number
+    annotation_scope?: string
+    annotation_step?: number
+    annotation_text?: string
+  }) =>
+    post<PlanRESP>('/plan/mutate', {
+      plan_op: body.op,
+      plan_reject_note: body.reject_note ?? '',
+      plan_step_index: body.step_index ?? 0,
+      annotation_scope: body.annotation_scope ?? 'plan',
+      annotation_step: body.annotation_step ?? 0,
+      annotation_text: body.annotation_text ?? '',
+    }),
 }
 
 export const memory = {
   list: () => get<MemoryListRESP>('/memory'),
+  save: (memory_kind: string, memory_text: string) =>
+    post<{ resp_memory_id: string }>('/memory/save', { memory_kind, memory_text }),
   remove: (memory_id: string) => post<boolean>('/memory/delete', { memory_id }),
 }
 
