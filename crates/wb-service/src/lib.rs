@@ -5,6 +5,8 @@ pub mod agents;
 pub mod chat;
 pub mod chat_events;
 pub mod context;
+pub mod feature_config;
+pub mod feature_state;
 pub mod features;
 pub mod files;
 pub mod git;
@@ -70,13 +72,18 @@ pub struct Services {
     pub todos: std::sync::Mutex<Option<Arc<wb_features::todo::TodoStore>>>,
     /// 活跃子代理表（task 工具写入，界面按它显示「谁在跑」）
     pub agents: Arc<agents::AgentBoard>,
+    /// 内置运行时解压失败原因（成功时为空串）
+    pub runtime_failures: Vec<String>,
 }
 
 impl Services {
     /// 装配：数据目录 + 工作区。内核客户端等重物在首次对话时构建。
     pub fn new(data_dir: PathBuf, workspace: String, repo: Arc<wb_repo::Repo>) -> Arc<Self> {
         // 内置运行时先就位：bash / git / python 首次执行即命中，无需用户装任何环境
-        runtime::ensure_all(&data_dir);
+        let runtime_failures = runtime::ensure_all(&data_dir);
+        for f in &runtime_failures {
+            tracing::warn!("内置运行时异常（对应工具退回系统安装）：{f}");
+        }
         let providers = wb_provider::config::ProviderStore::new(&data_dir);
         let data_dir_for_asks = data_dir.clone();
         let mut registry = wb_tools::ToolRegistry::new();
@@ -104,6 +111,7 @@ impl Services {
             goal_resumes: std::sync::Mutex::new(std::collections::HashMap::new()),
             todos: std::sync::Mutex::new(None),
             agents: agents::AgentBoard::new(),
+            runtime_failures,
         })
     }
 

@@ -2,6 +2,7 @@
 
 pub mod chat_routes;
 pub mod cors;
+pub mod feature_routes;
 pub mod git_routes;
 pub mod hub;
 pub mod mcp_routes;

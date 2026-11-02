@@ -21,6 +21,8 @@ export default {
   features: {
     title: '内置功能',
     subtitle: '开一个功能，它带的工具就并入助手的工具表',
+    tabFeatures: '功能开关',
+    tabMemory: '记忆库',
   },
 
   skills: {

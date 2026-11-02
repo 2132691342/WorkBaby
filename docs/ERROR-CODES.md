@@ -79,7 +79,7 @@
 | 7101 | LSP server 返回错误响应 | wb-features | 看详情里的 server 消息 |
 | 7102 | 语言服务器未安装 | wb-features | 装上对应 server（或关掉 lsp 功能） |
 | 7103 | 没有匹配该文件类型的语言服务器 | wb-features | 换文件类型或配自定义 server |
-| 7301 | 记忆条目不存在 | wb-features | 刷新记忆清单后再操作 |
+| 7301 | 记忆条目不存在 | wb-features / wb-service | 刷新记忆清单后再操作 |
 
 ## 8000–8999 Skill
 

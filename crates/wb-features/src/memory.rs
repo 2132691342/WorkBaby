@@ -72,12 +72,14 @@ pub fn scan_secret(text: &str) -> Option<&'static str> {
 pub struct MemorySaveTool {
     /// 共享记忆库
     store: Arc<MemoryStore>,
+    /// 整合参数（自动整合的阈值与相似度来自功能配置）
+    opts: crate::memory_consolidate::ConsolidateOpts,
 }
 
 impl MemorySaveTool {
     /// 装配。
-    pub fn new(store: Arc<MemoryStore>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<MemoryStore>, opts: crate::memory_consolidate::ConsolidateOpts) -> Self {
+        Self { store, opts }
     }
 }
 
@@ -152,7 +154,8 @@ impl Tool for MemorySaveTool {
         if fresh {
             if let Some(report) = tokio::task::spawn_blocking({
                 let store = self.store.clone();
-                move || crate::memory_consolidate::auto_consolidate(&store)
+                let opts = self.opts;
+                move || crate::memory_consolidate::auto_consolidate(&store, opts)
             })
             .await
             .map_err(|e| AppError::new("7001", e.to_string()))?
@@ -180,12 +183,14 @@ impl Tool for MemorySaveTool {
 pub struct MemorySearchTool {
     /// 共享记忆库
     store: Arc<MemoryStore>,
+    /// 缺省返回条数（功能配置）
+    limit: usize,
 }
 
 impl MemorySearchTool {
     /// 装配。
-    pub fn new(store: Arc<MemoryStore>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<MemoryStore>, limit: usize) -> Self {
+        Self { store, limit }
     }
 }
 
@@ -208,7 +213,7 @@ impl Tool for MemorySearchTool {
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "检索词，空格分词，词间为与关系" },
-                "limit": { "type": "number", "description": "返回条数，默认 10" }
+                "limit": { "type": "number", "description": "返回条数（缺省取功能配置）" }
             },
             "required": ["query"]
         })
@@ -225,7 +230,7 @@ impl Tool for MemorySearchTool {
         if query.trim().is_empty() {
             return Err(AppError::new(toolcode::ARG_INVALID, "query 必填"));
         }
-        let limit = arg_usize(&args, "limit", 10).clamp(1, 50);
+        let limit = arg_usize(&args, "limit", self.limit).clamp(1, 50);
         let store = self.store.clone();
         let hits = tokio::task::spawn_blocking(move || store.search(&query, limit))
             .await
@@ -412,12 +417,14 @@ impl Tool for SessionSearchTool {
 pub struct MemoryConsolidateTool {
     /// 共享记忆库
     store: Arc<MemoryStore>,
+    /// 整合参数（相似度阈值来自功能配置）
+    opts: crate::memory_consolidate::ConsolidateOpts,
 }
 
 impl MemoryConsolidateTool {
     /// 装配。
-    pub fn new(store: Arc<MemoryStore>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<MemoryStore>, opts: crate::memory_consolidate::ConsolidateOpts) -> Self {
+        Self { store, opts }
     }
 }
 
@@ -456,10 +463,12 @@ impl Tool for MemoryConsolidateTool {
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let store = self.store.clone();
-        let report =
-            tokio::task::spawn_blocking(move || crate::memory_consolidate::consolidate(&store))
-                .await
-                .map_err(|e| AppError::new("7001", e.to_string()))?;
+        let opts = self.opts;
+        let report = tokio::task::spawn_blocking(move || {
+            crate::memory_consolidate::consolidate(&store, opts)
+        })
+        .await
+        .map_err(|e| AppError::new("7001", e.to_string()))?;
         let mut out = format!(
             "扫描 {} 条，合并 {} 条，保留 {} 条。\n",
             report.scanned, report.merged, report.remaining

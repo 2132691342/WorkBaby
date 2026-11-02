@@ -124,11 +124,20 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
-/* 加载态：锁定尺寸不参与缩放，否则连点会让按钮持续抖动 */
+/* 加载态：锁定尺寸不参与缩放，否则连点会让按钮持续抖动。
+   透明度与指针也给出来——只有锁定形变的话，按钮看着仍像可以再点一次。 */
 .el-button.is-loading,
 .el-button.is-loading:hover,
 .el-button.is-loading:active {
   transform: none;
+  cursor: progress;
+  opacity: 0.85;
+  pointer-events: none;
+}
+/* 加载指示本身跟着主题色走；EP 默认的旋转图标在深色主题下偏暗 */
+.el-button.is-loading::before {
+  opacity: 0.55;
+  transition: opacity var(--wb-dur) var(--wb-ease);
 }
 
 /* 主按钮：全站唯一的大面积强调色，实底靛蓝 + 白字 */
@@ -156,14 +165,6 @@
   --el-button-active-text-color: var(--wb-danger);
 }
 
-/* 加载态：转圈保持全亮，其余按钮压暗（同批操作里只有一枚在动） */
-.el-button.is-loading {
-  cursor: progress;
-  opacity: 0.85;
-}
-.el-button.is-loading::before {
-  background: transparent;
-}
 /* 加载态的转圈图标按主色走，EP 默认继承文字色会偏灰 */
 .el-button.is-loading .el-icon.is-loading {
   color: inherit;

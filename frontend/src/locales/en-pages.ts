@@ -21,6 +21,8 @@ export default {
   features: {
     title: 'Built-in features',
     subtitle: 'Turning one on adds its tools to the assistant toolbox',
+    tabFeatures: 'Features',
+    tabMemory: 'Memory',
   },
 
   skills: {

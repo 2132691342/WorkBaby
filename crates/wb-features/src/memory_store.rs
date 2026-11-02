@@ -184,6 +184,30 @@ impl MemoryStore {
             .map_err(db_err)
     }
 
+    /// 列出某类别的完整行（含时间戳），供界面清单与详情展示。
+    pub fn list_full_by_kind(&self, kind: &str, limit: usize) -> Result<Vec<MemoryRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT memory_id, memory_text, memory_created_at, memory_updated_at
+                 FROM memory WHERE memory_kind = ?1
+                 ORDER BY memory_updated_at DESC LIMIT ?2",
+            )
+            .map_err(db_err)?;
+        let rows = stmt
+            .query_map(params![kind, limit as i64], |r| {
+                Ok(MemoryRow {
+                    memory_id: r.get(0)?,
+                    memory_text: r.get(1)?,
+                    memory_created_at: r.get(2)?,
+                    memory_updated_at: r.get(3)?,
+                })
+            })
+            .map_err(db_err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_err)
+    }
+
     /// 合并两条记忆：把 from 的正文并入 into，并删掉 from。
     ///
     /// 用于知识整合：两条说的是同一件事时保留一条，把另一条的内容并进去。
@@ -251,6 +275,18 @@ impl MemoryStore {
         conn.query_row("SELECT COUNT(*) FROM memory", [], |r| r.get(0))
             .map_err(db_err)
     }
+}
+
+/// 记忆整行（供界面清单展示，不做摘要）。
+pub struct MemoryRow {
+    /// 记忆 id（MEM_ 前缀）
+    pub memory_id: String,
+    /// 正文全文
+    pub memory_text: String,
+    /// 创建时间（毫秒）
+    pub memory_created_at: i64,
+    /// 更新时间（毫秒）
+    pub memory_updated_at: i64,
 }
 
 /// 记忆命中。

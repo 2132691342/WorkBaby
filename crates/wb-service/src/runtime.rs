@@ -17,37 +17,75 @@ pub static PYTHON_ZIP: &[u8] = include_bytes!(concat!(
     "/../../assets/runtime/Python313.zip"
 ));
 
-/// 全部内置运行时就位；单件失败只告警不挡启动。
-pub fn ensure_all(data_dir: &Path) {
-    ensure_archive(
+/// 全部内置运行时就位；单件失败只告警不挡启动，失败原因汇总返回给调用方。
+pub fn ensure_all(data_dir: &Path) -> Vec<String> {
+    let mut failures = Vec::new();
+    if let Err(e) = ensure_archive(
         &wb_domain::runtime::portablegit_root(data_dir),
         PORTABLEGIT_ZIP,
         "PortableGit",
         "PortableGit",
-    );
-    ensure_archive(
+    ) {
+        failures.push(format!("PortableGit：{e}"));
+    }
+    if let Err(e) = ensure_archive(
         &wb_domain::runtime::python_root(data_dir),
         PYTHON_ZIP,
         "python",
         "Python",
-    );
+    ) {
+        failures.push(format!("Python：{e}"));
+    }
+    failures
 }
 
 /// 单个运行时解压：指纹（zip 字节数）不符即清空重解压；归档内顶层目录为 `entry_root`。
-fn ensure_archive(target: &Path, zip_bytes: &'static [u8], entry_root: &str, label: &str) {
+fn ensure_archive(
+    target: &Path,
+    zip_bytes: &'static [u8],
+    entry_root: &str,
+    label: &str,
+) -> Result<()> {
     let stamp = zip_bytes.len().to_string();
     let marker = target.join(".pack_stamp");
     if target.is_dir() && fsutil::read_to_string(&marker).is_ok_and(|s| s == stamp) {
-        return;
+        return Ok(());
     }
     // 指纹不符先清空：旧版本残留与半成品目录一并清除
     let _ = std::fs::remove_dir_all(target);
-    if let Err(e) = extract(target, zip_bytes, entry_root) {
-        tracing::warn!("内置 {label} 解压失败（对应工具退回系统安装）：{e}");
-        return;
-    }
+    extract(target, zip_bytes, entry_root)?;
     if let Err(e) = fsutil::write_atomic(&marker, stamp.as_bytes()) {
         tracing::warn!("{label} 指纹写入失败：{e}");
+    }
+    Ok(())
+}
+
+/// 当前运行时状态：以磁盘上的可执行文件为准，不依赖启动时的解压结果。
+pub fn status(
+    data_dir: &Path,
+    failures: &[String],
+) -> wb_domain::runtime_status::RuntimeStatusRESP {
+    use wb_domain::runtime_status::{RuntimeBinaryVO, RuntimeStatusRESP};
+    let probe = [
+        ("bash", wb_domain::runtime::find_bundled_bash(data_dir)),
+        ("git", wb_domain::runtime::find_bundled_git(data_dir)),
+        ("python", wb_domain::runtime::find_bundled_python(data_dir)),
+    ];
+    let binaries: Vec<RuntimeBinaryVO> = probe
+        .into_iter()
+        .map(|(binary_name, hit)| RuntimeBinaryVO {
+            binary_name: binary_name.to_string(),
+            binary_ready: hit.is_some(),
+            binary_path: hit.map(|p| p.display().to_string()).unwrap_or_default(),
+        })
+        .collect();
+    RuntimeStatusRESP {
+        resp_root: wb_domain::runtime::runtime_root(data_dir)
+            .display()
+            .to_string(),
+        resp_ready: binaries.iter().all(|b| b.binary_ready),
+        resp_binaries: binaries,
+        resp_failure: failures.join("; "),
     }
 }
 

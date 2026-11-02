@@ -28,7 +28,7 @@
 | `chat.rs` | 对话入出参 |
 | `provider.rs` | 模型配置、凭据、可用模型；`models.json` / `auth.json` 外部契约 |
 | `skill.rs` | 技能 frontmatter 与管理 REQ |
-| `feature.rs` | 内置功能 VO 与装载预设 |
+| `feature.rs` | 内置功能 VO（含 `feature_configurable`）、装载预设、功能配置字段表 VO |
 | `tool.rs` | 工具 VO 与开关 REQ |
 | `git.rs` | Git 视图类型与写操作 REQ |
 | `mcp.rs` | MCP 服务器 VO、配置 REQ 与 wire 配置 |
@@ -40,6 +40,8 @@
 | `messages.rs` | 错误码 → 中/英默认文案（不经过界面也要能读懂：日志、调试、兜底） |
 | `events.rs` | SSE 事件载荷类型 |
 | `runtime.rs` | 内置运行时的路径契约：数据目录名、PortableGit / Python 根、bash/git/python 候选定位、子进程 PATH 构造 |
+| `runtime_status.rs` | 运行时状态 VO（bash / git / python 是否就位、命中路径、失败原因） |
+| `feature_state.rs` | 功能活状态读取视图：待办 / 目标 / 计划 / 记忆的 VO 与删除 REQ |
 
 ## wb-repo（SQLite）
 
@@ -163,7 +165,9 @@
 | loadout | 装载预设管理 |
 | context | 上下文分解 |
 | store | 会话索引与文件定位 |
-| runtime | 内置运行时：PortableGit 与 Python 两份 zip 编译期嵌入，启动时按指纹解压到数据目录 |
+| runtime | 内置运行时：PortableGit 与 Python 两份 zip 编译期嵌入，启动时按指纹解压到数据目录；解压失败原因进 `Services.runtime_failures`，`status()` 以磁盘可执行文件为准报就位情况 |
+| feature_state | 功能活状态读取：把 wb-features 落盘的 todo / goal / plan / memory 读成 VO（界面不解析 widget 文本） |
+| feature_config | 功能级配置：三项可配功能的字段表构建（类型 / 候选 / 不可用原因）与保存，键名白名单校验 |
 | usage | 用量统计：run 结束入日表 + 启动时回填历史 |
 
 依赖全部能力域，但不引 axum / tauri。
@@ -177,6 +181,7 @@
 | session_routes | 会话路由 |
 | chat_routes | 对话路由 |
 | system_routes | Provider / 技能 / 文件 / 文档 / 命令 / 设置附属 |
+| feature_routes | 功能活状态：待办 / 目标 / 计划 / 记忆读取与记忆删除 |
 | git_routes | Git 路由 |
 | mcp_routes | MCP 路由 |
 | hub | SSE Hub：订阅 / seq / last_event_id 重放（心跳由 axum KeepAlive 提供） |

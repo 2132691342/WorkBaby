@@ -365,5 +365,13 @@ export default {
       autostart: 'Start with Windows',
       autostartHint: 'Launch WorkBaby after sign-in without showing a window.',
     },
+    runtime: {
+      title: 'Bundled runtime',
+      desc: 'bash / git / python shipped inside the installer, extracted into the data directory and put first on child-process PATH. Missing ones fall back to system installs.',
+      ready: 'All ready',
+      incomplete: 'Incomplete',
+      missing: 'Not available (falls back to system PATH)',
+      root: 'Extracted to: {path}',
+    },
   },
 }

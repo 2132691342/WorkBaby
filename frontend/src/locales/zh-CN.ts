@@ -2,6 +2,7 @@
 // 各页面（概览 / 工作区 / 文件 / 会话 / 帮助 / 错误）的文案在 zh-pages.ts，末尾展开。
 import pages from './zh-pages'
 import chatCopy from './zh-chat'
+import featureCopy from './zh-features'
 
 export default {
   app: {
@@ -96,6 +97,7 @@ export default {
     bootstrap: '读取引导数据',
     env: '检查助手环境',
     tip: '首次启动需要准备运行环境，稍等片刻',
+    runtimeMissing: '内置运行时没有全部就位，bash / python 会退回系统安装；可在设置页查看详情',
     failed: '没能启动起来',
     quit: '退出应用',
     retryHint: '重试',
@@ -241,5 +243,6 @@ export default {
     loadFailed: '加载失败',
   },
   ...chatCopy,
+  ...featureCopy,
   ...pages,
 }

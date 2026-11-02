@@ -2,6 +2,7 @@
 // Page copy (overview / workspace / files / sessions / help / errors) lives in en-pages.ts.
 import pages from './en-pages'
 import chatCopy from './en-chat'
+import featureCopy from './en-features'
 
 export default {
   app: {
@@ -96,6 +97,7 @@ export default {
     bootstrap: 'Reading bootstrap data',
     env: 'Checking assistant environment',
     tip: 'First launch prepares the runtime, hold on a moment',
+    runtimeMissing: 'Some bundled runtimes are missing; bash / python fall back to system installs. See Settings for details',
     failed: 'Could not start up',
     quit: 'Quit',
     retryHint: 'Retry',
@@ -247,5 +249,6 @@ export default {
   ...chatCopy,
   ...chatCopy,
   ...chatCopy,
+  ...featureCopy,
   ...pages,
 }

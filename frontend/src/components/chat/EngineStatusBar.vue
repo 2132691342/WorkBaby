@@ -1,14 +1,14 @@
 <script setup lang="ts">
-// 引擎扩展的状态条与小部件（setStatus / setWidget）：贴输入框上沿排一行。
+// 引擎扩展的状态条（setStatus）：贴输入框上沿排一行。
 // 它们是引擎在报「我正在干什么」，属于运行环境的一部分，不该混进消息流里当正文。
+// 结构化小部件（待办 / 计划）由 FeatureDock 的面板渲染，这里只留一行状态文字。
 import { computed } from 'vue'
 import { useChatStore } from '../../stores/chat'
 
 const chat = useChatStore()
 
 const statusRows = computed(() => Object.entries(chat.engineStatus))
-const widgets = computed(() => Object.entries(chat.engineWidgets))
-const visible = computed(() => statusRows.value.length > 0 || widgets.value.length > 0)
+const visible = computed(() => statusRows.value.length > 0)
 </script>
 
 <template>
@@ -18,9 +18,6 @@ const visible = computed(() => statusRows.value.length > 0 || widgets.value.leng
         <span class="efx-dot" aria-hidden="true" />
         <span class="efx-txt">{{ text }}</span>
       </span>
-      <div v-for="[k, lines] in widgets" :key="`w-${k}`" class="efx-widget">
-        <div v-for="(ln, i) in lines" :key="i" class="efx-line">{{ ln }}</div>
-      </div>
     </div>
   </Transition>
 </template>
@@ -72,23 +69,6 @@ const visible = computed(() => statusRows.value.length > 0 || widgets.value.leng
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-.efx-widget {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: var(--wb-sp-1) var(--wb-sp-2);
-  border-radius: var(--wb-radius-sm);
-  border: 1px solid var(--wb-border);
-  background: var(--wb-elev-hover);
-  max-width: 100%;
-}
-.efx-line {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-ink-2);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 .efx-fade-enter-active,
 .efx-fade-leave-active {

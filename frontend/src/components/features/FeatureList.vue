@@ -7,6 +7,7 @@ import { get, post } from '../../api/http'
 import { useToastStore } from '../../stores/toast'
 import type { FeatureVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
+import FeatureConfigPop from './FeatureConfigPop.vue'
 import { errorText } from '../../utils/errors'
 
 const { t } = useI18n()
@@ -65,6 +66,16 @@ async function toggle(f: FeatureVO) {
   }
 }
 
+// 配置抽屉：只对有可配项的功能开
+const cfgCode = ref('')
+const cfgTitle = ref('')
+
+function openConfig(f: FeatureVO) {
+  if (!f.feature_configurable) return
+  cfgCode.value = f.feature_code
+  cfgTitle.value = f.feature_name
+}
+
 onMounted(() => {
   void reload()
 })
@@ -102,16 +113,34 @@ defineExpose({ reload, items, enabledCount })
                 </el-tag>
               </span>
             </div>
-            <el-switch
-              :model-value="f.feature_enabled"
-              :loading="busy === f.feature_code"
-              :disabled="!!busy"
-              @change="toggle(f)"
-            />
+            <div class="feat-acts">
+              <button
+                v-if="f.feature_configurable"
+                class="wb-btn feat-cfg"
+                type="button"
+                :title="t('featurePanel.configOpen')"
+                @click="openConfig(f)"
+              >
+                <AppIcon name="sliders" size="ic-xs" />
+              </button>
+              <el-switch
+                :model-value="f.feature_enabled"
+                :loading="busy === f.feature_code"
+                :disabled="!!busy"
+                @change="toggle(f)"
+              />
+            </div>
           </article>
         </div>
       </section>
     </template>
+
+    <FeatureConfigPop
+      :code="cfgCode"
+      :title="cfgTitle"
+      @close="cfgCode = ''"
+      @saved="reload"
+    />
   </div>
 </template>
 
@@ -183,6 +212,24 @@ defineExpose({ reload, items, enabledCount })
 }
 .feat-tool {
   font-family: var(--font-mono);
+}
+.feat-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  flex: none;
+}
+.feat-cfg {
+  width: var(--wb-tile-sm);
+  height: var(--wb-tile-sm);
+  border-radius: var(--wb-radius-sm);
+  border: 1px solid var(--wb-border);
+  background: var(--wb-elev-raised);
+  color: var(--wb-muted);
+}
+.feat-cfg:hover {
+  border-color: var(--wb-primary);
+  color: var(--wb-primary);
 }
 .pad {
   padding: var(--wb-sp-4);

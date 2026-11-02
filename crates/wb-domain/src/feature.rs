@@ -19,6 +19,8 @@ pub struct FeatureVO {
     pub feature_tools: Vec<String>,
     /// 阶段：p1 / p2（p2 功能在界面上标注「即将可用」）
     pub feature_phase: String,
+    /// 是否有可配项（有则界面给配置入口）
+    pub feature_configurable: bool,
 }
 
 /// 工具 / 技能开关的命名预设（loadout 功能）。
@@ -47,4 +49,54 @@ pub struct LoadoutListRESP {
 pub struct LoadoutREQ {
     /// 预设名
     pub loadout_name: String,
+}
+
+/// 配置字段类型：界面据此选择控件。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct FeatureConfigFieldVO {
+    /// 字段名（与配置 JSON 的键一致）
+    pub field_name: String,
+    /// 显示名（界面文案 key 或原样显示）
+    pub field_label: String,
+    /// 一句话说明
+    pub field_description: String,
+    /// 控件类型：text / number / boolean / select / multi_select
+    pub field_kind: String,
+    /// 当前值（JSON 标量或数组）
+    pub field_value: serde_json::Value,
+    /// select / multi_select 的候选值
+    pub field_options: Vec<FeatureConfigOptionVO>,
+}
+
+/// 配置字段的一个候选值。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct FeatureConfigOptionVO {
+    /// 值
+    pub option_value: String,
+    /// 显示名
+    pub option_label: String,
+    /// 不可用原因（如缺密钥 / 未安装）；空 = 可选
+    pub option_reason: String,
+}
+
+/// 功能配置响应：字段表 + 该功能是否提供配置。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct FeatureConfigRESP {
+    /// 功能码
+    pub resp_feature_code: String,
+    /// 是否有可配项
+    pub resp_configurable: bool,
+    /// 字段清单
+    pub resp_fields: Vec<FeatureConfigFieldVO>,
+}
+
+/// 功能配置保存请求：键 → 值（缺的键保持原值）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct FeatureConfigSaveREQ {
+    /// 字段名 → 新值
+    pub config_values: std::collections::BTreeMap<String, serde_json::Value>,
 }

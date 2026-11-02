@@ -77,10 +77,22 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | POST | /tools/toggle | 工具开关 |
 | GET | /features | 12 项内置功能清单 |
 | POST | /features/toggle | 功能开关（切换后重建工具注册表） |
-| GET/POST | /features/:code/config | 功能级配置读写（KV） |
+| GET/POST | /features/:code/config | 功能级配置读写：GET 返回**字段表**（类型 / 候选 / 不可用原因），POST 提交键值。可配项只有 web / memory / lsp 三项 |
 | GET | /commands | 斜杠命令清单（启用技能 → /skill:名） |
 | GET | /loadout · POST /loadout/save · /loadout/apply · /loadout/delete | 装载预设（full / minimal 内置） |
 | GET | /inspect?session_id= | 自省快照：工具/技能/命令/系统提示词/会话元 |
+
+## 功能活状态（待办 / 目标 / 计划 / 记忆）
+
+界面读结构化 VO，不解析 widget 文本——依赖图与步骤状态是结构，不是字符串。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | /todo | 待办清单（含 `todo_blocked_by` 依赖与已完成计数） |
+| GET | /goal | 当前目标 + 步骤 + 续跑次数；无目标时 `resp_goal` 为 null |
+| GET | /plan | 当前计划 + 步骤 + 标注；无计划时 `resp_plan` 为 null |
+| GET | /memory | 记忆清单（四类计数 + 全局按更新时间倒序的条目） |
+| POST | /memory/delete | 删一条记忆（body `{memory_id}`）；不存在报 7301 |
 
 ## MCP / Git / 文件 / 统计
 
@@ -101,6 +113,7 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | /kernel/status | 就绪状态（`{ready, data_dir}`；无模型配置即 ready=false） |
+| GET | /runtime | 内置运行时状态：bash / git / python 是否就位、命中路径、解压失败原因 |
 | GET | /context/breakdown?session_id= | 上下文占用分解 |
 | GET | /subagents/roles | 子代理角色预设清单（code / 名称 / 职责 / 工具白名单 / 轮次上限） |
 | GET | /subagents?session_id= | 正在跑的子代理；带 session_id 只列该父会话下的 |

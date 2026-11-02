@@ -21,13 +21,16 @@ use crate::FeatureCtx;
 pub struct LspFixTool {
     /// 工作区根（相对路径以此为基准）
     root: PathBuf,
+    /// 允许使用的服务器（空清单 = 不限制）
+    allowed: crate::config::LspConfig,
 }
 
 impl LspFixTool {
     /// 装配。
-    pub fn new(ctx: FeatureCtx) -> Self {
+    pub fn new(ctx: FeatureCtx, allowed: crate::config::LspConfig) -> Self {
         Self {
             root: ctx.workspace,
+            allowed,
         }
     }
 }
@@ -114,6 +117,12 @@ impl Tool for LspFixTool {
         let spec: &ServerSpec = adapters::server_for_extension(&ext).ok_or_else(|| {
             AppError::new(codes::NO_MATCH, format!("没有语言服务器支持 {ext} 文件"))
         })?;
+        if !self.allowed.allows(spec.server_name) {
+            return Err(AppError::new(
+                codes::NOT_INSTALLED,
+                format!("语言服务器 {} 已在功能配置里停用", spec.server_name),
+            ));
+        }
         if !command_exists(spec.server_command) {
             return Err(AppError::new(
                 codes::NOT_INSTALLED,

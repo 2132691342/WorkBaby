@@ -13,7 +13,7 @@ const HANDSHAKE_TIMEOUT_MS = 20000
 
 const status = ref<HandshakeStatus>('pending')
 // 加载页的阶段读数：握手本地服务 → 读取引导数据 → 完成。
-export type BootStage = 'handshake' | 'bootstrap' | 'done'
+export type BootStage = 'handshake' | 'bootstrap' | 'env' | 'done'
 const stage = ref<BootStage>('handshake')
 const port = ref(0)
 const message = ref('')

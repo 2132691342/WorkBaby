@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use wb_features::ask_user::AnswerBoard;
 use wb_features::context_mode::store::KnowledgeStore;
+use wb_features::memory_consolidate::ConsolidateOpts;
 use wb_features::todo::TodoStore;
 use wb_features::FeatureCtx;
 use wb_tools::Tool;
@@ -21,6 +22,7 @@ fn ctx_of(tag: &str) -> (PathBuf, FeatureCtx) {
         data_dir: dir.clone(),
         workspace: dir.clone(),
         emit: Arc::new(|_, _, _| {}),
+        configs: Default::default(),
     };
     (dir, ctx)
 }
@@ -368,7 +370,7 @@ fn consolidation_merges_same_facts_and_keeps_distinct_ones() {
     store
         .save("failure", "构建失败是因为 Node 版本太低", 4)
         .unwrap();
-    let report = consolidate(&store);
+    let report = consolidate(&store, ConsolidateOpts::default());
     assert_eq!(report.scanned, 4);
     assert_eq!(report.merged, 1, "同一件事的两条该合并成一条");
     assert_eq!(
@@ -394,7 +396,7 @@ fn consolidation_merges_same_facts_and_keeps_distinct_ones() {
     store
         .save("project", "本地开发用 docker compose 启动数据库", 6)
         .unwrap();
-    let report = consolidate(&store);
+    let report = consolidate(&store, ConsolidateOpts::default());
     assert_eq!(
         report.remaining + report.merged,
         report.scanned,

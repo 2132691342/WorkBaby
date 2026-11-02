@@ -50,7 +50,7 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | `/apps` | AppsView | 外部微前端应用登记与隔离运行（qiankun） |
 | `/models` | ModelsView | 模型服务与工具配置 |
 | `/skills` | SkillsView | 技能清单台 |
-| `/plugins` | FeaturesView | 12 项内置功能开关台（别名 /features） |
+| `/plugins` | FeaturesView | 两段：12 项内置功能开关台 + 记忆库（别名 /features） |
 | `/mcp` | McpView | MCP 服务器配置与在线状态 |
 | `/usage` | DashboardView | 用量仪表盘（别名 /dashboard） |
 | `/help/:name?` | HelpView | 内置文档阅读 |
@@ -78,7 +78,8 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | TurnChanges | 一轮回答改了哪些文件（实时轮才有增量 diff） |
 | TurnFoot | 回合脚注：复制 + 用量读数 + 时间 |
 | ContextMeter | 上下文水位环 + 读数，点击展开占用分解 |
-| EngineStatusBar | 状态条 + 小部件行（功能 setStatus/setWidget 桥） |
+| EngineStatusBar | 状态条（功能 setStatus 桥）；只留一行状态文字 |
+| features/FeatureDock | 对话主区内、状态条上方：待办 / 目标 / 计划三个结构化面板的 tab 抽屉 |
 | StatusHud | 底部常驻：模型/思考档/水位/耗时 |
 | EngineCard | 左栏底部内核状态卡，显示就绪/阻塞原因 |
 | ExampleCards | 首屏例句 |
@@ -89,7 +90,12 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 
 | 组件 | 归属 | 职责 |
 |---|---|---|
-| features/FeatureList | 概览 / 功能页 / 设置页 | 12 项功能清单与开关 |
+| features/FeatureList | 概览 / 功能页 / 设置页 | 12 项功能清单、开关与配置入口 |
+| features/FeatureConfigPop | 功能页 | 配置抽屉：按后端字段表渲染表单，不写死任何功能的表 |
+| features/TodoPanel | FeatureDock | 待办清单 + 依赖阻塞标记 + 完成进度 |
+| features/GoalPanel | FeatureDock | 单活跃目标：状态灯、步骤清单、续跑计数 |
+| features/PlanPanel | FeatureDock | 计划：状态徽标、驳回意见、步骤勾选、逐条标注 |
+| features/MemoryPanel | 功能页「记忆库」段 | 记忆库：四类筛选、全文查看、单条删除 |
 | skills/SkillList | 技能页 / 设置页 | 技能清单、开关、正文抽屉、导入与新建 |
 | doc/DocPreview | 工作区文件树 | PDF / Word / Excel / 文本预览 |
 | doc/DocPreviewDrawer | 工作区文件树 | 预览抽屉 |
@@ -102,7 +108,8 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 layout/TitleBar（自绘标题栏与窗控三键）、layout/NavRail（一级导航）、
 layout/SidePanel（当前区左栏，188px 窄档）、layout/PageHeader（页头标题与动作）、
 common/AppIcon（内联 SVG 图标）、common/CodeEditor（CodeMirror 封装）、
-common/ResizableDrawer（可拖宽抽屉）、common/ToastHost（轻提示宿主）。
+common/ResizableDrawer（可拖宽抽屉）、common/ToastHost（轻提示宿主）、
+common/EmptyState（空态：图标 + 结论 + 指引，功能面板与列表共用）。
 
 其余页面的组成：workspace（FileTree、DiffView、GitStateBanner、GitCommitPanel、GitBranchPanel、
 GitHistoryPanel）、dashboard（KpiCard、UsageTrend、ModelShare）、
@@ -130,7 +137,8 @@ help（文档目录 + Markdown 阅读）。
 |---|---|---|
 | 1 | AppearancePanel | 主题、字体、字号、自定义背景 |
 | 2 | BehaviorPanel | 默认工作区、界面语言、发送键、托盘与自启 |
-| 3 | InspectPanel | 当前装配快照（工具 / 技能 / 命令 / 功能 / 系统提示词） |
+| 3 | RuntimePanel | 内置运行时：bash / git / python 是否就位、命中路径、解压失败原因 |
+| 4 | InspectPanel | 当前装配快照（工具 / 技能 / 命令 / 功能 / 系统提示词） |
 
 模型、工具、MCP、技能、功能都有自己的**一级页**，它们的开关不再在设置里列一遍——
 两处都能改就会出现「各自认为是权威」。分节骨架由 settings/SettingsSection 提供。

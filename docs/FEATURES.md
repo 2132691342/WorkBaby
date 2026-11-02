@@ -239,8 +239,38 @@ PR 的内容在本地就是「基线分支 vs 特性分支」的差异，所以�
 |---|---|---|
 | 提问 | chat:ask / chat:ask_closed | 提问卡 |
 | 状态行（空文本即清除） | chat:status | 状态条 |
-| 小部件行（空行组即清除） | chat:widget | 状态条 |
+| 小部件行（空行组即清除） | chat:widget | 「有新变化」信号 |
 | 通知（info/warning/error） | chat:notify | Toast |
+
+**widget 只是信号，不是数据源**。todo 与 plan 每轮会推一行文本组，
+但它承载不了依赖图、步骤状态、标注这些东西——把结构塞进字符串再由界面反解，
+任何一次改文案都会连带改界面。所以界面收到 widget 后按 key 拉结构化 VO：
+
+| key | 拉取端点 | 面板 |
+|---|---|---|
+| `todo` | GET /todo | `components/features/TodoPanel` |
+| `plan` | GET /plan | `components/features/PlanPanel` |
+| `goal`（走 chat:status） | GET /goal | `components/features/GoalPanel` |
+
+三个面板挂在 `FeatureDock`（对话主区内、状态条上方）：默认收起，
+只在对应 widget 存在时露出 tab。`EngineStatusBar` 只保留一行状态文字。
+
+## 功能级配置
+
+`/features/:code/config` 返回的是**字段表**而不是裸 KV：后端给出 `field_kind`
+（text / number / select / multi_select）、当前值与候选（含不可用原因），
+前端只负责渲染与收集，不写死任何功能的表单。
+
+可配项只有三项——其余功能没有需要用户调的旋钮：
+
+| 功能码 | 字段 | 生效点 |
+|---|---|---|
+| web | `web_provider` / `web_search_limit` / `web_proxy` | 搜索源排队、返回条数、HTTP 代理 |
+| memory | `memory_auto_threshold` / `memory_merge_threshold` / `memory_search_limit` | 自动整合触发条数、相似度阈值、检索条数 |
+| lsp | `lsp_servers` | 允许启用的语言服务器白名单（空 = 不限） |
+
+配置随 `FeatureCtx` 注入功能代码，**保存后重建注册表**——工具在构造时读配置，
+不重建的话旧值会一直生效到下次重启。提交的键名走白名单，未知键直接拒。
 
 ## 存储位置
 

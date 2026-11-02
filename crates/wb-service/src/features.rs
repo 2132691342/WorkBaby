@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::Services;
 
 /// 功能上下文：从 Services 借视图（wb-features 不反向依赖 service）。
-fn feature_ctx(sv: &Arc<Services>) -> wb_features::FeatureCtx {
+pub(crate) fn feature_ctx(sv: &Arc<Services>) -> wb_features::FeatureCtx {
     let emitter = sv.emitter.lock().unwrap().clone();
     wb_features::FeatureCtx {
         data_dir: sv.data_dir.clone(),
@@ -15,7 +15,18 @@ fn feature_ctx(sv: &Arc<Services>) -> wb_features::FeatureCtx {
                 e.emit(sid, event, data);
             }
         }),
+        configs: load_configs(sv),
     }
+}
+
+/// 读三项功能配置：库里没存过就用默认值。
+fn load_configs(sv: &Arc<Services>) -> wb_features::config::FeatureConfigs {
+    wb_features::config::FeatureConfigs::parse(|code| {
+        sv.repo
+            .settings_get(&format!("feature_config_{code}"))
+            .ok()
+            .flatten()
+    })
 }
 
 /// 功能是否启用（repo 开关；缺省按 docs/FEATURES.md 的默认值）。
@@ -109,17 +120,22 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
         match wb_features::memory_store::MemoryStore::open(&ctx) {
             Ok(store) => {
                 let store = Arc::new(store);
+                let mem = &ctx.configs.memory;
+                let opts = wb_features::memory_consolidate::ConsolidateOpts::from_config(mem);
                 reg.register(Arc::new(wb_features::memory::MemorySaveTool::new(
                     store.clone(),
+                    opts,
                 )));
                 reg.register(Arc::new(wb_features::memory::MemorySearchTool::new(
                     store.clone(),
+                    mem.memory_search_limit,
                 )));
                 reg.register(Arc::new(wb_features::memory::MemoryRemoveTool::new(
                     store.clone(),
                 )));
                 reg.register(Arc::new(wb_features::memory::MemoryConsolidateTool::new(
                     store.clone(),
+                    opts,
                 )));
                 reg.register(Arc::new(wb_features::memory::SessionSearchTool::new(
                     ctx.clone(),
@@ -129,8 +145,9 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
         }
     }
     if enabled(sv, "web", false) {
-        reg.register(Arc::new(wb_features::web::FetchTool::new()));
-        reg.register(Arc::new(wb_features::web::SearchTool::new()));
+        let web = &ctx.configs.web;
+        reg.register(Arc::new(wb_features::web::FetchTool::new(&web.web_proxy)));
+        reg.register(Arc::new(wb_features::web::SearchTool::new(web)));
         reg.register(Arc::new(wb_features::web_files::PdfReadTool::new()));
         reg.register(Arc::new(wb_features::web_files::GithubCloneTool));
         reg.register(Arc::new(wb_features::web_video::VideoTool::new()));
@@ -183,11 +200,13 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
         )));
     }
     if enabled(sv, "lsp", false) && wb_features::lsp::any_server_installed() {
+        let allowed = ctx.configs.lsp.clone();
         reg.register(Arc::new(
-            wb_features::lsp::diagnostics::LspDiagnosticsTool::new(ctx.clone()),
+            wb_features::lsp::diagnostics::LspDiagnosticsTool::new(ctx.clone(), allowed.clone()),
         ));
         reg.register(Arc::new(wb_features::lsp::fix::LspFixTool::new(
             ctx.clone(),
+            allowed,
         )));
     }
     super::mcp::install_mcp_tools(sv, &mut reg);
@@ -318,6 +337,7 @@ pub fn list_vo(sv: &Arc<Services>) -> Vec<wb_domain::feature::FeatureVO> {
                     _ => Vec::new(),
                 },
                 feature_phase: phase.to_string(),
+                feature_configurable: super::feature_config::CONFIGURABLE.contains(code),
             },
         )
         .collect()

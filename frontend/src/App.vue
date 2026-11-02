@@ -15,10 +15,14 @@ import NavRail from './components/layout/NavRail.vue'
 import ToastHost from './components/common/ToastHost.vue'
 import TitleBar from './components/layout/TitleBar.vue'
 import { status, stage, message, retryHandshake } from './bootstrap'
+import * as api from './api'
+import type { RuntimeStatusRESP } from './types/api'
 import { onShellEvent, quitApp } from './api/shell'
 
 const { t } = useI18n()
 const booted = ref(false)
+/** 内置运行时状态：启动时读一次，缺件就提示一句 */
+const runtime = ref<RuntimeStatusRESP | null>(null)
 const settings = useSettingsStore()
 const chat = useChatStore()
 const toast = useToastStore()
@@ -37,7 +41,8 @@ const ready = computed(() => booted.value && !failed.value)
 async function loadBoot() {
   try {
     await settings.loadBoot()
-    stage.value = 'done'
+    // 引导数据到手即进入运行时检查阶段（不是直接 done——还有第三段要读）
+    stage.value = 'env'
     // 预热在后台跑：不等它，对话页立即可用
     void settings.warmup()
   } catch {
@@ -46,7 +51,19 @@ async function loadBoot() {
   // 已保存的外观与显示偏好要落到 DOM 上，否则刷新后主题之外的设置全部失效
   syncFromSettings()
   chat.setShowThinking(settings.values['show_thinking'] !== 'false')
+  // 第三段：内置运行时是否就位。解压在后端启动时同步做完，这里只是把结论读出来：
+  // 缺 bash/python 时不挡使用（工具会退回系统安装），但必须让用户看见原因。
+  try {
+    runtime.value = await api.runtimeStatus()
+  } catch {
+    // 读不到运行时状态不该让界面卡在启动页
+  } finally {
+    stage.value = 'done'
+  }
   booted.value = true
+  if (runtime.value && !runtime.value.resp_ready) {
+    toast.info(t('boot.runtimeMissing'))
+  }
   // 没配模型就直接送到「模型」页：那是现在唯一能配模型的地方。
   // 送到设置页等于把用户丢在一个再也配不上模型的地方——配不了就没有对话。
   if (settings.boot?.boot_ready === false && router.currentRoute.value.path !== '/models') {
@@ -79,7 +96,8 @@ onMounted(() => {
 /** 启动阶段两段读数：把「正在启动」拆成可感知的进度 */
 const bootSteps = computed(() => [
   { key: 'handshake', label: t('boot.handshake'), done: stage.value !== 'handshake' },
-  { key: 'bootstrap', label: t('boot.bootstrap'), done: stage.value === 'done' },
+  { key: 'bootstrap', label: t('boot.bootstrap'), done: stage.value === 'env' || stage.value === 'done' },
+  { key: 'env', label: t('boot.env'), done: stage.value === 'done' },
 ])
 
 </script>

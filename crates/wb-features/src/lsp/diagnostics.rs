@@ -45,13 +45,16 @@ async fn run_diagnostics(
 pub struct LspDiagnosticsTool {
     /// 工作区根（诊断命令在此目录下执行）
     root: PathBuf,
+    /// 允许使用的服务器（空清单 = 不限制）
+    allowed: crate::config::LspConfig,
 }
 
 impl LspDiagnosticsTool {
     /// 装配。
-    pub fn new(ctx: FeatureCtx) -> Self {
+    pub fn new(ctx: FeatureCtx, allowed: crate::config::LspConfig) -> Self {
         Self {
             root: ctx.workspace,
+            allowed,
         }
     }
 }
@@ -121,7 +124,7 @@ impl Tool for LspDiagnosticsTool {
         let mut targets: Vec<PathBuf> = Vec::new();
         if paths.is_empty() {
             for spec in adapters::SERVERS {
-                if !command_exists(spec.server_command) {
+                if !command_exists(spec.server_command) || !self.allowed.allows(spec.server_name) {
                     continue;
                 }
                 for f in collect_files(spec, &root, limit) {
@@ -135,7 +138,9 @@ impl Tool for LspDiagnosticsTool {
                 let abs = root.join(p);
                 if abs.is_dir() {
                     for spec in adapters::SERVERS {
-                        if !command_exists(spec.server_command) {
+                        if !command_exists(spec.server_command)
+                            || !self.allowed.allows(spec.server_name)
+                        {
                             continue;
                         }
                         for f in collect_files(spec, &abs, limit) {
@@ -167,6 +172,10 @@ impl Tool for LspDiagnosticsTool {
                 .cloned()
                 .collect();
             if files.is_empty() {
+                continue;
+            }
+            if !self.allowed.allows(spec.server_name) {
+                skipped.push(format!("{}（已在功能配置里停用）", spec.server_name));
                 continue;
             }
             if !command_exists(spec.server_command) {

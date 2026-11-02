@@ -365,5 +365,13 @@ export default {
       autostart: '开机自动启动',
       autostartHint: '登录 Windows 后直接拉起 WorkBaby，不弹窗。',
     },
+    runtime: {
+      title: '内置运行时',
+      desc: '随安装包分发的 bash / git / python，解压到数据目录后由子进程 PATH 优先使用——没有它也能跑，只是会退回系统安装。',
+      ready: '全部就位',
+      incomplete: '有缺失',
+      missing: '未就位（将退回系统 PATH）',
+      root: '解压位置：{path}',
+    },
   },
 }

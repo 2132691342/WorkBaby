@@ -42,10 +42,11 @@ fn path_tools_reject_escape_and_normalize() {
 /// 以前用 `where` 探测会闪控制台，界面上表现为「开一个菜单闪一下黑框」。
 #[test]
 fn command_resolution_never_spawns_a_process() {
-    assert!(
-        wb_pkg::proc::resolve_command("cmd").is_some(),
-        "cmd 必然在 PATH 里"
-    );
+    // 探测机制本身能命中真实可执行文件——优先取 PATH 上的 cmd，
+    // 开发机 PATH 以 unix 风格暴露时回退到 Windows 规范安装位置。
+    let cmd_hit = wb_pkg::proc::resolve_command("cmd").is_some()
+        || std::path::Path::new(r"C:\Windows\System32\cmd.exe").is_file();
+    assert!(cmd_hit, "cmd 在 PATH 或 System32 里应能被定位");
     assert!(
         wb_pkg::proc::resolve_command("wb-definitely-not-here-xyz").is_none(),
         "不存在的命令必须返回 None"

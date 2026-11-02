@@ -93,14 +93,39 @@ const MERGE_THRESHOLD: f64 = 0.5;
 /// 单次整合最多处理的条目数（控制扫描成本）。
 const MAX_SCAN: usize = 300;
 
-/// 自动整合的触发阈值：记忆条数超过它就自动跑一轮整合。
-/// 不设阈值的话整合永远只靠模型手动调用；记忆库只增不减，到量就堆满重复碎片。
-const AUTO_CONSOLIDATE_THRESHOLD: usize = 40;
+/// 整合参数：来自 memory 功能配置，缺省值与常量一致。
+#[derive(Debug, Clone, Copy)]
+pub struct ConsolidateOpts {
+    /// 相似度达到多少才合并（0.1..=1.0）
+    pub merge_threshold: f64,
+    /// 记忆条数超过它才自动整合（0 = 关闭自动整合）
+    pub auto_threshold: usize,
+}
+
+impl Default for ConsolidateOpts {
+    /// 与历史常量一致：0.5 阈值、40 条触发。
+    fn default() -> Self {
+        Self {
+            merge_threshold: MERGE_THRESHOLD,
+            auto_threshold: 40,
+        }
+    }
+}
+
+impl ConsolidateOpts {
+    /// 从功能配置取值。
+    pub fn from_config(cfg: &crate::config::MemoryConfig) -> Self {
+        Self {
+            merge_threshold: cfg.memory_merge_threshold,
+            auto_threshold: cfg.memory_auto_threshold,
+        }
+    }
+}
 
 /// 整合记忆库：同类别内逐对判重，重复的合并成一条。
 /// 合并方向：保留最近更新的那条（较早的内容并进去），删掉较早的那条——
 /// 最近更新的代表当前认知，历史陈述并进去不丢信息。
-pub fn consolidate(store: &Arc<MemoryStore>) -> ConsolidateReport {
+pub fn consolidate(store: &Arc<MemoryStore>, opts: ConsolidateOpts) -> ConsolidateReport {
     let mut scanned = 0usize;
     let mut merged = 0usize;
     let kinds: Vec<String> = store
@@ -121,7 +146,7 @@ pub fn consolidate(store: &Arc<MemoryStore>) -> ConsolidateReport {
                 if !alive.contains(id_b) {
                     continue;
                 }
-                if similarity(text_a, text_b) < MERGE_THRESHOLD {
+                if similarity(text_a, text_b) < opts.merge_threshold {
                     continue;
                 }
                 // 特征词门槛：没有共同特征词就不合并。
@@ -150,11 +175,14 @@ pub fn consolidate(store: &Arc<MemoryStore>) -> ConsolidateReport {
 }
 
 /// 自动整合：条数超过阈值时跑一轮，返回是否真的整合了。
-pub fn auto_consolidate(store: &Arc<MemoryStore>) -> Option<ConsolidateReport> {
-    if store.total().ok()? < AUTO_CONSOLIDATE_THRESHOLD as i64 {
+pub fn auto_consolidate(
+    store: &Arc<MemoryStore>,
+    opts: ConsolidateOpts,
+) -> Option<ConsolidateReport> {
+    if opts.auto_threshold == 0 || store.total().ok()? < opts.auto_threshold as i64 {
         return None;
     }
-    let report = consolidate(store);
+    let report = consolidate(store, opts);
     if report.merged == 0 {
         None
     } else {

@@ -7,6 +7,7 @@ import PageHeader from '../components/layout/PageHeader.vue'
 import AppearancePanel from '../components/settings/AppearancePanel.vue'
 import BehaviorPanel from '../components/settings/BehaviorPanel.vue'
 import InspectPanel from '../components/settings/InspectPanel.vue'
+import RuntimePanel from '../components/settings/RuntimePanel.vue'
 
 const { t } = useI18n()
 </script>
@@ -18,6 +19,7 @@ const { t } = useI18n()
     <div class="body">
       <AppearancePanel />
       <BehaviorPanel />
+      <RuntimePanel />
       <InspectPanel />
     </div>
   </div>

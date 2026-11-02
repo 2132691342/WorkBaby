@@ -240,6 +240,8 @@ export interface FeatureVO {
   feature_tools: string[]
   /** p1 / p2 */
   feature_phase: string
+  /** 有可配项时界面给配置入口 */
+  feature_configurable: boolean
 }
 
 // ---- MCP ----
@@ -490,3 +492,7 @@ export interface GitMessageRESP {
   resp_message: string
   resp_err: string
 }
+
+
+// 功能面板相关的类型拆到 featurePanel.ts，这里统一再导出，调用方无感。
+export * from './featurePanel'

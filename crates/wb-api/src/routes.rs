@@ -31,6 +31,7 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .merge(crate::chat_routes::routes())
+        .merge(crate::feature_routes::routes())
         .merge(crate::git_routes::routes())
         .merge(crate::mcp_routes::routes())
         .merge(crate::session_routes::routes())
@@ -56,6 +57,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/inspect", get(inspect))
         .route("/api/v1/stats", get(stats))
         .route("/api/v1/kernel/status", get(kernel_status))
+        // 内置运行时：bash / git / python 是否就位（帮助页与启动引导读它）
+        .route("/api/v1/runtime", get(runtime_status))
         .route("/api/v1/events", get(events))
         .with_state(state)
         .layer(crate::cors::cors_layer())
@@ -218,31 +221,35 @@ async fn features_list(State(st): State<AppState>) -> Response {
     ok_json(wb_service::features::list_vo(&st.sv))
 }
 
-/// 功能级配置读取（KV `feature_config_{code}`）。
+/// 功能级配置读取：返回字段表，界面按 schema 渲染表单。
 async fn feature_config_get(State(st): State<AppState>, Path(code): Path<String>) -> Response {
     let safe = code.replace(['/', '\\', '.'], "");
-    match st.sv.repo.settings_get(&format!("feature_config_{safe}")) {
-        Ok(v) => ok_json(
-            serde_json::json!({ "resp_feature_code": safe, "resp_config": v.unwrap_or_default() }),
-        ),
+    match wb_service::feature_config::get(&st.sv, &safe) {
+        Ok(v) => ok_json(v),
         Err(e) => err_json(&e),
     }
 }
 
-/// 功能级配置写入。
+/// 功能级配置写入：不认识的键直接拒，不静默写入脏数据。
 async fn feature_config_save(
     State(st): State<AppState>,
     Path(code): Path<String>,
-    axum::Json(body): axum::Json<serde_json::Value>,
+    axum::Json(req): axum::Json<wb_domain::feature::FeatureConfigSaveREQ>,
 ) -> Response {
     let safe = code.replace(['/', '\\', '.'], "");
-    let raw = body["feature_config"].as_str().unwrap_or("").to_string();
-    match st
-        .sv
-        .repo
-        .settings_set(&format!("feature_config_{safe}"), &raw)
-    {
-        Ok(_) => ok_json(serde_json::Value::Null),
+    let unknown = wb_service::feature_config::reject_unknown(&safe, &req.config_values);
+    if !unknown.is_empty() {
+        return err_json(&wb_pkg::AppError::new(
+            wb_domain::error::common::PARAM_INVALID,
+            format!("未知配置项：{}", unknown.join(" / ")),
+        ));
+    }
+    match wb_service::feature_config::save(&st.sv, &safe, &req) {
+        Ok(()) => {
+            // 工具在构造时读配置，改了配置必须重建注册表，否则旧值一直生效
+            wb_service::features::refresh_registry(&st.sv);
+            ok_json(serde_json::Value::Null)
+        }
         Err(e) => err_json(&e),
     }
 }
@@ -333,6 +340,14 @@ async fn stats(
 async fn kernel_status(State(st): State<AppState>) -> Response {
     let ready = wb_service::chat::default_model_state(&st.sv).is_ok();
     ok_json(serde_json::json!({ "ready": ready, "data_dir": st.sv.data_dir.display().to_string() }))
+}
+
+/// 内置运行时状态：以磁盘可执行文件为准，并带上启动时的解压失败原因。
+async fn runtime_status(State(st): State<AppState>) -> Response {
+    ok_json(wb_service::runtime::status(
+        &st.sv.data_dir,
+        &st.sv.runtime_failures,
+    ))
 }
 
 #[derive(serde::Deserialize)]

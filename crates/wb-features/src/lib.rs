@@ -1,6 +1,7 @@
 //! 内置功能：FeatureCtx 注入 + 功能工具（docs/FEATURES.md）。开关与注册表装配在 service。
 
 pub mod ask_user;
+pub mod config;
 pub mod context_mode;
 pub mod fff;
 pub mod fts;
@@ -34,6 +35,8 @@ pub struct FeatureCtx {
     pub workspace: PathBuf,
     /// SSE 出口
     pub emit: Emit,
+    /// 功能级配置（用户改过的值，缺省为默认值）
+    pub configs: config::FeatureConfigs,
 }
 
 impl FeatureCtx {

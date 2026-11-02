@@ -37,14 +37,20 @@ fn arg_usize(args: &Value, key: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
-/// 复用的 HTTP 客户端（超时 / UA / 重定向上限统一在此）。
-fn http_client() -> reqwest::Client {
-    reqwest::Client::builder()
+/// 复用的 HTTP 客户端（超时 / UA / 重定向上限统一在此；代理来自功能配置）。
+fn http_client(proxy: &str) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(HTTP_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
-        .build()
-        .expect("HTTP client 构建失败")
+        .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS));
+    // 代理为空就是直连；写错代理名让 reqwest 自己报错，而不是静默忽略
+    if !proxy.is_empty() {
+        match reqwest::Proxy::all(proxy) {
+            Ok(p) => builder = builder.proxy(p),
+            Err(e) => tracing::warn!("web 代理 {proxy} 无效，本次直连：{e}"),
+        }
+    }
+    builder.build().expect("HTTP client 构建失败")
 }
 
 /// 等待响应（可取消），校验 2xx，返回 (正文, content-type)。
@@ -119,17 +125,17 @@ pub struct FetchTool {
 }
 
 impl FetchTool {
-    /// 装配。
-    pub fn new() -> Self {
+    /// 装配（代理取自 web 功能配置）。
+    pub fn new(proxy: &str) -> Self {
         Self {
-            http: http_client(),
+            http: http_client(proxy),
         }
     }
 }
 
 impl Default for FetchTool {
     fn default() -> Self {
-        Self::new()
+        Self::new("")
     }
 }
 
@@ -223,18 +229,29 @@ impl Tool for FetchTool {
 }
 
 /// web_search 工具：多搜索源检索。
-pub struct SearchTool;
+pub struct SearchTool {
+    /// 共享 HTTP 客户端（代理与超时统一在此）
+    http: reqwest::Client,
+    /// 默认返回条数（配置值；工具参数可覆盖）
+    limit: usize,
+    /// 锁定的搜索源（空 = 自动排队）
+    provider: String,
+}
 
 impl SearchTool {
-    /// 装配。
-    pub fn new() -> Self {
-        Self
+    /// 装配（条数与锁定源取自 web 功能配置）。
+    pub fn new(config: &crate::config::WebConfig) -> Self {
+        Self {
+            http: http_client(&config.web_proxy),
+            limit: config.web_search_limit,
+            provider: config.web_provider.clone(),
+        }
     }
 }
 
 impl Default for SearchTool {
     fn default() -> Self {
-        Self::new()
+        Self::new(&crate::config::WebConfig::default())
     }
 }
 
@@ -290,8 +307,14 @@ impl Tool for SearchTool {
         if query.trim().is_empty() {
             return Err(AppError::new(toolcode::ARG_INVALID, "query 必填"));
         }
-        let limit = arg_usize(&args, "limit", 8).clamp(1, 20);
-        let wanted = arg_str(&args, "provider");
+        let limit = arg_usize(&args, "limit", self.limit).clamp(1, 20);
+        // 工具参数里的 provider 优先；没给就用配置锁定的源；两者都空就自动排队
+        let explicit = arg_str(&args, "provider");
+        let wanted = if explicit.is_empty() {
+            self.provider.clone()
+        } else {
+            explicit
+        };
         if !wanted.is_empty() && web_providers::by_code(&wanted).is_none() {
             return Err(AppError::new(
                 toolcode::ARG_INVALID,
@@ -320,7 +343,11 @@ impl Tool for SearchTool {
 
         let mut failures: Vec<String> = Vec::new();
         for (p, key) in candidates {
-            let body = finish((p.build_fn)(&query, key.as_deref()).send(), &cancel).await;
+            let body = finish(
+                (p.build_fn)(&self.http, &query, key.as_deref()).send(),
+                &cancel,
+            )
+            .await;
             let (body, _) = match body {
                 Ok(v) => v,
                 Err(e) => {

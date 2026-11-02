@@ -15,8 +15,8 @@ pub struct SearchProvider {
     pub provider_label: &'static str,
     /// 取密钥的环境变量名；空表 = 免密钥公开源
     pub provider_env_keys: &'static [&'static str],
-    /// 构造请求（第二参是已解析的 API key，公开源忽略）
-    pub build_fn: fn(&str, Option<&str>) -> reqwest::RequestBuilder,
+    /// 构造请求（第一参是共享客户端，第二参是已解析的 API key，公开源忽略）
+    pub build_fn: fn(&reqwest::Client, &str, Option<&str>) -> reqwest::RequestBuilder,
     /// 解析响应正文
     pub parse_fn: fn(&str) -> Vec<SearchResult>,
 }
@@ -133,9 +133,8 @@ pub fn missing_key_codes() -> Vec<&'static str> {
 // ---------- 请求构造 ----------
 
 /// Brave：REST + X-Subscription-Token。
-fn build_brave(query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
-    reqwest::Client::new()
-        .get("https://api.search.brave.com/res/v1/web/search")
+fn build_brave(http: &reqwest::Client, query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
+    http.get("https://api.search.brave.com/res/v1/web/search")
         .query(&[("q", query), ("count", "10")])
         .header("X-Subscription-Token", key.unwrap_or(""))
         .header("Accept", "application/json")
@@ -143,9 +142,8 @@ fn build_brave(query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
 }
 
 /// Tavily：POST JSON，密钥放在请求体里。
-fn build_tavily(query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
-    reqwest::Client::new()
-        .post("https://api.tavily.com/search")
+fn build_tavily(http: &reqwest::Client, query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
+    http.post("https://api.tavily.com/search")
         .json(&serde_json::json!({
             "api_key": key.unwrap_or(""),
             "query": query,
@@ -155,18 +153,16 @@ fn build_tavily(query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
 }
 
 /// Serper：Google SERP API，POST JSON + X-API-KEY。
-fn build_serper(query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
-    reqwest::Client::new()
-        .post("https://google.serper.dev/search")
+fn build_serper(http: &reqwest::Client, query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
+    http.post("https://google.serper.dev/search")
         .header("X-API-KEY", key.unwrap_or(""))
         .json(&serde_json::json!({ "q": query, "num": 10 }))
         .header("User-Agent", USER_AGENT)
 }
 
 /// Exa：语义检索，带正文片段。
-fn build_exa(query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
-    reqwest::Client::new()
-        .post("https://api.exa.ai/search")
+fn build_exa(http: &reqwest::Client, query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
+    http.post("https://api.exa.ai/search")
         .header("x-api-key", key.unwrap_or(""))
         .json(&serde_json::json!({
             "query": query,
@@ -177,24 +173,29 @@ fn build_exa(query: &str, key: Option<&str>) -> reqwest::RequestBuilder {
 }
 
 /// DuckDuckGo 的 HTML 版：无需密钥。
-fn build_duckduckgo(query: &str, _key: Option<&str>) -> reqwest::RequestBuilder {
-    reqwest::Client::new()
-        .post("https://html.duckduckgo.com/html/")
+fn build_duckduckgo(
+    http: &reqwest::Client,
+    query: &str,
+    _key: Option<&str>,
+) -> reqwest::RequestBuilder {
+    http.post("https://html.duckduckgo.com/html/")
         .form(&[("q", query)])
 }
 
 /// Bing：公开搜索页。
-fn build_bing(query: &str, _key: Option<&str>) -> reqwest::RequestBuilder {
-    reqwest::Client::new()
-        .get("https://www.bing.com/search")
+fn build_bing(http: &reqwest::Client, query: &str, _key: Option<&str>) -> reqwest::RequestBuilder {
+    http.get("https://www.bing.com/search")
         .query(&[("q", query)])
         .header("User-Agent", USER_AGENT)
 }
 
 /// Wikipedia 检索 API：公开 JSON。
-fn build_wikipedia(query: &str, _key: Option<&str>) -> reqwest::RequestBuilder {
-    reqwest::Client::new()
-        .get("https://en.wikipedia.org/w/api.php")
+fn build_wikipedia(
+    http: &reqwest::Client,
+    query: &str,
+    _key: Option<&str>,
+) -> reqwest::RequestBuilder {
+    http.get("https://en.wikipedia.org/w/api.php")
         .query(&[
             ("action", "query"),
             ("list", "search"),

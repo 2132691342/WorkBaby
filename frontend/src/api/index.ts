@@ -8,6 +8,8 @@ import type {
   ContextBreakdownRESP,
   FileBytesRESP,
   FileListRESP,
+  FeatureConfigRESP,
+  GoalRESP,
   GitBranchVO,
   GitCommitDetailVO,
   GitCommitRESP,
@@ -20,10 +22,13 @@ import type {
   HelpDocRESP,
   HelpDocVO,
   MCPListRESP,
+  MemoryListRESP,
   MessageVO,
+  PlanRESP,
   ProviderListRESP,
   ProviderVO,
   RevealProviderRESP,
+  RuntimeStatusRESP,
   SendMessageRESP,
   SessionDetailRESP,
   SessionVO,
@@ -32,6 +37,7 @@ import type {
   SkillVO,
   StatsRESP,
   TestProviderRESP,
+  TodoListRESP,
   ToolVO,
   UpsertProviderREQ,
 } from '../types/api'
@@ -205,6 +211,34 @@ export interface InspectSnapshotRESP {
   resp_session: unknown | null
 }
 export const inspect = () => get<InspectSnapshotRESP>('/inspect')
+
+/** 功能活状态：待办 / 目标 / 计划 / 记忆（struct VO，界面不解析 widget 文本）。 */
+export const todo = {
+  list: () => get<TodoListRESP>('/todo'),
+}
+
+export const goal = {
+  get: () => get<GoalRESP>('/goal'),
+}
+
+export const plan = {
+  get: () => get<PlanRESP>('/plan'),
+}
+
+export const memory = {
+  list: () => get<MemoryListRESP>('/memory'),
+  remove: (memory_id: string) => post<boolean>('/memory/delete', { memory_id }),
+}
+
+/** 功能级配置：字段表驱动表单，不写死每项功能的表单。 */
+export const featureConfig = {
+  get: (code: string) => get<FeatureConfigRESP>(`/features/${code}/config`),
+  save: (code: string, values: Record<string, unknown>) =>
+    post<null>(`/features/${code}/config`, { config_values: values }),
+}
+
+/** 内置运行时：bash / git / python 是否就位。 */
+export const runtimeStatus = () => get<RuntimeStatusRESP>('/runtime')
 
 /** 子代理角色预设（task 工具可选的角色与职责）。 */
 export interface SubagentRoleVO {

@@ -13,6 +13,7 @@ import type { AttachmentREQ } from '../types/api'
 import AppIcon from '../components/common/AppIcon.vue'
 import ChatInput from '../components/chat/ChatInput.vue'
 import EngineStatusBar from '../components/chat/EngineStatusBar.vue'
+import FeatureDock from '../components/features/FeatureDock.vue'
 import ExampleCards from '../components/chat/ExampleCards.vue'
 import FilePeek from '../components/chat/FilePeek.vue'
 import MessageList from '../components/chat/MessageList.vue'
@@ -255,6 +256,7 @@ watch(() => settings.boot?.boot_default_model, seedContext)
       </Transition>
 
       <EngineStatusBar />
+      <FeatureDock />
 
       <ChatInput
         ref="inputRef"

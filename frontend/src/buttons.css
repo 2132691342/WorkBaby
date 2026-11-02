@@ -123,6 +123,41 @@
 }
 
 /* ============================================================
+   全局兜底：没显式挂五态类的原生 button 也拿到手感
+   命中面很大（图标钮 / 菜单行 / 文件树节点），所以规则收得很小：
+   只给形变与过渡，不改底色、不改描边——那些由组件自己决定。
+   :where() 让特异度为 0，任何组件样式都能覆盖它。
+   ============================================================ */
+:where(button):not(.wb-btn):not(.wb-press):not(.wb-row):not(.el-button):not([class*='el-']) {
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease),
+    background-color var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease),
+    opacity var(--wb-dur) var(--wb-ease);
+  transform-origin: center;
+}
+:where(button):not(.wb-btn):not(.wb-press):not(.wb-row):not(.el-button):not([class*='el-']):not(:disabled):not([aria-disabled='true']):hover {
+  transform: scale(var(--wb-btn-scale-hover));
+}
+:where(button):not(.wb-btn):not(.wb-press):not(.wb-row):not(.el-button):not([class*='el-']):not(:disabled):not([aria-disabled='true']):active {
+  transform: scale(var(--wb-btn-scale-press));
+  transition-duration: 60ms;
+}
+/* 禁用的原生 button 不形变，且必须给出「不能点」的视觉信号 */
+:where(button):not(.wb-btn):not(.wb-press):not(.wb-row):not(.el-button):not([class*='el-']):disabled,
+:where(button):not(.wb-btn):not(.wb-press):not(.wb-row):not(.el-button):not([class*='el-'])[aria-disabled='true'] {
+  transform: none;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* 加载态：组件用 .is-loading 标记时锁死形变，避免连点抖动 */
+:where(button).is-loading {
+  transform: none;
+  cursor: progress;
+}
+
+/* ============================================================
    变体：primary / default / ghost / danger
    ============================================================ */
 .wb-btn--primary {
@@ -315,6 +350,13 @@
   .wb-press:not(:disabled):not(.is-disabled):not(.is-loading):active,
   .wb-row:not(.is-disabled):not(.is-loading):hover,
   .wb-row:not(.is-disabled):not(.is-loading):active {
+    transform: none;
+  }
+  :where(button):not(.wb-btn):not(.wb-press):not(.wb-row):not(.el-button) {
+    transition-duration: 1ms;
+  }
+  :where(button):not(.wb-btn):not(.wb-press):not(.wb-row):not(.el-button):hover,
+  :where(button):not(.wb-btn):not(.wb-press):not(.wb-row):not(.el-button):active {
     transform: none;
   }
   .wb-btn__spinner,

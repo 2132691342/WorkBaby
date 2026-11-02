@@ -1,0 +1,58 @@
+// 功能面板文案：待办 / 目标 / 计划 / 记忆 四项活状态 + 功能配置抽屉。
+// 与 zh-pages.ts 拆开：这四块随功能演进，挤在页面文案里会顶到 500 行上限。
+export default {
+  featurePanel: {
+    tabTodo: '待办',
+    tabGoal: '目标',
+    tabPlan: '计划',
+
+    todoEmpty: '当前没有待办',
+    todoEmptyHint: '助手开始拆分多步任务时，清单会出现在这里',
+    todoProgress: '{done} / {total} 已完成',
+    todoBlocked: '被阻塞',
+    todoBlockedHint: '它依赖的条目还没完成，现在不能开始',
+
+    goalEmpty: '当前没有目标',
+    goalEmptyHint: '目标追踪开启后，助手可以把多轮长任务登记成目标并自动续跑',
+    goalProgress: '{done} / {total} 步',
+    goalResume: '已自动续跑 {n} 轮',
+    goalStatus: {
+      active: '推进中',
+      blocked: '受阻',
+      achieved: '已达成',
+      abandoned: '已放弃',
+    },
+
+    planEmpty: '当前没有计划',
+    planEmptyHint: '计划评审开启后，助手动手前会先把步骤清单交给你批准',
+    planProgress: '{done} / {total} 步已完成',
+    planRejected: '被驳回：{note}',
+    planNotes: '整体标注',
+    planStepNote: '标注：{text}',
+    planStatus: {
+      draft: '待批准',
+      approved: '已批准',
+      rejected: '已驳回',
+      done: '已完成',
+    },
+
+    memoryEmpty: '记忆库是空的',
+    memoryEmptyHint: '开启持久记忆后，助手会把跨会话有用的事实存进来',
+    memoryAll: '全部',
+    memoryFilterEmpty: '这个类别下还没有内容',
+    memoryDelete: '删除这条记忆',
+    memoryDeleted: '已删除',
+    memoryKind: {
+      memory: '一般事实',
+      user: '用户偏好',
+      project: '项目事实',
+      failure: '失败教训',
+    },
+
+    configOpen: '配置',
+    configTitle: '{name} · 配置',
+    configSub: '改动保存后立即生效，工具会重新装配',
+    configNone: '这项功能没有可配项',
+    configSaved: '配置已保存',
+  },
+}
