@@ -77,6 +77,7 @@ src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-feature
 | [docs/ERROR-CODES.md](docs/ERROR-CODES.md) | 业务错误码全表与处置建议 |
 | [docs/DEV.md](docs/DEV.md) | 开发环境、构建、验证流程 |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | 打包与分发 |
+| [docs/RELEASE.md](docs/RELEASE.md) | 发布流程与 v1.0.0 标签维护 |
 
 ## 开发
 
