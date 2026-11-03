@@ -1,0 +1,38 @@
+{
+  "name": "workbaby",
+  "productName": "WorkBaby",
+  "version": "2.0.0",
+  "description": "Windows 桌面单机 AI 助手：Electron 壳 + 内嵌 HTTP 服务 + pi 引擎驱动",
+  "main": "dist/main/index.js",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.electron.json",
+    "build:main": "node scripts/build-main.mjs",
+    "build:frontend": "cd frontend && npm run build",
+    "build": "npm run build:main && npm run build:frontend",
+    "test": "vitest run",
+    "dist": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.1",
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.3.0",
+    "ulid": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.10.0",
+    "electron": "^43.8.6",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.6.3",
+    "vitest": "^5.1.0"
+  },
+  "allowScripts": {
+    "electron@43.8.6": true,
+    "esbuild@0.28.2": true
+  }
+}

@@ -1,239 +1,168 @@
 <script setup lang="ts">
-// 顶栏：品牌 + 当前区标题 + 连接灯 + 窗控。
-// 一级导航在左 rail（NavRail），这里只回答「我现在在哪、连上没有」。
+// 自绘标题栏：无边框窗口的唯一拖动与窗控区域。
+// 中区放当前位置，右区放连接灯与窗控——只回答「我在哪、连上没有」。
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { sseConnected, sseSubscribed } from '../../composables/useSse'
-import { useSettingsStore } from '../../stores/settings'
-import { useSessionStore } from '../../stores/session'
-import { useSessionPanel } from '../../composables/useSessionPanel'
-import { windowCtl } from '../../api/shell'
-import AppIcon from '../common/AppIcon.vue'
+import { useAppStore } from '@/stores/app'
+import { windowCtl } from '@/api/shell'
 
-const props = defineProps<{ ready: boolean }>()
-
-const { t, te } = useI18n()
+const app = useAppStore()
 const route = useRoute()
-const session = useSessionStore()
-const settings = useSettingsStore()
-const { collapsed, toggle } = useSessionPanel()
+const { t } = useI18n()
 
-// 页面标识直接从路由 name 取：新增页面不用到这里补分支，
-// 也不会再出现「除了四个页之外全部当作对话」而把会话标题当页面标题的错认。
-const section = computed(() => (typeof route.name === 'string' ? route.name : 'chat'))
-
-const isChat = computed(() => section.value === 'chat')
-const pageName = computed(() => {
-  // 对话页显示当前会话名（新建则显示「新对话」），其余页显示导航名
-  if (section.value === 'chat') return session.current?.session_title || t('chat.newSession')
-  const key = `nav.${section.value}`
-  return te(key) ? t(key) : t('nav.chat')
-})
-
+const title = computed(() => String(route.meta.title ?? t('nav.chat')))
 const connection = computed(() => {
-  if (!props.ready) return { tone: '', label: t('titlebar.idle'), hint: t('titlebar.idleHint') }
-  if (!sseSubscribed.value) return { tone: '', label: t('titlebar.idle'), hint: t('titlebar.idleHint') }
-  if (sseConnected.value) return { tone: 'ok', label: t('titlebar.online'), hint: t('titlebar.onlineHint') }
-  return { tone: 'warn', label: t('titlebar.offline'), hint: t('titlebar.offlineHint') }
+  if (!app.ready) return { cls: 'warn', text: t('titlebar.starting') }
+  if (app.detecting) return { cls: 'warn', text: t('titlebar.detecting') }
+  if (!app.hasEngine) return { cls: 'bad', text: t('titlebar.noEngine') }
+  return { cls: 'ok', text: t('titlebar.connected') }
 })
-
-const closeHint = computed(() =>
-  settings.values['minimize_to_tray'] !== 'false' ? t('titlebar.closeToTray') : t('titlebar.close'),
-)
-
-function winctl(action: 'min' | 'max' | 'close') {
-  // 关闭走后端：由关窗策略（收进托盘 / 真退出）决定行为
-  windowCtl(action)
-}
 </script>
 
 <template>
-  <header class="titlebar" style="--wails-draggable: drag">
-    <div class="tb-brand">
-      <span class="tb-tile">WB</span>
-      <span class="tb-name">{{ t('app.name') }}</span>
+  <header class="titlebar" style="-webkit-app-region: drag">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+          <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z" />
+          <path d="M12 12v9" />
+        </svg>
+      </span>
+      <span class="brand-name">WorkBaby</span>
     </div>
-
-<!-- 一级导航已迁到左 rail，顶栏只留品牌、上下文标题与系统区 -->
-
-    <button
-      v-if="isChat && ready"
-      class="tb-fold"
-      style="--wails-draggable: no-drag"
-      type="button"
-      :title="collapsed ? t('nav.expandSide') : t('nav.collapseSide')"
-      :aria-label="collapsed ? t('nav.expandSide') : t('nav.collapseSide')"
-      @click="toggle"
-    >
-      <AppIcon name="panel-left" size="ic-sm" />
-    </button>
-    <span class="tb-ctx" :title="pageName">{{ pageName }}</span>
-
-    <span class="tb-sp" />
-
-    <div class="tb-actions" style="--wails-draggable: no-drag">
-      <el-tooltip :content="connection.hint" placement="bottom" :show-after="400">
-        <span class="tb-led" :class="connection.tone">
-          <span class="wb-led" :class="connection.tone ? `wb-led--${connection.tone}` : ''" />
-          <span class="tb-led-tx">{{ connection.label }}</span>
-        </span>
-      </el-tooltip>
+    <div class="crumb">
+      <span class="crumb-sep">/</span>
+      <span class="crumb-cur">{{ title }}</span>
     </div>
-
-    <div class="winctl" style="--wails-draggable: no-drag">
-      <button class="win-btn" type="button" :title="t('titlebar.minimize')" @click="winctl('min')">
-        <AppIcon name="window-min" size="ic-sm" />
-      </button>
-      <button class="win-btn" type="button" :title="t('titlebar.maximize')" @click="winctl('max')">
-        <AppIcon name="window-max" size="ic-sm" />
-      </button>
-      <button class="win-btn is-close" type="button" :title="closeHint" @click="winctl('close')">
-        <AppIcon name="close" size="ic-sm" />
-      </button>
+    <div class="right">
+      <span class="conn" :title="connection.text">
+        <span class="dot" :class="connection.cls" />
+        <span class="conn-text">{{ connection.text }}</span>
+      </span>
+      <div class="win-ctl" style="-webkit-app-region: no-drag">
+        <button class="win-btn" :title="t('titlebar.minimize')" @click="windowCtl.minimize()">
+          <svg viewBox="0 0 12 12" width="11" height="11" stroke="currentColor" stroke-width="1.2"><path d="M2 6h8" /></svg>
+        </button>
+        <button class="win-btn" :title="t('titlebar.maximize')" @click="windowCtl.toggleMaximize()">
+          <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="7" height="7" rx="1" /></svg>
+        </button>
+        <!-- 唯一的关闭钮：按设置走（收托盘 / 退出），后端在 WindowClosing 里分流 -->
+        <button class="win-btn close" :title="t('common.close')" @click="windowCtl.close()">
+          <svg viewBox="0 0 12 12" width="11" height="11" stroke="currentColor" stroke-width="1.2"><path d="M3 3l6 6M9 3l-6 6" /></svg>
+        </button>
+      </div>
     </div>
   </header>
 </template>
 
 <style scoped>
 .titlebar {
-  height: var(--wb-h-titlebar);
-  flex: none;
   display: flex;
   align-items: center;
   gap: var(--wb-sp-3);
-  padding: 0 0 0 var(--wb-sp-3);
-  background: var(--wb-elev-raised);
-  border-bottom: 1px solid var(--wb-border);
-  position: relative;
-  z-index: var(--wb-z-panel);
+  height: var(--wb-topbar);
+  flex: none;
+  padding-left: var(--wb-sp-3);
+  background: var(--wb-window);
+  border-bottom: 1px solid var(--wb-line);
+  user-select: none;
 }
 
-.tb-brand {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: calc(var(--wb-rail) + var(--wb-sp-4));
+  flex: none;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--wb-r-sm);
+  background: var(--wb-brand);
+  color: #fff;
+  flex: none;
+}
+
+.brand-name {
+  font-family: var(--wb-font-display);
+  font-size: var(--wb-fs-sm);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--wb-ink);
+}
+
+.crumb {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  flex: none;
+  min-width: 0;
 }
-.tb-tile {
-  width: calc(26px * var(--wb-vw-scale));
-  height: calc(26px * var(--wb-vw-scale));
-  border-radius: var(--wb-radius-sm);
-  display: grid;
-  place-items: center;
-  background: var(--wb-primary);
-  color: var(--wb-primary-ink);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: var(--wb-fs-2xs);
+
+.crumb-sep {
+  color: var(--wb-faint);
+  font-size: var(--wb-fs-sm);
+}
+
+.crumb-cur {
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink);
+  letter-spacing: 0.01em;
+}
+
+.right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-3);
+}
+
+.conn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.conn-text {
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-mute);
   letter-spacing: 0.02em;
 }
-.tb-name {
-  font-family: var(--font-display);
-  font-size: var(--wb-fs-md);
-  font-weight: 700;
-  color: var(--wb-ink);
-  letter-spacing: -0.01em;
-}
 
-.tb-seg {
-  margin-left: var(--wb-sp-2);
-  flex: none;
-}
-
-.tb-fold {
-  display: grid;
-  place-items: center;
-  width: var(--wb-ctl-icon);
-  height: var(--wb-ctl-icon);
-  border-radius: var(--wb-radius-sm);
-  color: var(--wb-muted);
-  transition:
-    background var(--wb-dur) var(--wb-ease),
-    color var(--wb-dur) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-.tb-fold:hover {
-  background: var(--wb-nav-hover-bg);
-  color: var(--wb-ink);
-  transform: scale(1.06);
-}
-.tb-fold:active {
-  transform: scale(var(--wb-btn-scale-press));
-}
-.tb-ctx {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-  max-width: var(--wb-w-crumbs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding-left: var(--wb-sp-2);
-  border-left: 1px solid var(--wb-border);
-  line-height: 1.2;
-  height: calc(16px * var(--wb-vw-scale));
+.win-ctl {
   display: flex;
-  align-items: center;
-}
-
-.tb-sp {
-  flex: 1;
-  min-width: var(--wb-sp-2);
-}
-
-.tb-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-1);
-}
-
-.tb-led {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  height: var(--wb-ctl-icon);
-  padding: 0 var(--wb-sp-3);
-  border-radius: var(--wb-radius-full);
-  border: 1px solid var(--wb-border);
-  font-size: var(--wb-fs-2xs);
-  font-weight: 700;
-  color: var(--wb-muted);
-  white-space: nowrap;
-}
-.tb-led.ok {
-  color: var(--wb-success);
-  border-color: color-mix(in srgb, var(--wb-success) 30%, var(--wb-border));
-}
-.tb-led.warn {
-  color: var(--wb-warning);
-  border-color: color-mix(in srgb, var(--wb-warning) 34%, var(--wb-border));
-}
-
-/* 窗控：系统级控件，用自绘保持命中区域与关闭键的危险语义 */
-.winctl {
-  display: flex;
-  align-items: stretch;
   height: 100%;
-  margin-left: var(--wb-sp-1);
 }
+
 .win-btn {
-  width: calc(44px * var(--wb-vw-scale));
   display: grid;
   place-items: center;
-  color: var(--wb-muted);
+  width: 42px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--wb-mute);
   transition:
-    background var(--wb-dur) var(--wb-ease),
-    color var(--wb-dur) var(--wb-ease);
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
 }
+
 .win-btn:hover {
-  background: var(--wb-elev-hover);
+  background: var(--wb-hover);
   color: var(--wb-ink);
 }
+
 .win-btn:active {
-  background: var(--wb-surface-hover);
+  background: var(--wb-selected);
 }
-.win-btn.is-close:hover {
-  background: var(--wb-danger);
-  color: var(--wb-primary-ink);
+
+.win-btn.close:hover {
+  background: var(--wb-bad);
+  color: #fff;
 }
 </style>

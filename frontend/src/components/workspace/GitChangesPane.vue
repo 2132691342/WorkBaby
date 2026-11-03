@@ -1,213 +1,271 @@
 <script setup lang="ts">
-// 改动清单：助手到底改了哪些文件，点一行看差异。
-// 冲突文件在这里给「标记已解决」——不做这一步 git 不接受提交，用户会被卡死。
+// 改动清单：暂存 / 未暂存两组，组内按目录折叠——平铺一列时
+// 「都在哪儿改的」这个判断改动范围的第一眼信息就被拍没了。
+// 只管分组与折叠；行样式在 GitFileRows，写请求由父组件统一挂 loading。
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { GitFileVO } from '../../types/api'
-import AppIcon from '../common/AppIcon.vue'
+import AppIcon from '@/components/common/AppIcon.vue'
+import GitFileRows from '@/components/workspace/GitFileRows.vue'
+import type { GitFile } from '@/types/api'
 
 const props = defineProps<{
-  /** 当前仓库的文件改动清单 */
-  files: GitFileVO[]
-  /** 选中的文件路径（空串 = 看全量差异） */
+  staged: GitFile[]
+  unstaged: GitFile[]
+  /** 当前选中的文件路径 */
   selected: string
-  /** 正在标记解决的路径 */
-  resolving: string
+  /** 进行中的动作名（空表示空闲） */
+  pending: string
 }>()
 
 const emit = defineEmits<{
-  (e: 'pick', path: string): void
-  (e: 'resolve', path: string): void
+  pick: [file: GitFile]
+  stage: [file: GitFile]
+  unstage: [file: GitFile]
+  discard: [file: GitFile]
+  resolve: [file: GitFile]
+  stageAll: []
+  history: [file: GitFile]
 }>()
 
 const { t } = useI18n()
 
-/** 状态字母与配色：git 的 porcelain 码只保留首字母语义。 */
-const TAGS: Record<string, { text: string; tone: string }> = {
-  M: { text: 'M', tone: 'is-mod' },
-  A: { text: 'A', tone: 'is-add' },
-  D: { text: 'D', tone: 'is-del' },
-  R: { text: 'R', tone: 'is-mod' },
-  C: { text: 'C', tone: 'is-mod' },
-  T: { text: 'T', tone: 'is-mod' },
-  U: { text: '!', tone: 'is-conflict' },
-  '?': { text: 'U', tone: 'is-new' },
+/** 被折叠的目录集合。默认全展开：改动通常不多，先全看到。 */
+const collapsed = ref<Set<string>>(new Set())
+
+interface Group {
+  dir: string
+  files: GitFile[]
 }
 
-/** 路径只留末两段：改动清单是「哪个文件」，不是「完整路径」。 */
-function shortPath(p: string) {
-  const parts = p.split('/').filter(Boolean)
-  return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : p
+/** 按路径里的目录分段。根目录的文件归到 '.'。 */
+function dirOf(file: GitFile): string {
+  const path = file.file_path.replace(/\\/g, '/')
+  const idx = path.lastIndexOf('/')
+  return idx < 0 ? '.' : path.slice(0, idx)
 }
 
-function tagOf(status: string) {
-  return TAGS[status] || TAGS.M
+function groupBy(files: GitFile[]): Group[] {
+  const map = new Map<string, GitFile[]>()
+  for (const file of files) {
+    const dir = dirOf(file)
+    const list = map.get(dir)
+    if (list) list.push(file)
+    else map.set(dir, [file])
+  }
+  return [...map.entries()]
+    .map(([dir, files]) => ({ dir, files }))
+    .sort((a, b) => a.dir.localeCompare(b.dir))
+}
+
+const stagedGroups = computed(() => groupBy(props.staged))
+const unstagedGroups = computed(() => groupBy(props.unstaged))
+
+function isCollapsed(key: string): boolean {
+  return collapsed.value.has(key)
+}
+
+function toggle(key: string): void {
+  const next = new Set(collapsed.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  collapsed.value = next
+}
+
+/** 目录里改动的合计，折叠时也能看到规模。 */
+function groupStat(files: GitFile[]): { adds: number; dels: number } {
+  let adds = 0
+  let dels = 0
+  for (const f of files) {
+    adds += f.additions ?? 0
+    dels += f.deletions ?? 0
+  }
+  return { adds, dels }
 }
 </script>
 
 <template>
-  <section class="wb-card file-card">
-    <header class="fc-head">
-      <span class="wb-label">{{ t('workspace.files') }}</span>
-      <span class="fc-count">{{ props.files.length }}</span>
-    </header>
-
-    <div v-if="!props.files.length" class="fc-empty">
-      <AppIcon name="check" size="ic-lg" />
-      <b>{{ t('workspace.noChanges') }}</b>
-      <p>{{ t('workspace.noChangesHint') }}</p>
+  <div class="changes">
+    <div v-if="!props.staged.length && !props.unstaged.length" class="empty-mini">
+      {{ t('workspace.noChanges') }}
     </div>
 
-    <ul v-else class="fc-list">
-      <li v-for="f in props.files" :key="f.git_path">
-        <button
-          class="fc-row"
-          type="button"
-          :class="{ 'is-on': props.selected === f.git_path }"
-          :title="f.git_path"
-          @click="emit('pick', f.git_path)"
-        >
-          <span class="fc-tag" :class="tagOf(f.git_status).tone">
-            {{ tagOf(f.git_status).text }}
-          </span>
-          <span class="fc-path" :title="f.git_path">{{ shortPath(f.git_path) }}</span>
-          <el-button
-            v-if="f.git_conflict"
-            size="small"
-            text
-            class="fc-resolve"
-            :loading="props.resolving === f.git_path"
-            :title="t('workspace.conflictResolveHint')"
-            @click.stop="emit('resolve', f.git_path)"
-          >
-            {{ t('workspace.conflictResolve') }}
-          </el-button>
-          <span v-else class="fc-stat">
-            <b class="is-add">+{{ f.git_additions }}</b>
-            <b class="is-del">−{{ f.git_deletions }}</b>
-          </span>
-        </button>
-      </li>
-    </ul>
-  </section>
+    <template v-else>
+      <section v-if="props.staged.length" class="group">
+        <div class="group-head">
+          <span>{{ t('workspace.staged') }}</span>
+          <span class="count">{{ props.staged.length }}</span>
+        </div>
+        <div v-for="g in stagedGroups" :key="`s-${g.dir}`" class="dir">
+          <button class="dir-head" @click="toggle(`s-${g.dir}`)">
+            <AppIcon name="chevron" :size="10" class="dir-ic" :class="{ collapsed: isCollapsed(`s-${g.dir}`) }" />
+            <span class="dir-name">{{ g.dir }}</span>
+            <span class="dir-stat">
+              <b class="add">+{{ groupStat(g.files).adds }}</b>
+              <b class="del">−{{ groupStat(g.files).dels }}</b>
+            </span>
+          </button>
+          <GitFileRows
+            v-if="!isCollapsed(`s-${g.dir}`)"
+            :files="g.files"
+            :selected="props.selected"
+            :pending="props.pending"
+            staged
+            @pick="emit('pick', $event)"
+            @unstage="emit('unstage', $event)"
+            @history="emit('history', $event)"
+          />
+        </div>
+      </section>
+
+      <section v-if="props.unstaged.length" class="group">
+        <div class="group-head">
+          <span>{{ t('workspace.unstaged') }}</span>
+          <span class="count">{{ props.unstaged.length }}</span>
+          <button class="act push" :disabled="Boolean(props.pending)" @click="emit('stageAll')">
+            {{ t('workspace.stageAll') }}
+          </button>
+        </div>
+        <div v-for="g in unstagedGroups" :key="`u-${g.dir}`" class="dir">
+          <button class="dir-head" @click="toggle(`u-${g.dir}`)">
+            <AppIcon name="chevron" :size="10" class="dir-ic" :class="{ collapsed: isCollapsed(`u-${g.dir}`) }" />
+            <span class="dir-name">{{ g.dir }}</span>
+            <span class="dir-stat">
+              <b class="add">+{{ groupStat(g.files).adds }}</b>
+              <b class="del">−{{ groupStat(g.files).dels }}</b>
+            </span>
+          </button>
+          <GitFileRows
+            v-if="!isCollapsed(`u-${g.dir}`)"
+            :files="g.files"
+            :selected="props.selected"
+            :pending="props.pending"
+            :staged="false"
+            @pick="emit('pick', $event)"
+            @stage="emit('stage', $event)"
+            @discard="emit('discard', $event)"
+            @resolve="emit('resolve', $event)"
+            @history="emit('history', $event)"
+          />
+        </div>
+      </section>
+    </template>
+  </div>
 </template>
 
 <style scoped>
-.file-card {
-  overflow: hidden;
+.changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-3);
 }
-.fc-head {
+
+/* 分组标题：暂存 / 工作区。它们是标签，不画线——
+   下面已经有目录组了，再加一条线就是两层框。 */
+.group-head {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-3) var(--wb-sp-3) var(--wb-sp-2);
-  border-bottom: 1px solid var(--wb-border);
-}
-.fc-count {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.fc-list {
-  max-height: calc(520px * var(--wb-vw-scale));
-  overflow-y: auto;
-  padding: var(--wb-sp-1);
-}
-/* 整行元素：只缩不放（行宽 100%，放大会被裁） */
-.fc-row {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-2);
-  border-radius: var(--wb-radius-sm);
-  text-align: left;
-  transition:
-    background var(--wb-dur-fast) var(--wb-ease),
-    box-shadow var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-.fc-row:hover {
-  background: var(--wb-elev-hover);
-}
-.fc-row:active {
-  transform: scale(var(--wb-row-scale-press));
-}
-.fc-row.is-on {
-  background: var(--wb-accent-tint);
-  box-shadow: inset 2px 0 0 var(--wb-primary);
-}
-.fc-tag {
-  width: calc(16px * var(--wb-vw-scale));
-  height: calc(16px * var(--wb-vw-scale));
-  border-radius: var(--wb-radius-xs);
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
+  font-size: var(--wb-fs-3xs);
   font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--wb-faint);
+  margin-bottom: 2px;
+}
+
+.count {
+  font-family: var(--wb-font-mono);
+  color: var(--wb-mute);
+  letter-spacing: 0;
+}
+
+/* 「全部加入」：与行内动作同一套刻度，但它常驻（组级操作不该藏起来） */
+.act {
+  padding: 0 5px;
+  height: calc(18px * var(--wb-vw-scale));
+  border: none;
+  border-radius: var(--wb-r-xs);
+  background: transparent;
+  color: var(--wb-mute);
+  font-size: var(--wb-fs-3xs);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color var(--wb-dur-fast) var(--wb-ease);
+}
+
+.act:hover:not(:disabled) {
+  color: var(--wb-brand);
+}
+
+.push {
+  margin-left: auto;
+}
+
+/* 目录头：可点的横条，带这一组的增删合计。
+   它是分组标题，不是条目：平时不加底色，只在悬停时给一点提示。 */
+.dir-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  width: 100%;
+  padding: 3px var(--wb-sp-2);
+  border: 0;
+  background: transparent;
+  color: var(--wb-ink-2);
+  font: inherit;
+  font-size: var(--wb-fs-2xs);
+  font-weight: 600;
+  text-align: left;
+  border-radius: var(--wb-r-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
+}
+
+.dir-head:hover {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+
+.dir-ic {
   flex: none;
+  transform: rotate(90deg);
+  transition: transform var(--wb-dur-fast) var(--wb-ease);
 }
-.fc-tag.is-add {
-  background: var(--wb-success-soft);
-  color: var(--wb-success);
+
+.dir-ic.collapsed {
+  transform: rotate(0deg);
 }
-.fc-tag.is-del {
-  background: var(--wb-danger-soft);
-  color: var(--wb-danger);
-}
-.fc-tag.is-mod {
-  background: var(--wb-accent-tint);
-  color: var(--wb-primary);
-}
-.fc-tag.is-new {
-  background: var(--wb-live-soft);
-  color: var(--wb-live);
-}
-.fc-tag.is-conflict {
-  background: var(--wb-warning-soft);
-  color: var(--wb-warning);
-}
-.fc-path {
+
+.dir-name {
   flex: 1;
   min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--wb-font-mono);
 }
-.fc-stat {
+.dir-stat {
   display: flex;
-  gap: var(--wb-sp-1);
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  flex: none;
-}
-.fc-stat .is-add {
-  color: var(--wb-success);
-}
-.fc-stat .is-del {
-  color: var(--wb-danger);
-}
-.fc-resolve {
-  flex: none;
-}
-.fc-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-8) var(--wb-sp-4);
-  text-align: center;
-  color: var(--wb-muted);
+  font-family: var(--wb-font-mono);
+  flex: none;
+  font-variant-numeric: tabular-nums;
 }
-.fc-empty b {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
+
+.dir-stat .add {
+  color: var(--wb-ok);
 }
-.fc-empty p {
+
+.dir-stat .del {
+  color: var(--wb-bad);
+}
+
+.empty-mini {
+  padding: var(--wb-sp-4);
+  color: var(--wb-faint);
   font-size: var(--wb-fs-2xs);
-  line-height: var(--wb-lh-base);
+  text-align: center;
 }
 </style>

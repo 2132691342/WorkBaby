@@ -1,138 +1,125 @@
-// Markdown 渲染的唯一出口：marked + sanitize + 代码高亮都收在这里。
-import DOMPurify from 'dompurify'
-import hljs from 'highlight.js/lib/common'
-import { Marked } from 'marked'
+// markdown 渲染：唯一出口，视图不得绕开——「流式按块缓存」这条性能纪律
+// 靠它守住。按块切分：全量重解析是 O(字数²)，只有最后一块在长，
+// 已稳定的块复用 HTML，成本降到 O(字数)。
+import { marked } from 'marked'
+import i18n from '@/i18n'
 
-const md = new Marked({
-  gfm: true,
-  breaks: true,
-})
+marked.setOptions({ gfm: true, breaks: true })
 
-// streaming 期间跳过语法高亮：每 120ms 全量重解析代码块没有意义，收尾那次补上。
-let streaming = false
-
-md.use({
-  renderer: {
-    code(token) {
-      const lang = (token.lang || '').split(/\s+/)[0]
-      let body: string
-      if (!streaming && lang && hljs.getLanguage(lang)) {
-        try {
-          body = hljs.highlight(token.text, { language: lang }).value
-        } catch {
-          body = escapeHtml(token.text)
-        }
-      } else {
-        body = escapeHtml(token.text)
-      }
-      const label = lang ? escapeHtml(lang) : 'text'
-      const icon =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 2 0 0 1-1-1V4a2 2 0 0 1 1-1h10a2 2 0 0 1 1 1v1"/></svg>'
-      return (
-        `<div class="code-block"><div class="code-head"><span class="code-lang">${label}</span>` +
-        `<button class="code-copy" type="button" aria-label="copy">${icon}</button></div>` +
-        `<pre class="code-body"><code class="hljs">${body}</code></pre></div>`
-      )
-    },
-  },
-})
-
-function escapeHtml(s: string) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+interface BlockCache {
+  parts: string[]
+  html: string[]
 }
 
-function sanitize(raw: string): string {
-  return DOMPurify.sanitize(raw, { ADD_ATTR: ['target'] })
-}
+const caches = new Map<string, BlockCache>()
 
-export function renderMarkdown(src: string): string {
-  return sanitize(md.parse(src || '', { async: false }) as string)
-}
-
-// ── 流式增量渲染 ──
-// 全量重解析是 O(字数²)；按块缓存后每个 tick 只重渲染变化中的尾块。
-interface Rendered {
-  src: string
-  html: string
-}
-
-let cached: Rendered[] = []
-
-/** 新回合必须清缓存：否则上一轮的块会被判成「没变」直接复用。 */
-export function resetStreamRender() {
-  cached = []
-}
-
-/** 切成顶层块：空行分段；围栏代码块整块不拆，未闭合的围栏也要收口（流式期间常见）。 */
-function splitBlocks(src: string): string[] {
-  const out: string[] = []
-  let cur: string[] = []
-  let fence = ''
-
-  const flush = () => {
-    const text = cur.join('\n').replace(/\s+$/, '')
-    if (text) out.push(text)
-    cur = []
+/**
+ * 流式 markdown：按顶层块（空行分隔）切分并缓存。
+ * cacheKey 是这一段的身份（例如 `run-1:2`），同一段反复渲染只重算变化的尾块。
+ */
+export function renderStreaming(markdown: string, cacheKey: string): string {
+  const blocks = splitBlocks(markdown)
+  let cache = caches.get(cacheKey)
+  if (!cache) {
+    cache = { parts: [], html: [] }
+    caches.set(cacheKey, cache)
   }
-
-  for (const line of src.split('\n')) {
-    const hit = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
-    if (hit) {
-      const mark = hit[1]
-      if (!fence) {
-        flush()
-        fence = mark[0]
-      } else if (mark[0] === fence && mark.length >= fence.length) {
-        fence = ''
-        cur.push(line)
-        flush()
-        continue
-      }
-      cur.push(line)
+  const html: string[] = []
+  for (let i = 0; i < blocks.length; i++) {
+    if (cache.parts[i] === blocks[i]) {
+      html.push(cache.html[i])
       continue
     }
-    if (!fence && !line.trim()) flush()
-    else cur.push(line)
+    cache.parts[i] = blocks[i]
+    cache.html[i] = renderBlocks([blocks[i]])
+    html.push(cache.html[i])
   }
-  flush()
-  return out
+  cache.parts.length = blocks.length
+  cache.html.length = blocks.length
+  return html.join('')
 }
 
-export function renderMarkdownStream(src: string): string {
-  const parts = splitBlocks(src || '')
-  const next: Rendered[] = []
-  // 前缀里与上一帧内容一致的块直接复用，从第一个不同的下标起重渲染
-  let i = 0
-  while (i < cached.length && i < parts.length && cached[i].src === parts[i]) {
-    next.push(cached[i])
-    i++
-  }
-  streaming = true
-  try {
-    for (let k = i; k < parts.length; k++) {
-      next.push({ src: parts[k], html: renderMarkdown(parts[k]) })
+/** 一次性渲染（历史消息用；没有后续增长，不需要缓存）。 */
+export function renderMarkdown(markdown: string): string {
+  return renderBlocks([markdown])
+}
+
+function renderBlocks(blocks: string[]): string {
+  return blocks
+    .map((block) => {
+      if (!block.trim()) return ''
+      if (block.startsWith('```')) return renderCode(block)
+      return marked.parse(block, { async: false }) as string
+    })
+    .join('')
+}
+
+/** 代码块：包一层带语言标签与复制按钮的容器。 */
+function renderCode(block: string): string {
+  const match = /^```([\w+-]*)\n([\s\S]*?)\n?```$/.exec(block.trim())
+  if (!match) return marked.parse(block, { async: false }) as string
+  const lang = match[1] || 'text'
+  const code = escapeHTML(match[2])
+  const label = escapeHTML(i18n.global.t('common.copy'))
+  return `<div class="code-wrap"><div class="code-head"><span class="code-lang">${lang}</span><button class="wb-btn text sm" data-copy="1" type="button">${label}</button></div><pre><code>${code}</code></pre></div>`
+}
+
+/** 按空行切顶层块；围栏代码块内部不切。 */
+function splitBlocks(markdown: string): string[] {
+  const lines = markdown.split('\n')
+  const blocks: string[] = []
+  let current: string[] = []
+  let fence = false
+  for (const line of lines) {
+    const trimmed = line.trimStart()
+    if (trimmed.startsWith('```')) fence = !fence
+    if (!fence && line.trim() === '') {
+      if (current.length) blocks.push(current.join('\n'))
+      current = []
+      continue
     }
-  } finally {
-    streaming = false
+    current.push(line)
   }
-  cached = next
-  // 每块的 html 自带尾部换行，用空串拼接即可；再插 \n 会在块间多出一个空行，
-  // 表现是段落间距比全量渲染大一圈。
-  return next.map((b) => b.html).join('')
+  if (current.length) blocks.push(current.join('\n'))
+  return blocks.length ? blocks : ['']
 }
 
-function firstLine(s: string, max = 120): string {
-  const line = (s || '').trim().split('\n')[0] || ''
-  return line.length > max ? line.slice(0, max) + '…' : line
+function escapeHTML(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
-/** 工具卡的一行参数摘要：键=值，每段截断到 48 字 */
-export function summarizeArgs(args: Record<string, unknown> | undefined): string {
-  if (!args) return ''
-  const parts: string[] = []
-  for (const [k, v] of Object.entries(args)) {
-    const text = typeof v === 'string' ? v : JSON.stringify(v)
-    parts.push(`${k}=${firstLine(text || '', 48)}`)
-  }
-  return parts.join('  ')
+/**
+ * 清掉某个渲染缓存的位（一轮结束后调用，避免长会话累积）。
+ *
+ * 不调用的话缓存只增不减：长会话里每轮都会留下一个 key，
+ * 而每个 key 存着这一轮的全部正文与 HTML——聊几百轮就是几百份全文。
+ */
+export function dropCache(cacheKey: string): void {
+  caches.delete(cacheKey)
+}
+
+/** 清掉所有渲染缓存（切换会话时调用）。 */
+export function dropAllCaches(): void {
+  caches.clear()
+}
+
+/** 复制按钮的统一处理：在容器上挂一次委托即可。 */
+export function handleCopyClick(event: MouseEvent): boolean {
+  const target = event.target
+  if (!(target instanceof HTMLElement)) return false
+  const button = target.closest('[data-copy]')
+  if (!(button instanceof HTMLElement)) return false
+  const wrap = button.closest('.code-wrap')
+  const code = wrap?.querySelector('pre code')?.textContent
+  if (!code) return false
+  void navigator.clipboard.writeText(code)
+  button.textContent = i18n.global.t('common.copied')
+  window.setTimeout(() => {
+    button.textContent = i18n.global.t('common.copy')
+  }, 1400)
+  return true
 }

@@ -1,101 +1,154 @@
 <script setup lang="ts">
-// CodeMirror 代码编辑器：markdown / json 高亮 + one-dark 主题。
-// 用于技能正文查看与 MCP / 插件配置编辑；跟随主题切换重刷背景。
+// 一个受控的 CodeMirror 6 编辑器：只读 / 可编辑两种模式，语法高亮按语言给。
+// 自己包而不是用现成包装：只要「文本 + 语言 + 只读开关」，
+// 现成包装会把主题、工具栏、状态栏一起带进来，而这里那些都得听令牌的。
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { EditorView, basicSetup } from 'codemirror'
-import { EditorState } from '@codemirror/state'
+import { EditorState, Compartment, type Extension } from '@codemirror/state'
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view'
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { bracketMatching, foldGutter, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { markdown } from '@codemirror/lang-markdown'
 import { json } from '@codemirror/lang-json'
-import { oneDark } from '@codemirror/theme-one-dark'
+import { yaml } from '@codemirror/lang-yaml'
 
 const props = withDefaults(
   defineProps<{
+    /** 文本内容。外部变更会写进编辑器（内容相同则不动，避免光标跳走） */
     modelValue: string
-    lang?: 'markdown' | 'json'
+    /** 语言：markdown / json / yaml / text */
+    lang?: 'markdown' | 'json' | 'yaml' | 'text'
+    /** 只读。只读时仍可选中复制 */
     readonly?: boolean
-    minHeight?: number
+    /** 最小高度（CSS 值）。编辑器至少占这么高，内容更长时自己滚 */
+    minHeight?: string
   }>(),
-  { lang: 'markdown', readonly: false, minHeight: 160 },
+  { lang: 'markdown', readonly: false, minHeight: '220px' },
 )
 
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const emit = defineEmits<{ 'update:modelValue': [string] }>()
 
 const host = ref<HTMLElement | null>(null)
 let view: EditorView | null = null
-// 外部赋值触发的更新不再回发，防循环
-let applying = false
+// 语言与只读都需要「运行时换掉」，所以各占一个 compartment。
+const langSlot = new Compartment()
+const readonlySlot = new Compartment()
 
-function extension() {
-  const lang = props.lang === 'json' ? json() : markdown()
-  const update = EditorView.updateListener.of((u) => {
-    if (u.docChanged && !applying) {
-      emit('update:modelValue', u.state.doc.toString())
-    }
+function langExtension(): Extension {
+  if (props.lang === 'json') return json()
+  if (props.lang === 'yaml') return yaml()
+  if (props.lang === 'markdown') return markdown()
+  return []
+}
+
+/** 主题接到令牌上：编辑器不引入自己的色板，深色模式跟着数据集走。 */
+const theme = EditorView.theme({
+  '&': {
+    fontSize: 'var(--wb-fs-sm)',
+    color: 'var(--wb-ink)',
+    backgroundColor: 'var(--wb-sunken)',
+    height: '100%',
+  },
+  '.cm-scroller': {
+    fontFamily: 'var(--wb-font-mono)',
+    lineHeight: '1.65',
+  },
+  '.cm-content': { caretColor: 'var(--wb-brand)' },
+  '.cm-gutters': {
+    backgroundColor: 'var(--wb-sunken)',
+    color: 'var(--wb-faint)',
+    border: 'none',
+  },
+  '.cm-activeLine': { backgroundColor: 'var(--wb-hover)' },
+  '.cm-activeLineGutter': { backgroundColor: 'var(--wb-hover)' },
+  '&.cm-focused': { outline: 'none' },
+  '.cm-selectionBackground, ::selection': { backgroundColor: 'var(--wb-selected) !important' },
+})
+
+function buildState(doc: string): EditorState {
+  return EditorState.create({
+    doc,
+    extensions: [
+      lineNumbers(),
+      highlightActiveLine(),
+      highlightActiveLineGutter(),
+      history(),
+      bracketMatching(),
+      foldGutter(),
+      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+      EditorView.lineWrapping,
+      theme,
+      langSlot.of(langExtension()),
+      readonlySlot.of(EditorState.readOnly.of(props.readonly)),
+      EditorView.updateListener.of((update) => {
+        if (!update.docChanged) return
+        emit('update:modelValue', update.state.doc.toString())
+      }),
+    ],
   })
-  const theme = EditorView.theme({
-    '&': { fontSize: '12px', backgroundColor: 'transparent' },
-    '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--wb-muted)' },
-    '.cm-activeLine': { backgroundColor: 'var(--wb-tint)' },
-    '.cm-activeLineGutter': { backgroundColor: 'var(--wb-tint)' },
-    '&.cm-focused': { outline: 'none' },
-  })
-  return [lang, basicSetup, oneDark, theme, update, EditorView.editable.of(!props.readonly)]
 }
 
 onMounted(() => {
   if (!host.value) return
-  view = new EditorView({
-    state: EditorState.create({ doc: props.modelValue, extensions: extension() }),
-    parent: host.value,
-  })
+  view = new EditorView({ state: buildState(props.modelValue), parent: host.value })
 })
-
-// 外部值变化（载入技能正文 / 切换 MCP 作用域）要同步进编辑器
-watch(
-  () => props.modelValue,
-  (next) => {
-    if (!view) return
-    const cur = view.state.doc.toString()
-    if (next === cur) return
-    applying = true
-    view.dispatch({ changes: { from: 0, to: cur.length, insert: next } })
-    applying = false
-  },
-)
-
-watch(
-  () => props.readonly,
-  () => {
-    // editable 状态在扩展里：重建视图最可靠（视图廉价，编辑器实例不共享）
-    if (!host.value) return
-    const doc = view?.state.doc.toString() ?? props.modelValue
-    view?.destroy()
-    view = new EditorView({
-      state: EditorState.create({ doc, extensions: extension() }),
-      parent: host.value,
-    })
-  },
-)
 
 onBeforeUnmount(() => {
   view?.destroy()
   view = null
 })
+
+// 外部改了内容（切文件 / 保存后后端回填）：只有真的不同才重建，
+// 否则每敲一个字都会因为父组件回传而同值重建一次状态，光标会跳到开头。
+watch(
+  () => props.modelValue,
+  (next) => {
+    if (!view) return
+    const current = view.state.doc.toString()
+    if (current === next) return
+    view.dispatch({ changes: { from: 0, to: current.length, insert: next } })
+  },
+)
+
+watch(
+  () => props.lang,
+  () => {
+    view?.dispatch({ effects: langSlot.reconfigure(langExtension()) })
+  },
+)
+
+watch(
+  () => props.readonly,
+  (next) => {
+    view?.dispatch({ effects: readonlySlot.reconfigure(EditorState.readOnly.of(next)) })
+  },
+)
+
+/** 把光标放到开头并滚到顶（切文件时用）。 */
+function scrollTop() {
+  view?.dispatch({ selection: { anchor: 0 }, scrollIntoView: true })
+}
+
+defineExpose({ scrollTop })
 </script>
 
 <template>
-  <div ref="host" class="cm-host" :style="{ minHeight: `${minHeight}px` }" />
+  <div ref="host" class="code-editor" :style="{ minHeight: props.minHeight }" />
 </template>
 
 <style scoped>
-.cm-host {
-  width: 100%;
-  border: 1px solid var(--wb-border);
-  border-radius: var(--wb-radius);
+.code-editor {
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r);
   overflow: hidden;
-  background: var(--wb-code-bg);
+  background: var(--wb-sunken);
 }
-.cm-host :deep(.cm-editor) {
-  min-height: inherit;
+
+.code-editor :deep(.cm-editor) {
+  height: 100%;
+}
+
+.code-editor :deep(.cm-scroller) {
+  overflow: auto;
 }
 </style>

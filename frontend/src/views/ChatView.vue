@@ -1,366 +1,372 @@
 <script setup lang="ts">
-// 聊天主视图：会话面板 + 消息流 / 欢迎页 + 输入区。
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+// 对话页：左栏会话列表 + 主区消息流 + 输入区。
+// 滚动贴底由 JS 管（流式时元素高度在变，浏览器锚定会乱跳）。
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { reloadChatSnapshot } from '../composables/chatBridge'
-import { intentFile, intentNewSession, SHELL_INTENT_EVENT } from '../composables/shellIntent'
-import { useChatStore } from '../stores/chat'
-import { useSessionStore } from '../stores/session'
-import { useSettingsStore } from '../stores/settings'
-import { useToastStore } from '../stores/toast'
-import AppIcon from '../components/common/AppIcon.vue'
-import ActivityBar from '../components/chat/ActivityBar.vue'
-import ChatHeader from '../components/chat/ChatHeader.vue'
-import ChatInput from '../components/chat/ChatInput.vue'
-import EngineStatusBar from '../components/chat/EngineStatusBar.vue'
-import FeatureDock from '../components/features/FeatureDock.vue'
-import ExampleCards from '../components/chat/ExampleCards.vue'
-import FilePeek from '../components/chat/FilePeek.vue'
-import MessageList from '../components/chat/MessageList.vue'
-import OnboardingWizard from '../components/chat/OnboardingWizard.vue'
-import SessionPanel from '../components/chat/SessionPanel.vue'
-import StatusHud from '../components/chat/StatusHud.vue'
-import { errorText } from '../utils/errors'
+import ChatComposer from '@/components/chat/ChatComposer.vue'
+import ChatNotices from '@/components/chat/ChatNotices.vue'
+import ChatHeader from '@/components/chat/ChatHeader.vue'
+import HistoryList from '@/components/chat/HistoryList.vue'
+import AskCard from '@/components/chat/AskCard.vue'
+import FilePeekDrawer from '@/components/chat/FilePeekDrawer.vue'
+import AppIcon from '@/components/common/AppIcon.vue'
+import SessionList from '@/components/sessions/SessionList.vue'
+import AgentPanel from '@/components/agents/AgentPanel.vue'
+import { useAppStore } from '@/stores/app'
+import { useChatStore } from '@/stores/chat'
+import { useComposerActions } from '@/composables/useComposerActions'
+import type { UIResponse } from '@/types/api'
 
-const { t } = useI18n()
-const session = useSessionStore()
+const app = useAppStore()
 const chat = useChatStore()
-const settings = useSettingsStore()
-const toast = useToastStore()
-const router = useRouter()
 const route = useRoute()
-const inputRef = ref<InstanceType<typeof ChatInput> | null>(null)
-const creating = ref(false)
+const router = useRouter()
+const { t } = useI18n()
 
-const empty = computed(() => !session.messages.length && !chat.running)
+const composerActions = useComposerActions()
 
-// 没配默认模型时，欢迎页把引导顶到最前——不然第一条消息必然失败。
-// 引导完成后就地切回：不用跳去设置页再自己找回来。
-const needsSetup = computed(() => settings.boot?.boot_ready === false)
-const onboardingDone = ref(false)
-const showOnboarding = computed(() => needsSetup.value && !onboardingDone.value)
+/** 侧栏顶部的「新对话」：它从输入框底栏搬过来之后住在这里。 */
+async function onNewChat(): Promise<void> {
+  await composerActions.startNewChat()
+  // 地址同步成「无会话」：否则刷新窗口会按旧 query 又跳回上一条会话。
+  await router.replace({ name: 'chat', query: {} })
+}
 
-/** 新对话：不建空会话——第一条消息发出时后端才落盘，这里只把界面切到草稿态 */
-function newSession() {
-  if (creating.value) return
-  // 正在跑的回合只挂在当前会话上：开新对话等于把它抛下，事件再也接不回来。
-  if (chat.running || chat.finalizing) {
-    toast.info(t('chat.busyNewSession'))
+const scroller = ref<HTMLElement | null>(null)
+const composer = ref<{ focus: () => void } | null>(null)
+const pinned = ref(true)
+
+/**
+ * 全局快捷键：只放两个真的每天会用的。
+ *
+ * Ctrl+K 是「我要说话」——不管光标在哪都回到输入框；
+ * Esc 是「先不管这段授权提示」——它贴在消息上方，不关掉就一直在占位。
+ * 其他都交给控件自己的 Enter / 方向键，不在全局抢按键。
+ */
+function onKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    composer.value?.focus()
     return
   }
-  creating.value = true
-  try {
-    chat.reset()
-    session.draft()
-    inputRef.value?.focus()
-  } finally {
-    creating.value = false
+  if (event.key === 'Escape' && app.pendingLink) {
+    app.pendingLink = null
   }
 }
 
-const sending = ref(false)
-const stopping = ref(false)
+const hasTurn = computed(() => Boolean(chat.turn))
 
-async function send(text: string, skill = '', images: { mime: string; base64: string }[] = []) {
-  if (sending.value) return
-  // loading 必须挂在最前面：没有会话时要先建会话，反馈晚于点击一秒以上会被当成没点上
-  sending.value = true
-  try {
-    const sent = await chat.send(session.currentId || '', text, skill, images)
-    // 立刻回显：等 chat:done 拉快照才显示的话，用户会以为消息没发出去
-    session.echoUserMessage(text, skill, images)
-    if (!session.currentId && sent?.resp_session_id) {
-      await session.adopt(sent.resp_session_id)
-    }
-  } catch (e) {
-    toast.bad(t('chat.sendFailed', { msg: errorText(e) }))
-  } finally {
-    sending.value = false
-    inputRef.value?.focus()
+/**
+ * 拼在历史后面的当前轮。
+ *
+ * 单独算出来交给 HistoryList：那一层才知道「历史最后一行是什么角色」，
+ * 从而决定这一轮要不要出那个「assistant」头。
+ */
+const liveTurn = computed(() => {
+  const turn = chat.turn
+  if (!turn) return null
+  return {
+    userMessage: turn.user_message,
+    blocks: turn.blocks,
+    runId: turn.run_id,
+    model: chat.model?.id,
+    streaming: chat.streaming,
+    errored: Boolean(chat.runError),
+    // 脚标秒表的起点：一轮从「发送成功」那一刻起就有耗时，不用等引擎报。
+    startedAt: chat.startedAt || undefined,
+    // 用量与耗时：收尾之后这一轮会从直播位退到历史位，
+    // 那时读数还得留着——所以它按 run id 记在 store 里，不在 turn 上。
+    usage: chat.usageOf(turn.run_id),
   }
-}
-
-const steering = ref(false)
-const queueing = ref(false)
-
-async function steer(text: string) {
-  if (!session.currentId || steering.value) return
-  steering.value = true
-  try {
-    await chat.steer(session.currentId, text)
-    toast.ok(t('chat.retryEvent'))
-  } catch (e) {
-    // 5002 = 这一轮在用户按下回车前刚好跑完：当成新消息发出去，
-    // 而不是回一句「没有在运行」把用户刚打的字白白吞掉。
-    if ((e as { code?: string })?.code === '5002') {
-      steering.value = false
-      await send(text)
-      return
-    }
-    toast.bad(t('chat.steerFailed', { msg: errorText(e) }))
-  } finally {
-    steering.value = false
-  }
-}
-
-async function queueUp(text: string) {
-  if (!session.currentId || queueing.value) return
-  queueing.value = true
-  try {
-    await chat.followUp(session.currentId, text)
-  } catch (e) {
-    // 同上：排队时这一轮已经跑完，直接当普通发送
-    if ((e as { code?: string })?.code === '5001' || (e as { code?: string })?.code === '5002') {
-      queueing.value = false
-      await send(text)
-      return
-    }
-    toast.bad(t('chat.queueFailed', { msg: errorText(e) }))
-  } finally {
-    queueing.value = false
-  }
-}
-
-async function stop() {
-  if (!session.currentId || stopping.value) return
-  stopping.value = true
-  try {
-    await chat.stop(session.currentId)
-  } catch (e) {
-    toast.bad(t('chat.stopFailed', { msg: errorText(e) }))
-  } finally {
-    stopping.value = false
-  }
-}
-
-// 续写：截断后接着写。发一句「继续」是唯一协议安全的方式
-async function resume() {
-  if (chat.running) return
-  await send(t('chat.continue'))
-}
-
-// 重试：把最后一条用户消息原样再发一次
-async function retry() {
-  if (chat.running) return
-  const last = [...session.messages].reverse().find((m) => m.message_role === 'user')
-  if (!last?.message_content) return
-  await send(last.message_content)
-}
-
-// 桌面壳意图（托盘「新建对话」/ 外部打开文件）在这里落地
-function consumeShellIntent() {
-  if (intentNewSession.value) {
-    intentNewSession.value = false
-    void newSession()
-  }
-  if (intentFile.value) {
-    const p = intentFile.value
-    intentFile.value = ''
-    inputRef.value?.attachPath(p)
-  }
-}
-
-async function syncOnMount() {
-  // 回到对话页只补快照，不重置 store：离开期间 run 可能还在跑，
-  // 清掉流式段就再也接不上了，只能等到下一次 done 才恢复。
-  if (session.currentId && !chat.running) await reloadChatSnapshot()
-}
-
-onMounted(async () => {
-  await session.loadList()
-  const want = typeof route.query.session === 'string' ? route.query.session : ''
-  if (want && want !== session.currentId) {
-    await session.open(want)
-  } else if (!session.currentId) {
-    if (session.list.length) await session.open(session.list[0].session_id)
-    else session.draft()
-  }
-  if (want) router.replace({ query: { ...route.query, session: undefined } })
-  await syncOnMount()
-  window.addEventListener(SHELL_INTENT_EVENT, consumeShellIntent)
-  consumeShellIntent()
 })
 
-onBeforeUnmount(() => {
-  window.removeEventListener(SHELL_INTENT_EVENT, consumeShellIntent)
-})
+function nearBottom(): boolean {
+  const el = scroller.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+}
 
-// 切会话必须把流式状态清干净；刚发出的消息把界面绑到新会话（adopt）不算切换。
+function scrollToBottom(smooth = false) {
+  const el = scroller.value
+  if (!el) return
+  el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+}
+
+/**
+ * 连续钉底几次。
+ *
+ * content-visibility: auto 让远处回合先按 120px 估高，一帧之后才展开成真实高度；
+ * 只钉一次会被后续的高度变化抛在后面，表现出来是「打开就在中间」。
+ * 只在真的贴底时才钉，否则会把正在往回翻的用户拽到底。
+ */
+async function pinBottom(rounds = 3): Promise<void> {
+  for (let i = 0; i < rounds; i++) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    if (!pinned.value) return
+    scrollToBottom()
+  }
+}
+
+function onScroll() {
+  pinned.value = nearBottom()
+}
+
 watch(
-  () => session.currentId,
-  () => {
-    if (session.adopting) return
-    chat.reset()
+  () => [chat.turn?.blocks.length, chat.turn?.blocks.at(-1)?.text?.length, chat.history.length],
+  async () => {
+    if (!pinned.value) return
+    await nextTick()
+    scrollToBottom()
   },
 )
 
-function pickExample(text: string) {
-  void send(text)
+async function answer(response: UIResponse) {
+  try {
+    await chat.answer(response)
+  } catch (err) {
+    chat.pushNotice('error', err instanceof Error ? err.message : String(err))
+  }
 }
 
-// 快照到手就回填上下文水位
-function seedContext() {
-  if (chat.running) return
-  const provider = session.current?.session_provider || settings.boot?.boot_default_provider || ''
-  const model = session.current?.session_model || settings.boot?.boot_default_model || ''
-  void chat.seedContext(provider, model, session.messages)
+async function openSession(path: string) {
+  chat.reset()
+  // 切会话就回到贴底：用户点一条历史，看的是它最后那一句。
+  pinned.value = true
+  await chat.refresh(path)
+  // 会话页点「继续」会带 query.session 跳过来：把地址同步成当前会话，
+  // 刷新窗口时才不会又回到默认会话。
+  await router.replace({ name: 'chat', query: path ? { session: path } : {} })
+  await nextTick()
+  await pinBottom()
 }
-watch(() => [session.currentId, session.messages] as const, seedContext, { immediate: true })
-watch(() => settings.boot?.boot_default_model, seedContext)
+
+/**
+ * 侧栏里的会话被删 / 改名了。
+ * 删的是正看着的这个时，后端已经先把引擎切到了新会话（删除的防护动作），
+ * 这里跟着 refresh 对齐——不能调 newChat，那会再多开一条空会话文件。
+ */
+async function onSessionChanged(path?: string) {
+  if (path && path === chat.sessionFile) {
+    // 显式传空串：refresh 的缺省参数会带上还没更新的旧路径（刚被删的那个）。
+    await chat.refresh('')
+  }
+}
+
+/** 会话页跳过来时带的会话路径。 */
+function sessionFromQuery(): string {
+  const value = route.query.session
+  return typeof value === 'string' ? value : ''
+}
+
+onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
+  try {
+    const path = sessionFromQuery()
+    await chat.refresh(path)
+    await nextTick()
+    pinned.value = true
+    await pinBottom()
+  } catch {
+    // query 里的会话可能刚被删掉：退回默认会话，地址也一并清掉。
+    await router.replace({ name: 'chat', query: {} })
+    try {
+      await chat.refresh()
+    } catch {
+      /* 引擎没起来时对话页仍是可用的空态 */
+    }
+  }
+  // 模型与思考档清单不阻塞首屏：它要问引擎，而引擎冷启动可能要十几秒。
+  // 但它**必须发**：之前没有任何地方在进对话页时拉它，于是模型下拉永远空的。
+  void chat.loadModels()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
+
+watch(
+  () => route.query.session,
+  async (value) => {
+    const path = typeof value === 'string' ? value : ''
+    if (!path || path === chat.sessionFile) return
+    await openSession(path)
+  },
+)
+
 </script>
 
 <template>
-  <div class="chat">
-    <SessionPanel :creating="creating" @new-session="newSession" />
+  <div class="chat-page">
+    <aside class="chat-side">
+      <SessionList
+        :active="chat.sessionFile"
+        :compact="true"
+        show-new
+        @open="openSession"
+        @new-chat="onNewChat"
+        @changed="onSessionChanged"
+      />
+    </aside>
 
-    <div class="chat-main">
+    <section class="chat-main">
       <ChatHeader />
-      <Transition name="chat-swap" mode="out-in">
-        <div v-if="empty && !chat.running" class="hero">
-          <div aria-hidden="true" class="hero-aura">
-            <span class="wb-aura wb-aura--top" />
-            <span class="wb-aura wb-aura--left" />
-            <span class="wb-aura wb-aura--right" />
-          </div>
 
-          <div class="hero-in">
-            <span class="hero-badge rise rise-1">
-              <AppIcon name="sparkles" size="ic-xs" />
-              {{ t('chat.emptyWelcomeBadge') }}
-            </span>
-            <h2 class="hero-title rise rise-2">
-              {{ t('chat.emptyTitle') }} <em>WorkBaby</em>
-            </h2>
-            <p class="hero-sub rise rise-3">{{ t('chat.emptySub') }}</p>
-
-            <OnboardingWizard
-              v-if="showOnboarding"
-              @done="onboardingDone = true"
-            />
-            <div v-else class="rise rise-4">
-              <ExampleCards :busy="sending || chat.running" @pick="pickExample" />
-            </div>
-
-            <p class="hero-foot rise rise-5">{{ t('chat.emptyFoot') }}</p>
-          </div>
+      <div ref="scroller" class="chat-scroll" @scroll="onScroll">
+        <div v-if="!app.hasEngine" class="chat-gate">
+          <p class="gate-title">{{ t('chat.noEngine') }}</p>
+          <router-link class="wb-btn primary" :to="{ name: 'settings' }">{{ t('nav.settings') }}</router-link>
         </div>
 
-        <MessageList v-else :on-continue="resume" :on-retry="retry" />
-      </Transition>
+        <div v-else-if="!hasTurn && !chat.history.length" class="chat-empty">
+          <div class="empty-mark">
+            <AppIcon name="spark" :size="26" />
+          </div>
+          <h2 class="empty-title">{{ t('chat.emptyTitle') }}</h2>
+          <p class="empty-hint">{{ t('chat.emptyHint') }}</p>
+          <p class="empty-path selectable">{{ app.workspace }}</p>
+        </div>
 
-      <EngineStatusBar />
-      <ActivityBar />
-      <FeatureDock />
+        <div v-else class="msg-col-wrap">
+          <HistoryList :turns="chat.history" :live="liveTurn" />
+          <AskCard v-if="chat.activeAsk" :ask="chat.activeAsk" @answer="answer" />
+        </div>
+      </div>
 
-      <ChatInput
-        ref="inputRef"
-        :running="chat.running"
-        :sending="sending"
-        :stopping="stopping"
-        :acting="steering ? 'steer' : queueing ? 'queue' : ''"
-        @send="send"
-        @steer="steer"
-        @queue="queueUp"
-        @stop="stop"
-        @new-session="newSession"
-      />
-      <StatusHud />
-      <FilePeek />
-    </div>
+      <button v-if="!pinned" class="jump-bottom" @click="scrollToBottom(true)">
+        <AppIcon name="chevron" :size="13" />
+      </button>
+
+      <ChatComposer ref="composer" />
+      <ChatNotices />
+    </section>
+
+    <AgentPanel />
+    <FilePeekDrawer />
   </div>
 </template>
 
 <style scoped>
-.chat {
+.chat-page {
   display: flex;
   flex: 1;
-  min-width: 0;
   min-height: 0;
-  height: 100%;
 }
+
+.chat-side {
+  width: var(--wb-side);
+  flex: none;
+  border-right: 1px solid var(--wb-line);
+  background: var(--wb-window);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 窄窗口（800×600 的默认尺寸）下侧栏收窄：244px 在 800px 的窗口里会把
+   主区压到放不下一行代码。用容器查询而不是媒体查询——窗口是最外层容器，
+   两者的断点在这里恰好一致，但以后嵌进别的布局时容器查询仍然正确。 */
+@container app (max-width: 960px) {
+  .chat-side {
+    width: var(--wb-side-narrow);
+  }
+}
+
 .chat-main {
   position: relative;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  flex: 1;
   min-width: 0;
   min-height: 0;
 }
-/* 欢迎页 ↔ 消息流切换：out-in 保证两态不重叠 */
-.chat-swap-enter-active {
-  transition:
-    opacity var(--wb-dur) var(--wb-ease),
-    transform var(--wb-dur) var(--wb-ease);
-}
-.chat-swap-leave-active {
-  transition: opacity var(--wb-dur-fast) var(--wb-ease);
-}
-.chat-swap-enter-from {
-  opacity: 0;
-  transform: translateY(6px);
-}
-.chat-swap-leave-to {
-  opacity: 0;
-}
-.hero-aura {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.hero-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  height: var(--wb-ctl-h-sm);
-  padding: 0 var(--wb-sp-3);
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-elev-raised);
-  border: 1px solid var(--wb-border);
-  box-shadow: var(--wb-card-shadow);
-  color: var(--wb-primary);
-  font-size: var(--wb-fs-xs);
-  font-weight: 700;
-}
-.hero-foot {
-  margin-top: var(--wb-sp-2);
-  color: var(--wb-muted);
-  font-size: var(--wb-fs-xs);
-}
-.setup-card {
-  width: 100%;
-  max-width: calc(560px * var(--wb-vw-scale));
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
-  padding: var(--wb-sp-4);
-  border-radius: var(--wb-radius-xl);
-  background: var(--wb-elev-raised);
-  border: 1px solid var(--wb-border);
-  box-shadow: var(--wb-card-shadow);
-  text-align: left;
-}
-.setup-tx {
-  min-width: 0;
+
+/* 页头与授权链接条都搬进 ChatHeader 了：它们只在对话页出现，
+   而这一页自己只管三栏的排布与滚动。 */
+.chat-scroll {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
 }
-.setup-tx b {
-  display: block;
-  font-size: var(--wb-fs-md);
-  font-weight: 700;
-  color: var(--wb-ink);
-  margin-bottom: 2px;
-}
-.setup-tx p {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-  line-height: var(--wb-lh-base);
-}
-.setup-acts {
-  flex: none;
+
+.chat-empty,
+.chat-gate {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-2);
+  align-items: center;
+  justify-content: center;
+  gap: var(--wb-sp-3);
+  min-height: 100%;
+  padding: var(--wb-sp-10);
+  text-align: center;
+}
+
+.empty-mark {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--wb-r-lg);
+  background: var(--wb-brand-soft);
+  color: var(--wb-brand);
+  margin-bottom: var(--wb-sp-1);
+}
+
+.empty-title {
+  margin: 0;
+  font-family: var(--wb-font-display);
+  font-size: var(--wb-fs-xl);
+  font-weight: 650;
+  color: var(--wb-ink);
+}
+
+.empty-hint,
+.gate-title {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-mute);
+}
+
+.empty-path {
+  margin: var(--wb-sp-2) 0 0;
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+}
+
+/* 消息列：HistoryList 自己管列宽与间距，这里只给它一个居中的包裹层 */
+.msg-col-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-4);
+}
+
+.jump-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 168px;
+  transform: translateX(-50%) rotate(90deg);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--wb-line-strong);
+  border-radius: 50%;
+  background: var(--wb-raised);
+  color: var(--wb-mute);
+  box-shadow: var(--wb-shadow-lift);
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
+}
+
+.jump-bottom:hover {
+  color: var(--wb-brand);
+}
+
+.jump-bottom:active {
+  transform: translateX(-50%) rotate(90deg) scale(0.92);
 }
 </style>

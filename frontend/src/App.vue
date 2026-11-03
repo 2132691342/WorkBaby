@@ -1,359 +1,153 @@
 <script setup lang="ts">
-// 应用壳：无边框窗口的顶栏 + 路由出口 + 启动 / 失败态。
-import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
-import { useRouter } from 'vue-router'
+// 应用外壳：自绘标题栏 + 左侧导航 rail + 主区。
+// 启动失败与首屏加载都在这里处理，视图层不需要各自兜底。
+import { nextTick, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { syncFromSettings } from './composables/useAppearance'
-import { installChatBridge } from './composables/chatBridge'
-import { useViewportScale } from './composables/useViewportScale'
-import { intentFile, intentNewSession, pushShellIntent } from './composables/shellIntent'
-import { useChatStore } from './stores/chat'
-import { useSettingsStore } from './stores/settings'
-import { useToastStore } from './stores/toast'
-import AppIcon from './components/common/AppIcon.vue'
-import NavRail from './components/layout/NavRail.vue'
-import ToastHost from './components/common/ToastHost.vue'
-import TitleBar from './components/layout/TitleBar.vue'
-import { status, stage, message, retryHandshake } from './bootstrap'
-import { subscribeGlobal } from './composables/useSse'
-import * as api from './api'
-import type { RuntimeStatusRESP } from './types/api'
-import { onShellEvent, quitApp } from './api/shell'
+import { ElMessageBox } from 'element-plus'
+import AppRail from '@/components/layout/AppRail.vue'
+import TitleBar from '@/components/layout/TitleBar.vue'
+import ToastHost from '@/components/common/ToastHost.vue'
+import StartupError from '@/components/common/StartupError.vue'
+import { applyCloseDecision, notifyReady } from '@/api/shell'
+import { useAppStore } from '@/stores/app'
+import { useViewportScale } from '@/composables/useViewportScale'
 
+const app = useAppStore()
 const { t } = useI18n()
-const booted = ref(false)
-/** 内置运行时状态：启动时读一次，缺件就提示一句 */
-const runtime = ref<RuntimeStatusRESP | null>(null)
-const settings = useSettingsStore()
-const chat = useChatStore()
-const toast = useToastStore()
-const router = useRouter()
-// 视口比例缩放：分辨率不同的机器上整套刻度等比跟随，不改代码
+
+// 首次按关闭时问一句：收进托盘还是退出。
+// 在界面里问而不是窗口层：窗口层没有可用通知手段（窗口已要藏），
+// 托盘气泡这个版本的 Wails 不支持。问一次并记住选择。
+async function askClose(): Promise<'tray' | 'quit' | ''> {
+  try {
+    await ElMessageBox.confirm(t('app.closePromptBody'), t('app.closePromptTitle'), {
+      confirmButtonText: t('app.closeToTray'),
+      cancelButtonText: t('app.closeToQuit'),
+      distinguishCancelAndClose: true,
+      type: 'info',
+    })
+    return 'tray'
+  } catch (action) {
+    // cancel = 点了“退出”；close = 按了 Esc / 点了右上角叉
+    return action === 'cancel' ? 'quit' : ''
+  }
+}
+
+/** 关闭对话框：用户要求关窗时问一次，然后把选择交给后端执行。 */
+async function settleClose(): Promise<void> {
+  const action = await askClose()
+  app.closePrompt = false
+  // 按 Esc 或点叉也是“我要关窗”的意思：按最保守的处理——收进托盘。
+  // 留着窗口不动是最差的答案：按钮看起来就是失灵了。
+  // 这一种不记住：用户没真正选择，下次还该问。
+  await applyCloseDecision(action || 'tray', Boolean(action))
+}
+
+// 整套刻度随窗口宽度等比缩放：写进 --wb-vw-scale 一个值就够，
+// 组件全走令牌，不必为每个断点写媒体查询。
 useViewportScale()
-// EP 内置文案的当前语言（main.ts 提供）
-const epLocale = inject<Ref>('epLocale')
 
-// 事件桥挂在应用壳上：对话流不随视图卸载而丢失，切换到设置再回来还能接上。
-installChatBridge()
-
-const failed = computed(() => status.value === 'failed')
-const ready = computed(() => booted.value && !failed.value)
-
-/** 运行时轮询：解压期间每 1.5 秒读一次，就绪即停。 */
-let runtimeTimer: ReturnType<typeof setTimeout> | undefined
-function pollRuntime() {
-  clearTimeout(runtimeTimer)
-  runtimeTimer = setTimeout(async () => {
-    try {
-      runtime.value = await api.runtimeStatus()
-    } catch {
-      return
-    }
-    if (runtime.value?.resp_phase === 'preparing') {
-      pollRuntime()
-    } else if (runtime.value?.resp_ready) {
-      toast.ok(t('boot.runtimeReady'))
-    }
-  }, 1500)
-}
-
-/** 工作区变了：整个界面的数据都属于旧目录，重读引导与清单。 */
-async function onWorkspaceChanged(ws: string) {
-  await settings.loadBoot()
-  await settings.warmup()
-  toast.info(t('boot.workspaceChanged', { path: ws }))
-}
-
-async function loadBoot() {
-  try {
-    await settings.loadBoot()
-    // 引导数据到手即进入运行时检查阶段（不是直接 done——还有第三段要读）
-    stage.value = 'env'
-    // 预热在后台跑：不等它，对话页立即可用
-    void settings.warmup()
-  } catch {
-    // 拿不到引导数据不该让整个界面卡住：各视图自己处理空态
-  }
-  // 已保存的外观与显示偏好要落到 DOM 上，否则刷新后主题之外的设置全部失效
-  syncFromSettings()
-  chat.setShowThinking(settings.values['show_thinking'] !== 'false')
-  // 第三段：内置运行时是否就位。解压在后台跑，这里只读一眼当前状态并起轮询：
-  // 首启不阻塞，但必须让用户看见「准备中 / 就绪 / 失败」。
-  try {
-    runtime.value = await api.runtimeStatus()
-    if (runtime.value.resp_phase === 'preparing') pollRuntime()
-  } catch {
-    // 读不到运行时状态不该让界面卡在启动页
-  } finally {
-    stage.value = 'done'
-  }
-  booted.value = true
-  if (runtime.value && runtime.value.resp_phase === 'preparing') {
-    toast.info(t('boot.runtimePreparing'))
-  } else if (runtime.value && !runtime.value.resp_ready) {
-    toast.info(t('boot.runtimeMissing'))
-  }
-  // 没配模型就直接送到「模型」页：那是现在唯一能配模型的地方。
-  // 送到设置页等于把用户丢在一个再也配不上模型的地方——配不了就没有对话。
-  if (settings.boot?.boot_ready === false && router.currentRoute.value.path !== '/models') {
-    void router.replace('/models')
-  }
-}
+// 后端发出「用户按了关闭」时弹选择框。
+watch(
+  () => app.closePrompt,
+  (open) => {
+    if (open) void settleClose()
+  },
+)
 
 onMounted(() => {
-  if (status.value === 'ready') void loadBoot()
-  watch(status, (s) => {
-    if (s === 'ready' && !booted.value) void loadBoot()
-  })
-  // 收进托盘前外壳会提示一句再隐藏，否则窗口「凭空消失」最让人困惑
-  void onShellEvent('app:to-tray', () => toast.info(t('boot.toTray')))
-  // 托盘「新建对话」与外部打开文件：切回对话页，落到对话视图里执行。
-  // 先存意图再广播——视图可能还没挂载，事件不能作为唯一载体。
-  void onShellEvent('app:new-session', () => {
-    intentNewSession.value = true
-    void router.push('/chat')
-    pushShellIntent()
-  })
-  void onShellEvent('app:open-file', (data) => {
-    if (!data?.path) return
-    intentFile.value = String(data.path)
-    void router.push('/chat')
-    pushShellIntent()
-  })
-  // 工作区热切换由后端广播：前端接到就重读快照，不再要求重启
-  watchWorkspaceBroadcast()
+  void app.load()
+  // 外壳一画完就把窗口叫出来：用户先看到骨架与转圈，而不是迟迟没有窗口。
+  // 不能更早——后端装配阶段窗口还是隐藏的，那时显形会白屏。
+  void nextTick().then(notifyReady)
 })
-
-/** 启动阶段两段读数：把「正在启动」拆成可感知的进度 */
-const bootSteps = computed(() => [
-  { key: 'handshake', label: t('boot.handshake'), done: stage.value !== 'handshake' },
-  { key: 'bootstrap', label: t('boot.bootstrap'), done: stage.value === 'env' || stage.value === 'done' },
-  { key: 'env', label: t('boot.env'), done: stage.value === 'done' },
-])
-
-/** 监听后端的工作区广播：全局通道的 app:workspace 事件。 */
-let stopGlobal: (() => void) | null = null
-function watchWorkspaceBroadcast() {
-  if (stopGlobal) return
-  stopGlobal = subscribeGlobal((frame) => {
-    if (frame.event !== 'app:workspace') return
-    const payload = frame.data as { workspace?: string } | null
-    if (payload?.workspace) void onWorkspaceChanged(payload.workspace)
-  })
-}
 </script>
 
 <template>
-  <el-config-provider :locale="epLocale">
-    <div class="app-shell">
-      <TitleBar :ready="ready" />
-
-      <div class="app-frame">
-        <NavRail v-if="ready" />
-
-        <main class="app-body">
-        <router-view v-if="ready" v-slot="{ Component }">
-          <Transition name="wb-view" mode="out-in">
+  <div class="shell">
+    <TitleBar />
+    <div class="shell-main">
+      <AppRail v-if="app.ready" />
+      <main class="shell-view">
+        <div v-if="app.fatal" class="shell-fallback">
+          <StartupError :message="app.fatal" />
+        </div>
+        <div v-else-if="!app.ready" class="shell-fallback">
+          <div class="boot">
+            <div class="boot-spinner" />
+            <p class="boot-text">{{ t('app.starting') }}</p>
+          </div>
+        </div>
+        <router-view v-else v-slot="{ Component }">
+          <transition name="wb-fade" mode="out-in">
             <component :is="Component" />
-          </Transition>
+          </transition>
         </router-view>
-
-        <div v-else-if="failed" class="boot">
-          <div class="boot-badge is-bad">
-            <AppIcon name="alert" size="ic-xl" />
-          </div>
-          <h2 class="boot-title">{{ t('boot.failed') }}</h2>
-          <p class="boot-why">{{ message }}</p>
-          <div class="boot-acts">
-            <el-button :loading="false" @click="retryHandshake">{{ t('boot.retryHint') }}</el-button>
-            <el-button type="primary" @click="quitApp">{{ t('boot.quit') }}</el-button>
-          </div>
-          <p class="boot-tip">
-            <span class="wb-mono">%APPDATA%\WorkBaby\logs\app.log</span>
-          </p>
-        </div>
-
-        <div v-else class="boot">
-          <div aria-hidden="true" class="boot-aura">
-            <span class="wb-aura wb-aura--left" />
-            <span class="wb-aura wb-aura--right" />
-          </div>
-          <div class="boot-badge"><span>WB</span></div>
-          <div class="boot-steps">
-            <div
-              v-for="s in bootSteps"
-              :key="s.key"
-              class="boot-step"
-              :class="{ 'is-done': s.done, 'is-live': !s.done }"
-            >
-              <span class="bs-dot">
-                <AppIcon v-if="s.done" name="check" size="ic-2xs" />
-              </span>
-              {{ s.label }}
-            </div>
-          </div>
-          <p class="boot-tip">{{ t('boot.tip') }}</p>
-        </div>
-        </main>
-      </div>
-
-      <ToastHost />
+      </main>
     </div>
-  </el-config-provider>
+    <ToastHost />
+  </div>
 </template>
 
 <style scoped>
-.app-shell {
+.shell {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 0;
-  background: var(--wb-bg);
-  color: var(--wb-ink);
+  background: var(--wb-window);
 }
-/* 顶栏之下横向切一刀：左 rail 固定，右侧才是内容区 */
-.app-frame {
+
+.shell-main {
+  display: flex;
   flex: 1;
   min-height: 0;
-  display: flex;
-  overflow: hidden;
-}
-.app-body {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  overflow: hidden;
-  /* 页面内的响应式按「内容区宽度」判断，而不是窗口宽度：
-     窗口宽度包含了 rail，两者在窄窗口下会差出一整根侧栏。 */
+  /* 给子视图一个容器查询的锚点：窄窗口下视图按容器宽度收窄列宽，
+     比媒体查询准确（窗口是最外层容器，两者等效，但换布局时不会失配）。 */
   container-type: inline-size;
   container-name: app;
 }
 
-.boot {
+.shell-view {
   flex: 1;
   min-width: 0;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: var(--wb-sp-3);
-  padding: var(--wb-sp-6);
-  position: relative;
-  overflow: hidden;
-}
-.boot-aura {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.boot-badge {
-  width: var(--wb-tile-lg);
-  height: var(--wb-tile-lg);
-  border-radius: var(--wb-radius-lg);
-  display: grid;
-  place-items: center;
-  background: var(--wb-primary);
-  color: var(--wb-primary-ink);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: var(--wb-fs-xl);
-  position: relative;
-  z-index: 1;
-  box-shadow: var(--wb-card-shadow);
-  animation: boot-breathe 2.4s var(--wb-ease) infinite;
-}
-.boot-badge.is-bad {
-  background: var(--wb-danger-soft);
-  color: var(--wb-danger);
-  animation: none;
-}
-@keyframes boot-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
-}
-.boot-title {
-  font-family: var(--font-display);
-  font-size: var(--wb-fs-lg);
-  font-weight: 700;
-  color: var(--wb-ink);
-  position: relative;
-  z-index: 1;
-}
-.boot-why {
-  max-width: calc(460px * var(--wb-vw-scale));
-  text-align: center;
-  color: var(--wb-ink-2);
-  font-size: var(--wb-fs-sm);
-  line-height: var(--wb-lh-base);
-  position: relative;
-  z-index: 1;
-}
-.boot-steps {
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-2);
-  position: relative;
-  z-index: 1;
-  margin-top: var(--wb-sp-1);
+  background: var(--wb-work);
 }
-.boot-step {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-  transition: color var(--wb-dur) var(--wb-ease);
-}
-.boot-step.is-done {
-  color: var(--wb-ink-2);
-}
-.bs-dot {
-  position: relative;
-  width: calc(16px * var(--wb-vw-scale));
-  height: calc(16px * var(--wb-vw-scale));
-  border-radius: var(--wb-radius-full);
+
+.shell-fallback {
+  flex: 1;
   display: grid;
   place-items: center;
-  background: var(--wb-elev-hover);
-  color: var(--wb-success);
-  flex: none;
+  padding: var(--wb-sp-8);
 }
-.boot-step.is-done .bs-dot {
-  background: var(--wb-success-soft);
-}
-.boot-step.is-live .bs-dot::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: var(--wb-radius-full);
-  border: 1px solid var(--wb-live);
-  animation: bs-ping 1.4s var(--wb-ease) infinite;
-}
-@keyframes bs-ping {
-  from {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  to {
-    transform: scale(1.9);
-    opacity: 0;
-  }
-}
-.boot-acts {
+
+.boot {
   display: flex;
-  gap: var(--wb-sp-2);
-  position: relative;
-  z-index: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-4);
 }
-.boot-tip {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-  position: relative;
-  z-index: 1;
+
+.boot-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--wb-line-strong);
+  border-top-color: var(--wb-brand);
+  border-radius: 50%;
+  animation: boot-spin 720ms linear infinite;
+}
+
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.boot-text {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-mute);
 }
 </style>

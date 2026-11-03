@@ -1,255 +1,236 @@
 <script setup lang="ts">
-import { errorText } from '../../utils/errors'
-// 上下文水位：输入框底栏常驻的仪表环 + 读数；点开是 context_view 分解面板。
-// 无论是否开始对话、窗口是否已知，这里都必须有内容——什么都不显示等于用户没有这个信息。
-import { computed, ref } from 'vue'
+// 上下文水位：一枚环 + 两个读数，常驻输入框底栏；点开有详情弹层（剩余、缓存、速度）。
+// 环用 conic-gradient 画，只占一个图标位却一眼可读；75% 警告色、90% 危险色。
+// 没数据也渲染（降级成半透明「– / –」）——空着会让用户以为图标坏了。
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import * as api from '../../api'
-import type { ContextBreakdownRESP } from '../../types/api'
-import { fmtCount } from '../../utils/num'
-
-const props = defineProps<{
-  used: number
-  win: number
-  ratio: number
-  known?: boolean
-  /** 给模型输出留的余量：环的分母是「窗口 - 余量」，与助手开始整理的位置一致 */
-  reserve?: number
-  /** 当前会话：非空时点开可拉上下文分解 */
-  sessionId?: string
-}>()
+import type { TurnUsage } from '@/composables/useMessageFlow'
+import { useChatStore } from '@/stores/chat'
 
 const { t } = useI18n()
+const chat = useChatStore()
 
-// 分解面板：首次点开才拉取（懒加载），会话切换后重置
-const popOpen = ref(false)
-const breakdown = ref<ContextBreakdownRESP | null>(null)
-const breakdownLoading = ref(false)
-const breakdownErr = ref('')
-async function loadBreakdown() {
-  breakdownLoading.value = true
-  breakdownErr.value = ''
-  try {
-    breakdown.value = await api.contextBreakdown(props.sessionId || '')
-  } catch (e) {
-    breakdownErr.value = errorText(e)
-  } finally {
-    breakdownLoading.value = false
-  }
+const open = ref(false)
+const root = ref<HTMLElement | null>(null)
+
+const percent = computed(() => Math.min(1, Math.max(0, chat.contextPercent)))
+const shownPercent = computed(() => Math.round(percent.value * 100))
+const level = computed(() => {
+  if (percent.value >= 0.9) return 'bad'
+  if (percent.value >= 0.75) return 'warn'
+  return 'ok'
+})
+
+// 读数在数据缺失时显示「–」而不是 0：0 是一个测量结果，「–」才是没测过。
+const tokens = computed(() => (chat.context ? formatTokens(chat.context.tokens ?? 0) : '–'))
+const windowTok = computed(() =>
+  chat.context && chat.context.contextWindow > 0 ? formatTokens(chat.context.contextWindow) : '–',
+)
+const left = computed(() => {
+  if (!chat.context || chat.context.contextWindow <= 0) return '–'
+  return formatTokens(Math.max(0, chat.context.contextWindow - (chat.context.tokens ?? 0)))
+})
+
+/** 有没有水位数据：决定整条的透明度与提示语，不决定渲染与否。 */
+const known = computed(() => Boolean(chat.context && chat.context.contextWindow > 0))
+
+// 缓存命中率取「最近一轮」的用量：直播中取直播轮，闲时取上一轮收尾的那次。
+const cacheRate = computed(() => {
+  const u: TurnUsage | undefined = chat.turn
+    ? chat.usageOf(chat.turn.run_id)
+    : chat.usageOf(chat.lastFinishedRunId)
+  if (!u) return ''
+  const prompt = u.input + u.cacheRead + u.cacheWrite
+  if (prompt <= 0) return ''
+  return `${Math.round((u.cacheRead / prompt) * 100)}%`
+})
+
+const speed = computed(() => (chat.tokensPerSecond ? `${Math.round(chat.tokensPerSecond)} tok/s` : ''))
+const cost = computed(() => (chat.stats && chat.stats.cost > 0 ? `$${chat.stats.cost.toFixed(3)}` : ''))
+
+const tip = computed(() =>
+  known.value
+    ? `${t('chat.contextHint', { used: tokens.value, win: windowTok.value })} · ${shownPercent.value}%`
+    : t('chat.contextUnknown'),
+)
+
+function toggle(): void {
+  open.value = !open.value
 }
-function onToggle(open: boolean) {
-  popOpen.value = open
-  if (open) void loadBreakdown()
+
+/** 点外面就收起：弹层是临时读数，不占用户的注意力预算。 */
+function onDocClick(event: MouseEvent): void {
+  if (!open.value) return
+  if (root.value && !root.value.contains(event.target as Node)) open.value = false
 }
 
-const exact = computed(() => props.known !== false)
-const pct = computed(() => Math.max(0, Math.min(100, props.ratio || 0)))
-const level = computed(() => (pct.value >= 95 ? 'is-danger' : pct.value >= 80 ? 'is-warn' : ''))
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') open.value = false
+}
 
-// 环的弧长：直接给圆锥渐变一个百分比停点，不必再算圆周长
-const arc = computed(() => `${pct.value}%`)
-
-const reading = computed(() => {
-  const used = fmtCount(props.used || 0)
-  if (!props.win || props.win <= 0) return used
-  return `${used} / ${fmtCount(props.win)}`
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  window.addEventListener('keydown', onKeydown)
 })
 
-// 整理线：分母与后端 ratioOf 一致（窗口减余量）
-const slimLine = computed(() => {
-  const win = props.win || 0
-  const reserve = props.reserve || 0
-  if (win <= 0) return 0
-  return win - reserve > 0 ? win - reserve : Math.floor(win / 2)
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick)
+  window.removeEventListener('keydown', onKeydown)
 })
 
-const tip = computed(() => {
-  if (!props.win || props.win <= 0) {
-    return `${t('chat.contextMeter')}: ${fmtCount(props.used || 0)}`
-  }
-  const base = t('chat.contextHint', {
-    used: fmtCount(props.used || 0),
-    win: fmtCount(props.win || 0),
-  })
-  const line = slimLine.value > 0 ? ` · ${fmtCount(slimLine.value)}` : ''
-  return `${base} · ${pct.value}%${line}`
-})
+/** token 数按量级压缩：界面上要能一眼比较，不是要精确到个位。 */
+function formatTokens(n: number): string {
+  if (!n) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`
+  return String(n)
+}
 </script>
 
 <template>
-  <el-popover placement="top-start" :width="320" trigger="click" @show="onToggle(true)" @hide="onToggle(false)">
-    <template #reference>
-      <el-tooltip :content="tip" placement="top" :show-after="250">
-        <span
-          class="ctx"
-          :class="[level, { 'is-est': !exact }]"
-          role="img"
-          :aria-label="tip"
-          :style="{ '--ctx-arc': arc }"
-        >
-          <span class="ring" aria-hidden="true" />
-          <span class="txt">{{ reading }}</span>
-        </span>
-      </el-tooltip>
-    </template>
+  <div ref="root" class="meter-wrap" :class="{ 'is-unknown': !known }">
+    <button type="button" class="meter" :class="level" :title="tip" @click="toggle">
+      <span class="ring" :style="{ '--ctx-arc': `${shownPercent}%` }" />
+      <span class="meter-text">{{ tokens }} / {{ windowTok }}</span>
+    </button>
 
-    <div class="bd">
-      <div class="bd-head">
-        <b>{{ t('chat.contextUsage') }}</b>
-        <span class="wb-mono bd-total">
-          {{ breakdown ? `${fmtCount(breakdown.resp_total_tokens)} / ${fmtCount(breakdown.resp_context_window)}` : reading }}
-        </span>
+    <!-- 详情弹层：底栏放不下的那几个答案。只列有事实的行，没有就不占位。 -->
+    <div v-if="open" class="ctx-panel">
+      <div class="ctx-row">
+        <span class="ctx-label">{{ t('chat.ctxUsed') }}</span>
+        <span class="ctx-value">{{ tokens }} · {{ shownPercent }}%</span>
       </div>
-      <div v-if="breakdownLoading" class="bd-state">{{ t('common.loading') }}</div>
-      <div v-else-if="breakdownErr" class="bd-state">{{ breakdownErr }}</div>
-      <template v-else-if="breakdown">
-        <div v-for="s in breakdown.resp_segments" :key="s.segment_name" class="bd-row">
-          <span class="bd-name">{{ s.segment_name }}</span>
-          <span class="bd-bar">
-            <span
-              class="bd-fill"
-              :style="{
-                width: `${breakdown.resp_total_tokens > 0 ? Math.min(100, (s.segment_tokens / breakdown.resp_total_tokens) * 100) : 0}%`,
-              }"
-            />
-          </span>
-          <span class="wb-mono bd-num">{{ fmtCount(s.segment_tokens) }}</span>
-        </div>
-        <p class="bd-hint">{{ t('chat.contextEstimateHint') }}</p>
-      </template>
+      <div class="ctx-row">
+        <span class="ctx-label">{{ t('chat.ctxWindow') }}</span>
+        <span class="ctx-value">{{ windowTok }}</span>
+      </div>
+      <div class="ctx-row">
+        <span class="ctx-label">{{ t('chat.ctxLeft') }}</span>
+        <span class="ctx-value">{{ left }}</span>
+      </div>
+      <div v-if="cacheRate" class="ctx-row">
+        <span class="ctx-label">{{ t('chat.ctxCache') }}</span>
+        <span class="ctx-value">{{ cacheRate }}</span>
+      </div>
+      <div v-if="speed" class="ctx-row">
+        <span class="ctx-label">{{ t('chat.ctxSpeed') }}</span>
+        <span class="ctx-value">{{ speed }}</span>
+      </div>
+      <div v-if="cost" class="ctx-row">
+        <span class="ctx-label">{{ t('chat.ctxCost') }}</span>
+        <span class="ctx-value">{{ cost }}</span>
+      </div>
     </div>
-  </el-popover>
+  </div>
 </template>
 
 <style scoped>
-/* 裸读数：只有环与数字，不套描边胶囊——底栏已有模型 / 思考两个 chip，
-   再给水位加一个盒子就是第三个「看起来能点」的框，而它只读。 */
-.ctx {
+.meter-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+/* 没数据时的降级态：整条半透明，说明「还没测」，而不是「没这个功能」 */
+.meter-wrap.is-unknown .meter {
+  opacity: 0.55;
+}
+
+/* 它现在是个控件：可点。但仍然克制——悬停只抬字色与描边，不做缩放胶囊，
+   毕竟它一半的身份还是读数。 */
+.meter {
   display: inline-flex;
   align-items: center;
-  gap: var(--wb-sp-1);
-  flex: none;
-  height: var(--wb-ctl-h-sm);
-  color: var(--wb-muted);
-  cursor: default;
-  /* 读数不可选、不画焦点框：拖选正文时扫过它，浏览器会给环套一个淡蓝方块，
-     比读数本身显眼得多。选区高亮由下面两条一起压掉，焦点环显式关掉。 */
+  gap: var(--wb-sp-2);
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--wb-r-sm);
+  background: transparent;
+  cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
-  border-radius: var(--wb-radius-full);
-  transition: color var(--wb-dur-fast) var(--wb-ease);
+  transition:
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
-/* 环是 svg 时选区底色由浏览器自己涂（::selection 管不到它）；换成纯 CSS 环后一起压掉 */
-.ctx::selection,
-.ctx *::selection {
-  background: transparent;
+
+.meter:hover {
+  background: var(--wb-sunken);
 }
-/* 显式写全：base.css 的 :focus-visible 画全局焦点环，同权重时靠源序赢，不靠猜。 */
-.ctx:focus,
-.ctx:focus-visible,
-.ctx *:focus,
-.ctx *:focus-visible {
-  outline: none;
+
+.meter:active {
+  transform: scale(var(--wb-press-active));
 }
-/* 只换字色、不缩放不铺底：它是读数不是控件，任何「按下去」的暗示都是骗点击。 */
-.ctx:hover {
-  color: var(--wb-ink-2);
-}
-/* 仪表环：细轨 + 平头弧。圆头 + 深轨在低占比时会读成一个转圈加载图标，
-   这里刻意的平头 + 浅轨就是为了让它一眼是「水位表」不是「spinner」。
-   一个元素画完：圆锥渐变当弧，径向遮罩挖内圈——不必再放 svg。 */
+
+/* 环：conic-gradient 画弧 + radial mask 挖内圈，一个元素完成。
+   弧长直接拿百分比当停点，不用算圆周长。 */
 .ring {
-  --wb-ring-ink: var(--wb-primary);
-  width: calc(16px * var(--wb-vw-scale));
-  height: calc(16px * var(--wb-vw-scale));
+  width: 13px;
+  height: 13px;
   flex: none;
-  border-radius: var(--wb-radius-full);
-  background: conic-gradient(
-    from -90deg,
-    var(--wb-ring-ink) var(--ctx-arc, 0%),
-    var(--wb-border) 0
-  );
-  -webkit-mask: radial-gradient(closest-side, #0000 74%, #000 76%);
-  mask: radial-gradient(closest-side, #0000 74%, #000 76%);
+  border-radius: 50%;
+  background: conic-gradient(from -90deg, var(--wb-ok) var(--ctx-arc), var(--wb-line-strong) 0);
+  -webkit-mask: radial-gradient(closest-side, #0000 70%, #000 72%);
+  mask: radial-gradient(closest-side, #0000 70%, #000 72%);
 }
-.is-warn .ring {
-  --wb-ring-ink: var(--wb-warning);
+
+.meter.warn .ring {
+  background: conic-gradient(from -90deg, var(--wb-warn) var(--ctx-arc), var(--wb-line-strong) 0);
 }
-.is-danger .ring {
-  --wb-ring-ink: var(--wb-danger);
+
+.meter.bad .ring {
+  background: conic-gradient(from -90deg, var(--wb-bad) var(--ctx-arc), var(--wb-line-strong) 0);
 }
-.is-warn .txt {
-  color: var(--wb-warning);
-}
-.is-danger .txt {
-  color: var(--wb-danger);
-}
-.txt {
-  font-size: var(--wb-fs-2xs);
-  font-variant-numeric: tabular-nums;
+
+.meter-text {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
   white-space: nowrap;
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
-/* 窗口是估算值时读数降一档亮度：数字给全，但别当成实测值看 */
-.is-est .txt {
-  opacity: 0.72;
+
+.meter.warn .meter-text {
+  color: var(--wb-warn);
 }
-/* 分解面板（context_view）：分段条形 + 读数，全部走令牌 */
-.bd {
+
+.meter.bad .meter-text {
+  color: var(--wb-bad);
+}
+
+/* 详情弹层：贴着底栏往上弹，右对齐（它就在行末） */
+.ctx-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: var(--wb-z-pop);
+  min-width: 200px;
+  padding: var(--wb-sp-3);
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-2);
+  border: 1px solid var(--wb-line-strong);
+  border-radius: var(--wb-r-lg);
+  background: var(--wb-raised);
+  box-shadow: var(--wb-shadow-lift);
 }
-.bd-head {
+
+.ctx-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  font-size: var(--wb-fs-sm);
+  gap: var(--wb-sp-4);
 }
-.bd-total {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
+
+.ctx-label {
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
 }
-.bd-state {
-  padding: var(--wb-sp-3) 0;
-  text-align: center;
+
+.ctx-value {
+  font-family: var(--wb-font-mono);
   font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.bd-row {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-2xs);
-}
-.bd-name {
-  width: calc(72px * var(--wb-vw-scale));
-  flex: none;
-  color: var(--wb-ink-2);
-}
-.bd-bar {
-  flex: 1;
-  height: 6px;
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-elev-hover);
-  overflow: hidden;
-}
-.bd-fill {
-  display: block;
-  height: 100%;
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-primary);
-  transition: width var(--wb-dur) var(--wb-ease);
-}
-.bd-num {
-  width: calc(56px * var(--wb-vw-scale));
-  text-align: right;
-  flex: none;
-  color: var(--wb-muted);
-}
-.bd-hint {
-  margin: 0;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
+  color: var(--wb-ink);
+  font-variant-numeric: tabular-nums;
 }
 </style>

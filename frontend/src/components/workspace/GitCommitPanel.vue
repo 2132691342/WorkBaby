@@ -1,429 +1,221 @@
 <script setup lang="ts">
-// 提交面板：勾选要入这次提交的文件 → 填提交信息（可让助手起草）→ 确认后提交。
-// 提交前一定列出将入的文件与增删行数；助手只起草、不代填也不代提。
-import { computed, ref, watch } from 'vue'
+// 提交框与分支列表：同一块位置（改动清单下方）、都只在「改动」标签下出现。
+// 拆出来让 WorkspaceView 只管三栏排布；自己的状态只有正在写的提交说明。
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import * as api from '../../api'
-import { useToastStore } from '../../stores/toast'
-import type { GitFileVO, GitStatusVO } from '../../types/api'
-import AppIcon from '../common/AppIcon.vue'
-import { errorText } from '../../utils/errors'
+import AppIcon from '@/components/common/AppIcon.vue'
+import type { GitBranch } from '@/types/api'
 
-const props = defineProps<{ status: GitStatusVO | null; sessionId: string }>()
-const emit = defineEmits<{ (e: 'done', status: GitStatusVO): void }>()
+const props = defineProps<{
+  branches: GitBranch[]
+  /** 暂存区里的文件数（提交按钮上显示） */
+  stagedCount: number
+  committing: boolean
+  /** 进行中的动作名（空表示空闲） */
+  pending: string
+}>()
+
+const emit = defineEmits<{
+  commit: [message: string]
+  createBranch: []
+  switchBranch: [name: string]
+  deleteBranch: [name: string]
+  mergeBranch: [name: string]
+}>()
 
 const { t } = useI18n()
-const toast = useToastStore()
 
-const picked = ref<Set<string>>(new Set())
 const message = ref('')
-const busy = ref('')
-const drafting = ref(false)
-const amend = ref(false)
 
-const files = computed<GitFileVO[]>(() => props.status?.git_files || [])
-const pickedFiles = computed(() => files.value.filter((f) => picked.value.has(f.git_path)))
-const stagedFiles = computed(() => files.value.filter((f) => f.git_staged))
-
-const sum = computed(() =>
-  pickedFiles.value.reduce(
-    (n, f) => {
-      n.add += f.git_additions
-      n.del += f.git_deletions
-      return n
-    },
-    { add: 0, del: 0 },
-  ),
+const canCommit = computed(
+  () => Boolean(message.value.trim()) && props.stagedCount > 0 && !props.committing,
 )
 
-function shortPath(p: string) {
-  const parts = p.split('/').filter(Boolean)
-  return parts.length > 3 ? '…/' + parts.slice(-3).join('/') : p
+async function submit(): Promise<void> {
+  if (!canCommit.value) return
+  emit('commit', message.value.trim())
+  message.value = ''
 }
 
-function toggle(path: string) {
-  const next = new Set(picked.value)
-  if (next.has(path)) next.delete(path)
-  else next.add(path)
-  picked.value = next
+/** 父组件提交成功后调用：清空输入框。 */
+function reset(): void {
+  message.value = ''
 }
 
-// 全选 / 取消全选：改动几十个文件时逐个点选是不现实的
-const allPicked = computed(() => files.value.length > 0 && pickedFiles.value.length === files.value.length)
-const somePicked = computed(() => pickedFiles.value.length > 0 && !allPicked.value)
-
-function toggleAll() {
-  if (busy.value) return
-  const next = new Set<string>()
-  if (!allPicked.value) for (const f of files.value) next.add(f.git_path)
-  picked.value = next
-}
-
-// 换了一批文件（提交完 / 刷新后）就按新状态重算勾选：留着上一次的勾会提交错东西
-function syncPicked() {
-  const next = new Set<string>()
-  for (const f of files.value) if (f.git_staged) next.add(f.git_path)
-  picked.value = next
-}
-watch(() => props.status, syncPicked)
-syncPicked()
-
-async function stage() {
-  const paths = pickedFiles.value.filter((f) => !f.git_staged).map((f) => f.git_path)
-  if (!paths.length) return
-  busy.value = 'stage'
-  try {
-    emit('done', await api.git.stage(paths, props.sessionId))
-  } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
-  } finally {
-    busy.value = ''
-  }
-}
-
-async function unstageAll() {
-  if (!stagedFiles.value.length) return
-  busy.value = 'unstage'
-  try {
-    emit('done', await api.git.unstage(stagedFiles.value.map((f) => f.git_path), props.sessionId))
-  } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
-  } finally {
-    busy.value = ''
-  }
-}
-
-// 撤销单个文件的改动：不可逆，因此走二次确认而不是直接执行
-async function discardOne(path: string) {
-  busy.value = 'discard:' + path
-  try {
-    emit('done', await api.git.discard([path], props.sessionId))
-    toast.ok(t('workspace.discardOk', { n: 1 }))
-  } catch (e) {
-    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
-  } finally {
-    busy.value = ''
-  }
-}
-
-async function draft() {
-  if (drafting.value) return
-  drafting.value = true
-  try {
-    const res = await api.git.draftMessage(pickedFiles.value.map((f) => f.git_path), props.sessionId)
-    if (res.resp_err) {
-      toast.bad(t('common.saveFailed', { msg: res.resp_err }))
-      return
-    }
-    message.value = res.resp_message
-  } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
-  } finally {
-    drafting.value = false
-  }
-}
-
-async function commit() {
-  if (!message.value.trim()) {
-    toast.bad(t('workspace.commitEmpty'))
-    return
-  }
-  busy.value = 'commit'
-  try {
-    const res = await api.git.commit_(message.value.trim(), props.sessionId, amend.value)
-    message.value = ''
-    const wasAmend = amend.value
-    amend.value = false
-    emit('done', res.resp_status)
-    toast.ok(
-      wasAmend
-        ? t('workspace.amendOk', { hash: res.resp_hash.slice(0, 7) })
-        : t('workspace.commitOk', { hash: res.resp_hash.slice(0, 7) }),
-    )
-  } catch (e) {
-    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
-  } finally {
-    busy.value = ''
-  }
-}
-
-const canCommit = computed(() => pickedFiles.value.length > 0 && !!message.value.trim() && !busy.value)
-const needStage = computed(() => pickedFiles.value.some((f) => !f.git_staged))
-// 有冲突时 git 不接受提交，这时要先把冲突文件标记已解决
-const hasConflict = computed(() => files.value.some((f) => f.git_conflict))
+defineExpose({ reset })
 </script>
 
 <template>
-  <div class="cmt">
-    <div class="cmt-files">
-      <header class="cmt-head">
-        <el-tooltip
-          :content="allPicked ? t('workspace.unselectAll') : t('workspace.selectAll')"
-          placement="top"
-          :show-after="400"
-        >
-          <el-checkbox
-            :model-value="allPicked"
-            :indeterminate="somePicked"
-            :disabled="!!busy || !files.length"
-            @change="toggleAll"
-          />
-        </el-tooltip>
-        <span class="wb-label">{{ t('workspace.files') }}</span>
-        <span class="cmt-count">{{ pickedFiles.length }} / {{ files.length }}</span>
-        <span class="sp" />
-        <el-button
-          size="small"
-          text
-          :disabled="!!busy || !pickedFiles.length || !needStage"
-          @click="stage"
-        >
-          {{ t('workspace.stage') }}
-        </el-button>
-        <el-button size="small" text :disabled="!!busy || !stagedFiles.length" @click="unstageAll">
-          {{ t('workspace.unstageAll') }}
-        </el-button>
-      </header>
-
-      <div v-if="!files.length" class="cmt-empty">{{ t('workspace.noChanges') }}</div>
-      <ul v-else class="cmt-list">
-        <li v-for="f in files" :key="f.git_path">
-          <div class="cmt-row" :class="{ 'is-on': picked.has(f.git_path), 'is-conflict': f.git_conflict }">
-            <el-checkbox
-              :model-value="picked.has(f.git_path)"
-              :disabled="!!busy"
-              @change="toggle(f.git_path)"
-            />
-            <AppIcon :name="f.git_conflict ? 'alert' : 'doc'" size="ic-xs" />
-            <span class="cmt-path" :title="f.git_path">{{ shortPath(f.git_path) }}</span>
-            <el-tag v-if="f.git_conflict" size="small" type="warning">{{ t('workspace.conflict') }}</el-tag>
-            <el-tag v-else-if="f.git_staged" size="small" type="primary">{{ t('workspace.staged') }}</el-tag>
-            <span class="cmt-stat">
-              <b class="is-add">+{{ f.git_additions }}</b>
-              <b class="is-del">−{{ f.git_deletions }}</b>
-            </span>
-            <el-popconfirm
-              :title="t('workspace.discardConfirm')"
-              :confirm-button-text="t('workspace.discard')"
-              :cancel-button-text="t('common.cancel')"
-              width="250"
-              @confirm="discardOne(f.git_path)"
-            >
-              <template #reference>
-                <button
-                  class="cmt-drop"
-                  type="button"
-                  :disabled="!!busy"
-                  :title="t('workspace.discardHint')"
-                >
-                  <AppIcon name="trash" size="ic-2xs" />
-                </button>
-              </template>
-            </el-popconfirm>
-          </div>
-        </li>
-      </ul>
+  <div class="commit-box">
+    <textarea
+      v-model="message"
+      class="wb-input"
+      rows="3"
+      :placeholder="t('workspace.commitPlaceholder')"
+    />
+    <div class="commit-actions">
+      <button
+        class="wb-btn primary"
+        :class="{ 'is-loading': props.committing }"
+        :disabled="!canCommit"
+        @click="submit"
+      >
+        {{ t('workspace.commit', { n: props.stagedCount }) }}
+      </button>
     </div>
+  </div>
 
-    <div class="cmt-form">
-      <div class="cmt-sum">
-        <span class="wb-label">{{ t('workspace.commitMessage') }}</span>
-        <span class="sp" />
-        <span class="cmt-stat">
-          <b class="is-add">+{{ sum.add }}</b>
-          <b class="is-del">−{{ sum.del }}</b>
-        </span>
-      </div>
-      <el-input
-        v-model="message"
-        type="textarea"
-        :rows="4"
-        :placeholder="t('workspace.commitPlaceholder')"
-        :disabled="!!busy"
-        maxlength="400"
-        show-word-limit
-      />
-
-      <!-- amend 会改写已有提交：放着不动最安全，打开时把代价写在旁边 -->
-      <el-checkbox v-model="amend" :disabled="!!busy" class="cmt-amend">
-        {{ t('workspace.amend') }}
-      </el-checkbox>
-      <p v-if="amend" class="cmt-warn">
-        <AppIcon name="alert" size="ic-2xs" />
-        {{ t('workspace.amendHint') }}
-      </p>
-
-      <div class="cmt-acts">
-        <el-button size="small" :loading="drafting" :disabled="!!busy || !pickedFiles.length" @click="draft">
-          {{ drafting ? t('workspace.committing') : t('workspace.commitDraft') }}
-        </el-button>
-        <span class="sp" />
-        <el-button
-          size="small"
-          type="primary"
-          :loading="busy === 'commit'"
-          :disabled="!canCommit || hasConflict"
-          @click="commit"
-        >
-          {{ t('workspace.commitAction') }}
-        </el-button>
-      </div>
-
-      <p v-if="hasConflict" class="cmt-hint">
-        <AppIcon name="info" size="ic-2xs" />
-        {{ t('workspace.conflictResolveHint') }}
-      </p>
-      <p v-else-if="needStage && pickedFiles.length" class="cmt-hint">
-        <AppIcon name="info" size="ic-2xs" />
-        {{ t('workspace.stage') }} · {{ t('workspace.commitNothing') }}
-      </p>
-    </div>
+  <div class="branch-row">
+    <span class="plate">{{ t('workspace.branches') }}</span>
+    <button class="wb-btn text sm" :disabled="Boolean(props.pending)" @click="emit('createBranch')">
+      {{ t('workspace.newBranch') }}
+    </button>
+  </div>
+  <div class="branch-list">
+    <button
+      v-for="branch in props.branches"
+      :key="`${branch.remote_name}:${branch.branch_name}`"
+      class="branch-line wb-row-click"
+      :class="{ active: branch.current }"
+      :disabled="branch.current || Boolean(props.pending)"
+      :title="branch.current ? t('workspace.currentBranch') : t('workspace.switchHere')"
+      @click="emit('switchBranch', branch.branch_name)"
+    >
+      <AppIcon name="branch" :size="12" />
+      <span class="branch-name">{{ branch.branch_name }}</span>
+      <span v-if="branch.remote_name" class="tag">{{ branch.remote_name }}</span>
+      <span v-if="branch.ahead || branch.behind" class="readout">
+        ↑{{ branch.ahead }} ↓{{ branch.behind }}
+      </span>
+      <!-- 行内动作：悬停才出现。一列分支每行都挂两个按钮就是一片按钮墙。 -->
+      <span v-if="!branch.current" class="branch-acts">
+        <button class="act" :disabled="Boolean(props.pending)" @click.stop="emit('mergeBranch', branch.branch_name)">
+          {{ t('workspace.merge') }}
+        </button>
+        <button class="act danger" :disabled="Boolean(props.pending)" @click.stop="emit('deleteBranch', branch.branch_name)">
+          {{ t('common.delete') }}
+        </button>
+      </span>
+    </button>
   </div>
 </template>
 
 <style scoped>
-.cmt {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
-  gap: var(--wb-sp-4);
-  align-items: start;
+.commit-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  flex: none;
 }
-.cmt-files {
-  border: 1px solid var(--wb-border);
-  border-radius: var(--wb-radius-lg);
-  overflow: hidden;
-}
-.cmt-head {
+
+.commit-actions {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  border-bottom: 1px solid var(--wb-border);
-  background: var(--wb-elev-hover);
 }
-.cmt-count {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.cmt-list {
-  max-height: calc(420px * var(--wb-vw-scale));
-  overflow-y: auto;
-}
-.cmt-row {
+
+.branch-row {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  cursor: default;
-  transition: background var(--wb-dur-fast) var(--wb-ease);
+  flex: none;
 }
-.cmt-row:hover {
-  background: var(--wb-elev-hover);
+
+.plate {
+  font-size: var(--wb-fs-3xs);
+  font-weight: 700;
+  letter-spacing: var(--wb-ls-plate);
+  text-transform: uppercase;
+  color: var(--wb-faint);
 }
-.cmt-row.is-on {
-  background: var(--wb-accent-tint);
+
+.branch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: none;
 }
-.cmt-row.is-conflict {
-  box-shadow: inset 2px 0 0 var(--wb-warning);
-}
-.cmt-drop {
-  display: grid;
-  place-items: center;
-  width: var(--wb-ctl-icon);
-  height: var(--wb-ctl-icon);
-  border-radius: var(--wb-radius-sm);
-  color: var(--wb-muted);
-  opacity: 0;
-  transition:
-    opacity var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease),
-    background var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-.cmt-row:hover .cmt-drop {
-  opacity: 1;
-}
-.cmt-drop:hover:not(:disabled) {
-  color: var(--wb-danger);
-  background: var(--wb-danger-soft);
-  transform: scale(1.06);
-}
-.cmt-drop:active:not(:disabled) {
-  transform: scale(var(--wb-btn-scale-press));
-}
-.cmt-drop:disabled {
-  opacity: 0;
-  cursor: not-allowed;
-}
-.cmt-amend {
-  align-self: flex-start;
-}
-.cmt-warn {
+
+.branch-line {
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-1);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-warning);
-  line-height: var(--wb-lh-base);
-}
-.cmt-path {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-mono);
+  gap: var(--wb-sp-2);
+  width: 100%;
+  padding: 3px var(--wb-sp-2);
+  border: none;
+  background: transparent;
+  color: var(--wb-mute);
   font-size: var(--wb-fs-xs);
-  color: var(--wb-ink-2);
+  font-family: var(--wb-font-mono);
+  text-align: left;
+  border-radius: var(--wb-r-sm);
+  cursor: pointer;
+}
+
+.branch-line span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cmt-stat {
-  display: flex;
-  gap: var(--wb-sp-2);
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  flex: none;
-}
-.cmt-stat .is-add {
-  color: var(--wb-success);
-}
-.cmt-stat .is-del {
-  color: var(--wb-danger);
-}
-.cmt-empty {
-  padding: var(--wb-sp-6);
-  text-align: center;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-}
-.cmt-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
-}
-.cmt-sum {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-}
-.cmt-acts {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-}
-.cmt-hint {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-1);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.sp {
+
+.branch-name {
   flex: 1;
+  min-width: 0;
 }
-@media (max-width: 980px) {
-  .cmt {
-    grid-template-columns: minmax(0, 1fr);
-  }
+
+/* 行内动作：默认不占视觉重量，悬停才出现 */
+.branch-acts {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--wb-dur-fast) var(--wb-ease);
+}
+
+.branch-line:hover .branch-acts,
+.branch-line:focus-within .branch-acts {
+  opacity: 1;
+}
+
+.act {
+  padding: 0 5px;
+  height: calc(18px * var(--wb-vw-scale));
+  border: none;
+  border-radius: var(--wb-r-xs);
+  background: transparent;
+  color: var(--wb-mute);
+  font-size: var(--wb-fs-3xs);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color var(--wb-dur-fast) var(--wb-ease);
+}
+
+.act:hover:not(:disabled) {
+  color: var(--wb-brand);
+}
+
+.act.danger:hover:not(:disabled) {
+  color: var(--wb-bad);
+}
+
+.act:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.branch-line.active {
+  color: var(--wb-brand);
+  font-weight: 600;
+}
+
+.branch-line:disabled {
+  cursor: default;
+}
+
+.readout {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
 }
 </style>

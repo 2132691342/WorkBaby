@@ -1,16 +1,12 @@
-# Rust 构建产物
-/target/
-frontend/target/
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
 
 # 前端
 /frontend/node_modules/
 /frontend/dist/
 /frontend/.vite/
-# TS 增量构建缓存（vue-tsc -b 产物）
-*.tsbuildinfo
-
-# Tauri CLI 自动生成的 schema（权限变更时会重生成）
-/src-tauri/gen/
 
 # 本地配置与运行数据
 *.log
@@ -26,3 +22,6 @@ frontend/target/
 # 操作系统
 .DS_Store
 Thumbs.db
+
+# ZCode 会话目录
+.zcode/

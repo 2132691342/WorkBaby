@@ -1,146 +1,173 @@
 <script setup lang="ts">
-// 对话页页头：回答「在跟谁说话」。模型 / 工作区 / 水位这些参数在输入区底栏，
-// 页头只留会话名、会话级动作（压缩上下文）与运行灯。
-import { computed, ref } from 'vue'
+// 对话页的页头与授权链接条：页头回答「在跟谁说话」，链接条回答
+// 「引擎要我去浏览器点一下，地址在这儿」。两者都只读状态不持有状态。
+// 消息参数（工作区 / 模型 / 水位）在输入框底栏，页头只留引擎与摘要。
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useChatStore } from '../../stores/chat'
-import { useSessionStore } from '../../stores/session'
-import { useToastStore } from '../../stores/toast'
-import AppIcon from '../common/AppIcon.vue'
-import SessionTree from './SessionTree.vue'
+import AppIcon from '@/components/common/AppIcon.vue'
+import { useAppStore } from '@/stores/app'
+import { useChatStore } from '@/stores/chat'
+import { openExternal } from '@/api/shell'
 
-const { t } = useI18n()
+const app = useAppStore()
 const chat = useChatStore()
-const session = useSessionStore()
-const toast = useToastStore()
+const { t } = useI18n()
 
-const busy = ref(false)
-/** 会话树开关：只在有会话且有分叉时才渲染入口——没分叉时这颗按钮无从点击。 */
-const treeOpen = ref(false)
-const hasTree = computed(
-  () => !!session.currentId && (session.altLeafIds.length > 0 || session.forkEntryIds.length > 0),
-)
-
-const title = computed(() => session.current?.session_title || t('chat.newSession'))
+/** 当前这一行：服务商 · 模型 · 速率。 */
 const modelLine = computed(() => {
-  const s = session.current
-  if (!s?.session_model) return ''
-  return [s.session_provider, s.session_model].filter(Boolean).join(' · ')
+  if (!chat.model) return ''
+  const parts = [chat.model.provider, chat.model.id]
+  if (chat.tokensPerSecond) parts.push(`${chat.tokensPerSecond.toFixed(1)} tok/s`)
+  return parts.join(' · ')
 })
 
-/** 手动压缩：空闲会话才允许；压缩中按钮进 loading 态，不给重复点。 */
-async function compactNow() {
-  const id = session.currentId
-  if (!id || busy.value || chat.running) return
-  busy.value = true
+/**
+ * 引擎要求浏览器完成授权时，把地址挂在这里给用户复制。
+ *
+ * 不自动打开：默认浏览器可能打不开，而用户看不到原文就无从补救。
+ */
+async function copyLink(url: string): Promise<void> {
   try {
-    const ok = await chat.compact(id)
-    if (ok) toast.ok(t('chat.compactDone'))
+    await navigator.clipboard.writeText(url)
+    app.pendingLink = null
+  } catch {
+    // 剪贴板不可用时保留这一条，用户仍能手动选中复制
+  }
+}
+
+async function openLink(url: string): Promise<void> {
+  try {
+    await openExternal(url)
   } finally {
-    busy.value = false
+    app.pendingLink = null
   }
 }
 </script>
 
 <template>
   <header class="chat-head">
-    <div class="ch-left">
-      <h1 class="ch-title" :title="title">{{ title }}</h1>
-      <span v-if="modelLine" class="ch-sub" :title="modelLine">{{ modelLine }}</span>
+    <div class="chat-head-left">
+      <h1 class="chat-title">{{ t('nav.chat') }}</h1>
+      <span v-if="modelLine" class="chat-sub">{{ modelLine }}</span>
     </div>
-    <div class="ch-right">
-      <el-tooltip v-if="hasTree" :content="t('tree.title')" placement="bottom" :show-after="300">
-        <el-button
-          size="small"
-          class="ch-act"
-          :class="{ 'is-on': treeOpen }"
-          :disabled="!session.currentId"
-          @click="treeOpen = !treeOpen"
-        >
-          <AppIcon name="git-branch" size="ic-2xs" />
-          <span class="ml-1">{{ t('tree.button') }}</span>
-        </el-button>
-      </el-tooltip>
-      <el-tooltip :content="t('chat.compactHint')" placement="bottom" :show-after="300">
-        <el-button
-          size="small"
-          class="ch-act"
-          :loading="busy || chat.compacting"
-          :disabled="busy || chat.compacting || chat.running || !session.currentId"
-          @click="compactNow"
-        >
-          <AppIcon v-if="!busy && !chat.compacting" name="refresh" size="ic-2xs" />
-          <span class="ml-1">{{ t('chat.compact') }}</span>
-        </el-button>
-      </el-tooltip>
-    </div>
-    <!-- 抽屉挂在页头下方：绝对定位，不挤压消息流高度 -->
-    <div v-if="treeOpen" class="ch-tree">
-      <SessionTree :open="treeOpen" @close="treeOpen = false" />
+    <div class="chat-head-right">
+      <button
+        class="wb-btn icon ghost"
+        :class="{ 'is-loading': chat.compacting }"
+        :title="t('chat.compact')"
+        :disabled="chat.busy || !app.hasEngine"
+        @click="chat.compact()"
+      >
+        <AppIcon name="refresh" :size="15" />
+      </button>
     </div>
   </header>
+
+  <div v-if="app.pendingLink" class="link-strip">
+    <div class="link-text">
+      <strong>{{ t('chat.openLinkTitle') }}</strong>
+      <span class="link-hint">{{ app.pendingLink.instructions || t('chat.openLinkHint') }}</span>
+      <code class="link-url selectable">{{ app.pendingLink.url }}</code>
+    </div>
+    <div class="link-actions">
+      <button class="wb-btn sm ghost" @click="copyLink(app.pendingLink.url)">
+        {{ t('chat.openLinkCopy') }}
+      </button>
+      <button class="wb-btn primary sm" @click="openLink(app.pendingLink.url)">
+        {{ t('chat.openLinkBrowser') }}
+      </button>
+      <button class="wb-btn sm ghost" @click="app.pendingLink = null">
+        {{ t('chat.openLinkDismiss') }}
+      </button>
+    </div>
+  </div>
 </template>
 
 <style scoped>
 .chat-head {
-  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-3) var(--wb-sp-5);
+  border-bottom: 1px solid var(--wb-line);
   flex: none;
+}
+
+.chat-head-left {
+  display: flex;
+  align-items: baseline;
+  gap: var(--wb-sp-3);
+  min-width: 0;
+}
+
+.chat-title {
+  margin: 0;
+  font-family: var(--wb-font-display);
+  font-size: var(--wb-fs-lg);
+  font-weight: 650;
+  color: var(--wb-ink);
+  flex: none;
+}
+
+.chat-sub {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-head-right {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  flex: none;
+}
+
+/* 授权链接条：贴在页头下方，不遮消息。用清单底的淡强调色，
+   它是一条「请去别处办一件事」的指引，不是错误。 */
+.link-strip {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-3);
-  height: var(--wb-h-pagehead);
-  padding: 0 var(--wb-sp-5);
-  border-bottom: 1px solid var(--wb-border);
-  background: var(--wb-elev-workspace);
-  min-width: 0;
-}
-/* 会话树抽屉：浮在消息流上方，不改变布局高度 */
-.ch-tree {
-  position: absolute;
-  top: calc(var(--wb-h-pagehead) - 4px);
-  right: var(--wb-sp-5);
-  z-index: 30;
-  width: calc(340px * var(--wb-vw-scale));
-  max-height: calc(60vh);
-  overflow: auto;
-}
-.ch-left {
-  display: flex;
-  align-items: baseline;
-  gap: var(--wb-sp-2);
-  min-width: 0;
-  flex: 1;
-}
-.ch-title {
-  margin: 0;
-  font-size: var(--wb-fs-lg);
-  font-weight: 700;
-  color: var(--wb-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.ch-sub {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: calc(320px * var(--wb-vw-scale));
+  flex-wrap: wrap;
+  padding: var(--wb-sp-2) var(--wb-sp-5);
+  border-bottom: 1px solid var(--wb-line);
+  background: var(--wb-brand-soft);
   flex: none;
 }
-.ch-right {
+
+.link-text {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink);
+}
+
+.link-hint {
+  color: var(--wb-mute);
+}
+
+.link-url {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  padding: 2px 6px;
+  border-radius: var(--wb-r-xs);
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  overflow-wrap: anywhere;
+}
+
+.link-actions {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
   flex: none;
-}
-/* 树抽屉开着时按钮保持选中底：否则看不出抽屉是从这里开的 */
-.ch-act.is-on {
-  color: var(--wb-primary);
-  background: var(--wb-accent-tint);
-  border-color: var(--wb-brand-2);
 }
 </style>

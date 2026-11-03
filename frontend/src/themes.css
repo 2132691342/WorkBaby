@@ -1,187 +1,282 @@
-/* 主题令牌：全项目唯一色值定义处，语义名一律 --wb-*，组件不写死色值。
-   尺寸刻度在同目录的 scale.css；设计语言见 DESIGN.md。 */
+/* 设计令牌：全项目唯一色值与尺寸刻度定义处。
+   组件只写 var(--wb-*)，色值只出现在这里。
+
+   配色来自指定的五档靛蓝 / 石板：
+     1 #6366f1 动作   2 #818cf8 活动   3 #e0e7ff 淡强调   4 #f8fafc 页底   5 #1e293b 正文
+   只有一个色相，明度分层是唯一的强弱手段——加第二个色相就会开始「谁更重要」的争论。
+
+   纪律：
+   - 表面走六级阶梯（窗口 → 工作区 → 表单/行 → 抬升面 → 悬停 → 选中），
+     相邻两级只差 2%~5% 亮度。组件按自己在层级里的位置取用，不自己选灰阶。
+   - 强调色只有一色相，分「动作」与「活动」两档：动作是能点的，活动是正在发生的。 */
 
 /* ============================================================
-   浅白 · 石板（默认主题：data-theme 缺失时同样生效）
-   中性走石板阶 slate；强调只有紫色一色相的明度分档：紫 = 动作 / 活动
+   刻度层：与主题无关的尺寸 / 字体 / 动效
    ============================================================ */
-:root,
-[data-theme='light'] {
-  color-scheme: light;
+:root {
+  /* 字体三族（全站唯一来源，缺一个就是整条声明静默失效）：
+     正文 = 系统无衬线 + 中文黑体；标题/读数 = Bahnschrift（DIN 风）；路径 / ID / token = 等宽 */
+  --wb-font-sans:
+    'Segoe UI Variable Text', 'Segoe UI', system-ui, 'Microsoft YaHei UI', 'Microsoft YaHei',
+    'PingFang SC', 'Noto Sans SC', sans-serif;
+  --wb-font-display:
+    'Bahnschrift', 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'Microsoft YaHei UI',
+    'Microsoft YaHei', sans-serif;
+  --wb-font-mono: 'Cascadia Mono', 'Consolas', 'JetBrains Mono', 'Sarasa Mono SC', monospace;
 
-  /* 五档靛蓝 / 石板：全站唯一色源。
+  /* 界面可选字体族：设置页「字体」一项只改这一个值，
+     正文与标题仍走 --wb-font-sans / --wb-font-display，
+     换字体不会连等宽字体和标题风格一起换掉。 */
+  --wb-font-ui: var(--wb-font-sans);
+
+  /* 字号缩放：外观设置只改这一个值，全站字号等比跟随。 */
+  --wb-fs-scale: 1;
+
+  /* 视口比例缩放：由 useViewportScale 按「窗口宽 ÷ 1440」写入，
+     上下限在 JS 侧锁死（0.75~1.35）。组件全走令牌，无需改代码；
+     缺省 1 保证不依赖 JS 也有一套可用尺寸。 */
+  --wb-vw-scale: 1;
+
+  /* 字号 10 级：字号 = 基准 × 用户缩放 × 视口比例 */
+  --wb-fs-3xs: calc(10px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-2xs: calc(11px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-xs: calc(12px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-sm: calc(13px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-md: calc(13.5px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-base: calc(14px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-lg: calc(16px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-xl: calc(20px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-2xl: calc(28px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-display: calc(34px * var(--wb-fs-scale) * var(--wb-vw-scale));
+
+  --wb-lh-tight: 1.25;
+  --wb-lh-base: 1.6;
+  --wb-lh-loose: 1.75;
+  --wb-ls-plate: 0.08em;
+
+  /* 间距（4 的倍数），全部随视口比例缩放 */
+  --wb-sp-1: calc(4px * var(--wb-vw-scale));
+  --wb-sp-2: calc(8px * var(--wb-vw-scale));
+  --wb-sp-3: calc(12px * var(--wb-vw-scale));
+  --wb-sp-4: calc(16px * var(--wb-vw-scale));
+  --wb-sp-5: calc(20px * var(--wb-vw-scale));
+  --wb-sp-6: calc(24px * var(--wb-vw-scale));
+  --wb-sp-8: calc(32px * var(--wb-vw-scale));
+  --wb-sp-10: calc(40px * var(--wb-vw-scale));
+  --wb-sp-12: calc(48px * var(--wb-vw-scale));
+  --wb-sp-16: calc(64px * var(--wb-vw-scale));
+
+  /* 圆角七档：控件 8px 是基准，卡片再上一级，弹窗封顶 16px。
+     高处不再往上加——20px 以上的圆角在小控件上会把方框读成胶囊。 */
+  --wb-r-xs: calc(4px * var(--wb-vw-scale));
+  --wb-r-sm: calc(6px * var(--wb-vw-scale));
+  --wb-r-md: calc(7px * var(--wb-vw-scale));
+  --wb-r: calc(8px * var(--wb-vw-scale));
+  --wb-r-lg: calc(12px * var(--wb-vw-scale));
+  --wb-r-xl: calc(14px * var(--wb-vw-scale));
+  --wb-r-2xl: calc(16px * var(--wb-vw-scale));
+  --wb-r-full: 999px;
+
+  /* 控件高度 4 档 + 图标钮（组件禁止写裸像素高度） */
+  --wb-ctl-sm: calc(26px * var(--wb-vw-scale));
+  --wb-ctl: calc(34px * var(--wb-vw-scale));
+  --wb-ctl-lg: calc(38px * var(--wb-vw-scale));
+  --wb-ctl-xl: calc(44px * var(--wb-vw-scale));
+  --wb-ctl-icon: calc(32px * var(--wb-vw-scale));
+  --wb-switch-w: calc(44px * var(--wb-vw-scale));
+  --wb-switch-h: calc(24px * var(--wb-vw-scale));
+
+  /* 图标瓦片：卡片头的方块底（读数卡 / 空态 / 例句卡）。不是可点控件，
+     但同一组尺寸反复出现，散成裸像素就会各自漂，收口在这里。 */
+  --wb-tile-sm: calc(30px * var(--wb-vw-scale));
+  --wb-tile: calc(40px * var(--wb-vw-scale));
+  --wb-tile-lg: calc(52px * var(--wb-vw-scale));
+
+  --wb-fs-ctl: calc(12.5px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-label: calc(12px * var(--wb-fs-scale) * var(--wb-vw-scale));
+  --wb-fs-hint: calc(11px * var(--wb-fs-scale) * var(--wb-vw-scale));
+
+  /* 布局宽度 */
+  --wb-topbar: calc(48px * var(--wb-vw-scale));
+  /* 一级导航 rail：62px 只放图标 + 一行短标签，宽了就变成第二根侧栏 */
+  --wb-rail: calc(62px * var(--wb-vw-scale));
+  --wb-side: calc(232px * var(--wb-vw-scale));
+  --wb-side-narrow: calc(188px * var(--wb-vw-scale));
+  --wb-panel: calc(336px * var(--wb-vw-scale));
+  /* 消息列宽度：跟着窗口走（基准上限 1240），不再是固定 880——
+     宽窗口里两侧的大片空白没人受益，读代码块与差异时尤甚。 */
+  --wb-col: min(calc(1240px * var(--wb-vw-scale)), 100%);
+  /* 面板头部那段说明文字的排版宽度：几个管理页都用它，
+     各自写一遍 560px 的话改一次要动好几个文件 */
+  --wb-w-desc: calc(620px * var(--wb-vw-scale));
+  /* 消息头像（正方形）。助手正文列 = 头像 + 间距，
+     纯思考回合与工具组都要按这个缩进对齐 */
+  --wb-avatar-size: calc(26px * var(--wb-vw-scale));
+  --wb-w-input-sm: calc(96px * var(--wb-vw-scale));
+
+  /* 动效五档：只解释状态变化，不做装饰 */
+  --wb-dur-fast: 110ms;
+  --wb-dur: 165ms;
+  --wb-dur-slow: 240ms;
+  --wb-dur-slower: 320ms;
+  --wb-ease: cubic-bezier(0.2, 0.6, 0.3, 1);
+  --wb-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 可按压元素的缩放三档。全站只在这里定义一次：
+     组件复用令牌，不自己写 scale 数值——
+     十几处各写一个的结果是有人改了十一处、漏了一处，
+     而漏的那一处就是「点了没反应」的观感来源。 */
+  --wb-press-hover: 1.04;
+  --wb-press-active: 0.95;
+  /* 整行元素（行宽 100%）只缩不放：放大会溢出被裁 */
+  --wb-press-row-active: 0.985;
+
+  --wb-z-panel: 20;
+  --wb-z-pop: 60;
+  --wb-z-modal: 80;
+  --wb-z-toast: 100;
+
+  /* 图标笔画重量：24 viewBox 线性图标在 14~18px 下的最优观感区间（细而不虚） */
+  --wb-icon-stroke: 1.7;
+  --wb-icon-stroke-strong: 2;
+
+  /* 欢迎页光晕的几何参数：两套主题同形。
+     mask-ink 只给 mask 提供不透明中心点，放主题块里漏掉一套就是光晕静默消失。 */
+  --wb-aura-blur: 100px;
+  --wb-mask-ink: #000;
+
+  /* 用户自定义背景图（设置页外观） */
+  --wb-user-bg-url: none;
+  --wb-user-bg-opacity: 1;
+  --wb-user-bg-blur: 0px;
+
+  /* 品牌阶梯五档（indigo）：整套界面与图表的全部色值来源。
      1 = 动作 #6366f1（主按钮 / 选中 / 图表主序列）
-     2 = 活动 #818cf8（流式光标 / 运行灯 / 图表次序列）
-     3 = 淡强调 #e0e7ff（hover 淡底 / 标签底 / 用户气泡）
-     4 = 页底 #f8fafc（窗口 / 工作区底色）
-     5 = 正文 #1e293b（标题 / 实底反色按钮）
-     只有这一个色相，明度分层是唯一的强弱手段；1 与 2 的分工是「动作」与「活动」。 */
+     2 = 活动 #818cf8（流式 / 状态灯 / 图标瓦片底）
+     3 = 淡强调 #e0e7ff（hover 淡底 / 标签底 / 图表第三序列）
+     4 = 更淡的底 #f8fafc（选中淡底 / 提示条底）
+     5 = 中性深 #1e293b（标题 / 实底反色按钮 / 图表第四序列） */
   --saas_dashboard-color-1: #6366f1;
   --saas_dashboard-color-2: #818cf8;
   --saas_dashboard-color-3: #e0e7ff;
   --saas_dashboard-color-4: #f8fafc;
   --saas_dashboard-color-5: #1e293b;
+}
 
-  /* 品牌阶梯就是上面五档的别名，组件只认这两个名字之一。
-     阶梯本身不存新色值，否则调一次色要改两处，漏一处就是半套界面变了色。 */
-  --wb-brand-1: var(--saas_dashboard-color-1);
-  --wb-brand-2: var(--saas_dashboard-color-2);
-  --wb-brand-3: var(--saas_dashboard-color-3);
-  --wb-brand-4: var(--saas_dashboard-color-4);
-  --wb-brand-5: var(--saas_dashboard-color-5);
+/* ============================================================
+   浅白 · 石板（默认主题：data-theme 缺失时同样生效）
+   ============================================================ */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
 
-  --wb-bg: var(--wb-brand-4);
-  --wb-page-gradient: none;
-
-  /* 表面阶梯：相邻两级只差 2%~5% 亮度，读起来是一片连续工作区而不是卡片叠卡片。
-     由外到内：窗口 → 工作区 → 表单/行 → 抬升面 → 悬停 → 选中；组件一律引用这组，不自己选灰阶。 */
-  --wb-elev-window: #f8fafc;
-  --wb-elev-workspace: #f8fafc;
-  --wb-elev-surface: #ffffff;
-  --wb-elev-raised: #ffffff;
-  --wb-elev-hover: #f8fafc;
-  --wb-elev-selected: #eef2ff;
-
-  /* 表单控件：控件要与普通面区分开，给出「可以点进去」的浮凸感 */
-  --wb-control-bg: #ffffff;
-  --wb-control-bg-hover: #f8fafc;
-  --wb-control-bg-disabled: #f1f5f9;
-  --wb-control-border: #e2e8f0;
-  --wb-control-border-hover: #cbd5e1;
-  --wb-control-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 1px 2px rgba(15, 23, 42, 0.05);
-  --wb-control-shadow-focus: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 0 0 3px rgba(99, 102, 241, 0.12);
-
-  /* 语义别名：指向阶梯上的对应级，组件可直接用语义名。
-     新代码优先用 --wb-elev-*（上面那组是唯一真相源）。 */
-  --wb-surface: var(--wb-elev-surface);
-  --wb-surface-2: var(--wb-elev-hover);
-  --wb-surface-hover: var(--wb-elev-hover);
-  --wb-surface-solid: var(--wb-elev-raised);
-  --wb-side: var(--wb-elev-raised);
-  --wb-panel: var(--wb-elev-raised);
-  --wb-raise: var(--wb-elev-raised);
-  --wb-sunken: var(--wb-elev-window);
+  /* 表面阶梯六级：由外到内逐级抬 2%~5% 亮度，
+     读起来是一片连续工作区，而不是卡片叠卡片 */
+  --wb-window: #f8fafc;
+  --wb-work: #f8fafc;
+  --wb-surface: #ffffff;
+  --wb-raised: #ffffff;
+  --wb-hover: #f1f5f9;
+  --wb-selected: #eef2ff;
+  --wb-sunken: #eef2f7;
 
   /* 中性叠加：hover 底色用它，避免「一屏几十个彩色块」 */
   --wb-tint: rgba(15, 23, 42, 0.04);
   --wb-tint-lg: rgba(15, 23, 42, 0.07);
 
   --wb-line: #e2e8f0;
-  --wb-line-2: #cbd5e1;
+  --wb-line-strong: #cbd5e1;
   --wb-border: var(--wb-line);
-  --wb-border-strong: var(--wb-line-2);
+  --wb-border-strong: var(--wb-line-strong);
 
-  /* 正文与标题走品牌 5 档：层次交给字号与字重，不靠灰度差区分。 */
+  /* 正文与标题走中性深 #1e293b：层次交给字号与字重，不靠灰度差区分 */
   --wb-ink: var(--saas_dashboard-color-5);
-  --wb-ink-2: #334155;
-  --wb-muted: #64748b;
-  /* 最弱一级文字：尾注、面包屑分隔符这类「在场但不抢」的读数 */
+  /* 次级正文：介于 ink 与 mute 之间，用于次要说明与工具值 */
+  --wb-ink-2: #33415a;
+  --wb-ink-5: #475569;
+  --wb-mute: #64748b;
   --wb-faint: #94a3b8;
 
-  /* 动作色：靛蓝（品牌 1 档，实底白字达标），文字 / 描边同色系靠明度分四级 */
-  --wb-primary: var(--wb-brand-1);
-  --wb-primary-strong: #4f46e5;
-  --wb-primary-deep: var(--saas_dashboard-color-1);
-  --wb-primary-soft: rgba(99, 102, 241, 0.1);
-  --wb-primary-line: rgba(99, 102, 241, 0.35);
-  --wb-primary-ink: #ffffff;
-  --wb-accent-glow: rgba(99, 102, 241, 0.14);
-  --wb-accent-tint: rgba(99, 102, 241, 0.1);
-  --wb-accent-tint-soft: rgba(99, 102, 241, 0.06);
-  --wb-accent-tint-strong: rgba(99, 102, 241, 0.18);
-  --wb-accent-border: rgba(99, 102, 241, 0.3);
+  /* 动作色：靛蓝 #6366f1（实底白字达标） */
+  --wb-brand: var(--saas_dashboard-color-1);
+  --wb-brand-strong: #4f46e5;
+  --wb-brand-2: var(--saas_dashboard-color-2);
+  --wb-brand-3: var(--saas_dashboard-color-3);
+  --wb-brand-4: var(--saas_dashboard-color-4);
+  --wb-brand-deep: #3730a3;
+  --wb-brand-soft: rgba(99, 102, 241, 0.1);
+  --wb-brand-tint: rgba(99, 102, 241, 0.06);
+  --wb-brand-tint-strong: rgba(99, 102, 241, 0.16);
+  --wb-brand-line: rgba(99, 102, 241, 0.35);
+  --wb-brand-ring: rgba(99, 102, 241, 0.32);
+  --wb-brand-ink: #ffffff;
 
-  /* 活动色：品牌 2 档。只给「正在发生的事」——流式光标、运行灯、思考中；
-     1 档与 2 档分工是「动作」与「活动」之分，不混用 */
-  --wb-live: var(--wb-brand-2);
+  /* 活动色：淡靛 #818cf8。只给「正在发生的事」——流式光标、运行灯、思考中。
+     1 档与 2 档的分工是「动作」与「活动」之分，不混用 */
+  --wb-live: var(--saas_dashboard-color-2);
   --wb-live-soft: rgba(129, 140, 248, 0.14);
   --wb-live-line: rgba(129, 140, 248, 0.4);
 
-  /* 图表：靛蓝为唯一色相，明度递减排出四档序列。
+  /* 轻档主操作（新对话这类次级 CTA）：淡靛实底 + 深靛字。
+     与实底主按钮同屏时不竞争——一屏只允许一枚重档 */
+  --wb-lav-cta: #e0e7ff;
+  --wb-on-lav: #3730a3;
+
+  /* 图表五序列：同一靛蓝色相的明度分档，深的给主序列。
      三、四档就是品牌阶梯本身，不用中性灰——灰会让占比环看起来像「没有数据」 */
-  --wb-ch-1: var(--saas_dashboard-color-1);
-  --wb-ch-2: var(--saas_dashboard-color-2);
-  --wb-ch-3: var(--saas_dashboard-color-3);
-  --wb-ch-4: #c7d2fe;
-  --wb-ch-5: #a5b4fc;
+  --wb-ch-1: #6366f1;
+  --wb-ch-2: #818cf8;
+  --wb-ch-3: #a5b4fc;
+  --wb-ch-4: #1e293b;
+  --wb-ch-5: #cbd5e1;
 
-  /* 状态色只留给「通过 / 出错」，降饱和，不与主色抢 */
-  --wb-success: #15803d;
-  --wb-success-soft: rgba(21, 128, 61, 0.1);
-  --wb-danger: #dc2626;
-  --wb-danger-soft: rgba(220, 38, 38, 0.1);
-  --wb-warning: #b45309;
-  --wb-warning-soft: rgba(180, 83, 9, 0.12);
-  --wb-info: var(--saas_dashboard-color-1);
-
-  --wb-mint: var(--wb-success);
-  --wb-mint-strong: #166534;
-  /* 装饰色统一收口到两档靛与中性阶 */
-  --wb-lavender: var(--saas_dashboard-color-3);
-  --wb-sky: var(--saas_dashboard-color-2);
-  --wb-lemon: #b45309;
-
-  --wb-sel: rgba(99, 102, 241, 0.12);
-  --wb-user-bubble: var(--saas_dashboard-color-3);
+  /* 状态色只留给「通过 / 出错 / 注意」，降饱和，不与主色抢 */
+  --wb-ok: #15803d;
+  --wb-ok-soft: rgba(21, 128, 61, 0.1);
+  --wb-warn: #b45309;
+  --wb-warn-soft: rgba(180, 83, 9, 0.12);
+  --wb-bad: #dc2626;
+  --wb-bad-soft: rgba(220, 38, 38, 0.1);
+  --wb-info: #6366f1;
 
   /* 阴影极轻：只用来「托一下」，不用来「发光」 */
-  --wb-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --wb-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
   --wb-shadow-2: 0 2px 6px -1px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
   --wb-shadow-3: 0 10px 30px -8px rgba(15, 23, 42, 0.16), 0 2px 8px -2px rgba(15, 23, 42, 0.06);
-  --wb-shadow-sm: var(--wb-shadow-1);
   --wb-shadow: var(--wb-shadow-1);
-  --wb-shadow-lg: var(--wb-shadow-3);
-  --wb-shadow-pop: var(--wb-shadow-3);
+  --wb-shadow-lift: var(--wb-shadow-3);
   --wb-btn-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
   --wb-btn-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  --wb-btn-sheen-strong: inset 0 1px 0 rgba(255, 255, 255, 0.22);
 
-  /* 玻璃参数：界面已改为纯色，仅桌面壳允许一层极淡的窗口透光，一律不叠加模糊 */
-  --wb-glass-blur: 0px;
-  --wb-glass-saturate: 1;
-  --wb-glass-border: var(--wb-line-2);
-  --wb-glass-inset: none;
-  --wb-glass-opacity: 1;
-  --wb-surface-sheen: none;
-  --wb-grad-brand: none;
-  --wb-grad-btn: none;
+  /* 卡片：一层极淡投影，靠圆角与描边分层 */
+  --wb-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.03);
+  --wb-card-shadow-hover: 0 4px 16px -6px rgba(15, 23, 42, 0.14), 0 1px 3px rgba(15, 23, 42, 0.05);
 
-  --wb-grid-dot: rgba(15, 23, 42, 0.035);
-  --wb-deco-1: rgba(99, 102, 241, 0.16);
-  --wb-deco-2: rgba(129, 140, 248, 0.16);
+  /* 侧栏选中态：淡底 + 主色文字 + 左侧竖条 */
+  --wb-nav-active-bg: #eef2ff;
+  --wb-nav-active-ink: #4f46e5;
+  --wb-nav-hover-bg: #f1f5f9;
 
-  /* 欢迎页光晕：只允许出现在空态引导，工作界面仍然纯色。
-     主靛主光 + 淡靛副光 + 主靛余光（大半径、低透明度、纯装饰）。 */
+  /* 图表面积渐变与空态光晕：只允许出现在数据可视化与空态引导 */
+  --wb-area-from: rgba(129, 140, 248, 0.24);
+  --wb-area-to: rgba(129, 140, 248, 0);
+  --wb-hero-grad: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(129, 140, 248, 0.02) 55%, transparent);
   --wb-glow-1: rgba(99, 102, 241, 0.18);
   --wb-glow-2: rgba(129, 140, 248, 0.16);
   --wb-glow-3: rgba(99, 102, 241, 0.1);
+  --wb-grid-dot: rgba(15, 23, 42, 0.035);
+
+  /* 消息气泡 */
+  --wb-bubble-me: #eef2ff;
+  --wb-bubble-me-ink: #1e293b;
+  --wb-bubble-ai: #ffffff;
+  --wb-sel: rgba(99, 102, 241, 0.12);
 
   /* 代码块 */
   --wb-code-bg: #f8fafc;
   --wb-code-header-bg: #f1f5f9;
   --wb-code-fg: #1e293b;
   --wb-code-border: #e2e8f0;
-
-  /* 卡片抬升阴影：一层极淡投影，靠圆角与描边分层，不靠投影发光。 */
-  --wb-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.03);
-  --wb-card-shadow-hover: 0 4px 16px -6px rgba(15, 23, 42, 0.14), 0 1px 3px rgba(15, 23, 42, 0.05);
-
-  /* 侧栏选中态：淡底 + 主色文字，配合选中行的左侧竖条。 */
-  --wb-nav-active-bg: #eef2ff;
-  --wb-nav-active-ink: #4f46e5;
-  --wb-nav-hover-bg: #f8fafc;
-
-  /* 图表面积渐变与欢迎页光晕：只允许出现在空态引导与数据可视化 */
-  --wb-area-from: rgba(129, 140, 248, 0.24);
-  --wb-area-to: rgba(129, 140, 248, 0);
-  --wb-hero-grad: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(129, 140, 248, 0.02) 55%, transparent);
-
-  /* 消息流：用户气泡与助手正文块 */
-  --wb-bubble-me: #eef2ff;
-  --wb-bubble-me-ink: #1e293b;
-  --wb-bubble-ai: #ffffff;
-
-  /* 代码高亮：靛蓝主色相 + 中性阶，两套主题各自一组成对色值 */
   --wb-code-comment: #94a3b8;
   --wb-code-keyword: #4f46e5;
   --wb-code-string: #0f766e;
@@ -189,153 +284,97 @@
   --wb-code-fn: #1d4ed8;
   --wb-code-attr: #7c3aed;
   --wb-code-tag: #be123c;
+
+  /* 表单控件：与普通面区分开，给出「可以点进去」的浮凸感 */
+  --wb-control-bg: #ffffff;
+  --wb-control-bg-hover: #f8fafc;
+  --wb-control-bg-disabled: #f1f5f9;
+  --wb-control-border: #e2e8f0;
+  --wb-control-border-hover: #cbd5e1;
+  --wb-control-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 1px 2px rgba(15, 23, 42, 0.05);
+  --wb-control-shadow-focus: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 0 0 3px rgba(99, 102, 241, 0.12);
 }
 
 /* ============================================================
    暗黑 · 夜石板（与浅白结构对位，只换明度）
    ============================================================ */
-[data-theme='dark'] {
+:root[data-theme='dark'] {
   color-scheme: dark;
 
   /* 品牌阶梯在暗底下整体提明：1/2 两档换成淡靛 / 亮靛，
-     相邻两档始终是「递亮」，不会出现深靛压在深底上读不出的序列。
-     同样只在这里定义一次，--wb-brand-* 只做别名。 */
+     四档之间始终是「递亮」，不会出现深靛压在深底上读不出的序列 */
   --saas_dashboard-color-1: #818cf8;
   --saas_dashboard-color-2: #a5b4fc;
   --saas_dashboard-color-3: #3730a3;
   --saas_dashboard-color-4: #0f172a;
   --saas_dashboard-color-5: #e2e8f0;
 
-  /* 品牌阶梯在暗底下整体提明 */
-  --wb-brand-1: var(--saas_dashboard-color-1);
-  --wb-brand-2: var(--saas_dashboard-color-2);
-  --wb-brand-3: var(--saas_dashboard-color-3);
-  --wb-brand-4: var(--saas_dashboard-color-4);
-  --wb-brand-5: var(--saas_dashboard-color-5);
-
-  --wb-bg: var(--saas_dashboard-color-4);
-  --wb-page-gradient: none;
-
   /* 深色同样走六级阶梯：由外向内逐级抬 2%~5% 亮度 */
-  --wb-elev-window: #0b1220;
-  --wb-elev-workspace: #131c31;
-  --wb-elev-surface: #1e293b;
-  --wb-elev-raised: #263449;
-  --wb-elev-hover: #263449;
-  --wb-elev-selected: #23305a;
-
-  --wb-control-bg: #172033;
-  --wb-control-bg-hover: #1e293b;
-  --wb-control-bg-disabled: #131c31;
-  --wb-control-border: #334155;
-  --wb-control-border-hover: #475569;
-  --wb-control-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --wb-control-shadow-focus: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 0 3px rgba(129, 140, 248, 0.2);
-
-  /* 语义别名（与浅色对称）：与 --wb-elev-* 同义 */
-  --wb-surface: var(--wb-elev-surface);
-  --wb-surface-2: var(--wb-elev-hover);
-  --wb-surface-hover: var(--wb-elev-hover);
-  --wb-surface-solid: var(--wb-elev-raised);
-  --wb-side: var(--wb-elev-raised);
-  --wb-panel: var(--wb-elev-raised);
-  --wb-raise: var(--wb-elev-raised);
-  --wb-sunken: var(--wb-elev-window);
+  --wb-window: #0b1220;
+  --wb-work: #0f172a;
+  --wb-surface: #131c31;
+  --wb-raised: #1b2540;
+  --wb-hover: #263449;
+  --wb-selected: #23305a;
+  --wb-sunken: #0b1220;
 
   --wb-tint: rgba(226, 232, 240, 0.055);
   --wb-tint-lg: rgba(226, 232, 240, 0.09);
 
   --wb-line: rgba(148, 163, 184, 0.14);
-  --wb-line-2: rgba(148, 163, 184, 0.24);
+  --wb-line-strong: rgba(148, 163, 184, 0.24);
   --wb-border: var(--wb-line);
-  --wb-border-strong: var(--wb-line-2);
+  --wb-border-strong: var(--wb-line-strong);
 
   --wb-ink: #e2e8f0;
   --wb-ink-2: #cbd5e1;
-  --wb-muted: #94a3b8;
+  --wb-ink-5: #cbd5e1;
+  --wb-mute: #94a3b8;
   --wb-faint: #64748b;
 
-  /* 动作色：品牌 1 档做文字与描边（暗底达标），品牌 1 档深色做实底按钮（白字对比够） */
-  --wb-primary: var(--wb-brand-1);
-  --wb-primary-strong: #c7d2fe;
-  --wb-primary-deep: var(--saas_dashboard-color-1);
-  --wb-primary-soft: rgba(129, 140, 248, 0.18);
-  --wb-primary-line: rgba(129, 140, 248, 0.45);
-  --wb-primary-ink: #ffffff;
-  --wb-accent-tint: rgba(129, 140, 248, 0.18);
-  --wb-accent-tint-soft: rgba(129, 140, 248, 0.1);
-  --wb-accent-tint-strong: rgba(129, 140, 248, 0.28);
-  --wb-accent-border: rgba(129, 140, 248, 0.42);
-  --wb-accent-glow: rgba(129, 140, 248, 0.28);
+  /* 动作色：亮靛做文字与描边（暗底达标），#6366f1 做实底按钮（白字对比够） */
+  --wb-brand: #a5b4fc;
+  --wb-brand-strong: #c7d2fe;
+  --wb-brand-2: #a5b4fc;
+  --wb-brand-3: #3730a3;
+  --wb-brand-4: #1b2540;
+  --wb-brand-deep: #6366f1;
+  --wb-brand-soft: rgba(129, 140, 248, 0.18);
+  --wb-brand-tint: rgba(129, 140, 248, 0.1);
+  --wb-brand-tint-strong: rgba(129, 140, 248, 0.28);
+  --wb-brand-line: rgba(129, 140, 248, 0.45);
+  --wb-brand-ring: rgba(129, 140, 248, 0.4);
+  --wb-brand-ink: #ffffff;
 
-  /* 活动色：品牌 2 档，暗底上的饱和信号色 */
-  --wb-live: var(--wb-brand-2);
+  /* 活动色：亮靛，暗底上的饱和信号色 */
+  --wb-live: #a5b4fc;
   --wb-live-soft: rgba(165, 180, 252, 0.16);
   --wb-live-line: rgba(165, 180, 252, 0.45);
 
-  --wb-ch-1: var(--saas_dashboard-color-1);
-  --wb-ch-2: var(--saas_dashboard-color-2);
-  --wb-ch-3: var(--saas_dashboard-color-1);
-  --wb-ch-4: #c7d2fe;
-  --wb-ch-5: #c7d2fe;
-
-  --wb-success: #4ade80;
-  --wb-success-soft: rgba(74, 222, 128, 0.12);
-  --wb-danger: #f87171;
-  --wb-danger-soft: rgba(248, 113, 113, 0.12);
-  --wb-warning: #fbbf24;
-  --wb-warning-soft: rgba(251, 191, 36, 0.12);
-  --wb-info: var(--saas_dashboard-color-2);
-
-  --wb-mint: var(--wb-success);
-  --wb-mint-strong: #86efac;
-  --wb-lavender: var(--saas_dashboard-color-2);
-  --wb-sky: var(--saas_dashboard-color-2);
-  --wb-lemon: #fbbf24;
-
-  --wb-sel: rgba(129, 140, 248, 0.22);
-  --wb-user-bubble: #263449;
-
-  /* 轻档主操作：暗底上的深靛实底 */
   --wb-lav-cta: #3730a3;
   --wb-on-lav: #e0e7ff;
+
+  --wb-ch-1: #818cf8;
+  --wb-ch-2: #a5b4fc;
+  --wb-ch-3: #6366f1;
+  --wb-ch-4: #c7d2fe;
+  --wb-ch-5: #475569;
+
+  --wb-ok: #4ade80;
+  --wb-ok-soft: rgba(74, 222, 128, 0.12);
+  --wb-warn: #fbbf24;
+  --wb-warn-soft: rgba(251, 191, 36, 0.12);
+  --wb-bad: #f87171;
+  --wb-bad-soft: rgba(248, 113, 113, 0.12);
+  --wb-info: #818cf8;
 
   --wb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
   --wb-shadow-2: 0 2px 8px -2px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.35);
   --wb-shadow-3: 0 12px 34px -10px rgba(0, 0, 0, 0.72), 0 2px 8px -2px rgba(0, 0, 0, 0.5);
-  --wb-shadow-sm: var(--wb-shadow-1);
   --wb-shadow: var(--wb-shadow-1);
-  --wb-shadow-lg: var(--wb-shadow-3);
-  --wb-shadow-pop: var(--wb-shadow-3);
+  --wb-shadow-lift: var(--wb-shadow-3);
   --wb-btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
   --wb-btn-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --wb-btn-sheen-strong: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-
-  --wb-glass-blur: 0px;
-  --wb-glass-saturate: 1;
-  --wb-glass-border: var(--wb-line-2);
-  --wb-glass-inset: none;
-  --wb-glass-opacity: 1;
-  --wb-surface-sheen: none;
-  --wb-grad-brand: none;
-  --wb-grad-btn: none;
-
-  --wb-grid-dot: rgba(226, 232, 240, 0.025);
-  --wb-deco-1: rgba(129, 140, 248, 0.24);
-  --wb-deco-2: rgba(165, 180, 252, 0.28);
-
-  --wb-glow-1: rgba(129, 140, 248, 0.16);
-  --wb-glow-2: rgba(165, 180, 252, 0.18);
-  --wb-glow-3: rgba(99, 102, 241, 0.12);
-
-  --wb-code-bg: #172033;
-  --wb-code-header-bg: #1e293b;
-  --wb-code-fg: #e2e8f0;
-  --wb-code-border: rgba(148, 163, 184, 0.14);
-
-  /* 深色底上笔画略加粗一档，抵消「亮底显粗、暗底显细」的视觉误差 */
-  --wb-icon-stroke: 1.85;
-  --wb-icon-stroke-strong: 2.1;
 
   --wb-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --wb-card-shadow-hover: 0 6px 18px -8px rgba(0, 0, 0, 0.6), 0 1px 3px rgba(0, 0, 0, 0.35);
@@ -347,11 +386,20 @@
   --wb-area-from: rgba(129, 140, 248, 0.3);
   --wb-area-to: rgba(129, 140, 248, 0);
   --wb-hero-grad: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(129, 140, 248, 0.04) 55%, transparent);
+  --wb-glow-1: rgba(129, 140, 248, 0.16);
+  --wb-glow-2: rgba(165, 180, 252, 0.18);
+  --wb-glow-3: rgba(99, 102, 241, 0.12);
+  --wb-grid-dot: rgba(226, 232, 240, 0.025);
 
   --wb-bubble-me: #263449;
   --wb-bubble-me-ink: #e2e8f0;
-  --wb-bubble-ai: #1e293b;
+  --wb-bubble-ai: #1b2540;
+  --wb-sel: rgba(129, 140, 248, 0.22);
 
+  --wb-code-bg: #172033;
+  --wb-code-header-bg: #1e293b;
+  --wb-code-fg: #e2e8f0;
+  --wb-code-border: rgba(148, 163, 184, 0.14);
   --wb-code-comment: #64748b;
   --wb-code-keyword: #a5b4fc;
   --wb-code-string: #5eead4;
@@ -359,15 +407,56 @@
   --wb-code-fn: #93c5fd;
   --wb-code-attr: #c4b5fd;
   --wb-code-tag: #fda4af;
+
+  --wb-control-bg: #172033;
+  --wb-control-bg-hover: #1e293b;
+  --wb-control-bg-disabled: #131c31;
+  --wb-control-border: #334155;
+  --wb-control-border-hover: #475569;
+  --wb-control-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --wb-control-shadow-focus: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 0 3px rgba(129, 140, 248, 0.2);
+
+  /* 深色底上笔画略加粗一档，抵消「亮底显粗、暗底显细」的视觉误差 */
+  --wb-icon-stroke: 1.85;
+  --wb-icon-stroke-strong: 2.1;
 }
 
-/* 字号缩放：--wb-fs-scale 由外观设置写入，html 的 font-size 是唯一缩放点。 */
+/* 字号缩放：html 的 font-size 是唯一缩放点。 */
 html {
   font-size: calc(16px * var(--wb-fs-scale));
 }
 
-/* 界面字体族：只换正文族，标题与等宽保持各自语义。 */
 body {
   font-family: var(--wb-font-ui);
 }
 
+/* 语义别名（组件层只认这些名字） */
+:root {
+  --wb-c-bg: var(--wb-bg, var(--wb-window));
+  --wb-c-panel: var(--wb-raised);
+  --wb-c-card: var(--wb-raised);
+  --wb-c-raise: var(--wb-raised);
+  --wb-c-line: var(--wb-line);
+  --wb-c-line-2: var(--wb-line-strong);
+  --wb-c-ink: var(--wb-ink);
+  --wb-c-ink-2: var(--wb-ink-5);
+  --wb-c-ink-3: var(--wb-mute);
+  --wb-c-accent: var(--wb-brand);
+  --wb-c-accent-ink: var(--wb-brand-ink);
+  --wb-c-ok: var(--wb-ok);
+  --wb-c-bad: var(--wb-bad);
+  --wb-c-warn: var(--wb-warn);
+}
+
+/* 用户选择「减少动效」时不解释过渡，直接到位 */
+:root[data-motion='reduced'] * {
+  animation-duration: 1ms !important;
+  transition-duration: 1ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

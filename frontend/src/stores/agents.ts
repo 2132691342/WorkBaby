@@ -1,304 +1,195 @@
-// 子代理观测状态：活跃清单 + 每条的流式过程。
-// 事件来自父会话通道的 agent:* 帧，与对话流共用一条 SSE 连接。
+// 子代理状态（仅 omp）：roster、进度、transcript 游标。
+// 两条数据源并用：get_subagents 权威快照对账，subagent_progress 高频增量——
+// 只靠推送会漏（终态后 id 从 roster 消失），只靠拉取会卡（进度要秒级）。
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import * as api from '../api'
-import type { DiffLine } from '../types/chatEvents'
-import { appendTail } from '../utils/text'
-
-/** 子代理里的一次工具调用（展示用）。 */
-export interface AgentToolRun {
-  /** 调用 id */
-  tool_call_id: string
-  /** 工具名 */
-  tool_name: string
-  /** 参数 */
-  tool_args: Record<string, unknown>
-  /** 是否还在跑 */
-  running: boolean
-  /** 是否错误 */
-  is_error: boolean
-  /** 结果文本（后端已截断） */
-  result: string
-  /** 耗时毫秒 */
-  duration_ms: number
-  /** 执行过程中的实时输出（尾部，完成后清空） */
-  progress: string
-}
-
-/** 一条子代理记录：界面上一行 + 展开后的过程。 */
-export interface AgentRow {
-  /** 子会话 id（SUB_ 前缀） */
-  agent_session_id: string
-  /** 所属父会话 id */
-  agent_parent_session_id: string
-  /** 角色码 */
-  agent_role_code: string
-  /** 任务描述 */
-  agent_task: string
-  /** 起建毫秒 */
-  agent_started_at: number
-  /** 结束毫秒（0 = 还在跑） */
-  agent_finished_at: number
-  /** 是否失败 */
-  agent_failed: boolean
-  /** 结论正文（结束后才有） */
-  agent_conclusion: string
-  /** 累计耗时毫秒 */
-  agent_duration_ms: number
-  /** 已收到的思考正文 */
-  agent_thinking: string
-  /** 已收到的正文 */
-  agent_text: string
-  /** 工具调用记录（按 tool_call_id 索引） */
-  agent_tools: Record<string, AgentToolRun>
-}
-
-/** agent:start 载荷。 */
-interface AgentStartData {
-  agent_session_id: string
-  agent_parent_session_id: string
-  agent_role_code: string
-  agent_task: string
-  agent_started_at: number
-}
-
-/** agent:delta 载荷。 */
-interface AgentDeltaData {
-  agent_session_id: string
-  agent_kind: 'text' | 'thinking'
-  agent_delta: string
-}
-
-/** agent:tool_start 载荷。 */
-interface AgentToolStartData {
-  agent_session_id: string
-  agent_tool_call_id: string
-  agent_tool_name: string
-  agent_tool_args: Record<string, unknown>
-}
-
-/** agent:tool_end 载荷。 */
-interface AgentToolEndData {
-  agent_session_id: string
-  agent_tool_call_id: string
-  agent_tool_name: string
-  agent_tool_result: string
-  agent_tool_error: boolean
-  agent_duration_ms: number
-}
-
-/** agent:tool_progress 载荷。 */
-interface AgentToolProgressData {
-  agent_session_id: string
-  agent_tool_call_id: string
-  agent_chunk: string
-}
-
-/** agent:done 载荷。 */
-interface AgentDoneData {
-  agent_session_id: string
-  agent_failed: boolean
-  agent_conclusion: string
-  agent_duration_ms: number
-  agent_usage: { input: number; output: number; cached: number; cache_write: number }
-}
-
-/** 后端返回的活跃子代理（SubagentRunVO）。 */
-interface AgentRunVO {
-  run_session_id: string
-  run_parent_session_id: string
-  run_role_code: string
-  run_task: string
-  run_started_at: number
-}
-
-/** 一条空记录（只填运行期字段，过程字段留空）。 */
-function blankOf(vo: AgentRunVO): AgentRow {
-  return {
-    agent_session_id: vo.run_session_id,
-    agent_parent_session_id: vo.run_parent_session_id,
-    agent_role_code: vo.run_role_code,
-    agent_task: vo.run_task,
-    agent_started_at: vo.run_started_at,
-    agent_finished_at: 0,
-    agent_failed: false,
-    agent_conclusion: '',
-    agent_duration_ms: 0,
-    agent_thinking: '',
-    agent_text: '',
-    agent_tools: {},
-  }
-}
+import { api } from '@/api/http'
+import type { AgentRow, AgentProgress, TranscriptPage } from '@/types/api'
 
 export const useAgentsStore = defineStore('agents', () => {
-  /** 全部子代理（按开始时间倒序，最近的在最上） */
-  const rows = ref<AgentRow[]>([])
-  /** 后端活跃表已拉过 */
-  const loaded = ref(false)
-  /** 当前选中的子代理（详情面板） */
+  const roster = ref<AgentRow[]>([])
   const selected = ref('')
-  /** 只显示某个父会话的（空 = 全部） */
-  const scope = ref('')
+  const messages = ref<Record<string, unknown[]>>({})
+  const cursors = ref<Record<string, number>>({})
+  const open = ref(false)
+  const loading = ref(false)
+  const subscribed = ref(false)
 
-  const list = computed(() => {
-    const want = scope.value
-    const all = want ? rows.value.filter((r) => r.agent_parent_session_id === want) : rows.value
-    return [...all].sort((a, b) => b.agent_started_at - a.agent_started_at)
-  })
+  // 脏集合：progress 帧把它们标脏，500ms 合并后逐个拉一段。
+  // 每帧都拉就是几十次 IPC，合并后用户看不出延迟。
+  const dirty = new Set<string>()
+  let flushTimer: number | undefined
 
-  /** 正在跑的条数：导航角标与标题都用它。 */
-  const liveCount = computed(() => list.value.filter((r) => !r.agent_finished_at).length)
+  const running = computed(() => roster.value.filter((a) => a.status === 'running' || a.status === 'pending'))
+  const active = computed(() => roster.value.find((a) => a.id === selected.value) ?? null)
 
-  /** 选中的那条；没选就取列表第一条。 */
-  const current = computed<AgentRow | null>(() => {
-    const id = selected.value
-    if (id) {
-      const hit = rows.value.find((r) => r.agent_session_id === id)
-      if (hit) return hit
-    }
-    return list.value[0] ?? null
-  })
-
-  /** 从后端拉一次活跃清单，与本地已有记录合并（过程正文不丢）。 */
-  async function refresh(parentSessionId = '') {
+  /** 打开面板时调一次：默认订阅档位是 off，不打开就什么都看不到。 */
+  async function ensureSubscribed() {
+    if (subscribed.value) return
     try {
-      const resp = await api.agents.list(parentSessionId)
-      const incoming = resp.resp_agents ?? []
-      const known = new Map(rows.value.map((r) => [r.agent_session_id, r]))
-      rows.value = incoming.map((vo) => known.get(vo.run_session_id) ?? blankOf(vo))
-      loaded.value = true
+      await api.subscribeAgents('progress')
+      subscribed.value = true
     } catch {
-      // 拉不到活跃表不挡界面：流式事件照样会建记录
-      loaded.value = true
+      // 引擎不支持或没起来：保持 subscribed=false，下次再试
     }
   }
 
-  /** 取一条记录；不存在就按事件里的最小字段建一条。 */
-  function ensure(id: string, seed?: Partial<AgentRow>): AgentRow {
-    let hit = rows.value.find((r) => r.agent_session_id === id)
-    if (!hit) {
-      hit = {
-        ...blankOf({
-          run_session_id: id,
-          run_parent_session_id: seed?.agent_parent_session_id ?? '',
-          run_role_code: seed?.agent_role_code ?? 'worker',
-          run_task: seed?.agent_task ?? '',
-          run_started_at: seed?.agent_started_at ?? Date.now(),
-        }),
+  async function refresh() {
+    loading.value = true
+    try {
+      const data = await api.agents()
+      roster.value = data.agents ?? []
+      if (selected.value && !roster.value.some((a) => a.id === selected.value)) {
+        selected.value = ''
       }
-      rows.value.push(hit)
-    }
-    return hit
-  }
-
-  // ---- SSE 入口：由 chatBridge 统一分发 ----
-
-  function onStart(data: AgentStartData) {
-    const row = ensure(data.agent_session_id)
-    row.agent_parent_session_id = data.agent_parent_session_id
-    row.agent_role_code = data.agent_role_code
-    row.agent_task = data.agent_task
-    row.agent_started_at = data.agent_started_at
-    row.agent_finished_at = 0
-    row.agent_failed = false
-    row.agent_conclusion = ''
-    row.agent_thinking = ''
-    row.agent_text = ''
-    row.agent_tools = {}
-  }
-
-  function onDelta(data: AgentDeltaData) {
-    const row = ensure(data.agent_session_id)
-    if (data.agent_kind === 'thinking') row.agent_thinking += data.agent_delta
-    else row.agent_text += data.agent_delta
-  }
-
-  function onToolStart(data: AgentToolStartData) {
-    const row = ensure(data.agent_session_id)
-    row.agent_tools[data.agent_tool_call_id] = {
-      tool_call_id: data.agent_tool_call_id,
-      tool_name: data.agent_tool_name,
-      tool_args: data.agent_tool_args ?? {},
-      running: true,
-      is_error: false,
-      result: '',
-      duration_ms: 0,
-      progress: '',
+    } finally {
+      loading.value = false
     }
   }
 
-  function onToolEnd(data: AgentToolEndData) {
-    const row = ensure(data.agent_session_id)
-    const run = row.agent_tools[data.agent_tool_call_id]
-    if (!run) return
-    run.running = false
-    run.is_error = data.agent_tool_error
-    run.result = data.agent_tool_result
-    run.duration_ms = data.agent_duration_ms
-    // 最终结果已是完整输出：过程区留着只会重复一遍
-    run.progress = ''
-  }
-
-  /** 子代理工具的执行过程：与主对话同一套「只留尾巴」策略。 */
-  function onToolProgress(data: AgentToolProgressData) {
-    const row = ensure(data.agent_session_id)
-    const run = row.agent_tools[data.agent_tool_call_id]
-    if (!run || !data.agent_chunk) return
-    run.progress = appendTail(run.progress, data.agent_chunk)
-  }
-
-  function onDone(data: AgentDoneData) {
-    const row = ensure(data.agent_session_id)
-    row.agent_finished_at = Date.now()
-    row.agent_failed = data.agent_failed
-    // 结论优先用事件里的：轮次用尽时它是最后一段正文，正文流可能被截断
-    row.agent_conclusion = data.agent_conclusion
-    row.agent_duration_ms = data.agent_duration_ms
-  }
-
-  /** 断线重连后的事件可能漏掉中间段：补拉一次活跃表与本条过程正文。 */
-  async function reconcile(id: string) {
-    const row = rows.value.find((r) => r.agent_session_id === id)
-    if (!row || row.agent_finished_at) return
-    try {
-      const resp = await api.agents.transcript(id)
-      row.agent_text = resp.resp_transcript || row.agent_text
-    } catch {
-      // 对账失败保持现状：界面上的过程至少是完整的开头
-    }
-  }
-
-  function select(id: string) {
-    selected.value = id
-  }
-
-  function clear() {
-    rows.value = []
+  /** 会话切换后由 app store 调用：引擎侧已丢弃旧 id 的帧，本地也必须清。 */
+  function reset() {
+    roster.value = []
     selected.value = ''
-    loaded.value = false
+    messages.value = {}
+    cursors.value = {}
+    dirty.clear()
+    subscribed.value = false
+  }
+
+  function applyLifecycle(data: Record<string, unknown>) {
+    const id = String(data.id ?? '')
+    if (!id) return
+    const status = String(data.status ?? '')
+    const existing = roster.value.find((a) => a.id === id)
+    if (status === 'started') {
+      if (!existing) {
+        roster.value = [...roster.value, normalizeAgent(data)].sort(byIndex)
+      }
+    } else if (existing) {
+      existing.status = status
+    }
+    dirty.add(id)
+    scheduleFlush()
+  }
+
+  function applyProgress(data: Record<string, unknown>) {
+    const id = String(data.id ?? '')
+    if (!id) return
+    const target = roster.value.find((a) => a.id === id)
+    if (!target) return
+    target.progress = normalizeProgress(data.progress)
+    if (typeof data.task === 'string' && data.task) target.task = data.task
+    if (typeof data.session_file === 'string' && data.session_file) target.session_file = data.session_file
+    dirty.add(id)
+    scheduleFlush()
+  }
+
+  function scheduleFlush() {
+    if (flushTimer) return
+    flushTimer = window.setTimeout(() => {
+      flushTimer = undefined
+      void flushDirty()
+    }, 500)
+  }
+
+  async function flushDirty() {
+    const ids = [...dirty]
+    dirty.clear()
+    for (const id of ids) {
+      try {
+        const page = await api.agentMessages(id, cursors.value[id] ?? 0)
+        applyPage(id, page)
+      } catch {
+        // 单个子代理拉取失败不影响其他
+      }
+    }
+  }
+
+  function applyPage(id: string, page: TranscriptPage) {
+    if (page.reset) {
+      messages.value[id] = []
+      cursors.value[id] = 0
+    }
+    messages.value = { ...messages.value, [id]: [...(messages.value[id] ?? []), ...(page.messages ?? [])].slice(-400) }
+    cursors.value = { ...cursors.value, [id]: page.next ?? cursors.value[id] ?? 0 }
+  }
+
+  async function select(id: string) {
+    selected.value = id
+    if (messages.value[id]?.length) return
+    try {
+      const page = await api.agentMessages(id, cursors.value[id] ?? 0)
+      applyPage(id, page)
+    } catch {
+      /* 拉不到就等下一次 progress 触发 */
+    }
+  }
+
+  async function steer(id: string, message: string) {
+    await api.steerAgent(id, message)
+  }
+
+  async function cancel(id: string) {
+    return api.cancelAgent(id)
   }
 
   return {
-    rows,
-    loaded,
+    roster,
+    running,
+    active,
     selected,
-    scope,
-    list,
-    liveCount,
-    current,
+    messages,
+    open,
+    loading,
+    subscribed,
+    ensureSubscribed,
     refresh,
-    onStart,
-    onDelta,
-    onToolStart,
-    onToolEnd,
-    onToolProgress,
-    onDone,
-    reconcile,
+    reset,
+    applyLifecycle,
+    applyProgress,
     select,
-    clear,
+    steer,
+    cancel,
   }
 })
 
-/** 工具结果里带的差异行（与对话流同形，供复用渲染）。 */
-export type { DiffLine }
+function byIndex(a: AgentRow, b: AgentRow): number {
+  return a.index - b.index || (a.id < b.id ? -1 : 1)
+}
+
+function normalizeAgent(raw: Record<string, unknown>): AgentRow {
+  return {
+    id: String(raw.id ?? ''),
+    index: Number(raw.index ?? 0),
+    agent: String(raw.agent ?? ''),
+    agent_source: String(raw.agent_source ?? ''),
+    description: String(raw.description ?? ''),
+    status: String(raw.status ?? 'pending'),
+    task: String(raw.task ?? ''),
+    session_file: String(raw.session_file ?? ''),
+    parent_tool_call_id: String(raw.parent_tool_call_id ?? ''),
+    last_update: Number(raw.last_update ?? 0),
+    progress: normalizeProgress(raw.progress),
+  }
+}
+
+function normalizeProgress(raw: unknown): AgentProgress {
+  const p = (raw ?? {}) as Record<string, unknown>
+  const recent = Array.isArray(p.recentTools) ? p.recentTools : []
+  return {
+    completion: Number(p.completionPercent ?? 0),
+    stage: String(p.stage ?? ''),
+    current_tool: String(p.currentTool ?? ''),
+    recent_tools: recent
+      .map((t) => (t && typeof t === 'object' ? String((t as Record<string, unknown>).tool ?? '') : ''))
+      .filter(Boolean),
+    tool_count: Number(p.toolCount ?? 0),
+    tokens: Number(p.tokens ?? 0),
+    context_used: Number(p.contextTokens ?? 0),
+    context_max: Number(p.contextWindow ?? 0),
+    cost: Number(p.cost ?? 0),
+    duration_ms: Number(p.durationMs ?? 0),
+    model: String(p.resolvedModel ?? ''),
+  }
+}

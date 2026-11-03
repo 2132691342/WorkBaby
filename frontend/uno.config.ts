@@ -1,85 +1,69 @@
-// UnoCSS 配置：原子类是「布局 + 间距 + 排版」的唯一写法，刻度全部接到 --wb-* 令牌，
-// 所以色值与尺寸仍然只在 themes.css 定义一处（缩放、主题切换自动跟随）。
-import { defineConfig, presetUno, presetIcons, transformerDirectives } from 'unocss'
-
-/** 间距刻度：与 themes.css 的 --wb-sp-* 一一对应（1 单位 = 4px × 视口比例） */
-const sp = (n: number) => `var(--wb-sp-${n})`
+// UnoCSS 配置：刻度全部接到 CSS 令牌上，原子类不绕过令牌。
+// 这样「改一个令牌 = 全站跟着变」这条纪律才成立。
+import { defineConfig, presetUno, presetAttributify, transformerDirectives } from 'unocss'
 
 export default defineConfig({
-  presets: [presetUno(), presetIcons()],
+  presets: [presetUno(), presetAttributify()],
   transformers: [transformerDirectives()],
   theme: {
+    colors: {
+      ink: 'var(--wb-ink)',
+      mute: 'var(--wb-mute)',
+      faint: 'var(--wb-faint)',
+      line: 'var(--wb-line)',
+      line2: 'var(--wb-line-strong)',
+      surface: 'var(--wb-surface)',
+      raised: 'var(--wb-raised)',
+      hover: 'var(--wb-hover)',
+      selected: 'var(--wb-selected)',
+      work: 'var(--wb-work)',
+      brand: 'var(--wb-brand)',
+      brand2: 'var(--wb-brand-2)',
+      brand3: 'var(--wb-brand-3)',
+      ink5: 'var(--wb-ink-5)',
+      ok: 'var(--wb-ok)',
+      warn: 'var(--wb-warn)',
+      bad: 'var(--wb-bad)',
+    },
     spacing: {
-      0: '0',
-      px: '1px',
-      1: sp(1),
-      2: sp(2),
-      3: sp(3),
-      4: sp(4),
-      5: sp(5),
-      6: sp(6),
-      8: sp(8),
-      10: sp(10),
-      12: sp(12),
+      1: 'var(--wb-sp-1)',
+      2: 'var(--wb-sp-2)',
+      3: 'var(--wb-sp-3)',
+      4: 'var(--wb-sp-4)',
+      5: 'var(--wb-sp-5)',
+      6: 'var(--wb-sp-6)',
+      8: 'var(--wb-sp-8)',
+      10: 'var(--wb-sp-10)',
+      12: 'var(--wb-sp-12)',
+      16: 'var(--wb-sp-16)',
     },
     borderRadius: {
-      none: '0',
-      xs: 'var(--wb-radius-xs)',
-      sm: 'var(--wb-radius-sm)',
-      DEFAULT: 'var(--wb-radius)',
-      lg: 'var(--wb-radius-lg)',
-      xl: 'var(--wb-radius-xl)',
-      '2xl': 'var(--wb-radius-2xl)',
-      full: 'var(--wb-radius-full)',
+      xs: 'var(--wb-r-xs)',
+      sm: 'var(--wb-r-sm)',
+      DEFAULT: 'var(--wb-r)',
+      lg: 'var(--wb-r-lg)',
+      xl: 'var(--wb-r-xl)',
     },
     fontSize: {
-      '2xs': ['var(--wb-fs-2xs)', '1.45'],
+      '3xs': ['var(--wb-fs-3xs)', '1.35'],
+      '2xs': ['var(--wb-fs-2xs)', '1.4'],
       xs: ['var(--wb-fs-xs)', '1.5'],
       sm: ['var(--wb-fs-sm)', '1.55'],
-      md: ['var(--wb-fs-md)', '1.6'],
-      lg: ['var(--wb-fs-lg)', '1.4'],
+      base: ['var(--wb-fs-base)', '1.6'],
+      lg: ['var(--wb-fs-lg)', '1.45'],
       xl: ['var(--wb-fs-xl)', '1.3'],
-      '2xl': ['var(--wb-fs-2xl)', '1.2'],
-    },
-    colors: {
-      bg: 'var(--wb-bg)',
-      surface: 'var(--wb-surface)',
-      surface2: 'var(--wb-surface-2)',
-      hover: 'var(--wb-surface-hover)',
-      border: 'var(--wb-border)',
-      'border-strong': 'var(--wb-border-strong)',
-      ink: 'var(--wb-ink)',
-      ink2: 'var(--wb-ink-2)',
-      muted: 'var(--wb-muted)',
-      primary: 'var(--wb-primary)',
-      'primary-strong': 'var(--wb-primary-strong)',
-      'primary-soft': 'var(--wb-primary-soft)',
-      live: 'var(--wb-live)',
-      success: 'var(--wb-success)',
-      warning: 'var(--wb-warning)',
-      danger: 'var(--wb-danger)',
+      '2xl': ['var(--wb-fs-2xl)', '1.25'],
     },
   },
   shortcuts: {
-    // 布局高频组合
-    'f-center': 'flex items-center justify-center',
-    'f-between': 'flex items-center justify-between',
-    'f-start': 'flex items-center',
-    'f-col': 'flex flex-col',
-    'f-1': 'flex-1 min-w-0',
-    // 语义面
-    'wb-panel': 'bg-surface border border-border rounded-xl',
-    'wb-inset': 'bg-surface2 border border-border rounded-lg',
-    // 卡片内边距两档
-    'wb-pad': 'p-5',
-    'wb-pad-sm': 'p-4',
-    // 可点行（侧栏 / 列表）
-    'wb-row':
-      'flex items-center gap-3 px-3 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--wb-nav-hover-bg)]',
-  },
-  content: {
-    pipeline: {
-      include: [/\.(vue|ts|html)($|\?)/],
-    },
+    // 卡片：分层只靠圆角 + 描边 + 一层极轻阴影，不做渐变
+    card: 'bg-raised border border-line rounded-xl',
+    'card-pad': 'card p-4',
+    // 标签：全大写微字，靠字距拉开
+    plate: 'text-2xs font-600 uppercase tracking-[0.08em] text-faint',
+    row: 'flex items-center gap-3',
+    'row-between': 'flex items-center justify-between gap-3',
+    // 只读读数：不套描边胶囊、不做悬停缩放（有盒子没动作等于骗用户去点）
+    readout: 'font-mono text-xs text-mute tabular-nums',
   },
 })

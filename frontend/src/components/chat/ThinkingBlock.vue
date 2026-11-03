@@ -1,66 +1,48 @@
 <script setup lang="ts">
-// 思考段：就地折叠在消息流里，默认收起（思考是过程不是结果）。
-// 流式期间只渲染尾部，展开也不会把主线程压住。
+// 思考块：默认收起，正文一出现就自动收。
+// 流式期只渲染尾部 4000 字——几万字的思考全塞进 DOM 会压住主线程，还把答案顶出屏。
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import AppIcon from '../common/AppIcon.vue'
 
-const props = defineProps<{
-  text: string
-  /** 正在流式产出：带呼吸点、默认展开 */
-  live?: boolean
-  /** 正文已经开始了：自动收一次，之后用户自己决定 */
-  collapse?: boolean
-}>()
-
+const props = defineProps<{ text: string; streaming?: boolean }>()
 const { t } = useI18n()
-const open = ref(false)
 
-// 正文已经开始时再收一次：用户可能自己展开了、但正文一出现视线应该落在答案上。
+const open = ref(Boolean(props.streaming))
+const touched = ref(false)
+
 watch(
-  () => props.collapse,
-  (on) => {
-    if (on) open.value = false
+  () => props.streaming,
+  (live) => {
+    if (live) open.value = true
+    else if (!touched.value) open.value = false
   },
 )
 
-// 思考可能几万字：全量塞进 DOM 会让每帧重排压住主线程，也会把正文顶出屏幕。
-// 流式期间只渲染尾部——推理是流式的，用户要看的是「现在想到哪」。
-const TAIL = 4000
 const shown = computed(() => {
-  if (!props.live || props.text.length <= TAIL) return props.text
-  return `…\n${props.text.slice(-TAIL)}`
+  if (!props.streaming) return props.text
+  const limit = 4000
+  return props.text.length > limit ? props.text.slice(-limit) : props.text
 })
+
+const chars = computed(() => props.text.length)
 </script>
 
 <template>
-  <div class="think" :class="{ 'is-live': live }">
-    <button class="think-head" type="button" :aria-expanded="open" @click="open = !open">
-      <span v-if="live" class="live-dot" />
-      <AppIcon name="brain" size="ic-xs" />
-      <span>{{ live ? t('chat.thinkingLive') : t('chat.thinkingBlock') }}</span>
-      <span class="think-count">{{ t('chat.thinkChars', { n: text.length }) }}</span>
-      <AppIcon class="think-chev" :name="open ? 'chevron-down' : 'chevron-right'" size="ic-xs" />
+  <div class="think" :class="{ live: streaming }">
+    <button
+      class="think-head"
+      type="button"
+      @click="
+        open = !open;
+        touched = true
+      "
+    >
+      <span class="dot" :class="streaming ? 'busy' : ''" />
+      <span>{{ streaming ? t('chat.thinkingLive') : t('chat.thinking') }}</span>
+      <span class="caret-toggle">
+        {{ t('chat.chars', { n: chars }) }} · {{ open ? t('chat.collapse') : t('chat.expand') }}
+      </span>
     </button>
-    <div v-if="open" class="think-body">{{ shown }}</div>
+    <div v-if="open" class="think-body selectable">{{ shown }}</div>
   </div>
 </template>
-
-<style scoped>
-.think-count {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.75;
-  font-weight: 500;
-}
-.think-chev {
-  margin-left: auto;
-  transition: transform var(--wb-dur-fast) var(--wb-ease);
-}
-.live-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-live);
-  animation: wb-pulse 1.4s var(--wb-ease) infinite;
-}
-</style>

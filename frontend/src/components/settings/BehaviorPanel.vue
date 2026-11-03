@@ -1,207 +1,119 @@
-<!-- 行为面板：这个程序自己的习惯——默认工作区、界面语言与窗口 / 启动行为。
-     视觉（主题、字体、背景）在外观面板；内置能力的开关在功能面板。 -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+// 启动行为：开机自启、关闭动作、恢复上次会话、数据目录。
+// 前三项以系统为准：「设置了但没生效」只能系统说了算，
+// 界面显示读回来的事实，不是我们记的那一份。
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useSettingsStore } from '../../stores/settings'
-import { useSessionStore } from '../../stores/session'
-import { useToastStore } from '../../stores/toast'
-import { autostartGet, autostartSet, pickFolder } from '../../api/shell'
-import * as api from '../../api'
-import { LOCALES, setLocale, type Locale } from '../../i18n'
-import SettingsSection from './SettingsSection.vue'
-import { errorText } from '../../utils/errors'
+import AppIcon from '@/components/common/AppIcon.vue'
+import { usePrefsStore } from '@/stores/prefs'
+
+const props = defineProps<{
+  autoStartBusy: boolean
+  restoreBusy: boolean
+}>()
+
+const emit = defineEmits<{
+  toggleAutoStart: [enabled: boolean]
+  setCloseAction: [action: string]
+  toggleRestore: [enabled: boolean]
+  openDataDir: []
+}>()
 
 const { t } = useI18n()
-const settings = useSettingsStore()
-const session = useSessionStore()
-const toast = useToastStore()
+const prefs = usePrefsStore()
 
-const busy = ref('')
-const autoStart = ref(false)
-
-const workspace = computed(() => settings.boot?.boot_workspace || settings.values['workspace'] || '')
-const sendOnEnter = computed(() => settings.values['send_on_enter'] !== 'false')
-const tray = computed(() => settings.values['minimize_to_tray'] !== 'false')
-const contextFiles = computed(() => settings.values['context_files'] !== 'off')
-/** 工具延迟加载：模型用 tool_search 搜到才把工具定义放进请求 */
-const deferTools = computed(() => settings.values['defer_tools'] === 'true')
-/** 安全闸门模式：off 全放行 / ask 只问危险操作 / all 全问 */
-const approvalMode = computed(() => settings.values['approval_mode'] || 'ask')
-const currentLocale = computed<Locale>(() => (settings.values['language'] === 'en' ? 'en' : 'zh-CN'))
-
-async function pickWorkspace() {
-  const dir = await pickFolder(t('settings.behavior.workspacePick'))
-  if (!dir || dir === workspace.value) return
-  busy.value = 'workspace'
-  try {
-    const resp = await api.workspace.switch(dir)
-    // 切换在后端已完成（重扫技能 / 重建注册表）：前端只重读快照与清单
-    await settings.loadBoot()
-    await settings.warmup()
-    session.draft()
-    await session.loadList()
-    toast.ok(t('settings.behavior.workspaceSwitched', { path: resp.resp_workspace }))
-  } catch (e) {
-    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
-  } finally {
-    busy.value = ''
-  }
-}
-
-async function toggleValue(key: string, next: boolean) {
-  try {
-    await settings.setValue(key, next ? 'true' : 'false')
-  } catch {
-    /* setValue 已提示并回滚 */
-  }
-}
-
-/** 安全闸门模式：三种档位，写进设置即可（后端每次调用前读）。 */
-async function setApprovalMode(mode: string) {
-  try {
-    await settings.setValue('approval_mode', mode)
-  } catch {
-    /* setValue 已提示 */
-  }
-}
-
-/** 项目上下文开关：存 'off' 才关（缺省即开，与后端判定一致）。 */
-async function toggleContextFiles() {
-  try {
-    await settings.setValue('context_files', contextFiles.value ? 'off' : 'on')
-  } catch {
-    /* setValue 已提示 */
-  }
-}
-
-async function chooseLanguage(locale: Locale) {
-  if (locale === currentLocale.value) return
-  try {
-    await settings.setValue('language', locale)
-    setLocale(locale)
-  } catch {
-    /* setValue 已提示 */
-  }
-}
-
-async function toggleAutoStart() {
-  const next = !autoStart.value
-  busy.value = 'autostart'
-  try {
-    await autostartSet(next)
-    autoStart.value = next
-  } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
-  } finally {
-    busy.value = ''
-  }
-}
-
-onMounted(async () => {
-  try {
-    autoStart.value = await autostartGet()
-  } catch {
-    autoStart.value = false
-  }
+/** 上次会话的标题优先；没有标题时退到文件名。 */
+const lastSessionLabel = computed(() => {
+  const p = prefs.prefs
+  if (!p?.last_session_file) return t('settings.lastSessionNone')
+  return p.last_session_title || p.last_session_file
 })
 </script>
 
 <template>
-  <div class="panel-wrap wb-form">
-    <SettingsSection icon="folder" :title="t('settings.behavior.workspace')" :desc="t('settings.behavior.workspaceHint')">
-      <template #actions>
-        <el-button size="small" :loading="busy === 'workspace'" :disabled="busy === 'workspace'" @click="pickWorkspace">
-          {{ t('settings.behavior.workspacePick') }}
-        </el-button>
-      </template>
-      <p class="path-line" :title="workspace">{{ workspace || '—' }}</p>
-      <p class="hint-line">{{ t('settings.behavior.workspaceLive') }}</p>
-    </SettingsSection>
+  <section class="card-pad">
+    <div class="wb-section-title">{{ t('settings.groups.behavior') }}</div>
 
-    <SettingsSection icon="keyboard" :title="t('settings.behavior.input')" :desc="t('settings.behavior.inputHint')" divided>
-      <div class="wb-set-row">
-        <div class="wb-set-row-tx">
-          <b>{{ t('settings.behavior.language') }}</b>
-          <p>{{ t('settings.behavior.languageHint') }}</p>
-        </div>
-        <el-radio-group :model-value="currentLocale" @change="(v: string | number | boolean | undefined) => chooseLanguage(v as Locale)">
-          <el-radio-button v-for="l in LOCALES" :key="l.key" :value="l.key">{{ l.name }}</el-radio-button>
-        </el-radio-group>
+    <div class="set-row">
+      <div>
+        <div class="set-label">{{ t('settings.autoStart') }}</div>
+        <div class="set-hint">{{ t('settings.autoStartHint') }}</div>
       </div>
+      <el-switch
+        :model-value="prefs.prefs?.auto_start ?? false"
+        :loading="props.autoStartBusy"
+        :disabled="props.autoStartBusy || !prefs.prefs"
+        @change="(v: string | number | boolean) => emit('toggleAutoStart', Boolean(v))"
+      />
+    </div>
 
-      <div class="wb-set-row">
-        <div class="wb-set-row-tx">
-          <b>{{ t('settings.behavior.sendOnEnter') }}</b>
-          <p>{{ t('settings.behavior.sendOnEnterHint') }}</p>
-        </div>
-        <el-switch :model-value="sendOnEnter" @change="toggleValue('send_on_enter', !sendOnEnter)" />
+    <div class="set-row">
+      <div>
+        <div class="set-label">{{ t('settings.closeAction') }}</div>
+        <div class="set-hint">{{ t('settings.closeActionHint') }}</div>
       </div>
+      <el-radio-group
+        :model-value="prefs.prefs?.close_action ?? 'tray'"
+        :disabled="!prefs.prefs"
+        @change="(v: string | number | boolean | undefined) => emit('setCloseAction', String(v))"
+      >
+        <el-radio-button value="tray">{{ t('settings.closeToTray') }}</el-radio-button>
+        <el-radio-button value="quit">{{ t('settings.closeToQuit') }}</el-radio-button>
+      </el-radio-group>
+    </div>
 
-      <div class="wb-set-row">
-        <div class="wb-set-row-tx">
-          <b>{{ t('settings.behavior.contextFiles') }}</b>
-          <p>{{ t('settings.behavior.contextFilesHint') }}</p>
-        </div>
-        <el-switch :model-value="contextFiles" @change="toggleContextFiles" />
+    <div class="set-row">
+      <div>
+        <div class="set-label">{{ t('settings.restoreSession') }}</div>
+        <div class="set-hint">{{ t('settings.restoreSessionHint') }}</div>
       </div>
+      <el-switch
+        :model-value="prefs.prefs?.restore_session ?? true"
+        :loading="props.restoreBusy"
+        :disabled="props.restoreBusy || !prefs.prefs"
+        @change="(v: string | number | boolean) => emit('toggleRestore', Boolean(v))"
+      />
+    </div>
 
-      <div class="wb-set-row">
-        <div class="wb-set-row-tx">
-          <b>{{ t('settings.behavior.deferTools') }}</b>
-          <p>{{ t('settings.behavior.deferToolsHint') }}</p>
-        </div>
-        <el-switch :model-value="deferTools" @change="toggleValue('defer_tools', !deferTools)" />
+    <div class="set-row">
+      <div class="min-w-0">
+        <div class="set-label">{{ t('settings.lastSession') }}</div>
+        <div class="set-hint">{{ lastSessionLabel }}</div>
       </div>
-    </SettingsSection>
+    </div>
 
-    <SettingsSection icon="shield" :title="t('settings.behavior.approval')" :desc="t('settings.behavior.approvalHint')" divided>
-      <div class="wb-set-row">
-        <div class="wb-set-row-tx">
-          <b>{{ t('settings.behavior.approvalMode') }}</b>
-          <p>{{ t('settings.behavior.approvalModeHint') }}</p>
-        </div>
-        <el-radio-group :model-value="approvalMode" @change="(v: string | number | boolean | undefined) => setApprovalMode(v as string)">
-          <el-radio-button value="ask">{{ t('settings.behavior.approvalAsk') }}</el-radio-button>
-          <el-radio-button value="all">{{ t('settings.behavior.approvalAll') }}</el-radio-button>
-          <el-radio-button value="off">{{ t('settings.behavior.approvalOff') }}</el-radio-button>
-        </el-radio-group>
+    <div class="set-row">
+      <div>
+        <div class="set-label">{{ t('settings.dataDir') }}</div>
+        <div class="set-hint mono selectable">{{ prefs.prefs?.data_dir || '—' }}</div>
+        <div class="set-hint">{{ t('settings.dataDirHint') }}</div>
       </div>
-    </SettingsSection>
-
-    <SettingsSection icon="monitor" :title="t('settings.behavior.window')" :desc="t('settings.behavior.windowHint')" divided>
-      <div class="wb-set-row">
-        <div class="wb-set-row-tx">
-          <b>{{ t('settings.behavior.minimizeToTray') }}</b>
-          <p>{{ t('settings.behavior.minimizeToTrayHint') }}</p>
-        </div>
-        <el-switch :model-value="tray" @change="toggleValue('minimize_to_tray', !tray)" />
-      </div>
-      <div class="wb-set-row">
-        <div class="wb-set-row-tx">
-          <b>{{ t('settings.behavior.autostart') }}</b>
-          <p>{{ t('settings.behavior.autostartHint') }}</p>
-        </div>
-        <el-switch :model-value="autoStart" :loading="busy === 'autostart'" :disabled="busy === 'autostart'" @change="toggleAutoStart" />
-      </div>
-    </SettingsSection>
-  </div>
+      <button class="wb-btn sm" @click="emit('openDataDir')">
+        <AppIcon name="folder" :size="13" />
+        {{ t('settings.openDataDir') }}
+      </button>
+    </div>
+  </section>
 </template>
 
 <style scoped>
-/* 表单类面板收窄：控件列与标签列都靠左，面板宽 920px 时右侧会拖出一片空地 */
-.panel-wrap {
-  --wb-panel-w: calc(720px * var(--wb-vw-scale));
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-2) 0;
 }
-.path-line {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-ink-2);
-  overflow-wrap: anywhere;
+
+.set-label {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink);
 }
-.hint-line {
-  margin: var(--wb-sp-1) 0 0;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
+
+.set-hint {
+  margin: 2px 0 0;
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  max-width: var(--wb-w-desc);
 }
 </style>

@@ -1,10 +1,7 @@
-/* 基础层：重置、排版基线、滚动条、可复用的面与区块基元。
-   布局与间距优先用 UnoCSS 原子类（其刻度已接到 --wb-* 令牌）；
-   这里只放「原子类拼不出来」的组件形态，且不写死任何色值。 */
+/* 基元：按钮 / 输入 / 行 / 开关的五态规格，以及 Element Plus 的令牌接管。
+   五态是硬要求：默认、悬停、按下、禁用、加载，每一态都要有可辨的视觉差异。 */
 
-*,
-*::before,
-*::after {
+* {
   box-sizing: border-box;
 }
 
@@ -16,331 +13,329 @@ body,
   padding: 0;
 }
 
-html {
-  /* 字号基准由 themes.css 的 --wb-fs-scale 驱动 */
-  text-size-adjust: 100%;
-}
-
 body {
-  font-family: var(--wb-font-ui);
-  font-size: var(--wb-fs-md);
-  line-height: var(--wb-lh-base);
+  font-family: var(--wb-font-sans);
+  font-size: var(--wb-fs-base);
+  line-height: 1.6;
   color: var(--wb-ink);
-  background: var(--wb-bg);
+  background: var(--wb-window);
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
   overflow: hidden;
-}
-
-h1,
-h2,
-h3,
-h4,
-h5,
-h6,
-p,
-figure,
-blockquote,
-dl,
-dd {
-  margin: 0;
-}
-
-ul,
-ol {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
+  /* 桌面应用不该有文本选择的「网页感」，只有内容区放开 */
+  user-select: none;
 }
 
 input,
 textarea,
-select {
-  font: inherit;
-  color: inherit;
-}
-
-a {
-  color: var(--wb-primary);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
-
-img,
-svg {
-  display: block;
-  max-width: 100%;
-}
-
-code,
-kbd,
-pre,
-samp {
-  font-family: var(--font-mono);
-}
-
-hr {
-  border: 0;
-  border-top: 1px solid var(--wb-border);
-  margin: 0;
+[contenteditable='true'],
+.selectable {
+  user-select: text;
 }
 
 ::selection {
-  background: var(--wb-accent-tint);
+  background: var(--wb-brand-soft);
   color: var(--wb-ink);
 }
 
-/* 焦点环：只在键盘导航时出现，鼠标点击不打扰 */
-:focus {
-  outline: none;
-}
-:focus-visible {
-  outline: 2px solid var(--wb-primary);
-  outline-offset: 2px;
-  border-radius: var(--wb-radius-sm);
-}
-
-/* 滚动条：细、低对比，悬停才显形 */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--wb-border-strong) transparent;
-}
+/* 滚动条：细、低对比、悬停才明显——它不该抢内容的注意力 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--wb-border-strong);
-  border-radius: var(--wb-radius-full);
-  border: 2px solid transparent;
+  background: var(--wb-line-strong);
+  border-radius: var(--wb-r-full);
+  border: 3px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--wb-muted);
+  background: var(--wb-mute);
   background-clip: content-box;
 }
-::-webkit-scrollbar-corner {
-  background: transparent;
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
 }
 
 /* ============================================================
-   图标（全站唯一出口 AppIcon）：24 网格线描，尺寸六档
+   按钮：五态。悬停放大、按下缩小，这是「点得动」的唯一证据。
    ============================================================ */
-.ic,
-.ic-2xs,
-.ic-xs,
-.ic-sm,
-.ic-lg,
-.ic-xl {
-  flex: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: var(--wb-icon-stroke);
-}
-.ic-2xs {
-  width: calc(10px * var(--wb-vw-scale));
-  height: calc(10px * var(--wb-vw-scale));
-}
-.ic-xs {
-  width: calc(13px * var(--wb-vw-scale));
-  height: calc(13px * var(--wb-vw-scale));
-}
-.ic-sm {
-  width: calc(15px * var(--wb-vw-scale));
-  height: calc(15px * var(--wb-vw-scale));
-}
-.ic {
-  width: calc(17px * var(--wb-vw-scale));
-  height: calc(17px * var(--wb-vw-scale));
-}
-.ic-lg {
-  width: calc(20px * var(--wb-vw-scale));
-  height: calc(20px * var(--wb-vw-scale));
-}
-.ic-xl {
-  width: calc(26px * var(--wb-vw-scale));
-  height: calc(26px * var(--wb-vw-scale));
-}
-.ic-strong {
-  stroke-width: var(--wb-icon-stroke-strong);
-}
-.ic-spin {
-  animation: wb-spin 0.8s linear infinite;
+.wb-btn {
+  --btn-bg: var(--wb-surface);
+  --btn-fg: var(--wb-ink);
+  --btn-line: var(--wb-line-strong);
+  --btn-bg-hover: var(--wb-hover);
+
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--wb-sp-2);
+  height: var(--wb-ctl);
+  padding: 0 var(--wb-sp-4);
+  border: 1px solid var(--btn-line);
+  border-radius: var(--wb-r);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font-size: var(--wb-fs-sm);
+  font-weight: 550;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    box-shadow var(--wb-dur-fast) var(--wb-ease),
+    opacity var(--wb-dur-fast) var(--wb-ease);
 }
 
-/* ============================================================
-   面基元
-   ============================================================ */
-/* 卡片基元：全站复用的「一块抬升的面」。
-   显式引用阶梯的 raised 级（而不是别名 --wb-surface），
-   让读代码的人一眼看出它在层级里的位置。 */
-.wb-card {
-  background: var(--wb-elev-raised);
-  border: 1px solid var(--wb-border);
-  border-radius: var(--wb-radius-xl);
-  box-shadow: var(--wb-shadow-1);
+.wb-btn:hover:not(:disabled):not(.is-loading) {
+  transform: scale(var(--wb-press-hover));
+  background: var(--btn-bg-hover);
+  border-color: var(--wb-brand-2);
+  color: var(--wb-brand);
+  box-shadow: var(--wb-shadow);
 }
 
-.wb-card--flat {
+.wb-btn:active:not(:disabled):not(.is-loading) {
+  transform: scale(var(--wb-press-active));
+  background: var(--wb-brand-soft);
+  border-color: var(--wb-brand);
+  transition-duration: 60ms;
+}
+
+.wb-btn:focus-visible {
+  outline: 2px solid var(--wb-brand-ring);
+  outline-offset: 2px;
+}
+
+.wb-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
   box-shadow: none;
 }
 
-.wb-card--hover {
-  transition:
-    box-shadow var(--wb-dur) var(--wb-ease),
-    border-color var(--wb-dur) var(--wb-ease),
-    transform var(--wb-dur) var(--wb-ease);
-}
-.wb-card--hover:hover {
-  box-shadow: var(--wb-shadow-2);
-  border-color: var(--wb-border-strong);
+/* 加载态：转圈 + 文字保留 + 尺寸锁定。锁尺寸是关键：
+   否则转圈一出现按钮变宽，整排控件跟着跳。
+
+   pointer-events: none 也是必需的：转圈时再点一下会发出第二个请求，
+   而用户看到的只是「我点了一下」——两次比一次更慢，也更难看出哪一次成了。 */
+.wb-btn.is-loading {
+  cursor: progress;
+  transform: none;
+  opacity: 0.85;
+  padding-left: var(--wb-sp-8);
+  pointer-events: none;
 }
 
-/* 区块小标题：全大写的分组标签，用在侧栏分组与卡片头。 */
-.wb-label {
-  font-size: var(--wb-fs-2xs);
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--wb-muted);
+.wb-btn.is-loading::before {
+  content: '';
+  position: absolute;
+  left: var(--wb-sp-3);
+  width: 12px;
+  height: 12px;
+  border: 1.6px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wb-spin 640ms linear infinite;
 }
 
-/* 设置行：标签定宽在左、控件紧随其后。
-   标签列定宽是关键：控件若被推到面板右边缘，短标签与它的开关之间会空出半屏，
-   相邻两行的开关又挤成同一列——误点一次就改错一项。 */
-.wb-set-row {
-  display: grid;
-  grid-template-columns: calc(240px * var(--wb-vw-scale)) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--wb-sp-4);
-  padding: var(--wb-sp-2) 0;
-  max-width: calc(640px * var(--wb-vw-scale));
-}
-.wb-set-row-tx b {
-  display: block;
-  font-size: var(--wb-fs-sm);
-  font-weight: 600;
-  color: var(--wb-ink);
-}
-.wb-set-row-tx p {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  line-height: var(--wb-lh-base);
+@keyframes wb-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-/* 多组设置的表单面板：正文缩进到分节标题那条左边缘。
-   不缩进时正文在 0、标题在图标之后，两三条竖线并排，读起来就是「乱」。 */
-.wb-form .sec-body {
-  padding-left: calc(var(--wb-tile-sm) + var(--wb-sp-3));
+/* 主按钮：全站唯一的大面积强调色，实底 + 白字。
+   悬停用 --wb-brand-strong 而不是写死色值：暗色主题下
+   --wb-brand 是一支浅靛蓝，写死深靛蓝会让按钮在悬停时反而变暗。 */
+.wb-btn.primary {
+  --btn-bg: var(--wb-brand);
+  --btn-fg: #fff;
+  --btn-line: var(--wb-brand);
+  --btn-bg-hover: var(--wb-brand-strong);
+}
+.wb-btn.primary:hover:not(:disabled):not(.is-loading) {
+  color: #fff;
+  border-color: var(--wb-brand-strong);
+  box-shadow: 0 4px 14px var(--wb-brand-ring);
 }
 
-/* 图标瓦片：卡片头 / 空态 / 列表项前的方块底 */
-.wb-tile {
-  display: grid;
-  place-items: center;
-  width: var(--wb-tile);
-  height: var(--wb-tile);
-  border-radius: var(--wb-radius);
-  background: var(--wb-accent-tint);
-  color: var(--wb-primary);
-  flex: none;
+/* 幽灵按钮：无描边，只在悬停时给底 */
+.wb-btn.ghost {
+  --btn-bg: transparent;
+  --btn-line: transparent;
 }
-.wb-tile--sm {
-  width: var(--wb-tile-sm);
-  height: var(--wb-tile-sm);
-  border-radius: var(--wb-radius-sm);
-}
-.wb-tile--lg {
-  width: var(--wb-tile-lg);
-  height: var(--wb-tile-lg);
-  border-radius: var(--wb-radius-lg);
-}
-.wb-tile--neutral {
-  background: var(--wb-elev-hover);
-  color: var(--wb-muted);
-}
-
-/* 状态灯 */
-.wb-led {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-muted);
-  flex: none;
-}
-.wb-led--ok {
-  background: var(--wb-success);
-}
-.wb-led--live {
-  background: var(--wb-live);
-  box-shadow: 0 0 0 0 var(--wb-live-line);
-  animation: wb-pulse 1.6s var(--wb-ease) infinite;
-}
-.wb-led--warn {
-  background: var(--wb-warning);
-}
-.wb-led--bad {
-  background: var(--wb-danger);
-}
-
-/* 分区标题行（页内小节） */
-.wb-sec-head {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding-bottom: var(--wb-sp-2);
-  border-bottom: 1px solid var(--wb-border);
-}
-.wb-sec-title {
-  font-size: var(--wb-fs-sm);
-  font-weight: 700;
+.wb-btn.ghost:hover:not(:disabled):not(.is-loading) {
+  border-color: var(--wb-line);
   color: var(--wb-ink);
 }
 
-/* 键值行 */
-.wb-kv {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--wb-sp-3);
-  font-size: var(--wb-fs-sm);
+/* 危险：中性描边 + 危险色文字。彩色描边违反分层纪律 */
+.wb-btn.danger {
+  color: var(--wb-bad);
+  --btn-line: var(--wb-line-strong);
 }
-.wb-kv > dt {
-  color: var(--wb-muted);
-  flex: none;
-}
-.wb-kv > dd {
-  margin: 0;
-  color: var(--wb-ink-2);
-  text-align: right;
-  overflow-wrap: anywhere;
+.wb-btn.danger:hover:not(:disabled):not(.is-loading) {
+  background: var(--wb-bad-soft);
+  border-color: var(--wb-bad);
+  color: var(--wb-bad);
 }
 
-/* 等宽路径 / ID */
-.wb-mono {
-  font-family: var(--font-mono);
+/* 文字按钮不缩放：缩放会带动整行文字抖动 */
+.wb-btn.text {
+  height: auto;
+  padding: 2px 4px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--wb-mute);
+  font-weight: 500;
+}
+.wb-btn.text:hover:not(:disabled):not(.is-loading) {
+  transform: none;
+  color: var(--wb-brand);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.wb-btn.text:active:not(:disabled):not(.is-loading) {
+  transform: none;
+  color: var(--wb-brand);
+}
+
+/* 尺寸档 */
+.wb-btn.sm {
+  height: var(--wb-ctl-sm);
+  padding: 0 var(--wb-sp-3);
   font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-  overflow-wrap: anywhere;
+  border-radius: var(--wb-r-sm);
+}
+.wb-btn.lg {
+  height: var(--wb-ctl-lg);
+  padding: 0 var(--wb-sp-5);
+  font-size: var(--wb-fs-base);
+}
+.wb-btn.icon {
+  width: var(--wb-ctl-icon);
+  height: var(--wb-ctl-icon);
+  padding: 0;
+  border-radius: var(--wb-r-sm);
 }
 
 /* ============================================================
-   动效
+   输入控件：与按钮同一刻度，浮凸感靠描边 + 内阴影
    ============================================================ */
+.wb-input {
+  width: 100%;
+  height: var(--wb-ctl);
+  padding: 0 var(--wb-sp-3);
+  border: 1px solid var(--wb-line-strong);
+  border-radius: var(--wb-r);
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  font-family: inherit;
+  font-size: var(--wb-fs-sm);
+  transition:
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    box-shadow var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease);
+}
+.wb-input:hover:not(:disabled) {
+  border-color: var(--wb-brand-2);
+}
+.wb-input:focus {
+  outline: none;
+  border-color: var(--wb-brand);
+  box-shadow: 0 0 0 3px var(--wb-brand-soft);
+}
+.wb-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--wb-sunken);
+}
+.wb-input::placeholder {
+  color: var(--wb-faint);
+}
+
+textarea.wb-input {
+  height: auto;
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  line-height: 1.65;
+  resize: vertical;
+}
+
+/* ============================================================
+   读数：次级信息（时间、版本号、计数）。
+
+   它不是控件：不套描边胶囊、不做悬停缩放，只靠字重与颜色降一档。
+   有盒子又没动作等于请用户去点一个点不动的东西。
+
+   这两条以前只在组件的 scoped 样式里出现过，而 scoped 样式不会向下传——
+   于是列表里用了 .readout 的地方全是无样式状态（靠继承碰运气）。
+   收成基元后改一处就够。
+   ============================================================ */
+.readout {
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--wb-font-mono);
+}
+
+/* ============================================================
+   元素：分节标题、状态点、标签
+   ============================================================ */
+/* 分节标题：卡片内的小组标题。带不带分隔线由用法决定——
+   .wb-sec-head 是「一行 + 下边框」（页内小节），
+   .wb-sec-title 是裸标题（卡片内的分组，不画线）。
+   两者共用同一份字形，改一处就够。 */
+.wb-section-title,
+.wb-sec-title {
+  font-size: var(--wb-fs-2xs);
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--wb-faint);
+}
+
+.wb-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  margin-bottom: var(--wb-sp-3);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wb-mute);
+  flex: none;
+}
+.dot.ok {
+  background: var(--wb-ok);
+}
+.dot.warn {
+  background: var(--wb-warn);
+}
+.dot.bad {
+  background: var(--wb-bad);
+}
+.dot.busy {
+  background: var(--wb-brand-2);
+  animation: wb-breathe 1.4s var(--wb-ease) infinite;
+}
+
+/* 状态灯的呼吸环：把「还在跳」这件事说出去，不做装饰 */
 @keyframes wb-pulse {
   0% {
     box-shadow: 0 0 0 0 var(--wb-live-line);
@@ -353,98 +348,203 @@ hr {
   }
 }
 
-@keyframes wb-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes wb-rise {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-}
-
-@keyframes wb-caret {
+@keyframes wb-breathe {
   0%,
-  45% {
+  100% {
     opacity: 1;
+    transform: scale(1);
   }
-  55%,
-  100% {
-    opacity: 0.15;
-  }
-}
-
-@keyframes wb-shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
   }
 }
 
-.wb-spin {
-  animation: wb-spin 0.8s linear infinite;
+/* 状态标签：低饱和底 + 同色文字，不抢主次 */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--wb-r-sm);
+  background: var(--wb-hover);
+  color: var(--wb-mute);
+  font-size: var(--wb-fs-3xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.tag.brand {
+  background: var(--wb-brand-soft);
+  color: var(--wb-brand);
+}
+.tag.ok {
+  background: var(--wb-ok-soft);
+  color: var(--wb-ok);
+}
+.tag.warn {
+  background: var(--wb-warn-soft);
+  color: var(--wb-warn);
+}
+.tag.bad {
+  background: var(--wb-bad-soft);
+  color: var(--wb-bad);
 }
 
-/* 视图切换：淡出淡入 + 6px 位移，压在半档内 */
-.wb-view-enter-active {
+/* 可点的整行：不放大（会溢出侧栏被裁），只缩小 */
+.wb-row-click {
+  border-radius: var(--wb-r);
+  transition:
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.wb-row-click:hover {
+  background: var(--wb-hover);
+}
+.wb-row-click:active {
+  background: var(--wb-brand-soft);
+}
+.wb-row-click.is-active {
+  background: var(--wb-selected);
+  box-shadow: inset 2px 0 0 var(--wb-brand);
+}
+
+/* 视图切换动效：淡入 + 6px 位移 */
+.wb-fade-enter-active,
+.wb-fade-leave-active {
   transition:
     opacity var(--wb-dur) var(--wb-ease),
     transform var(--wb-dur) var(--wb-ease);
 }
-.wb-view-leave-active {
-  transition: opacity var(--wb-dur-fast) var(--wb-ease);
-}
-.wb-view-enter-from {
+.wb-fade-enter-from {
   opacity: 0;
   transform: translateY(6px);
 }
-.wb-view-leave-to {
+.wb-fade-leave-to {
   opacity: 0;
+  transform: translateY(-4px);
 }
 
-/* 尊重系统的「减少动态效果」 */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-  }
+.wb-list-enter-active,
+.wb-list-leave-active {
+  transition:
+    opacity var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur) var(--wb-ease);
+}
+.wb-list-enter-from {
+  opacity: 0;
+  transform: scale(0.96);
+}
+.wb-list-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
 }
 
 /* ============================================================
-   欢迎页光晕（唯一允许的装饰性背景，只出现在空态）
+   Element Plus 的令牌桥与组件形状对齐在 ep-theme.css（唯一落点）。
+   这里不写任何 .el-* 选择器：两份映射会静默互相覆盖，
+   而缺了哪一项在运行时看不出来。
    ============================================================ */
-.wb-aura {
-  position: absolute;
-  border-radius: var(--wb-radius-full);
-  filter: blur(var(--wb-aura-blur));
+
+/* ============================================================
+   共享可按压基类
+   「悬停放大 / 按下缩小」只在这里定义一次。组件复用它，不复制粘贴——
+   复制十几份的结果是有人改了十一处、漏了一处，那一处就成了「点了没反应」。
+   行宽 100% 的元素（会话行、技能行、rail 项）不放大：放大会溢出被裁。
+   ============================================================ */
+.wb-pressable {
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    box-shadow var(--wb-dur-fast) var(--wb-ease);
+}
+.wb-pressable:hover:not(:disabled):not(.is-loading):not(.is-static) {
+  transform: scale(var(--wb-press-hover));
+}
+.wb-pressable:active:not(:disabled):not(.is-loading):not(.is-static) {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
+}
+.wb-pressable:disabled,
+.wb-pressable.is-static {
+  transform: none;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wb-pressable.is-loading {
   pointer-events: none;
 }
-.wb-aura--top {
-  width: 46%;
-  aspect-ratio: 1;
-  top: -18%;
-  left: 27%;
-  background: var(--wb-glow-1);
+
+/* 整行元素：只缩不放。行的两个变体共用这一份缩放刻度——
+   .wb-pressable-row 只有缩放（rail 项自己管底色），
+   .wb-row-click 额外带悬停/选中底色（见上方「可点的整行」）。 */
+.wb-pressable-row,
+.wb-row-click {
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
 }
-.wb-aura--left {
-  width: 38%;
-  aspect-ratio: 1;
-  top: 8%;
-  left: -8%;
-  background: var(--wb-glow-2);
+.wb-pressable-row:active:not(:disabled),
+.wb-row-click:active {
+  transform: scale(var(--wb-press-row-active));
 }
-.wb-aura--right {
-  width: 34%;
-  aspect-ratio: 1;
-  bottom: -6%;
-  right: -6%;
-  background: var(--wb-glow-3);
+
+/* 文字按钮：不缩放（会带动整行文字抖动），只换色 */
+.wb-pressable-text {
+  transition: color var(--wb-dur-fast) var(--wb-ease);
+}
+
+/* ============================================================
+   分段控件（seg-btn）
+   以前三个页面各抄一份，都缺「按下」与「禁用」两态。这里收成唯一一处。
+   ============================================================ */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--wb-r);
+  background: var(--wb-hover);
+}
+.seg-btn {
+  height: var(--wb-ctl-sm);
+  padding: 0 var(--wb-sp-3);
+  border: none;
+  border-radius: var(--wb-r-sm);
+  background: transparent;
+  color: var(--wb-mute);
+  font-family: inherit;
+  font-size: var(--wb-fs-2xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
+}
+.seg-btn:hover:not(:disabled):not(.active) {
+  color: var(--wb-ink);
+  background: var(--wb-surface);
+}
+.seg-btn:active:not(:disabled) {
+  transform: scale(0.95);
+  transition-duration: 60ms;
+}
+/* 焦点环：键盘用户要知道自己在哪。缺了它，Tab 走过分段控件时没有任何反馈。 */
+.seg-btn:focus-visible {
+  outline: 2px solid var(--wb-brand-ring);
+  outline-offset: 2px;
+}
+.seg-btn.active {
+  background: var(--wb-surface);
+  color: var(--wb-brand);
+  box-shadow: var(--wb-shadow);
+}
+.seg-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
 }

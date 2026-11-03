@@ -1,86 +1,81 @@
-// 壳层调用唯一出口：Tauri 命令与壳事件的收口。组件不得直接 import @tauri-apps/*。
-// 浏览器直开（无 Tauri）时，端口握手读 localStorage 的 wb_dev_port 兜底。
-
-/** 是否运行在 Tauri 壳内：注入脚本存在即可用 invoke。 */
-export const isTauri =
-  typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-
-type ShellEvent =
-  | 'app:ready'
-  | 'app:startup-error'
-  | 'app:to-tray'
-  | 'app:new-session'
-  | 'app:open-file'
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isTauri) throw new Error('invoke requires the desktop shell')
-  const { invoke: call } = await import('@tauri-apps/api/core')
-  return call<T>(cmd, args)
+// 壳桥接层：window.wb 由 preload 注入，这里只包成 Promise 并留纯浏览器兜底。
+// 业务一律走 HTTP，所以保持很小；字段与 electron/preload 的 EndpointVO 一致。
+/** 端点信息：主进程装配好本地 HTTP 服务后回填 wb_port / wb_token。 */
+export interface EndpointVO {
+  wb_port: number
+  wb_token: string
+  wb_version: string
+  wb_contract: number
+  wb_base_url: string
 }
 
-/** 拉取本地 HTTP 服务端口（幂等；握手失败时 retryHandshake 会重调）。 */
-export async function serverPort(): Promise<number> {
-  if (isTauri) return invoke<number>('server_port')
-  return Number(localStorage.getItem('wb_dev_port') || 0)
-}
+// window.wb 的字段类型在 env.d.ts 里全局声明，这里不再重复。
 
-/** 订阅壳事件；返回解绑函数。 */
-export async function onShellEvent(
-  name: ShellEvent,
-  handler: (data: Record<string, unknown>) => void,
-): Promise<() => void> {
-  if (!isTauri) return () => undefined
-  const { listen } = await import('@tauri-apps/api/event')
-  const un = await listen<Record<string, unknown>>(name, (e) => handler(e.payload))
-  return () => un()
-}
-
-/** 文件选择：返回所选路径，取消返回 null。pattern 形如 '*.png;*.jpg'。 */
-export async function pickFile(title?: string, pattern?: string): Promise<string | null> {
-  return invoke<string | null>('pick_file', { title: title ?? '', pattern: pattern ?? '' })
-}
-
-/** 另存为：返回目标路径，取消返回 null。 */
-export async function pickFileSave(
-  title: string,
-  defaultName: string,
-  pattern: string,
-): Promise<string | null> {
-  return invoke<string | null>('pick_file_save', { title, defaultName, pattern })
-}
-
-/** 目录选择：返回所选目录，取消返回 null。 */
-export async function pickFolder(title?: string): Promise<string | null> {
-  return invoke<string | null>('pick_folder', { title: title ?? '' })
-}
-
-/** 目录选择（可选）：非桌面环境返回 null，不抛错——微前端页可降级为手填路径。 */
-export async function pickFolderSafe(title?: string): Promise<string | null> {
-  if (!isTauri) return null
-  try {
-    return await pickFolder(title)
-  } catch {
-    return null
+/** 纯浏览器调试的地址覆盖。用 localStorage 显式打开，不靠「调用失败」去猜。 */
+function devOverride(): EndpointVO | null {
+  const port = Number(localStorage.getItem('wb.dev.port') ?? 0)
+  if (!port) return null
+  const token = localStorage.getItem('wb.dev.token') ?? ''
+  return {
+    wb_port: port,
+    wb_token: token,
+    wb_version: 'dev',
+    wb_contract: 0,
+    wb_base_url: `http://127.0.0.1:${port}/api/v1`,
   }
 }
 
-/** 开机自启状态与开关（HKCU，不需要管理员）。 */
-export async function autostartGet(): Promise<boolean> {
-  return invoke<boolean>('autostart_get')
+/** 拿本地服务地址。主进程装配失败时把它的原话抛上去，不吞不换。 */
+export async function getEndpoint(): Promise<EndpointVO> {
+  return devOverride() ?? window.wb.getEndpoint()
 }
 
-export async function autostartSet(on: boolean): Promise<void> {
-  return invoke<void>('autostart_set', { on })
+/** 打开文件选择框，可多选。返回绝对路径；取消返回空数组。 */
+export async function pickFiles(title = ''): Promise<string[]> {
+  try {
+    return (await window.wb.pickFiles(title)) ?? []
+  } catch {
+    return []
+  }
 }
 
-/** 真退出：绕过关窗到托盘的策略。 */
-export function quitApp(): void {
-  void invoke<void>('quit_app').catch(() => window.close())
+/** 打开文件夹选择框。取消返回空串，调用方本来就这么处理。 */
+export async function pickFolder(defaultDir: string): Promise<string> {
+  try {
+    return await window.wb.pickFolder(defaultDir)
+  } catch {
+    // 纯浏览器调试时没有桥：返回空串等于「用户没选」。
+    return ''
+  }
 }
 
-export type WindowAction = 'min' | 'max' | 'close'
+/** 告诉主进程「首屏画完了，可以把窗口显出来」。 */
+export async function notifyReady(): Promise<void> {
+  try {
+    await window.wb.notifyReady()
+  } catch {
+    // 纯浏览器调试时没有桥，窗口本来就已经可见，忽略即可。
+  }
+}
 
-/** 窗控三键：close 走后端，由关窗策略决定收托盘还是退出。 */
-export function windowCtl(action: WindowAction): void {
-  void invoke<void>('window_ctl', { action }).catch(() => undefined)
+/** 用系统浏览器打开外链。 */
+export async function openExternal(url: string): Promise<void> {
+  try {
+    await window.wb.openExternal(url)
+  } catch {
+    window.open(url, '_blank')
+  }
+}
+
+export const windowCtl = {
+  minimize: () => void window.wb.windowCtl.minimize(),
+  toggleMaximize: () => void window.wb.windowCtl.toggleMaximize(),
+  close: () => void window.wb.windowCtl.close(),
+  /** 真的退出进程（不是收进托盘）。界面上的「退出」必须能真退。 */
+  quit: () => void window.wb.windowCtl.quit(),
+}
+
+/** 执行「关窗时做什么」的选择。只由首次收托盘的对话框调用。 */
+export async function applyCloseDecision(action: 'tray' | 'quit', remember: boolean): Promise<void> {
+  await window.wb.applyCloseDecision(action, remember)
 }

@@ -1,392 +1,232 @@
 <script setup lang="ts">
-// 会话页：全部会话的清单台。左侧按时间分组的列表，右侧是选中会话的概要与操作。
-// 与对话页共用 session store——同一份数据，不另存账本。
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+// 会话页：列表复用 SessionList（与对话页左栏同一份实现），这里只补范围切换与汇总读数。
+// 汇总读 app.sessions——它恒为「当前目录」的快照，所以标题行明确标出这是当前目录的合计，
+// 不随上面的列表范围变化，避免把两件事读成一件。
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useSessionStore } from '../stores/session'
-import { useToastStore } from '../stores/toast'
-import * as api from '../api'
-import { fmtRel } from '../utils/time'
-import { pickFileSave } from '../api/shell'
-import AppIcon from '../components/common/AppIcon.vue'
-import PageHeader from '../components/layout/PageHeader.vue'
-import { errorText } from '../utils/errors'
+import { useRouter } from 'vue-router'
+import AppIcon from '@/components/common/AppIcon.vue'
+import SessionList from '@/components/sessions/SessionList.vue'
+import { useAppStore } from '@/stores/app'
+import { useToasts } from '@/composables/useToasts'
 
 const { t } = useI18n()
+const app = useAppStore()
 const router = useRouter()
-const session = useSessionStore()
-const toast = useToastStore()
+const toasts = useToasts()
 
-const query = ref('')
-const selected = ref<string | null>(null)
-const busyId = ref('')
+const scope = ref<'workspace' | 'all'>('workspace')
+const refreshing = ref(false)
+// 换范围或点刷新都靠重挂列表：SessionList 只在挂载时取数，没有对外的重新取数入口。
+const listKey = ref(0)
 
-const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return session.list
-  return session.list.filter(
-    (s) =>
-      (s.session_title || '').toLowerCase().includes(q) ||
-      (s.session_model || '').toLowerCase().includes(q),
-  )
+const counts = computed(() => {
+  let messages = 0
+  let tokens = 0
+  let cost = 0
+  for (const row of app.sessions) {
+    messages += row.messages ?? 0
+    tokens += row.tokens ?? 0
+    cost += row.cost ?? 0
+  }
+  return { sessions: app.sessions.length, messages, tokens, cost }
 })
 
-// 按时间分组：今天 / 本周 / 更早
-const groups = computed(() => {
-  const today: typeof session.list = []
-  const week: typeof session.list = []
-  const earlier: typeof session.list = []
-  const dayStart = new Date()
-  dayStart.setHours(0, 0, 0, 0)
-  const weekAgo = dayStart.getTime() - 6 * 86_400_000
-  for (const s of filtered.value) {
-    if (s.session_updated_at >= dayStart.getTime()) today.push(s)
-    else if (s.session_updated_at >= weekAgo) week.push(s)
-    else earlier.push(s)
-  }
-  const out: Array<{ key: string; items: typeof session.list }> = []
-  if (today.length) out.push({ key: 'today', items: today })
-  if (week.length) out.push({ key: 'thisWeek', items: week })
-  if (earlier.length) out.push({ key: 'earlier', items: earlier })
-  return out
-})
-
-const current = computed(() =>
-  selected.value ? session.list.find((s) => s.session_id === selected.value) ?? null : null,
-)
-
-async function load() {
-  try {
-    await session.loadList()
-    // 默认选中最近一条
-    if (!selected.value && session.list.length) {
-      selected.value = [...session.list].sort(
-        (a, b) => b.session_updated_at - a.session_updated_at,
-      )[0].session_id
-    }
-  } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
-  }
+function formatTokens(n: number): string {
+  if (!n) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`
+  return String(n)
 }
 
-onMounted(load)
-watch(() => session.list.length, load)
-
-function openInChat() {
-  if (!selected.value) return
-  void router.push({ path: '/chat', query: { session: selected.value } })
-}
-
-async function rename(s: { session_id: string; session_title: string }) {
-  const title = window.prompt(t('common.rename'), s.session_title)
-  if (!title || title === s.session_title) return
-  busyId.value = s.session_id
+async function refresh() {
+  refreshing.value = true
   try {
-    await session.rename(s.session_id, title)
-    toast.ok(t('common.save'))
-  } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
+    await app.refreshSessions()
+    listKey.value += 1
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    busyId.value = ''
+    refreshing.value = false
   }
 }
 
-async function remove(s: { session_id: string }) {
-  if (busyId.value) return
-  busyId.value = s.session_id
+// 会话的落点是对话页：带上 path，由对话页按它载入这一条。
+async function openSession(path: string) {
   try {
-    await session.remove(s.session_id)
-    if (selected.value === s.session_id) selected.value = null
-    toast.ok(t('common.delete'))
-  } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
-  } finally {
-    busyId.value = ''
+    await router.push({ name: 'chat', query: { session: path } })
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   }
 }
 
-async function exportSession(s: { session_id: string; session_title: string }) {
-  if (busyId.value) return
-  const name = (s.session_title || t('chat.newSession')).replace(/[\\/:*?"<>|]/g, '-').slice(0, 60)
-  const target = await pickFileSave(t('chat.exportTitle'), `${name}.html`, '*.html')
-  if (!target) return
-  busyId.value = s.session_id
-  try {
-    const path = await api.sessions.exportHTML(s.session_id, target)
-    toast.ok(t('chat.noticeExport', { path }))
-  } catch (e) {
-    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
-  } finally {
-    busyId.value = ''
-  }
+function onChanged() {
+  void app.refreshSessions().catch((err: unknown) => {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  })
 }
 </script>
 
 <template>
-  <div class="view">
-    <PageHeader :title="t('sessions.title')" :subtitle="t('sessions.subtitle')">
-      <template #actions>
-        <el-button size="small" type="primary" @click="router.push('/chat')">
-          {{ t('chat.newSession') }}
-        </el-button>
-      </template>
-    </PageHeader>
-
-    <div class="body">
-      <div class="split">
-        <!-- 左：清单 -->
-        <div class="pane">
-          <el-input v-model="query" size="small" :placeholder="t('chat.searchSession')" clearable>
-            <template #prefix><AppIcon name="search" size="ic-xs" /></template>
-          </el-input>
-
-          <div v-if="!session.list.length" class="empty">
-            <span class="wb-tile"><AppIcon name="chat" size="ic-lg" /></span>
-            <b>{{ t('chat.noSessions') }}</b>
-            <p>{{ t('chat.noSessionsHint') }}</p>
-          </div>
-
-          <div v-for="g in groups" :key="g.key" class="grp">
-            <div class="wb-label grp-cap">{{ t(`chat.${g.key}`) }}</div>
-            <button
-              v-for="s in g.items"
-              :key="s.session_id"
-              type="button"
-              class="row"
-              :class="{ 'is-on': s.session_id === selected }"
-              @click="selected = s.session_id"
-            >
-              <span class="row-dot" :class="{ 'is-live': s.session_running }" />
-              <span class="row-tx">
-                <span class="row-name">{{ s.session_title || t('chat.newSession') }}</span>
-                <span class="row-meta">{{ fmtRel(s.session_updated_at) }}</span>
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <!-- 右：概要与操作 -->
-        <div class="pane detail">
-          <template v-if="current">
-            <h2 class="d-title">{{ current.session_title || t('chat.newSession') }}</h2>
-            <dl class="d-grid">
-              <div class="d-row">
-                <dt>{{ t('sessions.model') }}</dt>
-                <dd>{{ current.session_model || '—' }}</dd>
-              </div>
-              <div class="d-row">
-                <dt>{{ t('sessions.provider') }}</dt>
-                <dd>{{ current.session_provider || '—' }}</dd>
-              </div>
-              <div class="d-row">
-                <dt>{{ t('sessions.messages') }}</dt>
-                <dd>{{ current.session_message_count }}</dd>
-              </div>
-              <div class="d-row">
-                <dt>{{ t('sessions.tokens') }}</dt>
-                <dd>{{ current.session_total_tokens }}</dd>
-              </div>
-              <div class="d-row">
-                <dt>{{ t('sessions.cost') }}</dt>
-                <dd>{{ current.session_cost }}</dd>
-              </div>
-              <div class="d-row">
-                <dt>{{ t('sessions.workspace') }}</dt>
-                <dd class="d-path" :title="current.session_workspace">{{ current.session_workspace || '—' }}</dd>
-              </div>
-            </dl>
-
-            <div class="d-acts">
-              <el-button size="small" type="primary" @click="openInChat">
-                {{ t('sessions.open') }}
-              </el-button>
-              <el-button size="small" :disabled="!!busyId" @click="rename(current)">
-                {{ t('common.rename') }}
-              </el-button>
-              <el-button size="small" :disabled="!!busyId" @click="exportSession(current)">
-                {{ t('chat.exportTitle') }}
-              </el-button>
-              <el-popconfirm
-                :title="t('chat.deleteTitle')"
-                :confirm-button-text="t('common.delete')"
-                :cancel-button-text="t('common.cancel')"
-                width="220"
-                @confirm="remove(current)"
-              >
-                <template #reference>
-                  <el-button size="small" type="danger" plain :disabled="!!busyId">
-                    {{ t('common.delete') }}
-                  </el-button>
-                </template>
-              </el-popconfirm>
-            </div>
-          </template>
-
-          <div v-else class="empty">
-            <span class="wb-tile wb-tile--neutral"><AppIcon name="doc" size="ic-lg" /></span>
-            <b>{{ t('sessions.noSelection') }}</b>
-            <p>{{ t('sessions.noSelectionHint') }}</p>
-          </div>
-        </div>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1 class="page-title">{{ t('sessions.title') }}</h1>
+        <p class="page-sub">{{ t('sessions.subtitle', { engine: app.active }) }}</p>
       </div>
+      <div class="head-actions">
+        <div class="seg">
+          <button class="seg-btn" :class="{ active: scope === 'workspace' }" @click="scope = 'workspace'">
+            {{ t('sessions.thisWorkspace') }}
+          </button>
+          <button class="seg-btn" :class="{ active: scope === 'all' }" @click="scope = 'all'">
+            {{ t('sessions.allWorkspace') }}
+          </button>
+        </div>
+        <button
+          class="wb-btn icon ghost"
+          :class="{ 'is-loading': refreshing }"
+          :title="t('common.refresh')"
+          :disabled="refreshing"
+          @click="refresh"
+        >
+          <AppIcon name="refresh" :size="15" />
+        </button>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <section class="summary">
+        <div class="wb-sec-head">
+          <span class="wb-sec-title">{{ t('sessions.thisWorkspace') }}</span>
+          <span class="wb-mono summary-scope selectable" :title="app.workspace">{{ app.workspace }}</span>
+        </div>
+        <div class="stat-row">
+          <div class="wb-card card-pad stat">
+            <span class="wb-metric-label">{{ t('nav.sessions') }}</span>
+            <span class="wb-metric">{{ counts.sessions }}</span>
+          </div>
+          <div class="wb-card card-pad stat">
+            <span class="wb-metric-label">{{ t('sessions.messages') }}</span>
+            <span class="wb-metric">{{ counts.messages }}</span>
+          </div>
+          <div class="wb-card card-pad stat">
+            <span class="wb-metric-label">{{ t('sessions.tokens') }}</span>
+            <span class="wb-metric">{{ formatTokens(counts.tokens) }}</span>
+          </div>
+          <div class="wb-card card-pad stat">
+            <span class="wb-metric-label">{{ t('sessions.cost') }}</span>
+            <span class="wb-metric">${{ counts.cost.toFixed(2) }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="list-panel">
+        <SessionList
+          :key="`${scope}-${listKey}`"
+          :workspace-only="scope === 'workspace'"
+          @open="openSession"
+          @changed="onChanged"
+        />
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-.view {
+.page {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-width: 0;
   min-height: 0;
 }
-.body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--wb-sp-5);
-}
-.split {
-  display: grid;
-  grid-template-columns: minmax(240px, 320px) 1fr;
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: var(--wb-sp-4);
-  align-items: start;
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-4);
+  border-bottom: 1px solid var(--wb-line);
+  flex: none;
 }
-.pane {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
+
+.page-title {
+  margin: 0;
+  font-family: var(--wb-font-display);
+  font-size: var(--wb-fs-xl);
+  font-weight: 650;
+  color: var(--wb-ink);
 }
-.detail {
-  padding: var(--wb-sp-5);
-  border-radius: var(--wb-radius-xl);
-  border: 1px solid var(--wb-border);
-  background: var(--wb-elev-raised);
+
+.page-sub {
+  margin: 4px 0 0;
+  max-width: var(--wb-w-desc, 620px);
+  font-size: var(--wb-fs-sm);
+  line-height: 1.65;
+  color: var(--wb-mute);
 }
-.grp {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin-top: var(--wb-sp-2);
-}
-.grp-cap {
-  padding: var(--wb-sp-1) 0;
-}
-.row {
+
+.head-actions {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  width: 100%;
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  border-radius: var(--wb-radius-sm);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background var(--wb-dur) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
 }
-.row:hover {
-  background: var(--wb-elev-hover);
-  transform: translateX(2px);
+
+.seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r);
+  background: var(--wb-window);
 }
-.row:active {
-  transform: translateX(2px) scale(var(--wb-row-scale-press));
-}
-.row.is-on {
-  background: var(--wb-accent-tint);
-}
-.row-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-border-strong);
-  flex: none;
-}
-.row-dot.is-live {
-  background: var(--wb-live);
-  box-shadow: 0 0 0 3px var(--wb-accent-tint);
-}
-.row-tx {
+
+/* 分段控件不缩放：缩放会让相邻按钮互相挤动 */
+
+
+
+
+.page-body {
   flex: 1;
-  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  gap: var(--wb-sp-4);
+  padding: var(--wb-sp-4) var(--wb-sp-6) var(--wb-sp-6);
 }
-.row-name {
-  font-size: var(--wb-fs-sm);
-  font-weight: 600;
-  color: var(--wb-ink);
+
+.summary {
+  flex: none;
+}
+
+.summary-scope {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.row-meta {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.d-title {
-  font-family: var(--font-display);
-  font-size: var(--wb-fs-lg);
-  font-weight: 700;
-  color: var(--wb-ink);
-}
-.d-grid {
-  margin: var(--wb-sp-4) 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
-}
-.d-row {
-  display: flex;
-  align-items: baseline;
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: var(--wb-sp-3);
 }
-.d-row dt {
-  flex: none;
-  width: calc(88px * var(--wb-vw-scale));
-  font-size: var(--wb-fs-2xs);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--wb-muted);
-}
-.d-row dd {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-}
-.d-path {
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs) !important;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.d-acts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--wb-sp-2);
-  padding-top: var(--wb-sp-3);
-  border-top: 1px solid var(--wb-border);
-}
-.empty {
+
+/* 读数是纯文本：不套描边胶囊、不做悬停反馈 */
+.stat {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-8) var(--wb-sp-6);
-  text-align: center;
+  gap: 4px;
 }
-.empty b {
-  font-size: var(--wb-fs-md);
-  color: var(--wb-ink);
-}
-.empty p {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
+
+.list-panel {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r-lg);
+  background: var(--wb-surface);
+  overflow: hidden;
 }
 </style>

@@ -1,103 +1,54 @@
 <script setup lang="ts">
-// 模型选择面板：左栏服务商 + 右栏模型清单，顶部搜索跨服务商过滤。
-// 从 SessionChips 拆出：这里要做键盘导航与搜索，留在 chip 组件里会把它撑到 500 行外。
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+// 输入区的两个弹出菜单：`/` 命令 与 `@` 文件引用。
+// 键盘高亮自己算 scrollTop（scrollIntoView 会把外层页面一起滚）、
+// 菜单内滚动 / 点选项不让输入框丢焦点（焦点一丢 ↑↓ 与回车就失效）——必须自己实现。
+import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { ProviderVO } from '../../types/api'
-import AppIcon from '../common/AppIcon.vue'
-
-/** 面板里的一条模型（已带上它所属的服务商）。 */
-interface FlatModel {
-  /** 服务商 id */
-  provider_id: string
-  /** 服务商显示名 */
-  provider_name: string
-  /** 模型 id */
-  model_id: string
-  /** 模型显示名 */
-  model_name: string
-  /** 上下文窗口（0 = 未配置） */
-  model_context_window: number
-  /** 服务商或模型带思考档 */
-  model_reasoning: boolean
-  /** 支持图片输入 */
-  model_vision: boolean
-}
+import MentionBrowser from '@/components/chat/MentionBrowser.vue'
+import type { MenuItem } from '@/composables/useComposerMenu'
 
 const props = defineProps<{
-  /** 全部服务商（含各自的模型） */
-  providers: ProviderVO[]
-  /** 当前生效的服务商 id */
-  currentProvider: string
-  /** 当前生效的模型 id */
-  currentModel: string
-  /** 正在切换的目标（`provider/model`），切完前锁住整个面板 */
-  applying: string
+  kind: 'slash' | 'mention'
+  /** 斜杠菜单的候选项 */
+  items: MenuItem[]
+  /** 高亮到第几项 */
+  index: number
 }>()
 
 const emit = defineEmits<{
-  /** 选定一个模型 */
-  pick: [providerId: string, modelId: string]
-  /** 去服务商设置页 */
-  manage: []
+  pick: [item: MenuItem]
+  hover: [index: number]
+  close: []
+  /** @ 菜单选中了一个文件（相对路径 + 展示名） */
+  pickFile: [relPath: string, name: string]
 }>()
 
 const { t } = useI18n()
-const router = useRouter()
-
-/** 左栏高亮的服务商；搜索时失效（结果已跨服务商） */
-const vendor = ref(props.currentProvider || props.providers[0]?.provider_id || '')
-const query = ref('')
-const index = ref(0)
 const listEl = ref<HTMLElement | null>(null)
+/** @ 菜单的浏览器：它的键盘导航在它内部实现，这一层只把按键转下去。 */
+const mentionRef = ref<{ move: (d: number) => void; pickCurrent: () => boolean } | null>(null)
 
-const searching = computed(() => query.value.trim().length > 0)
-
-const activeModels = computed<FlatModel[]>(() => {
-  const p = props.providers.find((x) => x.provider_id === vendor.value)
-  if (!p) return []
-  return p.provider_models.map((m) => ({
-    provider_id: p.provider_id,
-    provider_name: p.provider_name || p.provider_id,
-    model_id: m.model_id,
-    model_name: m.model_name || m.model_id,
-    model_context_window: m.model_context_window,
-    model_reasoning: m.model_reasoning,
-    model_vision: m.model_vision,
-  }))
+defineExpose({
+  /** 键盘导航转给 @ 浏览器：列表在它那里，下标也在那里。 */
+  move: (delta: number) => mentionRef.value?.move(delta),
+  pickCurrent: () => mentionRef.value?.pickCurrent() ?? false,
 })
 
-/** 搜索结果：跨服务商，按「服务商名 · 模型名」匹配。 */
-const searchResults = computed<FlatModel[]>(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return []
-  const out: FlatModel[] = []
-  for (const p of props.providers) {
-    for (const m of p.provider_models) {
-      const hay = `${p.provider_name || p.provider_id} ${m.model_name} ${m.model_id}`.toLowerCase()
-      if (!hay.includes(q)) continue
-      out.push({
-        provider_id: p.provider_id,
-        provider_name: p.provider_name || p.provider_id,
-        model_id: m.model_id,
-        model_name: m.model_name || m.model_id,
-        model_context_window: m.model_context_window,
-        model_reasoning: m.model_reasoning,
-        model_vision: m.model_vision,
-      })
-    }
-  }
-  return out
-})
+// 键盘移动之后要把高亮项带进可视区。
+// index 变化由父组件触发（按 ↑↓），这里只负责让它真的看得见。
+watch(
+  () => props.index,
+  (i) => void nextTick(() => ensureVisible(i)),
+)
 
-/** 面板里真正显示的那一列。 */
-const shown = computed(() => (searching.value ? searchResults.value : activeModels.value))
-
-watch([query, vendor], () => (index.value = 0))
-
-/** 高亮行必须可见：否则键盘上下键在长清单里等于瞎走。 */
-function ensureVisible(i: number) {
+/**
+ * 把第 i 项带进可视区。
+ *
+ * 用容器自己的 scrollTop 算，而不是 el.scrollIntoView()：
+ * 后者会滚动所有可滚动的祖先，于是「菜单里按一下 ↓」把整个聊天区
+ * 一起挪走了 —— 用户看到的是页面跳了一下，而高亮项还没对准。
+ */
+function ensureVisible(i: number): void {
   const box = listEl.value
   if (!box) return
   const el = box.querySelector<HTMLElement>(`[data-idx="${i}"]`)
@@ -108,359 +59,196 @@ function ensureVisible(i: number) {
   else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight
 }
 
-function pickAt(i: number) {
-  const m = shown.value[i]
-  if (!m || props.applying) return
-  emit('pick', m.provider_id, m.model_id)
+/** @ 菜单选中了一个文件：原样交上去。 */
+function onMentionPick(relPath: string, name: string): void {
+  emit('pickFile', relPath, name)
 }
 
-function onKeydown(e: KeyboardEvent) {
-  const n = shown.value.length
-  if (e.key === 'ArrowDown' && n) {
-    e.preventDefault()
-    index.value = (index.value + 1) % n
-    void nextTick(() => ensureVisible(index.value))
-    return
-  }
-  if (e.key === 'ArrowUp' && n) {
-    e.preventDefault()
-    index.value = (index.value - 1 + n) % n
-    void nextTick(() => ensureVisible(index.value))
-    return
-  }
-  if (e.key === 'Enter' && n) {
-    e.preventDefault()
-    pickAt(Math.min(index.value, n - 1))
-    return
-  }
-  if (e.key === 'Escape') {
-    query.value = ''
-    return
-  }
-  // 搜索框有内容时，左右键在服务商之间切换不打断输入
-  if (e.key === 'Tab' && !searching.value) {
-    e.preventDefault()
-    const ids = props.providers.map((p) => p.provider_id)
-    const at = ids.indexOf(vendor.value)
-    vendor.value = ids[(at + 1) % ids.length] ?? ''
-  }
+/**
+ * 按住不放：不要让输入框丢焦点。
+ *
+ * 一旦焦点跑到按钮上，↑↓ 与回车就不再送到输入框，
+ * 键盘导航整套失效（keepFocus 专门挡掉这个坑）。
+ */
+function keepFocus(event: PointerEvent): void {
+  const el = event.target as HTMLElement | null
+  if (el?.closest('input, textarea')) return
+  event.preventDefault()
 }
 
-const searchEl = ref<HTMLInputElement | null>(null)
+// 键盘导航与悬停选择会打架：按 ↓ 让列表滚动，滚动把新的一行带到静止的
+// 指针底下，mouseenter 把高亮拽回去，列表看起来就「不跟着光标滚」。
+// 判据：滚动引发的 mouseenter 里指针坐标没变过——指针真的动了才算悬停选择。
+let lastHoverX = -1
+let lastHoverY = -1
 
-onMounted(() => {
-  void nextTick(() => searchEl.value?.focus())
-})
-
-// 面板随 chip 一起卸载；这里只清掉自动聚焦留下的光标位置，不需额外监听
-onBeforeUnmount(() => {
-  query.value = ''
-})
-
-/** 当前选中的那一条（用于打勾）。 */
-function isCurrent(m: FlatModel): boolean {
-  return m.provider_id === props.currentProvider && m.model_id === props.currentModel
+function onHover(index: number, event: MouseEvent): void {
+  const moved = event.screenX !== lastHoverX || event.screenY !== lastHoverY
+  lastHoverX = event.screenX
+  lastHoverY = event.screenY
+  if (moved) emit('hover', index)
 }
 
-function contextOf(m: FlatModel): string {
-  return m.model_context_window ? `${Math.round(m.model_context_window / 1000)}k` : ''
-}
-
-function goManage() {
-  emit('manage')
-  void router.push('/models')
+/** 来源标签：内置由界面直接执行，引擎的只是填进输入框。 */
+function tagClass(source: MenuItem['source']): string {
+  return source === 'builtin' ? 'is-builtin' : 'is-engine'
 }
 </script>
 
 <template>
-  <div class="menu" @keydown="onKeydown">
-    <div class="menu-head">
-      <span class="wb-label">{{ t('chat.modelPickerTitle') }}</span>
-      <button class="menu-link" type="button" @click="goManage">{{ t('chat.goProviders') }}</button>
-    </div>
-
-    <div class="menu-search">
-      <AppIcon name="search" size="ic-2xs" class="ms-icon" />
-      <input
-        ref="searchEl"
-        v-model="query"
-        class="ms-input"
-        :placeholder="t('chat.modelSearchPlaceholder')"
-      />
-      <button v-if="searching" class="ms-clear" type="button" @click="query = ''">
-        <AppIcon name="close" size="ic-2xs" />
+  <!-- 菜单贴着输入框上沿往上弹，左右各留一点边距，
+       弹面板用 pointerdown 保焦：按钮按下的一瞬间就 preventDefault。 -->
+  <div class="pop menu-pop" @pointerdown="keepFocus">
+    <!-- listEl 是 ensureVisible 的滚动容器：高亮要跟手，全靠量它自己的 scrollTop -->
+    <div v-if="props.kind === 'slash'" ref="listEl" class="pop-list">
+      <!-- 没有匹配项时也要给一句话：菜单默默消失看起来像按了没反应 -->
+      <p v-if="!props.items.length" class="pop-hint pop-empty">{{ t('chat.slashNoMatch') }}</p>
+      <button
+        v-for="(item, index) in props.items"
+        :key="item.source + item.key"
+        :data-idx="index"
+        type="button"
+        class="pop-row"
+        :class="{ 'is-hi': index === props.index }"
+        @mouseenter="onHover(index, $event)"
+        @click="emit('pick', item)"
+      >
+        <span class="pop-grow">
+          <b class="pop-t">/{{ item.name }}</b>
+          <span class="pop-d">{{ item.desc }}</span>
+        </span>
+        <span class="pop-tag" :class="tagClass(item.source)">
+          {{ item.source === 'builtin' ? t('chat.slashBuiltin') : t('chat.slashEngine') }}
+        </span>
       </button>
+      <p class="pop-hint">{{ t('chat.slashHint') }}</p>
     </div>
 
-    <div v-if="!providers.length" class="menu-empty">{{ t('chat.noProviders') }}</div>
-
-    <div v-else class="menu-body">
-      <div v-if="!searching" class="menu-vendors">
-        <button
-          v-for="p in providers"
-          :key="p.provider_id"
-          class="mv"
-          type="button"
-          :class="{ 'is-on': p.provider_id === vendor }"
-          @click="vendor = p.provider_id"
-        >
-          <span class="mv-avatar">{{ (p.provider_name || p.provider_id).slice(0, 1).toUpperCase() }}</span>
-          <span class="mv-name">{{ p.provider_name || p.provider_id }}</span>
-          <span class="mv-count">{{ p.provider_models.length }}</span>
-        </button>
-      </div>
-
-      <div ref="listEl" class="menu-models">
-        <div v-if="searching" class="menu-hint">
-          {{ t('chat.modelSearchCount', { n: shown.length }) }}
-        </div>
-        <button
-          v-for="(m, i) in shown"
-          :key="`${m.provider_id}/${m.model_id}`"
-          :data-idx="i"
-          class="mm"
-          type="button"
-          :class="{ 'is-on': isCurrent(m), 'is-hi': i === index, 'is-busy': applying === `${m.provider_id}/${m.model_id}` }"
-          :disabled="!!applying"
-          @mouseenter="index = i"
-          @click="pickAt(i)"
-        >
-          <span class="mm-body">
-            <span class="mm-name">{{ m.model_name }}</span>
-            <span v-if="searching" class="mm-prov">{{ m.provider_name }}</span>
-          </span>
-          <span class="mm-meta">
-            <span v-if="contextOf(m)">{{ contextOf(m) }}</span>
-            <span v-if="m.model_vision">img</span>
-            <span v-if="m.model_reasoning">think</span>
-          </span>
-          <AppIcon v-if="isCurrent(m)" name="check" size="ic-2xs" class="mm-check" />
-        </button>
-        <div v-if="!shown.length" class="menu-empty">
-          {{ searching ? t('chat.modelSearchEmpty') : t('common.empty') }}
-        </div>
-      </div>
-    </div>
-
-    <div class="menu-foot">{{ t('chat.modelMenuHint') }}</div>
+    <!-- MentionBrowser 的 pick 带两个参数（相对路径 + 展示名），
+         模板里的 $event 只能接到第一个，所以走一个具名处理函数。 -->
+    <MentionBrowser v-else ref="mentionRef" @pick="onMentionPick" />
   </div>
 </template>
 
 <style scoped>
-.menu {
-  width: calc(500px * var(--wb-vw-scale));
+.pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% - var(--wb-sp-2));
+  max-height: 340px;
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-2);
-}
-.menu-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.menu-link {
-  font-size: var(--wb-fs-2xs);
-  font-weight: 700;
-  color: var(--wb-primary);
-}
-.menu-link:hover {
-  text-decoration: underline;
-}
-.menu-search {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  height: var(--wb-ctl-h-sm);
-  padding: 0 var(--wb-sp-2);
-  border: 1px solid var(--wb-border);
-  border-radius: var(--wb-radius-sm);
-  background: var(--wb-elev-raised);
-  transition: border-color var(--wb-dur) var(--wb-ease);
-}
-.menu-search:focus-within {
-  border-color: var(--wb-primary);
-}
-.ms-icon {
-  color: var(--wb-muted);
-  flex: none;
-}
-.ms-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--wb-ink);
-  font-size: var(--wb-fs-sm);
-}
-.ms-clear {
-  display: grid;
-  place-items: center;
-  width: calc(18px * var(--wb-vw-scale));
-  height: calc(18px * var(--wb-vw-scale));
-  border-radius: var(--wb-radius-full);
-  color: var(--wb-muted);
-  flex: none;
-  transition: background var(--wb-dur-fast) var(--wb-ease);
-}
-.ms-clear:hover {
-  background: var(--wb-elev-hover);
-  color: var(--wb-ink);
-}
-.menu-body {
-  display: grid;
-  grid-template-columns: calc(176px * var(--wb-vw-scale)) 1fr;
-  max-height: calc(340px * var(--wb-vw-scale));
-  border: 1px solid var(--wb-border);
-  border-radius: var(--wb-radius);
   overflow: hidden;
-}
-.menu-body:has(.menu-models:only-child) {
-  grid-template-columns: 1fr;
-}
-.menu-vendors {
-  background: var(--wb-elev-hover);
-  border-right: 1px solid var(--wb-border);
-  overflow-y: auto;
   padding: var(--wb-sp-1);
+  border: 1px solid var(--wb-line-strong);
+  border-radius: var(--wb-r-lg);
+  background: var(--wb-surface);
+  box-shadow: var(--wb-shadow-lift);
+  animation: pop-in var(--wb-dur-fast) var(--wb-ease);
+  z-index: 20;
 }
-.mv {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-2);
-  border-radius: var(--wb-radius-sm);
-  color: var(--wb-ink-2);
-  font-size: var(--wb-fs-sm);
-  text-align: left;
-  transition:
-    background var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-.mv:hover {
-  background: var(--wb-tint);
-  transform: scale(1.02);
-}
-.mv:active {
-  transform: scale(var(--wb-row-scale-press));
-}
-.mv.is-on {
-  background: var(--wb-accent-tint);
-  color: var(--wb-primary);
-}
-.mv-avatar {
-  display: grid;
-  place-items: center;
-  width: calc(22px * var(--wb-vw-scale));
-  height: calc(22px * var(--wb-vw-scale));
-  border-radius: var(--wb-radius-xs);
-  background: var(--wb-elev-raised);
-  border: 1px solid var(--wb-border);
-  font-size: var(--wb-fs-2xs);
-  font-weight: 700;
-  flex: none;
-}
-.mv-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mv-count {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  flex: none;
-}
-.menu-models {
-  overflow-y: auto;
-  padding: var(--wb-sp-1);
-  min-height: 0;
-}
-.menu-hint {
-  padding: 0 var(--wb-sp-2) var(--wb-sp-1);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.mm {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  width: 100%;
-  padding: var(--wb-sp-2);
-  border-radius: var(--wb-radius-sm);
-  text-align: left;
-  transition:
-    background var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-.mm:hover:not(:disabled),
-.mm.is-hi:not(:disabled) {
-  background: var(--wb-accent-tint);
-  transform: scale(1.01);
-}
-.mm:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.mm.is-busy {
-  opacity: 1;
-  background: var(--wb-accent-tint);
-}
-.mm-body {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-.mm-name {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mm.is-on .mm-name {
-  font-weight: 700;
-  color: var(--wb-primary);
-}
-.mm-prov {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mm-meta {
-  display: flex;
-  gap: var(--wb-sp-1);
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.mm-check {
-  flex: none;
-  color: var(--wb-primary);
-}
-.menu-empty {
-  padding: var(--wb-sp-6) var(--wb-sp-4);
-  text-align: center;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-}
-.menu-foot {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  text-align: center;
-}
-@media (prefers-reduced-motion: reduce) {
-  .mv:hover,
-  .mv:active,
-  .mm:hover:not(:disabled),
-  .mm.is-hi:not(:disabled) {
-    transform: none;
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
+}
+
+/* 滚动在列表层而不是弹层上：上面 ensureVisible 要靠它自己的 scrollTop 算可视区 */
+.pop-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pop-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  width: 100%;
+  padding: 5px var(--wb-sp-2);
+  border: 0;
+  border-radius: var(--wb-r-sm);
+  background: transparent;
+  color: var(--wb-ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
+}
+
+.pop-row:hover,
+.pop-row.is-hi {
+  background: var(--wb-brand-soft);
+  color: var(--wb-brand);
+}
+
+.pop-grow {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pop-t {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-xs);
+  font-weight: 650;
+  color: inherit;
+}
+
+.pop-d {
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pop-tag {
+  flex: none;
+  font-size: var(--wb-fs-3xs);
+  padding: 0 5px;
+  border-radius: var(--wb-r-full);
+}
+
+/* 内置与引擎两套来源要能一眼分开：内置是直接执行的动作，
+   引擎命令只是把名字填进输入框，两者的后果不同。 */
+.pop-tag.is-builtin {
+  background: var(--wb-brand-soft);
+  color: var(--wb-brand);
+}
+
+.pop-tag.is-engine {
+  border: 1px solid var(--wb-line);
+  color: var(--wb-mute);
+}
+
+.pop-hint {
+  margin: var(--wb-sp-1) 0 0;
+  padding: 2px var(--wb-sp-2) 0;
+  border-top: 1px solid var(--wb-line);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  font-family: var(--wb-font-mono);
+}
+
+/* 「没有匹配」与底部的提示句不同：它居中，不带那条分隔线 */
+.pop-empty {
+  margin: 0;
+  padding: var(--wb-sp-4) var(--wb-sp-3);
+  border-top: 0;
+  text-align: center;
+  font-family: var(--wb-font-sans);
+}
+
+/* @ 菜单有自己的头部与搜索框，不需要 pop-list 那层包裹 */
+.menu-pop:has(.mention) {
+  padding: var(--wb-sp-1);
 }
 </style>

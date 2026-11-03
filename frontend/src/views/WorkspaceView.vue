@@ -1,366 +1,402 @@
-﻿<script setup lang="ts">
-// 工作区视图：助手改了哪些文件、改了什么、这个仓库发生过什么，以及把改动收成一次提交。
-// 读全开放（status / diff / 历史），写受控六动作（docs/WORKSPACE.md）——提交这一下始终由用户点下去。
-import { computed, onMounted, ref, watch } from 'vue'
+<script setup lang="ts">
+// 工作区页：文件树 + 改动清单 + 差异 + 提交/分支。
+// 回答「助手到底改了什么，能不能收成一次提交」：读全开放，写只做白名单动作；
+// 没有 git 或不是仓库时显示原因与「初始化」，不显示空表格。
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import * as api from '../api'
-import { useSessionStore } from '../stores/session'
-import { useToastStore } from '../stores/toast'
-import type { GitDiffVO, GitFileVO, GitStatusVO } from '../types/api'
-import AppIcon from '../components/common/AppIcon.vue'
-import PageHeader from '../components/layout/PageHeader.vue'
-import DiffView from '../components/workspace/DiffView.vue'
-import GitBranchPanel from '../components/workspace/GitBranchPanel.vue'
-import GitCommitPanel from '../components/workspace/GitCommitPanel.vue'
-import GitHistoryPanel from '../components/workspace/GitHistoryPanel.vue'
-import GitStateBanner from '../components/workspace/GitStateBanner.vue'
-import FileTree from '../components/workspace/FileTree.vue'
-import GitChangesPane from '../components/workspace/GitChangesPane.vue'
-import { errorText } from '../utils/errors'
+import AppIcon from '@/components/common/AppIcon.vue'
+import DiffView from '@/components/workspace/DiffView.vue'
+import FilePanel from '@/components/workspace/FilePanel.vue'
+import GitBar from '@/components/workspace/GitBar.vue'
+import GitChangesPane from '@/components/workspace/GitChangesPane.vue'
+import GitCommitPanel from '@/components/workspace/GitCommitPanel.vue'
+import HistoryPanel from '@/components/workspace/HistoryPanel.vue'
+import { api } from '@/api/http'
+import { useAppStore } from '@/stores/app'
+import { useToasts } from '@/composables/useToasts'
+import { useGitActions } from '@/composables/useGitActions'
+import type { GitBranch, GitCommit, GitDiff, GitFile, GitStatus } from '@/types/api'
 
 const { t } = useI18n()
-const toast = useToastStore()
-const session = useSessionStore()
+const app = useAppStore()
+const toasts = useToasts()
 
-// 看的是当前会话的工作目录：会话自己选过目录时，全局目录不是改动发生的地方
-const sessionId = computed(() => session.current?.session_id || '')
+const status = ref<GitStatus | null>(null)
+const diff = ref<GitDiff | null>(null)
+const branches = ref<GitBranch[]>([])
+const history = ref<GitCommit[]>([])
 
-const status = ref<GitStatusVO | null>(null)
-const diff = ref<GitDiffVO | null>(null)
-const loading = ref(true)
-const error = ref('')
-const selected = ref('')
+const loadingStatus = ref(false)
 const loadingDiff = ref(false)
+const selected = ref('')
+const committing = ref(false)
+// 提交框自己持有正在写的说明，这里只需要在提交成功后叫它清空。
+const commitPanel = ref<{ reset: () => void } | null>(null)
+const tab = ref<'changes' | 'history'>('changes')
+// 文件时间线：选中一个文件就看它的历史，空串表示看整个仓库。
+// 它与「差异选中」是同一份 selected——用户点的就是一个文件，不该分两处。
+const historyFile = ref('')
+// 文件树默认展开：它是“我要看哪个文件”最快的入口。但窗口窄时三栏挤不下，
+// 容器查询会把它整个收起来，需要时再用页头的按钮叫回来。
+const filesOpen = ref(true)
 
-const files = computed<GitFileVO[]>(() => status.value?.git_files || [])
-const readable = computed(() => !!status.value?.git_available && !!status.value?.git_is_repo)
+const unstaged = computed(() => (status.value?.changed_files ?? []).filter((f) => !f.staged))
+const staged = computed(() => (status.value?.changed_files ?? []).filter((f) => f.staged))
+const conflicts = computed(() => (status.value?.changed_files ?? []).filter((f) => f.conflict))
 
-async function load() {
-  loading.value = true
-  error.value = ''
+async function loadStatus() {
+  loadingStatus.value = true
   try {
-    status.value = await api.git.status(sessionId.value)
-    await openDiff('')
-  } catch (e) {
-    status.value = null
-    error.value = errorText(e)
+    status.value = await api.gitStatus()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    loading.value = false
+    loadingStatus.value = false
   }
 }
 
-async function openDiff(path: string) {
-  selected.value = path
+async function loadDiff(path = selected.value) {
+  if (!status.value?.is_repo) return
   loadingDiff.value = true
   try {
-    diff.value = await api.git.diff(path, sessionId.value)
-  } catch (e) {
-    toast.bad(t('common.loadFailed', { msg: errorText(e) }))
+    diff.value = await api.gitDiff(path)
+  } catch {
     diff.value = null
   } finally {
     loadingDiff.value = false
   }
 }
 
-onMounted(() => {
-  if (!session.current) void session.loadList()
-  void load()
-})
-watch(sessionId, load)
-
-const TABS = [
-  { key: 'changes', labelKey: 'workspace.changes' },
-  { key: 'commit', labelKey: 'workspace.commit' },
-  { key: 'history', labelKey: 'workspace.history' },
-  { key: 'branch', labelKey: 'workspace.branches' },
-]
-const tab = ref('changes')
-
-// 写操作后由子面板回传重读的状态：整页用同一份数据刷新
-async function afterWrite(st: GitStatusVO) {
-  status.value = st
-  if (tab.value === 'changes') await openDiff('')
-}
-
-// 不是仓库时给一条可执行的下一步：界面不能只告诉用户「这里用不了」
-const initName = ref('main')
-const initing = ref(false)
-async function initRepo() {
-  initing.value = true
+async function loadExtras() {
+  if (!status.value?.is_repo) {
+    branches.value = []
+    history.value = []
+    return
+  }
   try {
-    status.value = await api.git.init(initName.value.trim() || 'main', sessionId.value)
-    toast.ok(t('workspace.initOk'))
-    await load()
-  } catch (e) {
-    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
-  } finally {
-    initing.value = false
+    branches.value = await api.gitBranches()
+  } catch {
+    branches.value = []
+  }
+  try {
+    history.value = await api.gitHistory(40)
+  } catch {
+    history.value = []
   }
 }
 
-// 冲突文件逐个标记已解决：git 只在标记之后才接受提交
-const resolving = ref('')
-async function resolveOne(path: string) {
-  resolving.value = path
+async function refresh() {
+  await loadStatus()
+  await Promise.all([loadDiff(), loadExtras()])
+}
+
+function pick(file: GitFile) {
+  selected.value = file.file_path
+  void loadDiff(file.file_path)
+}
+
+/** 切到历史标签并只看这个文件。 */
+function showFileHistory(filePath: string) {
+  selected.value = filePath
+  historyFile.value = filePath
+  tab.value = 'history'
+}
+
+// 写动作全部收口在 useGitActions 里：它们共享同一套后果处理
+// （挂 loading → 重拉 → 失败给原文），散着写迟早有哪个忘了重拉。
+const git = useGitActions(() => status.value, refresh)
+
+async function stageAll() {
+  await git.stageAll(unstaged.value)
+}
+
+async function stage(file: GitFile) {
+  await git.stage(file)
+}
+
+async function unstage(file: GitFile) {
+  await git.unstage(file)
+}
+
+async function discard(file: GitFile) {
+  await git.discard(file)
+}
+
+async function resolveConflicts() {
+  await git.resolveConflicts(conflicts.value)
+}
+
+async function resolveOne(file: GitFile) {
+  await git.resolve(file)
+}
+
+async function commit(text: string) {
+  if (!text.trim() || !staged.value.length || committing.value) return
+  committing.value = true
   try {
-    status.value = await api.git.resolve([path], sessionId.value)
-    toast.ok(t('workspace.conflictResolveOk', { n: 1 }))
-  } catch (e) {
-    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
+    const result = await api.gitCommit(text)
+    status.value = result.status
+    commitPanel.value?.reset()
+    toasts.push('ok', t('workspace.committed', { hash: result.commit_hash.slice(0, 7) }))
+    await Promise.all([loadDiff(), loadExtras()])
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    resolving.value = ''
+    committing.value = false
   }
 }
 
-// 远端地址：没配远端时推送根本无处可去，这一步不能只留在命令行
-const remoteOpen = ref(false)
-const remoteName = ref('origin')
-const remoteUrl = ref('')
-const remoteBusy = ref(false)
-async function addRemote() {
-  remoteBusy.value = true
-  try {
-    status.value = await api.git.addRemote(
-      remoteName.value.trim(),
-      remoteUrl.value.trim(),
-      sessionId.value,
-    )
-    toast.ok(t('workspace.remoteAddOk', { name: remoteName.value.trim() }))
-    remoteOpen.value = false
-    remoteUrl.value = ''
-  } catch (e) {
-    toast.bad(errorText(e) || t('common.saveFailed', { msg: '' }))
-  } finally {
-    remoteBusy.value = false
-  }
-}
+onMounted(refresh)
 </script>
 
 <template>
-  <div class="view">
-    <PageHeader :title="t('workspace.title')" :subtitle="t('workspace.subtitle')">
-      <template #actions>
-        <el-button size="small" :loading="loading" @click="load">
-          <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
-          <span class="ml-1">{{ t('workspace.reload') }}</span>
-        </el-button>
-      </template>
-    </PageHeader>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1 class="page-title">{{ t('workspace.title') }}</h1>
+        <p class="page-sub mono selectable">{{ app.workspace }}</p>
+      </div>
+      <div class="head-actions">
+        <span v-if="status?.is_repo" class="tag" :class="status.conflict ? 'warn' : ''">
+          <AppIcon name="branch" :size="11" />
+          {{ status.branch_name || t('workspace.noCommit') }}
+        </span>
+        <span v-if="status?.is_repo && status.upstream_ref" class="readout">
+          ↑{{ status.ahead }} ↓{{ status.behind }}
+        </span>
+        <button
+          class="wb-btn icon ghost"
+          :class="{ on: filesOpen }"
+          :title="t('workspace.fileTree')"
+          @click="filesOpen = !filesOpen"
+        >
+          <AppIcon name="folder" :size="15" />
+        </button>
+        <button class="wb-btn icon ghost" :class="{ 'is-loading': loadingStatus }" :title="t('common.refresh')" @click="refresh">
+          <AppIcon name="refresh" :size="15" />
+        </button>
+      </div>
+    </header>
 
-    <div class="body">
-      <div v-if="loading && !status" class="wb-card pad">
-        <el-skeleton animated :rows="6" />
+    <!-- 不可用：说清原因与下一步 -->
+    <div v-if="status && !status.available" class="notice">
+      <span class="dot warn" />
+      <span>{{ status.unavailable_reason }}</span>
+    </div>
+
+    <div v-else-if="status && !status.is_repo" class="notice">
+      <span class="dot warn" />
+      <span>{{ t('workspace.notRepo') }}</span>
+      <button class="wb-btn sm" :class="{ 'is-loading': git.pending.value === 'init' }" :disabled="Boolean(git.pending.value)" @click="git.initRepo">
+        {{ t('workspace.init') }}
+      </button>
+    </div>
+
+    <template v-else-if="status">
+      <!-- 中间态横幅：冲突时的处置入口 -->
+      <div v-if="status.repo_state !== 'none' || status.conflict" class="notice warn">
+        <span class="dot warn" />
+        <span>{{ status.repo_state_detail || t('workspace.inProgress') }}</span>
+        <button class="wb-btn sm" :class="{ 'is-loading': git.pending.value === 'resolve' }" :disabled="!conflicts.length || Boolean(git.pending.value)" @click="resolveConflicts">
+          {{ t('workspace.markResolved') }}
+        </button>
+        <button class="wb-btn sm" :class="{ 'is-loading': git.pending.value === 'state:continue' }" :disabled="Boolean(git.pending.value)" @click="git.stateAction('continue')">
+          {{ t('workspace.continue') }}
+        </button>
+        <button class="wb-btn sm danger" :class="{ 'is-loading': git.pending.value === 'state:abort' }" :disabled="Boolean(git.pending.value)" @click="git.stateAction('abort')">
+          {{ t('workspace.abort') }}
+        </button>
       </div>
 
-      <div v-else-if="error" class="wb-card empty-box">
-        <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="alert" size="ic-xl" /></span>
-        <b>{{ t('errors.generic') }}</b>
-        <p>{{ error }}</p>
-        <el-button size="small" @click="load">{{ t('common.retry') }}</el-button>
+      <!-- 版本栏：分支 / 上游 / 领先落后 / 同步动作。
+           它放在三栏之上，因为「在哪个分支」决定了下面每一栏的语境。 -->
+      <div class="bar-wrap">
+        <GitBar
+          :status="status"
+          :pending="git.pending.value"
+          @fetch="git.fetchRemote"
+          @pull="git.pull"
+          @push="git.push"
+          @add-remote="git.addRemote"
+        />
       </div>
 
-      <div v-else-if="!readable" class="wb-card empty-box">
-        <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="git-branch" size="ic-xl" /></span>
-        <b>{{ status?.git_reason || t('workspace.notRepo') }}</b>
-        <p>{{ t('workspace.initRepoHint') }}</p>
-        <p class="wb-mono">{{ status?.git_workspace }}</p>
-        <div v-if="status?.git_available" class="init-box">
-          <el-input v-model="initName" size="small" class="init-name" :placeholder="t('workspace.initBranch')" />
-          <el-button size="small" type="primary" :loading="initing" @click="initRepo">
-            {{ t('workspace.initRepo') }}
-          </el-button>
+      <div class="split" :class="{ 'no-files': !filesOpen }">
+        <!-- 左：文件树。默认展开，但只是一个“找文件”的入口：
+             真正看改动的地方是右边两栏。 -->
+        <FilePanel v-if="filesOpen" class="pane-files" />
+
+        <!-- 中：改动 + 提交 -->
+        <div class="pane-mid">
+          <div class="tabs seg">
+            <button class="seg-btn" :class="{ active: tab === 'changes' }" @click="tab = 'changes'">
+              {{ t('workspace.changes') }}
+              <span v-if="status.changed_files.length" class="count">{{ status.changed_files.length }}</span>
+            </button>
+            <button class="seg-btn" :class="{ active: tab === 'history' }" @click="tab = 'history'">
+              {{ t('workspace.history') }}
+              <span v-if="history.length" class="count">{{ history.length }}</span>
+            </button>          </div>
+
+          <div v-if="tab === 'changes'" class="mid-body">
+            <GitChangesPane
+              :staged="staged"
+              :unstaged="unstaged"
+              :selected="selected"
+              :pending="git.pending.value"
+              @pick="pick"
+              @stage="stage"
+              @unstage="unstage"
+              @discard="discard"
+              @resolve="resolveOne"
+              @stage-all="stageAll"
+              @history="(file) => showFileHistory(file.file_path)"
+            />
+
+            <GitCommitPanel
+              ref="commitPanel"
+              :branches="branches"
+              :staged-count="staged.length"
+              :committing="committing"
+              :pending="git.pending.value"
+              @commit="commit"
+              @create-branch="git.createBranch"
+              @switch-branch="git.switchBranch"
+              @delete-branch="git.deleteBranch"
+              @merge-branch="git.mergeBranch"
+            />
+          </div>
+
+          <div v-else class="mid-body history-body">
+            <HistoryPanel :commits="history" :file="historyFile" @clear-file="historyFile = ''" />
+          </div>
         </div>
+
+        <!-- 右：差异 -->
+        <DiffView class="pane-diff" :diff="diff" :path="selected" :loading="loadingDiff" />
       </div>
+    </template>
 
-      <template v-else>
-        <GitStateBanner :status="status" :session-id="sessionId" @done="afterWrite" />
-
-        <div class="git-bar">
-          <span class="gb-branch">
-            <AppIcon name="git-branch" size="ic-xs" />
-            {{ status?.git_branch || '—' }}
-          </span>
-          <span v-if="status?.git_upstream" class="gb-up wb-mono" :title="status.git_upstream">
-            {{ status.git_upstream }}
-          </span>
-          <el-tag v-if="status?.git_ahead" size="small" type="primary">
-            {{ t('workspace.ahead', { n: status.git_ahead }) }}
-          </el-tag>
-          <el-tag v-if="status?.git_behind" size="small" type="warning">
-            {{ t('workspace.behind', { n: status.git_behind }) }}
-          </el-tag>
-          <span class="sp" />
-          <el-button size="small" text @click="initName = ''; remoteOpen = !remoteOpen">
-            {{ t('workspace.remoteAdd') }}
-          </el-button>
-          <span class="gb-path wb-mono" :title="status?.git_workspace || ''">{{ status?.git_workspace }}</span>
-        </div>
-
-        <div v-if="remoteOpen" class="wb-card pad remote-form">
-          <span class="wb-label">{{ t('workspace.remoteAdd') }}</span>
-          <el-input v-model="remoteName" size="small" class="rf-name" :placeholder="t('workspace.remoteName')" />
-          <el-input v-model="remoteUrl" size="small" class="wb-mono" :placeholder="t('workspace.remoteUrl')" />
-          <el-button size="small" type="primary" :loading="remoteBusy" @click="addRemote">
-            {{ t('common.create') }}
-          </el-button>
-          <el-button size="small" @click="remoteOpen = false">{{ t('common.cancel') }}</el-button>
-          <p class="rf-hint">{{ t('workspace.remoteUrlHint') }}</p>
-        </div>
-
-        <el-tabs v-model="tab" class="git-tabs">
-          <el-tab-pane v-for="tt in TABS" :key="tt.key" :label="t(tt.labelKey)" :name="tt.key" />
-        </el-tabs>
-
-        <div v-if="tab === 'commit'" class="wb-card pad">
-          <GitCommitPanel :status="status" :session-id="sessionId" @done="afterWrite" />
-        </div>
-
-        <div v-else-if="tab === 'history'" class="wb-card pad">
-          <GitHistoryPanel :session-id="sessionId" />
-        </div>
-
-        <div v-else-if="tab === 'branch'" class="wb-card pad">
-          <GitBranchPanel :session-id="sessionId" :status="status" @done="afterWrite" />
-        </div>
-
-        <div v-else class="changes">
-          <FileTree class="pane-files" />
-
-          <GitChangesPane
-            :files="files"
-            :selected="selected"
-            :resolving="resolving"
-            @pick="openDiff"
-            @resolve="resolveOne"
-          />
-
-          <DiffView
-            :lines="diff?.git_lines || []"
-            :path="diff?.git_diff_path || ''"
-            :truncated="!!diff?.git_truncated"
-            :dropped="diff?.git_dropped || 0"
-            :loading="loadingDiff"
-          />
-        </div>
-
-      </template>
+    <div v-else class="empty">
+      <span class="dot busy" />
+      {{ t('common.loading') }}
     </div>
   </div>
 </template>
 
 <style scoped>
-.view {
+.page {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-width: 0;
   min-height: 0;
 }
-.body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--wb-sp-5);
+.page-head {
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: var(--wb-sp-4);
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-4);
+  border-bottom: 1px solid var(--wb-line);
+  flex: none;
 }
-.pad {
-  padding: var(--wb-sp-4);
-}
-.git-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  border-radius: var(--wb-radius);
-  background: var(--wb-elev-raised);
-  border: 1px solid var(--wb-border);
-  font-size: var(--wb-fs-xs);
-}
-.gb-branch {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--wb-sp-1);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  color: var(--wb-primary);
-}
-.gb-up {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  max-width: calc(160px * var(--wb-vw-scale));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.gb-path {
-  max-width: 46%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.init-box {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  margin-top: var(--wb-sp-2);
-  animation: wb-sink var(--wb-dur) var(--wb-ease);
-}
-.init-name {
-  width: calc(150px * var(--wb-vw-scale));
-}
-.remote-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  animation: wb-sink var(--wb-dur) var(--wb-ease);
-}
-.rf-name {
-  width: calc(120px * var(--wb-vw-scale));
-}
-.rf-hint {
-  width: 100%;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.empty-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-10) var(--wb-sp-6);
-  text-align: center;
-}
-.empty-box b {
-  font-size: var(--wb-fs-md);
+.page-title {
+  margin: 0;
+  font-family: var(--wb-font-display);
+  font-size: var(--wb-fs-xl);
+  font-weight: 650;
   color: var(--wb-ink);
 }
-.empty-box p {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-  max-width: calc(440px * var(--wb-vw-scale));
-  line-height: var(--wb-lh-base);
+.page-sub {
+  margin: 4px 0 0;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-faint);
 }
-.sp {
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+}
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  margin: var(--wb-sp-4) var(--wb-sp-6) 0;
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r);
+  background: var(--wb-surface);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-ink);
+  flex-wrap: wrap;
+  flex: none;
+}
+.notice.warn {
+  border-color: var(--wb-warn);
+  background: var(--wb-warn-soft);
+}
+.split {
   flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 210px minmax(280px, 1fr) minmax(320px, 1.2fr);
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-4) var(--wb-sp-6) var(--wb-sp-5);
+  overflow: hidden;
 }
-.ml-1 {
-  margin-left: var(--wb-sp-1);
+
+/* 文件树收起来时把那一列让给改动与差异 */
+.split.no-files {
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.3fr);
 }
-@media (max-width: 1180px) {
-  .changes {
-    grid-template-columns: minmax(0, 180px) minmax(0, 260px) minmax(0, 1fr);
+
+/* 版本栏的位置：贴着页头，横跨整个内容区 */
+.bar-wrap {
+  padding: var(--wb-sp-4) var(--wb-sp-6) 0;
+  flex: none;
+}
+
+/* 窄窗口下三栏放不下：文件树让出宽度，diff 保住最小可用宽度。
+   低于 980px 时左栏只剩 176px（只够看目录名），再窄就完全交给用户自己收。 */
+@container app (max-width: 980px) {
+  .split {
+    grid-template-columns: 168px minmax(200px, 1fr) minmax(240px, 1fr);
+    padding: var(--wb-sp-3) var(--wb-sp-4);
+  }
+  .split.no-files {
+    grid-template-columns: minmax(200px, 1fr) minmax(240px, 1fr);
   }
 }
-/* 窄窗口下三栏挤不下：文件树让位，保住改动清单与 diff 的可用宽度 */
-@media (max-width: 960px) {
-  .changes {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .pane-files {
-    display: none;
-  }
+.pane-files,
+.pane-diff {
+  min-height: 0;
+}
+.pane-mid {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--wb-sp-2);
+}
+.mid-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-3);
+}
+/* 历史面板自己管滚动：提交详情展开后高度会变，外层再套一个滚动条会双重跳动 */
+.mid-body.history-body {
+  overflow: hidden;
+}
+/* 改动清单与提交 / 分支各自的样式都搬进 GitChangesPane 与 GitCommitPanel 了：
+   这一页只管三栏的排布与刷新。 */
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--wb-sp-2);
+  color: var(--wb-faint);
 }
 </style>

@@ -1,89 +1,97 @@
-/* Element Plus 主题桥：把 EP 的 CSS 变量接到 WorkBaby 的 --wb-* 令牌上。
-   色值与尺寸仍在 themes.css 定义一处；这里只做「EP 变量 = wb 令牌」的引用，
-   外加少量组件细节对齐（圆角、悬停放大、按下缩小、禁用与加载态）。 */
+/* Element Plus 主题桥：把 EP 的 CSS 变量全量接到 --wb-* 令牌上。
+   这是 EP 令牌的**唯一**映射处——色值与尺寸仍在 themes.css 定义，
+   这里只做「EP 变量 = omp 令牌」的引用，外加少量组件细节对齐
+   （圆角、五态动效、禁用与加载态）。
+
+   为什么单独一个文件：一份映射散在两处会静默互相覆盖，
+   而缺了哪一项在运行时看不出来——组件只是「看起来不太对」。
+
+   五态是硬要求：默认 / 悬停放大 / 按下缩小 / 禁用 / 加载，
+   每一态都要有可辨的视觉差异，且与自绘的 .wb-btn 用同一套刻度，
+   两种按钮并排时点击手感才一致。 */
 
 :root {
   /* 动作色：靛蓝五档 */
-  --el-color-primary: var(--wb-primary);
-  --el-color-primary-light-3: var(--wb-primary-strong);
-  --el-color-primary-light-5: var(--wb-brand-2);
+  --el-color-primary: var(--wb-brand);
+  --el-color-primary-light-3: var(--wb-brand-2);
+  --el-color-primary-light-5: var(--wb-brand-3);
   --el-color-primary-light-6: var(--wb-brand-2);
   --el-color-primary-light-7: var(--wb-brand-3);
   --el-color-primary-light-8: var(--wb-brand-3);
-  --el-color-primary-light-9: var(--wb-brand-4);
-  --el-color-primary-dark-2: var(--wb-primary-strong);
+  --el-color-primary-light-9: var(--wb-brand-tint);
+  --el-color-primary-dark-2: var(--wb-brand-strong);
 
   /* 状态色只留给通过 / 出错 / 注意 */
-  --el-color-success: var(--wb-success);
-  --el-color-success-light-9: var(--wb-success-soft);
-  --el-color-warning: var(--wb-warning);
-  --el-color-warning-light-9: var(--wb-warning-soft);
-  --el-color-danger: var(--wb-danger);
-  --el-color-danger-light-9: var(--wb-danger-soft);
-  --el-color-error: var(--wb-danger);
-  --el-color-error-light-9: var(--wb-danger-soft);
-  --el-color-info: var(--wb-muted);
-  --el-color-info-light-9: var(--wb-elev-hover);
+  --el-color-success: var(--wb-ok);
+  --el-color-success-light-9: var(--wb-ok-soft);
+  --el-color-warning: var(--wb-warn);
+  --el-color-warning-light-9: var(--wb-warn-soft);
+  --el-color-danger: var(--wb-bad);
+  --el-color-danger-light-9: var(--wb-bad-soft);
+  --el-color-error: var(--wb-bad);
+  --el-color-error-light-9: var(--wb-bad-soft);
+  --el-color-info: var(--wb-mute);
+  --el-color-info-light-9: var(--wb-hover);
 
-  /* 面与文字 */
-  --el-bg-color: var(--wb-elev-raised);
-  --el-bg-color-overlay: var(--wb-elev-raised);
-  --el-bg-color-page: var(--wb-bg);
-  --el-fill-color: var(--wb-elev-hover);
-  --el-fill-color-light: var(--wb-elev-hover);
-  --el-fill-color-lighter: var(--wb-elev-hover);
-  --el-fill-color-extra-light: var(--wb-elev-hover);
-  --el-fill-color-dark: var(--wb-surface-hover);
-  --el-fill-color-darker: var(--wb-surface-hover);
-  --el-fill-color-blank: var(--wb-elev-raised);
+  /* 面与文字：全部走六级表面阶梯 */
+  --el-bg-color: var(--wb-raised);
+  --el-bg-color-overlay: var(--wb-raised);
+  --el-bg-color-page: var(--wb-window);
+  --el-fill-color: var(--wb-hover);
+  --el-fill-color-light: var(--wb-hover);
+  --el-fill-color-lighter: var(--wb-hover);
+  --el-fill-color-extra-light: var(--wb-hover);
+  --el-fill-color-dark: var(--wb-selected);
+  --el-fill-color-darker: var(--wb-selected);
+  --el-fill-color-blank: var(--wb-surface);
 
   --el-text-color-primary: var(--wb-ink);
-  --el-text-color-regular: var(--wb-ink-2);
-  --el-text-color-secondary: var(--wb-muted);
-  --el-text-color-placeholder: var(--wb-muted);
-  --el-text-color-disabled: var(--wb-muted);
+  --el-text-color-regular: var(--wb-ink-5);
+  --el-text-color-secondary: var(--wb-mute);
+  --el-text-color-placeholder: var(--wb-faint);
+  --el-text-color-disabled: var(--wb-faint);
 
-  --el-border-color: var(--wb-border);
-  --el-border-color-light: var(--wb-border);
-  --el-border-color-lighter: var(--wb-border);
-  --el-border-color-extra-light: var(--wb-border);
-  --el-border-color-dark: var(--wb-border-strong);
-  --el-border-color-darker: var(--wb-border-strong);
-  --el-border-color-hover: var(--wb-border-strong);
+  --el-border-color: var(--wb-line);
+  --el-border-color-light: var(--wb-line);
+  --el-border-color-lighter: var(--wb-line);
+  --el-border-color-extra-light: var(--wb-line);
+  --el-border-color-dark: var(--wb-line-strong);
+  --el-border-color-darker: var(--wb-line-strong);
+  --el-border-color-hover: var(--wb-line-strong);
 
-  --el-border-radius-base: var(--wb-radius);
-  --el-border-radius-small: var(--wb-radius-sm);
-  --el-border-radius-round: var(--wb-radius-full);
+  --el-border-radius-base: var(--wb-r);
+  --el-border-radius-small: var(--wb-r-sm);
+  --el-border-radius-round: var(--wb-r-full);
 
-  --el-font-family: var(--font-sans);
+  --el-font-family: var(--wb-font-sans);
   --el-font-size-extra-large: var(--wb-fs-lg);
-  --el-font-size-large: var(--wb-fs-lg);
-  --el-font-size-medium: var(--wb-fs-md);
-  --el-font-size-base: var(--wb-fs-md);
-  --el-font-size-small: var(--wb-fs-sm);
-  --el-font-size-extra-small: var(--wb-fs-xs);
+  --el-font-size-large: var(--wb-fs-base);
+  --el-font-size-medium: var(--wb-fs-sm);
+  --el-font-size-base: var(--wb-fs-sm);
+  --el-font-size-small: var(--wb-fs-xs);
+  --el-font-size-extra-small: var(--wb-fs-2xs);
 
   --el-box-shadow-light: var(--wb-shadow-2);
   --el-box-shadow: var(--wb-shadow-3);
   --el-box-shadow-dark: var(--wb-shadow-3);
   --el-box-shadow-lighter: var(--wb-shadow-1);
 
-  --el-disabled-bg-color: var(--wb-elev-hover);
-  --el-disabled-text-color: var(--wb-muted);
-  --el-disabled-border-color: var(--wb-border);
+  --el-disabled-bg-color: var(--wb-hover);
+  --el-disabled-text-color: var(--wb-faint);
+  --el-disabled-border-color: var(--wb-line);
 
   --el-mask-color: rgba(15, 23, 42, 0.42);
   --el-overlay-color-lighter: rgba(15, 23, 42, 0.42);
 
-  --el-component-size: var(--wb-ctl-h);
-  --el-component-size-small: var(--wb-ctl-h-sm);
-  --el-component-size-large: var(--wb-ctl-h-lg);
+  --el-component-size: var(--wb-ctl);
+  --el-component-size-small: var(--wb-ctl-sm);
+  --el-component-size-large: var(--wb-ctl-lg);
 
   --el-transition-duration: var(--wb-dur);
   --el-transition-duration-fast: var(--wb-dur-fast);
 }
 
-[data-theme='dark'] {
+:root[data-theme='dark'] {
   --el-mask-color: rgba(0, 0, 0, 0.66);
   --el-overlay-color-lighter: rgba(0, 0, 0, 0.66);
 }
@@ -92,14 +100,14 @@
    按钮：五态齐全（默认 / 悬停放大 / 按下缩小 / 禁用 / 加载）
    ============================================================ */
 .el-button {
-  --el-button-border-color: var(--wb-border-strong);
-  --el-button-hover-border-color: var(--wb-primary);
-  --el-button-hover-bg-color: var(--wb-accent-tint);
-  --el-button-hover-text-color: var(--wb-primary);
-  --el-button-active-border-color: var(--wb-primary);
-  --el-button-active-bg-color: var(--wb-accent-tint);
+  --el-button-border-color: var(--wb-line-strong);
+  --el-button-hover-border-color: var(--wb-brand);
+  --el-button-hover-bg-color: var(--wb-brand-tint);
+  --el-button-hover-text-color: var(--wb-brand);
+  --el-button-active-border-color: var(--wb-brand);
+  --el-button-active-bg-color: var(--wb-brand-soft);
   font-weight: 600;
-  border-radius: var(--wb-radius);
+  border-radius: var(--wb-r);
   transition:
     transform var(--wb-dur-fast) var(--wb-ease),
     background-color var(--wb-dur) var(--wb-ease),
@@ -107,15 +115,15 @@
     color var(--wb-dur) var(--wb-ease),
     box-shadow var(--wb-dur) var(--wb-ease);
 }
-/* 五态：默认 / 悬停放大 / 按下缩小 / 禁用 / 加载。
-   刻度与自绘按钮共用（--wb-btn-scale-hover / --wb-btn-scale-press），
-   两种按钮并排时点击手感才一致。
+
+/* 刻度与全站自绘按钮统一（1.04 / 0.95），两种按钮并排时手感才一致。
    text 与 link 是文字级控件，缩放会带动整行文字抖动，只给颜色反馈。 */
 .el-button:not(.is-disabled):not(.is-text):not(.is-link):not(.is-loading):hover {
-  transform: scale(var(--wb-btn-scale-hover));
+  transform: scale(var(--wb-press-hover));
 }
 .el-button:not(.is-disabled):not(.is-text):not(.is-link):not(.is-loading):active {
-  transform: scale(var(--wb-btn-scale-press));
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 .el-button.is-disabled,
 .el-button.is-disabled:hover,
@@ -124,55 +132,58 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
-/* 加载态：锁定尺寸不参与缩放，否则连点会让按钮持续抖动。
-   透明度与指针也给出来——只有锁定形变的话，按钮看着仍像可以再点一次。 */
+/* 加载态：锁定尺寸不参与缩放，否则转圈一出现按钮变宽，整排控件跟着跳 */
 .el-button.is-loading,
 .el-button.is-loading:hover,
 .el-button.is-loading:active {
   transform: none;
-  cursor: progress;
   opacity: 0.85;
-  pointer-events: none;
+  cursor: progress;
 }
-/* 加载指示本身跟着主题色走；EP 默认的旋转图标在深色主题下偏暗 */
 .el-button.is-loading::before {
-  opacity: 0.55;
-  transition: opacity var(--wb-dur) var(--wb-ease);
+  background: transparent;
 }
-
-/* 主按钮：全站唯一的大面积强调色，实底靛蓝 + 白字 */
-.el-button--primary {
-  --el-button-bg-color: var(--wb-primary);
-  --el-button-border-color: var(--wb-primary);
-  --el-button-text-color: #ffffff;
-  --el-button-hover-bg-color: var(--wb-primary-strong);
-  --el-button-hover-border-color: var(--wb-primary-strong);
-  --el-button-hover-text-color: #ffffff;
-  --el-button-active-bg-color: var(--wb-primary-strong);
-  --el-button-active-border-color: var(--wb-primary-strong);
-  --el-button-active-text-color: #ffffff;
-  box-shadow: var(--wb-card-shadow);
-}
-.el-button--danger.is-plain {
-  --el-button-bg-color: transparent;
-  --el-button-border-color: var(--wb-border-strong);
-  --el-button-text-color: var(--wb-danger);
-  --el-button-hover-bg-color: var(--wb-danger-soft);
-  --el-button-hover-border-color: var(--wb-danger);
-  --el-button-hover-text-color: var(--wb-danger);
-  --el-button-active-bg-color: var(--wb-danger-soft);
-  --el-button-active-border-color: var(--wb-danger);
-  --el-button-active-text-color: var(--wb-danger);
-}
-
-/* 加载态的转圈图标按主色走，EP 默认继承文字色会偏灰 */
 .el-button.is-loading .el-icon.is-loading {
   color: inherit;
 }
 
-/* 图标钮（纯图标按钮统一走 default + circle 或 square） */
+/* 主按钮：全站唯一的大面积强调色，实底靛蓝 + 白字 */
+.el-button--primary {
+  --el-button-bg-color: var(--wb-brand);
+  --el-button-border-color: var(--wb-brand);
+  --el-button-text-color: #ffffff;
+  --el-button-hover-bg-color: var(--wb-brand-strong);
+  --el-button-hover-border-color: var(--wb-brand-strong);
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-bg-color: var(--wb-brand-strong);
+  --el-button-active-border-color: var(--wb-brand-strong);
+  --el-button-active-text-color: #ffffff;
+  box-shadow: var(--wb-btn-shadow);
+}
+.el-button--danger {
+  --el-button-bg-color: var(--wb-bad);
+  --el-button-border-color: var(--wb-bad);
+  --el-button-text-color: #ffffff;
+  --el-button-hover-bg-color: var(--wb-bad);
+  --el-button-hover-border-color: var(--wb-bad);
+  --el-button-hover-text-color: #ffffff;
+}
+/* 危险描边钮：中性描边 + 危险色文字，悬停才给淡底。
+   彩色描边违反分层纪律——描边的职责是分界，不是强调。 */
+.el-button--danger.is-plain {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: var(--wb-line-strong);
+  --el-button-text-color: var(--wb-bad);
+  --el-button-hover-bg-color: var(--wb-bad-soft);
+  --el-button-hover-border-color: var(--wb-bad);
+  --el-button-hover-text-color: var(--wb-bad);
+  --el-button-active-bg-color: var(--wb-bad-soft);
+  --el-button-active-border-color: var(--wb-bad);
+  --el-button-active-text-color: var(--wb-bad);
+}
+
 .el-button.is-circle {
-  border-radius: var(--wb-radius-full);
+  border-radius: var(--wb-r-full);
 }
 
 /* ============================================================
@@ -181,66 +192,72 @@
 .el-input__wrapper,
 .el-textarea__inner,
 .el-select__wrapper {
-  border-radius: var(--wb-radius);
-  background: var(--wb-elev-raised);
-  box-shadow: 0 0 0 1px var(--wb-border) inset;
+  border-radius: var(--wb-r);
+  background: var(--wb-control-bg);
+  box-shadow: 0 0 0 1px var(--wb-control-border) inset;
   transition: box-shadow var(--wb-dur) var(--wb-ease);
 }
 .el-input__wrapper:hover,
 .el-textarea__inner:hover,
 .el-select__wrapper:hover {
-  box-shadow: 0 0 0 1px var(--wb-border-strong) inset;
+  box-shadow: 0 0 0 1px var(--wb-control-border-hover) inset;
 }
 .el-input__wrapper.is-focus,
 .el-textarea__inner:focus,
 .el-select__wrapper.is-focused {
-  box-shadow: 0 0 0 1px var(--wb-primary) inset;
+  box-shadow: 0 0 0 1px var(--wb-brand) inset;
 }
 .el-input.is-disabled .el-input__wrapper,
 .el-textarea.is-disabled .el-textarea__inner {
-  background: var(--wb-elev-hover);
+  background: var(--wb-control-bg-disabled);
   box-shadow: 0 0 0 1px var(--wb-border) inset;
 }
+
 /* 小号控件再降一档圆角：26px 高的框套 8px 圆角就快成胶囊了 */
 .el-input--small .el-input__wrapper,
 .el-input-number--small .el-input__wrapper,
 .el-select--small .el-select__wrapper {
-  border-radius: var(--wb-radius-sm);
+  border-radius: var(--wb-r-sm);
 }
 .el-textarea__inner {
   padding: var(--wb-sp-2) var(--wb-sp-3);
   line-height: var(--wb-lh-base);
-  resize: none;
 }
 .el-input__inner::placeholder,
 .el-textarea__inner::placeholder {
-  color: var(--wb-muted);
+  color: var(--wb-faint);
 }
 .el-input-group__append,
 .el-input-group__prepend {
-  background: var(--wb-elev-hover);
-  border-radius: var(--wb-radius);
+  background: var(--wb-hover);
+  border-radius: var(--wb-r);
   box-shadow: 0 0 0 1px var(--wb-border) inset;
-  color: var(--wb-muted);
+  color: var(--wb-mute);
 }
 
 /* ============================================================
-   开关：轨道 40×22，滑块 translateX 由 EP 自己管，加载态用呼吸环不做旋转
+   开关 / 单选 / 复选
    ============================================================ */
 .el-switch {
-  --el-switch-on-color: var(--wb-primary);
-  --el-switch-off-color: var(--wb-border-strong);
+  --el-switch-on-color: var(--wb-brand);
+  --el-switch-off-color: var(--wb-line-strong);
 }
 .el-switch__core {
   transition:
     background-color var(--wb-dur) var(--wb-ease),
     border-color var(--wb-dur) var(--wb-ease);
 }
+/* 开关按下去要缩一下：它是控件不是容器，用户需要「我按到了」的证据 */
 .el-switch:not(.is-disabled):active .el-switch__core {
   transform: scale(0.94);
 }
 .el-switch.is-checked .el-switch__core .el-switch__action {
-  color: var(--wb-primary);
+  color: var(--wb-brand);
+}
+
+.el-radio__input.is-checked + .el-radio__label,
+.el-checkbox__input.is-checked + .el-checkbox__label {
+  color: var(--wb-ink);
 }
 
 /* ============================================================
@@ -248,9 +265,9 @@
    ============================================================ */
 .el-card {
   --el-card-border-color: var(--wb-border);
-  --el-card-border-radius: var(--wb-radius-xl);
-  --el-card-bg-color: var(--wb-elev-raised);
-  border-radius: var(--wb-radius-xl);
+  --el-card-border-radius: var(--wb-r-xl);
+  --el-card-bg-color: var(--wb-raised);
+  border-radius: var(--wb-r-xl);
   box-shadow: var(--wb-card-shadow) !important;
 }
 .el-card__header {
@@ -266,39 +283,39 @@
 .el-popper,
 .el-popover.el-popper,
 .el-dropdown__popper.el-popper {
-  border-radius: var(--wb-radius-lg) !important;
+  border-radius: var(--wb-r-lg) !important;
   border: 1px solid var(--wb-border) !important;
   box-shadow: var(--wb-shadow-3) !important;
-  background: var(--wb-elev-raised) !important;
+  background: var(--wb-raised) !important;
 }
 .el-popper__arrow::before {
   border-color: var(--wb-border) !important;
-  background: var(--wb-elev-raised) !important;
+  background: var(--wb-raised) !important;
 }
 .el-dropdown-menu {
   background: transparent;
   padding: var(--wb-sp-1);
 }
 .el-dropdown-menu__item {
-  border-radius: var(--wb-radius-sm);
+  border-radius: var(--wb-r-sm);
   font-size: var(--wb-fs-sm);
   font-weight: 500;
-  color: var(--wb-ink-2);
+  color: var(--wb-ink-5);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   transition: background-color var(--wb-dur-fast) var(--wb-ease);
 }
 .el-dropdown-menu__item:not(.is-disabled):hover,
 .el-dropdown-menu__item:not(.is-disabled):focus {
-  background: var(--wb-elev-hover);
-  color: var(--wb-primary);
+  background: var(--wb-hover);
+  color: var(--wb-brand);
 }
 .el-dropdown-menu__item.is-danger:not(.is-disabled):hover {
-  background: var(--wb-danger-soft);
-  color: var(--wb-danger);
+  background: var(--wb-bad-soft);
+  color: var(--wb-bad);
 }
 
 .el-dialog {
-  --el-dialog-border-radius: var(--wb-radius-2xl);
+  --el-dialog-border-radius: var(--wb-r-2xl);
   border: 1px solid var(--wb-border);
   box-shadow: var(--wb-shadow-3);
   padding: 0;
@@ -316,7 +333,7 @@
 }
 .el-dialog__body {
   padding: var(--wb-sp-5) var(--wb-sp-6);
-  color: var(--wb-ink-2);
+  color: var(--wb-ink-5);
 }
 .el-dialog__footer {
   padding: var(--wb-sp-4) var(--wb-sp-6) var(--wb-sp-5);
@@ -328,7 +345,7 @@
 }
 
 .el-drawer {
-  background: var(--wb-bg);
+  background: var(--wb-window);
 }
 .el-drawer__header {
   margin: 0;
@@ -341,23 +358,27 @@
   padding: var(--wb-sp-5);
 }
 
+.el-overlay {
+  backdrop-filter: blur(1.5px);
+}
+
 /* ============================================================
    标签 / 分段 / 页签
    ============================================================ */
 .el-tag {
-  --el-tag-border-radius: var(--wb-radius-sm);
+  --el-tag-border-radius: var(--wb-r-sm);
   font-weight: 600;
   border: 1px solid transparent;
 }
 .el-tag--primary {
-  --el-tag-bg-color: var(--wb-accent-tint);
+  --el-tag-bg-color: var(--wb-brand-soft);
   --el-tag-border-color: transparent;
-  --el-tag-text-color: var(--wb-primary);
+  --el-tag-text-color: var(--wb-brand);
 }
 .el-tag--info {
-  --el-tag-bg-color: var(--wb-elev-hover);
+  --el-tag-bg-color: var(--wb-hover);
   --el-tag-border-color: transparent;
-  --el-tag-text-color: var(--wb-muted);
+  --el-tag-text-color: var(--wb-mute);
 }
 
 .el-radio-group,
@@ -366,27 +387,23 @@
 }
 .el-radio-button__inner {
   border-color: var(--wb-border);
-  color: var(--wb-muted);
+  color: var(--wb-mute);
   font-weight: 600;
   transition:
     background-color var(--wb-dur) var(--wb-ease),
     color var(--wb-dur) var(--wb-ease);
 }
 .el-radio-button:first-child .el-radio-button__inner {
-  border-radius: var(--wb-radius) 0 0 var(--wb-radius);
+  border-radius: var(--wb-r) 0 0 var(--wb-r);
 }
 .el-radio-button:last-child .el-radio-button__inner {
-  border-radius: 0 var(--wb-radius) var(--wb-radius) 0;
+  border-radius: 0 var(--wb-r) var(--wb-r) 0;
 }
 .el-radio-button__original-radio:checked + .el-radio-button__inner {
-  background: var(--wb-elev-raised);
+  background: var(--wb-raised);
   border-color: var(--wb-border-strong);
-  color: var(--wb-primary);
+  color: var(--wb-brand);
   box-shadow: var(--wb-card-shadow);
-}
-.el-radio__input.is-checked + .el-radio__label,
-.el-checkbox__input.is-checked + .el-checkbox__label {
-  color: var(--wb-ink);
 }
 
 .el-tabs__header {
@@ -399,16 +416,178 @@
 .el-tabs__item {
   font-size: var(--wb-fs-sm);
   font-weight: 600;
-  color: var(--wb-muted);
+  color: var(--wb-mute);
   transition: color var(--wb-dur) var(--wb-ease);
 }
 .el-tabs__item.is-active {
-  color: var(--wb-primary);
+  color: var(--wb-brand);
 }
 .el-tabs__active-bar {
-  background: var(--wb-primary);
+  background: var(--wb-brand);
   height: 2px;
   border-radius: 1px;
 }
 
-/* 表格 / 折叠 / 滚动条 / 空态 / 提示 / 分段 / 进度的桥接在 ep-widgets.css。 */
+/* ============================================================
+   表格 / 折叠 / 空态 / 提示
+   ============================================================ */
+.el-table {
+  --el-table-border-color: var(--wb-border);
+  --el-table-header-bg-color: transparent;
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-row-hover-bg-color: var(--wb-hover);
+  --el-table-text-color: var(--wb-ink-5);
+  --el-table-header-text-color: var(--wb-mute);
+  font-size: var(--wb-fs-sm);
+}
+.el-table th.el-table__cell {
+  font-weight: 700;
+  font-size: var(--wb-fs-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--wb-border);
+}
+.el-table td.el-table__cell {
+  border-bottom: 1px solid var(--wb-line);
+}
+.el-table__inner-wrapper::before {
+  display: none;
+}
+
+.el-collapse {
+  --el-collapse-border-color: var(--wb-border);
+  --el-collapse-header-bg-color: transparent;
+  --el-collapse-content-bg-color: transparent;
+  border: none;
+}
+.el-collapse-item__header,
+.el-collapse-item__wrap {
+  border-bottom: 1px solid var(--wb-border);
+  background: transparent;
+}
+.el-collapse-item__header {
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink-5);
+}
+
+.el-empty {
+  --el-empty-padding: var(--wb-sp-8) 0;
+}
+.el-empty__description p {
+  color: var(--wb-mute);
+  font-size: var(--wb-fs-sm);
+}
+
+.el-alert {
+  border-radius: var(--wb-r);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+}
+.el-alert__title {
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+}
+
+.el-skeleton {
+  --el-skeleton-color: var(--wb-hover);
+  --el-skeleton-to-color: var(--wb-selected);
+}
+
+.el-scrollbar__bar {
+  opacity: 0.5;
+}
+.el-scrollbar__thumb {
+  background: var(--wb-line-strong);
+}
+
+.el-loading-mask {
+  background: color-mix(in srgb, var(--wb-raised) 72%, transparent);
+}
+
+.el-message-box {
+  border-radius: var(--wb-r-2xl);
+  border: 1px solid var(--wb-border);
+  box-shadow: var(--wb-shadow-3);
+  padding: var(--wb-sp-5);
+}
+.el-message-box__title {
+  font-size: var(--wb-fs-lg);
+  font-weight: 700;
+  color: var(--wb-ink);
+}
+.el-message-box__message {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink-5);
+  line-height: var(--wb-lh-base);
+}
+
+.el-message {
+  border-radius: var(--wb-r);
+  border: 1px solid var(--wb-border);
+  box-shadow: var(--wb-shadow-3);
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+}
+
+.el-tooltip__popper,
+.el-popper.is-dark {
+  background: var(--wb-ink) !important;
+  border-color: var(--wb-ink) !important;
+  border-radius: var(--wb-r) !important;
+  font-size: var(--wb-fs-xs);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+}
+.el-popper.is-dark .el-popper__arrow::before {
+  background: var(--wb-ink) !important;
+  border-color: var(--wb-ink) !important;
+}
+
+.el-segmented {
+  --el-segmented-bg-color: var(--wb-hover);
+  --el-segmented-item-selected-bg-color: var(--wb-raised);
+  --el-segmented-item-selected-color: var(--wb-ink);
+  --el-segmented-item-hover-bg-color: transparent;
+  --el-segmented-item-hover-color: var(--wb-ink);
+  padding: 3px;
+  border-radius: var(--wb-r);
+  border: 1px solid var(--wb-border);
+}
+.el-segmented__item {
+  font-size: var(--wb-fs-xs);
+  font-weight: 700;
+  border-radius: calc(var(--wb-r) - 3px);
+  transition:
+    background-color var(--wb-dur) var(--wb-ease),
+    color var(--wb-dur) var(--wb-ease);
+}
+.el-segmented__item-selected {
+  box-shadow: var(--wb-card-shadow);
+}
+
+.el-progress-bar__outer {
+  background: var(--wb-hover);
+}
+
+.el-form-item__label {
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink-5);
+}
+.el-form-item {
+  margin-bottom: var(--wb-sp-4);
+}
+.el-divider {
+  border-color: var(--wb-border);
+}
+.el-divider__text {
+  background: var(--wb-raised);
+  color: var(--wb-mute);
+  font-size: var(--wb-fs-xs);
+  font-weight: 600;
+}
+.el-badge__content {
+  font-weight: 700;
+  font-size: var(--wb-fs-2xs);
+  border: none;
+}

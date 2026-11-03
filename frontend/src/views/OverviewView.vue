@@ -1,358 +1,349 @@
 <script setup lang="ts">
-// 概览页：一屏回答「现在什么状态、能接着做什么」。
-// 三段编排：能力总览（功能/技能/工具/MCP 计数）→ 最近会话 → 快捷入口。
-// 数字全部来自各自清单接口，不另存一份账本。
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+// 概览页：一屏回答「两个引擎各自什么状态、最近花了多少、有什么可继续的」。
+// 是首屏：先看一眼全局再继续干活（最近会话就摆在同一屏）。
+// 只做编排；数字全部来自引擎自己的落盘数据，不另存账本。
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import * as api from '../api'
-import type { FeatureVO, SessionVO, SkillVO, ToolVO } from '../types/api'
-import AppIcon from '../components/common/AppIcon.vue'
-import PageHeader from '../components/layout/PageHeader.vue'
-import { errorText } from '../utils/errors'
+import { useRouter } from 'vue-router'
+import AppIcon from '@/components/common/AppIcon.vue'
+import EngineHealthCard from '@/components/overview/EngineHealthCard.vue'
+import EngineProcesses from '@/components/overview/EngineProcesses.vue'
+import RecentSessions from '@/components/overview/RecentSessions.vue'
+import UsageCharts from '@/components/overview/UsageCharts.vue'
+import { api } from '@/api/http'
+import { useAppStore } from '@/stores/app'
+import { useToasts } from '@/composables/useToasts'
+import type { EngineRun, HealthData, SessionRow } from '@/types/api'
 
 const { t } = useI18n()
+const app = useAppStore()
 const router = useRouter()
+const toasts = useToasts()
 
-const features = ref<FeatureVO[]>([])
-const skills = ref<SkillVO[]>([])
-const tools = ref<ToolVO[]>([])
-const sessions = ref<SessionVO[]>([])
-const mcpCount = ref(0)
-const loading = ref(true)
-const error = ref('')
+const health = ref<HealthData | null>(null)
+const loading = ref(false)
+const span = ref<'today' | 'week' | 'month'>('week')
+const rows = ref<SessionRow[]>([])
+// 正在停的那个实例（`kind|work_dir`）。行的 loading 靠它
+const stoppingRun = ref('')
+
+const engines = computed(() => health.value?.engines ?? [])
+const recent = computed(() => rows.value.slice(0, 6))
+// 「能不能把数字当结论看」：探测完成且没有后台补验才算就绪。
+// 只看 detecting 不够——计数、最新版仍在后台补验时界面已摆出一串 0，
+// 而 0 是断言，那时它只是「还没数完」。
+const ready = computed(() => Boolean(health.value?.ready))
+const detecting = computed(() => !ready.value || Boolean(health.value?.detecting))
+
+/** 还不可信时就话「—」：零值不等于「有 0 个」。 */
+const pendingMark = '—'
+
+/** 一个读数怎么显示：没就绪的那一格不把 0 抛出去。 */
+function readout(formatted: string): string {
+  if (!ready.value) return pendingMark
+  return formatted === '' ? pendingMark : formatted
+}
+
+/**
+ * 三个「花了多少」的合计。
+ *
+ * 「装了什么」那三个（技能 / 插件 / MCP）由后端在 health 上直接给合计，
+ * 这里不重算：那是引擎落盘的事实，界面算一遍就多一处可能漂移的真相。
+ */
+const usage = computed(() => {
+  const since = Date.now() - (span.value === 'today' ? 1 : span.value === 'week' ? 7 : 30) * 86_400_000
+  let tokens = 0
+  let cost = 0
+  let sessions = 0
+  for (const row of rows.value) {
+    const time = new Date(row.updated_at).getTime()
+    if (!Number.isNaN(time) && time < since) continue
+    tokens += row.tokens ?? 0
+    cost += row.cost ?? 0
+    sessions += 1
+  }
+  return { tokens, cost, sessions }
+})
+function formatCost(v: number): string {
+  if (!v) return '$0'
+  return v < 0.01 ? `$${v.toFixed(5)}` : `$${v.toFixed(3)}`
+}
+
+function formatTokens(n: number): string {
+  if (!n) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return String(n)
+}
+
+/** 计数没读到时显示「—」：零值不等于「有 0 个」。 */
+function totalLabel(n: number, partial: boolean): string {
+  return partial ? `${n} ·` : String(n)
+}
 
 async function load() {
   loading.value = true
-  error.value = ''
   try {
-    const [warm, sess, mcp] = await Promise.all([
-      api.warmup(),
-      api.sessions.list(),
-      api.mcp.list().catch(() => null),
+    const [data, sessions] = await Promise.all([
+      api.health(),
+      api.sessions(app.workspace || undefined, app.active),
     ])
-    features.value = warm.features ?? []
-    skills.value = warm.skills ?? []
-    tools.value = warm.tools ?? []
-    sessions.value = sess ?? []
-    mcpCount.value = mcp?.resp_servers?.length ?? 0
-  } catch (e) {
-    error.value = errorText(e) || t('errors.generic')
+    health.value = data
+    rows.value = sessions.sessions ?? []
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     loading.value = false
   }
 }
 
-onMounted(() => {
-  void load()
-})
+async function openSession(path: string) {
+  try {
+    await router.push({ name: 'chat', query: { session: path } })
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  }
+}
 
-const enabledFeatures = computed(() => features.value.filter((f) => f.feature_enabled))
-const enabledSkills = computed(() => skills.value.filter((s) => s.skill_enabled))
-const enabledTools = computed(() => tools.value.filter((x) => x.tool_enabled))
-const recentSessions = computed(() =>
-  [...sessions.value]
-    .sort((a, b) => (b.session_updated_at || 0) - (a.session_updated_at || 0))
-    .slice(0, 6),
+/**
+ * 停一个引擎进程。
+ *
+ * 停的是一个进程，不是引擎：会话、配置、凭据一个字不动，
+ * 下一句话会按时重新拉起一个。所以不需要二次确认。
+ */
+async function stopEngine(run: EngineRun): Promise<void> {
+  const key = `${run.engine_kind}|${run.work_dir}`
+  stoppingRun.value = key
+  try {
+    const res = await api.stopEngine(run.engine_kind, run.work_dir)
+    if (!res.stopped) {
+      // 已经自己退出了：不是错误，但要说一句，否则用户会以为按钮失灵。
+      toasts.push('info', t('overview.processGone'))
+    }
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    stoppingRun.value = ''
+  }
+}
+
+// 探测是后台跑的：完成时后端推 engine:detected，app.detecting 翻转为
+// false 的这一刻重拉本屏 health。盯 store 的标志而不是本页 health.detecting——
+// 后者只在 load() 时变，而 load() 只由这个 watch 触发，盯自己就是等自己。
+watch(
+  () => app.detecting,
+  (value, prev) => {
+    if (prev && !value) void load()
+  },
 )
 
-// 四张能力卡：数字是「开了几个」，分母是总数；没启用的能力仍是可见的一等公民
-const capabilityCards = computed(() => [
-  {
-    key: 'features',
-    icon: 'zap',
-    label: t('overview.capFeatures'),
-    enabled: enabledFeatures.value.length,
-    total: features.value.length,
-    path: '/plugins',
+// detected_at 是第二道兜底：detecting 的翻转依赖 engine:detected 帧真的到达，
+// 而 Bootstrap 那轮探测可能跑完在 SSE 建立之前，帧发在无订阅者的总线上被丢弃。
+// 时间戳是存在后端的事实，不依赖任何一帧有没有送到。
+watch(
+  () => app.lastDetectedAt,
+  (value, prev) => {
+    if (prev && value && value !== prev) void load()
   },
-  {
-    key: 'skills',
-    icon: 'sparkles',
-    label: t('overview.capSkills'),
-    enabled: enabledSkills.value.length,
-    total: skills.value.length,
-    path: '/skills',
-  },
-  {
-    key: 'tools',
-    icon: 'terminal',
-    label: t('overview.capTools'),
-    enabled: enabledTools.value.length,
-    total: tools.value.length,
-    path: '/models',
-  },
-  {
-    key: 'mcp',
-    icon: 'globe',
-    label: t('overview.capMcp'),
-    enabled: mcpCount.value,
-    total: mcpCount.value,
-    path: '/mcp',
-  },
-])
+)
 
-function openSession(id: string) {
-  void router.push({ path: '/chat', query: { session: id } })
-}
-
-function fmtTime(ts: number): string {
-  if (!ts) return ''
-  const d = new Date(ts)
-  const diff = Date.now() - ts
-  const min = Math.floor(diff / 60_000)
-  if (min < 1) return t('overview.justNow')
-  if (min < 60) return t('overview.minutesAgo', { n: min })
-  const hour = Math.floor(min / 60)
-  if (hour < 24) return t('overview.hoursAgo', { n: hour })
-  const day = Math.floor(hour / 24)
-  if (day < 30) return t('overview.daysAgo', { n: day })
-  return d.toLocaleDateString()
-}
+onMounted(() => void load())
 </script>
 
 <template>
-  <div class="view">
-    <PageHeader :title="t('overview.title')" :subtitle="t('overview.subtitle')">
-      <template #actions>
-        <el-button size="small" :loading="loading" @click="load">
-          <AppIcon v-if="!loading" name="refresh" size="ic-xs" />
-          <span class="ml-1">{{ t('common.refresh') }}</span>
-        </el-button>
-        <el-button size="small" type="primary" @click="router.push('/chat')">
-          {{ t('chat.newSession') }}
-        </el-button>
-      </template>
-    </PageHeader>
-
-    <div class="body">
-      <div v-if="error" class="wb-card empty-box">
-        <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="alert" size="ic-xl" /></span>
-        <b>{{ t('errors.generic') }}</b>
-        <p>{{ error }}</p>
-        <el-button size="small" @click="load">{{ t('common.retry') }}</el-button>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1 class="page-title">{{ t('overview.title') }}</h1>
+        <p class="page-sub">{{ t('overview.subtitle') }}</p>
       </div>
-
-      <template v-else>
-        <!-- 能力总览：四张卡，点进去就是对应的管理页 -->
-        <div class="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div class="head-actions">
+        <div class="seg">
           <button
-            v-for="c in capabilityCards"
-            :key="c.key"
-            type="button"
-            class="wb-card cap-card"
-            @click="router.push(c.path)"
+            v-for="key in (['today', 'week', 'month'] as const)"
+            :key="key"
+            class="seg-btn"
+            :class="{ active: span === key }"
+            @click="span = key"
           >
-            <span class="wb-tile wb-tile--lg"><AppIcon :name="c.icon" size="ic-lg" /></span>
-            <span class="cap-count">
-              <b>{{ c.enabled }}</b>
-              <span class="cap-total">/ {{ c.total }}</span>
-            </span>
-            <span class="cap-label">{{ c.label }}</span>
+            {{ t(`overview.${key}`) }}
           </button>
         </div>
+        <button
+          class="wb-btn icon ghost"
+          :class="{ 'is-loading': loading }"
+          :title="t('common.refresh')"
+          @click="load"
+        >
+          <AppIcon name="refresh" :size="15" />
+        </button>
+      </div>
+    </header>
 
-        <!-- 最近会话：继续干活的入口摆在同一屏 -->
-        <section class="wb-card card-block mt-4">
-          <header class="card-head">
-            <div>
-              <h3 class="card-title">{{ t('overview.recent') }}</h3>
-              <p class="card-sub">{{ t('overview.recentHint') }}</p>
-            </div>
-            <el-button size="small" text @click="router.push('/sessions')">
-              {{ t('overview.allSessions') }}
-            </el-button>
-          </header>
+    <div class="page-body">
+      <!-- 未就绪的横幅：说清「屏幕上这些东西还在数」。
+           缺了它，用户看到一屏「—」只能以为界面坏了。 -->
+      <div v-if="!ready" class="notice-row">
+        <span class="dot busy" />
+        <span>{{ t('overview.collecting') }}</span>
+        <button class="wb-btn text sm" :disabled="loading" @click="app.detectEngines()">
+          {{ t('overview.redetect') }}
+        </button>
+      </div>
 
-          <div v-if="loading && !sessions.length" class="skeleton-rows">
-            <el-skeleton v-for="i in 3" :key="i" animated :rows="1" />
-          </div>
+      <!-- 引擎健康卡：一屏看两个引擎 -->
+      <section class="engine-grid">
+        <EngineHealthCard
+          v-for="engine in engines"
+          :key="engine.engine_kind"
+          :engine="engine"
+          :detecting="detecting"
+          @install="app.openApps()"
+        />
+      </section>
 
-          <div v-else-if="!recentSessions.length" class="card-empty">
-            <p>{{ t('overview.noSessions') }}</p>
-            <el-button size="small" type="primary" @click="router.push('/chat')">
-              {{ t('chat.newSession') }}
-            </el-button>
-          </div>
+      <!-- 六个读数：三个是「花了多少」，三个是「装了什么」。
+           后者由后端直接给合计，界面不重算。
+           全部读数在就绪前显示「—」：那一串 0 会被当成结论。 -->
+      <section class="stat-row" :class="{ 'is-pending': !ready }">
+        <div class="wb-card card-pad">
+          <span class="wb-metric-label">{{ t('overview.spend') }}</span>
+          <span class="wb-metric">{{ readout(formatCost(usage.cost)) }}</span>
+        </div>
+        <div class="wb-card card-pad">
+          <span class="wb-metric-label">{{ t('overview.tokens') }}</span>
+          <span class="wb-metric">{{ readout(formatTokens(usage.tokens)) }}</span>
+        </div>
+        <div class="wb-card card-pad">
+          <span class="wb-metric-label">{{ t('overview.turns') }}</span>
+          <span class="wb-metric">{{ readout(String(usage.sessions)) }}</span>
+        </div>
+        <div class="wb-card card-pad">
+          <span class="wb-metric-label">{{ t('overview.capSkills') }}</span>
+          <span class="wb-metric">
+            {{ ready ? totalLabel(health?.total_skills ?? 0, Boolean(health?.totals_partial)) : pendingMark }}
+          </span>
+        </div>
+        <div class="wb-card card-pad">
+          <span class="wb-metric-label">{{ t('overview.capPlugins') }}</span>
+          <span class="wb-metric">
+            {{ ready ? totalLabel(health?.total_plugins ?? 0, Boolean(health?.totals_partial)) : pendingMark }}
+          </span>
+        </div>
+        <div class="wb-card card-pad">
+          <span class="wb-metric-label">{{ t('overview.capMcp') }}</span>
+          <span class="wb-metric">
+            {{ ready ? totalLabel(health?.total_mcp ?? 0, Boolean(health?.totals_partial)) : pendingMark }}
+          </span>
+        </div>
+      </section>
 
-          <ul v-else class="session-list">
-            <li v-for="s in recentSessions" :key="s.session_id">
-              <button type="button" class="session-row" @click="openSession(s.session_id)">
-                <span class="session-name">
-                  {{ s.session_title || s.session_id }}
-                </span>
-                <span class="session-meta">
-                  {{ s.session_model || t('common.unknown') }}
-                  <span class="dot">·</span>
-                  {{ fmtTime(s.session_updated_at) }}
-                </span>
-                <AppIcon name="chevron-right" size="ic-xs" class="session-go" />
-              </button>
-            </li>
-          </ul>
-        </section>
-      </template>
+      <UsageCharts :span="span" :rows="rows" />
+
+      <!-- 引擎进程：切目录会新建进程，不解释的话用户只看到「机器变卡」 -->
+      <EngineProcesses
+        :runs="health?.engine_runs ?? []"
+        :max-engines="health?.max_engines ?? 0"
+        :stopping="stoppingRun"
+        :ready="ready"
+        @stop="stopEngine"
+        @refresh="load"
+      />
+
+      <!-- 最近会话 -->
+      <RecentSessions
+        :rows="recent"
+        :ready="ready"
+        @open="openSession"
+        @all="router.push({ name: 'sessions' })"
+        @start="router.push({ name: 'chat' })"
+      />
     </div>
   </div>
 </template>
 
 <style scoped>
-.view {
+.page {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-width: 0;
   min-height: 0;
 }
-.body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--wb-sp-5);
-}
-.card-block {
-  padding: var(--wb-sp-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-3);
-}
-.card-head {
+
+.page-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--wb-sp-3);
+  gap: var(--wb-sp-4);
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-4);
+  border-bottom: 1px solid var(--wb-line);
+  flex: none;
 }
-.card-title {
-  font-size: var(--wb-fs-md);
-  font-weight: 700;
-  color: var(--wb-ink);
-}
-.card-sub {
-  margin-top: 2px;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-/* 能力卡：整卡可点，hover 抬升 + 放大 */
-.cap-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-4);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    transform var(--wb-dur-fast) var(--wb-ease),
-    box-shadow var(--wb-dur) var(--wb-ease),
-    border-color var(--wb-dur) var(--wb-ease);
-}
-.cap-card:hover {
-  transform: scale(1.03);
-  box-shadow: var(--wb-shadow-2);
-  border-color: var(--wb-border-strong);
-}
-.cap-card:active {
-  transform: scale(var(--wb-btn-scale-press));
-}
-.cap-count {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  font-variant-numeric: tabular-nums;
-}
-.cap-count b {
-  font-family: var(--font-display);
+
+.page-title {
+  margin: 0;
+  font-family: var(--wb-font-display);
   font-size: var(--wb-fs-xl);
-  font-weight: 700;
+  font-weight: 650;
   color: var(--wb-ink);
 }
-.cap-total {
+
+.page-sub {
+  margin: 4px 0 0;
+  max-width: var(--wb-w-desc);
   font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
+  line-height: 1.65;
+  color: var(--wb-mute);
 }
-.cap-label {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-muted);
-}
-.session-list {
+
+.head-actions {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.session-row {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
-  width: 100%;
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  border-radius: var(--wb-radius-sm);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background var(--wb-dur) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-.session-row:hover {
-  background: var(--wb-elev-hover);
-  transform: translateX(2px);
-}
-.session-row:active {
-  transform: translateX(2px) scale(var(--wb-row-scale-press));
-}
-.session-name {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--wb-fs-sm);
-  font-weight: 600;
-  color: var(--wb-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-meta {
-  flex: none;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-}
-.dot {
-  margin: 0 4px;
-}
-.session-go {
-  flex: none;
-  color: var(--wb-muted);
-}
-.skeleton-rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-3);
-}
-.card-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--wb-sp-3);
-  padding: var(--wb-sp-6) 0;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-}
-.empty-box {
-  display: flex;
-  flex-direction: column;
   align-items: center;
   gap: var(--wb-sp-2);
-  padding: var(--wb-sp-10) var(--wb-sp-6);
-  text-align: center;
 }
-.empty-box b {
-  font-size: var(--wb-fs-md);
-  color: var(--wb-ink);
+
+.page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-4);
 }
-.empty-box p {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-muted);
-  max-width: calc(420px * var(--wb-vw-scale));
+
+.engine-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--wb-sp-3);
 }
-.ml-1 {
-  margin-left: var(--wb-sp-1);
+
+/* 六个读数排成 3 × 2：用固定三列而不是 auto-fit，
+   否则宽屏会排成一行六个（每个只剩 130px，数字换了行），
+   窄屏会变成 5 + 1 的余数行。 */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--wb-sp-3);
 }
+
+/* 窄窗口（800×600 的默认尺寸）下三列会把数字挤成两行：降成两列 */
+@container app (max-width: 900px) {
+  .stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.stat-row > .wb-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 未就绪时读数走弱色：一眼能看出「这些还不是结论」 */
+.stat-row.is-pending .wb-metric {
+  color: var(--wb-faint);
+}
+
 </style>
