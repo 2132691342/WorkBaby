@@ -41,7 +41,7 @@ Create, edit, and format DOCX documents via CLI tools or direct C# scripts built
 
 ## Setup
 
-**First time:** `bash scripts/setup.sh` (or `powershell scripts/setup.ps1` on Windows, `--minimal` to skip optional deps).
+**First time:** `bash scripts/setup.sh` (Windows 用内置 Git Bash 跑，`--minimal` 跳过可选依赖)。
 
 **First operation in session:** `scripts/env_check.sh` — do not proceed if `NOT READY`. (Skip on subsequent operations within the same session.)
 

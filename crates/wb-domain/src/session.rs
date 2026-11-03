@@ -188,6 +188,26 @@ pub struct SessionDetailRESP {
     pub detail_fork_entry_ids: Vec<String>,
     /// 曾走过、现在可以再切回去的其它叶子（旧分支末端）
     pub detail_alt_leaf_ids: Vec<String>,
+    /// 会话树（根到叶的主干 + 挂在主干上的分支）
+    pub detail_tree: SessionTreeNodeVO,
+}
+
+/// 会话树节点。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", default)]
+pub struct SessionTreeNodeVO {
+    /// 条目 id（虚拟根为空串）
+    pub node_entry_id: String,
+    /// 父条目 id（根为 null）
+    pub node_parent_entry_id: Option<String>,
+    /// 一句话摘要
+    pub node_preview: String,
+    /// 是不是用户消息
+    pub node_is_user: bool,
+    /// 是否在当前路径上
+    pub node_on_path: bool,
+    /// 子节点
+    pub node_children: Vec<SessionTreeNodeVO>,
 }
 
 /// 分支 / 回退入参。

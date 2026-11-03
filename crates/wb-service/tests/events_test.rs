@@ -57,6 +57,8 @@ fn chat_event_payloads_match_frontend_contract() {
         placeholder: String::new(),
         session_id: "SESS_1".into(),
         run_id: "RUN_1".into(),
+        approval_tool: None,
+        approval_summary: None,
         prefill: String::new(),
         questions: vec![AskQuestion {
             question_title: "用哪个".into(),

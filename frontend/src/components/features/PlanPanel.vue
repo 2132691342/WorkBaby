@@ -10,6 +10,7 @@ import type { PlanVO } from '../../types/api'
 import { errorText } from '../../utils/errors'
 import { fmtAbs } from '../../utils/time'
 import EmptyState from '../common/EmptyState.vue'
+import PlanNoteEditor from './PlanNoteEditor.vue'
 import AppIcon from '../common/AppIcon.vue'
 
 const { t } = useI18n()
@@ -21,9 +22,9 @@ const failed = ref('')
 /** 正在写的动作名（空串 = 空闲） */
 const busy = ref('')
 const rejecting = ref(false)
-const rejectNote = ref('')
+
 const annotating = ref(false)
-const annotateText = ref('')
+
 /** 标注针对哪一步：0 = 整个计划 */
 const annotateStep = ref(0)
 
@@ -91,10 +92,9 @@ async function approve() {
   await write('approve', { op: 'approve' })
 }
 
-async function submitReject() {
-  if (await write('reject', { op: 'reject', reject_note: rejectNote.value })) {
+async function submitReject(note: string) {
+  if (await write('reject', { op: 'reject', reject_note: note })) {
     rejecting.value = false
-    rejectNote.value = ''
   }
 }
 
@@ -105,23 +105,17 @@ async function markStep(seq: number) {
 
 function startAnnotate(step: number) {
   annotateStep.value = step
-  annotateText.value = ''
   annotating.value = true
 }
 
-async function submitAnnotate() {
-  const text = annotateText.value.trim()
-  if (!text) return
+async function submitAnnotate(text: string, step: number) {
   const ok = await write('annotate', {
     op: 'annotate',
-    annotation_scope: annotateStep.value > 0 ? 'step' : 'plan',
-    annotation_step: annotateStep.value,
+    annotation_scope: step > 0 ? 'step' : 'plan',
+    annotation_step: step,
     annotation_text: text,
   })
-  if (ok) {
-    annotating.value = false
-    annotateText.value = ''
-  }
+  if (ok) annotating.value = false
 }
 
 onMounted(() => {
@@ -178,55 +172,15 @@ defineExpose({ reload })
         </el-button>
       </div>
 
-      <div v-if="rejecting" class="note-edit">
-        <el-input
-          v-model="rejectNote"
-          size="small"
-          :placeholder="t('featurePanel.planRejectPlaceholder')"
-          @keydown.enter="submitReject"
-        />
-        <div class="create-acts">
-          <el-button
-            size="small"
-            type="primary"
-            :loading="busy === 'reject'"
-            :disabled="!!busy"
-            @click="submitReject"
-          >
-            {{ t('common.confirm') }}
-          </el-button>
-          <el-button size="small" :disabled="!!busy" @click="rejecting = false">
-            {{ t('common.cancel') }}
-          </el-button>
-        </div>
-      </div>
-
-      <div v-if="annotating" class="note-edit">
-        <span class="wb-label">
-          {{ annotateStep > 0 ? t('featurePanel.planAnnotateStep', { n: annotateStep }) : t('featurePanel.planAnnotatePlan') }}
-        </span>
-        <el-input
-          v-model="annotateText"
-          size="small"
-          :placeholder="t('featurePanel.planAnnotatePlaceholder')"
-          @keydown.enter="submitAnnotate"
-        />
-        <div class="create-acts">
-          <el-button
-            size="small"
-            type="primary"
-            :loading="busy === 'annotate'"
-            :disabled="!annotateText.trim() || !!busy"
-            @click="submitAnnotate"
-          >
-            {{ t('common.confirm') }}
-          </el-button>
-          <el-button size="small" :disabled="!!busy" @click="annotating = false">
-            {{ t('common.cancel') }}
-          </el-button>
-        </div>
-      </div>
-
+      <!-- 驳回与标注两块编辑区拆到 PlanNoteEditor：它们的状态与提交动作自成一体 -->
+      <PlanNoteEditor
+        v-model:rejecting="rejecting"
+        v-model:annotating="annotating"
+        :busy="busy"
+        :annotate-step="annotateStep"
+        @reject="submitReject"
+        @annotate="submitAnnotate"
+      />
       <div v-if="plan.plan_reject_note" class="reject">
         <AppIcon name="alert" size="ic-xs" />
         <span>{{ t('featurePanel.planRejected', { note: plan.plan_reject_note }) }}</span>

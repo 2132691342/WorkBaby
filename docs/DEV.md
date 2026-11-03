@@ -42,20 +42,24 @@ assets/               打包进二进制的资源（内置技能、帮助文档�
 
 ## 测试布局
 
-测试集中在各 crate 的 `tests/` 目录，一个 crate 一个测试文件，
-文件内按 `// ---- 场景名 ----` 分节。只守值得守的东西：
+测试集中在各 crate 的 `tests/` 目录，一个 crate 一个测试文件（长链路多的 crate
+拆成场景文件 + 共享夹具），文件内按 `// ---- 场景名 ----` 分节。只守值得守的东西：
 
 | 文件 | 守什么 |
 |---|---|
 | `wb-domain/tests/messages_test.rs` | 每个业务码都有中英默认文案，未登记的码不冒充已收录 |
 | `wb-pkg/tests/pkg_test.rs` | 路径越界判定；程序探测不起子进程 |
-| `wb-provider/tests/provider_test.rs` | 工具调用分片累积与定稿、网关夹具差异（空 `finish_reason` / 断流）、停止原因映射、错误体提取 |
-| `wb-kernel/tests/kernel_test.rs` | 一轮 run 的事件顺序与回放契约、并发分组、悬空调用补齐、压缩与活状态回注、分支编辑、子代理隔离、请求展开 |
-| `wb-tools/tests/tools_test.rs` | 写 / 改工具必须回报改动文件与成对差异行 |
-| `wb-features/tests/features_test.rs` | 待办依赖图、回答板一次性投递、记忆 FTS5 与密钥扫描、整合守恒、目标续跑状态机、多搜索源解析、LSP 路由与编辑 |
-| `wb-service/tests/service_test.rs` | 记忆与配置读写、面板写入共用同一份落盘与状态机、工作区热切换、子代理观测、SSE 载荷契约 |
-| `wb-skills/tests/skills_test.rs` | frontmatter 边界与内置技能包完整性 |
+| `wb-provider/tests/provider_test.rs` | 三套 wire 流式解析（OpenAI / Anthropic / Gemini）、工具调用分片累积与定稿、停止原因与错误体映射、提示词缓存断点、用量口径归一 |
+| `wb-kernel/tests/kernel_test.rs` | 一轮 run 的事件顺序与回放契约、并发工具批、悬空调用补齐、压缩与活状态回注、子代理隔离与工具收窄、请求展开、延迟加载、token 估算 |
+| `wb-kernel/tests/session_test.rs` | JSONL 往返、头行与叶指针、悬空调用补齐、压缩、ContextEdit、分支编辑与切回、会话树形状 |
+| `wb-tools/tests/tools_test.rs` | 写 / 改工具必须回报改动文件与成对差异行；超长输出归档；读图转图片段；CRLF 口径；执行流式回显 |
+| `wb-features/tests/features_test.rs` | 待办依赖图、回答板一次性投递、记忆 FTS5 与密钥扫描、整合守恒、知识库检索、目标续跑状态机、多搜索源解析、模糊搜索 / LSP 路由与编辑 |
+| `wb-service/tests/service_test.rs` | 记忆 / 配置读写、面板写入共用同一份落盘与状态机、工作区热切换、子代理观测、安全闸门危险信号、运行时状态与预设、工具延迟加载 |
+| `wb-service/tests/events_test.rs` | SSE 载荷字段契约；内置运行时解压全链路（`#[ignore]`） |
+| `wb-skills/tests/skills_test.rs` | frontmatter 边界与内置技能包完整性；项目上下文发现与覆盖规则 |
 | `wb-git/tests/git_test.rs` | porcelain 解析（快）；真仓库全链路（`#[ignore]`） |
+| `wb-mcp/tests/oauth_test.rs` | OAuth PKCE / state 协议细节 |
+| `wb-api/tests/hub_test.rs` | SSE 重放缓冲取舍（过程帧不挤掉对话帧） |
 
 假 Provider / 假工具这类共享夹具放 `tests/common/mod.rs`（`wb-kernel` 与 `wb-service` 各一份）。
 

@@ -18,6 +18,7 @@ import FeatureDock from '../components/features/FeatureDock.vue'
 import ExampleCards from '../components/chat/ExampleCards.vue'
 import FilePeek from '../components/chat/FilePeek.vue'
 import MessageList from '../components/chat/MessageList.vue'
+import OnboardingWizard from '../components/chat/OnboardingWizard.vue'
 import SessionPanel from '../components/chat/SessionPanel.vue'
 import StatusHud from '../components/chat/StatusHud.vue'
 import { errorText } from '../utils/errors'
@@ -34,8 +35,11 @@ const creating = ref(false)
 
 const empty = computed(() => !session.messages.length && !chat.running)
 
-// 没配默认模型时，欢迎页先把「去配置」顶到最前——不然第一条消息必然失败
+// 没配默认模型时，欢迎页把引导顶到最前——不然第一条消息必然失败。
+// 引导完成后就地切回：不用跳去设置页再自己找回来。
 const needsSetup = computed(() => settings.boot?.boot_ready === false)
+const onboardingDone = ref(false)
+const showOnboarding = computed(() => needsSetup.value && !onboardingDone.value)
 
 /** 新对话：不建空会话——第一条消息发出时后端才落盘，这里只把界面切到草稿态 */
 function newSession() {
@@ -230,21 +234,10 @@ watch(() => settings.boot?.boot_default_model, seedContext)
             </h2>
             <p class="hero-sub rise rise-3">{{ t('chat.emptySub') }}</p>
 
-            <div v-if="needsSetup" class="setup-card rise rise-4">
-              <span class="wb-tile"><AppIcon name="cpu" /></span>
-              <div class="setup-tx">
-                <b>{{ t('chat.setupTitle') }}</b>
-                <p>{{ t('chat.setupSub') }}</p>
-              </div>
-              <div class="setup-acts">
-                <el-button type="primary" size="small" @click="router.push('/models')">
-                  {{ t('chat.setupGo') }}
-                </el-button>
-                <el-button size="small" @click="router.push('/help/models')">
-                  {{ t('chat.setupGuide') }}
-                </el-button>
-              </div>
-            </div>
+            <OnboardingWizard
+              v-if="showOnboarding"
+              @done="onboardingDone = true"
+            />
             <div v-else class="rise rise-4">
               <ExampleCards :busy="sending || chat.running" @pick="pickExample" />
             </div>

@@ -1,7 +1,8 @@
-//! 共享命令执行器：子进程纪律的唯一入口（CREATE_NO_WINDOW / 超时 / 输出截断）。
+//! 共享命令执行器：子进程纪律的唯一入口（CREATE_NO_WINDOW / 超时 / 输出截断 / 增量回调）。
 
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
@@ -26,6 +27,9 @@ pub struct ExecOutcome {
 /// 单条输出上限（内存保护；最终截断仍走 truncate）。
 const OUTPUT_CAP: usize = 1024 * 1024;
 
+/// 增量输出回调：供界面实时看长命令在跑什么。
+type ChunkFn = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// 跑一条命令：argv 数组直传（永不进 shell 解释）；超时或取消都以终止进程收场。
 pub async fn run(
     program: &str,
@@ -34,7 +38,19 @@ pub async fn run(
     timeout_secs: u64,
     cancel: &CancellationToken,
 ) -> Result<ExecOutcome> {
-    run_with_limits(program, args, workdir, timeout_secs, cancel, None).await
+    run_streaming(program, args, workdir, timeout_secs, cancel, None).await
+}
+
+/// 同 run，但把执行过程中的输出增量交给 `on_chunk`（界面实时回显用）。
+pub async fn run_streaming(
+    program: &str,
+    args: &[String],
+    workdir: &Path,
+    timeout_secs: u64,
+    cancel: &CancellationToken,
+    on_chunk: Option<ChunkFn>,
+) -> Result<ExecOutcome> {
+    run_with_limits(program, args, workdir, timeout_secs, cancel, None, on_chunk).await
 }
 
 /// 同 run，但可套 Windows 作业对象（内存 / 进程数上限，关闭即杀光残留）。
@@ -45,6 +61,7 @@ pub async fn run_with_limits(
     timeout_secs: u64,
     cancel: &CancellationToken,
     limits: Option<crate::job::JobLimits>,
+    on_chunk: Option<ChunkFn>,
 ) -> Result<ExecOutcome> {
     let mut job_opt = limits.and_then(crate::job::Job::create);
     let mut cmd = tokio::process::Command::new(program);
@@ -75,7 +92,7 @@ pub async fn run_with_limits(
 
     let deadline = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs.max(1)),
-        collect(&mut out_pipe, &mut err_pipe, &mut child, cancel),
+        collect(&mut out_pipe, &mut err_pipe, &mut child, cancel, on_chunk),
     );
     let result = match deadline.await {
         Ok(Ok((stdout, stderr, code))) => Ok(ExecOutcome {
@@ -100,25 +117,47 @@ pub async fn run_with_limits(
 }
 
 /// 收集输出并等待退出；取消令牌触发即杀进程。
+/// stdout 边读边回调（不是读完整再回调）：长命令的价值就是「现在在跑什么」。
 async fn collect(
     out: &mut tokio::process::ChildStdout,
     err: &mut tokio::process::ChildStderr,
     child: &mut tokio::process::Child,
     cancel: &CancellationToken,
+    on_chunk: Option<ChunkFn>,
 ) -> Result<(String, String, Option<i32>)> {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
-    let read_out = async { out.read_to_end(&mut stdout).await };
+    // 增量读：每次最多 8KB，累计仍受 OUTPUT_CAP 约束
+    let read_out = async {
+        let mut buf = [0u8; 8 * 1024];
+        loop {
+            let n = out.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            if let Some(cb) = &on_chunk {
+                cb(&String::from_utf8_lossy(&buf[..n]));
+            }
+            if stdout.len() < OUTPUT_CAP {
+                let take = n.min(OUTPUT_CAP - stdout.len());
+                stdout.extend_from_slice(&buf[..take]);
+            }
+        }
+        Ok::<(), std::io::Error>(())
+    };
     tokio::select! {
         _ = cancel.cancelled() => {
             child.kill().await.ok();
             return Err(AppError::new(wb_domain::error::tool::EXEC_CANCELLED, "命令被取消"));
         }
-        _ = read_out => {}
+        r = read_out => {
+            r.map_err(|e| AppError::wrap("7003", "读取命令输出失败", e))?;
+        }
     }
     // 剩余 stderr 与退出码并行等（wait 借 child 可变，须在输出读完后独占）
-    let r_err = err.read_to_end(&mut stderr).await;
-    r_err.map_err(|e| AppError::wrap("7003", "读取命令输出失败", e))?;
+    err.read_to_end(&mut stderr)
+        .await
+        .map_err(|e| AppError::wrap("7003", "读取命令输出失败", e))?;
     let status = child
         .wait()
         .await
@@ -139,6 +178,9 @@ fn apply_runtime_env(cmd: &mut tokio::process::Command) {
     cmd.env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_PAGER", "cat")
         .env("LC_ALL", "C.UTF-8");
+    // MSYS bash 会把 `/c` 当成 `C:/`，`cmd.exe /c dir` 于是变成打开目录。
+    // 关掉参数改写后 `/c` 原样传给 Windows 原生 exe（`cmd.exe /c` 恢复正常）。
+    cmd.env("MSYS2_ARG_CONV_EXCL", "*");
 }
 
 fn cap(mut v: Vec<u8>) -> String {

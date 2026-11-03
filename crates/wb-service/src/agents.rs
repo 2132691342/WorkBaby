@@ -176,6 +176,21 @@ impl AgentBoard {
                     }),
                 );
             }
+            SubagentEvent::ToolProgress {
+                session_id,
+                call_id,
+                chunk,
+            } => {
+                emit(
+                    parent_session_id,
+                    "agent:tool_progress",
+                    serde_json::json!({
+                        "agent_session_id": session_id,
+                        "agent_tool_call_id": call_id,
+                        "agent_chunk": chunk,
+                    }),
+                );
+            }
             SubagentEvent::ToolEnd {
                 session_id,
                 call_id,

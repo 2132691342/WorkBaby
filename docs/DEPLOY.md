@@ -20,25 +20,37 @@ npm run tauri build                   # tauri build：编译 release + 打包
 |---|---|---|
 | 内置技能包 | `assets/skills/` 经 `include_dir` 打进 `wb-skills` | 解压到 `{数据目录}\skills\builtin`，按包指纹校验，不符即清空重解压 |
 | 内置帮助文档 | `assets/docs/` 随二进制打包 | 经 `GET /docs` 提供 |
-| 内置运行时 | `assets/runtime/` 两份归档经 `include_bytes` 打进 `wb-service` | 见下 |
+| 内置运行时 | `assets/runtime/` 三份归档经 `include_bytes` 打进 `wb-service` | 见下 |
 | 图标与元数据 | `src-tauri/icons/`、`tauri.conf.json` 的 productName / identifier / version | — |
 
 ## 内置运行时
 
-两份归档随安装包分发，**首次启动后台解压**到数据目录：
+三份归档随安装包分发，**首次启动后台解压**到数据目录：
 
 | 归档 | 解压到 | 内含 |
 |---|---|---|
 | `PortableGit.zip` | `runtime\PortableGit\` | Git Bash、git、GNU 工具 |
 | `Python313.zip` | `runtime\python\` | Python 3.13 标准库与 pip |
 
+PowerShell **不内置**：Windows PowerShell 5.1 是系统自带组件（永远存在），
+用户装了 pwsh 7 就优先用它的。理由见下方取舍。
+
 - 启动**不等它落地**：解压在线程里跑，界面与端口先就绪，进度写 `Services.runtime`，
   `GET /runtime` 报 `resp_phase`（preparing / ready / failed）、`resp_done_count` 与失败原因
 - **指纹是 zip 字节数**，写入各根目录的 `.pack_stamp`；不符即清空重解压（升级后旧文件不残留）
-- **单件失败只告警**：对应工具退回系统 PATH 探测，其余两件照常可用
-- **子进程 PATH 恒由 `runtime::child_path` 构造**（内置在前、系统在后），
+- **单件失败只告警**：对应工具退回系统 PATH 探测，另一件照常可用
+- **子进程 PATH 恒由 `runtime::child_path` 构造**（内置 → 系统目录 → 用户 PATH），
   bash / git / python / context_mode 沙箱 / GitHub 克隆五个消费方共用同一份运行时
 - 用户机器不装任何环境也能干活，且**不改动用户 PATH**——注入只作用于我们启动的子进程
+
+## 内置运行时的取舍
+
+| 决定 | 理由 |
+|---|---|
+| bash 与 python 内置 | bash 自带 358 个 GNU 工具（sed/awk/grep/tar/ssh），是日常主力；python 是跑数据脚本与文档转换的硬需求。两者都不装的话，用户机器上没这些就完全没法干活 |
+| PowerShell 不内置 | 5.1 是 Windows 自带组件（`System32\WindowsPowerShell\v1.0`），零安装成本永远存在；官方 pwsh 7 zip 要 123MB（解压 287MB），占内置运行时一半体积，而收益只是结构化输出与并行。5.1 加 UTF-8 前导后中文输出实测正常 |
+| 用户装了 pwsh 7 就用 7 | 查找链是「用户装的 pwsh 7 → 系统 5.1 → PATH」。用户主动装的版本是他的选择，不用内置件去覆盖 |
+| 系统目录夹在内置之后 | 用户 PATH 常被精简装机与安全软件删掉 `C:\Windows\System32`，缺了它 `cmd` / `where` 全部不可达 |
 
 ## 安装形态与数据
 

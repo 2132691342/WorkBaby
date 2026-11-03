@@ -86,10 +86,24 @@ pub fn detail(sv: &Arc<Services>, session_id: &str) -> Result<SessionDetailRESP>
         detail_leaf_entry_id: sf.leaf.clone(),
         detail_fork_entry_ids: wb_kernel::session::user_entry_ids(&sf),
         detail_alt_leaf_ids: leaves,
+        detail_tree: Default::default(),
     };
     // 顺序保持原有字段语义：先说清可分支点，再谈现叶
     out.detail_alt_leaf_ids = wb_kernel::session::alternate_leaves(&sf);
+    out.detail_tree = tree_vo(&wb_kernel::session_tree::build_tree(&sf));
     Ok(out)
+}
+
+/// 内核树 → 视图树。
+fn tree_vo(node: &wb_kernel::session_tree::TreeNode) -> wb_domain::session::SessionTreeNodeVO {
+    wb_domain::session::SessionTreeNodeVO {
+        node_entry_id: node.node_entry_id.clone(),
+        node_parent_entry_id: node.node_parent_entry_id.clone(),
+        node_preview: node.node_preview.clone(),
+        node_is_user: node.node_is_user,
+        node_on_path: node.node_on_path,
+        node_children: node.node_children.iter().map(tree_vo).collect(),
+    }
 }
 
 /// 回放消息并带上真实条目 id（与「用户消息可作分支点」一一对应）。
@@ -286,64 +300,6 @@ pub fn find_session_file(sv: &Arc<Services>, session_id: &str) -> Result<std::pa
 }
 
 /// HTML 转义。
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
-/// 导出会话为 HTML（自包含单文件，无外部依赖）。
-pub fn export_html(sv: &Arc<Services>, session_id: &str, out_path: &str) -> Result<String> {
-    let detail = detail(sv, session_id)?;
-    let mut body = String::new();
-    for m in &detail.detail_messages {
-        if m.message_hidden {
-            continue;
-        }
-        let who = match m.message_role.as_str() {
-            "user" => "用户",
-            "assistant" => "助手",
-            "tool" => "工具",
-            _ => "提示",
-        };
-        let text = m
-            .message_notice
-            .clone()
-            .or_else(|| m.message_content.clone())
-            .unwrap_or_default();
-        body.push_str(&format!(
-            "<div class=\"m {}\"><span class=\"who\">{}</span><pre>{}</pre></div>\n",
-            m.message_role,
-            who,
-            esc(&text)
-        ));
-    }
-    let html = format!(
-        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>{}</title>\
-<style>body{{font-family:system-ui,sans-serif;max-width:820px;margin:0 auto;padding:24px;color:#1e293b}}\
-.m{{margin:12px 0;padding:12px;border-radius:8px;background:#f8fafc}}\
-.m.assistant{{background:#e0e7ff}}\
-.m .who{{font-weight:700;font-size:12px;color:#6366f1;display:block;margin-bottom:4px}}\
-pre{{white-space:pre-wrap;word-break:break-word;margin:0;font-family:inherit}}</style></head>\
-<body><h1>{}</h1>{body}</body></html>",
-        esc(&detail.detail_session.session_title),
-        esc(&detail.detail_session.session_title),
-    );
-    let path = if out_path.is_empty() {
-        sv.data_dir
-            .join("exports")
-            .join(format!("{session_id}.html"))
-    } else {
-        std::path::PathBuf::from(out_path)
-    };
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| AppError::wrap("1002", "建导出目录失败", e))?;
-    }
-    std::fs::write(&path, html).map_err(|e| AppError::wrap("1002", "写导出文件失败", e))?;
-    Ok(path.display().to_string())
-}
-
 /// 从指定用户消息之后重开：旧分支完整保留，新消息接在它后面。
 /// 被放弃的那段先做成摘要插在新分支开头——否则旧分支上做过的事整段消失。
 pub async fn branch(

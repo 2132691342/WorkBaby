@@ -180,6 +180,10 @@ pub struct AskData {
     pub session_id: String,
     /// 发起提问的那一轮运行 id（重启补发时据此判断这一轮是否早已结束）
     pub run_id: String,
+    /// 安全闸门：被审的工具名（非审批卡时为空）
+    pub approval_tool: Option<String>,
+    /// 安全闸门：要展示的命令 / 路径摘要
+    pub approval_summary: Option<String>,
 }
 /// 问卷单题。
 #[derive(Debug, Clone, Serialize)]
@@ -243,4 +247,14 @@ pub struct WidgetData {
     pub key: String,
     /// 行文本组
     pub lines: Vec<String>,
+}
+
+/// chat:tool_progress 载荷：工具执行中的增量输出（不是最终结果）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ToolProgressData {
+    /// 调用 id
+    pub tool_call_id: String,
+    /// 本次增量输出
+    pub chunk: String,
 }

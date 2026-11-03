@@ -24,7 +24,8 @@ impl Tool for EditTool {
 
     fn description(&self) -> &str {
         "精确替换文件内容。参数：path(必填)、edits(必填，数组 [{old_text, new_text}])。\
-         每个 old_text 必须在文件中恰好出现一次，多处编辑按顺序应用。"
+         每个 old_text 必须在文件中恰好出现一次，多处编辑按顺序应用。\
+         匹配忽略行尾差异（LF / CRLF 均可），写回时保留文件原有行尾。"
     }
 
     fn parameters(&self) -> Value {
@@ -67,9 +68,14 @@ impl Tool for EditTool {
         let edits = args["edits"]
             .as_array()
             .ok_or_else(|| AppError::new("1001", "edits 必须是数组"))?;
-        let mut content = fsutil::read_to_string(&path)?;
+        let raw = fsutil::read_to_string(&path)?;
         // 改前快照：界面要在工具卡里就地看见增删行
-        let before = content.clone();
+        let before = raw.clone();
+        // 匹配在归一后的正文上做：模型从 read 工具看到的是按行切出的文本，
+        // 拿它构造的 old_text 不带 \r，直接拿原文匹配必然落空。
+        let (bom, body) = wb_pkg::text::strip_bom(&raw);
+        let ending = wb_pkg::text::detect_line_ending(body);
+        let mut content = wb_pkg::text::normalize_to_lf(body);
         for (i, e) in edits.iter().enumerate() {
             let old = e["old_text"]
                 .as_str()
@@ -77,7 +83,16 @@ impl Tool for EditTool {
             let new = e["new_text"]
                 .as_str()
                 .ok_or_else(|| AppError::new("1001", format!("edits[{i}].new_text 缺失")))?;
-            let count = content.matches(old).count();
+            // old_text / new_text 也归一：new_text 里带 \r 会把归一后的正文再污染回去
+            let old = wb_pkg::text::normalize_to_lf(old);
+            let new = wb_pkg::text::normalize_to_lf(new);
+            if old.is_empty() {
+                return Err(AppError::new(
+                    "1001",
+                    format!("edits[{i}]: old_text 不能为空"),
+                ));
+            }
+            let count = content.matches(&old).count();
             match count {
                 0 => {
                     return Err(AppError::new(
@@ -85,7 +100,7 @@ impl Tool for EditTool {
                         format!("edits[{i}]: old_text 未在文件中找到"),
                     ))
                 }
-                1 => content = content.replacen(old, new, 1),
+                1 => content = content.replacen(&old, &new, 1),
                 _ => {
                     return Err(AppError::new(
                         "1001",
@@ -94,8 +109,10 @@ impl Tool for EditTool {
                 }
             }
         }
-        fsutil::write_atomic(&path, content.as_bytes())?;
-        let diff = crate::difftext::line_diff(&before, &content);
+        // 写回时恢复原行尾与 BOM：归一只是匹配口径，不是要把文件改成 LF
+        let restored = wb_pkg::text::apply_line_ending(&content, ending);
+        fsutil::write_atomic(&path, format!("{bom}{restored}").as_bytes())?;
+        let diff = crate::difftext::line_diff(&before, &restored);
         Ok(ToolOutput::plain(
             format!("已编辑 {}（{} 处）", path.display(), edits.len()),
             false,

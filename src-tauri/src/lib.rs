@@ -141,6 +141,7 @@ pub fn run() {
             cmds::autostart_set,
             cmds::quit_app,
             cmds::window_ctl,
+            cmds::open_url,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

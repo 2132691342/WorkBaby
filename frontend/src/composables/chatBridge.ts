@@ -16,6 +16,7 @@ import type {
   StartData,
   StatusData,
   ToolEndData,
+  ToolProgressData,
   ToolStartData,
   WidgetData,
 } from '../types/chatEvents'
@@ -61,6 +62,9 @@ export function installChatBridge() {
         case 'agent:tool_end':
           agents.onToolEnd(frame.data as never)
           break
+        case 'agent:tool_progress':
+          agents.onToolProgress(frame.data as never)
+          break
         case 'agent:done':
           agents.onDone(frame.data as never)
           break
@@ -79,6 +83,9 @@ export function installChatBridge() {
         break
       case 'chat:tool_end':
         chat.onToolEnd(frame.data as ToolEndData)
+        break
+      case 'chat:tool_progress':
+        chat.onToolProgress(frame.data as ToolProgressData)
         break
       case 'chat:ask':
         chat.onAsk(frame.data as AskData)

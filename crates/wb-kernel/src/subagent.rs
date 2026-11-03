@@ -89,6 +89,15 @@ pub enum SubagentEvent {
         /// 参数
         args: serde_json::Value,
     },
+    /// 工具执行过程输出（子代理的长命令也实时可见）
+    ToolProgress {
+        /// 子会话 id
+        session_id: String,
+        /// 调用 id
+        call_id: String,
+        /// 本次增量输出
+        chunk: String,
+    },
     /// 工具结束
     ToolEnd {
         /// 子会话 id
@@ -132,8 +141,10 @@ pub async fn run_subagent(
     let session_id = wb_pkg::ulid::new_id(wb_pkg::Prefix::Sub);
     let mut session = SessionFile::create(&sc.sessions_dir, &sc.workspace, &session_id);
     let started = Instant::now();
-    let observe = |ev: SubagentEvent| {
-        if let Some(f) = sc.observe.as_ref() {
+    // 克隆成独立句柄：它要进异步任务，不能借着闭包去借 sc
+    let observe_fn = sc.observe.clone();
+    let observe = move |ev: SubagentEvent| {
+        if let Some(f) = observe_fn.as_ref() {
             f(ev);
         }
     };
@@ -184,6 +195,7 @@ pub async fn run_subagent(
             parts: vec![ContentPart::Text(system_prompt.clone())],
             tool_calls: Vec::new(),
             tool_call_id: None,
+            tool_name: None,
         }];
         for m in session.replay_messages() {
             req_msgs.push(to_req(m));
@@ -319,9 +331,31 @@ pub async fn run_subagent(
                     let run_cfg = cfg.clone();
                     let run_cancel = cancel.clone();
                     let run_ctx = tool_ctx.clone();
+                    // 同样的节流：子代理的过程也要看得到，但不能把事件通道刷爆
+                    let progress =
+                        crate::throttle::new_progress(std::time::Duration::from_millis(120), {
+                            let obs = observe.clone();
+                            let sid = session_id.clone();
+                            let cid = call_id.clone();
+                            move |chunk: &str| {
+                                obs(SubagentEvent::ToolProgress {
+                                    session_id: sid.clone(),
+                                    call_id: cid.clone(),
+                                    chunk: chunk.to_string(),
+                                });
+                            }
+                        });
                     tasks.push(async move {
-                        let out =
-                            execute_tool(&run_cfg, &name, &arguments, &run_cancel, &run_ctx).await;
+                        let out = execute_tool(
+                            &run_cfg,
+                            &name,
+                            &arguments,
+                            &run_cancel,
+                            &run_ctx,
+                            Some(progress),
+                            run_cfg.gate.clone(),
+                        )
+                        .await;
                         (call_id, name, out)
                     });
                 }

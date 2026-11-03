@@ -22,6 +22,8 @@ defineProps<{
     base_url: string
     /** 密钥（留空表示不改） */
     api_key: string
+    /** 提示词缓存开关 */
+    cache: boolean
     /** 模型清单 */
     models: ModelREQ[]
   }
@@ -46,13 +48,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-/** wire api 清单：后端只认这几条，写错就 3005。 */
+/** wire api 清单：后端只认这几条，写错就 3005。
+ *  `done` 标记后端是否已实现——未实现的先标出来，免得填完才发现连不通。 */
 const APIS = [
-  { key: 'openai-completions', label: 'OpenAI Completions' },
-  { key: 'openai-responses', label: 'OpenAI Responses' },
-  { key: 'anthropic-messages', label: 'Anthropic Messages' },
-  { key: 'google-generative-ai', label: 'Google Generative AI' },
-  { key: 'azure-openai-responses', label: 'Azure OpenAI Responses' },
+  { key: 'openai-completions', label: 'OpenAI Completions', done: true },
+  { key: 'anthropic-messages', label: 'Anthropic Messages', done: true },
+  { key: 'google-generative-ai', label: 'Google Generative AI', done: true },
+  { key: 'openai-responses', label: 'OpenAI Responses', done: false },
+  { key: 'azure-openai-responses', label: 'Azure OpenAI Responses', done: false },
 ]
 </script>
 
@@ -68,7 +71,12 @@ const APIS = [
       <div class="form-grid">
         <el-form-item :label="t('settings.providers.api')">
           <el-select v-model="form.api" :disabled="!!busy">
-            <el-option v-for="a in APIS" :key="a.key" :label="a.label" :value="a.key" />
+            <el-option
+              v-for="a in APIS"
+              :key="a.key"
+              :label="a.done ? a.label : `${a.label}（${t('settings.providers.apiTodo')}）`"
+              :value="a.key"
+            />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('common.name')" required :error="errors.name">
@@ -99,6 +107,11 @@ const APIS = [
           :placeholder="form.id ? t('settings.providers.keySaved') : t('settings.providers.keyPlaceholder')"
           :disabled="!!busy"
         />
+      </el-form-item>
+
+      <el-form-item :label="t('settings.providers.cache')">
+        <el-switch v-model="form.cache" :disabled="!!busy" />
+        <span class="hint">{{ t('settings.providers.cacheHint') }}</span>
       </el-form-item>
 
       <el-form-item :label="t('settings.providers.models')" required :error="errors.models">

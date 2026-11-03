@@ -5,30 +5,30 @@ use wb_provider::Role;
 
 use crate::session::{Entry, Msg, SessionFile};
 
+/// 消息序列的 token 估算（按字符类别加权）。
+/// 重导出到本模块：压缩与切点计算都在这里做，调用方不必跨模块找。
+pub use crate::tokenest::estimate_tokens;
+
 /// 触发保留（窗口 - reserve 即压缩）
 pub const RESERVE_TOKENS: i64 = 16_384;
 /// 保留最近
 pub const KEEP_RECENT_TOKENS: i64 = 20_000;
 
-/// 估算 token（chars/4；图片按 4800 chars）。
-pub fn estimate_tokens(msgs: &[Msg]) -> i64 {
-    let mut chars = 0i64;
-    for m in msgs {
-        match m {
-            Msg::User { content, .. } => chars += content.len() as i64,
-            Msg::Assistant { content, .. } => {
-                for b in content {
-                    match b {
-                        crate::Block::Text { text } => chars += text.len() as i64,
-                        crate::Block::Thinking { thinking } => chars += thinking.len() as i64,
-                        crate::Block::ToolCall { arguments, .. } => chars += arguments.len() as i64,
-                    }
-                }
-            }
-            Msg::ToolResult { content, .. } => chars += content.len() as i64,
-        }
+/// 固定开销：每轮都重发、但不在消息序列里的部分。
+/// 系统提示词与工具定义占着窗口却不在回放消息里，不算它们就会高估剩余空间。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ContextOverhead {
+    /// 系统提示词 token
+    pub system_tokens: i64,
+    /// 工具定义 token
+    pub tool_tokens: i64,
+}
+
+impl ContextOverhead {
+    /// 合计开销。
+    pub fn total(&self) -> i64 {
+        self.system_tokens + self.tool_tokens
     }
-    chars / 4
 }
 
 /// 是否需要压缩。
@@ -127,12 +127,14 @@ pub async fn compact(
                 parts: vec![wb_provider::ContentPart::Text(summary_prompt().to_string())],
                 tool_calls: Vec::new(),
                 tool_call_id: None,
+                tool_name: None,
             },
             wb_provider::ReqMessage {
                 role: Role::User,
                 parts: vec![wb_provider::ContentPart::Text(conversation)],
                 tool_calls: Vec::new(),
                 tool_call_id: None,
+                tool_name: None,
             },
         ],
         tools: Vec::new(),

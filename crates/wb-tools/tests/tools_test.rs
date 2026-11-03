@@ -202,3 +202,134 @@ async fn read_returns_image_parts_for_visual_models() {
     assert!(out.text.contains("二进制文件"), "got {}", out.text);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---- 行尾口径：CRLF 文件与模型构造的 LF old_text ----
+
+/// CRLF 文件上，模型用 LF 构造的 old_text 必须能匹配上，且写回仍是 CRLF。
+/// 匹配与写回是两件事：匹配忽略行尾差异，写回保留文件原风格。
+#[tokio::test]
+async fn edit_matches_lf_old_text_against_crlf_file_and_keeps_crlf() {
+    let dir = workdir("crlf");
+    let path = dir.join("w.rs");
+    std::fs::write(&path, "fn a() {}\r\nfn b() {}\r\n").unwrap();
+
+    let out = wb_tools::builtin::edit::EditTool
+        .execute(
+            json!({"path": "w.rs", "edits": [{"old_text": "fn a() {}\nfn b() {}", "new_text": "fn a() {}\nfn c() {}"}]}),
+            CancellationToken::new(),
+            &dir,
+            &wb_tools::ToolCtx::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        changes(&out),
+        vec![
+            ("del".to_string(), "fn b() {}".to_string()),
+            ("add".to_string(), "fn c() {}".to_string())
+        ],
+        "CRLF 匹配失败就不该有改动行：{out:?}"
+    );
+
+    let after = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        after, "fn a() {}\r\nfn c() {}\r\n",
+        "写回必须仍是 CRLF，不能被归一成 LF"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 整文件覆盖 CRLF 文件时沿用 CRLF：不留 CRLF 会在 Windows 仓库制造全文件 diff。
+#[tokio::test]
+async fn write_keeps_existing_crlf_line_endings() {
+    let dir = workdir("crlf_write");
+    let path = dir.join("w.txt");
+    std::fs::write(&path, "a\r\nb\r\n").unwrap();
+
+    wb_tools::builtin::write::WriteTool
+        .execute(
+            json!({"path": "w.txt", "content": "x\ny\n"}),
+            CancellationToken::new(),
+            &dir,
+            &wb_tools::ToolCtx::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "x\r\ny\r\n",
+        "覆盖后应仍是 CRLF"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 行尾探测与归一：混合行尾时按多数判定，孤立 CR 也归一成 LF。
+#[test]
+fn line_ending_detection_and_normalization() {
+    use wb_pkg::text::{apply_line_ending, detect_line_ending, normalize_to_lf, LineEnding};
+    assert_eq!(detect_line_ending("a\r\nb\r\n"), LineEnding::Crlf);
+    assert_eq!(detect_line_ending("a\nb\n"), LineEnding::Lf);
+    assert_eq!(
+        detect_line_ending("a\r\nb\nc\n"),
+        LineEnding::Lf,
+        "多数行尾说了算"
+    );
+    assert_eq!(normalize_to_lf("a\r\nb\rc\n"), "a\nb\nc\n");
+    assert_eq!(apply_line_ending("a\nb\n", LineEnding::Crlf), "a\r\nb\r\n");
+    assert_eq!(apply_line_ending("a\r\nb\r\n", LineEnding::Lf), "a\nb\n");
+}
+
+// ---- 执行过程流式回显 ----
+/// 长命令的执行过程必须边跑边回调，而不是跑完才一口气给。
+/// 回调不到界面时，用户看到的就是一张「执行中」的卡片挂着不动。
+#[tokio::test]
+async fn bash_streams_progress_chunks_while_running() {
+    let dir = workdir("stream");
+    let chunks = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = std::sync::Arc::clone(&chunks);
+    let progress: wb_tools::ProgressFn = std::sync::Arc::new(move |c: &str| {
+        sink.lock().unwrap().push(c.to_string());
+    });
+    // 分三段输出，中间停一下：确保回调在进程结束前就已经发生了
+    let script = "echo one; sleep 0.3; echo two; sleep 0.3; echo three";
+    let ctx = wb_tools::ToolCtx::default().with_progress(progress);
+    let out = wb_tools::builtin::bash::BashTool
+        .execute(
+            json!({ "command": script, "timeout": 30 }),
+            CancellationToken::new(),
+            &dir,
+            &ctx,
+        )
+        .await
+        .unwrap();
+
+    let seen = chunks.lock().unwrap().join("");
+    assert!(
+        seen.contains("one") && seen.contains("three"),
+        "过程回调应覆盖全部输出：got {seen:?}"
+    );
+    assert!(
+        out.text.contains("one") && out.text.contains("three"),
+        "最终结果仍要完整：got {}",
+        out.text
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 没挂回调时不该 panic，也不该丢输出（默认路径就是「只要结果」）。
+#[tokio::test]
+async fn bash_without_progress_callback_still_returns_output() {
+    let dir = workdir("noprog");
+    let out = wb_tools::builtin::bash::BashTool
+        .execute(
+            json!({ "command": "echo quiet" }),
+            CancellationToken::new(),
+            &dir,
+            &wb_tools::ToolCtx::default(),
+        )
+        .await
+        .unwrap();
+    assert!(out.text.contains("quiet"), "got {}", out.text);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -19,6 +19,8 @@ const custom = ref(false)
 const isEditor = computed(() => props.ask.method === 'editor')
 const isSelect = computed(() => props.ask.method === 'select')
 const isConfirm = computed(() => props.ask.method === 'confirm')
+/** 安全闸门的审批卡：比普通提问多一个「本会话都批」选项 */
+const isApproval = computed(() => !!props.ask.approval_tool)
 /** 问卷：一次问多题。答案按行拼接回传，与后端 split('\n') 对齐 */
 const isForm = computed(
   () => props.ask.method === 'questionnaire' && (props.ask.questions?.length ?? 0) > 0,
@@ -174,11 +176,17 @@ onMounted(() => {
 
     <!-- confirm：两个明确的选择，拒绝永远安全 -->
     <div v-else-if="isConfirm" class="ask-acts">
+      <!-- 审批卡：要先把被审的命令摆出来，让人看得懂自己在批什么 -->
+      <pre v-if="isApproval" class="ask-cmd">{{ props.ask.approval_summary || '' }}</pre>
       <el-button type="primary" size="small" :loading="busy" :disabled="busy" @click="submit('', true)">
-        {{ t('chat.askConfirm') }}
+        {{ isApproval ? t('chat.approvalAllow') : t('chat.askConfirm') }}
       </el-button>
       <el-button size="small" :disabled="busy" @click="submit('', false)">
         {{ t('chat.askReject') }}
+      </el-button>
+      <!-- 「本会话都批」：重复问同一个工具会打断工作流，但也得给这个出口 -->
+      <el-button v-if="isApproval" size="small" :disabled="busy" @click="submit('本会话都批', true)">
+        {{ t('chat.approvalTrust') }}
       </el-button>
     </div>
 
@@ -360,6 +368,23 @@ onMounted(() => {
   display: flex;
   gap: var(--wb-sp-2);
   align-items: center;
+  flex-wrap: wrap;
+}
+/* 审批卡：被审的命令用等宽字体摆出来，让人看得懂自己在批什么 */
+.ask-cmd {
+  flex: 0 0 100%;
+  max-height: calc(140px * var(--wb-vw-scale));
+  overflow: auto;
+  margin: 0 0 var(--wb-sp-2);
+  padding: var(--wb-sp-2);
+  border-radius: var(--wb-radius-sm);
+  border: 1px solid var(--wb-border);
+  background: var(--wb-elev-surface);
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .ask-select,
 .ask-input {

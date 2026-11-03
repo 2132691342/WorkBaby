@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '../api'
 import { i18n } from '../i18n'
-import type { MessageVO, SessionVO } from '../types/api'
+import type { MessageVO, SessionTreeNodeVO, SessionVO } from '../types/api'
 import { useChatStore } from './chat'
 
 export const useSessionStore = defineStore('session', () => {
@@ -36,16 +36,20 @@ export const useSessionStore = defineStore('session', () => {
   const leafEntryId = ref<string | null>(null)
   const forkEntryIds = ref<string[]>([])
   const altLeafIds = ref<string[]>([])
+  /** 会话树（根到叶的主干 + 挂在主干上的分支） */
+  const treeRoot = ref<SessionTreeNodeVO | null>(null)
 
   /** 把详情响应的分支信息同步到 store。 */
   function applyDetail(detail: { detail_messages: MessageVO[]; detail_session: SessionVO
     detail_leaf_entry_id?: string | null
     detail_fork_entry_ids?: string[]
-    detail_alt_leaf_ids?: string[] }) {
+    detail_alt_leaf_ids?: string[]
+    detail_tree?: SessionTreeNodeVO }) {
     messages.value = detail.detail_messages
     leafEntryId.value = detail.detail_leaf_entry_id ?? null
     forkEntryIds.value = detail.detail_fork_entry_ids ?? []
     altLeafIds.value = detail.detail_alt_leaf_ids ?? []
+    treeRoot.value = detail.detail_tree ?? null
   }
 
   /** 从某条用户消息之后重开：旧分支保留，可再切回去。 */
@@ -167,6 +171,22 @@ export const useSessionStore = defineStore('session', () => {
     await loadList()
   }
 
+  /** 当前路径上可做分支点的用户消息（按回放顺序）。
+   *  `fork_entry_ids` 是后端算好的真相，但界面还需要原文来做标题——
+   *  所以这里与消息列表对齐取出实体，而不是只丢一串 id 给组件。 */
+  function forkEntryPoints(): MessageVO[] {
+    const ids = new Set(forkEntryIds.value)
+    if (!ids.size) return []
+    return messages.value.filter((m) => !!m.message_entry_id && ids.has(m.message_entry_id))
+  }
+
+  /** 旧分支末端对应的消息：界面上要能看出「那条线停在哪儿」。 */
+  function altLeafs(): MessageVO[] {
+    const ids = new Set(altLeafIds.value)
+    if (!ids.size) return []
+    return messages.value.filter((m) => !!m.message_entry_id && ids.has(m.message_entry_id))
+  }
+
   return {
     list,
     currentId,
@@ -178,6 +198,9 @@ export const useSessionStore = defineStore('session', () => {
     leafEntryId,
     forkEntryIds,
     altLeafIds,
+    treeRoot,
+    forkEntryPoints,
+    altLeafs,
     branchFrom,
     switchToLeaf,
     loadList,

@@ -3,7 +3,7 @@ import { errorText } from '../utils/errors'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '../api'
-import type { AskClosedData, AskData, MessageVO, ModelVO } from '../types/api'
+import type { MessageVO } from '../types/api'
 import type {
   CompressedData,
   ContextData,
@@ -12,28 +12,24 @@ import type {
   ErrorData,
   LivePart,
   NotifyData,
-  PendingAsk,
   RetryData,
   StartData,
   StatusData,
   ToolEndData,
+  ToolProgressData,
   ToolRun,
   ToolStartData,
   WidgetData,
 } from '../types/chatEvents'
 import { useSettingsStore } from './settings'
 import { useToastStore } from './toast'
-import { i18n } from '../i18n'
-import { stripAnsi } from '../utils/text'
+import { tt } from '../i18n'
+import { appendTail, stripAnsi } from '../utils/text'
+import { lastContextOf, windowOfModels } from '../utils/contextWindow'
 import { useRunClock } from './runClock'
-
-/** 状态条的文案在 store 里也走 i18n：语言一换，提示条不能还是中文 */
-function tt(key: string, args?: Record<string, string | number>): string {
-  return i18n.global.t(key, args || {})
-}
+import { useAskBoard } from '../composables/useAskBoard'
 
 // SSE 事件载荷的类型定义在 types/chatEvents.ts（形状与 store 无关）。
-
 
 export const useChatStore = defineStore('chat', () => {
   const running = ref(false)
@@ -51,7 +47,8 @@ export const useChatStore = defineStore('chat', () => {
   const streaming = computed(() =>
     parts.value.map((p) => (p.kind === 'text' ? p.text : '')).join(''),
   )
-  const asks = ref<PendingAsk[]>([])
+  // 提问卡：内核提问与安全闸门的审批卡共用这一块状态
+  const { asks, onAsk, onAskClosed, answer, clear: clearAsks } = useAskBoard()
   const lastError = ref('')
   const lastErrorCode = ref('')
   const notice = ref('')
@@ -152,28 +149,6 @@ export const useChatStore = defineStore('chat', () => {
     queued.value = []
   }
 
-  /** 回答引擎的提问：confirm 走 confirmed，其余走 value / cancelled */
-  async function answer(ask: PendingAsk, value: string, confirmed: boolean, cancelled = false) {
-    try {
-      await api.chat.answer({
-        id: ask.id,
-        value,
-        confirmed,
-        cancelled,
-      })
-      asks.value = asks.value.filter((a) => a.id !== ask.id)
-    } catch (e) {
-      // "5010" = 这条提问已经不需要回答了（等待超时 / 会话中止）：摘掉卡片并说清原因。
-      const code = (e as { code?: string })?.code
-      if (code === '5010') {
-        asks.value = asks.value.filter((a) => a.id !== ask.id)
-        useToastStore().info(tt('chat.askClosed'))
-        return
-      }
-      useToastStore().bad(tt('chat.askAnswerFailed', { msg: errorText(e) }))
-    }
-  }
-
   // ---- 事件入口（SSE → store） ----
   // ---- 事件入口（SSE → store） ----
   // 本轮秒表：起跳 / 停表 / 读数都在 runClock 里，这里只用它。
@@ -242,9 +217,18 @@ export const useChatStore = defineStore('chat', () => {
       // 改动文件与差异行由 tool_end 回填：工具参数里猜路径会猜错（同一文件两次改动）
       file_path: '',
       diff: [],
+      progress: '',
     }
     partSeq++
     parts.value.push({ key: `tool-${partSeq}`, kind: 'tool', toolCallId: data.tool_call_id })
+  }
+
+  /** 执行过程中的增量输出：只在 running 时累积到上限，结束时由 output 覆盖。 */
+  function onToolProgress(data: ToolProgressData) {
+    const run = runMap.value[data.tool_call_id]
+    if (!run || !data.chunk) return
+    lastActivityAt.value = Date.now()
+    run.progress = appendTail(run.progress, data.chunk)
   }
 
   function onToolEnd(data: ToolEndData) {
@@ -257,25 +241,8 @@ export const useChatStore = defineStore('chat', () => {
     run.duration_ms = data.duration_ms
     run.file_path = data.file_path || ''
     run.diff = Array.isArray(data.diff) ? data.diff : []
-  }
-
-  function onAsk(data: AskData) {
-    if (asks.value.some((a) => a.id === data.id)) return
-    asks.value.push({
-      id: data.id,
-      method: data.method,
-      title: data.title,
-      message: data.message,
-      options: data.options ?? [],
-      questions: data.questions ?? [],
-      placeholder: data.placeholder ?? '',
-      prefill: data.prefill ?? '',
-      timeoutMs: data.timeout_ms ?? 0,
-    })
-  }
-
-  function onAskClosed(data: AskClosedData) {
-    asks.value = asks.value.filter((a) => a.id !== data.id)
+    // 最终结果已是完整输出：过程区留在卡片上只会重复一遍
+    run.progress = ''
   }
 
   function onDone(_data: DoneData) {
@@ -285,7 +252,7 @@ export const useChatStore = defineStore('chat', () => {
     retrying.value = false
     // 不在这时丢 parts：快照到手后由 clearLive() 换掉，中间不留空白。
     finalizing.value = true
-    asks.value = []
+    clearAsks()
     queued.value = []
   }
 
@@ -381,32 +348,9 @@ export const useChatStore = defineStore('chat', () => {
         : 0
   }
 
-  function lastContextOf(messages: MessageVO[]): number {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
-      if (m.message_role === 'assistant' && (m.message_usage?.usage_context || 0) > 0)
-        return m.message_usage?.usage_context || 0
-    }
-    return 0
-  }
-
-  /** 模型窗口从模型配置读：按 provider/model id 找同 id 的条目。
-   *  配置里留空（0）时按兜底值算：0 会让水位环永远显示 0%。 */
+  /** 模型窗口从模型配置读；取数规则在 utils/contextWindow.ts（与运行态无关）。 */
   function windowOf(provider: string, model: string): { window: number; max: number } {
-    const list = useSettingsStore().providers ?? []
-    const pick = (m: ModelVO) => ({
-      window: m.model_context_window > 0 ? m.model_context_window : 300000,
-      max: m.model_max_tokens > 0 ? m.model_max_tokens : 64000,
-    })
-    const target = list.find((p) => p.provider_id === provider) ?? list[0]
-    if (!target) return { window: 300000, max: 64000 }
-    const hit = target.provider_models.find((m) => m.model_id === model)
-    if (hit) return pick(hit)
-    for (const p of list) {
-      const m = p.provider_models.find((x) => x.model_id === model)
-      if (m) return pick(m)
-    }
-    return { window: 300000, max: 64000 }
+    return windowOfModels(useSettingsStore().providers ?? [], provider, model)
   }
 
   async function seedContext(provider: string, model: string, messages: MessageVO[]) {
@@ -494,6 +438,7 @@ export const useChatStore = defineStore('chat', () => {
     onDelta,
     onToolStart,
     onToolEnd,
+    onToolProgress,
     onAsk,
     onAskClosed,
     onDone,

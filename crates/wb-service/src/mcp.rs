@@ -230,10 +230,66 @@ pub async fn remove(sv: &Arc<Services>, req: &McpNameREQ) -> Result<()> {
     reload(sv).await
 }
 
-/// OAuth 登录：远端鉴权 server 请用 header 或环境变量传凭据。
-pub async fn login(_sv: &Arc<Services>, _req: &McpNameREQ) -> Result<()> {
-    Err(AppError::new(
-        mcpcode::CONFIG_INVALID,
-        "OAuth 登录暂不支持，请在配置里用 headers 传凭据",
-    ))
+/// 登出：删掉该 server 的 Authorization 头并重载。
+/// token 落在 mcp.json 的 headers 里，没有别处可清——所以登出就是改那份配置。
+pub async fn logout(sv: &Arc<Services>, req: &McpNameREQ) -> Result<()> {
+    let ws = sv.workspace_text();
+    let cfg = wb_mcp::McpConfig::load(&sv.data_dir, Path::new(&ws));
+    let path = match req.mcp_scope.as_str() {
+        "workspace" => cfg.workspace_path.clone(),
+        _ => cfg.global_path.clone(),
+    };
+    wb_mcp::config::remove_header(&path, &req.mcp_name, "Authorization")?;
+    reload(sv).await
+}
+
+/// OAuth 登录：走授权码 + PKCE，token 落进该 server 的 headers。
+/// token 写进 mcp.json 而不是另建存储：MCP 桥本来就从 headers 读凭据。
+pub async fn login(sv: &Arc<Services>, req: &McpNameREQ) -> Result<()> {
+    let ws = sv.workspace_text();
+    let cfg = wb_mcp::McpConfig::load(&sv.data_dir, Path::new(&ws));
+    let entry = cfg
+        .merged()
+        .into_iter()
+        .find(|(name, _, _)| name == &req.mcp_name)
+        .map(|(_, c, scope)| (c, scope));
+    let Some((scfg, scope)) = entry else {
+        return Err(AppError::new(
+            mcpcode::CONFIG_INVALID,
+            format!("没有叫 {} 的 server", req.mcp_name),
+        ));
+    };
+    if scfg.transport != "http" {
+        return Err(AppError::new(
+            mcpcode::CONFIG_INVALID,
+            "只有 http 类型的远端 server 才需要 OAuth 登录",
+        ));
+    }
+    let path = match scope {
+        wb_mcp::Scope::Workspace => cfg.workspace_path.clone(),
+        wb_mcp::Scope::Global => cfg.global_path.clone(),
+    };
+    let http = wb_mcp::oauth::http_client();
+    // 打开浏览器：HTTP 服务这一侧没有壳，只能借系统的默认浏览器。
+    // 走 `cmd /C start` 是 Windows 上唯一不需要额外依赖的做法；
+    // CREATE_NO_WINDOW 必须挂上，否则会闪一个控制台窗口。
+    let open_browser = |url: &str| {
+        let url = url.to_string();
+        std::thread::spawn(move || {
+            let mut cmd = std::process::Command::new("cmd");
+            cmd.args(["/C", "start", "", &url]);
+            wb_pkg::proc::hide_window(&mut cmd);
+            let _ = cmd.spawn();
+        });
+    };
+    let outcome = wb_mcp::oauth::login(
+        &http,
+        &req.mcp_name,
+        &scfg.url,
+        scfg.headers.get("client_id").map(|s| s.as_str()),
+        &open_browser,
+    )
+    .await?;
+    wb_mcp::config::set_header(&path, &req.mcp_name, "Authorization", &outcome.access_token)?;
+    reload(sv).await
 }

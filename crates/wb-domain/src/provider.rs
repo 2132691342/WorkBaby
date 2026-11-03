@@ -40,6 +40,8 @@ pub struct ProviderVO {
     pub provider_models: Vec<ModelVO>,
     /// 是否是默认服务商
     pub provider_is_default: bool,
+    /// 提示词缓存是否开（Anthropic 系的 cache_control 断点）
+    pub provider_cache: bool,
 }
 
 /// 服务商清单响应。
@@ -88,6 +90,8 @@ pub struct UpsertProviderREQ {
     pub req_provider_base_url: String,
     /// 密钥；空 = 不改动
     pub req_provider_api_key: Option<String>,
+    /// 提示词缓存开关；None = 不改动
+    pub req_provider_cache: Option<bool>,
     /// 模型清单
     pub req_models: Vec<ModelREQ>,
 }
@@ -170,6 +174,9 @@ pub struct ProviderCfg {
     pub headers: std::collections::BTreeMap<String, String>,
     /// 模型清单
     pub models: Vec<ModelCfg>,
+    /// 是否开提示词缓存；None = 按 wire api 的默认开，Some(false) = 强制关。
+    /// 部分兼容网关不认 cache_control 字段，关掉就能避开。
+    pub cache: Option<bool>,
 }
 
 /// models.json 顶层。
@@ -205,4 +212,32 @@ pub enum AuthEntry {
 pub struct AuthCfg {
     /// provider 键 → 凭据
     pub providers: std::collections::BTreeMap<String, AuthEntry>,
+}
+
+/// 内置服务商预设视图：一键添加的候选。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ProviderPresetVO {
+    /// 预设码（同时作为 provider 键）
+    pub preset_id: String,
+    /// 显示名
+    pub preset_name: String,
+    /// 一句话说明（去哪儿申请密钥 / 适用场景）
+    pub preset_hint: String,
+    /// 接口地址
+    pub preset_base_url: String,
+    /// 已带上的模型数
+    pub preset_model_count: i64,
+    /// 该预设是否已存在于配置里
+    pub preset_installed: bool,
+}
+
+/// 添加预设入参。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ProviderPresetApplyREQ {
+    /// 预设码
+    pub preset_id: String,
+    /// 密钥（本地服务可留空；留空则不写 auth.json）
+    pub preset_api_key: Option<String>,
 }

@@ -122,6 +122,7 @@ impl Tool for CtxExecuteTool {
             timeout,
             &cancel,
             Some(wb_tools::job::JobLimits::default()),
+            None,
         )
         .await?;
         // 清理脚本：沙箱不留下模型产生的垃圾
@@ -420,6 +421,7 @@ impl Tool for CtxBatchExecuteTool {
                 timeout,
                 &cancel,
                 Some(wb_tools::job::JobLimits::default()),
+                None,
             )
             .await?;
             let _ = std::fs::remove_file(&file);

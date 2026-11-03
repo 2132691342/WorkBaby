@@ -12,7 +12,7 @@ use wb_pkg::{AppError, Result};
 use crate::config::ResolvedProvider;
 use crate::types::{
     ContentPart, ModelClient, ModelEvent, ProviderStream, ReqMessage, Role, StopReason,
-    StreamRequest, ThinkingLevel, ToolCallDone, Usage,
+    StreamRequest, ToolCallDone, Usage,
 };
 
 /// openai 系客户端。
@@ -29,7 +29,7 @@ pub struct Acc {
     /// 逐 index 累积的工具调用
     tools: Vec<Option<(String, String, String)>>,
     /// 累积用量
-    usage: Usage,
+    pub usage: Usage,
     /// 上游 finish_reason 归一化后的停止原因
     pub stop: Option<StopReason>,
     /// 是否已见过有效的 finish_reason
@@ -137,11 +137,8 @@ impl OpenAiClient {
             body["tool_choice"] = json!("auto");
         }
         // 思考档位落到各家通用字段：关 = 不送（与不支持的模型完全等价）
-        match req.thinking {
-            ThinkingLevel::Off => {}
-            ThinkingLevel::Low => body["reasoning_effort"] = json!("low"),
-            ThinkingLevel::Medium => body["reasoning_effort"] = json!("medium"),
-            ThinkingLevel::High => body["reasoning_effort"] = json!("high"),
+        if let Some(effort) = req.thinking.wire_value() {
+            body["reasoning_effort"] = json!(effort);
         }
         body
     }
@@ -358,14 +355,23 @@ pub fn handle_chunk(data: &str, acc: &mut Acc) -> Vec<ModelEvent> {
         return out;
     };
     if let Some(u) = v.get("usage").filter(|u| !u.is_null()) {
-        acc.usage.input = u["prompt_tokens"].as_i64().unwrap_or(acc.usage.input);
-        acc.usage.output = u["completion_tokens"].as_i64().unwrap_or(acc.usage.output);
-        acc.usage.cache_read = u["prompt_tokens_details"]["cached_tokens"]
+        // 缓存读的口径各家不同：OpenAI / OpenRouter 放在 prompt_tokens_details.cached_tokens，
+        // DeepSeek 放顶层 prompt_cache_hit_tokens，Kimi 放顶层 cached_tokens。
+        let cache_read = u["prompt_tokens_details"]["cached_tokens"]
             .as_i64()
+            .or_else(|| u["prompt_cache_hit_tokens"].as_i64())
+            .or_else(|| u["cached_tokens"].as_i64())
             .unwrap_or(acc.usage.cache_read);
-        acc.usage.cache_write = u["prompt_tokens_details"]["cache_write_tokens"]
+        let cache_write = u["prompt_tokens_details"]["cache_write_tokens"]
             .as_i64()
             .unwrap_or(acc.usage.cache_write);
+        // prompt_tokens 已含缓存部分，input 必须扣掉才算「未命中缓存的输入」。
+        // 不扣的话 input + cache_read 会把同一批 token 算两遍。
+        let prompt_tokens = u["prompt_tokens"].as_i64().unwrap_or(acc.usage.input);
+        acc.usage.input = (prompt_tokens - cache_read - cache_write).max(0);
+        acc.usage.output = u["completion_tokens"].as_i64().unwrap_or(acc.usage.output);
+        acc.usage.cache_read = cache_read;
+        acc.usage.cache_write = cache_write;
         acc.usage.reasoning = u["completion_tokens_details"]["reasoning_tokens"]
             .as_i64()
             .unwrap_or(acc.usage.reasoning);

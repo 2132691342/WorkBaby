@@ -63,8 +63,9 @@ pub struct ToolOutput {
 |---|---|---|
 | `read` | ✓ | 读文本（2000 行 / 50KB 截断）；**图片按 image 段交给视觉模型** |
 | `write` | | 整文件写入（临时文件 + rename，避免半截文件） |
-| `edit` | | 多处精确替换，`old_text` 必须唯一且不重叠 |
-| `bash` | | 经内置 PortableGit 的 Git Bash 执行命令 |
+| `edit` | | 多处精确替换，`old_text` 必须唯一且不重叠；匹配忽略行尾差异 |
+| `bash` | | 经内置 PortableGit 的 Git Bash 执行命令（日常主力，带 GNU 工具链） |
+| `powershell` | | 用系统 Windows PowerShell 执行命令（注册表 / 服务 / WMI 等原生操作） |
 | `python` | | 用内置 Python 3.13 跑代码或脚本 |
 | `grep` | ✓ | 正则 / 字面量内容搜索，尊重 `.gitignore` |
 | `find` | ✓ | glob 文件名搜索 |
@@ -73,6 +74,50 @@ pub struct ToolOutput {
 `read` 的图片分流按扩展名（png / jpg / gif / webp / bmp，≤5MB）：先判扩展名再看
 二进制嗅探。反过来做的话所有图片都会被判成「二进制文件 N 字节」，视觉模型
 永远看不到用户截图。
+
+**行尾口径**：Windows 仓库里的文件多是 CRLF，而模型从 `read` 看到的是按行切掉的
+文本。两者对不上就会「明明见过这段代码，old_text 却说找不到」。
+
+所以匹配前把正文、`old_text`、`new_text` 都归一成 LF，写回时再按文件原有
+风格还原（CRLF 文件盖 CRLF，LF 文件盖 LF）。归一只是匹配口径，不是要把
+文件改成 LF——整篇换行会让 Windows 仓库凭空多出全文件 diff。
+
+`write` 整文件覆盖时同理：盖已有文件就沿用它的行尾，新建文件用 LF。
+
+## 工具按需加载
+
+全部工具的 schema 常驻上下文要几千 token（全功能开齐时约 6000）。设
+`defer_tools` 开启后，请求里只留 `tool_search` 一个工具，其余工具的
+schema 不进请求；模型用 `tool_search` 搜到之后，那些工具才在下一轮出现。
+
+检索用 BM25：工具名命中权重三倍（名字比描述更值钱），英文按词干匹配、
+中文按字切。没有命中就把当前可用的工具名列出来，让模型换个说法。
+
+加载在下一轮生效：工具执行时写进一份共享集合，内核组下一次请求时读它。
+加载的工具在本轮内就可以直接调用——定义已经在了。
+
+**默认关**：延迟加载会让模型先搜一轮，多一轮往返；工具不多时这笔买卖不划算。
+开与不开的行为差别由测试守住。
+
+## 执行过程回显
+
+长命令跑起来要几十秒，只给一张「执行中」的卡片等于让人干等。所以 `exec` 边读边回调：
+
+```text
+exec::run_streaming(.., on_chunk)
+  └─ 每读到 ≤8KB 就把这段交给 ToolCtx::progress
+      └─ 内核 throttle 节流（120ms）→ KernelEvent::ToolProgress
+          └─ SSE `chat:tool_progress` → 工具卡实时追加
+```
+
+三条约束：
+
+- **丢掉不丢内容**：节流器丢的是中间帧，最终结果仍以完整输出回灌模型
+- **只留尾部**：界面只留最后 8000 字符——过程区是「看它在干什么」，不是最终结果
+- **结束时清空**：`tool_end` 一到，过程区让位给完整输出，否则同一段内容要读两遍
+
+子代理走同一条链（`SubagentEvent::ToolProgress` → `agent:tool_progress`），
+所以「它在读什么、跑什么」对子代理同样可见。
 
 ## 输出截断与归档
 
@@ -101,9 +146,20 @@ pub struct ToolOutput {
 | 不闪窗口 | 每个 `Command` 出口挂 `CREATE_NO_WINDOW`（直接引 `wb_pkg::proc` 常量） |
 | 可超时 | 统一超时，超时杀进程 |
 | 可取消 | `CancellationToken` 触发即杀进程，报 7002 |
-| 内置运行时优先 | 子进程 PATH 首位指向内置 PortableGit / Python，不污染用户环境 |
+| 内置运行时优先 | 子进程 PATH 顺序：内置 PortableGit / Python → Windows 系统目录 → 用户 PATH |
 | 编码统一 | `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` / `LC_ALL=C.UTF-8` |
+| 参数不改写 | `MSYS2_ARG_CONV_EXCL=*`——否则 bash 里 `cmd.exe /c` 会被当路径改写成 `C:/` |
 | 不走交互 | `GIT_TERMINAL_PROMPT=0`、`GIT_PAGER=cat`——无 TTY 会永久挂起 |
+
+**为什么 bash 与 powershell 并存**：两者覆盖的活不一样。内置 Git Bash 自带 358 个
+GNU 工具（sed / awk / grep / tar / ssh / xargs），是干绝大多数活的主力；
+但注册表、Windows 服务、WMI/CIM、COM 注册、组策略这些只能走 PowerShell，
+bash 里绕过去要拼 `reg.exe` / `sc.exe` 加一串参数，模型出错率明显更高。
+两者都走同一个 `exec` 出口，纪律完全一致，所以并存的成本只是多一份工具声明。
+
+**为什么 PATH 要补系统目录**：用户 PATH 常被精简装机与安全软件改动，
+缺 `C:\Windows\System32` 时 `cmd.exe` / `where` / `powershell.exe` 全部不可达。
+系统目录夹在内置运行时之后、用户 PATH 之前：内置优先，用户环境既不被改写也仍可访问。
 
 探测程序用 `wb_pkg::proc::resolve_command`（纯路径查找），**禁止跑 `where` / `which`**
 ——那会闪一个控制台窗口。

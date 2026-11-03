@@ -39,6 +39,8 @@ pub struct ReqMessage {
     pub tool_calls: Vec<ReqToolCall>,
     /// ToolResult 消息对应的调用 id
     pub tool_call_id: Option<String>,
+    /// ToolResult 消息对应的工具名（gemini 的 functionResponse 要求带名字）
+    pub tool_name: Option<String>,
 }
 
 /// 请求侧工具调用（历史回放形态）。
@@ -64,18 +66,55 @@ pub struct ToolDef {
     pub parameters: Value,
 }
 
-/// 思考档位。
+/// 思考档位：与主流 wire 的 `reasoning_effort` 取值一一对应，不做静默降级。
+/// 界面给几档，后端就认几档；模型不支持推理时由 service 统一关掉。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThinkingLevel {
-    /// 关
+    /// 关（不送 reasoning_effort）
     Off,
+    /// 极少
+    Minimal,
     /// 低
     Low,
     /// 中
     Medium,
     /// 高
     High,
+    /// 很高
+    XHigh,
+    /// 拉满
+    Max,
+}
+
+impl ThinkingLevel {
+    /// 解析界面传来的档位码；未知值返回 None，由调用方决定报错还是兜底。
+    /// 不把未知值默默当 medium——那会让「我选了 max」和「它在随便跑」不可区分。
+    pub fn parse(code: &str) -> Option<Self> {
+        Some(match code.trim() {
+            "off" | "" => Self::Off,
+            "minimal" => Self::Minimal,
+            "low" => Self::Low,
+            "medium" => Self::Medium,
+            "high" => Self::High,
+            "xhigh" => Self::XHigh,
+            "max" => Self::Max,
+            _ => return None,
+        })
+    }
+
+    /// 落到 wire 上的取值；`Off` 不送字段（与不支持推理的模型等价）。
+    pub fn wire_value(self) -> Option<&'static str> {
+        match self {
+            Self::Off => None,
+            Self::Minimal => Some("minimal"),
+            Self::Low => Some("low"),
+            Self::Medium => Some("medium"),
+            Self::High => Some("high"),
+            Self::XHigh => Some("xhigh"),
+            Self::Max => Some("max"),
+        }
+    }
 }
 
 /// 一次采样请求。
@@ -109,7 +148,7 @@ pub struct ToolCallDone {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Usage {
-    /// 输入 token
+    /// 输入 token（已扣除缓存命中的部分）
     pub input: i64,
     /// 输出 token
     pub output: i64,
@@ -119,6 +158,14 @@ pub struct Usage {
     pub cache_write: i64,
     /// 推理 token（openai 系；anthropic 计入 output）
     pub reasoning: i64,
+}
+
+impl Usage {
+    /// 总量：输入 + 输出 + 缓存读 + 缓存写。
+    /// 三个字段互不重叠（input 已扣掉缓存部分），所以直接相加就是上游处理的总量。
+    pub fn total(&self) -> i64 {
+        self.input + self.output + self.cache_read + self.cache_write
+    }
 }
 
 /// 停止原因。

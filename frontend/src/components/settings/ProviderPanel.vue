@@ -9,6 +9,7 @@ import { useToastStore } from '../../stores/toast'
 import type { ModelREQ, ProviderVO } from '../../types/api'
 import AppIcon from '../common/AppIcon.vue'
 import ProviderDialog from './ProviderDialog.vue'
+import ProviderPresetPicker from './ProviderPresetPicker.vue'
 import SettingsSection from './SettingsSection.vue'
 
 const { t } = useI18n()
@@ -30,6 +31,9 @@ const form = reactive({
   api: 'openai-completions',
   base_url: '',
   api_key: '',
+  // 提示词缓存默认开：命中时输入按增量价计费。部分兼容网关不认
+  // cache_control 字段，用户可以关掉。
+  cache: true,
   models: [] as ModelREQ[],
 })
 const fetched = ref<string[]>([])
@@ -47,6 +51,7 @@ function reset() {
   form.api = 'openai-completions'
   form.base_url = ''
   form.api_key = ''
+  form.cache = true
   form.models = []
   fetched.value = []
   clearErrors()
@@ -86,6 +91,7 @@ function edit(p: ProviderVO) {
   form.api = p.provider_api || 'openai-completions'
   form.base_url = p.provider_base_url
   form.api_key = ''
+  form.cache = p.provider_cache !== false
   form.models = p.provider_models.map((m) => ({
     model_id: m.model_id,
     model_name: m.model_name,
@@ -131,6 +137,7 @@ async function save() {
       req_provider_api: form.api,
       req_provider_base_url: form.base_url.trim(),
       req_provider_api_key: form.api_key || undefined,
+      req_provider_cache: form.cache,
       // 清空输入框时 el-input-number 会给 null / 0：落盘前补回默认值，
       // 否则后端只能收到 0，水位与预算全跟着失效。
       req_models: form.models.map((m) => ({
@@ -249,6 +256,9 @@ onMounted(() => {
         </el-button>
       </template>
 
+      <!-- 预设区：首启没配任何服务商时它就是主入口，不必让用户去手写 JSON -->
+      <ProviderPresetPicker />
+
       <div v-if="store.providersLoading && !providers.length" class="grid gap-3">
         <el-skeleton animated :rows="3" class="card-box" />
       </div>
@@ -259,7 +269,6 @@ onMounted(() => {
         <p>{{ t('settings.providers.emptyHint') }}</p>
         <el-button size="small" type="primary" @click="createNew">{{ t('settings.providers.add') }}</el-button>
       </div>
-
       <div v-else class="prov-grid">
         <article v-for="p in providers" :key="p.provider_id" class="prov">
           <header class="prov-head">

@@ -23,6 +23,8 @@ const props = defineProps<{
   filePath?: string
   /** 后端回报的差异行 */
   diff?: DiffLine[]
+  /** 执行过程中的实时输出（running 时才有） */
+  progress?: string
 }>()
 
 const { t } = useI18n()
@@ -76,6 +78,9 @@ const filePath = computed(() => {
 const canPeek = computed(
   () => !!filePath.value && ['edit', 'write', 'read', 'ffread'].includes(props.tool || ''),
 )
+
+/** 执行中的实时输出（尾部）：有就自动展开卡片，否则长命令看上去就是卡住。 */
+const liveOut = computed(() => (props.running ? (props.progress || '').trim() : ''))
 </script>
 
 <template>
@@ -107,24 +112,32 @@ const canPeek = computed(
       </button>
     </div>
 
-    <div v-if="open" class="tool-bd">
+    <div v-if="open || liveOut" class="tool-bd">
       <template v-if="argsJson">
         <div class="wb-label tool-sec">{{ t('chat.toolArgs') }}</div>
         <pre class="tool-out">{{ argsJson }}</pre>
       </template>
-      <div class="wb-label tool-sec">{{ title || t('chat.toolOutput') }}</div>
-      <div v-if="diffRows" class="diff">
-        <div
-          v-for="(r, i) in diffRows"
-          :key="i"
-          class="diff-row"
-          :class="{ 'is-add': r.kind === 'add', 'is-del': r.kind === 'del' }"
-        >
-          <span /><span /><span>{{ r.text }}</span>
+      <!-- 执行中：实时输出直接铺在卡里（不靠展开），否则长命令看上去就是卡住 -->
+      <template v-if="running">
+        <div class="wb-label tool-sec">{{ t('chat.toolLive') }}</div>
+        <pre v-if="liveOut" class="tool-out is-live">{{ liveOut }}</pre>
+        <div v-else class="tool-out is-dim">{{ t('chat.toolWaiting') }}</div>
+      </template>
+      <template v-else>
+        <div class="wb-label tool-sec">{{ title || t('chat.toolOutput') }}</div>
+        <div v-if="diffRows" class="diff">
+          <div
+            v-for="(r, i) in diffRows"
+            :key="i"
+            class="diff-row"
+            :class="{ 'is-add': r.kind === 'add', 'is-del': r.kind === 'del' }"
+          >
+            <span /><span /><span>{{ r.text }}</span>
+          </div>
         </div>
-      </div>
-      <pre v-else-if="output" class="tool-out" :class="{ 'is-bad': status === 'bad' }">{{ output }}</pre>
-      <div v-else-if="!running" class="tool-out is-dim">{{ t('chat.toolEmpty') }}</div>
+        <pre v-else-if="output" class="tool-out" :class="{ 'is-bad': status === 'bad' }">{{ output }}</pre>
+        <div v-else class="tool-out is-dim">{{ t('chat.toolEmpty') }}</div>
+      </template>
     </div>
   </div>
 </template>
@@ -205,6 +218,19 @@ const canPeek = computed(
 }
 .tool-out.is-dim {
   color: var(--wb-muted);
+}
+/* 过程输出：只留尾部、限高滚动；它是活水，不该把页面顶长 */
+.tool-out.is-live {
+  max-height: calc(220px * var(--wb-vw-scale));
+  overflow: auto;
+  color: var(--wb-ink-2);
+  border-left: 2px solid var(--wb-brand-2);
+  animation: live-in var(--wb-dur) var(--wb-ease);
+}
+@keyframes live-in {
+  from {
+    opacity: 0.4;
+  }
 }
 .tool-out.is-bad {
   color: var(--wb-danger);

@@ -86,7 +86,7 @@ onMounted(() => {
       <p v-if="preparing" class="rt-busy">
         {{ t('settings.runtime.preparingHint', { name: status?.resp_current || '—' }) }}
         <el-progress
-          :percentage="Math.round(((status?.resp_done_count || 0) / (status?.resp_total_count || 2)) * 100)"
+          :percentage="Math.round(((status?.resp_done_count || 0) / (status?.resp_total_count || 3)) * 100)"
           :stroke-width="4"
           :show-text="false"
           class="rt-bar"

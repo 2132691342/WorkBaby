@@ -33,6 +33,7 @@ pub(crate) fn to_req(m: Msg, skill: Option<&SkillLoader>) -> ReqMessage {
                 parts,
                 tool_calls: Vec::new(),
                 tool_call_id: None,
+                tool_name: None,
             }
         }
         Msg::Assistant { content, .. } => {
@@ -64,10 +65,12 @@ pub(crate) fn to_req(m: Msg, skill: Option<&SkillLoader>) -> ReqMessage {
                 parts: vec![ContentPart::Text(text)],
                 tool_calls: calls,
                 tool_call_id: None,
+                tool_name: None,
             }
         }
         Msg::ToolResult {
             tool_call_id,
+            tool_name,
             content,
             images,
             ..
@@ -86,6 +89,7 @@ pub(crate) fn to_req(m: Msg, skill: Option<&SkillLoader>) -> ReqMessage {
                 parts,
                 tool_calls: Vec::new(),
                 tool_call_id: Some(tool_call_id),
+                tool_name: Some(tool_name),
             }
         }
     }

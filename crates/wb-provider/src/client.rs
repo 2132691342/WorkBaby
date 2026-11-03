@@ -2,7 +2,9 @@
 
 use wb_pkg::{AppError, Result};
 
+use crate::anthropic::AnthropicClient;
 use crate::config::ResolvedProvider;
+use crate::gemini::GeminiClient;
 use crate::openai::OpenAiClient;
 use crate::ModelClient;
 
@@ -12,9 +14,11 @@ use crate::ModelClient;
 pub fn create_client(p: ResolvedProvider) -> Result<std::sync::Arc<dyn ModelClient>> {
     match p.api.as_str() {
         "openai-completions" | "" => Ok(std::sync::Arc::new(OpenAiClient::new(p))),
+        "anthropic-messages" => Ok(std::sync::Arc::new(AnthropicClient::new(p))),
+        "google-generative-ai" => Ok(std::sync::Arc::new(GeminiClient::new(p))),
         other => Err(AppError::new(
             "3005",
-            format!("暂不支持的 wire api：{other}（当前支持 openai-completions）"),
+            format!("暂不支持的 wire api：{other}（当前支持 openai-completions / anthropic-messages / google-generative-ai）"),
         )),
     }
 }

@@ -51,8 +51,24 @@ MCP 是承接第三方扩展的主通道——它加进来的是「工具声明�
 `env` 与 `headers` 当前只支持明文。配置文件里的密钥是明文，
 `mcp.json` 与会话数据同目录，依赖 NTFS 用户级权限保护。
 
-**OAuth 登录不支持**：`POST /mcp/login` 与 `/mcp/logout` 都返回 9101 并说明
-「请在配置里用 headers 传凭据」。远端鉴权的 server 就用静态 header 传凭据。
+### OAuth 登录
+
+远端鉴权的 server 可以走授权码 + PKCE，不必手写 header：
+
+1. `POST /mcp/login` → 从 `/.well-known/oauth-authorization-server` 取授权端点
+2. 本地起一个回环端口（15232），生成 PKCE 的 verifier 与 challenge
+3. 打开默认浏览器让用户授权，MCP server 把 code 回调到本地端口
+4. 用 code 换 access_token，**写进该 server 的 `headers.Authorization`**
+
+三条设计取舍：
+
+- **token 落在 mcp.json 的 headers 里**，不另建存储：MCP 桥本来就从 headers 读凭据，
+  写同一处才能让「改了配置立刻生效」这条纪律成立
+- **登出就是删那个 header**（`POST /mcp/logout`），没有服务端会话可销毁
+- **不支持 PKCE 就不做**：非 PKCE 的授权码流要额外处理 secret，不值得为此加一条分支；
+  这时报错并指引用户改用 headers
+
+回调端口固定为 15232：用户要在 MCP server 侧登记 redirect_uri，固定端口省去配置。
 
 ## 错误码
 

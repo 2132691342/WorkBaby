@@ -4,6 +4,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '../api'
 import type { DiffLine } from '../types/chatEvents'
+import { appendTail } from '../utils/text'
 
 /** 子代理里的一次工具调用（展示用）。 */
 export interface AgentToolRun {
@@ -21,6 +22,8 @@ export interface AgentToolRun {
   result: string
   /** 耗时毫秒 */
   duration_ms: number
+  /** 执行过程中的实时输出（尾部，完成后清空） */
+  progress: string
 }
 
 /** 一条子代理记录：界面上一行 + 展开后的过程。 */
@@ -83,6 +86,13 @@ interface AgentToolEndData {
   agent_tool_result: string
   agent_tool_error: boolean
   agent_duration_ms: number
+}
+
+/** agent:tool_progress 载荷。 */
+interface AgentToolProgressData {
+  agent_session_id: string
+  agent_tool_call_id: string
+  agent_chunk: string
 }
 
 /** agent:done 载荷。 */
@@ -214,6 +224,7 @@ export const useAgentsStore = defineStore('agents', () => {
       is_error: false,
       result: '',
       duration_ms: 0,
+      progress: '',
     }
   }
 
@@ -225,6 +236,16 @@ export const useAgentsStore = defineStore('agents', () => {
     run.is_error = data.agent_tool_error
     run.result = data.agent_tool_result
     run.duration_ms = data.agent_duration_ms
+    // 最终结果已是完整输出：过程区留着只会重复一遍
+    run.progress = ''
+  }
+
+  /** 子代理工具的执行过程：与主对话同一套「只留尾巴」策略。 */
+  function onToolProgress(data: AgentToolProgressData) {
+    const row = ensure(data.agent_session_id)
+    const run = row.agent_tools[data.agent_tool_call_id]
+    if (!run || !data.agent_chunk) return
+    run.progress = appendTail(run.progress, data.agent_chunk)
   }
 
   function onDone(data: AgentDoneData) {
@@ -271,6 +292,7 @@ export const useAgentsStore = defineStore('agents', () => {
     onDelta,
     onToolStart,
     onToolEnd,
+    onToolProgress,
     onDone,
     reconcile,
     select,

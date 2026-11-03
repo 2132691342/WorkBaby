@@ -119,3 +119,15 @@ pub fn window_ctl(app: AppHandle, action: String) {
         _ => w.close().ok(),
     };
 }
+
+/// 用默认浏览器打开一个 URL（MCP OAuth 授权页用）。
+#[tauri::command]
+pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("只允许打开 http/https 地址".into());
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
+}

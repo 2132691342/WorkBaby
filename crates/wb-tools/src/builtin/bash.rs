@@ -14,6 +14,11 @@ use crate::truncate;
 /// bash 工具。
 pub struct BashTool;
 
+/// 把 ToolCtx 的过程回调转成 exec 要的形态（未挂回调时为 None）。
+fn progress_of(ctx: &crate::ToolCtx) -> Option<crate::ProgressFn> {
+    ctx.progress.as_ref().map(std::sync::Arc::clone)
+}
+
 /// 定位 bash.exe：内置运行时 → 系统 PATH → 常见 Git 安装位。
 pub fn find_bash() -> Option<std::path::PathBuf> {
     if let Some(data) = wb_domain::runtime::default_data_dir() {
@@ -61,7 +66,10 @@ impl Tool for BashTool {
     fn description(&self) -> &str {
         "在工作区执行 bash 命令（已内置 Git Bash 与 Python，PATH 已指向内置运行时）。\
          参数：command(必填)、timeout(秒，默认 120，上限 600)。输出按 2000 行 / 50KB 截断。\
-         Python 用 `python`，git 用 `git`，不要装环境也不要改 PATH。"
+         Python 用 `python`，git 用 `git`，不要装环境也不要改 PATH。\
+         默认選 bash：它带 GNU 工具链（sed/awk/grep/tar/ssh）。Windows 原生操作（注册表、服务、\
+         WMI）用 powershell 工具。在 bash 里调 Windows 原生 exe 时注意：`/c` 会被 MSYS \
+         当路径改写，要用 `//c`（如 `cmd.exe //c dir`）。"
     }
 
     fn parameters(&self) -> Value {
@@ -87,7 +95,7 @@ impl Tool for BashTool {
         args: Value,
         cancel: CancellationToken,
         workdir: &std::path::Path,
-        _ctx: &crate::ToolCtx,
+        ctx: &crate::ToolCtx,
     ) -> Result<ToolOutput> {
         let command = args["command"]
             .as_str()
@@ -100,12 +108,13 @@ impl Tool for BashTool {
                 "找不到 bash：内置运行时首次启动还在解压，等几秒重试；若一直失败请到设置页看运行时状态",
             ));
         };
-        let outcome = exec::run(
+        let outcome = exec::run_streaming(
             &bash.display().to_string(),
             &["-c".to_string(), command.to_string()],
             workdir,
             timeout,
             &cancel,
+            progress_of(ctx),
         )
         .await?;
         let mut text = String::new();

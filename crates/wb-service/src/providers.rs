@@ -69,6 +69,7 @@ pub fn list_vo(sv: &Arc<Services>) -> Result<(Vec<ProviderVO>, String, String, S
                 })
                 .collect(),
             provider_is_default: *pid == dp,
+            provider_cache: cfg.cache.unwrap_or(true),
         });
     }
     Ok((out, dp, dm, sv.providers.models_path.display().to_string()))
@@ -103,6 +104,9 @@ pub async fn upsert(sv: &Arc<Services>, req: &UpsertProviderREQ) -> Result<Strin
     entry.name = req.req_provider_name.clone();
     entry.api = req.req_provider_api.clone();
     entry.base_url = req.req_provider_base_url.clone();
+    if let Some(cache) = req.req_provider_cache {
+        entry.cache = Some(cache);
+    }
     entry.models = req
         .req_models
         .iter()
@@ -237,6 +241,62 @@ pub async fn set_default(sv: &Arc<Services>, pid: &str, mid: &str) -> Result<()>
     sv.repo.settings_set("default_provider", pid)?;
     sv.repo.settings_set("default_model", mid)?;
     Ok(())
+}
+
+/// 内置预设清单：标出哪些已存在，供界面决定显示「添加」还是「已添加」。
+pub fn presets_vo(sv: &Arc<Services>) -> Result<Vec<wb_domain::provider::ProviderPresetVO>> {
+    let models = sv.providers.load_models()?;
+    Ok(wb_provider::presets::PRESETS
+        .iter()
+        .map(|p| {
+            let cfg = (p.preset_cfg)();
+            wb_domain::provider::ProviderPresetVO {
+                preset_id: p.preset_id.to_string(),
+                preset_name: p.preset_name.to_string(),
+                preset_hint: p.preset_hint.to_string(),
+                preset_base_url: cfg.base_url,
+                preset_model_count: cfg.models.len() as i64,
+                preset_installed: models.providers.contains_key(p.preset_id),
+            }
+        })
+        .collect())
+}
+
+/// 添加预设：写 models.json，有密钥就写 auth.json，并把默认模型指到它的第一个模型。
+/// 「指默认」与「写配置」是同一件事：只写配置不指默认，用户仍然看到「未配置模型」。
+pub fn apply_preset(sv: &Arc<Services>, preset_id: &str, api_key: Option<&str>) -> Result<String> {
+    let preset = wb_provider::presets::find(preset_id)
+        .ok_or_else(|| AppError::new(code::NOT_FOUND, format!("没有叫 {preset_id} 的预设")))?;
+    let cfg = (preset.preset_cfg)();
+    let first_model = cfg.models.first().map(|m| m.id.clone()).unwrap_or_default();
+    let mut models = sv.providers.load_models()?;
+    // 已存在就不覆盖：用户可能已经改过地址或追加过模型，重加预设不能把它们冲掉
+    if models.providers.contains_key(preset.preset_id) {
+        return Err(AppError::new(
+            code::NAME_DUP,
+            format!("服务商 {} 已存在，不用重复添加", preset.preset_name),
+        ));
+    }
+    models.providers.insert(preset.preset_id.to_string(), cfg);
+    sv.providers.save_models(&models)?;
+    if let Some(k) = api_key.map(str::trim).filter(|k| !k.is_empty()) {
+        let mut auth = sv.providers.load_auth()?;
+        auth.providers.insert(
+            preset.preset_id.to_string(),
+            wb_domain::provider::AuthEntry::ApiKey { key: k.to_string() },
+        );
+        sv.providers.save_auth(&auth)?;
+    }
+    // 只在本机还没默认时才占位：用户已经选好的默认不该被新加的预设抢走
+    let has_default = sv
+        .repo
+        .settings_get("default_provider")?
+        .is_some_and(|v| !v.trim().is_empty());
+    if !has_default && !first_model.is_empty() {
+        sv.repo.settings_set("default_provider", preset.preset_id)?;
+        sv.repo.settings_set("default_model", &first_model)?;
+    }
+    Ok(preset.preset_id.to_string())
 }
 
 /// 从上游拉模型清单（OpenAI / Anthropic 两种形态都试）。

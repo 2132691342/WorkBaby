@@ -9,14 +9,33 @@ use wb_provider::ToolCallDone;
 
 use crate::session::Block;
 
+/// 审批闸门：工具执行前的放行判定。
+/// 内核只认这个契约，不认识审批的界面与规则——规则由 service 实现，
+/// 内核只负责「问一句、放行或拦下」。
+#[async_trait::async_trait]
+pub trait Gate: Send + Sync {
+    /// 判定一次调用能否执行；返回 (放行, 原因)。原因会写进工具结果给模型看。
+    async fn check(
+        &self,
+        tool_name: &str,
+        args: &serde_json::Value,
+        cancel: &CancellationToken,
+    ) -> (bool, String);
+}
+
 /// 执行一个工具调用：取不到工具算错不算崩，返回 (正文, 是否错, 耗时)。
 /// 参数不过 schema 也不预先拒，交给工具自己报错（错误文案更具体）。
+/// `on_progress` 非 None 时挂到 `ToolCtx` 上，长命令的执行增量交给调用方往外发。
+/// `gate` 非 None 时先过闸门，被拦下就把原因当工具结果回灌模型。
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_tool(
     cfg: &AgentConfig,
     name: &str,
     arguments: &str,
     cancel: &CancellationToken,
     ctx: &wb_tools::ToolCtx,
+    on_progress: Option<wb_tools::ProgressFn>,
+    gate: Option<std::sync::Arc<dyn Gate>>,
 ) -> ToolResultOut {
     let started = Instant::now();
     let Some(tool) = cfg.registry.get(name) else {
@@ -31,7 +50,24 @@ pub async fn execute_tool(
     };
     let args: serde_json::Value =
         serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
-    match tool.execute(args, cancel.clone(), &cfg.workdir, ctx).await {
+    if let Some(gate) = &gate {
+        let (allowed, reason) = gate.check(name, &args, cancel).await;
+        if !allowed {
+            return ToolResultOut {
+                result_text: format!("[被安全闸门拦下] {reason}"),
+                is_error: true,
+                duration_ms: started.elapsed().as_millis() as i64,
+                file_path: None,
+                diff: None,
+                images: Vec::new(),
+            };
+        }
+    }
+    let ctx = match on_progress {
+        Some(p) => ctx.clone().with_progress(p),
+        None => ctx.clone(),
+    };
+    match tool.execute(args, cancel.clone(), &cfg.workdir, &ctx).await {
         Ok(out) => ToolResultOut {
             result_text: out.text,
             is_error: out.is_error,

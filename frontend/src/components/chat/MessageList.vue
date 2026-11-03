@@ -307,6 +307,7 @@ async function onStreamClick(e: MouseEvent) {
                 :duration_ms="runOf(p.toolCallId)?.duration_ms"
                 :file-path="runOf(p.toolCallId)?.file_path"
                 :diff="runOf(p.toolCallId)?.diff || []"
+                :progress="runOf(p.toolCallId)?.progress || ''"
               />
             </template>
 

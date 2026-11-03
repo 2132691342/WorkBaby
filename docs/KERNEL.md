@@ -33,6 +33,25 @@
 摘要失败（无内容 / 无模型 / 上游报错）**不拦住回溯本身**，只留一条 warn 日志：
 切分支是用户的明确意图，不能因为摘要调不动就不让切。
 
+## 会话树导航
+
+树的数据面早已齐备（会话详情响应带三样东西），缺的是让人看得见：
+
+| 字段 | 含义 |
+|---|---|
+| `detail_leaf_entry_id` | 当前叶子（分支后指向新叶） |
+| `detail_fork_entry_ids` | 可作分支点的用户消息条目 id |
+| `detail_alt_leaf_ids` | 曾走过、可再切回去的其它叶子 |
+| `detail_tree` | 整棵树（`session_tree::build_tree` 派生） |
+
+`detail_tree` 是真正被画出来的那一棵：节点是所有消息条目（用户与助手都算），
+`node_on_path` 标出当前路径，`node_children` 挂出分支。
+只留用户消息会让助手回复变成看不见的空洞，树的形状就不再对应会话的真实结构。
+
+界面的「分支」抽屉把它画成主干 + 侧枝：`forkHere` 走 `POST /sessions/branch/{id}`，
+`switchTo` 走 `POST /sessions/leaf/{id}`。两个动作共用同一条约束：
+**运行中不允许切**——跑着的工具 cwd 与事件归属都对着旧叶子，切了就错位。
+
 ## 事件枚举
 
 内核唯一出参语言，不含任何界面词汇。界面时序依赖事件顺序——改顺序等于改界面行为。
@@ -43,6 +62,7 @@
 | `TurnStart` | 每次 provider 请求前 |
 | `TextDelta` / `ThinkingDelta` | 流式增量 |
 | `ToolExecutionStart` / `ToolExecutionEnd` | 工具批内（end 带 result / is_error / duration / file_path / diff） |
+| `ToolProgress` | 工具执行中的增量输出（已节流到 120ms；不是最终结果） |
 | `TurnEnd` | 一个 turn 结束（含用量与停止原因） |
 | `CompactionStart` / `CompactionEnd` | 上下文压缩前后 |
 | `AutoRetry` | 失败重试（带尝试次数、上限与退避时长） |
@@ -151,8 +171,17 @@ assistant 消息，「调用了什么」与「返回了什么」永远留在同�
 **手动压缩**走 `POST /api/v1/chat/compact`：service 层的独立通道，直接调用
 压缩例程并发 `chat:compressed` SSE，不经内核事件；空闲会话才允许。
 
-**token 估算**：文本按 chars/4 折算，图片按 4800 chars 计——只喂压缩决策，
-不进用量统计（usage 信任服务端）。
+**token 估算**：按字符类别加权——西文 4 字符 1 token、中日韩 1 字 1 token、
+其余文字 2 字符 1 token，图片按固定值折算。早期口径是「字节数 ÷ 4」
+（Rust 的 `String::len()` 是字节数，一个汉字占三字节），中文因此被低估两成半，
+压缩触发得偏晚。估算只喂压缩决策，不进用量统计（usage 信任服务端）。
+
+**固定开销不算进消息**：系统提示词与工具定义每轮都重发，它们占着窗口却不在
+回放消息里。压缩判定把它们算进去，否则会高估剩余空间。
+
+**上下文占用优先用真实用量**：找到最近一条带用量的助手消息，以它报的实际占用
+为基线，再叠加它之后新增消息的估算值。没有可用用量时（会话刚开始、上游没报）
+退回纯估算。估算永远有偏差，上游报的是「实际处理了多少」。
 
 ## 自动重试
 
@@ -187,9 +216,9 @@ assistant 消息，「调用了什么」与「返回了什么」永远留在同�
 可以直接回放查看子代理的中间过程。
 
 **过程可观测**：内核向 `SubagentConfig.observe` 回调吐 `SubagentEvent`
-（`Started` / `TextDelta` / `ThinkingDelta` / `ToolStart` / `ToolEnd` / `Finished`），
+（`Started` / `TextDelta` / `ThinkingDelta` / `ToolStart` / `ToolProgress` / `ToolEnd` / `Finished`），
 service 的 `AgentBoard` 把它翻成 `agent:start` / `agent:delta` / `agent:tool_start` /
-`agent:tool_end` / `agent:done` 五类 SSE 事件，发到**父会话通道**。
+`agent:tool_progress` / `agent:tool_end` / `agent:done` 六类 SSE 事件，发到**父会话通道**。
 观测通道与上下文完全分离：事件只走 SSE 与界面状态，一行都不进父会话的请求消息。
 回调为 `None` 时（测试与无界面场景）不产生任何开销。
 

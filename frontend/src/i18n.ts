@@ -29,3 +29,8 @@ export function setLocale(locale: Locale) {
   i18n.global.locale.value = locale
   document.documentElement.setAttribute('lang', locale)
 }
+
+/** 在 store / 非组件上下文里取文案：语言一换，提示条不能还是旧语。 */
+export function tt(key: string, args?: Record<string, string | number>): string {
+  return i18n.global.t(key, args || {})
+}

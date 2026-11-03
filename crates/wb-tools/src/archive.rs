@@ -14,9 +14,6 @@ pub fn archive_dir() -> Option<PathBuf> {
 }
 
 /// 把全文落盘并返回绝对路径；写失败返回 None（调用方退回纯截断）。
-///
-/// 文件名带毫秒时间戳与工具名：同一轮里两次超限调用不会互相覆盖，
-/// 用户按文件名就能认出是哪次调用留下的。
 pub fn archive(tool_name: &str, text: &str) -> Option<PathBuf> {
     let dir = archive_dir()?;
     wb_pkg::fsutil::ensure_dir(&dir).ok()?;

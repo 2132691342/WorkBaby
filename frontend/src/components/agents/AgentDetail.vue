@@ -86,6 +86,8 @@ function summaryOf(args: Record<string, unknown>): string {
           <span class="ad-tool-name">{{ tool.tool_name }}</span>
           <span class="ad-tool-sum">{{ summaryOf(tool.tool_args) }}</span>
           <span class="ad-tool-time">{{ tool.duration_ms ? fmtMs(tool.duration_ms) : '' }}</span>
+          <!-- 子代理的实时输出：这是它「现在在干什么」的唯一线索 -->
+          <pre v-if="tool.running && tool.progress" class="ad-tool-live">{{ tool.progress }}</pre>
         </div>
       </div>
     </div>
@@ -234,12 +236,27 @@ function summaryOf(args: Record<string, unknown>): string {
 }
 .ad-tool {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--wb-sp-2);
   padding: var(--wb-sp-1) var(--wb-sp-2);
   border: 1px solid var(--wb-border);
   border-radius: var(--wb-radius-sm);
   font-size: var(--wb-fs-xs);
+}
+/* 实时输出占用整行（flex-wrap 后的 100%）：它比工具名重要得多 */
+.ad-tool-live {
+  flex: 0 0 100%;
+  max-height: calc(160px * var(--wb-vw-scale));
+  overflow: auto;
+  margin: 0;
+  padding: var(--wb-sp-1) 0 0;
+  border-top: 1px dashed var(--wb-border);
+  font-family: var(--font-mono);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .ad-tool.is-run {
   border-color: var(--wb-live);

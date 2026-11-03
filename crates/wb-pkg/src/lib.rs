@@ -7,6 +7,7 @@ pub mod httprules;
 pub mod proc;
 pub mod realpath;
 pub mod resp;
+pub mod text;
 pub mod ulid;
 
 pub use error::{AppError, Result};

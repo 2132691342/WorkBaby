@@ -29,6 +29,8 @@ pub struct ResolvedProvider {
     pub reasoning: bool,
     /// 是否支持图片输入
     pub vision: bool,
+    /// 是否开提示词缓存（Anthropic 的 cache_control 断点）
+    pub cache: bool,
 }
 
 /// models.json + auth.json 的组合存储。
@@ -139,6 +141,9 @@ impl ProviderStore {
             },
             reasoning: model.reasoning,
             vision: model.vision,
+            // 缓存默认开：命中时输入按增量价计费，是净赚。部分兼容网关不认
+            // cache_control 字段，配置里显式关掉即可。
+            cache: cfg.cache.unwrap_or(true),
         })
     }
 }

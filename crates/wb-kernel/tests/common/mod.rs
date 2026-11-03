@@ -162,6 +162,7 @@ pub fn event_name(ev: &KernelEvent) -> &'static str {
         KernelEvent::TextDelta { .. } => "text_delta",
         KernelEvent::ThinkingDelta { .. } => "thinking_delta",
         KernelEvent::ToolExecutionStart { .. } => "tool_start",
+        KernelEvent::ToolProgress { .. } => "tool_progress",
         KernelEvent::ToolExecutionEnd { .. } => "tool_end",
         KernelEvent::TurnEnd { .. } => "turn_end",
         KernelEvent::CompactionStart { .. } => "compaction_start",
@@ -196,10 +197,13 @@ pub fn agent_cfg(provider: Arc<FakeProvider>) -> AgentConfig {
         thinking: ThinkingLevel::Off,
         max_retries: 0,
         reinforce: None,
+        overhead: Default::default(),
+        deferred_tools: Vec::new(),
         workdir: temp_dir("cfg"),
         skill_loader: None,
         session_id: "SESS_test".into(),
         run_id: "RUN_test".into(),
+        gate: None,
     }
 }
 

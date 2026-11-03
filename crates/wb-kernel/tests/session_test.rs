@@ -332,3 +332,89 @@ fn session_fork_keeps_old_branch_and_switches_back() {
     assert_eq!(again, vec!["第一问", "第二问"], "重载后分支不该变");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---- 会话树 ----
+
+/// 树的形状：主干在一条链上，分支挂在分叉点下；当前路径上的节点带 on_path 标记。
+/// 画错形状用户就会以为分支是另一条线，切回去切错地方。
+#[test]
+fn session_tree_marks_path_and_branches() {
+    let user = |text: &str, ts: i64| wb_kernel::Entry::Message {
+        message: wb_kernel::Msg::User {
+            content: text.into(),
+            timestamp: ts,
+            skill: None,
+            images: Vec::new(),
+        },
+    };
+    let asst = |text: &str, ts: i64| wb_kernel::Entry::Message {
+        message: wb_kernel::Msg::Assistant {
+            content: vec![wb_kernel::Block::Text { text: text.into() }],
+            provider_id: "p".into(),
+            model_id: "m".into(),
+            message_id: format!("MSG_{ts}"),
+            usage: None,
+            stop_reason: "stop".into(),
+            duration_ms: 0,
+            timestamp: ts,
+        },
+    };
+    let dir = std::env::temp_dir().join(format!("wb_tree_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut sf = wb_kernel::session::SessionFile::create(&dir, "D:/ws", "SESS_T");
+
+    sf.append(user("第一问", 1)).unwrap();
+    sf.append(asst("第一答", 2)).unwrap();
+    sf.append(user("第二问", 3)).unwrap();
+    let second = sf.leaf.clone().unwrap();
+    sf.append(asst("第二答", 4)).unwrap();
+
+    // 从第二问分叉，走另一条路
+    sf.fork_at(&second).unwrap();
+    sf.append(user("岔路问", 5)).unwrap();
+    sf.append(asst("岔路答", 6)).unwrap();
+
+    let tree = wb_kernel::session_tree::build_tree(&sf);
+    // 单一根时树根就是那条主干的第一个节点；多根时树根是虚拟根
+    let root = if tree.node_preview.is_empty() && !tree.node_children.is_empty() {
+        &tree.node_children[0]
+    } else {
+        &tree
+    };
+    assert_eq!(root.node_preview, "第一问");
+    assert!(root.node_on_path, "第一问在当前路径上");
+
+    // 节点是所有消息：助手回复也在树里，否则树的形状不对应会话的真实结构
+    let first_ans = root.node_children[0].clone();
+    assert!(first_ans.node_preview.is_empty(), "助手节点没有正文摘要");
+
+    // 主干：第二问是「第一答」的子节点，岔路挂在第二问下
+    let second_node = first_ans
+        .node_children
+        .iter()
+        .find(|n| n.node_entry_id == second)
+        .expect("第二问应在第一答下");
+    assert_eq!(second_node.node_preview, "第二问");
+    assert!(second_node.node_is_user, "第二问是用户消息");
+    // 第二问下面挂着两条：旧分支的「第二答」与新分出去的「岔路问」
+    assert_eq!(
+        second_node.node_children.len(),
+        2,
+        "旧分支与新分支都在第二问下"
+    );
+    // 分叉后当前路径走的是新那条：岔路问 → 岔路答
+    let fork = second_node
+        .node_children
+        .iter()
+        .find(|n| n.node_preview == "岔路问")
+        .expect("岔路问应是第二问的子节点");
+    assert!(fork.node_on_path, "分叉后当前路径就是新分支");
+    let old = second_node
+        .node_children
+        .iter()
+        .find(|n| n.node_preview.is_empty())
+        .expect("旧分支的第二答也在第二问下");
+    assert!(!old.node_on_path, "旧分支不在当前路径上，但可切回去");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -385,3 +385,206 @@ async fn request_assembly_expands_skill_blocks_and_image_parts() {
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+// ---- 工具按需加载 ----
+
+/// 延迟加载的工具：模型搜到后才出现在下一轮的请求里。
+/// 加载没生效的话，模型永远看不到那个工具的定义，就永远调不了它。
+#[tokio::test]
+async fn deferred_tool_appears_in_request_after_being_loaded() {
+    use common::{FakeProvider, Tool, ToolOutput, ToolRegistry};
+    use std::sync::{Arc, Mutex};
+
+    /// 请求加载 late_tool 的工具
+    struct LoaderTool;
+    #[async_trait::async_trait]
+    impl Tool for LoaderTool {
+        fn name(&self) -> &str {
+            "loader"
+        }
+        fn label(&self) -> &str {
+            "加载器"
+        }
+        fn description(&self) -> &str {
+            "请求加载 late_tool"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+            _cancel: CancellationToken,
+            _workdir: &std::path::Path,
+            ctx: &wb_tools::ToolCtx,
+        ) -> wb_pkg::Result<ToolOutput> {
+            ctx.load_tools(&["late_tool".to_string()]);
+            Ok(ToolOutput::plain(String::from("已加载"), false, 0))
+        }
+    }
+
+    /// 后加载的工具
+    struct LateTool;
+    #[async_trait::async_trait]
+    impl Tool for LateTool {
+        fn name(&self) -> &str {
+            "late_tool"
+        }
+        fn label(&self) -> &str {
+            "迟到工具"
+        }
+        fn description(&self) -> &str {
+            "后加载的工具"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+            _cancel: CancellationToken,
+            _workdir: &std::path::Path,
+            _ctx: &wb_tools::ToolCtx,
+        ) -> wb_pkg::Result<ToolOutput> {
+            Ok(ToolOutput::plain(String::from("ok"), false, 0))
+        }
+    }
+
+    // FakeProvider 按栈出队：后写的先发，所以两轮要倒着排
+    let provider = FakeProvider::new(vec![
+        vec![delta("好了"), done(100, StopReason::Stop)],
+        vec![
+            ModelEvent::ToolCallEnd(
+                1,
+                wb_provider::ToolCallDone {
+                    call_id: "call_1".into(),
+                    name: "loader".into(),
+                    arguments: "{}".into(),
+                },
+            ),
+            tool_use(),
+        ],
+    ]);
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(LoaderTool));
+    registry.register(Arc::new(LateTool));
+
+    let tmp = temp_dir("defer");
+    let events: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = events.clone();
+    let emit: wb_kernel::EmitFn =
+        Arc::new(move |ev: &KernelEvent| sink.lock().unwrap().push(event_name(ev)));
+    let (_steer_tx, steer_rx) = tokio::sync::mpsc::channel(4);
+
+    let mut cfg = agent_cfg(provider.clone());
+    cfg.registry = Arc::new(registry);
+    cfg.enabled_tools = vec!["loader".into()];
+    cfg.workdir = tmp.clone();
+
+    wb_kernel::run(
+        wb_kernel::SessionFile::create(&tmp, "D:/ws", "SESS_defer"),
+        cfg,
+        emit,
+        CancellationToken::new(),
+        steer_rx,
+        wb_kernel::UserInput::text("加载工具"),
+    )
+    .await
+    .expect("运行不应失败");
+
+    let seen = provider.seen.lock().unwrap();
+    assert_eq!(seen.len(), 2, "应该发了两次请求，实际 {}", seen.len());
+    let first_tools: Vec<&str> = seen[0].tools.iter().map(|t| t.name.as_str()).collect();
+    assert!(
+        !first_tools.contains(&"late_tool"),
+        "第一轮不该有后加载的工具：{first_tools:?}"
+    );
+    let second_tools: Vec<&str> = seen[1].tools.iter().map(|t| t.name.as_str()).collect();
+    assert!(
+        second_tools.contains(&"late_tool"),
+        "加载后下一轮要有它：{second_tools:?}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+// ---- token 估算 ----
+
+/// 中文必须按字符加权：旧口径是「字节数 ÷ 4」（Rust 的 `String::len()` 是字节数），
+/// 一个汉字占三字节，中文因此被估成 0.75 token/字，比实际低两成半。
+/// 压缩触发得偏晚，请求容易撞上模型窗口上限。
+#[test]
+fn token_estimate_weights_chinese_by_character_not_by_byte_quarter() {
+    use wb_kernel::tokenest::estimate_text_tokens;
+
+    let zh = "这是一段中文文本，用来验证 token 估算口径。";
+    let en = "this is an english text used to verify the token estimate.";
+    // 纯中文样本：不含 ASCII，才能验证「一字一 token」
+    let zh_only = "这是一段纯中文文本用来验证估算口径。";
+
+    // 旧口径：字节数 ÷ 4
+    let old_zh = zh.len() as i64 / 4;
+    let new_zh = estimate_text_tokens(zh);
+    assert!(
+        new_zh > old_zh,
+        "中文估算应高于字节数÷4：旧 {old_zh} 新 {new_zh}"
+    );
+    assert_eq!(
+        estimate_text_tokens(zh_only),
+        zh_only.chars().count() as i64,
+        "纯中文应一字一 token：字符 {}",
+        zh_only.chars().count()
+    );
+
+    // 英文不该被这个改动波及：4 字符 1 token 的口径保持
+    let old_en = en.len() as i64 / 4;
+    let new_en = estimate_text_tokens(en);
+    assert!(
+        (new_en - old_en).abs() <= 2,
+        "英文口径应保持：旧 {old_en} 新 {new_en}"
+    );
+}
+
+/// 估算必须覆盖消息里的所有块：漏掉工具参数或工具结果会让水位线偏低。
+#[test]
+fn token_estimate_covers_tool_arguments_and_results() {
+    use wb_kernel::tokenest::estimate_tokens;
+    use wb_kernel::{Block, Msg};
+
+    let msgs = vec![
+        Msg::user("你好"),
+        Msg::Assistant {
+            content: vec![
+                Block::Text {
+                    text: "调用工具".into(),
+                },
+                Block::ToolCall {
+                    tool_call_id: "TC_1".into(),
+                    name: "bash".into(),
+                    arguments: r#"{"command":"echo hello"}"#.into(),
+                },
+            ],
+            provider_id: "p".into(),
+            model_id: "m".into(),
+            message_id: "MSG_1".into(),
+            usage: None,
+            stop_reason: "tool_use".into(),
+            timestamp: 0,
+            duration_ms: 0,
+        },
+        Msg::ToolResult {
+            tool_call_id: "TC_1".into(),
+            tool_name: "bash".into(),
+            content: "hello".into(),
+            is_error: false,
+            timestamp: 0,
+            duration_ms: 0,
+            file_path: None,
+            diff: None,
+            images: Vec::new(),
+        },
+    ];
+    let total = estimate_tokens(&msgs);
+    assert!(total >= 12, "工具调用与结果都要计入，实际 {total}");
+    assert!(total < 100, "不该把固定开销重复算进消息，实际 {total}");
+}

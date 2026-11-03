@@ -146,3 +146,83 @@ pub fn remove_server(path: &Path, name: &str) -> Result<()> {
         .as_bytes(),
     )
 }
+
+/// 给指定 server 写一个请求头（OAuth token 落这里）。
+/// 读改写整个文件：mcp.json 是用户手写的结构，原样保留其余字段。
+pub fn set_header(path: &Path, name: &str, header: &str, header_value: &str) -> Result<()> {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|_| "{}".into());
+    let mut value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| AppError::new(code::CONFIG_INVALID, format!("JSON 解析失败：{e}")))?;
+    let has_wrapper = value.get("mcpServers").is_some();
+    let map: &mut serde_json::Value = if has_wrapper {
+        value.get_mut("mcpServers").unwrap()
+    } else {
+        &mut value
+    };
+    let Some(obj) = map.as_object_mut() else {
+        return Err(AppError::new(code::CONFIG_INVALID, "mcp.json 不是对象结构"));
+    };
+    let Some(entry) = obj.get_mut(name) else {
+        return Err(AppError::new(
+            code::CONFIG_INVALID,
+            format!("没有叫 {name} 的 server"),
+        ));
+    };
+    if !entry.is_object() {
+        return Err(AppError::new(
+            code::CONFIG_INVALID,
+            format!("{name} 的配置不是对象"),
+        ));
+    }
+    if entry.get("headers").is_none() {
+        entry["headers"] = serde_json::json!({});
+    }
+    let Some(headers) = entry.get_mut("headers").and_then(|h| h.as_object_mut()) else {
+        return Err(AppError::new(
+            code::CONFIG_INVALID,
+            format!("{name} 的 headers 不是对象"),
+        ));
+    };
+    headers.insert(
+        header.to_string(),
+        serde_json::Value::String(header_value.to_string()),
+    );
+    wb_pkg::fsutil::write_atomic(
+        path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&value).unwrap_or_default()
+        )
+        .as_bytes(),
+    )
+}
+
+/// 从指定 server 删掉一个请求头（登出用）。
+pub fn remove_header(path: &Path, name: &str, header: &str) -> Result<()> {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|_| "{}".into());
+    let mut value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| AppError::new(code::CONFIG_INVALID, format!("JSON 解析失败：{e}")))?;
+    let has_wrapper = value.get("mcpServers").is_some();
+    let map: &mut serde_json::Value = if has_wrapper {
+        value.get_mut("mcpServers").unwrap()
+    } else {
+        &mut value
+    };
+    let Some(obj) = map.as_object_mut() else {
+        return Ok(());
+    };
+    let Some(entry) = obj.get_mut(name) else {
+        return Ok(());
+    };
+    if let Some(headers) = entry.get_mut("headers").and_then(|h| h.as_object_mut()) {
+        headers.remove(header);
+    }
+    wb_pkg::fsutil::write_atomic(
+        path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&value).unwrap_or_default()
+        )
+        .as_bytes(),
+    )
+}

@@ -27,6 +27,7 @@ import type {
   PlanRESP,
   ProviderListRESP,
   ProviderVO,
+  ProviderPresetVO,
   RevealProviderRESP,
   RuntimeStatusRESP,
   SendMessageRESP,
@@ -131,6 +132,14 @@ export const providers = {
     post<{ resp_models: string[] }>('/providers/models/fetch', body),
   /** 全部可用模型（跨 provider 平铺） */
   available: () => get<AvailableModelVO[]>('/models/available'),
+  /** 内置服务商预设清单（含已添加标记） */
+  presets: () => get<ProviderPresetVO[]>('/providers/presets'),
+  /** 添加预设：密钥可选，成功返回新 provider 键 */
+  applyPreset: (presetId: string, presetApiKey?: string) =>
+    post<{ resp_provider_id: string }>('/providers/presets/apply', {
+      preset_id: presetId,
+      preset_api_key: presetApiKey || null,
+    }),
 }
 
 export const skills = {

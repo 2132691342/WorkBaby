@@ -19,7 +19,8 @@
 | ID | ULID（ulid crate），带业务前缀 | 见 §2.7 |
 | 日志 | tracing + tracing-subscriber + tracing-appender | 分文件落盘 |
 | 错误 | thiserror + 自研 AppError（code 为字符串） | 见 §2.4 |
-| MCP 客户端 | rmcp（官方 Rust SDK，stdio + streamable HTTP） | 0.x |
+| MCP 客户端 | rmcp（官方 Rust SDK，stdio + streamable HTTP）+ 自研 OAuth（授权码 + PKCE） | 0.x |
+| 模型协议 | openai-completions · anthropic-messages · google-generative-ai | 三套 wire 原生实现 |
 | 模糊匹配 | nucleo | 0.5.x |
 | HTTP 中间件 | tower-http（CORS，仅放行本机来源与 Tauri webview） | 0.6.x |
 | 内置资源打包 | include_dir | 0.7.x |
@@ -86,14 +87,14 @@ WorkBaby/
     ├── wb-pkg/                    # 叶子工具：AppError、ulid、fsutil、realpath、ansi、httprules
     ├── wb-domain/                 # 纯类型：DO/DTO/REQ/RESP/VO + 错误码常量（只依赖 wb-pkg）
     ├── wb-repo/                   # SQLite：连接与迁移、设置 KV、技能/功能开关、会话索引、统计
-    ├── wb-provider/               # 模型接入：wire API（openai-completions）、SSE 解析、usage、凭据
+    ├── wb-provider/               # 模型接入：wire API（openai-completions / anthropic-messages / google-generative-ai）、SSE 解析、usage、凭据、服务商预设
     ├── wb-tools/                  # Tool trait + 注册表 + 内置工具（read/write/edit/bash/python/grep/find/ls）
     ├── wb-kernel/                 # Agent 内核：会话树、循环、事件、压缩、重试、子代理
     ├── wb-skills/                 # SKILL.md 解析、三区发现注册表、内置技能包
     ├── wb-features/               # 12 项内置功能（todo/ask_user/memory/web/context_mode/
     │                              #   fff/lsp/plan/goal/loadout/inspect/context_view）
     ├── wb-git/                    # 工作区版本视图（读 status/diff/历史；写限白名单动作）
-    ├── wb-mcp/                    # MCP 客户端编排（rmcp）：配置、连接池、工具并入
+    ├── wb-mcp/                    # MCP 客户端编排（rmcp）：配置、连接池、工具并入、OAuth 登录
     ├── wb-service/                # 业务编排：对话 run、事件翻译、提示词组装、目录与装配
     └── wb-api/                    # axum 路由 + SSE hub + CORS + 组合根 Startup
 ```
@@ -275,6 +276,7 @@ impl AppError {
 | 关注点 | 落点 | 纪律 |
 |---|---|---|
 | 命令执行 | `wb-tools::exec`（模型工具）+ git / MCP stdio / LSP / github_clone 各自出口 | argv 数组直传永不进 shell；CREATE_NO_WINDOW；超时杀进程——全仓纪律，新增出口自觉对齐 |
+| 命令运行面 | 内置 Git Bash（主力）+ 系统 PowerShell（Windows 原生操作） | 两者共存：bash 带 GNU 工具链干绝大多数活；注册表 / 服务 / WMI 只能走 PowerShell。工具面 `bash` / `powershell`，纪律完全一致 |
 | 子进程静默 | `wb_pkg::proc` | 每个 `Command` 出口必须挂 `CREATE_NO_WINDOW`（直接引常量，不写十六进制）；探测程序用 `resolve_command`（纯路径查找），**禁止跑 `where` / `which`**——那会闪控制台窗口 |
 | 日志 | `tracing` | 业务层只 `warn!` / `error!`；`debug!` 只在调试分支 |
 | 时间 | `SystemTime::now()` | 禁止 `Local::now()`（会话索引要可跨时区比较） |

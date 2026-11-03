@@ -69,7 +69,7 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | `ChatMessage` | 单条消息容器：角色布局、复制、usage 徽标 |
 | `AssistantTurn` | 一条助手消息：按原始顺序渲染思考 / 正文 / 工具卡 |
 | `ThinkingBlock` | 思考段折叠（默认收起） |
-| `ToolCard` | 工具执行卡：一行摘要，展开参数 / 输出 |
+| `ToolCard` | 工具执行卡：一行摘要，展开参数 / 输出；执行中自动展开并实时追加过程输出 |
 | `AskCard` | 内核提问卡：confirm / select / input / editor + 结构化问卷 |
 | `ChatInput` | 输入区：正文 + 技能芯片 + 待发送图片 + `@` 引用 + `/` 命令菜单 |
 | `ComposerBar` | 底栏：引文件、图片、工作区与会话 chip、水位、插话 / 排队、发送 / 停止 |
@@ -81,7 +81,9 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | `ActivityBar` | 输入框上方活动条：正在干什么 / 已输出多少字 / 耗时 / 安静过久提示 |
 | `EngineStatusBar` / `StatusHud` / `EngineCard` | 状态条 / 底部常驻读数 / 左栏内核就绪卡 |
 | `TurnChanges` / `TurnFoot` | 一轮改了哪些文件 / 回合脚注（复制 + 用量 + 时间） |
-| `ChatHeader` | 页头：会话名 + 模型行 + 压缩上下文按钮 |
+| `ChatHeader` | 页头：会话名 + 模型行 + 分支树抽屉开关 + 压缩上下文按钮 |
+| `SessionTree` · `SessionTreeNode` | 会话分支树：主干高亮 + 分支侧枝，节点可点重开 / 切回旧支（递归渲染，深度不限） |
+| `OnboardingWizard` | 首启引导：选服务商 → 填密钥 → 测连通，三步在对话页内做完 |
 | `FilePeek` / `WorkspaceChip` | 就地看文件 / 显示并可改选工作区（热生效） |
 | `features/FeatureDock` | 待办 / 目标 / 计划三个 panel 的 tab 抽屉；有内容才露出 |
 | `ExampleCards` | 首屏例句 |
@@ -93,7 +95,8 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | `layout/TitleBar` · `NavRail` · `SidePanel` · `PageHeader` | 骨架 | 自绘标题栏与窗控三键 / 一级导航 rail / 当前区左栏 / 页头 |
 | `common/AppIcon` · `CodeEditor` · `ResizableDrawer` · `ToastHost` · `EmptyState` | 骨架 | 内联 SVG 图标（24 网格）/ CodeMirror 封装 / 可拖宽抽屉 / 轻提示宿主 / 空态 |
 | `settings/SettingsSection` | 骨架 | 设置分节容器（四个面板共用） |
-| `features/FeatureList` · `FeatureConfigPop` · `TodoPanel` · `GoalPanel` · `PlanPanel` · `MemoryPanel` | 功能 | 功能清单与开关 / 按字段表渲染的配置抽屉 / 三块活状态面板 / 记忆库 |
+| `settings/ProviderPresetPicker` | 骨架 | 内置服务商预设一键添加（密钥可选） |
+| `features/FeatureList` · `FeatureConfigPop` · `TodoPanel` · `GoalPanel` · `PlanPanel` · `PlanNoteEditor` · `MemoryPanel` | 功能 | 功能清单与开关 / 按字段表渲染的配置抽屉 / 三块活状态面板 / 计划驳回与标注编辑区 / 记忆库 |
 | `skills/SkillList` | 技能 | 清单、开关、正文抽屉、导入与新建 |
 | `workspace/FileTree` · `DiffView` · `GitChangesPane` · `GitCommitPanel` · `GitHistoryPanel` · `GitBranchPanel` · `GitStateBanner` | 工作区 | 目录树 / 差异 / 改动清单 / 提交 / 历史 / 分支 / 冲突横幅 |
 | `agents/AgentList` · `AgentDetail` | 子代理 | 活跃清单 / 过程详情 |
@@ -109,7 +112,7 @@ hash 模式（WebView 的 file 协议不接受 history 模式的路径）。`/` 
 | 顺序 | 面板 | 管什么 |
 |---|---|---|
 | 1 | `AppearancePanel` | 主题、字体、字号、自定义背景 |
-| 2 | `BehaviorPanel` | 默认工作区、界面语言、发送键、托盘与自启 |
+| 2 | `BehaviorPanel` | 默认工作区、界面语言、发送键、安全闸门模式、项目约定开关、托盘与自启 |
 | 3 | `RuntimePanel` | 内置运行时：bash / git / python 是否就位、命中路径、解压失败原因 |
 | 4 | `InspectPanel` | 当前装配快照（工具 / 技能 / 命令 / 功能 / 系统提示词） |
 

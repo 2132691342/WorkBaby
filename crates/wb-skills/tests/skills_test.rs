@@ -74,3 +74,54 @@ fn builtin_pack_is_complete_and_parseable() {
     sorted.dedup();
     assert_eq!(sorted.len(), names.len(), "技能名重复：{names:?}");
 }
+
+// ---- 项目上下文发现 ----
+/// 发现顺序与覆盖规则：祖先在后、最近的在最后；同目录 override 独占这一层。
+/// 顺序反了会让远处的通用约定盖掉本项目自己的硬要求。
+#[test]
+fn project_context_discovers_ancestors_nearest_last() {
+    let root = std::env::temp_dir().join(format!("wb_ctx_{}", std::process::id()));
+    let nested = root.join("pkg").join("api");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(root.join("AGENTS.md"), "root rules").unwrap();
+    std::fs::write(root.join("pkg").join("AGENTS.md"), "pkg rules").unwrap();
+    // 同目录同时有两个候选：override 必须独占，正文里不能出现 AGENTS.md 的内容
+    std::fs::write(nested.join("AGENTS.md"), "nested base").unwrap();
+    std::fs::write(nested.join("AGENTS.override.md"), "nested override").unwrap();
+
+    let files = wb_skills::discover(&nested);
+    let names: Vec<String> = files.iter().map(|f| f.content.trim().to_string()).collect();
+    // 祖先从远到近；nested 只留 override，且排最后
+    let last_two = &names[names.len() - 2..];
+    assert_eq!(last_two, ["pkg rules", "nested override"], "got {names:?}");
+    assert!(
+        !names.iter().any(|c| c == "nested base"),
+        "override 存在时同目录的 AGENTS.md 不该再进来：{names:?}"
+    );
+
+    let rendered = wb_skills::render(&files);
+    assert!(rendered.contains("nested override"));
+    assert!(
+        rendered.find("root rules").unwrap() < rendered.find("nested override").unwrap(),
+        "越近的约定必须排在越后面"
+    );
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// 空文件不贡献内容也不继续找下一个：这是作者的有意留白，不是遗漏。
+#[test]
+fn project_context_skips_empty_files() {
+    let dir = std::env::temp_dir().join(format!("wb_ctx_empty_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("AGENTS.md"), "   \n\n").unwrap();
+
+    let files = wb_skills::discover(&dir);
+    assert!(
+        !files.iter().any(|f| f.path.starts_with(&dir)),
+        "空 AGENTS.md 不该贡献上下文：{:?}",
+        files.iter().map(|f| &f.path).collect::<Vec<_>>()
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}

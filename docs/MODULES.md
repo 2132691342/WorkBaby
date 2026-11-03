@@ -42,7 +42,7 @@
 | `error.rs` | 错误码常量（按段位分模块） |
 | `messages.rs` | 错误码 → 中/英默认文案（不经过界面也要能读懂：日志、调试、兜底） |
 | `runtime.rs` | 内置运行时的路径契约：目录名、PortableGit / Python 根、bash/git/python 候选定位、子进程 PATH 构造 |
-| `runtime_status.rs` | 运行时状态 VO（三件是否就位、命中路径、解压进度与失败原因） |
+| `runtime_status.rs` | 运行时状态 VO（两件是否就位、命中路径、解压进度与失败原因） |
 
 ## wb-repo（SQLite）
 
@@ -65,7 +65,10 @@
 |---|---|
 | `types` | `ModelClient` trait、`ModelEvent`、`StreamRequest` / `ReqMessage` / `ContentPart`、`Usage` / `StopReason` |
 | `config` | `models.json` / `auth.json` 读写与解析后的可请求形态；密钥级联 |
-| `client` | 客户端工厂：按 `api` 字段选 wire 实现，不支持的 api 报 3005 |
+| `client` | 客户端工厂：按 `api` 字段选 wire 实现（openai / anthropic / gemini），不支持的 api 报 3005 |
+| `anthropic` · `anthropic_stream` | Anthropic Messages wire：system 独立传、tool_result 装在 user 消息里、思考与工具调用独立块 |
+| `gemini` | Gemini wire：systemInstruction 独立传、functionCall / functionResponse、thought part |
+| `presets` | 内置七家服务商预设（地址 + 模型 + 能力），首启一键添加；密钥永远由用户给 |
 | `openai` | openai-completions wire 实现与流式累加器 `Acc` |
 
 ## wb-tools（工具体系）
@@ -73,9 +76,9 @@
 | 模块 | 职责 |
 |---|---|
 | `registry` | `Tool` trait（name / label / description / parameters / annotations / execute）+ `ToolRegistry` + `ToolOutput` |
-| `ctx` | `ToolCtx { session_id, run_id }`：工具回话的会话归属（提问 / 状态行 / 小部件靠它才不串台） |
-| `builtin/` | 内置 8 工具：`read` / `write` / `edit` / `bash` / `python` / `grep` / `find` / `list`(ls) |
-| `exec` | 共享命令执行器：CREATE_NO_WINDOW / 超时 / 取消 / 输出上限 / 注入内置运行时 PATH |
+| `ctx` | `ToolCtx { session_id, run_id, progress }`：工具回话的会话归属 + 执行过程增量出口 |
+| `builtin/` | 内置 9 工具：`read` / `write` / `edit` / `bash` / `powershell` / `python` / `grep` / `find` / `list`(ls) |
+| `exec` | 共享命令执行器：CREATE_NO_WINDOW / 超时 / 取消 / 输出上限 / 增量回调 / 注入内置运行时 PATH |
 | `truncate` | 输出截断（2000 行 / 50KB / 单行 500 字符），按字符边界切 |
 | `archive` | 超长输出先落盘再截断，回一个可再读的句柄（判据与 truncate 一致） |
 | `difftext` | 行级差异（add / del / ctx），只给界面看，不进模型上下文 |
@@ -89,11 +92,14 @@
 | `session_msg` | 消息类型：`Msg` / `Block` / `Entry` / `UserInput` / `ImagePart` |
 | `session_repair` | 回放补齐：为没有结果的工具调用补 `is_error` 结果，保证消息序合法 |
 | `agent` | 主循环：turn 状态机、steering 队列、工具批执行、事件发射、自动重试、空转防护 |
-| `blocks` | 消息块构造、工具调用定稿、并发分组 `group_calls_for_concurrency` |
+| `blocks` | 消息块构造、工具调用定稿、并发分组 `group_calls_for_concurrency`、`Gate` 契约（审批闸门） |
 | `toolbatch` | 一批工具按分组执行并把结果按调用顺序回灌 |
 | `reqbuild` | 把会话消息展开成请求消息（技能块、图片段、工具结果） |
-| `compaction` | 阈值判断、切点算法、摘要生成、活状态回注（`ReinforceFn`） |
+| `compaction` | 阈值判断、切点算法、摘要生成、活状态回注（`ReinforceFn`）、固定开销 `ContextOverhead` |
+| `tokenest` | token 估算：按字符类别加权（西文 4:1 / 中日韩 1:1）；上下文占用优先用上游真实用量 |
 | `branch_summary` | 分支摘要：回溯时把被放弃的分支压成一条可读 brief 插进新分支 |
+| `throttle` | 过程回显节流器：高频输出块压到 120ms 一帧（丢帧不丢内容） |
+| `session_tree` | 会话树：从父子链还原分叉结构（纯派生视图，不碰存储） |
 | `subagent` | 子代理：独立会话 + 收窄白名单 + 观测回调；`subagent_prompt` 组装子提示词 |
 | `events` | `KernelEvent` 枚举（唯一出参语言） |
 
@@ -108,6 +114,7 @@
 |---|---|
 | `frontmatter` | SKILL.md 解析与校验（名称规则、description 必填且 ≤1024） |
 | `registry` | 三区扫描（内置包 / 用户 / 工作区）、同名覆盖、开关、提示词注入文本 |
+| `context_files` | 项目指令文件发现：`AGENTS.md` / `CLAUDE.md` 沿祖先目录向上，最近的排最后 |
 
 内置技能包以 `include_dir` 编译进二进制，扫描时按包指纹校验数据目录里的解压结果，
 不符即清空重解压。
@@ -129,6 +136,7 @@
 | `lsp`（`adapters` / `client` / `diagnostics` / `fix` / `edits`） | 语言服务器目录、JSON-RPC 客户端、诊断与修复工具、文本编辑 |
 | `plan` / `plan_types` / `plan_annotate` | 计划提交与勾选、数据形态、标注 |
 | `goal` | 目标状态机与续跑提示 |
+| `tool_search` | 工具检索（BM25）与按需加载工具 |
 | `config` | 功能级配置的读取与全局注入 |
 
 `loadout` / `inspect` / `context_view` 三项是纯数据面，实现在 `wb-service`（不需要模型工具）。
@@ -148,8 +156,9 @@
 
 | 模块 | 职责 |
 |---|---|
-| `config` | `mcp.json` 读写（全局 + 工作区两份，后者覆盖同名） |
+| `config` | `mcp.json` 读写（全局 + 工作区两份，后者覆盖同名）；增删请求头（OAuth token 落这里） |
 | `pool` | 连接池：按需连接、超时不阻塞会话、不自动重连 |
+| `oauth` · `oauth_crypto` | OAuth 登录：授权码 + PKCE + 本地回调端口；PKCE / base64url / URL 编解码 |
 
 基于 rmcp 官方 SDK；stdio + streamable HTTP 两传输。
 工具并入注册表并命名 `mcp__<server>__<tool>`。
@@ -162,6 +171,8 @@
 |---|---|
 | `lib` | `Services` 聚合体（数据目录 / 工作区 / repo / 注册表 / 内核配置 / MCP 池 / 运行时进度） |
 | `chat` | 对话 run 管理：校验、排队、唤醒内核、目标续跑 |
+| `chat_model` | 模型解析：思考档位归一化 + 默认 provider/model 选取 |
+| `approval` | 安全闸门：破坏性操作识别 + 审批卡 + 会话级信任名单 |
 | `chat_events` | `KernelEvent` → SSE 事件翻译（载荷走 `wb_domain::events` 结构体） |
 | `prompt` | 系统提示词组装（工具 / 规则 / 技能 / 项目上下文 / 工作目录） |
 | `features` | 功能装配：构造 `FeatureCtx` + 按开关并入功能工具 + 功能清单 + 自省快照 |
@@ -173,12 +184,13 @@
 | `review` | `review_diff` 工具：分支差异审查 |
 | `resources` / `skills` | 技能管理（建 / 导 / 删 / 正文）与工具视图 |
 | `files` / `misc` | 文件树与单文件字节；内置文档、斜杠命令、背景图 |
-| `providers` | Provider 增删改查、连通测试、模型清单拉取 |
+| `providers` | Provider 增删改查、连通测试、模型清单拉取、内置预设一键添加 |
 | `mcp` | MCP 工具并入注册表与连接编排 |
-| `git` | Git 读写编排；`store` 会话索引与文件定位 || `loadout` / `context` | 装载预设管理；上下文分解 |
+| `git` | Git 读写编排；`store` 会话索引与文件定位；`export` 会话导出 HTML |
 | `workspace` | 工作区热切换：校验目录 → 重扫技能 / 重建待办存储 → 重建注册表 → 重连 MCP → 写回 KV → 广播 `app:workspace` |
 | `runtime` | 内置运行时：两份 zip 编译期嵌入，后台线程按指纹解压；`status()` 以磁盘可执行文件为准报就位情况 |
 | `usage` | 用量统计：run 结束入日表 + 启动时回填历史 |
+| `loadout` / `context` | 装载预设管理；上下文分解 |
 
 ## wb-api（组合根 + HTTP）
 

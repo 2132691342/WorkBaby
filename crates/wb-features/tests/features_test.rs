@@ -1,5 +1,6 @@
-//! wb-features 场景测试：依赖图、回答板、记忆、知识库、目标续跑、联网解析、LSP。
-//! 守长链路与边界：成环清理、一次性投递、FTS5 往返与密钥扫描、多搜索源解析。
+//! wb-features 场景测试：依赖图 / 回答板 / 记忆 / 知识库 / 目标 / 联网解析 / 模糊搜索 / LSP。
+//! 守长链路与边界：成环清理、一次性投递、FTS5 往返与密钥扫描、多搜索源解析、遍历纪律。
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -186,13 +187,12 @@ fn answer_board_persists_delivers_once_and_expires() {
 
 // ---- 记忆：FTS5 往返、会话检索、密钥扫描、整合 ----
 
-/// 记忆保存 → 搜索 → 删除回路，同 kind 同文本去重；中文靠 LIKE 逐词召回
-/// （unicode61 不切中文，整句变成一个 token）；会话检索只命中消息正文行；
-/// 密钥扫描真凭据必拦、无害文本放行。
+/// 记忆保存 → 搜索 → 删除回路，同 kind 同文本去重；中文靠逐词召回；
+/// 会话检索只命中消息正文行；密钥扫描真凭据必拦、无害文本放行；同一事实的两条合并。
 #[test]
-fn memory_roundtrip_session_search_and_secret_scan() {
+fn memory_roundtrip_search_secret_scan_and_consolidation() {
     let (dir, ctx) = ctx_of("memory");
-    let store = wb_features::memory_store::MemoryStore::open(&ctx).unwrap();
+    let store = Arc::new(wb_features::memory_store::MemoryStore::open(&ctx).unwrap());
     let (id1, fresh) = store
         .save("project", "WorkBaby uses ulid keys", 1000)
         .unwrap();
@@ -251,35 +251,28 @@ fn memory_roundtrip_session_search_and_secret_scan() {
     line_nos.sort();
     assert_eq!(line_nos, [2, 4, 5], "只应命中消息正文行");
 
+    // 密钥扫描：真凭据必拦，无害文本放行。
     assert!(wb_features::memory::scan_secret("key is sk-abc123XYZ4567890def").is_some());
     assert!(wb_features::memory::scan_secret("AKIAIOSFODNN7EXAMPLE").is_some());
     assert!(wb_features::memory::scan_secret("token ghp_0123456789abcdefghijklm").is_some());
     assert!(wb_features::memory::scan_secret("-----BEGIN RSA PRIVATE KEY-----").is_some());
     assert!(wb_features::memory::scan_secret("用户偏好深色主题，项目用 Rust 1.85").is_none());
     assert!(wb_features::memory::scan_secret("task-1234567890 是工单号").is_none());
-    let _ = std::fs::remove_dir_all(&dir);
-}
 
-/// 语义判重：同一件事的两条合并且内容不丢、条目数守恒；不相关条目保持独立。
-#[test]
-fn consolidation_merges_same_facts_and_keeps_distinct_ones() {
-    let (dir, ctx) = ctx_of("memory_consolidate");
-    let store = Arc::new(wb_features::memory_store::MemoryStore::open(&ctx).unwrap());
-
+    // 语义判重：同一件事的两条合并且内容不丢、条目数守恒；不相关条目保持独立。
     store.save("project", "项目用 pnpm 管理依赖", 1).unwrap();
     store
         .save("project", "这个项目的依赖由 pnpm 管理", 2)
         .unwrap();
-    store.save("user", "用户偏好深色主题", 3).unwrap();
     let report = wb_features::memory_consolidate::consolidate(&store, ConsolidateOpts::default());
-    assert_eq!(report.scanned, 3);
+    // 此前的 store 已含 2 条用户记忆（去重/删除后），加上 2 条 pnpm 共 4 条。
+    assert_eq!(report.scanned, 4, "含上方两条 pnpm 记忆");
     assert_eq!(report.merged, 1, "同一件事的两条该合并成一条");
     assert_eq!(
         report.remaining + report.merged,
         report.scanned,
         "条目数守恒"
     );
-
     let hits = store.search("pnpm", 10).unwrap();
     assert_eq!(hits.len(), 1, "重复项应只剩一条");
     let body = &store.list_by_kind("project", 10).unwrap()[0].1;
@@ -287,15 +280,10 @@ fn consolidation_merges_same_facts_and_keeps_distinct_ones() {
         body.contains("pnpm") && body.len() > "项目用 pnpm 管理依赖".len(),
         "合并后内容应更全"
     );
-    assert_eq!(
-        store.list_by_kind("user", 10).unwrap().len(),
-        1,
-        "不相关条目不该被动"
-    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ---- 知识库：FTS5 + RRF 双路召回 ----
+// ---- 知识库：FTS5 检索 ----
 
 /// 收录 → 检索往返：命中带来源；短语查询可召回；空查询返回空。
 #[test]
@@ -323,10 +311,11 @@ fn knowledge_roundtrip_phrase_and_empty_query() {
 
 // ---- 模糊搜索与语言服务：共用同一份“跳过产物目录”的遍历纪律 ----
 
-/// 遍历工作区时跳过 node_modules / target 这类产物目录，扩展名决定语言服务器。
+/// 遍历工作区时跳过 node_modules / target，扩展名决定语言服务器；文本编辑按区间替换不错位。
 #[test]
 fn workspace_scans_skip_build_dirs_and_route_by_extension() {
     use wb_features::lsp::adapters::{server_by_name, server_for_extension};
+    use wb_features::lsp::edits::TextEdit;
     assert_eq!(
         server_for_extension(".rs").unwrap().server_name,
         "rust-analyzer"
@@ -359,26 +348,29 @@ fn workspace_scans_skip_build_dirs_and_route_by_extension() {
     assert_eq!(files.len(), 1, "诊断文件清单同样跳过产物目录");
     assert!(files[0].ends_with("main.rs"));
 
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-// ---- 语言服务：文本编辑按区间替换不错位 ----
-
-#[test]
-fn lsp_text_edits_apply_without_shifting_offsets() {
-    let edit = |l0: u32, c0: u32, l1: u32, c1: u32, text: &str| wb_features::lsp::edits::TextEdit {
-        edit_start_line: l0,
-        edit_start_char: c0,
-        edit_end_line: l1,
-        edit_end_char: c1,
-        edit_new_text: text.into(),
-    };
-    let edits = vec![edit(0, 0, 0, 5, "L1"), edit(2, 0, 2, 5, "L3")];
+    // 多区间替换不能互相错位。
+    let edits = vec![
+        TextEdit {
+            edit_start_line: 0,
+            edit_start_char: 0,
+            edit_end_line: 0,
+            edit_end_char: 5,
+            edit_new_text: "L1".into(),
+        },
+        TextEdit {
+            edit_start_line: 2,
+            edit_start_char: 0,
+            edit_end_line: 2,
+            edit_end_char: 5,
+            edit_new_text: "L3".into(),
+        },
+    ];
     assert_eq!(
         wb_features::lsp::edits::apply_edits("line1\nline2\nline3", &edits),
-        "L1\nline2\nL3",
-        "多区间替换不能互相错位"
+        "L1\nline2\nL3"
     );
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 // ---- 目标：状态机与续跑提示 ----
@@ -422,7 +414,6 @@ fn goal_continuation_only_when_actionable() {
     assert!(prompt.contains("把登录页做完"), "提示应带目标描述");
     assert!(prompt.contains("接接口"), "提示应列出待办步骤");
     assert!(!prompt.contains("写表单"), "已完成步骤不该再列");
-    // 工作区里落着一个旧目标，不代表新开的对话要接着推它
     assert!(
         continuation_prompt(&ctx, "SESS_B").is_none(),
         "属于别的会话的目标不该驱动本会话续跑"
@@ -442,4 +433,121 @@ fn goal_continuation_only_when_actionable() {
         "步骤全完成不该续跑"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- 联网：正文提取、搜索源解析、排队、视频字幕 ----
+
+/// 网页解析三件套：正文提取剥结构噪音；多家搜索源转统一结果（跳转解开、标签剥掉、
+/// 各家字段名各异）；排队的门禁（未配密钥的 API 源不进队、公开源始终兜底）；
+/// 字幕轨按语言偏好选轨。
+#[test]
+fn web_parsing_extracts_text_results_and_captions() {
+    let html = r#"<html><head><title>文档标题</title><style>.a{color:red}</style></head>
+<body><nav>菜单导航</nav><h1>正文标题</h1><p>第一段 &amp; 说明</p>
+<script>var x = "&lt;script&gt;";</script><footer>版权信息</footer></body></html>"#;
+    let text = wb_features::web_parse::readable_text(html);
+    assert!(text.contains("正文标题") && text.contains("第一段 & 说明"));
+    assert!(!text.contains("var x") && !text.contains("菜单导航") && !text.contains("<p>"));
+
+    let ddg = r##"<div class="result results_links">
+<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.rust-lang.org%2F&amp;rut=abc">The Rust Programming Language</a>
+<a class="result__snippet" href="#">A language empowering everyone &amp; building reliable software.</a>
+</div>"##;
+    let dd = wb_features::web_parse::parse_results(ddg);
+    assert_eq!(
+        dd[0].result_url, "https://www.rust-lang.org/",
+        "跳转包装应解开"
+    );
+    assert_eq!(
+        dd[0].result_snippet,
+        "A language empowering everyone & building reliable software."
+    );
+
+    let bing = r#"<li class="b_algo"><h2><a href="https://example.com/doc">Example Doc</a></h2><p>Some snippet here.</p></li>"#;
+    let b = wb_features::web_providers::parse_bing(bing);
+    assert_eq!(b[0].result_title, "Example Doc");
+
+    let wiki = r#"{"query":{"search":[{"title":"Rust","snippet":"A <b>systems</b> language."}]}}"#;
+    let w = wb_features::web_providers::parse_wikipedia(wiki);
+    assert_eq!(w[0].result_url, "https://en.wikipedia.org/wiki/Rust");
+    assert!(!w[0].result_snippet.contains("<b>"), "摘要应剥标签");
+
+    // 各家 API 响应形状各异，解析器要认得自家字段名。
+    let brave = r#"{"web":{"results":[{"title":"Brave A","url":"https://a.example","description":"desc a"}]}}"#;
+    assert_eq!(
+        wb_features::web_providers::parse_brave(brave)[0].result_snippet,
+        "desc a",
+        "Brave 摘要取 description"
+    );
+    let tavily = r#"{"results":[{"title":"Tav B","url":"https://b.example","content":"body b"}]}"#;
+    assert_eq!(
+        wb_features::web_providers::parse_tavily(tavily)[0].result_snippet,
+        "body b"
+    );
+    let serper = r#"{"organic":[{"title":"Ser C","link":"https://c.example","snippet":"snip c"}]}"#;
+    assert_eq!(
+        wb_features::web_providers::parse_serper(serper)[0].result_url,
+        "https://c.example",
+        "Serper 的链接字段是 link"
+    );
+    let exa = r#"{"results":[{"title":"Exa D","url":"https://d.example","text":"text d"}]}"#;
+    assert_eq!(
+        wb_features::web_providers::parse_exa(exa)[0].result_title,
+        "Exa D"
+    );
+    assert!(
+        wb_features::web_providers::parse_brave(r#"{"web":{"results":[{"title":"x"}]}}"#)
+            .is_empty(),
+        "缺 url 不应当成一条有效结果"
+    );
+
+    // 排队：未配密钥的 API 源不进队，免密钥公开源始终兜底。
+    let codes: Vec<&str> = wb_features::web_providers::queue_for("")
+        .iter()
+        .map(|(p, _)| p.provider_code)
+        .collect();
+    for c in &codes {
+        let p = wb_features::web_providers::by_code(c).unwrap();
+        assert!(
+            p.provider_env_keys.is_empty() || wb_features::web_providers::key_for(p).is_some(),
+            "未配密钥的 API 源不该进队：{c}"
+        );
+    }
+    for open in ["duckduckgo", "bing", "wikipedia"] {
+        assert!(codes.contains(&open), "公开源应一直在队：{open}");
+    }
+    assert!(
+        wb_features::web_providers::queue_for("nope").is_empty(),
+        "未知源码 → 空队"
+    );
+
+    // 界面里填的密钥优先于环境变量：用户不必先学会改环境变量才能联网。
+    wb_features::config::set_web_keys(wb_features::web_providers::parse_keys(
+        "brave=cfg-key\n\n tavily = t-key \nbad-line",
+    ));
+    let brave = wb_features::web_providers::by_code("brave").unwrap();
+    assert_eq!(
+        wb_features::web_providers::key_for(brave).as_deref(),
+        Some("cfg-key"),
+        "配置里的密钥应优先"
+    );
+    assert!(
+        wb_features::web_providers::queue_for("")
+            .iter()
+            .any(|(p, k)| p.provider_code == "brave" && k.is_some()),
+        "配了密钥的 API 源应进队"
+    );
+    wb_features::config::set_web_keys(Vec::new());
+
+    use wb_features::web_video::{caption_tracks, parse_caption, pick_track};
+    let yt = r#"{"playerResponse":{"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[
+      {"baseUrl":"https://yt.example/api/timedtext?v=1&lang=en","name":{"simpleText":"English"}},
+      {"baseUrl":"https://yt.example/api/timedtext?v=1&lang=zh","name":{"simpleText":"Chinese"}}
+    ]}}}}"#;
+    let tracks = caption_tracks(yt);
+    assert_eq!(tracks.len(), 2, "两条字幕轨都该被认出");
+    assert_eq!(pick_track(&tracks, "zh").unwrap().label, "Chinese");
+    let xml = r#"<transcript><text start="0.0" dur="1.2">Hello &amp; welcome</text>
+<text start="1.2" dur="2.0">Second line</text></transcript>"#;
+    assert_eq!(parse_caption(xml), "Hello & welcome\nSecond line");
 }

@@ -91,9 +91,7 @@ pub fn live_state(sv: &Arc<Services>, session_id: &str) -> Option<String> {
 }
 
 /// 目标续跑提示：功能开启且存在活跃目标时给下一步提示，否则 None。
-///
-/// 目标归属于登记它的会话：关掉功能就不再续跑，并且只续跑同一个会话——
-/// 工作区里落着一个旧目标，不该让新开的对话都被灌一句不相干的推进指令。
+/// 目标归属于登记它的会话：关掉功能就不再续跑，并且只续跑同一个会话。
 pub fn goal_continuation(sv: &Arc<Services>, session_id: &str) -> Option<String> {
     if !enabled(sv, "goal", false) {
         return None;
@@ -178,12 +176,14 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
     }
     if enabled(sv, "goal", false) {
         let store = Arc::new(wb_features::goal::GoalStore::new(&ctx));
-        reg.register(Arc::new(wb_features::goal::CreateGoalTool::new(
+        reg.register(Arc::new(wb_features::goal_tools::CreateGoalTool::new(
             store.clone(),
             ctx.clone(),
         )));
-        reg.register(Arc::new(wb_features::goal::GetGoalTool::new(store.clone())));
-        reg.register(Arc::new(wb_features::goal::UpdateGoalTool::new(
+        reg.register(Arc::new(wb_features::goal_tools::GetGoalTool::new(
+            store.clone(),
+        )));
+        reg.register(Arc::new(wb_features::goal_tools::UpdateGoalTool::new(
             store,
             ctx.clone(),
         )));
@@ -233,8 +233,36 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
             allowed,
         )));
     }
+    // tool_search 入口：延迟加载开着时它必须在注册表里
+    reg.register(Arc::new(wb_features::tool_search::ToolSearchTool::new(
+        deferred_catalog(sv),
+    )));
     super::mcp::install_mcp_tools(sv, &mut reg);
     reg
+}
+
+/// 可延迟加载的工具名：它们不进首轮请求的 schema，模型用 tool_search 搜到才加载。
+///
+/// 延迟的理由是 schema 占窗口：全部工具的定义要几千 token，而模型真正用到的
+/// 通常只有其中几个。先给一份目录（名字 + 一句话用途），用到再加载完整的。
+pub const DEFERRED_TOOLS: [&str; 1] = ["tool_search"];
+
+/// 延迟加载工具的目录条目：给 tool_search 检索用。
+fn deferred_catalog(sv: &Arc<Services>) -> Vec<wb_features::tool_search::CatalogEntry> {
+    let reg = sv.registry.read().unwrap();
+    let mut out = Vec::new();
+    for t in reg.all() {
+        // tool_search 自己不在目录里：它是入口，不需要被搜出来
+        if t.name() == "tool_search" {
+            continue;
+        }
+        out.push(wb_features::tool_search::CatalogEntry {
+            name: t.name().to_string(),
+            description: t.description().to_string(),
+            parameters_text: t.parameters().to_string(),
+        });
+    }
+    out
 }
 
 /// 重建并写回注册表（开关变化 / MCP reload 后调用）。

@@ -38,6 +38,12 @@ export interface ToolEndData {
   diff?: DiffLine[]
 }
 
+/** chat:tool_progress：工具执行中的增量输出 */
+export interface ToolProgressData {
+  tool_call_id: string
+  chunk: string
+}
+
 /** chat:context 里的用量读数（载荷内不带业务前缀） */
 export interface ContextUsage {
   input: number
@@ -125,6 +131,8 @@ export interface ToolRun {
   file_path: string
   /** 这次调用带回来的差异行 */
   diff: DiffLine[]
+  /** 执行过程中的实时输出（只有长命令才有；结束时被最终结果覆盖） */
+  progress: string
 }
 
 // 本轮的一条有序段：思考 / 正文 / 工具。顺序就是内核吐出来的顺序，
@@ -149,4 +157,8 @@ export interface PendingAsk {
   prefill: string
   /** 等待上限（毫秒）：0 表示不限时 */
   timeoutMs: number
+  /** 安全闸门的审批卡：被审的工具名 */
+  approval_tool?: string
+  /** 审批卡上要展示的那条命令 / 路径 */
+  approval_summary?: string
 }

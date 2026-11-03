@@ -59,6 +59,17 @@ pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent, context_window: 
                 },
             );
         }
+        KernelEvent::ToolProgress { call_id, chunk } => {
+            emit_data(
+                em,
+                sid,
+                "chat:tool_progress",
+                &wb_domain::events::ToolProgressData {
+                    tool_call_id: call_id.clone(),
+                    chunk: chunk.clone(),
+                },
+            );
+        }
         KernelEvent::ToolExecutionEnd {
             call_id,
             name,
@@ -85,7 +96,8 @@ pub fn translate(em: &dyn Emitter, sid: &str, ev: &KernelEvent, context_window: 
         }
         KernelEvent::TurnEnd { usage, stop_reason } => {
             if let Some(u) = usage {
-                let total = u.input + u.output + u.cache_read + u.cache_write;
+                // input 已扣掉缓存部分，直接相加就是上游处理的总量（不重复计）
+                let total = u.total();
                 emit_data(
                     em,
                     sid,

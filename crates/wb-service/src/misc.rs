@@ -46,19 +46,83 @@ pub fn doc_content(name: &str) -> Result<HelpDocRESP> {
     })
 }
 
-/// 斜杠命令：启用技能即命令（/skill:名）。
+/// 斜杠命令：内置命令 + 启用技能即命令（/skill:名）。
 pub fn commands_list(sv: &Arc<Services>) -> Vec<CommandVO> {
-    sv.skills
-        .read()
-        .unwrap()
-        .list_vo(|n| sv.repo.skill_enabled(n).unwrap_or(true))
+    let mut out: Vec<CommandVO> = BUILTIN_COMMANDS
         .iter()
-        .map(|s| CommandVO {
-            command_name: format!("skill:{}", s.skill_name),
-            command_description: s.skill_description.clone(),
-            command_source: "skill".into(),
+        .map(|c| CommandVO {
+            command_name: c.command_name.to_string(),
+            command_description: c.command_description.to_string(),
+            command_source: "builtin".into(),
         })
-        .collect()
+        .collect();
+    out.extend(
+        sv.skills
+            .read()
+            .unwrap()
+            .list_vo(|n| sv.repo.skill_enabled(n).unwrap_or(true))
+            .iter()
+            .map(|s| CommandVO {
+                command_name: format!("skill:{}", s.skill_name),
+                command_description: s.skill_description.clone(),
+                command_source: "skill".into(),
+            }),
+    );
+    out
+}
+
+/// 内置斜杠命令表：命令名 + 说明。
+/// 命令的实现在前端输入区（useComposerCommands），这里只报清单——
+/// 后端不认斜杠命令语法，也不该认。
+const BUILTIN_COMMANDS: [BuiltinCommand; 10] = [
+    BuiltinCommand {
+        command_name: "new",
+        command_description: "开一个新对话",
+    },
+    BuiltinCommand {
+        command_name: "model",
+        command_description: "切换模型",
+    },
+    BuiltinCommand {
+        command_name: "thinking",
+        command_description: "切换思考档位",
+    },
+    BuiltinCommand {
+        command_name: "compact",
+        command_description: "手动压缩上下文",
+    },
+    BuiltinCommand {
+        command_name: "session",
+        command_description: "看当前会话的统计",
+    },
+    BuiltinCommand {
+        command_name: "export",
+        command_description: "把会话导出为 HTML",
+    },
+    BuiltinCommand {
+        command_name: "copy",
+        command_description: "复制最近一轮的回复",
+    },
+    BuiltinCommand {
+        command_name: "reload",
+        command_description: "重载技能与功能配置",
+    },
+    BuiltinCommand {
+        command_name: "login",
+        command_description: "打开登录页",
+    },
+    BuiltinCommand {
+        command_name: "settings",
+        command_description: "打开设置页",
+    },
+];
+
+/// 一条内置斜杠命令的静态描述。
+struct BuiltinCommand {
+    /// 命令名（不含斜杠）
+    command_name: &'static str,
+    /// 说明
+    command_description: &'static str,
 }
 
 // ---- 背景图 ----

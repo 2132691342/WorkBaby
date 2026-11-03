@@ -23,7 +23,8 @@ impl Tool for WriteTool {
     }
 
     fn description(&self) -> &str {
-        "写入文件（整文件覆盖，自动创建父目录）。参数：path(必填)、content(必填)。"
+        "写入文件（整文件覆盖，自动创建父目录）。参数：path(必填)、content(必填)。\
+         覆盖已有文件时保留其原行尾风格（LF / CRLF）。"
     }
 
     fn parameters(&self) -> Value {
@@ -59,8 +60,21 @@ impl Tool for WriteTool {
         // 原文件存在就留一份用来算 diff：整文件覆盖是最容易改坏内容的方式，
         // 用户需要在不打开编辑器的情况下看见「到底删掉了什么」。
         let before = fsutil::read_to_string(&path).unwrap_or_default();
-        fsutil::write_atomic(&path, content.as_bytes())?;
-        let diff = crate::difftext::line_diff(&before, content);
+        // 覆盖已有文件时沿用它的行尾：整篇改成 LF 会在 Windows 仓库制造全文件 diff。
+        let (bom, body) = wb_pkg::text::strip_bom(&before);
+        let ending = wb_pkg::text::detect_line_ending(body);
+        let had_bom = !bom.is_empty();
+        let payload = if before.is_empty() {
+            content.to_string()
+        } else {
+            format!(
+                "{}{}",
+                if had_bom { "\u{feff}" } else { "" },
+                wb_pkg::text::apply_line_ending(content, ending)
+            )
+        };
+        fsutil::write_atomic(&path, payload.as_bytes())?;
+        let diff = crate::difftext::line_diff(&before, &payload);
         Ok(ToolOutput::plain(
             format!("已写入 {}（{} 字节）", path.display(), content.len()),
             false,

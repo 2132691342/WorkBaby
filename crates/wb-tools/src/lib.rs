@@ -10,7 +10,7 @@ pub mod truncate;
 
 pub mod builtin;
 
-pub use ctx::ToolCtx;
+pub use ctx::{ProgressFn, ToolCtx};
 pub use registry::{
     DiffLine, Tool, ToolAnnotations, ToolCall, ToolImage, ToolOutput, ToolRegistry,
 };

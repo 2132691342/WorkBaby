@@ -87,8 +87,22 @@ async function login(s: MCPServerVO) {
   if (busy.value) return
   busy.value = `login:${s.mcp_name}`
   try {
+    // 授权页在浏览器里打开，用户点完「允许」后回调本地端口，这一步会等一会儿
     await api.mcp.login(s.mcp_name)
-    toast.info(t('settings.mcp.login'))
+    toast.ok(t('settings.mcp.loginDone'))
+  } catch (e) {
+    toast.bad(t('common.saveFailed', { msg: errorText(e) }))
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function logout(s: MCPServerVO) {
+  if (busy.value) return
+  busy.value = `logout:${s.mcp_name}`
+  try {
+    await api.mcp.logout(s.mcp_name)
+    toast.ok(t('settings.mcp.logoutDone'))
   } catch (e) {
     toast.bad(t('common.saveFailed', { msg: errorText(e) }))
   } finally {
@@ -147,6 +161,14 @@ onMounted(() => {
           <footer class="mcp-acts">
             <el-button size="small" :loading="busy === `login:${s.mcp_name}`" :disabled="!!busy" @click="login(s)">
               {{ t('settings.mcp.login') }}
+            </el-button>
+            <el-button
+              size="small"
+              :loading="busy === `logout:${s.mcp_name}`"
+              :disabled="!!busy || s.mcp_transport !== 'http'"
+              @click="logout(s)"
+            >
+              {{ t('settings.mcp.logout') }}
             </el-button>
             <span class="sp" />
             <el-popconfirm :title="t('settings.mcp.removeTitle')" width="240" @confirm="remove(s)">

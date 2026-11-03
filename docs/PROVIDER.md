@@ -10,13 +10,16 @@
 | api | 状态 | 覆盖 |
 |---|---|---|
 | `openai-completions` | 已实现（缺省值） | OpenAI / DeepSeek / Moonshot / OpenRouter / 各类兼容网关 |
-| `anthropic-messages` | 未实现 | 选中会在建客户端时报 3005 |
-| `google-generative-ai` | 未实现 | 同上 |
+| `anthropic-messages` | 已实现 | Anthropic 官方与兼容网关 |
+| `google-generative-ai` | 已实现 | Gemini 官方与兼容网关 |
 
-**只落地 openai-completions 一族**。三族共存的收益是能覆盖不同厂商的独有语义
-（思考块签名、cache token 口径、`system_instruction` 独立传），代价是三套解析代码
-要各自跟进协议。先跑通最通用的一族——绝大多数网关都兼容 openai-completions，
-把协议解析、错误分类与重试时机做扎实，比一次铺三套半成品更有价值。
+三族都落地了，因为它们各有一块别的族覆盖不到的语义：
+
+| 族 | 独有语义 | 踩过的坑 |
+|---|---|---|
+| openai-completions | 绝大多数网关都兼容 | 无 |
+| anthropic-messages | `system` 独立传；工具结果叫 `tool_result` 装在 user 消息里；思考块与工具调用各有独立块类型 | 工具参数走 `input_json_delta` 分片；开思考时 `max_tokens` 必须大于 `thinking.budget_tokens` |
+| google-generative-ai | `systemInstruction` 独立传；工具叫 `functionCall` / `functionResponse` 且都在 user 角色；思考是 part 里的 `thought` 标记 | JSON Schema 很严，`additionalProperties` 这类关键字会直接 400，要先剥掉 |
 
 选择未实现的 api 时 `create_client` 直接报错并指明原因，不做静默降级——
 静默降级会让用户以为在用 Anthropic，实际发出去的是 openai 格式的请求。
@@ -102,6 +105,30 @@ Start | TextDelta(idx, s) | ThinkingDelta(idx, s) | ToolCallDelta(idx, s)
 - `auth.json` 的 `o_auth` 形态只存数据（refresh / access / expires），没有刷新流程
 - 模型清单可手工填写，也可从服务商接口拉取后写进 `models.json`
 
+## 内置服务商预设
+
+没有预设时首启必然失败：用户得手写 `baseUrl` / `api` / `models` 才能发出第一条消息，
+而这三项恰恰是绝大多数人不知道的东西。`wb_provider::presets` 内置九家常见服务商：
+
+| 预设码 | 说明 |
+|---|---|
+| `openai` | 官方接口 |
+| `deepseek` | 国内直连，性价比高 |
+| `moonshot` | 国内直连，长上下文 |
+| `dashscope` | 阿里云百炼 / 通义 |
+| `zhipu` | 智谱 GLM |
+| `openrouter` | 聚合网关 |
+| `anthropic` | Claude 官方接口（走 anthropic-messages wire） |
+| `gemini` | Gemini 官方接口（走 google-generative-ai wire） |
+| `ollama` | 本机跑模型，无需密钥 |
+
+预设只填「地址 + 模型 + 能力（reasoning / vision / 窗口）」——**密钥永远由用户自己给**。
+三条规则：
+
+- **已存在不覆盖**：用户可能改过地址或追加过模型，重加预设不能把它们冲掉
+- **无默认时才占位**：首次添加把默认指到它的第一个模型；已有默认不抢
+- **默认指向与写配置是同一件事**：只写配置不指默认，用户加完预设仍然看到「未配置模型」
+
 `auth.json` 的凭据带 `type` 判别标签，OAuth 变体的字面量是 `o_auth`
 （serde snake_case）。手写成 `oauth` 会让整个文件解析失败（2001）——
 判别标签不认识就整份拒收，不做部分降级。
@@ -116,6 +143,50 @@ Start | TextDelta(idx, s) | ThinkingDelta(idx, s) | ToolCallDelta(idx, s)
 | `maxTokens` | 16 384 | 单轮生成上限，随请求的 `max_tokens` 下发 |
 
 缺省值刻意保守：宁可早压缩，也不要被服务端拒绝。
+
+### 思考档位
+
+界面给七档，wire 取值一一对应，**不做静默降级**：
+
+| 档位码 | `reasoning_effort` |
+|---|---|
+| `off` | 不送该字段 |
+| `minimal` / `low` / `medium` / `high` / `xhigh` / `max` | 同名值 |
+
+把未知档位默默当 `medium` 会让「我选了 max」和「它在随便跑」不可区分。
+`ThinkingLevel::parse` 对未知值返回 `None`，由 service 决定如何处置；
+模型不支持推理时统一关掉（送了也没用，只会让上游报参数错）。
+
+## 提示词缓存
+
+Anthropic 系默认开缓存：在请求体的三处下 `cache_control` 断点——
+系统提示词、最后一个工具定义、历史消息末尾。
+
+缓存按**前缀**命中：断点之前的内容完全一致才命中。所以断点要落在
+「每轮都重发但不变」的地方：系统提示词与工具定义每轮重发，历史末尾
+则把整条历史与工具定义一起纳入缓存前缀。
+
+工具定义的断点必须落在**最后一个**工具上：断在中间的话后续工具不在
+缓存前缀里，等于没断。
+
+部分兼容网关不认 `cache_control` 字段，配置里 `cache: false` 可关掉
+（`ProviderCfg.cache`，缺省开）。
+
+## 用量口径归一
+
+各家的 usage 字段含义不同，归一后才好比较与统计：
+
+| provider | 原始字段 | 归一 |
+|---|---|---|
+| openai-completions | `prompt_tokens` 含缓存部分 | `input = prompt_tokens − cache_read − cache_write` |
+| google-generative-ai | `promptTokenCount` 含缓存部分 | `input = promptTokenCount − cache_read`；思考 token 计入 `output` |
+| anthropic-messages | `input_tokens` 不含缓存部分 | 原样使用 |
+
+缓存命中的读数各家摆放不同，OpenAI 系依次找 `prompt_tokens_details.cached_tokens`、
+顶层 `prompt_cache_hit_tokens`、顶层 `cached_tokens`。
+
+归一后四个字段互不重叠，`total = input + output + cache_read + cache_write`
+就是上游实际处理的总量。不归一就会把同一批 token 算两遍。
 
 ## 错误分类
 
@@ -136,8 +207,8 @@ Start | TextDelta(idx, s) | ThinkingDelta(idx, s) | ToolCallDelta(idx, s)
 
 | 取舍 | 理由 | 代价 |
 |---|---|---|
-| 只落地 openai-completions 一族 | 先把协议解析与错误分类做扎实 | 用不了 Anthropic 原生思考签名与 cache 语义 |
+| 三族 wire 都原生实现 | 各有独有语义，翻译成同一套会丢信息 | 每加一家协议就要加一份实现 |
 | 未实现的 api 报错而非降级 | 静默降级会让用户误判协议 | 换厂商要改代码 |
-| 自己管配置与凭据 | 不依赖任何外部账号体系 | 用户要自己配 key |
+| 缓存默认开但可关 | 命中时输入按增量价计费，是净赚 | 不认该字段的网关要手动关 || 自己管配置与凭据 | 不依赖任何外部账号体系 | 用户要自己配 key |
 | 手写 SSE 解析与累加器 | 需要控制错误分类、重试时机与分片归并 | 解析代码要跟协议变化 |
 | 配置与凭据分文件 | 配置可分享，密钥不外流 | 两处要同时维护 |

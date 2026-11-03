@@ -363,8 +363,154 @@ fn feature_panels_share_one_store_and_enforce_state_machines() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+// ---- 斜杠命令清单 ----
 
-// ---- 内置运行时状态：三件可执行文件逐项报告 ----
+/// 内置命令清单必须与前端输入区的命令表一致：两边各写一份，不校验就会漂。
+/// 漂了的表现是「菜单里点得到，接口里查不到」或反过来。
+#[test]
+fn builtin_slash_commands_match_frontend_command_table() {
+    let (dir, sv) = fresh("commands");
+    let list = wb_service::misc::commands_list(&sv);
+
+    let builtin: Vec<&str> = list
+        .iter()
+        .filter(|c| c.command_source == "builtin")
+        .map(|c| c.command_name.as_str())
+        .collect();
+    assert_eq!(
+        builtin,
+        vec![
+            "new", "model", "thinking", "compact", "session", "export", "copy", "reload", "login",
+            "settings"
+        ],
+        "内置命令清单要与前端 composerMenu.ts 的 COMMANDS 一致"
+    );
+
+    // 技能命令仍挂在后面，前缀区分来源
+    for c in &list {
+        if c.command_source == "skill" {
+            assert!(
+                c.command_name.starts_with("skill:"),
+                "技能命令要带 skill: 前缀，实际 {}",
+                c.command_name
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 工具定义占多少上下文：工具按需加载值不值得做，取决于这个数。
+/// 全部功能开启时工具定义要占掉几千 token，所以延迟加载有实际收益。
+/// 守住上限：新增工具时若定义写得过长，这里会先报出来。
+#[test]
+fn tool_schema_overhead_stays_bounded() {
+    let (dir, sv) = fresh("toolcost");
+    for code in [
+        "todo",
+        "ask_user",
+        "fff",
+        "context_view",
+        "memory",
+        "web",
+        "loadout",
+        "context_mode",
+        "lsp",
+        "plan",
+        "goal",
+        "inspect",
+    ] {
+        sv.repo.feature_set_enabled(code, true).unwrap();
+    }
+    let reg = wb_service::features::build_registry(&sv);
+    let all = reg.all();
+    let mut total = 0i64;
+    for t in &all {
+        total += wb_kernel::tokenest::estimate_text_tokens(t.description());
+        total += wb_kernel::tokenest::estimate_text_tokens(&t.parameters().to_string());
+    }
+    println!("全开：工具数 {}，定义约 {} token", all.len(), total);
+    assert!(
+        total < 12_000,
+        "工具定义合计 {total} token 偏大：说明某个工具的描述写太长，或新增了太多工具"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- 安全闸门 ----
+
+/// 危险信号必须被认出来：递归删除、全局安装、force push、动注册表、改系统路径。
+/// 漏一个就是闸门形同虚设——而用户以为它拦住了。
+#[test]
+fn approval_gate_recognizes_dangerous_operations() {
+    use serde_json::json;
+    use wb_service::approval::needs_approval;
+
+    let dangerous: Vec<(&str, &str)> = vec![
+        ("rm -rf /", "递归删除"),
+        ("rm -rf node_modules", "递归删除"),
+        (r"RD /S /Q C:\Windows", "递归删除"),
+        ("pip install requests", "全局安装"),
+        ("npm install -g typescript", "全局安装"),
+        ("cargo install ripgrep", "全局安装"),
+        ("git push --force origin main", "不可逆 git"),
+        ("git reset --hard HEAD~5", "不可逆 git"),
+        ("git clean -fd", "不可逆 git"),
+        (r"reg add HKLM\Software\Test", "系统级变更"),
+        ("sc delete MyService", "系统级变更"),
+        ("format C:", "磁盘级操作"),
+        ("diskpart /s script.txt", "磁盘级操作"),
+        ("chmod 777 /etc", "权限变更"),
+        (r"icacls C:\Windows /grant Everyone:F", "权限变更"),
+    ];
+    for (cmd, why) in dangerous {
+        let got = needs_approval("bash", &json!({ "command": cmd }));
+        assert!(got.is_some(), "危险命令没被拦住：{cmd}（{why}）");
+    }
+
+    // 日常命令不该被拦：拦住它们只会让助手变得难用
+    for cmd in [
+        "ls -la",
+        "cat README.md",
+        "git status",
+        "npm run build",
+        "cargo test",
+        "python script.py",
+        "grep -r TODO src",
+    ] {
+        assert!(
+            needs_approval("bash", &json!({ "command": cmd })).is_none(),
+            "日常命令不该被拦：{cmd}"
+        );
+    }
+
+    // 改系统路径也要拦
+    assert!(
+        needs_approval(
+            "write",
+            &json!({ "path": r"C:\Windows\System32\drivers\etc\hosts" })
+        )
+        .is_some(),
+        "改系统路径该被拦"
+    );
+    assert!(
+        needs_approval("write", &json!({ "path": "src/main.rs" })).is_none(),
+        "改工作区文件不该被拦"
+    );
+}
+
+/// 审批模式解析：未知值按「危险时才问」处理——宁可多问一次。
+#[test]
+fn approval_mode_falls_back_to_ask() {
+    use wb_service::approval::ApprovalMode;
+    assert_eq!(ApprovalMode::parse("off"), ApprovalMode::Off);
+    assert_eq!(ApprovalMode::parse("all"), ApprovalMode::All);
+    assert_eq!(ApprovalMode::parse("ask"), ApprovalMode::Ask);
+    assert_eq!(ApprovalMode::parse(""), ApprovalMode::Ask);
+    assert_eq!(ApprovalMode::parse("乱填"), ApprovalMode::Ask);
+    assert_eq!(ApprovalMode::Ask.code(), "ask");
+}
+
+// ---- 内置运行时状态与预设 ----
 
 /// 就绪标志与路径必须一致：报了 ready 却没有路径，工具就会拿空路径去起进程。
 #[test]
@@ -377,7 +523,13 @@ fn runtime_status_reports_each_binary() {
         .iter()
         .map(|b| b.binary_name.as_str())
         .collect();
-    assert_eq!(names, vec!["bash", "git", "python"], "got {names:?}");
+    // powershell 走「用户装的 pwsh 7 → 系统 5.1」级联，不参与解压进度，
+    // 但同样要报出可达性
+    assert_eq!(
+        names,
+        vec!["bash", "git", "python", "powershell"],
+        "got {names:?}"
+    );
     for b in &status.resp_binaries {
         assert_eq!(
             b.binary_ready,
@@ -387,4 +539,106 @@ fn runtime_status_reports_each_binary() {
         );
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 预设添加后必须两件事都成立：配置里有它，且默认模型指到它。
+#[test]
+fn provider_preset_applies_and_claims_default_once() {
+    let (dir, sv) = fresh("preset");
+    let before = wb_service::providers::presets_vo(&sv).unwrap();
+    assert!(before.iter().any(|p| p.preset_id == "deepseek"));
+    assert!(
+        before.iter().all(|p| !p.preset_installed),
+        "新库不该有已装预设"
+    );
+
+    let pid = wb_service::providers::apply_preset(&sv, "deepseek", Some("sk-test")).unwrap();
+    assert_eq!(pid, "deepseek");
+    let dp = sv.repo.settings_get("default_provider").unwrap();
+    assert_eq!(dp.as_deref(), Some("deepseek"), "首次添加应自动占位默认");
+    let auth = sv.providers.load_auth().unwrap();
+    assert!(
+        auth.providers.contains_key("deepseek"),
+        "给了密钥就该写进 auth.json"
+    );
+
+    // 第二次添加同名预设必须被拒：覆盖会冲掉用户改过的地址与追加的模型
+    let again = wb_service::providers::apply_preset(&sv, "deepseek", None);
+    assert!(again.is_err(), "重复添加应当报错");
+
+    // 已有默认时，新预设不能抢走它
+    wb_service::providers::apply_preset(&sv, "ollama", None).unwrap();
+    let dp = sv.repo.settings_get("default_provider").unwrap();
+    assert_eq!(
+        dp.as_deref(),
+        Some("deepseek"),
+        "用户已选的默认不该被后加的预设抢走"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- 工具按需加载与 schema 开销 ----
+
+/// 延迟加载：请求里只留 tool_search，其余工具等模型搜到才进来。
+/// 不开这个开关时行为不变——工具表固定，少一轮往返。
+#[test]
+fn deferred_tools_split_keeps_only_the_search_entry_in_request() {
+    let (dir, sv) = fresh("defer");
+    sv.repo.feature_set_enabled("web", true).unwrap();
+    // 开关变了要重建注册表：工具表是装配边界，不是运行时判断
+    wb_service::features::refresh_registry(&sv);
+
+    // 默认关：全部工具直接进请求
+    let (direct, deferred) = wb_service::tool_sets(&sv);
+    assert!(deferred.is_empty(), "默认不开延迟加载：{deferred:?}");
+    assert!(
+        direct.iter().all(|n| n != "tool_search"),
+        "tool_search 不该在固定工具表里：{direct:?}"
+    );
+    assert!(direct.contains(&"web_search".to_string()), "web 要在");
+
+    // 开启：只留 tool_search，其余转延迟
+    sv.repo.settings_set("defer_tools", "true").unwrap();
+    let (direct, deferred) = wb_service::tool_sets(&sv);
+    assert_eq!(direct, vec!["tool_search".to_string()], "只留入口");
+    assert!(
+        deferred.contains(&"web_search".to_string()),
+        "web_search 转延迟：{deferred:?}"
+    );
+    assert!(
+        !deferred.contains(&"tool_search".to_string()),
+        "入口不能同时在延迟列表里"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 检索排序：查「网页」要能命中 web_search，查「改文件」要能命中 edit。
+#[test]
+fn tool_search_ranks_by_relevance() {
+    use wb_features::tool_search::{rank, ToolDocument};
+
+    let docs = vec![
+        ToolDocument {
+            name: "web_search".into(),
+            text: "联网搜索，返回编号的结果清单".into(),
+        },
+        ToolDocument {
+            name: "edit".into(),
+            text: "精确替换文件内容".into(),
+        },
+        ToolDocument {
+            name: "bash".into(),
+            text: "执行命令".into(),
+        },
+    ];
+    let hits = rank("查网页", &docs, 3);
+    assert!(!hits.is_empty(), "中文查询要能命中");
+    assert_eq!(hits[0].name, "web_search", "最相关的排第一：{hits:?}");
+
+    let hits = rank("edit file", &docs, 3);
+    assert_eq!(hits[0].name, "edit", "英文查询按词干匹配：{hits:?}");
+
+    let hits = rank("zzzzz", &docs, 3);
+    assert!(hits.is_empty(), "无匹配时返回空：{hits:?}");
 }

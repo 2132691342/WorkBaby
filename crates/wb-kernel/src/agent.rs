@@ -48,12 +48,19 @@ pub struct AgentConfig {
     pub workdir: std::path::PathBuf,
     /// 压缩后回填的活状态（如待办清单）；service 决定内容，内核不做假设
     pub reinforce: Option<std::sync::Arc<crate::compaction::ReinforceFn>>,
+    /// 每轮都重发的固定开销（系统提示词 + 工具定义）；不计入就高估剩余窗口
+    pub overhead: crate::compaction::ContextOverhead,
+    /// 延迟加载的工具名：模型搜到后加进来，下一轮才有它们的定义。
+    /// 空 = 工具表固定，全部工具一开始就在请求里。
+    pub deferred_tools: Vec<String>,
     /// 技能正文加载器：用户消息点名技能时按需读正文，内核不认识技能存储
     pub skill_loader: Option<crate::reqbuild::SkillLoader>,
     /// 当前会话 id：工具回话（提问 / 状态行 / 小部件）必须写进发起调用那个会话
     pub session_id: String,
     /// 当前运行 id（RUN_ 前缀）
     pub run_id: String,
+    /// 审批闸门：None = 不拦（service 关闭审批时用）
+    pub gate: Option<std::sync::Arc<dyn crate::blocks::Gate>>,
 }
 
 /// 单轮运行结果。
@@ -94,6 +101,11 @@ pub async fn run(
     let mut turn_no: i64 = 0;
     // 工具侧的会话归属：功能工具要靠它把事件发回本会话而不是全局通道
     let tool_ctx = wb_tools::ToolCtx::new(cfg.session_id.clone(), cfg.run_id.clone());
+    // 本次运行里被加载的额外工具：模型搜到后加进来，下一轮才有它们的定义。
+    // 共享一份可变集合：工具在执行中请求加载，下一轮组请求时读得到。
+    let loaded_tools: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(cfg.deferred_tools.clone()));
+    let tool_ctx = tool_ctx.with_loader(std::sync::Arc::clone(&loaded_tools));
 
     'outer: loop {
         // turn 边界收插话（one-at-a-time）
@@ -116,7 +128,9 @@ pub async fn run(
 
         // 预采样压缩
         let msgs = session.replay_messages();
-        let tokens = compaction::estimate_tokens(&msgs);
+        // 系统提示词与工具定义每轮都重发，它们占着窗口却不在回放消息里；
+        // 上下文占用优先用上游报的真实用量，没拿到才退回估算
+        let tokens = crate::tokenest::context_tokens(&msgs, cfg.overhead.total());
         if compaction::should_compact(tokens, cfg.context_window) {
             emit(&KernelEvent::CompactionStart {
                 reason: "threshold".into(),
@@ -149,12 +163,19 @@ pub async fn run(
             parts: vec![ContentPart::Text(cfg.system_prompt.clone())],
             tool_calls: Vec::new(),
             tool_call_id: None,
+            tool_name: None,
         }];
         for m in session.replay_messages() {
             req_msgs.push(crate::reqbuild::to_req(m, cfg.skill_loader.as_ref()));
         }
-        let tools: Vec<ToolDef> = cfg
-            .enabled_tools
+        // 本轮要发哪些工具：已启用的 + 本次运行里被加载的
+        let mut active_tools: Vec<String> = cfg.enabled_tools.clone();
+        for name in loaded_tools.lock().unwrap().iter() {
+            if !active_tools.contains(name) {
+                active_tools.push(name.clone());
+            }
+        }
+        let tools: Vec<ToolDef> = active_tools
             .iter()
             .filter_map(|n| cfg.registry.get(n))
             .map(|t| ToolDef {
@@ -324,9 +345,19 @@ pub async fn run(
                     let run_cfg = cfg.clone();
                     let run_cancel = cancel.clone();
                     let run_ctx = tool_ctx.clone();
+                    // 过程回显：闭包只负责「把这段输出发出去」，节流在 progress_throttle 里
+                    let progress = progress_sink(&emit, &call_id);
                     tasks.push(async move {
-                        let out =
-                            execute_tool(&run_cfg, &name, &arguments, &run_cancel, &run_ctx).await;
+                        let out = execute_tool(
+                            &run_cfg,
+                            &name,
+                            &arguments,
+                            &run_cancel,
+                            &run_ctx,
+                            Some(progress),
+                            run_cfg.gate.clone(),
+                        )
+                        .await;
                         (call_id, name, out)
                     });
                 }
@@ -425,6 +456,23 @@ fn retryable_text(msg: &str) -> bool {
 
 fn loop_err(e: AppError) -> AppError {
     e
+}
+
+/// 过程回显的最小间隔：命令刷得快时（如 `yes`、构建日志）逐块发事件会把 SSE 和界面
+/// 一起堵死。它们只服务于「看得见在跑」，不需要逐字节保真。
+const PROGRESS_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// 造一个节流的进度回调：攒够间隔才真发一次，最后一小块随 ToolExecutionEnd 一起到。
+/// 节流器是「丢帧不丢内容」——被跳过的块直接舍弃，最终结果仍以完整输出回灌模型。
+fn progress_sink(emit: &EmitFn, call_id: &str) -> wb_tools::ProgressFn {
+    let emit = emit.clone();
+    let call_id = call_id.to_string();
+    crate::throttle::new_progress(PROGRESS_MIN_INTERVAL, move |chunk: &str| {
+        emit(&KernelEvent::ToolProgress {
+            call_id: call_id.clone(),
+            chunk: chunk.to_string(),
+        });
+    })
 }
 
 /// 取消令牌是否已触发（插话续跑前要看一眼：用户按了停止就不该再开一轮）。

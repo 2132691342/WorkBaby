@@ -30,6 +30,7 @@ const names = [
   'chat:delta',
   'chat:tool_start',
   'chat:tool_end',
+  'chat:tool_progress',
   'chat:compressed',
   'chat:context',
   'chat:done',
@@ -49,6 +50,7 @@ const names = [
   'agent:delta',
   'agent:tool_start',
   'agent:tool_end',
+  'agent:tool_progress',
   'agent:done',
   // 壳级广播（全局通道 session_id 为空）：工作区热切换等
   'app:workspace',

@@ -23,6 +23,12 @@ pub fn routes() -> Router<AppState> {
         .route("/api/v1/providers/test", post(providers_test))
         .route("/api/v1/providers/reveal", post(providers_reveal))
         .route("/api/v1/providers/default", post(providers_default))
+        // 内置服务商预设：首启一键添加，免得用户手写 models.json
+        .route("/api/v1/providers/presets", get(providers_presets))
+        .route(
+            "/api/v1/providers/presets/apply",
+            post(providers_presets_apply),
+        )
         .route(
             "/api/v1/providers/models/fetch",
             post(providers_models_fetch),
@@ -163,6 +169,29 @@ async fn providers_default(
         .unwrap_or("");
     match wb_service::providers::set_default(&sv(st), pid, mid).await {
         Ok(_) => ok_json(serde_json::Value::Null),
+        Err(e) => err_json(&e),
+    }
+}
+
+/// 内置服务商预设清单（含「已添加」标记）。
+async fn providers_presets(st: State<AppState>) -> Response {
+    match wb_service::providers::presets_vo(&sv(st)) {
+        Ok(v) => ok_json(v),
+        Err(e) => err_json(&e),
+    }
+}
+
+/// 添加预设：密钥可选；成功返回新 provider 键。
+async fn providers_presets_apply(
+    st: State<AppState>,
+    axum::Json(req): axum::Json<wb_domain::provider::ProviderPresetApplyREQ>,
+) -> Response {
+    match wb_service::providers::apply_preset(
+        &sv(st),
+        &req.preset_id,
+        req.preset_api_key.as_deref(),
+    ) {
+        Ok(pid) => ok_json(serde_json::json!({ "resp_provider_id": pid })),
         Err(e) => err_json(&e),
     }
 }

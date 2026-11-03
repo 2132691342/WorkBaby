@@ -1,9 +1,8 @@
 //! python：用内置 Python 3.13 执行脚本或一段代码，工作区为当前目录。
 
-use std::path::PathBuf;
-
 use async_trait::async_trait;
 use serde_json::Value;
+use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
 use wb_pkg::{AppError, Result};
@@ -70,7 +69,7 @@ impl Tool for PythonTool {
         args: Value,
         cancel: CancellationToken,
         workdir: &std::path::Path,
-        _ctx: &crate::ToolCtx,
+        ctx: &crate::ToolCtx,
     ) -> Result<ToolOutput> {
         let timeout = args["timeout"].as_u64().unwrap_or(120).min(600);
         let code = args["code"].as_str().unwrap_or("").trim();
@@ -91,12 +90,13 @@ impl Tool for PythonTool {
         } else {
             vec![file.to_string()]
         };
-        let outcome = exec::run(
+        let outcome = exec::run_streaming(
             &program.display().to_string(),
             &argv,
             workdir,
             timeout,
             &cancel,
+            ctx.progress.as_ref().map(std::sync::Arc::clone),
         )
         .await?;
         let mut text = String::new();

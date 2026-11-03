@@ -86,7 +86,11 @@ impl Hub {
             event: event.to_string(),
             data,
         };
-        {
+        // 过程输出是「丢了也不影响还原」的帧：长命令一秒能刷八帧，
+        // 全塞进重放缓冲会把真正的对话帧（正文 / 工具结果）挤出去，
+        // 重连后界面就少了内容。所以只发不存。
+        let replayable = !is_progress_event(event);
+        if replayable {
             let mut replay = self.replay.lock().unwrap();
             let buf = replay.entry(session_id.to_string()).or_default();
             // 新一轮开始就丢掉上一轮的重放缓冲：重放的目的只有「接上还在跑的这一轮」，
@@ -114,4 +118,10 @@ impl Emitter for Hub {
     fn emit(&self, session_id: &str, event: &str, data: serde_json::Value) {
         self.push(session_id, event, data);
     }
+}
+
+/// 过程输出类事件：只发给在线连接、不进重放缓冲。
+/// 它们是执行中的高频旁支（一秒可达八帧），重放它们既无意义又会挤掉对话帧。
+fn is_progress_event(event: &str) -> bool {
+    matches!(event, "chat:tool_progress" | "agent:tool_progress")
 }

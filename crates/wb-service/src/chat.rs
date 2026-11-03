@@ -11,6 +11,7 @@ use wb_kernel::{Entry, KernelEvent};
 use wb_pkg::{AppError, Result};
 
 use super::chat_events::translate;
+use super::chat_model::{resolve_default, thinking_level};
 use super::store;
 use super::{steer_channel, Services};
 
@@ -95,51 +96,6 @@ impl ChatBoard {
             None => Err(AppError::new(code::NOT_FOUND, "这条对话没有在运行")),
         }
     }
-}
-
-/// 思考档位：模型不支持推理时一律关掉（送了也没用，只会让上游报参数错）。
-fn thinking_level(
-    session_level: Option<&str>,
-    supports_reasoning: bool,
-) -> wb_provider::ThinkingLevel {
-    if !supports_reasoning {
-        return wb_provider::ThinkingLevel::Off;
-    }
-    match session_level.unwrap_or("medium") {
-        "off" => wb_provider::ThinkingLevel::Off,
-        "low" => wb_provider::ThinkingLevel::Low,
-        "high" => wb_provider::ThinkingLevel::High,
-        _ => wb_provider::ThinkingLevel::Medium,
-    }
-}
-
-/// 解析默认模型：设置键 → 第一个有 key 的 provider。
-pub(crate) fn resolve_default(
-    sv: &Arc<Services>,
-) -> Result<(String, String, i64, wb_provider::config::ResolvedProvider)> {
-    let dp = sv.repo.settings_get("default_provider")?;
-    let dm = sv.repo.settings_get("default_model")?;
-    let models = sv.providers.load_models()?;
-    let (pid, mid) = match (dp, dm) {
-        (Some(p), Some(m)) if models.providers.contains_key(&p) => (p, m),
-        _ => {
-            let (p, cfg) = models
-                .providers
-                .iter()
-                .find(|(_, c)| !c.api_key.is_empty() || !c.models.is_empty())
-                .ok_or_else(|| {
-                    AppError::new(
-                        code::NOT_READY,
-                        "还没有可用的模型配置，先去设置页添加服务商",
-                    )
-                })?;
-            let m = cfg.models.first().map(|m| m.id.clone()).unwrap_or_default();
-            (p.clone(), m)
-        }
-    };
-    let resolved = sv.providers.resolve(&pid, Some(&mid))?;
-    let window = resolved.context_window;
-    Ok((pid, mid, window, resolved))
 }
 
 /// 发送（新会话现场创建）。
@@ -230,12 +186,16 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
             let sid = session_id.clone();
             move || super::features::live_state(&svr, &sid)
         }))),
+        overhead: super::context_overhead(&sv, &session_id),
+        // 延迟加载的工具：模型用 tool_search 搜到后才进请求
+        deferred_tools: super::tool_sets(&sv).1,
         thinking: thinking_level(effective_thinking.as_deref(), model_reasoning),
         max_retries: 3,
         workdir: std::path::PathBuf::from(&workspace),
         skill_loader: Some(super::skills::skill_loader(&sv)),
         session_id: session_id.clone(),
         run_id: run_id.clone(),
+        gate: super::approval::gate_for(&sv, &session_id),
     });
     let run_session_id = session_id.clone();
     let svc = sv.clone();

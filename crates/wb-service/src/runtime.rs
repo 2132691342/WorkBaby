@@ -74,7 +74,7 @@ pub fn start_background(
     }
 }
 
-/// 按件解压：PortableGit 先、Python 后，逐件推进进度。
+/// 按件解压：PortableGit → Python，逐件推进进度。
 fn run_parts(data_dir: &Path, state: &RuntimeState, mut on_part: impl FnMut(&str)) {
     let parts: [(&str, &str, std::path::PathBuf, &'static [u8]); 2] = [
         (
@@ -142,6 +142,9 @@ pub fn status(
         ("git", wb_domain::runtime::find_bundled_git(data_dir)),
         ("python", wb_domain::runtime::find_bundled_python(data_dir)),
     ];
+    // powershell 走的是「用户装的 pwsh 7 → 系统 5.1」级联，不参与解压进度；
+    // 它是「环境是否可用」的读数，与内置件是否就位分开报
+    let powershell = wb_domain::runtime::find_powershell(data_dir);
     let binaries: Vec<RuntimeBinaryVO> = probe
         .into_iter()
         .map(|(binary_name, hit)| RuntimeBinaryVO {
@@ -149,8 +152,19 @@ pub fn status(
             binary_ready: hit.is_some(),
             binary_path: hit.map(|p| p.display().to_string()).unwrap_or_default(),
         })
+        .chain(std::iter::once(RuntimeBinaryVO {
+            binary_name: "powershell".to_string(),
+            binary_ready: powershell.is_some(),
+            binary_path: powershell
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        }))
         .collect();
-    let all_ready = binaries.iter().all(|b| b.binary_ready);
+    // 「就绪」只看内置三件：powershell 的级联末端是系统 5.1，它不决定内置运行时是否可用
+    let all_ready = binaries
+        .iter()
+        .filter(|b| b.binary_name != "powershell")
+        .all(|b| b.binary_ready);
     // 三件都以磁盘为准：解压线程还在跑但文件已就位时，界面不必继续显示「准备中」
     let phase = if all_ready {
         "ready"
@@ -192,14 +206,15 @@ fn extract(target: &Path, zip_bytes: &'static [u8], entry_root: &str) -> Result<
         let Some(rel) = entry.enclosed_name() else {
             continue;
         };
-        // 归档顶层目录名已被 target 取代，剥掉一层才能让根路径契约（runtime/PortableGit 等）成立
-        let Some(rel) = rel.strip_prefix(entry_root).ok() else {
+        // 归档顶层目录名已被 target 取代，剥掉一层才能让根路径契约（runtime/PortableGit 等）成立。
+        let Some(stripped) = rel.strip_prefix(entry_root).ok() else {
             continue;
         };
+        let rel = stripped.to_path_buf();
         if rel.as_os_str().is_empty() {
             continue;
         }
-        let dest = target.join(rel);
+        let dest = target.join(&rel);
         if entry.is_dir() {
             fsutil::ensure_dir(&dest)?;
             continue;

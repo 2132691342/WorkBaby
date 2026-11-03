@@ -28,7 +28,7 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | GET | `/workspace` | 当前工作区 |
 | POST | `/workspace/switch` | 热切换工作区（`workspace_path`）；重扫技能 / 重建注册表 / 重连 MCP，运行中报 5001 |
 | GET | `/kernel/status` | 就绪状态（`{ready, data_dir}`；无模型配置即 `ready=false`） |
-| GET | `/runtime` | 内置运行时：三件可执行文件是否就位、命中路径、后台解压进度（`resp_phase` preparing / ready / failed + `resp_done_count`）与失败原因 |
+| GET | `/runtime` | 内置运行时：两件可执行文件是否就位、命中路径、后台解压进度（`resp_phase` preparing / ready / failed + `resp_done_count`）与失败原因 |
 | GET | `/stats?span=day7\|day30\|all` | 用量聚合 |
 | GET | `/docs` · `/docs/{name}` | 内置帮助文档 |
 
@@ -40,7 +40,7 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/sessions` | 会话列表（`session_index`） |
-| GET | `/sessions/{id}` | 单会话详情（消息回放） |
+| GET | `/sessions/{id}` | 单会话详情（消息回放 + 会话树 `detail_tree`） |
 | POST | `/sessions/rename/{id}` | 重命名 |
 | POST | `/sessions/delete/{id}` | 删除（空闲会话才允许，否则 5001 / 5003） |
 | POST | `/sessions/model/{id}` | 切模型 |
@@ -66,6 +66,8 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | POST | `/providers/test` | 连通性测试 |
 | POST | `/providers/reveal` | 明文查看密钥 |
 | POST | `/providers/default` | 设默认模型 |
+| GET | `/providers/presets` | 内置服务商预设清单（含已添加标记） |
+| POST | `/providers/presets/apply` | 一键添加预设（可选带密钥），无默认时自动占位 |
 | POST | `/providers/models/fetch` | 拉 `/models` 列表（请求体裸字段 `{id, api, base_url, api_key}`） |
 | GET | `/models/available` | 全部可用模型（跨 provider 平铺） |
 
@@ -85,7 +87,7 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | GET | `/features` | 12 项内置功能清单 |
 | POST | `/features/toggle` | 功能开关（切换后重建工具注册表） |
 | GET / POST | `/features/{code}/config` | 功能级配置：GET 返回**字段表**（类型 / 候选 / 不可用原因），POST 提交键值。可配项只有 `web` / `memory` / `lsp` |
-| GET | `/commands` | 斜杠命令清单（启用技能 → `/skill:名`） |
+| GET | `/commands` | 斜杠命令清单（内置命令 + 启用技能 → `/skill:名`） |
 | GET | `/loadout` · POST `/loadout/save` · `/loadout/apply` · `/loadout/delete` | 装载预设（`full` / `minimal` 内置） |
 | GET | `/inspect?session_id=` | 自省快照：工具 / 技能 / 命令 / 系统提示词 / 会话元 |
 | GET | `/context/breakdown?session_id=` | 上下文占用分解 |
@@ -117,7 +119,8 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 |---|---|---|
 | GET | `/mcp` | server 清单 + 两份配置原文（全局 / 工作区） |
 | POST | `/mcp/save` · `/mcp/remove` · `/mcp/reload` | 配置维护（save / remove 后自动重连并重建注册表） |
-| POST | `/mcp/login` · `/mcp/logout` | 当前一律返回 9101：OAuth 未支持，请在配置里用 headers 传凭据 |
+| POST | `/mcp/login` | OAuth 登录：授权码 + PKCE，token 写进该 server 的 headers |
+| POST | `/mcp/logout` | 登出：删掉该 server 的 Authorization 头 |
 | GET | `/git/status` · `/git/diff?path=` · `/git/history?limit=` · `/git/commit?hash=&path=` · `/git/file-history?path=&limit=` · `/git/branches` | 读（`history` / `file-history` 的 `limit` 缺省 50） |
 | POST | `/git/stage` · `/git/unstage` · `/git/discard` · `/git/resolve` · `/git/commit` · `/git/branch` · `/git/branch/delete` · `/git/switch` · `/git/merge` · `/git/state` · `/git/pull` · `/git/fetch` · `/git/push` · `/git/init` · `/git/remote` · `/git/message` | 写（白名单动作，见 [WORKSPACE.md](WORKSPACE.md)） |
 | GET | `/files?path=` | 文件树（只读一层，不递归） |
@@ -157,6 +160,7 @@ seq 是服务端全局递增序号。
 | `chat:start` | run_id, session_id | 内核 |
 | `chat:delta` | kind(text/thinking), delta | 内核 |
 | `chat:tool_start` / `chat:tool_end` | tool_call_id, name, label?, args / result, is_error, duration_ms, file_path?, diff? | 内核 |
+| `chat:tool_progress` | tool_call_id, chunk（执行中的增量输出，已节流） | 内核 |
 | `chat:context` | usage{input,output,cached,cache_write,total,context,cost}, context_window, ratio | 内核 |
 | `chat:compressed` | tokens_before | 内核（阈值压缩）/ service（手动压缩） |
 | `chat:retry` | attempt, max, delay_ms | 内核 |
@@ -167,7 +171,7 @@ seq 是服务端全局递增序号。
 | `chat:notify` | level(info/warning/error), text | service |
 | `chat:status` | key, text（空 text 即清除该 key） | goal 功能 |
 | `chat:widget` | key, lines（空行组即清除该 key） | todo / plan 功能 |
-| `agent:start` / `agent:delta` / `agent:tool_start` / `agent:tool_end` / `agent:done` | 子代理生命周期与过程（发到父会话通道） | service（AgentBoard） |
+| `agent:start` / `agent:delta` / `agent:tool_start` / `agent:tool_progress` / `agent:tool_end` / `agent:done` | 子代理生命周期与过程（发到父会话通道） | service（AgentBoard） |
 | `app:workspace` | workspace（全局通道） | service（工作区热切换） |
 
 载荷字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——前端按 `data.kind` / `data.name` 读。

@@ -181,7 +181,7 @@ async fn session_export(
         .or(body["path"].as_str())
         .unwrap_or("")
         .to_string();
-    match wb_service::store::export_html(&st.sv, &id, &path) {
+    match wb_service::export::export_html(&st.sv, &id, &path) {
         Ok(p) => ok_json(p),
         Err(e) => err_json(&e),
     }

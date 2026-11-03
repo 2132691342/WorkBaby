@@ -23,6 +23,11 @@ const autoStart = ref(false)
 const workspace = computed(() => settings.boot?.boot_workspace || settings.values['workspace'] || '')
 const sendOnEnter = computed(() => settings.values['send_on_enter'] !== 'false')
 const tray = computed(() => settings.values['minimize_to_tray'] !== 'false')
+const contextFiles = computed(() => settings.values['context_files'] !== 'off')
+/** 工具延迟加载：模型用 tool_search 搜到才把工具定义放进请求 */
+const deferTools = computed(() => settings.values['defer_tools'] === 'true')
+/** 安全闸门模式：off 全放行 / ask 只问危险操作 / all 全问 */
+const approvalMode = computed(() => settings.values['approval_mode'] || 'ask')
 const currentLocale = computed<Locale>(() => (settings.values['language'] === 'en' ? 'en' : 'zh-CN'))
 
 async function pickWorkspace() {
@@ -49,6 +54,24 @@ async function toggleValue(key: string, next: boolean) {
     await settings.setValue(key, next ? 'true' : 'false')
   } catch {
     /* setValue 已提示并回滚 */
+  }
+}
+
+/** 安全闸门模式：三种档位，写进设置即可（后端每次调用前读）。 */
+async function setApprovalMode(mode: string) {
+  try {
+    await settings.setValue('approval_mode', mode)
+  } catch {
+    /* setValue 已提示 */
+  }
+}
+
+/** 项目上下文开关：存 'off' 才关（缺省即开，与后端判定一致）。 */
+async function toggleContextFiles() {
+  try {
+    await settings.setValue('context_files', contextFiles.value ? 'off' : 'on')
+  } catch {
+    /* setValue 已提示 */
   }
 }
 
@@ -113,6 +136,36 @@ onMounted(async () => {
           <p>{{ t('settings.behavior.sendOnEnterHint') }}</p>
         </div>
         <el-switch :model-value="sendOnEnter" @change="toggleValue('send_on_enter', !sendOnEnter)" />
+      </div>
+
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
+          <b>{{ t('settings.behavior.contextFiles') }}</b>
+          <p>{{ t('settings.behavior.contextFilesHint') }}</p>
+        </div>
+        <el-switch :model-value="contextFiles" @change="toggleContextFiles" />
+      </div>
+
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
+          <b>{{ t('settings.behavior.deferTools') }}</b>
+          <p>{{ t('settings.behavior.deferToolsHint') }}</p>
+        </div>
+        <el-switch :model-value="deferTools" @change="toggleValue('defer_tools', !deferTools)" />
+      </div>
+    </SettingsSection>
+
+    <SettingsSection icon="shield" :title="t('settings.behavior.approval')" :desc="t('settings.behavior.approvalHint')" divided>
+      <div class="wb-set-row">
+        <div class="wb-set-row-tx">
+          <b>{{ t('settings.behavior.approvalMode') }}</b>
+          <p>{{ t('settings.behavior.approvalModeHint') }}</p>
+        </div>
+        <el-radio-group :model-value="approvalMode" @change="(v: string | number | boolean | undefined) => setApprovalMode(v as string)">
+          <el-radio-button value="ask">{{ t('settings.behavior.approvalAsk') }}</el-radio-button>
+          <el-radio-button value="all">{{ t('settings.behavior.approvalAll') }}</el-radio-button>
+          <el-radio-button value="off">{{ t('settings.behavior.approvalOff') }}</el-radio-button>
+        </el-radio-group>
       </div>
     </SettingsSection>
 

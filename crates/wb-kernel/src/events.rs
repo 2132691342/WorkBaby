@@ -39,6 +39,13 @@ pub enum KernelEvent {
         /// 参数对象
         args: serde_json::Value,
     },
+    /// 工具执行过程输出（长命令实时回显；不是最终结果）
+    ToolProgress {
+        /// 调用 id
+        call_id: String,
+        /// 本次增量输出
+        chunk: String,
+    },
     /// 工具批结束（单个）
     ToolExecutionEnd {
         /// 调用 id

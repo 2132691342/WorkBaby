@@ -9,9 +9,17 @@ pub mod reqbuild;
 pub mod session;
 pub mod session_msg;
 pub mod session_repair;
+pub mod session_tree;
 pub mod subagent;
 mod subagent_prompt;
+pub mod throttle;
+pub mod tokenest;
 pub mod toolbatch;
+
+/// 工具过程回调的类型别名（与 wb-tools 同一份定义，避免内核引两层）。
+pub mod tools_progress {
+    pub use wb_tools::ProgressFn;
+}
 
 pub use agent::{run, AgentConfig, RunOutcome};
 pub use events::{EmitFn, KernelEvent};
