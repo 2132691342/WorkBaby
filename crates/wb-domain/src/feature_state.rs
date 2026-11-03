@@ -59,6 +59,8 @@ pub struct GoalVO {
     pub goal_steps: Vec<GoalStepVO>,
     /// 已完成步骤数
     pub goal_done_steps: usize,
+    /// 登记目标的会话（空 = 界面建的，不驱动任何会话续跑）
+    pub goal_session_id: String,
     /// 创建时间（毫秒）
     pub goal_created_at: i64,
     /// 更新时间（毫秒）

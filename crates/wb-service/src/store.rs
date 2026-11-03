@@ -16,14 +16,17 @@ pub fn list(sv: &Arc<Services>) -> Result<Vec<SessionVO>> {
     let rows = sv.repo.sessions_list_in(&sv.workspace_text())?;
     let running = sv.chat.lock().unwrap().running_ids();
     let dir = sv.sessions_dir();
+    // 扫一次目录建 id → 路径索引：逐行 find_session_file 会把列表变成 O(n²) 扫盘，
+    // 会话一多展开就卡住。
+    let by_id = session_file_index(&dir);
     Ok(rows
         .into_iter()
         .map(|r| {
             let is_running = running.contains(&r.session_id);
             // 索引只做加速：真名与创建时间以会话文件为准，读不到才用索引值
-            let created_at = find_session_file(sv, &r.session_id)
-                .ok()
-                .and_then(|p| SessionFile::load(&p).ok())
+            let created_at = by_id
+                .get(&r.session_id)
+                .and_then(|p| SessionFile::load(p).ok())
                 .map(|sf| sf.header.created_at)
                 .unwrap_or(r.session_last_active_at);
             let title = if r.session_name.trim().is_empty() {
@@ -55,7 +58,7 @@ pub fn list(sv: &Arc<Services>) -> Result<Vec<SessionVO>> {
 pub fn detail(sv: &Arc<Services>, session_id: &str) -> Result<SessionDetailRESP> {
     let path = find_session_file(sv, session_id)?;
     let sf = SessionFile::load(&path)?;
-    let (provider, model) = model_of(&sf);
+    let (provider, model) = model_of(sv, &sf);
     let detail_session = SessionVO {
         session_id: session_id.to_string(),
         session_file: path.display().to_string(),
@@ -217,6 +220,7 @@ pub fn to_message_vos(msgs: Vec<Msg>) -> Vec<MessageVO> {
                 duration_ms,
                 file_path,
                 diff,
+                images,
             } => {
                 let mut vo = MessageVO::empty(format!("ENT_T{idx}"), "tool", timestamp);
                 vo.message_type = "tool".into();
@@ -227,9 +231,38 @@ pub fn to_message_vos(msgs: Vec<Msg>) -> Vec<MessageVO> {
                 // 改动文件与差异行随工具结果落盘：回放会话时界面同样能就地着色
                 vo.message_file_path = file_path.clone();
                 vo.message_diff = diff.clone();
+                // 读图类工具产生的图片回放时要看得到（否则刷新一下图就没了）
+                vo.message_images = images
+                    .into_iter()
+                    .map(|i| MessageImageVO {
+                        image_mime: i.mime,
+                        image_base64: i.base64,
+                    })
+                    .collect();
                 let _ = duration_ms;
                 out.push(vo);
             }
+        }
+    }
+    out
+}
+
+/// 会话目录一次性扫成 id → 文件路径的索引（文件名形如 `{ms}_{SESS_xxx}.jsonl`）。
+fn session_file_index(
+    dir: &std::path::Path,
+) -> std::collections::HashMap<String, std::path::PathBuf> {
+    let mut out = std::collections::HashMap::new();
+    for p in wb_pkg::fsutil::list_dir(dir) {
+        if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let name = p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        if let Some(id) = name.trim_end_matches(".jsonl").split_once('_').map(|x| x.1) {
+            out.insert(id.to_string(), p);
         }
     }
     out
@@ -312,7 +345,12 @@ pre{{white-space:pre-wrap;word-break:break-word;margin:0;font-family:inherit}}</
 }
 
 /// 从指定用户消息之后重开：旧分支完整保留，新消息接在它后面。
-pub fn branch(sv: &Arc<Services>, session_id: &str, entry_id: &str) -> Result<SessionDetailRESP> {
+/// 被放弃的那段先做成摘要插在新分支开头——否则旧分支上做过的事整段消失。
+pub async fn branch(
+    sv: &Arc<Services>,
+    session_id: &str,
+    entry_id: &str,
+) -> Result<SessionDetailRESP> {
     let path = find_session_file(sv, session_id)?;
     if sv.chat.lock().unwrap().is_running(session_id) {
         return Err(AppError::new(code::BUSY, "会话正在跑，跑完再回溯"));
@@ -332,12 +370,24 @@ pub fn branch(sv: &Arc<Services>, session_id: &str, entry_id: &str) -> Result<Se
         return Err(AppError::new(code::NOT_FOUND, "分支点不存在或不是用户消息")
             .with_details(entry_id.to_string()));
     }
+    // 被放弃的那段先摘要成一条消息插进新分支：只把叶子指回去的话，
+    // 旧分支上做过的事会整段从模型视野里消失。摘要失败不能挡住回溯本身。
+    let abandoned =
+        wb_kernel::branch_summary::readable_turns(&wb_kernel::branch_summary::abandoned_entries(
+            &sf,
+            &sf.leaf.clone().unwrap_or_default(),
+            entry_id,
+        ));
+    let summary = summarize_branch(sv, &sf, &abandoned).await;
     sf.fork_at(entry_id)?;
+    if let Some(text) = summary {
+        wb_kernel::branch_summary::inject(&mut sf, &text)?;
+    }
     detail(sv, session_id)
 }
 
-/// 切回某个旧分支的叶子。
-pub fn switch_leaf(
+/// 切回某个旧分支的叶子（同样先把当前分支摘要留下）。
+pub async fn switch_leaf(
     sv: &Arc<Services>,
     session_id: &str,
     leaf_entry_id: &str,
@@ -351,8 +401,48 @@ pub fn switch_leaf(
         return Err(AppError::new(code::NOT_FOUND, "目标叶子不存在")
             .with_details(leaf_entry_id.to_string()));
     }
+    let abandoned =
+        wb_kernel::branch_summary::readable_turns(&wb_kernel::branch_summary::abandoned_entries(
+            &sf,
+            &sf.leaf.clone().unwrap_or_default(),
+            leaf_entry_id,
+        ));
+    let summary = summarize_branch(sv, &sf, &abandoned).await;
     sf.fork_at(leaf_entry_id)?;
+    if let Some(text) = summary {
+        wb_kernel::branch_summary::inject(&mut sf, &text)?;
+    }
     detail(sv, session_id)
+}
+
+/// 给被放弃的分支生成摘要：没内容 / 取不到模型 / 上游报错都退回 None，
+/// 回溯本身不能因为摘要失败而被拦住。
+async fn summarize_branch(
+    sv: &Arc<Services>,
+    sf: &SessionFile,
+    turns: &[wb_kernel::branch_summary::AbandonedTurn],
+) -> Option<String> {
+    if turns.is_empty() {
+        return None;
+    }
+    let (pid, mid) = model_of(sv, sf);
+    let resolved = sv.providers.resolve(&pid, Some(&mid)).ok()?;
+    let client = wb_provider::create_client(resolved).ok()?;
+    match wb_kernel::branch_summary::summarize(
+        client.as_ref(),
+        &mid,
+        turns,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    {
+        Ok(text) if !text.is_empty() => Some(text),
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!(code = %e.code, "分支摘要生成失败，回溯继续");
+            None
+        }
+    }
 }
 
 pub fn session_name(sf: &SessionFile) -> String {
@@ -367,8 +457,10 @@ pub fn session_name(sf: &SessionFile) -> String {
     String::new()
 }
 
-/// 会话当前模型：取最近一次 ModelChange（未切换过则为空，界面回落默认模型）。
-pub fn model_of(sf: &SessionFile) -> (String, String) {
+/// 会话当前模型：取最近一次 ModelChange。
+/// 会话从未切过模型时回落到默认模型——空串会让需要模型的地方（分支摘要 / 导出）
+/// 以为「没有模型可用」，而真相是「用默认那个」。
+pub fn model_of(sv: &Arc<Services>, sf: &SessionFile) -> (String, String) {
     for e in sf.path_to_leaf().iter().rev() {
         if let wb_kernel::Entry::ModelChange {
             provider_id,
@@ -378,7 +470,19 @@ pub fn model_of(sf: &SessionFile) -> (String, String) {
             return (provider_id.clone(), model_id.clone());
         }
     }
-    (String::new(), String::new())
+    let dp = sv
+        .repo
+        .settings_get("default_provider")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let dm = sv
+        .repo
+        .settings_get("default_model")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    (dp, dm)
 }
 
 /// 会话当前思考档：取最近一次 ThinkingChange，缺省 medium。

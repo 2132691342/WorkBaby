@@ -46,8 +46,8 @@ baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事�
 | POST | `/sessions/model/{id}` | 切模型 |
 | POST | `/sessions/thinking/{id}` | 切思考档位 |
 | POST | `/sessions/export/{id}` | 导出（body 带 `session_export_path`；空 = 存数据目录 `exports`） |
-| POST | `/sessions/branch/{id}` | 从某条用户消息之后重开（旧分支保留） |
-| POST | `/sessions/leaf/{id}` | 切到另一条分支的末端 |
+| POST | `/sessions/branch/{id}` | 从某条用户消息之后重开（旧分支保留，被放弃的段先摘要成一条消息） |
+| POST | `/sessions/leaf/{id}` | 切到另一条分支的末端（同样先摘要当前分支） |
 | POST | `/chat/send` | 发送（新会话时现场创建；body 带 `chat_text` / `chat_skill` / `chat_images`） |
 | POST | `/chat/stop` | 停止（先取回队列再 abort；响应裸字段 `{"stopped"}`） |
 | POST | `/chat/steer` | 运行中插话 |
@@ -172,6 +172,11 @@ seq 是服务端全局递增序号。
 
 载荷字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——前端按 `data.kind` / `data.name` 读。
 事件名与载荷结构体定义在 `wb-domain/src/events.rs`，那是前后端契约的唯一出处。
+
+`chat:ask` 额外带 `session_id` 与 `run_id`：**提问是会话级的**。功能工具通过
+`ToolCtx` 拿到发起调用的会话，事件只能写进那个会话的通道；写成全局帧会让每条
+会话都看到同一张卡，用户切到别的会话时那张卡又没地方回填。重启后 `/warmup`
+补发待答提问也按 `session_id` 投递，不再全局广播。
 
 `chat:tool_end` 的 `file_path` / `diff` 是可选的改动快照：产生改动的工具带上
 （`write` / `edit` 由工具自己算行级差异），前端据此在工具卡就地着色、并在轮尾聚合

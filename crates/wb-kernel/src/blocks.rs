@@ -16,6 +16,7 @@ pub async fn execute_tool(
     name: &str,
     arguments: &str,
     cancel: &CancellationToken,
+    ctx: &wb_tools::ToolCtx,
 ) -> ToolResultOut {
     let started = Instant::now();
     let Some(tool) = cfg.registry.get(name) else {
@@ -25,17 +26,19 @@ pub async fn execute_tool(
             duration_ms: 0,
             file_path: None,
             diff: None,
+            images: Vec::new(),
         };
     };
     let args: serde_json::Value =
         serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
-    match tool.execute(args, cancel.clone(), &cfg.workdir).await {
+    match tool.execute(args, cancel.clone(), &cfg.workdir, ctx).await {
         Ok(out) => ToolResultOut {
             result_text: out.text,
             is_error: out.is_error,
             duration_ms: out.duration_ms,
             file_path: out.file_path,
             diff: out.diff,
+            images: out.images,
         },
         Err(e) => ToolResultOut {
             result_text: format!("[错误 {}] {}", e.code, e.message),
@@ -43,6 +46,7 @@ pub async fn execute_tool(
             duration_ms: started.elapsed().as_millis() as i64,
             file_path: None,
             diff: None,
+            images: Vec::new(),
         },
     }
 }
@@ -59,6 +63,8 @@ pub struct ToolResultOut {
     pub file_path: Option<String>,
     /// 改动差异行
     pub diff: Option<Vec<wb_domain::events::DiffLine>>,
+    /// 工具读到的图片（read 读图类）；下一轮请求会把它作为图片段送给模型
+    pub images: Vec<wb_tools::ToolImage>,
 }
 
 /// 同批工具调用的并发分组：相邻只读调用并一组一起跑，

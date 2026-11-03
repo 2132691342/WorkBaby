@@ -84,6 +84,7 @@ impl Tool for VideoTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let url = args

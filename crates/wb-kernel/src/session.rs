@@ -185,6 +185,10 @@ pub struct SessionFile {
     pub leaf: Option<String>,
     /// 写句柄（懒开：首条消息时建文件）
     writer: Option<std::fs::File>,
+    /// 会话头是否已落盘。新建时为 false（首条 append 才建文件写头）；
+    /// 从已有文件加载时为 true——否则每次重新加载后的 append 都会再写一遍
+    /// 头行，把一个会话文件插成多段、回放时被当成坏行跳过。
+    header_written: bool,
 }
 
 impl SessionFile {
@@ -202,6 +206,7 @@ impl SessionFile {
             entries: Vec::new(),
             leaf: None,
             writer: None,
+            header_written: false,
         }
     }
 
@@ -241,6 +246,7 @@ impl SessionFile {
             entries,
             leaf,
             writer: None,
+            header_written: true,
         })
     }
 
@@ -256,9 +262,13 @@ impl SessionFile {
                 .append(true)
                 .open(&self.path)
                 .map_err(|e| AppError::wrap("1002", "建会话文件失败", e))?;
-            let head = serde_json::to_string(&self.header)
-                .map_err(|e| AppError::wrap("2001", "序列化失败", e))?;
-            writeln!(f, "{head}").map_err(|e| AppError::wrap("1002", "写会话失败", e))?;
+            // 头行只写一次：加载过的文件已经有头了，再写一遍就是往中间插一段
+            if !self.header_written {
+                let head = serde_json::to_string(&self.header)
+                    .map_err(|e| AppError::wrap("2001", "序列化失败", e))?;
+                writeln!(f, "{head}").map_err(|e| AppError::wrap("1002", "写会话失败", e))?;
+                self.header_written = true;
+            }
             self.writer = Some(f);
         }
         let entry = EntryWrap::new(self.leaf.as_deref(), payload);
@@ -268,6 +278,12 @@ impl SessionFile {
         writeln!(f, "{line}").map_err(|e| AppError::wrap("1002", "写会话失败", e))?;
         f.flush().ok();
         self.leaf = Some(entry.entry_id.clone());
+        // 叶指针跟着落盘。只在 fork_at 时写是不够的：分支过之后的每一次 append
+        // 都会把叶子往后推，磁盘上的旧指针会让下次加载从旧位置回放，
+        // 把分叉之后的新对话整段丢掉。
+        if let Err(e) = std::fs::write(leaf_path(&self.path), &entry.entry_id) {
+            tracing::warn!(err = %e, "叶指针写盘失败，重启后可能回到旧分支");
+        }
         self.entries.push(entry);
         Ok(self.entries.last().unwrap())
     }

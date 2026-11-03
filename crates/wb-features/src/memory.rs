@@ -113,6 +113,7 @@ impl Tool for MemorySaveTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let text = arg_str(&args, "text");
@@ -224,6 +225,7 @@ impl Tool for MemorySearchTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let query = arg_str(&args, "query");
@@ -306,6 +308,7 @@ impl Tool for MemoryRemoveTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let memory_id = arg_str(&args, "memory_id");
@@ -381,6 +384,7 @@ impl Tool for SessionSearchTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let query = arg_str(&args, "query");
@@ -460,6 +464,7 @@ impl Tool for MemoryConsolidateTool {
         _args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let store = self.store.clone();

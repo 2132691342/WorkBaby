@@ -217,6 +217,7 @@ impl Tool for FffindTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let query = need_query(&args)?;
@@ -284,6 +285,7 @@ impl Tool for FfgrepTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let query = need_query(&args)?;

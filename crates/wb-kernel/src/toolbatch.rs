@@ -32,6 +32,14 @@ pub fn settle(session: &mut SessionFile, items: Vec<BatchItem>, emit: &EmitFn) -
                     duration_ms: out.duration_ms,
                     file_path: out.file_path,
                     diff: out.diff,
+                    images: out
+                        .images
+                        .into_iter()
+                        .map(|i| crate::session::ImagePart {
+                            mime: i.mime,
+                            base64: i.base64,
+                        })
+                        .collect(),
                 },
             })
             .map_err(|e| wb_pkg::AppError::new(&e.code, e.message))?;

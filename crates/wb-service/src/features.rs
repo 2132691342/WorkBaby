@@ -56,7 +56,8 @@ fn enabled(sv: &Arc<Services>, code: &str, default_on: bool) -> bool {
 
 /// 压缩后要钉回上下文的活状态：功能关掉的不看，盘上有才算数。
 /// 只陈述事实，不下指令——模型看见清单自然会按序号继续。
-pub fn live_state(sv: &Arc<Services>) -> Option<String> {
+/// 待办按工作区共享，目标按会话隔离（目标只对登记它的那个对话有意义）。
+pub fn live_state(sv: &Arc<Services>, session_id: &str) -> Option<String> {
     let ctx = feature_ctx(sv);
     let mut out = Vec::new();
     if enabled(sv, "todo", true) {
@@ -77,7 +78,7 @@ pub fn live_state(sv: &Arc<Services>) -> Option<String> {
     }
     if enabled(sv, "goal", false) {
         if let Some(g) = wb_features::goal::GoalStore::new(&ctx).load() {
-            if g.goal_status == "active" {
+            if g.goal_status == "active" && g.goal_session_id == session_id {
                 out.push(format!("当前目标（跨压缩保留）：{}", g.goal_text));
             }
         }
@@ -91,12 +92,13 @@ pub fn live_state(sv: &Arc<Services>) -> Option<String> {
 
 /// 目标续跑提示：功能开启且存在活跃目标时给下一步提示，否则 None。
 ///
-/// 目标功能关掉时不续跑——旧的目标文件不该在功能关闭后还驱动对话。
-pub fn goal_continuation(sv: &Arc<Services>) -> Option<String> {
+/// 目标归属于登记它的会话：关掉功能就不再续跑，并且只续跑同一个会话——
+/// 工作区里落着一个旧目标，不该让新开的对话都被灌一句不相干的推进指令。
+pub fn goal_continuation(sv: &Arc<Services>, session_id: &str) -> Option<String> {
     if !enabled(sv, "goal", false) {
         return None;
     }
-    wb_features::goal::continuation_prompt(&feature_ctx(sv))
+    wb_features::goal::continuation_prompt(&feature_ctx(sv), session_id)
 }
 
 /// 组装完整注册表：内置工具打底，功能工具按开关并入，MCP 桥最后（同名可覆盖）。
@@ -238,6 +240,27 @@ pub fn build_registry(sv: &Arc<Services>) -> wb_tools::ToolRegistry {
 /// 重建并写回注册表（开关变化 / MCP reload 后调用）。
 pub fn refresh_registry(sv: &Arc<Services>) {
     *sv.registry.write().unwrap() = build_registry(sv);
+}
+
+/// 12 项内置功能码（开关校验与清单共用一个来源）。
+pub const CODES: [&str; 12] = [
+    "todo",
+    "ask_user",
+    "fff",
+    "context_view",
+    "memory",
+    "web",
+    "loadout",
+    "context_mode",
+    "lsp",
+    "plan",
+    "goal",
+    "inspect",
+];
+
+/// 是否是一个已知的内置功能码。
+pub fn is_known(code: &str) -> bool {
+    CODES.contains(&code)
 }
 
 /// 12 项内置功能的静态清单（默认值见 docs/FEATURES.md）。
@@ -382,7 +405,7 @@ pub fn inspect_snapshot(
         .unwrap()
         .list_vo(|n| sv.repo.skill_enabled(n).unwrap_or(true));
     let commands = super::misc::commands_list(sv);
-    let (_, prompt) = super::inputs(sv);
+    let (_, prompt) = super::inputs(sv, session_id);
     let session = if session_id.is_empty() {
         None
     } else {

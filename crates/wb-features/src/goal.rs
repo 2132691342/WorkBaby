@@ -30,6 +30,9 @@ pub struct GoalState {
     pub goal_note: String,
     /// 步骤清单
     pub goal_steps: Vec<GoalStep>,
+    /// 登记目标的会话（旧文件无此字段时为空）
+    #[serde(default)]
+    pub goal_session_id: String,
     /// 创建时间（毫秒）
     pub goal_created_at: i64,
     /// 更新时间（毫秒）
@@ -105,6 +108,7 @@ pub fn apply_op(
     store: &GoalStore,
     ctx: &FeatureCtx,
     req: &wb_domain::feature_state::GoalMutateREQ,
+    sid: &str,
 ) -> Result<GoalState> {
     let now = now_ms();
     match req.goal_op.as_str() {
@@ -112,8 +116,12 @@ pub fn apply_op(
             if req.goal_text.trim().is_empty() {
                 return Err(AppError::new(toolcode::ARG_INVALID, "目标描述不能为空"));
             }
+            // 只有一个活跃目标——但只对「同一会话」成立。别的会话留下的旧目标
+            // 不该挡住新会话建自己的目标：它本来就不驱动这个会话，两道门禁
+            // 会让用户卡在「有目标却建不了新的」。
             if let Some(g) = store.load() {
-                if g.goal_status == "active" || g.goal_status == "blocked" {
+                let same_owner = g.goal_session_id == sid;
+                if same_owner && (g.goal_status == "active" || g.goal_status == "blocked") {
                     return Err(AppError::new(
                         toolcode::ARG_INVALID,
                         format!("已有未完结目标「{}」，先放弃它再建新的", g.goal_text),
@@ -134,11 +142,12 @@ pub fn apply_op(
                         step_done: false,
                     })
                     .collect(),
+                goal_session_id: sid.to_string(),
                 goal_created_at: now,
                 goal_updated_at: now,
             };
             store.save(&g)?;
-            push_status(ctx, &g);
+            push_status(ctx, &g, sid);
             Ok(g)
         }
         op => {
@@ -179,14 +188,14 @@ pub fn apply_op(
             }
             g.goal_updated_at = now;
             store.save(&g)?;
-            push_status(ctx, &g);
+            push_status(ctx, &g, sid);
             Ok(g)
         }
     }
 }
 
 /// 推送状态行（footer）。
-fn push_status(ctx: &FeatureCtx, g: &GoalState) {
+fn push_status(ctx: &FeatureCtx, g: &GoalState, sid: &str) {
     let done = g.goal_steps.iter().filter(|s| s.step_done).count();
     let text = if g.goal_status == "achieved" {
         format!("目标已达成：{}", g.goal_text)
@@ -198,16 +207,21 @@ fn push_status(ctx: &FeatureCtx, g: &GoalState) {
             g.goal_text
         )
     };
-    (ctx.emit)("", "chat:status", json!({ "key": "goal", "text": text }));
+    (ctx.emit)(sid, "chat:status", json!({ "key": "goal", "text": text }));
 }
 
 /// 续跑提示：活跃目标且仍有未完成步骤时给出下一步提示，否则 None。
 ///
-/// 没有步骤清单的目标不自动续跑——无从判断「还差什么」，硬推只会空转。
-pub fn continuation_prompt(ctx: &FeatureCtx) -> Option<String> {
+/// 目标属于**登记它的那个会话**：工作区里还有个旧目标不代表新开的对话
+/// 要接着推它——那会让用户每开一个新对话都被灌一句不相干的推进指令。
+/// 没有步骤清单的目标也不自动续跑——无从判断「还差什么」，硬推只会空转。
+pub fn continuation_prompt(ctx: &FeatureCtx, session_id: &str) -> Option<String> {
     let store = GoalStore::new(ctx);
     let g = store.load()?;
     if g.goal_status != "active" || g.goal_steps.is_empty() {
+        return None;
+    }
+    if g.goal_session_id != session_id {
         return None;
     }
     let remaining: Vec<&GoalStep> = g.goal_steps.iter().filter(|s| !s.step_done).collect();
@@ -273,6 +287,7 @@ impl Tool for CreateGoalTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        tool_ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let text = args
@@ -295,9 +310,13 @@ impl Tool for CreateGoalTool {
             .unwrap_or_default();
         let store = self.store.clone();
         let ctx = self.ctx.clone();
+        let sid = tool_ctx.session_id.clone();
         let out = tokio::task::spawn_blocking(move || {
             if let Some(g) = store.load() {
-                if g.goal_status == "active" || g.goal_status == "blocked" {
+                // 只拦同一会话的旧目标：别的会话留下的目标不驱动这里，也不该挡住这里
+                if g.goal_session_id == sid
+                    && (g.goal_status == "active" || g.goal_status == "blocked")
+                {
                     return Err(AppError::new(
                         toolcode::ARG_INVALID,
                         format!(
@@ -319,11 +338,12 @@ impl Tool for CreateGoalTool {
                         step_done: false,
                     })
                     .collect(),
+                goal_session_id: sid.clone(),
                 goal_created_at: now_ms(),
                 goal_updated_at: now_ms(),
             };
             store.save(&g)?;
-            push_status(&ctx, &g);
+            push_status(&ctx, &g, &sid);
             Ok(render(&g))
         })
         .await
@@ -371,6 +391,7 @@ impl Tool for GetGoalTool {
         _args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let store = self.store.clone();
@@ -433,6 +454,7 @@ impl Tool for UpdateGoalTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        tool_ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let status = args
@@ -462,6 +484,7 @@ impl Tool for UpdateGoalTool {
         }
         let store = self.store.clone();
         let ctx = self.ctx.clone();
+        let sid = tool_ctx.session_id.clone();
         let out = tokio::task::spawn_blocking(move || {
             let mut g = store.load().ok_or_else(|| {
                 AppError::new(toolcode::ARG_INVALID, "当前没有目标，先 create_goal")
@@ -480,7 +503,7 @@ impl Tool for UpdateGoalTool {
             }
             g.goal_updated_at = now_ms();
             store.save(&g)?;
-            push_status(&ctx, &g);
+            push_status(&ctx, &g, &sid);
             Ok(render(&g))
         })
         .await

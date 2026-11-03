@@ -152,6 +152,9 @@ pub async fn run_subagent(
             .cloned()
             .collect()
     };
+    // 子代理的工具调用归属自己的子会话，不写回父会话：子代理发的事件
+    // 走 observe 通道汇回父会话，与这里无关。
+    let tool_ctx = wb_tools::ToolCtx::new(session_id.clone(), session_id.clone());
 
     // 子代理系统提示词：角色职责 + 父提示词的工作区与技能段。
     let system_prompt = build_sub_prompt(&sc.role_prompt, &cfg.system_prompt, &tool_names);
@@ -315,8 +318,10 @@ pub async fn run_subagent(
                     });
                     let run_cfg = cfg.clone();
                     let run_cancel = cancel.clone();
+                    let run_ctx = tool_ctx.clone();
                     tasks.push(async move {
-                        let out = execute_tool(&run_cfg, &name, &arguments, &run_cancel).await;
+                        let out =
+                            execute_tool(&run_cfg, &name, &arguments, &run_cancel, &run_ctx).await;
                         (call_id, name, out)
                     });
                 }
@@ -340,6 +345,14 @@ pub async fn run_subagent(
                                 duration_ms: out.duration_ms,
                                 file_path: out.file_path,
                                 diff: out.diff,
+                                images: out
+                                    .images
+                                    .into_iter()
+                                    .map(|i| crate::session::ImagePart {
+                                        mime: i.mime,
+                                        base64: i.base64,
+                                    })
+                                    .collect(),
                             },
                         })
                         .map_err(|e| {

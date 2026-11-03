@@ -73,9 +73,11 @@
 | 模块 | 职责 |
 |---|---|
 | `registry` | `Tool` trait（name / label / description / parameters / annotations / execute）+ `ToolRegistry` + `ToolOutput` |
+| `ctx` | `ToolCtx { session_id, run_id }`：工具回话的会话归属（提问 / 状态行 / 小部件靠它才不串台） |
 | `builtin/` | 内置 8 工具：`read` / `write` / `edit` / `bash` / `python` / `grep` / `find` / `list`(ls) |
 | `exec` | 共享命令执行器：CREATE_NO_WINDOW / 超时 / 取消 / 输出上限 / 注入内置运行时 PATH |
 | `truncate` | 输出截断（2000 行 / 50KB / 单行 500 字符），按字符边界切 |
+| `archive` | 超长输出先落盘再截断，回一个可再读的句柄（判据与 truncate 一致） |
 | `difftext` | 行级差异（add / del / ctx），只给界面看，不进模型上下文 |
 | `job` | 后台任务登记（长命令与沙箱执行） |
 
@@ -91,6 +93,7 @@
 | `toolbatch` | 一批工具按分组执行并把结果按调用顺序回灌 |
 | `reqbuild` | 把会话消息展开成请求消息（技能块、图片段、工具结果） |
 | `compaction` | 阈值判断、切点算法、摘要生成、活状态回注（`ReinforceFn`） |
+| `branch_summary` | 分支摘要：回溯时把被放弃的分支压成一条可读 brief 插进新分支 |
 | `subagent` | 子代理：独立会话 + 收窄白名单 + 观测回调；`subagent_prompt` 组装子提示词 |
 | `events` | `KernelEvent` 枚举（唯一出参语言） |
 
@@ -165,15 +168,14 @@
 | `feature_state` | 功能活状态读取：把落盘的 todo / goal / plan / memory 读成 VO |
 | `feature_write` | 功能活状态写入：界面勾选 / 批准 / 标注 / 删改走与模型工具同一份落盘 |
 | `feature_config` | 功能级配置：字段表构建（类型 / 候选 / 不可用原因）、保存、键名白名单 |
-| `task` | `task` 工具：派子代理干活（需内核与运行上下文） |
+| `task` | `task` 工具：派子代理干活（按 `ToolCtx.session_id` 查父会话参数，不读全局快照） |
 | `agents` | 子代理观测：活跃表 + `SubagentEvent` → `agent:*` SSE 载荷 |
 | `review` | `review_diff` 工具：分支差异审查 |
 | `resources` / `skills` | 技能管理（建 / 导 / 删 / 正文）与工具视图 |
 | `files` / `misc` | 文件树与单文件字节；内置文档、斜杠命令、背景图 |
 | `providers` | Provider 增删改查、连通测试、模型清单拉取 |
 | `mcp` | MCP 工具并入注册表与连接编排 |
-| `git` | Git 读写编排；`store` 会话索引与文件定位 |
-| `loadout` / `context` | 装载预设管理；上下文分解 |
+| `git` | Git 读写编排；`store` 会话索引与文件定位 || `loadout` / `context` | 装载预设管理；上下文分解 |
 | `workspace` | 工作区热切换：校验目录 → 重扫技能 / 重建待办存储 → 重建注册表 → 重连 MCP → 写回 KV → 广播 `app:workspace` |
 | `runtime` | 内置运行时：两份 zip 编译期嵌入，后台线程按指纹解压；`status()` 以磁盘可执行文件为准报就位情况 |
 | `usage` | 用量统计：run 结束入日表 + 启动时回填历史 |

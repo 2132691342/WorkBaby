@@ -13,7 +13,7 @@ const TOOL_DEF_TOKENS: i64 = 350;
 
 /// 分解当前会话的上下文占用。
 pub fn breakdown(sv: &Arc<Services>, session_id: &str) -> Result<ContextBreakdownRESP> {
-    let (_, prompt) = super::inputs(sv);
+    let (_, prompt) = super::inputs(sv, session_id);
     let tool_count = sv
         .registry
         .read()

@@ -343,6 +343,7 @@ impl Tool for TodoTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let op = args
@@ -382,7 +383,7 @@ impl Tool for TodoTool {
         .await
         .map_err(|e| AppError::new("7001", e.to_string()))??;
         (self.ctx.emit)(
-            "",
+            &ctx.session_id,
             "chat:widget",
             json!({ "key": "todo", "lines": Self::widget_lines(&items) }),
         );

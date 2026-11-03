@@ -80,6 +80,7 @@ impl Tool for LspFixTool {
         args: Value,
         _cancel: CancellationToken,
         workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let rel = args

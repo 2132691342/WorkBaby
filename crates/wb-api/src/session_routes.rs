@@ -29,7 +29,7 @@ async fn session_branch(
     Path(id): Path<String>,
     axum::Json(req): axum::Json<wb_domain::session::SessionBranchREQ>,
 ) -> Response {
-    match wb_service::store::branch(&st.sv, &id, &req.branch_entry_id) {
+    match wb_service::store::branch(&st.sv, &id, &req.branch_entry_id).await {
         Ok(v) => ok_json(v),
         Err(e) => err_json(&e),
     }
@@ -41,7 +41,7 @@ async fn session_leaf(
     Path(id): Path<String>,
     axum::Json(req): axum::Json<wb_domain::session::SessionLeafREQ>,
 ) -> Response {
-    match wb_service::store::switch_leaf(&st.sv, &id, &req.leaf_entry_id) {
+    match wb_service::store::switch_leaf(&st.sv, &id, &req.leaf_entry_id).await {
         Ok(v) => ok_json(v),
         Err(e) => err_json(&e),
     }

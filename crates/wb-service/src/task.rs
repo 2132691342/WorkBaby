@@ -88,13 +88,14 @@ impl TaskTool {
     }
 
     /// 取父会话的运行参数：没有活跃运行上下文时返回 None（工具报错而不是静默降级）。
-    fn parent_cfg(&self) -> Option<(String, Arc<wb_kernel::AgentConfig>)> {
+    /// 取指定会话的运行参数：task 工具根据自己的 session_id 查，不读全局快照。
+    pub fn parent_cfg(&self, session_id: &str) -> Option<Arc<wb_kernel::AgentConfig>> {
         self.sv
             .scope
             .lock()
             .unwrap()
-            .as_ref()
-            .map(|s| (s.session_id.clone(), s.cfg.clone()))
+            .get(session_id)
+            .map(|s| s.cfg.clone())
     }
 }
 
@@ -144,14 +145,17 @@ impl Tool for TaskTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
-        let Some((parent_session_id, parent_cfg)) = self.parent_cfg() else {
+        // 父会话由调用方上下文给出：并发跑多个会话时不能靠全局快照猜。
+        let Some(parent_cfg) = self.parent_cfg(&ctx.session_id) else {
             return Err(AppError::new(
                 toolcode::NOT_AVAILABLE,
                 "task 只能在对话运行时使用",
             ));
         };
+        let parent_session_id = ctx.session_id.clone();
         let role_code = args
             .get("role")
             .and_then(|v| v.as_str())

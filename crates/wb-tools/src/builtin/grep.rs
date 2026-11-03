@@ -55,6 +55,7 @@ impl Tool for GrepTool {
         args: Value,
         cancel: CancellationToken,
         workdir: &std::path::Path,
+        _ctx: &crate::ToolCtx,
     ) -> Result<ToolOutput> {
         let pattern = args["pattern"]
             .as_str()

@@ -127,11 +127,16 @@ async fn warmup(State(st): State<AppState>) -> Response {
     let providers = wb_service::providers::list_vo(&st.sv)
         .map(|v| v.0)
         .unwrap_or_default();
-    // 上次进程死在提问途中：把还没答的问题重新弹出去，
-    // 否则会话卡在一个永远等不到回答的工具调用上，用户只能自己发现。
+    // 上次进程死在提问途中：把还没答的问题重新弹出去。
+    // 只发给它原本所属的会话——全局广播会让每一条会话都看到同一张卡，
+    // 而且用户切到别的会话时那张卡根本没地方回填。
     let pending_asks = st.sv.asks.load_pending();
     for card in &pending_asks {
-        st.sv.emit_event("", "chat:ask", card.clone());
+        let sid = card["session_id"].as_str().unwrap_or("");
+        if sid.is_empty() {
+            continue;
+        }
+        st.sv.emit_event(sid, "chat:ask", card.clone());
     }
     let skills = st
         .sv
@@ -312,6 +317,13 @@ async fn feature_toggle(
 ) -> Response {
     let code = body["feature_code"].as_str().unwrap_or("");
     let on = body["feature_enabled"].as_bool().unwrap_or(false);
+    // 未知功能码直接拒：写进表里就是一个永远生效不了、又查不出来的开关
+    if !wb_service::features::is_known(code) {
+        return err_json(&AppError::new(
+            wb_domain::error::common::PARAM_INVALID,
+            format!("没有这个内置功能：{code}"),
+        ));
+    }
     match st.sv.repo.feature_set_enabled(code, on) {
         // 开关变了注册表就得重建：停用即整体撤出工具
         Ok(_) => {

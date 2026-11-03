@@ -60,6 +60,7 @@ impl Tool for EditTool {
         args: Value,
         _cancel: CancellationToken,
         workdir: &std::path::Path,
+        _ctx: &crate::ToolCtx,
     ) -> Result<ToolOutput> {
         let path =
             crate::builtin::resolve_in_workdir(workdir, args["path"].as_str().unwrap_or(""))?;

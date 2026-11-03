@@ -117,6 +117,9 @@ pub enum Msg {
         /// 改动差异行；回放时界面直接着色
         #[serde(default, skip_serializing_if = "Option::is_none")]
         diff: Option<Vec<wb_domain::events::DiffLine>>,
+        /// 工具读到的图片（read 读图 / 截图）；只有视觉模型才带，否则工具不会产生它们
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImagePart>,
     },
 }
 

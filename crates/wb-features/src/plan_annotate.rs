@@ -61,6 +61,7 @@ impl Tool for PlanAnnotateTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let scope = {
@@ -103,7 +104,8 @@ impl Tool for PlanAnnotateTool {
             ));
         }
         let store = self.store.clone();
-        let ctx = self.ctx.clone();
+        let fctx = self.ctx.clone();
+        let sid = ctx.session_id.clone();
         let out = tokio::task::spawn_blocking(move || {
             store.mutate(|slot| {
                 let p = slot.as_mut().ok_or_else(|| {
@@ -128,7 +130,7 @@ impl Tool for PlanAnnotateTool {
             })?;
             match store.load() {
                 Some(p) => {
-                    push_widget(&ctx, &p);
+                    push_widget(&fctx, &p, &sid);
                     Ok(render(&p))
                 }
                 None => Ok("计划已清空".into()),

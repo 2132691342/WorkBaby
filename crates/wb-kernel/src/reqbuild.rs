@@ -69,13 +69,25 @@ pub(crate) fn to_req(m: Msg, skill: Option<&SkillLoader>) -> ReqMessage {
         Msg::ToolResult {
             tool_call_id,
             content,
+            images,
             ..
-        } => ReqMessage {
-            role: Role::ToolResult,
-            parts: vec![ContentPart::Text(content)],
-            tool_calls: Vec::new(),
-            tool_call_id: Some(tool_call_id),
-        },
+        } => {
+            // 工具读到的图（read 读图）随结果一起回灌：丢在这里模型就永远看不到它。
+            // 图片段必须带在同一角色的消息里，tool 角色本身不发图。
+            let mut parts = vec![ContentPart::Text(content)];
+            for img in images {
+                parts.push(ContentPart::Image {
+                    mime: img.mime,
+                    base64: img.base64,
+                });
+            }
+            ReqMessage {
+                role: Role::ToolResult,
+                parts,
+                tool_calls: Vec::new(),
+                tool_call_id: Some(tool_call_id),
+            }
+        }
     }
 }
 

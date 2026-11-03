@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useChatStore } from '../../stores/chat'
 import type { PendingAsk } from '../../types/chatEvents'
 import AppIcon from '../common/AppIcon.vue'
+import AskForm from './AskForm.vue'
 
 const props = defineProps<{ ask: PendingAsk }>()
 const { t } = useI18n()
@@ -22,40 +23,6 @@ const isConfirm = computed(() => props.ask.method === 'confirm')
 const isForm = computed(
   () => props.ask.method === 'questionnaire' && (props.ask.questions?.length ?? 0) > 0,
 )
-/** 每题的答案：单选存选中项，自由输入存文本 */
-const formAnswers = ref<string[]>([])
-const formFree = ref<string[]>([])
-
-watch(
-  () => props.ask.id,
-  () => {
-    const n = props.ask.questions?.length ?? 0
-    formAnswers.value = Array.from({ length: n }, () => '')
-    formFree.value = Array.from({ length: n }, () => '')
-  },
-  { immediate: true },
-)
-
-/** 一题答完没有：选了选项或填了自由输入都算 */
-function formFilled(i: number): boolean {
-  return !!formAnswers.value[i] || !!formFree.value[i]?.trim()
-}
-const formReady = computed(() => {
-  const n = props.ask.questions?.length ?? 0
-  if (!n) return false
-  return Array.from({ length: n }, (_, i) => formFilled(i)).every(Boolean)
-})
-
-/** 交给后端的形态：一行一题，与 ask_user 的解析约定一致 */
-function submitForm() {
-  const lines = (props.ask.questions ?? []).map((_, i) => {
-    const picked = formAnswers.value[i]
-    const free = formFree.value[i]?.trim() ?? ''
-    // 自由输入优先：用户写了具体内容就以他写的为准
-    return (free || picked || '').replace(/\r?\n/g, ' ')
-  })
-  void submit(lines.join('\n'), true)
-}
 // 标题里带换行的基本都是扩展把选项清单折进了标题（多选题回退路径）
 const titleMultiline = computed(() => props.ask.title.includes('\n'))
 
@@ -196,53 +163,14 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 问卷：一次问多题。每题一组选项 + 可选自由输入，答完统一提交 -->
-    <div v-if="isForm" class="ask-form">
-      <div
-        v-for="(q, qi) in props.ask.questions"
-        :key="`${props.ask.id}-q${qi}`"
-        class="form-q"
-      >
-        <div class="form-q-title">
-          <span class="form-q-no">{{ qi + 1 }}</span>
-          <span>{{ q.question_title }}</span>
-        </div>
-        <div v-if="q.question_options?.length" class="form-opts">
-          <button
-            v-for="(o, oi) in q.question_options"
-            :key="`${qi}-o${oi}`"
-            class="form-opt"
-            :class="{ 'is-on': formAnswers[qi] === o.option_label }"
-            type="button"
-            :disabled="busy"
-            @click="formAnswers[qi] = formAnswers[qi] === o.option_label ? '' : o.option_label"
-          >
-            <span class="form-opt-t">{{ o.option_label }}</span>
-            <span v-if="o.option_description" class="form-opt-d">{{ o.option_description }}</span>
-          </button>
-        </div>
-        <el-input
-          v-model="formFree[qi]"
-          size="small"
-          class="form-free"
-          :placeholder="q.question_options?.length ? t('chat.askFormFreeHint') : t('chat.askInputPlaceholder')"
-        />
-      </div>
-      <div class="ask-acts">
-        <el-button
-          type="primary"
-          size="small"
-          :loading="busy"
-          :disabled="busy || !formReady"
-          @click="submitForm"
-        >
-          {{ t('chat.askSubmit') }}
-        </el-button>
-        <el-button size="small" :disabled="busy" @click="submit('', false, true)">
-          {{ t('chat.askReject') }}
-        </el-button>
-      </div>
-    </div>
+    <!-- 问卷：一次问多题。渲染与答案拼接在 AskForm 里，本组件只管出卡与关闭 -->
+    <AskForm
+      v-if="isForm"
+      :ask="ask"
+      :busy="busy"
+      @submit="(lines) => submit(lines, true)"
+      @cancel="submit('', false, true)"
+    />
 
     <!-- confirm：两个明确的选择，拒绝永远安全 -->
     <div v-else-if="isConfirm" class="ask-acts">
@@ -427,80 +355,6 @@ onMounted(() => {
   border: 1px solid var(--wb-border);
   background: var(--wb-elev-hover);
   overflow: auto;
-}
-.ask-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-3);
-  padding: var(--wb-sp-3);
-  border-top: 1px solid var(--wb-border);
-}
-.form-q {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
-}
-.form-q-title {
-  display: flex;
-  align-items: baseline;
-  gap: var(--wb-sp-2);
-  font-size: var(--wb-fs-sm);
-  font-weight: 600;
-  color: var(--wb-ink);
-}
-.form-q-no {
-  flex: none;
-  width: calc(18px * var(--wb-vw-scale));
-  height: calc(18px * var(--wb-vw-scale));
-  border-radius: var(--wb-radius-full);
-  background: var(--wb-accent-tint);
-  color: var(--wb-primary);
-  font-size: var(--wb-fs-2xs);
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-}
-.form-opts {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-1);
-}
-.form-opt {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  border-radius: var(--wb-radius-sm);
-  border: 1px solid var(--wb-border);
-  background: var(--wb-elev-raised);
-  text-align: left;
-  transition:
-    border-color var(--wb-dur) var(--wb-ease),
-    background-color var(--wb-dur) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-.form-opt:hover:not(:disabled) {
-  border-color: var(--wb-border-strong);
-  transform: scale(1.01);
-}
-.form-opt:active:not(:disabled) {
-  transform: scale(var(--wb-btn-scale-press));
-}
-.form-opt.is-on {
-  border-color: var(--wb-primary);
-  background: var(--wb-accent-tint);
-}
-.form-opt-t {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-}
-.form-opt-d {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-muted);
-  line-height: 1.5;
-}
-.form-free {
-  max-width: calc(520px * var(--wb-vw-scale));
 }
 .ask-acts {
   display: flex;

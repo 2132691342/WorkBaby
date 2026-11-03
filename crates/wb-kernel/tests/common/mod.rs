@@ -119,6 +119,7 @@ impl Tool for ProbeTool {
         _args: serde_json::Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> wb_pkg::Result<ToolOutput> {
         Ok(ToolOutput::plain(self.name, false, 1))
     }
@@ -143,6 +144,7 @@ impl Tool for EchoTool {
         args: serde_json::Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> wb_pkg::Result<ToolOutput> {
         Ok(ToolOutput::plain(
             args.get("text").and_then(|v| v.as_str()).unwrap_or(""),
@@ -196,6 +198,8 @@ pub fn agent_cfg(provider: Arc<FakeProvider>) -> AgentConfig {
         reinforce: None,
         workdir: temp_dir("cfg"),
         skill_loader: None,
+        session_id: "SESS_test".into(),
+        run_id: "RUN_test".into(),
     }
 }
 

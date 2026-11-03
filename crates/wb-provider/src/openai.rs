@@ -73,6 +73,19 @@ impl OpenAiClient {
     fn build_body(&self, req: &StreamRequest) -> Value {
         let mut msgs = Vec::new();
         for m in &req.messages {
+            if m.role == Role::ToolResult {
+                // tool 消息在 wire 协议里只能带文本。read 读到的图片补一条 user 消息
+                // 紧接在后——丢掉图片等于这个能力没做。
+                msgs.push(json!({
+                    "role": "tool",
+                    "tool_call_id": m.tool_call_id.clone().unwrap_or_default(),
+                    "content": join_text(m),
+                }));
+                if let Some(imgs) = image_parts(m) {
+                    msgs.push(imgs);
+                }
+                continue;
+            }
             msgs.push(match m.role {
                 Role::System => json!({ "role": "system", "content": join_text(m) }),
                 Role::User => json!({ "role": "user", "content": user_content(m) }),
@@ -94,11 +107,7 @@ impl OpenAiClient {
                     }
                     o
                 }
-                Role::ToolResult => json!({
-                    "role": "tool",
-                    "tool_call_id": m.tool_call_id.clone().unwrap_or_default(),
-                    "content": join_text(m),
-                }),
+                Role::ToolResult => unreachable!("tool 结果已在上方单独处理"),
             });
         }
         let mut body = json!({
@@ -148,6 +157,27 @@ fn join_text(m: &ReqMessage) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// 工具结果里的图片单独成一条 user 消息（tool 角色只能带文本）。
+fn image_parts(m: &ReqMessage) -> Option<Value> {
+    let imgs: Vec<Value> = m
+        .parts
+        .iter()
+        .filter_map(|p| match p {
+            ContentPart::Image { mime, base64 } => Some(json!({
+                "type": "image_url",
+                "image_url": { "url": format!("data:{mime};base64,{base64}") },
+            })),
+            ContentPart::Text(_) => None,
+        })
+        .collect();
+    if imgs.is_empty() {
+        return None;
+    }
+    let mut parts = vec![json!({ "type": "text", "text": "[图片结果如下]" })];
+    parts.extend(imgs);
+    Some(json!({ "role": "user", "content": parts }))
 }
 
 /// 用户消息内容：带图片时用多段数组，否则纯字符串。

@@ -121,6 +121,7 @@ pub fn apply_op(
     store: &PlanStore,
     ctx: &crate::FeatureCtx,
     req: &wb_domain::feature_state::PlanMutateREQ,
+    sid: &str,
 ) -> Result<PlanState> {
     let now = now_ms();
     let op = req.plan_op.as_str();
@@ -195,7 +196,7 @@ pub fn apply_op(
         Ok(())
     })?;
     if let Some(p) = &updated {
-        push_widget(ctx, p);
+        push_widget(ctx, p, sid);
         return Ok(p.clone());
     }
     Err(AppError::new("7004", "当前没有计划"))
@@ -224,8 +225,8 @@ pub fn render(p: &PlanState) -> String {
     out.join("\n")
 }
 
-/// widget 行推送。
-pub fn push_widget(ctx: &crate::FeatureCtx, p: &PlanState) {
+/// widget 行推送。`sid` 是发起调用的会话：小部件是会话级呈现，不能全局广播。
+pub fn push_widget(ctx: &crate::FeatureCtx, p: &PlanState, sid: &str) {
     let mut lines = vec![format!("计划：{}", p.plan_title)];
     for (i, s) in p.plan_steps.iter().enumerate() {
         let mark = if s.step_done { "[x]" } else { "[ ]" };
@@ -235,7 +236,7 @@ pub fn push_widget(ctx: &crate::FeatureCtx, p: &PlanState) {
         lines.push(a.render_line());
     }
     (ctx.emit)(
-        "",
+        sid,
         "chat:widget",
         serde_json::json!({ "key": "plan", "lines": lines }),
     );

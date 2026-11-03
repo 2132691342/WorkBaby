@@ -1,147 +1,129 @@
 # 工具体系 · TOOLS
 
-所有可被模型调用的能力都是同一个 `Tool` 实例。内置工具、内置功能、MCP 外部服务器
-产出的工具走同一条契约并入同一张注册表——内核只认 `Arc<dyn Tool>`。
+工具是模型唯一能「动手」的地方。所有工具（内置 / 功能 / MCP）实现同一个 `Tool` trait，
+注册表只认 `Arc<dyn Tool>`——内核不知道一个工具来自哪一层。
 
-## Tool 契约
+## 契约
 
 ```rust
 #[async_trait]
 pub trait Tool: Send + Sync {
-    /// 工具名（身份，小写 + 下划线；MCP 工具为 mcp__<server>__<tool>）
     fn name(&self) -> &str;
-    /// 界面显示名
     fn label(&self) -> &str;
-    /// 给模型的能力说明（决定模型会不会用它）
     fn description(&self) -> &str;
-    /// 参数 JSON Schema
     fn parameters(&self) -> Value;
-    /// 行为注解（只读 / 破坏性）
-    fn annotations(&self) -> ToolAnnotations { ToolAnnotations::default() }
+    fn annotations(&self) -> ToolAnnotations { .. }
 
-    /// 执行：args 已过 schema 校验；cancel 触发应尽快返回 7002
-    async fn execute(&self, args: Value, cancel: CancellationToken, workdir: &Path)
-        -> Result<ToolOutput>;
+    async fn execute(
+        &self,
+        args: Value,
+        cancel: CancellationToken,
+        workdir: &Path,
+        ctx: &ToolCtx,
+    ) -> Result<ToolOutput>;
 }
 ```
 
-`description` 不是装饰——模型据此决定调用谁。写得含糊，模型就不调用；
-写得太长，占上下文。所以它写「什么时候该用它」，不写「它怎么实现」。
+| 项 | 作用 |
+|---|---|
+| `name` | 身份（小写+下划线），进 schema，模型按它调用 |
+| `label` | 界面显示名 |
+| `description` | 给模型的能力说明，也决定它什么时候用这个工具 |
+| `parameters` | JSON Schema |
+| `annotations` | `read_only` 决定能否与其他只读工具并发；`destructive` 给界面提示 |
+| `workdir` | 本次运行的工作区（不是进程 cwd） |
+| `ctx` | `ToolCtx { session_id, run_id }`：**需要回话的工具必须用它** |
 
-`annotations().read_only` 决定并发分组：相邻只读工具并行执行，
-写工具与未标注注解的工具各自串行（见 [KERNEL.md](KERNEL.md)）。
+`ToolCtx` 存在的理由：功能工具要发 `chat:ask` / `chat:status` / `chat:widget`。
+写进全局通道的话，会话 A 的提问卡会出现在会话 B 的界面上，而且用户切到别的
+会话时那张卡根本没法回填。工具拿不到会话就发不出可回填的事件。
 
-`ToolOutput { text, is_error, duration_ms, file_path, diff }`：`text` 进模型上下文，
-`is_error` 让模型知道这次调用失败了（而不是当成正常结果继续往下走）。
+## 输出形态
 
-`file_path` / `diff` 是写给界面的改动快照：写文件类工具（`write` / `edit`）自己算行级差异，
-随 `chat:tool_end` 推给前端、并跟着工具结果落进会话 JSONL。它**不进模型上下文**——
-模型不需要看自己刚写的 diff，那只是重复消耗。其他工具保持 `None`。
-行级比对在 `wb-tools::difftext`：裁掉公共前后缀后逐行标注 `add` / `del` / `ctx`，
-只回答「改了哪几行」，不产出可 patch 的补丁。
+```rust
+pub struct ToolOutput {
+    pub text: String,                        // 进模型上下文（已截断）
+    pub is_error: bool,
+    pub duration_ms: i64,
+    pub file_path: Option<String>,           // 改动文件（相对工作区）
+    pub diff: Option<Vec<DiffLine>>,         // 行级差异，界面就地着色
+    pub images: Vec<ToolImage>,              // 读到的图片，随结果交给视觉模型
+}
+```
 
-## 注册表
+`file_path` / `diff` 只给界面看，不进模型上下文——它们随工具结果落进 JSONL，
+重开会话时改动同样可见，但不会占模型的 token。
 
-`ToolRegistry` 是名字 → 实例的映射。开关状态在 service 层（`wb-repo` 的 `tool_toggle` 表），
-注册表本身只管「当前可用集合」。
-
-- 注册同名工具后到者胜——功能工具与 MCP 工具可覆盖内置工具
-- `snapshot()` 产出独立快照（新映射 + `Arc` 共享工具实例）给内核线程独占，
-  避免运行期被功能开关改动影响
-- 停用的工具不进 schema；若仍被调用（模型编造名字或开关在轮间变化），
-  内核回灌错误文本「[工具不存在或已停用]」（`is_error`），不抛错误码
+`images` 非空时，wire 层会把它排成「tool 消息 + 紧跟一条 user 图片消息」。
+标准协议里 tool 消息只能带文本，图片只能另起一条，丢在这里模型就永远看不到。
 
 ## 内置工具
 
-| 工具 | 参数 | 要点 |
+| 工具 | 只读 | 作用 |
 |---|---|---|
-| `read` | path, offset?(1 起), limit? | 文本按行截断；二进制文件只报类型与字节数 |
-| `bash` | command, timeout?(秒，默认 120，上限 600) | 经内置 Git Bash 执行；CREATE_NO_WINDOW；非零退出码以 `[退出码 N]` 尾注、stderr 折叠进输出；输出走截断 |
-| `python` | code 或 file(二选一), timeout? | 走内置 Python 3.13；`code` 以 `-c` 直传，`file` 按工作区相对路径解析；cwd 即工作区 |
-| `edit` | path, edits[{old_text(唯一), new_text}] | 多处编辑一次调用；old_text 不唯一即拒绝 |
-| `write` | path, content | 自动建父目录；原子写 |
-| `grep` | pattern, path?, glob?, ignore_case?, literal?, context?, limit?(100) | 尊重 .gitignore |
-| `find` | pattern(glob), path?, limit?(1000) | 尊重 .gitignore |
-| `ls` | path?, limit?(500) | 目录在前，目录名带 `/` 后缀 |
+| `read` | ✓ | 读文本（2000 行 / 50KB 截断）；**图片按 image 段交给视觉模型** |
+| `write` | | 整文件写入（临时文件 + rename，避免半截文件） |
+| `edit` | | 多处精确替换，`old_text` 必须唯一且不重叠 |
+| `bash` | | 经内置 PortableGit 的 Git Bash 执行命令 |
+| `python` | | 用内置 Python 3.13 跑代码或脚本 |
+| `grep` | ✓ | 正则 / 字面量内容搜索，尊重 `.gitignore` |
+| `find` | ✓ | glob 文件名搜索 |
+| `ls` | ✓ | 列目录一层 |
 
-内置工具全部默认启用，可经工具开关或装载预设关掉。
+`read` 的图片分流按扩展名（png / jpg / gif / webp / bmp，≤5MB）：先判扩展名再看
+二进制嗅探。反过来做的话所有图片都会被判成「二进制文件 N 字节」，视觉模型
+永远看不到用户截图。
 
-`task`（派子代理）不属内置工具集，由 service 单独装配（见下）。
+## 输出截断与归档
 
-## 功能工具
-
-功能工具随对应内置功能一起装配，关掉功能即从工具表撤出（见 [FEATURES.md](FEATURES.md)）。
-
-| 工具 | 所属功能 | 要点 |
-|---|---|---|
-| `todo` | todo | 待办增删改查与依赖图 |
-| `ask_user_question` | ask_user | ≤4 题结构化提问，阻塞等回答 |
-| `fffind` / `ffgrep` | fff | frecency 排序的模糊搜索 |
-| `memory_save` / `memory_search` / `memory_remove` / `memory_consolidate` / `session_search` | memory | 持久记忆、自动去重整合、历史会话检索 |
-| `web_search` / `fetch_content` / `pdf_read` / `github_clone` / `video_transcript` | web | 多搜索源检索、网页抓取、PDF 取文、仓库浅克隆、视频字幕 |
-| `ctx_execute` / `ctx_batch_execute` / `ctx_index` / `ctx_search` | context_mode | 沙箱执行与本地知识库 |
-| `lsp_diagnostics` / `lsp_fix` | lsp | 静态诊断与快速修复 |
-| `plan_submit` / `plan_mark_done` / `plan_inbox` / `plan_annotate` / `review_diff` | plan | 计划评审、逐步标注、分支差异审查 |
-| `create_goal` / `get_goal` / `update_goal` | goal | 目标状态机与步骤清单 |
-
-`task` 常驻（不属任何功能）：它是把大块活摘出主上下文的手段。
-
-## 输出截断
-
-| 限制 | 值 |
+| 上限 | 值 |
 |---|---|
 | 行数 | 2000 |
 | 字节 | 50KB |
 | grep 单行 | 500 字符 |
 
-超限时在输出尾部附「已截断」标记。截断是**按字符边界**切的——
-按字节切会把多字节字符切成乱码。
+截断本身有代价：被砍掉的内容模型再也拿不回来，只能重跑一遍命令。
+所以 `bash` / `python` 的超长输出会**先落盘再截断**：全文写进
+`{数据目录}\tool-output\{毫秒}_{工具名}.txt`，回给模型的文本尾部带一句
+`[完整输出已归档：<路径>]`，模型需要时用 `read` 取。
 
-## 命令执行纪律
+触发判据与截断判据**必须一致**（`len > 50KB || 行数 > 2000`）。只看字节会漏掉
+「行数超限但字节不多」的情况——4000 行短日志才 40KB，那份内容会被静默丢掉。
+落盘失败就退回纯截断，归档本身不能成为故障点。
 
-模型直接调用的 bash 统一走 `wb-tools::exec`；git、MCP stdio、LSP、github_clone
-各有独立进程出口，但全部遵守同一纪律：
+## 执行纪律
 
-| 纪律 | 实现 |
+所有外部进程（bash / python / git / MCP stdio / LSP / 沙箱）共用一套纪律：
+
+| 纪律 | 做法 |
 |---|---|
-| 不闪控制台 | Windows 下加 `CREATE_NO_WINDOW`（`wb_pkg::proc` 的常量） |
-| 不进 shell 解释 | argv 数组直传，命令字符串永不拼接（唯一例外是 `bash -c <command>`，命令串在这一层才进 shell） |
-| 工作目录 | `AgentConfig.workdir`（当前工作区）随内核配置传入，与进程 cwd 无关 |
-| 可超时可取消 | 超时或取消令牌触发即杀进程；取消返回 7002；超时不是错误码——`exec` 返回 `timed_out` 结果，由工具层以 `is_error` 文本呈现 |
-| 输出有上限 | 单次执行 1MB 上限，再交给工具层截断 |
-| 探测程序不起进程 | `wb_pkg::proc::resolve_command` 纯路径查找并自展开 `.exe` / `.cmd`，禁止跑 `where` / `which` |
+| 不进 shell | argv 数组直传，用户输入永不进解释器 |
+| 不闪窗口 | 每个 `Command` 出口挂 `CREATE_NO_WINDOW`（直接引 `wb_pkg::proc` 常量） |
+| 可超时 | 统一超时，超时杀进程 |
+| 可取消 | `CancellationToken` 触发即杀进程，报 7002 |
+| 内置运行时优先 | 子进程 PATH 首位指向内置 PortableGit / Python，不污染用户环境 |
+| 编码统一 | `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` / `LC_ALL=C.UTF-8` |
+| 不走交互 | `GIT_TERMINAL_PROMPT=0`、`GIT_PAGER=cat`——无 TTY 会永久挂起 |
 
-代价：纪律靠约定不靠类型收口——新增进程出口要自觉对齐这张表。
+探测程序用 `wb_pkg::proc::resolve_command`（纯路径查找），**禁止跑 `where` / `which`**
+——那会闪一个控制台窗口。
 
-**内置运行时与子进程环境**：`exec` 为每条子进程注入同一份环境——`PATH` 由
-`wb_domain::runtime::child_path` 构造（内置 cmd / bin / usr/bin / mingw64/bin / python 在前，
-用户 PATH 在后）、`PYTHONUTF8` / `PYTHONIOENCODING` 锁 UTF-8、
-`GIT_TERMINAL_PROMPT=0` 防凭据提示挂起。
+## 注册表与开关
 
-**bash 工具**的定位顺序：内置 `PortableGit\bin\bash.exe`（`usr\bin\sh.exe` 同源兜底）→
-系统 PATH 的 `bash.exe` → 常见 Git 安装位 → 都找不到时把 `bash` 交给系统解析。
+`ToolRegistry` 是名字 → 实例的表，同名后到者覆盖（功能 / MCP 可替换内置）。
 
-**python 工具**优先用内置解释器，其次系统 PATH；源码走 `-c` 直传，脚本走工作区相对路径；
-需要第三方库时由模型在 bash 里 `python -m pip install` 装到内置运行时。
+装配顺序（`wb_service::features::build_registry`）：内置工具打底 → `task` 常驻 →
+功能工具按开关并入 → MCP 桥最后。**关掉的功能不进表**，模型根本看不到它的 schema；
+开关变化后重建整个注册表，而不是在运行时判断。
 
-## 扩展工具如何并入
+单次运行拿的是注册表**快照**：跑着的时候改开关不影响这一轮，避免一轮里工具表变两次。
 
-| 来源 | 机制 | 命名 |
-|---|---|---|
-| 内置工具 | `wb_tools::builtin::install` 装进注册表 | 工具自带名 |
-| 内置功能 | service 装配时把启用功能的 Tool 实例追加进注册表 | 功能自带名 |
-| MCP 服务器 | 连接成功后把 server 工具包成 Tool 实例并入 | `mcp__<server>__<tool>` |
-| 技能 | **不产生工具** | — |
+## 测试
 
-技能是「提示词注入 + 用 read 加载正文」，不是工具——把技能做成工具会让模型
-多一层无谓的调用往返。
+`crates/wb-tools/tests/tools_test.rs` 守三类容易回退的行为：
 
-## 取舍
-
-| 取舍 | 理由 | 代价 |
-|---|---|---|
-| 不实现独立 glob 工具 | find 覆盖 glob；批量任务属子代理 | — |
-| JSON Schema 手写常量 | 工具参数固定，不引 schema 生成宏 | 改参数要同步 schema 与解析代码两处 |
-| edit 用唯一 old_text 而非补丁语法 | 模型友好、失败可归因（不唯一即报错） | 大改文件不如直接 write |
-| bash 统一经执行器起进程 | 超时、取消、截断纪律收在一处 | 其余进程出口靠约定对齐纪律 |
-| 改动快照不进上下文 | 看自己写的 diff 只是重复消耗 | 界面与模型各看一份数据 |
+| 用例 | 守什么 |
+|---|---|
+| 行级差异 | 写文件类工具必须成对给出删除行与新增行（界面着色的唯一来源） |
+| 读图 | 图片必须产出 `images`，二进制不能被当成图片 |
+| 超长输出归档 | 截断必须带可再读的句柄，且归档文件是全文 |

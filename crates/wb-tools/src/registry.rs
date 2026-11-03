@@ -38,6 +38,17 @@ pub struct ToolOutput {
     pub file_path: Option<String>,
     /// 改动差异行；与 file_path 成对出现
     pub diff: Option<Vec<DiffLine>>,
+    /// 读到的图片（纯 base64）：read 读图类工具用，随工具结果以图片段回灌模型
+    pub images: Vec<ToolImage>,
+}
+
+/// 工具产出的一张图片。
+#[derive(Debug, Clone)]
+pub struct ToolImage {
+    /// MIME 类型（image/png 等）
+    pub mime: String,
+    /// 纯 base64（无 data: 前缀）
+    pub base64: String,
 }
 
 impl ToolOutput {
@@ -49,6 +60,7 @@ impl ToolOutput {
             duration_ms,
             file_path: None,
             diff: None,
+            images: Vec::new(),
         }
     }
 
@@ -56,6 +68,12 @@ impl ToolOutput {
     pub fn with_changes(mut self, file_path: impl Into<String>, diff: Vec<DiffLine>) -> Self {
         self.file_path = Some(file_path.into());
         self.diff = Some(diff);
+        self
+    }
+
+    /// 带上读到的图片：模型在下一轮请求里真正「看到」它。
+    pub fn with_images(mut self, images: Vec<ToolImage>) -> Self {
+        self.images = images;
         self
     }
 }
@@ -86,11 +104,14 @@ pub trait Tool: Send + Sync {
     }
 
     /// 执行：args 已过 schema 校验；cancel 触发应尽快返回 7002。
+    /// `ctx` 说明这次调用属于哪个会话——需要回话的工具（提问 / 状态行）必须用它，
+    /// 不能自己发全局帧，否则事件会串到别的会话界面上。
     async fn execute(
         &self,
         args: Value,
         cancel: CancellationToken,
         workdir: &Path,
+        ctx: &crate::ToolCtx,
     ) -> Result<ToolOutput>;
 }
 

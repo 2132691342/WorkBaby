@@ -78,7 +78,8 @@ async fn goal_mutate(
     State(st): State<AppState>,
     axum::Json(req): axum::Json<GoalMutateREQ>,
 ) -> Response {
-    match wb_service::feature_write::goal_mutate(&st.sv, &req) {
+    // 界面上的写入没有对话会话归属：状态行不发，面板自己刷。
+    match wb_service::feature_write::goal_mutate(&st.sv, &req, "") {
         Ok(v) => ok_json(v),
         Err(e) => err_json(&e),
     }
@@ -88,7 +89,7 @@ async fn plan_mutate(
     State(st): State<AppState>,
     axum::Json(req): axum::Json<PlanMutateREQ>,
 ) -> Response {
-    match wb_service::feature_write::plan_mutate(&st.sv, &req) {
+    match wb_service::feature_write::plan_mutate(&st.sv, &req, "") {
         Ok(v) => ok_json(v),
         Err(e) => err_json(&e),
     }

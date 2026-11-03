@@ -28,18 +28,19 @@ pub fn todo_mutate(sv: &Arc<Services>, req: &TodoMutateREQ) -> Result<TodoListRE
 }
 
 /// 目标写入：新建 / 切状态 / 勾步骤 / 记进展 / 放弃。
-pub fn goal_mutate(sv: &Arc<Services>, req: &GoalMutateREQ) -> Result<GoalRESP> {
+/// `sid` 是写入发起的会话（界面局部刷新传空）：状态行只发给它，不全局广播。
+pub fn goal_mutate(sv: &Arc<Services>, req: &GoalMutateREQ, sid: &str) -> Result<GoalRESP> {
     let ctx = feature_ctx(sv);
     let store = wb_features::goal::GoalStore::new(&ctx);
-    wb_features::goal::apply_op(&store, &ctx, req)?;
+    wb_features::goal::apply_op(&store, &ctx, req, sid)?;
     feature_state::goal_get(sv)
 }
 
 /// 计划写入：批准 / 驳回 / 勾步骤 / 标注。
-pub fn plan_mutate(sv: &Arc<Services>, req: &PlanMutateREQ) -> Result<PlanRESP> {
+pub fn plan_mutate(sv: &Arc<Services>, req: &PlanMutateREQ, sid: &str) -> Result<PlanRESP> {
     let ctx = feature_ctx(sv);
     let store = wb_features::plan_types::PlanStore::new(&ctx);
-    wb_features::plan_types::apply_op(&store, &ctx, req)?;
+    wb_features::plan_types::apply_op(&store, &ctx, req, sid)?;
     feature_state::plan_get(sv)
 }
 

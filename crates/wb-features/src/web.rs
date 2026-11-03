@@ -177,6 +177,7 @@ impl Tool for FetchTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let url = arg_str(&args, "url");
@@ -301,6 +302,7 @@ impl Tool for SearchTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let query = arg_str(&args, "query");

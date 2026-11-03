@@ -38,6 +38,7 @@ pub fn backfill_dangling_tool_results(msgs: &mut Vec<Msg>) {
                             duration_ms: 0,
                             file_path: None,
                             diff: None,
+                            images: Vec::new(),
                         },
                     ));
                 }

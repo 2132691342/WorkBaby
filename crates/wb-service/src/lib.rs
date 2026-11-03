@@ -67,8 +67,11 @@ pub struct Services {
     pub chat: std::sync::Mutex<chat::ChatBoard>,
     /// 事件出口
     pub emitter: std::sync::Mutex<Option<Arc<dyn Emitter>>>,
-    /// 当前运行上下文（task 工具派子代理时取父会话参数）
-    pub scope: std::sync::Mutex<Option<RunScope>>,
+    /// 当前运行上下文：会话 id → 该会话的运行参数（多会话可同时跑）。
+    ///
+    /// 按会话分桶而不是单槽：两个会话并发跑时，单槽会被后开的那一轮覆盖，
+    /// task 工具就会拿到错的父会话参数。
+    pub scope: std::sync::Mutex<std::collections::HashMap<String, RunScope>>,
     /// 目标续跑计数：会话 id → 连续续跑次数（防无限循环）
     pub goal_resumes: std::sync::Mutex<std::collections::HashMap<String, i64>>,
     /// 待办存储：压缩回填与 todo 工具共用同一份盘上状态
@@ -107,7 +110,7 @@ impl Services {
             ),
             chat: std::sync::Mutex::new(chat::ChatBoard::new()),
             emitter: std::sync::Mutex::new(None),
-            scope: std::sync::Mutex::new(None),
+            scope: std::sync::Mutex::new(std::collections::HashMap::new()),
             goal_resumes: std::sync::Mutex::new(std::collections::HashMap::new()),
             todos: std::sync::Mutex::new(None),
             agents: agents::AgentBoard::new(),
@@ -162,7 +165,8 @@ pub fn steer_channel() -> (mpsc::Sender<String>, mpsc::Receiver<String>) {
 }
 
 /// 组装一轮 run 的公共参数（工具开关 + 技能段 + 提示词）。
-pub fn inputs(sv: &Arc<Services>) -> (Vec<String>, String) {
+/// `session_id` 决定活状态里哪些内容属于本会话（目标按会话隔离）。
+pub fn inputs(sv: &Arc<Services>, session_id: &str) -> (Vec<String>, String) {
     let enabled_tools: Vec<String> = sv
         .registry
         .read()
@@ -173,7 +177,7 @@ pub fn inputs(sv: &Arc<Services>) -> (Vec<String>, String) {
         .map(|t| t.name().to_string())
         .collect();
     let skills = sv.skills.read().unwrap();
-    let state = features::live_state(sv);
+    let state = features::live_state(sv, session_id);
     let prompt = prompt::build_system_prompt(
         &sv.workspace_text(),
         &skills,

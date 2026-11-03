@@ -91,6 +91,7 @@ impl Tool for CtxExecuteTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let (language, code, timeout) =
@@ -192,6 +193,7 @@ impl Tool for CtxIndexTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let content = store::text_arg(&args, "content");
@@ -273,6 +275,7 @@ impl Tool for CtxSearchTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let query = store::text_arg(&args, "query");
@@ -370,6 +373,7 @@ impl Tool for CtxBatchExecuteTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let language = store::text_arg(&args, "language");

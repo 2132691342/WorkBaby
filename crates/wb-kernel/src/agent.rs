@@ -50,6 +50,10 @@ pub struct AgentConfig {
     pub reinforce: Option<std::sync::Arc<crate::compaction::ReinforceFn>>,
     /// 技能正文加载器：用户消息点名技能时按需读正文，内核不认识技能存储
     pub skill_loader: Option<crate::reqbuild::SkillLoader>,
+    /// 当前会话 id：工具回话（提问 / 状态行 / 小部件）必须写进发起调用那个会话
+    pub session_id: String,
+    /// 当前运行 id（RUN_ 前缀）
+    pub run_id: String,
 }
 
 /// 单轮运行结果。
@@ -88,6 +92,8 @@ pub async fn run(
     let mut usage_total = Usage::default();
     // 空转防护：模型连着只调工具不说话、任务又没推进时会无限转下去。
     let mut turn_no: i64 = 0;
+    // 工具侧的会话归属：功能工具要靠它把事件发回本会话而不是全局通道
+    let tool_ctx = wb_tools::ToolCtx::new(cfg.session_id.clone(), cfg.run_id.clone());
 
     'outer: loop {
         // turn 边界收插话（one-at-a-time）
@@ -317,8 +323,10 @@ pub async fn run(
                     });
                     let run_cfg = cfg.clone();
                     let run_cancel = cancel.clone();
+                    let run_ctx = tool_ctx.clone();
                     tasks.push(async move {
-                        let out = execute_tool(&run_cfg, &name, &arguments, &run_cancel).await;
+                        let out =
+                            execute_tool(&run_cfg, &name, &arguments, &run_cancel, &run_ctx).await;
                         (call_id, name, out)
                     });
                 }

@@ -27,6 +27,7 @@ impl AskUserTool {
         question: String,
         header: String,
         options: Vec<String>,
+        ctx: &wb_tools::ToolCtx,
     ) -> Result<(String, bool)> {
         let ask_id = wb_pkg::ulid::new_id(wb_pkg::Prefix::Ask);
         let (method, options_payload) = if options.is_empty() {
@@ -43,10 +44,12 @@ impl AskUserTool {
             "placeholder": "",
             "prefill": "",
             "timeout_ms": ANSWER_TIMEOUT.as_millis() as u64,
+            "session_id": ctx.session_id,
+            "run_id": ctx.run_id,
         });
         // 先登记再发事件：否则用户手快点下回答时，监听者还没挂上
         let rx = self.answers.register_with_card(&ask_id, card.clone());
-        (self.ctx.emit)("", "chat:ask", card);
+        (self.ctx.emit)(&ctx.session_id, "chat:ask", card);
         let outcome = tokio::select! {
             r = rx => Some(r),
             _ = tokio::time::sleep(ANSWER_TIMEOUT) => None,
@@ -58,7 +61,7 @@ impl AskUserTool {
             Some(Ok(v)) => v,
             Some(Err(_)) => {
                 (self.ctx.emit)(
-                    "",
+                    &ctx.session_id,
                     "chat:ask_closed",
                     json!({ "id": ask_id, "reason": "session_gone" }),
                 );
@@ -66,7 +69,7 @@ impl AskUserTool {
             }
             None if cancel.is_cancelled() => {
                 (self.ctx.emit)(
-                    "",
+                    &ctx.session_id,
                     "chat:ask_closed",
                     json!({ "id": ask_id, "reason": "cancelled" }),
                 );
@@ -74,7 +77,7 @@ impl AskUserTool {
             }
             None => {
                 (self.ctx.emit)(
-                    "",
+                    &ctx.session_id,
                     "chat:ask_closed",
                     json!({ "id": ask_id, "reason": "expired" }),
                 );
@@ -82,7 +85,7 @@ impl AskUserTool {
             }
         };
         (self.ctx.emit)(
-            "",
+            &ctx.session_id,
             "chat:ask_closed",
             json!({ "id": ask_id, "reason": "answered" }),
         );
@@ -168,6 +171,7 @@ impl Tool for AskUserTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let questions = args
@@ -240,7 +244,7 @@ impl Tool for AskUserTool {
         if parsed.len() == 1 {
             let (question, header, options) = parsed.remove(0);
             let (text, cancelled) = self
-                .ask_once(cancel, question.clone(), header, options)
+                .ask_once(cancel, question.clone(), header, options, ctx)
                 .await?;
             let out = if cancelled {
                 format!("1. {question}\n   → （用户跳过了这题）\n")
@@ -297,9 +301,11 @@ impl Tool for AskUserTool {
             "placeholder": "",
             "prefill": "",
             "timeout_ms": ANSWER_TIMEOUT.as_millis() as u64,
+            "session_id": ctx.session_id,
+            "run_id": ctx.run_id,
         });
         let rx = self.answers.register_with_card(&ask_id, card.clone());
-        (self.ctx.emit)("", "chat:ask", card);
+        (self.ctx.emit)(&ctx.session_id, "chat:ask", card);
         let outcome = tokio::select! {
             r = rx => Some(r),
             _ = tokio::time::sleep(ANSWER_TIMEOUT) => None,
@@ -310,7 +316,7 @@ impl Tool for AskUserTool {
             Some(Ok(v)) => v,
             Some(Err(_)) => {
                 (self.ctx.emit)(
-                    "",
+                    &ctx.session_id,
                     "chat:ask_closed",
                     json!({ "id": ask_id, "reason": "session_gone" }),
                 );
@@ -318,7 +324,7 @@ impl Tool for AskUserTool {
             }
             None if cancel.is_cancelled() => {
                 (self.ctx.emit)(
-                    "",
+                    &ctx.session_id,
                     "chat:ask_closed",
                     json!({ "id": ask_id, "reason": "cancelled" }),
                 );
@@ -326,7 +332,7 @@ impl Tool for AskUserTool {
             }
             None => {
                 (self.ctx.emit)(
-                    "",
+                    &ctx.session_id,
                     "chat:ask_closed",
                     json!({ "id": ask_id, "reason": "expired" }),
                 );
@@ -334,7 +340,7 @@ impl Tool for AskUserTool {
             }
         };
         (self.ctx.emit)(
-            "",
+            &ctx.session_id,
             "chat:ask_closed",
             json!({ "id": ask_id, "reason": "answered" }),
         );

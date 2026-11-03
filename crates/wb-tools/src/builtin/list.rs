@@ -47,6 +47,7 @@ impl Tool for LsTool {
         args: Value,
         _cancel: CancellationToken,
         workdir: &std::path::Path,
+        _ctx: &crate::ToolCtx,
     ) -> Result<ToolOutput> {
         let path = match args["path"].as_str() {
             Some(p) if !p.is_empty() => crate::builtin::resolve_in_workdir(workdir, p)?,

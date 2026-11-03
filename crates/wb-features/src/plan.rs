@@ -81,6 +81,7 @@ impl Tool for PlanSubmitTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let title = args
@@ -119,11 +120,11 @@ impl Tool for PlanSubmitTool {
         })
         .await
         .map_err(|e| AppError::new("7001", e.to_string()))??;
-        push_widget(&self.ctx, &plan);
+        push_widget(&self.ctx, &plan, &ctx.session_id);
 
         let ask_id = wb_pkg::ulid::new_id(wb_pkg::Prefix::Ask);
         (self.ctx.emit)(
-            "",
+            &ctx.session_id,
             "chat:ask",
             json!({
                 "id": ask_id,
@@ -134,18 +135,20 @@ impl Tool for PlanSubmitTool {
                 "placeholder": "批准请点确认；驳回可先填意见再点取消",
                 "prefill": "",
                 "timeout_ms": 0,
+                "session_id": ctx.session_id,
+                "run_id": ctx.run_id,
             }),
         );
         let rx = answers.register(&ask_id);
         let answer = tokio::select! {
             r = rx => r.map_err(|_| AppError::new(toolcode::EXEC_CANCELLED, "计划评审通道已关闭"))?,
             _ = cancel.cancelled() => {
-                (self.ctx.emit)("", "chat:ask_closed", json!({ "id": ask_id, "reason": "cancelled" }));
+                (self.ctx.emit)(&ctx.session_id, "chat:ask_closed", json!({ "id": ask_id, "reason": "cancelled" }));
                 return Err(AppError::new(toolcode::EXEC_CANCELLED, "计划评审已随会话取消"));
             }
         };
         (self.ctx.emit)(
-            "",
+            &ctx.session_id,
             "chat:ask_closed",
             json!({ "id": ask_id, "reason": "answered" }),
         );
@@ -160,6 +163,7 @@ impl Tool for PlanSubmitTool {
             .to_string();
         let store2 = self.store.clone();
         let ctx2 = self.ctx.clone();
+        let sid2 = ctx.session_id.clone();
         let out = tokio::task::spawn_blocking(move || {
             store2.mutate(|slot| {
                 if let Some(p) = slot {
@@ -176,7 +180,7 @@ impl Tool for PlanSubmitTool {
             })?;
             match store2.load() {
                 Some(p) => {
-                    push_widget(&ctx2, &p);
+                    push_widget(&ctx2, &p, &sid2);
                     Ok(render(&p))
                 }
                 None => Ok("计划已清空".into()),
@@ -234,6 +238,7 @@ impl Tool for PlanMarkDoneTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let done: Vec<usize> = args
@@ -249,7 +254,8 @@ impl Tool for PlanMarkDoneTool {
             return Err(AppError::new(toolcode::ARG_INVALID, "done_steps 不能为空"));
         }
         let store = self.store.clone();
-        let ctx = self.ctx.clone();
+        let fctx = self.ctx.clone();
+        let sid = ctx.session_id.clone();
         let out = tokio::task::spawn_blocking(move || {
             store.mutate(|slot| {
                 let p = slot.as_mut().ok_or_else(|| {
@@ -269,7 +275,7 @@ impl Tool for PlanMarkDoneTool {
             })?;
             match store.load() {
                 Some(p) => {
-                    push_widget(&ctx, &p);
+                    push_widget(&fctx, &p, &sid);
                     Ok(render(&p))
                 }
                 None => Ok("计划已清空".into()),
@@ -320,6 +326,7 @@ impl Tool for PlanInboxTool {
         _args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let store = self.store.clone();

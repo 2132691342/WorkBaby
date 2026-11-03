@@ -5905,6 +5905,7 @@ dependencies = [
  "tokio-util",
  "tower-http",
  "tracing",
+ "tracing-subscriber",
  "wb-domain",
  "wb-kernel",
  "wb-pkg",

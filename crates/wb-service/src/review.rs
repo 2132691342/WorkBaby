@@ -71,6 +71,7 @@ impl Tool for ReviewDiffTool {
         args: Value,
         _cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let ws = self.sv.workspace_text();

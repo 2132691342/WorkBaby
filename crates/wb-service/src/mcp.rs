@@ -53,6 +53,7 @@ impl Tool for McpBridge {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let service = self.pool.service(&self.server_name)?;

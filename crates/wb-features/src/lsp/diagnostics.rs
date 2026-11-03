@@ -99,6 +99,7 @@ impl Tool for LspDiagnosticsTool {
         args: Value,
         _cancel: CancellationToken,
         workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let root = if self.root.is_dir() {

@@ -50,6 +50,7 @@ pub fn goal_get(sv: &Arc<Services>) -> Result<GoalRESP> {
         .load()
         .map(|g| GoalVO {
             goal_done_steps: g.goal_steps.iter().filter(|s| s.step_done).count(),
+            goal_session_id: g.goal_session_id,
             goal_id: g.goal_id,
             goal_text: g.goal_text,
             goal_status: g.goal_status,

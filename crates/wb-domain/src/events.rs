@@ -176,8 +176,11 @@ pub struct AskData {
     pub questions: Vec<AskQuestion>,
     /// 等待上限毫秒（0 = 不限时）
     pub timeout_ms: i64,
+    /// 发起提问的会话（重启补发时据此把卡片送回原会话，而不是全局广播）
+    pub session_id: String,
+    /// 发起提问的那一轮运行 id（重启补发时据此判断这一轮是否早已结束）
+    pub run_id: String,
 }
-
 /// 问卷单题。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]

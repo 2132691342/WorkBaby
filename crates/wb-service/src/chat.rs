@@ -162,7 +162,7 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
     if let Some(id) = req.chat_session_id.as_deref().filter(|s| !s.is_empty()) {
         if let Ok(path) = store::find_session_file(&sv, id) {
             if let Ok(sf) = wb_kernel::SessionFile::load(&path) {
-                let (p, m) = store::model_of(&sf);
+                let (p, m) = store::model_of(&sv, &sf);
                 if !p.is_empty() && !m.is_empty() {
                     effective_provider = Some(p);
                     effective_model = Some(m);
@@ -209,11 +209,12 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
 
     let (cancel, steer_rx) = sv.chat.lock().unwrap().begin(&session_id)?;
     let emitter = sv.emitter.lock().unwrap().clone();
-    let (enabled_tools, prompt) = super::inputs(&sv);
+    let (enabled_tools, prompt) = super::inputs(&sv, &session_id);
     let registry: Arc<wb_tools::ToolRegistry> = {
         let reg = sv.registry.read().unwrap();
         Arc::new(wb_tools::ToolRegistry::snapshot(&reg))
     };
+    let run_id = wb_pkg::ulid::new_id(wb_pkg::Prefix::Run);
     let cfg = Arc::new(wb_kernel::AgentConfig {
         client,
         registry,
@@ -226,21 +227,26 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
         // 压缩会把旧消息整段丢掉，此刻由 service 现场读一遍活状态回填进去
         reinforce: Some(Arc::new(Box::new({
             let svr = sv.clone();
-            move || super::features::live_state(&svr)
+            let sid = session_id.clone();
+            move || super::features::live_state(&svr, &sid)
         }))),
         thinking: thinking_level(effective_thinking.as_deref(), model_reasoning),
         max_retries: 3,
         workdir: std::path::PathBuf::from(&workspace),
         skill_loader: Some(super::skills::skill_loader(&sv)),
+        session_id: session_id.clone(),
+        run_id: run_id.clone(),
     });
     let run_session_id = session_id.clone();
     let svc = sv.clone();
-    let run_id = wb_pkg::ulid::new_id(wb_pkg::Prefix::Run);
     // 运行上下文：task 工具据此知道父会话是谁、用哪个模型。
-    *sv.scope.lock().unwrap() = Some(super::RunScope {
-        session_id: session_id.clone(),
-        cfg: cfg.clone(),
-    });
+    sv.scope.lock().unwrap().insert(
+        session_id.clone(),
+        super::RunScope {
+            session_id: session_id.clone(),
+            cfg: cfg.clone(),
+        },
+    );
     tokio::spawn(async move {
         let emit_fn: wb_kernel::EmitFn = {
             let sid = run_session_id.clone();
@@ -272,8 +278,8 @@ async fn start_run(sv: Arc<Services>, req: ChatSendREQ) -> Result<ChatSendRESP> 
         )
         .await;
         svc.chat.lock().unwrap().finish(&run_session_id);
-        // 运行结束：清掉运行上下文，避免 task 工具拿到已结束的父会话参数。
-        *svc.scope.lock().unwrap() = None;
+        // 运行结束：只摘掉本会话的上下文，其他会话的运行不受影响。
+        svc.scope.lock().unwrap().remove(&run_session_id);
         match outcome {
             Ok(o) => {
                 refresh_index(&svc, &run_session_id);
@@ -322,7 +328,7 @@ pub fn stop(sv: &Arc<Services>, session_id: &str) -> bool {
 /// 走内部 run 路径，不占用界面输入框；被中止的轮次不续跑。
 /// 连续续跑有上限——模型没推进目标却一直挂着目标时，不能无限转下去。
 fn maybe_resume_goal(sv: &Arc<Services>, session_id: &str) {
-    let Some(prompt) = super::features::goal_continuation(sv) else {
+    let Some(prompt) = super::features::goal_continuation(sv, session_id) else {
         // 目标没了（达成 / 放弃 / 功能关掉）：清计数。
         sv.goal_resumes.lock().unwrap().remove(session_id);
         return;
@@ -409,7 +415,8 @@ pub async fn compact(
     let mut session_file = wb_kernel::SessionFile::load(&path)?;
     let reinforce: wb_kernel::compaction::ReinforceFn = {
         let svr = sv.clone();
-        Box::new(move || super::features::live_state(&svr))
+        let sid = session_id.to_string();
+        Box::new(move || super::features::live_state(&svr, &sid))
     };
     let (tokens_before, summary) = wb_kernel::compaction::compact(
         &mut session_file,
@@ -467,7 +474,7 @@ fn refresh_index(sv: &Arc<Services>, session_id: &str) {
             summary = t.chars().take(80).collect();
         }
     }
-    let (provider, model) = store::model_of(&sf);
+    let (provider, model) = store::model_of(sv, &sf);
     let mut title = store::session_name(&sf);
     // 没手工命名的会话用首句用户消息当标题，写进会话文件——
     // 索引只是缓存，标题的真相必须在 JSONL 里，否则重启和导出都会丢

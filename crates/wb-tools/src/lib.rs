@@ -1,10 +1,16 @@
-//! 工具体系：Tool 契约 + 注册表 + 内置 7 工具。扩展工具（功能 / MCP）经同一契约并入。
+//! 工具层：契约、注册表、内置工具与共享执行器。内核只认 `Arc<dyn Tool>`。
 
-pub mod builtin;
+pub mod archive;
+pub mod ctx;
 pub mod difftext;
 pub mod exec;
 pub mod job;
 pub mod registry;
 pub mod truncate;
 
-pub use registry::{Tool, ToolAnnotations, ToolCall, ToolOutput, ToolRegistry};
+pub mod builtin;
+
+pub use ctx::ToolCtx;
+pub use registry::{
+    DiffLine, Tool, ToolAnnotations, ToolCall, ToolImage, ToolOutput, ToolRegistry,
+};

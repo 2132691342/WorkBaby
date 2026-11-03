@@ -93,6 +93,7 @@ impl Tool for PdfReadTool {
         args: Value,
         cancel: CancellationToken,
         _workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let source = args
@@ -184,6 +185,7 @@ impl Tool for GithubCloneTool {
         args: Value,
         cancel: CancellationToken,
         workdir: &Path,
+        _ctx: &wb_tools::ToolCtx,
     ) -> Result<ToolOutput> {
         let started = Instant::now();
         let repo = args

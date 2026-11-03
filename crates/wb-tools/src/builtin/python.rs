@@ -70,6 +70,7 @@ impl Tool for PythonTool {
         args: Value,
         cancel: CancellationToken,
         workdir: &std::path::Path,
+        _ctx: &crate::ToolCtx,
     ) -> Result<ToolOutput> {
         let timeout = args["timeout"].as_u64().unwrap_or(120).min(600);
         let code = args["code"].as_str().unwrap_or("").trim();
@@ -116,8 +117,14 @@ impl Tool for PythonTool {
                 text.push_str(&format!("\n[退出码 {code}]"));
             }
         }
+        // 超长输出落盘再截断：直接丢掉的字节模型再也拿不回来，只能重跑脚本
+        let archived = if crate::archive::worth_archiving(&text) {
+            crate::archive::archive("python", &text)
+        } else {
+            None
+        };
         Ok(ToolOutput::plain(
-            truncate::truncate(&text),
+            crate::archive::with_archive_hint(truncate::truncate(&text), archived.as_deref()),
             is_error,
             started.elapsed().as_millis() as i64,
         ))

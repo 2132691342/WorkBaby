@@ -2,6 +2,7 @@
 
 pub mod agent;
 pub mod blocks;
+pub mod branch_summary;
 pub mod compaction;
 pub mod events;
 pub mod reqbuild;
