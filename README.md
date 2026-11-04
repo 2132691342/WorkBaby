@@ -62,10 +62,13 @@ npm run dist         # electron-builder 打 NSIS 安装包
 |---|---|
 | `AGENTS.md` | 工程规范（分包 / 依赖方向 / 编码与测试纪律，唯一权威） |
 | `DESIGN.md` | 视觉语言与设计令牌 |
-| `docs/ARCHITECTURE.md` | 壳架构：装配、SSE、沙箱布局、引擎生命周期 |
-| `docs/API.md` | `/api/v1` 端点契约（信封 / 鉴权 / SSE 帧） |
-| `docs/ERROR-CODES.md` | 业务码段位与文案 |
-| `docs/MODULES.md` | 依赖清单与取舍理由 |
+| `docs/ARCHITECTURE.md` | 壳架构：进程拓扑、装配、沙箱布局、引擎生命周期 |
+| `docs/API.md` | `/api/v1` 端点契约（信封 / 鉴权 / SSE 事件词汇） |
+| `docs/DATA-MODEL.md` | 数据模型：SQLite、设置键、会话 JSONL 回放规则 |
+| `docs/MODULES.md` | 模块职责与依赖取舍 |
+| `docs/ERROR-CODES.md` | 业务码段位与码表 |
+| `docs/DEV.md` | 开发流程、测试策略与门禁 |
+| `docs/DEPLOY.md` | 打包形态、版本规则与 CI/CD 发布 |
 
 ## 优势与局限
 

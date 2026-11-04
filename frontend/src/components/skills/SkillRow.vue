@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 一条技能（矩阵行）：名字 + 两列引擎开关 + 查看 / 删除。
-// 借鉴 cc-switch 的管理方式：一份清单，哪个引擎装了、开着没有一眼看全。
+// 管理视图：一份清单，哪个引擎装了、开着没有一眼看全。
 // 启停语义两家不同（omp 认 enabled、pi 认 disable-model-invocation），判据在父组件。
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// MCP 页：一份清单 × 每引擎一列开关的矩阵（借鉴 cc-switch）。
+// MCP 页：一份清单 × 每引擎一列开关的矩阵。
 // 两引擎共用 mcp.json 的 mcpServers 形状，读写一份代码；各自的文件仍是唯一事实——
 // 矩阵只是视图与同步动作：装到另一边 = 把那边现成的定义复制过来。
 import { computed, onMounted, ref } from 'vue'

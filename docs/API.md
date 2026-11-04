@@ -1,200 +1,143 @@
 # API 契约 · API
 
-baseURL：`http://127.0.0.1:{port}/api/v1`。端口由壳启动后经 Tauri 事件 `app:ready` 注入前端。
-信封统一 `Resp { code: string, message: string, data: T }`，`code === "0"` 成功。
-
-**CORS**：仅放行本机来源——`localhost` / `127.0.0.1`（任意端口，覆盖 dev 端口漂移）与
-`tauri.localhost` / `tauri://localhost`（webview）；方法限 GET / POST，头放行
-`Content-Type` 与 `Last-Event-ID`。服务只绑 127.0.0.1，外部站点读不到响应。
-
-**只允许 GET / POST**；路径形状 `/{resource}/{action}/:id`，id 永远最后一段。
-
-**业务前缀豁免**：HTTP 出入参字段一律带业务前缀，仅三处例外——
-`POST /chat/stop` 响应是裸字段 `{"stopped": bool}`，`POST /chat/retry-cancel` 响应是裸字段
-`{"cancelled": bool}`，`POST /providers/models/fetch` 请求体是裸字段
-`{id, api, base_url, api_key}`。
-
-本表与前端 `src/api/index.ts` 一一对应。
-
-## 引导与设置
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/bootstrap` | 启动数据：版本 / 数据目录 / 工作目录 / 引导状态（`boot_ready` / `boot_block_reason`） |
-| GET | `/warmup` | 一次拉齐四路清单（providers / skills / tools / features） |
-| GET / POST | `/settings` | 设置 KV 全量读取 / 批量写 |
-| GET / POST | `/settings/background` | 背景图读取 / 设置 |
-| GET | `/assets/background` | 背景图本体（直引 URL） |
-| GET | `/workspace` | 当前工作区 |
-| POST | `/workspace/switch` | 热切换工作区（`workspace_path`）；重扫技能 / 重建注册表 / 重连 MCP，运行中报 5001 |
-| GET | `/kernel/status` | 就绪状态（`{ready, data_dir}`；无模型配置即 `ready=false`） |
-| GET | `/runtime` | 内置运行时：两件可执行文件是否就位、命中路径、后台解压进度（`resp_phase` preparing / ready / failed + `resp_done_count`）与失败原因 |
-| GET | `/stats?span=day7\|day30\|all` | 用量聚合 |
-| GET | `/docs` · `/docs/{name}` | 内置帮助文档 |
-
-阻塞原因不在 `/kernel/status` 里：无模型配置时 `ready=false`，
-具体原因看 `/bootstrap` 的 `boot_block_reason`。
-
-## 会话与对话
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/sessions` | 会话列表（`session_index`） |
-| GET | `/sessions/{id}` | 单会话详情（消息回放 + 会话树 `detail_tree`） |
-| POST | `/sessions/rename/{id}` | 重命名 |
-| POST | `/sessions/delete/{id}` | 删除（空闲会话才允许，否则 5001 / 5003） |
-| POST | `/sessions/model/{id}` | 切模型 |
-| POST | `/sessions/thinking/{id}` | 切思考档位 |
-| POST | `/sessions/export/{id}` | 导出（body 带 `session_export_path`；空 = 存数据目录 `exports`） |
-| POST | `/sessions/branch/{id}` | 从某条用户消息之后重开（旧分支保留，被放弃的段先摘要成一条消息） |
-| POST | `/sessions/leaf/{id}` | 切到另一条分支的末端（同样先摘要当前分支） |
-| POST | `/chat/send` | 发送（新会话时现场创建；body 带 `chat_text` / `chat_skill` / `chat_images`） |
-| POST | `/chat/stop` | 停止（先取回队列再 abort；响应裸字段 `{"stopped"}`） |
-| POST | `/chat/steer` | 运行中插话 |
-| POST | `/chat/followup` | 空闲追问（完整一轮） |
-| POST | `/chat/retry-cancel` | 取消自动重试等待（响应裸字段 `{"cancelled"}`） |
-| POST | `/chat/compact` | 手动压缩（空闲会话才允许） |
-| POST | `/chat/answer` | 回答内核提问（支持结构化问卷应答） |
-
-## Provider / 模型
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/providers` | `models.json` 视图（密钥掩码） |
-| POST | `/providers/upsert` | 增改 provider |
-| POST | `/providers/delete` | 删 provider（默认模型连带清理） |
-| POST | `/providers/test` | 连通性测试 |
-| POST | `/providers/reveal` | 明文查看密钥 |
-| POST | `/providers/default` | 设默认模型 |
-| GET | `/providers/presets` | 内置服务商预设清单（含已添加标记） |
-| POST | `/providers/presets/apply` | 一键添加预设（可选带密钥），无默认时自动占位 |
-| POST | `/providers/models/fetch` | 拉 `/models` 列表（请求体裸字段 `{id, api, base_url, api_key}`） |
-| GET | `/models/available` | 全部可用模型（跨 provider 平铺） |
-
-## 技能 / 工具 / 内置功能
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/skills` | 技能清单（含开关状态与来源） |
-| POST | `/skills/toggle/{id}` | 开关 |
-| GET | `/skills/content/{id}` | 技能正文 |
-| POST | `/skills/create` | 新建用户技能 |
-| POST | `/skills/import` | 从目录导入 |
-| POST | `/skills/import-zip` | 从 zip 导入（base64 字节） |
-| POST | `/skills/delete/{id}` | 删除用户技能（内置不可删） |
-| GET | `/tools` | 工具清单（内置 + 功能提供 + MCP） |
-| POST | `/tools/toggle` | 工具开关 |
-| GET | `/features` | 12 项内置功能清单 |
-| POST | `/features/toggle` | 功能开关（切换后重建工具注册表） |
-| GET / POST | `/features/{code}/config` | 功能级配置：GET 返回**字段表**（类型 / 候选 / 不可用原因），POST 提交键值。可配项只有 `web` / `memory` / `lsp` |
-| GET | `/commands` | 斜杠命令清单（内置命令 + 启用技能 → `/skill:名`） |
-| GET | `/loadout` · POST `/loadout/save` · `/loadout/apply` · `/loadout/delete` | 装载预设（`full` / `minimal` 内置） |
-| GET | `/inspect?session_id=` | 自省快照：工具 / 技能 / 命令 / 系统提示词 / 会话元 |
-| GET | `/context/breakdown?session_id=` | 上下文占用分解 |
-
-## 功能活状态（读 + 写）
-
-界面读结构化 VO，不解析 widget 文本——依赖图与步骤状态是结构，不是字符串。
-三块面板与记忆库都是**可操作**的：写入与模型侧对应工具共用同一份落盘与同一套校验。
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/todo` | 待办清单（含 `todo_blocked_by` 依赖与已完成计数） |
-| POST | `/todo/mutate` | 待办写入：`todo_op` = `add` / `update` / `status` / `remove` |
-| GET | `/goal` | 当前目标 + 步骤 + 续跑次数；无目标时 `resp_goal` 为 null |
-| POST | `/goal/mutate` | 目标写入：`goal_op` = `create` / `status` / `done_steps` / `note` / `abandon` |
-| GET | `/plan` | 当前计划 + 步骤 + 标注；无计划时 `resp_plan` 为 null |
-| POST | `/plan/mutate` | 计划写入：`plan_op` = `approve` / `reject` / `step_done` / `annotate` |
-| GET | `/memory` | 记忆清单（四类计数 + 全局按更新时间倒序的条目） |
-| POST | `/memory/save` | 手动新增一条（过密钥扫描，与 `memory_save` 同一套规则） |
-| POST | `/memory/delete` | 删一条记忆（body `{memory_id}`）；不存在报 7301 |
-
-写入端点返回**写入后的最新视图**，前端一次请求就能刷新面板，不必再读一次。
-界面能做的动作是封闭集合：目标与计划的状态机在写入侧强制执行
-（已有未完结目标时拒新建、全勾完自动收口），界面不能绕过这些不变量。
-
-## MCP / Git / 文件
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/mcp` | server 清单 + 两份配置原文（全局 / 工作区） |
-| POST | `/mcp/save` · `/mcp/remove` · `/mcp/reload` | 配置维护（save / remove 后自动重连并重建注册表） |
-| POST | `/mcp/login` | OAuth 登录：授权码 + PKCE，token 写进该 server 的 headers |
-| POST | `/mcp/logout` | 登出：删掉该 server 的 Authorization 头 |
-| GET | `/git/status` · `/git/diff?path=` · `/git/history?limit=` · `/git/commit?hash=&path=` · `/git/file-history?path=&limit=` · `/git/branches` | 读（`history` / `file-history` 的 `limit` 缺省 50） |
-| POST | `/git/stage` · `/git/unstage` · `/git/discard` · `/git/resolve` · `/git/commit` · `/git/branch` · `/git/branch/delete` · `/git/switch` · `/git/merge` · `/git/state` · `/git/pull` · `/git/fetch` · `/git/push` · `/git/init` · `/git/remote` · `/git/message` | 写（白名单动作，见 [WORKSPACE.md](WORKSPACE.md)） |
-| GET | `/files?path=` | 文件树（只读一层，不递归） |
-| GET | `/files/bytes?path=` | 单文件字节（base64；文档预览用，上限 32MB） |
-
-## 子代理
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/subagents/roles` | 角色预设清单（code / 名称 / 职责 / 工具白名单 / 轮次上限） |
-| GET | `/subagents?session_id=` | 正在跑的子代理；带 `session_id` 只列该父会话下的 |
-| GET | `/subagents/transcript/{id}` | 一个子代理已累积的过程正文（结束后回看用） |
-
-## SSE
-
-`GET /events?session_id={sid}`。帧：`id: {seq}` + `event: {name}` + `data: {…}`，
-seq 是服务端全局递增序号。
-
-断线对账只有重放一条路：重连时把最后收到的 seq 带回（前端以 `last_event_id`
-查询参数，事件源原生重连走 `Last-Event-ID` 请求头），服务端把该序号之后的帧
-先补推一遍，再进入正常流。
-
-**前端总是带 `last_event_id`（含 0）**。切到一条已在跑的会话时，服务端手里有
-这一轮已发生的 `chat:start` 与增量，不带序号就等于放弃全部断点前的帧，
-界面看上去就是「这一轮什么都没发生」。
-
-**重放缓冲按轮次清空，上限 4096 帧**。发 `chat:start` 时先清该会话的缓冲：
-重放的目的是接上**还在跑的这一轮**，把历史轮次整段重发会让界面先闪一遍
-旧回答再回到现在。上限而不是无限缓存：一轮长回答很容易过千帧，
-超了就从最早的帧开始丢——丢掉的只是已验证过的前缀，结论依然在。
-
-**全局帧（`session_id` 为空）发给所有连接**。重启后补发的待答提问没有会话
-归属，只发给全局订阅者的话，用户切到对话页时那些卡片永远等不到回答。
-
-| 事件 | 载荷要点 | 来源 |
-|---|---|---|
-| `chat:start` | run_id, session_id | 内核 |
-| `chat:delta` | kind(text/thinking), delta | 内核 |
-| `chat:tool_start` / `chat:tool_end` | tool_call_id, name, label?, args / result, is_error, duration_ms, file_path?, diff? | 内核 |
-| `chat:tool_progress` | tool_call_id, chunk（执行中的增量输出，已节流） | 内核 |
-| `chat:context` | usage{input,output,cached,cache_write,total,context,cost}, context_window, ratio | 内核 |
-| `chat:compressed` | tokens_before | 内核（阈值压缩）/ service（手动压缩） |
-| `chat:retry` | attempt, max, delay_ms | 内核 |
-| `chat:stopped` | run_id | 内核 |
-| `chat:done` | run_id, message | 内核 |
-| `chat:error` | run_id, code, message | 内核 |
-| `chat:ask` / `chat:ask_closed` | 提问卡（confirm / select / input / editor / questionnaire）与关闭；关闭带 reason（answered / cancelled / expired / session_gone） | ask_user / plan 功能 |
-| `chat:notify` | level(info/warning/error), text | service |
-| `chat:status` | key, text（空 text 即清除该 key） | goal 功能 |
-| `chat:widget` | key, lines（空行组即清除该 key） | todo / plan 功能 |
-| `agent:start` / `agent:delta` / `agent:tool_start` / `agent:tool_progress` / `agent:tool_end` / `agent:done` | 子代理生命周期与过程（发到父会话通道） | service（AgentBoard） |
-| `app:workspace` | workspace（全局通道） | service（工作区热切换） |
-
-载荷字段名是 SSE 线格式，不走 `xxx_` 业务前缀规则——前端按 `data.kind` / `data.name` 读。
-事件名与载荷结构体定义在 `wb-domain/src/events.rs`，那是前后端契约的唯一出处。
-
-`chat:ask` 额外带 `session_id` 与 `run_id`：**提问是会话级的**。功能工具通过
-`ToolCtx` 拿到发起调用的会话，事件只能写进那个会话的通道；写成全局帧会让每条
-会话都看到同一张卡，用户切到别的会话时那张卡又没地方回填。重启后 `/warmup`
-补发待答提问也按 `session_id` 投递，不再全局广播。
-
-`chat:tool_end` 的 `file_path` / `diff` 是可选的改动快照：产生改动的工具带上
-（`write` / `edit` 由工具自己算行级差异），前端据此在工具卡就地着色、并在轮尾聚合
-「这一轮改了什么」。同一份快照随工具结果一起落进会话 JSONL，
-所以重开会话时改动同样可见。两个字段缺省即不序列化，避免每条工具事件都多两个 null。
-
-`app:workspace` 是壳级广播（全局通道，`session_id` 为空）：工作区热切换后前端据此重读引导。
-
-## 错误响应
-
-业务失败时 HTTP 状态码仍是 200，靠信封里的 `code` 表达：
+- baseURL：`http://127.0.0.1:{port}/api/v1`。端口与令牌由主进程经 preload 桥
+  `wb:endpoint` 回填（`wb_base_url` 已含 `/api/v1`）。
+- 鉴权：每个请求带 `X-Desktop-Token` 头；SSE 用 `?token=` 查询参数
+  （EventSource 带不了自定义头）。令牌每次启动随机，不匹配回 HTTP 401。
+- 只允许 GET / POST；写操作语义靠路径段表达（`/sessions/delete`）。
+- **恒回 200**，业务失败看信封 `code`：
 
 ```json
-{ "code": "7003", "message": "工具不存在或已停用", "data": null }
+{ "code": "0", "message": "", "detail": "可选原话", "data": { } }
 ```
 
-完整错误码表见 [ERROR-CODES.md](ERROR-CODES.md)。
+`code` 是数字字符串，`"0"` 成功；码表见 [ERROR-CODES.md](ERROR-CODES.md)。
+用户可读文案在 `message`，`detail` 给诊断面板。未知接口回 `1404`。
+
+`?engine=` 一律可省——本壳只有 pi 一个引擎，参数兼容旧形参但被忽略。
+
+## 引导 / 设置 / 偏好
+
+| 端点 | 方法 | 入参 | 出参 data |
+|---|---|---|---|
+| `/bootstrap` | GET | — | 首屏总包：版本、引擎身份、能力表、激活引擎、工作区、设置全量、目录布局、工作区历史、计数 |
+| `/settings` | GET | — | 全部键值 |
+| `/settings/save` | POST | 键值对象 | 保存后的全量键值 |
+| `/settings/workspace` | POST | `{ path }` | `{ workspace }`；切工作区会重建引擎绑定 |
+| `/settings/workspace/forget` | POST | `{ path }` | `{ workspaces }` 剩余历史 |
+| `/settings/engine` | POST | `{ engine }` | `{ engine: 'pi' }`（兼容保留） |
+| `/logs` | GET | — | `{ lines }` 当日日志尾部 |
+| `/prefs` | GET | — | 自启 / 恢复会话 / 关窗行为 / 数据目录等 |
+| `/prefs/autostart` `restore` `close-action` | POST | `{ enabled }` / `{ action }` | 更新后的 prefs |
+| `/prefs/session` | POST | `{ engine_kind, session_file }` | 记住最后会话 |
+| `/prefs/data-dir` | POST | — | 打开数据目录 |
+
+## 引擎与应用
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/engines` | GET | 引擎身份 + 布局 + 存活实例 + 探测时间戳 |
+| `/engines/detect` | POST | 重新探测版本，刷新时间戳并广播 |
+| `/engines/restart` / `stop` | POST | 杀 RPC 子进程，下次用到自动重拉 |
+| `/health/engines` | GET | 健康面板：安装态、运行态、会话/技能/插件/MCP 计数 |
+| `/apps` | GET | 应用行：pi 本体 + 三个内置运行时（安装态 / 版本 / 可执行路径） |
+| `/apps/install` `update` `uninstall` | POST | `{ engine: 'pi' }`；内置 npm 全程经 SSE `app:progress` 报进度 |
+
+## 会话
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/sessions` | GET | `?workspace=`；按工作区编码目录扫描，`updated_at` 降序 |
+| `/sessions/detail` | GET | `?path=`；清单行 + 逐条消息 |
+| `/sessions/delete` | POST | `{ path }` |
+| `/sessions/rename` | POST | `{ path, name }`；向会话文件追加 `session_info` 条目 |
+
+## 聊天
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/chat/state` | GET | `?session=`；会话绑定 + 引擎实况 + JSONL 回放的历史轮 + 能力表 |
+| `/chat/send` | POST | `{ engine, session, message, attachments }` → `{ run_id }` |
+| `/chat/stop` | POST | 中止当前运行 |
+| `/chat/steer` / `followup` | POST | 插话 / 排队追加 |
+| `/chat/clear-queue` | POST | 清空两队，返回被清的话术 |
+| `/chat/remove-queued` | POST | 引擎不支持单删，恒报错（能力位已隐藏入口） |
+| `/chat/compact` | POST | `{ instructions? }` 手动压缩 |
+| `/chat/answer` | POST | `{ session, request }` 回答提问板（确认 / 选择 / 输入 / 编辑器） |
+| `/chat/new` / `clone` | POST | 新建 / 克隆会话，返回 `session_file` |
+| `/chat/export-html` | POST | `{ session }` → `{ file_name, content }` |
+| `/chat/model` / `thinking` / `autocompact` | POST | 会话内切换模型 / 思考档 / 自动压缩 |
+| `/messages/hide` / `unhide` | POST | `{ session, hid }`；隐藏台账存 SQLite，会话文件不动 |
+| `/agents/*` | GET/POST | 子代理空实现（pi 无此能力，能力位已关闭） |
+
+附件形状：`{ kind: 'file', file_path }` 走文本引用；`{ kind: 'image', image_base64, image_mime }`
+以 base64 进引擎 `images` 字段——这是唯一的二进制通道。
+
+## 模型与服务商
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/models` | GET | 自定义服务商的模型平铺 |
+| `/providers` | GET | 自定义 + 内置服务商合并视图（含凭据状态，密钥恒为掩码） |
+| `/providers/upsert` | POST | `{ name, provider }`；写 models.json + auth.json；`api_key` 空串=保留原值 |
+| `/providers/delete` | POST | 服务商与凭据一并清 |
+| `/providers/models` | POST | 按 API 协议拉远端模型清单（openai / anthropic / google 三种） |
+| `/providers/test` | POST | 连通性测试，回 `{ ok, model_count, message }` |
+| `/login/providers` / `start` | GET/POST | 兼容保留：本壳密钥走模型页填写，不提供 OAuth 流 |
+
+## 技能 / 插件 / MCP
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/skills` | GET | 内置（managed）+ 项目（project）技能清单 |
+| `/skills/content` / `save` | GET/POST | 读写 SKILL.md（路径白名单校验） |
+| `/skills/toggle` | POST | `{ path, enabled }`；实现是目录搬进/搬出禁用区 |
+| `/skills/create` / `delete` / `copy` | POST | 新建托管技能 / 删除 / 项目技能抄进托管区 |
+| `/plugins` | GET | 注册表 + 磁盘实况合并的插件清单 |
+| `/plugins/install` / `upgrade` | POST | `{ source }` npm 来源（`npm:@scope/pkg@ver`）；进度走 `app:progress` |
+| `/plugins/uninstall` | POST | 清安装目录 + 桥接 + 注册表 |
+| `/plugins/toggle` | POST | `{ plugin_name, enabled }`；桥接目录改名实现 |
+| `/mcp` | GET | `?live=1`（当前不做连通探测，恒 `live_checked:false`） |
+| `/mcp/save` / `toggle` / `remove` / `copy` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv，`env_list` 逐行 `KEY=VALUE` |
+
+## 文件 / Git / 系统
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/files` | GET | `?path=` 工作区内列目录（目录优先，≤500 条） |
+| `/files/search` | GET | `?query=&limit=`；按名递归搜索，跳过 node_modules/.git/dist |
+| `/files/read` | GET | 文本读取（1MB 截断，二进制给占位说明） |
+| `/git/*` | GET/POST | status / diff / history / commit / file-history / file-diff / branches / stage / unstage / discard / resolve / commit / branch(+delete) / switch / merge / state / init / remote / push / pull / fetch；全部走内置 git.exe |
+| `/system/reveal` / `open` | POST | 资源管理器定位 / 系统默认程序打开 |
+| `/config/files` / `text` | GET | 引擎配置原文（settings/models/mcp/auth/AGENTS + 项目级），白名单校验 |
+| `/docs` / `docs/:name` | GET | 内置帮助文档（assets/docs 的 markdown） |
+
+## SSE 事件词汇（`/events`）
+
+帧格式 `{ seq, event, data }`；聊天帧带 `engine_kind: 'pi'` 与 `run_id`。
+
+| event | 载荷要点 | 用途 |
+|---|---|---|
+| `stream:open` | — | 连接建立 |
+| `chat:start` | `started_at` | 一轮开始；前端进入流式态 |
+| `chat:live` | `phase('thinking'/'text'/'tool'), tool_name, output_tokens` | 活动指示 |
+| `chat:patch` | `mode('delta'/'block'), index, kind, delta?/block?` | 增量追加或整块替换 |
+| `chat:blocks` | `blocks` | 权威块表整体替换（message_end 后） |
+| `chat:turn` | `user_message, blocks` | 回合快照 |
+| `chat:turn_end` | `usage{input,output,cacheRead,cacheWrite,costUSD}` | 回合用量 |
+| `chat:queue` | `steering[], followUp[]` | 排队变化 |
+| `chat:ask` | 提问卡（id/method/title/options/timeout…） | 引擎对话框 |
+| `chat:notify` / `chat:notice` | `level, message` | 行内提示 / 全局通知 |
+| `chat:status` / `chat:widget` | `key, text` / `key, lines[]` | 状态条 / 引擎小组件 |
+| `chat:retry` / `chat:retry_end` | `attempt, max, delay_ms` | 自动重试进度 |
+| `chat:compaction` | `state('start'/'done')` | 压缩中 |
+| `chat:error` | `message` | 运行失败（含模型报错） |
+| `chat:done` / `chat:settled` | — | 回合收尾；前端随后对账 `chat/state` |
+| `chat:editor_text` | `text` | 引擎反向预填输入框 |
+| `chat:command_output` | `text` | 斜杠命令回显 |
+| `chat:gap` | — | 前端检测到丢帧，触发对账 |
+| `engine:status` / `ready` / `exit` / `detected` | — | 引擎状态变化 |
+| `engine:commands` | `commands[]` | 斜杠命令清单更新 |
+| `app:progress` | `kind, action, phase('start'/'line'/'done'/'fail'), line?, message?` | 安装 / 解压进度 |
+| `session:info` / `session:title` | — | 会话清单变化 / 标题变化 |
+| `workspace:changed` | `workspace` | 工作区切换 |

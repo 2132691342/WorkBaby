@@ -1,129 +1,125 @@
 # 架构 · ARCHITECTURE
 
-## 定位
+WorkBaby 是 Windows 桌面单机 AI 助手。一句话讲清它的形态：
+**Electron 壳把引擎、运行时、插件、技能全部装进 `%LOCALAPPDATA%\WorkBaby`
+沙箱，渲染层只与壳内 HTTP 服务说话，引擎以 RPC 子进程常驻。**
 
-WorkBaby 是 Windows 桌面单机 AI 助手：Tauri 壳 + 内嵌 HTTP 服务 + 自研 Rust agent 内核。
-一切业务走 `127.0.0.1:{随机端口}` 的 HTTP 与 SSE；Tauri 只承担系统能力
-（窗口 / 托盘 / 对话框 / 自启 / 单实例 / 剪贴板 / 外链）。
+## 1. 进程拓扑
 
-## 总体分层
-
-```text
-┌──────────────────────────────────────────────────────────────┐
-│ frontend (Vue3 + WebView2)                                    │
-│   axios ──► HTTP /api/v1/*        EventSource ──► /events SSE │
-│   invoke ──► Tauri commands（仅系统能力：对话框/窗控/自启/退出）│
-├──────────────────────────────────────────────────────────────┤
-│ src-tauri（壳）          wb-api（HTTP + SSE hub + 组合根）      │
-├──────────────────────────────────────────────────────────────┤
-│ wb-service（编排：对话 / 会话 / 设置 / 技能 / 功能开关 / 统计）  │
-├──────────────┬───────────────┬──────────────┬────────────────┤
-│ wb-kernel    │ wb-skills     │ wb-git       │ wb-mcp          │
-│ (agent 循环) │ (技能注册表)   │ (版本视图)    │ (MCP 客户端)    │
-│ wb-tools     │               │              │ wb-features     │
-│ (工具集)     │               │              │ (12 项内置功能)  │
-├──────────────┴───────────────┴──────────────┴────────────────┤
-│ wb-provider（模型 wire API）   wb-repo（SQLite）                │
-├──────────────────────────────────────────────────────────────┤
-│ wb-domain（纯类型）  →  wb-pkg（叶子工具）                       │
-└──────────────────────────────────────────────────────────────┘
+```
+┌────────────────────────────────────────────────────────────┐
+│ 渲染进程  Vue 3 + Pinia（业务全部经 HTTP，不经 IPC 做业务）      │
+│   window.wb 桥：端点分发 / 文件夹选择 / 窗控 / 外链              │
+└───────────────▲────────────────────────────────────────────┘
+                │ HTTP /api/v1（X-Desktop-Token）+ SSE /events
+┌───────────────┴────────────────────────────────────────────┐
+│ 主进程（装配根 index.ts）                                     │
+│   express ──► api 路由（薄壳）──► service（业务编排）──► repo  │
+│   sse hub：seq 单调发号、断线补帧、心跳                        │
+│   shell：无边框窗口 / 托盘 / preload 桥                       │
+└───────────────▲────────────────────────────────────────────┘
+                │ JSONL over stdio（RPC 模式）
+┌───────────────┴────────────────────────────────────────────┐
+│ pi 子进程：node.exe pi-cli.js --mode rpc                     │
+│   会话循环 / 工具执行 / 压缩 / 重试 —— 引擎自己的事，壳不重做     │
+│   扩展（插件）与技能、MCP 由 pi 按沙箱内目录自动发现             │
+└────────────────────────────────────────────────────────────┘
 ```
 
-依赖方向单向（见 `AGENTS.md` §2.2）：`wb-service` 编排全部能力域；
-`wb-api` 作为组合根，开库（`Repo::open`）与会话文件操作（`SessionFile` / `Entry`，
-改名 / 切模型 / 切思考档 / 导出 / 分支）在 api 层直接做，其余能力域一律经 service。
+**为什么这样切**：
 
-## 代码地图
+- 壳只做「管理面 + 传输面」，不做「智能面」。会话循环、工具执行、上下文压缩
+  是引擎的本职，壳重做一遍只会做出第二个引擎——所以壳把 pi 当成一个受管的
+  常驻服务，自己只负责装配、驱动、翻译事件、持久化台账。
+- 渲染层与主进程之间只有一条业务通道（HTTP + SSE）。IPC 桥只管「壳能力」
+  （窗口、对话框、端点分发），业务不进 IPC——换传输层或做远程化时只动一个层。
+- 引擎与壳之间是 JSONL 文本协议，进程隔离：引擎崩溃不影响壳，壳崩溃不损坏会话。
 
-找不到东西时先看这一节：每个问题域对应一个 crate 或一组文件。
+## 2. 装配顺序（index.ts）
 
-| 我想改的东西 | 去哪看 |
-|---|---|
-| 会话怎么存、怎么回放、怎么分支 | `wb-kernel/src/{session,session_msg,session_repair}.rs` |
-| 主循环、工具批、重试、压缩、子代理 | `wb-kernel/src/{agent,blocks,toolbatch,compaction,subagent}.rs` |
-| 系统提示词怎么拼 | `wb-service/src/prompt.rs` |
-| 内核事件怎么变成 SSE | `wb-service/src/chat_events.rs` + `wb-domain/src/events.rs` |
-| 对话 run 管理、排队、目标续跑 | `wb-service/src/chat.rs` |
-| 功能怎么装入注册表 | `wb-service/src/features.rs` |
-| 功能面板的读与写 | `wb-service/src/{feature_state,feature_write,feature_config}.rs` |
-| 工作区热切换 | `wb-service/src/workspace.rs` + `wb-api/src/system_routes.rs` |
-| 内置运行时解压 | `wb-service/src/runtime.rs` + `wb-domain/src/runtime.rs` |
-| 单个内置功能 | `wb-features/src/<功能名>.rs`（或同名子目录） |
-| 工具契约与输出截断 | `wb-tools/src/{registry,exec,truncate,difftext}.rs` |
-| 流式协议解析 | `wb-provider/src/openai.rs` |
-| 路由表 | `wb-api/src/routes.rs`（主表）与同目录 `*_routes.rs` |
-| SSE 重放缓冲 | `wb-api/src/hub.rs` |
-| git 读写 | `wb-git/src/{exec,parse,write}.rs` |
-| 技能扫描与注入 | `wb-skills/src/{frontmatter,registry}.rs` |
-| 前端 SSE 事件桥 | `frontend/src/composables/{useSse,chatBridge}.ts` |
-| 前端对话状态机 | `frontend/src/stores/{chat,session}.ts` |
-| 色值与尺寸令牌 | `frontend/src/{themes,scale}.css` |
+```
+单实例锁 → initContext（路径/令牌）→ initLog → openDb（WAL + 迁移）
+  → app.ready → registerBridge → 建窗（隐藏）→ 托盘
+  → 起HTTP(随机端口) → setPort + 回填桥 → 广播就绪
+  → 后台：解压运行时 zip → 落位内置技能
+```
 
-## 深入阅读
+- **启动不等重物**：端口与界面先就绪；三个运行时 zip（约 115MB）与技能包
+  在后台解压，进度经 SSE `app:progress` 上报，完成后广播 `engine:status`。
+- **端点回填**：preload 桥的 `wb:endpoint` 在 HTTP 起来之前返回空 `wb_base_url`，
+  起来之后返回真实端口与令牌；渲染层首屏据此装配 axios 与 EventSource。
+- **退出**：`before-quit` 顺序关引擎子进程 → 关库 → 关日志 → 销毁托盘。
 
-| 主题 | 文档 |
-|---|---|
-| 每个 crate 的职责与边界 | [MODULES.md](MODULES.md) |
-| Agent 内核：会话树、主循环、压缩、重试、子代理 | [KERNEL.md](KERNEL.md) |
-| 会话存储：JSONL 条目类型、回放算法 | [SESSIONS.md](SESSIONS.md) |
-| 工具体系：Tool 契约、内置工具、执行纪律 | [TOOLS.md](TOOLS.md) |
-| 模型接入：wire API、流式解析、错误分类 | [PROVIDER.md](PROVIDER.md) |
-| 技能体系：SKILL.md 格式、三区发现、注入 | [SKILLS.md](SKILLS.md) |
-| 12 项内置功能 | [FEATURES.md](FEATURES.md) |
-| 工作区与 Git 写白名单 | [WORKSPACE.md](WORKSPACE.md) |
-| MCP 客户端与连接池 | [MCP.md](MCP.md) |
-| 前端架构、令牌、构建分块 | [FRONTEND.md](FRONTEND.md) |
-| 桌面壳、进程模型、数据目录 | [SHELL.md](SHELL.md) |
-| 数据模型 | [DATA-MODEL.md](DATA-MODEL.md) |
-| HTTP 与 SSE 契约 | [API.md](API.md) |
+## 3. 沙箱布局（数据目录）
 
-## 一次对话的完整路径
+```
+%LOCALAPPDATA%\WorkBaby\            （开发态为 WorkBaby-dev）
+├── workbaby.db                     设置 KV、开关台账（WAL）
+├── logs\wb-YYYY-MM-DD.log          按天滚动日志
+├── runtime\
+│   ├── node\                       内置 Node.js（node.exe + 完整 npm）
+│   ├── PortableGit\                git + Git Bash + GNU 工具链
+│   └── python\                     Python 3.13
+├── pi-app\                         pi 本体（内置 npm --prefix 安装产物）
+└── pi\                             PI_CODING_AGENT_DIR（引擎的家）
+    ├── settings.json               默认模型 / 工具集 / 资源开关
+    ├── models.json                 自定义服务商与模型
+    ├── auth.json                   API Key（0600）
+    ├── mcp.json                    MCP 服务（用户级）
+    ├── sessions\--<工作区编码>--\   会话 JSONL（树形条目）
+    ├── skills\  skills_disabled\   内置技能（禁用 = 搬进后者）
+    ├── extensions\                 插件桥接目录（.disabled-* 为禁用区）
+    └── plugins\                    插件实际安装目录（npm 产物）
+```
 
-1. 前端 `POST /chat/send`（`chat_session_id` + `chat_text`）→ `wb-api` handler → `wb-service::chat`
-2. service 校验忙闲与队列，生成 `RUN_` id，把用户消息写进内核会话，唤醒内核
-3. `wb-kernel` 组装上下文（leaf→root 回放 + service 侧组装的系统提示词）→
-   调 `wb-provider` 流式采样
-4. 内核事件经 service 翻译成 `chat:*` SSE 事件（Emitter 分配 seq、按会话串行）推 Hub
-5. 工具调用在内核执行（`wb-tools` 注册表 + `wb-features` / `wb-mcp` 提供的扩展工具），
-   结果截断后回灌
-6. `Settled` 触发 `chat:done`；前端断线重连凭 `last_event_id` 对账
+**隔离手段**：
 
-## 双通道职责边界
+- 子进程 PATH 把内置 node/git/python 排在最前，HOME/USERPROFILE 指向数据目录——
+  agent 跑 bash、python、git 一律先命中内置副本，不写用户全局配置。
+- 引擎家目录由 `PI_CODING_AGENT_DIR` 一个环境变量整体重定向；
+  包安装目录由 `PI_PACKAGE_DIR` 指进沙箱。
+- 管理面（安装/卸载/升级/开关）只经 GUI 暴露；沙箱内的 pi 不对外提供 CLI 入口。
 
-| 通道 | 承载 | 禁止承载 |
-|---|---|---|
-| HTTP（GET/POST） | 全部业务请求：会话 / 对话控制 / 配置 / 技能 / 功能开关 / 统计 / Git | 流式推送 |
-| SSE | `chat:*` 实时事件 + `app:*` 全局广播 | 请求-响应 |
-| Tauri invoke | 系统能力：server_port、对话框 ×3、自启、退出、窗控 | 业务数据 |
+## 4. 引擎生命周期（service/chat）
 
-## 关键取舍
+- **绑定**：一个工作区一个 pi RPC 子进程。`ensureRpc` 惰性拉起：
+  当前无子进程或工作区已变 → 杀旧起新，`get_state` 拿会话文件、
+  `get_commands` 拿斜杠命令、`get_available_thinking_levels` 拿思考档位。
+- **驱动**：发消息 = `prompt`（附件：图片走 base64 `images` 字段，文件折进消息文本）；
+  插话 = `steer`；追加 = `follow_up`；停止 = `abort`；压缩 = `compact`；
+  换模型 / 思考档 / 自动压缩各有一条 RPC 命令。
+- **事件翻译**：引擎的会话事件（消息增量、工具生命周期、队列、压缩、重试、
+  UI 请求）由 `chat_frames` 翻译成壳的 SSE 词汇 `chat:*`。翻译器维护一个
+  实时块表（文本/思考/工具），`message_end` 的完整内容作为权威快照覆盖增量。
+- **提问板**：引擎侧对话框请求（select/confirm/input/editor）原样转成
+  `chat:ask` 帧；用户回答经 `extension_ui_response` 直达引擎。
+  通知 / 状态栏 / 小组件 / 编辑器预填是单向帧，无需应答。
+- **恢复**：会话文件是唯一真相。重启后 `chat/state` 直接解析 JSONL 重建
+  历史轮；正在跑的会话切走再切回 = `switch_session`。
 
-| 取舍 | 理由 | 代价 |
-|---|---|---|
-| HTTP+SSE 而非 Tauri 全绑定 | 前端 api 层统一，可浏览器调试 | 多一层端口握手 |
-| 会话存 JSONL 而非 SQLite | 追加即落盘、崩溃安全、树形分支天然表达 | 列表/统计需索引表配合 |
-| 内核进程内而非子进程 | 无 RPC 编解码、无进程守护、启动即用 | 内核 panic 影响整个进程（用错误边界兜底） |
-| 能力原生化而非运行时插件 | 加载失败、版本不兼容在编译期消失 | 失去第三方生态；剩余扩展由技能与 MCP 承接 |
-| 功能开关即装配边界 | 关掉的功能模型根本看不到 | 切换要重建注册表 |
-| 只发 Windows | 用户群明确；Tauri 依赖 WebView2 系统自带 | `cfg(windows)` 隔离点需保持纪律 |
-| 不做工具审批闸门 | 单机个人助手，流程少一步 | 风险由 Git 写白名单与输出截断兜底 |
+## 5. 通信契约
 
-## 不变量
+- HTTP：恒 200 + 信封 `{ code, message, detail?, data }`，`code` 为数字字符串，
+  `'0'` 即成功。鉴权：`X-Desktop-Token` 头；SSE 走 `?token=` 查询参数。
+- SSE：`GET /api/v1/events?token=…&since=<seq>`。帧为默认 `message` 事件，
+  `data` 是 `{ seq, event, data }`；hub 保留最近 1000 帧用于断线补帧，
+  补不上的缺口由前端拿 `chat/state` 全量对账。
+- 频道名单（preload 合同，不许改）：`wb:endpoint` / `wb:pick-files` /
+  `wb:pick-folder` / `wb:ready` / `wb:open-external` / `wb:window-ctl` /
+  `wb:quit` / `wb:close-decision`。
 
-这些约束散落在各 crate 实现里，改动时必看：
+## 6. 优势与代价
 
-| 不变量 | 含义 |
-|---|---|
-| 内核不感知界面 | `KernelEvent` 是内核唯一出参语言，不含任何界面词汇 |
-| 内核不依赖上层 | `wb-kernel` 不知道 service / api / 界面的存在 |
-| 工具契约唯一 | 所有工具（内置 / 功能 / MCP）实现同一个 `Tool` trait |
-| 事件顺序是契约 | 界面时序依赖事件顺序，改动顺序等于改界面行为 |
-| 会话文件是真相 | 界面不另存状态，重启后从 JSONL 回放 |
-| 事件写对会话 | 功能工具经 `ToolCtx` 拿会话归属，提问 / 状态行只发本会话 |
-| 功能开关即边界 | 关掉的功能不进工具表、不发事件 |
-| 启动不等重物 | 内置运行时解压与 MCP 连接都在后台跑，端口与界面先就绪 |
-| 工作区可换 | 切换会重建全部按目录派生的状态并广播 `app:workspace` |
-| 看得见就点得动 | 活状态面板（待办 / 目标 / 计划 / 记忆）必须可写 |
-| 写入只有一套 | 界面写入与模型工具共用同一份落盘与同一套校验 |
-| 活状态分层归属 | 待办按工作区共享；目标按会话隔离（目标只对登记它的对话有意义） |
-| 截断必留句柄 | 超长输出先落盘再截断，被砍掉的部分必须能再取回来 |
+**优势**：
+
+- 安装即用：用户机器上什么都不用装，运行时随包分发、首启解压。
+- 引擎可整体升级：pi 升级 = 内置 npm 重装一次；壳的翻译层不变，界面不动。
+- 会话可携带：JSONL 即真相，拷目录即备份，回放逻辑在壳里只有一份。
+- 沙箱可丢弃：删掉数据目录 = 干净卸载，不残留用户环境。
+
+**代价与边界**：
+
+- 引擎能力受 RPC 协议约束：子代理面板、OAuth 登录流等终端交互能力不暴露。
+- 多了一层事件翻译：引擎事件与界面词汇的映射需要跟随引擎版本维护。
+- 只支持 Windows：路径、进程、托盘都按 Windows 语义写（`windowsHide`、
+  注册表自启等），跨平台要动 `pkg/env`、`shell/` 与打包配置。
