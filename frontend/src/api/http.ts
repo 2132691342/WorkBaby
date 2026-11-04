@@ -2,19 +2,17 @@
 // 后端恒回 200，错误在 body.code 里，所以拦截器把 code !== '0' 也变成异常，
 // 上层只需要 try/catch，不用每次判断 code。
 import axios, { type AxiosInstance } from 'axios'
-import { getEndpoint } from './shell'
+import { getEndpoint } from './wails'
 import { recordFailure } from '@/utils/diag'
 import type {
-  AgentRow,
   AppPrefs,
   AppRow,
   AskRequest,
   Bootstrap,
   ChatAttachment,
   ChatState,
-  ConfigFileList,
+  ConfigFile,
   ConfigText,
-  EngineKind,
   EngineStatus,
   FileList,
   FileRead,
@@ -26,23 +24,19 @@ import type {
   GitDiff,
   GitStatus,
   HealthData,
-  LoginProvider,
   McpListData,
   ModelEntry,
   ModelRow,
   PluginListData,
   ProviderProbeREQ,
+  ProviderProbeRESP,
   ProvidersView,
-  ProviderView,
+  RuntimeStatus,
   SessionDetail,
   SessionExport,
-  SessionRow,
+  SessionList,
   SkillListData,
-  TranscriptPage,
   UIResponse,
-  WorkspaceRow,
-  HelpDocRESP,
-  HelpDocVO,
 } from '@/types/api'
 
 export class ApiError extends Error {
@@ -66,7 +60,7 @@ export async function ensureClient(): Promise<AxiosInstance> {
   token = ep.wb_token
   client = axios.create({
     baseURL: ep.wb_base_url,
-    // 压缩一轮长上下文可能要几分钟；插件安装可达十分钟。
+    // 压缩一轮长上下文可能要几分钟；装 pi 与插件可达十分钟。
     timeout: 600_000,
     headers: { 'X-Desktop-Token': token, 'Content-Type': 'application/json' },
   })
@@ -117,216 +111,174 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return res.data.data as T
 }
 
-/** 引擎名只在需要时带上：省略即「后端当前选中的那个」。 */
-const k = (kind?: EngineKind) => (kind ? { engine: kind } : {})
+/** 会话参数只在需要时带上：省略即「后端当前绑定的那个」。 */
+const s = (sessionFile?: string) => (sessionFile ? { session_file: sessionFile } : {})
 
 export const api = {
+  // ---- 引导 / 设置 / 偏好 ----
   bootstrap: () => get<Bootstrap>('/bootstrap'),
   settings: () => get<Record<string, string>>('/settings'),
   saveSettings: (kv: Record<string, string>) => post<Record<string, string>>('/settings/save', kv),
-  setWorkspace: (path: string) => post<{ workspace: string }>('/settings/workspace', { path }),
-  forgetWorkspace: (path: string) =>
-    post<{ workspaces: WorkspaceRow[] }>('/settings/workspace/forget', { path }),
-  setEngine: (engine: EngineKind) => post<{ engine: EngineKind }>('/settings/engine', { engine }),
-  logs: () => get<{ lines: string[] }>('/logs'),
+  setWorkspace: (workspace: string) => post<{ workspace: string }>('/settings/workspace', { workspace }),
+  forgetWorkspace: (workspace: string) =>
+    post<{ workspaces: Bootstrap['workspaces'] }>('/settings/workspace/forget', { workspace }),
+  logs: (lines = 500) => get<{ lines: string[] }>('/logs', { lines: String(lines) }),
 
-  // 应用偏好：开机自启、恢复上次会话、数据目录
   prefs: () => get<AppPrefs>('/prefs'),
-  setAutoStart: (enabled: boolean) => post<AppPrefs>('/prefs/autostart', { enabled }),
-  setRestoreSession: (enabled: boolean) => post<AppPrefs>('/prefs/restore', { enabled }),
-  setCloseAction: (action: 'tray' | 'quit') => post<AppPrefs>('/prefs/close-action', { action }),
-  rememberSession: (engine: EngineKind, sessionFile: string) =>
-    post<AppPrefs>('/prefs/session', { engine_kind: engine, session_file: sessionFile }),
-  openDataDir: () => post<null>('/prefs/data-dir'),
+  setAutoStart: (prefEnabled: boolean) => post<AppPrefs>('/prefs/autostart', { pref_enabled: prefEnabled }),
+  setRestoreSession: (prefEnabled: boolean) => post<AppPrefs>('/prefs/restore', { pref_enabled: prefEnabled }),
+  setCloseAction: (closeAction: 'tray' | 'quit') => post<AppPrefs>('/prefs/close-action', { close_action: closeAction }),
+  openDataDir: () => post<{ ok: boolean }>('/prefs/data-dir'),
 
-  // 引擎配置原文（只读）
-  configFiles: (engine?: EngineKind) => get<ConfigFileList>('/config/files', k(engine)),
-  configText: (file: string, engine?: EngineKind) => get<ConfigText>('/config/text', { file, ...k(engine) }),
-
+  // ---- 引擎 / 应用 / 健康 ----
   engineStatus: () => get<EngineStatus>('/engines'),
-  detectEngines: () => post<EngineStatus>('/engines/detect'),
-  restartEngines: (engine?: EngineKind) => post<{ ok: boolean }>('/engines/restart', k(engine)),
-  // 停一个存活实例：入参必须带工作目录，只给引擎名会停错目录里那个
-  stopEngine: (engine: EngineKind, workDir: string) =>
-    post<{ stopped: boolean }>('/engines/stop', { engine, work_dir: workDir }),
-  // 引擎健康度：概览页一屏要用的全部事实
+  detectEngines: () => post<RuntimeStatus>('/engines/detect'),
+  restartEngine: () => post<{ ok: boolean }>('/engines/restart'),
   health: () => get<HealthData>('/health/engines'),
+  apps: () => get<{ apps: AppRow[] }>('/apps'),
+  installApp: () => post<{ apps: AppRow[] }>('/apps/install'),
+  updateApp: () => post<{ apps: AppRow[] }>('/apps/update'),
+  uninstallApp: () => post<{ apps: AppRow[] }>('/apps/uninstall'),
 
-  // 应用：装 / 升级 / 卸载引擎本身（代跑引擎自己的安装器）
-  apps: (refresh = false) => get<{ apps: AppRow[] }>('/apps', refresh ? { refresh: '1' } : undefined),
-  installApp: (engine: EngineKind) => post<{ apps: AppRow[] }>('/apps/install', { engine }),
-  updateApp: (engine: EngineKind) => post<{ apps: AppRow[] }>('/apps/update', { engine }),
-  uninstallApp: (engine: EngineKind) => post<{ apps: AppRow[] }>('/apps/uninstall', { engine }),
+  // ---- 会话 ----
+  sessions: (workspace?: string) => get<SessionList>('/sessions', { workspace }),
+  sessionDetail: (path: string) => get<SessionDetail>('/sessions/detail', { path }),
+  deleteSession: (sessionPath: string) => post<{ ok: boolean }>('/sessions/delete', { session_path: sessionPath }),
+  renameSession: (sessionPath: string, sessionTitle: string) =>
+    post<{ ok: boolean }>('/sessions/rename', { session_path: sessionPath, session_title: sessionTitle }),
 
-  sessions: (workspace?: string, engine?: EngineKind) =>
-    get<{ sessions: SessionRow[] }>('/sessions', { workspace, ...k(engine) }),
-  sessionDetail: (path: string, engine?: EngineKind) =>
-    get<SessionDetail>('/sessions/detail', { path, ...k(engine) }),
-  deleteSession: (path: string, engine?: EngineKind) =>
-    post<{ ok: boolean }>('/sessions/delete', { path, ...k(engine) }),
-  renameSession: (path: string, name: string, engine?: EngineKind) =>
-    post<{ ok: boolean }>('/sessions/rename', { path, name, ...k(engine) }),
-
-  chatState: (engine: EngineKind, session?: string) =>
-    get<ChatState>('/chat/state', { session, engine }),
+  // ---- 对话 ----
+  chatState: (sessionFile?: string) => get<ChatState>('/chat/state', { session: sessionFile }),
   // 三个发送类接口共用一份形状（含附件）：分开写的后果是
   // 「插话能带图、发送不能」这种说不通的不一致。
-  send: (engine: EngineKind, session: string, message: string, attachments: ChatAttachment[] = []) =>
-    post<{ run_id: string }>('/chat/send', { engine, session, message, attachments }),
-  stop: (engine: EngineKind, session: string) => post<{ ok: boolean }>('/chat/stop', { engine, session }),
-  steer: (engine: EngineKind, session: string, message: string, attachments: ChatAttachment[] = []) =>
-    post<{ ok: boolean }>('/chat/steer', { engine, session, message, attachments }),
-  followUp: (engine: EngineKind, session: string, message: string, attachments: ChatAttachment[] = []) =>
-    post<{ ok: boolean }>('/chat/followup', { engine, session, message, attachments }),
-  clearQueue: (engine: EngineKind, session: string) =>
-    post<{ ok: boolean }>('/chat/clear-queue', { engine, session }),
-  removeQueued: (engine: EngineKind, session: string, message: string, queue: string) =>
-    post<{ removed: boolean }>('/chat/remove-queued', { engine, session, message, queue }),
-  compact: (engine: EngineKind, session: string, instructions = '') =>
-    post<{ ok: boolean }>('/chat/compact', { engine, session, instructions }),
-  answer: (engine: EngineKind, session: string, request: UIResponse) =>
-    post<{ ok: boolean }>('/chat/answer', { engine, session, request }),
-  newChat: (engine: EngineKind) => post<{ session_file: string }>('/chat/new', { engine }),
-  // 复制当前会话开新分支（仅 Caps.SessionClone 的引擎提供，入口按能力位显隐）
-  cloneChat: (engine: EngineKind) => post<{ session_file: string }>('/chat/clone', { engine }),
-  // 导出当前会话为单文件 HTML（仅 Caps.ExportHTML 的引擎提供，入口按能力位显隐）
-  exportSessionHTML: (session: string, engine?: EngineKind) =>
-    post<SessionExport>('/chat/export-html', { session, ...k(engine) }),
-  setModel: (engine: EngineKind, session: string, provider: string, model: string) =>
-    post<{ ok: boolean }>('/chat/model', { engine, session, provider, model }),
-  setThinking: (engine: EngineKind, session: string, level: string) =>
-    post<{ ok: boolean }>('/chat/thinking', { engine, session, level }),
-  setAutoCompaction: (engine: EngineKind, session: string, enabled: boolean) =>
-    post<{ ok: boolean }>('/chat/autocompact', { engine, session, enabled }),
-  // 消息隐藏：界面上「删除一轮」的两个方向。hid 是历史投影带下去的轮次标识，
-  // 服务端按会话记账，引擎的会话文件与上下文不动。
-  hideTurn: (session: string, hid: string) => post<{ ok: boolean }>('/messages/hide', { session, hid }),
-  unhideTurn: (session: string, hid: string) => post<{ ok: boolean }>('/messages/unhide', { session, hid }),
+  send: (sessionFile: string, message: string, attachments: ChatAttachment[] = []) =>
+    post<{ run_id: string }>('/chat/send', { session_file: sessionFile, message, attachments }),
+  stop: (sessionFile: string) => post<{ ok: boolean }>('/chat/stop', s(sessionFile)),
+  steer: (sessionFile: string, message: string, attachments: ChatAttachment[] = []) =>
+    post<{ ok: boolean }>('/chat/steer', { session_file: sessionFile, message, attachments }),
+  followUp: (sessionFile: string, message: string, attachments: ChatAttachment[] = []) =>
+    post<{ ok: boolean }>('/chat/followup', { session_file: sessionFile, message, attachments }),
+  clearQueue: (sessionFile: string) =>
+    post<{ steering: string[]; follow_up: string[] }>('/chat/clear-queue', s(sessionFile)),
+  compact: (sessionFile: string, instructions = '') =>
+    post<{ ok: boolean }>('/chat/compact', { session_file: sessionFile, instructions }),
+  answer: (sessionFile: string, req: UIResponse) =>
+    post<{ ok: boolean }>('/chat/answer', { session_file: sessionFile, ...req }),
+  newChat: () => post<{ session_file: string }>('/chat/new'),
+  cloneChat: () => post<{ session_file: string }>('/chat/clone'),
+  exportSessionHTML: (sessionFile: string) =>
+    post<SessionExport>('/chat/export-html', s(sessionFile)),
+  setModel: (sessionFile: string, providerName: string, modelId: string) =>
+    post<{ ok: boolean }>('/chat/model', { session_file: sessionFile, provider_name: providerName, model_id: modelId }),
+  setThinking: (sessionFile: string, thinkingLevel: string) =>
+    post<{ ok: boolean }>('/chat/thinking', { session_file: sessionFile, thinking_level: thinkingLevel }),
+  setAutoCompaction: (sessionFile: string, autoCompaction: boolean) =>
+    post<{ ok: boolean }>('/chat/autocompact', { session_file: sessionFile, auto_compaction: autoCompaction }),
+  // 消息隐藏：界面上「删除一轮」的两个方向。后端按会话记账，引擎的会话文件不动。
+  hideTurn: (sessionFile: string, turnId: string) =>
+    post<{ ok: boolean }>('/messages/hide', { session_file: sessionFile, turn_id: turnId }),
+  unhideTurn: (sessionFile: string, turnId: string) =>
+    post<{ ok: boolean }>('/messages/unhide', { session_file: sessionFile, turn_id: turnId }),
 
-  agents: (engine?: EngineKind) => get<{ agents: AgentRow[] }>('/agents', k(engine)),
-  agentMessages: (id: string, from: number, engine?: EngineKind) =>
-    get<TranscriptPage>('/agents/messages', { id, from: String(from), ...k(engine) }),
-  steerAgent: (id: string, message: string, engine?: EngineKind) =>
-    post<{ ok: boolean }>('/agents/steer', { id, message, ...k(engine) }),
-  cancelAgent: (id: string, engine?: EngineKind) =>
-    post<{ cancelled: boolean }>('/agents/cancel', { id, ...k(engine) }),
-  subscribeAgents: (level: string, engine?: EngineKind) =>
-    post<{ ok: boolean }>('/agents/subscribe', { level, ...k(engine) }),
-
-  models: (engine?: EngineKind) => get<{ models: ModelRow[] }>('/models', k(engine)),
-  providers: (engine?: EngineKind) => get<ProvidersView>('/providers', k(engine)),
-  upsertProvider: (name: string, provider: Partial<ProviderView>, engine?: EngineKind) =>
-    post<ProvidersView>('/providers/upsert', { name, provider, ...k(engine) }),
-  deleteProvider: (name: string, engine?: EngineKind) =>
-    post<ProvidersView>('/providers/delete', { name, ...k(engine) }),
+  // ---- 模型与服务商 ----
+  models: () => get<{ models: ModelRow[] }>('/models'),
+  providers: () => get<ProvidersView>('/providers'),
+  upsertProvider: (body: {
+    provider_name: string
+    base_url: string
+    api_protocol: string
+    auth_kind: string
+    api_key: string
+    models?: ModelEntry[]
+  }) => post<ProvidersView>('/providers/upsert', body),
+  deleteProvider: (providerName: string) =>
+    post<ProvidersView>('/providers/delete', { provider_name: providerName }),
   // 向上游问一次模型清单。密钥不给就用已保存的那个。
-  fetchProviderModels: (body: ProviderProbeREQ) =>
-    post<{ models: ModelEntry[]; config_path: string }>('/providers/models', body),
-  // 测一条服务商配置通不通：不通时回 ok=false 与原因原话。
-  testProvider: (body: ProviderProbeREQ) =>
-    post<{ ok: boolean; model_count: number; message: string }>('/providers/test', body),
-  loginProviders: (engine?: EngineKind) =>
-    get<{ providers: LoginProvider[] }>('/login/providers', k(engine)),
-  startLogin: (provider: string, engine?: EngineKind) =>
-    post<{ ok: boolean }>('/login/start', { provider, ...k(engine) }),
+  probeProvider: (body: ProviderProbeREQ) => post<ProviderProbeRESP>('/providers/models', body),
 
-  skills: (engine?: EngineKind) => get<SkillListData>('/skills', k(engine)),
-  skillContent: (path: string) => get<{ content: string }>('/skills/content', { path }),
-  saveSkillContent: (engine: EngineKind, path: string, text: string) =>
-    post<{ content: string }>('/skills/save', { engine_kind: engine, file_path: path, text }),
-  toggleSkill: (path: string, enabled: boolean, engine?: EngineKind) =>
-    post<{ ok: boolean }>('/skills/toggle', { path, enabled, ...k(engine) }),
-  createSkill: (name: string, description: string, body: string, engine?: EngineKind) =>
-    post<{ path: string }>('/skills/create', { name, description, body, ...k(engine) }),
-  deleteSkill: (path: string, engine?: EngineKind) =>
-    post<{ ok: boolean }>('/skills/delete', { path, ...k(engine) }),
+  // ---- 技能 / 插件 / MCP ----
+  skills: () => get<SkillListData>('/skills'),
+  skillContent: (path: string) => get<{ file_text: string }>('/skills/content', { path }),
+  saveSkillContent: (skillPath: string, fileText: string) =>
+    post<{ file_text: string }>('/skills/save', { skill_path: skillPath, file_text: fileText }),
+  toggleSkill: (skillPath: string, skillEnabled: boolean) =>
+    post<{ ok: boolean }>('/skills/toggle', { skill_path: skillPath, skill_enabled: skillEnabled }),
+  createSkill: (skillName: string, skillDesc: string, skillBody: string) =>
+    post<{ skill_path: string }>('/skills/create', { skill_name: skillName, skill_desc: skillDesc, skill_body: skillBody }),
+  deleteSkill: (skillPath: string) => post<{ ok: boolean }>('/skills/delete', { skill_path: skillPath }),
   // 内置技能改坏了：从随包原件覆盖回来
-  resetSkill: (path: string, engine?: EngineKind) =>
-    post<{ ok: boolean }>('/skills/reset', { path, ...k(engine) }),
-  // 矩阵页：把另一个引擎的用户级同名技能复制过来
-  skillCopyTo: (path: string, engine: EngineKind) =>
-    post<{ path: string }>('/skills/copy', { path, engine_kind: engine }),
+  resetSkill: (skillPath: string) => post<{ ok: boolean }>('/skills/reset', { skill_path: skillPath }),
 
-  plugins: (engine?: EngineKind) => get<PluginListData>('/plugins', k(engine)),
-  installPlugin: (source: string, engine?: EngineKind) =>
-    post<{ plugin_name: string }>('/plugins/install', { source, ...k(engine) }),
-  uninstallPlugin: (name: string, engine?: EngineKind) =>
-    post<{ plugin_name: string }>('/plugins/uninstall', { plugin_name: name, ...k(engine) }),
-  // 启停 / 升级 / 重试都按包名定向，pi 的 packages 用名字做身份
-  togglePlugin: (name: string, enabled: boolean, engine?: EngineKind) =>
-    post<{ plugin_name: string }>('/plugins/toggle', { plugin_name: name, enabled, ...k(engine) }),
-  upgradePlugin: (name: string, engine?: EngineKind) =>
-    post<{ plugin_name: string }>('/plugins/upgrade', { plugin_name: name, ...k(engine) }),
-  retryPlugin: (name: string, engine?: EngineKind) =>
-    post<{ plugin_name: string }>('/plugins/retry', { plugin_name: name, ...k(engine) }),
-  retryAllPlugins: (engine?: EngineKind) =>
-    post<{ installed: number; failed: number }>('/plugins/retry-all', { ...k(engine) }),
+  plugins: () => get<PluginListData>('/plugins'),
+  installPlugin: (pluginSource: string) =>
+    post<{ plugin_name: string; installed: number; failed: number }>('/plugins/install', { plugin_source: pluginSource }),
+  uninstallPlugin: (pluginName: string) =>
+    post<{ plugin_name: string }>('/plugins/uninstall', { plugin_name: pluginName }),
+  // 启停 / 升级 / 重试都按包名定向：pi 的 packages 用名字做身份
+  togglePlugin: (pluginName: string, pluginEnabled: boolean) =>
+    post<{ plugin_name: string }>('/plugins/toggle', { plugin_name: pluginName, plugin_enabled: pluginEnabled }),
+  upgradePlugin: (pluginName: string) =>
+    post<{ plugin_name: string }>('/plugins/upgrade', { plugin_name: pluginName }),
+  retryPlugin: (pluginName: string) =>
+    post<{ plugin_name: string }>('/plugins/retry', { plugin_name: pluginName }),
+  retryAllPlugins: () => post<{ installed: number; failed: number }>('/plugins/retry-all'),
+  upgradeAllPlugins: () => post<{ installed: number; failed: number }>('/plugins/upgrade-all'),
 
-  // MCP 服务器
-  mcpList: (engine?: EngineKind, live = false) =>
-    get<McpListData>('/mcp', { ...k(engine), ...(live ? { live: '1' } : {}) }),
+  mcpList: () => get<McpListData>('/mcp'),
   mcpSave: (body: {
-    engine_kind?: EngineKind
     server_name: string
     command_text?: string
     server_url?: string
     transport_kind?: string
-    desc?: string
+    mcp_desc?: string
     env_list?: string[]
-    work_dir?: string
-    target_project?: boolean
   }) => post<McpListData>('/mcp/save', body),
-  mcpToggle: (serverName: string, enabled: boolean, engine?: EngineKind) =>
-    post<McpListData>('/mcp/toggle', { server_name: serverName, enabled, ...k(engine) }),
-  mcpRemove: (serverName: string, engine?: EngineKind) =>
-    post<McpListData>('/mcp/remove', { server_name: serverName, ...k(engine) }),
-  // 矩阵页：把另一个引擎里同名服务器的定义复制过来并启停
-  mcpCopyTo: (serverName: string, enabled: boolean, engine: EngineKind) =>
-    post<McpListData>('/mcp/copy', { server_name: serverName, enabled, engine_kind: engine }),
+  mcpToggle: (serverName: string, mcpEnabled: boolean) =>
+    post<McpListData>('/mcp/toggle', { server_name: serverName, mcp_enabled: mcpEnabled }),
+  mcpRemove: (serverName: string) => post<McpListData>('/mcp/remove', { server_name: serverName }),
 
-  // 工作区
+  // ---- 工作区 ----
   files: (path: string) => get<FileList>('/files', { path }),
   filesSearch: (query: string, limit = 50) => get<FileSearch>('/files/search', { query, limit: String(limit) }),
   fileRead: (path: string) => get<FileRead>('/files/read', { path }),
-  gitStatus: (path?: string) => get<GitStatus>('/git/status', { path }),
+  gitStatus: () => get<GitStatus>('/git/status'),
   gitDiff: (path?: string) => get<GitDiff>('/git/diff', { path }),
-  gitHistory: (limit = 50) => get<GitCommit[]>('/git/history', { limit: String(limit) }),
+  gitHistory: (limit = 50) => get<{ commits: GitCommit[] }>('/git/history', { limit: String(limit) }),
   gitCommitDetail: (hash: string) => get<GitCommitDetail>('/git/commit', { hash }),
   gitFileHistory: (path: string, limit = 40) =>
     get<{ commits: GitCommit[] }>('/git/file-history', { path, limit: String(limit) }),
-  gitFileDiff: (hash: string, path: string) =>
-    get<GitDiff>('/git/file-diff', { hash, path }),
+  gitFileDiff: (hash: string, path: string) => get<GitDiff>('/git/file-diff', { hash, path }),
   gitBranches: () => get<GitBranch[]>('/git/branches'),
-  gitStage: (paths: string[]) => post<GitStatus>('/git/stage', { paths }),
-  gitUnstage: (paths: string[]) => post<GitStatus>('/git/unstage', { paths }),
-  gitDiscard: (paths: string[]) => post<GitStatus>('/git/discard', { paths }),
-  gitResolve: (paths: string[]) => post<GitStatus>('/git/resolve', { paths }),
-  gitCommit: (message: string, amend = false) => post<GitCommitResult>('/git/commit', { message, amend }),
-  gitCreateBranch: (name: string) => post<GitStatus>('/git/branch', { name }),
-  gitSwitchBranch: (name: string) => post<GitStatus>('/git/switch', { name }),
-  gitDeleteBranch: (name: string) => post<GitStatus>('/git/branch/delete', { name }),
-  gitMerge: (name: string, rebase = false) => post<GitStatus>('/git/merge', { name, rebase }),
-  gitState: (action: 'continue' | 'abort') => post<GitStatus>('/git/state', { action }),
-  gitInit: (branch = '') => post<GitStatus>('/git/init', { branch }),
-  gitAddRemote: (name: string, url: string) => post<GitStatus>('/git/remote', { name, url }),
-  gitPush: (remote: string, branch: string, force = 'none', setUpstream = false, confirm = '') =>
-    post<GitStatus>('/git/push', {
-      remote_name: remote,
-      branch_name: branch,
-      force,
-      set_upstream: setUpstream,
-      confirm,
-    }),
-  gitPull: (remote: string, branch: string, rebase = false) =>
-    post<GitStatus>('/git/pull', { remote_name: remote, branch_name: branch, rebase }),
-  gitFetch: (remote = '') => post<GitStatus>('/git/fetch', { remote_name: remote }),
+  gitStage: (filePaths: string[]) => post<GitStatus>('/git/stage', { file_paths: filePaths }),
+  gitUnstage: (filePaths: string[]) => post<GitStatus>('/git/unstage', { file_paths: filePaths }),
+  gitDiscard: (filePaths: string[]) => post<GitStatus>('/git/discard', { file_paths: filePaths }),
+  gitResolve: (filePaths: string[]) => post<GitStatus>('/git/resolve', { file_paths: filePaths }),
+  gitCommit: (commitMessage: string, isAmend = false) =>
+    post<GitCommitResult>('/git/commit', { commit_message: commitMessage, is_amend: isAmend }),
+  gitCreateBranch: (branchName: string) => post<GitStatus>('/git/branch', { branch_name: branchName }),
+  gitSwitchBranch: (branchName: string) => post<GitStatus>('/git/switch', { branch_name: branchName }),
+  gitDeleteBranch: (branchName: string) => post<GitStatus>('/git/branch/delete', { branch_name: branchName }),
+  gitMerge: (branchName: string, isRebase = false) => post<GitStatus>('/git/merge', { branch_name: branchName, is_rebase: isRebase }),
+  gitState: (stateAction: 'continue' | 'abort') => post<GitStatus>('/git/state', { state_action: stateAction }),
+  gitInit: (branchName = '') => post<GitStatus>('/git/init', { branch_name: branchName }),
+  gitAddRemote: (remoteName: string, remoteUrl: string) =>
+    post<GitStatus>('/git/remote', { remote_name: remoteName, remote_url: remoteUrl }),
+  gitPush: (body: {
+    remote_name: string
+    branch_name: string
+    force_mode?: string
+    set_upstream?: boolean
+    confirm?: string
+  }) => post<GitStatus>('/git/push', body),
+  gitPull: (remoteName: string, branchName: string, isRebase = false) =>
+    post<GitStatus>('/git/pull', { remote_name: remoteName, branch_name: branchName, is_rebase: isRebase }),
+  gitFetch: (remoteName = '') => post<GitStatus>('/git/fetch', { remote_name: remoteName }),
 
-  reveal: (path: string) => post<{ ok: boolean }>('/system/reveal', { path }),
-  openPath: (path: string) => post<{ ok: boolean }>('/system/open', { path }),
-
-  // 内置帮助文档
-  docs: () => get<HelpDocVO[]>('/docs'),
-  docContent: (name: string) => get<HelpDocRESP>(`/docs/${encodeURIComponent(name)}`),
+  // ---- 系统 / 配置 ----
+  reveal: (targetPath: string) => post<{ ok: boolean }>('/system/reveal', { target_path: targetPath }),
+  openPath: (targetPath: string) => post<{ ok: boolean }>('/system/open', { target_path: targetPath }),
+  configFiles: () => get<{ entries: ConfigFile[] }>('/config/files'),
+  configText: (name: string) => get<ConfigText>('/config/text', { name }),
 }
 
 export type { AskRequest }

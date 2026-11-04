@@ -17,19 +17,19 @@ const { t } = useI18n()
 
 /** 流式只对「最后一块且是正文」走得动增量渲染，别的一律静态渲染。 */
 function isLiveTail(index: number, block: ChatBlock): boolean {
-  return Boolean(props.streaming) && index === props.blocks.length - 1 && block.kind === 'text'
+  return Boolean(props.streaming) && index === props.blocks.length - 1 && block.block_kind === 'text'
 }
 </script>
 
 <template>
   <div class="turn-blocks">
-    <template v-for="(block, index) in blocks" :key="`${runId}-${index}-${block.kind}-${block.tool_call_id ?? ''}`">
-      <ThinkingBlock v-if="block.kind === 'thinking'" :text="block.text ?? ''" :streaming="block.streaming" />
-      <ToolCallCard v-else-if="block.kind === 'tool'" :block="block" />
+    <template v-for="(block, index) in blocks" :key="`${runId}-${index}-${block.block_kind}-${block.tool_call_id ?? ''}`">
+      <ThinkingBlock v-if="block.block_kind === 'thinking'" :text="block.block_text ?? ''" :streaming="isLiveTail(index, block)" />
+      <ToolCallCard v-else-if="block.block_kind === 'tool'" :block="block" />
       <MarkdownBlock
         v-else
-        :text="block.text ?? ''"
-        :streaming="isLiveTail(index, block) || block.streaming"
+        :text="block.block_text ?? ''"
+        :streaming="isLiveTail(index, block) || isLiveTail(index, block)"
         :cache-key="`${runId}:${index}`"
       />
     </template>

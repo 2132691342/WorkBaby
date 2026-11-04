@@ -19,6 +19,14 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+/** 毫秒时间戳 → 「月-日 时:分」。时间戳是 number，模版里不能直接 slice。 */
+function stamp(ms: number): string {
+  if (!ms) return ''
+  const date = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 </script>
 
 <template>
@@ -38,13 +46,13 @@ const { t } = useI18n()
     </div>
 
     <div v-else-if="rows.length" class="recent-list">
-      <button v-for="row in rows" :key="row.id" class="recent-row wb-row-click" @click="emit('open', row.path)">
+      <button v-for="row in rows" :key="row.session_id" class="recent-row wb-row-click" @click="emit('open', row.session_path)">
         <span class="wb-tile wb-tile--sm wb-tile--neutral">
           <AppIcon name="chat" :size="14" />
         </span>
-        <span class="recent-title">{{ row.title || t('common.untitled') }}</span>
-        <span class="recent-meta wb-mono">{{ row.model || '—' }}</span>
-        <span class="recent-time wb-mono">{{ row.updated_at?.slice(5, 16) }}</span>
+        <span class="recent-title">{{ row.session_title || t('common.untitled') }}</span>
+        <span class="recent-meta wb-mono">{{ row.session_model || '—' }}</span>
+        <span class="recent-time wb-mono">{{ stamp(row.updated_at) }}</span>
       </button>
     </div>
 

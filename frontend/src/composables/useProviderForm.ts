@@ -1,41 +1,29 @@
-// 服务商的编辑草稿：表单内容与「打开 / 保存 / 拉模型」三个动作，
-// 以及最近一次拉回的上游清单（弹窗渲染成可点选的 chip）。
-// 草稿与清单必须两份数据（正在编辑的 / 已保存的）——混成一份就取消不了编辑。
-import { ref } from 'vue'
+// 服务商表单：一个域一份草稿 + 一个提交动作。
+// 本壳只有一个引擎，所以不存在「这一行属于哪个引擎」这个维度——
+// 服务商只落在一个 models.json 里。
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
-import type { EngineKind, ModelEntry, ProviderView } from '@/types/api'
+import type { ModelEntry, ProviderView } from '@/types/api'
 
-/** 草稿形态：与 ProviderView 对齐，但密钥是可以改的空串而不是掩码。 */
+/** 新建模型时的默认上下文窗口。 */
+export const DEFAULT_CONTEXT_WINDOW = 200000
+
+/** 新建模型时的默认单次输出上限。 */
+export const DEFAULT_MAX_TOKENS = 8192
+
+/** 表单草稿。 */
 export interface ProviderForm {
-  name: string
+  provider_name: string
   base_url: string
-  api: string
+  api_protocol: string
   api_key: string
   models: ModelEntry[]
 }
 
-/**
- * 模型能力的底：留空不能等于 0。
- *
- * 0 会让水位环永远显示 0%，引擎也拿不到可用预算。
- * 这两个值与引擎侧的默认值一致。
- */
-export const DEFAULT_CONTEXT_WINDOW = 128000
-export const DEFAULT_MAX_TOKENS = 8192
-
-/**
- * 服务商草稿的操作集。
- *
- * reload 是保存后的刷新回调，由调用方给——它还要同时刷新模型表与登录区，
- * 那些不在本文件里。
- */
-export function useProviderForm(
-  reload: () => Promise<void>,
-  /** 当前作用域的引擎：新建时写入哪个引擎的配置 */
-  defaultKind: () => EngineKind,
-) {
+/** 服务商表单的状态与动作。 */
+export function useProviderForm(reload: () => Promise<unknown>) {
   const { t } = useI18n()
   const toasts = useToasts()
 
@@ -43,42 +31,39 @@ export function useProviderForm(
   const saving = ref(false)
   // 正在编辑的服务商名（空表示新建）
   const editing = ref('')
-  // 正在编辑的那一行属于哪个引擎：两个引擎的配置完全独立，同名可以各有一份。
-  const editingKind = ref<EngineKind>('omp')
   // 弹窗里的「拉模型」按钮单独一个标志：它与卡片上的探测不是一回事。
   const fetching = ref(false)
 
   const form = ref<ProviderForm>({
-    name: '',
+    provider_name: '',
     base_url: '',
-    api: 'openai-completions',
+    api_protocol: 'openai',
     api_key: '',
     models: [],
   })
   // 最近一次拉回来的上游清单，弹窗把它渲染成可点选的 chip。
-  // 打开弹窗（新建或编辑）时清空：它是「这次编辑会话」的临时产物。
   const fetched = ref<ModelEntry[]>([])
+
+  /** 编辑态：名字是配置里的键，改它等于新建一条。 */
+  const nameLocked = computed(() => Boolean(editing.value))
 
   function reset(): void {
     editing.value = ''
-    form.value = { name: '', base_url: '', api: 'openai-completions', api_key: '', models: [] }
+    form.value = { provider_name: '', base_url: '', api_protocol: 'openai', api_key: '', models: [] }
     fetched.value = []
   }
 
   function openCreate(): void {
     reset()
-    editingKind.value = defaultKind()
     dialogOpen.value = true
   }
 
   function openEdit(view: ProviderView): void {
     editing.value = view.provider_name
-    // 记住这一行属于哪个引擎：编辑同名服务商时不能写到另一个引擎的文件里。
-    editingKind.value = (view.engine_kind || defaultKind()) as EngineKind
     form.value = {
-      name: view.provider_name,
+      provider_name: view.provider_name,
       base_url: view.base_url,
-      api: view.api || 'openai-completions',
+      api_protocol: view.api_protocol || 'openai',
       // 打码后的密钥不回填：用户没改就提交空串，后端会保留原值
       api_key: '',
       models: (view.models ?? []).map((m) => ({ ...m })),
@@ -97,11 +82,10 @@ export function useProviderForm(
     if (fetching.value) return
     fetching.value = true
     try {
-      const res = await api.fetchProviderModels({
-        engine_kind: editingKind.value,
+      const res = await api.probeProvider({
         provider_name: editing.value || undefined,
         base_url: form.value.base_url.trim(),
-        api: form.value.api,
+        api_protocol: form.value.api_protocol,
         api_key: form.value.api_key.trim(),
       })
       const rows = res.models ?? []
@@ -120,20 +104,18 @@ export function useProviderForm(
   }
 
   async function save(): Promise<void> {
-    const name = form.value.name.trim()
+    const name = form.value.provider_name.trim()
     if (!name) return
     saving.value = true
     try {
-      const payload: Partial<ProviderView> & { models?: ModelEntry[] } = {
+      await api.upsertProvider({
+        provider_name: name,
         base_url: form.value.base_url.trim(),
-        api: form.value.api,
+        api_protocol: form.value.api_protocol,
+        auth_kind: 'api_key',
         api_key: form.value.api_key.trim(),
         models: form.value.models.filter((m) => m.model_id.trim()),
-      }
-      // 写入必须落到一个具体引擎：编辑已有行时用它自己的 engine_kind，
-      // 新建时用当前作用域（「全部」时退回 omp）。
-      const target = editing.value ? editingKind.value : defaultKind()
-      await api.upsertProvider(name, payload, target)
+      })
       dialogOpen.value = false
       toasts.push('ok', t('common.saved'))
       await reload()
@@ -147,11 +129,12 @@ export function useProviderForm(
   return {
     dialogOpen,
     saving,
-    fetching,
     editing,
-    editingKind,
+    fetching,
     form,
     fetched,
+    nameLocked,
+    reset,
     openCreate,
     openEdit,
     fetchModels,

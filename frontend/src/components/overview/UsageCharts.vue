@@ -33,10 +33,7 @@ const windowDays = computed(() =>
 /** 落在时间窗内的会话。 */
 const scoped = computed(() => {
   const since = Date.now() - windowDays.value * 86_400_000
-  return props.rows.filter((row) => {
-    const time = new Date(row.updated_at).getTime()
-    return Number.isNaN(time) ? true : time >= since
-  })
+  return props.rows.filter((row) => (row.updated_at ? row.updated_at >= since : true))
 })
 
 /** 按天（或按小时）的花费分桶。 */
@@ -68,7 +65,7 @@ const byDay = computed(() => {
           })
         : buckets.length - 1 - Math.floor((now.getTime() - time.getTime()) / 86_400_000)
     if (index < 0 || index >= buckets.length) continue
-    buckets[index].cost += row.cost ?? 0
+    buckets[index].cost += row.cost_usd ?? 0
   }
   return buckets
 })
@@ -77,8 +74,8 @@ const byDay = computed(() => {
 const byModel = computed(() => {
   const map = new Map<string, number>()
   for (const row of scoped.value) {
-    const key = row.model || t('common.unknown')
-    map.set(key, (map.get(key) ?? 0) + (row.tokens ?? 0))
+    const key = row.session_model || t('common.unknown')
+    map.set(key, (map.get(key) ?? 0) + (row.total_tokens ?? 0))
   }
   return [...map.entries()]
     .map(([model, tokens]) => ({ model, tokens }))

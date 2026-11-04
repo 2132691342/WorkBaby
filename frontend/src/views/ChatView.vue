@@ -12,7 +12,6 @@ import AskCard from '@/components/chat/AskCard.vue'
 import FilePeekDrawer from '@/components/chat/FilePeekDrawer.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
 import SessionList from '@/components/sessions/SessionList.vue'
-import AgentPanel from '@/components/agents/AgentPanel.vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useComposerActions } from '@/composables/useComposerActions'
@@ -50,8 +49,8 @@ function onKeydown(event: KeyboardEvent) {
     composer.value?.focus()
     return
   }
-  if (event.key === 'Escape' && app.pendingLink) {
-    app.pendingLink = null
+  if (event.key === 'Escape' && false) {
+    void 0
   }
 }
 
@@ -70,7 +69,7 @@ const liveTurn = computed(() => {
     userMessage: turn.user_message,
     blocks: turn.blocks,
     runId: turn.run_id,
-    model: chat.model?.id,
+    model: chat.model?.model_id,
     streaming: chat.streaming,
     errored: Boolean(chat.runError),
     // 脚标秒表的起点：一轮从「发送成功」那一刻起就有耗时，不用等引擎报。
@@ -113,7 +112,7 @@ function onScroll() {
 }
 
 watch(
-  () => [chat.turn?.blocks.length, chat.turn?.blocks.at(-1)?.text?.length, chat.history.length],
+  () => [chat.turn?.blocks.length, chat.turn?.blocks.at(-1)?.block_text?.length, chat.history.length],
   async () => {
     if (!pinned.value) return
     await nextTick()
@@ -241,7 +240,6 @@ watch(
       <ChatNotices />
     </section>
 
-    <AgentPanel />
     <FilePeekDrawer />
   </div>
 </template>

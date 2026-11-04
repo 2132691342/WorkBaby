@@ -4,7 +4,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import MessageTurn from '@/components/chat/MessageTurn.vue'
-import { turnPresence, type TurnUsage } from '@/composables/useMessageFlow'
+import { turnPresence, type TurnReading } from '@/composables/useMessageFlow'
 import type { ChatBlock, HistoryTurn } from '@/types/api'
 
 const props = defineProps<{
@@ -22,7 +22,7 @@ const props = defineProps<{
     errored: boolean
     /** 直播这一轮的开始时刻：传给脚标秒表 */
     startedAt?: number
-    usage?: TurnUsage
+    usage?: TurnReading
   } | null
 }>()
 
@@ -31,8 +31,8 @@ const continuedFlags = computed<boolean[]>(() =>
   props.turns.map((turn, i) => {
     if (i === 0) return false
     const prev = props.turns[i - 1]
-    if (turn.role === 'engine-mark' || prev.role === 'engine-mark') return false
-    return prev.role === turn.role
+    if (turn.turn_role === 'engine-mark' || prev.turn_role === 'engine-mark') return false
+    return prev.turn_role === turn.turn_role
   }),
 )
 
@@ -48,7 +48,7 @@ const liveUserVisible = computed(() => {
   if (!props.live) return false
   const tail = props.turns.at(-1)
   if (!tail) return true
-  return !(tail.role === 'user' && (tail.blocks?.[0]?.text ?? '') === props.live.userMessage)
+  return !(tail.turn_role === 'user' && (tail.turn_blocks?.[0]?.block_text ?? '') === props.live.userMessage)
 })
 
 /**
@@ -70,7 +70,7 @@ const liveAssistantVisible = computed(() => {
  */
 const liveContinued = computed(() => {
   const last = props.turns.at(-1)
-  return last?.role === 'assistant'
+  return last?.turn_role === 'assistant'
 })
 
 /**
@@ -84,7 +84,7 @@ const liveContinued = computed(() => {
  */
 function isRoundEnd(index: number): boolean {
   const next = props.turns[index + 1]
-  return !next || next.role !== props.turns[index].role
+  return !next || next.turn_role !== props.turns[index].turn_role
 }
 </script>
 
@@ -93,13 +93,13 @@ function isRoundEnd(index: number): boolean {
     <MessageTurn
       v-for="(item, index) in props.turns"
       :key="`h-${index}`"
-      :role="item.role"
-      :blocks="item.blocks"
+      :role="item.turn_role"
+      :blocks="item.turn_blocks"
       :run-id="`h-${index}`"
-      :model="item.model"
+      :model="item.turn_model"
       :continued="continuedFlags[index]"
       :history-turn="item"
-      :hid="item.hid"
+      :hid="item.turn_id"
       :show-metrics="isRoundEnd(index)"
     />
 
@@ -107,7 +107,7 @@ function isRoundEnd(index: number): boolean {
       <MessageTurn
         v-if="liveUserVisible"
         role="user"
-        :blocks="[{ kind: 'text', text: props.live.userMessage }]"
+        :blocks="[{ block_kind: 'text', block_text: props.live.userMessage }]"
         :run-id="`${props.live.runId}:user`"
         :continued="false"
       />

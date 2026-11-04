@@ -105,10 +105,10 @@ export function useBuiltinCommands() {
     const turns = chat.history
     for (let i = turns.length - 1; i >= 0; i--) {
       const turn = turns[i]
-      if (!turn || turn.role !== 'assistant') continue
-      const text = turn.blocks
-        .filter((b): b is { kind: 'text'; text: string } => b.kind === 'text' && Boolean(b.text))
-        .map((b) => b.text)
+      if (!turn || turn.turn_role !== 'assistant') continue
+      const text = turn.turn_blocks
+        .filter((b) => b.block_kind === 'text' && Boolean(b.block_text))
+        .map((b) => b.block_text)
         .join('\n')
         .trim()
       if (!text) break
@@ -128,10 +128,10 @@ export function useBuiltinCommands() {
     if (!chat.sessionFile) return t('chat.slashNeedSession')
     const lines: string[] = []
     for (const turn of chat.history) {
-      lines.push(turn.role === 'user' ? '## 我' : '## 助手')
+      lines.push(turn.turn_role === 'user' ? '## 我' : '## 助手')
       lines.push('')
-      for (const block of turn.blocks) {
-        if (block.kind === 'text' && block.text) lines.push(block.text)
+      for (const block of turn.turn_blocks) {
+        if (block.block_kind === 'text' && block.block_text) lines.push(block.block_text)
       }
       lines.push('')
     }
@@ -152,7 +152,7 @@ export function useBuiltinCommands() {
   async function exportHTML(): Promise<string> {
     if (!chat.sessionFile) return t('chat.slashNeedSession')
     const res = await api.exportSessionHTML(chat.sessionFile)
-    const blob = new Blob([res.content], { type: 'text/html;charset=utf-8' })
+    const blob = new Blob([res.file_content], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url

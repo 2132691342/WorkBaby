@@ -8,7 +8,7 @@ import AppRail from '@/components/layout/AppRail.vue'
 import TitleBar from '@/components/layout/TitleBar.vue'
 import ToastHost from '@/components/common/ToastHost.vue'
 import StartupError from '@/components/common/StartupError.vue'
-import { applyCloseDecision, notifyReady } from '@/api/shell'
+import { applyCloseDecision, notifyReady } from '@/api/wails'
 import { useAppStore } from '@/stores/app'
 import { useViewportScale } from '@/composables/useViewportScale'
 

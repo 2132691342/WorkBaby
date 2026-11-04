@@ -40,9 +40,9 @@ const historyFile = ref('')
 // 容器查询会把它整个收起来，需要时再用页头的按钮叫回来。
 const filesOpen = ref(true)
 
-const unstaged = computed(() => (status.value?.changed_files ?? []).filter((f) => !f.staged))
-const staged = computed(() => (status.value?.changed_files ?? []).filter((f) => f.staged))
-const conflicts = computed(() => (status.value?.changed_files ?? []).filter((f) => f.conflict))
+const unstaged = computed(() => (status.value?.changed_files ?? []).filter((f) => !f.is_staged))
+const staged = computed(() => (status.value?.changed_files ?? []).filter((f) => f.is_staged))
+const conflicts = computed(() => (status.value?.changed_files ?? []).filter((f) => f.has_conflict))
 
 async function loadStatus() {
   loadingStatus.value = true
@@ -79,7 +79,7 @@ async function loadExtras() {
     branches.value = []
   }
   try {
-    history.value = await api.gitHistory(40)
+    history.value = await (await api.gitHistory(40)).commits
   } catch {
     history.value = []
   }
@@ -157,7 +157,7 @@ onMounted(refresh)
         <p class="page-sub mono selectable">{{ app.workspace }}</p>
       </div>
       <div class="head-actions">
-        <span v-if="status?.is_repo" class="tag" :class="status.conflict ? 'warn' : ''">
+        <span v-if="status?.is_repo" class="tag" :class="status.has_conflict ? 'warn' : ''">
           <AppIcon name="branch" :size="11" />
           {{ status.branch_name || t('workspace.noCommit') }}
         </span>
@@ -179,7 +179,7 @@ onMounted(refresh)
     </header>
 
     <!-- 不可用：说清原因与下一步 -->
-    <div v-if="status && !status.available" class="notice">
+    <div v-if="status && !status.git_available" class="notice">
       <span class="dot warn" />
       <span>{{ status.unavailable_reason }}</span>
     </div>
@@ -194,7 +194,7 @@ onMounted(refresh)
 
     <template v-else-if="status">
       <!-- 中间态横幅：冲突时的处置入口 -->
-      <div v-if="status.repo_state !== 'none' || status.conflict" class="notice warn">
+      <div v-if="status.repo_state !== 'none' || status.has_conflict" class="notice warn">
         <span class="dot warn" />
         <span>{{ status.repo_state_detail || t('workspace.inProgress') }}</span>
         <button class="wb-btn sm" :class="{ 'is-loading': git.pending.value === 'resolve' }" :disabled="!conflicts.length || Boolean(git.pending.value)" @click="resolveConflicts">

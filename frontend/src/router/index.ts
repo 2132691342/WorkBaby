@@ -15,7 +15,6 @@ const router = createRouter({
     { path: '/plugins', name: 'plugins', component: () => import('@/views/PluginsView.vue'), meta: { title: '插件' } },
     { path: '/mcp', name: 'mcp', component: () => import('@/views/McpView.vue'), meta: { title: 'MCP' } },
     { path: '/usage', name: 'usage', component: () => import('@/views/UsageView.vue'), meta: { title: '用量' } },
-    { path: '/help/:name?', name: 'help', component: () => import('@/views/HelpView.vue'), meta: { title: '帮助' } },
     { path: '/settings', name: 'settings', component: () => import('@/views/SettingsView.vue'), meta: { title: '设置' } },
   ],
 })

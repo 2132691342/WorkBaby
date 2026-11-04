@@ -15,7 +15,7 @@ import { useComposerDraft } from '@/composables/useComposerDraft'
 import { useAttachments, baseName, toWorkspaceRelative } from '@/composables/useAttachments'
 import { useComposerMenu } from '@/composables/useComposerMenu'
 import { useComposerActions } from '@/composables/useComposerActions'
-import { pickFiles } from '@/api/shell'
+import { pickFiles } from '@/api/wails'
 import type { MenuItem } from '@/composables/useComposerMenu'
 
 const chat = useChatStore()
@@ -256,7 +256,7 @@ const hint = computed(() => {
 
 /** 当前模型收不收图片：收才让用户粘图，否则那条提示会一直失败。 */
 const imagesAllowed = computed(() => {
-  const input = chat.model?.input
+  const input = chat.model?.input_kinds
   if (!input || input.length === 0) return true
   return input.includes('image')
 })

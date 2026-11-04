@@ -25,9 +25,9 @@ const counts = computed(() => {
   let tokens = 0
   let cost = 0
   for (const row of app.sessions) {
-    messages += row.messages ?? 0
-    tokens += row.tokens ?? 0
-    cost += row.cost ?? 0
+    messages += row.message_count ?? 0
+    tokens += row.total_tokens ?? 0
+    cost += row.cost_usd ?? 0
   }
   return { sessions: app.sessions.length, messages, tokens, cost }
 })
@@ -72,7 +72,7 @@ function onChanged() {
     <header class="page-head">
       <div>
         <h1 class="page-title">{{ t('sessions.title') }}</h1>
-        <p class="page-sub">{{ t('sessions.subtitle', { engine: app.active }) }}</p>
+        <p class="page-sub">{{ t('sessions.subtitle', { engine: 'pi' }) }}</p>
       </div>
       <div class="head-actions">
         <div class="seg">

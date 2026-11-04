@@ -34,9 +34,6 @@ const label = computed(() => {
       <AppIcon name="chevron" :size="12" :class="['chev', { open }]" />
     </button>
     <div v-if="open" class="progress-body">
-      <code v-if="props.progress?.command" class="progress-cmd mono selectable">
-        {{ props.progress.command }}
-      </code>
       <pre class="progress-log selectable">{{ (props.progress?.lines ?? []).join('\n') }}</pre>
     </div>
   </div>

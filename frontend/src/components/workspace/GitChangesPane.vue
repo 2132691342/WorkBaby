@@ -76,7 +76,7 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
   let adds = 0
   let dels = 0
   for (const f of files) {
-    adds += f.additions ?? 0
+    adds += f.insertions ?? 0
     dels += f.deletions ?? 0
   }
   return { adds, dels }

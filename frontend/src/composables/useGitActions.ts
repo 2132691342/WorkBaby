@@ -198,7 +198,7 @@ export function useGitActions(
     }
     await act(
       `push:${force}`,
-      () => api.gitPush(soleRemote(), branch, force, !status()?.upstream_ref, confirm),
+      () => api.gitPush({ remote_name: soleRemote(), branch_name: branch, force_mode: force, set_upstream: !status()?.upstream_ref, confirm }),
       t('workspace.pushed', { branch }),
     )
   }

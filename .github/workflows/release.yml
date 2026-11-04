@@ -15,34 +15,47 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # wails3 用 git describe 取版本号，浅克隆会拿不到 tag
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: 校验版本号一致
+      - name: 安装 wails3
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+      - name: 校验 tag 与 git describe 一致
         shell: pwsh
         run: |
-          $tag = $env:GITHUB_REF_NAME.TrimStart('v')
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          if ($pkg.version -ne $tag) {
-            Write-Error "版本不一致：tag=$tag 而 package.json version=$($pkg.version)"
+          $tag = $env:GITHUB_REF_NAME
+          $desc = git describe --tags --exact-match HEAD 2>$null
+          if ($desc -ne $tag) {
+            Write-Error "tag 与 HEAD 不匹配：tag=$tag describe=$desc"
             exit 1
           }
           Write-Output "版本一致：$tag"
 
-      - name: 安装主进程依赖
-        run: npm ci
+      - name: 测试
+        run: go test ./... -count=1
 
-      - name: 安装前端依赖
-        working-directory: frontend
-        run: npm ci
+      - name: 打包 NSIS 安装器
+        run: wails3 package -config ./build/config.yml
 
-      - name: 构建
-        run: npm run build
-
-      - name: 打包并发布 Release
+      - name: 发布 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win nsis --publish always
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Recurse -Include *installer*.exe,*.exe -Path bin,build/windows/nsis -ErrorAction SilentlyContinue |
+                   Where-Object { $_.Name -like '*WorkBaby*' } |
+                   Select-Object -ExpandProperty FullName
+          if (-not $files) { Write-Error "没找到安装包产物"; exit 1 }
+          gh release create $env:GITHUB_REF_NAME $files --generate-notes

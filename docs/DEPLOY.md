@@ -1,64 +1,82 @@
-# 部署 · DEPLOY
+# 打包与发布
 
-## 打包形态
+## 产物形态
 
-electron-builder → NSIS 安装包（x64，per-user 安装，可选安装目录）。
-产物输出 `release/`（已 gitignore）。
+安装态是**一个目录**，不是单文件：
 
-随包分发的资产（`extraResources`，装到 `<安装目录>\resources\assets`）：
-
-| 资产 | 内容 | 作用 |
-|---|---|---|
-| `assets/runtime/*.zip` | node v24.21 / PortableGit / Python 3.13 | 首启后台解压进数据目录 |
-| `assets/skills/` | 内置技能包 | 首启复制进沙箱技能目录 |
-| `assets/docs/` | 帮助文档 markdown | 帮助页直读 |
-
-代码产物：主进程 esbuild 打成 `dist/main/index.js`（CJS 单文件，
-electron 与 better-sqlite3 保持外部依赖），preload 打成 `dist/preload/index.cjs`，
-前端 Vite 产物 `frontend/dist/`。better-sqlite3 的原生模块经 `asarUnpack` 解包。
-
-## 版本规则
-
-- 版本号唯一落点：根 `package.json` 的 `version`。
-- 发布 = 打 `v<版本>` tag（如 `v1.0.0`），release workflow 校验
-  tag 与 package.json 一致后构建发布；不一致直接失败。
-- 数据目录不区分版本；应用升级只换代码与资产，用户数据原地保留
-  （运行时已解压则跳过，pi 按需在应用页升级）。
-
-## CI/CD
-
-| workflow | 触发 | 内容 |
-|---|---|---|
-| `.github/workflows/ci.yml` | push / PR → main | npm ci → typecheck → vitest → build（含前端 vue-tsc） |
-| `.github/workflows/release.yml` | push tag `v*` | 版本校验 → npm ci ×2 → build → `electron-builder --win nsis --publish always` |
-
-release 需要 `GITHUB_TOKEN`（workflow 内置注入）创建 Release 并上传安装包。
-CI 里设置 `ELECTRON_SKIP_BINARY_DOWNLOAD=1` 跳过 Electron 二进制下载
-（构建与测试用不到，打包由 electron-builder 自行拉取）。
-
-## 发布步骤
-
-```bash
-# 1. 确认门禁全绿
-npm run typecheck && npx vitest run && npm run build
-
-# 2. 确认 package.json version 与目标 tag 一致
-
-# 3. 打 tag 并推送（已存在则强制覆盖）
-git tag -f v1.0.0
-git push origin main
-git push origin -f v1.0.0
-
-# 4. GitHub Actions 的 Release workflow 出安装包并挂到 Release 页
+```
+WorkBaby\
+├── WorkBaby.exe          # Go 编译的壳（前端已 embed 进 exe）
+├── assets\
+│   ├── runtime\          # node / PortableGit / Python 三个 zip
+│   └── skills\           # 内置技能包（22 个目录）
+└── 卸载程序等 NSIS 产物
 ```
 
-## 本地出包验证
+前端产物经 `//go:embed all:frontend/dist` 编进 exe，**不额外分发静态文件**。
+运行时 zip 走 `assets\runtime\`，首启解压到数据目录——不预解压进安装包，
+否则安装体积翻倍且用户重装才能升级运行时。
+
+## 版本号
 
 ```bash
-npm run dist        # 产物在 release/，安装后验证：
+go build -ldflags "-X main.version=1.2.3" -o bin/WorkBaby.exe .
 ```
 
-- 首启：窗口就绪 → 运行时后台解压（应用页可见三个内置运行时行）
-- 应用页：安装 pi → 版本显示正常
-- 模型页：填服务商 Key → 测试连通 → 会话页开聊
-- 关窗默认收托盘，托盘可还原 / 退出
+版本跟着 git tag 走；不注入时是 `dev`，本地 `go run` 出来的就是开发版，
+不会误当成正式版。前端可从 `Endpoint().version` 读到它显示在关于页。
+
+## 打包命令
+
+```bash
+task build      # 只产 exe，用于本机验证
+task package    # NSIS 安装包，per-user 安装、可选安装目录
+```
+
+`task package` 内部走 `build/windows/Taskfile.yml`。安装器要点：
+
+- **per-user 安装**，不要求管理员权限（数据目录本来就在 `%LOCALAPPDATA%`）
+- 允许用户改安装目录
+- **必须把 `assets/` 一起装进去**：`build/windows/nsis/project.nsi` 是手维护文件，
+  上游模板只装 exe，不带 assets——少了运行时 zip 装完就是一堆不能跑的文件。
+  该文件只能写 ASCII（NSIS 按 ANSI 代码页读脚本），详见 `build/windows/nsis/README.md`
+- 卸载不删数据目录——用户的会话与配置在 `%LOCALAPPDATA%\WorkBaby`，
+  要删由用户在设置页手动触发
+
+产物体检：安装包应在 **120MB 上下**（= exe 32MB + assets 118MB 压缩后）。
+只有十几 MB 说明 assets 没打进去，装完的机器上不会有任何运行时。
+
+## CI
+
+| 工作流 | 触发 | 做什么 |
+|---|---|---|
+| `.github/workflows/ci.yml` | push / PR → main | gofmt 检查 → `go vet` → `go test` → `npm ci` + 前端类型检查与产物 → `go build ./...` |
+| `.github/workflows/release.yml` | push tag `v*` | 装 wails3 → 校验 tag 与 HEAD 一致 → `go test` → `wails3 package` → `gh release create` 上传安装包 |
+
+CI 需要 `windows-latest`：Wails3 的 cgo 胶水与 WebView2 依赖只在 Windows 上编。
+
+## 发布前自查
+
+```bash
+gofmt -l backend main.go    # 应无输出
+go vet ./...                # 应无输出
+go test ./... -count=1      # 全绿
+task build                  # exe 产出并可启动
+```
+
+安装后验证清单：
+
+1. 首次启动窗口按时出现（不黑屏、不假死）
+2. 概览页进度条走完：运行时 → 技能 → 插件
+3. 设置页诊断：node / git / python / pi 四个版本号都有值
+4. 对话页发一句话能流式回来
+5. 插件页能停用一个、再启用回来
+6. 技能页能停用一个、再启用回来（`skills\` 与 `skills_disabled\` 之间搬移）
+7. 关窗收托盘、托盘菜单能唤回
+8. 卸载后 `%LOCALAPPDATA%\WorkBaby` 仍在（数据未丢）
+
+## 局限
+
+- 只支持 Windows x64
+- 插件安装依赖 npm 源可达；离线机器只能用到随包的 pi 本体与技能
+- 引擎能力以 pi 为准

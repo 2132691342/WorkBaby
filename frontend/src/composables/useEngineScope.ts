@@ -1,35 +1,25 @@
-// 管理页的引擎作用域：omp / pi / 全部。每页一份而不复用对话的「当前引擎」——
-// 「我在跟谁说话」与「我在管谁的东西」是两个问题，绑在一起会顺手切丢当前会话。
-// 落在 sessionStorage：页面间反复进出要用，但不该跨重启保留。
+// 管理页的引擎作用域。
+//
+// 本壳只有一个引擎，作用域这个概念已经没有意义：要么全看，要么没得看。
+// 保留这个模块是为了让调用方不必为「只有一个」写特例，
+// 同时把「将来可能不止一个」的扩展点留在这一处。
 import { ref } from 'vue'
-import type { EngineKind } from '@/types/api'
 
-/** 作用域：某个引擎，或两个都要。 */
-export type EngineScope = EngineKind | 'all'
-
-const KEY_PREFIX = 'omp.scope.'
+/** 作用域：唯一引擎，或「全部」（当前与唯一引擎等价）。 */
+export type EngineScope = 'pi' | 'all'
 
 /**
  * 一个页面的作用域状态。
  *
- * page 是持久化用的键后缀（models / skills / plugins / mcp），互不干扰：
- * 看技能时选「全部」不该让模型页也变成全部。
+ * page 是持久化用的键后缀（models / skills / plugins / mcp），互不干扰。
+ * 只有一个引擎时它的值恒为 'pi'，set 是空操作。
  */
-export function useEngineScope(page: string, fallback: EngineScope = 'all') {
-  const key = KEY_PREFIX + page
-  const stored = sessionStorage.getItem(key)
-  const scope = ref<EngineScope>(normalize(stored) ?? fallback)
-
+export function useEngineScope(page: string) {
+  const key = `wb.scope.${page}`
+  const scope = ref<EngineScope>('pi')
+  void key
   function set(next: EngineScope) {
-    scope.value = next
-    sessionStorage.setItem(key, next)
+    scope.value = next === 'all' ? 'all' : 'pi'
   }
-
   return { scope, set }
-}
-
-// normalize 把存下来的字符串收窄成合法作用域；非法值当没存过。
-function normalize(raw: string | null): EngineScope | null {
-  if (raw === 'omp' || raw === 'pi' || raw === 'all') return raw
-  return null
 }

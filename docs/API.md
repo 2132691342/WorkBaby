@@ -1,7 +1,7 @@
 # API 契约 · API
 
-- baseURL：`http://127.0.0.1:{port}/api/v1`。端口与令牌由主进程经 preload 桥
-  `wb:endpoint` 回填（`wb_base_url` 已含 `/api/v1`）。
+- baseURL：`http://127.0.0.1:{port}/api/v1`。端口与令牌由 Wails 绑定的
+  `Endpoint()` 回填（`base_url` 已含 `/api/v1`）。
 - 鉴权：每个请求带 `X-Desktop-Token` 头；SSE 用 `?token=` 查询参数
   （EventSource 带不了自定义头）。令牌每次启动随机，不匹配回 HTTP 401。
 - 只允许 GET / POST；写操作语义靠路径段表达（`/sessions/delete`）。
@@ -14,8 +14,6 @@
 `code` 是数字字符串，`"0"` 成功；码表见 [ERROR-CODES.md](ERROR-CODES.md)。
 用户可读文案在 `message`，`detail` 给诊断面板。未知接口回 `1404`。
 
-`?engine=` 一律可省——本壳只有 pi 一个引擎，参数兼容旧形参但被忽略。
-
 ## 引导 / 设置 / 偏好
 
 | 端点 | 方法 | 入参 | 出参 data |
@@ -25,11 +23,9 @@
 | `/settings/save` | POST | 键值对象 | 保存后的全量键值 |
 | `/settings/workspace` | POST | `{ path }` | `{ workspace }`；切工作区会重建引擎绑定 |
 | `/settings/workspace/forget` | POST | `{ path }` | `{ workspaces }` 剩余历史 |
-| `/settings/engine` | POST | `{ engine }` | `{ engine: 'pi' }`（兼容保留） |
 | `/logs` | GET | — | `{ lines }` 当日日志尾部 |
 | `/prefs` | GET | — | 自启 / 恢复会话 / 关窗行为 / 数据目录等 |
 | `/prefs/autostart` `restore` `close-action` | POST | `{ enabled }` / `{ action }` | 更新后的 prefs |
-| `/prefs/session` | POST | `{ engine_kind, session_file }` | 记住最后会话 |
 | `/prefs/data-dir` | POST | — | 打开数据目录 |
 
 ## 引擎与应用
@@ -38,7 +34,7 @@
 |---|---|---|
 | `/engines` | GET | 引擎身份 + 布局 + 存活实例 + 探测时间戳 |
 | `/engines/detect` | POST | 重新探测版本，刷新时间戳并广播 |
-| `/engines/restart` / `stop` | POST | 杀 RPC 子进程，下次用到自动重拉 |
+| `/engines/restart` | POST | 杀 RPC 子进程，下次用到自动重拉 |
 | `/health/engines` | GET | 健康面板：安装态、运行态、会话/技能/插件/MCP 计数 |
 | `/apps` | GET | 应用行：pi 本体 + 三个内置运行时（安装态 / 版本 / 可执行路径） |
 | `/apps/install` `update` `uninstall` | POST | `{ engine: 'pi' }`；内置 npm 全程经 SSE `app:progress` 报进度 |
@@ -68,7 +64,6 @@
 | `/chat/export-html` | POST | `{ session }` → `{ file_name, content }` |
 | `/chat/model` / `thinking` / `autocompact` | POST | 会话内切换模型 / 思考档 / 自动压缩 |
 | `/messages/hide` / `unhide` | POST | `{ session, hid }`；隐藏台账存 SQLite，会话文件不动 |
-| `/agents/*` | GET/POST | 子代理空实现（pi 无此能力，能力位已关闭） |
 
 附件形状：`{ kind: 'file', file_path }` 走文本引用；`{ kind: 'image', image_base64, image_mime }`
 以 base64 进引擎 `images` 字段——这是唯一的二进制通道。
@@ -83,7 +78,6 @@
 | `/providers/delete` | POST | 服务商与凭据一并清 |
 | `/providers/models` | POST | 按 API 协议拉远端模型清单（openai / anthropic / google 三种） |
 | `/providers/test` | POST | 连通性测试，回 `{ ok, model_count, message }` |
-| `/login/providers` / `start` | GET/POST | 兼容保留：本壳密钥走模型页填写，不提供 OAuth 流 |
 
 ## 技能 / 插件 / MCP
 
@@ -93,15 +87,16 @@
 | `/skills/content` / `save` | GET/POST | 读写 SKILL.md（路径白名单校验） |
 | `/skills/toggle` | POST | `{ path, enabled }`；实现是目录搬进/搬出禁用区 |
 | `/skills/reset` | POST | `{ path }`；内置技能用随包原件覆盖本地改动 |
-| `/skills/create` / `delete` / `copy` | POST | 新建托管技能 / 删除 / 项目技能抄进托管区 |
-| `/plugins` | GET | 内置清单 ∪ `settings.json` 的 `packages` 声明；带安装进度与失败原因 |
+| `/skills/create` / `delete` | POST | 新建托管技能 / 删除 |
+| `/plugins` | GET | 内置清单 ∪ `settings.json` 的 `packages` 声明；带安装进度、`plugin_upgradable` 与失败原因 |
 | `/plugins/install` | POST | `{ source }` 缺 `npm:` 前缀自动补；经内置 npm 装进沙箱 |
 | `/plugins/retry` / `retry-all` | POST | 单个 / 全部重试内置插件安装 |
 | `/plugins/uninstall` | POST | `{ plugin_name }`；撤声明 + 删包目录 |
 | `/plugins/toggle` | POST | `{ plugin_name, enabled }`；只改 `packages` 条目（`autoload:false` = 停用） |
 | `/plugins/upgrade` | POST | `{ plugin_name }`；按清单 pin 重装 |
+| `/plugins/upgrade-all` | POST | 只升版本与清单不符的内置插件；回 `{ installed, failed }` |
 | `/mcp` | GET | `?live=1`（当前不做连通探测，恒 `live_checked:false`） |
-| `/mcp/save` / `toggle` / `remove` / `copy` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv，`env_list` 逐行 `KEY=VALUE` |
+| `/mcp/save` / `toggle` / `remove` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv，`env_list` 逐行 `KEY=VALUE` |
 
 **插件身份是包名不是来源串**：`pi:<name>@<ver>` 里的版本会变，包名不会。
 启停写对象形态 `{ source, autoload: false }`，启用写回裸来源串——这是 pi 自己的表达法。
@@ -116,7 +111,6 @@
 | `/git/*` | GET/POST | status / diff / history / commit / file-history / file-diff / branches / stage / unstage / discard / resolve / commit / branch(+delete) / switch / merge / state / init / remote / push / pull / fetch；全部走内置 git.exe |
 | `/system/reveal` / `open` | POST | 资源管理器定位 / 系统默认程序打开 |
 | `/config/files` / `text` | GET | 引擎配置原文（settings/models/mcp/auth/AGENTS + 项目级），白名单校验 |
-| `/docs` / `docs/:name` | GET | 内置帮助文档（assets/docs 的 markdown） |
 
 ## SSE 事件词汇（`/events`）
 

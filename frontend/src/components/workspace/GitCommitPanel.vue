@@ -76,9 +76,9 @@ defineExpose({ reset })
       v-for="branch in props.branches"
       :key="`${branch.remote_name}:${branch.branch_name}`"
       class="branch-line wb-row-click"
-      :class="{ active: branch.current }"
-      :disabled="branch.current || Boolean(props.pending)"
-      :title="branch.current ? t('workspace.currentBranch') : t('workspace.switchHere')"
+      :class="{ active: branch.is_current }"
+      :disabled="branch.is_current || Boolean(props.pending)"
+      :title="branch.is_current ? t('workspace.currentBranch') : t('workspace.switchHere')"
       @click="emit('switchBranch', branch.branch_name)"
     >
       <AppIcon name="branch" :size="12" />
@@ -88,7 +88,7 @@ defineExpose({ reset })
         ↑{{ branch.ahead }} ↓{{ branch.behind }}
       </span>
       <!-- 行内动作：悬停才出现。一列分支每行都挂两个按钮就是一片按钮墙。 -->
-      <span v-if="!branch.current" class="branch-acts">
+      <span v-if="!branch.is_current" class="branch-acts">
         <button class="act" :disabled="Boolean(props.pending)" @click.stop="emit('mergeBranch', branch.branch_name)">
           {{ t('workspace.merge') }}
         </button>

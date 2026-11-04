@@ -91,7 +91,7 @@ async function pickFile(filePath: string) {
   pickedFile.value = filePath
   diffLoading.value = true
   try {
-    fileDiff.value = await api.gitFileDiff(detail.value.commit_hash, filePath)
+    fileDiff.value = await api.gitFileDiff(detail.value.commit.commit_hash, filePath)
   } catch {
     fileDiff.value = null
   } finally {
@@ -143,10 +143,10 @@ defineExpose({ reload: loadFileHistory })
           @click="open(item)"
         >
           <span class="hash mono">{{ item.short_hash }}</span>
-          <span class="subject">{{ item.subject }}</span>
+          <span class="subject">{{ item.commit_subject }}</span>
           <span class="readout">{{ item.author_name }} · {{ relative(item.commit_time) }}</span>
           <span class="num">
-            <b class="add">+{{ item.additions }}</b>
+            <b class="add">+{{ item.insertions }}</b>
             <b class="del">−{{ item.deletions }}</b>
           </span>
         </button>
@@ -154,17 +154,17 @@ defineExpose({ reload: loadFileHistory })
         <div v-if="openHash === item.commit_hash" class="commit-detail">
           <div v-if="detailLoading" class="empty-mini">{{ t('common.loading') }}</div>
           <template v-else-if="detail">
-            <p v-if="detail.body" class="commit-body selectable">{{ detail.body }}</p>
+            <p v-if="detail.commit_body" class="commit-body selectable">{{ detail.commit_body }}</p>
             <div class="detail-meta">
-              <span class="readout">{{ detail.commit_hash }}</span>
-              <span v-if="detail.parent_hash.length" class="readout">
-                {{ t('history.parent') }} {{ detail.parent_hash[0]?.slice(0, 7) }}
+              <span class="readout">{{ detail.commit.commit_hash }}</span>
+              <span v-if="detail.parent_hashes.length" class="readout">
+                {{ t('history.parent') }} {{ detail.parent_hashes[0]?.slice(0, 7) }}
               </span>
             </div>
 
             <div class="detail-files">
               <button
-                v-for="changed in detail.changed_file"
+                v-for="changed in detail.changed_files"
                 :key="changed.file_path"
                 class="detail-file"
                 :class="{ active: pickedFile === changed.file_path }"
@@ -172,7 +172,7 @@ defineExpose({ reload: loadFileHistory })
               >
                 <span class="path">{{ changed.file_path }}</span>
                 <span class="num">
-                  <b class="add">+{{ changed.additions }}</b>
+                  <b class="add">+{{ changed.insertions }}</b>
                   <b class="del">−{{ changed.deletions }}</b>
                 </span>
               </button>
@@ -264,13 +264,13 @@ defineExpose({ reload: loadFileHistory })
   box-shadow: inset 2px 0 0 var(--wb-brand);
 }
 
-.hash {
+.commit_hash {
   flex: none;
   font-size: var(--wb-fs-3xs);
   color: var(--wb-brand);
 }
 
-.subject {
+.commit_subject {
   flex: 1;
   min-width: 0;
   font-size: var(--wb-fs-xs);

@@ -81,15 +81,15 @@ export function useComposerMenu(
     // 同一个动作出现两次只会让人犹豫点哪个。内置的语义更明确，留它。
     const builtinKeys = new Set<string>(builtinItems.map((b) => b.key))
     const engineItems: MenuItem[] = chat.commands
-      .filter((c: SlashCommand) => !builtinKeys.has(c.name))
+      .filter((c: SlashCommand) => !builtinKeys.has(c.command_name))
       .map((c: SlashCommand) => {
         // pi 把技能报成 skill:名字：显示名去掉前缀，选中时仍填完整命令。
-        const isSkill = c.name.startsWith('skill:')
-        const base = c.description || c.input?.hint || ''
+        const isSkill = c.command_name.startsWith('skill:')
+        const base = c.command_desc || ''
         return {
-          key: c.name,
-          name: isSkill ? c.name.slice('skill:'.length) : c.name,
-          fill: c.name,
+          key: c.command_name,
+          name: isSkill ? c.command_name.slice('skill:'.length) : c.command_name,
+          fill: c.command_name,
           desc: isSkill ? (base ? `${t('chat.slashSkillTag')} · ${base}` : t('chat.slashSkillTag')) : base,
           source: 'engine' as const,
         }

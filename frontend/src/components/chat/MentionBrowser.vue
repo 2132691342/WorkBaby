@@ -51,12 +51,12 @@ const shown = computed<Row[]>(() => {
   }
   const q = filter.value.trim().toLowerCase()
   const list = q
-    ? entries.value.filter((e) => e.dir || e.entry_name.toLowerCase().includes(q))
+    ? entries.value.filter((e) => e.entry_is_dir || e.entry_name.toLowerCase().includes(q))
     : entries.value
   return list.map((e) => ({
     name: e.entry_name,
     path: dirPath.value ? `${dirPath.value}/${e.entry_name}` : e.entry_name,
-    isDir: e.dir,
+    isDir: e.entry_is_dir,
   }))
 })
 

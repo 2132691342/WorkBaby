@@ -1,0 +1,75 @@
+version: '3'
+
+# 项目级任务入口。开发期的日常命令都收口到这里，不散落在文档里的裸 go 命令。
+
+vars:
+  APP_NAME: "WorkBaby"
+  BIN_DIR: "bin"
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # 只面向 Windows：不做 GOOS 派发，也没有 darwin/linux/android/ios 的 include。
+  GOOS: "windows"
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+
+tasks:
+  build:
+    summary: Builds the application
+    cmds:
+      - task: "{{.GOOS}}:build"
+
+  package:
+    summary: Builds the application and packages it (NSIS installer)
+    cmds:
+      - task: "{{.GOOS}}:package"
+        vars:
+          INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "user"}}'
+    vars:
+      INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "user"}}'
+
+  run:
+    summary: Runs the application
+    cmds:
+      - task: "{{.GOOS}}:run"
+
+  dev:
+    summary: Runs the application in development mode
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  generate:bindings:
+    summary: Generates the frontend bindings
+    cmds:
+      - task: common:generate:bindings
+
+  fmt:
+    summary: Formats all Go code (gofmt -w)
+    cmds:
+      - gofmt -w backend main.go
+
+  fmt:check:
+    summary: Verifies gofmt formatting; used by CI
+    shell: pwsh
+    cmds:
+      - |
+        $bad = gofmt -l backend main.go
+        if ($bad) { Write-Host "未格式化:"; Write-Host $bad; exit 1 }
+
+  vet:
+    summary: Runs go vet on backend and the assembly root
+    cmds:
+      - go vet ./backend/... .
+
+  test:
+    summary: Runs the backend test suite once
+    cmds:
+      - go test ./backend/... -count=1
+
+  # 一条命令跑完所有门禁。改完东西想知道「有没有弄坏什么」就跑这个。
+  check:
+    summary: Runs every local gate (format, vet, tests)
+    cmds:
+      - task: fmt:check
+      - task: vet
+      - task: test

@@ -1,106 +1,82 @@
 <script setup lang="ts">
-// 一条技能：名字 + 分组 + 依赖提示 + 启停 + 查看 / 重置 / 删除。
-// 只服务 pi 一个引擎，所以不再做多引擎矩阵；分组直接来自后端的清单标签。
+// 一条技能：名字 + 分组 + 开关 + 查看 / 删除 / 重置。
+// 只有一条技能对应一个目录，所以启停就是「把目录搬进/搬出禁用区」。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import AppIcon from '@/components/common/AppIcon.vue'
-import type { SkillMatrixRow } from '@/types/api'
+import type { SkillRow } from '@/types/api'
 
 const props = defineProps<{
-  row: SkillMatrixRow
-  /** 正在切启停的这一条（空表示空闲） */
+  row: SkillRow
+  /** 正在切启停的那一条目录名（空表示空闲） */
   toggling: string
-  /** 正在删的这一条（空表示空闲） */
+  /** 正在删的那一条目录名（空表示空闲） */
   deleting: string
-  /** 正在重置的这一条（空表示空闲） */
+  /** 正在重置的那一条目录名（空表示空闲） */
   resetting: string
 }>()
 
 const emit = defineEmits<{
-  toggle: [enabled: boolean]
-  view: []
-  remove: []
-  reset: []
-  copy: []
+  toggle: [row: SkillRow, enabled: boolean]
+  view: [row: SkillRow]
+  remove: [row: SkillRow]
+  reset: [row: SkillRow]
 }>()
 
 const { t } = useI18n()
 
-/** 这一行代表的那份技能（单引擎，取唯一一格）。 */
-const cell = computed(() => props.row.cells.pi ?? props.row.cells.omp)
 const busy = computed(() => Boolean(props.toggling || props.deleting || props.resetting))
+const isToggling = computed(() => props.toggling === props.row.skill_dir_name)
+const isDeleting = computed(() => props.deleting === props.row.skill_dir_name)
+const isResetting = computed(() => props.resetting === props.row.skill_dir_name)
 
-/** 项目技能不由本壳托管：可看不可改。 */
-const readonly = computed(() => cell.value?.source === 'project')
-/** 只有托管区里的技能能重置回原件。 */
-const resettable = computed(() => Boolean(cell.value?.skill_modified && cell.value?.editable))
-/** 只有托管区里的技能能被删。 */
-const removable = computed(() => Boolean(cell.value?.editable && cell.value?.source !== 'project'))
-/** 工作区技能可以抄进托管区长期化（唯一出路）。 */
-const copyable = computed(() => cell.value?.source === 'project')
-
-function sourceLabel(): string {
-  const source = cell.value?.source
-  return source ? t(`skills.sources.${source}`) : ''
-}
+/** 项目技能属于那个仓库，不归这里删；随包附带与内置可以删（删了不回来）。 */
+const removable = computed(() => props.row.skill_editable)
+/** 只有内置技能能从随包原件恢复。 */
+const resettable = computed(() => props.row.skill_source === 'builtin' && props.row.skill_modified)
 </script>
 
 <template>
   <article class="skill-row card-pad">
     <div class="skill-main">
       <div class="skill-head">
-        <span class="skill-name">{{ props.row.name }}</span>
-        <span class="tag">{{ sourceLabel() }}</span>
-        <span v-if="cell?.skill_group" class="tag muted">{{ cell.skill_group }}</span>
-        <span v-if="cell?.skill_modified" class="tag warn">{{ t('skills.modified') }}</span>
-        <span v-if="readonly" class="tag readonly-tag">{{ t('skills.readonly') }}</span>
+        <span class="skill-name">{{ row.skill_name }}</span>
+        <span v-if="row.skill_group" class="tag">{{ row.skill_group }}</span>
+        <span v-if="row.skill_modified" class="tag modified-tag">{{ t('skills.modified') }}</span>
+        <span v-if="row.skill_requires" class="tag muted" :title="row.skill_requires">
+          {{ t('skills.requires', { dep: row.skill_requires }) }}
+        </span>
       </div>
-      <p v-if="props.row.description" class="skill-desc">{{ props.row.description }}</p>
-      <p v-if="cell?.skill_requires" class="skill-req">
-        <AppIcon name="alert" :size="11" />
-        {{ t('skills.requires', { what: cell.skill_requires }) }}
-      </p>
+      <p v-if="row.skill_desc" class="skill-desc">{{ row.skill_desc }}</p>
     </div>
 
-    <div class="skill-switch">
+    <div class="skill-switch" :title="row.skill_dir">
       <el-switch
-        v-if="cell"
-        :model-value="cell.enabled"
-        :loading="props.toggling === props.row.name"
-        :disabled="busy && props.toggling !== props.row.name"
-        :title="cell.enabled ? t('common.enabled') : t('common.disabled')"
-        @change="(value: string | number | boolean) => emit('toggle', Boolean(value))"
+        :model-value="row.skill_enabled"
+        :loading="isToggling"
+        :disabled="busy && !isToggling"
+        :title="row.skill_enabled ? t('common.enabled') : t('common.disabled')"
+        @change="(value: string | number | boolean) => emit('toggle', row, Boolean(value))"
       />
-      <span v-else class="tag muted">—</span>
     </div>
 
     <div class="skill-actions">
-      <button class="wb-btn text sm" @click="emit('view')">{{ t('skills.view') }}</button>
-      <button
-        v-if="copyable"
-        class="wb-btn text sm"
-        :disabled="busy"
-        :title="t('skills.copyHint')"
-        @click="emit('copy')"
-      >
-        {{ t('skills.copy') }}
-      </button>
+      <button class="wb-btn text sm" @click="emit('view', row)">{{ t('skills.view') }}</button>
       <button
         v-if="resettable"
         class="wb-btn text sm"
-        :class="{ 'is-loading': props.resetting === cell?.path }"
-        :disabled="busy"
+        :class="{ 'is-loading': isResetting }"
+        :disabled="busy && !isResetting"
         :title="t('skills.resetHint')"
-        @click="emit('reset')"
+        @click="emit('reset', row)"
       >
         {{ t('skills.reset') }}
       </button>
       <button
         v-if="removable"
         class="wb-btn text sm danger"
-        :class="{ 'is-loading': props.deleting === props.row.name }"
-        :disabled="busy"
-        @click="emit('remove')"
+        :class="{ 'is-loading': isDeleting }"
+        :disabled="busy && !isDeleting"
+        @click="emit('remove', row)"
       >
         {{ t('common.delete') }}
       </button>
@@ -137,46 +113,35 @@ function sourceLabel(): string {
   color: var(--wb-ink);
 }
 
+/* 改过的标签压暗：它是状态说明，不是可点的分类 */
+.modified-tag {
+  opacity: 0.65;
+}
+
 .skill-desc {
   margin: 0;
   font-size: var(--wb-fs-2xs);
-  line-height: 1.6;
   color: var(--wb-mute);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.skill-req {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0;
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-warn);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .skill-switch {
   flex: none;
   display: flex;
   align-items: center;
+  min-width: 44px;
+  justify-content: center;
+}
+
+.tag.muted {
+  opacity: 0.6;
 }
 
 .skill-actions {
-  flex: none;
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-1);
-}
-
-.tag.warn {
-  border-color: var(--wb-warn-soft);
-  color: var(--wb-warn);
-}
-
-.readonly-tag {
-  color: var(--wb-faint);
+  gap: var(--wb-sp-2);
+  flex: none;
 }
 </style>

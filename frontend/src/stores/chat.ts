@@ -6,10 +6,18 @@ import { api } from '@/api/http'
 import { useEngineModels } from '@/composables/useEngineModels'
 import { useRunStatus } from '@/composables/useRunStatus'
 import { useMessageFlow } from '@/composables/useMessageFlow'
-import { setActiveKind } from './app'
 import type {
-  AskRequest, ChatAttachment, ChatState, ContextUsage, EngineCaps, EngineKind,
-  HistoryTurn, ModelInfo, ModelRow, SessionStats, SlashCommand, UIResponse,
+  AskRequest,
+  ChatAttachment,
+  ChatState,
+  ContextUsage,
+  EngineCaps,
+  HistoryTurn,
+  ModelInfo,
+  ModelRow,
+  SessionStats,
+  SlashCommand,
+  UIResponse,
 } from '@/types/api'
 
 export const useChatStore = defineStore('chat', () => {
@@ -20,19 +28,15 @@ export const useChatStore = defineStore('chat', () => {
   const model = ref<ModelInfo | null>(null)
   const thinkingLevel = ref('')
   const levels = ref<string[]>([])
-  // 可选模型清单：引擎的 get_available_models。切换走 RPC，不是本地开关。
+  // 可选模型清单：引擎的 models.json。切换走 RPC，不是本地开关。
   const models = ref<ModelRow[]>([])
   // 切换进行中的动作名（'model' / 'thinking' / 'new' / 'compact'），
   // 按钮靠它进 loading 并锁尺寸，避免连点造成两次切换打架。
   const switching = ref('')
   const context = ref<ContextUsage | null>(null)
-  const tokensPerSecond = ref<number | null>(null)
   const autoCompaction = ref(true)
   const stats = ref<SessionStats | null>(null)
   const commands = ref<SlashCommand[]>([])
-  const profile = ref('')
-  // 这一轮/这个会话属于哪个引擎。切换引擎时它跟着换，输入区据此显示。
-  const kind = ref<EngineKind>('pi')
   // 能力表：界面按它决定显示哪些入口（不渲染灰按钮）。
   const caps = ref<EngineCaps | null>(null)
 
@@ -49,11 +53,10 @@ export const useChatStore = defineStore('chat', () => {
   const setStatus = runStatus.setStatus
   const setWidget = runStatus.setWidget
 
-  // 每个引擎一份的模型清单与思考档（分桶缓存，理由见 composable）。
-  const engineModels = useEngineModels(() => kind.value)
-  const { modelsLoading } = engineModels
+  const engineModels = useEngineModels()
+  const modelsLoading = engineModels.loading
 
-  // 消息流（当前轮 / 历史轮 / 增量补丁），理由见 composable。
+  // 消息流（当前轮 / 历史轮 / 增量补丁）。
   const flow = useMessageFlow()
   const turn = flow.turn
   const lastFinishedRunId = flow.lastFinishedRunId
@@ -65,7 +68,7 @@ export const useChatStore = defineStore('chat', () => {
   const usageOf = flow.usageOf
 
   const asks = ref<AskRequest[]>([])
-  const queue = ref<{ steering: string[]; followUp: string[] }>({ steering: [], followUp: [] })
+  const queue = ref<{ steering: string[]; follow_up: string[] }>({ steering: [], follow_up: [] })
   const compacting = ref(false)
   const promptError = ref('')
   // runError 是「这一轮自己出的错」。它与 promptError 分开：
@@ -73,24 +76,21 @@ export const useChatStore = defineStore('chat', () => {
   // 而「这一轮出错了」是轮尾的红色状态——拿一个全局错误去染一轮对话的颜色，
   // 会让一次失败的模型切换把一段已经答完的回复标成出错。
   const runError = ref('')
-  // 切不到请求会话的原因（引擎正忙 / 扩展拦下）。它不会自动消失：
-  // 用户需要知道“历史可以看，但下一句话会写到另一条会话里”。
+  // 切不到请求会话的原因。它不会自动消失：
+  // 用户需要知道「历史可以看，但下一句话会写到另一条会话里」。
   const bindErr = ref('')
   // 引擎通过 set_editor_text 要求回填输入框。它是一次性的，消费后置空。
   const draftOverride = ref('')
-
   // 界面要求打开某个选择面板（`/model`、`/thinking` 这类内置命令用）。
-  // 走 store 不走事件：命令在 composable 里执行，面板在底栏子组件里，
-  // 中间隔了多层，共享一个意图位最省事——面板自己 watch 它。
   const pickerRequest = ref<'' | 'model' | 'thinking'>('')
 
   const activeAsk = computed(() => asks.value[0] ?? null)
   const busy = computed(() => streaming.value || compacting.value)
   const contextPercent = computed(() => {
-    if (!context.value || !context.value.contextWindow) return 0
-    // pi 的 tokens 可能为 null（还没估算过），此时按 percent 兜底。
-    if (typeof context.value.tokens === 'number') return context.value.tokens / context.value.contextWindow
-    if (typeof context.value.percent === 'number') return context.value.percent / 100
+    if (!context.value || !context.value.context_window) return 0
+    // 引擎的 tokens 可能为 null（压缩后还没估算过），此时按 percent 兜底。
+    if (typeof context.value.usage_tokens === 'number') return context.value.usage_tokens / context.value.context_window
+    if (typeof context.value.usage_percent === 'number') return context.value.usage_percent / 100
     return 0
   })
 
@@ -98,74 +98,50 @@ export const useChatStore = defineStore('chat', () => {
     sessionFile.value = state.session_file ?? ''
     workDir.value = state.work_dir ?? ''
     engineRunning.value = state.engine_running
-    // 切不到请求的会话时，引擎的当前会话仍是另一条。这时把“实际会写到哪里”
+    // 切不到请求的会话时，引擎的当前会话仍是另一条。这时把「实际会写到哪里」
     // 原话交给界面提示——静默把历史当当前会话看，下一句话就会落到错的文件里。
     bindErr.value = state.bind_err ?? ''
     streaming.value = state.streaming
     model.value = state.model ?? null
     thinkingLevel.value = state.thinking_level ?? ''
-    // 引擎以状态为准：会话文件自己带着它属于哪个引擎，比用户上一次的选择可靠。
-    // 不同步的话，从会话列表点开一条另一个引擎的会话之后，输入框上还写着旧引擎，
-    // 而消息实际走的是新引擎。
-    if (state.kind && state.kind !== kind.value) {
-      kind.value = state.kind
-      setActiveKind(state.kind)
-      models.value = engineModels.modelCache.value[state.kind] ?? []
-      levels.value = engineModels.levelsOf(state.kind)
-      caps.value = state.caps ?? caps.value
-    }
-    // 思考档按引擎记账：切回上一个引擎时，它的档位立刻就位，
-    // 不用等一次 RPC 回来。
-    engineModels.setLevels(kind.value, state.levels ?? [])
-    levels.value = engineModels.levelsOf(kind.value)
-    context.value = state.context ?? null
-    tokensPerSecond.value = state.tokens_per_second ?? null
+    levels.value = state.thinking_levels ?? []
+    context.value = state.context_usage ?? null
     autoCompaction.value = state.auto_compaction
     stats.value = state.stats ?? null
     commands.value = state.commands ?? []
-    profile.value = state.profile ?? ''
     if (state.caps) caps.value = state.caps
-    if (state.queued) queue.value = { steering: state.queued.steering ?? [], followUp: state.queued.followUp ?? [] }
+    if (state.queued) queue.value = { steering: state.queued.steering ?? [], follow_up: state.queued.follow_up ?? [] }
     // 走 applyHistory 而不是直接赋值：服务器的历史里可能已经有正在直播的那一轮，
     // 直接赋值会让同一段回复在历史位与直播位各画一遍。
     flow.applyHistory(state.history ?? [])
   }
 
   async function refresh(session = sessionFile.value) {
-    const state = await api.chatState(kind.value, session || undefined)
+    const state = await api.chatState(session || undefined)
     applyState(state)
-    // 模型清单跟着「当前引擎 + 当前模型」走：引擎可能被换过（装完插件重启、
-    // 改了 models 配置），而 get_available_models 的返回不会主动推过来。
-    // 不在这里跟一次，下拉里就会一直停着上一次的清单。
+    // 模型清单跟着「当前模型」走：引擎可能被换过（装完插件重启、改了 models 配置），
+    // 而模型清单不会主动推过来。不在这里跟一次，下拉里就会一直停着上一次的清单。
     if (!models.value.length || !state.model) void loadModels()
     return state
   }
 
-  /**
-   * 拉可选模型清单（走 composable 的分桶缓存）。
-   *
-   * 失败不抛：模型清单拉不到时输入区仍应可用，只是下拉里只剩「当前模型」一项。
-   * 请求返回时用户可能已经切走了：这时不能覆盖当前引擎的清单。
-   */
+  /** 拉可选模型清单。失败不抛：拉不到时输入区仍应可用。 */
   async function loadModels(force = false): Promise<ModelRow[]> {
-    const target = kind.value
     const rows = await engineModels.loadModels(force)
-    if (kind.value === target) models.value = rows
+    models.value = rows
     return rows
   }
 
   // 换模型。乐观更新：先动显示值让点击立刻有反馈，失败拨回去——
   // 否则界面上写着一个引擎并不认识的模型。
-  // 引擎取「点下去那一刻」的值：半秒里可能切了引擎，回滚不能改另一个引擎的显示值。
   async function setModel(provider: string, id: string) {
-    const engine = kind.value
     const prev = model.value
     switching.value = 'model'
-    model.value = { ...(prev ?? ({} as ModelInfo)), provider, id }
+    model.value = { ...(prev ?? ({} as ModelInfo)), provider_name: provider, model_id: id }
     try {
-      await api.setModel(engine, sessionFile.value, provider, id)
+      await api.setModel(sessionFile.value, provider, id)
     } catch (err) {
-      if (kind.value === engine) model.value = prev
+      model.value = prev
       throw err
     } finally {
       switching.value = ''
@@ -174,15 +150,14 @@ export const useChatStore = defineStore('chat', () => {
 
   // 换思考档。同上：先动显示值，失败回滚。
   async function setThinking(level: string) {
-    const engine = kind.value
     const prev = thinkingLevel.value
     if (level === prev) return
     switching.value = 'thinking'
     thinkingLevel.value = level
     try {
-      await api.setThinking(engine, sessionFile.value, level)
+      await api.setThinking(sessionFile.value, level)
     } catch (err) {
-      if (kind.value === engine) thinkingLevel.value = prev
+      thinkingLevel.value = prev
       throw err
     } finally {
       switching.value = ''
@@ -191,14 +166,13 @@ export const useChatStore = defineStore('chat', () => {
 
   // 开关自动压缩。同上。
   async function setAutoCompaction(enabled: boolean) {
-    const engine = kind.value
     const prev = autoCompaction.value
     switching.value = 'compaction'
     autoCompaction.value = enabled
     try {
-      await api.setAutoCompaction(engine, sessionFile.value, enabled)
+      await api.setAutoCompaction(sessionFile.value, enabled)
     } catch (err) {
-      if (kind.value === engine) autoCompaction.value = prev
+      autoCompaction.value = prev
       throw err
     } finally {
       switching.value = ''
@@ -210,7 +184,7 @@ export const useChatStore = defineStore('chat', () => {
   async function newChat() {
     switching.value = 'new'
     try {
-      const res = await api.newChat(kind.value)
+      const res = await api.newChat()
       reset()
       sessionFile.value = res.session_file ?? ''
       await refresh(sessionFile.value)
@@ -220,11 +194,11 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 复制当前会话当前位置为一个新会话并切过去（仅 Caps.SessionClone 的引擎提供）。
+  // 复制当前会话当前位置为一个新会话并切过去（仅 Caps.session_clone 的引擎提供）。
   async function cloneChat() {
     switching.value = 'clone'
     try {
-      const res = await api.cloneChat(kind.value)
+      const res = await api.cloneChat()
       reset()
       sessionFile.value = res.session_file ?? ''
       await refresh(sessionFile.value)
@@ -234,70 +208,9 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 切引擎：不切目录。保留已看到的消息（可回看），在新引擎上开新会话——
-  // 直接清空会让人以为上下文丢了。
-  // 顺序：先摆上目标引擎的缓存值（模型 / 思考档）再去问后端，切换对用户是瞬时的。
-  async function switchEngine(next: EngineKind) {
-    if (next === kind.value) return
-    // 先把已看的消息并进历史，否则它们随 turn 一起被丢掉。
-    if (turn.value) finishTurn()
-    // kept 是用户在旧引擎上已经读到的那些轮次。它必须一直留在屏幕上：
-    // 新引擎的会话是空的，把 kept 换成 state.history 等于把整段对话抹掉。
-    const kept = history.value
-    const mark: HistoryTurn = { role: 'engine-mark', blocks: [{ kind: 'text', text: next }] }
-    kind.value = next
-    // 立刻换到目标引擎的缓存：下拉里该出现哪个引擎的模型，一眼就该是它。
-    models.value = engineModels.modelCache.value[next] ?? []
-    levels.value = engineModels.levelsOf(next)
-    // 上下文用量与流式状态属于旧引擎：它们不属于新引擎，留着就是隔别处的读数。
-    context.value = null
-    tokensPerSecond.value = null
-    stats.value = null
-    bindErr.value = ''
-    promptError.value = ''
-    runError.value = ''
-    queue.value = { steering: [], followUp: [] }
-    // 流里插一条分隔：告诉用户「以下由 xxx 接续，前面的内容不在新会话里」。
-    history.value = [...kept, mark]
-
-    // 不等后端往返：await chatState 会在引擎没跑时顺手拉起进程
-    // （pi 起一次 Node 实测 3 秒），「切引擎」这个高频动作就得每次盯三秒转圈。
-    // 分桶缓存此刻已是目标引擎的样子，真正的往返放后台补。
-    void (async () => {
-      try {
-        const state = await api.chatState(next, undefined)
-        // 请求回来时用户可能已经切走了：那就别覆盖当前引擎的状态。
-        if (kind.value !== next) return
-        applyState(state)
-        // applyState 用新引擎的历史覆盖了整列：把 kept 与分隔补回去。
-        // 补在**前面**，因为新引擎的历史属于「那之后的对话」。
-        const rest = (state.history ?? []).filter(
-          (h) => !(h.role === 'engine-mark' && h.blocks[0]?.text === next),
-        )
-        history.value = kept.length || rest.length ? [...kept, mark, ...rest] : []
-      } catch {
-        /* 切引擎失败不弹提示：界面已经切过去了，用户能正常用，
-           只是这一轮没拿到引擎的会话状态。 */
-      }
-    })()
-
-    // 后台补这个引擎的模型清单：切过去时可能是第一次用这个引擎。
-    void loadModels()
-  }
-
   async function clearQueue() {
-    await api.clearQueue(kind.value, sessionFile.value)
-    queue.value = { steering: [], followUp: [] }
-  }
-
-  // 移除单条排队消息（仅 omp）：清空是 pi 的能力，逐条移除是 omp 的能力。
-  async function removeQueued(message: string, queueName: 'steering' | 'followUp') {
-    const res = await api.removeQueued(kind.value, sessionFile.value, message, queueName)
-    if (res.removed) {
-      if (queueName === 'steering') queue.value.steering = queue.value.steering.filter((m) => m !== message)
-      else queue.value.followUp = queue.value.followUp.filter((m) => m !== message)
-    }
-    return res.removed
+    await api.clearQueue(sessionFile.value)
+    queue.value = { steering: [], follow_up: [] }
   }
 
   async function send(message: string, attachments: ChatAttachment[] = []) {
@@ -308,7 +221,7 @@ export const useChatStore = defineStore('chat', () => {
     // 之后才到的那帧迟到的快照就会把重复的正文再放进界面。
     lastFinishedRunId.value = ''
     const runID = await api
-      .send(kind.value, sessionFile.value, message, attachments)
+      .send(sessionFile.value, message, attachments)
       .then((r) => r.run_id)
     flow.beginTurn(runID, message)
     streaming.value = true
@@ -316,24 +229,24 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function stop() {
-    await api.stop(kind.value, sessionFile.value)
+    await api.stop(sessionFile.value)
     streaming.value = false
   }
 
   async function steer(message: string, attachments: ChatAttachment[] = []) {
-    await api.steer(kind.value, sessionFile.value, message, attachments)
+    await api.steer(sessionFile.value, message, attachments)
   }
 
   async function followUp(message: string, attachments: ChatAttachment[] = []) {
-    await api.followUp(kind.value, sessionFile.value, message, attachments)
-    queue.value.followUp = [...queue.value.followUp, message]
+    await api.followUp(sessionFile.value, message, attachments)
+    queue.value.follow_up = [...queue.value.follow_up, message]
   }
 
   async function compact() {
     compacting.value = true
     switching.value = 'compact'
     try {
-      await api.compact(kind.value, sessionFile.value)
+      await api.compact(sessionFile.value)
     } finally {
       compacting.value = false
       switching.value = ''
@@ -341,20 +254,20 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function answer(response: UIResponse) {
-    await api.answer(kind.value, sessionFile.value, { ...response, type: 'extension_ui_response' })
-    asks.value = asks.value.filter((a) => a.id !== response.id)
+    await api.answer(sessionFile.value, response)
+    asks.value = asks.value.filter((a) => a.ask_id !== response.ask_id)
   }
 
   // 界面层删除一轮：后端按会话记账，引擎的账本不动。
   // 本地先把这轮摘掉（下次投影返回时后端也不再带它），失败要抛给调用方。
-  async function hideTurn(hid: string) {
-    await api.hideTurn(sessionFile.value, hid)
-    history.value = history.value.filter((t) => t.hid !== hid)
+  async function hideTurn(turnId: string) {
+    await api.hideTurn(sessionFile.value, turnId)
+    history.value = history.value.filter((t) => t.turn_id !== turnId)
   }
 
   // 撤销一次隐藏：后端撤账后重拉快照，被摘掉的轮次就回来了。
-  async function unhideTurn(hid: string) {
-    await api.unhideTurn(sessionFile.value, hid)
+  async function unhideTurn(turnId: string) {
+    await api.unhideTurn(sessionFile.value, turnId)
     await refresh()
   }
 
@@ -388,12 +301,17 @@ export const useChatStore = defineStore('chat', () => {
   function reset() {
     flow.reset()
     asks.value = []
-    queue.value = { steering: [], followUp: [] }
+    queue.value = { steering: [], follow_up: [] }
     runStatus.reset()
     context.value = null
     stats.value = null
     promptError.value = ''
     runError.value = ''
+  }
+
+  /** 历史里哪些轮可以「删除」（直播轮没有 turn_id，不可删）。 */
+  function deletableTurns(): HistoryTurn[] {
+    return history.value.filter((t) => Boolean(t.turn_id) && t.turn_role !== 'engine-mark')
   }
 
   return {
@@ -409,10 +327,8 @@ export const useChatStore = defineStore('chat', () => {
     context,
     contextPercent,
     stats,
-    tokensPerSecond,
     autoCompaction,
     commands,
-    kind,
     caps,
     turn,
     lastFinishedRunId,
@@ -444,9 +360,7 @@ export const useChatStore = defineStore('chat', () => {
     setAutoCompaction,
     newChat,
     cloneChat,
-    switchEngine,
     clearQueue,
-    removeQueued,
     send,
     stop,
     steer,
@@ -463,5 +377,6 @@ export const useChatStore = defineStore('chat', () => {
     resetLive,
     setRunStart,
     reset,
+    deletableTurns,
   }
 })

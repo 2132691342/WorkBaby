@@ -36,7 +36,6 @@ const toasts = useToasts()
 const { t } = useI18n()
 
 // 会话属于某个引擎（由文件所在目录决定），列表跟着当前引擎走。
-const kind = computed(() => app.active)
 
 const filter = ref('')
 const rows = ref<SessionRow[]>([])
@@ -49,7 +48,7 @@ const filtered = computed(() => {
   const query = filter.value.trim().toLowerCase()
   if (!query) return rows.value
   return rows.value.filter((row) =>
-    [row.title, row.model, row.cwd].some((field) => (field ?? '').toLowerCase().includes(query)),
+    [row.session_title, row.session_model, row.session_cwd].some((field) => String(field ?? '').toLowerCase().includes(query)),
   )
 })
 
@@ -69,7 +68,7 @@ const groups = computed<Group[]>(() => {
   const week: SessionRow[] = []
   const older: SessionRow[] = []
   for (const row of filtered.value) {
-    const ts = new Date(row.updated_at).getTime()
+    const ts = row.updated_at
     if (!Number.isNaN(ts) && ts >= todayStart) today.push(row)
     else if (!Number.isNaN(ts) && ts >= weekStart) week.push(row)
     else older.push(row)
@@ -84,7 +83,7 @@ const groups = computed<Group[]>(() => {
 async function load() {
   loading.value = true
   try {
-    const data = await api.sessions(scope.value || undefined, kind.value)
+    const data = await api.sessions(scope.value || undefined)
     rows.value = data.sessions ?? []
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -95,7 +94,7 @@ async function load() {
 
 async function remove(row: SessionRow) {
   try {
-    await ElMessageBox.confirm(t('sessions.deleteConfirm', { title: row.title }), t('sessions.deleteTitle'), {
+    await ElMessageBox.confirm(t('sessions.deleteConfirm', { title: row.session_title }), t('sessions.deleteTitle'), {
       confirmButtonText: t('common.delete'),
       cancelButtonText: t('common.cancel'),
       type: 'warning',
@@ -104,11 +103,11 @@ async function remove(row: SessionRow) {
     return
   }
   try {
-    await api.deleteSession(row.path, kind.value)
+    await api.deleteSession(row.session_path)
     toasts.push('ok', t('sessions.deleted'))
     await load()
     // 带上被删的路径：对话页据此判断「删的是不是正看着的这个」。
-    emit('changed', row.path)
+    emit('changed', row.session_path)
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   }
@@ -117,22 +116,22 @@ async function remove(row: SessionRow) {
 async function rename(row: SessionRow) {
   try {
     const result = await ElMessageBox.prompt(t('sessions.renamePlaceholder'), t('sessions.renameTitle'), {
-      inputValue: row.title,
+      inputValue: row.session_title,
       confirmButtonText: t('common.save'),
       cancelButtonText: t('common.cancel'),
     })
-    await api.renameSession(row.path, result.value, kind.value)
+    await api.renameSession(row.session_path, result.value)
     toasts.push('ok', t('common.saved'))
     await load()
-    emit('changed', row.path)
+    emit('changed', row.session_path)
   } catch {
     /* 取消或失败：取消不该弹错 */
   }
 }
 
-function relative(iso: string): string {
-  if (!iso) return ''
-  const time = new Date(iso).getTime()
+function relative(ms: number): string {
+  if (!ms) return ''
+  const time = ms
   if (Number.isNaN(time)) return ''
   const diff = Date.now() - time
   const minute = 60_000
@@ -142,10 +141,13 @@ function relative(iso: string): string {
   return t('history.daysAgo', { n: Math.floor(diff / (24 * 60 * minute)) })
 }
 
-watch(kind, () => {
-  rows.value = []
-  void load()
-})
+watch(
+  () => app.workspace,
+  () => {
+    rows.value = []
+    void load()
+  },
+)
 
 onMounted(load)
 defineExpose({ load })
@@ -183,23 +185,23 @@ defineExpose({ load })
         <div class="group-head">{{ group.label }}</div>
         <div
           v-for="row in group.rows"
-          :key="row.path"
+          :key="row.session_path"
           class="session-row wb-row-click"
-          :class="{ 'is-active': row.path === active }"
-          @click="emit('open', row.path)"
+          :class="{ 'is-active': row.session_path === active }"
+          @click="emit('open', row.session_path)"
         >
           <div class="row-top">
-            <span class="row-title">{{ row.title }}</span>
+            <span class="row-title">{{ row.session_title }}</span>
             <span class="row-time">{{ relative(row.updated_at) }}</span>
           </div>
           <div class="row-meta">
-            <span v-if="row.model" class="row-model">{{ row.model }}</span>
+            <span v-if="row.session_model" class="row-model">{{ row.session_model }}</span>
             <span class="row-dot">·</span>
-            <span>{{ row.messages }} {{ t('sessions.messages') }}</span>
-            <span v-if="row.cost" class="row-dot">·</span>
-            <span v-if="row.cost">${{ row.cost.toFixed(3) }}</span>
+            <span>{{ row.message_count }} {{ t('sessions.messages') }}</span>
+            <span v-if="row.cost_usd" class="row-dot">·</span>
+            <span v-if="row.cost_usd">${{ row.cost_usd.toFixed(3) }}</span>
           </div>
-          <div v-if="!compact" class="row-path">{{ row.cwd }}</div>
+          <div v-if="!compact" class="row-path">{{ row.session_cwd }}</div>
           <div class="row-actions">
             <!-- 窄栏用图标：文字按钮会把一行的宽度吃光；会话页主栏仍用文字 -->
             <button class="wb-btn text sm" :title="t('sessions.rename')" @click.stop="rename(row)">

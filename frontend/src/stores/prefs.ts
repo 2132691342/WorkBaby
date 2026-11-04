@@ -3,14 +3,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api } from '@/api/http'
-import type { AppPrefs, ConfigFile, ConfigText, EngineKind } from '@/types/api'
+import type { AppPrefs, ConfigFile, ConfigText } from '@/types/api'
 
 export const usePrefsStore = defineStore('prefs', () => {
   const prefs = ref<AppPrefs | null>(null)
   const configFiles = ref<ConfigFile[]>([])
   const configText = ref<ConfigText | null>(null)
-  const configKind = ref<EngineKind>('pi')
-  const configFile = ref('')
+  // 当前打开的是哪一份配置（按名字选，不按路径：白名单在服务端）。
+  const configName = ref('')
   const loading = ref(false)
   const loadingText = ref(false)
 
@@ -47,16 +47,15 @@ export const usePrefsStore = defineStore('prefs', () => {
     return prefs.value
   }
 
-  /** 选一份配置文件并读它的原文。file 为空表示「这个引擎的主配置」。 */
-  async function openConfig(kind: EngineKind, file = '') {
-    configKind.value = kind
+  /** 拉配置文件清单并读第一份（或指定那一份）。 */
+  async function openConfig(file = '') {
     loadingText.value = true
     try {
-      const list = await api.configFiles(kind)
+      const list = await api.configFiles()
       configFiles.value = list.entries ?? []
-      const target = file || configFiles.value[0]?.file_path || ''
-      configFile.value = target
-      configText.value = target ? await api.configText(target, kind) : null
+      const target = file || configFiles.value[0]?.config_name || ''
+      configName.value = target
+      configText.value = target ? await api.configText(target) : null
       return configText.value
     } finally {
       loadingText.value = false
@@ -65,10 +64,10 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   /** 切到清单里的另一份文件。 */
   async function pickConfig(file: string) {
-    configFile.value = file
+    configName.value = file
     loadingText.value = true
     try {
-      configText.value = await api.configText(file, configKind.value)
+      configText.value = await api.configText(file)
       return configText.value
     } finally {
       loadingText.value = false
@@ -79,8 +78,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     prefs,
     configFiles,
     configText,
-    configKind,
-    configFile,
+    configName,
     loading,
     loadingText,
     load,

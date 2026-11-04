@@ -2,7 +2,31 @@
 // 它们用完即弃、下一轮重来，与要跨轮保留的会话状态分开，
 // 「reset 要清哪些」才说得清。
 import { ref } from 'vue'
-import type { ChatLive } from '@/types/api'
+
+/**
+ * 上下文占用。
+ *
+ * 与 ChatState.context_usage 同一形状：界面只关心「用了多少 / 窗口多大」。
+ */
+export interface ContextUsage {
+  usage_tokens: number | null
+  context_window: number
+  usage_percent: number | null
+}
+
+/**
+ * 一轮进行中的实时读数。
+ *
+ * phase 为空串表示引擎还没报过。它与 statusText 不是一回事：
+ * statusText 是扩展自己设的一句话，live 是引擎自身的阶段。
+ */
+export interface ChatLive {
+  run_id: string
+  phase: '' | 'thinking' | 'text' | 'tool'
+  tool_name: string
+  tool_call_id: string
+  output_tokens: number
+}
 
 /** 一条过程提示。 */
 export interface Notice {

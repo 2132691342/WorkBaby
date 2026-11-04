@@ -4,7 +4,7 @@
 // 没数据也渲染（降级成半透明「– / –」）——空着会让用户以为图标坏了。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { TurnUsage } from '@/composables/useMessageFlow'
+import type { TurnReading } from '@/composables/useMessageFlow'
 import { useChatStore } from '@/stores/chat'
 
 const { t } = useI18n()
@@ -22,31 +22,31 @@ const level = computed(() => {
 })
 
 // 读数在数据缺失时显示「–」而不是 0：0 是一个测量结果，「–」才是没测过。
-const tokens = computed(() => (chat.context ? formatTokens(chat.context.tokens ?? 0) : '–'))
+const tokens = computed(() => (chat.context ? formatTokens(chat.context.usage_tokens ?? 0) : '–'))
 const windowTok = computed(() =>
-  chat.context && chat.context.contextWindow > 0 ? formatTokens(chat.context.contextWindow) : '–',
+  chat.context && chat.context.context_window > 0 ? formatTokens(chat.context.context_window) : '–',
 )
 const left = computed(() => {
-  if (!chat.context || chat.context.contextWindow <= 0) return '–'
-  return formatTokens(Math.max(0, chat.context.contextWindow - (chat.context.tokens ?? 0)))
+  if (!chat.context || chat.context.context_window <= 0) return '–'
+  return formatTokens(Math.max(0, chat.context.context_window - (chat.context.usage_tokens ?? 0)))
 })
 
 /** 有没有水位数据：决定整条的透明度与提示语，不决定渲染与否。 */
-const known = computed(() => Boolean(chat.context && chat.context.contextWindow > 0))
+const known = computed(() => Boolean(chat.context && chat.context.context_window > 0))
 
 // 缓存命中率取「最近一轮」的用量：直播中取直播轮，闲时取上一轮收尾的那次。
 const cacheRate = computed(() => {
-  const u: TurnUsage | undefined = chat.turn
+  const u: TurnReading | undefined = chat.turn
     ? chat.usageOf(chat.turn.run_id)
     : chat.usageOf(chat.lastFinishedRunId)
   if (!u) return ''
-  const prompt = u.input + u.cacheRead + u.cacheWrite
+  const prompt = u.input_tokens + u.cache_read_tokens + u.cache_write_tokens
   if (prompt <= 0) return ''
-  return `${Math.round((u.cacheRead / prompt) * 100)}%`
+  return `${Math.round((u.cache_read_tokens / prompt) * 100)}%`
 })
 
-const speed = computed(() => (chat.tokensPerSecond ? `${Math.round(chat.tokensPerSecond)} tok/s` : ''))
-const cost = computed(() => (chat.stats && chat.stats.cost > 0 ? `$${chat.stats.cost.toFixed(3)}` : ''))
+const speed = computed(() => '')
+const cost = computed(() => (chat.stats && chat.stats.cost_usd > 0 ? `$${chat.stats.cost_usd.toFixed(3)}` : ''))
 
 const tip = computed(() =>
   known.value

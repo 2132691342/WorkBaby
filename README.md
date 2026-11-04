@@ -1,6 +1,6 @@
 # WorkBaby
 
-Windows 桌面单机 AI 助手：Electron 壳 + 内嵌 HTTP 服务 + pi 引擎驱动。
+Windows 桌面单机 AI 助手：Go + Wails3 壳 + 内嵌 HTTP 服务 + pi 引擎驱动。
 把 Node.js、pi 编码智能体、插件、技能、MCP 与 Git / Python 运行时装进一个沙箱，
 安装即用，不依赖、不污染用户环境。
 
@@ -46,18 +46,31 @@ Windows 桌面单机 AI 助手：Electron 壳 + 内嵌 HTTP 服务 + pi 引擎�
 子进程 PATH 内置运行时在前、系统在后；agent 的 bash / python 一律先命中内置副本。
 **内置运行时缺失时直接报错，绝不回退系统同名命令**——沙箱的意义就在这里。
 
+## 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 桌面壳 | Wails v3（WebView2，无边框 + 前端自绘标题栏） |
+| 后端 | Go 1.26 · gin · gorm · `glebarez/sqlite`（纯 Go，**无 cgo**） |
+| 前端 | Vue 3.4 · Vite 5 · Element Plus 2.9 · Pinia · Vue Router · Axios · UnoCSS · ECharts |
+| 引擎 | pi（`@earendil-works/pi-coding-agent`，RPC 子进程） |
+
+后端分层 `api → service → repo → domain`，`pkg/` 放可测叶子工具；
+详细约束见 `AGENTS.md`。
+
 ## 开发
 
 ```bash
-npm install && cd frontend && npm install && cd ..
-npm run dev          # 构建主进程 → Vite 热更 → Electron
-npm run typecheck    # 主进程 TS 检查
-npm run build        # 主进程 + 前端产物
-npx vitest run       # 测试
-npm run dist         # electron-builder 打 NSIS 安装包
+go mod download
+cd frontend && npm install && cd ..
+
+task dev      # wails3 dev：后端热重载 + Vite 热更
+task build    # 产出 bin\WorkBaby.exe
+task check    # gofmt 检查 + go vet + go test
+task package  # NSIS 安装包
 ```
 
-纯浏览器调试前端：`wb.dev.port` / `wb.dev.token` 写进 localStorage 即可直连后端。
+纯浏览器调试前端：把开发态的端口与 `X-Desktop-Token` 令牌写进 localStorage 即可直连后端。
 
 ## 文档
 

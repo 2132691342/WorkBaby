@@ -1,52 +1,40 @@
 <script setup lang="ts">
-// 新建技能：名字 / 说明 / 初始正文 / 写进哪些引擎。
+// 新建技能：名字 / 说明 / 初始正文。
 // 名字在这里校验：它要变成目录名，含路径分隔符就写到别人的目录里去了。
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { EngineKind } from '@/types/api'
 
 const props = defineProps<{
   open: boolean
   creating: boolean
-  /** 探测到的引擎：写到哪个引擎是勾选的，没装的不给勾 */
-  installed: EngineKind[]
 }>()
 
 const emit = defineEmits<{
   'update:open': [open: boolean]
-  create: [draft: { name: string; description: string; body: string; targets: EngineKind[] }]
+  create: [draft: { name: string; description: string; body: string }]
 }>()
 
 const { t } = useI18n()
 
 const draft = ref({ name: '', description: '', body: '' })
-const targets = ref<{ omp: boolean; pi: boolean }>({ omp: true, pi: true })
 
 /** 名字要变成一个目录名：空或含路径分隔符都不行。 */
-const nameInvalid = computed(
-  () => !draft.value.name.trim() || /[\\/:*?"<>|]/.test(draft.value.name.trim()),
-)
+const nameInvalid = computed(() => !draft.value.name.trim() || /[\\/:*?"<>|]/.test(draft.value.name.trim()))
 
 // 每次打开都是一份新的空草稿：留着上一次的内容会让人以为已经建过了。
 watch(
   () => props.open,
   (open) => {
-    if (open) {
-      draft.value = { name: '', description: '', body: '' }
-      targets.value = { omp: props.installed.includes('omp'), pi: props.installed.includes('pi') }
-    }
+    if (open) draft.value = { name: '', description: '', body: '' }
   },
 )
 
 function submit(): void {
   if (nameInvalid.value || props.creating) return
-  const picked = (['omp', 'pi'] as EngineKind[]).filter((k) => targets.value[k])
-  if (!picked.length) return
   emit('create', {
     name: draft.value.name.trim(),
     description: draft.value.description.trim(),
     body: draft.value.body,
-    targets: picked,
   })
 }
 </script>
@@ -72,13 +60,6 @@ function submit(): void {
         <span class="field-label">{{ t('skills.bodyLabel') }}</span>
         <textarea v-model="draft.body" class="wb-input" rows="10" :placeholder="t('skills.bodyHint')" />
       </label>
-      <div class="field">
-        <span class="field-label">{{ t('skills.writeTargets') }}</span>
-        <div class="target-row">
-          <label class="target-check"><input v-model="targets.omp" type="checkbox" :disabled="!props.installed.includes('omp')" /> omp</label>
-          <label class="target-check"><input v-model="targets.pi" type="checkbox" :disabled="!props.installed.includes('pi')" /> pi</label>
-        </div>
-      </div>
     </div>
 
     <template #footer>
@@ -127,27 +108,6 @@ function submit(): void {
 
 .field-hint.bad {
   color: var(--wb-bad);
-}
-
-.target-row {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
-}
-
-.target-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-ink);
-  cursor: pointer;
-}
-
-.target-check:has(input:disabled) {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .dialog-foot {

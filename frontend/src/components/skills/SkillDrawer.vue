@@ -28,7 +28,7 @@ const draftContent = ref('')
 
 // 换了一条技能就退出编辑态：留着上一次的草稿会让人以为改的是新的那条。
 watch(
-  () => props.row?.path,
+  () => props.row?.skill_path,
   () => {
     editing.value = false
     draftContent.value = props.content
@@ -60,16 +60,16 @@ function save(): void {
 <template>
   <el-drawer
     :model-value="props.open"
-    :title="props.row?.name || t('skills.view')"
+    :title="props.row?.skill_name || t('skills.view')"
     size="720px"
     @update:model-value="(v: boolean) => emit('update:open', v)"
   >
     <div v-if="props.loading" class="drawer-loading">{{ t('common.loading') }}</div>
     <template v-else>
       <div class="drawer-bar">
-        <span class="drawer-path wb-mono selectable">{{ props.row?.path }}</span>
+        <span class="drawer-path wb-mono selectable">{{ props.row?.skill_path }}</span>
         <span class="push" />
-        <template v-if="props.row?.editable">
+        <template v-if="props.row?.skill_editable">
           <template v-if="editing">
             <button class="wb-btn sm" :disabled="props.saving" @click="cancel">
               {{ t('common.cancel') }}

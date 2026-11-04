@@ -1,0 +1,81 @@
+// 概览页 / 用量页。
+export default {
+overview: {
+    title: '概览',
+    subtitle: '两个引擎的状态、最近的开销、可以继续的会话。数字全部来自引擎自己的落盘数据。',
+    today: '今天',
+    week: '近 7 天',
+    month: '近 30 天',
+    running: '运行中',
+    idle: '空闲',
+    notInstalled: '未安装',
+    // 「检测中」与「未安装」是两件事：前者是「还不知道」，后者是一个事实。
+    // 首发时探测要几秒，那段时间里说「未安装」会让用户去装一个已经装好的引擎。
+    detecting: '检测中…',
+    detectedAt: '检测于',
+    // 就绪前不把数字当结论：这一行解释屏幕上那些「—」是什么。
+    collecting: '正在核对引擎、会话与用量…数完之前那些数字先显示为「—」。',
+    redetect: '重新检测',
+    installHint: '这台机器上还没装它。装好之后这里会显示版本与落盘位置。',
+    goInstall: '去安装',
+    // 「没装」有三种不同的原因，下一步完全不同。混成一句会让用户
+    // 去装一个其实已经装好的引擎，或者反复重试一条根本不成的路径。
+    probeBadPath: '设置里填的引擎路径不可用（文件不存在，或它不是这个引擎）。',
+    probeTimeout: '找到了可执行文件，但探测命令超时没能返回版本。它可能装了但跑不起来。',
+    fixEnginePath: '去改路径',
+    totalsPartial: '部分引擎没读到',
+    channel: '安装渠道',
+    process: '进程',
+    agentDir: '配置目录',
+    spend: '花费',
+    tokens: 'Tokens',
+    turns: '会话数',
+    // 三张独立的读数卡。之前合成一个「技能 + 插件 + MCP」的合计：
+    // 三者不是同一种东西，合计出来也没有对应的行动。
+    capSkills: '技能',
+    capPlugins: '插件',
+    capMcp: 'MCP',
+    byDay: '按天花费',
+    byModel: '按模型 tokens',
+    noUsage: '这段时间还没有用量',
+    recent: '最近会话',
+    all: '全部',
+    noSessions: '还没有会话',
+    noSessionsHint: '开始一轮对话，它会记在这里。',
+    startChat: '开始对话',
+    justNow: '刚刚',
+    minutes: ' 分钟',
+    hours: ' 小时',
+    days: ' 天',
+    // 引擎进程：一个工作目录一个进程，切目录就新建，空闲十分钟后回收。
+    // 这一块把「机器怎么变卡的」说清楚。
+    processes: '引擎进程',
+    processesHint: '一个工作目录一个引擎进程。切目录会新建一个，空闲十分钟后自动回收；正在回答的那个不会被回收。',
+    processesEmpty: '现在没有引擎进程。发一句话时会按时拉起一个。',
+    stopProcess: '停掉',
+    processGone: '这个进程已经不在了',
+    busy: '正在回答',
+    calls: '{n} 条命令',
+  },
+
+usage: {
+    title: '用量',
+    subtitle: '数字来自两个引擎各自统计的会话文件，不另存一份。',
+    today: '今天',
+    week: '近 7 天',
+    month: '近 30 天',
+    total: '累计',
+    requests: '请求',
+    inputTokens: '输入 tokens',
+    outputTokens: '输出 tokens',
+    cacheRead: '缓存命中',
+    cost: '花费',
+    byModel: '按模型',
+    byDay: '按天',
+    cacheRate: '缓存命中率',
+    emptyTitle: '还没有用量',
+    emptyHint: '聊几轮之后这里会出现数字。',
+    model: '模型',
+    sessionCount: '会话数',
+  },
+}

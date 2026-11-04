@@ -26,7 +26,7 @@ const prefs = usePrefsStore()
 const lastSessionLabel = computed(() => {
   const p = prefs.prefs
   if (!p?.last_session_file) return t('settings.lastSessionNone')
-  return p.last_session_title || p.last_session_file
+  return p.last_session_file.split('\\\\').pop() || p.last_session_file
 })
 </script>
 

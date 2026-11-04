@@ -39,8 +39,8 @@ const totals = computed(() => {
   let tokens = 0
   let cost = 0
   for (const row of scoped.value) {
-    tokens += row.tokens ?? 0
-    cost += row.cost ?? 0
+    tokens += row.total_tokens ?? 0
+    cost += row.cost_usd ?? 0
   }
   return { tokens, cost, sessions: scoped.value.length }
 })
@@ -48,10 +48,10 @@ const totals = computed(() => {
 const byModel = computed(() => {
   const map = new Map<string, { tokens: number; cost: number; sessions: number }>()
   for (const row of scoped.value) {
-    const key = row.model || t('common.unknown')
+    const key = row.session_model || t('common.unknown')
     const entry = map.get(key) ?? { tokens: 0, cost: 0, sessions: 0 }
-    entry.tokens += row.tokens ?? 0
-    entry.cost += row.cost ?? 0
+    entry.tokens += row.total_tokens ?? 0
+    entry.cost += row.cost_usd ?? 0
     entry.sessions += 1
     map.set(key, entry)
   }
@@ -89,8 +89,8 @@ const byDay = computed(() => {
           })
         : buckets.length - 1 - Math.floor((now.getTime() - time.getTime()) / 86_400_000)
     if (index < 0 || index >= buckets.length) continue
-    buckets[index].cost += row.cost ?? 0
-    buckets[index].tokens += row.tokens ?? 0
+    buckets[index].cost += row.cost_usd ?? 0
+    buckets[index].tokens += row.total_tokens ?? 0
   }
   return buckets
 })
@@ -267,17 +267,17 @@ onUnmounted(() => {
           <el-table :data="byModel" size="small" max-height="260">
             <el-table-column prop="model" :label="t('usage.model')" min-width="150">
               <template #default="{ row }">
-                <span class="wb-mono">{{ row.model }}</span>
+                <span class="wb-mono">{{ row.session_model }}</span>
               </template>
             </el-table-column>
             <el-table-column :label="t('usage.inputTokens')" width="96" align="right">
               <template #default="{ row }">
-                <span class="wb-mono">{{ formatTokens(row.tokens) }}</span>
+                <span class="wb-mono">{{ formatTokens(row.total_tokens) }}</span>
               </template>
             </el-table-column>
             <el-table-column :label="t('usage.cost')" width="92" align="right">
               <template #default="{ row }">
-                <span class="wb-mono">{{ formatCost(row.cost) }}</span>
+                <span class="wb-mono">{{ formatCost(row.cost_usd) }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="sessions" :label="t('usage.sessionCount')" width="80" align="right" />

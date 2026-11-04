@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 提问卡片：只渲染引擎给的四个基元（confirm / select / input / editor）与 ask 工具。
-// 不发明第五种控件——PI 认不出我们编出来的回答形态，重画一套漂亮控件反而是假支持。
+// 提问卡片：只渲染引擎给的四个基元（confirm / select / input / editor）。
+// 不发明第五种控件——引擎认不出我们编出来的回答形态，重画一套漂亮控件反而是假支持。
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AskRequest, UIResponse } from '@/types/api'
@@ -10,40 +10,18 @@ const emit = defineEmits<{ answer: [response: UIResponse] }>()
 
 const { t } = useI18n()
 
-const text = ref(props.ask.prefill ?? '')
+const text = ref(props.ask.ask_prefill ?? '')
 const picked = ref<number[]>([])
-const answers = ref<Record<string, string[]>>({})
-const custom = ref<Record<string, string>>({})
 const submitting = ref(false)
 
 watch(
-  () => props.ask.id,
+  () => props.ask.ask_id,
   () => {
-    text.value = props.ask.prefill ?? ''
+    text.value = props.ask.ask_prefill ?? ''
     picked.value = []
-    answers.value = {}
-    custom.value = {}
     submitting.value = false
   },
 )
-
-const isAskTool = computed(() => props.ask.method === 'ask')
-
-function toggleOption(key: string, label: string, multi: boolean) {
-  const current = answers.value[key] ?? []
-  if (multi) {
-    answers.value = {
-      ...answers.value,
-      [key]: current.includes(label) ? current.filter((l) => l !== label) : [...current, label],
-    }
-    return
-  }
-  answers.value = { ...answers.value, [key]: [label] }
-}
-
-function isPicked(key: string, label: string): boolean {
-  return (answers.value[key] ?? []).includes(label)
-}
 
 /** 长得像「自己写」的那一行当哨兵处理：展开输入框，而不是当成选项。 */
 function isCustomOption(label: string): boolean {
@@ -53,32 +31,23 @@ function isCustomOption(label: string): boolean {
 async function submit() {
   submitting.value = true
   try {
-    if (isAskTool.value) {
-      const payload = (props.ask.questions ?? []).map((q) => ({
-        id: q.id,
-        selectedOptions: answers.value[q.id] ?? [],
-        customInput: custom.value[q.id] || undefined,
-      }))
-      emit('answer', { id: props.ask.id, answers: payload })
+    if (props.ask.ask_method === 'confirm') {
+      emit('answer', { ask_id: props.ask.ask_id, confirmed: true })
       return
     }
-    if (props.ask.method === 'confirm') {
-      emit('answer', { id: props.ask.id, confirmed: true })
+    if (props.ask.ask_method === 'select') {
+      const choice = props.ask.ask_options?.[picked.value[0] ?? -1] ?? text.value
+      emit('answer', { ask_id: props.ask.ask_id, value: choice })
       return
     }
-    if (props.ask.method === 'select') {
-      const choice = props.ask.options?.[picked.value[0] ?? -1] ?? text.value
-      emit('answer', { id: props.ask.id, value: choice })
-      return
-    }
-    emit('answer', { id: props.ask.id, value: text.value })
+    emit('answer', { ask_id: props.ask.ask_id, value: text.value })
   } finally {
     submitting.value = false
   }
 }
 
 function decline() {
-  emit('answer', { id: props.ask.id, cancelled: true })
+  emit('answer', { ask_id: props.ask.ask_id, cancelled: true })
 }
 
 function pick(index: number) {
@@ -86,28 +55,42 @@ function pick(index: number) {
   text.value = ''
 }
 
+/** 选项里带「自己写」时，选中它就该展开输入框。 */
+const customSelected = computed(() => {
+  const option = props.ask.ask_options?.[picked.value[0] ?? -1]
+  return option !== undefined && isCustomOption(option)
+})
+
 const canSubmit = computed(() => {
-  if (isAskTool.value) {
-    return (props.ask.questions ?? []).every(
-      (q) => (answers.value[q.id] ?? []).length > 0 || (custom.value[q.id] ?? '').trim().length > 0,
-    )
-  }
-  if (props.ask.method === 'confirm') return true
-  if (props.ask.method === 'select') return picked.value.length > 0 || text.value.trim().length > 0
+  if (props.ask.ask_method === 'confirm') return true
+  if (props.ask.ask_method === 'select') return picked.value.length > 0 || text.value.trim().length > 0
   return text.value.trim().length > 0
+})
+
+const methodLabel = computed(() => {
+  switch (props.ask.ask_method) {
+    case 'confirm':
+      return '确认'
+    case 'select':
+      return '选择'
+    case 'editor':
+      return '编辑'
+    default:
+      return '输入'
+  }
 })
 </script>
 
 <template>
   <div class="ask">
     <div class="ask-head">
-      <span class="tag brand">{{ ask.method === 'confirm' ? '确认' : ask.method === 'select' ? '选择' : ask.method === 'editor' ? '编辑' : ask.method === 'ask' ? '提问' : '输入' }}</span>
-      <span v-if="ask.title" class="ask-title">{{ ask.title }}</span>
+      <span class="tag brand">{{ methodLabel }}</span>
+      <span v-if="ask.ask_title" class="ask-title">{{ ask.ask_title }}</span>
     </div>
-    <p v-if="ask.message" class="ask-message selectable">{{ ask.message }}</p>
+    <p v-if="ask.ask_message" class="ask-message selectable">{{ ask.ask_message }}</p>
 
     <!-- confirm -->
-    <template v-if="ask.method === 'confirm'">
+    <template v-if="ask.ask_method === 'confirm'">
       <div class="ask-actions">
         <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting" @click="submit">
           {{ t('chat.yes') }}
@@ -117,10 +100,10 @@ const canSubmit = computed(() => {
     </template>
 
     <!-- select -->
-    <template v-else-if="ask.method === 'select'">
+    <template v-else-if="ask.ask_method === 'select'">
       <div class="ask-options">
         <button
-          v-for="(option, index) in ask.options ?? []"
+          v-for="(option, index) in ask.ask_options ?? []"
           :key="option"
           class="ask-option"
           :class="{ selected: picked.includes(index) }"
@@ -128,131 +111,149 @@ const canSubmit = computed(() => {
           @click="pick(index)"
         >
           <span class="ask-num">{{ index + 1 }}</span>
-          <span class="ask-option-text">
-            <span class="ask-option-label">{{ option }}</span>
-            <span v-if="ask.optionDetails?.[index]?.description" class="ask-option-desc">
-              {{ ask.optionDetails[index].description }}
-            </span>
-          </span>
+          <span class="ask-label">{{ option }}</span>
         </button>
       </div>
-      <div class="ask-input-row">
-        <input v-model="text" class="wb-input" :placeholder="ask.placeholder || '或者自己写一句'" @input="picked = []" />
-        <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="!canSubmit || submitting" @click="submit">
+      <div v-if="customSelected || !ask.ask_options?.length" class="ask-input">
+        <input v-model="text" class="wb-input" :placeholder="ask.ask_placeholder || t('chat.typeAnswer')" @keydown.enter="submit" />
+      </div>
+      <div class="ask-actions">
+        <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting || !canSubmit" @click="submit">
           {{ t('chat.submit') }}
         </button>
+        <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.cancel') }}</button>
       </div>
-      <button class="wb-btn text sm" @click="decline">{{ t('common.cancel') }}</button>
     </template>
 
     <!-- input / editor -->
-    <template v-else-if="ask.method === 'input' || ask.method === 'editor'">
-      <textarea
-        v-if="ask.method === 'editor'"
-        v-model="text"
-        class="wb-input"
-        rows="6"
-        :placeholder="ask.placeholder || ''"
-      />
-      <input v-else v-model="text" class="wb-input" :placeholder="ask.placeholder || ''" @keyup.enter="canSubmit && submit()" />
-      <div class="ask-actions">
-        <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="!canSubmit || submitting" @click="submit">
-          {{ t('chat.submit') }}
-        </button>
-        <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('common.cancel') }}</button>
-      </div>
-    </template>
-
-    <!-- ask 工具：多题、多选、自定义 -->
-    <template v-else-if="ask.method === 'ask'">
-      <div v-for="question in ask.questions ?? []" :key="question.id" class="ask-question">
-        <p class="ask-title">{{ question.header || question.question }}</p>
-        <p v-if="question.header && question.question !== question.header" class="ask-message selectable">
-          {{ question.question }}
-        </p>
-        <div class="ask-options">
-          <button
-            v-for="option in question.options"
-            :key="option.label"
-            class="ask-option"
-            :class="{ selected: isPicked(question.id, option.label) }"
-            type="button"
-            @click="toggleOption(question.id, option.label, Boolean(question.multi))"
-          >
-            <span class="ask-num">{{ isPicked(question.id, option.label) ? '✓' : '' }}</span>
-            <span class="ask-option-text">
-              <span class="ask-option-label">{{ option.label }}</span>
-              <span v-if="option.description" class="ask-option-desc">{{ option.description }}</span>
-            </span>
-          </button>
-        </div>
+    <template v-else>
+      <div class="ask-input">
+        <textarea
+          v-if="ask.ask_method === 'editor'"
+          v-model="text"
+          class="wb-input ask-editor"
+          rows="8"
+          :placeholder="ask.ask_placeholder || ''"
+        />
         <input
-          v-model="custom[question.id]"
+          v-else
+          v-model="text"
           class="wb-input"
-          :placeholder="isCustomOption('') ? '' : '也可以自己写一句'"
+          :placeholder="ask.ask_placeholder || t('chat.typeAnswer')"
+          @keydown.enter="submit"
         />
       </div>
       <div class="ask-actions">
-        <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="!canSubmit || submitting" @click="submit">
+        <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting || !canSubmit" @click="submit">
           {{ t('chat.submit') }}
         </button>
-        <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('common.cancel') }}</button>
+        <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.cancel') }}</button>
       </div>
     </template>
   </div>
 </template>
 
 <style scoped>
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-4);
+  border: 1px solid var(--wb-line-strong);
+  border-radius: var(--wb-radius-lg);
+  background: var(--wb-surface-raised);
+  box-shadow: var(--wb-shadow-sm);
+}
+
 .ask-head {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
 }
 
+.ask-title {
+  font-family: var(--wb-font-display);
+  font-size: var(--wb-fs-md);
+  color: var(--wb-ink);
+}
+
+.ask-message {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink-soft);
+  line-height: var(--wb-lh-base);
+}
+
 .ask-options {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--wb-sp-2);
 }
 
-.ask-option-text {
+.ask-option {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.ask-option-label {
-  font-size: var(--wb-fs-sm);
+  align-items: center;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-radius-md);
+  background: var(--wb-surface);
   color: var(--wb-ink);
-  white-space: pre-wrap;
+  font-size: var(--wb-fs-sm);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
-.ask-option-desc {
+.ask-option:hover {
+  background: var(--wb-surface-hover);
+  border-color: var(--wb-brand-soft);
+  transform: scale(1.01);
+}
+
+.ask-option:active {
+  transform: scale(0.99);
+}
+
+.ask-option.selected {
+  border-color: var(--wb-brand);
+  background: var(--wb-brand-wash);
+}
+
+.ask-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--wb-radius-sm);
+  background: var(--wb-surface-sunken);
+  font-family: var(--wb-font-mono);
   font-size: var(--wb-fs-2xs);
-  color: var(--wb-mute);
+  color: var(--wb-ink-soft);
+}
+
+.ask-label {
+  flex: 1;
+  user-select: text;
+}
+
+.ask-input {
+  display: flex;
+}
+
+.ask-editor {
+  resize: vertical;
+  font-family: var(--wb-font-mono);
+  line-height: var(--wb-lh-base);
 }
 
 .ask-actions {
   display: flex;
   gap: var(--wb-sp-2);
-}
-
-.ask-input-row {
-  display: flex;
-  gap: var(--wb-sp-2);
-}
-
-.ask-question {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
-  padding-top: var(--wb-sp-2);
-  border-top: 1px solid var(--wb-line);
-}
-
-.ask-question:first-of-type {
-  border-top: none;
-  padding-top: 0;
+  justify-content: flex-end;
 }
 </style>

@@ -53,14 +53,14 @@ function sides(pair: DiffLine[]): { left?: DiffLine; right?: DiffLine } {
 </template>
 
 <style scoped>
-.diff-rows {
+.diff_lines-rows {
   font-family: var(--wb-font-mono);
   font-size: var(--wb-fs-2xs);
   line-height: 1.55;
 }
 
 /* 内联：三列 —— 旧行号 / 新行号 / 正文 */
-.diff-row {
+.diff_lines-row {
   display: grid;
   grid-template-columns: 44px 44px 1fr;
   padding: 0 var(--wb-sp-2);

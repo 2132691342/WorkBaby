@@ -27,7 +27,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 function changeTag(file: GitFile): string {
-  if (file.conflict) return 'U'
+  if (file.has_conflict) return 'U'
   return file.change_code || '?'
 }
 
@@ -43,19 +43,19 @@ function baseName(file: GitFile): string {
     v-for="file in files"
     :key="file.file_path"
     class="file-line"
-    :class="{ 'is-active': selected === file.file_path, conflict: file.conflict }"
+    :class="{ 'is-active': selected === file.file_path, conflict: file.has_conflict }"
     :title="file.file_path"
     @click="emit('pick', file)"
   >
     <span class="chg" :class="`chg-${changeTag(file)}`">{{ changeTag(file) }}</span>
     <span class="path">{{ baseName(file) }}</span>
     <span class="num">
-      <b class="add">+{{ file.additions }}</b><b class="del">−{{ file.deletions }}</b>
+      <b class="add">+{{ file.insertions }}</b><b class="del">−{{ file.deletions }}</b>
     </span>
     <span class="acts">
       <!-- 冲突文件先要标记已解决，否则 git 不接受提交 -->
       <button
-        v-if="file.conflict && !staged"
+        v-if="file.has_conflict && !staged"
         class="act warn"
         :disabled="Boolean(pending)"
         @click.stop="emit('resolve', file)"

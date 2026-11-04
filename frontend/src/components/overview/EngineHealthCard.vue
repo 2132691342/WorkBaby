@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// 一个引擎的健康卡：探测结果、四个落盘计数、进程事实、缺引擎时的下一步。
-// 纪律：探测中不说「未安装」；计数没读到不显示 0（零是反的断言）；
-// 「没装」要说清哪一种（没装 / 路径错 / 超时），下一步完全不同。
+// 一个运行时的健康卡：探测结果、四个落盘计数、进程事实、缺引擎时的下一步。
+// 纪律：探测中不说「未安装」；计数是真扫出来的（不是零值占位）。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -10,7 +9,7 @@ import type { EngineHealth } from '@/types/api'
 
 const props = defineProps<{
   engine: EngineHealth
-  /** 探测还在跑：此时「没装」这个结论尚未成立 */
+  /** 后台装配还在跑：此时「没装」这个结论尚未成立 */
   detecting: boolean
 }>()
 
@@ -33,29 +32,15 @@ const statusTone = computed(() => {
   return 'warn'
 })
 
-/** 版本号那一行：装了就显示版本，没装且还在探就显示「检测中」。 */
+/** 版本号那一行：装了就显示版本，没装且还在装配就显示「准备中」。 */
 const versionLabel = computed(() => {
-  if (props.engine.version) return props.engine.version
+  if (props.engine.engine_version) return props.engine.engine_version
   if (props.detecting) return t('overview.detecting')
   return t('overview.notInstalled')
 })
 
-/** 「没装」的三种原因各说一句话。空串表示默认的那句「还没装它」。 */
-const reasonLabel = computed(() => {
-  switch (props.engine.probe_unknown_reason) {
-    case 'bad-path':
-      return t('overview.probeBadPath')
-    case 'timeout':
-      return t('overview.probeTimeout')
-    default:
-      return ''
-  }
-})
-
-/** 一个计数怎么显示：没读到的那一格显示「—」。 */
-function countLabel(n: number, known: boolean): string {
-  return known ? String(n) : '—'
-}
+/** 引擎家目录：布局解出来才有值。 */
+const agentDir = computed(() => app.engines?.layouts[0]?.agent_dir ?? '')
 
 function uptime(): string {
   if (!props.engine.started_at) return ''
@@ -69,10 +54,7 @@ function uptime(): string {
 </script>
 
 <template>
-  <article
-    class="wb-card card-pad engine-card"
-    :class="{ 'is-missing': !props.engine.installed && !props.detecting }"
-  >
+  <article class="wb-card card-pad engine-card" :class="{ 'is-missing': !props.engine.installed && !props.detecting }">
     <div class="engine-head">
       <span class="wb-tile wb-tile--sm" :class="props.engine.installed ? '' : 'wb-tile--neutral'">
         <AppIcon name="box" :size="16" />
@@ -90,7 +72,7 @@ function uptime(): string {
       </span>
     </div>
 
-    <!-- 还在探测：不能显示「未安装」并给出安装命令 -->
+    <!-- 还在装：不能显示「未安装」并给安装入口 -->
     <div v-if="props.detecting && !props.engine.installed" class="engine-missing">
       <p class="engine-hint">
         <span class="dot busy" />
@@ -99,63 +81,47 @@ function uptime(): string {
     </div>
 
     <div v-else-if="!props.engine.installed" class="engine-missing">
-      <p class="engine-hint">{{ reasonLabel || t('overview.installHint') }}</p>
-      <code v-if="props.engine.install_hint" class="engine-cmd selectable">
-        {{ props.engine.install_hint }}
-      </code>
+      <p class="engine-hint">{{ t('overview.installHint') }}</p>
       <div class="engine-actions">
-        <button class="wb-btn sm primary" @click="emit('install')">
-          {{ t('overview.goInstall') }}
-        </button>
-        <button
-          v-if="props.engine.probe_unknown_reason === 'bad-path'"
-          class="wb-btn sm"
-          @click="app.openSettings()"
-        >
-          {{ t('overview.fixEnginePath') }}
-        </button>
+        <button class="wb-btn sm primary" @click="emit('install')">{{ t('overview.goInstall') }}</button>
+        <button class="wb-btn sm" @click="app.openSettings()">{{ t('nav.settings') }}</button>
       </div>
     </div>
 
     <template v-else>
       <div class="engine-stats">
         <div class="stat">
-          <span class="stat-num">{{ countLabel(props.engine.session_count, props.engine.session_count_known) }}</span>
+          <span class="stat-num">{{ props.engine.session_count }}</span>
           <span class="stat-label">{{ t('nav.sessions') }}</span>
         </div>
         <div class="stat">
-          <span class="stat-num">{{ countLabel(props.engine.skill_count, props.engine.skill_count_known) }}</span>
+          <span class="stat-num">{{ props.engine.skill_count }}</span>
           <span class="stat-label">{{ t('nav.skills') }}</span>
         </div>
         <div class="stat">
-          <span class="stat-num">{{ countLabel(props.engine.plugin_count, props.engine.plugin_count_known) }}</span>
+          <span class="stat-num">{{ props.engine.plugin_count }}</span>
           <span class="stat-label">{{ t('nav.plugins') }}</span>
         </div>
         <div class="stat">
-          <span class="stat-num">{{ countLabel(props.engine.mcp_count, props.engine.mcp_count_known) }}</span>
+          <span class="stat-num">{{ props.engine.mcp_count }}</span>
           <span class="stat-label">{{ t('nav.mcp') }}</span>
         </div>
       </div>
 
       <dl class="engine-meta">
         <div class="wb-kv">
-          <dt>{{ t('overview.channel') }}</dt>
-          <dd>{{ props.engine.channel_label }}</dd>
-        </div>
-        <div class="wb-kv">
           <dt>{{ t('overview.process') }}</dt>
           <dd>
             <template v-if="props.engine.running">
-              pid {{ props.engine.pid
-              }}<template v-if="props.engine.protocol"> · v{{ props.engine.protocol }}</template>
+              pid {{ props.engine.process_id }}
               <template v-if="uptime()"> · {{ uptime() }}</template>
             </template>
             <template v-else>{{ t('overview.idle') }}</template>
           </dd>
         </div>
-        <div class="wb-kv">
+        <div v-if="agentDir" class="wb-kv">
           <dt>{{ t('overview.agentDir') }}</dt>
-          <dd class="wb-mono dir">{{ props.engine.agent_dir }}</dd>
+          <dd class="wb-mono dir">{{ agentDir }}</dd>
         </div>
       </dl>
 
@@ -266,18 +232,6 @@ function uptime(): string {
   gap: var(--wb-sp-2);
   font-size: var(--wb-fs-2xs);
   color: var(--wb-mute);
-}
-
-.engine-cmd {
-  width: 100%;
-  padding: var(--wb-sp-2);
-  border-radius: var(--wb-r-sm);
-  background: var(--wb-code-bg);
-  border: 1px solid var(--wb-line);
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-ink-5);
-  overflow-wrap: anywhere;
 }
 
 .engine-error {

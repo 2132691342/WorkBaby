@@ -44,12 +44,12 @@ const app = useAppStore()
           <button
             class="recent-open wb-row-click"
             :class="{ 'is-current': row.workspace_path === app.workspace }"
-            :disabled="row.workspace_path === app.workspace || !row.exists"
-            :title="row.exists ? row.workspace_path : t('settings.recentMissing')"
+            :disabled="row.workspace_path === app.workspace || !row.workspace_exists"
+            :title="row.workspace_exists ? row.workspace_path : t('settings.recentMissing')"
             @click="emit('use', row.workspace_path)"
           >
             <AppIcon name="folder" :size="13" />
-            <span class="mono recent-path" :class="{ 'is-gone': !row.exists }">
+            <span class="mono recent-path" :class="{ 'is-gone': !row.workspace_exists }">
               {{ row.workspace_path }}
             </span>
           </button>

@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// MCP 页：一份清单 × 每引擎一列开关的矩阵。
-// 两引擎共用 mcp.json 的 mcpServers 形状，读写一份代码；各自的文件仍是唯一事实——
-// 矩阵只是视图与同步动作：装到另一边 = 把那边现成的定义复制过来。
+// MCP 页：一份清单，增删改查 + 开关。
+// 定义落在 pi 的 mcp.json（用户级）与工作区 .pi/mcp.json（项目级），那份文件是唯一事实。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -11,7 +10,7 @@ import McpTable from '@/components/mcp/McpTable.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
-import type { EngineKind, McpListData, McpMatrixRow, McpServer } from '@/types/api'
+import type { McpListData, McpServer } from '@/types/api'
 
 const { t } = useI18n()
 const app = useAppStore()
@@ -21,13 +20,10 @@ const data = ref<McpListData | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const busyName = ref('')
-const testing = ref(false)
 const dialog = ref(false)
 const editingName = ref('')
-// 写入目标：编辑时默认勾上已有定义的引擎，新建时默认两个都装
-const targets = ref<{ omp: boolean; pi: boolean }>({ omp: true, pi: true })
 
-// 表单：一条命令或一个 URL，二选一
+// 表单：一条命令或一个 URL，二选一。
 const form = ref({
   server_name: '',
   mode: 'command' as 'command' | 'url',
@@ -39,41 +35,17 @@ const form = ref({
   env_text: '',
 })
 
-const installedKinds = computed(() => app.installed.map((e) => e.kind))
-const piInstalled = computed(() => installedKinds.value.includes('pi'))
-const servers = computed<McpServer[]>(() => data.value?.servers ?? [])
+const servers = computed<McpServer[]>(() =>
+  [...(data.value?.servers ?? [])].sort((a, b) => a.server_name.localeCompare(b.server_name)),
+)
 
-/** 矩阵：按名合并两引擎的行。同名在两边各有一条时各占一格。 */
-const matrix = computed<McpMatrixRow[]>(() => {
-  const map = new Map<string, McpMatrixRow>()
-  for (const row of servers.value) {
-    const kind = row.engine_kind as EngineKind
-    let entry = map.get(row.server_name)
-    if (!entry) {
-      entry = {
-        server_name: row.server_name,
-        transport_kind: row.transport_kind,
-        command_line: row.command_line,
-        server_url: row.server_url,
-        desc: row.desc,
-        cells: {},
-      }
-      map.set(row.server_name, entry)
-    }
-    entry.cells[kind] = row
-  }
-  return [...map.values()].sort((a, b) => a.server_name.localeCompare(b.server_name))
-})
+/** pi 就绪才谈得上「装 MCP」。 */
+const piInstalled = computed(() => Boolean(app.runtime?.pi_ready))
 
-/** 各引擎的用户级配置路径：从行上的 config_path 取（该引擎一条服务器都没有时显示 —）。 */
-function userPathOf(kind: EngineKind): string {
-  return servers.value.find((s) => s.engine_kind === kind && s.scope_kind === 'user')?.config_path ?? ''
-}
-
-async function load(live = false) {
+async function load() {
   loading.value = true
   try {
-    data.value = await api.mcpList(undefined, live && piInstalled.value)
+    data.value = await api.mcpList()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
@@ -81,9 +53,7 @@ async function load(live = false) {
   }
 }
 
-function openCreate() {
-  editingName.value = ''
-  targets.value = { omp: installedKinds.value.includes('omp'), pi: piInstalled.value }
+function resetForm() {
   form.value = {
     server_name: '',
     mode: 'command',
@@ -94,22 +64,23 @@ function openCreate() {
     work_dir: '',
     env_text: '',
   }
+}
+
+function openCreate() {
+  editingName.value = ''
+  resetForm()
   dialog.value = true
 }
 
-function openEdit(row: McpMatrixRow) {
-  // 表单初值取优先引擎的那份定义（omp 优先）
-  const cell = row.cells.omp ?? row.cells.pi
-  if (!cell) return
+function openEdit(row: McpServer) {
   editingName.value = row.server_name
-  targets.value = { omp: Boolean(row.cells.omp), pi: Boolean(row.cells.pi) }
   form.value = {
     server_name: row.server_name,
-    mode: cell.server_url ? 'url' : 'command',
-    command_text: cell.command_line ?? '',
-    server_url: cell.server_url ?? '',
-    transport_kind: cell.transport_kind === 'sse' ? 'sse' : 'http',
-    desc: cell.desc ?? '',
+    mode: row.server_url ? 'url' : 'command',
+    command_text: row.command_line ?? '',
+    server_url: row.server_url ?? '',
+    transport_kind: row.transport_kind === 'http' ? 'http' : 'stdio',
+    desc: row.mcp_desc ?? '',
     work_dir: '',
     env_text: '',
   }
@@ -118,26 +89,20 @@ function openEdit(row: McpMatrixRow) {
 
 async function save() {
   if (!form.value.server_name.trim()) return
-  const kinds = (['omp', 'pi'] as EngineKind[]).filter((k) => targets.value[k])
-  if (!kinds.length) return
   saving.value = true
   try {
     const envList = form.value.env_text
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-    for (const kind of kinds) {
-      await api.mcpSave({
-        engine_kind: kind,
-        server_name: form.value.server_name.trim(),
-        command_text: form.value.mode === 'command' ? form.value.command_text : undefined,
-        server_url: form.value.mode === 'url' ? form.value.server_url : undefined,
-        transport_kind: form.value.mode === 'url' ? form.value.transport_kind : undefined,
-        desc: form.value.desc || undefined,
-        env_list: envList.length ? envList : undefined,
-        work_dir: form.value.work_dir || undefined,
-      })
-    }
+    await api.mcpSave({
+      server_name: form.value.server_name.trim(),
+      command_text: form.value.mode === 'command' ? form.value.command_text : undefined,
+      server_url: form.value.mode === 'url' ? form.value.server_url : undefined,
+      transport_kind: form.value.mode === 'url' ? form.value.transport_kind : undefined,
+      mcp_desc: form.value.desc || undefined,
+      env_list: envList.length ? envList : undefined,
+    })
     dialog.value = false
     ElMessage.success(t('common.saved'))
     await load()
@@ -148,15 +113,10 @@ async function save() {
   }
 }
 
-async function toggle(row: McpMatrixRow, kind: EngineKind, enabled: boolean) {
+async function toggle(row: McpServer, enabled: boolean) {
   busyName.value = row.server_name
   try {
-    if (row.cells[kind]) {
-      await api.mcpToggle(row.server_name, enabled, kind)
-    } else {
-      // 那边没有定义：把另一边现成的复制过去再启停
-      await api.mcpCopyTo(row.server_name, enabled, kind)
-    }
+    await api.mcpToggle(row.server_name, enabled)
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -165,67 +125,24 @@ async function toggle(row: McpMatrixRow, kind: EngineKind, enabled: boolean) {
   }
 }
 
-async function copyTo(row: McpMatrixRow, kind: EngineKind) {
-  busyName.value = row.server_name
+async function remove(row: McpServer) {
   try {
-    await api.mcpCopyTo(row.server_name, true, kind)
-    ElMessage.success(t('mcp.copied'))
-    await load()
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  } finally {
-    busyName.value = ''
-  }
-}
-
-async function remove(row: McpMatrixRow) {
-  const kinds = (['omp', 'pi'] as EngineKind[]).filter((k) => row.cells[k])
-  try {
-    await ElMessageBox.confirm(
-      t('mcp.removeConfirm', { name: row.server_name, engines: kinds.join(' / ') }),
-      t('mcp.removeTitle'),
-      { confirmButtonText: t('common.delete'), cancelButtonText: t('common.cancel'), type: 'warning' },
-    )
+    await ElMessageBox.confirm(t('mcp.removeConfirm', { name: row.server_name }), t('mcp.removeTitle'), {
+      confirmButtonText: t('common.delete'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    })
   } catch {
     return
   }
   busyName.value = row.server_name
   try {
-    for (const kind of kinds) {
-      await api.mcpRemove(row.server_name, kind)
-    }
+    await api.mcpRemove(row.server_name)
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     busyName.value = ''
-  }
-}
-
-// 探测要起一次引擎子进程（几秒），单独一个按钮；只有 pi 提供 `mcp list --json`，
-// 探测结果并进矩阵的 pi 格，不整表替换（omp 的行不在这次响应里）。
-async function probe() {
-  testing.value = true
-  try {
-    const fresh = await api.mcpList('pi', true)
-    if (!fresh.live_checked) {
-      ElMessage.info(t('mcp.probeUnavailable'))
-      return
-    }
-    for (const row of fresh.servers) {
-      const cell = servers.value.find(
-        (s) => s.engine_kind === 'pi' && s.server_name === row.server_name,
-      )
-      if (cell) {
-        cell.live_status = row.live_status
-        cell.live_error = row.live_error
-        cell.tool_names = row.tool_names
-      }
-    }
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  } finally {
-    testing.value = false
   }
 }
 
@@ -237,36 +154,32 @@ onMounted(() => void load())
     <header class="page-head">
       <div>
         <h1 class="page-title">{{ t('mcp.title') }}</h1>
-        <p class="page-sub">{{ t('mcp.matrixSubtitle') }}</p>
+        <p class="page-sub">{{ t('mcp.subtitle') }}</p>
       </div>
       <div class="head-actions">
-        <button v-if="piInstalled" class="wb-btn" :class="{ 'is-loading': testing }" :disabled="testing" @click="probe">
-          <AppIcon name="search" :size="14" />
-          {{ t('mcp.probe') }}
-        </button>
         <button class="wb-btn primary" @click="openCreate">
           <AppIcon name="plus" :size="14" />
           {{ t('mcp.add') }}
         </button>
-        <button class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load()">
+        <button class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load">
           <AppIcon name="refresh" :size="15" />
         </button>
       </div>
     </header>
 
     <div class="page-body">
-      <section class="wb-card card-pad path-card">
+      <section v-if="piInstalled" class="wb-card card-pad path-card">
         <div class="wb-sec-head">
           <span class="wb-sec-title">{{ t('mcp.file') }}</span>
         </div>
         <dl class="path-list">
           <div class="wb-kv">
-            <dt>omp</dt>
-            <dd class="wb-mono">{{ userPathOf('omp') || '—' }}</dd>
+            <dt>{{ t('mcp.userScope') }}</dt>
+            <dd class="wb-mono">{{ data?.user_path || '—' }}</dd>
           </div>
-          <div class="wb-kv">
-            <dt>pi</dt>
-            <dd class="wb-mono">{{ userPathOf('pi') || '—' }}</dd>
+          <div v-if="data?.project_path" class="wb-kv">
+            <dt>{{ t('mcp.projectScope') }}</dt>
+            <dd class="wb-mono">{{ data.project_path }}</dd>
           </div>
         </dl>
         <p class="hint">{{ t('mcp.fileHint') }}</p>
@@ -278,27 +191,17 @@ onMounted(() => void load())
       </p>
 
       <McpTable
-        :rows="matrix"
+        :rows="servers"
         :loading="loading"
         :busy-name="busyName"
-        :installed="installedKinds"
         @create="openCreate"
         @edit="openEdit"
         @remove="remove"
         @toggle="toggle"
-        @copy="copyTo"
       />
     </div>
 
-    <McpDialog v-model:open="dialog" :form="form" :editing="editingName" :saving="saving" @save="save">
-      <template #extra>
-        <div class="target-row">
-          <span class="target-label">{{ t('mcp.writeTargets') }}</span>
-          <label class="target-check"><input v-model="targets.omp" type="checkbox" :disabled="!installedKinds.includes('omp')" /> omp</label>
-          <label class="target-check"><input v-model="targets.pi" type="checkbox" :disabled="!piInstalled" /> pi</label>
-        </div>
-      </template>
-    </McpDialog>
+    <McpDialog v-model:open="dialog" :form="form" :editing="editingName" :saving="saving" @save="save" />
   </div>
 </template>
 
@@ -379,33 +282,5 @@ onMounted(() => void load())
   background: var(--wb-warn-soft);
   color: var(--wb-warn);
   font-size: var(--wb-fs-xs);
-}
-
-.target-row {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
-  padding-top: var(--wb-sp-2);
-}
-
-.target-label {
-  font-size: var(--wb-fs-2xs);
-  font-weight: 650;
-  color: var(--wb-mute);
-}
-
-.target-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-ink);
-  cursor: pointer;
-}
-
-.target-check:has(input:disabled) {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 </style>

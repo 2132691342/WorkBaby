@@ -26,10 +26,10 @@ interface FileChange {
 const changes = computed<FileChange[]>(() => {
   const map = new Map<string, FileChange>()
   for (const block of props.blocks) {
-    if (block.kind !== 'tool' || !block.file_path) continue
+    if (block.block_kind !== 'tool' || !block.file_path) continue
     let add = 0
     let del = 0
-    for (const line of block.diff ?? []) {
+    for (const line of block.diff_lines ?? []) {
       if (line.line_kind === 'add') add++
       else if (line.line_kind === 'del') del++
     }

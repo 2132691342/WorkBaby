@@ -9,7 +9,7 @@ import TurnBlocks from '@/components/chat/TurnBlocks.vue'
 import MarkdownBlock from '@/components/chat/MarkdownBlock.vue'
 import TurnChanges from '@/components/chat/TurnChanges.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
-import { usageFrom, type TurnUsage } from '@/composables/useMessageFlow'
+import type { TurnReading } from '@/composables/useMessageFlow'
 import { useTurnClock } from '@/composables/useTurnClock'
 import { useChatStore } from '@/stores/chat'
 import { useToasts } from '@/composables/useToasts'
@@ -44,7 +44,7 @@ const props = defineProps<{
    * 两个来源：流式那一轮从流里取，历史那一轮从后端投影里取。
    * 两者字段名不一样（驼峰 vs 下划线），usageFrom 两种都认。
    */
-  usage?: TurnUsage
+  usage?: TurnReading
   /** 历史轮自带的用量（后端投影带下来的） */
   historyTurn?: HistoryTurn
   /** 这一轮的隐藏标识：有它才能「删除」（直播轮没有，因此不可删） */
@@ -96,24 +96,21 @@ const liveLabel = computed(() => {
 })
 
 /** 已经吐出的输出 token：实时读数优先，它比用量帧更早到。 */
-const liveOut = computed(() => chat.live.output_tokens || props.usage?.output || 0)
+const liveOut = computed(() => chat.live.output_tokens || props.usage?.output_tokens || 0)
 
 /** 引擎报的生成速度：给就显示，不给不占位。 */
-const liveSpeed = computed(() => {
-  const tps = chat.tokensPerSecond
-  return tps && tps > 0 ? `${tps.toFixed(1)} tok/s` : ''
-})
+const liveSpeed = computed(() => '')
 
 /** 切引擎的分隔行：它不是消息，只是界面层的标记。 */
 const handoffEngine = computed<EngineKind | ''>(() =>
-  props.role === 'engine-mark' ? ((props.blocks[0]?.text ?? '') as EngineKind) : '',
+  props.role === 'engine-mark' ? ((props.blocks[0]?.block_text ?? '') as EngineKind) : '',
 )
 
 /** 这一轮的纯文本（复制用）。 */
 const plainText = computed(() =>
   props.blocks
-    .filter((b) => b.kind === 'text' && b.text)
-    .map((b) => b.text)
+    .filter((b) => b.block_kind === 'text' && b.block_text)
+    .map((b) => b.block_text)
     .join('\n\n'),
 )
 
@@ -189,18 +186,20 @@ const metrics = computed(() => {
   // 直播中的轮次不摆静态读数：轮尾的脚标在替它计时，
   // 两份时间戳并存必然有一份是停着的——停着的那份就是「是不是卡了」的误报来源。
   if (liveActive.value) return []
-  const u = props.usage ?? usageFrom(props.historyTurn?.usage)
+  const u = props.usage ?? props.historyTurn?.turn_usage
   if (!u) return []
-  const prompt = u.input + u.cacheRead + u.cacheWrite
+  const prompt = u.input_tokens + u.cache_read_tokens + u.cache_write_tokens
   const out: { key: string; value: string; hit?: boolean }[] = []
   if (prompt > 0) out.push({ key: '↓', value: fmtCount(prompt) })
-  if (u.output > 0) out.push({ key: '↑', value: fmtCount(u.output) })
+  if (u.output_tokens > 0) out.push({ key: '↑', value: fmtCount(u.output_tokens) })
   if (prompt > 0) {
-    const rate = Math.round((u.cacheRead / prompt) * 100)
+    const rate = Math.round((u.cache_read_tokens / prompt) * 100)
     out.push({ key: 'cache', value: `${rate}%`, hit: rate > 0 })
   }
-  if (u.costUSD > 0) out.push({ key: '$', value: u.costUSD.toFixed(u.costUSD < 0.01 ? 4 : 3) })
-  if (u.elapsedMS > 0) out.push({ key: '⏱', value: fmtMs(u.elapsedMS) })
+  if (u.cost_usd > 0) out.push({ key: '$', value: u.cost_usd.toFixed(u.cost_usd < 0.01 ? 4 : 3) })
+  if (props.usage && props.usage.elapsed_ms > 0) {
+    out.push({ key: '⏱', value: fmtMs(props.usage.elapsed_ms) })
+  }
   return out
 })
 
@@ -244,7 +243,7 @@ function fmtMs(ms: number): string {
       <!-- 用户轮只有一段纯文本，不需要 TurnBlocks 那套工具卡分派 -->
       <MarkdownBlock
         v-if="isUser"
-        :text="props.blocks[0]?.text ?? ''"
+        :text="props.blocks[0]?.block_text ?? ''"
         :streaming="false"
         :cache-key="`${props.runId}:user`"
       />

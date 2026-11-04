@@ -15,7 +15,7 @@ const { t } = useI18n()
 
 const open = ref(false)
 watch(
-  () => props.block.status,
+  () => props.block.tool_status,
   (status, prev) => {
     // 只有出错才自动展开：差异到货就展开会让流式中的版面不停跳动，
     // 「它改了什么」由头一行的「看改动」负责，那是抽屉的入口。
@@ -23,7 +23,7 @@ watch(
   },
 )
 
-const status = computed(() => props.block.status ?? 'pending')
+const status = computed(() => props.block.tool_status ?? 'pending')
 const label = computed(() => {
   if (status.value === 'running') return t('chat.toolRunning')
   if (status.value === 'error') return t('chat.toolFailed')
@@ -32,7 +32,7 @@ const label = computed(() => {
 })
 
 const args = computed(() => {
-  const raw = props.block.args
+  const raw = props.block.tool_args
   if (raw === undefined || raw === null) return ''
   if (typeof raw === 'string') return raw
   try {
@@ -42,7 +42,7 @@ const args = computed(() => {
   }
 })
 
-const headline = computed(() => props.block.intent || summarise(props.block.args))
+const headline = computed(() => summarise(props.block.tool_args))
 /** 一行摘要：从参数里挑最像「在做什么」的那个字段。 */
 function summarise(raw: unknown): string {
   if (!raw || typeof raw !== 'object') return typeof raw === 'string' ? raw : ''
@@ -62,10 +62,10 @@ const duration = computed(() => {
   return `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)}s`
 })
 
-const output = computed(() => props.block.output ?? '')
+const output = computed(() => props.block.tool_output ?? '')
 
 /** 差异行：引擎改了什么。没有差异的工具（读文件、跑命令）没有这一段。 */
-const diffLines = computed<DiffLine[]>(() => props.block.diff ?? [])
+const diffLines = computed<DiffLine[]>(() => props.block.diff_lines ?? [])
 
 /** 差异的增删行数。 */
 const diffStat = computed(() => {

@@ -7,16 +7,6 @@ import { useI18n } from 'vue-i18n'
 import CodeEditor from '@/components/common/CodeEditor.vue'
 import { usePrefsStore } from '@/stores/prefs'
 import { useAppStore } from '@/stores/app'
-import type { EngineKind } from '@/types/api'
-
-const props = defineProps<{
-  /** 当前看哪个引擎的配置 */
-  kind: EngineKind
-}>()
-
-const emit = defineEmits<{
-  pick: [kind: EngineKind]
-}>()
 
 const { t } = useI18n()
 const prefs = usePrefsStore()
@@ -30,88 +20,72 @@ const lang = computed<'json' | 'yaml' | 'text'>(() => {
   return 'text'
 })
 
-/** 有多个引擎时才给切换器：只有一个时它只会占地方。 */
-const showPicker = computed(() => app.installed.length > 1)
+/** 引擎就绪才谈得上「看它的配置」。 */
+const installed = computed(() => Boolean(app.runtime?.pi_ready))
 </script>
 
 <template>
-  <section v-if="app.installed.length" class="card-pad">
-    <div class="wb-section-title">
-      {{ t('settings.configTitle') }}
-      <span class="push" />
-      <div v-if="showPicker" class="seg">
-        <button
-          v-for="item in app.installed"
-          :key="item.kind"
-          class="seg-btn"
-          :class="{ active: props.kind === item.kind }"
-          @click="emit('pick', item.kind)"
-        >
-          {{ item.kind }}
-        </button>
-      </div>
-    </div>
+  <section v-if="installed" class="card-pad">
+    <div class="wb-section-title">{{ t('settings.configTitle') }}</div>
     <p class="set-hint">{{ t('settings.configHint') }}</p>
 
     <div class="config-files">
       <button
         v-for="file in prefs.configFiles"
-        :key="file.file_path"
+        :key="file.config_name"
         class="config-tab wb-pressable"
-        :class="{ active: prefs.configFile === file.file_path, missing: !file.exists }"
+        :class="{ active: prefs.configText?.file_path === file.file_path }"
         :title="file.file_path"
-        @click="prefs.pickConfig(file.file_path)"
+        @click="prefs.pickConfig(file.config_name)"
       >
-        {{ file.file_label }}
+        {{ file.config_label }}
+        <span v-if="file.file_exists" class="tab-dot" />
       </button>
     </div>
 
-    <div v-if="prefs.loadingText" class="set-hint">{{ t('common.loading') }}</div>
-    <div v-else-if="prefs.configText && !prefs.configText.found" class="set-hint">
-      {{ t('settings.configMissing') }}
-      <span class="mono selectable"> · {{ prefs.configText.file_path }}</span>
+    <div v-if="prefs.configText" class="config-body">
+      <p v-if="!prefs.configText.found" class="config-missing">{{ t('settings.configMissing') }}</p>
+      <template v-else>
+        <CodeEditor :model-value="prefs.configText.file_text" :lang="lang" readonly min-height="52vh" />
+        <p v-if="prefs.configText.truncated" class="config-warn">{{ t('settings.configTruncated') }}</p>
+      </template>
     </div>
-    <template v-else-if="prefs.configText">
-      <div class="set-hint mono selectable config-path">{{ prefs.configText.file_path }}</div>
-      <CodeEditor :model-value="prefs.configText.text" :lang="lang" readonly min-height="320px" />
-      <div v-if="prefs.configText.truncated" class="set-hint">
-        {{ t('settings.configTruncated') }}
-      </div>
-    </template>
   </section>
 </template>
 
 <style scoped>
-.push {
-  margin-left: auto;
-}
-
-.set-hint {
-  margin: 0 0 var(--wb-sp-2);
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-faint);
-}
-
-.config-path {
-  overflow-wrap: anywhere;
-}
-
 .config-files {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--wb-sp-2);
-  margin-bottom: var(--wb-sp-3);
+  gap: var(--wb-sp-1);
+  margin: var(--wb-sp-2) 0;
 }
 
 .config-tab {
-  padding: 3px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px var(--wb-sp-2);
   border: 1px solid var(--wb-line);
-  border-radius: var(--wb-r-full);
+  border-radius: var(--wb-r-sm);
   background: var(--wb-surface);
-  color: var(--wb-mute);
+  color: var(--wb-ink-5);
   font-family: var(--wb-font-mono);
   font-size: var(--wb-fs-3xs);
   cursor: pointer;
+  transition:
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+
+.config-tab:hover {
+  border-color: var(--wb-brand-3);
+  transform: scale(1.02);
+}
+
+.config-tab:active {
+  transform: scale(0.97);
 }
 
 .config-tab.active {
@@ -120,9 +94,32 @@ const showPicker = computed(() => app.installed.length > 1)
   color: var(--wb-brand);
 }
 
-/* 文件不存在时不显示成「选中的那个」，否则会以为内容为空 */
-.config-tab.missing {
-  border-style: dashed;
-  color: var(--wb-faint);
+/* 已生成的文件给一个点：省得一个个点开才发现是空的 */
+.tab-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--wb-ok);
+}
+
+.config-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+}
+
+.config-missing,
+.config-warn {
+  margin: 0;
+  padding: var(--wb-sp-3);
+  border-radius: var(--wb-r-sm);
+  background: var(--wb-hover);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-mute);
+}
+
+.config-warn {
+  color: var(--wb-warn);
+  background: var(--wb-warn-soft);
 }
 </style>

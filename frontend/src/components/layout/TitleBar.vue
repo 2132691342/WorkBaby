@@ -5,7 +5,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { windowCtl } from '@/api/shell'
+import { windowCtl } from '@/api/wails'
 
 const app = useAppStore()
 const route = useRoute()
@@ -14,14 +14,14 @@ const { t } = useI18n()
 const title = computed(() => String(route.meta.title ?? t('nav.chat')))
 const connection = computed(() => {
   if (!app.ready) return { cls: 'warn', text: t('titlebar.starting') }
-  if (app.detecting) return { cls: 'warn', text: t('titlebar.detecting') }
+  if (Boolean(app.runtime?.provisioning)) return { cls: 'warn', text: t('titlebar.detecting') }
   if (!app.hasEngine) return { cls: 'bad', text: t('titlebar.noEngine') }
   return { cls: 'ok', text: t('titlebar.connected') }
 })
 </script>
 
 <template>
-  <header class="titlebar" style="-webkit-app-region: drag">
+  <header class="titlebar" style="--wails-draggable: drag">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
@@ -29,7 +29,7 @@ const connection = computed(() => {
           <path d="M12 12v9" />
         </svg>
       </span>
-      <span class="brand-name">WorkBaby</span>
+      <span class="brand-name">workbaby</span>
     </div>
     <div class="crumb">
       <span class="crumb-sep">/</span>
@@ -40,7 +40,7 @@ const connection = computed(() => {
         <span class="dot" :class="connection.cls" />
         <span class="conn-text">{{ connection.text }}</span>
       </span>
-      <div class="win-ctl" style="-webkit-app-region: no-drag">
+      <div class="win-ctl" style="--wails-draggable: no-drag">
         <button class="win-btn" :title="t('titlebar.minimize')" @click="windowCtl.minimize()">
           <svg viewBox="0 0 12 12" width="11" height="11" stroke="currentColor" stroke-width="1.2"><path d="M2 6h8" /></svg>
         </button>

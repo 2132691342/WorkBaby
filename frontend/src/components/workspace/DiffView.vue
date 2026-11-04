@@ -16,7 +16,7 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-/** 内联 / 并排。默认内联：窄栏才是这个 pane 的常态。 */
+/** 内联 / 并排。默认内联：窄栏才是这个页面的常态。 */
 const sideBySide = ref(false)
 
 /** 被展开的折叠段编号集合。键是段起始下标。 */
@@ -31,98 +31,61 @@ watch(
 )
 
 /** 上下文保留行数：hunk 前后各留这么多行，多的折起来。 */
-const contextLines = 3
+const CONTEXT_LINES = 3
 
+/** 一段可折叠的未改动区间。 */
 interface Fold {
+  /** 这一段有多少行 */
   count: number
+  /** 这一段的第一行在 lines 里的下标 */
   at: number
 }
 
-/**
- * 把上下文行折成「可见行 / 折叠段」。
- *
- * 只折连续的上下文行：增删行永远要显示——那正是用户要看的东西。
- * 头尾各留 contextLines 行作为锚点，中间的折起来。
- * 返回的是「显示序列」，元素要么是一行原文，要么是一个折叠段。
- */
-const blocks = computed<Array<DiffLine | Fold>>(() => {
-  const src = props.diff?.diff_lines ?? []
-  const out: Array<DiffLine | Fold> = []
-  let run: { start: number; items: DiffLine[] } | null = null
+const lines = computed<DiffLine[]>(() => props.diff?.diff_lines ?? [])
 
-  const flush = (): void => {
-    if (!run) return
-    const n = run.items.length
-    // 短到不值得折：折起来只省一两行，还多一次点击。
-    if (n <= contextLines * 2 + 1) {
-      for (const item of run.items) out.push(item)
-    } else {
-      for (const item of run.items.slice(0, contextLines)) out.push(item)
-      out.push({ count: n - contextLines * 2, at: run.start + contextLines })
-      for (const item of run.items.slice(n - contextLines)) out.push(item)
-    }
-    run = null
+/** 增删行数：页头那个 +N −M 读数。 */
+const adds = computed(() => lines.value.filter((l) => l.line_kind === 'add').length)
+const dels = computed(() => lines.value.filter((l) => l.line_kind === 'del').length)
+
+/**
+ * 可折叠的连续上下文段。
+ *
+ * 只折「离最近的增删行超过 CONTEXT_LINES 行」的那一段：紧贴改动的几行
+ * 是读差异时最需要的参照，折掉它们等于让用户自己展开。
+ */
+const folds = computed<Fold[]>(() => {
+  const out: Fold[] = []
+  const rows = lines.value
+  let runStart = -1
+  let runLen = 0
+  const flushRun = (end: number) => {
+    if (runStart < 0) return
+    // 一段上下文前后都要留 CONTEXT_LINES 行
+    const head = runStart + CONTEXT_LINES
+    const tail = end - CONTEXT_LINES
+    if (tail - head > 0) out.push({ at: head, count: tail - head })
+    runStart = -1
+    runLen = 0
   }
-
-  src.forEach((line, i) => {
-    if (line.line_kind === 'ctx') {
-      if (!run) run = { start: i, items: [] }
-      run.items.push(line)
-      return
-    }
-    flush()
-    out.push(line)
-  })
-  flush()
-  return out
-})
-
-/**
- * 并排的行对：一段删除 + 紧跟的一段新增配成对。
- *
- * 配对的规则与所有并排差异视图一致：连续的 - 块与紧随其后的 + 块逐行对齐，
- * 行数不等时短的一侧留空。上下文行与文件头两侧都画同一行。
- */
-const pairs = computed<DiffLine[][]>(() => {
-  const src = props.diff?.diff_lines ?? []
-  const out: DiffLine[][] = []
-  let i = 0
-  while (i < src.length) {
-    const line = src[i]
-    if (line.line_kind === 'del') {
-      const dels: DiffLine[] = []
-      while (i < src.length && src[i].line_kind === 'del') dels.push(src[i++])
-      const adds: DiffLine[] = []
-      while (i < src.length && src[i].line_kind === 'add') adds.push(src[i++])
-      for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
-        out.push([dels[k], adds[k]].filter((x): x is DiffLine => Boolean(x)))
-      }
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].line_kind === 'ctx') {
+      if (runStart < 0) runStart = i
+      runLen++
       continue
     }
-    out.push([line])
-    i++
+    flushRun(i)
   }
+  flushRun(rows.length)
+  void runLen
   return out
 })
 
-const adds = computed(
-  () => (props.diff?.diff_lines ?? []).filter((l) => l.line_kind === 'add').length,
-)
-const dels = computed(
-  () => (props.diff?.diff_lines ?? []).filter((l) => l.line_kind === 'del').length,
-)
-const blank = computed(() => !props.loading && (props.diff?.diff_lines?.length ?? 0) === 0)
-const blankText = computed(() => (props.path ? t('workspace.diffEmpty') : t('workspace.noChanges')))
-
-function isFold(row: DiffLine | Fold): row is Fold {
-  return (row as Fold).count !== undefined
-}
-
-/** 折叠段是不是展开的。 */
+/** 哪一段被展开了。 */
 function isOpen(at: number): boolean {
   return opened.value.has(at)
 }
 
+/** 展开 / 收起一段。 */
 function toggle(at: number): void {
   const next = new Set(opened.value)
   if (next.has(at)) next.delete(at)
@@ -130,30 +93,44 @@ function toggle(at: number): void {
   opened.value = next
 }
 
-const folds = computed(() => blocks.value.filter(isFold))
-const allOpen = computed(() => folds.value.every((f) => isOpen(f.at)))
-
+/** 全部展开 / 全部收起。 */
 function toggleAll(): void {
-  opened.value = allOpen.value ? new Set() : new Set(folds.value.map((f) => f.at))
+  opened.value = opened.value.size ? new Set() : new Set(folds.value.map((f) => f.at))
 }
 
+const allOpen = computed(() => folds.value.length > 0 && opened.value.size === folds.value.length)
+
 /**
- * 内联可见行：把「显示序列」摊平成纯行，展开的折叠段按 (at, count)
- * 从原文切回来——折叠段只记这两个数，不再存一份副本。
+ * 真正渲染的行：被展开的段展开成完整行，其余段只留一行入口按钮。
+ *
+ * 不用 v-if 逐行判断：那样每行都要查一次「我在不在折叠段里」，
+ * 几千行时是平方级。这里一次算完。
  */
 const visibleLines = computed<DiffLine[]>(() => {
-  const src = props.diff?.diff_lines ?? []
+  if (!folds.value.length) return lines.value
+  const hidden = new Map<number, Fold>()
+  for (const fold of folds.value) {
+    if (isOpen(fold.at)) continue
+    hidden.set(fold.at, fold)
+  }
   const out: DiffLine[] = []
-  for (const row of blocks.value) {
-    if (!isFold(row)) {
-      out.push(row)
+  const rows = lines.value
+  for (let i = 0; i < rows.length; ) {
+    const fold = hidden.get(i)
+    if (fold) {
+      i += fold.count
       continue
     }
-    if (!isOpen(row.at)) continue
-    out.push(...src.slice(row.at, row.at + row.count))
+    out.push(rows[i])
+    i++
   }
   return out
 })
+
+/** 没有任何差异时的说明。 */
+const blank = computed(() => !props.loading && lines.value.length === 0)
+
+const blankText = computed(() => (props.path ? t('workspace.noDiffForFile') : t('workspace.noDiff')))
 </script>
 
 <template>
@@ -185,7 +162,7 @@ const visibleLines = computed<DiffLine[]>(() => {
     <div v-else-if="blank" class="dc-state">{{ blankText }}</div>
 
     <div v-else class="dc-body">
-      <DiffRows v-if="sideBySide" :pairs="pairs" />
+      <DiffRows v-if="sideBySide" :lines="lines" />
       <template v-else>
         <DiffRows :lines="visibleLines" />
         <!-- 折叠段：一条可点的横条，点一下把中间那段展回来 -->
@@ -212,91 +189,99 @@ const visibleLines = computed<DiffLine[]>(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
   border: 1px solid var(--wb-line);
-  border-radius: var(--wb-r-lg);
+  border-radius: var(--wb-r);
   background: var(--wb-surface);
+  overflow: hidden;
 }
+
 .dc-head {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border-bottom: 1px solid var(--wb-line);
+  background: var(--wb-window);
   flex: none;
 }
+
 .dc-path {
   flex: 1;
   min-width: 0;
   font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-mute);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-ink-5);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .dc-stat {
-  display: flex;
+  display: inline-flex;
   gap: var(--wb-sp-2);
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-2xs);
   flex: none;
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
 }
-.dc-stat .is-add {
+
+.is-add {
   color: var(--wb-ok);
+  font-weight: 500;
 }
-.dc-stat .is-del {
+
+.is-del {
   color: var(--wb-bad);
+  font-weight: 500;
 }
+
+.dc-state {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-6);
+  justify-content: center;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-faint);
+}
+
 .dc-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
 }
-.dc-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-10) var(--wb-sp-5);
-  color: var(--wb-faint);
-  font-size: var(--wb-fs-sm);
-}
 
-/* 折叠段：一条可点的横条，说明藏了多少行 */
 .fold-row {
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-2);
+  gap: 5px;
   width: 100%;
   padding: 2px var(--wb-sp-3);
   border: 0;
-  border-top: 1px solid var(--wb-line);
-  border-bottom: 1px solid var(--wb-line);
-  background: var(--wb-hover);
-  color: var(--wb-mute);
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-2xs);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
-}
-.fold-row:hover {
+  border-top: 1px dashed var(--wb-line);
+  border-bottom: 1px dashed var(--wb-line);
   background: var(--wb-brand-soft);
   color: var(--wb-brand);
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--wb-dur-fast) var(--wb-ease);
 }
+
+.fold-row:hover {
+  background: var(--wb-brand-3);
+}
+
 .fold-ic {
-  transform: rotate(90deg);
-  flex: none;
+  opacity: 0.7;
 }
 
 .dc-trunc {
-  padding: var(--wb-sp-2) var(--wb-sp-3);
+  padding: var(--wb-sp-1) var(--wb-sp-3);
   border-top: 1px solid var(--wb-line);
-  font-size: var(--wb-fs-2xs);
+  background: var(--wb-warn-soft);
   color: var(--wb-warn);
+  font-size: var(--wb-fs-3xs);
   flex: none;
 }
 </style>

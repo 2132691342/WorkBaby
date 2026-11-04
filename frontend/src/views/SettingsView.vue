@@ -27,13 +27,12 @@ const detecting = ref(false)
 const restarting = ref('')
 // 引擎路径与 profile 的草稿都搬进 EnginePanel 了：它们只在那张卡里用，
 // 留在这里会让设置页为一个子组件的内部输入持有状态。
-const pathSaving = ref('')
 
 // 启动行为：开关状态以注册表为准，所以每次进来都真读一次。
 const autoStartBusy = ref(false)
 const restoreBusy = ref(false)
 // 配置原文只能看不能改：写引擎配置有节点级接口，原文编辑会打乱它的假设。
-const configKind = ref<'omp' | 'pi'>('pi')
+const configKind = ref<'omp' | 'pi'>('omp')
 
 async function toggleAutoStart(enabled: boolean) {
   autoStartBusy.value = true
@@ -88,13 +87,12 @@ async function loadConfig(kind: 'omp' | 'pi') {
 }
 
 // 最近工作目录：后端合并了「记住的」与「会话里推出来的」，这里只负责点选与移除。
-const recentRows = computed(() => app.workspaces.filter((r) => r.exists))
+const recentRows = computed(() => app.workspaces.filter((r) => r.workspace_exists))
 const forgetting = ref('')
 
 // 每个引擎一张卡：探测结果、版本、显式路径、落盘位置、重启。
 // 「装」不在这里做——它统一在「应用」页，两处各放一个安装按钮必然会出现
 // 一个说装了、一个说没装。这里只给一句入口与命令原文。
-const installed = computed(() => app.engines?.engines ?? [])
 
 // 重新探测：两个引擎各起一次子进程（pi 要起 Node），所以要给 loading。
 async function detectEngines() {
@@ -109,10 +107,10 @@ async function detectEngines() {
   }
 }
 
-async function restartEngines(kind: string) {
-  restarting.value = kind
+async function restartEngines() {
+  restarting.value = 'pi'
   try {
-    await api.restartEngines(kind as 'omp' | 'pi')
+    await api.restartEngine()
     await app.refreshEngines()
     toasts.push('ok', t('settings.restartEngine'))
   } catch (err) {
@@ -137,25 +135,6 @@ async function save(kv: Record<string, string>): Promise<boolean> {
   }
 }
 
-/**
- * 保存某引擎的显式路径。
- *
- * 路径草稿由 EnginePanel 持有，它把值一并交上来——父组件不需要
- * 为了「输入框里现在写着什么」再去读子组件的内部状态。
- */
-async function saveEnginePath(kind: string, value: string) {
-  pathSaving.value = `exe:${kind}`
-  const ok = await save({ [`engine.path.${kind}`]: value.trim() })
-  pathSaving.value = ''
-  if (!ok) return
-  await app.detectEngines()
-  toasts.push('ok', t('common.saved'))
-}
-
-async function saveProfileByName(name: string) {
-  if (!(await save({ 'app.profile': name.trim() }))) return
-  toasts.push('ok', t('common.saved'))
-}
 
 async function loadLogs() {
   try {
@@ -199,7 +178,7 @@ onMounted(() => {
   void app.refreshEngines()
   void prefs.load()
   // 只给已经装了的引擎看配置：都没装时这一整节不该出现。
-  const first = app.installed[0]?.kind
+  const first = app.engines?.engines?.[0]?.engine_kind
   if (first) void loadConfig(first)
 })
 
@@ -230,14 +209,12 @@ onMounted(() => {
 
       <!-- 环境：每个引擎一张卡。不安装，只探测 + 给命令原文 -->
       <EnginePanel
-        :engines="installed"
+        :apps="app.apps"
         :detecting="detecting"
-        :restarting="restarting"
-        :path-saving="pathSaving"
+        :restarting="Boolean(restarting)"
+        :runtime="app.runtime"
         @redetect="detectEngines"
         @restart="restartEngines"
-        @save-path="saveEnginePath"
-        @save-profile="saveProfileByName"
         @reveal="revealPath"
       />
 
@@ -256,7 +233,7 @@ onMounted(() => {
       <DiagPanel :logs="logs" @refresh-logs="loadLogs" />
 
       <!-- 关于 -->
-      <AboutPanel :engines="installed" />
+      <AboutPanel :apps="app.apps" />
     </div>
   </div>
 </template>

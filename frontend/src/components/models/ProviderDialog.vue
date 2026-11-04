@@ -6,16 +6,11 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from '@/composables/useProviderForm'
+import type { ProviderForm } from '@/composables/useProviderForm'
 import type { ModelEntry } from '@/types/api'
 
 /** 草稿形态：与 ProviderView 对齐，但密钥是可以改的空串而不是掩码。 */
-export interface ProviderForm {
-  name: string
-  base_url: string
-  api: string
-  api_key: string
-  models: ModelEntry[]
-}
+
 
 const props = defineProps<{
   modelValue: boolean
@@ -56,8 +51,8 @@ function addModel(): void {
     model_name: '',
     context_window: DEFAULT_CONTEXT_WINDOW,
     max_tokens: DEFAULT_MAX_TOKENS,
-    reasoning: false,
-    input: ['text'],
+    supports_reasoning: false,
+    input_kinds: ['text'],
   })
 }
 
@@ -85,17 +80,17 @@ function toggleFetched(entry: ModelEntry): void {
     model_name: entry.model_name || '',
     context_window: entry.context_window || DEFAULT_CONTEXT_WINDOW,
     max_tokens: entry.max_tokens || DEFAULT_MAX_TOKENS,
-    reasoning: Boolean(entry.reasoning),
-    input: entry.input?.length ? [...entry.input] : ['text'],
+    supports_reasoning: Boolean(entry.supports_reasoning),
+    input_kinds: entry.input_kinds?.length ? [...entry.input_kinds] : ['text'],
   })
 }
 
 function setReasoning(index: number, on: boolean): void {
-  props.form.models[index].reasoning = on
+  props.form.models[index].supports_reasoning = on
 }
 
 function hasInput(model: ModelEntry, kind: string): boolean {
-  return Boolean(model.input?.includes(kind))
+  return Boolean(model.input_kinds?.includes(kind))
 }
 
 /**
@@ -106,10 +101,10 @@ function hasInput(model: ModelEntry, kind: string): boolean {
  */
 function setInput(index: number, kind: string, on: boolean): void {
   const model = props.form.models[index]
-  let next = (model.input ?? []).filter((k) => k !== kind)
+  let next = (model.input_kinds ?? []).filter((k) => k !== kind)
   if (on) next = [...next, kind]
   if (!next.length) next = ['text']
-  model.input = next
+  model.input_kinds = next
 }
 </script>
 
@@ -121,14 +116,14 @@ function setInput(index: number, kind: string, on: boolean): void {
   >
     <el-form label-position="top" size="small">
       <el-form-item :label="t('common.name')">
-        <el-input v-model="props.form.name" :disabled="nameLocked" placeholder="router" />
+        <el-input v-model="props.form.provider_name" :disabled="nameLocked" placeholder="router" />
       </el-form-item>
       <el-form-item :label="t('models.baseUrl')">
         <el-input v-model="props.form.base_url" placeholder="https://api.example.com/v1" />
       </el-form-item>
       <div class="field-row">
         <el-form-item :label="t('models.api')" class="grow">
-          <el-select v-model="props.form.api" style="width: 100%">
+          <el-select v-model="props.form.api_protocol" style="width: 100%">
             <el-option v-for="option in props.apiOptions" :key="option" :label="option" :value="option" />
           </el-select>
         </el-form-item>
@@ -184,7 +179,7 @@ function setInput(index: number, kind: string, on: boolean): void {
       <span>{{ t('common.name') }}</span>
       <span>{{ t('models.contextWindow') }}</span>
       <span>{{ t('models.maxTokens') }}</span>
-      <span>{{ t('models.reasoning') }}</span>
+      <span>{{ t('models.supports_reasoning') }}</span>
       <span>{{ t('models.input') }}</span>
       <span />
     </div>
@@ -207,7 +202,7 @@ function setInput(index: number, kind: string, on: boolean): void {
       <label class="cap-check" :title="t('models.reasoningHint')">
         <input
           type="checkbox"
-          :checked="Boolean(model.reasoning)"
+          :checked="Boolean(model.supports_reasoning)"
           @change="(e: Event) => setReasoning(index, (e.target as HTMLInputElement).checked)"
         />
         <span>R</span>
@@ -244,7 +239,7 @@ function setInput(index: number, kind: string, on: boolean): void {
       <button
         class="wb-btn primary"
         :class="{ 'is-loading': props.saving }"
-        :disabled="props.saving || !props.form.name.trim()"
+        :disabled="props.saving || !props.form.provider_name.trim()"
         @click="emit('save')"
       >
         {{ t('common.save') }}

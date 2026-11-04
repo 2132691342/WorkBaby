@@ -1,0 +1,47 @@
+# Wails v3 构建配置。只面向 Windows，所以只保留 windows 一个平台目录。
+#
+# info 只用于 NSIS 安装器；exe 的版本资源在 build\windows\info.json，
+# 那里必须写**字面值**——写 {{.Info.X}} 模板会原样进 exe，属性页显示一串占位符。
+version: '3'
+
+info:
+  companyName: "WorkBaby"
+  productName: "WorkBaby"
+  productIdentifier: "com.workbaby.desktop"
+  description: "能干活的个人 AI 助手"
+  copyright: "Copyright (c) 2026 WorkBaby"
+  comments: "内置 Node.js 运行时与 pi 引擎，安装即用；一切管理只经本界面"
+  version: "0.1.0"
+
+# 开发模式：只监听 Go 与前端源码，node_modules 与 frontend 整目录排除
+# （前端自己有 Vite 的 HMR，再让 wails 监听一次只会重复触发）。
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend
+      - bin
+      - assets
+    file:
+      - .DS_Store
+      - .gitignore
+      - .gitkeep
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    - cmd: wails3 build DEV=true
+      type: blocking
+    - cmd: wails3 task common:dev:frontend
+      type: background
+    - cmd: wails3 task run
+      type: primary
+      exit_policy: shutdown
+
+# 没有文件关联：本应用不接管任何扩展名，避免把「打开文件」变成一条隐蔽的写入口。
+fileAssociations: []

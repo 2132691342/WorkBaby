@@ -54,7 +54,7 @@ async function load(path = current.value) {
 }
 
 async function enter(entry: FileEntry) {
-  if (entry.dir) {
+  if (entry.entry_is_dir) {
     await load(join(entry.entry_name))
     return
   }
@@ -125,10 +125,10 @@ defineExpose({ load, openFile })
         class="file-row wb-row-click"
         @click="enter(entry)"
       >
-        <AppIcon :name="entry.dir ? 'folder' : 'file'" :size="13" />
+        <AppIcon :name="entry.entry_is_dir ? 'folder' : 'file'" :size="13" />
         <span class="file-name">{{ entry.entry_name }}</span>
-        <span v-if="entry.dir" class="file-size">›</span>
-        <span v-else class="file-size">{{ formatSize(entry.size ?? 0) }}</span>
+        <span v-if="entry.entry_is_dir" class="file-size">›</span>
+        <span v-else class="file-size">{{ formatSize(entry.size_bytes ?? 0) }}</span>
       </button>
       <p v-if="truncated" class="files-note">{{ t('files.truncated') }}</p>
     </div>
@@ -137,12 +137,12 @@ defineExpose({ load, openFile })
       <div v-if="previewLoading" class="preview-state">
         <span class="dot busy" /> {{ t('common.loading') }}
       </div>
-      <div v-else-if="preview?.binary" class="preview-state">{{ t('files.binary') }}</div>
+      <div v-else-if="preview?.is_binary" class="preview-state">{{ t('files.binary') }}</div>
       <template v-else-if="preview">
         <p v-if="preview.truncated" class="files-note">
-          {{ t('files.previewTruncated', { size: formatSize(preview.size) }) }}
+          {{ t('files.previewTruncated', { size: formatSize(preview.size_bytes) }) }}
         </p>
-        <pre class="preview selectable">{{ preview.content }}</pre>
+        <pre class="preview selectable">{{ preview.file_text }}</pre>
       </template>
     </el-drawer>
   </section>

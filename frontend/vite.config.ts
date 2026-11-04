@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@wails': fileURLToPath(new URL('./bindings', import.meta.url)),
     },
   },
   build: {
@@ -26,8 +27,8 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    // 显式绑 IPv4：Electron 开发态加载的就是这个地址，
-    // 默认 localhost 在本机可能只绑 ::1，加载侧会连不上。
+    // 显式绑 IPv4：Wails 的资产代理拨的是 127.0.0.1，
+    // 默认 localhost 在本机只绑 ::1，代理侧于是 502。
     host: '127.0.0.1',
   },
 })

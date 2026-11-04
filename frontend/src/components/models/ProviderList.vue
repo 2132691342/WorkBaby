@@ -30,7 +30,7 @@ const expanded = ref<Set<string>>(new Set())
 
 /** 一张卡的键：两个引擎可能同名。 */
 function keyOf(view: ProviderView): string {
-  return `${view.engine_kind}:${view.provider_name}`
+  return `${view.provider_name}`
 }
 
 const SHOWN = 6
@@ -83,7 +83,7 @@ function host(url: string): string {
     <div v-else class="grid">
       <article
         v-for="view in props.providers"
-        :key="`${view.engine_kind}:${view.provider_name}`"
+        :key="`${view.provider_name}`"
         class="provider-card"
       >
         <!-- 卡头：名字 + 引擎标签 + 密钥状态。
@@ -95,13 +95,13 @@ function host(url: string): string {
             <span class="provider-name">{{ view.provider_name }}</span>
             <span class="provider-host mono">{{ host(view.base_url) }}</span>
           </div>
-          <span class="tag engine-tag">{{ view.engine_kind }}</span>
+          <span class="tag engine-tag">{{ view.provider_name }}</span>
         </header>
 
         <div class="provider-facts">
           <span class="fact">
             <span class="fact-label">{{ t('models.api') }}</span>
-            <span class="fact-value mono">{{ view.api || '—' }}</span>
+            <span class="fact-value mono">{{ view.api_protocol || '—' }}</span>
           </span>
           <span class="fact">
             <span class="fact-label">{{ t('models.apiKey') }}</span>
@@ -120,8 +120,8 @@ function host(url: string): string {
           <span v-for="model in shownModels(view)" :key="model.model_id" class="tag model-chip">
             {{ model.model_id }}
             <!-- 能力标记：选模型时真会看的两个属性，直接标在 id 旁边 -->
-            <b v-if="model.reasoning" class="chip-cap" :title="t('models.reasoning')">R</b>
-            <b v-if="model.input?.includes('image')" class="chip-cap" :title="t('models.inputImage')">IMG</b>
+            <b v-if="model.supports_reasoning" class="chip-cap" :title="t('models.supports_reasoning')">R</b>
+            <b v-if="model.input_kinds?.includes('image')" class="chip-cap" :title="t('models.inputImage')">IMG</b>
           </span>
           <button v-if="restCount(view)" class="tag more-chip" type="button" @click="toggleMore(view)">
             +{{ restCount(view) }}

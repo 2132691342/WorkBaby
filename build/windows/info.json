@@ -1,0 +1,19 @@
+{
+	"fixed": {
+		"file_version": "0.1.0.0",
+		"product_version": "0.1.0.0"
+	},
+	"info": {
+		"0409": {
+			"FileVersion": "0.1.0",
+			"ProductVersion": "0.1.0",
+			"CompanyName": "WorkBaby",
+			"FileDescription": "WorkBaby",
+			"InternalName": "WorkBaby",
+			"OriginalFilename": "WorkBaby.exe",
+			"LegalCopyright": "Copyright (c) 2026 WorkBaby",
+			"ProductName": "WorkBaby",
+			"Comments": "内置 Node.js 运行时与 pi 引擎，安装即用；一切管理只经本界面"
+		}
+	}
+}

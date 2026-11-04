@@ -1,65 +1,48 @@
 <script setup lang="ts">
-// 模型页：服务商（可写）/ 引擎眼下的模型（只读）/ 登录（OAuth）。
-// 三块的分界线是「能不能改」，可写的与只读的不混一张表；
+// 模型页：服务商（可写）/ 引擎眼下的模型（只读）。
+// 两块的分界线是「能不能改」：可写的与只读的不混一张表；
 // 编辑草稿与上游探测在 useProviderForm，这一页只管读哪些数据、各块摆哪。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
 import ProviderDialog from '@/components/models/ProviderDialog.vue'
 import ModelTable from '@/components/models/ModelTable.vue'
-import LoginPanel from '@/components/models/LoginPanel.vue'
 import ProviderList from '@/components/models/ProviderList.vue'
-import EngineScopeBar from '@/components/common/EngineScopeBar.vue'
-import { useEngineScope } from '@/composables/useEngineScope'
 import { useProviderForm } from '@/composables/useProviderForm'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
 import { useAppStore } from '@/stores/app'
-import type { EngineKind, LoginProvider, ModelRow, ProviderView } from '@/types/api'
+import type { ProviderView } from '@/types/api'
 
 const { t } = useI18n()
 const toasts = useToasts()
 const app = useAppStore()
 
-// 本页的作用域（omp / pi / 全部），不跟对话引擎联动。
-const { scope, set: setScope } = useEngineScope('models')
-const installedKinds = computed(() => app.installed.map((e) => e.kind))
-
-/** 写操作必须落在一个具体引擎上：作用域是「全部」时靠行上的 engine_kind 定向。 */
-const writeKind = computed<EngineKind>(() => (scope.value === 'all' ? 'pi' : scope.value))
-const caps = computed(() => app.capsOf(writeKind.value))
-
 const providers = ref<ProviderView[]>([])
 const configPath = ref('')
-const models = ref<ModelRow[]>([])
-const logins = ref<LoginProvider[]>([])
+const readError = ref('')
 const loadingProviders = ref(false)
-const loadingModels = ref(false)
-const loadingLogins = ref(false)
-const engineMissing = ref(false)
-
-const loggingIn = ref('')
 // 正在跑的上游探测：'test:<服务商>'。拉模型在编辑弹窗里做，不占这个标志。
 const probing = ref('')
 
+/** 可选的服务商协议。 */
 const apiOptions = [
-  'openai-completions',
-  'openai-responses',
-  'anthropic-messages',
-  'google-generative-ai',
-  'openai-codex-responses',
+  'openai',
+  'anthropic',
+  'google',
 ]
 
-// api 的 engine 参数：'all' 时省略，后端会两个都返回。
-const engineParam = computed<EngineKind | undefined>(() => (scope.value === 'all' ? undefined : scope.value))
+/** pi 就绪才谈得上「配模型」。 */
+const piInstalled = computed(() => Boolean(app.runtime?.pi_ready))
 
 async function loadProviders() {
   loadingProviders.value = true
   try {
-    const view = await api.providers(engineParam.value)
+    const view = await api.providers()
     providers.value = view.providers ?? []
     configPath.value = view.config_path
+    readError.value = view.read_error ?? ''
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
@@ -67,45 +50,12 @@ async function loadProviders() {
   }
 }
 
-/** 引擎没起来时读不到模型列表，这是预期状态，不当失败报警。 */
-async function loadModels() {
-  loadingModels.value = true
-  try {
-    const data = await api.models(engineParam.value)
-    models.value = data.models ?? []
-    engineMissing.value = false
-  } catch {
-    models.value = []
-    engineMissing.value = true
-  } finally {
-    loadingModels.value = false
-  }
-}
-
-async function loadLogins() {
-  // 登录只有 omp 有 RPC 面；作用域是 pi / 全部时不发这个请求。
-  if (scope.value !== 'omp' && scope.value !== 'all') {
-    logins.value = []
-    return
-  }
-  loadingLogins.value = true
-  try {
-    const data = await api.loginProviders('omp')
-    logins.value = data.providers ?? []
-  } catch {
-    logins.value = []
-  } finally {
-    loadingLogins.value = false
-  }
-}
-
-/** 重拉三块：保存服务商之后配置变了，三块都要跟上。 */
+/** 重拉：保存服务商之后配置变了，两块都要跟上。 */
 async function reloadAll(): Promise<void> {
-  await Promise.all([loadProviders(), loadModels(), loadLogins()])
+  await loadProviders()
 }
 
-// 编辑草稿：表单内容与「打开 / 保存 / 拉模型」。
-const form = useProviderForm(reloadAll, () => writeKind.value)
+const form = useProviderForm(reloadAll)
 
 /**
  * 测一条服务商配置通不通。
@@ -117,14 +67,11 @@ async function testProvider(view: ProviderView): Promise<void> {
   if (probing.value) return
   probing.value = `test:${view.provider_name}`
   try {
-    const res = await api.testProvider({
-      engine_kind: view.engine_kind,
-      provider_name: view.provider_name,
-    })
-    if (res.ok) {
+    const res = await api.probeProvider({ provider_name: view.provider_name })
+    if (res.probe_ok) {
       toasts.push('ok', t('models.testOk', { n: res.model_count }))
     } else {
-      toasts.push('error', res.message || t('models.testFail'))
+      toasts.push('error', res.probe_message || t('models.testFail'))
     }
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -144,9 +91,7 @@ async function remove(view: ProviderView): Promise<void> {
     return
   }
   try {
-    // 删除必须落在行自己的引擎上："全部"下两个引擎可能同名。
-    const target = (view.engine_kind || writeKind.value) as EngineKind
-    await api.deleteProvider(view.provider_name, target)
+    await api.deleteProvider(view.provider_name)
     toasts.push('ok', t('common.saved'))
     await reloadAll()
   } catch (err) {
@@ -154,28 +99,21 @@ async function remove(view: ProviderView): Promise<void> {
   }
 }
 
-async function login(provider: LoginProvider): Promise<void> {
-  loggingIn.value = provider.id
-  try {
-    await api.startLogin(provider.id, 'omp')
-    toasts.push('info', t('models.loginHint'))
-    await loadLogins()
-    await loadModels()
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  } finally {
-    loggingIn.value = ''
-  }
-}
-
-const authenticated = computed(() => logins.value.filter((p) => p.authenticated).length)
-
-watch(scope, () => {
-  providers.value = []
-  models.value = []
-  logins.value = []
-  void reloadAll()
-})
+/** 只读的「可用模型」：直接从服务商清单里摊平，不再多一次往返。 */
+const models = computed(() =>
+  providers.value.flatMap((view) =>
+    view.models.map((entry) => ({
+      provider_name: view.provider_name,
+      model_id: entry.model_id,
+      model_name: entry.model_name || entry.model_id,
+      api_protocol: entry.api_protocol || view.api_protocol,
+      context_window: entry.context_window ?? 0,
+      max_tokens: entry.max_tokens ?? 0,
+      supports_reasoning: Boolean(entry.supports_reasoning),
+      input_kinds: entry.input_kinds,
+    })),
+  ),
+)
 
 onMounted(() => {
   void reloadAll()
@@ -187,10 +125,9 @@ onMounted(() => {
     <header class="page-head">
       <div>
         <h1 class="page-title">{{ t('models.title') }}</h1>
-        <p class="page-sub">{{ t('models.scopedSubtitle') }}</p>
+        <p class="page-sub">{{ t('models.subtitle') }}</p>
       </div>
       <div class="head-actions">
-        <EngineScopeBar :scope="scope" :installed="installedKinds" @pick="setScope" />
         <button
           class="wb-btn icon ghost"
           :class="{ 'is-loading': loadingProviders }"
@@ -199,7 +136,7 @@ onMounted(() => {
         >
           <AppIcon name="refresh" :size="15" />
         </button>
-        <button class="wb-btn primary" @click="form.openCreate()">
+        <button class="wb-btn primary" :disabled="!piInstalled" @click="form.openCreate()">
           <AppIcon name="plus" :size="14" />
           {{ t('models.addProvider') }}
         </button>
@@ -207,7 +144,11 @@ onMounted(() => {
     </header>
 
     <div class="page-body">
-      <!-- 服务商 -->
+      <p v-if="readError" class="notice">
+        <AppIcon name="alert" :size="14" />
+        {{ readError }}
+      </p>
+
       <ProviderList
         :providers="providers"
         :loading="loadingProviders"
@@ -219,24 +160,14 @@ onMounted(() => {
         @test="testProvider"
       />
 
-      <!-- 登录：只有支持界面登录的引擎才渲染（pi 的登录在终端里做） -->
-      <LoginPanel
-        v-if="caps?.login"
-        :logins="logins"
-        :logging-in="loggingIn"
-        :authenticated="authenticated"
-        @login="login"
-      />
-
-      <!-- 可用模型（只读） -->
-      <ModelTable :models="models" :engine-missing="engineMissing" />
+      <ModelTable :models="models" :engine-missing="!piInstalled" />
     </div>
 
-    <!-- 服务商编辑 -->
     <ProviderDialog
       v-model="form.dialogOpen.value"
       :form="form.form.value"
       :editing="form.editing.value"
+      :name-locked="form.nameLocked.value"
       :saving="form.saving.value"
       :fetching="form.fetching.value"
       :fetched="form.fetched.value"
@@ -300,6 +231,15 @@ onMounted(() => {
   gap: var(--wb-sp-6);
 }
 
-/* 服务商卡 / 模型胶囊 / 登录 / 编辑弹窗的样式都随各自的子组件搬走了，
-   这一页只管页头与各节之间的间距。 */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  margin: 0;
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border-radius: var(--wb-r);
+  background: var(--wb-warn-soft);
+  color: var(--wb-warn);
+  font-size: var(--wb-fs-xs);
+}
 </style>

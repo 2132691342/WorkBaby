@@ -1,0 +1,80 @@
+version: '3'
+
+# Windows 专用的构建与运行。
+#
+# 只面向 Windows：不做 darwin/linux/ios 的交叉编译，也不出 msix / sign。
+# 出 NSIS 安装器（wails3 package 驱动下面的 create:nsis:installer），
+# 把构建好的便携 exe 连同 assets（运行时 zip / 内置技能）包成可双击安装的程序。
+
+includes:
+  common: ../Taskfile.yml
+
+vars:
+  GOOS: "windows"
+
+tasks:
+  build:
+    summary: Builds the application for Windows
+    deps:
+      - task: common:go:mod:tidy
+      - task: common:build:frontend
+        vars:
+          DEV:
+            ref: .DEV
+      - task: common:generate:icons
+    cmds:
+      - task: generate:syso
+        vars:
+          ARCH: '{{.ARCH}}'
+      - go build {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe"
+      - cmd: powershell Remove-item *.syso
+        platforms: [windows]
+    vars:
+      # VERSION 从 git 描述取：tag 上构建就是 tag 号，否则是短 hash + 距离。
+      VERSION:
+        sh: 'git describe --tags --always --dirty 2>/dev/null || echo dev'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui -X main.version={{.VERSION}}"{{end}}'
+    env:
+      GOOS: windows
+      CGO_ENABLED: '0'
+
+  generate:syso:
+    summary: Generates the Windows `.syso` file
+    dir: build
+    cmds:
+      - wails3 generate syso -arch {{.ARCH}} -icon windows/icon.ico -manifest windows/wails.exe.manifest -info windows/info.json -out ../wails_windows_{{.ARCH}}.syso
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+
+  # NSIS 安装器：把构建好的便携 exe 连同 assets 包成可双击安装的程序。
+  # INSTALL_SCOPE=user 装到 %LOCALAPPDATA%（免 UAC）；=machine 装到 Program Files。
+  package:
+    summary: Packages the application as an NSIS installer
+    cmds:
+      - task: create:nsis:installer
+        vars:
+          INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "user"}}'
+    vars:
+      INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "user"}}'
+
+  create:nsis:installer:
+    summary: Creates the NSIS installer from the built exe
+    dir: build/windows/nsis
+    deps:
+      - task: build
+    preconditions:
+      - sh: '[ "{{.INSTALL_SCOPE}}" = "user" ] || [ "{{.INSTALL_SCOPE}}" = "machine" ]'
+        msg: "INSTALL_SCOPE must be 'user' or 'machine'"
+    cmds:
+      # WebView2 引导程序：本机没有 WebView2 运行时时由安装器静默拉取。
+      - wails3 generate webview2bootstrapper -dir .
+      - makensis -DINFO_PROJECTNAME="{{.APP_NAME}}" -DINFO_PRODUCTNAME="{{.APP_NAME}}" -DINFO_COMPANYNAME="{{.APP_NAME}}" -DINFO_PRODUCTVERSION="{{.VERSION}}" -DINFO_COPYRIGHT="Copyright (c) 2026" {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_AMD64_BINARY="..\..\..\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
+    vars:
+      VERSION:
+        sh: 'v=$(git describe --tags --abbrev=0 2>/dev/null || echo 0.1.0); echo "${v#v}"'
+      INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "user"}}'
+
+  run:
+    summary: Runs the built application
+    cmds:
+      - '{{.BIN_DIR}}/{{.APP_NAME}}.exe'

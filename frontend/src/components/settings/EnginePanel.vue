@@ -1,93 +1,85 @@
 <script setup lang="ts">
-// 环境：每个引擎一张卡——探测结果、安装命令、显式路径、落盘布局，加 profile。
-// 只探测不安装：缺引擎给「命令原文 + 复制 + 去应用页」，
-// 我们只代跑引擎自己的安装器，不自建分发源。
+// 环境：内置运行时与引擎的状态卡——就绪情况、版本、落点路径、重探。
+// 只探测不安装：缺运行时给「去应用页」，装不装由用户决定。
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
-import type { EngineInfo } from '@/types/api'
+import type { AppRow, EngineLayout, RuntimeStatus } from '@/types/api'
 
 const props = defineProps<{
-  /** 探测到的引擎清单（含没装的，界面要显示「缺什么」） */
-  engines: EngineInfo[]
+  /** 运行时状态 */
+  runtime: RuntimeStatus | null
+  /** 应用页的行：装没装、版本、路径都在这里 */
+  apps: AppRow[]
+  /** 引擎落盘布局；解不出来时为 undefined */
+  layout?: EngineLayout
   detecting: boolean
-  /** 正在重启的引擎名（空表示没有） */
-  restarting: string
-  /** 正在保存的引擎路径键（空表示没有） */
-  pathSaving: string
+  restarting: boolean
 }>()
 
 const emit = defineEmits<{
   redetect: []
-  restart: [kind: string]
-  savePath: [kind: string, value: string]
-  saveProfile: [name: string]
+  restart: []
   reveal: [path: string]
 }>()
 
 const { t } = useI18n()
 const app = useAppStore()
 const toasts = useToasts()
-
-const profileDraft = ref(app.profile)
-const pathDrafts = ref<Record<string, string>>({})
 const copiedCmd = ref('')
 
-/** 已装的引擎数，显示在标题上。 */
-const installedCount = computed(() => props.engines.filter((e) => e.installed).length)
+/** 已就绪的运行时的数量，显示在标题上。 */
+const readyCount = computed(() => {
+  const rt = props.runtime
+  if (!rt) return 0
+  return [rt.node_ready, rt.git_ready, rt.python_ready, rt.pi_ready].filter(Boolean).length
+})
 
 /**
- * 布局里要显示的七项，键必须与 EngineInfo.layout 的字段同名。
+ * 布局里要显示的项。
  *
- * 用 as const 让 key 收窄成字面量联合，item.layout[key] 才能取到具体字段——
+ * 用 as const 让 key 收窄成字面量联合，layout[key] 才能取到具体字段——
  * 否则它是 string 索引，TS 会拒绝在一个已知结构上做宽索引。
  */
-const pathFields = computed(() => [
-  { key: 'root', label: t('settings.layoutRoot') },
-  { key: 'agent', label: t('settings.layoutAgent') },
-  { key: 'sessions', label: t('settings.layoutSessions') },
-  { key: 'skills', label: t('settings.layoutSkills') },
-  { key: 'plugins', label: t('settings.layoutPlugins') },
-  { key: 'models', label: t('settings.layoutModels') },
-  { key: 'settings', label: t('settings.layoutSettings') },
-] as const)
-
-function exeDraft(kind: string): string {
-  return pathDrafts.value[kind] ?? ''
-}
-
-function setExeDraft(kind: string, value: string): void {
-  pathDrafts.value = { ...pathDrafts.value, [kind]: value }
-}
+const pathFields = computed(
+  () =>
+    [
+      { key: 'root_dir', label: t('settings.layoutRoot') },
+      { key: 'agent_dir', label: t('settings.layoutAgent') },
+      { key: 'sessions_dir', label: t('settings.layoutSessions') },
+      { key: 'skills_dir', label: t('settings.layoutSkills') },
+      { key: 'plugins_dir', label: t('settings.layoutPlugins') },
+      { key: 'settings_file', label: t('settings.layoutSettings') },
+    ] as const,
+)
 
 /**
- * 复制命令原文。
+ * 复制一段文本。
  *
- * 成功要给一次反馈：命令已经很长了，用户点了复制后如果界面毫无变化，
- * 他没法确认到底复制上没有。失败不弹——命令原文就在旁边，看得见。
+ * 成功要给一次反馈：路径已经很长了，用户点了复制后如果界面毫无变化，
+ * 他没法确认到底复制上没有。
  */
-async function copyCommand(cmd: string): Promise<void> {
+async function copyText(text: string): Promise<void> {
   try {
-    await navigator.clipboard.writeText(cmd)
-    copiedCmd.value = cmd
+    await navigator.clipboard.writeText(text)
+    copiedCmd.value = text
     toasts.push('ok', t('settings.copied'))
     window.setTimeout(() => {
-      if (copiedCmd.value === cmd) copiedCmd.value = ''
+      if (copiedCmd.value === text) copiedCmd.value = ''
     }, 2400)
   } catch {
     copiedCmd.value = ''
   }
 }
+
 </script>
 
 <template>
   <section class="card-pad">
     <div class="wb-section-title">
       {{ t('settings.groups.engine') }}
-      <span class="tag" :class="installedCount ? 'ok' : 'warn'">
-        {{ installedCount }}/{{ props.engines.length }}
-      </span>
+      <span class="tag" :class="readyCount === 4 ? 'ok' : 'warn'">{{ readyCount }}/4</span>
       <button
         class="wb-btn text sm push"
         :class="{ 'is-loading': props.detecting }"
@@ -98,91 +90,51 @@ async function copyCommand(cmd: string): Promise<void> {
       </button>
     </div>
 
-    <article v-for="item in props.engines" :key="item.kind" class="engine-card">
+    <article v-for="item in props.apps" :key="item.app_key" class="engine-card">
       <div class="engine-head">
         <span class="dot" :class="item.installed ? 'ok' : 'warn'" />
-        <span class="engine-name">{{ item.kind }}</span>
+        <span class="engine-name">{{ item.app_name }}</span>
         <span class="tag" :class="item.installed ? 'ok' : 'warn'">
-          {{ item.installed ? item.version : t('settings.engineSource.none') }}
+          {{ item.installed ? item.app_version || '—' : t('apps.notInstalled') }}
         </span>
-        <span v-if="item.installed" class="tag">{{ t(`settings.engineSource.${item.source}`) }}</span>
-        <span v-if="item.installed && item.channel" class="tag">
-          {{ t(`settings.channel.${item.channel}`) }}
-        </span>
+        <span v-if="item.builtin" class="tag">{{ t('apps.group.runtime') }}</span>
         <span class="push" />
         <button
+          v-if="item.app_key === 'pi' && item.installed"
           class="wb-btn sm"
-          :class="{ 'is-loading': props.restarting === item.kind }"
-          :disabled="!item.installed || Boolean(props.restarting)"
-          @click="emit('restart', item.kind)"
+          :class="{ 'is-loading': props.restarting }"
+          :disabled="props.restarting"
+          @click="emit('restart')"
         >
           {{ t('settings.restartEngine') }}
         </button>
       </div>
 
-      <!-- 缺引擎：给命令原文与两个出口，不代跑 -->
+      <!-- 缺运行时：只给「去应用页」，不在设置页里代跑安装 -->
       <div v-if="!item.installed" class="cmd-row">
-        <code class="cmd-text selectable">{{ app.installHint(item.kind) }}</code>
-        <button class="wb-btn sm ghost" @click="copyCommand(app.installHint(item.kind))">
-          {{ copiedCmd === app.installHint(item.kind) ? t('settings.copied') : t('settings.copyCommand') }}
-        </button>
+        <span class="cmd-text">{{ t('settings.runtimeMissing') }}</span>
         <button class="wb-btn sm" @click="app.openApps()">{{ t('settings.goApps') }}</button>
       </div>
 
       <div v-else class="engine-facts">
         <div class="fact wide">
-          <span class="fact-label">{{ t('settings.engineExe') }}</span>
-          <span class="fact-value mono selectable">{{ item.exe }}</span>
-        </div>
-      </div>
-
-      <div class="set-row top compact">
-        <div>
-          <div class="set-label">{{ t('settings.engineExe') }}</div>
-          <div class="set-hint">{{ t('settings.engineExeHint') }}</div>
-        </div>
-        <div class="inline-input">
-          <input
-            class="wb-input"
-            :value="exeDraft(item.kind)"
-            :placeholder="item.exe || t('settings.engineExePlaceholder')"
-            @input="setExeDraft(item.kind, ($event.target as HTMLInputElement).value)"
-          />
-          <button
-            class="wb-btn"
-            :class="{ 'is-loading': props.pathSaving === `exe:${item.kind}` }"
-            :disabled="props.pathSaving === `exe:${item.kind}`"
-            @click="emit('savePath', item.kind, exeDraft(item.kind))"
-          >
-            {{ t('settings.apply') }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="item.layout" class="layout-grid">
-        <div v-for="field in pathFields" :key="field.key" class="layout-row">
-          <span class="layout-label">{{ field.label }}</span>
-          <button
-            class="layout-path mono selectable"
-            :title="t('settings.reveal')"
-            @click="emit('reveal', item.layout[field.key] || '')"
-          >
-            {{ item.layout[field.key] || '—' }}
+          <span class="fact-label">PATH</span>
+          <button class="fact-value mono selectable" @click="copyText(item.app_path)">
+            {{ item.app_path }}
           </button>
         </div>
       </div>
     </article>
 
-    <!-- profile 只有 omp 认：pi 没有 profile 概念 -->
-    <div class="set-row top">
-      <div>
-        <div class="set-label">{{ t('settings.profile') }}</div>
-        <div class="set-hint">{{ t('settings.profileHint') }}</div>
-      </div>
-      <div class="inline-input">
-        <input v-model="profileDraft" class="wb-input" placeholder="default" />
-        <button class="wb-btn" @click="emit('saveProfile', profileDraft)">
-          {{ t('common.save') }}
+    <div v-if="props.layout" class="layout-grid">
+      <div v-for="field in pathFields" :key="field.key" class="layout-row">
+        <span class="layout-label">{{ field.label }}</span>
+        <button
+          class="layout-path mono selectable"
+          :title="t('settings.reveal')"
+          @click="emit('reveal', props.layout[field.key])"
+        >
+          {{ props.layout[field.key] || '—' }}
         </button>
       </div>
     </div>
@@ -241,9 +193,18 @@ async function copyCommand(cmd: string): Promise<void> {
 }
 
 .fact-value {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
   font-size: var(--wb-fs-2xs);
   color: var(--wb-ink-2);
   overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.fact-value:hover {
+  color: var(--wb-brand);
 }
 
 .cmd-row {
@@ -256,60 +217,17 @@ async function copyCommand(cmd: string): Promise<void> {
 .cmd-text {
   flex: 1;
   min-width: 0;
-  padding: var(--wb-sp-2);
-  border-radius: var(--wb-r-sm);
-  background: var(--wb-code-bg);
-  border: 1px solid var(--wb-line);
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-ink-2);
-  overflow-wrap: anywhere;
-}
-
-.set-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--wb-sp-3);
-  padding: var(--wb-sp-2) 0;
-}
-
-.set-row.top {
-  align-items: flex-start;
-}
-
-.set-row.compact {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.set-label {
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-}
-
-.set-hint {
-  margin-top: 2px;
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-faint);
-  max-width: var(--wb-w-desc);
-}
-
-.inline-input {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  flex: none;
-}
-
-.inline-input .wb-input {
-  width: 300px;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-warn);
 }
 
 .layout-grid {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  margin-top: var(--wb-sp-2);
+  padding-top: var(--wb-sp-2);
+  border-top: 1px solid var(--wb-line);
 }
 
 .layout-row {

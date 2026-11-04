@@ -1,101 +1,138 @@
-# 模块 · MODULES
+# 模块职责与依赖取舍
 
-主进程按「叶子 → 类型 → 存储 → 业务 → 传输」分层，依赖只向下。
-每个模块一节：职责 / 关键实现 / 为什么这么设计。
+## 分层
 
-## pkg/（叶子工具，零业务依赖）
+```text
+main.go（装配根）──► shell ──► api ──► service ──► {repo, engine, chat, parser, platform}
+                                       │
+                          service ──► pkg / domain（只读类型）
+```
 
-| 模块 | 职责与实现 |
+依赖单向，逆向导入一律拒绝。判定标准：**下层不知道上层存在**。
+
+## pkg/（叶子工具，无业务语义）
+
+| 文件 | 职责 |
 |---|---|
-| `apperror` | 业务错误：code 为数字字符串 + 用户可读 message + details 原话。边界上统一转信封 |
-| `resp` | HTTP 信封与路由包装：恒 200，异常统一入信封；未知错误归 1000 并落日志 |
-| `ulid` | 带前缀 ULID（RUN/ASK/EVT/JOB），时间序即排序序；白名单校验 |
-| `fsutil` | 原子写（临时文件 + rename）、JSON 读写、目录保障、毫秒时间戳 |
-| `log` | 按天滚动文件 + 控制台镜像；业务层只写 info/warn/error |
-| `proc` | 唯一子进程出口：argv 数组直传、windowsHide、超时杀、逐行回调 |
-| `env` | 子进程环境：PATH 内置运行时在前，HOME 锁数据目录 |
-| `cmdline` | 命令行拆 argv（引号内不拆），给 MCP 页的 command_text 用 |
-| `frontmatter` | markdown 头部字段读取，给 SKILL.md 用 |
+| `apperror.go` | `AppError{Code, Message, Detail}`；`Err` / `WrapErr` / `As` 三个构造与提取 |
+| `codes.go` | 业务码常量，与 `docs/ERROR-CODES.md` 一一对应 |
+| `resp.go` | HTTP 信封 `{code, message, detail, data}`；`OK` / `Fail` |
+| `paths.go` | `Layout` 沙箱目录布局 + `*Ready()` 不抛探测 |
+| `env.go` | `SandboxEnv`：PATH 前置内置运行时、HOME/npm 锁进沙箱、`PI_CODING_AGENT_DIR` 重定向 |
+| `proc.go` | `RunProc`：argv 直传、隐藏窗口、超时杀、按 LF 切帧 |
+| `procflags.go` | `CREATE_NO_WINDOW` 常量：与 `HideWindow` 一起保证子进程不闪黑框 |
+| `fsutil.go` | 原子写、目录确保、毫秒时间、存在性探测 |
+| `log.go` | 按天滚动日志 + `TailLog` |
+| `ulid.go` | `{PREFIX}_{26位ULID}`，前缀白名单 |
+| `ziputil.go` | 解压（用于运行时 zip） |
+| `frontmatter.go` | 技能 SKILL.md 的 YAML 头解析 |
+| `json.go` | 读写 JSON 的薄封装（原子写） |
+| `cmdline.go` | 命令行切分（windows 引号规则） |
+
+pkg 可测、可单测，**不含业务判断**。
 
 ## domain/（纯类型）
 
-三个文件按域分：`types_core`（引擎/应用/偏好/引导总包）、`types_chat`
-（块/历史轮/提问板/聊天状态）、`types_data`（会话/文件/git/模型/技能/插件/MCP）。
-字段全部带业务前缀，与前端 `types/api.ts` 逐字段对齐——**接口契约唯一落点**。
-另含 `errors.ts` 码表（与 docs/ERROR-CODES.md 一一对应）。
+一个域一个文件，`VO` / `REQ` / `RESP` / `DTO` / `DO` 同居：
 
-## repo/（SQLite）
+| 文件 | 内容 |
+|---|---|
+| `core.go` | 引导、设置、偏好、运行时状态、应用（pi 本体）状态 |
+| `chat.go` | 会话、消息、回合块、工具卡、提问、队列、运行状态 |
+| `data.go` | 技能、插件、MCP、服务商与模型 |
+| `workspace.go` | 文件树、文件内容、git 状态/差异/历史/分支 |
 
-`db.ts`：连接（WAL + busy_timeout）+ 手写迁移（user_version 步进，每步幂等）。
-`settings_repo.ts`：KV 读写（事务批量）+ 工作区历史（置顶去重、遗忘联动当前）。
-**为什么不用 ORM**：四张表 + 一条步进迁移，引框架是负资产。
+字段全部带业务前缀（`session_id` / `plugin_name` / `skill_dir_name`），
+与前端 `types/api.ts` 逐字段对齐——**接口契约唯一落点**。
 
-## sse/（广播中心）
+## repo/（持久化）
 
-seq 单调发号，保留最近 1000 帧供 `since` 补帧，25s 心跳防断。
-**为什么不用 WebSocket**：前端只需单向推送；EventSource + 查询参数令牌 +
-自动补帧已覆盖全部场景，协议复杂度低一个量级。
+只有两件事进 SQLite，因为其余对象的真相都在磁盘或引擎里：
 
-## api/（传输薄壳）
+| 表 | 用途 |
+|---|---|
+| `setting` | 设置 KV（工作区、关窗行为、开机自启记录等） |
+| `skill_toggle` | 技能开关台账（目录搬移已表达状态，这里记「用户改过默认值」） |
 
-`server.ts` 装配：json body(64mb，容纳图片 base64) → 令牌鉴权 →
-`/api/v1` 挂五组路由 + `/events` → 404 兜底 → 异常兜底。
-路由文件只做「解析请求 → 调 service → 包信封」，不写业务。
+连接参数：WAL + `busy_timeout=5000` + `foreign_keys=1`。
+驱动是 `glebarez/sqlite`（modernc 纯 Go 实现），**全项目不引入 cgo**。
+
+## api/（HTTP 薄壳）
+
+`server.go` 装配：`gin.Recovery` → 令牌鉴权 → 分组路由 → `NoRoute` 回 1404 信封。
+handler 只做三件事：读参数、调 service、回信封。**不写业务逻辑、不碰 repo**。
+
+| 文件 | 路由组 |
+|---|---|
+| `server.go` | `/bootstrap` `/settings` `/prefs` `/engines` `/apps` `/sessions` `/chat` `/messages` `/providers` `/skills` `/plugins` `/mcp` `/files` `/system` `/config` `/events` |
+| `routes_git.go` | `/git/*`：状态、差异、历史、分支、提交、推拉 |
+| `routes_data.go` | 数据类处理（技能 / 插件 / MCP / 配置） |
+| `routes_chat.go` | 对话类处理（发送 / 停止 / 插话 / 回答 / 压缩） |
+| `routes_core.go` | 引导、设置、偏好、运行时探测 |
+| `routes_events.go` | SSE 长连接 |
+| `exe.go` | 服务装配内的共享小工具 |
+
+约定：**只允许 GET / POST**，动词靠路径段表达（`POST /sessions/delete`）。
 
 ## service/（业务编排）
 
-| 模块 | 职责与关键实现 |
+| 文件 | 职责 |
 |---|---|
-| `bootstrap_service` | 引导总包 / 引擎状态 / 健康面板的视图组装（聚合计数与运行实况） |
-| `settings_service` | 设置 KV、偏好（自启走系统登录项）、工作区、配置原文白名单读取 |
-| `engine/runtime` | 运行时解压（zip 单根目录识别 + 改名落位）、node/npm/git/python/pi 路径与版本探测、npm 执行 |
-| `app_service` | 应用行（pi + 三个运行时）与 pi 的安装/升级/卸载（内置 npm，进度广播） |
-| `chat/` | `rpc_client`（JSONL 帧、请求按 id 关联、超时兜底）+ `chat_frames`（引擎事件 → SSE 词汇，实时块表）+ `chat_service`（绑定/驱动/状态组装/提问板） |
-| `parser/` + `session_service` | 会话 JSONL → 条目树 → 活动分支 → 历史轮；清单/详情/改名/删除/隐藏台账/HTML 导出 |
-| `skill_service` | 内置清单落位（已存在不覆盖）、扫描（启用区+禁用区+项目）、开关（搬目录）、重置回原件、增删改 |
-| `skill_catalog` | 内置技能清单：目录名 + 分组 + 默认开关 + 外部依赖提示 |
-| `plugin_catalog` | 内置插件清单：12 个 npm 包 + 精确 pin + 默认开关 |
-| `plugin_settings` | pi 的 `settings.json` 编排：`packages` 声明增删改、`npmCommand` 指向内置 npm、安装根探测 |
-| `plugin_service` | 插件安装（经内置 npm 进 `pi/npm`）、首启批量安装 + 单行重试、开关（只改声明）、升级、卸载 |
-| `mcp_service` | 用户级/项目级 mcp.json 读写；command_text 拆 argv；开关改条目字段 |
-| `model_service` | models.json / auth.json 读写 + 三种协议的远端模型探测（openai/anthropic/google） |
-| `git_service` | 全套 git 面板操作，全部经内置 git.exe；porcelain v2 解析、numstat 合并、仓库状态检测 |
-| `file_service` | 工作区文件浏览（路径越界校验、按名搜索、二进制识别） |
-| `docs_service` | 内置帮助文档（文件名白名单） |
+| `app.go` / `app_provision.go` / `app_actions.go` / `app_config.go` | 装配根、首启装配、应用（pi 本体）的装/升/卸、配置读写 |
+| `chat_service.go` / `chat_actions.go` | 会话状态、发送、停止、插话、回答、压缩 |
+| `chat/rpc_client.go` | pi 子进程 RPC：启动、发命令、收事件、超时 |
+| `chat/frames.go` | domain 词汇 → SSE 帧（引擎不感知界面） |
+| `parser/{entries,history,summary,diff,stat,time}.go` | 会话 JSONL → 条目树 / 活动分支 / 统计 |
+| `plugins.go` / `plugin_install.go` / `plugin_catalog.go` / `plugin_settings.go` | 插件装/卸/开/关/升/重试；安装占位、进度上报与失败台账；`settings.json` 的 `packages[]` 读写 |
+| `skills.go` / `skill_catalog.go` | 技能落位、开关（搬目录）、编辑、新建、删除、重置 |
+| `mcp.go` | `mcp.json` 增删改查与开关 |
+| `models.go` / `model_probe.go` | `models.json` / `auth.json` 读写，上游探测 |
+| `settings.go` / `system.go` / `values.go` / `autostart.go` | 设置、系统动作、常量、开机自启 |
+| `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、导出 HTML |
+| `git.go` / `git_history.go` / `git_sync.go` / `git_write.go` | git 读与写 |
+| `engine/runtime.go` / `engine/provision.go` / `engine/npm.go` | 运行时探测、解压、npm 执行 |
+| `platform/` | Windows 专属：开机自启（注册表）、系统打开 |
 
-**为什么开关用「搬目录」而不是模式匹配**：引擎的资源发现规则以目录存在为准，
-搬目录对任何引擎版本都成立，不依赖通配语义；禁用区就在旁边，用户肉眼可查。
+`service` 可以与 `repo` / `pkg` / `domain` / 子进程对话；**不能碰 `api`**。
 
-**为什么插件走 pi 原生 `packages` 而不自造桥接**：pi 自己认 `settings.json` 的
-`packages[]` 与 `npmCommand`，升级、依赖解析、资源过滤都是它的事。自造一套
-`extensions/` 桥接只能表达「入口在哪」，无法参与 pi 的包管理，升级与过滤都得手写。
+## shell/（Wails 面）
 
-## shell/（Electron 面）
-
-`window`（无边框 1440×900，产物态加载前端 dist）、`bridge`（preload 合同 +
-端点回填 + 关窗偏好）、`tray`（收托盘后的唯一入口，内联图标避免资源时序问题）。
-
-## 前端（frontend/src）
-
-| 模块 | 职责 |
+| 文件 | 职责 |
 |---|---|
-| `api/` | axios 实例（信封拦截 → ApiError）+ 全部端点封装 + SSE 地址拼接 |
-| `stores/` | app（引导/SSE 对账/会话/引擎）、chat（聊天状态与操作）、events（SSE 事件分发表）、prefs、agents |
-| `composables/` | 输入草稿、附件、消息流渲染、运行状态、git 动作、模型表单等 |
+| `app.go` | 装配根 `Run`、服务生命周期、绑定面（`Endpoint` / `Ready` / 选目录 / 窗控） |
+| `window.go` | 建窗、显形、缩放与关窗决策 |
+| `tray.go` | 托盘菜单 |
+| `windows.go` | Windows 专属：显示缩放、DWM 等 |
+| `endpoint.go` | 端点结构（交给前端的 `{port, token, version}`） |
+
+本包之外（`backend/` 其余部分）**不知道 Wails 存在**。
+
+## sse/
+
+`hub.go` 统一发号（seq 单调）、补帧（按 `since`）、慢客户端断开；
+`heartbeat.go` 心跳是注释行，不占 seq。
+
+## 前端
+
+| 目录 | 职责 |
+|---|---|
+| `api/` | `http.ts` 封装 `/api/v1`（信封拆包 + 令牌）、`wails.ts` 封装绑定 |
+| `stores/` | Pinia：`app`（引导/设置）、`chat`（会话与消息）、`events`（SSE 分帧）、`prefs` |
+| `composables/` | 组合式逻辑：附件、草稿、菜单、git 动作、消息流、运行状态、toast |
+| `types/` | 后端契约的 TS 镜像：`api.ts` 总出口，按域拆 `api-core` / `api-chat` / `api-data` / `api-workspace`，字段名与 Go json tag 一一对应 |
+| `locales/` | i18n 文案：`zh-CN/` 与 `en/` 一域一文件（common / overview / chat / workspace / manage / settings），key 路径与界面域对应 |
+| `components/` | 按域分目录：chat / workspace / mcp / models / overview / sessions / settings / skills / apps / common / layout |
+| `views/` | 路由页：概览 / 对话 / 工作区 / 会话 / 模型 / 技能 / 插件 / MCP / 应用 / 用量 / 设置 |
 | `utils/md.ts` | 流式 markdown 渲染（块级缓存，唯一出口） |
-| `themes.css` 等 | 设计令牌唯一落点（见 DESIGN.md） |
 
-## 依赖清单与取舍
+## 关键取舍
 
-| 依赖 | 为什么 | 替代方案与代价 |
+| 决定 | 为什么 | 替代方案与否决理由 |
 |---|---|---|
-| express 5 | 成熟、路由/中间件够用，无多余抽象 | 裸 http 手写路由表——省一个依赖但失去中间件生态，得不偿失 |
-| better-sqlite3 | 同步 API 与单进程模型天然契合；预编译包免编译 | sql.js（纯 wasm，无文件锁语义）；node:sqlite（版本受限） |
-| adm-zip | 纯 JS 解压三个运行时 zip，无原生依赖 | yauzl（API 更碎）；调 PowerShell Expand-Archive（闪窗风险） |
-| ulid | 时间有序 ID，字典序即创建序 | uuid（无序，索引局部性差）；自造计数器（重启即乱） |
-| esbuild | 主进程打包单文件，毫秒级构建 | tsc 直出（产物散、启动慢）；webpack（重） |
-| vitest | 与 vite 共享转换管线，零配置跑 TS | jest（配置成本高、慢） |
-| electron-builder | NSIS 打包 + extraResources 分发运行时 zip | 手写安装器脚本——不可维护 |
-
-**明确不引入**：ORM / 迁移框架 / 状态机库 / 工作流引擎——规模撑不起，
-规则写在 AGENTS.md 比藏在库里更直白。
+| Wails3 而非 Electron | 单 exe、无 node 依赖链、Go 直接管子进程 | Electron 要再带一个 node 运行时，与「内置 node」的方案自相矛盾 |
+| gin | 成熟、路由与中间件够用，无多余抽象 | 裸 `net/http` 手写路由表——省一个依赖但失去中间件生态 |
+| gorm + glebarez/sqlite | 纯 Go，**无 cgo**，交叉编译与免编译链 | `mattn/go-sqlite3` 要 cgo（否决）；`sql.js` 无文件锁语义 |
+| 业务走 HTTP 而非全 Wails 绑定 | 可 curl、可测、前端可脱离壳调试 | 全绑定会把 100+ 方法糊进 JS，测试只能起整个壳 |
+| 插件只经 `settings.json` | pi 原生机制，升级引擎不失效 | 自建注册表索引——第二份真相必然与引擎不一致 |
+| 技能开关用搬目录 | pi 只扫 `skills/`，移走即失联，零额外状态 | 改写 SKILL.md 头——污染用户文件 |
+| ULID 而非自增 | 时间有序、可离线生成、无中心分配 | 自增 ID 会把「会话文件是真相」变成「库是真相」 |

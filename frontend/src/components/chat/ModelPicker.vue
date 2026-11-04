@@ -40,14 +40,14 @@ function clampToViewport(): void {
 const label = computed(() => {
   const current = chat.model
   if (!current) return t('chat.pickModel')
-  const row = chat.models.find((m) => m.provider === current.provider && m.id === current.id)
-  return row?.name || current.name || current.id
+  const row = chat.models.find((m) => m.provider_name === current.provider_name && m.model_id === current.model_id)
+  return row?.model_name || current.model_name || current.model_id
 })
 
 watch(open, (on) => {
   if (!on) return
   // 面板打开就落在当前模型所属的厂商上：用户要找的多半是现在这个或它的邻居。
-  vendor.value = chat.model?.provider ?? ''
+  vendor.value = chat.model?.provider_name ?? ''
   // 清单是空的：先补拉一次。引擎冷启动可能要几秒，
   // 面板上给骨架而不是一个空列表。
   if (!chat.models.length && !chat.modelsLoading) void chat.loadModels(true)
@@ -60,7 +60,7 @@ watch(open, (on) => {
  * 不收的话用户得自己点外面——而刚点完一条模型，下一个动作几乎总是回去说话。
  */
 watch(
-  () => `${chat.model?.provider ?? ''}/${chat.model?.id ?? ''}`,
+  () => `${chat.model?.provider_name ?? ''}/${chat.model?.model_id ?? ''}`,
   (now, before) => {
     if (!open.value || !before || now === before) return
     open.value = false

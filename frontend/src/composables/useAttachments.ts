@@ -61,8 +61,8 @@ function nextId(): string {
 export function useAttachments() {
   const items = ref<PendingAttachment[]>([])
 
-  const images = computed(() => items.value.filter((a) => a.payload.kind === 'image'))
-  const files = computed(() => items.value.filter((a) => a.payload.kind === 'file'))
+  const images = computed(() => items.value.filter((a) => a.payload.attachment_kind === 'image'))
+  const files = computed(() => items.value.filter((a) => a.payload.attachment_kind === 'file'))
   const isEmpty = computed(() => items.value.length === 0)
 
   /** 下发用的纯净载荷（去掉界面的 id / 预览）。 */
@@ -101,7 +101,7 @@ export function useAttachments() {
       id: nextId(),
       name: file.name || `粘贴的图片-${images.value.length + 1}`,
       preview: `data:${mime};base64,${base64}`,
-      payload: { kind: 'image', image_base64: base64, image_mime: mime, file_name: file.name },
+      payload: { attachment_kind: 'image', image_base64: base64, image_mime: mime, file_name: file.name },
     })
     return ''
   }
@@ -118,7 +118,7 @@ export function useAttachments() {
     items.value.push({
       id: nextId(),
       name: name || relPath.split(/[\\/]/).pop() || relPath,
-      payload: { kind: 'file', file_path: relPath, file_name: name },
+      payload: { attachment_kind: 'file', file_path: relPath, file_name: name },
     })
     return ''
   }

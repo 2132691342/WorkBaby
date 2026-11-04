@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// 应用页：装 / 升级 / 卸载两个引擎。
-// 不自己实现安装：跑的是引擎官方安装器的原话，界面显示与真正执行是同一串；
-// 每行同时回答「装的什么版本、能不能装、会跑哪条命令」。渲染细节在 AppCard。
+// 应用页：内置运行时与 pi 引擎的安装状态。
+// 不自己实现安装：pi 用的是内置 npm，命令落点全在沙箱里；
+// 每行同时回答「装的什么版本、能不能动、落点在哪」。渲染细节在 AppCard。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -19,15 +19,15 @@ const loading = ref(false)
 const busy = ref<Record<string, boolean>>({})
 const copied = ref('')
 
-const groups = computed(() => [
-  { key: 'installed', rows: app.apps.filter((row) => row.installed) },
-  { key: 'missing', rows: app.apps.filter((row) => !row.installed) },
-])
+// 内置运行时与引擎分开摆：前者是「环境」，后者是「引擎」，混在一起
+// 会让人以为 node 也能升级。
+const runtimeRows = computed(() => app.apps.filter((row) => row.app_key !== 'pi'))
+const engineRows = computed(() => app.apps.filter((row) => row.app_key === 'pi'))
 
-async function load(refresh = false) {
+async function load() {
   loading.value = true
   try {
-    await app.loadApps(refresh)
+    await app.loadApps()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
@@ -49,20 +49,20 @@ async function copy(text: string) {
 
 /** 三个动作共用一个入口：只有按钮文案与端点不同。 */
 async function run(row: AppRow, action: 'install' | 'update' | 'uninstall') {
-  if (busy.value[row.kind]) return
-  busy.value = { ...busy.value, [row.kind]: true }
+  if (busy.value[row.app_key]) return
+  busy.value = { ...busy.value, [row.app_key]: true }
   try {
-    if (action === 'install') await api.installApp(row.kind)
-    else if (action === 'update') await api.updateApp(row.kind)
-    else await api.uninstallApp(row.kind)
-    await app.loadApps(true)
+    if (action === 'install') await api.installApp()
+    else if (action === 'update') await api.updateApp()
+    else await api.uninstallApp()
+    await app.loadApps()
     await app.refreshEngines()
     toasts.push('ok', t(`apps.done.${action}`, { name: row.app_name }))
   } catch (err) {
-    // 失败不弹窗：卡片里已有命令原文与输出，消息只补一句「为什么失败」。
+    // 失败不弹窗：卡片里已有进度与输出，消息只补一句「为什么失败」。
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    busy.value = { ...busy.value, [row.kind]: false }
+    busy.value = { ...busy.value, [row.app_key]: false }
   }
 }
 
@@ -81,10 +81,10 @@ onMounted(() => {
       <div class="head-actions">
         <button
           class="wb-btn icon ghost"
-          :title="t('apps.recheckLatest')"
+          :title="t('apps.recheck')"
           :class="{ 'is-loading': loading }"
           :disabled="loading"
-          @click="load(true)"
+          @click="load"
         >
           <AppIcon name="refresh" :size="15" />
         </button>
@@ -92,17 +92,37 @@ onMounted(() => {
     </header>
 
     <div class="page-body">
-      <section v-for="group in groups" :key="group.key" v-show="group.rows.length">
+      <section v-if="engineRows.length">
         <div class="wb-sec-head">
-          <span class="wb-sec-title">{{ t(`apps.group.${group.key}`) }} <span class="count">{{ group.rows.length }}</span></span>
+          <span class="wb-sec-title">{{ t('apps.group.engine') }}</span>
         </div>
         <div class="app-list">
           <AppCard
-            v-for="row in group.rows"
-            :key="row.kind"
+            v-for="row in engineRows"
+            :key="row.app_key"
             :row="row"
-            :progress="app.appProgress[row.kind]"
-            :busy="Boolean(busy[row.kind])"
+            :progress="app.appProgress"
+            :busy="Boolean(busy[row.app_key])"
+            :copied="copied"
+            @run="run(row, $event)"
+            @copy="copy"
+          />
+        </div>
+      </section>
+
+      <section v-if="runtimeRows.length">
+        <div class="wb-sec-head">
+          <span class="wb-sec-title">
+            {{ t('apps.group.runtime') }} <span class="count">{{ runtimeRows.length }}</span>
+          </span>
+        </div>
+        <div class="app-list">
+          <AppCard
+            v-for="row in runtimeRows"
+            :key="row.app_key"
+            :row="row"
+            :progress="app.appProgress"
+            :busy="Boolean(busy[row.app_key])"
             :copied="copied"
             @run="run(row, $event)"
             @copy="copy"
@@ -143,7 +163,7 @@ onMounted(() => {
 
 .page-sub {
   margin: 4px 0 0;
-  max-width: var(--wb-w-desc, 620px);
+  max-width: 620px;
   font-size: var(--wb-fs-sm);
   line-height: 1.65;
   color: var(--wb-mute);

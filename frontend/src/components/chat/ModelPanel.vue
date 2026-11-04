@@ -32,49 +32,47 @@ const filterEl = ref<HTMLInputElement | null>(null)
 const vendors = computed(() => {
   const seen = new Map<string, number>()
   for (const m of chat.models) {
-    if (!seen.has(m.provider)) seen.set(m.provider, seen.size)
+    if (!seen.has(m.provider_name)) seen.set(m.provider_name, seen.size)
   }
   return [...seen.keys()].sort((a, b) => (seen.get(a) ?? 0) - (seen.get(b) ?? 0))
 })
 
 /** 厂商没选定时退回到第一个：面板永远要有一列可看。 */
-const activeVendor = computed(
-  () => vendors.value.find((v) => v === props.vendor) ?? vendors.value[0] ?? '',
-)
+const activeVendor = computed(() => vendors.value.find((v) => v === props.vendor) ?? vendors.value[0] ?? '')
 
 /**
  * 当前厂商下的模型（可能带过滤）。
  *
  * 过滤命中时跨厂商显示：用户输入 `glm` 想找的就是所有带 glm 的模型，
- * 而不是「在 openrouter 里带 glm 的」。这时厂商列照旧高亮但仍能点。
+ * 而不是「在 openrouter 里带 glm 的」。
  */
 const activeModels = computed(() => {
   const q = filter.value.trim().toLowerCase()
-  const pool = q ? chat.models : chat.models.filter((m) => m.provider === activeVendor.value)
+  const pool = q ? chat.models : chat.models.filter((m) => m.provider_name === activeVendor.value)
   if (!q) return pool
   return pool.filter(
-    (m) => m.id.toLowerCase().includes(q) || (m.name ?? '').toLowerCase().includes(q),
+    (m) => m.model_id.toLowerCase().includes(q) || (m.model_name ?? '').toLowerCase().includes(q),
   )
 })
 
 /** 某个厂商底下有几个模型：厂商一列上给个数量，省得一个个点。 */
 function countOf(name: string): number {
-  return chat.models.filter((m) => m.provider === name).length
+  return chat.models.filter((m) => m.provider_name === name).length
 }
 
 /** 全部厂商的模型总数（面板标题上的读数）。 */
 const total = computed(() => chat.models.length)
 
-function isCurrent(m: ModelRow): boolean {
-  return m.id === chat.model?.id && m.provider === chat.model?.provider
+function isCurrent(row: ModelRow): boolean {
+  return row.model_id === chat.model?.model_id && row.provider_name === chat.model?.provider_name
 }
 
-async function choose(m: ModelRow): Promise<void> {
+async function choose(row: ModelRow): Promise<void> {
   if (applying.value) return
-  applying.value = `${m.provider}/${m.id}`
+  applying.value = `${row.provider_name}/${row.model_id}`
   try {
-    await chat.setModel(m.provider, m.id)
-    toasts.push('ok', t('chat.modelSwitched', { model: m.name || m.id }))
+    await chat.setModel(row.provider_name, row.model_id)
+    toasts.push('ok', t('chat.modelSwitched', { model: row.model_name || row.model_id }))
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
@@ -115,20 +113,8 @@ watch(
 
     <div class="mp-filter-row">
       <AppIcon name="search" :size="12" class="mp-filter-ic" />
-      <input
-        ref="filterEl"
-        v-model="filter"
-        class="mp-filter"
-        :placeholder="t('chat.modelFilter')"
-        spellcheck="false"
-      />
-      <button
-        v-if="filter"
-        class="mp-filter-clear"
-        type="button"
-        :title="t('common.clear')"
-        @click="filter = ''"
-      >
+      <input ref="filterEl" v-model="filter" class="mp-filter" :placeholder="t('chat.modelFilter')" spellcheck="false" />
+      <button v-if="filter" class="mp-filter-clear" type="button" :title="t('common.clear')" @click="filter = ''">
         <AppIcon name="close" :size="11" />
       </button>
     </div>
@@ -160,24 +146,27 @@ watch(
 
       <div class="mp-models">
         <button
-          v-for="m in activeModels"
-          :key="`${m.provider}/${m.id}`"
+          v-for="row in activeModels"
+          :key="`${row.provider_name}/${row.model_id}`"
           class="mp-model"
-          :class="{ 'is-on': isCurrent(m), 'is-busy': applying === `${m.provider}/${m.id}` }"
+          :class="{
+            'is-on': isCurrent(row),
+            'is-busy': applying === `${row.provider_name}/${row.model_id}`,
+          }"
           type="button"
           :disabled="Boolean(applying)"
-          :title="`${m.provider}/${m.id}`"
-          @click="choose(m)"
+          :title="`${row.provider_name}/${row.model_id}`"
+          @click="choose(row)"
         >
-          <span class="mp-mname">{{ m.name || m.id }}</span>
+          <span class="mp-mname">{{ row.model_name || row.model_id }}</span>
           <!-- 过滤命中跨厂商时，同时显示厂商名，否则不知道这条属于谁 -->
-          <span v-if="filter" class="mp-mprov">{{ m.provider }}</span>
+          <span v-if="filter" class="mp-mprov">{{ row.provider_name }}</span>
           <span class="mp-meta">
-            <span v-if="m.context_window" class="mp-tag">{{ Math.round(m.context_window / 1000) }}k</span>
-            <span v-if="m.reasoning" class="mp-tag is-r" :title="t('models.reasoning')">R</span>
-            <span v-if="m.input?.includes('image')" class="mp-tag" :title="t('models.inputImage')">IMG</span>
+            <span v-if="row.context_window" class="mp-tag">{{ Math.round(row.context_window / 1000) }}k</span>
+            <span v-if="row.supports_reasoning" class="mp-tag is-r" :title="t('models.reasoning')">R</span>
+            <span v-if="row.input_kinds?.includes('image')" class="mp-tag" :title="t('models.inputImage')">IMG</span>
           </span>
-          <AppIcon v-if="isCurrent(m)" name="check" :size="12" class="mp-check" />
+          <AppIcon v-if="isCurrent(row)" name="check" :size="12" class="mp-check" />
         </button>
         <p v-if="!activeModels.length" class="mp-empty-h">{{ t('chat.modelNoMatch') }}</p>
       </div>
