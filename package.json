@@ -1,7 +1,7 @@
 {
   "name": "workbaby",
   "productName": "WorkBaby",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "description": "Windows 桌面单机 AI 助手：Electron 壳 + 内嵌 HTTP 服务 + pi 引擎驱动",
   "main": "dist/main/index.js",
   "private": true,
@@ -34,5 +34,40 @@
   "allowScripts": {
     "electron@43.8.6": true,
     "esbuild@0.28.2": true
+  },
+  "build": {
+    "appId": "dev.workbaby.desktop",
+    "productName": "WorkBaby",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "frontend/dist/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets"
+      }
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

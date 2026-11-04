@@ -32,7 +32,7 @@ export const useChatStore = defineStore('chat', () => {
   const commands = ref<SlashCommand[]>([])
   const profile = ref('')
   // 这一轮/这个会话属于哪个引擎。切换引擎时它跟着换，输入区据此显示。
-  const kind = ref<EngineKind>('omp')
+  const kind = ref<EngineKind>('pi')
   // 能力表：界面按它决定显示哪些入口（不渲染灰按钮）。
   const caps = ref<EngineCaps | null>(null)
 

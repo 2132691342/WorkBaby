@@ -31,7 +31,7 @@ const kind = computed<EngineKind>(() => app.active)
 // 本页作用域（omp / pi / 全部），不跟对话引擎联动。
 const { scope, set: setScope } = useEngineScope('plugins')
 const installedKinds = computed(() => app.installed.map((e) => e.kind))
-const writeKind = computed<EngineKind>(() => (scope.value === 'all' ? 'omp' : scope.value))
+const writeKind = computed<EngineKind>(() => (scope.value === 'all' ? 'pi' : scope.value))
 const caps = computed(() => app.capsOf(writeKind.value))
 const engineParam = computed<EngineKind | undefined>(() => (scope.value === 'all' ? undefined : scope.value))
 

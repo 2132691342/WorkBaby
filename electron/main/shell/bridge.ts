@@ -1,21 +1,21 @@
 //! preload 桥的主进程侧：对话框、窗口控制、外链与端点分发。
 import { app, dialog, ipcMain, shell } from 'electron'
 import { getMainWindow } from './window'
-
-type CloseAction = 'tray' | 'quit'
-
-// 关闭策略：默认收托盘；「记住选择」在 phase 2 落到设置库。
-let close_action: CloseAction = 'tray'
+import { token, paths } from '../context'
+import { prefsCloseAction, prefsSetCloseAction } from '../service/settings_service'
 
 /** 注册 window.wb 全部 IPC 通道；频道名即 preload 合同，不许改。 */
 export function registerBridge(): void {
-  ipcMain.handle('wb:endpoint', () => ({
-    wb_port: 0,
-    wb_token: '',
-    wb_version: app.getVersion(),
-    wb_contract: 1,
-    wb_base_url: '',
-  }))
+  ipcMain.handle('wb:endpoint', () => {
+    const port = contextPort
+    return {
+      wb_port: port,
+      wb_token: token(),
+      wb_version: app.getVersion(),
+      wb_contract: 1,
+      wb_base_url: port > 0 ? `http://127.0.0.1:${port}/api/v1` : '',
+    }
+  })
 
   ipcMain.handle('wb:pick-files', async (_e, title: string) => {
     const result = await dialog.showOpenDialog({
@@ -53,13 +53,27 @@ export function registerBridge(): void {
 
   ipcMain.handle('wb:quit', () => app.quit())
 
-  ipcMain.handle('wb:close-decision', (_e, action: CloseAction, remember: boolean) => {
+  ipcMain.handle('wb:close-decision', (_e, action: 'tray' | 'quit', remember: boolean) => {
     close_action = action
-    if (remember) persistCloseAction(action)
+    if (remember) prefsSetCloseAction(action)
   })
+
+  // 启动时恢复用户上次选择的关窗行为。
+  close_action = prefsCloseAction()
+  void paths()
 }
 
-function toggleMaximize(win: BrowserWindow): void {
+/** HTTP 服务起好后回填端口；前端在装配完成前拿到的 base_url 为空会等待。 */
+let contextPort = 0
+
+/** 装配根把端口送进来。 */
+export function setEndpointPort(port: number): void {
+  contextPort = port
+}
+
+let close_action: 'tray' | 'quit' = 'tray'
+
+function toggleMaximize(win: Electron.BrowserWindow): void {
   if (win.isMaximized()) win.unmaximize()
   else win.maximize()
 }
@@ -74,11 +88,7 @@ function applyClose(): void {
   }
 }
 
-function persistCloseAction(_action: CloseAction): void {
-  // phase 2 接设置库后写入持久层；内存值在进程内已生效。
-}
-
 /** 主进程其他模块读关闭策略用。 */
-export function getCloseAction(): CloseAction {
+export function getCloseAction(): 'tray' | 'quit' {
   return close_action
 }

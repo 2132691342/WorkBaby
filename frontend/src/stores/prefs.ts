@@ -9,7 +9,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   const prefs = ref<AppPrefs | null>(null)
   const configFiles = ref<ConfigFile[]>([])
   const configText = ref<ConfigText | null>(null)
-  const configKind = ref<EngineKind>('omp')
+  const configKind = ref<EngineKind>('pi')
   const configFile = ref('')
   const loading = ref(false)
   const loadingText = ref(false)

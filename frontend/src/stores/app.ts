@@ -23,7 +23,7 @@ export const useAppStore = defineStore('app', () => {
   const profile = ref('')
   const settings = ref<Record<string, string>>({})
   const engines = ref<EngineStatus | null>(null)
-  const active = ref<EngineKind>('omp')
+  const active = ref<EngineKind>('pi')
   const workspaces = ref<WorkspaceRow[]>([])
   const sessions = ref<SessionRow[]>([])
   // reDetecting 是「用户点了重新检测」的按钮态；
@@ -87,9 +87,9 @@ export const useAppStore = defineStore('app', () => {
       profile.value = data.profile
       settings.value = data.settings ?? {}
       workspaces.value = data.workspaces ?? []
-      active.value = data.active ?? 'omp'
+      active.value = data.active ?? 'pi'
       setActiveKind(active.value)
-      chat.kind = data.active ?? 'omp'
+      chat.kind = data.active ?? 'pi'
       chat.caps = data.caps?.[data.active] ?? null
       applyTheme(theme.value)
       applyMotion(settings.value['ui.reduce_motion'] === '1')

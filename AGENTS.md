@@ -5,410 +5,222 @@
 
 ---
 
-## 1. 技术栈（强制锁定）
+## 1. 定位与技术栈（强制锁定）
+
+WorkBaby 是一个**安装即用的 Windows 单机 AI 助手**：Electron 壳把
+**内置 Node.js + pi 引擎 + 插件 + 技能 + MCP + Git/Python 运行时**装进一个
+`%LOCALAPPDATA%\WorkBaby` 沙箱，由 GUI 统一调用与管理。外部装没装
+node / pi 与本壳无关；壳内管理的 pi 也不支持绕过 GUI 直接使用。
 
 | 层 | 选型 | 版本 |
 |---|---|---|
-| 语言 | Rust（edition 2021，stable） | 1.85+ |
-| 桌面壳 | Tauri | 2.x（Frameless，前端自绘标题栏；Windows 用 WebView2） |
-| HTTP 服务 | axum | 0.8.x（业务 API + SSE 全部走 HTTP，端口 127.0.0.1 随机） |
-| 异步运行时 | tokio + tokio-util（CancellationToken） | 1.x |
-| 序列化 | serde / serde_json | 1.x |
-| HTTP 客户端 | reqwest（rustls，关默认特性）+ eventsource-stream | 0.12.x |
-| 数据库 | rusqlite（bundled，含 FTS5；无系统依赖） | 0.32.x |
-| ID | ULID（ulid crate），带业务前缀 | 见 §2.7 |
-| 日志 | tracing + tracing-subscriber + tracing-appender | 分文件落盘 |
-| 错误 | thiserror + 自研 AppError（code 为字符串） | 见 §2.4 |
-| MCP 客户端 | rmcp（官方 Rust SDK，stdio + streamable HTTP）+ 自研 OAuth（授权码 + PKCE） | 0.x |
-| 模型协议 | openai-completions · anthropic-messages · google-generative-ai | 三套 wire 原生实现 |
-| 模糊匹配 | nucleo | 0.5.x |
-| HTTP 中间件 | tower-http（CORS，仅放行本机来源与 Tauri webview） | 0.6.x |
-| 内置资源打包 | include_dir | 0.7.x |
-| 前端 | Vue 3.5 + TypeScript 5.6 + Vite 6 | — |
-| 状态管理 | Pinia ^2.3（Setup Store） | — |
-| 路由 | Vue Router ^4.5（hash 模式） | — |
-| HTTP 客户端 | Axios ^1.7 | — |
-| UI 组件库 | Element Plus ^2.14（按需引入；文案跟随 i18n） | — |
-| 原子 CSS | UnoCSS ^66（刻度全接 `--wb-*` 令牌） | — |
-| 图表 | ECharts ^6（按需引入；色值走 `--wb-ch-*`） | — |
-| 代码编辑器 | CodeMirror 6（markdown / json） | — |
-| 国际化 | Vue I18n ^9.14（zh-CN 默认 + en） | — |
-| 渲染 | marked · dompurify · highlight.js | markdown 唯一出口 `utils/md.ts` |
-| 文档预览 | vue-pdf-embed · docx-preview · XLSX | 动态导入，按需加载 |
-| 图可视化 | — | 已移除（对目标用户无用）；X6 / BPMN-JS 依赖一并去掉 |
-| 富文本 / 微前端 | WangEditor ^5.1 · Qiankun ^2.10 | 依赖已就位，按需接线 |
-| 平台 | Windows | 只考虑 Windows；平台差异用 `#[cfg(windows)]`，不写运行时大分支 |
+| 桌面壳 | Electron（Frameless，前端自绘标题栏，Windows WebView 层） | 43.x |
+| 语言 | TypeScript（strict，esbuild 打包主进程为 CJS 单文件） | 5.6 |
+| 业务服务 | express（业务 API + SSE 全部走 HTTP，127.0.0.1 随机端口） | 5.x |
+| 数据库 | better-sqlite3（WAL，手写迁移 `PRAGMA user_version` 步进） | 13.x |
+| ID | ULID，带业务前缀 | — |
+| Agent 引擎 | pi（`@earendil-works/pi-coding-agent`，RPC 模式子进程） | 随 npm 最新 |
+| 内置运行时 | node v24.21.0 / PortableGit / Python 3.13（zip 随包分发，首启解压） | — |
+| 前端 | Vue 3.5 + Vite 6 + Element Plus 2.14 + Pinia + Vue Router(hash) + Axios | — |
+| 前端辅件 | UnoCSS（刻度接 `--wb-*`）· ECharts · CodeMirror 6 · Vue I18n | — |
+| 测试 | vitest（仓库根 `tests/`） | — |
 
-### 1.1 依赖原则
+**平台**：只考虑 Windows；子进程一律 `windowsHide`（即 CREATE_NO_WINDOW）。
 
-标准库 → 生态成熟 crate。新增依赖必须说明理由与替代方案，写入 `docs/MODULES.md` 对应小节。
+### 1.1 沙箱原则（本壳的存在意义）
 
-**明确不引入**：工作流引擎、ORM、迁移框架、全局可变状态。
-SQLite 手写迁移 SQL（`PRAGMA user_version` 步进）。
-
-重型前端依赖（PDF、表格、文档、微前端）一律**动态导入**并单独分块，
-不进首屏包——不进对应页面就不该下载它的代码。
-
-### 1.2 内核归本仓实现
-
-Agent 内核是本仓 Rust 实现（会话循环 / 工具执行 / 上下文压缩 / 重试 / 子代理），
-进程内运行，不依赖任何外部 agent 进程，也不需要 Node 运行时。
-
-扩展能力不设运行时插件市场，改为 **12 项原生化内置功能**（见 `docs/MODULES.md`
-的 wb-features 小节），每项独立开关；**22 个内置技能**作为技能包打进二进制。
-
-| 概念 | 落地形态 |
-|---|---|
-| Agent 内核 | `wb-kernel` crate（进程内） |
-| 扩展能力 | 内置功能（同一组 `chat:*` SSE 词汇做 UI 桥） |
-| 会话持久化 | 本仓自有 JSONL 会话文件（树形条目，可分支编辑） |
-| 运行时扩展 | 不存在——功能开关即装配边界 |
+- 引擎与工具链全部落在数据目录：`data\runtime\{node,PortableGit,python}`、
+  `data\pi\{settings,models,mcp,auth,sessions,skills,extensions,plugins}`、`data\pi-app`（pi 本体）。
+- 子进程 PATH **内置运行时在前、系统在后**（`pkg/env.ts::toolEnv`），HOME 指向数据目录；
+  agent 的 bash / python 一律先命中内置副本，不碰用户环境。
+- pi 的整个家目录由 `PI_CODING_AGENT_DIR` 重定向；`PI_PACKAGE_DIR` 指到沙箱内。
+- 管理面（插件 / 技能 / MCP / 模型）只经 GUI 暴露，不对外提供 CLI。
 
 ---
 
 ## 2. 强制编码规范
 
-### 2.1 包结构（Cargo workspace）
+### 2.1 目录结构
 
 ```
 WorkBaby/
 ├── AGENTS.md / README.md / DESIGN.md
-├── docs/                          # 架构 / 模块 / 内核 / 会话 / 工具 / 模型 / 技能 / 功能 / 工作区 / MCP / 前端 / 壳 / 数据 / API / 错误码 / 开发 / 部署
-├── frontend/                      # Vue 3 前端（唯一源码目录 frontend/src）
-│   └── src/{api,components,composables,locales,stores,types,utils,views,router}
-├── src-tauri/                     # Tauri 壳：入口、托盘、单实例、自启、对话框、窗控
-│   ├── tauri.conf.json
-│   └── src/{main.rs, lib.rs, cmds.rs}
-├── assets/                        # 编译期打包进二进制的资源
-│   ├── docs/                      # 内置帮助文档
-│   ├── runtime/                   # 内置 PortableGit 与 Python 归档（zip）
-│   └── skills/                    # 22 个内置技能包
-└── crates/
-    ├── wb-pkg/                    # 叶子工具：AppError、ulid、fsutil、realpath、ansi、httprules
-    ├── wb-domain/                 # 纯类型：DO/DTO/REQ/RESP/VO + 错误码常量（只依赖 wb-pkg）
-    ├── wb-repo/                   # SQLite：连接与迁移、设置 KV、技能/功能开关、会话索引、统计
-    ├── wb-provider/               # 模型接入：wire API（openai-completions / anthropic-messages / google-generative-ai）、SSE 解析、usage、凭据、服务商预设
-    ├── wb-tools/                  # Tool trait + 注册表 + 内置工具（read/write/edit/bash/python/grep/find/ls）
-    ├── wb-kernel/                 # Agent 内核：会话树、循环、事件、压缩、重试、子代理
-    ├── wb-skills/                 # SKILL.md 解析、三区发现注册表、内置技能包
-    ├── wb-features/               # 12 项内置功能（todo/ask_user/memory/web/context_mode/
-    │                              #   fff/lsp/plan/goal/loadout/inspect/context_view）
-    ├── wb-git/                    # 工作区版本视图（读 status/diff/历史；写限白名单动作）
-    ├── wb-mcp/                    # MCP 客户端编排（rmcp）：配置、连接池、工具并入、OAuth 登录
-    ├── wb-service/                # 业务编排：对话 run、事件翻译、提示词组装、目录与装配
-    └── wb-api/                    # axum 路由 + SSE hub + CORS + 组合根 Startup
+├── docs/                          # 架构 / API / 数据 / 部署等（与代码同步更新）
+├── electron/
+│   ├── main/
+│   │   ├── index.ts               # 装配根：上下文→日志→DB→HTTP→托盘→窗口，重活后台
+│   │   ├── context.ts             # 全局运行时：路径布局、鉴权令牌、端口（装配后只读）
+│   │   ├── domain/                # 纯类型：VO/REQ/RESP + 错误码常量（不依赖实现）
+│   │   ├── pkg/                   # 叶子工具：apperror/resp/ulid/fsutil/log/proc/env/cmdline/frontmatter
+│   │   ├── repo/                  # SQLite：连接迁移、设置 KV
+│   │   ├── sse/                   # SSE hub：seq 发号、断线补帧、心跳
+│   │   ├── api/                   # express：server + 五组路由（薄壳，只解析与转发）
+│   │   ├── service/               # 业务编排：settings/docs/file/git/session/skill/plugin/mcp/model/app/bootstrap
+│   │   │   ├── engine/runtime.ts  # 运行时路径与版本探测、npm 执行
+│   │   │   ├── parser/            # pi 会话 JSONL → 条目树/活动分支
+│   │   │   └── chat/              # rpc_client / chat_frames / chat_service
+│   │   └── shell/                 # 窗口 / preload 桥 / 托盘
+│   └── preload/index.ts           # window.wb 桥（频道名是合同）
+├── frontend/src/{api,components,composables,locales,stores,types,utils,views,router}
+├── assets/{docs,runtime,skills}   # 编译期随包分发：帮助文档、运行时 zip、内置技能包
+├── scripts/{dev.mjs,build-main.mjs}
+└── tests/                         # vitest：场景测试，按被测对象一文件
 ```
 
-**开包门槛**：有自己的一组概念 + 独立生命周期才开 crate，否则做 `wb-service` 里的一个模块。
-每个 crate 内文件 ≤ 500 行（强制），超了就拆模块文件。
+**开目录门槛**：有一组独立概念 + 独立生命周期才开目录，否则做现有模块里的一个文件。
+每个文件 ≤ 500 行（强制），超了就拆。
 
-### 2.2 依赖方向（强制，由 Cargo 编译期保证）
+### 2.2 依赖方向（强制）
 
 ```text
-src-tauri ──► wb-api ──► wb-service ──► {wb-kernel, wb-features, wb-skills, wb-git, wb-mcp, wb-repo, wb-provider, wb-tools}
-                                            │
-              wb-kernel ──► {wb-tools, wb-provider, wb-domain, wb-pkg}
-              wb-features ──► {wb-tools, wb-domain, wb-pkg}
-              wb-skills / wb-git / wb-mcp ──► {wb-domain, wb-pkg}
-                                            │
-                              wb-provider ──► {wb-domain, wb-pkg}
-                                            │
-                                wb-domain ──► wb-pkg（叶子）
+index(装配) ──► shell ──► api ──► service ──► {repo, engine/runtime, chat, parser}
+                                   │
+                    service ──► pkg / domain（只读类型）
 ```
 
-| crate | 允许依赖 | 禁止依赖 |
+| 层 | 允许依赖 | 禁止依赖 |
 |---|---|---|
-| wb-pkg | 标准库 / 第三方纯工具 | 任何其他 wb-* crate |
-| wb-domain | wb-pkg | 其他 wb-* crate |
-| wb-repo | wb-domain / wb-pkg / rusqlite | 服务层及以上、能力域 |
-| wb-provider | wb-domain / wb-pkg | 内核 / 服务层 / 能力域 |
-| wb-tools | wb-domain / wb-pkg | 内核 / 服务层 |
-| wb-kernel | wb-tools / wb-provider / wb-domain / wb-pkg | 服务层 / api / 能力域 |
-| wb-features | wb-tools / wb-domain / wb-pkg | 服务层 / api / wb-kernel |
-| wb-skills · wb-git · wb-mcp | wb-domain / wb-pkg（wb-mcp 另加 rmcp） | 服务层 / api / 互相 |
-| wb-service | 全部能力域 + wb-domain + wb-pkg | api / tauri / axum |
-| wb-api | wb-service / wb-repo / wb-kernel / wb-domain / wb-pkg / axum / tokio | 越过 service 直摸 provider / tools / skills / features / git / mcp |
-| src-tauri | wb-api | wb-service / wb-repo / 能力域 |
+| pkg | 标准库 / 第三方纯工具 | domain / repo / service / api / electron |
+| domain | pkg | 任何实现层 |
+| repo | pkg / domain | service / api / electron |
+| service | repo / pkg / domain / electron(app 等) | api 的路由层 |
+| api | service / domain / pkg | 越过 service 直摸 repo |
+| shell | electron / service（仅设置与端口回填） | api |
+| 前端 | 自身 + `window.wb` + `/api/v1` | 直摸文件系统 / 子进程 |
 
-**组合根例外**：api 层直接开库（`Repo::open`）与操作会话文件（`SessionFile` / `Entry`）
-是 api 的本职，不是越界；除此之外，能力域一律经 service。
-
-**为什么这么切**：`wb-domain` 是叶子，类型定义不被任何实现污染；
-`wb-service` 是唯一的编排层，能力域之间互不相识（features 不知道 kernel 的存在）；
-`wb-api` 是唯一知道 HTTP 的地方。这三条让「换掉传输层」或「加一个新能力域」都只动一个 crate。
+**组合根例外**：`index.ts` 直接开库与起服务是装配本职；`shell/bridge.ts` 读
+settings_service 的关窗偏好同理。
 
 ### 2.3 domain 单文件多形态
 
-一个聚合根一个文件，DO / DTO / REQ / RESP / VO 同居，字段一律带业务前缀：
+一个域一个类型文件，VO / REQ / RESP 同居，字段一律带业务前缀：
 
-```rust
-/// 会话详情响应。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct SessionDetailRESP {
-    /// 会话本体
-    pub detail_session: SessionVO,
-    /// 消息回放
-    pub detail_messages: Vec<MessageVO>,
+```ts
+/** 会话列表行。 */
+export interface SessionRowVO {
+  /** 会话 ID */
+  session_id: string
+  /** 标题（首条用户消息截断） */
+  session_title: string
 }
 ```
 
-| 后缀 | 用途 | 落点 |
-|---|---|---|
-| `DO` | 持久化对象（库表一行的映射） | wb-repo |
-| `REQ` | 入参（请求体 / 查询参数） | wb-domain |
-| `RESP` | 出参（响应体） | wb-domain |
-| `DTO` | 跨层转换的中间结构 | wb-service |
-| `VO` | 给界面看的视图对象 | wb-domain |
+| 后缀 | 用途 |
+|---|---|
+| `VO` | 给界面看的视图对象（RESP 载荷） |
+| `REQ` | 入参（POST body / query） |
+| `DO` | 持久化行映射（repo 内） |
 
-**禁止**：字段名不带前缀（`name` / `code` 这类裸名一律拒绝）。
-前缀必须表达归属：`session_title` / `feature_code` / `git_branch`。
+**禁止**：裸字段名（`name` / `code` 一律拒绝）；前端字段与后端 JSON 字段名不一致。
 
 ### 2.4 错误处理（强制 AppError，code 为字符串）
 
-```rust
-pub struct AppError {
-    /// 业务码（数字字符串）
-    pub code: String,
-    /// 人话描述
-    pub message: String,
-    /// 补充上下文（stderr / 路径 / 上游响应）
-    pub details: Option<String>,
-}
-impl AppError {
-    pub fn new(code: &str, message: impl Into<String>) -> AppError;
-    pub fn wrap(code: &str, message: impl Into<String>, err: impl std::error::Error) -> AppError;
+```ts
+export class AppError extends Error {
+  /** 业务码（数字字符串） */
+  code: string
+  /** 人话描述（直接给用户看） */
+  message: string
+  /** 补充上下文（stderr / 路径 / 上游响应原话） */
+  details?: string
 }
 ```
 
-- **码值是数字字符串**（`"1001"`），不是数字：HTTP 状态码是 int，业务码是 string，类型上分开
-- 每个码必须在 `wb-domain/src/messages.rs` 有中 / 英默认文案，并在前端 `errCode.*` 有对应条目；
-  两侧各有一个测试与一键校验守着，漏一个就是「英文界面蹦中文」
-- 各 crate 用 `thiserror` 定义内部错误，边界上（api / service 出口）统一转 `AppError`
-- HTTP 出口统一信封 `Resp { code: String, message: String, data: T }`，`code != "0"` 即业务失败
-- 错误码常量集中在 `wb-domain/src/error.rs`，新增码先改 `docs/ERROR-CODES.md` 再写代码
+- 业务码是**数字字符串**（`"1001"`）；HTTP 状态码是 number，信封 `code` 是 string
+- HTTP 出口统一信封 `{ code, message, detail?, data }`，恒回 200，`code !== "0"` 即业务失败
+- 码值集中在 `domain/errors.ts`，与 `docs/ERROR-CODES.md` 一一对应；新增码先改文档再写代码
 
-**错误码段位**：
+**错误码段位**：1000–1999 通用/文件/git；2000–2999 配置/DB；3000–3999 服务商/模型；
+5000–5999 会话运行；7000–7999 外部进程；8000–8999 Skill；9100–9199 MCP；9700–9799 引擎 RPC。
 
-| 段位 | 域 |
+### 2.5 命名 / 注释 / 行数
+
+| 类别 | 规则 |
 |---|---|
-| 1000–1999 | 通用 / 文件 / 路径 |
-| 2000–2999 | 配置 / 持久化 / DB |
-| 3000–3999 | Provider / 模型配置 |
-| 5000–5999 | 会话运行（忙 / 队列 / 收尾 / 内核提问） |
-| 7000–7999 | 工具执行与外部进程（bash / LSP / 沙箱） |
-| 7200–7299 | 沙箱 |
-| 7300–7399 | 知识库与记忆 |
-| 8000–8999 | Skill |
-| 9100–9199 | MCP |
-| 9700–9799 | 内核（agent 循环 / 压缩 / 子代理） |
+| 文件名 | 全小写 + 下划线（`rpc_client.ts`） |
+| 类型 / 接口 | PascalCase，不加 I 前缀 |
+| 函数 | camelCase；常量 SCREAMING_SNAKE_CASE |
+| JSON 字段 | snake_case + 业务前缀 |
+| ID | `{PREFIX}_{26位ULID}`；现役前缀 `RUN` / `ASK` / `EVT` / `JOB`，白名单在 `pkg/ulid.ts` |
+| 时间戳 | 一律毫秒 number（`pkg/fsutil::nowMs`）；禁止 ISO 串进 DTO |
+| 注释 | 文件头 1 行 `//!`；类型 / 方法 1 行 `///` 说结论；连续注释 ≤ 3 行；只写「为什么」 |
+| 行数 | 每文件 ≤ 500 行 |
+| **禁止** | 注释出现外部项目名 / 过程痕迹（「旧版」「v1」「预留」）；`uuid`；手拼 JSON；本地时区时间 |
 
-### 2.5 命名规范
+### 2.6 子进程纪律
 
-| 类别 | 风格 | 示例 |
-|---|---|---|
-| Rust 文件 | snake_case.rs | session_store.rs |
-| crate / 模块 | 全小写 | wb-kernel / compaction |
-| 类型 / trait | PascalCase，不加 I 前缀 | SessionStore / Tool |
-| 函数 / 方法 | snake_case | list_sessions / begin_run |
-| 常量 | SCREAMING_SNAKE_CASE | MAX_TOOL_OUTPUT_BYTES |
-| JSON 字段 | snake_case（serde rename_all） | session_title |
-| ID 前缀 | SCREAMING_SNAKE_CASE | SESS / ENT / RUN / MSG / TC / ASK |
+- argv 数组直传，永不进 shell；`windowsHide: true`（引 `pkg/proc`，不写十六进制）
+- 超时必杀；stdout 严格按 LF 切帧（不用 readline——U+2028/2029 会误切）
+- 探测程序路径用 `existsSync`，**禁止跑 `where` / `which`**（会闪控制台）
+- 新增子进程出口自觉对齐 `pkg/proc::runProc`
 
-**禁止**：接口加 I 前缀；`xxxId` 与 `xxx_id` 混排；前端出现与后端 json 字段名不一致的字段。
+### 2.7 HTTP 与 API 路径约定（强制）
 
-### 2.6 注释规范（强制精简）
+- **只允许 GET / POST**；动词靠路径段表达：`POST /sessions/delete` + `{ path }`
+- 路径形状 `/{resource}/{action}`；查询参数 `?key=value`；前端统一 `/api/v1` 前缀
+- 鉴权：HTTP 走 `X-Desktop-Token` 头；SSE 走 `?token=`（EventSource 带不了自定义头）
 
-注释的读者是「半年后要改这段代码的人」。
-
-| 位置 | 要求 |
-|---|---|
-| 文件头 | `//!` 1 行说清职责（最多 2 行） |
-| 类型 / trait | 1 行 `///` 说它是什么；契约类型可 2 行说边界 |
-| 方法 | 1 行签名级说明（干什么 / 返回什么），不写实现步骤 |
-| 字段 | **每个 struct 字段必须有注释**；枚举与哨兵值必须写清取值含义 |
-| 行内 | 只写「为什么」，1 行 |
-
-- **连续注释（含空注释行）≤ 3 行**；doc-comment 只写结论与边界，不写论证
-- 每个文件 ≤ 500 行（含空行）；超限先拆模块
-- **禁止**：过程性叙述、改动历史、外部项目名与「参考 / 借鉴 / 类似 X」字样
-
-### 2.6.1 文档规范
-
-文档只回答三件事：**这个项目是什么、每个模块怎么设计实现、为什么这么选型**。
-
-- 根级：`README.md`（入口与能力一览 + 优势局限）/ `AGENTS.md`（本文件，唯一权威）/ `DESIGN.md`（视觉语言）
-- `docs/`：架构 / 模块 / 内核 / 会话 / 工具 / 模型 / 技能 / 功能 / 工作区 / MCP /
-  前端 / 壳 / 数据 / API / 错误码 / 开发 / 部署（共 17 篇）
-  清单见 `README.md` 的「文档」表；新增文档必须同步那张表
-- **文档只写最终现状**：不记录改动过程、不写「本版新增」「旧版如何」
-- 不写外部项目名与「参考 / 借鉴 / 类似 X」——只讲自己怎么设计、为什么这么设计、代价是什么
-- 文档与代码冲突时，先判断代码是不是错了；两边都要改到一致
-
-### 2.7 ID：ULID + 业务前缀
-
-```
-{PREFIX}_{26 位 ULID}     例：SESS_01JQ8K2M3N4P5Q6R7S8T9V0WXY
-```
-
-| 前缀 | 实体 | 前缀 | 实体 |
-|---|---|---|---|
-| SESS | 会话 | MSG | 助手消息 |
-| ENT | 会话条目（JSONL 行） | TC | 工具调用 |
-| RUN | 一轮运行 | ASK | 内核提问 |
-
-- ULID 的时间序即排序序：`SESS_` 开头的字符串直接字典序就是创建顺序
-- 新增实体类型必须同时扩 `wb-pkg::ulid::Prefix` 与 `is_valid` 的白名单
-- 裸 ULID（不带前缀）只用于「业务前缀自拼」的场景，如 `MEM_` / `DOC_` / `GOAL_`
-
-### 2.8 时间戳统一毫秒整数
-
-一律 `i64` 毫秒 Unix 时间戳。禁止 `chrono::DateTime` 出现在 DTO / VO / DB 层——
-序列化成字符串会让排序与比较都要写解析。格式化只在界面层做。
-
-### 2.9 平台特定代码
-
-只支持 Windows。路径处理、子进程启动、UI 缩放都做了平台假设：
-用 `#[cfg(windows)]` / `#[cfg(not(windows))]` 编译期分支，不写运行时大分支。
-
-### 2.10 横切关注点
-
-| 关注点 | 落点 | 纪律 |
-|---|---|---|
-| 命令执行 | `wb-tools::exec`（模型工具）+ git / MCP stdio / LSP / github_clone 各自出口 | argv 数组直传永不进 shell；CREATE_NO_WINDOW；超时杀进程——全仓纪律，新增出口自觉对齐 |
-| 命令运行面 | 内置 Git Bash（主力）+ 系统 PowerShell（Windows 原生操作） | 两者共存：bash 带 GNU 工具链干绝大多数活；注册表 / 服务 / WMI 只能走 PowerShell。工具面 `bash` / `powershell`，纪律完全一致 |
-| 子进程静默 | `wb_pkg::proc` | 每个 `Command` 出口必须挂 `CREATE_NO_WINDOW`（直接引常量，不写十六进制）；探测程序用 `resolve_command`（纯路径查找），**禁止跑 `where` / `which`**——那会闪控制台窗口 |
-| 日志 | `tracing` | 业务层只 `warn!` / `error!`；`debug!` 只在调试分支 |
-| 时间 | `SystemTime::now()` | 禁止 `Local::now()`（会话索引要可跨时区比较） |
-| ID 生成 | `wb_pkg::ulid` | 禁止 `uuid` / 自造计数器 |
-| JSON | serde | 禁用手写 JSON 字符串拼接 |
-| 文件写 | `wb_pkg::fsutil::write_atomic` | 临时文件 + rename，避免半截文件 |
-| 工具改动快照 | `wb-tools::difftext`（`ToolOutput.file_path` / `diff`） | 只给界面看，不进模型上下文 |
-
-### 2.10.1 前端设计令牌（强制）
-
-- **色值只在 `themes.css` 定义**：组件只允许 `var(--wb-*)`，禁止写死色值
-- **尺寸走刻度**：间距 `--wb-sp-*`、字号 `--wb-fs-*`、圆角 `--wb-radius-*`、动效 `--wb-dur-*`
-- UnoCSS 的刻度已接到令牌上（`gap-4` = `var(--wb-sp-4)`），布局用原子类不绕开令牌
-- **Element Plus 是基元供给方**：`ep-theme.css` 把 EP 变量接到 `--wb-*`；
-  EP 组件按需引入，未使用的组件连同体积一起摇掉
-- **按钮五态齐全**：默认 / 悬停（放大 1.06）/ 按下（缩小 0.92）/ 禁用 / 加载。
-  自绘按钮走 `.wb-btn`，EP 按钮由 `ep-theme.css` 覆写，两边共用刻度令牌
-- 引用不存在的 CSS 变量会**静默失效**——那不是「样式不好看」，是静默丢样式
-
-### 2.11 数据库迁移
-
-`wb-repo` 手写迁移 SQL，用 `PRAGMA user_version` 步进：
-
-```rust
-// 每个迁移一步：版本号 +1，SQL 幂等
-if version < 1 { conn.execute_batch(SCHEMA_V1)?; }
-```
-
-不引入迁移框架——三张表不值得背一套 DSL。
-
-### 2.12 HTTP 与 API 路径约定（强制）
-
-- **只允许 GET / POST**。没有 PUT / DELETE / PATCH——动词靠路径段表达：
-  `POST /sessions/delete/{id}`、`POST /sessions/rename/{id}`
-- 路径形状：`/{resource}/{action}/:id`，**id 永远在最后一段**
-  - ✅ `/api/v1/sessions/delete/:id`
-  - ❌ `/api/v1/sessions/:id/delete`
-- 查询参数用 `?key=value`；写操作的主体走 POST + JSON body
-- 前端路径前缀 `/api/v1` 由 `api/http.ts` 统一注入
-
-### 2.13 内核不变量（强制）
+### 2.8 服务不变量（强制）
 
 | 不变量 | 含义 |
 |---|---|
-| 内核不感知界面 | `KernelEvent` 是内核唯一出参语言，不含任何界面词汇 |
-| 内核不依赖上层 | `wb-kernel` 不知道 service / api / 界面的存在 |
-| 工具契约唯一 | 所有工具（含功能工具与 MCP 工具）实现同一个 `Tool` trait |
-| 事件顺序是契约 | 界面时序依赖事件顺序，改动顺序等于改界面行为 |
-| 会话文件是真相 | 界面不另存状态，重启后从 JSONL 回放 |
-| 功能开关即边界 | 关掉的功能不进工具表、不发事件；斜杠命令只来自启用的技能 |
-| 启动不等重物 | 内置运行时解压、MCP 连接都在后台跑；端口与界面先就绪，进度经端点/事件报出 |
-| 工作区可换 | 工作区是运行时状态而非启动参数：切换要重建全部按目录派生的状态并广播 |
-| 看得见就点得动 | 活状态面板（待办 / 目标 / 计划 / 记忆）必须可写；只读面板等于没有这个功能 |
-| 写入只有一套 | 界面写入与模型工具共用同一份落盘与同一套校验，不写第二套规则 |
+| 会话文件是真相 | pi 的 JSONL 会话文件是唯一持久真相；界面状态重启后由回放重建 |
+| 事件顺序是契约 | SSE 帧 `{seq, event, data}`，seq 单调；改 `chat:*` 词汇等于改界面行为 |
+| 一个工作区一个引擎 | pi RPC 子进程按当前工作区绑定；切工作区即重建 |
+| 看得见就点得动 | 提问等面板可写；回答经 `extension_ui_response` 直达引擎 |
+| 写入只有一套 | 插件 / 技能 / MCP 的落盘与校验只有 service 一套，不写第二套 |
+| 启动不等重物 | 端口与界面先就绪；运行时解压、技能落位后台跑，进度经 `app:progress` 报 |
+| 引擎不感知界面 | service/chat 只发 domain 词汇；翻译成 SSE 是 chat_frames 的职责 |
+| 密钥不回显 | `api_key` 读出来恒为掩码；空串语义是「保留原值」 |
+
+### 2.9 前端设计令牌（强制）
+
+- **色值只在 `themes.css` 定义**：组件只允许 `var(--wb-*)`，禁止写死色值
+- 尺寸走刻度：间距 `--wb-sp-*`、字号 `--wb-fs-*`、圆角 `--wb-radius-*`、动效 `--wb-dur-*`
+- UnoCSS 刻度已接令牌（`gap-4` = `var(--wb-sp-4)`）；Element Plus 变量由 `ep-theme.css` 接桥
+- **按钮五态齐全**：默认 / 悬停（放大 1.06）/ 按下（缩小 0.92）/ 禁用 / 加载；自绘走 `.wb-btn`
+- 引用不存在的 CSS 变量会**静默失效**——那是丢样式，不是「不好看」
+- 交互反馈：所有异步动作要有 loading / 过渡；空态给引导；错误给可读文案（后端 `message` 直显）
 
 ---
 
 ## 3. 测试规范
 
-测试的价值在于「改这里会坏那里」的地方。平凡断言不写。
+测试的价值在「改这里会坏那里」的地方；平凡断言不写。
 
-**保留什么**
+**保留**：状态机与解析（会话树回放 / 分支 / 隐藏轮）、持久化往返（设置库写读）、
+纯函数边界（命令行拆分 / frontmatter / 差异解析 / ULID 校验）。
+**不写**：复述框架行为的用例、单分支覆盖率驱动用例。
 
-| 类别 | 例子 |
-|---|---|
-| 长链路 | 建会话 → 发送 → 工具 → 落盘 → 用量，全链路断言事件顺序与回放结果 |
-| 状态机 | 待办依赖图、目标状态机、提问回答板的一次性投递 |
-| 持久化往返 | 写入 → 重载 → 回放，数据一字不差 |
-| 边界拒绝 | 路径逃逸、产物目录跳过、密钥扫描拦截 |
-| 协议解析 | SSE 分片累积、HTML 提取、搜索结果解析、SSE 事件顺序 |
-| 真实外部依赖 | 真 git 仓库全链路（标 `#[ignore]`，慢速脚本显式跑） |
-
-**不写什么**
-
-- 只验证常量等于自身、只覆盖单一分支的断言
-- 框架行为的复述（serde 的 rename、tokio 的 select）
-- 每个函数一条的覆盖率驱动用例
-
-**组织方式**
-
-- 场景测试放 crate 的 `tests/` 目录（`cargo test -p wb-xxx` 精确跑一个子系统）
-- 一个 crate 一个测试文件；文件内按「被测场景」分节，用 `// ---- 场景名 ----` 分隔
-- 同一流程的多段断言写在一个用例里（阶段之间加 `// ---- 阶段名 ----` 注释），
-  不再拆成多个只差几行的用例——拆碎了反而找不到断言的起点
-- 共享夹具放 `tests/common/mod.rs`（假 Provider / 假工具 / 临时目录 / 请求简写）
-- 单元测试只在「同一文件内私有逻辑」且值得守时写
-- 命名说清断言的是什么：`memory_roundtrip_session_search_and_secret_scan` 而不是 `test_memory_1`
-- 断言带失败信息（`"got {seen:?}"`），失败时能直接看出差在哪
-- 测不了的路径要说清原因（如「需要真 git 仓库」），不留悬空的 `#[ignore]`
-- 用例总数控制在 30 上下：改一个小功能跑一遍全量测试要在十几秒内完成，
-  否则没人愿意跑，门禁就形同虚设
+- 位置：仓库根 `tests/`，一文件一个被测对象，`npx vitest run` 十几秒内跑完
+- 命名说清断言的是什么；断言带失败信息
+- electron 依赖模块不进测试；可测的纯逻辑抽到 `pkg/`
+- 测不了的路径（需真实引擎 / 网络）不写悬空用例
 
 ---
 
 ## 4. 架构门禁
 
-提交前必须过下面五道，一条也不用少：
+提交前必须过四道，一条不能少：
 
 ```bash
-cargo fmt --all -- --check                          # 1 格式检查
-cargo clippy --workspace --all-targets -- -D warnings   # 2 静态检查（全量拦截编译警告）
-cargo test --workspace                              # 3 后端测试全绿
-cd frontend && npm run typecheck                    # 4 前端类型检查
-cd frontend && npm run build                        # 5 前端构建
+npm run typecheck        # 1 主进程 TS 严格检查
+npm run build            # 2 主进程 esbuild + 前端构建（内含 vue-tsc）
+npx vitest run           # 3 测试全绿
+npm run dist             # 发布打包（electron-builder NSIS），发布前另跑
 ```
 
-与 CI（`.github/workflows/ci.yml`）跑同一套。
-依赖真实外部环境的测试在 `cargo test --workspace -- --ignored` 里（标了 `#[ignore]`）。
-
-缩小验证面：只改后端跑 1–3，只改前端跑 4–5；
-只动一个 crate 时把第 1–3 条的 `--workspace` 换成 `-p wb-features`（crate 名即参数），改哪验哪。
-
-**硬性约束**
-
-| 约束 | 检查方式 |
-|---|---|
-| 文件 ≤ 500 行 | 提交前自检；超了先拆 |
-| 依赖方向单向 | Cargo 编译期强制，不合规直接编译失败 |
-| 只用 GET / POST | 路由表逐条核对 |
-| 字段带业务前缀 | `wb-domain` 里每个 struct 逐个看 |
-| 无编译警告 | `cargo clippy -D warnings` 全绿（覆盖 build 的全部警告） |
-| 注释不含外部项目名 | 提交前搜一遍 |
-| 注释不写过程痕迹 | 不写「v1 / 预留 / 规划内 / 旧版如何」 |
+**硬性约束**：文件 ≤ 500 行；依赖方向单向；只用 GET / POST；字段带业务前缀；
+信封恒 200；注释无外部项目名与过程痕迹；子进程 windowsHide + 超时杀。
 
 ---
 
 ## 5. 工作流
 
-1. **先读约束**：动 `wb-domain` 前想清楚字段前缀与错误码段位；动前端前想清楚令牌归属
-2. **定位落点**：能放进现有 crate 就别开新 crate；能放进现有模块就别开新文件
+1. **先读约束**：动 domain 前想清楚字段前缀与错误码段位；动前端前想清楚令牌归属
+2. **定位落点**：能进现有模块就别开新文件；纯逻辑进 `pkg/`（可测），编排进 `service/`
 3. **实现**：注释只写「为什么」，不留过程痕迹
-4. **验证**：跑 §4 的五道门禁（`fmt` / `clippy -D warnings` / `cargo test` / 前端 `typecheck` / 前端 `build`）
+4. **验证**：跑 §4 的门禁；改哪个层跑哪道，但 typecheck + test 必跑
 5. **同步文档**：改了架构 / API / 错误码 / 页面结构，对应 `docs/` 一起改
 6. **提交**：一次提交只做一件事，提交信息写清做了什么与为什么
 

@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
-    "build:dev": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -33,7 +33,7 @@ const pathSaving = ref('')
 const autoStartBusy = ref(false)
 const restoreBusy = ref(false)
 // 配置原文只能看不能改：写引擎配置有节点级接口，原文编辑会打乱它的假设。
-const configKind = ref<'omp' | 'pi'>('omp')
+const configKind = ref<'omp' | 'pi'>('pi')
 
 async function toggleAutoStart(enabled: boolean) {
   autoStartBusy.value = true

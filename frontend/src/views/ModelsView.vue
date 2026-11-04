@@ -27,7 +27,7 @@ const { scope, set: setScope } = useEngineScope('models')
 const installedKinds = computed(() => app.installed.map((e) => e.kind))
 
 /** 写操作必须落在一个具体引擎上：作用域是「全部」时靠行上的 engine_kind 定向。 */
-const writeKind = computed<EngineKind>(() => (scope.value === 'all' ? 'omp' : scope.value))
+const writeKind = computed<EngineKind>(() => (scope.value === 'all' ? 'pi' : scope.value))
 const caps = computed(() => app.capsOf(writeKind.value))
 
 const providers = ref<ProviderView[]>([])
