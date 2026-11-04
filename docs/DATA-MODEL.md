@@ -53,16 +53,22 @@ better-sqlite3，WAL + 忙等 5s，进程内单连接。迁移手写，
 
 | 文件 | 写入方 | 内容 |
 |---|---|---|
-| `settings.json` | 技能/扩展开关（预留）、引擎自身 | 默认模型 / 工具集 / 资源路径 |
+| `settings.json` | 引擎自身与技能/扩展开关 | 默认模型 / 工具集 / 资源路径 |
 | `models.json` | 模型页 | `{providers: {<id>: {baseUrl, api, models[]}}}` |
 | `auth.json` | 模型页 | `{<provider>: {type:'api_key', key}}`，0600 |
 | `mcp.json` | MCP 页 | `{mcpServers: {<名>: {command,args,env} | {url}}}`，`enabled:false` 即关 |
 | 项目级 `.pi/mcp.json`、`.pi/skills/` | MCP 页 / 技能页 | 工作区作用域；项目条目同名覆盖用户条目 |
 
-## 5. 壳的台账 JSON
+## 5. 壳的台账
 
 | 文件 | 内容 |
 |---|---|
-| `pi/plugin-registry.json` | `{<slug>: {plugin_source, plugin_name, plugin_version, installed_at, enabled}}`；插件清单 = 注册表 ∪ 磁盘实况 |
-| `pi/extensions/<slug>/package.json` | 桥接：`{name, pi:{extensions:[绝对入口路径]}}`，pi 发现即加载；改名 `.disabled-<slug>` 即禁用 |
+| `pi/settings.json` 的 `packages[]` | 插件声明（唯一权威）：裸串 = 启用，`{source, autoload:false}` = 停用 |
+| `pi/settings.json` 的 `npmCommand` | 内置 npm 的调用形状（`[node.exe, npm-cli.js]`） |
+| `pi/npm/node_modules/` | 已装插件的真实目录，插件身份以包名为准 |
 | `pi/skills_disabled/<name>` | 技能禁用区（目录整体搬入/搬出） |
+| `skill_toggle` 表 | 技能开关意图（目录是事实，表保证界面状态持久） |
+
+**插件不再有自定义注册表**：pi 的 `settings.json` 已经是唯一登记处，
+再加一份 JSON 就一定会出现两份不同步。包是否“真的装上”直接看
+`pi/npm/node_modules/<name>/package.json` 在不在。

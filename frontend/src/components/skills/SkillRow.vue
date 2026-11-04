@@ -1,58 +1,47 @@
 <script setup lang="ts">
-// 一条技能（矩阵行）：名字 + 两列引擎开关 + 查看 / 删除。
-// 管理视图：一份清单，哪个引擎装了、开着没有一眼看全。
-// 启停语义两家不同（omp 认 enabled、pi 认 disable-model-invocation），判据在父组件。
+// 一条技能：名字 + 分组 + 依赖提示 + 启停 + 查看 / 重置 / 删除。
+// 只服务 pi 一个引擎，所以不再做多引擎矩阵；分组直接来自后端的清单标签。
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
-import type { EngineKind, SkillMatrixRow, SkillRow } from '@/types/api'
+import type { SkillMatrixRow } from '@/types/api'
 
 const props = defineProps<{
   row: SkillMatrixRow
-  /** 每个引擎有没有「启停」能力（omp 认 caps.skill_toggle，pi 恒有） */
-  toggleable: Partial<Record<EngineKind, boolean>>
-  /** 每个引擎是否探测到：没装的引擎那列不渲染开关 */
-  installed: EngineKind[]
-  /** 正在切启停的那一条（`kind:name`，空表示空闲） */
+  /** 正在切启停的这一条（空表示空闲） */
   toggling: string
-  /** 正在删的那一条（`kind:name`，空表示空闲） */
+  /** 正在删的这一条（空表示空闲） */
   deleting: string
-  /** 正在往某个引擎装的那一条（`name:kind`，空表示空闲） */
-  copying: string
+  /** 正在重置的这一条（空表示空闲） */
+  resetting: string
 }>()
 
 const emit = defineEmits<{
-  toggle: [cell: SkillRow, enabled: boolean]
-  view: [row: SkillMatrixRow]
-  remove: [row: SkillMatrixRow]
-  copy: [row: SkillMatrixRow, kind: EngineKind]
+  toggle: [enabled: boolean]
+  view: []
+  remove: []
+  reset: []
+  copy: []
 }>()
 
 const { t } = useI18n()
 
-const ENGINES: EngineKind[] = ['omp', 'pi']
+/** 这一行代表的那份技能（单引擎，取唯一一格）。 */
+const cell = computed(() => props.row.cells.pi ?? props.row.cells.omp)
+const busy = computed(() => Boolean(props.toggling || props.deleting || props.resetting))
 
-function cellOf(kind: EngineKind) {
-  return props.row.cells[kind]
-}
+/** 项目技能不由本壳托管：可看不可改。 */
+const readonly = computed(() => cell.value?.source === 'project')
+/** 只有托管区里的技能能重置回原件。 */
+const resettable = computed(() => Boolean(cell.value?.skill_modified && cell.value?.editable))
+/** 只有托管区里的技能能被删。 */
+const removable = computed(() => Boolean(cell.value?.editable && cell.value?.source !== 'project'))
+/** 工作区技能可以抄进托管区长期化（唯一出路）。 */
+const copyable = computed(() => cell.value?.source === 'project')
 
-function hasEngine(kind: EngineKind): boolean {
-  return props.installed.includes(kind)
-}
-
-/** 缺定义的那一格能不能「装过去」：源是用户目录的技能才能复制（Editable 语义）。 */
-function canCopy(row: SkillMatrixRow, kind: EngineKind): boolean {
-  const src = Object.values(row.cells).find(Boolean)
-  return Boolean(src?.editable && src.source === 'user' && hasEngine(kind))
-}
-
-function busyKey(kind: EngineKind): string {
-  return `${kind}:${props.row.name}`
-}
-
-/** 分组标签取两格里优先级更高的那份来源。 */
 function sourceLabel(): string {
-  const cell = cellOf('omp') ?? cellOf('pi')
-  return cell ? t(`skills.sources.${cell.source}`) : ''
+  const source = cell.value?.source
+  return source ? t(`skills.sources.${source}`) : ''
 }
 </script>
 
@@ -62,58 +51,56 @@ function sourceLabel(): string {
       <div class="skill-head">
         <span class="skill-name">{{ props.row.name }}</span>
         <span class="tag">{{ sourceLabel() }}</span>
-        <span v-if="!Object.values(props.row.cells).some((c) => c?.editable)" class="tag readonly-tag">
-          {{ t('skills.readonly') }}
-        </span>
+        <span v-if="cell?.skill_group" class="tag muted">{{ cell.skill_group }}</span>
+        <span v-if="cell?.skill_modified" class="tag warn">{{ t('skills.modified') }}</span>
+        <span v-if="readonly" class="tag readonly-tag">{{ t('skills.readonly') }}</span>
       </div>
       <p v-if="props.row.description" class="skill-desc">{{ props.row.description }}</p>
+      <p v-if="cell?.skill_requires" class="skill-req">
+        <AppIcon name="alert" :size="11" />
+        {{ t('skills.requires', { what: cell.skill_requires }) }}
+      </p>
     </div>
 
-    <div class="engine-cells">
-      <template v-for="kind in ENGINES" :key="kind">
-        <div v-if="hasEngine(kind)" class="engine-cell" :title="cellOf(kind)?.dir">
-          <el-switch
-            v-if="cellOf(kind) && props.toggleable[kind]"
-            :model-value="cellOf(kind)!.enabled"
-            :loading="props.toggling === busyKey(kind)"
-            :disabled="Boolean(props.toggling) && props.toggling !== busyKey(kind)"
-            :title="cellOf(kind)!.enabled ? t('common.enabled') : t('common.disabled')"
-            @change="(value: string | number | boolean) => cellOf(kind) && emit('toggle', cellOf(kind)!, Boolean(value))"
-          />
-          <span
-            v-else-if="cellOf(kind)"
-            class="tag muted"
-            :title="t('skills.noToggle')"
-          >
-            {{ cellOf(kind)!.enabled ? t('common.enabled') : t('common.disabled') }}
-          </span>
-          <!-- 缺定义：把另一边的用户级技能装过来 -->
-          <button
-            v-else-if="canCopy(props.row, kind)"
-            class="wb-btn text sm install"
-            :class="{ 'is-loading': props.copying === `${props.row.name}:${kind}` }"
-            :disabled="Boolean(props.copying)"
-            :title="t('skills.copyHint', { engine: kind })"
-            @click="emit('copy', props.row, kind)"
-          >
-            <AppIcon name="plus" :size="12" />
-            {{ t('skills.installTo', { engine: kind }) }}
-          </button>
-          <span class="engine-tag">{{ kind }}</span>
-        </div>
-      </template>
+    <div class="skill-switch">
+      <el-switch
+        v-if="cell"
+        :model-value="cell.enabled"
+        :loading="props.toggling === props.row.name"
+        :disabled="busy && props.toggling !== props.row.name"
+        :title="cell.enabled ? t('common.enabled') : t('common.disabled')"
+        @change="(value: string | number | boolean) => emit('toggle', Boolean(value))"
+      />
+      <span v-else class="tag muted">—</span>
     </div>
 
     <div class="skill-actions">
-      <!-- 行级动作指向整行：这一行就是「这个技能」。查看看主格（omp 优先），
-           删除清掉所有用户目录里的副本（工作区 / 插件来的那份不归这里管）。 -->
-      <button class="wb-btn text sm" @click="emit('view', props.row)">{{ t('skills.view') }}</button>
+      <button class="wb-btn text sm" @click="emit('view')">{{ t('skills.view') }}</button>
       <button
-        v-if="Object.values(props.row.cells).some((c) => c?.editable)"
+        v-if="copyable"
+        class="wb-btn text sm"
+        :disabled="busy"
+        :title="t('skills.copyHint')"
+        @click="emit('copy')"
+      >
+        {{ t('skills.copy') }}
+      </button>
+      <button
+        v-if="resettable"
+        class="wb-btn text sm"
+        :class="{ 'is-loading': props.resetting === cell?.path }"
+        :disabled="busy"
+        :title="t('skills.resetHint')"
+        @click="emit('reset')"
+      >
+        {{ t('skills.reset') }}
+      </button>
+      <button
+        v-if="removable"
         class="wb-btn text sm danger"
-        :class="{ 'is-loading': Boolean(props.deleting) }"
-        :disabled="Boolean(props.deleting)"
-        @click="emit('remove', props.row)"
+        :class="{ 'is-loading': props.deleting === props.row.name }"
+        :disabled="busy"
+        @click="emit('remove')"
       >
         {{ t('common.delete') }}
       </button>
@@ -150,53 +137,46 @@ function sourceLabel(): string {
   color: var(--wb-ink);
 }
 
-/* 只读标签压暗：它是状态说明，不是可点的分类 */
-.readonly-tag {
-  opacity: 0.65;
-}
-
 .skill-desc {
   margin: 0;
   font-size: var(--wb-fs-2xs);
-  color: var(--wb-mute);
   line-height: 1.6;
-  overflow-wrap: anywhere;
+  color: var(--wb-mute);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-/* 引擎开关两列：每格带引擎小标签——只有一格有开关时也认得出是哪边 */
-.engine-cells {
-  display: flex;
-  gap: var(--wb-sp-8);
-  flex: none;
-}
-
-.engine-cell {
+.skill-req {
   display: flex;
   align-items: center;
-  gap: 6px;
-  justify-content: center;
-  min-width: 64px;
-  min-height: 22px;
-}
-
-.engine-tag {
-  font-family: var(--wb-font-mono);
+  gap: 4px;
+  margin: 0;
   font-size: var(--wb-fs-3xs);
-  color: var(--wb-faint);
+  color: var(--wb-warn);
 }
 
-.tag.muted {
-  opacity: 0.6;
-}
-
-.install {
-  color: var(--wb-brand);
+.skill-switch {
+  flex: none;
+  display: flex;
+  align-items: center;
 }
 
 .skill-actions {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-2);
-  flex: none;
+  gap: var(--wb-sp-1);
+}
+
+.tag.warn {
+  border-color: var(--wb-warn-soft);
+  color: var(--wb-warn);
+}
+
+.readonly-tag {
+  color: var(--wb-faint);
 }
 </style>

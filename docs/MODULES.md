@@ -52,8 +52,11 @@ seq 单调发号，保留最近 1000 帧供 `since` 补帧，25s 心跳防断。
 | `app_service` | 应用行（pi + 三个运行时）与 pi 的安装/升级/卸载（内置 npm，进度广播） |
 | `chat/` | `rpc_client`（JSONL 帧、请求按 id 关联、超时兜底）+ `chat_frames`（引擎事件 → SSE 词汇，实时块表）+ `chat_service`（绑定/驱动/状态组装/提问板） |
 | `parser/` + `session_service` | 会话 JSONL → 条目树 → 活动分支 → 历史轮；清单/详情/改名/删除/隐藏台账/HTML 导出 |
-| `skill_service` | 内置技能落位（已存在不覆盖，保住用户改动）、扫描、开关（搬目录）、增删改、项目技能复制 |
-| `plugin_service` | 插件安装（npm --prefix 进沙箱）→ 找真实包 → 解析入口 → 写桥接 → 记注册表；开关 = 桥接目录改名 |
+| `skill_service` | 内置清单落位（已存在不覆盖）、扫描（启用区+禁用区+项目）、开关（搬目录）、重置回原件、增删改 |
+| `skill_catalog` | 内置技能清单：目录名 + 分组 + 默认开关 + 外部依赖提示 |
+| `plugin_catalog` | 内置插件清单：12 个 npm 包 + 精确 pin + 默认开关 |
+| `plugin_settings` | pi 的 `settings.json` 编排：`packages` 声明增删改、`npmCommand` 指向内置 npm、安装根探测 |
+| `plugin_service` | 插件安装（经内置 npm 进 `pi/npm`）、首启批量安装 + 单行重试、开关（只改声明）、升级、卸载 |
 | `mcp_service` | 用户级/项目级 mcp.json 读写；command_text 拆 argv；开关改条目字段 |
 | `model_service` | models.json / auth.json 读写 + 三种协议的远端模型探测（openai/anthropic/google） |
 | `git_service` | 全套 git 面板操作，全部经内置 git.exe；porcelain v2 解析、numstat 合并、仓库状态检测 |
@@ -62,6 +65,10 @@ seq 单调发号，保留最近 1000 帧供 `since` 补帧，25s 心跳防断。
 
 **为什么开关用「搬目录」而不是模式匹配**：引擎的资源发现规则以目录存在为准，
 搬目录对任何引擎版本都成立，不依赖通配语义；禁用区就在旁边，用户肉眼可查。
+
+**为什么插件走 pi 原生 `packages` 而不自造桥接**：pi 自己认 `settings.json` 的
+`packages[]` 与 `npmCommand`，升级、依赖解析、资源过滤都是它的事。自造一套
+`extensions/` 桥接只能表达「入口在哪」，无法参与 pi 的包管理，升级与过滤都得手写。
 
 ## shell/（Electron 面）
 

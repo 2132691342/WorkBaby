@@ -38,9 +38,9 @@ pi 需要到「应用」页重新安装）。
 
 | 文件 | 守什么 |
 |---|---|
-| `e2e_server.test.ts` | 端到端长链路：mock electron → 起 HTTP → 鉴权 → 路由 → service → SQLite → 信封 |
-| `session_replay.test.ts` | 会话回放管线：树分支、轮次分组、工具结果挂接、隐藏、压缩、目录编码 |
-| `settings_repo.test.ts` | 设置持久化：写 → 关库 → 重开 → 原样读回 |
+| `e2e_server.test.ts` | 端到端长链路：mock electron → 起 HTTP → 鉴权 → 路由 → service → SQLite → 信封；含插件/技能的真落盘断言 |
+| `session_replay.test.ts` | 会话回放管线：树分支、轮次分组、工具结果挂接、隐藏、压缩 |
+| `builtin_catalog.test.ts` | 内置清单：packages 声明改写、npmCommand 写盘条件、技能落位与目录搬移 |
 
 约定：electron 依赖模块不直接进测试；可测纯逻辑抽到 `pkg/`；
 断言说清「断言的是什么」；测不了的路径（真实引擎 / 网络）不写悬空用例。

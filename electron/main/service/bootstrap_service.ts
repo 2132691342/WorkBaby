@@ -16,13 +16,14 @@ import type {
   HealthDataVO,
   RunRowVO,
 } from '../domain/types_core'
-import { nodeVersion, piInstalled, piVersion, nodeExe, piEntry } from './engine/runtime'
+import { nodeVersion, piInstalled, piVersion, nodeExe, nodeReady, piEntry } from './engine/runtime'
 import { currentWorkspace, configFiles, settingsAll } from './settings_service'
 import { chatRunInfo, chatRestart } from './chat/chat_service'
 import { sessionCount } from './session_service'
 import { skillCount } from './skill_service'
 import { mcpCount } from './mcp_service'
-import { pluginList } from './plugin_service'
+import { pluginCount } from './plugin_service'
+import { pluginInstallRoot } from './plugin_settings'
 
 const KEY_DETECTED_AT = 'engine.detected_at'
 
@@ -48,7 +49,7 @@ export function piLayout(): EngineLayoutVO {
     agent: p.wb_pi_agent_dir,
     sessions: path.join(p.wb_pi_agent_dir, 'sessions'),
     skills: path.join(p.wb_pi_agent_dir, 'skills'),
-    plugins: path.join(p.wb_pi_agent_dir, 'plugins'),
+    plugins: pluginInstallRoot(),
     models: path.join(p.wb_pi_agent_dir, 'models.json'),
     settings: path.join(p.wb_pi_agent_dir, 'settings.json'),
     exists: fs.existsSync(p.wb_pi_agent_dir),
@@ -137,7 +138,7 @@ export function bootstrapView(): BootstrapVO {
 export async function healthView(): Promise<HealthDataVO> {
   const installed = piInstalled()
   const run = chatRunInfo()
-  const plugins = pluginList().plugins.length
+  const plugins = pluginCount()
   const health: EngineHealthVO = {
     engine_kind: 'pi',
     engine_label: 'pi coding agent',
@@ -204,7 +205,8 @@ export async function healthView(): Promise<HealthDataVO> {
   }
 }
 
-/** 引擎可执行文件（日志与自检用）。 */
+/** 引擎可执行文件（日志与自检用）；运行时就绪前给空串而不是抛错。 */
 export function engineExePath(): string {
-  return piInstalled() ? piEntry() : nodeExe()
+  if (piInstalled()) return piEntry()
+  return nodeReady() ? nodeExe() : ''
 }

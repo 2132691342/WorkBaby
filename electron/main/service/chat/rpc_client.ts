@@ -1,6 +1,5 @@
 //! pi RPC 客户端：把 pi --mode rpc 子进程包成「请求-应答 + 事件流」。
 import { spawn, type ChildProcess } from 'node:child_process'
-import path from 'node:path'
 import { toolEnv } from '../../pkg/env'
 import { paths } from '../../context'
 import { logError, logWarn } from '../../pkg/log'
@@ -61,9 +60,11 @@ export class PiRpc {
     if (!piInstalled()) {
       throw appError(CODE_RPC_DOWN, 'pi 尚未安装，请先在应用页安装')
     }
+    // PI_PACKAGE_DIR 会改写 pi 自己找 dist/主题的根，指错等于让引擎起不来，绝不设。
     const env = toolEnv({
       PI_CODING_AGENT_DIR: p.wb_pi_agent_dir,
-      PI_PACKAGE_DIR: path.join(p.wb_pi_agent_dir, 'packages'),
+      // 壳自己管升级，引擎不必再探一次远端版本（离线机器上会卡启动）。
+      PI_SKIP_VERSION_CHECK: '1',
       NODE_NO_WARNINGS: '1',
     })
     this.child = spawn(nodeExe(), [piEntry(), '--mode', 'rpc'], {

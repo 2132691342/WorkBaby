@@ -1,255 +1,302 @@
-//! 插件管理：npm 装进沙箱目录，扩展桥接文件放进 pi 的 extensions，开关靠移动目录。
+//! 插件管理：内置清单落 pi 的 packages 声明、经内置 npm 装进沙箱、启停与升级。
 import fs from 'node:fs'
 import path from 'node:path'
-import { paths } from '../context'
-import { readJson, writeJson, readText } from '../pkg/fsutil'
+import { readJson } from '../pkg/fsutil'
 import { logInfo, logWarn } from '../pkg/log'
 import { appError, wrapError } from '../pkg/apperror'
 import { CODE_PROVISION } from '../domain/errors'
 import { npmRun } from './engine/runtime'
-import { appBusy } from './app_service'
+import { appBusy, beginBusy, endBusy } from './app_service'
 import { broadcast } from '../sse/hub'
-import type { PluginListDataVO, PluginRowVO } from '../domain/types_data'
+import { BUILTIN_PLUGINS, builtinOf, npmSourceOf } from './plugin_catalog'
+import {
+  declarePackage,
+  entryEnabled,
+  indexOfPackage,
+  installedMeta,
+  installedPathOf,
+  isInstalled,
+  listPackages,
+  packageNameOf,
+  piSettingsPath,
+  pluginInstallRoot,
+  setPackageEnabled,
+  sourceOf,
+  undeclarePackage,
+  writePackages,
+} from './plugin_settings'
+import type { PluginListDataVO, PluginRowVO, PluginState } from '../domain/types_data'
 
-/** 注册表：slug → 来源与开关意图。 */
-interface PluginRecord {
-  plugin_source: string
-  plugin_name: string
-  plugin_version: string
-  installed_at: number
-  enabled: boolean
+/** 单个插件的运行期失败原因；进程内有效，重启后由磁盘实况兜底。 */
+const failures = new Map<string, string>()
+
+/** 是否把内置清单当「已声明」看；首次运行时写入一次。 */
+function ensureBuiltinDeclared(): void {
+  const entries = listPackages()
+  let changed = false
+  for (const item of BUILTIN_PLUGINS) {
+    if (indexOfPackage(entries, item.plugin_name) >= 0) continue
+    // 内置插件首次声明即按默认开关落 autoload；用户后续开关只改这一个字段。
+    const source = npmSourceOf(item)
+    if (item.plugin_default_on) entries.push(source)
+    else entries.push({ source, autoload: false })
+    changed = true
+  }
+  if (!changed) return
+  writePackages(entries)
 }
 
-type Registry = Record<string, PluginRecord>
-
-function pluginsRoot(): string {
-  return path.join(paths().wb_pi_agent_dir, 'plugins')
+function progress(
+  action: string,
+  phase: 'start' | 'line' | 'done' | 'fail',
+  plugin_name: string,
+  line?: string,
+  message?: string,
+): void {
+  broadcast('app:progress', {
+    kind: 'pi',
+    action,
+    phase,
+    plugin_name,
+    line,
+    message,
+    engine_kind: 'pi',
+  })
 }
 
-function extensionsDir(): string {
-  return path.join(paths().wb_pi_agent_dir, 'extensions')
+/** npm 安装参数：与 pi 自己的包安装保持一致（--legacy-peer-deps 避免宿主包被拉副本）。 */
+function installArgs(source: string): string[] {
+  return ['install', source, '--prefix', pluginInstallRoot(), '--legacy-peer-deps', '--no-audit', '--no-fund']
 }
 
-function registryPath(): string {
-  return path.join(paths().wb_pi_agent_dir, 'plugin-registry.json')
+/** 装一个包：npm 落地 → 声明进 settings.json。已装同版本时跳过 npm。 */
+async function installOne(source: string, plugin_name: string, action: string): Promise<void> {
+  failures.delete(plugin_name)
+  const meta = installedMeta(plugin_name)
+  const pinned = source.includes('@', 5) ? source.slice(source.lastIndexOf('@') + 1) : ''
+  if (meta.version && pinned && meta.version === pinned && isInstalled(plugin_name)) {
+    declarePackage(plugin_name, source, true)
+    return
+  }
+  progress(action, 'start', plugin_name, undefined, `正在安装 ${plugin_name}`)
+  const r = await npmRun(installArgs(source), (line) => progress(action, 'line', plugin_name, line))
+  if (r.code !== 0) {
+    const detail = r.stderr.slice(0, 2000) || `npm 退出码 ${r.code}`
+    failures.set(plugin_name, detail)
+    progress(action, 'fail', plugin_name, undefined, detail.slice(0, 400))
+    throw wrapError(CODE_PROVISION, `插件安装失败：${plugin_name}`, new Error(detail))
+  }
+  if (!isInstalled(plugin_name)) {
+    const message = `安装完成但包目录不存在：${plugin_name}`
+    failures.set(plugin_name, message)
+    progress(action, 'fail', plugin_name, undefined, message)
+    throw appError(CODE_PROVISION, message)
+  }
+  declarePackage(plugin_name, source, true)
+  progress(action, 'done', plugin_name, undefined, `${plugin_name}@${installedMeta(plugin_name).version} 就绪`)
+  logInfo(`插件安装完成：${plugin_name}@${installedMeta(plugin_name).version}`)
 }
 
-function loadRegistry(): Registry {
-  return readJson<Registry>(registryPath()) ?? {}
+/** 首启把内置清单声明落进 settings.json（不装包，装包另走后台）。 */
+export function declareBuiltinPlugins(): void {
+  ensureBuiltinDeclared()
 }
 
-function saveRegistry(reg: Registry): void {
-  writeJson(registryPath(), reg)
-}
-
-/** 从 npm 来源推出包名与目录别名：npm:@s/p@1.2 → @s/p + s-p。 */
-function parseSource(source: string): { pkg: string; slug: string } {
-  let raw = source.trim()
-  raw = raw.replace(/^npm:/, '')
-  if (raw.startsWith('git:')) raw = raw.slice(4)
-  const pkg = raw.replace(/@[^@]+$/, '').replace(/\/$/, '') || raw
-  const slug = pkg.replace(/^@/, '').replace(/[^A-Za-z0-9._-]+/g, '-').toLowerCase()
-  return { pkg, slug }
-}
-
-/** 在 <dir>/node_modules 下找包真实目录；作用域包多看一层。 */
-function findPkgDir(dir: string, pkg: string): string | null {
-  const nm = path.join(dir, 'node_modules')
-  const direct = path.join(nm, pkg)
-  if (fs.existsSync(path.join(direct, 'package.json'))) return direct
-  const queue = [nm]
-  while (queue.length > 0) {
-    const cur = queue.shift() as string
-    let names: string[] = []
+/** 首启装内置插件（后台跑，失败留给界面上单个重试）。 */
+export async function provisionBuiltinPlugins(): Promise<{ installed: number; failed: number }> {
+  ensureBuiltinDeclared()
+  const todo = BUILTIN_PLUGINS.filter((item) => !isInstalled(item.plugin_name))
+  if (todo.length === 0) return { installed: 0, failed: 0 }
+  logInfo(`内置插件待安装 ${todo.length} 个`)
+  let installed = 0
+  let failed = 0
+  for (const item of todo) {
     try {
-      names = fs.readdirSync(cur)
+      await installOne(npmSourceOf(item), item.plugin_name, 'plugin-install')
+      installed += 1
     } catch {
-      continue
+      // 单个失败只记失败表，后面逐个重试。
+      failed += 1
     }
-    for (const name of names) {
-      const full = path.join(cur, name)
-      let stat: fs.Stats
-      try {
-        stat = fs.statSync(full)
-      } catch {
-        continue
-      }
-      if (!stat.isDirectory() || name === '.bin') continue
-      if (fs.existsSync(path.join(full, 'package.json'))) {
-        const meta = readJson<{ name?: string }>(path.join(full, 'package.json'))
-        if (meta?.name === pkg) return full
-      } else {
-        queue.push(full)
-      }
-    }
+    broadcast('plugin:status', { plugin_name: item.plugin_name, engine_kind: 'pi' })
   }
-  return null
+  broadcast('plugin:status', { engine_kind: 'pi' })
+  return { installed, failed }
 }
 
-/** 解析扩展入口：优先包内 pi.extensions 清单，其次 main / dist / src 约定。 */
-function resolveEntries(pkg_dir: string): string[] {
-  const meta = readJson<{ pi?: { extensions?: string[] }; main?: string }>(path.join(pkg_dir, 'package.json'))
-  const declared = meta?.pi?.extensions
-  if (declared?.length) {
-    return declared.map((rel) => path.resolve(pkg_dir, rel)).filter((p) => fs.existsSync(p))
-  }
-  const candidates = [meta?.main, 'dist/index.js', 'index.js', 'src/index.ts'].filter(Boolean) as string[]
-  for (const rel of candidates) {
-    const full = path.resolve(pkg_dir, rel)
-    if (fs.existsSync(full)) return [full]
-  }
-  return []
-}
-
-/** 写桥接目录：<extensions>/<slug>/package.json 指向真实入口。 */
-function writeShim(slug: string, entries: string[]): string {
-  const shim = path.join(extensionsDir(), slug)
-  fs.rmSync(shim, { recursive: true, force: true })
-  fs.mkdirSync(shim, { recursive: true })
-  writeJson(path.join(shim, 'package.json'), { name: slug, pi: { extensions: entries } })
-  return shim
-}
-
-function progress(action: string, phase: 'start' | 'line' | 'done' | 'fail', line?: string, message?: string): void {
-  broadcast('app:progress', { kind: 'pi', action, phase, line, message, engine_kind: 'pi' })
-}
-
-/** 装一个插件：npm 安装 → 写桥接 → 记注册表。 */
-export async function pluginInstall(source: string): Promise<{ output: string }> {
-  if (!source.trim()) throw appError(CODE_PROVISION, '插件来源不能为空')
-  if (appBusy('pi')) throw appError(CODE_PROVISION, '已有安装任务在进行')
-  const { pkg, slug } = parseSource(source)
-  const dir = path.join(pluginsRoot(), slug)
-  fs.rmSync(dir, { recursive: true, force: true })
-  fs.mkdirSync(dir, { recursive: true })
-  progress('install', 'start', undefined, `正在安装 ${pkg}`)
+/** 界面上的「全部重试」：占住安装位后把缺的包再跑一遍。 */
+export async function pluginInstallBuiltin(): Promise<{ installed: number; failed: number }> {
+  if (appBusy('pi')) throw appError(CODE_PROVISION, '有安装任务正在进行，稍后再试')
+  beginBusy('pi', 'plugin-install')
   try {
-    const r = await npmRun(['install', '--prefix', dir, source, '--no-audit', '--no-fund'], (line) =>
-      progress('install', 'line', line),
-    )
-    if (r.code !== 0) throw wrapError(CODE_PROVISION, `插件安装失败：${pkg}`, new Error(r.stderr.slice(0, 2000)))
-    const pkg_dir = findPkgDir(dir, pkg)
-    if (!pkg_dir) throw appError(CODE_PROVISION, `安装完成但找不到包目录：${pkg}`)
-    const entries = resolveEntries(pkg_dir)
-    if (entries.length === 0) throw appError(CODE_PROVISION, `包 ${pkg} 不是 pi 扩展（找不到入口）`)
-    const meta = readJson<{ name?: string; version?: string }>(path.join(pkg_dir, 'package.json'))
-    writeShim(slug, entries)
-    const reg = loadRegistry()
-    reg[slug] = {
-      plugin_source: source,
-      plugin_name: meta?.name ?? pkg,
-      plugin_version: meta?.version ?? '',
-      installed_at: Date.now(),
-      enabled: true,
-    }
-    saveRegistry(reg)
-    progress('install', 'done', undefined, `${pkg}@${meta?.version ?? ''} 安装完成`)
-    logInfo(`插件安装完成：${pkg}`)
-    return { output: `${pkg}@${meta?.version ?? ''} 安装完成` }
+    return await provisionBuiltinPlugins()
+  } finally {
+    endBusy()
+  }
+}
+
+/** 装一个来源（用户手动加）：来源串可直接 npm: 前缀。 */
+export async function pluginInstall(source: string): Promise<{ plugin_name: string }> {
+  const raw = source.trim()
+  if (!raw) throw appError(CODE_PROVISION, '插件来源不能为空')
+  if (appBusy('pi')) throw appError(CODE_PROVISION, '有安装任务正在进行，稍后再试')
+  const spec = raw.startsWith('npm:') || raw.startsWith('./') || raw.startsWith('git:') ? raw : `npm:${raw}`
+  const plugin_name = packageNameOf(spec)
+  if (!plugin_name) throw appError(CODE_PROVISION, '无法从来源解析出包名')
+  beginBusy('pi', 'plugin-install')
+  try {
+    await installOne(spec, plugin_name, 'plugin-install')
+  } finally {
+    endBusy()
+    broadcast('plugin:status', { engine_kind: 'pi' })
+  }
+  return { plugin_name }
+}
+
+/** 重试一个内置插件（界面上的单个重试按钮）。 */
+export async function pluginRetry(plugin_name: string): Promise<{ plugin_name: string }> {
+  const item = builtinOf(plugin_name)
+  if (!item) throw appError(CODE_PROVISION, `不是内置插件：${plugin_name}`)
+  if (appBusy('pi')) throw appError(CODE_PROVISION, '有安装任务正在进行，稍后再试')
+  beginBusy('pi', 'plugin-install')
+  try {
+    await installOne(npmSourceOf(item), item.plugin_name, 'plugin-install')
+  } finally {
+    endBusy()
+    broadcast('plugin:status', { engine_kind: 'pi' })
+  }
+  return { plugin_name }
+}
+
+/** 升级：按清单里的 pin 重新装一遍；内置插件回升到内置版本。 */
+export async function pluginUpgrade(plugin_name: string): Promise<{ plugin_name: string }> {
+  if (appBusy('pi')) throw appError(CODE_PROVISION, '有安装任务正在进行，稍后再试')
+  ensureBuiltinDeclared()
+  const builtin = builtinOf(plugin_name)
+  const entry = listPackages().find((e) => packageNameOf(sourceOf(e)) === plugin_name)
+  if (!builtin && !entry) throw appError(CODE_PROVISION, `未找到插件：${plugin_name}`)
+  const spec = builtin ? npmSourceOf(builtin) : sourceOf(entry as string | { source: string })
+  beginBusy('pi', 'plugin-upgrade')
+  try {
+    // 先清目录，让 npm 真正重下该版本而非复用残留。
+    fs.rmSync(installedPathOf(plugin_name), { recursive: true, force: true })
+    await installOne(spec, plugin_name, 'plugin-upgrade')
+  } finally {
+    endBusy()
+    broadcast('plugin:status', { engine_kind: 'pi' })
+  }
+  return { plugin_name }
+}
+
+/** 卸载：撤声明 + 删包目录。内置插件卸载后仍留在清单里（状态回落未安装）。 */
+export async function pluginUninstall(plugin_name: string): Promise<{ plugin_name: string }> {
+  if (appBusy('pi')) throw appError(CODE_PROVISION, '有安装任务正在进行，稍后再试')
+  undeclarePackage(plugin_name)
+  failures.delete(plugin_name)
+  try {
+    fs.rmSync(installedPathOf(plugin_name), { recursive: true, force: true })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    progress('install', 'fail', undefined, message)
-    throw err
+    throw wrapError(CODE_PROVISION, `插件目录删除失败：${plugin_name}`, err)
   }
+  logInfo(`插件已卸载：${plugin_name}`)
+  broadcast('plugin:status', { engine_kind: 'pi' })
+  return { plugin_name }
 }
 
-/** 卸载插件：清目录、清桥接、清注册表。 */
-export async function pluginUninstall(source: string): Promise<{ output: string }> {
-  const reg = loadRegistry()
-  const slug = matchSlug(reg, source)
-  if (!slug) throw appError(CODE_PROVISION, `未找到插件：${source}`)
-  const { pkg } = parseSource(reg[slug].plugin_source)
-  fs.rmSync(path.join(pluginsRoot(), slug), { recursive: true, force: true })
-  fs.rmSync(path.join(extensionsDir(), slug), { recursive: true, force: true })
-  fs.rmSync(path.join(extensionsDir(), `.disabled-${slug}`), { recursive: true, force: true })
-  delete reg[slug]
-  saveRegistry(reg)
-  logInfo(`插件已卸载：${pkg}`)
-  return { output: `${pkg} 已卸载` }
-}
-
-/** 开关：桥接目录改名，pi 自然发现 / 不发现。 */
-export async function pluginToggle(plugin_name: string, enabled: boolean): Promise<{ output: string }> {
-  const reg = loadRegistry()
-  const slug = matchSlug(reg, plugin_name) ?? plugin_name
-  const shim = path.join(extensionsDir(), slug)
-  const hidden = path.join(extensionsDir(), `.disabled-${slug}`)
-  if (enabled && fs.existsSync(hidden)) {
-    fs.renameSync(hidden, shim)
-  } else if (!enabled && fs.existsSync(shim)) {
-    fs.renameSync(shim, hidden)
-  }
-  if (reg[slug]) {
-    reg[slug].enabled = enabled
-    saveRegistry(reg)
+/** 开关：只改 settings.json 的 packages 条目，磁盘不动，秒级生效。 */
+export function pluginToggle(plugin_name: string, enabled: boolean): { plugin_name: string } {
+  // 首次开关前先把内置清单补登：不然未装过 pi 的机器上会拒掉内置项。
+  ensureBuiltinDeclared()
+  if (!setPackageEnabled(plugin_name, enabled)) {
+    throw appError(CODE_PROVISION, `未找到插件声明：${plugin_name}`)
   }
   logInfo(`插件${enabled ? '启用' : '停用'}：${plugin_name}`)
-  return { output: `${plugin_name} 已${enabled ? '启用' : '停用'}` }
+  broadcast('plugin:status', { engine_kind: 'pi' })
+  return { plugin_name }
 }
 
-/** 升级：按注册来源重装一遍。 */
-export async function pluginUpgrade(plugin_source: string): Promise<{ output: string }> {
-  const reg = loadRegistry()
-  const slug = matchSlug(reg, plugin_source)
-  if (!slug) throw appError(CODE_PROVISION, `未找到插件：${plugin_source}`)
-  const spec = reg[slug].plugin_source.replace(/@[^@]+$/, '') || plugin_source
-  await pluginInstall(spec)
-  return { output: `${spec} 已升级` }
-}
-
-function matchSlug(reg: Registry, key: string): string | null {
-  if (reg[key]) return key
-  for (const [slug, rec] of Object.entries(reg)) {
-    if (rec.plugin_name === key || rec.plugin_source === key || slug === parseSource(key).slug) return slug
+/** 包内暴露的资源种类：读 pi 的 manifest，退回惯例目录。 */
+function resourceKindsOf(plugin_name: string): string[] {
+  const dir = installedPathOf(plugin_name)
+  const meta = readJson<{ pi?: Record<string, unknown> }>(path.join(dir, 'package.json'))
+  if (meta?.pi) {
+    return Object.keys(meta.pi).filter((k) => k !== 'image' && k !== 'video')
   }
-  return null
+  const kinds: string[] = []
+  for (const kind of ['extensions', 'skills', 'prompts', 'themes']) {
+    if (fs.existsSync(path.join(dir, kind))) kinds.push(kind)
+  }
+  return kinds.length > 0 ? kinds : ['extensions']
 }
 
-/** 插件清单：注册表 + 磁盘实况合并。 */
+/** 单行状态：优先失败表，其次磁盘实况。 */
+function stateOf(plugin_name: string): PluginState {
+  const error = failures.get(plugin_name)
+  if (isInstalled(plugin_name)) return error ? 'failed' : 'installed'
+  return error ? 'failed' : 'missing'
+}
+
+/** 组装一行。 */
+function buildRow(plugin_name: string, source: string, enabled: boolean): PluginRowVO {
+  const builtin = builtinOf(plugin_name)
+  const meta = installedMeta(source ? plugin_name : '')
+  const installed = isInstalled(plugin_name)
+  return {
+    engine_kind: 'pi',
+    plugin_name,
+    plugin_version: installed ? meta.version : '',
+    plugin_source: source,
+    plugin_path: installed ? installedPathOf(plugin_name) : '',
+    plugin_desc: builtin?.plugin_desc ?? meta.description,
+    resource_kinds: installed ? resourceKindsOf(plugin_name) : [],
+    scope_kind: 'user',
+    enabled: enabled && installed,
+    installed,
+    builtin: builtin !== undefined,
+    plugin_state: stateOf(plugin_name),
+    plugin_error: failures.get(plugin_name),
+    plugin_target_version: builtin?.plugin_version ?? '',
+  }
+}
+
+/**
+ * 插件清单 = 内置清单 ∪ settings 里声明的包。
+ * 内置项先出（顺序稳定），用户自加的按声明顺序跟在后面。
+ * 这里不落盘：只读接口不该改磁盘，声明由首启的 declareBuiltinPlugins 与写操作自己保障。
+ */
 export function pluginList(): PluginListDataVO {
-  const reg = loadRegistry()
+  const entries = listPackages()
   const rows: PluginRowVO[] = []
-  for (const [slug, rec] of Object.entries(reg)) {
-    const shim = path.join(extensionsDir(), slug)
-    const hidden = path.join(extensionsDir(), `.disabled-${slug}`)
-    const pkg_dir = path.join(pluginsRoot(), slug, 'node_modules')
-    const meta = readJson<{ description?: string }>(findPkgJson(pkg_dir, rec.plugin_name) ?? '')
-    rows.push({
-      engine_kind: 'pi',
-      plugin_name: rec.plugin_name,
-      plugin_version: rec.plugin_version,
-      plugin_source: rec.plugin_source,
-      plugin_path: fs.existsSync(shim) || fs.existsSync(hidden) ? shim : '',
-      plugin_desc: meta?.description ?? '',
-      resource_kinds: ['extension'],
-      scope_kind: 'user',
-      enabled: fs.existsSync(shim) && rec.enabled,
-      installed: fs.existsSync(path.join(pluginsRoot(), slug)),
-    })
+  const seen = new Set<string>()
+  for (const item of BUILTIN_PLUGINS) {
+    const idx = indexOfPackage(entries, item.plugin_name)
+    const entry = idx >= 0 ? entries[idx] : npmSourceOf(item)
+    rows.push(buildRow(item.plugin_name, sourceOf(entry as string), entryEnabled(entry as string)))
+    seen.add(item.plugin_name)
   }
-  return { plugins: rows, registry_path: registryPath() }
-}
-
-function findPkgJson(nm: string, pkg: string): string | null {
-  const direct = path.join(nm, ...pkg.split('/'), 'package.json')
-  if (fs.existsSync(direct)) return direct
-  return null
-}
-
-/** 桥接目录里现在真正生效的扩展（自省用）。 */
-export function activeExtensionCount(): number {
-  let count = 0
-  try {
-    count = fs
-      .readdirSync(extensionsDir(), { withFileTypes: true })
-      .filter((d) => d.isDirectory() && !d.name.startsWith('.')).length
-  } catch {
-    count = 0
+  for (const entry of entries) {
+    const source = sourceOf(entry)
+    const plugin_name = packageNameOf(source)
+    if (!plugin_name || seen.has(plugin_name)) continue
+    rows.push(buildRow(plugin_name, source, entryEnabled(entry)))
+    seen.add(plugin_name)
   }
-  return count
+  const builtin_installed = rows.filter((r) => r.builtin && r.installed).length
+  return {
+    plugins: rows,
+    registry_path: piSettingsPath(),
+    install_root: pluginInstallRoot(),
+    builtin_installed,
+    builtin_total: BUILTIN_PLUGINS.length,
+  }
 }
 
-/** 读插件说明文件（面板展示用，读不到给空串）。 */
-export function pluginReadme(slug: string): string {
-  return readText(path.join(pluginsRoot(), slug, 'README.md')) ?? ''
+/** 已启用且已装的插件数（健康面板用）。 */
+export function pluginCount(): number {
+  return pluginList().plugins.filter((p) => p.installed && p.enabled).length
+}
+
+/** 清掉失败表（用户在界面上点了「全部重试」时先调）。 */
+export function pluginClearFailures(): void {
+  failures.clear()
 }

@@ -8,7 +8,10 @@ import { broadcast } from '../sse/hub'
 import {
   bashExe,
   gitExe,
+  gitReady,
+  gitVersion,
   nodeExe,
+  nodeReady,
   nodeVersion,
   npmRun,
   piEntry,
@@ -16,30 +19,48 @@ import {
   piPrefix,
   piVersion,
   pythonExe,
+  pythonReady,
   pythonVersion,
-  gitVersion,
 } from './engine/runtime'
+import { provisionBuiltinPlugins } from './plugin_service'
 import type { AppRowVO } from '../domain/types_core'
 
 const PI_PACKAGE = '@earendil-works/pi-coding-agent'
 
 let busy_kind = ''
+let busy_action = 'install'
 
 /** 是否有安装动作在跑。 */
 export function appBusy(kind?: string): boolean {
   return busy_kind !== '' && (!kind || busy_kind === kind)
 }
 
+/** 占住安装位；调用方必须在 finally 里 endBusy。 */
+export function beginBusy(kind: string, action: string): void {
+  busy_kind = kind
+  busy_action = action
+  broadcast('engine:status')
+}
+
+/** 放开安装位并广播状态。 */
+export function endBusy(): void {
+  busy_kind = ''
+  broadcast('engine:status')
+}
+
+/** 当前忙碌动作（进度载荷用）。 */
+export function appBusyAction(): string {
+  return busy_action
+}
+
 function progress(phase: 'start' | 'line' | 'done' | 'fail', line?: string, message?: string): void {
   broadcast('app:progress', { kind: 'pi', action: busy_action, phase, line, message, engine_kind: 'pi' })
 }
 
-let busy_action = 'install'
-
 /** 应用清单：pi 本体 + 三个内置运行时。 */
 export async function appsList(): Promise<{ apps: AppRowVO[] }> {
   const p = paths()
-  const node_ready = fs.existsSync(nodeExe())
+  const node_ready = nodeReady()
   const pi_ok = piInstalled()
   const rows: AppRowVO[] = []
   rows.push({
@@ -63,19 +84,19 @@ export async function appsList(): Promise<{ apps: AppRowVO[] }> {
     blocker: node_ready ? undefined : '内置 Node.js 尚未就绪',
     busy: appBusy('pi'),
   })
-  const runtimes: [string, string, string, () => Promise<string>, string][] = [
-    ['Node.js', nodeExe(), p.wb_node_dir, nodeVersion, 'agent 运行时与包管理'],
-    ['PortableGit', gitExe(), p.wb_git_dir, gitVersion, 'bash / git 工具链'],
-    ['Python', pythonExe(), p.wb_python_dir, pythonVersion, 'python 脚本运行时'],
+  // 三个运行时的行：未就绪时不拿路径去探测，避免把「没装」读成「版本为空」。
+  const runtimes: [string, boolean, string, string, () => Promise<string>, string][] = [
+    ['Node.js', node_ready, nodeExe(), p.wb_node_dir, nodeVersion, 'agent 运行时与包管理'],
+    ['PortableGit', gitReady(), gitExe(), p.wb_git_dir, gitVersion, 'bash / git 工具链'],
+    ['Python', pythonReady(), pythonExe(), p.wb_python_dir, pythonVersion, 'python 脚本运行时'],
   ]
-  for (const [name, exe, dir, probe, note] of runtimes) {
-    const installed = fs.existsSync(exe.includes('\\') ? exe : '') || fs.existsSync(dir)
+  for (const [name, ready, exe, dir, probe, note] of runtimes) {
     rows.push({
       kind: 'pi',
       app_name: name,
-      installed,
-      version: installed ? await probe() : '',
-      exe: installed ? exe : '',
+      installed: ready,
+      version: ready ? await probe() : '',
+      exe: ready ? exe : '',
       source: 'builtin',
       channel: 'wb-installer',
       channel_label: '内置运行时',
@@ -97,13 +118,11 @@ export async function appsList(): Promise<{ apps: AppRowVO[] }> {
 
 /** 安装或升级 pi：用内置 npm 拉最新版，逐行广播进度。 */
 export async function appInstall(_engine: string): Promise<{ apps: AppRowVO[] }> {
-  if (!fs.existsSync(nodeExe())) {
+  if (!nodeReady()) {
     throw appError(CODE_RUNTIME_UNPACK, '内置 Node.js 尚未就绪，稍等片刻再试')
   }
   if (appBusy('pi')) throw appError(CODE_PROVISION, '已有安装任务在进行')
-  busy_kind = 'pi'
-  busy_action = 'install'
-  broadcast('engine:status')
+  beginBusy('pi', 'install')
   try {
     progress('start', undefined, '正在安装 pi coding agent')
     const args = ['install', '--prefix', piPrefix(), `${PI_PACKAGE}@latest`, '--no-audit', '--no-fund']
@@ -114,9 +133,11 @@ export async function appInstall(_engine: string): Promise<{ apps: AppRowVO[] }>
     }
     progress('done', undefined, `pi ${piVersion()} 安装完成`)
     logInfo(`pi 安装完成：${piVersion()}`)
+    // 装完 pi 立刻把内置插件补上：用户不需要再跑一次「安装插件」。
+    const plugin_result = await provisionBuiltinPlugins()
+    progress('done', undefined, `内置插件就绪 ${plugin_result.installed} 个`)
   } finally {
-    busy_kind = ''
-    broadcast('engine:status')
+    endBusy()
     broadcast('engine:ready')
   }
   return appsList()
@@ -124,9 +145,8 @@ export async function appInstall(_engine: string): Promise<{ apps: AppRowVO[] }>
 
 /** 卸载 pi。 */
 export async function appUninstall(_engine: string): Promise<{ apps: AppRowVO[] }> {
-  if (appBusy('pi')) throw appError(CODE_PROVISION, '已有安装任务在进行')
-  busy_kind = 'pi'
-  busy_action = 'uninstall'
+  if (appBusy('pi')) throw appError(CODE_PROVISION, '有安装任务正在进行')
+  beginBusy('pi', 'uninstall')
   try {
     progress('start', undefined, '正在卸载 pi')
     await npmRun(['uninstall', '--prefix', piPrefix(), PI_PACKAGE, '--no-audit', '--no-fund'], (line) =>
@@ -136,8 +156,7 @@ export async function appUninstall(_engine: string): Promise<{ apps: AppRowVO[] 
     progress('done', undefined, 'pi 已卸载')
     logInfo('pi 已卸载')
   } finally {
-    busy_kind = ''
-    broadcast('engine:status')
+    endBusy()
   }
   return appsList()
 }

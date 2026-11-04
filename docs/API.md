@@ -89,16 +89,22 @@
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/skills` | GET | 内置（managed）+ 项目（project）技能清单 |
+| `/skills` | GET | 内置（builtin / bundled）+ 自建（managed）+ 项目（project）；带 `builtin_total` / `builtin_installed` 进度 |
 | `/skills/content` / `save` | GET/POST | 读写 SKILL.md（路径白名单校验） |
 | `/skills/toggle` | POST | `{ path, enabled }`；实现是目录搬进/搬出禁用区 |
+| `/skills/reset` | POST | `{ path }`；内置技能用随包原件覆盖本地改动 |
 | `/skills/create` / `delete` / `copy` | POST | 新建托管技能 / 删除 / 项目技能抄进托管区 |
-| `/plugins` | GET | 注册表 + 磁盘实况合并的插件清单 |
-| `/plugins/install` / `upgrade` | POST | `{ source }` npm 来源（`npm:@scope/pkg@ver`）；进度走 `app:progress` |
-| `/plugins/uninstall` | POST | 清安装目录 + 桥接 + 注册表 |
-| `/plugins/toggle` | POST | `{ plugin_name, enabled }`；桥接目录改名实现 |
+| `/plugins` | GET | 内置清单 ∪ `settings.json` 的 `packages` 声明；带安装进度与失败原因 |
+| `/plugins/install` | POST | `{ source }` 缺 `npm:` 前缀自动补；经内置 npm 装进沙箱 |
+| `/plugins/retry` / `retry-all` | POST | 单个 / 全部重试内置插件安装 |
+| `/plugins/uninstall` | POST | `{ plugin_name }`；撤声明 + 删包目录 |
+| `/plugins/toggle` | POST | `{ plugin_name, enabled }`；只改 `packages` 条目（`autoload:false` = 停用） |
+| `/plugins/upgrade` | POST | `{ plugin_name }`；按清单 pin 重装 |
 | `/mcp` | GET | `?live=1`（当前不做连通探测，恒 `live_checked:false`） |
 | `/mcp/save` / `toggle` / `remove` / `copy` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv，`env_list` 逐行 `KEY=VALUE` |
+
+**插件身份是包名不是来源串**：`pi:<name>@<ver>` 里的版本会变，包名不会。
+启停写对象形态 `{ source, autoload: false }`，启用写回裸来源串——这是 pi 自己的表达法。
 
 ## 文件 / Git / 系统
 
@@ -138,6 +144,8 @@
 | `chat:gap` | — | 前端检测到丢帧，触发对账 |
 | `engine:status` / `ready` / `exit` / `detected` | — | 引擎状态变化 |
 | `engine:commands` | `commands[]` | 斜杠命令清单更新 |
-| `app:progress` | `kind, action, phase('start'/'line'/'done'/'fail'), line?, message?` | 安装 / 解压进度 |
+| `app:progress` | `kind, action, phase('start'/'line'/'done'/'fail'), plugin_name?, line?, message?` | 安装 / 解压 / 插件进度 |
+| `plugin:status` | `plugin_name?` | 插件安装态变化（无字段 = 整体刷新） |
+| `skill:status` | `skill_dir, enabled?/reset?/deleted?/copied?` | 技能落位与开关变化 |
 | `session:info` / `session:title` | — | 会话清单变化 / 标题变化 |
 | `workspace:changed` | `workspace` | 工作区切换 |

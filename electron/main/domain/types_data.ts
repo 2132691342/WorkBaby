@@ -119,43 +119,88 @@ export interface LoginProviderVO {
 
 // ---- 技能 ----
 
+/** 技能来源：内置清单 / 随包附带 / 用户自建 / 工作区项目。 */
+export type SkillSourceKind = 'builtin' | 'bundled' | 'managed' | 'project'
+
 /** 技能行。 */
 export interface SkillRowVO {
   name: string
   description: string
   path: string
   dir: string
-  source: 'project' | 'user' | 'managed' | 'plugin'
+  source: SkillSourceKind
   globs?: string[]
   always_apply?: boolean
   hidden?: boolean
   enabled: boolean
   editable: boolean
   kind: string
+  /** 内置清单里的分类标签；非内置为空串 */
+  skill_group: string
+  /** 需要的外部程序；不依赖为空串 */
+  skill_requires: string
+  /** 本地副本与随包原件不一致（说明被改过） */
+  skill_modified: boolean
+}
+
+/** 技能清单。 */
+export interface SkillListDataVO {
+  skills: SkillRowVO[]
+  /** 内置清单总数 */
+  builtin_total: number
+  /** 内置清单里已落位的个数 */
+  builtin_installed: number
 }
 
 // ---- 插件 ----
 
-/** 插件行。 */
+/** 插件安装态：内置清单里登记了，但包目录可能还没装上。 */
+export type PluginState = 'installed' | 'pending' | 'failed' | 'missing'
+
+/** 插件行：内置清单项与用户自加项共用一套形状。 */
 export interface PluginRowVO {
   engine_kind: 'omp' | 'pi'
+  /** npm 包名 */
   plugin_name: string
+  /** 已装版本；未装为空串 */
   plugin_version: string
+  /** pi 的 packages 来源写法：npm:<name>@<version> */
   plugin_source: string
+  /** 包目录绝对路径；未装为空串 */
   plugin_path: string
+  /** 一句话说明 */
   plugin_desc?: string
+  /** 包内暴露的资源种类 */
   resource_kinds: string[]
   scope_kind: string
+  /** 是否在 pi 的 settings.json packages 里启用 */
   enabled: boolean
   installed: boolean
+  /** 是否随壳分发的内置插件 */
+  builtin: boolean
+  /** 安装态 */
+  plugin_state: PluginState
+  /** 失败原因（可重试） */
+  plugin_error?: string
+  /** 清单里 pin 的版本；跟随 latest 为空串 */
+  plugin_target_version: string
 }
 
 /** 插件清单。 */
 export interface PluginListDataVO {
   plugins: PluginRowVO[]
+  /** pi 的 settings.json 路径（packages 声明落点） */
   registry_path: string
+  /** 插件安装根目录（agentDir/npm） */
+  install_root: string
+  /** 内置清单整体安装进度：已装 / 总数 */
+  builtin_installed: number
+  builtin_total: number
   read_error?: string
 }
+
+/** 插件页可筛选的清单种类。 */
+export type PluginKindFilter = 'all' | 'builtin' | 'custom'
 
 // ---- MCP ----
 

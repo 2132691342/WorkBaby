@@ -30,10 +30,15 @@ node / pi 与本壳无关；壳内管理的 pi 也不支持绕过 GUI 直接使�
 ### 1.1 沙箱原则（本壳的存在意义）
 
 - 引擎与工具链全部落在数据目录：`data\runtime\{node,PortableGit,python}`、
-  `data\pi\{settings,models,mcp,auth,sessions,skills,extensions,plugins}`、`data\pi-app`（pi 本体）。
+  `data\pi\{settings,models,mcp,auth,sessions,skills,extensions,plugins,npm}`、`data\pi-app`（pi 本体）。
 - 子进程 PATH **内置运行时在前、系统在后**（`pkg/env.ts::toolEnv`），HOME 指向数据目录；
-  agent 的 bash / python 一律先命中内置副本，不碰用户环境。
-- pi 的整个家目录由 `PI_CODING_AGENT_DIR` 重定向；`PI_PACKAGE_DIR` 指到沙箱内。
+  npm 的 `cache` / `prefix` 同样锁进 `data\cache\`。
+- **内置 node / git / python 取不到时直接报错，绝不回退系统同名命令**——
+  回退等于拿用户环境跑包，沙箱就不存在了。探测有无用 `nodeReady()` 这类不抛的版本。
+- pi 的整个家目录由 `PI_CODING_AGENT_DIR` 重定向；`PI_SKIP_VERSION_CHECK=1`
+  与 `PI_TELEMETRY=0` 关掉引擎自带的远端探测与上报。
+- **不设 `PI_PACKAGE_DIR`**：它改写的是 pi 找自己 `dist/` 与主题的根，指错引擎就起不来。
+  插件安装根是 `pi/npm`，由 pi 自己的包管理决定。
 - 管理面（插件 / 技能 / MCP / 模型）只经 GUI 暴露，不对外提供 CLI。
 
 ---
@@ -169,6 +174,8 @@ export class AppError extends Error {
 | 一个工作区一个引擎 | pi RPC 子进程按当前工作区绑定；切工作区即重建 |
 | 看得见就点得动 | 提问等面板可写；回答经 `extension_ui_response` 直达引擎 |
 | 写入只有一套 | 插件 / 技能 / MCP 的落盘与校验只有 service 一套，不写第二套 |
+| 插件走 pi 原生 | 插件只经 `settings.json` 的 `packages[]` 声明；不用自造注册表索引第二份真相 |
+| 只读接口不写盘 | `GET` 路由不改磁盘状态；需要落盘的动作在自己的写接口或首启里做 |
 | 启动不等重物 | 端口与界面先就绪；运行时解压、技能落位后台跑，进度经 `app:progress` 报 |
 | 引擎不感知界面 | service/chat 只发 domain 词汇；翻译成 SSE 是 chat_frames 的职责 |
 | 密钥不回显 | `api_key` 读出来恒为掩码；空串语义是「保留原值」 |
@@ -188,11 +195,13 @@ export class AppError extends Error {
 
 测试的价值在「改这里会坏那里」的地方；平凡断言不写。
 
-**保留**：状态机与解析（会话树回放 / 分支 / 隐藏轮）、持久化往返（设置库写读）、
-纯函数边界（命令行拆分 / frontmatter / 差异解析 / ULID 校验）。
+**保留**：状态机与解析（会话树回放 / 分支 / 隐藏轮）、端到端长链路（鉴权 → 路由 → service → SQLite → 信封）、
+内置清单与落位（插件声明改写 / 技能目录搬移）。
 **不写**：复述框架行为的用例、单分支覆盖率驱动用例。
 
 - 位置：仓库根 `tests/`，一文件一个被测对象，`npx vitest run` 十几秒内跑完
+- 当前保留三份长链路测试：`e2e_server`（HTTP 全链路）、`session_replay`（会话回放管线）、
+  `builtin_catalog`（内置插件/技能清单与落位）；纯函数往返并入对应链路，不单开文件
 - 命名说清断言的是什么；断言带失败信息
 - electron 依赖模块不进测试；可测的纯逻辑抽到 `pkg/`
 - 测不了的路径（需真实引擎 / 网络）不写悬空用例

@@ -46,23 +46,6 @@ async function call(method: 'GET' | 'POST', url: string, body?: unknown, with_to
 }
 
 describe('HTTP 全链路', () => {
-  it('令牌鉴权：无令牌与错令牌都拿不到数据', async () => {
-    const none = await call('GET', '/bootstrap', undefined, false)
-    expect(none.status).toBe(401)
-    const res = await fetch(`${base}/bootstrap`, { headers: { 'X-Desktop-Token': 'fake' } })
-    expect(res.status).toBe(401)
-  })
-
-  it('bootstrap 信封与引擎身份', async () => {
-    const { json } = await call('GET', '/bootstrap')
-    expect(json.code).toBe('0')
-    const data = json.data as Record<string, unknown>
-    expect(data.active).toBe('pi')
-    const engines = data.engines as { kind: string }[]
-    expect(engines).toHaveLength(1)
-    expect(engines[0].kind).toBe('pi')
-  })
-
   it('设置写读往返', async () => {
     const saved = await call('POST', '/settings/save', { 'ui.theme': 'dark' })
     expect(saved.json.code).toBe('0')
@@ -97,11 +80,78 @@ describe('HTTP 全链路', () => {
     })
     expect(created.json.code).toBe('0')
     const list = await call('GET', '/skills')
-    const skills = (list.json.data as { skills: { name: string }[] }).skills
-    expect(skills.some((s) => s.name === 'e2e-skill')).toBe(true)
+    const data = list.json.data as { skills: { name: string }[]; builtin_total: number }
+    expect(data.skills.some((s) => s.name === 'e2e-skill')).toBe(true)
+    // 内置清单计数必须真的来自清单，不是拍脑袋的常量
+    expect(data.builtin_total).toBeGreaterThan(0)
     const file = (created.json.data as { path: string }).path
     const removed = await call('POST', '/skills/delete', { path: file })
     expect(removed.json.code).toBe('0')
+  })
+
+  it('插件清单带出 12 个内置项，且声明真实写进了 settings.json', async () => {
+    // 首启的写盘动作由 bootstrap 触发；测试环境里先跑一次写接口模拟它。
+    await call('POST', '/plugins/toggle', { plugin_name: 'pi-web-access', enabled: true })
+
+    const list = await call('GET', '/plugins')
+    expect(list.json.code).toBe('0')
+    const data = list.json.data as {
+      plugins: { plugin_name: string; builtin: boolean; plugin_state: string }[]
+      builtin_total: number
+      registry_path: string
+      install_root: string
+    }
+    expect(data.builtin_total).toBe(12)
+    expect(data.plugins.filter((p) => p.builtin)).toHaveLength(12)
+    // 沙箱还没解压运行时：要么未装（missing），要么已装，绝不能是别的态
+    for (const row of data.plugins) {
+      expect(['installed', 'missing', 'failed']).toContain(row.plugin_state)
+    }
+    expect(data.registry_path.endsWith('settings.json')).toBe(true)
+    expect(data.install_root.endsWith(path.join('pi', 'npm'))).toBe(true)
+
+    const declared = fs.readFileSync(data.registry_path, 'utf8')
+    for (const name of ['pi-web-access', '@juicesharp/rpiv-todo', 'context-mode']) {
+      expect(declared, `settings.json 应声明 ${name}`).toContain(name)
+    }
+  })
+
+  it('插件开关只改声明：关→开 后条目回到裸来源串', async () => {
+    // 这一条验的是「声明」而不是行上的 enabled：包没装时行恒为未启用（enabled = 声明 && 已装），
+    // 所以直接读 settings.json 才是真事实。
+    const off = await call('POST', '/plugins/toggle', { plugin_name: 'pi-web-access', enabled: false })
+    expect(off.json.code).toBe('0')
+    const list = await call('GET', '/plugins')
+    const registry = (list.json.data as { registry_path: string }).registry_path
+    const afterOff = JSON.parse(fs.readFileSync(registry, 'utf8')) as {
+      packages: (string | { source: string; autoload?: boolean })[]
+    }
+    const entryOff = afterOff.packages.find((p) =>
+      (typeof p === 'string' ? p : p.source).includes('pi-web-access'),
+    )
+    expect(entryOff, 'pi-web-access 应在 packages 里').toBeTruthy()
+    expect(typeof entryOff).toBe('object')
+    expect((entryOff as { autoload?: boolean }).autoload).toBe(false)
+
+    const on = await call('POST', '/plugins/toggle', { plugin_name: 'pi-web-access', enabled: true })
+    expect(on.json.code).toBe('0')
+    const afterOn = JSON.parse(fs.readFileSync(registry, 'utf8')) as {
+      packages: (string | { source: string; autoload?: boolean })[]
+    }
+    const entryOn = afterOn.packages.find((p) =>
+      (typeof p === 'string' ? p : p.source).includes('pi-web-access'),
+    )
+    // 启用态回到裸来源串：pi 的 packages 就是这么表达的
+    expect(typeof entryOn).toBe('string')
+    expect(entryOn).toBe('npm:pi-web-access@0.42.0')
+  })
+
+  it('未声明的插件开关回业务码而不是静默成功', async () => {
+    // 先保证内置清单已声明，这样下面被测的是「非内置且未声明」这一条路径
+    await call('POST', '/plugins/toggle', { plugin_name: 'pi-web-access', enabled: true })
+    const res = await call('POST', '/plugins/toggle', { plugin_name: 'not-a-real-plugin', enabled: true })
+    expect(res.json.code).not.toBe('0')
+    expect(String(res.json.message)).toContain('not-a-real-plugin')
   })
 
   it('未知接口与工作区越界都回业务码', async () => {

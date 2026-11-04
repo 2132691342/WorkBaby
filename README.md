@@ -10,10 +10,11 @@ Windows 桌面单机 AI 助手：Electron 壳 + 内嵌 HTTP 服务 + pi 引擎�
   首次启动后台解压到 `%LOCALAPPDATA%\WorkBaby`；用户没装 node、Git、Python 也能跑。
 - **pi 由壳全权管理**：pi 编码智能体经内置 npm 装进沙箱（「应用」页一键安装 / 升级 / 卸载），
   以 RPC 模式常驻子进程，会话、模型、思考等级、压缩全部由 GUI 驱动。
-- **插件生态兼容**：pi 的扩展包（联网访问、待办、提问、记忆、LSP、计划评审、目标追踪等）
-  经内置 npm 安装到沙箱，可启停 / 升级 / 卸载；扩展对 pi 透明生效。
-- **技能随包分发**：内置技能包首启落位沙箱，可开关 / 编辑 / 新建 / 删除；
-  工作区里的项目技能（`.pi/skills`）同样可见可复制。
+- **插件生态兼容**：内置 12 个 pi 扩展包（联网访问、待办、提问、记忆、上下文模式、模糊搜索、LSP、
+  计划评审、目标追踪、工具装载、自省、上下文用量）首启由内置 npm 自动装进沙箱；
+  插件走 pi 原生的 `settings.json` → `packages` 机制，可启停 / 升级 / 卸载 / 单个重试。
+- **技能随包分发**：内置 22 个策展技能包首启落位沙箱，按分组展示、可开关 / 编辑 / 重置 / 新建 / 删除；
+  带外部依赖的技能在界面上点明需要什么（如 `gh` CLI、.NET SDK）。
 - **MCP 配置面**：stdio / HTTP 服务增删改查与开关，落在 pi 的 `mcp.json`（用户级 +
   工作区项目级），pi 自动加载。
 - **对话即工作**：流式输出、思考折叠、工具卡片（含差异视图）、插话 / 排队 / 停止、
@@ -30,18 +31,20 @@ Windows 桌面单机 AI 助手：Electron 壳 + 内嵌 HTTP 服务 + pi 引擎�
 ```
 %LOCALAPPDATA%\WorkBaby\
 ├── workbaby.db            # 设置 KV、开关台账
+├── cache\npm\             # npm 缓存与全局前缀（锁在沙箱）
 ├── logs\                  # 按天滚动日志
 ├── runtime\               # 内置 node / PortableGit / python（首启解压）
 ├── pi-app\                # pi 本体（内置 npm --prefix 安装）
 └── pi\                    # PI_CODING_AGENT_DIR（pi 的家）
-    ├── settings.json / models.json / mcp.json / auth.json
+    ├── settings.json      # 模型 + packages 声明 + npmCommand
+    ├── models.json / mcp.json / auth.json
+    ├── npm\               # 插件安装根
     ├── sessions\          # 会话 JSONL（按工作区编码分目录）
-    ├── skills\            # 内置 + 新建技能（skills_disabled 为停用区）
-    ├── extensions\        # 插件桥接目录（.disabled-* 为停用区）
-    └── plugins\           # 插件实际安装目录（npm 产物）
+    └── skills\ skills_disabled\   # 技能与停用区
 ```
 
 子进程 PATH 内置运行时在前、系统在后；agent 的 bash / python 一律先命中内置副本。
+**内置运行时缺失时直接报错，绝不回退系统同名命令**——沙箱的意义就在这里。
 
 ## 开发
 

@@ -17,8 +17,8 @@ import type { EngineKind, SkillMatrixRow, SkillRow } from '@/types/api'
 
 type SkillSource = SkillRow['source']
 
-// 分组顺序与引擎的加载优先级一致：工作区 → 用户 → 托管 → 插件
-const SOURCES: SkillSource[] = ['project', 'user', 'managed', 'plugin']
+// 分组顺序：内置清单 → 随包附带 → 用户自建 → 工作区项目
+const SOURCES: SkillSource[] = ['builtin', 'bundled', 'managed', 'project']
 
 const { t } = useI18n()
 const toasts = useToasts()
@@ -32,7 +32,11 @@ const loading = ref(false)
 const filter = ref('')
 const toggling = ref('')
 const deleting = ref('')
+/** 正在拷进托管区的那一条。 */
 const copying = ref('')
+const resetting = ref('')
+const builtinTotal = ref(0)
+const builtinInstalled = ref(0)
 
 const contentOpen = ref(false)
 const contentRow = ref<SkillRow | null>(null)
@@ -56,21 +60,15 @@ const matrix = computed<SkillMatrixRow[]>(() => {
     if (!entry.description) entry.description = row.description
     entry.cells[row.kind] = row
   }
-  // 分组取两格里优先级最高的来源（SOURCES 顺序即优先级：工作区最前）
+  // 分组取两格里优先级最高的来源（SOURCES 顺序即优先级：内置最前）
   const out = [...map.values()]
   for (const row of out) {
     const sources = Object.values(row.cells).map((c) => c!.source)
-    row.group_source = SOURCES.find((s) => sources.includes(s)) ?? 'user'
+    row.group_source = SOURCES.find((s) => sources.includes(s)) ?? 'managed'
     if (!row.description) row.description = Object.values(row.cells).find((c) => c!.description)?.description ?? ''
   }
   return out.sort((a, b) => a.name.localeCompare(b.name))
 })
-
-/** 每个引擎的启停能力：omp 认 caps.skill_toggle，pi 恒有（disable-model-invocation）。 */
-const toggleable = computed<Partial<Record<EngineKind, boolean>>>(() => ({
-  omp: Boolean(app.capsOf('omp')?.skill_toggle),
-  pi: true,
-}))
 
 const filtered = computed(() => {
   const query = filter.value.trim().toLowerCase()
@@ -80,6 +78,10 @@ const filtered = computed(() => {
   )
 })
 
+/** 内置清单落位百分比。 */
+const builtinPercent = computed(() =>
+  builtinTotal.value === 0 ? 0 : Math.round((builtinInstalled.value / builtinTotal.value) * 100),
+)
 // 空分组不渲染：四个来源里通常只有两个有内容，空标题只是噪音
 const groups = computed(() =>
   SOURCES.map((source) => ({ source, rows: filtered.value.filter((row) => row.group_source === source) })).filter(
@@ -92,6 +94,8 @@ async function load() {
   try {
     const data = await api.skills(undefined)
     rows.value = data.skills ?? []
+    builtinTotal.value = data.builtin_total ?? 0
+    builtinInstalled.value = data.builtin_installed ?? 0
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
@@ -102,9 +106,9 @@ async function load() {
 async function toggle(cell: SkillRow, enabled: boolean) {
   const before = cell.enabled
   cell.enabled = enabled
-  toggling.value = `${cell.kind}:${cell.name}`
+  toggling.value = cell.name
   try {
-    await api.toggleSkill(cell.path, enabled, cell.kind)
+    await api.toggleSkill(cell.path, enabled, 'pi')
   } catch (err) {
     cell.enabled = before
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -113,14 +117,14 @@ async function toggle(cell: SkillRow, enabled: boolean) {
   }
 }
 
-/** 缺格补装：把另一边的用户级技能复制过来。 */
-async function copyTo(row: SkillMatrixRow, target: EngineKind) {
-  const src = Object.values(row.cells).find((c) => c?.editable && c.source === 'user')
+/** 缺格补装：把工作区里的技能抄进托管区。 */
+async function copyTo(row: SkillMatrixRow) {
+  const src = Object.values(row.cells).find((c) => c?.editable && c.source === 'project')
   if (!src) return
-  copying.value = `${row.name}:${target}`
+  copying.value = row.name
   try {
-    await api.skillCopyTo(src.path, target)
-    toasts.push('ok', t('skills.copied', { engine: target }))
+    await api.skillCopyTo(src.path, 'pi')
+    toasts.push('ok', t('skills.copied'))
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -191,6 +195,31 @@ async function remove(row: SkillMatrixRow) {
   }
 }
 
+/** 内置技能重置回随包原件（用户改坏了时的恢复口）。 */
+async function reset(row: SkillMatrixRow) {
+  const cell = row.cells.pi ?? row.cells.omp
+  if (!cell || !cell.skill_modified) return
+  try {
+    await ElMessageBox.confirm(t('skills.resetConfirm', { name: row.name }), t('skills.resetTitle'), {
+      confirmButtonText: t('skills.reset'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  resetting.value = cell.path
+  try {
+    await api.resetSkill(cell.path, 'pi')
+    toasts.push('ok', t('skills.resetDone'))
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    resetting.value = ''
+  }
+}
+
 function openCreate() {
   createOpen.value = true
 }
@@ -246,6 +275,16 @@ onMounted(load)
     </header>
 
     <div class="page-body">
+      <!-- 内置清单进度：首启落位期间给进度条，落完就隐去 -->
+      <section v-if="builtinInstalled < builtinTotal" class="wb-card card-pad progress-card">
+        <div class="progress-head">
+          <span class="progress-title">{{ t('skills.builtinProgress', { done: builtinInstalled, total: builtinTotal }) }}</span>
+          <span class="wb-mono progress-pct">{{ builtinPercent }}%</span>
+        </div>
+        <div class="bar"><i :style="{ width: `${builtinPercent}%` }" /></div>
+        <p class="hint">{{ t('skills.builtinProgressHint') }}</p>
+      </section>
+
       <div class="filter-row">
         <input v-model="filter" class="wb-input" :placeholder="t('common.searchPlaceholder')" />
       </div>
@@ -270,15 +309,14 @@ onMounted(load)
               v-for="row in group.rows"
               :key="row.name"
               :row="row"
-              :toggleable="toggleable"
-              :installed="installedKinds"
               :toggling="toggling"
               :deleting="deleting"
-              :copying="copying"
-              @toggle="toggle"
-              @view="openContent"
-              @remove="remove"
-              @copy="copyTo"
+              :resetting="resetting"
+              @toggle="(enabled: boolean) => row.cells.pi && toggle(row.cells.pi, enabled)"
+              @view="openContent(row)"
+              @remove="remove(row)"
+              @reset="reset(row)"
+              @copy="copyTo(row)"
             />
           </div>
         </section>
@@ -378,6 +416,50 @@ onMounted(load)
   font-size: var(--wb-fs-2xs);
   color: var(--wb-mute);
   text-align: center;
+}
+
+.progress-card {
+  max-width: 720px;
+}
+
+.progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--wb-sp-2);
+}
+
+.progress-title {
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink);
+}
+
+.progress-pct {
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+}
+
+.bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--wb-elev-hover);
+  overflow: hidden;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--wb-brand-1);
+  transition: width var(--wb-dur-slow) var(--wb-ease);
+}
+
+.hint {
+  margin: var(--wb-sp-2) 0 0;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-faint);
+  line-height: var(--wb-lh-base);
 }
 
 /* 抽屉与新建弹窗的样式随 SkillDrawer / SkillCreateDialog 搬走了 */

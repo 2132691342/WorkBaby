@@ -325,12 +325,43 @@ export const useAppStore = defineStore('app', () => {
         pendingLink.value = link
       },
       toast: (level, message) => toasts.push(level, message),
+      onStatusFrame: (kind, data) => dispatchStatus(kind, data),
+      onProgressFrame: (data) => dispatchProgress(data),
     })
   }
 
+  /** 应用安装进度帧的订阅表（插件页画逐行 npm 输出用）。 */
+  const progressHandlers = new Set<(data: Record<string, unknown>) => void>()
+
+  /** 订阅安装进度帧；返回退订函数。 */
+  function onProgress(handler: (data: Record<string, unknown>) => void): () => void {
+    progressHandlers.add(handler)
+    return () => progressHandlers.delete(handler)
+  }
+
+  /** 广播一帧安装进度给已登记的面板。 */
+  function dispatchProgress(data: Record<string, unknown>): void {
+    for (const handler of [...progressHandlers]) handler(data)
+  }
+
+  /**
+   * 资源页订阅表：插件页与技能页在挂载时登记刷新函数。
+   * 寄存器放在 store 里，因为 SSE 只有一条——页面各自新建 EventSource 会拿到重复帧。
+   */
+  const statusHandlers = new Set<(kind: 'plugin' | 'skill', data: Record<string, unknown>) => void>()
+
+  /** 订阅资源状态帧；返回退订函数。 */
+  function onStatus(handler: (kind: 'plugin' | 'skill', data: Record<string, unknown>) => void): () => void {
+    statusHandlers.add(handler)
+    return () => statusHandlers.delete(handler)
+  }
+
+  function dispatchStatus(kind: 'plugin' | 'skill', data: Record<string, unknown>): void {
+    for (const handler of [...statusHandlers]) handler(kind, data)
+  }
+
   // 跳到设置页（缺引擎时「去设置」这类动作的目标）。
-  function openSettings() {
-    window.location.hash = '#/settings'
+  function openSettings() {    window.location.hash = '#/settings'
   }
 
   // 跳到应用页（装 / 升级引擎）。对话页的缺引擎横幅直接指向这里。
@@ -382,6 +413,8 @@ export const useAppStore = defineStore('app', () => {
     openSettings,
     openApps,
     disconnect,
+    onStatus,
+    onProgress,
   }
 })
 

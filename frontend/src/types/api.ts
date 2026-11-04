@@ -603,13 +603,27 @@ export interface SkillRow {
   description: string
   path: string
   dir: string
-  source: 'project' | 'user' | 'managed' | 'plugin'
+  /** 内置清单 / 随包附带 / 用户自建 / 工作区项目 */
+  source: 'builtin' | 'bundled' | 'managed' | 'project'
   globs?: string[]
   always_apply?: boolean
   hidden?: boolean
   enabled: boolean
   editable: boolean
   kind: EngineKind
+  /** 内置清单里的分类标签；非内置为空串 */
+  skill_group: string
+  /** 需要的外部程序；不依赖为空串 */
+  skill_requires: string
+  /** 本地副本与随包原件不一致 */
+  skill_modified: boolean
+}
+
+/** 技能清单：带内置进度，界面顶部用进度条表达首启落位 */
+export interface SkillListData {
+  skills: SkillRow[]
+  builtin_total: number
+  builtin_installed: number
 }
 
 /** 矩阵行：一个技能（按名合并两引擎的扫描结果），cells 是每个引擎那份的原文 */
@@ -621,11 +635,15 @@ export interface SkillMatrixRow {
   cells: Partial<Record<EngineKind, SkillRow>>
 }
 
+/** 插件安装态 */
+export type PluginState = 'installed' | 'pending' | 'failed' | 'missing'
+
 /** 一条已装插件。清单来自引擎自己的登记文件，不是扫 node_modules 的结果。 */
 export interface PluginRow {
   engine_kind: string
   plugin_name: string
   plugin_version: string
+  /** pi 的 packages 来源写法：npm:<name>@<version> */
   plugin_source: string
   plugin_path: string
   plugin_desc?: string
@@ -634,11 +652,21 @@ export interface PluginRow {
   enabled: boolean
   /** 包目录是否真的存在：清单里登记了但目录被删掉时是 false */
   installed: boolean
+  /** 是否随壳分发的内置插件 */
+  builtin: boolean
+  plugin_state: PluginState
+  /** 失败原因（可重试） */
+  plugin_error?: string
+  /** 清单里 pin 的版本；跟随 latest 为空串 */
+  plugin_target_version: string
 }
 
 export interface PluginListData {
   plugins: PluginRow[]
   registry_path: string
+  install_root: string
+  builtin_installed: number
+  builtin_total: number
   read_error?: string
 }
 

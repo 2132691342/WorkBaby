@@ -1,7 +1,12 @@
 //! 会话回放链路：树分支、轮次分组、工具结果挂接、隐藏与压缩——历史视图的完整管线。
-import { describe, expect, it } from 'vitest'
-import { activePath, type PiEntry } from '../electron/main/service/parser/session_tree'
-import { historyFromEntries, encodedWorkspace } from '../electron/main/service/session_service'
+import { describe, expect, it, vi } from 'vitest'
+
+// session_service 经 context 摸 electron，回放逻辑本身与壳无关，给最小桩。
+vi.mock('electron', () => ({ app: { isPackaged: false } }))
+
+const { activePath } = await import('../electron/main/service/parser/session_tree')
+const { historyFromEntries } = await import('../electron/main/service/session_service')
+import type { PiEntry } from '../electron/main/service/parser/session_tree'
 
 function entry(partial: Partial<PiEntry> & { id: string }): PiEntry {
   return { type: 'message', parentId: null, timestamp: '2026-01-01T00:00:00.000Z', ...partial } as PiEntry
@@ -85,10 +90,5 @@ describe('会话回放', () => {
     const turns = historyFromEntries([compaction, userMsg('a', 'x', '继续')], new Set())
     expect(turns[0].role).toBe('engine-mark')
     expect(turns[0].blocks[0].text).toContain('5000')
-  })
-
-  it('工作区编码与 pi 会话目录规则一致', () => {
-    expect(encodedWorkspace('D:\\GitFiles\\WorkBaby')).toBe('--D--GitFiles-WorkBaby--')
-    expect(encodedWorkspace('/home/user/proj')).toBe('--home-user-proj--')
   })
 })

@@ -35,6 +35,10 @@ export interface RouteDeps {
   setPendingLink: (link: { url: string; label: string; instructions: string } | null) => void
   /** 弹一条全局提示 */
   toast: (level: 'info' | 'ok' | 'warn' | 'error', message: string) => void
+  /** 资源页订阅的状态帧（插件 / 技能安装态变化） */
+  onStatusFrame: (kind: 'plugin' | 'skill', data: Record<string, unknown>) => void
+  /** 安装进度帧（逐行 npm 输出） */
+  onProgressFrame: (data: Record<string, unknown>) => void
 }
 
 /**
@@ -110,6 +114,8 @@ export function routeFrame(
     case 'app:progress': {
       const frame = readAppProgress(data)
       if (!frame) return
+      // 插件页要逐行看 npm 输出；路由层不认识页面，统一给订阅者。
+      deps.onProgressFrame(data)
       const prev = deps.appProgress[frame.kind]
       const next: AppProgressLog = {
         action: frame.action,
@@ -140,6 +146,14 @@ export function routeFrame(
     }
     case 'engine:extension_error':
       return // 扩展自己的报错不该弹给用户
+    // 插件与技能的安装态变化：页面自己挂刷新钩子，路由层只需透传帧。
+    // 放在这里而不是各自直挂 EventSource，是因为全壳只有一条 SSE。
+    case 'plugin:status':
+      deps.onStatusFrame('plugin', data)
+      return
+    case 'skill:status':
+      deps.onStatusFrame('skill', data)
+      return
     case 'chat:start':
       chat.streaming = true
       chat.promptError = ''

@@ -37,7 +37,7 @@ import type {
   SessionDetail,
   SessionExport,
   SessionRow,
-  SkillRow,
+  SkillListData,
   TranscriptPage,
   UIResponse,
   WorkspaceRow,
@@ -230,7 +230,7 @@ export const api = {
   startLogin: (provider: string, engine?: EngineKind) =>
     post<{ ok: boolean }>('/login/start', { provider, ...k(engine) }),
 
-  skills: (engine?: EngineKind) => get<{ skills: SkillRow[] }>('/skills', k(engine)),
+  skills: (engine?: EngineKind) => get<SkillListData>('/skills', k(engine)),
   skillContent: (path: string) => get<{ content: string }>('/skills/content', { path }),
   saveSkillContent: (engine: EngineKind, path: string, text: string) =>
     post<{ content: string }>('/skills/save', { engine_kind: engine, file_path: path, text }),
@@ -240,20 +240,27 @@ export const api = {
     post<{ path: string }>('/skills/create', { name, description, body, ...k(engine) }),
   deleteSkill: (path: string, engine?: EngineKind) =>
     post<{ ok: boolean }>('/skills/delete', { path, ...k(engine) }),
+  // 内置技能改坏了：从随包原件覆盖回来
+  resetSkill: (path: string, engine?: EngineKind) =>
+    post<{ ok: boolean }>('/skills/reset', { path, ...k(engine) }),
   // 矩阵页：把另一个引擎的用户级同名技能复制过来
   skillCopyTo: (path: string, engine: EngineKind) =>
     post<{ path: string }>('/skills/copy', { path, engine_kind: engine }),
 
   plugins: (engine?: EngineKind) => get<PluginListData>('/plugins', k(engine)),
   installPlugin: (source: string, engine?: EngineKind) =>
-    post<{ output: string }>('/plugins/install', { source, ...k(engine) }),
-  uninstallPlugin: (source: string, engine?: EngineKind) =>
-    post<{ output: string }>('/plugins/uninstall', { source, ...k(engine) }),
-  // 启停 / 升级只对有该能力的引擎开放（omp），入口由 Caps 决定显隐
+    post<{ plugin_name: string }>('/plugins/install', { source, ...k(engine) }),
+  uninstallPlugin: (name: string, engine?: EngineKind) =>
+    post<{ plugin_name: string }>('/plugins/uninstall', { plugin_name: name, ...k(engine) }),
+  // 启停 / 升级 / 重试都按包名定向，pi 的 packages 用名字做身份
   togglePlugin: (name: string, enabled: boolean, engine?: EngineKind) =>
-    post<{ output: string }>('/plugins/toggle', { plugin_name: name, enabled, ...k(engine) }),
-  upgradePlugin: (source: string, engine?: EngineKind) =>
-    post<{ output: string }>('/plugins/upgrade', { plugin_source: source, ...k(engine) }),
+    post<{ plugin_name: string }>('/plugins/toggle', { plugin_name: name, enabled, ...k(engine) }),
+  upgradePlugin: (name: string, engine?: EngineKind) =>
+    post<{ plugin_name: string }>('/plugins/upgrade', { plugin_name: name, ...k(engine) }),
+  retryPlugin: (name: string, engine?: EngineKind) =>
+    post<{ plugin_name: string }>('/plugins/retry', { plugin_name: name, ...k(engine) }),
+  retryAllPlugins: (engine?: EngineKind) =>
+    post<{ installed: number; failed: number }>('/plugins/retry-all', { ...k(engine) }),
 
   // MCP 服务器
   mcpList: (engine?: EngineKind, live = false) =>

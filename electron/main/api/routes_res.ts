@@ -3,8 +3,17 @@ import type { Router } from 'express'
 import { ok, route } from '../pkg/resp'
 import { modelsList, providerProbe, providerTest, providersView, providerUpsert, providerDelete, loginProviders, loginStart } from '../service/model_service'
 import type { ProviderProbeREQ } from '../domain/types_data'
-import { skillList, skillContent, skillSave, skillToggle, skillCreate, skillDelete, skillCopy } from '../service/skill_service'
-import { pluginList, pluginInstall, pluginUninstall, pluginToggle, pluginUpgrade } from '../service/plugin_service'
+import { skillList, skillContent, skillSave, skillToggle, skillCreate, skillDelete, skillCopy, skillReset } from '../service/skill_service'
+import {
+  pluginList,
+  pluginInstall,
+  pluginInstallBuiltin,
+  pluginUninstall,
+  pluginToggle,
+  pluginUpgrade,
+  pluginRetry,
+  pluginClearFailures,
+} from '../service/plugin_service'
 import { mcpList, mcpSave, mcpToggle, mcpRemove, mcpCopy } from '../service/mcp_service'
 import type { McpSaveREQ } from '../domain/types_data'
 
@@ -72,12 +81,25 @@ export function registerResRoutes(api: Router): void {
     ok(res, skillCopy(String(req.body?.path ?? '')))
   }))
 
+  api.post('/skills/reset', route(async (req, res) => {
+    ok(res, skillReset(String(req.body?.path ?? '')))
+  }))
+
   api.get('/plugins', route(async (_req, res) => {
     ok(res, pluginList())
   }))
 
   api.post('/plugins/install', route(async (req, res) => {
     ok(res, await pluginInstall(String(req.body?.source ?? '')))
+  }))
+
+  api.post('/plugins/retry', route(async (req, res) => {
+    ok(res, await pluginRetry(String(req.body?.plugin_name ?? '')))
+  }))
+
+  api.post('/plugins/retry-all', route(async (_req, res) => {
+    pluginClearFailures()
+    ok(res, await pluginInstallBuiltin())
   }))
 
   api.post('/plugins/uninstall', route(async (req, res) => {
@@ -89,7 +111,7 @@ export function registerResRoutes(api: Router): void {
   }))
 
   api.post('/plugins/upgrade', route(async (req, res) => {
-    ok(res, await pluginUpgrade(String(req.body?.plugin_source ?? '')))
+    ok(res, await pluginUpgrade(String(req.body?.plugin_name ?? '')))
   }))
 
   api.get('/mcp', route(async (req, res) => {

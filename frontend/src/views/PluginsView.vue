@@ -1,17 +1,17 @@
 <script setup lang="ts">
-// 插件页：列、装、卸。
-// 列表来自引擎自己的登记清单（pi 的 packages / omp 的 dependencies），
-// 不扫 node_modules——那会把间接依赖当成插件。装 / 卸代跑引擎自己的 CLI。
-import { computed, onMounted, ref, watch } from 'vue'
+// 插件页：内置清单 + 用户自加的包。清单来自 pi 的 settings.json packages 声明，
+// 装包经内置 npm 落进沙箱（agentDir/npm），启停只改声明——磁盘不动，秒级生效。
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
-import EngineScopeBar from '@/components/common/EngineScopeBar.vue'
-import { useEngineScope } from '@/composables/useEngineScope'
+import PluginTable from '@/components/plugins/PluginTable.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
-import type { EngineKind, PluginRow } from '@/types/api'
+import type { PluginRow } from '@/types/api'
+
+type GroupKind = 'all' | 'builtin' | 'custom'
 
 const { t } = useI18n()
 const app = useAppStore()
@@ -19,33 +19,49 @@ const toasts = useToasts()
 
 const rows = ref<PluginRow[]>([])
 const registry = ref('')
+const installRoot = ref('')
+const builtinInstalled = ref(0)
+const builtinTotal = ref(0)
 const readError = ref('')
 const loading = ref(false)
 const busyName = ref('')
 const source = ref('')
 const installing = ref(false)
-const output = ref('')
-const restarting = ref(false)
+const retryingAll = ref(false)
+const toggling = ref('')
+const group = ref<GroupKind>('all')
+const keyword = ref('')
+/** 正在安装的那一行的实时进度行。 */
+const liveLines = ref<Record<string, string>>({})
+/** 整体重试进度；total=0 时不显示。 */
+const queue = ref({ done: 0, total: 0 })
 
-const kind = computed<EngineKind>(() => app.active)
-// 本页作用域（omp / pi / 全部），不跟对话引擎联动。
-const { scope, set: setScope } = useEngineScope('plugins')
-const installedKinds = computed(() => app.installed.map((e) => e.kind))
-const writeKind = computed<EngineKind>(() => (scope.value === 'all' ? 'pi' : scope.value))
-const caps = computed(() => app.capsOf(writeKind.value))
-const engineParam = computed<EngineKind | undefined>(() => (scope.value === 'all' ? undefined : scope.value))
+const caps = computed(() => app.capsOf('pi'))
+const missingCount = computed(() => rows.value.filter((r) => !r.installed).length)
+const failedCount = computed(() => rows.value.filter((r) => r.plugin_state === 'failed').length)
+const builtinPercent = computed(() =>
+  builtinTotal.value === 0 ? 0 : Math.round((builtinInstalled.value / builtinTotal.value) * 100),
+)
 
-/** 一行属于哪个引擎：「全部」下靠行自身的 engine_kind 定向写操作。 */
-function rowEngine(row: PluginRow): EngineKind {
-  return (row.engine_kind || writeKind.value) as EngineKind
-}
+const filtered = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  return rows.value.filter((row) => {
+    if (group.value === 'builtin' && !row.builtin) return false
+    if (group.value === 'custom' && row.builtin) return false
+    if (!kw) return true
+    return row.plugin_name.toLowerCase().includes(kw) || (row.plugin_desc ?? '').toLowerCase().includes(kw)
+  })
+})
 
 async function load() {
   loading.value = true
   try {
-    const data = await api.plugins(engineParam.value)
+    const data = await api.plugins('pi')
     rows.value = data.plugins ?? []
     registry.value = data.registry_path ?? ''
+    installRoot.value = data.install_root ?? ''
+    builtinInstalled.value = data.builtin_installed ?? 0
+    builtinTotal.value = data.builtin_total ?? 0
     readError.value = data.read_error ?? ''
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -54,27 +70,73 @@ async function load() {
   }
 }
 
+/** 安装进度帧：逐行显示 npm 正在干什么。 */
+function onProgress(data: Record<string, unknown>) {
+  const name = String(data.plugin_name ?? '')
+  if (!name) return
+  const phase = String(data.phase ?? '')
+  if (phase === 'start') {
+    liveLines.value = { ...liveLines.value, [name]: String(data.message ?? t('plugins.installing')) }
+    return
+  }
+  if (phase === 'line') {
+    liveLines.value = { ...liveLines.value, [name]: String(data.line ?? '') }
+    return
+  }
+  const next = { ...liveLines.value }
+  delete next[name]
+  liveLines.value = next
+  if (phase === 'done' || phase === 'fail') void load()
+}
+
+let offStatus: (() => void) | null = null
+let offProgress: (() => void) | null = null
+
 async function install() {
   const target = source.value.trim()
   if (!target) return
   installing.value = true
-  output.value = ''
   try {
-    const res = await api.installPlugin(target, writeKind.value)
-    output.value = res.output
+    const res = await api.installPlugin(target, 'pi')
     source.value = ''
-    ElMessage.success(t('plugins.installed'))
+    ElMessage.success(t('plugins.installed', { name: res.plugin_name }))
     await load()
   } catch (err) {
-    output.value = err instanceof Error ? err.message : String(err)
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     installing.value = false
   }
 }
 
-// 卸的是清单里那一行原文而不是裸包名：pi 的 packages 记的是
-// `npm:name@1.2.3`，只给裸名会匹配不到。
+async function retryAll() {
+  retryingAll.value = true
+  queue.value = { done: 0, total: missingCount.value }
+  try {
+    const res = await api.retryAllPlugins('pi')
+    if (res.failed > 0) toasts.push('warn', t('plugins.retryPartial', { ok: res.installed, fail: res.failed }))
+    else ElMessage.success(t('plugins.retryAllDone', { ok: res.installed }))
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    retryingAll.value = false
+    queue.value = { done: 0, total: 0 }
+  }
+}
+
+async function retryOne(row: PluginRow) {
+  busyName.value = row.plugin_name
+  try {
+    await api.retryPlugin(row.plugin_name, 'pi')
+    ElMessage.success(t('plugins.installed', { name: row.plugin_name }))
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    busyName.value = ''
+  }
+}
+
 async function uninstall(row: PluginRow) {
   try {
     await ElMessageBox.confirm(
@@ -86,39 +148,25 @@ async function uninstall(row: PluginRow) {
     return
   }
   busyName.value = row.plugin_name
-  output.value = ''
   try {
-    const res = await api.uninstallPlugin(row.plugin_source, rowEngine(row))
-    output.value = res.output
+    await api.uninstallPlugin(row.plugin_name, 'pi')
+    ElMessage.success(t('plugins.uninstalled', { name: row.plugin_name }))
     await load()
   } catch (err) {
-    output.value = err instanceof Error ? err.message : String(err)
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     busyName.value = ''
   }
 }
 
-// 启停是 omp 的 CLI 能力（改它的锁文件），pi 行不出开关。
-// 乐观更新让开关立即回弹到位，失败滚回来；成功后重拉清单拿真实状态。
-const toggling = ref('')
-
-function canToggle(row: PluginRow): boolean {
-  return Boolean(app.capsOf(rowEngine(row))?.plugin_toggle)
-}
-
-function canUpgrade(row: PluginRow): boolean {
-  return Boolean(app.capsOf(rowEngine(row))?.plugin_upgrade)
-}
-
+/** 乐观更新让开关立即回弹到位，失败滚回来；成功后重拉清单拿真实状态。 */
 async function toggle(row: PluginRow, enabled: boolean) {
   if (row.enabled === enabled) return
   toggling.value = row.plugin_name
   const prev = row.enabled
   row.enabled = enabled
   try {
-    await api.togglePlugin(row.plugin_name, enabled, rowEngine(row))
-    ElMessage.success(t('plugins.toggleDone'))
+    await api.togglePlugin(row.plugin_name, enabled, 'pi')
     await load()
   } catch (err) {
     row.enabled = prev
@@ -130,45 +178,28 @@ async function toggle(row: PluginRow, enabled: boolean) {
 
 async function upgrade(row: PluginRow) {
   busyName.value = row.plugin_name
-  output.value = ''
   try {
-    const res = await api.upgradePlugin(row.plugin_source, rowEngine(row))
-    output.value = res.output
-    ElMessage.success(t('plugins.upgradeDone'))
+    await api.upgradePlugin(row.plugin_name, 'pi')
+    ElMessage.success(t('plugins.upgradeDone', { name: row.plugin_name }))
     await load()
   } catch (err) {
-    output.value = err instanceof Error ? err.message : String(err)
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     busyName.value = ''
   }
 }
 
-async function restart() {
-  restarting.value = true
-  try {
-    await api.restartEngines(writeKind.value)
-    await app.refreshEngines()
-    ElMessage.success(t('common.saved'))
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  } finally {
-    restarting.value = false
-  }
-}
-
-function resourceLabel(kinds: string[]): string {
-  if (!kinds?.length) return '—'
-  return kinds.join(' · ')
-}
-
-watch(kind, () => {
-  rows.value = []
-  output.value = ''
-  void load()
+onMounted(async () => {
+  // 资源状态帧走全壳唯一的 SSE，由 app store 统一分发。
+  offStatus = app.onStatus(() => void load())
+  offProgress = app.onProgress(onProgress)
+  await load()
 })
 
-onMounted(load)
+onUnmounted(() => {
+  offStatus?.()
+  offProgress?.()
+})
 </script>
 
 <template>
@@ -176,13 +207,18 @@ onMounted(load)
     <header class="page-head">
       <div>
         <h1 class="page-title">{{ t('plugins.title') }}</h1>
-        <p class="page-sub">{{ t('plugins.scopedSubtitle') }}</p>
+        <p class="page-sub">{{ t('plugins.sandboxSubtitle') }}</p>
       </div>
       <div class="head-actions">
-        <EngineScopeBar :scope="scope" :installed="installedKinds" @pick="setScope" />
-        <button class="wb-btn" :class="{ 'is-loading': restarting }" :disabled="restarting" @click="restart">
-          <AppIcon name="refresh" :size="14" />
-          {{ t('plugins.restart') }}
+        <button
+          v-if="missingCount > 0 || failedCount > 0"
+          class="wb-btn"
+          :class="{ 'is-loading': retryingAll }"
+          :disabled="retryingAll || !caps?.extensions"
+          @click="retryAll"
+        >
+          <AppIcon name="download" :size="14" />
+          {{ t('plugins.retryAll') }}
         </button>
         <button class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load">
           <AppIcon name="refresh" :size="15" />
@@ -193,10 +229,27 @@ onMounted(load)
     <div v-if="!caps?.extensions" class="wb-empty">
       <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="plug" :size="22" /></span>
       <p class="wb-empty-title">{{ t('plugins.unsupported') }}</p>
-      <p class="wb-empty-hint">{{ t('plugins.unsupportedHint', { engine: scope }) }}</p>
+      <p class="wb-empty-hint">{{ t('plugins.unsupportedHint') }}</p>
     </div>
 
     <div v-else class="page-body">
+      <!-- 内置清单进度：只在还没全装好时出现，装完就消失 -->
+      <section v-if="builtinInstalled < builtinTotal" class="wb-card card-pad progress-card">
+        <div class="progress-head">
+          <span class="progress-title">{{ t('plugins.builtinProgress', { done: builtinInstalled, total: builtinTotal }) }}</span>
+          <span class="wb-mono progress-pct">{{ builtinPercent }}%</span>
+        </div>
+        <div class="bar"><i :style="{ width: `${builtinPercent}%` }" /></div>
+        <p class="hint">{{ t('plugins.builtinProgressHint') }}</p>
+      </section>
+
+      <section v-if="queue.total > 0" class="wb-card card-pad progress-card">
+        <div class="progress-head">
+          <span class="progress-title">{{ t('plugins.queueProgress', { done: queue.done, total: queue.total }) }}</span>
+        </div>
+        <div class="bar"><i class="indeterminate" /></div>
+      </section>
+
       <section class="wb-card card-pad install-card">
         <div class="wb-sec-head">
           <span class="wb-sec-title">{{ t('plugins.installTitle') }}</span>
@@ -219,7 +272,7 @@ onMounted(load)
             {{ t('common.install') }}
           </button>
         </div>
-        <p class="hint">{{ t('plugins.restartHint') }}</p>
+        <p class="hint">{{ t('plugins.installHint', { root: installRoot }) }}</p>
       </section>
 
       <p v-if="readError" class="notice">
@@ -227,98 +280,41 @@ onMounted(load)
         {{ readError }}
       </p>
 
-      <section v-if="output" class="wb-card card-pad">
-        <div class="wb-sec-head">
-          <span class="wb-sec-title">{{ t('plugins.output') }}</span>
-        </div>
-        <pre class="output selectable">{{ output }}</pre>
-      </section>
-
       <section>
         <div class="wb-sec-head">
-          <span class="wb-sec-title">{{ t('nav.plugins') }} <span class="count">{{ rows.length }}</span></span>
-          <span v-if="registry" class="wb-mono registry">{{ registry }}</span>
+          <span class="wb-sec-title">
+            {{ t('nav.plugins') }} <span class="count">{{ filtered.length }}</span>
+          </span>
+          <div class="toolbar">
+            <div class="seg">
+              <button
+                v-for="opt in (['all', 'builtin', 'custom'] as GroupKind[])"
+                :key="opt"
+                class="seg-btn"
+                :class="{ on: group === opt }"
+                @click="group = opt"
+              >
+                {{ t(`plugins.group_${opt}`) }}
+              </button>
+            </div>
+            <el-input v-model="keyword" :placeholder="t('common.search')" size="small" clearable class="search" />
+            <span v-if="registry" class="wb-mono registry" :title="registry">{{ registry }}</span>
+          </div>
         </div>
 
-        <div v-if="!rows.length && !loading" class="wb-empty">
-          <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="plug" :size="22" /></span>
-          <p class="wb-empty-title">{{ t('plugins.emptyTitle') }}</p>
-          <p class="wb-empty-hint">{{ t('plugins.emptyHint') }}</p>
-        </div>
-
-        <el-table v-else :data="rows" size="small">
-          <el-table-column :label="t('plugins.engine')" width="72">
-            <template #default="{ row }">
-              <span class="wb-mono">{{ row.engine_kind }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.name')" min-width="180">
-            <template #default="{ row }">
-              <div class="cell-name">
-                <span class="name">{{ row.plugin_name }}</span>
-                <span v-if="row.plugin_desc" class="desc">{{ row.plugin_desc }}</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.version')" width="92">
-            <template #default="{ row }">
-              <span class="wb-mono">{{ row.plugin_version || '—' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.resources')" width="120">
-            <template #default="{ row }">
-              <span class="wb-mono">{{ resourceLabel(row.resource_kinds) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.state')" width="96">
-            <template #default="{ row }">
-              <span class="tag" :class="row.installed ? 'ok' : 'warn'">
-                {{ row.installed ? t('plugins.installedState') : t('plugins.missingState') }}
-              </span>
-            </template>
-          </el-table-column>
-          <!-- 启用列只对有启停能力的引擎行出现：能力缺失不渲染，不渲染灰开关 -->
-          <el-table-column v-if="rows.some((r) => canToggle(r))" :label="t('plugins.enabledLabel')" width="80">
-            <template #default="{ row }">
-              <el-switch
-                v-if="canToggle(row)"
-                :model-value="row.enabled"
-                :loading="toggling === row.plugin_name"
-                :disabled="(Boolean(toggling) && toggling !== row.plugin_name) || !row.installed"
-                @change="(v: string | number | boolean) => toggle(row, Boolean(v))"
-              />
-              <span v-else class="wb-mono">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.path')" min-width="180">
-            <template #default="{ row }">
-              <span class="wb-mono clip">{{ row.plugin_path || '—' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('common.actions')" width="150" align="right">
-            <template #default="{ row }">
-              <div class="row-actions">
-                <button
-                  v-if="canUpgrade(row)"
-                  class="wb-btn text sm"
-                  :class="{ 'is-loading': busyName === row.plugin_name }"
-                  :disabled="Boolean(busyName)"
-                  @click="upgrade(row)"
-                >
-                  {{ t('plugins.upgrade') }}
-                </button>
-                <button
-                  class="wb-btn text sm danger"
-                  :class="{ 'is-loading': busyName === row.plugin_name }"
-                  :disabled="Boolean(busyName)"
-                  @click="uninstall(row)"
-                >
-                  {{ t('common.uninstall') }}
-                </button>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
+        <PluginTable
+          :rows="filtered"
+          :loading="loading"
+          :busy-name="busyName"
+          :toggling="toggling"
+          :retrying-all="retryingAll"
+          :live-lines="liveLines"
+          :keyword="keyword"
+          @toggle="toggle"
+          @upgrade="upgrade"
+          @uninstall="uninstall"
+          @retry="retryOne"
+        />
       </section>
     </div>
   </div>
@@ -387,6 +383,58 @@ onMounted(load)
   font-size: var(--wb-fs-2xs);
   color: var(--wb-faint);
   line-height: var(--wb-lh-base);
+  word-break: break-all;
+}
+
+.progress-card {
+  max-width: 720px;
+}
+
+.progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--wb-sp-2);
+}
+
+.progress-title {
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink);
+}
+
+.progress-pct {
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+}
+
+.bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--wb-elev-hover);
+  overflow: hidden;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--wb-brand-1);
+  transition: width var(--wb-dur-slow) var(--wb-ease);
+}
+
+.bar > i.indeterminate {
+  width: 36%;
+  animation: slide 1.2s var(--wb-ease) infinite;
+}
+
+@keyframes slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
 }
 
 .notice {
@@ -401,18 +449,52 @@ onMounted(load)
   font-size: var(--wb-fs-xs);
 }
 
-.output {
-  margin: 0;
-  max-height: 240px;
-  overflow: auto;
-  padding: var(--wb-sp-3);
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  margin-left: auto;
+}
+
+.seg {
+  display: inline-flex;
+  padding: 2px;
   border-radius: var(--wb-r);
-  background: var(--wb-code-bg);
-  font-family: var(--wb-font-mono);
+  background: var(--wb-elev-hover);
+}
+
+.seg-btn {
+  border: none;
+  background: transparent;
+  padding: 3px var(--wb-sp-3);
+  border-radius: calc(var(--wb-r) - 2px);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-mute);
+  cursor: pointer;
+  transition: background var(--wb-dur-fast) var(--wb-ease), color var(--wb-dur-fast) var(--wb-ease);
+}
+
+.seg-btn:hover {
+  color: var(--wb-ink);
+}
+
+.seg-btn.on {
+  background: var(--wb-elev-raised);
+  color: var(--wb-brand-1);
+  font-weight: 600;
+}
+
+.search {
+  width: 160px;
+}
+
+.registry {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--wb-fs-3xs);
-  line-height: 1.6;
-  color: var(--wb-ink-5);
-  white-space: pre-wrap;
+  color: var(--wb-faint);
 }
 
 .count {
@@ -420,47 +502,5 @@ onMounted(load)
   color: var(--wb-faint);
   letter-spacing: 0;
   text-transform: none;
-}
-
-.row-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--wb-sp-2);
-}
-
-.registry {
-  margin-left: auto;
-  max-width: 340px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cell-name {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.name {
-  font-weight: 650;
-  color: var(--wb-ink);
-}
-
-.desc {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-mute);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.clip {
-  display: block;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 </style>
