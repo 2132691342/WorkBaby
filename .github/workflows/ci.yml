@@ -34,12 +34,8 @@ jobs:
             exit 1
           }
 
-      - name: 静态检查
-        run: go vet ./...
-
-      - name: 测试
-        run: go test ./... -count=1
-
+      # main.go 的 go:embed all:frontend/dist 在全新 checkout 下不存在，
+      # 任何编译 package main 的命令（vet/test/build）都必须排在前端产物之后。
       - name: 安装前端依赖
         working-directory: frontend
         run: npm ci
@@ -47,6 +43,12 @@ jobs:
       - name: 前端类型检查与产物
         working-directory: frontend
         run: npm run build
+
+      - name: 静态检查
+        run: go vet ./...
+
+      - name: 测试
+        run: go test ./... -count=1
 
       - name: 主机构建
         run: go build ./...

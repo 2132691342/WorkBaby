@@ -43,6 +43,15 @@ jobs:
           }
           Write-Output "版本一致：$tag"
 
+      # go:embed all:frontend/dist 需要前端产物先就位，否则 go test 编译不过
+      - name: 安装前端依赖
+        working-directory: frontend
+        run: npm ci
+
+      - name: 前端类型检查与产物
+        working-directory: frontend
+        run: npm run build
+
       - name: 测试
         run: go test ./... -count=1
 
@@ -58,4 +67,10 @@ jobs:
                    Where-Object { $_.Name -like '*WorkBaby*' } |
                    Select-Object -ExpandProperty FullName
           if (-not $files) { Write-Error "没找到安装包产物"; exit 1 }
-          gh release create $env:GITHUB_REF_NAME $files --generate-notes
+          # 重打的 tag 会撞上已存在的 Release：有则覆盖上传，无则新建。
+          gh release view $env:GITHUB_REF_NAME 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME $files --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME $files --generate-notes
+          }
