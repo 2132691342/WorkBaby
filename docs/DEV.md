@@ -58,7 +58,7 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 
 | 文件 | 断言什么 |
 |---|---|
-| `tests/e2e_server_test.go` | 端到端长链路（3 个）：鉴权硬门（HTTP 头 + SSE 查询参数）、信封契约（未知路由 / 坏请求体 / bootstrap 成功同构）、设置链路（KV 落 SQLite、工作区去重、关窗值归一） |
+| `tests/e2e_server_test.go` | 端到端长链路（3 个）：鉴权硬门（HTTP 头 + SSE 查询参数）、信封契约（未知路由 / 坏请求体 / bootstrap 成功同构）、设置链路（KV 三方向落 SQLite、重复切工作区只留一条历史） |
 | `tests/session_replay_test.go` | 会话回放管线（3 个）：活动分支跟随 + 残行/环安全、历史轮组装（工具结果回填 / 孤立成轮 / 压缩标记 / 改名来源）、隐藏台账生效且不改写会话文件 |
 | `tests/builtin_catalog_test.go` | 内置清单与落位（4 个）：随包清单↔资产互相咬合、技能生命周期（默认值落位 / 不覆盖用户改动 / 开关搬目录 / 台账记账）、插件启停与卸载写在 pi 原生表达上、版本漂移判定与批量升级只碰漂移项 |
 

@@ -43,15 +43,16 @@ task package    # NSIS 安装包，per-user 安装、可选安装目录
 - 卸载不删数据目录——用户的会话与配置在 `%LOCALAPPDATA%\WorkBaby`，
   要删由用户在设置页手动触发
 
-产物体检：安装包应在 **120MB 上下**（= exe 32MB + assets 118MB 压缩后）。
-只有十几 MB 说明 assets 没打进去，装完的机器上不会有任何运行时。
+产物体检：assets 本身就有 **约 120MB**（运行时 zip 111MB + 内置技能 9MB），exe 约 32MB，
+安装包体积随 NSIS 压缩率浮动，但**只有十几 MB 一定是 assets 没打进去**——
+装完的机器上不会有任何运行时。
 
 ## CI
 
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
-| `.github/workflows/ci.yml` | push / PR → main | gofmt 检查 → `go vet` → `go test` → `npm ci` + 前端类型检查与产物 → `go build ./...` |
-| `.github/workflows/release.yml` | push tag `v*` | 装 wails3 → 校验 tag 与 HEAD 一致 → `go test` → `wails3 package` → `gh release create` 上传安装包 |
+| `.github/workflows/ci.yml` | push / PR → main | gofmt 检查 → `npm ci` + 前端类型检查与产物 → `go vet` → `go test` → `go build ./...`（前端产物必须先于 Go 编译：`main.go` 的 `go:embed` 需要 `frontend/dist` 存在） |
+| `.github/workflows/release.yml` | push tag `v*` | 装 wails3 → 校验 tag 与 HEAD 一致 → `npm ci` + 前端产物 → `go test` → `wails3 package` → `gh release create` 上传安装包 |
 
 CI 需要 `windows-latest`：Wails3 的 cgo 胶水与 WebView2 依赖只在 Windows 上编。
 
