@@ -158,6 +158,20 @@ type SkillCreateREQ struct {
 	SkillBody string `json:"skill_body"`
 }
 
+// SkillImportREQ 是外部技能导入的入参。
+type SkillImportREQ struct {
+	// SkillFromPath 用户选中的技能源目录
+	SkillFromPath string `json:"skill_from_path"`
+}
+
+// SkillImportRESP 是外部技能导入的结果。
+type SkillImportRESP struct {
+	// SkillDirName 导入后的目录名
+	SkillDirName string `json:"skill_dir_name"`
+	// SkillPath 导入后 SKILL.md 绝对路径
+	SkillPath string `json:"skill_path"`
+}
+
 // SkillContentRESP 是技能正文。
 type SkillContentRESP struct {
 	// FileText 正文
@@ -190,7 +204,9 @@ type PluginRowVO struct {
 	PluginDesc string `json:"plugin_desc,omitempty"`
 	// PluginTargetVersion 内置清单 pin 的版本
 	PluginTargetVersion string `json:"plugin_target_version,omitempty"`
-	// PluginUpgradable 已装版本与清单 pin 的不一致，可升级
+	// PluginLatest npm registry 的最新版；没查到给空
+	PluginLatest string `json:"plugin_latest,omitempty"`
+	// PluginUpgradable 已装版本与目标（pin 或 registry 最新）不一致，可升级
 	PluginUpgradable bool `json:"plugin_upgradable"`
 	// ResourceKinds 包内暴露的资源种类
 	ResourceKinds []string `json:"resource_kinds"`
@@ -264,6 +280,12 @@ type McpServerVO struct {
 	ServerUrl string `json:"server_url,omitempty"`
 	// McpDesc 一句话说明
 	McpDesc string `json:"mcp_desc,omitempty"`
+	// McpWorkDir stdio 类的工作目录；空串用当前目录
+	McpWorkDir string `json:"mcp_work_dir,omitempty"`
+	// McpEnvText 环境变量回显，逐行 KEY=VALUE
+	McpEnvText string `json:"mcp_env_text,omitempty"`
+	// McpTimeout 连接超时（秒，pi 的 mcp.json 语义）；0 表示没配
+	McpTimeout int `json:"mcp_timeout,omitempty"`
 	// McpEnabled 是否启用
 	McpEnabled bool `json:"mcp_enabled"`
 	// ScopeKind user / project
@@ -296,8 +318,22 @@ type McpSaveREQ struct {
 	TransportKind string `json:"transport_kind"`
 	// McpDesc 一句话说明
 	McpDesc string `json:"mcp_desc"`
-	// EnvList 环境变量，逐行 KEY=VALUE
+	// WorkDir stdio 类工作目录；空串清掉该字段
+	WorkDir string `json:"work_dir"`
+	// EnvList 环境变量，逐行 KEY=VALUE；空表示清掉该字段
 	EnvList []string `json:"env_list"`
+	// McpTimeout 连接超时（毫秒）；0 表示清掉该字段
+	McpTimeout int `json:"mcp_timeout"`
+}
+
+// McpProbeRESP 是 MCP 连接测试的结果。
+type McpProbeRESP struct {
+	// ProbeOk 是否连通（完成 MCP 握手）
+	ProbeOk bool `json:"probe_ok"`
+	// ProbeMessage 结果一句话（服务名 / 版本或失败原因）
+	ProbeMessage string `json:"probe_message"`
+	// ProbeTools 握手后数到的工具数；没数到给 0
+	ProbeTools int `json:"probe_tools"`
 }
 
 // McpToggleREQ 是 MCP 开关的入参。

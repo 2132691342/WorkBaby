@@ -146,6 +146,18 @@ func (s *Sessions) History(file string) []domain.HistoryTurnVO {
 	return parser.BuildHistory(file, s.hiddenSet(file))
 }
 
+// Todos 当前待办：活动分支上最近一次 todo 工具调用派生（rpiv-todo 的回放语义）。
+func (s *Sessions) Todos(file string) []domain.TodoVO {
+	if file == "" {
+		return []domain.TodoVO{}
+	}
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	if err != nil {
+		return []domain.TodoVO{}
+	}
+	return parser.TodosFromFile(resolved)
+}
+
 // hideKey 隐藏台账的键。
 func (s *Sessions) hideKey(file string) string {
 	return KeyHideLedger + file

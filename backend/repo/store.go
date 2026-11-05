@@ -31,8 +31,8 @@ type SettingDO struct {
 // TableName 固定表名：迁移与手写 SQL 都认这一个名字。
 func (SettingDO) TableName() string { return "setting" }
 
-// SkillToggleDO 是技能开关台账。目录搬移已经表达了开与关，
-// 这张表记的是「默认值被用户改过没有」，重启后按它还原。
+// SkillToggleDO 是技能开关台账。开与关的真相是技能目录在哪个区（skills /
+// skills_disabled），这张表只做记账：健康面板与测试用它核对搬移是否发生过。
 type SkillToggleDO struct {
 	// SkillDirName 技能目录名
 	SkillDirName string `gorm:"column:skill_dir_name;primaryKey;size:200"`

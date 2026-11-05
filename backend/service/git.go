@@ -26,6 +26,8 @@ func NewGit(settings *Settings, rt *engine.Runtime) *Git {
 }
 
 // run 跑一条 git 命令；cwd 缺省是工作区。
+// GIT_TERMINAL_PROMPT=0：凭证问询立即失败而不是卡满 120 秒超时——
+// 登录走 GCM（自带界面、落 Windows 凭据管理器），不走 stdin。
 func (g *Git) run(args ...string) (*pkg.ProcResult, error) {
 	exe, err := g.Runtime.GitExe()
 	if err != nil {
@@ -35,9 +37,10 @@ func (g *Git) run(args ...string) (*pkg.ProcResult, error) {
 	if dir == "" {
 		return nil, pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
 	}
+	env := append(g.Runtime.Layout.SandboxEnv(nil), "GIT_TERMINAL_PROMPT=0")
 	return pkg.RunProc(exe, args, pkg.ProcOptions{
 		Dir:       dir,
-		Env:       g.Runtime.Layout.SandboxEnv(nil),
+		Env:       env,
 		TimeoutMs: 120_000,
 	})
 }
@@ -49,9 +52,29 @@ func (g *Git) runOrFail(args ...string) (string, error) {
 		return "", err
 	}
 	if res.Code != 0 {
-		return "", pkg.Err(pkg.CodeGitFailed, "git 命令失败", strings.TrimSpace(res.Stderr))
+		return "", gitFail(res.Stderr)
 	}
 	return res.Stdout, nil
+}
+
+// gitFail 把非零退出翻成 AppError：凭证类失败给下一步指引。
+func gitFail(stderr string) error {
+	trimmed := strings.TrimSpace(stderr)
+	if hint := gitAuthHint(trimmed); hint != "" {
+		return pkg.Err(pkg.CodeGitAuth, hint, trimmed)
+	}
+	return pkg.Err(pkg.CodeGitFailed, "git 命令失败", trimmed)
+}
+
+// gitAuthHint 识别凭证类失败并给出人话；不是凭证问题给空串。
+func gitAuthHint(stderr string) string {
+	switch {
+	case strings.Contains(stderr, "could not read Username"), strings.Contains(stderr, "could not read Password"):
+		return "远端要登录凭证，这里无法交互输入：先在有终端的 Git 客户端里登录一次，或把远端地址换成带 token 的形式"
+	case strings.Contains(stderr, "Authentication failed"), strings.Contains(stderr, "403"):
+		return "凭证被远端拒绝：token 可能过期或权限不够，重新登录或换一个 token"
+	}
+	return ""
 }
 
 // Status 仓库状态快照。
@@ -118,28 +141,32 @@ func (g *Git) fillRemotes(out *domain.GitStatusRESP) {
 	}
 }
 
-// fillChangedFiles 解析 `git status --porcelain=v1`。
+// fillChangedFiles 解析 `git status --porcelain=v1 -z`。
+// 用 -z 而不是按行：默认格式会把非 ASCII 路径转义成带引号的八进制串，
+// 界面上中文文件名会变成 "346~226~207" 这种乱码。
 func (g *Git) fillChangedFiles(out *domain.GitStatusRESP) {
-	text, err := g.runOrFail("status", "--porcelain=v1", "--untracked-files=all")
+	text, err := g.runOrFail("status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
 		return
 	}
 	files := make([]domain.GitFileVO, 0, 32)
-	for _, line := range pkg.SplitLines(text) {
-		if len(line) < 4 {
+	// 记录以 NUL 结尾；rename 是「新路径\0旧路径」两段。
+	chunks := strings.Split(text, "\x00")
+	for i := 0; i < len(chunks); i++ {
+		record := chunks[i]
+		if len(record) < 4 {
 			continue
 		}
-		// 前两位是暂存区 / 工作区状态；rename 后面跟 "原路径 -> 新路径"。
-		staged, worktree := line[0], line[1]
-		path := strings.TrimSpace(line[3:])
-		if idx := strings.LastIndex(path, " -> "); idx >= 0 {
-			path = path[idx+4:]
-		}
+		staged, worktree := record[0], record[1]
 		file := domain.GitFileVO{
-			FilePath:    path,
+			FilePath:    record[3:],
 			ChangeCode:  changeCode(staged, worktree),
 			IsStaged:    staged != ' ' && staged != '?',
 			HasConflict: staged == 'U' || worktree == 'U',
+		}
+		// rename / copy 的下一段是旧路径：行数与新路径绑定，旧路径跳过。
+		if staged == 'R' || staged == 'C' || worktree == 'R' || worktree == 'C' {
+			i++
 		}
 		if file.HasConflict {
 			out.HasConflict = true
@@ -147,6 +174,46 @@ func (g *Git) fillChangedFiles(out *domain.GitStatusRESP) {
 		files = append(files, file)
 	}
 	out.ChangedFiles = files
+	g.fillLineCounts(out)
+}
+
+// fillLineCounts 用 `git diff --numstat -z HEAD` 补每个文件的增删行数。
+// numstat 不含未跟踪文件（它们的行数要读文件才知道，不值得）；没有 HEAD 时不补。
+// 用 -z 是为了路径不被 quotepath 加引号：中文路径在 v1 porcelain 里会变转义串。
+func (g *Git) fillLineCounts(out *domain.GitStatusRESP) {
+	if len(out.ChangedFiles) == 0 {
+		return
+	}
+	text, err := g.runOrFail("diff", "--numstat", "-z", "HEAD")
+	if err != nil {
+		return
+	}
+	rows := map[string]domain.GitFileVO{}
+	chunks := strings.Split(text, "\x00")
+	for i := 0; i < len(chunks); i++ {
+		entry := chunks[i]
+		if entry == "" {
+			continue
+		}
+		fields := strings.SplitN(entry, "\t", 3)
+		if len(fields) < 3 {
+			continue
+		}
+		row := domain.GitFileVO{Insertions: atoiSafe(fields[0]), Deletions: atoiSafe(fields[1])}
+		// rename 条目是两段：旧路径段后面紧跟一段不带 Tab 的裸新路径。
+		if i+1 < len(chunks) && chunks[i+1] != "" && !strings.Contains(chunks[i+1], "\t") {
+			rows[chunks[i+1]] = row
+			i++
+			continue
+		}
+		rows[fields[2]] = row
+	}
+	for i, file := range out.ChangedFiles {
+		if row, ok := rows[file.FilePath]; ok {
+			out.ChangedFiles[i].Insertions = row.Insertions
+			out.ChangedFiles[i].Deletions = row.Deletions
+		}
+	}
 }
 
 // changeCode 把两位状态压成一个界面用的字母。

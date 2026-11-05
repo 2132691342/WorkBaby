@@ -72,7 +72,7 @@ func RunProc(exe string, args []string, opt ProcOptions) (*ProcResult, error) {
 		result.Code = exitCode(cmd, err)
 	case <-ctx.Done():
 		result.TimedOut = true
-		killTree(cmd.Process.Pid)
+		KillTree(cmd.Process.Pid)
 		<-done
 		result.Code = -1
 	}
@@ -99,13 +99,18 @@ func exitCode(cmd *exec.Cmd, err error) int {
 	return 0
 }
 
-// killTree 杀掉整棵进程树：npm 会拉起子进程，只杀父进程会留下一堆孤儿。
-func killTree(pid int) {
+// HiddenProcAttr 是隐藏窗口 + 无控制台的 SysProcAttr：RunProc 与长驻子进程（RPC / 探测）共用一套外观纪律。
+func HiddenProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+}
+
+// KillTree 杀掉整棵进程树：npm 会拉起子进程，只杀父进程会留下一堆孤儿。
+func KillTree(pid int) {
 	if pid <= 0 {
 		return
 	}
 	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
-	kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	kill.SysProcAttr = HiddenProcAttr()
 	_ = kill.Run()
 }
 

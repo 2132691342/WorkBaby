@@ -126,8 +126,8 @@
      组件复用令牌，不自己写 scale 数值——
      十几处各写一个的结果是有人改了十一处、漏了一处，
      而漏的那一处就是「点了没反应」的观感来源。 */
-  --wb-press-hover: 1.04;
-  --wb-press-active: 0.95;
+  --wb-press-hover: 1.06;
+  --wb-press-active: 0.92;
   /* 整行元素（行宽 100%）只缩不放：放大会溢出被裁 */
   --wb-press-row-active: 0.985;
 

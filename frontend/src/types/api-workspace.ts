@@ -112,3 +112,8 @@ export interface GitCommitResult {
   status: GitStatus
   commit_hash: string
 }
+
+export interface GitStash {
+  stash_ref: string
+  stash_subject: string
+}

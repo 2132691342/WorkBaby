@@ -66,17 +66,9 @@ const nameLocked = computed(() => Boolean(props.editing))
       <el-form-item v-if="props.form.mode === 'command'" :label="t('mcp.command')">
         <el-input v-model="props.form.command_text" :placeholder="t('mcp.commandPlaceholder')" />
       </el-form-item>
-      <template v-else>
-        <el-form-item :label="t('mcp.url')">
-          <el-input v-model="props.form.server_url" placeholder="https://example.com/mcp" />
-        </el-form-item>
-        <el-form-item :label="t('mcp.transport')">
-          <el-radio-group v-model="props.form.transport_kind">
-            <el-radio-button value="http">http</el-radio-button>
-            <el-radio-button value="sse">sse</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-      </template>
+      <el-form-item v-else :label="t('mcp.url')">
+        <el-input v-model="props.form.server_url" placeholder="https://example.com/mcp" />
+      </el-form-item>
 
       <template v-if="props.form.mode === 'command'">
         <el-form-item :label="t('mcp.workDir')">
@@ -95,9 +87,6 @@ const nameLocked = computed(() => Boolean(props.editing))
       <el-form-item :label="t('mcp.desc')">
         <el-input v-model="props.form.desc" :placeholder="t('mcp.descPlaceholder')" />
       </el-form-item>
-
-      <!-- 矩阵页的写入目标：一次写进勾选的引擎各自的 mcp.json -->
-      <slot name="extra" />
     </el-form>
 
     <template #footer>

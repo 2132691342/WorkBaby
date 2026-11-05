@@ -8,10 +8,8 @@ import (
 	"WorkBaby/backend/service"
 )
 
-// Ready 由前端在首屏渲染完后调用，用来把隐藏的窗口显示出来。
-//
-// 不能在装配完成时显示：v3 把建窗推迟到主循环，ServiceStartup 执行时窗口还不存在，
-// 那时 Show() 只会建窗仍隐藏，随后的 Focus() 会踩到未初始化的 WebView2 controller。
+// Ready 由前端在首屏渲染完后调用，把隐藏的窗口显出来。
+// v3 的建窗推迟到主循环，装配期间 Show() 只会建一个仍隐藏的窗口。
 func (a *App) Ready() {
 	// 前端每次热重载都会再调一次。
 	if a.revealed.Swap(true) {

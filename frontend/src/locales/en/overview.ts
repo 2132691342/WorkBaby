@@ -45,6 +45,7 @@ export default {
     "processesEmpty": "No engine process right now. One starts when you send a message.",
     "stopProcess": "Stop",
     "processGone": "That process is already gone",
+    "restartProcess": "Restart process",
     "busy": "Answering",
     "calls": "{n} calls"
   },

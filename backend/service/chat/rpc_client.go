@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"WorkBaby/backend/pkg"
@@ -84,7 +83,7 @@ func (r *PiRpc) Start() error {
 	cmd.Dir = r.cwd
 	cmd.Env = r.env
 	// windowsHide + CREATE_NO_WINDOW：不闪控制台。
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	cmd.SysProcAttr = pkg.HiddenProcAttr()
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return pkg.WrapErr(pkg.CodeRpcDown, "引擎 stdin 打开失败", err)
@@ -295,7 +294,8 @@ func (r *PiRpc) writeLine(line string) error {
 	return nil
 }
 
-// Stop 关停：关 stdin 触发引擎优雅退出，超时强杀整棵进程树。
+// Stop 关停：关 stdin 触发引擎优雅退出，等它真退了才返回（上限 3 秒，到点强杀）。
+// 调用方接下来往往要删包目录——Windows 上进程还活着就删不了，睡 200ms 赌运气不够。
 func (r *PiRpc) Stop() {
 	r.stopOne.Do(func() {
 		r.failAll(pkg.CodeRpcDown, "pi 正在关停")
@@ -311,10 +311,17 @@ func (r *PiRpc) Stop() {
 		pid := cmd.Process.Pid
 		time.AfterFunc(5*time.Second, func() {
 			if r.Alive() {
-				killTree(pid)
+				pkg.KillTree(pid)
 			}
 		})
 	})
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if !r.Alive() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // removePending 摘掉一条等待中的请求。
@@ -334,14 +341,4 @@ func (r *PiRpc) failAll(code, message string) {
 		call.err = pkg.Err(code, message)
 		close(call.done)
 	}
-}
-
-// killTree 杀掉整棵进程树：node 会拉起子进程，只杀父进程会留下孤儿。
-func killTree(pid int) {
-	if pid <= 0 {
-		return
-	}
-	cmd := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	_ = cmd.Run()
 }

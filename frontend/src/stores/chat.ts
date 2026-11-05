@@ -17,6 +17,7 @@ import type {
   ModelRow,
   SessionStats,
   SlashCommand,
+  TodoItem,
   UIResponse,
 } from '@/types/api'
 
@@ -36,6 +37,8 @@ export const useChatStore = defineStore('chat', () => {
   const context = ref<ContextUsage | null>(null)
   const autoCompaction = ref(true)
   const stats = ref<SessionStats | null>(null)
+  // 待办面板：引擎侧 todo 工具调用派生（rpiv-todo 装了才有数据）
+  const todos = ref<TodoItem[]>([])
   const commands = ref<SlashCommand[]>([])
   // 能力表：界面按它决定显示哪些入口（不渲染灰按钮）。
   const caps = ref<EngineCaps | null>(null)
@@ -108,6 +111,7 @@ export const useChatStore = defineStore('chat', () => {
     context.value = state.context_usage ?? null
     autoCompaction.value = state.auto_compaction
     stats.value = state.stats ?? null
+    todos.value = state.todos ?? []
     commands.value = state.commands ?? []
     if (state.caps) caps.value = state.caps
     if (state.queued) queue.value = { steering: state.queued.steering ?? [], follow_up: state.queued.follow_up ?? [] }
@@ -328,6 +332,7 @@ export const useChatStore = defineStore('chat', () => {
     contextPercent,
     stats,
     autoCompaction,
+    todos,
     commands,
     caps,
     turn,

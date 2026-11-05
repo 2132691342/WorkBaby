@@ -101,6 +101,7 @@ export interface PluginRow {
   plugin_path: string
   plugin_desc?: string
   plugin_target_version?: string
+  plugin_latest?: string
   plugin_upgradable: boolean
   resource_kinds: string[]
   plugin_builtin: boolean
@@ -127,6 +128,9 @@ export interface McpServer {
   command_line?: string
   server_url?: string
   mcp_desc?: string
+  mcp_work_dir?: string
+  mcp_env_text?: string
+  mcp_timeout?: number
   mcp_enabled: boolean
   scope_kind: string
   config_path: string

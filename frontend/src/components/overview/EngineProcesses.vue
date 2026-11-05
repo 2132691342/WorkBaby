@@ -1,9 +1,6 @@
 <script setup lang="ts">
-// 引擎进程：当前那一个实例的明细。
-//
-// 为什么需要这一块：引擎是常驻子进程，用户能感受到的是「机器变卡」，
-// 而界面上一句解释都没有。这里有明细：PID、跑了多久、忙不忙、调过几次，
-// 以及重启它。
+// 引擎进程：当前实例的明细。引擎是常驻子进程，用户能感受到的是「机器变卡」
+// 而界面上一句解释都没有——这里给出 PID、跑了多久、忙不忙、调过几次，以及重启它。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'

@@ -2,6 +2,7 @@ package service
 
 import (
 	"sync"
+	"time"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -11,7 +12,8 @@ import (
 	"WorkBaby/backend/sse"
 )
 
-// Chat 是对话编排：一个工作区一个引擎子进程；send / stop / steer / 切会话 / 状态组装。
+// Chat 是对话编排：一个工作区一个引擎子进程；send / stop / steer / 切会话。
+// 状态总装在 chat_state.go。
 type Chat struct {
 	// Settings 设置（工作区、上次会话）
 	Settings *Settings
@@ -25,7 +27,9 @@ type Chat struct {
 	Stream *chat.Stream
 
 	// mu 保护下面的绑定状态：整块换绑定必须原子，否则会有半新半旧的快照。
-	mu      sync.Mutex
+	mu sync.Mutex
+	// startMu 串行化引擎的「检查→停旧→拉新→换绑」整段：并发 EnsureRpc 只允许拉起一个引擎。
+	startMu sync.Mutex
 	rpc     *chat.PiRpc
 	rpcWs   string
 	file    string
@@ -35,6 +39,8 @@ type Chat struct {
 	autocmp bool
 	queued  domain.QueuedMessagesVO
 	bindErr string
+	// crashStreak 连续崩溃次数：自动重启的退避基数，成功绑定后归零。
+	crashStreak int
 }
 
 // NewChat 造一个对话门面。
@@ -52,11 +58,15 @@ func NewChat(settings *Settings, sessions *Sessions, rt *engine.Runtime, hub *ss
 }
 
 // EnsureRpc 确保子进程在跑且绑定当前工作区。
+// 整段在 startMu 内：检查与换绑分离曾允许并发请求各拉一个引擎、互相覆盖绑定。
 func (c *Chat) EnsureRpc() (*chat.PiRpc, error) {
 	workspace := c.Settings.Workspace()
 	if workspace == "" {
 		return nil, pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
 	}
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
+
 	c.mu.Lock()
 	current := c.rpc
 	boundWs := c.rpcWs
@@ -75,13 +85,21 @@ func (c *Chat) EnsureRpc() (*chat.PiRpc, error) {
 	if !c.Runtime.PiInstalled() {
 		return nil, pkg.Err(pkg.CodeRpcDown, "pi 尚未安装，请先在应用页安装")
 	}
-	client := chat.NewPiRpc(nodeExe, c.Runtime.PiEntry(), workspace, c.Runtime.Layout.SandboxEnv(nil), chat.Handlers{
+	var client *chat.PiRpc
+	client = chat.NewPiRpc(nodeExe, c.Runtime.PiEntry(), workspace, c.Runtime.Layout.SandboxEnv(nil), chat.Handlers{
 		OnEvent:     c.onEngineEvent,
 		OnUiRequest: c.onUiRequest,
 		OnExit: func(code int) {
 			c.mu.Lock()
-			c.rpc = nil
-			c.mu.Unlock()
+			// 只有「退出的仍是当前绑定实例」才清绑：被换下的旧进程退出得晚，不能抹掉新绑定。
+			// 清绑成功即视为意外退出（主动 Restart / Shutdown 先把 c.rpc 置 nil，不走这里）。
+			if c.rpc == client {
+				c.rpc = nil
+				c.mu.Unlock()
+				c.scheduleRestart()
+			} else {
+				c.mu.Unlock()
+			}
 			c.Hub.Broadcast("engine:exit", sse.EngineTag(map[string]any{"exit_code": code}))
 			pkg.Info("pi 子进程退出：code=%d", code)
 		},
@@ -107,11 +125,41 @@ func (c *Chat) EnsureRpc() (*chat.PiRpc, error) {
 	c.applyState(state)
 	c.mu.Lock()
 	c.bindErr = ""
+	c.crashStreak = 0
 	c.mu.Unlock()
 	c.Hub.Broadcast("engine:ready", sse.EngineTag(nil))
 	go c.refreshCommands(client)
 	go c.refreshLevels(client)
 	return client, nil
+}
+
+// scheduleRestart 引擎意外退出后的自动拉起：指数退避，连崩 5 次就停手交给用户。
+// 稳定性优先于不休止的重试——坏掉的引擎反复拉起只会反复打断用户。
+func (c *Chat) scheduleRestart() {
+	c.mu.Lock()
+	if c.crashStreak >= 5 {
+		c.mu.Unlock()
+		pkg.Warn("pi 连续崩溃 %d 次，停止自动重启，等下一次手动操作", c.crashStreak)
+		return
+	}
+	delay := time.Duration(2<<c.crashStreak) * time.Second
+	c.crashStreak++
+	c.mu.Unlock()
+	pkg.Warn("pi 意外退出，%s 后自动重启", delay)
+	time.AfterFunc(delay, func() {
+		// 到点时绑定已被手动操作补上就不再叠加：自动重启只为填补空档。
+		c.mu.Lock()
+		if c.rpc != nil {
+			c.mu.Unlock()
+			return
+		}
+		c.mu.Unlock()
+		if _, err := c.EnsureRpc(); err != nil {
+			pkg.Warn("pi 自动重启失败：%v", err)
+			return
+		}
+		pkg.Info("pi 自动重启完成")
+	})
 }
 
 // applyState 把 get_state 的应答写进绑定状态。
@@ -243,148 +291,6 @@ func chatInt(v any) int {
 		return int(n)
 	}
 	return 0
-}
-
-// State 聊天状态总装：引擎实况 + 会话文件回放。
-func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
-	client, err := c.EnsureRpc()
-	if err != nil {
-		return c.emptyState(pkg.As(err).Message)
-	}
-	if sessionFile != "" && sessionFile != c.currentFile() {
-		if _, err := client.Request(chat.Record{"type": "switch_session", "sessionPath": sessionFile}, 0); err != nil {
-			return c.emptyState("切换会话失败：" + pkg.As(err).Message)
-		}
-		c.mu.Lock()
-		c.file = sessionFile
-		c.mu.Unlock()
-		c.Settings.RememberSession(sessionFile)
-	}
-	state, err := client.Request(chat.Record{"type": "get_state"}, 0)
-	if err != nil {
-		return c.emptyState(pkg.As(err).Message)
-	}
-	c.applyState(state)
-
-	stats, _ := client.Request(chat.Record{"type": "get_session_stats"}, 0)
-	c.mu.Lock()
-	file := c.file
-	workspace := c.rpcWs
-	level := c.level
-	levels := append([]string(nil), c.levels...)
-	cmds := append([]domain.SlashCommandVO(nil), c.cmds...)
-	autocmp := c.autocmp
-	queued := c.queued
-	bindErr := c.bindErr
-	c.mu.Unlock()
-	c.Settings.RememberSession(file)
-
-	resp := domain.ChatStateRESP{
-		EngineKind:     domain.EnginePi,
-		SessionFile:    file,
-		WorkDir:        workspace,
-		EngineRunning:  client.Alive(),
-		Streaming:      c.Stream.Active(),
-		Model:          parseModelInfo(state),
-		ThinkingLevel:  level,
-		ThinkingLevels: levels,
-		AutoCompaction: autocmp,
-		Queued:         queued,
-		History:        c.Sessions.History(file),
-		Commands:       cmds,
-		Caps:           domain.PiCaps,
-		BindErr:        bindErr,
-	}
-	resp.Stats, resp.ContextUsage = parseStats(stats)
-	return resp
-}
-
-// parseModelInfo 从 get_state 应答里取当前模型。
-func parseModelInfo(state any) *domain.ModelInfoVO {
-	fields, ok := state.(map[string]any)
-	if !ok {
-		return nil
-	}
-	model, ok := fields["model"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	info := &domain.ModelInfoVO{
-		ModelId:           stringOf(model["id"]),
-		ModelName:         stringOf(model["name"]),
-		ProviderName:      stringOf(model["provider"]),
-		ApiProtocol:       stringOf(model["api"]),
-		ContextWindow:     chatInt(model["contextWindow"]),
-		MaxTokens:         chatInt(model["maxTokens"]),
-		InputKinds:        asStringSlice(model["input"]),
-		SupportsReasoning: false,
-	}
-	if flag, ok := model["reasoning"].(bool); ok {
-		info.SupportsReasoning = flag
-	}
-	return info
-}
-
-// parseStats 从 get_session_stats 应答里取累计用量与上下文占用。
-func parseStats(stats any) (*domain.SessionStatsVO, *domain.ContextUsageVO) {
-	fields, ok := stats.(map[string]any)
-	if !ok {
-		return nil, nil
-	}
-	out := &domain.SessionStatsVO{
-		SessionId:         stringOf(fields["sessionId"]),
-		UserMessages:      chatInt(fields["userMessages"]),
-		AssistantMessages: chatInt(fields["assistantMessages"]),
-		ToolCalls:         chatInt(fields["toolCalls"]),
-		TotalMessages:     chatInt(fields["totalMessages"]),
-	}
-	if tokens, ok := fields["tokens"].(map[string]any); ok {
-		out.InputTokens = chatInt(tokens["input"])
-		out.OutputTokens = chatInt(tokens["output"])
-		out.CacheReadTokens = chatInt(tokens["cacheRead"])
-		out.CacheWriteTokens = chatInt(tokens["cacheWrite"])
-		out.TotalTokens = chatInt(tokens["total"])
-	}
-	if cost, ok := fields["cost"].(float64); ok {
-		out.CostUsd = cost
-	}
-	usage := parseContextUsage(fields["contextUsage"])
-	out.ContextUsage = usage
-	return out, usage
-}
-
-// parseContextUsage 解析上下文占用；压缩后还没新读数时两个值都是 null。
-func parseContextUsage(raw any) *domain.ContextUsageVO {
-	fields, ok := raw.(map[string]any)
-	if !ok {
-		return nil
-	}
-	out := &domain.ContextUsageVO{ContextWindow: chatInt(fields["contextWindow"])}
-	if tokens, ok := fields["tokens"].(float64); ok {
-		value := int(tokens)
-		out.UsageTokens = &value
-	}
-	if percent, ok := fields["percent"].(float64); ok {
-		out.UsagePercent = &percent
-	}
-	return out
-}
-
-// emptyState 绑定失败时给一个能画的空状态：界面据此显示原因，而不是白屏。
-func (c *Chat) emptyState(reason string) domain.ChatStateRESP {
-	c.mu.Lock()
-	levels := append([]string(nil), c.levels...)
-	cmds := append([]domain.SlashCommandVO(nil), c.cmds...)
-	c.mu.Unlock()
-	return domain.ChatStateRESP{
-		EngineKind:     domain.EnginePi,
-		ThinkingLevel:  "medium",
-		ThinkingLevels: levels,
-		AutoCompaction: true,
-		Commands:       cmds,
-		Caps:           domain.PiCaps,
-		BindErr:        reason,
-	}
 }
 
 // currentFile 当前绑定的会话文件。

@@ -1,8 +1,10 @@
 package service
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"WorkBaby/backend/domain"
@@ -106,6 +108,11 @@ func toServerRow(name string, entry map[string]any, scope, configPath string) do
 		ConfigPath: configPath,
 		McpEnabled: entry["enabled"] != false,
 		McpDesc:    stringField(entry, "description"),
+		McpWorkDir: stringField(entry, "cwd"),
+		McpEnvText: envLinesOf(entry["env"]),
+	}
+	if n, ok := entry["timeout"].(float64); ok {
+		row.McpTimeout = int(n)
 	}
 	if url != "" {
 		row.TransportKind = "http"
@@ -118,6 +125,24 @@ func toServerRow(name string, entry map[string]any, scope, configPath string) do
 	return row
 }
 
+// envLinesOf 把 env 映射转成回显文本：逐行 KEY=VALUE，键名排序保证稳定。
+func envLinesOf(raw any) string {
+	env, _ := raw.(map[string]any)
+	if len(env) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		lines = append(lines, key+"="+fmt.Sprint(env[key]))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // stringField 安全取字符串字段。
 func stringField(entry map[string]any, key string) string {
 	value, _ := entry[key].(string)
@@ -125,10 +150,18 @@ func stringField(entry map[string]any, key string) string {
 }
 
 // Save 保存：写用户级文件。有 ServerUrl 即 HTTP，否则拆 CommandText。
+// 编辑时先整份继承旧条目再覆盖表单管得到的字段：用户手配的 headers、oauth、
+// type 不在表单里，从零重建会静默丢掉它们。
 func (m *Mcp) Save(req domain.McpSaveREQ) (domain.McpListRESP, error) {
 	name := strings.TrimSpace(req.ServerName)
 	if name == "" {
 		return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "服务名不能为空")
+	}
+	// 服务名是引擎拼工具名（mcp__<server>__<tool>）的原料，字符集只有字母数字 _ -。
+	if strings.ContainsFunc(name, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-')
+	}) {
+		return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "服务名只能含字母、数字、下划线与短横线："+name)
 	}
 	userPath := m.Layout.McpFile()
 	value, err := readMcpFile(userPath)
@@ -136,33 +169,55 @@ func (m *Mcp) Save(req domain.McpSaveREQ) (domain.McpListRESP, error) {
 		return domain.McpListRESP{}, err
 	}
 	entry := map[string]any{}
+	if prev, ok := value.McpServers[name]; ok {
+		for k, v := range prev {
+			entry[k] = v
+		}
+	}
 	switch {
 	case strings.TrimSpace(req.ServerUrl) != "":
 		if req.TransportKind == "stdio" {
 			return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "URL 服务不能配置命令行")
 		}
 		entry["url"] = strings.TrimSpace(req.ServerUrl)
+		delete(entry, "command")
+		delete(entry, "args")
+		delete(entry, "cwd")
 	case strings.TrimSpace(req.CommandText) != "":
 		parts := pkg.SplitCommandLine(strings.TrimSpace(req.CommandText))
 		if len(parts) == 0 {
 			return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "命令行不能为空")
 		}
+		delete(entry, "url")
 		entry["command"] = parts[0]
 		if len(parts) > 1 {
 			entry["args"] = toAnySlice(parts[1:])
+		} else {
+			delete(entry, "args")
 		}
 	default:
 		return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "命令行与 URL 至少填一个")
 	}
+	// 表单管得到的字段：空值语义是「清掉」，不是「保持不动」。
 	if desc := strings.TrimSpace(req.McpDesc); desc != "" {
 		entry["description"] = desc
+	} else {
+		delete(entry, "description")
+	}
+	if dir := strings.TrimSpace(req.WorkDir); dir != "" {
+		entry["cwd"] = dir
+	} else {
+		delete(entry, "cwd")
 	}
 	if env := parseEnvList(req.EnvList); len(env) > 0 {
 		entry["env"] = env
+	} else {
+		delete(entry, "env")
 	}
-	// 改定义不该顺手把停用的服务重新启用。
-	if prev, ok := value.McpServers[name]; ok && prev["enabled"] == false {
-		entry["enabled"] = false
+	if req.McpTimeout > 0 {
+		entry["timeout"] = req.McpTimeout
+	} else {
+		delete(entry, "timeout")
 	}
 	value.McpServers[name] = entry
 	if err := writeMcpFile(userPath, value); err != nil {
@@ -232,4 +287,21 @@ func (m *Mcp) Remove(serverName string) (domain.McpListRESP, error) {
 // Count MCP 服务总数（健康面板用）。
 func (m *Mcp) Count() int {
 	return len(m.List().Servers)
+}
+
+// findEntry 找一个服务的定义：项目级同名优先，与引擎的覆盖语义一致。
+func (m *Mcp) findEntry(name string) (map[string]any, bool) {
+	for _, path := range []string{m.projectPath(), m.Layout.McpFile()} {
+		if path == "" || !pkg.Exists(path) {
+			continue
+		}
+		value, err := readMcpFile(path)
+		if err != nil {
+			continue
+		}
+		if entry, ok := value.McpServers[name]; ok {
+			return entry, true
+		}
+	}
+	return nil, false
 }

@@ -64,6 +64,29 @@ function onFontScale(v: number | number[]): void {
         @change="(v: string | number | boolean) => emit('save', { 'ui.reduce_motion': v ? '1' : '0' })"
       />
     </div>
+
+    <div class="set-row">
+      <div>
+        <div class="set-label">{{ t('settings.lang') }}</div>
+        <div class="set-hint">{{ t('settings.langHint') }}</div>
+      </div>
+      <div class="seg">
+        <button
+          class="seg-btn"
+          :class="{ active: (app.settings['ui.locale'] ?? 'zh-CN') !== 'en' }"
+          @click="emit('save', { 'ui.locale': 'zh-CN' })"
+        >
+          中文
+        </button>
+        <button
+          class="seg-btn"
+          :class="{ active: app.settings['ui.locale'] === 'en' }"
+          @click="emit('save', { 'ui.locale': 'en' })"
+        >
+          English
+        </button>
+      </div>
+    </div>
   </section>
 </template>
 

@@ -19,7 +19,11 @@ func mountGit(g *gin.RouterGroup, s *Server) {
 	g.GET("/git/file-history", s.gitFileHistory)
 	g.GET("/git/file-diff", s.gitFileDiff)
 	g.GET("/git/branches", s.gitBranches)
+	g.GET("/git/stash/list", s.gitStashList)
 
+	g.POST("/git/stash/push", s.gitStashPush)
+	g.POST("/git/stash/pop", s.gitStashPop)
+	g.POST("/git/stash/drop", s.gitStashDrop)
 	g.POST("/git/stage", s.gitStage)
 	g.POST("/git/unstage", s.gitUnstage)
 	g.POST("/git/discard", s.gitDiscard)
@@ -241,6 +245,49 @@ func (s *Server) gitAddRemote(c *gin.Context) {
 		return
 	}
 	out, err := s.svc.Git.AddRemote(req.RemoteName, req.RemoteUrl)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
+}
+
+// gitStashList stash 清单。
+func (s *Server) gitStashList(c *gin.Context) {
+	pkg.OK(c, s.svc.Git.StashList())
+}
+
+// gitStashPush 收藏改动进 stash。
+func (s *Server) gitStashPush(c *gin.Context) {
+	var req domain.GitStashREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Git.StashPush(req)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
+}
+
+// gitStashPop 恢复最新一条 stash。
+func (s *Server) gitStashPop(c *gin.Context) {
+	out, err := s.svc.Git.StashPop()
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
+}
+
+// gitStashDrop 丢弃指定 stash。
+func (s *Server) gitStashDrop(c *gin.Context) {
+	var req domain.GitStashREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Git.StashDrop(req)
 	if err != nil {
 		pkg.Fail(c, err)
 		return

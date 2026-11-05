@@ -2,12 +2,14 @@
 // 插件页：列、装、卸、启停、升级。
 // 列表来自引擎自己的登记清单（pi 的 settings.json packages），不扫 node_modules——
 // 那会把间接依赖当成插件。装 / 卸 / 升级都用内置 npm 跑进沙箱。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
+import PluginTable from '@/components/plugins/PluginTable.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
+import { useRefreshStore } from '@/stores/refresh'
 import { useToasts } from '@/composables/useToasts'
 import type { PluginRow } from '@/types/api'
 
@@ -28,6 +30,7 @@ const installing = ref(false)
 const retrying = ref(false)
 const upgradingAll = ref(false)
 const restarting = ref(false)
+const checking = ref(false)
 
 const caps = computed(() => app.caps)
 const builtinMissing = computed(() => builtinTotal.value - builtinInstalled.value)
@@ -89,6 +92,23 @@ async function upgradeAll() {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     upgradingAll.value = false
+  }
+}
+
+// 问 npm registry 的最新版：结果直接并进清单（plugin_latest），离线时留空不猜。
+async function checkUpdates() {
+  if (checking.value) return
+  checking.value = true
+  try {
+    const data = await api.checkPluginUpdates()
+    rows.value = data.plugins ?? []
+    builtinInstalled.value = data.builtin_installed
+    const upgradable = (data.plugins ?? []).filter((row) => row.plugin_upgradable).length
+    ElMessage.success(t('plugins.checkUpdatesDone', { n: upgradable }))
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    checking.value = false
   }
 }
 
@@ -173,24 +193,17 @@ async function restart() {
   }
 }
 
-/** 资源种类拼成一行；没有给破折号，不给空白。 */
-function resourceLabel(kinds: string[]): string {
-  if (!kinds?.length) return '—'
-  return kinds.join(' · ')
-}
-
-/** 状态标签：已装 / 缺包 / 失败。 */
-function stateLabel(row: PluginRow): string {
-  if (row.plugin_state === 'failed') return t('plugins.failedState')
-  if (row.plugin_installed) return t('plugins.installedState')
-  return t('plugins.missingState')
-}
-
-function stateClass(row: PluginRow): string {
-  if (row.plugin_state === 'failed') return 'bad'
-  if (row.plugin_installed) return 'ok'
-  return 'warn'
-}
+// 首启装配在后台跑完时页面可能开着没动：事件路由 bump 一下，这里防抖重拉。
+// 自己动作后的 load 不经过这里，不受影响。
+const refreshStore = useRefreshStore()
+let reloadTimer = 0
+watch(
+  () => refreshStore.plugins,
+  () => {
+    window.clearTimeout(reloadTimer)
+    reloadTimer = window.setTimeout(() => void load(), 400)
+  },
+)
 
 onMounted(load)
 </script>
@@ -222,6 +235,10 @@ onMounted(load)
         >
           <AppIcon name="download" :size="14" />
           {{ t('plugins.retryAll', { n: builtinMissing }) }}
+        </button>
+        <button class="wb-btn" :class="{ 'is-loading': checking }" :disabled="checking || busy" @click="checkUpdates">
+          <AppIcon name="search" :size="14" />
+          {{ t('plugins.checkUpdates') }}
         </button>
         <button class="wb-btn" :class="{ 'is-loading': restarting }" :disabled="restarting" @click="restart">
           <AppIcon name="refresh" :size="14" />
@@ -280,79 +297,19 @@ onMounted(load)
           <p class="wb-empty-hint">{{ t('plugins.emptyHint') }}</p>
         </div>
 
-        <el-table v-else :data="rows" size="small">
-          <el-table-column :label="t('plugins.name')" min-width="200">
-            <template #default="{ row }">
-              <div class="cell-name">
-                <span class="name">
-                  {{ row.plugin_name }}
-                  <span v-if="row.plugin_builtin" class="tag brand-tag">{{ t('plugins.builtin') }}</span>
-                </span>
-                <span v-if="row.plugin_desc" class="desc">{{ row.plugin_desc }}</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.version')" width="120">
-            <template #default="{ row }">
-              <span class="wb-mono">{{ row.plugin_version || '—' }}</span>
-              <span v-if="row.plugin_target_version && row.plugin_target_version !== row.plugin_version" class="wb-mono target">
-                → {{ row.plugin_target_version }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.resources')" width="120">
-            <template #default="{ row }">
-              <span class="wb-mono">{{ resourceLabel(row.resource_kinds) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.state')" width="96">
-            <template #default="{ row }">
-              <span class="tag" :class="stateClass(row)" :title="row.plugin_error || ''">{{ stateLabel(row) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.enabledLabel')" width="80">
-            <template #default="{ row }">
-              <el-switch
-                :model-value="row.plugin_enabled"
-                :loading="toggling === row.plugin_name"
-                :disabled="(Boolean(toggling) && toggling !== row.plugin_name) || !row.plugin_installed"
-                @change="(v: string | number | boolean) => toggle(row, Boolean(v))"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('common.actions')" width="170" align="right">
-            <template #default="{ row }">
-              <div class="row-actions">
-                <button
-                  v-if="row.plugin_builtin && !row.plugin_installed"
-                  class="wb-btn text sm"
-                  :class="{ 'is-loading': upgrading === row.plugin_name }"
-                  :disabled="Boolean(upgrading) || busy"
-                  @click="retry(row)"
-                >
-                  {{ t('plugins.retry') }}
-                </button>
-                <button
-                  v-else
-                  class="wb-btn text sm"
-                  :class="{ 'is-loading': busyName === row.plugin_name }"
-                  :disabled="Boolean(busyName) || busy"
-                  @click="upgrade(row)"
-                >
-                  {{ t('plugins.upgrade') }}
-                </button>
-                <button
-                  class="wb-btn text sm danger"
-                  :class="{ 'is-loading': busyName === row.plugin_name }"
-                  :disabled="Boolean(busyName) || busy"
-                  @click="uninstall(row)"
-                >
-                  {{ t('common.uninstall') }}
-                </button>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
+        <PluginTable
+          v-if="rows.length || loading"
+          :rows="rows"
+          :loading="loading"
+          :busy="busy"
+          :busy-name="busyName"
+          :toggling="toggling"
+          :upgrading="upgrading"
+          @toggle="toggle"
+          @upgrade="upgrade"
+          @retry="retry"
+          @uninstall="uninstall"
+        />
       </section>
     </div>
   </div>
@@ -430,51 +387,11 @@ onMounted(load)
   text-transform: none;
 }
 
-.row-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--wb-sp-2);
-}
-
 .registry {
   margin-left: auto;
   max-width: 340px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.cell-name {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.name {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-1);
-  font-weight: 650;
-  color: var(--wb-ink);
-}
-
-.brand-tag {
-  font-size: var(--wb-fs-3xs);
-  font-weight: 500;
-  opacity: 0.75;
-}
-
-.desc {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-mute);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.target {
-  margin-left: 4px;
-  color: var(--wb-brand);
 }
 </style>

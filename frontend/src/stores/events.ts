@@ -27,6 +27,12 @@ export interface RouteDeps {
   refreshSessions: () => Promise<unknown>
   /** 重拉应用清单（安装跑完之后） */
   loadApps: () => Promise<unknown>
+  /** 插件清单有后台变化（首启装配完成时页面可能开着没动） */
+  bumpPlugins: () => void
+  /** 技能清单有后台变化 */
+  bumpSkills: () => void
+  /** 引擎改了工作区文件（一轮结束），工作区页该重看一眼 */
+  bumpWorkspace: () => void
   /** 断流后拉一次快照对账 */
   reconcile: () => void | Promise<void>
   /** 安装进度（同一个时刻只有一条长任务，所以只留一份） */
@@ -106,8 +112,10 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       return
     }
     case 'plugin:status':
+      deps.bumpPlugins()
+      return
     case 'skill:status':
-      // 这两类变化由各自的页面在动作后自己重拉，这里只提示一下。
+      deps.bumpSkills()
       return
     case 'chat:start':
       chat.streaming = true
@@ -203,6 +211,8 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       chat.finishTurn()
       void chat.refresh(chat.sessionFile)
       void deps.refreshSessions()
+      // 引擎这一轮多半动过文件：工作区页开着就该重看一眼。
+      deps.bumpWorkspace()
       return
     case 'chat:settled':
       chat.streaming = false

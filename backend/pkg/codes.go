@@ -13,6 +13,7 @@ const (
 	CodeFileIO       = "1003" // 文件读写失败
 	CodeGitMissing   = "1100" // 内置 git 不可用
 	CodeGitFailed    = "1101" // git 命令失败
+	CodeGitAuth      = "1102" // git 凭证被拒或无法登录
 
 	// 2000-2999 配置 / 数据库
 	CodeConfigRead  = "2000" // 配置读取失败
@@ -20,8 +21,7 @@ const (
 	CodeDatabase    = "2002" // SQLite 操作失败
 
 	// 3000-3999 服务商 / 模型
-	CodeProviderBad  = "3000" // 服务商配置不合法
-	CodeProviderCall = "3001" // 向上游探测失败
+	CodeProviderBad = "3000" // 服务商配置不合法
 
 	// 5000-5999 会话运行
 	CodeSessionBind = "5000" // 引擎未绑定到会话或工作区

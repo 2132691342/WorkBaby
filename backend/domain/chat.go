@@ -124,6 +124,18 @@ type QueuedMessagesVO struct {
 	FollowUp []string `json:"follow_up"`
 }
 
+// TodoVO 是待办面板上的一条任务。
+type TodoVO struct {
+	// TodoId 任务号（插件侧的自增 ID）
+	TodoId int `json:"todo_id"`
+	// TodoSubject 一句话说明
+	TodoSubject string `json:"todo_subject"`
+	// TodoStatus pending / in_progress / completed
+	TodoStatus string `json:"todo_status"`
+	// TodoActiveForm 进行中的现在进行时描述（如「正在跑测试」）
+	TodoActiveForm string `json:"todo_active_form,omitempty"`
+}
+
 // ModelInfoVO 是当前模型的定义。
 type ModelInfoVO struct {
 	// ModelId 模型 ID
@@ -182,6 +194,8 @@ type ChatStateRESP struct {
 	Stats *SessionStatsVO `json:"stats,omitempty"`
 	// History 回放出来的历史轮
 	History []HistoryTurnVO `json:"history"`
+	// Todos 当前待办（活动分支上最近一次 todo 工具调用派生）
+	Todos []TodoVO `json:"todos"`
 	// Commands 可用斜杠命令
 	Commands []SlashCommandVO `json:"commands"`
 	// Caps 能力表

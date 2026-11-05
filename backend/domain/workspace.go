@@ -243,3 +243,27 @@ type GitSyncREQ struct {
 	// IsRebase 拉取时是否用 rebase
 	IsRebase bool `json:"is_rebase"`
 }
+
+// GitStashVO 是一条 stash。
+type GitStashVO struct {
+	// StashRef 引用名（stash@{n}），恢复与丢弃都用它
+	StashRef string `json:"stash_ref"`
+	// StashSubject 存的时候留的一句话
+	StashSubject string `json:"stash_subject"`
+}
+
+// GitStashListRESP 是 stash 清单。
+type GitStashListRESP struct {
+	// Stashes stash 行，最新在前
+	Stashes []GitStashVO `json:"stashes"`
+}
+
+// GitStashREQ 是 stash 动作的入参。
+type GitStashREQ struct {
+	// StashMessage 存 stash 时的一句话；可空
+	StashMessage string `json:"stash_message"`
+	// StashRef 丢弃指定 stash 时的引用名（stash@{n}）
+	StashRef string `json:"stash_ref"`
+	// Confirm 危险动作的确认词（丢弃 stash 时必须等于引用名）
+	Confirm string `json:"confirm"`
+}

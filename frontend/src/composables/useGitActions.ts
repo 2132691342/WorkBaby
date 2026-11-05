@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
-import type { GitFile, GitStatus } from '@/types/api'
+import type { GitFile, GitStatus, GitStash } from '@/types/api'
 
 /**
  * 丢弃改动 / 强推 / 中止这类动作的确认。
@@ -178,24 +178,11 @@ export function useGitActions(
   /**
    * 推送。
    *
-   * force 分三档：none 普通、lease 带租约、force 无条件。
-   * 无条件强推会静默覆盖别人的提交，所以要用户输入分支名确认。
+   * force 分两档：none 普通、with-lease 带租约。裸 --force 不提供——
+   * 它会静默覆盖别人的提交；带租约的确认词由强推面板收集，后端再校验一次。
    */
-  async function push(force = 'none'): Promise<void> {
+  async function push(force = 'none', confirm = ''): Promise<void> {
     const branch = status()?.branch_name ?? ''
-    let confirm = ''
-    if (force === 'force') {
-      try {
-        const { value } = await ElMessageBox.prompt(
-          t('workspace.forceConfirmPlaceholder', { name: branch }),
-          t('workspace.forcePush'),
-          { confirmButtonText: t('workspace.forcePush'), cancelButtonText: t('common.cancel') },
-        )
-        confirm = value
-      } catch {
-        return
-      }
-    }
     await act(
       `push:${force}`,
       () => api.gitPush({ remote_name: soleRemote(), branch_name: branch, force_mode: force, set_upstream: !status()?.upstream_ref, confirm }),
@@ -203,14 +190,14 @@ export function useGitActions(
     )
   }
 
-  async function pull(): Promise<void> {
+  async function pull(isRebase = false): Promise<void> {
     const branch = status()?.branch_name ?? ''
     // 拉完说清「有没有新东西」：git pull 成功但无事发生时，
     // 不说一声会被当成失败——用户看不出区别。
     const before = status()?.behind ?? 0
     await act(
       'pull',
-      () => api.gitPull(soleRemote(), branch, false),
+      () => api.gitPull(soleRemote(), branch, isRebase),
       before > 0
         ? t('workspace.pulledN', { branch, n: before })
         : t('workspace.pulledUpToDate', { branch }),
@@ -260,6 +247,28 @@ export function useGitActions(
     await act('remote', () => api.gitAddRemote('origin', url), t('workspace.remoteAdded'))
   }
 
+  /** 全部改动（含未跟踪文件）收进 stash：改动到一半不能提交又必须切分支时的无损出口。 */
+  async function stashPush(): Promise<void> {
+    await act('stash-push', () => api.gitStashPush(''), t('workspace.stashed'))
+  }
+
+  /** 恢复最新一条 stash。撞出冲突是正常结果，状态与冲突横幅会带出来。 */
+  async function stashPop(): Promise<void> {
+    await act('stash-pop', () => api.gitStashPop(), t('workspace.stashPopped'))
+  }
+
+  /** 丢弃一条 stash。不可逆——它不在任何 reflog 里，确认过再发。 */
+  async function stashDrop(row: GitStash): Promise<void> {
+    const ok = await confirmDanger(
+      t('workspace.stashDropConfirm', { ref: row.stash_ref, subject: row.stash_subject }),
+      t('workspace.stashDropTitle'),
+      t('common.delete'),
+      t('common.cancel'),
+    )
+    if (!ok) return
+    await act(`stash-drop:${row.stash_ref}`, () => api.gitStashDrop(row.stash_ref, row.stash_ref), t('workspace.stashDropped'))
+  }
+
   return {
     pending,
     stageAll,
@@ -278,5 +287,8 @@ export function useGitActions(
     push,
     pull,
     fetchRemote,
+    stashPush,
+    stashPop,
+    stashDrop,
   }
 }

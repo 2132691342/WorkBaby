@@ -11,8 +11,8 @@ const props = defineProps<{ status: GitStatus | null; pending: string }>()
 
 const emit = defineEmits<{
   fetch: []
-  pull: []
-  push: [force: string]
+  pull: [isRebase: boolean]
+  push: [force: string, confirm?: string]
   addRemote: []
 }>()
 
@@ -24,15 +24,14 @@ const hasRemote = computed(() => (props.status?.remotes?.length ?? 0) > 0)
 /** 有上游才有「推送到上游」这个确定动作；没有就退到「推送并建立跟踪」。 */
 const hasUpstream = computed(() => Boolean(props.status?.upstream_ref))
 
-/** 强推要确认：先选级别，再输分支名。 */
+/** 强推只有带租约一档（裸 --force 会静默抹掉别人的提交，后端不提供）；确认要输分支名。 */
 const forceOpen = ref(false)
-const forceLevel = ref<'lease' | 'force'>('lease')
 const confirmText = ref('')
+/** 拉取的变基选项藏在拆分按钮里：普通拉取仍是单击直达。 */
+const pullOpen = ref(false)
 
 /** 确认文本必须与分支名完全一致，否则强推按钮不给点。 */
-const canForce = computed(
-  () => forceLevel.value === 'lease' || confirmText.value === (props.status?.branch_name ?? ''),
-)
+const canForce = computed(() => confirmText.value === (props.status?.branch_name ?? ''))
 
 /** 某个动作是否在跑：pending 是动作名（见 useGitActions）。 */
 function busy(name: string): boolean {
@@ -46,7 +45,7 @@ function syncing(): boolean {
 
 function submitForce() {
   if (!canForce.value) return
-  emit('push', forceLevel.value)
+  emit('push', 'with-lease', confirmText.value)
   forceOpen.value = false
   confirmText.value = ''
 }
@@ -90,17 +89,36 @@ function submitForce() {
       {{ t('workspace.fetch') }}
     </button>
 
-    <button
-      v-if="hasRemote"
-      class="wb-btn sm ghost"
-      :class="{ 'is-loading': busy('pull') }"
-      :disabled="syncing()"
-      :title="t('workspace.pull')"
-      @click="emit('pull')"
-    >
-      <AppIcon name="download" :size="13" />
-      {{ t('workspace.pull') }}
-    </button>
+    <!-- 拉取是拆分按钮：单击普通拉取；变基这种换历史的变体收进菜单。 -->
+    <span v-if="hasRemote" class="pull-split">
+      <button
+        class="wb-btn sm ghost"
+        :class="{ 'is-loading': busy('pull') }"
+        :disabled="syncing()"
+        :title="t('workspace.pull')"
+        @click="pullOpen = false; emit('pull', false)"
+      >
+        <AppIcon name="download" :size="13" />
+        {{ t('workspace.pull') }}
+      </button>
+      <button
+        class="wb-btn sm ghost pull-caret"
+        :disabled="syncing()"
+        :title="t('workspace.pullRebase')"
+        @click="pullOpen = !pullOpen"
+      >
+        <AppIcon name="chevron" :size="10" />
+      </button>
+      <button
+        v-if="pullOpen"
+        class="wb-btn sm ghost"
+        :disabled="syncing()"
+        :title="t('workspace.pullRebaseHint')"
+        @click="pullOpen = false; emit('pull', true)"
+      >
+        {{ t('workspace.pullRebase') }}
+      </button>
+    </span>
 
     <button
       v-if="hasRemote"
@@ -130,20 +148,12 @@ function submitForce() {
     <div v-if="forceOpen" class="force-panel">
       <div class="force-head">{{ t('workspace.forcePush') }}</div>
       <label class="force-opt">
-        <input v-model="forceLevel" type="radio" value="lease" />
         <span>
           <b>{{ t('workspace.forceLease') }}</b>
           <em>{{ t('workspace.forceLeaseHint') }}</em>
         </span>
       </label>
-      <label class="force-opt">
-        <input v-model="forceLevel" type="radio" value="force" />
-        <span>
-          <b class="is-danger">{{ t('workspace.forceTrue') }}</b>
-          <em>{{ t('workspace.forceTrueHint') }}</em>
-        </span>
-      </label>
-      <div v-if="forceLevel === 'force'" class="force-confirm">
+      <div class="force-confirm">
         <input
           v-model="confirmText"
           class="wb-input"
@@ -222,6 +232,21 @@ function submitForce() {
 
 .git-sp {
   flex: 1;
+}
+
+/* 拆分按钮：主键与菜单键贴成一块，菜单键窄一点只放箭头。 */
+.pull-split {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.pull-split > * + * {
+  margin-left: 1px;
+}
+
+.pull-caret {
+  padding-left: 5px;
+  padding-right: 5px;
 }
 
 /* 强推面板：就在版本栏下方展开，不弹窗——

@@ -151,10 +151,19 @@ export interface ChatState {
   queued: QueuedMessages
   stats?: SessionStats
   history: HistoryTurn[]
+  todos?: TodoItem[]
   commands: SlashCommand[]
   caps: EngineCaps
   /** 没能把引擎切到请求的会话时的原因原话；空表示切好了 */
   bind_err?: string
+}
+
+/** 待办面板上的一条任务（rpiv-todo 的 todo 工具调用派生）。 */
+export interface TodoItem {
+  todo_id: number
+  todo_subject: string
+  todo_status: 'pending' | 'in_progress' | 'completed'
+  todo_active_form?: string
 }
 
 /** 引擎的提问卡片。 */

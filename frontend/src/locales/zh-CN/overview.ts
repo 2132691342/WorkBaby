@@ -54,6 +54,7 @@ overview: {
     processesEmpty: '现在没有引擎进程。发一句话时会按时拉起一个。',
     stopProcess: '停掉',
     processGone: '这个进程已经不在了',
+    restartProcess: '重启进程',
     busy: '正在回答',
     calls: '{n} 条命令',
   },

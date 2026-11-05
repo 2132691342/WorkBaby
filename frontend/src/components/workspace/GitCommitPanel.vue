@@ -16,7 +16,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  commit: [message: string]
+  commit: [message: string, isAmend: boolean]
   createBranch: []
   switchBranch: [name: string]
   deleteBranch: [name: string]
@@ -26,15 +26,21 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 const message = ref('')
+/** 修补上一次提交：只改最后一条的说明或内容，不新增提交。 */
+const amend = ref(false)
 
-const canCommit = computed(
-  () => Boolean(message.value.trim()) && props.stagedCount > 0 && !props.committing,
-)
+const canCommit = computed(() => {
+  if (props.committing) return false
+  // amend 只改说明也合法：暂存区可以空着，说明必须给。
+  if (amend.value) return Boolean(message.value.trim())
+  return Boolean(message.value.trim()) && props.stagedCount > 0
+})
 
 async function submit(): Promise<void> {
   if (!canCommit.value) return
-  emit('commit', message.value.trim())
+  emit('commit', message.value.trim(), amend.value)
   message.value = ''
+  amend.value = false
 }
 
 /** 父组件提交成功后调用：清空输入框。 */
@@ -60,8 +66,12 @@ defineExpose({ reset })
         :disabled="!canCommit"
         @click="submit"
       >
-        {{ t('workspace.commit', { n: props.stagedCount }) }}
+        {{ amend ? t('workspace.amendCommit') : t('workspace.commit', { n: props.stagedCount }) }}
       </button>
+      <label class="amend-opt" :title="t('workspace.amendHint')">
+        <input v-model="amend" type="checkbox" />
+        {{ t('workspace.amend') }}
+      </label>
     </div>
   </div>
 
@@ -112,6 +122,16 @@ defineExpose({ reset })
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
+}
+
+.amend-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-mute);
+  cursor: pointer;
+  user-select: none;
 }
 
 .branch-row {

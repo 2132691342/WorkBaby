@@ -16,15 +16,18 @@ type Plugins struct {
 	Runtime *engine.Runtime
 	// Hub 事件广播
 	Hub *sse.Hub
+	// Chat 引擎门面：动包目录前要先停引擎（Windows 锁文件）
+	Chat *Chat
 
 	mu       sync.Mutex
 	failures map[string]string
+	updates  pluginUpdates
 	busy     string
 }
 
 // NewPlugins 造一个插件门面。
-func NewPlugins(rt *engine.Runtime, hub *sse.Hub) *Plugins {
-	return &Plugins{Runtime: rt, Hub: hub, failures: map[string]string{}}
+func NewPlugins(rt *engine.Runtime, hub *sse.Hub, chat *Chat) *Plugins {
+	return &Plugins{Runtime: rt, Hub: hub, Chat: chat, failures: map[string]string{}}
 }
 
 // DeclareBuiltins 把内置清单写进 settings.json 的 packages 声明。
@@ -59,9 +62,8 @@ func (p *Plugins) DeclareBuiltins() {
 }
 
 // ProvisionBuiltins 首启装内置插件（后台跑，失败留给界面上单个重试）。
-// 判据不是「包目录在不在」，而是「在且版本对得上钉住的值」：只看目录会让
-// 清单里 pin 的版本永久失效——发布新壳改了版本号，老机器上装着的依旧是旧版，
-// 而界面显示「已安装」，用户无从发现。装歪了（比如上游发了个补丁版）也走这条。
+// 判据是「在且版本对得上钉住的值」：只看目录会让 pin 的版本在改版重发后永久失效，
+// 老机器装着旧版却显示「已安装」。
 func (p *Plugins) ProvisionBuiltins() (installed, failed int) {
 	// 占位不是可选项：首启装配与用户手动点安装是两条入口，
 	// 同时跑 npm 会互相覆盖写入，最后得到一个半装的包。
@@ -177,6 +179,9 @@ func (p *Plugins) Upgrade(pluginName string) (domain.PluginInstallRESP, error) {
 	if spec == "" {
 		return domain.PluginInstallRESP{}, pkg.Err(pkg.CodeProvision, "未找到插件："+pluginName)
 	}
+	if err := p.stopEngineForDisk(); err != nil {
+		return domain.PluginInstallRESP{}, err
+	}
 	if err := removeAllQuiet(installedPathOf(layout, pluginName)); err != nil {
 		return domain.PluginInstallRESP{}, err
 	}
@@ -198,6 +203,9 @@ func (p *Plugins) UpgradeAll() (domain.PluginInstallRESP, error) {
 
 	layout := p.Runtime.Layout
 	p.DeclareBuiltins()
+	if err := p.stopEngineForDisk(); err != nil {
+		return domain.PluginInstallRESP{}, err
+	}
 	installed, failed := 0, 0
 	for _, item := range BuiltinPlugins {
 		if !pluginInstalled(layout, item.PluginName) || !needsVersionFix(layout, item) {
@@ -220,6 +228,20 @@ func (p *Plugins) UpgradeAll() (domain.PluginInstallRESP, error) {
 	return domain.PluginInstallRESP{Installed: installed, Failed: failed}, nil
 }
 
+// stopEngineForDisk 动包目录前停引擎：Windows 上运行中的 node 锁着包文件，
+// 直接删/换目录会失败。正在跑一轮时拒掉——杀引擎等于把用户正在等的回答掐断。
+func (p *Plugins) stopEngineForDisk() error {
+	if p.Chat == nil {
+		return nil
+	}
+	if p.Chat.Stream.Active() {
+		return pkg.Err(pkg.CodeProvision, "引擎正在执行任务，等这一轮结束再动插件")
+	}
+	// Restart 内部等引擎真退出再返回，锁文件就解了。
+	p.Chat.Restart()
+	return nil
+}
+
 // Uninstall 卸载：撤声明 + 删包目录。内置插件卸载后仍在清单里（状态回落未安装）。
 func (p *Plugins) Uninstall(pluginName string) (domain.PluginInstallRESP, error) {
 	if err := p.lockBusy("plugin-uninstall"); err != nil {
@@ -227,6 +249,9 @@ func (p *Plugins) Uninstall(pluginName string) (domain.PluginInstallRESP, error)
 	}
 	defer p.unlockBusy()
 	layout := p.Runtime.Layout
+	if err := p.stopEngineForDisk(); err != nil {
+		return domain.PluginInstallRESP{}, err
+	}
 	p.undeclare(pluginName)
 	p.setFailure(pluginName, "")
 	if err := removeAllQuiet(installedPathOf(layout, pluginName)); err != nil {
@@ -393,10 +418,20 @@ func (p *Plugins) buildRow(pluginName, source string, enabled bool) domain.Plugi
 		row.PluginDesc = builtin.PluginDesc
 		row.PluginTargetVersion = builtin.PluginVersion
 	}
+	// 查过更新时把 registry 最新版摆出来：内置项以 pin 为准，用户装的以 latest 为准。
+	if latest := p.updatedVersionOf(pluginName); latest != "" {
+		row.PluginLatest = latest
+	}
 	// 可升级 = 已装、有目标版本、两者不一致。
 	// 由后端算而不是前端比对：同一条规则不应存在两份实现。
-	row.PluginUpgradable = installed && builtin != nil &&
-		builtin.PluginVersion != "" && version != builtin.PluginVersion
+	switch {
+	case builtin != nil && builtin.PluginVersion != "":
+		row.PluginUpgradable = installed && version != builtin.PluginVersion
+	case row.PluginLatest != "":
+		row.PluginUpgradable = installed && version != "" && version != row.PluginLatest
+	default:
+		row.PluginUpgradable = false
+	}
 	if installed {
 		row.PluginVersion = version
 		row.PluginPath = installedPathOf(layout, pluginName)

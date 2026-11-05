@@ -1,10 +1,10 @@
 package service
 
 import (
+	"os"
 	"os/exec"
 	"runtime"
 	"syscall"
-	"time"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -206,14 +206,20 @@ func (a *App) InstallPi(action string) error {
 	return nil
 }
 
-// UpdatePi 升级 pi：先清包目录再装一遍，避免 npm 复用残留。
+// UpdatePi 升级 pi：先停引擎、清包目录再装一遍，避免 npm 复用残留。
 func (a *App) UpdatePi() error {
 	if !a.Runtime.PiInstalled() {
 		return pkg.Err(pkg.CodeProvision, "pi 还没装，先点安装")
 	}
-	// 升级前先停引擎：Windows 上正在运行的 node 会锁住包目录里的文件。
+	if a.Chat.Stream.Active() {
+		return pkg.Err(pkg.CodeProvision, "引擎正在执行任务，等这一轮结束再升级")
+	}
+	// 升级前先停引擎：Restart 内部等引擎真退出（Stop 有等待语义），锁文件就解了。
 	a.Chat.Restart()
-	time.Sleep(200 * time.Millisecond)
+	// 清包目录：npm 见到同名包会复用残留文件，不清可能升不干净。
+	if err := os.RemoveAll(a.Layout.PiPkgDir()); err != nil {
+		return pkg.WrapErr(pkg.CodeProvision, "pi 包目录清理失败", err)
+	}
 	return a.InstallPi("update")
 }
 
@@ -224,7 +230,6 @@ func (a *App) UninstallPi() error {
 	}
 	defer a.unlockInstall()
 	a.Chat.Restart()
-	time.Sleep(200 * time.Millisecond)
 	a.ProvisionProgress("pi", "uninstall", "start", "正在卸载 pi 引擎")
 	if err := a.Runtime.PiUninstall(); err != nil {
 		a.ProvisionProgress("pi", "uninstall", "fail", pkg.As(err).Message)

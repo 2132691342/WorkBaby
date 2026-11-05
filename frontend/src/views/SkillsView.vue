@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 技能页：一条清单，每条一行——来源分组、开关、查看、重置、删除。
 // 只有一个引擎，所以不再做「矩阵」：一份技能对应一个目录，开关就是把目录搬进/搬出禁用区。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -9,6 +9,8 @@ import SkillRowItem from '@/components/skills/SkillRow.vue'
 import SkillDrawer from '@/components/skills/SkillDrawer.vue'
 import SkillCreateDialog from '@/components/skills/SkillCreateDialog.vue'
 import { api } from '@/api/http'
+import { pickFolder } from '@/api/wails'
+import { useRefreshStore } from '@/stores/refresh'
 import { useToasts } from '@/composables/useToasts'
 import type { SkillRow, SkillSourceKind } from '@/types/api'
 
@@ -35,6 +37,7 @@ const saving = ref(false)
 
 const createOpen = ref(false)
 const creating = ref(false)
+const importing = ref(false)
 
 const filtered = computed(() => {
   const query = filter.value.trim().toLowerCase()
@@ -163,6 +166,34 @@ async function create(input: { name: string; description: string; body: string }
   }
 }
 
+// 导入是复制不是引用：源目录之后删改不影响沙箱里的这份。
+async function importSkill() {
+  if (importing.value) return
+  const dir = await pickFolder('')
+  if (!dir) return
+  importing.value = true
+  try {
+    const data = await api.importSkill(dir)
+    toasts.push('ok', t('skills.imported', { name: data.skill_dir_name }))
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    importing.value = false
+  }
+}
+
+// 首启落位在后台跑完时页面可能开着没动：事件路由 bump 一下，这里防抖重拉。
+const refreshStore = useRefreshStore()
+let reloadTimer = 0
+watch(
+  () => refreshStore.skills,
+  () => {
+    window.clearTimeout(reloadTimer)
+    reloadTimer = window.setTimeout(() => void load(), 400)
+  },
+)
+
 onMounted(load)
 </script>
 
@@ -185,6 +216,16 @@ onMounted(load)
           @click="load"
         >
           <AppIcon name="refresh" :size="15" />
+        </button>
+        <button
+          class="wb-btn ghost"
+          :class="{ 'is-loading': importing }"
+          :disabled="importing"
+          :title="t('skills.importHint')"
+          @click="importSkill"
+        >
+          <AppIcon name="download" :size="14" />
+          {{ t('skills.import') }}
         </button>
         <button class="wb-btn primary" @click="createOpen = true">
           <AppIcon name="plus" :size="14" />

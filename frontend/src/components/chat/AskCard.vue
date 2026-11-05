@@ -70,13 +70,13 @@ const canSubmit = computed(() => {
 const methodLabel = computed(() => {
   switch (props.ask.ask_method) {
     case 'confirm':
-      return '确认'
+      return t('chat.askConfirm')
     case 'select':
-      return '选择'
+      return t('chat.askSelect')
     case 'editor':
-      return '编辑'
+      return t('chat.askEditor')
     default:
-      return '输入'
+      return t('chat.askInput')
   }
 })
 </script>

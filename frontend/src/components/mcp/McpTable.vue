@@ -10,6 +10,8 @@ const props = defineProps<{
   loading: boolean
   /** 正在操作的那一条的服务器名（空表示空闲） */
   busyName: string
+  /** 正在探测连接的那一条的服务器名 */
+  probingName: string
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +19,7 @@ const emit = defineEmits<{
   edit: [row: McpServer]
   remove: [row: McpServer]
   toggle: [row: McpServer, enabled: boolean]
+  probe: [row: McpServer]
 }>()
 
 const { t } = useI18n()
@@ -88,9 +91,18 @@ function statusTag(row: McpServer): { cls: string; text: string } {
           />
         </template>
       </el-table-column>
-      <el-table-column :label="t('common.actions')" width="140" align="right">
+      <el-table-column :label="t('common.actions')" width="190" align="right">
         <template #default="{ row }">
           <div class="row-actions">
+            <button
+              class="wb-btn text sm"
+              :class="{ 'is-loading': props.probingName === row.server_name }"
+              :disabled="Boolean(props.busyName) || Boolean(props.probingName)"
+              :title="t('mcp.probe')"
+              @click="emit('probe', row)"
+            >
+              {{ t('mcp.probe') }}
+            </button>
             <button class="wb-btn text sm" :disabled="Boolean(props.busyName)" @click="emit('edit', row)">
               {{ t('common.edit') }}
             </button>

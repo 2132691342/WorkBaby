@@ -5,6 +5,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
+import TodoPanel from '@/components/chat/TodoPanel.vue'
 import ChatNotices from '@/components/chat/ChatNotices.vue'
 import ChatHeader from '@/components/chat/ChatHeader.vue'
 import HistoryList from '@/components/chat/HistoryList.vue'
@@ -47,10 +48,6 @@ function onKeydown(event: KeyboardEvent) {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault()
     composer.value?.focus()
-    return
-  }
-  if (event.key === 'Escape' && false) {
-    void 0
   }
 }
 
@@ -236,6 +233,7 @@ watch(
         <AppIcon name="chevron" :size="13" />
       </button>
 
+      <TodoPanel :todos="chat.todos" />
       <ChatComposer ref="composer" />
       <ChatNotices />
     </section>

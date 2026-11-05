@@ -3,10 +3,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { setLocale } from '@/i18n'
 import { api, streamURL } from '@/api/http'
 import { getEndpoint, pickFolder } from '@/api/wails'
 import type { AppPrefs, AppRow, Bootstrap, EngineCaps, EngineStatus, RuntimeStatus, SessionRow, WorkspaceRow } from '@/types/api'
 import { useChatStore } from './chat'
+import { useRefreshStore } from './refresh'
 import { useToasts } from '@/composables/useToasts'
 import { routeFrame } from './events'
 import { readFrame } from '@/utils/sse'
@@ -64,6 +66,11 @@ export const useAppStore = defineStore('app', () => {
     document.documentElement.dataset.motion = reduced ? 'reduced' : 'full'
   }
 
+  /** 语言跟着设置走：i18n 是全局单例，这里只负责把设置里的值灌进去。 */
+  function applyLocale(next: string) {
+    setLocale(next === 'en' ? 'en' : 'zh-CN')
+  }
+
   async function load() {
     try {
       await getEndpoint()
@@ -80,6 +87,7 @@ export const useAppStore = defineStore('app', () => {
       applyTheme(theme.value)
       applyMotion(settings.value['ui.reduce_motion'] === '1')
       applyFontScale(Number(settings.value['ui.font_scale'] || 1))
+      applyLocale(settings.value['ui.locale'] ?? '')
       ready.value = true
       connect()
       await Promise.all([refreshSessions(), refreshEngines()])
@@ -182,6 +190,7 @@ export const useAppStore = defineStore('app', () => {
     if (kv['ui.theme']) applyTheme(kv['ui.theme'])
     if (kv['ui.reduce_motion'] !== undefined) applyMotion(kv['ui.reduce_motion'] === '1')
     if (kv['ui.font_scale'] !== undefined) applyFontScale(Number(kv['ui.font_scale']))
+    if (kv['ui.locale'] !== undefined) applyLocale(kv['ui.locale'])
     settings.value = await api.saveSettings(kv)
   }
 
@@ -242,11 +251,15 @@ export const useAppStore = defineStore('app', () => {
 
   /** 分派一帧事件。分派表在 stores/events.ts。 */
   function route(event: string, data: Record<string, unknown>): void {
+    const refresh = useRefreshStore()
     routeFrame(event, data, {
       chat,
       refreshEngines,
       refreshSessions,
       loadApps,
+      bumpPlugins: () => refresh.bumpPlugins(),
+      bumpSkills: () => refresh.bumpSkills(),
+      bumpWorkspace: () => refresh.bumpWorkspace(),
       reconcile,
       appProgress: appProgress.value,
       setAppProgress: (next) => {

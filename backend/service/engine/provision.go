@@ -40,13 +40,17 @@ func (r *Runtime) ProvisionRuntime(onProgress func(phase, message string)) []str
 			continue
 		}
 		onProgress("start", "正在准备内置 "+item.Label)
-		if err := pkg.EnsureDir(r.Layout.RuntimeDir); err == nil {
-			if err := pkg.UnpackZip(zipPath, item.Target); err != nil {
-				problems = append(problems, "内置"+item.Label+"解压失败："+pkg.As(err).Message)
-				pkg.Warn("运行时解压失败 %s：%v", item.Label, err)
-				onProgress("fail", "内置 "+item.Label+" 解压失败")
-				continue
-			}
+		// 目录建不出来就别往下走：假装解压完成会让后面所有探测悄悄失败。
+		if err := pkg.EnsureDir(r.Layout.RuntimeDir); err != nil {
+			problems = append(problems, "运行时目录创建失败："+pkg.As(err).Message)
+			onProgress("fail", "内置 "+item.Label+" 准备失败")
+			continue
+		}
+		if err := pkg.UnpackZip(zipPath, item.Target); err != nil {
+			problems = append(problems, "内置"+item.Label+"解压失败："+pkg.As(err).Message)
+			pkg.Warn("运行时解压失败 %s：%v", item.Label, err)
+			onProgress("fail", "内置 "+item.Label+" 解压失败")
+			continue
 		}
 		pkg.Info("运行时解压完成：%s", item.Label)
 		onProgress("done", "内置 "+item.Label+" 就绪")
@@ -105,9 +109,10 @@ func (r *Runtime) PiInstall(onLine func(line string)) (*pkg.ProcResult, error) {
 	return res, nil
 }
 
-// PiUninstall 删掉 pi 包目录（外壳卸载入口）。
+// PiUninstall 删掉 pi 本体（外壳卸载入口）。整个 pi-app 都是 npm --prefix 的安装产物，
+// 只删包目录会留下 node_modules 壳与 .bin 垫片，界面上「已卸载」却还剩半摊东西。
 func (r *Runtime) PiUninstall() error {
-	if err := os.RemoveAll(r.Layout.PiPkgDir()); err != nil {
+	if err := os.RemoveAll(r.Layout.PiAppDir); err != nil {
 		return pkg.WrapErr(pkg.CodeProvision, "pi 卸载失败", err)
 	}
 	return nil

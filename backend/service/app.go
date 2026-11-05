@@ -69,6 +69,7 @@ func New(opts Options) *App {
 	rt := engine.New(opts.Layout)
 	settings := &Settings{Store: opts.Store, Layout: opts.Layout, Hub: opts.Hub}
 	sessions := NewSessions(settings, opts.Store, opts.Layout)
+	chat := NewChat(settings, sessions, rt, opts.Hub)
 	app := &App{
 		Version:  opts.Version,
 		Layout:   opts.Layout,
@@ -77,12 +78,12 @@ func New(opts Options) *App {
 		Runtime:  rt,
 		Settings: settings,
 		Sessions: sessions,
-		Chat:     NewChat(settings, sessions, rt, opts.Hub),
+		Chat:     chat,
 		Files:    NewFiles(settings),
 		Git:      NewGit(settings, rt),
 		Models:   NewModels(opts.Layout),
 		Skills:   NewSkills(settings, opts.Store, opts.Layout, opts.Hub),
-		Plugins:  NewPlugins(rt, opts.Hub),
+		Plugins:  NewPlugins(rt, opts.Hub, chat),
 		Mcp:      NewMcp(settings, opts.Layout),
 	}
 	return app

@@ -196,13 +196,18 @@ func (g *Git) Branches() ([]domain.GitBranchVO, error) {
 		out = append(out, parseBranchLine(line))
 	}
 	// 远端分支单列一遍：界面要能把本地分支推到某个远端。
+	// 远端名从分支名里拆出来，不能写死 origin：用户可以有多个远端。
 	if remote, err := g.runOrFail("branch", "-r", "--no-color"); err == nil {
 		for _, line := range pkg.SplitLines(remote) {
-			name := strings.TrimSpace(strings.TrimPrefix(line, "origin/"))
-			if name == "" || strings.Contains(line, "->") {
+			name := strings.TrimSpace(line)
+			if name == "" || strings.Contains(name, "->") {
 				continue
 			}
-			out = append(out, domain.GitBranchVO{BranchName: strings.TrimSpace(line), RemoteName: "origin"})
+			remoteName := "origin"
+			if idx := strings.IndexByte(name, '/'); idx > 0 {
+				remoteName = name[:idx]
+			}
+			out = append(out, domain.GitBranchVO{BranchName: name, RemoteName: remoteName})
 		}
 	}
 	return out, nil

@@ -8,12 +8,8 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// piSettings 是我们关心的 settings.json 形状说明。
-//
-// piSettings 是「插件真相」的落点：pi 只认这个文件里的 packages 声明。
-// 壳不另建一份注册表——第二份真相迟早会和引擎看到的不一致。
-//
-// 读取时统一走 map[string]any：用户会手改这个文件，保留未知键比强类型更要紧。
+// piSettings 是 settings.json 的读取形状。壳不另建注册表——
+// 这个文件是插件唯一真相；按 map 读是为了保留用户手配的未知键。
 type piSettings struct {
 	// NpmCommand 引擎调用 npm 用的命令：必须指向内置 node + npm-cli.js
 	NpmCommand []string `json:"npmCommand,omitempty"`
@@ -105,11 +101,8 @@ func PackageNameOf(source string) string {
 	return strings.TrimSuffix(raw, "/")
 }
 
-// EnsureNpmCommand 把 npmCommand 落到 settings.json。
-//
-// 为什么必须做这件事：pi 装插件时会自己调 npm，而它的默认做法是走 PATH 上的 npm。
-// 那等于让插件装到用户环境里去。把 npmCommand 指到内置 node + npm-cli.js，
-// 引擎的每一次安装都落在沙箱里。
+// EnsureNpmCommand 把 npmCommand 落到 settings.json：pi 自己装插件也会走
+// PATH 上的 npm，不钉到内置 node 就等于把插件装进用户环境。
 func EnsureNpmCommand(layout pkg.Layout, npmCommand []string) {
 	if !layout.NodeReady() {
 		// 内置 node 还没解压：写半成品路径会让引擎启动时找不到 npm。

@@ -23,6 +23,7 @@ import type {
   GitCommitResult,
   GitDiff,
   GitStatus,
+  GitStash,
   HealthData,
   McpListData,
   ModelEntry,
@@ -205,6 +206,9 @@ export const api = {
     post<{ ok: boolean }>('/skills/toggle', { skill_path: skillPath, skill_enabled: skillEnabled }),
   createSkill: (skillName: string, skillDesc: string, skillBody: string) =>
     post<{ skill_path: string }>('/skills/create', { skill_name: skillName, skill_desc: skillDesc, skill_body: skillBody }),
+  // 沙箱外目录导入：复制进托管区，源目录之后删改不影响壳内副本
+  importSkill: (skillFromPath: string) =>
+    post<{ skill_dir_name: string; skill_path: string }>('/skills/import', { skill_from_path: skillFromPath }),
   deleteSkill: (skillPath: string) => post<{ ok: boolean }>('/skills/delete', { skill_path: skillPath }),
   // 内置技能改坏了：从随包原件覆盖回来
   resetSkill: (skillPath: string) => post<{ ok: boolean }>('/skills/reset', { skill_path: skillPath }),
@@ -223,6 +227,8 @@ export const api = {
     post<{ plugin_name: string }>('/plugins/retry', { plugin_name: pluginName }),
   retryAllPlugins: () => post<{ installed: number; failed: number }>('/plugins/retry-all'),
   upgradeAllPlugins: () => post<{ installed: number; failed: number }>('/plugins/upgrade-all'),
+  // 问 npm registry 最新版并回一份带 plugin_latest 的清单；离线时对应字段留空
+  checkPluginUpdates: () => post<PluginListData>('/plugins/check-updates'),
 
   mcpList: () => get<McpListData>('/mcp'),
   mcpSave: (body: {
@@ -231,8 +237,12 @@ export const api = {
     server_url?: string
     transport_kind?: string
     mcp_desc?: string
+    work_dir?: string
     env_list?: string[]
   }) => post<McpListData>('/mcp/save', body),
+  // 连接测试：stdio 拉真进程、http 发真请求，完成一次 MCP initialize 握手
+  mcpProbe: (serverName: string) =>
+    post<{ probe_ok: boolean; probe_message: string; probe_tools: number }>('/mcp/probe', { server_name: serverName }),
   mcpToggle: (serverName: string, mcpEnabled: boolean) =>
     post<McpListData>('/mcp/toggle', { server_name: serverName, mcp_enabled: mcpEnabled }),
   mcpRemove: (serverName: string) => post<McpListData>('/mcp/remove', { server_name: serverName }),
@@ -273,6 +283,12 @@ export const api = {
   gitPull: (remoteName: string, branchName: string, isRebase = false) =>
     post<GitStatus>('/git/pull', { remote_name: remoteName, branch_name: branchName, is_rebase: isRebase }),
   gitFetch: (remoteName = '') => post<GitStatus>('/git/fetch', { remote_name: remoteName }),
+  // stash：暂存区之外的「先收起来」，存取列丢四件套
+  gitStashList: () => get<{ stashes: GitStash[] }>('/git/stash/list'),
+  gitStashPush: (stashMessage = '') => post<GitStatus>('/git/stash/push', { stash_message: stashMessage }),
+  gitStashPop: () => post<GitStatus>('/git/stash/pop'),
+  gitStashDrop: (stashRef: string, confirm: string) =>
+    post<GitStatus>('/git/stash/drop', { stash_ref: stashRef, confirm }),
 
   // ---- 系统 / 配置 ----
   reveal: (targetPath: string) => post<{ ok: boolean }>('/system/reveal', { target_path: targetPath }),

@@ -12,11 +12,8 @@ type BuiltinSkill struct {
 	SkillRequires string
 }
 
-// BuiltinSkills 是内置技能清单。
-//
-// 筛选口径：只收「与编程助手日常相关、且不依赖特定商业账号」的技能。
-// 市场里那几百个垂直技能（订票、点外卖、查股票、公众号排版）不进来——
-// 它们会把技能列表变成一片噪音，而技能一旦默认落位就会进系统提示。
+// BuiltinSkills 是内置技能清单。筛选口径：只收与编程助手日常相关、
+// 不依赖特定商业账号的技能——技能一旦落位就进系统提示，纯噪音不进来。
 var BuiltinSkills = []BuiltinSkill{
 	{SkillDirName: "skill-creator", SkillGroup: "元能力", SkillDefaultOn: true},
 	{SkillDirName: "skill-scanner", SkillGroup: "元能力", SkillDefaultOn: true},

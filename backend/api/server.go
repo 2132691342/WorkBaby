@@ -181,6 +181,7 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/skills/save", s.skillSave)
 	g.POST("/skills/toggle", s.skillToggle)
 	g.POST("/skills/create", s.skillCreate)
+	g.POST("/skills/import", s.skillImport)
 	g.POST("/skills/delete", s.skillDelete)
 	g.POST("/skills/reset", s.skillReset)
 	g.GET("/plugins", s.pluginsList)
@@ -189,11 +190,13 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/plugins/toggle", s.pluginToggle)
 	g.POST("/plugins/upgrade", s.pluginUpgrade)
 	g.POST("/plugins/upgrade-all", s.pluginUpgradeAll)
+	g.POST("/plugins/check-updates", s.pluginCheckUpdates)
 	g.POST("/plugins/retry", s.pluginRetry)
 	g.POST("/plugins/retry-all", s.pluginRetryAll)
 	g.GET("/mcp", s.mcpList)
 	g.POST("/mcp/save", s.mcpSave)
 	g.POST("/mcp/toggle", s.mcpToggle)
+	g.POST("/mcp/probe", s.mcpProbe)
 	g.POST("/mcp/remove", s.mcpRemove)
 
 	// 文件 / git / 系统

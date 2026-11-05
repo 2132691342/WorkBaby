@@ -2,7 +2,7 @@
 // 工作区页：文件树 + 改动清单 + 差异 + 提交/分支。
 // 回答「助手到底改了什么，能不能收成一次提交」：读全开放，写只做白名单动作；
 // 没有 git 或不是仓库时显示原因与「初始化」，不显示空表格。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import DiffView from '@/components/workspace/DiffView.vue'
@@ -13,9 +13,10 @@ import GitCommitPanel from '@/components/workspace/GitCommitPanel.vue'
 import HistoryPanel from '@/components/workspace/HistoryPanel.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
+import { useRefreshStore } from '@/stores/refresh'
 import { useToasts } from '@/composables/useToasts'
 import { useGitActions } from '@/composables/useGitActions'
-import type { GitBranch, GitCommit, GitDiff, GitFile, GitStatus } from '@/types/api'
+import type { GitBranch, GitCommit, GitDiff, GitFile, GitStatus, GitStash } from '@/types/api'
 
 const { t } = useI18n()
 const app = useAppStore()
@@ -25,6 +26,7 @@ const status = ref<GitStatus | null>(null)
 const diff = ref<GitDiff | null>(null)
 const branches = ref<GitBranch[]>([])
 const history = ref<GitCommit[]>([])
+const stashes = ref<GitStash[]>([])
 
 const loadingStatus = ref(false)
 const loadingDiff = ref(false)
@@ -71,6 +73,7 @@ async function loadExtras() {
   if (!status.value?.is_repo) {
     branches.value = []
     history.value = []
+    stashes.value = []
     return
   }
   try {
@@ -82,6 +85,11 @@ async function loadExtras() {
     history.value = await (await api.gitHistory(40)).commits
   } catch {
     history.value = []
+  }
+  try {
+    stashes.value = (await api.gitStashList()).stashes
+  } catch {
+    stashes.value = []
   }
 }
 
@@ -130,11 +138,11 @@ async function resolveOne(file: GitFile) {
   await git.resolve(file)
 }
 
-async function commit(text: string) {
-  if (!text.trim() || !staged.value.length || committing.value) return
+async function commit(text: string, isAmend = false) {
+  if (!text.trim() || (!isAmend && !staged.value.length) || committing.value) return
   committing.value = true
   try {
-    const result = await api.gitCommit(text)
+    const result = await api.gitCommit(text, isAmend)
     status.value = result.status
     commitPanel.value?.reset()
     toasts.push('ok', t('workspace.committed', { hash: result.commit_hash.slice(0, 7) }))
@@ -145,6 +153,18 @@ async function commit(text: string) {
     committing.value = false
   }
 }
+
+// 引擎跑完一轮多半动过文件：事件路由 bump 一下，这里防抖重拉，
+// 让「助手改了什么」不用手点刷新就能看到。
+const refreshStore = useRefreshStore()
+let bumpTimer = 0
+watch(
+  () => refreshStore.workspace,
+  () => {
+    window.clearTimeout(bumpTimer)
+    bumpTimer = window.setTimeout(() => void refresh(), 600)
+  },
+)
 
 onMounted(refresh)
 </script>
@@ -244,6 +264,7 @@ onMounted(refresh)
               :unstaged="unstaged"
               :selected="selected"
               :pending="git.pending.value"
+              :stashes="stashes"
               @pick="pick"
               @stage="stage"
               @unstage="unstage"
@@ -251,6 +272,9 @@ onMounted(refresh)
               @resolve="resolveOne"
               @stage-all="stageAll"
               @history="(file) => showFileHistory(file.file_path)"
+              @stash-push="git.stashPush"
+              @stash-pop="git.stashPop"
+              @stash-drop="git.stashDrop"
             />
 
             <GitCommitPanel

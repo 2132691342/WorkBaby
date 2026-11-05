@@ -6,7 +6,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import GitFileRows from '@/components/workspace/GitFileRows.vue'
-import type { GitFile } from '@/types/api'
+import type { GitFile, GitStash } from '@/types/api'
 
 const props = defineProps<{
   staged: GitFile[]
@@ -15,6 +15,8 @@ const props = defineProps<{
   selected: string
   /** 进行中的动作名（空表示空闲） */
   pending: string
+  /** 已存的 stash 清单，最新在前 */
+  stashes: GitStash[]
 }>()
 
 const emit = defineEmits<{
@@ -25,6 +27,9 @@ const emit = defineEmits<{
   resolve: [file: GitFile]
   stageAll: []
   history: [file: GitFile]
+  stashPush: []
+  stashPop: []
+  stashDrop: [row: GitStash]
 }>()
 
 const { t } = useI18n()
@@ -124,6 +129,15 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
           <button class="act push" :disabled="Boolean(props.pending)" @click="emit('stageAll')">
             {{ t('workspace.stageAll') }}
           </button>
+          <button
+            class="act"
+            :class="{ 'is-loading': props.pending === 'stash-push' }"
+            :disabled="Boolean(props.pending)"
+            :title="t('workspace.stashHint')"
+            @click="emit('stashPush')"
+          >
+            {{ t('workspace.stashPush') }}
+          </button>
         </div>
         <div v-for="g in unstagedGroups" :key="`u-${g.dir}`" class="dir">
           <button class="dir-head" @click="toggle(`u-${g.dir}`)">
@@ -146,6 +160,34 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
             @resolve="emit('resolve', $event)"
             @history="emit('history', $event)"
           />
+        </div>
+      </section>
+
+      <section v-if="props.stashes.length" class="group">
+        <div class="group-head">
+          <span>{{ t('workspace.stashTitle') }}</span>
+          <span class="count">{{ props.stashes.length }}</span>
+        </div>
+        <div v-for="row in props.stashes" :key="row.stash_ref" class="stash-row">
+          <span class="stash-subject" :title="row.stash_subject">{{ row.stash_subject }}</span>
+          <span class="row-actions">
+            <button
+              class="act"
+              :class="{ 'is-loading': props.pending === 'stash-pop' }"
+              :disabled="Boolean(props.pending)"
+              @click="emit('stashPop')"
+            >
+              {{ t('workspace.stashPop') }}
+            </button>
+            <button
+              class="act is-danger"
+              :class="{ 'is-loading': props.pending === `stash-drop:${row.stash_ref}` }"
+              :disabled="Boolean(props.pending)"
+              @click="emit('stashDrop', row)"
+            >
+              {{ t('common.delete') }}
+            </button>
+          </span>
         </div>
       </section>
     </template>
@@ -199,6 +241,38 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
 
 .push {
   margin-left: auto;
+}
+
+.act.is-danger:hover:not(:disabled) {
+  color: var(--wb-bad);
+}
+
+/* stash 行：一句话说明加两个动作，与目录行同一套密度。 */
+.stash-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: 3px var(--wb-sp-2);
+  border-radius: var(--wb-r-sm);
+  font-size: var(--wb-fs-2xs);
+}
+
+.stash-row:hover {
+  background: var(--wb-hover);
+}
+
+.stash-subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--wb-ink-2);
+}
+
+.row-actions {
+  display: flex;
+  flex: none;
 }
 
 /* 目录头：可点的横条，带这一组的增删合计。

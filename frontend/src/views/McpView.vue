@@ -20,6 +20,7 @@ const data = ref<McpListData | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const busyName = ref('')
+const probingName = ref('')
 const dialog = ref(false)
 const editingName = ref('')
 
@@ -81,8 +82,8 @@ function openEdit(row: McpServer) {
     server_url: row.server_url ?? '',
     transport_kind: row.transport_kind === 'http' ? 'http' : 'stdio',
     desc: row.mcp_desc ?? '',
-    work_dir: '',
-    env_text: '',
+    work_dir: row.mcp_work_dir ?? '',
+    env_text: row.mcp_env_text ?? '',
   }
   dialog.value = true
 }
@@ -101,7 +102,9 @@ async function save() {
       server_url: form.value.mode === 'url' ? form.value.server_url : undefined,
       transport_kind: form.value.mode === 'url' ? form.value.transport_kind : undefined,
       mcp_desc: form.value.desc || undefined,
-      env_list: envList.length ? envList : undefined,
+      work_dir: form.value.mode === 'command' ? form.value.work_dir || undefined : undefined,
+      // 空数组语义是「清掉环境变量」，不是「保持不动」
+      env_list: envList,
     })
     dialog.value = false
     ElMessage.success(t('common.saved'))
@@ -110,6 +113,25 @@ async function save() {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     saving.value = false
+  }
+}
+
+// 连接测试：结果用消息条直说，不改行内状态——探测结论是一次性的，不该常驻表格。
+async function probe(row: McpServer) {
+  if (probingName.value) return
+  probingName.value = row.server_name
+  try {
+    const out = await api.mcpProbe(row.server_name)
+    if (out.probe_ok) {
+      const tail = out.probe_tools > 0 ? ` · ${out.probe_tools} tools` : ''
+      ElMessage.success(`${out.probe_message}${tail}`)
+    } else {
+      ElMessage.error(`${t('mcp.probeFail')}: ${out.probe_message}`)
+    }
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    probingName.value = ''
   }
 }
 
@@ -194,10 +216,12 @@ onMounted(() => void load())
         :rows="servers"
         :loading="loading"
         :busy-name="busyName"
+        :probing-name="probingName"
         @create="openCreate"
         @edit="openEdit"
         @remove="remove"
         @toggle="toggle"
+        @probe="probe"
       />
     </div>
 

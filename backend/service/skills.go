@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -275,20 +276,34 @@ func (s *Skills) Reset(skillPath string) error {
 	return nil
 }
 
+// Import 导入一个沙箱外的技能目录为托管技能。导入是复制不是引用：
+// 沙箱原则要求技能内容只落在 data 里，源目录之后删改都不影响壳内副本。
+func (s *Skills) Import(fromPath string) (domain.SkillImportRESP, error) {
+	from := filepath.Clean(strings.TrimSpace(fromPath))
+	if from == "" || !pkg.Exists(filepath.Join(from, "SKILL.md")) {
+		return domain.SkillImportRESP{}, pkg.Err(pkg.CodeSkillBad, "所选目录没有 SKILL.md，不是有效技能", from)
+	}
+	name := sanitizeSkillName(filepath.Base(from))
+	if name == "" {
+		return domain.SkillImportRESP{}, pkg.Err(pkg.CodeSkillBad, "无法从目录名得到技能名："+filepath.Base(from))
+	}
+	target := filepath.Join(s.Layout.SkillsDir(), name)
+	if pkg.Exists(target) || pkg.Exists(filepath.Join(s.Layout.SkillsOffDir(), name)) {
+		return domain.SkillImportRESP{}, pkg.Err(pkg.CodeSkillBad, "同名技能已存在："+name)
+	}
+	if err := copyTree(from, target); err != nil {
+		return domain.SkillImportRESP{}, pkg.WrapErr(pkg.CodeSkillSave, "技能导入失败", err)
+	}
+	pkg.Info("技能导入：%s -> %s", from, name)
+	s.Hub.Broadcast("skill:status", sse.EngineTag(map[string]any{"skill_dir_name": name, "skill_imported": true}))
+	return domain.SkillImportRESP{SkillDirName: name, SkillPath: filepath.Join(target, "SKILL.md")}, nil
+}
+
 // Create 新建技能：托管目录下一套 SKILL.md。
 func (s *Skills) Create(name, description, body string) (string, error) {
-	safe := strings.ToLower(strings.TrimSpace(name))
-	safe = strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
-			return r
-		default:
-			return '-'
-		}
-	}, safe)
-	safe = strings.Trim(safe, "-")
+	safe := sanitizeSkillName(name)
 	if safe == "" {
-		return "", pkg.Err(pkg.CodeSkillBad, "技能名只能是字母数字与短横线")
+		return "", pkg.Err(pkg.CodeSkillBad, "技能名只能含字母数字与短横线")
 	}
 	dir := filepath.Join(s.Layout.SkillsDir(), safe)
 	if pkg.Exists(dir) || pkg.Exists(filepath.Join(s.Layout.SkillsOffDir(), safe)) {
@@ -342,6 +357,21 @@ func (s *Skills) Count() int {
 		}
 	}
 	return count
+}
+
+// sanitizeSkillName 把任意名字压成合法目录名：保留字母数字（含中文）与短横线。
+// 目录名是开关搬移的身份，合法字符集合必须与「新建」「导入」两处共用。
+func sanitizeSkillName(name string) string {
+	safe := strings.ToLower(strings.TrimSpace(name))
+	safe = strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, safe)
+	return strings.Trim(safe, "-")
 }
 
 // copyTree 递归复制目录；目标已存在时合并。

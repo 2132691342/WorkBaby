@@ -148,6 +148,20 @@ func (s *Server) skillCreate(c *gin.Context) {
 	pkg.OK(c, map[string]any{"skill_path": path})
 }
 
+// skillImport 导入一个沙箱外的技能目录。
+func (s *Server) skillImport(c *gin.Context) {
+	var req domain.SkillImportREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Skills.Import(req.SkillFromPath)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
+}
+
 // skillDelete 删除技能。
 func (s *Server) skillDelete(c *gin.Context) {
 	var req domain.SkillPathREQ
@@ -269,6 +283,16 @@ func (s *Server) pluginUpgradeAll(c *gin.Context) {
 	pkg.OK(c, out)
 }
 
+// pluginCheckUpdates 问 npm registry 各插件的最新版并回新清单。
+func (s *Server) pluginCheckUpdates(c *gin.Context) {
+	out, err := s.svc.Plugins.CheckUpdates()
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
+}
+
 // mcpList MCP 清单。
 func (s *Server) mcpList(c *gin.Context) {
 	pkg.OK(c, s.svc.Mcp.List())
@@ -295,6 +319,20 @@ func (s *Server) mcpToggle(c *gin.Context) {
 		return
 	}
 	out, err := s.svc.Mcp.Toggle(req.ServerName, req.McpEnabled)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
+}
+
+// mcpProbe MCP 连接测试：完成一次 initialize 握手。
+func (s *Server) mcpProbe(c *gin.Context) {
+	var req domain.McpNameREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Mcp.Probe(req.ServerName)
 	if err != nil {
 		pkg.Fail(c, err)
 		return

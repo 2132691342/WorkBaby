@@ -237,10 +237,8 @@ func (a *App) assemble() error {
 	return nil
 }
 
-// Endpoint 返回本地服务地址与令牌。前端首屏只调这一个绑定方法。
-//
-// 它等到服务真的在监听再返回：前端在 WebView 加载完就调这个方法，
-// 不在这里等，前端必然拿到一个「端口还是 0」的瞬间，把「后端没启动」当成永久失败。
+// Endpoint 返回本地服务地址与令牌。等到服务真在监听才返回，
+// 否则前端会拿到端口 0，把「后端没启动」当成永久失败。
 func (a *App) Endpoint() (Endpoint, error) {
 	select {
 	case <-a.startDone:
