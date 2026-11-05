@@ -85,12 +85,17 @@ WorkBaby 是 Windows 单机桌面应用：**Wails3 壳把全部依赖装进自�
 | 阶段 | 行为 |
 |---|---|
 | 首启 | 内置 npm 装 `@earendil-works/pi-coding-agent@latest` 到 `pi-app` |
-| 绑定 | 一个工作区 ⇔ 一个 pi RPC 子进程；切工作区即重建 |
+| 绑定 | 一个工作区 ⇔ 一个 pi RPC 子进程；切工作区即重建；绑定整段串行化，并发请求只拉起一个引擎 |
 | 通信 | stdin/stdout 行分隔 JSON，命令带 request_id，事件带 event 名 |
-| 中断 | 用户点停止 → 发 `abort`；超时未回则杀进程并重建 |
-| 退出 | 先发优雅退出，超时再杀；托盘挂起不算退出 |
+| 崩溃 | 意外退出按指数退避自动拉起（2s 起步），连崩 5 次停手交给用户；成功绑定即归零 |
+| 中断 | 用户点停止 → 发 `abort`；单命令 10 分钟超时 |
+| 退出 | 关 stdin 优雅退出并**等真退出**（上限 3s，到点强杀进程树）——之后才允许删包目录；托盘挂起不算退出 |
 
 引擎的 stdout 严格按 LF 切帧（不用 `bufio.Scanner` 默认切分——U+2028/2029 会误切）。
+
+git 凭证走内置 PortableGit 自带的 Git Credential Manager（落 Windows 凭据管理器）；
+终端交互问询被禁用（`GIT_TERMINAL_PROMPT=0`）——需要登录时立即失败并给下一步指引
+（先在有终端的客户端登录一次或换 token），而不是卡满超时。
 
 ## 插件与技能的真相来源
 

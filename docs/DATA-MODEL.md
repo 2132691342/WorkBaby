@@ -23,7 +23,7 @@ gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
 
 | 键 | 值 | 消费方 |
 |---|---|---|
-| `ui.theme` / `ui.reduce_motion` / `ui.font_scale` | 界面偏好 | 前端 |
+| `ui.theme` / `ui.reduce_motion` / `ui.font_scale` / `ui.locale` | 界面偏好 | 前端 |
 | `prefs.restore_session` | `'1'` / `'0'` | 启动恢复上次会话 |
 | `prefs.last_session_file` | 会话文件路径 | 恢复目标 |
 | `prefs.close_action` | `'tray'` / `'quit'` | 关窗行为 |
@@ -56,6 +56,9 @@ gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
    会话文件本身不动。
 5. **用量累计**：assistant 的 `usage`、`usage` 条目、压缩 `usage` 全部计入
    会话行的 tokens / cost——会话清单与用量页都从这里来。
+6. **待办派生**：todo 插件的清单只在内存里，但它每次 `todo` 工具调用的结果
+   `details.tasks` 都带全量表落进会话文件——活动分支上最近一次成功调用就是
+   当前待办（聊天页的待办面板由此回放，与插件自己的 replay 语义一致）。
 
 ## 4. 引擎 JSON 配置（pi 的家）
 
@@ -78,7 +81,7 @@ gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
 | `pi\settings.json` 的 `npmCommand` | 内置 npm 的调用形状（`[node.exe, npm-cli.js]`），必须指向沙箱 |
 | `pi\npm\node_modules\` | 已装插件的真实目录；是否真装上以 `<包名>\package.json` 在不在为准 |
 | `pi\skills\` / `pi\skills_disabled\` | 技能启用 / 停用（目录整体搬移，pi 只扫前者） |
-| `skill_toggle` 表 | 记「用户改过默认值没有」，重启后按它还原 |
+| `skill_toggle` 表 | 纯记账：核对搬移发生过没有；开与关的真相是技能目录在哪个区 |
 
 **插件不另建注册表**：pi 的 `settings.json` 已经是唯一登记处，
 再加一份 JSON 就一定会出现两份不同步。同理，`plugin_catalog.go` 里的

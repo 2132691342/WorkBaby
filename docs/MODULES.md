@@ -79,17 +79,17 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | 文件 | 职责 |
 |---|---|
 | `app.go` / `app_provision.go` / `app_actions.go` / `app_config.go` | 装配根、首启装配、应用（pi 本体）的装/升/卸、配置读写 |
-| `chat_service.go` / `chat_actions.go` | 会话状态、发送、停止、插话、回答、压缩 |
-| `chat/rpc_client.go` | pi 子进程 RPC：启动、发命令、收事件、超时 |
+| `chat_service.go` / `chat_state.go` / `chat_actions.go` | 引擎绑定与生命周期（含崩溃自动重启）、发送、停止、插话、回答、压缩；状态总装单拆一文件 |
+| `chat/rpc_client.go` | pi 子进程 RPC：启动、发命令、收事件、超时；关停等真退出再返回 |
 | `chat/frames.go` | domain 词汇 → SSE 帧（引擎不感知界面） |
-| `parser/{entries,history,summary,diff,stat,time}.go` | 会话 JSONL → 条目树 / 活动分支 / 统计 |
-| `plugins.go` / `plugin_install.go` / `plugin_catalog.go` / `plugin_settings.go` | 插件装/卸/开/关/升/重试；安装占位、进度上报与失败台账；`settings.json` 的 `packages[]` 读写 |
-| `skills.go` / `skill_catalog.go` | 技能落位、开关（搬目录）、编辑、新建、删除、重置 |
-| `mcp.go` | `mcp.json` 增删改查与开关 |
+| `parser/{entries,history,summary,diff,stat,todos,time}.go` | 会话 JSONL → 条目树 / 活动分支 / 统计 / 待办派生 |
+| `plugins.go` / `plugin_install.go` / `plugin_updates.go` / `plugin_catalog.go` / `plugin_settings.go` | 插件装/卸/开/关/升/重试；安装占位、进度上报与失败台账；registry 最新版检查；`settings.json` 的 `packages[]` 读写 |
+| `skills.go` / `skill_catalog.go` | 技能落位、开关（搬目录）、导入、编辑、新建、删除、重置 |
+| `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手） |
 | `models.go` / `model_probe.go` | `models.json` / `auth.json` 读写，上游探测 |
 | `settings.go` / `system.go` / `values.go` / `autostart.go` | 设置、系统动作、常量、开机自启 |
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、导出 HTML |
-| `git.go` / `git_history.go` / `git_sync.go` / `git_write.go` | git 读与写 |
+| `git.go` / `git_history.go` / `git_sync.go` / `git_stash.go` / `git_write.go` | git 读与写；stash 四件套；凭证失败归 1102 并给下一步指引 |
 | `engine/runtime.go` / `engine/provision.go` / `engine/npm.go` | 运行时探测、解压、npm 执行 |
 | `platform/` | Windows 专属：开机自启（注册表）、系统打开 |
 
@@ -109,15 +109,16 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 
 ## sse/
 
-`hub.go` 统一发号（seq 单调）、补帧（按 `since`）、慢客户端断开；
-`heartbeat.go` 心跳是注释行，不占 seq。
+`hub.go` 统一发号（seq 单调）、补帧（按 `since`）、慢客户端断开。每个订阅者一条
+带缓冲队列 + 发送泵：补帧先入队、实时帧后入队，同一队列保证乱序不可能发生；
+队列写满即按断开处理，一个卡住的窗口拖不住广播。`heartbeat.go` 心跳是注释行，不占 seq。
 
 ## 前端
 
 | 目录 | 职责 |
 |---|---|
 | `api/` | `http.ts` 封装 `/api/v1`（信封拆包 + 令牌）、`wails.ts` 封装绑定 |
-| `stores/` | Pinia：`app`（引导/设置）、`chat`（会话与消息）、`events`（SSE 分帧）、`prefs` |
+| `stores/` | Pinia：`app`（引导/设置/主题/语言）、`chat`（会话与消息）、`events`（SSE 分帧）、`refresh`（后台事件驱动的清单刷新信号）、`prefs` |
 | `composables/` | 组合式逻辑：附件、草稿、菜单、git 动作、消息流、运行状态、toast |
 | `types/` | 后端契约的 TS 镜像：`api.ts` 总出口，按域拆 `api-core` / `api-chat` / `api-data` / `api-workspace`，字段名与 Go json tag 一一对应 |
 | `locales/` | i18n 文案：`zh-CN/` 与 `en/` 一域一文件（common / overview / chat / workspace / manage / settings），key 路径与界面域对应 |

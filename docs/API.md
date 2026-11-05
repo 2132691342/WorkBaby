@@ -52,7 +52,7 @@
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/chat/state` | GET | `?session=`；会话绑定 + 引擎实况 + JSONL 回放的历史轮 + 能力表 |
+| `/chat/state` | GET | `?session=`；会话绑定 + 引擎实况 + JSONL 回放的历史轮 + 待办（`todos`，活动分支最近一次 todo 工具调用派生）+ 能力表 |
 | `/chat/send` | POST | `{ engine, session, message, attachments }` → `{ run_id }` |
 | `/chat/stop` | POST | 中止当前运行 |
 | `/chat/steer` / `followup` | POST | 插话 / 排队追加 |
@@ -88,15 +88,18 @@
 | `/skills/toggle` | POST | `{ path, enabled }`；实现是目录搬进/搬出禁用区 |
 | `/skills/reset` | POST | `{ path }`；内置技能用随包原件覆盖本地改动 |
 | `/skills/create` / `delete` | POST | 新建托管技能 / 删除 |
+| `/skills/import` | POST | `{ skill_from_path }` 沙箱外目录整份复制进托管区（含 SKILL.md 校验） |
 | `/plugins` | GET | 内置清单 ∪ `settings.json` 的 `packages` 声明；带安装进度、`plugin_upgradable` 与失败原因 |
 | `/plugins/install` | POST | `{ source }` 缺 `npm:` 前缀自动补；经内置 npm 装进沙箱 |
 | `/plugins/retry` / `retry-all` | POST | 单个 / 全部重试内置插件安装 |
-| `/plugins/uninstall` | POST | `{ plugin_name }`；撤声明 + 删包目录 |
+| `/plugins/uninstall` | POST | `{ plugin_name }`；撤声明 + 删包目录（先停引擎） |
 | `/plugins/toggle` | POST | `{ plugin_name, enabled }`；只改 `packages` 条目（`autoload:false` = 停用） |
-| `/plugins/upgrade` | POST | `{ plugin_name }`；按清单 pin 重装 |
+| `/plugins/upgrade` | POST | `{ plugin_name }`；内置按清单 pin 重装，用户插件按声明串重装（先停引擎） |
 | `/plugins/upgrade-all` | POST | 只升版本与清单不符的内置插件；回 `{ installed, failed }` |
-| `/mcp` | GET | `?live=1`（当前不做连通探测，恒 `live_checked:false`） |
-| `/mcp/save` / `toggle` / `remove` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv，`env_list` 逐行 `KEY=VALUE` |
+| `/plugins/check-updates` | POST | 逐包问 npm registry 的 latest，回一份带 `plugin_latest` 的新清单；离线时字段留空 |
+| `/mcp` | GET | 用户级 + 项目级合并清单；行里带 `mcp_env_text` / `mcp_work_dir` / `mcp_timeout`（秒） |
+| `/mcp/save` / `toggle` / `remove` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv；编辑整份继承旧条目，手配的 headers / oauth 不丢 |
+| `/mcp/probe` | POST | `{ server_name }`；完成一次 MCP initialize 握手（stdio 拉真进程 / http 发真请求），回 `probe_ok` / `probe_message` / `probe_tools` |
 
 **插件身份是包名不是来源串**：`pi:<name>@<ver>` 里的版本会变，包名不会。
 启停写对象形态 `{ source, autoload: false }`，启用写回裸来源串——这是 pi 自己的表达法。
@@ -108,7 +111,7 @@
 | `/files` | GET | `?path=` 工作区内列目录（目录优先，≤500 条） |
 | `/files/search` | GET | `?query=&limit=`；按名递归搜索，跳过 node_modules/.git/dist |
 | `/files/read` | GET | 文本读取（1MB 截断，二进制给占位说明） |
-| `/git/*` | GET/POST | status / diff / history / commit / file-history / file-diff / branches / stage / unstage / discard / resolve / commit / branch(+delete) / switch / merge / state / init / remote / push / pull / fetch；全部走内置 git.exe |
+| `/git/*` | GET/POST | status / diff / history / commit / file-history / file-diff / branches / stash(list,push,pop,drop) / stage / unstage / discard / resolve / commit / branch(+delete) / switch / merge / state / init / remote / push / pull / fetch；全部走内置 git.exe，凭证问询禁交互（走 GCM，失败回 1102） |
 | `/system/reveal` / `open` | POST | 资源管理器定位 / 系统默认程序打开 |
 | `/config/files` / `text` | GET | 引擎配置原文（settings/models/mcp/auth/AGENTS + 项目级），白名单校验 |
 
