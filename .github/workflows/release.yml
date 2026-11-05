@@ -29,6 +29,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # setup-go 不保证把 GOPATH\bin 加进 PATH，而 wails3 就装在那里。
+      - name: GOPATH\bin 加入 PATH
+        shell: pwsh
+        run: Add-Content $env:GITHUB_PATH (Join-Path (go env GOPATH) 'bin')
+
       - name: 安装 wails3
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
 
@@ -47,6 +52,10 @@ jobs:
       - name: 安装前端依赖
         working-directory: frontend
         run: npm ci
+
+      # vue-tsc 与 vite 都要 import @wails/* 的生成绑定；绑定不进仓库，现场生成。
+      - name: 生成前端绑定
+        run: wails3 generate bindings -clean=true -ts -i
 
       - name: 前端类型检查与产物
         working-directory: frontend

@@ -34,6 +34,18 @@ jobs:
             exit 1
           }
 
+      # setup-go 不保证把 GOPATH\bin 加进 PATH，而 wails3 就装在那里。
+      - name: GOPATH\bin 加入 PATH
+        shell: pwsh
+        run: Add-Content $env:GITHUB_PATH (Join-Path (go env GOPATH) 'bin')
+
+      - name: 安装 wails3
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+      # vue-tsc 与 vite 都要 import @wails/* 的生成绑定；绑定不进仓库，现场生成。
+      - name: 生成前端绑定
+        run: wails3 generate bindings -clean=true -ts -i
+
       # main.go 的 go:embed all:frontend/dist 在全新 checkout 下不存在，
       # 任何编译 package main 的命令（vet/test/build）都必须排在前端产物之后。
       - name: 安装前端依赖
