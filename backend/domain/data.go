@@ -324,6 +324,8 @@ type McpSaveREQ struct {
 	EnvList []string `json:"env_list"`
 	// McpTimeout 连接超时（毫秒）；0 表示清掉该字段
 	McpTimeout int `json:"mcp_timeout"`
+	// McpScope user / project；project 落工作区 .pi\mcp.json，需要已选工作区
+	McpScope string `json:"mcp_scope"`
 }
 
 // McpProbeRESP 是 MCP 连接测试的结果。

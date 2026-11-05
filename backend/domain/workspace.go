@@ -60,6 +60,22 @@ type FilePathREQ struct {
 	FilePath string `json:"file_path"`
 }
 
+// FileSaveREQ 是保存文本文件的入参。
+type FileSaveREQ struct {
+	// FilePath 工作区内绝对路径
+	FilePath string `json:"file_path"`
+	// FileText 全文内容
+	FileText string `json:"file_text"`
+}
+
+// FileRenameREQ 是改名或移动的入参；目标必须不存在。
+type FileRenameREQ struct {
+	// FilePath 源路径
+	FilePath string `json:"file_path"`
+	// NewFilePath 目标路径（工作区内）
+	NewFilePath string `json:"new_file_path"`
+}
+
 // GitFileVO 是一个改动文件。
 type GitFileVO struct {
 	// FilePath 相对仓库根的路径

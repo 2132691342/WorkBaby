@@ -19,6 +19,8 @@ const (
 	fileSearchLimit = 200
 	// fileReadLimit 单次读取上限（1MB）
 	fileReadLimit = 1 << 20
+	// fileWriteLimit 单次写入上限（5MB）
+	fileWriteLimit = 5 << 20
 )
 
 // Files 是工作区文件浏览：列目录、按名搜索、读文本。
@@ -32,16 +34,20 @@ func NewFiles(settings *Settings) *Files {
 	return &Files{Settings: settings}
 }
 
-// guard 保证路径落在工作区内；越界直接拒。
-// 所有接受外部路径的读接口都必须先过它，否则前端一个 ../../../ 就能读到任意文件。
+// guard 归一路径并保证落在工作区内；越界直接拒。
+// 相对路径（前端的斜杠约定）按工作区根拼，绝不拿进程 CWD 解析——那会偏到工作区外。
+// 所有接受外部路径的接口都必须先过它，否则一个 ../../ 就能摸到任意文件。
 func (f *Files) guard(path string) (string, error) {
 	root := f.Settings.Workspace()
 	if root == "" {
 		return "", pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
 	}
-	target := path
+	target := strings.TrimSpace(path)
 	if target == "" {
 		target = root
+	} else if !filepath.IsAbs(target) {
+		// Join 自带 Clean：「src/../../etc」会被折成能被 Inside 拒掉的形状。
+		target = filepath.Join(root, filepath.FromSlash(target))
 	}
 	if !pkg.Inside(root, target) {
 		return "", pkg.Err(pkg.CodePathOutside, "路径不在工作区内", target)
@@ -185,4 +191,80 @@ func isBinary(raw []byte) bool {
 		return true
 	}
 	return strings.ContainsRune(string(probe), 0)
+}
+
+// Save 保存文本文件：父目录不存在就一并建出；同名目录不能当文件写。
+func (f *Files) Save(req domain.FileSaveREQ) error {
+	target, err := f.guard(req.FilePath)
+	if err != nil {
+		return err
+	}
+	if pkg.IsDir(target) {
+		return pkg.Err(pkg.CodeFileIO, "目标是一个目录，不能当文件保存", target)
+	}
+	if len(req.FileText) > fileWriteLimit {
+		return pkg.Err(pkg.CodeFileIO, "内容超过 5MB 写入上限")
+	}
+	if err := pkg.EnsureDir(filepath.Dir(target)); err != nil {
+		return pkg.WrapErr(pkg.CodeFileIO, "父目录创建失败", err)
+	}
+	if err := os.WriteFile(target, []byte(req.FileText), 0o644); err != nil {
+		return pkg.WrapErr(pkg.CodeFileIO, "文件写入失败", err)
+	}
+	return nil
+}
+
+// Mkdir 新建目录；多级路径一并建出，已存在即拒。
+func (f *Files) Mkdir(path string) error {
+	target, err := f.guard(path)
+	if err != nil {
+		return err
+	}
+	if pkg.Exists(target) {
+		return pkg.Err(pkg.CodeFileIO, "目标已存在", target)
+	}
+	if err := pkg.EnsureDir(target); err != nil {
+		return pkg.WrapErr(pkg.CodeFileIO, "目录创建失败", err)
+	}
+	return nil
+}
+
+// Delete 删除文件或目录（递归）；工作区根本身删不掉。
+func (f *Files) Delete(path string) error {
+	target, err := f.guard(path)
+	if err != nil {
+		return err
+	}
+	if target == f.Settings.Workspace() {
+		return pkg.Err(pkg.CodeFileIO, "工作区根目录不能删除")
+	}
+	if !pkg.Exists(target) {
+		return pkg.Err(pkg.CodeFileNotFound, "目标不存在", target)
+	}
+	if err := os.RemoveAll(target); err != nil {
+		return pkg.WrapErr(pkg.CodeFileIO, "删除失败", err)
+	}
+	return nil
+}
+
+// Rename 改名或移动：源必须存在、目标必须不存在，两端都落在工作区内。
+func (f *Files) Rename(req domain.FileRenameREQ) error {
+	target, err := f.guard(req.FilePath)
+	if err != nil {
+		return err
+	}
+	dest, err := f.guard(req.NewFilePath)
+	if err != nil {
+		return err
+	}
+	if !pkg.Exists(target) {
+		return pkg.Err(pkg.CodeFileNotFound, "源不存在", target)
+	}
+	if pkg.Exists(dest) {
+		return pkg.Err(pkg.CodeFileIO, "目标已存在", dest)
+	}
+	if err := os.Rename(target, dest); err != nil {
+		return pkg.WrapErr(pkg.CodeFileIO, "改名失败", err)
+	}
+	return nil
 }

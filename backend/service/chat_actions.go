@@ -137,9 +137,58 @@ func (c *Chat) ClearQueue() (domain.QueuedMessagesVO, error) {
 	return out, nil
 }
 
-// RemoveQueued 单条移除：引擎只支持整队清空，能力位已关闭这个入口。
-func (c *Chat) RemoveQueued() error {
-	return pkg.Err(pkg.CodeEngineBusy, "引擎不支持单条移除，请整队清空")
+// RemoveQueued 单条移除排队消息。引擎只有整队清空一个动作，这里用
+// 「取出全队 → 摘掉一条 → 其余按原序重新入队」实现；插队重投失败时
+// 降级为追加投递，宁可晚说也不能把用户的话弄丢。
+func (c *Chat) RemoveQueued(kind string, index int) (domain.QueuedMessagesVO, error) {
+	client, err := c.EnsureRpc()
+	if err != nil {
+		return domain.QueuedMessagesVO{}, err
+	}
+	data, err := client.Request(chat.Record{"type": "clear_queue"}, 0)
+	if err != nil {
+		return domain.QueuedMessagesVO{}, err
+	}
+	fields, _ := data.(map[string]any)
+	steering := asStringSlice(fields["steering"])
+	followUp := asStringSlice(fields["followUp"])
+	target := &steering
+	switch kind {
+	case "steering":
+	case "followup":
+		target = &followUp
+	default:
+		return domain.QueuedMessagesVO{}, pkg.Err(pkg.CodeBadRequest, "队列类型只能是 steering 或 followup")
+	}
+	if index < 0 || index >= len(*target) {
+		return domain.QueuedMessagesVO{}, pkg.Err(pkg.CodeBadRequest, "要移除的位置不在队列里")
+	}
+	*target = append((*target)[:index], (*target)[index+1:]...)
+
+	// requeue 投一条回引擎；插队投不进去就降级为追加。
+	requeue := func(text, wire string) error {
+		if _, err := client.Request(compose(text, nil).wire(wire), 0); err == nil {
+			return nil
+		} else if wire == "steer" {
+			_, err = client.Request(compose(text, nil).wire("follow_up"), 0)
+		}
+		return err
+	}
+	for _, text := range steering {
+		if err := requeue(text, "steer"); err != nil {
+			return domain.QueuedMessagesVO{}, pkg.Err(pkg.CodeRpcCommand, "排队消息重投失败", text)
+		}
+	}
+	for _, text := range followUp {
+		if err := requeue(text, "follow_up"); err != nil {
+			return domain.QueuedMessagesVO{}, pkg.Err(pkg.CodeRpcCommand, "排队消息重投失败", text)
+		}
+	}
+	out := domain.QueuedMessagesVO{Steering: steering, FollowUp: followUp}
+	c.mu.Lock()
+	c.queued = out
+	c.mu.Unlock()
+	return out, nil
 }
 
 // Compact 手动压缩上下文。

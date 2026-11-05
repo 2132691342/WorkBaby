@@ -24,7 +24,7 @@ const probingName = ref('')
 const dialog = ref(false)
 const editingName = ref('')
 
-// 表单：一条命令或一个 URL，二选一。
+// 表单：一条命令或一个 URL，二选一；scope 决定落到哪份 mcp.json。
 const form = ref({
   server_name: '',
   mode: 'command' as 'command' | 'url',
@@ -34,6 +34,7 @@ const form = ref({
   desc: '',
   work_dir: '',
   env_text: '',
+  scope: 'user' as 'user' | 'project',
 })
 
 const servers = computed<McpServer[]>(() =>
@@ -64,6 +65,7 @@ function resetForm() {
     desc: '',
     work_dir: '',
     env_text: '',
+    scope: 'user',
   }
 }
 
@@ -84,6 +86,7 @@ function openEdit(row: McpServer) {
     desc: row.mcp_desc ?? '',
     work_dir: row.mcp_work_dir ?? '',
     env_text: row.mcp_env_text ?? '',
+    scope: row.scope_kind === 'project' ? 'project' : 'user',
   }
   dialog.value = true
 }
@@ -105,6 +108,7 @@ async function save() {
       work_dir: form.value.mode === 'command' ? form.value.work_dir || undefined : undefined,
       // 空数组语义是「清掉环境变量」，不是「保持不动」
       env_list: envList,
+      mcp_scope: form.value.scope,
     })
     dialog.value = false
     ElMessage.success(t('common.saved'))
@@ -225,7 +229,14 @@ onMounted(() => void load())
       />
     </div>
 
-    <McpDialog v-model:open="dialog" :form="form" :editing="editingName" :saving="saving" @save="save" />
+    <McpDialog
+      v-model:open="dialog"
+      :form="form"
+      :editing="editingName"
+      :saving="saving"
+      :project-path="data?.project_path || ''"
+      @save="save"
+    />
   </div>
 </template>
 

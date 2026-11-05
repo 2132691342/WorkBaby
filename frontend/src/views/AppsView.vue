@@ -4,6 +4,7 @@
 // 每行同时回答「装的什么版本、能不能动、落点在哪」。渲染细节在 AppCard。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
 import AppCard from '@/components/apps/AppCard.vue'
 import { api } from '@/api/http'
@@ -18,6 +19,7 @@ const toasts = useToasts()
 const loading = ref(false)
 const busy = ref<Record<string, boolean>>({})
 const copied = ref('')
+const repairing = ref(false)
 
 // 内置运行时与引擎分开摆：前者是「环境」，后者是「引擎」，混在一起
 // 会让人以为 node 也能升级。
@@ -63,6 +65,35 @@ async function run(row: AppRow, action: 'install' | 'update' | 'uninstall') {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     busy.value = { ...busy.value, [row.app_key]: false }
+  }
+}
+
+/** 修复运行时：停引擎后把三个内置运行时强制重解压，坏掉的安装当场换新。 */
+async function repairRuntimes() {
+  if (repairing.value) return
+  try {
+    await ElMessageBox.confirm(t('apps.repairConfirm'), t('apps.repairTitle'), {
+      confirmButtonText: t('apps.repair'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  repairing.value = true
+  try {
+    const out = await api.repairRuntime()
+    await app.loadApps()
+    await app.refreshEngines()
+    if (out.repair_problems.length) {
+      toasts.push('warn', out.repair_problems.join('；'))
+    } else {
+      toasts.push('ok', t('apps.repairDone'))
+    }
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    repairing.value = false
   }
 }
 
@@ -115,6 +146,16 @@ onMounted(() => {
           <span class="wb-sec-title">
             {{ t('apps.group.runtime') }} <span class="count">{{ runtimeRows.length }}</span>
           </span>
+          <button
+            class="wb-btn sm ghost"
+            :class="{ 'is-loading': repairing }"
+            :disabled="repairing"
+            :title="t('apps.repairConfirm')"
+            @click="repairRuntimes"
+          >
+            <AppIcon name="refresh" :size="14" />
+            {{ t('apps.repair') }}
+          </button>
         </div>
         <div class="app-list">
           <AppCard

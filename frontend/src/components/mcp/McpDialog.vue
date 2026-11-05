@@ -15,6 +15,7 @@ export interface McpForm {
   desc: string
   work_dir: string
   env_text: string
+  scope: 'user' | 'project'
 }
 
 const props = defineProps<{
@@ -23,6 +24,8 @@ const props = defineProps<{
   /** 正在编辑的服务器名（空表示新建） */
   editing: string
   saving: boolean
+  /** 项目级 mcp.json 路径；空表示没有工作区，项目级不可选 */
+  projectPath: string
 }>()
 
 const emit = defineEmits<{
@@ -39,6 +42,9 @@ const dialog = computed({
 
 /** 名字在编辑时不可改：它是配置里的键，改了等于新建一条。 */
 const nameLocked = computed(() => Boolean(props.editing))
+
+/** 作用域与名字同理：编辑时改作用域等于把配置挪个文件再新建一条。 */
+const scopeLocked = computed(() => Boolean(props.editing))
 </script>
 
 <template>
@@ -54,6 +60,16 @@ const nameLocked = computed(() => Boolean(props.editing))
           :disabled="nameLocked"
           :placeholder="t('mcp.namePlaceholder')"
         />
+      </el-form-item>
+
+      <el-form-item :label="t('mcp.scope')">
+        <el-radio-group v-model="props.form.scope" :disabled="scopeLocked">
+          <el-radio-button value="user">{{ t('mcp.userScope') }}</el-radio-button>
+          <el-radio-button value="project" :disabled="!props.projectPath">
+            {{ t('mcp.projectScope') }}
+          </el-radio-button>
+        </el-radio-group>
+        <p v-if="!props.projectPath || scopeLocked" class="scope-hint">{{ t('mcp.scopeHint') }}</p>
       </el-form-item>
 
       <el-form-item :label="t('mcp.mode')">
@@ -102,3 +118,12 @@ const nameLocked = computed(() => Boolean(props.editing))
     </template>
   </el-dialog>
 </template>
+
+<style scoped>
+.scope-hint {
+  margin: 4px 0 0;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-faint);
+  line-height: 1.4;
+}
+</style>

@@ -9,9 +9,9 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// sessionsList 会话清单。
+// sessionsList 会话清单；q 非空时按标题与正文过滤。
 func (s *Server) sessionsList(c *gin.Context) {
-	pkg.OK(c, s.svc.Sessions.List(strings.TrimSpace(c.Query("workspace"))))
+	pkg.OK(c, s.svc.Sessions.List(strings.TrimSpace(c.Query("workspace")), c.Query("q")))
 }
 
 // sessionDetail 会话详情。
@@ -90,6 +90,34 @@ func (s *Server) providerProbe(c *gin.Context) {
 		return
 	}
 	pkg.OK(c, s.svc.Models.Probe(req))
+}
+
+// providerModelSave 单条模型增改：按 ModelId 定位，存在即改。
+func (s *Server) providerModelSave(c *gin.Context) {
+	var req domain.ProviderModelSaveREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Models.SaveModel(req)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
+}
+
+// providerModelDelete 删除服务商下的一条模型。
+func (s *Server) providerModelDelete(c *gin.Context) {
+	var req domain.ProviderModelDeleteREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Models.DeleteModel(req)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
 }
 
 // skillsList 技能总表。
@@ -382,4 +410,56 @@ func (s *Server) fileRead(c *gin.Context) {
 		return
 	}
 	pkg.OK(c, out)
+}
+
+// fileSave 保存文本文件（新建与覆盖同一入口）。
+func (s *Server) fileSave(c *gin.Context) {
+	var req domain.FileSaveREQ
+	if !bind(c, &req) {
+		return
+	}
+	if err := s.svc.Files.Save(req); err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	ok(c)
+}
+
+// fileMkdir 新建目录。
+func (s *Server) fileMkdir(c *gin.Context) {
+	var req domain.FilePathREQ
+	if !bind(c, &req) {
+		return
+	}
+	if err := s.svc.Files.Mkdir(req.FilePath); err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	ok(c)
+}
+
+// fileDelete 删除文件或目录（递归）。
+func (s *Server) fileDelete(c *gin.Context) {
+	var req domain.FilePathREQ
+	if !bind(c, &req) {
+		return
+	}
+	if err := s.svc.Files.Delete(req.FilePath); err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	ok(c)
+}
+
+// fileRename 改名或移动。
+func (s *Server) fileRename(c *gin.Context) {
+	var req domain.FileRenameREQ
+	if !bind(c, &req) {
+		return
+	}
+	if err := s.svc.Files.Rename(req); err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	ok(c)
 }

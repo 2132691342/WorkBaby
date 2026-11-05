@@ -29,9 +29,11 @@ func NewSessions(settings *Settings, store *repo.Store, layout pkg.Layout) *Sess
 }
 
 // List 扫会话清单。给了工作区只扫它的目录，否则扫全部。
-func (s *Sessions) List(workspace string) domain.SessionListRESP {
+// query 非空时按标题与正文过滤（大小写不敏感的包含匹配）。
+func (s *Sessions) List(workspace, query string) domain.SessionListRESP {
 	root := s.Layout.SessionsDir()
 	dirs := s.scanDirs(root, workspace)
+	needle := strings.ToLower(strings.TrimSpace(query))
 	rows := make([]domain.SessionRowVO, 0, len(dirs))
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
@@ -43,11 +45,28 @@ func (s *Sessions) List(workspace string) domain.SessionListRESP {
 				continue
 			}
 			// 单个坏文件不该让整张清单读不出来。
-			rows = append(rows, parser.Summarize(filepath.Join(dir, entry.Name())))
+			path := filepath.Join(dir, entry.Name())
+			row := parser.Summarize(path)
+			if needle != "" && !s.matches(row, path, needle) {
+				continue
+			}
+			rows = append(rows, row)
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].UpdatedAt > rows[j].UpdatedAt })
 	return domain.SessionListRESP{Sessions: rows}
+}
+
+// matches 搜索判据：标题命中或正文命中；正文搜索只在标题未命中时才读文件。
+func (s *Sessions) matches(row domain.SessionRowVO, file, needle string) bool {
+	if strings.Contains(strings.ToLower(row.SessionTitle), needle) {
+		return true
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(raw)), needle)
 }
 
 // scanDirs 决定这次要扫哪些目录。
@@ -221,5 +240,5 @@ func (s *Sessions) Export(file string) (domain.ChatExportRESP, error) {
 
 // Count 会话总数（健康面板用）。
 func (s *Sessions) Count() int {
-	return len(s.List("").Sessions)
+	return len(s.List("", "").Sessions)
 }

@@ -102,6 +102,16 @@ export default {
     "empty": "This folder is empty",
     "truncated": "Too many entries; showing the first 500",
     "binary": "Binary file — no preview",
-    "previewTruncated": "Large file ({size}); showing the first 512 KB"
+    "previewTruncated": "Large file ({size}); showing the first 512 KB",
+    "newFileTitle": "New file",
+    "newFilePlaceholder": "File name (subfolders allowed, e.g. src/utils/x.ts)",
+    "newDirTitle": "New folder",
+    "newDirPlaceholder": "Folder name (nested allowed, e.g. src/utils)",
+    "renameTitle": "Rename / move",
+    "renamePlaceholder": "New name or path (relative to this folder)",
+    "deleteTitle": "Delete?",
+    "deleteConfirm": "Delete “{name}”? A folder goes away with everything inside.",
+    "editFile": "Edit",
+    "editedHint": "Unsaved changes"
   },
 }

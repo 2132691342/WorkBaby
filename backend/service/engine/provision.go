@@ -20,6 +20,16 @@ type provisionItem struct {
 // ProvisionRuntime 检查三个内置运行时是否齐备，缺哪个解哪个。
 // 进度经 onProgress 上报；单个失败不影响其余，返回值是失败原因汇总。
 func (r *Runtime) ProvisionRuntime(onProgress func(phase, message string)) []string {
+	return r.extractRuntimes(false, onProgress)
+}
+
+// RepairRuntime 强制重解压三个运行时：目标目录先删后解，坏掉的安装当场换新。
+func (r *Runtime) RepairRuntime(onProgress func(phase, message string)) []string {
+	return r.extractRuntimes(true, onProgress)
+}
+
+// extractRuntimes 解压随包运行时；force 为 true 时目录已存在也删掉重解。
+func (r *Runtime) extractRuntimes(force bool, onProgress func(phase, message string)) []string {
 	items := []provisionItem{
 		{ZipName: "node-v24.21.0-win-x64.zip", Target: r.Layout.NodeDir, Label: "Node.js"},
 		{ZipName: "PortableGit.zip", Target: r.Layout.GitDir, Label: "PortableGit"},
@@ -28,7 +38,7 @@ func (r *Runtime) ProvisionRuntime(onProgress func(phase, message string)) []str
 	assets := filepath.Join(r.Layout.AssetsDir, "runtime")
 	var problems []string
 	for _, item := range items {
-		if pkg.Exists(item.Target) {
+		if pkg.Exists(item.Target) && !force {
 			continue
 		}
 		zipPath := filepath.Join(assets, item.ZipName)
@@ -45,6 +55,14 @@ func (r *Runtime) ProvisionRuntime(onProgress func(phase, message string)) []str
 			problems = append(problems, "运行时目录创建失败："+pkg.As(err).Message)
 			onProgress("fail", "内置 "+item.Label+" 准备失败")
 			continue
+		}
+		// 修复语义是「换新」：旧目录残留的半截文件不清掉，重解了也未必好。
+		if force && pkg.Exists(item.Target) {
+			if err := os.RemoveAll(item.Target); err != nil {
+				problems = append(problems, "内置"+item.Label+"旧目录清理失败："+pkg.As(err).Message)
+				onProgress("fail", "内置 "+item.Label+" 清理失败")
+				continue
+			}
 		}
 		if err := pkg.UnpackZip(zipPath, item.Target); err != nil {
 			problems = append(problems, "内置"+item.Label+"解压失败："+pkg.As(err).Message)

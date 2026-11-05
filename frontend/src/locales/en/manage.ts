@@ -7,6 +7,8 @@ export default {
     "fileHint": "Restart the engine after changes. Only name, transport and enabled are touched here — your headers, timeout and other fields are preserved.",
     "userScope": "User level (sandbox mcp.json)",
     "projectScope": "Project level (.pi/mcp.json)",
+    "scope": "Scope",
+    "scopeHint": "Project scope needs a workspace and is fixed while editing",
     "servers": "Servers",
     "add": "Add",
     "editTitle": "Edit server",
@@ -81,7 +83,11 @@ export default {
       "update": "{name} updated",
       "uninstall": "{name} uninstalled"
     },
-    "boundary": "Nothing here implements installation. What runs is the exact command the engine publishes, so this page follows the engine's own release process."
+    "boundary": "Nothing here implements installation. What runs is the exact command the engine publishes, so this page follows the engine's own release process.",
+    "repair": "Repair runtimes",
+    "repairTitle": "Repair bundled runtimes?",
+    "repairConfirm": "The engine stops first, all three bundled runtimes are deleted and re-extracted (a few minutes), then npm is re-pinned. Use this when a runtime is broken or version detection keeps failing.",
+    "repairDone": "Runtimes repaired"
   },
 
 "models": {
@@ -93,6 +99,9 @@ export default {
     "editProvider": "Edit provider",
     "deleteTitle": "Delete provider",
     "deleteConfirm": "Delete provider “{name}”? Its models go with it.",
+    "removeModel": "Remove model",
+    "removeModelTitle": "Remove model?",
+    "removeModelConfirm": "Remove “{id}” from “{name}”? The entry disappears from the config.",
     "baseUrl": "Base URL",
     "apiKey": "API key",
     "apiKeyHint": "A key, an env var name, or !command",

@@ -183,6 +183,66 @@ func modelEntryToWire(entry domain.ProviderModelEntryVO) map[string]any {
 	return out
 }
 
+// SaveModel 单条模型增改：按 ModelId 定位，存在即改，不存在即增。
+// 服务商必须已存在——模型挂在服务商下面，不能凭空造出半个服务商。
+func (m *Models) SaveModel(req domain.ProviderModelSaveREQ) (domain.ProvidersRESP, error) {
+	name := strings.TrimSpace(req.ProviderName)
+	config, _ := m.readModels()
+	provider, ok := config.Providers[name]
+	if !ok {
+		return domain.ProvidersRESP{}, pkg.Err(pkg.CodeProviderBad, "服务商不存在："+name)
+	}
+	entry := req.Model
+	if strings.TrimSpace(entry.ModelId) == "" {
+		return domain.ProvidersRESP{}, pkg.Err(pkg.CodeProviderBad, "模型 ID 不能为空")
+	}
+	wire := modelEntryToWire(entry)
+	replaced := false
+	for i := range provider.Models {
+		if stringField(provider.Models[i], "id") == entry.ModelId {
+			provider.Models[i] = wire
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		provider.Models = append(provider.Models, wire)
+	}
+	config.Providers[name] = provider
+	if err := pkg.WriteJSON(m.Layout.ModelsFile(), config); err != nil {
+		return domain.ProvidersRESP{}, pkg.WrapErr(pkg.CodeConfigWrite, "models.json 写入失败", err)
+	}
+	return m.Providers(), nil
+}
+
+// DeleteModel 删除服务商下的一条模型。
+func (m *Models) DeleteModel(req domain.ProviderModelDeleteREQ) (domain.ProvidersRESP, error) {
+	name := strings.TrimSpace(req.ProviderName)
+	config, _ := m.readModels()
+	provider, ok := config.Providers[name]
+	if !ok {
+		return domain.ProvidersRESP{}, pkg.Err(pkg.CodeProviderBad, "服务商不存在："+name)
+	}
+	kept := make([]map[string]any, 0, len(provider.Models))
+	removed := false
+	for _, item := range provider.Models {
+		if stringField(item, "id") == strings.TrimSpace(req.ModelId) {
+			removed = true
+			continue
+		}
+		kept = append(kept, item)
+	}
+	if !removed {
+		return domain.ProvidersRESP{}, pkg.Err(pkg.CodeNotFound, "未找到模型："+req.ModelId)
+	}
+	provider.Models = kept
+	config.Providers[name] = provider
+	if err := pkg.WriteJSON(m.Layout.ModelsFile(), config); err != nil {
+		return domain.ProvidersRESP{}, pkg.WrapErr(pkg.CodeConfigWrite, "models.json 写入失败", err)
+	}
+	return m.Providers(), nil
+}
+
 // Delete 删除服务商：models.json 与 auth.json 一起清。
 func (m *Models) Delete(name string) (domain.ProvidersRESP, error) {
 	config, _ := m.readModels()

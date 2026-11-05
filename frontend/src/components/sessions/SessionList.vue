@@ -2,7 +2,7 @@
 // 会话列表：对话页的窄栏与会话页的主栏共用。
 // 数据来自磁盘上的会话文件，终端里聊过的这里也看得到。
 // 按时间分组（今天 / 7 天 / 更早）：找会话几乎总是「刚才那个」，分组一次命中。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -40,16 +40,37 @@ const { t } = useI18n()
 const filter = ref('')
 const rows = ref<SessionRow[]>([])
 const loading = ref(false)
+// 服务端全文搜索：正文在会话文件里，得让后端扫；标题/模型/目录过滤留在客户端即时做。
+// 两个字起步才打后端：单字命中太多，扫全部文件得不偿失。
+const serverQuery = ref('')
+let searchTimer = 0
 
 /** 引擎范围：列表默认只显示当前引擎的会话（两个引擎的会话不能互换接着聊）。 */
 const scope = computed(() => (props.workspaceOnly ? app.workspace : ''))
 
 const filtered = computed(() => {
+  // 正文搜索走后端：返回的行已按「标题或正文」命中，客户端再过一遍会把正文命中的挤掉。
+  if (serverQuery.value) return rows.value
   const query = filter.value.trim().toLowerCase()
   if (!query) return rows.value
   return rows.value.filter((row) =>
     [row.session_title, row.session_model, row.session_cwd].some((field) => String(field ?? '').toLowerCase().includes(query)),
   )
+})
+
+watch(filter, (value) => {
+  window.clearTimeout(searchTimer)
+  const query = value.trim()
+  if (query.length < 2) {
+    const had = serverQuery.value !== ''
+    serverQuery.value = ''
+    if (had) void load()
+    return
+  }
+  searchTimer = window.setTimeout(() => {
+    serverQuery.value = query
+    void load()
+  }, 400)
 })
 
 interface Group {
@@ -83,7 +104,7 @@ const groups = computed<Group[]>(() => {
 async function load() {
   loading.value = true
   try {
-    const data = await api.sessions(scope.value || undefined)
+    const data = await api.sessions(scope.value || undefined, serverQuery.value || undefined)
     rows.value = data.sessions ?? []
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -150,6 +171,7 @@ watch(
 )
 
 onMounted(load)
+onUnmounted(() => window.clearTimeout(searchTimer))
 defineExpose({ load })
 </script>
 

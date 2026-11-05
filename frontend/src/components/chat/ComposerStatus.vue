@@ -24,6 +24,14 @@ async function clearQueued(): Promise<void> {
     chat.promptError = err instanceof Error ? err.message : String(err)
   }
 }
+
+async function removeOne(kind: 'steering' | 'followup', index: number): Promise<void> {
+  try {
+    await chat.removeQueued(kind, index)
+  } catch (err) {
+    chat.promptError = err instanceof Error ? err.message : String(err)
+  }
+}
 </script>
 
 <template>
@@ -51,10 +59,15 @@ async function clearQueued(): Promise<void> {
   <div v-if="queuedCount" class="queue-strip">
     <span class="dot busy" />
     {{ t('chat.queuedCount', { n: queuedCount }) }}
-    <!-- 引擎只支持整队清空，不支持单条移除：能力位没开，这里就不渲染可点的条目，
-         只把排队的内容平铺出来（让用户知道排了什么）。 -->
-    <span v-for="(m, i) in chat.queue.steering" :key="'s' + i" class="queue-chip">{{ m }}</span>
-    <span v-for="(m, i) in chat.queue.follow_up" :key="'f' + i" class="queue-chip">{{ m }}</span>
+    <!-- 每条都能单独摘掉：壳侧用「取出全队 → 摘一条 → 重投」实现，不依赖引擎能力位。 -->
+    <span v-for="(m, i) in chat.queue.steering" :key="'s' + i" class="queue-chip">
+      {{ m }}
+      <button class="chip-x" :title="t('chat.removeQueued')" @click="removeOne('steering', i)">×</button>
+    </span>
+    <span v-for="(m, i) in chat.queue.follow_up" :key="'f' + i" class="queue-chip">
+      {{ m }}
+      <button class="chip-x" :title="t('chat.removeQueued')" @click="removeOne('followup', i)">×</button>
+    </span>
     <button v-if="chat.caps?.queue_clear" class="wb-btn text sm" :title="t('chat.clearQueue')" @click="clearQueued">
       {{ t('chat.clearQueue') }}
     </button>
@@ -133,6 +146,23 @@ async function clearQueued(): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.chip-x {
+  border: none;
+  background: none;
+  color: var(--wb-mute);
+  cursor: pointer;
+  font-size: var(--wb-fs-3xs);
+  line-height: 1;
+  padding: 0 1px;
+}
+
+.chip-x:hover {
+  color: var(--wb-bad);
 }
 
 .retry-delay {

@@ -73,9 +73,18 @@ func (s *Server) chatClearQueue(c *gin.Context) {
 	pkg.OK(c, out)
 }
 
-// chatRemoveQueued 单条移除：引擎不支持，恒回业务错误。
+// chatRemoveQueued 单条移除排队消息，返回移除后的两条队。
 func (s *Server) chatRemoveQueued(c *gin.Context) {
-	pkg.Fail(c, s.svc.Chat.RemoveQueued())
+	var req domain.ChatRemoveQueuedREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Chat.RemoveQueued(req.QueueKind, req.QueueIndex)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
 }
 
 // chatCompact 手动压缩。

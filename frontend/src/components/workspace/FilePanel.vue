@@ -1,8 +1,10 @@
 <script setup lang="ts">
-// 文件面板：工作区目录树 + 单文件预览。
-// 只读：写文件是助手的事，界面有第二个写入口，「谁改的这一行」就说不清了。
+// 文件面板：工作区目录树 + 单文件预览/编辑。
+// 浏览与轻量编辑（新建 / 改名 / 删除 / 保存文本）在这里；批量改文件是助手的事，
+// 界面动手之前都先落在「看得见的单个目标」上，改动范围一眼可见。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
@@ -18,10 +20,18 @@ const stack = ref<string[]>([''])
 const entries = ref<FileEntry[]>([])
 const loading = ref(false)
 const truncated = ref(false)
+// 行内动作进行中的条目名：按钮转圈、行不可重复点
+const busyEntry = ref('')
 
 const preview = ref<FileRead | null>(null)
 const previewOpen = ref(false)
 const previewLoading = ref(false)
+// 预览即编辑：开编辑后正文进 textarea，保存走 /files/save
+const editing = ref(false)
+const editText = ref('')
+const savingEdit = ref(false)
+// 编辑后未保存就关抽屉的提示
+const dirty = computed(() => editing.value && preview.value != null && editText.value !== preview.value.file_text)
 
 const current = computed(() => stack.value[stack.value.length - 1] ?? '')
 const crumbs = computed(() => {
@@ -70,6 +80,7 @@ async function up() {
 async function openFile(path: string) {
   previewOpen.value = true
   previewLoading.value = true
+  editing.value = false
   preview.value = null
   try {
     preview.value = await api.fileRead(path)
@@ -86,6 +97,107 @@ function formatSize(n: number): string {
   if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)}M`
   if (n >= 1024) return `${(n / 1024).toFixed(0)}k`
   return `${n}B`
+}
+
+/** 弹一个输入框；取消给 null，空串当没填。 */
+async function promptText(titleKey: string, placeholderKey: string, initial = ''): Promise<string | null> {
+  try {
+    const res = await ElMessageBox.prompt(t(placeholderKey), t(titleKey), {
+      inputValue: initial,
+      confirmButtonText: t('common.save'),
+      cancelButtonText: t('common.cancel'),
+    })
+    return (res.value ?? '').trim()
+  } catch {
+    return null
+  }
+}
+
+async function newFile() {
+  const name = await promptText('files.newFileTitle', 'files.newFilePlaceholder')
+  if (!name) return
+  try {
+    // 空正文建空文件：父目录不存在由后端一并建出。
+    await api.fileSave(join(name), '')
+    toasts.push('ok', t('common.saved'))
+    await load()
+    await openFile(join(name))
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  }
+}
+
+async function newDir() {
+  const name = await promptText('files.newDirTitle', 'files.newDirPlaceholder')
+  if (!name) return
+  try {
+    await api.fileMkdir(join(name))
+    toasts.push('ok', t('common.saved'))
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  }
+}
+
+async function renameEntry(entry: FileEntry) {
+  const name = await promptText('files.renameTitle', 'files.renamePlaceholder', entry.entry_name)
+  if (!name || name === entry.entry_name) return
+  busyEntry.value = entry.entry_name
+  try {
+    await api.fileRename(join(entry.entry_name), join(name))
+    toasts.push('ok', t('common.saved'))
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    busyEntry.value = ''
+  }
+}
+
+async function removeEntry(entry: FileEntry) {
+  try {
+    await ElMessageBox.confirm(t('files.deleteConfirm', { name: entry.entry_name }), t('files.deleteTitle'), {
+      confirmButtonText: t('common.delete'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  busyEntry.value = entry.entry_name
+  try {
+    await api.fileDelete(join(entry.entry_name))
+    // 删的正是预览中的文件（或它的上级）时，抽屉跟着关，不留死预览。
+    if (preview.value && preview.value.file_path.includes(entry.entry_name)) previewOpen.value = false
+    toasts.push('ok', t('common.saved'))
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    busyEntry.value = ''
+  }
+}
+
+function startEdit() {
+  if (!preview.value || preview.value.is_binary) return
+  editText.value = preview.value.file_text
+  editing.value = true
+}
+
+async function saveEdit() {
+  if (!preview.value) return
+  savingEdit.value = true
+  try {
+    await api.fileSave(preview.value.file_path, editText.value)
+    preview.value = await api.fileRead(preview.value.file_path)
+    editing.value = false
+    toasts.push('ok', t('common.saved'))
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    savingEdit.value = false
+  }
 }
 
 onMounted(() => {
@@ -112,6 +224,12 @@ defineExpose({ load, openFile })
           {{ crumb.label }}
         </button>
       </div>
+      <button class="wb-btn icon ghost sm" :title="t('files.newFileTitle')" @click="newFile">
+        <AppIcon name="plus" :size="13" />
+      </button>
+      <button class="wb-btn icon ghost sm" :title="t('files.newDirTitle')" @click="newDir">
+        <AppIcon name="folder" :size="13" />
+      </button>
       <button class="wb-btn icon ghost sm" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load()">
         <AppIcon name="refresh" :size="13" />
       </button>
@@ -119,17 +237,30 @@ defineExpose({ load, openFile })
 
     <div class="files-body">
       <div v-if="!entries.length && !loading" class="files-empty">{{ t('files.empty') }}</div>
-      <button
-        v-for="entry in entries"
-        :key="entry.entry_name"
-        class="file-row wb-row-click"
-        @click="enter(entry)"
-      >
+      <div v-for="entry in entries" :key="entry.entry_name" class="file-row wb-row-click" @click="enter(entry)">
         <AppIcon :name="entry.entry_is_dir ? 'folder' : 'file'" :size="13" />
         <span class="file-name">{{ entry.entry_name }}</span>
+        <span class="row-actions" @click.stop>
+          <button
+            class="row-btn"
+            :title="t('files.renameTitle')"
+            :disabled="busyEntry === entry.entry_name"
+            @click="renameEntry(entry)"
+          >
+            <AppIcon name="edit" :size="12" />
+          </button>
+          <button
+            class="row-btn"
+            :title="t('common.delete')"
+            :disabled="busyEntry === entry.entry_name"
+            @click="removeEntry(entry)"
+          >
+            <AppIcon name="trash" :size="12" />
+          </button>
+        </span>
         <span v-if="entry.entry_is_dir" class="file-size">›</span>
         <span v-else class="file-size">{{ formatSize(entry.size_bytes ?? 0) }}</span>
-      </button>
+      </div>
       <p v-if="truncated" class="files-note">{{ t('files.truncated') }}</p>
     </div>
 
@@ -142,7 +273,37 @@ defineExpose({ load, openFile })
         <p v-if="preview.truncated" class="files-note">
           {{ t('files.previewTruncated', { size: formatSize(preview.size_bytes) }) }}
         </p>
-        <pre class="preview selectable">{{ preview.file_text }}</pre>
+        <p v-if="dirty" class="files-note edited">{{ t('files.editedHint') }}</p>
+        <el-input
+          v-if="editing"
+          v-model="editText"
+          type="textarea"
+          :rows="22"
+          class="edit-area"
+          :autosize="{ minRows: 22 }"
+        />
+        <pre v-else class="preview selectable">{{ preview.file_text }}</pre>
+      </template>
+      <template #footer>
+        <div v-if="preview && !preview.is_binary && !previewLoading" class="preview-actions">
+          <template v-if="editing">
+            <button class="wb-btn sm" :disabled="savingEdit" @click="editing = false">
+              {{ t('common.cancel') }}
+            </button>
+            <button
+              class="wb-btn sm primary"
+              :class="{ 'is-loading': savingEdit }"
+              :disabled="savingEdit"
+              @click="saveEdit"
+            >
+              {{ t('common.save') }}
+            </button>
+          </template>
+          <button v-else class="wb-btn sm primary" @click="startEdit">
+            <AppIcon name="edit" :size="13" />
+            {{ t('files.editFile') }}
+          </button>
+        </div>
       </template>
     </el-drawer>
   </section>
@@ -209,11 +370,8 @@ defineExpose({ load, openFile })
   gap: var(--wb-sp-2);
   width: 100%;
   padding: 4px var(--wb-sp-2);
-  border: none;
-  background: transparent;
   color: var(--wb-ink);
   font-size: var(--wb-fs-xs);
-  text-align: left;
   cursor: pointer;
 }
 .file-name {
@@ -222,6 +380,36 @@ defineExpose({ load, openFile })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 行内动作平时藏着，悬停那行才亮：满屏按钮比没有按钮更吵 */
+.row-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.file-row:hover .row-actions {
+  display: inline-flex;
+}
+.row-btn {
+  border: none;
+  background: none;
+  color: var(--wb-mute);
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: var(--wb-r-xs);
+  display: inline-flex;
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease);
+}
+.row-btn:hover:not(:disabled) {
+  color: var(--wb-brand);
+  background: var(--wb-hover);
+}
+.row-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .file-size {
   color: var(--wb-faint);
@@ -237,6 +425,9 @@ defineExpose({ load, openFile })
   font-size: var(--wb-fs-2xs);
   text-align: center;
 }
+.files-note.edited {
+  color: var(--wb-warn);
+}
 .preview {
   margin: 0;
   font-family: var(--wb-font-mono);
@@ -244,5 +435,10 @@ defineExpose({ load, openFile })
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
+}
+.preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--wb-sp-2);
 }
 </style>

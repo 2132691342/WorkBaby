@@ -14,6 +14,8 @@ const props = defineProps<{
   configPath: string
   /** 正在跑的动作名（'test:<服务商>'）；空表示空闲 */
   pending: string
+  /** 正在移除的模型（'服务商:模型ID'）；空表示空闲 */
+  removing: string
 }>()
 
 const emit = defineEmits<{
@@ -21,6 +23,7 @@ const emit = defineEmits<{
   edit: [view: ProviderView]
   remove: [view: ProviderView]
   test: [view: ProviderView]
+  removeModel: [view: ProviderView, modelId: string]
 }>()
 
 const { t } = useI18n()
@@ -122,6 +125,16 @@ function host(url: string): string {
             <!-- 能力标记：选模型时真会看的两个属性，直接标在 id 旁边 -->
             <b v-if="model.supports_reasoning" class="chip-cap" :title="t('models.supports_reasoning')">R</b>
             <b v-if="model.input_kinds?.includes('image')" class="chip-cap" :title="t('models.inputImage')">IMG</b>
+            <!-- 行内删模型：不用开编辑弹窗整表回传，摘一条就是一条 -->
+            <button
+              class="chip-x"
+              type="button"
+              :title="t('models.removeModel')"
+              :disabled="props.removing === `${view.provider_name}:${model.model_id}`"
+              @click="emit('removeModel', view, model.model_id)"
+            >
+              ×
+            </button>
           </span>
           <button v-if="restCount(view)" class="tag more-chip" type="button" @click="toggleMore(view)">
             +{{ restCount(view) }}
@@ -308,6 +321,25 @@ function host(url: string): string {
   color: var(--wb-brand);
   font-size: var(--wb-fs-3xs);
   font-weight: 700;
+}
+
+.chip-x {
+  border: none;
+  background: none;
+  color: var(--wb-mute);
+  cursor: pointer;
+  font-size: var(--wb-fs-3xs);
+  line-height: 1;
+  padding: 0 1px;
+}
+
+.chip-x:hover:not(:disabled) {
+  color: var(--wb-bad);
+}
+
+.chip-x:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .provider-actions {

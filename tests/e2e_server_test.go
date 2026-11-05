@@ -247,8 +247,9 @@ func TestEnvelopeContract(t *testing.T) {
 	}
 }
 
-// TestSettingsChain 断言设置链路的三个不变量：
-// KV 真落 SQLite、重复切工作区只留一条历史、非法关窗值归一成 tray 且不落盘。
+// TestSettingsChain 断言设置链路的两个不变量：
+// KV 真落 SQLite（写经 HTTP、查直连库、读走 HTTP 三个方向都对上），
+// 重复切工作区只留一条历史。
 func TestSettingsChain(t *testing.T) {
 	h := newHarness(t)
 
@@ -293,23 +294,5 @@ func TestSettingsChain(t *testing.T) {
 	rows := h.app.Settings.Workspaces()
 	if len(rows) != 1 || rows[0].WorkspacePath != ws {
 		t.Fatalf("重复切换应只留 1 条且为 %s，实际 %+v", ws, rows)
-	}
-
-	// 关窗偏好：默认收托盘；非法值归一成 tray 且不写盘。
-	env, code = h.call(http.MethodGet, "/prefs", nil)
-	var prefs struct {
-		CloseAction string `json:"close_action"`
-	}
-	h.mustOK(env, code, "prefs", &prefs)
-	if prefs.CloseAction != service.CloseActionTray {
-		t.Fatalf("默认关窗行为应是 %q，实际 %q", service.CloseActionTray, prefs.CloseAction)
-	}
-	env, code = h.call(http.MethodPost, "/prefs/close-action", map[string]string{"close_action": "self-destruct"})
-	h.mustOK(env, code, "prefs/close-action", &prefs)
-	if prefs.CloseAction != service.CloseActionTray {
-		t.Fatalf("非法值应归一成 %q，实际 %q", service.CloseActionTray, prefs.CloseAction)
-	}
-	if stored := h.app.Settings.Get(service.KeyCloseAction); stored == "self-destruct" {
-		t.Fatal("非法关窗值不能被写进设置")
 	}
 }

@@ -13,36 +13,31 @@ type BuiltinPlugin struct {
 }
 
 // BuiltinPlugins 是内置插件清单：顺序即首启安装顺序，联网访问排最前
-// （其余插件常依赖它）。
+// （其余插件常依赖它）。纯 TUI 展示件与和本壳 GUI 职责重叠的管理面
+// 只内置不默认启用，其余默认开启。
 var BuiltinPlugins = []BuiltinPlugin{
 	{
 		PluginName:      "pi-web-access",
-		PluginVersion:   "0.42.0",
+		PluginVersion:   "0.46.0",
 		PluginDesc:      "联网搜索、抓取 URL、克隆 GitHub、PDF 与视频理解",
 		PluginDefaultOn: true,
 	},
 	{
 		PluginName:      "@juicesharp/rpiv-todo",
-		PluginVersion:   "2.13.9",
+		PluginVersion:   "2.15.0",
 		PluginDesc:      "实时待办清单，跨 /reload 与上下文压缩存活",
 		PluginDefaultOn: true,
 	},
 	{
 		PluginName:      "@juicesharp/rpiv-ask-user-question",
-		PluginVersion:   "2.13.9",
+		PluginVersion:   "2.15.0",
 		PluginDesc:      "结构化问卷，让模型在拿不准时先问你",
 		PluginDefaultOn: true,
 	},
 	{
 		PluginName:      "pi-hermes-memory",
-		PluginVersion:   "0.9.10",
+		PluginVersion:   "0.10.0",
 		PluginDesc:      "持久记忆、会话检索、密钥扫描与自动知识整合",
-		PluginDefaultOn: true,
-	},
-	{
-		PluginName:      "context-mode",
-		PluginVersion:   "1.0.169",
-		PluginDesc:      "省上下文：沙箱执行 + FTS5 知识库 + 意图搜索",
 		PluginDefaultOn: true,
 	},
 	{
@@ -53,38 +48,98 @@ var BuiltinPlugins = []BuiltinPlugin{
 	},
 	{
 		PluginName:      "@narumitw/pi-lsp",
-		PluginVersion:   "0.49.10",
+		PluginVersion:   "0.49.12",
 		PluginDesc:      "语言无关的 LSP 工具，共享 runner",
 		PluginDefaultOn: true,
 	},
 	{
 		PluginName:      "@plannotator/pi-extension",
-		PluginVersion:   "0.28.23",
+		PluginVersion:   "0.28.48",
 		PluginDesc:      "交互式计划评审、标注与 PR 审查",
 		PluginDefaultOn: true,
 	},
 	{
 		PluginName:      "pi-codex-goal",
-		PluginVersion:   "0.6.1",
-		PluginDesc:      "Codex 式目标追踪与续跑",
+		PluginVersion:   "0.7.7",
+		PluginDesc:      "目标追踪与续跑，跨轮保持目标状态",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-inspect",
+		PluginVersion:   "0.6.0",
+		PluginDesc:      "自省面板：工具、斜杠命令、技能与注入的系统提示",
+		PluginDefaultOn: false,
+	},
+	{
+		PluginName:      "pi-context-view",
+		PluginVersion:   "0.8.2",
+		PluginDesc:      "可视化上下文用量，检查隐藏的基础提示与工具定义；与内置的用量面板重复，默认停用",
+		PluginDefaultOn: false,
+	},
+	{
+		PluginName:      "pi-footer",
+		PluginVersion:   "0.5.1",
+		PluginDesc:      "可配置多行 footer / 状态栏",
+		PluginDefaultOn: false,
+	},
+	{
+		PluginName:      "pi-generative-ui",
+		PluginVersion:   "0.3.0",
+		PluginDesc:      "生成式 UI：交互式 HTML / SVG 小部件渲染到原生窗口",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-browser-harness",
+		PluginVersion:   "0.14.0",
+		PluginDesc:      "CDP 操控真实 Chrome：导航、点击、输入、截图、取数",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-chrome",
+		PluginVersion:   "0.15.57",
+		PluginDesc:      "显式授权后复用已登录的 Chrome 配置文件",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-plan-mode",
+		PluginVersion:   "0.4.8",
+		PluginDesc:      "Plan 模式：只读探索与计划文件编辑",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-subagents",
+		PluginVersion:   "0.84.0",
+		PluginDesc:      "单 Agent 委派与脚本化多 Agent 工作流",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-autoresearch",
+		PluginVersion:   "1.9.0",
+		PluginDesc:      "自主实验循环：跑实验、测量、决定保留或丢弃",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-web",
+		PluginVersion:   "0.15.5",
+		PluginDesc:      "pi 的 Web UI，浏览器里操作 pi；与本壳 GUI 职责重叠，默认停用",
+		PluginDefaultOn: false,
+	},
+	{
+		PluginName:      "pi-smart-compact",
+		PluginVersion:   "10.7.3",
+		PluginDesc:      "可恢复的上下文清理、校验式压缩、会话导航与项目记忆",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "context-mode",
+		PluginVersion:   "1.0.169",
+		PluginDesc:      "省上下文：沙箱执行 + FTS5 知识库 + 意图搜索",
 		PluginDefaultOn: true,
 	},
 	{
 		PluginName:      "pi-loadout",
 		PluginVersion:   "0.0.37",
 		PluginDesc:      "交互式工具与技能装载配置；与 GUI 的管理面职责重叠，默认停用",
-		PluginDefaultOn: false,
-	},
-	{
-		PluginName:      "pi-inspect",
-		PluginVersion:   "0.5.0",
-		PluginDesc:      "自省面板：工具、斜杠命令、技能与注入的系统提示",
-		PluginDefaultOn: false,
-	},
-	{
-		PluginName:      "pi-context-view",
-		PluginVersion:   "0.7.2",
-		PluginDesc:      "可视化上下文用量，检查隐藏的基础提示与工具定义；与内置的用量面板重复，默认停用",
 		PluginDefaultOn: false,
 	},
 }

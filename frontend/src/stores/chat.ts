@@ -217,6 +217,12 @@ export const useChatStore = defineStore('chat', () => {
     queue.value = { steering: [], follow_up: [] }
   }
 
+  /** 单条移除：后端取出全队摘一条再重投，返回的剩余队列直接替换本地镜像。 */
+  async function removeQueued(kind: 'steering' | 'followup', index: number) {
+    const res = await api.removeQueued(sessionFile.value, kind, index)
+    queue.value = { steering: res.steering ?? [], follow_up: res.follow_up ?? [] }
+  }
+
   async function send(message: string, attachments: ChatAttachment[] = []) {
     promptError.value = ''
     runError.value = ''
@@ -366,6 +372,7 @@ export const useChatStore = defineStore('chat', () => {
     newChat,
     cloneChat,
     clearQueue,
+    removeQueued,
     send,
     stop,
     steer,

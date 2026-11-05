@@ -337,6 +337,14 @@ type MessageHideREQ struct {
 	TurnId string `json:"turn_id"`
 }
 
+// ChatRemoveQueuedREQ 是单条移除排队消息的入参。
+type ChatRemoveQueuedREQ struct {
+	// QueueKind steering / followup
+	QueueKind string `json:"queue_kind"`
+	// QueueIndex 队内位置（从 0 起）
+	QueueIndex int `json:"queue_index"`
+}
+
 // ProviderModelEntryVO 是一条服务商模型配置。
 type ProviderModelEntryVO struct {
 	// ModelId 模型 ID
@@ -405,6 +413,22 @@ type ProviderUpsertREQ struct {
 type ProviderDeleteREQ struct {
 	// ProviderName 服务商名
 	ProviderName string `json:"provider_name"`
+}
+
+// ProviderModelSaveREQ 是单条模型增改的入参；服务商必须已存在。
+type ProviderModelSaveREQ struct {
+	// ProviderName 服务商名
+	ProviderName string `json:"provider_name"`
+	// Model 模型条目（按 ModelId 定位，存在即改，不存在即增）
+	Model ProviderModelEntryVO `json:"model"`
+}
+
+// ProviderModelDeleteREQ 是删除服务商下一条模型的入参。
+type ProviderModelDeleteREQ struct {
+	// ProviderName 服务商名
+	ProviderName string `json:"provider_name"`
+	// ModelId 模型 ID
+	ModelId string `json:"model_id"`
 }
 
 // ProviderProbeREQ 是向上游探测的入参；空字段由后端从已保存配置里取。

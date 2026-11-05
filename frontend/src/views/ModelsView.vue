@@ -25,6 +25,8 @@ const readError = ref('')
 const loadingProviders = ref(false)
 // 正在跑的上游探测：'test:<服务商>'。拉模型在编辑弹窗里做，不占这个标志。
 const probing = ref('')
+// 正在行内删除的模型：'服务商:模型ID'
+const removingModel = ref('')
 
 /** 可选的服务商协议。 */
 const apiOptions = [
@@ -99,6 +101,34 @@ async function remove(view: ProviderView): Promise<void> {
   }
 }
 
+/** 行内删模型：摘一条就是一条，不用打开编辑弹窗整表回传。 */
+async function removeModel(view: ProviderView, modelId: string): Promise<void> {
+  if (removingModel.value) return
+  try {
+    await ElMessageBox.confirm(
+      t('models.removeModelConfirm', { name: view.provider_name, id: modelId }),
+      t('models.removeModelTitle'),
+      {
+        confirmButtonText: t('common.delete'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning',
+      },
+    )
+  } catch {
+    return
+  }
+  removingModel.value = `${view.provider_name}:${modelId}`
+  try {
+    await api.deleteProviderModel(view.provider_name, modelId)
+    toasts.push('ok', t('common.saved'))
+    await reloadAll()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    removingModel.value = ''
+  }
+}
+
 /** 只读的「可用模型」：直接从服务商清单里摊平，不再多一次往返。 */
 const models = computed(() =>
   providers.value.flatMap((view) =>
@@ -154,10 +184,12 @@ onMounted(() => {
         :loading="loadingProviders"
         :config-path="configPath"
         :pending="probing"
+        :removing="removingModel"
         @create="form.openCreate()"
         @edit="form.openEdit"
         @remove="remove"
         @test="testProvider"
+        @remove-model="removeModel"
       />
 
       <ModelTable :models="models" :engine-missing="!piInstalled" />

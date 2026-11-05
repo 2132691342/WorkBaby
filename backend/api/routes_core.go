@@ -153,6 +153,16 @@ func (s *Server) enginesRestart(c *gin.Context) {
 	ok(c)
 }
 
+// enginesRepair 强制重解压三个内置运行时并重钉 npmCommand。
+func (s *Server) enginesRepair(c *gin.Context) {
+	problems, err := s.svc.RepairRuntime()
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, domain.RuntimeRepairRESP{RepairProblems: problems})
+}
+
 // healthGet 概览页的健康快照。
 func (s *Server) healthGet(c *gin.Context) {
 	pkg.OK(c, s.svc.Health())

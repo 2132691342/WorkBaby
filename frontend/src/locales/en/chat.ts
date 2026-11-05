@@ -179,7 +179,7 @@ export default {
 "sessions": {
     "title": "Sessions",
     "subtitle": "Every {engine} session on disk, including the ones you started in a terminal.",
-    "filterPlaceholder": "Filter by title, model or folder",
+    "filterPlaceholder": "Filter by title, model or folder; 2+ chars searches full text",
     "thisWorkspace": "This folder",
     "allWorkspace": "All folders",
     "open": "Continue this session",

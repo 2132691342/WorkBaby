@@ -135,6 +135,8 @@ export const api = {
   engineStatus: () => get<EngineStatus>('/engines'),
   detectEngines: () => post<RuntimeStatus>('/engines/detect'),
   restartEngine: () => post<{ ok: boolean }>('/engines/restart'),
+  // 修复运行时：强制重解压三个内置运行时并重钉 npmCommand
+  repairRuntime: () => post<{ repair_problems: string[] }>('/engines/repair'),
   health: () => get<HealthData>('/health/engines'),
   apps: () => get<{ apps: AppRow[] }>('/apps'),
   installApp: () => post<{ apps: AppRow[] }>('/apps/install'),
@@ -142,7 +144,9 @@ export const api = {
   uninstallApp: () => post<{ apps: AppRow[] }>('/apps/uninstall'),
 
   // ---- 会话 ----
-  sessions: (workspace?: string) => get<SessionList>('/sessions', { workspace }),
+  // q 非空时后端按标题与正文过滤（大小写不敏感）
+  sessions: (workspace?: string, query?: string) =>
+    get<SessionList>('/sessions', { workspace, q: query ?? '' }),
   sessionDetail: (path: string) => get<SessionDetail>('/sessions/detail', { path }),
   deleteSession: (sessionPath: string) => post<{ ok: boolean }>('/sessions/delete', { session_path: sessionPath }),
   renameSession: (sessionPath: string, sessionTitle: string) =>
@@ -161,6 +165,13 @@ export const api = {
     post<{ ok: boolean }>('/chat/followup', { session_file: sessionFile, message, attachments }),
   clearQueue: (sessionFile: string) =>
     post<{ steering: string[]; follow_up: string[] }>('/chat/clear-queue', s(sessionFile)),
+  // 单条移除：后端用「取出全队 → 摘一条 → 其余重投」实现，返回移除后的两条队
+  removeQueued: (sessionFile: string, queueKind: 'steering' | 'followup', queueIndex: number) =>
+    post<{ steering: string[]; follow_up: string[] }>('/chat/remove-queued', {
+      session_file: sessionFile,
+      queue_kind: queueKind,
+      queue_index: queueIndex,
+    }),
   compact: (sessionFile: string, instructions = '') =>
     post<{ ok: boolean }>('/chat/compact', { session_file: sessionFile, instructions }),
   answer: (sessionFile: string, req: UIResponse) =>
@@ -196,6 +207,11 @@ export const api = {
     post<ProvidersView>('/providers/delete', { provider_name: providerName }),
   // 向上游问一次模型清单。密钥不给就用已保存的那个。
   probeProvider: (body: ProviderProbeREQ) => post<ProviderProbeRESP>('/providers/models', body),
+  // 单条模型增改：按 model_id 定位，存在即改；服务商必须已存在
+  saveProviderModel: (providerName: string, model: ModelEntry) =>
+    post<ProvidersView>('/providers/model/save', { provider_name: providerName, model }),
+  deleteProviderModel: (providerName: string, modelId: string) =>
+    post<ProvidersView>('/providers/model/delete', { provider_name: providerName, model_id: modelId }),
 
   // ---- 技能 / 插件 / MCP ----
   skills: () => get<SkillListData>('/skills'),
@@ -239,6 +255,7 @@ export const api = {
     mcp_desc?: string
     work_dir?: string
     env_list?: string[]
+    mcp_scope?: 'user' | 'project'
   }) => post<McpListData>('/mcp/save', body),
   // 连接测试：stdio 拉真进程、http 发真请求，完成一次 MCP initialize 握手
   mcpProbe: (serverName: string) =>
@@ -251,6 +268,12 @@ export const api = {
   files: (path: string) => get<FileList>('/files', { path }),
   filesSearch: (query: string, limit = 50) => get<FileSearch>('/files/search', { query, limit: String(limit) }),
   fileRead: (path: string) => get<FileRead>('/files/read', { path }),
+  fileSave: (filePath: string, fileText: string) =>
+    post<{ ok: boolean }>('/files/save', { file_path: filePath, file_text: fileText }),
+  fileMkdir: (filePath: string) => post<{ ok: boolean }>('/files/mkdir', { file_path: filePath }),
+  fileDelete: (filePath: string) => post<{ ok: boolean }>('/files/delete', { file_path: filePath }),
+  fileRename: (filePath: string, newFilePath: string) =>
+    post<{ ok: boolean }>('/files/rename', { file_path: filePath, new_file_path: newFilePath }),
   gitStatus: () => get<GitStatus>('/git/status'),
   gitDiff: (path?: string) => get<GitDiff>('/git/diff', { path }),
   gitHistory: (limit = 50) => get<{ commits: GitCommit[] }>('/git/history', { limit: String(limit) }),

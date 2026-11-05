@@ -189,7 +189,7 @@ thinking: {
 sessions: {
     title: '会话',
     subtitle: '这里列出 {engine} 在磁盘上的全部会话，包括在终端里聊过的那些。',
-    filterPlaceholder: '按标题、模型或目录过滤',
+    filterPlaceholder: '按标题、模型、目录过滤；输入两个字以上搜全文',
     thisWorkspace: '当前目录',
     allWorkspace: '全部目录',
     open: '继续这个会话',

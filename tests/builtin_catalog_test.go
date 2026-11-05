@@ -83,8 +83,8 @@ func TestBuiltinManifestMatchesAssets(t *testing.T) {
 			t.Errorf("%s 反解包名错了：得到 %q", source, got)
 		}
 	}
-	if len(service.BuiltinPlugins) != 12 {
-		t.Errorf("内置插件应为 12 个，实际 %d 个", len(service.BuiltinPlugins))
+	if len(service.BuiltinPlugins) != 21 {
+		t.Errorf("内置插件应为 21 个，实际 %d 个", len(service.BuiltinPlugins))
 	}
 
 	// 技能清单与 assets\skills 一一对应。
@@ -203,7 +203,11 @@ func TestPluginLifecycle(t *testing.T) {
 	app.Plugins.DeclareBuiltins()
 
 	const pluginName = "pi-web-access"
-	writePkg(t, layout, pluginName, "0.42.0")
+	pinned := service.BuiltinPluginOf(pluginName)
+	if pinned == nil {
+		t.Fatalf("清单里应有 %s", pluginName)
+	}
+	writePkg(t, layout, pluginName, pinned.PluginVersion)
 
 	// 停用：对象形态。
 	if _, err := app.Plugins.Toggle(pluginName, false); err != nil {
@@ -249,24 +253,22 @@ func TestPluginVersionDrift(t *testing.T) {
 	// Provision：版本装歪的应被尝试重装（记入失败表），版本对齐的直接跳过。
 	app, layout, _ := catalogHarness(t, "")
 	writePkg(t, layout, drifted, "9.9.9")
+	writePkg(t, layout, aligned, alignedItem.PluginVersion)
 	app.Plugins.ProvisionBuiltins()
 	if reason := pluginErrorOf(app, drifted); reason == "" {
 		t.Fatalf("版本装歪（9.9.9 ≠ %s）的 %s 应被重新安装；没有失败记录说明被当成已装跳过了",
 			driftedItem.PluginVersion, drifted)
 	}
-	app2, layout2, _ := catalogHarness(t, "")
-	writePkg(t, layout2, drifted, driftedItem.PluginVersion)
-	app2.Plugins.ProvisionBuiltins()
-	if reason := pluginErrorOf(app2, drifted); reason != "" {
-		t.Fatalf("版本已对齐（%s）的 %s 不该被重装，却出现了失败：%s", driftedItem.PluginVersion, drifted, reason)
+	if reason := pluginErrorOf(app, aligned); reason != "" {
+		t.Fatalf("版本已对齐（%s）的 %s 不该被重装，却出现了失败：%s", alignedItem.PluginVersion, aligned, reason)
 	}
 
 	// UpgradeAll：清单先标对「可升级」，然后只尝试漂移的那个。
-	app3, layout3, _ := catalogHarness(t, "")
-	writePkg(t, layout3, drifted, "0.0.1")
-	writePkg(t, layout3, aligned, alignedItem.PluginVersion)
+	app2, layout2, _ := catalogHarness(t, "")
+	writePkg(t, layout2, drifted, "0.0.1")
+	writePkg(t, layout2, aligned, alignedItem.PluginVersion)
 	var driftedRow, alignedRow bool
-	for _, row := range app3.Plugins.List().Plugins {
+	for _, row := range app2.Plugins.List().Plugins {
 		switch row.PluginName {
 		case drifted:
 			driftedRow = row.PluginUpgradable
@@ -277,11 +279,11 @@ func TestPluginVersionDrift(t *testing.T) {
 	if !driftedRow || alignedRow {
 		t.Fatalf("升级标记错误：%s 应可升级=%v，%s 应不可升级=%v", drifted, driftedRow, aligned, alignedRow)
 	}
-	app3.Plugins.UpgradeAll()
-	if reason := pluginErrorOf(app3, drifted); reason == "" {
+	app2.Plugins.UpgradeAll()
+	if reason := pluginErrorOf(app2, drifted); reason == "" {
 		t.Fatalf("版本不符的 %s 应被尝试升级（应记入失败表）", drifted)
 	}
-	if reason := pluginErrorOf(app3, aligned); reason != "" {
+	if reason := pluginErrorOf(app2, aligned); reason != "" {
 		t.Fatalf("版本已对齐的 %s 不该被碰，却出现了失败：%s", aligned, reason)
 	}
 }

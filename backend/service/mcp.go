@@ -149,9 +149,9 @@ func stringField(entry map[string]any, key string) string {
 	return value
 }
 
-// Save 保存：写用户级文件。有 ServerUrl 即 HTTP，否则拆 CommandText。
-// 编辑时先整份继承旧条目再覆盖表单管得到的字段：用户手配的 headers、oauth、
-// type 不在表单里，从零重建会静默丢掉它们。
+// Save 保存：默认写用户级文件，McpScope 为 project 时写工作区 .pi\mcp.json。
+// 有 ServerUrl 即 HTTP，否则拆 CommandText。编辑时先整份继承旧条目再覆盖表单
+// 管得到的字段：用户手配的 headers、oauth、type 不在表单里，从零重建会静默丢掉它们。
 func (m *Mcp) Save(req domain.McpSaveREQ) (domain.McpListRESP, error) {
 	name := strings.TrimSpace(req.ServerName)
 	if name == "" {
@@ -163,8 +163,17 @@ func (m *Mcp) Save(req domain.McpSaveREQ) (domain.McpListRESP, error) {
 	}) {
 		return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "服务名只能含字母、数字、下划线与短横线："+name)
 	}
-	userPath := m.Layout.McpFile()
-	value, err := readMcpFile(userPath)
+	targetPath := m.Layout.McpFile()
+	if req.McpScope == "project" {
+		targetPath = m.projectPath()
+		if targetPath == "" {
+			return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "项目级 MCP 需要先选择工作区")
+		}
+		if err := pkg.EnsureDir(filepath.Dir(targetPath)); err != nil {
+			return domain.McpListRESP{}, pkg.WrapErr(pkg.CodeMcpWrite, "项目 .pi 目录创建失败", err)
+		}
+	}
+	value, err := readMcpFile(targetPath)
 	if err != nil {
 		return domain.McpListRESP{}, err
 	}
@@ -220,7 +229,7 @@ func (m *Mcp) Save(req domain.McpSaveREQ) (domain.McpListRESP, error) {
 		delete(entry, "timeout")
 	}
 	value.McpServers[name] = entry
-	if err := writeMcpFile(userPath, value); err != nil {
+	if err := writeMcpFile(targetPath, value); err != nil {
 		return domain.McpListRESP{}, err
 	}
 	return m.List(), nil

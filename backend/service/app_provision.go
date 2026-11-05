@@ -51,6 +51,32 @@ func (a *App) RuntimeProblems() []string {
 	return append([]string(nil), a.runtimeProblems...)
 }
 
+// RepairRuntime 修复运行时：停引擎 → 强制重解压三个运行时 → 重钉 npmCommand。
+// 与首启装配共用进度上报与 provisioning 标记，界面上看到的是同一条进度线。
+func (a *App) RepairRuntime() ([]string, error) {
+	if a.Provisioning() {
+		return nil, pkg.Err(pkg.CodeEngineBusy, "已有装配任务在跑，等它结束再修复")
+	}
+	if a.Chat.Stream.Active() {
+		return nil, pkg.Err(pkg.CodeEngineBusy, "引擎正在执行任务，等这一轮结束再修复")
+	}
+	a.setProvisioning(true)
+	defer func() {
+		a.setProvisioning(false)
+		a.Hub.Broadcast("engine:status", nil)
+	}()
+	// Restart 内部等引擎真退出再返回，运行时目录上的文件锁就解了。
+	a.Chat.Restart()
+	problems := a.Runtime.RepairRuntime(func(phase, message string) {
+		a.ProvisionProgress("runtime", "repair", phase, message)
+	})
+	a.mu.Lock()
+	a.runtimeProblems = problems
+	a.mu.Unlock()
+	EnsureNpmCommand(a.Layout, a.Runtime.NpmCommand())
+	return problems, nil
+}
+
 // Logs 当日日志尾部。
 func (a *App) Logs(maxLines int) []string {
 	if maxLines <= 0 || maxLines > 4000 {

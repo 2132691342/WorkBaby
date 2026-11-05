@@ -35,6 +35,7 @@
 | `/engines` | GET | 引擎身份 + 布局 + 存活实例 + 探测时间戳 |
 | `/engines/detect` | POST | 重新探测版本，刷新时间戳并广播 |
 | `/engines/restart` | POST | 杀 RPC 子进程，下次用到自动重拉 |
+| `/engines/repair` | POST | 修复运行时：停引擎 → 三个内置运行时删掉重解压 → 重钉 npmCommand；进度走 `app:progress`，回 `repair_problems` |
 | `/health/engines` | GET | 健康面板：安装态、运行态、会话/技能/插件/MCP 计数 |
 | `/apps` | GET | 应用行：pi 本体 + 三个内置运行时（安装态 / 版本 / 可执行路径） |
 | `/apps/install` `update` `uninstall` | POST | `{ engine: 'pi' }`；内置 npm 全程经 SSE `app:progress` 报进度 |
@@ -43,10 +44,10 @@
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/sessions` | GET | `?workspace=`；按工作区编码目录扫描，`updated_at` 降序 |
+| `/sessions` | GET | `?workspace=&q=`；按工作区编码目录扫描，`updated_at` 降序；`q` 非空时按标题与正文过滤（大小写不敏感） |
 | `/sessions/detail` | GET | `?path=`；清单行 + 逐条消息 |
 | `/sessions/delete` | POST | `{ path }` |
-| `/sessions/rename` | POST | `{ path, name }`；向会话文件追加 `session_info` 条目 |
+| `/sessions/rename` | POST | `{ session_path, session_title }`；向会话文件追加 `session_info` 条目 |
 
 ## 聊天
 
@@ -57,7 +58,7 @@
 | `/chat/stop` | POST | 中止当前运行 |
 | `/chat/steer` / `followup` | POST | 插话 / 排队追加 |
 | `/chat/clear-queue` | POST | 清空两队，返回被清的话术 |
-| `/chat/remove-queued` | POST | 引擎不支持单删，恒报错（能力位已隐藏入口） |
+| `/chat/remove-queued` | POST | `{ queue_kind, queue_index }`；单条移除。引擎只有整队清空，壳用「取出全队 → 摘一条 → 其余按原序重投」实现；插队重投失败降级为追加，话术不丢。返回移除后的两队 |
 | `/chat/compact` | POST | `{ instructions? }` 手动压缩 |
 | `/chat/answer` | POST | `{ session, request }` 回答提问板（确认 / 选择 / 输入 / 编辑器） |
 | `/chat/new` / `clone` | POST | 新建 / 克隆会话，返回 `session_file` |
@@ -76,6 +77,8 @@
 | `/providers` | GET | 自定义 + 内置服务商合并视图（含凭据状态，密钥恒为掩码） |
 | `/providers/upsert` | POST | `{ name, provider }`；写 models.json + auth.json；`api_key` 空串=保留原值 |
 | `/providers/delete` | POST | 服务商与凭据一并清 |
+| `/providers/model/save` | POST | `{ provider_name, model }`；单条模型增改，按 `model_id` 定位（存在即改），服务商必须已存在 |
+| `/providers/model/delete` | POST | `{ provider_name, model_id }`；删除服务商下一条模型 |
 | `/providers/models` | POST | 按 API 协议拉远端模型清单（openai / anthropic / google 三种） |
 | `/providers/test` | POST | 连通性测试，回 `{ ok, model_count, message }` |
 
@@ -98,7 +101,7 @@
 | `/plugins/upgrade-all` | POST | 只升版本与清单不符的内置插件；回 `{ installed, failed }` |
 | `/plugins/check-updates` | POST | 逐包问 npm registry 的 latest，回一份带 `plugin_latest` 的新清单；离线时字段留空 |
 | `/mcp` | GET | 用户级 + 项目级合并清单；行里带 `mcp_env_text` / `mcp_work_dir` / `mcp_timeout`（秒） |
-| `/mcp/save` / `toggle` / `remove` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv；编辑整份继承旧条目，手配的 headers / oauth 不丢 |
+| `/mcp/save` / `toggle` / `remove` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv；`mcp_scope: project` 写工作区 `.pi\mcp.json`（需已选工作区），默认用户级；编辑整份继承旧条目，手配的 headers / oauth 不丢 |
 | `/mcp/probe` | POST | `{ server_name }`；完成一次 MCP initialize 握手（stdio 拉真进程 / http 发真请求），回 `probe_ok` / `probe_message` / `probe_tools` |
 
 **插件身份是包名不是来源串**：`pi:<name>@<ver>` 里的版本会变，包名不会。
@@ -111,6 +114,13 @@
 | `/files` | GET | `?path=` 工作区内列目录（目录优先，≤500 条） |
 | `/files/search` | GET | `?query=&limit=`；按名递归搜索，跳过 node_modules/.git/dist |
 | `/files/read` | GET | 文本读取（1MB 截断，二进制给占位说明） |
+| `/files/save` | POST | `{ file_path, file_text }` 新建/覆盖同一入口；父目录不存在一并建出；5MB 上限 |
+| `/files/mkdir` | POST | `{ file_path }` 新建目录（多级一并建）；已存在即拒 |
+| `/files/delete` | POST | `{ file_path }` 删除文件或目录（递归）；工作区根本身拒删 |
+| `/files/rename` | POST | `{ file_path, new_file_path }` 改名或移动；源必须存在、目标必须不存在 |
+
+路径约定：全部接受工作区内绝对路径；相对路径（前端的 `/` 斜杠约定）按工作区根解析——
+不按进程 CWD，`../` 折算后仍出不了工作区根。
 | `/git/*` | GET/POST | status / diff / history / commit / file-history / file-diff / branches / stash(list,push,pop,drop) / stage / unstage / discard / resolve / commit / branch(+delete) / switch / merge / state / init / remote / push / pull / fetch；全部走内置 git.exe，凭证问询禁交互（走 GCM，失败回 1102） |
 | `/system/reveal` / `open` | POST | 资源管理器定位 / 系统默认程序打开 |
 | `/config/files` / `text` | GET | 引擎配置原文（settings/models/mcp/auth/AGENTS + 项目级），白名单校验 |

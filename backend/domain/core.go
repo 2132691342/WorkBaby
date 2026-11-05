@@ -177,6 +177,12 @@ type RuntimeStatusVO struct {
 	Provisioning bool `json:"provisioning"`
 }
 
+// RuntimeRepairRESP 是运行时修复的结果。
+type RuntimeRepairRESP struct {
+	// RepairProblems 修复过程中的失败原因；空数组即全部成功
+	RepairProblems []string `json:"repair_problems"`
+}
+
 // WorkspaceRowVO 是一条工作区历史。
 type WorkspaceRowVO struct {
 	// WorkspacePath 目录绝对路径
