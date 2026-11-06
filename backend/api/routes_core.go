@@ -52,16 +52,25 @@ func (s *Server) settingsWorkspace(c *gin.Context) {
 
 // workspaceForget 从历史里去掉一个目录。
 func (s *Server) workspaceForget(c *gin.Context) {
-	var req domain.SetWorkspaceREQ
+	var req domain.WorkspaceForgetREQ
 	if !bind(c, &req) {
 		return
 	}
-	rows, err := s.svc.Settings.ForgetWorkspace(req.Workspace)
+	rows, err := s.svc.Settings.ForgetWorkspace(req.WorkspacePath)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
 	}
-	pkg.OK(c, map[string]any{"workspaces": rows})
+	pkg.OK(c, domain.WorkspaceListRESP{
+		Workspace:     s.svc.Workspace(),
+		WorkspaceRows: rows,
+		ActiveEngine:  domain.EnginePi,
+	})
+}
+
+// workspacesGet 工作区清单：当前工作区 + 历史（带仓库与会话概况）。
+func (s *Server) workspacesGet(c *gin.Context) {
+	pkg.OK(c, s.svc.Settings.WorkspaceList())
 }
 
 // prefsGet 应用偏好。

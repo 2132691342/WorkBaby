@@ -3,12 +3,14 @@
 package service
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/repo"
+	"WorkBaby/backend/service/parser"
 	"WorkBaby/backend/sse"
 )
 
@@ -44,6 +46,8 @@ type Settings struct {
 	Layout pkg.Layout
 	// Hub 事件广播
 	Hub *sse.Hub
+	// Git git 编排：工作区行要带分支与改动数
+	Git *Git
 }
 
 // All 读全部设置键值。
@@ -70,6 +74,10 @@ func (s *Settings) Workspace() string {
 	return s.Get(KeyWorkspace)
 }
 
+// maxWorkspaces 是工作区历史容量。工作区不是标签页：十几条就够切换，
+// 留太多会让一份短名单变成需要搜索的长名单。
+const maxWorkspaces = 24
+
 // SetWorkspace 切工作区：校验目录、写设置、记历史、广播。
 func (s *Settings) SetWorkspace(dir string) (string, error) {
 	target := strings.TrimSpace(dir)
@@ -95,8 +103,8 @@ func (s *Settings) SetWorkspace(dir string) (string, error) {
 		}
 		next = append(next, row)
 	}
-	if len(next) > 12 {
-		next = next[:12]
+	if len(next) > maxWorkspaces {
+		next = next[:maxWorkspaces]
 	}
 	if err := s.Store.Save(map[string]string{
 		KeyWorkspace:  target,
@@ -124,14 +132,48 @@ func (s *Settings) ForgetWorkspace(dir string) ([]domain.WorkspaceRowVO, error) 
 	return kept, nil
 }
 
-// Workspaces 工作区历史；每条都带上「目录还在不在」。
+// Workspaces 工作区历史；每条都带上「目录还在不在」以及仓库与会话概况。
+// 一次扫描把界面要的全部事实算齐：分开拉会让每一行各发一次 git 请求。
 func (s *Settings) Workspaces() []domain.WorkspaceRowVO {
-	raw := s.Get(KeyWorkspaces)
-	rows := unmarshalRows(raw)
+	rows := unmarshalRows(s.Get(KeyWorkspaces))
 	for i := range rows {
 		rows[i].WorkspaceExists = pkg.IsDir(rows[i].WorkspacePath)
+		if !rows[i].WorkspaceExists {
+			continue
+		}
+		rows[i].SessionCount = s.sessionCountOf(rows[i].WorkspacePath)
+		if s.Git == nil {
+			continue
+		}
+		rows[i].WorkspaceIsRepo, rows[i].WorkspaceBranch, rows[i].WorkspaceDirty = s.Git.ProbeOf(rows[i].WorkspacePath)
 	}
 	return rows
+}
+
+// sessionCountOf 数一个工作区目录下的会话文件。
+// 目录编码规则与引擎一致，所以直接按编码目录找就行，不必扫全部会话。
+func (s *Settings) sessionCountOf(workspace string) int {
+	dir := filepath.Join(s.Layout.SessionsDir(), parser.EncodedWorkspace(workspace))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
+			count++
+		}
+	}
+	return count
+}
+
+// WorkspaceList 工作区清单（含当前工作区），供工作区页默认打开的那一屏。
+func (s *Settings) WorkspaceList() domain.WorkspaceListRESP {
+	return domain.WorkspaceListRESP{
+		Workspace:     s.Workspace(),
+		WorkspaceRows: s.Workspaces(),
+		ActiveEngine:  domain.EnginePi,
+	}
 }
 
 // Prefs 组装设置页要的全部开关状态。

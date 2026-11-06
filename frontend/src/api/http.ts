@@ -28,6 +28,7 @@ import type {
   McpListData,
   ModelEntry,
   ModelRow,
+  WorkspaceList,
   PluginListData,
   ProviderProbeREQ,
   ProviderProbeRESP,
@@ -121,8 +122,9 @@ export const api = {
   settings: () => get<Record<string, string>>('/settings'),
   saveSettings: (kv: Record<string, string>) => post<Record<string, string>>('/settings/save', kv),
   setWorkspace: (workspace: string) => post<{ workspace: string }>('/settings/workspace', { workspace }),
+  workspaces: () => get<WorkspaceList>('/workspaces'),
   forgetWorkspace: (workspace: string) =>
-    post<{ workspaces: Bootstrap['workspaces'] }>('/settings/workspace/forget', { workspace }),
+    post<{ workspaces: Bootstrap['workspaces'] }>('/settings/workspace/forget', { workspace_path: workspace }),
   logs: (lines = 500) => get<{ lines: string[] }>('/logs', { lines: String(lines) }),
 
   prefs: () => get<AppPrefs>('/prefs'),

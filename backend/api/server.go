@@ -124,6 +124,7 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.GET("/settings", s.settingsGet)
 	g.POST("/settings/save", s.settingsSave)
 	g.POST("/settings/workspace", s.settingsWorkspace)
+	g.GET("/workspaces", s.workspacesGet)
 	g.POST("/settings/workspace/forget", s.workspaceForget)
 	g.GET("/prefs", s.prefsGet)
 	g.POST("/prefs/autostart", s.prefsAutoStart)

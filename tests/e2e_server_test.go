@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -294,5 +295,90 @@ func TestSettingsChain(t *testing.T) {
 	rows := h.app.Settings.Workspaces()
 	if len(rows) != 1 || rows[0].WorkspacePath != ws {
 		t.Fatalf("重复切换应只留 1 条且为 %s，实际 %+v", ws, rows)
+	}
+}
+
+// TestWorkspaceRenameGuards 断言两件会让数据变脏的事：
+// 工作区清单带上 git 与会话概况（工作区页靠它决定显示什么），
+// 以及引擎正打开着的会话不允许改名（两路同时追加会写坏唯一真相）。
+func TestWorkspaceRenameGuards(t *testing.T) {
+	h := newHarness(t)
+
+	ws := filepath.Join(h.layout.DataDir, "ws-guard")
+	if err := pkg.EnsureDir(ws); err != nil {
+		t.Fatalf("建目录失败：%v", err)
+	}
+	if _, err := h.app.Settings.SetWorkspace(ws); err != nil {
+		t.Fatalf("切工作区失败：%v", err)
+	}
+
+	// 清单接口要能用，且把仓库状态与会话数一并带上。
+	env, code := h.call(http.MethodGet, "/workspaces", nil)
+	var list struct {
+		Workspace     string `json:"workspace"`
+		WorkspaceRows []struct {
+			WorkspacePath   string `json:"workspace_path"`
+			WorkspaceExists bool   `json:"workspace_exists"`
+			WorkspaceIsRepo bool   `json:"workspace_is_repo"`
+			SessionCount    int    `json:"session_count"`
+		} `json:"workspace_rows"`
+	}
+	h.mustOK(env, code, "工作区清单", &list)
+	if list.Workspace != ws {
+		t.Fatalf("清单应回当前工作区 %s，实际 %q", ws, list.Workspace)
+	}
+	if len(list.WorkspaceRows) != 1 || !list.WorkspaceRows[0].WorkspaceExists {
+		t.Fatalf("清单应含 1 条且目录存在，实际 %+v", list.WorkspaceRows)
+	}
+	if list.WorkspaceRows[0].WorkspaceIsRepo {
+		t.Fatal("空目录不是 git 仓库，is_repo 应为 false")
+	}
+
+	// 引擎正打开这份会话时改名必须被拦下，且文件不被追加任何东西。
+	// 会话文件必须落在会话根内：路径越界本身就会先被拦掉，那就测不到改名保护了。
+	sessDir := filepath.Join(h.layout.SessionsDir(), "ws-guard")
+	if err := pkg.EnsureDir(sessDir); err != nil {
+		t.Fatalf("建会话目录失败：%v", err)
+	}
+	file := filepath.Join(sessDir, "sess_guard.jsonl")
+	body := `{"type":"session","version":3,"id":"sess_guard","cwd":"C:\\ws","timestamp":"2026-01-01T00:00:00.000Z"}` + "\n" +
+		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"内容"}}` + "\n"
+	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+		t.Fatalf("写会话文件失败：%v", err)
+	}
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("读会话文件失败：%v", err)
+	}
+	h.app.Sessions.Active = func() string { return file }
+	env, _ = h.call(http.MethodPost, "/sessions/rename", map[string]string{
+		"session_path": file, "session_title": "新名字",
+	})
+	if env.Code != pkg.CodeEngineBusy {
+		t.Fatalf("引擎正打开时改名应回 %q，实际 %q（%s）", pkg.CodeEngineBusy, env.Code, env.Message)
+	}
+	after, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("重读会话文件失败：%v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("被拒的改名不得动会话文件一个字节")
+	}
+
+	// 引擎没在用它时改名要成功，并且是以追加 session_info 的方式。
+	h.app.Sessions.Active = func() string { return "" }
+	env, code = h.call(http.MethodPost, "/sessions/rename", map[string]string{
+		"session_path": file, "session_title": "新名字",
+	})
+	h.mustOK(env, code, "改名", nil)
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("读改名后的会话文件失败：%v", err)
+	}
+	if !strings.Contains(string(raw), `"name":"新名字"`) {
+		t.Fatalf("改名应以 session_info 条目追加，实际 %q", string(raw))
+	}
+	if !strings.HasPrefix(string(raw), string(before)) {
+		t.Fatal("改名不得重写已有内容，只允许在末尾追加")
 	}
 }

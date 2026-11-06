@@ -68,8 +68,13 @@ type Options struct {
 func New(opts Options) *App {
 	rt := engine.New(opts.Layout)
 	settings := &Settings{Store: opts.Store, Layout: opts.Layout, Hub: opts.Hub}
+	git := NewGit(settings, rt)
+	// 工作区行上的分支与改动数来自 git，装配时回填一次就够。
+	settings.Git = git
 	sessions := NewSessions(settings, opts.Store, opts.Layout)
 	chat := NewChat(settings, sessions, rt, opts.Hub)
+	// 改名要避让引擎正在写的会话文件：绑定状态只有 Chat 知道。
+	sessions.Active = chat.currentFile
 	app := &App{
 		Version:  opts.Version,
 		Layout:   opts.Layout,
@@ -80,7 +85,7 @@ func New(opts Options) *App {
 		Sessions: sessions,
 		Chat:     chat,
 		Files:    NewFiles(settings),
-		Git:      NewGit(settings, rt),
+		Git:      git,
 		Models:   NewModels(opts.Layout),
 		Skills:   NewSkills(settings, opts.Store, opts.Layout, opts.Hub),
 		Plugins:  NewPlugins(rt, opts.Hub, chat),

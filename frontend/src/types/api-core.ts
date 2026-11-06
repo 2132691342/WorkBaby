@@ -106,7 +106,22 @@ export interface EngineRun {
 export interface WorkspaceRow {
   workspace_path: string
   workspace_exists: boolean
+  /** 是否处于 git 仓库内 */
+  workspace_is_repo?: boolean
+  /** 当前分支名；非仓库为空 */
+  workspace_branch?: string
+  /** 未提交改动数量 */
+  workspace_dirty?: number
+  /** 该工作区下的会话数 */
+  session_count?: number
   updated_at: number
+}
+
+/** 工作区清单：当前工作区 + 历史（带仓库与会话概况）。 */
+export interface WorkspaceList {
+  workspace: string
+  workspace_rows: WorkspaceRow[]
+  active_engine: string
 }
 
 /** 设置页看到的全部开关状态。自动开机自启以注册表为准。 */

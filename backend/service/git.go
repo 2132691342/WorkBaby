@@ -25,15 +25,17 @@ func NewGit(settings *Settings, rt *engine.Runtime) *Git {
 	return &Git{Settings: settings, Runtime: rt}
 }
 
-// run 跑一条 git 命令；cwd 缺省是工作区。
+// runIn 跑一条 git 命令；dir 为空时用当前工作区。
 // GIT_TERMINAL_PROMPT=0：凭证问询立即失败而不是卡满 120 秒超时——
 // 登录走 GCM（自带界面、落 Windows 凭据管理器），不走 stdin。
-func (g *Git) run(args ...string) (*pkg.ProcResult, error) {
+func (g *Git) runIn(dir string, args ...string) (*pkg.ProcResult, error) {
 	exe, err := g.Runtime.GitExe()
 	if err != nil {
 		return nil, err
 	}
-	dir := g.Settings.Workspace()
+	if dir == "" {
+		dir = g.Settings.Workspace()
+	}
 	if dir == "" {
 		return nil, pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
 	}
@@ -43,6 +45,44 @@ func (g *Git) run(args ...string) (*pkg.ProcResult, error) {
 		Env:       env,
 		TimeoutMs: 120_000,
 	})
+}
+
+// ProbeOf 探测一个目录的仓库、分支与未提交改动数。
+// 它只读且不报错：工作区清单里一行探不出来应该是空字段，不是一屏标红。
+// 超时取得短（8 秒）：历史清单里可能挂着网络盘或已拔掉的移动盘，
+// 124 秒的默认超时会让整张工作区清单一起卡死。
+func (g *Git) ProbeOf(dir string) (isRepo bool, branch string, dirty int) {
+	if !pkg.IsDir(dir) {
+		return false, "", 0
+	}
+	exe, err := g.Runtime.GitExe()
+	if err != nil {
+		return false, "", 0
+	}
+	env := append(g.Runtime.Layout.SandboxEnv(nil), "GIT_TERMINAL_PROMPT=0")
+	run := func(args ...string) (string, bool) {
+		res, err := pkg.RunProc(exe, args, pkg.ProcOptions{Dir: dir, Env: env, TimeoutMs: 8_000})
+		if err != nil || res.Code != 0 {
+			return "", false
+		}
+		return strings.TrimSpace(res.Stdout), true
+	}
+	if _, ok := run("rev-parse", "--is-inside-work-tree"); !ok {
+		return false, "", 0
+	}
+	isRepo = true
+	if head, ok := run("rev-parse", "--abbrev-ref", "HEAD"); ok {
+		branch = head
+	}
+	if status, ok := run("status", "--porcelain=v1", "--untracked-files=normal"); ok && status != "" {
+		dirty = strings.Count(status, "\n") + 1
+	}
+	return isRepo, branch, dirty
+}
+
+// run 跑一条 git 命令，cwd 为当前工作区。
+func (g *Git) run(args ...string) (*pkg.ProcResult, error) {
+	return g.runIn("", args...)
 }
 
 // runOrFail 跑 git 并要求退出码为 0；失败时把 stderr 原话带出来。

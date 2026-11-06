@@ -16,7 +16,7 @@ import { useAppStore } from '@/stores/app'
 import { useRefreshStore } from '@/stores/refresh'
 import { useToasts } from '@/composables/useToasts'
 import { useGitActions } from '@/composables/useGitActions'
-import type { GitBranch, GitCommit, GitDiff, GitFile, GitStatus, GitStash } from '@/types/api'
+import type { GitBranch, GitCommit, GitDiff, GitFile, GitStatus, GitStash, WorkspaceRow } from '@/types/api'
 
 const { t } = useI18n()
 const app = useAppStore()
@@ -45,6 +45,27 @@ const filesOpen = ref(true)
 const unstaged = computed(() => (status.value?.changed_files ?? []).filter((f) => !f.is_staged))
 const staged = computed(() => (status.value?.changed_files ?? []).filter((f) => f.is_staged))
 const conflicts = computed(() => (status.value?.changed_files ?? []).filter((f) => f.has_conflict))
+
+// 工作区清单：每条带仓库分支、未提交改动与会话数。
+// 取同名字段拼成一行，而不是再发一次 git 请求：切换工作区时这些数字
+// 会跟着变，多一次往返就多一个“看到的是上一个库”的窗口。
+const rows = ref<WorkspaceRow[]>([])
+const switching = ref(false)
+const currentRow = computed(() => rows.value.find((r) => r.workspace_path === app.workspace) ?? null)
+const workspaceName = computed(() => {
+  const path = app.workspace || ''
+  if (!path) return t('workspace.pickWorkspace')
+  return path.split(/[\\/]/).filter(Boolean).pop() || path
+})
+
+async function loadRows() {
+  try {
+    rows.value = (await api.workspaces()).workspace_rows ?? []
+  } catch {
+    // 清单是辅助信息：拉不到就不显示店铺，不影响主区逐项操作。
+    rows.value = []
+  }
+}
 
 async function loadStatus() {
   loadingStatus.value = true
@@ -95,7 +116,7 @@ async function loadExtras() {
 
 async function refresh() {
   await loadStatus()
-  await Promise.all([loadDiff(), loadExtras()])
+  await Promise.all([loadDiff(), loadExtras(), loadRows()])
 }
 
 function pick(file: GitFile) {
@@ -166,6 +187,23 @@ watch(
   },
 )
 
+// 切完工作区引擎会重建，因此整套状态都得重新拉一遍；
+// 不能只等 workspace 事件后防抖，那个延迟里的旧数据会让人以为切失败了。
+watch(
+  () => app.workspace,
+  async (next, prev) => {
+    if (!prev || next === prev) return
+    switching.value = true
+    selected.value = ''
+    diff.value = null
+    try {
+      await refresh()
+    } finally {
+      switching.value = false
+    }
+  },
+)
+
 onMounted(refresh)
 </script>
 
@@ -177,6 +215,23 @@ onMounted(refresh)
         <p class="page-sub mono selectable">{{ app.workspace }}</p>
       </div>
       <div class="head-actions">
+        <!-- 工作区切换：这里是「我在哪个目录」的唯一入口，
+             并列显示该目录的仓库态与存储状况，不必跳到设置页去查。 -->
+        <button
+          class="wb-btn sm ws-pick"
+          :class="{ 'is-loading': switching }"
+          :title="app.workspace || t('workspace.pickWorkspace')"
+          :disabled="switching"
+          @click="app.chooseWorkspace()"
+        >
+          <AppIcon name="folder" :size="13" />
+          <span class="mono ws-name">{{ workspaceName }}</span>
+        </button>
+        <span v-if="currentRow?.workspace_is_repo" class="tag" :class="currentRow.workspace_dirty ? 'warn' : ''">
+          <AppIcon name="branch" :size="11" />
+          {{ currentRow.workspace_branch || t('workspace.noCommit') }}
+          <span v-if="currentRow.workspace_dirty" class="dirty">+{{ currentRow.workspace_dirty }}</span>
+        </span>
         <span v-if="status?.is_repo" class="tag" :class="status.has_conflict ? 'warn' : ''">
           <AppIcon name="branch" :size="11" />
           {{ status.branch_name || t('workspace.noCommit') }}
@@ -340,6 +395,23 @@ onMounted(refresh)
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
+}
+
+/* 工作区名是一段路径：限宽 + 省略号，否则长路径会把右边的动作全挤出头部 */
+.ws-name {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* 未提交改动数：数字比字色更靠前，一眼扫得到 */
+.dirty {
+  margin-left: var(--wb-sp-1);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
 }
 .notice {
   display: flex;

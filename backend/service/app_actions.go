@@ -2,9 +2,7 @@ package service
 
 import (
 	"os"
-	"os/exec"
 	"runtime"
-	"syscall"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -136,19 +134,17 @@ func (a *App) Apps() []domain.AppRowVO {
 			CanUpdate:    a.Runtime.PiInstalled(),
 			CanUninstall: a.Runtime.PiInstalled(),
 			Busy:         piBusy,
-			Blocker:      piBlocker(layout.NodeReady(), a.Runtime.PiInstalled()),
+			Blocker:      piBlocker(layout.NodeReady()),
 			InstallNote:  "用内置 npm 装进沙箱，不碰系统 node",
 		},
 	}
 }
 
 // piBlocker 给出 pi 不能操作的原因；空表示没阻碍。
-func piBlocker(nodeReady, installed bool) string {
+// 只拦「运行时没就绪」：未安装本身不是阻碍，安装按钮就是用来做这件事的。
+func piBlocker(nodeReady bool) string {
 	if !nodeReady {
 		return "内置 Node.js 还没就绪，稍等片刻"
-	}
-	if installed {
-		return ""
 	}
 	return ""
 }
@@ -251,11 +247,8 @@ func memoryUsedMb() int {
 }
 
 // killAllOnExit 退出时兜底杀引擎进程树。
+// 用 pkg.KillTree 而不是本地再拼一次 taskkill：窗口隐藏与 CREATE_NO_WINDOW
+// 只该有一份实现，散落两处迟早会有一处忘了加。
 func killAllOnExit(pid int) {
-	if pid <= 0 {
-		return
-	}
-	cmd := exec.Command("taskkill", "/T", "/F", "/PID", itoa(pid))
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	_ = cmd.Run()
+	pkg.KillTree(pid)
 }

@@ -21,8 +21,9 @@
 | `/bootstrap` | GET | — | 首屏总包：版本、引擎身份、能力表、激活引擎、工作区、设置全量、目录布局、工作区历史、计数 |
 | `/settings` | GET | — | 全部键值 |
 | `/settings/save` | POST | 键值对象 | 保存后的全量键值 |
-| `/settings/workspace` | POST | `{ path }` | `{ workspace }`；切工作区会重建引擎绑定 |
-| `/settings/workspace/forget` | POST | `{ path }` | `{ workspaces }` 剩余历史 |
+| `/settings/workspace` | POST | `{ workspace }` | `{ workspace }`；切工作区会重建引擎绑定 |
+| `/workspaces` | GET | — | `{ workspace, workspace_rows, active_engine }`；每行带目录是否还在、是否 git 仓库、当前分支、未提交改动数、会话数 |
+| `/settings/workspace/forget` | POST | `{ workspace_path }` | 剩余历史（与 `/workspaces` 同形） |
 | `/logs` | GET | — | `{ lines }` 当日日志尾部 |
 | `/prefs` | GET | — | 自启 / 恢复会话 / 关窗行为 / 数据目录等 |
 | `/prefs/autostart` `restore` `close-action` | POST | `{ enabled }` / `{ action }` | 更新后的 prefs |
@@ -47,7 +48,7 @@
 | `/sessions` | GET | `?workspace=&q=`；按工作区编码目录扫描，`updated_at` 降序；`q` 非空时按标题与正文过滤（大小写不敏感） |
 | `/sessions/detail` | GET | `?path=`；清单行 + 逐条消息 |
 | `/sessions/delete` | POST | `{ path }` |
-| `/sessions/rename` | POST | `{ session_path, session_title }`；向会话文件追加 `session_info` 条目 |
+| `/sessions/rename` | POST | `{ session_path, session_title }`；向会话文件追加 `session_info` 条目。该会话正被引擎打开时回 `5002`——两路同时追加会写坏唯一真相 |
 
 ## 聊天
 

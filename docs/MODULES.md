@@ -87,7 +87,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `skills.go` / `skill_catalog.go` | 技能落位、开关（搬目录）、导入、编辑、新建、删除、重置 |
 | `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手） |
 | `models.go` / `model_probe.go` | `models.json` / `auth.json` 读写，上游探测 |
-| `settings.go` / `system.go` / `values.go` / `autostart.go` | 设置、系统动作、常量、开机自启 |
+| `settings.go` / `system.go` / `values.go` / `autostart.go` | 设置、系统动作、常量、开机自启；工作区清单（目录存活 / 仓库分支 / 改动数 / 会话数） |
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、导出 HTML |
 | `git.go` / `git_history.go` / `git_sync.go` / `git_stash.go` / `git_write.go` | git 读与写；stash 四件套；凭证失败归 1102 并给下一步指引 |
 | `engine/runtime.go` / `engine/provision.go` / `engine/npm.go` | 运行时探测、解压、npm 执行 |
@@ -112,6 +112,19 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 `hub.go` 统一发号（seq 单调）、补帧（按 `since`）、慢客户端断开。每个订阅者一条
 带缓冲队列 + 发送泵：补帧先入队、实时帧后入队，同一队列保证乱序不可能发生；
 队列写满即按断开处理，一个卡住的窗口拖不住广播。`heartbeat.go` 心跳是注释行，不占 seq。
+
+## 稳定性约束（改代码前必读）
+
+这些地方踩过坑，改动时别把保护去掉：
+
+| 约束 | 为什么 |
+|---|---|
+| `PiRpc.writeLine` 整行写入在 `writeMu` 内 | 并发 `prompt` / `steer` 各写一次 `io.WriteString` 会交错成半行，引擎按行解析就永久错位 |
+| 会话改名要避让引擎正在写的文件 | 两路同时追加 JSONL 会写出交错行，会话文件是唯一真相，写坏就整份回放不出来 |
+| 动插件目录前停引擎、动完重启 | Windows 上运行中的 node 锁包文件；且包只在引擎启动时加载，不重启就是「界面写着新版本、跑的是旧行为」 |
+| 引擎 stdout 按 LF 切帧 | `bufio.Scanner` 会把 U+2028 / U+2029 也当分隔符，而它们在 JSON 字符串里合法 |
+| 工作区清单的 git 探测 8 秒超时 | 历史里可能挂着网络盘或拔掉的移动盘，124 秒默认超时会把整张清单一起卡死 |
+| 退出前等引擎真退出再动磁盘 | 进程还活着就删不了包目录，睡若干毫秒赌运气不够 |
 
 ## 前端
 

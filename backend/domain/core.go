@@ -189,6 +189,14 @@ type WorkspaceRowVO struct {
 	WorkspacePath string `json:"workspace_path"`
 	// WorkspaceExists 目录是否还在
 	WorkspaceExists bool `json:"workspace_exists"`
+	// WorkspaceIsRepo 是否处于 git 仓库内
+	WorkspaceIsRepo bool `json:"workspace_is_repo"`
+	// WorkspaceBranch 当前分支名；非仓库为空
+	WorkspaceBranch string `json:"workspace_branch,omitempty"`
+	// WorkspaceDirty 未提交改动数量
+	WorkspaceDirty int `json:"workspace_dirty"`
+	// SessionCount 该工作区下的会话数
+	SessionCount int `json:"session_count"`
 	// UpdatedAt 最近一次使用时刻（毫秒）
 	UpdatedAt int64 `json:"updated_at"`
 }
@@ -305,6 +313,22 @@ type EngineHealthVO struct {
 type SetWorkspaceREQ struct {
 	// Workspace 目标目录绝对路径
 	Workspace string `json:"workspace"`
+}
+
+// WorkspaceListRESP 是工作区清单。
+type WorkspaceListRESP struct {
+	// Workspace 当前工作区
+	Workspace string `json:"workspace"`
+	// WorkspaceRows 工作区行，最近打开在前
+	WorkspaceRows []WorkspaceRowVO `json:"workspace_rows"`
+	// ActiveEngine 当前引擎
+	ActiveEngine EngineKind `json:"active_engine"`
+}
+
+// WorkspaceForgetREQ 是「从清单里移除一个工作区」的入参。
+type WorkspaceForgetREQ struct {
+	// WorkspacePath 要去掉的工作区路径
+	WorkspacePath string `json:"workspace_path"`
 }
 
 // SetWorkspaceRESP 是切工作区的出参。

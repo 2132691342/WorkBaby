@@ -134,6 +134,7 @@ func (p *Plugins) Install(source string) (domain.PluginInstallRESP, error) {
 	if err := p.installOne(spec, pluginName, "plugin-install"); err != nil {
 		return domain.PluginInstallRESP{}, err
 	}
+	p.resumeEngine()
 	p.Hub.Broadcast("plugin:status", sse.EngineTag(nil))
 	return domain.PluginInstallRESP{PluginName: pluginName, Installed: 1}, nil
 }
@@ -179,9 +180,12 @@ func (p *Plugins) Upgrade(pluginName string) (domain.PluginInstallRESP, error) {
 	if spec == "" {
 		return domain.PluginInstallRESP{}, pkg.Err(pkg.CodeProvision, "未找到插件："+pluginName)
 	}
+	// 要动包目录：没在跑的引擎也得先停（锁文件），停完必须重启。
+	// 不重启的后果是引擎带着旧版本继续跑，界面上写着新版本号，实际行为是旧的。
 	if err := p.stopEngineForDisk(); err != nil {
 		return domain.PluginInstallRESP{}, err
 	}
+	defer p.resumeEngine()
 	if err := removeAllQuiet(installedPathOf(layout, pluginName)); err != nil {
 		return domain.PluginInstallRESP{}, err
 	}
@@ -206,6 +210,7 @@ func (p *Plugins) UpgradeAll() (domain.PluginInstallRESP, error) {
 	if err := p.stopEngineForDisk(); err != nil {
 		return domain.PluginInstallRESP{}, err
 	}
+	defer p.resumeEngine()
 	installed, failed := 0, 0
 	for _, item := range BuiltinPlugins {
 		if !pluginInstalled(layout, item.PluginName) || !needsVersionFix(layout, item) {
@@ -242,6 +247,24 @@ func (p *Plugins) stopEngineForDisk() error {
 	return nil
 }
 
+// resumeEngine 把引擎重新拉回当前工作区，让它装载新版本的插件。
+// 包只在引擎启动时加载，换完文件不重启就是「界面写着新版本、跑的还是旧行为」。
+// 有任务正在跑时不动它：追问一句比打断用户已经等了十分钟的回答更贵。
+func (p *Plugins) resumeEngine() {
+	if p.Chat == nil || !p.Runtime.PiInstalled() {
+		return
+	}
+	if p.Chat.Stream.Active() {
+		pkg.Warn("引擎正忙，新插件下次启动时生效")
+		return
+	}
+	// Restart 对已经停下的引擎是空操作，对还活着的才是真重启。
+	p.Chat.Restart()
+	if _, err := p.Chat.EnsureRpc(); err != nil {
+		pkg.Warn("插件动作后重启引擎失败：%v", err)
+	}
+}
+
 // Uninstall 卸载：撤声明 + 删包目录。内置插件卸载后仍在清单里（状态回落未安装）。
 func (p *Plugins) Uninstall(pluginName string) (domain.PluginInstallRESP, error) {
 	if err := p.lockBusy("plugin-uninstall"); err != nil {
@@ -258,6 +281,7 @@ func (p *Plugins) Uninstall(pluginName string) (domain.PluginInstallRESP, error)
 		return domain.PluginInstallRESP{}, err
 	}
 	pkg.Info("插件已卸载：%s", pluginName)
+	p.resumeEngine()
 	p.Hub.Broadcast("plugin:status", sse.EngineTag(nil))
 	return domain.PluginInstallRESP{PluginName: pluginName}, nil
 }

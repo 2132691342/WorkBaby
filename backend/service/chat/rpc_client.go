@@ -29,7 +29,10 @@ type Handlers struct {
 // PiRpc 是一个工作区一个的引擎子进程。
 // 请求按 id 关联应答，事件原样上抛；stdout 严格按 LF 切帧。
 type PiRpc struct {
-	mu      sync.Mutex
+	mu sync.Mutex
+	// writeMu 串行化对 stdin 的整行写入：多 goroutine 并发 Request 是常态，
+	// 两行命令各写一次 io.WriteString 会交错成半行，引擎按行解析就永久错位。
+	writeMu sync.Mutex
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	pending map[string]*pendingCall
@@ -259,14 +262,20 @@ func (r *PiRpc) Request(command Record, timeout time.Duration) (any, error) {
 	}
 	if err := r.writeLine(string(payload)); err != nil {
 		r.removePending(id)
+		r.noteError(err)
 		return nil, err
 	}
 	select {
 	case <-call.done:
+		if call.err != nil {
+			r.noteError(call.err)
+		}
 		return call.data, call.err
 	case <-time.After(timeout):
 		r.removePending(id)
-		return nil, pkg.Err(pkg.CodeRpcTimeout, "pi 命令超时："+call.command)
+		err := pkg.Err(pkg.CodeRpcTimeout, "pi 命令超时："+call.command)
+		r.noteError(err)
+		return nil, err
 	}
 }
 
@@ -281,6 +290,8 @@ func (r *PiRpc) Send(rec Record) error {
 
 // writeLine 写一行 JSONL；写失败即视为连接已断。
 func (r *PiRpc) writeLine(line string) error {
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
 	r.mu.Lock()
 	stdin := r.stdin
 	alive := r.cmd != nil && !r.exited
@@ -292,6 +303,18 @@ func (r *PiRpc) writeLine(line string) error {
 		return pkg.WrapErr(pkg.CodeRpcDown, "向 pi 写命令失败", err)
 	}
 	return nil
+}
+
+// noteError 记下最近一次失败原因：概览页的引擎卡要显示它，
+// 只说「没在运行」而不说为什么，用户与排查都只能靠猜。
+func (r *PiRpc) noteError(err error) {
+	if err == nil {
+		return
+	}
+	message := pkg.As(err).Message
+	r.mu.Lock()
+	r.LastError = message
+	r.mu.Unlock()
 }
 
 // Stop 关停：关 stdin 触发引擎优雅退出，等它真退了才返回（上限 3 秒，到点强杀）。
