@@ -35,3 +35,7 @@ Thumbs.db
 
 # task 运行缓存
 /.task/
+
+# 打包期下载/生成的产物
+/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+

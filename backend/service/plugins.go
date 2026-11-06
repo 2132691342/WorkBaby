@@ -177,8 +177,8 @@ func (p *Plugins) Upgrade(pluginName string) (domain.PluginInstallRESP, error) {
 	if spec == "" {
 		return domain.PluginInstallRESP{}, pkg.Err(pkg.CodeProvision, "未找到插件："+pluginName)
 	}
-	// 要动包目录：没在跑的引擎也得先停（锁文件），停完必须重启。
-	// 不重启的后果是引擎带着旧版本继续跑，界面上写着新版本号，实际行为是旧的。
+	// 要动包目录：引擎没在跑也得先停（锁文件），停完必须重启。
+	// 包只在引擎启动时加载，不停不重启就会出现「界面写着新版本、实际跑旧行为」。
 	if err := p.stopEngineForDisk(); err != nil {
 		return domain.PluginInstallRESP{}, err
 	}
@@ -194,7 +194,7 @@ func (p *Plugins) Upgrade(pluginName string) (domain.PluginInstallRESP, error) {
 }
 
 // UpgradeAll 把版本不符的内置插件升到清单钉住的版本。
-// 只处理「版本对不上」的那几个：全部重装会把 12 个包都从网络拉一遍，
+// 只处理「版本对不上」的那几个：全部重装会把每个包都从网络拉一遍，
 // 在包已经对版的机器上白等几分钟且毫无收益。
 func (p *Plugins) UpgradeAll() (domain.PluginInstallRESP, error) {
 	if err := p.lockBusy("plugin-upgrade-all"); err != nil {

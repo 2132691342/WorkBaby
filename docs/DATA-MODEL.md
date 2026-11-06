@@ -28,7 +28,7 @@ gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
 | `prefs.last_session_file` | 会话文件路径 | 恢复目标 |
 | `prefs.close_action` | `'tray'` / `'quit'` | 关窗行为 |
 | `prefs.tray_hint_shown` | `'1'` / `'0'` | 「收进托盘」提示是否已解释过 |
-| `workspace.current` / `workspace.history` | 路径 / JSON 数组（≤ 20 条） | 工作区状态 |
+| `workspace.current` / `workspace.history` | 路径 / JSON 数组（≤ 24 条） | 工作区状态 |
 | `chat.hide:<会话路径>` | JSON 数组（条目 id） | 单轮隐藏台账 |
 
 键值一律字符串，复杂结构自己编码 JSON——KV 表不做类型推断，
@@ -70,6 +70,8 @@ gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
 | `mcp.json` | MCP 页 | `{mcpServers: {<名>: {command,args,env} 或 {url}}}`，`enabled:false` 即关 |
 | 工作区 `.pi\mcp.json`、`.pi\skills\` | MCP 页 / 技能页 | 工作区作用域；同名时项目条目覆盖用户条目 |
 
+`auth.json` 里一律 `type: "api_key"`：本项目只用 API Key，不走 OAuth。
+
 **读取一律走 `map[string]any`**：用户会手改这些文件，保留未知键比强类型更要紧。
 读坏等同于「还没配过」，让界面重写一份比报错有用。
 
@@ -85,7 +87,7 @@ gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
 
 **插件不另建注册表**：pi 的 `settings.json` 已经是唯一登记处，
 再加一份 JSON 就一定会出现两份不同步。同理，`plugin_catalog.go` 里的
-21 条内置清单只是「随包分发哪些、默认开哪些」的策展表，不是运行时状态。
+15 条内置清单只是「随包分发哪些、默认开哪些」的策展表，不是运行时状态。
 
 ## 6. 沙箱目录一览
 

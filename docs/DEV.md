@@ -8,6 +8,7 @@
 | Node.js | ≥ 20 | **只用于构建前端**；运行时的 node 是随包分发的内置副本 |
 | wails3 CLI | 3.1.x | `go install github.com/wailsapp/wails/v3/cmd/wails3@latest` |
 | Task | 3.x | 任务入口（可选，也可直接敲 go 命令） |
+| NSIS | 3.x | 只在打安装包时需要（`choco install nsis`） |
 | WebView2 Runtime | Win10 1803+ 自带 | Wails 渲染层 |
 
 不需要预装 Python / Rust / 任何 C 编译链——`glebarez/sqlite` 是纯 Go 实现，
@@ -17,12 +18,15 @@
 
 ```bash
 go mod download
+cd frontend && npm install && cd ..
 
-task dev      # wails3 dev：后端热重载 + Vite 热更
-task build    # 产出 bin\WorkBaby.exe
-task run      # 直接跑（不打包）
-task check    # gofmt 检查 + go vet + go test
-task package  # NSIS 安装包（发布前）
+task dev        # wails3 dev：后端热重载 + Vite 热更
+task build      # 产出 bin\WorkBaby.exe
+task run        # 直接跑构建产物
+task test       # 场景测试（秒级）
+task test:live  # 真实沙箱链路：解压运行时 + 装 pi + RPC 握手（需联网，约 2 分钟）
+task check      # gofmt 检查 + go vet + 场景测试
+task package    # NSIS 安装包（需要 makensis）
 ```
 
 没有 Task 时等价命令：
@@ -30,14 +34,14 @@ task package  # NSIS 安装包（发布前）
 ```bash
 wails3 dev -config ./build/config.yml -port 9245
 go build -o bin/WorkBaby.exe .
-gofmt -l backend main.go && go vet ./backend/... . && go test ./backend/... -count=1
+gofmt -l backend main.go tests; go vet ./...; go test ./tests -count=1
 ```
 
 ## 纯浏览器调试前端
 
 壳内运行的 WebView 通过 Wails 绑定拿端口与令牌。想让浏览器直连后端：
 
-1. 用固定令牌起壳或后端：`WB_DEV_TOKEN=devtoken task dev`
+1. 用固定令牌起壳：`WB_DEV_TOKEN=devtoken task dev`
 2. 浏览器控制台写入：
 
 ```js
@@ -45,37 +49,47 @@ localStorage.setItem('wb.dev.port', '9245')
 localStorage.setItem('wb.dev.token', 'devtoken')
 ```
 
-重启前端即走 HTTP 直连，不依赖 Wails 绑定——前端 90% 的调试不必起窗。
+重启前端即走 HTTP 直连，不依赖 Wails 绑定——前端大部分调试不必起窗。
 
 ## 数据目录隔离
 
-开发态的 `Layout.Dev` 为 `true`，数据目录是 `%LOCALAPPDATA%\WorkBaby-dev`，
-与安装态完全隔离。删掉这个目录等于恢复出厂。
+开发态把数据目录解析成 `%LOCALAPPDATA%\WorkBaby-dev`，与安装态完全隔离。
+删掉这个目录等于恢复出厂。
 
 ## 测试策略
 
-只测「改这里会坏那里」的复杂流程与长链路；简单测试与平凡断言不写。
+只测「改这里会坏那里」的复杂流程与长链路。平凡断言（单 getter、纯函数往返、
+复述框架行为）不写——它们的维护成本高于收益，还会把 `go test` 拖成几分钟。
 
-| 文件 | 断言什么 |
-|---|---|
-| `tests/e2e_server_test.go` | 端到端长链路（3 个）：鉴权硬门（HTTP 头 + SSE 查询参数）、信封契约（未知路由 / 坏请求体 / bootstrap 成功同构）、设置链路（KV 三方向落 SQLite、重复切工作区只留一条历史） |
-| `tests/session_replay_test.go` | 会话回放管线（3 个）：活动分支跟随 + 残行/环安全、历史轮组装（工具结果回填 / 孤立成轮 / 压缩标记 / 改名来源）、隐藏台账生效且不改写会话文件 |
-| `tests/builtin_catalog_test.go` | 内置清单与落位（4 个）：随包清单↔资产互相咬合、技能生命周期（默认值落位 / 不覆盖用户改动 / 开关搬目录 / 台账记账）、插件启停与卸载写在 pi 原生表达上、版本漂移判定与批量升级只碰漂移项 |
+四个文件、九个用例、约 0.6 秒：
+
+| 文件 | 用例 | 断言什么 |
+|---|---|---|
+| `tests/http_chain_test.go` | `TestHTTPChain` | 鉴权硬门（401 且不带业务信封）、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入真的落盘（HTTP 写 → 直连 SQLite 查 → HTTP 读回三个方向对上） |
+| | `TestSSEStream` | 查询参数鉴权、连上先补 `stream:open`、广播帧真的到达订阅者、断开后服务端处理器退出 |
+| `tests/session_test.go` | `TestSessionReplay` | 分支遍历只走当前分支、残行不毁整份历史、环状 parentId 有界退出、工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题取自 `session_info` |
+| | `TestSessionWriteDiscipline` | 隐藏轮只记壳的台账不改文件、改名只在末尾追加、引擎正打开该会话时拒绝且不动文件 |
+| `tests/sandbox_test.go` | `TestBuiltinManifest` | 内置清单与磁盘资产互相咬合（15 个插件、22 个技能，两边都不能有死条目） |
+| | `TestPluginSourceParse` | 来源串规范化：npm / scope 包 / git URL / 本地路径四类写法 |
+| | `TestSkillLifecycle` | 首启落位尊重默认值、不覆盖用户改动、开关是搬目录、台账落库 |
+| | `TestPluginLifecycle` | 停用写 `autoload:false`、启用写裸串、卸载撤声明并删目录 |
+| | `TestPluginVersionDrift` | 判据是「在且版本对」，批量升级只碰漂移项 |
+| `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：解压三个运行时 → 内置 npm 装 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑 |
 
 约定：
 
-- 位置在仓库根 `tests/`，一文件一个被测对象，`go test ./...` 几秒内跑完
-- 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`
+- 位置在仓库根 `tests/`，一文件一个被测对象
 - 每个测试用 `t.TempDir()` 造独立布局，不碰真实数据目录与仓库资产
-- 需要真实引擎或网络的路径不写悬空用例——测不了就不测，别留假绿
+- 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`
+- 需要真实引擎或网络的路径放 `live` 标签后，不留假绿
 
 ## 门禁
 
 ```bash
-go build ./...                                  # 1 全包可编译
-go vet ./...                                    # 2 静态检查
-cd frontend && npx vue-tsc --noEmit -p tsconfig.json   # 3 前端类型检查
-go test ./... -count=1                          # 4 测试全绿
+go build ./...                                          # 1 全包可编译
+go vet ./...                                            # 2 静态检查
+cd frontend && npx vue-tsc --noEmit -p tsconfig.json    # 3 前端类型检查
+go test ./tests -count=1                                # 4 场景测试全绿
 ```
 
 只动后端跑 1 / 2 / 4；只动前端跑 3。**发布前另跑 `task build` 与 `task package`**。
@@ -88,4 +102,6 @@ go test ./... -count=1                          # 4 测试全绿
 | 内置 node 未就绪 | 运行时压缩包是否在 `assets\runtime\`；首启解压日志 |
 | pi 装不上 | 网络能否到 npm；`settings.json` 的 `npmCommand` 是否指向内置 node |
 | 插件装了没生效 | `pi\settings.json` 的 `packages[]` 是否真有该条目且未 `autoload:false` |
+| 插件换了版本还是旧行为 | 包只在引擎启动时加载：停用再启用，或重启引擎 |
 | 技能不出现 | 是否在 `pi\skills\`（不是 `skills_disabled\`）；SKILL.md 头是否合法 |
+| 打安装包报 makensis 找不到 | 装 NSIS 并把安装目录加进 PATH |

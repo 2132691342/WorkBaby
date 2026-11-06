@@ -15,7 +15,10 @@ WorkBaby\
 
 前端产物经 `//go:embed all:frontend/dist` 编进 exe，**不额外分发静态文件**。
 运行时 zip 走 `assets\runtime\`，首启解压到数据目录——不预解压进安装包，
-否则安装体积翻倍且用户重装才能升级运行时。
+否则安装体积翻倍，且用户要重装才能升级运行时。
+
+体积基线：`assets\runtime` 约 110MB、`assets\skills` 约 8MB、exe 约 32MB。
+安装包体积随 NSIS 压缩率浮动，**只有十几 MB 一定是 assets 没打进去**。
 
 ## 版本号
 
@@ -23,8 +26,8 @@ WorkBaby\
 go build -ldflags "-X main.version=1.2.3" -o bin/WorkBaby.exe .
 ```
 
-版本跟着 git tag 走；不注入时是 `dev`，本地 `go run` 出来的就是开发版，
-不会误当成正式版。前端可从 `Endpoint().version` 读到它显示在关于页。
+版本跟着 git tag 走；不注入时是 `dev`，本地跑出来的就是开发版，
+不会误当成正式版。前端从 `Endpoint().version` 读到它显示在关于页。
 
 ## 打包命令
 
@@ -33,36 +36,44 @@ task build      # 只产 exe，用于本机验证
 task package    # NSIS 安装包，per-user 安装、可选安装目录
 ```
 
-`task package` 内部走 `build/windows/Taskfile.yml`。安装器要点：
+`task package` 内部走 `build/windows/Taskfile.yml`，前置是 `makensis` 在 PATH 上。
+
+安装器要点：
 
 - **per-user 安装**，不要求管理员权限（数据目录本来就在 `%LOCALAPPDATA%`）
 - 允许用户改安装目录
 - **必须把 `assets/` 一起装进去**：`build/windows/nsis/project.nsi` 是手维护文件，
-  上游模板只装 exe，不带 assets——少了运行时 zip 装完就是一堆不能跑的文件。
+  上游模板只装 exe，不带 assets——少了运行时 zip，装完就是一堆不能跑的文件。
   该文件只能写 ASCII（NSIS 按 ANSI 代码页读脚本），详见 `build/windows/nsis/README.md`
-- 卸载不删数据目录——用户的会话与配置在 `%LOCALAPPDATA%\WorkBaby`，
-  要删由用户在设置页手动触发
-
-产物体检：assets 本身就有 **约 120MB**（运行时 zip 111MB + 内置技能 9MB），exe 约 32MB，
-安装包体积随 NSIS 压缩率浮动，但**只有十几 MB 一定是 assets 没打进去**——
-装完的机器上不会有任何运行时。
+- 卸载不删数据目录——用户的会话与配置在 `%LOCALAPPDATA%\WorkBaby`
 
 ## CI
 
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
-| `.github/workflows/ci.yml` | push / PR → main | gofmt 检查 → `npm ci` + 前端类型检查与产物 → `go vet` → `go test` → `go build ./...`（前端产物必须先于 Go 编译：`main.go` 的 `go:embed` 需要 `frontend/dist` 存在） |
-| `.github/workflows/release.yml` | push tag `v*` | 装 wails3 → 校验 tag 与 HEAD 一致 → `npm ci` + 前端产物 → `go test` → `wails3 package` → `gh release create` 上传安装包 |
+| `.github/workflows/ci.yml` | push / PR → main | gofmt 检查 → `npm ci` → 前端类型检查与产物 → `go vet` → `go test ./tests` → `go build ./...` |
+| `.github/workflows/release.yml` | push tag `v*` | 装 wails3 与 NSIS → 校验 tag 与 HEAD 一致 → `npm ci` → 前端产物 → `go test` → `wails3 package` → 上传安装包到 Release |
 
-CI 需要 `windows-latest`：Wails3 的 cgo 胶水与 WebView2 依赖只在 Windows 上编。
+两个工作流都需要 `windows-latest`（Wails3 的 WebView2 胶水只在 Windows 上编），
+且**前端产物必须先于任何 `package main` 的编译**——`main.go` 的 `go:embed`
+在全新 checkout 下指向不存在的目录，`vet` / `test` / `build` 都会失败。
+
+发布流需要两样在 `windows-latest` 上不预装的东西：
+
+- **wails3**：`go install` 到 `GOPATH\bin`，要手动加进 `PATH`（setup-go 不保证）
+- **NSIS**：`choco install nsis` 后把安装目录加进 `PATH`，否则 `wails3 package`
+  在最后一步以 `makensis: executable file not found in $PATH` 失败
+
+重新打同一个 tag 时，Release 已存在，工作流会 `gh release upload --clobber`
+替换资产而不是报错。
 
 ## 发布前自查
 
 ```bash
-gofmt -l backend main.go    # 应无输出
-go vet ./...                # 应无输出
-go test ./... -count=1      # 全绿
-task build                  # exe 产出并可启动
+gofmt -l backend main.go tests   # 应无输出
+go vet ./...                     # 应无输出
+go test ./tests -count=1         # 全绿
+task build                       # exe 产出并可启动
 ```
 
 安装后验证清单：
@@ -79,5 +90,5 @@ task build                  # exe 产出并可启动
 ## 局限
 
 - 只支持 Windows x64
-- 插件安装依赖 npm 源可达；离线机器只能用到随包的 pi 本体与技能
+- 插件安装依赖 npm 源可达；纯离线只能用到随包的 pi 本体与技能
 - 引擎能力以 pi 为准

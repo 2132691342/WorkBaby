@@ -1,40 +1,42 @@
 # 架构
 
-WorkBaby 是 Windows 单机桌面应用：**Wails3 壳把全部依赖装进自己的沙箱**，
-用 GUI 完全接管 pi 引擎、插件、技能、MCP 与运行时的生命周期。
+WorkBaby 是一个 Windows 桌面应用，核心矛盾是：**要给用户一个不依赖外部环境的 AI 工作台，
+就必须把所有依赖搬进自己的目录，并且完全接管它们的管理**。整体设计都围绕这一条。
 
 ## 进程拓扑
 
 ```
 ┌─────────────────────────── WorkBaby.exe ───────────────────────────┐
-│                                                                     │
 │  Wails 应用（Go 主进程）                                            │
 │  ┌──────────────────────────────────────────────────────────────┐  │
-│  │ shell/  窗口 · 托盘 · 单实例 · 绑定面（Endpoint/选择目录/窗控）│  │
+│  │ shell/  窗口 · 托盘 · 单实例 · 绑定面（Endpoint / 选目录 / 窗控）│  │
 │  ├──────────────────────────────────────────────────────────────┤  │
-│  │ api/    gin 路由（薄壳：解析入参 → 调 service → 回信封）      │  │
+│  │ api/    gin 路由（薄壳：解析入参 → 调 service → 回信封）       │  │
 │  │         127.0.0.1:<随机端口>  /api/v1/*                       │  │
 │  ├──────────────────────────────────────────────────────────────┤  │
 │  │ service/  业务编排：app chat file git session skill plugin    │  │
 │  │           mcp model settings                                  │  │
 │  ├──────────────────────────────────────────────────────────────┤  │
 │  │ repo/        SQLite（设置 KV、技能开关台账）                  │  │
-│  │ domain/      纯类型（VO/REQ/RESP/DTO/DO）                     │  │
+│  │ domain/      纯类型（VO / REQ / RESP / DTO / DO）             │  │
 │  │ pkg/         叶子工具（错误、路径、进程、日志、ULID、zip）    │  │
 │  └──────────────────────────────────────────────────────────────┘  │
-│                              │ 子进程（隐藏窗口）                   │
+│                              │ 子进程（一律隐藏窗口）               │
 │         ┌────────────────────┼────────────────────┐                 │
 │         ▼                    ▼                    ▼                 │
 │   node.exe pi CLI      node.exe npm-cli.js     git.exe / python.exe │
-│   （RPC 模式，常驻）    （装包/卸包）          （工作区操作）        │
+│   （RPC 模式，常驻）    （装包 / 卸包）         （工作区操作）       │
 │                                                                     │
 │  WebView2 渲染前端（Vue 3 + Element Plus）                          │
 │  └── 只经 /api/v1 + window.wails 绑定，不碰文件系统与子进程         │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**两条通道分工**：业务全部走回环 HTTP（可 curl、可测）；Wails 绑定只暴露
-系统能力（获取端点、选目录、窗控、托盘提示），不承载业务。
+**两条通道分工**：业务全部走回环 HTTP（可 curl、可测、前端可脱离壳调试）；
+Wails 绑定只暴露系统能力——拿端点、选目录、窗控、托盘提示，不承载业务。
+
+**为什么业务走 HTTP 而不是全用 Wails 绑定**：绑定会把上百个方法糊进 JS 全局，
+测试只能起整个壳；HTTP 可以用 httptest 打通全链路，也允许纯浏览器调前端。
 
 ## 装配顺序
 
@@ -42,71 +44,60 @@ WorkBaby 是 Windows 单机桌面应用：**Wails3 壳把全部依赖装进自�
 
 ```
 1. resolveLayout    exe 同级有 assets\ → 安装态；否则往上找仓库根 → 开发态
-2. pkg.SetLogDir    日志目录先就绪，后面每步才好排错
+2. pkg.SetLogDir    日志目录先就绪，后续每一步才好排错
 3. application.New  Wails 应用 + 单实例 + WebView2 数据目录锁进沙箱
 4. 建窗（Hidden）   先不显示，避免装配阶段闪白屏
 5. 建托盘           用户可能一启动就关窗，托盘必须先存在
 6. ServiceStartup   开 SQLite → 装配 service → 起 gin（拿到端口）
-7. Provision（后台） 解压运行时 → 落技能 → 声明插件 → 装 pi 与插件
+7. Provision（后台） 解压运行时 → 落技能 → 声明插件 → 装 pi → 装插件
 8. 前端调 Endpoint  拿到 {port, token} 后建 SSE、拉首屏
 9. 前端调 Ready()   由前端决定何时显形
 ```
 
-第 7 步必须在**后台**跑：三份运行时 zip 共约 110MB，同步做会让窗口一启动就假死。
+**第 7 步必须在后台**：三份运行时 zip 共约 110MB，同步解压会让窗口一启动就假死。
 装配失败不弹窗卡死——原因留在 `Endpoint()` 的错误里，前端渲染成可读诊断页。
-
-## 沙箱布局
-
-```
-%LOCALAPPDATA%\WorkBaby\           （开发态加 -dev 后缀）
-├── workbaby.db                    # 壳的设置 KV + 技能开关台账
-├── cache\npm\                     # npm 缓存（npm_config_cache）
-├── cache\npm-global\              # npm 全局前缀（npm_config_prefix）
-├── logs\                          # 按天滚动
-├── webview\                       # WebView2 用户数据（卸载时一起删）
-├── runtime\node\                  # 内置 Node.js 24.21
-├── runtime\PortableGit\           # 内置 git + bash
-├── runtime\python\                # 内置 Python 3.13
-├── pi-app\node_modules\           # pi 本体（内置 npm --prefix 装的）
-└── pi\                            # PI_CODING_AGENT_DIR：pi 的家
-    ├── settings.json              # 模型 + packages[] + npmCommand
-    ├── models.json / auth.json / mcp.json
-    ├── npm\node_modules\           # 插件安装根（pi 自己的约定）
-    ├── sessions\                  # 会话 JSONL（唯一持久真相）
-    ├── skills\                    # 启用态技能
-    └── skills_disabled\           # 停用态技能（目录搬移即失联）
-```
-
-**为什么整个 pi 的家要重定向**：pi 默认读写 `~/.pi`。不重定向，壳内装的
-插件会与用户自己装的 pi 混在同一目录，卸载壳就删了用户的东西。
 
 ## 引擎生命周期
 
 | 阶段 | 行为 |
 |---|---|
 | 首启 | 内置 npm 装 `@earendil-works/pi-coding-agent@latest` 到 `pi-app` |
-| 绑定 | 一个工作区 ⇔ 一个 pi RPC 子进程；切工作区即重建；绑定整段串行化，并发请求只拉起一个引擎 |
-| 通信 | stdin/stdout 行分隔 JSON，命令带 request_id，事件带 event 名 |
-| 崩溃 | 意外退出按指数退避自动拉起（2s 起步），连崩 5 次停手交给用户；成功绑定即归零 |
+| 绑定 | 一个工作区 ⇔ 一个 pi RPC 子进程；切工作区即重建 |
+| 通信 | stdin/stdout 行分隔 JSONL，命令带 request_id，事件带 event 名 |
+| 崩溃 | 意外退出按指数退避自动拉起（2s 起步，上限 5 次）；成功绑定即归零 |
 | 中断 | 用户点停止 → 发 `abort`；单命令 10 分钟超时 |
-| 退出 | 关 stdin 优雅退出并**等真退出**（上限 3s，到点强杀进程树）——之后才允许删包目录；托盘挂起不算退出 |
+| 退出 | 关 stdin 优雅退出并**等真退出**（上限 3s，到点强杀进程树） |
 
-引擎的 stdout 严格按 LF 切帧（不用 `bufio.Scanner` 默认切分——U+2028/2029 会误切）。
+一个工作区一个引擎，而不是全局一个：pi 的会话目录按工作区分组，工具的相对路径
+以工作区为根。切工作区重建进程是唯一不会让路径错乱的方案。
 
-git 凭证走内置 PortableGit 自带的 Git Credential Manager（落 Windows 凭据管理器）；
-终端交互问询被禁用（`GIT_TERMINAL_PROMPT=0`）——需要登录时立即失败并给下一步指引
-（先在有终端的客户端登录一次或换 token），而不是卡满超时。
+## 沙箱隔离
 
-## 前端运行时架构
+沙箱成立依赖四个环境变量，全部由 `pkg.Layout.SandboxEnv` 注入每个子进程：
+
+| 变量 | 作用 |
+|---|---|
+| `PATH` | 内置 node / git / python 在前，系统 PATH 在后 |
+| `HOME` / `USERPROFILE` | 指向数据目录，工具写不到用户的真实家目录 |
+| `PI_CODING_AGENT_DIR` | 把 pi 的整个家重定向到沙箱 |
+| `npm_config_cache` / `npm_config_prefix` | npm 缓存与全局前缀锁进 `data\cache` |
+
+**内置运行时缺失时直接报错，不回退系统同名命令**。回退等于拿用户环境跑包，
+沙箱就不存在了。探测有无一律用 `NodeReady()` 这类不抛的版本。
+
+pi 的 `settings.json` 里另写了 `npmCommand`，指向内置 node + npm-cli.js：
+pi 自己装插件时会调它，不钉住就等于让插件装进用户环境。
+
+## 前端运行时
 
 ```
 Wails 绑定（拿 {port, token}）
         │
         ▼
-api/http.ts ── axios 实例（统一拆信封，code!=='0' 即抛 ApiError）
+api/http.ts ── axios 实例（统一拆信封，code !== '0' 即抛 ApiError）
         │                          │
         ▼                          ▼
-   stores/app（引导·设置·清单）   events store（SSE 分帧）
+   stores/app（引导·设置·清单）   events store（SSE 分帧分发）
         │                          │
         ▼                          ▼
    视图（懒加载路由页） ◄── refresh store（事件驱动的刷新信号）
@@ -117,28 +108,56 @@ api/http.ts ── axios 实例（统一拆信封，code!=='0' 即抛 ApiError�
 - **状态层分工**：`app` 持引导与各管理域清单；`chat` 持会话绑定与消息流；
   `events` 只做 SSE 分帧与分发；`refresh` 把「引擎 / 插件 / 技能状态变了」
   翻译成各页面的刷新信号——清单类数据不在 store 里长住，谁需要谁拉
-- **流式渲染**：引擎事件经 `chat/frames.go` 翻译成 SSE 帧，`chat` store 增量拼装
-  回合块；正文按顶层块缓存增量渲染（`utils/md.ts`），思考块流式期只渲染尾部
-  4000 字，正文出现即折叠——长会话与长思考都不把 DOM 撑爆
-- **路由**：11 个懒加载视图，按管理域划分；对话页是默认页
-- **i18n**：全部文案走 `locales/`（zh-CN / en），模板禁止硬编码用户可见字符串
+- **流式渲染**：正文按顶层块缓存增量渲染，思考块流式期只渲染尾部 4000 字，
+  正文出现即折叠——长会话与长思考都不把 DOM 撑爆
+- **路由**：11 个懒加载视图，按管理域划分
 
-## 插件与技能的真相来源
+## 事件流
+
+每个订阅者一条带缓冲队列 + 发送泵：补帧先入队、实时帧后入队，
+同一队列保证乱序不可能发生。队列写满即按断开处理——一个卡住的窗口不能拖住广播。
+
+`seq` 由 hub 统一发号且单调递增，是断线补帧的对齐依据。补不上的缺口由前端拿
+`chat/state` 全量对账，不假装补齐。
+
+## 真相来源
+
+壳不建任何第二份注册表。每类对象只有一个真相，壳只在其上操作：
 
 | 对象 | 唯一真相 | 壳做什么 |
 |---|---|---|
-| 插件 | `pi\settings.json` 的 `packages[]` | 改写数组（启用 = 裸串，停用 = `{source, autoload:false}`）、用内置 npm 装包 |
+| 插件 | `pi\settings.json` 的 `packages[]` | 改写数组、用内置 npm 装包 |
 | 技能 | `pi\skills\` 与 `pi\skills_disabled\` 的目录位置 | 搬目录、写文件、从 `assets\skills\` 补位 |
-| MCP | `pi\mcp.json`（用户级）+ 工作区 `.pi\mcp.json` | 读写 JSON、校验 |
+| MCP | `pi\mcp.json` + 工作区 `.pi\mcp.json` | 读写 JSON、校验、握手探测 |
 | 模型 | `pi\models.json` + `auth.json` | 读写、探测上游可用性 |
+| 会话 | `pi\sessions\` 的 JSONL | 只读回放；改名以追加条目表达 |
+| 壳偏好 | SQLite 两张表 | 读写 |
 
-**壳不建第二份注册表**。内置清单（`plugin_catalog.go` / `skill_catalog.go`）只是
-「随包分发哪些、默认开哪些」的策展表，不是运行时状态——状态一律现场读盘。
+`plugin_catalog.go` / `skill_catalog.go` 里的内置清单只是「随包分发哪些、
+默认开哪些」的策展表，**不是运行时状态**——状态一律现场读盘。
+
+## 稳定性约束
+
+以下每一条都对应一个会真正弄坏数据或卡死界面的失效模式，改动时不可移除。
+
+| 约束 | 失效模式 |
+|---|---|
+| RPC 整行写入加锁 | 并发 `prompt` / `steer` 各写一次会交错成半行，引擎按行解析就永久错位 |
+| stdout 按 LF 切帧 | `bufio.Scanner` 默认切分会把 U+2028 / U+2029 当分隔符，而它们在 JSON 字符串里合法 |
+| 会话改名避让引擎正在写的文件 | 两路同时追加 JSONL 会写出交错行，会话文件写坏就整份回放不出来 |
+| 动插件目录前停引擎、动完重启 | Windows 上运行中的 node 锁着包文件；且包只在引擎启动时加载，不重启就是旧行为 |
+| 退出前等引擎真退出再动磁盘 | 进程还活着就删不了包目录 |
+| 工作区清单的 git 探测 8 秒超时 | 历史里可能挂着网络盘或拔掉的移动盘，默认 124 秒会把整张清单拖死 |
+| 引擎拉起的「检查 → 停旧 → 拉新 → 换绑」整段串行 | 并发请求会各拉一个引擎并互相覆盖绑定 |
+| 引擎退出回调只在「退出的仍是当前绑定」时清绑 | 被换下的旧进程退出得晚，会抹掉新绑定 |
 
 ## 安全边界
 
 - 令牌每次启动随机生成，只经 Wails 绑定交给自己的 WebView；HTTP 走
   `X-Desktop-Token`，SSE 走 `?token=`（EventSource 带不了自定义头）
-- 服务只监听 `127.0.0.1`，不监听 `0.0.0.0`
-- 文件接口一律校验路径在允许的根目录内（`CodePathOutside`）
-- 密钥读出来恒为掩码；`api_key` 传空串语义是「保留原值」
+- 服务只监听 `127.0.0.1`
+- 文件接口一律校验路径在允许的根目录内
+- 密钥读出来恒为掩码；`api_key` 传空串的语义是「保留原值」
+- git 凭证走内置 PortableGit 自带的 Git Credential Manager（落 Windows 凭据管理器）；
+  终端交互问询被禁用（`GIT_TERMINAL_PROMPT=0`）——需要登录时立即失败并给下一步指引，
+  而不是卡满超时

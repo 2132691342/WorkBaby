@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # wails3 用 git describe 取版本号，浅克隆会拿不到 tag
+          fetch-depth: 0   # wails3 用 git describe 取版本号，浅克隆拿不到 tag
 
       - uses: actions/setup-go@v5
         with:
@@ -29,6 +29,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # NSIS 不在 windows-latest 的 PATH 上。没有 makensis，`wails3 package`
+      # 会在最后一步失败（executable file not found in $PATH）。
+      - name: 安装 NSIS
+        run: |
+          choco install nsis -y --no-progress
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
       # setup-go 不保证把 GOPATH\bin 加进 PATH，而 wails3 就装在那里。
       - name: GOPATH\bin 加入 PATH
         shell: pwsh
@@ -37,7 +44,7 @@ jobs:
       - name: 安装 wails3
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
 
-      - name: 校验 tag 与 git describe 一致
+      - name: 校验 tag 与 HEAD 一致
         shell: pwsh
         run: |
           $tag = $env:GITHUB_REF_NAME
@@ -48,7 +55,7 @@ jobs:
           }
           Write-Output "版本一致：$tag"
 
-      # go:embed all:frontend/dist 需要前端产物先就位，否则 go test 编译不过
+      # go:embed all:frontend/dist 需要前端产物先就位，否则任何编译 package main 的命令都过不去。
       - name: 安装前端依赖
         working-directory: frontend
         run: npm ci
@@ -62,24 +69,36 @@ jobs:
         run: npm run build
 
       - name: 测试
-        run: go test ./... -count=1
+        run: go test ./tests -count=1
 
       - name: 打包 NSIS 安装器
         run: wails3 package
 
+      - name: 收集产物
+        id: collect
+        shell: pwsh
+        run: |
+          # 安装包由 NSIS 产出，落在 bin\ 下，文件名带 installer。
+          $installer = Get-ChildItem -Path bin -Filter '*installer*.exe' -ErrorAction SilentlyContinue |
+                       Select-Object -First 1
+          if (-not $installer) {
+            Write-Error "没找到安装包：bin\*installer*.exe"
+            Get-ChildItem -Recurse -Include *.exe | Select-Object FullName
+            exit 1
+          }
+          Write-Output "安装包：$($installer.FullName)（$([math]::Round($installer.Length/1MB)) MB）"
+          "installer=$($installer.FullName)" >> $env:GITHUB_OUTPUT
+
       - name: 发布 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INSTALLER: ${{ steps.collect.outputs.installer }}
         shell: pwsh
         run: |
-          $files = Get-ChildItem -Recurse -Include *installer*.exe,*.exe -Path bin,build/windows/nsis -ErrorAction SilentlyContinue |
-                   Where-Object { $_.Name -like '*WorkBaby*' } |
-                   Select-Object -ExpandProperty FullName
-          if (-not $files) { Write-Error "没找到安装包产物"; exit 1 }
-          # 重打的 tag 会撞上已存在的 Release：有则覆盖上传，无则新建。
-          gh release view $env:GITHUB_REF_NAME 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:GITHUB_REF_NAME $files --clobber
+          # 重打的 tag 会撞上已存在的 Release：有则替换资产，无则新建。
+          if (gh release view $env:GITHUB_REF_NAME 2>$null) {
+            gh release upload $env:GITHUB_REF_NAME $env:INSTALLER --clobber
           } else {
-            gh release create $env:GITHUB_REF_NAME $files --generate-notes
+            gh release create $env:GITHUB_REF_NAME $env:INSTALLER --generate-notes `
+              --title $env:GITHUB_REF_NAME
           }

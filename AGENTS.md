@@ -1,22 +1,22 @@
-# AGENTS.md · WorkBaby 工程规范
+# AGENTS.md · 工程规范
 
-> 本文件是代码风格 / 分包 / 依赖方向 / 工作流的唯一权威。
-> 架构与模块说明见 `docs/`；冲突时以本文件为准。
+> 本文件是代码风格、分包、依赖方向、工作流的唯一权威。
+> 架构与模块设计见 `docs/`；冲突时以本文件为准。
 
 ---
 
-## 1. 定位与技术栈（强制锁定）
+## 1. 定位与技术栈
 
-WorkBaby 是一个**安装即用的 Windows 单机 AI 助手**：Wails3 壳把
-**内置 Node.js + pi 引擎 + 插件 + 技能 + MCP + Git/Python 运行时**装进一个
-`%LOCALAPPDATA%\WorkBaby` 沙箱，由 GUI 统一调用与管理。外部装没装
-node / pi 与本壳无关；壳内管理的 pi 也不支持绕过 GUI 直接使用。
+WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳把内置 Node.js + pi 引擎 + 插件 +
+技能 + MCP + Git/Python 运行时装进 `%LOCALAPPDATA%\WorkBaby` 沙箱，由 GUI 统一管理与调用。
+
+外部装没装 node / pi 与本壳无关；壳内管理的 pi 不支持绕过 GUI 直接使用。
 
 | 层 | 选型 | 版本 |
 |---|---|---|
 | 桌面壳 | Wails v3（无边框窗口，前端自绘标题栏，WebView2） | 3.1.x |
 | 语言 | Go（模块 `WorkBaby`） | 1.26.x |
-| 业务服务 | gin（业务 API + SSE 全部走 HTTP，127.0.0.1 随机端口） | 1.12.x |
+| 业务服务 | gin（业务 API + SSE 全走 HTTP，127.0.0.1 随机端口） | 1.12.x |
 | 数据库 | gorm + `glebarez/sqlite`（**纯 Go，无 cgo**，WAL） | 1.31.x / 1.11.x |
 | ID | ULID，带业务前缀（`oklog/ulid`） | 2.1.x |
 | Agent 引擎 | pi（`@earendil-works/pi-coding-agent`，RPC 模式子进程） | 随 npm 最新 |
@@ -27,10 +27,10 @@ node / pi 与本壳无关；壳内管理的 pi 也不支持绕过 GUI 直接使�
 
 **平台**：只考虑 Windows；子进程一律隐藏窗口（走 `pkg/proc`，不裸用 os/exec）。
 
-### 1.1 沙箱原则（本壳的存在意义）
+### 1.1 沙箱原则
 
 - 引擎与工具链全部落在数据目录：`data\runtime\{node,PortableGit,python}`、
-  `data\pi\{settings,models,mcp,auth,sessions,skills,extensions,plugins,npm}`、`data\pi-app`（pi 本体）。
+  `data\pi\{settings,models,mcp,auth,sessions,skills,extensions,plugins,npm}`、`data\pi-app`。
 - 子进程 PATH **内置运行时在前、系统在后**（`pkg/env.go::SandboxEnv`），HOME 指向数据目录；
   npm 的 `cache` / `prefix` 同样锁进 `data\cache\`。
 - **内置 node / git / python 取不到时直接报错，绝不回退系统同名命令**——
@@ -39,6 +39,7 @@ node / pi 与本壳无关；壳内管理的 pi 也不支持绕过 GUI 直接使�
   与 `PI_TELEMETRY=0` 关掉引擎自带的远端探测与上报。
 - **不设 `PI_PACKAGE_DIR`**：它改写的是 pi 找自己 `dist/` 与主题的根，指错引擎就起不来。
   插件安装根是 `pi/npm`，由 pi 自己的包管理决定。
+- **不做 OAuth**：服务商一律 API Key，`auth.json` 里只有 `type: "api_key"`。
 - 管理面（插件 / 技能 / MCP / 模型）只经 GUI 暴露，不对外提供 CLI。
 
 ---
@@ -50,11 +51,11 @@ node / pi 与本壳无关；壳内管理的 pi 也不支持绕过 GUI 直接使�
 ```
 WorkBaby/
 ├── AGENTS.md / README.md / DESIGN.md
-├── docs/                          # 架构 / API / 数据 / 部署等（与代码同步更新）
+├── docs/                          # 架构 / 模块 / API / 数据 / 错误码 / 开发 / 部署
 ├── main.go                        # 装配根：内嵌前端产物 + 版本号，交给 shell.Run
 ├── backend/
-│   ├── domain/                    # 纯类型：VO/REQ/RESP/DTO/DO + 错误码常量（不依赖实现）
-│   ├── pkg/                       # 叶子工具：apperror/codes/ulid/fsutil/log/proc/env/paths/frontmatter/ziputil
+│   ├── domain/                    # 纯类型：VO/REQ/RESP/DTO/DO + 错误码常量
+│   ├── pkg/                       # 叶子工具：apperror/codes/ulid/fsutil/log/proc/env/paths/...
 │   ├── repo/                      # SQLite：连接迁移、设置 KV、技能开关台账
 │   ├── sse/                       # SSE hub：seq 发号、断线补帧、心跳
 │   ├── api/                       # gin：server + 分组路由（薄壳，只解析与转发）
@@ -66,8 +67,8 @@ WorkBaby/
 │   └── shell/                     # 窗口 / 托盘 / 端点装配
 ├── frontend/src/{api,components,composables,locales,stores,types,utils,views,router}
 ├── assets/{runtime,skills}        # 编译期随包分发：运行时 zip、内置技能包
-├── build/                         # wails3 打包配置与图标（Taskfile / config.yml）
-└── tests/                         # Go 测试：场景测试，按被测对象一文件
+├── build/                         # wails3 打包配置与图标（Taskfile / config.yml / nsis）
+└── tests/                         # Go 场景测试，按被测对象一文件
 ```
 
 **开目录门槛**：有一组独立概念 + 独立生命周期才开目录，否则做现有模块里的一个文件。
@@ -134,10 +135,11 @@ type AppError struct {
 
 - 业务码是**数字字符串**（`"1001"`）；HTTP 状态码是 number，信封 `code` 是 string
 - HTTP 出口统一信封 `{ code, message, detail?, data }`，恒回 200，`code != "0"` 即业务失败
+- 唯一例外是鉴权失败：回 401 且不带信封——那不是业务失败，是根本没进门
 - 码值集中在 `pkg/codes.go`，与 `docs/ERROR-CODES.md` 一一对应；新增码先改文档再写代码
 
 **错误码段位**：1000–1999 通用/文件/git；2000–2999 配置/DB；3000–3999 服务商/模型；
-5000–5999 会话运行；7000–7999 外部进程；8000–8999 Skill；9100–9199 MCP；9700–9799 引擎 RPC。
+5000–5999 会话运行；7000–7999 外部进程；8000–8999 技能；9100–9199 MCP；9700–9799 引擎 RPC。
 
 ### 2.5 命名 / 注释 / 行数
 
@@ -145,20 +147,21 @@ type AppError struct {
 |---|---|
 | 文件名 | 全小写 + 下划线（`rpc_client.go`） |
 | 类型 / 接口 | PascalCase，不加 I 前缀 |
-| 函数 | camelCase（首字母小写；导出时首字母大写），常量 SCREAMING_SNAKE_CASE |
+| 函数 | camelCase（导出时首字母大写），常量 SCREAMING_SNAKE_CASE |
 | JSON 字段 | snake_case + 业务前缀 |
 | ID | `{PREFIX}_{26位ULID}`；现役前缀 `RUN` / `ASK` / `EVT` / `JOB`，白名单在 `pkg/ulid.go` |
 | 时间戳 | 一律毫秒 int64（`pkg.NowMs()`）；禁止 ISO 串进 DTO |
-| 注释 | 文件头 1 行 `//!` 风格的 `// Package x ...`；类型 / 方法 1 行 `//` 说结论；连续注释 ≤ 3 行；只写「为什么」 |
+| 注释 | 文件头 1 行 `// Package x ...`；类型 / 字段 / 方法各 1 行说结论；连续注释 ≤ 3 行；只写「为什么」，不复述代码 |
 | 行数 | 每文件 ≤ 500 行 |
-| **禁止** | 注释出现外部项目名 / 过程痕迹（「旧版」「v1」「预留」）；`uuid`；手拼 JSON；本地时区时间 |
+| **禁止** | 注释出现外部项目名、过程痕迹（「旧版」「曾经」「改为」）；`uuid`；手拼 JSON；本地时区时间 |
 
 ### 2.6 子进程纪律
 
 - argv 数组直传，永不进 shell；`SysProcAttr.HideWindow`（引 `pkg/proc`，不写十六进制）
-- 超时必杀；stdout 严格按 LF 切帧（不用 bufio.Scanner 默认行为——U+2028/2029 会误切）
+- 超时必杀；stdout 严格按 LF 切帧（不用 `bufio.Scanner` 默认行为——U+2028/2029 会误切）
 - 探测程序路径用 `pkg.Exists`，**禁止跑 `where` / `which`**（会闪控制台）
 - 新增子进程出口自觉对齐 `pkg/proc.go` 的 `RunProc`
+- 长驻子进程的 stdin 写入必须整行串行化：并发写会交错成半行
 
 ### 2.7 HTTP 与 API 路径约定（强制）
 
@@ -175,7 +178,7 @@ type AppError struct {
 | 一个工作区一个引擎 | pi RPC 子进程按当前工作区绑定；切工作区即重建 |
 | 看得见就点得动 | 提问等面板可写；回答经 `extension_ui_response` 直达引擎 |
 | 写入只有一套 | 插件 / 技能 / MCP 的落盘与校验只有 service 一套，不写第二套 |
-| 插件走 pi 原生 | 插件只经 `settings.json` 的 `packages[]` 声明；不用自造注册表索引第二份真相 |
+| 插件走 pi 原生 | 插件只经 `settings.json` 的 `packages[]` 声明；不自造注册表索引第二份真相 |
 | 只读接口不写盘 | `GET` 路由不改磁盘状态；需要落盘的动作在自己的写接口或首启里做 |
 | 启动不等重物 | 端口与界面先就绪；运行时解压、技能落位后台跑，进度经 `app:progress` 报 |
 | 引擎不感知界面 | service/chat 只发 domain 词汇；翻译成 SSE 是 chat_frames 的职责 |
@@ -195,17 +198,18 @@ type AppError struct {
 ## 3. 测试规范
 
 测试的价值在「改这里会坏那里」的地方；平凡断言不写。
+详细清单见 `docs/DEV.md`。
 
-**保留**：状态机与解析（会话树回放 / 分支 / 隐藏轮）、端到端长链路（鉴权 → 路由 → service → SQLite → 信封）、
-内置清单与落位（插件声明改写 / 技能目录搬移）。
-**不写**：复述框架行为的用例、单分支覆盖率驱动用例。
+**保留**：状态机与解析（会话树回放 / 分支 / 隐藏轮）、端到端长链路（鉴权 → 路由 →
+service → SQLite → 信封）、内置清单与落位（插件声明改写 / 技能目录搬移）、
+真实运行时链路（`live` 标签，手动跑）。
 
-- 位置：仓库根 `tests/`，一文件一个被测对象，`go test ./...` 十几秒内跑完
-- 当前保留三份长链路测试：`e2e_server`（HTTP 全链路）、`session_replay`（会话回放管线）、
-  `builtin_catalog`（内置插件/技能清单与落位）；纯函数往返并入对应链路，不单开文件
+**不写**：复述框架行为的用例、单 getter、纯函数往返、覆盖率驱动用例。
+
+- 位置：仓库根 `tests/`，一文件一个被测对象，`go test ./tests` 一秒内跑完
 - 命名说清断言的是什么；断言带失败信息
 - 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`
-- 测不了的路径（需真实引擎 / 网络）不写悬空用例
+- 测不了的路径（需真实引擎 / 网络）放 `live` 标签后，不留假绿
 
 ---
 
@@ -214,13 +218,14 @@ type AppError struct {
 提交前必须过四道，一条不能少：
 
 ```bash
-go build ./...           # 1 全包可编译
-go vet ./...             # 2 静态检查
-npx vue-tsc --noEmit -p frontend/tsconfig.json   # 3 前端类型检查（cd frontend 后跑）
-go test ./... -count=1   # 4 测试全绿
+go build ./...                                    # 1 全包可编译
+go vet ./...                                      # 2 静态检查
+cd frontend && npx vue-tsc --noEmit -p tsconfig.json   # 3 前端类型检查
+go test ./tests -count=1                          # 4 场景测试全绿
 ```
 
-发布前另跑 `wails3 build`（产出 `bin/WorkBaby.exe`）与 `task package`（NSIS 安装包）。
+发布前另跑 `task build`（产出 `bin/WorkBaby.exe`）与 `task package`（NSIS 安装包，
+需要 `makensis`）。
 
 **硬性约束**：文件 ≤ 500 行；依赖方向单向；只用 GET / POST；字段带业务前缀；
 信封恒 200；注释无外部项目名与过程痕迹；子进程隐藏窗口 + 超时杀。
@@ -232,9 +237,9 @@ go test ./... -count=1   # 4 测试全绿
 1. **先读约束**：动 domain 前想清楚字段前缀与错误码段位；动前端前想清楚令牌归属
 2. **定位落点**：能进现有模块就别开新文件；纯逻辑进 `pkg/`（可测），编排进 `service/`
 3. **实现**：注释只写「为什么」，不留过程痕迹
-4. **验证**：跑 §4 的门禁；改哪个层跑哪道，但 `go build` + `go test` 必跑
+4. **验证**：跑 §4 的门禁
 5. **同步文档**：改了架构 / API / 错误码 / 页面结构，对应 `docs/` 一起改
 6. **提交**：一次提交只做一件事，提交信息写清做了什么与为什么
 
 **新增依赖的门禁**：写清「为什么需要」「替代方案是什么」「代价是什么」，
-并同步到 `docs/MODULES.md` 与本文 §1 的技术栈表。
+并同步到 `docs/MODULES.md` 的取舍表与本文 §1 的技术栈表。

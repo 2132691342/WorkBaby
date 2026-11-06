@@ -15,12 +15,12 @@ includes:
 
 tasks:
   build:
-    summary: Builds the application
+    summary: 构建可执行文件（bin\WorkBaby.exe）
     cmds:
       - task: "{{.GOOS}}:build"
 
   package:
-    summary: Builds the application and packages it (NSIS installer)
+    summary: 构建并打成 NSIS 安装包
     cmds:
       - task: "{{.GOOS}}:package"
         vars:
@@ -29,47 +29,53 @@ tasks:
       INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "user"}}'
 
   run:
-    summary: Runs the application
+    summary: 跑构建产物
     cmds:
       - task: "{{.GOOS}}:run"
 
   dev:
-    summary: Runs the application in development mode
+    summary: 开发态：后端热重载 + Vite 热更
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
   generate:bindings:
-    summary: Generates the frontend bindings
+    summary: 生成前端绑定
     cmds:
       - task: common:generate:bindings
 
   fmt:
-    summary: Formats all Go code (gofmt -w)
+    summary: 格式化全部 Go 代码
     cmds:
-      - gofmt -w backend main.go
+      - gofmt -w backend main.go tests
 
   fmt:check:
-    summary: Verifies gofmt formatting; used by CI
+    summary: 校验格式化（CI 用）
     shell: pwsh
     cmds:
       - |
-        $bad = gofmt -l backend main.go
+        $bad = gofmt -l backend main.go tests
         if ($bad) { Write-Host "未格式化:"; Write-Host $bad; exit 1 }
 
-  vet:
-    summary: Runs go vet on backend and the assembly root
-    cmds:
-      - go vet ./backend/... .
-
   test:
-    summary: Runs the backend test suite once
+    summary: 跑场景测试（长链路，秒级）
     cmds:
-      - go test ./backend/... -count=1
+      - go test ./tests -count=1
 
-  # 一条命令跑完所有门禁。改完东西想知道「有没有弄坏什么」就跑这个。
+  # 真实运行时链路：解压内置 node、装 pi、跑 RPC 握手。手动跑，不进 CI。
+  test:live:
+    summary: 跑真实沙箱链路（需联网，约 2 分钟）
+    cmds:
+      - go test ./tests -tags live -count=1 -run TestSandboxChain -v -timeout 25m
+
+  # 一条命令跑完四道门禁。改完东西想知道「有没有弄坏什么」就跑这个。
   check:
-    summary: Runs every local gate (format, vet, tests)
+    summary: 跑全部本地门禁（格式 / 静态检查 / 测试）
     cmds:
       - task: fmt:check
       - task: vet
       - task: test
+
+  vet:
+    summary: 静态检查
+    cmds:
+      - go vet ./...
