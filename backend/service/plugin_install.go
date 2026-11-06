@@ -49,9 +49,13 @@ func (p *Plugins) installOne(source, pluginName, action string) error {
 	layout := p.Runtime.Layout
 	p.setFailure(pluginName, "")
 	version, _ := pluginMeta(layout, pluginName)
+	// 只有 npm 来源能对版本；git 源的 @ref 与本地路径都不是版本号，
+	// 拿去跟 package.json 的 version 比永远不会相等，只会多余地重装一遍。
 	pinned := ""
-	if at := strings.LastIndexByte(source, '@'); at > 0 {
-		pinned = source[at+1:]
+	if strings.HasPrefix(source, "npm:") {
+		if at := strings.LastIndexByte(source, '@'); at > 1 {
+			pinned = source[at+1:]
+		}
 	}
 	if version != "" && pinned != "" && version == pinned && pluginInstalled(layout, pluginName) {
 		p.declare(pluginName, source, true)

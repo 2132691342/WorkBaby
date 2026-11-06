@@ -20,7 +20,6 @@ export interface EngineCaps {
   subagents: boolean
   goals: boolean
   todos: boolean
-  login: boolean
   queue_clear: boolean
   queue_edit: boolean
   skill_toggle: boolean

@@ -13,8 +13,9 @@ type BuiltinPlugin struct {
 }
 
 // BuiltinPlugins 是内置插件清单：顺序即首启安装顺序，联网访问排最前
-// （其余插件常依赖它）。纯 TUI 展示件与和本壳 GUI 职责重叠的管理面
-// 只内置不默认启用，其余默认开启。
+// （其余插件常依赖它）。这份清单是产品规格，不多不少——增删要同步
+// docs 与 README。默认停用的只限「与本壳 GUI 职责重叠」的几个，
+// 其余默认开启。
 var BuiltinPlugins = []BuiltinPlugin{
 	{
 		PluginName:      "pi-web-access",
@@ -59,12 +60,6 @@ var BuiltinPlugins = []BuiltinPlugin{
 		PluginDefaultOn: true,
 	},
 	{
-		PluginName:      "pi-codex-goal",
-		PluginVersion:   "0.7.7",
-		PluginDesc:      "目标追踪与续跑，跨轮保持目标状态",
-		PluginDefaultOn: true,
-	},
-	{
 		PluginName:      "pi-inspect",
 		PluginVersion:   "0.6.0",
 		PluginDesc:      "自省面板：工具、斜杠命令、技能与注入的系统提示",
@@ -81,18 +76,6 @@ var BuiltinPlugins = []BuiltinPlugin{
 		PluginVersion:   "0.5.1",
 		PluginDesc:      "可配置多行 footer / 状态栏",
 		PluginDefaultOn: false,
-	},
-	{
-		PluginName:      "pi-generative-ui",
-		PluginVersion:   "0.3.0",
-		PluginDesc:      "生成式 UI：交互式 HTML / SVG 小部件渲染到原生窗口",
-		PluginDefaultOn: true,
-	},
-	{
-		PluginName:      "pi-browser-harness",
-		PluginVersion:   "0.14.0",
-		PluginDesc:      "CDP 操控真实 Chrome：导航、点击、输入、截图、取数",
-		PluginDefaultOn: true,
 	},
 	{
 		PluginName:      "pi-chrome",
@@ -113,12 +96,6 @@ var BuiltinPlugins = []BuiltinPlugin{
 		PluginDefaultOn: true,
 	},
 	{
-		PluginName:      "pi-autoresearch",
-		PluginVersion:   "1.9.0",
-		PluginDesc:      "自主实验循环：跑实验、测量、决定保留或丢弃",
-		PluginDefaultOn: true,
-	},
-	{
 		PluginName:      "pi-web",
 		PluginVersion:   "0.15.5",
 		PluginDesc:      "pi 的 Web UI，浏览器里操作 pi；与本壳 GUI 职责重叠，默认停用",
@@ -129,18 +106,6 @@ var BuiltinPlugins = []BuiltinPlugin{
 		PluginVersion:   "10.7.3",
 		PluginDesc:      "可恢复的上下文清理、校验式压缩、会话导航与项目记忆",
 		PluginDefaultOn: true,
-	},
-	{
-		PluginName:      "context-mode",
-		PluginVersion:   "1.0.169",
-		PluginDesc:      "省上下文：沙箱执行 + FTS5 知识库 + 意图搜索",
-		PluginDefaultOn: true,
-	},
-	{
-		PluginName:      "pi-loadout",
-		PluginVersion:   "0.0.37",
-		PluginDesc:      "交互式工具与技能装载配置；与 GUI 的管理面职责重叠，默认停用",
-		PluginDefaultOn: false,
 	},
 }
 

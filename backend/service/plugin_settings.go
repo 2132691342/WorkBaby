@@ -87,11 +87,11 @@ func entryToJSON(source string, enabled bool) any {
 }
 
 // PackageNameOf 从一个来源串里取 npm 包名。
-// `npm:@scope/pkg@1.2.3` → `@scope/pkg`；git / http 来源原样返回（不做猜测）。
+// `npm:@scope/pkg@1.2.3` → `@scope/pkg`；git / 本地来源原样返回（不做猜测）。
 func PackageNameOf(source string) string {
 	raw := strings.TrimSpace(source)
 	raw = strings.TrimPrefix(raw, "npm:")
-	if strings.HasPrefix(raw, "git:") || strings.HasPrefix(raw, "http") || strings.HasPrefix(raw, "./") {
+	if IsGitSource(raw) || strings.HasPrefix(raw, "./") || strings.HasPrefix(raw, "../") {
 		return strings.TrimSuffix(raw, "/")
 	}
 	// 从后往前找 @：scope 包的 @ 在最前面，不能被当成分隔符切掉。
@@ -99,6 +99,36 @@ func PackageNameOf(source string) string {
 		raw = raw[:at]
 	}
 	return strings.TrimSuffix(raw, "/")
+}
+
+// PluginSourceOf 把用户输入规范成 pi 认的来源串。
+// 只有 npm 包名需要加 `npm:`；git 源写 URL 本身（github.com/u/r、https://…、git@…），
+// 本地源写相对路径。不存在 `git:` 前缀——git 会把 git:https://… 当非法协议直接报错。
+func PluginSourceOf(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	switch {
+	case strings.HasPrefix(trimmed, "npm:"), IsGitSource(trimmed):
+		return trimmed
+	case strings.HasPrefix(trimmed, "./"), strings.HasPrefix(trimmed, "../"):
+		return trimmed
+	default:
+		return "npm:" + trimmed
+	}
+}
+
+// IsGitSource 判断是不是 pi 认的 git 来源：协议 URL、scp 式地址、host/path 缩写。
+func IsGitSource(source string) bool {
+	switch {
+	case strings.HasPrefix(source, "git+"), strings.HasPrefix(source, "git@"):
+		return true
+	case strings.HasPrefix(source, "https://"), strings.HasPrefix(source, "http://"), strings.HasPrefix(source, "ssh://"):
+		return true
+	}
+	// host/path 缩写（github.com/user/repo）：首段带点才算，避免把目录名当域名。
+	if head, _, ok := strings.Cut(source, "/"); ok && strings.Contains(head, ".") {
+		return true
+	}
+	return false
 }
 
 // EnsureNpmCommand 把 npmCommand 落到 settings.json：pi 自己装插件也会走

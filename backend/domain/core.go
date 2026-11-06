@@ -17,8 +17,6 @@ type EngineCaps struct {
 	Goals bool `json:"goals"`
 	// Todos 实时待办
 	Todos bool `json:"todos"`
-	// Login OAuth 登录流
-	Login bool `json:"login"`
 	// QueueClear 整队清空
 	QueueClear bool `json:"queue_clear"`
 	// QueueEdit 单条队列编辑（pi 不支持单删）

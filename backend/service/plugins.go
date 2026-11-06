@@ -123,10 +123,7 @@ func (p *Plugins) Install(source string) (domain.PluginInstallRESP, error) {
 		return domain.PluginInstallRESP{}, err
 	}
 	defer p.unlockBusy()
-	spec := raw
-	if !strings.HasPrefix(raw, "npm:") && !strings.HasPrefix(raw, "git:") && !strings.HasPrefix(raw, "./") {
-		spec = "npm:" + raw
-	}
+	spec := PluginSourceOf(raw)
 	pluginName := PackageNameOf(spec)
 	if pluginName == "" {
 		return domain.PluginInstallRESP{}, pkg.Err(pkg.CodeProvision, "无法从来源解析出包名", spec)

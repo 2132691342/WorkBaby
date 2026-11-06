@@ -83,8 +83,8 @@ func TestBuiltinManifestMatchesAssets(t *testing.T) {
 			t.Errorf("%s 反解包名错了：得到 %q", source, got)
 		}
 	}
-	if len(service.BuiltinPlugins) != 21 {
-		t.Errorf("内置插件应为 21 个，实际 %d 个", len(service.BuiltinPlugins))
+	if len(service.BuiltinPlugins) != 15 {
+		t.Errorf("内置插件应为规格的 15 个，实际 %d 个", len(service.BuiltinPlugins))
 	}
 
 	// 技能清单与 assets\skills 一一对应。
@@ -244,7 +244,7 @@ func TestPluginLifecycle(t *testing.T) {
 // TestPluginVersionDrift 断言内置插件判据是「在且版本对」，批量升级只碰漂移的包。
 // 测试环境没有内置 node，npm 必然失败；断言的是「被尝试过」（进了失败表），不是「装成功」。
 func TestPluginVersionDrift(t *testing.T) {
-	const drifted, aligned = "pi-hermes-memory", "context-mode"
+	const drifted, aligned = "pi-hermes-memory", "@ff-labs/pi-fff"
 	driftedItem, alignedItem := service.BuiltinPluginOf(drifted), service.BuiltinPluginOf(aligned)
 	if driftedItem == nil || alignedItem == nil {
 		t.Fatalf("清单里应有 %s 与 %s", drifted, aligned)
@@ -285,6 +285,39 @@ func TestPluginVersionDrift(t *testing.T) {
 	}
 	if reason := pluginErrorOf(app2, aligned); reason != "" {
 		t.Fatalf("版本已对齐的 %s 不该被碰，却出现了失败：%s", aligned, reason)
+	}
+}
+
+// TestPluginSourceNormalization 断言用户输入被规范成 pi 认的来源串。
+// 这里锁的是一处真实 bug：曾经把 git 源写成 `git:https://…`，而 git 不认这个协议，
+// 安装直接失败。pi 的 git 源就是 URL 本身，不存在 `git:` 前缀。
+func TestPluginSourceNormalization(t *testing.T) {
+	cases := []struct{ in, want, wantName string }{
+		// npm：没前缀补 npm:，带前缀原样保留。
+		{"pi-web-access", "npm:pi-web-access", "pi-web-access"},
+		{"npm:pi-web-access@0.46.0", "npm:pi-web-access@0.46.0", "pi-web-access"},
+		// scope 包：@ 在最前面，不能被当版本分隔符切掉。
+		{"@juicesharp/rpiv-todo", "npm:@juicesharp/rpiv-todo", "@juicesharp/rpiv-todo"},
+		{"npm:@ff-labs/pi-fff@0.11.0", "npm:@ff-labs/pi-fff@0.11.0", "@ff-labs/pi-fff"},
+		// git 源：URL 本身，不加任何前缀。
+		{"https://github.com/u/r", "https://github.com/u/r", "https://github.com/u/r"},
+		{"git@github.com:u/r.git", "git@github.com:u/r.git", "git@github.com:u/r.git"},
+		{"github.com/u/r", "github.com/u/r", "github.com/u/r"},
+		// 本地源。
+		{"./my-plugin", "./my-plugin", "./my-plugin"},
+	}
+	for _, c := range cases {
+		if got := service.PluginSourceOf(c.in); got != c.want {
+			t.Errorf("PluginSourceOf(%q) 应为 %q，实际 %q", c.in, c.want, got)
+		}
+		if got := service.PackageNameOf(service.PluginSourceOf(c.in)); got != c.wantName {
+			t.Errorf("包名反解(%q) 应为 %q，实际 %q", c.in, c.wantName, got)
+		}
+	}
+
+	// 自造前缀必须被判为非 git 源，否则会带着非法协议发出去。
+	if service.IsGitSource("git:https://github.com/u/r") {
+		t.Error("git: 不是 pi 认的来源写法，不该被当成 git 源")
 	}
 }
 
