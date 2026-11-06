@@ -83,11 +83,11 @@ gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
 | `pi\settings.json` 的 `npmCommand` | 内置 npm 的调用形状（`[node.exe, npm-cli.js]`），必须指向沙箱 |
 | `pi\npm\node_modules\` | 已装插件的真实目录；是否真装上以 `<包名>\package.json` 在不在为准 |
 | `pi\skills\` / `pi\skills_disabled\` | 技能启用 / 停用（目录整体搬移，pi 只扫前者） |
-| `skill_toggle` 表 | 纯记账：核对搬移发生过没有；开与关的真相是技能目录在哪个区 |
+| `skill_toggle` 表 | 记录用户显式改过的开关；真相是技能目录在哪个区，台账写失败只记日志不阻断 |
 
 **插件不另建注册表**：pi 的 `settings.json` 已经是唯一登记处，
 再加一份 JSON 就一定会出现两份不同步。同理，`plugin_catalog.go` 里的
-15 条内置清单只是「随包分发哪些、默认开哪些」的策展表，不是运行时状态。
+18 条内置清单只是「随包分发哪些、默认开哪些」的策展表，不是运行时状态。
 
 ## 6. 沙箱目录一览
 

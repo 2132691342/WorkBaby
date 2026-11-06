@@ -3,6 +3,7 @@ package service
 import (
 	"strconv"
 	"strings"
+	"sync"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -18,6 +19,12 @@ type Git struct {
 	Settings *Settings
 	// Runtime 内置运行时
 	Runtime *engine.Runtime
+
+	// writeMu 串行化会改索引或工作树的命令。两条 git 写命令并发时，
+	// 后一条会撞上前一条的 index.lock 而直接失败——用户看到的是
+	// 「点提交报错」，真因是界面同时发了两个写请求。
+	// 读命令不取这把锁：一次 push 能跑两分钟，不能让状态面板跟着卡住。
+	writeMu sync.Mutex
 }
 
 // NewGit 造一个 git 门面。
@@ -95,6 +102,15 @@ func (g *Git) runOrFail(args ...string) (string, error) {
 		return "", gitFail(res.Stderr)
 	}
 	return res.Stdout, nil
+}
+
+// runWriteOrFail 跑一条会改索引或工作树的 git 命令，并独占写通道。
+// 写命令之间必须互斥：git 用 index.lock 保护索引，抢不到就直接失败，
+// 而那个报错在界面上看不出是并发造成的。
+func (g *Git) runWriteOrFail(args ...string) (string, error) {
+	g.writeMu.Lock()
+	defer g.writeMu.Unlock()
+	return g.runOrFail(args...)
 }
 
 // gitFail 把非零退出翻成 AppError：凭证类失败给下一步指引。

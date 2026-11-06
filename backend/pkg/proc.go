@@ -3,7 +3,6 @@ package pkg
 import (
 	"bytes"
 	"context"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -105,13 +104,23 @@ func HiddenProcAttr() *syscall.SysProcAttr {
 }
 
 // KillTree 杀掉整棵进程树：npm 会拉起子进程，只杀父进程会留下一堆孤儿。
+// taskkill 自己带超时：它卡住的话，调用方的超时保证会跟着失效——
+// 而「超时必杀」是子进程纪律里最要紧的一条。
 func KillTree(pid int) {
 	if pid <= 0 {
 		return
 	}
 	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
 	kill.SysProcAttr = HiddenProcAttr()
-	_ = kill.Run()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = kill.Run()
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+	}
 }
 
 // lineWriter 一边把字节攒进缓冲，一边按 LF 回调整行。
@@ -125,8 +134,8 @@ type lineWriter struct {
 // Write 实现 io.Writer。
 func (w *lineWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.buf.Write(p)
-	w.mu.Unlock()
 	if w.onLine == nil {
 		return len(p), nil
 	}
@@ -152,7 +161,12 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 
 // Flush 把最后一行没有换行结尾的内容也回调出去。
 func (w *lineWriter) Flush() {
-	if w.onLine == nil || w.rest.Len() == 0 {
+	if w.onLine == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.rest.Len() == 0 {
 		return
 	}
 	line := strings.TrimSpace(w.rest.String())
@@ -160,9 +174,4 @@ func (w *lineWriter) Flush() {
 	if line != "" {
 		w.onLine(line)
 	}
-}
-
-// CurrentEnv 复制当前进程的环境变量，供需要增删若干项的调用方改造。
-func CurrentEnv() []string {
-	return append([]string(nil), os.Environ()...)
 }

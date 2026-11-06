@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,13 +20,26 @@ func (s *Server) events(c *gin.Context) {
 	c.Writer.WriteHeader(http.StatusOK)
 	c.Writer.Flush()
 
+	// 帧与心跳都写同一个 ResponseWriter，而它们来自两个 goroutine：
+	// hub 的发送泵一个、这里的 ticker 一个。http.ResponseWriter 不支持并发写，
+	// 交错起来会把一帧劈成两半，前端解析失败就静默丢帧。
+	var writeMu sync.Mutex
+	write := func(text string) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if _, err := c.Writer.WriteString(text); err != nil {
+			return err
+		}
+		c.Writer.Flush()
+		return nil
+	}
+
 	// 先把当前 seq 告诉客户端：首屏拿到它再决定要不要补帧。
 	openFrame := sse.Frame{Seq: s.hub.Seq(), Event: "stream:open", Data: map[string]any{}}
 	if text, err := sse.Encode(openFrame); err == nil {
-		if _, err := c.Writer.WriteString(text); err != nil {
+		if err := write(text); err != nil {
 			return
 		}
-		c.Writer.Flush()
 	}
 
 	cancel := s.hub.Subscribe(queryInt64(c, "since"), func(frame sse.Frame) error {
@@ -33,11 +47,7 @@ func (s *Server) events(c *gin.Context) {
 		if err != nil {
 			return nil
 		}
-		if _, err := c.Writer.WriteString(text); err != nil {
-			return err
-		}
-		c.Writer.Flush()
-		return nil
+		return write(text)
 	})
 	defer cancel()
 
@@ -49,10 +59,9 @@ func (s *Server) events(c *gin.Context) {
 		case <-c.Request.Context().Done():
 			return
 		case <-ticker.C:
-			if _, err := c.Writer.WriteString(sse.PingLine); err != nil {
+			if err := write(sse.PingLine); err != nil {
 				return
 			}
-			c.Writer.Flush()
 		}
 	}
 }

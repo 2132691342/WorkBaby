@@ -62,11 +62,15 @@ func (c *Chat) Send(sessionFile, message string, attachments []domain.ChatAttach
 		return domain.ChatSendRESP{}, err
 	}
 	if sessionFile != "" && sessionFile != c.currentFile() {
-		if _, err := client.Request(chat.Record{"type": "switch_session", "sessionPath": sessionFile}, 0); err != nil {
+		guarded, err := c.guardSessionPath(sessionFile)
+		if err != nil {
+			return domain.ChatSendRESP{}, err
+		}
+		if _, err := client.Request(chat.Record{"type": "switch_session", "sessionPath": guarded}, 0); err != nil {
 			return domain.ChatSendRESP{}, err
 		}
 		c.mu.Lock()
-		c.file = sessionFile
+		c.file = guarded
 		c.mu.Unlock()
 	}
 	runId := c.Stream.Begin(message)
@@ -166,13 +170,21 @@ func (c *Chat) RemoveQueued(kind string, index int) (domain.QueuedMessagesVO, er
 	*target = append((*target)[:index], (*target)[index+1:]...)
 
 	// requeue 投一条回引擎；插队投不进去就降级为追加。
+	// 每一层的 error 都要显式返回：闭包里沿用外层的 err 变量会把它覆盖掉，
+	// 降级成功时又把外层 err 改成 nil，调用方就再也看不出重投失败——
+	// 用户以为删掉了一条，实际整队都没投回去。
 	requeue := func(text, wire string) error {
-		if _, err := client.Request(compose(text, nil).wire(wire), 0); err == nil {
+		_, err := client.Request(compose(text, nil).wire(wire), 0)
+		if err == nil {
 			return nil
-		} else if wire == "steer" {
-			_, err = client.Request(compose(text, nil).wire("follow_up"), 0)
 		}
-		return err
+		if wire != "steer" {
+			return err
+		}
+		if _, fallbackErr := client.Request(compose(text, nil).wire("follow_up"), 0); fallbackErr != nil {
+			return fallbackErr
+		}
+		return nil
 	}
 	for _, text := range steering {
 		if err := requeue(text, "steer"); err != nil {

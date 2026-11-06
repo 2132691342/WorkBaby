@@ -17,8 +17,30 @@ import (
 // TestBuiltinManifest 断言随包清单与磁盘资产互相咬合。
 // 少一边就会出死条目：清单里有而资产没有＝永远装不上；资产里有而清单没有＝永不落位。
 func TestBuiltinManifest(t *testing.T) {
-	if len(service.BuiltinPlugins) != 15 {
-		t.Errorf("内置插件应为规格的 15 个，实际 %d 个", len(service.BuiltinPlugins))
+	// 逐条钉住规格清单：只断数量的话，删一个多一个都看不出来。
+	// 规格的 14 个必在，另有 4 个与本壳互补的补充项（自省、上下文可视化、Chrome 复用、Web UI）。
+	spec := map[string]string{
+		"pi-web-access":                      "0.46.0",
+		"pi-hermes-memory":                   "0.10.0",
+		"@ff-labs/pi-fff":                    "0.11.0",
+		"@narumitw/pi-lsp":                   "0.49.12",
+		"pi-plan-mode":                       "0.4.8",
+		"pi-subagents":                       "0.84.0",
+		"pi-smart-compact":                   "10.7.3",
+		"pi-openui":                          "0.2.0",
+		"@juicesharp/rpiv-todo":              "2.15.0",
+		"@juicesharp/rpiv-ask-user-question": "2.15.0",
+		"@plannotator/pi-extension":          "0.28.48",
+		"pi-footer":                          "0.5.1",
+		"pi-extension-doctor":                "0.1.0",
+		"pi-browser-harness":                 "0.14.0",
+		"pi-inspect":                         "0.6.0",
+		"pi-context-view":                    "0.8.2",
+		"pi-chrome":                          "0.15.57",
+		"pi-web":                             "0.15.5",
+	}
+	if len(service.BuiltinPlugins) != len(spec) {
+		t.Errorf("内置插件应为规格的 %d 个，实际 %d 个", len(spec), len(service.BuiltinPlugins))
 	}
 	seen := map[string]struct{}{}
 	for _, item := range service.BuiltinPlugins {
@@ -29,6 +51,12 @@ func TestBuiltinManifest(t *testing.T) {
 			t.Fatalf("内置插件清单里有重复包名：%s", item.PluginName)
 		}
 		seen[item.PluginName] = struct{}{}
+		want, ok := spec[item.PluginName]
+		if !ok {
+			t.Errorf("内置插件不在规格清单里：%s", item.PluginName)
+		} else if item.PluginVersion != want {
+			t.Errorf("%s 的钉住版本应是 %s，实际 %s", item.PluginName, want, item.PluginVersion)
+		}
 		if item.PluginVersion == "" {
 			t.Errorf("%s 缺钉住的版本号：空串会让安装退化成跟随 latest", item.PluginName)
 		}
@@ -38,6 +66,11 @@ func TestBuiltinManifest(t *testing.T) {
 		}
 		if got := service.PackageNameOf(source); got != item.PluginName {
 			t.Errorf("%s 反解包名错了：得到 %q", source, got)
+		}
+	}
+	for name := range spec {
+		if _, ok := seen[name]; !ok {
+			t.Errorf("规格清单里的插件不在内置清单中：%s", name)
 		}
 	}
 
@@ -367,4 +400,93 @@ func catalogHarness(t *testing.T, assetsDir string) (*service.App, pkg.Layout, *
 
 	app := service.New(service.Options{Layout: layout, Store: store, Hub: sse.New(16), Version: "test"})
 	return app, layout, store
+}
+
+// TestPluginToggleKeepsFilters 断言开关只改 autoload，不动用户在声明上配的资源过滤。
+// pi 的 packages 对象形态可以带 extensions / skills / prompts / themes 过滤数组；
+// 开关时把它抹平成裸串，等于把用户手配的过滤悄悄删了。
+func TestPluginToggleKeepsFilters(t *testing.T) {
+	app, layout, _ := catalogHarness(t, "")
+	app.Plugins.DeclareBuiltins()
+
+	const pluginName = "pi-web-access"
+	// 手写一条带过滤配置的声明，模拟用户通过 pi config 配过。
+	// 写成「已停用」因为它本来就得有 autoload 键才谈得上改这个键；
+	// 启用方向单独用一条未停用的条目验。
+	writeSettings := func(t *testing.T) {
+		t.Helper()
+		settings := map[string]any{
+			"packages": []any{
+				map[string]any{
+					"source":     "npm:" + pluginName + "@0.0.1",
+					"autoload":   false,
+					"extensions": []any{"only-this-extension"},
+				},
+			},
+		}
+		if err := pkg.WriteJSON(layout.SettingsFile(), settings); err != nil {
+			t.Fatalf("写测试配置失败：%v", err)
+		}
+	}
+
+	// 方向一：停用 → 启用。启用后不得留下 autoload，但过滤必须还在。
+	writeSettings(t)
+	if _, err := app.Plugins.Toggle(pluginName, true); err != nil {
+		t.Fatalf("启用失败：%v", err)
+	}
+	assertFiltersKept(t, readPackages(t, layout), pluginName, false)
+
+	// 方向二：启用 → 停用。停用后过滤同样必须还在。
+	writeSettings(t)
+	if _, err := app.Plugins.Toggle(pluginName, false); err != nil {
+		t.Fatalf("停用失败：%v", err)
+	}
+	assertFiltersKept(t, readPackages(t, layout), pluginName, true)
+}
+
+// assertFiltersKept 断言该插件的声明仍是对象形态且带着 extensions。
+// wantAutoload 为 true 表示期望看到 autoload:false（停用态）。
+func assertFiltersKept(t *testing.T, entries []any, pluginName string, wantAutoload bool) {
+	t.Helper()
+	for _, entry := range entries {
+		if service.PackageNameOf(entrySource(entry)) != pluginName {
+			continue
+		}
+		obj, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("声明被抹成了裸串，资源过滤丢了：%v", entry)
+		}
+		extensions, kept := obj["extensions"]
+		if !kept || extensions == nil {
+			t.Fatalf("资源过滤 extensions 被抹掉了：%v", obj)
+		}
+		_, hasAutoload := obj["autoload"]
+		if hasAutoload != wantAutoload {
+			t.Errorf("autoload 键的存在性不对：期望 %v，实际 %v（%v）", wantAutoload, hasAutoload, obj)
+		}
+		return
+	}
+	t.Fatalf("清单里找不到 %s 的声明", pluginName)
+}
+
+// TestPluginInstallKeepsDisabledState 断言重试安装不会把用户停用的插件静默重新打开。
+func TestPluginInstallKeepsDisabledState(t *testing.T) {
+	app, layout, _ := catalogHarness(t, "")
+	app.Plugins.DeclareBuiltins()
+
+	const pluginName = "pi-web-access"
+	pinned := service.BuiltinPluginOf(pluginName)
+	if pinned == nil {
+		t.Fatalf("清单里应有 %s", pluginName)
+	}
+	writePkg(t, layout, pluginName, pinned.PluginVersion)
+
+	if _, err := app.Plugins.Toggle(pluginName, false); err != nil {
+		t.Fatalf("停用失败：%v", err)
+	}
+	// 重试安装：用户只是想让包就位，不是想打开它。
+	if _, err := app.Plugins.Retry(pluginName); err != nil {
+		t.Fatalf("重试安装失败：%v", err)
+	}
+	assertEntry(t, readPackages(t, layout), pluginName, false)
 }

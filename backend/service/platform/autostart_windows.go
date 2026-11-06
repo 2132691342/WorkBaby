@@ -2,9 +2,7 @@ package platform
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
-	"syscall"
 
 	"WorkBaby/backend/pkg"
 )
@@ -49,11 +47,15 @@ func regQuery() (string, error) {
 }
 
 // runReg 跑一条 reg 命令。
+// 与 regQuery 走同一条 RunProc：注册表被锁或被杀软拦截时，
+// 裸 CombinedOutput 会一直挂着，而「超时必杀」是子进程纪律里最要紧的一条。
 func runReg(args []string) error {
-	cmd := exec.Command("reg", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	res, err := pkg.RunProc("reg", args, pkg.ProcOptions{TimeoutMs: 10_000})
+	if err != nil {
+		return err
+	}
+	if res.Code != 0 {
+		return fmt.Errorf("reg 退出码 %d: %s", res.Code, strings.TrimSpace(res.Stderr))
 	}
 	return nil
 }

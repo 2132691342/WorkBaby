@@ -4,9 +4,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"WorkBaby/backend/pkg"
 )
+
+// piSettingsMu 串行化 settings.json 的读-改-写。
+// 这个文件有三方在写：包声明（Plugins）、npmCommand（装配）、以及引擎自己。
+// 任何一次「读出全表 → 改一个键 → 写回」都要落到同一把锁上，
+// 否则后写的那次会拿回改前的旧表，前一次的改动凭空消失——
+// 最坏的后果是 npmCommand 被抹掉，pi 于是去 PATH 上找系统 npm，沙箱就漏了。
+var piSettingsMu sync.Mutex
 
 // piSettings 是 settings.json 的读取形状。壳不另建注册表——
 // 这个文件是插件唯一真相；按 map 读是为了保留用户手配的未知键。
@@ -79,11 +87,45 @@ func parseEntry(item any) packageEntry {
 }
 
 // entryToJSON 把声明编码回 settings.json 的形状。
+// 启用时不能简单写回裸串：对象形态里还可能带着用户配的资源过滤
+// （extensions / skills / prompts / themes），抹平就等于把那份配置悄悄删了。
+// 只去掉 autoload 这一个键，其余原样保留。
 func entryToJSON(source string, enabled bool) any {
 	if enabled {
 		return source
 	}
 	return map[string]any{"source": source, "autoload": false}
+}
+
+// entryToggle 在既有声明上只改启用态，其余键原样保留。
+// 与 entryToJSON 的区别：那个是从零造一条声明，这个是在用户已有的条目上动刀。
+func entryToggle(entry any, enabled bool) any {
+	obj, ok := entry.(map[string]any)
+	if !ok {
+		// 裸串 = 启用且没有附加配置；要停用就得升级成对象形态。
+		if enabled {
+			return entry
+		}
+		source, _ := entry.(string)
+		return map[string]any{"source": source, "autoload": false}
+	}
+	out := make(map[string]any, len(obj))
+	for key, value := range obj {
+		out[key] = value
+	}
+	if enabled {
+		// 启用就是「回到裸串的语义」：删掉 autoload，保留其余过滤配置。
+		delete(out, "autoload")
+	} else {
+		out["autoload"] = false
+	}
+	// 只剩 source 一个键时退回裸串，与 pi 自己的规范形状保持一致。
+	if len(out) == 1 {
+		if source, ok := out["source"].(string); ok {
+			return source
+		}
+	}
+	return out
 }
 
 // PackageNameOf 从一个来源串里取 npm 包名。
@@ -138,6 +180,8 @@ func EnsureNpmCommand(layout pkg.Layout, npmCommand []string) {
 		// 内置 node 还没解压：写半成品路径会让引擎启动时找不到 npm。
 		return
 	}
+	piSettingsMu.Lock()
+	defer piSettingsMu.Unlock()
 	settings := readPiSettings(layout)
 	if sameStrings(asStringSlice(settings["npmCommand"]), npmCommand) {
 		return
@@ -244,4 +288,78 @@ func removeAllQuiet(path string) error {
 		return pkg.WrapErr(pkg.CodeProvision, "目录删除失败", err)
 	}
 	return nil
+}
+
+// declare 声明一个包：已存在则原位替换（保住顺序），否则追加。
+// 已存在的条目只更新来源，启用态与用户配的资源过滤原样保留：
+// 装一次/重试一次就把用户手动停用的插件重新打开，是最难排查的那种「它又自己开了」。
+func (p *Plugins) declare(pluginName, source string, enabled bool) {
+	piSettingsMu.Lock()
+	defer piSettingsMu.Unlock()
+	layout := p.Runtime.Layout
+	settings := readPiSettings(layout)
+	entries := packagesOf(settings)
+	replaced := false
+	for i, entry := range entries {
+		parsed := parseEntry(entry)
+		if PackageNameOf(parsed.Source) != pluginName {
+			continue
+		}
+		// 来源变了才重建；没变就整条不动。
+		if parsed.Source == source {
+			replaced = true
+			break
+		}
+		entries[i] = entryWithSource(entry, source)
+		replaced = true
+		break
+	}
+	if !replaced {
+		entries = append(entries, entryToJSON(source, enabled))
+	}
+	p.writeEntries(settings, entries)
+}
+
+// entryWithSource 只替换声明的来源串，其余键（autoload 与资源过滤）原样保留。
+func entryWithSource(entry any, source string) any {
+	obj, ok := entry.(map[string]any)
+	if !ok {
+		return source
+	}
+	out := make(map[string]any, len(obj))
+	for key, value := range obj {
+		out[key] = value
+	}
+	out["source"] = source
+	return out
+}
+
+// undeclare 撤掉一个包的声明。
+func (p *Plugins) undeclare(pluginName string) {
+	piSettingsMu.Lock()
+	defer piSettingsMu.Unlock()
+	layout := p.Runtime.Layout
+	settings := readPiSettings(layout)
+	entries := packagesOf(settings)
+	kept := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		if PackageNameOf(parseEntry(entry).Source) == pluginName {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	p.writeEntries(settings, kept)
+}
+
+// writeEntries 把 packages 写回 settings；空数组时删键而不是留 `[]`。
+// 留 `[]` 与「没声明过」在引擎眼里等价，但界面上看不出差别，容易被读成「配了但全停用」。
+func (p *Plugins) writeEntries(settings map[string]any, entries []any) {
+	if len(entries) == 0 {
+		delete(settings, "packages")
+	} else {
+		settings["packages"] = entries
+	}
+	if err := writePiSettings(p.Runtime.Layout, settings); err != nil {
+		pkg.Warn("packages 写入失败：%v", err)
+	}
 }

@@ -67,9 +67,19 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       void deps.refreshEngines()
       return
     case 'engine:ready':
-    case 'engine:exit':
     case 'engine:detected':
       void deps.refreshEngines()
+      return
+    case 'engine:exit':
+      // 引擎进程没了，正在跑的那一轮也结束了。不复位 streaming 的话，
+      // 活动条会一直停在「运行中」，而下面再没有东西会来收尾——
+      // 用户看到的是界面卡死，连发消息都被自己拦住。
+      void deps.refreshEngines()
+      if (chat.streaming) {
+        chat.streaming = false
+        chat.runError = '引擎进程已退出，这一轮已中断'
+        deps.toast('error', chat.runError)
+      }
       return
     case 'engine:commands': {
       const list = readCommands(data.commands)

@@ -32,7 +32,7 @@ main.go（装配根）──► shell ──► api ──► service ──► 
 | `codes.go` | 业务码常量，与 `docs/ERROR-CODES.md` 一一对应 |
 | `resp.go` | HTTP 信封 `{code, message, detail, data}`；`OK` / `Fail` |
 | `paths.go` | `Layout` 沙箱目录布局 + `*Ready()` 不抛探测 |
-| `env.go` | `SandboxEnv`：PATH 前置内置运行时、HOME/npm 锁进沙箱、重定向 pi 的家 |
+| `env.go` | `SandboxEnv`：PATH 前置内置运行时（含 Python `Scripts`）、HOME/npm 锁进沙箱、重定向 pi 的家 |
 | `proc.go` | `RunProc`：argv 直传、隐藏窗口、超时杀进程树、按 LF 切帧 |
 | `procflags.go` | `CREATE_NO_WINDOW` 常量 |
 | `fsutil.go` | 原子写、目录确保、毫秒时间、存在性探测 |
@@ -97,15 +97,15 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `chat/rpc_client.go` | pi 子进程 RPC：启动、发命令、收事件、超时；关停等真退出再返回 |
 | `chat/frames.go` | domain 词汇 → SSE 帧 |
 | `parser/{entries,history,summary,diff,stat,todos,time}.go` | 会话 JSONL → 条目树 / 活动分支 / 统计 / 待办派生 |
-| `plugins.go` / `plugin_install.go` / `plugin_updates.go` / `plugin_catalog.go` / `plugin_settings.go` | 插件装 / 卸 / 开 / 关 / 升 / 重试；进度上报与失败台账；registry 最新版检查；`packages[]` 读写与来源串规范化 |
-| `skills.go` / `skill_catalog.go` | 技能落位、开关（搬目录）、导入、编辑、新建、删除、重置 |
-| `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手） |
+| `plugins.go` / `plugin_install.go` / `plugin_updates.go` / `plugin_catalog.go` / `plugin_settings.go` | 插件装 / 卸 / 开 / 关 / 升 / 重试；进度上报与失败台账；registry 最新版检查；`packages[]` 读写与来源串规范化。升级走「备份旧目录 → 装新的 → 失败回滚」；`piSettingsMu` 串行化所有 settings.json 的读-改-写（含 `npmCommand`） |
+| `skills.go` / `skill_catalog.go` / `skill_fs.go` | 技能落位、开关（搬目录）、导入、编辑、新建、删除、重置。落盘一律经 `copyTreeAtomic`（临时目录 + 换名）；Reset / Delete 以**技能目录**为对象而不是 SKILL.md 文件；`Provision` 自愈「两个区同时有同一个技能」的破损态 |
+| `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手）。删除只动界面显示的那一条（项目级遮蔽用户级时不连带删除）；探测先看 HTTP 状态码再解析，失败文案带上服务端 stderr |
 | `models.go` / `model_probe.go` | `models.json` / `auth.json` 读写，上游探测 |
 | `settings.go` | 设置、工作区清单（含仓库与会话概况）、偏好 |
 | `system.go` / `values.go` / `autostart.go` | 系统动作、常量、开机自启 |
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、改名保护、导出 HTML |
 | `git.go` / `git_history.go` / `git_sync.go` / `git_stash.go` / `git_write.go` | git 读与写；stash 四件套；凭证失败归类并给下一步；目录级仓库探测 |
-| `engine/runtime.go` / `engine/provision.go` / `engine/npm.go` | 运行时探测、解压、npm 执行 |
+| `engine/runtime.go` / `engine/provision.go` / `engine/npm.go` / `engine/python.go` | 运行时探测、解压、npm 执行；Python 解压后补齐 `Scripts\pip.exe` 入口垫片（随包 Python 只带 pip 模块，技能脚本写的是裸 `pip install`） |
 | `platform/` | Windows 专属：开机自启（注册表）、系统打开 |
 
 ## shell/ — Wails 面

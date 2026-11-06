@@ -16,13 +16,17 @@ func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
 		return c.emptyState(pkg.As(err).Message)
 	}
 	if sessionFile != "" && sessionFile != c.currentFile() {
-		if _, err := client.Request(chat.Record{"type": "switch_session", "sessionPath": sessionFile}, 0); err != nil {
+		guarded, err := c.guardSessionPath(sessionFile)
+		if err != nil {
+			return c.emptyState(pkg.As(err).Message)
+		}
+		if _, err := client.Request(chat.Record{"type": "switch_session", "sessionPath": guarded}, 0); err != nil {
 			return c.emptyState("切换会话失败：" + pkg.As(err).Message)
 		}
 		c.mu.Lock()
-		c.file = sessionFile
+		c.file = guarded
 		c.mu.Unlock()
-		c.Settings.RememberSession(sessionFile)
+		c.Settings.RememberSession(guarded)
 	}
 	state, err := client.Request(chat.Record{"type": "get_state"}, 0)
 	if err != nil {

@@ -74,6 +74,9 @@ async function toggle(row: SkillRow, enabled: boolean) {
   toggling.value = row.skill_dir_name
   try {
     await api.toggleSkill(row.skill_path, enabled)
+    // 开关是搬目录：搬完这一行的 skill_path 就指向旧位置了。
+    // 不重拉清单的话，下一次「查看 / 重置」会打在已经不存在的路径上。
+    await load()
   } catch (err) {
     row.skill_enabled = before
     toasts.push('error', err instanceof Error ? err.message : String(err))

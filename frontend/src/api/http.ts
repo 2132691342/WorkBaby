@@ -257,6 +257,8 @@ export const api = {
     mcp_desc?: string
     work_dir?: string
     env_list?: string[]
+    /** 连接超时（秒）；0 表示不配置 */
+    mcp_timeout?: number
     mcp_scope?: 'user' | 'project'
   }) => post<McpListData>('/mcp/save', body),
   // 连接测试：stdio 拉真进程、http 发真请求，完成一次 MCP initialize 握手

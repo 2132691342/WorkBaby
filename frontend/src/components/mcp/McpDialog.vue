@@ -15,6 +15,8 @@ export interface McpForm {
   desc: string
   work_dir: string
   env_text: string
+  /** 连接超时（秒）；空串表示沿用默认 */
+  timeout: string
   scope: 'user' | 'project'
 }
 
@@ -102,6 +104,15 @@ const scopeLocked = computed(() => Boolean(props.editing))
 
       <el-form-item :label="t('mcp.desc')">
         <el-input v-model="props.form.desc" :placeholder="t('mcp.descPlaceholder')" />
+      </el-form-item>
+
+      <el-form-item :label="t('mcp.timeout')">
+        <el-input
+          v-model="props.form.timeout"
+          type="number"
+          min="1"
+          :placeholder="t('mcp.timeoutPlaceholder')"
+        />
       </el-form-item>
     </el-form>
 

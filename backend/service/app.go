@@ -125,7 +125,12 @@ func (a *App) SetWorkspace(dir string) error {
 }
 
 // Shutdown 退出收尾：停引擎子进程。
-func (a *App) Shutdown() { a.Chat.Shutdown() }
+// 先请它自己退，等不到就整棵杀：只请不退的话，pi 与它的 bash 子孙会留在后台，
+// 占着包目录的锁，下次启动就撞上「目录被占用」。
+func (a *App) Shutdown() {
+	a.Chat.Shutdown()
+	a.Chat.KillEngine()
+}
 
 // OpenDataDir 打开数据目录。
 func (a *App) OpenDataDir() error { return OpenDataDir(a.Layout) }

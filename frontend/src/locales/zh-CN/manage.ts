@@ -28,6 +28,8 @@ mcp: {
     envPlaceholder: '一行一个，形如 KEY=VALUE',
     desc: '说明',
     descPlaceholder: '一句话说清这个服务器能干什么',
+    timeout: '连接超时（秒）',
+    timeoutPlaceholder: '留空则用默认；连接慢的服务器可以填大一点',
     definition: '定义',
     state: '状态',
     configured: '已配置',

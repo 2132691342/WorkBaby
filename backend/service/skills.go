@@ -52,14 +52,22 @@ func (s *Skills) Provision() int {
 	for _, item := range BuiltinSkills {
 		active := filepath.Join(s.Layout.SkillsDir(), item.SkillDirName)
 		hidden := filepath.Join(s.Layout.SkillsOffDir(), item.SkillDirName)
-		if pkg.Exists(active) || pkg.Exists(hidden) {
+		hasActive := pkg.Exists(active)
+		hasHidden := pkg.Exists(hidden)
+		// 两处都在 = 上次搬移中途被杀留下的破损态。清单里没有的技能才走这条，
+		// 用户自建的同名技能在两边都有时不该被当成破损态搬走。
+		if hasActive && hasHidden {
+			s.healDuplicate(item.SkillDirName, active, hidden)
+			continue
+		}
+		if hasActive || hasHidden {
 			continue
 		}
 		target := active
 		if !item.SkillDefaultOn {
 			target = hidden
 		}
-		if err := copyTree(filepath.Join(s.builtinSource(), item.SkillDirName), target); err != nil {
+		if err := copyTreeAtomic(filepath.Join(s.builtinSource(), item.SkillDirName), target); err != nil {
 			pkg.Warn("技能包落位失败 %s：%v", item.SkillDirName, err)
 			continue
 		}
@@ -72,6 +80,24 @@ func (s *Skills) Provision() int {
 	return copied
 }
 
+// healDuplicate 自愈「启用区与禁用区同时有同一个技能」的破损态。
+// 破损态下清单里会出现两行同名技能，一行开一行关，用户看着像出了幻觉。
+// 判据用内容：两边完全一致才当成搬移中断留下的重复份，清掉禁用区那份。
+// 内容不一致说明是两个不同的东西（典型是用户导入的技能与内置同名），
+// 这时一个都不能动——删错了就是用户数据没了。
+func (s *Skills) healDuplicate(dirName, active, hidden string) {
+	activeRaw, activeErr := os.ReadFile(filepath.Join(active, "SKILL.md"))
+	hiddenRaw, hiddenErr := os.ReadFile(filepath.Join(hidden, "SKILL.md"))
+	if activeErr != nil || hiddenErr != nil || string(activeRaw) != string(hiddenRaw) {
+		return
+	}
+	if err := removeAllQuiet(hidden); err != nil {
+		pkg.Warn("技能 %s 破损态自愈失败：%v", dirName, err)
+		return
+	}
+	pkg.Info("技能 %s 破损态自愈：清掉禁用区重复份", dirName)
+}
+
 // List 技能总表：启用区 + 禁用区 + 工作区项目技能。
 // 禁用区的行 SkillEnabled=false，界面能看见、开关能打开——否则停用等于消失。
 func (s *Skills) List() domain.SkillListRESP {
@@ -79,6 +105,9 @@ func (s *Skills) List() domain.SkillListRESP {
 	rows = append(rows, s.scanDir(s.Layout.SkillsDir(), true)...)
 	rows = append(rows, s.scanDir(s.Layout.SkillsOffDir(), false)...)
 	rows = append(rows, s.scanDir(s.projectDir(), true)...)
+	// 同一个目录名在启用区与禁用区都有一份时，只显示启用区那份：
+	// 它才是引擎真正看得到的。显示两行会让用户看到同一个技能一开一关。
+	rows = dedupeByDirName(rows)
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].SkillGroup != rows[j].SkillGroup {
 			return rows[i].SkillGroup < rows[j].SkillGroup
@@ -102,6 +131,24 @@ func (s *Skills) List() domain.SkillListRESP {
 		BuiltinTotal:     len(BuiltinSkills),
 		BuiltinInstalled: installed,
 	}
+}
+
+// dedupeByDirName 同名技能只留启用区那份；启用区没有才留禁用区那份。
+func dedupeByDirName(rows []domain.SkillRowVO) []domain.SkillRowVO {
+	active := map[string]bool{}
+	for _, row := range rows {
+		if row.SkillEnabled {
+			active[row.SkillDirName] = true
+		}
+	}
+	out := make([]domain.SkillRowVO, 0, len(rows))
+	for _, row := range rows {
+		if !row.SkillEnabled && active[row.SkillDirName] {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 // scanDir 扫一个目录成技能行；active 表示这个目录里的技能算启用态。
@@ -211,7 +258,9 @@ func (s *Skills) Save(skillPath, text string) (domain.SkillContentRESP, error) {
 	if err != nil {
 		return domain.SkillContentRESP{}, err
 	}
-	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+	// 原子写：直接 WriteFile 在写到一半被打断会留下截断的 SKILL.md，
+	// 而技能正文是引擎认它的唯一依据，坏了这个技能就废了。
+	if err := pkg.WriteFileAtomic(file, []byte(text)); err != nil {
 		return domain.SkillContentRESP{}, pkg.WrapErr(pkg.CodeSkillSave, "技能保存失败", err)
 	}
 	return domain.SkillContentRESP{FileText: text}, nil
@@ -224,15 +273,34 @@ func (s *Skills) Toggle(skillPath string, enabled bool) error {
 	if err != nil {
 		return err
 	}
-	skillDir := filepath.Base(filepath.Dir(dir))
+	skillDirPath := filepath.Dir(dir)
+	skillDir := filepath.Base(skillDirPath)
+	// 项目技能归那个仓库管：壳里的开关对它无效，也不该搬动同名内置技能。
+	// 之前只取目录名，开掉一个项目技能会把全局同名内置技能搬进禁用区。
+	if pkg.Inside(s.projectDir(), skillDirPath) && !pkg.Inside(s.Layout.SkillsDir(), skillDirPath) &&
+		!pkg.Inside(s.Layout.SkillsOffDir(), skillDirPath) {
+		return pkg.Err(pkg.CodeSkillSave, "项目技能由所在仓库管理，不能在此开关")
+	}
 	active := filepath.Join(s.Layout.SkillsDir(), skillDir)
 	hidden := filepath.Join(s.Layout.SkillsOffDir(), skillDir)
 	switch {
 	case enabled && pkg.Exists(hidden):
+		// 目标已在（破损态里两处都有）：Windows 上 Rename 拒绝覆盖非空目录，
+		// 直接搬会一直失败。先把启用区那份合并掉，再搬。
+		if pkg.Exists(active) {
+			if err := removeAllQuiet(active); err != nil {
+				return pkg.WrapErr(pkg.CodeSkillSave, "技能开关失败", err)
+			}
+		}
 		if err := os.Rename(hidden, active); err != nil {
 			return pkg.WrapErr(pkg.CodeSkillSave, "技能开关失败", err)
 		}
 	case !enabled && pkg.Exists(active):
+		if pkg.Exists(hidden) {
+			if err := removeAllQuiet(hidden); err != nil {
+				return pkg.WrapErr(pkg.CodeSkillSave, "技能开关失败", err)
+			}
+		}
 		if err := os.Rename(active, hidden); err != nil {
 			return pkg.WrapErr(pkg.CodeSkillSave, "技能开关失败", err)
 		}
@@ -253,17 +321,34 @@ func (s *Skills) Reset(skillPath string) error {
 	if err != nil {
 		return err
 	}
-	skillDir := filepath.Base(filepath.Dir(dir))
+	// 传入的是 SKILL.md 文件路径，重置的对象是它所在的技能目录。
+	skillDirPath := filepath.Dir(dir)
+	skillDir := filepath.Base(skillDirPath)
 	original := filepath.Join(s.builtinSource(), skillDir)
 	if !pkg.Exists(original) {
 		return pkg.Err(pkg.CodeSkillBad, "不是内置技能，无法重置："+skillDir)
 	}
 	// 重置要保住原来在哪个区：启用态的不能被顺手挪回禁用区。
-	wasEnabled := pkg.Inside(s.Layout.SkillsDir(), dir)
-	if err := removeAllQuiet(dir); err != nil {
+	wasEnabled := pkg.Inside(s.Layout.SkillsDir(), skillDirPath)
+	// 先复制到旁边的临时目录再换名：直接原地覆盖的话，中途失败就只剩半个技能，
+	// 而它再也回不到可用状态。
+	staging := skillDirPath + ".resetting"
+	if err := removeAllQuiet(staging); err != nil {
 		return pkg.WrapErr(pkg.CodeSkillSave, "技能重置失败", err)
 	}
-	if err := copyTree(original, dir); err != nil {
+	if err := copyTree(original, staging); err != nil {
+		_ = removeAllQuiet(staging)
+		return pkg.WrapErr(pkg.CodeSkillSave, "技能重置失败", err)
+	}
+	if err := removeAllQuiet(skillDirPath); err != nil {
+		_ = removeAllQuiet(staging)
+		return pkg.WrapErr(pkg.CodeSkillSave, "技能重置失败", err)
+	}
+	if err := os.Rename(staging, skillDirPath); err != nil {
+		// 换名失败就把原件搬回去：宁可保持旧内容，也不能让技能处于半残状态。
+		if moveErr := os.Rename(staging, skillDirPath); moveErr != nil {
+			pkg.Warn("技能重置后换名失败，原件暂存于 %s", staging)
+		}
 		return pkg.WrapErr(pkg.CodeSkillSave, "技能重置失败", err)
 	}
 	if err := s.Store.SetSkillEnabled(skillDir, wasEnabled); err != nil {
@@ -291,7 +376,7 @@ func (s *Skills) Import(fromPath string) (domain.SkillImportRESP, error) {
 	if pkg.Exists(target) || pkg.Exists(filepath.Join(s.Layout.SkillsOffDir(), name)) {
 		return domain.SkillImportRESP{}, pkg.Err(pkg.CodeSkillBad, "同名技能已存在："+name)
 	}
-	if err := copyTree(from, target); err != nil {
+	if err := copyTreeAtomic(from, target); err != nil {
 		return domain.SkillImportRESP{}, pkg.WrapErr(pkg.CodeSkillSave, "技能导入失败", err)
 	}
 	pkg.Info("技能导入：%s -> %s", from, name)
@@ -315,7 +400,7 @@ func (s *Skills) Create(name, description, body string) (string, error) {
 	file := filepath.Join(dir, "SKILL.md")
 	content := "---\nname: " + safe + "\ndescription: " + defaultIfEmpty(strings.TrimSpace(description), safe) +
 		"\n---\n\n" + strings.TrimSpace(body) + "\n"
-	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+	if err := pkg.WriteFileAtomic(file, []byte(content)); err != nil {
 		return "", pkg.WrapErr(pkg.CodeSkillSave, "技能创建失败", err)
 	}
 	s.Hub.Broadcast("skill:status", sse.EngineTag(map[string]any{"skill_dir_name": safe}))
@@ -328,14 +413,21 @@ func (s *Skills) Delete(skillPath string) error {
 	if err != nil {
 		return err
 	}
-	if pkg.Inside(s.projectDir(), dir) && filepath.Clean(dir) != filepath.Clean(s.Layout.SkillsDir()) {
-		// 项目技能属于那个仓库，删它等于改别人的代码目录。
-		if !pkg.Inside(s.Layout.SkillsDir(), dir) && !pkg.Inside(s.Layout.SkillsOffDir(), dir) {
-			return pkg.Err(pkg.CodeSkillDelete, "项目技能请在项目内自行删除")
-		}
+	// 传入的是 SKILL.md 文件路径，要删的是它所在的技能目录。
+	// 只删 SKILL.md 会把 scripts / references 留在沙箱里占盘，且内置技能再也回不来。
+	skillDirPath := filepath.Dir(dir)
+	skillDir := filepath.Base(skillDirPath)
+	// 传进来的不是 SKILL.md 时（目录路径），一律拒掉：
+	// 目录路径正好是 skills 根的话，删一次就是清空全部内置技能。
+	if filepath.Base(dir) != "SKILL.md" {
+		return pkg.Err(pkg.CodeSkillDelete, "只能删除技能文件，不能删除技能目录："+dir)
 	}
-	skillDir := filepath.Base(filepath.Dir(dir))
-	if err := removeAllQuiet(dir); err != nil {
+	if pkg.Inside(s.projectDir(), skillDirPath) && !pkg.Inside(s.Layout.SkillsDir(), skillDirPath) &&
+		!pkg.Inside(s.Layout.SkillsOffDir(), skillDirPath) {
+		// 项目技能属于那个仓库，删它等于改别人的代码目录。
+		return pkg.Err(pkg.CodeSkillDelete, "项目技能请在项目内自行删除")
+	}
+	if err := removeAllQuiet(skillDirPath); err != nil {
 		return pkg.WrapErr(pkg.CodeSkillDelete, "技能删除失败", err)
 	}
 	if err := s.Store.SetSkillEnabled(skillDir, true); err != nil {
@@ -372,35 +464,6 @@ func sanitizeSkillName(name string) string {
 		}
 	}, safe)
 	return strings.Trim(safe, "-")
-}
-
-// copyTree 递归复制目录；目标已存在时合并。
-func copyTree(from, to string) error {
-	if err := pkg.EnsureDir(to); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(from)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		src := filepath.Join(from, entry.Name())
-		dst := filepath.Join(to, entry.Name())
-		if entry.IsDir() {
-			if err := copyTree(src, dst); err != nil {
-				return err
-			}
-			continue
-		}
-		raw, err := os.ReadFile(src)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(dst, raw, 0o644); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // defaultIfEmpty 空值兜底。

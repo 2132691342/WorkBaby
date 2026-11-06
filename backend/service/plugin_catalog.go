@@ -15,7 +15,7 @@ type BuiltinPlugin struct {
 // BuiltinPlugins 是内置插件清单：顺序即首启安装顺序，联网访问排最前
 // （其余插件常依赖它）。这份清单是产品规格，不多不少——增删要同步
 // docs 与 README。默认停用的只限「与本壳 GUI 职责重叠」的几个，
-// 其余默认开启。
+// 其余默认开启。pi-web-access 之后的顺序不承载依赖，只是阅读顺序。
 var BuiltinPlugins = []BuiltinPlugin{
 	{
 		PluginName:      "pi-web-access",
@@ -105,6 +105,24 @@ var BuiltinPlugins = []BuiltinPlugin{
 		PluginName:      "pi-smart-compact",
 		PluginVersion:   "10.7.3",
 		PluginDesc:      "可恢复的上下文清理、校验式压缩、会话导航与项目记忆",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-openui",
+		PluginVersion:   "0.2.0",
+		PluginDesc:      "终端内交互式 dashboard、图表与地图",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-extension-doctor",
+		PluginVersion:   "0.1.0",
+		PluginDesc:      "只读诊断扩展冲突与过期 API",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-browser-harness",
+		PluginVersion:   "0.14.0",
+		PluginDesc:      "浏览器自动化",
 		PluginDefaultOn: true,
 	},
 }

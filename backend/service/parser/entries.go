@@ -3,7 +3,9 @@
 package parser
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"strings"
 
@@ -88,10 +90,16 @@ type Cost struct {
 	Total float64 `json:"total"`
 }
 
+// maxSessionBytes 是单份会话文件的读取上限（64MB）。
+// 会话是唯一真相，但工具输出会把文件堆到很大：整份读进内存再解析，
+// 遇到一个几百 MB 的会话就会把应用拖死。超限时读前半段——
+// 界面要的是最近的活动分支，早期的轮次本来也翻不到。
+const maxSessionBytes = 64 << 20
+
 // ReadEntries 读全部条目；首行的会话头不算树节点。
 // 坏行直接跳过：中途断电会留下残行，一个残行不该让整份历史读不出来。
 func ReadEntries(file string) ([]Entry, error) {
-	raw, err := os.ReadFile(file)
+	raw, err := readCapped(file, maxSessionBytes)
 	if err != nil {
 		return nil, pkg.WrapErr(pkg.CodeSessionIO, "会话文件读取失败", err)
 	}
@@ -112,6 +120,35 @@ func ReadEntries(file string) ([]Entry, error) {
 		out = append(out, entry)
 	}
 	return out, nil
+}
+
+// readCapped 最多读 limit 字节；超限时保留后半段。
+// 会话文件的尾巴才是最近一轮，读开头反而丢掉用户最想看的那段。
+func readCapped(file string, limit int64) ([]byte, error) {
+	info, err := os.Stat(file)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() <= limit {
+		return os.ReadFile(file)
+	}
+	handle, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer handle.Close()
+	if _, err := handle.Seek(info.Size()-limit, io.SeekStart); err != nil {
+		return nil, err
+	}
+	raw, err := io.ReadAll(io.LimitReader(handle, limit))
+	if err != nil {
+		return nil, err
+	}
+	// 从中间切进来时首行多半是半截 JSON：丢掉这一行，别把它当坏行以外的特殊情形。
+	if idx := bytes.IndexByte(raw, '\n'); idx >= 0 {
+		raw = raw[idx+1:]
+	}
+	return raw, nil
 }
 
 // Header 是会话文件的头。

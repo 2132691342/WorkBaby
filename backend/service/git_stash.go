@@ -16,7 +16,7 @@ func (g *Git) StashPush(req domain.GitStashREQ) (domain.GitStatusRESP, error) {
 	if msg := strings.TrimSpace(req.StashMessage); msg != "" {
 		args = append(args, "-m", msg)
 	}
-	if _, err := g.runOrFail(args...); err != nil {
+	if _, err := g.runWriteOrFail(args...); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -24,7 +24,7 @@ func (g *Git) StashPush(req domain.GitStashREQ) (domain.GitStatusRESP, error) {
 
 // StashPop 恢复最新一条并从栈里删掉；冲突是正常结果，交给界面走解决流程。
 func (g *Git) StashPop() (domain.GitStatusRESP, error) {
-	if _, err := g.runOrFail("stash", "pop"); err != nil {
+	if _, err := g.runWriteOrFail("stash", "pop"); err != nil {
 		status := g.Status()
 		if status.HasConflict {
 			return status, nil
@@ -63,7 +63,7 @@ func (g *Git) StashDrop(req domain.GitStashREQ) (domain.GitStatusRESP, error) {
 	if req.Confirm != ref {
 		return domain.GitStatusRESP{}, pkg.Err(pkg.CodeBadRequest, "丢弃 stash 需要确认引用名："+ref)
 	}
-	if _, err := g.runOrFail("stash", "drop", ref); err != nil {
+	if _, err := g.runWriteOrFail("stash", "drop", ref); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil

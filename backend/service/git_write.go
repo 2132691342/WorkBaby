@@ -15,7 +15,7 @@ func (g *Git) Stage(paths []string) (domain.GitStatusRESP, error) {
 	if len(paths) == 0 {
 		return g.Status(), nil
 	}
-	if _, err := g.runOrFail(append([]string{"add", "--"}, paths...)...); err != nil {
+	if _, err := g.runWriteOrFail(append([]string{"add", "--"}, paths...)...); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -26,7 +26,7 @@ func (g *Git) Unstage(paths []string) (domain.GitStatusRESP, error) {
 	if len(paths) == 0 {
 		return g.Status(), nil
 	}
-	if _, err := g.runOrFail(append([]string{"reset", "HEAD", "--"}, paths...)...); err != nil {
+	if _, err := g.runWriteOrFail(append([]string{"reset", "HEAD", "--"}, paths...)...); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -49,12 +49,12 @@ func (g *Git) Discard(paths []string) (domain.GitStatusRESP, error) {
 		tracked = append(tracked, path)
 	}
 	if len(tracked) > 0 {
-		if _, err := g.runOrFail(append([]string{"checkout", "--"}, tracked...)...); err != nil {
+		if _, err := g.runWriteOrFail(append([]string{"checkout", "--"}, tracked...)...); err != nil {
 			return domain.GitStatusRESP{}, err
 		}
 	}
 	if len(untracked) > 0 {
-		if _, err := g.runOrFail(append([]string{"clean", "-f", "--"}, untracked...)...); err != nil {
+		if _, err := g.runWriteOrFail(append([]string{"clean", "-f", "--"}, untracked...)...); err != nil {
 			return domain.GitStatusRESP{}, err
 		}
 	}
@@ -76,7 +76,7 @@ func (g *Git) Resolve(paths []string) (domain.GitStatusRESP, error) {
 	if len(paths) == 0 {
 		return g.Status(), nil
 	}
-	if _, err := g.runOrFail(append([]string{"add", "--"}, paths...)...); err != nil {
+	if _, err := g.runWriteOrFail(append([]string{"add", "--"}, paths...)...); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -92,7 +92,7 @@ func (g *Git) Commit(message string, amend bool) (domain.GitCommitRESP, error) {
 	if amend {
 		args = append(args, "--amend")
 	}
-	if _, err := g.runOrFail(args...); err != nil {
+	if _, err := g.runWriteOrFail(args...); err != nil {
 		return domain.GitCommitRESP{}, err
 	}
 	hash, _ := g.runOrFail("rev-parse", "HEAD")
@@ -105,7 +105,7 @@ func (g *Git) CreateBranch(name string) (domain.GitStatusRESP, error) {
 	if err := validateBranchName(branch); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
-	if _, err := g.runOrFail("checkout", "-b", branch); err != nil {
+	if _, err := g.runWriteOrFail("checkout", "-b", branch); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -117,7 +117,7 @@ func (g *Git) SwitchBranch(name string) (domain.GitStatusRESP, error) {
 	if branch == "" {
 		return domain.GitStatusRESP{}, pkg.Err(pkg.CodeBadRequest, "分支名不能为空")
 	}
-	if _, err := g.runOrFail("checkout", branch); err != nil {
+	if _, err := g.runWriteOrFail("checkout", branch); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -129,7 +129,7 @@ func (g *Git) DeleteBranch(name string) (domain.GitStatusRESP, error) {
 	if branch == "" {
 		return domain.GitStatusRESP{}, pkg.Err(pkg.CodeBadRequest, "分支名不能为空")
 	}
-	if _, err := g.runOrFail("branch", "-d", branch); err != nil {
+	if _, err := g.runWriteOrFail("branch", "-d", branch); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -143,9 +143,9 @@ func (g *Git) Merge(name string, rebase bool) (domain.GitStatusRESP, error) {
 	}
 	var err error
 	if rebase {
-		_, err = g.runOrFail("rebase", branch)
+		_, err = g.runWriteOrFail("rebase", branch)
 	} else {
-		_, err = g.runOrFail("merge", "--no-edit", branch)
+		_, err = g.runWriteOrFail("merge", "--no-edit", branch)
 	}
 	if err != nil {
 		// 冲突不算命令失败：状态里会显示冲突文件，界面继续走解决流程。
@@ -182,7 +182,7 @@ func (g *Git) State(action string) (domain.GitStatusRESP, error) {
 			return domain.GitStatusRESP{}, pkg.Err(pkg.CodeGitFailed, "当前没有需要收尾的状态")
 		}
 	}
-	if _, err := g.runOrFail(args...); err != nil {
+	if _, err := g.runWriteOrFail(args...); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -194,7 +194,7 @@ func (g *Git) Init(branch string) (domain.GitStatusRESP, error) {
 	if name := strings.TrimSpace(branch); name != "" {
 		args = append(args, "-b", name)
 	}
-	if _, err := g.runOrFail(args...); err != nil {
+	if _, err := g.runWriteOrFail(args...); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -207,7 +207,7 @@ func (g *Git) AddRemote(name, url string) (domain.GitStatusRESP, error) {
 	if remote == "" || target == "" {
 		return domain.GitStatusRESP{}, pkg.Err(pkg.CodeBadRequest, "远端名与地址都不能为空")
 	}
-	if _, err := g.runOrFail("remote", "add", remote, target); err != nil {
+	if _, err := g.runWriteOrFail("remote", "add", remote, target); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil

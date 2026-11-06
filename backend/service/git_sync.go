@@ -30,7 +30,7 @@ func (g *Git) Push(req domain.GitSyncREQ) (domain.GitStatusRESP, error) {
 	if branch != "" {
 		args = append(args, branch)
 	}
-	if _, err := g.runOrFail(args...); err != nil {
+	if _, err := g.runWriteOrFail(args...); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil
@@ -48,7 +48,7 @@ func (g *Git) Pull(req domain.GitSyncREQ) (domain.GitStatusRESP, error) {
 	if branch != "" {
 		args = append(args, branch)
 	}
-	if _, err := g.runOrFail(args...); err != nil {
+	if _, err := g.runWriteOrFail(args...); err != nil {
 		status := g.Status()
 		if status.HasConflict {
 			// 冲突是拉取的正常结果之一：交给界面走解决流程。
@@ -65,7 +65,7 @@ func (g *Git) Fetch(remote string) (domain.GitStatusRESP, error) {
 	if name := strings.TrimSpace(remote); name != "" {
 		args = append(args, name)
 	}
-	if _, err := g.runOrFail(args...); err != nil {
+	if _, err := g.runWriteOrFail(args...); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
 	return g.Status(), nil

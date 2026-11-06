@@ -1,6 +1,7 @@
 package service
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -163,14 +164,13 @@ func (f *Files) Read(path string) (domain.FileReadRESP, error) {
 		return domain.FileReadRESP{}, pkg.Err(pkg.CodeFileNotFound, "这是一个目录", target)
 	}
 	out := domain.FileReadRESP{FilePath: target, SizeBytes: info.Size()}
-	raw, err := os.ReadFile(target)
+	// 先按上限开读，而不是先整份读进来再截：工作区里挂个几 GB 的日志或数据库文件，
+	// os.ReadFile 会把它整个拽进内存，应用直接被打爆——预览本来也只看开头一段。
+	raw, err := readAtMost(target, fileReadLimit)
 	if err != nil {
 		return domain.FileReadRESP{}, pkg.WrapErr(pkg.CodeFileIO, "文件读取失败", err)
 	}
-	if len(raw) > fileReadLimit {
-		raw = raw[:fileReadLimit]
-		out.Truncated = true
-	}
+	out.Truncated = info.Size() > int64(len(raw))
 	// NUL 字节是「这是二进制」最可靠的判据，比猜扩展名准。
 	if isBinary(raw) {
 		out.IsBinary = true
@@ -179,6 +179,21 @@ func (f *Files) Read(path string) (domain.FileReadRESP, error) {
 	}
 	out.FileText = string(raw)
 	return out, nil
+}
+
+// readAtMost 最多读 limit 字节：超限只取开头，不把整份文件拖进内存。
+func readAtMost(path string, limit int) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	buf := make([]byte, limit)
+	n, err := io.ReadFull(file, buf)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return nil, err
+	}
+	return buf[:n], nil
 }
 
 // isBinary 用前若干字节判断是否二进制。

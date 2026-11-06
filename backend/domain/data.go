@@ -322,7 +322,7 @@ type McpSaveREQ struct {
 	WorkDir string `json:"work_dir"`
 	// EnvList 环境变量，逐行 KEY=VALUE；空表示清掉该字段
 	EnvList []string `json:"env_list"`
-	// McpTimeout 连接超时（毫秒）；0 表示清掉该字段
+	// McpTimeout 连接超时（秒，与 pi 的 mcp.json 同单位）；0 表示清掉该字段
 	McpTimeout int `json:"mcp_timeout"`
 	// McpScope user / project；project 落工作区 .pi\mcp.json，需要已选工作区
 	McpScope string `json:"mcp_scope"`

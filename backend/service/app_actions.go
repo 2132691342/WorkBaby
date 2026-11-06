@@ -245,10 +245,3 @@ func memoryUsedMb() int {
 	runtime.ReadMemStats(&stats)
 	return int(stats.Alloc / (1 << 20))
 }
-
-// killAllOnExit 退出时兜底杀引擎进程树。
-// 用 pkg.KillTree 而不是本地再拼一次 taskkill：窗口隐藏与 CREATE_NO_WINDOW
-// 只该有一份实现，散落两处迟早会有一处忘了加。
-func killAllOnExit(pid int) {
-	pkg.KillTree(pid)
-}

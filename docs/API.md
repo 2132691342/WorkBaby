@@ -102,7 +102,7 @@
 | `/plugins/upgrade-all` | POST | 只升版本与清单不符的内置插件；回 `{ installed, failed }` |
 | `/plugins/check-updates` | POST | 逐包问 npm registry 的 latest，回一份带 `plugin_latest` 的新清单；离线时字段留空 |
 | `/mcp` | GET | 用户级 + 项目级合并清单；行里带 `mcp_env_text` / `mcp_work_dir` / `mcp_timeout`（秒） |
-| `/mcp/save` / `toggle` / `remove` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv；`mcp_scope: project` 写工作区 `.pi\mcp.json`（需已选工作区），默认用户级；编辑整份继承旧条目，手配的 headers / oauth 不丢 |
+| `/mcp/save` / `toggle` / `remove` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv；`mcp_scope: project` 写工作区 `.pi\mcp.json`（需已选工作区），默认用户级；编辑整份继承旧条目（含 `mcp_timeout`，手配的 headers / oauth 不丢）；`remove` 只删界面显示的那一条，项目级遮蔽用户级时不连带删除 |
 | `/mcp/probe` | POST | `{ server_name }`；完成一次 MCP initialize 握手（stdio 拉真进程 / http 发真请求），回 `probe_ok` / `probe_message` / `probe_tools` |
 
 **插件身份是包名不是来源串**：`pi:<name>@<ver>` 里的版本会变，包名不会。

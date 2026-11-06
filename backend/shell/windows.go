@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"os"
 	"path/filepath"
 	"syscall"
 	"unsafe"
@@ -55,13 +54,4 @@ func fatalDialog(title, message, detail string) {
 	textPtr, _ := syscall.UTF16PtrFromString(text)
 	const mbIconError = 0x00000010
 	messageBox.Call(0, uintptr(unsafe.Pointer(textPtr)), uintptr(unsafe.Pointer(titlePtr)), mbIconError)
-}
-
-// ensure layout 的 dir 存在（装配早期把几个关键目录建出来）。
-func ensureLayoutDirs(dataDir string) {
-	for _, dir := range []string{dataDir} {
-		if dir != "" {
-			_ = os.MkdirAll(dir, 0o755)
-		}
-	}
 }

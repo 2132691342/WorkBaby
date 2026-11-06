@@ -34,6 +34,8 @@ const form = ref({
   desc: '',
   work_dir: '',
   env_text: '',
+  /** 连接超时（秒）；空串表示沿用默认。留成字符串才能区分「没填」与「填 0」 */
+  timeout: '',
   scope: 'user' as 'user' | 'project',
 })
 
@@ -65,6 +67,7 @@ function resetForm() {
     desc: '',
     work_dir: '',
     env_text: '',
+    timeout: '',
     scope: 'user',
   }
 }
@@ -86,6 +89,7 @@ function openEdit(row: McpServer) {
     desc: row.mcp_desc ?? '',
     work_dir: row.mcp_work_dir ?? '',
     env_text: row.mcp_env_text ?? '',
+    timeout: row.mcp_timeout ? String(row.mcp_timeout) : '',
     scope: row.scope_kind === 'project' ? 'project' : 'user',
   }
   dialog.value = true
@@ -108,6 +112,8 @@ async function save() {
       work_dir: form.value.mode === 'command' ? form.value.work_dir || undefined : undefined,
       // 空数组语义是「清掉环境变量」，不是「保持不动」
       env_list: envList,
+      // 超时是秒；空串 = 沿用默认，0 也表示不配置。不传这两个语义就没法区分。
+      mcp_timeout: form.value.timeout.trim() ? Number(form.value.timeout) : 0,
       mcp_scope: form.value.scope,
     })
     dialog.value = false

@@ -171,7 +171,13 @@ func (s *Sessions) History(file string) []domain.HistoryTurnVO {
 	if file == "" {
 		return nil
 	}
-	return parser.BuildHistory(file, s.hiddenSet(file))
+	// 与 Todos 走同一条守卫：两条路径对同一个文件用不同规矩，
+	// 等于给越界读取留了一个后门。
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	if err != nil {
+		return nil
+	}
+	return parser.BuildHistory(resolved, s.hiddenSet(resolved))
 }
 
 // Todos 当前待办：活动分支上最近一次 todo 工具调用派生（rpiv-todo 的回放语义）。
@@ -248,6 +254,20 @@ func (s *Sessions) Export(file string) (domain.ChatExportRESP, error) {
 }
 
 // Count 会话总数（健康面板用）。
+// 只数文件不解析：健康面板在每次引擎事件后都会刷新，
+// 走 List 的话会把每份会话全文读两遍，会话一多整个界面就跟着卡。
 func (s *Sessions) Count() int {
-	return len(s.List("", "").Sessions)
+	count := 0
+	for _, dir := range s.scanDirs(s.Layout.SessionsDir(), "") {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
+				count++
+			}
+		}
+	}
+	return count
 }

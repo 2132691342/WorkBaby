@@ -61,7 +61,7 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 只测「改这里会坏那里」的复杂流程与长链路。平凡断言（单 getter、纯函数往返、
 复述框架行为）不写——它们的维护成本高于收益，还会把 `go test` 拖成几分钟。
 
-四个文件、九个用例、约 0.6 秒：
+六个文件、十九个用例、约 1.7 秒：
 
 | 文件 | 用例 | 断言什么 |
 |---|---|---|
@@ -69,11 +69,21 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 | | `TestSSEStream` | 查询参数鉴权、连上先补 `stream:open`、广播帧真的到达订阅者、断开后服务端处理器退出 |
 | `tests/session_test.go` | `TestSessionReplay` | 分支遍历只走当前分支、残行不毁整份历史、环状 parentId 有界退出、工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题取自 `session_info` |
 | | `TestSessionWriteDiscipline` | 隐藏轮只记壳的台账不改文件、改名只在末尾追加、引擎正打开该会话时拒绝且不动文件 |
-| `tests/sandbox_test.go` | `TestBuiltinManifest` | 内置清单与磁盘资产互相咬合（15 个插件、22 个技能，两边都不能有死条目） |
+| `tests/sandbox_test.go` | `TestBuiltinManifest` | 内置清单与磁盘资产互相咬合（18 个插件逐条对版本、22 个技能，两边都不能有死条目） |
 | | `TestPluginSourceParse` | 来源串规范化：npm / scope 包 / git URL / 本地路径四类写法 |
 | | `TestSkillLifecycle` | 首启落位尊重默认值、不覆盖用户改动、开关是搬目录、台账落库 |
 | | `TestPluginLifecycle` | 停用写 `autoload:false`、启用写裸串、卸载撤声明并删目录 |
 | | `TestPluginVersionDrift` | 判据是「在且版本对」，批量升级只碰漂移项 |
+| | `TestPluginToggleKeepsFilters` | 开关只改 autoload，不抹掉用户配的 extensions 过滤 |
+| | `TestPluginInstallKeepsDisabledState` | 重试安装不会把用户停用的插件静默重新打开 |
+| `tests/repro_skill_test.go` | `TestSkillResetKeepsFile` | 重置后 SKILL.md 仍是可读文件（写错目标会把它变成目录，技能永久损坏） |
+| | `TestSkillDeleteRemovesDir` | 删除技能清掉整个目录，不留 scripts / references 残骸 |
+| | `TestSkillDeleteRejectsDirPath` | 传目录路径一律拒（目录路径可能就是 skills 根，接住等于清空全部技能） |
+| | `TestSkillDuplicateHeals` | 启用区与禁用区同时有同一个技能时自愈，清单里不出现重复行 |
+| `tests/frontmatter_test.go` | `TestBuiltinSkillFrontmatter` | 每个内置技能的 name / description 都解析得出来（YAML 块标量是重灾区） |
+| `tests/mcp_test.go` | `TestMcpConcurrentWrites` | 12 路并发写 mcp.json 一条不丢（读-改-写必须有锁） |
+| | `TestMcpRemoveKeepsShadowedUserEntry` | 删项目级条目时不连带删掉被它遮蔽的用户级条目 |
+| | `TestMcpSaveKeepsTimeout` | 保存时不会顺手把用户配的超时删掉 |
 | `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：解压三个运行时 → 内置 npm 装 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑 |
 
 约定：

@@ -8,13 +8,16 @@ import (
 // SandboxEnv 组装子进程环境：内置 node / git / python 在前、系统 PATH 在后。
 // PATH 前置让 agent 先命中内置副本；HOME / npm 前缀 / PI_CODING_AGENT_DIR 把家搬进沙箱。
 func (l Layout) SandboxEnv(extra map[string]string) []string {
-	prepend := make([]string, 0, 5)
+	prepend := make([]string, 0, 6)
 	for _, dir := range []string{
 		l.NodeDir,
 		l.GitDir + `\cmd`,
 		l.GitDir + `\bin`,
 		l.GitDir + `\usr\bin`,
 		l.PythonDir,
+		// Scripts 放 pip.exe 之类的入口垫片。技能脚本里普遍写的是裸 `pip install`，
+		// 不把这一层放进 PATH，脚本就会掉进系统 Python 去装包。
+		l.PythonDir + `\Scripts`,
 	} {
 		if IsDir(dir) {
 			prepend = append(prepend, dir)

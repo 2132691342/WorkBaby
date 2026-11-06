@@ -118,9 +118,6 @@ func (l Layout) NpmCli() string {
 // GitExe 内置 git.exe。
 func (l Layout) GitExe() string { return filepath.Join(l.GitDir, "cmd", "git.exe") }
 
-// BashExe 内置 bash.exe：agent 主力 shell。
-func (l Layout) BashExe() string { return filepath.Join(l.GitDir, "bin", "bash.exe") }
-
 // PythonExe 内置 python.exe。
 func (l Layout) PythonExe() string { return filepath.Join(l.PythonDir, "python.exe") }
 

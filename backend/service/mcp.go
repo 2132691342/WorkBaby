@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -17,6 +18,11 @@ type Mcp struct {
 	Settings *Settings
 	// Layout 沙箱布局
 	Layout pkg.Layout
+
+	// mu 串行化 mcp.json 的读-改-写。两个文件各写各的，但都经同一把锁：
+	// 「保存 A 服务」与「删掉 B 服务」并发时，后写的那份会拿回改前的旧表，
+	// 前一次改动凭空消失。
+	mu sync.Mutex
 }
 
 // NewMcp 造一个 MCP 门面。
@@ -153,6 +159,8 @@ func stringField(entry map[string]any, key string) string {
 // 有 ServerUrl 即 HTTP，否则拆 CommandText。编辑时先整份继承旧条目再覆盖表单
 // 管得到的字段：用户手配的 headers、oauth、type 不在表单里，从零重建会静默丢掉它们。
 func (m *Mcp) Save(req domain.McpSaveREQ) (domain.McpListRESP, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	name := strings.TrimSpace(req.ServerName)
 	if name == "" {
 		return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "服务名不能为空")
@@ -250,6 +258,8 @@ func parseEnvList(lines []string) map[string]any {
 
 // Toggle 开关：找到条目改 enabled；项目级同名条目优先。
 func (m *Mcp) Toggle(serverName string, enabled bool) (domain.McpListRESP, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, path := range []string{m.projectPath(), m.Layout.McpFile()} {
 		if path == "" || !pkg.Exists(path) {
 			continue
@@ -272,8 +282,11 @@ func (m *Mcp) Toggle(serverName string, enabled bool) (domain.McpListRESP, error
 	return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "未找到 MCP 服务："+serverName)
 }
 
-// Remove 删除：用户级与项目级都尝试移除。
+// Remove 删除：只删界面真正显示的那一条。项目级同名条目会遮蔽用户级，
+// 两处都删等于顺手把用户看不见的那份也毁掉——界面上只删一行，磁盘上却少两条。
 func (m *Mcp) Remove(serverName string) (domain.McpListRESP, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, path := range []string{m.projectPath(), m.Layout.McpFile()} {
 		if path == "" || !pkg.Exists(path) {
 			continue
@@ -289,6 +302,8 @@ func (m *Mcp) Remove(serverName string) (domain.McpListRESP, error) {
 		if err := writeMcpFile(path, value); err != nil {
 			return domain.McpListRESP{}, err
 		}
+		// 找到并删掉一条就收手：剩下的同名条目属于另一层，本就不该被这一行牵连。
+		break
 	}
 	return m.List(), nil
 }

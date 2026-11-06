@@ -28,6 +28,8 @@ export default {
     "envPlaceholder": "One KEY=VALUE per line",
     "desc": "Description",
     "descPlaceholder": "One line on what this server offers",
+    "timeout": "Timeout (seconds)",
+    "timeoutPlaceholder": "Leave empty for the default; raise it for slow servers",
     "definition": "Definition",
     "state": "State",
     "configured": "Configured",

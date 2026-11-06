@@ -33,6 +33,8 @@ const isResetting = computed(() => props.resetting === props.row.skill_dir_name)
 const removable = computed(() => props.row.skill_editable)
 /** 只有内置技能能从随包原件恢复。 */
 const resettable = computed(() => props.row.skill_source === 'builtin' && props.row.skill_modified)
+/** 项目技能由所在仓库管理，壳里的开关对它无效。 */
+const toggleable = computed(() => props.row.skill_source !== 'project')
 </script>
 
 <template>
@@ -53,7 +55,7 @@ const resettable = computed(() => props.row.skill_source === 'builtin' && props.
       <el-switch
         :model-value="row.skill_enabled"
         :loading="isToggling"
-        :disabled="busy && !isToggling"
+        :disabled="!toggleable || (busy && !isToggling)"
         :title="row.skill_enabled ? t('common.enabled') : t('common.disabled')"
         @change="(value: string | number | boolean) => emit('toggle', row, Boolean(value))"
       />

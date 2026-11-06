@@ -12,14 +12,17 @@ type Frontmatter struct {
 
 // ParseFrontmatter 读 `---` 包起来的头部。只认 name / description 两个键：
 // 头部其余键属于引擎的扩展点，壳不解释也不改动原文。
+// 块标量（`|` 与 `>`）要按 YAML 规则把后续缩进行接上：
+// 只切当前行的话，`description: |` 会解析出一个字符「|」，
+// 技能在清单里就没有描述，而描述正是引擎决定何时触发它的依据。
 func ParseFrontmatter(text string) Frontmatter {
 	out := Frontmatter{}
 	lines := splitLines(text)
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return out
 	}
-	for _, line := range lines[1:] {
-		trimmed := strings.TrimSpace(line)
+	for i := 1; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
 		if trimmed == "---" {
 			break
 		}
@@ -27,14 +30,64 @@ func ParseFrontmatter(text string) Frontmatter {
 		if !ok {
 			continue
 		}
+		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
-		value = strings.Trim(value, `"'`)
-		switch strings.TrimSpace(key) {
+		switch key {
 		case "name":
-			out.Name = value
+			out.Name = unquoteYAML(value)
 		case "description":
-			out.Description = value
+			if folded, ok := readBlockScalar(lines, i+1, value); ok {
+				out.Description = folded
+				continue
+			}
+			out.Description = unquoteYAML(value)
 		}
 	}
 	return out
+}
+
+// readBlockScalar 读块标量：从 start 行起收集缩进更深的行。
+// `|` 保留换行，`>` 把换行折成空格——两者都要把内容接成一段。
+func readBlockScalar(lines []string, start int, marker string) (string, bool) {
+	if marker != "|" && marker != ">" && marker != "|-" && marker != ">-" {
+		return "", false
+	}
+	folded := marker == ">" || marker == ">-"
+	var parts []string
+	for i := start; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		// 空行属于块内容；遇到新的顶层键或头部结束才算块结束。
+		if trimmed == "" {
+			parts = append(parts, "")
+			continue
+		}
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			break
+		}
+		if strings.HasPrefix(trimmed, "---") {
+			break
+		}
+		parts = append(parts, trimmed)
+	}
+	if len(parts) == 0 {
+		return "", true
+	}
+	if folded {
+		// 折行标量：空行折成空格，其余行用空格相连。
+		return strings.TrimSpace(strings.Join(parts, " ")), true
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n")), true
+}
+
+// unquoteYAML 去掉首尾引号；内容里还有引号时按原样保留。
+func unquoteYAML(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 {
+		first := value[0]
+		if (first == '"' || first == '\'') && value[len(value)-1] == first {
+			return value[1 : len(value)-1]
+		}
+	}
+	return value
 }

@@ -39,6 +39,13 @@ func (r *Runtime) extractRuntimes(force bool, onProgress func(phase, message str
 	var problems []string
 	for _, item := range items {
 		if pkg.Exists(item.Target) && !force {
+			// 已就绪的运行时也过一遍入口补齐：老版本装出来的 Python 没有 pip 垫片，
+			// 只在解压路径补的话，升级后的用户永远拿不到。
+			if item.Label == "Python" {
+				if err := r.ensurePipEntrypoints(); err != nil {
+					problems = append(problems, "内置 Python 入口补齐失败："+pkg.As(err).Message)
+				}
+			}
 			continue
 		}
 		zipPath := filepath.Join(assets, item.ZipName)
@@ -69,6 +76,15 @@ func (r *Runtime) extractRuntimes(force bool, onProgress func(phase, message str
 			pkg.Warn("运行时解压失败 %s：%v", item.Label, err)
 			onProgress("fail", "内置 "+item.Label+" 解压失败")
 			continue
+		}
+		// Python 解压完只有 pip 模块，没有 pip.exe：技能脚本写的是裸 `pip install`，
+		// 少了入口垫片，命令会掉进系统 Python 去装包。
+		if item.Label == "Python" {
+			if err := r.ensurePipEntrypoints(); err != nil {
+				problems = append(problems, "内置 Python 入口补齐失败："+pkg.As(err).Message)
+				onProgress("fail", "内置 Python 入口补齐失败")
+				continue
+			}
 		}
 		pkg.Info("运行时解压完成：%s", item.Label)
 		onProgress("done", "内置 "+item.Label+" 就绪")

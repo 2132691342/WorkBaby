@@ -1,6 +1,7 @@
 package service
 
 import (
+	"os"
 	"strings"
 	"sync"
 
@@ -34,6 +35,15 @@ func NewPlugins(rt *engine.Runtime, hub *sse.Hub, chat *Chat) *Plugins {
 // 只声明不装包：声明是引擎启动时读的，装包要下几十 MB，必须留在后台。
 // 首次声明时按清单默认值落 autoload；用户后续开关只改这一个字段。
 func (p *Plugins) DeclareBuiltins() {
+	piSettingsMu.Lock()
+	defer piSettingsMu.Unlock()
+	p.declareBuiltinsLocked()
+}
+
+// declareBuiltinsLocked 是 DeclareBuiltins 的无锁内核：调用方必须已持有 piSettingsMu。
+// 拆出内核是因为 Toggle 要在同一次读-改-写里既补内置声明、又改某个包的开关——
+// 那是同一个文件上的一次原子改动，分两次写中间会被别的线程插进来。
+func (p *Plugins) declareBuiltinsLocked() {
 	layout := p.Runtime.Layout
 	settings := readPiSettings(layout)
 	entries := packagesOf(settings)
@@ -154,6 +164,8 @@ func (p *Plugins) Retry(pluginName string) (domain.PluginInstallRESP, error) {
 }
 
 // Upgrade 升级：按清单 pin 重装一遍（先清目录，让 npm 真正重下该版本）。
+// 内置插件以清单钉的版本为准：清单是产品规格，升到 registry 最新版会绕开它。
+// 用户自装插件没有 pin，就升到 registry 最新版——那正是界面上展示的目标。
 func (p *Plugins) Upgrade(pluginName string) (domain.PluginInstallRESP, error) {
 	if err := p.lockBusy("plugin-upgrade"); err != nil {
 		return domain.PluginInstallRESP{}, err
@@ -163,15 +175,21 @@ func (p *Plugins) Upgrade(pluginName string) (domain.PluginInstallRESP, error) {
 	p.DeclareBuiltins()
 	settings := readPiSettings(layout)
 	spec := ""
-	if item := BuiltinPluginOf(pluginName); item != nil {
-		spec = NpmSourceOf(*item)
-	} else {
+	builtin := BuiltinPluginOf(pluginName)
+	switch {
+	case builtin != nil:
+		spec = NpmSourceOf(*builtin)
+	default:
 		for _, entry := range packagesOf(settings) {
 			parsed := parseEntry(entry)
 			if PackageNameOf(parsed.Source) == pluginName {
 				spec = parsed.Source
 				break
 			}
+		}
+		// 非内置插件没有 pin：有查过的最新版就升到它，否则沿用原来源。
+		if latest := p.updatedVersionOf(pluginName); latest != "" && strings.HasPrefix(spec, "npm:") {
+			spec = "npm:" + pluginName + "@" + latest
 		}
 	}
 	if spec == "" {
@@ -183,14 +201,43 @@ func (p *Plugins) Upgrade(pluginName string) (domain.PluginInstallRESP, error) {
 		return domain.PluginInstallRESP{}, err
 	}
 	defer p.resumeEngine()
-	if err := removeAllQuiet(installedPathOf(layout, pluginName)); err != nil {
-		return domain.PluginInstallRESP{}, err
-	}
-	if err := p.installOne(spec, pluginName, "plugin-upgrade"); err != nil {
+	if err := p.reinstallSpec(pluginName, spec, "plugin-upgrade"); err != nil {
 		return domain.PluginInstallRESP{}, err
 	}
 	p.Hub.Broadcast("plugin:status", sse.EngineTag(nil))
 	return domain.PluginInstallRESP{PluginName: pluginName, Installed: 1}, nil
+}
+
+// reinstallSpec 换版本重装一个包：先把旧目录改名备份，装成功再删，
+// 装失败就把旧的搬回去。直接删了再装的话，网络一断插件就彻底没了——
+// 而用户点的是「升级」，不是「卸载」。
+func (p *Plugins) reinstallSpec(pluginName, spec, action string) error {
+	layout := p.Runtime.Layout
+	target := installedPathOf(layout, pluginName)
+	backup := target + ".prev"
+	if err := removeAllQuiet(backup); err != nil {
+		return err
+	}
+	hadTarget := pkg.Exists(target)
+	if hadTarget {
+		if err := os.Rename(target, backup); err != nil {
+			return pkg.WrapErr(pkg.CodeProvision, "旧版本备份失败", err)
+		}
+	}
+	if err := p.installOne(spec, pluginName, action); err != nil {
+		if hadTarget {
+			// 装失败：把旧版本搬回去，至少还是能用的那个版本。
+			_ = removeAllQuiet(target)
+			if restoreErr := os.Rename(backup, target); restoreErr != nil {
+				pkg.Error("插件 %s 回滚失败，旧版本留在 %s：%v", pluginName, backup, restoreErr)
+			}
+		}
+		return err
+	}
+	if hadTarget {
+		_ = removeAllQuiet(backup)
+	}
+	return nil
 }
 
 // UpgradeAll 把版本不符的内置插件升到清单钉住的版本。
@@ -213,13 +260,8 @@ func (p *Plugins) UpgradeAll() (domain.PluginInstallRESP, error) {
 		if !pluginInstalled(layout, item.PluginName) || !needsVersionFix(layout, item) {
 			continue
 		}
-		// 先清目录：npm 见到同版本会直接跳过，不清就永远升不到清单的版本。
-		if err := removeAllQuiet(installedPathOf(layout, item.PluginName)); err != nil {
-			failed++
-			p.setFailure(item.PluginName, pkg.As(err).Message)
-			continue
-		}
-		if err := p.installOne(NpmSourceOf(item), item.PluginName, "plugin-upgrade"); err != nil {
+		// 走备份-替换：单个包升级失败时它是回滚的，不会留下「升到一半没了」。
+		if err := p.reinstallSpec(item.PluginName, NpmSourceOf(item), "plugin-upgrade"); err != nil {
 			failed++
 		} else {
 			installed++
@@ -285,8 +327,11 @@ func (p *Plugins) Uninstall(pluginName string) (domain.PluginInstallRESP, error)
 
 // Toggle 开关：只改 settings.json 的 packages 条目，磁盘不动，秒级生效。
 func (p *Plugins) Toggle(pluginName string, enabled bool) (domain.PluginInstallRESP, error) {
+	piSettingsMu.Lock()
+	defer piSettingsMu.Unlock()
 	// 首次开关前先补登内置清单：否则在还没装过插件的机器上会拒掉内置项。
-	p.DeclareBuiltins()
+	// 补登与改开关合成同一次读-改-写：分两步写，中间被别的线程插进来就丢一次改动。
+	p.declareBuiltinsLocked()
 	layout := p.Runtime.Layout
 	settings := readPiSettings(layout)
 	entries := packagesOf(settings)
@@ -297,7 +342,8 @@ func (p *Plugins) Toggle(pluginName string, enabled bool) (domain.PluginInstallR
 			continue
 		}
 		// 原位替换：保住原有顺序，插件加载次序才不会因为一次开关而变。
-		entries[i] = entryToJSON(parsed.Source, enabled)
+		// 用 entryToggle 而不是从零造：用户在这条声明上配的资源过滤不能被开关抹掉。
+		entries[i] = entryToggle(entry, enabled)
 		found = true
 		break
 	}
@@ -370,53 +416,6 @@ func (p *Plugins) Count() int {
 		}
 	}
 	return count
-}
-
-// declare 声明一个包：已存在则原位替换（保住顺序），否则追加。
-func (p *Plugins) declare(pluginName, source string, enabled bool) {
-	layout := p.Runtime.Layout
-	settings := readPiSettings(layout)
-	entries := packagesOf(settings)
-	replaced := false
-	for i, entry := range entries {
-		if PackageNameOf(parseEntry(entry).Source) == pluginName {
-			entries[i] = entryToJSON(source, enabled)
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		entries = append(entries, entryToJSON(source, enabled))
-	}
-	p.writeEntries(settings, entries)
-}
-
-// undeclare 撤掉一个包的声明。
-func (p *Plugins) undeclare(pluginName string) {
-	layout := p.Runtime.Layout
-	settings := readPiSettings(layout)
-	entries := packagesOf(settings)
-	kept := make([]any, 0, len(entries))
-	for _, entry := range entries {
-		if PackageNameOf(parseEntry(entry).Source) == pluginName {
-			continue
-		}
-		kept = append(kept, entry)
-	}
-	p.writeEntries(settings, kept)
-}
-
-// writeEntries 把 packages 写回 settings；空数组时删键而不是留 `[]`。
-// 留 `[]` 与「没声明过」在引擎眼里等价，但界面上看不出差别，容易被读成「配了但全停用」。
-func (p *Plugins) writeEntries(settings map[string]any, entries []any) {
-	if len(entries) == 0 {
-		delete(settings, "packages")
-	} else {
-		settings["packages"] = entries
-	}
-	if err := writePiSettings(p.Runtime.Layout, settings); err != nil {
-		pkg.Warn("packages 写入失败：%v", err)
-	}
 }
 
 // buildRow 组装插件清单的一行。
