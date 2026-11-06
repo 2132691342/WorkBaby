@@ -65,7 +65,7 @@ jobs:
         run: go test ./... -count=1
 
       - name: 打包 NSIS 安装器
-        run: wails3 package -config ./build/config.yml
+        run: wails3 package
 
       - name: 发布 Release
         env:

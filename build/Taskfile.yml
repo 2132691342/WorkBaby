@@ -77,16 +77,11 @@ tasks:
       # 前端的 import 必须跟着它走。
       - wails3 generate bindings -clean=true -ts -i
 
-  generate:icons:
-    # 只面向 Windows：只出 .ico，不碰 mac 资产。
-    summary: Generates the Windows `.ico` from `build/appicon.png`
-    run: once
-    sources:
-      - "build/appicon.png"
-    generates:
-      - "build/windows/icon.ico"
-    cmds:
-      - wails3 generate icons -input build/appicon.png -windowsfilename build/windows/icon.ico
+  # 图标不进流水线：build\windows\icon.ico 随仓分发，而 v3 的 generate icons
+  # 会连 darwin 资产一起产（Windows-only 用不上，还要求 build\darwin 已存在）。
+  # 换图标：改 build\appicon.png 后手动跑
+  #   wails3 generate icons -input build/appicon.png -windowsfilename build/windows/icon.ico
+  # 并把新 ico 提交进仓库。
 
   update:build-assets:
     summary: Updates the build assets
