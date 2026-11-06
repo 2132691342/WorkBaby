@@ -50,6 +50,11 @@ func (s *Server) sessionRename(c *gin.Context) {
 	ok(c)
 }
 
+// modelsList 可选模型平铺（对话页模型下拉）。
+func (s *Server) modelsList(c *gin.Context) {
+	pkg.OK(c, s.svc.Models.Options())
+}
+
 // providersGet 服务商清单（含掩码密钥）。
 func (s *Server) providersGet(c *gin.Context) {
 	pkg.OK(c, s.svc.Models.Providers())

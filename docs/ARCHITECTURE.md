@@ -49,7 +49,7 @@ Wails 绑定只暴露系统能力——拿端点、选目录、窗控、托盘�
 4. 建窗（Hidden）   先不显示，避免装配阶段闪白屏
 5. 建托盘           用户可能一启动就关窗，托盘必须先存在
 6. ServiceStartup   开 SQLite → 装配 service → 起 gin（拿到端口）
-7. Provision（后台） 解压运行时 → 落技能 → 声明插件 → 装 pi → 装插件
+7. Provision（后台） 解压运行时 → 写 npmCommand → 落技能 → 声明插件 → 装 pi → 装插件
 8. 前端调 Endpoint  拿到 {port, token} 后建 SSE、拉首屏
 9. 前端调 Ready()   由前端决定何时显形
 ```

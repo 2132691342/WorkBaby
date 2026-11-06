@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sort"
 	"strings"
 
 	"WorkBaby/backend/domain"
@@ -92,6 +93,35 @@ func (m *Models) Providers() domain.ProvidersRESP {
 			Models:       models,
 			ModelCount:   len(models),
 		})
+	}
+	return out
+}
+
+// Options 平铺全部自定义服务商的模型，供对话页模型下拉使用。
+// 按服务商名排序、服务商内保持声明顺序，两次刷新的清单顺序才不会跳。
+// 读不到配置就回空清单：下拉仍可用，只是只剩「当前模型」一项。
+func (m *Models) Options() domain.ModelListRESP {
+	config, _ := m.readModels()
+	names := make([]string, 0, len(config.Providers))
+	for name := range config.Providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := domain.ModelListRESP{Models: make([]domain.ModelOptionVO, 0)}
+	for _, name := range names {
+		for _, raw := range config.Providers[name].Models {
+			item := modelEntryFromWire(raw)
+			out.Models = append(out.Models, domain.ModelOptionVO{
+				ProviderName:      name,
+				ModelId:           item.ModelId,
+				ModelName:         item.ModelName,
+				ApiProtocol:       item.ApiProtocol,
+				ContextWindow:     item.ContextWindow,
+				MaxTokens:         item.MaxTokens,
+				SupportsReasoning: item.SupportsReasoning,
+				InputKinds:        item.InputKinds,
+			})
+		}
 	}
 	return out
 }

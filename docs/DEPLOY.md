@@ -43,7 +43,7 @@ task package    # NSIS 安装包，per-user 安装、可选安装目录
 - **per-user 安装**，不要求管理员权限（数据目录本来就在 `%LOCALAPPDATA%`）
 - 允许用户改安装目录
 - **必须把 `assets/` 一起装进去**：`build/windows/nsis/project.nsi` 是手维护文件，
-  上游模板只装 exe，不带 assets——少了运行时 zip，装完就是一堆不能跑的文件。
+  打包段里有 `File /r assets`；少装 assets 等于装了一堆不能跑的文件。
   该文件只能写 ASCII（NSIS 按 ANSI 代码页读脚本），详见 `build/windows/nsis/README.md`
 - 卸载不删数据目录——用户的会话与配置在 `%LOCALAPPDATA%\WorkBaby`
 

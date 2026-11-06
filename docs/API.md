@@ -74,7 +74,7 @@
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/models` | GET | 自定义服务商的模型平铺 |
+| `/models` | GET | 自定义服务商的模型平铺（按服务商名排序），对话页模型下拉的数据源 |
 | `/providers` | GET | 自定义 + 内置服务商合并视图（含凭据状态，密钥恒为掩码） |
 | `/providers/upsert` | POST | `{ name, provider }`；写 models.json + auth.json；`api_key` 空串=保留原值 |
 | `/providers/delete` | POST | 服务商与凭据一并清 |
@@ -128,32 +128,34 @@
 
 ## SSE 事件词汇（`/events`）
 
-帧格式 `{ seq, event, data }`；聊天帧带 `engine_kind: 'pi'` 与 `run_id`。
+帧格式 `{ seq, event, data, sent_at }`；聊天帧带 `engine_kind: 'pi'` 与 `run_id`。
 
 | event | 载荷要点 | 用途 |
 |---|---|---|
-| `stream:open` | — | 连接建立 |
+| `stream:open` | `seq`（hub 当前值，不占新号） | 连接建立；前端以它为对齐基准决定要不要带 `?since=` 补帧 |
 | `chat:start` | `started_at` | 一轮开始；前端进入流式态 |
 | `chat:live` | `phase('thinking'/'text'/'tool'), tool_name, output_tokens` | 活动指示 |
 | `chat:patch` | `mode('delta'/'block'), index, kind, delta?/block?` | 增量追加或整块替换 |
 | `chat:blocks` | `blocks` | 权威块表整体替换（message_end 后） |
 | `chat:turn` | `user_message, blocks` | 回合快照 |
 | `chat:turn_end` | `usage{input,output,cacheRead,cacheWrite,costUSD}` | 回合用量 |
-| `chat:queue` | `steering[], followUp[]` | 排队变化 |
-| `chat:ask` | 提问卡（id/method/title/options/timeout…） | 引擎对话框 |
-| `chat:notify` / `chat:notice` | `level, message` | 行内提示 / 全局通知 |
+| `chat:queue` | `steering[], follow_up[]` | 排队变化 |
+| `chat:ask` | 提问卡（`ask_id/ask_method/ask_title/ask_options/ask_timeout_ms`…） | 引擎对话框 |
+| `chat:notify` | `level, message` | 引擎通知（错误级弹全局提示，其余进行内提示） |
 | `chat:status` / `chat:widget` | `key, text` / `key, lines[]` | 状态条 / 引擎小组件 |
 | `chat:retry` / `chat:retry_end` | `attempt, max, delay_ms` | 自动重试进度 |
 | `chat:compaction` | `state('start'/'done')` | 压缩中 |
 | `chat:error` | `message` | 运行失败（含模型报错） |
 | `chat:done` / `chat:settled` | — | 回合收尾；前端随后对账 `chat/state` |
 | `chat:editor_text` | `text` | 引擎反向预填输入框 |
-| `chat:command_output` | `text` | 斜杠命令回显 |
-| `chat:gap` | — | 前端检测到丢帧，触发对账 |
 | `engine:status` / `ready` / `exit` / `detected` | — | 引擎状态变化 |
 | `engine:commands` | `commands[]` | 斜杠命令清单更新 |
 | `app:progress` | `kind, action, phase('start'/'line'/'done'/'fail'), plugin_name?, line?, message?` | 安装 / 解压 / 插件进度 |
+| `app:close_requested` | `close_action` | 首次按窗口关闭，前端弹一次「收进托盘还是退出」 |
 | `plugin:status` | `plugin_name?` | 插件安装态变化（无字段 = 整体刷新） |
 | `skill:status` | `skill_dir, enabled?/reset?/deleted?/copied?` | 技能落位与开关变化 |
 | `session:info` / `session:title` | — | 会话清单变化 / 标题变化 |
 | `workspace:changed` | `workspace` | 工作区切换 |
+
+丢帧不靠服务端事件：前端逐帧跟踪 `seq`，发现跳号（`seq > last + 1`）就对 `chat/state`
+拉一次快照对账。

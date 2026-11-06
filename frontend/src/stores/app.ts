@@ -260,7 +260,6 @@ export const useAppStore = defineStore('app', () => {
       bumpPlugins: () => refresh.bumpPlugins(),
       bumpSkills: () => refresh.bumpSkills(),
       bumpWorkspace: () => refresh.bumpWorkspace(),
-      reconcile,
       appProgress: appProgress.value,
       setAppProgress: (next) => {
         appProgress.value = next

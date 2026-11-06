@@ -33,8 +33,6 @@ export interface RouteDeps {
   bumpSkills: () => void
   /** 引擎改了工作区文件（一轮结束），工作区页该重看一眼 */
   bumpWorkspace: () => void
-  /** 断流后拉一次快照对账 */
-  reconcile: () => void | Promise<void>
   /** 安装进度（同一个时刻只有一条长任务，所以只留一份） */
   appProgress: AppProgressLog | null
   /** 写回安装进度 */
@@ -194,7 +192,7 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       return
     }
     case 'chat:status':
-      chat.setStatus(asString(data.key), asString(data.block_text))
+      chat.setStatus(asString(data.key), asString(data.text))
       return
     case 'chat:widget':
       chat.setWidget(asString(data.key), readStrings(data.lines))
@@ -238,21 +236,11 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       return
     }
     case 'chat:editor_text': {
-      const text = asString(data.block_text)
+      // 引擎反向预填输入框：值可能很长，只在非空时覆盖草稿。
+      const text = asString(data.text)
       if (text) chat.draftOverride = text
       return
     }
-    case 'chat:notice': {
-      const level = asString(data.level, 'info')
-      deps.toast(level === 'error' ? 'error' : level === 'warning' ? 'warn' : 'info', asString(data.message))
-      return
-    }
-    case 'chat:command_output':
-      chat.pushNotice('info', asString(data.block_text))
-      return
-    case 'chat:gap':
-      void deps.reconcile()
-      return
     case 'session:info':
     case 'session:title':
       void deps.refreshSessions()

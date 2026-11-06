@@ -120,8 +120,8 @@ async function restartEngines() {
   }
 }
 
-// save 只负责保存与报错；成功与否用返回值告知调用处。
-// 以前这里吞掉错误，调用处无条件弹「已保存」——失败也显示成功，是最差的一类提示。
+// save 只负责保存与报错；成功与否用返回值告知调用处——
+// 失败必须可见，静默成功会让用户以为改上了。
 async function save(kv: Record<string, string>): Promise<boolean> {
   saving.value = true
   try {

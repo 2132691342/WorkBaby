@@ -363,6 +363,32 @@ type ProviderModelEntryVO struct {
 	InputKinds []string `json:"input_kinds,omitempty"`
 }
 
+// ModelOptionVO 是对话页模型下拉里的一条可选模型（服务商下的模型平铺）。
+type ModelOptionVO struct {
+	// ProviderName 所属服务商
+	ProviderName string `json:"provider_name"`
+	// ModelId 模型 ID
+	ModelId string `json:"model_id"`
+	// ModelName 显示名
+	ModelName string `json:"model_name,omitempty"`
+	// ApiProtocol 协议
+	ApiProtocol string `json:"api_protocol,omitempty"`
+	// ContextWindow 上下文窗口
+	ContextWindow int `json:"context_window,omitempty"`
+	// MaxTokens 单次输出上限
+	MaxTokens int `json:"max_tokens,omitempty"`
+	// SupportsReasoning 是否支持思考
+	SupportsReasoning bool `json:"supports_reasoning,omitempty"`
+	// InputKinds 支持的输入种类
+	InputKinds []string `json:"input_kinds,omitempty"`
+}
+
+// ModelListRESP 是可选模型平铺清单。
+type ModelListRESP struct {
+	// Models 全部自定义服务商的模型
+	Models []ModelOptionVO `json:"models"`
+}
+
 // ProviderVO 是一个服务商在界面上的样子；ApiKey 恒为掩码。
 type ProviderVO struct {
 	// ProviderName 服务商名

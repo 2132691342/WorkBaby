@@ -170,7 +170,7 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/messages/unhide", s.messageUnhide)
 
 	// 模型与服务商
-	g.GET("/models", s.providersGet)
+	g.GET("/models", s.modelsList)
 	g.GET("/providers", s.providersGet)
 	g.POST("/providers/upsert", s.providerUpsert)
 	g.POST("/providers/delete", s.providerDelete)

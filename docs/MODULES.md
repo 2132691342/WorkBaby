@@ -21,9 +21,6 @@ main.go（装配根）──► shell ──► api ──► service ──► 
 
 `main.go` 直接开库与起服务是装配本职；`shell/*.go` 读设置服务的关窗偏好同理。
 
-规模：`pkg` 14 文件 / 850 行，`domain` 5 / 1350，`repo` 1 / 120，
-`api` 7 / 1450，`service` 47 / 7600，`sse` 2 / 160，`shell` 5 / 680。
-
 ## pkg/ — 叶子工具
 
 | 文件 | 职责 |
@@ -96,11 +93,13 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `chat_service.go` / `chat_state.go` / `chat_actions.go` | 引擎绑定与生命周期（含崩溃自动重启）、发送、停止、插话、回答、压缩 |
 | `chat/rpc_client.go` | pi 子进程 RPC：启动、发命令、收事件、超时；关停等真退出再返回 |
 | `chat/frames.go` | domain 词汇 → SSE 帧 |
+| `chat/json_helpers.go` | RPC 记录（`map[string]any`）的类型安全取值小工具 |
 | `parser/{entries,history,summary,diff,stat,todos,time}.go` | 会话 JSONL → 条目树 / 活动分支 / 统计 / 待办派生 |
 | `plugins.go` / `plugin_install.go` / `plugin_updates.go` / `plugin_catalog.go` / `plugin_settings.go` | 插件装 / 卸 / 开 / 关 / 升 / 重试；进度上报与失败台账；registry 最新版检查；`packages[]` 读写与来源串规范化。升级走「备份旧目录 → 装新的 → 失败回滚」；`piSettingsMu` 串行化所有 settings.json 的读-改-写（含 `npmCommand`） |
 | `skills.go` / `skill_catalog.go` / `skill_fs.go` | 技能落位、开关（搬目录）、导入、编辑、新建、删除、重置。落盘一律经 `copyTreeAtomic`（临时目录 + 换名）；Reset / Delete 以**技能目录**为对象而不是 SKILL.md 文件；`Provision` 自愈「两个区同时有同一个技能」的破损态 |
 | `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手）。删除只动界面显示的那一条（项目级遮蔽用户级时不连带删除）；探测先看 HTTP 状态码再解析，失败文案带上服务端 stderr |
-| `models.go` / `model_probe.go` | `models.json` / `auth.json` 读写，上游探测 |
+| `models.go` / `model_probe.go` | `models.json` / `auth.json` 读写，上游探测。`/providers` 回服务商视图（密钥掩码），`/models` 回全部模型平铺（对话页下拉，按服务商名排序） |
+| `jsonutil.go` | 工作区历史行的 JSON 编解码（坏值当空，不阻断） |
 | `settings.go` | 设置、工作区清单（含仓库与会话概况）、偏好 |
 | `system.go` / `values.go` / `autostart.go` | 系统动作、常量、开机自启 |
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、改名保护、导出 HTML |
