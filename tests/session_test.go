@@ -15,10 +15,14 @@ import (
 	"WorkBaby/backend/service/parser"
 )
 
-// writeSession 把若干条目写成一份 pi 会话 JSONL（首行是会话头）。
-func writeSession(t *testing.T, lines ...string) string {
+// writeSession 在会话根下写一份 pi 会话 JSONL（首行是会话头），返回文件路径。
+// 必须落在会话根内：路径越界本身会先被拦掉，那就测不到后续的写入纪律了。
+func writeSession(t *testing.T, root string, lines ...string) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := filepath.Join(root, "--C--ws--")
+	if err := pkg.EnsureDir(dir); err != nil {
+		t.Fatalf("建会话目录失败：%v", err)
+	}
 	file := filepath.Join(dir, "sess.jsonl")
 	header := `{"type":"session","version":3,"id":"sess","cwd":"C:\\ws","timestamp":"2026-01-01T00:00:00.000Z"}`
 	body := header + "\n" + strings.Join(lines, "\n") + "\n"
@@ -46,7 +50,7 @@ func turnsText(turns []domain.HistoryTurnVO) string {
 //  3. 组装：工具结果回填宿主轮、孤立结果单独成轮不丢、压缩成 engine-mark 轮、标题取自 session_info。
 func TestSessionReplay(t *testing.T) {
 	// ---- 分支 ----
-	branch := writeSession(t,
+	branch := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"原始问题"}}`,
 		`{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"原始回答"}]}}`,
 		`{"type":"message","id":"u2","parentId":"u1","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"user","content":"改过的问题"}}`,
@@ -61,7 +65,7 @@ func TestSessionReplay(t *testing.T) {
 	}
 
 	// ---- 健壮：残行 ----
-	corrupt := writeSession(t,
+	corrupt := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"还行"}}`,
 		`{"type":"message","id":"a1","parentId":"u1","timest`,
 		`{"type":"message","id":"a2","parentId":"u1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"后续答案"}]}}`,
@@ -71,7 +75,7 @@ func TestSessionReplay(t *testing.T) {
 	}
 
 	// ---- 健壮：环状 parentId ----
-	cyclic := writeSession(t,
+	cyclic := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"a","parentId":"b","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"环 A"}}`,
 		`{"type":"message","id":"b","parentId":"a","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":"环 B"}}`,
 	)
@@ -84,7 +88,7 @@ func TestSessionReplay(t *testing.T) {
 	}
 
 	// ---- 组装：工具结果回填 ----
-	normal := writeSession(t,
+	normal := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"看下文件"}}`,
 		`{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_1","name":"read_file","arguments":{}}]}}`,
 		`{"type":"message","id":"t1","parentId":"a1","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"toolResult","toolCallId":"call_1","toolName":"read_file","content":[{"type":"text","text":"文件内容在此"}]}}`,
@@ -108,7 +112,7 @@ func TestSessionReplay(t *testing.T) {
 	}
 
 	// ---- 组装：孤立结果 ----
-	orphan := writeSession(t,
+	orphan := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"t1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"toolResult","toolCallId":"orphan","toolName":"bash","content":[{"type":"text","text":"孤立结果"}]}}`,
 	)
 	oturns := parser.BuildHistory(orphan, nil)
@@ -120,7 +124,7 @@ func TestSessionReplay(t *testing.T) {
 	}
 
 	// ---- 组装：压缩标记 ----
-	compaction := writeSession(t,
+	compaction := writeSession(t, t.TempDir(),
 		`{"type":"compaction","id":"c1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","tokensBefore":12345,"summary":"之前的摘要"}`,
 	)
 	marks := parser.BuildHistory(compaction, nil)
@@ -132,7 +136,7 @@ func TestSessionReplay(t *testing.T) {
 	}
 
 	// ---- 组装：标题来源 ----
-	renamed := writeSession(t,
+	renamed := writeSession(t, t.TempDir(),
 		`{"type":"session_info","id":"s1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","name":"我自己起的名字"}`,
 		`{"type":"message","id":"u1","parentId":"s1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":"内容"}}`,
 	)
@@ -148,7 +152,7 @@ func TestSessionReplay(t *testing.T) {
 //     两路同时追加会写出交错行，而会话文件是唯一真相，写坏就整份回放不出来。
 func TestSessionWriteDiscipline(t *testing.T) {
 	h := newHarness(t)
-	file := writeSessionFile(t, h.layout.SessionsDir(),
+	file := writeSession(t, h.layout.SessionsDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"第一句"}}`,
 		`{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"第一答"}]}}`,
 		`{"type":"message","id":"u2","parentId":"a1","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"user","content":"第二句"}}`,
