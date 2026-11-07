@@ -2,7 +2,7 @@
 // 会话页：列表复用 SessionList（与对话页左栏同一份实现），这里只补范围切换与汇总读数。
 // 汇总读 app.sessions——它恒为「当前目录」的快照，所以标题行明确标出这是当前目录的合计，
 // 不随上面的列表范围变化，避免把两件事读成一件。
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -17,8 +17,12 @@ const toasts = useToasts()
 
 const scope = ref<'workspace' | 'all'>('workspace')
 const refreshing = ref(false)
-// 换范围或点刷新都靠重挂列表：SessionList 只在挂载时取数，没有对外的重新取数入口。
-const listKey = ref(0)
+// 列表的重新取数走它暴露的 load()：重挂会让整张列表闪一下还丢滚动位置。
+const listRef = ref<InstanceType<typeof SessionList> | null>(null)
+
+watch(scope, () => {
+  void listRef.value?.load()
+})
 
 const counts = computed(() => {
   let messages = 0
@@ -43,7 +47,7 @@ async function refresh() {
   refreshing.value = true
   try {
     await app.refreshSessions()
-    listKey.value += 1
+    await listRef.value?.load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
@@ -123,7 +127,7 @@ function onChanged() {
 
       <section class="list-panel">
         <SessionList
-          :key="`${scope}-${listKey}`"
+          ref="listRef"
           :workspace-only="scope === 'workspace'"
           @open="openSession"
           @changed="onChanged"

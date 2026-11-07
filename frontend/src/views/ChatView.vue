@@ -36,6 +36,11 @@ async function onNewChat(): Promise<void> {
 const scroller = ref<HTMLElement | null>(null)
 const composer = ref<{ focus: () => void } | null>(null)
 const pinned = ref(true)
+// 底部栈（待办 + 输入区 + 提示条）的实际高度写进 CSS 变量：
+// 悬浮元素（回到底部、过程提示）贴着它算偏移，textarea 撑高也不会叠进输入区。
+const mainEl = ref<HTMLElement | null>(null)
+const bottomStack = ref<HTMLElement | null>(null)
+let bottomRo: ResizeObserver | null = null
 
 /**
  * 全局快捷键：只放两个真的每天会用的。
@@ -157,6 +162,14 @@ function sessionFromQuery(): string {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
+  // 输入区 autosize、待办面板展开收起都会改底部高度：跟着量，悬浮元素不叠压。
+  bottomRo = new ResizeObserver(() => {
+    const stack = bottomStack.value
+    const main = mainEl.value
+    if (!stack || !main) return
+    main.style.setProperty('--wb-bottom-h', `${stack.offsetHeight}px`)
+  })
+  if (bottomStack.value) bottomRo.observe(bottomStack.value)
   try {
     const path = sessionFromQuery()
     await chat.refresh(path)
@@ -179,6 +192,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  bottomRo?.disconnect()
+  bottomRo = null
 })
 
 watch(
@@ -187,6 +202,15 @@ watch(
     const path = typeof value === 'string' ? value : ''
     if (!path || path === chat.sessionFile) return
     await openSession(path)
+  },
+)
+
+// 记住当前会话供下次启动恢复：后端 State 不再代写（只读接口不写盘），这里补上。
+// rememberSession 自己吞失败——记不住不影响本次使用。
+watch(
+  () => chat.sessionFile,
+  (file) => {
+    if (file) void app.rememberSession(file)
   },
 )
 
@@ -205,7 +229,7 @@ watch(
       />
     </aside>
 
-    <section class="chat-main">
+    <section ref="mainEl" class="chat-main">
       <ChatHeader />
 
       <div ref="scroller" class="chat-scroll" @scroll="onScroll">
@@ -233,9 +257,11 @@ watch(
         <AppIcon name="chevron" :size="13" />
       </button>
 
-      <TodoPanel :todos="chat.todos" />
-      <ChatComposer ref="composer" />
-      <ChatNotices />
+      <div ref="bottomStack" class="chat-bottom">
+        <TodoPanel :todos="chat.todos" />
+        <ChatComposer ref="composer" />
+        <ChatNotices />
+      </div>
     </section>
 
     <FilePeekDrawer />
@@ -339,10 +365,15 @@ watch(
   gap: var(--wb-sp-4);
 }
 
+/* 底部栈只负责把待办 / 输入区 / 提示条堆在一起并报出总高度（--wb-bottom-h） */
+.chat-bottom {
+  flex: none;
+}
+
 .jump-bottom {
   position: absolute;
   left: 50%;
-  bottom: 168px;
+  bottom: calc(var(--wb-bottom-h, 150px) + var(--wb-sp-3));
   transform: translateX(-50%) rotate(90deg);
   display: grid;
   place-items: center;

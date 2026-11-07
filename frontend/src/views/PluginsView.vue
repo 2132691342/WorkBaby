@@ -148,6 +148,7 @@ async function uninstall(row: PluginRow) {
   try {
     await api.uninstallPlugin(row.plugin_name)
     await load()
+    toasts.push('ok', t('plugins.uninstalled', { name: row.plugin_name }))
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {

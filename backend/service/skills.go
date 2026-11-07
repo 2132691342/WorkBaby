@@ -271,6 +271,11 @@ func (s *Skills) Toggle(skillPath string, enabled bool) error {
 	if err != nil {
 		return err
 	}
+	// 传入的必须是 SKILL.md 文件路径：开关的对象是它所在的技能目录，
+	// 深层任意文件算出的目录会把别的技能搬走。
+	if filepath.Base(dir) != "SKILL.md" {
+		return pkg.Err(pkg.CodeBadRequest, "技能路径必须指向 SKILL.md 文件")
+	}
 	skillDirPath := filepath.Dir(dir)
 	skillDir := filepath.Base(skillDirPath)
 	// 项目技能归那个仓库管：壳里的开关对它无效，也不该搬动同名内置技能。

@@ -38,6 +38,15 @@ const detecting = computed(() => Boolean(app.runtime?.provisioning))
 /** 还不可信时就话「—」：零值不等于「有 0 个」。 */
 const pendingMark = '—'
 
+/** 重新探测：失败要弹原话，静默失败会让用户以为点了个假按钮。 */
+async function redetect(): Promise<void> {
+  try {
+    await app.detectEngines()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  }
+}
+
 /** 一个读数怎么显示：没就绪的那一格不把 0 抛出去。 */
 function readout(formatted: string): string {
   if (!ready.value) return pendingMark
@@ -163,7 +172,7 @@ onMounted(() => void load())
       <div v-if="!ready" class="notice-row">
         <span class="dot busy" />
         <span>{{ t('overview.collecting') }}</span>
-        <button class="wb-btn text sm" :disabled="loading" @click="app.detectEngines()">
+        <button class="wb-btn text sm" :class="{ 'is-loading': app.reDetecting }" :disabled="loading || app.reDetecting" @click="redetect">
           {{ t('overview.redetect') }}
         </button>
       </div>

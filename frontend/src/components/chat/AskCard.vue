@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 提问卡片：只渲染引擎给的四个基元（confirm / select / input / editor）。
 // 不发明第五种控件——引擎认不出我们编出来的回答形态，重画一套漂亮控件反而是假支持。
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AskRequest, UIResponse } from '@/types/api'
 
@@ -13,6 +13,30 @@ const { t } = useI18n()
 const text = ref(props.ask.ask_prefill ?? '')
 const picked = ref<number[]>([])
 const submitting = ref(false)
+
+// 引擎给提问带超时（ask_timeout_ms）时显示剩余时间。后端不强制：
+// 归零后仍可提交，引擎收不收是它的事，所以只提示不锁按钮。
+const receivedAt = Date.now()
+const now = ref(Date.now())
+let timer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  if (!props.ask.ask_timeout_ms) return
+  timer = setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
+})
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+})
+const remainingMs = computed(() => (props.ask.ask_timeout_ms ? props.ask.ask_timeout_ms - (now.value - receivedAt) : 0))
+const timedOut = computed(() => Boolean(props.ask.ask_timeout_ms) && remainingMs.value <= 0)
+const remainingLabel = computed(() => {
+  if (!props.ask.ask_timeout_ms || remainingMs.value <= 0) return ''
+  const total = Math.ceil(remainingMs.value / 1000)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`
+})
 
 watch(
   () => props.ask.ask_id,
@@ -86,6 +110,10 @@ const methodLabel = computed(() => {
     <div class="ask-head">
       <span class="tag brand">{{ methodLabel }}</span>
       <span v-if="ask.ask_title" class="ask-title">{{ ask.ask_title }}</span>
+      <span class="ask-head-end">
+        <span v-if="timedOut" class="ask-timer expired">{{ t('chat.askExpired') }}</span>
+        <span v-else-if="remainingLabel" class="ask-timer">{{ remainingLabel }}</span>
+      </span>
     </div>
     <p v-if="ask.ask_message" class="ask-message selectable">{{ ask.ask_message }}</p>
 
@@ -160,9 +188,9 @@ const methodLabel = computed(() => {
   gap: var(--wb-sp-3);
   padding: var(--wb-sp-4);
   border: 1px solid var(--wb-line-strong);
-  border-radius: var(--wb-radius-lg);
-  background: var(--wb-surface-raised);
-  box-shadow: var(--wb-shadow-sm);
+  border-radius: var(--wb-r-lg);
+  background: var(--wb-raised);
+  box-shadow: var(--wb-shadow-1);
 }
 
 .ask-head {
@@ -177,10 +205,25 @@ const methodLabel = computed(() => {
   color: var(--wb-ink);
 }
 
+.ask-head-end {
+  margin-left: auto;
+  flex: none;
+}
+
+.ask-timer {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-mute);
+}
+
+.ask-timer.expired {
+  color: var(--wb-warn);
+}
+
 .ask-message {
   margin: 0;
   font-size: var(--wb-fs-sm);
-  color: var(--wb-ink-soft);
+  color: var(--wb-ink-2);
   line-height: var(--wb-lh-base);
 }
 
@@ -196,7 +239,7 @@ const methodLabel = computed(() => {
   gap: var(--wb-sp-3);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border: 1px solid var(--wb-line);
-  border-radius: var(--wb-radius-md);
+  border-radius: var(--wb-r-md);
   background: var(--wb-surface);
   color: var(--wb-ink);
   font-size: var(--wb-fs-sm);
@@ -209,7 +252,7 @@ const methodLabel = computed(() => {
 }
 
 .ask-option:hover {
-  background: var(--wb-surface-hover);
+  background: var(--wb-hover);
   border-color: var(--wb-brand-soft);
   transform: scale(1.01);
 }
@@ -220,7 +263,7 @@ const methodLabel = computed(() => {
 
 .ask-option.selected {
   border-color: var(--wb-brand);
-  background: var(--wb-brand-wash);
+  background: var(--wb-brand-tint);
 }
 
 .ask-num {
@@ -229,11 +272,11 @@ const methodLabel = computed(() => {
   justify-content: center;
   width: 20px;
   height: 20px;
-  border-radius: var(--wb-radius-sm);
-  background: var(--wb-surface-sunken);
+  border-radius: var(--wb-r-sm);
+  background: var(--wb-sunken);
   font-family: var(--wb-font-mono);
   font-size: var(--wb-fs-2xs);
-  color: var(--wb-ink-soft);
+  color: var(--wb-ink-2);
 }
 
 .ask-label {

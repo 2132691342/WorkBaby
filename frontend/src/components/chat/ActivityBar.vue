@@ -67,8 +67,11 @@ const toolName = computed(() =>
 /** 已经吐出的 token。0 不显示：刚开局那个 0 没有信息量。 */
 const outputTokens = computed(() => chat.live.output_tokens)
 
-/** 生成速度：引擎给就显示，不给不占位。 */
-const speed = computed(() => '')
+/** 生成速度：由相邻两帧读数差出来的 tokens/s，0 不显示。 */
+const speed = computed(() => {
+  const n = chat.live.tokens_per_s
+  return n > 0 ? `${fmtTokens(n)}${t('chat.tokensPerSec')}` : ''
+})
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`

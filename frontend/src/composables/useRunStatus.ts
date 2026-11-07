@@ -26,6 +26,8 @@ export interface ChatLive {
   tool_name: string
   tool_call_id: string
   output_tokens: number
+  /** 生成速度（tokens/s）：壳由相邻两帧读数差出来，引擎不报这个。 */
+  tokens_per_s: number
 }
 
 /** 一条过程提示。 */
@@ -59,7 +61,7 @@ export function useRunStatus() {
   // live 是引擎报的实时阶段：思考中 / 写正文 / 跑某个工具。
   // 它与 statusText 不是一回事：statusText 是扩展自己设的一句话，
   // live 是引擎自身的阶段，不依赖任何扩展。
-  const live = ref<ChatLive>({ run_id: '', phase: '', tool_name: '', tool_call_id: '', output_tokens: 0 })
+  const live = ref<ChatLive>({ run_id: '', phase: '', tool_name: '', tool_call_id: '', output_tokens: 0, tokens_per_s: 0 })
   // lastActivityAt 是「最后一次看到引擎动」的时刻（毫秒）。
   // 它与 startedAt 分开：秒表回答「这一轮跑了多久」，它回答「上一次有新东西是多久之前」。
   // 两者之差就是「安静了多久」，而那正是「卡住了没有」的唯一客观依据。
@@ -101,7 +103,7 @@ export function useRunStatus() {
     widgets.value = []
     notices.value = []
     retry.value = null
-    live.value = { run_id: '', phase: '', tool_name: '', tool_call_id: '', output_tokens: 0 }
+    live.value = { run_id: '', phase: '', tool_name: '', tool_call_id: '', output_tokens: 0, tokens_per_s: 0 }
     lastActivityAt.value = 0
   }
 

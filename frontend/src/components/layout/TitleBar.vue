@@ -84,7 +84,7 @@ const connection = computed(() => {
   height: 22px;
   border-radius: var(--wb-r-sm);
   background: var(--wb-brand);
-  color: #fff;
+  color: var(--wb-brand-ink);
   flex: none;
 }
 
@@ -163,6 +163,6 @@ const connection = computed(() => {
 
 .win-btn.close:hover {
   background: var(--wb-bad);
-  color: #fff;
+  color: var(--wb-brand-ink);
 }
 </style>

@@ -294,7 +294,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 清掉实时读数（新开局 / 收尾 / 换会话）。 */
   function resetLive() {
-    live.value = { run_id: '', phase: '', tool_name: '', tool_call_id: '', output_tokens: 0 }
+    live.value = { run_id: '', phase: '', tool_name: '', tool_call_id: '', output_tokens: 0, tokens_per_s: 0 }
   }
 
   /**

@@ -7,9 +7,11 @@ import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+import { useToasts } from '@/composables/useToasts'
 
 const app = useAppStore()
 const chat = useChatStore()
+const toasts = useToasts()
 const { t } = useI18n()
 
 /** 当前这一行：服务商 · 模型 · 速率。 */
@@ -18,6 +20,15 @@ const modelLine = computed(() => {
   const parts = [chat.model.provider_name, chat.model.model_id]
   return parts.join(' · ')
 })
+
+/** 压缩失败必须出声：store 里是 rethrow 语义，静默会让按钮看起来像坏了。 */
+async function compact(): Promise<void> {
+  try {
+    await chat.compact()
+  } catch (err) {
+    toasts.push('error', err instanceof Error && err.message ? err.message : t('chat.compactFailed'))
+  }
+}
 
 </script>
 
@@ -33,7 +44,7 @@ const modelLine = computed(() => {
         :class="{ 'is-loading': chat.compacting }"
         :title="t('chat.compact')"
         :disabled="chat.busy || !app.hasEngine"
-        @click="chat.compact()"
+        @click="compact"
       >
         <AppIcon name="refresh" :size="15" />
       </button>

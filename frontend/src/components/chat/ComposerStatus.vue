@@ -32,6 +32,14 @@ async function removeOne(kind: 'steering' | 'followup', index: number): Promise<
     chat.promptError = err instanceof Error ? err.message : String(err)
   }
 }
+
+async function redetect(): Promise<void> {
+  try {
+    await app.detectEngines()
+  } catch (err) {
+    chat.promptError = err instanceof Error ? err.message : String(err)
+  }
+}
 </script>
 
 <template>
@@ -42,7 +50,7 @@ async function removeOne(kind: 'steering' | 'followup', index: number): Promise<
       class="wb-btn text sm"
       :class="{ 'is-loading': app.reDetecting }"
       :disabled="app.reDetecting"
-      @click="app.detectEngines()"
+      @click="redetect"
     >
       {{ t('chat.redetect') }}
     </button>

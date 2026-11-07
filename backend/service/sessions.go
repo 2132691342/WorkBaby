@@ -105,7 +105,8 @@ func (s *Sessions) Detail(file string) (domain.SessionDetailRESP, error) {
 	}, nil
 }
 
-// Delete 删除会话文件。
+// Delete 删除会话文件，并清掉它的隐藏台账键：台账跟着会话生，会话没了
+// 留着只会让 workbaby.json 缓慢膨胀。
 func (s *Sessions) Delete(file string) error {
 	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
 	if err != nil {
@@ -113,6 +114,9 @@ func (s *Sessions) Delete(file string) error {
 	}
 	if err := os.Remove(resolved); err != nil {
 		return pkg.WrapErr(pkg.CodeSessionIO, "会话删除失败", err)
+	}
+	if err := s.Store.Delete(s.hideKey(resolved)); err != nil {
+		pkg.Warn("隐藏台账清理失败：%v", err)
 	}
 	return nil
 }

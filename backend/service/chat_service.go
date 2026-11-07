@@ -38,7 +38,6 @@ type Chat struct {
 	cmds    []domain.SlashCommandVO
 	autocmp bool
 	queued  domain.QueuedMessagesVO
-	bindErr string
 	// crashStreak 连续崩溃次数：自动重启的退避基数，成功绑定后归零。
 	crashStreak int
 }
@@ -116,18 +115,23 @@ func (c *Chat) EnsureRpc() (*chat.PiRpc, error) {
 
 	state, err := client.Request(chat.Record{"type": "get_state"}, 0)
 	if err != nil {
-		c.mu.Lock()
-		c.bindErr = pkg.As(err).Message
 		// 进程起来了就说明这次拉起是成功的：崩溃计数按「起不来」算，
 		// 不是按「握手没答上」。不归零的话，连续几次握手失败会永久停掉自动重启。
+		c.mu.Lock()
 		c.crashStreak = 0
+		// 先摘绑定再关停：OnExit 只清「仍是当前实例」的绑定，摘干净它就不会
+		// 把这次握手失败再记成一次意外崩溃去叠加自动重启。
+		c.rpc = nil
+		c.rpcWs = ""
 		c.mu.Unlock()
+		client.Stop()
 		pkg.Error("pi 绑定失败：%v", err)
-		return client, nil
+		return nil, pkg.Err(pkg.CodeRpcDown, "pi 引擎握手失败", pkg.As(err).Message)
 	}
 	c.applyState(state)
 	c.mu.Lock()
-	c.bindErr = ""
+	// 新进程不继承旧进程的排队镜像：队列真相在引擎里，镜像只配对当前实例。
+	c.queued = domain.QueuedMessagesVO{}
 	c.crashStreak = 0
 	c.mu.Unlock()
 	c.Hub.Broadcast("engine:ready", sse.EngineTag(nil))

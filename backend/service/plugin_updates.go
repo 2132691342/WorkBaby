@@ -1,7 +1,7 @@
 package service
 
 // 插件检查更新：直接问 npm registry 的 latest，不 spawn npm——
-// 12 个包逐个起 npm 进程要十几秒，一次 HTTPS 只要一秒多。
+// 全部内置包逐个起 npm 进程要十几秒，一次 HTTPS 只要一秒多。
 // 结果缓存在内存里，List 组行时并入；没查到的字段留空，界面不猜。
 
 import (

@@ -44,7 +44,8 @@ onBeforeUnmount(() => window.clearTimeout(timer))
 .notice-stack {
   position: absolute;
   left: 50%;
-  bottom: 178px;
+  /* 底部栈高度由 ChatView 实测写入 --wb-bottom-h：提示条贴着输入区上方走 */
+  bottom: calc(var(--wb-bottom-h, 150px) + var(--wb-sp-2));
   transform: translateX(-50%);
   z-index: var(--wb-z-pop);
   display: flex;

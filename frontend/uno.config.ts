@@ -43,6 +43,7 @@ export default defineConfig({
       DEFAULT: 'var(--wb-r)',
       lg: 'var(--wb-r-lg)',
       xl: 'var(--wb-r-xl)',
+      '2xl': 'var(--wb-r-2xl)',
     },
     fontSize: {
       '3xs': ['var(--wb-fs-3xs)', '1.35'],

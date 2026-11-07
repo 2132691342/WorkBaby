@@ -43,7 +43,7 @@ async function restart() {
   try {
     await app.refreshEngines()
     await chat.refresh(chat.sessionFile)
-    toasts.push('ok', t('common.saved'))
+    toasts.push('ok', t('chat.engineRestarted'))
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   }

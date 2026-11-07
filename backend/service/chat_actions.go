@@ -52,6 +52,26 @@ func (c composed) wire(kind string) chat.Record {
 	return rec
 }
 
+// alignSession 把引擎的当前会话对齐到调用方指定的文件；空串或已一致则不动。
+// 会话级动作（发送、压缩、切模型）都要先走这里：界面可能在引擎还绑着
+// 上一条会话时就对当前看到的会话发起操作，不对齐就会写错文件。
+func (c *Chat) alignSession(client *chat.PiRpc, sessionFile string) error {
+	if sessionFile == "" || sessionFile == c.currentFile() {
+		return nil
+	}
+	guarded, err := c.guardSessionPath(sessionFile)
+	if err != nil {
+		return err
+	}
+	if _, err := client.Request(chat.Record{"type": "switch_session", "sessionPath": guarded}, 0); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.file = guarded
+	c.mu.Unlock()
+	return nil
+}
+
 // Send 发消息：登记运行 → 发 prompt；被拒则回 error 帧。
 func (c *Chat) Send(sessionFile, message string, attachments []domain.ChatAttachmentVO) (domain.ChatSendRESP, error) {
 	if strings.TrimSpace(message) == "" && len(attachments) == 0 {
@@ -61,17 +81,8 @@ func (c *Chat) Send(sessionFile, message string, attachments []domain.ChatAttach
 	if err != nil {
 		return domain.ChatSendRESP{}, err
 	}
-	if sessionFile != "" && sessionFile != c.currentFile() {
-		guarded, err := c.guardSessionPath(sessionFile)
-		if err != nil {
-			return domain.ChatSendRESP{}, err
-		}
-		if _, err := client.Request(chat.Record{"type": "switch_session", "sessionPath": guarded}, 0); err != nil {
-			return domain.ChatSendRESP{}, err
-		}
-		c.mu.Lock()
-		c.file = guarded
-		c.mu.Unlock()
+	if err := c.alignSession(client, sessionFile); err != nil {
+		return domain.ChatSendRESP{}, err
 	}
 	runId := c.Stream.Begin(message)
 	if _, err := client.Request(compose(message, attachments).wire("prompt"), 0); err != nil {
@@ -203,9 +214,12 @@ func (c *Chat) RemoveQueued(kind string, index int) (domain.QueuedMessagesVO, er
 }
 
 // Compact 手动压缩上下文。
-func (c *Chat) Compact(instructions string) error {
+func (c *Chat) Compact(sessionFile, instructions string) error {
 	client, err := c.EnsureRpc()
 	if err != nil {
+		return err
+	}
+	if err := c.alignSession(client, sessionFile); err != nil {
 		return err
 	}
 	wire := chat.Record{"type": "compact"}
@@ -258,7 +272,7 @@ func (c *Chat) syncSessionFile(client *chat.PiRpc) (string, error) {
 }
 
 // SetModel 切模型。
-func (c *Chat) SetModel(providerName, modelId string) error {
+func (c *Chat) SetModel(sessionFile, providerName, modelId string) error {
 	if providerName == "" || modelId == "" {
 		return pkg.Err(pkg.CodeBadRequest, "服务商与模型都不能为空")
 	}
@@ -266,17 +280,23 @@ func (c *Chat) SetModel(providerName, modelId string) error {
 	if err != nil {
 		return err
 	}
+	if err := c.alignSession(client, sessionFile); err != nil {
+		return err
+	}
 	_, err = client.Request(chat.Record{"type": "set_model", "provider": providerName, "modelId": modelId}, 0)
 	return err
 }
 
 // SetThinking 切思考档。
-func (c *Chat) SetThinking(level string) error {
+func (c *Chat) SetThinking(sessionFile, level string) error {
 	if level == "" {
 		return pkg.Err(pkg.CodeBadRequest, "思考档不能为空")
 	}
 	client, err := c.EnsureRpc()
 	if err != nil {
+		return err
+	}
+	if err := c.alignSession(client, sessionFile); err != nil {
 		return err
 	}
 	if _, err := client.Request(chat.Record{"type": "set_thinking_level", "level": level}, 0); err != nil {
@@ -289,9 +309,12 @@ func (c *Chat) SetThinking(level string) error {
 }
 
 // SetAutoCompaction 自动压缩开关。
-func (c *Chat) SetAutoCompaction(enabled bool) error {
+func (c *Chat) SetAutoCompaction(sessionFile string, enabled bool) error {
 	client, err := c.EnsureRpc()
 	if err != nil {
+		return err
+	}
+	if err := c.alignSession(client, sessionFile); err != nil {
 		return err
 	}
 	if _, err := client.Request(chat.Record{"type": "set_auto_compaction", "enabled": enabled}, 0); err != nil {
@@ -329,7 +352,10 @@ func (c *Chat) Answer(req domain.ChatAnswerREQ) error {
 		wire["value"] = req.Value
 	case req.Confirmed != nil:
 		wire["confirmed"] = *req.Confirmed
+	case req.Cancelled:
+		wire["cancelled"] = true
 	default:
+		// 什么都没带：视为用户放弃这次提问。
 		wire["cancelled"] = true
 	}
 	return client.Send(wire)

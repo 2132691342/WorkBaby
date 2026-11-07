@@ -133,7 +133,7 @@ async function probe(row: McpServer) {
   try {
     const out = await api.mcpProbe(row.server_name)
     if (out.probe_ok) {
-      const tail = out.probe_tools > 0 ? ` · ${out.probe_tools} tools` : ''
+      const tail = out.probe_tools > 0 ? t('mcp.probeTools', { n: out.probe_tools }) : ''
       ElMessage.success(`${out.probe_message}${tail}`)
     } else {
       ElMessage.error(`${t('mcp.probeFail')}: ${out.probe_message}`)

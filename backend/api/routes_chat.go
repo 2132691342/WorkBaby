@@ -93,7 +93,7 @@ func (s *Server) chatCompact(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	if err := s.svc.Chat.Compact(req.Instructions); err != nil {
+	if err := s.svc.Chat.Compact(req.SessionFile, req.Instructions); err != nil {
 		pkg.Fail(c, err)
 		return
 	}
@@ -153,7 +153,7 @@ func (s *Server) chatModel(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	if err := s.svc.Chat.SetModel(req.ProviderName, req.ModelId); err != nil {
+	if err := s.svc.Chat.SetModel(req.SessionFile, req.ProviderName, req.ModelId); err != nil {
 		pkg.Fail(c, err)
 		return
 	}
@@ -166,7 +166,7 @@ func (s *Server) chatThinking(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	if err := s.svc.Chat.SetThinking(req.ThinkingLevel); err != nil {
+	if err := s.svc.Chat.SetThinking(req.SessionFile, req.ThinkingLevel); err != nil {
 		pkg.Fail(c, err)
 		return
 	}
@@ -179,7 +179,7 @@ func (s *Server) chatAutocompact(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	if err := s.svc.Chat.SetAutoCompaction(req.AutoCompaction); err != nil {
+	if err := s.svc.Chat.SetAutoCompaction(req.SessionFile, req.AutoCompaction); err != nil {
 		pkg.Fail(c, err)
 		return
 	}

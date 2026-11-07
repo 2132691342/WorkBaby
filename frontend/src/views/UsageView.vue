@@ -9,6 +9,7 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import AppIcon from '@/components/common/AppIcon.vue'
 import { api } from '@/api/http'
+import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
 import type { SessionRow } from '@/types/api'
 
@@ -16,6 +17,7 @@ echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendCompone
 
 const { t } = useI18n()
 const toasts = useToasts()
+const app = useAppStore()
 
 const rows = ref<SessionRow[]>([])
 const loading = ref(false)
@@ -191,7 +193,8 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
-watch([span, byDay], () => renderCharts())
+// 图色在渲染时快照 CSS 变量：主题或数据变了都得重画，否则轴色停在旧主题上。
+watch([span, byDay, () => app.settings['ui.theme']], () => renderCharts())
 
 function onResize() {
   trendChart?.resize()
@@ -267,17 +270,17 @@ onUnmounted(() => {
           <el-table :data="byModel" size="small" max-height="260">
             <el-table-column prop="model" :label="t('usage.model')" min-width="150">
               <template #default="{ row }">
-                <span class="wb-mono">{{ row.session_model }}</span>
+                <span class="wb-mono">{{ row.model }}</span>
               </template>
             </el-table-column>
             <el-table-column :label="t('usage.inputTokens')" width="96" align="right">
               <template #default="{ row }">
-                <span class="wb-mono">{{ formatTokens(row.total_tokens) }}</span>
+                <span class="wb-mono">{{ formatTokens(row.tokens) }}</span>
               </template>
             </el-table-column>
             <el-table-column :label="t('usage.cost')" width="92" align="right">
               <template #default="{ row }">
-                <span class="wb-mono">{{ formatCost(row.cost_usd) }}</span>
+                <span class="wb-mono">{{ formatCost(row.cost) }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="sessions" :label="t('usage.sessionCount')" width="80" align="right" />

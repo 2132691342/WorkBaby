@@ -170,8 +170,8 @@ function formatTokens(n: number): string {
   flex: none;
   border-radius: 50%;
   background: conic-gradient(from -90deg, var(--wb-ok) var(--ctx-arc), var(--wb-line-strong) 0);
-  -webkit-mask: radial-gradient(closest-side, #0000 70%, #000 72%);
-  mask: radial-gradient(closest-side, #0000 70%, #000 72%);
+  -webkit-mask: radial-gradient(closest-side, transparent 70%, var(--wb-mask-ink) 72%);
+  mask: radial-gradient(closest-side, transparent 70%, var(--wb-mask-ink) 72%);
 }
 
 .meter.warn .ring {

@@ -41,12 +41,12 @@ type configFileSpec struct {
 }
 
 // configFiles 列出可查看的配置文件（白名单，不接受外部路径）。
+// auth.json 不在列：密钥只在「密钥恒为掩码」的服务商页流转，不走原文查看。
 func configFiles(layout pkg.Layout) []domain.ConfigFileVO {
 	specs := []configFileSpec{
 		{name: "settings", label: "settings.json", path: layout.SettingsFile()},
 		{name: "models", label: "models.json", path: layout.ModelsFile()},
 		{name: "mcp", label: "mcp.json", path: layout.McpFile()},
-		{name: "auth", label: "auth.json（密钥已存在此处）", path: layout.AuthFile()},
 	}
 	out := make([]domain.ConfigFileVO, 0, len(specs))
 	for _, spec := range specs {

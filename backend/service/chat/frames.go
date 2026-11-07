@@ -3,7 +3,6 @@ package chat
 
 import (
 	"sync"
-	"time"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -485,6 +484,3 @@ func findTool(blocks []domain.ChatBlockVO, toolCallId string) *domain.ChatBlockV
 	}
 	return nil
 }
-
-// HeartbeatInterval 暴露给上层做心跳节奏。
-const HeartbeatInterval = 25 * time.Second

@@ -112,6 +112,17 @@ func (s *Store) Save(values map[string]string) error {
 	return s.persist()
 }
 
+// Delete 删除一个设置项并落盘；键不存在时不动文件。
+func (s *Store) Delete(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.data.Settings[key]; !ok {
+		return nil
+	}
+	delete(s.data.Settings, key)
+	return s.persist()
+}
+
 // SkillEnabled 读一个技能的开关台账；没有记录时 ok 为 false。
 func (s *Store) SkillEnabled(skillDirName string) (enabled bool, ok bool) {
 	s.mu.Lock()

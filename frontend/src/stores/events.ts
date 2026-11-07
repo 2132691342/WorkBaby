@@ -55,6 +55,24 @@ export function isChatScoped(event: string): boolean {
   return event.startsWith('chat:')
 }
 
+/** 生成速度的取样：按 run 记上次读数，两帧差出 tokens/s；间隔太近沿用上次结果防抖动。 */
+let speedSample: { runId: string; tokens: number; at: number; speed: number } | null = null
+function sampleSpeed(runId: string, tokens: number): number {
+  const prev = speedSample && speedSample.runId === runId ? speedSample : null
+  if (!prev || tokens <= prev.tokens) {
+    speedSample = { runId, tokens, at: Date.now(), speed: 0 }
+    return 0
+  }
+  const dt = (Date.now() - prev.at) / 1000
+  if (dt < 0.5) return prev.speed
+  const speed = Math.round((tokens - prev.tokens) / dt)
+  speedSample = { runId, tokens, at: Date.now(), speed }
+  return speed
+}
+
+/** 未知事件只告警一次：后端加了新事件而这张表没接时，要能在控制台看出来。 */
+const warnedEvents = new Set<string>()
+
 /** 分派一帧事件。 */
 export function routeFrame(event: string, data: Record<string, unknown>, deps: RouteDeps): void {
   const { chat } = deps
@@ -147,6 +165,7 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
         tool_name: asString(data.tool_name),
         tool_call_id: asString(data.tool_call_id),
         output_tokens: asNumber(data.output_tokens),
+        tokens_per_s: sampleSpeed(runID, asNumber(data.output_tokens)),
       }
       // 每一帧读数就是一次「引擎还在动」的证据：活动条靠它判断安静了多久。
       chat.lastActivityAt = Date.now()
@@ -247,6 +266,10 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       void deps.refreshSessions()
       return
     default:
+      if (!warnedEvents.has(event)) {
+        warnedEvents.add(event)
+        console.warn(`[wb] 未接管的 SSE 事件：${event}`)
+      }
       return
   }
 }

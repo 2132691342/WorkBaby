@@ -57,18 +57,18 @@
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/chat/state` | GET | `?session=`；会话绑定 + 引擎实况 + JSONL 回放的历史轮 + 待办（`todos`，活动分支最近一次 todo 工具调用派生）+ 能力表 |
-| `/chat/send` | POST | `{ engine, session, message, attachments }` → `{ run_id }` |
+| `/chat/state` | GET | `?session=`；会话绑定（不符时引擎先切过去）+ 引擎实况 + JSONL 回放的历史轮 + 待办（`todos`，活动分支最近一次 todo 工具调用派生）+ 能力表 |
+| `/chat/send` | POST | `{ session_file, message, attachments }` → `{ run_id }` |
 | `/chat/stop` | POST | 中止当前运行 |
-| `/chat/steer` / `followup` | POST | 插话 / 排队追加 |
+| `/chat/steer` / `followup` | POST | `{ session_file?, message, attachments? }` 插话 / 排队追加 |
 | `/chat/clear-queue` | POST | 清空两队，返回被清的话术 |
 | `/chat/remove-queued` | POST | `{ queue_kind, queue_index }`；单条移除。引擎只有整队清空，壳用「取出全队 → 摘一条 → 其余按原序重投」实现；插队重投失败降级为追加，话术不丢。返回移除后的两队 |
-| `/chat/compact` | POST | `{ instructions? }` 手动压缩 |
-| `/chat/answer` | POST | `{ session, request }` 回答提问板（确认 / 选择 / 输入 / 编辑器） |
+| `/chat/compact` | POST | `{ session_file?, instructions? }` 手动压缩；会话级动作先按 `session_file` 对齐引擎绑定 |
+| `/chat/answer` | POST | `{ session_file, ask_id, value?, confirmed?, cancelled?, answers? }` 回答提问板（确认 / 选择 / 输入 / 编辑器） |
 | `/chat/new` / `clone` | POST | 新建 / 克隆会话，返回 `session_file` |
 | `/chat/export-html` | POST | `{ session }` → `{ file_name, content }` |
-| `/chat/model` / `thinking` / `autocompact` | POST | 会话内切换模型 / 思考档 / 自动压缩 |
-| `/messages/hide` / `unhide` | POST | `{ session, hid }`；隐藏台账存壳存储文件，会话文件不动 |
+| `/chat/model` / `thinking` / `autocompact` | POST | `{ session_file, … }` 会话内切换模型（`provider_name`/`model_id`）/ 思考档（`thinking_level`）/ 自动压缩（`auto_compaction`）；先按 `session_file` 对齐 |
+| `/messages/hide` / `unhide` | POST | `{ session_file, turn_id }`；隐藏台账存壳存储文件，会话文件不动 |
 
 附件形状：`{ kind: 'file', file_path }` 走文本引用；`{ kind: 'image', image_base64, image_mime }`
 以 base64 进引擎 `images` 字段——这是唯一的二进制通道。
@@ -135,7 +135,7 @@
 | `/git/push` / `pull` / `fetch` | POST | 推拉取；`push` 带 `confirm` 表达「覆盖远程」的二次确认 |
 | `/git/stash/list` / `push` / `pop` / `drop` | POST | stash 四件套；`drop` 的 `confirm` 传 stash ref 防误删 |
 | `/system/reveal` / `open` | POST | 资源管理器定位 / 系统默认程序打开 |
-| `/config/files` / `text` | GET | 引擎配置原文（settings/models/mcp/auth/AGENTS + 项目级），白名单校验 |
+| `/config/files` / `text` | GET | 引擎配置原文（settings/models/mcp + 项目级），白名单校验；auth.json 不在列——密钥只在服务商页以掩码流转 |
 
 git 全部走内置 git.exe，凭证走自带的 Git Credential Manager（落 Windows 凭据管理器），
 终端交互问询禁用——需要登录时立即失败回 `1102` 并给下一步指引，而不是卡满超时。
