@@ -1,20 +1,26 @@
-// Package tests 的沙箱治理：内置清单与磁盘资产互相咬合，技能的落位、开关、重置、删除与破损自愈。
+// Package tests 的沙箱治理：内置清单与磁盘资产的咬合、技能的整条生命周期、
+// 子进程环境对沙箱数据目录的钉扎。
 package tests
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/service"
 )
 
-// TestBuiltinManifest 断言随包清单与磁盘资产互相咬合，且资产能被引擎消费。
-// 少一边就会出死条目：清单里有而资产没有＝永远装不上；资产里有而清单没有＝永不落位；
-// SKILL.md 的 frontmatter 解析不出来＝引擎没有触发这个技能的依据。
-func TestBuiltinManifest(t *testing.T) {
-	// 逐条钉住规格清单：只断数量的话，删一个多一个都看不出来。
+// TestSandbox 断言沙箱的三层契约，一段一层：
+//
+//	清单咬合：随包清单与磁盘资产双向对上，少一边就是死条目——清单有而资产无＝
+//	永远装不上，资产有而清单无＝永不落位；SKILL.md 的 frontmatter 解析不出来＝引擎没有触发依据。
+//	环境钉扎：npm / pip 的默认缓存位置跟着 HOME 与版本解析行为漂，少钉一条，
+//	探针或技能脚本就会把缓存写进用户目录或工作目录，沙箱就漏了。
+//	技能生命周期：落位、开关、重置、删除与破损自愈，每一步锁一个会真实发生的破损。
+func TestSandbox(t *testing.T) {
+	// ---- 清单咬合：插件逐条钉住规格，只断数量的话删一个多一个都看不出来 ----
 	spec := map[string]string{
 		"pi-web-access":                      "0.46.0",
 		"pi-hermes-memory":                   "0.10.0",
@@ -70,7 +76,7 @@ func TestBuiltinManifest(t *testing.T) {
 		}
 	}
 
-	// 技能：清单 ↔ 磁盘目录双向咬合。
+	// ---- 清单咬合：技能目录与 SKILL.md frontmatter ----
 	assets := repoAssetsDir(t)
 	skillsDir := filepath.Join(assets, "skills")
 	entries, err := os.ReadDir(skillsDir)
@@ -95,8 +101,6 @@ func TestBuiltinManifest(t *testing.T) {
 			t.Errorf("assets\\skills 下的 %s 没进清单，永远不会被落位", name)
 		}
 	}
-
-	// 每个技能的 SKILL.md 都要解析出 name 与足够长的 description：
 	// description 是引擎决定「何时触发」的唯一依据，块标量（| 与 >）接不上就只剩一个字符。
 	for name := range onDisk {
 		raw, err := os.ReadFile(filepath.Join(skillsDir, name, "SKILL.md"))
@@ -112,29 +116,43 @@ func TestBuiltinManifest(t *testing.T) {
 			t.Errorf("技能 %s 的描述解析成了 %d 个字符（块标量没接上）：%q", name, len(fm.Description), fm.Description)
 		}
 	}
-}
 
-// TestSkillLifecycle 走完技能的整条生命周期，每一步锁一个会真实发生的破损：
-//
-//	落位：默认停用的进禁用区、默认启用的进启用区；已存在的目录绝不覆盖——用户改动是数据。
-//	开关：实现是搬目录（引擎只扫 skills/，移走即失联），目录位置与台账必须同时变化。
-//	重置：删掉再从原件复制回来，SKILL.md 必须仍是文件——复制目标错成它自己就变成目录，技能永久报废。
-//	删除：整个目录清掉；只删 SKILL.md 会把 scripts/references 留在沙箱里，且删掉的内置技能没有重置入口。
-//	自愈：搬移中途被杀会留下「两边各一份」的破损态，内容一致时清掉禁用区那份，清单只出一行。
-func TestSkillLifecycle(t *testing.T) {
-	app, layout, store := catalogHarness(t, repoAssetsDir(t))
+	// ---- 环境钉扎：缓存与家目录必须落在沙箱数据目录里 ----
+	layout := pkg.ResolveLayout(t.TempDir(), true)
+	env := layout.SandboxEnv(nil)
+	values := map[string]string{}
+	for _, item := range env {
+		if idx := strings.IndexByte(item, '='); idx > 0 {
+			values[item[:idx]] = item[idx+1:]
+		}
+	}
+	for _, key := range []string{"HOME", "USERPROFILE", "PIP_CACHE_DIR"} {
+		got, ok := values[key]
+		if !ok {
+			t.Fatalf("沙箱环境缺 %s", key)
+		}
+		if !pkg.Inside(layout.DataDir, got) {
+			t.Fatalf("%s 应钉在沙箱数据目录里，实际 %q", key, got)
+		}
+	}
+	for key, want := range map[string]string{"npm_config_cache": layout.NpmCacheDir, "PIP_CACHE_DIR": layout.PipCacheDir} {
+		if got := values[key]; got != want {
+			t.Fatalf("%s 应为 %q，实际 %q", key, want, got)
+		}
+	}
 
+	// ---- 技能生命周期：落位按默认值各归各区，已存在的不覆盖——用户改动是数据 ----
+	app, skillLayout, store := catalogHarness(t, assets)
 	offItem := defaultSkill(t, false)
 	onItem := defaultSkill(t, true)
-	active := filepath.Join(layout.SkillsDir(), offItem.SkillDirName)
-	hidden := filepath.Join(layout.SkillsOffDir(), offItem.SkillDirName)
+	active := filepath.Join(skillLayout.SkillsDir(), offItem.SkillDirName)
+	hidden := filepath.Join(skillLayout.SkillsOffDir(), offItem.SkillDirName)
 
-	// ---- 落位：按默认值各归各区，已存在的不覆盖 ----
 	app.Skills.Provision()
 	if pkg.Exists(active) || !pkg.Exists(hidden) {
 		t.Fatalf("默认停用的 %s 应落进禁用区", offItem.SkillDirName)
 	}
-	if !pkg.Exists(filepath.Join(layout.SkillsDir(), onItem.SkillDirName, "SKILL.md")) {
+	if !pkg.Exists(filepath.Join(skillLayout.SkillsDir(), onItem.SkillDirName, "SKILL.md")) {
 		t.Fatalf("默认启用的 %s 应落进启用区", onItem.SkillDirName)
 	}
 
@@ -156,7 +174,7 @@ func TestSkillLifecycle(t *testing.T) {
 	}
 	_ = os.RemoveAll(active)
 
-	// ---- 开关：目录搬移 + 台账记账 ----
+	// ---- 技能生命周期：开关 = 搬目录 + 台账记账 ----
 	if err := app.Skills.Toggle(filepath.Join(hidden, "SKILL.md"), true); err != nil {
 		t.Fatalf("启用技能失败：%v", err)
 	}
@@ -176,8 +194,9 @@ func TestSkillLifecycle(t *testing.T) {
 		t.Fatalf("停用应记账为 false，实际 ok=%v enabled=%v", ok, enabled)
 	}
 
-	// ---- 重置：SKILL.md 必须仍是可读文件 ----
-	onDir := filepath.Join(layout.SkillsDir(), onItem.SkillDirName)
+	// ---- 技能生命周期：重置后 SKILL.md 必须仍是可读文件 ----
+	// 复制目标错成它自己就变成目录，技能永久报废。
+	onDir := filepath.Join(skillLayout.SkillsDir(), onItem.SkillDirName)
 	onFile := filepath.Join(onDir, "SKILL.md")
 	if err := app.Skills.Reset(onFile); err != nil {
 		t.Fatalf("重置失败：%v", err)
@@ -193,23 +212,23 @@ func TestSkillLifecycle(t *testing.T) {
 		t.Fatalf("重置后 SKILL.md 读不出来：%v", err)
 	}
 
-	// ---- 删除：清整个目录；目录路径拒绝且不动盘 ----
+	// ---- 技能生命周期：删除清整个目录；目录路径拒绝且不动盘 ----
 	if err := app.Skills.Delete(onFile); err != nil {
 		t.Fatalf("删除失败：%v", err)
 	}
 	if pkg.Exists(onDir) {
 		t.Errorf("删除后技能目录仍在：%s", onDir)
 	}
-	before, _ := os.ReadDir(layout.SkillsDir())
-	if err := app.Skills.Delete(layout.SkillsDir()); err == nil {
+	before, _ := os.ReadDir(skillLayout.SkillsDir())
+	if err := app.Skills.Delete(skillLayout.SkillsDir()); err == nil {
 		t.Error("传入目录路径时应当拒绝删除")
 	}
-	after, _ := os.ReadDir(layout.SkillsDir())
+	after, _ := os.ReadDir(skillLayout.SkillsDir())
 	if len(before) != len(after) {
 		t.Errorf("被拒的删除不应改动技能目录：前 %d 个，后 %d 个", len(before), len(after))
 	}
 
-	// ---- 自愈：两边同内容时清掉禁用区重复份，清单只出一行 ----
+	// ---- 技能生命周期：自愈——两边同内容时清掉禁用区重复份，清单只出一行 ----
 	if err := pkg.EnsureDir(active); err != nil {
 		t.Fatalf("建目录失败：%v", err)
 	}

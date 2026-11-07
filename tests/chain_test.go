@@ -1,14 +1,5 @@
-// Package tests 是场景测试：只覆盖「改这里会坏那里」的长链路，一文件一个被测对象：
-//
-//	http_chain_test.go    HTTP 全链路：鉴权门 → 信封 → 落盘，以及 SSE 通道
-//	session_test.go       会话回放管线：分支遍历、轮组装、隐藏台账、改名保护
-//	sandbox_test.go       沙箱治理：内置清单与资产咬合、技能生命周期
-//	plugin_test.go        插件治理：声明启停、用户配置保留、版本漂移、卸载
-//	mcp_test.go           MCP 配置：并发写与作用域遮蔽
-//	harness_test.go       公共装具：两档 harness 与 HTTP 调用辅助
-//	sandbox_live_test.go  真实运行时链路（go:build live，手动跑）
-//
-// 平凡断言（单 getter、纯函数往返、复述框架行为）不写：维护成本高于收益。
+// Package tests 的 HTTP 全链路：鉴权门 → CORS 预检 → 信封 → 落盘 → SSE 通道。
+// 这一条链是前端全部调用的前提，一处断整个界面就瘫。
 package tests
 
 import (
@@ -24,13 +15,16 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// TestHTTPChain 断言 HTTP 层的三条不变量，它们是前端全部调用的前提：
+// TestChain 断言回环 HTTP 的全部契约，一段一个环节：
 //
-//  1. 鉴权是硬门。失败回 401 而不是业务信封——那是根本没进门。
-//  2. 信封是唯一出口形状。成功、业务失败、未知路由、坏请求体全同构且恒 200，
-//     前端才能只写一套解析。
-//  3. 写入真的落盘。写经 HTTP、查直连 SQLite、读回走 HTTP 三个方向都要对上。
-func TestHTTPChain(t *testing.T) {
+//	鉴权门：失败回 401 而不是业务信封——那是根本没进门。
+//	CORS 预检：WebView2 的页面源是 wails.localhost 虚拟域，对回环服务就是跨源；
+//	浏览器先发不带令牌的 OPTIONS，预检必须绕过鉴权门，否则界面里一个请求都发不出去。
+//	信封同构：成功、业务失败、未知路由、坏请求体全为 200 + code，前端才能只写一套解析。
+//	写入落盘：HTTP 写 → 直查存储文件 → HTTP 读回，三个方向对上。
+//	SSE 通道：鉴权走查询参数（EventSource 带不了自定义头）、连上先补 stream:open、
+//	广播帧真的到达订阅者、广播必发号（seq 单调是断线补帧的对齐依据）。
+func TestChain(t *testing.T) {
 	h := newHarness(t)
 
 	// ---- 鉴权门 ----
@@ -49,16 +43,41 @@ func TestHTTPChain(t *testing.T) {
 		}
 	}
 
+	// ---- CORS 预检 ----
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/bootstrap", nil)
+	req.Header.Set("Origin", "http://wails.localhost")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	rec := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("预检应回 204，实际 %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://wails.localhost" {
+		t.Fatalf("预检应允许源 wails.localhost，实际 %q", got)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "X-Desktop-Token") {
+		t.Fatalf("预检应允许 X-Desktop-Token 头，实际 %q", got)
+	}
+	// 带源的正常请求（含 SSE 的 EventSource）响应上也要有允许头。
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", nil)
+	req.Header.Set("X-Desktop-Token", testToken)
+	req.Header.Set("Origin", "http://wails.localhost")
+	rec = httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(rec, req)
+	if rec.Header().Get("Access-Control-Allow-Origin") != "http://wails.localhost" {
+		t.Fatalf("响应应携带允许头给 EventSource，实际 %q", rec.Header().Get("Access-Control-Allow-Origin"))
+	}
+
 	// ---- 信封同构 ----
 	env, code := h.call(http.MethodGet, "/nope/not-here", nil)
 	if code != http.StatusOK || env.Code != pkg.CodeUnknownRoute || env.Message == "" {
 		t.Fatalf("未知路由应回 HTTP 200 / %q 且带 message，实际 http=%d code=%q msg=%q",
 			pkg.CodeUnknownRoute, code, env.Code, env.Message)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/settings/save", strings.NewReader(`{not json`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/settings/save", strings.NewReader(`{not json`))
 	req.Header.Set("X-Desktop-Token", testToken)
 	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
+	rec = httptest.NewRecorder()
 	h.server.Handler().ServeHTTP(rec, req)
 	var bad envelope
 	if err := json.Unmarshal(rec.Body.Bytes(), &bad); err != nil {
@@ -76,7 +95,7 @@ func TestHTTPChain(t *testing.T) {
 		t.Fatalf("保存后应回 dark，实际 %q", saved["ui.theme"])
 	}
 	if stored, ok := h.store.Get("ui.theme"); !ok || stored != "dark" {
-		t.Fatalf("setting 表里应是 dark，实际 %q（存在=%v）", stored, ok)
+		t.Fatalf("存储文件里应是 dark，实际 %q（存在=%v）", stored, ok)
 	}
 	env, code = h.call(http.MethodGet, "/settings", nil)
 	var readBack map[string]string
@@ -90,17 +109,10 @@ func TestHTTPChain(t *testing.T) {
 	if _, ok := boot["app_contract"]; !ok {
 		t.Fatalf("bootstrap 缺 app_contract：前端首屏全靠它，实际键=%v", keysOf(boot))
 	}
-}
 
-// TestSSEStream 断言事件流的四个契约：
-// 鉴权走查询参数（EventSource 带不了自定义头）、连上先补一帧 stream:open、
-// 广播的帧真的到达订阅者、广播必须发号（seq 单调是断线补帧的对齐依据）。
-func TestSSEStream(t *testing.T) {
-	h := newHarness(t)
+	// ---- SSE 通道 ----
 	srv := httptest.NewServer(h.server.Handler())
-	t.Cleanup(srv.Close)
-
-	// 无令牌：401。
+	defer srv.Close()
 	res, err := http.Get(srv.URL + "/api/v1/events")
 	if err != nil {
 		t.Fatalf("请求失败：%v", err)
@@ -109,8 +121,6 @@ func TestSSEStream(t *testing.T) {
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("SSE 无令牌应回 401，实际 %d", res.StatusCode)
 	}
-
-	// 有令牌：读到 stream:open 再读到一条广播帧。
 	res, err = http.Get(srv.URL + "/api/v1/events?token=" + testToken)
 	if err != nil {
 		t.Fatalf("连接 SSE 失败：%v", err)
@@ -119,7 +129,6 @@ func TestSSEStream(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("SSE 有令牌应回 200，实际 %d", res.StatusCode)
 	}
-
 	lines := make(chan string, 64)
 	go func() {
 		scanner := bufio.NewScanner(res.Body)
@@ -128,11 +137,9 @@ func TestSSEStream(t *testing.T) {
 		}
 		close(lines)
 	}()
-
 	waitForLine(t, lines, "stream:open")
 	h.app.Hub.Broadcast("test:probe", map[string]any{"probe": "ok"})
 	waitForLine(t, lines, `"event":"test:probe"`)
-
 	// stream:open 是连接时直写的，不经过 hub，所以不计入 seq。
 	if h.app.Hub.Seq() < 1 {
 		t.Fatalf("广播应至少发过 1 帧，实际 seq=%d", h.app.Hub.Seq())

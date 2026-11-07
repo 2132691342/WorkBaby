@@ -1,5 +1,5 @@
 // Package tests 的公共装具：两档 harness——
-// newHarness 装满全后端（真 SQLite、真 gin 中间件栈），catalogHarness 只装需要的一小撮依赖。
+// newHarness 装满全后端（真 JSON 存储、真 gin 中间件栈），catalogHarness 只装需要的一小撮依赖。
 package tests
 
 import (
@@ -22,7 +22,7 @@ import (
 
 const testToken = "test-token"
 
-// harness 是装好的后端：真 SQLite、真临时布局、真 gin 中间件栈。
+// harness 是装好的后端：真 JSON 存储、真临时布局、真 gin 中间件栈。
 type harness struct {
 	t      *testing.T
 	layout pkg.Layout
@@ -49,7 +49,7 @@ func newHarness(t *testing.T) *harness {
 		NpmCacheDir:  filepath.Join(dir, "cache", "npm"),
 		NpmGlobalDir: filepath.Join(dir, "cache", "npm-global"),
 		LogDir:       filepath.Join(dir, "logs"),
-		DbPath:       filepath.Join(dir, "workbaby.db"),
+		StorePath:    filepath.Join(dir, "workbaby.json"),
 		AssetsDir:    filepath.Join(dir, "assets"),
 	}
 	if err := pkg.EnsureDir(layout.PiAgentDir); err != nil {
@@ -57,11 +57,10 @@ func newHarness(t *testing.T) *harness {
 	}
 	pkg.SetLogDir("")
 
-	store, err := repo.Open(layout.DbPath)
+	store, err := repo.Open(layout.StorePath)
 	if err != nil {
-		t.Fatalf("开设置库失败：%v", err)
+		t.Fatalf("开设置存储失败：%v", err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
 
 	hub := sse.New(64)
 	app := service.New(service.Options{Layout: layout, Store: store, Hub: hub, Version: "test"})
@@ -152,18 +151,17 @@ func catalogHarness(t *testing.T, assetsDir string) (*service.App, pkg.Layout, *
 		DataDir:    dir,
 		PiAgentDir: filepath.Join(dir, "pi"),
 		AssetsDir:  assetsDir,
-		DbPath:     filepath.Join(dir, "workbaby.db"),
+		StorePath:  filepath.Join(dir, "workbaby.json"),
 		LogDir:     filepath.Join(dir, "logs"),
 	}
 	pkg.SetLogDir("")
 	if err := pkg.EnsureDir(layout.PiAgentDir); err != nil {
 		t.Fatalf("准备目录失败：%v", err)
 	}
-	store, err := repo.Open(layout.DbPath)
+	store, err := repo.Open(layout.StorePath)
 	if err != nil {
-		t.Fatalf("开设置库失败：%v", err)
+		t.Fatalf("开设置存储失败：%v", err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
 
 	app := service.New(service.Options{Layout: layout, Store: store, Hub: sse.New(16), Version: "test"})
 	return app, layout, store

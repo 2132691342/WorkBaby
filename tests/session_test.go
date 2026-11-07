@@ -1,5 +1,5 @@
-// Package tests 的会话回放管线：pi 的 JSONL 会话文件是唯一持久真相，
-// 界面每次启动都由它重建。本文件断言回放的健壮性与壳的写入纪律。
+// Package tests 的会话管线：pi 的 JSONL 会话文件是唯一持久真相，
+// 界面每次启动都由它重建。回放的健壮性与壳的写入纪律都在这一条链上。
 package tests
 
 import (
@@ -15,40 +15,15 @@ import (
 	"WorkBaby/backend/service/parser"
 )
 
-// writeSession 在会话根下写一份 pi 会话 JSONL（首行是会话头），返回文件路径。
-// 必须落在会话根内：路径越界本身会先被拦掉，那就测不到后续的写入纪律了。
-func writeSession(t *testing.T, root string, lines ...string) string {
-	t.Helper()
-	dir := filepath.Join(root, "--C--ws--")
-	if err := pkg.EnsureDir(dir); err != nil {
-		t.Fatalf("建会话目录失败：%v", err)
-	}
-	file := filepath.Join(dir, "sess.jsonl")
-	header := `{"type":"session","version":3,"id":"sess","cwd":"C:\\ws","timestamp":"2026-01-01T00:00:00.000Z"}`
-	body := header + "\n" + strings.Join(lines, "\n") + "\n"
-	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
-		t.Fatalf("写会话文件失败：%v", err)
-	}
-	return file
-}
-
-// turnsText 把回放结果拼成一段文本，便于断言分支内容。
-func turnsText(turns []domain.HistoryTurnVO) string {
-	var parts []string
-	for _, turn := range turns {
-		for _, block := range turn.TurnBlocks {
-			parts = append(parts, block.BlockText)
-		}
-	}
-	return strings.Join(parts, "|")
-}
-
-// TestSessionReplay 断言回放管线的全部难点，一处一类：
+// TestSession 断言会话真相的全部难点，一段一类：
 //
-//  1. 分支：只走当前分支，不混入被放弃的分支（用户编辑过消息会产生并列分支）。
-//  2. 健壮：一条残行不让整份历史读不出来；环状 parentId 必须有界退出。
-//  3. 组装：工具结果回填宿主轮、孤立结果单独成轮不丢、压缩成 engine-mark 轮、标题取自 session_info。
-func TestSessionReplay(t *testing.T) {
+//	分支：只走当前分支，不混入被放弃的分支（用户编辑过消息会产生并列分支）。
+//	健壮：一条残行不让整份历史读不出来；环状 parentId 必须有界退出。
+//	组装：工具结果回填宿主轮、孤立结果单独成轮不丢、压缩成 engine-mark 轮、标题取自 session_info。
+//	隐藏：只记壳的台账，绝不改写会话文件。
+//	改名：只在末尾追加 session_info；引擎正打开该会话时拒绝——
+//	两路同时追加会写出交错行，而会话文件写坏就整份回放不出来。
+func TestSession(t *testing.T) {
 	// ---- 分支 ----
 	branch := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"原始问题"}}`,
@@ -143,14 +118,8 @@ func TestSessionReplay(t *testing.T) {
 	if summary := parser.Summarize(renamed); summary.SessionTitle != "我自己起的名字" {
 		t.Fatalf("会话名应取自 session_info，实际 %q", summary.SessionTitle)
 	}
-}
 
-// TestSessionWriteDiscipline 断言壳对会话文件的两条写入纪律：
-//
-//  1. 隐藏轮只记壳的台账，绝不改写会话文件。
-//  2. 改名只在末尾追加 session_info。引擎正打开该会话时拒绝——
-//     两路同时追加会写出交错行，而会话文件是唯一真相，写坏就整份回放不出来。
-func TestSessionWriteDiscipline(t *testing.T) {
+	// ---- 写入纪律：隐藏是壳的台账，文件一个字节都不动 ----
 	h := newHarness(t)
 	file := writeSession(t, h.layout.SessionsDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"第一句"}}`,
@@ -161,8 +130,6 @@ func TestSessionWriteDiscipline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读会话文件失败：%v", err)
 	}
-
-	// ---- 隐藏：台账生效，文件不变 ----
 	hidden := map[string]struct{}{"u2": {}}
 	turns := parser.BuildHistory(file, hidden)
 	for _, turn := range turns {
@@ -181,7 +148,7 @@ func TestSessionWriteDiscipline(t *testing.T) {
 		t.Fatal("隐藏是壳的台账，绝不能改写会话文件")
 	}
 
-	// ---- 改名：引擎正打开时拒绝，且不动文件 ----
+	// ---- 写入纪律：引擎正打开时拒绝改名，且不动文件 ----
 	h.app.Sessions.Active = func() string { return file }
 	env, _ := h.call(http.MethodPost, "/sessions/rename", map[string]string{
 		"session_path": file, "session_title": "新名字",
@@ -197,7 +164,7 @@ func TestSessionWriteDiscipline(t *testing.T) {
 		t.Fatal("被拒的改名不得动会话文件一个字节")
 	}
 
-	// ---- 改名：没在用时追加 session_info ----
+	// ---- 写入纪律：空闲时只在末尾追加 session_info ----
 	h.app.Sessions.Active = func() string { return "" }
 	env, code := h.call(http.MethodPost, "/sessions/rename", map[string]string{
 		"session_path": file, "session_title": "新名字",
@@ -213,4 +180,32 @@ func TestSessionWriteDiscipline(t *testing.T) {
 	if !strings.Contains(string(raw), `"name":"新名字"`) {
 		t.Fatalf("改名应以 session_info 条目追加，实际 %q", string(raw))
 	}
+}
+
+// writeSession 在会话根下写一份 pi 会话 JSONL（首行是会话头），返回文件路径。
+// 必须落在会话根内：路径越界本身会先被拦掉，那就测不到后续的写入纪律了。
+func writeSession(t *testing.T, root string, lines ...string) string {
+	t.Helper()
+	dir := filepath.Join(root, "--C--ws--")
+	if err := pkg.EnsureDir(dir); err != nil {
+		t.Fatalf("建会话目录失败：%v", err)
+	}
+	file := filepath.Join(dir, "sess.jsonl")
+	header := `{"type":"session","version":3,"id":"sess","cwd":"C:\\ws","timestamp":"2026-01-01T00:00:00.000Z"}`
+	body := header + "\n" + strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+		t.Fatalf("写会话文件失败：%v", err)
+	}
+	return file
+}
+
+// turnsText 把回放结果拼成一段文本，便于断言分支内容。
+func turnsText(turns []domain.HistoryTurnVO) string {
+	var parts []string
+	for _, turn := range turns {
+		for _, block := range turn.TurnBlocks {
+			parts = append(parts, block.BlockText)
+		}
+	}
+	return strings.Join(parts, "|")
 }

@@ -12,15 +12,16 @@ import (
 	"WorkBaby/backend/service"
 )
 
-// TestPluginLifecycle 走完插件的整条生命周期，每一步锁一个会真实发生的破损：
+// TestPlugins 断言插件治理的全部契约，一段一类：
 //
 //	来源规范：用户输入必须规范成 pi 认的来源串；git 源带 git: 前缀引擎直接装不上。
-//	停用：对象形态 autoload:false——裸来源串没法表达关。
-//	启用：裸来源串——plain 源写对象形态（哪怕 autoload:true）会让引擎多走一条分支。
-//	开关保留用户配置：packages 对象形态可以带 extensions 等资源过滤数组，开关只许动 autoload。
-//	重试安装：只让包就位，不得把用户停用的插件静默重新打开。
+//	启停：停用写对象形态 autoload:false——裸来源串没法表达关；启用写裸来源串——
+//	plain 源写对象形态（哪怕 autoload:true）会让引擎多走一条分支。
+//	配置保留：对象形态可以带 extensions 等资源过滤数组，开关只许动 autoload。
+//	重试：只让包就位，不得把用户停用的插件静默重新打开。
 //	卸载：声明与包目录一起消失。
-func TestPluginLifecycle(t *testing.T) {
+//	版本漂移：判据是「在且版本对」，批量升级只碰漂移的包。
+func TestPlugins(t *testing.T) {
 	// ---- 来源规范：入口处先钉住，后面所有声明都经它产出 ----
 	for _, c := range []struct{ in, wantSource, wantName string }{
 		{"pi-web-access", "npm:pi-web-access", "pi-web-access"},
@@ -53,7 +54,7 @@ func TestPluginLifecycle(t *testing.T) {
 	}
 	writePkg(t, layout, pluginName, pinned.PluginVersion)
 
-	// ---- 停用 / 启用 ----
+	// ---- 启停：停用对象形态、启用裸串 ----
 	if _, err := app.Plugins.Toggle(pluginName, false); err != nil {
 		t.Fatalf("停用插件失败：%v", err)
 	}
@@ -69,7 +70,7 @@ func TestPluginLifecycle(t *testing.T) {
 		}
 	}
 
-	// ---- 开关不抹用户配置：手写一条带过滤的停用声明，两个方向都验 ----
+	// ---- 配置保留：手写一条带过滤的停用声明，开关两个方向都不许碰 extensions ----
 	writeFilteredSettings := func(t *testing.T) {
 		t.Helper()
 		settings := map[string]any{
@@ -96,7 +97,7 @@ func TestPluginLifecycle(t *testing.T) {
 	}
 	assertFiltersKept(t, readPackages(t, layout), pluginName, true)
 
-	// ---- 重试安装保留停用态：用户只是想让包就位，不是想打开它 ----
+	// ---- 重试：只装包，不开开关 ----
 	if _, err := app.Plugins.Retry(pluginName); err != nil {
 		t.Fatalf("重试安装失败：%v", err)
 	}
@@ -114,19 +115,14 @@ func TestPluginLifecycle(t *testing.T) {
 			t.Fatalf("卸载后不应还有 %s 的声明：%v", pluginName, entry)
 		}
 	}
-}
 
-// TestPluginVersionDrift 断言内置插件的判据是「在且版本对」，批量升级只碰漂移的包。
-// 测试环境没有内置 node，npm 必然失败；断言的是「被尝试过」（进了失败表），不是「装成功」。
-func TestPluginVersionDrift(t *testing.T) {
+	// ---- 版本漂移：Provision 只碰「版本装歪」的；对齐的直接跳过 ----
+	// 测试环境没有内置 node，npm 必然失败；断言的是「被尝试过」（进了失败表），不是「装成功」。
 	const drifted, aligned = "pi-hermes-memory", "@ff-labs/pi-fff"
 	driftedItem, alignedItem := service.BuiltinPluginOf(drifted), service.BuiltinPluginOf(aligned)
 	if driftedItem == nil || alignedItem == nil {
 		t.Fatalf("清单里应有 %s 与 %s", drifted, aligned)
 	}
-
-	// Provision：版本装歪的应被尝试重装，版本对齐的直接跳过。
-	app, layout, _ := catalogHarness(t, "")
 	writePkg(t, layout, drifted, "9.9.9")
 	writePkg(t, layout, aligned, alignedItem.PluginVersion)
 	app.Plugins.ProvisionBuiltins()
@@ -138,12 +134,9 @@ func TestPluginVersionDrift(t *testing.T) {
 		t.Fatalf("版本已对齐（%s）的 %s 不该被重装，却出现失败：%s", alignedItem.PluginVersion, aligned, reason)
 	}
 
-	// UpgradeAll：清单标对「可升级」，且只尝试漂移的那个。
-	app2, layout2, _ := catalogHarness(t, "")
-	writePkg(t, layout2, drifted, "0.0.1")
-	writePkg(t, layout2, aligned, alignedItem.PluginVersion)
+	// ---- 版本漂移：UpgradeAll 标对「可升级」，且只尝试漂移的那个 ----
 	var driftedRow, alignedRow bool
-	for _, row := range app2.Plugins.List().Plugins {
+	for _, row := range app.Plugins.List().Plugins {
 		switch row.PluginName {
 		case drifted:
 			driftedRow = row.PluginUpgradable
@@ -154,11 +147,11 @@ func TestPluginVersionDrift(t *testing.T) {
 	if !driftedRow || alignedRow {
 		t.Fatalf("升级标记错误：%s 应可升级=%v，%s 应不可升级=%v", drifted, driftedRow, aligned, alignedRow)
 	}
-	app2.Plugins.UpgradeAll()
-	if pluginErrorOf(app2, drifted) == "" {
+	app.Plugins.UpgradeAll()
+	if pluginErrorOf(app, drifted) == "" {
 		t.Fatalf("版本不符的 %s 应被尝试升级", drifted)
 	}
-	if reason := pluginErrorOf(app2, aligned); reason != "" {
+	if reason := pluginErrorOf(app, aligned); reason != "" {
 		t.Fatalf("版本已对齐的 %s 不该被碰，却出现失败：%s", aligned, reason)
 	}
 }
