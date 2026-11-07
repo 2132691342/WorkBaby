@@ -12,8 +12,8 @@
 
 ## 两个必须遵守的约束
 
-1. **文件只能有 ASCII**。NSIS 以系统 ANSI 代码页读脚本，UTF-8 中文注释会直接
-   报 `Bad text encoding` 并中止。注释写英文。
+1. **文件必须是 UTF-8 with BOM**。卸载询问有中文文案，NSIS 靠 BOM 识别编码；
+   无 BOM 的 UTF-8 会按 ANSI 代码页读，中文直接报 `Bad text encoding` 并中止。
 2. **`File /r` 的路径是相对 `build/windows/nsis/`**，即仓库根往上三级。
    改目录结构要同步改这段。
 
@@ -29,5 +29,7 @@ wails3 task package
 
 ## 数据目录
 
-卸载时**刻意不删** `%LOCALAPPDATA%\WorkBaby`：会话、插件、技能与配置是用户的
-工作成果，卸载程序不该替用户决定删掉它们。要清由用户在界面上自己动手。
+卸载开始时弹一次询问：**是否连 `%LOCALAPPDATA%\WorkBaby` 一起删**。
+默认答案是「否」——会话、插件、技能与配置是用户的工作成果，删不删必须
+由用户自己决定。WebView2 缓存（数据目录下的 `webview\`）无论选什么都清：
+它可再生，且绑定的是这一次安装。

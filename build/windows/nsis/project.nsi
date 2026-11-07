@@ -1,4 +1,4 @@
-Unicode true
+﻿Unicode true
 
 ####
 ## Please note: Template replacements don't work in this file. They are provided with default defines like
@@ -6,14 +6,14 @@ Unicode true
 ## If the keyword is not defined, "wails_tools.nsh" will populate them.
 ## If they are defined here, "wails_tools.nsh" will not touch them. This allows you to use this project.nsi manually
 ## from outside of Wails for debugging and development of the installer.
-## 
+##
 ## For development first make a wails nsis build to populate the "wails_tools.nsh":
 ## > wails build --target windows/amd64 --nsis
 ## Then you can call makensis on this file with specifying the path to your binary:
 ## For a AMD64 only installer:
 ## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app.exe
 ## For a ARM64 only installer:
-## > makensis -DARG_WAILS_ARM64_BINARY=..\..\bin\app.exe
+## > makensis -DARG_WAILS_ARM64_BINARY=..\..\bin\app-arm64.exe
 ## For a installer with both architectures:
 ## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app-amd64.exe -DARG_WAILS_ARM64_BINARY=..\..\bin\app-arm64.exe
 ####
@@ -80,8 +80,26 @@ OutFile "..\..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the i
 !endif
 ShowInstDetails show # This will always show the installation details.
 
+# Whether the uninstaller should also delete the sandbox data directory.
+# Set by the ask in un.onInit; the data dir name is fixed by the shell
+# (%LOCALAPPDATA%\WorkBaby), not derived from the installer defines.
+Var UninstallDeleteData
+
 Function .onInit
    !insertmacro wails.checkArchitecture
+FunctionEnd
+
+# Ask once before uninstalling: sessions, plugins, skills and settings under
+# %LOCALAPPDATA%\WorkBaby are the user's work product, so keeping them is the
+# default answer and deleting must be an explicit choice.
+# This file is saved as UTF-8 with BOM so the Chinese text survives makensis.
+Function un.onInit
+    MessageBox MB_YESNO|MB_ICONQUESTION "同时删除用户数据吗？$\n$\n会话记录、插件、技能与设置保存在 %LOCALAPPDATA%\WorkBaby。$\n选「否」保留数据，重新安装后可继续使用。$\n$\nAlso delete user data (sessions, plugins, skills, settings) under %LOCALAPPDATA%\WorkBaby?" IDYES delete_data
+    StrCpy $UninstallDeleteData "0"
+    Goto ask_done
+delete_data:
+    StrCpy $UninstallDeleteData "1"
+ask_done:
 FunctionEnd
 
 Section
@@ -90,13 +108,14 @@ Section
     !insertmacro wails.webview2runtime
 
     SetOutPath $INSTDIR
-    
+
     !insertmacro wails.files
 
     # Bundle runtime zips, builtin skills and help docs alongside the exe.
     # Without this the installed machine has zero runtimes and the very first
     # launch fails provisioning - the whole point of the sandbox is gone.
-    # NOTE: keep this file ASCII-only; NSIS reads the script with the ANSI code page.
+    # NOTE: this file is UTF-8 with BOM; plain ANSI builds would mangle the
+    # Chinese uninstall prompt above.
     SetOutPath $INSTDIR\assets
     File /r "..\..\..\assets\*.*"
     SetOutPath $INSTDIR
@@ -106,17 +125,21 @@ Section
 
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
-    
+
     !insertmacro wails.writeUninstaller
 SectionEnd
 
-Section "uninstall" 
+Section "uninstall"
     !insertmacro wails.setShellContext
 
-    # User data under %LOCALAPPDATA%\WorkBaby is deliberately kept:
-    # sessions, plugins, skills and settings are the user's work product,
-    # uninstalling must not decide to delete them.
-    RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
+    # The WebView2 cache is regenerable and tied to this install: always clear
+    # it, even when the user chooses to keep their sandbox data.
+    RMDir /r "$LOCALAPPDATA\WorkBaby\webview"
+
+    # User data goes only if the user said so at the uninstall prompt.
+    ${If} $UninstallDeleteData == "1"
+        RMDir /r "$LOCALAPPDATA\WorkBaby"
+    ${EndIf}
 
     RMDir /r $INSTDIR
 
