@@ -12,32 +12,38 @@ type BuiltinSkill struct {
 	SkillRequires string
 }
 
-// BuiltinSkills 是内置技能清单。筛选口径：只收与编程助手日常相关、不依赖特定商业账号的技能
-// （技能落位就进系统提示，纯噪音不进来）；默认开关看「沙箱里跑不跑得起来」，
-// 依赖 .NET SDK、gh CLI 这类随包运行时没有的东西的技能默认停用。
+// BuiltinSkills 是内置技能清单。筛选口径：只收「沙箱里跑得起来 + 日常用得上」的——
+// 依赖沙箱外程序（.NET SDK、gh CLI、playwright、LibreOffice）或与内置插件职责
+// 重叠的一律不收；技能落位就进系统提示，纯噪音不进来。
 var BuiltinSkills = []BuiltinSkill{
 	{SkillDirName: "skill-creator", SkillGroup: "元能力", SkillDefaultOn: true},
-	{SkillDirName: "skill-scanner", SkillGroup: "元能力", SkillDefaultOn: true},
 	{SkillDirName: "skill-vetter", SkillGroup: "元能力", SkillDefaultOn: true},
-	{SkillDirName: "prompt-engineering-expert", SkillGroup: "元能力", SkillDefaultOn: true},
-	{SkillDirName: "task-alignment", SkillGroup: "任务流程", SkillDefaultOn: true},
-	{SkillDirName: "task-implement", SkillGroup: "任务流程", SkillDefaultOn: true},
-	{SkillDirName: "tdd", SkillGroup: "任务流程", SkillDefaultOn: true},
 	{SkillDirName: "diagnose", SkillGroup: "任务流程", SkillDefaultOn: true},
+	{SkillDirName: "tdd", SkillGroup: "任务流程", SkillDefaultOn: true},
 	{SkillDirName: "handoff", SkillGroup: "任务流程", SkillDefaultOn: true},
-	{SkillDirName: "setup-pre-commit", SkillGroup: "任务流程", SkillDefaultOn: true},
-	{SkillDirName: "github", SkillGroup: "开发", SkillDefaultOn: false, SkillRequires: "gh CLI"},
-	{SkillDirName: "全栈开发", SkillGroup: "开发", SkillDefaultOn: true},
-	{SkillDirName: "前端开发", SkillGroup: "开发", SkillDefaultOn: true},
 	{SkillDirName: "Impeccable（前端设计工具集）", SkillGroup: "开发", SkillDefaultOn: true},
-	{SkillDirName: "mcp-builder", SkillGroup: "开发", SkillDefaultOn: true},
 	{SkillDirName: "deep-research", SkillGroup: "研究", SkillDefaultOn: true, SkillRequires: "联网搜索"},
 	{SkillDirName: "canvas-design", SkillGroup: "文档产出", SkillDefaultOn: true},
-	{SkillDirName: "markitdown-skill", SkillGroup: "文档产出", SkillDefaultOn: false, SkillRequires: "Python markitdown"},
 	{SkillDirName: "md-to-pdf-cjk", SkillGroup: "文档产出", SkillDefaultOn: true, SkillRequires: "Python reportlab"},
-	{SkillDirName: "minimax-docx", SkillGroup: "文档产出", SkillDefaultOn: false, SkillRequires: ".NET SDK"},
-	{SkillDirName: "minimax-pdf", SkillGroup: "文档产出", SkillDefaultOn: true, SkillRequires: "Python reportlab / playwright"},
-	{SkillDirName: "minimax-xlsx", SkillGroup: "文档产出", SkillDefaultOn: false, SkillRequires: "LibreOffice（部分功能）"},
+	{SkillDirName: "minimax-xlsx", SkillGroup: "文档产出", SkillDefaultOn: false, SkillRequires: "Python openpyxl"},
+}
+
+// removedBuiltinSkills 是历史上内置过、现已下架的技能目录名。
+// 落位时顺手清掉沙箱里的旧副本，清单缩编才能在老数据目录上真落地；
+// 这些名字归内置清单管，用户后来自建的同名技能会被一并清掉，换的是列表不再积灰。
+var removedBuiltinSkills = []string{
+	"skill-scanner",
+	"prompt-engineering-expert",
+	"task-alignment",
+	"task-implement",
+	"setup-pre-commit",
+	"github",
+	"全栈开发",
+	"前端开发",
+	"mcp-builder",
+	"markitdown-skill",
+	"minimax-docx",
+	"minimax-pdf",
 }
 
 // BuiltinSkillOf 按目录名取内置描述；非内置给 nil。

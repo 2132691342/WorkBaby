@@ -48,6 +48,7 @@ func (s *Skills) projectDir() string {
 func (s *Skills) Provision() int {
 	_ = pkg.EnsureDir(s.Layout.SkillsDir())
 	_ = pkg.EnsureDir(s.Layout.SkillsOffDir())
+	s.pruneRemoved()
 	copied := 0
 	for _, item := range BuiltinSkills {
 		active := filepath.Join(s.Layout.SkillsDir(), item.SkillDirName)
@@ -78,6 +79,30 @@ func (s *Skills) Provision() int {
 		s.Hub.Broadcast("skill:status", sse.EngineTag(map[string]any{"provisioned": copied}))
 	}
 	return copied
+}
+
+// pruneRemoved 清掉已下架内置技能留在沙箱里的副本：清单缩编只改代码的话，
+// 数据目录里那批照旧占着技能列表，用户看到的还是缩编前的样子。
+// 每次落位都跑一遍：目录不在就是空操作，也防着随包资产把已下架目录带回来。
+func (s *Skills) pruneRemoved() {
+	removed := false
+	for _, name := range removedBuiltinSkills {
+		for _, root := range []string{s.Layout.SkillsDir(), s.Layout.SkillsOffDir()} {
+			dir := filepath.Join(root, name)
+			if !pkg.Exists(dir) {
+				continue
+			}
+			if err := removeAllQuiet(dir); err != nil {
+				pkg.Warn("已下架技能清理失败 %s：%v", name, err)
+				continue
+			}
+			pkg.Info("已下架内置技能已清理：%s", name)
+			removed = true
+		}
+	}
+	if removed {
+		s.Hub.Broadcast("skill:status", sse.EngineTag(map[string]any{"pruned": true}))
+	}
 }
 
 // healDuplicate 自愈「启用区与禁用区同时有同一个技能」的破损态：清单两行同名，一行开一行关。
