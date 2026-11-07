@@ -2,6 +2,7 @@ package service
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"WorkBaby/backend/domain"
@@ -40,6 +41,8 @@ type Chat struct {
 	queued  domain.QueuedMessagesVO
 	// crashStreak 连续崩溃次数：自动重启的退避基数，成功绑定后归零。
 	crashStreak int
+	// warming 是否已有一个预热在跑：没有它，状态接口每次未命中都会再排一个 EnsureRpc。
+	warming atomic.Bool
 }
 
 // NewChat 造一个对话门面。
@@ -138,6 +141,35 @@ func (c *Chat) EnsureRpc() (*chat.PiRpc, error) {
 	go c.refreshCommands(client)
 	go c.refreshLevels(client)
 	return client, nil
+}
+
+// Warm 后台把引擎拉起来。打开应用就该预热，而不是等用户发第一句话时
+// 才陪着十几个插件的冷加载一起等；已就绪或已有预热在跑时是空操作。
+func (c *Chat) Warm() {
+	workspace := c.Settings.Workspace()
+	if workspace == "" || !c.Runtime.Layout.NodeReady() || !c.Runtime.PiInstalled() {
+		return
+	}
+	c.mu.Lock()
+	alive := c.rpc != nil && c.rpc.Alive()
+	c.mu.Unlock()
+	if alive || !c.warming.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer c.warming.Store(false)
+		if _, err := c.EnsureRpc(); err != nil {
+			pkg.Warn("引擎预热失败：%v", err)
+			// 预热失败只发一条通知：真正的原因留给用户下次动作时的报错，
+			// 这里不拦界面——对话页的历史回放不依赖引擎。
+			c.Hub.Broadcast("chat:notify", sse.EngineTag(map[string]any{
+				"level":   "warn",
+				"message": "引擎后台启动失败：" + pkg.As(err).Message,
+			}))
+			return
+		}
+		pkg.Info("引擎预热完成")
+	}()
 }
 
 // scheduleRestart 引擎意外退出后的自动拉起：指数退避，连崩 5 次就停手交给用户。

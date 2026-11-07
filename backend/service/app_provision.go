@@ -42,6 +42,9 @@ func (a *App) Provision() {
 	if a.Runtime.PiInstalled() {
 		a.Plugins.ProvisionBuiltins()
 	}
+	// 装配收尾就把引擎预热起来：用户点开对话页时插件已加载完，
+	// 而不是从那一刻才开始等十几个插件的冷启动。
+	a.Chat.Warm()
 }
 
 // RuntimeProblems 取运行时装配时遇到的问题（诊断面板用）。

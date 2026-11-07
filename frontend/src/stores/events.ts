@@ -84,6 +84,11 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       void deps.refreshEngines()
       return
     case 'engine:ready':
+      void deps.refreshEngines()
+      // 引擎是后台预热的：就绪那一刻对话页要从回放态落到实况，
+      // 模型、上下文与命令清单都在引擎手里，不刷就一直停在「启动中」。
+      void chat.refreshIfIdle()
+      return
     case 'engine:detected':
       void deps.refreshEngines()
       return

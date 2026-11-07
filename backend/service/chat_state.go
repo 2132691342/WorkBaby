@@ -10,11 +10,17 @@ import (
 )
 
 // State 聊天状态总装：引擎实况 + 会话文件回放。
+// 引擎没就绪时不把打开应用的这条路卡在冷启动上：历史与待办先从会话文件回放，
+// 引擎交给后台预热，就绪后 engine:ready 会带着界面再刷一次实况。
 func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
-	client, err := c.EnsureRpc()
-	if err != nil {
-		return c.emptyState(pkg.As(err).Message)
+	workspace := c.Settings.Workspace()
+	if !c.engineBound(workspace) {
+		c.Warm()
+		return c.replayState(sessionFile, workspace)
 	}
+	c.mu.Lock()
+	client := c.rpc
+	c.mu.Unlock()
 	if sessionFile != "" && sessionFile != c.currentFile() {
 		if err := c.alignSession(client, sessionFile); err != nil {
 			return c.emptyState("切换会话失败：" + pkg.As(err).Message)
@@ -29,7 +35,7 @@ func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
 	stats, _ := client.Request(chat.Record{"type": "get_session_stats"}, 0)
 	c.mu.Lock()
 	file := c.file
-	workspace := c.rpcWs
+	boundWs := c.rpcWs
 	level := c.level
 	levels := append([]string(nil), c.levels...)
 	cmds := append([]domain.SlashCommandVO(nil), c.cmds...)
@@ -40,7 +46,7 @@ func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
 	resp := domain.ChatStateRESP{
 		EngineKind:     domain.EnginePi,
 		SessionFile:    file,
-		WorkDir:        workspace,
+		WorkDir:        boundWs,
 		EngineRunning:  client.Alive(),
 		Streaming:      c.Stream.Active(),
 		Model:          parseModelInfo(state),
@@ -126,6 +132,52 @@ func parseContextUsage(raw any) *domain.ContextUsageVO {
 		out.UsagePercent = &percent
 	}
 	return out
+}
+
+// engineBound 引擎是否活着且绑定当前工作区。绑定是快路径的前提：
+// 活着但绑在别的工作区，等于没绑。
+func (c *Chat) engineBound(workspace string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.rpc != nil && c.rpc.Alive() && c.rpcWs == workspace
+}
+
+// replayState 引擎还没就绪时的回放态：历史与待办从会话文件来，不欠引擎的。
+// BindErr 说的是现状而不是故障——预热结果会经 engine:ready 或通知跟进。
+func (c *Chat) replayState(sessionFile, workspace string) domain.ChatStateRESP {
+	c.mu.Lock()
+	levels := append([]string(nil), c.levels...)
+	cmds := append([]domain.SlashCommandVO(nil), c.cmds...)
+	c.mu.Unlock()
+	reason := "引擎正在后台启动，就绪后自动连上"
+	switch {
+	case workspace == "":
+		reason = "请先在设置里选择工作区"
+	case !c.Runtime.Layout.NodeReady() || !c.Runtime.PiInstalled():
+		reason = "pi 引擎尚未就绪，等应用页装配完成"
+	}
+	guarded, err := c.guardSessionPath(sessionFile)
+	if err != nil {
+		guarded = ""
+	}
+	resp := domain.ChatStateRESP{
+		EngineKind:     domain.EnginePi,
+		SessionFile:    guarded,
+		WorkDir:        workspace,
+		EngineRunning:  false,
+		ThinkingLevel:  "medium",
+		ThinkingLevels: levels,
+		AutoCompaction: true,
+		Commands:       cmds,
+		Caps:           domain.PiCaps,
+		BindErr:        reason,
+	}
+	// 回放自带头部守卫：越界路径在这里落空，拿到的是空历史而不是报错。
+	if guarded != "" {
+		resp.History = c.Sessions.History(guarded)
+		resp.Todos = c.Sessions.Todos(guarded)
+	}
+	return resp
 }
 
 // emptyState 绑定失败时给一个能画的空状态：界面据此显示原因，而不是白屏。

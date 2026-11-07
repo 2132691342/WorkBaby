@@ -122,11 +122,28 @@ export const useChatStore = defineStore('chat', () => {
 
   async function refresh(session = sessionFile.value) {
     const state = await api.chatState(session || undefined)
+    return applyAndFollow(state)
+  }
+
+  /** 落状态并补拉模型清单：refresh 与 refreshIfIdle 共用的收尾。 */
+  function applyAndFollow(state: ChatState) {
     applyState(state)
     // 模型清单跟着「当前模型」走：引擎可能被换过（装完插件重启、改了 models 配置），
     // 而模型清单不会主动推过来。不在这里跟一次，下拉里就会一直停着上一次的清单。
     if (!models.value.length || !state.model) void loadModels()
     return state
+  }
+
+  /**
+   * 引擎就绪后的那一次刷新：只在没有直播轮时落状态。
+   * ready 帧与 chat:start 可能前后脚到，状态回来的路上开新一轮的话，
+   * 这份已过期的快照会把正在直播的界面盖回静止。
+   */
+  async function refreshIfIdle(session = sessionFile.value) {
+    if (streaming.value) return
+    const state = await api.chatState(session || undefined)
+    if (streaming.value) return
+    return applyAndFollow(state)
   }
 
   /** 拉可选模型清单。失败不抛：拉不到时输入区仍应可用。 */
@@ -365,6 +382,7 @@ export const useChatStore = defineStore('chat', () => {
     setUsage,
     usageOf,
     refresh,
+    refreshIfIdle,
     loadModels,
     setModel,
     setThinking,
