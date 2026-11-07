@@ -39,8 +39,8 @@ func (r *Runtime) extractRuntimes(force bool, onProgress func(phase, message str
 	var problems []string
 	for _, item := range items {
 		if pkg.Exists(item.Target) && !force {
-			// 已就绪的运行时也过一遍入口补齐：老版本装出来的 Python 没有 pip 垫片，
-			// 只在解压路径补的话，升级后的用户永远拿不到。
+			// 已就绪的运行时也过一遍入口补齐：早先落位的 Python 可能没有 pip 垫片，
+			// 只在解压路径补的话，已装好的机器永远拿不到。
 			if item.Label == "Python" {
 				if err := r.ensurePipEntrypoints(); err != nil {
 					problems = append(problems, "内置 Python 入口补齐失败："+pkg.As(err).Message)

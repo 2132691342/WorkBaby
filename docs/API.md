@@ -57,7 +57,7 @@
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/chat/state` | GET | `?session=`；会话绑定（不符时引擎先切过去）+ 引擎实况 + JSONL 回放的历史轮 + 待办（`todos`，活动分支最近一次 todo 工具调用派生）+ 能力表 |
+| `/chat/state` | GET | `?session=`；引擎已绑定时回引擎实况 + JSONL 回放的历史轮 + 待办（`todos`，活动分支最近一次 todo 工具调用派生）+ 能力表。引擎未就绪时不阻塞：直接回放历史，`bind_err` 说明「引擎正在后台启动」，同时触发后台预热，就绪后广播 `engine:ready` |
 | `/chat/send` | POST | `{ session_file, message, attachments }` → `{ run_id }` |
 | `/chat/stop` | POST | 中止当前运行 |
 | `/chat/steer` / `followup` | POST | `{ session_file?, message, attachments? }` 插话 / 排队追加 |
@@ -167,7 +167,7 @@ git 全部走内置 git.exe，凭证走自带的 Git Credential Manager（落 Wi
 | `app:progress` | `kind, action, phase('start'/'line'/'done'/'fail'), plugin_name?, line?, message?` | 安装 / 解压 / 插件进度 |
 | `app:close_requested` | `close_action` | 首次按窗口关闭，前端弹一次「收进托盘还是退出」 |
 | `plugin:status` | `plugin_name?` | 插件安装态变化（无字段 = 整体刷新） |
-| `skill:status` | `skill_dir, enabled?/reset?/deleted?/copied?` | 技能落位与开关变化 |
+| `skill:status` | `skill_dir, enabled?/reset?/deleted?/copied?/pruned?` | 技能落位、开关与下架清理变化 |
 | `session:info` / `session:title` | — | 会话清单变化 / 标题变化 |
 | `workspace:changed` | `workspace` | 工作区切换 |
 

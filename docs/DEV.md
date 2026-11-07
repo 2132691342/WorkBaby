@@ -69,8 +69,8 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 | `tests/chain_test.go` | `TestChain` | 回环 HTTP 全链路：鉴权硬门（401 且不带业务信封）、CORS 预检绕过鉴权门并带允许头（WebView2 虚拟源跨源调回环的前提）、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入落盘（HTTP 写 → 直查存储文件 → HTTP 读回）、SSE 通道（查询参数鉴权、先补 `stream:open`、广播到达、seq 单调） |
 | `tests/frames_test.go` | `TestFrames` | 流式翻译器的块表状态机：增量按块累加、工具块从出现到收尾、message_end 权威覆盖但按 id 保留工具读数、user 话术更新、用量透传 turn_end、stopReason=error 收尾带原话、settled 透传 abort、未知事件静默 no-op |
 | `tests/session_test.go` | `TestSession` | 会话 JSONL 回放与写入纪律：分支只走当前分支、残行不毁整份历史、环状 parentId 有界退出、工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题来源；隐藏轮只记台账不改文件、改名只末尾追加、引擎正打开时拒绝 |
-| `tests/sandbox_test.go` | `TestSandbox` | 沙箱三层契约：内置清单与磁盘资产互相咬合（18 个插件逐条对版本、22 个技能双向无死条目、frontmatter 块标量不破）、子进程环境把 HOME / USERPROFILE / npm 与 pip 缓存钉进沙箱、技能落位/开关/重置/删除/自愈整条生命周期 |
-| `tests/plugin_test.go` | `TestPlugins` | 插件治理：来源串规范（git 源就是 URL 本身，不带 `git:` 前缀）、停用写 `autoload:false` 启用写裸串、开关保留用户配的资源过滤、重试不静默打开停用的插件、卸载撤声明删包目录、版本漂移只碰「在且版本不对」的包 |
+| `tests/sandbox_test.go` | `TestSandbox` | 沙箱三层契约：内置清单结构不变量与磁盘资产互相咬合（插件包名唯一且来源串反解回原包名——装 / 卸 / 开关全按包名索引；10 个技能与 assets 双向无死条目、frontmatter 块标量不破）、子进程环境把 HOME / USERPROFILE / npm 与 pip 缓存钉进沙箱、技能落位/开关/重置/删除/自愈整条生命周期 |
+| `tests/plugin_test.go` | `TestPlugins` | 插件治理：停用写 `autoload:false` 启用写裸串、开关保留用户配的资源过滤、重试不静默打开停用的插件、卸载撤声明删包目录、版本漂移只碰「在且版本不对」的包（npm 必败环境下断言「被尝试过」） |
 | `tests/mcp_test.go` | `TestMcpConfig` | 12 路并发写 mcp.json 一条不丢（读-改-写必须有锁）；删项目级条目不连带删被它遮蔽的用户级条目 |
 | `tests/harness_test.go` | — | 公共装具：全后端 harness（真 JSON 存储 + 真 gin 中间件栈）与轻量 harness、HTTP 调用与断言辅助 |
 | `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：解压三个运行时 → 内置 npm 装 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑（需联网，约 2 分钟） |
@@ -116,7 +116,7 @@ WorkBaby\
 ├── WorkBaby.exe          # Go 编译的壳（前端已 embed 进 exe）
 ├── assets\
 │   ├── runtime\          # node / PortableGit / Python 三个 zip
-│   └── skills\           # 内置技能包（22 个目录）
+│   └── skills\           # 内置技能包（10 个目录）
 └── 卸载程序等 NSIS 产物
 ```
 
@@ -124,7 +124,7 @@ WorkBaby\
 运行时 zip 走 `assets\runtime\`，首启解压到数据目录——不预解压进安装包，
 否则安装体积翻倍，且用户要重装才能升级运行时。
 
-体积基线：`assets\runtime` 约 110MB、`assets\skills` 约 8MB、exe 约 32MB。
+体积基线：`assets\runtime` 约 110MB、`assets\skills` 约 0.8MB、exe 约 32MB。
 安装包体积随 NSIS 压缩率浮动，**只有十几 MB 一定是 assets 没打进去**。
 
 ### 版本号
@@ -149,8 +149,10 @@ task package    # NSIS 安装包，per-user 安装、可选安装目录
 - 允许用户改安装目录
 - **必须把 `assets/` 一起装进去**：`build/windows/nsis/project.nsi` 是手维护文件，
   打包段里有 `File /r assets`；少装 assets 等于装了一堆不能跑的文件。
-  该文件只能写 ASCII（NSIS 按 ANSI 代码页读脚本），详见 `build/windows/nsis/README.md`
-- 卸载不删数据目录——用户的会话与配置在 `%LOCALAPPDATA%\WorkBaby`
+  该文件带中文文案，保存为 **UTF-8 with BOM**（NSIS 靠 BOM 识别编码），
+  详见 `build/windows/nsis/README.md`
+- 卸载时先问一句**是否连数据目录一起删**，默认保留——用户的会话与配置在
+  `%LOCALAPPDATA%\WorkBaby`，删不删必须由用户自己决定
 
 ### CI
 
@@ -187,4 +189,4 @@ task build                       # exe 产出并可启动
 5. 插件页能停用一个、再启用回来
 6. 技能页能停用一个、再启用回来（`skills\` 与 `skills_disabled\` 之间搬移）
 7. 关窗收托盘、托盘菜单能唤回
-8. 卸载后 `%LOCALAPPDATA%\WorkBaby` 仍在（数据未丢）
+8. 卸载弹窗选「否」后 `%LOCALAPPDATA%\WorkBaby` 仍在；选「是」则连数据一起清空

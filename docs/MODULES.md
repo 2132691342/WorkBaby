@@ -90,13 +90,13 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | 文件 | 职责 |
 |---|---|
 | `app.go` / `app_provision.go` / `app_actions.go` / `app_config.go` | 装配根、首启装配、pi 本体的装 / 升 / 卸 |
-| `chat_service.go` / `chat_state.go` / `chat_actions.go` | 引擎绑定与生命周期（含崩溃自动重启）、发送、停止、插话、回答、压缩 |
+| `chat_service.go` / `chat_state.go` / `chat_actions.go` | 引擎绑定与生命周期（含崩溃自动重启、后台预热 Warm）、发送、停止、插话、回答、压缩。状态总装走两条路径：引擎已绑定走实况快路径；未就绪先回放会话文件并触发预热，不等冷启动 |
 | `chat/rpc_client.go` | pi 子进程 RPC：启动、发命令、收事件、超时；关停等真退出再返回 |
 | `chat/frames.go` | domain 词汇 → SSE 帧 |
 | `chat/json_helpers.go` | RPC 记录（`map[string]any`）的类型安全取值小工具 |
 | `parser/{entries,history,summary,diff,stat,todos,time}.go` | 会话 JSONL → 条目树 / 活动分支 / 统计 / 待办派生 |
 | `plugins.go` / `plugin_install.go` / `plugin_updates.go` / `plugin_catalog.go` / `plugin_settings.go` | 插件装 / 卸 / 开 / 关 / 升 / 重试；进度上报与失败台账；registry 最新版检查；`packages[]` 读写与来源串规范化。升级走「备份旧目录 → 装新的 → 失败回滚」；`piSettingsMu` 串行化所有 settings.json 的读-改-写（含 `npmCommand`） |
-| `skills.go` / `skill_catalog.go` / `skill_fs.go` | 技能落位、开关（搬目录）、导入、编辑、新建、删除、重置。落盘一律经 `copyTreeAtomic`（临时目录 + 换名）；开关 / 重置 / 删除以传入的 SKILL.md 路径定位技能目录，动作对象是整个目录；`Provision` 自愈「两个区同时有同一个技能」的破损态 |
+| `skills.go` / `skill_catalog.go` / `skill_fs.go` | 技能落位、开关（搬目录）、导入、编辑、新建、删除、重置。落盘一律经 `copyTreeAtomic`（临时目录 + 换名）；开关 / 重置 / 删除以传入的 SKILL.md 路径定位技能目录，动作对象是整个目录；`Provision` 自愈「两个区同时有同一个技能」的破损态，并清掉已下架内置技能在沙箱里的旧副本（下架名单在 `removedBuiltinSkills`） |
 | `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手）。删除只动界面显示的那一条（项目级遮蔽用户级时不连带删除）；探测先看 HTTP 状态码再解析，失败文案带上服务端 stderr |
 | `models.go` / `model_probe.go` | `models.json` / `auth.json` 读写，上游探测。`/providers` 回服务商视图（密钥掩码），`/models` 回全部模型平铺（对话页下拉，按服务商名排序） |
 | `jsonutil.go` | 工作区历史行的 JSON 编解码（坏值当空，不阻断） |
