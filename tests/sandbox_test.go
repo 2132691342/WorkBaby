@@ -16,48 +16,16 @@ import (
 // 子进程环境把缓存与家目录钉进数据目录（少钉一条沙箱就漏）、
 // 技能的落位/开关/重置/删除/自愈整条生命周期。
 func TestSandbox(t *testing.T) {
-	// ---- 清单咬合：插件逐条钉住规格，只断数量的话删一个多一个都看不出来 ----
-	spec := map[string]string{
-		"pi-web-access":                      "0.46.0",
-		"pi-hermes-memory":                   "0.10.0",
-		"@ff-labs/pi-fff":                    "0.11.0",
-		"@narumitw/pi-lsp":                   "0.49.12",
-		"pi-plan-mode":                       "0.4.8",
-		"pi-subagents":                       "0.84.0",
-		"pi-smart-compact":                   "10.7.3",
-		"pi-openui":                          "0.2.0",
-		"@juicesharp/rpiv-todo":              "2.15.0",
-		"@juicesharp/rpiv-ask-user-question": "2.15.0",
-		"@plannotator/pi-extension":          "0.28.48",
-		"pi-footer":                          "0.5.1",
-		"pi-extension-doctor":                "0.1.0",
-		"pi-browser-harness":                 "0.14.0",
-		"pi-inspect":                         "0.6.0",
-		"pi-context-view":                    "0.8.2",
-		"pi-chrome":                          "0.15.57",
-		"pi-web":                             "0.15.5",
-	}
-	if len(service.BuiltinPlugins) != len(spec) {
-		t.Errorf("内置插件应为规格的 %d 个，实际 %d 个", len(spec), len(service.BuiltinPlugins))
-	}
+	// ---- 清单咬合：包名唯一，且来源串能被反解回原包名（装 / 卸 / 开关全按包名索引）----
+	// 逐版本比对是复述实现——每升一个插件版本都要改一遍测试；这里只守结构不变量。
 	seen := map[string]struct{}{}
 	for _, item := range service.BuiltinPlugins {
 		if _, dup := seen[item.PluginName]; dup {
 			t.Fatalf("内置插件清单里有重复包名：%s", item.PluginName)
 		}
 		seen[item.PluginName] = struct{}{}
-		want, ok := spec[item.PluginName]
-		if !ok {
-			t.Errorf("内置插件不在规格清单里：%s", item.PluginName)
-			continue
-		}
-		if item.PluginVersion != want {
-			t.Errorf("%s 的钉住版本应是 %s，实际 %s", item.PluginName, want, item.PluginVersion)
-		}
-	}
-	for name := range spec {
-		if _, ok := seen[name]; !ok {
-			t.Errorf("规格清单里的插件不在内置清单中：%s", name)
+		if got := service.PackageNameOf(service.NpmSourceOf(item)); got != item.PluginName {
+			t.Errorf("来源串反解不出原包名：%s → %q", item.PluginName, got)
 		}
 	}
 

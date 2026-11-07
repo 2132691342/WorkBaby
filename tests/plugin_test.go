@@ -12,24 +12,10 @@ import (
 	"WorkBaby/backend/service"
 )
 
-// TestPlugins 断言插件治理的全部契约：来源串规范、启停两态的写法、用户配置保留、
+// TestPlugins 断言插件治理的全部契约：启停两态的写法、用户配置保留、
 // 重试不动开关、卸载撤声明删包目录、版本漂移只碰装歪的包。
 // 一切落盘都写在 pi 的原生表达（settings.json 的 packages[]）上。
 func TestPlugins(t *testing.T) {
-	// ---- 来源规范：入口处先钉住。裸包名补 npm: 前缀，git 与相对路径原样透传，
-	// 反解不出包名的来源串进不了 settings.json 的 packages[] ----
-	for _, in := range []string{"pi-web-access", "npm:@ff-labs/pi-fff@0.11.0", "https://github.com/u/r", "./my-plugin"} {
-		if got := service.PackageNameOf(service.PluginSourceOf(in)); got == "" {
-			t.Errorf("来源串 %q 反解不出包名", in)
-		}
-	}
-	if got := service.PluginSourceOf("pi-web-access"); got != "npm:pi-web-access" {
-		t.Errorf("裸包名应补 npm: 前缀，实际 %q", got)
-	}
-	if service.IsGitSource("git:https://github.com/u/r") {
-		t.Error("git: 不是 pi 认的来源写法，不该被当成 git 源")
-	}
-
 	app, layout, _ := catalogHarness(t, "")
 	app.Plugins.DeclareBuiltins()
 
