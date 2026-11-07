@@ -206,8 +206,6 @@ func (a *App) shutdown() {
 		_ = a.srv.Stop(ctx)
 		cancel()
 	}
-	if a.store != nil {
-		_ = a.store.Close()
-	}
+	// 设置存储整读整写、每次变更即落盘，退出时没有需要收尾的句柄。
 	pkg.Info("已退出")
 }

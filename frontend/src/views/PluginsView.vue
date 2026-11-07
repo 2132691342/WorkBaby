@@ -53,9 +53,31 @@ async function load() {
   }
 }
 
+// 从输入的来源猜包名，用于「已经装过」的提醒。带版本的来源截掉 @version，
+// 带 ref 的 git 源猜不准就整个当名字，反正匹配不上只是少提醒一次。
+function pluginNameOf(source: string): string {
+  const spec = source.startsWith('npm:') ? source.slice(4) : source
+  const at = spec.lastIndexOf('@')
+  return at > 1 ? spec.slice(0, at) : spec
+}
+
 async function install() {
   const target = source.value.trim()
   if (!target) return
+  // 撞上已装的同名插件要先说明后果：覆盖成新版本，数据不动。
+  const name = pluginNameOf(target)
+  const existing = rows.value.find((row) => row.plugin_name === name)
+  if (existing) {
+    try {
+      await ElMessageBox.confirm(
+        t('plugins.installExisting', { name, version: existing.plugin_version }),
+        t('plugins.installTitle'),
+        { confirmButtonText: t('common.install'), cancelButtonText: t('common.cancel'), type: 'info' },
+      )
+    } catch {
+      return
+    }
+  }
   installing.value = true
   try {
     await api.installPlugin(target)

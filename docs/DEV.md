@@ -11,8 +11,8 @@
 | NSIS | 3.x | 只在打安装包时需要（`choco install nsis`） |
 | WebView2 Runtime | Win10 1803+ 自带 | Wails 渲染层 |
 
-不需要预装 Python / Rust / 任何 C 编译链——`glebarez/sqlite` 是纯 Go 实现，
-**全项目无 cgo**。
+不需要预装 Python / Rust / 任何 C 编译链——**全项目无 cgo**，
+壳的持久化就是标准库读写一个 JSON 文件。
 
 ## 常用命令
 
@@ -61,20 +61,21 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 只测「改这里会坏那里」的复杂流程与长链路。平凡断言（单 getter、纯函数往返、
 复述框架行为）不写——它们的维护成本高于收益，还会把 `go test` 拖成几分钟。
 
-六个默认文件 + 一个 live 文件、九个用例、约 1 秒：
+六个默认文件 + 一个 live 文件、十个用例、约 1 秒：
 
 | 文件 | 用例 | 断言什么 |
 |---|---|---|
-| `tests/http_chain_test.go` | `TestHTTPChain` | 鉴权硬门（401 且不带业务信封）、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入真的落盘（HTTP 写 → 直连 SQLite 查 → HTTP 读回三个方向对上） |
+| `tests/http_chain_test.go` | `TestHTTPChain` | 鉴权硬门（401 且不带业务信封）、CORS 预检绕过鉴权门并带允许头（WebView2 虚拟源跨源调回环的前提）、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入真的落盘（HTTP 写 → 直查存储文件 → HTTP 读回三个方向对上） |
 | | `TestSSEStream` | 查询参数鉴权、连上先补 `stream:open`、广播帧真的到达订阅者、广播必发号（seq 单调） |
 | `tests/session_test.go` | `TestSessionReplay` | 分支遍历只走当前分支、残行不毁整份历史、环状 parentId 有界退出、工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题取自 `session_info` |
 | | `TestSessionWriteDiscipline` | 隐藏轮只记壳的台账不改文件、改名只在末尾追加、引擎正打开该会话时拒绝且不动文件 |
 | `tests/sandbox_test.go` | `TestBuiltinManifest` | 内置清单与磁盘资产互相咬合（18 个插件逐条对版本、22 个技能双向无死条目）；每个 SKILL.md 的 name / description 都解析得出来（YAML 块标量不破） |
 | | `TestSkillLifecycle` | 落位尊重默认值且不覆盖用户改动；开关是搬目录 + 台账记账；重置后 SKILL.md 仍是可读文件；删除清掉整个目录、目录路径一律拒；「两个区各一份」的破损态自愈后清单无重复行 |
+| | `TestSandboxEnvPinsPaths` | 子进程环境把 HOME / USERPROFILE / npm 与 pip 缓存钉进沙箱数据目录——少钉一条，探针或技能脚本就会把缓存漏进用户目录或工作目录 |
 | `tests/plugin_test.go` | `TestPluginLifecycle` | 来源串规范（git 源就是 URL 本身，不带 `git:` 前缀）；停用写对象形态 `autoload:false`、启用写裸来源串；开关保留用户配的资源过滤（extensions）；重试安装不把已停用的插件静默打开；卸载撤声明并删包目录 |
 | | `TestPluginVersionDrift` | 判据是「在且版本对」，Provision 与 UpgradeAll 都只碰漂移项 |
 | `tests/mcp_test.go` | `TestMcpConfig` | 12 路并发写 mcp.json 一条不丢（读-改-写必须有锁）；删项目级条目不连带删掉被它遮蔽的用户级条目 |
-| `tests/harness_test.go` | — | 公共装具：全后端 harness（真 SQLite + 真 gin 中间件栈）与轻量 harness、HTTP 调用与断言辅助 |
+| `tests/harness_test.go` | — | 公共装具：全后端 harness（真 JSON 存储 + 真 gin 中间件栈）与轻量 harness、HTTP 调用与断言辅助 |
 | `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：解压三个运行时 → 内置 npm 装 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑 |
 
 约定：

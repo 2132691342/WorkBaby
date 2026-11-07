@@ -4,6 +4,9 @@
   `Endpoint()` 回填（`base_url` 已含 `/api/v1`）。
 - 鉴权：每个请求带 `X-Desktop-Token` 头；SSE 用 `?token=` 查询参数
   （EventSource 带不了自定义头）。令牌每次启动随机，不匹配回 HTTP 401。
+- CORS：WebView2 的页面源（`wails.localhost` 虚拟域）与开发态 vite 端口对回环
+  服务就是跨源。OPTIONS 预检不带令牌、绕过鉴权门直接回 204 与允许头；
+  允许源限 `wails.localhost` 与 localhost / 127.0.0.1（真正的门禁是令牌）。
 - 只允许 GET / POST；写操作语义靠路径段表达（`/sessions/delete`）。
 - **恒回 200**，业务失败看信封 `code`：
 
@@ -65,7 +68,7 @@
 | `/chat/new` / `clone` | POST | 新建 / 克隆会话，返回 `session_file` |
 | `/chat/export-html` | POST | `{ session }` → `{ file_name, content }` |
 | `/chat/model` / `thinking` / `autocompact` | POST | 会话内切换模型 / 思考档 / 自动压缩 |
-| `/messages/hide` / `unhide` | POST | `{ session, hid }`；隐藏台账存 SQLite，会话文件不动 |
+| `/messages/hide` / `unhide` | POST | `{ session, hid }`；隐藏台账存壳存储文件，会话文件不动 |
 
 附件形状：`{ kind: 'file', file_path }` 走文本引用；`{ kind: 'image', image_base64, image_mime }`
 以 base64 进引擎 `images` 字段——这是唯一的二进制通道。

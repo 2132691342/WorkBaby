@@ -40,7 +40,7 @@
 |---|---|---|
 | 2000 | `CodeConfigRead` | 配置读取失败 |
 | 2001 | `CodeConfigWrite` | 配置写入失败 |
-| 2002 | `CodeDatabase` | SQLite 操作失败 |
+| 2002 | `CodeStorage` | 本地存储文件操作失败 |
 
 ### 服务商 / 模型（3000–3999）
 

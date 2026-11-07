@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 应用外壳：自绘标题栏 + 左侧导航 rail + 主区。
 // 启动失败与首屏加载都在这里处理，视图层不需要各自兜底。
-import { nextTick, onMounted, watch } from 'vue'
+import { computed, nextTick, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
+import zhCN from 'element-plus/es/locale/lang/zh-cn'
+import enUS from 'element-plus/es/locale/lang/en'
 import AppRail from '@/components/layout/AppRail.vue'
 import TitleBar from '@/components/layout/TitleBar.vue'
 import ToastHost from '@/components/common/ToastHost.vue'
@@ -14,6 +16,10 @@ import { useViewportScale } from '@/composables/useViewportScale'
 
 const app = useAppStore()
 const { t } = useI18n()
+
+// Element Plus 自带文案（空数据、ARIA 标签等）跟着界面语言走：
+// 不接桥的话英文界面里混着组件库的英文默认值之外的另一套中文。
+const epLocale = computed(() => (app.settings['ui.locale'] === 'en' ? enUS : zhCN))
 
 // 首次按关闭时问一句：收进托盘还是退出。
 // 在界面里问而不是窗口层：窗口层没有可用通知手段（窗口已要藏），
@@ -64,29 +70,31 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="shell">
-    <TitleBar />
-    <div class="shell-main">
-      <AppRail v-if="app.ready" />
-      <main class="shell-view">
-        <div v-if="app.fatal" class="shell-fallback">
-          <StartupError :message="app.fatal" />
-        </div>
-        <div v-else-if="!app.ready" class="shell-fallback">
-          <div class="boot">
-            <div class="boot-spinner" />
-            <p class="boot-text">{{ t('app.starting') }}</p>
+  <el-config-provider :locale="epLocale">
+    <div class="shell">
+      <TitleBar />
+      <div class="shell-main">
+        <AppRail v-if="app.ready" />
+        <main class="shell-view">
+          <div v-if="app.fatal" class="shell-fallback">
+            <StartupError :message="app.fatal" />
           </div>
-        </div>
-        <router-view v-else v-slot="{ Component }">
-          <transition name="wb-fade" mode="out-in">
-            <component :is="Component" />
-          </transition>
-        </router-view>
-      </main>
+          <div v-else-if="!app.ready" class="shell-fallback">
+            <div class="boot">
+              <div class="boot-spinner" />
+              <p class="boot-text">{{ t('app.starting') }}</p>
+            </div>
+          </div>
+          <router-view v-else v-slot="{ Component }">
+            <transition name="wb-fade" mode="out-in">
+              <component :is="Component" />
+            </transition>
+          </router-view>
+        </main>
+      </div>
+      <ToastHost />
     </div>
-    <ToastHost />
-  </div>
+  </el-config-provider>
 </template>
 
 <style scoped>

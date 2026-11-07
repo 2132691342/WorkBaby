@@ -30,12 +30,15 @@ func (l Layout) SandboxEnv(extra map[string]string) []string {
 		"npm_config_update_notifier": "false",
 		"npm_config_fund":            "false",
 		"npm_config_audit":           "false",
-		"HOME":                       l.DataDir,
-		"USERPROFILE":                l.DataDir,
-		"PI_CODING_AGENT_DIR":        l.PiAgentDir,
-		"PI_SKIP_VERSION_CHECK":      "1",
-		"PI_TELEMETRY":               "0",
-		"NODE_NO_WARNINGS":           "1",
+		// pip 的缓存默认跟着 HOME 走且不同版本解析行为不同，不钉死就会漏到
+		// 工作目录或别的 HOME 形态里去——npm 怎么钉，pip 就怎么钉。
+		"PIP_CACHE_DIR":         l.PipCacheDir,
+		"HOME":                  l.DataDir,
+		"USERPROFILE":           l.DataDir,
+		"PI_CODING_AGENT_DIR":   l.PiAgentDir,
+		"PI_SKIP_VERSION_CHECK": "1",
+		"PI_TELEMETRY":          "0",
+		"NODE_NO_WARNINGS":      "1",
 	}
 	for k, v := range extra {
 		overrides[k] = v

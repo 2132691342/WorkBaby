@@ -78,7 +78,7 @@ WorkBaby 把这两件事收进一个 GUI：运行时随包分发，首次启动�
 
 ```
 %LOCALAPPDATA%\WorkBaby\          （开发态加 -dev 后缀）
-├── workbaby.db                   # 壳的偏好与台账（两张表）
+├── workbaby.json                 # 壳的偏好与台账（单文件 JSON）
 ├── cache\{npm,npm-global}\       # npm 缓存与全局前缀，锁在沙箱
 ├── logs\                         # 按天滚动
 ├── webview\                      # WebView2 用户数据
@@ -102,7 +102,7 @@ WorkBaby 把这两件事收进一个 GUI：运行时随包分发，首次启动�
 | 桌面壳 | Wails v3.1（WebView2，无边框 + 前端自绘标题栏） |
 | 语言 | Go 1.26 |
 | 业务 API | gin 1.12（回环 HTTP，127.0.0.1 随机端口） |
-| 存储 | gorm 1.31 + `glebarez/sqlite`（纯 Go，**无 cgo**，WAL） |
+| 存储 | 标准库 JSON 文件（`workbaby.json`，原子整写，**无 cgo**） |
 | 前端 | Vue 3.4 + Vite 5 + Element Plus 2.9 + Pinia + Vue Router + Axios + UnoCSS + ECharts |
 | 引擎 | pi（`@earendil-works/pi-coding-agent`，RPC 子进程） |
 
@@ -137,7 +137,7 @@ go test ./tests -count=1
 | `docs/ARCHITECTURE.md` | 进程拓扑、装配顺序、引擎生命周期、稳定性约束 |
 | `docs/MODULES.md` | 每个包与目录的职责、依赖方向、设计取舍 |
 | `docs/API.md` | `/api/v1` 端点契约、SSE 事件词汇 |
-| `docs/DATA-MODEL.md` | SQLite 表、设置键、会话 JSONL 回放规则 |
+| `docs/DATA-MODEL.md` | 壳存储文件、设置键、会话 JSONL 回放规则 |
 | `docs/ERROR-CODES.md` | 业务码段位与码表 |
 | `docs/DEV.md` | 开发流程、测试策略、排错 |
 | `docs/DEPLOY.md` | 打包形态、版本规则、CI/CD |

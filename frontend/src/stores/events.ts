@@ -12,6 +12,7 @@ import {
   readStrings,
 } from '@/utils/sse'
 import type { AppProgressLog, TurnUsagePayload } from '@/utils/sse'
+import i18n from '@/i18n'
 import { useChatStore } from './chat'
 
 /** 对话 store 的实例类型。 */
@@ -75,7 +76,7 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       void deps.refreshEngines()
       if (chat.streaming) {
         chat.streaming = false
-        chat.runError = '引擎进程已退出，这一轮已中断'
+        chat.runError = i18n.global.t('chat.engineGone')
         deps.toast('error', chat.runError)
       }
       return
@@ -228,7 +229,7 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
     case 'chat:error': {
       // 这一轮没完成，但它已经结束了——必须同时解除 streaming，
       // 否则活动条会停在「运行中」而没有任何东西在跑（引擎进程死了就是这条路）。
-      const message = asString(data.message, '出错了')
+      const message = asString(data.message, i18n.global.t('chat.errorFallback'))
       chat.runError = message
       chat.promptError = message
       chat.streaming = false

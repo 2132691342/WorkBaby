@@ -1,8 +1,10 @@
 <script setup lang="ts">
 // 轻提示：右下角堆叠，可点选复制，悬停暂停计时；可带一个动作（如撤销）。
 // 有原因才显示原因，没原因不硬编一句「操作成功」。
+import { useI18n } from 'vue-i18n'
 import { useToasts } from '@/composables/useToasts'
 
+const { t } = useI18n()
 const { items, dismiss, hold, runAction } = useToasts()
 </script>
 
@@ -25,7 +27,7 @@ const { items, dismiss, hold, runAction } = useToasts()
         <button v-if="item.action" class="toast-action" @click="runAction(item)">
           {{ item.action.label }}
         </button>
-        <button class="toast-close" title="关闭" @click="dismiss(item.id)">
+        <button class="toast-close" :title="t('common.close')" @click="dismiss(item.id)">
           <svg viewBox="0 0 12 12" width="10" height="10" stroke="currentColor" stroke-width="1.4"><path d="M3 3l6 6M9 3 3 9" /></svg>
         </button>
       </div>

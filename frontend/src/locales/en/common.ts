@@ -5,7 +5,15 @@ export default {
     "closePromptTitle": "What should closing the window do?",
     "closePromptBody": "Keep in tray: the app keeps running in the background, conversations are not interrupted, and you can bring it back from the tray icon.\nQuit: end the app and every engine process immediately.\n\nThis choice is remembered and can be changed in Settings.",
     "closeToTray": "Keep in tray",
-    "closeToQuit": "Quit app"
+    "closeToQuit": "Quit app",
+    "failTag": "Startup failed",
+    "failHint": "The backend did not start. Check the last lines of the log; if a port or the database is occupied, restarting the app usually helps."
+  },
+
+  "net": {
+    "requestFailed": "Request failed",
+    "timeout": "Backend response timed out",
+    "unreachable": "Cannot reach the backend"
   },
 
 "titlebar": {

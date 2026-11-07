@@ -24,7 +24,7 @@ const primary: NavItem[] = [
   { name: 'skills', icon: 'spark', key: 'nav.skills' },
   { name: 'plugins', icon: 'plug', key: 'nav.plugins' },
   { name: 'mcp', icon: 'server', key: 'nav.mcp' },
-  { name: 'usage', icon: 'chart', key: 'nav.turn_usage' },
+  { name: 'usage', icon: 'chart', key: 'nav.usage' },
 ]
 
 // 「应用」放底部：它是装引擎的地方，装完就不怎么回来，

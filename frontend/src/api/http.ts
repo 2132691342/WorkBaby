@@ -2,6 +2,7 @@
 // 后端恒回 200，错误在 body.code 里，所以拦截器把 code !== '0' 也变成异常，
 // 上层只需要 try/catch，不用每次判断 code。
 import axios, { type AxiosInstance } from 'axios'
+import i18n from '@/i18n'
 import { getEndpoint } from './wails'
 import { recordFailure } from '@/utils/diag'
 import type {
@@ -69,8 +70,9 @@ export async function ensureClient(): Promise<AxiosInstance> {
   client.interceptors.response.use(
     (res) => {
       const body = res.data as { code?: string; message?: string; detail?: string; data?: unknown }
+      const tr = i18n.global.t
       if (body && typeof body.code === 'string' && body.code !== '0') {
-        const err = new ApiError(body.code, body.message || '请求失败', body.detail)
+        const err = new ApiError(body.code, body.message || tr('net.requestFailed'), body.detail)
         // 记一条失败现场：错误码的「下一步」写在文档里，而用户面对的是一条已经消失的提示。
         recordFailure(err.code, err.message, err.detail ?? '', where(res.config.method, res.config.url))
         throw err
@@ -80,7 +82,8 @@ export async function ensureClient(): Promise<AxiosInstance> {
     (err) => {
       // 连不上后端是网络问题（8003），不是「缺包管理器」——
       // 同一个码两种意思会让界面没法分流。
-      const message = err?.code === 'ECONNABORTED' ? '后端响应超时' : (err?.message ?? '连不上后端')
+      const tr = i18n.global.t
+      const message = err?.code === 'ECONNABORTED' ? tr('net.timeout') : (err?.message ?? tr('net.unreachable'))
       recordFailure('8003', message, String(err?.stack ?? ''), where(err?.config?.method, err?.config?.url))
       throw new ApiError('8003', message)
     },

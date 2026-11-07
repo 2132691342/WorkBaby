@@ -1,136 +1,129 @@
-// Package repo 是持久化层：SQLite 连接、迁移与设置 KV。
-// 它只依赖 pkg / domain，不感知业务编排。
+// Package repo 是持久化层：单个 JSON 文件承载壳的设置与技能开关台账。
+// 它只依赖 pkg，不感知业务编排。
 package repo
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
-
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"sync"
+	"time"
 
 	"WorkBaby/backend/pkg"
 )
 
-// Store 是壳自己的设置库。会话、插件、技能都不在这里——
+// Store 是壳自己的设置存储。会话、插件、技能都不在这里——
 // 它们的真相在磁盘文件与引擎里，这里只存「壳的开关台账」。
+// 条目量级是几十条：整读整写一个 JSON 文件加互斥锁足够，不值得引入数据库。
 type Store struct {
-	db *gorm.DB
+	mu   sync.Mutex
+	path string
+	data fileData
 }
 
-// SettingDO 是设置 KV 的持久化行。
-type SettingDO struct {
-	// SettingKey 键
-	SettingKey string `gorm:"column:setting_key;primaryKey;size:200"`
-	// SettingValue 值（一律字符串，复杂结构自己 JSON）
-	SettingValue string `gorm:"column:setting_value;type:text"`
-	// UpdatedAt 最后写入时刻（毫秒）
-	UpdatedAt int64 `gorm:"column:updated_at"`
+// fileData 是 JSON 文件的整体形状。
+type fileData struct {
+	// Settings 设置 KV（值一律字符串，复杂结构自己 JSON）
+	Settings map[string]string `json:"settings"`
+	// SkillToggles 技能开关台账，键是技能目录名。开与关的真相是技能目录
+	// 在哪个区（skills / skills_disabled），这份台账只做记账与核对。
+	SkillToggles map[string]bool `json:"skill_toggles"`
 }
 
-// TableName 固定表名：迁移与手写 SQL 都认这一个名字。
-func (SettingDO) TableName() string { return "setting" }
-
-// SkillToggleDO 是技能开关台账。开与关的真相是技能目录在哪个区（skills /
-// skills_disabled），这张表只做记账：健康面板与测试用它核对搬移是否发生过。
-type SkillToggleDO struct {
-	// SkillDirName 技能目录名
-	SkillDirName string `gorm:"column:skill_dir_name;primaryKey;size:200"`
-	// SkillEnabled 是否启用
-	SkillEnabled bool `gorm:"column:skill_enabled"`
-	// UpdatedAt 最后写入时刻（毫秒）
-	UpdatedAt int64 `gorm:"column:updated_at"`
-}
-
-// TableName 固定表名。
-func (SkillToggleDO) TableName() string { return "skill_toggle" }
-
-// Open 打开（必要时创建）设置库并跑迁移。
-func Open(dbPath string) (*Store, error) {
-	if err := pkg.EnsureDir(filepath.Dir(dbPath)); err != nil {
-		return nil, pkg.WrapErr(pkg.CodeDatabase, "数据目录不可写", err)
+// Open 打开（必要时创建）设置存储文件；内容整读进内存。
+func Open(path string) (*Store, error) {
+	if err := pkg.EnsureDir(filepath.Dir(path)); err != nil {
+		return nil, pkg.WrapErr(pkg.CodeStorage, "数据目录不可写", err)
 	}
-	// WAL：界面与后台任务会同时读写设置，回滚日志模式会互相阻塞。
-	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		// 这条库里没有业务查询日志值得打；SQL 噪音会淹掉真正要紧的行。
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
+	s := &Store{path: path, data: fileData{
+		Settings:     map[string]string{},
+		SkillToggles: map[string]bool{},
+	}}
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, pkg.WrapErr(pkg.CodeDatabase, "设置库打开失败", err)
+		if os.IsNotExist(err) {
+			// 首启就把文件立起来：数据目录不可写在启动当刻就暴露，
+			// 而不是拖到第一次保存设置的时候。
+			if werr := s.persist(); werr != nil {
+				return nil, werr
+			}
+			return s, nil
+		}
+		return nil, pkg.WrapErr(pkg.CodeStorage, "设置文件读取失败", err)
 	}
-	if err := db.AutoMigrate(&SettingDO{}, &SkillToggleDO{}); err != nil {
-		return nil, pkg.WrapErr(pkg.CodeDatabase, "设置库迁移失败", err)
+	// 文件坏了不堵启动：挪到旁边留证，从空白重新开始。
+	// 半截 JSON 多半来自断电或杀进程，留着只会让每次启动都失败。
+	if err := json.Unmarshal(raw, &s.data); err != nil {
+		bad := fmt.Sprintf("%s.bad-%d", path, time.Now().UnixMilli())
+		_ = os.Rename(path, bad)
+		pkg.Warn("设置文件损坏已挪走：%s（%v）", bad, err)
 	}
-	return &Store{db: db}, nil
+	if s.data.Settings == nil {
+		s.data.Settings = map[string]string{}
+	}
+	if s.data.SkillToggles == nil {
+		s.data.SkillToggles = map[string]bool{}
+	}
+	return s, nil
 }
 
-// Close 关库。
-func (s *Store) Close() error {
-	sqlDB, err := s.db.DB()
+// persist 把内存态整写回文件。调用方必须已持有锁。
+func (s *Store) persist() error {
+	raw, err := json.MarshalIndent(s.data, "", "  ")
 	if err != nil {
-		return err
+		return pkg.WrapErr(pkg.CodeStorage, "设置序列化失败", err)
 	}
-	return sqlDB.Close()
+	if err := pkg.WriteFileAtomic(s.path, raw); err != nil {
+		return pkg.WrapErr(pkg.CodeStorage, "设置保存失败", err)
+	}
+	return nil
 }
 
 // Get 读一个设置项；不存在返回空串与 false。
 func (s *Store) Get(key string) (string, bool) {
-	var row SettingDO
-	if err := s.db.First(&row, "setting_key = ?", key).Error; err != nil {
-		return "", false
-	}
-	return row.SettingValue, true
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.data.Settings[key]
+	return v, ok
 }
 
-// All 读出全部设置项。
+// All 读出全部设置项的副本。
 func (s *Store) All() map[string]string {
-	var rows []SettingDO
-	out := make(map[string]string, len(rows))
-	if err := s.db.Find(&rows).Error; err != nil {
-		return out
-	}
-	for _, row := range rows {
-		out[row.SettingKey] = row.SettingValue
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]string, len(s.data.Settings))
+	for k, v := range s.data.Settings {
+		out[k] = v
 	}
 	return out
 }
 
-// Save 批量写入设置项（整表 upsert，单事务）。
+// Save 批量写入设置项并落盘。
 func (s *Store) Save(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	now := pkg.NowMs()
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		for k, v := range values {
-			row := SettingDO{SettingKey: k, SettingValue: v, UpdatedAt: now}
-			if err := tx.Save(&row).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return pkg.WrapErr(pkg.CodeDatabase, "设置保存失败", err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range values {
+		s.data.Settings[k] = v
 	}
-	return nil
+	return s.persist()
 }
 
 // SkillEnabled 读一个技能的开关台账；没有记录时 ok 为 false。
 func (s *Store) SkillEnabled(skillDirName string) (enabled bool, ok bool) {
-	var row SkillToggleDO
-	if err := s.db.First(&row, "skill_dir_name = ?", skillDirName).Error; err != nil {
-		return false, false
-	}
-	return row.SkillEnabled, true
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.data.SkillToggles[skillDirName]
+	return v, ok
 }
 
-// SetSkillEnabled 写一个技能的开关台账。
+// SetSkillEnabled 写一个技能的开关台账并落盘。
 func (s *Store) SetSkillEnabled(skillDirName string, enabled bool) error {
-	row := SkillToggleDO{SkillDirName: skillDirName, SkillEnabled: enabled, UpdatedAt: pkg.NowMs()}
-	if err := s.db.Save(&row).Error; err != nil {
-		return pkg.WrapErr(pkg.CodeDatabase, "技能开关记账失败", err)
-	}
-	return nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.SkillToggles[skillDirName] = enabled
+	return s.persist()
 }

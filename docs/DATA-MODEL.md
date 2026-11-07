@@ -1,25 +1,33 @@
 # 数据模型
 
-三处存储，分工明确：**会话 JSONL 是对话真相，SQLite 是壳的偏好与台账，
+三处存储，分工明确：**会话 JSONL 是对话真相，workbaby.json 是壳的偏好与台账，
 JSON 配置是引擎的输入**。壳从不重写引擎的真相，只在其上做台账。
 
-## 1. SQLite（`%LOCALAPPDATA%\WorkBaby\workbaby.db`）
+## 1. 壳存储（`%LOCALAPPDATA%\WorkBaby\workbaby.json`）
 
-gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
-`foreign_keys=1`，进程内单连接。表结构由 gorm 迁移，当前两张表：
+单个 JSON 文件，启动整读进内存，每次变更原子整写（临时文件 + 换名），
+进程内互斥锁串行化。条目量级是几十条，不值得引入数据库：
 
-| 表 | 列 | 用途 |
+```json
+{
+  "settings": { "ui.theme": "dark", "ui.locale": "zh-CN" },
+  "skill_toggles": { "pdf": false }
+}
+```
+
+| 段 | 形状 | 用途 |
 |---|---|---|
-| `setting` | `setting_key` PK, `setting_value`, `updated_at` | 壳的全部键值（见 §2） |
-| `skill_toggle` | `skill_dir_name` PK, `skill_enabled`, `updated_at` | 技能开关台账 |
+| `settings` | 键值对（值一律字符串，复杂结构自己 JSON） | 壳的全部键值（见 §2） |
+| `skill_toggles` | 技能目录名 → 是否启用 | 技能开关台账 |
 
-**为什么只有两张表**：其余对象的真相都不在壳里。会话是 JSONL 文件，
+**为什么只有两段**：其余对象的真相都不在壳里。会话是 JSONL 文件，
 插件是 `settings.json` 的 `packages[]`，MCP 是 `mcp.json`，模型是
-`models.json`。把这些再抄进 SQLite 就多出第二份真相，而第二份一定会不同步。
+`models.json`。把这些再抄进壳存储就多出第二份真相，而第二份一定会不同步。
 
-时间戳一律毫秒 int64（`pkg.NowMs()`），不存 ISO 串。
+文件损坏不堵启动：解析失败时挪到旁边（`workbaby.json.bad-<ts>`）留证，
+从空白重新开始——半截 JSON 多半来自断电或杀进程。
 
-## 2. 设置键（`setting` 表）
+## 2. 设置键（`settings` 段）
 
 | 键 | 值 | 消费方 |
 |---|---|---|
@@ -52,7 +60,7 @@ gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
    差异文本），挂不上则落成独立工具轮；system 与 usage 不进历史视图。
 3. **特殊条目**：`compaction` 转成引擎标记轮（显示压缩前 token 数）；
    `session_info` 的 `name` 作为会话标题；`custom_message`(display) 转标记轮。
-4. **隐藏台账**：`hid`（条目 id，稳定）存 SQLite；回放时剔除隐藏轮，
+4. **隐藏台账**：`hid`（条目 id，稳定）存壳存储；回放时剔除隐藏轮，
    会话文件本身不动。
 5. **用量累计**：assistant 的 `usage`、`usage` 条目、压缩 `usage` 全部计入
    会话行的 tokens / cost——会话清单与用量页都从这里来。
@@ -93,7 +101,7 @@ gorm + `glebarez/sqlite`（纯 Go，无 cgo），WAL + `busy_timeout=5000` +
 
 ```
 %LOCALAPPDATA%\WorkBaby\          （开发态 -dev 后缀）
-├── workbaby.db                   # 上面 §1 两张表
+├── workbaby.json                 # 上面 §1 两段设置与台账
 ├── cache\{npm,npm-global}\       # npm 缓存与全局前缀
 ├── logs\                         # 按天滚动
 ├── webview\                      # WebView2 用户数据

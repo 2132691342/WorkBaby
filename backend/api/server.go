@@ -5,6 +5,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -49,7 +50,9 @@ func (s *Server) Start() (int, error) {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	// 不用 gin 的默认日志：它打到 stdout，而发布版没有控制台。
-	engine.Use(gin.Recovery(), s.authMiddleWare())
+	// CORS 必须排在鉴权前面：浏览器对跨源请求先发 OPTIONS 预检，
+	// 预检不携带令牌，先鉴权会把预检打成 401，之后所有真请求都被浏览器拦下。
+	engine.Use(gin.Recovery(), s.corsMiddleWare(), s.authMiddleWare())
 	s.mount(engine)
 	// 未知接口回信封形式的 1404：前端拿它和业务错误走同一条显示路径。
 	engine.NoRoute(s.unknown)
@@ -82,7 +85,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	engine.Use(gin.Recovery(), s.authMiddleWare())
+	engine.Use(gin.Recovery(), s.corsMiddleWare(), s.authMiddleWare())
 	s.mount(engine)
 	engine.NoRoute(s.unknown)
 	return engine
@@ -94,6 +97,41 @@ func (s *Server) Stop(ctx context.Context) error {
 		return nil
 	}
 	return s.srv.Shutdown(ctx)
+}
+
+// corsMiddleWare 补齐跨源访问：WebView2 里页面源是 wails.localhost 虚拟域名，
+// 对回环上的本服务就是跨源；开发态前端又被 vite 端口伺服，同样跨源。
+// 浏览器对带自定义头的请求先发不带令牌的 OPTIONS 预检，这里直接放行并回响应头。
+func (s *Server) corsMiddleWare() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if origin := c.GetHeader("Origin"); origin != "" && originAllowed(origin) {
+			h := c.Writer.Header()
+			h.Set("Access-Control-Allow-Origin", origin)
+			h.Set("Vary", "Origin")
+			h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			h.Set("Access-Control-Allow-Headers", "Content-Type, X-Desktop-Token")
+			h.Set("Access-Control-Max-Age", "600")
+		}
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
+}
+
+// originAllowed 判断来源是否自家界面：WebView2 的虚拟域与开发态本地端口。
+// 服务只绑回环地址、令牌每次启动随机，真正的门禁是令牌；这里只是让浏览器放行。
+func originAllowed(origin string) bool {
+	if origin == "http://wails.localhost" || origin == "https://wails.localhost" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1"
 }
 
 // authMiddleWare 校验令牌：HTTP 走请求头，SSE 走查询参数（EventSource 带不了自定义头）。

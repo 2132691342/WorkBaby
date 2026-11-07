@@ -2,6 +2,7 @@
 // 用户心里只有「这次要发什么」，没有「附件分两种」。
 // 下发时才分开（kind=image 走 images 字段，kind=file 只拼路径），那是协议的事。
 import { computed, ref } from 'vue'
+import i18n from '@/i18n'
 import type { ChatAttachment } from '@/types/api'
 
 /** 一个待发送附件。界面上要显示的是 name，其余字段原样交给后端。 */
@@ -85,21 +86,22 @@ export function useAttachments() {
    * 调用方要能把「哪张、为什么」逐条汇总给用户。
    */
   async function addImage(file: File): Promise<string> {
+    const tr = i18n.global.t
     if (images.value.length >= MAX_IMAGES) {
-      return `一次最多 ${MAX_IMAGES} 张图片`
+      return tr('chat.attachTooManyImages', { n: MAX_IMAGES })
     }
     const buffer = new Uint8Array(await file.arrayBuffer())
     if (buffer.length > MAX_IMAGE_BYTES) {
-      return `${file.name || '图片'} 超过 4MB`
+      return tr('chat.attachImageTooLarge', { name: file.name || tr('chat.attach') })
     }
     const mime = file.type.startsWith('image/') ? file.type : sniffMIME(buffer)
     if (!mime) {
-      return `${file.name || '这个文件'} 不是图片`
+      return file.name ? tr('chat.attachNotImage', { name: file.name }) : tr('chat.attachNotImagePlain')
     }
     const base64 = toBase64(buffer)
     items.value.push({
       id: nextId(),
-      name: file.name || `粘贴的图片-${images.value.length + 1}`,
+      name: file.name || tr('chat.pastedImage', { n: images.value.length + 1 }),
       preview: `data:${mime};base64,${base64}`,
       payload: { attachment_kind: 'image', image_base64: base64, image_mime: mime, file_name: file.name },
     })
@@ -109,7 +111,7 @@ export function useAttachments() {
   /** 加一个工作区内的文件引用（相对路径）。 */
   function addWorkspaceFile(relPath: string, name?: string): string {
     if (files.value.length >= MAX_FILES) {
-      return `一次最多 ${MAX_FILES} 个文件`
+      return i18n.global.t('chat.attachTooManyFiles', { n: MAX_FILES })
     }
     // 同一个文件重复引用只是噪音：引擎按路径去重，界面上却会多一条。
     if (files.value.some((a) => a.payload.file_path === relPath)) {
@@ -130,7 +132,7 @@ export function useAttachments() {
     if (all.length === 0) return []
     const imageFiles = all.filter((f) => f.type.startsWith('image/'))
     if (imageFiles.length === 0) {
-      return ['剪贴板里没有图片；其他文件请用回形针选择']
+      return [i18n.global.t('chat.clipboardNoImage')]
     }
     const errors: string[] = []
     for (const file of imageFiles) {

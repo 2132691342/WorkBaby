@@ -17,7 +17,7 @@ WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳把内置 Node.js + pi 
 | 桌面壳 | Wails v3（无边框窗口，前端自绘标题栏，WebView2） | 3.1.x |
 | 语言 | Go（模块 `WorkBaby`） | 1.26.x |
 | 业务服务 | gin（业务 API + SSE 全走 HTTP，127.0.0.1 随机端口） | 1.12.x |
-| 数据库 | gorm + `glebarez/sqlite`（**纯 Go，无 cgo**，WAL） | 1.31.x / 1.11.x |
+| 持久化 | 标准库 JSON 文件（`workbaby.json`，原子整写 + 互斥锁） | — |
 | ID | ULID，带业务前缀（`oklog/ulid`） | 2.1.x |
 | Agent 引擎 | pi（`@earendil-works/pi-coding-agent`，RPC 模式子进程） | 随 npm 最新 |
 | 内置运行时 | node v24.21.0 / PortableGit / Python 3.13（zip 随包分发，首启解压） | — |
@@ -56,7 +56,7 @@ WorkBaby/
 ├── backend/
 │   ├── domain/                    # 纯类型：VO/REQ/RESP/DTO/DO + 错误码常量
 │   ├── pkg/                       # 叶子工具：apperror/codes/ulid/fsutil/log/proc/env/paths/...
-│   ├── repo/                      # SQLite：连接迁移、设置 KV、技能开关台账
+│   ├── repo/                      # JSON 存储文件：设置 KV、技能开关台账
 │   ├── sse/                       # SSE hub：seq 发号、断线补帧、心跳
 │   ├── api/                       # gin：server + 分组路由（薄壳，只解析与转发）
 │   ├── service/                   # 业务编排：app/chat/file/git/session/skill/plugin/mcp/model/settings
@@ -201,7 +201,7 @@ type AppError struct {
 详细清单见 `docs/DEV.md`。
 
 **保留**：状态机与解析（会话树回放 / 分支 / 隐藏轮）、端到端长链路（鉴权 → 路由 →
-service → SQLite → 信封）、内置清单与落位（插件声明改写 / 技能目录搬移）、
+service → 存储文件 → 信封）、内置清单与落位（插件声明改写 / 技能目录搬移）、
 真实运行时链路（`live` 标签，手动跑）。
 
 **不写**：复述框架行为的用例、单 getter、纯函数往返、覆盖率驱动用例。

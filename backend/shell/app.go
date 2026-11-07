@@ -216,7 +216,7 @@ func (a *App) startup(ctx context.Context) {
 
 // assemble 打开设置库、装配业务、起 HTTP。
 func (a *App) assemble() error {
-	store, err := repo.Open(a.layout.DbPath)
+	store, err := repo.Open(a.layout.StorePath)
 	if err != nil {
 		return err
 	}

@@ -17,7 +17,7 @@ WorkBaby 是一个 Windows 桌面应用，核心矛盾是：**要给用户一个
 │  │ service/  业务编排：app chat file git session skill plugin    │  │
 │  │           mcp model settings                                  │  │
 │  ├──────────────────────────────────────────────────────────────┤  │
-│  │ repo/        SQLite（设置 KV、技能开关台账）                  │  │
+│  │ repo/        JSON 存储（设置 KV、技能开关台账）                │  │
 │  │ domain/      纯类型（VO / REQ / RESP / DTO / DO）             │  │
 │  │ pkg/         叶子工具（错误、路径、进程、日志、ULID、zip）    │  │
 │  └──────────────────────────────────────────────────────────────┘  │
@@ -48,7 +48,7 @@ Wails 绑定只暴露系统能力——拿端点、选目录、窗控、托盘�
 3. application.New  Wails 应用 + 单实例 + WebView2 数据目录锁进沙箱
 4. 建窗（Hidden）   先不显示，避免装配阶段闪白屏
 5. 建托盘           用户可能一启动就关窗，托盘必须先存在
-6. ServiceStartup   开 SQLite → 装配 service → 起 gin（拿到端口）
+6. ServiceStartup   开设置存储 → 装配 service → 起 gin（拿到端口）
 7. Provision（后台） 解压运行时 → 写 npmCommand → 落技能 → 声明插件 → 装 pi → 装插件
 8. 前端调 Endpoint  拿到 {port, token} 后建 SSE、拉首屏
 9. 前端调 Ready()   由前端决定何时显形
@@ -131,7 +131,7 @@ api/http.ts ── axios 实例（统一拆信封，code !== '0' 即抛 ApiError
 | MCP | `pi\mcp.json` + 工作区 `.pi\mcp.json` | 读写 JSON、校验、握手探测 |
 | 模型 | `pi\models.json` + `auth.json` | 读写、探测上游可用性 |
 | 会话 | `pi\sessions\` 的 JSONL | 只读回放；改名以追加条目表达 |
-| 壳偏好 | SQLite 两张表 | 读写 |
+| 壳偏好 | `workbaby.json` 两段 | 读写 |
 
 `plugin_catalog.go` / `skill_catalog.go` 里的内置清单只是「随包分发哪些、
 默认开哪些」的策展表，**不是运行时状态**——状态一律现场读盘。

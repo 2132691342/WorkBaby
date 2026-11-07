@@ -86,6 +86,16 @@ async function toggle(row: SkillRow, enabled: boolean) {
 }
 
 async function reset(row: SkillRow) {
+  // 重置会覆盖用户改过的内容：不问一句就动手，等于悄悄丢人的工作。
+  try {
+    await ElMessageBox.confirm(t('skills.resetConfirm', { name: row.skill_name }), t('skills.resetTitle'), {
+      confirmButtonText: t('skills.reset'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
   resetting.value = row.skill_dir_name
   try {
     await api.resetSkill(row.skill_path)

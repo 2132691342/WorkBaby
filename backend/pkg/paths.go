@@ -27,10 +27,12 @@ type Layout struct {
 	NpmCacheDir string
 	// NpmGlobalDir npm 全局前缀：cache\npm-global
 	NpmGlobalDir string
+	// PipCacheDir pip 缓存：cache\pip
+	PipCacheDir string
 	// LogDir 按天滚动的日志目录：data\logs
 	LogDir string
-	// DbPath 设置库：data\workbaby.db
-	DbPath string
+	// StorePath 设置存储文件：data\workbaby.json
+	StorePath string
 	// AssetsDir 随包分发的资产（运行时 zip / 内置技能 / 帮助文档）
 	AssetsDir string
 	// Dev 开发态标记：数据目录加后缀，避免与安装态互相污染
@@ -66,8 +68,9 @@ func ResolveLayout(exeDir string, dev bool) Layout {
 		CacheDir:     filepath.Join(data, "cache"),
 		NpmCacheDir:  filepath.Join(data, "cache", "npm"),
 		NpmGlobalDir: filepath.Join(data, "cache", "npm-global"),
+		PipCacheDir:  filepath.Join(data, "cache", "pip"),
 		LogDir:       filepath.Join(data, "logs"),
-		DbPath:       filepath.Join(data, "workbaby.db"),
+		StorePath:    filepath.Join(data, "workbaby.json"),
 		AssetsDir:    assets,
 		Dev:          dev,
 	}

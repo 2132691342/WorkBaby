@@ -15,10 +15,10 @@ const (
 	CodeGitFailed    = "1101" // git 命令失败
 	CodeGitAuth      = "1102" // git 凭证被拒或无法登录
 
-	// 2000-2999 配置 / 数据库
+	// 2000-2999 配置 / 本地存储
 	CodeConfigRead  = "2000" // 配置读取失败
 	CodeConfigWrite = "2001" // 配置写入失败
-	CodeDatabase    = "2002" // SQLite 操作失败
+	CodeStorage     = "2002" // 本地存储文件操作失败
 
 	// 3000-3999 服务商 / 模型
 	CodeProviderBad = "3000" // 服务商配置不合法

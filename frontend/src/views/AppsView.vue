@@ -49,9 +49,32 @@ async function copy(text: string) {
   }
 }
 
+// pi 的升级与卸载动引擎程序：先说清会发生什么、数据去哪，再动手。
+// 运行时的安装只是重新解压，没有可丢的数据，不拦。
+async function confirmPi(row: AppRow, action: 'update' | 'uninstall'): Promise<boolean> {
+  if (row.app_key !== 'pi') return true
+  try {
+    await ElMessageBox.confirm(
+      action === 'update' ? t('apps.updateConfirm') : t('apps.uninstallConfirm'),
+      action === 'update' ? t('apps.updateTitle') : t('apps.uninstallTitle'),
+      {
+        confirmButtonText: action === 'update' ? t('common.update') : t('common.uninstall'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning',
+      },
+    )
+  } catch {
+    return false
+  }
+  return true
+}
+
 /** 三个动作共用一个入口：只有按钮文案与端点不同。 */
 async function run(row: AppRow, action: 'install' | 'update' | 'uninstall') {
   if (busy.value[row.app_key]) return
+  if (action === 'update' || action === 'uninstall') {
+    if (!(await confirmPi(row, action))) return
+  }
   busy.value = { ...busy.value, [row.app_key]: true }
   try {
     if (action === 'install') await api.installApp()

@@ -1,22 +1,24 @@
 <script setup lang="ts">
 // 启动失败页：把真实原因与下一步都写出来，并给出「看日志」「重试」两个动作。
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 
 defineProps<{ message: string }>()
 const app = useAppStore()
+const { t } = useI18n()
 </script>
 
 <template>
   <div class="fail card-pad">
     <div class="fail-head">
-      <span class="tag bad">启动失败</span>
+      <span class="tag bad">{{ t('app.failTag') }}</span>
     </div>
     <p class="fail-msg selectable">{{ message }}</p>
     <p class="fail-hint">
-      后端没有起来。先看日志里最后几行；如果是端口或数据库被占用，重启本应用通常能解决。
+      {{ t('app.failHint') }}
     </p>
     <div class="fail-actions">
-      <button class="wb-btn primary" @click="app.load()">重试</button>
+      <button class="wb-btn primary" @click="app.load()">{{ t('common.retry') }}</button>
     </div>
   </div>
 </template>
