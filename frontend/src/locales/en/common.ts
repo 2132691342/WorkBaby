@@ -10,7 +10,7 @@ export default {
     "failHint": "The backend did not start. Check the last lines of the log; if a port or the database is occupied, restarting the app usually helps."
   },
 
-  "net": {
+"net": {
     "requestFailed": "Request failed",
     "timeout": "Backend response timed out",
     "unreachable": "Cannot reach the backend"
@@ -39,19 +39,12 @@ export default {
     "settings": "Settings"
   },
 
-"scope": {
-    "all": "All",
-    "hint": "Which engine this page manages: omp / pi / both side by side. Does not affect the engine used for chatting.",
-    "notInstalled": "{engine} is not installed; install it to manage its contents"
-  },
-
 "common": {
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
     "edit": "Edit",
     "close": "Close",
-    "confirm": "Confirm",
     "remove": "Remove",
     "refresh": "Refresh",
     "retry": "Retry",
@@ -66,21 +59,13 @@ export default {
     "copy": "Copy",
     "copied": "Copied",
     "undo": "Undo",
-    "open": "Open",
-    "reveal": "Show in folder",
-    "search": "Search",
-    "all": "All",
     "searchPlaceholder": "Search",
     "name": "Name",
-    "version": "Version",
-    "source": "Source",
-    "path": "Path",
     "actions": "Actions",
     "unknown": "Unknown",
     "untitled": "Untitled",
     "update": "Update",
     "yes": "Yes",
-    "no": "No",
     "saved": "Saved"
   },
 }

@@ -14,7 +14,7 @@
 { "code": "0", "message": "", "detail": "可选原话", "data": { } }
 ```
 
-`code` 是数字字符串，`"0"` 成功；码表见 [ERROR-CODES.md](ERROR-CODES.md)。
+`code` 是数字字符串，`"0"` 成功；码表见文末「错误码」一节。
 用户可读文案在 `message`，`detail` 给诊断面板。未知接口回 `1404`。
 
 ## 引导 / 设置 / 偏好
@@ -125,9 +125,20 @@
 
 路径约定：全部接受工作区内绝对路径；相对路径（前端的 `/` 斜杠约定）按工作区根解析——
 不按进程 CWD，`../` 折算后仍出不了工作区根。
-| `/git/*` | GET/POST | status / diff / history / commit / file-history / file-diff / branches / stash(list,push,pop,drop) / stage / unstage / discard / resolve / commit / branch(+delete) / switch / merge / state / init / remote / push / pull / fetch；全部走内置 git.exe，凭证问询禁交互（走 GCM，失败回 1102） |
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/git/status` / `diff` / `history` / `commit` / `file-history` / `file-diff` / `branches` | GET | 工作区 git 只读面：状态、差异、历史（按条与按文件）、分支 |
+| `/git/stage` / `unstage` / `discard` / `resolve` | POST | 暂存 / 取消暂存 / 丢弃改动 / 标记冲突已解决 |
+| `/git/commit` | POST | `{ commit_message, is_amend }` 提交或修补 |
+| `/git/branch` / `branch/delete` / `switch` / `merge` / `state` / `init` / `remote` | POST | 分支增删切换、合并（可选 rebase）、合并中 continue/abort、初始化、加远程 |
+| `/git/push` / `pull` / `fetch` | POST | 推拉取；`push` 带 `confirm` 表达「覆盖远程」的二次确认 |
+| `/git/stash/list` / `push` / `pop` / `drop` | POST | stash 四件套；`drop` 的 `confirm` 传 stash ref 防误删 |
 | `/system/reveal` / `open` | POST | 资源管理器定位 / 系统默认程序打开 |
 | `/config/files` / `text` | GET | 引擎配置原文（settings/models/mcp/auth/AGENTS + 项目级），白名单校验 |
+
+git 全部走内置 git.exe，凭证走自带的 Git Credential Manager（落 Windows 凭据管理器），
+终端交互问询禁用——需要登录时立即失败回 `1102` 并给下一步指引，而不是卡满超时。
 
 ## SSE 事件词汇（`/events`）
 
@@ -162,3 +173,95 @@
 
 丢帧不靠服务端事件：前端逐帧跟踪 `seq`，发现跳号（`seq > last + 1`）就对 `chat/state`
 拉一次快照对账。
+
+## 错误码
+
+码值为数字字符串，随信封 `code` 下发；`"0"` 为成功，恒 HTTP 200。
+常量唯一落点是 `backend/pkg/codes.go`——**新增码先改本文档再进常量**。
+`message` 是用户直接可读的文案，`detail` 带原话（stderr / 路径 / 上游响应）。
+
+段位：1000–1999 通用/文件/路径/git；2000–2999 配置/持久化；3000–3999 服务商/模型；
+5000–5999 会话运行；7000–7999 外部进程；8000–8999 技能；9100–9199 MCP；9700–9799 引擎 RPC。
+
+### 通用 / 文件 / 路径 / git（1000–1999）
+
+| 码 | 常量 | 场景 |
+|---|---|---|
+| 1000 | `CodeBadRequest` | 入参不合法 |
+| 1001 | `CodeFileNotFound` | 文件或目录不存在 |
+| 1002 | `CodePathOutside` | 路径越界：不在允许的根目录内（安全边界） |
+| 1003 | `CodeFileIO` | 文件读写失败 |
+| 1100 | `CodeGitMissing` | 内置 git 不可用（运行时未就绪） |
+| 1101 | `CodeGitFailed` | git 命令失败（原话在 detail） |
+| 1102 | `CodeGitAuth` | git 凭证被拒或无法登录（提示先在有终端的客户端登录一次或换 token） |
+| 1404 | `CodeUnknownRoute` | 未知路由（`NoRoute` 兜底） |
+
+鉴权失败回 **HTTP 401 而不进信封**：那不是业务失败，是根本没进门。
+
+### 配置 / 持久化（2000–2999）
+
+| 码 | 常量 | 场景 |
+|---|---|---|
+| 2000 | `CodeConfigRead` | 配置读取失败 |
+| 2001 | `CodeConfigWrite` | 配置写入失败 |
+| 2002 | `CodeStorage` | 本地存储文件操作失败 |
+
+### 服务商 / 模型（3000–3999）
+
+| 码 | 常量 | 场景 |
+|---|---|---|
+| 3000 | `CodeProviderBad` | 服务商配置不合法（缺 Base URL / 名称等） |
+
+> 连通性探测（拉模型清单 / 测试配置）的结果是 `probe_ok` 载荷而非错误码：
+> 「上游不通」是探测的正常结果之一，走信封错误会让界面没法把原因摆出来。
+
+### 会话运行（5000–5999）
+
+| 码 | 常量 | 场景 |
+|---|---|---|
+| 5000 | `CodeSessionBind` | 引擎未绑定到会话或工作区 |
+| 5001 | `CodeSessionIO` | 会话文件读写失败 |
+| 5002 | `CodeEngineBusy` | 有任务正在占用引擎 |
+| 5003 | `CodeNotFound` | 目标不存在（会话 / 条目 / 插件条目等） |
+
+### 外部进程（7000–7999）
+
+| 码 | 常量 | 场景 |
+|---|---|---|
+| 7000 | `CodeProvision` | 安装 / 解压 / 装载失败 |
+| 7001 | `CodeRuntimeDown` | 内置运行时未就绪 |
+
+### 技能（8000–8999）
+
+| 码 | 常量 | 场景 |
+|---|---|---|
+| 8000 | `CodeSkillBad` | 技能路径越界 / 名称非法 / 已存在 |
+| 8001 | `CodeSkillSave` | 技能写入 / 开关 / 复制失败 |
+| 8002 | `CodeSkillDelete` | 技能删除失败 |
+
+### MCP（9100–9199）
+
+| 码 | 常量 | 场景 |
+|---|---|---|
+| 9100 | `CodeMcpRead` | `mcp.json` 读取失败 |
+| 9101 | `CodeMcpWrite` | `mcp.json` 写入失败 / 条目不存在 |
+
+### 引擎 RPC（9700–9799）
+
+| 码 | 常量 | 场景 |
+|---|---|---|
+| 9700 | `CodeRpcCommand` | 引擎返回 `success:false` |
+| 9701 | `CodeRpcDown` | 引擎子进程不在运行 |
+| 9702 | `CodeRpcTimeout` | 引擎命令超时 |
+
+### 兜底
+
+| 码 | 常量 | 场景 |
+|---|---|---|
+| 9999 | `CodeInternal` | 未归类的内部错误（原话进 detail 与日志） |
+
+### 前端本地码
+
+| 码 | 场景 |
+|---|---|
+| `8003` | 连不上后端 / 响应超时（axios 层映射，不来自后端） |

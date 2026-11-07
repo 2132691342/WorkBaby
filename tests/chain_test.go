@@ -15,15 +15,8 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// TestChain 断言回环 HTTP 的全部契约，一段一个环节：
-//
-//	鉴权门：失败回 401 而不是业务信封——那是根本没进门。
-//	CORS 预检：WebView2 的页面源是 wails.localhost 虚拟域，对回环服务就是跨源；
-//	浏览器先发不带令牌的 OPTIONS，预检必须绕过鉴权门，否则界面里一个请求都发不出去。
-//	信封同构：成功、业务失败、未知路由、坏请求体全为 200 + code，前端才能只写一套解析。
-//	写入落盘：HTTP 写 → 直查存储文件 → HTTP 读回，三个方向对上。
-//	SSE 通道：鉴权走查询参数（EventSource 带不了自定义头）、连上先补 stream:open、
-//	广播帧真的到达订阅者、广播必发号（seq 单调是断线补帧的对齐依据）。
+// TestChain 断言回环 HTTP 的全部契约：鉴权门、CORS 预检、信封同构、写入落盘、SSE 通道。
+// 这一条链是前端全部调用的前提，一处断整个界面就瘫；每段的「为什么」写在段内注释里。
 func TestChain(t *testing.T) {
 	h := newHarness(t)
 

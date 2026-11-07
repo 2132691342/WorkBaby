@@ -29,17 +29,13 @@ workspace: {
     abort: '中止',
     abortConfirm: '这次合并 / 变基的进度会丢失，已解决的冲突不会保留。',
     abortTitle: '中止当前操作？',
-    diffEmpty: '这个文件没有差异',
     diffTruncated: '差异过大，省略了 {n} 行',
-    // 差异视图：折叠未改动区段与并排切换。
-    // 改一个几百行的文件时，不折叠就得把整个文件滚完才找到改动。
     foldedLines: '展开 {n} 行未改动',
     foldAll: '全部折叠',
     unfoldAll: '全部展开',
     diffMode: '切换内联 / 并排',
     diffSide: '并排',
     diffInline: '内联',
-    // 版本栏：同步动作
     fetch: '取回',
     pull: '拉取',
     push: '推送',
@@ -70,8 +66,6 @@ workspace: {
     amend: '修补上一条',
     amendCommit: '修补提交',
     amendHint: '不新增提交，把暂存内容与新说明并进最近一次提交；已推送过的提交修补后要强推',
-    // 每个 git 写动作的成功提示。
-    // 不给成功提示时，用户分不清「拉完了但没新提交」与「压根没点中」。
     stagedAll: '已把 {n} 个文件加入待提交',
     stagedOne: '已加入 {path}',
     unstagedOne: '已取出 {path}',
@@ -84,7 +78,6 @@ workspace: {
     switchedBranch: '已切到分支 {name}',
     createdBranch: '已建分支 {name}',
     pushed: '已推送 {branch}',
-    pulled: '已拉取 {branch}',
     pulledN: '已拉取 {branch}：取回 {n} 个提交',
     pulledUpToDate: '已与远端同步（{branch} 没有新提交）',
     fetched: '已取回远端最新状态',
@@ -95,12 +88,11 @@ workspace: {
     deleteBranchConfirm: '删掉本地分支 {name}？已合并的提交不会丢，未合并的需要 reflog 才能找回来。',
     deletedBranch: '已删除分支 {name}',
     merged: '已把 {name} 合并进来',
-    // 工作区芯片（输入框底栏）
     workspace: '工作目录',
     pickWorkspace: '选择工作目录',
     recentDirs: '最近用过',
     noRecentDirs: '还没有别的目录',
-    switched: '已切到 {path}',
+    switched: '已切到 {path}'
   },
 
 files: {
@@ -118,6 +110,6 @@ files: {
     deleteTitle: '删除？',
     deleteConfirm: '删掉「{name}」？目录会连同里面的内容一起删除。',
     editFile: '编辑',
-    editedHint: '改动未保存',
+    editedHint: '改动未保存'
   },
 }

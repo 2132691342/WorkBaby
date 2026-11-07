@@ -90,9 +90,8 @@ type Cost struct {
 	Total float64 `json:"total"`
 }
 
-// maxSessionBytes 是单份会话文件的读取上限（64MB）。
-// 会话是唯一真相，但工具输出会把文件堆到很大：整份读进内存再解析，
-// 遇到一个几百 MB 的会话就会把应用拖死。超限时读前半段——
+// maxSessionBytes 是单份会话文件的读取上限（64MB）。工具输出会把文件堆得很大，
+// 整读再解析遇到几百 MB 的会话会把应用拖死；超限读前半段——
 // 界面要的是最近的活动分支，早期的轮次本来也翻不到。
 const maxSessionBytes = 64 << 20
 

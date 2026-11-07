@@ -20,10 +20,9 @@ type Git struct {
 	// Runtime 内置运行时
 	Runtime *engine.Runtime
 
-	// writeMu 串行化会改索引或工作树的命令。两条 git 写命令并发时，
-	// 后一条会撞上前一条的 index.lock 而直接失败——用户看到的是
-	// 「点提交报错」，真因是界面同时发了两个写请求。
-	// 读命令不取这把锁：一次 push 能跑两分钟，不能让状态面板跟着卡住。
+	// writeMu 串行化会改索引或工作树的命令：并发写会撞 index.lock 直接失败，
+	// 用户看到的是「点提交报错」。读命令不取这把锁——一次 push 能跑两分钟，
+	// 不能让状态面板跟着卡住。
 	writeMu sync.Mutex
 }
 
@@ -55,9 +54,8 @@ func (g *Git) runIn(dir string, args ...string) (*pkg.ProcResult, error) {
 }
 
 // ProbeOf 探测一个目录的仓库、分支与未提交改动数。
-// 它只读且不报错：工作区清单里一行探不出来应该是空字段，不是一屏标红。
-// 超时取得短（8 秒）：历史清单里可能挂着网络盘或已拔掉的移动盘，
-// 124 秒的默认超时会让整张工作区清单一起卡死。
+// 只读且不报错：探不出来应该是空字段，不是一屏标红；
+// 超时 8 秒——清单里可能挂着网络盘，默认超时会让整张清单一起卡死。
 func (g *Git) ProbeOf(dir string) (isRepo bool, branch string, dirty int) {
 	if !pkg.IsDir(dir) {
 		return false, "", 0

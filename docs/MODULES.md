@@ -26,7 +26,7 @@ main.go（装配根）──► shell ──► api ──► service ──► 
 | 文件 | 职责 |
 |---|---|
 | `apperror.go` | `AppError{Code, Message, Detail}`；`Err` / `WrapErr` / `As` |
-| `codes.go` | 业务码常量，与 `docs/ERROR-CODES.md` 一一对应 |
+| `codes.go` | 业务码常量，与 `docs/API.md` 的错误码表一一对应 |
 | `resp.go` | HTTP 信封 `{code, message, detail, data}`；`OK` / `Fail` |
 | `paths.go` | `Layout` 沙箱目录布局 + `*Ready()` 不抛探测 |
 | `env.go` | `SandboxEnv`：PATH 前置内置运行时（含 Python `Scripts`）、HOME/npm 锁进沙箱、重定向 pi 的家 |
@@ -131,7 +131,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 |---|---|
 | `api/` | `http.ts` 封装 `/api/v1`（信封拆包 + 令牌），`wails.ts` 封装绑定 |
 | `stores/` | Pinia：`app`（引导/设置/主题/语言）、`chat`（会话与消息）、`events`（SSE 分帧）、`refresh`（后台事件驱动的刷新信号）、`prefs` |
-| `composables/` | 附件、草稿、菜单、git 动作、消息流、运行状态、toast |
+| `composables/` | 输入区全家：附件（粘贴图 / 回形针 / 工作区引用）、斜杠与提及菜单、草稿；git 动作（提交 / 推拉 / stash 的确认流）；消息流（发送 · 插话 · 排队 · 重投）；运行状态与计时；文件预览抽屉；服务商表单；视口等比缩放；toast |
 | `types/` | 后端契约的 TS 镜像：`api.ts` 总出口，按域拆四个文件，字段名与 Go json tag 一一对应 |
 | `locales/` | i18n：`zh-CN/` 与 `en/` 一域一文件 |
 | `components/` | 按域分目录：chat / workspace / mcp / models / overview / sessions / settings / skills / apps / common / layout |

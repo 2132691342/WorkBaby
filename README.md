@@ -136,11 +136,9 @@ go test ./tests -count=1
 | `DESIGN.md` | 视觉语言、设计令牌、按钮五态 |
 | `docs/ARCHITECTURE.md` | 进程拓扑、装配顺序、引擎生命周期、稳定性约束 |
 | `docs/MODULES.md` | 每个包与目录的职责、依赖方向、设计取舍 |
-| `docs/API.md` | `/api/v1` 端点契约、SSE 事件词汇 |
+| `docs/API.md` | `/api/v1` 端点契约、SSE 事件词汇、错误码表 |
 | `docs/DATA-MODEL.md` | 壳存储文件、设置键、会话 JSONL 回放规则 |
-| `docs/ERROR-CODES.md` | 业务码段位与码表 |
-| `docs/DEV.md` | 开发流程、测试策略、排错 |
-| `docs/DEPLOY.md` | 打包形态、版本规则、CI/CD |
+| `docs/DEV.md` | 开发环境、测试策略、门禁、打包发布、排错 |
 
 ## 局限
 

@@ -15,14 +15,8 @@ import (
 	"WorkBaby/backend/service/parser"
 )
 
-// TestSession 断言会话真相的全部难点，一段一类：
-//
-//	分支：只走当前分支，不混入被放弃的分支（用户编辑过消息会产生并列分支）。
-//	健壮：一条残行不让整份历史读不出来；环状 parentId 必须有界退出。
-//	组装：工具结果回填宿主轮、孤立结果单独成轮不丢、压缩成 engine-mark 轮、标题取自 session_info。
-//	隐藏：只记壳的台账，绝不改写会话文件。
-//	改名：只在末尾追加 session_info；引擎正打开该会话时拒绝——
-//	两路同时追加会写出交错行，而会话文件写坏就整份回放不出来。
+// TestSession 断言会话真相的全部难点：分支回放、残行与环状 parentId 的健壮性、
+// 工具结果组装、隐藏台账、改名追加。会话 JSONL 是唯一持久真相，界面每次启动都由它重建。
 func TestSession(t *testing.T) {
 	// ---- 分支 ----
 	branch := writeSession(t, t.TempDir(),

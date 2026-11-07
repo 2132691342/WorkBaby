@@ -59,24 +59,20 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 ## 测试策略
 
 只测「改这里会坏那里」的复杂流程与长链路。平凡断言（单 getter、纯函数往返、
-复述框架行为）不写——它们的维护成本高于收益，还会把 `go test` 拖成几分钟。
+复述框架行为）不写——它们的维护成本高于收益。**一文件一个被测对象、一文件一个
+测试入口**：改哪个模块就看哪个文件，一处找全。
 
-六个默认文件 + 一个 live 文件、十个用例、约 1 秒：
+六个测试入口 + 一个 live 入口，全部跑完约 1 秒：
 
-| 文件 | 用例 | 断言什么 |
+| 文件 | 入口 | 断言什么 |
 |---|---|---|
-| `tests/http_chain_test.go` | `TestHTTPChain` | 鉴权硬门（401 且不带业务信封）、CORS 预检绕过鉴权门并带允许头（WebView2 虚拟源跨源调回环的前提）、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入真的落盘（HTTP 写 → 直查存储文件 → HTTP 读回三个方向对上） |
-| | `TestSSEStream` | 查询参数鉴权、连上先补 `stream:open`、广播帧真的到达订阅者、广播必发号（seq 单调） |
-| `tests/session_test.go` | `TestSessionReplay` | 分支遍历只走当前分支、残行不毁整份历史、环状 parentId 有界退出、工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题取自 `session_info` |
-| | `TestSessionWriteDiscipline` | 隐藏轮只记壳的台账不改文件、改名只在末尾追加、引擎正打开该会话时拒绝且不动文件 |
-| `tests/sandbox_test.go` | `TestBuiltinManifest` | 内置清单与磁盘资产互相咬合（18 个插件逐条对版本、22 个技能双向无死条目）；每个 SKILL.md 的 name / description 都解析得出来（YAML 块标量不破） |
-| | `TestSkillLifecycle` | 落位尊重默认值且不覆盖用户改动；开关是搬目录 + 台账记账；重置后 SKILL.md 仍是可读文件；删除清掉整个目录、目录路径一律拒；「两个区各一份」的破损态自愈后清单无重复行 |
-| | `TestSandboxEnvPinsPaths` | 子进程环境把 HOME / USERPROFILE / npm 与 pip 缓存钉进沙箱数据目录——少钉一条，探针或技能脚本就会把缓存漏进用户目录或工作目录 |
-| `tests/plugin_test.go` | `TestPluginLifecycle` | 来源串规范（git 源就是 URL 本身，不带 `git:` 前缀）；停用写对象形态 `autoload:false`、启用写裸来源串；开关保留用户配的资源过滤（extensions）；重试安装不把已停用的插件静默打开；卸载撤声明并删包目录 |
-| | `TestPluginVersionDrift` | 判据是「在且版本对」，Provision 与 UpgradeAll 都只碰漂移项 |
-| `tests/mcp_test.go` | `TestMcpConfig` | 12 路并发写 mcp.json 一条不丢（读-改-写必须有锁）；删项目级条目不连带删掉被它遮蔽的用户级条目 |
+| `tests/chain_test.go` | `TestChain` | 回环 HTTP 全链路：鉴权硬门（401 且不带业务信封）、CORS 预检绕过鉴权门并带允许头（WebView2 虚拟源跨源调回环的前提）、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入落盘（HTTP 写 → 直查存储文件 → HTTP 读回）、SSE 通道（查询参数鉴权、先补 `stream:open`、广播到达、seq 单调） |
+| `tests/session_test.go` | `TestSession` | 会话 JSONL 回放与写入纪律：分支只走当前分支、残行不毁整份历史、环状 parentId 有界退出、工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题来源；隐藏轮只记台账不改文件、改名只末尾追加、引擎正打开时拒绝 |
+| `tests/sandbox_test.go` | `TestSandbox` | 沙箱三层契约：内置清单与磁盘资产互相咬合（18 个插件逐条对版本、22 个技能双向无死条目、frontmatter 块标量不破）、子进程环境把 HOME / USERPROFILE / npm 与 pip 缓存钉进沙箱、技能落位/开关/重置/删除/自愈整条生命周期 |
+| `tests/plugin_test.go` | `TestPlugins` | 插件治理：来源串规范（git 源就是 URL 本身，不带 `git:` 前缀）、停用写 `autoload:false` 启用写裸串、开关保留用户配的资源过滤、重试不静默打开停用的插件、卸载撤声明删包目录、版本漂移只碰「在且版本不对」的包 |
+| `tests/mcp_test.go` | `TestMcpConfig` | 12 路并发写 mcp.json 一条不丢（读-改-写必须有锁）；删项目级条目不连带删被它遮蔽的用户级条目 |
 | `tests/harness_test.go` | — | 公共装具：全后端 harness（真 JSON 存储 + 真 gin 中间件栈）与轻量 harness、HTTP 调用与断言辅助 |
-| `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：解压三个运行时 → 内置 npm 装 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑 |
+| `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：解压三个运行时 → 内置 npm 装 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑（需联网，约 2 分钟） |
 
 约定：
 
@@ -107,3 +103,87 @@ go test ./tests -count=1                                # 4 场景测试全绿
 | 插件换了版本还是旧行为 | 包只在引擎启动时加载：停用再启用，或重启引擎 |
 | 技能不出现 | 是否在 `pi\skills\`（不是 `skills_disabled\`）；SKILL.md 头是否合法 |
 | 打安装包报 makensis 找不到 | 装 NSIS 并把安装目录加进 PATH |
+
+## 打包与发布
+
+### 产物形态
+
+安装态是**一个目录**，不是单文件：
+
+```
+WorkBaby\
+├── WorkBaby.exe          # Go 编译的壳（前端已 embed 进 exe）
+├── assets\
+│   ├── runtime\          # node / PortableGit / Python 三个 zip
+│   └── skills\           # 内置技能包（22 个目录）
+└── 卸载程序等 NSIS 产物
+```
+
+前端产物经 `//go:embed all:frontend/dist` 编进 exe，**不额外分发静态文件**。
+运行时 zip 走 `assets\runtime\`，首启解压到数据目录——不预解压进安装包，
+否则安装体积翻倍，且用户要重装才能升级运行时。
+
+体积基线：`assets\runtime` 约 110MB、`assets\skills` 约 8MB、exe 约 32MB。
+安装包体积随 NSIS 压缩率浮动，**只有十几 MB 一定是 assets 没打进去**。
+
+### 版本号
+
+```bash
+go build -ldflags "-X main.version=1.2.3" -o bin/WorkBaby.exe .
+```
+
+版本跟着 git tag 走；不注入时是 `dev`，本地跑出来的就是开发版，
+不会误当成正式版。前端从 `Endpoint().version` 读到它显示在关于页。
+
+### 打包命令与安装器要点
+
+```bash
+task build      # 只产 exe，用于本机验证
+task package    # NSIS 安装包，per-user 安装、可选安装目录
+```
+
+`task package` 内部走 `build/windows/Taskfile.yml`，前置是 `makensis` 在 PATH 上。
+
+- **per-user 安装**，不要求管理员权限（数据目录本来就在 `%LOCALAPPDATA%`）
+- 允许用户改安装目录
+- **必须把 `assets/` 一起装进去**：`build/windows/nsis/project.nsi` 是手维护文件，
+  打包段里有 `File /r assets`；少装 assets 等于装了一堆不能跑的文件。
+  该文件只能写 ASCII（NSIS 按 ANSI 代码页读脚本），详见 `build/windows/nsis/README.md`
+- 卸载不删数据目录——用户的会话与配置在 `%LOCALAPPDATA%\WorkBaby`
+
+### CI
+
+| 工作流 | 触发 | 做什么 |
+|---|---|---|
+| `.github/workflows/ci.yml` | push / PR → main | gofmt 检查 → `npm ci` → 前端类型检查与产物 → `go vet` → `go test ./tests` → `go build ./...` |
+| `.github/workflows/release.yml` | push tag `v*` | 装 wails3 与 NSIS → 校验 tag 与 HEAD 一致 → `npm ci` → 前端产物 → `go test` → `wails3 package` → 上传安装包到 Release |
+
+两个工作流都需要 `windows-latest`（Wails3 的 WebView2 胶水只在 Windows 上编），
+且**前端产物必须先于任何 `package main` 的编译**——`main.go` 的 `go:embed`
+在全新 checkout 下指向不存在的目录，`vet` / `test` / `build` 都会失败。
+
+发布流需要两样在 `windows-latest` 上不预装的东西：**wails3**（`go install` 到
+`GOPATH\bin`，要手动加进 PATH）与 **NSIS**（`choco install nsis` 后把安装目录加进 PATH）。
+
+重新打同一个 tag 时，Release 已存在，工作流会 `gh release upload --clobber`
+替换资产而不是报错。
+
+### 发布前自查
+
+```bash
+gofmt -l backend main.go tests   # 应无输出
+go vet ./...                     # 应无输出
+go test ./tests -count=1         # 全绿
+task build                       # exe 产出并可启动
+```
+
+安装后验证清单：
+
+1. 首次启动窗口按时出现（不黑屏、不假死）
+2. 概览页进度条走完：运行时 → 技能 → 插件
+3. 设置页诊断：node / git / python / pi 四个版本号都有值
+4. 对话页发一句话能流式回来
+5. 插件页能停用一个、再启用回来
+6. 技能页能停用一个、再启用回来（`skills\` 与 `skills_disabled\` 之间搬移）
+7. 关窗收托盘、托盘菜单能唤回
+8. 卸载后 `%LOCALAPPDATA%\WorkBaby` 仍在（数据未丢）

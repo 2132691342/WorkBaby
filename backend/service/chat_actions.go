@@ -170,9 +170,8 @@ func (c *Chat) RemoveQueued(kind string, index int) (domain.QueuedMessagesVO, er
 	*target = append((*target)[:index], (*target)[index+1:]...)
 
 	// requeue 投一条回引擎；插队投不进去就降级为追加。
-	// 每一层的 error 都要显式返回：闭包里沿用外层的 err 变量会把它覆盖掉，
-	// 降级成功时又把外层 err 改成 nil，调用方就再也看不出重投失败——
-	// 用户以为删掉了一条，实际整队都没投回去。
+	// 每一层都要显式返回 error：闭包沿用外层 err 会把它覆盖成 nil，
+	// 调用方就再也看不出重投失败——用户以为删掉了一条，实际整队都没投回去。
 	requeue := func(text, wire string) error {
 		_, err := client.Request(compose(text, nil).wire(wire), 0)
 		if err == nil {

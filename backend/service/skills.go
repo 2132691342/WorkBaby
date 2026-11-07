@@ -80,11 +80,9 @@ func (s *Skills) Provision() int {
 	return copied
 }
 
-// healDuplicate 自愈「启用区与禁用区同时有同一个技能」的破损态。
-// 破损态下清单里会出现两行同名技能，一行开一行关，用户看着像出了幻觉。
-// 判据用内容：两边完全一致才当成搬移中断留下的重复份，清掉禁用区那份。
-// 内容不一致说明是两个不同的东西（典型是用户导入的技能与内置同名），
-// 这时一个都不能动——删错了就是用户数据没了。
+// healDuplicate 自愈「启用区与禁用区同时有同一个技能」的破损态：清单两行同名，一行开一行关。
+// 判据用内容：两边完全一致才当成搬移中断的重复份，清掉禁用区那份；
+// 内容不一致就是两个不同的东西（用户导入与内置同名），一个都不能动——删错了就是数据没了。
 func (s *Skills) healDuplicate(dirName, active, hidden string) {
 	activeRaw, activeErr := os.ReadFile(filepath.Join(active, "SKILL.md"))
 	hiddenRaw, hiddenErr := os.ReadFile(filepath.Join(hidden, "SKILL.md"))

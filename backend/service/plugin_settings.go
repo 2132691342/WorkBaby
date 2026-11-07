@@ -9,11 +9,9 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// piSettingsMu 串行化 settings.json 的读-改-写。
-// 这个文件有三方在写：包声明（Plugins）、npmCommand（装配）、以及引擎自己。
-// 任何一次「读出全表 → 改一个键 → 写回」都要落到同一把锁上，
-// 否则后写的那次会拿回改前的旧表，前一次的改动凭空消失——
-// 最坏的后果是 npmCommand 被抹掉，pi 于是去 PATH 上找系统 npm，沙箱就漏了。
+// piSettingsMu 串行化 settings.json 的读-改-写：包声明、npmCommand 与引擎自己都在写这个文件，
+// 无锁时后写会拿回旧表，前一次改动凭空消失——最坏是 npmCommand 被抹掉，
+// pi 去 PATH 上找系统 npm，沙箱就漏了。
 var piSettingsMu sync.Mutex
 
 // piSettings 是 settings.json 的读取形状。壳不另建注册表——
@@ -86,9 +84,8 @@ func parseEntry(item any) packageEntry {
 	return packageEntry{Source: source, Enabled: enabled}
 }
 
-// entryToJSON 把声明编码回 settings.json 的形状。
-// 启用时不能简单写回裸串：对象形态里还可能带着用户配的资源过滤
-// （extensions / skills / prompts / themes），抹平就等于把那份配置悄悄删了。
+// entryToJSON 把声明编码回 settings.json 的形状。启用态不能简单写回裸串：
+// 对象形态里可能带着用户配的资源过滤（extensions / skills 等），抹平等于悄悄删配置；
 // 只去掉 autoload 这一个键，其余原样保留。
 func entryToJSON(source string, enabled bool) any {
 	if enabled {

@@ -117,10 +117,9 @@ func (s *Sessions) Delete(file string) error {
 	return nil
 }
 
-// Rename 改名：往会话文件追加一条 session_info 条目。
-// 这是引擎自己的改名方式，直接改文件头会让引擎认不出会话。
-// 引擎目前正打开这份会话时拒掉：两路同时追加会写出交错的行，
-// 而会话文件是唯一真相，写坏就整份回放不出来。
+// Rename 改名：往会话文件追加一条 session_info 条目——这是引擎自己的改名方式，
+// 直接改文件头会让引擎认不出会话。引擎正打开这份会话时拒掉：
+// 两路同时追加会写出交错行，会话文件是唯一真相，写坏就整份回放不出来。
 func (s *Sessions) Rename(file, title string) error {
 	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
 	if err != nil {

@@ -1,7 +1,7 @@
 package pkg
 
 // 业务码是数字字符串：HTTP 状态码已经是 int，信封里再放一个 int 就没法区分
-// 「谁失败了」。码值与 docs/ERROR-CODES.md 一一对应，新增码先改文档再写代码。
+// 「谁失败了」。码值与 docs/API.md 的错误码表一一对应，新增码先改文档再写代码。
 const (
 	// CodeOK 成功；唯一不视为异常的业务码
 	CodeOK = "0"

@@ -384,9 +384,8 @@ func (c *Chat) Shutdown() {
 }
 
 // KillEngine 退出时兜底：把引擎进程树整棵杀掉。
-// Stop 只关 stdin 并等引擎自己退，等不到才在 5 秒后杀树；
-// 而退出流程只给 1.5 秒——窗口没了，pi 与它的 bash 子孙还在后台跑，
-// 占着 CPU、内存与包目录的锁，下次启动会撞上「目录被占用」。
+// 退出流程只给 1.5 秒，等不了 Stop 的 5 秒优雅期；pi 与它的 bash 子孙留在后台
+// 会占着 CPU、内存与包目录的锁，下次启动撞上「目录被占用」。
 func (c *Chat) KillEngine() {
 	c.mu.Lock()
 	client := c.rpc

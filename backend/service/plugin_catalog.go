@@ -12,10 +12,9 @@ type BuiltinPlugin struct {
 	PluginDefaultOn bool
 }
 
-// BuiltinPlugins 是内置插件清单：顺序即首启安装顺序，联网访问排最前
-// （其余插件常依赖它）。这份清单是产品规格，不多不少——增删要同步
-// docs 与 README。默认停用的只限「与本壳 GUI 职责重叠」的几个，
-// 其余默认开启。pi-web-access 之后的顺序不承载依赖，只是阅读顺序。
+// BuiltinPlugins 是内置插件清单：顺序即首启安装顺序，联网访问排最前（其余插件常依赖它），
+// 之后只是阅读顺序。这份清单是产品规格，不多不少，增删要同步 docs 与 README；
+// 默认停用的只限「与本壳 GUI 职责重叠」的几个，其余默认开启。
 var BuiltinPlugins = []BuiltinPlugin{
 	{
 		PluginName:      "pi-web-access",

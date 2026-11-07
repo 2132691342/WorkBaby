@@ -12,15 +12,9 @@ import (
 	"WorkBaby/backend/service"
 )
 
-// TestPlugins 断言插件治理的全部契约，一段一类：
-//
-//	来源规范：用户输入必须规范成 pi 认的来源串；git 源带 git: 前缀引擎直接装不上。
-//	启停：停用写对象形态 autoload:false——裸来源串没法表达关；启用写裸来源串——
-//	plain 源写对象形态（哪怕 autoload:true）会让引擎多走一条分支。
-//	配置保留：对象形态可以带 extensions 等资源过滤数组，开关只许动 autoload。
-//	重试：只让包就位，不得把用户停用的插件静默重新打开。
-//	卸载：声明与包目录一起消失。
-//	版本漂移：判据是「在且版本对」，批量升级只碰漂移的包。
+// TestPlugins 断言插件治理的全部契约：来源串规范、启停两态的写法、用户配置保留、
+// 重试不动开关、卸载撤声明删包目录、版本漂移只碰装歪的包。
+// 一切落盘都写在 pi 的原生表达（settings.json 的 packages[]）上。
 func TestPlugins(t *testing.T) {
 	// ---- 来源规范：入口处先钉住，后面所有声明都经它产出 ----
 	for _, c := range []struct{ in, wantSource, wantName string }{

@@ -10,11 +10,8 @@ import (
 	"WorkBaby/backend/domain"
 )
 
-// TestMcpConfig 断言 mcp.json 的两条治理纪律：
-//
-//  1. 并发增删改不互吞：没有锁时后写的那次会拿回改前的旧表，前一次改动凭空消失，
-//     用户看到的是「刚加的服务器自己没了」。
-//  2. 删项目级条目不连带删被它遮蔽的用户级条目：界面上只显示一行，磁盘上却有两个同名条目。
+// TestMcpConfig 断言 mcp.json 的两条治理纪律：12 路并发读-改-写一条不丢（无锁时后写
+// 会拿回旧表，用户刚加的服务器凭空消失）；删项目级条目不连带删被它遮蔽的用户级条目。
 func TestMcpConfig(t *testing.T) {
 	app, layout, _ := catalogHarness(t, "")
 

@@ -12,9 +12,7 @@ type Frontmatter struct {
 
 // ParseFrontmatter 读 `---` 包起来的头部。只认 name / description 两个键：
 // 头部其余键属于引擎的扩展点，壳不解释也不改动原文。
-// 块标量（`|` 与 `>`）要按 YAML 规则把后续缩进行接上：
-// 只切当前行的话，`description: |` 会解析出一个字符「|」，
-// 技能在清单里就没有描述，而描述正是引擎决定何时触发它的依据。
+// 块标量（`|` 与 `>`）按 YAML 规则接上缩进行，只切当前行的话 description 只剩一个「|」。
 func ParseFrontmatter(text string) Frontmatter {
 	out := Frontmatter{}
 	lines := splitLines(text)

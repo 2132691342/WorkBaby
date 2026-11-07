@@ -3,18 +3,17 @@ export default {
 app: {
     starting: '正在启动本地服务…',
     closePromptTitle: '关闭窗口时要做什么？',
-    closePromptBody:
-      '收进托盘：应用继续在后台跑，对话不会中断，可以从托盘图标叫回来。\n退出：直接结束应用与所有引擎进程。\n\n这个选择会被记住，以后可以在设置里改。',
+    closePromptBody: '收进托盘：应用继续在后台跑，对话不会中断，可以从托盘图标叫回来。\n退出：直接结束应用与所有引擎进程。\n\n这个选择会被记住，以后可以在设置里改。',
     closeToTray: '收进托盘',
     closeToQuit: '退出应用',
     failTag: '启动失败',
-    failHint: '后端没有起来。先看日志里最后几行；如果是端口或数据库被占用，重启本应用通常能解决。',
+    failHint: '后端没有起来。先看日志里最后几行；如果是端口或数据库被占用，重启本应用通常能解决。'
   },
 
-  net: {
+net: {
     requestFailed: '请求失败',
     timeout: '后端响应超时',
-    unreachable: '连不上后端',
+    unreachable: '连不上后端'
   },
 
 titlebar: {
@@ -23,7 +22,7 @@ titlebar: {
     noEngine: '引擎未安装',
     connected: '已连接',
     minimize: '最小化',
-    maximize: '最大化',
+    maximize: '最大化'
   },
 
 nav: {
@@ -37,13 +36,7 @@ nav: {
     mcp: 'MCP',
     usage: '用量',
     apps: '应用',
-    settings: '设置',
-  },
-
-scope: {
-    all: '全部',
-    hint: '这一页管哪个引擎：omp / pi / 两边一起看。不影响对话用的引擎。',
-    notInstalled: '{engine} 没有安装，装好后才能管它的东西',
+    settings: '设置'
   },
 
 common: {
@@ -52,7 +45,6 @@ common: {
     delete: '删除',
     edit: '编辑',
     close: '关闭',
-    confirm: '确认',
     remove: '移除',
     refresh: '刷新',
     retry: '重试',
@@ -67,21 +59,13 @@ common: {
     copy: '复制',
     copied: '已复制',
     undo: '撤销',
-    open: '打开',
-    reveal: '在文件夹中显示',
-    search: '搜索',
-    all: '全部',
     searchPlaceholder: '搜索',
     name: '名称',
-    version: '版本',
-    source: '来源',
-    path: '路径',
     actions: '操作',
     unknown: '未知',
     untitled: '未命名',
     saved: '已保存',
     update: '升级',
-    yes: '是',
-    no: '否',
+    yes: '是'
   },
 }

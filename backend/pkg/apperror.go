@@ -4,7 +4,7 @@ package pkg
 
 // AppError 是唯一业务错误类型：Code 给界面分流，Message 直接给人看，Detail 给诊断面板。
 type AppError struct {
-	// Code 业务码（数字字符串），与 docs/ERROR-CODES.md 一一对应
+	// Code 业务码（数字字符串），与 docs/API.md 的错误码表一一对应
 	Code string
 	// Message 人话描述
 	Message string

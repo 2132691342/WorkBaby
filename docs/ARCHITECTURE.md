@@ -81,6 +81,7 @@ Wails 绑定只暴露系统能力——拿端点、选目录、窗控、托盘�
 | `HOME` / `USERPROFILE` | 指向数据目录，工具写不到用户的真实家目录 |
 | `PI_CODING_AGENT_DIR` | 把 pi 的整个家重定向到沙箱 |
 | `npm_config_cache` / `npm_config_prefix` | npm 缓存与全局前缀锁进 `data\cache` |
+| `PIP_CACHE_DIR` | pip 缓存锁进 `data\cache\pip`——pip 的默认缓存跟着 HOME 与版本解析行为漂，不钉死就会漏 |
 
 **内置运行时缺失时直接报错，不回退系统同名命令**。回退等于拿用户环境跑包，
 沙箱就不存在了。探测有无一律用 `NodeReady()` 这类不抛的版本。
