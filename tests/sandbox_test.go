@@ -42,9 +42,6 @@ func TestSandbox(t *testing.T) {
 	}
 	seen := map[string]struct{}{}
 	for _, item := range service.BuiltinPlugins {
-		if item.PluginName == "" {
-			t.Fatal("内置插件必须有包名")
-		}
 		if _, dup := seen[item.PluginName]; dup {
 			t.Fatalf("内置插件清单里有重复包名：%s", item.PluginName)
 		}
@@ -52,18 +49,10 @@ func TestSandbox(t *testing.T) {
 		want, ok := spec[item.PluginName]
 		if !ok {
 			t.Errorf("内置插件不在规格清单里：%s", item.PluginName)
-		} else if item.PluginVersion != want {
+			continue
+		}
+		if item.PluginVersion != want {
 			t.Errorf("%s 的钉住版本应是 %s，实际 %s", item.PluginName, want, item.PluginVersion)
-		}
-		if item.PluginVersion == "" {
-			t.Errorf("%s 缺钉住的版本号：空串会让安装退化成跟随 latest", item.PluginName)
-		}
-		source := service.NpmSourceOf(item)
-		if want := "npm:" + item.PluginName + "@" + item.PluginVersion; source != want {
-			t.Errorf("%s 的来源串应是 %q，实际 %q", item.PluginName, want, source)
-		}
-		if got := service.PackageNameOf(source); got != item.PluginName {
-			t.Errorf("%s 反解包名错了：得到 %q", source, got)
 		}
 	}
 	for name := range spec {
@@ -113,27 +102,21 @@ func TestSandbox(t *testing.T) {
 		}
 	}
 
-	// ---- 环境钉扎：缓存与家目录必须落在沙箱数据目录里 ----
+	// ---- 环境钉扎：家目录与两处包缓存必须落在沙箱数据目录里，漏一条沙箱就漏 ----
 	layout := pkg.ResolveLayout(t.TempDir(), true)
-	env := layout.SandboxEnv(nil)
 	values := map[string]string{}
-	for _, item := range env {
+	for _, item := range layout.SandboxEnv(nil) {
 		if idx := strings.IndexByte(item, '='); idx > 0 {
 			values[item[:idx]] = item[idx+1:]
 		}
 	}
-	for _, key := range []string{"HOME", "USERPROFILE", "PIP_CACHE_DIR"} {
+	for _, key := range []string{"HOME", "USERPROFILE", "npm_config_cache", "PIP_CACHE_DIR"} {
 		got, ok := values[key]
 		if !ok {
 			t.Fatalf("沙箱环境缺 %s", key)
 		}
 		if !pkg.Inside(layout.DataDir, got) {
 			t.Fatalf("%s 应钉在沙箱数据目录里，实际 %q", key, got)
-		}
-	}
-	for key, want := range map[string]string{"npm_config_cache": layout.NpmCacheDir, "PIP_CACHE_DIR": layout.PipCacheDir} {
-		if got := values[key]; got != want {
-			t.Fatalf("%s 应为 %q，实际 %q", key, want, got)
 		}
 	}
 

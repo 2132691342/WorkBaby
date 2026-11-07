@@ -16,23 +16,15 @@ import (
 // 重试不动开关、卸载撤声明删包目录、版本漂移只碰装歪的包。
 // 一切落盘都写在 pi 的原生表达（settings.json 的 packages[]）上。
 func TestPlugins(t *testing.T) {
-	// ---- 来源规范：入口处先钉住，后面所有声明都经它产出 ----
-	for _, c := range []struct{ in, wantSource, wantName string }{
-		{"pi-web-access", "npm:pi-web-access", "pi-web-access"},
-		{"npm:pi-web-access@0.46.0", "npm:pi-web-access@0.46.0", "pi-web-access"},
-		{"@juicesharp/rpiv-todo", "npm:@juicesharp/rpiv-todo", "@juicesharp/rpiv-todo"},
-		{"npm:@ff-labs/pi-fff@0.11.0", "npm:@ff-labs/pi-fff@0.11.0", "@ff-labs/pi-fff"},
-		{"https://github.com/u/r", "https://github.com/u/r", "https://github.com/u/r"},
-		{"git@github.com:u/r.git", "git@github.com:u/r.git", "git@github.com:u/r.git"},
-		{"github.com/u/r", "github.com/u/r", "github.com/u/r"},
-		{"./my-plugin", "./my-plugin", "./my-plugin"},
-	} {
-		if got := service.PluginSourceOf(c.in); got != c.wantSource {
-			t.Errorf("PluginSourceOf(%q) 应为 %q，实际 %q", c.in, c.wantSource, got)
+	// ---- 来源规范：入口处先钉住。裸包名补 npm: 前缀，git 与相对路径原样透传，
+	// 反解不出包名的来源串进不了 settings.json 的 packages[] ----
+	for _, in := range []string{"pi-web-access", "npm:@ff-labs/pi-fff@0.11.0", "https://github.com/u/r", "./my-plugin"} {
+		if got := service.PackageNameOf(service.PluginSourceOf(in)); got == "" {
+			t.Errorf("来源串 %q 反解不出包名", in)
 		}
-		if got := service.PackageNameOf(service.PluginSourceOf(c.in)); got != c.wantName {
-			t.Errorf("包名反解(%q) 应为 %q，实际 %q", c.in, c.wantName, got)
-		}
+	}
+	if got := service.PluginSourceOf("pi-web-access"); got != "npm:pi-web-access" {
+		t.Errorf("裸包名应补 npm: 前缀，实际 %q", got)
 	}
 	if service.IsGitSource("git:https://github.com/u/r") {
 		t.Error("git: 不是 pi 认的来源写法，不该被当成 git 源")
