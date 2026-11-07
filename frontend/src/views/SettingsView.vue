@@ -32,7 +32,7 @@ const restarting = ref('')
 const autoStartBusy = ref(false)
 const restoreBusy = ref(false)
 // 配置原文只能看不能改：写引擎配置有节点级接口，原文编辑会打乱它的假设。
-const configKind = ref<'omp' | 'pi'>('omp')
+// 清单与原文由 ConfigPanel 自己拉取，这里不持有它的状态。
 
 async function toggleAutoStart(enabled: boolean) {
   autoStartBusy.value = true
@@ -72,15 +72,6 @@ async function toggleRestore(enabled: boolean) {
 async function openDataDir() {
   try {
     await api.openDataDir()
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  }
-}
-
-async function loadConfig(kind: 'omp' | 'pi') {
-  configKind.value = kind
-  try {
-    await prefs.openConfig(kind)
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   }
@@ -177,9 +168,6 @@ onMounted(() => {
   void loadLogs()
   void app.refreshEngines()
   void prefs.load()
-  // 只给已经装了的引擎看配置：都没装时这一整节不该出现。
-  const first = app.engines?.engines?.[0]?.engine_kind
-  if (first) void loadConfig(first)
 })
 
 </script>
@@ -227,7 +215,7 @@ onMounted(() => {
       />
 
       <!-- 引擎配置原文：只看不改 -->
-      <ConfigPanel :kind="configKind" @pick="loadConfig" />
+      <ConfigPanel />
 
       <!-- 诊断：失败记录 + 后端日志。两者回答同一个问题：刚才那一下哪一层出的错 -->
       <DiagPanel :logs="logs" @refresh-logs="loadLogs" />

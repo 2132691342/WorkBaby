@@ -2,7 +2,7 @@
 // 引擎配置原文：只看不改。
 // 设置页不写引擎配置——节点级接口各管各的键（模型页 models、MCP 页 mcp.json），
 // 多一个写入口必有「这里改了、那里没跟着变」；这里只供对照与排错。
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CodeEditor from '@/components/common/CodeEditor.vue'
 import { usePrefsStore } from '@/stores/prefs'
@@ -22,6 +22,12 @@ const lang = computed<'json' | 'yaml' | 'text'>(() => {
 
 /** 引擎就绪才谈得上「看它的配置」。 */
 const installed = computed(() => Boolean(app.runtime?.pi_ready))
+
+// 进面板就铺第一份配置原文：清单里第一个是 settings.json，最常对照的就是它。
+onMounted(() => {
+  if (!installed.value) return
+  prefs.openConfig().catch(() => undefined)
+})
 </script>
 
 <template>
