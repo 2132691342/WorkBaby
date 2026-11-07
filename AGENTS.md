@@ -149,7 +149,7 @@ type AppError struct {
 | 类型 / 接口 | PascalCase，不加 I 前缀 |
 | 函数 | camelCase（导出时首字母大写），常量 SCREAMING_SNAKE_CASE |
 | JSON 字段 | snake_case + 业务前缀 |
-| ID | `{PREFIX}_{26位ULID}`；现役前缀 `RUN` / `ASK` / `EVT` / `JOB`，白名单在 `pkg/ulid.go` |
+| ID | `{PREFIX}_{26位ULID}`；现役前缀 `RUN` / `ASK` / `EVT` / `JOB` / `SES`，白名单在 `pkg/ulid.go` |
 | 时间戳 | 一律毫秒 int64（`pkg.NowMs()`）；禁止 ISO 串进 DTO |
 | 注释 | 文件头 1 行 `// Package x ...`；类型 / 字段 / 方法各 1 行说结论；连续注释 ≤ 3 行；只写「为什么」，不复述代码 |
 | 行数 | 每文件 ≤ 500 行 |

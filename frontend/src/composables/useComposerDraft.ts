@@ -11,7 +11,7 @@ function keyOf(sessionFile: string): string {
 
 /** 最多保留多少条草稿。超出时丢最旧的——草稿是便利，不是账本。 */
 const MAX_DRAFTS = 20
-const STORAGE_KEY = 'omp.composer.drafts'
+const STORAGE_KEY = 'wb.composer.drafts'
 
 function readAll(): Record<string, string> {
   try {

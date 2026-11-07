@@ -62,11 +62,12 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 复述框架行为）不写——它们的维护成本高于收益。**一文件一个被测对象、一文件一个
 测试入口**：改哪个模块就看哪个文件，一处找全。
 
-六个测试入口 + 一个 live 入口，全部跑完约 1 秒：
+七个测试入口 + 一个 live 入口，全部跑完约 1 秒：
 
 | 文件 | 入口 | 断言什么 |
 |---|---|---|
 | `tests/chain_test.go` | `TestChain` | 回环 HTTP 全链路：鉴权硬门（401 且不带业务信封）、CORS 预检绕过鉴权门并带允许头（WebView2 虚拟源跨源调回环的前提）、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入落盘（HTTP 写 → 直查存储文件 → HTTP 读回）、SSE 通道（查询参数鉴权、先补 `stream:open`、广播到达、seq 单调） |
+| `tests/frames_test.go` | `TestFrames` | 流式翻译器的块表状态机：增量按块累加、工具块从出现到收尾、message_end 权威覆盖但按 id 保留工具读数、user 话术更新、用量透传 turn_end、stopReason=error 收尾带原话、settled 透传 abort、未知事件静默 no-op |
 | `tests/session_test.go` | `TestSession` | 会话 JSONL 回放与写入纪律：分支只走当前分支、残行不毁整份历史、环状 parentId 有界退出、工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题来源；隐藏轮只记台账不改文件、改名只末尾追加、引擎正打开时拒绝 |
 | `tests/sandbox_test.go` | `TestSandbox` | 沙箱三层契约：内置清单与磁盘资产互相咬合（18 个插件逐条对版本、22 个技能双向无死条目、frontmatter 块标量不破）、子进程环境把 HOME / USERPROFILE / npm 与 pip 缓存钉进沙箱、技能落位/开关/重置/删除/自愈整条生命周期 |
 | `tests/plugin_test.go` | `TestPlugins` | 插件治理：来源串规范（git 源就是 URL 本身，不带 `git:` 前缀）、停用写 `autoload:false` 启用写裸串、开关保留用户配的资源过滤、重试不静默打开停用的插件、卸载撤声明删包目录、版本漂移只碰「在且版本不对」的包 |

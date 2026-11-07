@@ -369,8 +369,8 @@ defineExpose({ focus })
   box-shadow: 0 0 0 3px var(--wb-brand-soft);
 }
 
-/* 输入块：给一个 68px 的最小高度，空态也有一个大目标可点。
-   之前 textarea 只有 1 行高，整块输入区看着就是一条缝。 */
+/* 输入块：给一个 68px 的最小高度——空态也得是一个看得见的大目标，
+   高度不足时整块输入区看着就是一条缝，用户找不到可以点的地方。 */
 .ta-shell {
   display: flex;
   min-height: calc(68px * var(--wb-vw-scale));

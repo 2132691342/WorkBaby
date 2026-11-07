@@ -77,7 +77,7 @@ export function useComposerMenu(
   const slashItems: ComputedRef<MenuItem[]> = computed(() => {
     const query = draft.value.slice(1).toLowerCase()
     const builtinItems = builtins.items().map((b) => ({ ...b, source: 'builtin' as const }))
-    // 引擎也会报出与内置同名的命令（如 omp 的 compact / export）：
+    // 引擎也会报出与内置同名的命令（如引擎自带的 compact / export）：
     // 同一个动作出现两次只会让人犹豫点哪个。内置的语义更明确，留它。
     const builtinKeys = new Set<string>(builtinItems.map((b) => b.key))
     const engineItems: MenuItem[] = chat.commands

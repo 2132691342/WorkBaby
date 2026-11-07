@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 用量页：数字全部来自 omp 自己统计的会话文件（通过 sessions 列表聚合），不另存一份。
+// 用量页：数字全部来自引擎统计的会话文件（通过 sessions 列表聚合），不另存一份。
 // 图只画两处：按天趋势与按模型占比——都读 CSS 变量，主题切换后重绘。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

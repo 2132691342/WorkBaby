@@ -278,8 +278,8 @@ func (s *Skills) Toggle(skillPath string, enabled bool) error {
 	}
 	skillDirPath := filepath.Dir(dir)
 	skillDir := filepath.Base(skillDirPath)
-	// 项目技能归那个仓库管：壳里的开关对它无效，也不该搬动同名内置技能。
-	// 之前只取目录名，开掉一个项目技能会把全局同名内置技能搬进禁用区。
+	// 项目技能归那个仓库管：壳里的开关对它无效。开关对象按传入的 SKILL.md
+	// 定位技能目录——只取目录名会把项目技能误认成同名内置技能，殃及无辜。
 	if pkg.Inside(s.projectDir(), skillDirPath) && !pkg.Inside(s.Layout.SkillsDir(), skillDirPath) &&
 		!pkg.Inside(s.Layout.SkillsOffDir(), skillDirPath) {
 		return pkg.Err(pkg.CodeSkillSave, "项目技能由所在仓库管理，不能在此开关")
