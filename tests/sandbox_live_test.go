@@ -6,6 +6,7 @@
 package tests
 
 import (
+	"path/filepath"
 	"testing"
 
 	"WorkBaby/backend/pkg"
@@ -15,7 +16,13 @@ import (
 
 // TestSandboxChain 断言沙箱链路每一环真的通：运行时解压、npm 装 pi、RPC 取状态。
 func TestSandboxChain(t *testing.T) {
-	layout := pkg.ResolveLayout(`D:\GoFiles\WorkBaby`, true)
+	// 仓库根从测试文件位置反推，不写死绝对路径：
+	// 写死的话换个目录克隆就跑到别人的仓库里去。
+	root, err := filepath.Abs(filepath.Join(".."))
+	if err != nil {
+		t.Fatalf("解析仓库根失败：%v", err)
+	}
+	layout := pkg.ResolveLayout(root, true)
 	t.Logf("数据目录：%s", layout.DataDir)
 
 	rt := engine.New(layout)

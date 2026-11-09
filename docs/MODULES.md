@@ -105,7 +105,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、改名保护、导出 HTML |
 | `git.go` / `git_history.go` / `git_sync.go` / `git_stash.go` / `git_write.go` | git 读与写；stash 四件套；凭证失败归类并给下一步；目录级仓库探测 |
 | `engine/runtime.go` / `engine/provision.go` / `engine/npm.go` / `engine/python.go` | 运行时探测、解压、npm 执行；Python 解压后补齐 `Scripts\pip.exe` 入口垫片（随包 Python 只带 pip 模块，技能脚本写的是裸 `pip install`） |
-| `platform/` | Windows 专属：开机自启（注册表）、系统打开 |
+| `platform/` | Windows 外壳能力：开机自启（`autostart_windows.go`，落 HKCU 用户级自启项）、资源管理器定位与系统默认程序打开（`api.go` / `shell.go`）。只依赖标准库与 `pkg`，不感知业务 |
 
 ## shell/ — Wails 面
 
@@ -134,9 +134,9 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `composables/` | 输入区全家：附件（粘贴图 / 回形针 / 工作区引用）、斜杠与提及菜单、草稿；git 动作（提交 / 推拉 / stash 的确认流）；消息流（发送 · 插话 · 排队 · 重投）；运行状态与计时；文件预览抽屉；服务商表单；视口等比缩放；toast |
 | `types/` | 后端契约的 TS 镜像：`api.ts` 总出口，按域拆四个文件，字段名与 Go json tag 一一对应 |
 | `locales/` | i18n：`zh-CN/` 与 `en/` 一域一文件 |
-| `components/` | 按域分目录：chat / workspace / mcp / models / overview / sessions / settings / skills / apps / common / layout |
+| `components/` | 按域分目录：apps / chat / common / layout / mcp / models / overview / plugins / sessions / settings / skills / workspace |
 | `views/` | 11 个路由页：概览 / 对话 / 工作区 / 会话 / 模型 / 技能 / 插件 / MCP / 应用 / 用量 / 设置 |
-| `utils/md.ts` | 流式 markdown 渲染（块级增量缓存，唯一出口） |
+| `utils/` | `md.ts` 流式 markdown 渲染（块级增量缓存，唯一出口）、`sse.ts` SSE 分帧读取、`diag.ts` 诊断上报 |
 
 ## 关键取舍
 

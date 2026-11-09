@@ -96,8 +96,10 @@ Element Plus 的变量经 `ep-theme.css` 全量接桥到 `--wb-*`（`--wb-c-*` �
   所以布局与间距用原子类写，不会绕开令牌
 - **Element Plus 只是基元供给方**：`ep-theme.css` 把 EP 的 CSS 变量全部接到 `--wb-*`，
   组件里禁止另写色值；弹层 / 表单 / 表格 / 开关 / 抽屉一律用 EP。
-  EP 组件按模板标签**按需引入**（unplugin-vue-components），未使用的组件（日历 /
-  穿梭框等）连同体积一起被摇掉；组件不整体归堆进 vendor chunk，跟随各自的懒加载视图
+  EP 在 `main.ts` 里整体注册（`app.use(ElementPlus)`），所以模板里可以直接写
+  `<el-button>`、`<el-drawer>`；但 `ElMessage` / `ElMessageBox` 这类**命令式 API
+  不是模板组件**，用到的文件仍要显式 `import { ElMessage } from 'element-plus'`。
+  组件不整体归堆进 vendor chunk，跟随各自的懒加载视图
 - 字体只有三个语义变量：`--wb-font-sans`（正文）/ `--wb-font-display`（标题与读数）/ `--wb-font-mono`（路径与代码）
 - 引用不存在的变量会静默失效——那不是「样式不好看」，是**静默丢样式**，最危险
 

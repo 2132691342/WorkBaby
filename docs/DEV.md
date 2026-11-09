@@ -62,7 +62,7 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 复述框架行为）不写——它们的维护成本高于收益。**一文件一个被测对象、一文件一个
 测试入口**：改哪个模块就看哪个文件，一处找全。
 
-七个测试入口 + 一个 live 入口，全部跑完约 1 秒：
+六个测试入口 + 一个 live 入口，全部跑完约 1 秒：
 
 | 文件 | 入口 | 断言什么 |
 |---|---|---|
@@ -73,7 +73,7 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 | `tests/plugin_test.go` | `TestPlugins` | 插件治理：停用写 `autoload:false` 启用写裸串、开关保留用户配的资源过滤、重试不静默打开停用的插件、卸载撤声明删包目录、版本漂移只碰「在且版本不对」的包（npm 必败环境下断言「被尝试过」） |
 | `tests/mcp_test.go` | `TestMcpConfig` | 12 路并发写 mcp.json 一条不丢（读-改-写必须有锁）；删项目级条目不连带删被它遮蔽的用户级条目 |
 | `tests/harness_test.go` | — | 公共装具：全后端 harness（真 JSON 存储 + 真 gin 中间件栈）与轻量 harness、HTTP 调用与断言辅助 |
-| `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：解压三个运行时 → 内置 npm 装 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑（需联网，约 2 分钟） |
+| `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：解压三个运行时 → 内置 npm 装 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。仓库根从测试文件位置反推（不写死绝对路径）。带 `live` 构建标签，默认不跑（需联网，约 2 分钟） |
 
 约定：
 

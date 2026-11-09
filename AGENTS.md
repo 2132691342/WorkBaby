@@ -30,7 +30,8 @@ WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳把内置 Node.js + pi 
 ### 1.1 沙箱原则
 
 - 引擎与工具链全部落在数据目录：`data\runtime\{node,PortableGit,python}`、
-  `data\pi\{settings,models,mcp,auth,sessions,skills,extensions,plugins,npm}`、`data\pi-app`。
+  `data\pi\{settings.json,models.json,auth.json,mcp.json,sessions,skills,skills_disabled,npm}`、`data\pi-app`。
+  插件的落盘根是 `data\pi\npm\node_modules\`（pi 自己的 npm 约定），不是 `data\pi\plugins\`。
 - 子进程 PATH **内置运行时在前、系统在后**（`pkg/env.go::SandboxEnv`），HOME 指向数据目录；
   npm 的 `cache` / `prefix` 同样锁进 `data\cache\`。
 - **内置 node / git / python 取不到时直接报错，绝不回退系统同名命令**——
