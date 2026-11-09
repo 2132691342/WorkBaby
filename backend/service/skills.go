@@ -3,7 +3,6 @@ package service
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"unicode"
 
@@ -121,136 +120,6 @@ func (s *Skills) healDuplicate(dirName, active, hidden string) {
 	pkg.Info("技能 %s 破损态自愈：清掉禁用区重复份", dirName)
 }
 
-// List 技能总表：启用区 + 禁用区 + 工作区项目技能。
-// 禁用区的行 SkillEnabled=false，界面能看见、开关能打开——否则停用等于消失。
-func (s *Skills) List() domain.SkillListRESP {
-	rows := make([]domain.SkillRowVO, 0, len(BuiltinSkills)*2)
-	rows = append(rows, s.scanDir(s.Layout.SkillsDir(), true)...)
-	rows = append(rows, s.scanDir(s.Layout.SkillsOffDir(), false)...)
-	rows = append(rows, s.scanDir(s.projectDir(), true)...)
-	// 同一个目录名在启用区与禁用区都有一份时，只显示启用区那份：
-	// 它才是引擎真正看得到的。显示两行会让用户看到同一个技能一开一关。
-	rows = dedupeByDirName(rows)
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].SkillGroup != rows[j].SkillGroup {
-			return rows[i].SkillGroup < rows[j].SkillGroup
-		}
-		return rows[i].SkillName < rows[j].SkillName
-	})
-	present := map[string]struct{}{}
-	for _, row := range rows {
-		if row.SkillSource == domain.SkillSourceBuiltin || row.SkillSource == domain.SkillSourceBundled {
-			present[row.SkillDirName] = struct{}{}
-		}
-	}
-	installed := 0
-	for _, item := range BuiltinSkills {
-		if _, ok := present[item.SkillDirName]; ok {
-			installed++
-		}
-	}
-	return domain.SkillListRESP{
-		Skills:           rows,
-		BuiltinTotal:     len(BuiltinSkills),
-		BuiltinInstalled: installed,
-	}
-}
-
-// dedupeByDirName 同名技能只留启用区那份；启用区没有才留禁用区那份。
-func dedupeByDirName(rows []domain.SkillRowVO) []domain.SkillRowVO {
-	active := map[string]bool{}
-	for _, row := range rows {
-		if row.SkillEnabled {
-			active[row.SkillDirName] = true
-		}
-	}
-	out := make([]domain.SkillRowVO, 0, len(rows))
-	for _, row := range rows {
-		if !row.SkillEnabled && active[row.SkillDirName] {
-			continue
-		}
-		out = append(out, row)
-	}
-	return out
-}
-
-// scanDir 扫一个目录成技能行；active 表示这个目录里的技能算启用态。
-func (s *Skills) scanDir(root string, active bool) []domain.SkillRowVO {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil
-	}
-	projectRoot := filepath.Clean(s.projectDir())
-	rows := make([]domain.SkillRowVO, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		dir := filepath.Join(root, entry.Name())
-		skillFile := filepath.Join(dir, "SKILL.md")
-		if !pkg.Exists(skillFile) {
-			continue
-		}
-		raw, err := os.ReadFile(skillFile)
-		if err != nil {
-			continue
-		}
-		fm := pkg.ParseFrontmatter(string(raw))
-		builtin := BuiltinSkillOf(entry.Name())
-		row := domain.SkillRowVO{
-			SkillName:     defaultIfEmpty(fm.Name, entry.Name()),
-			SkillDirName:  entry.Name(),
-			SkillDesc:     fm.Description,
-			SkillPath:     skillFile,
-			SkillDir:      dir,
-			SkillSource:   s.sourceOf(entry.Name(), active, root == projectRoot),
-			SkillEnabled:  active,
-			SkillEditable: root != projectRoot,
-			SkillModified: s.isModified(entry.Name(), dir),
-		}
-		if builtin != nil {
-			row.SkillGroup = builtin.SkillGroup
-			row.SkillRequires = builtin.SkillRequires
-		}
-		if row.SkillSource == domain.SkillSourceProject {
-			row.SkillEnabled = true
-			row.SkillEditable = false
-		}
-		rows = append(rows, row)
-	}
-	return rows
-}
-
-// sourceOf 决定技能来源：项目 / 内置 / 托管 / 随包附带。
-func (s *Skills) sourceOf(dirName string, active, isProject bool) domain.SkillSourceKind {
-	if isProject {
-		return domain.SkillSourceProject
-	}
-	if BuiltinSkillOf(dirName) != nil {
-		return domain.SkillSourceBuiltin
-	}
-	// 磁盘上有、清单里没登记的：随包附带。它不享受版本管理，删了不会回来。
-	if pkg.Exists(filepath.Join(s.builtinSource(), dirName)) {
-		return domain.SkillSourceBundled
-	}
-	return domain.SkillSourceManaged
-}
-
-// isModified 本地副本与随包原件是否一致；非内置技能恒 false。
-func (s *Skills) isModified(dirName, localDir string) bool {
-	if BuiltinSkillOf(dirName) == nil {
-		return false
-	}
-	original := filepath.Join(s.builtinSource(), dirName, "SKILL.md")
-	local := filepath.Join(localDir, "SKILL.md")
-	left, err1 := os.ReadFile(original)
-	right, err2 := os.ReadFile(local)
-	if err1 != nil || err2 != nil {
-		return false
-	}
-	return string(left) != string(right)
-}
-
 // guardPath 校验技能路径落在托管 / 禁用 / 项目目录内。
 func (s *Skills) guardPath(skillPath string) (string, error) {
 	cleaned := filepath.Clean(skillPath)
@@ -260,33 +129,6 @@ func (s *Skills) guardPath(skillPath string) (string, error) {
 		}
 	}
 	return "", pkg.Err(pkg.CodeSkillBad, "技能路径越界", skillPath)
-}
-
-// Content 读技能正文。
-func (s *Skills) Content(skillPath string) (domain.SkillContentRESP, error) {
-	file, err := s.guardPath(skillPath)
-	if err != nil {
-		return domain.SkillContentRESP{}, err
-	}
-	raw, err := os.ReadFile(file)
-	if err != nil {
-		return domain.SkillContentRESP{}, pkg.WrapErr(pkg.CodeSkillBad, "技能读取失败", err)
-	}
-	return domain.SkillContentRESP{FileText: string(raw)}, nil
-}
-
-// Save 保存技能正文。
-func (s *Skills) Save(skillPath, text string) (domain.SkillContentRESP, error) {
-	file, err := s.guardPath(skillPath)
-	if err != nil {
-		return domain.SkillContentRESP{}, err
-	}
-	// 原子写：直接 WriteFile 在写到一半被打断会留下截断的 SKILL.md，
-	// 而技能正文是引擎认它的唯一依据，坏了这个技能就废了。
-	if err := pkg.WriteFileAtomic(file, []byte(text)); err != nil {
-		return domain.SkillContentRESP{}, pkg.WrapErr(pkg.CodeSkillSave, "技能保存失败", err)
-	}
-	return domain.SkillContentRESP{FileText: text}, nil
 }
 
 // Toggle 开关技能：把目录搬进 / 搬出禁用区，引擎自然不再发现它。

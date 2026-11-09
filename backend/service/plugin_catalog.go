@@ -89,6 +89,18 @@ var BuiltinPlugins = []BuiltinPlugin{
 		PluginDefaultOn: true,
 	},
 	{
+		PluginName:      "pi-lens",
+		PluginVersion:   "4.4.10",
+		PluginDesc:      "LSP、lint、类型检查与符号结构化搜索",
+		PluginDefaultOn: true,
+	},
+	{
+		PluginName:      "pi-tidy",
+		PluginVersion:   "0.9.3",
+		PluginDesc:      "工具调用输出折叠：一次回复的多次工具调用收成一行",
+		PluginDefaultOn: true,
+	},
+	{
 		PluginName:      "pi-subagents",
 		PluginVersion:   "0.84.0",
 		PluginDesc:      "单 Agent 委派与脚本化多 Agent 工作流",
