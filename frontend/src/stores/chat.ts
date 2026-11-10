@@ -39,6 +39,9 @@ export const useChatStore = defineStore('chat', () => {
   const stats = ref<SessionStats | null>(null)
   // 待办面板：引擎侧 todo 工具调用派生（rpiv-todo 装了才有数据）
   const todos = ref<TodoItem[]>([])
+  // 计划模式：pi-plan-mode 存在会话文件里的开关状态。它是会话状态不是一轮读数，
+  // 所以不跟着 runStatus.reset() 清掉，切会话 / 重启应用由回放重新给值。
+  const planMode = ref(false)
   const commands = ref<SlashCommand[]>([])
   // 能力表：界面按它决定显示哪些入口（不渲染灰按钮）。
   const caps = ref<EngineCaps | null>(null)
@@ -112,6 +115,7 @@ export const useChatStore = defineStore('chat', () => {
     autoCompaction.value = state.auto_compaction
     stats.value = state.stats ?? null
     todos.value = state.todos ?? []
+    planMode.value = state.plan_mode ?? false
     commands.value = state.commands ?? []
     if (state.caps) caps.value = state.caps
     if (state.queued) queue.value = { steering: state.queued.steering ?? [], follow_up: state.queued.follow_up ?? [] }
@@ -356,6 +360,7 @@ export const useChatStore = defineStore('chat', () => {
     stats,
     autoCompaction,
     todos,
+    planMode,
     commands,
     caps,
     turn,

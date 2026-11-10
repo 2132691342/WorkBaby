@@ -196,6 +196,8 @@ type ChatStateRESP struct {
 	History []HistoryTurnVO `json:"history"`
 	// Todos 当前待办（活动分支上最近一次 todo 工具调用派生）
 	Todos []TodoVO `json:"todos"`
+	// PlanMode 是否处于计划模式（pi-plan-mode 存在会话文件里的开关状态）
+	PlanMode bool `json:"plan_mode"`
 	// Commands 可用斜杠命令
 	Commands []SlashCommandVO `json:"commands"`
 	// Caps 能力表

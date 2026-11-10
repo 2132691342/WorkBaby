@@ -30,6 +30,24 @@ async function compact(): Promise<void> {
   }
 }
 
+/** 当前会话是否装了 pi-plan-mode：引擎把扩展命令经 get_commands 报上来。 */
+const planAvailable = computed(() => chat.commands.some((c) => c.command_name === 'plan'))
+
+/**
+ * 切换计划模式。
+ *
+ * 走引擎的 `/plan` 命令而不是壳自己记一个开关：真正的拦截发生在插件里，
+ * 壳只负责把用户的意图送进去，再把结果从会话文件回放回来。
+ * 本地说反了就会出现「界面说只读、实际上还能写」——那比没有这个开关更糟。
+ */
+async function togglePlan(): Promise<void> {
+  try {
+    await chat.send('/plan')
+  } catch (err) {
+    toasts.push('error', err instanceof Error && err.message ? err.message : t('chat.planFailed'))
+  }
+}
+
 </script>
 
 <template>
@@ -39,6 +57,16 @@ async function compact(): Promise<void> {
       <span v-if="modelLine" class="chat-sub">{{ modelLine }}</span>
     </div>
     <div class="chat-head-right">
+      <button
+        v-if="planAvailable"
+        class="wb-btn sm"
+        :class="chat.planMode ? 'primary' : 'ghost'"
+        :title="chat.planMode ? t('chat.planOff') : t('chat.planOn')"
+        :disabled="chat.busy || !app.hasEngine"
+        @click="togglePlan"
+      >
+        {{ chat.planMode ? t('chat.planActive') : t('chat.planMode') }}
+      </button>
       <button
         class="wb-btn icon ghost"
         :class="{ 'is-loading': chat.compacting }"

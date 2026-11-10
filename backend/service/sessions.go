@@ -195,6 +195,20 @@ func (s *Sessions) Todos(file string) []domain.TodoVO {
 	return parser.TodosFromFile(resolved)
 }
 
+// PlanMode 当前是否处于计划模式：由 pi-plan-mode 存在会话文件里的 custom 条目派生。
+// 与 Todos 同理——它是会话文件里的真相，不是界面的一次性内存状态，
+// 所以重开应用、切回旧会话都能还原。
+func (s *Sessions) PlanMode(file string) bool {
+	if file == "" {
+		return false
+	}
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	if err != nil {
+		return false
+	}
+	return parser.PlanModeFromFile(resolved)
+}
+
 // hideKey 隐藏台账的键。
 func (s *Sessions) hideKey(file string) string {
 	return KeyHideLedger + file

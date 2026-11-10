@@ -152,6 +152,8 @@ export interface ChatState {
   stats?: SessionStats
   history: HistoryTurn[]
   todos?: TodoItem[]
+  /** 是否处于计划模式：由 pi-plan-mode 存在会话文件里的开关状态回放而来 */
+  plan_mode: boolean
   commands: SlashCommand[]
   caps: EngineCaps
   /** 没能把引擎切到请求的会话时的原因原话；空表示切好了 */

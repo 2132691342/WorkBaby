@@ -40,6 +40,10 @@ type Entry struct {
 	Content string `json:"content"`
 	// Display 自定义消息是否显示在会话里
 	Display bool `json:"display"`
+	// CustomType 自定义条目的种类（plan-mode / plan-mode-bash-override …）
+	CustomType string `json:"customType"`
+	// Data 自定义条目的载荷：插件用自己的形状，壳只读它需要的那几个键
+	Data map[string]any `json:"data"`
 }
 
 // Message 是引擎消息；只取壳消费的字段。

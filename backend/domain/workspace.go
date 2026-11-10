@@ -200,6 +200,14 @@ type GitPathsREQ struct {
 	FilePaths []string `json:"file_paths"`
 }
 
+// GitConflictREQ 是解决一个冲突文件的入参。
+type GitConflictREQ struct {
+	// FilePath 冲突文件相对仓库根的路径
+	FilePath string `json:"file_path"`
+	// ResolveSide 保留哪一边：ours / theirs；空串表示用户自己改完了，只暂存
+	ResolveSide string `json:"resolve_side"`
+}
+
 // GitCommitREQ 是提交的入参。
 type GitCommitREQ struct {
 	// CommitMessage 提交信息

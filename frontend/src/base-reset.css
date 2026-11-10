@@ -1,0 +1,62 @@
+/* 全局复位与正文排版：盒模型、根高度、字体、滚动条。 */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--wb-font-sans);
+  font-size: var(--wb-fs-base);
+  line-height: 1.6;
+  color: var(--wb-ink);
+  background: var(--wb-window);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* 桌面应用不该有文本选择的「网页感」，只有内容区放开 */
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.selectable {
+  user-select: text;
+}
+
+::selection {
+  background: var(--wb-brand-soft);
+  color: var(--wb-ink);
+}
+
+/* 滚动条：细、低对比、悬停才明显——它不该抢内容的注意力 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--wb-line-strong);
+  border-radius: var(--wb-r-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--wb-mute);
+  background-clip: content-box;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}

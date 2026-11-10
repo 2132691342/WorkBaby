@@ -293,6 +293,8 @@ export const api = {
   gitUnstage: (filePaths: string[]) => post<GitStatus>('/git/unstage', { file_paths: filePaths }),
   gitDiscard: (filePaths: string[]) => post<GitStatus>('/git/discard', { file_paths: filePaths }),
   gitResolve: (filePaths: string[]) => post<GitStatus>('/git/resolve', { file_paths: filePaths }),
+  gitResolveConflict: (filePath: string, resolveSide: 'ours' | 'theirs' | '') =>
+    post<GitStatus>('/git/conflict/resolve', { file_path: filePath, resolve_side: resolveSide }),
   gitCommit: (commitMessage: string, isAmend = false) =>
     post<GitCommitResult>('/git/commit', { commit_message: commitMessage, is_amend: isAmend }),
   gitCreateBranch: (branchName: string) => post<GitStatus>('/git/branch', { branch_name: branchName }),

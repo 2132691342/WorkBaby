@@ -49,12 +49,21 @@ func (p *Plugins) declareBuiltinsLocked() {
 	entries := packagesOf(settings)
 	changed := false
 	seen := map[string]struct{}{}
+	// 顺手撤回下架插件的那批声明：清单收窄后老数据目录仍会保留它们，
+	// 引擎每次启动都照旧加载一遍，清单就是假的。
+	kept := entries[:0]
 	for _, item := range entries {
-		name := PackageNameOf(parseEntry(item).Source)
-		if name != "" {
+		source := parseEntry(item).Source
+		if isRetiredSource(source) {
+			changed = true
+			continue
+		}
+		kept = append(kept, item)
+		if name := PackageNameOf(source); name != "" {
 			seen[name] = struct{}{}
 		}
 	}
+	entries = kept
 	for _, item := range BuiltinPlugins {
 		if _, ok := seen[item.PluginName]; ok {
 			continue

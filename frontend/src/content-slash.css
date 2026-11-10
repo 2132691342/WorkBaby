@@ -1,0 +1,38 @@
+/* 斜杠菜单与状态条：输入区之上的浮层，样式收在组件 scoped 之外的部分。
+
+/* 输入区的样式全部收在各组件 scoped 里（ChatComposer / ComposerBar）。
+   这里不再有全局 .composer* 规则：旧规则会把 ComposerBar 的根变成 flex 容器，
+   压缩 .bar-row 的宽度，发送按钮因此悬在行中。 */
+
+/* 斜杠菜单 */
+.slash {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: var(--wb-sp-1);
+}
+.slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--wb-sp-2);
+  padding: 6px var(--wb-sp-2);
+  border-radius: var(--wb-r-sm);
+  cursor: pointer;
+  transition: background-color var(--wb-dur-fast) var(--wb-ease);
+}
+.slash-item:hover,
+.slash-item.active {
+  background: var(--wb-brand-soft);
+}
+.slash-name {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-xs);
+  font-weight: 650;
+  color: var(--wb-brand);
+}
+.slash-desc {
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

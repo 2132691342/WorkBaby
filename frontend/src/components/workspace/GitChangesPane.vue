@@ -25,6 +25,8 @@ const emit = defineEmits<{
   unstage: [file: GitFile]
   discard: [file: GitFile]
   resolve: [file: GitFile]
+  /** 按口径解决冲突：ours / theirs / 空串（我改完了） */
+  resolveAs: [file: GitFile, side: 'ours' | 'theirs' | '']
   stageAll: []
   history: [file: GitFile]
   stashPush: []
@@ -158,6 +160,7 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
             @stage="emit('stage', $event)"
             @discard="emit('discard', $event)"
             @resolve="emit('resolve', $event)"
+            @resolveAs="(file, side) => emit('resolveAs', file, side)"
             @history="emit('history', $event)"
           />
         </div>

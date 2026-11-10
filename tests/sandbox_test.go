@@ -1,4 +1,4 @@
-// Package tests 的沙箱治理：内置清单与磁盘资产的咬合、技能的整条生命周期、
+// 沙箱治理：内置清单与磁盘资产的咬合、技能的整条生命周期、
 // 子进程环境对沙箱数据目录的钉扎。
 package tests
 
@@ -17,7 +17,6 @@ import (
 // 技能的落位/开关/重置/删除/自愈整条生命周期。
 func TestSandbox(t *testing.T) {
 	// ---- 清单咬合：包名唯一，且来源串能被反解回原包名（装 / 卸 / 开关全按包名索引）----
-	// 逐版本比对是复述实现——每升一个插件版本都要改一遍测试；这里只守结构不变量。
 	seen := map[string]struct{}{}
 	for _, item := range service.BuiltinPlugins {
 		if _, dup := seen[item.PluginName]; dup {
@@ -42,15 +41,20 @@ func TestSandbox(t *testing.T) {
 			onDisk[entry.Name()] = struct{}{}
 		}
 	}
-	inCatalog := map[string]struct{}{}
 	for _, item := range service.BuiltinSkills {
-		inCatalog[item.SkillDirName] = struct{}{}
 		if _, ok := onDisk[item.SkillDirName]; !ok {
 			t.Errorf("清单里的技能在 assets\\skills 下不存在：%s", item.SkillDirName)
 		}
 	}
 	for name := range onDisk {
-		if _, ok := inCatalog[name]; !ok {
+		var inCatalog bool
+		for _, item := range service.BuiltinSkills {
+			if item.SkillDirName == name {
+				inCatalog = true
+				break
+			}
+		}
+		if !inCatalog {
 			t.Errorf("assets\\skills 下的 %s 没进清单，永远不会被落位", name)
 		}
 	}
@@ -142,7 +146,6 @@ func TestSandbox(t *testing.T) {
 	}
 
 	// ---- 技能生命周期：重置后 SKILL.md 必须仍是可读文件 ----
-	// 复制目标错成它自己就变成目录，技能永久报废。
 	onDir := filepath.Join(skillLayout.SkillsDir(), onItem.SkillDirName)
 	onFile := filepath.Join(onDir, "SKILL.md")
 	if err := app.Skills.Reset(onFile); err != nil {

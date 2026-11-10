@@ -1,0 +1,92 @@
+/* 工具卡：头严格一行，展开是卡内的下半张；与思考块同一种壳。
+
+/* ============================================================
+   工具卡：一张描边卡片，头是严格一行，展开是卡内的下半张。
+   与思考块同一种壳：整段回答读起来是一串可数的步骤，
+   而不是一列没有边界的行。
+   ============================================================ */
+.tool {
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r-md);
+  background: var(--wb-surface);
+  overflow: hidden;
+  transition:
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease);
+}
+.tool:hover {
+  border-color: var(--wb-line-strong);
+}
+.tool.running {
+  border-color: var(--wb-brand-line);
+}
+.tool.error {
+  border-color: var(--wb-bad);
+  background: var(--wb-bad-soft);
+}
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  border: none;
+  background: transparent;
+}
+.tool-head:hover {
+  background: transparent;
+}
+.tool-name {
+  font-family: var(--wb-font-mono);
+  font-weight: 650;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-ink);
+}
+.tool-intent {
+  color: var(--wb-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tool-time {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  font-variant-numeric: tabular-nums;
+}
+.tool-body {
+  border-top: 1px solid var(--wb-line);
+  padding: var(--wb-sp-2) var(--wb-sp-3) var(--wb-sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-2);
+  background: var(--wb-work);
+  animation: tool-unfold var(--wb-dur) var(--wb-ease);
+}
+@keyframes tool-unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.tool-label {
+  font-size: var(--wb-fs-3xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wb-faint);
+}
+.tool-pre {
+  margin: 0;
+  padding: var(--wb-sp-2);
+  max-height: 320px;
+  overflow: auto;
+  border-radius: var(--wb-r-sm);
+  background: var(--wb-code-bg);
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--wb-ink-5);
+}

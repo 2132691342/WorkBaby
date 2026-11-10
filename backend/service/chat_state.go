@@ -56,6 +56,7 @@ func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
 		Queued:         queued,
 		History:        c.Sessions.History(file),
 		Todos:          c.Sessions.Todos(file),
+		PlanMode:       c.Sessions.PlanMode(file),
 		Commands:       cmds,
 		Caps:           domain.PiCaps,
 	}
@@ -176,6 +177,7 @@ func (c *Chat) replayState(sessionFile, workspace string) domain.ChatStateRESP {
 	if guarded != "" {
 		resp.History = c.Sessions.History(guarded)
 		resp.Todos = c.Sessions.Todos(guarded)
+		resp.PlanMode = c.Sessions.PlanMode(guarded)
 	}
 	return resp
 }

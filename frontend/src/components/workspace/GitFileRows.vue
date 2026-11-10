@@ -21,6 +21,8 @@ const emit = defineEmits<{
   unstage: [file: GitFile]
   discard: [file: GitFile]
   resolve: [file: GitFile]
+  /** 按口径解决冲突：ours / theirs / 空串（我改完了） */
+  resolveAs: [file: GitFile, side: 'ours' | 'theirs' | '']
   history: [file: GitFile]
 }>()
 
@@ -53,15 +55,33 @@ function baseName(file: GitFile): string {
       <b class="add">+{{ file.insertions }}</b><b class="del">−{{ file.deletions }}</b>
     </span>
     <span class="acts">
-      <!-- 冲突文件先要标记已解决，否则 git 不接受提交 -->
-      <button
-        v-if="file.has_conflict && !staged"
-        class="act warn"
-        :disabled="Boolean(pending)"
-        @click.stop="emit('resolve', file)"
-      >
-        {{ t('workspace.markResolved') }}
-      </button>
+      <!-- 冲突的三种真实结局都要给到：只给「标记已解决」等于让用户去外部编辑器手改 -->
+      <template v-if="file.has_conflict && !staged">
+        <button
+          class="act warn"
+          :title="t('workspace.keepOursHint')"
+          :disabled="Boolean(pending)"
+          @click.stop="emit('resolveAs', file, 'ours')"
+        >
+          {{ t('workspace.keepOurs') }}
+        </button>
+        <button
+          class="act warn"
+          :title="t('workspace.keepTheirsHint')"
+          :disabled="Boolean(pending)"
+          @click.stop="emit('resolveAs', file, 'theirs')"
+        >
+          {{ t('workspace.keepTheirs') }}
+        </button>
+        <button
+          class="act"
+          :title="t('workspace.markResolvedHint')"
+          :disabled="Boolean(pending)"
+          @click.stop="emit('resolveAs', file, '')"
+        >
+          {{ t('workspace.markResolved') }}
+        </button>
+      </template>
       <button class="act" :title="t('workspace.history')" @click.stop="emit('history', file)">
         {{ t('workspace.history') }}
       </button>

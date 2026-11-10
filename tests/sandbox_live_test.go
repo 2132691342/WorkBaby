@@ -1,6 +1,6 @@
 //go:build live
 
-// Package tests 的实时沙箱探针：验证「内置 node → 内置 npm → 装 pi → RPC 握手」这条链路。
+// 实时沙箱探针：验证「内置 node → 内置 npm → 装 pi → RPC 握手」这条链路。
 // 只手动跑（go test ./tests -tags live -run TestSandboxChain -v），CI 与默认门禁不执行：
 // 它要解压 115MB 运行时并联网装包。
 package tests
@@ -16,8 +16,6 @@ import (
 
 // TestSandboxChain 断言沙箱链路每一环真的通：运行时解压、npm 装 pi、RPC 取状态。
 func TestSandboxChain(t *testing.T) {
-	// 仓库根从测试文件位置反推，不写死绝对路径：
-	// 写死的话换个目录克隆就跑到别人的仓库里去。
 	root, err := filepath.Abs(filepath.Join(".."))
 	if err != nil {
 		t.Fatalf("解析仓库根失败：%v", err)

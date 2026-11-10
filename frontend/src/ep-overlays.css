@@ -1,0 +1,103 @@
+/* EP 卡片 / 弹层 / 抽屉 / 气泡：抬升面的圆角与阴影。
+
+/* ============================================================
+   卡片 / 弹层 / 抽屉 / 气泡
+   ============================================================ */
+.el-card {
+  --el-card-border-color: var(--wb-border);
+  --el-card-border-radius: var(--wb-r-xl);
+  --el-card-bg-color: var(--wb-raised);
+  border-radius: var(--wb-r-xl);
+  box-shadow: var(--wb-card-shadow) !important;
+}
+.el-card__header {
+  border-bottom: 1px solid var(--wb-border);
+  padding: var(--wb-sp-4) var(--wb-sp-5);
+  font-weight: 700;
+  color: var(--wb-ink);
+}
+.el-card__body {
+  padding: var(--wb-sp-5);
+}
+
+.el-popper,
+.el-popover.el-popper,
+.el-dropdown__popper.el-popper {
+  border-radius: var(--wb-r-lg) !important;
+  border: 1px solid var(--wb-border) !important;
+  box-shadow: var(--wb-shadow-3) !important;
+  background: var(--wb-raised) !important;
+}
+.el-popper__arrow::before {
+  border-color: var(--wb-border) !important;
+  background: var(--wb-raised) !important;
+}
+.el-dropdown-menu {
+  background: transparent;
+  padding: var(--wb-sp-1);
+}
+.el-dropdown-menu__item {
+  border-radius: var(--wb-r-sm);
+  font-size: var(--wb-fs-sm);
+  font-weight: 500;
+  color: var(--wb-ink-5);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  transition: background-color var(--wb-dur-fast) var(--wb-ease);
+}
+.el-dropdown-menu__item:not(.is-disabled):hover,
+.el-dropdown-menu__item:not(.is-disabled):focus {
+  background: var(--wb-hover);
+  color: var(--wb-brand);
+}
+.el-dropdown-menu__item.is-danger:not(.is-disabled):hover {
+  background: var(--wb-bad-soft);
+  color: var(--wb-bad);
+}
+
+.el-dialog {
+  --el-dialog-border-radius: var(--wb-r-2xl);
+  border: 1px solid var(--wb-border);
+  box-shadow: var(--wb-shadow-3);
+  padding: 0;
+  overflow: hidden;
+}
+.el-dialog__header {
+  margin: 0;
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-3);
+  border-bottom: 1px solid var(--wb-border);
+}
+.el-dialog__title {
+  font-size: var(--wb-fs-lg);
+  font-weight: 700;
+  color: var(--wb-ink);
+}
+.el-dialog__body {
+  padding: var(--wb-sp-5) var(--wb-sp-6);
+  color: var(--wb-ink-5);
+}
+.el-dialog__footer {
+  padding: var(--wb-sp-4) var(--wb-sp-6) var(--wb-sp-5);
+  border-top: 1px solid var(--wb-border);
+}
+.el-dialog__headerbtn {
+  top: var(--wb-sp-4);
+  right: var(--wb-sp-4);
+}
+
+.el-drawer {
+  background: var(--wb-window);
+}
+.el-drawer__header {
+  margin: 0;
+  padding: var(--wb-sp-4) var(--wb-sp-5);
+  border-bottom: 1px solid var(--wb-border);
+  color: var(--wb-ink);
+  font-weight: 700;
+}
+.el-drawer__body {
+  padding: var(--wb-sp-5);
+}
+
+.el-overlay {
+  backdrop-filter: blur(1.5px);
+}

@@ -1,4 +1,4 @@
-// Package tests 的插件治理：一切落盘都写在 pi 的原生表达（settings.json 的 packages[]）上，
+// 插件治理：一切落盘都写在 pi 的原生表达（settings.json 的 packages[]）上，
 // 来源串规范、启停、重装、卸载、版本漂移全部围绕这份声明运转。
 package tests
 
@@ -42,7 +42,7 @@ func TestPlugins(t *testing.T) {
 		}
 	}
 
-	// ---- 配置保留：手写一条带过滤的停用声明，开关两个方向都不许碰 extensions ----
+	// ---- 配置保留：开关两个方向都不许碰 extensions ----
 	writeFilteredSettings := func(t *testing.T) {
 		t.Helper()
 		settings := map[string]any{
@@ -90,7 +90,7 @@ func TestPlugins(t *testing.T) {
 
 	// ---- 版本漂移：Provision 只碰「版本装歪」的；对齐的直接跳过 ----
 	// 测试环境没有内置 node，npm 必然失败；断言的是「被尝试过」（进了失败表），不是「装成功」。
-	const drifted, aligned = "pi-hermes-memory", "@ff-labs/pi-fff"
+	const drifted, aligned = "pi-tidy", "pi-lens"
 	driftedItem, alignedItem := service.BuiltinPluginOf(drifted), service.BuiltinPluginOf(aligned)
 	if driftedItem == nil || alignedItem == nil {
 		t.Fatalf("清单里应有 %s 与 %s", drifted, aligned)
@@ -123,8 +123,32 @@ func TestPlugins(t *testing.T) {
 	if pluginErrorOf(app, drifted) == "" {
 		t.Fatalf("版本不符的 %s 应被尝试升级", drifted)
 	}
-	if reason := pluginErrorOf(app, aligned); reason != "" {
-		t.Fatalf("版本已对齐的 %s 不该被碰，却出现失败：%s", aligned, reason)
+	// ---- 清单收窄：下架插件当初写的那条声明要撤掉，用户自己升过级的不能动 ----
+	const retired, userKept = "pi-hermes-memory", "pi-footer"
+	if err := pkg.WriteJSON(layout.SettingsFile(), map[string]any{
+		"packages": []any{
+			"npm:" + retired + "@0.10.0",
+			"npm:" + userKept + "@99.0.0",
+		},
+	}); err != nil {
+		t.Fatalf("写测试配置失败：%v", err)
+	}
+	app.Plugins.DeclareBuiltins()
+	var retiredLeft, userLeft bool
+	for _, entry := range readPackages(t, layout) {
+		source := entrySource(entry)
+		if service.PackageNameOf(source) == retired {
+			retiredLeft = true
+		}
+		if source == "npm:"+userKept+"@99.0.0" {
+			userLeft = true
+		}
+	}
+	if retiredLeft {
+		t.Errorf("下架插件 %s 的旧声明应被撤回", retired)
+	}
+	if !userLeft {
+		t.Errorf("用户自己升级过的 %s 声明被误删——撤回只能认原版本串", userKept)
 	}
 }
 

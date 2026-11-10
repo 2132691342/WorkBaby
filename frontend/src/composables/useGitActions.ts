@@ -136,6 +136,15 @@ export function useGitActions(
     )
   }
 
+  /** 按口径解决冲突：保留我方 / 保留对方 / 我改完了（只暂存）。 */
+  async function resolveAs(file: GitFile, side: 'ours' | 'theirs' | ''): Promise<void> {
+    await act(
+      `resolveAs:${file.file_path}:${side}`,
+      () => api.gitResolveConflict(file.file_path, side),
+      t('workspace.resolvedOne', { path: file.file_path }),
+    )
+  }
+
   async function stateAction(action: 'continue' | 'abort'): Promise<void> {
     if (action === 'abort') {
       const ok = await confirmDanger(
@@ -276,6 +285,7 @@ export function useGitActions(
     unstage,
     discard,
     resolve,
+    resolveAs,
     resolveConflicts,
     stateAction,
     initRepo,

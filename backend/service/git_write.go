@@ -82,6 +82,42 @@ func (g *Git) Resolve(paths []string) (domain.GitStatusRESP, error) {
 	return g.Status(), nil
 }
 
+// 冲突取一边的三种口径；空串 = 用户自己改完了，只 stage。
+const (
+	// ConflictOurs 保留当前分支这一边
+	ConflictOurs = "ours"
+	// ConflictTheirs 保留被合进来那一边
+	ConflictTheirs = "theirs"
+)
+
+// ResolveConflict 按指定口径解决一个冲突文件，然后暂存。
+//
+// 「保留我方 / 保留对方 / 我改完了」是冲突的三种真实结局，而 `git add` 只对应第三种。
+// 只给第三个选项，用户就只能去外部编辑器手动删冲突标记——那正好是这个 GUI 要免掉的事。
+func (g *Git) ResolveConflict(filePath, side string) (domain.GitStatusRESP, error) {
+	path := strings.TrimSpace(filePath)
+	if path == "" {
+		return domain.GitStatusRESP{}, pkg.Err(pkg.CodeBadRequest, "冲突文件路径不能为空")
+	}
+	switch side {
+	case ConflictOurs, ConflictTheirs:
+		g.writeMu.Lock()
+		_, err := g.runOrFail("checkout", "--"+side, "--", path)
+		g.writeMu.Unlock()
+		if err != nil {
+			return domain.GitStatusRESP{}, err
+		}
+	case "":
+		// 用户自己改完了，直接走下面的 add。
+	default:
+		return domain.GitStatusRESP{}, pkg.Err(pkg.CodeBadRequest, "不认识的冲突解法："+side)
+	}
+	if _, err := g.runWriteOrFail("add", "--", path); err != nil {
+		return domain.GitStatusRESP{}, err
+	}
+	return g.Status(), nil
+}
+
 // Commit 提交暂存区。
 func (g *Git) Commit(message string, amend bool) (domain.GitCommitRESP, error) {
 	text := strings.TrimSpace(message)

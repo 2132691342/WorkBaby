@@ -1,5 +1,5 @@
-// Package tests 的会话管线：pi 的 JSONL 会话文件是唯一持久真相，
-// 界面每次启动都由它重建。回放的健壮性与壳的写入纪律都在这一条链上。
+// 会话管线：pi 的 JSONL 会话文件是唯一持久真相，界面每次启动都由它重建。
+// 回放的健壮性与壳的写入纪律都在这一条链上。
 package tests
 
 import (
@@ -18,7 +18,7 @@ import (
 // TestSession 断言会话真相的全部难点：分支回放、残行与环状 parentId 的健壮性、
 // 工具结果组装、隐藏台账、改名追加。会话 JSONL 是唯一持久真相，界面每次启动都由它重建。
 func TestSession(t *testing.T) {
-	// ---- 分支 ----
+	// ---- 分支：只回放当前活动分支 ----
 	branch := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"原始问题"}}`,
 		`{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"原始回答"}]}}`,
@@ -33,7 +33,7 @@ func TestSession(t *testing.T) {
 		t.Fatalf("不应回放被放弃的分支，实际 %q", joined)
 	}
 
-	// ---- 健壮：残行 ----
+	// ---- 健壮：残行不毁整份历史 ----
 	corrupt := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"还行"}}`,
 		`{"type":"message","id":"a1","parentId":"u1","timest`,
@@ -43,7 +43,7 @@ func TestSession(t *testing.T) {
 		t.Fatal("一条残行不该让整份历史读不出来：残行之后的有效条目仍应解析")
 	}
 
-	// ---- 健壮：环状 parentId ----
+	// ---- 健壮：环状 parentId 必须有界退出 ----
 	cyclic := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"a","parentId":"b","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"环 A"}}`,
 		`{"type":"message","id":"b","parentId":"a","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":"环 B"}}`,
@@ -56,7 +56,7 @@ func TestSession(t *testing.T) {
 		t.Fatal("环状 parentId 让回放卡死：ActivePath 必须用已访问集合兜住")
 	}
 
-	// ---- 组装：工具结果回填 ----
+	// ---- 组装：工具结果回填宿主轮 ----
 	normal := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"看下文件"}}`,
 		`{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_1","name":"read_file","arguments":{}}]}}`,
@@ -80,7 +80,7 @@ func TestSession(t *testing.T) {
 		t.Fatal("应有一个带 call_1 的工具块")
 	}
 
-	// ---- 组装：孤立结果 ----
+	// ---- 组装：孤立结果单独成 tool 轮 ----
 	orphan := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"t1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"toolResult","toolCallId":"orphan","toolName":"bash","content":[{"type":"text","text":"孤立结果"}]}}`,
 	)
@@ -111,6 +111,24 @@ func TestSession(t *testing.T) {
 	)
 	if summary := parser.Summarize(renamed); summary.SessionTitle != "我自己起的名字" {
 		t.Fatalf("会话名应取自 session_info，实际 %q", summary.SessionTitle)
+	}
+
+	// ---- 计划模式：只认活动分支上最后一条 plan-mode 条目 ----
+	plan := writeSession(t, t.TempDir(),
+		`{"type":"custom","customType":"plan-mode","id":"p1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","data":{"active":true}}`,
+		`{"type":"custom","customType":"plan-mode-bash-override","id":"o1","parentId":"p1","timestamp":"2026-01-01T00:00:02.000Z","data":{"command":"rm -rf x"}}`,
+	)
+	if !parser.PlanModeFromFile(plan) {
+		t.Fatal("最后一条 plan-mode 说开着，回放就该是开着")
+	}
+	if parser.PlanModeFromFile(writeSession(t, t.TempDir(),
+		`{"type":"custom","customType":"plan-mode","id":"p1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","data":{"active":true}}`,
+		`{"type":"custom","customType":"plan-mode","id":"p2","parentId":"p1","timestamp":"2026-01-01T00:00:02.000Z","data":{"active":false}}`,
+	)) {
+		t.Fatal("最后一次开关是关，回放就该是关：取到的是第一条而不是最后一条")
+	}
+	if parser.PlanModeFromFile("") {
+		t.Fatal("没有会话文件时计划模式应为关")
 	}
 
 	// ---- 写入纪律：隐藏是壳的台账，文件一个字节都不动 ----

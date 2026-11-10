@@ -1,0 +1,151 @@
+/* 元素基元：分节标题、状态点、状态标签、可点的整行、视图切换动效。 */
+
+/* ============================================================
+   元素：分节标题、状态点、标签
+   ============================================================ */
+/* 分节标题：卡片内的小组标题。带不带分隔线由用法决定——
+   .wb-sec-head 是「一行 + 下边框」（页内小节），
+   .wb-sec-title 是裸标题（卡片内的分组，不画线）。
+   两者共用同一份字形，改一处就够。 */
+.wb-section-title,
+.wb-sec-title {
+  font-size: var(--wb-fs-2xs);
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--wb-faint);
+}
+
+.wb-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  margin-bottom: var(--wb-sp-3);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wb-mute);
+  flex: none;
+}
+.dot.ok {
+  background: var(--wb-ok);
+}
+.dot.warn {
+  background: var(--wb-warn);
+}
+.dot.bad {
+  background: var(--wb-bad);
+}
+.dot.busy {
+  background: var(--wb-brand-2);
+  animation: wb-breathe 1.4s var(--wb-ease) infinite;
+}
+
+/* 状态灯的呼吸环：把「还在跳」这件事说出去，不做装饰 */
+@keyframes wb-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--wb-live-line);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@keyframes wb-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+/* 状态标签：低饱和底 + 同色文字，不抢主次 */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--wb-r-sm);
+  background: var(--wb-hover);
+  color: var(--wb-mute);
+  font-size: var(--wb-fs-3xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.tag.brand {
+  background: var(--wb-brand-soft);
+  color: var(--wb-brand);
+}
+.tag.ok {
+  background: var(--wb-ok-soft);
+  color: var(--wb-ok);
+}
+.tag.warn {
+  background: var(--wb-warn-soft);
+  color: var(--wb-warn);
+}
+.tag.bad {
+  background: var(--wb-bad-soft);
+  color: var(--wb-bad);
+}
+
+/* 可点的整行：不放大（会溢出侧栏被裁），只缩小 */
+.wb-row-click {
+  border-radius: var(--wb-r);
+  transition:
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.wb-row-click:hover {
+  background: var(--wb-hover);
+}
+.wb-row-click:active {
+  background: var(--wb-brand-soft);
+}
+.wb-row-click.is-active {
+  background: var(--wb-selected);
+  box-shadow: inset 2px 0 0 var(--wb-brand);
+}
+
+/* 视图切换动效：淡入 + 6px 位移 */
+.wb-fade-enter-active,
+.wb-fade-leave-active {
+  transition:
+    opacity var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur) var(--wb-ease);
+}
+.wb-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.wb-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.wb-list-enter-active,
+.wb-list-leave-active {
+  transition:
+    opacity var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur) var(--wb-ease);
+}
+.wb-list-enter-from {
+  opacity: 0;
+  transform: scale(0.96);
+}
+.wb-list-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
+}

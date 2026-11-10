@@ -5,6 +5,7 @@ import (
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
+	"WorkBaby/backend/repo"
 )
 
 // Provision 首启的后台装配：解压运行时 → 写 npmCommand → 落技能 → 声明插件 → 装插件。
@@ -15,6 +16,10 @@ func (a *App) Provision() {
 		a.setProvisioning(false)
 		a.Hub.Broadcast("engine:status", nil)
 	}()
+
+	// 先清历史遗留的 SQLite 文件：升级上来的机器上它们还在，却没有任何代码读写它们。
+	// 放在装配开头而不是启动同步路径上：删文件不该拖慢首屏。
+	repo.CleanupLegacyDB(a.Layout.DataDir, a.Layout.StorePath)
 
 	problems := a.Runtime.ProvisionRuntime(func(phase, message string) {
 		a.ProvisionProgress("runtime", "install", phase, message)

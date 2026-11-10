@@ -1,0 +1,168 @@
+/* .wb-btn 五态：默认 / 悬停放大 / 按下缩小 / 禁用 / 加载。自绘按钮的唯一落点。 */
+
+/* ============================================================
+   按钮：五态。悬停放大、按下缩小，这是「点得动」的唯一证据。
+   ============================================================ */
+.wb-btn {
+  --btn-bg: var(--wb-surface);
+  --btn-fg: var(--wb-ink);
+  --btn-line: var(--wb-line-strong);
+  --btn-bg-hover: var(--wb-hover);
+
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--wb-sp-2);
+  height: var(--wb-ctl);
+  padding: 0 var(--wb-sp-4);
+  border: 1px solid var(--btn-line);
+  border-radius: var(--wb-r);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font-size: var(--wb-fs-sm);
+  font-weight: 550;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    box-shadow var(--wb-dur-fast) var(--wb-ease),
+    opacity var(--wb-dur-fast) var(--wb-ease);
+}
+
+.wb-btn:hover:not(:disabled):not(.is-loading) {
+  transform: scale(var(--wb-press-hover));
+  background: var(--btn-bg-hover);
+  border-color: var(--wb-brand-2);
+  color: var(--wb-brand);
+  box-shadow: var(--wb-shadow);
+}
+
+.wb-btn:active:not(:disabled):not(.is-loading) {
+  transform: scale(var(--wb-press-active));
+  background: var(--wb-brand-soft);
+  border-color: var(--wb-brand);
+  transition-duration: 60ms;
+}
+
+.wb-btn:focus-visible {
+  outline: 2px solid var(--wb-brand-ring);
+  outline-offset: 2px;
+}
+
+.wb-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* 加载态：转圈 + 文字保留 + 尺寸锁定。锁尺寸是关键：
+   否则转圈一出现按钮变宽，整排控件跟着跳。
+
+   pointer-events: none 也是必需的：转圈时再点一下会发出第二个请求，
+   而用户看到的只是「我点了一下」——两次比一次更慢，也更难看出哪一次成了。 */
+.wb-btn.is-loading {
+  cursor: progress;
+  transform: none;
+  opacity: 0.85;
+  padding-left: var(--wb-sp-8);
+  pointer-events: none;
+}
+
+.wb-btn.is-loading::before {
+  content: '';
+  position: absolute;
+  left: var(--wb-sp-3);
+  width: 12px;
+  height: 12px;
+  border: 1.6px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wb-spin 640ms linear infinite;
+}
+
+@keyframes wb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 主按钮：全站唯一的大面积强调色，实底 + 白字。
+   悬停用 --wb-brand-strong 而不是写死色值：暗色主题下
+   --wb-brand 是一支浅靛蓝，写死深靛蓝会让按钮在悬停时反而变暗。 */
+.wb-btn.primary {
+  --btn-bg: var(--wb-brand);
+  --btn-fg: #fff;
+  --btn-line: var(--wb-brand);
+  --btn-bg-hover: var(--wb-brand-strong);
+}
+.wb-btn.primary:hover:not(:disabled):not(.is-loading) {
+  color: #fff;
+  border-color: var(--wb-brand-strong);
+  box-shadow: 0 4px 14px var(--wb-brand-ring);
+}
+
+/* 幽灵按钮：无描边，只在悬停时给底 */
+.wb-btn.ghost {
+  --btn-bg: transparent;
+  --btn-line: transparent;
+}
+.wb-btn.ghost:hover:not(:disabled):not(.is-loading) {
+  border-color: var(--wb-line);
+  color: var(--wb-ink);
+}
+
+/* 危险：中性描边 + 危险色文字。彩色描边违反分层纪律 */
+.wb-btn.danger {
+  color: var(--wb-bad);
+  --btn-line: var(--wb-line-strong);
+}
+.wb-btn.danger:hover:not(:disabled):not(.is-loading) {
+  background: var(--wb-bad-soft);
+  border-color: var(--wb-bad);
+  color: var(--wb-bad);
+}
+
+/* 文字按钮不缩放：缩放会带动整行文字抖动 */
+.wb-btn.text {
+  height: auto;
+  padding: 2px 4px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--wb-mute);
+  font-weight: 500;
+}
+.wb-btn.text:hover:not(:disabled):not(.is-loading) {
+  transform: none;
+  color: var(--wb-brand);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.wb-btn.text:active:not(:disabled):not(.is-loading) {
+  transform: none;
+  color: var(--wb-brand);
+}
+
+/* 尺寸档 */
+.wb-btn.sm {
+  height: var(--wb-ctl-sm);
+  padding: 0 var(--wb-sp-3);
+  font-size: var(--wb-fs-xs);
+  border-radius: var(--wb-r-sm);
+}
+.wb-btn.lg {
+  height: var(--wb-ctl-lg);
+  padding: 0 var(--wb-sp-5);
+  font-size: var(--wb-fs-base);
+}
+.wb-btn.icon {
+  width: var(--wb-ctl-icon);
+  height: var(--wb-ctl-icon);
+  padding: 0;
+  border-radius: var(--wb-r-sm);
+}

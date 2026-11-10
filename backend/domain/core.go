@@ -38,6 +38,8 @@ type EngineCaps struct {
 }
 
 // PiCaps 是 pi 引擎的能力表：RPC 协议能给到的那些。
+// PlanMode 不在里面：它不是引擎能力，而是「pi-plan-mode 插件是否装并启用」的
+// 事实，要按插件清单实时算——写死成 true 就会出现一个点不动的入口。
 var PiCaps = EngineCaps{
 	QueueClear:    true,
 	SkillToggle:   true,

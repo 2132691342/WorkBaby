@@ -1,5 +1,4 @@
-// Package tests 的公共装具：两档 harness——
-// newHarness 装满全后端（真 JSON 存储、真 gin 中间件栈），catalogHarness 只装需要的一小撮依赖。
+// 公共测试装具：两档 harness——满装后端（真 JSON 存储 + gin 中间件栈）与轻量 catalog harness。
 package tests
 
 import (

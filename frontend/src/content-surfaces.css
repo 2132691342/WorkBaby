@@ -1,0 +1,162 @@
+/* 面基元：卡片、图标瓦片、状态灯、节标题、键值行、空态。管理页与概览页共用。
+
+/* ============================================================
+   面基元：卡片 / 图标瓦片 / 状态灯 / 节标题 / 键值行
+   管理页与概览页共用。散在各组件里就会各自漂，
+   而「同一块抬升的面」在一屏里会出现十几次。
+   ============================================================ */
+.wb-card {
+  background: var(--wb-raised);
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-r-xl);
+  box-shadow: var(--wb-card-shadow);
+}
+.wb-card--flat {
+  box-shadow: none;
+}
+.wb-card--hover {
+  transition:
+    box-shadow var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur) var(--wb-ease);
+}
+.wb-card--hover:hover {
+  box-shadow: var(--wb-card-shadow-hover);
+  border-color: var(--wb-border-strong);
+  transform: translateY(-1px);
+}
+
+/* 图标瓦片：卡片头 / 空态 / 列表项前的方块底 */
+.wb-tile {
+  display: grid;
+  place-items: center;
+  width: var(--wb-tile);
+  height: var(--wb-tile);
+  border-radius: var(--wb-r);
+  background: var(--wb-brand-soft);
+  color: var(--wb-brand);
+  flex: none;
+}
+.wb-tile--sm {
+  width: var(--wb-tile-sm);
+  height: var(--wb-tile-sm);
+  border-radius: var(--wb-r-sm);
+}
+.wb-tile--lg {
+  width: var(--wb-tile-lg);
+  height: var(--wb-tile-lg);
+  border-radius: var(--wb-r-lg);
+}
+.wb-tile--neutral {
+  background: var(--wb-hover);
+  color: var(--wb-mute);
+}
+.wb-tile--ok {
+  background: var(--wb-ok-soft);
+  color: var(--wb-ok);
+}
+.wb-tile--warn {
+  background: var(--wb-warn-soft);
+  color: var(--wb-warn);
+}
+.wb-tile--bad {
+  background: var(--wb-bad-soft);
+  color: var(--wb-bad);
+}
+
+/* 状态灯 */
+.wb-led {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--wb-r-full);
+  background: var(--wb-mute);
+  flex: none;
+}
+.wb-led--ok {
+  background: var(--wb-ok);
+}
+.wb-led--warn {
+  background: var(--wb-warn);
+}
+.wb-led--bad {
+  background: var(--wb-bad);
+}
+.wb-led--live {
+  background: var(--wb-live);
+  box-shadow: 0 0 0 0 var(--wb-live-line);
+  animation: wb-pulse 1.6s var(--wb-ease) infinite;
+}
+
+/* 分区标题行：页内小节 */
+.wb-sec-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding-bottom: var(--wb-sp-2);
+  border-bottom: 1px solid var(--wb-border);
+}
+
+/* 键值行 */
+.wb-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--wb-sp-3);
+  font-size: var(--wb-fs-sm);
+}
+.wb-kv > dt {
+  color: var(--wb-mute);
+  flex: none;
+}
+.wb-kv > dd {
+  margin: 0;
+  color: var(--wb-ink-5);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* 等宽路径 / ID */
+.wb-mono {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+  overflow-wrap: anywhere;
+}
+
+/* 读数：大数字（KPI 卡） */
+.wb-metric {
+  font-family: var(--wb-font-display);
+  font-size: var(--wb-fs-2xl);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--wb-ink);
+  font-variant-numeric: tabular-nums;
+}
+.wb-metric-label {
+  font-size: var(--wb-fs-3xs);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--wb-faint);
+}
+
+/* 空态：一个图标瓦片 + 一句标题 + 一句提示 */
+.wb-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-10) var(--wb-sp-6);
+  text-align: center;
+}
+.wb-empty-title {
+  font-size: var(--wb-fs-sm);
+  font-weight: 600;
+  color: var(--wb-ink);
+}
+.wb-empty-hint {
+  max-width: var(--wb-w-desc);
+  font-size: var(--wb-fs-2xs);
+  line-height: var(--wb-lh-base);
+  color: var(--wb-mute);
+}

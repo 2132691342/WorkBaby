@@ -130,6 +130,7 @@
 |---|---|---|
 | `/git/status` / `diff` / `history` / `commit` / `file-history` / `file-diff` / `branches` | GET | 工作区 git 只读面：状态、差异、历史（按条与按文件）、分支 |
 | `/git/stage` / `unstage` / `discard` / `resolve` | POST | 暂存 / 取消暂存 / 丢弃改动 / 标记冲突已解决 |
+| `/git/conflict/resolve` | POST | `{ file_path, resolve_side }`；`resolve_side` 为 `ours` / `theirs` / 空串（我改完了，只 `git add`）。按指定口径取一边后自动暂存 |
 | `/git/commit` | POST | `{ commit_message, is_amend }` 提交或修补 |
 | `/git/branch` / `branch/delete` / `switch` / `merge` / `state` / `init` / `remote` | POST | 分支增删切换、合并（可选 rebase）、合并中 continue/abort、初始化、加远程 |
 | `/git/push` / `pull` / `fetch` | POST | 推拉取；`push` 带 `confirm` 表达「覆盖远程」的二次确认 |

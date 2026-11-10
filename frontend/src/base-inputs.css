@@ -1,0 +1,63 @@
+/* .wb-input 与读数基元：输入控件与按钮同一刻度；读数不是控件，不套盒子。 */
+
+/* ============================================================
+   输入控件：与按钮同一刻度，浮凸感靠描边 + 内阴影
+   ============================================================ */
+.wb-input {
+  width: 100%;
+  height: var(--wb-ctl);
+  padding: 0 var(--wb-sp-3);
+  border: 1px solid var(--wb-line-strong);
+  border-radius: var(--wb-r);
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  font-family: inherit;
+  font-size: var(--wb-fs-sm);
+  transition:
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    box-shadow var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease);
+}
+.wb-input:hover:not(:disabled) {
+  border-color: var(--wb-brand-2);
+}
+.wb-input:focus {
+  outline: none;
+  border-color: var(--wb-brand);
+  box-shadow: 0 0 0 3px var(--wb-brand-soft);
+}
+.wb-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--wb-sunken);
+}
+.wb-input::placeholder {
+  color: var(--wb-faint);
+}
+
+textarea.wb-input {
+  height: auto;
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  line-height: 1.65;
+  resize: vertical;
+}
+
+/* ============================================================
+   读数：次级信息（时间、版本号、计数）。
+
+   它不是控件：不套描边胶囊、不做悬停缩放，只靠字重与颜色降一档。
+   有盒子又没动作等于请用户去点一个点不动的东西。
+
+   这两条以前只在组件的 scoped 样式里出现过，而 scoped 样式不会向下传——
+   于是列表里用了 .readout 的地方全是无样式状态（靠继承碰运气）。
+   收成基元后改一处就够。
+   ============================================================ */
+.readout {
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--wb-font-mono);
+}

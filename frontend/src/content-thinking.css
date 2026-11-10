@@ -1,0 +1,55 @@
+/* 思考块：一张描边卡片，一行摘要，展开才长内容。
+
+/* ============================================================
+   思考块：一张描边卡片，一行摘要，展开才长内容。
+   卡片化之后运行中给描边转活色，收起后仍是消息流里可数的一个步骤。
+   ============================================================ */
+.think {
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r-md);
+  background: var(--wb-surface);
+  overflow: hidden;
+  transition:
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease);
+}
+.think:hover {
+  border-color: var(--wb-line-strong);
+}
+.think.live {
+  border-color: var(--wb-live-line);
+}
+.think-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  width: 100%;
+  padding: 6px var(--wb-sp-3);
+  border: none;
+  background: transparent;
+  color: var(--wb-mute);
+  font-size: var(--wb-fs-2xs);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--wb-dur-fast) var(--wb-ease);
+}
+.think-head:hover {
+  color: var(--wb-ink-2);
+}
+.think-body {
+  padding: var(--wb-sp-2) var(--wb-sp-3) var(--wb-sp-3);
+  font-size: var(--wb-fs-sm);
+  line-height: 1.7;
+  color: var(--wb-mute);
+  white-space: pre-wrap;
+  border-top: 1px solid var(--wb-line);
+  background: var(--wb-work);
+  animation: tool-unfold var(--wb-dur) var(--wb-ease);
+}
+.caret-toggle {
+  margin-left: auto;
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+}

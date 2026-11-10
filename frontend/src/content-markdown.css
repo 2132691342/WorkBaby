@@ -1,0 +1,133 @@
+/* markdown 正文与代码块：标题、列表、表格、引用、行内代码。
+
+/* ============================================================
+   markdown
+   ============================================================ */
+.md > *:first-child {
+  margin-top: 0;
+}
+.md > *:last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 0.75em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-family: var(--wb-font-display);
+  font-weight: 650;
+  line-height: 1.3;
+  margin: 1.15em 0 0.5em;
+  color: var(--wb-ink);
+}
+.md h1 {
+  font-size: var(--wb-fs-xl);
+}
+.md h2 {
+  font-size: var(--wb-fs-lg);
+}
+.md h3 {
+  font-size: var(--wb-fs-base);
+}
+.md ul,
+.md ol {
+  margin: 0 0 0.8em;
+  padding-left: 1.4em;
+}
+.md li {
+  margin: 0.28em 0;
+}
+.md li::marker {
+  color: var(--wb-faint);
+}
+.md a {
+  color: var(--wb-brand);
+  text-decoration: none;
+  border-bottom: 1px solid var(--wb-brand-ring);
+}
+.md a:hover {
+  border-bottom-color: var(--wb-brand);
+}
+.md blockquote {
+  margin: 0.8em 0;
+  padding: 0.1em 0 0.1em var(--wb-sp-3);
+  border-left: 2px solid var(--wb-line-strong);
+  color: var(--wb-mute);
+}
+.md hr {
+  border: none;
+  border-top: 1px solid var(--wb-line);
+  margin: 1.2em 0;
+}
+.md table {
+  width: 100%;
+  margin: 0.9em 0;
+  border-collapse: collapse;
+  font-size: var(--wb-fs-sm);
+  display: block;
+  overflow-x: auto;
+}
+.md th,
+.md td {
+  padding: 6px 10px;
+  border: 1px solid var(--wb-line);
+  text-align: left;
+}
+.md th {
+  background: var(--wb-hover);
+  font-weight: 650;
+  font-size: var(--wb-fs-xs);
+  letter-spacing: 0.02em;
+}
+.md code {
+  padding: 1.5px 5px;
+  border-radius: var(--wb-r-xs);
+  background: var(--wb-code-bg);
+  font-family: var(--wb-font-mono);
+  font-size: 0.9em;
+  color: var(--wb-ink);
+}
+.md img {
+  max-width: 100%;
+  border-radius: var(--wb-r);
+}
+
+/* 代码块 */
+.code-wrap {
+  margin: 0.85em 0;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r-lg);
+  overflow: hidden;
+  background: var(--wb-sunken);
+}
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px var(--wb-sp-3);
+  background: var(--wb-hover);
+  border-bottom: 1px solid var(--wb-line);
+}
+.code-lang {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--wb-faint);
+}
+.code-wrap pre {
+  margin: 0;
+  padding: var(--wb-sp-3);
+  overflow-x: auto;
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-xs);
+  line-height: 1.62;
+  color: var(--wb-ink);
+}
+.code-wrap pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}

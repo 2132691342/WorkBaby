@@ -1,0 +1,97 @@
+/* EP 令牌桥：把 Element Plus 的 CSS 变量接到 --wb-* 令牌上，并处理暗色覆写。
+
+   这里只做「EP 变量 = wb 令牌」的引用，外加少量组件细节对齐
+   （圆角、五态动效、禁用与加载态）。
+
+   为什么单独一个文件：一份映射散在两处会静默互相覆盖，
+   而缺了哪一项在运行时看不出来——组件只是「看起来不太对」。
+
+   五态是硬要求：默认 / 悬停放大 / 按下缩小 / 禁用 / 加载，
+   每一态都要有可辨的视觉差异，且与自绘的 .wb-btn 用同一套刻度，
+   两种按钮并排时点击手感才一致。 */
+
+:root {
+  /* 动作色：靛蓝五档 */
+  --el-color-primary: var(--wb-brand);
+  --el-color-primary-light-3: var(--wb-brand-2);
+  --el-color-primary-light-5: var(--wb-brand-3);
+  --el-color-primary-light-6: var(--wb-brand-2);
+  --el-color-primary-light-7: var(--wb-brand-3);
+  --el-color-primary-light-8: var(--wb-brand-3);
+  --el-color-primary-light-9: var(--wb-brand-tint);
+  --el-color-primary-dark-2: var(--wb-brand-strong);
+
+  /* 状态色只留给通过 / 出错 / 注意 */
+  --el-color-success: var(--wb-ok);
+  --el-color-success-light-9: var(--wb-ok-soft);
+  --el-color-warning: var(--wb-warn);
+  --el-color-warning-light-9: var(--wb-warn-soft);
+  --el-color-danger: var(--wb-bad);
+  --el-color-danger-light-9: var(--wb-bad-soft);
+  --el-color-error: var(--wb-bad);
+  --el-color-error-light-9: var(--wb-bad-soft);
+  --el-color-info: var(--wb-mute);
+  --el-color-info-light-9: var(--wb-hover);
+
+  /* 面与文字：全部走六级表面阶梯 */
+  --el-bg-color: var(--wb-raised);
+  --el-bg-color-overlay: var(--wb-raised);
+  --el-bg-color-page: var(--wb-window);
+  --el-fill-color: var(--wb-hover);
+  --el-fill-color-light: var(--wb-hover);
+  --el-fill-color-lighter: var(--wb-hover);
+  --el-fill-color-extra-light: var(--wb-hover);
+  --el-fill-color-dark: var(--wb-selected);
+  --el-fill-color-darker: var(--wb-selected);
+  --el-fill-color-blank: var(--wb-surface);
+
+  --el-text-color-primary: var(--wb-ink);
+  --el-text-color-regular: var(--wb-ink-5);
+  --el-text-color-secondary: var(--wb-mute);
+  --el-text-color-placeholder: var(--wb-faint);
+  --el-text-color-disabled: var(--wb-faint);
+
+  --el-border-color: var(--wb-line);
+  --el-border-color-light: var(--wb-line);
+  --el-border-color-lighter: var(--wb-line);
+  --el-border-color-extra-light: var(--wb-line);
+  --el-border-color-dark: var(--wb-line-strong);
+  --el-border-color-darker: var(--wb-line-strong);
+  --el-border-color-hover: var(--wb-line-strong);
+
+  --el-border-radius-base: var(--wb-r);
+  --el-border-radius-small: var(--wb-r-sm);
+  --el-border-radius-round: var(--wb-r-full);
+
+  --el-font-family: var(--wb-font-sans);
+  --el-font-size-extra-large: var(--wb-fs-lg);
+  --el-font-size-large: var(--wb-fs-base);
+  --el-font-size-medium: var(--wb-fs-sm);
+  --el-font-size-base: var(--wb-fs-sm);
+  --el-font-size-small: var(--wb-fs-xs);
+  --el-font-size-extra-small: var(--wb-fs-2xs);
+
+  --el-box-shadow-light: var(--wb-shadow-2);
+  --el-box-shadow: var(--wb-shadow-3);
+  --el-box-shadow-dark: var(--wb-shadow-3);
+  --el-box-shadow-lighter: var(--wb-shadow-1);
+
+  --el-disabled-bg-color: var(--wb-hover);
+  --el-disabled-text-color: var(--wb-faint);
+  --el-disabled-border-color: var(--wb-line);
+
+  --el-mask-color: rgba(15, 23, 42, 0.42);
+  --el-overlay-color-lighter: rgba(15, 23, 42, 0.42);
+
+  --el-component-size: var(--wb-ctl);
+  --el-component-size-small: var(--wb-ctl-sm);
+  --el-component-size-large: var(--wb-ctl-lg);
+
+  --el-transition-duration: var(--wb-dur);
+  --el-transition-duration-fast: var(--wb-dur-fast);
+}
+
+:root[data-theme='dark'] {
+  --el-mask-color: rgba(0, 0, 0, 0.66);
+  --el-overlay-color-lighter: rgba(0, 0, 0, 0.66);
+}

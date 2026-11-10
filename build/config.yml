@@ -11,7 +11,7 @@ info:
   description: "能干活的个人 AI 助手"
   copyright: "Copyright (c) 2026 WorkBaby"
   comments: "内置 Node.js 运行时与 pi 引擎，安装即用；一切管理只经本界面"
-  version: "0.1.0"
+  version: "1.0.0"
 
 # 开发模式：只监听 Go 与前端源码，node_modules 与 frontend 整目录排除
 # （前端自己有 Vite 的 HMR，再让 wails 监听一次只会重复触发）。

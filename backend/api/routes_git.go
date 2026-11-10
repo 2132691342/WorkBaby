@@ -28,6 +28,7 @@ func mountGit(g *gin.RouterGroup, s *Server) {
 	g.POST("/git/unstage", s.gitUnstage)
 	g.POST("/git/discard", s.gitDiscard)
 	g.POST("/git/resolve", s.gitResolve)
+	g.POST("/git/conflict/resolve", s.gitResolveConflict)
 	g.POST("/git/commit", s.gitCommit)
 	g.POST("/git/branch", s.gitCreateBranch)
 	g.POST("/git/branch/delete", s.gitDeleteBranch)
@@ -124,6 +125,20 @@ func (s *Server) gitDiscard(c *gin.Context) {
 // gitResolve 标记冲突已解决。
 func (s *Server) gitResolve(c *gin.Context) {
 	s.withPaths(c, s.svc.Git.Resolve)
+}
+
+// gitResolveConflict 按指定口径解决一个冲突文件：保留我方 / 保留对方 / 我改完了。
+func (s *Server) gitResolveConflict(c *gin.Context) {
+	var req domain.GitConflictREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Git.ResolveConflict(req.FilePath, req.ResolveSide)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
 }
 
 // withPaths 把「一批路径 → 最新状态」的写接口收成一处。

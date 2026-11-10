@@ -1,0 +1,26 @@
+/* EP 开关 / 单选 / 复选：控件按下去要缩一下。
+
+/* ============================================================
+   开关 / 单选 / 复选
+   ============================================================ */
+.el-switch {
+  --el-switch-on-color: var(--wb-brand);
+  --el-switch-off-color: var(--wb-line-strong);
+}
+.el-switch__core {
+  transition:
+    background-color var(--wb-dur) var(--wb-ease),
+    border-color var(--wb-dur) var(--wb-ease);
+}
+/* 开关按下去要缩一下：它是控件不是容器，用户需要「我按到了」的证据 */
+.el-switch:not(.is-disabled):active .el-switch__core {
+  transform: scale(0.94);
+}
+.el-switch.is-checked .el-switch__core .el-switch__action {
+  color: var(--wb-brand);
+}
+
+.el-radio__input.is-checked + .el-radio__label,
+.el-checkbox__input.is-checked + .el-checkbox__label {
+  color: var(--wb-ink);
+}

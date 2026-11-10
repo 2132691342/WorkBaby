@@ -1,5 +1,4 @@
-// Package tests 的 HTTP 全链路：鉴权门 → CORS 预检 → 信封 → 落盘 → SSE 通道。
-// 这一条链是前端全部调用的前提，一处断整个界面就瘫。
+// 回环 HTTP 全链路：鉴权门 → CORS 预检 → 信封 → 落盘 → SSE 通道。
 package tests
 
 import (
@@ -16,11 +15,10 @@ import (
 )
 
 // TestChain 断言回环 HTTP 的全部契约：鉴权门、CORS 预检、信封同构、写入落盘、SSE 通道。
-// 这一条链是前端全部调用的前提，一处断整个界面就瘫；每段的「为什么」写在段内注释里。
 func TestChain(t *testing.T) {
 	h := newHarness(t)
 
-	// ---- 鉴权门 ----
+	// ---- 鉴权门：无令牌 / 错令牌回 401 且不带业务信封 ----
 	for _, tc := range []struct{ name, token string }{{"无令牌", ""}, {"错令牌", "wrong"}} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", nil)
 		if tc.token != "" {
@@ -36,7 +34,7 @@ func TestChain(t *testing.T) {
 		}
 	}
 
-	// ---- CORS 预检 ----
+	// ---- CORS 预检：绕过鉴权门、回 204 与允许头 ----
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/bootstrap", nil)
 	req.Header.Set("Origin", "http://wails.localhost")
 	req.Header.Set("Access-Control-Request-Method", "POST")
@@ -61,7 +59,7 @@ func TestChain(t *testing.T) {
 		t.Fatalf("响应应携带允许头给 EventSource，实际 %q", rec.Header().Get("Access-Control-Allow-Origin"))
 	}
 
-	// ---- 信封同构 ----
+	// ---- 信封同构：成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + code ----
 	env, code := h.call(http.MethodGet, "/nope/not-here", nil)
 	if code != http.StatusOK || env.Code != pkg.CodeUnknownRoute || env.Message == "" {
 		t.Fatalf("未知路由应回 HTTP 200 / %q 且带 message，实际 http=%d code=%q msg=%q",
@@ -80,7 +78,7 @@ func TestChain(t *testing.T) {
 		t.Fatalf("坏请求体应回 %q / HTTP 200，实际 code=%q http=%d", pkg.CodeBadRequest, bad.Code, rec.Code)
 	}
 
-	// ---- 写入落盘 ----
+	// ---- 写入落盘：HTTP 写 → 直查存储文件 → HTTP 读回 ----
 	env, code = h.call(http.MethodPost, "/settings/save", map[string]string{"ui.theme": "dark"})
 	var saved map[string]string
 	h.mustOK(env, code, "settings/save", &saved)
@@ -103,7 +101,7 @@ func TestChain(t *testing.T) {
 		t.Fatalf("bootstrap 缺 app_contract：前端首屏全靠它，实际键=%v", keysOf(boot))
 	}
 
-	// ---- SSE 通道 ----
+	// ---- SSE 通道：查询参数鉴权、先补 stream:open、广播到达、seq 单调 ----
 	srv := httptest.NewServer(h.server.Handler())
 	defer srv.Close()
 	res, err := http.Get(srv.URL + "/api/v1/events")
@@ -133,7 +131,6 @@ func TestChain(t *testing.T) {
 	waitForLine(t, lines, "stream:open")
 	h.app.Hub.Broadcast("test:probe", map[string]any{"probe": "ok"})
 	waitForLine(t, lines, `"event":"test:probe"`)
-	// stream:open 是连接时直写的，不经过 hub，所以不计入 seq。
 	if h.app.Hub.Seq() < 1 {
 		t.Fatalf("广播应至少发过 1 帧，实际 seq=%d", h.app.Hub.Seq())
 	}

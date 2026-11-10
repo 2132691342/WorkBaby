@@ -1,0 +1,144 @@
+/* 消息流：消息列、左侧脊线、角色徽章、用户气泡、轮次节点。
+
+/* ============================================================
+   消息列
+   ============================================================ */
+.msg-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-3);
+  width: 100%;
+  max-width: var(--wb-col);
+  margin: 0 auto;
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-10);
+  position: relative;
+}
+
+/* 消息列左侧的脊线：整段回答串在一根时间轴上，回答内容挂在它的右侧。
+   用户消息右对齐，脊线从它们的空白处穿过，正好把「谁在说话」分成左右两栏。 */
+.msg-col::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: var(--wb-sp-2);
+  bottom: var(--wb-sp-2);
+  width: 1px;
+  background: var(--wb-line);
+}
+
+/* 屏幕外消息不参与 layout/paint：长会话的硬约束。
+   末两条除外——正在写的那一轮要实时反映高度。 */
+.msg-col > .msg:not(:last-child):not(:nth-last-child(2)) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-1);
+}
+
+.msg-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+}
+
+/* 角色徽章：全大写微字 + 胶囊描边。用户与助手同一语言，不做左右分栏 */
+.msg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r-full);
+  font-size: var(--wb-fs-3xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--wb-mute);
+  background: var(--wb-surface);
+}
+.msg-badge.user {
+  color: var(--wb-brand);
+  border-color: var(--wb-brand-3);
+  background: var(--wb-brand-soft);
+}
+.msg-meta {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  letter-spacing: 0.02em;
+}
+
+/* 助手正文：不再套一整张带脊线的卡片。
+   长会话里每一轮都套一层边框时，一屏会出现十几个相同的圆角矩形，
+   读到第三轮就分不清“哪里是新的”。分层交给角色头像行与间距：
+   头像列出了“这是新的一轮”，正文本身保持平面。 */
+.msg-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--wb-fs-base);
+  line-height: 1.72;
+  color: var(--wb-ink);
+}
+
+/* 用户那一侧走右对齐气泡：与助手的左对齐正文形成明确的左右分栏。
+   两侧都用同一种平面时，“哪段是我说的”要靠徒劳去找徒劳。 */
+.msg.user {
+  align-items: flex-end;
+}
+.msg.user .msg-head {
+  justify-content: flex-end;
+}
+.msg.user .msg-body {
+  max-width: min(78%, 640px);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border-radius: var(--wb-r-lg);
+  border-top-right-radius: var(--wb-r-xs);
+  background: var(--wb-brand-soft);
+}
+.msg-error .msg-body {
+  padding-left: var(--wb-sp-3);
+  border-left: 2px solid var(--wb-bad);
+}
+
+/* 助手轮从脊线右侧起排；每个轮次的头在脊线上钉一枚节点，
+   长会话里「一轮从哪开始」顺着线就能数出来。用户轮不参与。 */
+.msg.is-assistant {
+  position: relative;
+  padding-left: var(--wb-sp-4);
+}
+
+.msg.is-assistant::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--wb-sp-6));
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--wb-r-full);
+  background: var(--wb-line-strong);
+  box-shadow: 0 0 0 3px var(--wb-window);
+}
+
+/* 接着上一轮往下说的轮次不出头、也不钉节点——它和上一轮是同一坨 */
+.msg.is-assistant.is-continued::before {
+  content: none;
+}
+
+/* 流式中的那一轮：节点转活色并呼吸——「这段还在长」这件事就挂在线上。
+   续写中的轮次也要有：正在生长的段落，不管出不头，都得在线上占一个点。 */
+.msg.is-assistant.msg-streaming::before {
+  content: '';
+  background: var(--wb-live);
+  animation: wb-pulse 1.6s var(--wb-ease) infinite;
+}
+
+/* 出错的轮次：节点同步转红，不必读正文就知道哪一轮断了 */
+.msg.is-assistant.msg-error::before {
+  content: '';
+  background: var(--wb-bad);
+  animation: none;
+}

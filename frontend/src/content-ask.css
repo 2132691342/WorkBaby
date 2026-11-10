@@ -1,0 +1,84 @@
+/* 提问卡片：引擎向用户提问时的可答面板。
+
+/* ============================================================
+   提问卡片
+   ============================================================ */
+.ask {
+  border: 1px solid var(--wb-brand-2);
+  border-left: 3px solid var(--wb-brand);
+  border-radius: var(--wb-r-lg);
+  background: var(--wb-raised);
+  padding: var(--wb-sp-3) var(--wb-sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-3);
+  box-shadow: var(--wb-shadow);
+}
+.ask-title {
+  font-size: var(--wb-fs-sm);
+  font-weight: 650;
+  color: var(--wb-ink);
+}
+.ask-message {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink-5);
+  white-space: pre-wrap;
+}
+.ask-option {
+  display: flex;
+  gap: var(--wb-sp-2);
+  width: 100%;
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r);
+  background: var(--wb-surface);
+  text-align: left;
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease);
+}
+.ask-option:hover {
+  transform: scale(1.01);
+  border-color: var(--wb-brand-2);
+  background: var(--wb-brand-soft);
+}
+.ask-option.selected {
+  border-color: var(--wb-brand);
+  background: var(--wb-brand-soft);
+}
+.ask-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: var(--wb-r-xs);
+  background: var(--wb-hover);
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  font-weight: 700;
+  color: var(--wb-mute);
+}
+.ask-option.selected .ask-num {
+  background: var(--wb-brand);
+  color: #fff;
+}
+
+/* 状态条：排在输入框上沿，不进消息流 */
+.status-strip {
+  max-width: var(--wb-col);
+  margin: 0 auto var(--wb-sp-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--wb-sp-2);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-mute);
+  font-family: var(--wb-font-mono);
+}
+.status-chip {
+  padding: 1px 8px;
+  border-radius: var(--wb-r-full);
+  background: var(--wb-hover);
+}

@@ -1,0 +1,50 @@
+/* EP 输入 / 选择 / 数值：与按钮同一高度刻度。
+
+/* ============================================================
+   输入 / 选择 / 数值
+   ============================================================ */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: var(--wb-r);
+  background: var(--wb-control-bg);
+  box-shadow: 0 0 0 1px var(--wb-control-border) inset;
+  transition: box-shadow var(--wb-dur) var(--wb-ease);
+}
+.el-input__wrapper:hover,
+.el-textarea__inner:hover,
+.el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--wb-control-border-hover) inset;
+}
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--wb-brand) inset;
+}
+.el-input.is-disabled .el-input__wrapper,
+.el-textarea.is-disabled .el-textarea__inner {
+  background: var(--wb-control-bg-disabled);
+  box-shadow: 0 0 0 1px var(--wb-border) inset;
+}
+
+/* 小号控件再降一档圆角：26px 高的框套 8px 圆角就快成胶囊了 */
+.el-input--small .el-input__wrapper,
+.el-input-number--small .el-input__wrapper,
+.el-select--small .el-select__wrapper {
+  border-radius: var(--wb-r-sm);
+}
+.el-textarea__inner {
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  line-height: var(--wb-lh-base);
+}
+.el-input__inner::placeholder,
+.el-textarea__inner::placeholder {
+  color: var(--wb-faint);
+}
+.el-input-group__append,
+.el-input-group__prepend {
+  background: var(--wb-hover);
+  border-radius: var(--wb-r);
+  box-shadow: 0 0 0 1px var(--wb-border) inset;
+  color: var(--wb-mute);
+}

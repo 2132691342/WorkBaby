@@ -159,6 +159,11 @@ async function resolveOne(file: GitFile) {
   await git.resolve(file)
 }
 
+/** 按口径解决冲突：保留我方 / 保留对方 / 我改完了。 */
+async function resolveAs(file: GitFile, side: 'ours' | 'theirs' | '') {
+  await git.resolveAs(file, side)
+}
+
 async function commit(text: string, isAmend = false) {
   if (!text.trim() || (!isAmend && !staged.value.length) || committing.value) return
   committing.value = true
@@ -325,6 +330,7 @@ onMounted(refresh)
               @unstage="unstage"
               @discard="discard"
               @resolve="resolveOne"
+              @resolveAs="resolveAs"
               @stage-all="stageAll"
               @history="(file) => showFileHistory(file.file_path)"
               @stash-push="git.stashPush"

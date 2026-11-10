@@ -1,0 +1,103 @@
+/* 可按压基类与分段控件：缩放刻度只在这里定义一次，组件复用不复制。 */
+
+/* ============================================================
+   共享可按压基类
+   「悬停放大 / 按下缩小」只在这里定义一次。组件复用它，不复制粘贴——
+   复制十几份的结果是有人改了十一处、漏了一处，那一处就成了「点了没反应」。
+   行宽 100% 的元素（会话行、技能行、rail 项）不放大：放大会溢出被裁。
+   ============================================================ */
+.wb-pressable {
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    box-shadow var(--wb-dur-fast) var(--wb-ease);
+}
+.wb-pressable:hover:not(:disabled):not(.is-loading):not(.is-static) {
+  transform: scale(var(--wb-press-hover));
+}
+.wb-pressable:active:not(:disabled):not(.is-loading):not(.is-static) {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
+}
+.wb-pressable:disabled,
+.wb-pressable.is-static {
+  transform: none;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wb-pressable.is-loading {
+  pointer-events: none;
+}
+
+/* 整行元素：只缩不放。行的两个变体共用这一份缩放刻度——
+   .wb-pressable-row 只有缩放（rail 项自己管底色），
+   .wb-row-click 额外带悬停/选中底色（见上方「可点的整行」）。 */
+.wb-pressable-row,
+.wb-row-click {
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
+}
+.wb-pressable-row:active:not(:disabled),
+.wb-row-click:active {
+  transform: scale(var(--wb-press-row-active));
+}
+
+/* 文字按钮：不缩放（会带动整行文字抖动），只换色 */
+.wb-pressable-text {
+  transition: color var(--wb-dur-fast) var(--wb-ease);
+}
+
+/* ============================================================
+   分段控件（seg-btn）
+   以前三个页面各抄一份，都缺「按下」与「禁用」两态。这里收成唯一一处。
+   ============================================================ */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--wb-r);
+  background: var(--wb-hover);
+}
+.seg-btn {
+  height: var(--wb-ctl-sm);
+  padding: 0 var(--wb-sp-3);
+  border: none;
+  border-radius: var(--wb-r-sm);
+  background: transparent;
+  color: var(--wb-mute);
+  font-family: inherit;
+  font-size: var(--wb-fs-2xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease);
+}
+.seg-btn:hover:not(:disabled):not(.active) {
+  color: var(--wb-ink);
+  background: var(--wb-surface);
+}
+.seg-btn:active:not(:disabled) {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
+}
+/* 焦点环：键盘用户要知道自己在哪。缺了它，Tab 走过分段控件时没有任何反馈。 */
+.seg-btn:focus-visible {
+  outline: 2px solid var(--wb-brand-ring);
+  outline-offset: 2px;
+}
+.seg-btn.active {
+  background: var(--wb-surface);
+  color: var(--wb-brand);
+  box-shadow: var(--wb-shadow);
+}
+.seg-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
