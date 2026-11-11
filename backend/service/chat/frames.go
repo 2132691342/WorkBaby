@@ -109,7 +109,7 @@ func (s *Stream) OnEvent(ev Record) {
 	case "extension_error":
 		s.hub.Broadcast("chat:notify", sse.EngineTag(map[string]any{
 			"level":   "error",
-			"message": "扩展出错：" + stringOf(ev["error"]),
+			"message": "扩展出错：" + pkg.CleanText(stringOf(ev["error"])),
 		}))
 	case "session_info_changed":
 		s.hub.Broadcast("session:title", sse.EngineTag(map[string]any{"title": stringOf(ev["name"])}))
@@ -223,12 +223,14 @@ func (s *Stream) onMessageEnd(ev Record) {
 	}
 	s.mu.Unlock()
 
-	s.emitRun("chat:blocks", map[string]any{"blocks": snapshot})
+	// 帧里的块表键名与 domain.ChatBlockVO 同一套词汇：前端按它窄化，
+	// 换个名字就等于把整表快照静默丢掉。
+	s.emitRun("chat:blocks", map[string]any{"turn_blocks": snapshot})
 	if stopReason == "error" {
 		if errorMessage == "" {
 			errorMessage = "模型调用失败"
 		}
-		s.emitRun("chat:error", map[string]any{"message": errorMessage})
+		s.emitRun("chat:error", map[string]any{"message": pkg.CleanText(errorMessage)})
 	}
 }
 
@@ -309,7 +311,7 @@ func (s *Stream) onTurnEnd(ev Record) {
 	usage := s.usage
 	s.mu.Unlock()
 
-	s.emitRun("chat:turn", map[string]any{"user_message": userMessage, "blocks": blocks})
+	s.emitRun("chat:turn", map[string]any{"user_message": userMessage, "turn_blocks": blocks})
 	usageVO := domain.TurnUsageVO{}
 	if usage != nil {
 		usageVO = domain.TurnUsageVO{
@@ -322,7 +324,7 @@ func (s *Stream) onTurnEnd(ev Record) {
 			usageVO.CostUsd = usage.Cost.Total
 		}
 	}
-	s.emitRun("chat:turn_end", map[string]any{"usage": usageVO})
+	s.emitRun("chat:turn_end", map[string]any{"turn_usage": usageVO})
 }
 
 // onSettled 引擎确认不会再有自动续跑。
@@ -336,25 +338,30 @@ func (s *Stream) onSettled(ev Record) {
 }
 
 // OnUiRequest 处理非对话框类的引擎 UI 请求（通知 / 状态条 / 小组件 / 预填输入框）。
+// 状态与通知的文字是给终端写的，夹带 ANSI 颜色码，出口统一洗掉。
 func (s *Stream) OnUiRequest(rec Record) {
 	switch stringOf(rec["method"]) {
 	case "notify":
 		s.hub.Broadcast("chat:notify", sse.EngineTag(map[string]any{
 			"level":   defaultString(stringOf(rec["notifyType"]), "info"),
-			"message": stringOf(rec["message"]),
+			"message": pkg.CleanText(stringOf(rec["message"])),
 		}))
 	case "setStatus":
 		s.hub.Broadcast("chat:status", sse.EngineTag(map[string]any{
 			"key":  stringOf(rec["statusKey"]),
-			"text": stringOf(rec["statusText"]),
+			"text": pkg.CleanText(stringOf(rec["statusText"])),
 		}))
 	case "setWidget":
+		lines := asStrings(rec["widgetLines"])
+		for i := range lines {
+			lines[i] = pkg.CleanText(lines[i])
+		}
 		s.hub.Broadcast("chat:widget", sse.EngineTag(map[string]any{
 			"key":   stringOf(rec["widgetKey"]),
-			"lines": asStrings(rec["widgetLines"]),
+			"lines": lines,
 		}))
 	case "setTitle":
-		s.hub.Broadcast("session:title", sse.EngineTag(map[string]any{"title": stringOf(rec["title"])}))
+		s.hub.Broadcast("session:title", sse.EngineTag(map[string]any{"title": pkg.CleanText(stringOf(rec["title"]))}))
 	case "set_editor_text":
 		s.hub.Broadcast("chat:editor_text", sse.EngineTag(map[string]any{"text": stringOf(rec["text"])}))
 	}
