@@ -131,6 +131,7 @@ chat: {
     autoCompactOff: '自动压缩已关',
     redetect: '重新检测',
     openApps: '去「应用」页安装',
+    goModels: '去配置模型',
     queuedCount: '排队 {n} 条',
     clearQueue: '清空排队',
     queueCleared: '排队已清空',

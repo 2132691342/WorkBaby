@@ -281,6 +281,11 @@ export const useAppStore = defineStore('app', () => {
     window.location.hash = '#/apps'
   }
 
+  // 跳到模型页（配服务商）。没配服务商时对话走不通，错误条要能直接指过去。
+  function openModels() {
+    window.location.hash = '#/models'
+  }
+
   function disconnect() {
     source?.close()
     source = null
@@ -319,6 +324,7 @@ export const useAppStore = defineStore('app', () => {
     setWorkspace,
     openSettings,
     openApps,
+    openModels,
     disconnect,
   }
 })

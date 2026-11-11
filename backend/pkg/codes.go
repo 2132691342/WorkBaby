@@ -22,6 +22,7 @@ const (
 
 	// 3000-3999 服务商 / 模型
 	CodeProviderBad = "3000" // 服务商配置不合法
+	CodeNoProvider  = "3001" // 一个可用服务商都没有
 
 	// 5000-5999 会话运行
 	CodeSessionBind = "5000" // 引擎未绑定到会话或工作区

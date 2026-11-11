@@ -53,6 +53,7 @@ common: {
     uninstall: '卸载',
     loading: '加载中…',
     empty: '这里还没有内容',
+    dismiss: '关闭这条提示',
     clear: '清空',
     enabled: '已启用',
     disabled: '已停用',

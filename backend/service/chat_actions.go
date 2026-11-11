@@ -87,12 +87,23 @@ func (c *Chat) Send(sessionFile, message string, attachments []domain.ChatAttach
 	runId := c.Stream.Begin(message)
 	if _, err := client.Request(compose(message, attachments).wire("prompt"), 0); err != nil {
 		c.Stream.Idle()
-		message := pkg.As(err).Message
-		c.Hub.Broadcast("chat:error", map[string]any{"run_id": runId, "message": message, "engine_kind": "pi"})
+		err = explainPromptError(err)
+		c.Hub.Broadcast("chat:error", map[string]any{"run_id": runId, "message": pkg.As(err).Message, "engine_kind": "pi"})
 		return domain.ChatSendRESP{}, err
 	}
 	c.rememberCurrent()
 	return domain.ChatSendRESP{RunId: runId}, nil
+}
+
+// explainPromptError 把引擎的报错换成界面能用的下一步。
+// 首次安装后一个服务商都没配，引擎回的是给 CLI 用户看的原话，
+// 还带着本机 markdown 路径；界面上直接显出来等于让用户去读文档。
+func explainPromptError(err error) error {
+	ae := pkg.As(err)
+	if !strings.Contains(ae.Message, "No API key") {
+		return err
+	}
+	return pkg.Err(pkg.CodeNoProvider, "还没有可用的服务商，先去模型页配一个")
 }
 
 // Stop 中止当前运行。

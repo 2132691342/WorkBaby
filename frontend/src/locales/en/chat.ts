@@ -131,6 +131,7 @@ export default {
     "autoCompactOff": "Auto compaction off",
     "redetect": "Detect again",
     "openApps": "Install from the Apps page",
+    "goModels": "Configure models",
     "queuedCount": "{n} queued",
     "clearQueue": "Clear queue",
     "queueCleared": "Queue cleared",

@@ -54,6 +54,7 @@ export default {
     "loading": "Loading…",
     "clear": "Clear",
     "empty": "Nothing here yet",
+    "dismiss": "Dismiss this message",
     "enabled": "Enabled",
     "disabled": "Disabled",
     "copy": "Copy",

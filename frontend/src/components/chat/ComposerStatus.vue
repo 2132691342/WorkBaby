@@ -16,6 +16,9 @@ const { t } = useI18n()
 /** 两条队的总长度。 */
 const queuedCount = computed(() => chat.queue.steering.length + chat.queue.follow_up.length)
 
+/** 错误是因为一个服务商都没配：这种情况界面能直接把他领到模型页。 */
+const needsProvider = computed(() => /服务商/.test(chat.promptError))
+
 async function clearQueued(): Promise<void> {
   try {
     await chat.clearQueue()
@@ -88,7 +91,17 @@ async function redetect(): Promise<void> {
   </div>
 
   <div v-if="chat.promptError" class="error-strip">
-    {{ chat.promptError }}
+    <span class="err-text">{{ chat.promptError }}</span>
+    <!-- 错误只说「不行」等于把人卡在死胡同：能直接去修的那一处就给入口 -->
+    <button
+      v-if="needsProvider"
+      class="wb-btn text sm"
+      :title="t('chat.goModels')"
+      @click="app.openModels()"
+    >
+      {{ t('chat.goModels') }}
+    </button>
+    <button class="wb-btn text sm" :title="t('common.dismiss')" @click="chat.promptError = ''">×</button>
   </div>
 
   <div v-if="attachError" class="error-strip">
@@ -128,6 +141,12 @@ async function redetect(): Promise<void> {
   background: var(--wb-bad-soft);
   color: var(--wb-bad);
   overflow-wrap: anywhere;
+}
+
+/* 错误文字可伸可缩：操作钮不能被一句长话挤到看不见的地方 */
+.err-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .queue-strip,
