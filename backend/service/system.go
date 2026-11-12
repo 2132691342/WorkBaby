@@ -89,26 +89,30 @@ func ConfigText(layout pkg.Layout, name string) (domain.ConfigTextRESP, error) {
 	return domain.ConfigTextRESP{}, pkg.Err(pkg.CodeBadRequest, "未知的配置文件名", name)
 }
 
-// RuntimeStatus 汇总三个内置运行时与 pi 本体的就绪状态。
+// RuntimeStatus 汇总外部依赖的检测状态：全部来自用户自己的环境。
 func RuntimeStatus(rt *engine.Runtime) domain.RuntimeStatusVO {
-	layout := rt.Layout
-	return domain.RuntimeStatusVO{
-		NodeReady:     layout.NodeReady(),
+	entry := rt.Resolve()
+	status := domain.RuntimeStatusVO{
+		NodeReady:     pkg.LookPath("node") != "",
 		NodeVersion:   rt.NodeVersion(),
-		GitReady:      layout.GitReady(),
+		GitReady:      pkg.LookPath("git") != "",
 		GitVersion:    rt.GitVersion(),
-		PythonReady:   layout.PythonReady(),
+		PythonReady:   pkg.LookPath("python") != "" || pkg.LookPath("python3") != "",
 		PythonVersion: rt.PythonVersion(),
-		PiReady:       layout.PiInstalled(),
+		PiReady:       entry.Command != "",
 		PiVersion:     rt.PiVersion(),
+		PiSource:      entry.Source,
 	}
+	if !status.PiReady {
+		status.DetectionHint = engine.ShellHint()
+	}
+	return status
 }
 
 // EngineLayout 输出引擎落盘布局。
 func EngineLayout(layout pkg.Layout) domain.EngineLayoutVO {
 	return domain.EngineLayoutVO{
 		EngineKind:   domain.EnginePi,
-		RootDir:      layout.PiAppDir,
 		AgentDir:     layout.PiAgentDir,
 		SessionsDir:  layout.SessionsDir(),
 		SkillsDir:    layout.SkillsDir(),

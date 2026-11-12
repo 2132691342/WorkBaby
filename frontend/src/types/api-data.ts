@@ -88,11 +88,20 @@ export interface SkillRow {
 
 export interface SkillListData {
   skills: SkillRow[]
-  builtin_total: number
-  builtin_installed: number
+  recommended_total: number
+  recommended_installed: number
+  available: SkillAvailable[]
 }
 
-export type PluginStateKind = 'installed' | 'missing' | 'failed'
+/** 推荐清单里还没装的一条技能。 */
+export interface SkillAvailable {
+  skill_dir_name: string
+  skill_group: string
+  skill_desc: string
+  skill_requires?: string
+}
+
+export type PluginStateKind = 'installed' | 'disabled' | 'missing' | 'failed'
 
 export interface PluginRow {
   plugin_name: string
@@ -104,7 +113,8 @@ export interface PluginRow {
   plugin_latest?: string
   plugin_upgradable: boolean
   resource_kinds: string[]
-  plugin_builtin: boolean
+  plugin_recommended: boolean
+  plugin_declared: boolean
   plugin_enabled: boolean
   plugin_installed: boolean
   plugin_state: PluginStateKind
@@ -115,8 +125,8 @@ export interface PluginListData {
   plugins: PluginRow[]
   registry_path: string
   install_root: string
-  builtin_total: number
-  builtin_installed: number
+  recommended_total: number
+  recommended_installed: number
   busy: boolean
 }
 

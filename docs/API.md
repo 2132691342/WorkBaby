@@ -39,10 +39,10 @@
 | `/engines` | GET | 引擎身份 + 布局 + 存活实例 + 探测时间戳 |
 | `/engines/detect` | POST | 重新探测版本，刷新时间戳并广播 |
 | `/engines/restart` | POST | 杀 RPC 子进程，下次用到自动重拉 |
-| `/engines/repair` | POST | 修复运行时：停引擎 → 三个内置运行时删掉重解压 → 重钉 npmCommand；进度走 `app:progress`，回 `repair_problems` |
+| `/engines/repair` | POST | 重新探测全部外部依赖（等价于一次全面刷新） |
 | `/health/engines` | GET | 健康面板：安装态、运行态、会话/技能/插件/MCP 计数 |
-| `/apps` | GET | 应用行：pi 本体 + 三个内置运行时（安装态 / 版本 / 可执行路径） |
-| `/apps/install` `update` `uninstall` | POST | `{ engine: 'pi' }`；内置 npm 全程经 SSE `app:progress` 报进度 |
+| `/apps` | GET | 检测行：pi（必需）+ node / git / python（能力加成），带发现方式与不可用原因 |
+| `/apps/locate` | POST | `{ pi_path }` 手动指定 pi 的位置；空串回到自动探测。回 `{ runtime, apps }` |
 
 ## 会话
 
@@ -90,19 +90,21 @@
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/skills` | GET | 内置（builtin / bundled）+ 自建（managed）+ 项目（project）；带 `builtin_total` / `builtin_installed` 进度 |
+| `/skills` | GET | 磁盘上的技能（builtin / bundled / managed / project）+ `available`（推荐清单里还没装的）；带 `recommended_total` / `recommended_installed` |
+| `/skills/install` | POST | `{ skill_dir_name }`；把一条推荐技能装进用户的技能区（已存在则拒） |
 | `/skills/content` / `save` | GET/POST | 读写 SKILL.md（路径白名单校验） |
 | `/skills/toggle` | POST | `{ path, enabled }`；实现是目录搬进/搬出禁用区 |
-| `/skills/reset` | POST | `{ path }`；内置技能用随包原件覆盖本地改动 |
+| `/skills/reset` | POST | `{ path }`；推荐技能用随包原件覆盖本地改动 |
 | `/skills/create` / `delete` | POST | 新建托管技能 / 删除 |
 | `/skills/import` | POST | `{ skill_from_path }` 沙箱外目录整份复制进托管区（含 SKILL.md 校验） |
-| `/plugins` | GET | 内置清单 ∪ `settings.json` 的 `packages` 声明；带安装进度、`plugin_upgradable` 与失败原因 |
-| `/plugins/install` | POST | `{ source }` 缺 `npm:` 前缀自动补；经内置 npm 装进沙箱 |
-| `/plugins/retry` / `retry-all` | POST | 单个 / 全部重试内置插件安装 |
-| `/plugins/uninstall` | POST | `{ plugin_name }`；撤声明 + 删包目录（先停引擎） |
-| `/plugins/toggle` | POST | `{ plugin_name, enabled }`；只改 `packages` 条目（`autoload:false` = 停用） |
-| `/plugins/upgrade` | POST | `{ plugin_name }`；内置按清单 pin 重装，用户插件按声明串重装（先停引擎） |
-| `/plugins/upgrade-all` | POST | 只升版本与清单不符的内置插件；回 `{ installed, failed }` |
+| `/plugins` | GET | 推荐清单 ∪ `settings.json` 的 `packages` 声明；带升级标记与失败原因 |
+| `/plugins/install` | POST | `{ source }` 缺 `npm:` 前缀自动补；交给 pi 的包命令装 |
+| `/plugins/recommend` | POST | 把推荐清单里还没装的一次装齐；回 `{ installed, failed }` |
+| `/plugins/retry` | POST | `{ plugin_name }` 重试单个推荐插件的安装 |
+| `/plugins/uninstall` | POST | `{ plugin_name }`；走 `pi remove`（先停引擎） |
+| `/plugins/toggle` | POST | `{ plugin_name, plugin_enabled }`；只改 `packages` 条目的 `autoload` |
+| `/plugins/upgrade` | POST | `{ plugin_name }`；推荐插件按清单 pin，用户插件按声明串（先停引擎） |
+| `/plugins/upgrade-all` | POST | 只升可升级的插件，再补一次 `pi update --extensions` |
 | `/plugins/check-updates` | POST | 逐包问 npm registry 的 latest，回一份带 `plugin_latest` 的新清单；离线时字段留空 |
 | `/mcp` | GET | 用户级 + 项目级合并清单；行里带 `mcp_env_text` / `mcp_work_dir` / `mcp_timeout`（秒） |
 | `/mcp/save` / `toggle` / `remove` | POST | 落 pi 的 mcp.json；`command_text` 拆 argv；`mcp_scope: project` 写工作区 `.pi\mcp.json`（需已选工作区），默认用户级；编辑整份继承旧条目（含 `mcp_timeout`，手配的 headers / oauth 不丢）；`remove` 只删界面显示的那一条，项目级遮蔽用户级时不连带删除 |

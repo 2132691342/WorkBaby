@@ -178,9 +178,7 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/engines/repair", s.enginesRepair)
 	g.GET("/health/engines", s.healthGet)
 	g.GET("/apps", s.appsGet)
-	g.POST("/apps/install", s.appsInstall)
-	g.POST("/apps/update", s.appsUpdate)
-	g.POST("/apps/uninstall", s.appsUninstall)
+	g.POST("/apps/locate", s.appsLocate)
 
 	// 会话
 	g.GET("/sessions", s.sessionsList)
@@ -219,6 +217,7 @@ func (s *Server) mount(engine *gin.Engine) {
 
 	// 技能 / 插件 / MCP
 	g.GET("/skills", s.skillsList)
+	g.POST("/skills/install", s.skillInstall)
 	g.GET("/skills/content", s.skillContent)
 	g.POST("/skills/save", s.skillSave)
 	g.POST("/skills/toggle", s.skillToggle)
@@ -234,7 +233,7 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/plugins/upgrade-all", s.pluginUpgradeAll)
 	g.POST("/plugins/check-updates", s.pluginCheckUpdates)
 	g.POST("/plugins/retry", s.pluginRetry)
-	g.POST("/plugins/retry-all", s.pluginRetryAll)
+	g.POST("/plugins/recommend", s.pluginRecommend)
 	g.GET("/mcp", s.mcpList)
 	g.POST("/mcp/save", s.mcpSave)
 	g.POST("/mcp/toggle", s.mcpToggle)

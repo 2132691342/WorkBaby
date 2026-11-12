@@ -104,3 +104,52 @@ func Truncate(text string, max int) string {
 	}
 	return string(runes[:max])
 }
+
+// pathextOrder 是 Windows 上可执行文件的探测后缀顺序。
+// .CMD 排在 .EXE 前面：npm 全局装的 CLI 垫片都是 .cmd，命中的必须是可以直接跑的入口。
+var pathextOrder = []string{".cmd", ".exe", ".bat", ".ps1"}
+
+// LookPath 在 PATH 里找一个可执行入口；找不到给空串。
+// 自己扫 PATH 而不跑 where / which：后者每次都会闪一个控制台窗口。
+func LookPath(name string) string {
+	if strings.TrimSpace(name) == "" {
+		return ""
+	}
+	// 带目录分隔符就直接当路径查，不再拼 PATH。
+	if strings.ContainsAny(name, `\/`) {
+		for _, candidate := range candidatesOf(name) {
+			if Exists(candidate) {
+				return candidate
+			}
+		}
+		return ""
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		for _, candidate := range candidatesOf(filepath.Join(dir, name)) {
+			if Exists(candidate) {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
+// candidatesOf 列出一个入口的所有可能落盘形态：原名，以及逐个补后缀的版本。
+func candidatesOf(path string) []string {
+	out := []string{path}
+	// 已经带已知后缀的只查原名：给 pi.cmd 再补成 pi.cmd.cmd 是白查。
+	if ext := strings.ToLower(filepath.Ext(path)); ext != "" {
+		for _, want := range pathextOrder {
+			if ext == want {
+				return out
+			}
+		}
+	}
+	for _, ext := range pathextOrder {
+		out = append(out, path+ext)
+	}
+	return out
+}

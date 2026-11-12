@@ -72,9 +72,9 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 | `tests/sandbox_test.go` | `TestSandbox` | 沙箱三层契约：内置清单结构不变量与磁盘资产互相咬合（插件包名唯一且来源串反解回原包名——装 / 卸 / 开关全按包名索引；10 个技能与 assets 双向无死条目、frontmatter 块标量不破）、子进程环境把 HOME / USERPROFILE / npm 与 pip 缓存钉进沙箱、技能落位/开关/重置/删除/自愈整条生命周期 |
 | `tests/plugin_test.go` | `TestPlugins` | 插件治理：启停两态写法、用户配的资源过滤保留、重试不动开关、卸载撤声明删包目录、版本漂移只碰装歪的包 |
 | `tests/governance_test.go` | `TestMcpConfig` / `TestLegacyCleanup` | mcp.json 的并发读写锁与作用域遮蔽；历史 SQLite 文件的清理边界（只删确实是 SQLite 且 JSON 存储已立起的遗留文件） |
-| `tests/git_test.go` | `TestConflictResolve` | 用真 git 造一次真冲突，断言三个口径各自落成什么：`ours` 留当前分支、`theirs` 留合进来那方、两者都不许残留冲突标记且必须已暂存；空路径与未知口径直接拒。内置 PortableGit 未就绪时跳过 |
+| `tests/git_test.go` | `TestConflictResolve` | 用真 git 造一次真冲突，断言三个口径各自落成什么：`ours` 留当前分支、`theirs` 留合进来那方、两者都不许残留冲突标记且必须已暂存；空路径与未知口径直接拒。本机没 git 时跳过 |
 | `tests/harness_test.go` | — | 公共装具：满装后端 harness（真 JSON 存储 + 真 gin 中间件栈）与轻量 catalog harness、HTTP 调用与断言辅助 |
-| `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：解压三个运行时 → 内置 npm 装 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑（需联网，约 2 分钟） |
+| `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：探测本机 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑 |
 
 约定：
 
@@ -99,11 +99,12 @@ go test ./tests -count=1                                # 4 场景测试全绿
 | 现象 | 先看哪里 |
 |---|---|
 | 窗口起来但一片空 | 设置页 → 诊断 → 日志；`Endpoint()` 的错误会在前端渲染成诊断页 |
-| 内置 node 未就绪 | 运行时压缩包是否在 `assets\runtime\`；首启解压日志 |
-| pi 装不上 | 网络能否到 npm；`settings.json` 的 `npmCommand` 是否指向内置 node |
-| 插件装了没生效 | `pi\settings.json` 的 `packages[]` 是否真有该条目且未 `autoload:false` |
+| 没检测到 pi | 终端里 `pi --version` 能不能跑；PATH 是否包含它；否则在应用页「指定位置」 |
+| pi 入口是脚本但起不来 | 必须有 node：`node --version` 能跑吗 |
+| 插件装了没生效 | `~/.pi/agent/settings.json` 的 `packages[]` 是否真有该条目且未 `autoload:false` |
 | 插件换了版本还是旧行为 | 包只在引擎启动时加载：停用再启用，或重启引擎 |
-| 技能不出现 | 是否在 `pi\skills\`（不是 `skills_disabled\`）；SKILL.md 头是否合法 |
+| 技能不出现 | 是否在 `~/.pi/agent/skills\`（不是 `skills_disabled\`）；SKILL.md 头是否合法 |
+| git 面板说不可用 | `git --version` 能跑吗；壳用系统装的 git，不随包 |
 | 打安装包报 makensis 找不到 | 装 NSIS 并把安装目录加进 PATH |
 
 ## 打包与发布
@@ -116,17 +117,15 @@ go test ./tests -count=1                                # 4 场景测试全绿
 WorkBaby\
 ├── WorkBaby.exe          # Go 编译的壳（前端已 embed 进 exe）
 ├── assets\
-│   ├── runtime\          # node / PortableGit / Python 三个 zip
-│   └── skills\           # 内置技能包（10 个目录）
+│   └── skills\           # 推荐技能包（目录）
 └── 卸载程序等 NSIS 产物
 ```
 
 前端产物经 `//go:embed all:frontend/dist` 编进 exe，**不额外分发静态文件**。
-运行时 zip 走 `assets\runtime\`，首启解压到数据目录——不预解压进安装包，
-否则安装体积翻倍，且用户要重装才能升级运行时。
+运行时不随包发：node / git / python 全部用系统已装的。
 
-体积基线：`assets\runtime` 约 110MB、`assets\skills` 约 0.8MB、exe 约 32MB。
-安装包体积随 NSIS 压缩率浮动，**只有十几 MB 一定是 assets 没打进去**。
+体积基线：`assets\skills` 约 0.8MB、exe 约 32MB。安装包体积应该在十几 MB 量级；
+出现 100MB+ 说明有人把运行时 zip 又拷回了 `assets\`。
 
 ### 版本号
 

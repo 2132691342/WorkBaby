@@ -35,6 +35,8 @@ export interface EngineIdentity {
   engine_kind: EngineKind
   engine_label: string
   engine_exe: string
+  engine_script?: string
+  engine_source: string
   engine_version: string
   installed: boolean
   caps: EngineCaps
@@ -42,7 +44,6 @@ export interface EngineIdentity {
 
 export interface EngineLayout {
   engine_kind: EngineKind
-  root_dir: string
   agent_dir: string
   sessions_dir: string
   skills_dir: string
@@ -51,7 +52,7 @@ export interface EngineLayout {
   dir_exists: boolean
 }
 
-/** 内置运行时与 pi 本体的就绪状态。 */
+/** 外部依赖的检测状态：全部来自用户自己的环境，壳不代装。 */
 export interface RuntimeStatus {
   node_ready: boolean
   node_version: string
@@ -61,21 +62,21 @@ export interface RuntimeStatus {
   python_version: string
   pi_ready: boolean
   pi_version: string
-  provisioning: boolean
+  pi_source: string
+  detection_hint?: string
+  detecting: boolean
 }
 
-/** 应用页的一行：一个运行时 / 引擎的安装事实与可做的动作。 */
+/** 应用页的一行：一个外部依赖的检测事实与可做的动作。 */
 export interface AppRow {
   app_key: string
   app_name: string
   app_version: string
   app_path: string
   installed: boolean
-  builtin: boolean
-  can_install: boolean
-  can_update: boolean
-  can_uninstall: boolean
-  busy: boolean
+  required: boolean
+  app_source: string
+  can_locate: boolean
   blocker?: string
   install_note?: string
 }

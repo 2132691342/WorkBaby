@@ -140,13 +140,13 @@ export const api = {
   engineStatus: () => get<EngineStatus>('/engines'),
   detectEngines: () => post<RuntimeStatus>('/engines/detect'),
   restartEngine: () => post<{ ok: boolean }>('/engines/restart'),
-  // 修复运行时：强制重解压三个内置运行时并重钉 npmCommand
-  repairRuntime: () => post<{ repair_problems: string[] }>('/engines/repair'),
+  // 重新探测全部外部依赖（等价于一次全面刷新）
+  repairRuntime: () => post<RuntimeStatus>('/engines/repair'),
   health: () => get<HealthData>('/health/engines'),
   apps: () => get<{ apps: AppRow[] }>('/apps'),
-  installApp: () => post<{ apps: AppRow[] }>('/apps/install'),
-  updateApp: () => post<{ apps: AppRow[] }>('/apps/update'),
-  uninstallApp: () => post<{ apps: AppRow[] }>('/apps/uninstall'),
+  // 手动指定 pi 的位置；空串回到自动探测
+  locatePi: (piPath: string) =>
+    post<{ runtime: RuntimeStatus; apps: AppRow[] }>('/apps/locate', { pi_path: piPath }),
 
   // ---- 会话 ----
   // q 非空时后端按标题与正文过滤（大小写不敏感）
@@ -227,7 +227,9 @@ export const api = {
     post<{ ok: boolean }>('/skills/toggle', { skill_path: skillPath, skill_enabled: skillEnabled }),
   createSkill: (skillName: string, skillDesc: string, skillBody: string) =>
     post<{ skill_path: string }>('/skills/create', { skill_name: skillName, skill_desc: skillDesc, skill_body: skillBody }),
-  // 沙箱外目录导入：复制进托管区，源目录之后删改不影响壳内副本
+  // 把一条推荐技能装进用户的技能区；已存在会被拒
+  installSkill: (skillDirName: string) =>
+    post<{ ok: boolean }>('/skills/install', { skill_dir_name: skillDirName }),
   importSkill: (skillFromPath: string) =>
     post<{ skill_dir_name: string; skill_path: string }>('/skills/import', { skill_from_path: skillFromPath }),
   deleteSkill: (skillPath: string) => post<{ ok: boolean }>('/skills/delete', { skill_path: skillPath }),
@@ -246,7 +248,7 @@ export const api = {
     post<{ plugin_name: string }>('/plugins/upgrade', { plugin_name: pluginName }),
   retryPlugin: (pluginName: string) =>
     post<{ plugin_name: string }>('/plugins/retry', { plugin_name: pluginName }),
-  retryAllPlugins: () => post<{ installed: number; failed: number }>('/plugins/retry-all'),
+  recommendPlugins: () => post<{ installed: number; failed: number }>('/plugins/recommend'),
   upgradeAllPlugins: () => post<{ installed: number; failed: number }>('/plugins/upgrade-all'),
   // 问 npm registry 最新版并回一份带 plugin_latest 的清单；离线时对应字段留空
   checkPluginUpdates: () => post<PluginListData>('/plugins/check-updates'),

@@ -20,7 +20,7 @@ type App struct {
 	Store *repo.Store
 	// Hub 事件广播
 	Hub *sse.Hub
-	// Runtime 内置运行时
+	// Runtime 引擎入口
 	Runtime *engine.Runtime
 
 	// Settings 设置
@@ -44,17 +44,15 @@ type App struct {
 
 	// mu 保护装配状态
 	mu sync.Mutex
-	// provisioning 是否有后台装配正在跑
+	// provisioning 是否有后台探测正在跑
 	provisioning bool
 	// installBusy 哪个安装任务占着位
 	installBusy string
-	// runtimeProblems 运行时装配时遇到的问题
-	runtimeProblems []string
 }
 
 // Options 是装配入参。
 type Options struct {
-	// Layout 沙箱布局
+	// Layout 目录布局
 	Layout pkg.Layout
 	// Store 设置库
 	Store *repo.Store
@@ -66,7 +64,13 @@ type Options struct {
 
 // New 装配全部业务。
 func New(opts Options) *App {
-	rt := engine.New(opts.Layout)
+	rt := engine.New(opts.Layout, func() string {
+		// 手动路径存在壳自己的存储里：engine 不认识存储层，由装配根注入读取方式。
+		if value, ok := opts.Store.Get(KeyPiPath); ok {
+			return value
+		}
+		return ""
+	})
 	settings := &Settings{Store: opts.Store, Layout: opts.Layout, Hub: opts.Hub}
 	git := NewGit(settings, rt)
 	// 工作区行上的分支与改动数来自 git，装配时回填一次就够。

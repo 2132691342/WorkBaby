@@ -3,44 +3,32 @@ package pkg
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// Layout 是沙箱的目录布局：装配时解析一次，之后全项目只读。
+// Layout 是本应用的目录布局：装配时解析一次，之后全项目只读。
+// 只分两块地盘——壳自己的数据目录，和用户已有的 pi 家目录。壳不复制 pi 的家，
+// 那个目录是用户与命令行共享的唯一真相。
 type Layout struct {
-	// DataDir 数据根：%LOCALAPPDATA%\WorkBaby（开发态带 -dev 后缀）
+	// DataDir 壳的数据根：%LOCALAPPDATA%\WorkBaby（开发态带 -dev 后缀）
 	DataDir string
-	// RuntimeDir 内置运行时解压根：data\runtime
-	RuntimeDir string
-	// NodeDir 内置 Node.js：runtime\node
-	NodeDir string
-	// GitDir 内置 PortableGit：runtime\PortableGit
-	GitDir string
-	// PythonDir 内置 Python：runtime\python
-	PythonDir string
-	// PiAppDir pi 本体（内置 npm --prefix 安装产物）：data\pi-app
-	PiAppDir string
-	// PiAgentDir pi 的家（PI_CODING_AGENT_DIR）：data\pi
+	// PiAgentDir 用户 pi 的家：%USERPROFILE%\.pi\agent，与管理页看到的完全同一份
 	PiAgentDir string
-	// CacheDir npm 缓存与全局前缀的根：data\cache
-	CacheDir string
-	// NpmCacheDir npm 缓存：cache\npm
-	NpmCacheDir string
-	// NpmGlobalDir npm 全局前缀：cache\npm-global
-	NpmGlobalDir string
-	// PipCacheDir pip 缓存：cache\pip
-	PipCacheDir string
-	// LogDir 按天滚动的日志目录：data\logs
+	// LogDir 壳的日志目录：data\logs
 	LogDir string
-	// StorePath 设置存储文件：data\workbaby.json
+	// CacheDir 壳自己的缓存根：data\cache
+	CacheDir string
+	// StorePath 壳的存储文件：data\workbaby.json
 	StorePath string
-	// AssetsDir 随包分发的资产（运行时 zip / 内置技能 / 帮助文档）
+	// AssetsDir 随包分发的资产（内置技能包）
 	AssetsDir string
 	// Dev 开发态标记：数据目录加后缀，避免与安装态互相污染
 	Dev bool
 }
 
 // ResolveLayout 解析布局。exeDir 是 exe 所在目录（开发态为仓库根）。
-func ResolveLayout(exeDir string, dev bool) Layout {
+// 资产的定位不在这里做：安装态的资产在 exe 同级，开发态在仓库根，由调用方判定。
+func ResolveLayout(exeDir string, assetsDir string, dev bool) Layout {
 	local := os.Getenv("LOCALAPPDATA")
 	if local == "" {
 		local = exeDir
@@ -50,33 +38,32 @@ func ResolveLayout(exeDir string, dev bool) Layout {
 		name = "WorkBaby-dev"
 	}
 	data := filepath.Join(local, name)
-	// 开发态的资产在仓库根；打包态的资产在 exe 同级 assets。
-	assets := filepath.Join(exeDir, "assets")
-	if dev {
-		if probe := filepath.Join(exeDir, "assets"); IsDir(filepath.Join(probe, "runtime")) {
-			assets = probe
-		}
-	}
 	return Layout{
-		DataDir:      data,
-		RuntimeDir:   filepath.Join(data, "runtime"),
-		NodeDir:      filepath.Join(data, "runtime", "node"),
-		GitDir:       filepath.Join(data, "runtime", "PortableGit"),
-		PythonDir:    filepath.Join(data, "runtime", "python"),
-		PiAppDir:     filepath.Join(data, "pi-app"),
-		PiAgentDir:   filepath.Join(data, "pi"),
-		CacheDir:     filepath.Join(data, "cache"),
-		NpmCacheDir:  filepath.Join(data, "cache", "npm"),
-		NpmGlobalDir: filepath.Join(data, "cache", "npm-global"),
-		PipCacheDir:  filepath.Join(data, "cache", "pip"),
-		LogDir:       filepath.Join(data, "logs"),
-		StorePath:    filepath.Join(data, "workbaby.json"),
-		AssetsDir:    assets,
-		Dev:          dev,
+		DataDir:    data,
+		PiAgentDir: ResolvePiAgentDir(),
+		LogDir:     filepath.Join(data, "logs"),
+		CacheDir:   filepath.Join(data, "cache"),
+		StorePath:  filepath.Join(data, "workbaby.json"),
+		AssetsDir:  assetsDir,
+		Dev:        dev,
 	}
 }
 
-// SessionsDir 会话 JSONL 根：pi 的家下面。
+// ResolvePiAgentDir 用户 pi 的家目录。
+// 先认 PI_CODING_AGENT_DIR——用户可能自己重定向过；否则取 ~/.pi/agent，
+// 与 pi 的 getAgentDir() 同一口径。
+func ResolvePiAgentDir() string {
+	if dir := strings.TrimSpace(os.Getenv("PI_CODING_AGENT_DIR")); dir != "" {
+		return filepath.Clean(dir)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(".pi", "agent")
+	}
+	return filepath.Join(home, ".pi", "agent")
+}
+
+// SessionsDir 会话 JSONL 根。
 func (l Layout) SessionsDir() string { return filepath.Join(l.PiAgentDir, "sessions") }
 
 // SkillsDir 启用态技能区。
@@ -100,38 +87,5 @@ func (l Layout) AuthFile() string { return filepath.Join(l.PiAgentDir, "auth.jso
 // McpFile 用户级 mcp.json。
 func (l Layout) McpFile() string { return filepath.Join(l.PiAgentDir, "mcp.json") }
 
-// PiPkgDir pi 包的安装目录。
-func (l Layout) PiPkgDir() string {
-	return filepath.Join(l.PiAppDir, "node_modules", "@earendil-works", "pi-coding-agent")
-}
-
-// PiEntry pi 的 CLI 入口。
-func (l Layout) PiEntry() string {
-	return filepath.Join(l.PiPkgDir(), "dist", "bundle", "cli.js")
-}
-
-// NodeExe 内置 node.exe（不判断存在性，调用方用 Sandbox 的探测版）。
-func (l Layout) NodeExe() string { return filepath.Join(l.NodeDir, "node.exe") }
-
-// NpmCli 内置 npm-cli.js。
-func (l Layout) NpmCli() string {
-	return filepath.Join(l.NodeDir, "node_modules", "npm", "bin", "npm-cli.js")
-}
-
-// GitExe 内置 git.exe。
-func (l Layout) GitExe() string { return filepath.Join(l.GitDir, "cmd", "git.exe") }
-
-// PythonExe 内置 python.exe。
-func (l Layout) PythonExe() string { return filepath.Join(l.PythonDir, "python.exe") }
-
-// NodeReady 内置 node 是否就绪（不抛的探测版，给状态行用）。
-func (l Layout) NodeReady() bool { return Exists(l.NodeExe()) }
-
-// GitReady 内置 git 是否就绪。
-func (l Layout) GitReady() bool { return Exists(l.GitExe()) }
-
-// PythonReady 内置 python 是否就绪。
-func (l Layout) PythonReady() bool { return Exists(l.PythonExe()) }
-
-// PiInstalled pi 本体是否已装。
-func (l Layout) PiInstalled() bool { return Exists(l.PiEntry()) }
+// PiPresent pi 的家是否已存在（用户装过 pi 的最直接证据）。
+func (l Layout) PiPresent() bool { return IsDir(l.PiAgentDir) }

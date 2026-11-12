@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -145,23 +146,30 @@ func windowPhysicalSize() (int, int) {
 	return windowLogicalWidth * scale, windowLogicalHeight * scale
 }
 
-// resolveLayout 解析沙箱布局；exe 同级有 assets\ 就是安装态，否则找仓库根的 assets。
+// resolveLayout 解析目录布局：exe 同级有 assets\ 就是安装态，否则找仓库根。
+// assets 只影响内置技能包，缺了不影响启动——所以定位失败不报错，只留空。
 func resolveLayout(exePath string) (pkg.Layout, error) {
 	exeDir := ""
 	if dir, err := filepathDir(exePath); err == nil {
 		exeDir = dir
 	}
-	layout := pkg.ResolveLayout(exeDir, false)
-	// 开发态（go run / wails3 dev）exe 在临时目录里，资产在仓库根：
-	// 从当前工作目录往上找 assets\runtime，找到就用它。
-	if !pkg.IsDir(layout.AssetsDir + `\runtime`) {
-		if repoRoot := findRepoRoot(); repoRoot != "" {
-			dev := pkg.ResolveLayout(repoRoot, true)
-			if pkg.IsDir(dev.AssetsDir + `\runtime`) {
-				return dev, nil
-			}
+	// 安装态：资产在 exe 同级的 assets。
+	if pkg.IsDir(filepath.Join(exeDir, "assets", "skills")) {
+		layout := pkg.ResolveLayout(exeDir, filepath.Join(exeDir, "assets"), false)
+		if err := pkg.EnsureDir(layout.DataDir); err != nil {
+			return layout, pkg.WrapErr(pkg.CodeFileNotFound, "数据目录不可写", err)
 		}
+		return layout, nil
 	}
+	// 开发态（go run / wails3 dev）exe 在临时目录里，资产在仓库根。
+	if repoRoot := findRepoRoot(); repoRoot != "" {
+		dev := pkg.ResolveLayout(repoRoot, filepath.Join(repoRoot, "assets"), true)
+		if err := pkg.EnsureDir(dev.DataDir); err != nil {
+			return dev, pkg.WrapErr(pkg.CodeFileNotFound, "数据目录不可写", err)
+		}
+		return dev, nil
+	}
+	layout := pkg.ResolveLayout(exeDir, filepath.Join(exeDir, "assets"), false)
 	if err := pkg.EnsureDir(layout.DataDir); err != nil {
 		return layout, pkg.WrapErr(pkg.CodeFileNotFound, "数据目录不可写", err)
 	}

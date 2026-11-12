@@ -64,7 +64,7 @@ Wails 绑定只暴露系统能力——拿端点、选目录、窗控、托盘�
 
 | 阶段 | 行为 |
 |---|---|
-| 首启 | 内置 npm 装 `@earendil-works/pi-coding-agent@latest` 到 `pi-app` |
+| 探测 | 手动路径 → PATH 上的 `pi` → npm 全局根下的包；三处都没有就只留安装指引 |
 | 绑定 | 一个工作区 ⇔ 一个 pi RPC 子进程；切工作区即重建 |
 | 通信 | stdin/stdout 行分隔 JSONL，命令带 request_id，事件带 event 名 |
 | 崩溃 | 意外退出按指数退避自动拉起（2s 起步，上限 5 次）；成功绑定即归零 |
@@ -88,23 +88,33 @@ Wails 绑定只暴露系统能力——拿端点、选目录、窗控、托盘�
 立即能看到历史并开始打字；引擎就绪广播 `engine:ready`，前端把对话页刷成实况
 （直播轮进行中则丢弃这次刷新，快照不能盖掉正在直播的界面）。
 
-## 沙箱隔离
+## 与用户环境的关系
 
-沙箱成立依赖四个环境变量，全部由 `pkg.Layout.SandboxEnv` 注入每个子进程：
+壳不建沙箱：引擎与工具链都是用户自己的，壳只负责找到它们、把配置摆到界面上。
+
+入口探测顺序（`engine.Runtime.Resolve`）：
+
+| 顺序 | 来源 | 说明 |
+|---|---|---|
+| 1 | 手动路径 | 设置里的 `engine.pi_path`；可以填可执行文件或包目录 |
+| 2 | PATH | 扫 PATH 找 `pi`（`.cmd` 优先于 `.exe`），不跑 `where` / `which` |
+| 3 | npm 全局根 | `<npm root>/@earendil-works/pi-coding-agent/dist/bundle/cli.js`，配 PATH 上的 node |
+
+三处都没有就得到空 Entry：界面渲染「未检测到 pi」与安装指引，不去替用户装。
+
+子进程环境只覆写必须项（`pkg.Layout.ChildEnv`）：
 
 | 变量 | 作用 |
 |---|---|
-| `PATH` | 内置 node / git / python 在前，系统 PATH 在后 |
-| `HOME` / `USERPROFILE` | 指向数据目录，工具写不到用户的真实家目录 |
-| `PI_CODING_AGENT_DIR` | 把 pi 的整个家重定向到沙箱 |
-| `npm_config_cache` / `npm_config_prefix` | npm 缓存与全局前缀锁进 `data\cache` |
-| `PIP_CACHE_DIR` | pip 缓存锁进 `data\cache\pip`——pip 的默认缓存跟着 HOME 与版本解析行为漂，不钉死就会漏 |
+| `PI_CODING_AGENT_DIR` | 指向用户的 `~/.pi/agent`（或用户自己设的值）——界面改的配置对引擎生效 |
+| `PI_SKIP_VERSION_CHECK` | 引擎自带的远端版本探测与本壳无关，关掉 |
+| `NO_COLOR` | 输出给界面，不要 ANSI 色码 |
 
-**内置运行时缺失时直接报错，不回退系统同名命令**。回退等于拿用户环境跑包，
-沙箱就不存在了。探测有无一律用 `NodeReady()` 这类不抛的版本。
+**不遮蔽 HOME、不改 PATH 顺序**：引擎跑的是用户自己的环境，它该看见真实的 shell、
+git 与 python。把 HOME 改到壳的数据目录会让用户装的工具全部失联。
 
-pi 的 `settings.json` 里另写了 `npmCommand`，指向内置 node + npm-cli.js：
-pi 自己装插件时会调它，不钉住就等于让插件装进用户环境。
+**壳不代装任何东西**。旧版本预留的 `npmCommand` 会在探测时被清掉：它指向的
+内置 npm 已不存在，留着只会让 pi 装包时指向一个空路径。
 
 ## 前端运行时
 

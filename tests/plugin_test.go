@@ -1,5 +1,5 @@
-// 插件治理：一切落盘都写在 pi 的原生表达（settings.json 的 packages[]）上，
-// 来源串规范、启停、重装、卸载、版本漂移全部围绕这份声明运转。
+// 插件治理：壳只读用户的 settings.json、只写启停这一个字段，
+// 装 / 卸 / 升一律交给 pi 自己的包命令——落盘只有一套。
 package tests
 
 import (
@@ -12,19 +12,23 @@ import (
 	"WorkBaby/backend/service"
 )
 
-// TestPlugins 断言插件治理的全部契约：启停两态的写法、用户配置保留、
-// 重试不动开关、卸载撤声明删包目录、版本漂移只碰装歪的包。
-// 一切落盘都写在 pi 的原生表达（settings.json 的 packages[]）上。
+// TestPlugins 断言插件治理里壳真正负责的那部分：
+// 启停两态的写法、资源过滤不被开关抹掉、清单只出实际存在的东西、
+// 推荐清单与来源串互相对得上。
 func TestPlugins(t *testing.T) {
 	app, layout, _ := catalogHarness(t, "")
-	app.Plugins.DeclareBuiltins()
 
 	const pluginName = "pi-web-access"
-	pinned := service.BuiltinPluginOf(pluginName)
-	if pinned == nil {
-		t.Fatalf("清单里应有 %s", pluginName)
+	recommended := service.RecommendedPluginOf(pluginName)
+	if recommended == nil {
+		t.Fatalf("推荐清单里应有 %s", pluginName)
 	}
-	writePkg(t, layout, pluginName, pinned.PluginVersion)
+	// 壳不再替用户声明任何插件：settings.json 由用户与 pi 决定。
+	if pkg.Exists(layout.SettingsFile()) {
+		t.Fatalf("壳不应在空闲时创建 settings.json：%s", layout.SettingsFile())
+	}
+	writePkg(t, layout, pluginName, recommended.PluginVersion)
+	writeSettings(t, layout, "npm:"+pluginName+"@"+recommended.PluginVersion)
 
 	// ---- 启停：停用对象形态、启用裸串 ----
 	if _, err := app.Plugins.Toggle(pluginName, false); err != nil {
@@ -43,112 +47,87 @@ func TestPlugins(t *testing.T) {
 	}
 
 	// ---- 配置保留：开关两个方向都不许碰 extensions ----
-	writeFilteredSettings := func(t *testing.T) {
-		t.Helper()
-		settings := map[string]any{
-			"packages": []any{
-				map[string]any{
-					"source":     "npm:" + pluginName + "@0.0.1",
-					"autoload":   false,
-					"extensions": []any{"only-this-extension"},
-				},
-			},
-		}
-		if err := pkg.WriteJSON(layout.SettingsFile(), settings); err != nil {
-			t.Fatalf("写测试配置失败：%v", err)
-		}
-	}
-	writeFilteredSettings(t)
+	writeFilteredSettings(t, layout, pluginName)
 	if _, err := app.Plugins.Toggle(pluginName, true); err != nil {
 		t.Fatalf("启用失败：%v", err)
 	}
 	assertFiltersKept(t, readPackages(t, layout), pluginName, false)
-	writeFilteredSettings(t)
+	writeFilteredSettings(t, layout, pluginName)
 	if _, err := app.Plugins.Toggle(pluginName, false); err != nil {
 		t.Fatalf("停用失败：%v", err)
 	}
 	assertFiltersKept(t, readPackages(t, layout), pluginName, true)
 
-	// ---- 重试：只装包，不开开关 ----
-	if _, err := app.Plugins.Retry(pluginName); err != nil {
-		t.Fatalf("重试安装失败：%v", err)
-	}
-	assertEntry(t, readPackages(t, layout), pluginName, false)
-
-	// ---- 卸载：目录与声明一起消失 ----
-	if _, err := app.Plugins.Uninstall(pluginName); err != nil {
-		t.Fatalf("卸载失败：%v", err)
-	}
-	if pkg.Exists(filepath.Join(layout.PluginRoot(), "node_modules", pluginName)) {
-		t.Fatal("卸载后包目录应已删除")
-	}
-	for _, entry := range readPackages(t, layout) {
-		if service.PackageNameOf(entrySource(entry)) == pluginName {
-			t.Fatalf("卸载后不应还有 %s 的声明：%v", pluginName, entry)
-		}
-	}
-
-	// ---- 版本漂移：Provision 只碰「版本装歪」的；对齐的直接跳过 ----
-	// 测试环境没有内置 node，npm 必然失败；断言的是「被尝试过」（进了失败表），不是「装成功」。
-	const drifted, aligned = "pi-tidy", "pi-lens"
-	driftedItem, alignedItem := service.BuiltinPluginOf(drifted), service.BuiltinPluginOf(aligned)
-	if driftedItem == nil || alignedItem == nil {
-		t.Fatalf("清单里应有 %s 与 %s", drifted, aligned)
-	}
-	writePkg(t, layout, drifted, "9.9.9")
-	writePkg(t, layout, aligned, alignedItem.PluginVersion)
-	app.Plugins.ProvisionBuiltins()
-	if reason := pluginErrorOf(app, drifted); reason == "" {
-		t.Fatalf("版本装歪（9.9.9 ≠ %s）的 %s 应被重装；没有失败记录说明被当成已装跳过了",
-			driftedItem.PluginVersion, drifted)
-	}
-	if reason := pluginErrorOf(app, aligned); reason != "" {
-		t.Fatalf("版本已对齐（%s）的 %s 不该被重装，却出现失败：%s", alignedItem.PluginVersion, aligned, reason)
-	}
-
-	// ---- 版本漂移：UpgradeAll 标对「可升级」，且只尝试漂移的那个 ----
-	var driftedRow, alignedRow bool
+	// ---- 清单：未声明的推荐项也要出现（状态是可安装，不是不可见） ----
+	writeSettings(t, layout)
+	rows := map[string]bool{}
 	for _, row := range app.Plugins.List().Plugins {
-		switch row.PluginName {
-		case drifted:
-			driftedRow = row.PluginUpgradable
-		case aligned:
-			alignedRow = row.PluginUpgradable
+		rows[row.PluginName] = row.PluginRecommended
+	}
+	for _, item := range service.RecommendedPlugins {
+		if _, ok := rows[item.PluginName]; !ok {
+			t.Errorf("推荐插件 %s 没出现在清单里——用户会以为壳不支持它", item.PluginName)
 		}
 	}
-	if !driftedRow || alignedRow {
-		t.Fatalf("升级标记错误：%s 应可升级=%v，%s 应不可升级=%v", drifted, driftedRow, aligned, alignedRow)
+
+	// ---- 清单：推荐清单外的用户自装包也要出现，且不算推荐 ----
+	const userPlugin = "my-own-plugin"
+	writePkg(t, layout, userPlugin, "1.2.3")
+	writeSettings(t, layout, "npm:"+userPlugin)
+	var sawUser bool
+	for _, row := range app.Plugins.List().Plugins {
+		if row.PluginName == userPlugin {
+			sawUser = true
+			if row.PluginRecommended {
+				t.Errorf("用户自装的 %s 不该被标成推荐插件", userPlugin)
+			}
+			if !row.PluginInstalled {
+				t.Errorf("包目录已存在，%s 应显示为已安装", userPlugin)
+			}
+		}
 	}
-	app.Plugins.UpgradeAll()
-	if pluginErrorOf(app, drifted) == "" {
-		t.Fatalf("版本不符的 %s 应被尝试升级", drifted)
+	if !sawUser {
+		t.Errorf("用户自装的 %s 没出现在清单里", userPlugin)
 	}
-	// ---- 清单收窄：下架插件当初写的那条声明要撤掉，用户自己升过级的不能动 ----
-	const retired, userKept = "pi-hermes-memory", "pi-footer"
-	if err := pkg.WriteJSON(layout.SettingsFile(), map[string]any{
-		"packages": []any{
-			"npm:" + retired + "@0.10.0",
-			"npm:" + userKept + "@99.0.0",
-		},
-	}); err != nil {
+
+	// ---- 来源串：包名反解与来源规范必须闭环（装 / 卸 / 开关全按包名索引） ----
+	for _, item := range service.RecommendedPlugins {
+		if got := service.PackageNameOf(service.NpmSourceOf(item)); got != item.PluginName {
+			t.Errorf("来源串反解不出原包名：%s → %q", item.PluginName, got)
+		}
+	}
+}
+
+// writeSettings 用一个给定的裸来源串列表重写 settings.json 的 packages。
+func writeSettings(t *testing.T, layout pkg.Layout, sources ...string) {
+	t.Helper()
+	entries := make([]any, 0, len(sources))
+	for _, source := range sources {
+		entries = append(entries, source)
+	}
+	settings := map[string]any{}
+	if len(entries) > 0 {
+		settings["packages"] = entries
+	}
+	if err := pkg.WriteJSON(layout.SettingsFile(), settings); err != nil {
 		t.Fatalf("写测试配置失败：%v", err)
 	}
-	app.Plugins.DeclareBuiltins()
-	var retiredLeft, userLeft bool
-	for _, entry := range readPackages(t, layout) {
-		source := entrySource(entry)
-		if service.PackageNameOf(source) == retired {
-			retiredLeft = true
-		}
-		if source == "npm:"+userKept+"@99.0.0" {
-			userLeft = true
-		}
+}
+
+// writeFilteredSettings 造一条带 extensions 过滤的停用声明。
+func writeFilteredSettings(t *testing.T, layout pkg.Layout, pluginName string) {
+	t.Helper()
+	settings := map[string]any{
+		"packages": []any{
+			map[string]any{
+				"source":     "npm:" + pluginName + "@0.0.1",
+				"autoload":   false,
+				"extensions": []any{"only-this-extension"},
+			},
+		},
 	}
-	if retiredLeft {
-		t.Errorf("下架插件 %s 的旧声明应被撤回", retired)
-	}
-	if !userLeft {
-		t.Errorf("用户自己升级过的 %s 声明被误删——撤回只能认原版本串", userKept)
+	if err := pkg.WriteJSON(layout.SettingsFile(), settings); err != nil {
+		t.Fatalf("写测试配置失败：%v", err)
 	}
 }
 
@@ -163,16 +142,6 @@ func writePkg(t *testing.T, layout pkg.Layout, name, version string) {
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(meta), 0o644); err != nil {
 		t.Fatalf("写 package.json 失败：%v", err)
 	}
-}
-
-// pluginErrorOf 从公开清单里取一个插件的失败原因；没有给空串。
-func pluginErrorOf(app *service.App, pluginName string) string {
-	for _, row := range app.Plugins.List().Plugins {
-		if row.PluginName == pluginName {
-			return row.PluginError
-		}
-	}
-	return ""
 }
 
 // readPackages 读 settings.json 的 packages 数组。

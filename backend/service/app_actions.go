@@ -1,8 +1,9 @@
 package service
 
 import (
-	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -26,36 +27,40 @@ func (a *App) Bootstrap() domain.BootBootstrapRESP {
 }
 
 // ContractVersion 是响应契约版本：字段形状一变就要 +1，界面据此识别过期。
-const ContractVersion = 1
+const ContractVersion = 2
 
 // EngineIdentity 当前引擎的身份事实。
 func (a *App) EngineIdentity() domain.EngineIdentity {
+	entry := a.Runtime.Resolve()
 	return domain.EngineIdentity{
 		EngineKind:    domain.EnginePi,
 		EngineLabel:   "pi",
-		EngineExe:     a.Layout.PiEntry(),
+		EngineExe:     entry.Command,
+		EngineScript:  entry.Script,
+		EngineSource:  entry.Source,
 		EngineVersion: a.Runtime.PiVersion(),
-		Installed:     a.Runtime.PiInstalled(),
+		Installed:     entry.Command != "",
 		Caps:          domain.PiCaps,
 	}
 }
 
-// RuntimeStatus 内置运行时状态，额外带上「是否正在装配」。
+// RuntimeStatus 外部依赖的检测状态。
 func (a *App) RuntimeStatus() domain.RuntimeStatusVO {
 	status := RuntimeStatus(a.Runtime)
-	status.Provisioning = a.Provisioning()
+	status.Detecting = a.Provisioning()
 	return status
 }
 
 // Health 概览页首屏要用的全部事实。
 func (a *App) Health() domain.HealthRESP {
 	instance := a.Chat.Instance()
+	identity := a.EngineIdentity()
 	health := domain.EngineHealthVO{
 		EngineKind:    domain.EnginePi,
 		EngineLabel:   "pi",
-		EngineExe:     a.Layout.PiEntry(),
-		EngineVersion: a.Runtime.PiVersion(),
-		Installed:     a.Runtime.PiInstalled(),
+		EngineExe:     identity.EngineExe,
+		EngineVersion: identity.EngineVersion,
+		Installed:     identity.Installed,
 		Running:       instance.Running,
 		Busy:          instance.Busy,
 		ProcessId:     instance.Pid,
@@ -88,152 +93,93 @@ func (a *App) Health() domain.HealthRESP {
 	}
 }
 
-// Apps 应用页的行：三个内置运行时 + pi 本体。
+// Apps 应用页的行：pi（硬依赖）与 node / git / python（能力加成）。
+// 全部是「用户环境里有什么」，壳不代装任何一个。
 func (a *App) Apps() []domain.AppRowVO {
-	layout := a.Layout
-	piBusy := a.Plugins.Busy() || a.provisioningNow()
+	entry := a.Runtime.Resolve()
+	settings := a.Settings.All()
+	manual := strings.TrimSpace(settings[KeyPiPath])
 	return []domain.AppRowVO{
 		{
+			AppKey:      "pi",
+			AppName:     "pi 引擎",
+			AppVersion:  a.Runtime.PiVersion(),
+			AppPath:     entry.Command,
+			Installed:   entry.Command != "",
+			Required:    true,
+			AppSource:   entry.Source,
+			CanLocate:   true,
+			Blocker:     piBlocker(entry.Command != "", entry.Source, manual),
+			InstallNote: "本应用不代装 pi：请先在你的终端里装好 pi，再回来点重新检测",
+		},
+		{
 			AppKey:      "node",
-			AppName:     "内置 Node.js",
+			AppName:     "Node.js",
 			AppVersion:  a.Runtime.NodeVersion(),
-			AppPath:     layout.NodeExe(),
-			Installed:   layout.NodeReady(),
-			Builtin:     true,
-			CanInstall:  false,
-			InstallNote: "随安装包分发，首启自动解压",
+			AppPath:     pkg.LookPath("node"),
+			Installed:   pkg.LookPath("node") != "",
+			AppSource:   "path",
+			InstallNote: "pi 的启动脚本需要 node；从 nodejs.org 装一个即可",
 		},
 		{
 			AppKey:      "git",
-			AppName:     "内置 PortableGit",
+			AppName:     "Git",
 			AppVersion:  a.Runtime.GitVersion(),
-			AppPath:     layout.GitExe(),
-			Installed:   layout.GitReady(),
-			Builtin:     true,
-			CanInstall:  false,
-			InstallNote: "随安装包分发，首启自动解压",
+			AppPath:     pkg.LookPath("git"),
+			Installed:   pkg.LookPath("git") != "",
+			AppSource:   "path",
+			InstallNote: "工作区的版本控制与 pi 的 bash 工具都依赖它",
 		},
 		{
 			AppKey:      "python",
-			AppName:     "内置 Python",
+			AppName:     "Python",
 			AppVersion:  a.Runtime.PythonVersion(),
-			AppPath:     layout.PythonExe(),
-			Installed:   layout.PythonReady(),
-			Builtin:     true,
-			CanInstall:  false,
-			InstallNote: "随安装包分发，首启自动解压",
-		},
-		{
-			AppKey:       "pi",
-			AppName:      "pi 引擎",
-			AppVersion:   a.Runtime.PiVersion(),
-			AppPath:      layout.PiEntry(),
-			Installed:    a.Runtime.PiInstalled(),
-			Builtin:      true,
-			CanInstall:   !a.Runtime.PiInstalled() && layout.NodeReady(),
-			CanUpdate:    a.Runtime.PiInstalled(),
-			CanUninstall: a.Runtime.PiInstalled(),
-			Busy:         piBusy,
-			Blocker:      piBlocker(layout.NodeReady()),
-			InstallNote:  "用内置 npm 装进沙箱，不碰系统 node",
+			AppPath:     pkg.LookPath("python"),
+			Installed:   pkg.LookPath("python") != "",
+			AppSource:   "path",
+			InstallNote: "部分技能要用它跑脚本；用不上可以不装",
 		},
 	}
 }
 
-// piBlocker 给出 pi 不能操作的原因；空表示没阻碍。
-// 只拦「运行时没就绪」：未安装本身不是阻碍，安装按钮就是用来做这件事的。
-func piBlocker(nodeReady bool) string {
-	if !nodeReady {
-		return "内置 Node.js 还没就绪，稍等片刻"
+// piBlocker 给出 pi 不可用的原因；空表示没阻碍。
+// 手动路径填了却用不上要单独说出来——那种情况下用户以为是我们的 bug。
+func piBlocker(installed bool, source, manual string) string {
+	switch {
+	case installed:
+		return ""
+	case manual != "":
+		return "已指定的路径不可用：" + manual
+	default:
+		return "没有在 PATH 与 npm 全局目录里找到 pi"
 	}
-	return ""
 }
 
-// provisioningNow 当前是否有后台装配在跑。
+// provisioningNow 当前是否有后台探测在跑。
 func (a *App) provisioningNow() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.provisioning || a.installBusy != ""
 }
 
-// lockInstall 占住 pi 的安装位。
-func (a *App) lockInstall(action string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.installBusy != "" {
-		return pkg.Err(pkg.CodeProvision, "有安装任务正在进行，稍后再试")
+// SetPiPath 写手动指定的 pi 路径；空串表示回到自动探测。
+// 写盘后不自动拉起引擎：路径对不对要让用户点「重新检测」看到结果。
+func (a *App) SetPiPath(path string) (domain.RuntimeStatusVO, error) {
+	trimmed := strings.TrimSpace(path)
+	// 用户选的是文件时取其所在目录的判定交给 engine：这里只确保路径存在性被校验。
+	if trimmed != "" && !pkg.Exists(trimmed) {
+		return domain.RuntimeStatusVO{}, pkg.Err(pkg.CodeFileNotFound, "路径不存在", trimmed)
 	}
-	a.installBusy = action
-	return nil
-}
-
-// unlockInstall 释放安装位。
-func (a *App) unlockInstall() {
-	a.mu.Lock()
-	a.installBusy = ""
-	a.mu.Unlock()
-}
-
-// InstallPi 用内置 npm 装 pi 本体，进度经 SSE 上报。
-func (a *App) InstallPi(action string) error {
-	if err := a.lockInstall(action); err != nil {
-		return err
+	if _, err := a.Settings.Save(map[string]string{KeyPiPath: trimmed}); err != nil {
+		return domain.RuntimeStatusVO{}, err
 	}
-	defer a.unlockInstall()
-	a.ProvisionProgress("pi", action, "start", "正在安装 pi 引擎")
-	res, err := a.Runtime.PiInstall(func(line string) {
-		a.ProvisionProgress("pi", action, "line", line)
-	})
-	if err != nil {
-		message := pkg.As(err).Message
-		a.ProvisionProgress("pi", action, "fail", message)
-		return err
-	}
-	if res.Code != 0 {
-		message := "npm 退出码非零"
-		a.ProvisionProgress("pi", action, "fail", message)
-		return pkg.Err(pkg.CodeProvision, "pi 安装失败", pkg.Truncate(res.Stderr, 2000))
-	}
-	a.ProvisionProgress("pi", action, "done", "pi "+a.Runtime.PiVersion()+" 就绪")
-	// 装完立刻补 npmCommand 与内置插件声明：顺序反了会让首启的插件装到系统 npm 上。
-	EnsureNpmCommand(a.Layout, a.Runtime.NpmCommand())
-	a.Plugins.DeclareBuiltins()
 	a.Hub.Broadcast("engine:status", nil)
-	return nil
+	return a.RuntimeStatus(), nil
 }
 
-// UpdatePi 升级 pi：先停引擎、清包目录再装一遍，避免 npm 复用残留。
-func (a *App) UpdatePi() error {
-	if !a.Runtime.PiInstalled() {
-		return pkg.Err(pkg.CodeProvision, "pi 还没装，先点安装")
-	}
-	if a.Chat.Stream.Active() {
-		return pkg.Err(pkg.CodeProvision, "引擎正在执行任务，等这一轮结束再升级")
-	}
-	// 升级前先停引擎：Restart 内部等引擎真退出（Stop 有等待语义），锁文件就解了。
-	a.Chat.Restart()
-	// 清包目录：npm 见到同名包会复用残留文件，不清可能升不干净。
-	if err := os.RemoveAll(a.Layout.PiPkgDir()); err != nil {
-		return pkg.WrapErr(pkg.CodeProvision, "pi 包目录清理失败", err)
-	}
-	return a.InstallPi("update")
-}
-
-// UninstallPi 卸载 pi：先停引擎再删包目录。
-func (a *App) UninstallPi() error {
-	if err := a.lockInstall("uninstall"); err != nil {
-		return err
-	}
-	defer a.unlockInstall()
-	a.Chat.Restart()
-	a.ProvisionProgress("pi", "uninstall", "start", "正在卸载 pi 引擎")
-	if err := a.Runtime.PiUninstall(); err != nil {
-		a.ProvisionProgress("pi", "uninstall", "fail", pkg.As(err).Message)
-		return err
-	}
-	a.ProvisionProgress("pi", "uninstall", "done", "pi 已卸载")
-	a.Hub.Broadcast("engine:status", nil)
-	return nil
+// LocatePi 让用户手动指定 pi 的位置（壳调系统文件选择框后回填）。
+func (a *App) LocatePi(path string) (domain.RuntimeStatusVO, error) {
+	return a.SetPiPath(path)
 }
 
 // RestartEngine 重启引擎子进程。
@@ -244,4 +190,12 @@ func memoryUsedMb() int {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
 	return int(stats.Alloc / (1 << 20))
+}
+
+// piDirOf 从一个入口路径回推它的目录；给界面「在资源管理器里定位」用。
+func piDirOf(path string) string {
+	if path == "" {
+		return ""
+	}
+	return filepath.Dir(path)
 }

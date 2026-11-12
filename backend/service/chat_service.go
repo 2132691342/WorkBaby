@@ -80,15 +80,12 @@ func (c *Chat) EnsureRpc() (*chat.PiRpc, error) {
 		current.Stop()
 	}
 
-	nodeExe, err := c.Runtime.NodeExe()
-	if err != nil {
-		return nil, err
-	}
-	if !c.Runtime.PiInstalled() {
-		return nil, pkg.Err(pkg.CodeRpcDown, "pi 尚未安装，请先在应用页安装")
+	entry := c.Runtime.Resolve()
+	if entry.Command == "" {
+		return nil, pkg.Err(pkg.CodeEngineMissing, "没有检测到 pi，请先在应用页指定 pi 的位置")
 	}
 	var client *chat.PiRpc
-	client = chat.NewPiRpc(nodeExe, c.Runtime.PiEntry(), workspace, c.Runtime.Layout.SandboxEnv(nil), chat.Handlers{
+	client = chat.NewPiRpc(entry.Command, entry.Script, workspace, c.Runtime.Layout.ChildEnv(nil), chat.Handlers{
 		OnEvent:     c.onEngineEvent,
 		OnUiRequest: c.onUiRequest,
 		OnExit: func(code int) {
@@ -147,7 +144,7 @@ func (c *Chat) EnsureRpc() (*chat.PiRpc, error) {
 // 才陪着十几个插件的冷加载一起等；已就绪或已有预热在跑时是空操作。
 func (c *Chat) Warm() {
 	workspace := c.Settings.Workspace()
-	if workspace == "" || !c.Runtime.Layout.NodeReady() || !c.Runtime.PiInstalled() {
+	if workspace == "" || !c.Runtime.Installed() {
 		return
 	}
 	c.mu.Lock()

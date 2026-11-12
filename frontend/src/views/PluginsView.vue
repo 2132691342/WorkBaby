@@ -27,7 +27,7 @@ const loading = ref(false)
 const busyName = ref('')
 const source = ref('')
 const installing = ref(false)
-const retrying = ref(false)
+const recommending = ref(false)
 const upgradingAll = ref(false)
 const restarting = ref(false)
 const checking = ref(false)
@@ -43,8 +43,8 @@ async function load() {
     rows.value = data.plugins ?? []
     registry.value = data.registry_path ?? ''
     installRoot.value = data.install_root ?? ''
-    builtinTotal.value = data.builtin_total
-    builtinInstalled.value = data.builtin_installed
+    builtinTotal.value = data.recommended_total
+    builtinInstalled.value = data.recommended_installed
     busy.value = data.busy
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -91,16 +91,16 @@ async function install() {
   }
 }
 
-async function retryAll() {
-  retrying.value = true
+async function installRecommended() {
+  recommending.value = true
   try {
-    const res = await api.retryAllPlugins()
-    ElMessage.success(t('plugins.retryDone', { ok: res.installed, fail: res.failed }))
+    const res = await api.recommendPlugins()
+    ElMessage.success(t('plugins.recommendDone', { ok: res.installed, fail: res.failed }))
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    retrying.value = false
+    recommending.value = false
   }
 }
 
@@ -124,7 +124,7 @@ async function checkUpdates() {
   try {
     const data = await api.checkPluginUpdates()
     rows.value = data.plugins ?? []
-    builtinInstalled.value = data.builtin_installed
+    builtinInstalled.value = data.recommended_installed
     const upgradable = (data.plugins ?? []).filter((row) => row.plugin_upgradable).length
     ElMessage.success(t('plugins.checkUpdatesDone', { n: upgradable }))
   } catch (err) {
@@ -252,12 +252,12 @@ onMounted(load)
         <button
           v-if="builtinMissing > 0"
           class="wb-btn"
-          :class="{ 'is-loading': retrying }"
-          :disabled="retrying || busy"
-          @click="retryAll"
+          :class="{ 'is-loading': recommending }"
+          :disabled="recommending || busy"
+          @click="installRecommended"
         >
           <AppIcon name="download" :size="14" />
-          {{ t('plugins.retryAll', { n: builtinMissing }) }}
+          {{ t('plugins.recommend', { n: builtinMissing }) }}
         </button>
         <button class="wb-btn" :class="{ 'is-loading': checking }" :disabled="checking || busy" @click="checkUpdates">
           <AppIcon name="search" :size="14" />

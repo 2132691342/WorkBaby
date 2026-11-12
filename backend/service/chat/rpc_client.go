@@ -41,10 +41,12 @@ type PiRpc struct {
 	exited  bool
 	stopOne sync.Once
 
-	cwd     string
-	env     []string
-	entry   string
-	nodeExe string
+	cwd string
+	env []string
+	// command 可直接执行的入口（pi.cmd / pi.exe），或解释器
+	command string
+	// script 交给解释器执行的 CLI 脚本；空表示 command 本身可执行
+	script  string
 	handler Handlers
 
 	// StartedAt 子进程启动时刻（毫秒）
@@ -66,23 +68,35 @@ type pendingCall struct {
 const requestTimeout = 10 * time.Minute
 
 // NewPiRpc 造一个未启动的 RPC 客户端。
-func NewPiRpc(nodeExe, entry, cwd string, env []string, h Handlers) *PiRpc {
+// command 是可直接执行的入口，script 非空时 command 是它的解释器（node）。
+func NewPiRpc(command, script, cwd string, env []string, h Handlers) *PiRpc {
 	return &PiRpc{
 		pending: map[string]*pendingCall{},
 		cwd:     cwd,
 		env:     env,
-		entry:   entry,
-		nodeExe: nodeExe,
+		command: command,
+		script:  script,
 		handler: h,
 	}
 }
 
+// argv 是本进程的完整命令行：脚本形态把脚本路径排在参数最前。
+func (r *PiRpc) argv() []string {
+	if r.script == "" {
+		return []string{"--mode", "rpc"}
+	}
+	return []string{r.script, "--mode", "rpc"}
+}
+
 // Start 拉起子进程并开始泵 stdout。
 func (r *PiRpc) Start() error {
-	if !pkg.Exists(r.entry) {
-		return pkg.Err(pkg.CodeRpcDown, "pi 尚未安装，请先在应用页安装")
+	if r.command == "" {
+		return pkg.Err(pkg.CodeEngineMissing, "没有检测到 pi，请先在应用页指定 pi 的位置")
 	}
-	cmd := exec.Command(r.nodeExe, r.entry, "--mode", "rpc")
+	if r.script != "" && !pkg.Exists(r.script) {
+		return pkg.Err(pkg.CodeEngineMissing, "pi 的入口脚本不存在", r.script)
+	}
+	cmd := exec.Command(r.command, r.argv()...)
 	cmd.Dir = r.cwd
 	cmd.Env = r.env
 	// windowsHide + CREATE_NO_WINDOW：不闪控制台。

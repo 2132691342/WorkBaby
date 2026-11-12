@@ -7,10 +7,11 @@
 
 ## 1. 定位与技术栈
 
-WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳把内置 Node.js + pi 引擎 + 插件 +
-技能 + MCP + Git/Python 运行时装进 `%LOCALAPPDATA%\WorkBaby` 沙箱，由 GUI 统一管理与调用。
+WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳给用户自己装好的 pi 套一层 GUI，
+把引擎、插件、技能、MCP、模型、会话、工作区统一管理与调用。
 
-外部装没装 node / pi 与本壳无关；壳内管理的 pi 不支持绕过 GUI 直接使用。
+壳不下载、不安装、不复制引擎：跑的就是终端里的那个 `pi`，读写的就是 `~/.pi/agent`。
+没有 pi 时界面给可读的安装指引，不代跑安装命令。
 
 | 层 | 选型 | 版本 |
 |---|---|---|
@@ -19,27 +20,30 @@ WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳把内置 Node.js + pi 
 | 业务服务 | gin（业务 API + SSE 全走 HTTP，127.0.0.1 随机端口） | 1.12.x |
 | 持久化 | 标准库 JSON 文件（`workbaby.json`，原子整写 + 互斥锁） | — |
 | ID | ULID，带业务前缀（`oklog/ulid`） | 2.1.x |
-| Agent 引擎 | pi（`@earendil-works/pi-coding-agent`，RPC 模式子进程） | 随 npm 最新 |
-| 内置运行时 | node v24.21.0 / PortableGit / Python 3.13（zip 随包分发，首启解压） | — |
+| Agent 引擎 | 用户已装的 pi（`pi --mode rpc` 子进程） | 由用户决定 |
+| 外部环境 | node / git / python 一律探测系统已装，不随包分发 | — |
 | 前端 | Vue 3.4.34 + Vite 5.2.12 + Element Plus 2.9.0 + Pinia 2.1.7 + Vue Router 4.3.2 + Axios 1.6.8 | — |
 | 前端辅件 | UnoCSS 0.58.6 · ECharts 5.5.0 · CodeMirror 6 · Vue I18n 9.10.2 | — |
 | 测试 | Go 原生 `testing`（仓库根 `tests/`） | — |
 
 **平台**：只考虑 Windows；子进程一律隐藏窗口（走 `pkg/proc`，不裸用 os/exec）。
 
-### 1.1 沙箱原则
+### 1.1 与用户环境的关系（强制）
 
-- 引擎与工具链全部落在数据目录：`data\runtime\{node,PortableGit,python}`、
-  `data\pi\{settings.json,models.json,auth.json,mcp.json,sessions,skills,skills_disabled,npm}`、`data\pi-app`。
-  插件的落盘根是 `data\pi\npm\node_modules\`（pi 自己的 npm 约定），不是 `data\pi\plugins\`。
-- 子进程 PATH **内置运行时在前、系统在后**（`pkg/env.go::SandboxEnv`），HOME 指向数据目录；
-  npm 的 `cache` / `prefix` 同样锁进 `data\cache\`。
-- **内置 node / git / python 取不到时直接报错，绝不回退系统同名命令**——
-  回退等于拿用户环境跑包，沙箱就不存在了。探测有无用 `NodeReady()` 这类不抛的版本。
-- pi 的整个家目录由 `PI_CODING_AGENT_DIR` 重定向；`PI_SKIP_VERSION_CHECK=1`
-  与 `PI_TELEMETRY=0` 关掉引擎自带的远端探测与上报。
-- **不设 `PI_PACKAGE_DIR`**：它改写的是 pi 找自己 `dist/` 与主题的根，指错引擎就起不来。
-  插件安装根是 `pi/npm`，由 pi 自己的包管理决定。
+- 壳只写自己的数据目录：`data\{workbaby.json,logs,webview,cache}`。
+- pi 的家就是用户的 `~/.pi/agent`（或用户自己设的 `PI_CODING_AGENT_DIR`），
+  壳**只读写、不接管、不复制**。界面里改的配置，终端里立刻认。
+- **壳不代用户装 pi**：入口探测顺序是手动路径 → PATH → npm 全局根；
+  三处都没有就给安装指引，不跑 `npm install`、不下载安装包。
+- **运行时不随包分发**：node / git / python 一律探测系统已装，
+  缺了就在应用页标出来。`assets\` 只剩内置技能包。
+- 子进程环境只覆写必须项（`pkg/env.go::ChildEnv`）：`PI_CODING_AGENT_DIR`、
+  `PI_SKIP_VERSION_CHECK=1`、`NO_COLOR=1`。**不遮蔽 HOME、不改 PATH 顺序**——
+  引擎跑的是用户自己的环境，它该看见真实的 shell 与工具链。
+- 插件装 / 卸 / 升一律走 pi 自己的包命令（`pi install/remove/update`），
+  壳只直接写一个字段：`packages[]` 条目里的 `autoload`（启停）。
+- **推荐 ≠ 预置**：推荐插件清单与推荐技能清单只用于界面展示，
+  用户点了才装；壳绝不在启动或首启时往用户的配置 / 技能目录里写东西。
 - **不做 OAuth**：服务商一律 API Key，`auth.json` 里只有 `type: "api_key"`。
 - 管理面（插件 / 技能 / MCP / 模型）只经 GUI 暴露，不对外提供 CLI。
 
@@ -61,13 +65,13 @@ WorkBaby/
 │   ├── sse/                       # SSE hub：seq 发号、断线补帧、心跳
 │   ├── api/                       # gin：server + 分组路由（薄壳，只解析与转发）
 │   ├── service/                   # 业务编排：app/chat/file/git/session/skill/plugin/mcp/model/settings
-│   │   ├── engine/                # 内置运行时路径与版本探测、npm 执行
+│   │   ├── engine/                # pi 入口探测（手动/PATH/npm 全局）、版本、CLI 调用
 │   │   ├── parser/                # pi 会话 JSONL → 条目树/活动分支
 │   │   ├── chat/                  # rpc_client / frames / chat_service
 │   │   └── platform/              # 开机自启 / 系统打开等 Windows 专属动作
 │   └── shell/                     # 窗口 / 托盘 / 端点装配
 ├── frontend/src/{api,components,composables,locales,stores,types,utils,views,router}
-├── assets/{runtime,skills}        # 编译期随包分发：运行时 zip、内置技能包
+├── assets/skills                  # 编译期随包分发：推荐技能包
 ├── build/                         # wails3 打包配置与图标（Taskfile / config.yml / nsis）
 └── tests/                         # Go 场景测试，按被测对象一文件
 ```

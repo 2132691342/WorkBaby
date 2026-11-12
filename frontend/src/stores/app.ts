@@ -51,8 +51,8 @@ export const useAppStore = defineStore('app', () => {
   const router = useRouter()
 
   const theme = computed(() => settings.value['ui.theme'] || 'light')
-  /** 内置运行时是否全部就绪（pi 能起来的前提）。 */
-  const runtimeReady = computed(() => Boolean(runtime.value?.node_ready && runtime.value?.pi_ready))
+  /** 引擎是否可用：pi 就绪就能干活。 */
+  const runtimeReady = computed(() => Boolean(runtime.value?.pi_ready))
   /** 整体是否可用：pi 就绪就能干活。 */
   const hasEngine = computed(() => Boolean(runtime.value?.pi_ready))
   /** 当前能力表；没拿到就按「什么都不能」处理。 */
@@ -200,6 +200,11 @@ export const useAppStore = defineStore('app', () => {
     await setWorkspace(picked)
   }
 
+  /** 手动指定 pi 的位置：用户选一个可执行文件或它所在的目录；取消返回空串。 */
+  async function pickPiPath(): Promise<string> {
+    return pickFolder('')
+  }
+
   async function setWorkspace(dir: string) {
     const res = await api.setWorkspace(dir)
     workspace.value = res.workspace
@@ -321,6 +326,7 @@ export const useAppStore = defineStore('app', () => {
     loadApps,
     saveSettings,
     chooseWorkspace,
+    pickPiPath,
     setWorkspace,
     openSettings,
     openApps,

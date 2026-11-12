@@ -170,36 +170,20 @@ func IsGitSource(source string) bool {
 	return false
 }
 
-// EnsureNpmCommand 把 npmCommand 落到 settings.json：pi 自己装插件也会走
-// PATH 上的 npm，不钉到内置 node 就等于把插件装进用户环境。
-func EnsureNpmCommand(layout pkg.Layout, npmCommand []string) {
-	if !layout.NodeReady() {
-		// 内置 node 还没解压：写半成品路径会让引擎启动时找不到 npm。
-		return
-	}
+// EnsureNpmCommand 把 npmCommand 从 settings.json 里撤掉。
+// 旧版本为了让引擎用内置 npm 而钉过这一项；内置运行时已经取消，
+// 留着它会指一个不存在的路径，pi 装包时直接失败。
+func EnsureNpmCommand(layout pkg.Layout, _ []string) {
 	piSettingsMu.Lock()
 	defer piSettingsMu.Unlock()
 	settings := readPiSettings(layout)
-	if sameStrings(asStringSlice(settings["npmCommand"]), npmCommand) {
+	if _, ok := settings["npmCommand"]; !ok {
 		return
 	}
-	settings["npmCommand"] = toAnySlice(npmCommand)
+	delete(settings, "npmCommand")
 	if err := writePiSettings(layout, settings); err != nil {
-		pkg.Warn("npmCommand 写入失败：%v", err)
+		pkg.Warn("npmCommand 清理失败：%v", err)
 	}
-}
-
-// sameStrings 比较两个字符串切片。
-func sameStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // asStringSlice 把 JSON 数组转成字符串切片；非数组给 nil。

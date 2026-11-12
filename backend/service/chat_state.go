@@ -154,8 +154,8 @@ func (c *Chat) replayState(sessionFile, workspace string) domain.ChatStateRESP {
 	switch {
 	case workspace == "":
 		reason = "请先在设置里选择工作区"
-	case !c.Runtime.Layout.NodeReady() || !c.Runtime.PiInstalled():
-		reason = "pi 引擎尚未就绪，等应用页装配完成"
+	case !c.Runtime.Installed():
+		reason = "没有检测到 pi，请在应用页指定 pi 的位置"
 	}
 	guarded, err := c.guardSessionPath(sessionFile)
 	if err != nil {

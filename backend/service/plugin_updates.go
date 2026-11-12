@@ -61,11 +61,11 @@ func (p *Plugins) updatedVersionOf(pluginName string) string {
 	return p.updates.latest[pluginName]
 }
 
-// declaredNpmNames 收集走 npm registry 的插件名：内置清单 + settings 里 npm: 声明。
+// declaredNpmNames 收集走 npm registry 的插件名：推荐清单 + settings 里 npm: 声明。
 // git: / ./ 来源不在 npm 上，问了也是白问。
 func (p *Plugins) declaredNpmNames() []string {
 	seen := map[string]struct{}{}
-	for _, item := range BuiltinPlugins {
+	for _, item := range RecommendedPlugins {
 		seen[item.PluginName] = struct{}{}
 	}
 	for _, entry := range packagesOf(readPiSettings(p.Runtime.Layout)) {

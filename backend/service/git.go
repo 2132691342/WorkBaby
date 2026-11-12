@@ -35,9 +35,10 @@ func NewGit(settings *Settings, rt *engine.Runtime) *Git {
 // GIT_TERMINAL_PROMPT=0：凭证问询立即失败而不是卡满 120 秒超时——
 // 登录走 GCM（自带界面、落 Windows 凭据管理器），不走 stdin。
 func (g *Git) runIn(dir string, args ...string) (*pkg.ProcResult, error) {
-	exe, err := g.Runtime.GitExe()
-	if err != nil {
-		return nil, err
+	// 系统 git：找不到就直接报错，不给一个跑不通的路径。
+	exe := pkg.LookPath("git")
+	if exe == "" {
+		return nil, pkg.Err(pkg.CodeGitMissing, "没有找到 git，请先安装 Git for Windows")
 	}
 	if dir == "" {
 		dir = g.Settings.Workspace()
@@ -45,7 +46,7 @@ func (g *Git) runIn(dir string, args ...string) (*pkg.ProcResult, error) {
 	if dir == "" {
 		return nil, pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
 	}
-	env := append(g.Runtime.Layout.SandboxEnv(nil), "GIT_TERMINAL_PROMPT=0")
+	env := g.Runtime.Layout.ChildEnv(map[string]string{"GIT_TERMINAL_PROMPT": "0"})
 	return pkg.RunProc(exe, args, pkg.ProcOptions{
 		Dir:       dir,
 		Env:       env,
@@ -60,11 +61,11 @@ func (g *Git) ProbeOf(dir string) (isRepo bool, branch string, dirty int) {
 	if !pkg.IsDir(dir) {
 		return false, "", 0
 	}
-	exe, err := g.Runtime.GitExe()
-	if err != nil {
+	exe := pkg.LookPath("git")
+	if exe == "" {
 		return false, "", 0
 	}
-	env := append(g.Runtime.Layout.SandboxEnv(nil), "GIT_TERMINAL_PROMPT=0")
+	env := g.Runtime.Layout.ChildEnv(map[string]string{"GIT_TERMINAL_PROMPT": "0"})
 	run := func(args ...string) (string, bool) {
 		res, err := pkg.RunProc(exe, args, pkg.ProcOptions{Dir: dir, Env: env, TimeoutMs: 8_000})
 		if err != nil || res.Code != 0 {
@@ -137,8 +138,8 @@ func (g *Git) Status() domain.GitStatusRESP {
 		Workspace: g.Settings.Workspace(),
 		RepoState: "normal",
 	}
-	if !g.Runtime.Layout.GitReady() {
-		out.UnavailableReason = "内置 PortableGit 尚未就绪"
+	if pkg.LookPath("git") == "" {
+		out.UnavailableReason = "没有找到 git，请先安装 Git for Windows"
 		return out
 	}
 	out.GitAvailable = true

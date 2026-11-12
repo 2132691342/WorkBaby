@@ -31,6 +31,8 @@ const (
 	KeyTrayHintShown = "prefs.tray_hint_shown"
 	// KeyHideLedger 隐藏轮台账：`hide:<会话文件>` → JSON 数组
 	KeyHideLedger = "chat.hide:"
+	// KeyPiPath 用户手动指定的 pi 入口（空串 = 自动探测）
+	KeyPiPath = "engine.pi_path"
 
 	// CloseActionTray 收进托盘
 	CloseActionTray = "tray"

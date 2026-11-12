@@ -32,15 +32,17 @@ function resourceLabel(kinds: string[]): string {
   return kinds.join(' · ')
 }
 
-/** 状态标签：已装 / 缺包 / 失败。 */
+/** 状态标签：已装 / 已停用 / 缺包 / 失败。 */
 function stateLabel(row: PluginRow): string {
   if (row.plugin_state === 'failed') return t('plugins.failedState')
+  if (row.plugin_state === 'disabled') return t('plugins.disabledState')
   if (row.plugin_installed) return t('plugins.installedState')
   return t('plugins.missingState')
 }
 
 function stateClass(row: PluginRow): string {
   if (row.plugin_state === 'failed') return 'bad'
+  if (row.plugin_state === 'disabled') return 'warn'
   if (row.plugin_installed) return 'ok'
   return 'warn'
 }
@@ -53,7 +55,7 @@ function stateClass(row: PluginRow): string {
         <div class="cell-name">
           <span class="name">
             {{ row.plugin_name }}
-            <span v-if="row.plugin_builtin" class="tag brand-tag">{{ t('plugins.builtin') }}</span>
+            <span v-if="row.plugin_recommended" class="tag brand-tag">{{ t('plugins.builtin') }}</span>
           </span>
           <span v-if="row.plugin_desc" class="desc">{{ row.plugin_desc }}</span>
         </div>
@@ -95,7 +97,7 @@ function stateClass(row: PluginRow): string {
       <template #default="{ row }">
         <div class="row-actions">
           <button
-            v-if="row.plugin_builtin && !row.plugin_installed"
+            v-if="row.plugin_recommended && !row.plugin_installed"
             class="wb-btn text sm"
             :class="{ 'is-loading': props.upgrading === row.plugin_name }"
             :disabled="Boolean(props.upgrading) || props.busy"

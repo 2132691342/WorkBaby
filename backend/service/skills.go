@@ -42,82 +42,25 @@ func (s *Skills) projectDir() string {
 	return filepath.Join(s.Layout.PiAgentDir, ".no-project")
 }
 
-// Provision 首启把内置清单里的技能落进沙箱：启用态进 skills，停用态直接进禁用区。
-// 已存在的目录不动——用户在界面里改过的内容不该被下次启动覆盖。
-func (s *Skills) Provision() int {
-	_ = pkg.EnsureDir(s.Layout.SkillsDir())
-	_ = pkg.EnsureDir(s.Layout.SkillsOffDir())
-	s.pruneRemoved()
-	copied := 0
-	for _, item := range BuiltinSkills {
-		active := filepath.Join(s.Layout.SkillsDir(), item.SkillDirName)
-		hidden := filepath.Join(s.Layout.SkillsOffDir(), item.SkillDirName)
-		hasActive := pkg.Exists(active)
-		hasHidden := pkg.Exists(hidden)
-		// 两处都在 = 上次搬移中途被杀留下的破损态。清单里没有的技能才走这条，
-		// 用户自建的同名技能在两边都有时不该被当成破损态搬走。
-		if hasActive && hasHidden {
-			s.healDuplicate(item.SkillDirName, active, hidden)
-			continue
-		}
-		if hasActive || hasHidden {
-			continue
-		}
-		target := active
-		if !item.SkillDefaultOn {
-			target = hidden
-		}
-		if err := copyTreeAtomic(filepath.Join(s.builtinSource(), item.SkillDirName), target); err != nil {
-			pkg.Warn("技能包落位失败 %s：%v", item.SkillDirName, err)
-			continue
-		}
-		copied++
+// Install 把一个内置技能装进用户的技能区；已存在就不动。
+// 壳不自动落位：用户的 ~/.pi/agent/skills 是他自己的目录，写进去要他亲自点。
+func (s *Skills) Install(dirName string) error {
+	item := RecommendedSkillOf(dirName)
+	if item == nil {
+		return pkg.Err(pkg.CodeSkillBad, "不认识的推荐技能："+dirName)
 	}
-	if copied > 0 {
-		pkg.Info("内置技能落位：%d 个", copied)
-		s.Hub.Broadcast("skill:status", sse.EngineTag(map[string]any{"provisioned": copied}))
+	if err := pkg.EnsureDir(s.Layout.SkillsDir()); err != nil {
+		return pkg.WrapErr(pkg.CodeSkillSave, "技能目录不可写", err)
 	}
-	return copied
-}
-
-// pruneRemoved 清掉已下架内置技能留在沙箱里的副本：清单缩编只改代码的话，
-// 数据目录里那批照旧占着技能列表，用户看到的还是缩编前的样子。
-// 每次落位都跑一遍：目录不在就是空操作，也防着随包资产把已下架目录带回来。
-func (s *Skills) pruneRemoved() {
-	removed := false
-	for _, name := range removedBuiltinSkills {
-		for _, root := range []string{s.Layout.SkillsDir(), s.Layout.SkillsOffDir()} {
-			dir := filepath.Join(root, name)
-			if !pkg.Exists(dir) {
-				continue
-			}
-			if err := removeAllQuiet(dir); err != nil {
-				pkg.Warn("已下架技能清理失败 %s：%v", name, err)
-				continue
-			}
-			pkg.Info("已下架内置技能已清理：%s", name)
-			removed = true
-		}
+	target := filepath.Join(s.Layout.SkillsDir(), dirName)
+	if pkg.Exists(target) {
+		return pkg.Err(pkg.CodeSkillBad, "技能已存在："+dirName)
 	}
-	if removed {
-		s.Hub.Broadcast("skill:status", sse.EngineTag(map[string]any{"pruned": true}))
+	if err := copyTreeAtomic(filepath.Join(s.builtinSource(), dirName), target); err != nil {
+		return pkg.WrapErr(pkg.CodeSkillSave, "技能安装失败", err)
 	}
-}
-
-// healDuplicate 自愈「启用区与禁用区同时有同一个技能」的破损态：清单两行同名，一行开一行关。
-// 判据用内容：两边完全一致才当成搬移中断的重复份，清掉禁用区那份；
-// 内容不一致就是两个不同的东西（用户导入与内置同名），一个都不能动——删错了就是数据没了。
-func (s *Skills) healDuplicate(dirName, active, hidden string) {
-	activeRaw, activeErr := os.ReadFile(filepath.Join(active, "SKILL.md"))
-	hiddenRaw, hiddenErr := os.ReadFile(filepath.Join(hidden, "SKILL.md"))
-	if activeErr != nil || hiddenErr != nil || string(activeRaw) != string(hiddenRaw) {
-		return
-	}
-	if err := removeAllQuiet(hidden); err != nil {
-		pkg.Warn("技能 %s 破损态自愈失败：%v", dirName, err)
-		return
-	}
-	pkg.Info("技能 %s 破损态自愈：清掉禁用区重复份", dirName)
+	s.Hub.Broadcast("skill:status", sse.EngineTag(map[string]any{"skill_dir_name": dirName}))
+	return nil
 }
 
 // guardPath 校验技能路径落在托管 / 禁用 / 项目目录内。
@@ -153,6 +96,14 @@ func (s *Skills) Toggle(skillPath string, enabled bool) error {
 	}
 	active := filepath.Join(s.Layout.SkillsDir(), skillDir)
 	hidden := filepath.Join(s.Layout.SkillsOffDir(), skillDir)
+	// 两个区都可能因为用户自己删过而不存在：搬移前先确保目标父目录在，
+	// 否则 Rename 会死在「找不到路径」上而不是真的搬不动。
+	if err := pkg.EnsureDir(s.Layout.SkillsDir()); err != nil {
+		return pkg.WrapErr(pkg.CodeSkillSave, "技能目录不可写", err)
+	}
+	if err := pkg.EnsureDir(s.Layout.SkillsOffDir()); err != nil {
+		return pkg.WrapErr(pkg.CodeSkillSave, "技能禁用目录不可写", err)
+	}
 	switch {
 	case enabled && pkg.Exists(hidden):
 		// 目标已在（破损态里两处都有）：Windows 上 Rename 拒绝覆盖非空目录，

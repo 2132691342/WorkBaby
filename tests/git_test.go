@@ -31,7 +31,7 @@ func TestConflictResolve(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
 			if !withBuiltinGit(t, h) {
-				t.Skip("内置 PortableGit 未就绪，跳过")
+				t.Skip("本机没有 git，跳过")
 			}
 			dir := t.TempDir()
 			runGit(t, gitExe, dir, "init", "-b", "main")
@@ -113,34 +113,19 @@ func TestConflictResolve(t *testing.T) {
 	})
 }
 
-// withBuiltinGit 把运行时布局里的 GitDir 改指向真实的内置 PortableGit。
-// 改的是 Runtime 持有的那份布局，不是 App 上的拷贝——Git 读的是 Runtime 的。
+// withBuiltinGit 确认本机有可用的 git。
+// 壳不再随包分发 git：用系统装的那个，没有就跳过需要它的用例。
 func withBuiltinGit(t *testing.T, h *harness) bool {
 	t.Helper()
-	source := filepath.Join(os.Getenv("LOCALAPPDATA"), "WorkBaby-dev", "runtime", "PortableGit")
-	if !pkg.Exists(filepath.Join(source, "cmd", "git.exe")) {
-		return false
-	}
-	h.app.Runtime.Layout.GitDir = source
-	return true
+	_, err := exec.LookPath("git")
+	return err == nil
 }
 
-// findGit 找可用的 git：优先内置 git，其次系统 git；都没有就跳过。
+// findGit 找可用的 git；没有就跳过。
 func findGit(t *testing.T) string {
 	t.Helper()
-	candidates := []string{
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "WorkBaby-dev", "runtime", "PortableGit", "cmd", "git.exe"),
-	}
 	if found, err := exec.LookPath("git"); err == nil {
-		candidates = append(candidates, found)
-	}
-	for _, path := range candidates {
-		if path == "" || !pkg.Exists(path) {
-			continue
-		}
-		if err := exec.Command(path, "--version").Run(); err == nil {
-			return path
-		}
+		return found
 	}
 	t.Skip("找不到可用的 git，跳过冲突解决测试")
 	return ""

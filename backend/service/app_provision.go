@@ -8,8 +8,8 @@ import (
 	"WorkBaby/backend/repo"
 )
 
-// Provision 首启的后台装配：解压运行时 → 写 npmCommand → 落技能 → 声明插件 → 装插件。
-// 全部在后台跑：用户先看到能点的窗口加进度条，而不是 115MB 解压期间没有响应的黑屏。
+// Provision 是整个应用的后台预热：清历史残留 → 探测引擎 → 拉起引擎。
+// 它不下载、不安装、不改用户的 pi 配置——环境是用户的，壳只负责用。
 func (a *App) Provision() {
 	a.setProvisioning(true)
 	defer func() {
@@ -21,68 +21,19 @@ func (a *App) Provision() {
 	// 放在装配开头而不是启动同步路径上：删文件不该拖慢首屏。
 	repo.CleanupLegacyDB(a.Layout.DataDir, a.Layout.StorePath)
 
-	problems := a.Runtime.ProvisionRuntime(func(phase, message string) {
-		a.ProvisionProgress("runtime", "install", phase, message)
-	})
-	a.mu.Lock()
-	a.runtimeProblems = problems
-	a.mu.Unlock()
-
-	// npmCommand 必须在任何 npm 动作之前写好：顺序反了，引擎接下来的安装会走系统 npm。
-	EnsureNpmCommand(a.Layout, a.Runtime.NpmCommand())
-	a.Skills.Provision()
-	a.Plugins.DeclareBuiltins()
-
-	if !a.Runtime.PiInstalled() {
-		// 首次启动：自动装 pi 本体。失败留给应用页的手动重试，
-		// 不自动重试——离线机器上反复重试只会刷一屏同样的错误。
-		if a.Layout.NodeReady() {
-			if err := a.InstallPi("install"); err != nil {
-				pkg.Warn("首启自动安装 pi 失败：%v", err)
-			}
-		}
+	if !a.Runtime.Installed() {
+		a.Hub.Broadcast("chat:notify", map[string]any{
+			"level":   "warn",
+			"message": "没有检测到 pi。请先在你的终端里装好 pi，再在应用页点重新检测。",
+		})
+		return
 	}
-	// 无论刚装完还是早装好，内置插件都得补一遍：
-	// 装 pi 与装插件是两个步骤，跳过任何一步都会让用户拿到一个空引擎。
-	if a.Runtime.PiInstalled() {
-		a.Plugins.ProvisionBuiltins()
-	}
+	pkg.Info("pi 入口=%s 来源=%s 版本=%s",
+		a.Runtime.Exe(), a.Runtime.Resolve().Source, a.Runtime.PiVersion())
+
 	// 装配收尾就把引擎预热起来：用户点开对话页时插件已加载完，
 	// 而不是从那一刻才开始等十几个插件的冷启动。
 	a.Chat.Warm()
-}
-
-// RuntimeProblems 取运行时装配时遇到的问题（诊断面板用）。
-func (a *App) RuntimeProblems() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return append([]string(nil), a.runtimeProblems...)
-}
-
-// RepairRuntime 修复运行时：停引擎 → 强制重解压三个运行时 → 重钉 npmCommand。
-// 与首启装配共用进度上报与 provisioning 标记，界面上看到的是同一条进度线。
-func (a *App) RepairRuntime() ([]string, error) {
-	if a.Provisioning() {
-		return nil, pkg.Err(pkg.CodeEngineBusy, "已有装配任务在跑，等它结束再修复")
-	}
-	if a.Chat.Stream.Active() {
-		return nil, pkg.Err(pkg.CodeEngineBusy, "引擎正在执行任务，等这一轮结束再修复")
-	}
-	a.setProvisioning(true)
-	defer func() {
-		a.setProvisioning(false)
-		a.Hub.Broadcast("engine:status", nil)
-	}()
-	// Restart 内部等引擎真退出再返回，运行时目录上的文件锁就解了。
-	a.Chat.Restart()
-	problems := a.Runtime.RepairRuntime(func(phase, message string) {
-		a.ProvisionProgress("runtime", "repair", phase, message)
-	})
-	a.mu.Lock()
-	a.runtimeProblems = problems
-	a.mu.Unlock()
-	EnsureNpmCommand(a.Layout, a.Runtime.NpmCommand())
-	return problems, nil
 }
 
 // Logs 当日日志尾部。
@@ -93,26 +44,38 @@ func (a *App) Logs(maxLines int) []string {
 	return pkg.TailLog(maxLines)
 }
 
-// SaveSettings 保存设置；工作区变化会顺带重建引擎绑定。
+// SaveSettings 保存设置；工作区与 pi 路径变化会顺带重建引擎绑定。
 func (a *App) SaveSettings(kv map[string]string) (map[string]string, error) {
 	previous := a.Settings.Workspace()
+	previousPi := a.Settings.All()[KeyPiPath]
 	saved, err := a.Settings.Save(kv)
 	if err != nil {
 		return nil, err
 	}
+	// 工作区变了引擎绑定就失效。
 	if next := saved[KeyWorkspace]; next != previous {
 		a.Chat.OnWorkspaceChanged()
+	}
+	// pi 换了个入口等于换了个引擎：旧子进程还在跑旧的可执行文件。
+	if next := saved[KeyPiPath]; next != previousPi {
+		a.Chat.Restart()
 	}
 	return saved, nil
 }
 
-// DetectTargets 重新探测内置运行时与 pi 的版本。
+// DetectTargets 重新探测外部依赖与 pi 的版本。
 func (a *App) DetectTargets() domain.RuntimeStatusVO {
 	status := a.RuntimeStatus()
 	a.Hub.Broadcast("engine:detected", map[string]any{
 		"node_version": status.NodeVersion,
+		"git_version":  status.GitVersion,
 		"pi_version":   status.PiVersion,
+		"pi_source":    status.PiSource,
 	})
+	// 刚指定好路径的用户最想要的是「能用了吗」：探测到就顺手把引擎拉起来。
+	if status.PiReady {
+		a.Chat.Warm()
+	}
 	return status
 }
 

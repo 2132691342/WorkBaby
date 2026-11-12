@@ -130,6 +130,19 @@ func (s *Server) skillsList(c *gin.Context) {
 	pkg.OK(c, s.svc.Skills.List())
 }
 
+// skillInstall 把一条推荐技能装进用户的技能区。
+func (s *Server) skillInstall(c *gin.Context) {
+	var req domain.SkillInstallREQ
+	if !bind(c, &req) {
+		return
+	}
+	if err := s.svc.Skills.Install(req.SkillDirName); err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	ok(c)
+}
+
 // skillContent 读技能正文。
 func (s *Server) skillContent(c *gin.Context) {
 	out, err := s.svc.Skills.Content(strings.TrimSpace(c.Query("path")))
@@ -282,7 +295,7 @@ func (s *Server) pluginUpgrade(c *gin.Context) {
 	pkg.OK(c, out)
 }
 
-// pluginRetry 重试单个内置插件。
+// pluginRetry 重试单个推荐插件的安装。
 func (s *Server) pluginRetry(c *gin.Context) {
 	var req domain.PluginNameREQ
 	if !bind(c, &req) {
@@ -296,9 +309,9 @@ func (s *Server) pluginRetry(c *gin.Context) {
 	pkg.OK(c, out)
 }
 
-// pluginRetryAll 全部重试。
-func (s *Server) pluginRetryAll(c *gin.Context) {
-	out, err := s.svc.Plugins.RetryAll()
+// pluginRecommend 把推荐清单里还没装的插件一次装齐。
+func (s *Server) pluginRecommend(c *gin.Context) {
+	out, err := s.svc.Plugins.Recommend()
 	if err != nil {
 		pkg.Fail(c, err)
 		return

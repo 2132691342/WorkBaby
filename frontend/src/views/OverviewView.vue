@@ -32,8 +32,8 @@ const recent = computed(() => rows.value.slice(0, 6))
 // 「能不能把数字当结论看」：后台装配跑完才算就绪。
 // 只看装配标志不够——计数与最新版仍在后台补时界面已摆出一串 0，
 // 而 0 是断言，那时它只是「还没数完」。
-const ready = computed(() => Boolean(health.value) && !app.runtime?.provisioning)
-const detecting = computed(() => Boolean(app.runtime?.provisioning))
+const ready = computed(() => Boolean(health.value) && !app.runtime?.detecting)
+const detecting = computed(() => Boolean(app.runtime?.detecting))
 
 /** 还不可信时就话「—」：零值不等于「有 0 个」。 */
 const pendingMark = '—'
@@ -124,9 +124,9 @@ async function restartEngine(): Promise<void> {
   }
 }
 
-// 装配完成时后端推 engine:status，runtime.provisioning 翻转的这一刻重拉本屏。
+// 装配完成时后端推 engine:status，runtime.detecting 翻转的这一刻重拉本屏。
 watch(
-  () => app.runtime?.provisioning,
+  () => app.runtime?.detecting,
   (value, prev) => {
     if (prev && !value) void load()
   },

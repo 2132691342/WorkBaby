@@ -60,7 +60,7 @@ func RunProc(exe string, args []string, opt ProcOptions) (*ProcResult, error) {
 	cmd.Stderr = errWriter
 
 	if err := cmd.Start(); err != nil {
-		return nil, WrapErr(CodeRuntimeDown, "子进程启动失败："+exe, err)
+		return nil, WrapErr(CodeProvision, "子进程启动失败："+exe, err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -82,7 +82,7 @@ func RunProc(exe string, args []string, opt ProcOptions) (*ProcResult, error) {
 	result.Stderr = stderr.String()
 	mu.Unlock()
 	if result.TimedOut {
-		return result, Err(CodeRuntimeDown, "子进程超时被终止", strings.Join(append([]string{exe}, args...), " "))
+		return result, Err(CodeProvision, "子进程超时被终止", strings.Join(append([]string{exe}, args...), " "))
 	}
 	return result, nil
 }

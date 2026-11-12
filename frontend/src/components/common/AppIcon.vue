@@ -15,6 +15,7 @@ export type IconName =
   | 'close'
   | 'check'
   | 'alert'
+  | 'copy'
   | 'refresh'
   | 'folder'
   | 'trash'
@@ -100,6 +101,10 @@ withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 16 })
     <template v-else-if="name === 'alert'">
       <path d="M12 4.5 21 19H3z" />
       <path d="M12 10v4M12 16.6v.4" />
+    </template>
+    <template v-else-if="name === 'copy'">
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M6.5 15H5.5a2 2 0 0 1-2-2V5.5a2 2 0 0 1 2-2H13a2 2 0 0 1 2 2v1" />
     </template>
     <template v-else-if="name === 'refresh'">
       <path d="M20 12a8 8 0 1 1-2.6-5.9" />

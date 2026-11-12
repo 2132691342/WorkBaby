@@ -1,10 +1,9 @@
 <script setup lang="ts">
-// 应用页：内置运行时与 pi 引擎的安装状态。
-// 不自己实现安装：pi 用的是内置 npm，命令落点全在沙箱里；
-// 每行同时回答「装的什么版本、能不能动、落点在哪」。渲染细节在 AppCard。
+// 应用页：pi 与它依赖的外部环境的检测状态。
+// 壳不代装任何一个：pi 是用户自己的，node / git / python 也是。
+// 这里只回答「检测到了什么、从哪发现的、没检测到该去做什么」。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
 import AppCard from '@/components/apps/AppCard.vue'
 import { api } from '@/api/http'
@@ -17,14 +16,13 @@ const app = useAppStore()
 const toasts = useToasts()
 
 const loading = ref(false)
-const busy = ref<Record<string, boolean>>({})
+const detecting = ref(false)
 const copied = ref('')
-const repairing = ref(false)
+const locating = ref(false)
 
-// 内置运行时与引擎分开摆：前者是「环境」，后者是「引擎」，混在一起
-// 会让人以为 node 也能升级。
-const runtimeRows = computed(() => app.apps.filter((row) => row.app_key !== 'pi'))
+// 引擎与它依赖的环境分开摆：前者是「能不能干活」，后者是「能干多少活」。
 const engineRows = computed(() => app.apps.filter((row) => row.app_key === 'pi'))
+const envRows = computed(() => app.apps.filter((row) => row.app_key !== 'pi'))
 
 async function load() {
   loading.value = true
@@ -37,6 +35,54 @@ async function load() {
   }
 }
 
+/** 重新探测：用户刚在终端里装好 pi，回来点这一下就能用。 */
+async function detect() {
+  if (detecting.value) return
+  detecting.value = true
+  try {
+    await api.detectEngines()
+    await app.loadApps()
+    await app.refreshEngines()
+    const ready = app.apps.find((row) => row.app_key === 'pi')?.installed
+    toasts.push(ready ? 'ok' : 'warn', ready ? t('apps.detected') : t('apps.notDetected'))
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    detecting.value = false
+  }
+}
+
+/** 手动指定 pi 的位置：自动探测不到时的兜底。 */
+async function locate() {
+  if (locating.value) return
+  locating.value = true
+  try {
+    const picked = await app.pickPiPath()
+    if (!picked) return
+    await api.locatePi(picked)
+    await app.loadApps()
+    await app.refreshEngines()
+    toasts.push('ok', t('apps.located'))
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    locating.value = false
+  }
+}
+
+/** 清掉手动路径，回到自动探测。 */
+async function resetPath(row: AppRow) {
+  if (row.app_source !== 'manual') return
+  try {
+    await api.locatePi('')
+    await app.loadApps()
+    await app.refreshEngines()
+    toasts.push('ok', t('apps.pathReset'))
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  }
+}
+
 async function copy(text: string) {
   try {
     await navigator.clipboard.writeText(text)
@@ -46,77 +92,6 @@ async function copy(text: string) {
     }, 1600)
   } catch {
     toasts.push('warn', t('apps.copyFailed'))
-  }
-}
-
-// pi 的升级与卸载动引擎程序：先说清会发生什么、数据去哪，再动手。
-// 运行时的安装只是重新解压，没有可丢的数据，不拦。
-async function confirmPi(row: AppRow, action: 'update' | 'uninstall'): Promise<boolean> {
-  if (row.app_key !== 'pi') return true
-  try {
-    await ElMessageBox.confirm(
-      action === 'update' ? t('apps.updateConfirm') : t('apps.uninstallConfirm'),
-      action === 'update' ? t('apps.updateTitle') : t('apps.uninstallTitle'),
-      {
-        confirmButtonText: action === 'update' ? t('common.update') : t('common.uninstall'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning',
-      },
-    )
-  } catch {
-    return false
-  }
-  return true
-}
-
-/** 三个动作共用一个入口：只有按钮文案与端点不同。 */
-async function run(row: AppRow, action: 'install' | 'update' | 'uninstall') {
-  if (busy.value[row.app_key]) return
-  if (action === 'update' || action === 'uninstall') {
-    if (!(await confirmPi(row, action))) return
-  }
-  busy.value = { ...busy.value, [row.app_key]: true }
-  try {
-    if (action === 'install') await api.installApp()
-    else if (action === 'update') await api.updateApp()
-    else await api.uninstallApp()
-    await app.loadApps()
-    await app.refreshEngines()
-    toasts.push('ok', t(`apps.done.${action}`, { name: row.app_name }))
-  } catch (err) {
-    // 失败不弹窗：卡片里已有进度与输出，消息只补一句「为什么失败」。
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  } finally {
-    busy.value = { ...busy.value, [row.app_key]: false }
-  }
-}
-
-/** 修复运行时：停引擎后把三个内置运行时强制重解压，坏掉的安装当场换新。 */
-async function repairRuntimes() {
-  if (repairing.value) return
-  try {
-    await ElMessageBox.confirm(t('apps.repairConfirm'), t('apps.repairTitle'), {
-      confirmButtonText: t('apps.repair'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
-  repairing.value = true
-  try {
-    const out = await api.repairRuntime()
-    await app.loadApps()
-    await app.refreshEngines()
-    if (out.repair_problems.length) {
-      toasts.push('warn', out.repair_problems.join('；'))
-    } else {
-      toasts.push('ok', t('apps.repairDone'))
-    }
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  } finally {
-    repairing.value = false
   }
 }
 
@@ -149,6 +124,16 @@ onMounted(() => {
       <section v-if="engineRows.length">
         <div class="wb-sec-head">
           <span class="wb-sec-title">{{ t('apps.group.engine') }}</span>
+          <div class="sec-actions">
+            <button class="wb-btn sm" :class="{ 'is-loading': detecting }" :disabled="detecting" @click="detect">
+              <AppIcon name="refresh" :size="14" />
+              {{ t('apps.detect') }}
+            </button>
+            <button class="wb-btn sm ghost" :class="{ 'is-loading': locating }" :disabled="locating" @click="locate">
+              <AppIcon name="folder" :size="14" />
+              {{ t('apps.locate') }}
+            </button>
+          </div>
         </div>
         <div class="app-list">
           <AppCard
@@ -156,39 +141,28 @@ onMounted(() => {
             :key="row.app_key"
             :row="row"
             :progress="app.appProgress"
-            :busy="Boolean(busy[row.app_key])"
+            :busy="detecting"
             :copied="copied"
-            @run="run(row, $event)"
+            @reset="resetPath(row)"
             @copy="copy"
           />
         </div>
       </section>
 
-      <section v-if="runtimeRows.length">
+      <section v-if="envRows.length">
         <div class="wb-sec-head">
           <span class="wb-sec-title">
-            {{ t('apps.group.runtime') }} <span class="count">{{ runtimeRows.length }}</span>
+            {{ t('apps.group.runtime') }} <span class="count">{{ envRows.length }}</span>
           </span>
-          <button
-            class="wb-btn sm ghost"
-            :class="{ 'is-loading': repairing }"
-            :disabled="repairing"
-            :title="t('apps.repairConfirm')"
-            @click="repairRuntimes"
-          >
-            <AppIcon name="refresh" :size="14" />
-            {{ t('apps.repair') }}
-          </button>
         </div>
         <div class="app-list">
           <AppCard
-            v-for="row in runtimeRows"
+            v-for="row in envRows"
             :key="row.app_key"
             :row="row"
             :progress="app.appProgress"
-            :busy="Boolean(busy[row.app_key])"
+            :busy="false"
             :copied="copied"
-            @run="run(row, $event)"
             @copy="copy"
           />
         </div>
@@ -234,6 +208,11 @@ onMounted(() => {
 }
 
 .head-actions {
+  display: flex;
+  gap: var(--wb-sp-2);
+}
+
+.sec-actions {
   display: flex;
   gap: var(--wb-sp-2);
 }

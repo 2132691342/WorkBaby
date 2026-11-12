@@ -45,33 +45,26 @@ mcp: {
 
 apps: {
     title: '应用',
-    subtitle: '内置运行时与 pi 引擎的安装状态。装、升级、卸载跑的都是内置 npm 与官方发布源，界面显示的命令与实际执行的是同一行。',
+    subtitle: 'pi 与它依赖的外部环境的检测结果。壳不代装任何东西：环境是你自己的，装好了回来点一下重新检测就行。',
     group: {
-        runtime: '内置运行时',
+        runtime: '外部环境',
         engine: '引擎'
     },
     ready: '就绪',
-    fileDetail: '安装详情',
-    phaseFailed: '这一步失败了',
-    recheck: '检查更新',
-    notInstalled: '未安装',
-    copyFailed: '复制失败，请手动选中命令',
-    updateTitle: '升级 pi？',
-    updateConfirm: '升级会重启引擎，正在跑的任务会中断；会话、技能、插件与所有沙箱数据都保留。',
-    uninstallTitle: '卸载 pi？',
-    uninstallConfirm: '只卸载引擎程序本身；会话、技能、MCP、插件声明与配置全部保留在沙箱里，重装后继续可用。',
-    phaseRunning: '正在执行',
-    phaseDone: '已完成',
-    done: {
-        install: '{name} 安装完成',
-        update: '{name} 升级完成',
-        uninstall: '{name} 已卸载'
-    },
-    boundary: '这里不自己实现安装：装的、升的、卸的都是引擎官方发布的那条命令。所以引擎官方怎么更新，这里就怎么更新。',
-    repair: '修复运行时',
-    repairTitle: '修复内置运行时？',
-    repairConfirm: '引擎会先停下，三个内置运行时全部删除后重新解压（几分钟），然后重钉 npm。运行时坏掉、版本探测一直失败时用它。',
-    repairDone: '运行时已修复'
+    required: '必需',
+    notDetected: '未检测到',
+    detecting: '正在检测…',
+    detect: '重新检测',
+    detected: '已检测到 pi，可以开始干活了',
+    detectFailed: '还是没检测到 pi，看看下面的安装说明',
+    locate: '指定位置',
+    located: '已指定 pi 的位置',
+    resetPath: '回到自动探测',
+    pathReset: '已回到自动探测',
+    howTo: '怎么装',
+    copyFailed: '复制失败，请手动选中路径',
+    recheck: '刷新',
+    boundary: '壳不带运行时、不代装 pi：它跑的是你在终端里装好的那一份，读写的是你 ~/.pi/agent 里的同一份配置。命令行里怎么改，这里就怎么变。',
   },
 
 models: {
@@ -141,10 +134,13 @@ skills: {
     resetTitle: '重置技能',
     resetConfirm: '把「{name}」恢复成随包原件？你改过的内容会被覆盖，不能恢复。',
     resetDone: '已重置',
-    builtinProgress: '内置 {done}/{total}',
+    builtinProgress: '推荐 {done}/{total}',
+    installRecommended: '装齐推荐 {n}',
+    installRecommendedDone: '推荐技能安装完成：{ok} 个成功，{fail} 个失败',
+    available: '还没装',
     sources: {
         project: '工作区',
-        builtin: '内置',
+        builtin: '推荐',
         bundled: '随包附带',
         managed: '托管'
     },
@@ -156,7 +152,7 @@ skills: {
 
 plugins: {
     title: '插件',
-    subtitle: '插件是 npm 包或本地目录，可以带来工具、命令与技能。装与卸都走内置 npm。',
+    subtitle: '插件是 npm 包或本地目录，可以带来工具、命令与技能。装与卸都走 pi 自己的包命令，写的是它自己的 settings.json。',
     installPlaceholder: '包名或来源，例如 pi-web-access、https://github.com/u/r',
     name: '插件',
     version: '版本',
@@ -166,7 +162,10 @@ plugins: {
     installedState: '正常',
     missingState: '目录缺失',
     failedState: '失败',
-    builtin: '内置',
+    builtin: '推荐',
+    disabledState: '已停用',
+    recommend: '装齐推荐 {n}',
+    recommendDone: '推荐插件安装完成：{ok} 个成功，{fail} 个失败',
     installTitle: '安装插件',
     installExisting: '「{name}」已经装过（{version}）。继续安装会覆盖成刚输入的版本，插件运行期间产生的数据不受影响。',
     uninstallTitle: '卸载插件',

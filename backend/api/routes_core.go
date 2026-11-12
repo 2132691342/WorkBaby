@@ -162,14 +162,9 @@ func (s *Server) enginesRestart(c *gin.Context) {
 	ok(c)
 }
 
-// enginesRepair 强制重解压三个内置运行时并重钉 npmCommand。
+// enginesRepair 重新探测全部外部依赖（等价于一次全面刷新）。
 func (s *Server) enginesRepair(c *gin.Context) {
-	problems, err := s.svc.RepairRuntime()
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, domain.RuntimeRepairRESP{RepairProblems: problems})
+	pkg.OK(c, s.svc.DetectTargets())
 }
 
 // healthGet 概览页的健康快照。
@@ -182,31 +177,18 @@ func (s *Server) appsGet(c *gin.Context) {
 	pkg.OK(c, map[string]any{"apps": s.svc.Apps()})
 }
 
-// appsInstall 安装 pi 本体。
-func (s *Server) appsInstall(c *gin.Context) {
-	if err := s.svc.InstallPi("install"); err != nil {
+// appsLocate 手动指定 pi 的位置。壳不代装，只能让用户告诉我们在哪。
+func (s *Server) appsLocate(c *gin.Context) {
+	var req domain.PiPathREQ
+	if !bind(c, &req) {
+		return
+	}
+	status, err := s.svc.LocatePi(req.PiPath)
+	if err != nil {
 		pkg.Fail(c, err)
 		return
 	}
-	pkg.OK(c, map[string]any{"apps": s.svc.Apps()})
-}
-
-// appsUpdate 升级 pi 本体。
-func (s *Server) appsUpdate(c *gin.Context) {
-	if err := s.svc.UpdatePi(); err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, map[string]any{"apps": s.svc.Apps()})
-}
-
-// appsUninstall 卸载 pi 本体。
-func (s *Server) appsUninstall(c *gin.Context) {
-	if err := s.svc.UninstallPi(); err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, map[string]any{"apps": s.svc.Apps()})
+	pkg.OK(c, map[string]any{"runtime": status, "apps": s.svc.Apps()})
 }
 
 // configFiles 可查看的配置文件清单。

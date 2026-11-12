@@ -28,14 +28,13 @@ main.go（装配根）──► shell ──► api ──► service ──► 
 | `apperror.go` | `AppError{Code, Message, Detail}`；`Err` / `WrapErr` / `As` |
 | `codes.go` | 业务码常量，与 `docs/API.md` 的错误码表一一对应 |
 | `resp.go` | HTTP 信封 `{code, message, detail, data}`；`OK` / `Fail` |
-| `paths.go` | `Layout` 沙箱目录布局 + `*Ready()` 不抛探测 |
-| `env.go` | `SandboxEnv`：PATH 前置内置运行时（含 Python `Scripts`）、HOME/npm 锁进沙箱、重定向 pi 的家 |
+| `paths.go` | `Layout` 目录布局（壳的数据目录 + 用户的 pi 家）+ `ResolvePiAgentDir` |
+| `env.go` | `ChildEnv`：只覆写 `PI_CODING_AGENT_DIR` / `PI_SKIP_VERSION_CHECK` / `NO_COLOR`，不遮蔽 HOME、不改 PATH |
 | `proc.go` | `RunProc`：argv 直传、隐藏窗口、超时杀进程树、按 LF 切帧 |
 | `procflags.go` | `CREATE_NO_WINDOW` 常量 |
-| `fsutil.go` | 原子写、目录确保、毫秒时间、存在性探测 |
+| `fsutil.go` | 原子写、目录确保、毫秒时间、存在性探测、`LookPath`（自己扫 PATH，不跑 `where`） |
 | `log.go` | 按天滚动日志 + `TailLog` |
 | `ulid.go` | `{PREFIX}_{26位ULID}`，前缀白名单 |
-| `ziputil.go` | 解压（先落 `.unpack` 再改名，中途失败不留半个运行时） |
 | `frontmatter.go` | 技能 SKILL.md 的 YAML 头解析 |
 | `json.go` | JSON 读写薄封装（原子写） |
 | `cmdline.go` | 命令行切分（Windows 引号规则） |
@@ -142,13 +141,15 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 
 | 决定 | 为什么 | 否决的方案与理由 |
 |---|---|---|
-| Wails3 而非 Electron | 单 exe、无 node 依赖链、Go 直接管子进程 | Electron 要再带一个 node 运行时，与「内置 node」自相矛盾 |
+| Wails3 而非 Electron | 单 exe、Go 直接管子进程、不拖 node 依赖链 | Electron 要自带一个 node 运行时，壳就多了一层要维护的环境 |
 | 业务走 HTTP 而非全 Wails 绑定 | 可 curl、可测、前端可脱离壳调试 | 全绑定会把上百个方法糊进 JS，测试只能起整个壳 |
 | 标准库 JSON 文件做持久化 | 条目量级几十条，零依赖、零编译链、内容人能直接读 | SQLite 要么 cgo 要么拖一个纯 Go 驱动；事务与 WAL 对几十条 KV 是负资产 |
 | 只把偏好与台账进存储 | 其余对象的真相在磁盘或引擎里 | 全量入库＝两份真相，必然不同步 |
 | 插件只经 `settings.json` | pi 原生机制，升级引擎不失效 | 自建注册表＝第二份真相 |
 | 技能开关用搬目录 | pi 只扫 `skills/`，移走即失联，零额外状态 | 改写 SKILL.md 头——污染用户文件 |
 | ULID 而非自增 | 时间有序、可离线生成、无中心分配 | 自增会把「会话文件是真相」变成「库是真相」 |
-| 内置运行时缺失即报错 | 回退系统命令等于破坏沙箱承诺 | 静默回退——用户以为在用沙箱，实际在跑自己的环境 |
+| 用用户已装的 pi | 配置与会话只有一份真相；命令行与 GUI 互不打架 | 复制一份隔离目录——两边长期漂移，用户不知道哪个才生效 |
+| 不代装 pi / 运行时 | 机器是用户的，壳只负责用好已有的东西 | 随包分发 + 自动下载：多 100MB+、多一条会失败的安装链，且跟用户自己装的版本冲突 |
+| 推荐清单只展示不预置 | 用户的 `settings.json` 与 `skills/` 是他自己的 | 首启静默写入——用户下次在终端里看到一堆没装过的东西 |
 | 一个工作区一个引擎 | pi 的会话目录与工具相对路径都以工作区为根 | 全局单引擎在切目录时路径必然错乱 |
 | 长文本按块增量渲染 | 全量重解析是 O(字数²) | 每次 tick 整体重渲染，长回答直接卡死界面 |

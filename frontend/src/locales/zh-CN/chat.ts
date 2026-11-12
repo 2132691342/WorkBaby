@@ -27,7 +27,7 @@ chat: {
     pickWorkspace: '选择目录',
     noEngine: '引擎还没装好。可以去「应用」页装一份，或在终端里自己跑一次。',
     engineDown: '引擎没在运行',
-    engineMissing: '引擎未安装',
+    engineMissing: '未检测到 pi 引擎',
     engineRunning: '运行中',
     engineReady: '已就绪',
     engineCrashed: '引擎已退出，发下一条消息时会自动拉起',

@@ -87,33 +87,29 @@ JSON 配置是引擎的输入**。壳从不重写引擎的真相，只在其上�
 
 | 文件 / 目录 | 地位 |
 |---|---|
-| `pi\settings.json` 的 `packages[]` | **插件的唯一权威**：裸串 = 启用，`{source, autoload:false}` = 停用 |
-| `pi\settings.json` 的 `npmCommand` | 内置 npm 的调用形状（`[node.exe, npm-cli.js]`），必须指向沙箱 |
-| `pi\npm\node_modules\` | 已装插件的真实目录；是否真装上以 `<包名>\package.json` 在不在为准 |
-| `pi\skills\` / `pi\skills_disabled\` | 技能启用 / 停用（目录整体搬移，pi 只扫前者） |
+| `~/.pi/agent/settings.json` 的 `packages[]` | **插件的唯一权威**：裸串 = 启用，`{source, autoload:false}` = 停用 |
+| `~/.pi/agent/npm\node_modules\` | 已装插件的真实目录；是否真装上以 `<包名>\package.json` 在不在为准 |
+| `~/.pi/agent/skills\` / `skills_disabled\` | 技能启用 / 停用（目录整体搬移，pi 只扫前者） |
 | `skill_toggle` 表 | 记录用户显式改过的开关；真相是技能目录在哪个区，台账写失败只记日志不阻断 |
 
 **插件不另建注册表**：pi 的 `settings.json` 已经是唯一登记处，
 再加一份 JSON 就一定会出现两份不同步。同理，`plugin_catalog.go` 里的
-内置清单只是「随包分发哪些、默认开哪些」的策展表（当前 6 个），不是运行时状态；
-历史上随壳预置过的条目收在 `removedBuiltinPlugins` 里，落位时会把老数据目录里
-那条旧声明一并撤掉——否则老机器上的插件列表永远缩不了编。
-技能的 `skill_catalog.go` 同理；已从策展表下架的技能，落位时会把沙箱里的
-旧副本一并清掉。
+推荐清单只是「推荐哪些插件」的策展表（当前 6 个），**不是预置清单**：
+壳不会在首启时往用户的 `settings.json` 里写任何东西，用户点了才装。
+技能的 `skill_catalog.go` 同理，推荐技能同样只展示、不自动落位。
 
 ## 6. 沙箱目录一览
 
 ```
 %LOCALAPPDATA%\WorkBaby\          （开发态 -dev 后缀）
-├── workbaby.json                 # 上面 §1 两段设置与台账
-├── cache\{npm,npm-global}\       # npm 缓存与全局前缀
+├── workbaby.json                 # 壳的偏好与台账
+├── cache\                        # 壳自己的缓存
 ├── logs\                         # 按天滚动
-├── webview\                      # WebView2 用户数据
-├── runtime\{node,PortableGit,python}\
-├── pi-app\node_modules\          # pi 本体
-└── pi\                           # PI_CODING_AGENT_DIR
-    ├── settings.json models.json auth.json mcp.json
-    ├── npm\node_modules\         # 插件
-    ├── sessions\                 # 会话 JSONL
-    ├── skills\ skills_disabled\
+└── webview\                      # WebView2 用户数据
+
+%USERPROFILE%\.pi\agent\          # 用户的 pi 家（或 PI_CODING_AGENT_DIR）
+├── settings.json models.json auth.json mcp.json
+├── npm\node_modules\             # 插件
+├── sessions\                     # 会话 JSONL
+└── skills\ skills_disabled\
 ```

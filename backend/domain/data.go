@@ -120,10 +120,24 @@ type SkillRowVO struct {
 type SkillListRESP struct {
 	// Skills 技能行
 	Skills []SkillRowVO `json:"skills"`
-	// BuiltinTotal 内置清单总数
-	BuiltinTotal int `json:"builtin_total"`
-	// BuiltinInstalled 已落位的内置技能数
-	BuiltinInstalled int `json:"builtin_installed"`
+	// RecommendedTotal 推荐清单总数
+	RecommendedTotal int `json:"recommended_total"`
+	// RecommendedInstalled 已装好的推荐技能数
+	RecommendedInstalled int `json:"recommended_installed"`
+	// Available 推荐清单里还没装的技能（可直接装）
+	Available []SkillAvailableVO `json:"available"`
+}
+
+// SkillAvailableVO 是一条可以一键安装的推荐技能。
+type SkillAvailableVO struct {
+	// SkillDirName 目录名（技能身份）
+	SkillDirName string `json:"skill_dir_name"`
+	// SkillGroup 分类标签
+	SkillGroup string `json:"skill_group"`
+	// SkillDesc 一句话说明
+	SkillDesc string `json:"skill_desc"`
+	// SkillRequires 需要的额外依赖；空表示无需额外条件
+	SkillRequires string `json:"skill_requires,omitempty"`
 }
 
 // SkillPathREQ 是带 SKILL.md 路径的入参。
@@ -164,6 +178,12 @@ type SkillImportREQ struct {
 	SkillFromPath string `json:"skill_from_path"`
 }
 
+// SkillInstallREQ 是安装一条推荐技能的入参。
+type SkillInstallREQ struct {
+	// SkillDirName 推荐技能的目录名（技能的身份）
+	SkillDirName string `json:"skill_dir_name"`
+}
+
 // SkillImportRESP 是外部技能导入的结果。
 type SkillImportRESP struct {
 	// SkillDirName 导入后的目录名
@@ -184,7 +204,9 @@ type PluginStateKind string
 const (
 	// PluginStateInstalled 已装且可用
 	PluginStateInstalled PluginStateKind = "installed"
-	// PluginStateMissing 声明了但包目录不在
+	// PluginStateDisabled 已装但声明里停用了
+	PluginStateDisabled PluginStateKind = "disabled"
+	// PluginStateMissing 可安装但还没装
 	PluginStateMissing PluginStateKind = "missing"
 	// PluginStateFailed 安装或加载失败
 	PluginStateFailed PluginStateKind = "failed"
@@ -202,7 +224,7 @@ type PluginRowVO struct {
 	PluginPath string `json:"plugin_path"`
 	// PluginDesc 一句话说明
 	PluginDesc string `json:"plugin_desc,omitempty"`
-	// PluginTargetVersion 内置清单 pin 的版本
+	// PluginTargetVersion 推荐清单 pin 的版本
 	PluginTargetVersion string `json:"plugin_target_version,omitempty"`
 	// PluginLatest npm registry 的最新版；没查到给空
 	PluginLatest string `json:"plugin_latest,omitempty"`
@@ -210,8 +232,10 @@ type PluginRowVO struct {
 	PluginUpgradable bool `json:"plugin_upgradable"`
 	// ResourceKinds 包内暴露的资源种类
 	ResourceKinds []string `json:"resource_kinds"`
-	// PluginBuiltin 是否内置清单里的
-	PluginBuiltin bool `json:"plugin_builtin"`
+	// PluginRecommended 是否在推荐清单里
+	PluginRecommended bool `json:"plugin_recommended"`
+	// PluginDeclared settings.json 的 packages 里有没有它这一条
+	PluginDeclared bool `json:"plugin_declared"`
 	// PluginEnabled packages 条目是否启用
 	PluginEnabled bool `json:"plugin_enabled"`
 	// PluginInstalled 包目录是否真的存在
@@ -230,10 +254,10 @@ type PluginListRESP struct {
 	RegistryPath string `json:"registry_path"`
 	// InstallRoot 插件安装根
 	InstallRoot string `json:"install_root"`
-	// BuiltinTotal 内置清单总数
-	BuiltinTotal int `json:"builtin_total"`
-	// BuiltinInstalled 已就绪的内置插件数
-	BuiltinInstalled int `json:"builtin_installed"`
+	// RecommendedTotal 推荐清单总数
+	RecommendedTotal int `json:"recommended_total"`
+	// RecommendedInstalled 已就绪的推荐插件数
+	RecommendedInstalled int `json:"recommended_installed"`
 	// Busy 是否有安装任务正在占用
 	Busy bool `json:"busy"`
 }

@@ -219,7 +219,7 @@ func (m *Mcp) probeStdio(entry map[string]any) (domain.McpProbeRESP, error) {
 	if dir := stringField(entry, "cwd"); pkg.Exists(dir) {
 		cmd.Dir = dir
 	}
-	env := m.Layout.SandboxEnv(nil)
+	env := m.Layout.ChildEnv(nil)
 	if userEnv, ok := entry["env"].(map[string]any); ok {
 		for key, value := range userEnv {
 			env = append(env, key+"="+fmt.Sprint(value))

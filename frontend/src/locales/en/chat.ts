@@ -27,7 +27,7 @@ export default {
     "pickWorkspace": "Choose folder",
     "noEngine": "No engine installed yet. Install one on the Apps page, or run the command yourself in a terminal.",
     "engineDown": "Engine is not running",
-    "engineMissing": "Engine not installed",
+    "engineMissing": "pi engine not detected",
     "engineRunning": "Running",
     "engineReady": "Ready",
     "engineCrashed": "Engine exited — it restarts on your next message",

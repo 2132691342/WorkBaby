@@ -14,7 +14,7 @@ const { t } = useI18n()
 const title = computed(() => (route.meta.titleKey ? t(String(route.meta.titleKey)) : t('nav.chat')))
 const connection = computed(() => {
   if (!app.ready) return { cls: 'warn', text: t('titlebar.starting') }
-  if (Boolean(app.runtime?.provisioning)) return { cls: 'warn', text: t('titlebar.detecting') }
+  if (Boolean(app.runtime?.detecting)) return { cls: 'warn', text: t('titlebar.detecting') }
   if (!app.hasEngine) return { cls: 'bad', text: t('titlebar.noEngine') }
   return { cls: 'ok', text: t('titlebar.connected') }
 })

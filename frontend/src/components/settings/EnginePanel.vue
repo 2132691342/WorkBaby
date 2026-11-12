@@ -45,7 +45,6 @@ const readyCount = computed(() => {
 const pathFields = computed(
   () =>
     [
-      { key: 'root_dir', label: t('settings.layoutRoot') },
       { key: 'agent_dir', label: t('settings.layoutAgent') },
       { key: 'sessions_dir', label: t('settings.layoutSessions') },
       { key: 'skills_dir', label: t('settings.layoutSkills') },
@@ -97,7 +96,7 @@ async function copyText(text: string): Promise<void> {
         <span class="tag" :class="item.installed ? 'ok' : 'warn'">
           {{ item.installed ? item.app_version || '—' : t('apps.notInstalled') }}
         </span>
-        <span v-if="item.builtin" class="tag">{{ t('apps.group.runtime') }}</span>
+        <span v-if="item.required" class="tag">{{ t('apps.required') }}</span>
         <span class="push" />
         <button
           v-if="item.app_key === 'pi' && item.installed"

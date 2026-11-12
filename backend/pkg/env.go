@@ -5,58 +5,38 @@ import (
 	"strings"
 )
 
-// SandboxEnv 组装子进程环境：内置 node / git / python 在前、系统 PATH 在后。
-// PATH 前置让 agent 先命中内置副本；HOME / npm 前缀 / PI_CODING_AGENT_DIR 把家搬进沙箱。
-func (l Layout) SandboxEnv(extra map[string]string) []string {
-	prepend := make([]string, 0, 6)
-	for _, dir := range []string{
-		l.NodeDir,
-		l.GitDir + `\cmd`,
-		l.GitDir + `\bin`,
-		l.GitDir + `\usr\bin`,
-		l.PythonDir,
-		// Scripts 放 pip.exe 之类的入口垫片。技能脚本里普遍写的是裸 `pip install`，
-		// 不把这一层放进 PATH，脚本就会掉进系统 Python 去装包。
-		l.PythonDir + `\Scripts`,
-	} {
-		if IsDir(dir) {
-			prepend = append(prepend, dir)
-		}
-	}
+// ChildEnv 组装子进程环境：继承当前进程的环境，只覆写必须钉住的那几条。
+// 不做 PATH 前置，也不用 HOME 遮蔽用户家目录——引擎跑的就是用户自己装的 pi，
+// 它该看见用户真实的 shell、git 与 python。
+func (l Layout) ChildEnv(extra map[string]string) []string {
 	overrides := map[string]string{
-		"PATH":                       strings.Join(append(prepend, os.Getenv("PATH")), ";"),
-		"npm_config_cache":           l.NpmCacheDir,
-		"npm_config_prefix":          l.NpmGlobalDir,
-		"npm_config_update_notifier": "false",
-		"npm_config_fund":            "false",
-		"npm_config_audit":           "false",
-		// pip 的缓存默认跟着 HOME 走且不同版本解析行为不同，不钉死就会漏到
-		// 工作目录或别的 HOME 形态里去——npm 怎么钉，pip 就怎么钉。
-		"PIP_CACHE_DIR":         l.PipCacheDir,
-		"HOME":                  l.DataDir,
-		"USERPROFILE":           l.DataDir,
-		"PI_CODING_AGENT_DIR":   l.PiAgentDir,
+		// 引擎的家就是界面上管理的那个目录：缺了这条，界面改的配置对引擎不生效。
+		"PI_CODING_AGENT_DIR": l.PiAgentDir,
+		// 引擎自己的远端版本探测与本壳无关，留着只是启动时多一次网络等待。
 		"PI_SKIP_VERSION_CHECK": "1",
-		"PI_TELEMETRY":          "0",
-		"NODE_NO_WARNINGS":      "1",
+		"NO_COLOR":              "1",
 	}
 	for k, v := range extra {
 		overrides[k] = v
 	}
-	// 环境变量的键大小写不敏感：Windows 上可能同时存在 PATH 与 Path，
-	// 只按原样比对会留下一条旧值把新值盖掉，所以统一小写判重。
-	keyOf := func(s string) string { return strings.ToLower(s) }
+	return mergeEnv(os.Environ(), overrides)
+}
+
+// mergeEnv 用 overrides 覆盖 environ 里的同名项。
+// 环境变量的键大小写不敏感：Windows 上可能同时存在 PATH 与 Path，
+// 只按原样比对会留下一条旧值把新值盖掉，所以统一小写判重。
+func mergeEnv(environ []string, overrides map[string]string) []string {
 	replace := make(map[string]struct{}, len(overrides))
 	for k := range overrides {
-		replace[keyOf(k)] = struct{}{}
+		replace[strings.ToLower(k)] = struct{}{}
 	}
-	out := make([]string, 0, len(os.Environ())+len(overrides))
-	for _, item := range os.Environ() {
+	out := make([]string, 0, len(environ)+len(overrides))
+	for _, item := range environ {
 		idx := strings.IndexByte(item, '=')
 		if idx <= 0 {
 			continue
 		}
-		if _, hit := replace[keyOf(item[:idx])]; hit {
+		if _, hit := replace[strings.ToLower(item[:idx])]; hit {
 			continue
 		}
 		out = append(out, item)

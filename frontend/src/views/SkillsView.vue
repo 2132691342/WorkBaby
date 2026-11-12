@@ -21,13 +21,14 @@ const { t } = useI18n()
 const toasts = useToasts()
 
 const rows = ref<SkillRow[]>([])
-const builtinTotal = ref(0)
-const builtinInstalled = ref(0)
+const recommendedTotal = ref(0)
+const recommendedInstalled = ref(0)
 const loading = ref(false)
 const filter = ref('')
 const toggling = ref('')
 const deleting = ref('')
 const resetting = ref('')
+const installingRecommended = ref(false)
 
 const contentOpen = ref(false)
 const contentRow = ref<SkillRow | null>(null)
@@ -59,8 +60,8 @@ async function load() {
   try {
     const data = await api.skills()
     rows.value = data.skills ?? []
-    builtinTotal.value = data.builtin_total
-    builtinInstalled.value = data.builtin_installed
+    recommendedTotal.value = data.recommended_total
+    recommendedInstalled.value = data.recommended_installed
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
@@ -196,6 +197,31 @@ async function importSkill() {
   }
 }
 
+/** 推荐清单里还没装的那几个：按清单顺序逐个安装，单个失败不拦其余。 */
+const missingRecommended = computed(() => rows.value.filter((row) => !row.skill_enabled && !row.skill_editable))
+
+/** 装齐推荐技能：逐个调后端，最后统一报结果。 */
+async function installRecommended() {
+  if (installingRecommended.value) return
+  installingRecommended.value = true
+  let done = 0
+  let failed = 0
+  try {
+    for (const row of missingRecommended.value) {
+      try {
+        await api.installSkill(row.skill_dir_name)
+        done += 1
+      } catch {
+        failed += 1
+      }
+    }
+    toasts.push(failed ? 'warn' : 'ok', t('skills.installRecommendedDone', { ok: done, fail: failed }))
+    await load()
+  } finally {
+    installingRecommended.value = false
+  }
+}
+
 // 首启落位在后台跑完时页面可能开着没动：事件路由 bump 一下，这里防抖重拉。
 const refreshStore = useRefreshStore()
 let reloadTimer = 0
@@ -219,7 +245,7 @@ onMounted(load)
       </div>
       <div class="head-actions">
         <span class="count">
-          {{ t('skills.builtinProgress', { done: builtinInstalled, total: builtinTotal }) }}
+          {{ t('skills.builtinProgress', { done: recommendedInstalled, total: recommendedTotal }) }}
         </span>
         <button
           class="wb-btn icon ghost"
@@ -229,6 +255,16 @@ onMounted(load)
           @click="load"
         >
           <AppIcon name="refresh" :size="15" />
+        </button>
+        <button
+          v-if="missingRecommended.length > 0"
+          class="wb-btn"
+          :class="{ 'is-loading': installingRecommended }"
+          :disabled="installingRecommended"
+          @click="installRecommended"
+        >
+          <AppIcon name="download" :size="14" />
+          {{ t('skills.installRecommended', { n: missingRecommended.length }) }}
         </button>
         <button
           class="wb-btn ghost"

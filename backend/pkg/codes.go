@@ -11,7 +11,7 @@ const (
 	CodeFileNotFound = "1001" // 文件或目录不存在
 	CodePathOutside  = "1002" // 路径越界：不在允许的根目录内
 	CodeFileIO       = "1003" // 文件读写失败
-	CodeGitMissing   = "1100" // 内置 git 不可用
+	CodeGitMissing   = "1100" // git 不可用
 	CodeGitFailed    = "1101" // git 命令失败
 	CodeGitAuth      = "1102" // git 凭证被拒或无法登录
 
@@ -30,9 +30,10 @@ const (
 	CodeEngineBusy  = "5002" // 有任务正在占用引擎
 	CodeNotFound    = "5003" // 目标不存在
 
-	// 7000-7999 外部进程
-	CodeProvision   = "7000" // 安装 / 解压 / 装载失败
-	CodeRuntimeDown = "7001" // 内置运行时未就绪
+	// 7000-7999 外部进程 / 引擎入口
+	CodeProvision     = "7000" // 外部命令执行失败（pi CLI / git / 装包）
+	CodeEngineMissing = "7001" // 没有检测到可用的 pi 入口
+	CodeNodeMissing   = "7002" // 引擎入口是 CLI 脚本，但找不到 node
 
 	// 8000-8999 技能
 	CodeSkillBad    = "8000" // 技能路径或内容不合法

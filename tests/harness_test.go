@@ -36,21 +36,11 @@ func newHarness(t *testing.T) *harness {
 	gin.SetMode(gin.ReleaseMode)
 
 	dir := t.TempDir()
-	layout := pkg.Layout{
-		DataDir:      dir,
-		RuntimeDir:   filepath.Join(dir, "runtime"),
-		NodeDir:      filepath.Join(dir, "runtime", "node"),
-		GitDir:       filepath.Join(dir, "runtime", "PortableGit"),
-		PythonDir:    filepath.Join(dir, "runtime", "python"),
-		PiAppDir:     filepath.Join(dir, "pi-app"),
-		PiAgentDir:   filepath.Join(dir, "pi"),
-		CacheDir:     filepath.Join(dir, "cache"),
-		NpmCacheDir:  filepath.Join(dir, "cache", "npm"),
-		NpmGlobalDir: filepath.Join(dir, "cache", "npm-global"),
-		LogDir:       filepath.Join(dir, "logs"),
-		StorePath:    filepath.Join(dir, "workbaby.json"),
-		AssetsDir:    filepath.Join(dir, "assets"),
-	}
+	layout := pkg.ResolveLayout(dir, filepath.Join(dir, "assets"), true)
+	layout.PiAgentDir = filepath.Join(dir, "pi")
+	layout.LogDir = filepath.Join(dir, "logs")
+	layout.CacheDir = filepath.Join(dir, "cache")
+	layout.StorePath = filepath.Join(dir, "workbaby.json")
 	if err := pkg.EnsureDir(layout.PiAgentDir); err != nil {
 		t.Fatalf("准备目录失败：%v", err)
 	}
@@ -127,16 +117,13 @@ func repoAssetsDir(t *testing.T) string {
 	return dir
 }
 
-// defaultSkill 取清单里第一个指定默认态的技能。
-func defaultSkill(t *testing.T, wantOn bool) *service.BuiltinSkill {
+// firstRecommendedSkill 取推荐清单里的第一个技能（测试需要任意一个真实技能名）。
+func firstRecommendedSkill(t *testing.T) *service.RecommendedSkill {
 	t.Helper()
-	for i := range service.BuiltinSkills {
-		if service.BuiltinSkills[i].SkillDefaultOn == wantOn {
-			return &service.BuiltinSkills[i]
-		}
+	if len(service.RecommendedSkills) == 0 {
+		t.Fatal("推荐技能清单不能为空")
 	}
-	t.Fatalf("清单里应至少有一个默认启用=%v 的技能", wantOn)
-	return nil
+	return &service.RecommendedSkills[0]
 }
 
 // catalogHarness 只装技能/插件/MCP 需要的那一小撮依赖；assetsDir 为空时用临时目录。
@@ -146,13 +133,12 @@ func catalogHarness(t *testing.T, assetsDir string) (*service.App, pkg.Layout, *
 	if assetsDir == "" {
 		assetsDir = filepath.Join(dir, "assets")
 	}
-	layout := pkg.Layout{
-		DataDir:    dir,
-		PiAgentDir: filepath.Join(dir, "pi"),
-		AssetsDir:  assetsDir,
-		StorePath:  filepath.Join(dir, "workbaby.json"),
-		LogDir:     filepath.Join(dir, "logs"),
-	}
+	layout := pkg.ResolveLayout(dir, assetsDir, true)
+	layout.DataDir = dir
+	layout.PiAgentDir = filepath.Join(dir, "pi")
+	layout.LogDir = filepath.Join(dir, "logs")
+	layout.CacheDir = filepath.Join(dir, "cache")
+	layout.StorePath = filepath.Join(dir, "workbaby.json")
 	pkg.SetLogDir("")
 	if err := pkg.EnsureDir(layout.PiAgentDir); err != nil {
 		t.Fatalf("准备目录失败：%v", err)

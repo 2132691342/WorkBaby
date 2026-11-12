@@ -1,127 +1,114 @@
 <script setup lang="ts">
-// 一个运行时的「应用」页里的一行：版本、可做的动作、安装进度。
-// 不认识后端：能点什么由 AppRow 的 can_* 决定，动作由父组件发。
-// 动手前把「会发生什么」讲清楚；没就绪的给一句为什么。
+// 「应用」页里的一行：一个外部依赖的检测事实。
+// 这里只展示与复制，不提供安装——壳不代装用户的环境。
+// 没检测到时给的是「该去装什么」，不是一按钮点下去失败。
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
-import AppProgress from '@/components/apps/AppProgress.vue'
 import type { AppRow } from '@/types/api'
 import type { AppProgressLog } from '@/stores/app'
 
 const props = defineProps<{
   row: AppRow
-  /** 这个运行时当前的长任务现场；没有就是 null */
+  /** 这个应用当前的长任务现场；没有就是 null */
   progress: AppProgressLog | null
-  /** 正在跑（父组件发起的请求还没回来） */
+  /** 正在检测 */
   busy: boolean
   copied: string
 }>()
 
 const emit = defineEmits<{
-  run: [action: 'install' | 'update' | 'uninstall']
+  reset: []
   copy: [text: string]
 }>()
 
 const { t } = useI18n()
 const detailsOpen = ref(false)
 
-/** 有现场或正在跑才展开进度；跑完自动收起。 */
-const showProgress = computed(() => Boolean(props.progress || props.busy))
-
-/** 版本状态各有各的说法，绝不混用。 */
-const versionState = computed<'current' | 'none'>(() => (props.row.installed ? 'current' : 'none'))
-
-/** 内置运行时不需要用户动手，动作只对 pi 出现。 */
-const actionable = computed(() => props.row.can_install || props.row.can_update || props.row.can_uninstall)
+/** pi 是硬依赖：它缺了就没法干活，界面上要更显眼。 */
+const isRequired = computed(() => props.row.required)
+/** 手动指定过路径才给「回到自动探测」。 */
+const canReset = computed(() => props.row.can_locate && props.row.app_source === 'manual')
+/** 入口路径过长时中间省略，别把卡片撑破。 */
+const shortPath = computed(() => {
+  const path = props.row.app_path
+  if (path.length <= 64) return path
+  return `${path.slice(0, 28)}…${path.slice(-32)}`
+})
 </script>
 
 <template>
-  <article class="app-card">
+  <article class="app-card" :class="{ missing: !row.installed, required: isRequired }">
     <div class="app-row">
       <div class="app-ident">
         <span class="app-badge" :class="{ on: row.installed }">{{ row.app_name }}</span>
-        <span class="app-ver mono">{{ row.installed ? row.app_version || '—' : t('apps.notInstalled') }}</span>
-        <span v-if="versionState === 'current'" class="tag ok">{{ t('apps.ready') }}</span>
+        <span class="app-ver mono">{{ row.installed ? row.app_version || '—' : t('apps.notDetected') }}</span>
+        <span v-if="row.installed" class="tag ok">{{ t('apps.ready') }}</span>
+        <span v-else-if="isRequired" class="tag bad">{{ t('apps.required') }}</span>
       </div>
 
       <div class="app-channel">
-        <span v-if="row.install_note" class="ch-value">{{ row.install_note }}</span>
+        <button v-if="row.app_path" class="path-btn mono" :title="row.app_path" @click="emit('copy', row.app_path)">
+          {{ shortPath }}
+          <AppIcon :name="copied === row.app_path ? 'check' : 'copy'" :size="12" />
+        </button>
+        <span v-else class="ch-value">{{ row.install_note || t('apps.notDetected') }}</span>
       </div>
 
-      <div v-if="actionable" class="app-actions">
-        <button
-          v-if="!row.installed"
-          class="wb-btn primary sm"
-          :class="{ 'is-loading': busy }"
-          :disabled="!row.can_install || busy"
-          @click="emit('run', 'install')"
-        >
-          <AppIcon name="download" :size="13" />
-          {{ t('common.install') }}
-        </button>
-        <template v-else>
-          <button
-            v-if="row.can_update"
-            class="wb-btn sm"
-            :class="{ 'is-loading': busy }"
-            :disabled="busy"
-            @click="emit('run', 'update')"
-          >
-            <AppIcon name="refresh" :size="13" />
-            {{ t('common.update') }}
-          </button>
-          <button
-            v-if="row.can_uninstall"
-            class="wb-btn sm danger"
-            :class="{ 'is-loading': busy }"
-            :disabled="busy"
-            @click="emit('run', 'uninstall')"
-          >
-            <AppIcon name="trash" :size="13" />
-            {{ t('common.uninstall') }}
-          </button>
-        </template>
-        <button class="wb-btn sm ghost" :title="t('apps.fileDetail')" @click="detailsOpen = !detailsOpen">
-          <AppIcon name="terminal" :size="13" />
+      <div class="app-actions">
+        <span v-if="row.app_source && row.app_source !== 'none'" class="src mono">{{ row.app_source }}</span>
+        <button v-if="canReset" class="wb-btn sm ghost" @click="emit('reset')">
+          {{ t('apps.resetPath') }}
         </button>
       </div>
     </div>
 
-    <!-- 落点路径：装着的才显示，没装的不给一个不存在的路径 -->
-    <div v-if="row.installed || detailsOpen" class="app-facts">
-      <span class="fact wide">
-        <span class="fact-label">PATH</span>
-        <code class="fact-value mono selectable">{{ row.app_path }}</code>
-      </span>
-    </div>
-
-    <!-- 「为什么这条按钮不能点」比一个灰按钮有用得多 -->
-    <p v-if="row.blocker" class="blocker">
-      <AppIcon name="alert" :size="12" />
+    <p v-if="row.blocker" class="app-blocker">
+      <AppIcon name="alert" :size="13" />
       {{ row.blocker }}
     </p>
+    <p v-else-if="!row.installed && row.install_note" class="app-hint">{{ row.install_note }}</p>
 
-    <AppProgress v-if="showProgress" :progress="progress" :busy="props.busy" />
+    <details v-if="row.install_note" class="app-details" :open="detailsOpen" @toggle="detailsOpen = !detailsOpen">
+      <summary>{{ t('apps.howTo') }}</summary>
+      <p class="app-note">{{ row.install_note }}</p>
+    </details>
+
+    <div v-if="progress || busy" class="app-progress">
+      <span class="spin" v-if="busy || progress?.phase === 'start' || progress?.phase === 'line'" />
+      <span class="mono">{{ progress?.message || progress?.lines?.[progress.lines.length - 1] || t('apps.detecting') }}</span>
+    </div>
   </article>
 </template>
 
 <style scoped>
-/* 一行一个运行时：标识 / 说明 / 动作横向排开，竖向空间留给进度。 */
 .app-card {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-2);
   padding: var(--wb-sp-3) var(--wb-sp-4);
+  background: var(--wb-surface);
   border: 1px solid var(--wb-line);
   border-radius: var(--wb-r-lg);
-  background: var(--wb-surface);
+  box-shadow: var(--wb-card-shadow);
+  transition:
+    border-color var(--wb-dur) var(--wb-ease),
+    box-shadow var(--wb-dur) var(--wb-ease);
+}
+
+.app-card:hover {
+  border-color: var(--wb-line-strong);
+  box-shadow: var(--wb-card-shadow-hover);
+}
+
+.app-card.missing.required {
+  border-color: color-mix(in srgb, var(--wb-bad) 40%, var(--wb-line));
 }
 
 .app-row {
   display: flex;
   align-items: center;
-  gap: var(--wb-sp-4);
+  gap: var(--wb-sp-3);
   flex-wrap: wrap;
 }
 
@@ -129,97 +116,125 @@ const actionable = computed(() => props.row.can_install || props.row.can_update 
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  flex-wrap: wrap;
-  min-width: 0;
+  min-width: calc(var(--wb-w-input-sm) * 3);
 }
 
 .app-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 9px;
-  border: 1px solid var(--wb-line);
-  border-radius: var(--wb-r-full);
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-2xs);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--wb-mute);
+  font-weight: 600;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink);
 }
 
 .app-badge.on {
-  color: var(--wb-brand);
-  border-color: var(--wb-brand-3);
-  background: var(--wb-brand-soft);
+  color: var(--wb-brand-strong);
 }
 
 .app-ver {
   font-size: var(--wb-fs-xs);
-  color: var(--wb-ink-5);
+  color: var(--wb-mute);
 }
 
 .app-channel {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  min-width: 0;
   flex: 1;
+  min-width: 0;
+}
+
+.path-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--wb-r-sm);
+  background: transparent;
+  color: var(--wb-ink-2);
+  font-size: var(--wb-fs-xs);
+  cursor: pointer;
+  transition:
+    background var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease);
+}
+
+.path-btn:hover {
+  background: var(--wb-hover);
+  border-color: var(--wb-line);
+}
+
+.path-btn:active {
+  transform: scale(var(--wb-press-active));
 }
 
 .ch-value {
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-faint);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
 }
 
 .app-actions {
   display: flex;
-  gap: var(--wb-sp-2);
-  flex: none;
-}
-
-.app-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--wb-sp-4);
-}
-
-.fact {
-  display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
-  min-width: 0;
 }
 
-.fact.wide {
-  flex: 1 1 320px;
-}
-
-.fact-label {
+.src {
   font-size: var(--wb-fs-3xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--wb-faint);
+  padding: 2px 6px;
+  border-radius: var(--wb-r-xs);
+  background: var(--wb-tint);
 }
 
-.fact-value {
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-ink-5);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mono {
-  font-family: var(--wb-font-mono);
-}
-
-.blocker {
+.app-blocker {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--wb-sp-1);
   margin: 0;
-  font-size: var(--wb-fs-2xs);
-  line-height: 1.6;
-  color: var(--wb-warn);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-bad);
+}
+
+.app-hint {
+  margin: 0;
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+}
+
+.app-details {
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+}
+
+.app-details summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.app-note {
+  margin: var(--wb-sp-1) 0 0;
+  line-height: 1.7;
+  color: var(--wb-ink-2);
+}
+
+.app-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+}
+
+.spin {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--wb-brand-line);
+  border-top-color: var(--wb-brand);
+  border-radius: var(--wb-r-full);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

@@ -57,8 +57,12 @@ type EngineIdentity struct {
 	EngineKind EngineKind `json:"engine_kind"`
 	// EngineLabel 界面上的名字
 	EngineLabel string `json:"engine_label"`
-	// EngineExe 入口文件绝对路径
+	// EngineExe 可直接执行的入口路径
 	EngineExe string `json:"engine_exe"`
+	// EngineScript 需要 node 解释的 CLI 脚本；空表示入口本身可执行
+	EngineScript string `json:"engine_script,omitempty"`
+	// EngineSource 发现方式：manual / path / npm-global / none
+	EngineSource string `json:"engine_source"`
 	// EngineVersion 版本
 	EngineVersion string `json:"engine_version"`
 	// Installed 是否已安装
@@ -71,9 +75,7 @@ type EngineIdentity struct {
 type EngineLayoutVO struct {
 	// EngineKind 引擎种类
 	EngineKind EngineKind `json:"engine_kind"`
-	// RootDir 引擎根目录
-	RootDir string `json:"root_dir"`
-	// AgentDir 引擎家目录
+	// AgentDir 引擎家目录（用户自己的 ~/.pi/agent）
 	AgentDir string `json:"agent_dir"`
 	// SessionsDir 会话目录
 	SessionsDir string `json:"sessions_dir"`
@@ -87,9 +89,9 @@ type EngineLayoutVO struct {
 	DirExists bool `json:"dir_exists"`
 }
 
-// AppRowVO 是应用页的一行：一个运行时 / 引擎的安装事实与可做的动作。
+// AppRowVO 是应用页的一行：一个外部依赖的检测事实与可做的动作。
 type AppRowVO struct {
-	// AppKey 应用标识（node / git / python / pi）
+	// AppKey 应用标识（pi / node / git / python）
 	AppKey string `json:"app_key"`
 	// AppName 界面上的名字
 	AppName string `json:"app_name"`
@@ -99,19 +101,15 @@ type AppRowVO struct {
 	AppPath string `json:"app_path"`
 	// Installed 是否已就绪
 	Installed bool `json:"installed"`
-	// Builtin 是否随包分发（内置运行时与 pi 都是）
-	Builtin bool `json:"builtin"`
-	// CanInstall 是否提供安装动作
-	CanInstall bool `json:"can_install"`
-	// CanUpdate 是否提供升级动作
-	CanUpdate bool `json:"can_update"`
-	// CanUninstall 是否提供卸载动作
-	CanUninstall bool `json:"can_uninstall"`
-	// Busy 是否有安装任务正在占用它
-	Busy bool `json:"busy"`
+	// Required 是否为本应用的硬依赖（pi 是，其余只是能力加成）
+	Required bool `json:"required"`
+	// AppSource 发现方式：manual / path / npm-global / none
+	AppSource string `json:"app_source"`
+	// CanLocate 是否提供「指定位置」动作
+	CanLocate bool `json:"can_locate"`
 	// Blocker 不能操作的原因；空表示没阻碍
 	Blocker string `json:"blocker,omitempty"`
-	// InstallNote 安装动作的一句话说明
+	// InstallNote 装不上时告诉用户该去装什么；壳不代装
 	InstallNote string `json:"install_note,omitempty"`
 }
 
@@ -149,38 +147,37 @@ type BootBootstrapRESP struct {
 	Layouts []EngineLayoutVO `json:"layouts"`
 	// Workspaces 工作区历史
 	Workspaces []WorkspaceRowVO `json:"workspaces"`
-	// Runtime 内置运行时状态
+	// Runtime 外部依赖的检测状态
 	Runtime RuntimeStatusVO `json:"runtime"`
 	// Prefs 应用偏好
 	Prefs AppPrefsVO `json:"prefs"`
 }
 
-// RuntimeStatusVO 是三个内置运行时的就绪状态。
+// RuntimeStatusVO 是外部依赖的检测状态。
+// 全部来自用户自己的环境：壳不随包分发运行时，也不代用户安装。
 type RuntimeStatusVO struct {
-	// NodeReady 内置 Node.js 是否就绪
+	// NodeReady 是否找到 node（pi 入口是 CLI 脚本时必需）
 	NodeReady bool `json:"node_ready"`
-	// NodeVersion 内置 Node.js 版本
+	// NodeVersion node 版本
 	NodeVersion string `json:"node_version"`
-	// GitReady 内置 git 是否就绪
+	// GitReady 是否找到 git（工作区的版本控制能力）
 	GitReady bool `json:"git_ready"`
-	// GitVersion 内置 git 版本
+	// GitVersion git 版本
 	GitVersion string `json:"git_version"`
-	// PythonReady 内置 Python 是否就绪
+	// PythonReady 是否找到 python（部分技能要用）
 	PythonReady bool `json:"python_ready"`
-	// PythonVersion 内置 Python 版本
+	// PythonVersion python 版本
 	PythonVersion string `json:"python_version"`
-	// PiReady pi 本体是否就绪
+	// PiReady pi 是否可用：本应用的硬依赖，缺了就没法干活
 	PiReady bool `json:"pi_ready"`
-	// PiVersion pi 本体版本
+	// PiVersion pi 版本
 	PiVersion string `json:"pi_version"`
-	// Provisioning 是否有解压 / 安装正在后台进行
-	Provisioning bool `json:"provisioning"`
-}
-
-// RuntimeRepairRESP 是运行时修复的结果。
-type RuntimeRepairRESP struct {
-	// RepairProblems 修复过程中的失败原因；空数组即全部成功
-	RepairProblems []string `json:"repair_problems"`
+	// PiSource pi 的发现方式：manual / path / npm-global / none
+	PiSource string `json:"pi_source"`
+	// DetectionHint 缺依赖时给用户的一句话指引
+	DetectionHint string `json:"detection_hint,omitempty"`
+	// Detecting 是否有探测 / 预热正在后台进行
+	Detecting bool `json:"detecting"`
 }
 
 // WorkspaceRowVO 是一条工作区历史。
@@ -362,6 +359,12 @@ type RememberSessionREQ struct {
 type OpenTargetREQ struct {
 	// TargetPath 目标绝对路径
 	TargetPath string `json:"target_path"`
+}
+
+// PiPathREQ 是手动指定 pi 入口的入参；空串表示回到自动探测。
+type PiPathREQ struct {
+	// PiPath pi 的可执行文件或已安装的包目录
+	PiPath string `json:"pi_path"`
 }
 
 // OkRESP 是只要一个成功标志的通用出参。
