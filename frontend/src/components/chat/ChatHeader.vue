@@ -30,13 +30,13 @@ async function compact(): Promise<void> {
   }
 }
 
-/** 当前会话是否装了 pi-plan-mode：引擎把扩展命令经 get_commands 报上来。 */
+/** 计划模式是否可用：引擎把内置斜杠命令清单报上来。 */
 const planAvailable = computed(() => chat.commands.some((c) => c.command_name === 'plan'))
 
 /**
  * 切换计划模式。
  *
- * 走引擎的 `/plan` 命令而不是壳自己记一个开关：真正的拦截发生在插件里，
+ * 走引擎的 `/plan` 命令而不是壳自己记一个开关：真正的拦截发生在工具注册表上，
  * 壳只负责把用户的意图送进去，再把结果从会话文件回放回来。
  * 本地说反了就会出现「界面说只读、实际上还能写」——那比没有这个开关更糟。
  */

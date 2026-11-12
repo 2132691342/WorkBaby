@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 待办面板：引擎侧 rpiv-todo 插件的 todo 工具调用派生，只读展示。
+// 待办面板：由会话里的 todo 工具调用派生，只读展示。
 // 面板管不到清单内容——改清单是模型的事，界面别抢；这里只把「做到哪了」摆出来。
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

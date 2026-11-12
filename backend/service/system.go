@@ -5,7 +5,6 @@ import (
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
-	"WorkBaby/backend/service/engine"
 	"WorkBaby/backend/service/platform"
 )
 
@@ -41,11 +40,12 @@ type configFileSpec struct {
 }
 
 // configFiles 列出可查看的配置文件（白名单，不接受外部路径）。
-// auth.json 不在列：密钥只在「密钥恒为掩码」的服务商页流转，不走原文查看。
+// 凭据不在列：密钥只在「密钥恒为掩码」的服务商页流转，不走原文查看。
+// 服务商与模型的真相在 SQLite 里，不是有独立文件的 JSON——所以这份清单里
+// 只有设置台账与 MCP 两份 JSON；数据库本体是二进制，列出来也没法预览。
 func configFiles(layout pkg.Layout) []domain.ConfigFileVO {
 	specs := []configFileSpec{
-		{name: "settings", label: "settings.json", path: layout.SettingsFile()},
-		{name: "models", label: "models.json", path: layout.ModelsFile()},
+		{name: "settings", label: "workbaby.json", path: layout.StorePath},
 		{name: "mcp", label: "mcp.json", path: layout.McpFile()},
 	}
 	out := make([]domain.ConfigFileVO, 0, len(specs))
@@ -90,21 +90,17 @@ func ConfigText(layout pkg.Layout, name string) (domain.ConfigTextRESP, error) {
 }
 
 // RuntimeStatus 汇总外部依赖的检测状态：全部来自用户自己的环境。
-func RuntimeStatus(rt *engine.Runtime) domain.RuntimeStatusVO {
-	entry := rt.Resolve()
+// 引擎本身在进程内，不需要探测；这里只报工作区工具链。
+func RuntimeStatus() domain.RuntimeStatusVO {
 	status := domain.RuntimeStatusVO{
-		NodeReady:     pkg.LookPath("node") != "",
-		NodeVersion:   rt.NodeVersion(),
-		GitReady:      pkg.LookPath("git") != "",
-		GitVersion:    rt.GitVersion(),
-		PythonReady:   pkg.LookPath("python") != "" || pkg.LookPath("python3") != "",
-		PythonVersion: rt.PythonVersion(),
-		PiReady:       entry.Command != "",
-		PiVersion:     rt.PiVersion(),
-		PiSource:      entry.Source,
+		NodeReady:   pkg.LookPath("node") != "",
+		GitReady:    pkg.LookPath("git") != "",
+		GitVersion:  gitVersion(),
+		PythonReady: pkg.LookPath("python") != "" || pkg.LookPath("python3") != "",
+		EngineReady: true,
 	}
-	if !status.PiReady {
-		status.DetectionHint = engine.ShellHint()
+	if !status.GitReady {
+		status.DetectionHint = "没有找到 git：工作区的版本控制不可用，装一个 Git for Windows 就有了"
 	}
 	return status
 }
@@ -112,12 +108,11 @@ func RuntimeStatus(rt *engine.Runtime) domain.RuntimeStatusVO {
 // EngineLayout 输出引擎落盘布局。
 func EngineLayout(layout pkg.Layout) domain.EngineLayoutVO {
 	return domain.EngineLayoutVO{
-		EngineKind:   domain.EnginePi,
-		AgentDir:     layout.PiAgentDir,
-		SessionsDir:  layout.SessionsDir(),
-		SkillsDir:    layout.SkillsDir(),
-		PluginsDir:   layout.PluginRoot(),
-		SettingsFile: layout.SettingsFile(),
-		DirExists:    pkg.IsDir(layout.PiAgentDir),
+		EngineKind:   domain.EngineNative,
+		AgentDir:     layout.DataDir,
+		SessionsDir:  layout.SessionsDir,
+		SkillsDir:    layout.SkillsDir,
+		SettingsFile: layout.StorePath,
+		DirExists:    pkg.IsDir(layout.DataDir),
 	}
 }

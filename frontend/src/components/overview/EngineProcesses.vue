@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 引擎进程：当前实例的明细。引擎是常驻子进程，用户能感受到的是「机器变卡」
-// 而界面上一句解释都没有——这里给出 PID、跑了多久、忙不忙、调过几次，以及重启它。
+// 引擎运行状态：当前在不在、忙不忙。
+// 引擎是进程内的原生实现，没有 PID 与启动时刻——
+// 用户能感受到的是「它此刻在不在干活」，界面上一句解释都没有，所以这里给个读数。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -18,17 +19,6 @@ const props = defineProps<{
 const emit = defineEmits<{ restart: []; refresh: [] }>()
 
 const { t } = useI18n()
-
-/** 存活时长：分钟以内说「刚刚」，超过一天说天数。 */
-function uptime(startedAt: number): string {
-  if (!startedAt) return ''
-  const min = Math.floor((Date.now() - startedAt) / 60000)
-  if (min < 1) return t('overview.justNow')
-  if (min < 60) return `${min}${t('overview.minutes')}`
-  const hours = Math.floor(min / 60)
-  if (hours < 24) return `${hours}${t('overview.hours')}`
-  return `${Math.floor(hours / 24)}${t('overview.days')}`
-}
 
 const running = computed(() => Boolean(props.instance?.running))
 </script>
@@ -59,9 +49,7 @@ const running = computed(() => Boolean(props.instance?.running))
         <span class="dot" :class="props.instance?.busy ? 'busy' : 'ok'" />
         <span class="proc-kind">{{ props.instance?.engine_label }}</span>
         <span class="proc-meta mono">
-          <span v-if="props.instance?.process_id">pid {{ props.instance?.process_id }}</span>
-          <span v-if="uptime(props.instance?.started_at ?? 0)">{{ uptime(props.instance?.started_at ?? 0) }}</span>
-          <span v-if="props.instance?.call_count">{{ t('overview.calls', { n: props.instance?.call_count }) }}</span>
+          <span v-if="props.instance?.busy">{{ t('overview.busy') }}</span>
         </span>
 
         <!-- 忙的那一个不给重启：重启等于把用户正在看的那一轮打断。
@@ -79,9 +67,9 @@ const running = computed(() => Boolean(props.instance?.running))
       </div>
     </div>
 
-    <!-- 最近一次命令失败：它是「这个引擎刚才为什么不听话」的唯一线索 -->
-    <p v-if="props.instance?.last_error" class="proc-error">
-      <span class="mono">{{ props.instance?.engine_label }}</span> · {{ props.instance?.last_error }}
+    <!-- 最近一次失败：它是「这个引擎刚才为什么不听话」的唯一线索 -->
+    <p v-if="props.instance?.engine_label" class="proc-error">
+      <span class="mono">{{ props.instance.engine_label }}</span>
     </p>
   </section>
 </template>

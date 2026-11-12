@@ -96,12 +96,12 @@
    --wb-brand 是一支浅靛蓝，写死深靛蓝会让按钮在悬停时反而变暗。 */
 .wb-btn.primary {
   --btn-bg: var(--wb-brand);
-  --btn-fg: #fff;
+  --btn-fg: var(--wb-brand-ink);
   --btn-line: var(--wb-brand);
   --btn-bg-hover: var(--wb-brand-strong);
 }
 .wb-btn.primary:hover:not(:disabled):not(.is-loading) {
-  color: #fff;
+  color: var(--wb-brand-ink);
   border-color: var(--wb-brand-strong);
   box-shadow: 0 4px 14px var(--wb-brand-ring);
 }

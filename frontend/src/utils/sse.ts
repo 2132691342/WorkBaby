@@ -1,7 +1,7 @@
 // SSE 载荷的类型边界：把 JSON 解析出来的 unknown 树窄化成界面用的类型。
 // 全是纯函数、不碰 store；纪律是先校验再取字段，绝不 `as` 一个形状直接读成员——
 // 后端加删字段都会在这里被挡住，否则界面读到 undefined 还不知道发生了什么。
-import type { AppProgress, AskRequest, ChatBlock, ChatPatch, DiffLine, SlashCommand } from '@/types/api'
+import type { AppProgress, AskRequest, ChatBlock, ChatPatch, DiffLine, SlashCommand, TodoItem } from '@/types/api'
 
 /** 一个长任务的一次现场：动作、逐行输出、当前阶段。 */
 export interface AppProgressLog {
@@ -176,6 +176,32 @@ export function readAsk(v: Record<string, unknown>): AskRequest | null {
     ask_options: readStrings(v.ask_options),
     ask_timeout_ms: asNumber(v.ask_timeout_ms) || undefined,
   }
+}
+
+/**
+ * 窄化一组待办任务。
+ *
+ * 状态必须是三种之一：模型偶尔会给出别的词，
+ * 那种行交到面板上会渲染成一个既不是待办也不是完成的样子。
+ */
+export function readTodos(v: unknown): TodoItem[] {
+  if (!Array.isArray(v)) return []
+  const out: TodoItem[] = []
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const subject = asString(record.todo_subject)
+    const status = asString(record.todo_status)
+    if (!subject) continue
+    if (status !== 'pending' && status !== 'in_progress' && status !== 'completed') continue
+    out.push({
+      todo_id: asNumber(record.todo_id),
+      todo_subject: subject,
+      todo_status: status,
+      todo_active_form: asString(record.todo_active_form) || undefined,
+    })
+  }
+  return out
 }
 
 /**

@@ -8,9 +8,21 @@ import (
 	"time"
 )
 
+// SessionTimeFormat 是会话文件里的时间格式：UTC 毫秒精度。
+// 落盘用的时间格式必须稳定——会话文件是跨进程读的真相。
+// 常量住在 pkg 而不是 domain：pkg 是叶子，它不能反过来依赖 domain。
+const SessionTimeFormat = "2006-01-02T15:04:05.000Z"
+
 // NowMs 是全项目唯一的时间戳形态：毫秒 number。禁止 ISO 串进 DTO。
 func NowMs() int64 {
 	return time.Now().UnixMilli()
+}
+
+// NowISO 是会话文件里的时间形态：UTC 毫秒精度。
+// 只用于落盘——会话文件是跨进程读的真相，它的时间格式必须稳定；
+// DTO 与界面读数一律用毫秒 number。
+func NowISO() string {
+	return time.Now().UTC().Format(SessionTimeFormat)
 }
 
 // EnsureDir 建目录（含父级）；已存在不算错误。
@@ -140,7 +152,7 @@ func LookPath(name string) string {
 // candidatesOf 列出一个入口的所有可能落盘形态：原名，以及逐个补后缀的版本。
 func candidatesOf(path string) []string {
 	out := []string{path}
-	// 已经带已知后缀的只查原名：给 pi.cmd 再补成 pi.cmd.cmd 是白查。
+	// 已经带已知后缀的只查原名：给 foo.cmd 再补成 foo.cmd.cmd 是白查。
 	if ext := strings.ToLower(filepath.Ext(path)); ext != "" {
 		for _, want := range pathextOrder {
 			if ext == want {

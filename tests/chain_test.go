@@ -122,11 +122,16 @@ func TestChain(t *testing.T) {
 	}
 	lines := make(chan string, 64)
 	go func() {
+		defer close(lines)
 		scanner := bufio.NewScanner(res.Body)
 		for scanner.Scan() {
 			lines <- scanner.Text()
 		}
-		close(lines)
+		// 读出错也要报出来：连接半路断了会让 waitForLine 超时，
+		// 但那时的真实原因是传输错误，不是「帧没到」。
+		if err := scanner.Err(); err != nil {
+			lines <- "scan error: " + err.Error()
+		}
 	}()
 	waitForLine(t, lines, "stream:open")
 	h.app.Hub.Broadcast("test:probe", map[string]any{"probe": "ok"})

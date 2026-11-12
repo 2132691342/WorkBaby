@@ -52,7 +52,8 @@ export default {
     "forgetWorkspace": "Remove from recent",
     "workspaceForgotten": "Removed from recent",
     "aboutVersion": "UI version",
-    "aboutRuntime": "Bundled runtimes",
+    "aboutRuntime": "Environment",
+    "aboutEngineBuiltin": "Built-in engine",
     "runtimeMissing": "(not ready)",
     "redetect": "Detect again",
     "detected": "Detection refreshed",
@@ -61,7 +62,6 @@ export default {
     "layoutAgent": "Config dir",
     "layoutSessions": "Sessions",
     "layoutSkills": "Skills",
-    "layoutPlugins": "Plugins",
     "layoutSettings": "Settings file"
   },
 }

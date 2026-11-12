@@ -5,14 +5,14 @@
 | 需要 | 版本 | 说明 |
 |---|---|---|
 | Go | 1.26.x | 编译后端与壳 |
-| Node.js | ≥ 20 | **只用于构建前端**；运行时的 node 是随包分发的内置副本 |
+| Node.js | ≥ 20 | **只用于构建前端**；运行时不需要 node |
 | wails3 CLI | 3.1.x | `go install github.com/wailsapp/wails/v3/cmd/wails3@latest` |
 | Task | 3.x | 任务入口（可选，也可直接敲 go 命令） |
 | NSIS | 3.x | 只在打安装包时需要（`choco install nsis`） |
 | WebView2 Runtime | Win10 1803+ 自带 | Wails 渲染层 |
 
 不需要预装 Python / Rust / 任何 C 编译链——**全项目无 cgo**，
-壳的持久化就是标准库读写一个 JSON 文件。
+SQLite 走的是纯 Go 驱动。
 
 ## 常用命令
 
@@ -24,7 +24,6 @@ task dev        # wails3 dev：后端热重载 + Vite 热更
 task build      # 产出 bin\WorkBaby.exe
 task run        # 直接跑构建产物
 task test       # 场景测试（秒级）
-task test:live  # 真实沙箱链路：解压运行时 + 装 pi + RPC 握手（需联网，约 2 分钟）
 task check      # gofmt 检查 + go vet + 场景测试
 task package    # NSIS 安装包（需要 makensis）
 ```
@@ -62,26 +61,27 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 复述框架行为）不写——它们的维护成本高于收益。**一文件一个被测对象、一文件一个
 测试入口**：改哪个模块就看哪个文件，一处找全。
 
-七个测试入口 + 一个 live 入口，全部跑完约 2 秒：
+八个测试入口，全部跑完约 4 秒：
 
 | 文件 | 入口 | 断言什么 |
 |---|---|---|
-| `tests/chain_test.go` | `TestChain` | 回环 HTTP 全链路：鉴权硬门（401 且不带业务信封）、CORS 预检绕过鉴权门并带允许头（WebView2 虚拟源跨源调回环的前提）、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入落盘（HTTP 写 → 直查存储文件 → HTTP 读回）、SSE 通道（查询参数鉴权、先补 `stream:open`、广播到达、seq 单调） |
-| `tests/frames_test.go` | `TestFrames` | 流式翻译器的块表状态机：增量按块累加、工具块从出现到收尾、message_end 权威覆盖但按 id 保留工具读数、user 话术更新、用量透传 turn_end、stopReason=error 收尾带原话、settled 透传 abort、未知事件静默 no-op |
-| `tests/session_test.go` | `TestSession` | 会话 JSONL 回放与写入纪律：分支只走当前分支、残行不毁整份历史、环状 parentId 有界退出、工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题来源、计划模式只认活动分支上最后一条 plan-mode 条目；隐藏轮只记台账不改文件、改名只末尾追加、引擎正打开时拒绝 |
-| `tests/sandbox_test.go` | `TestSandbox` | 沙箱三层契约：内置清单结构不变量与磁盘资产互相咬合（插件包名唯一且来源串反解回原包名——装 / 卸 / 开关全按包名索引；10 个技能与 assets 双向无死条目、frontmatter 块标量不破）、子进程环境把 HOME / USERPROFILE / npm 与 pip 缓存钉进沙箱、技能落位/开关/重置/删除/自愈整条生命周期 |
-| `tests/plugin_test.go` | `TestPlugins` | 插件治理：启停两态写法、用户配的资源过滤保留、重试不动开关、卸载撤声明删包目录、版本漂移只碰装歪的包 |
-| `tests/governance_test.go` | `TestMcpConfig` / `TestLegacyCleanup` | mcp.json 的并发读写锁与作用域遮蔽；历史 SQLite 文件的清理边界（只删确实是 SQLite 且 JSON 存储已立起的遗留文件） |
+| `tests/agent_test.go` | `TestEngineAssemblesStreamFragments` / `TestEngineToolBoundary` | 引擎核心链路：正文分片拼成完整回复、工具入参分片拼成合法 JSON、思考分片不丢、落盘与内存一致；工具的工作区边界（越界读不到）与文件工具往返（写 / 读 / 改 / 差异回传） |
+| `tests/session_test.go` | `TestSessionReplay` / `TestSessionWriteDiscipline` / `TestSessionFormatContract` | 会话回放的健壮性（分支只走活动分支、残行不毁整份历史、环状父指针有界退出）与组装规则（工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题来源、计划模式只认最后一条）；写入纪律（隐藏只记台账不动文件、改名只追加、引擎正打开时拒绝且不动文件）；引擎落盘格式与回放层对齐（含会话目录编码一致） |
+| `tests/chain_test.go` | `TestChain` | 回环 HTTP 全链路：鉴权硬门（401 且不带业务信封）、CORS 预检绕过鉴权门并带允许头、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入落盘（HTTP 写 → 直查存储文件 → HTTP 读回）、SSE 通道（查询参数鉴权、先补 `stream:open`、广播到达、seq 单调） |
+| `tests/builtin_test.go` | `TestTodoRoundTrip` / `TestPlanModeGate` / `TestTidyFold` | 引擎内置能力：待办清单整份替换且随结果落盘、回放层能复原；计划模式闸门（写工具被拦、读工具放行、未登记工具默认按写处理、系统提示写明被拦的是哪些、退出后恢复自由）；工具输出折叠（短输出原样、长输出折成头尾加标记、策略关掉后原样） |
+| `tests/skills_test.go` | `TestSkills` | 内置清单与磁盘资产互相咬合（少一边就是死条目、SKILL.md 头能解析出描述）；子进程环境不遮蔽 HOME；技能全生命周期（不自动落位、重复安装拒绝、不覆盖用户改动、开关 = 搬目录 + 记账、重置后仍是可读文件、删除清整个目录且目录路径拒绝、项目技能不受壳管辖） |
+| `tests/governance_test.go` | `TestMcpConfig` | `mcp.json` 的并发读写纪律（12 路并发读-改-写一条不丢）与作用域遮蔽（删项目级条目不连带删被遮蔽的用户级条目） |
+| `tests/index_test.go` | `TestIndexBuildFindsFilesAndSymbols` / `TestIndexSearchRanksSymbolFirst` / `TestFrecencyPromotesRecentHits` / `TestIndexSkipsNoiseDirectories` | 预索引：源文件与符号进索引、二进制不进、符号命中排在文件命中之前、常用近用的排更前、依赖目录不进索引 |
+| `tests/web_test.go` | `TestWebAddressGuard` / `TestWebExtractReadable` / `TestWebSearchRedirect` / `TestWebEndpoints` | 联网能力：内网与本机地址被拦（环回 / 私网 / 链路本地 / CGNAT / 非 http 协议）；正文抽取留下内容、去掉脚本与导航、还原实体；搜索跳转链接还原；接口链路接上且接口层也挡住内网地址、设置能持久化、不认识的服务商被拒 |
 | `tests/git_test.go` | `TestConflictResolve` | 用真 git 造一次真冲突，断言三个口径各自落成什么：`ours` 留当前分支、`theirs` 留合进来那方、两者都不许残留冲突标记且必须已暂存；空路径与未知口径直接拒。本机没 git 时跳过 |
-| `tests/harness_test.go` | — | 公共装具：满装后端 harness（真 JSON 存储 + 真 gin 中间件栈）与轻量 catalog harness、HTTP 调用与断言辅助 |
-| `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：探测本机 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑 |
+| `tests/harness_test.go` | — | 公共装具：满装后端 harness（真 JSON 存储 + 真 SQLite + 真 gin 中间件栈）与轻量 catalog harness、HTTP 调用与断言辅助 |
 
 约定：
 
 - 位置在仓库根 `tests/`，一文件一个被测对象
 - 每个测试用 `t.TempDir()` 造独立布局，不碰真实数据目录与仓库资产
 - 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`
-- 需要真实引擎或网络的路径放 `live` 标签后，不留假绿
+- 需要真实网络或真实上游的路径不写假绿用例
 
 ## 门禁
 
@@ -99,13 +99,12 @@ go test ./tests -count=1                                # 4 场景测试全绿
 | 现象 | 先看哪里 |
 |---|---|
 | 窗口起来但一片空 | 设置页 → 诊断 → 日志；`Endpoint()` 的错误会在前端渲染成诊断页 |
-| 没检测到 pi | 终端里 `pi --version` 能不能跑；PATH 是否包含它；否则在应用页「指定位置」 |
-| pi 入口是脚本但起不来 | 必须有 node：`node --version` 能跑吗 |
-| 插件装了没生效 | `~/.pi/agent/settings.json` 的 `packages[]` 是否真有该条目且未 `autoload:false` |
-| 插件换了版本还是旧行为 | 包只在引擎启动时加载：停用再启用，或重启引擎 |
-| 技能不出现 | 是否在 `~/.pi/agent/skills\`（不是 `skills_disabled\`）；SKILL.md 头是否合法 |
+| 发消息没反应 | 模型页有没有选服务商与模型；密钥是否填了；概览页的运行时状态 |
 | git 面板说不可用 | `git --version` 能跑吗；壳用系统装的 git，不随包 |
+| 技能不出现 | 是否在 `data\skills\`（不是 `skills_disabled\`）；SKILL.md 头是否合法 |
+| 联网搜索报不通 | 设置页选的搜索服务有没有填密钥；免密钥的 DuckDuckGo 是默认 |
 | 打安装包报 makensis 找不到 | 装 NSIS 并把安装目录加进 PATH |
+| 前端改动没生效 | `task dev` 会并行跑两次构建；先停掉旧的 dev 进程再起 |
 
 ## 打包与发布
 
@@ -122,7 +121,7 @@ WorkBaby\
 ```
 
 前端产物经 `//go:embed all:frontend/dist` 编进 exe，**不额外分发静态文件**。
-运行时不随包发：node / git / python 全部用系统已装的。
+运行时不随包发：git / node / python 全部用系统已装的。
 
 体积基线：`assets\skills` 约 0.8MB、exe 约 32MB。安装包体积应该在十几 MB 量级；
 出现 100MB+ 说明有人把运行时 zip 又拷回了 `assets\`。
@@ -158,7 +157,7 @@ task package    # NSIS 安装包，per-user 安装、可选安装目录
 
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
-| `.github/workflows/ci.yml` | push / PR → main | gofmt 检查 → `npm ci` → 前端类型检查与产物 → `go vet` → `go test ./tests` → `go build ./...` |
+| `.github/workflows/ci.yml` | push / PR → main | gofmt 检查 → `npm ci` → 生成前端绑定 → 前端类型检查与产物 → `go vet` → `go test ./tests` → `go build ./...` |
 | `.github/workflows/release.yml` | push tag `v*` | 装 wails3 与 NSIS → 校验 tag 与 HEAD 一致 → `npm ci` → 前端产物 → `go test` → `wails3 package` → 上传安装包到 Release |
 
 两个工作流都需要 `windows-latest`（Wails3 的 WebView2 胶水只在 Windows 上编），
@@ -183,10 +182,9 @@ task build                       # exe 产出并可启动
 安装后验证清单：
 
 1. 首次启动窗口按时出现（不黑屏、不假死）
-2. 概览页进度条走完：运行时 → 技能 → 插件
-3. 设置页诊断：node / git / python / pi 四个版本号都有值
-4. 对话页发一句话能流式回来
-5. 插件页能停用一个、再启用回来
-6. 技能页能停用一个、再启用回来（`skills\` 与 `skills_disabled\` 之间搬移）
-7. 关窗收托盘、托盘菜单能唤回
-8. 卸载弹窗选「否」后 `%LOCALAPPDATA%\WorkBaby` 仍在；选「是」则连数据一起清空
+2. 模型页能新增一个服务商并保存
+3. 对话页发一句话能流式回来
+4. 技能页能停用一个、再启用回来（`skills\` 与 `skills_disabled\` 之间搬移）
+5. 工作区页能看见文件与 git 状态
+6. 关窗收托盘、托盘菜单能唤回
+7. 卸载弹窗选「否」后 `%LOCALAPPDATA%\WorkBaby` 仍在；选「是」则连数据一起清空

@@ -37,11 +37,14 @@ func newHarness(t *testing.T) *harness {
 
 	dir := t.TempDir()
 	layout := pkg.ResolveLayout(dir, filepath.Join(dir, "assets"), true)
-	layout.PiAgentDir = filepath.Join(dir, "pi")
+	layout.DataDir = filepath.Join(dir, "data")
+	layout.SessionsDir = filepath.Join(dir, "data", "sessions")
+	layout.SkillsDir = filepath.Join(dir, "data", "skills")
+	layout.SkillsOffDir = filepath.Join(dir, "data", "skills_disabled")
 	layout.LogDir = filepath.Join(dir, "logs")
 	layout.CacheDir = filepath.Join(dir, "cache")
 	layout.StorePath = filepath.Join(dir, "workbaby.json")
-	if err := pkg.EnsureDir(layout.PiAgentDir); err != nil {
+	if err := pkg.EnsureDir(layout.DataDir); err != nil {
 		t.Fatalf("准备目录失败：%v", err)
 	}
 	pkg.SetLogDir("")
@@ -52,7 +55,12 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	hub := sse.New(64)
-	app := service.New(service.Options{Layout: layout, Store: store, Hub: hub, Version: "test"})
+	db, err := repo.OpenDB(layout.DatabasePath())
+	if err != nil {
+		t.Fatalf("开数据库失败：%v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	app := service.New(service.Options{Layout: layout, Store: store, DB: db, Hub: hub, Version: "test"})
 	return &harness{t: t, layout: layout, app: app, store: store, server: api.New(app, hub, testToken)}
 }
 
@@ -126,7 +134,7 @@ func firstRecommendedSkill(t *testing.T) *service.RecommendedSkill {
 	return &service.RecommendedSkills[0]
 }
 
-// catalogHarness 只装技能/插件/MCP 需要的那一小撮依赖；assetsDir 为空时用临时目录。
+// catalogHarness 只装技能/MCP 需要的那一小撮依赖；assetsDir 为空时用临时目录。
 func catalogHarness(t *testing.T, assetsDir string) (*service.App, pkg.Layout, *repo.Store) {
 	t.Helper()
 	dir := t.TempDir()
@@ -135,12 +143,14 @@ func catalogHarness(t *testing.T, assetsDir string) (*service.App, pkg.Layout, *
 	}
 	layout := pkg.ResolveLayout(dir, assetsDir, true)
 	layout.DataDir = dir
-	layout.PiAgentDir = filepath.Join(dir, "pi")
+	layout.SessionsDir = filepath.Join(dir, "sessions")
+	layout.SkillsDir = filepath.Join(dir, "skills")
+	layout.SkillsOffDir = filepath.Join(dir, "skills_disabled")
 	layout.LogDir = filepath.Join(dir, "logs")
 	layout.CacheDir = filepath.Join(dir, "cache")
 	layout.StorePath = filepath.Join(dir, "workbaby.json")
 	pkg.SetLogDir("")
-	if err := pkg.EnsureDir(layout.PiAgentDir); err != nil {
+	if err := pkg.EnsureDir(layout.DataDir); err != nil {
 		t.Fatalf("准备目录失败：%v", err)
 	}
 	store, err := repo.Open(layout.StorePath)
@@ -148,6 +158,12 @@ func catalogHarness(t *testing.T, assetsDir string) (*service.App, pkg.Layout, *
 		t.Fatalf("开设置存储失败：%v", err)
 	}
 
-	app := service.New(service.Options{Layout: layout, Store: store, Hub: sse.New(16), Version: "test"})
+	db, err := repo.OpenDB(layout.DatabasePath())
+	if err != nil {
+		t.Fatalf("开数据库失败：%v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	app := service.New(service.Options{Layout: layout, Store: store, DB: db, Hub: sse.New(16), Version: "test"})
 	return app, layout, store
 }

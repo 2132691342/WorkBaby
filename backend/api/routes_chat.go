@@ -63,14 +63,9 @@ func (s *Server) chatFollowUp(c *gin.Context) {
 	ok(c)
 }
 
-// chatClearQueue 清空两条队。
+// chatClearQueue 清空排队。
 func (s *Server) chatClearQueue(c *gin.Context) {
-	out, err := s.svc.Chat.ClearQueue()
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
+	pkg.OK(c, s.svc.Chat.ClearQueue())
 }
 
 // chatRemoveQueued 单条移除排队消息，返回移除后的两条队。
@@ -123,7 +118,7 @@ func (s *Server) chatNew(c *gin.Context) {
 	pkg.OK(c, map[string]any{"session_file": file})
 }
 
-// chatClone 克隆当前会话。
+// chatClone 克隆当前会话：把已有条目复制进一份新会话，往后走独立的分支。
 func (s *Server) chatClone(c *gin.Context) {
 	file, err := s.svc.Chat.CloneSession()
 	if err != nil {
@@ -184,6 +179,20 @@ func (s *Server) chatAutocompact(c *gin.Context) {
 		return
 	}
 	ok(c)
+}
+
+// chatPlan 开关计划模式。
+func (s *Server) chatPlan(c *gin.Context) {
+	var req domain.ChatPlanREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Chat.TogglePlan(req.PlanEnabled)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
 }
 
 // messageHide 隐藏一轮。

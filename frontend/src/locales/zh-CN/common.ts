@@ -32,8 +32,9 @@ nav: {
     sessions: '会话',
     models: '模型',
     skills: '技能',
-    plugins: '插件',
     mcp: 'MCP',
+    web: '联网',
+    index: '代码',
     usage: '用量',
     apps: '应用',
     settings: '设置'

@@ -30,16 +30,19 @@ import type {
   ModelEntry,
   ModelRow,
   WorkspaceList,
-  PluginListData,
   ProviderProbeREQ,
   ProviderProbeRESP,
   ProvidersView,
   RuntimeStatus,
-  SessionDetail,
   SessionExport,
   SessionList,
   SkillListData,
   UIResponse,
+  IndexSearchView,
+  IndexStatusView,
+  WebFetchView,
+  WebSearchView,
+  WebStatusView,
 } from '@/types/api'
 
 export class ApiError extends Error {
@@ -63,7 +66,7 @@ export async function ensureClient(): Promise<AxiosInstance> {
   token = ep.wb_token
   client = axios.create({
     baseURL: ep.wb_base_url,
-    // 压缩一轮长上下文可能要几分钟；装 pi 与插件可达十分钟。
+    // 压缩一轮长上下文可能要几分钟；重建索引可达十分钟。
     timeout: 600_000,
     headers: { 'X-Desktop-Token': token, 'Content-Type': 'application/json' },
   })
@@ -140,19 +143,13 @@ export const api = {
   engineStatus: () => get<EngineStatus>('/engines'),
   detectEngines: () => post<RuntimeStatus>('/engines/detect'),
   restartEngine: () => post<{ ok: boolean }>('/engines/restart'),
-  // 重新探测全部外部依赖（等价于一次全面刷新）
-  repairRuntime: () => post<RuntimeStatus>('/engines/repair'),
   health: () => get<HealthData>('/health/engines'),
   apps: () => get<{ apps: AppRow[] }>('/apps'),
-  // 手动指定 pi 的位置；空串回到自动探测
-  locatePi: (piPath: string) =>
-    post<{ runtime: RuntimeStatus; apps: AppRow[] }>('/apps/locate', { pi_path: piPath }),
 
   // ---- 会话 ----
   // q 非空时后端按标题与正文过滤（大小写不敏感）
   sessions: (workspace?: string, query?: string) =>
     get<SessionList>('/sessions', { workspace, q: query ?? '' }),
-  sessionDetail: (path: string) => get<SessionDetail>('/sessions/detail', { path }),
   deleteSession: (sessionPath: string) => post<{ ok: boolean }>('/sessions/delete', { session_path: sessionPath }),
   renameSession: (sessionPath: string, sessionTitle: string) =>
     post<{ ok: boolean }>('/sessions/rename', { session_path: sessionPath, session_title: sessionTitle }),
@@ -162,7 +159,11 @@ export const api = {
   // 三个发送类接口共用一份形状（含附件）：分开写的后果是
   // 「插话能带图、发送不能」这种说不通的不一致。
   send: (sessionFile: string, message: string, attachments: ChatAttachment[] = []) =>
-    post<{ run_id: string }>('/chat/send', { session_file: sessionFile, message, attachments }),
+    post<{ run_id: string; disposition: string }>('/chat/send', {
+      session_file: sessionFile,
+      message,
+      attachments,
+    }),
   stop: (sessionFile: string) => post<{ ok: boolean }>('/chat/stop', s(sessionFile)),
   steer: (sessionFile: string, message: string, attachments: ChatAttachment[] = []) =>
     post<{ ok: boolean }>('/chat/steer', { session_file: sessionFile, message, attachments }),
@@ -212,13 +213,10 @@ export const api = {
     post<ProvidersView>('/providers/delete', { provider_name: providerName }),
   // 向上游问一次模型清单。密钥不给就用已保存的那个。
   probeProvider: (body: ProviderProbeREQ) => post<ProviderProbeRESP>('/providers/models', body),
-  // 单条模型增改：按 model_id 定位，存在即改；服务商必须已存在
-  saveProviderModel: (providerName: string, model: ModelEntry) =>
-    post<ProvidersView>('/providers/model/save', { provider_name: providerName, model }),
   deleteProviderModel: (providerName: string, modelId: string) =>
     post<ProvidersView>('/providers/model/delete', { provider_name: providerName, model_id: modelId }),
 
-  // ---- 技能 / 插件 / MCP ----
+  // ---- 技能 / MCP ----
   skills: () => get<SkillListData>('/skills'),
   skillContent: (path: string) => get<{ file_text: string }>('/skills/content', { path }),
   saveSkillContent: (skillPath: string, fileText: string) =>
@@ -236,22 +234,7 @@ export const api = {
   // 内置技能改坏了：从随包原件覆盖回来
   resetSkill: (skillPath: string) => post<{ ok: boolean }>('/skills/reset', { skill_path: skillPath }),
 
-  plugins: () => get<PluginListData>('/plugins'),
-  installPlugin: (pluginSource: string) =>
-    post<{ plugin_name: string; installed: number; failed: number }>('/plugins/install', { plugin_source: pluginSource }),
-  uninstallPlugin: (pluginName: string) =>
-    post<{ plugin_name: string }>('/plugins/uninstall', { plugin_name: pluginName }),
-  // 启停 / 升级 / 重试都按包名定向：pi 的 packages 用名字做身份
-  togglePlugin: (pluginName: string, pluginEnabled: boolean) =>
-    post<{ plugin_name: string }>('/plugins/toggle', { plugin_name: pluginName, plugin_enabled: pluginEnabled }),
-  upgradePlugin: (pluginName: string) =>
-    post<{ plugin_name: string }>('/plugins/upgrade', { plugin_name: pluginName }),
-  retryPlugin: (pluginName: string) =>
-    post<{ plugin_name: string }>('/plugins/retry', { plugin_name: pluginName }),
-  recommendPlugins: () => post<{ installed: number; failed: number }>('/plugins/recommend'),
-  upgradeAllPlugins: () => post<{ installed: number; failed: number }>('/plugins/upgrade-all'),
-  // 问 npm registry 最新版并回一份带 plugin_latest 的清单；离线时对应字段留空
-  checkPluginUpdates: () => post<PluginListData>('/plugins/check-updates'),
+  // 插件生态已被引擎内建能力取代，这里不再暴露插件的安装 / 启停 / 升级入口。
 
   mcpList: () => get<McpListData>('/mcp'),
   mcpSave: (body: {
@@ -326,9 +309,23 @@ export const api = {
 
   // ---- 系统 / 配置 ----
   reveal: (targetPath: string) => post<{ ok: boolean }>('/system/reveal', { target_path: targetPath }),
-  openPath: (targetPath: string) => post<{ ok: boolean }>('/system/open', { target_path: targetPath }),
   configFiles: () => get<{ entries: ConfigFile[] }>('/config/files'),
   configText: (name: string) => get<ConfigText>('/config/text', { name }),
+
+  // ---- 联网 ----
+  webStatus: () => get<WebStatusView>('/web/status'),
+  webSettings: (webKind: string, webApiKey = '') =>
+    post<WebStatusView>('/web/settings', { web_kind: webKind, web_api_key: webApiKey }),
+  webSearch: (searchQuery: string, searchLimit = 8) =>
+    post<WebSearchView>('/web/search', { search_query: searchQuery, search_limit: searchLimit }),
+  webFetch: (fetchUrl: string) =>
+    post<WebFetchView>('/web/fetch', { fetch_url: fetchUrl }),
+
+  // ---- 工作区预索引 ----
+  indexStatus: () => get<IndexStatusView>('/index/status'),
+  indexSearch: (searchQuery: string, searchLimit = 20) =>
+    post<IndexSearchView>('/index/search', { search_query: searchQuery, search_limit: searchLimit }),
+  indexRebuild: () => post<IndexStatusView>('/index/rebuild'),
 }
 
 export type { AskRequest }

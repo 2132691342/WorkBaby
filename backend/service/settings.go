@@ -1,4 +1,4 @@
-// Package service 是业务编排层：设置、运行时、会话、对话、插件、技能、MCP、文件、git。
+// Package service 是业务编排层：设置、会话、对话、技能、MCP、文件、git、联网。
 // 它只依赖 repo / pkg / domain / engine，不感知 HTTP 与 Wails。
 package service
 
@@ -10,7 +10,6 @@ import (
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/repo"
-	"WorkBaby/backend/service/parser"
 	"WorkBaby/backend/sse"
 )
 
@@ -31,8 +30,16 @@ const (
 	KeyTrayHintShown = "prefs.tray_hint_shown"
 	// KeyHideLedger 隐藏轮台账：`hide:<会话文件>` → JSON 数组
 	KeyHideLedger = "chat.hide:"
-	// KeyPiPath 用户手动指定的 pi 入口（空串 = 自动探测）
-	KeyPiPath = "engine.pi_path"
+	// KeyActiveProvider 当前选中的服务商
+	KeyActiveProvider = "model.active_provider"
+	// KeyActiveModel 当前选中的模型
+	KeyActiveModel = "model.active_model"
+	// KeyAutoCompaction 自动压缩开关（"0" 为关）
+	KeyAutoCompaction = "model.auto_compaction"
+	// KeyWebSearchKind 联网搜索服务的种类
+	KeyWebSearchKind = "web.search_kind"
+	// KeyWebSearchKey 联网搜索服务的密钥
+	KeyWebSearchKey = "web.search_key"
 
 	// CloseActionTray 收进托盘
 	CloseActionTray = "tray"
@@ -44,7 +51,7 @@ const (
 type Settings struct {
 	// Store 设置库
 	Store *repo.Store
-	// Layout 沙箱布局
+	// Layout 目录布局
 	Layout pkg.Layout
 	// Hub 事件广播
 	Hub *sse.Hub
@@ -63,12 +70,17 @@ func (s *Settings) Get(key string) string {
 	return value
 }
 
-// Save 批量保存设置；工作区变化会触发引擎重建，由调用方决定何时调。
+// Save 批量保存设置。
 func (s *Settings) Save(kv map[string]string) (map[string]string, error) {
 	if err := s.Store.Save(kv); err != nil {
 		return nil, err
 	}
 	return s.Store.All(), nil
+}
+
+// SaveSettings 是 Save 的别名：调用方拿的是业务语义而不是存储细节。
+func (s *Settings) SaveSettings(kv map[string]string) error {
+	return s.Store.Save(kv)
 }
 
 // Workspace 当前工作区。
@@ -155,7 +167,7 @@ func (s *Settings) Workspaces() []domain.WorkspaceRowVO {
 // sessionCountOf 数一个工作区目录下的会话文件。
 // 目录编码规则与引擎一致，所以直接按编码目录找就行，不必扫全部会话。
 func (s *Settings) sessionCountOf(workspace string) int {
-	dir := filepath.Join(s.Layout.SessionsDir(), parser.EncodedWorkspace(workspace))
+	dir := filepath.Join(s.Layout.SessionsDir, pkg.EncodedWorkspace(workspace))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
@@ -174,7 +186,7 @@ func (s *Settings) WorkspaceList() domain.WorkspaceListRESP {
 	return domain.WorkspaceListRESP{
 		Workspace:     s.Workspace(),
 		WorkspaceRows: s.Workspaces(),
-		ActiveEngine:  domain.EnginePi,
+		ActiveEngine:  domain.EngineNative,
 	}
 }
 

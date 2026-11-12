@@ -177,7 +177,7 @@ func resolveLayout(exePath string) (pkg.Layout, error) {
 }
 
 // App 是 Wails 绑定面：只暴露系统能力，业务全走本地 HTTP。
-// 不把 api 的 handler 嵌进来：嵌入会把它们的导出方法一起绑成前端永远调不通的 JS 方法。
+// 不把 api 的 handler 嵌进来：嵌入会把它们的导出方法一起绑成前端调不通的 JS 方法。
 type App struct {
 	version string
 	layout  pkg.Layout
@@ -185,6 +185,7 @@ type App struct {
 	svc   *service.App
 	srv   *api.Server
 	store *repo.Store
+	db    *repo.DB
 	hub   *sse.Hub
 	token string
 
@@ -218,8 +219,8 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.startOK.Store(true)
 	pkg.Info("装配完成 workspace=%s", a.svc.Workspace())
-	// 首启装配放到后台：端口与界面先就绪，解压与安装不阻塞用户。
-	go a.svc.Provision()
+	// 会话初始化放到后台：端口与界面先就绪，不等存储目录建完。
+	go a.svc.Chat.Warm()
 }
 
 // assemble 打开设置库、装配业务、起 HTTP。
@@ -229,11 +230,18 @@ func (a *App) assemble() error {
 		return err
 	}
 	a.store = store
+	// 数据库要在业务装配前打开：模型目录、检索索引与用量统计都依赖它。
+	db, err := repo.OpenDB(a.layout.DatabasePath())
+	if err != nil {
+		return err
+	}
+	a.db = db
 	a.hub = sse.New(1024)
 	a.token = newToken()
 	a.svc = service.New(service.Options{
 		Layout:  a.layout,
 		Store:   store,
+		DB:      db,
 		Hub:     a.hub,
 		Version: a.version,
 	})

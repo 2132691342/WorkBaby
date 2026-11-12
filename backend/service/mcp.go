@@ -16,7 +16,7 @@ import (
 type Mcp struct {
 	// Settings 设置（项目级 mcp.json 要跟着工作区走）
 	Settings *Settings
-	// Layout 沙箱布局
+	// Layout 目录布局
 	Layout pkg.Layout
 
 	// mu 串行化 mcp.json 的读-改-写。两个文件各写各的，但都经同一把锁：

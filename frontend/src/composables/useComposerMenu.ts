@@ -83,7 +83,7 @@ export function useComposerMenu(
     const engineItems: MenuItem[] = chat.commands
       .filter((c: SlashCommand) => !builtinKeys.has(c.command_name))
       .map((c: SlashCommand) => {
-        // pi 把技能报成 skill:名字：显示名去掉前缀，选中时仍填完整命令。
+        // 技能报成 skill:名字：显示名去掉前缀，选中时仍填完整命令。
         const isSkill = c.command_name.startsWith('skill:')
         const base = c.command_desc || ''
         return {

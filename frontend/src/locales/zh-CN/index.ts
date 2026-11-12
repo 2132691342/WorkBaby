@@ -6,6 +6,7 @@ import chat from "./chat"
 import workspace from "./workspace"
 import manage from "./manage"
 import settings from "./settings"
+import web from "./web"
 
 export default {
   ...common,
@@ -14,4 +15,5 @@ export default {
   ...workspace,
   ...manage,
   ...settings,
+  ...web,
 }

@@ -178,7 +178,6 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/engines/repair", s.enginesRepair)
 	g.GET("/health/engines", s.healthGet)
 	g.GET("/apps", s.appsGet)
-	g.POST("/apps/locate", s.appsLocate)
 
 	// 会话
 	g.GET("/sessions", s.sessionsList)
@@ -202,6 +201,7 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/chat/model", s.chatModel)
 	g.POST("/chat/thinking", s.chatThinking)
 	g.POST("/chat/autocompact", s.chatAutocompact)
+	g.POST("/chat/plan", s.chatPlan)
 	g.POST("/messages/hide", s.messageHide)
 	g.POST("/messages/unhide", s.messageUnhide)
 
@@ -215,7 +215,7 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/providers/models", s.providerProbe)
 	g.POST("/providers/test", s.providerProbe)
 
-	// 技能 / 插件 / MCP
+	// 技能 / MCP
 	g.GET("/skills", s.skillsList)
 	g.POST("/skills/install", s.skillInstall)
 	g.GET("/skills/content", s.skillContent)
@@ -225,20 +225,22 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/skills/import", s.skillImport)
 	g.POST("/skills/delete", s.skillDelete)
 	g.POST("/skills/reset", s.skillReset)
-	g.GET("/plugins", s.pluginsList)
-	g.POST("/plugins/install", s.pluginInstall)
-	g.POST("/plugins/uninstall", s.pluginUninstall)
-	g.POST("/plugins/toggle", s.pluginToggle)
-	g.POST("/plugins/upgrade", s.pluginUpgrade)
-	g.POST("/plugins/upgrade-all", s.pluginUpgradeAll)
-	g.POST("/plugins/check-updates", s.pluginCheckUpdates)
-	g.POST("/plugins/retry", s.pluginRetry)
-	g.POST("/plugins/recommend", s.pluginRecommend)
 	g.GET("/mcp", s.mcpList)
 	g.POST("/mcp/save", s.mcpSave)
 	g.POST("/mcp/toggle", s.mcpToggle)
 	g.POST("/mcp/probe", s.mcpProbe)
 	g.POST("/mcp/remove", s.mcpRemove)
+
+	// 联网
+	g.GET("/web/status", s.webStatus)
+	g.POST("/web/settings", s.webSettings)
+	g.POST("/web/search", s.webSearch)
+	g.POST("/web/fetch", s.webFetch)
+
+	// 工作区预索引
+	g.GET("/index/status", s.indexStatus)
+	g.POST("/index/search", s.indexSearch)
+	g.POST("/index/rebuild", s.indexRebuild)
 
 	// 文件 / git / 系统
 	g.GET("/files", s.filesList)

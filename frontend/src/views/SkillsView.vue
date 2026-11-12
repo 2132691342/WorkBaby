@@ -180,7 +180,7 @@ async function create(input: { name: string; description: string; body: string }
   }
 }
 
-// 导入是复制不是引用：源目录之后删改不影响沙箱里的这份。
+// 导入是复制不是引用：源目录之后删改不影响数据目录里的这份。
 async function importSkill() {
   if (importing.value) return
   const dir = await pickFolder('')

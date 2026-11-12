@@ -10,6 +10,7 @@ import {
   readCommands,
   readPatch,
   readStrings,
+  readTodos,
 } from '@/utils/sse'
 import type { AppProgressLog, TurnUsagePayload } from '@/utils/sse'
 import i18n from '@/i18n'
@@ -28,8 +29,6 @@ export interface RouteDeps {
   refreshSessions: () => Promise<unknown>
   /** 重拉应用清单（安装跑完之后） */
   loadApps: () => Promise<unknown>
-  /** 插件清单有后台变化（首启装配完成时页面可能开着没动） */
-  bumpPlugins: () => void
   /** 技能清单有后台变化 */
   bumpSkills: () => void
   /** 引擎改了工作区文件（一轮结束），工作区页该重看一眼 */
@@ -143,9 +142,6 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       deps.setClosePrompt(true)
       return
     }
-    case 'plugin:status':
-      deps.bumpPlugins()
-      return
     case 'skill:status':
       deps.bumpSkills()
       return
@@ -206,6 +202,12 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
     case 'chat:queue':
       chat.queue = { steering: readStrings(data.steering), follow_up: readStrings(data.follow_up) }
       return
+    case 'chat:todos': {
+      // 待办清单随工具结果实时推：面板要跟着跑动更新，
+      // 等下一轮刷新才看到，用户会以为清单没生效。
+      chat.todos = readTodos(data.todos)
+      return
+    }
     case 'chat:ask': {
       const ask = readAsk(data)
       if (ask) chat.asks = [...chat.asks.filter((a) => a.ask_id !== ask.ask_id), ask]

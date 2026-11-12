@@ -30,83 +30,101 @@ func HistoryFromEntries(entries []Entry, hidden map[string]struct{}) []domain.Hi
 		toolIds = map[string]struct{}{}
 	}
 	for _, entry := range ActivePath(entries) {
-		switch entry.Type {
-		case "compaction":
+		switch entry.EntryType {
+		case domain.SessionEntryCompaction:
 			reset()
 			turns = append(turns, domain.HistoryTurnVO{
 				TurnRole: "engine-mark",
 				TurnBlocks: []domain.ChatBlockVO{{
 					BlockKind: domain.BlockText,
-					BlockText: "已压缩上下文（压缩前 " + itoa(entry.TokensBefore) + " tokens）",
+					BlockText: "已压缩上下文（压缩前 " + itoa(entry.EntryTokensBefore) + " tokens）",
 				}},
-				TurnId: entry.Id,
+				TurnId: entry.EntryId,
 			})
 			continue
-		case "custom_message":
+		case domain.SessionEntryCustom:
+			// 自定义条目：引擎用它表达自己的状态。
+			// 计划模式这类开关不画进对话流——它不是用户说的话，
+			// 画出来会让用户以为对话里多了一条莫名其妙的回复。
+			if entry.EntryCustomType == "plan-mode" {
+				continue
+			}
 			reset()
-			text := entry.Content
-			if entry.Display && strings.TrimSpace(text) != "" {
+			text := customText(entry)
+			if text != "" {
 				turns = append(turns, domain.HistoryTurnVO{
 					TurnRole:   "engine-mark",
 					TurnBlocks: []domain.ChatBlockVO{{BlockKind: domain.BlockText, BlockText: text}},
-					TurnId:     entry.Id,
+					TurnId:     entry.EntryId,
 				})
 			}
 			continue
+		case domain.SessionEntryModelChange, domain.SessionEntryThinkingChange,
+			domain.SessionEntryUsage, domain.SessionEntrySessionInfo:
+			// 元信息条目：不进对话流，它们的作用已经体现在消息自身字段上。
+			continue
 		}
-		msg := entry.Message
+		msg := entry.EntryMessage
 		if msg == nil {
 			continue
 		}
-		switch msg.Role {
-		case "user":
+		switch {
+		case msg.MessageRole == roleUser:
 			reset()
-			if text := msg.Text(); strings.TrimSpace(text) != "" {
+			if text := ContentText(msg.MessageContent); strings.TrimSpace(text) != "" {
 				turns = append(turns, domain.HistoryTurnVO{
 					TurnRole:   "user",
 					TurnBlocks: []domain.ChatBlockVO{{BlockKind: domain.BlockText, BlockText: text}},
-					TurnId:     entry.Id,
+					TurnId:     entry.EntryId,
 				})
 			}
-		case "assistant":
+		case msg.MessageRole == roleAssistant:
 			blocks, ids := blocksOf(msg)
 			turn := domain.HistoryTurnVO{
 				TurnRole:   "assistant",
 				TurnBlocks: blocks,
-				TurnModel:  msg.Model,
-				TurnUsage:  usageOf(msg.Usage),
-				TurnId:     entry.Id,
+				TurnModel:  msg.MessageModel,
+				TurnUsage:  usageOf(msg.MessageUsage),
+				TurnId:     entry.EntryId,
 			}
-			assistant = &turn
-			toolIds = ids
 			turns = append(turns, turn)
 			// 上面 append 进切片的是值拷贝，后续回填必须写回切片元素。
 			assistant = &turns[len(turns)-1]
-		case "toolResult":
-			applyToolResult(&turns, assistant, toolIds, msg, entry.Id)
+			toolIds = ids
+		case isToolResult(msg.MessageRole):
+			applyToolResult(&turns, assistant, toolIds, msg, entry.EntryId)
 		}
 	}
 	return filterHidden(turns, hidden)
 }
 
+// customText 取自定义条目的可读文本。
+func customText(entry Entry) string {
+	if entry.EntryData == nil {
+		return ""
+	}
+	text, _ := entry.EntryData["text"].(string)
+	return strings.TrimSpace(text)
+}
+
 // blocksOf 把助手消息拆成内容块，同时收集工具调用 ID。
-func blocksOf(msg *Message) ([]domain.ChatBlockVO, map[string]struct{}) {
+func blocksOf(msg *domain.SessionMessageDO) ([]domain.ChatBlockVO, map[string]struct{}) {
 	ids := map[string]struct{}{}
-	source := msg.Blocks()
+	source := BlocksOfContent(msg.MessageContent)
 	blocks := make([]domain.ChatBlockVO, 0, len(source))
 	for _, block := range source {
-		switch block.Type {
-		case "text":
-			blocks = append(blocks, domain.ChatBlockVO{BlockKind: domain.BlockText, BlockText: block.Text})
-		case "thinking":
-			blocks = append(blocks, domain.ChatBlockVO{BlockKind: domain.BlockThinking, BlockText: block.Thinking})
-		case "toolCall":
-			ids[block.Id] = struct{}{}
+		switch block.BlockType {
+		case domain.SessionContentText:
+			blocks = append(blocks, domain.ChatBlockVO{BlockKind: domain.BlockText, BlockText: block.BlockText})
+		case domain.SessionContentThinking:
+			blocks = append(blocks, domain.ChatBlockVO{BlockKind: domain.BlockThinking, BlockText: block.BlockThinking})
+		case domain.SessionContentToolCall:
+			ids[block.BlockId] = struct{}{}
 			blocks = append(blocks, domain.ChatBlockVO{
 				BlockKind:  domain.BlockTool,
-				ToolCallId: block.Id,
-				ToolName:   block.Name,
-				ToolArgs:   decodeArgs(block.Arguments),
+				ToolCallId: block.BlockId,
+				ToolName:   block.BlockName,
+				ToolArgs:   block.BlockArguments,
 				ToolStatus: "done",
 			})
 		}
@@ -114,24 +132,12 @@ func blocksOf(msg *Message) ([]domain.ChatBlockVO, map[string]struct{}) {
 	return blocks, ids
 }
 
-// decodeArgs 把工具入参解成通用形状；解不开就原样给字符串。
-func decodeArgs(raw json.RawMessage) any {
-	if len(raw) == 0 {
-		return nil
-	}
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return string(raw)
-	}
-	return value
-}
-
 // applyToolResult 把工具结果回填到对应块；找不到宿主就单独成轮。
-func applyToolResult(turns *[]domain.HistoryTurnVO, assistant *domain.HistoryTurnVO, toolIds map[string]struct{}, msg *Message, entryId string) {
-	if _, ok := toolIds[msg.ToolCallId]; ok && assistant != nil {
+func applyToolResult(turns *[]domain.HistoryTurnVO, assistant *domain.HistoryTurnVO, toolIds map[string]struct{}, msg *domain.SessionMessageDO, entryId string) {
+	if _, ok := toolIds[msg.MessageToolCallId]; ok && assistant != nil {
 		for i := range assistant.TurnBlocks {
 			block := &assistant.TurnBlocks[i]
-			if block.BlockKind == domain.BlockTool && block.ToolCallId == msg.ToolCallId {
+			if block.BlockKind == domain.BlockTool && block.ToolCallId == msg.MessageToolCallId {
 				fillToolResult(block, msg)
 				return
 			}
@@ -139,8 +145,8 @@ func applyToolResult(turns *[]domain.HistoryTurnVO, assistant *domain.HistoryTur
 	}
 	standalone := domain.ChatBlockVO{
 		BlockKind:  domain.BlockTool,
-		ToolCallId: msg.ToolCallId,
-		ToolName:   msg.ToolName,
+		ToolCallId: msg.MessageToolCallId,
+		ToolName:   msg.MessageToolName,
 	}
 	fillToolResult(&standalone, msg)
 	*turns = append(*turns, domain.HistoryTurnVO{
@@ -151,34 +157,34 @@ func applyToolResult(turns *[]domain.HistoryTurnVO, assistant *domain.HistoryTur
 }
 
 // fillToolResult 把工具输出、错误标记与差异行写进块。
-func fillToolResult(block *domain.ChatBlockVO, msg *Message) {
-	block.ToolOutput = msg.Text()
-	block.ToolIsError = msg.IsError
-	if msg.IsError {
+func fillToolResult(block *domain.ChatBlockVO, msg *domain.SessionMessageDO) {
+	block.ToolOutput = ContentText(msg.MessageContent)
+	block.ToolIsError = msg.MessageIsError
+	if msg.MessageIsError {
 		block.ToolStatus = "error"
 	} else {
 		block.ToolStatus = "done"
 	}
-	if msg.Details != nil {
-		if diff, ok := msg.Details["diff"].(string); ok && diff != "" {
+	if msg.MessageDetails != nil {
+		if diff, ok := msg.MessageDetails["diff"].(string); ok && diff != "" {
 			block.DiffLines = ParseDiff(diff)
 		}
 	}
 }
 
 // usageOf 把引擎用量转成界面读数。
-func usageOf(usage *Usage) *domain.TurnUsageVO {
+func usageOf(usage *domain.SessionUsageDO) *domain.TurnUsageVO {
 	if usage == nil {
 		return nil
 	}
 	out := &domain.TurnUsageVO{
-		InputTokens:      usage.Input,
-		OutputTokens:     usage.Output,
-		CacheReadTokens:  usage.CacheRead,
-		CacheWriteTokens: usage.CacheWrite,
+		InputTokens:      usage.UsageInput,
+		OutputTokens:     usage.UsageOutput,
+		CacheReadTokens:  usage.UsageCacheRead,
+		CacheWriteTokens: usage.UsageCacheWrite,
 	}
-	if usage.Cost != nil {
-		out.CostUsd = usage.Cost.Total
+	if usage.UsageCost != nil {
+		out.CostUsd = usage.UsageCost.CostTotal
 	}
 	return out
 }
@@ -221,34 +227,34 @@ func DetailItems(file string) []domain.SessionItemVO {
 	}
 	items := make([]domain.SessionItemVO, 0, len(entries))
 	for _, entry := range ActivePath(entries) {
-		msg := entry.Message
+		msg := entry.EntryMessage
 		if msg == nil {
 			continue
 		}
 		item := domain.SessionItemVO{
-			ItemRole:  msg.Role,
-			CreatedAt: ParseTime(entry.Timestamp),
+			ItemRole:  msg.MessageRole,
+			CreatedAt: ParseTime(entry.EntryTimestamp),
 		}
-		switch msg.Role {
-		case "user":
+		switch {
+		case msg.MessageRole == roleUser:
 			item.ItemKind = "user"
-			item.ItemText = msg.Text()
-		case "assistant":
+			item.ItemText = ContentText(msg.MessageContent)
+		case msg.MessageRole == roleAssistant:
 			item.ItemKind = "assistant"
-			item.ItemText = msg.Text()
-			item.ItemModel = msg.Model
-			if msg.Usage != nil {
-				item.ItemTokens = msg.Usage.TotalTokens
-				if msg.Usage.Cost != nil {
-					item.CostUsd = msg.Usage.Cost.Total
+			item.ItemText = ContentText(msg.MessageContent)
+			item.ItemModel = msg.MessageModel
+			if msg.MessageUsage != nil {
+				item.ItemTokens = msg.MessageUsage.UsageTotalTokens
+				if msg.MessageUsage.UsageCost != nil {
+					item.CostUsd = msg.MessageUsage.UsageCost.CostTotal
 				}
 			}
-		case "toolResult":
+		case isToolResult(msg.MessageRole):
 			item.ItemKind = "tool"
-			item.ItemText = msg.Text()
-			item.ToolName = msg.ToolName
-			item.ToolCallId = msg.ToolCallId
-			item.ToolIsError = msg.IsError
+			item.ItemText = ContentText(msg.MessageContent)
+			item.ToolName = msg.MessageToolName
+			item.ToolCallId = msg.MessageToolCallId
+			item.ToolIsError = msg.MessageIsError
 		default:
 			continue
 		}
@@ -276,4 +282,16 @@ func GuardSession(sessionsRoot, file string) (string, error) {
 // absPath 取绝对路径；相对路径在 Windows 上没有意义，所以这里只做归一。
 func absPath(path string) (string, error) {
 	return filepath.Abs(path)
+}
+
+// decodeArgs 把工具入参解成通用形状；解不开就原样给字符串。
+func decodeArgs(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	return value
 }

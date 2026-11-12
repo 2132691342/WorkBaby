@@ -1,20 +1,20 @@
 package parser
 
-// 待办派生：rpiv-todo 插件的清单只在内存里活着，但它每次 todo 工具调用的
-// 结果 details.tasks 都带全量表并落进会话文件——活动分支上最近一次成功
-// 调用就是当前状态，与插件自己的 replay 语义一致。
+// 待办派生：待办清单本身只在引擎内存里活着，但每次待办工具调用的
+// 结果 details.tasks 都带全量表并落进会话文件——活动分支上最近一次
+// 成功调用就是当前状态。
 
 import "WorkBaby/backend/domain"
 
-// TodosFromEntries 从活动分支派生当前待办；没有 todo 调用给空表。
+// TodosFromEntries 从活动分支派生当前待办；没有待办调用给空表。
 func TodosFromEntries(entries []Entry) []domain.TodoVO {
 	out := []domain.TodoVO{}
 	for _, entry := range ActivePath(entries) {
-		msg := entry.Message
-		if msg == nil || msg.Role != "toolResult" || msg.ToolName != "todo" {
+		msg := entry.EntryMessage
+		if msg == nil || !isToolResult(msg.MessageRole) || msg.MessageToolName != "todo" {
 			continue
 		}
-		rows := todoRowsOf(msg.Details)
+		rows := todoRowsOf(msg.MessageDetails)
 		if len(rows) == 0 {
 			continue
 		}

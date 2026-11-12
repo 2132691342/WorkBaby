@@ -18,7 +18,7 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// mcpProbeTimeout 是握手总预算；条目自带的 timeout（秒，与 pi 的 mcp.json 同单位）可以覆盖它。
+// mcpProbeTimeout 是握手总预算；条目自带的 timeout（秒）可以覆盖它。
 const mcpProbeTimeout = 10 * time.Second
 
 // Probe 测一个 MCP 服务能不能连通。
@@ -54,7 +54,7 @@ func mcpInitializeParams() map[string]any {
 	}
 }
 
-// mcpTimeoutOf 条目自带的超时（pi 的 mcp.json 里单位是秒）；没配用缺省。
+// mcpTimeoutOf 条目自带的超时（单位是秒）；没配用缺省。
 func mcpTimeoutOf(entry map[string]any, fallback time.Duration) time.Duration {
 	if n, ok := entry["timeout"].(float64); ok && n > 0 {
 		return time.Duration(n) * time.Second

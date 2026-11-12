@@ -1,6 +1,6 @@
 package service
 
-// 技能扫描：把沙箱里三个技能区读成界面能用的行。
+// 技能扫描：把三个技能区读成界面能用的行。
 // 与 skills.go 分开是因为它只读不写——落位、搬移、删改都在那边，
 // 这边只负责「现在有什么、每个是什么来路」。
 
@@ -17,8 +17,8 @@ import (
 // 禁用区的行 SkillEnabled=false，界面能看见、开关能打开——否则停用等于消失。
 func (s *Skills) List() domain.SkillListRESP {
 	rows := make([]domain.SkillRowVO, 0, len(RecommendedSkills)*2)
-	rows = append(rows, s.scanDir(s.Layout.SkillsDir(), true)...)
-	rows = append(rows, s.scanDir(s.Layout.SkillsOffDir(), false)...)
+	rows = append(rows, s.scanDir(s.Layout.SkillsDir, true)...)
+	rows = append(rows, s.scanDir(s.Layout.SkillsOffDir, false)...)
 	rows = append(rows, s.scanDir(s.projectDir(), true)...)
 	// 同一个目录名在启用区与禁用区都有一份时，只显示启用区那份：
 	// 它才是引擎真正看得到的。显示两行会让用户看到同一个技能一开一关。

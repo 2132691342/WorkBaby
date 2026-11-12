@@ -1,200 +1,148 @@
 package service
 
 // 聊天状态总装：一次请求给出界面画聊天页要用的全部事实。
-// 从 chat_service 拆出来只为守 500 行硬限，语义不变。
 
 import (
+	"strings"
+
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
-	"WorkBaby/backend/service/chat"
 )
 
-// State 聊天状态总装：引擎实况 + 会话文件回放。
-// 引擎没就绪时不把打开应用的这条路卡在冷启动上：历史与待办先从会话文件回放，
-// 引擎交给后台预热，就绪后 engine:ready 会带着界面再刷一次实况。
+// State 聊天状态总装：会话实况 + 会话文件回放。
+// 引擎在进程内，所以没有「等引擎冷启动」这件事：有会话就能画。
 func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
 	workspace := c.Settings.Workspace()
-	if !c.engineBound(workspace) {
-		c.Warm()
-		return c.replayState(sessionFile, workspace)
+	if workspace == "" {
+		return c.emptyState("请先在设置里选择工作区")
 	}
-	c.mu.Lock()
-	client := c.rpc
-	c.mu.Unlock()
-	if sessionFile != "" && sessionFile != c.currentFile() {
-		if err := c.alignSession(client, sessionFile); err != nil {
-			return c.emptyState("切换会话失败：" + pkg.As(err).Message)
-		}
-	}
-	state, err := client.Request(chat.Record{"type": "get_state"}, 0)
+	session, err := c.BindSession(sessionFile)
 	if err != nil {
 		return c.emptyState(pkg.As(err).Message)
 	}
-	c.applyState(state)
+	file := session.File()
+	provider := c.Settings.Get(KeyActiveProvider)
+	modelId := c.Settings.Get(KeyActiveModel)
+	model := c.modelInfo(provider, modelId)
 
-	stats, _ := client.Request(chat.Record{"type": "get_session_stats"}, 0)
 	c.mu.Lock()
-	file := c.file
-	boundWs := c.rpcWs
 	level := c.level
-	levels := append([]string(nil), c.levels...)
-	cmds := append([]domain.SlashCommandVO(nil), c.cmds...)
-	autocmp := c.autocmp
 	queued := c.queued
 	c.mu.Unlock()
 
 	resp := domain.ChatStateRESP{
-		EngineKind:     domain.EnginePi,
+		EngineKind:     domain.EngineNative,
 		SessionFile:    file,
-		WorkDir:        boundWs,
-		EngineRunning:  client.Alive(),
-		Streaming:      c.Stream.Active(),
-		Model:          parseModelInfo(state),
+		WorkDir:        workspace,
+		EngineRunning:  true,
+		Streaming:      c.Busy(),
+		Model:          model,
 		ThinkingLevel:  level,
-		ThinkingLevels: levels,
-		AutoCompaction: autocmp,
+		ThinkingLevels: []string{"off", "low", "medium", "high"},
+		AutoCompaction: c.Settings.Get(KeyAutoCompaction) != "0",
 		Queued:         queued,
 		History:        c.Sessions.History(file),
 		Todos:          c.Sessions.Todos(file),
 		PlanMode:       c.Sessions.PlanMode(file),
-		Commands:       cmds,
-		Caps:           domain.PiCaps,
+		Commands:       nativeCommands(),
+		Caps:           domain.NativeCaps,
 	}
-	resp.Stats, resp.ContextUsage = parseStats(stats)
+	planState := c.currentPlanState()
+	resp.PlanState = &planState
+	if provider == "" || modelId == "" {
+		resp.BindErr = "还没有选择模型，先去模型页选一个"
+	}
 	return resp
 }
 
-// parseModelInfo 从 get_state 应答里取当前模型。
-func parseModelInfo(state any) *domain.ModelInfoVO {
-	fields, ok := state.(map[string]any)
-	if !ok {
+// modelInfo 组装当前模型信息；没选模型时给 nil。
+func (c *Chat) modelInfo(provider, modelId string) *domain.ModelInfoVO {
+	if provider == "" || modelId == "" {
 		return nil
 	}
-	model, ok := fields["model"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	info := &domain.ModelInfoVO{
-		ModelId:           stringOf(model["id"]),
-		ModelName:         stringOf(model["name"]),
-		ProviderName:      stringOf(model["provider"]),
-		ApiProtocol:       stringOf(model["api"]),
-		ContextWindow:     chatInt(model["contextWindow"]),
-		MaxTokens:         chatInt(model["maxTokens"]),
-		InputKinds:        asStringSlice(model["input"]),
-		SupportsReasoning: false,
-	}
-	if flag, ok := model["reasoning"].(bool); ok {
-		info.SupportsReasoning = flag
-	}
-	return info
-}
-
-// parseStats 从 get_session_stats 应答里取累计用量与上下文占用。
-func parseStats(stats any) (*domain.SessionStatsVO, *domain.ContextUsageVO) {
-	fields, ok := stats.(map[string]any)
-	if !ok {
-		return nil, nil
-	}
-	out := &domain.SessionStatsVO{
-		SessionId:         stringOf(fields["sessionId"]),
-		UserMessages:      chatInt(fields["userMessages"]),
-		AssistantMessages: chatInt(fields["assistantMessages"]),
-		ToolCalls:         chatInt(fields["toolCalls"]),
-		TotalMessages:     chatInt(fields["totalMessages"]),
-	}
-	if tokens, ok := fields["tokens"].(map[string]any); ok {
-		out.InputTokens = chatInt(tokens["input"])
-		out.OutputTokens = chatInt(tokens["output"])
-		out.CacheReadTokens = chatInt(tokens["cacheRead"])
-		out.CacheWriteTokens = chatInt(tokens["cacheWrite"])
-		out.TotalTokens = chatInt(tokens["total"])
-	}
-	if cost, ok := fields["cost"].(float64); ok {
-		out.CostUsd = cost
-	}
-	usage := parseContextUsage(fields["contextUsage"])
-	out.ContextUsage = usage
-	return out, usage
-}
-
-// parseContextUsage 解析上下文占用；压缩后还没新读数时两个值都是 null。
-func parseContextUsage(raw any) *domain.ContextUsageVO {
-	fields, ok := raw.(map[string]any)
-	if !ok {
-		return nil
-	}
-	out := &domain.ContextUsageVO{ContextWindow: chatInt(fields["contextWindow"])}
-	if tokens, ok := fields["tokens"].(float64); ok {
-		value := int(tokens)
-		out.UsageTokens = &value
-	}
-	if percent, ok := fields["percent"].(float64); ok {
-		out.UsagePercent = &percent
-	}
-	return out
-}
-
-// engineBound 引擎是否活着且绑定当前工作区。绑定是快路径的前提：
-// 活着但绑在别的工作区，等于没绑。
-func (c *Chat) engineBound(workspace string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.rpc != nil && c.rpc.Alive() && c.rpcWs == workspace
-}
-
-// replayState 引擎还没就绪时的回放态：历史与待办从会话文件来，不欠引擎的。
-// BindErr 说的是现状而不是故障——预热结果会经 engine:ready 或通知跟进。
-func (c *Chat) replayState(sessionFile, workspace string) domain.ChatStateRESP {
-	c.mu.Lock()
-	levels := append([]string(nil), c.levels...)
-	cmds := append([]domain.SlashCommandVO(nil), c.cmds...)
-	c.mu.Unlock()
-	reason := "引擎正在后台启动，就绪后自动连上"
-	switch {
-	case workspace == "":
-		reason = "请先在设置里选择工作区"
-	case !c.Runtime.Installed():
-		reason = "没有检测到 pi，请在应用页指定 pi 的位置"
-	}
-	guarded, err := c.guardSessionPath(sessionFile)
+	entry, _, err := c.Models.Lookup(provider, modelId)
 	if err != nil {
-		guarded = ""
+		return nil
 	}
-	resp := domain.ChatStateRESP{
-		EngineKind:     domain.EnginePi,
-		SessionFile:    guarded,
-		WorkDir:        workspace,
-		EngineRunning:  false,
-		ThinkingLevel:  "medium",
-		ThinkingLevels: levels,
-		AutoCompaction: true,
-		Commands:       cmds,
-		Caps:           domain.PiCaps,
-		BindErr:        reason,
+	return &domain.ModelInfoVO{
+		ModelId:           modelId,
+		ModelName:         defaultIfEmpty(entry.ModelName, modelId),
+		ProviderName:      provider,
+		ApiProtocol:       entry.ApiProtocol,
+		ContextWindow:     entry.ContextWindow,
+		MaxTokens:         entry.MaxTokens,
+		SupportsReasoning: entry.SupportsReasoning,
+		InputKinds:        entry.InputKinds,
 	}
-	// 回放自带头部守卫：越界路径在这里落空，拿到的是空历史而不是报错。
-	if guarded != "" {
-		resp.History = c.Sessions.History(guarded)
-		resp.Todos = c.Sessions.Todos(guarded)
-		resp.PlanMode = c.Sessions.PlanMode(guarded)
-	}
-	return resp
 }
 
-// emptyState 绑定失败时给一个能画的空状态：界面据此显示原因，而不是白屏。
+// nativeCommands 是内置的斜杠命令清单。
+func nativeCommands() []domain.SlashCommandVO {
+	return []domain.SlashCommandVO{
+		{CommandName: "new", CommandSource: "builtin", CommandDesc: "开一份新会话"},
+		{CommandName: "compact", CommandSource: "builtin", CommandDesc: "压缩上下文，腾出空间"},
+		{CommandName: "export", CommandSource: "builtin", CommandDesc: "把这份会话导出成 HTML"},
+		{CommandName: "plan", CommandSource: "builtin", CommandDesc: "进入/退出计划模式：只读不改，先把方案想清楚"},
+	}
+}
+
+// emptyState 给一个能画的空状态：界面据此显示原因，而不是白屏。
 func (c *Chat) emptyState(reason string) domain.ChatStateRESP {
 	c.mu.Lock()
-	levels := append([]string(nil), c.levels...)
-	cmds := append([]domain.SlashCommandVO(nil), c.cmds...)
+	level := c.level
 	c.mu.Unlock()
 	return domain.ChatStateRESP{
-		EngineKind:     domain.EnginePi,
-		ThinkingLevel:  "medium",
-		ThinkingLevels: levels,
+		EngineKind:     domain.EngineNative,
+		ThinkingLevel:  level,
+		ThinkingLevels: []string{"off", "low", "medium", "high"},
 		AutoCompaction: true,
-		Commands:       cmds,
-		Caps:           domain.PiCaps,
+		Commands:       nativeCommands(),
+		Caps:           domain.NativeCaps,
 		BindErr:        reason,
 	}
+}
+
+// HandleCommand 处理输入框里的斜杠命令；返回 true 表示已被消费，不应再发给模型。
+func (c *Chat) HandleCommand(text string) (bool, error) {
+	trimmed := strings.TrimSpace(text)
+	if !strings.HasPrefix(trimmed, "/") {
+		return false, nil
+	}
+	fields := strings.Fields(trimmed)
+	switch fields[0] {
+	case "/new":
+		file, err := c.NewSession()
+		if err != nil {
+			return true, err
+		}
+		c.Hub.Broadcast("session:info", nil)
+		pkg.Info("新建会话：%s", file)
+		return true, nil
+	case "/compact":
+		instructions := ""
+		if len(fields) > 1 {
+			instructions = strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+		}
+		return true, c.Compact("", instructions)
+	case "/plan":
+		return true, c.togglePlan(trimmed)
+	}
+	return false, nil
+}
+
+// togglePlan 处理 /plan 命令：/plan 进入计划模式，/plan off 退出。
+// 不带参数时按当前状态取反——用户敲 /plan 多半是想「开」，
+// 但连续敲两次就成���，取反才符合「开关」的直觉。
+func (c *Chat) togglePlan(text string) error {
+	fields := strings.Fields(text)
+	enabled := !c.PlanMode()
+	if len(fields) > 1 {
+		switch strings.ToLower(fields[1]) {
+		case "on", "true", "1":
+			enabled = true
+		case "off", "false", "0":
+			enabled = false
+		}
+	}
+	return c.SetPlanMode(enabled)
 }

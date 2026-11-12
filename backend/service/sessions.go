@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"WorkBaby/backend/agent"
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/repo"
@@ -19,7 +20,7 @@ type Sessions struct {
 	Settings *Settings
 	// Store 设置库
 	Store *repo.Store
-	// Layout 沙箱布局
+	// Layout 目录布局
 	Layout pkg.Layout
 	// Active 当前绑定到引擎的会话文件（空表示未绑定）；改名要用它避让写入冲突
 	Active func() string
@@ -33,7 +34,7 @@ func NewSessions(settings *Settings, store *repo.Store, layout pkg.Layout) *Sess
 // List 扫会话清单。给了工作区只扫它的目录，否则扫全部。
 // query 非空时按标题与正文过滤（大小写不敏感的包含匹配）。
 func (s *Sessions) List(workspace, query string) domain.SessionListRESP {
-	root := s.Layout.SessionsDir()
+	root := s.Layout.SessionsDir
 	dirs := s.scanDirs(root, workspace)
 	needle := strings.ToLower(strings.TrimSpace(query))
 	rows := make([]domain.SessionRowVO, 0, len(dirs))
@@ -74,7 +75,7 @@ func (s *Sessions) matches(row domain.SessionRowVO, file, needle string) bool {
 // scanDirs 决定这次要扫哪些目录。
 func (s *Sessions) scanDirs(root, workspace string) []string {
 	if workspace != "" {
-		dir := filepath.Join(root, parser.EncodedWorkspace(workspace))
+		dir := filepath.Join(root, pkg.EncodedWorkspace(workspace))
 		if pkg.IsDir(dir) {
 			return []string{dir}
 		}
@@ -95,7 +96,7 @@ func (s *Sessions) scanDirs(root, workspace string) []string {
 
 // Detail 会话详情：清单行 + 逐条消息。
 func (s *Sessions) Detail(file string) (domain.SessionDetailRESP, error) {
-	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return domain.SessionDetailRESP{}, err
 	}
@@ -108,7 +109,7 @@ func (s *Sessions) Detail(file string) (domain.SessionDetailRESP, error) {
 // Delete 删除会话文件，并清掉它的隐藏台账键：台账跟着会话生，会话没了
 // 留着只会让 workbaby.json 缓慢膨胀。
 func (s *Sessions) Delete(file string) error {
-	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return err
 	}
@@ -121,11 +122,12 @@ func (s *Sessions) Delete(file string) error {
 	return nil
 }
 
-// Rename 改名：往会话文件追加一条 session_info 条目——这是引擎自己的改名方式，
-// 直接改文件头会让引擎认不出会话。引擎正打开这份会话时拒掉：
-// 两路同时追加会写出交错行，会话文件是唯一真相，写坏就整份回放不出来。
+// Rename 改名：往会话文件追加一条 session_info 条目。
+// 走引擎自己的写入口而不是手拼 JSON：会话文件是唯一真相，
+// 落盘形态只有一处定义，两边各写一份迟早会分叉。
+// 引擎正打开这份会话时拒掉：两路同时追加会写出交错行，整份会话就回放不出来。
 func (s *Sessions) Rename(file, title string) error {
-	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return err
 	}
@@ -138,35 +140,14 @@ func (s *Sessions) Rename(file, title string) error {
 	if name == "" {
 		return pkg.Err(pkg.CodeBadRequest, "会话标题不能为空")
 	}
-	entries, err := parser.ReadEntries(resolved)
+	// Open 只用会话根做越界校验，不用工作区：这里传空工作区即可。
+	store := agent.NewStore(s.Layout.SessionsDir, func() string { return "" })
+	session, err := store.Open(resolved)
 	if err != nil {
 		return err
 	}
-	leafId := ""
-	if len(entries) > 0 {
-		leafId = entries[len(entries)-1].Id
-	}
-	// 条目 ID 用壳的 ULID：引擎接受任意稳定唯一串，而 ULID 天然可排序。
-	entry := map[string]any{
-		"type":      "session_info",
-		"id":        pkg.NewID(pkg.PrefixSession),
-		"parentId":  leafId,
-		"timestamp": nowISO(),
-		"name":      name,
-	}
-	raw, err := pkg.MarshalJSONLine(entry)
-	if err != nil {
-		return pkg.WrapErr(pkg.CodeSessionIO, "会话改名失败", err)
-	}
-	f, err := os.OpenFile(resolved, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return pkg.WrapErr(pkg.CodeSessionIO, "会话改名失败", err)
-	}
-	defer f.Close()
-	if _, err := f.WriteString(raw + "\n"); err != nil {
-		return pkg.WrapErr(pkg.CodeSessionIO, "会话改名失败", err)
-	}
-	return nil
+	_, err = session.Rename(name)
+	return err
 }
 
 // History 回放当前会话的历史轮（已剔除隐藏的轮）。
@@ -176,7 +157,7 @@ func (s *Sessions) History(file string) []domain.HistoryTurnVO {
 	}
 	// 与 Todos 走同一条守卫：两条路径对同一个文件用不同规矩，
 	// 等于给越界读取留了一个后门。
-	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return nil
 	}
@@ -188,21 +169,21 @@ func (s *Sessions) Todos(file string) []domain.TodoVO {
 	if file == "" {
 		return []domain.TodoVO{}
 	}
-	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return []domain.TodoVO{}
 	}
 	return parser.TodosFromFile(resolved)
 }
 
-// PlanMode 当前是否处于计划模式：由 pi-plan-mode 存在会话文件里的 custom 条目派生。
+// PlanMode 当前是否处于计划模式：由会话文件里的 custom 条目派生。
 // 与 Todos 同理——它是会话文件里的真相，不是界面的一次性内存状态，
 // 所以重开应用、切回旧会话都能还原。
 func (s *Sessions) PlanMode(file string) bool {
 	if file == "" {
 		return false
 	}
-	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return false
 	}
@@ -258,7 +239,7 @@ func (s *Sessions) Unhide(file, turnId string) error {
 
 // Export 导出会话为自包含 HTML。
 func (s *Sessions) Export(file string) (domain.ChatExportRESP, error) {
-	resolved, err := parser.GuardSession(s.Layout.SessionsDir(), file)
+	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return domain.ChatExportRESP{}, err
 	}
@@ -275,7 +256,7 @@ func (s *Sessions) Export(file string) (domain.ChatExportRESP, error) {
 // 走 List 的话会把每份会话全文读两遍，会话一多整个界面就跟着卡。
 func (s *Sessions) Count() int {
 	count := 0
-	for _, dir := range s.scanDirs(s.Layout.SessionsDir(), "") {
+	for _, dir := range s.scanDirs(s.Layout.SessionsDir, "") {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue

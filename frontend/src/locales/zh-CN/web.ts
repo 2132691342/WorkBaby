@@ -1,0 +1,38 @@
+// 联网与工作区预索引的文案。
+export default {
+  web: {
+    title: '联网',
+    desc: '给助手装上「能查资料」的能力：配置搜索服务、搜网、读网页原文。助手在对话里也会用同一套配置。',
+    providerTitle: '搜索服务',
+    providerKind: '服务',
+    apiKey: '密钥',
+    apiKeyPlaceholder: '留空表示保留原值',
+    searchTitle: '搜索',
+    searchPlaceholder: '输入关键词，比如「go 1.26 新特性」',
+    searchAction: '搜索',
+    fetchTitle: '读网页',
+    fetchPlaceholder: '贴一个网址，读取它的正文',
+    fetchAction: '读取',
+    readIt: '读这个',
+    noResults: '没有找到结果',
+    saved: '联网设置已保存',
+  },
+
+  index: {
+    title: '代码索引',
+    desc: '给工作区建一份可搜索的索引：文件和符号一次扫进来，之后按名字快速定位。',
+    statusTitle: '索引状态',
+    docCount: '索引条目',
+    builtAt: '建索引时间',
+    notBuilt: '还没建索引',
+    building: '正在建索引…',
+    rebuild: '重建索引',
+    rebuildHint: '大仓库第一次建索引要扫一遍文件，会花几秒。',
+    searchTitle: '检索',
+    searchPlaceholder: '输入文件名或符号名',
+    searchAction: '检索',
+    noResults: '索引里没有匹配的东西',
+    hitKindFile: '文件',
+    hitKindSymbol: '符号',
+  },
+}

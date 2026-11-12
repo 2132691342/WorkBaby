@@ -55,22 +55,22 @@
 .el-button--primary {
   --el-button-bg-color: var(--wb-brand);
   --el-button-border-color: var(--wb-brand);
-  --el-button-text-color: #ffffff;
+  --el-button-text-color: var(--wb-brand-ink);
   --el-button-hover-bg-color: var(--wb-brand-strong);
   --el-button-hover-border-color: var(--wb-brand-strong);
-  --el-button-hover-text-color: #ffffff;
+  --el-button-hover-text-color: var(--wb-brand-ink);
   --el-button-active-bg-color: var(--wb-brand-strong);
   --el-button-active-border-color: var(--wb-brand-strong);
-  --el-button-active-text-color: #ffffff;
+  --el-button-active-text-color: var(--wb-brand-ink);
   box-shadow: var(--wb-btn-shadow);
 }
 .el-button--danger {
   --el-button-bg-color: var(--wb-bad);
   --el-button-border-color: var(--wb-bad);
-  --el-button-text-color: #ffffff;
+  --el-button-text-color: var(--wb-brand-ink);
   --el-button-hover-bg-color: var(--wb-bad);
   --el-button-hover-border-color: var(--wb-bad);
-  --el-button-hover-text-color: #ffffff;
+  --el-button-hover-text-color: var(--wb-brand-ink);
 }
 /* 危险描边钮：中性描边 + 危险色文字，悬停才给淡底。
    彩色描边违反分层纪律——描边的职责是分界，不是强调。 */

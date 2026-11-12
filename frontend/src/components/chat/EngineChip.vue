@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// 引擎状态芯片：一句话说清「引擎装没装、在不在跑、忙不忙」。
-// 只有一个引擎，所以它不再是切换器——切换已经没有意义，
-// 该看的是它对不对得起来：没装就点去应用页，崩了就点重启。
+// 引擎状态芯片：一句话说清「引擎在不在、忙不忙」。
+// 引擎在进程内，所以没有「装没装」与「重启」这两件事：
+// 该看的是它此刻有没有在干活、有没有出错。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -20,11 +20,10 @@ const runtime = computed(() => app.runtime)
 
 /** 三态：就绪 / 未就绪 / 运行中。 */
 const state = computed<'ready' | 'missing' | 'running'>(() => {
-  if (!runtime.value?.pi_ready) return 'missing'
+  if (!runtime.value?.engine_ready) return 'missing'
   if (chat.streaming || chat.compacting) return 'running'
   return 'ready'
 })
-
 const label = computed(() => {
   switch (state.value) {
     case 'missing':
@@ -36,7 +35,7 @@ const label = computed(() => {
   }
 })
 
-/** 引擎崩了：最近一次失败原因还在，给出重启入口。 */
+/** 引擎出错了：最近一次失败原因还在，点一下重新拉一次会话状态。 */
 const crashed = computed(() => Boolean(chat.bindErr))
 
 async function restart() {

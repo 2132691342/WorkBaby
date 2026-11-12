@@ -12,8 +12,8 @@ export interface Envelope<T> {
   data: T
 }
 
-/** 引擎种类。本壳只装一个引擎，但保留这个字段让形状不依赖「只有一个」。 */
-export type EngineKind = 'pi'
+/** 引擎种类。引擎已内置于本进程，保留字段让形状不依赖「只有一个」。 */
+export type EngineKind = 'native'
 
 /** 能力表：界面按它隐藏入口，不渲染灰按钮。 */
 export interface EngineCaps {
@@ -23,12 +23,9 @@ export interface EngineCaps {
   queue_clear: boolean
   queue_edit: boolean
   skill_toggle: boolean
-  extensions: boolean
   export_html: boolean
   slash_commands: boolean
   session_clone: boolean
-  plugin_toggle: boolean
-  plugin_upgrade: boolean
 }
 
 export interface EngineIdentity {
@@ -47,22 +44,17 @@ export interface EngineLayout {
   agent_dir: string
   sessions_dir: string
   skills_dir: string
-  plugins_dir: string
   settings_file: string
   dir_exists: boolean
 }
 
-/** 外部依赖的检测状态：全部来自用户自己的环境，壳不代装。 */
+/** 外部依赖的检测状态：引擎在进程内，这里只报用户环境里的工具链。 */
 export interface RuntimeStatus {
   node_ready: boolean
-  node_version: string
   git_ready: boolean
   git_version: string
   python_ready: boolean
-  python_version: string
-  pi_ready: boolean
-  pi_version: string
-  pi_source: string
+  engine_ready: boolean
   detection_hint?: string
   detecting: boolean
 }
@@ -91,16 +83,14 @@ export interface AppProgress {
   plugin_name?: string
 }
 
-/** 一个存活的引擎进程。 */
+/** 一个存活的引擎实例。引擎在进程内，所以没有 PID。 */
 export interface EngineRun {
-  pid: number
+  engine_kind: EngineKind
   running: boolean
   busy: boolean
   session_file: string
   work_dir: string
   started_at: number
-  call_count: number
-  last_error?: string
 }
 
 export interface WorkspaceRow {
@@ -164,22 +154,16 @@ export interface Bootstrap {
   prefs: AppPrefs
 }
 
-/** 引擎健康快照：探测 + 进程 + 落盘计数 + 配置现状，一屏要用的全部事实。 */
+/** 引擎健康快照：计数 + 配置现状，一屏要用的全部事实。 */
 export interface EngineHealth {
   engine_kind: EngineKind
   engine_label: string
-  engine_exe: string
   engine_version: string
   installed: boolean
   running: boolean
   busy: boolean
-  process_id: number
-  started_at: number
-  call_count: number
-  last_error?: string
   session_count: number
   skill_count: number
-  plugin_count: number
   mcp_count: number
   config_files: ConfigFile[]
   caps: EngineCaps
@@ -193,9 +177,7 @@ export interface HealthData {
   runtime: RuntimeStatus
   total_sessions: number
   total_skills: number
-  total_plugins: number
   total_mcp: number
-  live_engines: number
   memory_used_mb: number
   detected_at: number
 }

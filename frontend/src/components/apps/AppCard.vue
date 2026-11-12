@@ -18,17 +18,12 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  reset: []
   copy: [text: string]
 }>()
 
 const { t } = useI18n()
 const detailsOpen = ref(false)
 
-/** pi 是硬依赖：它缺了就没法干活，界面上要更显眼。 */
-const isRequired = computed(() => props.row.required)
-/** 手动指定过路径才给「回到自动探测」。 */
-const canReset = computed(() => props.row.can_locate && props.row.app_source === 'manual')
 /** 入口路径过长时中间省略，别把卡片撑破。 */
 const shortPath = computed(() => {
   const path = props.row.app_path
@@ -38,13 +33,12 @@ const shortPath = computed(() => {
 </script>
 
 <template>
-  <article class="app-card" :class="{ missing: !row.installed, required: isRequired }">
+  <article class="app-card" :class="{ missing: !row.installed }">
     <div class="app-row">
       <div class="app-ident">
         <span class="app-badge" :class="{ on: row.installed }">{{ row.app_name }}</span>
         <span class="app-ver mono">{{ row.installed ? row.app_version || '—' : t('apps.notDetected') }}</span>
         <span v-if="row.installed" class="tag ok">{{ t('apps.ready') }}</span>
-        <span v-else-if="isRequired" class="tag bad">{{ t('apps.required') }}</span>
       </div>
 
       <div class="app-channel">
@@ -57,9 +51,6 @@ const shortPath = computed(() => {
 
       <div class="app-actions">
         <span v-if="row.app_source && row.app_source !== 'none'" class="src mono">{{ row.app_source }}</span>
-        <button v-if="canReset" class="wb-btn sm ghost" @click="emit('reset')">
-          {{ t('apps.resetPath') }}
-        </button>
       </div>
     </div>
 
@@ -101,7 +92,7 @@ const shortPath = computed(() => {
   box-shadow: var(--wb-card-shadow-hover);
 }
 
-.app-card.missing.required {
+.app-card.missing {
   border-color: color-mix(in srgb, var(--wb-bad) 40%, var(--wb-line));
 }
 

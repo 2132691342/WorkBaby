@@ -1,12 +1,12 @@
 package domain
 
-// EngineKind 是引擎种类。本壳只装一个引擎，但保留这个字段让界面与路由的形状
-// 不依赖「只有一个」这件事。
+// EngineKind 是引擎种类。引擎已经内置在本进程里，保留这个字段
+// 让界面与路由的形状不依赖「只有一个」这件事。
 type EngineKind string
 
 const (
-	// EnginePi pi 引擎（唯一实现）
-	EnginePi EngineKind = "pi"
+	// EngineNative 内置原生引擎（唯一实现）
+	EngineNative EngineKind = "native"
 )
 
 // EngineCaps 是能力表：界面按它隐藏入口，而不是渲染一堆点不动的灰按钮。
@@ -19,36 +19,28 @@ type EngineCaps struct {
 	Todos bool `json:"todos"`
 	// QueueClear 整队清空
 	QueueClear bool `json:"queue_clear"`
-	// QueueEdit 单条队列编辑（pi 不支持单删）
+	// QueueEdit 单条队列编辑
 	QueueEdit bool `json:"queue_edit"`
 	// SkillToggle 技能开关
 	SkillToggle bool `json:"skill_toggle"`
-	// Extensions 扩展管理
-	Extensions bool `json:"extensions"`
 	// ExportHTML 会话导出为单文件 HTML
 	ExportHTML bool `json:"export_html"`
 	// SlashCommands 斜杠命令清单
 	SlashCommands bool `json:"slash_commands"`
 	// SessionClone 复制当前会话开新分支
 	SessionClone bool `json:"session_clone"`
-	// PluginToggle 插件启停
-	PluginToggle bool `json:"plugin_toggle"`
-	// PluginUpgrade 插件升级
-	PluginUpgrade bool `json:"plugin_upgrade"`
 }
 
-// PiCaps 是 pi 引擎的能力表：RPC 协议能给到的那些。
-// PlanMode 不在里面：它不是引擎能力，而是「pi-plan-mode 插件是否装并启用」的
-// 事实，要按插件清单实时算——写死成 true 就会出现一个点不动的入口。
-var PiCaps = EngineCaps{
+// NativeCaps 是内置引擎的能力表。
+// 能力表只列界面真正能用的功能。
+var NativeCaps = EngineCaps{
+	Todos:         true,
 	QueueClear:    true,
+	QueueEdit:     true,
 	SkillToggle:   true,
-	Extensions:    true,
 	ExportHTML:    true,
 	SlashCommands: true,
 	SessionClone:  true,
-	PluginToggle:  true,
-	PluginUpgrade: true,
 }
 
 // EngineIdentity 是一个引擎的身份事实。
@@ -75,14 +67,12 @@ type EngineIdentity struct {
 type EngineLayoutVO struct {
 	// EngineKind 引擎种类
 	EngineKind EngineKind `json:"engine_kind"`
-	// AgentDir 引擎家目录（用户自己的 ~/.pi/agent）
+	// AgentDir 引擎数据根目录
 	AgentDir string `json:"agent_dir"`
 	// SessionsDir 会话目录
 	SessionsDir string `json:"sessions_dir"`
 	// SkillsDir 技能目录
 	SkillsDir string `json:"skills_dir"`
-	// PluginsDir 插件安装根
-	PluginsDir string `json:"plugins_dir"`
 	// SettingsFile 设置文件
 	SettingsFile string `json:"settings_file"`
 	// DirExists 根目录是否存在
@@ -91,7 +81,7 @@ type EngineLayoutVO struct {
 
 // AppRowVO 是应用页的一行：一个外部依赖的检测事实与可做的动作。
 type AppRowVO struct {
-	// AppKey 应用标识（pi / node / git / python）
+	// AppKey 应用标识（node / git / python）
 	AppKey string `json:"app_key"`
 	// AppName 界面上的名字
 	AppName string `json:"app_name"`
@@ -101,7 +91,7 @@ type AppRowVO struct {
 	AppPath string `json:"app_path"`
 	// Installed 是否已就绪
 	Installed bool `json:"installed"`
-	// Required 是否为本应用的硬依赖（pi 是，其余只是能力加成）
+	// Required 是否为本应用的硬依赖
 	Required bool `json:"required"`
 	// AppSource 发现方式：manual / path / npm-global / none
 	AppSource string `json:"app_source"`
@@ -115,9 +105,9 @@ type AppRowVO struct {
 
 // AppProgressVO 是一条安装进度帧（SSE app:progress）。
 type AppProgressVO struct {
-	// ProgressKind 进度所属的应用键（node / pi / plugin）
+	// ProgressKind 进度所属的应用键（node / git / python）
 	ProgressKind string `json:"progress_kind"`
-	// ProgressAction 动作（install / update / uninstall / plugin-install）
+	// ProgressAction 动作（install / update / uninstall）
 	ProgressAction string `json:"progress_action"`
 	// ProgressPhase 阶段：start / line / done / fail
 	ProgressPhase string `json:"progress_phase"`
@@ -125,8 +115,6 @@ type AppProgressVO struct {
 	ProgressLine string `json:"progress_line,omitempty"`
 	// ProgressMessage 给人看的一句话
 	ProgressMessage string `json:"progress_message,omitempty"`
-	// PluginName 插件进度时才有的包名
-	PluginName string `json:"plugin_name,omitempty"`
 }
 
 // BootBootstrapRESP 是首屏总包：界面一次请求拿到画首屏要用的全部事实。
@@ -154,30 +142,146 @@ type BootBootstrapRESP struct {
 }
 
 // RuntimeStatusVO 是外部依赖的检测状态。
-// 全部来自用户自己的环境：壳不随包分发运行时，也不代用户安装。
+// 引擎在进程内，不需要探测；这里只报用户环境里的工作区工具链。
 type RuntimeStatusVO struct {
-	// NodeReady 是否找到 node（pi 入口是 CLI 脚本时必需）
+	// NodeReady 是否找到 node（部分技能的脚本要用）
 	NodeReady bool `json:"node_ready"`
-	// NodeVersion node 版本
-	NodeVersion string `json:"node_version"`
 	// GitReady 是否找到 git（工作区的版本控制能力）
 	GitReady bool `json:"git_ready"`
 	// GitVersion git 版本
 	GitVersion string `json:"git_version"`
 	// PythonReady 是否找到 python（部分技能要用）
 	PythonReady bool `json:"python_ready"`
-	// PythonVersion python 版本
-	PythonVersion string `json:"python_version"`
-	// PiReady pi 是否可用：本应用的硬依赖，缺了就没法干活
-	PiReady bool `json:"pi_ready"`
-	// PiVersion pi 版本
-	PiVersion string `json:"pi_version"`
-	// PiSource pi 的发现方式：manual / path / npm-global / none
-	PiSource string `json:"pi_source"`
+	// EngineReady 引擎是否可用：内置引擎恒为真
+	EngineReady bool `json:"engine_ready"`
 	// DetectionHint 缺依赖时给用户的一句话指引
 	DetectionHint string `json:"detection_hint,omitempty"`
-	// Detecting 是否有探测 / 预热正在后台进行
+	// Detecting 是否有探测正在后台进行
 	Detecting bool `json:"detecting"`
+}
+
+// WebStatusVO 是联网能力的当前状态。
+type WebStatusVO struct {
+	// WebKind 搜索服务种类
+	WebKind string `json:"web_kind"`
+	// WebReady 是否可用
+	WebReady bool `json:"web_ready"`
+	// WebMessage 给界面看的一句话
+	WebMessage string `json:"web_message"`
+	// WebHasKey 是否已配置密钥
+	WebHasKey bool `json:"web_has_key"`
+}
+
+// IndexStatusVO 是工作区预索引的状态。
+type IndexStatusVO struct {
+	// IndexWorkspace 当前索引对应的工作区
+	IndexWorkspace string `json:"index_workspace"`
+	// IndexDocCount 索引里的文档数
+	IndexDocCount int `json:"index_doc_count"`
+	// IndexBuilt 是否已建过索引
+	IndexBuilt bool `json:"index_built"`
+	// IndexBuilding 是否正在建索引
+	IndexBuilding bool `json:"index_building"`
+	// IndexBuiltAt 上次建索引的时刻（毫秒）
+	IndexBuiltAt int64 `json:"index_built_at"`
+}
+
+// SearchHitVO 是一条检索结果。
+type SearchHitVO struct {
+	// DocPath 相对工作区的路径
+	DocPath string `json:"doc_path"`
+	// DocKind 种类：file / symbol
+	DocKind string `json:"doc_kind"`
+	// DocSymbol 符号名
+	DocSymbol string `json:"doc_symbol,omitempty"`
+	// DocSymbolKind 符号种类
+	DocSymbolKind string `json:"doc_symbol_kind,omitempty"`
+	// DocLine 符号所在行号
+	DocLine int `json:"doc_line,omitempty"`
+	// HitScore 排序分
+	HitScore float64 `json:"hit_score"`
+	// HitReason 为什么命中
+	HitReason string `json:"hit_reason,omitempty"`
+}
+
+// IndexSearchREQ 是工作区检索的入参。
+type IndexSearchREQ struct {
+	// SearchQuery 检索词
+	SearchQuery string `json:"search_query"`
+	// SearchLimit 最多返回几条
+	SearchLimit int `json:"search_limit"`
+}
+
+// IndexSearchRESP 是检索结果清单。
+type IndexSearchRESP struct {
+	// SearchHits 命中行
+	SearchHits []SearchHitVO `json:"search_hits"`
+	// IndexStatus 索引状态
+	IndexStatus IndexStatusVO `json:"index_status"`
+}
+
+// WebSearchREQ 是联网搜索的入参。
+type WebSearchREQ struct {
+	// SearchQuery 搜索词
+	SearchQuery string `json:"search_query"`
+	// SearchLimit 最多返回几条
+	SearchLimit int `json:"search_limit"`
+}
+
+// WebSearchItemVO 是一条搜索结果。
+type WebSearchItemVO struct {
+	// ResultTitle 标题
+	ResultTitle string `json:"result_title"`
+	// ResultURL 地址
+	ResultURL string `json:"result_url"`
+	// ResultSnippet 摘要
+	ResultSnippet string `json:"result_snippet"`
+	// ResultSource 来源站点
+	ResultSource string `json:"result_source,omitempty"`
+}
+
+// WebSearchRESP 是搜索结果清单。
+type WebSearchRESP struct {
+	// SearchResults 结果行
+	SearchResults []WebSearchItemVO `json:"search_results"`
+	// SearchProvider 用的哪个搜索服务
+	SearchProvider string `json:"search_provider"`
+}
+
+// WebFetchREQ 是抓取网页的入参。
+type WebFetchREQ struct {
+	// FetchUrl 要抓的地址
+	FetchUrl string `json:"fetch_url"`
+}
+
+// WebFetchRESP 是抓取结果。
+type WebFetchRESP struct {
+	// FetchUrl 最终地址
+	FetchUrl string `json:"fetch_url"`
+	// FetchText 可读正文
+	FetchText string `json:"fetch_text"`
+	// FetchCharCount 正文字数
+	FetchCharCount int `json:"fetch_char_count"`
+}
+
+// WebSettingsREQ 是保存联网设置的入参。
+type WebSettingsREQ struct {
+	// WebKind 搜索服务种类
+	WebKind string `json:"web_kind"`
+	// WebApiKey 密钥；空串 = 保留原值
+	WebApiKey string `json:"web_api_key"`
+}
+
+// WebStatusRESP 是联网设置与状态。
+type WebStatusRESP struct {
+	// WebKind 搜索服务种类
+	WebKind string `json:"web_kind"`
+	// WebHasKey 是否已配置密钥
+	WebHasKey bool `json:"web_has_key"`
+	// WebMessage 给界面看的一句话
+	WebMessage string `json:"web_message"`
+	// WebKinds 可选的搜索服务种类
+	WebKinds []string `json:"web_kinds"`
 }
 
 // WorkspaceRowVO 是一条工作区历史。
@@ -256,8 +360,6 @@ type HealthRESP struct {
 	TotalSessions int `json:"total_sessions"`
 	// TotalSkills 技能总数
 	TotalSkills int `json:"total_skills"`
-	// TotalPlugins 插件总数
-	TotalPlugins int `json:"total_plugins"`
 	// TotalMcp MCP 服务总数
 	TotalMcp int `json:"total_mcp"`
 	// LiveEngines 存活引擎实例数
@@ -296,8 +398,6 @@ type EngineHealthVO struct {
 	SessionCount int `json:"session_count"`
 	// SkillCount 启用态技能数
 	SkillCount int `json:"skill_count"`
-	// PluginCount 已装且启用的插件数
-	PluginCount int `json:"plugin_count"`
 	// McpCount MCP 服务数
 	McpCount int `json:"mcp_count"`
 	// ConfigFiles 可查看的配置文件
@@ -359,12 +459,6 @@ type RememberSessionREQ struct {
 type OpenTargetREQ struct {
 	// TargetPath 目标绝对路径
 	TargetPath string `json:"target_path"`
-}
-
-// PiPathREQ 是手动指定 pi 入口的入参；空串表示回到自动探测。
-type PiPathREQ struct {
-	// PiPath pi 的可执行文件或已安装的包目录
-	PiPath string `json:"pi_path"`
 }
 
 // OkRESP 是只要一个成功标志的通用出参。

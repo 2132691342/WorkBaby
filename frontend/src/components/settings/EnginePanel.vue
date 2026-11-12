@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 环境：内置运行时与引擎的状态卡——就绪情况、版本、落点路径、重探。
-// 只探测不安装：缺运行时给「去应用页」，装不装由用户决定。
+// 环境：外部工具链（git / node / python）的状态卡——就绪情况、版本、落点路径、重探。
+// 引擎在进程内，没有「装没装」这件事，所以这张卡只管外部工具链。
+// 只探测不安装：缺了给「去应用页」，装不装由用户决定。
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -15,12 +16,10 @@ const props = defineProps<{
   /** 引擎落盘布局；解不出来时为 undefined */
   layout?: EngineLayout
   detecting: boolean
-  restarting: boolean
 }>()
 
 const emit = defineEmits<{
   redetect: []
-  restart: []
   reveal: [path: string]
 }>()
 
@@ -33,7 +32,7 @@ const copiedCmd = ref('')
 const readyCount = computed(() => {
   const rt = props.runtime
   if (!rt) return 0
-  return [rt.node_ready, rt.git_ready, rt.python_ready, rt.pi_ready].filter(Boolean).length
+  return [rt.node_ready, rt.git_ready, rt.python_ready, rt.engine_ready].filter(Boolean).length
 })
 
 /**
@@ -48,7 +47,6 @@ const pathFields = computed(
       { key: 'agent_dir', label: t('settings.layoutAgent') },
       { key: 'sessions_dir', label: t('settings.layoutSessions') },
       { key: 'skills_dir', label: t('settings.layoutSkills') },
-      { key: 'plugins_dir', label: t('settings.layoutPlugins') },
       { key: 'settings_file', label: t('settings.layoutSettings') },
     ] as const,
 )
@@ -96,17 +94,6 @@ async function copyText(text: string): Promise<void> {
         <span class="tag" :class="item.installed ? 'ok' : 'warn'">
           {{ item.installed ? item.app_version || '—' : t('apps.notInstalled') }}
         </span>
-        <span v-if="item.required" class="tag">{{ t('apps.required') }}</span>
-        <span class="push" />
-        <button
-          v-if="item.app_key === 'pi' && item.installed"
-          class="wb-btn sm"
-          :class="{ 'is-loading': props.restarting }"
-          :disabled="props.restarting"
-          @click="emit('restart')"
-        >
-          {{ t('settings.restartEngine') }}
-        </button>
       </div>
 
       <!-- 缺运行时：只给「去应用页」，不在设置页里代跑安装 -->

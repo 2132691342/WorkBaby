@@ -52,7 +52,8 @@ settings: {
     forgetWorkspace: '从「最近」里去掉',
     workspaceForgotten: '已从「最近」里去掉',
     aboutVersion: '界面版本',
-    aboutRuntime: '内置运行时',
+    aboutRuntime: '环境',
+    aboutEngineBuiltin: '内置引擎',
     runtimeMissing: '（未就绪）',
     redetect: '重新检测',
     detected: '已重新检测',
@@ -61,7 +62,6 @@ settings: {
     layoutAgent: '配置目录',
     layoutSessions: '会话',
     layoutSkills: '技能',
-    layoutPlugins: '插件',
     layoutSettings: '设置文件'
   },
 }

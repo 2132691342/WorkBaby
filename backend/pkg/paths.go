@@ -3,22 +3,25 @@ package pkg
 import (
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // Layout 是本应用的目录布局：装配时解析一次，之后全项目只读。
-// 只分两块地盘——壳自己的数据目录，和用户已有的 pi 家目录。壳不复制 pi 的家，
-// 那个目录是用户与命令行共享的唯一真相。
+// 所有真相都在自己的数据目录里——引擎在本进程内实现，
+// 配置、会话、技能都归本应用自己管，不再依赖别人的目录。
 type Layout struct {
-	// DataDir 壳的数据根：%LOCALAPPDATA%\WorkBaby（开发态带 -dev 后缀）
+	// DataDir 数据根：%LOCALAPPDATA%\WorkBaby（开发态带 -dev 后缀）
 	DataDir string
-	// PiAgentDir 用户 pi 的家：%USERPROFILE%\.pi\agent，与管理页看到的完全同一份
-	PiAgentDir string
-	// LogDir 壳的日志目录：data\logs
+	// LogDir 日志目录：data\logs
 	LogDir string
-	// CacheDir 壳自己的缓存根：data\cache
+	// CacheDir 缓存根：data\cache
 	CacheDir string
-	// StorePath 壳的存储文件：data\workbaby.json
+	// SessionsDir 会话目录：data\sessions
+	SessionsDir string
+	// SkillsDir 启用态技能区：data\skills
+	SkillsDir string
+	// SkillsOffDir 停用态技能区：data\skills_disabled
+	SkillsOffDir string
+	// StorePath 设置文件：data\workbaby.json
 	StorePath string
 	// AssetsDir 随包分发的资产（内置技能包）
 	AssetsDir string
@@ -39,53 +42,32 @@ func ResolveLayout(exeDir string, assetsDir string, dev bool) Layout {
 	}
 	data := filepath.Join(local, name)
 	return Layout{
-		DataDir:    data,
-		PiAgentDir: ResolvePiAgentDir(),
-		LogDir:     filepath.Join(data, "logs"),
-		CacheDir:   filepath.Join(data, "cache"),
-		StorePath:  filepath.Join(data, "workbaby.json"),
-		AssetsDir:  assetsDir,
-		Dev:        dev,
+		DataDir:      data,
+		LogDir:       filepath.Join(data, "logs"),
+		CacheDir:     filepath.Join(data, "cache"),
+		SessionsDir:  filepath.Join(data, "sessions"),
+		SkillsDir:    filepath.Join(data, "skills"),
+		SkillsOffDir: filepath.Join(data, "skills_disabled"),
+		StorePath:    filepath.Join(data, "workbaby.json"),
+		AssetsDir:    assetsDir,
+		Dev:          dev,
 	}
 }
 
-// ResolvePiAgentDir 用户 pi 的家目录。
-// 先认 PI_CODING_AGENT_DIR——用户可能自己重定向过；否则取 ~/.pi/agent，
-// 与 pi 的 getAgentDir() 同一口径。
-func ResolvePiAgentDir() string {
-	if dir := strings.TrimSpace(os.Getenv("PI_CODING_AGENT_DIR")); dir != "" {
-		return filepath.Clean(dir)
+// McpFile MCP 服务清单。
+func (l Layout) McpFile() string { return filepath.Join(l.DataDir, "mcp.json") }
+
+// DatabasePath SQLite 数据库文件。
+// 索引、统计与模型目录落在这里；会话正文仍在 JSONL 文件里。
+func (l Layout) DatabasePath() string { return filepath.Join(l.DataDir, "workbaby.db") }
+
+// ChildEnv 是给子进程的环境：只追加必须项，不遮蔽 HOME、不改 PATH 顺序——
+// 工具跑的是用户自己的环境，它该看见真实的 shell 与工具链。
+func (l Layout) ChildEnv(extra map[string]string) []string {
+	env := os.Environ()
+	env = append(env, "NO_COLOR=1", "GIT_TERMINAL_PROMPT=0")
+	for key, value := range extra {
+		env = append(env, key+"="+value)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return filepath.Join(".pi", "agent")
-	}
-	return filepath.Join(home, ".pi", "agent")
+	return env
 }
-
-// SessionsDir 会话 JSONL 根。
-func (l Layout) SessionsDir() string { return filepath.Join(l.PiAgentDir, "sessions") }
-
-// SkillsDir 启用态技能区。
-func (l Layout) SkillsDir() string { return filepath.Join(l.PiAgentDir, "skills") }
-
-// SkillsOffDir 停用态技能区：目录搬进来 pi 自然不再发现。
-func (l Layout) SkillsOffDir() string { return filepath.Join(l.PiAgentDir, "skills_disabled") }
-
-// PluginRoot 插件安装根：pi 自己的 npm 约定。
-func (l Layout) PluginRoot() string { return filepath.Join(l.PiAgentDir, "npm") }
-
-// SettingsFile pi 的 settings.json。
-func (l Layout) SettingsFile() string { return filepath.Join(l.PiAgentDir, "settings.json") }
-
-// ModelsFile pi 的 models.json。
-func (l Layout) ModelsFile() string { return filepath.Join(l.PiAgentDir, "models.json") }
-
-// AuthFile pi 的 auth.json。
-func (l Layout) AuthFile() string { return filepath.Join(l.PiAgentDir, "auth.json") }
-
-// McpFile 用户级 mcp.json。
-func (l Layout) McpFile() string { return filepath.Join(l.PiAgentDir, "mcp.json") }
-
-// PiPresent pi 的家是否已存在（用户装过 pi 的最直接证据）。
-func (l Layout) PiPresent() bool { return IsDir(l.PiAgentDir) }

@@ -198,100 +198,6 @@ type SkillContentRESP struct {
 	FileText string `json:"file_text"`
 }
 
-// PluginStateKind 是插件的运行期状态。
-type PluginStateKind string
-
-const (
-	// PluginStateInstalled 已装且可用
-	PluginStateInstalled PluginStateKind = "installed"
-	// PluginStateDisabled 已装但声明里停用了
-	PluginStateDisabled PluginStateKind = "disabled"
-	// PluginStateMissing 可安装但还没装
-	PluginStateMissing PluginStateKind = "missing"
-	// PluginStateFailed 安装或加载失败
-	PluginStateFailed PluginStateKind = "failed"
-)
-
-// PluginRowVO 是一个插件。
-type PluginRowVO struct {
-	// PluginName npm 包名（插件身份，不随版本变）
-	PluginName string `json:"plugin_name"`
-	// PluginVersion 已装版本
-	PluginVersion string `json:"plugin_version"`
-	// PluginSource packages 里的来源串
-	PluginSource string `json:"plugin_source"`
-	// PluginPath 包目录绝对路径
-	PluginPath string `json:"plugin_path"`
-	// PluginDesc 一句话说明
-	PluginDesc string `json:"plugin_desc,omitempty"`
-	// PluginTargetVersion 推荐清单 pin 的版本
-	PluginTargetVersion string `json:"plugin_target_version,omitempty"`
-	// PluginLatest npm registry 的最新版；没查到给空
-	PluginLatest string `json:"plugin_latest,omitempty"`
-	// PluginUpgradable 已装版本与目标（pin 或 registry 最新）不一致，可升级
-	PluginUpgradable bool `json:"plugin_upgradable"`
-	// ResourceKinds 包内暴露的资源种类
-	ResourceKinds []string `json:"resource_kinds"`
-	// PluginRecommended 是否在推荐清单里
-	PluginRecommended bool `json:"plugin_recommended"`
-	// PluginDeclared settings.json 的 packages 里有没有它这一条
-	PluginDeclared bool `json:"plugin_declared"`
-	// PluginEnabled packages 条目是否启用
-	PluginEnabled bool `json:"plugin_enabled"`
-	// PluginInstalled 包目录是否真的存在
-	PluginInstalled bool `json:"plugin_installed"`
-	// PluginState 运行期状态
-	PluginState PluginStateKind `json:"plugin_state"`
-	// PluginError 失败原因
-	PluginError string `json:"plugin_error,omitempty"`
-}
-
-// PluginListRESP 是插件清单。
-type PluginListRESP struct {
-	// Plugins 插件行
-	Plugins []PluginRowVO `json:"plugins"`
-	// RegistryPath settings.json 路径
-	RegistryPath string `json:"registry_path"`
-	// InstallRoot 插件安装根
-	InstallRoot string `json:"install_root"`
-	// RecommendedTotal 推荐清单总数
-	RecommendedTotal int `json:"recommended_total"`
-	// RecommendedInstalled 已就绪的推荐插件数
-	RecommendedInstalled int `json:"recommended_installed"`
-	// Busy 是否有安装任务正在占用
-	Busy bool `json:"busy"`
-}
-
-// PluginSourceREQ 是装插件的入参。
-type PluginSourceREQ struct {
-	// PluginSource npm 包名或来源串
-	PluginSource string `json:"plugin_source"`
-}
-
-// PluginNameREQ 是按包名定向操作的入参。
-type PluginNameREQ struct {
-	// PluginName npm 包名
-	PluginName string `json:"plugin_name"`
-}
-
-// PluginToggleREQ 是插件开关的入参。
-type PluginToggleREQ struct {
-	// PluginName npm 包名
-	PluginName string `json:"plugin_name"`
-	// PluginEnabled 目标状态
-	PluginEnabled bool `json:"plugin_enabled"`
-}
-
-// PluginInstallRESP 是安装类动作的出参。
-type PluginInstallRESP struct {
-	// PluginName 装到的包名
-	PluginName string `json:"plugin_name"`
-	// Installed 成功数（批量动作才有意义）
-	Installed int `json:"installed"`
-	// Failed 失败数
-	Failed int `json:"failed"`
-}
-
 // McpServerVO 是一个 MCP 服务器。
 type McpServerVO struct {
 	// ServerName 服务名
@@ -308,7 +214,7 @@ type McpServerVO struct {
 	McpWorkDir string `json:"mcp_work_dir,omitempty"`
 	// McpEnvText 环境变量回显，逐行 KEY=VALUE
 	McpEnvText string `json:"mcp_env_text,omitempty"`
-	// McpTimeout 连接超时（秒，pi 的 mcp.json 语义）；0 表示没配
+	// McpTimeout 连接超时（秒）；0 表示没配
 	McpTimeout int `json:"mcp_timeout,omitempty"`
 	// McpEnabled 是否启用
 	McpEnabled bool `json:"mcp_enabled"`
@@ -346,7 +252,7 @@ type McpSaveREQ struct {
 	WorkDir string `json:"work_dir"`
 	// EnvList 环境变量，逐行 KEY=VALUE；空表示清掉该字段
 	EnvList []string `json:"env_list"`
-	// McpTimeout 连接超时（秒，与 pi 的 mcp.json 同单位）；0 表示清掉该字段
+	// McpTimeout 连接超时（秒）；0 表示清掉该字段
 	McpTimeout int `json:"mcp_timeout"`
 	// McpScope user / project；project 落工作区 .pi\mcp.json，需要已选工作区
 	McpScope string `json:"mcp_scope"`

@@ -26,7 +26,7 @@ func (s *Server) settingsSave(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	saved, err := s.svc.SaveSettings(req)
+	saved, err := s.svc.Settings.Save(req)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -40,14 +40,11 @@ func (s *Server) settingsWorkspace(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	workspace, err := s.svc.Settings.SetWorkspace(req.Workspace)
-	if err != nil {
+	if err := s.svc.SetWorkspace(req.Workspace); err != nil {
 		pkg.Fail(c, err)
 		return
 	}
-	// 工作区变了引擎绑定就失效：这里是唯一需要重建的入口。
-	s.svc.Chat.OnWorkspaceChanged()
-	pkg.OK(c, domain.SetWorkspaceRESP{Workspace: workspace})
+	pkg.OK(c, domain.SetWorkspaceRESP{Workspace: s.svc.Workspace()})
 }
 
 // workspaceForget 从历史里去掉一个目录。
@@ -64,7 +61,7 @@ func (s *Server) workspaceForget(c *gin.Context) {
 	pkg.OK(c, domain.WorkspaceListRESP{
 		Workspace:     s.svc.Workspace(),
 		WorkspaceRows: rows,
-		ActiveEngine:  domain.EnginePi,
+		ActiveEngine:  domain.EngineNative,
 	})
 }
 
@@ -135,36 +132,37 @@ func (s *Server) prefsOpenDataDir(c *gin.Context) {
 
 // logs 当日日志尾部。
 func (s *Server) logs(c *gin.Context) {
-	lines := s.svc.Logs(queryInt(c, "lines", 500))
-	pkg.OK(c, map[string]any{"lines": lines})
+	pkg.OK(c, map[string]any{"lines": pkg.TailLog(queryInt(c, "lines", 500))})
 }
 
-// enginesGet 引擎身份 + 布局 + 存活实例。
+// enginesGet 引擎身份 + 布局 + 运行状态。
 func (s *Server) enginesGet(c *gin.Context) {
-	instance := s.svc.Chat.Instance()
 	pkg.OK(c, map[string]any{
 		"engines":     []domain.EngineIdentity{s.svc.EngineIdentity()},
 		"layouts":     []domain.EngineLayoutVO{service.EngineLayout(s.svc.Layout)},
 		"runtime":     s.svc.RuntimeStatus(),
-		"instance":    instance,
+		"instance":    s.svc.EngineInstance(),
 		"detected_at": pkg.NowMs(),
 	})
 }
 
-// enginesDetect 重新探测运行时版本。
+// enginesDetect 重新探测运行时（内置引擎恒就绪，这里只是刷新工具链状态）。
 func (s *Server) enginesDetect(c *gin.Context) {
-	pkg.OK(c, s.svc.DetectTargets())
+	s.svc.Redetect()
+	pkg.OK(c, map[string]any{"runtime": s.svc.RuntimeStatus(), "apps": s.svc.Apps()})
 }
 
-// enginesRestart 重启引擎子进程。
+// enginesRestart 中止当前运行：内置引擎没有需要重启的进程。
 func (s *Server) enginesRestart(c *gin.Context) {
-	s.svc.RestartEngine()
+	s.svc.Chat.Stop()
+	s.svc.Hub.Broadcast("engine:ready", nil)
 	ok(c)
 }
 
 // enginesRepair 重新探测全部外部依赖（等价于一次全面刷新）。
 func (s *Server) enginesRepair(c *gin.Context) {
-	pkg.OK(c, s.svc.DetectTargets())
+	s.svc.Redetect()
+	pkg.OK(c, map[string]any{"runtime": s.svc.RuntimeStatus(), "apps": s.svc.Apps()})
 }
 
 // healthGet 概览页的健康快照。
@@ -175,20 +173,6 @@ func (s *Server) healthGet(c *gin.Context) {
 // appsGet 应用页的行。
 func (s *Server) appsGet(c *gin.Context) {
 	pkg.OK(c, map[string]any{"apps": s.svc.Apps()})
-}
-
-// appsLocate 手动指定 pi 的位置。壳不代装，只能让用户告诉我们在哪。
-func (s *Server) appsLocate(c *gin.Context) {
-	var req domain.PiPathREQ
-	if !bind(c, &req) {
-		return
-	}
-	status, err := s.svc.LocatePi(req.PiPath)
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, map[string]any{"runtime": status, "apps": s.svc.Apps()})
 }
 
 // configFiles 可查看的配置文件清单。

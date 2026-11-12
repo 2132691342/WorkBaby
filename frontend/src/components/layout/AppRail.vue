@@ -22,8 +22,9 @@ const primary: NavItem[] = [
   { name: 'sessions', icon: 'clock', key: 'nav.sessions' },
   { name: 'models', icon: 'cpu', key: 'nav.models' },
   { name: 'skills', icon: 'spark', key: 'nav.skills' },
-  { name: 'plugins', icon: 'plug', key: 'nav.plugins' },
   { name: 'mcp', icon: 'server', key: 'nav.mcp' },
+  { name: 'web', icon: 'book', key: 'nav.web' },
+  { name: 'index', icon: 'search', key: 'nav.index' },
   { name: 'usage', icon: 'chart', key: 'nav.usage' },
 ]
 

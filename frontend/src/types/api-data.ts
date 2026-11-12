@@ -68,7 +68,7 @@ export interface ModelRow {
   input_kinds?: string[]
 }
 
-// ---------------- 技能与插件 ----------------
+// ---------------- 技能 ----------------
 
 export type SkillSourceKind = 'builtin' | 'bundled' | 'managed' | 'project'
 
@@ -99,35 +99,6 @@ export interface SkillAvailable {
   skill_group: string
   skill_desc: string
   skill_requires?: string
-}
-
-export type PluginStateKind = 'installed' | 'disabled' | 'missing' | 'failed'
-
-export interface PluginRow {
-  plugin_name: string
-  plugin_version: string
-  plugin_source: string
-  plugin_path: string
-  plugin_desc?: string
-  plugin_target_version?: string
-  plugin_latest?: string
-  plugin_upgradable: boolean
-  resource_kinds: string[]
-  plugin_recommended: boolean
-  plugin_declared: boolean
-  plugin_enabled: boolean
-  plugin_installed: boolean
-  plugin_state: PluginStateKind
-  plugin_error?: string
-}
-
-export interface PluginListData {
-  plugins: PluginRow[]
-  registry_path: string
-  install_root: string
-  recommended_total: number
-  recommended_installed: number
-  busy: boolean
 }
 
 // ---------------- MCP ----------------

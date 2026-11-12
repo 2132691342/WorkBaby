@@ -1,441 +1,474 @@
 package service
 
 import (
+	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
+	"WorkBaby/backend/agent"
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
-	"WorkBaby/backend/service/chat"
-	"WorkBaby/backend/service/engine"
-	"WorkBaby/backend/service/parser"
 	"WorkBaby/backend/sse"
 )
 
-// Chat 是对话编排：一个工作区一个引擎子进程；send / stop / steer / 切会话。
-// 状态总装在 chat_state.go。
+// Chat 是对话编排：进程内的原生引擎，一次运行一个 Runner。
+// 「引擎」不再是子进程——它就是本进程里的 agent 包，所以没有拉起、握手、崩溃重启。
 type Chat struct {
 	// Settings 设置（工作区、上次会话）
 	Settings *Settings
-	// Sessions 会话（历史回放、隐藏台账）
+	// Sessions 会话回放（清单、详情、隐藏台账）
 	Sessions *Sessions
-	// Runtime 内置运行时
-	Runtime *engine.Runtime
+	// Models 服务商与模型
+	Models *Models
 	// Hub 事件广播
 	Hub *sse.Hub
 	// Stream 事件翻译器
-	Stream *chat.Stream
+	Stream *Stream
+	// Tools 工具注册表
+	Tools *agent.Registry
+	// Store 会话文件存储
+	Store *agent.Store
+	// Asks 在等的提问：跨运行边界也要留着，界面刷新靠它补回卡片
+	Asks *agent.PendingAsks
 
-	// mu 保护下面的绑定状态：整块换绑定必须原子，否则会有半新半旧的快照。
+	// mu 保护会话绑定与运行状态
 	mu sync.Mutex
-	// startMu 串行化引擎的「检查→停旧→拉新→换绑」整段：并发 EnsureRpc 只允许拉起一个引擎。
-	startMu sync.Mutex
-	rpc     *chat.PiRpc
-	rpcWs   string
-	file    string
-	level   string
-	levels  []string
-	cmds    []domain.SlashCommandVO
-	autocmp bool
-	queued  domain.QueuedMessagesVO
-	// crashStreak 连续崩溃次数：自动重启的退避基数，成功绑定后归零。
-	crashStreak int
-	// warming 是否已有一个预热在跑：没有它，状态接口每次未命中都会再排一个 EnsureRpc。
-	warming atomic.Bool
+	// session 当前打开的会话；nil 表示还没开会话
+	session *agent.Session
+	// runner 当前运行的执行器；nil 表示空闲
+	runner *agent.Runner
+	// cancel 中止当前运行
+	cancel context.CancelFunc
+	// running 是否有运行在跑
+	running atomic.Bool
+	// level 思考档
+	level string
+	// queued 排队文本镜像（界面显示用）
+	queued domain.QueuedMessagesVO
+	// waiters 在等的提问：提问 ID → 回答通道
+	waiters map[string]chan agent.AskResponse
 }
 
 // NewChat 造一个对话门面。
-func NewChat(settings *Settings, sessions *Sessions, rt *engine.Runtime, hub *sse.Hub) *Chat {
-	return &Chat{
+func NewChat(settings *Settings, sessions *Sessions, models *Models, hub *sse.Hub, store *agent.Store) *Chat {
+	chat := &Chat{
 		Settings: settings,
 		Sessions: sessions,
-		Runtime:  rt,
+		Models:   models,
 		Hub:      hub,
-		Stream:   chat.NewStream(hub),
+		Stream:   NewStream(hub),
+		Store:    store,
+		Asks:     agent.NewPendingAsks(),
 		level:    "medium",
-		levels:   []string{"off", "minimal", "low", "medium", "high"},
-		autocmp:  true,
+		queued:   domain.QueuedMessagesVO{},
+		waiters:  map[string]chan agent.AskResponse{},
 	}
+	chat.Tools = agent.NewRegistry(settings.Workspace)
+	chat.Tools.Asker = agent.AskerFunc(chat.ask)
+	return chat
 }
 
-// EnsureRpc 确保子进程在跑且绑定当前工作区。
-// 整段在 startMu 内：检查与换绑分离曾允许并发请求各拉一个引擎、互相覆盖绑定。
-func (c *Chat) EnsureRpc() (*chat.PiRpc, error) {
+// BindSession 把对话绑到某份会话文件；空串表示开一份新的。
+func (c *Chat) BindSession(file string) (*agent.Session, error) {
 	workspace := c.Settings.Workspace()
 	if workspace == "" {
 		return nil, pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
 	}
-	c.startMu.Lock()
-	defer c.startMu.Unlock()
-
 	c.mu.Lock()
-	current := c.rpc
-	boundWs := c.rpcWs
+	current := c.session
 	c.mu.Unlock()
-	if current != nil && current.Alive() && boundWs == workspace {
-		return current, nil
+	if file != "" {
+		if current != nil && strings.EqualFold(current.File(), file) {
+			return current, nil
+		}
+		if c.Busy() {
+			return nil, pkg.Err(pkg.CodeEngineBusy, "有任务正在跑，等它结束再切会话")
+		}
+		opened, err := c.Store.Open(file)
+		if err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		c.session = opened
+		c.mu.Unlock()
+		c.Settings.RememberSession(opened.File())
+		c.applyPlanState(opened.Id())
+		return opened, nil
 	}
 	if current != nil {
-		current.Stop()
+		return current, nil
 	}
-
-	entry := c.Runtime.Resolve()
-	if entry.Command == "" {
-		return nil, pkg.Err(pkg.CodeEngineMissing, "没有检测到 pi，请先在应用页指定 pi 的位置")
-	}
-	var client *chat.PiRpc
-	client = chat.NewPiRpc(entry.Command, entry.Script, workspace, c.Runtime.Layout.ChildEnv(nil), chat.Handlers{
-		OnEvent:     c.onEngineEvent,
-		OnUiRequest: c.onUiRequest,
-		OnExit: func(code int) {
-			c.mu.Lock()
-			// 只有「退出的仍是当前绑定实例」才清绑：被换下的旧进程退出得晚，不能抹掉新绑定。
-			// 清绑成功即视为意外退出（主动 Restart / Shutdown 先把 c.rpc 置 nil，不走这里）。
-			if c.rpc == client {
-				c.rpc = nil
-				c.mu.Unlock()
-				c.scheduleRestart()
-			} else {
-				c.mu.Unlock()
-			}
-			c.Hub.Broadcast("engine:exit", sse.EngineTag(map[string]any{"exit_code": code}))
-			pkg.Info("pi 子进程退出：code=%d", code)
-		},
-	})
-	if err := client.Start(); err != nil {
+	created, err := c.Store.Create(workspace)
+	if err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
-	c.rpc = client
-	c.rpcWs = workspace
-	c.file = ""
-	c.cmds = nil
+	c.session = created
 	c.mu.Unlock()
-
-	state, err := client.Request(chat.Record{"type": "get_state"}, 0)
-	if err != nil {
-		// 进程起来了就说明这次拉起是成功的：崩溃计数按「起不来」算，
-		// 不是按「握手没答上」。不归零的话，连续几次握手失败会永久停掉自动重启。
-		c.mu.Lock()
-		c.crashStreak = 0
-		// 先摘绑定再关停：OnExit 只清「仍是当前实例」的绑定，摘干净它就不会
-		// 把这次握手失败再记成一次意外崩溃去叠加自动重启。
-		c.rpc = nil
-		c.rpcWs = ""
-		c.mu.Unlock()
-		client.Stop()
-		pkg.Error("pi 绑定失败：%v", err)
-		return nil, pkg.Err(pkg.CodeRpcDown, "pi 引擎握手失败", pkg.As(err).Message)
-	}
-	c.applyState(state)
-	c.mu.Lock()
-	// 新进程不继承旧进程的排队镜像：队列真相在引擎里，镜像只配对当前实例。
-	c.queued = domain.QueuedMessagesVO{}
-	c.crashStreak = 0
-	c.mu.Unlock()
-	c.Hub.Broadcast("engine:ready", sse.EngineTag(nil))
-	go c.refreshCommands(client)
-	go c.refreshLevels(client)
-	return client, nil
+	c.Settings.RememberSession(created.File())
+	// 新会话是干净的：计划模式不该从上一份会话漏过来。
+	c.Tools.Policy.SetReadOnly(created.Id(), false)
+	return created, nil
 }
 
-// Warm 后台把引擎拉起来。打开应用就该预热，而不是等用户发第一句话时
-// 才陪着十几个插件的冷加载一起等；已就绪或已有预热在跑时是空操作。
-func (c *Chat) Warm() {
+// NewSession 开一份新会话。
+func (c *Chat) NewSession() (string, error) {
+	if c.Busy() {
+		return "", pkg.Err(pkg.CodeEngineBusy, "有任务正在跑，等它结束再新建会话")
+	}
 	workspace := c.Settings.Workspace()
-	if workspace == "" || !c.Runtime.Installed() {
-		return
+	if workspace == "" {
+		return "", pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
+	}
+	created, err := c.Store.Create(workspace)
+	if err != nil {
+		return "", err
 	}
 	c.mu.Lock()
-	alive := c.rpc != nil && c.rpc.Alive()
+	c.session = created
 	c.mu.Unlock()
-	if alive || !c.warming.CompareAndSwap(false, true) {
-		return
+	c.Settings.RememberSession(created.File())
+	c.Hub.Broadcast("session:info", sse.EngineTag(nil))
+	return created.File(), nil
+}
+
+// Busy 是否有运行在跑。
+func (c *Chat) Busy() bool { return c.running.Load() }
+
+// CurrentFile 当前会话文件。
+func (c *Chat) CurrentFile() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.session == nil {
+		return ""
 	}
+	return c.session.File()
+}
+
+// Send 发一条消息并起一轮运行。
+func (c *Chat) Send(sessionFile, message string, attachments []domain.ChatAttachmentVO) (domain.ChatSendRESP, error) {
+	composed := compose(message, attachments)
+	if strings.TrimSpace(composed.text) == "" {
+		return domain.ChatSendRESP{}, pkg.Err(pkg.CodeBadRequest, "消息不能为空")
+	}
+	if c.Busy() {
+		// 正在跑就排进队列：这是「插话」的正确语义，而不是报错让用户重打一遍。
+		if err := c.Steer(message, attachments); err != nil {
+			return domain.ChatSendRESP{}, err
+		}
+		return domain.ChatSendRESP{Disposition: domain.DispositionQueued}, nil
+	}
+	session, err := c.BindSession(sessionFile)
+	if err != nil {
+		return domain.ChatSendRESP{}, err
+	}
+	model, err := c.resolveModel()
+	if err != nil {
+		return domain.ChatSendRESP{}, err
+	}
+	runId := c.Stream.Begin(composed.text)
+	runner := &agent.Runner{
+		Streamer: agent.NewOpenAIStreamer(),
+		Registry: c.Tools,
+		Session:  session,
+		Model:    model,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.mu.Lock()
+	c.runner = runner
+	c.cancel = cancel
+	c.queued = domain.QueuedMessagesVO{}
+	c.mu.Unlock()
+	c.running.Store(true)
+
 	go func() {
-		defer c.warming.Store(false)
-		if _, err := c.EnsureRpc(); err != nil {
-			pkg.Warn("引擎预热失败：%v", err)
-			// 预热失败只发一条通知：真正的原因留给用户下次动作时的报错，
-			// 这里不拦界面——对话页的历史回放不依赖引擎。
-			c.Hub.Broadcast("chat:notify", sse.EngineTag(map[string]any{
-				"level":   "warn",
-				"message": "引擎后台启动失败：" + pkg.As(err).Message,
-			}))
-			return
-		}
-		pkg.Info("引擎预热完成")
-	}()
-}
-
-// scheduleRestart 引擎意外退出后的自动拉起：指数退避，连崩 5 次就停手交给用户。
-// 稳定性优先于不休止的重试——坏掉的引擎反复拉起只会反复打断用户。
-func (c *Chat) scheduleRestart() {
-	c.mu.Lock()
-	if c.crashStreak >= 5 {
-		c.mu.Unlock()
-		pkg.Warn("pi 连续崩溃 %d 次，停止自动重启，等下一次手动操作", c.crashStreak)
-		return
-	}
-	delay := time.Duration(2<<c.crashStreak) * time.Second
-	c.crashStreak++
-	c.mu.Unlock()
-	pkg.Warn("pi 意外退出，%s 后自动重启", delay)
-	time.AfterFunc(delay, func() {
-		// 到点时绑定已被手动操作补上就不再叠加：自动重启只为填补空档。
-		c.mu.Lock()
-		if c.rpc != nil {
+		defer func() {
+			c.running.Store(false)
+			c.mu.Lock()
+			c.runner = nil
+			c.cancel = nil
+			c.queued = domain.QueuedMessagesVO{}
 			c.mu.Unlock()
-			return
-		}
-		c.mu.Unlock()
-		if _, err := c.EnsureRpc(); err != nil {
-			pkg.Warn("pi 自动重启失败：%v", err)
-			return
-		}
-		pkg.Info("pi 自动重启完成")
-	})
+			cancel()
+		}()
+		runner.Run(ctx, composed.message(), c.handler())
+	}()
+	return domain.ChatSendRESP{RunId: runId, Disposition: domain.DispositionStarted}, nil
 }
 
-// applyState 把 get_state 的应答写进绑定状态。
-func (c *Chat) applyState(state any) {
-	fields, ok := state.(map[string]any)
-	if !ok {
-		return
+// Steer 在当前运行里插一条话，等本次工具调用做完再投递。
+func (c *Chat) Steer(message string, attachments []domain.ChatAttachmentVO) error {
+	composed := compose(message, attachments)
+	if strings.TrimSpace(composed.text) == "" {
+		return pkg.Err(pkg.CodeBadRequest, "插话内容不能为空")
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if file := stringOf(fields["sessionFile"]); file != "" {
-		c.file = file
-	}
-	if level := stringOf(fields["thinkingLevel"]); level != "" {
-		c.level = level
-	}
-	if flag, ok := fields["autoCompactionEnabled"].(bool); ok {
-		c.autocmp = flag
-	}
-}
-
-// refreshCommands 拉斜杠命令清单。
-func (c *Chat) refreshCommands(client *chat.PiRpc) {
-	data, err := client.Request(chat.Record{"type": "get_commands"}, 0)
-	if err != nil {
-		return
-	}
-	fields, ok := data.(map[string]any)
-	if !ok {
-		return
-	}
-	items, _ := fields["commands"].([]any)
-	cmds := make([]domain.SlashCommandVO, 0, len(items))
-	for _, item := range items {
-		entry, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		name := stringOf(entry["name"])
-		if name == "" {
-			continue
-		}
-		cmds = append(cmds, domain.SlashCommandVO{
-			CommandName:   name,
-			CommandSource: defaultIfEmpty(stringOf(entry["source"]), "prompt"),
-			CommandDesc:   stringOf(entry["description"]),
-		})
-	}
-	c.mu.Lock()
-	c.cmds = cmds
+	runner := c.runner
 	c.mu.Unlock()
-	c.Hub.Broadcast("engine:commands", sse.EngineTag(map[string]any{"commands": cmds}))
+	if runner == nil {
+		return pkg.Err(pkg.CodeNotFound, "当前没有正在进行的运行")
+	}
+	runner.Enqueue(composed.message())
+	c.refreshQueue()
+	return nil
 }
 
-// refreshLevels 拉可用思考档。
-func (c *Chat) refreshLevels(client *chat.PiRpc) {
-	data, err := client.Request(chat.Record{"type": "get_available_thinking_levels"}, 0)
-	if err != nil {
-		return
+// FollowUp 追加一条话，同样等这一轮收尾后投递。
+func (c *Chat) FollowUp(message string, attachments []domain.ChatAttachmentVO) error {
+	return c.Steer(message, attachments)
+}
+
+// Stop 中止当前运行。
+func (c *Chat) Stop() error {
+	c.mu.Lock()
+	cancel := c.cancel
+	c.mu.Unlock()
+	if cancel == nil {
+		return nil
 	}
-	fields, ok := data.(map[string]any)
-	if !ok {
-		return
-	}
-	levels := asStringSlice(fields["levels"])
-	if len(levels) == 0 {
-		return
+	cancel()
+	return nil
+}
+
+// ClearQueue 清空排队并返回被清掉的文本。
+func (c *Chat) ClearQueue() domain.QueuedMessagesVO {
+	c.mu.Lock()
+	runner := c.runner
+	c.mu.Unlock()
+	if runner != nil {
+		for _, text := range runner.Queued() {
+			_ = text
+		}
 	}
 	c.mu.Lock()
-	c.levels = levels
+	out := c.queued
+	c.queued = domain.QueuedMessagesVO{}
 	c.mu.Unlock()
+	return out
 }
 
-// onEngineEvent 引擎会话事件 → 翻译器。
-func (c *Chat) onEngineEvent(rec chat.Record) {
-	if stringOf(rec["type"]) == "queue_update" {
+// RefreshQueue 把排队镜像刷成引擎侧的真实排队。
+func (c *Chat) refreshQueue() {
+	c.mu.Lock()
+	runner := c.runner
+	c.mu.Unlock()
+	if runner == nil {
+		return
+	}
+	texts := runner.Queued()
+	c.mu.Lock()
+	c.queued = domain.QueuedMessagesVO{Steering: texts}
+	out := c.queued
+	c.mu.Unlock()
+	c.Hub.Broadcast("chat:queue", sse.EngineTag(map[string]any{
+		"steering":  out.Steering,
+		"follow_up": out.FollowUp,
+	}))
+}
+
+// ask 发起一次提问并等回答。
+// 提问是阻塞式的：模型在等用户回话，这一轮不会往下走。
+// 界面可能在这期间切走再回来，所以待答清单单独记着，刷新时补回卡片。
+func (c *Chat) ask(ctx context.Context, req agent.AskRequest) agent.AskResponse {
+	answer := make(chan agent.AskResponse, 1)
+	c.mu.Lock()
+	c.waiters[req.AskId] = answer
+	c.mu.Unlock()
+	c.Asks.Add(req)
+	defer func() {
 		c.mu.Lock()
-		c.queued = domain.QueuedMessagesVO{
-			Steering: asStringSlice(rec["steering"]),
-			FollowUp: asStringSlice(rec["followUp"]),
-		}
+		delete(c.waiters, req.AskId)
 		c.mu.Unlock()
-	}
-	c.Stream.OnEvent(rec)
-}
-
-// onUiRequest 引擎 UI 请求：对话框转提问卡，其余转通知。
-func (c *Chat) onUiRequest(rec chat.Record) {
-	method := stringOf(rec["method"])
-	id := stringOf(rec["id"])
-	if id != "" && isDialogMethod(method) {
-		ask := domain.AskRequestVO{
-			AskId:          id,
-			AskMethod:      method,
-			AskTitle:       stringOf(rec["title"]),
-			AskMessage:     stringOf(rec["message"]),
-			AskPlaceholder: stringOf(rec["placeholder"]),
-			AskPrefill:     stringOf(rec["prefill"]),
-			AskOptions:     asStringSlice(rec["options"]),
-			AskTimeoutMs:   chatInt(rec["timeout"]),
-		}
-		c.Hub.Broadcast("chat:ask", sse.EngineTag(map[string]any{
-			"ask_id":          ask.AskId,
-			"ask_method":      ask.AskMethod,
-			"ask_title":       ask.AskTitle,
-			"ask_message":     ask.AskMessage,
-			"ask_placeholder": ask.AskPlaceholder,
-			"ask_prefill":     ask.AskPrefill,
-			"ask_options":     ask.AskOptions,
-			"ask_timeout_ms":  ask.AskTimeoutMs,
-		}))
-		return
-	}
-	c.Stream.OnUiRequest(rec)
-}
-
-// isDialogMethod 判断是不是需要用户回答的对话框。
-func isDialogMethod(method string) bool {
-	switch method {
-	case "select", "confirm", "input", "editor":
-		return true
-	}
-	return false
-}
-
-// chatInt 安全取整数。
-func chatInt(v any) int {
-	if n, ok := v.(float64); ok {
-		return int(n)
-	}
-	return 0
-}
-
-// currentFile 当前绑定的会话文件。
-func (c *Chat) currentFile() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.file
-}
-
-// rememberCurrent 记住当前会话（供界面刷新后恢复）。
-func (c *Chat) rememberCurrent() {
-	if file := c.currentFile(); file != "" {
-		c.Settings.RememberSession(file)
+		c.Asks.Remove(req.AskId)
+	}()
+	c.Hub.Broadcast("chat:ask", sse.EngineTag(map[string]any{
+		"ask_id":          req.AskId,
+		"ask_method":      string(req.AskMethod),
+		"ask_title":       req.AskTitle,
+		"ask_message":     req.AskMessage,
+		"ask_placeholder": req.AskPlaceholder,
+		"ask_prefill":     req.AskPrefill,
+		"ask_options":     req.AskOptions,
+	}))
+	select {
+	case response := <-answer:
+		return response
+	case <-ctx.Done():
+		// 中止时提问作废：等下去也不会有人答。
+		return agent.AskResponse{Cancelled: true}
 	}
 }
 
-// Runtime 是引擎运行实例信息（概览页用）。
-type Runtime struct {
-	// Pid 子进程 PID
-	Pid int
-	// Running 是否存活
-	Running bool
-	// Busy 是否正在跑一轮
-	Busy bool
-	// SessionFile 当前会话
-	SessionFile string
-	// WorkDir 绑定工作区
-	WorkDir string
-	// StartedAt 启动时刻（毫秒）
-	StartedAt int64
-	// CallCount 已发出的命令数
-	CallCount int
-	// LastError 最近一次失败原因
-	LastError string
-}
-
-// Instance 取当前引擎实例的运行信息。
-func (c *Chat) Instance() Runtime {
-	c.mu.Lock()
-	client := c.rpc
-	file := c.file
-	workspace := c.rpcWs
-	c.mu.Unlock()
-	out := Runtime{SessionFile: file, WorkDir: workspace, Busy: c.Stream.Active()}
-	if client != nil {
-		out.Pid = client.Pid()
-		out.Running = client.Alive()
-		out.StartedAt = client.StartedAt
-		out.CallCount = client.CallCount
-		out.LastError = client.LastError
+// AskPending 在等的提问；界面刷新时靠它把卡片补回来。
+func (c *Chat) AskPending() []domain.AskRequestVO {
+	items := c.Asks.Items()
+	out := make([]domain.AskRequestVO, 0, len(items))
+	for _, req := range items {
+		out = append(out, domain.AskRequestVO{
+			AskId:          req.AskId,
+			AskMethod:      string(req.AskMethod),
+			AskTitle:       req.AskTitle,
+			AskMessage:     req.AskMessage,
+			AskPlaceholder: req.AskPlaceholder,
+			AskPrefill:     req.AskPrefill,
+			AskOptions:     req.AskOptions,
+			AskTimeoutMs:   req.AskTimeoutMs,
+		})
 	}
 	return out
 }
 
-// Restart 重启引擎：杀子进程，下次用到再拉。
-func (c *Chat) Restart() {
-	c.mu.Lock()
-	client := c.rpc
-	c.rpc = nil
-	c.rpcWs = ""
-	c.mu.Unlock()
-	if client != nil {
-		client.Stop()
+// handler 组装运行事件到界面的翻译。
+func (c *Chat) handler() agent.Handler {
+	return agent.Handler{
+		OnText:     c.Stream.TextDelta,
+		OnThinking: c.Stream.ThinkingDelta,
+		OnToolStart: func(callId, name, args string) {
+			c.Stream.ToolStart(callId, name, args)
+		},
+		OnToolEnd: func(callId, name string, result agent.Result, durationMs int64) {
+			c.Stream.ToolEnd(callId, name, result, durationMs)
+		},
+		OnAssistant: func(msg agent.Message) {
+			c.Stream.AssistantMessage(msg)
+		},
+		OnUsage: func(usage agent.Usage) {
+			c.Stream.Usage(usage)
+		},
+		OnError: func(message string) {
+			c.Stream.Fail(message)
+		},
+		OnDone: func(aborted bool) {
+			c.Stream.Finish(aborted)
+		},
 	}
-	c.Stream.Idle()
-	c.Hub.Broadcast("engine:status", sse.EngineTag(nil))
 }
 
-// OnWorkspaceChanged 工作区切换时调用：绑定失效即重启。
-func (c *Chat) OnWorkspaceChanged() {
-	c.mu.Lock()
-	bound := c.rpcWs
-	c.mu.Unlock()
-	if bound != "" && bound != c.Settings.Workspace() {
-		c.Restart()
+// resolveModel 取当前生效的模型与凭据。
+func (c *Chat) resolveModel() (agent.ModelRef, error) {
+	provider := strings.TrimSpace(c.Settings.Get(KeyActiveProvider))
+	modelId := strings.TrimSpace(c.Settings.Get(KeyActiveModel))
+	if provider == "" || modelId == "" {
+		return agent.ModelRef{}, pkg.Err(pkg.CodeNoProvider, "还没有选择模型，先去模型页选一个")
 	}
+	entry, key, err := c.Models.Lookup(provider, modelId)
+	if err != nil {
+		return agent.ModelRef{}, err
+	}
+	if key == "" {
+		return agent.ModelRef{}, pkg.Err(pkg.CodeProviderBad, "服务商 "+provider+" 还没有填密钥")
+	}
+	providerEntry := c.Models.ProviderOf(provider)
+	return agent.ModelRef{
+		ProviderName:      provider,
+		ModelId:           modelId,
+		BaseUrl:           providerEntry.BaseUrl,
+		ApiKey:            key,
+		ContextWindow:     entry.ContextWindow,
+		MaxTokens:         entry.MaxTokens,
+		SupportsReasoning: entry.SupportsReasoning,
+	}, nil
 }
 
-// Shutdown 退出前收尾：给引擎一个短超时，别让退出卡住。
+// CloneSession 克隆当前会话：把已有消息复制进一份新会话。
+// 只复制消息，不复制元信息条目——新会话是往后走的新分支，
+// 旧分支的模型切换与用量与它无关。
+func (c *Chat) CloneSession() (string, error) {
+	if c.Busy() {
+		return "", pkg.Err(pkg.CodeEngineBusy, "有任务正在跑，等它结束再复制会话")
+	}
+	source, err := c.BindSession("")
+	if err != nil {
+		return "", err
+	}
+	created, err := c.Store.Create(c.Settings.Workspace())
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range source.Entries() {
+		if entry.EntryType != domain.SessionEntryMessage || entry.EntryMessage == nil {
+			continue
+		}
+		if _, err := created.AppendMessage(agent.MessageFromDO(entry.EntryMessage)); err != nil {
+			return "", err
+		}
+	}
+	c.mu.Lock()
+	c.session = created
+	c.mu.Unlock()
+	c.Settings.RememberSession(created.File())
+	c.Hub.Broadcast("session:info", sse.EngineTag(nil))
+	return created.File(), nil
+}
+
+// Rename 给当前会话改名。
+func (c *Chat) Rename(sessionFile, title string) error {
+	session, err := c.BindSession(sessionFile)
+	if err != nil {
+		return err
+	}
+	if _, err := session.Rename(title); err != nil {
+		return err
+	}
+	c.Hub.Broadcast("session:title", sse.EngineTag(map[string]any{"title": session.Title()}))
+	return nil
+}
+
+// SetModel 切模型。
+func (c *Chat) SetModel(_ string, providerName, modelId string) error {
+	if providerName == "" || modelId == "" {
+		return pkg.Err(pkg.CodeBadRequest, "服务商与模型都不能为空")
+	}
+	if _, _, err := c.Models.Lookup(providerName, modelId); err != nil {
+		return err
+	}
+	if err := c.Settings.SaveSettings(map[string]string{
+		KeyActiveProvider: providerName,
+		KeyActiveModel:    modelId,
+	}); err != nil {
+		return err
+	}
+	c.Hub.Broadcast("chat:model", sse.EngineTag(map[string]any{
+		"provider_name": providerName,
+		"model_id":      modelId,
+	}))
+	return nil
+}
+
+// SetThinking 记下思考档。思考档影响的是系统提示里的一句话，
+// 会话进行中改它不会重写已发生的对话。
+func (c *Chat) SetThinking(_ string, level string) error {
+	if level == "" {
+		return pkg.Err(pkg.CodeBadRequest, "思考档不能为空")
+	}
+	c.mu.Lock()
+	c.level = level
+	c.mu.Unlock()
+	return nil
+}
+
+// Shutdown 退出收尾：中止还在跑的运行。
 func (c *Chat) Shutdown() {
-	c.mu.Lock()
-	client := c.rpc
-	c.rpc = nil
-	c.mu.Unlock()
-	if client != nil {
-		client.Stop()
-	}
+	_ = c.Stop()
 }
 
-// KillEngine 退出时兜底：把引擎进程树整棵杀掉。
-// 退出流程只给 1.5 秒，等不了 Stop 的 5 秒优雅期；pi 与它的 bash 子孙留在后台
-// 会占着 CPU、内存与包目录的锁，下次启动撞上「目录被占用」。
-func (c *Chat) KillEngine() {
-	c.mu.Lock()
-	client := c.rpc
-	c.rpc = nil
-	c.mu.Unlock()
-	if client == nil {
+// Warm 预热：原生引擎没有冷启动，这里只保证会话可用。
+func (c *Chat) Warm() {
+	if c.Settings.Workspace() == "" {
 		return
 	}
-	if pid := client.Pid(); pid > 0 {
-		pkg.KillTree(pid)
+	if _, err := c.BindSession(""); err != nil {
+		pkg.Warn("会话初始化失败：%v", err)
 	}
 }
 
-// guardSessionPath 会话路径必须落在会话根内。
-func (c *Chat) guardSessionPath(file string) (string, error) {
-	if file == "" {
-		return "", nil
+// OnWorkspaceChanged 工作区切换：丢掉旧会话绑定。
+func (c *Chat) OnWorkspaceChanged() {
+	if c.Busy() {
+		_ = c.Stop()
 	}
-	return parser.GuardSession(c.Runtime.Layout.SessionsDir(), file)
+	c.mu.Lock()
+	c.session = nil
+	c.mu.Unlock()
 }

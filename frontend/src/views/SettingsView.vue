@@ -24,7 +24,6 @@ const toasts = useToasts()
 const saving = ref(false)
 const logs = ref<string[]>([])
 const detecting = ref(false)
-const restarting = ref('')
 // 引擎路径与 profile 的草稿都搬进 EnginePanel 了：它们只在那张卡里用，
 // 留在这里会让设置页为一个子组件的内部输入持有状态。
 
@@ -95,19 +94,6 @@ async function detectEngines() {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     detecting.value = false
-  }
-}
-
-async function restartEngines() {
-  restarting.value = 'pi'
-  try {
-    await api.restartEngine()
-    await app.refreshEngines()
-    toasts.push('ok', t('settings.restartEngine'))
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  } finally {
-    restarting.value = ''
   }
 }
 
@@ -195,14 +181,12 @@ onMounted(() => {
         @open-data-dir="openDataDir"
       />
 
-      <!-- 环境：每个引擎一张卡。不安装，只探测 + 给命令原文 -->
+      <!-- 环境：外部工具链一张卡。不安装，只探测 + 给命令原文 -->
       <EnginePanel
         :apps="app.apps"
         :detecting="detecting"
-        :restarting="Boolean(restarting)"
         :runtime="app.runtime"
         @redetect="detectEngines"
-        @restart="restartEngines"
         @reveal="revealPath"
       />
 

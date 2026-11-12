@@ -36,7 +36,7 @@ const apiOptions = [
 ]
 
 /** pi 就绪才谈得上「配模型」。 */
-const piInstalled = computed(() => Boolean(app.runtime?.pi_ready))
+const piInstalled = computed(() => Boolean(app.runtime?.engine_ready))
 
 async function loadProviders() {
   loadingProviders.value = true

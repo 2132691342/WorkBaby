@@ -92,6 +92,10 @@ export const useChatStore = defineStore('chat', () => {
 
   const activeAsk = computed(() => asks.value[0] ?? null)
   const busy = computed(() => streaming.value || compacting.value)
+  // 最后一条命令是否被引擎当场处理（不回话也没运行）。
+  // 输入区靠它区分「等我接下一句话」与「你在等引擎」——
+  // /plan 这类命令之后引擎在等人开口，界面必须能看出这一点。
+  const commandHandled = ref(false)
   const contextPercent = computed(() => {
     if (!context.value || !context.value.context_window) return 0
     // 引擎的 tokens 可能为 null（压缩后还没估算过），此时按 percent 兜底。
@@ -101,6 +105,7 @@ export const useChatStore = defineStore('chat', () => {
   })
 
   function applyState(state: ChatState) {
+    commandHandled.value = false
     sessionFile.value = state.session_file ?? ''
     workDir.value = state.work_dir ?? ''
     engineRunning.value = state.engine_running
@@ -251,12 +256,21 @@ export const useChatStore = defineStore('chat', () => {
     // 不能挂在 refresh() 上——chat:done 后紧跟的 refresh 会先清掉标记，
     // 之后才到的那帧迟到的快照就会把重复的正文再放进界面。
     lastFinishedRunId.value = ''
-    const runID = await api
-      .send(sessionFile.value, message, attachments)
-      .then((r) => r.run_id)
-    flow.beginTurn(runID, message)
+    const res = await api.send(sessionFile.value, message, attachments)
+    // 引擎没有起一轮（扩展命令当场处理 / 排在前一轮后面）：不登记运行。
+    // 登记了就是一个永远不会被收尾的流式态，界面会卡在「正在回答」。
+    if (res.disposition !== 'started' || !res.run_id) {
+      streaming.value = false
+      commandHandled.value = res.disposition === 'handled'
+      // handled 会往会话里写东西（如 /plan 的开关），重拉一次让历史跟上；
+      // queued 则什么都不用动，前一轮结束后引擎自己会开始。
+      if (res.disposition === 'handled') await refresh()
+      return ''
+    }
+    commandHandled.value = false
+    flow.beginTurn(res.run_id, message)
     streaming.value = true
-    return runID
+    return res.run_id
   }
 
   async function stop() {
@@ -381,6 +395,7 @@ export const useChatStore = defineStore('chat', () => {
     promptError,
     runError,
     bindErr,
+    commandHandled,
     draftOverride,
     pickerRequest,
     applyPatch,

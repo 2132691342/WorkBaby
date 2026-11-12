@@ -32,8 +32,9 @@ export default {
     "sessions": "Sessions",
     "models": "Models",
     "skills": "Skills",
-    "plugins": "Plugins",
     "mcp": "MCP",
+    "web": "Web",
+    "index": "Code",
     "usage": "Usage",
     "apps": "Apps",
     "settings": "Settings"

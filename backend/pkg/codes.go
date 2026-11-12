@@ -16,9 +16,7 @@ const (
 	CodeGitAuth      = "1102" // git 凭证被拒或无法登录
 
 	// 2000-2999 配置 / 本地存储
-	CodeConfigRead  = "2000" // 配置读取失败
-	CodeConfigWrite = "2001" // 配置写入失败
-	CodeStorage     = "2002" // 本地存储文件操作失败
+	CodeStorage = "2002" // 本地存储文件或数据库操作失败
 
 	// 3000-3999 服务商 / 模型
 	CodeProviderBad = "3000" // 服务商配置不合法
@@ -30,10 +28,8 @@ const (
 	CodeEngineBusy  = "5002" // 有任务正在占用引擎
 	CodeNotFound    = "5003" // 目标不存在
 
-	// 7000-7999 外部进程 / 引擎入口
-	CodeProvision     = "7000" // 外部命令执行失败（pi CLI / git / 装包）
-	CodeEngineMissing = "7001" // 没有检测到可用的 pi 入口
-	CodeNodeMissing   = "7002" // 引擎入口是 CLI 脚本，但找不到 node
+	// 7000-7999 外部进程
+	CodeProvision = "7000" // 外部命令执行失败（git / 联网 / 子进程）
 
 	// 8000-8999 技能
 	CodeSkillBad    = "8000" // 技能路径或内容不合法
@@ -43,11 +39,6 @@ const (
 	// 9100-9199 MCP
 	CodeMcpRead  = "9100" // mcp.json 读取失败
 	CodeMcpWrite = "9101" // mcp.json 写入失败
-
-	// 9700-9799 引擎 RPC
-	CodeRpcCommand = "9700" // 引擎返回 success=false
-	CodeRpcDown    = "9701" // 引擎子进程不在运行
-	CodeRpcTimeout = "9702" // 引擎命令超时
 
 	// 兜底
 	CodeUnknownRoute = "1404" // 未知路由

@@ -1,24 +1,22 @@
 package service
 
 import (
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
-	"WorkBaby/backend/service/engine"
 )
 
 // maxDiffLines 是单份差异的行数上限：几千行的差异在界面里既看不清也扛不住。
 const maxDiffLines = 4000
 
-// Git 是 git 编排。所有命令都走内置 PortableGit，绝不回退系统 git。
+// Git 是 git 编排。所有命令都走系统 git，找不到就报错，不凑一个跑不通的路径。
 type Git struct {
 	// Settings 设置（工作区根）
 	Settings *Settings
-	// Runtime 内置运行时
-	Runtime *engine.Runtime
 
 	// writeMu 串行化会改索引或工作树的命令：并发写会撞 index.lock 直接失败，
 	// 用户看到的是「点提交报错」。读命令不取这把锁——一次 push 能跑两分钟，
@@ -27,8 +25,13 @@ type Git struct {
 }
 
 // NewGit 造一个 git 门面。
-func NewGit(settings *Settings, rt *engine.Runtime) *Git {
-	return &Git{Settings: settings, Runtime: rt}
+func NewGit(settings *Settings) *Git {
+	return &Git{Settings: settings}
+}
+
+// gitEnv 是跑 git 子进程的环境：终端问询一律关掉，凭证走 GCM。
+func gitEnv() []string {
+	return append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 }
 
 // runIn 跑一条 git 命令；dir 为空时用当前工作区。
@@ -46,7 +49,7 @@ func (g *Git) runIn(dir string, args ...string) (*pkg.ProcResult, error) {
 	if dir == "" {
 		return nil, pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
 	}
-	env := g.Runtime.Layout.ChildEnv(map[string]string{"GIT_TERMINAL_PROMPT": "0"})
+	env := gitEnv()
 	return pkg.RunProc(exe, args, pkg.ProcOptions{
 		Dir:       dir,
 		Env:       env,
@@ -65,7 +68,7 @@ func (g *Git) ProbeOf(dir string) (isRepo bool, branch string, dirty int) {
 	if exe == "" {
 		return false, "", 0
 	}
-	env := g.Runtime.Layout.ChildEnv(map[string]string{"GIT_TERMINAL_PROMPT": "0"})
+	env := gitEnv()
 	run := func(args ...string) (string, bool) {
 		res, err := pkg.RunProc(exe, args, pkg.ProcOptions{Dir: dir, Env: env, TimeoutMs: 8_000})
 		if err != nil || res.Code != 0 {
@@ -143,7 +146,7 @@ func (g *Git) Status() domain.GitStatusRESP {
 		return out
 	}
 	out.GitAvailable = true
-	out.GitVersion = g.Runtime.GitVersion()
+	out.GitVersion = gitVersion()
 	root, err := g.runOrFail("rev-parse", "--show-toplevel")
 	if err != nil {
 		// 不是仓库是正常状态，不是错误：界面会显示「初始化仓库」入口。
@@ -360,4 +363,22 @@ func atoiSafe(text string) int {
 		return 0
 	}
 	return n
+}
+
+// gitVersion 读系统 git 的版本号；没有就给空串。
+func gitVersion() string {
+	exe := pkg.LookPath("git")
+	if exe == "" {
+		return ""
+	}
+	res, err := pkg.RunProc(exe, []string{"--version"}, pkg.ProcOptions{TimeoutMs: 8_000})
+	if err != nil || res.Code != 0 {
+		return ""
+	}
+	// `git version 2.44.0.windows.1` → `2.44.0.windows.1`
+	fields := strings.Fields(res.Stdout)
+	if len(fields) < 3 {
+		return strings.TrimSpace(res.Stdout)
+	}
+	return fields[2]
 }

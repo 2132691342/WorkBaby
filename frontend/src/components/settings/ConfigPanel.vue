@@ -21,7 +21,7 @@ const lang = computed<'json' | 'yaml' | 'text'>(() => {
 })
 
 /** 引擎就绪才谈得上「看它的配置」。 */
-const installed = computed(() => Boolean(app.runtime?.pi_ready))
+const installed = computed(() => Boolean(app.runtime?.engine_ready))
 
 // 进面板就铺第一份配置原文：清单里第一个是 settings.json，最常对照的就是它。
 onMounted(() => {

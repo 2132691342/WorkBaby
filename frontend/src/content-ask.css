@@ -63,7 +63,7 @@
 }
 .ask-option.selected .ask-num {
   background: var(--wb-brand);
-  color: #fff;
+  color: var(--wb-brand-ink);
 }
 
 /* 状态条：排在输入框上沿，不进消息流 */

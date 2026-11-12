@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 技能正文抽屉：看原文，用户目录下的那份可以就地改。
-// 「能不能改」只由 row.editable 决定：项目级与插件自带的是别人的文件，
+// 「能不能改」只由 row.editable 决定：项目级的是别人的文件，
 // 改了会在下次升级时被覆盖，用户自己都说不清「我明明改过」。
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -123,7 +123,7 @@ function save(): void {
   flex: 1;
 }
 
-/* 只读标记：项目级与插件自带的那份是别人的文件 */
+/* 只读标记：项目级的那份是别人的文件 */
 .readonly-tag {
   font-size: var(--wb-fs-3xs);
   color: var(--wb-faint);

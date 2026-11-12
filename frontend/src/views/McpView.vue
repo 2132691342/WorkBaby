@@ -44,7 +44,7 @@ const servers = computed<McpServer[]>(() =>
 )
 
 /** pi 就绪才谈得上「装 MCP」。 */
-const piInstalled = computed(() => Boolean(app.runtime?.pi_ready))
+const piInstalled = computed(() => Boolean(app.runtime?.engine_ready))
 
 async function load() {
   loading.value = true

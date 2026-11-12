@@ -1,0 +1,38 @@
+// Web access and workspace index copy.
+export default {
+  web: {
+    title: 'Web',
+    desc: "Give the assistant the ability to look things up: configure a search service, search the web, and read page text. The assistant uses the same configuration in chat.",
+    providerTitle: 'Search service',
+    providerKind: 'Service',
+    apiKey: 'API key',
+    apiKeyPlaceholder: 'Leave empty to keep the current key',
+    searchTitle: 'Search',
+    searchPlaceholder: 'Enter keywords, e.g. "go 1.26 release notes"',
+    searchAction: 'Search',
+    fetchTitle: 'Read a page',
+    fetchPlaceholder: 'Paste a URL to read its text',
+    fetchAction: 'Read',
+    readIt: 'Read this',
+    noResults: 'No results found',
+    saved: 'Web settings saved',
+  },
+
+  index: {
+    title: 'Code index',
+    desc: 'Build a searchable index of the workspace: files and symbols are scanned once, then located by name in a flash.',
+    statusTitle: 'Index status',
+    docCount: 'Entries',
+    builtAt: 'Indexed at',
+    notBuilt: 'Not indexed yet',
+    building: 'Indexing…',
+    rebuild: 'Rebuild index',
+    rebuildHint: 'The first index of a large repository scans every file, so it takes a few seconds.',
+    searchTitle: 'Search',
+    searchPlaceholder: 'Enter a file or symbol name',
+    searchAction: 'Search',
+    noResults: 'Nothing in the index matches',
+    hitKindFile: 'File',
+    hitKindSymbol: 'Symbol',
+  },
+}

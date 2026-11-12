@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// 应用页：pi 与它依赖的外部环境的检测状态。
-// 壳不代装任何一个：pi 是用户自己的，node / git / python 也是。
-// 这里只回答「检测到了什么、从哪发现的、没检测到该去做什么」。
+// 应用页：外部工具链（git / node / python）的检测状态。
+// 引擎在进程内，没有「装没装」这件事，所以这里没有引擎这一组。
+// 壳不代装任何一个：这里只回答「检测到了什么、从哪发现的、没检测到该去做什么」。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -9,7 +9,6 @@ import AppCard from '@/components/apps/AppCard.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
-import type { AppRow } from '@/types/api'
 
 const { t } = useI18n()
 const app = useAppStore()
@@ -18,11 +17,9 @@ const toasts = useToasts()
 const loading = ref(false)
 const detecting = ref(false)
 const copied = ref('')
-const locating = ref(false)
 
-// 引擎与它依赖的环境分开摆：前者是「能不能干活」，后者是「能干多少活」。
-const engineRows = computed(() => app.apps.filter((row) => row.app_key === 'pi'))
-const envRows = computed(() => app.apps.filter((row) => row.app_key !== 'pi'))
+// 引擎在进程内，应用页只剩外部工具链这一组。
+const envRows = computed(() => app.apps)
 
 async function load() {
   loading.value = true
@@ -35,7 +32,7 @@ async function load() {
   }
 }
 
-/** 重新探测：用户刚在终端里装好 pi，回来点这一下就能用。 */
+/** 重新探测：用户刚在终端里装好工具，回来点这一下就能用。 */
 async function detect() {
   if (detecting.value) return
   detecting.value = true
@@ -43,43 +40,11 @@ async function detect() {
     await api.detectEngines()
     await app.loadApps()
     await app.refreshEngines()
-    const ready = app.apps.find((row) => row.app_key === 'pi')?.installed
-    toasts.push(ready ? 'ok' : 'warn', ready ? t('apps.detected') : t('apps.notDetected'))
+    toasts.push('ok', t('apps.detected'))
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     detecting.value = false
-  }
-}
-
-/** 手动指定 pi 的位置：自动探测不到时的兜底。 */
-async function locate() {
-  if (locating.value) return
-  locating.value = true
-  try {
-    const picked = await app.pickPiPath()
-    if (!picked) return
-    await api.locatePi(picked)
-    await app.loadApps()
-    await app.refreshEngines()
-    toasts.push('ok', t('apps.located'))
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  } finally {
-    locating.value = false
-  }
-}
-
-/** 清掉手动路径，回到自动探测。 */
-async function resetPath(row: AppRow) {
-  if (row.app_source !== 'manual') return
-  try {
-    await api.locatePi('')
-    await app.loadApps()
-    await app.refreshEngines()
-    toasts.push('ok', t('apps.pathReset'))
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -121,39 +86,17 @@ onMounted(() => {
     </header>
 
     <div class="page-body">
-      <section v-if="engineRows.length">
-        <div class="wb-sec-head">
-          <span class="wb-sec-title">{{ t('apps.group.engine') }}</span>
-          <div class="sec-actions">
-            <button class="wb-btn sm" :class="{ 'is-loading': detecting }" :disabled="detecting" @click="detect">
-              <AppIcon name="refresh" :size="14" />
-              {{ t('apps.detect') }}
-            </button>
-            <button class="wb-btn sm ghost" :class="{ 'is-loading': locating }" :disabled="locating" @click="locate">
-              <AppIcon name="folder" :size="14" />
-              {{ t('apps.locate') }}
-            </button>
-          </div>
-        </div>
-        <div class="app-list">
-          <AppCard
-            v-for="row in engineRows"
-            :key="row.app_key"
-            :row="row"
-            :progress="app.appProgress"
-            :busy="detecting"
-            :copied="copied"
-            @reset="resetPath(row)"
-            @copy="copy"
-          />
-        </div>
-      </section>
-
       <section v-if="envRows.length">
         <div class="wb-sec-head">
           <span class="wb-sec-title">
             {{ t('apps.group.runtime') }} <span class="count">{{ envRows.length }}</span>
           </span>
+          <div class="sec-actions">
+            <button class="wb-btn sm" :class="{ 'is-loading': detecting }" :disabled="detecting" @click="detect">
+              <AppIcon name="refresh" :size="14" />
+              {{ t('apps.detect') }}
+            </button>
+          </div>
         </div>
         <div class="app-list">
           <AppCard

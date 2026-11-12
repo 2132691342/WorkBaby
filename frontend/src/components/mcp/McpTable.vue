@@ -81,7 +81,7 @@ function statusTag(row: McpServer): { cls: string; text: string } {
           <span class="tag" :class="statusTag(row).cls">{{ statusTag(row).text }}</span>
         </template>
       </el-table-column>
-      <el-table-column :label="t('plugins.enabledLabel')" width="80">
+      <el-table-column :label="t('mcp.enabled')" width="80">
         <template #default="{ row }">
           <el-switch
             :model-value="row.mcp_enabled"

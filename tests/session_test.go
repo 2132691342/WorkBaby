@@ -1,5 +1,6 @@
-// 会话管线：pi 的 JSONL 会话文件是唯一持久真相，界面每次启动都由它重建。
-// 回放的健壮性与壳的写入纪律都在这一条链上。
+// 会话管线：JSONL 会话文件是唯一持久真相，界面每次启动都由它重建。
+// 覆盖两件事：回放的健壮性（分支、残行、环状父指针）与壳的写入纪律
+// （隐藏只记台账、改名只追加、引擎正打开时拒绝）。
 package tests
 
 import (
@@ -10,14 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"WorkBaby/backend/agent"
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/service/parser"
 )
 
-// TestSession 断言会话真相的全部难点：分支回放、残行与环状 parentId 的健壮性、
-// 工具结果组装、隐藏台账、改名追加。会话 JSONL 是唯一持久真相，界面每次启动都由它重建。
-func TestSession(t *testing.T) {
+// TestSessionReplay 断言回放层的健壮性与组装规则。
+func TestSessionReplay(t *testing.T) {
 	// ---- 分支：只回放当前活动分支 ----
 	branch := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"原始问题"}}`,
@@ -43,7 +44,7 @@ func TestSession(t *testing.T) {
 		t.Fatal("一条残行不该让整份历史读不出来：残行之后的有效条目仍应解析")
 	}
 
-	// ---- 健壮：环状 parentId 必须有界退出 ----
+	// ---- 健壮：环状父指针必须有界退出 ----
 	cyclic := writeSession(t, t.TempDir(),
 		`{"type":"message","id":"a","parentId":"b","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"环 A"}}`,
 		`{"type":"message","id":"b","parentId":"a","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":"环 B"}}`,
@@ -53,7 +54,7 @@ func TestSession(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("环状 parentId 让回放卡死：ActivePath 必须用已访问集合兜住")
+		t.Fatal("环状父指针让回放卡死：活动分支的遍历必须用已访问集合兜住")
 	}
 
 	// ---- 组装：工具结果回填宿主轮 ----
@@ -130,10 +131,13 @@ func TestSession(t *testing.T) {
 	if parser.PlanModeFromFile("") {
 		t.Fatal("没有会话文件时计划模式应为关")
 	}
+}
 
-	// ---- 写入纪律：隐藏是壳的台账，文件一个字节都不动 ----
+// TestSessionWriteDiscipline 断言壳对会话文件的写入纪律：
+// 隐藏只记台账不动文件、改名只追加、引擎正打开时拒绝改名。
+func TestSessionWriteDiscipline(t *testing.T) {
 	h := newHarness(t)
-	file := writeSession(t, h.layout.SessionsDir(),
+	file := writeSession(t, h.layout.SessionsDir,
 		`{"type":"message","id":"u1","parentId":"","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"第一句"}}`,
 		`{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"第一答"}]}}`,
 		`{"type":"message","id":"u2","parentId":"a1","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"user","content":"第二句"}}`,
@@ -142,6 +146,8 @@ func TestSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读会话文件失败：%v", err)
 	}
+
+	// ---- 隐藏是壳的台账，文件一个字节都不动 ----
 	hidden := map[string]struct{}{"u2": {}}
 	turns := parser.BuildHistory(file, hidden)
 	for _, turn := range turns {
@@ -160,7 +166,7 @@ func TestSession(t *testing.T) {
 		t.Fatal("隐藏是壳的台账，绝不能改写会话文件")
 	}
 
-	// ---- 写入纪律：引擎正打开时拒绝改名，且不动文件 ----
+	// ---- 引擎正打开时拒绝改名，且不动文件 ----
 	h.app.Sessions.Active = func() string { return file }
 	env, _ := h.call(http.MethodPost, "/sessions/rename", map[string]string{
 		"session_path": file, "session_title": "新名字",
@@ -176,7 +182,7 @@ func TestSession(t *testing.T) {
 		t.Fatal("被拒的改名不得动会话文件一个字节")
 	}
 
-	// ---- 写入纪律：空闲时只在末尾追加 session_info ----
+	// ---- 空闲时只在末尾追加 session_info ----
 	h.app.Sessions.Active = func() string { return "" }
 	env, code := h.call(http.MethodPost, "/sessions/rename", map[string]string{
 		"session_path": file, "session_title": "新名字",
@@ -194,7 +200,48 @@ func TestSession(t *testing.T) {
 	}
 }
 
-// writeSession 在会话根下写一份 pi 会话 JSONL（首行是会话头），返回文件路径。
+// TestSessionFormatContract 断言引擎落盘的会话能被回放层读成历史轮。
+// 引擎落盘、回放重建是两条链路唯一的交点——两边对格式的理解一旦分叉，
+// 界面就看不到历史。
+func TestSessionFormatContract(t *testing.T) {
+	workspace := t.TempDir()
+	store := agent.NewStore(t.TempDir(), func() string { return workspace })
+	session, err := store.Create(workspace)
+	if err != nil {
+		t.Fatalf("建会话失败：%v", err)
+	}
+	if _, err := session.AppendMessage(agent.Message{
+		Role:   agent.RoleUser,
+		Blocks: []agent.Block{{Kind: agent.KindText, Text: "契约测试的问题"}},
+	}); err != nil {
+		t.Fatalf("写用户消息失败：%v", err)
+	}
+	if _, err := session.AppendMessage(agent.Message{
+		Role:   agent.RoleAssistant,
+		Blocks: []agent.Block{{Kind: agent.KindText, Text: "契约测试的回答"}},
+	}); err != nil {
+		t.Fatalf("写助手消息失败：%v", err)
+	}
+
+	turns := parser.BuildHistory(session.File(), nil)
+	if len(turns) == 0 {
+		t.Fatalf("回放层读不出引擎写的会话（引擎用 parent_id/毫秒/blocks，回放层用 parentId/ISO/content）")
+	}
+	joined := turnsText(turns)
+	if !strings.Contains(joined, "契约测试的问题") || !strings.Contains(joined, "契约测试的回答") {
+		t.Fatalf("回放层读出的内容不对：%q", joined)
+	}
+
+	// 会话目录名也要一致：清单按编码规则扫目录，引擎建会话时用同一个函数，
+	// 两边不一致的话新会话建出来了清单里看不见。
+	dir := filepath.Base(filepath.Dir(session.File()))
+	encoded := pkg.EncodedWorkspace(workspace)
+	if dir != encoded {
+		t.Fatalf("会话目录名不一致：引擎建的是 %q，回放层扫的是 %q", dir, encoded)
+	}
+}
+
+// writeSession 在会话根下写一份会话 JSONL（首行是会话头），返回文件路径。
 // 必须落在会话根内：路径越界本身会先被拦掉，那就测不到后续的写入纪律了。
 func writeSession(t *testing.T, root string, lines ...string) string {
 	t.Helper()

@@ -206,6 +206,12 @@ func (a *App) shutdown() {
 		_ = a.srv.Stop(ctx)
 		cancel()
 	}
+	// 数据库最后关：WAL 模式下的写入要落盘，关早了会丢最后一批索引更新。
+	if a.db != nil {
+		if err := a.db.Close(); err != nil {
+			pkg.Warn("数据库关闭失败：%v", err)
+		}
+	}
 	// 设置存储整读整写、每次变更即落盘，退出时没有需要收尾的句柄。
 	pkg.Info("已退出")
 }

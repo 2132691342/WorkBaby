@@ -1,7 +1,7 @@
 package service
 
 // RecommendedSkill 是一个随壳分发的推荐技能描述。
-// 推荐不等于预置：用户的 ~/.pi/agent/skills 是他自己的目录，
+// 推荐不等于预置：技能目录要用户亲自点了才落位，
 // 壳只在技能页摆出来，用户点了才复制进去。
 type RecommendedSkill struct {
 	// SkillDirName 目录名（与 assets\skills 下一致，是技能的身份）

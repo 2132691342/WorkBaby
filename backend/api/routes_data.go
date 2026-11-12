@@ -194,7 +194,7 @@ func (s *Server) skillCreate(c *gin.Context) {
 	pkg.OK(c, map[string]any{"skill_path": path})
 }
 
-// skillImport 导入一个沙箱外的技能目录。
+// skillImport 导入一个数据目录外的技能目录。
 func (s *Server) skillImport(c *gin.Context) {
 	var req domain.SkillImportREQ
 	if !bind(c, &req) {
@@ -232,111 +232,6 @@ func (s *Server) skillReset(c *gin.Context) {
 		return
 	}
 	ok(c)
-}
-
-// pluginsList 插件清单。
-func (s *Server) pluginsList(c *gin.Context) {
-	pkg.OK(c, s.svc.Plugins.List())
-}
-
-// pluginInstall 装一个插件来源。
-func (s *Server) pluginInstall(c *gin.Context) {
-	var req domain.PluginSourceREQ
-	if !bind(c, &req) {
-		return
-	}
-	out, err := s.svc.Plugins.Install(req.PluginSource)
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// pluginUninstall 卸载插件。
-func (s *Server) pluginUninstall(c *gin.Context) {
-	var req domain.PluginNameREQ
-	if !bind(c, &req) {
-		return
-	}
-	out, err := s.svc.Plugins.Uninstall(req.PluginName)
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// pluginToggle 插件启停。
-func (s *Server) pluginToggle(c *gin.Context) {
-	var req domain.PluginToggleREQ
-	if !bind(c, &req) {
-		return
-	}
-	out, err := s.svc.Plugins.Toggle(req.PluginName, req.PluginEnabled)
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// pluginUpgrade 插件升级。
-func (s *Server) pluginUpgrade(c *gin.Context) {
-	var req domain.PluginNameREQ
-	if !bind(c, &req) {
-		return
-	}
-	out, err := s.svc.Plugins.Upgrade(req.PluginName)
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// pluginRetry 重试单个推荐插件的安装。
-func (s *Server) pluginRetry(c *gin.Context) {
-	var req domain.PluginNameREQ
-	if !bind(c, &req) {
-		return
-	}
-	out, err := s.svc.Plugins.Retry(req.PluginName)
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// pluginRecommend 把推荐清单里还没装的插件一次装齐。
-func (s *Server) pluginRecommend(c *gin.Context) {
-	out, err := s.svc.Plugins.Recommend()
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// pluginUpgradeAll 批量升级：只升版本与清单不符的内置插件。
-func (s *Server) pluginUpgradeAll(c *gin.Context) {
-	out, err := s.svc.Plugins.UpgradeAll()
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// pluginCheckUpdates 问 npm registry 各插件的最新版并回新清单。
-func (s *Server) pluginCheckUpdates(c *gin.Context) {
-	out, err := s.svc.Plugins.CheckUpdates()
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
 }
 
 // mcpList MCP 清单。

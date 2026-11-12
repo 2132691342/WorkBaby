@@ -43,13 +43,8 @@ const versionLabel = computed(() => {
 const agentDir = computed(() => app.engines?.layouts[0]?.agent_dir ?? '')
 
 function uptime(): string {
-  if (!props.engine.started_at) return ''
-  const min = Math.floor((Date.now() - props.engine.started_at) / 60000)
-  if (min < 1) return t('overview.justNow')
-  if (min < 60) return `${min}${t('overview.minutes')}`
-  const hours = Math.floor(min / 60)
-  if (hours < 24) return `${hours}${t('overview.hours')}`
-  return `${Math.floor(hours / 24)}${t('overview.days')}`
+  // 引擎在进程内，没有启动时刻；忙的那一轮只由会话自己计时，这里不再读进程时长。
+  return props.engine.busy ? t('overview.running') : ''
 }
 </script>
 
@@ -99,10 +94,6 @@ function uptime(): string {
           <span class="stat-label">{{ t('nav.skills') }}</span>
         </div>
         <div class="stat">
-          <span class="stat-num">{{ props.engine.plugin_count }}</span>
-          <span class="stat-label">{{ t('nav.plugins') }}</span>
-        </div>
-        <div class="stat">
           <span class="stat-num">{{ props.engine.mcp_count }}</span>
           <span class="stat-label">{{ t('nav.mcp') }}</span>
         </div>
@@ -112,8 +103,8 @@ function uptime(): string {
         <div class="wb-kv">
           <dt>{{ t('overview.process') }}</dt>
           <dd>
-            <template v-if="props.engine.running">
-              pid {{ props.engine.process_id }}
+            <template v-if="props.engine.busy">
+              {{ t('overview.running') }}
               <template v-if="uptime()"> · {{ uptime() }}</template>
             </template>
             <template v-else>{{ t('overview.idle') }}</template>
@@ -124,8 +115,6 @@ function uptime(): string {
           <dd class="wb-mono dir">{{ agentDir }}</dd>
         </div>
       </dl>
-
-      <p v-if="props.engine.last_error" class="engine-error">{{ props.engine.last_error }}</p>
     </template>
   </article>
 </template>

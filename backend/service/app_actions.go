@@ -1,9 +1,7 @@
 package service
 
 import (
-	"path/filepath"
 	"runtime"
-	"strings"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
@@ -11,14 +9,13 @@ import (
 
 // Bootstrap 组装首屏总包：界面一次请求拿到画首屏要用的全部事实。
 func (a *App) Bootstrap() domain.BootBootstrapRESP {
-	settings := a.Settings.All()
 	return domain.BootBootstrapRESP{
 		AppVersion:   a.Version,
 		AppContract:  ContractVersion,
 		Engines:      []domain.EngineIdentity{a.EngineIdentity()},
-		ActiveEngine: domain.EnginePi,
+		ActiveEngine: domain.EngineNative,
 		Workspace:    a.Settings.Workspace(),
-		Settings:     settings,
+		Settings:     a.Settings.All(),
 		Layouts:      []domain.EngineLayoutVO{EngineLayout(a.Layout)},
 		Workspaces:   a.Settings.Workspaces(),
 		Runtime:      a.RuntimeStatus(),
@@ -27,175 +24,123 @@ func (a *App) Bootstrap() domain.BootBootstrapRESP {
 }
 
 // ContractVersion 是响应契约版本：字段形状一变就要 +1，界面据此识别过期。
-const ContractVersion = 2
+const ContractVersion = 3
 
 // EngineIdentity 当前引擎的身份事实。
+// 引擎就是本进程：没有可执行入口、没有版本探测，装没装这件事不再存在。
 func (a *App) EngineIdentity() domain.EngineIdentity {
-	entry := a.Runtime.Resolve()
 	return domain.EngineIdentity{
-		EngineKind:    domain.EnginePi,
-		EngineLabel:   "pi",
-		EngineExe:     entry.Command,
-		EngineScript:  entry.Script,
-		EngineSource:  entry.Source,
-		EngineVersion: a.Runtime.PiVersion(),
-		Installed:     entry.Command != "",
-		Caps:          domain.PiCaps,
+		EngineKind:    domain.EngineNative,
+		EngineLabel:   "WorkBaby 引擎",
+		EngineVersion: a.Version,
+		Installed:     true,
+		Caps:          domain.NativeCaps,
 	}
 }
 
 // RuntimeStatus 外部依赖的检测状态。
 func (a *App) RuntimeStatus() domain.RuntimeStatusVO {
-	status := RuntimeStatus(a.Runtime)
+	status := RuntimeStatus()
 	status.Detecting = a.Provisioning()
 	return status
 }
 
 // Health 概览页首屏要用的全部事实。
 func (a *App) Health() domain.HealthRESP {
-	instance := a.Chat.Instance()
 	identity := a.EngineIdentity()
 	health := domain.EngineHealthVO{
-		EngineKind:    domain.EnginePi,
-		EngineLabel:   "pi",
-		EngineExe:     identity.EngineExe,
+		EngineKind:    identity.EngineKind,
+		EngineLabel:   identity.EngineLabel,
 		EngineVersion: identity.EngineVersion,
-		Installed:     identity.Installed,
-		Running:       instance.Running,
-		Busy:          instance.Busy,
-		ProcessId:     instance.Pid,
-		StartedAt:     instance.StartedAt,
-		CallCount:     instance.CallCount,
-		LastError:     instance.LastError,
+		Installed:     true,
+		Running:       true,
+		Busy:          a.Chat.Busy(),
 		SessionCount:  a.Sessions.Count(),
 		SkillCount:    a.Skills.Count(),
-		PluginCount:   a.Plugins.Count(),
 		McpCount:      a.Mcp.Count(),
 		ConfigFiles:   configFiles(a.Layout),
-		Caps:          domain.PiCaps,
-	}
-	live := 0
-	if instance.Running {
-		live = 1
+		Caps:          domain.NativeCaps,
 	}
 	return domain.HealthRESP{
 		HealthEngines: []domain.EngineHealthVO{health},
-		ActiveEngine:  domain.EnginePi,
+		ActiveEngine:  domain.EngineNative,
 		Workspace:     a.Settings.Workspace(),
 		Runtime:       a.RuntimeStatus(),
 		TotalSessions: health.SessionCount,
 		TotalSkills:   health.SkillCount,
-		TotalPlugins:  health.PluginCount,
 		TotalMcp:      health.McpCount,
-		LiveEngines:   live,
 		MemoryUsedMb:  memoryUsedMb(),
 		DetectedAt:    pkg.NowMs(),
 	}
 }
 
-// Apps 应用页的行：pi（硬依赖）与 node / git / python（能力加成）。
-// 全部是「用户环境里有什么」，壳不代装任何一个。
+// Apps 应用页的行：只有用户环境里的工具链。
+// 引擎不再是一行外部依赖——它在进程里跑，没有「装没装」这件事。
 func (a *App) Apps() []domain.AppRowVO {
-	entry := a.Runtime.Resolve()
-	settings := a.Settings.All()
-	manual := strings.TrimSpace(settings[KeyPiPath])
 	return []domain.AppRowVO{
 		{
-			AppKey:      "pi",
-			AppName:     "pi 引擎",
-			AppVersion:  a.Runtime.PiVersion(),
-			AppPath:     entry.Command,
-			Installed:   entry.Command != "",
-			Required:    true,
-			AppSource:   entry.Source,
-			CanLocate:   true,
-			Blocker:     piBlocker(entry.Command != "", entry.Source, manual),
-			InstallNote: "本应用不代装 pi：请先在你的终端里装好 pi，再回来点重新检测",
+			AppKey:      "git",
+			AppName:     "Git",
+			AppVersion:  gitVersion(),
+			AppPath:     pkg.LookPath("git"),
+			Installed:   pkg.LookPath("git") != "",
+			AppSource:   "path",
+			InstallNote: "工作区的版本控制面板依赖它；不装也不影响对话与工具",
 		},
 		{
 			AppKey:      "node",
 			AppName:     "Node.js",
-			AppVersion:  a.Runtime.NodeVersion(),
+			AppVersion:  progVersion("node", "--version"),
 			AppPath:     pkg.LookPath("node"),
 			Installed:   pkg.LookPath("node") != "",
 			AppSource:   "path",
-			InstallNote: "pi 的启动脚本需要 node；从 nodejs.org 装一个即可",
-		},
-		{
-			AppKey:      "git",
-			AppName:     "Git",
-			AppVersion:  a.Runtime.GitVersion(),
-			AppPath:     pkg.LookPath("git"),
-			Installed:   pkg.LookPath("git") != "",
-			AppSource:   "path",
-			InstallNote: "工作区的版本控制与 pi 的 bash 工具都依赖它",
+			InstallNote: "只是部分项目的构建依赖；本应用自己不需要它",
 		},
 		{
 			AppKey:      "python",
 			AppName:     "Python",
-			AppVersion:  a.Runtime.PythonVersion(),
+			AppVersion:  progVersion("python", "--version"),
 			AppPath:     pkg.LookPath("python"),
 			Installed:   pkg.LookPath("python") != "",
 			AppSource:   "path",
-			InstallNote: "部分技能要用它跑脚本；用不上可以不装",
+			InstallNote: "只是部分项目的运行依赖；本应用自己不需要它",
 		},
 	}
 }
 
-// piBlocker 给出 pi 不可用的原因；空表示没阻碍。
-// 手动路径填了却用不上要单独说出来——那种情况下用户以为是我们的 bug。
-func piBlocker(installed bool, source, manual string) string {
-	switch {
-	case installed:
+// progVersion 读一个外部程序的版本号；拿不到给空串。
+func progVersion(name string, flag string) string {
+	exe := pkg.LookPath(name)
+	if exe == "" {
 		return ""
-	case manual != "":
-		return "已指定的路径不可用：" + manual
-	default:
-		return "没有在 PATH 与 npm 全局目录里找到 pi"
 	}
-}
-
-// provisioningNow 当前是否有后台探测在跑。
-func (a *App) provisioningNow() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.provisioning || a.installBusy != ""
-}
-
-// SetPiPath 写手动指定的 pi 路径；空串表示回到自动探测。
-// 写盘后不自动拉起引擎：路径对不对要让用户点「重新检测」看到结果。
-func (a *App) SetPiPath(path string) (domain.RuntimeStatusVO, error) {
-	trimmed := strings.TrimSpace(path)
-	// 用户选的是文件时取其所在目录的判定交给 engine：这里只确保路径存在性被校验。
-	if trimmed != "" && !pkg.Exists(trimmed) {
-		return domain.RuntimeStatusVO{}, pkg.Err(pkg.CodeFileNotFound, "路径不存在", trimmed)
+	res, err := pkg.RunProc(exe, []string{flag}, pkg.ProcOptions{TimeoutMs: 5_000})
+	if err != nil || res.Code != 0 {
+		return ""
 	}
-	if _, err := a.Settings.Save(map[string]string{KeyPiPath: trimmed}); err != nil {
-		return domain.RuntimeStatusVO{}, err
+	return pkg.Truncate(trimVersion(res.Stdout), 40)
+}
+
+// trimVersion 去掉版本输出里的前缀与换行。
+func trimVersion(text string) string {
+	out := ""
+	for _, r := range text {
+		if r == '\n' || r == '\r' {
+			break
+		}
+		out += string(r)
 	}
-	a.Hub.Broadcast("engine:status", nil)
-	return a.RuntimeStatus(), nil
+	for _, prefix := range []string{"v", "Python ", "node "} {
+		if len(out) >= len(prefix) && out[:len(prefix)] == prefix {
+			out = out[len(prefix):]
+		}
+	}
+	return out
 }
-
-// LocatePi 让用户手动指定 pi 的位置（壳调系统文件选择框后回填）。
-func (a *App) LocatePi(path string) (domain.RuntimeStatusVO, error) {
-	return a.SetPiPath(path)
-}
-
-// RestartEngine 重启引擎子进程。
-func (a *App) RestartEngine() { a.Chat.Restart() }
 
 // memoryUsedMb 本进程已用内存（MB）。取不到给 0。
 func memoryUsedMb() int {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
 	return int(stats.Alloc / (1 << 20))
-}
-
-// piDirOf 从一个入口路径回推它的目录；给界面「在资源管理器里定位」用。
-func piDirOf(path string) string {
-	if path == "" {
-		return ""
-	}
-	return filepath.Dir(path)
 }

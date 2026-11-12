@@ -18,7 +18,7 @@ type Skills struct {
 	Settings *Settings
 	// Store 开关台账
 	Store *repo.Store
-	// Layout 沙箱布局
+	// Layout 目录布局
 	Layout pkg.Layout
 	// Hub 事件广播
 	Hub *sse.Hub
@@ -39,20 +39,20 @@ func (s *Skills) projectDir() string {
 	if ws := s.Settings.Workspace(); ws != "" {
 		return filepath.Join(ws, ".pi", "skills")
 	}
-	return filepath.Join(s.Layout.PiAgentDir, ".no-project")
+	return filepath.Join(s.Layout.DataDir, ".no-project")
 }
 
 // Install 把一个内置技能装进用户的技能区；已存在就不动。
-// 壳不自动落位：用户的 ~/.pi/agent/skills 是他自己的目录，写进去要他亲自点。
+// 壳不自动落位：技能目录要用户亲自点了才写进去。
 func (s *Skills) Install(dirName string) error {
 	item := RecommendedSkillOf(dirName)
 	if item == nil {
 		return pkg.Err(pkg.CodeSkillBad, "不认识的推荐技能："+dirName)
 	}
-	if err := pkg.EnsureDir(s.Layout.SkillsDir()); err != nil {
+	if err := pkg.EnsureDir(s.Layout.SkillsDir); err != nil {
 		return pkg.WrapErr(pkg.CodeSkillSave, "技能目录不可写", err)
 	}
-	target := filepath.Join(s.Layout.SkillsDir(), dirName)
+	target := filepath.Join(s.Layout.SkillsDir, dirName)
 	if pkg.Exists(target) {
 		return pkg.Err(pkg.CodeSkillBad, "技能已存在："+dirName)
 	}
@@ -66,7 +66,7 @@ func (s *Skills) Install(dirName string) error {
 // guardPath 校验技能路径落在托管 / 禁用 / 项目目录内。
 func (s *Skills) guardPath(skillPath string) (string, error) {
 	cleaned := filepath.Clean(skillPath)
-	for _, root := range []string{s.Layout.SkillsDir(), s.Layout.SkillsOffDir(), s.projectDir()} {
+	for _, root := range []string{s.Layout.SkillsDir, s.Layout.SkillsOffDir, s.projectDir()} {
 		if pkg.Inside(root, cleaned) {
 			return cleaned, nil
 		}
@@ -90,18 +90,18 @@ func (s *Skills) Toggle(skillPath string, enabled bool) error {
 	skillDir := filepath.Base(skillDirPath)
 	// 项目技能归那个仓库管：壳里的开关对它无效。开关对象按传入的 SKILL.md
 	// 定位技能目录——只取目录名会把项目技能误认成同名内置技能，殃及无辜。
-	if pkg.Inside(s.projectDir(), skillDirPath) && !pkg.Inside(s.Layout.SkillsDir(), skillDirPath) &&
-		!pkg.Inside(s.Layout.SkillsOffDir(), skillDirPath) {
+	if pkg.Inside(s.projectDir(), skillDirPath) && !pkg.Inside(s.Layout.SkillsDir, skillDirPath) &&
+		!pkg.Inside(s.Layout.SkillsOffDir, skillDirPath) {
 		return pkg.Err(pkg.CodeSkillSave, "项目技能由所在仓库管理，不能在此开关")
 	}
-	active := filepath.Join(s.Layout.SkillsDir(), skillDir)
-	hidden := filepath.Join(s.Layout.SkillsOffDir(), skillDir)
+	active := filepath.Join(s.Layout.SkillsDir, skillDir)
+	hidden := filepath.Join(s.Layout.SkillsOffDir, skillDir)
 	// 两个区都可能因为用户自己删过而不存在：搬移前先确保目标父目录在，
 	// 否则 Rename 会死在「找不到路径」上而不是真的搬不动。
-	if err := pkg.EnsureDir(s.Layout.SkillsDir()); err != nil {
+	if err := pkg.EnsureDir(s.Layout.SkillsDir); err != nil {
 		return pkg.WrapErr(pkg.CodeSkillSave, "技能目录不可写", err)
 	}
-	if err := pkg.EnsureDir(s.Layout.SkillsOffDir()); err != nil {
+	if err := pkg.EnsureDir(s.Layout.SkillsOffDir); err != nil {
 		return pkg.WrapErr(pkg.CodeSkillSave, "技能禁用目录不可写", err)
 	}
 	switch {
@@ -150,7 +150,7 @@ func (s *Skills) Reset(skillPath string) error {
 		return pkg.Err(pkg.CodeSkillBad, "不是内置技能，无法重置："+skillDir)
 	}
 	// 重置要保住原来在哪个区：启用态的不能被顺手挪回禁用区。
-	wasEnabled := pkg.Inside(s.Layout.SkillsDir(), skillDirPath)
+	wasEnabled := pkg.Inside(s.Layout.SkillsDir, skillDirPath)
 	// 先复制到旁边的临时目录再换名：直接原地覆盖的话，中途失败就只剩半个技能，
 	// 而它再也回不到可用状态。
 	staging := skillDirPath + ".resetting"
@@ -182,8 +182,8 @@ func (s *Skills) Reset(skillPath string) error {
 	return nil
 }
 
-// Import 导入一个沙箱外的技能目录为托管技能。导入是复制不是引用：
-// 沙箱原则要求技能内容只落在 data 里，源目录之后删改都不影响壳内副本。
+// Import 导入一个数据目录外的技能目录为托管技能。导入是复制不是引用：
+// 技能内容只落在 data 里，源目录之后删改都不影响壳内副本。
 func (s *Skills) Import(fromPath string) (domain.SkillImportRESP, error) {
 	from := filepath.Clean(strings.TrimSpace(fromPath))
 	if from == "" || !pkg.Exists(filepath.Join(from, "SKILL.md")) {
@@ -193,8 +193,8 @@ func (s *Skills) Import(fromPath string) (domain.SkillImportRESP, error) {
 	if name == "" {
 		return domain.SkillImportRESP{}, pkg.Err(pkg.CodeSkillBad, "无法从目录名得到技能名："+filepath.Base(from))
 	}
-	target := filepath.Join(s.Layout.SkillsDir(), name)
-	if pkg.Exists(target) || pkg.Exists(filepath.Join(s.Layout.SkillsOffDir(), name)) {
+	target := filepath.Join(s.Layout.SkillsDir, name)
+	if pkg.Exists(target) || pkg.Exists(filepath.Join(s.Layout.SkillsOffDir, name)) {
 		return domain.SkillImportRESP{}, pkg.Err(pkg.CodeSkillBad, "同名技能已存在："+name)
 	}
 	if err := copyTreeAtomic(from, target); err != nil {
@@ -211,8 +211,8 @@ func (s *Skills) Create(name, description, body string) (string, error) {
 	if safe == "" {
 		return "", pkg.Err(pkg.CodeSkillBad, "技能名只能含字母数字与短横线")
 	}
-	dir := filepath.Join(s.Layout.SkillsDir(), safe)
-	if pkg.Exists(dir) || pkg.Exists(filepath.Join(s.Layout.SkillsOffDir(), safe)) {
+	dir := filepath.Join(s.Layout.SkillsDir, safe)
+	if pkg.Exists(dir) || pkg.Exists(filepath.Join(s.Layout.SkillsOffDir, safe)) {
 		return "", pkg.Err(pkg.CodeSkillBad, "技能已存在："+safe)
 	}
 	if err := pkg.EnsureDir(dir); err != nil {
@@ -235,7 +235,7 @@ func (s *Skills) Delete(skillPath string) error {
 		return err
 	}
 	// 传入的是 SKILL.md 文件路径，要删的是它所在的技能目录。
-	// 只删 SKILL.md 会把 scripts / references 留在沙箱里占盘，且内置技能再也回不来。
+	// 只删 SKILL.md 会把 scripts / references 留在数据目录里占盘，且内置技能再也回不来。
 	skillDirPath := filepath.Dir(dir)
 	skillDir := filepath.Base(skillDirPath)
 	// 传进来的不是 SKILL.md 时（目录路径），一律拒掉：
@@ -243,8 +243,8 @@ func (s *Skills) Delete(skillPath string) error {
 	if filepath.Base(dir) != "SKILL.md" {
 		return pkg.Err(pkg.CodeSkillDelete, "只能删除技能文件，不能删除技能目录："+dir)
 	}
-	if pkg.Inside(s.projectDir(), skillDirPath) && !pkg.Inside(s.Layout.SkillsDir(), skillDirPath) &&
-		!pkg.Inside(s.Layout.SkillsOffDir(), skillDirPath) {
+	if pkg.Inside(s.projectDir(), skillDirPath) && !pkg.Inside(s.Layout.SkillsDir, skillDirPath) &&
+		!pkg.Inside(s.Layout.SkillsOffDir, skillDirPath) {
 		// 项目技能属于那个仓库，删它等于改别人的代码目录。
 		return pkg.Err(pkg.CodeSkillDelete, "项目技能请在项目内自行删除")
 	}

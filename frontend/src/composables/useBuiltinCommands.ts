@@ -146,7 +146,7 @@ export function useBuiltinCommands() {
   }
 
   /**
-   * 引擎导出的单文件 HTML（pi 的 export_html RPC）：样式、代码高亮全部内联，
+   * 导出的单文件 HTML：样式、代码高亮全部内联，
    * 比前端拼的 Markdown 更接近终端里的原貌。文件名由后端按会话名给。
    */
   async function exportHTML(): Promise<string> {

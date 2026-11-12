@@ -7,45 +7,41 @@
 
 ## 1. 定位与技术栈
 
-WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳给用户自己装好的 pi 套一层 GUI，
-把引擎、插件、技能、MCP、模型、会话、工作区统一管理与调用。
+WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳 + **进程内原生引擎**。
+智能体循环、模型协议、工具执行、会话落盘全部由本仓库的 Go 代码实现。
 
-壳不下载、不安装、不复制引擎：跑的就是终端里的那个 `pi`，读写的就是 `~/.pi/agent`。
-没有 pi 时界面给可读的安装指引，不代跑安装命令。
+用户配好一个服务商的 API Key 就能开始干活。不需要装引擎、不需要装 node、
+不需要插件生态。机器上已有的 git / node / python 按需探测、直接调用。
 
 | 层 | 选型 | 版本 |
 |---|---|---|
 | 桌面壳 | Wails v3（无边框窗口，前端自绘标题栏，WebView2） | 3.1.x |
 | 语言 | Go（模块 `WorkBaby`） | 1.26.x |
 | 业务服务 | gin（业务 API + SSE 全走 HTTP，127.0.0.1 随机端口） | 1.12.x |
-| 持久化 | 标准库 JSON 文件（`workbaby.json`，原子整写 + 互斥锁） | — |
+| 持久化 | 设置台账用标准库 JSON（原子整写 + 互斥锁）；派生数据用 SQLite（纯 Go 驱动） | — |
 | ID | ULID，带业务前缀（`oklog/ulid`） | 2.1.x |
-| Agent 引擎 | 用户已装的 pi（`pi --mode rpc` 子进程） | 由用户决定 |
-| 外部环境 | node / git / python 一律探测系统已装，不随包分发 | — |
+| 智能体引擎 | 进程内原生实现（`backend/agent/`） | 本仓库 |
+| 模型协议 | OpenAI 兼容 `/chat/completions` 流式 | — |
+| 外部环境 | git / node / python 一律探测系统已装，不随包分发 | — |
 | 前端 | Vue 3.4.34 + Vite 5.2.12 + Element Plus 2.9.0 + Pinia 2.1.7 + Vue Router 4.3.2 + Axios 1.6.8 | — |
 | 前端辅件 | UnoCSS 0.58.6 · ECharts 5.5.0 · CodeMirror 6 · Vue I18n 9.10.2 | — |
 | 测试 | Go 原生 `testing`（仓库根 `tests/`） | — |
 
 **平台**：只考虑 Windows；子进程一律隐藏窗口（走 `pkg/proc`，不裸用 os/exec）。
 
-### 1.1 与用户环境的关系（强制）
+### 1.1 边界（强制）
 
-- 壳只写自己的数据目录：`data\{workbaby.json,logs,webview,cache}`。
-- pi 的家就是用户的 `~/.pi/agent`（或用户自己设的 `PI_CODING_AGENT_DIR`），
-  壳**只读写、不接管、不复制**。界面里改的配置，终端里立刻认。
-- **壳不代用户装 pi**：入口探测顺序是手动路径 → PATH → npm 全局根；
-  三处都没有就给安装指引，不跑 `npm install`、不下载安装包。
-- **运行时不随包分发**：node / git / python 一律探测系统已装，
+- 壳只写自己的数据目录：`data\{workbaby.json, workbaby.db, logs, webview, cache, sessions, skills}`。
+- **引擎在进程内**：`backend/agent/` 是纯 Go 包，只依赖标准库与 `pkg`，
+  不知道 HTTP、界面与上层编排存在。没有子进程要拉起、没有握手协议、
+  没有崩溃重启、没有版本探测。
+- **运行时不随包分发**：git / node / python 一律探测系统已装，
   缺了就在应用页标出来。`assets\` 只剩内置技能包。
-- 子进程环境只覆写必须项（`pkg/env.go::ChildEnv`）：`PI_CODING_AGENT_DIR`、
-  `PI_SKIP_VERSION_CHECK=1`、`NO_COLOR=1`。**不遮蔽 HOME、不改 PATH 顺序**——
-  引擎跑的是用户自己的环境，它该看见真实的 shell 与工具链。
-- 插件装 / 卸 / 升一律走 pi 自己的包命令（`pi install/remove/update`），
-  壳只直接写一个字段：`packages[]` 条目里的 `autoload`（启停）。
-- **推荐 ≠ 预置**：推荐插件清单与推荐技能清单只用于界面展示，
-  用户点了才装；壳绝不在启动或首启时往用户的配置 / 技能目录里写东西。
-- **不做 OAuth**：服务商一律 API Key，`auth.json` 里只有 `type: "api_key"`。
-- 管理面（插件 / 技能 / MCP / 模型）只经 GUI 暴露，不对外提供 CLI。
+- 子进程环境只追加必须项（`pkg/paths.go::ChildEnv`）：`NO_COLOR=1`、
+  `GIT_TERMINAL_PROMPT=0`。**不遮蔽 HOME、不改 PATH 顺序**——
+  工具跑的是用户自己的环境，它该看见真实的 shell 与工具链。
+- **不做 OAuth**：服务商一律 API Key。
+- 管理面（技能 / MCP / 模型 / 工作区）只经 GUI 暴露，不对外提供 CLI。
 
 ---
 
@@ -56,18 +52,19 @@ WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳给用户自己装好�
 ```
 WorkBaby/
 ├── AGENTS.md / README.md / DESIGN.md
-├── docs/                          # 架构 / 模块 / API / 数据 / 错误码 / 开发 / 部署
+├── docs/                          # 架构 / 模块 / API / 数据模型 / 开发
 ├── main.go                        # 装配根：内嵌前端产物 + 版本号，交给 shell.Run
 ├── backend/
 │   ├── domain/                    # 纯类型：VO/REQ/RESP/DTO/DO + 错误码常量
-│   ├── pkg/                       # 叶子工具：apperror/codes/ulid/fsutil/log/proc/env/paths/...
-│   ├── repo/                      # JSON 存储文件：设置 KV、技能开关台账
+│   ├── pkg/                       # 叶子工具：apperror/codes/ulid/fsutil/log/proc/paths/...
+│   ├── repo/                      # 持久化：JSON 设置台账 + SQLite 派生数据
+│   ├── agent/                     # 原生引擎：轮次循环 / 模型适配 / 工具集 / 会话落盘
+│   ├── web/                       # 联网能力：搜索适配器 / 正文抽取 / 地址安全
+│   ├── index/                     # 工作区预索引：文件与符号抽取 / 模糊检索
 │   ├── sse/                       # SSE hub：seq 发号、断线补帧、心跳
 │   ├── api/                       # gin：server + 分组路由（薄壳，只解析与转发）
-│   ├── service/                   # 业务编排：app/chat/file/git/session/skill/plugin/mcp/model/settings
-│   │   ├── engine/                # pi 入口探测（手动/PATH/npm 全局）、版本、CLI 调用
-│   │   ├── parser/                # pi 会话 JSONL → 条目树/活动分支
-│   │   ├── chat/                  # rpc_client / frames / chat_service
+│   ├── service/                   # 业务编排：app/chat/plan/search/web/model/skill/mcp/file/git/session
+│   │   ├── parser/                # 会话 JSONL → 条目树/活动分支/待办派生
 │   │   └── platform/              # 开机自启 / 系统打开等 Windows 专属动作
 │   └── shell/                     # 窗口 / 托盘 / 端点装配
 ├── frontend/src/{api,components,composables,locales,stores,types,utils,views,router}
@@ -82,7 +79,7 @@ WorkBaby/
 ### 2.2 依赖方向（强制）
 
 ```text
-main(装配) ──► shell ──► api ──► service ──► {repo, engine/runtime, chat, parser, platform}
+main(装配) ──► shell ──► api ──► service ──► {repo, agent, web, index, pkg}
                                   │
                    service ──► pkg / domain（只读类型）
 ```
@@ -92,13 +89,18 @@ main(装配) ──► shell ──► api ──► service ──► {repo, en
 | pkg | 标准库 / 第三方纯工具 | domain / repo / service / api / shell |
 | domain | pkg | 任何实现层 |
 | repo | pkg / domain | service / api / shell |
-| service | repo / pkg / domain | api 的路由层 |
+| agent | pkg / domain | api / service / 界面 |
+| web / index | pkg | api / service / agent |
+| service | repo / agent / web / index / pkg / domain | api 的路由层 |
 | api | service / domain / pkg | 越过 service 直摸 repo |
 | shell | wails / service（仅设置与端口回填） | api |
 | 前端 | 自身 + `/api/v1` | 直摸文件系统 / 子进程 |
 
 **组合根例外**：`main.go` 直接开库与起服务是装配本职；`shell/*.go` 读
 settings 服务的关窗偏好同理。
+
+判定标准是**下层不知道上层存在**。`agent` 不知道 HTTP 与界面的存在，
+所以它可以脱离壳单测；`api` 只解析与转发，所以业务规则全在 service 里。
 
 ### 2.3 domain 单文件多形态
 
@@ -107,9 +109,9 @@ settings 服务的关窗偏好同理。
 ```go
 // SessionRowVO 是会话列表行。
 type SessionRowVO struct {
-	// SessionID 会话 ID
-	SessionID string `json:"session_id"`
-	// SessionTitle 标题（首条用户消息截断）
+	// SessionId 会话 ID
+	SessionId string `json:"session_id"`
+	// SessionTitle 标题（首条用户消息截断，或改名后的名字）
 	SessionTitle string `json:"session_title"`
 }
 ```
@@ -120,7 +122,7 @@ type SessionRowVO struct {
 | `REQ` | 入参（POST body / query） |
 | `RESP` | 接口响应体 |
 | `DTO` | 跨层传递的内部结构 |
-| `DO` | 持久化行映射（repo 内） |
+| `DO` | 持久化行映射（repo 内 / SQLite 表） |
 
 **禁止**：裸字段名（`Name` / `Code` 一律拒绝）；前端字段与后端 JSON 字段名不一致。
 
@@ -143,14 +145,14 @@ type AppError struct {
 - 唯一例外是鉴权失败：回 401 且不带信封——那不是业务失败，是根本没进门
 - 码值集中在 `pkg/codes.go`，与 `docs/API.md` 的错误码表一一对应；新增码先改文档再写代码
 
-**错误码段位**：1000–1999 通用/文件/git；2000–2999 配置/DB；3000–3999 服务商/模型；
-5000–5999 会话运行；7000–7999 外部进程；8000–8999 技能；9100–9199 MCP；9700–9799 引擎 RPC。
+**错误码段位**：1000–1999 通用/文件/git；2000–2999 持久化；3000–3999 服务商/模型；
+5000–5999 会话运行；7000–7999 外部进程；8000–8999 技能；9100–9199 MCP。
 
 ### 2.5 命名 / 注释 / 行数
 
 | 类别 | 规则 |
 |---|---|
-| 文件名 | 全小写 + 下划线（`rpc_client.go`） |
+| 文件名 | 全小写 + 下划线（`session_format.go`） |
 | 类型 / 接口 | PascalCase，不加 I 前缀 |
 | 函数 | camelCase（导出时首字母大写），常量 SCREAMING_SNAKE_CASE |
 | JSON 字段 | snake_case + 业务前缀 |
@@ -164,30 +166,31 @@ type AppError struct {
 
 - argv 数组直传，永不进 shell；`SysProcAttr.HideWindow`（引 `pkg/proc`，不写十六进制）
 - 超时必杀；stdout 严格按 LF 切帧（不用 `bufio.Scanner` 默认行为——U+2028/2029 会误切）
-- 探测程序路径用 `pkg.Exists`，**禁止跑 `where` / `which`**（会闪控制台）
+- 探测程序路径用 `pkg.LookPath`（自己扫 PATH），**禁止跑 `where` / `which`**（会闪控制台）
 - 新增子进程出口自觉对齐 `pkg/proc.go` 的 `RunProc`
-- 长驻子进程的 stdin 写入必须整行串行化：并发写会交错成半行
 
 ### 2.7 HTTP 与 API 路径约定（强制）
 
 - **只允许 GET / POST**；动词靠路径段表达：`POST /sessions/delete` + `{ path }`
 - 路径形状 `/{resource}/{action}`；查询参数 `?key=value`；前端统一 `/api/v1` 前缀
 - 鉴权：HTTP 走 `X-Desktop-Token` 头；SSE 走 `?token=`（EventSource 带不了自定义头）
+- **CORS 中间件排在鉴权前面**：预检不带令牌，先鉴权会把预检打成 401
 
 ### 2.8 服务不变量（强制）
 
 | 不变量 | 含义 |
 |---|---|
-| 会话文件是真相 | pi 的 JSONL 会话文件是唯一持久真相；界面状态重启后由回放重建 |
+| 会话文件是真相 | 会话 JSONL 是唯一持久真相；界面状态重启后由回放重建 |
+| 会话头只写一次 | 整份重写在断电时会把唯一真相写坏；标题因此由条目派生 |
 | 事件顺序是契约 | SSE 帧 `{seq, event, data}`，seq 单调；改 `chat:*` 词汇等于改界面行为 |
-| 一个工作区一个引擎 | pi RPC 子进程按当前工作区绑定；切工作区即重建 |
-| 看得见就点得动 | 提问等面板可写；回答经 `extension_ui_response` 直达引擎 |
-| 写入只有一套 | 插件 / 技能 / MCP 的落盘与校验只有 service 一套，不写第二套 |
-| 插件走 pi 原生 | 插件只经 `settings.json` 的 `packages[]` 声明；不自造注册表索引第二份真相 |
-| 只读接口不写盘 | `GET` 路由不改磁盘状态；需要落盘的动作在自己的写接口或首启里做 |
-| 启动不等重物 | 端口与界面先就绪；运行时解压、技能落位后台跑，进度经 `app:progress` 报 |
-| 引擎不感知界面 | service/chat 只发 domain 词汇；翻译成 SSE 是 chat_frames 的职责 |
+| 工具集是能力边界 | 模型能做什么取决于注册表；系统提示的工具清单从注册表现读 |
+| 未登记按写处理 | 计划模式的判定规则；漏登记写工具的代价远大于漏登记读工具 |
+| 写入只有一套 | 技能 / MCP / 模型的落盘与校验只有 service 一套，不写第二套 |
+| 只读接口不写盘 | `GET` 路由不改磁盘状态；需要落盘的动作在自己的写接口里做 |
+| 启动不等重物 | 端口与界面先就绪；会话初始化后台跑 |
+| 引擎不感知界面 | agent 只发 domain 词汇；翻译成 SSE 是 `chat_stream` 的职责 |
 | 密钥不回显 | `api_key` 读出来恒为掩码；空串语义是「保留原值」 |
+| 路径有边界 | 工具与文件接口一律校验路径在允许的根目录内 |
 
 ### 2.9 前端设计令牌（强制）
 
@@ -206,15 +209,15 @@ type AppError struct {
 详细清单见 `docs/DEV.md`。
 
 **保留**：状态机与解析（会话树回放 / 分支 / 隐藏轮）、端到端长链路（鉴权 → 路由 →
-service → 存储文件 → 信封）、内置清单与落位（插件声明改写 / 技能目录搬移）、
-真实运行时链路（`live` 标签，手动跑）。
+service → 存储文件 → 信封）、引擎能力边界（分片拼装 / 工具准入 / 输出折叠）、
+内置清单与落位（技能目录搬移与生命周期）、索引与联网的安全边界。
 
 **不写**：复述框架行为的用例、单 getter、纯函数往返、覆盖率驱动用例。
 
-- 位置：仓库根 `tests/`，一文件一个被测对象，`go test ./tests` 一秒内跑完
+- 位置：仓库根 `tests/`，一文件一个被测对象，`go test ./tests` 数秒内跑完
 - 命名说清断言的是什么；断言带失败信息
 - 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`
-- 测不了的路径（需真实引擎 / 网络）放 `live` 标签后，不留假绿
+- 测不了的路径（需真实网络 / 真实上游）不写假绿用例
 
 ---
 
@@ -234,6 +237,30 @@ go test ./tests -count=1                          # 4 场景测试全绿
 
 **硬性约束**：文件 ≤ 500 行；依赖方向单向；只用 GET / POST；字段带业务前缀；
 信封恒 200；注释无外部项目名与过程痕迹；子进程隐藏窗口 + 超时杀。
+
+### 4.1 诊断工具的坑（重要）
+
+静态诊断有时会报「某符号未定义」，而 `go build` 是通过的。这不是代码问题，
+是诊断工具的缓存陈旧。判定顺序：**先信编译器**。
+
+```bash
+go build ./...      # 真相：编译不过就是编译不过
+go vet ./...        # 真相：vet 过了就是过了
+gopls check <文件>  # 权威的 gopls 自检（比 IDE 里的提示可靠）
+```
+
+已知的三种陈旧来源：
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 新加的符号报未定义，但 `go build` 通过 | gopls 的导出数据缓存陈旧 | 删 `%LOCALAPPDATA%\gopls` 并重启 gopls 进程 |
+| 同上，且刚建了新文件 | gopls 的文件索引还没收录新文件 | 同上（清缓存 + 重启 gopls） |
+| gopls 与项目 Go 版本不一致 | 导出数据格式对不上 | 用项目同版本的 Go 重建 gopls：`GOTOOLCHAIN=go1.27.4 go install golang.org/x/tools/gopls@v0.24.0` |
+| 报告里出现早已删除的文件 | 项目快照是旧的 | 删 `%USERPROFILE%\.pi-lens\projects\<项目>\cache\project-snapshot.*` 与 `review-graph.json.gz` |
+| 上一轮的问题已经修了，报告还在 | 缓存的是「上一轮的结论文本」 | 删 `cache\turn-end-findings-last.json` 与 `code-quality-warnings.json` |
+
+**不要因为诊断报错就改代码**：先跑 `go build`。真要改，也要先确认编译器也报同样的错。
+真的被编译器的报错卡住时，先 `gofmt -w` 那个文件——未格式化的新文件会被 gopls 跳过。
 
 ---
 

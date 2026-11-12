@@ -107,13 +107,13 @@ async function openSession(path: string) {
 }
 
 /**
- * 重启引擎进程。
+ * 中止当前运行。
  *
- * 重启的是一个进程，不是引擎：会话、配置、凭据一个字不动，
- * 下一句话会按时重新拉起一个。所以不需要二次确认。
+ * 中止的是这一轮，不是引擎：会话、配置、凭据一个字不动，
+ * 下一句话随时可以再发。所以不需要二次确认。
  */
 async function restartEngine(): Promise<void> {
-  stoppingRun.value = health.value?.health_engines[0]?.process_id ?? 1
+  stoppingRun.value = 1
   try {
     await api.restartEngine()
     await load()
@@ -132,9 +132,9 @@ watch(
   },
 )
 
-// 已装 / 已就绪的变化（装完 pi、卸载完）也要重拉：那是这一屏的核心事实。
+// 工具链就绪状态变化也要重拉：那是这一屏的核心事实。
 watch(
-  () => app.runtime?.pi_version,
+  () => app.runtime?.engine_ready,
   () => void load(),
 )
 
@@ -205,10 +205,6 @@ onMounted(() => void load())
         <div class="wb-card card-pad">
           <span class="wb-metric-label">{{ t('overview.capSkills') }}</span>
           <span class="wb-metric">{{ readout(String(health?.total_skills ?? 0)) }}</span>
-        </div>
-        <div class="wb-card card-pad">
-          <span class="wb-metric-label">{{ t('overview.capPlugins') }}</span>
-          <span class="wb-metric">{{ readout(String(health?.total_plugins ?? 0)) }}</span>
         </div>
         <div class="wb-card card-pad">
           <span class="wb-metric-label">{{ t('overview.capMcp') }}</span>

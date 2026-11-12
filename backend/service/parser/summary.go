@@ -8,15 +8,6 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// EncodedWorkspace 把工作区路径编码成 pi 的会话目录名：
-// 剥掉一个头部分隔符，/ \ : 空格换成 -，两端包 --。
-// 这个形状由引擎决定，改它等于读不到历史会话。
-func EncodedWorkspace(workspace string) string {
-	stripped := strings.TrimLeft(workspace, `\/`)
-	replacer := strings.NewReplacer("/", "-", `\`, "-", ":", "-", " ", "-")
-	return "--" + replacer.Replace(stripped) + "--"
-}
-
 // Summarize 给一个会话文件出一行摘要：标题、模型、token、消息数。
 func Summarize(file string) domain.SessionRowVO {
 	header := ReadHeader(file)
@@ -35,46 +26,47 @@ func Summarize(file string) domain.SessionRowVO {
 		row.SizeBytes = st
 	}
 	for _, entry := range entries {
-		if entry.Timestamp != "" {
-			if ts := ParseTime(entry.Timestamp); ts > row.UpdatedAt {
+		if entry.EntryTimestamp != "" {
+			if ts := ParseTime(entry.EntryTimestamp); ts > row.UpdatedAt {
 				row.UpdatedAt = ts
 			}
 		}
-		if msg := entry.Message; msg != nil {
-			if msg.Usage != nil {
-				row.TotalTokens += msg.Usage.TotalTokens
-				if msg.Usage.Cost != nil {
-					row.CostUsd += msg.Usage.Cost.Total
+		if msg := entry.EntryMessage; msg != nil {
+			if msg.MessageUsage != nil {
+				row.TotalTokens += msg.MessageUsage.UsageTotalTokens
+				if msg.MessageUsage.UsageCost != nil {
+					row.CostUsd += msg.MessageUsage.UsageCost.CostTotal
 				}
 			}
-			switch msg.Role {
-			case "user":
+			switch {
+			case msg.MessageRole == roleUser:
 				row.MessageCount++
 				if row.SessionTitle == "（空会话）" {
-					if text := strings.TrimSpace(msg.Text()); text != "" {
+					if text := strings.TrimSpace(ContentText(msg.MessageContent)); text != "" {
 						row.SessionTitle = pkg.Truncate(text, 80)
 					}
 				}
-			case "assistant":
+			case msg.MessageRole == roleAssistant:
 				row.MessageCount++
-				if msg.Model != "" {
-					row.SessionModel = msg.Model
+				if msg.MessageModel != "" {
+					row.SessionModel = msg.MessageModel
 				}
-			case "toolResult":
+			case isToolResult(msg.MessageRole):
 				row.MessageCount++
 			}
 		}
-		if entry.Usage != nil {
-			row.TotalTokens += entry.Usage.TotalTokens
-			if entry.Usage.Cost != nil {
-				row.CostUsd += entry.Usage.Cost.Total
+		if entry.EntryUsage != nil {
+			row.TotalTokens += entry.EntryUsage.UsageTotalTokens
+			if entry.EntryUsage.UsageCost != nil {
+				row.CostUsd += entry.EntryUsage.UsageCost.CostTotal
 			}
 		}
-		if entry.Type == "model_change" && entry.Provider != "" && entry.ModelId != "" {
-			row.SessionModel = entry.Provider + "/" + entry.ModelId
+		if entry.EntryType == domain.SessionEntryModelChange &&
+			entry.EntryProvider != "" && entry.EntryModelId != "" {
+			row.SessionModel = entry.EntryProvider + "/" + entry.EntryModelId
 		}
-		if entry.Type == "session_info" && entry.Name != "" {
-			row.SessionTitle = entry.Name
+		if entry.EntryType == domain.SessionEntrySessionInfo && entry.EntryName != "" {
+			row.SessionTitle = entry.EntryName
 		}
 	}
 	return row
