@@ -81,6 +81,9 @@ func (c *Chat) EnsureRpc() (*chat.PiRpc, error) {
 	}
 
 	entry := c.Runtime.Resolve()
+	if entry.NodeMissing {
+		return nil, pkg.Err(pkg.CodeNodeMissing, "pi 找到了，但它的启动脚本需要 node", entry.ScriptPath)
+	}
 	if entry.Command == "" {
 		return nil, pkg.Err(pkg.CodeEngineMissing, "没有检测到 pi，请先在应用页指定 pi 的位置")
 	}
@@ -438,4 +441,53 @@ func (c *Chat) guardSessionPath(file string) (string, error) {
 		return "", nil
 	}
 	return parser.GuardSession(c.Runtime.Layout.SessionsDir(), file)
+}
+
+// EngineModels 拉引擎眼下的可选模型清单（含内置服务商）。
+// 与 /models 的分工：那个读 models.json 里用户自配的服务商，是「用户写了什么」；
+// 这个是「引擎现在真能选哪些」，两处会不一致，而下拉框该信引擎。
+// 引擎没起来时不预热：一次下拉不值得拉起一整个子进程，调用方回退到配置文件那份。
+func (c *Chat) EngineModels() (domain.ModelListRESP, bool) {
+	workspace := c.Settings.Workspace()
+	if workspace == "" || !c.engineBound(workspace) {
+		return domain.ModelListRESP{Models: []domain.ModelOptionVO{}, ModelSource: "engine"}, false
+	}
+	c.mu.Lock()
+	client := c.rpc
+	c.mu.Unlock()
+	data, err := client.Request(chat.Record{"type": "get_available_models"}, 0)
+	if err != nil {
+		pkg.Warn("拉引擎模型清单失败：%v", err)
+		return domain.ModelListRESP{Models: []domain.ModelOptionVO{}, ModelSource: "engine"}, false
+	}
+	fields, ok := data.(map[string]any)
+	if !ok {
+		return domain.ModelListRESP{Models: []domain.ModelOptionVO{}, ModelSource: "engine"}, false
+	}
+	items, _ := fields["models"].([]any)
+	rows := make([]domain.ModelOptionVO, 0, len(items))
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		modelId := stringOf(entry["id"])
+		if modelId == "" {
+			continue
+		}
+		row := domain.ModelOptionVO{
+			ProviderName:  stringOf(entry["provider"]),
+			ModelId:       modelId,
+			ModelName:     stringOf(entry["name"]),
+			ApiProtocol:   stringOf(entry["api"]),
+			ContextWindow: chatInt(entry["contextWindow"]),
+			MaxTokens:     chatInt(entry["maxTokens"]),
+			InputKinds:    asStringSlice(entry["input"]),
+		}
+		if flag, ok := entry["reasoning"].(bool); ok {
+			row.SupportsReasoning = flag
+		}
+		rows = append(rows, row)
+	}
+	return domain.ModelListRESP{Models: rows, ModelSource: "engine"}, true
 }

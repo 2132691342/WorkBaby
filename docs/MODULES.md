@@ -47,8 +47,9 @@ main.go（装配根）──► shell ──► api ──► service ──► 
 
 | 文件 | 内容 |
 |---|---|
-| `core.go` | 引导、设置、偏好、运行时状态、应用（pi 本体）、引擎身份与能力表 |
-| `chat.go` | 会话、消息、回合块、工具卡、提问、队列、运行状态、用量 |
+| `core.go` | 引导、设置、偏好、运行时状态（含 `pi_needs_node`）、应用（pi 本体）、引擎身份与能力表 |
+| `chat.go` | 会话、消息、回合块、工具卡、提问、队列、运行状态、用量、分叉 |
+| `model.go` | 服务商与模型：`ProviderVO` / `ModelOptionVO` / `ModelDefaultVO` 与它们的 REQ |
 | `data.go` | 技能、插件、MCP、服务商与模型 |
 | `workspace.go` | 文件树、文件内容、git 状态 / 差异 / 历史 / 分支 / stash |
 | `doc.go` | 包注释 |
@@ -77,7 +78,8 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 |---|---|
 | `routes_core.go` | `/bootstrap` `/settings` `/workspaces` `/prefs` `/logs` |
 | `routes_chat.go` | `/chat/*` `/messages/*` |
-| `routes_data.go` | `/providers` `/skills` `/plugins` `/mcp` `/sessions` |
+| `routes_data.go` | `/providers` `/models` `/skills` `/plugins` `/mcp` `/sessions` |
+| `routes_files.go` | `/files/*`：列目录、搜索、读、存、建目录、删、改名 |
 | `routes_git.go` | `/git/*`：状态、差异、历史、分支、提交、stash、推拉 |
 | `routes_events.go` | `/events` SSE 长连接 |
 | `exe.go` | 共享小工具 |
@@ -88,7 +90,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 
 | 文件 | 职责 |
 |---|---|
-| `app.go` / `app_provision.go` / `app_actions.go` / `app_config.go` | 装配根、首启装配、pi 本体的装 / 升 / 卸 |
+| `app.go` / `app_provision.go` / `app_actions.go` / `app_config.go` | 装配根、后台预热（清遗留库 → 撤旧 `npmCommand` → 探测 pi → 拉起引擎）、状态汇总与系统动作 |
 | `chat_service.go` / `chat_state.go` / `chat_actions.go` | 引擎绑定与生命周期（含崩溃自动重启、后台预热 Warm）、发送、停止、插话、回答、压缩。状态总装走两条路径：引擎已绑定走实况快路径；未就绪先回放会话文件并触发预热，不等冷启动 |
 | `chat/rpc_client.go` | pi 子进程 RPC：启动、发命令、收事件、超时；关停等真退出再返回 |
 | `chat/frames.go` | domain 词汇 → SSE 帧 |
@@ -103,7 +105,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `system.go` / `values.go` / `autostart.go` | 系统动作、常量、开机自启 |
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、改名保护、导出 HTML |
 | `git.go` / `git_history.go` / `git_sync.go` / `git_stash.go` / `git_write.go` | git 读与写；stash 四件套；凭证失败归类并给下一步；目录级仓库探测 |
-| `engine/runtime.go` / `engine/provision.go` / `engine/npm.go` / `engine/python.go` | 运行时探测、解压、npm 执行；Python 解压后补齐 `Scripts\pip.exe` 入口垫片（随包 Python 只带 pip 模块，技能脚本写的是裸 `pip install`） |
+| `engine/runtime.go` / `engine/npmroot.go` / `engine/system.go` | 入口探测（手动路径 → PATH → npm 全局根，全程只查目录与 `pkg.LookPath`，不跑 `where` / `which`）、版本读取、CLI 调用；`npmroot.go` 按环境变量 → node 同目录 → 版本管理器前缀找全局 `node_modules`；`system.go` 探 node / git / python 的版本，并在「pi 在但 node 缺」时给专门的指引 |
 | `platform/` | Windows 外壳能力：开机自启（`autostart_windows.go`，落 HKCU 用户级自启项）、资源管理器定位与系统默认程序打开（`api.go` / `shell.go`）。只依赖标准库与 `pkg`，不感知业务 |
 
 ## shell/ — Wails 面
@@ -153,3 +155,14 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | 推荐清单只展示不预置 | 用户的 `settings.json` 与 `skills/` 是他自己的 | 首启静默写入——用户下次在终端里看到一堆没装过的东西 |
 | 一个工作区一个引擎 | pi 的会话目录与工具相对路径都以工作区为根 | 全局单引擎在切目录时路径必然错乱 |
 | 长文本按块增量渲染 | 全量重解析是 O(字数²) | 每次 tick 整体重渲染，长回答直接卡死界面 |
+
+## 单文件行数纪律
+
+每个文件 ≤ 500 行是硬约束。超了按「概念」拆，不按行数随机切：
+
+| 拆分 | 为什么这样切 |
+|---|---|
+| `domain/chat.go` + `domain/model.go` | 前者是「引擎怎么跑一轮」，后者是「引擎能选哪些模型」，改动原因不同 |
+| `api/routes_data.go` + `api/routes_files.go` | 前者管管理域对象，后者管工作区里的手工文件操作 |
+| `views/WorkspaceView.vue` + `components/workspace/WorkspaceHead.vue` | 页头只读外部传进来的状态，自己不发请求，搬出去不会多出一份数据来源 |
+| `utils/format.ts` | 读数格式两处共用（轮尾读数 / 活动条），各自实现一遍必然出现同一轮两个数字 |

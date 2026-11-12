@@ -27,6 +27,7 @@ export interface EngineCaps {
   export_html: boolean
   slash_commands: boolean
   session_clone: boolean
+  session_fork: boolean
   plugin_toggle: boolean
   plugin_upgrade: boolean
 }
@@ -63,6 +64,10 @@ export interface RuntimeStatus {
   pi_ready: boolean
   pi_version: string
   pi_source: string
+  /** pi 已找到，但它是 cli.js 而机器上没有 node */
+  pi_needs_node: boolean
+  /** 命中但跑不起来的 pi 入口脚本路径 */
+  pi_script_path?: string
   detection_hint?: string
   detecting: boolean
 }

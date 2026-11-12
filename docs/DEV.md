@@ -5,7 +5,7 @@
 | 需要 | 版本 | 说明 |
 |---|---|---|
 | Go | 1.26.x | 编译后端与壳 |
-| Node.js | ≥ 20 | **只用于构建前端**；运行时的 node 是随包分发的内置副本 |
+| Node.js | ≥ 20 | **只用于构建前端**；运行时用的是用户自己装的那个 node（pi 的 CLI 需要它） |
 | wails3 CLI | 3.1.x | `go install github.com/wailsapp/wails/v3/cmd/wails3@latest` |
 | Task | 3.x | 任务入口（可选，也可直接敲 go 命令） |
 | NSIS | 3.x | 只在打安装包时需要（`choco install nsis`） |
@@ -24,7 +24,6 @@ task dev        # wails3 dev：后端热重载 + Vite 热更
 task build      # 产出 bin\WorkBaby.exe
 task run        # 直接跑构建产物
 task test       # 场景测试（秒级）
-task test:live  # 真实沙箱链路：解压运行时 + 装 pi + RPC 握手（需联网，约 2 分钟）
 task check      # gofmt 检查 + go vet + 场景测试
 task package    # NSIS 安装包（需要 makensis）
 ```
@@ -62,26 +61,25 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 复述框架行为）不写——它们的维护成本高于收益。**一文件一个被测对象、一文件一个
 测试入口**：改哪个模块就看哪个文件，一处找全。
 
-七个测试入口 + 一个 live 入口，全部跑完约 2 秒：
+九个测试入口，全部跑完约 8 秒（其中冲突解决用例要起真 git，约 5 秒）：
 
 | 文件 | 入口 | 断言什么 |
 |---|---|---|
 | `tests/chain_test.go` | `TestChain` | 回环 HTTP 全链路：鉴权硬门（401 且不带业务信封）、CORS 预检绕过鉴权门并带允许头（WebView2 虚拟源跨源调回环的前提）、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入落盘（HTTP 写 → 直查存储文件 → HTTP 读回）、SSE 通道（查询参数鉴权、先补 `stream:open`、广播到达、seq 单调） |
 | `tests/frames_test.go` | `TestFrames` | 流式翻译器的块表状态机：增量按块累加、工具块从出现到收尾、message_end 权威覆盖但按 id 保留工具读数、user 话术更新、用量透传 turn_end、stopReason=error 收尾带原话、settled 透传 abort、未知事件静默 no-op |
 | `tests/session_test.go` | `TestSession` | 会话 JSONL 回放与写入纪律：分支只走当前分支、残行不毁整份历史、环状 parentId 有界退出、工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题来源、计划模式只认活动分支上最后一条 plan-mode 条目；隐藏轮只记台账不改文件、改名只末尾追加、引擎正打开时拒绝 |
-| `tests/sandbox_test.go` | `TestSandbox` | 沙箱三层契约：内置清单结构不变量与磁盘资产互相咬合（插件包名唯一且来源串反解回原包名——装 / 卸 / 开关全按包名索引；10 个技能与 assets 双向无死条目、frontmatter 块标量不破）、子进程环境把 HOME / USERPROFILE / npm 与 pip 缓存钉进沙箱、技能落位/开关/重置/删除/自愈整条生命周期 |
-| `tests/plugin_test.go` | `TestPlugins` | 插件治理：启停两态写法、用户配的资源过滤保留、重试不动开关、卸载撤声明删包目录、版本漂移只碰装歪的包 |
+| `tests/sandbox_test.go` | `TestSandbox` | 清单与磁盘互相咬合（插件包名唯一且来源串反解回原包名——装 / 卸 / 开关全按包名索引；10 个技能与 assets 双向无死条目、frontmatter 块标量不破）、子进程环境只覆写必须项不遮蔽 HOME、技能落位/开关/重置/删除/自愈整条生命周期 |
+| `tests/guards_test.go` | `TestChatGuards` / `TestModelsCorruptGuard` / `TestModelDefaults` / `TestEngineNeedsNode` | 写入口的边界：分叉缺起点先拒、models.json 坏掉时读失败要说出来且写入拒绝执行（否则整表覆盖用户的配置不可恢复）、默认模型的非法组合不落盘且保存时保住用户自己的键、`settings.json` 清空等于删键、「pi 在但 node 缺」不被误报成「没装 pi」 |
+| `tests/plugin_test.go` | `TestPlugins` | 插件治理：启停两态写法、用户配的资源过滤保留、卸载撤声明删包目录、来源串反解闭环 |
 | `tests/governance_test.go` | `TestMcpConfig` / `TestLegacyCleanup` | mcp.json 的并发读写锁与作用域遮蔽；历史 SQLite 文件的清理边界（只删确实是 SQLite 且 JSON 存储已立起的遗留文件） |
 | `tests/git_test.go` | `TestConflictResolve` | 用真 git 造一次真冲突，断言三个口径各自落成什么：`ours` 留当前分支、`theirs` 留合进来那方、两者都不许残留冲突标记且必须已暂存；空路径与未知口径直接拒。本机没 git 时跳过 |
 | `tests/harness_test.go` | — | 公共装具：满装后端 harness（真 JSON 存储 + 真 gin 中间件栈）与轻量 catalog harness、HTTP 调用与断言辅助 |
-| `tests/sandbox_live_test.go` | `TestSandboxChain` | 真实链路：探测本机 pi → RPC `get_state` / `get_commands` / `get_session_stats` → 优雅退出。带 `live` 构建标签，默认不跑 |
 
 约定：
 
 - 位置在仓库根 `tests/`，一文件一个被测对象
 - 每个测试用 `t.TempDir()` 造独立布局，不碰真实数据目录与仓库资产
 - 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`
-- 需要真实引擎或网络的路径放 `live` 标签后，不留假绿
 
 ## 门禁
 
@@ -122,10 +120,11 @@ WorkBaby\
 ```
 
 前端产物经 `//go:embed all:frontend/dist` 编进 exe，**不额外分发静态文件**。
-运行时不随包发：node / git / python 全部用系统已装的。
+运行时不随包发：node / git / python 全部用系统已装的。`assets\` 里只有推荐技能包。
 
 体积基线：`assets\skills` 约 0.8MB、exe 约 32MB。安装包体积应该在十几 MB 量级；
-出现 100MB+ 说明有人把运行时 zip 又拷回了 `assets\`。
+出现 100MB+ 说明有人把运行时（node / git / python）又拷回了 `assets\`——
+那是明确不要的东西：壳只用用户装好的那些。
 
 ### 版本号
 
@@ -183,7 +182,7 @@ task build                       # exe 产出并可启动
 安装后验证清单：
 
 1. 首次启动窗口按时出现（不黑屏、不假死）
-2. 概览页进度条走完：运行时 → 技能 → 插件
+2. 概览页状态就绪：引擎探测完成、引擎已拉起
 3. 设置页诊断：node / git / python / pi 四个版本号都有值
 4. 对话页发一句话能流式回来
 5. 插件页能停用一个、再启用回来

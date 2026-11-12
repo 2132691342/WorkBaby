@@ -31,6 +31,8 @@ type EngineCaps struct {
 	SlashCommands bool `json:"slash_commands"`
 	// SessionClone 复制当前会话开新分支
 	SessionClone bool `json:"session_clone"`
+	// SessionFork 从指定一轮用户消息分叉出新会话
+	SessionFork bool `json:"session_fork"`
 	// PluginToggle 插件启停
 	PluginToggle bool `json:"plugin_toggle"`
 	// PluginUpgrade 插件升级
@@ -47,6 +49,7 @@ var PiCaps = EngineCaps{
 	ExportHTML:    true,
 	SlashCommands: true,
 	SessionClone:  true,
+	SessionFork:   true,
 	PluginToggle:  true,
 	PluginUpgrade: true,
 }
@@ -174,6 +177,10 @@ type RuntimeStatusVO struct {
 	PiVersion string `json:"pi_version"`
 	// PiSource pi 的发现方式：manual / path / npm-global / none
 	PiSource string `json:"pi_source"`
+	// PiNeedsNode pi 已找到，但它是 cli.js 而机器上没有 node
+	PiNeedsNode bool `json:"pi_needs_node"`
+	// PiScriptPath 命中但跑不起来的 pi 入口脚本路径
+	PiScriptPath string `json:"pi_script_path,omitempty"`
 	// DetectionHint 缺依赖时给用户的一句话指引
 	DetectionHint string `json:"detection_hint,omitempty"`
 	// Detecting 是否有探测 / 预热正在后台进行

@@ -23,13 +23,12 @@ type piSettings struct {
 	Packages []any `json:"packages,omitempty"`
 }
 
-// readPiSettings 读 settings.json；不存在或坏掉给空结构，绝不抛。
-// 用户会手改这个文件，读坏等同于「还没配过」，让界面重写一份比报错有用。
+// readPiSettings 读 settings.json；不存在或坏掉给空结构。
+// 用户会手改这个文件，读坏等同于「还没配过」——写回去时会重建一份可用配置。
 func readPiSettings(layout pkg.Layout) map[string]any {
 	out := map[string]any{}
-	pkg.ReadJSON(layout.SettingsFile(), &out)
-	if out == nil {
-		out = map[string]any{}
+	if pkg.ReadJSON(layout.SettingsFile(), &out) != nil || out == nil {
+		return map[string]any{}
 	}
 	return out
 }
@@ -84,18 +83,8 @@ func parseEntry(item any) packageEntry {
 	return packageEntry{Source: source, Enabled: enabled}
 }
 
-// entryToJSON 把声明编码回 settings.json 的形状。启用态不能简单写回裸串：
-// 对象形态里可能带着用户配的资源过滤（extensions / skills 等），抹平等于悄悄删配置；
-// 只去掉 autoload 这一个键，其余原样保留。
-func entryToJSON(source string, enabled bool) any {
-	if enabled {
-		return source
-	}
-	return map[string]any{"source": source, "autoload": false}
-}
-
 // entryToggle 在既有声明上只改启用态，其余键原样保留。
-// 与 entryToJSON 的区别：那个是从零造一条声明，这个是在用户已有的条目上动刀。
+// 不是从零造一条声明：用户在这条声明上配的资源过滤不能被开关抹掉。
 func entryToggle(entry any, enabled bool) any {
 	obj, ok := entry.(map[string]any)
 	if !ok {
@@ -171,9 +160,8 @@ func IsGitSource(source string) bool {
 }
 
 // EnsureNpmCommand 把 npmCommand 从 settings.json 里撤掉。
-// 旧版本为了让引擎用内置 npm 而钉过这一项；内置运行时已经取消，
-// 留着它会指一个不存在的路径，pi 装包时直接失败。
-func EnsureNpmCommand(layout pkg.Layout, _ []string) {
+// 该项指向一个不再存在的路径，留着会让 pi 装包时直接失败。
+func EnsureNpmCommand(layout pkg.Layout) {
 	piSettingsMu.Lock()
 	defer piSettingsMu.Unlock()
 	settings := readPiSettings(layout)
@@ -269,78 +257,4 @@ func removeAllQuiet(path string) error {
 		return pkg.WrapErr(pkg.CodeProvision, "目录删除失败", err)
 	}
 	return nil
-}
-
-// declare 声明一个包：已存在则原位替换（保住顺序），否则追加。
-// 已存在的条目只更新来源，启用态与用户配的资源过滤原样保留：
-// 装一次/重试一次就把用户手动停用的插件重新打开，是最难排查的那种「它又自己开了」。
-func (p *Plugins) declare(pluginName, source string, enabled bool) {
-	piSettingsMu.Lock()
-	defer piSettingsMu.Unlock()
-	layout := p.Runtime.Layout
-	settings := readPiSettings(layout)
-	entries := packagesOf(settings)
-	replaced := false
-	for i, entry := range entries {
-		parsed := parseEntry(entry)
-		if PackageNameOf(parsed.Source) != pluginName {
-			continue
-		}
-		// 来源变了才重建；没变就整条不动。
-		if parsed.Source == source {
-			replaced = true
-			break
-		}
-		entries[i] = entryWithSource(entry, source)
-		replaced = true
-		break
-	}
-	if !replaced {
-		entries = append(entries, entryToJSON(source, enabled))
-	}
-	p.writeEntries(settings, entries)
-}
-
-// entryWithSource 只替换声明的来源串，其余键（autoload 与资源过滤）原样保留。
-func entryWithSource(entry any, source string) any {
-	obj, ok := entry.(map[string]any)
-	if !ok {
-		return source
-	}
-	out := make(map[string]any, len(obj))
-	for key, value := range obj {
-		out[key] = value
-	}
-	out["source"] = source
-	return out
-}
-
-// undeclare 撤掉一个包的声明。
-func (p *Plugins) undeclare(pluginName string) {
-	piSettingsMu.Lock()
-	defer piSettingsMu.Unlock()
-	layout := p.Runtime.Layout
-	settings := readPiSettings(layout)
-	entries := packagesOf(settings)
-	kept := make([]any, 0, len(entries))
-	for _, entry := range entries {
-		if PackageNameOf(parseEntry(entry).Source) == pluginName {
-			continue
-		}
-		kept = append(kept, entry)
-	}
-	p.writeEntries(settings, kept)
-}
-
-// writeEntries 把 packages 写回 settings；空数组时删键而不是留 `[]`。
-// 留 `[]` 与「没声明过」在引擎眼里等价，但界面上看不出差别，容易被读成「配了但全停用」。
-func (p *Plugins) writeEntries(settings map[string]any, entries []any) {
-	if len(entries) == 0 {
-		delete(settings, "packages")
-	} else {
-		settings["packages"] = entries
-	}
-	if err := writePiSettings(p.Runtime.Layout, settings); err != nil {
-		pkg.Warn("packages 写入失败：%v", err)
-	}
 }

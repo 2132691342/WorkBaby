@@ -50,7 +50,6 @@ tasks:
 
   fmt:check:
     summary: 校验格式化（CI 用）
-    shell: pwsh
     cmds:
       - |
         $bad = gofmt -l backend main.go tests
@@ -60,12 +59,6 @@ tasks:
     summary: 跑场景测试（长链路，秒级）
     cmds:
       - go test ./tests -count=1
-
-  # 真实运行时链路：解压内置 node、装 pi、跑 RPC 握手。手动跑，不进 CI。
-  test:live:
-    summary: 跑真实沙箱链路（需联网，约 2 分钟）
-    cmds:
-      - go test ./tests -tags live -count=1 -run TestSandboxChain -v -timeout 25m
 
   # 一条命令跑完四道门禁。改完东西想知道「有没有弄坏什么」就跑这个。
   check:

@@ -27,6 +27,7 @@ import type {
   GitStash,
   HealthData,
   McpListData,
+  ModelDefaults,
   ModelEntry,
   ModelRow,
   WorkspaceList,
@@ -183,6 +184,12 @@ export const api = {
     post<{ ok: boolean }>('/chat/answer', { session_file: sessionFile, ...req }),
   newChat: () => post<{ session_file: string }>('/chat/new'),
   cloneChat: () => post<{ session_file: string }>('/chat/clone'),
+  // 从指定一轮用户消息分叉出新会话：原会话不动，用来「换一种问法重来」。
+  forkChat: (sessionFile: string, turnId: string) =>
+    post<{ session_file: string; fork_text?: string }>('/chat/fork', {
+      session_file: sessionFile,
+      turn_id: turnId,
+    }),
   exportSessionHTML: (sessionFile: string) =>
     post<SessionExport>('/chat/export-html', s(sessionFile)),
   setModel: (sessionFile: string, providerName: string, modelId: string) =>
@@ -198,8 +205,16 @@ export const api = {
     post<{ ok: boolean }>('/messages/unhide', { session_file: sessionFile, turn_id: turnId }),
 
   // ---- 模型与服务商 ----
-  models: () => get<{ models: ModelRow[] }>('/models'),
+  // model_source 说明这份清单来自引擎实况还是 models.json 回退
+  models: () => get<{ models: ModelRow[]; model_source?: string }>('/models'),
   providers: () => get<ProvidersView>('/providers'),
+  // 默认模型与默认思考档：管的是「新会话从哪个模型起步」，与当前会话无关
+  modelDefaults: () => get<ModelDefaults>('/models/defaults'),
+  saveModelDefaults: (body: {
+    default_provider: string
+    default_model: string
+    default_thinking_level: string
+  }) => post<ModelDefaults>('/models/defaults/save', body),
   upsertProvider: (body: {
     provider_name: string
     base_url: string

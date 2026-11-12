@@ -102,9 +102,15 @@ func RuntimeStatus(rt *engine.Runtime) domain.RuntimeStatusVO {
 		PiReady:       entry.Command != "",
 		PiVersion:     rt.PiVersion(),
 		PiSource:      entry.Source,
+		PiNeedsNode:   entry.NodeMissing,
+		PiScriptPath:  entry.ScriptPath,
 	}
 	if !status.PiReady {
-		status.DetectionHint = engine.ShellHint()
+		if status.PiNeedsNode {
+			status.DetectionHint = engine.NodeHint()
+		} else {
+			status.DetectionHint = engine.ShellHint()
+		}
 	}
 	return status
 }

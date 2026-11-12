@@ -48,3 +48,12 @@ func ShellHint() string {
 		"或按 pi 官网的一键安装脚本装好后重启本应用",
 	}, "；")
 }
+
+// NodeHint 给「pi 在但 node 缺」这一种情况的指引。
+// 重装 pi 修不好它：pi 的 CLI 是 JS，必须有一个 node 才跑得起来。
+func NodeHint() string {
+	return strings.Join([]string{
+		"已找到 pi，但它的启动脚本需要 node 才跑得起来",
+		"请从 nodejs.org 装一个 Node.js（LTS 即可），装完重启本应用",
+	}, "；")
+}

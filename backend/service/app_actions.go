@@ -1,12 +1,12 @@
 package service
 
 import (
-	"path/filepath"
 	"runtime"
 	"strings"
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
+	"WorkBaby/backend/service/engine"
 )
 
 // Bootstrap 组装首屏总包：界面一次请求拿到画首屏要用的全部事实。
@@ -104,13 +104,13 @@ func (a *App) Apps() []domain.AppRowVO {
 			AppKey:      "pi",
 			AppName:     "pi 引擎",
 			AppVersion:  a.Runtime.PiVersion(),
-			AppPath:     entry.Command,
+			AppPath:     piPathOf(entry),
 			Installed:   entry.Command != "",
 			Required:    true,
 			AppSource:   entry.Source,
 			CanLocate:   true,
-			Blocker:     piBlocker(entry.Command != "", entry.Source, manual),
-			InstallNote: "本应用不代装 pi：请先在你的终端里装好 pi，再回来点重新检测",
+			Blocker:     piBlocker(entry.Command != "", entry.Source, manual, entry.NodeMissing),
+			InstallNote: piInstallNote(entry.NodeMissing),
 		},
 		{
 			AppKey:      "node",
@@ -143,11 +143,14 @@ func (a *App) Apps() []domain.AppRowVO {
 }
 
 // piBlocker 给出 pi 不可用的原因；空表示没阻碍。
-// 手动路径填了却用不上要单独说出来——那种情况下用户以为是我们的 bug。
-func piBlocker(installed bool, source, manual string) string {
+// 「pi 在但 node 缺」必须单独说：那种情况下用户看到「没装 pi」会去重装一个
+// 本来就装好的东西，而真正缺的那一环从头到尾没被提到。
+func piBlocker(installed bool, source, manual string, needsNode bool) string {
 	switch {
 	case installed:
 		return ""
+	case needsNode:
+		return "已找到 pi 的入口脚本，但机器上没有 node，它跑不起来"
 	case manual != "":
 		return "已指定的路径不可用：" + manual
 	default:
@@ -155,11 +158,23 @@ func piBlocker(installed bool, source, manual string) string {
 	}
 }
 
-// provisioningNow 当前是否有后台探测在跑。
-func (a *App) provisioningNow() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.provisioning || a.installBusy != ""
+// piInstallNote 应用页上那一行说明：缺 node 与缺 pi 是两条不同的下一步。
+func piInstallNote(needsNode bool) string {
+	if needsNode {
+		return "从 nodejs.org 装一个 Node.js（LTS 即可），装完重启本应用"
+	}
+	return "本应用不代装 pi：请先在你的终端里装好 pi，再回来点重新检测"
+}
+
+// piPathOf 界面上展示的 pi 位置：脚本形态给脚本本身，否则给可执行入口。
+func piPathOf(entry engine.Entry) string {
+	if entry.Script != "" {
+		return entry.Script
+	}
+	if entry.ScriptPath != "" {
+		return entry.ScriptPath
+	}
+	return entry.Command
 }
 
 // SetPiPath 写手动指定的 pi 路径；空串表示回到自动探测。
@@ -190,12 +205,4 @@ func memoryUsedMb() int {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
 	return int(stats.Alloc / (1 << 20))
-}
-
-// piDirOf 从一个入口路径回推它的目录；给界面「在资源管理器里定位」用。
-func piDirOf(path string) string {
-	if path == "" {
-		return ""
-	}
-	return filepath.Dir(path)
 }

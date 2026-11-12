@@ -11,6 +11,7 @@ import TurnChanges from '@/components/chat/TurnChanges.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
 import type { TurnReading } from '@/composables/useMessageFlow'
 import { useTurnClock } from '@/composables/useTurnClock'
+import { fmtCount, fmtMs } from '@/utils/format'
 import { useChatStore } from '@/stores/chat'
 import { useToasts } from '@/composables/useToasts'
 import type { ChatBlock, EngineKind, HistoryTurn } from '@/types/api'
@@ -175,6 +176,26 @@ async function removeTurn(): Promise<void> {
  */
 const hasText = computed(() => plainText.value.trim().length > 0)
 
+/** 分叉按钮的忙碌态：一次只能飞一个分叉请求。 */
+const forking = ref(false)
+
+// 从这条用户消息分叉出新会话：引擎会切到新文件，分叉点那句话回填进输入框，
+// 「换一种问法重来」的成本就从翻回去复制降到改两个字。
+// 只有历史里的用户轮可分叉——直播轮还没有定型的条目 id，引擎会拒。
+async function forkHere(): Promise<void> {
+  if (!props.hid || forking.value) return
+  forking.value = true
+  try {
+    const result = await chat.forkChat(props.hid)
+    if (result.forkText) chat.draftOverride = result.forkText
+    toasts.push('ok', t('chat.forkDone'))
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    forking.value = false
+  }
+}
+
 /**
  * 用量读数：提示词总量（命中 + 未命中 + 写入）/ 输出 / 缓存命中率 / 耗时。
  *
@@ -203,19 +224,6 @@ const metrics = computed(() => {
   return out
 })
 
-/** token 数按量级压缩：界面上要能一眼比较，不是要精确到个位。 */
-function fmtCount(n: number): string {
-  if (!n) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`
-  return String(n)
-}
-
-/** 耗时：毫秒在 1 秒以下没有意义（用户看不出差别），秒以上带一位小数。 */
-function fmtMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`
-  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
-}
 </script>
 
 <template>
@@ -277,6 +285,17 @@ function fmtMs(ms: number): string {
         <button v-if="hasText" class="msg-act" type="button" :disabled="copied" @click="copyTurn">
           <AppIcon :name="copied ? 'check' : 'file'" :size="11" />
           {{ copied ? t('common.copied') : t('common.copy') }}
+        </button>
+        <button
+          v-if="isUser && props.hid && chat.caps?.session_fork"
+          class="msg-act"
+          type="button"
+          :disabled="forking"
+          :title="t('chat.forkHint')"
+          @click="forkHere"
+        >
+          <AppIcon :name="forking ? 'refresh' : 'branch'" :size="11" />
+          {{ t('chat.forkHere') }}
         </button>
         <button v-if="props.hid" class="msg-act danger" type="button" @click="removeTurn">
           <AppIcon name="trash" :size="11" />

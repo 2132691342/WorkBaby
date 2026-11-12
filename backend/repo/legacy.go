@@ -1,6 +1,6 @@
-// Package repo 的一次性遗留清理：早期版本用 SQLite 存设置，现在是单个 JSON 文件。
-// 升级上来的机器上会留着 workbaby.db 与它的 -shm / -wal 伙伴文件，
-// 没有任何代码再读写它们，但会一直占着磁盘、也会让用户以为数据还在里面。
+// Package repo 是壳自己的本地存储：单个 JSON 文件，原子整写 + 互斥锁。
+// 装配阶段还会清掉数据根下残留的 SQLite 文件（workbaby.db/-shm/-wal）：
+// 它们不再被任何代码读写，留着只会占磁盘并误导用户以为数据还在里面。
 package repo
 
 import (

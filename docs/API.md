@@ -66,6 +66,7 @@
 | `/chat/compact` | POST | `{ session_file?, instructions? }` 手动压缩；会话级动作先按 `session_file` 对齐引擎绑定 |
 | `/chat/answer` | POST | `{ session_file, ask_id, value?, confirmed?, cancelled?, answers? }` 回答提问板（确认 / 选择 / 输入 / 编辑器） |
 | `/chat/new` / `clone` | POST | 新建 / 克隆会话，返回 `session_file` |
+| `/chat/fork` | POST | `{ session_file, turn_id }`；以某条用户消息为起点分叉出新会话，回 `{ session_file, fork_text }`。原会话不动；引擎正在回答时拒（`5002`） |
 | `/chat/export-html` | POST | `{ session }` → `{ file_name, content }` |
 | `/chat/model` / `thinking` / `autocompact` | POST | `{ session_file, … }` 会话内切换模型（`provider_name`/`model_id`）/ 思考档（`thinking_level`）/ 自动压缩（`auto_compaction`）；先按 `session_file` 对齐 |
 | `/messages/hide` / `unhide` | POST | `{ session_file, turn_id }`；隐藏台账存壳存储文件，会话文件不动 |
@@ -77,7 +78,9 @@
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/models` | GET | 自定义服务商的模型平铺（按服务商名排序），对话页模型下拉的数据源 |
+| `/models` | GET | 对话页模型下拉的数据源。引擎在跑就回它报的清单（含内置服务商，`model_source: engine`），否则回退到 `models.json` 的自定义服务商（`model_source: config`） |
+| `/models/defaults` | GET | `{ default_provider, default_model, default_thinking_level, settings_file }`；默认模型管的是「新会话从哪个模型起步」 |
+| `/models/defaults/save` | POST | 同形状；空串表示删键回到引擎默认。服务商/模型/思考档任一不成立即拒（`3000`），**不落盘** |
 | `/providers` | GET | 自定义 + 内置服务商合并视图（含凭据状态，密钥恒为掩码） |
 | `/providers/upsert` | POST | `{ name, provider }`；写 models.json + auth.json；`api_key` 空串=保留原值 |
 | `/providers/delete` | POST | 服务商与凭据一并清 |
@@ -140,7 +143,7 @@
 | `/system/reveal` / `open` | POST | 资源管理器定位 / 系统默认程序打开 |
 | `/config/files` / `text` | GET | 引擎配置原文（settings/models/mcp + 项目级），白名单校验；auth.json 不在列——密钥只在服务商页以掩码流转 |
 
-git 全部走内置 git.exe，凭证走自带的 Git Credential Manager（落 Windows 凭据管理器），
+git 走系统装的 git，凭证交给它的 Git Credential Manager（落 Windows 凭据管理器），
 终端交互问询禁用——需要登录时立即失败回 `1102` 并给下一步指引，而不是卡满超时。
 
 ## SSE 事件词汇（`/events`）
@@ -194,7 +197,7 @@ git 全部走内置 git.exe，凭证走自带的 Git Credential Manager（落 Wi
 | 1001 | `CodeFileNotFound` | 文件或目录不存在 |
 | 1002 | `CodePathOutside` | 路径越界：不在允许的根目录内（安全边界） |
 | 1003 | `CodeFileIO` | 文件读写失败 |
-| 1100 | `CodeGitMissing` | 内置 git 不可用（运行时未就绪） |
+| 1100 | `CodeGitMissing` | 系统里找不到 git（工作区版本控制与引擎的 bash 工具都要它） |
 | 1101 | `CodeGitFailed` | git 命令失败（原话在 detail） |
 | 1102 | `CodeGitAuth` | git 凭证被拒或无法登录（提示先在有终端的客户端登录一次或换 token） |
 | 1404 | `CodeUnknownRoute` | 未知路由（`NoRoute` 兜底） |
@@ -232,8 +235,9 @@ git 全部走内置 git.exe，凭证走自带的 Git Credential Manager（落 Wi
 
 | 码 | 常量 | 场景 |
 |---|---|---|
-| 7000 | `CodeProvision` | 安装 / 解压 / 装载失败 |
-| 7001 | `CodeRuntimeDown` | 内置运行时未就绪 |
+| 7000 | `CodeProvision` | 包命令 / 外部命令执行失败 |
+| 7001 | `CodeEngineMissing` | 没有检测到可用的 pi 入口 |
+| 7002 | `CodeNodeMissing` | pi 入口是 CLI 脚本，但机器上没有 node |
 
 ### 技能（8000–8999）
 

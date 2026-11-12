@@ -49,13 +49,13 @@ Wails 绑定只暴露系统能力——拿端点、选目录、窗控、托盘�
 4. 建窗（Hidden）   先不显示，避免装配阶段闪白屏
 5. 建托盘           用户可能一启动就关窗，托盘必须先存在
 6. ServiceStartup   开设置存储 → 装配 service → 起 gin（拿到端口）
-7. Provision（后台） 解压运行时 → 写 npmCommand → 落技能 → 声明插件 → 装 pi → 装插件 → 预热引擎
+7. Provision（后台） 清遗留文件 → 撤旧 npmCommand → 探测 pi → 预热引擎
 8. 前端调 Endpoint  拿到 {port, token} 后建 SSE、拉首屏
 9. 前端调 Ready()   由前端决定何时显形
 ```
 
-**第 7 步必须在后台**：三份运行时 zip 共约 110MB，同步解压会让窗口一启动就假死；
-十几个插件经 npm 装齐也要几分钟。装配失败不弹窗卡死——原因留在 `Endpoint()`
+**第 7 步必须在后台**：探测要起子进程问版本，而引擎冷启动要等插件全部加载完。
+装配失败不弹窗卡死——原因留在 `Endpoint()`
 的错误里，前端渲染成可读诊断页。**第 7 步的最后一动作是预热引擎**：pi 就绪就
 后台拉起 RPC 子进程，插件冷加载与 Defender 扫描发生在用户还在看概览页的时候，
 而不是等用户点开对话页才开始。
@@ -113,8 +113,12 @@ Wails 绑定只暴露系统能力——拿端点、选目录、窗控、托盘�
 **不遮蔽 HOME、不改 PATH 顺序**：引擎跑的是用户自己的环境，它该看见真实的 shell、
 git 与 python。把 HOME 改到壳的数据目录会让用户装的工具全部失联。
 
-**壳不代装任何东西**。旧版本预留的 `npmCommand` 会在探测时被清掉：它指向的
-内置 npm 已不存在，留着只会让 pi 装包时指向一个空路径。
+**壳不代装任何东西**。后台探测会顺手清掉 `settings.json` 里残留的 `npmCommand`：它指向的
+路径已不存在，留着只会让 pi 装包时失败。
+
+**「pi 在但 node 缺」要单独说**：pi 的 CLI 是 `cli.js`，没有 node 就跑不起来。
+入口探测因此把这种情况标成 `Entry.NodeMissing`，界面给的是「去装 Node.js」，
+而不是「去装 pi」——后者的下一步对用户完全是白工。
 
 ## 前端运行时
 
@@ -154,15 +158,15 @@ api/http.ts ── axios 实例（统一拆信封，code !== '0' 即抛 ApiError
 
 | 对象 | 唯一真相 | 壳做什么 |
 |---|---|---|
-| 插件 | `pi\settings.json` 的 `packages[]` | 改写数组、用内置 npm 装包 |
+| 插件 | `pi\settings.json` 的 `packages[]` | 改写数组、经 `pi install/remove/update` 装包 |
 | 技能 | `pi\skills\` 与 `pi\skills_disabled\` 的目录位置 | 搬目录、写文件、从 `assets\skills\` 补位 |
 | MCP | `pi\mcp.json` + 工作区 `.pi\mcp.json` | 读写 JSON、校验、握手探测 |
-| 模型 | `pi\models.json` + `auth.json` | 读写、探测上游可用性 |
+| 模型 | `pi\models.json` + `auth.json` | 读写、探测上游可用性；默认模型写 `settings.json` 的三个键 |
 | 会话 | `pi\sessions\` 的 JSONL | 只读回放；改名以追加条目表达 |
 | 壳偏好 | `workbaby.json` 两段 | 读写 |
 
-`plugin_catalog.go` / `skill_catalog.go` 里的内置清单只是「随包分发哪些、
-默认开哪些」的策展表，**不是运行时状态**——状态一律现场读盘。
+`plugin_catalog.go` / `skill_catalog.go` 里的内置清单只是「推荐哪些」的策展表，
+**既不是运行时状态也不是预置清单**——状态一律现场读盘，写入只发生在用户点了之后。
 
 ## 稳定性约束
 
@@ -188,6 +192,6 @@ api/http.ts ── axios 实例（统一拆信封，code !== '0' 即抛 ApiError
 - 服务只监听 `127.0.0.1`
 - 文件接口一律校验路径在允许的根目录内
 - 密钥读出来恒为掩码；`api_key` 传空串的语义是「保留原值」
-- git 凭证走内置 PortableGit 自带的 Git Credential Manager（落 Windows 凭据管理器）；
+- git 走系统装的 git，凭证交给它的 Git Credential Manager（落 Windows 凭据管理器）；
   终端交互问询被禁用（`GIT_TERMINAL_PROMPT=0`）——需要登录时立即失败并给下一步指引，
   而不是卡满超时

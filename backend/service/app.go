@@ -46,8 +46,6 @@ type App struct {
 	mu sync.Mutex
 	// provisioning 是否有后台探测正在跑
 	provisioning bool
-	// installBusy 哪个安装任务占着位
-	installBusy string
 }
 
 // Options 是装配入参。
@@ -138,16 +136,6 @@ func (a *App) Shutdown() {
 
 // OpenDataDir 打开数据目录。
 func (a *App) OpenDataDir() error { return OpenDataDir(a.Layout) }
-
-// ProvisionProgress 发一帧装配进度。
-func (a *App) ProvisionProgress(kind, action, phase, message string) {
-	a.Hub.Broadcast("app:progress", sse.EngineTag(map[string]any{
-		"progress_kind":    kind,
-		"progress_action":  action,
-		"progress_phase":   phase,
-		"progress_message": message,
-	}))
-}
 
 // setProvisioning 标记后台装配状态。
 func (a *App) setProvisioning(running bool) {

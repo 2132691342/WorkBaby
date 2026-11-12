@@ -35,6 +35,15 @@ export interface ProviderView {
   model_count: number
 }
 
+/** pi 的默认模型与默认思考档：管「新会话从哪个模型起步」，与当前会话无关。 */
+export interface ModelDefaults {
+  default_provider?: string
+  default_model?: string
+  default_thinking_level?: string
+  thinking_levels?: string[]
+  settings_file: string
+}
+
 export interface ProvidersView {
   providers: ProviderView[]
   config_path: string

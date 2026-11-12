@@ -133,6 +133,20 @@ func (s *Server) chatClone(c *gin.Context) {
 	pkg.OK(c, map[string]any{"session_file": file})
 }
 
+// chatFork 从一条用户消息分叉出新会话。
+func (s *Server) chatFork(c *gin.Context) {
+	var req domain.ChatForkREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Chat.Fork(req.SessionFile, req.TurnId)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
+}
+
 // chatExport 导出当前会话为 HTML。
 func (s *Server) chatExport(c *gin.Context) {
 	var req domain.ChatSessionREQ

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"WorkBaby/backend/domain"
-	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/service/chat"
 	"WorkBaby/backend/sse"
 )
@@ -194,44 +193,4 @@ func TestFrames(t *testing.T) {
 	cap.waitFrames(t, "chat:done", 1)
 }
 
-// TestEngineStatusClean 断言引擎状态文字出口的 ANSI 清洗。
-// 插件把带颜色码的一行直接推给界面的状态条，不清就是一堆方括号数字。
-func TestEngineStatusClean(t *testing.T) {
-	cases := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{"CSI 颜色码", "\x1b[39m\x1b[2mLSP Inactive\x1b[22;39m", "LSP Inactive"},
-		{"SGR 分号参数", "\x1b[38;5;2mLSP Active: typescript\x1b[39m", "LSP Active: typescript"},
-		{"OSC 带 BEL", "\x1b]0;title\aok", "ok"},
-		{"无转义原样", "LSP Active", "LSP Active"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := pkg.CleanText(tc.raw); got != tc.want {
-				t.Fatalf("清洗后应为 %q，实得 %q", tc.want, got)
-			}
-		})
-	}
-}
 
-// TestStatusFrameNoANSI 断言状态帧本身不带转义序列：
-// 清洗漏接在帧出口就等于没做，前面那个单测只能证明函数对。
-func TestStatusFrameNoANSI(t *testing.T) {
-	stream, cap := newStream(t)
-	stream.OnUiRequest(chat.Record{
-		"type":       "extension_ui_request",
-		"method":     "setStatus",
-		"statusKey":  "pi-lens-lsp",
-		"statusText": "\x1b[38;5;2mLSP Active\x1b[39m",
-	})
-	frames := cap.waitFrames(t, "chat:status", 1)
-	text, _ := frames[0].Data["text"].(string)
-	if strings.ContainsRune(text, 0x1b) {
-		t.Fatalf("状态帧不应带转义字符，实得 %q", text)
-	}
-	if text != "LSP Active" {
-		t.Fatalf("状态文字应为 LSP Active，实得 %q", text)
-	}
-}

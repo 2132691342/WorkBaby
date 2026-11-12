@@ -106,7 +106,16 @@ models: {
     fetchedEmpty: '这个地址没返回模型清单',
     testProvider: '测一下',
     testOk: '这条配置通了，上游有 {n} 个模型',
-    testFail: '这条配置不通'
+    testFail: '这条配置不通',
+    defaultsTitle: '默认模型',
+    defaultsHint: '新会话从哪个模型与思考档起步。清空则沿用引擎自己的默认；当前正在进行的会话不受影响。',
+    defaultProvider: '服务商',
+    defaultModel: '模型',
+    defaultThinking: '思考档',
+    defaultInherit: '沿用引擎默认',
+    defaultPickProviderFirst: '先选服务商',
+    defaultPickModel: '选一个模型',
+    defaultClear: '恢复默认',
   },
 
 skills: {

@@ -117,10 +117,3 @@ func (p *Plugins) setFailure(pluginName, reason string) {
 	}
 	p.failures[pluginName] = reason
 }
-
-// clearFailures 清空失败表。
-func (p *Plugins) clearFailures() {
-	p.mu.Lock()
-	p.failures = map[string]string{}
-	p.mu.Unlock()
-}

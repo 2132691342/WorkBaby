@@ -37,40 +37,53 @@ type providerFile struct {
 	Models []map[string]any `json:"models"`
 }
 
-// readModels 读 models.json；不存在或坏掉给空表。
-func (m *Models) readModels() (modelsFile, error) {
+// readModels 读 models.json；文件不存在等同于「还没配过」，返回空表且不报错。
+// 文件存在却解析失败才是真错：那种情况下界面必须说出来，否则用户会以为配置被吞了。
+func (m *Models) readModels() (modelsFile, string) {
 	out := modelsFile{Providers: map[string]providerFile{}}
-	if !pkg.Exists(m.Layout.ModelsFile()) {
-		return out, nil
-	}
 	var value modelsFile
-	pkg.ReadJSON(m.Layout.ModelsFile(), &value)
+	if err := pkg.ReadJSON(m.Layout.ModelsFile(), &value); err != nil {
+		if !pkg.Exists(m.Layout.ModelsFile()) {
+			return out, ""
+		}
+		return out, "models.json 解析失败：" + err.Error()
+	}
 	if value.Providers == nil {
 		value.Providers = map[string]providerFile{}
 	}
-	return value, nil
+	return value, ""
 }
 
 // authFile 是 auth.json 的形状：服务商名 → 凭据。其余键原样保留。
 type authMap map[string]map[string]any
 
-// readAuth 读 auth.json。
+// readAuth 读 auth.json；读不出来给空表（凭据缺失由服务商行上的 has_key 表达）。
 func (m *Models) readAuth() authMap {
 	out := authMap{}
-	pkg.ReadJSON(m.Layout.AuthFile(), &out)
-	if out == nil {
-		out = authMap{}
+	if pkg.ReadJSON(m.Layout.AuthFile(), &out) != nil || out == nil {
+		return authMap{}
 	}
 	return out
 }
 
+// editableModels 读 models.json 并拒掉「文件坏了」的写入：坏文件里可能还有
+// 用户手写的服务商，整表覆盖等于把它们一次清空——那是不可恢复的数据丢失。
+func (m *Models) editableModels() (modelsFile, error) {
+	config, readError := m.readModels()
+	if readError != "" {
+		return config, pkg.Err(pkg.CodeConfigRead, readError, m.Layout.ModelsFile())
+	}
+	return config, nil
+}
+
 // Providers 组装服务商清单。密钥恒为掩码：界面永远拿不到原文。
 func (m *Models) Providers() domain.ProvidersRESP {
-	config, _ := m.readModels()
+	config, readError := m.readModels()
 	auth := m.readAuth()
 	out := domain.ProvidersRESP{
 		Providers:  make([]domain.ProviderVO, 0, len(config.Providers)),
 		ConfigPath: m.Layout.ModelsFile(),
+		ReadError:  readError,
 	}
 	for name, entry := range config.Providers {
 		models := make([]domain.ProviderModelEntryVO, 0, len(entry.Models))
@@ -107,7 +120,7 @@ func (m *Models) Options() domain.ModelListRESP {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	out := domain.ModelListRESP{Models: make([]domain.ModelOptionVO, 0)}
+	out := domain.ModelListRESP{Models: make([]domain.ModelOptionVO, 0), ModelSource: "config"}
 	for _, name := range names {
 		for _, raw := range config.Providers[name].Models {
 			item := modelEntryFromWire(raw)
@@ -165,7 +178,10 @@ func (m *Models) Upsert(req domain.ProviderUpsertREQ) (domain.ProvidersRESP, err
 	if strings.TrimSpace(req.BaseUrl) == "" {
 		return domain.ProvidersRESP{}, pkg.Err(pkg.CodeProviderBad, "接口地址不能为空")
 	}
-	config, _ := m.readModels()
+	config, err := m.editableModels()
+	if err != nil {
+		return domain.ProvidersRESP{}, err
+	}
 	models := make([]map[string]any, 0, len(req.Models))
 	for _, entry := range req.Models {
 		models = append(models, modelEntryToWire(entry))
@@ -217,7 +233,10 @@ func modelEntryToWire(entry domain.ProviderModelEntryVO) map[string]any {
 // 服务商必须已存在——模型挂在服务商下面，不能凭空造出半个服务商。
 func (m *Models) SaveModel(req domain.ProviderModelSaveREQ) (domain.ProvidersRESP, error) {
 	name := strings.TrimSpace(req.ProviderName)
-	config, _ := m.readModels()
+	config, err := m.editableModels()
+	if err != nil {
+		return domain.ProvidersRESP{}, err
+	}
 	provider, ok := config.Providers[name]
 	if !ok {
 		return domain.ProvidersRESP{}, pkg.Err(pkg.CodeProviderBad, "服务商不存在："+name)
@@ -248,7 +267,10 @@ func (m *Models) SaveModel(req domain.ProviderModelSaveREQ) (domain.ProvidersRES
 // DeleteModel 删除服务商下的一条模型。
 func (m *Models) DeleteModel(req domain.ProviderModelDeleteREQ) (domain.ProvidersRESP, error) {
 	name := strings.TrimSpace(req.ProviderName)
-	config, _ := m.readModels()
+	config, err := m.editableModels()
+	if err != nil {
+		return domain.ProvidersRESP{}, err
+	}
 	provider, ok := config.Providers[name]
 	if !ok {
 		return domain.ProvidersRESP{}, pkg.Err(pkg.CodeProviderBad, "服务商不存在："+name)
@@ -275,7 +297,10 @@ func (m *Models) DeleteModel(req domain.ProviderModelDeleteREQ) (domain.Provider
 
 // Delete 删除服务商：models.json 与 auth.json 一起清。
 func (m *Models) Delete(name string) (domain.ProvidersRESP, error) {
-	config, _ := m.readModels()
+	config, err := m.editableModels()
+	if err != nil {
+		return domain.ProvidersRESP{}, err
+	}
 	delete(config.Providers, name)
 	if err := pkg.WriteJSON(m.Layout.ModelsFile(), config); err != nil {
 		return domain.ProvidersRESP{}, pkg.WrapErr(pkg.CodeConfigWrite, "models.json 写入失败", err)
@@ -312,4 +337,89 @@ func (m *Models) resolveProbe(req domain.ProviderProbeREQ) (baseUrl, apiProtocol
 		}
 	}
 	return baseUrl, defaultIfEmpty(apiProtocol, "openai"), apiKey
+}
+
+// Defaults 读 pi 的默认模型与默认思考档。
+// 三个键住在 settings.json 里，与插件声明、引擎自己写的键同处一文件——
+// 所以读走 map 而不是结构体，写的时候才好把别人的键原样带回去。
+func (m *Models) Defaults() domain.ModelDefaultVO {
+	settings := readPiSettings(m.Layout)
+	return domain.ModelDefaultVO{
+		DefaultProvider:      stringOf(settings["defaultProvider"]),
+		DefaultModel:         stringOf(settings["defaultModel"]),
+		DefaultThinkingLevel: stringOf(settings["defaultThinkingLevel"]),
+		SettingsFile:         m.Layout.SettingsFile(),
+	}
+}
+
+// SaveDefaults 写默认模型与默认思考档；空串表示把该键删掉（回到引擎默认）。
+// 值不合法就整条拒绝：settings.json 里的非法枚举会让引擎启动时校验失败，
+// 而那时用户已经在界面上看到「保存成功」了。
+func (m *Models) SaveDefaults(req domain.ModelDefaultSaveREQ) (domain.ModelDefaultVO, error) {
+	provider := strings.TrimSpace(req.DefaultProvider)
+	modelId := strings.TrimSpace(req.DefaultModel)
+	level := strings.TrimSpace(req.DefaultThinkingLevel)
+	if (provider == "") != (modelId == "") {
+		return domain.ModelDefaultVO{}, pkg.Err(pkg.CodeProviderBad, "默认服务商与默认模型要一起填或一起留空")
+	}
+	if level != "" && !isThinkingLevel(level) {
+		return domain.ModelDefaultVO{}, pkg.Err(pkg.CodeProviderBad, "未知的思考档："+level)
+	}
+	if provider != "" {
+		config, err := m.editableModels()
+		if err != nil {
+			return domain.ModelDefaultVO{}, err
+		}
+		providerDef, ok := config.Providers[provider]
+		if !ok {
+			return domain.ModelDefaultVO{}, pkg.Err(pkg.CodeProviderBad, "服务商不存在："+provider)
+		}
+		if !providerHasModel(providerDef, modelId) {
+			return domain.ModelDefaultVO{}, pkg.Err(pkg.CodeProviderBad, "该服务商下没有这个模型："+modelId)
+		}
+	}
+
+	piSettingsMu.Lock()
+	defer piSettingsMu.Unlock()
+	settings := readPiSettings(m.Layout)
+	putOrClear(settings, "defaultProvider", provider)
+	putOrClear(settings, "defaultModel", modelId)
+	putOrClear(settings, "defaultThinkingLevel", level)
+	if err := writePiSettings(m.Layout, settings); err != nil {
+		return domain.ModelDefaultVO{}, err
+	}
+	return m.Defaults(), nil
+}
+
+// thinkingLevels 是 pi 认的思考档，与引擎 get_available_thinking_levels 的口径一致。
+var thinkingLevels = []string{"off", "minimal", "low", "medium", "high"}
+
+// isThinkingLevel 判断一个档位是否合法。
+func isThinkingLevel(level string) bool {
+	for _, item := range thinkingLevels {
+		if item == level {
+			return true
+		}
+	}
+	return false
+}
+
+// putOrClear 空串删键，非空写值。留空串与「没设过」在引擎眼里不同：
+// 前者会当成一个名叫空的模型去查，结果是启动即失败。
+func putOrClear(settings map[string]any, key, value string) {
+	if value == "" {
+		delete(settings, key)
+		return
+	}
+	settings[key] = value
+}
+
+// providerHasModel 判断服务商下是否声明了某个模型。
+func providerHasModel(provider providerFile, modelId string) bool {
+	for _, item := range provider.Models {
+		if stringField(item, "id") == modelId {
+			return true
+		}
+	}
+	return false
 }

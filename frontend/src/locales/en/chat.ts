@@ -140,6 +140,9 @@ export default {
     "hideTurnHint": "This only hides the turn in the app: engine records are untouched, and the Sessions page still shows everything.",
     "hideTurnConfirm": "Hide",
     "turnHidden": "Turn hidden",
+    "forkHere": "Fork from here",
+    "forkHint": "Start a new session from this message; the original stays untouched, and the message goes back into the composer.",
+    "forkDone": "Forked into a new session",
     "changesCount": "{n} files changed"
   },
 

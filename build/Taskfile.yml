@@ -82,9 +82,3 @@ tasks:
   # 换图标：改 build\appicon.png 后手动跑
   #   wails3 generate icons -input build/appicon.png -windowsfilename build/windows/icon.ico
   # 并把新 ico 提交进仓库。
-
-  update:build-assets:
-    summary: Updates the build assets
-    dir: build
-    cmds:
-      - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .

@@ -1,8 +1,6 @@
 package service
 
 import (
-	"strings"
-
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/repo"
@@ -20,6 +18,9 @@ func (a *App) Provision() {
 	// 先清历史遗留的 SQLite 文件：升级上来的机器上它们还在，却没有任何代码读写它们。
 	// 放在装配开头而不是启动同步路径上：删文件不该拖慢首屏。
 	repo.CleanupLegacyDB(a.Layout.DataDir, a.Layout.StorePath)
+	// 再撤掉 settings.json 里残留的 npmCommand：它指向已不存在的内置 npm，
+	// 留着会让 pi 装包时直接失败，而失败点离原因很远。
+	EnsureNpmCommand(a.Layout)
 
 	if !a.Runtime.Installed() {
 		a.Hub.Broadcast("chat:notify", map[string]any{
@@ -77,24 +78,4 @@ func (a *App) DetectTargets() domain.RuntimeStatusVO {
 		a.Chat.Warm()
 	}
 	return status
-}
-
-// describeRuntime 拼一句运行时摘要（诊断面板用）。
-func (a *App) describeRuntime() string {
-	status := a.RuntimeStatus()
-	parts := []string{
-		"node=" + orDash(status.NodeVersion),
-		"git=" + orDash(status.GitVersion),
-		"python=" + orDash(status.PythonVersion),
-		"pi=" + orDash(status.PiVersion),
-	}
-	return strings.Join(parts, " ")
-}
-
-// orDash 空值显示成破折号，避免界面上出现「node=」这种半截信息。
-func orDash(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "—"
-	}
-	return value
 }

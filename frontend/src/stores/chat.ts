@@ -233,6 +233,25 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * 从某一轮用户消息分叉出新会话。
+   *
+   * 分叉后切到新会话，并把分叉点那句话交回调用方填进输入框——
+   * 用户要的是「照原文改一改再发」，让他自己在历史里翻回去复制是最没必要的一步。
+   */
+  async function forkChat(turnId: string) {
+    switching.value = 'fork'
+    try {
+      const res = await api.forkChat(sessionFile.value, turnId)
+      reset()
+      sessionFile.value = res.session_file ?? ''
+      await refresh(sessionFile.value)
+      return { sessionFile: res.session_file ?? '', forkText: res.fork_text ?? '' }
+    } finally {
+      switching.value = ''
+    }
+  }
+
   async function clearQueue() {
     await api.clearQueue(sessionFile.value)
     queue.value = { steering: [], follow_up: [] }
@@ -394,6 +413,7 @@ export const useChatStore = defineStore('chat', () => {
     setAutoCompaction,
     newChat,
     cloneChat,
+    forkChat,
     clearQueue,
     removeQueued,
     send,

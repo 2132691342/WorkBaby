@@ -4,13 +4,13 @@
 // 没有 git 或不是仓库时显示原因与「初始化」，不显示空表格。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import AppIcon from '@/components/common/AppIcon.vue'
 import DiffView from '@/components/workspace/DiffView.vue'
 import FilePanel from '@/components/workspace/FilePanel.vue'
 import GitBar from '@/components/workspace/GitBar.vue'
 import GitChangesPane from '@/components/workspace/GitChangesPane.vue'
 import GitCommitPanel from '@/components/workspace/GitCommitPanel.vue'
 import HistoryPanel from '@/components/workspace/HistoryPanel.vue'
+import WorkspaceHead from '@/components/workspace/WorkspaceHead.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useRefreshStore } from '@/stores/refresh'
@@ -52,11 +52,6 @@ const conflicts = computed(() => (status.value?.changed_files ?? []).filter((f) 
 const rows = ref<WorkspaceRow[]>([])
 const switching = ref(false)
 const currentRow = computed(() => rows.value.find((r) => r.workspace_path === app.workspace) ?? null)
-const workspaceName = computed(() => {
-  const path = app.workspace || ''
-  if (!path) return t('workspace.pickWorkspace')
-  return path.split(/[\\/]/).filter(Boolean).pop() || path
-})
 
 async function loadRows() {
   try {
@@ -214,49 +209,17 @@ onMounted(refresh)
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <div>
-        <h1 class="page-title">{{ t('workspace.title') }}</h1>
-        <p class="page-sub mono selectable">{{ app.workspace }}</p>
-      </div>
-      <div class="head-actions">
-        <!-- 工作区切换：这里是「我在哪个目录」的唯一入口，
-             并列显示该目录的仓库态与存储状况，不必跳到设置页去查。 -->
-        <button
-          class="wb-btn sm ws-pick"
-          :class="{ 'is-loading': switching }"
-          :title="app.workspace || t('workspace.pickWorkspace')"
-          :disabled="switching"
-          @click="app.chooseWorkspace()"
-        >
-          <AppIcon name="folder" :size="13" />
-          <span class="mono ws-name">{{ workspaceName }}</span>
-        </button>
-        <span v-if="currentRow?.workspace_is_repo" class="tag" :class="currentRow.workspace_dirty ? 'warn' : ''">
-          <AppIcon name="branch" :size="11" />
-          {{ currentRow.workspace_branch || t('workspace.noCommit') }}
-          <span v-if="currentRow.workspace_dirty" class="dirty">+{{ currentRow.workspace_dirty }}</span>
-        </span>
-        <span v-if="status?.is_repo" class="tag" :class="status.has_conflict ? 'warn' : ''">
-          <AppIcon name="branch" :size="11" />
-          {{ status.branch_name || t('workspace.noCommit') }}
-        </span>
-        <span v-if="status?.is_repo && status.upstream_ref" class="readout">
-          ↑{{ status.ahead }} ↓{{ status.behind }}
-        </span>
-        <button
-          class="wb-btn icon ghost"
-          :class="{ on: filesOpen }"
-          :title="t('workspace.fileTree')"
-          @click="filesOpen = !filesOpen"
-        >
-          <AppIcon name="folder" :size="15" />
-        </button>
-        <button class="wb-btn icon ghost" :class="{ 'is-loading': loadingStatus }" :title="t('common.refresh')" @click="refresh">
-          <AppIcon name="refresh" :size="15" />
-        </button>
-      </div>
-    </header>
+    <WorkspaceHead
+      :workspace="app.workspace"
+      :current-row="currentRow"
+      :status="status"
+      :switching="switching"
+      :loading-status="loadingStatus"
+      :files-open="filesOpen"
+      @pick="app.chooseWorkspace()"
+      @toggle-files="filesOpen = !filesOpen"
+      @refresh="refresh"
+    />
 
     <!-- 不可用：说清原因与下一步 -->
     <div v-if="status && !status.git_available" class="notice">
@@ -375,49 +338,6 @@ onMounted(refresh)
   flex-direction: column;
   flex: 1;
   min-height: 0;
-}
-.page-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--wb-sp-4);
-  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-4);
-  border-bottom: 1px solid var(--wb-line);
-  flex: none;
-}
-.page-title {
-  margin: 0;
-  font-family: var(--wb-font-display);
-  font-size: var(--wb-fs-xl);
-  font-weight: 650;
-  color: var(--wb-ink);
-}
-.page-sub {
-  margin: 4px 0 0;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-faint);
-}
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-}
-
-/* 工作区名是一段路径：限宽 + 省略号，否则长路径会把右边的动作全挤出头部 */
-.ws-name {
-  display: inline-block;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-}
-
-/* 未提交改动数：数字比字色更靠前，一眼扫得到 */
-.dirty {
-  margin-left: var(--wb-sp-1);
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
 }
 .notice {
   display: flex;

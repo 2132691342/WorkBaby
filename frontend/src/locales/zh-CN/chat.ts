@@ -140,6 +140,9 @@ chat: {
     hideTurnHint: '只从界面上隐藏这一轮：引擎的记录不受影响，会话页里仍能查看。',
     hideTurnConfirm: '隐藏',
     turnHidden: '已隐藏这一轮',
+    forkHere: '从这里分叉',
+    forkHint: '以这条消息为起点开一份新会话，原会话不动；分叉点那句话会填回输入框',
+    forkDone: '已分叉到新会话',
     changesCount: '改动 {n} 个文件'
   },
 

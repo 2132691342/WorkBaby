@@ -9,6 +9,7 @@ import AppIcon from '@/components/common/AppIcon.vue'
 import ProviderDialog from '@/components/models/ProviderDialog.vue'
 import ModelTable from '@/components/models/ModelTable.vue'
 import ProviderList from '@/components/models/ProviderList.vue'
+import DefaultModelCard from '@/components/models/DefaultModelCard.vue'
 import { useProviderForm } from '@/composables/useProviderForm'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
@@ -178,6 +179,8 @@ onMounted(() => {
         <AppIcon name="alert" :size="14" />
         {{ readError }}
       </p>
+
+      <DefaultModelCard :providers="providers" />
 
       <ProviderList
         :providers="providers"

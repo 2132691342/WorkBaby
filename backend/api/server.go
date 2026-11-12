@@ -198,6 +198,7 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/chat/answer", s.chatAnswer)
 	g.POST("/chat/new", s.chatNew)
 	g.POST("/chat/clone", s.chatClone)
+	g.POST("/chat/fork", s.chatFork)
 	g.POST("/chat/export-html", s.chatExport)
 	g.POST("/chat/model", s.chatModel)
 	g.POST("/chat/thinking", s.chatThinking)
@@ -207,6 +208,8 @@ func (s *Server) mount(engine *gin.Engine) {
 
 	// 模型与服务商
 	g.GET("/models", s.modelsList)
+	g.GET("/models/defaults", s.modelsDefaults)
+	g.POST("/models/defaults/save", s.modelsDefaultsSave)
 	g.GET("/providers", s.providersGet)
 	g.POST("/providers/upsert", s.providerUpsert)
 	g.POST("/providers/delete", s.providerDelete)

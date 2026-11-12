@@ -72,7 +72,7 @@ JSON 配置是引擎的输入**。壳从不重写引擎的真相，只在其上�
 
 | 文件 | 写入方 | 内容 |
 |---|---|---|
-| `settings.json` | 壳 + 引擎自身 | 默认模型 / `packages[]` / `npmCommand` |
+| `settings.json` | 壳 + 引擎自身 | 默认模型（`defaultProvider` / `defaultModel` / `defaultThinkingLevel`）/ `packages[]`；壳只写前三个键（用户点了保存才写），`npmCommand` 由后台预热清掉 |
 | `models.json` | 模型页 | `{providers: {<id>: {baseUrl, api, models[]}}}` |
 | `auth.json` | 模型页 | `{<provider>: {type:"api_key", key}}`，权限收紧 |
 | `mcp.json` | MCP 页 | `{mcpServers: {<名>: {command,args,env} 或 {url}}}`，`enabled:false` 即关 |
@@ -98,7 +98,7 @@ JSON 配置是引擎的输入**。壳从不重写引擎的真相，只在其上�
 壳不会在首启时往用户的 `settings.json` 里写任何东西，用户点了才装。
 技能的 `skill_catalog.go` 同理，推荐技能同样只展示、不自动落位。
 
-## 6. 沙箱目录一览
+## 6. 目录一览
 
 ```
 %LOCALAPPDATA%\WorkBaby\          （开发态 -dev 后缀）

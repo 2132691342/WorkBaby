@@ -33,6 +33,11 @@ type Entry struct {
 	Script string
 	// Source 发现方式：manual / path / npm-global / none
 	Source string
+	// NodeMissing pi 找到了，但它是 cli.js 而机器上没有 node。
+	// 这与「没装 pi」是两回事：让用户去重装 pi 只会白费一轮排查。
+	NodeMissing bool
+	// ScriptPath 命中但跑不起来的脚本路径（NodeMissing 时有值）
+	ScriptPath string
 }
 
 // ManualPath 用户在设置里填的 pi 路径；没填给空串。
@@ -40,15 +45,17 @@ func (r *Runtime) ManualPath() string { return strings.TrimSpace(r.manualPath())
 
 // Resolve 按优先级定位 pi 入口：设置里的手动路径 → PATH → npm 全局根。
 // 三处都没有就给空 Entry，由界面渲染「未检测到 pi」的引导。
+// 「pi 在但 node 缺」会带着 NodeMissing 返回：那种情况下 Entry 也是空的，
+// 但界面必须说清是哪一环缺了，否则用户会去重装一个本来就装好的 pi。
 func (r *Runtime) Resolve() Entry {
-	if entry := r.resolveManual(); entry.Command != "" {
+	if entry := r.resolveManual(); entry.Command != "" || entry.NodeMissing {
 		return entry
 	}
-	if entry := resolveOnPath(); entry.Command != "" {
+	if entry := resolveOnPath(); entry.Command != "" || entry.NodeMissing {
 		return entry
 	}
 	if root := npmGlobalRoot(); root != "" {
-		if entry := entryFromDir(filepath.Join(root, "@earendil-works", "pi-coding-agent")); entry.Command != "" {
+		if entry := entryFromDir(filepath.Join(root, "@earendil-works", "pi-coding-agent")); entry.Command != "" || entry.NodeMissing {
 			entry.Source = "npm-global"
 			return entry
 		}
@@ -93,6 +100,8 @@ func entryFromDir(dir string) Entry {
 		if nodeExe := pkg.LookPath("node"); nodeExe != "" {
 			return Entry{Command: nodeExe, Script: script}
 		}
+		// 脚本在、node 不在：把这件事带出去，不要退化成「没装 pi」。
+		return Entry{NodeMissing: true, ScriptPath: script}
 	}
 	for _, name := range []string{"pi.cmd", "pi.exe", "pi"} {
 		if candidate := filepath.Join(dir, name); pkg.Exists(candidate) {
@@ -106,11 +115,11 @@ func entryFromDir(dir string) Entry {
 func entryOfFile(path string) Entry {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".js", ".mjs", ".cjs":
-		// 命中 CLI 脚本：必须有 node 才跑得起来，找不到就留空脚本交给调用方报错。
+		// 命中 CLI 脚本：必须有 node 才跑得起来，找不到就把它标出来。
 		if nodeExe := pkg.LookPath("node"); nodeExe != "" {
 			return Entry{Command: nodeExe, Script: path}
 		}
-		return Entry{}
+		return Entry{NodeMissing: true, ScriptPath: path}
 	}
 	return Entry{Command: path}
 }
@@ -128,6 +137,9 @@ func (r *Runtime) Exe() string {
 
 // Script 入口脚本路径；直接可执行的形态给空串。
 func (r *Runtime) Script() string { return r.Resolve().Script }
+
+// NeedsNode pi 入口是 CLI 脚本但机器上没有 node；调用方据此给专门的提示。
+func (r *Runtime) NeedsNode() bool { return r.Resolve().NodeMissing }
 
 // Installed pi 是否可用。
 func (r *Runtime) Installed() bool { return r.Resolve().Command != "" }

@@ -270,6 +270,40 @@ func (c *Chat) CloneSession() (string, error) {
 	return c.syncSessionFile(client)
 }
 
+// Fork 从一条用户消息分叉出一份新会话。
+// 引擎的 fork 会新建会话文件并把该消息之后的内容带回去，原会话不动——
+// 这是「换一种问法重来」唯一不损坏历史的方式，删一轮再发会丢掉原来那段的证据。
+func (c *Chat) Fork(sessionFile, turnId string) (domain.ChatForkRESP, error) {
+	if strings.TrimSpace(turnId) == "" {
+		return domain.ChatForkRESP{}, pkg.Err(pkg.CodeBadRequest, "没有指定分叉起点")
+	}
+	client, err := c.EnsureRpc()
+	if err != nil {
+		return domain.ChatForkRESP{}, err
+	}
+	if err := c.alignSession(client, sessionFile); err != nil {
+		return domain.ChatForkRESP{}, err
+	}
+	// 运行中分叉会让引擎在两份会话之间同时写：先停再分。
+	if c.Stream.Active() {
+		return domain.ChatForkRESP{}, pkg.Err(pkg.CodeEngineBusy, "引擎正在回答，等这一轮结束再分叉")
+	}
+	data, err := client.Request(chat.Record{"type": "fork", "entryId": turnId}, 0)
+	if err != nil {
+		return domain.ChatForkRESP{}, err
+	}
+	fields, _ := data.(map[string]any)
+	if flag, ok := fields["cancelled"].(bool); ok && flag {
+		return domain.ChatForkRESP{}, pkg.Err(pkg.CodeBadRequest, "引擎取消了这次分叉")
+	}
+	file, err := c.syncSessionFile(client)
+	if err != nil {
+		return domain.ChatForkRESP{}, err
+	}
+	c.Hub.Broadcast("session:info", map[string]any{"engine_kind": "pi"})
+	return domain.ChatForkRESP{SessionFile: file, ForkText: stringOf(fields["text"])}, nil
+}
+
 // syncSessionFile 重新读一次会话文件并记住它。
 func (c *Chat) syncSessionFile(client *chat.PiRpc) (string, error) {
 	state, err := client.Request(chat.Record{"type": "get_state"}, 0)

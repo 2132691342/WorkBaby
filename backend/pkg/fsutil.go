@@ -33,17 +33,15 @@ func IsDir(path string) bool {
 	return err == nil && st.IsDir()
 }
 
-// ReadJSON 读一个 JSON 文件到 out；文件缺失或坏掉都返回 nil，绝不抛。
-// 配置类文件由用户可手改，读坏了等同于「还没配过」，让界面重写一份比报错有用。
-func ReadJSON(path string, out any) any {
+// ReadJSON 读一个 JSON 文件到 out；文件缺失或坏掉都返回 error。
+// 配置类文件由用户可手改，调用方大多把它当成「还没配过」——这个判断是调用方的，
+// 底层不替它吞掉失败，否则「文件不存在」与「文件写坏了」就永远分不开。
+func ReadJSON(path string, out any) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return err
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return nil
-	}
-	return out
+	return json.Unmarshal(raw, out)
 }
 
 // WriteJSON 原子写一个 JSON 文件（临时文件 + 改名），并自动建父目录。
