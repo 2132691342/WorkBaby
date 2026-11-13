@@ -402,6 +402,58 @@ func (c *Chat) CloneSession() (string, error) {
 	return created.File(), nil
 }
 
+// Fork 从一条用户消息分叉出一份新会话：把该消息及其之前的对话复制进新会话文件。
+// 原会话一个字节不动——这是「换一种问法重来」唯一不损坏历史的方式，
+// 删一轮再发会丢掉原来那段的证据。
+//
+// 只复制到分叉点为止（含分叉点那条用户消息）：分叉点之后的内容属于另一条思路，
+// 带过去就等于把旧路走完了，新会话就没得重新想。
+func (c *Chat) Fork(sessionFile, turnId string) (domain.ChatForkRESP, error) {
+	turnId = strings.TrimSpace(turnId)
+	if turnId == "" {
+		return domain.ChatForkRESP{}, pkg.Err(pkg.CodeBadRequest, "没有指定分叉起点")
+	}
+	if c.Busy() {
+		return domain.ChatForkRESP{}, pkg.Err(pkg.CodeEngineBusy, "有任务正在跑，等它结束再分叉")
+	}
+	source, err := c.BindSession(sessionFile)
+	if err != nil {
+		return domain.ChatForkRESP{}, err
+	}
+	// 先找分叉点在活动分支上的位置：不在活动分支上的条目分叉没有意义
+	// （那是已被放弃的分支，用户看不见它）。
+	entries := source.Entries()
+	cut := -1
+	for index, entry := range entries {
+		if entry.EntryId == turnId {
+			cut = index
+			break
+		}
+	}
+	if cut < 0 {
+		return domain.ChatForkRESP{}, pkg.Err(pkg.CodeNotFound, "这条不在当前会话里", turnId)
+	}
+	created, err := c.Store.Create(c.Settings.Workspace())
+	if err != nil {
+		return domain.ChatForkRESP{}, err
+	}
+	// 复制到分叉点为止：分叉点之后的内容属于另一条思路，带过去就等于把旧路走完了。
+	for _, entry := range entries[:cut+1] {
+		if entry.EntryType != domain.SessionEntryMessage || entry.EntryMessage == nil {
+			continue
+		}
+		if _, err := created.AppendMessage(agent.MessageFromDO(entry.EntryMessage)); err != nil {
+			return domain.ChatForkRESP{}, err
+		}
+	}
+	c.mu.Lock()
+	c.session = created
+	c.mu.Unlock()
+	c.Settings.RememberSession(created.File())
+	c.Hub.Broadcast("session:info", sse.EngineTag(nil))
+	return domain.ChatForkRESP{SessionFile: created.File()}, nil
+}
+
 // Rename 给当前会话改名。
 func (c *Chat) Rename(sessionFile, title string) error {
 	session, err := c.BindSession(sessionFile)

@@ -278,6 +278,23 @@ const (
 	DispositionHandled = "handled"
 )
 
+// ChatForkREQ 是从某一轮用户消息分叉出新会话的入参。
+// 分叉是「以这条用户消息为起点开一份新会话文件」，原会话一个字节不动。
+type ChatForkREQ struct {
+	// SessionFile 目标会话
+	SessionFile string `json:"session_file"`
+	// TurnId 作为分叉起点的那条用户消息条目 ID
+	TurnId string `json:"turn_id"`
+}
+
+// ChatForkRESP 是分叉结果。
+type ChatForkRESP struct {
+	// SessionFile 新会话文件路径
+	SessionFile string `json:"session_file"`
+	// ForkText 分叉后预填进输入框的那句话
+	ForkText string `json:"fork_text,omitempty"`
+}
+
 // ChatSessionREQ 是带会话文件的操作入参。
 type ChatSessionREQ struct {
 	// SessionFile 目标会话

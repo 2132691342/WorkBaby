@@ -61,7 +61,7 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 复述框架行为）不写——它们的维护成本高于收益。**一文件一个被测对象、一文件一个
 测试入口**：改哪个模块就看哪个文件，一处找全。
 
-十个测试入口，全部跑完约 4 秒：
+十二个测试入口，全部跑完约 4 秒：
 
 | 文件 | 入口 | 断言什么 |
 |---|---|---|
@@ -72,6 +72,7 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 | `tests/stream_test.go` | `TestStreamBlockTable` | 流式翻译器的块表状态机：同类增量续写、异类另开一块、工具块从开始到收尾（输出 / 耗时 / 状态）、落盘消息权威覆盖但保留工具读数、用量帧与收尾帧、失败时清 ANSI 码并解除流式态 |
 | `tests/skills_test.go` | `TestSkills` | 内置清单与磁盘资产互相咬合（少一边就是死条目、SKILL.md 头能解析出描述）；子进程环境不遮蔽 HOME；技能全生命周期（不自动落位、重复安装拒绝、不覆盖用户改动、开关 = 搬目录 + 记账、重置后仍是可读文件、删除清整个目录且目录路径拒绝、项目技能不受壳管辖） |
 | `tests/governance_test.go` | `TestMcpConfig` | `mcp.json` 的并发读写纪律（12 路并发读-改-写一条不丢）与作用域遮蔽（删项目级条目不连带删被遮蔽的用户级条目） |
+| `tests/fork_test.go` | `TestSessionFork` | 会话分叉的三条纪律：原会话一个字节不动、新会话只带到分叉点为止（分叉点之后的内容属于另一条思路）、不存在的起点与空起点直接拒 |
 | `tests/guards_test.go` | `TestModelDefaultGuards` / `TestModelDefaultKeepsOtherSettings` / `TestProviderKeyMasked` | 写入口的边界：默认模型的非法组合先拒（服务商不存在 / 模型不在该服务商下 / 半截组合 / 未知思考档）且被拒时不落盘、不动其他设置；服务商密钥读出来恒为掩码，空串语义是「保留原值」 |
 | `tests/index_test.go` | `TestIndexBuildFindsFilesAndSymbols` / `TestIndexSearchRanksSymbolFirst` / `TestFrecencyPromotesRecentHits` / `TestIndexSkipsNoiseDirectories` | 预索引：源文件与符号进索引、二进制不进、符号命中排在文件命中之前、常用近用的排更前、依赖目录不进索引 |
 | `tests/web_test.go` | `TestWebAddressGuard` / `TestWebExtractReadable` / `TestWebSearchRedirect` / `TestWebEndpoints` | 联网能力：内网与本机地址被拦（环回 / 私网 / 链路本地 / CGNAT / 非 http 协议）；正文抽取留下内容、去掉脚本与导航、还原实体；搜索跳转链接还原；接口链路接上且接口层也挡住内网地址、设置能持久化、不认识的服务商被拒 |

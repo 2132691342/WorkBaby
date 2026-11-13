@@ -186,6 +186,9 @@ export const api = {
     post<{ ok: boolean }>('/chat/answer', { session_file: sessionFile, ...req }),
   newChat: () => post<{ session_file: string }>('/chat/new'),
   cloneChat: () => post<{ session_file: string }>('/chat/clone'),
+  // 从某一条用户消息分叉出新会话：原会话不动，新会话只带到分叉点为止
+  forkChat: (sessionFile: string, turnId: string) =>
+    post<{ session_file: string; fork_text?: string }>('/chat/fork', { session_file: sessionFile, turn_id: turnId }),
   exportSessionHTML: (sessionFile: string) =>
     post<SessionExport>('/chat/export-html', s(sessionFile)),
   setModel: (sessionFile: string, providerName: string, modelId: string) =>

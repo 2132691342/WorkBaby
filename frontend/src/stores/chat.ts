@@ -31,7 +31,7 @@ export const useChatStore = defineStore('chat', () => {
   const levels = ref<string[]>([])
   // 可选模型清单：引擎的 models.json。切换走 RPC，不是本地开关。
   const models = ref<ModelRow[]>([])
-  // 切换进行中的动作名（'model' / 'thinking' / 'new' / 'compact'），
+  // 切换进行中的动作名（'model' / 'thinking' / 'new' / 'compact' / 'clone' / 'fork'），
   // 按钮靠它进 loading 并锁尺寸，避免连点造成两次切换打架。
   const switching = ref('')
   const context = ref<ContextUsage | null>(null)
@@ -238,6 +238,21 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // 从某一条用户消息分叉出新会话并切过去。原会话一个字节不动，
+  // 新会话只带到分叉点为止——「换一种问法重来」不损坏历史的唯一做法。
+  async function forkChat(turnId: string) {
+    switching.value = 'fork'
+    try {
+      const res = await api.forkChat(sessionFile.value, turnId)
+      reset()
+      sessionFile.value = res.session_file ?? ''
+      await refresh(sessionFile.value)
+      return res.session_file
+    } finally {
+      switching.value = ''
+    }
+  }
+
   async function clearQueue() {
     await api.clearQueue(sessionFile.value)
     queue.value = { steering: [], follow_up: [] }
@@ -409,6 +424,7 @@ export const useChatStore = defineStore('chat', () => {
     setAutoCompaction,
     newChat,
     cloneChat,
+    forkChat,
     clearQueue,
     removeQueued,
     send,

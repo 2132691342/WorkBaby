@@ -70,6 +70,7 @@
 | `/chat/compact` | POST | `{ session_file?, instructions? }` 手动压缩；会话级动作先按 `session_file` 对齐绑定 |
 | `/chat/answer` | POST | `{ session_file, ask_id, value?, confirmed?, cancelled?, answers? }` 回答提问卡（确认 / 选择 / 输入 / 编辑器） |
 | `/chat/new` / `clone` | POST | 新建 / 克隆会话，返回 `session_file` |
+| `/chat/fork` | POST | `{ session_file, turn_id }`；从某一条用户消息分叉出新会话：原会话一个字节不动，新会话只带到分叉点为止 |
 | `/chat/export-html` | POST | `{ session }` → `{ file_name, content }` |
 | `/chat/model` | POST | `{ session_file, provider_name, model_id }` 会话内切换模型 |
 | `/chat/thinking` | POST | `{ session_file, thinking_level }` 切换思考档 |

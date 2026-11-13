@@ -197,6 +197,7 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/chat/answer", s.chatAnswer)
 	g.POST("/chat/new", s.chatNew)
 	g.POST("/chat/clone", s.chatClone)
+	g.POST("/chat/fork", s.chatFork)
 	g.POST("/chat/export-html", s.chatExport)
 	g.POST("/chat/model", s.chatModel)
 	g.POST("/chat/thinking", s.chatThinking)
