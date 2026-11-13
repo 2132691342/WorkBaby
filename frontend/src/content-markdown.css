@@ -131,3 +131,23 @@
   background: none;
   font-size: inherit;
 }
+
+/* 流式光标：挂在最后一块的尾部，回答在长的字面证据。
+   用伪元素而不是插一个真元素：真元素会变成 :last-child，
+   流结束时光标一撤，收尾边距规则切换会让正文抖一下。 */
+.md-streaming > *:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: var(--wb-brand);
+  animation: md-caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes md-caret-blink {
+  to {
+    visibility: hidden;
+  }
+}

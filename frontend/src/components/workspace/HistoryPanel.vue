@@ -264,13 +264,13 @@ defineExpose({ reload: loadFileHistory })
   box-shadow: inset 2px 0 0 var(--wb-brand);
 }
 
-.commit_hash {
+.hash {
   flex: none;
   font-size: var(--wb-fs-3xs);
   color: var(--wb-brand);
 }
 
-.commit_subject {
+.subject {
   flex: 1;
   min-width: 0;
   font-size: var(--wb-fs-xs);

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/base64"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,6 +23,9 @@ const (
 	fileReadLimit = 1 << 20
 	// fileWriteLimit 单次写入上限（5MB）
 	fileWriteLimit = 5 << 20
+	// filePreviewLimit 可预览二进制的体积上限（32MB）；再大就不回 base64，
+	// 超大文件拖进 JSON 会把界面和内存一起打爆。
+	filePreviewLimit = 32 << 20
 )
 
 // Files 是工作区文件浏览：列目录、按名搜索、读文本。
@@ -174,9 +178,20 @@ func (f *Files) Read(path string) (domain.FileReadRESP, error) {
 	// NUL 字节是「这是二进制」最可靠的判据，比猜扩展名准。
 	if isBinary(raw) {
 		out.IsBinary = true
+		// 可预览的二进制（PDF/Office/图片）回 base64 给界面渲染；
+		// 太大或不认识的仍只给占位，不把几十 MB 塞进 JSON。
+		if kind, ok := previewKind(target); ok && info.Size() <= filePreviewLimit {
+			if full, err := os.ReadFile(target); err == nil {
+				out.FileKind = kind
+				out.FileBase64 = base64.StdEncoding.EncodeToString(full)
+				return out, nil
+			}
+		}
+		out.FileKind = "binary"
 		out.FileText = "（二进制文件，不在界面里预览）"
 		return out, nil
 	}
+	out.FileKind = "text"
 	out.FileText = string(raw)
 	return out, nil
 }
@@ -206,6 +221,22 @@ func isBinary(raw []byte) bool {
 		return true
 	}
 	return strings.ContainsRune(string(probe), 0)
+}
+
+// previewKind 认出可预览的二进制扩展名，映射到界面渲染类型。
+// 传整条路径而不是扩展名：调用处手里就是路径，为一行 filepath.Ext 再抽一层不值。
+func previewKind(path string) (string, bool) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".pdf":
+		return "pdf", true
+	case ".xlsx", ".xlsm", ".xls":
+		return "sheet", true
+	case ".docx":
+		return "doc", true
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg":
+		return "image", true
+	}
+	return "", false
 }
 
 // Save 保存文本文件：父目录不存在就一并建出；同名目录不能当文件写。

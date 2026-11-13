@@ -44,7 +44,8 @@ func TestWebAddressGuard(t *testing.T) {
 	}
 }
 
-// TestWebExtractReadable 断言正文抽取留下内容、去掉脚本与导航、还原 HTML 实体。
+// TestWebExtractReadable 断言正文抽取与地址还原：内容留下、脚本与导航去掉、
+// HTML 实体还原、跳转链接还原成真实地址——都是「喂给模型的原料要干净」这一件事。
 func TestWebExtractReadable(t *testing.T) {
 	raw := `<html><head><title>标题</title><style>body{color:red}</style></head>
 	<body>
@@ -75,13 +76,11 @@ func TestWebExtractReadable(t *testing.T) {
 	if strings.Contains(entities, "&amp;") {
 		t.Fatalf("实体不该原样留着：\n%s", entities)
 	}
-}
 
-// TestWebSearchRedirect 断言 DuckDuckGo 的跳转链接被还原成真实地址。
-// 免密钥搜索走 HTML 端点，给的是追踪链接；不还原就等于把追踪地址喂给模型。
-func TestWebSearchRedirect(t *testing.T) {
-	raw := "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage&rut=abc"
-	if got := web.NormalizeDuckURL(raw); got != "https://example.com/page" {
+	// ---- 跳转链接还原：免密钥搜索走 HTML 端点，给的是追踪链接，
+	// 不还原就等于把追踪地址喂给模型 ----
+	rawURL := "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage&rut=abc"
+	if got := web.NormalizeDuckURL(rawURL); got != "https://example.com/page" {
 		t.Fatalf("跳转链接没还原：%q", got)
 	}
 	if web.NormalizeDuckURL("") != "" {

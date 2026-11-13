@@ -6,10 +6,8 @@ import (
 	"sync"
 )
 
-// ToolPolicy 是工具的准入策略。
-// 计划模式要拦的是「会改东西」的工具：读可以，写不行。
-// 把这件事做成注册表上的一个开关，而不是在每个工具里各判一次——
-// 各判一次的话，新增工具时忘了判，就等于没拦。
+// ToolPolicy 是工具的准入策略：计划模式拦「会改东西」的工具，读可以，写不行。
+// 做成注册表上的开关而不是逐工具各判一次——各判一次，新增工具忘了判就等于没拦。
 type ToolPolicy struct {
 	// mu 保护只读态
 	mu sync.RWMutex
@@ -77,10 +75,8 @@ var mutatingTools = map[string]struct{}{
 	"web_apply": {},
 }
 
-// IsMutatingTool 判断一个工具名是否会改变状态。
-// 判定顺序：先看只读白名单，再看写工具名单，都没登记就按「会改」处理。
-// 默认拦是故意的：漏登记一个写工具，计划模式就名存实亡；
-// 而漏登记一个读工具只会让模型多问一句——两者不对等。
+// IsMutatingTool 判断工具名是否会改变状态：先查只读白名单，再查写工具名单，都没登记按「会改」处理。
+// 默认拦是故意的：漏登记写工具，计划模式名存实亡；漏登记读工具只让模型多问一句——不对等。
 func IsMutatingTool(name string) bool {
 	trimmed := strings.TrimSpace(name)
 	if _, ok := readOnlyTools[trimmed]; ok {

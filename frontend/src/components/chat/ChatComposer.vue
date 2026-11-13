@@ -16,6 +16,7 @@ import { useAttachments, baseName, toWorkspaceRelative } from '@/composables/use
 import { useComposerMenu } from '@/composables/useComposerMenu'
 import { useComposerActions } from '@/composables/useComposerActions'
 import { pickFiles } from '@/api/wails'
+import { api } from '@/api/http'
 import type { MenuItem } from '@/composables/useComposerMenu'
 
 const chat = useChatStore()
@@ -74,6 +75,33 @@ function onPickFile(relPath: string, name: string): void {
     return
   }
   // 把触发菜单的那段 @xxx 从输入里去掉：引用已经变成附件条目了。
+  draft.value = draft.value.replace(/@\S*$/, '').trimEnd()
+  composerMenu.close()
+  void nextTick(() => {
+    autosize()
+    textarea.value?.focus()
+  })
+}
+
+// 引用一段历史会话当上下文：拉它的逐条正文，折成一块给模型读。
+// 会话可能很长，只留最近一段（约 4000 字）——引用是「接着上次说」，不是把整份历史重放一遍。
+async function onPickSession(sessionPath: string, title: string): Promise<void> {
+  try {
+    const detail = await api.sessionDetail(sessionPath)
+    const role = (kind: string) => (kind === 'user' ? '用户' : kind === 'assistant' ? '助手' : '工具')
+    const lines = (detail.items ?? [])
+      .filter((it) => it.item_text && it.item_text.trim())
+      .map((it) => `${role(it.item_kind)}：${it.item_text?.trim()}`)
+    const body = `[引用历史会话「${title}」]\n${lines.join('\n').slice(-4000)}`
+    const err = attachments.addSession(title, body)
+    if (err) {
+      attachError.value = err
+      return
+    }
+  } catch (err) {
+    attachError.value = err instanceof Error ? err.message : String(err)
+    return
+  }
   draft.value = draft.value.replace(/@\S*$/, '').trimEnd()
   composerMenu.close()
   void nextTick(() => {
@@ -330,6 +358,7 @@ defineExpose({ focus })
         :index="0"
         ref="mentionRef"
         @pick-file="onPickFile"
+        @pick-session="onPickSession"
         @close="composerMenu.close()"
       />
     </div>

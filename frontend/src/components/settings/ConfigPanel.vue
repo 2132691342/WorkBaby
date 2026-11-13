@@ -2,9 +2,10 @@
 // 引擎配置原文：只看不改。
 // 设置页不写引擎配置——节点级接口各管各的键（模型页 models、MCP 页 mcp.json），
 // 多一个写入口必有「这里改了、那里没跟着变」；这里只供对照与排错。
-import { computed, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import CodeEditor from '@/components/common/CodeEditor.vue'
+// 编辑器（codemirror）是重物：面板挂载才加载，设置页首屏不陪绑半兆脚本。
+const CodeEditor = defineAsyncComponent(() => import('@/components/common/CodeEditor.vue'))
 import { usePrefsStore } from '@/stores/prefs'
 import { useAppStore } from '@/stores/app'
 

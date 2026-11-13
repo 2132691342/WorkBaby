@@ -50,6 +50,10 @@ type FileReadRESP struct {
 	SizeBytes int64 `json:"size_bytes"`
 	// IsBinary 是否是二进制（此时 FileText 是占位说明）
 	IsBinary bool `json:"is_binary"`
+	// FileKind 预览类型：text / pdf / sheet / doc / image / binary
+	FileKind string `json:"file_kind"`
+	// FileBase64 可预览二进制的内容（base64），仅 pdf / sheet / doc / image 有
+	FileBase64 string `json:"file_base64,omitempty"`
 	// Truncated 是否被截断
 	Truncated bool `json:"truncated"`
 }

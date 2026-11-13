@@ -4,7 +4,7 @@ version: '3'
 #
 # 只面向 Windows：不做 darwin/linux/ios 的交叉编译，也不出 msix / sign。
 # 出 NSIS 安装器（wails3 package 驱动下面的 create:nsis:installer），
-# 把构建好的便携 exe 连同 assets（运行时 zip / 内置技能）包成可双击安装的程序。
+# 把构建好的便携 exe 连同 assets（内置技能）包成可双击安装的程序。
 
 includes:
   common: ../Taskfile.yml

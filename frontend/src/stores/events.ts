@@ -234,9 +234,14 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
     case 'chat:retry_end':
       chat.retry = null
       return
-    case 'chat:compaction':
-      chat.compacting = data.state === 'start'
+    case 'chat:compaction': {
+      const start = data.state === 'start'
+      // 压缩结束要吆一声：活动条消失是静默的，
+      // 用户不知道窗口腾没腾出来——这一句就是「压缩完成了」的唯一回执。
+      if (chat.compacting && !start) chat.pushNotice('info', i18n.global.t('chat.compactDone'))
+      chat.compacting = start
       return
+    }
     case 'chat:turn_end':
       // 用量与耗时跟着这一帧来：它比 chat:done 早，
       // 而界面要在收尾时就把读数摆出来。

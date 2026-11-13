@@ -9,6 +9,7 @@ import EnginePanel from '@/components/settings/EnginePanel.vue'
 import AppearancePanel from '@/components/settings/AppearancePanel.vue'
 import BehaviorPanel from '@/components/settings/BehaviorPanel.vue'
 import ConfigPanel from '@/components/settings/ConfigPanel.vue'
+import TemplatesPanel from '@/components/settings/TemplatesPanel.vue'
 import WorkspacePanel from '@/components/settings/WorkspacePanel.vue'
 import DiagPanel from '@/components/settings/DiagPanel.vue'
 import AboutPanel from '@/components/settings/AboutPanel.vue'
@@ -200,6 +201,9 @@ onMounted(() => {
 
       <!-- 引擎配置原文：只看不改 -->
       <ConfigPanel />
+
+      <!-- 提示词模板：存可复用提示词，斜杠命令调出 -->
+      <TemplatesPanel />
 
       <!-- 诊断：失败记录 + 后端日志。两者回答同一个问题：刚才那一下哪一层出的错 -->
       <DiagPanel :logs="logs" @refresh-logs="loadLogs" />

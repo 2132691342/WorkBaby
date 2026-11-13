@@ -38,6 +38,12 @@ func compose(message string, attachments []domain.ChatAttachmentVO) composed {
 				continue
 			}
 			out.text += "\n\n[附件] " + att.FilePath
+		case "session":
+			// 会话引用：整段正文直接折进消息（会话文件在工作区外，引擎读不到）。
+			if att.AttachmentBody == "" {
+				continue
+			}
+			out.text += "\n\n" + att.AttachmentBody
 		}
 	}
 	return out

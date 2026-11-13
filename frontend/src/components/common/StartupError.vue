@@ -10,9 +10,7 @@ const { t } = useI18n()
 
 <template>
   <div class="fail card-pad">
-    <div class="fail-head">
-      <span class="tag bad">{{ t('app.failTag') }}</span>
-    </div>
+    <span class="tag bad">{{ t('app.failTag') }}</span>
     <p class="fail-msg selectable">{{ message }}</p>
     <p class="fail-hint">
       {{ t('app.failHint') }}

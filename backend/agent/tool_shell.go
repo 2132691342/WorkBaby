@@ -24,10 +24,8 @@ func (t *bashTool) Spec() ToolSpec {
 	}
 }
 
-// Run 执行命令。
-// argv 直传这条纪律在这里的落法不同：用户要跑的是一条完整的 shell 语句，
-// 所以只把「解释器路径」与「-Command」参数固定死，语句本身作为一个参数进去——
-// 永不把它拼成命令行字符串。
+// Run 执行命令。argv 直传在这里的落法：解释器路径与 -Command 参数固定死，
+// 语句整体作为一个参数进去，永不拼成命令行字符串。
 func (t *bashTool) Run(ctx context.Context, reg *Registry, args map[string]any) Result {
 	command := strings.TrimSpace(stringArg(args, "command"))
 	if command == "" {

@@ -43,14 +43,14 @@ const bottomStack = ref<HTMLElement | null>(null)
 let bottomRo: ResizeObserver | null = null
 
 /**
- * 全局快捷键：只放两个真的每天会用的。
+ * 全局快捷键：Ctrl+K 归命令面板（外壳里），这里只留 Ctrl+J 与 Esc。
  *
- * Ctrl+K 是「我要说话」——不管光标在哪都回到输入框；
+ * Ctrl+J 是「我要说话」——不管光标在哪都回到输入框；
  * Esc 是「先不管这段授权提示」——它贴在消息上方，不关掉就一直在占位。
  * 其他都交给控件自己的 Enter / 方向键，不在全局抢按键。
  */
 function onKeydown(event: KeyboardEvent) {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
     event.preventDefault()
     composer.value?.focus()
   }

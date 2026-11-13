@@ -21,6 +21,8 @@ type Layout struct {
 	SkillsDir string
 	// SkillsOffDir 停用态技能区：data\skills_disabled
 	SkillsOffDir string
+	// TemplatesDir 提示词模板区：data\templates
+	TemplatesDir string
 	// StorePath 设置文件：data\workbaby.json
 	StorePath string
 	// AssetsDir 随包分发的资产（内置技能包）
@@ -48,6 +50,7 @@ func ResolveLayout(exeDir string, assetsDir string, dev bool) Layout {
 		SessionsDir:  filepath.Join(data, "sessions"),
 		SkillsDir:    filepath.Join(data, "skills"),
 		SkillsOffDir: filepath.Join(data, "skills_disabled"),
+		TemplatesDir: filepath.Join(data, "templates"),
 		StorePath:    filepath.Join(data, "workbaby.json"),
 		AssetsDir:    assetsDir,
 		Dev:          dev,

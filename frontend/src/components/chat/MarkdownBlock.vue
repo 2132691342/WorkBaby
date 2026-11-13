@@ -16,5 +16,5 @@ const html = computed(() =>
 </script>
 
 <template>
-  <div class="md" v-html="html" @click="handleCopyClick" />
+  <div class="md" :class="{ 'md-streaming': streaming }" v-html="html" @click="handleCopyClick" />
 </template>

@@ -70,7 +70,6 @@ const heading = computed(() => {
     direction="rtl"
     size="46%"
     :title="heading"
-    class="peek-drawer"
     @update:model-value="(v: boolean) => { if (!v) peek.close() }"
   >
     <p v-if="error" class="peek-err">{{ error }}</p>

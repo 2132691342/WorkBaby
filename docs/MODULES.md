@@ -185,7 +185,10 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `locales/` | i18n：`zh-CN/` 与 `en/` 一域一文件 |
 | `components/` | 按域分目录：apps / chat / common / layout / mcp / models / overview / sessions / settings / skills / workspace |
 | `views/` | 12 个路由页：概览 / 对话 / 工作区 / 会话 / 应用 / 模型 / 技能 / MCP / 联网 / 代码 / 用量 / 设置 |
-| `utils/` | `md.ts` 流式 markdown 渲染（块级增量缓存，唯一出口）、`sse.ts` SSE 分帧读取、`format.ts` 读数格式化（token 数与耗时）、`diag.ts` 诊断上报 |
+| `utils/` | `md.ts` 流式 markdown 渲染（块级增量缓存，唯一出口）、`diff.ts` 增删行配对与词级高亮片段、`sse.ts` SSE 分帧读取、`format.ts` 读数格式化（token 数与耗时）、`diag.ts` 诊断上报 |
+| `components/workspace/FilePreview.vue` | 二进制可视化预览：PDF 走 `vue-pdf-embed`、Word 走 `docx-preview`、表格走 `xlsx` 逐格渲染、图片走原生 `<img>`；只读后端 base64，不解包不落盘 |
+| `components/common/CommandPalette.vue` | Ctrl+K 命令面板：页面导航 / 全局动作 / 最近会话 / 技能与提示词命令四类，模糊过滤 + 键盘导航；复用 `chat.draftOverride` 草稿桥 |
+| `components/settings/TemplatesPanel.vue` | 提示词模板管理：列表 / 新建 / 编辑 / 删除；模板存 `data\templates` 的 md 文件（带 YAML 头），斜杠菜单与命令面板选中后填正文 |
 
 ## 关键取舍
 
@@ -208,3 +211,5 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | 免密钥搜索做默认 | 用户配第一个模型就能联网，不必先申请搜索服务账号 | 默认要密钥：多一道与核心价值无关的门槛 |
 | 索引是派生数据 | 随时能从工作区重建，写失败只降级检索 | 索引当真相：重建一次要重扫全仓库，且与文件可能不同步 |
 | 长文本按块增量渲染 | 全量重解析是 O(字数²) | 每次 tick 整体重渲染，长回答直接卡死界面 |
+| 文件预览用 vue-pdf-embed / docx-preview / xlsx | 需求点名要能在壳里看 PDF/Word/Excel；三库纯前端解析、无 cgo、不动后端 | 纯文本占位：用户拿到 Office/PDF 只能看文件名；后端转码方案：要拉 LibreOffice/外部转换器，违背单机免安装的底线 |
+| 提示词模板做成 md 文件 + 斜杠命令 | 「文件即数据」，与技能同构，用户能直接改、能拷走；复用 frontmatter 解析与草稿桥 | 存数据库：多一套读写与迁移，且用户没法直接编辑；独立 UI 引擎：与技能重复一套概念 |

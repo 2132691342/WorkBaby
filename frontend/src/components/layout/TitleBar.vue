@@ -24,9 +24,9 @@ const connection = computed(() => {
   <header class="titlebar" style="--wails-draggable: drag">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
-          <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z" />
-          <path d="M12 12v9" />
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6.8 8 9.4 16.4 12 12l2.6 4.4L17.2 8" />
+          <path d="M19.6 4.1l.55 1.55L21.7 6.2l-1.55.55-.55 1.55-.55-1.55L17.5 6.2l1.55-.55z" fill="currentColor" stroke="none" />
         </svg>
       </span>
       <span class="brand-name">workbaby</span>
@@ -83,7 +83,7 @@ const connection = computed(() => {
   width: 22px;
   height: 22px;
   border-radius: var(--wb-r-sm);
-  background: var(--wb-brand);
+  background: linear-gradient(135deg, var(--wb-brand), var(--wb-brand-2));
   color: var(--wb-brand-ink);
   flex: none;
 }

@@ -21,6 +21,8 @@ const emit = defineEmits<{
   close: []
   /** @ 菜单选中了一个文件（相对路径 + 展示名） */
   pickFile: [relPath: string, name: string]
+  /** @ 菜单选中了一个历史会话（会话路径 + 标题） */
+  pickSession: [sessionPath: string, title: string]
 }>()
 
 const { t } = useI18n()
@@ -62,6 +64,10 @@ function ensureVisible(i: number): void {
 /** @ 菜单选中了一个文件：原样交上去。 */
 function onMentionPick(relPath: string, name: string): void {
   emit('pickFile', relPath, name)
+}
+
+function onMentionPickSession(sessionPath: string, title: string): void {
+  emit('pickSession', sessionPath, title)
 }
 
 /**
@@ -126,7 +132,7 @@ function tagClass(source: MenuItem['source']): string {
 
     <!-- MentionBrowser 的 pick 带两个参数（相对路径 + 展示名），
          模板里的 $event 只能接到第一个，所以走一个具名处理函数。 -->
-    <MentionBrowser v-else ref="mentionRef" @pick="onMentionPick" />
+    <MentionBrowser v-else ref="mentionRef" @pick="onMentionPick" @pick-session="onMentionPickSession" />
   </div>
 </template>
 

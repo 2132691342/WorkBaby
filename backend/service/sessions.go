@@ -122,10 +122,8 @@ func (s *Sessions) Delete(file string) error {
 	return nil
 }
 
-// Rename 改名：往会话文件追加一条 session_info 条目。
-// 走引擎自己的写入口而不是手拼 JSON：会话文件是唯一真相，
-// 落盘形态只有一处定义，两边各写一份迟早会分叉。
-// 引擎正打开这份会话时拒掉：两路同时追加会写出交错行，整份会话就回放不出来。
+// Rename 改名：走引擎的写入口追加一条 session_info 条目，不手拼 JSON——落盘形态只有一处定义。
+// 引擎正打开这份会话时拒掉：两路同时追加会写出交错行，整份会话回放不出来。
 func (s *Sessions) Rename(file, title string) error {
 	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
@@ -164,7 +162,7 @@ func (s *Sessions) History(file string) []domain.HistoryTurnVO {
 	return parser.BuildHistory(resolved, s.hiddenSet(resolved))
 }
 
-// Todos 当前待办：活动分支上最近一次 todo 工具调用派生（rpiv-todo 的回放语义）。
+// Todos 当前待办：活动分支上最近一次 todo 工具调用派生。
 func (s *Sessions) Todos(file string) []domain.TodoVO {
 	if file == "" {
 		return []domain.TodoVO{}

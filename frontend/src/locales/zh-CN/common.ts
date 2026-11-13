@@ -70,4 +70,37 @@ common: {
     update: '升级',
     yes: '是'
   },
+
+palette: {
+    placeholder: '搜页面、动作、会话或命令…',
+    empty: '没有匹配项',
+    groupNav: '页面',
+    groupAction: '动作',
+    groupSession: '最近会话',
+    groupCommand: '命令',
+    newSession: '新建会话',
+    newSessionHint: '开始一段新的对话',
+    toggleTheme: '切换主题',
+    toDark: '切到深色',
+    toLight: '切到浅色',
+    toggleLocale: '切换语言'
+  },
+
+templates: {
+    title: '提示词模板',
+    subtitle: '存一段可复用的提示词，在输入框里用 /名字 调出后填入',
+    empty: '还没有模板，点右上角新建一个',
+    create: '新建模板',
+    edit: '编辑模板',
+    name: '模板名（斜杠命令名）',
+    nameHint: '如 review、commit（小写字母/数字/连字符）',
+    desc: '一句话说明',
+    descHint: '这条模板是干什么的',
+    args: '参数提示（可空）',
+    argsHint: '如 <文件> <风格>',
+    body: '提示词正文',
+    bodyHint: '选中后整段填进输入框的内容',
+    needNameBody: '模板名与正文不能为空',
+    deleteConfirm: '确定删除模板 {name} 吗？'
+  },
 }

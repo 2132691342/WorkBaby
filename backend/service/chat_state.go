@@ -44,7 +44,7 @@ func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
 		History:        c.Sessions.History(file),
 		Todos:          c.Sessions.Todos(file),
 		PlanMode:       c.Sessions.PlanMode(file),
-		Commands:       nativeCommands(),
+		Commands:       c.commands(),
 		Caps:           domain.NativeCaps,
 	}
 	planState := c.currentPlanState()
@@ -76,6 +76,16 @@ func (c *Chat) modelInfo(provider, modelId string) *domain.ModelInfoVO {
 	}
 }
 
+// commands 是当前可用的全部斜杠命令：内置命令 + 用户的提示词模板。
+// 模板为空时只回内置清单，不多跑一次空扫描。
+func (c *Chat) commands() []domain.SlashCommandVO {
+	out := nativeCommands()
+	if c.Templates != nil {
+		out = append(out, c.Templates.Commands()...)
+	}
+	return out
+}
+
 // nativeCommands 是内置的斜杠命令清单。
 func nativeCommands() []domain.SlashCommandVO {
 	return []domain.SlashCommandVO{
@@ -96,7 +106,7 @@ func (c *Chat) emptyState(reason string) domain.ChatStateRESP {
 		ThinkingLevel:  level,
 		ThinkingLevels: []string{"off", "low", "medium", "high"},
 		AutoCompaction: true,
-		Commands:       nativeCommands(),
+		Commands:       c.commands(),
 		Caps:           domain.NativeCaps,
 		BindErr:        reason,
 	}

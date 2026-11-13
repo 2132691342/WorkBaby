@@ -101,7 +101,7 @@ watch(
 </script>
 
 <template>
-  <div class="mp-panel-body">
+  <div>
     <div class="mp-head">
       <span class="mp-label">{{ t('chat.modelPickerTitle') }}</span>
       <span v-if="chat.modelsLoading" class="mp-loading">

@@ -29,7 +29,7 @@ function isLiveTail(index: number, block: ChatBlock): boolean {
       <MarkdownBlock
         v-else
         :text="block.block_text ?? ''"
-        :streaming="isLiveTail(index, block) || isLiveTail(index, block)"
+        :streaming="isLiveTail(index, block)"
         :cache-key="`${runId}:${index}`"
       />
     </template>

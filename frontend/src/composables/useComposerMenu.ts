@@ -17,9 +17,11 @@ export interface MenuItem {
   /** 一句话说明 */
   desc: string
   /** 来源决定选中后做什么 */
-  source: 'builtin' | 'engine'
+  source: 'builtin' | 'engine' | 'prompt'
   /** 选中后真正填进输入框的命令词；缺省用 name（显示名与命令词不同的只有技能命令） */
   fill?: string
+  /** prompt 命令的正文：选中后整段填进输入框 */
+  body?: string
 }
 
 type MenuKind = 'slash' | 'mention' | null
@@ -85,13 +87,15 @@ export function useComposerMenu(
       .map((c: SlashCommand) => {
         // 技能报成 skill:名字：显示名去掉前缀，选中时仍填完整命令。
         const isSkill = c.command_name.startsWith('skill:')
+        const isPrompt = c.command_source === 'prompt'
         const base = c.command_desc || ''
         return {
           key: c.command_name,
           name: isSkill ? c.command_name.slice('skill:'.length) : c.command_name,
           fill: c.command_name,
+          body: c.command_body,
           desc: isSkill ? (base ? `${t('chat.slashSkillTag')} · ${base}` : t('chat.slashSkillTag')) : base,
-          source: 'engine' as const,
+          source: (isPrompt ? 'prompt' : 'engine') as 'prompt' | 'engine',
         }
       })
     const merged: MenuItem[] = [...builtinItems, ...engineItems]
@@ -117,15 +121,20 @@ export function useComposerMenu(
     }
   }
 
-  /** 选中一条：内置的直接跑，引擎的交给输入区去填。 */
-  function applyItem(item: MenuItem): void {
+/** 选中一条：内置的直接跑，prompt 填正文，引擎的交给输入区去填。 */
+function applyItem(item: MenuItem): void {
     menu.value = null
+    if (item.source === 'prompt') {
+      // 提示词模板：整段填进输入框，用户过目后再发——所见即所得。
+      draft.value = item.body ?? ''
+      return
+    }
     if (item.source === 'engine') {
       pickPrompt(item.fill ?? item.name)
       return
     }
     void runBuiltin(item.key)
-  }
+}
 
   /** 上下移动选中项。 */
   function move(delta: number): void {

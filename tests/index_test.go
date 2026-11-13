@@ -11,7 +11,7 @@ import (
 	"WorkBaby/backend/index"
 )
 
-// TestIndexBuildFindsFilesAndSymbols 断言索引能收文件与符号。
+// TestIndexBuildFindsFilesAndSymbols 断言建索引的收录边界：源文件与符号进、二进制与依赖目录不进。
 func TestIndexBuildFindsFilesAndSymbols(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "main.go"), `package main
@@ -27,8 +27,13 @@ type Config struct {
 	writeFile(t, filepath.Join(root, "app.ts"), `export function renderApp() {}
 export class Widget {}
 `)
-	// 二进制与无关文件不该进索引。
+	// 二进制与依赖目录不该进索引：node_modules 进了索引就是一堆噪声命中。
 	writeFile(t, filepath.Join(root, "logo.png"), "\x89PNG\r\n\x1a\n")
+	noise := filepath.Join(root, "node_modules", "pkg")
+	if err := os.MkdirAll(noise, 0o755); err != nil {
+		t.Fatalf("建目录失败：%v", err)
+	}
+	writeFile(t, filepath.Join(noise, "index.js"), "module.exports = {}")
 
 	docs, err := index.Build(root)
 	if err != nil {
@@ -40,6 +45,9 @@ export class Widget {}
 		paths[doc.DocPath] = true
 		if doc.DocKind == index.KindSymbol {
 			symbols[doc.DocSymbol] = true
+		}
+		if strings.Contains(doc.DocPath, "node_modules") {
+			t.Fatalf("依赖目录不该进索引：%s", doc.DocPath)
 		}
 	}
 	if !paths["main.go"] || !paths["app.ts"] {
@@ -56,7 +64,7 @@ export class Widget {}
 	}
 }
 
-// TestIndexSearchRanksSymbolFirst 断言符号名命中排在文件路径命中之前。
+// TestIndexSearchRanksSymbolFirst 断言检索排序：符号名命中排在路径命中之前，常用近用的再往前。
 func TestIndexSearchRanksSymbolFirst(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "helper.go"), `package helper
@@ -79,11 +87,9 @@ func ParseConfig() {}
 	if hits[0].HitDoc.DocSymbol != "ParseConfig" {
 		t.Fatalf("该命中 ParseConfig：%v", hits[0].HitDoc)
 	}
-}
 
-// TestFrecencyPromotesRecentHits 断言常用且近用的文档排得更前。
-func TestFrecencyPromotesRecentHits(t *testing.T) {
-	docs := []index.Doc{
+	// ---- frecency：常用且近用的文档排得更前 ----
+	ranked := []index.Doc{
 		{DocID: "F:a.go", DocPath: "a.go", DocKind: index.KindFile},
 		{DocID: "F:b.go", DocPath: "b.go", DocKind: index.KindFile},
 	}
@@ -94,32 +100,11 @@ func TestFrecencyPromotesRecentHits(t *testing.T) {
 	}
 	frecency.Record("F:a.go", 1)
 
-	hits := index.Search(docs, "go", frecency, 10)
+	hits = index.Search(ranked, "go", frecency, 10)
 	if len(hits) < 2 {
 		t.Fatalf("该搜到两个文件，实际 %d", len(hits))
 	}
 	if hits[0].HitDoc.DocPath != "b.go" {
 		t.Fatalf("常用文件该排前面，实际 %s", hits[0].HitDoc.DocPath)
-	}
-}
-
-// TestIndexSkipsNoiseDirectories 断言依赖目录不进索引。
-func TestIndexSkipsNoiseDirectories(t *testing.T) {
-	root := t.TempDir()
-	noise := filepath.Join(root, "node_modules", "pkg")
-	if err := os.MkdirAll(noise, 0o755); err != nil {
-		t.Fatalf("建目录失败：%v", err)
-	}
-	writeFile(t, filepath.Join(noise, "index.js"), "module.exports = {}")
-	writeFile(t, filepath.Join(root, "real.js"), "console.log(1)")
-
-	docs, err := index.Build(root)
-	if err != nil {
-		t.Fatalf("建索引失败：%v", err)
-	}
-	for _, doc := range docs {
-		if strings.Contains(doc.DocPath, "node_modules") {
-			t.Fatalf("依赖目录不该进索引：%s", doc.DocPath)
-		}
 	}
 }

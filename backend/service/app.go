@@ -38,6 +38,8 @@ type App struct {
 	Models *Models
 	// Skills 技能
 	Skills *Skills
+	// Templates 提示词模板
+	Templates *Templates
 	// Mcp MCP
 	Mcp *Mcp
 	// Web 联网能力
@@ -76,7 +78,10 @@ func New(opts Options) *App {
 	webKit := NewWeb(settings)
 	searcher := NewSearcher(settings, opts.DB)
 	sessionStore := agent.NewStore(filepath.Join(opts.Layout.DataDir, "sessions"), settings.Workspace)
+	templates := NewTemplates(opts.Layout)
 	chat := NewChat(settings, sessions, models, opts.Hub, sessionStore)
+	// 提示词模板进斜杠命令清单：内置命令 + 模板命令一起给前端。
+	chat.Templates = templates
 	// 联网工具装在注册表上：模型能搜网与读网页的能力从这里来。
 	chat.Tools.AddWebTools(webKit.Kit())
 	// 预索引检索工具：模型能快速定位文件与符号。
@@ -84,21 +89,22 @@ func New(opts Options) *App {
 	// 改名要避让引擎正在写的会话文件：绑定状态只有 Chat 知道。
 	sessions.Active = chat.CurrentFile
 	app := &App{
-		Version:  opts.Version,
-		Layout:   opts.Layout,
-		Store:    opts.Store,
-		DB:       opts.DB,
-		Hub:      opts.Hub,
-		Settings: settings,
-		Sessions: sessions,
-		Chat:     chat,
-		Files:    NewFiles(settings),
-		Git:      git,
-		Models:   models,
-		Skills:   NewSkills(settings, opts.Store, opts.Layout, opts.Hub),
-		Mcp:      NewMcp(settings, opts.Layout),
-		Web:      webKit,
-		Searcher: searcher,
+		Version:   opts.Version,
+		Layout:    opts.Layout,
+		Store:     opts.Store,
+		DB:        opts.DB,
+		Hub:       opts.Hub,
+		Settings:  settings,
+		Sessions:  sessions,
+		Chat:      chat,
+		Files:     NewFiles(settings),
+		Git:       git,
+		Models:    models,
+		Skills:    NewSkills(settings, opts.Store, opts.Layout, opts.Hub),
+		Templates: templates,
+		Mcp:       NewMcp(settings, opts.Layout),
+		Web:       webKit,
+		Searcher:  searcher,
 	}
 	return app
 }

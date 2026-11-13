@@ -34,6 +34,8 @@ export default {
     "lang": "Language",
     "langHint": "UI language; applies immediately",
     "fontScale": "UI font size",
+    "mentionSessions": "Recent sessions to @-cite",
+    "mentionSessionsHint": "How many recent conversations to offer as context when you type @",
     "reduceMotion": "Reduce motion",
     "reduceMotionHint": "Turn off transitions and breathing animations",
     "diagFailures": "Failures {n}",

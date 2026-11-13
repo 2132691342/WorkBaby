@@ -101,15 +101,22 @@ const groups = computed<Group[]>(() => {
   return out
 })
 
+// 连点搜索/切范围会并发发起请求：旧响应晚到会把新结果覆盖回旧的。
+// 用序号判新旧，旧响应直接丢掉（与 @ 菜单同一套守卫）。
+let loadSeq = 0
+
 async function load() {
+  const mine = ++loadSeq
   loading.value = true
   try {
     const data = await api.sessions(scope.value || undefined, serverQuery.value || undefined)
+    if (mine !== loadSeq) return
     rows.value = data.sessions ?? []
   } catch (err) {
+    if (mine !== loadSeq) return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    loading.value = false
+    if (mine === loadSeq) loading.value = false
   }
 }
 
@@ -199,9 +206,12 @@ defineExpose({ load })
 
     <div class="list-body">
       <div v-if="!filtered.length && !loading" class="list-empty">
+        <AppIcon name="clock" :size="28" class="empty-ic" />
         <p class="empty-title">{{ t('sessions.emptyTitle') }}</p>
         <p class="empty-hint">{{ t('sessions.emptyHint') }}</p>
       </div>
+
+      <p v-if="loading && !filtered.length" class="list-note">{{ t('common.loading') }}</p>
 
       <template v-for="group in groups" :key="group.key">
         <div class="group-head">{{ group.label }}</div>
@@ -222,19 +232,20 @@ defineExpose({ load })
             <span>{{ row.message_count }} {{ t('sessions.messages') }}</span>
             <span v-if="row.cost_usd" class="row-dot">·</span>
             <span v-if="row.cost_usd">${{ row.cost_usd.toFixed(3) }}</span>
+            <!-- 动作收在元信息行尾：常驻占位、悬停淡入。放独立行会撑高行高，
+                 鼠标一扫一排会话全在抖。窄栏用图标，主栏用文字。 -->
+            <div class="row-actions">
+              <button class="wb-btn text sm" :title="t('sessions.rename')" @click.stop="rename(row)">
+                <AppIcon v-if="compact" name="edit" :size="13" />
+                <template v-else>{{ t('sessions.rename') }}</template>
+              </button>
+              <button class="wb-btn text sm danger" :title="t('common.delete')" @click.stop="remove(row)">
+                <AppIcon v-if="compact" name="trash" :size="13" />
+                <template v-else>{{ t('common.delete') }}</template>
+              </button>
+            </div>
           </div>
           <div v-if="!compact" class="row-path">{{ row.session_cwd }}</div>
-          <div class="row-actions">
-            <!-- 窄栏用图标：文字按钮会把一行的宽度吃光；会话页主栏仍用文字 -->
-            <button class="wb-btn text sm" :title="t('sessions.rename')" @click.stop="rename(row)">
-              <AppIcon v-if="compact" name="edit" :size="13" />
-              <template v-else>{{ t('sessions.rename') }}</template>
-            </button>
-            <button class="wb-btn text sm danger" :title="t('common.delete')" @click.stop="remove(row)">
-              <AppIcon v-if="compact" name="trash" :size="13" />
-              <template v-else>{{ t('common.delete') }}</template>
-            </button>
-          </div>
         </div>
       </template>
     </div>
@@ -355,13 +366,26 @@ defineExpose({ load })
   white-space: nowrap;
 }
 
+/* 动作常驻占位、悬停/键盘聚焦淡入：display 切换会让行高突变，
+   鼠标扫过列表时一排行跟着跳。 */
 .row-actions {
-  display: none;
+  display: flex;
   gap: var(--wb-sp-1);
+  margin-left: auto;
+  flex: none;
+  opacity: 0;
+  transform: translateX(4px);
+  pointer-events: none;
+  transition:
+    opacity var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
-.session-row:hover .row-actions {
-  display: flex;
+.session-row:hover .row-actions,
+.session-row:focus-within .row-actions {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
 }
 
 /* 窄栏只藏路径：改名与删除收成两个小图标，悬停才出现——
@@ -373,6 +397,19 @@ defineExpose({ load })
 .list-empty {
   padding: var(--wb-sp-6) var(--wb-sp-3);
   text-align: center;
+}
+
+.empty-ic {
+  color: var(--wb-faint);
+  margin-bottom: var(--wb-sp-2);
+}
+
+.list-note {
+  margin: 0;
+  padding: var(--wb-sp-3);
+  text-align: center;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-mute);
 }
 
 .empty-title {

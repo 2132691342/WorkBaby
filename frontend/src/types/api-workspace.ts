@@ -34,6 +34,8 @@ export interface FileRead {
   file_text: string
   size_bytes: number
   is_binary: boolean
+  file_kind: string
+  file_base64?: string
   truncated: boolean
 }
 

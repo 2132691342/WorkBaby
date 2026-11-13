@@ -91,9 +91,8 @@ const (
 )
 
 // ResolveConflict 按指定口径解决一个冲突文件，然后暂存。
-//
-// 「保留我方 / 保留对方 / 我改完了」是冲突的三种真实结局，而 `git add` 只对应第三种。
-// 只给第三个选项，用户就只能去外部编辑器手动删冲突标记——那正好是这个 GUI 要免掉的事。
+// 「保留我方 / 保留对方 / 我改完了」是冲突的三种真实结局，git add 只对应第三种——
+// 只给第三个选项，用户就只能去外部编辑器手动删冲突标记。
 func (g *Git) ResolveConflict(filePath, side string) (domain.GitStatusRESP, error) {
 	path := strings.TrimSpace(filePath)
 	if path == "" {

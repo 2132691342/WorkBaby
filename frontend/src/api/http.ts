@@ -38,7 +38,9 @@ import type {
   RuntimeStatus,
   SessionExport,
   SessionList,
+  SessionDetail,
   SkillListData,
+  TemplateListData,
   UIResponse,
   IndexSearchView,
   IndexStatusView,
@@ -152,6 +154,7 @@ export const api = {
   // q 非空时后端按标题与正文过滤（大小写不敏感）
   sessions: (workspace?: string, query?: string) =>
     get<SessionList>('/sessions', { workspace, q: query ?? '' }),
+  sessionDetail: (path: string) => get<SessionDetail>('/sessions/detail', { path }),
   deleteSession: (sessionPath: string) => post<{ ok: boolean }>('/sessions/delete', { session_path: sessionPath }),
   renameSession: (sessionPath: string, sessionTitle: string) =>
     post<{ ok: boolean }>('/sessions/rename', { session_path: sessionPath, session_title: sessionTitle }),
@@ -241,6 +244,18 @@ export const api = {
   deleteSkill: (skillPath: string) => post<{ ok: boolean }>('/skills/delete', { skill_path: skillPath }),
   // 内置技能改坏了：从随包原件覆盖回来
   resetSkill: (skillPath: string) => post<{ ok: boolean }>('/skills/reset', { skill_path: skillPath }),
+
+  // ---- 提示词模板 ----
+  templates: () => get<TemplateListData>('/templates'),
+  saveTemplate: (templateName: string, templateDesc: string, templateBody: string, templateArgs: string) =>
+    post<{ ok: boolean }>('/templates/save', {
+      template_name: templateName,
+      template_desc: templateDesc,
+      template_body: templateBody,
+      template_args: templateArgs,
+    }),
+  deleteTemplate: (templateName: string) =>
+    post<{ ok: boolean }>('/templates/delete', { template_name: templateName }),
 
   // 插件生态已被引擎内建能力取代，这里不再暴露插件的安装 / 启停 / 升级入口。
 

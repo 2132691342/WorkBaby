@@ -125,6 +125,19 @@ export function useAttachments() {
     return ''
   }
 
+  /** 加一个历史会话引用：整段正文折进消息，引擎直接读到上下文。 */
+  function addSession(title: string, body: string): string {
+    if (files.value.length >= MAX_FILES) {
+      return i18n.global.t('chat.attachTooManyFiles', { n: MAX_FILES })
+    }
+    items.value.push({
+      id: nextId(),
+      name: title,
+      payload: { attachment_kind: 'session', file_name: title, attachment_body: body },
+    })
+    return ''
+  }
+
   /** 从粘贴事件里捞图片。返回逐条错误（空数组即全部成功）。 */
   async function addFromClipboard(data: DataTransfer | null): Promise<string[]> {
     if (!data) return []
@@ -142,7 +155,7 @@ export function useAttachments() {
     return errors
   }
 
-  return { items, images, files, isEmpty, payloads, remove, clear, addImage, addWorkspaceFile, addFromClipboard }
+  return { items, images, files, isEmpty, payloads, remove, clear, addImage, addWorkspaceFile, addSession, addFromClipboard }
 }
 
 /** 取路径最后一段作为展示名。 */

@@ -5,13 +5,8 @@ import (
 	"strings"
 )
 
-// ExtractPDFText 从 PDF 字节里抽出可读文本。
-//
-// 纯 Go 的 PDF 解析很难写全：压缩流、字体编码、跨页排版各有各的坑。
-// 这里用一条实用主义的路子：解压 FlateDecode 流，抽出文本绘制指令里的字符串。
-// 它能读懂绝大多数「文字为主」的 PDF（文档、论文、说明书），
-// 遇到扫描件（整页图片）会读不出字——那种情况得走 OCR，
-// 而 OCR 需要外部依赖，不在这个能力的边界内。
+// ExtractPDFText 从 PDF 字节里抽出可读文本：解压 FlateDecode 流，抽文本绘制指令里的字符串。
+// 能读大多数文字为主的 PDF；扫描件（整页图片）读不出字，那要 OCR——外部依赖，不在能力边界内。
 func ExtractPDFText(raw []byte) string {
 	decoded := inflatePDFStreams(raw)
 	texts := extractTextOperators(decoded)

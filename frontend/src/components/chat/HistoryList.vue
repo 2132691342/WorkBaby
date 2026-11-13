@@ -92,7 +92,7 @@ function isRoundEnd(index: number): boolean {
   <div class="msg-col">
     <MessageTurn
       v-for="(item, index) in props.turns"
-      :key="`h-${index}`"
+      :key="item.turn_id || `h-${index}`"
       :role="item.turn_role"
       :blocks="item.turn_blocks"
       :run-id="`h-${index}`"

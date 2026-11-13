@@ -6,6 +6,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import DiffRows from '@/components/common/DiffRows.vue'
+import { pairRuns } from '@/utils/diff'
 import type { DiffLine, GitDiff } from '@/types/api'
 
 const props = defineProps<{
@@ -46,6 +47,9 @@ const lines = computed<DiffLine[]>(() => props.diff?.diff_lines ?? [])
 /** 增删行数：页头那个 +N −M 读数。 */
 const adds = computed(() => lines.value.filter((l) => l.line_kind === 'add').length)
 const dels = computed(() => lines.value.filter((l) => l.line_kind === 'del').length)
+
+/** 并排的行对：同一改动里第 i 条删除配第 i 条新增（配对规则在 utils/diff.ts）。 */
+const sidePairs = computed(() => pairRuns(lines.value))
 
 /**
  * 可折叠的连续上下文段。
@@ -162,7 +166,7 @@ const blankText = computed(() => (props.path ? t('workspace.noDiffForFile') : t(
     <div v-else-if="blank" class="dc-state">{{ blankText }}</div>
 
     <div v-else class="dc-body">
-      <DiffRows v-if="sideBySide" :lines="lines" />
+      <DiffRows v-if="sideBySide" :pairs="sidePairs" />
       <template v-else>
         <DiffRows :lines="visibleLines" />
         <!-- 折叠段：一条可点的横条，点一下把中间那段展回来 -->

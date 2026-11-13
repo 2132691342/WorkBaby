@@ -53,10 +53,8 @@ func readCapped(file string, limit int64) ([]byte, error) {
 	return raw, nil
 }
 
-// EncodedWorkspace 把工作区路径编码成会话目录名。
-// 剥掉一个头部分隔符，/ \ : 空格换成 -，两端包 --。
-// 引擎建会话目录与清单扫会话目录用的是同一个函数：
-// 两边各写一套的话，新建的会话会落在清单扫不到的目录里。
+// EncodedWorkspace 把工作区路径编码成会话目录名：剥掉头部分隔符，/ \ : 空格换 -，两端包 --。
+// 引擎建目录与清单扫目录共用这一个函数，两边各写一套会把新会话落进清单扫不到的目录。
 func EncodedWorkspace(workspace string) string {
 	stripped := strings.TrimLeft(workspace, `\/`)
 	replacer := strings.NewReplacer("/", "-", `\`, "-", ":", "-", " ", "-")

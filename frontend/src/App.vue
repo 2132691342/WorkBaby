@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 应用外壳：自绘标题栏 + 左侧导航 rail + 主区。
 // 启动失败与首屏加载都在这里处理，视图层不需要各自兜底。
-import { computed, nextTick, onMounted, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import zhCN from 'element-plus/es/locale/lang/zh-cn'
@@ -9,13 +9,25 @@ import enUS from 'element-plus/es/locale/lang/en'
 import AppRail from '@/components/layout/AppRail.vue'
 import TitleBar from '@/components/layout/TitleBar.vue'
 import ToastHost from '@/components/common/ToastHost.vue'
+import CommandPalette from '@/components/common/CommandPalette.vue'
 import StartupError from '@/components/common/StartupError.vue'
 import { applyCloseDecision, notifyReady } from '@/api/wails'
 import { useAppStore } from '@/stores/app'
 import { useViewportScale } from '@/composables/useViewportScale'
+import { useCommandPalette } from '@/composables/useCommandPalette'
 
 const app = useAppStore()
 const { t } = useI18n()
+const palette = useCommandPalette()
+
+// Ctrl+K 是全局的「叫出命令面板」：不管光标在哪都开，输入框里按也开。
+// 面板自己收 Esc / 回车，这里只管开关。
+function onGlobalKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    palette.toggle()
+  }
+}
 
 // Element Plus 自带文案（空数据、ARIA 标签等）跟着界面语言走：
 // 不接桥的话英文界面里混着组件库的英文默认值之外的另一套中文。
@@ -62,10 +74,15 @@ watch(
 )
 
 onMounted(() => {
+  window.addEventListener('keydown', onGlobalKeydown)
   void app.load()
   // 外壳一画完就把窗口叫出来：用户先看到骨架与转圈，而不是迟迟没有窗口。
   // 不能更早——后端装配阶段窗口还是隐藏的，那时显形会白屏。
   void nextTick().then(notifyReady)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
 </script>
 
@@ -93,6 +110,7 @@ onMounted(() => {
         </main>
       </div>
       <ToastHost />
+      <CommandPalette />
     </div>
   </el-config-provider>
 </template>

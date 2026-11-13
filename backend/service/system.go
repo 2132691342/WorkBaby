@@ -39,10 +39,8 @@ type configFileSpec struct {
 	path  string
 }
 
-// configFiles 列出可查看的配置文件（白名单，不接受外部路径）。
-// 凭据不在列：密钥只在「密钥恒为掩码」的服务商页流转，不走原文查看。
-// 服务商与模型的真相在 SQLite 里，不是有独立文件的 JSON——所以这份清单里
-// 只有设置台账与 MCP 两份 JSON；数据库本体是二进制，列出来也没法预览。
+// configFiles 列出可查看的配置文件（白名单，不接受外部路径）；凭据不在列，密钥只以掩码流转。
+// 服务商与模型的真相在 SQLite，所以清单里只有设置台账与 MCP 两份 JSON；数据库是二进制，列了也没法预览。
 func configFiles(layout pkg.Layout) []domain.ConfigFileVO {
 	specs := []configFileSpec{
 		{name: "settings", label: "workbaby.json", path: layout.StorePath},

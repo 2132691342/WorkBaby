@@ -41,6 +41,7 @@ func newHarness(t *testing.T) *harness {
 	layout.SessionsDir = filepath.Join(dir, "data", "sessions")
 	layout.SkillsDir = filepath.Join(dir, "data", "skills")
 	layout.SkillsOffDir = filepath.Join(dir, "data", "skills_disabled")
+	layout.TemplatesDir = filepath.Join(dir, "data", "templates")
 	layout.LogDir = filepath.Join(dir, "logs")
 	layout.CacheDir = filepath.Join(dir, "cache")
 	layout.StorePath = filepath.Join(dir, "workbaby.json")

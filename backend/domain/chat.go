@@ -164,6 +164,8 @@ type SlashCommandVO struct {
 	CommandSource string `json:"command_source"`
 	// CommandDesc 一句话说明
 	CommandDesc string `json:"command_desc,omitempty"`
+	// CommandBody 命令正文（仅 prompt 命令携带，选中后填进输入框）
+	CommandBody string `json:"command_body,omitempty"`
 }
 
 // ChatStateRESP 是聊天页的首屏总装：引擎实况 + 会话文件回放。
@@ -234,10 +236,11 @@ type ChatPlanRESP struct {
 	PlanMessage string `json:"plan_message"`
 }
 
-// ChatAttachmentVO 是一个附件。两类走两条完全不同的路：
-// file 只把路径折进 prompt 让引擎自己读；image 走 images 字段（唯一的二进制通道）。
+// ChatAttachmentVO 是一个附件。三类走三条不同的路：
+// file 只把路径折进 prompt 让引擎自己读；image 走 images 字段（唯一的二进制通道）；
+// session 把整段引用内容直接折进 prompt（会话文件在工作区外，引擎读不到）。
 type ChatAttachmentVO struct {
-	// AttachmentKind file / image
+	// AttachmentKind file / image / session
 	AttachmentKind string `json:"attachment_kind"`
 	// FilePath 文件绝对路径（file 类）
 	FilePath string `json:"file_path,omitempty"`
@@ -247,6 +250,8 @@ type ChatAttachmentVO struct {
 	ImageBase64 string `json:"image_base64,omitempty"`
 	// ImageMime 图片 MIME
 	ImageMime string `json:"image_mime,omitempty"`
+	// AttachmentBody 引用正文（session 类）：整段折进消息正文
+	AttachmentBody string `json:"attachment_body,omitempty"`
 }
 
 // ChatSendREQ 是发消息 / 插话 / 追加的共用入参。

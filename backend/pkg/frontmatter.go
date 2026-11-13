@@ -2,15 +2,17 @@ package pkg
 
 import "strings"
 
-// Frontmatter 是技能 / 提示模板开头的 YAML 头里我们关心的两个字段。
+// Frontmatter 是技能 / 提示模板开头的 YAML 头里我们关心的字段。
 type Frontmatter struct {
 	// Name 技能的显示名；空串表示没写
 	Name string
 	// Description 一句话说明
 	Description string
+	// Args 参数占位提示（仅提示模板用，如 "<文件> <风格>"）
+	Args string
 }
 
-// ParseFrontmatter 读 `---` 包起来的头部。只认 name / description 两个键：
+// ParseFrontmatter 读 `---` 包起来的头部。只认 name / description / args 三个键：
 // 头部其余键属于引擎的扩展点，壳不解释也不改动原文。
 // 块标量（`|` 与 `>`）按 YAML 规则接上缩进行，只切当前行的话 description 只剩一个「|」。
 func ParseFrontmatter(text string) Frontmatter {
@@ -39,6 +41,8 @@ func ParseFrontmatter(text string) Frontmatter {
 				continue
 			}
 			out.Description = unquoteYAML(value)
+		case "args":
+			out.Args = unquoteYAML(value)
 		}
 	}
 	return out

@@ -154,13 +154,13 @@ DeepSeek / Moonshot / Ollama / vLLM 与各类网关。归一后的事件只有�
 ### 会话真相
 
 会话落在**自己的数据目录** `data\sessions\<工作区编码>\SES_<ULID>.jsonl`，
-条目以 `parent_id` 串起分支，所以回放、详情、导出、隐藏台账共用同一套解析。
+条目以 `parentId` 串起分支，所以回放、详情、导出、隐藏台账共用同一套解析。
 
 ```
-{"type":"session","version":1,"id":"SES_...","timestamp":...,"cwd":"D:\\proj"}
-{"type":"message","id":"SES_...","parent_id":"","timestamp":...,"message":{...}}
-{"type":"message",...}          ← 工具结果同样是一条 message（role=tool）
-{"type":"session_info","title":"我自己起的名字"}
+{"type":"session","version":1,"id":"SES_...","timestamp":"2026-01-01T00:00:00.000Z","cwd":"D:\\proj"}
+{"type":"message","id":"SES_...","parentId":"","timestamp":...,"message":{...}}
+{"type":"message",...}          ← 工具结果同样是一条 message（role=toolResult）
+{"type":"session_info","name":"我自己起的名字"}
 ```
 
 标题是**派生**出来的，不是文件的属性：改名条目优先，其次首条用户消息。

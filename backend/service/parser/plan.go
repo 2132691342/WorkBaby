@@ -1,9 +1,7 @@
 package parser
 
-// 计划模式派生：开关每次都会往会话文件追加一条 custom 条目
-// （customType = "plan-mode"，data.active 是开关后的状态）。活动分支上
-// 最后一条就是当前状态——它是会话文件里的真相，
-// 所以重开应用、切回旧会话都能还原。
+// 计划模式派生：开关每次追加一条 custom 条目（customType = "plan-mode"，data.active 是开关后状态），
+// 活动分支上最后一条就是当前状态——会话文件里的真相，重开应用、切回旧会话都能还原。
 
 import "WorkBaby/backend/domain"
 

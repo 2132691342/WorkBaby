@@ -6,6 +6,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
+import FilePreview from '@/components/workspace/FilePreview.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
@@ -34,6 +35,10 @@ const savingEdit = ref(false)
 const dirty = computed(() => editing.value && preview.value != null && editText.value !== preview.value.file_text)
 
 const current = computed(() => stack.value[stack.value.length - 1] ?? '')
+// 可视化预览只认这几类；认不出的二进制仍走占位。
+const isPreviewable = computed(() =>
+  ['pdf', 'sheet', 'doc', 'image'].includes(preview.value?.file_kind ?? ''),
+)
 const crumbs = computed(() => {
   const parts = current.value.split('/').filter(Boolean)
   const out: { label: string; path: string }[] = [{ label: app.workspace.split(/[\\/]/).pop() || '/', path: '' }]
@@ -268,6 +273,9 @@ defineExpose({ load, openFile })
       <div v-if="previewLoading" class="preview-state">
         <span class="dot busy" /> {{ t('common.loading') }}
       </div>
+      <div v-else-if="preview?.is_binary && isPreviewable" class="binary-preview">
+        <FilePreview :file="preview" />
+      </div>
       <div v-else-if="preview?.is_binary" class="preview-state">{{ t('files.binary') }}</div>
       <template v-else-if="preview">
         <p v-if="preview.truncated" class="files-note">
@@ -436,6 +444,19 @@ defineExpose({ load, openFile })
   white-space: pre-wrap;
   word-break: break-all;
 }
+/* 编辑用等宽字体：这里改的是代码/配置文件，比例字体对不齐缩进 */
+.edit-area :deep(.el-textarea__inner) {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-xs);
+  line-height: 1.6;
+}
+
+/* 二进制预览（图片）：居中摆放，窄图不贴左缘 */
+.binary-preview {
+  display: flex;
+  justify-content: center;
+}
+
 .preview-actions {
   display: flex;
   justify-content: flex-end;

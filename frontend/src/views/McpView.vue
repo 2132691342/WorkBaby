@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // MCP 页：一份清单，增删改查 + 开关。
-// 定义落在 pi 的 mcp.json（用户级）与工作区 .pi/mcp.json（项目级），那份文件是唯一事实。
+// 定义落在数据目录的 mcp.json（用户级）与工作区 .pi/mcp.json（项目级），那份文件是唯一事实。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'

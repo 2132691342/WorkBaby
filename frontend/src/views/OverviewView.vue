@@ -274,6 +274,19 @@ onMounted(() => void load())
   gap: var(--wb-sp-2);
 }
 
+/* 未就绪横幅：一行说明 + 动作，淡底不抢主内容的视觉重量 */
+.notice-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r);
+  background: var(--wb-raised);
+  font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+}
+
 .page-body {
   flex: 1;
   min-height: 0;

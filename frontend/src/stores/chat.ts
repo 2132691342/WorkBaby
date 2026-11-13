@@ -37,9 +37,9 @@ export const useChatStore = defineStore('chat', () => {
   const context = ref<ContextUsage | null>(null)
   const autoCompaction = ref(true)
   const stats = ref<SessionStats | null>(null)
-  // 待办面板：引擎侧 todo 工具调用派生（rpiv-todo 装了才有数据）
+  // 待办面板：引擎侧 todo 工具调用派生（调用过才有数据）
   const todos = ref<TodoItem[]>([])
-  // 计划模式：pi-plan-mode 存在会话文件里的开关状态。它是会话状态不是一轮读数，
+  // 计划模式：会话文件里 plan-mode 开关条目。它是会话状态不是一轮读数，
   // 所以不跟着 runStatus.reset() 清掉，切会话 / 重启应用由回放重新给值。
   const planMode = ref(false)
   const commands = ref<SlashCommand[]>([])
@@ -77,10 +77,8 @@ export const useChatStore = defineStore('chat', () => {
   const queue = ref<{ steering: string[]; follow_up: string[] }>({ steering: [], follow_up: [] })
   const compacting = ref(false)
   const promptError = ref('')
-  // runError 是「这一轮自己出的错」。它与 promptError 分开：
-  // promptError 是输入区上方的横幅，任何动作失败都会往它里写（换模型、压缩、发消息），
-  // 而「这一轮出错了」是轮尾的红色状态——拿一个全局错误去染一轮对话的颜色，
-  // 会让一次失败的模型切换把一段已经答完的回复标成出错。
+  // runError 是「这一轮自己出的错」，只染轮尾；promptError 是输入区上方的横幅，
+  // 任何动作失败都写它。分开的理由：拿全局错误染一轮对话，会把已答完的回复标成出错。
   const runError = ref('')
   // 切不到请求会话的原因。它不会自动消失：
   // 用户需要知道「历史可以看，但下一句话会写到另一条会话里」。

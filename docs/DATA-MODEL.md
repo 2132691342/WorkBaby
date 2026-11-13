@@ -58,15 +58,15 @@ workbaby.db 是可查询的派生数据，mcp.json 是 MCP 服务器清单**。
 引擎建会话目录与清单扫会话目录用的是同一个函数（`pkg.EncodedWorkspace`），
 两边各写一套的话，新建的会话会落在清单扫不到的目录里。
 
-首行是会话头，其后每行一个条目，条目以 `id` / `parent_id` 构成**树**：
+首行是会话头，其后每行一个条目，条目以 `id` / `parentId` 构成**树**：
 
 ```
-{"type":"session","version":1,"id":"SES_...","timestamp":...,"cwd":"D:\\proj"}
-{"type":"message","id":"SES_...","parent_id":"","timestamp":...,"message":{...}}
-{"type":"message",...}          ← 工具结果同样是一条 message（role=tool）
+{"type":"session","version":1,"id":"SES_...","timestamp":"2026-01-01T00:00:00.000Z","cwd":"D:\\proj"}
+{"type":"message","id":"SES_...","parentId":"","timestamp":...,"message":{...}}
+{"type":"message",...}          ← 工具结果同样是一条 message（role=toolResult）
 {"type":"session_info","name":"我自己起的名字"}
-{"type":"compaction","tokens_before":12345}
-{"type":"custom","custom_type":"plan-mode","data":{"active":true}}
+{"type":"compaction","tokensBefore":12345}
+{"type":"custom","customType":"plan-mode","data":{"active":true}}
 ```
 
 **会话头只在创建时写一次，之后永不重写。** 整份重写在断电时会把唯一真相写坏。
@@ -74,11 +74,11 @@ workbaby.db 是可查询的派生数据，mcp.json 是 MCP 服务器清单**。
 
 ### 回放规则（`service/parser`）
 
-1. **活动分支**：从最后一个条目沿 `parent_id` 走到根，反转成时间序。
+1. **活动分支**：从最后一个条目沿 `parentId` 走到根，反转成时间序。
    分叉时天然取叶子所在分支。环状引用由已访问集合兜住，绝不无限循环。
 2. **轮次分组**：`message` 条目按角色分组——user 开新轮；assistant 成一轮
    （内容块：`text` → 文本块，`thinking` → 思考块，`toolCall` → 工具块）；
-   `toolResult` 按 `tool_call_id` 挂回最近的工具块（填 output / is_error /
+   `toolResult` 按 `toolCallId` 挂回最近的工具块（填 output / `isError` /
    差异文本），挂不上则落成独立工具轮；system 与 usage 不进历史视图。
 3. **特殊条目**：`compaction` 转成引擎标记轮（显示压缩前 token 数）；
    `session_info` 的 `name` 作为会话标题；`custom` 转标记轮，
@@ -102,7 +102,7 @@ workbaby.db 是可查询的派生数据，mcp.json 是 MCP 服务器清单**。
   {"type":"thinking","thinking":"思考"},
   {"type":"toolCall","id":"call_1","name":"read","arguments":{"path":"a.txt"}}
 ]}}
-{"type":"message","message":{"role":"tool","toolCallId":"call_1","toolName":"read",
+{"type":"message","message":{"role":"toolResult","toolCallId":"call_1","toolName":"read",
   "content":[{"type":"text","text":"文件内容"}],"details":{"tidied":true}}}
 ```
 

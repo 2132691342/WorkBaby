@@ -31,6 +31,8 @@ type Chat struct {
 	Store *agent.Store
 	// Asks 在等的提问：跨运行边界也要留着，界面刷新靠它补回卡片
 	Asks *agent.PendingAsks
+	// Templates 提示词模板（斜杠命令清单要它）
+	Templates *Templates
 
 	// mu 保护会话绑定与运行状态
 	mu sync.Mutex
@@ -402,12 +404,8 @@ func (c *Chat) CloneSession() (string, error) {
 	return created.File(), nil
 }
 
-// Fork 从一条用户消息分叉出一份新会话：把该消息及其之前的对话复制进新会话文件。
-// 原会话一个字节不动——这是「换一种问法重来」唯一不损坏历史的方式，
-// 删一轮再发会丢掉原来那段的证据。
-//
-// 只复制到分叉点为止（含分叉点那条用户消息）：分叉点之后的内容属于另一条思路，
-// 带过去就等于把旧路走完了，新会话就没得重新想。
+// Fork 从一条用户消息分叉出一份新会话：原会话一个字节不动，只复制到分叉点（含那条用户消息）为止。
+// 分叉点之后的内容属于另一条思路，带过去等于把旧路走完，新会话就没得重新想。
 func (c *Chat) Fork(sessionFile, turnId string) (domain.ChatForkRESP, error) {
 	turnId = strings.TrimSpace(turnId)
 	if turnId == "" {

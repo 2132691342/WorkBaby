@@ -19,7 +19,11 @@ func TestModelDefaultGuards(t *testing.T) {
 		t.Fatalf("建服务商失败：%v", err)
 	}
 
-	// ---- 非法组合：先拒，不落盘 ----
+	// ---- 非法组合：先拒，不落盘，也不动台账里的其他键 ----
+	// 台账是共享键值表：一个写入口顺手清了别人的键，用户会在别处莫名发现设置没了。
+	if err := h.store.Save(map[string]string{"ui.theme": "dark"}); err != nil {
+		t.Fatalf("预置设置失败：%v", err)
+	}
 	for _, tc := range []struct {
 		name string
 		req  domain.ModelDefaultSaveREQ
@@ -33,9 +37,12 @@ func TestModelDefaultGuards(t *testing.T) {
 			t.Errorf("%s：应被拒绝", tc.name)
 		}
 	}
-	// 被拒的写入不该留下半个结果：三个键都还是空的。
+	// 被拒的写入不该留下半个结果：三个键都还是空的，别人的键也原封不动。
 	if got := h.app.Models.Defaults(); got.DefaultProvider != "" || got.DefaultModel != "" {
 		t.Fatalf("被拒的写入不该落盘，实际 %+v", got)
+	}
+	if got, ok := h.store.Get("ui.theme"); !ok || got != "dark" {
+		t.Fatalf("被拒的写入不该动其他设置，实际 %q（存在=%v）", got, ok)
 	}
 
 	// ---- 写成功：回读一致 ----
@@ -56,23 +63,6 @@ func TestModelDefaultGuards(t *testing.T) {
 	cleared := h.app.Models.Defaults()
 	if cleared.DefaultProvider != "" || cleared.DefaultModel != "" || cleared.DefaultThinkingLevel != "" {
 		t.Fatalf("清空后应全部为空，实际 %+v", cleared)
-	}
-}
-
-// TestModelDefaultKeepsOtherSettings 断言写默认模型不碰设置台账里的其他键。
-// 键值表是共享的：一个写入口顺手清了别人的键，用户会在别处莫名发现设置没了。
-func TestModelDefaultKeepsOtherSettings(t *testing.T) {
-	h := newHarness(t)
-	if err := h.store.Save(map[string]string{"ui.theme": "dark"}); err != nil {
-		t.Fatalf("预置设置失败：%v", err)
-	}
-	if _, err := h.app.Models.SaveDefaults(domain.ModelDefaultSaveREQ{
-		DefaultProvider: "router", DefaultModel: "m1",
-	}); err == nil {
-		t.Fatal("服务商不存在时该被拒绝")
-	}
-	if got, ok := h.store.Get("ui.theme"); !ok || got != "dark" {
-		t.Fatalf("被拒的写入不该动其他设置，实际 %q（存在=%v）", got, ok)
 	}
 }
 

@@ -5,15 +5,32 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/api/http'
-import type { FileEntry, FileHit } from '@/types/api'
+import { useAppStore } from '@/stores/app'
+import type { FileEntry, FileHit, SessionRow } from '@/types/api'
 import AppIcon from '@/components/common/AppIcon.vue'
 
 const emit = defineEmits<{
   pick: [relPath: string, name: string]
+  pickSession: [sessionPath: string, title: string]
   close: []
 }>()
 
 const { t } = useI18n()
+const app = useAppStore()
+
+// 最近会话：@ 不只引文件，也能把最近一段对话当上下文。条数可配，默认 5。
+const sessions = ref<SessionRow[]>([])
+const mentionCount = computed(() => {
+  const n = Number(app.settings['ui.mention_sessions'])
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 20) : 5
+})
+async function loadSessions(): Promise<void> {
+  try {
+    sessions.value = (await api.sessions()).sessions ?? []
+  } catch {
+    sessions.value = []
+  }
+}
 
 const dirPath = ref('')
 const entries = ref<FileEntry[]>([])
@@ -178,6 +195,10 @@ onMounted(() => void load(''))
 
 // 暴露给父组件的重载入口（@ 菜单再次打开时刷新当前目录）。
 defineExpose({ reload: () => load(dirPath.value), move, pickCurrent, listEl: listElRef })
+
+onMounted(() => {
+  void loadSessions()
+})
 </script>
 
 <template>
@@ -208,6 +229,19 @@ defineExpose({ reload: () => load(dirPath.value), move, pickCurrent, listEl: lis
     />
 
     <div ref="listEl" class="mention-body">
+      <!-- 最近会话：@ 除了引文件，也能把最近一段对话当上下文；只在非搜索态显示 -->
+      <template v-if="!searching && sessions.length">
+        <p class="mention-note">{{ t('chat.mentionSessions') }}</p>
+        <button
+          v-for="row in sessions.slice(0, mentionCount)"
+          :key="row.session_id"
+          class="mention-row"
+          @click="emit('pickSession', row.session_path, row.session_title || t('common.untitled'))"
+        >
+          <AppIcon name="chat" :size="13" />
+          <span class="mention-name">{{ row.session_title || t('common.untitled') }}</span>
+        </button>
+      </template>
       <p v-if="loading" class="mention-note">{{ t('common.loading') }}</p>
       <p v-else-if="failed" class="mention-note bad">{{ failed }}</p>
       <p v-else-if="!shown.length" class="mention-note">{{ t('chat.mentionEmpty') }}</p>

@@ -13,7 +13,7 @@
 			"OriginalFilename": "WorkBaby.exe",
 			"LegalCopyright": "Copyright (c) 2026 WorkBaby",
 			"ProductName": "WorkBaby",
-			"Comments": "内置 Node.js 运行时与 pi 引擎，安装即用；一切管理只经本界面"
+			"Comments": "原生 Go 引擎、内置联网/索引/计划/技能，安装即用；一切管理只经本界面"
 		}
 	}
 }

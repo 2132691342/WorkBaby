@@ -114,6 +114,19 @@ export interface SkillListData {
   available: SkillAvailable[]
 }
 
+/** 一条提示词模板。 */
+export interface PromptTemplate {
+  template_name: string
+  template_desc: string
+  template_body: string
+  template_args: string
+}
+
+/** 提示词模板清单。 */
+export interface TemplateListData {
+  rows: PromptTemplate[]
+}
+
 /** 推荐清单里还没装的一条技能。 */
 export interface SkillAvailable {
   skill_dir_name: string

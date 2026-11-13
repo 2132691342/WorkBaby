@@ -15,6 +15,12 @@ const app = useAppStore()
 function onFontScale(v: number | number[]): void {
   emit('save', { 'ui.font_scale': String(Array.isArray(v) ? v[0] : v) })
 }
+
+/** @ 引用里列出的最近会话条数。 */
+function onMentionCount(v: number | undefined): void {
+  const n = Math.max(1, Math.min(20, Math.round(Number(v) || 5)))
+  emit('save', { 'ui.mention_sessions': String(n) })
+}
 </script>
 
 <template>
@@ -51,6 +57,21 @@ function onFontScale(v: number | number[]): void {
         :show-tooltip="false"
         style="max-width: 260px"
         @change="onFontScale"
+      />
+    </div>
+
+    <div class="set-row">
+      <div>
+        <div class="set-label">{{ t('settings.mentionSessions') }}</div>
+        <div class="set-hint">{{ t('settings.mentionSessionsHint') }}</div>
+      </div>
+      <el-input-number
+        :model-value="Number(app.settings['ui.mention_sessions'] ?? 5)"
+        :min="1"
+        :max="20"
+        :step="1"
+        size="small"
+        @change="onMentionCount"
       />
     </div>
 

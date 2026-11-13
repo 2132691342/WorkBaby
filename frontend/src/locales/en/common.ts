@@ -70,4 +70,37 @@ export default {
     "yes": "Yes",
     "saved": "Saved"
   },
+
+  "palette": {
+    "placeholder": "Search pages, actions, sessions, commands…",
+    "empty": "No matches",
+    "groupNav": "Pages",
+    "groupAction": "Actions",
+    "groupSession": "Recent sessions",
+    "groupCommand": "Commands",
+    "newSession": "New session",
+    "newSessionHint": "Start a new conversation",
+    "toggleTheme": "Toggle theme",
+    "toDark": "Switch to dark",
+    "toLight": "Switch to light",
+    "toggleLocale": "Toggle language"
+  },
+
+  "templates": {
+    "title": "Prompt templates",
+    "subtitle": "Save a reusable prompt, insert it from the composer with /name",
+    "empty": "No templates yet. Create one from the top-right button.",
+    "create": "New template",
+    "edit": "Edit template",
+    "name": "Template name (slash command)",
+    "nameHint": "e.g. review, commit (lowercase letters / digits / hyphens)",
+    "desc": "One-line description",
+    "descHint": "What this template is for",
+    "args": "Argument hint (optional)",
+    "argsHint": "e.g. <file> <style>",
+    "body": "Prompt body",
+    "bodyHint": "The full text inserted into the composer when selected",
+    "needNameBody": "Template name and body are required",
+    "deleteConfirm": "Delete template {name}?"
+  },
 }

@@ -28,7 +28,7 @@ tasks:
       - node_modules
     preconditions:
       - sh: npm version
-        msg: "npm 没装。构建机需要 Node.js；运行时用的是随包内置的那份。"
+        msg: "npm 没装。构建机需要 Node.js（只用于构建前端）；运行时不随包分发。"
     cmds:
       - npm install
 

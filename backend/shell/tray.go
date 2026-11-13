@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	_ "embed"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -13,6 +14,9 @@ import (
 // trayRecentMax 是托盘菜单里「最近工作目录」最多铺几条：
 // 托盘菜单是一个弹出层，长到要滚动就算不上快捷方式了。
 const trayRecentMax = 5
+
+//go:embed res/icon.ico
+var trayIcon []byte
 
 // buildTrayMenu 组装托盘菜单。
 // 「最近工作目录」这一支随设置变化，所以整棵树可重建：
@@ -35,6 +39,9 @@ func (a *App) buildTrayMenu(wailsApp *application.App, win *application.WebviewW
 	menu.AddSeparator()
 	menu.Add("退出").OnClick(func(*application.Context) { a.requestQuit() })
 	a.tray.SetMenu(menu)
+	// 托盘图标显式给品牌图标：默认走 exe 图标，但 16px 下的多尺寸适配
+	// 由这里的 ico 自己保证，不依赖壳的默认回退。
+	a.tray.SetIcon(trayIcon)
 	a.tray.SetTooltip("WorkBaby")
 	// 单击图标 = 把窗口带出来；菜单用右键。
 	a.tray.OnClick(func() { a.showWindow() })

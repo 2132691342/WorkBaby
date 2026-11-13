@@ -48,7 +48,7 @@ const workspaceName = computed(() => {
       <!-- 工作区切换：这里是「我在哪个目录」的唯一入口，
            并列显示该目录的仓库态，不必跳到设置页去查。 -->
       <button
-        class="wb-btn sm ws-pick"
+        class="wb-btn sm"
         :class="{ 'is-loading': props.switching }"
         :title="props.workspace || t('workspace.pickWorkspace')"
         :disabled="props.switching"

@@ -2,10 +2,11 @@
 // 技能正文抽屉：看原文，用户目录下的那份可以就地改。
 // 「能不能改」只由 row.editable 决定：项目级的是别人的文件，
 // 改了会在下次升级时被覆盖，用户自己都说不清「我明明改过」。
-import { computed, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
-import CodeEditor from '@/components/common/CodeEditor.vue'
+// 编辑器（codemirror）是重物：抽屉打开才加载，技能列表页不陪绑半兆脚本。
+const CodeEditor = defineAsyncComponent(() => import('@/components/common/CodeEditor.vue'))
 import type { SkillRow } from '@/types/api'
 
 const props = defineProps<{

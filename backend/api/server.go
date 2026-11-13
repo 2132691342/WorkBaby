@@ -228,6 +228,10 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/skills/import", s.skillImport)
 	g.POST("/skills/delete", s.skillDelete)
 	g.POST("/skills/reset", s.skillReset)
+	// 提示词模板
+	g.GET("/templates", s.templatesList)
+	g.POST("/templates/save", s.templateSave)
+	g.POST("/templates/delete", s.templateDelete)
 	g.GET("/mcp", s.mcpList)
 	g.POST("/mcp/save", s.mcpSave)
 	g.POST("/mcp/toggle", s.mcpToggle)

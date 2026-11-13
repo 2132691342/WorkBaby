@@ -34,6 +34,8 @@ settings: {
     lang: '语言',
     langHint: '界面文案语言；改完立即生效',
     fontScale: '界面字号',
+    mentionSessions: '@ 引用最近会话条数',
+    mentionSessionsHint: '输入框里按 @ 能引用几条最近的对话当上下文',
     reduceMotion: '减少动效',
     reduceMotionHint: '关掉过渡与呼吸动画',
     diagFailures: '失败记录 {n}',

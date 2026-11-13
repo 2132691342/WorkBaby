@@ -124,17 +124,19 @@ export interface QueuedMessages {
  * - image：走引擎 prompt 的 images 字段（唯一能传二进制的通道）。
  */
 export interface ChatAttachment {
-  attachment_kind: 'file' | 'image'
+  attachment_kind: 'file' | 'image' | 'session'
   file_path?: string
   file_name?: string
   image_base64?: string
   image_mime?: string
+  attachment_body?: string
 }
 
 export interface SlashCommand {
   command_name: string
   command_source: string
   command_desc?: string
+  command_body?: string
 }
 
 export interface ChatState {
@@ -152,7 +154,7 @@ export interface ChatState {
   stats?: SessionStats
   history: HistoryTurn[]
   todos?: TodoItem[]
-  /** 是否处于计划模式：由 pi-plan-mode 存在会话文件里的开关状态回放而来 */
+  /** 是否处于计划模式：由会话文件里的 plan-mode 开关条目回放而来 */
   plan_mode: boolean
   commands: SlashCommand[]
   caps: EngineCaps
@@ -160,7 +162,7 @@ export interface ChatState {
   bind_err?: string
 }
 
-/** 待办面板上的一条任务（rpiv-todo 的 todo 工具调用派生）。 */
+/** 待办面板上的一条任务（由引擎 todo 工具调用派生）。 */
 export interface TodoItem {
   todo_id: number
   todo_subject: string
