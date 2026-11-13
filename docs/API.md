@@ -85,6 +85,7 @@
 | 端点 | 方法 | 说明 |
 |---|---|---|
 | `/models` | GET | 全部服务商的模型平铺（对话页模型下拉的数据源） |
+| `/models/defaults` | GET / POST | 新会话的起步设置：默认服务商 / 默认模型 / 默认思考档。POST 的入参 `{ default_provider, default_model, default_thinking_level }`，空串表示清掉该键 |
 | `/providers` | GET | 服务商视图（含凭据状态，密钥恒为掩码） |
 | `/providers/upsert` | POST | `{ provider_name, base_url, api_protocol, auth_kind, api_key, models }`；`api_key` 空串 = 保留原值 |
 | `/providers/delete` | POST | `{ provider_name }`；服务商与其模型一并清 |
@@ -95,6 +96,9 @@
 
 **协议**：只实现 OpenAI 兼容（`/chat/completions`）。
 `api_protocol` 字段保留给将来接别的协议，目前认 `openai`。
+
+**默认模型**与「当前会话的模型」是两件事：后者由引擎按会话记住，
+前者管下一次开新会话时选谁。两者混在一个控件里，用户会以为改了就换掉进行中的对话。
 
 ## 技能
 

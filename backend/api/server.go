@@ -214,6 +214,8 @@ func (s *Server) mount(engine *gin.Engine) {
 	g.POST("/providers/model/delete", s.providerModelDelete)
 	g.POST("/providers/models", s.providerProbe)
 	g.POST("/providers/test", s.providerProbe)
+	g.GET("/models/defaults", s.modelDefaults)
+	g.POST("/models/defaults", s.modelDefaultsSave)
 
 	// 技能 / MCP
 	g.GET("/skills", s.skillsList)

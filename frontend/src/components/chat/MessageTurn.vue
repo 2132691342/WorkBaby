@@ -5,6 +5,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
+import { fmtCount, fmtMs } from '@/utils/format'
 import TurnBlocks from '@/components/chat/TurnBlocks.vue'
 import MarkdownBlock from '@/components/chat/MarkdownBlock.vue'
 import TurnChanges from '@/components/chat/TurnChanges.vue'
@@ -204,18 +205,6 @@ const metrics = computed(() => {
 })
 
 /** token 数按量级压缩：界面上要能一眼比较，不是要精确到个位。 */
-function fmtCount(n: number): string {
-  if (!n) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`
-  return String(n)
-}
-
-/** 耗时：毫秒在 1 秒以下没有意义（用户看不出差别），秒以上带一位小数。 */
-function fmtMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`
-  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
-}
 </script>
 
 <template>

@@ -5,6 +5,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
+import { fmtCount } from '@/utils/format'
 import { useChatStore } from '@/stores/chat'
 import { useTurnClock } from '@/composables/useTurnClock'
 
@@ -74,9 +75,7 @@ const speed = computed(() => {
 })
 
 function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`
-  return String(n)
+  return fmtCount(n)
 }
 </script>
 

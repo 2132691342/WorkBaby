@@ -16,11 +16,13 @@ type Models struct {
 	Layout pkg.Layout
 	// repo 服务商仓储
 	repo *repo.ProviderRepo
+	// Settings 设置（默认服务商 / 默认模型 / 默认思考档住在这里）
+	Settings *Settings
 }
 
 // NewModels 造一个模型门面。
-func NewModels(layout pkg.Layout, db *repo.DB) *Models {
-	return &Models{Layout: layout, repo: repo.NewProviderRepo(db)}
+func NewModels(layout pkg.Layout, db *repo.DB, settings *Settings) *Models {
+	return &Models{Layout: layout, repo: repo.NewProviderRepo(db), Settings: settings}
 }
 
 // Providers 组装服务商清单。密钥恒为掩码：界面永远拿不到原文。
@@ -225,6 +227,57 @@ func maskKey(key string) string {
 		return "••••"
 	}
 	return key[:4] + "••••" + key[len(key)-4:]
+}
+
+// Defaults 读新会话的起步设置：默认服务商、默认模型与默认思考档。
+func (m *Models) Defaults() domain.ModelDefaultVO {
+	if m.Settings == nil {
+		return domain.ModelDefaultVO{}
+	}
+	return domain.ModelDefaultVO{
+		DefaultProvider:      m.Settings.Get(KeyDefaultProvider),
+		DefaultModel:         m.Settings.Get(KeyDefaultModel),
+		DefaultThinkingLevel: m.Settings.Get(KeyDefaultThinkingLevel),
+		SettingsFile:         m.Settings.Layout.StorePath,
+	}
+}
+
+// SaveDefaults 写默认模型与默认思考档；空串表示把该键删掉（回到引擎默认）。
+// 值不合法就整条拒绝：先写一半再报错，用户会看到一个没保存上的半成品。
+func (m *Models) SaveDefaults(req domain.ModelDefaultSaveREQ) (domain.ModelDefaultVO, error) {
+	provider := strings.TrimSpace(req.DefaultProvider)
+	modelId := strings.TrimSpace(req.DefaultModel)
+	level := strings.TrimSpace(req.DefaultThinkingLevel)
+	// 服务商与模型要一起填或一起留空：只填一半的话，新会话会卡在“找不到模型”。
+	if (provider == "") != (modelId == "") {
+		return domain.ModelDefaultVO{}, pkg.Err(pkg.CodeProviderBad, "默认服务商与默认模型要一起填或一起留空")
+	}
+	if level != "" && !isThinkingLevel(level) {
+		return domain.ModelDefaultVO{}, pkg.Err(pkg.CodeProviderBad, "未知的思考档："+level)
+	}
+	if provider != "" {
+		if _, _, err := m.Lookup(provider, modelId); err != nil {
+			return domain.ModelDefaultVO{}, err
+		}
+	}
+	// 空串就是「清掉该键」：读回来是空串，与没设过等价。
+	if err := m.Settings.SaveSettings(map[string]string{
+		KeyDefaultProvider:      provider,
+		KeyDefaultModel:         modelId,
+		KeyDefaultThinkingLevel: level,
+	}); err != nil {
+		return domain.ModelDefaultVO{}, err
+	}
+	return m.Defaults(), nil
+}
+
+// isThinkingLevel 判断思考档是否在可用集合内。
+func isThinkingLevel(level string) bool {
+	switch level {
+	case "off", "minimal", "low", "medium", "high":
+		return true
+	}
+	return false
 }
 
 // resolveProbe 把探测入参补齐：没给的项从已保存的配置里取。

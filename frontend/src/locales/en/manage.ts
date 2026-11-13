@@ -105,7 +105,16 @@ export default {
     "fetchedEmpty": "That endpoint returned no model list",
     "testProvider": "Test",
     "testOk": "This config works — the upstream has {n} models",
-    "testFail": "This config does not work"
+     "testFail": "This config does not work",
+     "defaultsTitle": "Default model for new sessions",
+     "defaultsHint": "Which provider and model a new session starts with. This is separate from the current session's model, which the engine remembers per session.",
+     "defaultProvider": "Default provider",
+     "defaultModel": "Default model",
+     "defaultThinking": "Default thinking level",
+     "defaultClear": "Follow current",
+     "defaultInherit": "Not set",
+     "defaultPickProviderFirst": "Pick a provider first",
+     "defaultPickModel": "Pick a model"
   },
 
 "skills": {

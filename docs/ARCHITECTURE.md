@@ -243,7 +243,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `plan_mode.go` | 计划模式开关：状态落进会话文件，闸门同步到引擎 |
 | `searcher.go` | 工作区预索引的建索引、检索与 frecency 记账 |
 | `web.go` | 联网门面：配置 → 引擎工具出口 → 界面接口 |
-| `models.go` / `model_probe.go` | 服务商与模型的增删改查、连通性探测 |
+| `models.go` / `model_probe.go` | 服务商与模型的增删改查、连通性探测、密钥掩码、新会话默认模型 |
 | `skills.go` / `skills_scan.go` / `skills_edit.go` / `skill_catalog.go` / `skill_fs.go` | 技能落位、扫描、开关（搬目录）、导入、编辑、新建、删除、重置 |
 | `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手） |
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、改名保护、导出 HTML |

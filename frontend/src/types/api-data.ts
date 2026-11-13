@@ -68,6 +68,27 @@ export interface ModelRow {
   input_kinds?: string[]
 }
 
+/**
+ * 新会话的起步设置：默认服务商、默认模型与默认思考档。
+ *
+ * 与「当前会话的模型」是两件事——那个由引擎按会话记住，
+ * 这个管的是下一次开新会话时选谁。
+ */
+export interface ModelDefaults {
+  default_provider: string
+  default_model: string
+  default_thinking_level: string
+  /** 这几个键住在哪个文件里 */
+  settings_file: string
+}
+
+/** 保存默认模型时的入参：与读回来的形状差一个 settings_file（那是读出来才有的）。 */
+export interface ModelDefaultsSave {
+  default_provider: string
+  default_model: string
+  default_thinking_level: string
+}
+
 // ---------------- 技能 ----------------
 
 export type SkillSourceKind = 'builtin' | 'bundled' | 'managed' | 'project'

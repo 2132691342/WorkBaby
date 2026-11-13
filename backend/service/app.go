@@ -72,7 +72,7 @@ func New(opts Options) *App {
 	// 工作区行上的分支与改动数来自 git，装配时回填一次就够。
 	settings.Git = git
 	sessions := NewSessions(settings, opts.Store, opts.Layout)
-	models := NewModels(opts.Layout, opts.DB)
+	models := NewModels(opts.Layout, opts.DB, settings)
 	webKit := NewWeb(settings)
 	searcher := NewSearcher(settings, opts.DB)
 	sessionStore := agent.NewStore(filepath.Join(opts.Layout.DataDir, "sessions"), settings.Workspace)

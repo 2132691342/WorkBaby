@@ -89,7 +89,8 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 |---|---|
 | `routes_core.go` | `/bootstrap` `/settings` `/workspaces` `/prefs` `/logs` `/engines` `/health` `/apps` `/config` |
 | `routes_chat.go` | `/chat/*` `/messages/*` |
-| `routes_data.go` | `/providers` `/skills` `/mcp` `/sessions` `/files` |
+| `routes_data.go` | `/providers` `/skills` `/mcp` `/sessions` |
+| `routes_files.go` | `/files/*`：工作区文件浏览与编辑 |
 | `routes_git.go` | `/git/*`：状态、差异、历史、分支、提交、stash、推拉、冲突解决 |
 | `routes_web.go` | `/web/*`：联网状态、设置、搜索、抓取 |
 | `routes_index.go` | `/index/*`：索引状态、检索、重建 |
@@ -112,7 +113,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `plan_mode.go` | 计划模式开关：状态落进会话文件，闸门同步到引擎 |
 | `searcher.go` | 工作区预索引的建索引、检索与 frecency 记账 |
 | `web.go` | 联网门面：配置 → 引擎工具出口 → 界面接口 |
-| `models.go` / `model_probe.go` | 服务商与模型的增删改查、连通性探测；密钥恒为掩码 |
+| `models.go` / `model_probe.go` | 服务商与模型的增删改查、连通性探测；密钥恒为掩码；新会话的默认模型 |
 | `skills.go` / `skills_scan.go` / `skills_edit.go` / `skill_catalog.go` / `skill_fs.go` | 技能落位、扫描、开关（搬目录）、导入、编辑、新建、删除、重置 |
 | `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手） |
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、改名保护、导出 HTML |
@@ -184,7 +185,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `locales/` | i18n：`zh-CN/` 与 `en/` 一域一文件 |
 | `components/` | 按域分目录：apps / chat / common / layout / mcp / models / overview / sessions / settings / skills / workspace |
 | `views/` | 12 个路由页：概览 / 对话 / 工作区 / 会话 / 应用 / 模型 / 技能 / MCP / 联网 / 代码 / 用量 / 设置 |
-| `utils/` | `md.ts` 流式 markdown 渲染（块级增量缓存，唯一出口）、`sse.ts` SSE 分帧读取、`diag.ts` 诊断上报 |
+| `utils/` | `md.ts` 流式 markdown 渲染（块级增量缓存，唯一出口）、`sse.ts` SSE 分帧读取、`format.ts` 读数格式化（token 数与耗时）、`diag.ts` 诊断上报 |
 
 ## 关键取舍
 

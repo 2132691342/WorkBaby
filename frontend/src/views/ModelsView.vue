@@ -9,6 +9,7 @@ import AppIcon from '@/components/common/AppIcon.vue'
 import ProviderDialog from '@/components/models/ProviderDialog.vue'
 import ModelTable from '@/components/models/ModelTable.vue'
 import ProviderList from '@/components/models/ProviderList.vue'
+import DefaultModelCard from '@/components/models/DefaultModelCard.vue'
 import { useProviderForm } from '@/composables/useProviderForm'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
@@ -37,7 +38,6 @@ const apiOptions = [
 
 /** pi 就绪才谈得上「配模型」。 */
 const piInstalled = computed(() => Boolean(app.runtime?.engine_ready))
-
 async function loadProviders() {
   loadingProviders.value = true
   try {
@@ -191,6 +191,8 @@ onMounted(() => {
         @test="testProvider"
         @remove-model="removeModel"
       />
+
+      <DefaultModelCard :providers="providers" />
 
       <ModelTable :models="models" :engine-missing="!piInstalled" />
     </div>

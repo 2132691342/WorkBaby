@@ -125,6 +125,25 @@ func (s *Server) providerModelDelete(c *gin.Context) {
 	pkg.OK(c, out)
 }
 
+// modelDefaults 读新会话的起步设置：默认服务商、默认模型与默认思考档。
+func (s *Server) modelDefaults(c *gin.Context) {
+	pkg.OK(c, s.svc.Models.Defaults())
+}
+
+// modelDefaultsSave 写新会话的起步设置。
+func (s *Server) modelDefaultsSave(c *gin.Context) {
+	var req domain.ModelDefaultSaveREQ
+	if !bind(c, &req) {
+		return
+	}
+	out, err := s.svc.Models.SaveDefaults(req)
+	if err != nil {
+		pkg.Fail(c, err)
+		return
+	}
+	pkg.OK(c, out)
+}
+
 // skillsList 技能总表。
 func (s *Server) skillsList(c *gin.Context) {
 	pkg.OK(c, s.svc.Skills.List())
@@ -293,86 +312,4 @@ func (s *Server) mcpRemove(c *gin.Context) {
 		return
 	}
 	pkg.OK(c, out)
-}
-
-// filesList 列目录。
-func (s *Server) filesList(c *gin.Context) {
-	out, err := s.svc.Files.List(strings.TrimSpace(c.Query("path")))
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// filesSearch 按名搜索工作区。
-func (s *Server) filesSearch(c *gin.Context) {
-	out, err := s.svc.Files.Search(c.Query("query"), queryInt(c, "limit", 50))
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// fileRead 读文本文件。
-func (s *Server) fileRead(c *gin.Context) {
-	out, err := s.svc.Files.Read(strings.TrimSpace(c.Query("path")))
-	if err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	pkg.OK(c, out)
-}
-
-// fileSave 保存文本文件（新建与覆盖同一入口）。
-func (s *Server) fileSave(c *gin.Context) {
-	var req domain.FileSaveREQ
-	if !bind(c, &req) {
-		return
-	}
-	if err := s.svc.Files.Save(req); err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	ok(c)
-}
-
-// fileMkdir 新建目录。
-func (s *Server) fileMkdir(c *gin.Context) {
-	var req domain.FilePathREQ
-	if !bind(c, &req) {
-		return
-	}
-	if err := s.svc.Files.Mkdir(req.FilePath); err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	ok(c)
-}
-
-// fileDelete 删除文件或目录（递归）。
-func (s *Server) fileDelete(c *gin.Context) {
-	var req domain.FilePathREQ
-	if !bind(c, &req) {
-		return
-	}
-	if err := s.svc.Files.Delete(req.FilePath); err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	ok(c)
-}
-
-// fileRename 改名或移动。
-func (s *Server) fileRename(c *gin.Context) {
-	var req domain.FileRenameREQ
-	if !bind(c, &req) {
-		return
-	}
-	if err := s.svc.Files.Rename(req); err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	ok(c)
 }

@@ -27,6 +27,8 @@ import type {
   GitStash,
   HealthData,
   McpListData,
+  ModelDefaults,
+  ModelDefaultsSave,
   ModelEntry,
   ModelRow,
   WorkspaceList,
@@ -215,6 +217,9 @@ export const api = {
   probeProvider: (body: ProviderProbeREQ) => post<ProviderProbeRESP>('/providers/models', body),
   deleteProviderModel: (providerName: string, modelId: string) =>
     post<ProvidersView>('/providers/model/delete', { provider_name: providerName, model_id: modelId }),
+  // 新会话的起步设置：默认服务商 / 默认模型 / 默认思考档
+  modelDefaults: () => get<ModelDefaults>('/models/defaults'),
+  saveModelDefaults: (body: ModelDefaultsSave) => post<ModelDefaults>('/models/defaults', body),
 
   // ---- 技能 / MCP ----
   skills: () => get<SkillListData>('/skills'),

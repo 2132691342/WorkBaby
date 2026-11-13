@@ -41,6 +41,8 @@ workbaby.db 是可查询的派生数据，mcp.json 是 MCP 服务器清单**。
 | `workspace.history` | JSON 数组（≤ 24 条） | 工作区历史 |
 | `chat.hide:<会话路径>` | JSON 数组（条目 id） | 单轮隐藏台账 |
 | `model.active_provider` / `model.active_model` | 服务商名 / 模型 ID | 当前生效的模型 |
+| `model.default_provider` / `model.default_model` | 服务商名 / 模型 ID | 新会话的默认模型 |
+| `model.default_thinking_level` | 思考档 | 新会话的默认思考档 |
 | `model.auto_compaction` | `'0'` / `'1'` | 自动压缩开关 |
 | `web.search_kind` | `duckduckgo` / `brave` / `exa` / `tavily` | 联网搜索服务 |
 | `web.search_key` | 搜索服务密钥 | 联网搜索服务 |

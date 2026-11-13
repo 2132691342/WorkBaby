@@ -5,6 +5,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TurnReading } from '@/composables/useMessageFlow'
+import { fmtCount } from '@/utils/format'
 import { useChatStore } from '@/stores/chat'
 
 const { t } = useI18n()
@@ -80,10 +81,7 @@ onBeforeUnmount(() => {
 
 /** token 数按量级压缩：界面上要能一眼比较，不是要精确到个位。 */
 function formatTokens(n: number): string {
-  if (!n) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`
-  return String(n)
+  return fmtCount(n)
 }
 </script>
 

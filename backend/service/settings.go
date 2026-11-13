@@ -36,6 +36,12 @@ const (
 	KeyActiveModel = "model.active_model"
 	// KeyAutoCompaction 自动压缩开关（"0" 为关）
 	KeyAutoCompaction = "model.auto_compaction"
+	// KeyDefaultProvider 新会话的默认服务商
+	KeyDefaultProvider = "model.default_provider"
+	// KeyDefaultModel 新会话的默认模型
+	KeyDefaultModel = "model.default_model"
+	// KeyDefaultThinkingLevel 新会话的默认思考档
+	KeyDefaultThinkingLevel = "model.default_thinking_level"
 	// KeyWebSearchKind 联网搜索服务的种类
 	KeyWebSearchKind = "web.search_kind"
 	// KeyWebSearchKey 联网搜索服务的密钥

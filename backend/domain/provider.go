@@ -47,6 +47,30 @@ type ModelListRESP struct {
 	Models []ModelOptionVO `json:"models"`
 }
 
+// ModelDefaultVO 是新会话的起步设置：默认服务商、默认模型与默认思考档。
+// 与「当前会话的模型」是两件事——那个由引擎按会话记住，这个管的是
+// 下一次开新会话时选谁。两者混在一个控件里，用户会以为改了就换掉进行中的对话。
+type ModelDefaultVO struct {
+	// DefaultProvider 默认服务商
+	DefaultProvider string `json:"default_provider"`
+	// DefaultModel 默认模型 ID
+	DefaultModel string `json:"default_model"`
+	// DefaultThinkingLevel 默认思考档
+	DefaultThinkingLevel string `json:"default_thinking_level"`
+	// SettingsFile 这几个键住在哪个文件里
+	SettingsFile string `json:"settings_file"`
+}
+
+// ModelDefaultSaveREQ 是保存默认模型的入参；空串表示清掉该键（回到引擎默认）。
+type ModelDefaultSaveREQ struct {
+	// DefaultProvider 默认服务商
+	DefaultProvider string `json:"default_provider"`
+	// DefaultModel 默认模型 ID
+	DefaultModel string `json:"default_model"`
+	// DefaultThinkingLevel 默认思考档
+	DefaultThinkingLevel string `json:"default_thinking_level"`
+}
+
 // ProviderVO 是一个服务商在界面上的样子；ApiKey 恒为掩码。
 type ProviderVO struct {
 	// ProviderName 服务商名
