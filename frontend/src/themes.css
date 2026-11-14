@@ -112,6 +112,9 @@
   /* 消息头像（正方形）。助手正文列 = 头像 + 间距，
      纯思考回合与工具组都要按这个缩进对齐 */
   --wb-avatar-size: calc(26px * var(--wb-vw-scale));
+  /* 差异视图的行号列宽：装得下 5 位行号 + 右留白。
+     工具卡与工作区页共用同一套列宽，并排与内联才对得齐。 */
+  --wb-diff-ln: calc(46px * var(--wb-vw-scale));
   --wb-w-input-sm: calc(96px * var(--wb-vw-scale));
 
   /* 动效五档：只解释状态变化，不做装饰 */

@@ -141,11 +141,8 @@ export const useChatStore = defineStore('chat', () => {
     return state
   }
 
-  /**
-   * 引擎就绪后的那一次刷新：只在没有直播轮时落状态。
-   * ready 帧与 chat:start 可能前后脚到，状态回来的路上开新一轮的话，
-   * 这份已过期的快照会把正在直播的界面盖回静止。
-   */
+  // 引擎就绪后的那一次刷新：只在没有直播轮时落状态——ready 帧与 chat:start
+  // 可能前后脚到，过期快照会把正在直播的界面盖回静止。
   async function refreshIfIdle(session = sessionFile.value) {
     if (streaming.value) return
     const state = await api.chatState(session || undefined)
@@ -345,12 +342,8 @@ export const useChatStore = defineStore('chat', () => {
     live.value = { run_id: '', phase: '', tool_name: '', tool_call_id: '', output_tokens: 0, tokens_per_s: 0 }
   }
 
-  /**
-   * 对齐这一轮的开始时刻。
-   *
-   * 只用引擎报的值往**前**对齐，不往后：用户点发送那一刻起表，
-   * 如果引擎受理得晚了（冷启动），把起点改成那个更晚的时刻等于把等待藏起来。
-   */
+  // 对齐这一轮的开始时刻：只用引擎报的值往前对齐——用户点发送那刻起表，
+  // 引擎受理晚了时把起点后移等于把等待藏起来。
   function setRunStart(at: number) {
     if (!at) return
     if (!startedAt.value || at < startedAt.value) startedAt.value = at

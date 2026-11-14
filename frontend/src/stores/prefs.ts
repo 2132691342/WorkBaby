@@ -14,13 +14,8 @@ export const usePrefsStore = defineStore('prefs', () => {
   const loading = ref(false)
   const loadingText = ref(false)
 
-  /**
-   * 拉一次偏好。
-   *
-   * 开机自启的真实值在注册表里，所以这个接口每次都要真读一次，
-   * 不能靠本地缓存——否则用户在任务管理器里禁掉启动项之后，
-   * 开关会一直显示「开」。
-   */
+  // 拉一次偏好：开机自启的真实值在注册表里，每次都要真读——靠本地缓存的话，
+  // 用户在系统里禁掉启动项后开关会一直显示「开」。
   async function load() {
     loading.value = true
     try {

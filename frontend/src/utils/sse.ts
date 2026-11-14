@@ -41,12 +41,8 @@ export const asBool = (v: unknown, fallback = false): boolean => (typeof v === '
 export const readStrings = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 
-/**
- * 窄化一帧安装进度。阶段必须是已知值，其余一律丢弃。
- *
- * 丢弃而不是兜底：界面只认四个阶段，一个不认识的值交下去会让进度面板
- * 显示成一堆看不懂的日志。
- */
+// 窄化一帧安装进度：阶段必须是已知值，其余丢弃而不是兜底——不认识的值
+// 会让进度面板显示成一堆看不懂的日志。
 export function readAppProgress(v: Record<string, unknown>): AppProgress | null {
   const kind = asString(v.progress_kind)
   if (!kind) return null
@@ -156,12 +152,8 @@ export function readPatch(data: Record<string, unknown>): ChatPatch | null {
   }
 }
 
-/**
- * 窄化一帧提问请求。
- *
- * 提问有四种形态（confirm / select / input / editor），它们共用一张卡，
- * 所以这里只收公共字段。
- */
+// 窄化一帧提问请求：四种形态（confirm / select / input / editor）共用一张卡，
+// 这里只收公共字段。
 export function readAsk(v: Record<string, unknown>): AskRequest | null {
   const id = asString(v.ask_id)
   const method = asString(v.ask_method)
@@ -178,12 +170,8 @@ export function readAsk(v: Record<string, unknown>): AskRequest | null {
   }
 }
 
-/**
- * 窄化一组待办任务。
- *
- * 状态必须是三种之一：模型偶尔会给出别的词，
- * 那种行交到面板上会渲染成一个既不是待办也不是完成的样子。
- */
+// 窄化一组待办任务：状态必须是三种之一——模型偶尔给别的词，交到面板会
+// 渲染成既不是待办也不是完成的样子。
 export function readTodos(v: unknown): TodoItem[] {
   if (!Array.isArray(v)) return []
   const out: TodoItem[] = []
@@ -204,12 +192,8 @@ export function readTodos(v: unknown): TodoItem[] {
   return out
 }
 
-/**
- * 读一帧 SSE：信封本身也可能是坏的，坏帧直接丢，不断流。
- *
- * 丢而不是抛：一条坏帧不该让整条事件流断掉——
- * 而「一帧坏帧」在真实环境里是常态（进程被杀时最后半行 JSON）。
- */
+// 读一帧 SSE：信封本身也可能坏，坏帧直接丢不断流——进程被杀时最后半行
+// JSON 这种坏帧在真实环境里是常态。
 export function readFrame(raw: string): StreamFrame | null {
   let parsed: unknown
   try {

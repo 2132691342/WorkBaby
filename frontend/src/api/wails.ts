@@ -6,13 +6,8 @@ import type { Endpoint } from '@wails/WorkBaby/backend/shell/models'
 
 export type { Endpoint }
 
-/**
- * 纯浏览器调试的地址覆盖。用 localStorage 显式打开，不靠「调用失败」去猜。
- *
- * 为什么不用异常来判断：后端装配失败时绑定调用也会抛错，两者混在一起就只能
- * 猜。猜错的表现是把「引擎配置读不了」写成「没有 Wails 绑定」——
- * 用户拿着错误的提示去排查，永远修不好。
- */
+// 纯浏览器调试的地址覆盖：用 localStorage 显式打开，不靠「调用失败」去猜——
+// 装配失败时绑定调用同样抛错，猜错会把错误的排查方向交给用户。
 function devOverride(): Endpoint | null {
   const port = Number(localStorage.getItem('wb.dev.port') ?? 0)
   if (!port) return null
@@ -26,12 +21,7 @@ function devOverride(): Endpoint | null {
   }
 }
 
-/**
- * 取本地服务地址。后端装配失败时把它的原话抛上去，不吞不换。
- *
- * 装配失败的原因（数据目录不可写、端口占用、设置库读不了）只有后端知道，
- * 前端唯一的职责是把它完整显示出来。
- */
+// 取本地服务地址；后端装配失败时把原话抛上去，不吞不换——失败原因只有后端知道。
 export async function getEndpoint(): Promise<Endpoint> {
   return devOverride() ?? App.Endpoint()
 }
@@ -55,12 +45,8 @@ export async function pickFolder(defaultDir: string): Promise<string> {
   }
 }
 
-/**
- * 告诉后端「首屏画完了，可以把窗口显出来」。
- *
- * 窗口在装配阶段就建好了，但那时还是隐藏的：v3 的 Show() 在窗口尚未创建完时
- * 只会建窗而不显形。等这里调用再显示，用户第一眼看到的就是画好的界面。
- */
+// 告诉后端「首屏画完了，可以显窗」：装配阶段建的窗是隐藏的，等这里再显形，
+// 用户第一眼看到的就是画好的界面。
 export async function notifyReady(): Promise<void> {
   try {
     await App.Ready()
@@ -69,13 +55,11 @@ export async function notifyReady(): Promise<void> {
   }
 }
 
-/** 用系统浏览器打开外链。 */
+/** 用系统浏览器打开外链。只放行 http/https：伪协议（javascript: 等）不是外链，直接不放；
+ * 纯浏览器调试时没有绑定，无处可开就静默返回，不再另找旁路弹窗。 */
 export async function openExternal(url: string): Promise<void> {
-  try {
-    await App.OpenExternal(url)
-  } catch {
-    window.open(url, '_blank')
-  }
+  if (!/^https?:\/\//i.test(url)) return
+  await App.OpenExternal(url)
 }
 
 export const windowCtl = {
@@ -86,12 +70,8 @@ export const windowCtl = {
   quit: () => void App.Quit(),
 }
 
-/**
- * 执行「关窗时做什么」的选择。只由首次收托盘的对话框调用。
- *
- * 为什么需要它：关闭按钮第一次被按时，后端不知道用户是想收进托盘还是
- * 想关掉——两个都合理。与其猜，不如问一次并把选择记住。
- */
+// 执行「关窗时做什么」的选择（只由首次收托盘的对话框调用）：
+// 关闭意图可能是收托盘也可能是退出，与其猜不如问一次并记住。
 export async function applyCloseDecision(action: 'tray' | 'quit', remember: boolean): Promise<void> {
   await App.ApplyCloseDecision(action, remember)
 }

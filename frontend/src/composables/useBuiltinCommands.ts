@@ -39,12 +39,8 @@ const DEFS: BuiltinDef[] = [
   { key: 'clone', nameKey: 'chat.slashClone', descKey: 'chat.slashCloneDesc', cap: 'session_clone' },
 ]
 
-/**
- * 内置命令的清单与执行。
- *
- * 执行返回的错误话术由调用方显示——这里不弹提示，
- * 否则「谁在提示」会分散到三个文件里。
- */
+// 内置命令的清单与执行：错误话术由调用方显示，这里不弹提示——
+// 「谁在提示」不能散到三个文件里。
 export function useBuiltinCommands() {
   const chat = useChatStore()
   const app = useAppStore()
@@ -118,12 +114,8 @@ export function useBuiltinCommands() {
     return t('chat.slashCopyEmpty')
   }
 
-  /**
-   * 导出当前会话为 Markdown。
-   *
-   * 用浏览器下载而不是系统保存对话框：内容是我们自己拼的，走 Blob 少一次
-   * 跨层调用；用户还能从下载目录里找到它。
-   */
+  // 导出当前会话为 Markdown：用浏览器下载而不是系统保存对话框——内容是自己
+  // 拼的，走 Blob 少一次跨层调用，用户也能从下载目录里找到它。
   async function exportMarkdown(): Promise<string> {
     if (!chat.sessionFile) return t('chat.slashNeedSession')
     const lines: string[] = []
@@ -145,10 +137,7 @@ export function useBuiltinCommands() {
     return t('chat.slashExportDone')
   }
 
-  /**
-   * 导出的单文件 HTML：样式、代码高亮全部内联，
-   * 比前端拼的 Markdown 更接近终端里的原貌。文件名由后端按会话名给。
-   */
+  // 导出的单文件 HTML：样式与代码高亮全部内联，文件名由后端按会话名给。
   async function exportHTML(): Promise<string> {
     if (!chat.sessionFile) return t('chat.slashNeedSession')
     const res = await api.exportSessionHTML(chat.sessionFile)

@@ -8,6 +8,8 @@ import { LineChart, BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import AppIcon from '@/components/common/AppIcon.vue'
+import WbSeg from '@/components/common/WbSeg.vue'
+import type { SegItem } from '@/types/ui'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
@@ -22,6 +24,11 @@ const app = useAppStore()
 const rows = ref<SessionRow[]>([])
 const loading = ref(false)
 const span = ref<'today' | 'week' | 'month' | 'total'>('week')
+
+/** 时间窗分段：文案走 i18n，值就是 span 本身。 */
+const spanItems = computed<SegItem[]>(() =>
+  (['today', 'week', 'month', 'total'] as const).map((key) => ({ value: key, label: t(`usage.${key}`) })),
+)
 const trendEl = ref<HTMLElement | null>(null)
 const modelEl = ref<HTMLElement | null>(null)
 let trendChart: echarts.ECharts | null = null
@@ -223,11 +230,7 @@ onUnmounted(() => {
         <p class="page-sub">{{ t('usage.subtitle') }}</p>
       </div>
       <div class="head-actions">
-        <div class="seg">
-          <button v-for="key in (['today', 'week', 'month', 'total'] as const)" :key="key" class="seg-btn" :class="{ active: span === key }" @click="span = key">
-            {{ t(`usage.${key}`) }}
-          </button>
-        </div>
+        <WbSeg v-model="span" :items="spanItems" />
         <button class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load">
           <AppIcon name="refresh" :size="15" />
         </button>

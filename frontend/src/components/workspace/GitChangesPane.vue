@@ -235,11 +235,20 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
   font-size: var(--wb-fs-3xs);
   font-weight: 600;
   white-space: nowrap;
-  transition: color var(--wb-dur-fast) var(--wb-ease);
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
 .act:hover:not(:disabled) {
   color: var(--wb-brand);
+  transform: scale(var(--wb-press-hover));
+}
+
+/* 文字级小按钮同样要按下反馈：缩放刻度复用全站令牌 */
+.act:active:not(:disabled) {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 
 .push {

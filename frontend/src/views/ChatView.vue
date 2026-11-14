@@ -42,13 +42,8 @@ const mainEl = ref<HTMLElement | null>(null)
 const bottomStack = ref<HTMLElement | null>(null)
 let bottomRo: ResizeObserver | null = null
 
-/**
- * 全局快捷键：Ctrl+K 归命令面板（外壳里），这里只留 Ctrl+J 与 Esc。
- *
- * Ctrl+J 是「我要说话」——不管光标在哪都回到输入框；
- * Esc 是「先不管这段授权提示」——它贴在消息上方，不关掉就一直在占位。
- * 其他都交给控件自己的 Enter / 方向键，不在全局抢按键。
- */
+// 全局快捷键只留 Ctrl+J（回输入框）与 Esc（收起授权提示）：
+// Ctrl+K 归命令面板，其余交给控件自己的按键，不在全局抢。
 function onKeydown(event: KeyboardEvent) {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
     event.preventDefault()
@@ -58,12 +53,8 @@ function onKeydown(event: KeyboardEvent) {
 
 const hasTurn = computed(() => Boolean(chat.turn))
 
-/**
- * 拼在历史后面的当前轮。
- *
- * 单独算出来交给 HistoryList：那一层才知道「历史最后一行是什么角色」，
- * 从而决定这一轮要不要出那个「assistant」头。
- */
+// 拼在历史后面的当前轮：单独算出来交给 HistoryList——那一层才知道
+// 历史最后一行是什么角色，决定这一轮要不要出头。
 const liveTurn = computed(() => {
   const turn = chat.turn
   if (!turn) return null
@@ -94,13 +85,8 @@ function scrollToBottom(smooth = false) {
   el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
 }
 
-/**
- * 连续钉底几次。
- *
- * content-visibility: auto 让远处回合先按 120px 估高，一帧之后才展开成真实高度；
- * 只钉一次会被后续的高度变化抛在后面，表现出来是「打开就在中间」。
- * 只在真的贴底时才钉，否则会把正在往回翻的用户拽到底。
- */
+// 连续钉底几次：content-visibility 让远处回合先按 120px 估高，只钉一次会被
+// 后续高度变化抛在后面（打开就在中间）；只在真的贴底时才钉。
 async function pinBottom(rounds = 3): Promise<void> {
   for (let i = 0; i < rounds; i++) {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
@@ -142,11 +128,8 @@ async function openSession(path: string) {
   await pinBottom()
 }
 
-/**
- * 侧栏里的会话被删 / 改名了。
- * 删的是正看着的这个时，后端已经先把引擎切到了新会话（删除的防护动作），
- * 这里跟着 refresh 对齐——不能调 newChat，那会再多开一条空会话文件。
- */
+// 侧栏里的会话被删 / 改名了：删的是正看着的这个时，后端已把引擎切到新会话，
+// 这里跟着 refresh 对齐——不能调 newChat，那会多开一条空会话。
 async function onSessionChanged(path?: string) {
   if (path && path === chat.sessionFile) {
     // 显式传空串：refresh 的缺省参数会带上还没更新的旧路径（刚被删的那个）。
@@ -253,7 +236,7 @@ watch(
         </div>
       </div>
 
-      <button v-if="!pinned" class="jump-bottom" @click="scrollToBottom(true)">
+      <button v-if="!pinned" class="jump-bottom" :title="t('chat.jumpBottom')" :aria-label="t('chat.jumpBottom')" @click="scrollToBottom(true)">
         <AppIcon name="chevron" :size="13" />
       </button>
 

@@ -20,6 +20,7 @@ chat: {
     collapse: '收起',
     viewChanges: '看改动',
     liveAnswering: '正在回答',
+    jumpBottom: '回到最新',
     liveTool: '正在运行 {name}',
     liveStalled: '引擎已经一分钟没有新输出了',
     emptyTitle: '开始一轮对话',
@@ -152,7 +153,8 @@ history: {
     justNow: '刚刚',
     minutesAgo: '{n} 分钟前',
     hoursAgo: '{n} 小时前',
-    daysAgo: '{n} 天前'
+    daysAgo: '{n} 天前',
+    monthsAgo: '{n} 个月前'
   },
 
 thinking: {
@@ -180,6 +182,8 @@ sessions: {
     deleted: '已删除',
     emptyTitle: '还没有会话',
     emptyHint: '在「对话」里发一句话，这里就会出现第一条。',
+    noMatchTitle: '没有找到匹配的会话',
+    noMatchHint: '换个词试试：标题、模型名、目录名，或者两个字以上的正文关键词。',
     messages: '条消息',
     tokens: 'tokens',
     cost: '花费',

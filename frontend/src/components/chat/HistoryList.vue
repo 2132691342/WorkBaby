@@ -9,10 +9,7 @@ import type { ChatBlock, HistoryTurn } from '@/types/api'
 
 const props = defineProps<{
   turns: HistoryTurn[]
-  /**
-   * 拼在历史后面的当前轮（流式进行中）。
-   * 它的头要不要出，取决于历史最后一行是不是同一个角色。
-   */
+  /** 拼在历史后面的当前轮（流式进行中）；头要不要出，取决于历史最后一行是不是同一个角色 */
   live?: {
     userMessage: string
     blocks: ChatBlock[]
@@ -36,14 +33,8 @@ const continuedFlags = computed<boolean[]>(() =>
   }),
 )
 
-/**
- * 直播的用户那句要不要画。
- *
- * 服务器历史里已经有这句了就不画——否则用户会看到自己刚发的话出现两次。
- *
- * 只看「最后一行是不是这句用户消息」：它不需要扫内容，
- * 所以可以跟着每一个 delta 重算而几乎不花代价。
- */
+// 直播的用户那句要不要画：服务器历史里已有就不画，否则刚发的话出现两次；
+// 判据只看最后一行是不是它，可跟着每个 delta 重算。
 const liveUserVisible = computed(() => {
   if (!props.live) return false
   const tail = props.turns.at(-1)
@@ -51,14 +42,8 @@ const liveUserVisible = computed(() => {
   return !(tail.turn_role === 'user' && (tail.turn_blocks?.[0]?.block_text ?? '') === props.live.userMessage)
 })
 
-/**
- * 直播的助手回复要不要画。
- *
- * 整轮已经在服务器历史里 → 不画。而「整轮是不是已经在历史里」需要逐块比对，
- * 代价与历史长度成正比——**只在流停了之后才算**：
- * 流式期间历史不可能已经收下正在长的那一轮，拿每一个 delta 去扫一遍历史
- * 只会把主线程拖成「一段一段地跳」。
- */
+// 直播的助手回复要不要画：整轮已在服务器历史里就不画；逐块比对代价与历史长度成正比，
+// 只在流停了之后才算——流式期间历史不可能收下正在长的那一轮。
 const liveAssistantVisible = computed(() => {
   if (!props.live) return false
   if (props.live.streaming) return true
@@ -73,15 +58,8 @@ const liveContinued = computed(() => {
   return last?.turn_role === 'assistant'
 })
 
-/**
- * 这一行是不是它那一轮的**最后**一条。
- *
- * 读数只挂在最后一条上：引擎每条助手消息都带一份累计用量，
- * 而一轮（一次提问到一次回答）里往往有好几条助手消息（工具调用前后各一条）。
- * 每条都摆一次读数，看起来就像「这一轮花了八次钱」。
- *
- * 判据是「下一条是不是另一个角色」：同角色的下一条说明这一轮还没结束。
- */
+// 这一行是不是它那一轮的最后一条：读数只挂最后一条（引擎每条助手消息都带累计用量，
+// 每条都摆会像花了八次钱）；判据是下一条是不是换角色。
 function isRoundEnd(index: number): boolean {
   const next = props.turns[index + 1]
   return !next || next.turn_role !== props.turns[index].turn_role

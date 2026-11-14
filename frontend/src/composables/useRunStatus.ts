@@ -3,23 +3,15 @@
 // 「reset 要清哪些」才说得清。
 import { ref } from 'vue'
 
-/**
- * 上下文占用。
- *
- * 与 ChatState.context_usage 同一形状：界面只关心「用了多少 / 窗口多大」。
- */
+// 上下文占用：与 ChatState.context_usage 同一形状，界面只关心「用了多少 / 窗口多大」。
 export interface ContextUsage {
   usage_tokens: number | null
   context_window: number
   usage_percent: number | null
 }
 
-/**
- * 一轮进行中的实时读数。
- *
- * phase 为空串表示引擎还没报过。它与 statusText 不是一回事：
- * statusText 是扩展自己设的一句话，live 是引擎自身的阶段。
- */
+// 一轮进行中的实时读数：phase 空串表示引擎还没报过，它与 statusText
+// （扩展设的一句话）不是一回事，live 是引擎自身的阶段。
 export interface ChatLive {
   run_id: string
   phase: '' | 'thinking' | 'text' | 'tool'
@@ -77,12 +69,8 @@ export function useRunStatus() {
     notices.value = notices.value.filter((n) => n.id !== id)
   }
 
-  /**
-   * 设状态文字。
-   *
-   * key 与 text 任一为空就清掉：引擎报「这一项没有值」时，
-   * 界面上留一条空行比不留更糟。
-   */
+  // 设状态文字：key 与 text 任一为空就清掉——引擎报「这一项没有值」时，
+  // 界面上留一条空行比不留更糟。
   function setStatus(key: string, text: string): void {
     if (key === '' || text === '') {
       statusText.value = ''

@@ -26,12 +26,8 @@ export interface MenuItem {
 
 type MenuKind = 'slash' | 'mention' | null
 
-/**
- * 绑定两个菜单到草稿。
- *
- * pickPrompt 在选中引擎命令时被调用，由输入区决定「怎么填进框、焦点放哪」；
- * 内置命令由这里直接执行（它不需要输入框参与）。
- */
+// 绑定两个菜单到草稿：pickPrompt 由输入区决定怎么填框与焦点放哪，
+// 内置命令在这里直接执行（不需要输入框参与）。
 export function useComposerMenu(
   draft: Ref<string>,
   pickPrompt: (name: string) => void,
@@ -60,12 +56,8 @@ export function useComposerMenu(
 
   watch(draft, detect)
 
-  /**
-   * 过滤词变了就把高亮拉回第一项。
-   *
-   * 不这么做的话：候选列表从 8 项缩到 2 项，而高亮还停在第 7 项——
-   * 此时按回车选中的是一个看不见的条目（或者什么都没发生）。
-   */
+  // 过滤词变了就把高亮拉回第一项：否则候选从 8 项缩到 2 项而高亮还停在第 7 项，
+  // 回车会选中一个看不见的条目。
   watch(
     () => draft.value.slice(1),
     () => {

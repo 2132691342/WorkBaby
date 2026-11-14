@@ -10,10 +10,7 @@ export function useEngineModels() {
   const modelCache = ref<ModelRow[]>([])
   const loading = ref(false)
 
-  /**
-   * 拉可选模型清单。失败不抛：模型清单拉不到时输入区仍应可用，
-   * 只是下拉里只剩「当前模型」一项。
-   */
+  // 拉可选模型清单，失败不抛：拉不到时输入区仍应可用，只是下拉里只剩「当前模型」。
   async function loadModels(force = false): Promise<ModelRow[]> {
     if (!force && modelCache.value.length) return modelCache.value
     if (loading.value) return modelCache.value

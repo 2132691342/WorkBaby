@@ -43,13 +43,8 @@ watch(
   (i) => void nextTick(() => ensureVisible(i)),
 )
 
-/**
- * 把第 i 项带进可视区。
- *
- * 用容器自己的 scrollTop 算，而不是 el.scrollIntoView()：
- * 后者会滚动所有可滚动的祖先，于是「菜单里按一下 ↓」把整个聊天区
- * 一起挪走了 —— 用户看到的是页面跳了一下，而高亮项还没对准。
- */
+// 把第 i 项带进可视区：用容器 scrollTop 自己算——scrollIntoView 会连带滚动
+// 所有可滚动祖先，把整个聊天区挪走。
 function ensureVisible(i: number): void {
   const box = listEl.value
   if (!box) return
@@ -70,12 +65,8 @@ function onMentionPickSession(sessionPath: string, title: string): void {
   emit('pickSession', sessionPath, title)
 }
 
-/**
- * 按住不放：不要让输入框丢焦点。
- *
- * 一旦焦点跑到按钮上，↑↓ 与回车就不再送到输入框，
- * 键盘导航整套失效（keepFocus 专门挡掉这个坑）。
- */
+// 按住不放时不让输入框丢焦点：焦点跑到按钮上，↑↓ 与回车就不再送到输入框，
+// 键盘导航整套失效。
 function keepFocus(event: PointerEvent): void {
   const el = event.target as HTMLElement | null
   if (el?.closest('input, textarea')) return
@@ -184,7 +175,14 @@ function tagClass(source: MenuItem['source']): string {
   cursor: pointer;
   transition:
     background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+
+/* 整行可点项：按下只缩不放（放大会溢出被裁），缩放刻度复用全站令牌 */
+.pop-row:active {
+  transform: scale(var(--wb-press-row-active));
+  transition-duration: 60ms;
 }
 
 .pop-row:hover,

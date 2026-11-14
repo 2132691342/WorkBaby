@@ -350,10 +350,18 @@ defineExpose({ load, openFile })
   border-radius: var(--wb-r-xs);
   cursor: pointer;
   white-space: nowrap;
-  transition: color var(--wb-dur-fast) var(--wb-ease);
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
+/* 面包屑是小控件：悬停放大、按下缩小，与全站按钮同一组刻度 */
 .crumb:hover {
   color: var(--wb-brand);
+  transform: scale(var(--wb-press-hover));
+}
+.crumb:active {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 .crumb.last {
   color: var(--wb-ink);
@@ -409,11 +417,19 @@ defineExpose({ load, openFile })
   display: inline-flex;
   transition:
     color var(--wb-dur-fast) var(--wb-ease),
-    background-color var(--wb-dur-fast) var(--wb-ease);
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
+
+/* 行内小按钮：悬停放大、按下缩小，刻度复用全站令牌 */
 .row-btn:hover:not(:disabled) {
   color: var(--wb-brand);
   background: var(--wb-hover);
+  transform: scale(var(--wb-press-hover));
+}
+.row-btn:active:not(:disabled) {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 .row-btn:disabled {
   opacity: 0.5;

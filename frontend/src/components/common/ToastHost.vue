@@ -152,11 +152,18 @@ const { items, dismiss, hold, runAction } = useToasts()
   color: var(--wb-faint);
   transition:
     background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
+/* 小按钮也要按下反馈：缩放刻度复用全站令牌 */
 .toast-close:hover {
   background: var(--wb-hover);
   color: var(--wb-ink);
+  transform: scale(var(--wb-press-hover));
+}
+.toast-close:active {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 </style>

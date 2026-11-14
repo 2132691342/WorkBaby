@@ -41,6 +41,8 @@ export default {
     "diffMode": "Toggle inline / side-by-side",
     "diffSide": "Side",
     "diffInline": "Inline",
+    "prevChange": "Previous change",
+    "nextChange": "Next change",
     "fetch": "Fetch",
     "pull": "Pull",
     "push": "Push",

@@ -46,12 +46,8 @@ function writeAll(all: Record<string, string>): void {
   }
 }
 
-/**
- * 把一个草稿 ref 绑定到会话。
- *
- * sessionFile 变化时先存旧的、再载入新的。两个动作必须成对：
- * 只存不载会让用户看到上一个会话的内容，只载不存会丢东西。
- */
+// 把一个草稿 ref 绑定到会话：sessionFile 变化时先存旧的再载入新的，两个动作
+// 必须成对——只存不载看到上个会话的内容，只载不存丢东西。
 export function useComposerDraft(
   sessionFile: Ref<string>,
   text: Ref<string>,

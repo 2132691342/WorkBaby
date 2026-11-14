@@ -153,12 +153,7 @@ function up(): void {
   void load(idx > 0 ? dirPath.value.slice(0, idx) : '')
 }
 
-/**
- * 把第 i 项带进可视区。
- *
- * 用容器自己的 scrollTop 算，而不是 scrollIntoView：
- * 后者会滚动所有可滚动的祖先，于是「菜单里按一下 ↓」把整个聊天区一起挪走。
- */
+// 把第 i 项带进可视区：用容器 scrollTop 自己算，scrollIntoView 会连带滚动所有可滚动祖先。
 function ensureVisible(i: number): void {
   const box = listEl.value
   if (!box) return
@@ -307,11 +302,21 @@ onMounted(() => {
   font-size: var(--wb-fs-2xs);
   color: var(--wb-mute);
   cursor: pointer;
+  transition:
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
+/* 面包屑是小控件：悬停放大、按下缩小，与全站按钮同一组刻度 */
 .crumb:hover {
   background: var(--wb-hover);
   color: var(--wb-brand);
+  transform: scale(var(--wb-press-hover));
+}
+.crumb:active {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 
 .sep {
@@ -346,6 +351,16 @@ onMounted(() => {
   font-size: var(--wb-fs-2xs);
   text-align: left;
   cursor: pointer;
+  transition:
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+
+/* 整行可点项：按下只缩不放，缩放刻度复用全站令牌 */
+.mention-row:active {
+  transform: scale(var(--wb-press-row-active));
+  transition-duration: 60ms;
 }
 
 .mention-row:hover,

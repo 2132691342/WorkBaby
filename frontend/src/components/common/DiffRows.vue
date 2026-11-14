@@ -22,6 +22,13 @@ function rowClass(line: DiffLine | undefined): string {
   return ''
 }
 
+// 一行的跳转身份：折叠会让可见下标与全量下标错开，行号折叠前后稳定，
+// 「跳到第 N 处改动」要的正是它；hunk / 文件头没有行号，退回文本。
+function rowKey(line: DiffLine): string {
+  if (line.old_no || line.new_no) return `${line.old_no}-${line.new_no}`
+  return line.line_text ?? ''
+}
+
 /** 并排的一对：删除在左、新增在右；上下文行两侧同文。 */
 function sides(pair: DiffLine[]): { left?: DiffLine; right?: DiffLine } {
   if (pair.length === 2) return { left: pair[0], right: pair[1] }
@@ -32,10 +39,7 @@ function sides(pair: DiffLine[]): { left?: DiffLine; right?: DiffLine } {
   return { left: only, right: only }
 }
 
-/**
- * 内联行的配对行：同一改动里第 i 条删除配第 i 条新增。
- * 折叠只裁上下文行，增删段是连续的，配对不受折叠影响。
- */
+// 内联行的配对行：同一改动里第 i 条删除配第 i 条新增；折叠只裁上下文行，配对不受影响。
 const inlinePartners = computed(() => {
   const map = new Map<DiffLine, DiffLine>()
   for (const pair of pairRuns(props.lines ?? [])) {
@@ -69,12 +73,26 @@ function segs(line: DiffLine | undefined, partner: DiffLine | undefined): Segmen
       </div>
     </template>
     <template v-else>
-      <div v-for="(line, i) in lines ?? []" :key="`i-${i}`" class="diff-row" :class="rowClass(line)">
-        <span class="ln">{{ line.old_no || '' }}</span>
-        <span class="ln">{{ line.new_no || '' }}</span>
-        <span class="tx">
-          <span v-for="(seg, si) in segs(line, inlinePartners.get(line))" :key="si" :class="{ wchg: seg.changed }">{{ seg.text }}</span>
-        </span>
+      <!-- data-row 用行号作身份：折叠后可见行下标与全量下标不一致，
+           而行号在折叠前后都稳定，跳转才落得准。hunk / 文件头没有行号，用文本。 -->
+      <div
+        v-for="(line, i) in lines ?? []"
+        :key="`i-${i}`"
+        :data-row="rowKey(line)"
+        class="diff-row"
+        :class="rowClass(line)"
+      >
+        <!-- hunk 与文件头不参与行号列：它们是分段路标，单独占一整行 -->
+        <template v-if="line.line_kind === 'hunk' || line.line_kind === 'file'">
+          <span class="tx" :class="rowClass(line)">{{ line.line_text }}</span>
+        </template>
+        <template v-else>
+          <span class="ln">{{ line.old_no || '' }}</span>
+          <span class="ln">{{ line.new_no || '' }}</span>
+          <span class="tx">
+            <span v-for="(seg, si) in segs(line, inlinePartners.get(line))" :key="si" :class="{ wchg: seg.changed }">{{ seg.text }}</span>
+          </span>
+        </template>
       </div>
     </template>
   </div>
@@ -87,10 +105,11 @@ function segs(line: DiffLine | undefined, partner: DiffLine | undefined): Segmen
   line-height: 1.55;
 }
 
-/* 内联：三列 —— 旧行号 / 新行号 / 正文 */
+/* 内联：三列 —— 旧行号 / 新行号 / 正文。
+   行号列宽按「最多 5 位」留：超过 9999 行的大文件不会把正文挤扁。 */
 .diff-row {
   display: grid;
-  grid-template-columns: 44px 44px 1fr;
+  grid-template-columns: var(--wb-diff-ln) var(--wb-diff-ln) minmax(0, 1fr);
   padding: 0 var(--wb-sp-2);
   white-space: pre;
 }
@@ -99,7 +118,7 @@ function segs(line: DiffLine | undefined, partner: DiffLine | undefined): Segmen
    第三个格子带一条左竖线，是「改动前 / 改动后」的分界。 */
 .pair-row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px minmax(0, 1fr);
+  grid-template-columns: var(--wb-diff-ln) minmax(0, 1fr) var(--wb-diff-ln) minmax(0, 1fr);
   padding: 0 var(--wb-sp-1);
   white-space: pre;
 }
@@ -130,9 +149,16 @@ function segs(line: DiffLine | undefined, partner: DiffLine | undefined): Segmen
   background: color-mix(in srgb, var(--wb-bad) 10%, transparent);
   color: var(--wb-ink);
 }
+
+/* hunk 头：跨满三列的一条，主色字 + 淡底。它是「这一段改动从哪开始」的
+   唯一路标，与普通行同列宽时会混进正文里看不见。 */
 .is-hunk {
+  grid-column: 1 / -1;
   color: var(--wb-brand);
   background: var(--wb-hover);
+  font-weight: 600;
+  padding: 1px var(--wb-sp-2);
+  user-select: none;
 }
 .is-file {
   color: var(--wb-faint);

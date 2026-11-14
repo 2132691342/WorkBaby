@@ -118,11 +118,8 @@ export interface QueuedMessages {
   follow_up: string[]
 }
 
-/**
- * 一个附件。两类走两条完全不同的路：
- * - file：只把路径拼进 prompt，引擎用自己的读文件工具去看；
- * - image：走引擎 prompt 的 images 字段（唯一能传二进制的通道）。
- */
+// 一个附件：file 只把路径拼进 prompt（引擎自己用读工具看）；
+// image 走 prompt 的 images 字段（唯一的二进制通道）。
 export interface ChatAttachment {
   attachment_kind: 'file' | 'image' | 'session'
   file_path?: string

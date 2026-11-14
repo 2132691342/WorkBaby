@@ -20,13 +20,8 @@ const offsetX = ref(0)
 /** 面板宽度，与样式里的 width 同一个值（需保持同步）。 */
 const PANEL_WIDTH = 440
 
-/**
- * 把面板夹回视口内。
- *
- * 芯片在底栏中部，而面板有 440px 宽且默认从芯片左缘往右长。
- * 800px 窗口下它会直接溢出屏幕右边——模型列表最重要的一列就被切掉了。
- * 这里没有用到浮层库：只有“夹到视口内”这一条规则，算一次即可。
- */
+// 把面板夹回视口内：芯片在底栏中部而面板 440px 宽，默认往右长会溢出屏幕右边，
+// 把模型列表最要紧的一列切掉；只有一条规则，打开时量一次即可。
 function clampToViewport(): void {
   const el = root.value
   if (!el) return
@@ -54,11 +49,7 @@ watch(open, (on) => {
   void nextTick(clampToViewport)
 })
 
-/**
- * 换完模型就把面板收起来。
- *
- * 不收的话用户得自己点外面——而刚点完一条模型，下一个动作几乎总是回去说话。
- */
+// 换完模型就收起面板：刚点完一条模型，下一个动作几乎总是回去说话。
 watch(
   () => `${chat.model?.provider_name ?? ''}/${chat.model?.model_id ?? ''}`,
   (now, before) => {

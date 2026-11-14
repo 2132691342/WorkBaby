@@ -8,10 +8,7 @@ export interface Segment {
   changed: boolean
 }
 
-/**
- * 把连续的删除段与新增段两两配对。
- * 上下文 / hunk / 文件行自己成对；段内多出来的删除或新增单独成对。
- */
+// 把连续的删除段与新增段两两配对：上下文 / hunk / 文件行自己成对，段内多出来的单独成对。
 export function pairRuns(lines: DiffLine[]): DiffLine[][] {
   const out: DiffLine[][] = []
   let dels: DiffLine[] = []
@@ -43,11 +40,8 @@ export function pairRuns(lines: DiffLine[]): DiffLine[][] {
   return out
 }
 
-/**
- * 一行拆成「没变 / 变了」的片段（公共前后缀剥离，字符级）。
- * 词级 diff 的黄金标准是编辑距离，一屏几十行 × 每行几百字符不值那个代价；
- * 前后缀剥离抓住的恰好就是「改了哪几个字」这个用户想看的东西。
- */
+// 一行拆成「没变 / 变了」的片段（公共前后缀剥离，字符级）：编辑距离不值那个代价，
+// 前后缀剥离抓的恰好是「改了哪几个字」这个用户想看的东西。
 export function wordSegments(text: string, partner: string | undefined): Segment[] {
   if (!text) return []
   if (partner === undefined) return [{ text, changed: false }]

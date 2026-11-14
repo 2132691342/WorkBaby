@@ -65,10 +65,8 @@ function isFetchedOn(entry: ModelEntry): boolean {
   return props.form.models.some((m) => m.model_id === entry.model_id)
 }
 
-/**
- * 点一枚拉取 chip：在草稿里就移出，不在就按默认值加进来。
- * 默认值与手动「加一个模型」一致——空着提交会让引擎侧静默失败。
- */
+// 点一枚拉取 chip：在草稿里就移出，不在就按默认值加进来——默认值与手动
+// 「加一个模型」一致，空着提交会让引擎侧静默失败。
 function toggleFetched(entry: ModelEntry): void {
   const index = props.form.models.findIndex((m) => m.model_id === entry.model_id)
   if (index >= 0) {
@@ -93,12 +91,8 @@ function hasInput(model: ModelEntry, kind: string): boolean {
   return Boolean(model.input_kinds?.includes(kind))
 }
 
-/**
- * 勾 / 取消一种输入模态。
- *
- * 至少保留 text：空数组在引擎那边等价于「什么都收不了」，
- * 而那种配置不会报错、只会静默失败——用户只会看到「模型不回话」。
- */
+// 勾 / 取消一种输入模态，至少保留 text：空数组在引擎侧等价于「什么都收不了」，
+// 不报错只静默失败，用户只会看到「模型不回话」。
 function setInput(index: number, kind: string, on: boolean): void {
   const model = props.form.models[index]
   let next = (model.input_kinds ?? []).filter((k) => k !== kind)

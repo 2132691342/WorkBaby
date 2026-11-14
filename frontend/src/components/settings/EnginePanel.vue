@@ -35,12 +35,8 @@ const readyCount = computed(() => {
   return [rt.node_ready, rt.git_ready, rt.python_ready, rt.engine_ready].filter(Boolean).length
 })
 
-/**
- * 布局里要显示的项。
- *
- * 用 as const 让 key 收窄成字面量联合，layout[key] 才能取到具体字段——
- * 否则它是 string 索引，TS 会拒绝在一个已知结构上做宽索引。
- */
+// 布局里要显示的项：用 as const 把 key 收窄成字面量联合，layout[key] 才能
+// 取到具体字段，否则 string 索引会被 TS 拒绝。
 const pathFields = computed(
   () =>
     [
@@ -51,12 +47,7 @@ const pathFields = computed(
     ] as const,
 )
 
-/**
- * 复制一段文本。
- *
- * 成功要给一次反馈：路径已经很长了，用户点了复制后如果界面毫无变化，
- * 他没法确认到底复制上没有。
- */
+// 复制一段文本：成功要给一次反馈——路径很长，界面毫无变化就确认不了复制上没有。
 async function copyText(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text)

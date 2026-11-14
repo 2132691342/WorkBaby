@@ -5,6 +5,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
+import WbEmpty from '@/components/common/WbEmpty.vue'
 import type { ProviderView } from '@/types/api'
 
 const props = defineProps<{
@@ -76,11 +77,12 @@ function host(url: string): string {
       <span v-if="props.configPath" class="wb-mono registry">{{ props.configPath }}</span>
     </div>
 
-    <div v-if="!props.providers.length && !props.loading" class="wb-empty">
-      <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="cpu" :size="22" /></span>
-      <p class="wb-empty-title">{{ t('models.emptyTitle') }}</p>
-      <p class="wb-empty-hint">{{ t('models.emptyHint') }}</p>
-      <button class="wb-btn sm primary" @click="emit('create')">{{ t('models.addProvider') }}</button>
+    <div v-if="!props.providers.length && !props.loading" class="provider-empty">
+      <WbEmpty icon="cpu" :title="t('models.emptyTitle')" :hint="t('models.emptyHint')">
+        <template #action>
+          <button class="wb-btn sm primary" @click="emit('create')">{{ t('models.addProvider') }}</button>
+        </template>
+      </WbEmpty>
     </div>
 
     <div v-else class="grid">
@@ -331,10 +333,19 @@ function host(url: string): string {
   font-size: var(--wb-fs-3xs);
   line-height: 1;
   padding: 0 1px;
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
+/* 小按钮也要有按下反馈：缩放刻度复用全站令牌 */
 .chip-x:hover:not(:disabled) {
   color: var(--wb-bad);
+  transform: scale(var(--wb-press-hover));
+}
+.chip-x:active:not(:disabled) {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 
 .chip-x:disabled {
@@ -367,26 +378,5 @@ function host(url: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.wb-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding: var(--wb-sp-8);
-  text-align: center;
-}
-
-.wb-empty-title {
-  margin: 0;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-ink);
-}
-
-.wb-empty-hint {
-  margin: 0;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-faint);
 }
 </style>

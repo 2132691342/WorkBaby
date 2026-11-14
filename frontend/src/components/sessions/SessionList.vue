@@ -157,16 +157,47 @@ async function rename(row: SessionRow) {
   }
 }
 
+// 相对时间精确到分 / 时 / 天 / 月，超过一个月才落具体日期——「3 个月前」
+// 更快回答「多久以前聊的」，要定位那天时悬停里有完整时间。
 function relative(ms: number): string {
-  if (!ms) return ''
-  const time = ms
-  if (Number.isNaN(time)) return ''
-  const diff = Date.now() - time
+  if (!ms || Number.isNaN(ms)) return ''
+  const diff = Date.now() - ms
   const minute = 60_000
   if (diff < minute) return t('history.justNow')
   if (diff < 60 * minute) return t('history.minutesAgo', { n: Math.floor(diff / minute) })
   if (diff < 24 * 60 * minute) return t('history.hoursAgo', { n: Math.floor(diff / (60 * minute)) })
-  return t('history.daysAgo', { n: Math.floor(diff / (24 * 60 * minute)) })
+  const day = 24 * 60 * minute
+  if (diff < 30 * day) return t('history.daysAgo', { n: Math.floor(diff / day) })
+  if (diff < 365 * day) return t('history.monthsAgo', { n: Math.floor(diff / (30 * day)) })
+  return new Date(ms).toLocaleDateString()
+}
+
+/** 悬停上的完整时刻：精确定位某一天要靠它。 */
+function stamp(ms: number): string {
+  if (!ms || Number.isNaN(ms)) return ''
+  const date = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+// 把标题按过滤词切成命中 / 未命中片段：高亮只在标题里做——
+// 标题是用户认会话的唯一线索，全文命中但标题不含词时高亮会落空。
+function highlight(title: string): { text: string; hit: boolean }[] {
+  const query = serverQuery.value.trim()
+  if (!query) return [{ text: title, hit: false }]
+  const lower = title.toLowerCase()
+  const needle = query.toLowerCase()
+  const out: { text: string; hit: boolean }[] = []
+  let from = 0
+  for (;;) {
+    const at = lower.indexOf(needle, from)
+    if (at < 0) break
+    if (at > from) out.push({ text: title.slice(from, at), hit: false })
+    out.push({ text: title.slice(at, at + needle.length), hit: true })
+    from = at + needle.length
+  }
+  if (from < title.length) out.push({ text: title.slice(from), hit: false })
+  return out.length ? out : [{ text: title, hit: false }]
 }
 
 watch(
@@ -207,8 +238,8 @@ defineExpose({ load })
     <div class="list-body">
       <div v-if="!filtered.length && !loading" class="list-empty">
         <AppIcon name="clock" :size="28" class="empty-ic" />
-        <p class="empty-title">{{ t('sessions.emptyTitle') }}</p>
-        <p class="empty-hint">{{ t('sessions.emptyHint') }}</p>
+        <p class="empty-title">{{ serverQuery ? t('sessions.noMatchTitle') : t('sessions.emptyTitle') }}</p>
+        <p class="empty-hint">{{ serverQuery ? t('sessions.noMatchHint') : t('sessions.emptyHint') }}</p>
       </div>
 
       <p v-if="loading && !filtered.length" class="list-note">{{ t('common.loading') }}</p>
@@ -223,8 +254,11 @@ defineExpose({ load })
           @click="emit('open', row.session_path)"
         >
           <div class="row-top">
-            <span class="row-title">{{ row.session_title }}</span>
-            <span class="row-time">{{ relative(row.updated_at) }}</span>
+            <!-- 标题按过滤词高亮：搜到的那一段要能一眼看见，否则还要自己找 -->
+            <span class="row-title" :title="row.session_title">
+              <span v-for="(seg, si) in highlight(row.session_title)" :key="si" :class="{ 'is-hit': seg.hit }">{{ seg.text }}</span>
+            </span>
+            <span class="row-time" :title="stamp(row.updated_at)">{{ relative(row.updated_at) }}</span>
           </div>
           <div class="row-meta">
             <span v-if="row.session_model" class="row-model">{{ row.session_model }}</span>
@@ -330,6 +364,16 @@ defineExpose({ load })
   white-space: nowrap;
 }
 
+/* 搜索命中：淡品牌底 + 主色字。不用下划线——等宽小字里下划线会与
+   路径、ID 的下划线语法混在一起。 */
+.row-title .is-hit {
+  border-radius: 2px;
+  padding: 0 1px;
+  background: var(--wb-brand-soft);
+  color: var(--wb-brand);
+  font-weight: 700;
+}
+
 .row-time {
   flex: none;
   font-size: var(--wb-fs-3xs);
@@ -386,6 +430,16 @@ defineExpose({ load })
   opacity: 1;
   transform: none;
   pointer-events: auto;
+}
+
+/* 行内的文字按钮补一层淡底：全局 .wb-btn.text 只换色，
+   而会话行是密集列表——没有底色时鼠标扫过看不出哪个按钮被指着。 */
+.row-actions .wb-btn.text:hover:not(:disabled) {
+  background: var(--wb-hover);
+  border-radius: var(--wb-r-xs);
+}
+.row-actions .wb-btn.text.danger:hover:not(:disabled) {
+  background: var(--wb-bad-soft);
 }
 
 /* 窄栏只藏路径：改名与删除收成两个小图标，悬停才出现——

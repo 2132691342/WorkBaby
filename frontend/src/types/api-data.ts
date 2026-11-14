@@ -68,12 +68,8 @@ export interface ModelRow {
   input_kinds?: string[]
 }
 
-/**
- * 新会话的起步设置：默认服务商、默认模型与默认思考档。
- *
- * 与「当前会话的模型」是两件事——那个由引擎按会话记住，
- * 这个管的是下一次开新会话时选谁。
- */
+// 新会话的起步设置：默认服务商、模型与思考档——与「当前会话的模型」是两件事，
+// 这个管下一次开新会话时选谁。
 export interface ModelDefaults {
   default_provider: string
   default_model: string

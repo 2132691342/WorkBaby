@@ -80,12 +80,8 @@ async function open(commit: GitCommit) {
   }
 }
 
-/**
- * 在展开的提交里选一个文件。
- *
- * 只改选中状态并顺手拉单文件差异：整份提交的差异已经拿到了，
- * 但几千行一起渲染会卡，而用户通常只想看当前选中的那个。
- */
+// 在展开的提交里选一个文件：只改选中态并拉单文件差异——
+// 整份提交的差异几千行一起渲染会卡，用户通常只想看选中的那个。
 async function pickFile(filePath: string) {
   if (!detail.value) return
   pickedFile.value = filePath

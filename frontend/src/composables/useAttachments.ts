@@ -55,10 +55,8 @@ function nextId(): string {
   return `att-${Date.now().toString(36)}-${seq}`
 }
 
-/**
- * 附件列表。返回的操作都带「会失败」的返回值，由调用方提示用户，
- * 而不是在这里弹 toast —— 这个 composable 不该知道界面的语言。
- */
+// 附件列表：返回的操作都带「会失败」的返回值由调用方提示用户——
+// 这个 composable 不该知道界面的语言。
 export function useAttachments() {
   const items = ref<PendingAttachment[]>([])
 
@@ -79,12 +77,8 @@ export function useAttachments() {
     items.value = []
   }
 
-  /**
-   * 加一张图片。返回错误话术（成功返回空串）。
-   *
-   * 为什么返回字符串而不是抛异常：批量粘贴时一张失败不该中断整批，
-   * 调用方要能把「哪张、为什么」逐条汇总给用户。
-   */
+  // 加一张图片，返回错误话术（成功返回空串）：批量粘贴时一张失败不该中断整批，
+  // 调用方要把「哪张、为什么」逐条汇总给用户。
   async function addImage(file: File): Promise<string> {
     const tr = i18n.global.t
     if (images.value.length >= MAX_IMAGES) {
@@ -164,13 +158,8 @@ export function baseName(path: string): string {
   return parts[parts.length - 1] || path
 }
 
-/**
- * 绝对路径 → 工作区相对路径。不在工作区内返回 null。
- *
- * 逐段比大小写：Windows 上盘符可能是 D:\ 也可能是 d:\，直接用 startsWith
- * 会判错，而判错的后果是附件路径变成一整条绝对路径——引擎仍能读，
- * 但界面上显示的是一串很长的本机路径。
- */
+// 绝对路径 → 工作区相对路径，不在工作区内返回 null。逐段比大小写（Windows
+// 盘符大小写不一），startsWith 判错会让附件显示一长串本机路径。
 export function toWorkspaceRelative(fullPath: string, workspace: string): string | null {
   const root = workspace.replace(/[\\/]+$/, '')
   if (!root) return null

@@ -7,6 +7,8 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import AppIcon from '@/components/common/AppIcon.vue'
 import SessionList from '@/components/sessions/SessionList.vue'
+import WbSeg from '@/components/common/WbSeg.vue'
+import type { SegItem } from '@/types/ui'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
 
@@ -16,6 +18,12 @@ const router = useRouter()
 const toasts = useToasts()
 
 const scope = ref<'workspace' | 'all'>('workspace')
+
+/** 范围分段：只看当前目录 / 看全部目录。 */
+const scopeItems = computed<SegItem[]>(() => [
+  { value: 'workspace', label: t('sessions.thisWorkspace') },
+  { value: 'all', label: t('sessions.allWorkspace') },
+])
 const refreshing = ref(false)
 // 列表的重新取数走它暴露的 load()：重挂会让整张列表闪一下还丢滚动位置。
 const listRef = ref<InstanceType<typeof SessionList> | null>(null)
@@ -79,14 +87,7 @@ function onChanged() {
         <p class="page-sub">{{ t('sessions.subtitle', { engine: 'pi' }) }}</p>
       </div>
       <div class="head-actions">
-        <div class="seg">
-          <button class="seg-btn" :class="{ active: scope === 'workspace' }" @click="scope = 'workspace'">
-            {{ t('sessions.thisWorkspace') }}
-          </button>
-          <button class="seg-btn" :class="{ active: scope === 'all' }" @click="scope = 'all'">
-            {{ t('sessions.allWorkspace') }}
-          </button>
-        </div>
+        <WbSeg v-model="scope" :items="scopeItems" />
         <button
           class="wb-btn icon ghost"
           :class="{ 'is-loading': refreshing }"

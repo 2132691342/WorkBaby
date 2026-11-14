@@ -186,10 +186,19 @@ async function redetect(): Promise<void> {
   font-size: var(--wb-fs-3xs);
   line-height: 1;
   padding: 0 1px;
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
+/* 小按钮也要有按下反馈：缩放刻度复用全站令牌 */
 .chip-x:hover {
   color: var(--wb-bad);
+  transform: scale(var(--wb-press-hover));
+}
+.chip-x:active {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 
 .retry-delay {

@@ -8,12 +8,8 @@ import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
 import type { GitFile, GitStatus, GitStash } from '@/types/api'
 
-/**
- * 丢弃改动 / 强推 / 中止这类动作的确认。
- *
- * 话术与按钮文字由调用方给：确认框要复述「将发生什么」，
- * 而那句话只有调用方知道（丢弃的是哪个文件、中止的是哪次合并）。
- */
+// 丢弃改动 / 强推 / 中止这类动作的确认：话术与按钮文字由调用方给——
+// 确认框要复述「将发生什么」，而那句话只有调用方知道。
 async function confirmDanger(
   body: string,
   title: string,
@@ -32,12 +28,8 @@ async function confirmDanger(
   }
 }
 
-/**
- * 绑定一个「当前状态 + 刷新动作」。
- *
- * pending 暴露给界面挂 loading（按钮靠它禁用与转圈），
- * 刷新回调由调用方给——它还要同时刷新分支与历史，那些不在本文件里。
- */
+// 绑定一个「当前状态 + 刷新动作」：pending 暴露给界面挂 loading，
+// 刷新回调由调用方给（它还要同时刷新分支与历史，不在本文件里）。
 export function useGitActions(
   status: () => GitStatus | null,
   reload: () => Promise<void>,
@@ -46,15 +38,8 @@ export function useGitActions(
   const toasts = useToasts()
   const pending = ref('')
 
-  /**
-   * 跑一个 git 写动作，并给出一句结果提示。
-   *
-   * done 是成功话术；为空表示这个动作成功也不必打扰用户
-   * （例如批量暂存：列表自己变了，用户看得见）。
-   *
-   * 成功也要说话：拉取这类动作没有可见副作用时，「点下去没动静」与
-   * 「压根没点中」在界面上长得一模一样。
-   */
+  // 跑一个 git 写动作并给一句结果提示：done 是成功话术，为空表示不必打扰
+  // （批量暂存列表自己变了）；成功也要说话——「点下去没动静」与「没点中」长得一样。
   async function act(
     name: string,
     fn: () => Promise<GitStatus | void>,
@@ -184,12 +169,8 @@ export function useGitActions(
     await act(`branch`, () => api.gitCreateBranch(name), t('workspace.createdBranch', { name }))
   }
 
-  /**
-   * 推送。
-   *
-   * force 分两档：none 普通、with-lease 带租约。裸 --force 不提供——
-   * 它会静默覆盖别人的提交；带租约的确认词由强推面板收集，后端再校验一次。
-   */
+  // 推送：force 分 none 与 with-lease 两档，裸 --force 不提供——它会静默覆盖
+  // 别人的提交；带租约的确认词由强推面板收集，后端再校验一次。
   async function push(force = 'none', confirm = ''): Promise<void> {
     const branch = status()?.branch_name ?? ''
     await act(
@@ -217,12 +198,8 @@ export function useGitActions(
     await act('fetch', () => api.gitFetch(soleRemote()), t('workspace.fetched'))
   }
 
-  /**
-   * 删除分支。
-   *
-   * 只删本地分支，且必须先确认：删掉的分支名要靠 reflog 才能找回来，
-   * 而这是界面上最容易误点的一个动作。
-   */
+  // 删除分支：只删本地分支且必须先确认——删掉的分支名要靠 reflog 才找得回来，
+  // 这是界面上最容易误点的动作。
   async function deleteBranch(name: string): Promise<void> {
     const ok = await confirmDanger(
       t('workspace.deleteBranchConfirm', { name }),

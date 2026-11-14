@@ -8,6 +8,7 @@ import AppIcon from '@/components/common/AppIcon.vue'
 import SkillRowItem from '@/components/skills/SkillRow.vue'
 import SkillDrawer from '@/components/skills/SkillDrawer.vue'
 import SkillCreateDialog from '@/components/skills/SkillCreateDialog.vue'
+import WbEmpty from '@/components/common/WbEmpty.vue'
 import { api } from '@/api/http'
 import { pickFolder } from '@/api/wails'
 import { useRefreshStore } from '@/stores/refresh'
@@ -288,12 +289,16 @@ onMounted(load)
         <input v-model="filter" class="wb-input" :placeholder="t('common.searchPlaceholder')" />
       </div>
 
-      <section v-if="!rows.length && !loading" class="wb-empty">
-        <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="book" :size="22" /></span>
-        <p class="wb-empty-title">{{ t('skills.emptyTitle') }}</p>
-        <p class="wb-empty-hint">{{ t('skills.emptyHint') }}</p>
-        <button class="wb-btn sm primary" @click="createOpen = true">{{ t('skills.create') }}</button>
-      </section>
+      <WbEmpty
+        v-if="!rows.length && !loading"
+        icon="book"
+        :title="t('skills.emptyTitle')"
+        :hint="t('skills.emptyHint')"
+      >
+        <template #action>
+          <button class="wb-btn sm primary" @click="createOpen = true">{{ t('skills.create') }}</button>
+        </template>
+      </WbEmpty>
 
       <p v-else-if="!filtered.length" class="no-match">{{ t('skills.noMatch') }}</p>
 

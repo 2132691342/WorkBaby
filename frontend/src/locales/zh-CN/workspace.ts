@@ -41,6 +41,8 @@ workspace: {
     diffMode: '切换内联 / 并排',
     diffSide: '并排',
     diffInline: '内联',
+    prevChange: '上一处改动',
+    nextChange: '下一处改动',
     fetch: '取回',
     pull: '拉取',
     push: '推送',

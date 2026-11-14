@@ -3,6 +3,7 @@
 // 只有一个引擎，所以没有「装到哪边」这一列；定义来自 mcp.json，那份文件是唯一事实。
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
+import WbEmpty from '@/components/common/WbEmpty.vue'
 import type { McpServer } from '@/types/api'
 
 const props = defineProps<{
@@ -50,11 +51,12 @@ function statusTag(row: McpServer): { cls: string; text: string } {
       </button>
     </div>
 
-    <div v-if="!props.rows.length && !props.loading" class="wb-empty">
-      <span class="wb-tile wb-tile--lg wb-tile--neutral"><AppIcon name="plug" :size="22" /></span>
-      <p class="wb-empty-title">{{ t('mcp.emptyTitle') }}</p>
-      <p class="wb-empty-hint">{{ t('mcp.emptyHint') }}</p>
-      <button class="wb-btn sm primary" @click="emit('create')">{{ t('mcp.add') }}</button>
+    <div v-if="!props.rows.length && !props.loading" class="mcp-empty">
+      <WbEmpty icon="plug" :title="t('mcp.emptyTitle')" :hint="t('mcp.emptyHint')">
+        <template #action>
+          <button class="wb-btn sm primary" @click="emit('create')">{{ t('mcp.add') }}</button>
+        </template>
+      </WbEmpty>
     </div>
 
     <el-table v-else :data="props.rows" size="small">

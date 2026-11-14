@@ -20,6 +20,7 @@ export default {
     "collapse": "Collapse",
     "viewChanges": "View changes",
     "liveAnswering": "Answering",
+    "jumpBottom": "Jump to latest",
     "liveTool": "Running {name}",
     "liveStalled": "No new output from the engine for a minute",
     "emptyTitle": "Start a conversation",
@@ -152,7 +153,8 @@ export default {
     "justNow": "just now",
     "minutesAgo": "{n} min ago",
     "hoursAgo": "{n} h ago",
-    "daysAgo": "{n} d ago"
+    "daysAgo": "{n} d ago",
+    "monthsAgo": "{n} mo ago"
   },
 
 "thinking": {
@@ -180,6 +182,8 @@ export default {
     "deleted": "Deleted",
     "emptyTitle": "No sessions yet",
     "emptyHint": "Send one message in Chat and it shows up here.",
+    "noMatchTitle": "No matching sessions",
+    "noMatchHint": "Try another word: title, model, directory, or two or more characters of message text.",
     "messages": "messages",
     "tokens": "tokens",
     "cost": "cost",

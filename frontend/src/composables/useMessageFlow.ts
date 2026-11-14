@@ -21,23 +21,15 @@ export interface TurnUsagePayload {
   cost_usd?: number
 }
 
-/**
- * 一轮的用量与耗时。
- *
- * 形状与后端的 TurnUsage 一致，另加一个耗时——耗时只有流式那边有
- * （历史里没有时间线）。
- */
+// 一轮的用量与耗时：形状与后端 TurnUsage 一致，另加耗时（只有流式那边有，
+// 历史里没有时间线）。
 export interface TurnReading extends TurnUsage {
   /** 这一轮花了多久（毫秒）；0 表示没有这个事实 */
   elapsed_ms: number
 }
 
-/**
- * 把后端的用量字段名转成界面自己的。
- *
- * 历史轮的 turn_usage 与流式帧的 usage 已经是同一种形状，
- * 所以这里只需补一个耗时，不需要猜两套命名。
- */
+// 把后端的用量字段名转成界面自己的：历史轮与流式帧已是同一种形状，
+// 这里只需补耗时，不需要猜两套命名。
 export function readingFrom(payload: TurnUsagePayload | undefined, elapsedMs = 0): TurnReading | undefined {
   if (!payload) return undefined
   const input = payload.input_tokens ?? 0
@@ -56,15 +48,8 @@ export function readingFrom(payload: TurnUsagePayload | undefined, elapsedMs = 0
   }
 }
 
-/**
- * 两份内容是不是同一轮。
- *
- * 判据是「块数、每块的种类与文本全都一样」——
- * 服务器的历史投影与流式投影来自同一份数据，指纹相同就说明是同一轮。
- *
- * 为什么不用 id 或时间戳：服务器的历史与前端的流是两套数据，
- * 没有共同的标识可以比；而文本是最难出错的那一份。
- */
+// 两份内容是不是同一轮：判据是「块数、每块种类与文本全一样」，两边来自同一份
+// 数据；不用 id 或时间戳是因为两套数据没有共同标识，文本是最难出错的一份。
 function sameBlocks(a: ChatBlock[], b: ChatBlock[]): boolean {
   if (!a.length || a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
@@ -74,13 +59,8 @@ function sameBlocks(a: ChatBlock[], b: ChatBlock[]): boolean {
   return true
 }
 
-/**
- * 这一轮的块是不是已经全在历史里了。
- *
- * 不用整轮指纹相等：历史投影会把「一次回答里连续的多条助手消息」并成一轮，
- * 所以历史那边的块数常常比直播这一边多（直播只有一条消息的块）。
- * 做法是在「最后一个用户消息之后的全部助手块」里搜一段连续子序列。
- */
+// 这一轮的块是不是已经全在历史里：历史投影会把一次回答里的多条助手消息并成
+// 一轮，块数常比直播多，做法是在最后一条用户消息之后的助手块里搜连续子序列。
 function blocksCovered(blocks: ChatBlock[], turns: HistoryTurn[]): boolean {
   if (!blocks.length) return false
   let start = 0
@@ -99,14 +79,8 @@ function blocksCovered(blocks: ChatBlock[], turns: HistoryTurn[]): boolean {
   return false
 }
 
-/**
- * 这一轮在服务器历史里到了哪一步。
- *
- * 0 = 整轮都不在；1 = 用户那句在、回答还没落；2 = 整轮都在。
- *
- * 界面上「直播的那一轮」与「服务器的历史」是两个来源，
- * 而同一轮内容会在两边都出现一次——不判清楚就会画两遍。
- */
+// 这一轮在服务器历史里到了哪一步：0=都不在、1=用户那句在、2=整轮都在——
+// 直播位与历史位是两个来源，不判清楚同一轮会画两遍。
 export function turnPresence(turns: HistoryTurn[], userMessage: string, blocks: ChatBlock[]): 0 | 1 | 2 {
   const tail = turns[turns.length - 1]
   if (!tail) return 0
@@ -146,12 +120,8 @@ export function useMessageFlow() {
     startedAt.value = Date.now()
   }
 
-  /**
-   * 用服务器的历史覆盖本地。
-   *
-   * 已经在历史里的那一轮顺手撤下来：它在直播位与历史位各画一遍，
-   * 用户看到的就是同一段回复出现两次。
-   */
+  // 用服务器的历史覆盖本地：已在历史里的那一轮顺手撤下来——它在直播位与
+  // 历史位各画一遍会变成同一段回复出现两次。
   function applyHistory(turns: HistoryTurn[]): void {
     history.value = turns
     const current = turn.value
@@ -159,13 +129,8 @@ export function useMessageFlow() {
     if (turnPresence(turns, current.user_message, current.blocks ?? []) === 2) turn.value = null
   }
 
-  /**
-   * 收尾：这一轮从流里出来了。
-   *
-   * **不**把这一轮并进本地历史——服务器的历史才是那一轮的真身。
-   * 这一轮留在 turn 里等服务器的历史接上，接上之后 applyHistory 会把它撤下来：
-   * 服务器落盘比收尾帧晚一点，立刻撤会让这一轮凭空消失一下再出现。
-   */
+  // 收尾：这一轮从流里出来了，但不并进本地历史——服务器历史才是那一轮的真身；
+  // 服务器落盘比收尾帧晚一点，立刻撤会让这轮凭空消失一下再出现。
   function finishTurn(): void {
     if (!turn.value) {
       lastFinishedRunId.value = ''
@@ -175,13 +140,8 @@ export function useMessageFlow() {
     dropCache(turn.value.run_id)
   }
 
-  /**
-   * 记下这一轮的用量。
-   *
-   * 引擎每发一条助手消息就报一次用量，每一帧是「到目前为止」的累计值。
-   * 所以取**最后一次非零**的那一帧，而不是累加——累加会把同一批 token 数加好几遍。
-   * 零值不覆盖已有值，否则最后那一帧零就把前面真实的用量抹掉了。
-   */
+  // 记下这一轮的用量：引擎每条助手消息报一次「到目前为止」的累计值，取最后一次
+  // 非零帧而不是累加（累加会把同一批 token 加好几遍）。
   function setUsage(runID: string, payload: TurnUsagePayload | undefined): void {
     if (!runID) return
     const prev = usages.value[runID]

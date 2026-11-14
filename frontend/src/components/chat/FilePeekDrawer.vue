@@ -16,15 +16,8 @@ const diff = ref<GitDiff | null>(null)
 const loading = ref(false)
 const error = ref('')
 
-/**
- * 问 git 要用的路径。
- *
- * 工作区内的折成相对路径（界面上短，也和别处显示的一致）；
- * 工作区外的**原样用绝对路径**——git 本身认绝对路径，
- * 而引擎常在别的项目目录里改东西，那种时候把入口藏掉等于没法看。
- *
- * 判断「在不在工作区」只是为了让界面显示得短一点，不是能不能查的判据。
- */
+// 问 git 要用的路径：工作区内折成相对路径（显示短），工作区外原样用绝对路径——
+// git 认绝对路径，引擎常在别的项目目录里改东西；在不在工作区只是显示口径。
 function toRel(target: string): string {
   const root = (app.workspace || '').replace(/[\\/]+$/, '')
   if (!root) return target

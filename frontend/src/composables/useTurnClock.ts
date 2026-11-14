@@ -3,12 +3,8 @@
 // 各自起一个 interval 会看到两份对不上的时间。
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
-/**
- * 一轮的秒表。
- *
- * active 为真才走：收尾之后停住，读数不再涨——涨着的时间会被当成「还在跑」。
- * startedAt 是毫秒时间戳（0 表示还没有起点，此时不显示）。
- */
+// 一轮的秒表：active 为真才走，收尾后停住（涨着的时间会被当成还在跑）；
+// startedAt 是毫秒时间戳，0 表示没有起点。
 export function useTurnClock(active: () => boolean, startedAt: () => number) {
   const now = ref(Date.now())
   let timer: ReturnType<typeof setInterval> | undefined

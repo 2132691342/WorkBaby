@@ -27,24 +27,13 @@ const props = defineProps<{
   model?: string
   /** 流式渲染最后一块 */
   streaming?: boolean
-  /**
-   * 上一轮是不是同一个角色。
-   *
-   * 为真时这一轮不出头、也不给上外边距——它与上一轮在视觉上是同一坨。
-   * 由父组件算而不是自己看 index==0：列表里还有「切引擎分隔」这种
-   * 不是消息的行，index 相邻的未必属于同一段对话。
-   */
+  /** 上一轮是不是同一个角色：为真时不出头、不给上外边距；由父组件算好传入（列表里还有非消息的行） */
   continued: boolean
   /** 流式进行中的当前轮 */
   live?: boolean
   /** 这一轮出错了 */
   errored?: boolean
-  /**
-   * 这一轮的用量与耗时（助手轮才有）。
-   *
-   * 两个来源：流式那一轮从流里取，历史那一轮从后端投影里取。
-   * 两者字段名不一样（驼峰 vs 下划线），usageFrom 两种都认。
-   */
+  /** 这一轮的用量与耗时（助手轮才有）：流式轮从流里取、历史轮从后端投影取，两种字段名 usageFrom 都认 */
   usage?: TurnReading
   /** 历史轮自带的用量（后端投影带下来的） */
   historyTurn?: HistoryTurn
@@ -52,12 +41,7 @@ const props = defineProps<{
   hid?: string
   /** 直播这一轮的开始时刻（毫秒时间戳）：脚标的计时从它起走 */
   startedAt?: number
-  /**
-   * 要不要显示用量读数。
-   *
-   * 只在最后一轮上显示：引擎每条助手消息都带一份累计用量，
-   * 而后端投影已经把一次回答里的多条助手消息并成了一轮。
-   */
+  /** 要不要显示用量读数：只在最后一轮显示，一次回答里的多条助手消息已由后端投影并成一轮 */
   showMetrics?: boolean
 }>()
 
@@ -67,13 +51,8 @@ const toasts = useToasts()
 
 const isUser = computed(() => props.role === 'user')
 
-/**
- * 直播脚标：轮尾一行「正在回答 · 12s」。
- *
- * 流式的增量是一阵一阵到的——两阵之间界面纹丝不动，
- * 用户分不清「在执行」还是「卡住了」。脚标常驻在正文下面，
- * 秒表一秒一跳，哪怕半分钟没有新字，也能看见时间在走。
- */
+// 直播脚标「正在回答 · 12s」：增量是一阵一阵到的，两阵之间秒表还在走，
+// 用户才分得清「在执行」不是「卡住了」。
 const liveActive = computed(() => Boolean(props.live) && Boolean(props.streaming))
 
 // 秒表与活动条共用同一份实现与同一个起点：两处显示的时间必须一致。
@@ -82,12 +61,7 @@ const { label: liveElapsed } = useTurnClock(
   () => props.startedAt ?? 0,
 )
 
-/**
- * 脚标上写什么。
- *
- * 优先级：扩展设的状态文字 > 实时阶段 > 一句兜底。
- * 扩展的文字更具体（它会说「正在跑测试」），而阶段是引擎自己的事实，不依赖任何扩展。
- */
+// 脚标文字的优先级：扩展设的状态文字 > 实时阶段 > 兜底——扩展的更具体，阶段是引擎自己的事实。
 const liveLabel = computed(() => {
   if (chat.statusText) return chat.statusText
   const live = chat.live
@@ -99,8 +73,11 @@ const liveLabel = computed(() => {
 /** 已经吐出的输出 token：实时读数优先，它比用量帧更早到。 */
 const liveOut = computed(() => chat.live.output_tokens || props.usage?.output_tokens || 0)
 
-/** 引擎报的生成速度：给就显示，不给不占位。 */
-const liveSpeed = computed(() => '')
+/** 引擎报的生成速度：由相邻两帧 token 读数差出来，0 不显示。 */
+const liveSpeed = computed(() => {
+  const n = chat.live.tokens_per_s
+  return n > 0 ? `${fmtCount(n)}${t('chat.tokensPerSec')}` : ''
+})
 
 /** 切引擎的分隔行：它不是消息，只是界面层的标记。 */
 const handoffEngine = computed<EngineKind | ''>(() =>
@@ -117,12 +94,7 @@ const plainText = computed(() =>
 
 const copied = ref(false)
 
-/**
- * 复制这一轮的回答。
- *
- * 放在轮尾而不是每一段上：用户要的通常是「这次回答的全文」，
- * 而逐段复制会让他按段拼一遍。按钮只在悬停时出现，平时不占视觉重量。
- */
+// 复制这一轮的回答：放轮尾而不是每段上（用户要的是全文），按钮只在悬停时出现。
 async function copyTurn(): Promise<void> {
   if (!plainText.value.trim()) return
   try {
@@ -136,13 +108,8 @@ async function copyTurn(): Promise<void> {
   }
 }
 
-/**
- * 隐藏这一轮（界面上的「删除」）。
- *
- * 语义是隐藏：引擎的会话文件与上下文一个字不动，被摘掉的轮次
- * 在会话详情页仍然查得到。所以确认框把话说清楚，撤销入口就在
- * 删完的那条提示上——界面层的误删必须一键能回。
- */
+// 隐藏这一轮（界面上的「删除」）：会话文件与上下文一个字不动，详情页仍查得到；
+// 确认框说清语义，撤销入口在删完的提示上。
 async function removeTurn(): Promise<void> {
   const hid = props.hid
   if (!hid) return
@@ -168,20 +135,10 @@ async function removeTurn(): Promise<void> {
   }
 }
 
-/**
- * 这一轮是不是只有工具调用、没有任何文字。
- *
- * 只有工具的时候，轮尾的「复制」没有东西可复制——不渲染它，
- * 一轮里就少一个点不动的按钮。
- */
+// 这一轮是不是只有工具调用没有文字：只有工具时「复制」无物可复制，不渲染它。
 const hasText = computed(() => plainText.value.trim().length > 0)
 
-/**
- * 用量读数：提示词总量（命中 + 未命中 + 写入）/ 输出 / 缓存命中率 / 耗时。
- *
- * 缓存命中率单独标绿：它是「这一轮几乎没花钱」的那件事，
- * 也是用户最想知道的那个数字（为什么这次这么快、这么便宜）。
- */
+// 用量读数：提示词总量 / 输出 / 缓存命中率 / 耗时；命中率单独标绿——那是「这轮几乎没花钱」的信号。
 const metrics = computed(() => {
   if (props.showMetrics === false) return []
   // 直播中的轮次不摆静态读数：轮尾的脚标在替它计时，
@@ -236,7 +193,7 @@ const metrics = computed(() => {
         :streaming="false"
         :cache-key="`${props.runId}:user`"
       />
-      <TurnBlocks v-else :blocks="props.blocks" :run-id="props.runId" :streaming="props.streaming" />
+      <TurnBlocks v-else :blocks="props.blocks" :run-id="props.runId" :streaming="props.streaming" :started-at="props.startedAt" />
 
       <!-- 这轮改了哪些文件：从工具块就地聚合，点击去工作区页看差异 -->
       <TurnChanges :blocks="props.blocks" />

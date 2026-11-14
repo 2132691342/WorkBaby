@@ -20,13 +20,8 @@ const root = ref<HTMLElement | null>(null)
 /** 当前工作目录的完整路径。 */
 const current = computed(() => app.workspace)
 
-/**
- * 芯片上的显示文本。
- *
- * 整条路径能放下就显示整条——“C:\Users\LIKX”这种短路径截成
- * “…\Users\LIKX”反而看不出是哪台机器上的哪个用户。
- * 只有真正长的时候才截，而且保留盘符与最后两段。
- */
+// 芯片上的显示文本：整条路径放得下就显示整条（短路径截断反而看不出是哪个）；
+// 真正长时才截，保留盘符与最后两段。
 const shown = computed(() => {
   const path = current.value
   if (!path) return t('workspace.pickWorkspace')

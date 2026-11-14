@@ -99,12 +99,8 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  /**
-   * 启动时回到上次那个会话。
-   *
-   * 只恢复路径，不恢复消息——历史由后端按引擎的会话文件重新投影，
-   * 界面不存第二份。会话文件被删掉时后端返回空，这里就安静地落在空会话上。
-   */
+  // 启动时回到上次那个会话：只恢复路径不恢复消息，历史由后端按会话文件重新投影，
+  // 界面不存第二份；会话文件被删时安静地落在空会话上。
   async function restoreLastSession() {
     const hash = window.location.hash
     if (hash && hash !== '#/' && !hash.startsWith('#/chat')) return
@@ -133,12 +129,8 @@ export const useAppStore = defineStore('app', () => {
     sessions.value = data.sessions ?? []
   }
 
-  /**
-   * 记住当前会话（供下次启动恢复）。
-   *
-   * 失败不弹提示：这只是「下次回来时的那一下」，不该打断用户正在做的事。
-   * 后端在 ChatState 里也会记一次，这里是「切走之后」那条路径的补齐。
-   */
+  // 记住当前会话供下次启动恢复：失败不弹提示（只是「下次回来的那一下」）；
+  // 后端在 ChatState 里也会记一次，这里是切走那条路径的补齐。
   async function rememberSession(path: string): Promise<void> {
     try {
       await api.saveSettings({ 'prefs.last_session_file': path })
@@ -173,12 +165,8 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  /**
-   * 刷新全部状态：重新探测运行时、重拉会话与模型。
-   *
-   * 它不做增量：用户点它的场景就是「我怀疑界面上有什么是旧的」，
-   * 这时候只刷一半等于没刷。
-   */
+  // 刷新全部状态：重新探测运行时、重拉会话与模型。不做增量——用户点它的场景
+  // 就是「怀疑界面上有什么是旧的」，只刷一半等于没刷。
   async function reloadAll() {
     await detectEngines()
     await Promise.all([refreshSessions(), chat.loadModels(true)])

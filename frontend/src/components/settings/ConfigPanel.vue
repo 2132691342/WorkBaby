@@ -83,16 +83,18 @@ onMounted(() => {
   transition:
     border-color var(--wb-dur-fast) var(--wb-ease),
     background-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
     transform var(--wb-dur-fast) var(--wb-ease);
 }
 
+/* 芯片类控件：悬停放大、按下缩小，刻度复用全站令牌 */
 .config-tab:hover {
   border-color: var(--wb-brand-3);
-  transform: scale(1.02);
+  transform: scale(var(--wb-press-hover));
 }
-
 .config-tab:active {
-  transform: scale(0.97);
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 
 .config-tab.active {

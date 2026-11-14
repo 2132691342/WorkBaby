@@ -59,12 +59,8 @@ async function reloadAll(): Promise<void> {
 
 const form = useProviderForm(reloadAll)
 
-/**
- * 测一条服务商配置通不通。
- *
- * 判据是「上游的模型清单能不能问出来」——它一次验证了地址、协议与密钥，
- * 而这三样是配错时最容易混在一起的。
- */
+// 测一条服务商配置通不通：判据是「上游的模型清单能不能问出来」，
+// 一次验证地址、协议与密钥这三样最容易混的配置。
 async function testProvider(view: ProviderView): Promise<void> {
   if (probing.value) return
   probing.value = `test:${view.provider_name}`

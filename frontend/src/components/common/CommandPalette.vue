@@ -317,6 +317,15 @@ onMounted(() => {
   background: transparent;
   cursor: pointer;
   text-align: left;
+  transition:
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+
+/* 整行可点项：按下只缩不放（放大会溢出被裁），缩放刻度复用全站令牌 */
+.palette-row:active {
+  transform: scale(var(--wb-press-row-active));
+  transition-duration: 60ms;
 }
 .palette-row.active {
   background: var(--wb-selected);

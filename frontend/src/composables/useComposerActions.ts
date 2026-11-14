@@ -4,12 +4,8 @@
 import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 
-/**
- * 统一收口「调用失败」：把原话写进 promptError。
- *
- * 为什么不弹 toast：这些动作失败时用户正盯着输入区，
- * 而 promptError 那条横幅就挂在输入区上方，位置比 toast 更准。
- */
+// 统一收口「调用失败」：把原话写进 promptError——失败时用户正盯着输入区，
+// 挂在输入区上方的横幅比 toast 位置更准。
 export function useComposerActions() {
   const chat = useChatStore()
   const { t } = useI18n()

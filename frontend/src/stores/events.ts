@@ -43,13 +43,8 @@ export interface RouteDeps {
   toast: (level: 'info' | 'ok' | 'warn' | 'error', message: string) => void
 }
 
-/**
- * 哪些事件属于「某一次对话」。
- *
- * 判据是命名空间：chat:* 是一个会话内的流。engine:* / app:* / session:*
- * 是全局事实（引擎起没起、装到哪一步、最新标题），不能按运行过滤，
- * 否则会出现「装完了界面还在转圈」。
- */
+// 哪些事件属于「某一次对话」：chat:* 是会话内的流；engine:* / app:* / session:*
+// 是全局事实，不能按运行过滤，否则会出现「装完了界面还在转圈」。
 export function isChatScoped(event: string): boolean {
   return event.startsWith('chat:')
 }

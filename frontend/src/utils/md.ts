@@ -13,10 +13,8 @@ interface BlockCache {
 
 const caches = new Map<string, BlockCache>()
 
-/**
- * 流式 markdown：按顶层块（空行分隔）切分并缓存。
- * cacheKey 是这一段的身份（例如 `run-1:2`），同一段反复渲染只重算变化的尾块。
- */
+// 流式 markdown：按顶层块（空行分隔）切分并缓存，cacheKey 是段的身份，
+// 同一段反复渲染只重算变化的尾块。
 export function renderStreaming(markdown: string, cacheKey: string): string {
   const blocks = splitBlocks(markdown)
   let cache = caches.get(cacheKey)
@@ -92,12 +90,8 @@ function escapeHTML(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
-/**
- * 清掉某个渲染缓存的位（一轮结束后调用，避免长会话累积）。
- *
- * 不调用的话缓存只增不减：长会话里每轮都会留下一个 key，
- * 而每个 key 存着这一轮的全部正文与 HTML——聊几百轮就是几百份全文。
- */
+// 清掉某个渲染缓存的位（一轮结束后调用）：不清的话长会话里每轮都留一份
+// 全文 HTML，只增不减。
 export function dropCache(cacheKey: string): void {
   caches.delete(cacheKey)
 }

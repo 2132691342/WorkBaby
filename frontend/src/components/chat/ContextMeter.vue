@@ -2,8 +2,9 @@
 // 上下文水位：一枚环 + 两个读数，常驻输入框底栏；点开有详情弹层（剩余、缓存、速度）。
 // 环用 conic-gradient 画，只占一个图标位却一眼可读；75% 警告色、90% 危险色。
 // 没数据也渲染（降级成半透明「– / –」）——空着会让用户以为图标坏了。
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import WbPopover from '@/components/common/WbPopover.vue'
 import type { TurnReading } from '@/composables/useMessageFlow'
 import { fmtCount } from '@/utils/format'
 import { useChatStore } from '@/stores/chat'
@@ -12,7 +13,6 @@ const { t } = useI18n()
 const chat = useChatStore()
 
 const open = ref(false)
-const root = ref<HTMLElement | null>(null)
 
 const percent = computed(() => Math.min(1, Math.max(0, chat.contextPercent)))
 const shownPercent = computed(() => Math.round(percent.value * 100))
@@ -46,7 +46,10 @@ const cacheRate = computed(() => {
   return `${Math.round((u.cache_read_tokens / prompt) * 100)}%`
 })
 
-const speed = computed(() => '')
+const speed = computed(() => {
+  const n = chat.live.tokens_per_s
+  return n > 0 ? `${fmtCount(n)}${t('chat.tokensPerSec')}` : ''
+})
 const cost = computed(() => (chat.stats && chat.stats.cost_usd > 0 ? `$${chat.stats.cost_usd.toFixed(3)}` : ''))
 
 const tip = computed(() =>
@@ -59,26 +62,6 @@ function toggle(): void {
   open.value = !open.value
 }
 
-/** 点外面就收起：弹层是临时读数，不占用户的注意力预算。 */
-function onDocClick(event: MouseEvent): void {
-  if (!open.value) return
-  if (root.value && !root.value.contains(event.target as Node)) open.value = false
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') open.value = false
-}
-
-onMounted(() => {
-  document.addEventListener('click', onDocClick)
-  window.addEventListener('keydown', onKeydown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocClick)
-  window.removeEventListener('keydown', onKeydown)
-})
-
 /** token 数按量级压缩：界面上要能一眼比较，不是要精确到个位。 */
 function formatTokens(n: number): string {
   return fmtCount(n)
@@ -86,14 +69,16 @@ function formatTokens(n: number): string {
 </script>
 
 <template>
-  <div ref="root" class="meter-wrap" :class="{ 'is-unknown': !known }">
-    <button type="button" class="meter" :class="level" :title="tip" @click="toggle">
-      <span class="ring" :style="{ '--ctx-arc': `${shownPercent}%` }" />
-      <span class="meter-text">{{ tokens }} / {{ windowTok }}</span>
-    </button>
+  <WbPopover v-model:open="open" align="end" :gap="8" max-height="70vh">
+    <div class="meter-wrap" :class="{ 'is-unknown': !known }">
+      <button type="button" class="meter" :class="level" :title="tip" @click="toggle">
+        <span class="ring" :style="{ '--ctx-arc': `${shownPercent}%` }" />
+        <span class="meter-text">{{ tokens }} / {{ windowTok }}</span>
+      </button>
+    </div>
 
-    <!-- 详情弹层：底栏放不下的那几个答案。只列有事实的行，没有就不占位。 -->
-    <div v-if="open" class="ctx-panel">
+    <template #panel>
+      <!-- 详情弹层：底栏放不下的那几个答案。只列有事实的行，没有就不占位。 -->
       <div class="ctx-row">
         <span class="ctx-label">{{ t('chat.ctxUsed') }}</span>
         <span class="ctx-value">{{ tokens }} · {{ shownPercent }}%</span>
@@ -118,8 +103,8 @@ function formatTokens(n: number): string {
         <span class="ctx-label">{{ t('chat.ctxCost') }}</span>
         <span class="ctx-value">{{ cost }}</span>
       </div>
-    </div>
-  </div>
+    </template>
+  </WbPopover>
 </template>
 
 <style scoped>
@@ -196,28 +181,13 @@ function formatTokens(n: number): string {
   color: var(--wb-bad);
 }
 
-/* 详情弹层：贴着底栏往上弹，右对齐（它就在行末） */
-.ctx-panel {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
-  z-index: var(--wb-z-pop);
-  min-width: 200px;
-  padding: var(--wb-sp-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-2);
-  border: 1px solid var(--wb-line-strong);
-  border-radius: var(--wb-r-lg);
-  background: var(--wb-raised);
-  box-shadow: var(--wb-shadow-lift);
-}
-
+/* 详情行：浮层的壳由 WbPopover 负责，这里只列行内排布。 */
 .ctx-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--wb-sp-4);
+  padding: 0 var(--wb-sp-2);
 }
 
 .ctx-label {

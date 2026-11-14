@@ -72,12 +72,8 @@ export function useProviderForm(reload: () => Promise<unknown>) {
     dialogOpen.value = true
   }
 
-  /**
-   * 向上游问模型清单，结果交给弹窗渲染成 chip，由用户点选要哪些。
-   *
-   * 为什么不直接填进表里：一次拉回几十个 id 时用户通常只要其中几个，
-   * 全填进去等于把「问出来的」当成「要保存的」，删起来比加起来还慢。
-   */
+  // 向上游问模型清单，渲染成 chip 由用户点选：一次拉回几十个 id 时用户通常只要
+  // 几个，全填进表等于把「问出来的」当成「要保存的」。
   async function fetchModels(): Promise<void> {
     if (fetching.value) return
     fetching.value = true

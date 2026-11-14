@@ -71,9 +71,18 @@ const { t } = useI18n()
   font-size: 1.1em;
   line-height: 1;
   cursor: pointer;
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
+/* 小按钮也要按下反馈：缩放刻度复用全站令牌 */
 .attach-x:hover {
   color: var(--wb-bad);
+  transform: scale(var(--wb-press-hover));
+}
+.attach-x:active {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
 }
 </style>

@@ -10,6 +10,8 @@ import EngineHealthCard from '@/components/overview/EngineHealthCard.vue'
 import EngineProcesses from '@/components/overview/EngineProcesses.vue'
 import RecentSessions from '@/components/overview/RecentSessions.vue'
 import UsageCharts from '@/components/overview/UsageCharts.vue'
+import WbSeg from '@/components/common/WbSeg.vue'
+import type { SegItem } from '@/types/ui'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
@@ -23,6 +25,11 @@ const toasts = useToasts()
 const health = ref<HealthData | null>(null)
 const loading = ref(false)
 const span = ref<'today' | 'week' | 'month'>('week')
+
+/** 时间窗分段：文案走 i18n，值就是 span 本身。 */
+const spanItems = computed<SegItem[]>(() =>
+  (['today', 'week', 'month'] as const).map((key) => ({ value: key, label: t(`overview.${key}`) })),
+)
 const rows = ref<SessionRow[]>([])
 // 正在停的那个实例（用 pid 做键：一个引擎一个进程）。
 const stoppingRun = ref(0)
@@ -53,12 +60,8 @@ function readout(formatted: string): string {
   return formatted === '' ? pendingMark : formatted
 }
 
-/**
- * 三个「花了多少」的合计。
- *
- * 「装了什么」那三个（技能 / 插件 / MCP）由后端在 health 上直接给合计，
- * 这里不重算：那是引擎落盘的事实，界面算一遍就多一处可能漂移的真相。
- */
+// 三个「花了多少」的合计：「装了什么」那几个由后端在 health 上直接给合计，
+// 界面不重算——那是引擎落盘的事实，多算一处就多一处可能漂移的真相。
 const usage = computed(() => {
   const since = Date.now() - (span.value === 'today' ? 1 : span.value === 'week' ? 7 : 30) * 86_400_000
   let tokens = 0
@@ -106,12 +109,8 @@ async function openSession(path: string) {
   }
 }
 
-/**
- * 中止当前运行。
- *
- * 中止的是这一轮，不是引擎：会话、配置、凭据一个字不动，
- * 下一句话随时可以再发。所以不需要二次确认。
- */
+// 中止当前运行：中止的是这一轮不是引擎，会话、配置、凭据一个字不动，
+// 下一句话随时可以再发，不需要二次确认。
 async function restartEngine(): Promise<void> {
   stoppingRun.value = 1
   try {
@@ -149,17 +148,7 @@ onMounted(() => void load())
         <p class="page-sub">{{ t('overview.subtitle') }}</p>
       </div>
       <div class="head-actions">
-        <div class="seg">
-          <button
-            v-for="key in (['today', 'week', 'month'] as const)"
-            :key="key"
-            class="seg-btn"
-            :class="{ active: span === key }"
-            @click="span = key"
-          >
-            {{ t(`overview.${key}`) }}
-          </button>
-        </div>
+        <WbSeg v-model="span" :items="spanItems" />
         <button class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load">
           <AppIcon name="refresh" :size="15" />
         </button>

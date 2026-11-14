@@ -5,15 +5,21 @@ import { useI18n } from 'vue-i18n'
 import MarkdownBlock from './MarkdownBlock.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
 import ToolCallCard from './ToolCallCard.vue'
+import { useTurnClock } from '@/composables/useTurnClock'
 import type { ChatBlock } from '@/types/api'
 
 const props = defineProps<{
   blocks: ChatBlock[]
   runId: string
   streaming?: boolean
+  /** 这一轮的开始时刻（毫秒）：等待态的秒表从它起走 */
+  startedAt?: number
 }>()
 
 const { t } = useI18n()
+
+/** 等待态已经等了多久：冷启动时首字能差十几秒，不给读数就像卡住了。 */
+const { label: elapsed } = useTurnClock(() => Boolean(props.streaming), () => props.startedAt ?? 0)
 
 /** 流式只对「最后一块且是正文」走得动增量渲染，别的一律静态渲染。 */
 function isLiveTail(index: number, block: ChatBlock): boolean {
@@ -33,9 +39,12 @@ function isLiveTail(index: number, block: ChatBlock): boolean {
         :cache-key="`${runId}:${index}`"
       />
     </template>
+    <!-- 一个块都还没有：说明引擎受理了但还没吐出任何东西。
+         只放一个转圈会被当成卡住——补一句正在做什么与已等多久。 -->
     <div v-if="!blocks.length && streaming" class="waiting">
       <span class="dot busy" />
       <span>{{ t('chat.thinkingLive') }}</span>
+      <span v-if="elapsed" class="waiting-clock">{{ elapsed }}</span>
     </div>
   </div>
 </template>
@@ -56,5 +65,13 @@ function isLiveTail(index: number, block: ChatBlock): boolean {
   gap: var(--wb-sp-2);
   font-size: var(--wb-fs-sm);
   color: var(--wb-mute);
+}
+
+/* 等待读数：与转圈同一行，等宽字。它是读数不是控件，不做悬停反馈。 */
+.waiting-clock {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  font-variant-numeric: tabular-nums;
 }
 </style>

@@ -51,12 +51,61 @@ const dels = computed(() => lines.value.filter((l) => l.line_kind === 'del').len
 /** 并排的行对：同一改动里第 i 条删除配第 i 条新增（配对规则在 utils/diff.ts）。 */
 const sidePairs = computed(() => pairRuns(lines.value))
 
-/**
- * 可折叠的连续上下文段。
- *
- * 只折「离最近的增删行超过 CONTEXT_LINES 行」的那一段：紧贴改动的几行
- * 是读差异时最需要的参照，折掉它们等于让用户自己展开。
- */
+// CSS 选择器转义：hunk 文本含空格括号加号，直接拼进 querySelector 会抛语法错；
+// 浏览器的 CSS.escape 就够，这里包一层兜底，缺了的表现是「点跳转钮没反应」。
+function cssEscape(text: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(text)
+  return text.replace(/["\\]/g, '\\$&')
+}
+
+// 改动段的跳转锚点用 hunk 的行文本而不是行号：hunk 自己没有行号，
+// 而 @@ 文本在一份差异里唯一，折叠前后都稳定，跳转不能按下标算。
+const hunkKeys = computed<string[]>(() => {
+  const out: string[] = []
+  for (const line of lines.value) {
+    if (line.line_kind === 'hunk' && line.line_text) out.push(line.line_text)
+  }
+  return out
+})
+
+/** 当前停在第几个 hunk。-1 表示还没跳过。 */
+const hunkAt = ref(-1)
+
+const body = ref<HTMLElement | null>(null)
+
+// 换了文件或换了差异，跳转位置作废：旧行号在新文件里指向别的内容。
+watch(
+  () => [props.path, props.diff],
+  () => {
+    hunkAt.value = -1
+  },
+)
+
+// 跳到第 index 个 hunk 并带进可视区：折叠段里的行不在 DOM 里，
+// 先把所在段展开，等下一帧再查选择器。
+function gotoHunk(index: number): void {
+  const total = hunkKeys.value.length
+  if (!total) return
+  const next = ((index % total) + total) % total
+  hunkAt.value = next
+  const key = hunkKeys.value[next]
+  // 目标行落在某个折叠段里：展开它，否则滚过去什么也看不到
+  for (const fold of folds.value) {
+    const line = lines.value[fold.at]
+    if (line && line.line_text === key) {
+      const expanded = new Set(opened.value)
+      expanded.add(fold.at)
+      opened.value = expanded
+    }
+  }
+  void Promise.resolve().then(() => {
+    const el = body.value?.querySelector<HTMLElement>(`[data-row="${cssEscape(key)}"]`)
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  })
+}
+
+// 可折叠的连续上下文段：只折离最近增删行超过 CONTEXT_LINES 行的那段——
+// 紧贴改动的几行是读差异最需要的参照，折掉等于逼用户自己展开。
 const folds = computed<Fold[]>(() => {
   const out: Fold[] = []
   const rows = lines.value
@@ -104,12 +153,8 @@ function toggleAll(): void {
 
 const allOpen = computed(() => folds.value.length > 0 && opened.value.size === folds.value.length)
 
-/**
- * 真正渲染的行：被展开的段展开成完整行，其余段只留一行入口按钮。
- *
- * 不用 v-if 逐行判断：那样每行都要查一次「我在不在折叠段里」，
- * 几千行时是平方级。这里一次算完。
- */
+// 真正渲染的行：展开的段给完整行，其余段只留一行入口按钮——
+// 不用 v-if 逐行判断（几千行时平方级），一次算完。
 const visibleLines = computed<DiffLine[]>(() => {
   if (!folds.value.length) return lines.value
   const hidden = new Map<number, Fold>()
@@ -153,6 +198,16 @@ const blankText = computed(() => (props.path ? t('workspace.noDiffForFile') : t(
       >
         {{ allOpen ? t('workspace.foldAll') : t('workspace.unfoldAll') }}
       </button>
+      <!-- 改动段跳转：多个 hunk 时才出现。一个文件一处改动时它是噪声。 -->
+      <span v-if="hunkKeys.length > 1" class="dc-nav">
+        <button class="wb-btn icon ghost sm" :title="t('workspace.prevChange')" @click="gotoHunk(hunkAt - 1)">
+          <AppIcon name="chevron" :size="11" class="nav-up" />
+        </button>
+        <span class="dc-nav-count">{{ hunkAt < 0 ? hunkKeys.length : hunkAt + 1 }}/{{ hunkKeys.length }}</span>
+        <button class="wb-btn icon ghost sm" :title="t('workspace.nextChange')" @click="gotoHunk(hunkAt + 1)">
+          <AppIcon name="chevron" :size="11" class="nav-down" />
+        </button>
+      </span>
       <button class="wb-btn text sm" :title="t('workspace.diffMode')" @click="sideBySide = !sideBySide">
         {{ sideBySide ? t('workspace.diffInline') : t('workspace.diffSide') }}
       </button>
@@ -165,7 +220,7 @@ const blankText = computed(() => (props.path ? t('workspace.noDiffForFile') : t(
 
     <div v-else-if="blank" class="dc-state">{{ blankText }}</div>
 
-    <div v-else class="dc-body">
+    <div ref="body" class="dc-body">
       <DiffRows v-if="sideBySide" :pairs="sidePairs" />
       <template v-else>
         <DiffRows :lines="visibleLines" />
@@ -246,6 +301,30 @@ const blankText = computed(() => (props.path ? t('workspace.noDiffForFile') : t(
   justify-content: center;
   font-size: var(--wb-fs-2xs);
   color: var(--wb-faint);
+}
+
+/* 改动段跳转：一组小三件，读数在中间。读数不是控件，不做悬停反馈。 */
+.dc-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.dc-nav-count {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.6em;
+  text-align: center;
+}
+
+/* 上 / 下两个方向：图标旋转 90°，与全站 chevron 语义一致 */
+.nav-up {
+  transform: rotate(-90deg);
+}
+.nav-down {
+  transform: rotate(90deg);
 }
 
 .dc-body {

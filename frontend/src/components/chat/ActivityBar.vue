@@ -33,23 +33,15 @@ const quietMS = computed(() => {
   return Math.max(0, now.value - chat.lastActivityAt)
 })
 
-/**
- * 「安静很久」的阈值。
- *
- * 45 秒选得很保守：一个工具跑上几十秒是常态（测试 / 构建），
- * 把它当成卡住会让这条提示变成噪声；而真的卡住时 45 秒已经足够让人怀疑。
- */
+// 「安静很久」的阈值 45 秒：工具跑几十秒是常态，当成卡住会变噪声；
+// 真卡住时 45 秒已足够起疑。
 const STALL_MS = 45_000
 
 /** 是不是安静得可疑。 */
 const stalled = computed(() => chat.streaming && !chat.compacting && quietMS.value > STALL_MS)
 
-/**
- * 当前阶段写什么。
- *
- * 优先级：压缩 > 安静提示 > 扩展状态文字 > 正在跑的工具 > 引擎阶段。
- * 安静提示排在前头：它是唯一一条「现在可能不对」的话，被阶段文字盖住就没人看得到。
- */
+// 当前阶段文字的优先级：压缩 > 安静提示 > 扩展状态 > 正在跑的工具 > 引擎阶段——
+// 安静提示是唯一「现在可能不对」的话，不能被盖住。
 const phaseLabel = computed(() => {
   if (chat.compacting) return t('chat.compacting')
   if (stalled.value) return t('chat.liveStalled')

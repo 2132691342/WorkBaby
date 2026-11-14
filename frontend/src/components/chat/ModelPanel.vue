@@ -40,12 +40,8 @@ const vendors = computed(() => {
 /** 厂商没选定时退回到第一个：面板永远要有一列可看。 */
 const activeVendor = computed(() => vendors.value.find((v) => v === props.vendor) ?? vendors.value[0] ?? '')
 
-/**
- * 当前厂商下的模型（可能带过滤）。
- *
- * 过滤命中时跨厂商显示：用户输入 `glm` 想找的就是所有带 glm 的模型，
- * 而不是「在 openrouter 里带 glm 的」。
- */
+// 当前厂商下的模型（可能带过滤）：过滤命中时跨厂商显示——用户输入 glm 找的是
+// 所有带 glm 的模型，不是「在某个厂商里带 glm 的」。
 const activeModels = computed(() => {
   const q = filter.value.trim().toLowerCase()
   const pool = q ? chat.models : chat.models.filter((m) => m.provider_name === activeVendor.value)
@@ -302,7 +298,14 @@ watch(
   cursor: pointer;
   transition:
     background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+
+/* 厂商行是整行可点项：按下只缩不放，刻度复用全站令牌 */
+.mp-vendor:active {
+  transform: scale(var(--wb-press-row-active));
+  transition-duration: 60ms;
 }
 
 .mp-vendor:hover {
@@ -365,7 +368,14 @@ watch(
   cursor: pointer;
   transition:
     background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+
+/* 模型行同理：整行可点，按下只缩不放 */
+.mp-model:active:not(:disabled) {
+  transform: scale(var(--wb-press-row-active));
+  transition-duration: 60ms;
 }
 
 .mp-model:hover:not(:disabled) {
