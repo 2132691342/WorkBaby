@@ -1,7 +1,8 @@
 # 数据模型
 
-四处存储，分工明确：**会话 JSONL 是对话真相，workbaby.json 是壳的设置台账，
-workbaby.db 是可查询的派生数据，mcp.json 是 MCP 服务器清单**。
+存储分工明确：**会话 JSONL 是对话真相，workbaby.json 是壳的设置台账，
+workbaby.db 是可查询的派生数据，mcp.json 是 MCP 服务器清单，
+技能与提示词模板是目录里的文件**。
 每一类对象只有一个真相，壳只在其上做台账。
 
 ## 1. 设置台账（`%LOCALAPPDATA%\WorkBaby\workbaby.json`）
@@ -177,13 +178,36 @@ HTTP 类用 `url`。`enabled` 缺省视为启用。
 技能的身份与「是否内置」由 `service.RecommendedSkills` 这张推荐清单定义：
 它在 `assets\skills` 与磁盘清单之间做双向咬合（少一边就是死条目）。
 
-## 7. 目录一览
+## 7. 提示词模板（`data\templates\`）
+
+一份模板 = 一个 md 文件，「文件即数据」：用户能直接用编辑器改，也能整个目录拷走。
+
+```md
+---
+name: review
+description: 代码评审
+args: <文件>
+---
+请 review 这段代码，关注并发安全。
+```
+
+| 段 | 形状 | 用途 |
+|---|---|---|
+| YAML 头 | `name` / `description` / `args` | 模板名、斜杠菜单里的说明、参数占位提示 |
+| 正文 | 头之后的全部内容 | 选中命令后填进输入框的提示词 |
+
+模板名清洗成小写字母 / 数字 / 连字符后落成 `<name>.md`；清洗后为空的名拒保存
+（否则会拼出 `.md` 这种摸不着头脑的文件名）。列表读取时坏文件直接跳过——
+一份手改坏的模板不该拖垮整张清单。
+
+## 8. 目录一览
 
 ```
 %LOCALAPPDATA%\WorkBaby\          （开发态 -dev 后缀）
 ├── workbaby.json                 # 设置与技能开关台账
 ├── workbaby.db                   # SQLite：服务商 / 模型 / 索引 / 用量
 ├── cache\                        # 壳自己的缓存
+├── templates\                    # 提示词模板（md + YAML 头）
 ├── logs\                         # 按天滚动
 ├── webview\                      # WebView2 用户数据
 ├── sessions\                     # 会话 JSONL（唯一持久真相）

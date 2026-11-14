@@ -1,8 +1,12 @@
-// 写入口的边界纪律：参数校验在触达存储之前就要拦住，坏了配置时宁可拒绝写入也不能整表覆盖。
+// 配置面的写入纪律：默认模型写入口、服务商密钥、MCP 台账。
+// 这些入口共享同一份台账，坏一个写入口会连累别的键——被拒不落盘、并发不丢条目都要钉死。
 package tests
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"WorkBaby/backend/domain"
@@ -105,5 +109,72 @@ func TestProviderKeyMasked(t *testing.T) {
 	}
 	if key != "sk-1234567890abcdef" {
 		t.Fatalf("空串不该覆盖原密钥，实际 %q", key)
+	}
+}
+
+// TestMcpConfig 断言 mcp.json 的两条治理纪律：12 路并发读-改-写一条不丢（无锁时后写
+// 会拿回旧表，用户刚加的服务器凭空消失）；删项目级条目不连带删被它遮蔽的用户级条目。
+func TestMcpConfig(t *testing.T) {
+	app, layout, _ := catalogHarness(t, "")
+
+	// ---- 并发写 ----
+	const total = 12
+	var wg sync.WaitGroup
+	for i := range total {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			name := "server-" + string(rune('a'+i))
+			_, _ = app.Mcp.Save(domain.McpSaveREQ{
+				ServerName:  name,
+				CommandText: "node server.js",
+				McpScope:    "user",
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	raw, err := os.ReadFile(layout.McpFile())
+	if err != nil {
+		t.Fatalf("读 mcp.json 失败：%v", err)
+	}
+	var parsed struct {
+		McpServers map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("mcp.json 解析失败（写坏了）：%v", err)
+	}
+	if len(parsed.McpServers) != total {
+		t.Errorf("并发写后应保留 %d 个服务器，实际 %d 个", total, len(parsed.McpServers))
+	}
+
+	// ---- 作用域遮蔽 ----
+	ws := t.TempDir()
+	if _, err := app.Settings.SetWorkspace(ws); err != nil {
+		t.Fatalf("切工作区失败：%v", err)
+	}
+	if _, err := app.Mcp.Save(domain.McpSaveREQ{
+		ServerName: "dup", CommandText: "node user.js", McpScope: "user",
+	}); err != nil {
+		t.Fatalf("写用户级失败：%v", err)
+	}
+	if _, err := app.Mcp.Save(domain.McpSaveREQ{
+		ServerName: "dup", CommandText: "node project.js", McpScope: "project",
+	}); err != nil {
+		t.Fatalf("写项目级失败：%v", err)
+	}
+	if _, err := app.Mcp.Remove("dup"); err != nil {
+		t.Fatalf("删除失败：%v", err)
+	}
+
+	raw, err = os.ReadFile(layout.McpFile())
+	if err != nil {
+		t.Fatalf("读用户级 mcp.json 失败：%v", err)
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("解析失败：%v", err)
+	}
+	if _, ok := parsed.McpServers["dup"]; !ok {
+		t.Error("删项目级条目时把被遮蔽的用户级条目也删了")
 	}
 }

@@ -1,37 +1,11 @@
 ﻿Unicode true
 
 ####
-## Please note: Template replacements don't work in this file. They are provided with default defines like
-## mentioned underneath.
-## If the keyword is not defined, "wails_tools.nsh" will populate them.
-## If they are defined here, "wails_tools.nsh" will not touch them. This allows you to use this project.nsi manually
-## from outside of Wails for debugging and development of the installer.
-##
-## For development first make a wails nsis build to populate the "wails_tools.nsh":
-## > wails build --target windows/amd64 --nsis
-## Then you can call makensis on this file with specifying the path to your binary:
-## For a AMD64 only installer:
-## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app.exe
-## For a ARM64 only installer:
-## > makensis -DARG_WAILS_ARM64_BINARY=..\..\bin\app-arm64.exe
-## For a installer with both architectures:
-## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app-amd64.exe -DARG_WAILS_ARM64_BINARY=..\..\bin\app-arm64.exe
-####
-## The following information is taken from the wails_tools.nsh file, but they can be overwritten here.
-####
-## !define INFO_PROJECTNAME    "my-project" # Default "{{.Name}}"
-## !define INFO_COMPANYNAME    "My Company" # Default "{{.ProductCompany}}"
-## !define INFO_PRODUCTNAME    "My Product Name" # Default "{{.ProductName}}"
-## !define INFO_PRODUCTVERSION "1.0.0"     # Default "{{.ProductVersion}}"
-## !define INFO_COPYRIGHT      "(c) Now, My Company" # Default "{{.ProductCopyright}}"
-###
-## !define PRODUCT_EXECUTABLE  "Application.exe"      # Default "${INFO_PROJECTNAME}.exe"
-## !define UNINST_KEY_NAME     "UninstKeyInRegistry"  # Default "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
-####
-## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
-## !define WAILS_INSTALL_SCOPE     "user"             # Default "machine" - set to "user" for per-user install ($LOCALAPPDATA) without UAC prompt
-####
-## Include the wails tools
+# WorkBaby 的 NSIS 安装器脚本（手维护文件，不是生成物；约束见 README.md）。
+# INFO_*、PRODUCT_EXECUTABLE、WAILS_INSTALL_SCOPE 等宏由
+# build/windows/Taskfile.yml 的 makensis 命令行传入，wails_tools.nsh 只给未定义的宏填默认值。
+# 手动调试本脚本时先跑一次 task build 产出 exe，再在本目录：
+#   makensis -DINFO_PROJECTNAME=WorkBaby -DINFO_PRODUCTNAME=WorkBaby -DINFO_PRODUCTVERSION=1.0.0 -DARG_WAILS_AMD64_BINARY=..\..\..\bin\WorkBaby.exe project.nsi
 ####
 !include "wails_tools.nsh"
 
@@ -80,21 +54,19 @@ OutFile "..\..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the i
 !endif
 ShowInstDetails show # This will always show the installation details.
 
-# Whether the uninstaller should also delete the sandbox data directory.
-# Set by the ask in un.onInit; the data dir name is fixed by the shell
-# (%LOCALAPPDATA%\WorkBaby), not derived from the installer defines.
+# 卸载前弹一次询问：是否连数据目录一起删。数据目录名固定为
+# %LOCALAPPDATA%\WorkBaby（壳的布局决定），不从安装器宏推导。
 Var UninstallDeleteData
 
 Function .onInit
    !insertmacro wails.checkArchitecture
 FunctionEnd
 
-# Ask once before uninstalling: sessions, plugins, skills and settings under
-# %LOCALAPPDATA%\WorkBaby are the user's work product, so keeping them is the
-# default answer and deleting must be an explicit choice.
-# This file is saved as UTF-8 with BOM so the Chinese text survives makensis.
+# 卸载前弹一次询问：会话、MCP 配置、技能与设置都是用户的工作成果，
+# 默认保留；删除必须是用户明确选的。
+# 本文件保存为 UTF-8 with BOM，中文文案才不会被 makensis 按 ANSI 误读。
 Function un.onInit
-    MessageBox MB_YESNO|MB_ICONQUESTION "同时删除用户数据吗？$\n$\n会话记录、插件、技能与设置保存在 %LOCALAPPDATA%\WorkBaby。$\n选「否」保留数据，重新安装后可继续使用。$\n$\nAlso delete user data (sessions, plugins, skills, settings) under %LOCALAPPDATA%\WorkBaby?" IDYES delete_data
+    MessageBox MB_YESNO|MB_ICONQUESTION "同时删除用户数据吗？$\n$\n会话记录、MCP 配置、技能与设置保存在 %LOCALAPPDATA%\WorkBaby。$\n选「否」保留数据，重新安装后可继续使用。$\n$\nAlso delete user data (sessions, MCP config, skills, settings) under %LOCALAPPDATA%\WorkBaby?" IDYES delete_data
     StrCpy $UninstallDeleteData "0"
     Goto ask_done
 delete_data:
@@ -111,11 +83,9 @@ Section
 
     !insertmacro wails.files
 
-    # Bundle runtime zips, builtin skills and help docs alongside the exe.
-    # Without this the installed machine has zero runtimes and the very first
-    # launch fails provisioning - the whole point of the sandbox is gone.
-    # NOTE: this file is UTF-8 with BOM; plain ANSI builds would mangle the
-    # Chinese uninstall prompt above.
+    # 随包资产只有内置技能包：assets\skills 整目录装进安装目录。
+    # 运行时（git / node / python）不随包分发，装完探测系统已装的；
+    # 少装 assets，装完的机器技能页就是空的。
     SetOutPath $INSTDIR\assets
     File /r "..\..\..\assets\*.*"
     SetOutPath $INSTDIR
@@ -132,11 +102,10 @@ SectionEnd
 Section "uninstall"
     !insertmacro wails.setShellContext
 
-    # The WebView2 cache is regenerable and tied to this install: always clear
-    # it, even when the user chooses to keep their sandbox data.
+    # WebView2 缓存可再生且绑定这一次安装：无论选什么都清。
     RMDir /r "$LOCALAPPDATA\WorkBaby\webview"
 
-    # User data goes only if the user said so at the uninstall prompt.
+    # 用户数据只有用户选了才删。
     ${If} $UninstallDeleteData == "1"
         RMDir /r "$LOCALAPPDATA\WorkBaby"
     ${EndIf}

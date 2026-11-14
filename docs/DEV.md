@@ -58,32 +58,27 @@ localStorage.setItem('wb.dev.token', 'devtoken')
 ## 测试策略
 
 只测「改这里会坏那里」的复杂流程与长链路。平凡断言（单 getter、纯函数往返、
-复述框架行为）不写——它们的维护成本高于收益。**一文件一个被测对象**：
-改哪个模块就看哪个文件，一处找全。
+复述框架行为）不写——它们的维护成本高于收益。**一文件一个主题**：
+改哪块就看哪个文件，一处找全。
 
-十五个文件、二十三个用例，全部跑完约 5 秒：
+九个测试文件加一个装具文件、二十一个用例，全部跑完约 4 秒：
 
 | 文件 | 入口 | 断言什么 |
 |---|---|---|
-| `tests/agent_test.go` | `TestEngineAssemblesStreamFragments` / `TestEngineToolBoundary` | 引擎核心链路：正文分片拼成完整回复、工具入参分片拼成合法 JSON、思考分片不丢、落盘与内存一致；工具的工作区边界（越界读不到）与文件工具往返（写 / 读 / 改 / 差异回传） |
-| `tests/session_test.go` | `TestSessionReplay` / `TestSessionWriteDiscipline` / `TestSessionFormatContract` | 会话回放的健壮性（分支只走活动分支、残行不毁整份历史、环状父指针有界退出）与组装规则（工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题来源、计划模式只认最后一条）；写入纪律（隐藏只记台账不动文件、改名只追加、引擎正打开时拒绝且不动文件）；引擎落盘格式与回放层对齐（含会话目录编码一致） |
 | `tests/chain_test.go` | `TestChain` | 回环 HTTP 全链路：鉴权硬门（401 且不带业务信封）、CORS 预检绕过鉴权门并带允许头、信封同构（成功 / 业务失败 / 未知路由 / 坏请求体全为 200 + `code`）、写入落盘（HTTP 写 → 直查存储文件 → HTTP 读回）、SSE 通道（查询参数鉴权、先补 `stream:open`、广播到达、seq 单调） |
-| `tests/builtin_test.go` | `TestTodoRoundTrip` / `TestPlanModeGate` / `TestTidyFold` | 引擎内置能力：待办清单整份替换且随结果落盘、回放层能复原；计划模式闸门（写工具被拦、读工具放行、未登记工具默认按写处理、系统提示写明被拦的是哪些、退出后恢复自由）；工具输出折叠（短输出原样、长输出折成头尾加标记、策略关掉后原样） |
+| `tests/session_test.go` | `TestSessionReplay` / `TestSessionWriteDiscipline` / `TestSessionFormatContract` / `TestSessionFork` | 会话管线：回放的健壮性（分支只走活动分支、残行不毁整份历史、环状父指针有界退出）与组装规则（工具结果回填宿主轮、孤立结果单独成轮、压缩标记、标题来源、计划模式只认最后一条）；写入纪律（隐藏只记台账不动文件、改名只追加、引擎正打开时拒绝且不动文件）；引擎落盘格式与回放层对齐（含会话目录编码一致）；分叉（原会话一个字节不动、新会话只带到分叉点、非法起点直接拒） |
+| `tests/engine_test.go` | `TestEngineAssemblesStreamFragments` / `TestEngineToolBoundary` / `TestTodoRoundTrip` / `TestPlanModeGate` / `TestTidyFold` | 引擎能力边界：正文与工具入参的流式分片拼装（工具调用之后续写的正文、思考分片、落盘与内存一致）；工具的工作区边界与文件工具往返（行号、差异回传）；待办整份替换、随结果落盘、回放能复原；计划模式闸门（写拦读放、未登记按写处理、系统提示点名被拦工具、退出恢复）；输出折叠（短原样、长折头尾加标记、策略可关） |
 | `tests/stream_test.go` | `TestStreamBlockTable` | 流式翻译器的块表状态机：同类增量续写、异类另开一块、工具块从开始到收尾（输出 / 耗时 / 状态）、落盘消息权威覆盖但保留工具读数、用量帧与收尾帧、失败时清 ANSI 码并解除流式态 |
-| `tests/skills_test.go` | `TestSkills` | 内置清单与磁盘资产互相咬合（少一边就是死条目、SKILL.md 头能解析出描述）；子进程环境不遮蔽 HOME；技能全生命周期（不自动落位、重复安装拒绝、不覆盖用户改动、开关 = 搬目录 + 记账、重置后仍是可读文件、删除清整个目录且目录路径拒绝、项目技能不受壳管辖） |
-| `tests/governance_test.go` | `TestMcpConfig` | `mcp.json` 的并发读写纪律（12 路并发读-改-写一条不丢）与作用域遮蔽（删项目级条目不连带删被遮蔽的用户级条目） |
-| `tests/fork_test.go` | `TestSessionFork` | 会话分叉的三条纪律：原会话一个字节不动、新会话只带到分叉点为止（分叉点之后的内容属于另一条思路）、不存在的起点与空起点直接拒 |
-| `tests/guards_test.go` | `TestModelDefaultGuards` / `TestProviderKeyMasked` | 写入口的边界：默认模型的非法组合先拒（服务商不存在 / 模型不在该服务商下 / 半截组合 / 未知思考档）且被拒时不落盘、不动台账里的其他键；服务商密钥读出来恒为掩码，空串语义是「保留原值」 |
+| `tests/config_test.go` | `TestModelDefaultGuards` / `TestProviderKeyMasked` / `TestMcpConfig` | 配置面的写入纪律：默认模型非法组合先拒且不落盘不动台账其他键、写成功回读一致、清空回到未设置；服务商密钥恒为掩码、空串 = 保留原值；`mcp.json` 12 路并发读-改-写一条不丢、删项目级条目不连带删被遮蔽的用户级条目 |
+| `tests/skills_test.go` | `TestSkills` | 内置清单与磁盘资产互相咬合（少一边就是死条目、SKILL.md 头能解析出描述）；子进程环境不遮蔽 HOME；技能全生命周期（不自动落位、重复安装拒绝、不覆盖用户改动、开关 = 搬目录 + 记账、重置后仍是可读文件、删除清整个目录且目录路径拒绝、两区重复只出一行） |
+| `tests/git_test.go` | `TestConflictResolve` | 用真 git 造一次真冲突，断言口径各自落成什么：`ours` 留当前分支、`theirs` 留合进来那方、不许残留冲突标记且必须已暂存；空路径与未知口径直接拒。本机没 git 时跳过 |
 | `tests/index_test.go` | `TestIndexBuildFindsFilesAndSymbols` / `TestIndexSearchRanksSymbolFirst` | 预索引的收录边界（源文件与符号进、二进制与依赖目录不进）与排序规则（符号命中排在文件命中之前、常用近用的排更前） |
-| `tests/web_test.go` | `TestWebAddressGuard` / `TestWebExtractReadable` / `TestWebEndpoints` | 联网能力：内网与本机地址被拦（环回 / 私网 / 链路本地 / CGNAT / 非 http 协议）；正文抽取留下内容、去掉脚本与导航、还原实体、跳转链接还原成真实地址；接口链路接上且接口层也挡住内网地址、设置能持久化、不认识的服务商被拒 |
-| `tests/git_test.go` | `TestConflictResolve` | 用真 git 造一次真冲突，断言三个口径各自落成什么：`ours` 留当前分支、`theirs` 留合进来那方、两者都不许残留冲突标记且必须已暂存；空路径与未知口径直接拒。本机没 git 时跳过 |
-| `tests/files_test.go` | `TestFilePreview` | 文件预览的三条分类边界：文本回正文、可预览二进制回 base64、认不出的二进制只给占位 |
-| `tests/templates_test.go` | `TestTemplates` | 提示词模板：落盘回读正文不混 YAML 头、名字清洗成小写、斜杠命令带 prompt 来源与正文、删除幂等、清洗后为空的名拒保存 |
+| `tests/web_test.go` | `TestWebAddressGuard` / `TestWebExtractReadable` / `TestWebEndpoints` | 联网能力：内网与本机地址被拦（环回 / 私网 / 链路本地 / CGNAT / 非 http 协议）；正文抽取留下内容、去掉脚本与导航、还原实体、跳转链接还原成真实地址；接口链路接上且接口层也挡住内网地址、设置能持久化、不认识的搜索服务被拒 |
 | `tests/harness_test.go` | — | 公共装具：满装后端 harness（真 JSON 存储 + 真 SQLite + 真 gin 中间件栈）与轻量 catalog harness、HTTP 调用与断言辅助 |
 
 约定：
 
-- 位置在仓库根 `tests/`，一文件一个被测对象
+- 位置在仓库根 `tests/`，一文件一个主题
 - 每个测试用 `t.TempDir()` 造独立布局，不碰真实数据目录与仓库资产
 - 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`
 - 需要真实网络或真实上游的路径不写假绿用例

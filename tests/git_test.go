@@ -30,9 +30,6 @@ func TestConflictResolve(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
-			if !withBuiltinGit(t) {
-				t.Skip("本机没有 git，跳过")
-			}
 			dir := t.TempDir()
 			runGit(t, gitExe, dir, "init", "-b", "main")
 			runGit(t, gitExe, dir, "config", "user.email", "t@example.com")
@@ -113,15 +110,7 @@ func TestConflictResolve(t *testing.T) {
 	})
 }
 
-// withBuiltinGit 确认本机有可用的 git。
-// 壳用系统装的那个，没有就跳过需要它的用例。
-func withBuiltinGit(t *testing.T) bool {
-	t.Helper()
-	_, err := exec.LookPath("git")
-	return err == nil
-}
-
-// findGit 找可用的 git；没有就跳过。
+// findGit 找可用的 git；没有就跳过（壳用系统装的那个）。
 func findGit(t *testing.T) string {
 	t.Helper()
 	if found, err := exec.LookPath("git"); err == nil {

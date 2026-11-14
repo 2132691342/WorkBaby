@@ -31,7 +31,7 @@ WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳 + **进程内原生引
 
 ### 1.1 边界（强制）
 
-- 壳只写自己的数据目录：`data\{workbaby.json, workbaby.db, logs, webview, cache, sessions, skills}`。
+- 壳只写自己的数据目录：`data\{workbaby.json, workbaby.db, logs, webview, cache, sessions, skills, templates}`。
 - **引擎在进程内**：`backend/agent/` 是纯 Go 包，只依赖标准库与 `pkg`，
   不知道 HTTP、界面与上层编排存在。没有子进程要拉起、没有握手协议、
   没有崩溃重启、没有版本探测。
@@ -63,7 +63,7 @@ WorkBaby/
 │   ├── index/                     # 工作区预索引：文件与符号抽取 / 模糊检索
 │   ├── sse/                       # SSE hub：seq 发号、断线补帧、心跳
 │   ├── api/                       # gin：server + 分组路由（薄壳，只解析与转发）
-│   ├── service/                   # 业务编排：app/chat/plan/search/web/model/skill/mcp/file/git/session
+│   ├── service/                   # 业务编排：app/chat/plan/search/web/model/skill/mcp/file/git/session/template
 │   │   ├── parser/                # 会话 JSONL → 条目树/活动分支/待办派生
 │   │   └── platform/              # 开机自启 / 系统打开等 Windows 专属动作
 │   └── shell/                     # 窗口 / 托盘 / 端点装配
@@ -214,7 +214,7 @@ service → 存储文件 → 信封）、引擎能力边界（分片拼装 / 工
 
 **不写**：复述框架行为的用例、单 getter、纯函数往返、覆盖率驱动用例。
 
-- 位置：仓库根 `tests/`，一文件一个被测对象，`go test ./tests` 数秒内跑完
+- 位置：仓库根 `tests/`，一文件一个主题，`go test ./tests` 数秒内跑完
 - 命名说清断言的是什么；断言带失败信息
 - 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`
 - 测不了的路径（需真实网络 / 真实上游）不写假绿用例

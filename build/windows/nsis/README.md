@@ -4,7 +4,7 @@
 
 ## 安装器的职责边界
 
-安装包必须带上完整的 `assets/`（内置技能与帮助文档）：
+安装包必须带上完整的 `assets/`（内置技能包）：
 少了它们，装完的机器上没有推荐技能，首启的技能页就是空的。
 （git / node / python 一律探测系统已装，运行时不随包分发。）
 所以打包段里手工写了 `File /r "...\assets\*.*"`——这一段是本文件的核心，
@@ -21,16 +21,16 @@
 ## 验证
 
 ```bash
-wails3 task package
-# 产物 bin/WorkBaby-amd64-installer.exe 应在 120MB 上下（= exe + assets 压缩后）
-# 只有十几 MB 说明 assets 没打进去
+task package
+# 产物 bin/WorkBaby-amd64-installer.exe 应在十几 MB 量级（exe + 技能包压缩后）
+# 体积上百 MB 说明 assets 里混进了不该随包的东西（比如运行时 zip）
 ```
 
-装完检查 `%LOCALAPPDATA%\Programs\WorkBaby\assets\runtime\` 下三个 zip 是否齐备。
+装完检查 `%LOCALAPPDATA%\Programs\WorkBaby\assets\skills\` 下有推荐技能目录。
 
 ## 数据目录
 
 卸载开始时弹一次询问：**是否连 `%LOCALAPPDATA%\WorkBaby` 一起删**。
-默认答案是「否」——会话、插件、技能与配置是用户的工作成果，删不删必须
-由用户自己决定。WebView2 缓存（数据目录下的 `webview\`）无论选什么都清：
-它可再生，且绑定的是这一次安装。
+默认答案是「否」——会话、MCP 配置、技能与设置是用户的工作成果，
+删不删必须由用户自己决定。WebView2 缓存（数据目录下的 `webview\`）
+无论选什么都清：它可再生，且绑定的是这一次安装。

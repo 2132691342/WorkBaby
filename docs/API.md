@@ -121,6 +121,19 @@
 
 **项目技能归那个仓库管**：工作区 `.pi\skills\` 下的技能，壳里的开关与删除对它无效。
 
+## 提示词模板
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/templates` | GET | 模板清单（`template_name` / `template_desc` / `template_args` / `template_body`），按名排序 |
+| `/templates/save` | POST | `{ template_name, template_desc, template_args, template_body }` 新建或覆盖；名清洗成小写字母 / 数字 / 连字符后落成 `data\templates\<name>.md`，清洗后为空回 `1000` |
+| `/templates/delete` | POST | `{ template_name }` 删除；不存在时幂等不报错 |
+
+模板是「文件即数据」：md 文件带 YAML 头（`name` / `description` / `args`），
+正文 = 头之后的段落，就是选中命令后填进输入框的提示词。
+模板以 `command_source: 'prompt'` 并进 `/chat/state` 的斜杠命令清单，
+`command_body` 带正文——前端斜杠菜单与命令面板选中后直接填框。
+
 ## MCP
 
 | 端点 | 方法 | 说明 |

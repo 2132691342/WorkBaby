@@ -248,6 +248,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手） |
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、改名保护、导出 HTML |
 | `git.go` / `git_history.go` / `git_sync.go` / `git_stash.go` / `git_write.go` | git 读与写；stash 四件套；冲突解决；目录级仓库探测 |
+| `templates.go` / `jsonutil.go` | 提示词模板（文件即数据，并进斜杠命令）；工作区历史行的 JSON 编解码 |
 | `settings.go` / `values.go` / `system.go` / `autostart.go` | 设置键名、工作区清单、系统动作、开机自启 |
 | `parser/` | 会话 JSONL → 条目树 / 活动分支 / 统计 / 待办派生 |
 
@@ -325,6 +326,7 @@ api/http.ts ── axios 实例（统一拆信封，code !== '0' 即抛 ApiError
 | 服务商与模型 | `data\workbaby.db` 的 `provider` / `provider_model` | `service.Models` |
 | 技能 | `data\skills\` 与 `data\skills_disabled\` 的目录位置 | 搬目录 |
 | MCP | `data\mcp.json` + 工作区 `.pi\mcp.json` | 读写 JSON |
+| 提示词模板 | `data\templates\*.md`（带 YAML 头） | `service.Templates` |
 | 壳设置 | `data\workbaby.json` | `repo.Store` |
 | 检索索引 | `data\workbaby.db` 的 `search_doc`（派生，可重建） | `service.Searcher` |
 

@@ -33,7 +33,7 @@ main.go（装配根）──► shell ──► api ──► service ──► 
 | `paths.go` | `Layout` 目录布局（数据目录、会话目录、技能区、设置文件、数据库） |
 | `proc.go` | `RunProc`：argv 直传、隐藏窗口、超时杀进程树 |
 | `procflags.go` | `CREATE_NO_WINDOW` 常量 |
-| `fsutil.go` | 原子写、目录确保、存在性探测、`LookPath`（自己扫 PATH，不跑 `where`） |
+| `fsutil.go` | 原子写、目录确保、存在性探测、`LookPath`（自己扫 PATH，不跑 `where`）、`NowMs` / `NowISO` |
 | `sessionfile.go` | 会话文件读取（上限内取尾段）与工作区目录编码 |
 | `log.go` | 按天滚动日志 + `TailLog` |
 | `ulid.go` | `{PREFIX}_{26位ULID}`，前缀白名单 |
@@ -41,7 +41,6 @@ main.go（装配根）──► shell ──► api ──► service ──► 
 | `json.go` | JSON 读写薄封装（原子写） |
 | `cmdline.go` | 命令行切分（Windows 引号规则） |
 | `ansi.go` | ANSI 转义码清洗（状态文字要能直接显示） |
-| `ulid.go` / `pkg.NowMs` / `pkg.NowISO` | 时间戳一律毫秒 int64（`pkg.NowMs()`）；禁止 ISO 串进 DTO |
 
 `pkg` 不含业务判断，可独立测。
 
@@ -54,13 +53,16 @@ main.go（装配根）──► shell ──► api ──► service ──► 
 | `core.go` | 引导、设置、偏好、运行时状态、应用清单、引擎身份与能力表、配置原文 |
 | `chat.go` | 会话、消息、回合块、工具卡、提问、队列、运行状态、用量 |
 | `data.go` | 技能、MCP |
+| `prompt_template.go` | 提示词模板：VO / REQ / RESP |
 | `provider.go` | 服务商、模型清单与探测入参 |
 | `store.go` | SQLite 持久层的行映射形状（会话索引、用量、工具调用、服务商、模型、检索文档、计划状态） |
+| `session_file.go` | 会话 JSONL 的条目行映射（引擎落盘与回放层共用的格式契约） |
 | `workspace.go` | 文件树、文件内容、git 状态 / 差异 / 历史 / 分支 / stash |
 | `doc.go` | 包注释 |
 
 字段一律带业务前缀（`session_id` / `skill_dir_name` / `provider_name`），
 与前端 `types/api*.ts` 逐字段对齐——**接口契约唯一落点**。
+时间戳一律毫秒 int64（`pkg.NowMs()`），禁止 ISO 串进 DTO。
 
 ## repo/ — 持久化
 
@@ -90,6 +92,7 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `routes_core.go` | `/bootstrap` `/settings` `/workspaces` `/prefs` `/logs` `/engines` `/health` `/apps` `/config` |
 | `routes_chat.go` | `/chat/*` `/messages/*` |
 | `routes_data.go` | `/providers` `/skills` `/mcp` `/sessions` |
+| `routes_templates.go` | `/templates/*`：提示词模板的清单、保存、删除 |
 | `routes_files.go` | `/files/*`：工作区文件浏览与编辑 |
 | `routes_git.go` | `/git/*`：状态、差异、历史、分支、提交、stash、推拉、冲突解决 |
 | `routes_web.go` | `/web/*`：联网状态、设置、搜索、抓取 |
@@ -116,6 +119,8 @@ handler 只做三件事：读参数、调 service、回信封。**不写业务�
 | `models.go` / `model_probe.go` | 服务商与模型的增删改查、连通性探测；密钥恒为掩码；新会话的默认模型 |
 | `skills.go` / `skills_scan.go` / `skills_edit.go` / `skill_catalog.go` / `skill_fs.go` | 技能落位、扫描、开关（搬目录）、导入、编辑、新建、删除、重置 |
 | `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手） |
+| `templates.go` | 提示词模板：md 文件读写、名清洗、并进斜杠命令（source=prompt） |
+| `jsonutil.go` | 工作区历史行与字符串列表的 JSON 编解码（存进设置台账的 JSON 串） |
 | `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、改名保护、导出 HTML |
 | `git.go` / `git_history.go` / `git_sync.go` / `git_stash.go` / `git_write.go` | git 读与写；stash 四件套；冲突解决；目录级仓库探测 |
 | `settings.go` / `values.go` / `system.go` / `autostart.go` | 设置键名、工作区清单、系统动作、开机自启 |
