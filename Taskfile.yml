@@ -43,6 +43,11 @@ tasks:
     cmds:
       - task: common:generate:bindings
 
+  icons:
+    summary: 重生成全套图标（改主稿或字标后跑一次，产物一起提交）
+    cmds:
+      - task: common:icons
+
   fmt:
     summary: 格式化全部 Go 代码
     cmds:
@@ -71,13 +76,21 @@ tasks:
     cmds:
       - npm --prefix frontend run check:i18n
 
+  ts:check:
+    summary: 前端类型检查（要先有生成绑定：跑过 task build 或 generate:bindings）
+    dir: frontend
+    cmds:
+      - npx vue-tsc --noEmit -p tsconfig.json
+
   # 一条命令跑完本地门禁。改完东西想知道「有没有弄坏什么」就跑这个。
+  # go vet 要编译 package main，frontend\dist 与 frontend\bindings 必须先就位（先跑 task build）。
   check:
-    summary: 跑全部本地门禁（格式 / 静态检查 / 测试 / 前端文案）
+    summary: 跑全部本地门禁（格式 / 静态检查 / 场景测试 / 前端类型 / 前端文案）
     cmds:
       - task: fmt:check
       - task: vet
       - task: test
+      - task: ts:check
       - task: i18n
 
   vet:

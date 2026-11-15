@@ -7,14 +7,14 @@ version: '3'
 
 tasks:
   go:mod:tidy:
-    summary: Runs `go mod tidy`
+    summary: 整理 go.mod
     internal: true
     run: once
     cmds:
       - go mod tidy
 
   install:frontend:deps:
-    summary: Install frontend dependencies
+    summary: 装前端依赖（Node 只在构建期用，不随包分发）
     run: once
     cmds:
       - task: install:frontend:deps:npm
@@ -33,7 +33,7 @@ tasks:
       - npm install
 
   build:frontend:
-    summary: Build the frontend production bundle
+    summary: 出前端生产产物（frontend\dist）
     # run:once：dev 模式会并行跑两次（一次出 dist，一次给 Vite），
     # 不加它两个进程会同时删改 frontend/bindings，间歇性失败。
     run: once
@@ -52,7 +52,7 @@ tasks:
       PRODUCTION: '{{if eq .DEV "true"}}false{{else}}true{{end}}'
 
   dev:frontend:
-    summary: Runs the frontend in development mode
+    summary: 起 Vite 开发服务
     dir: frontend
     deps:
       - task: install:frontend:deps
@@ -60,7 +60,7 @@ tasks:
       - npm run dev -- --port {{.VITE_PORT}} --strictPort
 
   generate:bindings:
-    summary: Generates bindings for the frontend
+    summary: 生成前端 TypeScript 绑定
     run: once
     deps:
       - task: go:mod:tidy
@@ -77,8 +77,9 @@ tasks:
       # 前端的 import 必须跟着它走。
       - wails3 generate bindings -clean=true -ts -i
 
-  # 图标不进流水线：build\windows\icon.ico 随仓分发，而 v3 的 generate icons
-  # 会连 darwin 资产一起产（Windows-only 用不上，还要求 build\darwin 已存在）。
-  # 换图标：改 build\appicon.png 后手动跑
-  #   wails3 generate icons -input build/appicon.png -windowsfilename build/windows/icon.ico
-  # 并把新 ico 提交进仓库。
+  icons:
+    summary: 重生成全套图标（build\appicon.png 与主稿设计参数 → 四处 ico/png 产物）
+    cmds:
+      # 图标不进构建流水线：产物是提交进仓库的 ico/png，每次构建都重画只会把 diff 变成噪声。
+      # 改主稿或字标后手动跑一次，把新产物一起提交。
+      - powershell -NoProfile -ExecutionPolicy Bypass -File {{.ROOT_DIR}}/build/tools/make-icons.ps1

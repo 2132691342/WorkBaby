@@ -1,7 +1,6 @@
+// 假 MCP 服务器：测试二进制自起自己——子进程带 --wb-mcp-server 时进服务器模式，
+// stdin 收 JSON-RPC、stdout 回一行一个应答；不拉真进程、不联网。
 package tests
-
-// 假 MCP 服务器：测试二进制自起自己（os.Args 带 --wb-mcp-server 标志时进入服务器模式）。
-// 标准手法：快、无外部依赖、无网络；子进程跑的是同一个已编译的测试二进制。
 
 import (
 	"bufio"
