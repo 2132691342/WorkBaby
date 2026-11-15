@@ -24,17 +24,19 @@ WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳 + **进程内原生引
 | 模型协议 | OpenAI 兼容 `/chat/completions` 流式 | — |
 | 外部环境 | git / node / python 一律探测系统已装，不随包分发 | — |
 | 前端 | Vue 3.4.34 + Vite 5.2.12 + Element Plus 2.9.0 + Pinia 2.1.7 + Vue Router 4.3.2 + Axios 1.6.8 | — |
-| 前端辅件 | UnoCSS 0.58.6 · ECharts 5.5.0 · CodeMirror 6 · Vue I18n 9.10.2 | — |
+| 前端辅件 | UnoCSS 0.58.6 · ECharts 5.5.0 · CodeMirror 6 · Vue I18n 9.10.2 · Markdown 渲染 marked 12.0.2 + DOMPurify 3.1.6 · 附件预览 xlsx 0.18.5 / docx-preview 0.3.3 / vue-pdf-embed 1.2.1 · @vueuse/core 10.9.0 | — |
 | 测试 | Go 原生 `testing`（仓库根 `tests/`） | — |
 
 **平台**：只考虑 Windows；子进程一律隐藏窗口（走 `pkg/proc`，不裸用 os/exec）。
 
 ### 1.1 边界（强制）
 
-- 壳只写自己的数据目录：`data\{workbaby.json, workbaby.db, logs, webview, cache, sessions, skills, templates}`。
-- **引擎在进程内**：`backend/agent/` 是纯 Go 包，只依赖标准库与 `pkg`，
-  不知道 HTTP、界面与上层编排存在。没有子进程要拉起、没有握手协议、
-  没有崩溃重启、没有版本探测。
+- `data\` 是数据根的简写，实际路径 `%LOCALAPPDATA%\WorkBaby`（开发态目录名带 `-dev` 后缀，
+  与安装态互不污染）。壳只写自己的数据目录：
+  `workbaby.json / workbaby.db / mcp.json / logs / webview / sessions / skills / skills_disabled / templates`。
+- **引擎在进程内**：`backend/agent/` 是纯 Go 包，只依赖标准库、`pkg`、`domain` 与同层的 `web`
+  （它的 `web_search` / `web_fetch` 工具要用），不知道 HTTP、界面与上层编排存在。
+  没有子进程要拉起、没有握手协议、没有崩溃重启、没有版本探测。
 - **运行时不随包分发**：git / node / python 一律探测系统已装，
   缺了就在应用页标出来。`assets\` 只剩内置技能包。
 - 子进程环境只追加必须项（`pkg/paths.go::ChildEnv`）：`NO_COLOR=1`、
@@ -69,19 +71,20 @@ WorkBaby/
 │   └── shell/                     # 窗口 / 托盘 / 端点装配
 ├── frontend/src/{api,components,composables,locales,stores,types,utils,views,router}
 ├── assets/skills                  # 编译期随包分发：推荐技能包
-├── build/                         # wails3 打包配置与图标（Taskfile / config.yml / nsis）
-└── tests/                         # Go 场景测试，按被测对象一文件
+├── build/                         # wails3 打包配置、图标与图标生成脚本（Taskfile / config.yml / nsis / tools）
+├── scripts/                       # 开发期 PowerShell 入口（backend.ps1 装后端 + dev.ps1 联调 + smoke.ps1 冒烟）
+└── tests/                         # Go 场景测试：一文件一个主题，一主题一个入口函数
 ```
 
 **开目录门槛**：有一组独立概念 + 独立生命周期才开目录，否则做现有模块里的一个文件。
-每个文件 ≤ 500 行（强制），超了就拆。
+代码文件 ≤ 500 行（强制），超了就拆；文档不受此限但要靠结构压可读性。
 
 ### 2.2 依赖方向（强制）
 
 ```text
 main(装配) ──► shell ──► api ──► service ──► {repo, agent, web, index, pkg}
-                                  │
-                   service ──► pkg / domain（只读类型）
+                                  │           │
+                   service ──► pkg / domain   └── agent ──► web（联网工具）
 ```
 
 | 层 | 允许依赖 | 禁止依赖 |
@@ -89,8 +92,8 @@ main(装配) ──► shell ──► api ──► service ──► {repo, ag
 | pkg | 标准库 / 第三方纯工具 | domain / repo / service / api / shell |
 | domain | pkg | 任何实现层 |
 | repo | pkg / domain | service / api / shell |
-| agent | pkg / domain | api / service / 界面 |
-| web / index | pkg | api / service / agent |
+| agent | pkg / domain / web | api / service / 界面 |
+| web / index | pkg | api / service / agent / repo |
 | service | repo / agent / web / index / pkg / domain | api 的路由层 |
 | api | service / domain / pkg | 越过 service 直摸 repo |
 | shell | wails / service（仅设置与端口回填） | api |
@@ -158,9 +161,10 @@ type AppError struct {
 | JSON 字段 | snake_case + 业务前缀 |
 | ID | `{PREFIX}_{26位ULID}`；现役前缀 `RUN` / `ASK` / `EVT` / `JOB` / `SES`，白名单在 `pkg/ulid.go` |
 | 时间戳 | 一律毫秒 int64（`pkg.NowMs()`）；禁止 ISO 串进 DTO |
-| 注释 | 文件头 1 行 `// Package x ...`；类型 / 字段 / 方法各 1 行说结论；连续注释 ≤ 3 行；只写「为什么」，不复述代码 |
-| 行数 | 每文件 ≤ 500 行 |
+| 注释 | 文件头 1 行说清这个文件管什么；类型 / 字段 / 方法各 1 行说结论；连续注释 ≤ 3 行；只写「为什么」与不变量，不复述代码、不重复上层文件头已说过的理由 |
+| 行数 | 代码文件 ≤ 500 行 |
 | **禁止** | 注释出现外部项目名、过程痕迹（「旧版」「曾经」「改为」）；`uuid`；手拼 JSON；本地时区时间 |
+| 脚本编码 | PowerShell 脚本一律 UTF-8 **带 BOM**：`powershell`（5.1）读不到 BOM 就把中文按 ANSI 误读，整份脚本直接解析失败；`pwsh`（7）两种都吃，带 BOM 才两边都能跑 |
 
 ### 2.6 子进程纪律
 
@@ -205,37 +209,46 @@ type AppError struct {
 
 ## 3. 测试规范
 
-测试的价值在「改这里会坏那里」的地方；平凡断言不写。
-详细清单见 `docs/DEV.md`。
+测试的价值在「改这里会坏那里」的地方；平凡断言不写。全量清单与定位方法见 `docs/DEV.md` §3–4。
 
-**保留**：状态机与解析（会话树回放 / 分支 / 隐藏轮）、端到端长链路（鉴权 → 路由 →
-service → 存储文件 → 信封）、引擎能力边界（分片拼装 / 工具准入 / 输出折叠）、
-内置清单与落位（技能目录搬移与生命周期）、索引与联网的安全边界。
+**保留**：跨层长链路（鉴权 → 路由 → service → 引擎 → 落盘 → 回放）、状态机与解析
+（会话树回放 / 分支 / 隐藏轮 / 块表）、引擎能力边界（分片拼装 / 工具准入 / 计划模式闸门 /
+待办往返）、并发与收尾纪律（长驻进程 Kill、MCP 重建、台账并发读写）、清单与磁盘咬合
+（技能目录搬移与生命周期）、安全边界（路径作用域 / SSRF / 密钥掩码 / 冲突解决口径）。
 
-**不写**：复述框架行为的用例、单 getter、纯函数往返、覆盖率驱动用例。
+**不写**：复述框架行为的用例、单 getter、纯函数往返与单点估算（格式化策略、
+占用估算这类只要端到端链路覆盖到就不要再补一层单测）、覆盖率驱动用例。
 
-- 位置：仓库根 `tests/`，一文件一个主题，`go test ./tests` 数秒内跑完
-- 命名说清断言的是什么；断言带失败信息
-- 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`
-- 测不了的路径（需真实网络 / 真实上游）不写假绿用例
+- 位置：仓库根 `tests/`，一文件一个主题，`go test ./tests -count=1` 数秒内跑完。
+- 每个主题文件**只有一个入口 Test 函数**，各契约写成 `t.Run("<契约名>", ...)`：
+  找入口看文件名，找契约看子名——`-run 'TestSession/分叉'` 单跑一条，`-list '.*'` 看全量入口。
+- 装具只在 `tests/harness_test.go` 写一份：满装后端 harness、按脚本吐分片的假上游、
+  SSE 帧捕获、catalogHarness；假 MCP 服务器由测试二进制自起自己（`--wb-mcp-server`）。
+  新增主题需要的装具往这里加，不在主题文件里各写一遍。
+- 命名说清断言的是什么；断言带失败信息（说清「什么该等于什么，实际是什么」）。
+- 依赖 Wails / WebView2 的模块不进测试；可测的纯逻辑抽到 `pkg/`。
+- 测不了的路径（需真实网络 / 真实上游）不写假绿用例。
+- 测试里碰外部程序同样走 `pkg.LookPath` / `pkg.RunProc`，不裸用 `os/exec`。
 
 ---
 
 ## 4. 架构门禁
 
-提交前必须过四道，一条不能少：
+四道门禁一条不能少，一条命令跑完：`task check`。展开就是：
 
 ```bash
-go build ./...                                    # 1 全包可编译
-go vet ./...                                      # 2 静态检查
-cd frontend && npx vue-tsc --noEmit -p tsconfig.json   # 3 前端类型检查
-go test ./tests -count=1                          # 4 场景测试全绿
+go build ./...                                       # 1 全包可编译
+go vet ./...                                         # 2 静态检查
+cd frontend && npx vue-tsc --noEmit -p tsconfig.json # 3 前端类型检查
+go test ./tests -count=1                             # 4 场景测试全绿
 ```
+
+`frontend\dist` 与生成绑定是 1/2 的前置（`main.go` 内嵌 dist），全新检出先跑 `task build`。
 
 发布前另跑 `task build`（产出 `bin/WorkBaby.exe`）与 `task package`（NSIS 安装包，
 需要 `makensis`）。
 
-**硬性约束**：文件 ≤ 500 行；依赖方向单向；只用 GET / POST；字段带业务前缀；
+**硬性约束**：代码文件 ≤ 500 行；依赖方向单向；只用 GET / POST；字段带业务前缀；
 信封恒 200；注释无外部项目名与过程痕迹；子进程隐藏窗口 + 超时杀。
 
 ### 4.1 诊断工具的坑（重要）
@@ -254,13 +267,10 @@ gopls check <文件>  # 权威的 gopls 自检（比 IDE 里的提示可靠）
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | 新加的符号报未定义，但 `go build` 通过 | gopls 的导出数据缓存陈旧 | 删 `%LOCALAPPDATA%\gopls` 并重启 gopls 进程 |
-| 同上，且刚建了新文件 | gopls 的文件索引还没收录新文件 | 同上（清缓存 + 重启 gopls） |
-| gopls 与项目 Go 版本不一致 | 导出数据格式对不上 | 用项目同版本的 Go 重建 gopls：`GOTOOLCHAIN=go1.27.4 go install golang.org/x/tools/gopls@v0.24.0` |
-| 报告里出现早已删除的文件 | 项目快照是旧的 | 删该评审工具在本机的项目缓存目录下的 `project-snapshot.*` 与 `review-graph.json.gz` |
-| 上一轮的问题已经修了，报告还在 | 缓存的是「上一轮的结论文本」 | 删 `cache\turn-end-findings-last.json` 与 `code-quality-warnings.json` |
+| 同上，且刚建了新文件 | gopls 的文件索引还没收录新文件 | 同上（清缓存 + 重启 gopls）；未格式化的新文件会被 gopls 直接跳过，先 `gofmt -w` |
+| gopls 与项目 Go 版本不一致 | 导出数据格式对不上 | 用项目同版本的 Go 重建：`GOTOOLCHAIN=go1.26.0 go install golang.org/x/tools/gopls@latest` |
 
 **不要因为诊断报错就改代码**：先跑 `go build`。真要改，也要先确认编译器也报同样的错。
-真的被编译器的报错卡住时，先 `gofmt -w` 那个文件——未格式化的新文件会被 gopls 跳过。
 
 ---
 
@@ -268,9 +278,10 @@ gopls check <文件>  # 权威的 gopls 自检（比 IDE 里的提示可靠）
 
 1. **先读约束**：动 domain 前想清楚字段前缀与错误码段位；动前端前想清楚令牌归属
 2. **定位落点**：能进现有模块就别开新文件；纯逻辑进 `pkg/`（可测），编排进 `service/`
-3. **实现**：注释只写「为什么」，不留过程痕迹
-4. **验证**：跑 §4 的门禁
-5. **同步文档**：改了架构 / API / 错误码 / 页面结构，对应 `docs/` 一起改
+3. **实现**：注释只写「为什么」与不变量，不留过程痕迹
+4. **验证**：`task check`（等价于 §4 的四道门禁）
+5. **同步文档**：改了架构 / 模块设计 / 路由 / 错误码 / 设置键 / 页面结构 / 任务入口 /
+   测试主题，对应的 `docs/` 与本文一起改——文档与代码不一致就按代码改文档
 6. **提交**：一次提交只做一件事，提交信息写清做了什么与为什么
 
 **新增依赖的门禁**：写清「为什么需要」「替代方案是什么」「代价是什么」，

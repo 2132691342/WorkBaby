@@ -374,7 +374,7 @@ func (c *Chat) ask(ctx context.Context, req agent.AskRequest) agent.AskResponse 
 	}
 }
 
-// AskPending 在等的提问；界面刷新时靠它把卡片补回来。
+// AskPending 当前在等的提问清单。刷新界面后卡片回不来：路由还没把它导出到 /chat/state。
 func (c *Chat) AskPending() []domain.AskRequestVO {
 	items := c.Asks.Items()
 	out := make([]domain.AskRequestVO, 0, len(items))
