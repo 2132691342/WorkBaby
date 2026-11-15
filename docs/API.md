@@ -274,7 +274,7 @@
 | `chat:model` | `provider_name,model_id` | 切模型成功后 | 界面未接管（落 default 分支） |
 | `chat:plan` | `plan_enabled,session_id` | 计划模式开关落盘后 | 界面未接管 |
 | `session:info` | `engine_kind`（斜杠命令路径的一处广播为空载荷） | 新建/克隆/分叉会话成功后 | 界面重拉会话列表 |
-| `session:title` | `title` | 会话改名成功后 | — |
+| `session:title` | `title` | 后端不发：唯一发射点是 `Chat.Rename`，而它没有调用方（`/sessions/rename` 走 `Sessions.Rename`，只落条目不广播） | — |
 | `workspace:changed` | `workspace` | 切工作区成功后 | 界面未接管 |
 | `mcp:changed` | `engine_kind` | MCP 保存/开关/删除后；随后后台重建引擎工具段 | 界面未接管 |
 | `models:changed` | `engine_kind` | 服务商/模型任何写操作成功后 | 界面重拉模型下拉 |

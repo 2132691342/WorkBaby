@@ -61,7 +61,7 @@
 | POST | `/messages/hide` | 隐藏一轮 |
 | POST | `/messages/unhide` | 取消隐藏一轮 |
 
-字段级入参出参见 `docs/API.md` §3.4。事件（载荷见 `docs/API.md` §4，触发时机见 §2）：`chat:start` `chat:live` `chat:patch` `chat:turn` `chat:turn_end` `chat:todos` `chat:ask` `chat:error` `chat:settled` `chat:done` `chat:compaction` `chat:queue` `chat:model` `chat:plan` `session:info` `session:title`。
+字段级入参出参见 `docs/API.md` §3.4。事件（载荷见 `docs/API.md` §4，触发时机见 §2）：`chat:start` `chat:live` `chat:patch` `chat:turn` `chat:turn_end` `chat:todos` `chat:ask` `chat:error` `chat:settled` `chat:done` `chat:compaction` `chat:queue` `chat:model` `chat:plan` `session:info`。
 
 **⑤ 错误码**
 
@@ -132,7 +132,7 @@
 | `chat:queue` | 入队、清空、刷新队列镜像 | 队列整体替换 |
 | `chat:model` / `chat:plan` | 切模型 / 开关计划模式 | 无分支（落 `default` 只 `console.warn`） |
 | `models:changed` / `mcp:changed` | 模型增删改 / MCP 条目变更 | 重拉模型下拉并纠正被删模型 / 无分支 |
-| `session:info` / `session:title` | 新建 / 克隆 / 分叉 / `/new`；改名 | 重拉会话列表 |
+| `session:info` | 新建 / 克隆 / 分叉 / `/new` | 重拉会话列表 |
 | `skill:status` | 技能安装、开关、重置、导入、新建、删除（6 处） | `bumpSkills` → 技能页重拉 |
 | `workspace:changed` | 切换工作区 | 无分支（发起方自己更新） |
 | `engine:detected` / `engine:ready` | 重新探测外部工具 / `/engines/restart` | 重拉运行时；`ready` 另在空闲时重拉 state |
@@ -144,7 +144,7 @@
 
 - 后端发了、前端没有分支的 4 个：`chat:model` `chat:plan` `mcp:changed` `workspace:changed`。后果是多窗口 / 多页面之间不会自动同步，只有发起动作的那一份会更新。
 - 前端有分支、后端从不发的 11 个（命中即无反应）：`engine:status` `engine:exit` `engine:commands` `app:progress` `chat:blocks` `chat:notify` `chat:status` `chat:widget` `chat:retry` `chat:retry_end` `chat:editor_text`。后果：安装日志面板（`components/apps/AppProgress.vue`）永远空转；`useRunStatus` 的提示只能由前端本地 `pushNotice` 等填。
-- `session:title` 的发射点 `Chat.Rename` 当前没有调用方：`/sessions/rename` 走 `Sessions.Rename`，不发事件，改名后的列表刷新由前端本地承担。
+- `session:title` 后端从不发：唯一的发射点 `Chat.Rename`（`service/chat_session.go:103`）没有调用方，`/sessions/rename` 走 `Sessions.Rename`，它只追加改名条目不广播；改名后的列表刷新由前端本地承担。
 - 排障顺序：「卡在运行中」查有没有收到 `chat:settled` / `chat:done`；「切回来少一段」查 `seq` 跳号与 `reconcile()`；「界面没反应」先确认这帧有没有人发、有没有人接；「SSE 反复重连」说明某条连接的 64 队列被写满过。
 - 未知事件只 `console.warn` 一次（`warnedEvents`）：后端加了新事件而这张表没接时，控制台里只有一行。
 
