@@ -166,12 +166,7 @@ export const useChatStore = defineStore('chat', () => {
     return rows
   }
 
-  /**
-   * 模型目录变了（服务商 / 模型增删改）时重拉清单。
-   * 必须 force：清单非空时缓存会直接返回旧的，用户刚加的服务商就看不到。
-   * 顺带纠正当前选中的模型：它可能正是被删掉的那一个，
-   * 不纠正的话界面上挂着一个引擎已经不认识的模型名。
-   */
+/** 模型目录变了（服务商 / 模型增删改）时重拉清单：必须 force，并纠正已被删掉的当前选中项。 */
   async function refreshModels(): Promise<void> {
     await loadModels(true)
     const current = model.value

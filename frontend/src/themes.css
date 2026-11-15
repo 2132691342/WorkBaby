@@ -108,9 +108,9 @@
   --wb-side: calc(232px * var(--wb-vw-scale));
   --wb-side-narrow: calc(188px * var(--wb-vw-scale));
   --wb-panel: calc(336px * var(--wb-vw-scale));
-  /* 消息列宽度：跟着窗口走（基准上限 1240），不再是固定 880——
-     宽窗口里两侧的大片空白没人受益，读代码块与差异时尤甚。 */
-  --wb-col: min(calc(1240px * var(--wb-vw-scale)), 100%);
+  /* 聊天阅读带：消息列、输入区、活动条共用，居中收在舒适行长。
+     两侧留白是阅读节奏——正文一行太长读不动，代码块在带内横向滚动。 */
+  --wb-col: min(calc(880px * var(--wb-vw-scale)), 100%);
   /* 面板头部那段说明文字的排版宽度：几个管理页都用它，
      各自写一遍 560px 的话改一次要动好几个文件 */
   --wb-w-desc: calc(620px * var(--wb-vw-scale));

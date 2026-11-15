@@ -3,7 +3,7 @@
 // 同一文件改两次并成一行——用户关心「一共动了多少」不是「动了几次」；
 // 放轮尾不放大卡片：它只是补充，答案在 git 页。
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { openWorkFile } from '@/composables/useWorkPanel'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import type { ChatBlock } from '@/types/api'
@@ -14,7 +14,6 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
-const router = useRouter()
 
 interface FileChange {
   path: string
@@ -60,8 +59,9 @@ function fileName(path: string): string {
   return index >= 0 ? path.slice(index + 1) : path
 }
 
-function openWorkspace(): void {
-  void router.push({ name: 'workspace' })
+/** 点文件就地开检查器（差异/文件），不必跳走工作区页打断阅读。 */
+function openPeek(change: FileChange): void {
+  openWorkFile(change.path, fileName(change.path))
 }
 </script>
 
@@ -75,7 +75,7 @@ function openWorkspace(): void {
       type="button"
       class="change-chip"
       :title="`${change.path}  +${change.add} −${change.del}`"
-      @click="openWorkspace"
+      @click="openPeek(change)"
     >
       <span class="change-name">{{ fileName(change.path) }}</span>
       <span v-if="change.add" class="num add">+{{ change.add }}</span>

@@ -25,10 +25,7 @@ const { t } = useI18n()
 /** 等待态已经等了多久：冷启动时首字能差十几秒，不给读数就像卡住了。 */
 const { label: elapsed } = useTurnClock(() => Boolean(props.streaming), () => props.startedAt ?? 0)
 
-/**
- * 渲染单元。流式中不折叠：用户得看见每一个动作当场发生，
- * 折叠会让「它是不是卡住了」没有答案。
- */
+/** 渲染单元：流式中不折叠（groupBlocks 的 fold 参数）。 */
 const groups = computed(() => groupBlocks(props.blocks, !props.streaming))
 
 /** 流式只对「最后一块且是正文」走得动增量渲染，别的一律静态渲染。 */

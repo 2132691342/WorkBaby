@@ -198,6 +198,28 @@ const metrics = computed(() => {
   return out
 })
 
+// token 组成条：缓存 / 输入 / 输出按占比分段，一眼看出「这轮的钱花在哪」。
+// 与右侧读数同源同一份用量，不另算一套。
+const usageSegments = computed(() => {
+  if (props.showMetrics === false || liveActive.value) return []
+  const u = props.usage ?? props.historyTurn?.turn_usage
+  if (!u) return []
+  const total = u.cache_read_tokens + u.input_tokens + u.output_tokens
+  if (total <= 0) return []
+  return [
+    { key: 'cache', cls: 'seg-cache', pct: (u.cache_read_tokens / total) * 100 },
+    { key: 'input', cls: 'seg-input', pct: (u.input_tokens / total) * 100 },
+    { key: 'output', cls: 'seg-output', pct: (u.output_tokens / total) * 100 },
+  ].filter((s) => s.pct > 0)
+})
+
+// 悬停给精确数：组成条看比例，精确值靠这行 title。
+const usageTitle = computed(() => {
+  const u = props.usage ?? props.historyTurn?.turn_usage
+  if (!u) return ''
+  return `cache ${u.cache_read_tokens} · in ${u.input_tokens} · out ${u.output_tokens}`
+})
+
 /** token 数按量级压缩：界面上要能一眼比较，不是要精确到个位。 */
 </script>
 
@@ -256,6 +278,9 @@ const metrics = computed(() => {
            不该先去输入框里选中再复制。删除只对历史轮开放（有 hid 才删得掉），
            直播中的轮次先让它把话说完。 -->
       <div class="msg-acts">
+        <span v-if="usageSegments.length" class="msg-usage-bar" :title="usageTitle" aria-hidden="true">
+          <span v-for="s in usageSegments" :key="s.key" class="seg" :class="s.cls" :style="{ width: s.pct + '%' }" />
+        </span>
         <span v-if="metrics.length" class="msg-metrics">
           <span v-for="m in metrics" :key="m.key" class="msg-metric" :class="{ 'is-hit': m.hit }">
             <b>{{ m.key }}</b>{{ m.value }}
@@ -397,6 +422,34 @@ const metrics = computed(() => {
   gap: var(--wb-sp-2);
   padding-right: var(--wb-sp-2);
   border-right: 1px solid var(--wb-line);
+}
+
+/* token 组成条：4px 高的占比段，缓存绿 / 输入灰 / 输出靛。
+   读数是精确值，这条给比例直觉，两者并排不重复。 */
+.msg-usage-bar {
+  display: inline-flex;
+  width: 40px;
+  height: 4px;
+  flex: none;
+  border-radius: var(--wb-r-full);
+  overflow: hidden;
+  background: var(--wb-sunken);
+}
+
+.msg-usage-bar .seg {
+  height: 100%;
+}
+
+.msg-usage-bar .seg-cache {
+  background: var(--wb-ok);
+}
+
+.msg-usage-bar .seg-input {
+  background: var(--wb-faint);
+}
+
+.msg-usage-bar .seg-output {
+  background: var(--wb-brand);
 }
 
 .msg-metric {

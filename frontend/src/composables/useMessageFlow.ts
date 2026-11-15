@@ -111,7 +111,13 @@ export function useMessageFlow() {
       if (block) block.block_text = (block.block_text ?? '') + (patch.delta ?? '')
       return
     }
-    if (patch.mode === 'block' && patch.block) blocks[patch.index] = patch.block
+    if (patch.mode === 'block' && patch.block) {
+      // 补丁可能乱序到达：先把靠后下标之前的空位占成空文本块，保持数组稠密。
+      // 下游（TurnChanges / plainText / groupBlocks）都直接遍历块，留洞会让它们
+      // 读到 undefined.block_kind 崩掉整轮；占位块到达真身后即被覆盖。
+      while (blocks.length <= patch.index) blocks.push({ block_kind: 'text', block_text: '' })
+      blocks[patch.index] = patch.block
+    }
   }
 
   /** 开一轮新的提问。 */
@@ -126,7 +132,19 @@ export function useMessageFlow() {
     history.value = turns
     const current = turn.value
     if (!current) return
-    if (turnPresence(turns, current.user_message, current.blocks ?? []) === 2) turn.value = null
+    if (turnPresence(turns, current.user_message, current.blocks ?? []) === 2) {
+      turn.value = null
+      return
+    }
+    // 工具块的字段在直播位与历史位常不一致，逐块比对会漏判、让直播轮永不撤下。
+    // 改用更稳的同一性标识：历史里最后一条用户消息就是这句、且它后面已有助手回复，
+    // 说明整轮已落盘。流式期间历史只有用户那句还没有回复，不会误撤正在长的那一轮。
+    for (let i = turns.length - 1; i >= 0; i--) {
+      if (turns[i].turn_role !== 'user') continue
+      const sameUser = (turns[i].turn_blocks?.[0]?.block_text ?? '') === current.user_message
+      if (sameUser && i < turns.length - 1) turn.value = null
+      break
+    }
   }
 
   // 收尾：这一轮从流里出来了，但不并进本地历史——服务器历史才是那一轮的真身；

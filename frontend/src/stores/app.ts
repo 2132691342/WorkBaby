@@ -49,6 +49,7 @@ export const useAppStore = defineStore('app', () => {
   const toasts = useToasts()
   const chat = useChatStore()
   const router = useRouter()
+  const refresh = useRefreshStore()
 
   const theme = computed(() => settings.value['ui.theme'] || 'light')
   /** 引擎是否可用：内置引擎恒就绪，缺的只是外部工具链。 */
@@ -127,6 +128,8 @@ export const useAppStore = defineStore('app', () => {
   async function refreshSessions() {
     const data = await api.sessions(workspace.value || undefined)
     sessions.value = data.sessions ?? []
+    // 通知开着的会话列表重拉：它们各自带搜索/分页，不能直接共用这份全局清单。
+    refresh.bumpSessions()
   }
 
   // 记住当前会话供下次启动恢复：失败不弹提示（只是「下次回来的那一下」）；
@@ -239,7 +242,6 @@ export const useAppStore = defineStore('app', () => {
 
   /** 分派一帧事件。分派表在 stores/events.ts。 */
   function route(event: string, data: Record<string, unknown>): void {
-    const refresh = useRefreshStore()
     routeFrame(event, data, {
       chat,
       refreshEngines,

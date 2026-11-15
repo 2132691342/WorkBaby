@@ -26,13 +26,20 @@ const props = defineProps<{
   } | null
 }>()
 
-// 直播的用户那句要不要画：服务器历史里已有就不画，否则刚发的话出现两次；
-// 判据只看最后一行是不是它，可跟着每个 delta 重算。
+// 直播的用户那句要不要画：历史里已有就不画，否则刚发的话出现两次。
+// 收尾后历史最后一行是助手回复、用户那句退到倒数第二行——只盯最后一行
+// 会漏判，把用户气泡在直播位再画一遍。所以收尾后往前找最后一条用户消息来比。
 const liveUserVisible = computed(() => {
   if (!props.live) return false
   const tail = props.turns.at(-1)
-  if (!tail) return true
-  return !(tail.turn_role === 'user' && (tail.turn_blocks?.[0]?.block_text ?? '') === props.live.userMessage)
+  if (tail?.turn_role === 'user' && (tail.turn_blocks?.[0]?.block_text ?? '') === props.live.userMessage) return false
+  if (!props.live.streaming) {
+    for (let i = props.turns.length - 1; i >= 0; i--) {
+      const turn = props.turns[i]
+      if (turn.turn_role === 'user') return (turn.turn_blocks?.[0]?.block_text ?? '') !== props.live.userMessage
+    }
+  }
+  return true
 })
 
 // 直播的助手回复要不要画：整轮已在服务器历史里就不画；逐块比对代价与历史长度成正比，

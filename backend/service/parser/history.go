@@ -166,6 +166,11 @@ func fillToolResult(block *domain.ChatBlockVO, msg *domain.SessionMessageDO) {
 		block.ToolStatus = "done"
 	}
 	if msg.MessageDetails != nil {
+		// 改动文件路径随结果落盘：回放时还原它，轮尾变更卡与工具卡的「就地看差异」
+		// 才有入口——只投 diff 不投路径，收尾后这两个入口会一起消失。
+		if path, ok := msg.MessageDetails["file_path"].(string); ok && path != "" {
+			block.FilePath = path
+		}
 		if diff, ok := msg.MessageDetails["diff"].(string); ok && diff != "" {
 			block.DiffLines = ParseDiff(diff)
 		}

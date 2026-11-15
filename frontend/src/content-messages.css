@@ -26,12 +26,9 @@
   background: var(--wb-line);
 }
 
-/* 屏幕外消息不参与 layout/paint：长会话的硬约束。
-   末两条除外——正在写的那一轮要实时反映高度。 */
-.msg-col > .msg:not(:last-child):not(:nth-last-child(2)) {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
-}
+/* 长会话的 DOM 规模由 HistoryList 的分页（首屏 40 轮 + 向上补页）约束。
+   不在消息上用 content-visibility：它会让离屏节点的 el 在 Vue 块树补丁里变 null，
+   一次崩溃就冻住整片消息区——稳定性优先于这点渲染优化。 */
 
 .msg {
   display: flex;

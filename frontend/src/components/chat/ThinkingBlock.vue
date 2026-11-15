@@ -1,13 +1,10 @@
 <script setup lang="ts">
-// 思考块：默认收起，正文一出现就自动收。
-// 流式期只渲染尾部 4000 字——几万字的思考全塞进 DOM 会压住主线程，还把答案顶出屏。
-// 展开态按会话位置记忆：模块级表，键 = 轮 id + 块下标。用户展开过的块，
-// 同一会话里重开、切走再切回都保持展开；收起同理。
+// 思考块：默认收起，正文一出现就自动收；流式期只渲染尾部 4000 字（全塞进 DOM 会压住主线程）。
+// 展开态记在模块级表里：块组件随轮次反复挂载销毁，组件内 ref 存不住。
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-// 展开态记忆：最多记 400 条，超了从头上丢——它只是「用户上次怎么摆的」，
-// 不是需要完整保留的账本。放模块级：块组件随轮次反复挂载销毁，组件 ref 存不住。
+// 记忆上限 400 条，超了从头上丢：它只是「用户上次怎么摆的」，不是要完整保留的账本。
 const OPEN_CAP = 400
 const openMemo = new Map<string, boolean>()
 function memoKey(turnId: string, text: string): string {

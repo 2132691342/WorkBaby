@@ -4,13 +4,17 @@
 import { defineStore } from 'pinia'
 
 export const useRefreshStore = defineStore('refresh', {
-  state: () => ({ skills: 0, workspace: 0 }),
+  state: () => ({ skills: 0, workspace: 0, sessions: 0 }),
   actions: {
     bumpSkills() {
       this.skills++
     },
     bumpWorkspace() {
       this.workspace++
+    },
+    // 会话清单变了（一轮聊完、改名、删除）：对话页窄栏与会话页都 watch 它重拉。
+    bumpSessions() {
+      this.sessions++
     },
   },
 })

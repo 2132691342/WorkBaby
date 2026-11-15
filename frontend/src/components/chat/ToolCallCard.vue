@@ -5,7 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import DiffRows from '@/components/common/DiffRows.vue'
-import { openFilePeek } from '@/composables/useFilePeek'
+import { openWorkFile } from '@/composables/useWorkPanel'
 import type { ChatBlock, DiffLine } from '@/types/api'
 
 const props = defineProps<{ block: ChatBlock }>()
@@ -155,7 +155,7 @@ async function copyDiff(): Promise<void> {
         class="tool-peek"
         type="button"
         :title="block.file_path"
-        @click="openFilePeek(block.file_path ?? '', fileName)"
+        @click="openWorkFile(block.file_path ?? '', fileName)"
       >
         <AppIcon name="git" :size="11" />
         {{ t('chat.viewChanges') }}

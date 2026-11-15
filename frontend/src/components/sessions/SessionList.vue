@@ -9,6 +9,7 @@ import AppIcon from '@/components/common/AppIcon.vue'
 import SessionCardRow from '@/components/sessions/SessionCardRow.vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+import { useRefreshStore } from '@/stores/refresh'
 import { useToasts } from '@/composables/useToasts'
 import { api } from '@/api/http'
 import type { SessionRow } from '@/types/api'
@@ -33,6 +34,7 @@ const emit = defineEmits<{ open: [path: string]; changed: [path?: string]; newCh
 
 const app = useAppStore()
 const chat = useChatStore()
+const refresh = useRefreshStore()
 const toasts = useToasts()
 const { t } = useI18n()
 
@@ -223,6 +225,15 @@ watch(
   () => app.workspace,
   () => {
     rows.value = []
+    void load()
+  },
+)
+
+// 一轮聊完 / 改名 / 删除会 bump 这个信号：窄栏的标题与消息数要跟着更新，
+// 不能只靠 mount 时那一次加载——否则发完话侧栏还停在「（空会话）· 0 条」。
+watch(
+  () => refresh.sessions,
+  () => {
     void load()
   },
 )

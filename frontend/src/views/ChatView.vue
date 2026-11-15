@@ -10,7 +10,7 @@ import ChatNotices from '@/components/chat/ChatNotices.vue'
 import ChatHeader from '@/components/chat/ChatHeader.vue'
 import HistoryList from '@/components/chat/HistoryList.vue'
 import AskCard from '@/components/chat/AskCard.vue'
-import FilePeekDrawer from '@/components/chat/FilePeekDrawer.vue'
+import WorkPanel from '@/components/chat/WorkPanel.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
 import SessionList from '@/components/sessions/SessionList.vue'
 import { useAppStore } from '@/stores/app'
@@ -31,6 +31,12 @@ async function onNewChat(): Promise<void> {
   await composerActions.startNewChat()
   // 地址同步成「无会话」：否则刷新窗口会按旧 query 又跳回上一条会话。
   await router.replace({ name: 'chat', query: {} })
+}
+
+// 空态引导：点一下把话填进输入框（不直接发），用户还能改两句再发送。
+const suggestions = computed(() => [t('chat.suggest1'), t('chat.suggest2'), t('chat.suggest3')])
+function useSuggestion(text: string): void {
+  chat.draftOverride = text
 }
 
 const scroller = ref<HTMLElement | null>(null)
@@ -85,8 +91,8 @@ function scrollToBottom(smooth = false) {
   el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
 }
 
-// 连续钉底几次：content-visibility 让远处回合先按 120px 估高，只钉一次会被
-// 后续高度变化抛在后面（打开就在中间）；只在真的贴底时才钉。
+// 连续钉底几次：流式时正文一阵一阵长高，只钉一次会被后续高度变化抛在后面
+// （打开就在中间）；只在真的贴底时才钉。
 async function pinBottom(rounds = 3): Promise<void> {
   for (let i = 0; i < rounds; i++) {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
@@ -246,6 +252,15 @@ watch(
           <h2 class="empty-title">{{ t('chat.emptyTitle') }}</h2>
           <p class="empty-hint">{{ t('chat.emptyHint') }}</p>
           <p class="empty-path selectable">{{ app.workspace }}</p>
+          <div class="empty-suggest">
+            <p class="suggest-title">{{ t('chat.suggestTitle') }}</p>
+            <div class="suggest-chips">
+              <button v-for="s in suggestions" :key="s" class="suggest-chip" type="button" @click="useSuggestion(s)">
+                <AppIcon name="spark" :size="12" />
+                {{ s }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div v-else class="msg-col-wrap">
@@ -265,7 +280,7 @@ watch(
       </div>
     </section>
 
-    <FilePeekDrawer />
+    <WorkPanel />
   </div>
 </template>
 
@@ -357,6 +372,58 @@ watch(
   font-family: var(--wb-font-mono);
   font-size: var(--wb-fs-3xs);
   color: var(--wb-faint);
+}
+
+.empty-suggest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  margin-top: var(--wb-sp-5);
+}
+
+.suggest-title {
+  margin: 0;
+  font-size: var(--wb-fs-3xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--wb-faint);
+}
+
+.suggest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--wb-sp-2);
+  max-width: 560px;
+}
+
+.suggest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r-full);
+  background: var(--wb-raised);
+  color: var(--wb-ink-5);
+  font-size: var(--wb-fs-sm);
+  transition:
+    transform var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    color var(--wb-dur-fast) var(--wb-ease),
+    background var(--wb-dur-fast) var(--wb-ease);
+}
+
+.suggest-chip:hover {
+  transform: scale(var(--wb-press-hover));
+  border-color: var(--wb-brand-line);
+  color: var(--wb-brand);
+  background: var(--wb-brand-tint);
+}
+
+.suggest-chip:active {
+  transform: scale(var(--wb-press-active));
 }
 
 /* 消息列：HistoryList 自己管列宽与间距，这里只给它一个居中的包裹层 */

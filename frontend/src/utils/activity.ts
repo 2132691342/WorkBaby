@@ -1,15 +1,6 @@
-// 一轮回答里的「活动段」分组：把连续的思考块与工具卡收成一段，
-// 只在段首给一行摘要，正文块照原顺序穿插在外。
-//
-// 为什么：助手干一件事常常是「想一下 → 调三个工具 → 说一句 → 再调两个」。
-// 全平铺时，十几个工具卡把正文冲成碎片，读者要在卡片缝里找答案。
-// 收成一段后，一段活动就是一句话（「读了 3 个文件 · 搜了 2 次」），
-// 正文回到视线主干上；要看细节再展开。
-//
-// 两条约束：
-// 1. 顺序不变——分组只改「怎么显示」，不改引擎吐块的先后；
-// 2. 正在流式的活动段不折叠——用户得看见每一个动作当场发生，
-//    折叠会让「它是不是卡住了」没有答案。
+// 一轮回答里「活动段」的分组：连续的思考块与工具卡收成一段，段首给一行摘要，正文按原顺序穿插。
+// 分组只改「怎么显示」不改吐块顺序；正在流式的那段不折叠——折叠后用户判断不出它是否卡住。
+// 渲染单元的 fold=false 分支即全平铺：每个块各自成段，顺序与内容都不变。
 import type { ChatBlock } from '@/types/api'
 
 /** 一段连续的活动（思考 + 工具），界面收成一行摘要。 */
@@ -55,10 +46,7 @@ export function verbOf(toolName: string): string {
   return VERB[key] ?? (key || '工具')
 }
 
-/**
- * 把一轮的块切成渲染单元。
- * fold=false 时全平铺（流式中用）：每个块各自成段，顺序与内容都不变。
- */
+/** 把一轮的块切成渲染单元。 */
 export function groupBlocks(blocks: ChatBlock[], fold: boolean): RenderGroup[] {
   const out: RenderGroup[] = []
   let run: ChatBlock[] = []
@@ -79,6 +67,9 @@ export function groupBlocks(blocks: ChatBlock[], fold: boolean): RenderGroup[] {
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]
+    // 增量补丁可能先落到靠后的下标，数组短暂留洞：跳过空位，那块到了再画，
+    // 不让一个未到位的块把整轮渲染崩掉。
+    if (!block) continue
     if (block.block_kind === 'text') {
       flush()
       out.push({ kind: 'text', block, index: i })
