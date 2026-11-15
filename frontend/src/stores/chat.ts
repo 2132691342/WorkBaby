@@ -15,6 +15,7 @@ import type {
   HistoryTurn,
   ModelInfo,
   ModelRow,
+  PlanState,
   SessionStats,
   SlashCommand,
   TodoItem,
@@ -42,6 +43,8 @@ export const useChatStore = defineStore('chat', () => {
   // 计划模式：会话文件里 plan-mode 开关条目。它是会话状态不是一轮读数，
   // 所以不跟着 runStatus.reset() 清掉，切会话 / 重启应用由回放重新给值。
   const planMode = ref(false)
+  // 计划模式下被拦下的工具名：开关的回执带回来，界面据此说明后果。
+  const blockedTools = ref<string[]>([])
   const commands = ref<SlashCommand[]>([])
   // 能力表：界面按它决定显示哪些入口（不渲染灰按钮）。
   const caps = ref<EngineCaps | null>(null)
@@ -77,6 +80,9 @@ export const useChatStore = defineStore('chat', () => {
   const queue = ref<{ steering: string[]; follow_up: string[] }>({ steering: [], follow_up: [] })
   const compacting = ref(false)
   const promptError = ref('')
+  // 上一次发失败的那句话与附件：重试按钮的原材料。发送成功即清——
+  // 成功之后「重试」没有任何意义，留着只会发出重复的一句。
+  const lastFailedSend = ref<{ message: string; attachments: ChatAttachment[] } | null>(null)
   // runError 是「这一轮自己出的错」，只染轮尾；promptError 是输入区上方的横幅，
   // 任何动作失败都写它。分开的理由：拿全局错误染一轮对话，会把已答完的回复标成出错。
   const runError = ref('')
@@ -119,6 +125,9 @@ export const useChatStore = defineStore('chat', () => {
     stats.value = state.stats ?? null
     todos.value = state.todos ?? []
     planMode.value = state.plan_mode ?? false
+    // 被拦下的工具名跟着计划模式状态一起回：横幅据此说明后果，
+    // 退出计划模式时这份名单清空。
+    blockedTools.value = state.plan_mode ? (state.plan_state?.blocked_tools ?? []) : []
     commands.value = state.commands ?? []
     if (state.caps) caps.value = state.caps
     if (state.queued) queue.value = { steering: state.queued.steering ?? [], follow_up: state.queued.follow_up ?? [] }
@@ -155,6 +164,22 @@ export const useChatStore = defineStore('chat', () => {
     const rows = await engineModels.loadModels(force)
     models.value = rows
     return rows
+  }
+
+  /**
+   * 模型目录变了（服务商 / 模型增删改）时重拉清单。
+   * 必须 force：清单非空时缓存会直接返回旧的，用户刚加的服务商就看不到。
+   * 顺带纠正当前选中的模型：它可能正是被删掉的那一个，
+   * 不纠正的话界面上挂着一个引擎已经不认识的模型名。
+   */
+  async function refreshModels(): Promise<void> {
+    await loadModels(true)
+    const current = model.value
+    if (!current) return
+    const still = models.value.find(
+      (m) => m.provider_name === current.provider_name && m.model_id === current.model_id,
+    )
+    if (!still) model.value = null
   }
 
   // 换模型。乐观更新：先动显示值让点击立刻有反馈，失败拨回去——
@@ -202,6 +227,15 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       switching.value = ''
     }
+  }
+
+  // 计划模式：状态在会话文件里，开关走专用接口并立刻把回执落成本地值。
+  // 回执带「哪些工具被拦下」，提示条据此把后果说清楚。
+  async function setPlanMode(enabled: boolean): Promise<PlanState> {
+    const next = await api.setPlanMode(sessionFile.value, enabled)
+    planMode.value = next.plan_enabled
+    blockedTools.value = next.blocked_tools ?? []
+    return next
   }
 
   // 开新会话。必须走 /chat/new：只清本地 state 的话，下一句仍会追加进
@@ -266,7 +300,14 @@ export const useChatStore = defineStore('chat', () => {
     // 不能挂在 refresh() 上——chat:done 后紧跟的 refresh 会先清掉标记，
     // 之后才到的那帧迟到的快照就会把重复的正文再放进界面。
     lastFinishedRunId.value = ''
-    const res = await api.send(sessionFile.value, message, attachments)
+    let res
+    try {
+      res = await api.send(sessionFile.value, message, attachments)
+    } catch (err) {
+      // 发送失败的话原样留着：横幅上的「重试发送」按它重发。
+      lastFailedSend.value = { message, attachments }
+      throw err
+    }
     // 引擎没有起一轮（扩展命令当场处理 / 排在前一轮后面）：不登记运行。
     // 登记了就是一个永远不会被收尾的流式态，界面会卡在「正在回答」。
     if (res.disposition !== 'started' || !res.run_id) {
@@ -278,9 +319,17 @@ export const useChatStore = defineStore('chat', () => {
       return ''
     }
     commandHandled.value = false
+    lastFailedSend.value = null
     flow.beginTurn(res.run_id, message)
     streaming.value = true
     return res.run_id
+  }
+
+  /** 横幅上的「重试发送」：把上一次失败的那句原样再发一遍。 */
+  async function retrySend(): Promise<void> {
+    const failed = lastFailedSend.value
+    if (!failed) return
+    await send(failed.message, failed.attachments)
   }
 
   async function stop() {
@@ -381,6 +430,7 @@ export const useChatStore = defineStore('chat', () => {
     autoCompaction,
     todos,
     planMode,
+    blockedTools,
     commands,
     caps,
     turn,
@@ -399,6 +449,8 @@ export const useChatStore = defineStore('chat', () => {
     compacting,
     busy,
     promptError,
+    lastFailedSend,
+    retrySend,
     runError,
     bindErr,
     commandHandled,
@@ -410,8 +462,10 @@ export const useChatStore = defineStore('chat', () => {
     refresh,
     refreshIfIdle,
     loadModels,
+    refreshModels,
     setModel,
     setThinking,
+    setPlanMode,
     setAutoCompaction,
     newChat,
     cloneChat,

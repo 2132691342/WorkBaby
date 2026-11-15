@@ -28,7 +28,7 @@ WorkBaby 把这些收进一个界面：
 ## 设计要点
 
 **引擎在进程内。** 没有子进程要拉起、没有握手协议、没有崩溃重启、没有版本探测。
-`backend/agent/` 是一个纯 Go 包，只依赖标准库与 `pkg`，不知道 HTTP、界面与上层编排存在。
+`backend/agent/` 是一个纯 Go 包，只依赖标准库与 `pkg`、`domain`、`web`，不知道 HTTP、界面与上层编排存在。
 
 **会话文件是唯一真相。** 每一次对话都追加进 `data\sessions\<工作区编码>\SES_xxx.jsonl`，
 界面状态重启后由回放重建。会话头只在创建时写一次，之后永不重写——断电也不会写坏唯一真相。
@@ -52,10 +52,10 @@ WorkBaby 把这些收进一个界面：
 ```
 %LOCALAPPDATA%\WorkBaby\          （开发态加 -dev 后缀）
 ├── workbaby.json                 # 设置与技能开关台账
-├── workbaby.db                   # SQLite：服务商 / 模型 / 检索索引 / 用量
+├── workbaby.db                   # SQLite：服务商 / 模型 / 检索索引
+├── mcp.json                      # MCP 服务清单（用户级）
 ├── logs\                         # 按天滚动
 ├── webview\                      # WebView2 用户数据
-├── cache\                        # 壳自己的缓存
 ├── templates\                    # 提示词模板（md + YAML 头）
 ├── sessions\                     # 会话 JSONL（唯一持久真相）
 └── skills\ skills_disabled\      # 技能启用 / 停用区
@@ -75,7 +75,7 @@ WorkBaby 把这些收进一个界面：
 | 业务服务 | gin（业务 API + SSE 全走 HTTP，127.0.0.1 随机端口） |
 | 持久化 | 设置台账用标准库 JSON 文件（原子整写 + 互斥锁），派生数据用 SQLite（纯 Go 驱动） |
 | 索引 | 内存倒排 + SQLite 持久化，支持 frecency 排序 |
-| ID | ULID，带业务前缀（`RUN` / `ASK` / `EVT` / `JOB` / `SES`） |
+| ID | ULID，带业务前缀（`RUN` / `ASK` / `SES`） |
 | 模型协议 | OpenAI 兼容 `/chat/completions` 流式 |
 | 前端 | Vue 3 + TypeScript + Vite + Element Plus + Pinia + UnoCSS |
 
@@ -88,7 +88,10 @@ cd frontend && npx vue-tsc --noEmit -p tsconfig.json  # 前端类型检查
 go test ./tests -count=1                              # 场景测试
 ```
 
-`task check` 一条命令跑完格式、静态检查与测试。
+`task check` 一条命令跑完格式、静态检查、测试与前端文案门禁。
 `task build` 产出 `bin\WorkBaby.exe`，`task package` 出 NSIS 安装包。
+`task smoke` 起一个纯后端实例，把全部只读接口打一遍验接线。
+
+开发期的辅助脚本在 `scripts/`：`smoke.ps1`（接口冒烟）、`dev.ps1`（起后端 + Vite，浏览器直连前端）。
 
 工程规范见 `AGENTS.md`，架构与模块见 `docs/`。

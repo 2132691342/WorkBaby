@@ -116,25 +116,31 @@ onMounted(load)
     </ul>
   </section>
 
-  <el-dialog v-model="dialogOpen" :title="editing ? t('templates.edit') : t('templates.create')" width="560px">
-    <div class="tpl-form">
-      <label class="tpl-label">
-        {{ t('templates.name') }}
-        <input v-model="form.template_name" class="tpl-input" :disabled="editing" :placeholder="t('templates.nameHint')" />
-      </label>
-      <label class="tpl-label">
-        {{ t('templates.desc') }}
-        <input v-model="form.template_desc" class="tpl-input" :placeholder="t('templates.descHint')" />
-      </label>
-      <label class="tpl-label">
-        {{ t('templates.args') }}
-        <input v-model="form.template_args" class="tpl-input" :placeholder="t('templates.argsHint')" />
-      </label>
-      <label class="tpl-label">
-        {{ t('templates.body') }}
-        <textarea v-model="form.template_body" class="tpl-body" rows="8" :placeholder="t('templates.bodyHint')" />
-      </label>
-    </div>
+  <el-dialog
+    v-model="dialogOpen"
+    :title="editing ? t('templates.edit') : t('templates.create')"
+    width="560px"
+    :close-on-click-modal="false"
+  >
+    <el-form label-position="top" size="small" @submit.prevent="save">
+      <el-form-item :label="t('templates.name')">
+        <el-input v-model="form.template_name" :disabled="editing" :placeholder="t('templates.nameHint')" />
+      </el-form-item>
+      <el-form-item :label="t('templates.desc')">
+        <el-input v-model="form.template_desc" :placeholder="t('templates.descHint')" />
+      </el-form-item>
+      <el-form-item :label="t('templates.args')">
+        <el-input v-model="form.template_args" :placeholder="t('templates.argsHint')" />
+      </el-form-item>
+      <el-form-item :label="t('templates.body')">
+        <el-input
+          v-model="form.template_body"
+          type="textarea"
+          :rows="8"
+          :placeholder="t('templates.bodyHint')"
+        />
+      </el-form-item>
+    </el-form>
     <template #footer>
       <button class="wb-btn sm" :disabled="saving" @click="dialogOpen = false">{{ t('common.cancel') }}</button>
       <button class="wb-btn sm primary" :class="{ 'is-loading': saving }" :disabled="saving" @click="save">
@@ -202,30 +208,5 @@ onMounted(load)
   flex: none;
   display: flex;
   gap: var(--wb-sp-1);
-}
-.tpl-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-3);
-}
-.tpl-label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-1);
-  font-size: var(--wb-fs-xs);
-  color: var(--wb-mute);
-}
-.tpl-input,
-.tpl-body {
-  padding: var(--wb-sp-2);
-  border: 1px solid var(--wb-line);
-  border-radius: var(--wb-md);
-  background: var(--wb-control-bg);
-  color: var(--wb-ink);
-  font-size: var(--wb-fs-sm);
-}
-.tpl-body {
-  font-family: var(--wb-font-mono);
-  resize: vertical;
 }
 </style>

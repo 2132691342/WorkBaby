@@ -11,6 +11,7 @@ import GitChangesPane from '@/components/workspace/GitChangesPane.vue'
 import GitCommitPanel from '@/components/workspace/GitCommitPanel.vue'
 import HistoryPanel from '@/components/workspace/HistoryPanel.vue'
 import WorkspaceHead from '@/components/workspace/WorkspaceHead.vue'
+import WbSkeleton from '@/components/common/WbSkeleton.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useRefreshStore } from '@/stores/refresh'
@@ -32,6 +33,9 @@ const loadingStatus = ref(false)
 const loadingDiff = ref(false)
 const selected = ref('')
 const committing = ref(false)
+// 竞态守卫：事件 bump 的自动重拉、切工作区与手动刷新并发时，晚到的旧状态直接丢弃。
+let statusSeq = 0
+let diffSeq = 0
 // 提交框自己持有正在写的说明，这里只需要在提交成功后叫它清空。
 const commitPanel = ref<{ reset: () => void } | null>(null)
 const tab = ref<'changes' | 'history'>('changes')
@@ -63,25 +67,33 @@ async function loadRows() {
 }
 
 async function loadStatus() {
+  const mine = ++statusSeq
   loadingStatus.value = true
   try {
-    status.value = await api.gitStatus()
+    const next = await api.gitStatus()
+    if (mine !== statusSeq) return
+    status.value = next
   } catch (err) {
+    if (mine !== statusSeq) return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    loadingStatus.value = false
+    if (mine === statusSeq) loadingStatus.value = false
   }
 }
 
 async function loadDiff(path = selected.value) {
   if (!status.value?.is_repo) return
+  const mine = ++diffSeq
   loadingDiff.value = true
   try {
-    diff.value = await api.gitDiff(path)
+    const next = await api.gitDiff(path)
+    if (mine !== diffSeq) return
+    diff.value = next
   } catch {
+    if (mine !== diffSeq) return
     diff.value = null
   } finally {
-    loadingDiff.value = false
+    if (mine === diffSeq) loadingDiff.value = false
   }
 }
 
@@ -327,10 +339,7 @@ onMounted(refresh)
       </div>
     </template>
 
-    <div v-else class="empty">
-      <span class="dot busy" />
-      {{ t('common.loading') }}
-    </div>
+    <WbSkeleton v-else block class="ws-boot" />
   </div>
 </template>
 
@@ -366,6 +375,8 @@ onMounted(refresh)
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
+  flex: none;
+  flex-wrap: wrap;
 }
 
 /* 工作区名是一段路径：限宽 + 省略号，否则长路径会把右边的动作全挤出头部 */
@@ -458,12 +469,9 @@ onMounted(refresh)
 }
 /* 改动清单与提交 / 分支各自的样式都搬进 GitChangesPane 与 GitCommitPanel 了：
    这一页只管三栏的排布与刷新。 */
-.empty {
+/* 引擎状态还没到货：骨架块留出与内容一致的呼吸空间 */
+.ws-boot {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--wb-sp-2);
-  color: var(--wb-faint);
+  padding: var(--wb-sp-5) var(--wb-sp-6);
 }
 </style>

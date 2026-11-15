@@ -21,6 +21,7 @@ export default {
     "viewChanges": "View changes",
     "liveAnswering": "Answering",
     "jumpBottom": "Jump to latest",
+    "loadEarlier": "Load {n} earlier turns",
     "liveTool": "Running {name}",
     "liveStalled": "No new output from the engine for a minute",
     "emptyTitle": "Start a conversation",
@@ -37,14 +38,19 @@ export default {
     "todoTitle": "Todos",
     "askConfirm": "Confirm",
     "askSelect": "Choose",
+    "askMulti": "Multiple choices allowed: pick the ones you want, then submit",
+    "askPicked": "{n} selected",
     "askEditor": "Edit",
     "askInput": "Input",
     "compact": "Compact context",
     "planMode": "Plan mode",
     "planActive": "Planning",
     "planOn": "Turn on plan mode: read-only exploration, writes blocked",
+    "planOnWith": "Plan mode on: {tools} blocked",
     "planOff": "Leave plan mode: writes and edits enabled again",
     "planFailed": "Could not toggle plan mode",
+    "planBanner": "Plan mode: read-only. Write tools are blocked",
+    "planBannerBlocked": "Blocked: {tools}",
     "compacting": "Compacting…",
     "retrying": "Retrying",
     "queueSteer": "Steering",
@@ -143,7 +149,13 @@ export default {
     "hideTurnHint": "This only hides the turn in the app: engine records are untouched, and the Sessions page still shows everything.",
     "hideTurnConfirm": "Hide",
     "turnHidden": "Turn hidden",
-    "changesCount": "{n} files changed"
+    "changesCount": "{n} files changed",
+    "forkTurnTitle": "Fork from here?",
+    "forkTurnHint": "Copies this session up to this message into a new one; the original stays untouched.",
+    "forkTurnConfirm": "Fork",
+    "forkDone": "Forked into a new session",
+    "retrySend": "Retry send",
+    "mentionCountTip": "How many recent sessions the {'@'} menu lists"
   },
 
 "history": {
@@ -178,7 +190,7 @@ export default {
     "renameTitle": "Rename session",
     "renamePlaceholder": "Give this session a name",
     "deleteTitle": "Delete session",
-    "deleteConfirm": "Delete “{title}”? The session file is removed and cannot be restored.",
+    "deleteConfirm": "Delete “{title}”? The session file and every message in it are removed permanently — not moved to the Recycle Bin.",
     "deleted": "Deleted",
     "emptyTitle": "No sessions yet",
     "emptyHint": "Send one message in Chat and it shows up here.",
@@ -189,6 +201,7 @@ export default {
     "cost": "cost",
     "groupToday": "Today",
     "groupWeek": "Last 7 days",
-    "groupEarlier": "Earlier"
+    "groupEarlier": "Earlier",
+    "showMore": "Show more ({n} hidden)"
   },
 }

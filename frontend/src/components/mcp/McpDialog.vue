@@ -47,6 +47,32 @@ const nameLocked = computed(() => Boolean(props.editing))
 
 /** 作用域与名字同理：编辑时改作用域等于把配置挪个文件再新建一条。 */
 const scopeLocked = computed(() => Boolean(props.editing))
+
+// 连接方式与要填的字段互相咬合：本地命令必须有命令行，远程地址必须是 http(s)。
+const commandMissing = computed(
+  () => props.form.mode === 'command' && !props.form.command_text.trim(),
+)
+const urlInvalid = computed(() => {
+  if (props.form.mode !== 'url') return false
+  const url = props.form.server_url.trim()
+  return !url || !/^https?:\/\//i.test(url)
+})
+
+/** 超时留空合法（沿用默认）；填了就必须是正数。 */
+const timeoutInvalid = computed(() => {
+  const text = props.form.timeout.trim()
+  if (!text) return false
+  const value = Number(text)
+  return !Number.isFinite(value) || value <= 0
+})
+
+const canSave = computed(
+  () =>
+    Boolean(props.form.server_name.trim()) &&
+    !commandMissing.value &&
+    !urlInvalid.value &&
+    !timeoutInvalid.value,
+)
 </script>
 
 <template>
@@ -54,6 +80,7 @@ const scopeLocked = computed(() => Boolean(props.editing))
     v-model="dialog"
     :title="props.editing ? t('mcp.editTitle') : t('mcp.addTitle')"
     width="520"
+    :close-on-click-modal="false"
   >
     <el-form label-position="top" size="small">
       <el-form-item :label="t('mcp.name')">
@@ -81,10 +108,10 @@ const scopeLocked = computed(() => Boolean(props.editing))
         </el-radio-group>
       </el-form-item>
 
-      <el-form-item v-if="props.form.mode === 'command'" :label="t('mcp.command')">
+      <el-form-item v-if="props.form.mode === 'command'" :label="t('mcp.command')" :error="commandMissing ? t('mcp.commandRequired') : ''">
         <el-input v-model="props.form.command_text" :placeholder="t('mcp.commandPlaceholder')" />
       </el-form-item>
-      <el-form-item v-else :label="t('mcp.url')">
+      <el-form-item v-else :label="t('mcp.url')" :error="urlInvalid ? t('mcp.urlInvalid') : ''">
         <el-input v-model="props.form.server_url" placeholder="https://example.com/mcp" />
       </el-form-item>
 
@@ -106,7 +133,7 @@ const scopeLocked = computed(() => Boolean(props.editing))
         <el-input v-model="props.form.desc" :placeholder="t('mcp.descPlaceholder')" />
       </el-form-item>
 
-      <el-form-item :label="t('mcp.timeout')">
+      <el-form-item :label="t('mcp.timeout')" :error="timeoutInvalid ? t('mcp.timeoutInvalid') : ''">
         <el-input
           v-model="props.form.timeout"
           type="number"
@@ -121,7 +148,7 @@ const scopeLocked = computed(() => Boolean(props.editing))
       <button
         class="wb-btn primary"
         :class="{ 'is-loading': props.saving }"
-        :disabled="props.saving || !props.form.server_name.trim()"
+        :disabled="props.saving || !canSave"
         @click="emit('save')"
       >
         {{ t('common.save') }}

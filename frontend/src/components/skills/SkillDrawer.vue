@@ -4,6 +4,7 @@
 // 改了会在下次升级时被覆盖，用户自己都说不清「我明明改过」。
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
 // 编辑器（codemirror）是重物：抽屉打开才加载，技能列表页不陪绑半兆脚本。
 const CodeEditor = defineAsyncComponent(() => import('@/components/common/CodeEditor.vue'))
@@ -47,6 +48,35 @@ watch(
 
 const dirty = computed(() => editing.value && draftContent.value !== props.content)
 
+// 有未保存改动时先问一句：抽屉一关草稿就没了，静默丢弃等于替用户做了决定。
+const closeGuard = ref(false)
+
+function requestClose(v: boolean): void {
+  if (v) {
+    emit('update:open', true)
+    return
+  }
+  if (dirty.value && !closeGuard.value) {
+    closeGuard.value = true
+    ElMessageBox.confirm(t('skills.closeDirtyBody'), t('skills.closeDirtyTitle'), {
+      confirmButtonText: t('common.cancelYes'),
+      cancelButtonText: t('common.keepEditing'),
+      type: 'warning',
+    })
+      .then(() => {
+        editing.value = false
+        emit('update:open', false)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        closeGuard.value = false
+      })
+    return
+  }
+  editing.value = false
+  emit('update:open', false)
+}
+
 function cancel(): void {
   editing.value = false
   draftContent.value = props.content
@@ -63,7 +93,8 @@ function save(): void {
     :model-value="props.open"
     :title="props.row?.skill_name || t('skills.view')"
     size="720px"
-    @update:model-value="(v: boolean) => emit('update:open', v)"
+    :close-on-click-modal="false"
+    @update:model-value="requestClose"
   >
     <div v-if="props.loading" class="drawer-loading">{{ t('common.loading') }}</div>
     <template v-else>

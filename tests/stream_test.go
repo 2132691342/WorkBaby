@@ -4,56 +4,13 @@ package tests
 
 import (
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"WorkBaby/backend/agent"
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/service"
 	"WorkBaby/backend/sse"
 )
-
-// frameCapture 收订阅到的帧：广播入队与出队是异步的，断言前要等泵送达。
-type frameCapture struct {
-	mu     sync.Mutex
-	frames []sse.Frame
-}
-
-// sink 把一帧记下来。
-func (c *frameCapture) sink(frame sse.Frame) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.frames = append(c.frames, frame)
-	return nil
-}
-
-// of 取某个事件的所有帧。
-func (c *frameCapture) of(event string) []sse.Frame {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := make([]sse.Frame, 0, len(c.frames))
-	for _, f := range c.frames {
-		if f.Event == event {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// waitFrames 等某个事件攒够 n 帧；超时即失败。
-func (c *frameCapture) waitFrames(t *testing.T, event string, n int) []sse.Frame {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if got := c.of(event); len(got) >= n {
-			return got
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("等事件 %s ×%d 超时，实收 %d 帧", event, n, len(c.of(event)))
-	return nil
-}
 
 // newStream 造一对（翻译器 + 帧捕获）：每段场景各自独立，互不串帧。
 func newStream(t *testing.T) (*service.Stream, *frameCapture) {

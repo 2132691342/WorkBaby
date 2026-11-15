@@ -3,6 +3,7 @@
 // 这一页回答两个问题：「这个仓库有哪些文件与符号」「我要的那个在哪」。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AppIcon from '@/components/common/AppIcon.vue'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
 import type { IndexHitView, IndexStatusView } from '@/types/api'
@@ -19,6 +20,8 @@ const query = ref('')
 const searching = ref(false)
 const hits = ref<IndexHitView[]>([])
 const searched = ref(false)
+// 竞态守卫：连点检索时，晚到的旧命中不能盖掉新结果。
+let searchSeq = 0
 
 // 索引里有没有东西：没建过索引时检索框不该让人干等。
 const ready = computed(() => Boolean(status.value?.index_built))
@@ -50,17 +53,20 @@ async function rebuild(): Promise<void> {
 async function search(): Promise<void> {
   const term = query.value.trim()
   if (!term || searching.value) return
+  const mine = ++searchSeq
   searching.value = true
   try {
     const res = await api.indexSearch(term, 30)
+    if (mine !== searchSeq) return
     hits.value = res.search_hits ?? []
     status.value = res.index_status
     searched.value = true
     if (!hits.value.length) toasts.push('info', t('index.noResults'))
   } catch (err) {
+    if (mine !== searchSeq) return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    searching.value = false
+    if (mine === searchSeq) searching.value = false
   }
 }
 
@@ -71,11 +77,11 @@ function kindLabel(hit: IndexHitView): string {
 </script>
 
 <template>
-  <div class="index-view">
+  <div class="page">
     <header class="page-head">
       <div>
         <h1 class="page-title">{{ t('index.title') }}</h1>
-        <p class="page-desc">{{ t('index.desc') }}</p>
+        <p class="page-sub">{{ t('index.desc') }}</p>
       </div>
       <button
         class="wb-btn"
@@ -83,10 +89,12 @@ function kindLabel(hit: IndexHitView): string {
         :disabled="rebuilding"
         @click="rebuild"
       >
+        <AppIcon name="refresh" :size="14" />
         {{ t('index.rebuild') }}
       </button>
     </header>
 
+    <div class="page-body">
     <section class="wb-card card-pad">
       <h2 class="wb-section-title">{{ t('index.statusTitle') }}</h2>
       <div class="stat-row">
@@ -139,39 +147,53 @@ function kindLabel(hit: IndexHitView): string {
       </ul>
       <p v-else-if="searched" class="empty-hint">{{ t('index.noResults') }}</p>
     </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.index-view {
+.page {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-4);
-  padding: var(--wb-sp-5);
-  height: 100%;
-  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
+/* 页头：标题与说明在左，动作在右——与其余管理页同一副骨架 */
 .page-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--wb-sp-4);
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-4);
+  border-bottom: 1px solid var(--wb-line);
+  flex: none;
 }
 
 .page-title {
   margin: 0;
   font-family: var(--wb-font-display);
-  font-size: var(--wb-fs-2xl);
-  font-weight: 600;
+  font-size: var(--wb-fs-xl);
+  font-weight: 650;
   color: var(--wb-ink);
 }
 
-.page-desc {
-  margin: var(--wb-sp-1) 0 0;
+.page-sub {
+  margin: 2px 0 0;
   max-width: var(--wb-w-desc);
-  font-size: var(--wb-fs-sm);
+  font-size: var(--wb-fs-2xs);
+  line-height: 1.55;
   color: var(--wb-mute);
+}
+
+.page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-10);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-4);
 }
 
 .stat-row {

@@ -19,7 +19,7 @@ export default {
     "modeCommand": "Local command",
     "modeUrl": "Remote URL",
     "command": "Command",
-    "commandPlaceholder": "e.g. npx -y @modelcontextprotocol/server-filesystem",
+    "commandPlaceholder": "e.g. npx -y {'@'}modelcontextprotocol/server-filesystem",
     "url": "URL",
     "transport": "Protocol",
     "workDir": "Working dir",
@@ -41,7 +41,10 @@ export default {
     "emptyTitle": "No MCP servers yet",
     "emptyHint": "Add a local command or remote URL; its tools become available right away.",
     "removeTitle": "Remove server?",
-    "removeConfirm": "Remove ‘{name}’? Only this configuration entry is removed and its tools stop working; nothing else in the data directory is touched."
+    "removeConfirm": "Remove ‘{name}’? Only this configuration entry is removed and its tools stop working; nothing else in the data directory is touched.",
+    "commandRequired": "A local command needs its command line",
+    "urlInvalid": "The remote URL must start with http:// or https://",
+    "timeoutInvalid": "Timeout must be a positive number of seconds; leave empty for the default"
   },
 
 "apps": {
@@ -63,6 +66,9 @@ export default {
 "howTo": "How to install",
 "copyFailed": "Copy failed — select the path manually",
 "recheck": "Refresh",
+"emptyTitle": "Nothing to show here yet",
+"emptyHint": "One click on Refresh usually fills this in; an empty list means detection has not run yet.",
+"startChat": "Go to chat first",
 "boundary": "The engine runs inside the app and needs no installation. git / node / python are the ones already on your system — the app neither installs nor ships them."
 },
 
@@ -114,7 +120,10 @@ export default {
      "defaultClear": "Follow current",
      "defaultInherit": "Not set",
      "defaultPickProviderFirst": "Pick a provider first",
-     "defaultPickModel": "Pick a model"
+     "defaultPickModel": "Pick a model",
+    "apiKeyKeepHint": "The key is never shown back. Saving with it empty keeps the existing key; only a new value replaces it.",
+    "nameInvalid": "The name can't contain spaces or \\ / : * ? \" < > | characters",
+    "urlInvalid": "The base URL must start with http:// or https://"
   },
 
 "skills": {
@@ -155,6 +164,8 @@ export default {
     "emptyTitle": "No skills yet",
     "emptyHint": "Create one, or install a skill package that ships them.",
     "noMatch": "No matching skills",
-    "saved": "Skill saved"
+    "saved": "Skill saved",
+    "closeDirtyTitle": "Discard unsaved changes?",
+    "closeDirtyBody": "The edits in this drawer have not been saved. Closing it now loses them."
   },
 }

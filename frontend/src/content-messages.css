@@ -39,12 +39,6 @@
   gap: var(--wb-sp-1);
 }
 
-.msg-head {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-}
-
 /* 角色徽章：全大写微字 + 胶囊描边。用户与助手同一语言，不做左右分栏 */
 .msg-badge {
   display: inline-flex;
@@ -70,6 +64,40 @@
   font-size: var(--wb-fs-3xs);
   color: var(--wb-faint);
   letter-spacing: 0.02em;
+}
+
+/* 出头行右侧的时刻脚标：历史轮回答「这是哪段对话」，直播轮是起跑时刻。
+   读数不是控件：无底色、不缩放，鼠标扫过不抢戏。 */
+.msg-time {
+  margin-left: auto;
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 头像方瓦：圆角色相随角色——用户淡品牌底，助手抬升面。
+   尺寸走 --wb-avatar-size，图标居中一枚。 */
+.msg-avatar {
+  display: grid;
+  place-items: center;
+  width: var(--wb-avatar-size);
+  height: var(--wb-avatar-size);
+  flex: none;
+  border-radius: var(--wb-r-sm);
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  color: var(--wb-mute);
+}
+.msg-avatar.user {
+  background: var(--wb-brand-soft);
+  border-color: var(--wb-brand-line);
+  color: var(--wb-brand);
+}
+.msg-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
 }
 
 /* 助手正文：不再套一整张带脊线的卡片。

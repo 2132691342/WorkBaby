@@ -22,7 +22,6 @@ const app = useAppStore()
 const prefs = usePrefsStore()
 const toasts = useToasts()
 
-const saving = ref(false)
 const logs = ref<string[]>([])
 const detecting = ref(false)
 // 引擎路径与 profile 的草稿都搬进 EnginePanel 了：它们只在那张卡里用，
@@ -85,7 +84,7 @@ const forgetting = ref('')
 // 「装」不在这里做——它统一在「应用」页，两处各放一个安装按钮必然会出现
 // 一个说装了、一个说没装。这里只给一句入口与命令原文。
 
-// 重新探测：两个引擎各起一次子进程（pi 要起 Node），所以要给 loading。
+// 重新探测外部工具链：内置引擎无需探测，这里只刷新缓存版本号，所以很快。
 async function detectEngines() {
   detecting.value = true
   try {
@@ -100,16 +99,14 @@ async function detectEngines() {
 
 // save 只负责保存与报错；成功与否用返回值告知调用处——
 // 失败必须可见，静默成功会让用户以为改上了。
+// 不设跨面板互斥：外观滑杆与启动开关是两个不相干的写入，一个在途不该锁另一个。
 async function save(kv: Record<string, string>): Promise<boolean> {
-  saving.value = true
   try {
     await app.saveSettings(kv)
     return true
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
     return false
-  } finally {
-    saving.value = false
   }
 }
 
@@ -226,6 +223,10 @@ onMounted(() => {
   padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-4);
   border-bottom: 1px solid var(--wb-line);
   flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--wb-sp-4);
 }
 
 .page-title {

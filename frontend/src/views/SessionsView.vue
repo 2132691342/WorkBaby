@@ -27,6 +27,8 @@ const scopeItems = computed<SegItem[]>(() => [
 const refreshing = ref(false)
 // 列表的重新取数走它暴露的 load()：重挂会让整张列表闪一下还丢滚动位置。
 const listRef = ref<InstanceType<typeof SessionList> | null>(null)
+// 汇总的竞态守卫：切换范围或快速连点刷新时，晚到的旧快照不能盖回新数据。
+let refreshSeq = 0
 
 watch(scope, () => {
   void listRef.value?.load()
@@ -52,21 +54,25 @@ function formatTokens(n: number): string {
 }
 
 async function refresh() {
+  const mine = ++refreshSeq
   refreshing.value = true
   try {
     await app.refreshSessions()
+    if (mine !== refreshSeq) return
     await listRef.value?.load()
   } catch (err) {
+    if (mine !== refreshSeq) return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    refreshing.value = false
+    if (mine === refreshSeq) refreshing.value = false
   }
 }
 
 // 会话的落点是对话页：带上 path，由对话页按它载入这一条。
+// 空串来自列表空态的「开始对话」：不带 session 参数，直接进对话页开新会话。
 async function openSession(path: string) {
   try {
-    await router.push({ name: 'chat', query: { session: path } })
+    await router.push(path ? { name: 'chat', query: { session: path } } : { name: 'chat' })
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   }
@@ -84,7 +90,7 @@ function onChanged() {
     <header class="page-head">
       <div>
         <h1 class="page-title">{{ t('sessions.title') }}</h1>
-        <p class="page-sub">{{ t('sessions.subtitle', { engine: 'pi' }) }}</p>
+        <p class="page-sub">{{ t('sessions.subtitle', { engine: t('engine.name') }) }}</p>
       </div>
       <div class="head-actions">
         <WbSeg v-model="scope" :items="scopeItems" />
@@ -176,19 +182,8 @@ function onChanged() {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
+  flex: none;
 }
-
-.seg {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--wb-line);
-  border-radius: var(--wb-r);
-  background: var(--wb-window);
-}
-
-/* 分段控件不缩放：缩放会让相邻按钮互相挤动 */
-
 
 
 

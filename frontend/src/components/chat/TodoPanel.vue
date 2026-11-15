@@ -37,13 +37,16 @@ function iconOf(row: TodoItem): IconName {
       <span class="todo-progress wb-mono">{{ done }}/{{ todos.length }}</span>
       <span v-if="current" class="todo-current">{{ subjectOf(current) }}</span>
     </button>
-    <div v-if="open" class="todo-list">
-      <div v-for="row in todos" :key="row.todo_id" class="todo-row" :class="`is-${row.todo_status}`">
-        <AppIcon v-if="row.todo_status !== 'pending'" :name="iconOf(row)" :size="12" class="todo-mark" />
-        <span v-else class="todo-dot" />
-        <span class="todo-subject">{{ subjectOf(row) }}</span>
+    <!-- 展开/收起走高度过渡：一跳一合的面板会让底下的输入区跟着晃 -->
+    <Transition name="todo-fold">
+      <div v-if="open" class="todo-list">
+        <div v-for="row in todos" :key="row.todo_id" class="todo-row" :class="`is-${row.todo_status}`">
+          <AppIcon v-if="row.todo_status !== 'pending'" :name="iconOf(row)" :size="12" class="todo-mark" />
+          <span v-else class="todo-dot" />
+          <span class="todo-subject">{{ subjectOf(row) }}</span>
+        </div>
       </div>
-    </div>
+    </Transition>
   </section>
 </template>
 
@@ -152,5 +155,19 @@ function iconOf(row: TodoItem): IconName {
   margin: 2px;
   border-radius: 50%;
   border: 1.5px solid var(--wb-faint);
+}
+
+/* 折叠过渡：透明 + 上边距收合，不做逐行动画——行数会变，逐行动画必然跳 */
+.todo-fold-enter-active,
+.todo-fold-leave-active {
+  transition:
+    opacity var(--wb-dur) var(--wb-ease),
+    transform var(--wb-dur) var(--wb-ease);
+}
+
+.todo-fold-enter-from,
+.todo-fold-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>

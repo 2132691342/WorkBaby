@@ -44,23 +44,20 @@ function submit(): void {
     :model-value="props.open"
     :title="t('skills.createTitle')"
     width="560px"
+    :close-on-click-modal="false"
     @update:model-value="(v: boolean) => emit('update:open', v)"
   >
-    <div class="form">
-      <label class="field">
-        <span class="field-label">{{ t('skills.nameLabel') }}</span>
-        <input v-model="draft.name" class="wb-input" :placeholder="t('skills.nameHint')" />
-        <span v-if="nameInvalid && draft.name" class="field-hint bad">{{ t('skills.nameHint') }}</span>
-      </label>
-      <label class="field">
-        <span class="field-label">{{ t('skills.descLabel') }}</span>
-        <input v-model="draft.description" class="wb-input" :placeholder="t('skills.descHint')" />
-      </label>
-      <label class="field">
-        <span class="field-label">{{ t('skills.bodyLabel') }}</span>
-        <textarea v-model="draft.body" class="wb-input" rows="10" :placeholder="t('skills.bodyHint')" />
-      </label>
-    </div>
+    <el-form label-position="top" size="small">
+      <el-form-item :label="t('skills.nameLabel')" :error="nameInvalid && draft.name ? t('skills.nameHint') : ''">
+        <el-input v-model="draft.name" :placeholder="t('skills.nameHint')" @keyup.enter="submit" />
+      </el-form-item>
+      <el-form-item :label="t('skills.descLabel')">
+        <el-input v-model="draft.description" :placeholder="t('skills.descHint')" />
+      </el-form-item>
+      <el-form-item :label="t('skills.bodyLabel')">
+        <el-input v-model="draft.body" type="textarea" :rows="10" :placeholder="t('skills.bodyHint')" />
+      </el-form-item>
+    </el-form>
 
     <template #footer>
       <div class="dialog-foot">
@@ -81,35 +78,6 @@ function submit(): void {
 </template>
 
 <style scoped>
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wb-sp-3);
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.field-label {
-  font-size: var(--wb-fs-3xs);
-  font-weight: 650;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--wb-faint);
-}
-
-.field-hint {
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-faint);
-}
-
-.field-hint.bad {
-  color: var(--wb-bad);
-}
-
 .dialog-foot {
   display: flex;
   justify-content: flex-end;

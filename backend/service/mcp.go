@@ -10,6 +10,7 @@ import (
 
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
+	"WorkBaby/backend/sse"
 )
 
 // Mcp 是 MCP 编排：用户级 mcp.json 与工作区 .pi\mcp.json 的增删改查与开关。
@@ -18,6 +19,10 @@ type Mcp struct {
 	Settings *Settings
 	// Layout 目录布局
 	Layout pkg.Layout
+	// Hub 事件广播：配置动了要让装配处重建引擎的 MCP 工具段，界面也要刷新清单
+	Hub *sse.Hub
+	// Runtime 引擎侧的服务会话持有者；为 nil 时只管配置不接引擎
+	Runtime *mcpRuntime
 
 	// mu 串行化 mcp.json 的读-改-写。两个文件各写各的，但都经同一把锁：
 	// 「保存 A 服务」与「删掉 B 服务」并发时，后写的那份会拿回改前的旧表，
@@ -28,6 +33,19 @@ type Mcp struct {
 // NewMcp 造一个 MCP 门面。
 func NewMcp(settings *Settings, layout pkg.Layout) *Mcp {
 	return &Mcp{Settings: settings, Layout: layout}
+}
+
+// notifyChanged 播一次「MCP 目录动了」并触发引擎侧重建。
+// 重建在后台跑：拉起子进程加握手要以秒计，卡住保存请求只会让界面白转。
+// 重建吞掉 mcp.json 的读取失败（按空清单处理）——磁盘上写成功了，引擎侧装不上是另一件事。
+func (m *Mcp) notifyChanged() {
+	if m.Hub != nil {
+		m.Hub.Broadcast("mcp:changed", sse.EngineTag(nil))
+	}
+	if m.Runtime == nil {
+		return
+	}
+	go m.Runtime.Rebuild()
 }
 
 // projectPath 项目级 mcp.json；未选工作区给空串。
@@ -240,6 +258,7 @@ func (m *Mcp) Save(req domain.McpSaveREQ) (domain.McpListRESP, error) {
 	if err := writeMcpFile(targetPath, value); err != nil {
 		return domain.McpListRESP{}, err
 	}
+	m.notifyChanged()
 	return m.List(), nil
 }
 
@@ -277,6 +296,7 @@ func (m *Mcp) Toggle(serverName string, enabled bool) (domain.McpListRESP, error
 		if err := writeMcpFile(path, value); err != nil {
 			return domain.McpListRESP{}, err
 		}
+		m.notifyChanged()
 		return m.List(), nil
 	}
 	return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "未找到 MCP 服务："+serverName)
@@ -303,6 +323,7 @@ func (m *Mcp) Remove(serverName string) (domain.McpListRESP, error) {
 			return domain.McpListRESP{}, err
 		}
 		// 找到并删掉一条就收手：剩下的同名条目属于另一层，本就不该被这一行牵连。
+		m.notifyChanged()
 		break
 	}
 	return m.List(), nil

@@ -195,6 +195,8 @@ type Request struct {
 	Messages []Message
 	// Tools 可用工具声明
 	Tools []ToolSpec
+	// Thinking 思考档：off / low / medium / high；空表示用上游默认
+	Thinking string
 	// MaxTokens 本次输出上限；0 表示用模型的默认值
 	MaxTokens int
 	// Temperature 采样温度；nil 表示用上游默认值

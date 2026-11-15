@@ -17,7 +17,7 @@ const props = defineProps<{
 const { t } = useI18n()
 const toasts = useToasts()
 
-/** pi 认的思考档；与引擎 get_available_thinking_levels 的口径一致。 */
+/** 引擎认的思考档；与后端 isThinkingLevel 的集合一致。 */
 const LEVELS = ['off', 'minimal', 'low', 'medium', 'high']
 
 const saved = ref<ModelDefaults | null>(null)

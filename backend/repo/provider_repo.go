@@ -125,50 +125,6 @@ func (r *ProviderRepo) FindModel(providerName, modelId string) (domain.ProviderM
 	return row, true, nil
 }
 
-// PlanRepo 是计划模式的持久状态仓储。
-type PlanRepo struct {
-	// db 数据库连接
-	db *gorm.DB
-}
-
-// NewPlanRepo 造一个计划状态仓储。
-func NewPlanRepo(db *DB) *PlanRepo { return &PlanRepo{db: db.db} }
-
-// Set 写某会话的计划模式状态。
-func (r *PlanRepo) Set(sessionID string, enabled bool) error {
-	row := domain.PlanStateDO{
-		SessionID:       sessionID,
-		PlanEnabled:     enabled,
-		PlanUpdatedAtMs: pkg.NowMs(),
-	}
-	if err := r.db.Save(&row).Error; err != nil {
-		return pkg.WrapErr(pkg.CodeStorage, "计划状态写入失败", err)
-	}
-	return nil
-}
-
-// Get 读某会话的计划模式状态；没有记录时给 false。
-func (r *PlanRepo) Get(sessionID string) (bool, error) {
-	row := domain.PlanStateDO{}
-	err := r.db.Where("session_id = ?", sessionID).First(&row).Error
-	if err == gorm.ErrRecordNotFound {
-		return false, nil
-	}
-	if err != nil {
-		return false, pkg.WrapErr(pkg.CodeStorage, "计划状态查询失败", err)
-	}
-	return row.PlanEnabled, nil
-}
-
-// Delete 删掉某会话的计划状态。
-func (r *PlanRepo) Delete(sessionID string) error {
-	err := r.db.Where("session_id = ?", sessionID).Delete(&domain.PlanStateDO{}).Error
-	if err != nil {
-		return pkg.WrapErr(pkg.CodeStorage, "计划状态删除失败", err)
-	}
-	return nil
-}
-
 // SearchRepo 是检索文档的仓储。
 type SearchRepo struct {
 	// db 数据库连接

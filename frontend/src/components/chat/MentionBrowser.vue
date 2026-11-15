@@ -18,7 +18,9 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const app = useAppStore()
 
-// 最近会话：@ 不只引文件，也能把最近一段对话当上下文。条数可配，默认 5。
+// 最近会话：@ 不只引文件，也能把最近一段对话当上下文。
+// 条数来自设置（后端有默认值并做范围收敛），这里只读不兜底——
+// 再兜一个 5 就会出现「设置里改了却不见效」.
 const sessions = ref<SessionRow[]>([])
 const mentionCount = computed(() => {
   const n = Number(app.settings['ui.mention_sessions'])
@@ -30,6 +32,16 @@ async function loadSessions(): Promise<void> {
   } catch {
     sessions.value = []
   }
+}
+
+// 条数就地步进：改的是全局设置 ui.mention_sessions，设置页的同一项跟着变。
+// 失败静默——这只是个展示条数的旋钮，写不进去不该打断引用流程。
+function stepMention(delta: number): void {
+  const raw = Number(app.settings['ui.mention_sessions'])
+  const base = Number.isFinite(raw) && raw > 0 ? Math.min(20, Math.round(raw)) : 5
+  const next = Math.max(1, Math.min(20, base + delta))
+  if (next === base) return
+  void app.saveSettings({ 'ui.mention_sessions': String(next) }).catch(() => undefined)
 }
 
 const dirPath = ref('')
@@ -226,7 +238,15 @@ onMounted(() => {
     <div ref="listEl" class="mention-body">
       <!-- 最近会话：@ 除了引文件，也能把最近一段对话当上下文；只在非搜索态显示 -->
       <template v-if="!searching && sessions.length">
-        <p class="mention-note">{{ t('chat.mentionSessions') }}</p>
+        <p class="mention-note mention-sessions-head">
+          {{ t('chat.mentionSessions') }}
+          <!-- 条数就地可调：写进 ui.mention_sessions，设置页读的是同一个键 -->
+          <span class="mention-count" :title="t('chat.mentionCountTip')">
+            <button class="mc-btn" type="button" :disabled="mentionCount <= 1" :aria-label="'-'" @click="stepMention(-1)">−</button>
+            <b class="mc-n">{{ mentionCount }}</b>
+            <button class="mc-btn" type="button" :disabled="mentionCount >= 20" :aria-label="'+'" @click="stepMention(1)">+</button>
+          </span>
+        </p>
         <button
           v-for="row in sessions.slice(0, mentionCount)"
           :key="row.session_id"
@@ -409,5 +429,62 @@ onMounted(() => {
 
 .mention-note.bad {
   color: var(--wb-bad);
+}
+
+/* 最近会话标题行：条数旋钮挂在右侧，写进全局设置，设置页与这里同一份值 */
+.mention-sessions-head {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+}
+
+.mention-count {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mc-btn {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-r-xs);
+  background: var(--wb-surface);
+  color: var(--wb-mute);
+  font-size: var(--wb-fs-2xs);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+
+.mc-btn:hover:not(:disabled) {
+  color: var(--wb-brand);
+  border-color: var(--wb-brand-line);
+  transform: scale(var(--wb-press-hover));
+}
+
+.mc-btn:active:not(:disabled) {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
+}
+
+.mc-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mc-n {
+  min-width: 1.4em;
+  text-align: center;
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-ink-2);
+  font-variant-numeric: tabular-nums;
 }
 </style>

@@ -104,13 +104,15 @@ function formatSize(n: number): string {
   return `${n}B`
 }
 
-/** 弹一个输入框；取消给 null，空串当没填。 */
+/** 弹一个带校验的输入框；取消给 null，空串或非法名不给确认。 */
 async function promptText(titleKey: string, placeholderKey: string, initial = ''): Promise<string | null> {
   try {
     const res = await ElMessageBox.prompt(t(placeholderKey), t(titleKey), {
       inputValue: initial,
       confirmButtonText: t('common.save'),
       cancelButtonText: t('common.cancel'),
+      inputPattern: /^[^\\/:*?"<>|]+$/,
+      inputErrorMessage: t('files.nameInvalid'),
     })
     return (res.value ?? '').trim()
   } catch {

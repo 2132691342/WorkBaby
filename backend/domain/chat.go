@@ -208,6 +208,9 @@ type ChatStateRESP struct {
 	Caps EngineCaps `json:"caps"`
 	// BindErr 绑定失败原因；空表示绑定成功
 	BindErr string `json:"bind_err,omitempty"`
+	// ContextWarn 上下文水位提示；占用超过八成且自动压缩开着时给出，
+	// 让用户在压缩前有个心理预期——界面暂不消费它也不影响别的字段
+	ContextWarn string `json:"context_warn,omitempty"`
 }
 
 // PlanStateVO 是计划模式在界面上的状态。

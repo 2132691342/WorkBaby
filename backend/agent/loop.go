@@ -47,6 +47,8 @@ type Runner struct {
 	Session *Session
 	// Model 本次使用的模型与凭据
 	Model ModelRef
+	// Thinking 思考档：off 不发，low/medium/high 随请求原样透传
+	Thinking string
 	// MaxTokens 输出上限；0 表示用模型默认
 	MaxTokens int
 	// Temperature 采样温度
@@ -56,6 +58,8 @@ type Runner struct {
 	mu sync.Mutex
 	// queue 排队中的插话：当前这一轮收尾后注入
 	queue []Message
+	// followUp 追加队：本轮结束后由上层作为新消息再起一轮
+	followUp []Message
 	// steps 本次运行实际走的步数
 	steps int
 }
@@ -67,12 +71,48 @@ func (r *Runner) Enqueue(msg Message) {
 	r.queue = append(r.queue, msg)
 }
 
+// EnqueueFollowUp 排一条追加话：本轮收尾后由上层另起一轮投递。
+func (r *Runner) EnqueueFollowUp(msg Message) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.followUp = append(r.followUp, msg)
+}
+
+// FollowUpQueued 取追加队并清空它：派发是「取走就发」，队列留在引擎里没有意义。
+func (r *Runner) FollowUpQueued() []Message {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := r.followUp
+	r.followUp = nil
+	return out
+}
+
+// ClearQueued 清空两条排队。被清掉的话术就此消失：
+// 队列里的消息还没进会话文件，清空不破坏「会话是唯一真相」。
+func (r *Runner) ClearQueued() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.queue = nil
+	r.followUp = nil
+}
+
 // Queued 取排队中的文本（界面显示用）。
 func (r *Runner) Queued() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]string, 0, len(r.queue))
 	for _, msg := range r.queue {
+		out = append(out, msg.Text())
+	}
+	return out
+}
+
+// FollowUpTexts 取追加队的文本（界面显示用）。
+func (r *Runner) FollowUpTexts() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, 0, len(r.followUp))
+	for _, msg := range r.followUp {
 		out = append(out, msg.Text())
 	}
 	return out
@@ -165,9 +205,9 @@ func (r *Runner) loop(ctx context.Context, h Handler) {
 		if ctx.Err() != nil {
 			return
 		}
-		if !r.drainQueue(ctx, h) {
-			return
-		}
+		// 工具跑完必须回到循环顶部：下一轮由 history() 把工具结果喂回模型，
+		// 模型才知道该说什么。工具结果已落进会话，这里只管把排队中的插话一并落进去。
+		r.drainQueue(ctx, h)
 	}
 	// 步数用满：明确告诉用户停下了，而不是静默截断。
 	notify(h.OnError, "这一步来回次数太多，已停下。把任务拆小一些再试。")
@@ -181,6 +221,7 @@ func (r *Runner) streamOnce(ctx context.Context, h Handler) (Message, error) {
 		System:      system,
 		Messages:    r.history(),
 		Tools:       r.Registry.Specs(),
+		Thinking:    r.Thinking,
 		MaxTokens:   r.MaxTokens,
 		Temperature: r.Temperature,
 	}
@@ -297,10 +338,31 @@ func (r *Runner) persistPartial(message Message, h Handler) {
 }
 
 // history 把会话条目里的消息按顺序取出来，组成模型上下文。
+// 活动分支上最后一条带摘要的压缩条目是分界点：之前的折成一条摘要引导消息，
+// 之后的消息原样带上；没有摘要的旧压缩标记没有可用结果，只能跳过。
 func (r *Runner) history() []Message {
 	entries := r.Session.Entries()
-	out := make([]Message, 0, len(entries))
-	for _, entry := range entries {
+	// 先找分界点：最后一条带摘要的压缩条目。
+	cut := -1
+	summary := ""
+	for i, entry := range entries {
+		if entry.EntryType == domain.SessionEntryCompaction && entry.EntrySummary != "" {
+			cut = i
+			summary = entry.EntrySummary
+		}
+	}
+	out := make([]Message, 0, len(entries)+1)
+	if cut >= 0 {
+		out = append(out, Message{
+			Role:   RoleUser,
+			Blocks: []Block{{Kind: KindText, Text: summaryMessage(summary)}},
+		})
+	}
+	for i, entry := range entries {
+		if cut >= 0 && i <= cut {
+			// 压缩点之前（含压缩条目本身）不进上下文，真相仍在文件里。
+			continue
+		}
 		if entry.EntryType != domain.SessionEntryMessage || entry.EntryMessage == nil {
 			continue
 		}
@@ -312,9 +374,13 @@ func (r *Runner) history() []Message {
 	return out
 }
 
+// summaryMessage 组装摘要引导消息的正文。
+func summaryMessage(summary string) string {
+	return "以下是此前对话的摘要，之后的对话以它为背景继续：\n\n" + summary
+}
+
 // trimToWindow 在上下文超出模型窗口时丢掉最早的消息。
-// 保留开头一条用户消息：它多半写着「这次要做什么」，
-// 全丢光之后模型就不知道自己在干什么了。
+// 始终留着最后一条：那是用户刚说的那句话，丢了模型就没法回答。
 func trimToWindow(messages []Message, contextWindow int, systemChars int) []Message {
 	if contextWindow <= 0 || len(messages) == 0 {
 		return messages

@@ -1,218 +1,175 @@
 # 数据模型
 
-存储分工明确：**会话 JSONL 是对话真相，workbaby.json 是壳的设置台账，
-workbaby.db 是可查询的派生数据，mcp.json 是 MCP 服务器清单，
-技能与提示词模板是目录里的文件**。
-每一类对象只有一个真相，壳只在其上做台账。
+五类真相，各有唯一载体与唯一写入方。排障时先问「这份数据属于哪一类」，
+再去看那一类的写入路径——把不同类的数据互相抄写，必然出现两份互相漂移的事实。
 
-## 1. 设置台账（`%LOCALAPPDATA%\WorkBaby\workbaby.json`）
+| # | 真相 | 载体 | 写入方 | 消费者 |
+|---|---|---|---|---|
+| 1 | 会话 | `data\sessions\<工作区编码>\SES_<ULID>.jsonl` | `backend/agent/session.go` | `agent`（上下文组装）、`service/parser`、`service/sessions.go`、`session_html.go` |
+| 2 | 设置台账 | `data\workbaby.json` | `backend/repo/store.go` | `service/settings.go`、`service/*` 各模块、`shell`（关窗偏好）、前端 `/bootstrap` |
+| 3 | 服务商目录 | `data\workbaby.db` 的 `provider` / `provider_model` | `backend/repo/provider_repo.go`（经 `service/models.go`） | 模型页、对话页下拉、`Chat.resolveModel` |
+| 4 | 能力配置 | `data\mcp.json`、`<工作区>\.pi\mcp.json`、`data\skills`、`data\skills_disabled`、`<工作区>\.pi\skills`、`data\templates\*.md` | `service/mcp.go`、`service/skills.go`、`service/templates.go` | `service/mcp_runtime.go`（装载工具）、技能页与斜杠命令、`chat_state.commands()` |
+| 5 | 派生数据 | `data\workbaby.db` 的 `search_doc` + 进程内索引与 frecency | `service/searcher.go` | 索引页、`index_search` 工具 |
 
-单个 JSON 文件，启动整读进内存，每次变更原子整写（临时文件 + 换名），
-进程内互斥锁串行化。条目量级是几十条，不值得为它引数据库：
+`pkg.Layout`（`backend/pkg/paths.go`）是这些路径的唯一来源：`DataDir`、`LogDir`、`CacheDir`、`SessionsDir`、
+`SkillsDir`、`SkillsOffDir`、`TemplatesDir`、`StorePath`、`AssetsDir`，外加 `Dev` 布尔标记开发态。
+开发态数据目录带 `-dev` 后缀。`CacheDir` 目前没有消费者——目录不会被创建，也不写东西。
 
-```json
-{
-  "settings": { "ui.theme": "dark", "ui.locale": "zh-CN" },
-  "skill_toggles": { "pdf": false }
-}
-```
-
-| 段 | 形状 | 用途 |
-|---|---|---|
-| `settings` | 键值对（值一律字符串，复杂结构自己 JSON） | 壳的全部键值（见 §2） |
-| `skill_toggles` | 技能目录名 → 是否启用 | 技能开关台账 |
-
-**为什么只有两段**：其余对象的真相都不在这个文件里。会话是 JSONL，
-服务商与模型在 SQLite，技能是目录位置，MCP 是 `mcp.json`。
-把这些再抄进台账就多出第二份真相，而第二份一定会不同步。
-
-文件损坏不堵启动：解析失败时挪到旁边（`workbaby.json.bad-<ts>`）留证，
-从空白重新开始——半截 JSON 多半来自断电或杀进程。
-
-## 2. 设置键（`settings` 段）
-
-| 键 | 值 | 消费方 |
-|---|---|---|
-| `ui.theme` / `ui.reduce_motion` / `ui.font_scale` / `ui.locale` | 界面偏好 | 前端 |
-| `prefs.restore_session` | `'1'` / `'0'` | 启动恢复上次会话 |
-| `prefs.last_session_file` | 会话文件路径 | 恢复目标 |
-| `prefs.close_action` | `'tray'` / `'quit'` | 关窗行为 |
-| `prefs.tray_hint_shown` | `'1'` / `'0'` | 「收进托盘」提示是否已解释过 |
-| `workspace.current` | 路径 | 当前工作区 |
-| `workspace.history` | JSON 数组（≤ 24 条） | 工作区历史 |
-| `chat.hide:<会话路径>` | JSON 数组（条目 id） | 单轮隐藏台账 |
-| `model.active_provider` / `model.active_model` | 服务商名 / 模型 ID | 当前生效的模型 |
-| `model.default_provider` / `model.default_model` | 服务商名 / 模型 ID | 新会话的默认模型 |
-| `model.default_thinking_level` | 思考档 | 新会话的默认思考档 |
-| `model.auto_compaction` | `'0'` / `'1'` | 自动压缩开关 |
-| `web.search_kind` | `duckduckgo` / `brave` / `exa` / `tavily` | 联网搜索服务 |
-| `web.search_key` | 搜索服务密钥 | 联网搜索服务 |
-
-键值一律字符串，复杂结构自己编码 JSON——KV 表不做类型推断，
-加一列不如加一个键。
-
-## 3. 会话 JSONL（对话真相）
-
-位置：`data\sessions\--<工作区编码>--\SES_<ULID>.jsonl`
-
-工作区编码规则：剥掉一个头部分隔符，把 `/` `\` `:` 空格换成 `-`，两端包 `--`。
-引擎建会话目录与清单扫会话目录用的是同一个函数（`pkg.EncodedWorkspace`），
-两边各写一套的话，新建的会话会落在清单扫不到的目录里。
-
-首行是会话头，其后每行一个条目，条目以 `id` / `parentId` 构成**树**：
-
-```
-{"type":"session","version":1,"id":"SES_...","timestamp":"2026-01-01T00:00:00.000Z","cwd":"D:\\proj"}
-{"type":"message","id":"SES_...","parentId":"","timestamp":...,"message":{...}}
-{"type":"message",...}          ← 工具结果同样是一条 message（role=toolResult）
-{"type":"session_info","name":"我自己起的名字"}
-{"type":"compaction","tokensBefore":12345}
-{"type":"custom","customType":"plan-mode","data":{"active":true}}
-```
-
-**会话头只在创建时写一次，之后永不重写。** 整份重写在断电时会把唯一真相写坏。
-标题因此是**派生**的：改名条目优先，其次首条用户消息截断。
-
-### 回放规则（`service/parser`）
-
-1. **活动分支**：从最后一个条目沿 `parentId` 走到根，反转成时间序。
-   分叉时天然取叶子所在分支。环状引用由已访问集合兜住，绝不无限循环。
-2. **轮次分组**：`message` 条目按角色分组——user 开新轮；assistant 成一轮
-   （内容块：`text` → 文本块，`thinking` → 思考块，`toolCall` → 工具块）；
-   `toolResult` 按 `toolCallId` 挂回最近的工具块（填 output / `isError` /
-   差异文本），挂不上则落成独立工具轮；system 与 usage 不进历史视图。
-3. **特殊条目**：`compaction` 转成引擎标记轮（显示压缩前 token 数）；
-   `session_info` 的 `name` 作为会话标题；`custom` 转标记轮，
-   但 `plan-mode` 这类开关不画进对话流——它不是用户说的话。
-4. **健壮性**：坏行直接跳过（中途断电会留下残行，一行残行不该让整份历史读不出来）。
-5. **隐藏台账**：`chat.hide:<会话路径>` 存设置台账；回放时剔除隐藏轮，
-   会话文件本身不动。
-6. **待办派生**：待办清单本身只在引擎内存里活着，但每次 `todo` 工具调用的结果
-   `details.tasks` 都带全量表并落进会话文件——活动分支上最近一次成功调用
-   就是当前待办。
-7. **计划模式派生**：活动分支上最后一条 `plan-mode` 自定义条目就是当前状态。
-
-### 内容块形状
-
-消息正文有两种落法：纯文本走字符串，助手消息与工具结果走内容块数组。
-
-```json
-{"type":"message","message":{"role":"user","content":"问题原文"}}
-{"type":"message","message":{"role":"assistant","content":[
-  {"type":"text","text":"回答"},
-  {"type":"thinking","thinking":"思考"},
-  {"type":"toolCall","id":"call_1","name":"read","arguments":{"path":"a.txt"}}
-]}}
-{"type":"message","message":{"role":"toolResult","toolCallId":"call_1","toolName":"read",
-  "content":[{"type":"text","text":"文件内容"}],"details":{"tidied":true}}}
-```
-
-`details` 跟着工具结果落盘：待办清单、折叠标记、差异文本都在里面，
-回放层靠它把清单复原出来——只记正文的话界面还原不出清单。
-
-## 4. SQLite 派生数据（`%LOCALAPPDATA%\WorkBaby\workbaby.db`）
-
-七张表。**除服务商与模型外都是派生数据**：删掉可以从真相重建，
-写入失败只降级检索与统计能力，不影响对话本身。
-
-| 表 | 行类型 | 内容 |
-|---|---|---|
-| `provider` | `ProviderDO` | 服务商：接口地址、协议、认证方式、密钥原文、排序位 |
-| `provider_model` | `ProviderModelDO` | 模型：所属服务商 + 模型 ID 复合主键、上下文窗口、输出上限、是否支持思考、输入种类 |
-| `session_index` | `SessionIndexDO` | 会话索引：标题、路径、消息数、工具调用数、累计 token、时间戳 |
-| `usage_record` | `UsageRecordDO` | 用量账：每轮回复的输入 / 输出 / 缓存 token 与时间 |
-| `tool_call_record` | `ToolCallRecordDO` | 工具调用画像：工具名、是否失败、耗时 |
-| `search_doc` | `SearchDocDO` | 检索文档：工作区、路径、种类、符号名、行号、正文摘要、命中次数 |
-| `plan_state` | `PlanStateDO` | 计划模式状态：按会话记是否只读 |
-
-**密钥原文只在本进程内流转**，界面读到的是掩码（`ApiKeySecret` 的 json tag 是 `-`，
-不参与序列化）。`api_key` 传空串的语义是「保留原值」——
-界面拿到的是掩码，当成新值存会把密钥写坏。
-
-驱动用纯 Go 实现（`glebarez/sqlite`），不引 cgo。
-外键与 WAL 都开：前者保证行不会指向不存在的东西，
-后者让「读的同时后台在写索引」不互相阻塞。
-
-## 5. MCP 清单（`data\mcp.json`）
-
-| 作用域 | 文件 | 内容 |
-|---|---|---|
-| 用户级 | `data\mcp.json` | `{"mcpServers": {"<名>": {...}}}` |
-| 项目级 | `<工作区>\.pi\mcp.json` | 同形；同名时项目条目覆盖用户条目 |
-
-条目形状：
-
-```json
-{"mcpServers": {
-  "filesystem": {
-    "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"],
-    "env": {"KEY": "VALUE"}, "cwd": "C:\\work", "timeout": 30, "enabled": true,
-    "description": "一句话说明"
-  },
-  "remote": {"url": "https://example.com/mcp", "enabled": true}
-}}
-```
-
-`command` 与 `url` 互斥：stdio 类用命令行（拆成 `command` + `args`），
-HTTP 类用 `url`。`enabled` 缺省视为启用。
-
-删除只动界面显示的那一条：项目级遮蔽用户级时，不连带删除被遮蔽的用户级条目。
-
-## 6. 技能目录
-
-技能的身份是**目录位置**，不是配置项：
-
-| 目录 | 状态 |
-|---|---|
-| `data\skills\<名字>\` | 启用 |
-| `data\skills_disabled\<名字>\` | 停用 |
-| `<工作区>\.pi\skills\<名字>\` | 项目技能（归那个仓库管，壳里的开关对它无效） |
-
-开关 = 搬目录（`os.Rename`），真相是目录在哪个区。
-`workbaby.json` 的 `skill_toggles` 只做记账与核对，不是真相。
-
-随包原件在 `assets\skills\<名字>\`，装与重置都从那里复制。
-目录内容只落在数据目录里——导入是复制不是引用，
-源目录之后删改都不影响壳内副本。
-
-技能的身份与「是否内置」由 `service.RecommendedSkills` 这张推荐清单定义：
-它在 `assets\skills` 与磁盘清单之间做双向咬合（少一边就是死条目）。
-
-## 7. 提示词模板（`data\templates\`）
-
-一份模板 = 一个 md 文件，「文件即数据」：用户能直接用编辑器改，也能整个目录拷走。
-
-```md
 ---
-name: review
-description: 代码评审
-args: <文件>
+
+## 1. 会话 JSONL
+
+一行一条 JSON，只追加不回填。首行是会话头，之后全是条目。
+
+```json
+{"type":"session","version":1,"id":"SES_01J...","timestamp":"2026-01-01T00:00:00.000Z","cwd":"D:\\proj","title":"可选"}
+{"type":"message","id":"SES_01J...","parentId":"","timestamp":"...","message":{"role":"user","content":[{"type":"text","text":"..."}]}}
+{"type":"custom","id":"SES_...","parentId":"...","timestamp":"...","customType":"plan-mode","data":{"active":true}}
+{"type":"compaction","id":"SES_...","parentId":"...","timestamp":"...","summary":"...","tokensBefore":41233}
+```
+
+**为什么只追加**：断电最多丢最后一行；整份重写在写到一半时会把唯一真相写坏。
+**为什么头只写一次**：标题因此由条目派生（改名条目优先，否则首条用户消息），不必重写文件。
+
+### 1.1 会话头（`domain.SessionHeaderDO`）
+
+`type`（恒 `session`）、`version`（格式版本）、`id`、`timestamp`（ISO 串 UTC 毫秒）、`cwd`（绑定的工作目录）、`title`（可选）。
+
+### 1.2 条目类型全表（`domain/session_file.go`）
+
+条目公共字段：`type,id,parentId,timestamp`。`parentId` 串起分支，回放按活动分支走。
+
+| `type` | 专属字段 | 写入方 | 消费者 / 语义 |
+|---|---|---|---|
+| `message` | `message`（`SessionMessageDO`） | `Session.AppendMessage` | 引擎上下文、历史回放、摘要、导出、详情 |
+| `session_info` | `name` | `Session.Rename` | `parser.Summarize` 取标题；`parser.BuildHistory` 跳过（元信息不进对话流） |
+| `model_change` | `provider,modelId` | 只有类型定义与解析，没有写入方 | `parser.Summarize` 取 `session_model`；历史回放跳过 |
+| `thinking_level_change` | `thinkingLevel` | 同上 | 历史回放跳过 |
+| `usage` | `usage`（`SessionUsageDO`） | `Session.AppendUsage`（当前无调用方） | `parser.Summarize` 累加 `total_tokens`/`cost_usd` |
+| `compaction` | `summary,tokensBefore` | `Session.AppendCompaction`（`Chat.compactNow` 调用） | `Runner.history()` 以最后一条带 `summary` 的为准折摘要；`Session.ContextUsage` 遇压缩条目清零读数；`parser.BuildHistory` 渲染成 `engine-mark` 分隔 |
+| `custom` | `customType,data` | `Session.AppendCustom` | `customType="plan-mode"` 的 `data.active` 由 `parser.PlanModeFromEntries` 派生计划模式；其它 `custom` 在历史里渲染成 `engine-mark` |
+
+`SessionMessageDO`：`role(user|assistant|toolResult)、content(字符串或内容块数组)、model、provider、usage、stopReason、errorMessage、toolCallId、toolName、isError、details`。
+`details` 是工具结果的附加信息（diff 文本、待办 `tasks`、`tidied`/`original_chars` 折叠标记）。
+`SessionUsageDO`：`input,output,cacheRead,cacheWrite,totalTokens,cost{total}`。
+`SessionBlockDO`：`type(text|thinking|toolCall|image),text,thinking,id,name,arguments,mime,data`。
+
+### 1.3 读取路径
+
+- `agent.Store.Open` → 引擎当前会话；`Session.Entries()` 返回条目副本；`ContextUsage()` 优先用活动分支上最后一条带 `usage` 的助手消息，无则按字符数 /4 估算。
+- `parser.ReadEntries` + `parser.ActivePath`：从叶子沿 `parentId` 回溯活动分支。
+- `parser.GuardSession`：解析出的路径必须落在 `SessionsDir` 内，越界给 5001/5003。
+- 隐藏轮不改文件：`chat.hide:<会话路径>` 键存条目 ID 数组，回放时剔除。
+
 ---
-请 review 这段代码，关注并发安全。
+
+## 2. 设置台账 `workbaby.json`
+
+单个 JSON，启动整读进内存，变更原子整写（临时文件 + 换名），进程内互斥锁串行化。
+解析失败时挪到 `workbaby.json.bad-<ts>` 留证并从空白开始——半截 JSON 多半来自断电。
+
+```json
+{"settings":{"ui.theme":"dark"},"skill_toggles":{"pdf":false}}
 ```
 
-| 段 | 形状 | 用途 |
-|---|---|---|
-| YAML 头 | `name` / `description` / `args` | 模板名、斜杠菜单里的说明、参数占位提示 |
-| 正文 | 头之后的全部内容 | 选中命令后填进输入框的提示词 |
+`skill_toggles` 按技能目录名记开关结果；**开关的真相是目录在哪个区**，这份台账只做记账与核对，
+写入失败只 Warn，不回滚目录搬移。
 
-模板名清洗成小写字母 / 数字 / 连字符后落成 `<name>.md`；清洗后为空的名拒保存
-（否则会拼出 `.md` 这种摸不着头脑的文件名）。列表读取时坏文件直接跳过——
-一份手改坏的模板不该拖垮整张清单。
+### 2.1 设置键全表（`service/settings.go` 常量）
 
-## 8. 目录一览
+| 键 | 值类型 | 缺省 | 消费方 |
+|---|---|---|---|
+| `workspace.current` | 绝对路径 | 无 | `Settings.Workspace`、files/git/searcher/chat 的守卫、`agent.NewStore` 的 cwd 取值 |
+| `workspace.history` | JSON 数组（`WorkspaceRowVO`，最新在前，≤24） | `[]` | `Settings.Workspaces`（工作区页、托盘菜单） |
+| `prefs.last_session_file` | 会话文件路径 | 无 | `Prefs` 回显；前端 `restoreLastSession`；`Chat.BindSession` 写 |
+| `prefs.restore_session` | `'1'` / `'0'` | 未写视为关 | `Settings.Prefs` → 前端决定是否恢复 |
+| `prefs.close_action` | `tray` / `quit` | `tray` | `shell/window.go` 的关窗决策、`Prefs` |
+| `prefs.tray_hint_shown` | `'1'` | 未写视为未提示 | `App.TrayHintPending`（首次关窗询问） |
+| `chat.hide:<会话文件路径>` | JSON 数组（条目 ID） | 无 | `Sessions.hiddenSet` / `History` |
+| `model.active_provider` | 服务商名 | 无 | `Chat.resolveModel`、`ChatStateRESP.model` |
+| `model.active_model` | 模型 ID | 无 | 同上 |
+| `model.thinking_level` | `off`/`minimal`/`low`/`medium`/`high` | `medium`（`NewChat` 兜底） | `Chat.level` → `Runner.Thinking` → 上游 `reasoning_effort` |
+| `model.auto_compaction` | `'0'` / `'1'` | 未写视为开 | `Chat.autoCompactionDue`、`ChatStateRESP.auto_compaction` |
+| `model.default_provider` | 服务商名 | 无 | 仅 `/models/defaults` 读写与 `DropActiveIf` 清理 |
+| `model.default_model` | 模型 ID | 无 | 同上 |
+| `model.default_thinking_level` | 思考档 | 无 | 同上 |
+| `web.search_kind` | `duckduckgo`/`brave`/`exa`/`tavily` | `duckduckgo` | `Web.config`（含 `Status`/`Search`） |
+| `web.search_key` | 密钥原文 | 无 | 同上 |
+| `ui.locale` | `zh-CN` / `en` | `zh-CN`（`EnsureDefaults` 写入） | 前端 `applyLocale`、Element Plus 语言包 |
+| `ui.font_scale` | 数值字符串 | `1`（`EnsureDefaults`） | 前端 `applyFontScale`（夹在 0.8~1.35） |
+| `ui.reduce_motion` | `'0'` / `'1'` | `0`（`EnsureDefaults`） | 前端 `applyMotion` |
+| `ui.mention_sessions` | 整数 `1`~`20` | `5`（`EnsureDefaults`） | 前端 `MentionBrowser`（条数）、`AppearancePanel`（同一项）；`Settings.normalize` 在保存入口收敛 |
 
+`EnsureDefaults` 只在缺键时写 `ui.*` 四项；用户改过的值一个字不动。
+`SaveSettings`（供各模块调用）直接落库，不走 `normalize`；只有 `Settings.Save`（`/settings/save`）收敛 `ui.mention_sessions`。
+
+**仅前端维护的键**：`ui.theme`（`light`/`dark`）由前端 `stores/app.ts`、`CommandPalette`、`AppearancePanel` 直接读写，
+后端没有对应常量——`/settings/save` 把它当普通不透明字符串原样存下，不认识它的语义。
+
+---
+
+## 3. SQLite `workbaby.db`
+
+`repo.OpenDB`：纯 Go 驱动 `glebarez/sqlite`（无 cgo），`_pragma=foreign_keys(1)&journal_mode(WAL)&busy_timeout(5000)`，
+GORM 日志丢弃（发布版没有控制台）。`AutoMigrate` 只增不改，删列属破坏性变更要走手写迁移。
+
+### 3.1 活表
+
+| 表 | 主键 | 字段 | 用途 |
+|---|---|---|---|
+| `provider` | `provider_name` | `base_url,api_protocol,auth_kind,api_key_secret,provider_sort,created_at_ms,updated_at_ms` | 服务商定义与凭据。`api_key_secret` 的 json tag 是 `-`，不出接口 |
+| `provider_model` | `provider_name` + `model_id` | `model_name,api_protocol,context_window,max_tokens,supports_reasoning,input_kinds（逗号分隔）,model_sort,created_at_ms` | 每个服务商下的模型清单，对话页下拉与 `resolveModel` 的数据源 |
+| `search_doc` | `doc_id` | `workspace_path,doc_path,doc_kind,doc_symbol,doc_symbol_kind,doc_line,doc_body,doc_size,doc_mtime_ms,doc_hit_count,doc_last_hit_ms` | 预索引的行映射 |
+
+### 3.2 `search_doc` 的真实状态
+
+`service/searcher.go` 只对它调三个方法：`ReplaceWorkspace`（重建时整工作区替换）、`BumpHit`（命中后累加计数）、`Count`（状态卡读数）。
+**没有任何读回路径**：`Search` 用进程内 `docs` 切片，`EnsureIndexed` 判据是 `indexedAt > 0 && workspace 与当前一致`。
+所以进程重启后内存为空，第一次检索会触发一次惰性重建——索引与 frecency 不跨重启生效，
+`doc_hit_count`/`doc_last_hit_ms` 写进去也没有读者。`SearchRepo.Search`/`Clear` 无调用方。
+
+### 3.3 数据库只有三张活表
+
+`repo/db.go` 的 `migrate` 只登记上面三张表。会话索引、用量账、工具调用账、计划状态都没有对应的表：
+会话正文的真相在 JSONL，用量的真相在每条消息的 `usage` 上，计划模式的真相在会话文件的 `custom` 条目里。
+`AutoMigrate` 只增不改，所以老库里若残留了同名的历史表，它们不再被读写，也不影响功能。
+
+---
+
+## 4. MCP 清单
+
+`data\mcp.json`（用户级）与 `<工作区>\.pi\mcp.json`（项目级），形状：
+
+```json
+{"mcpServers":{"server-name":{"command":"npx","args":["-y","@x/y"],"cwd":"D:\\proj","env":{"KEY":"v"},"timeout":30,"enabled":true,"description":"一句话"}}}
 ```
-%LOCALAPPDATA%\WorkBaby\          （开发态 -dev 后缀）
-├── workbaby.json                 # 设置与技能开关台账
-├── workbaby.db                   # SQLite：服务商 / 模型 / 索引 / 用量
-├── cache\                        # 壳自己的缓存
-├── templates\                    # 提示词模板（md + YAML 头）
-├── logs\                         # 按天滚动
-├── webview\                      # WebView2 用户数据
-├── sessions\                     # 会话 JSONL（唯一持久真相）
-└── skills\ skills_disabled\      # 技能启用 / 停用区
-```
 
-`webview\` 绑定的是这一次安装，卸载时无条件清掉（可再生）。
-其余目录是否清空由用户在卸载询问里自己选，默认保留。
+- 条目字段：`command`、`args[]`、`cwd`、`env{}`、`timeout`（秒）、`url`、`enabled`、`description`，以及用户手配的其它键。
+- 合并语义：项目级同名覆盖用户级；`enabled` 缺省视为启用；`List` 的 `read_errors` 收集坏文件原因，单侧损坏不影响另一侧。
+- 写入：`Mcp.Save` 先整份继承旧条目再覆盖表单管得到的字段（手配 headers/oauth 不丢），服务名只允许字母数字 `_` `-`。
+- 引擎装载：`mcp_runtime.enabledEntries` 只取有 `command` 的条目（stdio），`url` 型不装载；
+  每次 `Rebuild` 先收掉全部旧进程再按清单重装，单个服务失败只 Warn。
+
+---
+
+## 5. 技能与模板目录
+
+| 目录 | 语义 | 可写 | 谁扫描 |
+|---|---|---|---|
+| `data\skills\<dir>\SKILL.md` | 启用态（引擎看得到） | 是（安装/导入/新建/编辑） | `skills_scan.scanDir(..., true)` |
+| `data\skills_disabled\<dir>\SKILL.md` | 停用态（搬过来即关闭） | 是（开关/重置） | `skills_scan.scanDir(..., false)` |
+| `<工作区>\.pi\skills\<dir>\SKILL.md` | 项目技能（属于那个仓库） | 否（开关与删除都拒） | `skills_scan` 的 `projectDir` |
+| `<assets>\skills\<dir>` | 随包原件（10 条推荐技能的来源） | 否（只读） | `Skills.builtinSource`、`Install`/`Reset` |
+| `data\templates\<name>.md` | 提示词模板，YAML 头 `name/description/args` | 是 | `Templates.List` |
+
+识别口径：技能的身份是**目录名**（`skill_dir_name`），列表按 `skill_group` 再按 `skill_name` 排序，
+同名技能只留启用区那份；模板的身份是文件名清洗后的 `template_name`（小写字母/数字/连字符），坏文件跳过。
+
+---
+
+## 6. 落盘纪律
+
+- 所有写入走 `pkg.WriteFileAtomic`（临时文件 + 换名）或 O_APPEND 追加；不原地截断重写。
+- 技能目录复制走 `copyTreeAtomic`：先落 `<target>.copying` 再换名，中途被杀不留半个技能。
+- 会话条目只追加；引擎持有 `Session.mu` 串行化写入（并发追加会交出半行）。
+- 台账与 MCP 清单的读-改-写各自持有进程内互斥锁（`Store.mu`、`Mcp.mu`）；两者不共锁，因为它们不共享文件。

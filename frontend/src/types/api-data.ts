@@ -153,3 +153,11 @@ export interface McpListData {
   project_path?: string
   read_errors?: string[]
 }
+
+// ---------------- 计划模式 ----------------
+
+/** 计划模式的当前状态：开没开 + 哪些工具被拦下。 */
+export interface PlanState {
+  plan_enabled: boolean
+  blocked_tools: string[]
+}

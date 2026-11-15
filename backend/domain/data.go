@@ -16,7 +16,7 @@ type SessionRowVO struct {
 	UpdatedAt int64 `json:"updated_at"`
 	// SizeBytes 文件字节数
 	SizeBytes int64 `json:"size_bytes"`
-	// MessageCount 消息轮数
+	// MessageCount 消息条数（用户 + 助手 + 工具结果各算一条）
 	MessageCount int `json:"message_count"`
 	// TotalTokens token 合计
 	TotalTokens int `json:"total_tokens"`

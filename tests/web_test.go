@@ -11,7 +11,7 @@ import (
 	"WorkBaby/backend/web"
 )
 
-// TestWebAddressGuard 断言内网与本机地址在工具层被拦下。
+// TestWebAddressGuard 断言内网与本机地址在工具层被拦下，公网地址放行。
 func TestWebAddressGuard(t *testing.T) {
 	blocked := []string{
 		"http://127.0.0.1:8080/admin",
@@ -44,9 +44,9 @@ func TestWebAddressGuard(t *testing.T) {
 	}
 }
 
-// TestWebExtractReadable 断言正文抽取与地址还原：内容留下、脚本与导航去掉、
+// TestWebExtract 断言正文抽取与地址还原：内容留下、脚本与导航去掉、
 // HTML 实体还原、跳转链接还原成真实地址——都是「喂给模型的原料要干净」这一件事。
-func TestWebExtractReadable(t *testing.T) {
+func TestWebExtract(t *testing.T) {
 	raw := `<html><head><title>标题</title><style>body{color:red}</style></head>
 	<body>
 		<script>alert("xss")</script>

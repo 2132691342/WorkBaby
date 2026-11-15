@@ -1,4 +1,4 @@
-// 工作区预索引：建索引、模糊检索与频次排序。
+// 工作区预索引：建索引的收录边界、检索排序与频次加权。
 // 这条能力的价值在大仓库：模型找文件从「几秒的全盘 grep」变成「毫秒级查表」。
 package tests
 
@@ -11,8 +11,8 @@ import (
 	"WorkBaby/backend/index"
 )
 
-// TestIndexBuildFindsFilesAndSymbols 断言建索引的收录边界：源文件与符号进、二进制与依赖目录不进。
-func TestIndexBuildFindsFilesAndSymbols(t *testing.T) {
+// TestIndexBuild 断言建索引的收录边界：源文件与符号进、二进制与依赖目录不进。
+func TestIndexBuild(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "main.go"), `package main
 
@@ -64,8 +64,8 @@ export class Widget {}
 	}
 }
 
-// TestIndexSearchRanksSymbolFirst 断言检索排序：符号名命中排在路径命中之前，常用近用的再往前。
-func TestIndexSearchRanksSymbolFirst(t *testing.T) {
+// TestIndexSearch 断言检索排序：符号名命中排在路径命中之前，常用近用的再往前。
+func TestIndexSearch(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "helper.go"), `package helper
 

@@ -2,7 +2,7 @@
 // 概览页：一屏回答「引擎什么状态、最近花了多少、有什么可继续的」。
 // 是首屏：先看一眼全局再继续干活（最近会话就摆在同一屏）。
 // 只做编排；数字全部来自引擎自己的落盘数据，不另存账本。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -11,6 +11,7 @@ import EngineProcesses from '@/components/overview/EngineProcesses.vue'
 import RecentSessions from '@/components/overview/RecentSessions.vue'
 import UsageCharts from '@/components/overview/UsageCharts.vue'
 import WbSeg from '@/components/common/WbSeg.vue'
+import WbSkeleton from '@/components/common/WbSkeleton.vue'
 import type { SegItem } from '@/types/ui'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
@@ -88,16 +89,22 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
+// 竞态守卫：detecting / engine_ready 两个 watch 叠加手动刷新时，晚到的旧快照直接丢弃。
+let loadSeq = 0
+
 async function load() {
+  const mine = ++loadSeq
   loading.value = true
   try {
     const [data, sessions] = await Promise.all([api.health(), api.sessions(app.workspace || undefined)])
+    if (mine !== loadSeq) return
     health.value = data
     rows.value = sessions.sessions ?? []
   } catch (err) {
+    if (mine !== loadSeq) return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    loading.value = false
+    if (mine === loadSeq) loading.value = false
   }
 }
 
@@ -138,6 +145,11 @@ watch(
 )
 
 onMounted(() => void load())
+
+// 离开页面后到货的响应没有意义：直接作废，不需要网络层中止。
+onUnmounted(() => {
+  loadSeq += 1
+})
 </script>
 
 <template>
@@ -156,6 +168,8 @@ onMounted(() => void load())
     </header>
 
     <div class="page-body">
+      <WbSkeleton v-if="!health && loading" block />
+      <template v-else>
       <!-- 未就绪的横幅：说清「屏幕上这些东西还在数」。
            缺了它，用户看到一屏「—」只能以为界面坏了。 -->
       <div v-if="!ready" class="notice-row">
@@ -219,6 +233,7 @@ onMounted(() => void load())
         @all="router.push({ name: 'sessions' })"
         @start="router.push({ name: 'chat' })"
       />
+      </template>
     </div>
   </div>
 </template>

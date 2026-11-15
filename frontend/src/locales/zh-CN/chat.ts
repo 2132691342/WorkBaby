@@ -21,6 +21,7 @@ chat: {
     viewChanges: '看改动',
     liveAnswering: '正在回答',
     jumpBottom: '回到最新',
+    loadEarlier: '加载更早的 {n} 轮',
     liveTool: '正在运行 {name}',
     liveStalled: '引擎已经一分钟没有新输出了',
     emptyTitle: '开始一轮对话',
@@ -37,14 +38,19 @@ chat: {
     todoTitle: '待办',
     askConfirm: '确认',
     askSelect: '选择',
+    askMulti: '可多选：点选要的几项，再提交',
+    askPicked: '已选 {n} 项',
     askEditor: '编辑',
     askInput: '输入',
     compact: '压缩上下文',
     planMode: '计划模式',
     planActive: '计划中',
     planOn: '开启计划模式：只读探索，写改工具被拦',
+    planOnWith: '开启计划模式：{tools} 被拦下',
     planOff: '退出计划模式：恢复写改工具',
     planFailed: '切换计划模式失败',
+    planBanner: '计划模式：只能读，不能改。写工具会被拦下',
+    planBannerBlocked: '被拦下：{tools}',
     compacting: '正在压缩…',
     retrying: '自动重试',
     queueSteer: '插话队列',
@@ -143,7 +149,13 @@ chat: {
     hideTurnHint: '只从界面上隐藏这一轮：引擎的记录不受影响，会话页里仍能查看。',
     hideTurnConfirm: '隐藏',
     turnHidden: '已隐藏这一轮',
-    changesCount: '改动 {n} 个文件'
+    changesCount: '改动 {n} 个文件',
+    forkTurnTitle: '从这里分叉？',
+    forkTurnHint: '把当前会话复制到这一句为止，开一条新会话；原会话一个字不动。',
+    forkTurnConfirm: '分叉',
+    forkDone: '已分叉为新会话',
+    retrySend: '重试发送',
+    mentionCountTip: "{'@'} 菜单里列出的最近会话条数"
   },
 
 history: {
@@ -178,7 +190,7 @@ sessions: {
     renameTitle: '改会话名',
     renamePlaceholder: '给这个会话起个名字',
     deleteTitle: '删除会话',
-    deleteConfirm: '删掉「{title}」这个会话？会话文件会一起删除，不能恢复。',
+    deleteConfirm: '删掉「{title}」这个会话？会话文件连同全部消息记录一起删除，不进回收站，不能恢复。',
     deleted: '已删除',
     emptyTitle: '还没有会话',
     emptyHint: '在「对话」里发一句话，这里就会出现第一条。',
@@ -189,6 +201,7 @@ sessions: {
     cost: '花费',
     groupToday: '今天',
     groupWeek: '最近 7 天',
-    groupEarlier: '更早'
+    groupEarlier: '更早',
+    showMore: '显示更多（还有 {n} 条）'
   },
 }

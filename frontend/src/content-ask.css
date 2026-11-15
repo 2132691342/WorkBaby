@@ -82,3 +82,20 @@
   border-radius: var(--wb-r-full);
   background: var(--wb-hover);
 }
+
+/* 提问卡的进出：从下方 6px 浮起，离开向上收——
+   「引擎在问你」是消息流里最高优先级的打断，动效要配得上这个身份。 */
+.ask-in-enter-active,
+.ask-in-leave-active {
+  transition:
+    opacity var(--wb-dur-slow) var(--wb-ease-out),
+    transform var(--wb-dur-slow) var(--wb-ease-out);
+}
+.ask-in-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.ask-in-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}

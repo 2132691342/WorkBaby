@@ -61,13 +61,24 @@ tasks:
     cmds:
       - go test ./tests -count=1
 
-  # 一条命令跑完四道门禁。改完东西想知道「有没有弄坏什么」就跑这个。
+  smoke:
+    summary: 起纯后端实例，把全部只读接口打一遍（验接线，不验业务）
+    cmds:
+      - pwsh scripts/smoke.ps1
+
+  i18n:
+    summary: 校验前端文案能被 vue-i18n 编译（@ % | 等保留字须转义）
+    cmds:
+      - npm --prefix frontend run check:i18n
+
+  # 一条命令跑完本地门禁。改完东西想知道「有没有弄坏什么」就跑这个。
   check:
-    summary: 跑全部本地门禁（格式 / 静态检查 / 测试）
+    summary: 跑全部本地门禁（格式 / 静态检查 / 测试 / 前端文案）
     cmds:
       - task: fmt:check
       - task: vet
       - task: test
+      - task: i18n
 
   vet:
     summary: 静态检查

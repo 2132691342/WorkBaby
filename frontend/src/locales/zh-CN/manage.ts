@@ -19,7 +19,7 @@ mcp: {
     modeCommand: '本地命令',
     modeUrl: '远程地址',
     command: '命令',
-    commandPlaceholder: '例如 npx -y @modelcontextprotocol/server-filesystem',
+    commandPlaceholder: "例如 npx -y {'@'}modelcontextprotocol/server-filesystem",
     url: '地址',
     transport: '协议',
     workDir: '工作目录',
@@ -41,7 +41,10 @@ mcp: {
     emptyTitle: '还没有 MCP 服务器',
     emptyHint: '新增一个本地命令或远程地址，它带来的工具就能用了。',
     removeTitle: '删除服务器？',
-    removeConfirm: '删掉「{name}」？只移除这条配置，它带来的工具立即不可用；数据目录里的其他配置都不动。'
+    removeConfirm: '删掉「{name}」？只移除这条配置，它带来的工具立即不可用；数据目录里的其他配置都不动。',
+    commandRequired: '本地命令必须填命令行',
+    urlInvalid: '远程地址必须以 http:// 或 https:// 开头',
+    timeoutInvalid: '超时必须是正整数（秒）；留空表示沿用默认'
   },
 
 apps: {
@@ -63,6 +66,9 @@ apps: {
     howTo: '怎么装',
     copyFailed: '复制失败，请手动选中路径',
     recheck: '刷新',
+    emptyTitle: '这里还没有可显示的环境',
+    emptyHint: '通常一点「刷新」就会出现结果；一直为空说明探测还没跑过。',
+    startChat: '先去对话',
     boundary: '引擎在应用进程内，不需要安装。git / node / python 用的是系统已装的那一份，壳不代装也不随包分发。',
 },
 
@@ -114,7 +120,10 @@ models: {
     defaultClear: '跟随当前',
     defaultInherit: '不指定',
     defaultPickProviderFirst: '先选一个服务商',
-    defaultPickModel: '选一个模型'
+    defaultPickModel: '选一个模型',
+    apiKeyKeepHint: '密钥不回显。留空保存 = 保留原值；只有填了新值才会替换。',
+    nameInvalid: '名字不能含空格或 \\ / : * ? " < > | 这些字符',
+    urlInvalid: '接口地址必须以 http:// 或 https:// 开头'
   },
 
 skills: {
@@ -155,6 +164,8 @@ skills: {
     emptyTitle: '还没有技能',
     emptyHint: '新建一个，或者装一个带技能的技能包。',
     noMatch: '没有匹配的技能',
-    saved: '技能已保存'
+    saved: '技能已保存',
+    closeDirtyTitle: '放弃未保存的修改？',
+    closeDirtyBody: '抽屉里的正文改动还没有保存，关掉就丢了。'
   },
 }

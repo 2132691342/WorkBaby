@@ -9,6 +9,8 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import AppIcon from '@/components/common/AppIcon.vue'
 import WbSeg from '@/components/common/WbSeg.vue'
+import WbSkeleton from '@/components/common/WbSkeleton.vue'
+import WbEmpty from '@/components/common/WbEmpty.vue'
 import type { SegItem } from '@/types/ui'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
@@ -174,17 +176,23 @@ function renderCharts() {
   }
 }
 
+// 竞态守卫：连点刷新或切换时间窗后重拉时，晚到的旧会话快照直接丢弃。
+let loadSeq = 0
+
 async function load() {
+  const mine = ++loadSeq
   loading.value = true
   try {
-    // 用量跨引擎合并：两个引擎都写 usage 进各自的会话文件，账本该是同一本。
+    // 用量来自全部会话文件的合计：账本只有一本，就是那些 jsonl。
     const data = await api.sessions()
+    if (mine !== loadSeq) return
     rows.value = data.sessions ?? []
     renderCharts()
   } catch (err) {
+    if (mine !== loadSeq) return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    loading.value = false
+    if (mine === loadSeq) loading.value = false
   }
 }
 
@@ -238,6 +246,8 @@ onUnmounted(() => {
     </header>
 
     <div class="page-body">
+      <WbSkeleton v-if="loading && !rows.length" block />
+      <template v-else>
       <section class="stat-row">
         <div class="wb-card card-pad stat">
           <span class="wb-metric-label">{{ t('usage.total') }}</span>
@@ -262,10 +272,7 @@ onUnmounted(() => {
         <section class="card-pad chart-card">
           <div class="wb-sec-head"><span class="wb-sec-title">{{ t('usage.byModel') }}</span></div>
           <div v-if="byModel.length" ref="modelEl" class="chart" />
-          <div v-else class="wb-empty">
-            <span class="wb-tile wb-tile--sm wb-tile--neutral"><AppIcon name="chart" :size="16" /></span>
-            <p class="wb-empty-title">{{ t('usage.emptyHint') }}</p>
-          </div>
+          <WbEmpty v-else icon="chart" :title="t('usage.emptyTitle')" :hint="t('usage.emptyHint')" />
         </section>
 
         <section class="card-pad table-card">
@@ -293,6 +300,7 @@ onUnmounted(() => {
           </el-table>
         </section>
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -333,19 +341,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
+  flex: none;
 }
-
-.seg {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--wb-line);
-  border-radius: var(--wb-r);
-  background: var(--wb-window);
-}
-
-/* 分段控件不缩放：只换底与字色 */
-
 
 
 .page-body {

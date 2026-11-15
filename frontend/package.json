@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
-    "build:dev": "vite build"
+    "build": "vue-tsc --noEmit -p tsconfig.json && node scripts/check-i18n.mjs && vite build",
+    "build:dev": "vite build",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "@codemirror/lang-json": "6.0.1",

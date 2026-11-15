@@ -76,6 +76,27 @@
   text-transform: uppercase;
   color: var(--wb-faint);
 }
+
+/* 段标题行内的复制钮：小写不抢段标题，悬停整卡才浮出来。 */
+.tool-label .diff-copy {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--wb-dur-fast) var(--wb-ease);
+}
+.tool:hover .tool-label .diff-copy,
+.tool-label .diff-copy:focus-visible {
+  opacity: 1;
+}
+.tool-label:has(.diff-copy) {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+}
+.tool-label .diff-copy {
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
 .tool-pre {
   margin: 0;
   padding: var(--wb-sp-2);

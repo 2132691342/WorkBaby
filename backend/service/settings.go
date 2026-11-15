@@ -5,6 +5,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"WorkBaby/backend/domain"
@@ -42,16 +43,68 @@ const (
 	KeyDefaultModel = "model.default_model"
 	// KeyDefaultThinkingLevel 新会话的默认思考档
 	KeyDefaultThinkingLevel = "model.default_thinking_level"
+	// KeyThinkingLevel 当前思考档
+	KeyThinkingLevel = "model.thinking_level"
 	// KeyWebSearchKind 联网搜索服务的种类
 	KeyWebSearchKind = "web.search_kind"
 	// KeyWebSearchKey 联网搜索服务的密钥
 	KeyWebSearchKey = "web.search_key"
+	// KeyMentionSessions @ 引用里列出最近几条会话
+	KeyMentionSessions = "ui.mention_sessions"
+	// KeyFontScale 界面字号缩放
+	KeyFontScale = "ui.font_scale"
+	// KeyReduceMotion 是否减弱动效
+	KeyReduceMotion = "ui.reduce_motion"
+	// KeyLocale 界面语言
+	KeyLocale = "ui.locale"
 
 	// CloseActionTray 收进托盘
 	CloseActionTray = "tray"
 	// CloseActionQuit 直接退出
 	CloseActionQuit = "quit"
 )
+
+// defaultSettings 是界面类设置的默认值。首启写入一份：
+// 界面读到的就是明确的值，不必各自兜底一个数字。
+var defaultSettings = map[string]string{
+	KeyMentionSessions: "5",
+	KeyFontScale:       "1",
+	KeyReduceMotion:    "0",
+	KeyLocale:          "zh-CN",
+}
+
+// EnsureDefaults 把缺失的界面设置补成默认值，返回是否有写入。
+// 只在缺键时写：用户改过的值一个字不动。
+func (s *Settings) EnsureDefaults() bool {
+	missing := map[string]string{}
+	for key, value := range defaultSettings {
+		if _, ok := s.Store.Get(key); !ok {
+			missing[key] = value
+		}
+	}
+	if len(missing) == 0 {
+		return false
+	}
+	if err := s.Store.Save(missing); err != nil {
+		pkg.Warn("界面默认设置写入失败：%v", err)
+		return false
+	}
+	return true
+}
+
+// MentionSessions 是 @ 引用里列出的最近会话条数。
+// 取值夹在 1~20：超出范围的值来自手改配置文件，按边界收敛比报错好用。
+func (s *Settings) MentionSessions() int {
+	raw := strings.TrimSpace(s.Get(KeyMentionSessions))
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 5
+	}
+	if n > 20 {
+		return 20
+	}
+	return n
+}
 
 // Settings 是设置与工作区编排。
 type Settings struct {
@@ -78,10 +131,27 @@ func (s *Settings) Get(key string) string {
 
 // Save 批量保存设置。
 func (s *Settings) Save(kv map[string]string) (map[string]string, error) {
+	// 界面类键在入口收敛：手改过的坏值不该一路带进界面，
+	// 也不该让 @ 引用因为一个 0 而一条会话都不列。
+	s.normalize(kv)
 	if err := s.Store.Save(kv); err != nil {
 		return nil, err
 	}
 	return s.Store.All(), nil
+}
+
+// normalize 把界面类设置收敛到合法范围；就地改写入映射。
+func (s *Settings) normalize(kv map[string]string) {
+	if raw, ok := kv[KeyMentionSessions]; ok {
+		n, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || n < 1 {
+			n = 1
+		}
+		if n > 20 {
+			n = 20
+		}
+		kv[KeyMentionSessions] = strconv.Itoa(n)
+	}
 }
 
 // SaveSettings 是 Save 的别名：调用方拿的是业务语义而不是存储细节。

@@ -136,6 +136,60 @@ func (s *Session) Entries() []domain.SessionEntryDO {
 	return out
 }
 
+// ContextUsage 估算当前上下文占用。
+// 优先用活动分支上最后一条带用量的助手消息（input+output+cache 读数），
+// 一条都没有时按字符数估算；压缩条目把读数清零，旧读数对新上下文没有意义。
+func (s *Session) ContextUsage() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tokens := 0
+	chars := 0
+	for _, entry := range s.entries {
+		if entry.EntryType == domain.SessionEntryCompaction {
+			tokens = 0
+			chars = 0
+			continue
+		}
+		msg := entry.EntryMessage
+		if msg == nil {
+			continue
+		}
+		chars += contentChars(msg.MessageContent)
+		if msg.MessageUsage != nil {
+			tokens = msg.MessageUsage.UsageInput + msg.MessageUsage.UsageOutput +
+				msg.MessageUsage.UsageCacheRead
+		}
+	}
+	if tokens > 0 {
+		return tokens
+	}
+	return chars / 4
+}
+
+// contentChars 取一段落盘正文的纯文本。字符数统计走在解析前面：
+// 这只是占用估算，不值得为它解一遍块结构。
+func contentChars(content any) int {
+	switch typed := content.(type) {
+	case string:
+		return len([]rune(typed))
+	case []any:
+		n := 0
+		for _, item := range typed {
+			block, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, field := range []string{"text", "thinking"} {
+				if text, ok := block[field].(string); ok {
+					n += len([]rune(text))
+				}
+			}
+		}
+		return n
+	}
+	return 0
+}
+
 // AppendMessage 追加一条消息条目并推进叶子指针。
 func (s *Session) AppendMessage(msg Message) (domain.SessionEntryDO, error) {
 	if msg.CreatedAt == 0 {
@@ -180,16 +234,29 @@ func (s *Session) AppendUsage(usage Usage) (domain.SessionEntryDO, error) {
 	})
 }
 
-// CompactHint 在会话里标记一次压缩。
-// 引擎不做摘要重写：原文一律不删——把历史悄无声息地换掉，
-// 用户下次翻回去就找不到自己说过的话了。
-func (s *Session) CompactHint(instructions string) (domain.SessionEntryDO, error) {
-	entry, err := s.append(domain.SessionEntryDO{EntryType: domain.SessionEntryCompaction})
-	if err != nil {
-		return domain.SessionEntryDO{}, err
+// AppendCompaction 追加一条压缩条目：摘要与压缩前读数都落在条目上，
+// 之后引擎的上下文从摘要 + 压缩点之后的消息组装；
+// 压缩前的原文条目一个字节不动——用户翻回去还要能找到自己说过的话。
+func (s *Session) AppendCompaction(summary string, tokensBefore int) (domain.SessionEntryDO, error) {
+	return s.append(domain.SessionEntryDO{
+		EntryType:         domain.SessionEntryCompaction,
+		EntrySummary:      summary,
+		EntryTokensBefore: tokensBefore,
+	})
+}
+
+// CompactionSummary 取活动分支上最后一条带摘要的压缩条目；没有给空。
+// 会话条目只追加不回填，扫到最后一条就是当前生效的摘要。
+func (s *Session) CompactionSummary() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	summary := ""
+	for _, entry := range s.entries {
+		if entry.EntryType == domain.SessionEntryCompaction && entry.EntrySummary != "" {
+			summary = entry.EntrySummary
+		}
 	}
-	_ = instructions
-	return entry, nil
+	return summary
 }
 
 // AppendCustom 追加一条自定义条目：引擎用它表达自己的状态（如计划模式开关）。

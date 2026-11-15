@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 技能页：一条清单，每条一行——来源分组、开关、查看、重置、删除。
 // 只有一个引擎，所以不再做「矩阵」：一份技能对应一个目录，开关就是把目录搬进/搬出禁用区。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -9,7 +9,8 @@ import SkillRowItem from '@/components/skills/SkillRow.vue'
 import SkillDrawer from '@/components/skills/SkillDrawer.vue'
 import SkillCreateDialog from '@/components/skills/SkillCreateDialog.vue'
 import WbEmpty from '@/components/common/WbEmpty.vue'
-import { api } from '@/api/http'
+import WbSkeleton from '@/components/common/WbSkeleton.vue'
+import { api, abortable } from '@/api/http'
 import { pickFolder } from '@/api/wails'
 import { useRefreshStore } from '@/stores/refresh'
 import { useToasts } from '@/composables/useToasts'
@@ -41,6 +42,16 @@ const createOpen = ref(false)
 const creating = ref(false)
 const importing = ref(false)
 
+// 竞态守卫：事件 bump 触发的重拉与手动刷新并发时，晚到的旧响应直接丢弃。
+let loadSeq = 0
+let aborter: AbortController | null = null
+
+onUnmounted(() => {
+  loadSeq += 1
+  aborter?.abort('unmount')
+  aborter = null
+})
+
 const filtered = computed(() => {
   const query = filter.value.trim().toLowerCase()
   if (!query) return rows.value
@@ -57,16 +68,21 @@ const groups = computed(() =>
 )
 
 async function load() {
+  const mine = ++loadSeq
+  aborter?.abort('superseded')
+  aborter = new AbortController()
   loading.value = true
   try {
-    const data = await api.skills()
+    const data = await abortable.skills(aborter.signal)
+    if (mine !== loadSeq) return
     rows.value = data.skills ?? []
     recommendedTotal.value = data.recommended_total
     recommendedInstalled.value = data.recommended_installed
   } catch (err) {
+    if (mine !== loadSeq || (err as { name?: string })?.name === 'CanceledError') return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    loading.value = false
+    if (mine === loadSeq) loading.value = false
   }
 }
 
@@ -289,8 +305,10 @@ onMounted(load)
         <input v-model="filter" class="wb-input" :placeholder="t('common.searchPlaceholder')" />
       </div>
 
+      <WbSkeleton v-if="loading && !rows.length" :rows="6" />
+
       <WbEmpty
-        v-if="!rows.length && !loading"
+        v-else-if="!rows.length && !loading"
         icon="book"
         :title="t('skills.emptyTitle')"
         :hint="t('skills.emptyHint')"
@@ -379,6 +397,8 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
+  flex: none;
+  flex-wrap: wrap;
 }
 
 .page-body {

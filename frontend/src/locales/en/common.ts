@@ -40,6 +40,11 @@ export default {
     "settings": "Settings"
   },
 
+// The engine's display name: the UI always says this instead of an upstream product name.
+"engine": {
+    "name": "WorkBaby engine"
+  },
+
 "common": {
     "save": "Save",
     "cancel": "Cancel",
@@ -54,6 +59,7 @@ export default {
     "uninstall": "Uninstall",
     "loading": "Loading…",
     "clear": "Clear",
+    "open": "Show",
     "empty": "Nothing here yet",
     "dismiss": "Dismiss this message",
     "enabled": "Enabled",
@@ -103,4 +109,7 @@ export default {
     "needNameBody": "Template name and body are required",
     "deleteConfirm": "Delete template {name}?"
   },
+
+keepEditing: 'Keep editing',
+  cancelYes: 'Yes, close it',
 }

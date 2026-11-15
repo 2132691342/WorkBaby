@@ -2,7 +2,7 @@
 // 历史面板：提交列表 + 单次提交详情（改动文件与逐行差异）+ 单个文件的时间线。
 // 单独一个组件：这里同时管「列表 / 详情 / 文件过滤」三种状态与选择态，
 // 塞回页面会让那个文件变成第二个 store。
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import DiffView from '@/components/workspace/DiffView.vue'
@@ -22,10 +22,20 @@ const emit = defineEmits<{ clearFile: [] }>()
 const { t } = useI18n()
 const toasts = useToasts()
 
+/** 折叠动画时长：收起后延迟这么久才拆内容，与 CSS 的 transition 对齐。 */
+const FOLD_MS = 200
+
 const rows = ref<GitCommit[]>([])
 const loading = ref(false)
 // 详情：一次只展开一个提交。openHash 为空表示没展开。
 const openHash = ref('')
+// 真正挂载详情的那一条：与 openHash 差一段收起动画的时间。
+// 直接拿 openHash 当 v-if 的话，收起的那一刻内容就没了，
+// 200ms 的折叠动画演的是空盒子——看得见边框在缩，看不见里面在退。
+const mountedHash = ref('')
+// 收起后延迟拆内容的定时器：换一条展开要先取消上一条的待拆，
+// 否则连续点开会把刚展开的那条又拆掉。
+let unmountTimer = 0
 const detail = ref<GitCommitDetail | null>(null)
 const detailLoading = ref(false)
 // 详情里选中的文件与它的差异。commitDiff 为整份提交的差异，fileDiff 为单文件的。
@@ -60,10 +70,18 @@ watch(() => props.file, loadFileHistory, { immediate: true })
 async function open(commit: GitCommit) {
   if (openHash.value === commit.commit_hash) {
     openHash.value = ''
-    detail.value = null
+    // 收起：等折叠动画演完再拆内容。期间内容仍在，动画演的是真盒子。
+    window.clearTimeout(unmountTimer)
+    unmountTimer = window.setTimeout(() => {
+      mountedHash.value = ''
+      detail.value = null
+    }, FOLD_MS)
     return
   }
+  // 换一条展开：取消上一条的待拆，立刻让新这条挂上内容
+  window.clearTimeout(unmountTimer)
   openHash.value = commit.commit_hash
+  mountedHash.value = commit.commit_hash
   detail.value = null
   commitDiff.value = null
   fileDiff.value = null
@@ -114,6 +132,11 @@ function relative(ms: number): string {
 }
 
 defineExpose({ reload: loadFileHistory })
+
+// 卸载时还有待拆的定时器就取消：组件没了而回调还在，
+// 它会去写一个已经销毁的响应式对象。
+onUnmounted(() => window.clearTimeout(unmountTimer))
+
 </script>
 
 <template>
@@ -147,8 +170,17 @@ defineExpose({ reload: loadFileHistory })
           </span>
         </button>
 
-        <div v-if="openHash === item.commit_hash" class="commit-detail">
-          <div v-if="detailLoading" class="empty-mini">{{ t('common.loading') }}</div>
+        <!-- 展开用 grid 1fr→0fr 而不是 v-if：v-if 会让详情瞬间出现，
+             一次提交的文件清单长，瞬间铺开看不出「这是刚才点开的那个」。
+             grid 行高可以真的插值，收起也是平滑的，不需要 max-height 猜高度。
+
+             但内容必须在收起时不挂载：每条提交都挂着一份 DiffView，
+             几百条提交就是几百个差异视图同时存在，DOM 与内存都受不了。
+             所以外层管动画、内层 v-if 管挂载——展开的那一瞬建，
+             收起后立刻拆，只在动画进行中的那 200ms 里两头并存。 -->
+        <div class="commit-clip" :class="{ open: openHash === item.commit_hash }">
+          <div v-if="mountedHash === item.commit_hash" class="commit-detail">
+            <div v-if="detailLoading" class="empty-mini">{{ t('common.loading') }}</div>
           <template v-else-if="detail">
             <p v-if="detail.commit_body" class="commit-body selectable">{{ detail.commit_body }}</p>
             <div class="detail-meta">
@@ -176,6 +208,7 @@ defineExpose({ reload: loadFileHistory })
 
             <DiffView :diff="shownDiff" :path="shownPath" :loading="diffLoading" />
           </template>
+        </div>
         </div>
       </div>
     </template>
@@ -303,7 +336,27 @@ defineExpose({ reload: loadFileHistory })
 
 /* 详情区：与列表同底色，只靠缩进与间距分开。
    不再套一层描边：下面已经有一份差异视图（它自带圆角描边），
-   再加上去就是三层框叠在一起，而这三层表达的是同一件事。 */
+   再加上去就是三层框叠在一起，而这三层表达的是同一件事。
+
+   折叠层用 grid 行高 0fr→1fr 插值：比 max-height 可靠，
+   不需要预估详情有多高，收起也不会「先撑满再弹回」。 */
+.commit-clip {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--wb-dur) var(--wb-ease);
+}
+
+.commit-clip.open {
+  grid-template-rows: 1fr;
+}
+
+/* 内层必须 min-height:0 + overflow:hidden：grid 子项默认不会小于内容高度，
+   不夹住的话 0fr 仍然显示出全部内容，折叠就失效了。 */
+.commit-clip > .commit-detail {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .commit-detail {
   display: flex;
   flex-direction: column;
@@ -311,14 +364,6 @@ defineExpose({ reload: loadFileHistory })
   margin: var(--wb-sp-1) 0 var(--wb-sp-3) var(--wb-sp-2);
   padding: var(--wb-sp-2) 0 var(--wb-sp-2) var(--wb-sp-3);
   border-left: 1px solid var(--wb-line);
-  animation: detail-unfold var(--wb-dur) var(--wb-ease);
-}
-
-@keyframes detail-unfold {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
 }
 
 .commit-body {

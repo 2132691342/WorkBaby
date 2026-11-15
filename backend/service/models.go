@@ -6,6 +6,7 @@ import (
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/repo"
+	"WorkBaby/backend/sse"
 )
 
 // Models 是模型与服务商编排。真相在 SQLite 的 provider / provider_model 两张表：
@@ -18,11 +19,22 @@ type Models struct {
 	repo *repo.ProviderRepo
 	// Settings 设置（默认服务商 / 默认模型 / 默认思考档住在这里）
 	Settings *Settings
+	// Hub 事件广播：服务商与模型变了要让界面知道，否则对话页的模型下拉还是旧清单
+	Hub *sse.Hub
 }
 
 // NewModels 造一个模型门面。
-func NewModels(layout pkg.Layout, db *repo.DB, settings *Settings) *Models {
-	return &Models{Layout: layout, repo: repo.NewProviderRepo(db), Settings: settings}
+func NewModels(layout pkg.Layout, db *repo.DB, settings *Settings, hub *sse.Hub) *Models {
+	return &Models{Layout: layout, repo: repo.NewProviderRepo(db), Settings: settings, Hub: hub}
+}
+
+// changed 播一次「模型目录动了」。对话页的模型下拉、模型页自己的清单都听这个
+// 刷新——不播的话，用户在模型页加完服务商，输入区的下拉还是加之前那一份。
+func (m *Models) changed() {
+	if m.Hub == nil {
+		return
+	}
+	m.Hub.Broadcast("models:changed", sse.EngineTag(nil))
 }
 
 // Providers 组装服务商清单。密钥恒为掩码：界面永远拿不到原文。
@@ -137,15 +149,39 @@ func (m *Models) Upsert(req domain.ProviderUpsertREQ) (domain.ProvidersRESP, err
 	if err := m.repo.Upsert(row); err != nil {
 		return domain.ProvidersRESP{}, err
 	}
-	// 请求没带模型时保留原有清单：改地址不该把模型一起清空。
-	if len(req.Models) > 0 {
-		for index, entry := range req.Models {
-			model := modelDOFromVO(name, entry, row.ApiProtocol, index, now)
+	// 请求带了模型清单就按「整表替换」对账：前端弹窗回传的是编辑后的全量清单，
+	// 用户删掉一行再保存时，库里旧行不删的话模型下拉永远显示已删的模型。
+	// 请求没带清单则保留原有清单：改地址不该把模型一起清空。
+	if req.Models != nil {
+		keep := make(map[string]bool, len(req.Models))
+		for _, entry := range req.Models {
+			id := strings.TrimSpace(entry.ModelId)
+			if id == "" || keep[id] {
+				continue
+			}
+			keep[id] = true
+			model := modelDOFromVO(name, entry, row.ApiProtocol, len(keep)-1, now)
 			if err := m.repo.UpsertModel(model); err != nil {
 				return domain.ProvidersRESP{}, err
 			}
 		}
+		stored, err := m.repo.Models(name)
+		if err != nil {
+			return domain.ProvidersRESP{}, err
+		}
+		for _, old := range stored {
+			if keep[old.ModelId] {
+				continue
+			}
+			if _, err := m.repo.DeleteModel(name, old.ModelId); err != nil {
+				return domain.ProvidersRESP{}, err
+			}
+			// 删掉的正是活跃 / 默认指向的那条时把指针清掉：
+			// 留着它，下一句话会撞「模型不存在」。
+			m.DropActiveIf(name, old.ModelId)
+		}
 	}
+	m.changed()
 	return m.Providers(), nil
 }
 
@@ -180,6 +216,7 @@ func (m *Models) SaveModel(req domain.ProviderModelSaveREQ) (domain.ProvidersRES
 	if err := m.repo.UpsertModel(model); err != nil {
 		return domain.ProvidersRESP{}, err
 	}
+	m.changed()
 	return m.Providers(), nil
 }
 
@@ -198,13 +235,52 @@ func (m *Models) DeleteModel(req domain.ProviderModelDeleteREQ) (domain.Provider
 	if !removed {
 		return domain.ProvidersRESP{}, pkg.Err(pkg.CodeNotFound, "未找到模型："+req.ModelId)
 	}
+	// 删的正是当前选中的那条：活跃设置跟着清掉。
+	// 不清的后果是下一句话报「模型不存在」，而用户早就不记得删过它。
+	m.DropActiveIf(name, req.ModelId)
+	m.changed()
 	return m.Providers(), nil
 }
+
+// Delete 删除一个服务商及其全部模型。
 func (m *Models) Delete(name string) (domain.ProvidersRESP, error) {
-	if err := m.repo.Delete(strings.TrimSpace(name)); err != nil {
+	name = strings.TrimSpace(name)
+	if err := m.repo.Delete(name); err != nil {
 		return domain.ProvidersRESP{}, err
 	}
+	// 删的正是当前选中的服务商：活跃设置一起清，别留一个指向空服务的指针。
+	m.DropActiveIf(name, "")
+	m.changed()
 	return m.Providers(), nil
+}
+
+// DropActiveIf 在活跃设置指向被删掉的服务商 / 模型时清掉它们。
+// 判定按名字而不是按「还剩几个」：另一个服务商下同样 ID 的模型不该被牵连。
+func (m *Models) DropActiveIf(providerName, modelId string) {
+	if m.Settings == nil {
+		return
+	}
+	clear := map[string]string{}
+	if m.Settings.Get(KeyActiveProvider) == providerName {
+		clear[KeyActiveProvider] = ""
+		// 给了模型 ID 才按模型判：删整个服务商时，只要服务商对上就全清。
+		if modelId == "" || m.Settings.Get(KeyActiveModel) == modelId {
+			clear[KeyActiveModel] = ""
+		}
+	}
+	// 默认模型同理：留着它，下一次开新会话仍会落到已不存在的组合上。
+	if m.Settings.Get(KeyDefaultProvider) == providerName {
+		clear[KeyDefaultProvider] = ""
+		if modelId == "" || m.Settings.Get(KeyDefaultModel) == modelId {
+			clear[KeyDefaultModel] = ""
+		}
+	}
+	if len(clear) == 0 {
+		return
+	}
+	if err := m.Settings.SaveSettings(clear); err != nil {
+		pkg.Warn("清理已删服务商的活跃设置失败：%v", err)
+	}
 }
 
 // ProviderOf 取一个服务商的定义；不存在给零值。
@@ -268,17 +344,12 @@ func (m *Models) SaveDefaults(req domain.ModelDefaultSaveREQ) (domain.ModelDefau
 	}); err != nil {
 		return domain.ModelDefaultVO{}, err
 	}
+	m.changed()
 	return m.Defaults(), nil
 }
 
 // isThinkingLevel 判断思考档是否在可用集合内。
-func isThinkingLevel(level string) bool {
-	switch level {
-	case "off", "minimal", "low", "medium", "high":
-		return true
-	}
-	return false
-}
+func isThinkingLevel(level string) bool { return thinkingLevels[level] }
 
 // resolveProbe 把探测入参补齐：没给的项从已保存的配置里取。
 func (m *Models) resolveProbe(req domain.ProviderProbeREQ) (baseUrl, apiProtocol, apiKey string) {

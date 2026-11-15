@@ -129,6 +129,9 @@ type SessionEntryDO struct {
 	EntryThinkingLevel string `json:"thinkingLevel,omitempty"`
 	// EntryTokensBefore 压缩前的 token 数
 	EntryTokensBefore int `json:"tokensBefore,omitempty"`
+	// EntrySummary 压缩条目的对话摘要：引擎据此把压缩前的历史折成一条引导消息。
+	// 空表示只有标记没有摘要（只记账不参与上下文）；原文条目照旧保留，这里只是视图。
+	EntrySummary string `json:"summary,omitempty"`
 	// EntryUsage 用量条目
 	EntryUsage *SessionUsageDO `json:"usage,omitempty"`
 	// EntryCustomType 自定义条目的种类

@@ -32,7 +32,7 @@ const { t } = useI18n()
 /** 每个卡是否展开了全部模型。默认只列前六个。 */
 const expanded = ref<Set<string>>(new Set())
 
-/** 一张卡的键：两个引擎可能同名。 */
+/** 一张卡的键：服务商名。 */
 function keyOf(view: ProviderView): string {
   return `${view.provider_name}`
 }
@@ -252,7 +252,7 @@ function host(url: string): string {
   white-space: nowrap;
 }
 
-/* 引擎标签：两个引擎的配置完全独立，同名可以各有一份 */
+/* 引擎标签：服务商的配置各自独立，一个名字对应一份 */
 .engine-tag {
   flex: none;
   font-family: var(--wb-font-mono);

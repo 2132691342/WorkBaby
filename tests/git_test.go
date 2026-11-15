@@ -128,14 +128,3 @@ func runGit(t *testing.T, gitExe, dir string, args ...string) {
 		t.Fatalf("git %s 失败：%v\n%s", strings.Join(args, " "), err, out)
 	}
 }
-
-// writeFile 写一个文件，父目录不存在就建。
-func writeFile(t *testing.T, path, body string) {
-	t.Helper()
-	if err := pkg.EnsureDir(filepath.Dir(path)); err != nil {
-		t.Fatalf("建目录失败：%v", err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("写文件失败：%v", err)
-	}
-}

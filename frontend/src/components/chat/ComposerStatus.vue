@@ -9,6 +9,9 @@ import { useAppStore } from '@/stores/app'
 
 defineProps<{ attachError: string }>()
 
+// 关掉附件错误条：清状态的职责在父组件（它持有 attachError），这里只负责上报。
+defineEmits<{ clearAttachError: [] }>()
+
 const chat = useChatStore()
 const app = useAppStore()
 const { t } = useI18n()
@@ -39,6 +42,15 @@ async function removeOne(kind: 'steering' | 'followup', index: number): Promise<
 async function redetect(): Promise<void> {
   try {
     await app.detectEngines()
+  } catch (err) {
+    chat.promptError = err instanceof Error ? err.message : String(err)
+  }
+}
+
+/** 原样重发上一次失败的那句：成功后横幅自己消失（send 先清 promptError）。 */
+async function retryLast(): Promise<void> {
+  try {
+    await chat.retrySend()
   } catch (err) {
     chat.promptError = err instanceof Error ? err.message : String(err)
   }
@@ -92,6 +104,15 @@ async function redetect(): Promise<void> {
 
   <div v-if="chat.promptError" class="error-strip">
     <span class="err-text">{{ chat.promptError }}</span>
+    <!-- 发失败的那句还在：给一个原样重发的出口，不用把话重新打一遍 -->
+    <button
+      v-if="chat.lastFailedSend && !chat.streaming"
+      class="wb-btn text sm"
+      :title="t('chat.retrySend')"
+      @click="retryLast"
+    >
+      {{ t('chat.retrySend') }}
+    </button>
     <!-- 错误只说「不行」等于把人卡在死胡同：能直接去修的那一处就给入口 -->
     <button
       v-if="needsProvider"

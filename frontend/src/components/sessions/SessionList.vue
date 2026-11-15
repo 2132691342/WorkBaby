@@ -2,10 +2,11 @@
 // 会话列表：对话页的窄栏与会话页的主栏共用。
 // 数据来自磁盘上的会话文件，终端里聊过的这里也看得到。
 // 按时间分组（今天 / 7 天 / 更早）：找会话几乎总是「刚才那个」，分组一次命中。
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
+import SessionCardRow from '@/components/sessions/SessionCardRow.vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useToasts } from '@/composables/useToasts'
@@ -45,7 +46,7 @@ const loading = ref(false)
 const serverQuery = ref('')
 let searchTimer = 0
 
-/** 引擎范围：列表默认只显示当前引擎的会话（两个引擎的会话不能互换接着聊）。 */
+/** 列表默认只显示当前工作区的会话；开了「全部目录」才看别的。 */
 const scope = computed(() => (props.workspaceOnly ? app.workspace : ''))
 
 const filtered = computed(() => {
@@ -80,6 +81,22 @@ interface Group {
 }
 
 /** 按更新时间分三组。列表本身已按时间倒序，分组只做切分不再排序。 */
+// 客户端分页：一次全渲染上千行会拖慢滚动与挂载。先出前两页，
+// 底部一个「显示更多」逐页放开——搜索命中走后端，分页只是渲染闸门。
+const PAGE_SIZE = 60
+const shownCount = ref(PAGE_SIZE * 2)
+
+watch([filtered, serverQuery, scope], () => {
+  shownCount.value = PAGE_SIZE * 2
+})
+
+const limited = computed(() => filtered.value.slice(0, shownCount.value))
+const hiddenCount = computed(() => Math.max(0, filtered.value.length - limited.value.length))
+
+function showMore(): void {
+  shownCount.value += PAGE_SIZE * 2
+}
+
 const groups = computed<Group[]>(() => {
   const dayStart = new Date()
   dayStart.setHours(0, 0, 0, 0)
@@ -88,7 +105,7 @@ const groups = computed<Group[]>(() => {
   const today: SessionRow[] = []
   const week: SessionRow[] = []
   const older: SessionRow[] = []
-  for (const row of filtered.value) {
+  for (const row of limited.value) {
     const ts = row.updated_at
     if (!Number.isNaN(ts) && ts >= todayStart) today.push(row)
     else if (!Number.isNaN(ts) && ts >= weekStart) week.push(row)
@@ -147,6 +164,8 @@ async function rename(row: SessionRow) {
       inputValue: row.session_title,
       confirmButtonText: t('common.save'),
       cancelButtonText: t('common.cancel'),
+      inputPattern: /\S+/,
+      inputErrorMessage: t('sessions.renamePlaceholder'),
     })
     await api.renameSession(row.session_path, result.value)
     toasts.push('ok', t('common.saved'))
@@ -209,6 +228,18 @@ watch(
 )
 
 onMounted(load)
+// 当前会话要能看见：切到一条排得很靠后的会话时，侧栏高亮停在屏外等于没高亮。
+// 只在本组件的滚动容器里滚，不惊动页面其它部分。
+const listBody = ref<HTMLElement | null>(null)
+watch(
+  () => props.active,
+  async (active) => {
+    if (!active) return
+    await nextTick()
+    listBody.value?.querySelector('.session-row.is-active')?.scrollIntoView({ block: 'nearest' })
+  },
+  { immediate: true },
+)
 onUnmounted(() => window.clearTimeout(searchTimer))
 defineExpose({ load })
 </script>
@@ -235,53 +266,47 @@ defineExpose({ load })
       </button>
     </div>
 
-    <div class="list-body">
+    <div ref="listBody" class="list-body">
       <div v-if="!filtered.length && !loading" class="list-empty">
         <AppIcon name="clock" :size="28" class="empty-ic" />
         <p class="empty-title">{{ serverQuery ? t('sessions.noMatchTitle') : t('sessions.emptyTitle') }}</p>
         <p class="empty-hint">{{ serverQuery ? t('sessions.noMatchHint') : t('sessions.emptyHint') }}</p>
+        <!-- 空态给一条出去的路：没会话的人从这里直接开始第一句。
+             对话页当场开新会话；会话页没有 newChat，跳去对话页。 -->
+        <button
+          v-if="!serverQuery"
+          class="wb-btn sm primary list-empty-act"
+          :disabled="props.showNew && chat.switching === 'new'"
+          @click="props.showNew ? emit('newChat') : emit('open', '')"
+        >
+          <AppIcon name="plus" :size="13" />
+          {{ t('chat.newChat') }}
+        </button>
       </div>
 
       <p v-if="loading && !filtered.length" class="list-note">{{ t('common.loading') }}</p>
 
       <template v-for="group in groups" :key="group.key">
         <div class="group-head">{{ group.label }}</div>
-        <div
+        <SessionCardRow
           v-for="row in group.rows"
           :key="row.session_path"
-          class="session-row wb-row-click"
-          :class="{ 'is-active': row.session_path === active }"
-          @click="emit('open', row.session_path)"
-        >
-          <div class="row-top">
-            <!-- 标题按过滤词高亮：搜到的那一段要能一眼看见，否则还要自己找 -->
-            <span class="row-title" :title="row.session_title">
-              <span v-for="(seg, si) in highlight(row.session_title)" :key="si" :class="{ 'is-hit': seg.hit }">{{ seg.text }}</span>
-            </span>
-            <span class="row-time" :title="stamp(row.updated_at)">{{ relative(row.updated_at) }}</span>
-          </div>
-          <div class="row-meta">
-            <span v-if="row.session_model" class="row-model">{{ row.session_model }}</span>
-            <span class="row-dot">·</span>
-            <span>{{ row.message_count }} {{ t('sessions.messages') }}</span>
-            <span v-if="row.cost_usd" class="row-dot">·</span>
-            <span v-if="row.cost_usd">${{ row.cost_usd.toFixed(3) }}</span>
-            <!-- 动作收在元信息行尾：常驻占位、悬停淡入。放独立行会撑高行高，
-                 鼠标一扫一排会话全在抖。窄栏用图标，主栏用文字。 -->
-            <div class="row-actions">
-              <button class="wb-btn text sm" :title="t('sessions.rename')" @click.stop="rename(row)">
-                <AppIcon v-if="compact" name="edit" :size="13" />
-                <template v-else>{{ t('sessions.rename') }}</template>
-              </button>
-              <button class="wb-btn text sm danger" :title="t('common.delete')" @click.stop="remove(row)">
-                <AppIcon v-if="compact" name="trash" :size="13" />
-                <template v-else>{{ t('common.delete') }}</template>
-              </button>
-            </div>
-          </div>
-          <div v-if="!compact" class="row-path">{{ row.session_cwd }}</div>
-        </div>
+          :row="row"
+          :active="active"
+          :compact="compact"
+          :segments="highlight(row.session_title)"
+          :relative="relative(row.updated_at)"
+          :stamp="stamp(row.updated_at)"
+          @open="emit('open', $event)"
+          @rename="rename"
+          @remove="remove"
+        />
       </template>
+
+      <!-- 还有没放开的：一行「显示更多」，点了再补两页 -->
+      <button v-if="hiddenCount > 0" class="wb-btn sm show-more" @click="showMore">
+        {{ t('sessions.showMore', { n: hiddenCount }) }}
+      </button>
     </div>
   </div>
 </template>
@@ -338,115 +363,7 @@ defineExpose({ load })
   gap: 2px;
 }
 
-.session-row {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  cursor: pointer;
-  position: relative;
-}
-
-.row-top {
-  display: flex;
-  align-items: baseline;
-  gap: var(--wb-sp-2);
-}
-
-.row-title {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--wb-fs-sm);
-  font-weight: 550;
-  color: var(--wb-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 搜索命中：淡品牌底 + 主色字。不用下划线——等宽小字里下划线会与
-   路径、ID 的下划线语法混在一起。 */
-.row-title .is-hit {
-  border-radius: 2px;
-  padding: 0 1px;
-  background: var(--wb-brand-soft);
-  color: var(--wb-brand);
-  font-weight: 700;
-}
-
-.row-time {
-  flex: none;
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-faint);
-}
-
-.row-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-mute);
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.row-model {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.row-dot {
-  color: var(--wb-faint);
-}
-
-.row-path {
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 动作常驻占位、悬停/键盘聚焦淡入：display 切换会让行高突变，
-   鼠标扫过列表时一排行跟着跳。 */
-.row-actions {
-  display: flex;
-  gap: var(--wb-sp-1);
-  margin-left: auto;
-  flex: none;
-  opacity: 0;
-  transform: translateX(4px);
-  pointer-events: none;
-  transition:
-    opacity var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-
-.session-row:hover .row-actions,
-.session-row:focus-within .row-actions {
-  opacity: 1;
-  transform: none;
-  pointer-events: auto;
-}
-
-/* 行内的文字按钮补一层淡底：全局 .wb-btn.text 只换色，
-   而会话行是密集列表——没有底色时鼠标扫过看不出哪个按钮被指着。 */
-.row-actions .wb-btn.text:hover:not(:disabled) {
-  background: var(--wb-hover);
-  border-radius: var(--wb-r-xs);
-}
-.row-actions .wb-btn.text.danger:hover:not(:disabled) {
-  background: var(--wb-bad-soft);
-}
-
-/* 窄栏只藏路径：改名与删除收成两个小图标，悬停才出现——
-   管理动作在对话页同样要够得着，藏掉它们等于只能去会话页删会话。 */
-.compact .row-path {
-  display: none !important;
-}
+/* 行本体（.session-row 起）搬进了 SessionCardRow：行卡片与它的样式同住一个文件 */
 
 .list-empty {
   padding: var(--wb-sp-6) var(--wb-sp-3);
@@ -471,6 +388,16 @@ defineExpose({ load })
   font-size: var(--wb-fs-sm);
   font-weight: 600;
   color: var(--wb-ink);
+}
+
+.list-empty-act {
+  margin-top: var(--wb-sp-3);
+}
+
+/* 显示更多：一条居中的窄按钮，不与列表行抢视觉 */
+.show-more {
+  align-self: center;
+  margin: var(--wb-sp-2) 0 var(--wb-sp-1);
 }
 
 .empty-hint {

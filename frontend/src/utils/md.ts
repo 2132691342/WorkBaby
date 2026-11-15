@@ -52,14 +52,16 @@ function renderBlocks(blocks: string[]): string {
     .join('')
 }
 
-/** 代码块：包一层带语言标签与复制按钮的容器。 */
+// 代码块：包一层带语言标签与复制按钮的容器。行数一并报出来，
+// 「这段有多长」决定用户是读它还是扫它；超高在内滚动，不把一屏全吃掉。
 function renderCode(block: string): string {
   const match = /^```([\w+-]*)\n([\s\S]*?)\n?```$/.exec(block.trim())
   if (!match) return marked.parse(block, { async: false }) as string
   const lang = match[1] || 'text'
   const code = escapeHTML(match[2])
+  const lines = match[2].split('\n').length
   const label = escapeHTML(i18n.global.t('common.copy'))
-  return `<div class="code-wrap"><div class="code-head"><span class="code-lang">${lang}</span><button class="wb-btn text sm" data-copy="1" type="button">${label}</button></div><pre><code>${code}</code></pre></div>`
+  return `<div class="code-wrap"><div class="code-head"><span class="code-lang">${lang}</span><span class="code-lines">${lines}</span><button class="wb-btn text sm" data-copy="1" type="button">${label}</button></div><pre><code>${code}</code></pre></div>`
 }
 
 /** 按空行切顶层块；围栏代码块内部不切。 */

@@ -97,14 +97,32 @@ async function pinBottom(rounds = 3): Promise<void> {
 
 function onScroll() {
   pinned.value = nearBottom()
+  // 滚动事件本身也当一次排程信号：贴底状态下滚动条抖动（内容长高把
+  // 位置顶上去）没有伴随 store 变化，靠 watch 抓不到。
+  schedulePin()
+}
+
+// 流式高频补丁下的贴底：同一帧只滚一次。watch 每帧触发几次时
+// scrollTo 连发会让滚动条抖动、掉帧；rAF 合帧是唯一的解。
+let pinQueued = false
+function schedulePin(): void {
+  if (!pinned.value || pinQueued) return
+  pinQueued = true
+  requestAnimationFrame(() => {
+    pinQueued = false
+    if (!pinned.value) return
+    const el = scroller.value
+    if (!el) return
+    // 距底不到 2px 就不再推：连发 scrollTo 反而让滚动条抖。
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 2) return
+    el.scrollTop = el.scrollHeight
+  })
 }
 
 watch(
   () => [chat.turn?.blocks.length, chat.turn?.blocks.at(-1)?.block_text?.length, chat.history.length],
-  async () => {
-    if (!pinned.value) return
-    await nextTick()
-    scrollToBottom()
+  () => {
+    schedulePin()
   },
 )
 

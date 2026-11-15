@@ -118,6 +118,8 @@ const workspaceName = computed(() => {
   display: flex;
   align-items: center;
   gap: var(--wb-sp-2);
+  flex: none;
+  flex-wrap: wrap;
 }
 
 /* 工作区名是一段路径：限宽 + 省略号，否则长路径会把右边的动作全挤出头部 */

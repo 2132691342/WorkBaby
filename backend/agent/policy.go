@@ -46,33 +46,31 @@ func (p *ToolPolicy) SessionId() string {
 // 只读模式下这些照常可用：计划模式的目的是「先调研再动手」，
 // 把读工具也拦掉等于让模型什么都做不了。
 var readOnlyTools = map[string]struct{}{
-	"read":             {},
-	"grep":             {},
-	"find":             {},
-	"ls":               {},
-	"todo":             {},
-	"ask":              {},
-	"web_search":       {},
-	"web_fetch":        {},
-	"lens_diagnostics": {},
-	"lens_symbols":     {},
+	"read":       {},
+	"grep":       {},
+	"find":       {},
+	"ls":         {},
+	"todo":       {},
+	"ask":        {},
+	"web_search": {},
+	"web_fetch":  {},
 }
 
 // mutatingTools 是会改变工作区或系统状态的工具。
 // 只读模式下这些一律被拦下——拦的是「执行」，不是「声明」：
 // 模型仍然看得见这些工具，知道自己能做什么、不能做什么。
+// 名单比现役工具宽：多登记几个名字只是让它们被拦得更严，不会漏拦。
 var mutatingTools = map[string]struct{}{
-	"write":     {},
-	"edit":      {},
-	"bash":      {},
-	"shell":     {},
-	"apply":     {},
-	"patch":     {},
-	"delete":    {},
-	"move":      {},
-	"mkdir":     {},
-	"git":       {},
-	"web_apply": {},
+	"write":  {},
+	"edit":   {},
+	"bash":   {},
+	"shell":  {},
+	"apply":  {},
+	"patch":  {},
+	"delete": {},
+	"move":   {},
+	"mkdir":  {},
+	"git":    {},
 }
 
 // IsMutatingTool 判断工具名是否会改变状态：先查只读白名单，再查写工具名单，都没登记按「会改」处理。

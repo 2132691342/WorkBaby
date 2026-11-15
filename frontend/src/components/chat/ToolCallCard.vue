@@ -94,6 +94,33 @@ const inlineDiff = computed(() => diffLines.value.length > 0 && !props.block.fil
 
 /** 摘要那一行显示什么：优先文件名（用户认文件，不认命令）。 */
 const summaryText = computed(() => fileName.value || headline.value)
+
+/** 折叠态的一行预览：输出的首行，压成一行。
+ *  工具卡折叠着排成一列时，这一行是「不展开也能看出干了什么」的唯一线索。 */
+const previewText = computed(() => {
+  const raw = (output.value || '').trim()
+  if (!raw) return ''
+  const line = raw.split('\n').find((s) => s.trim().length > 0) ?? ''
+  return line.length > 160 ? line.slice(0, 160) + '…' : line
+})
+
+// 就地铺出的差异复制成 unified patch 文本：拿到别处贴（评审、issue）时行号还在。
+const diffCopied = ref(false)
+async function copyDiff(): Promise<void> {
+  const lines = diffLines.value
+    .map((l) => `${l.line_kind === 'add' ? '+' : l.line_kind === 'del' ? '-' : ' '}${l.line_text ?? ''}`)
+    .join('\n')
+  if (!lines) return
+  try {
+    await navigator.clipboard.writeText(lines)
+    diffCopied.value = true
+    window.setTimeout(() => {
+      diffCopied.value = false
+    }, 1400)
+  } catch {
+    /* 剪贴板不可用时不打扰 */
+  }
+}
 </script>
 
 <template>
@@ -135,29 +162,39 @@ const summaryText = computed(() => fileName.value || headline.value)
       </button>
     </div>
 
-    <div v-if="open" class="tool-body">
-      <!-- 没有文件路径的 diff 只能就地铺：抽屉不知道去问哪个文件。 -->
-      <div v-if="inlineDiff">
-        <div class="tool-label">{{ t('chat.toolChanges') }}</div>
-        <div class="tool-diff">
-          <DiffRows :lines="diffLines" />
-        </div>
+  <div v-if="open" class="tool-body">
+    <!-- 没有文件路径的 diff 只能就地铺：抽屉不知道去问哪个文件。 -->
+    <div v-if="inlineDiff">
+      <div class="tool-label">
+        {{ t('chat.toolChanges') }}
+        <button class="wb-btn text sm diff-copy" type="button" @click="copyDiff">
+          <AppIcon :name="diffCopied ? 'check' : 'copy'" :size="11" />
+          {{ diffCopied ? t('common.copied') : t('common.copy') }}
+        </button>
       </div>
-      <template v-if="args">
-        <div>
-          <div class="tool-label">{{ t('chat.toolArgs') }}</div>
-          <pre class="tool-pre selectable">{{ args }}</pre>
-        </div>
-      </template>
-      <template v-if="output">
-        <div>
-          <div class="tool-label">{{ t('chat.toolOutput') }}</div>
-          <pre class="tool-pre selectable">{{ output }}</pre>
-        </div>
-      </template>
-      <div v-if="!args && !output && !inlineDiff" class="tool-label">{{ t('common.empty') }}</div>
+      <div class="tool-diff">
+        <DiffRows :lines="diffLines" />
+      </div>
     </div>
+    <template v-if="args">
+      <div>
+        <div class="tool-label">{{ t('chat.toolArgs') }}</div>
+        <pre class="tool-pre selectable">{{ args }}</pre>
+      </div>
+    </template>
+    <template v-if="output">
+      <div>
+        <div class="tool-label">{{ t('chat.toolOutput') }}</div>
+        <pre class="tool-pre selectable">{{ output }}</pre>
+      </div>
+    </template>
+    <div v-if="!args && !output && !inlineDiff" class="tool-label">{{ t('common.empty') }}</div>
   </div>
+
+  <!-- 折叠态的一行预览：让「这一条到底说了什么」不展开也能看见。
+       没有它，十几个工具卡折叠着排成一列时，用户只能一个个点开。 -->
+  <div v-else-if="previewText" class="tool-peek-line" :title="previewText">{{ previewText }}</div>
+</div>
 </template>
 
 <style scoped>
@@ -302,5 +339,17 @@ const summaryText = computed(() => fileName.value || headline.value)
   background: var(--wb-code-bg);
   max-height: 320px;
   overflow-y: auto;
+}
+
+/* 折叠态的一行预览：等宽、极淡、单行截断。
+   它不是控件，不做悬停反馈——悬停只给完整的 title。 */
+.tool-peek-line {
+  padding: 0 var(--wb-sp-3) 6px calc(var(--wb-sp-3) + 22px);
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

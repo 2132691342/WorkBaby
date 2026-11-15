@@ -6,8 +6,12 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import DiffRows from '@/components/common/DiffRows.vue'
+import { api } from '@/api/http'
+import { useToasts } from '@/composables/useToasts'
 import { pairRuns } from '@/utils/diff'
 import type { DiffLine, GitDiff } from '@/types/api'
+
+const toasts = useToasts()
 
 const props = defineProps<{
   diff: GitDiff | null
@@ -180,6 +184,32 @@ const visibleLines = computed<DiffLine[]>(() => {
 const blank = computed(() => !props.loading && lines.value.length === 0)
 
 const blankText = computed(() => (props.path ? t('workspace.noDiffForFile') : t('workspace.noDiff')))
+
+// 复制路径：给人用。剪贴板不可用时安静失败——用户还能自己选中。
+const copiedPath = ref(false)
+async function copyPath(): Promise<void> {
+  if (!props.path) return
+  try {
+    await navigator.clipboard.writeText(props.path)
+    copiedPath.value = true
+    window.setTimeout(() => {
+      copiedPath.value = false
+    }, 1400)
+  } catch {
+    /* 剪贴板不可用时不打扰 */
+  }
+}
+
+// 用系统默认程序打开：走 system/open，由后端交给 ShellExecute。
+// 不用 window.open：WebView 里点本地文件路径只会导航走。
+async function openInEditor(): Promise<void> {
+  if (!props.path) return
+  try {
+    await api.systemOpen(props.path)
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  }
+}
 </script>
 
 <template>
@@ -211,6 +241,18 @@ const blankText = computed(() => (props.path ? t('workspace.noDiffForFile') : t(
       <button class="wb-btn text sm" :title="t('workspace.diffMode')" @click="sideBySide = !sideBySide">
         {{ sideBySide ? t('workspace.diffInline') : t('workspace.diffSide') }}
       </button>
+      <!-- 路径操作：复制给人、打开给编辑器。
+           没有它们，用户想「拿这个路径去别处搜」得自己选中那一小段。 -->
+      <span v-if="path" class="dc-ops">
+        <button class="wb-btn text sm" :title="t('workspace.copyPath')" @click="copyPath">
+          <AppIcon :name="copiedPath ? 'check' : 'copy'" :size="12" />
+          {{ copiedPath ? t('common.copied') : t('workspace.copyPath') }}
+        </button>
+        <button class="wb-btn text sm" :title="t('workspace.openFile')" @click="openInEditor">
+          <AppIcon name="edit" :size="12" />
+          {{ t('workspace.openFile') }}
+        </button>
+      </span>
     </header>
 
     <div v-if="loading" class="dc-state">
@@ -309,6 +351,15 @@ const blankText = computed(() => (props.path ? t('workspace.noDiffForFile') : t(
   align-items: center;
   gap: 2px;
   flex: none;
+}
+
+/* 路径操作：复制 / 打开。挤到最后——前面那些是「读差异」必需的动作。 */
+.dc-ops {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wb-sp-1);
+  flex: none;
+  margin-left: auto;
 }
 .dc-nav-count {
   font-family: var(--wb-font-mono);

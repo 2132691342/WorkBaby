@@ -57,28 +57,15 @@ func (d *DB) Close() error {
 // migrate 建表。AutoMigrate 只增不改：删列这类破坏性变更要走手写迁移。
 func (d *DB) migrate() error {
 	models := []any{
-		&domain.SessionIndexDO{},
-		&domain.UsageRecordDO{},
-		&domain.ToolCallRecordDO{},
 		&domain.ProviderDO{},
 		&domain.ProviderModelDO{},
 		&domain.SearchDocDO{},
-		&domain.PlanStateDO{},
 	}
 	if err := d.db.AutoMigrate(models...); err != nil {
 		return pkg.WrapErr(pkg.CodeStorage, "数据库迁移失败", err)
 	}
 	return nil
 }
-
-// SessionIndexDO 是会话索引的持久化行映射。
-type SessionIndexDO = domain.SessionIndexDO
-
-// UsageRecordDO 是用量记录的持久化行映射。
-type UsageRecordDO = domain.UsageRecordDO
-
-// ToolCallRecordDO 是工具调用记录的持久化行映射。
-type ToolCallRecordDO = domain.ToolCallRecordDO
 
 // ProviderDO 是服务商的持久化行映射。
 type ProviderDO = domain.ProviderDO
@@ -88,6 +75,3 @@ type ProviderModelDO = domain.ProviderModelDO
 
 // SearchDocDO 是检索文档的持久化行映射。
 type SearchDocDO = domain.SearchDocDO
-
-// PlanStateDO 是计划状态的持久化行映射。
-type PlanStateDO = domain.PlanStateDO

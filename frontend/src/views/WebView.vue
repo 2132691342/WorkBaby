@@ -27,6 +27,10 @@ const fetchUrl = ref('')
 const fetching = ref(false)
 const fetched = ref<WebFetchView | null>(null)
 
+// 竞态守卫：连点搜索 / 抓取时，晚到的旧响应不能盖掉新结果。
+let searchSeq = 0
+let fetchSeq = 0
+
 // 当前搜索服务需要密钥时，密钥输入框才露出来。
 const needsKey = computed(() => kind.value !== 'duckduckgo')
 const canSearch = computed(() => query.value.trim().length > 0 && !searching.value)
@@ -60,16 +64,19 @@ async function save(): Promise<void> {
 async function search(): Promise<void> {
   const term = query.value.trim()
   if (!term || searching.value) return
+  const mine = ++searchSeq
   searching.value = true
   try {
     const res = await api.webSearch(term, 10)
+    if (mine !== searchSeq) return
     results.value = res.search_results ?? []
     searched.value = true
     if (!results.value.length) toasts.push('info', t('web.noResults'))
   } catch (err) {
+    if (mine !== searchSeq) return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    searching.value = false
+    if (mine === searchSeq) searching.value = false
   }
 }
 
@@ -77,14 +84,18 @@ async function search(): Promise<void> {
 async function fetchPage(): Promise<void> {
   const url = fetchUrl.value.trim()
   if (!url || fetching.value) return
+  const mine = ++fetchSeq
   fetching.value = true
   fetched.value = null
   try {
-    fetched.value = await api.webFetch(url)
+    const next = await api.webFetch(url)
+    if (mine !== fetchSeq) return
+    fetched.value = next
   } catch (err) {
+    if (mine !== fetchSeq) return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    fetching.value = false
+    if (mine === fetchSeq) fetching.value = false
   }
 }
 
@@ -95,13 +106,15 @@ function useUrl(url: string): void {
 </script>
 
 <template>
-  <div class="web-view">
+  <div class="page">
     <header class="page-head">
       <div>
         <h1 class="page-title">{{ t('web.title') }}</h1>
-        <p class="page-desc">{{ t('web.desc') }}</p>
+        <p class="page-sub">{{ t('web.desc') }}</p>
       </div>
     </header>
+
+    <div class="page-body">
 
     <div class="web-cols">
       <!-- 搜索服务配置 -->
@@ -201,39 +214,53 @@ function useUrl(url: string): void {
         </div>
       </section>
     </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.web-view {
+.page {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-4);
-  padding: var(--wb-sp-5);
-  height: 100%;
-  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
+/* 页头：标题与说明在左——与其余管理页同一副骨架 */
 .page-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--wb-sp-4);
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-4);
+  border-bottom: 1px solid var(--wb-line);
+  flex: none;
 }
 
 .page-title {
   margin: 0;
   font-family: var(--wb-font-display);
-  font-size: var(--wb-fs-2xl);
-  font-weight: 600;
+  font-size: var(--wb-fs-xl);
+  font-weight: 650;
   color: var(--wb-ink);
 }
 
-.page-desc {
-  margin: var(--wb-sp-1) 0 0;
+.page-sub {
+  margin: 2px 0 0;
   max-width: var(--wb-w-desc);
-  font-size: var(--wb-fs-sm);
+  font-size: var(--wb-fs-2xs);
+  line-height: 1.55;
   color: var(--wb-mute);
+}
+
+.page-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-10);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-sp-4);
 }
 
 .web-cols {

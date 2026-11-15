@@ -19,15 +19,7 @@ const submitting = ref(false)
 const receivedAt = Date.now()
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
-onMounted(() => {
-  if (!props.ask.ask_timeout_ms) return
-  timer = setInterval(() => {
-    now.value = Date.now()
-  }, 1000)
-})
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
-})
+
 const remainingMs = computed(() => (props.ask.ask_timeout_ms ? props.ask.ask_timeout_ms - (now.value - receivedAt) : 0))
 const timedOut = computed(() => Boolean(props.ask.ask_timeout_ms) && remainingMs.value <= 0)
 const remainingLabel = computed(() => {
@@ -47,10 +39,30 @@ watch(
   },
 )
 
+/** 提问形态的显示名。 */
+const methodLabel = computed(() => {
+  switch (props.ask.ask_method) {
+    case 'confirm':
+      return t('chat.askConfirm')
+    case 'select':
+      return t('chat.askSelect')
+    case 'editor':
+      return t('chat.askEditor')
+    default:
+      return t('chat.askInput')
+  }
+})
+
 /** 长得像「自己写」的那一行当哨兵处理：展开输入框，而不是当成选项。 */
 function isCustomOption(label: string): boolean {
   return /^(type something|other|其他|自定义|自己写)/i.test(label.trim())
 }
+
+// select 是否多选：只在选项里出现「全选 / 都要 / all」这类明示词时才多选。
+// 没有线索就单选——多选会让模型收到一串它没问的答案。
+const multiSelect = computed(() =>
+  (props.ask.ask_options ?? []).some((o) => /^(全选|都要|all|multiple|多选)/i.test(o.trim())),
+)
 
 async function submit() {
   submitting.value = true
@@ -60,8 +72,23 @@ async function submit() {
       return
     }
     if (props.ask.ask_method === 'select') {
-      const choice = props.ask.ask_options?.[picked.value[0] ?? -1] ?? text.value
-      emit('answer', { ask_id: props.ask.ask_id, value: choice })
+      // 多选时把选中的几条按原顺序拼回去；单选取那一条。
+      // 走 answers 通道：后端按 SelectedOptions 还原成一句话。
+      const options = props.ask.ask_options ?? []
+      const chosen = picked.value
+        .slice()
+        .sort((a, b) => a - b)
+        .map((i) => options[i])
+        .filter((label): label is string => Boolean(label))
+      if (chosen.length) {
+        emit('answer', {
+          ask_id: props.ask.ask_id,
+          value: chosen.join('、'),
+          answers: [{ question_id: props.ask.ask_id, selected_options: chosen }],
+        })
+        return
+      }
+      emit('answer', { ask_id: props.ask.ask_id, value: text.value })
       return
     }
     emit('answer', { ask_id: props.ask.ask_id, value: text.value })
@@ -75,6 +102,12 @@ function decline() {
 }
 
 function pick(index: number) {
+  if (multiSelect.value) {
+    const at = picked.value.indexOf(index)
+    if (at >= 0) picked.value = picked.value.filter((i) => i !== index)
+    else picked.value = [...picked.value, index]
+    return
+  }
   picked.value = [index]
   text.value = ''
 }
@@ -91,41 +124,60 @@ const canSubmit = computed(() => {
   return text.value.trim().length > 0
 })
 
-const methodLabel = computed(() => {
-  switch (props.ask.ask_method) {
-    case 'confirm':
-      return t('chat.askConfirm')
-    case 'select':
-      return t('chat.askSelect')
-    case 'editor':
-      return t('chat.askEditor')
-    default:
-      return t('chat.askInput')
+/** 数字键 1-9 快选：选项多的时候比鼠标快。 */
+function pickByNumber(key: string): boolean {
+  const n = Number(key)
+  if (!Number.isInteger(n) || n < 1 || n > 9) return false
+  const options = props.ask.ask_options ?? []
+  if (n > options.length) return false
+  pick(n - 1)
+  return true
+}
+
+/** 卡片挂上后接管数字键：输入框有焦点时不接管，免得打字打不出数字。 */
+function onCardKeydown(event: KeyboardEvent): void {
+  const target = event.target
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return
+  if (pickByNumber(event.key)) event.preventDefault()
+}
+
+onMounted(() => {
+  if (props.ask.ask_timeout_ms) {
+    timer = setInterval(() => {
+      now.value = Date.now()
+    }, 1000)
   }
+  document.addEventListener('keydown', onCardKeydown)
+})
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+  document.removeEventListener('keydown', onCardKeydown)
 })
 </script>
 
 <template>
-  <div class="ask">
-    <div class="ask-head">
-      <span class="tag brand">{{ methodLabel }}</span>
-      <span v-if="ask.ask_title" class="ask-title">{{ ask.ask_title }}</span>
-      <span class="ask-head-end">
-        <span v-if="timedOut" class="ask-timer expired">{{ t('chat.askExpired') }}</span>
-        <span v-else-if="remainingLabel" class="ask-timer">{{ remainingLabel }}</span>
-      </span>
-    </div>
-    <p v-if="ask.ask_message" class="ask-message selectable">{{ ask.ask_message }}</p>
-
-    <!-- confirm -->
-    <template v-if="ask.ask_method === 'confirm'">
-      <div class="ask-actions">
-        <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting" @click="submit">
-          {{ t('chat.yes') }}
-        </button>
-        <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.no') }}</button>
+  <!-- 进出都有过渡：提问卡是打断式的，无声出现/无声消失都会让人疑心「点了没反应」 -->
+  <Transition name="ask-in" appear>
+    <div class="ask">
+      <div class="ask-head">
+        <span class="tag brand">{{ methodLabel }}</span>
+        <span v-if="ask.ask_title" class="ask-title">{{ ask.ask_title }}</span>
+        <span class="ask-head-end">
+          <span v-if="timedOut" class="ask-timer expired">{{ t('chat.askExpired') }}</span>
+          <span v-else-if="remainingLabel" class="ask-timer">{{ remainingLabel }}</span>
+        </span>
       </div>
-    </template>
+      <p v-if="ask.ask_message" class="ask-message selectable">{{ ask.ask_message }}</p>
+
+      <!-- confirm -->
+      <template v-if="ask.ask_method === 'confirm'">
+        <div class="ask-actions">
+          <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting" @click="submit">
+            {{ t('chat.yes') }}
+          </button>
+          <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.no') }}</button>
+        </div>
+      </template>
 
     <!-- select -->
     <template v-else-if="ask.ask_method === 'select'">
@@ -140,8 +192,12 @@ const methodLabel = computed(() => {
         >
           <span class="ask-num">{{ index + 1 }}</span>
           <span class="ask-label">{{ option }}</span>
+          <span v-if="multiSelect" class="ask-box" :class="{ on: picked.includes(index) }" />
         </button>
       </div>
+      <p v-if="multiSelect" class="ask-hint">
+        {{ picked.length ? t('chat.askPicked', { n: picked.length }) : t('chat.askMulti') }}
+      </p>
       <div v-if="customSelected || !ask.ask_options?.length" class="ask-input">
         <input v-model="text" class="wb-input" :placeholder="ask.ask_placeholder || t('chat.typeAnswer')" @keydown.enter="submit" />
       </div>
@@ -178,7 +234,8 @@ const methodLabel = computed(() => {
         <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.cancel') }}</button>
       </div>
     </template>
-  </div>
+    </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -282,6 +339,30 @@ const methodLabel = computed(() => {
 .ask-label {
   flex: 1;
   user-select: text;
+}
+
+/* 多选的方框：选中才填实。单选不显示它——单选已经有整行的选中底色。 */
+.ask-box {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--wb-line-strong);
+  border-radius: var(--wb-r-xs);
+  transition:
+    background-color var(--wb-dur-fast) var(--wb-ease),
+    border-color var(--wb-dur-fast) var(--wb-ease);
+}
+
+.ask-box.on {
+  border-color: var(--wb-brand);
+  background: var(--wb-brand);
+  box-shadow: inset 0 0 0 2px var(--wb-surface);
+}
+
+.ask-hint {
+  margin: 0;
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-mute);
 }
 
 .ask-input {

@@ -1,47 +1,42 @@
-# 架构
+# 架构：为什么这样搭
 
-WorkBaby 是一个 **自带引擎** 的 Windows 桌面 AI 工作台：智能体循环、模型协议、
-工具执行全部在本进程内用 Go 实现。整体结构都围绕这条事实。
+WorkBaby 是**自带引擎**的 Windows 桌面 AI 工作台：智能体循环、模型协议、工具执行全部在本进程内用 Go 实现。
+本文只讲取舍与约束；按功能排障、模块的接口与事件见 `docs/MODULES.md`，持久化细节见 `docs/DATA-MODEL.md`，编解码见 `docs/API.md`。
 
-## 进程拓扑
+---
+
+## 1. 进程拓扑：一个进程，没有第二个
 
 ```
-┌─────────────────────────── WorkBaby.exe ───────────────────────────┐
-│  Wails 应用（单一 Go 进程）                                         │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │ shell/  窗口 · 托盘 · 单实例 · 绑定面（Endpoint / 选目录 / 窗控）│  │
-│  ├──────────────────────────────────────────────────────────────┤  │
-│  │ api/    gin 路由（薄壳：解析入参 → 调 service → 回信封）       │  │
-│  │         127.0.0.1:<随机端口>  /api/v1/*                       │  │
-│  ├──────────────────────────────────────────────────────────────┤  │
-│  │ service/  业务编排：chat session model skill mcp file git     │  │
-│  │            web searcher plan_mode                            │  │
-│  ├──────────────────────────────────────────────────────────────┤  │
-│  │ agent/    原生引擎：轮次循环 · 模型适配 · 工具集 · 会话落盘    │  │
-│  ├──────────────────────────────────────────────────────────────┤  │
-│  │ web/      联网能力：搜索适配器 · 网页正文抽取 · 地址安全      │  │
-│  │ index/    工作区预索引：文件与符号抽取 · 模糊检索 · frecency  │  │
-│  ├──────────────────────────────────────────────────────────────┤  │
-│  │ repo/        持久化：JSON 设置台账 + SQLite 派生数据          │  │
-│  │ domain/      纯类型（VO / REQ / RESP / DTO / DO）             │  │
-│  │ pkg/         叶子工具（错误、路径、进程、日志、ULID）          │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                    │ 子进程（一律隐藏窗口）                          │
-│                    ▼                                                │
-│            git.exe / powershell（工具与版本控制）                    │
-│                                                                     │
-│  WebView2 渲染前端（Vue 3 + Element Plus）                          │
-│  └── 只经 /api/v1 + window.wails 绑定，不碰文件系统与子进程         │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────── WorkBaby.exe（单一 Go 进程） ────────────────────────┐
+│  shell/   Wails 应用 · 单实例 · 窗口 · 托盘 · 绑定面（Endpoint/选目录/窗控）  │
+│  ── 起 ──►  api/   gin @ 127.0.0.1:<随机端口>  /api/v1/*  +  /events (SSE)    │
+│             service/  业务编排（chat/model/skill/mcp/file/git/web/…）         │
+│             agent/    原生引擎：轮次循环 · 模型适配 · 工具集 · 会话落盘        │
+│             web/ index/  联网与预索引：能力包，只依赖 pkg                     │
+│             repo/     JSON 设置台账 + SQLite（三张表）                        │
+│             domain/ pkg/  纯类型 · 叶子工具                                   │
+│                      │ 子进程（一律隐藏窗口、超时杀树）                        │
+│                      ▼                                                        │
+│              git.exe · powershell · 用户配置的 MCP 服务                       │
+│  WebView2 渲染前端（Vue 3 + Element Plus）                                    │
+│  └── 只经 /api/v1 与 window.wails 绑定，不碰文件系统、不起子进程              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**没有外部引擎依赖**：不需要装 node、不需要装引擎 CLI、不需要 npm 插件生态。
-用户配好一个服务商的 API Key 就能开始干活。
+**为什么引擎不拉子进程**：拉起、握手、崩溃重启、版本探测、状态同步会各多一条失败链路，
+而收益只是隔离。进程内实现让会话、工具、设置直接共享内存，代价是引擎崩溃即应用崩溃——
+这由「引擎是纯 Go 包、工具调用可取消、子进程全走 `pkg/proc`」来兜。
 
-**两条通道分工**：业务全部走回环 HTTP（可 curl、可测、前端可脱离壳调试）；
-Wails 绑定只暴露系统能力——拿端点、选目录、窗控、托盘提示，不承载业务。
+**为什么业务走回环 HTTP 而不是全 Wails 绑定**：HTTP 可 curl、可脱离壳调试、可用 `httptest` 打路由（`api.Server.Handler`）。
+Wails 绑定只暴露系统能力（端点、目录选择、窗控、关闭决策），不承载业务——绑定层一旦膨胀，测试就只能起整个壳。
 
-## 分层与依赖方向
+**端口与令牌每次启动随机**（`shell/app.go newToken`，`WB_DEV_TOKEN` 仅在调试时覆盖）：
+服务只绑回环，浏览器侧唯一的门禁就是令牌；`Origin` 白名单只管放行 WebView2 虚拟域与本地开发端口。
+
+---
+
+## 2. 分层与依赖方向
 
 ```
 main(装配) ──► shell ──► api ──► service ──► {repo, agent, web, index, pkg}
@@ -49,307 +44,140 @@ main(装配) ──► shell ──► api ──► service ──► {repo, ag
                    service ──► pkg / domain（只读类型）
 ```
 
-| 层 | 允许依赖 | 禁止依赖 |
+| 层 | 允许依赖 | 禁止依赖 | 判定标准 |
+|---|---|---|---|
+| `pkg` | 标准库 / 第三方纯工具 | domain/repo/service/api/shell | 不含业务判断，可独立测 |
+| `domain` | 无（纯类型包） | 任何实现层 | 只有类型与 JSON tag，契约唯一落点 |
+| `repo` | pkg、domain | service/api/shell | 只管存取，不知道谁在问 |
+| `agent` | pkg、domain、web | api/service/界面 | 不知道 HTTP 与界面的存在，可脱离壳单测 |
+| `web` | pkg | api/service/agent | 联网能力包，被 agent 的联网工具直接调用 |
+| `index` | 无（纯算法包） | api/service/agent | 索引与检索算法，被 agent 的索引工具直接调用 |
+| `service` | repo/agent/web/index/pkg/domain | api 的路由层 | 业务规则只在这里 |
+| `api` | service/domain/pkg | 直摸 repo | 只解析入参、调 service、回信封 |
+| `shell` | wails、service（仅设置与端口回填） | api 的业务实现 | 本包之外不知道 Wails 存在 |
+| 前端 | 自身 + `/api/v1` | 文件系统、子进程 | 全部能力经 HTTP |
+
+**组合根例外**：`main.go` 与 `shell.Run`/`assemble` 直接开 JSON 台账与 SQLite、起 gin——那是装配本职；
+`shell/window.go` 读设置服务的关窗偏好同理。
+
+逆向导入一律拒绝。工程规范（命名、错误码、行数、注释）以 `AGENTS.md` 为唯一权威。
+
+---
+
+## 3. 装配顺序
+
+`main.go` → `shell.Run(opts)`（版本号与内嵌前端由 main 注入，shell 不读构建信息）：
+
+1. `resolveLayout`：exe 同级有 `assets\skills` → 安装态；否则往上找仓库根 → 开发态（数据目录加 `-dev` 后缀）。
+2. `pkg.SetLogDir`：日志目录先就绪，之后每一步失败才有地方说话。
+3. `application.New`：Wails 应用 + 单实例 `com.workbaby.desktop` + WebView2 数据目录锁进 `data\webview`。
+4. 建窗（`Hidden`）：装配期显形会让用户看到一帧白屏。物理尺寸按屏幕缩放放大后再声明。
+5. 建托盘：用户可能一启动就把窗口关进托盘；托盘菜单里的「最近工作目录」随设置重建。
+6. `ServiceStartup` → `assemble`：开 `workbaby.json` → 开 SQLite（迁移 `provider`/`provider_model`/`search_doc`）→ `sse.New(1024)` →
+   生成令牌 → `service.New`（见下）→ `api.New(...).Start()` 监听随机端口。
+7. `go Chat.Warm()`：会话初始化后台跑，不阻塞端口与首屏。
+8. 前端 `getEndpoint()`：拿到 `{port, token, version, contract}` 后才建 SSE、拉 `/bootstrap`。
+9. 前端 `Ready()`：首屏画完才显窗（`--hidden` 时只上托盘）。
+
+`service.New` 的接线顺序（`service/app.go`）：`Settings.EnsureDefaults` → `NewGit`（回填 `settings.Git` 让工作区行带分支与改动数）→
+`NewSessions` → `NewModels` → `NewWeb` → `NewSearcher` → `agent.NewStore` → `NewTemplates` → `NewChat`（造注册表 + 策略 + 待答表）→
+`chat.Templates` → `AddWebTools`/`AddIndexTool`（**无条件装**，可用性取决于上游配置而非装配条件）→
+`newMcpRuntime` + `NewMcp` + `go mcpRuntime.Rebuild()`（子进程握手以秒计，不能卡就绪）→
+`sessions.Active = chat.CurrentFile`（改名要避让引擎正在写的那份文件）。
+
+**`GET /chat/state` 的写副作用**：`State` 调 `BindSession(session)`，无会话时 `Store.Create` 并 `Settings.RememberSession`。
+它是「拉状态」，但会话初始化必须发生一次，否则界面无处画。知道这一点，就不必为「打开聊天页就多一个会话文件」吃惊。
+
+---
+
+## 4. 并发与锁模型
+
+进程内多协程共享状态，锁的边界比锁本身重要：**谁持锁、保护什么、失败时怎么降级**。
+
+| 位置 | 机制 | 保护什么 / 为什么 |
 |---|---|---|
-| pkg | 标准库 / 第三方纯工具 | domain / repo / service / api / shell |
-| domain | pkg | 任何实现层 |
-| repo | pkg / domain | service / api / shell |
-| agent | pkg / domain | api / service / 界面 |
-| web / index | pkg | api / service / agent |
-| service | repo / agent / web / index / pkg / domain | api 的路由层 |
-| api | service / domain / pkg | 越过 service 直摸 repo |
-| shell | wails / service（仅设置与端口回填） | api |
-| 前端 | 自身 + `/api/v1` | 直摸文件系统 / 子进程 |
+| `sse/hub.go` | `Hub.mu` 保护 `seq/buffer/sinks`；广播时先快照订户再出锁入队 | `seq` 必须单调、缓冲必须与发号同源；入队不阻塞，卡住的窗口不能拖住广播与其他客户端 |
+| `sse/hub.go` | 每订阅者 64 缓冲 + 单发送泵 | 补帧先入队、实时帧后入队，**同一条队列**结构性排除乱序；写满即断开该连接 |
+| `api/routes_events.go` | `writeMu` 串住帧与心跳 | 两者来自不同 goroutine，`http.ResponseWriter` 不支持并发写；交错会把一帧劈成两半，前端静默丢帧 |
+| `agent/session.go` | `Session.mu` 串行化 `append` 与 `Entries`/`ContextUsage` 等读 | 并发追加会写成交错半行，整份会话回放不出来；条目只在内存尾部追加，不重写历史 |
+| `service/chat_service.go` | `Chat.mu` 保护 `session/runner/cancel/queued/waiters` | 绑定、运行登记、排队镜像、提问通道要一致；`running` 用 `atomic.Bool` 免锁读 |
+| `agent/loop.go` | `Runner.mu` 保护 `queue/followUp/steps` | 插话与追加来自 HTTP 协程，读取在 runner 协程；`FollowUpQueued` 取走即清 |
+| `service/git.go` | `Git.writeMu` 串行化**写**命令 | 写命令抢 `index.lock`，抢不到只报一句看不出原因的失败；读命令不进锁。`fetch` 也走这把锁——它要改远端引用，与本地写命令并发会打乱索引状态 |
+| `service/mcp.go` | `Mcp.mu` 串行化 `mcp.json` 的读-改-写 | 两份文件共一把锁：「保存 A」与「删除 B」并发时后写会拿回改前旧表，前一次改动凭空消失 |
+| `service/mcp_runtime.go` | `rebuildMu`（容量 1 channel）串行化 `Rebuild` | 并发重建会半新半旧：旧 clients 已 Close、新工具还没装上 |
+| `service/skills.go` | 无锁，靠目录搬移的原子性 | 状态就是目录位置；台账 `skill_toggles` 只是记账，写失败只 Warn 不回滚 |
+| `repo/store.go` | 进程内互斥 + 原子整写（临时文件换名） | 台账可能被多协程同时改；整写让断电只丢最后一次更新而不是写坏文件 |
+| `pkg/proc.go` | `PersistentProc`：`killOnce`/`closeOnce` 幂等、`exited` 广播、`stderrMu` | `Kill` 等 `Wait` 收尾**最多 3 秒**（`killSettleBudget`）后放行——把「杀不干净」变成可观察的失败，绝不死锁；stderr 由单协程收、读者并发读，必须加锁 |
+| `agent/tool.go` | `Registry.mu` 保护 `tools/order/mcpTools` | 内置工具装配期一次装完，MCP 段可运行中整段替换（`ReplaceMcpTools`） |
+| `agent/policy.go` | `ToolPolicy.mu`（RWMutex） | 只读态按会话记；`SetReadOnly` 在切会话时同步，闸门与界面读同一处 |
+| `service/searcher.go` | `searcher.mu`（RWMutex）+ `building` 标志 | 内存索引被 HTTP 与工具协程同时读；重建期间并发请求直接返回旧状态而不是重复扫盘 |
+| `service/chat_stream.go` | `Stream.mu` 保护块表 | 块表是界面「此刻该显示什么」的唯一答案；引擎回调与 HTTP 读同时碰它 |
 
-**组合根例外**：`main.go` 直接开库与起服务是装配本职；`shell/*.go` 读
-设置服务的关窗偏好同理。
+**中止与收尾**：`Chat.Stop` 只 `cancel()`；runner 在 `ctx.Err()` 处落盘半截回复（`stop_reason=aborted`），
+`Stream.Finish` 连发 `chat:settled` + `chat:done` 两帧——界面据此无论走哪条分支都能解掉流式态。
 
-判定标准是**下层不知道上层存在**。`agent` 包不知道 HTTP 与界面的存在，
-所以它可以脱离壳单测；`api` 只解析与转发，所以业务规则全在 service 里。
+**启动不等重物**：端口与界面先就绪，会话初始化（`Warm`）与 MCP 首轮装载都在后台。
 
-## agent/ — 原生引擎
+---
 
-引擎是一个纯 Go 包，只依赖标准库与 `pkg`，不知道 HTTP、界面与上层编排存在。
+## 5. 五类真相来源
 
-| 文件 | 职责 |
-|---|---|
-| `provider.go` | 归一后的消息 / 内容块 / 工具声明 / 流式事件；`Streamer` 接口 |
-| `provider_openai.go` | `/chat/completions` 的 SSE 适配器：正文、思考、工具调用分片、用量 |
-| `loop.go` | 轮次循环：调模型 → 跑工具 → 回填结果 → 再调；含中止与插话队列 |
-| `session.go` | 会话 JSONL 真相：追加条目、叶子指针、标题派生 |
-| `session_format.go` | 引擎消息 ↔ 落盘形态的往返翻译 |
-| `tool.go` | 工具注册表与工作区路径守卫 |
-| `policy.go` | 工具准入策略：计划模式的只读闸门 |
-| `tidy.go` | 工具输出折叠策略：头尾保留 + 中间折叠 |
-| `prompt.go` | 系统提示：身份纪律 + 从注册表现读的工具清单 + 工作区事实 |
-| `tool_fs.go` | `read` / `write` / `edit` / `ls` |
-| `tool_search.go` | `grep` / `find`（进程内实现，不起子进程） |
-| `tool_shell.go` | `bash`（Windows 走 PowerShell，超时杀进程树） |
-| `tool_todo.go` | `todo`：实时待办清单，全量表随结果落盘 |
-| `tool_ask.go` | `ask`：结构化提问，阻塞式等回答 |
-| `tool_web.go` | `web_search` / `web_fetch`：联网工具 |
-| `tool_index.go` | `index_search`：工作区预索引检索 |
+「这份数据从哪来」决定排障方向。改错来源就会写出两份互相漂移的事实。
 
-### 轮次循环
+| # | 来源 | 载体 | 唯一负责写 | 谁在读 |
+|---|---|---|---|---|
+| 1 | 会话 | `data\sessions\<工作区编码>\SES_<ULID>.jsonl`，逐行追加，`parentId` 串分支 | `agent/session.go`（引擎） | `agent`（上下文）、`service/parser`（历史/待办/计划模式/摘要）、`service/sessions.go`、`session_html.go` |
+| 2 | 设置台账 | `data\workbaby.json`：`settings` 键值 + `skill_toggles` 记账 | `repo/store.go` | `service/settings.go`、`shell`（关窗偏好）、`repo` 自身 |
+| 3 | 服务商目录 | `data\workbaby.db` 的 `provider`/`provider_model` | `repo/provider_repo.go`（经 `service/models.go`） | 模型页、对话页下拉、`resolveModel` |
+| 4 | 能力配置 | `data\mcp.json`（用户级）与 `<工作区>\.pi\mcp.json`（项目级）；技能目录 `data\skills`、`data\skills_disabled`、`<工作区>\.pi\skills`；模板 `data\templates\*.md` | `service/mcp.go`、`service/skills.go`、`service/templates.go` | `mcp_runtime`（装载工具）、技能页/斜杠命令、`chat_state.commands()` |
+| 5 | 派生数据 | `data\workbaby.db` 的 `search_doc`；进程内索引与 frecency | `service/searcher.go` | 索引页、`index_search` 工具 |
 
-```
-Run(userMessage)
-  ├─ 落盘用户消息
-  └─ 循环最多 maxSteps(24) 次
-       ├─ streamOnce：系统提示 + 历史 + 工具声明 → 上游流式
-       │    └─ 正文 / 思考增量立刻回调给界面（早看到字）
-       ├─ 超窗时 trimToWindow 丢最早的消息（始终留最后一条）
-       ├─ 落盘助手消息（含工具调用块）
-       ├─ 有工具调用 → 顺序执行（并发写同一文件的结果不可预测）
-       │    └─ 每个结果作为 tool 消息落盘
-       └─ 注入排队插话；没有新输入就收尾
-```
+`<工作区>\.pi\` 是本项目约定的**项目级配置目录**：跟着仓库走的那部分配置放这里，
+与用户级的 `data\` 分开。项目级同名条目覆盖用户级——仓库里写的配置优先于本机全局配置。
+`.pi` 只是目录名，不指向任何外部工具。
 
-**中止要保住已经吐出来的字**：用户看到过这些内容，会话里没有它们就会
-「重开应用少了一段」。所以中止时半截回复照样落盘，`stop_reason=aborted`。
+**为什么会话用 JSONL 追加**：断电最多丢最后一行，不会写坏整份历史；会话头只在创建时写一次，
+所以标题由条目派生（改名条目优先、否则首条用户消息）——重写会话头改标题是同一份风险再加一次整份重写。
 
-### 模型协议
+**为什么设置用 JSON、服务商与索引用 SQLite**：台账条目几十条，零依赖、人可直接读；
+服务商+模型要一起增删改、要按模型维度查，摊成文件每次查询都得整读整解析。纯 Go 驱动（`glebarez/sqlite`）不引 cgo，
+静态构建与交叉编译是交付前提；外键与 WAL 都开，让「读的同时后台写索引」不互阻。
 
-只实现 OpenAI 兼容（`/chat/completions` + `stream=true`），覆盖
-DeepSeek / Moonshot / Ollama / vLLM 与各类网关。归一后的事件只有六种：
-`text` / `thinking` / `tool_start` / `tool_delta` / `usage` / `stop`。
+**派生数据的边界**：索引可在重启后由首次搜索惰性重建（`EnsureIndexed`）；
+`search_doc` 目前**只写不读**（`ReplaceWorkspace`/`BumpHit`/`Count` 有调用方，`Search` 读内存），
+所以 frecency 不跨重启生效——这不是 bug 的遮羞布，是现状。
 
-流式解析的两个坑都在代码里注释着：
+**为什么用量没有独立账本**：用量本来就在每条消息的 `usage` 上，会话是真相；另建账本等于维护第二份可漂移的真相，
+而扫描聚合的成本（打开用量页时才做）远低于维护成本。
 
-| 坑 | 后果 | 落法 |
+---
+
+## 6. 安全边界
+
+| 边界 | 做法 | 为什么这样做 |
 |---|---|---|
-| 工具调用分片交错到达 | 按到达顺序拼入参会把两个函数串成非法 JSON | 按上游 `index` 归并 |
-| 正文与思考共用一个槽位 | 两者交替时互相整块重置，吞掉文字 | builder 按「上一个块种类」开新块 |
+| 路径（工具） | `agent.Registry.resolve`：相对路径按工作区根拼、`Inside` 校验 | 工具入参来自对话内容，不能成为逃出工作区的通道 |
+| 路径（文件接口） | `service/files.go guard`：先归一再判越界，`..` 折叠后仍越界即 1002 | 一个 `../../` 就能摸到任意文件 |
+| 路径（技能/会话） | `Skills.guardPath`（三个托管根）；`parser.GuardSession`（必须在 `data\sessions` 下） | 删除与改名是不可逆动作，边界必须比读更紧 |
+| 路径（git） | 命令在**工作区目录**里跑；`GIT_TERMINAL_PROMPT=0` | 不给一个能跑在任意目录的 git 入口 |
+| 网络 | `web.ValidateURL` 字面校验 + `safeDial` 连接前复核解析 IP + 重定向逐跳校验；环回/私网/链路本地/CGNAT 全拒 | 只查首地址的话，公网地址跳到 `127.0.0.1` 就绕过去了 |
+| 密钥 | 读出来恒为掩码（`maskKey`：≤8 全掩，否则前 4+后 4）；`api_key` 空串 = 保留原值；配置原文白名单只有 `workbaby.json` 与 `mcp.json` | 界面永远拿不到原文，回传的必然是掩码，把掩码当新值存会把密钥写坏 |
+| 只读计划模式 | 闸门挂在注册表（`Registry.Run` 在解析入参**之前**判）；未登记工具按「会改」处理；状态落会话文件 `custom` 条目 | 逐工具判断时，新增写工具忘了判就等于没拦；漏拦写工具的代价远大于漏拦读工具 |
+| 子进程 | argv 直传不进 shell、`SysProcAttr.HideWindow`、超时必杀树、`ChildEnv` 只追加 `NO_COLOR=1` 与 `GIT_TERMINAL_PROMPT=0` | 不遮蔽 HOME、不改 PATH 顺序：工具跑的是用户自己的环境 |
+| CWD | 工具与 git 都在**当前工作区**内解析相对路径；`Files.guard` 绝不拿进程 CWD 解析 | 进程 CWD 在安装态是 exe 目录，偏出去就是写错地方 |
+| HTTP | 只 GET/POST、CORS 排在鉴权之前、信封恒 200、鉴权失败回裸 401 | 预检不带令牌，先鉴权会把预检打成 401，之后所有真请求都被浏览器拦下 |
+| MCP | 服务定义由 service 解好喂给引擎（`McpServerDef`）；引擎不认 `mcp.json` 的 map 形状 | 协议解析与策略留在上层，引擎只管「起进程、按行收发、按名调用」 |
 
-协议差异只在字段上，不在语义上：思考增量收 `reasoning_content` 与 `reasoning`
-两种拼法；有网关用 `200 + error 字段` 报错，适配器一并收口。
+**工具输出折叠不是安全边界而是上下文预算**：单条超 4000 字符折成头 3000 + 尾 1000，折叠事实随 `details.tidied` 落盘——
+界面仍能翻全文，模型不为几万字日志付上下文代价。同理 `trimToWindow` 在超窗时丢最早消息但始终留着最后一条：
+那是用户刚说的那句话，丢了模型就没法回答。
 
-### 工具集是能力的唯一边界
+---
 
-模型能做什么，取决于工具注册表里注册了什么。系统提示里的工具清单**从注册表现读**，
-所以提示里写的工具集绝不会与实际可调用的工具不一致。
+## 7. 交叉引用
 
-工具按需装上：联网工具要配了搜索服务才装，预索引工具要建了索引才装——
-没配时装上它们，模型一调用就报错，不如一开始就不给。
-
-### 计划模式闸门
-
-只读态挂在注册表上，一次实现管住全部写工具；挂成逐工具判断的话，
-新增工具时忘了判断就等于没拦。
-
-判定规则在 `agent.IsMutatingTool`：先查只读白名单，再查写工具名单，
-都没登记就**按「会改」处理**。默认拦是故意的：漏登记一个写工具，
-计划模式就名存实亡；而漏登记一个读工具只会让模型多问一句——两者不对等。
-
-闸门在解析入参**之前**执行：计划模式下的写工具连参数都不该被看一眼。
-
-### 工具输出折叠
-
-大工具输出（几百行文件内容、几万字日志）是上下文的主要消耗。
-折叠策略：单条超 4000 字符时保留头 3000 + 尾 1000，中间折叠并标注字数。
-
-完整内容仍留在会话文件里——折叠只是不给模型看，不是丢掉。
-折叠这件事要跟着落盘（`details.tidied`），回放时才知道这段被折过。
-
-### 会话真相
-
-会话落在**自己的数据目录** `data\sessions\<工作区编码>\SES_<ULID>.jsonl`，
-条目以 `parentId` 串起分支，所以回放、详情、导出、隐藏台账共用同一套解析。
-
-```
-{"type":"session","version":1,"id":"SES_...","timestamp":"2026-01-01T00:00:00.000Z","cwd":"D:\\proj"}
-{"type":"message","id":"SES_...","parentId":"","timestamp":...,"message":{...}}
-{"type":"message",...}          ← 工具结果同样是一条 message（role=toolResult）
-{"type":"session_info","name":"我自己起的名字"}
-```
-
-标题是**派生**出来的，不是文件的属性：改名条目优先，其次首条用户消息。
-所以重开应用、切回旧会话都能还原出同一个标题。
-
-会话头只在创建时写一次，之后永不重写——整份重写在断电时会把唯一真相写坏。
-
-## web/ — 联网能力
-
-| 文件 | 职责 |
-|---|---|
-| `search.go` | 搜索适配器：DuckDuckGo / Brave / Exa / Tavily 统一收口成 `SearchResult` |
-| `search_parse.go` | DuckDuckGo HTML 结果页解析与跳转链接还原 |
-| `client.go` | HTTP 客户端：超时、重定向逐跳校验、连接前复核解析出的 IP |
-| `extract.go` | HTML 正文抽取：去脚本 / 样式 / 导航，还原实体 |
-| `pdf.go` | PDF 文字抽取 |
-
-**地址安全是这条能力的核心边界**：模型给的地址来自对话内容。
-校验做两遍——`ValidateURL` 看字面（环回、私网、链路本地、CGNAT 一律拒），
-`safeDial` 在真正连接时复核解析出的 IP。重定向逐跳校验：
-只查首地址的话，公网地址跳到 `127.0.0.1` 就绕过去了。
-
-免密钥的 DuckDuckGo 是默认搜索服务：用户配第一个模型就能联网搜索，
-不必先去申请一个搜索服务的账号。
-
-## index/ — 工作区预索引
-
-一次几千行的 grep 在大仓库里要几秒，而模型每轮都要搜好几次——
-把「找文件」这件事预先算好，模型就只等结果。
-
-一次遍历同时收文件与符号（分开遍历等于把目录读两遍）：
-文件按路径与正文入库，符号靠正则从正文里抽（Go / TS / JS / Python / Rust 常见声明式）。
-二进制、依赖目录（`node_modules` / `.git` / `dist` …）、超大文件一律跳过。
-
-索引上限（不是用户可调的旋钮，是「什么值得进索引」的判断）：
-单文件 ≤ 512KB、每文件留正文 ≤ 8000 字符、单次索引 ≤ 20000 条文档。
-
-排序分 = 文本相关度 + frecency（频次 × 时近）。相关度分档：
-符号名完全匹配 100 > 符号名包含 60 > 文件名完全匹配 50 > 文件名前缀 40 > 路径包含 30 > 正文包含 10。
-
-frecency 的频次取对数（搜过 100 次的文件不该是搜过 2 次的 50 倍好），
-时近用 7 天半衰期的指数衰减。同分时按路径排——结果顺序要稳定，
-否则每次搜都跳来跳去。
-
-## repo/ — 持久化
-
-| 段 | 载体 | 内容 |
-|---|---|---|
-| 设置台账 | `workbaby.json` | `settings`（键值）+ `skill_toggles`（技能开关记账） |
-| 派生数据 | `workbaby.db` | `provider` / `provider_model` / `session_index` / `usage_record` / `tool_call_record` / `search_doc` / `plan_state` |
-
-**为什么只有设置台账用 JSON**：条目量级几十条，零依赖、内容人能直接读。
-JSON 存不下的是「服务商 + 模型清单」这种要一起增删改、要按模型维度查统计的关系数据，
-摊成文件后每次查询都得整读整解析，放进 SQLite 更省事。
-
-SQLite 用纯 Go 驱动（`glebarez/sqlite`），不引 cgo——
-静态构建与交叉编译是这套交付的前提。外键与 WAL 都开：
-前者保证行不会指向不存在的东西，后者让「读的同时后台在写索引」不互相阻塞。
-
-派生数据（索引、统计）随时可以从真相重建，所以写入失败只降级检索能力，
-不影响对话本身。
-
-## api/ — HTTP 薄壳
-
-`server.go` 装配：`gin.Recovery` → CORS → 令牌鉴权 → 分组路由 → `NoRoute` 回 1404 信封。
-handler 只做三件事：读参数、调 service、回信封。**不写业务逻辑、不碰 repo**。
-
-**CORS 必须排在鉴权前面**：浏览器对跨源请求先发 OPTIONS 预检，
-预检不携带令牌，先鉴权会把预检打成 401，之后所有真请求都被浏览器拦下。
-
-**只允许 GET / POST**，动词靠路径段表达（`POST /sessions/delete`）。
-写操作不出现在 GET 上——`GET` 路由不改磁盘状态。
-
-## service/ — 业务编排
-
-| 文件 | 职责 |
-|---|---|
-| `app.go` / `app_actions.go` / `app_config.go` | 装配根、首屏总包、概览健康快照、应用清单、配置原文 |
-| `chat_service.go` / `chat_state.go` / `chat_actions.go` / `chat_stream.go` | 会话绑定与生命周期、发送 / 停止 / 插话 / 回答、状态总装、流式翻译 |
-| `plan_mode.go` | 计划模式开关：状态落进会话文件，闸门同步到引擎 |
-| `searcher.go` | 工作区预索引的建索引、检索与 frecency 记账 |
-| `web.go` | 联网门面：配置 → 引擎工具出口 → 界面接口 |
-| `models.go` / `model_probe.go` | 服务商与模型的增删改查、连通性探测、密钥掩码、新会话默认模型 |
-| `skills.go` / `skills_scan.go` / `skills_edit.go` / `skill_catalog.go` / `skill_fs.go` | 技能落位、扫描、开关（搬目录）、导入、编辑、新建、删除、重置 |
-| `mcp.go` / `mcp_probe.go` | `mcp.json` 增删改查与开关；连接测试（MCP initialize 握手） |
-| `files.go` / `sessions.go` / `session_html.go` | 文件浏览、会话列表与详情、改名保护、导出 HTML |
-| `git.go` / `git_history.go` / `git_sync.go` / `git_stash.go` / `git_write.go` | git 读与写；stash 四件套；冲突解决；目录级仓库探测 |
-| `templates.go` / `jsonutil.go` | 提示词模板（文件即数据，并进斜杠命令）；工作区历史行的 JSON 编解码 |
-| `settings.go` / `values.go` / `system.go` / `autostart.go` | 设置键名、工作区清单、系统动作、开机自启 |
-| `parser/` | 会话 JSONL → 条目树 / 活动分支 / 统计 / 待办派生 |
-
-## shell/ — Wails 面
-
-| 文件 | 职责 |
-|---|---|
-| `app.go` | 装配根 `Run`、服务生命周期、绑定面（`Endpoint` / `Ready` / 选目录 / 窗控） |
-| `window.go` | 建窗、显形、缩放与关窗决策 |
-| `tray.go` | 托盘菜单 |
-| `windows.go` | Windows 专属：显示缩放、DWM |
-| `endpoint.go` | 端点结构（交给前端的 `{port, token, version, contract}`） |
-
-本包之外不知道 Wails 存在。
-
-## 装配顺序
-
-`shell.Run` 是装配根：
-
-```
-1. resolveLayout    exe 同级有 assets\ → 安装态；否则往上找仓库根 → 开发态
-2. pkg.SetLogDir    日志目录先就绪，后续每一步才好排错
-3. application.New  Wails 应用 + 单实例 + WebView2 数据目录锁进数据目录
-4. 建窗（Hidden）   先不显示，避免装配阶段闪白屏
-5. 建托盘           用户可能一启动就关窗，托盘必须先存在
-6. ServiceStartup   开设置存储 → 开数据库 → 装配 service → 起 gin（拿到端口）
-7. 后台 Warm        会话初始化；不阻塞首屏
-8. 前端调 Endpoint  拿到 {port, token} 后建 SSE、拉首屏
-9. 前端调 Ready()   由前端决定何时显形
-```
-
-## 聊天状态
-
-引擎在进程内，所以没有「等冷启动」这件事：有会话就能画。
-
-| 事实 | 来源 |
-|---|---|
-| 历史轮 | 会话 JSONL 回放（活动分支） |
-| 当前模型 | 设置里的 `model.active_provider` / `model.active_model` |
-| 流式态 | `Chat.Busy()` |
-| 待办 | 活动分支上最近一次 todo 工具调用派生 |
-| 计划模式 | 会话文件里最后一条 `plan-mode` 自定义条目 |
-
-## 前端运行时
-
-```
-Wails 绑定（拿 {port, token}）
-        │
-        ▼
-api/http.ts ── axios 实例（统一拆信封，code !== '0' 即抛 ApiError）
-        │                          │
-        ▼                          ▼
-   stores/app（引导·设置·清单）   stores/events（SSE 分帧分发）
-        │                          │
-        ▼                          ▼
-   视图（懒加载路由页） ◄── refresh store（事件驱动的刷新信号）
-```
-
-- **启动链路**：`bootstrap` 一次拿全首屏；之后一切增量都从 SSE 来，前端不轮询
-- **流式渲染**：正文按顶层块缓存增量渲染，思考块流式期只渲染尾部——长会话不撑爆 DOM
-- **断线对账**：前端逐帧跟踪 `seq`，发现跳号就对 `chat/state` 拉一次快照
-
-## 事件流
-
-每个订阅者一条带缓冲队列 + 发送泵：补帧先入队、实时帧后入队，
-同一队列保证乱序不可能发生。队列写满即按断开处理——一个卡住的窗口不能拖住广播。
-
-`seq` 由 hub 统一发号且单调递增，是断线补帧的对齐依据。
-
-## 真相来源
-
-| 对象 | 唯一真相 | 写入口 |
-|---|---|---|
-| 会话 | `data\sessions\**\*.jsonl` | `agent.Session`（追加，持锁） |
-| 服务商与模型 | `data\workbaby.db` 的 `provider` / `provider_model` | `service.Models` |
-| 技能 | `data\skills\` 与 `data\skills_disabled\` 的目录位置 | 搬目录 |
-| MCP | `data\mcp.json` + 工作区 `.pi\mcp.json` | 读写 JSON |
-| 提示词模板 | `data\templates\*.md`（带 YAML 头） | `service.Templates` |
-| 壳设置 | `data\workbaby.json` | `repo.Store` |
-| 检索索引 | `data\workbaby.db` 的 `search_doc`（派生，可重建） | `service.Searcher` |
-
-**没有第二份注册表**：每类对象只有一个真相，壳只在其上操作。
-
-## 稳定性约束
-
-| 约束 | 失效模式 |
-|---|---|
-| 会话追加持锁 | 两路并发追加写出交错行，整份会话回放不出来 |
-| 工具调用按 `index` 归并分片 | 并行调用串成非法 JSON，入参解析失败 |
-| 工具按顺序执行 | 并发写同一文件的结果不可预测 |
-| 中止时半截回复照样落盘 | 用户看到过的内容从会话里消失 |
-| 引擎回调只在「仍是当前运行」时收尾 | 上一轮的迟到事件把新一轮界面状态抹掉 |
-| 标题由条目派生而非写进会话头 | 整份重写时断电把唯一真相写坏 |
-| 工具路径经 `pkg.Inside` 守卫 | 对话内容成为逃出工作区的通道 |
-| 计划模式「未登记按写处理」 | 漏登记一个写工具，闸门形同虚设 |
-
-## 安全边界
-
-- 令牌每次启动随机生成，只经 Wails 绑定交给自己的 WebView；HTTP 走
-  `X-Desktop-Token`，SSE 走 `?token=`（EventSource 带不了自定义头）
-- 服务只监听 `127.0.0.1`
-- 工具与文件接口一律校验路径在允许的根目录内
-- 联网地址一律校验：环回、私网、链路本地、CGNAT 全拒，且连接时复核解析出的 IP
-- 密钥读出来恒为掩码；`api_key` 传空串的语义是「保留原值」
+- 模块级链路、接口、事件、错误码与排障入口：`docs/MODULES.md`
+- 全路由契约、信封、SSE 事件词汇全表、错误码双索引：`docs/API.md`
+- 持久化载体、设置键全表、会话条目类型全表：`docs/DATA-MODEL.md`
+- 环境、命令、测试策略、打包发布：`docs/DEV.md`
+- 编码规范、依赖方向强制条款、门禁命令：`AGENTS.md`

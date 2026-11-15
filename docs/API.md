@@ -1,317 +1,320 @@
 # API 契约
 
-- baseURL：`http://127.0.0.1:{port}/api/v1`。端口与令牌由 Wails 绑定的
-  `Endpoint()` 回填（`base_url` 已含 `/api/v1`）。
-- 鉴权：每个请求带 `X-Desktop-Token` 头；SSE 用 `?token=` 查询参数
-  （EventSource 带不了自定义头）。令牌每次启动随机，不匹配回 HTTP 401。
-- CORS：WebView2 的页面源（`wails.localhost` 虚拟域）与开发态 vite 端口对回环
-  服务就是跨源。OPTIONS 预检不带令牌、绕过鉴权门直接回 204 与允许头；
-  允许源限 `wails.localhost` 与 localhost / 127.0.0.1（真正的门禁是令牌）。
-- **只允许 GET / POST**；写操作语义靠路径段表达（`/sessions/delete`）。
-- **恒回 200**，业务失败看信封 `code`：
+字段名全部取自 `backend/domain/*.go` 的 json tag。行为约束（空串语义、上限、落盘副作用、排障顺序）
+只写在 `docs/MODULES.md` 对应章节，本文不复述。
+
+## 1. 信封与鉴权
+
+- baseURL：`http://127.0.0.1:{port}/api/v1`。端口与令牌由 Wails 绑定 `Endpoint()` 回填（`wb_base_url` 已含前缀）。
+- 鉴权：HTTP 走 `X-Desktop-Token` 头；SSE 走 `?token=`（EventSource 带不了自定义头）。令牌每次启动随机。
+- CORS：`gin.Recovery` → CORS → 鉴权 → 路由 → `NoRoute`。预检 OPTIONS 不带令牌，故 CORS 必须排在鉴权之前，
+  直接回 204 + 允许头。允许源限 `http(s)://wails.localhost` 与 `localhost`/`127.0.0.1`（真正的门禁是令牌）。
+- **只允许 GET / POST**；动词靠路径段表达（`POST /sessions/delete`）。`GET` 不写盘（唯一例外：`/chat/state` 会隐式初始化会话，见 `docs/ARCHITECTURE.md` §3）。
+- **恒回 200**，业务失败看信封 `code`；`code` 是数字字符串。
 
 ```json
 { "code": "0", "message": "", "detail": "可选原话", "data": { } }
 ```
 
-`code` 是数字字符串，`"0"` 成功；码表见文末「错误码」一节。
-用户可读文案在 `message`，`detail` 给诊断面板。未知接口回 `1404`。
-鉴权失败是唯一例外：回 401 且不带信封——那不是业务失败，是根本没进门。
+`message` 直接给用户看，`detail` 只进诊断面板。未知接口回 `1404`。鉴权失败是唯一例外：回 **401 且不带信封**。
 
-## 引导 / 设置 / 偏好
+## 2. 参数与出参约定
 
-| 端点 | 方法 | 入参 | 出参 data |
+- 路径参数：没有路径段变量，一律查询参数（`?path=` `?session=` `?hash=` `?limit=` `?q=` `?name=` `?since=`）。
+- 查询参数缺省值由 handler 兜底：`limit` 50（`/git/file-history` 缺省 40 上限 200、`/git/history` 缺省 50 上限 500、`/logs` 500、`/files/search` 缺省 50 上限 200）。
+- 整数查询参数解析失败按缺省值走，不报错（`queryInt`）。
+- POST body 一律 JSON；解析失败回 `1000`，`detail` 是解析器原话（`bind`）。
+- 出参字段名一律 snake_case + 业务前缀；时间戳 millisecond int64（会话文件内的 ISO 串是落盘格式，不进 DTO）。
+- 只有成功标志的接口回 `{"ok": true}`（`OkRESP`）。
+
+## 3. 路由表
+
+### 3.1 引导 / 设置 / 偏好（MODULES §12）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/bootstrap` | — | `app_version,app_contract,engines[],active_engine,workspace,settings{},layouts[],workspaces[],runtime,prefs` | 首屏总包，`app_contract` 当前为 3 |
+| GET | `/settings` | — | 键值 map | 全部设置 |
+| POST | `/settings/save` | 键值 map | 键值 map | 只对 `ui.mention_sessions` 做 1~20 收敛 |
+| POST | `/settings/workspace` | `workspace` | `workspace` | 会话绑定随之失效 |
+| GET | `/workspaces` | — | `workspace,workspace_rows[],active_engine` | 行含目录存在/git/分支/改动数/会话数 |
+| POST | `/settings/workspace/forget` | `workspace_path` | `workspace,workspace_rows[],active_engine` | 只去历史，不删磁盘 |
+| GET | `/prefs` | — | `pref_values,auto_start,restore_session,last_session_file,close_action,data_dir,log_dir` | `auto_start` 以注册表为准 |
+| POST | `/prefs/autostart` | `pref_enabled` | `AppPrefsVO` | 写 HKCU Run 项 |
+| POST | `/prefs/restore` | `pref_enabled` | `AppPrefsVO` | 只记设置，执行者是前端 |
+| POST | `/prefs/close-action` | `close_action` | `AppPrefsVO` | 非 `quit` 一律按 `tray` |
+| POST | `/prefs/data-dir` | — | `{ok}` | 资源管理器打开数据目录 |
+| GET | `/logs?lines=` | `lines` | `lines[]` | 当日日志尾部 |
+
+### 3.2 引擎 / 应用 / 健康 / 系统（MODULES §14）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/engines` | — | `engines[],layouts[],runtime,instance,detected_at` | `instance` 现造：`engine_kind,running,busy,session_file,work_dir,started_at` |
+| POST | `/engines/detect` | — | `runtime,apps[]` | 广播 `engine:detected` |
+| POST | `/engines/repair` | — | `runtime,apps[]` | 与 detect 完全等价 |
+| POST | `/engines/restart` | — | `{ok}` | `Chat.Stop()` + 广播 `engine:ready` |
+| GET | `/health/engines` | — | `health_engines[],active_engine,workspace,runtime,total_sessions,total_skills,total_mcp,live_engines,memory_used_mb,detected_at` | 概览页首屏；`health_engines[]` 实际填的是 `engine_kind,engine_label,engine_version,installed,running,busy,session_count,skill_count,mcp_count,config_files,caps`，`engine_exe/process_id/started_at/call_count/last_error` 与顶层 `live_engines` 恒为零值（进程内没有子进程可报） |
+| GET | `/apps` | — | `apps[]` | 行：`app_key,app_name,app_version,app_path,installed,app_source,install_note?`；`required`/`can_locate`/`blocker?` 恒为零值（探测只报装没装与装在哪） |
+| GET | `/config/files` | — | `entries[]` | 行：`config_name,config_label,file_path,file_exists,size_bytes` |
+| GET | `/config/text?name=` | `name`（`settings`\|`mcp`） | `file_path,file_text,truncated,found` | 白名单，不接受外部路径 |
+| POST | `/system/reveal` | `target_path` | `{ok}` | 资源管理器定位 |
+| POST | `/system/open` | `target_path` | `{ok}` | 系统默认程序打开 |
+
+### 3.3 会话（MODULES §3）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/sessions?workspace=&q=` | `workspace`、`q` | `sessions[]` | 行：`session_id,session_path,session_title,session_cwd,session_model,updated_at,size_bytes,message_count,total_tokens,cost_usd`；`message_count` 是消息条数（用户 + 助手 + 工具结果各算一条），不是对话轮数 |
+| GET | `/sessions/detail?path=` | `path` | `session,items[]` | 条目：`item_kind,item_role,item_text,item_model,tool_name,tool_call_id,tool_is_error,created_at,item_tokens,cost_usd` |
+| POST | `/sessions/delete` | `session_path` | `{ok}` | 一并清 `chat.hide:<路径>` 键 |
+| POST | `/sessions/rename` | `session_path,session_title` | `{ok}` | 追加 `session_info` 条目；被引擎打开时 5002 |
+
+### 3.4 对话（MODULES §1）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/chat/state?session=` | `session` | `ChatStateRESP`（见下） | 无会话时会隐式建会话并写 `prefs.last_session_file` |
+| POST | `/chat/send` | `session_file,message,attachments[]` | `run_id,disposition` | `disposition` = `started`/`queued`/`handled` |
+| POST | `/chat/stop` | — | `{ok}` | 只 cancel，不等待 |
+| POST | `/chat/steer` | `message,attachments` | `{ok}` | 进 steering 队，本轮收尾后注入 |
+| POST | `/chat/followup` | `message,attachments` | `{ok}` | 进 follow_up 队，本轮结束后另起一轮 |
+| POST | `/chat/clear-queue` | — | `steering[],follow_up[]` | 返回被清掉的文本 |
+| POST | `/chat/remove-queued` | `queue_kind,queue_index` | `steering[],follow_up[]` | `queue_kind` = `steering`\|`followup` |
+| POST | `/chat/compact` | `session_file,instructions` | `{ok}` | 同步总结上游（120s）；Busy 时 5002 |
+| POST | `/chat/answer` | `session_file,ask_id,value,confirmed,cancelled,answers[]` | `{ok}` | `answers[]` 项：`question_id,selected_options[],custom_input` |
+| POST | `/chat/new` | — | `session_file` | Busy 时 5002 |
+| POST | `/chat/clone` | — | `session_file` | 只复制消息条目 |
+| POST | `/chat/fork` | `session_file,turn_id` | `session_file,fork_text?` | 复制到分叉点（含该条用户消息） |
+| POST | `/chat/export-html` | `session_file` | `file_name,file_content` | 自包含 HTML |
+| POST | `/chat/model` | `provider_name,model_id` | `{ok}` | 写 `model.active_*`，广播 `chat:model` |
+| POST | `/chat/thinking` | `thinking_level` | `{ok}` | `off/minimal/low/medium/high`，写 `model.thinking_level` |
+| POST | `/chat/autocompact` | `auto_compaction` | `{ok}` | 写 `model.auto_compaction` |
+| POST | `/chat/plan` | `plan_enabled` | `plan_enabled,blocked_tools[],plan_message` | 状态落会话文件 `custom` 条目 |
+| POST | `/messages/hide` | `session_file,turn_id` | `{ok}` | 台账在设置文件，会话文件不动 |
+| POST | `/messages/unhide` | `session_file,turn_id` | `{ok}` | 同上 |
+
+`ChatStateRESP`：`engine_kind,session_file,work_dir,engine_running,streaming,model,thinking_level,thinking_levels[],context_usage,context_warn,auto_compaction,queued,stats,history[],todos[],plan_mode,plan_state,commands[],caps,bind_err`。
+`context_usage`：`usage_tokens,context_window,usage_percent`；`stats`：`session_id,user_messages,assistant_messages,tool_calls,total_messages,total_tokens,context_usage`。`input_tokens`/`output_tokens`/`cache_read_tokens`/`cache_write_tokens`/`cost_usd` 恒为零值——聚合只累加总 token 数，明细读数要看会话里的每条消息。
+`queued`：`steering[],follow_up[]`；`plan_state`：`plan_enabled,blocked_tools[]`；`model`：`model_id,model_name,provider_name,api_protocol,supports_reasoning,context_window,max_tokens,input_kinds`。
+`commands[]`：`command_name,command_source,command_desc,command_body`；`history[]`：`turn_role,turn_blocks[],turn_model,turn_usage,turn_id`。
+`ChatAttachmentVO`：`attachment_kind(file|image|session),file_path,file_name,image_base64,image_mime,attachment_body`。
+
+### 3.5 模型服务商（MODULES §4）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/models` | — | `models[]` | 行：`provider_name,model_id,model_name,api_protocol,context_window,max_tokens,supports_reasoning,input_kinds` |
+| GET | `/providers` | — | `providers[],config_path,read_error?` | 行：`provider_name,base_url,api_protocol,auth_kind,api_key_masked,has_key,models[],model_count` |
+| POST | `/providers/upsert` | `provider_name,base_url,api_protocol,auth_kind,api_key,models[]` | `ProvidersRESP` | `models` 非 nil 即整表替换对账 |
+| POST | `/providers/delete` | `provider_name` | `ProvidersRESP` | 连带模型并清活跃/默认指针 |
+| POST | `/providers/model/save` | `provider_name,model{…}` | `ProvidersRESP` | 按 `model_id` 定位，存在即改 |
+| POST | `/providers/model/delete` | `provider_name,model_id` | `ProvidersRESP` | 指针被指向时一并清 |
+| POST | `/providers/models` | `provider_name,base_url,api_protocol,api_key` | `probe_ok,probe_message,model_count,models[]` | 列模型即连通性测试 |
+| POST | `/providers/test` | 同上 | 同上 | 同一 handler |
+| GET | `/models/defaults` | — | `default_provider,default_model,default_thinking_level,settings_file` | 发送链路不消费这三键 |
+| POST | `/models/defaults` | `default_provider,default_model,default_thinking_level` | 同上 | 服务商与模型必须成对填写 |
+
+模型条目 `ProviderModelEntryVO`：`model_id,model_name,api_protocol,context_window,max_tokens,supports_reasoning,input_kinds[]`。
+
+### 3.6 技能（MODULES §5）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/skills` | — | `skills[],recommended_total,recommended_installed,available[]` | 三区磁盘扫描 + 未装推荐 |
+| POST | `/skills/install` | `skill_dir_name` | `{ok}` | 只认推荐清单里的目录名 |
+| GET | `/skills/content?path=` | `path` | `file_text` | 必须是 SKILL.md |
+| POST | `/skills/save` | `skill_path,file_text` | `{ok}` | 同上 |
+| POST | `/skills/toggle` | `skill_path,skill_enabled` | `{ok}` | 搬目录即开关 |
+| POST | `/skills/create` | `skill_name,skill_desc,skill_body` | `skill_path` | 建 `data\skills\<name>` |
+| POST | `/skills/import` | `skill_from_path` | `skill_dir_name,skill_path` | 整目录复制 |
+| POST | `/skills/delete` | `skill_path` | `{ok}` | 传目录路径一律拒 |
+| POST | `/skills/reset` | `skill_path` | `{ok}` | 从随包原件覆盖 |
+
+`skills[]` 行：`skill_name,skill_dir_name,skill_desc,skill_path,skill_dir,skill_source,skill_group,skill_requires,skill_enabled,skill_editable,skill_modified`；
+`available[]` 行：`skill_dir_name,skill_group,skill_desc,skill_requires`。
+
+### 3.7 模板（MODULES §13）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/templates` | — | `rows[]` | 行：`template_name,template_desc,template_body,template_args` |
+| POST | `/templates/save` | `template_name,template_desc,template_body,template_args` | `{ok}` | 名字清洗后为空即拒 |
+| POST | `/templates/delete` | `template_name` | `{ok}` | 幂等 |
+
+### 3.8 MCP（MODULES §6）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/mcp` | — | `servers[],user_path,project_path?,read_errors?` | 用户级 + 项目级合并，同名项目级覆盖 |
+| POST | `/mcp/save` | `server_name,command_text,server_url,transport_kind,mcp_desc,work_dir,env_list[],mcp_timeout,mcp_scope` | `McpListRESP` | `mcp_scope` = `user`\|`project`；后台重建工具段 |
+| POST | `/mcp/toggle` | `server_name,mcp_enabled` | `McpListRESP` | 同上触发重建 |
+| POST | `/mcp/probe` | `server_name` | `probe_ok,probe_message,probe_tools` | 真握手（stdio 拉进程 / http 发请求） |
+| POST | `/mcp/remove` | `server_name` | `McpListRESP` | 只删界面显示的那条 |
+
+`servers[]` 行：`server_name,transport_kind,command_line,server_url,mcp_desc,mcp_work_dir,mcp_env_text,mcp_timeout,mcp_enabled,scope_kind,config_path`。
+
+### 3.9 工作区文件（MODULES §7）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/files?path=` | `path` | `dir_path,entries[],truncated` | 行：`entry_name,entry_is_dir,size_bytes,modified_at` |
+| GET | `/files/search?query=&limit=` | `query,limit` | `search_query,hits[],truncated` | 行：`file_path,entry_name`；只匹配文件名 |
+| GET | `/files/read?path=` | `path` | `file_path,file_text,size_bytes,is_binary,file_kind,file_base64?,truncated` | 二进制可预览回 base64 |
+| POST | `/files/save` | `file_path,file_text` | `{ok}` | 父目录一并建，5MB 上限 |
+| POST | `/files/mkdir` | `file_path` | `{ok}` | 已存在拒 |
+| POST | `/files/delete` | `file_path` | `{ok}` | 递归；工作区根拒删 |
+| POST | `/files/rename` | `file_path,new_file_path` | `{ok}` | 源必须存在、目标必须不存在 |
+
+### 3.10 Git（MODULES §8）
+
+写接口一律回最新 `GitStatusRESP`：`git_available,unavailable_reason?,is_repo,workspace,repo_root,branch_name,upstream_ref,ahead,behind,repo_state,repo_state_detail?,remotes[],changed_files[],has_conflict,git_version`；
+`remotes[]`：`remote_name,remote_url`；`changed_files[]`：`file_path,change_code,is_staged,has_conflict,insertions,deletions`。
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/git/status` | — | `GitStatusRESP` | `porcelain -z` 解析 |
+| GET | `/git/diff?path=` | `path` | `file_path,truncated,dropped,diff_lines[]` | 行：`line_kind,old_no,new_no,line_text`；上限 4000 行 |
+| GET | `/git/history?limit=` | `limit` | `commits[]` | 行：`commit_hash,short_hash,commit_subject,author_name,commit_time,file_count,insertions,deletions` |
+| GET | `/git/commit?hash=` | `hash` | `commit,commit_body,parent_hashes[],changed_files[],diff` | 单提交详情 |
+| GET | `/git/file-history?path=&limit=` | `path,limit` | `commits[]` | 同 history 形状 |
+| GET | `/git/file-diff?hash=&path=` | `hash,path` | `GitDiffRESP` | 单提交里某文件的差异 |
+| GET | `/git/branches` | — | `[]GitBranchVO`（裸数组，不套对象） | 行：`branch_name,is_current,remote_name?,ahead,behind`；本地与远端分支同列 |
+| GET | `/git/stash/list` | — | `stashes[]` | 行：`stash_ref,stash_subject`，最新在前 |
+| POST | `/git/stage` `/git/unstage` `/git/discard` `/git/resolve` | `file_paths[]` | `GitStatusRESP` | 四者共用 `GitPathsREQ` |
+| POST | `/git/conflict/resolve` | `file_path,resolve_side` | `GitStatusRESP` | `resolve_side` = `ours`\|`theirs`\|`""`（我改完了） |
+| POST | `/git/commit` | `commit_message,is_amend` | `status,commit_hash` | — |
+| POST | `/git/branch` `/git/branch/delete` `/git/switch` | `branch_name` | `GitStatusRESP` | — |
+| POST | `/git/merge` | `branch_name,is_rebase` | `GitStatusRESP` | 冲突落 `repo_state` |
+| POST | `/git/state` | `state_action` | `GitStatusRESP` | `continue`\|`abort` |
+| POST | `/git/init` | `branch_name` | `GitStatusRESP` | — |
+| POST | `/git/remote` | `remote_name,remote_url` | `GitStatusRESP` | — |
+| POST | `/git/push` | `remote_name,branch_name,force_mode,set_upstream,confirm` | `GitStatusRESP` | `force_mode` = `""`/`none`/`with-lease`；`with-lease` 需 `confirm` 等于分支名，裸 `--force` 不提供 |
+| POST | `/git/pull` | `remote_name,branch_name,is_rebase` | `GitStatusRESP` | — |
+| POST | `/git/fetch` | `remote_name` | `GitStatusRESP` | 只更新远端引用 |
+| POST | `/git/stash/push` | `stash_message` | `GitStatusRESP` | — |
+| POST | `/git/stash/pop` | `stash_ref` | `GitStatusRESP` | — |
+| POST | `/git/stash/drop` | `stash_ref,confirm` | `GitStatusRESP` | `confirm` 必须等于 `stash_ref` |
+
+### 3.11 预索引（MODULES §9）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/index/status` | — | `index_workspace,index_doc_count,index_built,index_building,index_built_at` | 状态卡数据源 |
+| POST | `/index/search` | `search_query,search_limit` | `search_hits[],index_status` | 命中行：`doc_path,doc_kind,doc_symbol,doc_symbol_kind,doc_line,hit_score,hit_reason` |
+| POST | `/index/rebuild` | — | `IndexStatusVO` | 同步重建，`building` 期间幂等返回 |
+
+### 3.12 联网（MODULES §10）
+
+| 方法 | 路径 | 入参 | 出参 data | 语义 |
+|---|---|---|---|---|
+| GET | `/web/status` | — | `web_kind,web_has_key,web_message,web_kinds[]` | 未配密钥时 `web_message` 给指引 |
+| POST | `/web/settings` | `web_kind,web_api_key` | 同上 | `web_api_key` 空串 = 保留原值 |
+| POST | `/web/search` | `search_query,search_limit` | `search_results[],search_provider` | 行：`result_title,result_url,result_snippet,result_source` |
+| POST | `/web/fetch` | `fetch_url` | `fetch_url,fetch_text,fetch_char_count` | 按 Content-Type 分流 |
+
+### 3.13 事件（MODULES §2）
+
+| 方法 | 路径 | 入参 | 出参 | 语义 |
+|---|---|---|---|---|
+| GET | `/events?since=&token=` | `since`（上次 seq）、`token` | `text/event-stream` | 首帧 `stream:open` 带当前 seq（不占新号）；心跳是 `: ping` 注释行，不占 seq |
+
+## 4. SSE 事件全表
+
+帧：`{seq,event,data,sent_at}`，`event` 在帧体内（SSE 的 event 字段恒为 `message`），`data` 是 map。
+chat 帧额外带 `engine_kind:"native"` 与 `run_id`。
+
+| 事件 | 载荷字段 | 发射点 | 前端反应 | 后端不发 / 前端不接 |
+|---|---|---|---|---|
+| `stream:open` | seq | routes_events.go | 忽略 | — |
+| `chat:start` | started_at,run_id | chat_stream.go | streaming=true，清错，重置读数与秒表 | — |
+| `chat:live` | phase,tool_name,tool_call_id,output_tokens | chat_stream.go | 活动条 / tokens/s | — |
+| `chat:patch` | mode,index,kind,delta,block | chat_stream.go | `applyPatch` | — |
+| `chat:turn` | user_message,turn_blocks | chat_stream.go | 覆盖块表 | — |
+| `chat:turn_end` | turn_usage | chat_stream.go | `setUsage` | — |
+| `chat:todos` | todos[] | chat_stream.go | 待办面板 | — |
+| `chat:ask` | ask_id,ask_method,ask_title,ask_message,ask_placeholder,ask_prefill,ask_options | chat_service.go | 追加提问卡 | — |
+| `chat:error` | message | chat_stream.go | 标错 + toast + 解流式态 | — |
+| `chat:settled` | aborted | chat_stream.go | 只解流式态 | — |
+| `chat:done` | aborted | chat_stream.go | finishTurn + 重拉 state/列表 + 工作区刷新 | — |
+| `chat:compaction` | state(start/done),engine_kind | chat_actions.go | `compacting` 真假 + done 提示 | — |
+| `chat:queue` | steering[],follow_up[] | chat_service.go | 队列镜像替换 | — |
+| `chat:model` | provider_name,model_id | chat_session.go | 落 default 只 console.warn | 前端不接 |
+| `chat:plan` | plan_enabled,session_id | plan_mode.go | 同上 | 前端不接 |
+| `workspace:changed` | workspace | settings.go | 同上 | 前端不接 |
+| `mcp:changed` | — | mcp.go | 同上 | 前端不接 |
+| `models:changed` | — | models.go | 重拉模型下拉 | — |
+| `session:info` | — | chat_service.go / chat_session.go / chat_state.go | 重拉会话列表 | — |
+| `session:title` | title | chat_session.go | 重拉会话列表 | — |
+| `skill:status` | skill_dir_name（必有）；另有 skill_enabled / skill_reset / skill_deleted / skill_imported 四个动作标志位之一 | skills.go ×6（安装/开关/重置/导入/新建/删除各一处） | `bumpSkills` | — |
+| `engine:detected` | runtime | app.go | 重拉运行时 | — |
+| `engine:ready` | — | routes_core.go | 重拉运行时 + 空闲重拉 state | — |
+| `app:close_requested` | close_action | shell/window.go | 弹关闭选择框 | — |
+| `engine:status` | — | — | 重拉运行时 | **后端不发** |
+| `engine:exit` | — | — | 复位 streaming + 报错 toast | **后端不发** |
+| `engine:commands` | commands | — | 覆盖命令清单 | **后端不发** |
+| `app:progress` | progress_kind,progress_action,progress_phase,progress_line,progress_message | — | 安装日志面板 | **后端不发** |
+| `chat:blocks` | run_id,turn_blocks | — | 覆盖块表 | **后端不发** |
+| `chat:notify` | level,message | — | 过程提示条 | **后端不发** |
+| `chat:status` | key,text | — | 状态文字 | **后端不发** |
+| `chat:widget` | key,lines[] | — | 读数小组件 | **后端不发** |
+| `chat:retry` | attempt,max,delay_ms | — | 重试进度 | **后端不发** |
+| `chat:retry_end` | — | — | 清重试进度 | **后端不发** |
+| `chat:editor_text` | text | — | 反向预填输入框 | **后端不发** |
+
+幽灵事件的分支留在 `stores/events.ts` 里，命中即无反应；排障时不要据此判断后端故障。
+`AppProgressVO` 类型仍在 `domain/core.go`，但没有任何发射点。
+
+## 5. 错误码
+
+### 5.1 按段位（`backend/pkg/codes.go`）
+
+| 码 | 常量 | 含义 | 复用方 / 备注 |
 |---|---|---|---|
-| `/bootstrap` | GET | — | 首屏总包：版本、契约版本、引擎身份、能力表、工作区、设置全量、目录布局、工作区历史、运行时状态、偏好 |
-| `/settings` | GET | — | 全部键值 |
-| `/settings/save` | POST | 键值对象 | 保存后的全量键值 |
-| `/settings/workspace` | POST | `{ workspace }` | `{ workspace }`；切工作区会让会话绑定失效 |
-| `/workspaces` | GET | — | `{ workspace, workspace_rows, active_engine }`；每行带目录是否还在、是否 git 仓库、当前分支、未提交改动数、会话数 |
-| `/settings/workspace/forget` | POST | `{ workspace_path }` | 剩余历史（与 `/workspaces` 同形） |
-| `/logs` | GET | — | 当日日志尾部 |
-| `/prefs` | GET | — | 自启 / 恢复会话 / 关窗行为 / 数据目录等 |
-| `/prefs/autostart` | POST | `{ enabled }` | 更新后的 prefs |
-| `/prefs/restore` | POST | `{ enabled }` | 更新后的 prefs |
-| `/prefs/close-action` | POST | `{ close_action }` | 更新后的 prefs |
-| `/prefs/data-dir` | POST | — | 打开数据目录 |
+| `0` | CodeOK | 成功 | 唯一不视为异常的值 |
+| `1000` | CodeBadRequest | 入参不合法 | 全部模块的 body 解析失败、空值与不发散枚举 |
+| `1001` | CodeFileNotFound | 文件或目录不存在 | files、system 相关动作 |
+| `1002` | CodePathOutside | 路径越界 | files 的 `guard`、web 的内网地址拒（同码不同义，看 message） |
+| `1003` | CodeFileIO | 文件读写失败 | files、templates、skills、searcher、system |
+| `1100` | CodeGitMissing | git 不可用 | 仅 git |
+| `1101` | CodeGitFailed | git 命令失败 | 仅 git，`detail` 是 stderr |
+| `1102` | CodeGitAuth | 凭证被拒 / 无法输入 | 仅 git |
+| `2002` | CodeStorage | 本地存储失败 | `repo` 的 JSON 台账与 SQLite |
+| `3000` | CodeProviderBad | 服务商配置不合法 | models、chat 的缺密钥 |
+| `3001` | CodeNoProvider | 没有可用服务商 / 模型 | chat 的 `resolveModel` |
+| `5000` | CodeSessionBind | 未绑定会话或工作区 | **files / git / searcher 的「请先选择工作区」也用它** |
+| `5001` | CodeSessionIO | 会话文件读写失败 | agent 的 `Session.append` 与 parser 两处都用 |
+| `5002` | CodeEngineBusy | 有任务占用引擎 | chat 的切会话/新建/压缩/克隆/分叉、sessions 的改名 |
+| `5003` | CodeNotFound | 目标不存在 | chat（分叉点、无运行）、models、web（PDF 无文字） |
+| `7000` | CodeProvision | 外部进程 / 上游调用失败 | web 抓取、压缩总结、子进程启动 |
+| `8000` | CodeSkillBad | 技能路径或内容不合法 | skills |
+| `8001` | CodeSkillSave | 技能保存失败 | skills |
+| `8002` | CodeSkillDelete | 技能删除失败 | skills |
+| `9100` | CodeMcpRead | `mcp.json` 读取失败 | mcp |
+| `9101` | CodeMcpWrite | `mcp.json` 写入失败 | mcp，也用于条目不存在 |
+| `9102` | CodeMcpCall | MCP 工具调用失败 | mcp_client `tools/call` |
+| `9103` | CodeMcpServer | MCP 服务进程不可达 | `pkg.StartPersistent` 写不进 stdin 时也回它；启动失败是 7000 |
+| `9104` | CodeMcpTimeout | MCP 请求超预算 | mcp_client |
+| `1404` | CodeUnknownRoute | 未知路由 | `NoRoute` |
+| `9999` | CodeInternal | 未归类内部错误 | 兜底 |
 
-## 引擎 / 应用 / 健康
+### 5.2 按模块
 
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/engines` | GET | 引擎身份 + 目录布局 + 运行快照 + 运行时状态 |
-| `/engines/detect` | POST | 重新探测外部工具链，刷新运行时状态 |
-| `/engines/restart` | POST | 中止当前运行（内置引擎没有需要重启的进程） |
-| `/engines/repair` | POST | 重新探测全部外部依赖（等价于一次全面刷新） |
-| `/health/engines` | GET | 健康面板：会话 / 技能 / MCP 计数、内存占用、运行时状态 |
-| `/apps` | GET | 外部工具链检测行：git / node / python，带版本、路径与不可用原因 |
-
-**引擎在进程内**：`installed` 恒为真，没有「装没装」这件事，也没有手动指定入口的动作。
-
-## 会话
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/sessions` | GET | `?workspace=&q=`；按工作区编码目录扫描，`updated_at` 降序；`q` 非空时按标题与正文过滤（大小写不敏感） |
-| `/sessions/detail` | GET | `?path=`；清单行 + 逐条消息 |
-| `/sessions/delete` | POST | `{ path }` |
-| `/sessions/rename` | POST | `{ session_path, session_title }`；向会话文件追加 `session_info` 条目。该会话正被打开时回 `5002`——两路同时追加会写坏唯一真相 |
-
-## 聊天
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/chat/state` | GET | `?session=`；一次给出界面画聊天页要用的全部事实：会话文件、工作区、流式态、当前模型、思考档、排队、历史轮、待办、计划模式、斜杠命令、能力表 |
-| `/chat/send` | POST | `{ session_file, message, attachments }` → `{ run_id, disposition }`。`disposition` 是这句话的处理方式：`started` 才真起一轮（有 `run_id`）；`queued` 是排在前一轮后面。界面据此决定要不要进入流式态——误登记会让界面永久停在「正在回答」 |
-| `/chat/stop` | POST | 中止当前运行 |
-| `/chat/steer` / `followup` | POST | `{ session_file?, message, attachments? }` 插话 / 排队追加 |
-| `/chat/clear-queue` | POST | 清空队列，返回被清的话术 |
-| `/chat/remove-queued` | POST | `{ queue_kind, queue_index }`；单条移除（引擎侧是本进程内的切片，所以是真删这一条） |
-| `/chat/compact` | POST | `{ session_file?, instructions? }` 手动压缩；会话级动作先按 `session_file` 对齐绑定 |
-| `/chat/answer` | POST | `{ session_file, ask_id, value?, confirmed?, cancelled?, answers? }` 回答提问卡（确认 / 选择 / 输入 / 编辑器） |
-| `/chat/new` / `clone` | POST | 新建 / 克隆会话，返回 `session_file` |
-| `/chat/fork` | POST | `{ session_file, turn_id }`；从某一条用户消息分叉出新会话：原会话一个字节不动，新会话只带到分叉点为止 |
-| `/chat/export-html` | POST | `{ session }` → `{ file_name, content }` |
-| `/chat/model` | POST | `{ session_file, provider_name, model_id }` 会话内切换模型 |
-| `/chat/thinking` | POST | `{ session_file, thinking_level }` 切换思考档 |
-| `/chat/autocompact` | POST | `{ session_file, auto_compaction }` 自动压缩开关 |
-| `/chat/plan` | POST | `{ plan_enabled }`；开关只读模式，返回生效状态与被拦下的工具清单 |
-| `/messages/hide` / `unhide` | POST | `{ session_file, turn_id }`；隐藏台账存设置文件，会话文件不动 |
-
-附件形状：`{ kind: 'file', file_path }` 走文本引用（路径追加进正文，让模型自己用读工具取）；
-`{ kind: 'image', image_base64, image_mime }` 以 base64 进内容块——这是唯一的二进制通道。
-
-## 模型与服务商
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/models` | GET | 全部服务商的模型平铺（对话页模型下拉的数据源） |
-| `/models/defaults` | GET / POST | 新会话的起步设置：默认服务商 / 默认模型 / 默认思考档。POST 的入参 `{ default_provider, default_model, default_thinking_level }`，空串表示清掉该键 |
-| `/providers` | GET | 服务商视图（含凭据状态，密钥恒为掩码） |
-| `/providers/upsert` | POST | `{ provider_name, base_url, api_protocol, auth_kind, api_key, models }`；`api_key` 空串 = 保留原值 |
-| `/providers/delete` | POST | `{ provider_name }`；服务商与其模型一并清 |
-| `/providers/model/save` | POST | `{ provider_name, model }`；单条模型增改，按 `model_id` 定位（存在即改），服务商必须已存在 |
-| `/providers/model/delete` | POST | `{ provider_name, model_id }`；删除服务商下一条模型 |
-| `/providers/models` | POST | 按 API 协议拉远端模型清单 |
-| `/providers/test` | POST | 连通性测试，回 `{ probe_ok, model_count, probe_message }` |
-
-**协议**：只实现 OpenAI 兼容（`/chat/completions`）。
-`api_protocol` 字段保留给将来接别的协议，目前认 `openai`。
-
-**默认模型**与「当前会话的模型」是两件事：后者由引擎按会话记住，
-前者管下一次开新会话时选谁。两者混在一个控件里，用户会以为改了就换掉进行中的对话。
-
-## 技能
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/skills` | GET | 磁盘上的技能（builtin / bundled / managed / project）+ `available`（推荐清单里还没装的）；带 `recommended_total` / `recommended_installed` |
-| `/skills/install` | POST | `{ skill_dir_name }`；把一条推荐技能装进技能区（已存在则拒） |
-| `/skills/content` | GET | `{ skill_path }` 读 SKILL.md 正文 |
-| `/skills/save` | POST | `{ skill_path, file_text }` 写 SKILL.md |
-| `/skills/toggle` | POST | `{ skill_path, skill_enabled }`；实现是目录搬进 / 搬出禁用区 |
-| `/skills/create` | POST | `{ skill_name, skill_desc, skill_body }` 新建托管技能 |
-| `/skills/import` | POST | `{ skill_from_path }` 数据目录外整份复制进托管区（含 SKILL.md 校验） |
-| `/skills/delete` | POST | `{ skill_path }` 删除整个技能目录 |
-| `/skills/reset` | POST | `{ skill_path }`；用随包原件覆盖本地改动 |
-
-**技能路径必须是 `SKILL.md` 文件路径**，动作对象是它所在的目录：
-深层任意文件算出的目录会把别的技能搬走；传目录路径时删除一律拒——
-目录路径正好是技能根的话，删一次就是清空全部内置技能。
-
-**项目技能归那个仓库管**：工作区 `.pi\skills\` 下的技能，壳里的开关与删除对它无效。
-
-## 提示词模板
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/templates` | GET | 模板清单（`template_name` / `template_desc` / `template_args` / `template_body`），按名排序 |
-| `/templates/save` | POST | `{ template_name, template_desc, template_args, template_body }` 新建或覆盖；名清洗成小写字母 / 数字 / 连字符后落成 `data\templates\<name>.md`，清洗后为空回 `1000` |
-| `/templates/delete` | POST | `{ template_name }` 删除；不存在时幂等不报错 |
-
-模板是「文件即数据」：md 文件带 YAML 头（`name` / `description` / `args`），
-正文 = 头之后的段落，就是选中命令后填进输入框的提示词。
-模板以 `command_source: 'prompt'` 并进 `/chat/state` 的斜杠命令清单，
-`command_body` 带正文——前端斜杠菜单与命令面板选中后直接填框。
-
-## MCP
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/mcp` | GET | 用户级 + 项目级合并清单；行里带 `mcp_env_text` / `mcp_work_dir` / `mcp_timeout`（秒）与作用域 |
-| `/mcp/save` | POST | 落 `data\mcp.json`；`command_text` 拆 argv；`mcp_scope: project` 写工作区 `.pi\mcp.json`（需已选工作区），默认用户级；编辑整份继承旧条目（手配的 headers 不丢） |
-| `/mcp/toggle` | POST | `{ server_name, mcp_enabled }` 开关 |
-| `/mcp/probe` | POST | `{ server_name }`；完成一次 MCP initialize 握手（stdio 拉真进程 / http 发真请求），回 `probe_ok` / `probe_message` / `probe_tools` |
-| `/mcp/remove` | POST | 只删界面显示的那一条，项目级遮蔽用户级时不连带删除 |
-
-## 联网
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/web/status` | GET | 联网状态：当前搜索服务、是否已配密钥、可选服务种类 |
-| `/web/settings` | POST | `{ web_kind, web_api_key }`；`web_api_key` 空串 = 保留原值（界面回传的是掩码） |
-| `/web/search` | POST | `{ search_query, search_limit }`；返回标题、地址、摘要 |
-| `/web/fetch` | POST | `{ fetch_url }`；HTML 转可读文本，PDF 抽文字，JSON 原样 |
-
-搜索服务：`duckduckgo`（免密钥，默认）、`brave`、`exa`、`tavily`。后三个需要密钥。
-
-**地址安全**：只允许 http/https；主机名指向环回、私网、链路本地或 CGNAT 段一律拒。
-校验做两遍——`ValidateURL` 看字面，`safeDial` 在真正连接时复核解析出的 IP。
-重定向逐跳校验：只查首地址的话，公网地址跳到 `127.0.0.1` 就绕过去了。
-
-## 工作区预索引
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/index/status` | GET | 索引状态：条目数、是否已建、建索引时刻 |
-| `/index/search` | POST | `{ search_query, search_limit }`；返回文件与符号命中 |
-| `/index/rebuild` | POST | 重建当前工作区的索引 |
-
-排序分 = 文本相关度 + frecency（频次 × 时近）。相关度分档：
-符号名完全匹配 100 > 符号名包含 60 > 文件名完全匹配 50 > 文件名前缀 40 > 路径包含 30 > 正文包含 10。
-同分时按路径排，保证结果顺序稳定。
-
-## 文件 / Git / 系统
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/files` | GET | `?path=` 工作区内列目录（目录优先，≤500 条） |
-| `/files/search` | GET | `?query=&limit=`；按名递归搜索，跳过 node_modules/.git/dist |
-| `/files/read` | GET | 文本读取（1MB 截断，二进制给占位说明） |
-| `/files/save` | POST | `{ file_path, file_text }` 新建 / 覆盖同一入口；父目录不存在一并建出；5MB 上限 |
-| `/files/mkdir` | POST | `{ file_path }` 新建目录（多级一并建）；已存在即拒 |
-| `/files/delete` | POST | `{ file_path }` 删除文件或目录（递归）；工作区根本身拒删 |
-| `/files/rename` | POST | `{ file_path, new_file_path }` 改名或移动；源必须存在、目标必须不存在 |
-| `/system/reveal` / `open` | POST | 资源管理器定位 / 系统默认程序打开 |
-| `/config/files` | GET | 可查看的配置文件清单（白名单） |
-| `/config/text` | GET | 配置文件原文；只认白名单里的名字 |
-
-路径约定：全部接受工作区内绝对路径；相对路径（前端的 `/` 斜杠约定）按工作区根解析——
-不按进程 CWD，`../` 折算后仍出不了工作区根。
-
-`auth.json` 不在配置清单里：密钥只在服务商页以掩码流转。
-
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/git/status` / `diff` / `history` / `file-history` / `file-diff` / `branches` | GET | 工作区 git 只读面：状态、差异、历史（按条与按文件）、分支 |
-| `/git/stage` / `unstage` / `discard` / `resolve` | POST | 暂存 / 取消暂存 / 丢弃改动 / 标记冲突已解决 |
-| `/git/conflict/resolve` | POST | `{ file_path, resolve_side }`；`resolve_side` 为 `ours` / `theirs` / 空串（我改完了，只 `git add`）。按指定口径取一边后自动暂存 |
-| `/git/commit` | POST | `{ commit_message, is_amend }` 提交或修补 |
-| `/git/branch` / `branch/delete` / `switch` / `merge` / `state` / `init` / `remote` | POST | 分支增删切换、合并（可选 rebase）、合并中 continue / abort、初始化、加远程 |
-| `/git/push` / `pull` / `fetch` | POST | 推拉取；`push` 带 `confirm` 表达「覆盖远程」的二次确认 |
-| `/git/stash/list` / `push` / `pop` / `drop` | POST | stash 四件套；`drop` 的 `confirm` 传 stash ref 防误删 |
-
-git 全部走系统装的 git.exe，凭证走 Git Credential Manager（落 Windows 凭据管理器），
-终端交互问询禁用——需要登录时立即失败回 `1102` 并给下一步指引，而不是卡满超时。
-
-## SSE 事件词汇（`/events`）
-
-帧格式 `{ seq, event, data, sent_at }`；聊天帧带 `engine_kind: 'native'` 与 `run_id`。
-连接建立时先补一帧 `stream:open`（带当前 seq，不占新号），前端据此决定要不要带 `?since=` 补帧。
-心跳是注释行，不占 seq。
-
-| event | 载荷要点 | 用途 |
-|---|---|---|
-| `stream:open` | `seq`（hub 当前值，不占新号） | 连接建立；前端以它为对齐基准 |
-| `chat:start` | `started_at` | 一轮开始；前端进入流式态并起秒表 |
-| `chat:live` | `phase('thinking'/'text'/'tool'), tool_name, output_tokens` | 活动指示 |
-| `chat:patch` | `mode('delta'/'block'), index, kind, delta?/block?` | 增量追加或整块替换 |
-| `chat:turn` | `user_message, turn_blocks` | 回合快照（权威块表） |
-| `chat:turn_end` | `turn_usage{input_tokens, output_tokens, cache_read_tokens, cache_write_tokens}` | 回合用量 |
-| `chat:queue` | `steering[], follow_up[]` | 排队变化 |
-| `chat:todos` | `todos[]` | 待办清单实时更新 |
-| `chat:ask` | 提问卡（`ask_id/ask_method/ask_title/ask_options/ask_timeout_ms`…） | 结构化提问 |
-| `chat:plan` | `plan_enabled, session_id` | 计划模式开关 |
-| `chat:compaction` | `state('start'/'done')` | 压缩中 |
-| `chat:error` | `message` | 运行失败（含上游报错） |
-| `chat:done` / `chat:settled` | `aborted` | 回合收尾；前端随后对账 `chat/state` |
-| `chat:model` | `provider_name, model_id` | 模型切换 |
-| `engine:detected` | `runtime` | 外部工具链重新探测完成 |
-| `engine:ready` | — | 引擎就绪 |
-| `app:close_requested` | — | 首次按窗口关闭，前端弹一次「收进托盘还是退出」 |
-| `skill:status` | `skill_dir_name, skill_enabled?/skill_reset?/skill_deleted?/skill_imported?` | 技能落位、开关与清理变化 |
-| `session:info` / `session:title` | — | 会话清单变化 / 标题变化 |
-| `workspace:changed` | `workspace` | 工作区切换 |
-
-**丢帧不靠服务端事件**：前端逐帧跟踪 `seq`，发现跳号（`seq > last + 1`）就对 `chat/state`
-拉一次快照对账。
-
-## 错误码
-
-码值为数字字符串，随信封 `code` 下发；`"0"` 为成功，恒 HTTP 200。
-常量唯一落点是 `backend/pkg/codes.go`——**新增码先改本文档再进常量**。
-`message` 是用户直接可读的文案，`detail` 带原话（stderr / 路径 / 上游响应）。
-
-段位：1000–1999 通用/文件/路径/git；2000–2999 持久化；3000–3999 服务商/模型；
-5000–5999 会话运行；7000–7999 外部进程；8000–8999 技能；9100–9199 MCP。
-
-### 通用 / 文件 / 路径 / git（1000–1999）
-
-| 码 | 常量 | 场景 |
-|---|---|---|
-| 1000 | `CodeBadRequest` | 入参不合法 |
-| 1001 | `CodeFileNotFound` | 文件或目录不存在 |
-| 1002 | `CodePathOutside` | 路径越界：不在允许的根目录内，或地址指向内网 |
-| 1003 | `CodeFileIO` | 文件读写失败 |
-| 1100 | `CodeGitMissing` | git 不可用 |
-| 1101 | `CodeGitFailed` | git 命令失败（原话在 detail） |
-| 1102 | `CodeGitAuth` | git 凭证被拒或无法登录（提示先登录一次或换 token） |
-| 1404 | `CodeUnknownRoute` | 未知路由（`NoRoute` 兜底） |
-
-### 配置 / 持久化（2000–2999）
-
-| 码 | 常量 | 场景 |
-|---|---|---|
-| 2002 | `CodeStorage` | 本地存储文件或数据库操作失败 |
-
-### 服务商 / 模型（3000–3999）
-
-| 码 | 常量 | 场景 |
-|---|---|---|
-| 3000 | `CodeProviderBad` | 服务商配置不合法（缺 Base URL / 名称 / 密钥等） |
-| 3001 | `CodeNoProvider` | 还没有选择模型 |
-
-> 连通性探测（拉模型清单 / 测试配置）的结果是 `probe_ok` 载荷而非错误码：
-> 「上游不通」是探测的正常结果之一，走信封错误会让界面没法把原因摆出来。
-
-### 会话运行（5000–5999）
-
-| 码 | 常量 | 场景 |
-|---|---|---|
-| 5000 | `CodeSessionBind` | 未绑定到会话或工作区 |
-| 5001 | `CodeSessionIO` | 会话文件读写失败 |
-| 5002 | `CodeEngineBusy` | 有任务正在跑（改名 / 切会话 / 新建 / 压缩时被拒） |
-| 5003 | `CodeNotFound` | 目标不存在（会话 / 条目 / 模型 / 队列项等） |
-
-### 外部进程（7000–7999）
-
-| 码 | 常量 | 场景 |
-|---|---|---|
-| 7000 | `CodeProvision` | 外部命令执行失败（git / 联网 / 子进程） |
-
-### 技能（8000–8999）
-
-| 码 | 常量 | 场景 |
-|---|---|---|
-| 8000 | `CodeSkillBad` | 技能路径越界 / 名称非法 / 已存在 |
-| 8001 | `CodeSkillSave` | 技能保存 / 开关 / 复制失败 |
-| 8002 | `CodeSkillDelete` | 技能删除失败 |
-
-### MCP（9100–9199）
-
-| 码 | 常量 | 场景 |
-|---|---|---|
-| 9100 | `CodeMcpRead` | `mcp.json` 读取失败 |
-| 9101 | `CodeMcpWrite` | `mcp.json` 写入失败 / 条目不存在 |
-
-### 兜底
-
-| 码 | 常量 | 场景 |
-|---|---|---|
-| 9999 | `CodeInternal` | 未归类的内部错误（原话进 detail 与日志） |
-
-### 前端本地码
-
-| 码 | 场景 |
+| 模块 | 可能出现的码 |
 |---|---|
-| `8003` | 连不上后端 / 响应超时（axios 层映射，不来自后端） |
+| 引导 / 设置 | 1000, 1001, 1003, 2002 |
+| 引擎 / 系统 | 1000, 1001, 1003, 1404, 9999 |
+| 会话 | 1000, 5000, 5001, 5002 |
+| 对话 | 1000, 3000, 3001, 5000, 5001, 5002, 5003, 7000 |
+| 模型 | 2002, 3000, 3001, 5003 |
+| 技能 | 1000, 8000, 8001, 8002 |
+| MCP | 9100, 9101 |
+| 工作区文件 | 1001, 1002, 1003, 5000 |
+| Git | 1000, 1100, 1101, 1102, 5000 |
+| 预索引 | 1003, 2002, 5000 |
+| 联网 | 1000, 1002, 5003, 7000 |
+| 模板 | 1000, 1003 |
+| 事件流 | 无（不走信封；鉴权失败回裸 401） |
+
+`9102`/`9103`/`9104` 只出现在引擎侧的 MCP 工具结果正文里，不进任何 HTTP 信封——
+MCP 的 HTTP 接口只回 `9100`/`9101`。

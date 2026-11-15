@@ -40,6 +40,11 @@ nav: {
     settings: '设置'
   },
 
+// 引擎的显示名：界面提到「引擎」时统一用它，不写死英文产品名。
+engine: {
+    name: 'WorkBaby 引擎'
+  },
+
 common: {
     save: '保存',
     cancel: '取消',
@@ -56,6 +61,7 @@ common: {
     empty: '这里还没有内容',
     dismiss: '关闭这条提示',
     clear: '清空',
+    open: '显示',
     enabled: '已启用',
     disabled: '已停用',
     copy: '复制',
@@ -103,4 +109,7 @@ templates: {
     needNameBody: '模板名与正文不能为空',
     deleteConfirm: '确定删除模板 {name} 吗？'
   },
+
+keepEditing: '继续编辑',
+  cancelYes: '是，关闭',
 }

@@ -138,6 +138,43 @@ async function removeTurn(): Promise<void> {
 // 这一轮是不是只有工具调用没有文字：只有工具时「复制」无物可复制，不渲染它。
 const hasText = computed(() => plainText.value.trim().length > 0)
 
+// 出头行的时刻脚标：直播轮从秒表起点取「什么时候开始问的」，
+// 历史轮后端投影没带时间戳，留空不编造——悬停里的删除/分叉不依赖它。
+const turnStamp = computed(() => {
+  if (liveActive.value && props.startedAt) {
+    const d = new Date(props.startedAt)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+  return ''
+})
+
+// 从这一条用户消息分叉出新会话：原会话不动，新会话只带到这里。
+// 确认走弹窗：这是要新开一条会话的动作，误触的代价是「界面突然换了个地方」。
+const forkBusy = ref(false)
+async function forkTurn(): Promise<void> {
+  const hid = props.hid
+  if (!hid || forkBusy.value) return
+  try {
+    await ElMessageBox.confirm(t('chat.forkTurnHint'), t('chat.forkTurnTitle'), {
+      confirmButtonText: t('chat.forkTurnConfirm'),
+      cancelButtonText: t('common.cancel'),
+      type: 'info',
+    })
+  } catch {
+    return
+  }
+  forkBusy.value = true
+  try {
+    await chat.forkChat(hid)
+    toasts.push('ok', t('chat.forkDone'))
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    forkBusy.value = false
+  }
+}
+
 // 用量读数：提示词总量 / 输出 / 缓存命中率 / 耗时；命中率单独标绿——那是「这轮几乎没花钱」的信号。
 const metrics = computed(() => {
   if (props.showMetrics === false) return []
@@ -182,8 +219,12 @@ const metrics = computed(() => {
     }"
   >
     <div v-if="!props.continued" class="msg-head">
+      <span class="msg-avatar" :class="{ user: isUser }" aria-hidden="true">
+        <AppIcon :name="isUser ? 'chat' : 'spark'" :size="14" />
+      </span>
       <span class="msg-badge" :class="{ user: isUser }">{{ isUser ? 'you' : 'assistant' }}</span>
       <span v-if="props.model" class="msg-meta">{{ props.model }}</span>
+      <span v-if="turnStamp" class="msg-time">{{ turnStamp }}</span>
     </div>
     <div class="msg-body">
       <!-- 用户轮只有一段纯文本，不需要 TurnBlocks 那套工具卡分派 -->
@@ -223,6 +264,17 @@ const metrics = computed(() => {
         <button v-if="hasText" class="msg-act" type="button" :disabled="copied" @click="copyTurn">
           <AppIcon :name="copied ? 'check' : 'file'" :size="11" />
           {{ copied ? t('common.copied') : t('common.copy') }}
+        </button>
+        <button
+          v-if="props.hid && isUser"
+          class="msg-act"
+          type="button"
+          :disabled="forkBusy"
+          :title="t('chat.forkTurnTitle')"
+          @click="forkTurn"
+        >
+          <AppIcon name="branch" :size="11" />
+          {{ t('chat.forkTurnConfirm') }}
         </button>
         <button v-if="props.hid" class="msg-act danger" type="button" @click="removeTurn">
           <AppIcon name="trash" :size="11" />

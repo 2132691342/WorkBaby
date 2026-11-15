@@ -41,6 +41,8 @@ export default {
     "diffMode": "Toggle inline / side-by-side",
     "diffSide": "Side",
     "diffInline": "Inline",
+    "copyPath": "Copy path",
+    "openFile": "Open file",
     "prevChange": "Previous change",
     "nextChange": "Next change",
     "fetch": "Fetch",
@@ -115,8 +117,9 @@ export default {
     "renameTitle": "Rename / move",
     "renamePlaceholder": "New name or path (relative to this folder)",
     "deleteTitle": "Delete?",
-    "deleteConfirm": "Delete “{name}”? A folder goes away with everything inside.",
+    "deleteConfirm": "Delete “{name}”? Files and folders are removed with everything inside — not moved to the Recycle Bin.",
     "editFile": "Edit",
-    "editedHint": "Unsaved changes"
+    "editedHint": "Unsaved changes",
+    "nameInvalid": "The name can't be empty or contain \\ / : * ? \" < > | characters"
   },
 }

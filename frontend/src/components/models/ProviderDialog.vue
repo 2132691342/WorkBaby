@@ -2,7 +2,7 @@
 // 服务商编辑弹窗：名 / 地址 / 协议 / 密钥，加一张模型表。
 // 草稿与三处就地编辑只在弹窗打开期间存在；拉回的上游清单渲染成可点选 chip。
 // 勾选语义：推理默认不写（非推理模型会报错）；模态逐选，写错一个词配置静默失效。
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from '@/composables/useProviderForm'
@@ -43,6 +43,25 @@ const dialogWidth = 'calc(760px * var(--wb-vw-scale))'
 
 /** 名字在编辑时不可改：它是配置里的键，改了等于新建一条。 */
 const nameLocked = computed(() => Boolean(props.editing))
+
+// 密钥默认掩码显示；「显示」只影响这一眼，关闭弹窗即回到掩码。
+const keyVisible = ref(false)
+
+// 名字要落进配置文件当键：含路径分隔符或空白都不行。
+const nameInvalid = computed(() => {
+  const name = props.form.provider_name.trim()
+  return Boolean(name) && /[\\/:*?"<>|\s]/.test(name)
+})
+
+// 地址必须能被引擎拼出可用 URL：给过就按 http(s) 校验，空着不拦（部分协议允许默认地址）。
+const urlInvalid = computed(() => {
+  const url = props.form.base_url.trim()
+  return Boolean(url) && !/^https?:\/\//i.test(url)
+})
+
+const canSave = computed(
+  () => Boolean(props.form.provider_name.trim()) && !nameInvalid.value && !urlInvalid.value,
+)
 
 function addModel(): void {
   // 新建默认 text 输入与一组常见窗口：空着提交会让引擎侧静默失败。
@@ -107,12 +126,13 @@ function setInput(index: number, kind: string, on: boolean): void {
     v-model="open"
     :title="props.editing ? t('models.editProvider') : t('models.addProvider')"
     :width="dialogWidth"
+    :close-on-click-modal="false"
   >
     <el-form label-position="top" size="small">
-      <el-form-item :label="t('common.name')">
+      <el-form-item :label="t('common.name')" :error="nameInvalid ? t('models.nameInvalid') : ''">
         <el-input v-model="props.form.provider_name" :disabled="nameLocked" placeholder="router" />
       </el-form-item>
-      <el-form-item :label="t('models.baseUrl')">
+      <el-form-item :label="t('models.baseUrl')" :error="urlInvalid ? t('models.urlInvalid') : ''">
         <el-input v-model="props.form.base_url" placeholder="https://api.example.com/v1" />
       </el-form-item>
       <div class="field-row">
@@ -122,7 +142,24 @@ function setInput(index: number, kind: string, on: boolean): void {
           </el-select>
         </el-form-item>
         <el-form-item :label="t('models.apiKey')" class="grow">
-          <el-input v-model="props.form.api_key" :placeholder="t('models.apiKeyHint')" />
+          <el-input
+            v-model="props.form.api_key"
+            :type="keyVisible ? 'text' : 'password'"
+            :placeholder="t('models.apiKeyHint')"
+          >
+            <template #suffix>
+              <button
+                type="button"
+                class="key-eye"
+                :title="keyVisible ? t('common.close') : t('common.open')"
+                @click="keyVisible = !keyVisible"
+              >
+                <AppIcon :name="keyVisible ? 'eye' : 'close'" :size="13" />
+              </button>
+            </template>
+          </el-input>
+          <!-- 掩码语义要写进表单：空串保存是「保留原值」，不说清会被当成「清掉密钥」。 -->
+          <p class="key-hint">{{ t('models.apiKeyKeepHint') }}</p>
         </el-form-item>
       </div>
     </el-form>
@@ -233,7 +270,7 @@ function setInput(index: number, kind: string, on: boolean): void {
       <button
         class="wb-btn primary"
         :class="{ 'is-loading': props.saving }"
-        :disabled="props.saving || !props.form.provider_name.trim()"
+        :disabled="props.saving || !canSave"
         @click="emit('save')"
       >
         {{ t('common.save') }}
@@ -243,6 +280,38 @@ function setInput(index: number, kind: string, on: boolean): void {
 </template>
 
 <style scoped>
+/* 密钥的显隐切换：一行内的小图标钮，五态走全站缩放刻度。 */
+.key-eye {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--wb-faint);
+  cursor: pointer;
+  border-radius: var(--wb-r-xs);
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+
+.key-eye:hover {
+  color: var(--wb-brand);
+  transform: scale(var(--wb-press-hover));
+}
+
+.key-eye:active {
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
+}
+
+.key-hint {
+  margin: 4px 0 0;
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-faint);
+  line-height: 1.5;
+}
+
 .field-row {
   display: flex;
   gap: var(--wb-sp-3);

@@ -70,11 +70,14 @@ type Options struct {
 // New 装配全部业务。
 func New(opts Options) *App {
 	settings := &Settings{Store: opts.Store, Layout: opts.Layout, Hub: opts.Hub}
+	// 界面类设置的默认值在装配时补齐：界面读到的就是明确的值，
+	// 不必在每个组件里各自兜底一个数字。
+	settings.EnsureDefaults()
 	git := NewGit(settings)
 	// 工作区行上的分支与改动数来自 git，装配时回填一次就够。
 	settings.Git = git
 	sessions := NewSessions(settings, opts.Store, opts.Layout)
-	models := NewModels(opts.Layout, opts.DB, settings)
+	models := NewModels(opts.Layout, opts.DB, settings, opts.Hub)
 	webKit := NewWeb(settings)
 	searcher := NewSearcher(settings, opts.DB)
 	sessionStore := agent.NewStore(filepath.Join(opts.Layout.DataDir, "sessions"), settings.Workspace)
@@ -86,6 +89,13 @@ func New(opts Options) *App {
 	chat.Tools.AddWebTools(webKit.Kit())
 	// 预索引检索工具：模型能快速定位文件与符号。
 	chat.Tools.AddIndexTool(searcher.Kit())
+	// MCP 能力段：按 mcp.json 的 enabled 服务逐个拉起并注册成工具。
+	// 后台装配：子进程握手以秒计，不能卡住端口与界面的就绪。
+	mcpRuntime := newMcpRuntime(settings, opts.Layout, chat.Tools)
+	mcp := NewMcp(settings, opts.Layout)
+	mcp.Hub = opts.Hub
+	mcp.Runtime = mcpRuntime
+	go mcpRuntime.Rebuild()
 	// 改名要避让引擎正在写的会话文件：绑定状态只有 Chat 知道。
 	sessions.Active = chat.CurrentFile
 	app := &App{
@@ -102,7 +112,7 @@ func New(opts Options) *App {
 		Models:    models,
 		Skills:    NewSkills(settings, opts.Store, opts.Layout, opts.Hub),
 		Templates: templates,
-		Mcp:       NewMcp(settings, opts.Layout),
+		Mcp:       mcp,
 		Web:       webKit,
 		Searcher:  searcher,
 	}

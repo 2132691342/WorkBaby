@@ -101,7 +101,7 @@ export function useProviderForm(reload: () => Promise<unknown>) {
 
   async function save(): Promise<void> {
     const name = form.value.provider_name.trim()
-    if (!name) return
+    if (!name || saving.value) return
     saving.value = true
     try {
       await api.upsertProvider({

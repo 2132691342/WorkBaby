@@ -5,6 +5,7 @@ package service
 import (
 	"strings"
 
+	"WorkBaby/backend/agent"
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 )
@@ -49,10 +50,70 @@ func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
 	}
 	planState := c.currentPlanState()
 	resp.PlanState = &planState
+	resp.ContextUsage, resp.Stats = c.usageSnapshot(session, model)
+	resp.ContextWarn = c.contextWarnText(resp.ContextUsage, resp.AutoCompaction)
 	if provider == "" || modelId == "" {
 		resp.BindErr = "还没有选择模型，先去模型页选一个"
 	}
 	return resp
+}
+
+// usageSnapshot 组装上下文占用与会话统计。
+// 上下文窗口取当前模型的定义；窗口未知（0）时不算水位，只有读数。
+func (c *Chat) usageSnapshot(session *agent.Session, model *domain.ModelInfoVO) (*domain.ContextUsageVO, *domain.SessionStatsVO) {
+	entries := session.Entries()
+	used := session.ContextUsage()
+
+	userMessages, assistantMessages, toolCalls, totalTokens := 0, 0, 0, 0
+	for _, entry := range entries {
+		msg := entry.EntryMessage
+		if msg == nil {
+			continue
+		}
+		switch {
+		case msg.MessageRole == string(agent.RoleUser):
+			userMessages++
+		case msg.MessageRole == string(agent.RoleAssistant):
+			assistantMessages++
+		case msg.MessageRole == string(agent.RoleTool):
+			toolCalls++
+		}
+		if msg.MessageUsage != nil {
+			totalTokens += msg.MessageUsage.UsageTotalTokens
+		}
+	}
+
+	window := 0
+	if model != nil {
+		window = model.ContextWindow
+	}
+	usage := &domain.ContextUsageVO{UsageTokens: &used, ContextWindow: window}
+	if window > 0 {
+		percent := float64(used) / float64(window)
+		usage.UsagePercent = &percent
+	}
+	stats := &domain.SessionStatsVO{
+		SessionId:         session.Id(),
+		UserMessages:      userMessages,
+		AssistantMessages: assistantMessages,
+		ToolCalls:         toolCalls,
+		TotalMessages:     userMessages + assistantMessages + toolCalls,
+		TotalTokens:       totalTokens,
+		ContextUsage:      usage,
+	}
+	return usage, stats
+}
+
+// contextWarnText 判断要不要提示上下文水位：自动压缩开着才提示——
+// 压缩会在下一轮开始前自动发生；关了开关的话，提示也换不来一次压缩。
+func (c *Chat) contextWarnText(usage *domain.ContextUsageVO, autoCompaction bool) string {
+	if !autoCompaction || usage == nil || usage.UsagePercent == nil {
+		return ""
+	}
+	if *usage.UsagePercent <= 0.8 {
+		return ""
+	}
+	return "上下文占用已超过八成，下一轮开始前会自动压缩。"
 }
 
 // modelInfo 组装当前模型信息；没选模型时给 nil。

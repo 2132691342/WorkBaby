@@ -31,6 +31,7 @@ import type {
   ModelDefaultsSave,
   ModelEntry,
   ModelRow,
+  PlanState,
   WorkspaceList,
   ProviderProbeREQ,
   ProviderProbeRESP,
@@ -111,9 +112,9 @@ export function streamURL(since = 0): string {
   return `${baseURL}/events?token=${encodeURIComponent(token)}${suffix}`
 }
 
-async function get<T>(path: string, params?: Record<string, unknown>): Promise<T> {
+async function get<T>(path: string, params?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   const c = await ensureClient()
-  const res = await c.get(path, { params })
+  const res = await c.get(path, { params, signal })
   return res.data.data as T
 }
 
@@ -122,6 +123,22 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await c.post(path, body ?? {})
   return res.data.data as T
 }
+
+/** 带中止信号的读请求：页面卸载或发起更新查询时把过期的那一枪掐掉。 */
+async function getAbort<T>(path: string, params: Record<string, unknown> | undefined, signal: AbortSignal): Promise<T> {
+  const c = await ensureClient()
+  const res = await c.get(path, { params, signal })
+  return res.data.data as T
+}
+
+/** 顺序敏感的读动作：后到的旧响应不能把新数据覆盖回去。调用方比对序号丢弃过期帧。 */
+function nextSeq(): number {
+  requestSeq += 1
+  return requestSeq
+}
+
+/** 全局请求序号：不与任何特定页面绑定，谁拿走就是谁的旧帧判据。 */
+let requestSeq = 0
 
 /** 会话参数只在需要时带上：省略即「后端当前绑定的那个」。 */
 const s = (sessionFile?: string) => (sessionFile ? { session_file: sessionFile } : {})
@@ -198,6 +215,9 @@ export const api = {
     post<{ ok: boolean }>('/chat/model', { session_file: sessionFile, provider_name: providerName, model_id: modelId }),
   setThinking: (sessionFile: string, thinkingLevel: string) =>
     post<{ ok: boolean }>('/chat/thinking', { session_file: sessionFile, thinking_level: thinkingLevel }),
+  // 计划模式开关走专用接口：回执里带「哪些工具被拦下」，界面能直接说明后果
+  setPlanMode: (sessionFile: string, planEnabled: boolean) =>
+    post<PlanState>('/chat/plan', { session_file: sessionFile, plan_enabled: planEnabled }),
   setAutoCompaction: (sessionFile: string, autoCompaction: boolean) =>
     post<{ ok: boolean }>('/chat/autocompact', { session_file: sessionFile, auto_compaction: autoCompaction }),
   // 消息隐藏：界面上「删除一轮」的两个方向。后端按会话记账，引擎的会话文件不动。
@@ -332,6 +352,8 @@ export const api = {
 
   // ---- 系统 / 配置 ----
   reveal: (targetPath: string) => post<{ ok: boolean }>('/system/reveal', { target_path: targetPath }),
+  // 用系统默认程序打开：本地文件交给 ShellExecute，不走 window.open（WebView 里会导航走）
+  systemOpen: (targetPath: string) => post<{ ok: boolean }>('/system/open', { target_path: targetPath }),
   configFiles: () => get<{ entries: ConfigFile[] }>('/config/files'),
   configText: (name: string) => get<ConfigText>('/config/text', { name }),
 
@@ -349,6 +371,25 @@ export const api = {
   indexSearch: (searchQuery: string, searchLimit = 20) =>
     post<IndexSearchView>('/index/search', { search_query: searchQuery, search_limit: searchLimit }),
   indexRebuild: () => post<IndexStatusView>('/index/rebuild'),
+}
+
+// ---- 可中止的读方法（追加段）----
+// 页面卸载、切换范围或连点时，旧的那一枪要么被掐掉、要么按序号丢弃。
+// 只追加不改既有方法：清单页的加载全部走这一段。
+
+/** 服务商清单（可中止）。 */
+export const abortable = {
+  providers: (signal: AbortSignal) => getAbort<ProvidersView>('/providers', undefined, signal),
+  skills: (signal: AbortSignal) => getAbort<SkillListData>('/skills', undefined, signal),
+  mcpList: (signal: AbortSignal) => getAbort<McpListData>('/mcp', undefined, signal),
+  sessions: (signal: AbortSignal, workspace?: string, query?: string) =>
+    getAbort<SessionList>('/sessions', { workspace, q: query ?? '' }, signal),
+  workspaces: (signal: AbortSignal) => getAbort<WorkspaceList>('/workspaces', undefined, signal),
+  gitStatus: (signal: AbortSignal) => getAbort<GitStatus>('/git/status', undefined, signal),
+  health: (signal: AbortSignal) => getAbort<HealthData>('/health/engines', undefined, signal),
+  templates: (signal: AbortSignal) => getAbort<TemplateListData>('/templates', undefined, signal),
+  /** 领一个单调递增的序号：旧响应按序号丢弃，不用 AbortController 也能防覆盖。 */
+  nextSeq,
 }
 
 export type { AskRequest }

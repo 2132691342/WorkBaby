@@ -140,6 +140,11 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
     case 'skill:status':
       deps.bumpSkills()
       return
+    case 'models:changed':
+      // 服务商或模型增删改：对话页的模型下拉要重拉，否则用户在模型页加完
+      // 服务商，输入区里还是加之前那一份——选中的模型可能刚被删掉。
+      void chat.refreshModels()
+      return
     case 'chat:start':
       chat.streaming = true
       chat.promptError = ''

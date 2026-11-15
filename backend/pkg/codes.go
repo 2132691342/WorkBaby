@@ -37,8 +37,11 @@ const (
 	CodeSkillDelete = "8002" // 技能删除失败
 
 	// 9100-9199 MCP
-	CodeMcpRead  = "9100" // mcp.json 读取失败
-	CodeMcpWrite = "9101" // mcp.json 写入失败
+	CodeMcpRead    = "9100" // mcp.json 读取失败
+	CodeMcpWrite   = "9101" // mcp.json 写入失败
+	CodeMcpCall    = "9102" // MCP 工具调用失败
+	CodeMcpServer  = "9103" // MCP 服务进程不可达（没起起来 / 已退出）
+	CodeMcpTimeout = "9104" // MCP 请求在预算内没等到应答
 
 	// 兜底
 	CodeUnknownRoute = "1404" // 未知路由

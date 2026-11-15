@@ -44,6 +44,8 @@ type wireRequest struct {
 	Stream bool `json:"stream"`
 	// StreamOptions 让上游在末尾补一帧用量
 	StreamOptions *wireStreamOptions `json:"stream_options,omitempty"`
+	// ReasoningEffort 思考档；off 与空都不发——上游不认这个字段也只当没看见
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// MaxTokens 输出上限
 	MaxTokens int `json:"max_tokens,omitempty"`
 	// Temperature 采样温度
@@ -199,6 +201,11 @@ func buildWireRequest(req Request) wireRequest {
 		StreamOptions: &wireStreamOptions{IncludeUsage: true},
 		MaxTokens:     req.MaxTokens,
 		Temperature:   req.Temperature,
+	}
+	// off 是「明确不要思考」：不发字段，让上游用它的默认档。
+	// 只在 low/medium/high 时透传，未知档位同样不发。
+	if req.Thinking == "low" || req.Thinking == "medium" || req.Thinking == "high" {
+		wire.ReasoningEffort = req.Thinking
 	}
 	for _, spec := range req.Tools {
 		wire.Tools = append(wire.Tools, wireTool{

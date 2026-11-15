@@ -2,7 +2,7 @@
 export default {
 overview: {
     title: '概览',
-    subtitle: '两个引擎的状态、最近的开销、可以继续的会话。数字全部来自引擎自己的落盘数据。',
+    subtitle: '引擎状态、最近的开销、可以继续的会话。数字全部来自引擎自己的落盘数据。',
     today: '今天',
     week: '近 7 天',
     month: '近 30 天',
@@ -51,7 +51,7 @@ overview: {
 
 usage: {
     title: '用量',
-    subtitle: '数字来自两个引擎各自统计的会话文件，不另存一份。',
+    subtitle: '数字来自会话文件的统计，不另存一份。',
     today: '今天',
     week: '近 7 天',
     month: '近 30 天',

@@ -1,11 +1,14 @@
 package service
 
 import (
+	"context"
 	"strings"
+	"time"
 
 	"WorkBaby/backend/agent"
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
+	"WorkBaby/backend/service/parser"
 )
 
 // composed 是一条要发给引擎的话术与附件。
@@ -60,7 +63,8 @@ func (c composed) message() agent.Message {
 }
 
 // Compact 压缩上下文：让模型把已有对话总结成一条，替换掉冗长的历史。
-// 压缩在会话文件里是追加一条 compaction 条目，原文不删——回放仍能看清发生过什么。
+// 压缩在会话文件里是追加一条带摘要的 compaction 条目，原文不删——回放仍能看清发生过什么。
+// 总结失败时整个动作失败：写一条空摘要进去等于骗用户「压过了」。
 func (c *Chat) Compact(sessionFile, instructions string) error {
 	if c.Busy() {
 		return pkg.Err(pkg.CodeEngineBusy, "有任务正在跑，等它结束再压缩")
@@ -69,11 +73,116 @@ func (c *Chat) Compact(sessionFile, instructions string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := session.CompactHint(strings.TrimSpace(instructions)); err != nil {
+	return c.compactNow(session, strings.TrimSpace(instructions))
+}
+
+// compactNow 是压缩的本体：调上游做一次同步总结，成功后落压缩条目。
+// 不查 Busy：自动压缩在运行起跑前调用，那时没有运行；手动路径的拒绝留在 Compact 里。
+// 总结失败返回错误但由调用方决定要不要打扰用户——自动路径静默落日志。
+func (c *Chat) compactNow(session *agent.Session, instructions string) error {
+	model, err := c.resolveModel()
+	if err != nil {
 		return err
 	}
+	messages := session.Entries()
+	prompt := compactionPrompt(messages, instructions)
+	if strings.TrimSpace(prompt) == "" {
+		return pkg.Err(pkg.CodeBadRequest, "还没有可压缩的对话")
+	}
+
+	c.Hub.Broadcast("chat:compaction", map[string]any{"state": "start", "engine_kind": string(domain.EngineNative)})
+	summary, err := summarize(c.Tools, model, prompt)
+	if err != nil {
+		pkg.Warn("压缩总结失败 code=%s：%s", pkg.As(err).Code, err.Error())
+		c.Hub.Broadcast("chat:compaction", map[string]any{"state": "done", "engine_kind": string(domain.EngineNative)})
+		return err
+	}
+	if _, err := session.AppendCompaction(strings.TrimSpace(summary), session.ContextUsage()); err != nil {
+		pkg.Warn("压缩条目写入失败 code=%s：%s", pkg.As(err).Code, err.Error())
+		c.Hub.Broadcast("chat:compaction", map[string]any{"state": "done", "engine_kind": string(domain.EngineNative)})
+		return err
+	}
+	pkg.Info("上下文已压缩（会话 %s，摘要 %d 字）", session.Id(), len([]rune(summary)))
 	c.Hub.Broadcast("chat:compaction", map[string]any{"state": "done", "engine_kind": string(domain.EngineNative)})
 	return nil
+}
+
+// summarize 发一次同步总结调用：不经过 runner、不带工具、不发思考档——
+// 压缩是一次后台整理，模型只管读历史吐摘要。
+func summarize(reg *agent.Registry, model agent.ModelRef, prompt string) (string, error) {
+	streamer := agent.NewOpenAIStreamer()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	stream, err := streamer.Stream(ctx, agent.Request{
+		Model:    model,
+		System:   compactionSystem,
+		Messages: []agent.Message{userMessageOf(prompt)},
+	})
+	if err != nil {
+		return "", pkg.WrapErr(pkg.CodeProvision, "压缩总结调不通上游", err)
+	}
+	var text strings.Builder
+	var lastErr string
+	for ev := range stream {
+		switch ev.Kind {
+		case agent.EventText:
+			text.WriteString(ev.Text)
+		case agent.EventStop:
+			if ev.StopReason == "error" {
+				lastErr = ev.Text
+			}
+		}
+	}
+	if lastErr != "" {
+		return "", pkg.Err(pkg.CodeProvision, "压缩总结被上游拒绝", lastErr)
+	}
+	out := strings.TrimSpace(text.String())
+	if out == "" {
+		return "", pkg.Err(pkg.CodeProvision, "压缩总结返回了空内容")
+	}
+	return out, nil
+}
+
+// compactionSystem 是总结调用的系统提示：只要摘要，不要对话。
+const compactionSystem = "你是对话整理助手。把给出的对话历史压缩成一段摘要，保留用户的意图、已做的决定、未完成的事项与关键上下文。直接输出摘要正文，不要寒暄，不要评论。"
+
+// compactionPrompt 把历史折成总结调用的正文；压缩指示有就带上。
+func compactionPrompt(messages []domain.SessionEntryDO, instructions string) string {
+	var out strings.Builder
+	for _, entry := range messages {
+		msg := entry.EntryMessage
+		if msg == nil {
+			continue
+		}
+		role := msg.MessageRole
+		if isToolRole(role) {
+			role = "tool"
+		}
+		text := strings.TrimSpace(parser.ContentText(msg.MessageContent))
+		if text == "" {
+			continue
+		}
+		out.WriteString(role + ": " + text + "\n\n")
+	}
+	body := strings.TrimSpace(out.String())
+	if instructions != "" {
+		body += "\n\n用户对摘要的额外要求：" + instructions
+	}
+	return body
+}
+
+// isToolRole 判断一个落盘角色是不是工具结果。
+func isToolRole(role string) bool {
+	return role == string(agent.RoleTool) || role == "toolResult"
+}
+
+// userMessageOf 组装一条纯文本用户消息。
+func userMessageOf(text string) agent.Message {
+	return agent.Message{
+		Role:      agent.RoleUser,
+		Blocks:    []agent.Block{{Kind: agent.KindText, Text: text}},
+		CreatedAt: pkg.NowMs(),
+	}
 }
 
 // Answer 回答提问卡：把回答送到正在等的那次提问上。

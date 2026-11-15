@@ -33,11 +33,17 @@ async function compact(): Promise<void> {
 /** 计划模式是否可用：引擎把内置斜杠命令清单报上来。 */
 const planAvailable = computed(() => chat.commands.some((c) => c.command_name === 'plan'))
 
-// 切换计划模式走引擎的 /plan 命令，不本地记开关：拦截发生在工具注册表上，
-// 本地说反了会出现「界面说只读、实际上还能写」。
+// 切换计划模式走专用接口：拦截发生在工具注册表上，本地说反了会出现
+// 「界面说只读、实际上还能写」。回执带被拦下的工具名，横幅据此说明后果。
 async function togglePlan(): Promise<void> {
   try {
-    await chat.send('/plan')
+    const state = await chat.setPlanMode(!chat.planMode)
+    if (state.plan_enabled) {
+      const names = state.blocked_tools.join('、')
+      toasts.push('info', names ? t('chat.planOnWith', { tools: names }) : t('chat.planOn'))
+    } else {
+      toasts.push('ok', t('chat.planOff'))
+    }
   } catch (err) {
     toasts.push('error', err instanceof Error && err.message ? err.message : t('chat.planFailed'))
   }
@@ -72,6 +78,16 @@ async function togglePlan(): Promise<void> {
         <AppIcon name="refresh" :size="15" />
       </button>
     </div>
+
+    <!-- 计划模式横幅：说明「现在只能读」，并列出被拦下的工具。
+         没有它，用户只知道按钮亮了，不知道写文件会失败。 -->
+    <div v-if="chat.planMode" class="plan-banner">
+      <AppIcon name="eye" :size="14" class="plan-ic" />
+      <span class="plan-text">{{ t('chat.planBanner') }}</span>
+      <span v-if="chat.blockedTools.length" class="plan-tools" :title="chat.blockedTools.join('、')">
+        {{ t('chat.planBannerBlocked', { tools: chat.blockedTools.join('、') }) }}
+      </span>
+    </div>
   </header>
 
 </template>
@@ -85,6 +101,50 @@ async function togglePlan(): Promise<void> {
   padding: var(--wb-sp-3) var(--wb-sp-5);
   border-bottom: 1px solid var(--wb-line);
   flex: none;
+  /* 计划模式横幅出现时标题行整体下移：header 允许换行，
+     否则横幅会把「对话」标题与按钮挤成一行。 */
+  flex-wrap: wrap;
+}
+
+/* 计划模式横幅：淡底一行，说明「现在只能读」并列出被拦下的工具。
+   占满整行——它是这一页当前所处状态的宣告，不是一条可忽略的提示。 */
+.plan-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  flex-basis: 100%;
+  padding: var(--wb-sp-1) var(--wb-sp-2);
+  border-radius: var(--wb-r-sm);
+  background: var(--wb-brand-soft);
+  color: var(--wb-brand);
+  font-size: var(--wb-fs-2xs);
+  min-width: 0;
+  animation: plan-in var(--wb-dur) var(--wb-ease);
+}
+
+@keyframes plan-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.plan-ic {
+  flex: none;
+}
+
+.plan-text {
+  flex: none;
+  font-weight: 600;
+}
+
+.plan-tools {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--wb-font-mono);
+  color: var(--wb-mute);
 }
 
 .chat-head-left {

@@ -77,6 +77,11 @@
   --wb-r-2xl: calc(16px * var(--wb-vw-scale));
   --wb-r-full: 999px;
 
+  /* 骨架屏：微光在底色与亮色之间扫一遍。两个端点都取自表面阶梯，
+     不写死色值，主题切换后明暗自动跟上下一个主题。 */
+  --wb-skeleton-from: var(--wb-hover);
+  --wb-skeleton-to: var(--wb-selected);
+
   /* 控件高度 4 档 + 图标钮（组件禁止写裸像素高度） */
   --wb-ctl-sm: calc(26px * var(--wb-vw-scale));
   --wb-ctl: calc(34px * var(--wb-vw-scale));

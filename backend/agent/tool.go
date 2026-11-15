@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"WorkBaby/backend/pkg"
 )
@@ -43,6 +44,11 @@ type Registry struct {
 	tools map[string]Tool
 	// order 声明顺序：写进系统提示时保持稳定，缓存才不会每次都失效
 	order []string
+	// mu 保护 tools / order。内置工具在装配时一次性装完，但 MCP 段
+	// 会随配置增删改与开关切换在运行中整段重建——而轮次循环随时可能在读。
+	mu sync.Mutex
+	// mcpTools 当前挂着的 MCP 工具；重建时整段换掉
+	mcpTools []Tool
 	// Todos 待办清单；清单本体挂在注册表上，全局一份
 	Todos *TodoStore
 	// Asker 提问出口；装上提问工具的前提
@@ -125,6 +131,13 @@ func (r *Registry) AddWebTools(kit WebKit) {
 
 // Add 注册工具。
 func (r *Registry) Add(tools ...Tool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.addLocked(tools)
+}
+
+// addLocked 实际登记；调用方必须已持锁。
+func (r *Registry) addLocked(tools []Tool) {
 	for _, tool := range tools {
 		spec := tool.Spec()
 		if _, seen := r.tools[spec.Name]; !seen {
@@ -134,8 +147,41 @@ func (r *Registry) Add(tools ...Tool) {
 	}
 }
 
+// ReplaceMcpTools 整段换掉 MCP 工具：配置增删改、开关切换后由装配处调用。
+// MCP 段是注册表里唯一会在运行中变动的部分，整段换才与「mcp.json 就是真相」一致。
+// 与内置工具同名时 MCP 让位：内置行为在本进程内可修，MCP 实现在外面。
+func (r *Registry) ReplaceMcpTools(tools []Tool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// 先摘掉旧 MCP 段：tools 删名字，order 只留内置段，顺序不动。
+	for _, tool := range r.mcpTools {
+		delete(r.tools, tool.Spec().Name)
+	}
+	kept := r.order[:0]
+	for _, name := range r.order {
+		if _, stillThere := r.tools[name]; stillThere {
+			kept = append(kept, name)
+		}
+	}
+	r.order = kept
+	// 再挂新段：撞内置名的丢弃，不进 order 也不进 tools。
+	fresh := make([]Tool, 0, len(tools))
+	for _, tool := range tools {
+		spec := tool.Spec()
+		if _, clash := r.tools[spec.Name]; clash {
+			continue
+		}
+		r.order = append(r.order, spec.Name)
+		r.tools[spec.Name] = tool
+		fresh = append(fresh, tool)
+	}
+	r.mcpTools = fresh
+}
+
 // Specs 全部工具声明，按注册顺序。
 func (r *Registry) Specs() []ToolSpec {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	out := make([]ToolSpec, 0, len(r.order))
 	for _, name := range r.order {
 		out = append(out, r.tools[name].Spec())
@@ -145,7 +191,9 @@ func (r *Registry) Specs() []ToolSpec {
 
 // Run 按名字执行一次工具调用。
 func (r *Registry) Run(ctx context.Context, name, rawArgs string) Result {
+	r.mu.Lock()
 	tool, ok := r.tools[name]
+	r.mu.Unlock()
 	if !ok {
 		return errorf("没有这个工具：%s", name)
 	}

@@ -2,10 +2,13 @@
 // 应用页：外部工具链（git / node / python）的检测状态。
 // 引擎在进程内，没有「装没装」这件事，所以这里没有引擎这一组。
 // 壳不代装任何一个：这里只回答「检测到了什么、从哪发现的、没检测到该去做什么」。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import AppIcon from '@/components/common/AppIcon.vue'
 import AppCard from '@/components/apps/AppCard.vue'
+import WbSkeleton from '@/components/common/WbSkeleton.vue'
+import WbEmpty from '@/components/common/WbEmpty.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
@@ -13,22 +16,27 @@ import { useToasts } from '@/composables/useToasts'
 const { t } = useI18n()
 const app = useAppStore()
 const toasts = useToasts()
+const router = useRouter()
 
 const loading = ref(false)
 const detecting = ref(false)
 const copied = ref('')
+// 竞态守卫：连点刷新时，晚到的旧清单不能盖掉新的。
+let loadSeq = 0
 
 // 引擎在进程内，应用页只剩外部工具链这一组。
 const envRows = computed(() => app.apps)
 
 async function load() {
+  const mine = ++loadSeq
   loading.value = true
   try {
     await app.loadApps()
   } catch (err) {
+    if (mine !== loadSeq) return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    loading.value = false
+    if (mine === loadSeq) loading.value = false
   }
 }
 
@@ -47,6 +55,10 @@ async function detect() {
     detecting.value = false
   }
 }
+
+onUnmounted(() => {
+  loadSeq += 1
+})
 
 async function copy(text: string) {
   try {
@@ -86,7 +98,9 @@ onMounted(() => {
     </header>
 
     <div class="page-body">
-      <section v-if="envRows.length">
+      <WbSkeleton v-if="loading && !envRows.length" :rows="3" />
+
+      <section v-else-if="envRows.length">
         <div class="wb-sec-head">
           <span class="wb-sec-title">
             {{ t('apps.group.runtime') }} <span class="count">{{ envRows.length }}</span>
@@ -110,6 +124,19 @@ onMounted(() => {
           />
         </div>
       </section>
+
+      <WbEmpty
+        v-else-if="!loading"
+        icon="terminal"
+        :title="t('apps.emptyTitle')"
+        :hint="t('apps.emptyHint')"
+      >
+        <template #action>
+          <button class="wb-btn sm primary" @click="router.push({ name: 'chat' })">
+            {{ t('apps.startChat') }}
+          </button>
+        </template>
+      </WbEmpty>
 
       <p class="note">{{ t('apps.boundary') }}</p>
     </div>
@@ -152,7 +179,9 @@ onMounted(() => {
 
 .head-actions {
   display: flex;
+  align-items: center;
   gap: var(--wb-sp-2);
+  flex: none;
 }
 
 .sec-actions {

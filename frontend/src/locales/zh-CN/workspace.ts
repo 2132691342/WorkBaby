@@ -41,6 +41,8 @@ workspace: {
     diffMode: '切换内联 / 并排',
     diffSide: '并排',
     diffInline: '内联',
+    copyPath: '复制路径',
+    openFile: '打开文件',
     prevChange: '上一处改动',
     nextChange: '下一处改动',
     fetch: '取回',
@@ -115,8 +117,9 @@ files: {
     renameTitle: '改名 / 移动',
     renamePlaceholder: '新名字或新路径（相对当前目录）',
     deleteTitle: '删除？',
-    deleteConfirm: '删掉「{name}」？目录会连同里面的内容一起删除。',
+    deleteConfirm: '删掉「{name}」？文件或目录（连同里面的全部内容）一起删除，不进回收站，不能恢复。',
     editFile: '编辑',
-    editedHint: '改动未保存'
+    editedHint: '改动未保存',
+    nameInvalid: '名字不能为空，且不能含 \\ / : * ? " < > | 这些字符'
   },
 }

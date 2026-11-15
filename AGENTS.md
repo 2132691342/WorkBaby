@@ -249,14 +249,14 @@ go vet ./...        # 真相：vet 过了就是过了
 gopls check <文件>  # 权威的 gopls 自检（比 IDE 里的提示可靠）
 ```
 
-已知的三种陈旧来源：
+已知的陈旧来源：
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | 新加的符号报未定义，但 `go build` 通过 | gopls 的导出数据缓存陈旧 | 删 `%LOCALAPPDATA%\gopls` 并重启 gopls 进程 |
 | 同上，且刚建了新文件 | gopls 的文件索引还没收录新文件 | 同上（清缓存 + 重启 gopls） |
 | gopls 与项目 Go 版本不一致 | 导出数据格式对不上 | 用项目同版本的 Go 重建 gopls：`GOTOOLCHAIN=go1.27.4 go install golang.org/x/tools/gopls@v0.24.0` |
-| 报告里出现早已删除的文件 | 项目快照是旧的 | 删 `%USERPROFILE%\.pi-lens\projects\<项目>\cache\project-snapshot.*` 与 `review-graph.json.gz` |
+| 报告里出现早已删除的文件 | 项目快照是旧的 | 删该评审工具在本机的项目缓存目录下的 `project-snapshot.*` 与 `review-graph.json.gz` |
 | 上一轮的问题已经修了，报告还在 | 缓存的是「上一轮的结论文本」 | 删 `cache\turn-end-findings-last.json` 与 `code-quality-warnings.json` |
 
 **不要因为诊断报错就改代码**：先跑 `go build`。真要改，也要先确认编译器也报同样的错。

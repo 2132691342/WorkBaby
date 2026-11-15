@@ -117,10 +117,23 @@
   text-transform: uppercase;
   color: var(--wb-faint);
 }
+.code-lines {
+  margin-left: auto;
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  font-variant-numeric: tabular-nums;
+}
+.code-head .wb-btn {
+  margin-left: var(--wb-sp-2);
+}
+/* 长代码块在内滚动：答案跟着滚，代码自成一体。
+   上限只约束「读不完的一屏」，两三百行的正常片段不受影响。 */
 .code-wrap pre {
   margin: 0;
   padding: var(--wb-sp-3);
-  overflow-x: auto;
+  max-height: calc(420px * var(--wb-vw-scale));
+  overflow: auto;
   font-family: var(--wb-font-mono);
   font-size: var(--wb-fs-xs);
   line-height: 1.62;
@@ -132,22 +145,47 @@
   font-size: inherit;
 }
 
-/* 流式光标：挂在最后一块的尾部，回答在长的字面证据。
-   用伪元素而不是插一个真元素：真元素会变成 :last-child，
+/* 流式光标：回答在长的字面证据。挂在最后一块真正吐字的那一处，
+   不是简单贴 :last-child——列表要落在最后一条 li，代码块要落在 code 里，
+   表格落在最后一个单元格。少一类，那一类长到一半就没有光标，
+   用户看到的是「停在半句话上」，分不清是卡住还是在等下一个 token。
+
+   用伪元素而不是插一个真元素：真元素会自己变成 :last-child，
    流结束时光标一撤，收尾边距规则切换会让正文抖一下。 */
-.md-streaming > *:last-child::after {
+.md-streaming > :last-child:not(ul):not(ol):not(blockquote):not(pre):not(table):not(.tbl-wrap)::after,
+.md-streaming > :is(ul, ol):last-child > li:last-child:not(:has(ul, ol)):not(:has(p))::after,
+.md-streaming > table:last-child tbody tr:last-child td:last-child::after,
+.md-streaming > pre:last-child > code::after,
+.md-streaming > .code-wrap:last-child pre > code::after {
   content: '';
   display: inline-block;
-  width: 7px;
-  height: 1em;
+  width: 2px;
+  height: 1.05em;
   margin-left: 2px;
-  vertical-align: -0.12em;
+  vertical-align: text-bottom;
   background: var(--wb-brand);
-  animation: md-caret-blink 1s steps(2, start) infinite;
+  animation: md-caret-blink 1s step-end infinite;
+}
+
+/* 减弱动效：不闪，但留一道竖线——「还在写」这件事本身要有证据，
+   只是不再消耗注意力。 */
+@media (prefers-reduced-motion: reduce) {
+  .md-streaming > :last-child::after,
+  .md-streaming > :is(ul, ol):last-child > li:last-child::after,
+  .md-streaming > table:last-child tbody tr:last-child td:last-child::after,
+  .md-streaming > pre:last-child > code::after,
+  .md-streaming > .code-wrap:last-child pre > code::after {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 @keyframes md-caret-blink {
-  to {
-    visibility: hidden;
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
   }
 }

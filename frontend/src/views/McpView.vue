@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // MCP 页：一份清单，增删改查 + 开关。
 // 定义落在数据目录的 mcp.json（用户级）与工作区 .pi/mcp.json（项目级），那份文件是唯一事实。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
 import McpDialog from '@/components/mcp/McpDialog.vue'
 import McpTable from '@/components/mcp/McpTable.vue'
-import { api } from '@/api/http'
+import WbSkeleton from '@/components/common/WbSkeleton.vue'
+import { api, abortable } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
 import type { McpListData, McpServer } from '@/types/api'
@@ -23,6 +24,15 @@ const busyName = ref('')
 const probingName = ref('')
 const dialog = ref(false)
 const editingName = ref('')
+// 竞态守卫：开关 / 探测后的重拉与手动刷新并发时，晚到的旧响应直接丢弃。
+let loadSeq = 0
+let aborter: AbortController | null = null
+
+onUnmounted(() => {
+  loadSeq += 1
+  aborter?.abort('unmount')
+  aborter = null
+})
 
 // 表单：一条命令或一个 URL，二选一；scope 决定落到哪份 mcp.json。
 const form = ref({
@@ -43,17 +53,23 @@ const servers = computed<McpServer[]>(() =>
   [...(data.value?.servers ?? [])].sort((a, b) => a.server_name.localeCompare(b.server_name)),
 )
 
-/** pi 就绪才谈得上「装 MCP」。 */
-const piInstalled = computed(() => Boolean(app.runtime?.engine_ready))
+/** 文件路径卡只在有工作区时才有意义：项目级那份跟着工作区走。 */
+const engineReady = computed(() => Boolean(app.runtime?.engine_ready))
 
 async function load() {
+  const mine = ++loadSeq
+  aborter?.abort('superseded')
+  aborter = new AbortController()
   loading.value = true
   try {
-    data.value = await api.mcpList()
+    const next = await abortable.mcpList(aborter.signal)
+    if (mine !== loadSeq) return
+    data.value = next
   } catch (err) {
+    if (mine !== loadSeq || (err as { name?: string })?.name === 'CanceledError') return
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    loading.value = false
+    if (mine === loadSeq) loading.value = false
   }
 }
 
@@ -96,7 +112,11 @@ function openEdit(row: McpServer) {
 }
 
 async function save() {
-  if (!form.value.server_name.trim()) return
+  // 与弹窗的同一套校验对齐：直接调 save() 的路径（键盘回车等）也过这道闸。
+  const name = form.value.server_name.trim()
+  if (!name) return
+  const timeout = form.value.timeout.trim()
+  if (timeout && (!Number.isFinite(Number(timeout)) || Number(timeout) <= 0)) return
   saving.value = true
   try {
     const envList = form.value.env_text
@@ -104,7 +124,7 @@ async function save() {
       .map((line) => line.trim())
       .filter(Boolean)
     await api.mcpSave({
-      server_name: form.value.server_name.trim(),
+      server_name: name,
       command_text: form.value.mode === 'command' ? form.value.command_text : undefined,
       server_url: form.value.mode === 'url' ? form.value.server_url : undefined,
       transport_kind: form.value.mode === 'url' ? form.value.transport_kind : undefined,
@@ -113,11 +133,11 @@ async function save() {
       // 空数组语义是「清掉环境变量」，不是「保持不动」
       env_list: envList,
       // 超时是秒；空串 = 沿用默认，0 也表示不配置。不传这两个语义就没法区分。
-      mcp_timeout: form.value.timeout.trim() ? Number(form.value.timeout) : 0,
+      mcp_timeout: timeout ? Number(timeout) : 0,
       mcp_scope: form.value.scope,
     })
     dialog.value = false
-    ElMessage.success(t('common.saved'))
+    toasts.push('ok', t('common.saved'))
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -126,7 +146,7 @@ async function save() {
   }
 }
 
-// 连接测试：结果用消息条直说，不改行内状态——探测结论是一次性的，不该常驻表格。
+// 连接测试：结果用提示条直说，不改行内状态——探测结论是一次性的，不该常驻表格。
 async function probe(row: McpServer) {
   if (probingName.value) return
   probingName.value = row.server_name
@@ -134,9 +154,9 @@ async function probe(row: McpServer) {
     const out = await api.mcpProbe(row.server_name)
     if (out.probe_ok) {
       const tail = out.probe_tools > 0 ? t('mcp.probeTools', { n: out.probe_tools }) : ''
-      ElMessage.success(`${out.probe_message}${tail}`)
+      toasts.push('ok', `${out.probe_message}${tail}`)
     } else {
-      ElMessage.error(`${t('mcp.probeFail')}: ${out.probe_message}`)
+      toasts.push('error', `${t('mcp.probeFail')}: ${out.probe_message}`)
     }
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -146,6 +166,7 @@ async function probe(row: McpServer) {
 }
 
 async function toggle(row: McpServer, enabled: boolean) {
+  if (busyName.value) return
   busyName.value = row.server_name
   try {
     await api.mcpToggle(row.server_name, enabled)
@@ -189,18 +210,20 @@ onMounted(() => void load())
         <p class="page-sub">{{ t('mcp.subtitle') }}</p>
       </div>
       <div class="head-actions">
+        <button class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load">
+          <AppIcon name="refresh" :size="15" />
+        </button>
         <button class="wb-btn primary" @click="openCreate">
           <AppIcon name="plus" :size="14" />
           {{ t('mcp.add') }}
-        </button>
-        <button class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load">
-          <AppIcon name="refresh" :size="15" />
         </button>
       </div>
     </header>
 
     <div class="page-body">
-      <section v-if="piInstalled" class="wb-card card-pad path-card">
+      <WbSkeleton v-if="loading && !servers.length" :rows="5" />
+      <template v-else>
+      <section v-if="engineReady" class="wb-card card-pad path-card">
         <div class="wb-sec-head">
           <span class="wb-sec-title">{{ t('mcp.file') }}</span>
         </div>
@@ -233,6 +256,7 @@ onMounted(() => void load())
         @toggle="toggle"
         @probe="probe"
       />
+      </template>
     </div>
 
     <McpDialog
@@ -282,7 +306,9 @@ onMounted(() => void load())
 
 .head-actions {
   display: flex;
+  align-items: center;
   gap: var(--wb-sp-2);
+  flex: none;
 }
 
 .page-body {

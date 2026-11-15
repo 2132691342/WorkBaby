@@ -99,14 +99,18 @@ const { t } = useI18n()
           {{ t('chat.stop') }}
         </button>
 
+        <!-- 发送键在 sending 期间也保持可点，点它等于「喊停」。
+             等首字的那几秒里，停止是用户唯一的出路；禁用它等于
+             让人盯着一个按不动的按钮，直到引擎自己出错。 -->
         <button
           class="wb-btn primary sm"
           :class="{ 'is-loading': props.sending || props.busyCmd !== '' }"
-          :disabled="!props.canSend || !app.hasEngine"
-          @click="emit('submit')"
+          :disabled="(!props.canSend && !props.sending) || !app.hasEngine"
+          :title="props.sending ? t('chat.stop') : undefined"
+          @click="props.sending ? emit('stop') : emit('submit')"
         >
-          <AppIcon name="send" :size="13" />
-          {{ chat.streaming ? t('chat.sendSteer') : t('chat.send') }}
+          <AppIcon :name="props.sending ? 'stop' : 'send'" :size="13" />
+          {{ props.sending ? t('chat.stop') : chat.streaming ? t('chat.sendSteer') : t('chat.send') }}
         </button>
       </div>
     </div>

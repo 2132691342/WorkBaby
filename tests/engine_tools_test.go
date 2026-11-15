@@ -1,32 +1,39 @@
-// 原生引擎能力边界：流式分片拼装、工具作用域、待办、计划模式闸门、输出折叠。
-// 这些都是拼错一次就静默出错的地方——分片拼装用真的 HTTP + 真的 SSE 分帧来测，
-// 闸门与折叠在「拦截 → 放行」「落盘 → 回放」这一段闭合。
+// 引擎的工具能力边界：工具轮次闭环、路径作用域、待办往返、计划模式闸门、输出折叠。
+// 这些都是拼错一次就静默出错的地方——闸门与折叠在「拦截 → 放行」
+// 「落盘 → 回放」这一段闭合。
 package tests
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
 	"WorkBaby/backend/agent"
-	"WorkBaby/backend/domain"
 	"WorkBaby/backend/service/parser"
 )
 
-// sseServer 是一个按脚本吐分片的 OpenAI 兼容端点。
-// 用真的 HTTP + 真的 SSE 分帧，而不是塞一个假 Streamer——
-// 要测的正是「分片怎么被拼回来」，把解析绕过去等于没测。
-func sseServer(t *testing.T, chunks []string) *httptest.Server {
+// toolLoopServer 是「先要工具、再回文本」的假上游。
+// 第一个请求回工具调用，之后回纯文本；请求次数记在返回值里。
+func toolLoopServer(t *testing.T) (*httptest.Server, *int) {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
+		chunks := []string{
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":"{\"path\":\"a.txt\"}"}}]}}]}`,
+			`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		}
+		if requests > 1 {
+			chunks = []string{
+				`{"choices":[{"delta":{"content":"读完了"}}]}`,
+				`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+			}
+		}
 		for _, chunk := range chunks {
 			fmt.Fprintf(w, "data: %s\n\n", chunk)
 			if flusher != nil {
@@ -34,147 +41,52 @@ func sseServer(t *testing.T, chunks []string) *httptest.Server {
 			}
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
-		if flusher != nil {
-			flusher.Flush()
-		}
 	}))
+	t.Cleanup(server.Close)
+	return server, &requests
 }
 
-// collect 是测试里的 Handler 记录器。
-type collect struct {
-	mu       sync.Mutex
-	text     strings.Builder
-	thinking strings.Builder
-	tools    []string
-	errors   []string
-	done     bool
-	aborted  bool
-}
-
-// handler 组装一个把事件记进 collect 的 Handler。
-func (c *collect) handler() agent.Handler {
-	return agent.Handler{
-		OnText: func(delta string) {
-			c.mu.Lock()
-			c.text.WriteString(delta)
-			c.mu.Unlock()
-		},
-		OnThinking: func(delta string) {
-			c.mu.Lock()
-			c.thinking.WriteString(delta)
-			c.mu.Unlock()
-		},
-		OnToolStart: func(callId, name string, args string) {
-			c.mu.Lock()
-			c.tools = append(c.tools, name)
-			c.mu.Unlock()
-		},
-		OnError: func(message string) {
-			c.mu.Lock()
-			c.errors = append(c.errors, message)
-			c.mu.Unlock()
-		},
-		OnDone: func(aborted bool) {
-			c.mu.Lock()
-			c.done = true
-			c.aborted = aborted
-			c.mu.Unlock()
-		},
-	}
-}
-
-// newRunner 造一个绑到临时工作区的运行器。
-func newRunner(t *testing.T, baseUrl string) (*agent.Runner, *agent.Session, string) {
-	t.Helper()
-	workspace := t.TempDir()
-	store := agent.NewStore(t.TempDir(), func() string { return workspace })
-	session, err := store.Create(workspace)
-	if err != nil {
-		t.Fatalf("建会话失败：%v", err)
-	}
-	runner := &agent.Runner{
-		Streamer: agent.NewOpenAIStreamer(),
-		Registry: agent.NewRegistry(func() string { return workspace }),
-		Session:  session,
-		Model: agent.ModelRef{
-			ProviderName: "test", ModelId: "m", BaseUrl: baseUrl, ApiKey: "k",
-		},
-	}
-	return runner, session, workspace
-}
-
-// TestEngineAssemblesStreamFragments 断言引擎最核心的一条链路：
-// 正文分片拼成完整回复，工具入参分片拼成合法 JSON，两者不互相踩掉；
-// 落盘的那份与内存里看到的一致（会话是唯一真相）。
-func TestEngineAssemblesStreamFragments(t *testing.T) {
-	server := sseServer(t, []string{
-		`{"choices":[{"delta":{"reasoning_content":"先想想"}}]}`,
-		`{"choices":[{"delta":{"content":"我来看看"}}]}`,
-		`{"choices":[{"delta":{"content":"目录。"}}]}`,
-		`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"ls","arguments":"{\"path\""}}]}}]}`,
-		`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\".\"}"}}]}}]}`,
-		`{"choices":[{"delta":{"content":"  还有话"}}]}`,
-		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
-		`{"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7}}`,
-	})
-	defer server.Close()
+// TestToolLoopFeedsResultsBack 断言工具轮次闭环：
+// 工具跑过一次后引擎要再调一次模型，工具结果进了下一轮上下文，
+// 模型据此给出最终回复并收尾。
+func TestToolLoopFeedsResultsBack(t *testing.T) {
+	server, requests := toolLoopServer(t)
 
 	runner, session, _ := newRunner(t, server.URL)
-	runner.Model.ContextWindow = 0
-	recorder := &collect{}
-	// 把工具集清空：模型要不到工具就走完一轮，只测分片拼装这一件事。
 	runner.Registry = agent.NewRegistry(func() string { return t.TempDir() })
+	recorder := &collect{}
 	runner.Run(context.Background(), agent.Message{
 		Role:   agent.RoleUser,
-		Blocks: []agent.Block{{Kind: agent.KindText, Text: "看看当前目录"}},
+		Blocks: []agent.Block{{Kind: agent.KindText, Text: "读文件"}},
 	}, recorder.handler())
 
-	text := recorder.text.String()
-	// 工具块之前的正文、工具块之后续写的正文，两段都必须保住。
-	if !strings.Contains(text, "我来看看") || !strings.Contains(text, "目录。") {
-		t.Fatalf("正文分片丢了：%q", text)
+	// 两次请求：第一次要工具，第二次拿结果说最终话。
+	if *requests != 2 {
+		t.Fatalf("该发 2 次上游请求（要工具 + 收结果），实际 %d 次", *requests)
 	}
-	if !strings.Contains(text, "还有话") {
-		t.Fatalf("工具调用之后的正文被吞了：%q", text)
+	if len(recorder.tools) != 1 || recorder.tools[0] != "read" {
+		t.Fatalf("该跑一次 read 工具，实际 %v", recorder.tools)
 	}
-	if !strings.Contains(recorder.thinking.String(), "先想想") {
-		t.Fatalf("思考分片丢了：%q", recorder.thinking.String())
+	if recorder.text.String() != "读完了" {
+		t.Fatalf("模型该据工具结果给出最终回复，实际 %q", recorder.text.String())
 	}
 	if !recorder.done {
-		t.Fatal("运行没有收尾")
+		t.Fatal("这一轮该正常收尾")
 	}
 
-	// 落盘的是同一份内容：会话是唯一真相，内存与文件不能各说各的。
+	// 工具结果要落进会话：模型下一轮是从会话文件读历史的。
 	entries, err := agent.ReadEntries(session.File())
 	if err != nil {
 		t.Fatalf("读会话失败：%v", err)
 	}
-	// 助手消息后面跟着它的工具结果：找第一条助手消息，不是找最后一条。
-	var assistant *domain.SessionEntryDO
-	for i := range entries {
-		if entries[i].EntryMessage != nil && entries[i].EntryMessage.MessageRole == string(agent.RoleAssistant) {
-			assistant = &entries[i]
-			break
+	var toolReplies int
+	for _, entry := range entries {
+		if entry.EntryMessage != nil && entry.EntryMessage.MessageRole == string(agent.RoleTool) {
+			toolReplies++
 		}
 	}
-	if assistant == nil {
-		t.Fatalf("会话里没有助手消息：%d 条", len(entries))
-	}
-	msg := agent.MessageFromDO(assistant.EntryMessage)
-	calls := msg.ToolCalls()
-	if len(calls) != 1 {
-		t.Fatalf("工具调用应为 1 个，实际 %d", len(calls))
-	}
-	if calls[0].ToolName != "ls" {
-		t.Fatalf("工具名拼错：%q", calls[0].ToolName)
-	}
-	// 入参分两片到达，拼起来必须是合法 JSON。
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(calls[0].ToolArgs), &parsed); err != nil {
-		t.Fatalf("工具入参没拼成合法 JSON：%q（%v）", calls[0].ToolArgs, err)
-	}
-	if parsed["path"] != "." {
-		t.Fatalf("工具入参内容不对：%v", parsed)
+	if toolReplies != 1 {
+		t.Fatalf("工具结果该落一条进会话，实际 %d 条", toolReplies)
 	}
 }
 
@@ -389,6 +301,43 @@ func TestTidyFold(t *testing.T) {
 	}
 	if text != plain {
 		t.Fatal("策略关掉后该原样返回")
+	}
+}
+
+// TestContextUsage 断言占用估算的三条路：有读数用读数、
+// 无读数按字符数估算、压缩条目把读数清零。
+func TestContextUsage(t *testing.T) {
+	workspace := t.TempDir()
+	store := agent.NewStore(t.TempDir(), func() string { return workspace })
+	session, err := store.Create(workspace)
+	if err != nil {
+		t.Fatalf("建会话失败：%v", err)
+	}
+	if _, err := session.AppendMessage(agent.Message{
+		Role:   agent.RoleUser,
+		Blocks: []agent.Block{{Kind: agent.KindText, Text: strings.Repeat("字", 400)}},
+	}); err != nil {
+		t.Fatalf("写用户消息失败：%v", err)
+	}
+	// 没有 usage：退化为字符估算，400 字 ≈ 100 token。
+	if got := session.ContextUsage(); got != 100 {
+		t.Fatalf("无读数时该按字符估算（400/4=100），实际 %d", got)
+	}
+	if _, err := session.AppendMessage(agent.Message{
+		Role:  agent.RoleAssistant,
+		Usage: &agent.Usage{InputTokens: 900, OutputTokens: 100, CacheReadTokens: 50},
+	}); err != nil {
+		t.Fatalf("写助手消息失败：%v", err)
+	}
+	if got := session.ContextUsage(); got != 1050 {
+		t.Fatalf("有读数时该用最后一条读数（900+100+50），实际 %d", got)
+	}
+	// 压缩条目把读数清零：压缩后的占用按压缩后的历史重算。
+	if _, err := session.AppendCompaction("摘要", 1050); err != nil {
+		t.Fatalf("写压缩条目失败：%v", err)
+	}
+	if got := session.ContextUsage(); got != 0 {
+		t.Fatalf("压缩后读数应清零重算，实际 %d", got)
 	}
 }
 

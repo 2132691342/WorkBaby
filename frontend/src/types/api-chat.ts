@@ -2,7 +2,7 @@
 // 命名纪律：字段一律带业务前缀（session_title 而不是 title）——模板里一眼看出读的是哪个对象。
 
 import type { EngineCaps, EngineKind } from './api-core'
-import type { ModelInfo } from './api-data'
+import type { ModelInfo, PlanState } from './api-data'
 
 // ---------------- 会话 ----------------
 
@@ -153,6 +153,8 @@ export interface ChatState {
   todos?: TodoItem[]
   /** 是否处于计划模式：由会话文件里的 plan-mode 开关条目回放而来 */
   plan_mode: boolean
+  /** 计划模式的细节：被拦下的工具清单 */
+  plan_state?: PlanState
   commands: SlashCommand[]
   caps: EngineCaps
   /** 没能把引擎切到请求的会话时的原因原话；空表示切好了 */
