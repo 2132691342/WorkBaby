@@ -2,8 +2,8 @@ package api
 
 import (
 	"net/http"
-	"sync"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
