@@ -252,7 +252,7 @@ func (a *App) assemble() error {
 	}
 	a.db = db
 	a.hub = sse.New(1024)
-	a.token = newToken()
+	a.token = newToken(a.layout.Dev)
 	a.svc = service.New(service.Options{
 		Layout:  a.layout,
 		Store:   store,
@@ -324,14 +324,17 @@ func hasArg(flag string) bool {
 	return false
 }
 
-// newToken 生成启动令牌；WB_DEV_TOKEN 只在本地调试时覆盖它。
-func newToken() string {
-	if dev := os.Getenv("WB_DEV_TOKEN"); dev != "" {
-		return dev
+// newToken 生成启动令牌；WB_DEV_TOKEN 只在开发态布局生效，发布版一律随机。
+func newToken(dev bool) string {
+	if dev {
+		if override := os.Getenv("WB_DEV_TOKEN"); override != "" {
+			return override
+		}
 	}
 	buf := make([]byte, 24)
 	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("t-%d", time.Now().UnixNano())
+		// 熵源不可用时宁可起不来：可预测的令牌等于本机所有进程都能进 API。
+		panic("无法生成安全令牌：" + err.Error())
 	}
 	return hex.EncodeToString(buf)
 }

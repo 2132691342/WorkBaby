@@ -60,7 +60,8 @@ func New(keep int) *Hub {
 
 // Subscribe 登记一个订阅者，并把 since 之后缺的帧先入队补上。
 // 补不上的缺口由前端拿 chat/state 全量对账——这里不假装补齐。
-func (h *Hub) Subscribe(since int64, sink Sink) (cancel func()) {
+// 返回的 done 在泵收摊（溢出/写失败/取消）时关闭：HTTP 层据此结束连接，让客户端重连。
+func (h *Hub) Subscribe(since int64, sink Sink) (cancel func(), done <-chan struct{}) {
 	h.mu.Lock()
 	id := h.nextID
 	h.nextID++
@@ -75,6 +76,7 @@ func (h *Hub) Subscribe(since int64, sink Sink) (cancel func()) {
 	h.mu.Unlock()
 
 	go func() {
+		defer sub.close()
 		// 先补缺帧再消费实时帧：实时帧此刻只会积在通道里，不会插队。
 		for _, frame := range missed {
 			if !h.deliver(id, sink, frame) {
@@ -97,7 +99,7 @@ func (h *Hub) Subscribe(since int64, sink Sink) (cancel func()) {
 	return func() {
 		sub.close()
 		h.unsubscribe(id)
-	}
+	}, sub.done
 }
 
 func (h *Hub) unsubscribe(id int) {
@@ -127,23 +129,18 @@ func (h *Hub) Broadcast(event string, data map[string]any) {
 	if len(h.buffer) > h.maxKeep {
 		h.buffer = h.buffer[len(h.buffer)-h.maxKeep:]
 	}
-	targets := make([]*subscriber, 0, len(h.sinks))
+	// 入队在发号同一把锁里：锁外入队时两个并发广播可能把 seq 乱序送进同一订户。
+	// 入队不阻塞：队列满说明这个客户端跟不上，摘号并关泵——
+	// 泵退出会关掉 HTTP 连接，客户端才能带着 since 重连补帧，而不是静默失联。
 	for _, sub := range h.sinks {
-		targets = append(targets, sub)
-	}
-	h.mu.Unlock()
-
-	// 入队不阻塞：一个卡住的窗口不能拖住其他客户端，也绝不能拖住广播本身。
-	// 队列满说明这个客户端已经跟不上，摘掉它：只 close 不销号的话，
-	// 订户会一直留在 sinks 里，每帧都重走一遍失败的入队。
-	for _, sub := range targets {
 		select {
 		case sub.frames <- frame:
 		default:
 			sub.close()
-			h.unsubscribe(sub.id)
+			delete(h.sinks, sub.id)
 		}
 	}
+	h.mu.Unlock()
 }
 
 // Subscribers 当前挂着的订户数。

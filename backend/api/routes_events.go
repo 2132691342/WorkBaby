@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"sync"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -42,7 +43,7 @@ func (s *Server) events(c *gin.Context) {
 		}
 	}
 
-	cancel := s.hub.Subscribe(queryInt64(c, "since"), func(frame sse.Frame) error {
+	cancel, pumpDone := s.hub.Subscribe(queryInt64(c, "since"), func(frame sse.Frame) error {
 		text, err := sse.Encode(frame)
 		if err != nil {
 			return nil
@@ -58,6 +59,10 @@ func (s *Server) events(c *gin.Context) {
 		select {
 		case <-c.Request.Context().Done():
 			return
+		case <-pumpDone:
+			// 泵已收摊（溢出/写失败）：结束连接让客户端带 since 重连，
+			// 留着一条只有心跳的连接等于让界面静默失联。
+			return
 		case <-ticker.C:
 			if err := write(sse.PingLine); err != nil {
 				return
@@ -66,18 +71,11 @@ func (s *Server) events(c *gin.Context) {
 	}
 }
 
-// queryInt64 读一个 int64 查询参数；非数字当 0。
+// queryInt64 读一个 int64 查询参数；非数字或溢出当 0。
 func queryInt64(c *gin.Context, key string) int64 {
-	raw := c.Query(key)
-	if raw == "" {
+	value, err := strconv.ParseInt(c.Query(key), 10, 64)
+	if err != nil || value < 0 {
 		return 0
-	}
-	var value int64
-	for _, r := range raw {
-		if r < '0' || r > '9' {
-			return 0
-		}
-		value = value*10 + int64(r-'0')
 	}
 	return value
 }

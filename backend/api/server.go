@@ -135,11 +135,17 @@ func originAllowed(origin string) bool {
 	return host == "localhost" || host == "127.0.0.1"
 }
 
-// authMiddleWare 校验令牌：HTTP 走请求头，SSE 走查询参数（EventSource 带不了自定义头）。
+// authMiddleWare 校验令牌：HTTP 走请求头；只有 SSE 允许查询参数（EventSource 带不了自定义头）。
+// 其余路由收 query token 只会把令牌散进地址栏与日志，面越窄越好。
 func (s *Server) authMiddleWare() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Host 白名单是零成本纵深：rebinding 域名解析到回环后 Host 仍是攻击者的域名。
+		if !hostAllowed(c.Request.Host) {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
 		given := c.GetHeader("X-Desktop-Token")
-		if given == "" {
+		if given == "" && c.Request.URL.Path == base+"/events" {
 			given = c.Query("token")
 		}
 		// 常量时间比较：逐字节短路相等会把「前缀对了多少」暴露成响应时间差。
@@ -150,6 +156,16 @@ func (s *Server) authMiddleWare() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// hostAllowed 只认回环主机名（端口任意）：服务只绑 127.0.0.1，别的 Host 都是借道。
+func hostAllowed(host string) bool {
+	name := host
+	if idx := strings.LastIndex(host, ":"); idx >= 0 {
+		name = host[:idx]
+	}
+	name = strings.Trim(name, "[]")
+	return name == "127.0.0.1" || name == "localhost" || name == "::1"
 }
 
 // base 是挂载点。
