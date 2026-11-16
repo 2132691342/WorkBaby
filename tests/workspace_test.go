@@ -4,6 +4,7 @@
 package tests
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +40,7 @@ export class Widget {}
 		}
 		writeFile(t, filepath.Join(noise, "index.js"), "module.exports = {}")
 
-		docs, err := index.Build(root)
+		docs, err := index.Build(context.Background(), root)
 		if err != nil {
 			t.Fatalf("建索引失败：%v", err)
 		}
@@ -77,7 +78,7 @@ func ParseConfig() {}
 `)
 		writeFile(t, filepath.Join(root, "parse-config-notes.md"), "notes")
 
-		docs, err := index.Build(root)
+		docs, err := index.Build(context.Background(), root)
 		if err != nil {
 			t.Fatalf("建索引失败：%v", err)
 		}

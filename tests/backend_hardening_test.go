@@ -129,9 +129,9 @@ func TestBackendHardening(t *testing.T) {
 		}
 	})
 
-	// 会话删除要避让引擎正打开的那份：删掉之后它还在追加，
-	// 界面继续显示一份已经读不回来的会话。
-	t.Run("会话删除避让运行中会话", func(t *testing.T) {
+	// 当前会话可以直接删：服务先安全解绑（切到新会话）再删文件，
+	// 用户不必手动「先切走」；解绑后绑定必须指向另一份会话。
+	t.Run("当前会话删除先解绑再删", func(t *testing.T) {
 		h := newHarness(t)
 		mustSetWorkspace(t, h, t.TempDir())
 
@@ -146,20 +146,13 @@ func TestBackendHardening(t *testing.T) {
 			t.Fatal("新建后引擎应绑定该会话")
 		}
 
-		env, _ = h.call("POST", "/sessions/delete", map[string]string{"session_path": file})
-		if env.Code != pkg.CodeEngineBusy {
-			t.Fatalf("删除运行中的会话应回 %q，实际 %q（%s）", pkg.CodeEngineBusy, env.Code, env.Message)
-		}
-		if _, err := os.Stat(file); err != nil {
-			t.Fatalf("被拒的删除不得动文件：%v", err)
-		}
-
-		// 引擎空出来之后照常能删：守卫只拦「正被打开」的那一份。
-		h.app.Sessions.Active = func() string { return "" }
 		env, code = h.call("POST", "/sessions/delete", map[string]string{"session_path": file})
-		h.mustOK(env, code, "删除空闲会话", nil)
+		h.mustOK(env, code, "删除当前会话", nil)
 		if _, err := os.Stat(file); !os.IsNotExist(err) {
-			t.Fatalf("空闲会话应被删掉：%v", err)
+			t.Fatalf("当前会话应被删掉：%v", err)
+		}
+		if next := h.app.Chat.CurrentFile(); next == "" || strings.EqualFold(next, file) {
+			t.Fatalf("删除后应绑定到新会话，实际 %q（被删的是 %q）", next, file)
 		}
 	})
 
@@ -285,7 +278,7 @@ func TestBackendHardening(t *testing.T) {
 		hub := sse.New(16)
 		var mu sync.Mutex
 		var seqs []int64
-		healthyCancel := hub.Subscribe(0, func(frame sse.Frame) error {
+		healthyCancel, _ := hub.Subscribe(0, func(frame sse.Frame) error {
 			mu.Lock()
 			seqs = append(seqs, frame.Seq)
 			mu.Unlock()
@@ -297,7 +290,7 @@ func TestBackendHardening(t *testing.T) {
 		release := make(chan struct{})
 		defer close(release)
 		var blocked atomic.Int64
-		slowCancel := hub.Subscribe(0, func(frame sse.Frame) error {
+		slowCancel, _ := hub.Subscribe(0, func(frame sse.Frame) error {
 			blocked.Add(1)
 			<-release
 			return nil

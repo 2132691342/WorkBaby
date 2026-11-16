@@ -90,7 +90,7 @@ func (h *harness) call(method, path string, body any) (envelope, int) {
 		}
 		reader = bytes.NewReader(raw)
 	}
-	req := httptest.NewRequest(method, "/api/v1"+path, reader)
+	req := httptest.NewRequest(method, "http://127.0.0.1/api/v1"+path, reader)
 	req.Header.Set("X-Desktop-Token", testToken)
 	req.Header.Set("Content-Type", "application/json")
 

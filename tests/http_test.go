@@ -21,7 +21,7 @@ func TestHTTPContract(t *testing.T) {
 
 	t.Run("鉴权门", func(t *testing.T) {
 		for _, tc := range []struct{ name, token string }{{"无令牌", ""}, {"错令牌", "wrong"}} {
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", nil)
+			req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/v1/bootstrap", nil)
 			if tc.token != "" {
 				req.Header.Set("X-Desktop-Token", tc.token)
 			}
@@ -37,7 +37,7 @@ func TestHTTPContract(t *testing.T) {
 	})
 
 	t.Run("CORS 预检", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodOptions, "/api/v1/bootstrap", nil)
+		req := httptest.NewRequest(http.MethodOptions, "http://127.0.0.1/api/v1/bootstrap", nil)
 		req.Header.Set("Origin", "http://wails.localhost")
 		req.Header.Set("Access-Control-Request-Method", "POST")
 		rec := httptest.NewRecorder()
@@ -52,7 +52,7 @@ func TestHTTPContract(t *testing.T) {
 			t.Fatalf("预检应允许 X-Desktop-Token 头，实际 %q", got)
 		}
 		// 带源的正常请求（含 SSE 的 EventSource）响应上也要有允许头。
-		req = httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", nil)
+		req = httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/v1/bootstrap", nil)
 		req.Header.Set("X-Desktop-Token", testToken)
 		req.Header.Set("Origin", "http://wails.localhost")
 		rec = httptest.NewRecorder()
@@ -68,7 +68,7 @@ func TestHTTPContract(t *testing.T) {
 			t.Fatalf("未知路由应回 HTTP 200 / %q 且带 message，实际 http=%d code=%q msg=%q",
 				pkg.CodeUnknownRoute, code, env.Code, env.Message)
 		}
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/settings/save", strings.NewReader(`{not json`))
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/v1/settings/save", strings.NewReader(`{not json`))
 		req.Header.Set("X-Desktop-Token", testToken)
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()

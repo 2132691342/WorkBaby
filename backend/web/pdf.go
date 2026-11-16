@@ -23,11 +23,17 @@ func inflatePDFStreams(raw []byte) []byte {
 	matches := pdfStreamPattern.FindAllSubmatch(raw, -1)
 	out := make([]byte, 0, len(raw)+len(matches)*1024)
 	out = append(out, raw...)
+	budget := maxTotalInflatedBytes
 	for _, match := range matches {
+		if budget <= 0 {
+			// 总预算耗尽即停：单流上限乘以上千个流仍是解压炸弹。
+			break
+		}
 		decoded, ok := inflate(match[1])
 		if !ok {
 			continue
 		}
+		budget -= len(decoded)
 		// 把压缩内容追加到末尾：文本指令在解压后的流里，
 		// 追加比原位替换简单，也不会破坏 PDF 的其他结构。
 		out = append(out, '\n')
@@ -35,6 +41,9 @@ func inflatePDFStreams(raw []byte) []byte {
 	}
 	return out
 }
+
+// maxTotalInflatedBytes 是一份 PDF 全部流解压后的累计上限。
+const maxTotalInflatedBytes = 64 << 20
 
 // textOperatorPattern 匹配 PDF 的文本绘制指令。
 // Tj 与 TJ 是两种写法：前者一个串，后者一个数组。

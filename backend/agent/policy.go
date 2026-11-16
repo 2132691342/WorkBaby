@@ -46,14 +46,15 @@ func (p *ToolPolicy) SessionId() string {
 // 只读模式下这些照常可用：计划模式的目的是「先调研再动手」，
 // 把读工具也拦掉等于让模型什么都做不了。
 var readOnlyTools = map[string]struct{}{
-	"read":       {},
-	"grep":       {},
-	"find":       {},
-	"ls":         {},
-	"todo":       {},
-	"ask":        {},
-	"web_search": {},
-	"web_fetch":  {},
+	"read":         {},
+	"grep":         {},
+	"find":         {},
+	"ls":           {},
+	"todo":         {},
+	"ask":          {},
+	"web_search":   {},
+	"web_fetch":    {},
+	"index_search": {},
 }
 
 // mutatingTools 是会改变工作区或系统状态的工具，只读模式下拦「执行」不拦「声明」：

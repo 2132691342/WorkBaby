@@ -64,6 +64,10 @@ func (t *grepTool) Run(ctx context.Context, reg *Registry, args map[string]any) 
 		if total >= maxGrepHits {
 			return false
 		}
+		if info, statErr := os.Stat(file); statErr != nil || info.Size() > maxGrepFileBytes {
+			// 超大文件跳过：一次全量读入就能把内存打爆，答案也几乎不在里面。
+			return true
+		}
 		raw, readErr := os.ReadFile(file)
 		if readErr != nil || strings.ContainsRune(string(raw), 0) {
 			return true
@@ -95,6 +99,9 @@ func (t *grepTool) Run(ctx context.Context, reg *Registry, args map[string]any) 
 
 // maxGrepHits 是搜索命中的上限。
 const maxGrepHits = 200
+
+// maxGrepFileBytes 是单个文件参与内容搜索的体积上限。
+const maxGrepFileBytes = 1 << 20
 
 // findTool 按文件名搜索。
 type findTool struct{}

@@ -142,7 +142,7 @@ func TestSession(t *testing.T) {
 		}
 	})
 
-	// 写入纪律：隐藏只记台账不动文件、改名只追加、引擎正打开时拒绝改名。
+	// 写入纪律：隐藏只记台账不动文件、改名只追加（当前会话经引擎写锁同样可改）。
 	t.Run("写入纪律", func(t *testing.T) {
 		h := newHarness(t)
 		file := writeSession(t, h.layout.SessionsDir,
@@ -174,25 +174,27 @@ func TestSession(t *testing.T) {
 			t.Fatal("隐藏是壳的台账，绝不能改写会话文件")
 		}
 
-		// ---- 引擎正打开时拒绝改名，且不动文件 ----
-		h.app.Sessions.Active = func() string { return file }
-		env, _ := h.call(http.MethodPost, "/sessions/rename", map[string]string{
+		// ---- 当前会话改名：经引擎句柄追加，同样只许追加不许重写 ----
+		mustSetWorkspace(t, h, t.TempDir())
+		if _, err := h.app.Chat.BindSession(file); err != nil {
+			t.Fatalf("绑定会话失败：%v", err)
+		}
+		env, code := h.call(http.MethodPost, "/sessions/rename", map[string]string{
 			"session_path": file, "session_title": "新名字",
 		})
-		if env.Code != pkg.CodeEngineBusy {
-			t.Fatalf("引擎正打开时改名应回 %q，实际 %q（%s）", pkg.CodeEngineBusy, env.Code, env.Message)
-		}
-		afterReject, err := os.ReadFile(file)
+		h.mustOK(env, code, "当前会话改名", nil)
+		rawActive, err := os.ReadFile(file)
 		if err != nil {
-			t.Fatalf("重读会话文件失败：%v", err)
+			t.Fatalf("读改名后的会话文件失败：%v", err)
 		}
-		if string(before) != string(afterReject) {
-			t.Fatal("被拒的改名不得动会话文件一个字节")
+		if !strings.HasPrefix(string(rawActive), string(before)) {
+			t.Fatal("当前会话改名同样只允许在末尾追加")
 		}
 
-		// ---- 空闲时只在末尾追加 session_info ----
-		h.app.Sessions.Active = func() string { return "" }
-		env, code := h.call(http.MethodPost, "/sessions/rename", map[string]string{
+		// ---- 未打开的会话改名走临时句柄，只在末尾追加 session_info ----
+		h.app.Chat.OnWorkspaceChanged()
+		before = rawActive
+		env, code = h.call(http.MethodPost, "/sessions/rename", map[string]string{
 			"session_path": file, "session_title": "新名字",
 		})
 		h.mustOK(env, code, "改名", nil)

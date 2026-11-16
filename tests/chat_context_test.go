@@ -21,7 +21,7 @@ func newStream(t *testing.T) (*service.Stream, *frameCapture) {
 	t.Helper()
 	hub := sse.New(64)
 	cap := &frameCapture{}
-	cancel := hub.Subscribe(0, cap.sink)
+	cancel, _ := hub.Subscribe(0, cap.sink)
 	t.Cleanup(cancel)
 	return service.NewStream(hub), cap
 }

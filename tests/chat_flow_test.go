@@ -37,7 +37,7 @@ func TestChatFlow(t *testing.T) {
 		t.Run("插话被清掉后不进下一轮", func(t *testing.T) {
 			h := newHarness(t)
 			cap := &frameCapture{}
-			cancel := h.app.Hub.Subscribe(0, cap.sink)
+			cancel, _ := h.app.Hub.Subscribe(0, cap.sink)
 			defer cancel()
 			script := newScriptServer(t, replyChunks("收到"))
 			bindWorkspaceAndModel(t, h, script.server.URL)
@@ -322,7 +322,7 @@ func TestChatFlow(t *testing.T) {
 		t.Run("上游连不通", func(t *testing.T) {
 			h := newHarness(t)
 			cap := &frameCapture{}
-			cancel := h.app.Hub.Subscribe(0, cap.sink)
+			cancel, _ := h.app.Hub.Subscribe(0, cap.sink)
 			defer cancel()
 			env, code := h.call("POST", "/settings/workspace", map[string]string{"workspace": t.TempDir()})
 			h.mustOK(env, code, "workspace", nil)
@@ -380,7 +380,7 @@ func TestChatFlow(t *testing.T) {
 		t.Run("提问广播与应答", func(t *testing.T) {
 			h := newHarness(t)
 			cap := &frameCapture{}
-			cancel := h.app.Hub.Subscribe(0, cap.sink)
+			cancel, _ := h.app.Hub.Subscribe(0, cap.sink)
 			defer cancel()
 			script := askScriptServer(t)
 			bindWorkspaceAndModel(t, h, script.server.URL)
@@ -430,7 +430,7 @@ func TestChatFlow(t *testing.T) {
 		t.Run("待答清单与广播一致", func(t *testing.T) {
 			h := newHarness(t)
 			cap := &frameCapture{}
-			cancel := h.app.Hub.Subscribe(0, cap.sink)
+			cancel, _ := h.app.Hub.Subscribe(0, cap.sink)
 			defer cancel()
 			script := askScriptServer(t)
 			bindWorkspaceAndModel(t, h, script.server.URL)

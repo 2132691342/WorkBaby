@@ -141,7 +141,7 @@ export function readBlocks(v: unknown): ChatBlock[] {
 export function readPatch(data: Record<string, unknown>): ChatPatch | null {
   const mode = asString(data.mode)
   if (mode !== 'delta' && mode !== 'block') return null
-  const kind = asString(data.block_kind)
+  const kind = asString(data.kind)
   return {
     run_id: asString(data.run_id),
     mode,
