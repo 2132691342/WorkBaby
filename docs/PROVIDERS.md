@@ -24,16 +24,17 @@
 
 | `api_protocol` | 请求 | 鉴权 | 解析 |
 |---|---|---|---|
-| `anthropic` | `GET <base_url>/v1/models` | 头 `x-api-key: <key>` + `anthropic-version: 2023-06-01` | `data[].id`，其次 `models[].name`，再次裸数组 |
-| `google` | `GET <base_url>/v1beta/models?key=<key>` | 密钥走查询参数 | 同上；`models/gemini-1.5-pro` 取最后一段作模型 ID |
-| 其它（含 `openai`、空、任意字符串） | `GET <base_url>/v1/models` | 头 `Authorization: Bearer <key>` | 同上 |
+| `anthropic` | `GET <base>/v1/models`（base 已带 `/v1` 则不再补） | 头 `x-api-key: <key>` + `anthropic-version: 2023-06-01` | `data[].id`，其次 `models[].name`，再次裸数组 |
+| `google` | `GET <base>/v1beta/models`（base 已带 `/v1beta` 则不再补） | 头 `x-goog-api-key: <key>`（密钥走头不进 URL：URL 会进错误原话与日志） | 同上；`models/gemini-1.5-pro` 取最后一段作模型 ID |
+| 其它（含 `openai`、空、任意字符串） | `GET <pkg.OpenAIEndpoint(base, "models")>` | 头 `Authorization: Bearer <key>` | 同上 |
 
 约束与行为：
 
-- `base_url` 末尾的 `/` 会被去掉再拼（`probeRequest`）。所以地址里**不要**自带 `/v1` 之后的路径。
+- 地址归一与拼接收敛在一处：`pkg.NormalizeApiBase`（去首尾空白与末尾斜杠）+ `pkg.OpenAIEndpoint`（探测与聊天共用，见 §3）。`base_url` 带 `/v1` 尾巴就不再补 `/v1`，不带则自动补——两种填法收敛到同一个真实端点，探测与聊天同真同假。
+- `google` 协议同口径：带 `/v1beta` 尾巴不再补。
 - 超时 20s（`probeTimeout`），不复用业务客户端。
 - 响应体最多读 4 MB。
-- **失败不报错**：回 `probe_ok:false` + `probe_message`（如「连不上：…」「上游返回 401：…」），HTTP 仍是 200 信封成功。
+- **失败不报错**：回 `probe_ok:false` + `probe_message`（如「连不上：…」「上游返回 401：…」），HTTP 仍是 200 信封成功。错误原话里的密钥会换成掩码（`redactSecret`）。
 - `probe_message` 成功时是「连通，可见 N 个模型」。
 - 模型名取 `displayName`，缺失时回落成 ID。
 - 协议字段**不校验**：任意非空字符串都原样存下（`Upsert` 只做 `defaultIfEmpty(..., "openai")`）。
@@ -45,11 +46,13 @@
 `backend/agent/provider_openai.go` 无条件发：
 
 ```
-POST <base_url>/chat/completions
+POST <pkg.OpenAIEndpoint(base_url, "chat/completions")>
 Content-Type: application/json
 Accept: text/event-stream
 Authorization: Bearer <api_key>          # 密钥非空才带
 ```
+
+地址规则与探测一致（`pkg.OpenAIEndpoint`）：`base_url` 带 `/v1` 尾巴直接拼 `chat/completions`，不带则补成 `<base>/v1/chat/completions`——探测与聊天两条路收敛到同一约定。
 
 请求体（`wireRequest`）：
 
@@ -100,12 +103,22 @@ Authorization: Bearer <api_key>          # 密钥非空才带
 |---|---|---|---|
 | `api_protocol = openai`（或空、或任意其它值）+ OpenAI 兼容上游 | 通 | 通 | **端到端可用**（唯一的完整路径） |
 | `api_protocol = anthropic` | 通（`/v1/models` + `x-api-key`） | **不通**：请求发到 `/chat/completions` 且用 Bearer | 只可探测，不可聊天 |
-| `api_protocol = google` | 通（`/v1beta/models?key=`） | **不通**：同上 | 只可探测，不可聊天 |
+| `api_protocol = google` | 通（`/v1beta/models` + `x-goog-api-key`） | **不通**：请求发到 OpenAI 兼容端点且用 Bearer | 只可探测，不可聊天 |
 | 反向代理 / 网关把 `/chat/completions` 转成厂商协议 | 通 | 通 | 可用：对引擎而言就是 OpenAI 兼容 |
 | 自建推理服务（vLLM / Ollama / 兼容层） | 通（若实现 `/v1/models`） | 通（若实现 `/chat/completions` 流式与 tools） | 可用；不支持 `tools` 时工具轮次会失败 |
 
 实用口径：**协议字段只影响探测，聊天一律按 OpenAI 兼容发。**
 要接非 OpenAI 协议的上游，就在前面放一层转换，把 `api_protocol` 留成 `openai`。
+
+常见服务商的填写（`base_url` 带 `/v1` 与不带均可，`pkg.OpenAIEndpoint` 收敛到同一端点）：
+
+| 服务商 | `base_url` | `api_protocol` | 说明 |
+|---|---|---|---|
+| DeepSeek | `https://api.deepseek.com` | `openai` | 上游即 OpenAI 兼容，`/v1/chat/completions` 与不带 `/v1` 的路径都通 |
+| Moonshot（Kimi） | `https://api.moonshot.cn/v1` | `openai` | OpenAI 兼容 |
+| 智谱（GLM） | `https://open.bigmodel.cn/api/paas/v4` | `openai` | 兼容层路径不带 `/v1`，填全即可——本产品只在末尾收敛 `/v1`，不重写中间路径 |
+| Ollama 本地 | `http://127.0.0.1:11434/v1` | `openai` | 实现 `/v1/chat/completions` 流式；不支持 `tools` 的模型工具轮次会失败 |
+| 自建 vLLM | `http://<host>:8000/v1` | `openai` | 同上 |
 
 ---
 
