@@ -12,11 +12,9 @@ import AttachStrip from '@/components/chat/AttachStrip.vue'
 import { useChatStore } from '@/stores/chat'
 import { useAppStore } from '@/stores/app'
 import { useComposerDraft } from '@/composables/useComposerDraft'
-import { useAttachments, baseName, toWorkspaceRelative } from '@/composables/useAttachments'
+import { useComposerAttachments } from '@/composables/useComposerAttachments'
 import { useComposerMenu } from '@/composables/useComposerMenu'
 import { useComposerActions } from '@/composables/useComposerActions'
-import { pickFiles } from '@/api/wails'
-import { api } from '@/api/http'
 import type { MenuItem } from '@/composables/useComposerMenu'
 
 const chat = useChatStore()
@@ -31,7 +29,6 @@ const mentionRef = ref<{ move: (d: number) => void; pickCurrent: () => boolean }
 const sending = ref(false)
 const queueing = ref(false)
 const stopping = ref(false)
-const attachError = ref('')
 
 // 草稿按会话存：切走再切回来还在，关掉窗口也不丢。
 const draftStore = useComposerDraft(computed(() => chat.sessionFile), draft)
@@ -51,9 +48,6 @@ watch(
   },
 )
 
-// 附件：粘贴图片 / 回形针选文件 / @ 引用工作区文件，三种来源一个列表。
-const attachments = useAttachments()
-
 // 菜单：/ 命令 与 @ 引用。开关时机与选中后的动作都在 composable 里。
 const composerMenu = useComposerMenu(draft, (name) => {
   draft.value = `/${name} `
@@ -62,78 +56,19 @@ const composerMenu = useComposerMenu(draft, (name) => {
 })
 const { menuIndex, busyCmd, mentionOpen, slashOpen, slashItems, applyItem } = composerMenu
 
+// 附件：粘贴图片 / 回形针选文件 / @ 引用工作区文件 / @ 引用历史会话。
+// 四种来源的落法与收尾都在 composable 里，输入区只管挂事件。
+const { attachments, attachError, onPickFile, onPickSession, onPaste, browseFiles } = useComposerAttachments({
+  draft,
+  closeMenu: () => composerMenu.close(),
+  autosize,
+  focus,
+})
+
 // ── 菜单选中 ──
 function onPickItem(item: MenuItem): void {
   applyItem(item)
   if (item.source === 'engine') void nextTick(autosize)
-}
-
-function onPickFile(relPath: string, name: string): void {
-  const err = attachments.addWorkspaceFile(relPath, name)
-  if (err) {
-    attachError.value = err
-    return
-  }
-  // 把触发菜单的那段 @xxx 从输入里去掉：引用已经变成附件条目了。
-  draft.value = draft.value.replace(/@\S*$/, '').trimEnd()
-  composerMenu.close()
-  void nextTick(() => {
-    autosize()
-    textarea.value?.focus()
-  })
-}
-
-// 引用一段历史会话当上下文：拉它的逐条正文，折成一块给模型读。
-// 会话可能很长，只留最近一段（约 4000 字）——引用是「接着上次说」，不是把整份历史重放一遍。
-async function onPickSession(sessionPath: string, title: string): Promise<void> {
-  try {
-    const detail = await api.sessionDetail(sessionPath)
-    const role = (kind: string) => (kind === 'user' ? '用户' : kind === 'assistant' ? '助手' : '工具')
-    const lines = (detail.items ?? [])
-      .filter((it) => it.item_text && it.item_text.trim())
-      .map((it) => `${role(it.item_kind)}：${it.item_text?.trim()}`)
-    const body = `[引用历史会话「${title}」]\n${lines.join('\n').slice(-4000)}`
-    const err = attachments.addSession(title, body)
-    if (err) {
-      attachError.value = err
-      return
-    }
-  } catch (err) {
-    attachError.value = err instanceof Error ? err.message : String(err)
-    return
-  }
-  draft.value = draft.value.replace(/@\S*$/, '').trimEnd()
-  composerMenu.close()
-  void nextTick(() => {
-    autosize()
-    textarea.value?.focus()
-  })
-}
-
-// ── 附件 ──
-async function onPaste(event: ClipboardEvent): Promise<void> {
-  const errors = await attachments.addFromClipboard(event.clipboardData)
-  if (errors.length) {
-    attachError.value = errors.join('；')
-    return
-  }
-  // 有图片时吃掉这次粘贴，避免同一张图既进附件又变成一段二进制文本；
-  // 没有图片就放行——普通文本粘进输入框是正常操作。
-  if (attachments.images.value.length) event.preventDefault()
-}
-
-/** 回形针：选文件。工作区内的变成相对路径引用，工作区外的给绝对路径。 */
-async function browseFiles(): Promise<void> {
-  const picked = await pickFiles(t('chat.attachPick'))
-  if (!picked.length) return
-  const errors: string[] = []
-  for (const path of picked) {
-    const rel = toWorkspaceRelative(path, app.workspace)
-    const err = attachments.addWorkspaceFile(rel ?? path, baseName(path))
-    if (err) errors.push(err)
-  }
-  if (errors.length) attachError.value = errors.join('；')
-  void nextTick(() => textarea.value?.focus())
 }
 
 // ── 输入与键盘 ──
