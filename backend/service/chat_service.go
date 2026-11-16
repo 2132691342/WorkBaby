@@ -95,6 +95,8 @@ func NewChat(settings *Settings, sessions *Sessions, models *Models, hub *sse.Hu
 	}
 	chat.Tools = agent.NewRegistry(settings.Workspace)
 	chat.Tools.Asker = agent.AskerFunc(chat.ask)
+	// 危险命令闸门的开关来自设置台账：每次执行时现读，设置页改完立即生效。
+	chat.Tools.BashConfirm = settings.BashConfirmEnabled
 	return chat
 }
 

@@ -195,10 +195,14 @@ func stringOfField(block map[string]any, key string) string {
 	return value
 }
 
-// argsToRaw 把工具入参翻回 JSON 原文；形状不认得就当空入参。
+// argsToRaw 把工具入参翻回 JSON 原文；解不开的原文字符串原样透传
+// （decodeArgs 说好「返回原文」，往返就得对称），形状不认得就当空入参。
 func argsToRaw(args any) string {
 	if args == nil {
 		return ""
+	}
+	if raw, ok := args.(string); ok {
+		return raw
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {

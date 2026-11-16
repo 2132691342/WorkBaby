@@ -97,7 +97,7 @@ func (t *writeTool) Spec() ToolSpec {
 
 // Run 执行写入。
 func (t *writeTool) Run(_ context.Context, reg *Registry, args map[string]any) Result {
-	file, err := reg.resolve(stringArg(args, "path"))
+	file, err := reg.resolveWrite(stringArg(args, "path"))
 	if err != nil {
 		return errorf("%s", pkg.As(err).Message)
 	}
@@ -132,7 +132,7 @@ func (t *editTool) Spec() ToolSpec {
 
 // Run 执行替换。
 func (t *editTool) Run(_ context.Context, reg *Registry, args map[string]any) Result {
-	file, err := reg.resolve(stringArg(args, "path"))
+	file, err := reg.resolveWrite(stringArg(args, "path"))
 	if err != nil {
 		return errorf("%s", pkg.As(err).Message)
 	}

@@ -60,6 +60,9 @@ type Registry struct {
 	Web WebKit
 	// Index 检索出口；装上检索工具的前提
 	Index Indexer
+	// BashConfirm 危险命令确认闸门是否开启；nil 视为开启（fail-closed）。
+	// 由上层从设置台账注入：用户在设置页关掉后，命中危险特征也直接执行。
+	BashConfirm func() bool
 	// TidyPolicy 工具输出折叠策略
 	TidyPolicy *tidyPolicy
 	// SkillIndex 已启用技能索引；每轮开跑前由上层整段换上
@@ -215,6 +218,8 @@ func (r *Registry) Run(ctx context.Context, name, rawArgs string) Result {
 	}
 	// 技能正文只读：读写都走 resolve，而技能要能被 read 才用得上。
 	// 改技能只有一个入口（技能页那套服务），工具改的是副本还是原件都说不清。
+	// 这里按入参原文先拦一道；resolve 里对解析后的路径（含真实路径）再拦一道，
+	// 相对路径与符号链接都绕不过去。
 	if IsMutatingTool(name) && r.Skills().IsFile(stringArg(args, "path")) {
 		return errorf("技能正文只读，请在技能页里修改：%s", stringArg(args, "path"))
 	}
@@ -242,6 +247,20 @@ func (r *Registry) resolve(raw string) (string, error) {
 		if !r.Skills().IsFile(clean) {
 			return "", pkg.Err(pkg.CodePathOutside, "路径不在工作区内", clean)
 		}
+	}
+	return clean, nil
+}
+
+// resolveWrite 解析写类工具的目标路径：技能文件一律拒。
+// 判定放在解析之后：相对路径、大小写变体、工作区内指向技能的符号链接，
+// 只有落到最终路径（含真实路径）上才判得准。
+func (r *Registry) resolveWrite(raw string) (string, error) {
+	clean, err := r.resolve(raw)
+	if err != nil {
+		return "", err
+	}
+	if r.Skills().IsFile(clean) || r.Skills().IsFile(pkg.RealPath(clean)) {
+		return "", pkg.Err(pkg.CodePathOutside, "技能正文只读，请在技能页里修改", clean)
 	}
 	return clean, nil
 }

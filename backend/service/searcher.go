@@ -81,7 +81,31 @@ func (s *Searcher) Status() domain.IndexStatusVO {
 	}
 }
 
-// Rebuild 为当前工作区重建索引。
+// RebuildAsync 触发一次后台重建并立即返回当前状态。
+// 大仓库全量扫描以分钟计：HTTP 请求与模型工具都不该被它拖住，
+// 更不能随请求取消而中断。最终状态由 /index/status 轮询。
+// 后台协程用独立的 context：不挂在任何一个调用方的生命周期上。
+func (s *Searcher) RebuildAsync() (domain.IndexStatusVO, error) {
+	if strings.TrimSpace(s.settings.Workspace()) == "" {
+		return s.Status(), pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
+	}
+	s.mu.Lock()
+	start := !s.building
+	if start {
+		s.building = true
+	}
+	s.mu.Unlock()
+	if start {
+		go func() {
+			if _, err := s.rebuildLocked(context.Background()); err != nil {
+				pkg.Warn("后台索引失败：%s", pkg.As(err).Message)
+			}
+		}()
+	}
+	return s.Status(), nil
+}
+
+// Rebuild 为当前工作区同步重建索引（测试与显式等待的场景用）。
 // 索引是派生数据：重建失败只影响检索速度，不影响任何功能。
 // 回的是「收尾之后」的状态：先清 building 再取样，否则这一次应答里
 // index_building 恒为 true——界面会一直显示正在建索引。
@@ -97,6 +121,12 @@ func (s *Searcher) Rebuild(ctx context.Context) (domain.IndexStatusVO, error) {
 	}
 	s.building = true
 	s.mu.Unlock()
+	return s.rebuildLocked(ctx)
+}
+
+// rebuildLocked 是已占住 building 位的重建主体：扫描、落库、换内存段。
+func (s *Searcher) rebuildLocked(ctx context.Context) (domain.IndexStatusVO, error) {
+	workspace := s.settings.Workspace()
 
 	// 失败与成功两条路都要清掉 building：清在这里而不是 defer 里，
 	// 是为了让返回值取到「已收尾」的状态。
@@ -129,16 +159,17 @@ func (s *Searcher) Rebuild(ctx context.Context) (domain.IndexStatusVO, error) {
 	return s.Status(), nil
 }
 
-// EnsureIndexed 保证当前工作区有可用索引；没有就现建。
-// 切工作区后第一次搜索会走到这里：用户不该为了搜个文件先点一次「建索引」。
-func (s *Searcher) EnsureIndexed(ctx context.Context) {
+// EnsureIndexed 保证当前工作区有可用索引；没有就触发后台构建。
+// 不在调用方协程里等：切工作区后第一次搜索不该挂住整个请求几分钟，
+// 构建期间 Search 回可读的「正在构建」错误，模型下一步再搜就有结果。
+func (s *Searcher) EnsureIndexed(_ context.Context) {
 	s.mu.RLock()
 	ready := s.indexedAt > 0 && s.workspace == s.settings.Workspace()
 	s.mu.RUnlock()
 	if ready {
 		return
 	}
-	_, _ = s.Rebuild(ctx)
+	_, _ = s.RebuildAsync()
 }
 
 // Search 检索工作区。检索与记账在同一把锁里：

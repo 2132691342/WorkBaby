@@ -144,7 +144,11 @@ var destructivePatterns = []string{
 
 // confirmDestructive 命中危险特征时经 ask 通道要一次确认；拒绝或取消都不执行。
 // 没有提问通道时一律拒：宁可让模型换思路，也不静默执行不可逆操作。
+// 用户在设置页明确关掉闸门（BashConfirm 返回 false）时跳过确认。
 func confirmDestructive(ctx context.Context, reg *Registry, command string) *Result {
+	if reg.BashConfirm != nil && !reg.BashConfirm() {
+		return nil
+	}
 	lowered := strings.ToLower(command)
 	hit := ""
 	for _, pattern := range destructivePatterns {

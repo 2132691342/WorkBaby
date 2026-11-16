@@ -29,9 +29,10 @@ func (s *Server) indexSearch(c *gin.Context) {
 	})
 }
 
-// indexRebuild 重建工作区索引。
+// indexRebuild 触发后台重建，立即回当前状态（index_building=true）。
+// 同步等完会把 HTTP 请求挂住几分钟，还随请求取消而中断——都不该发生。
 func (s *Server) indexRebuild(c *gin.Context) {
-	status, err := s.svc.Searcher.Rebuild(c.Request.Context())
+	status, err := s.svc.Searcher.RebuildAsync()
 	if err != nil {
 		pkg.Fail(c, err)
 		return

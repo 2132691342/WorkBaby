@@ -58,6 +58,8 @@ const (
 	KeyReduceMotion = "ui.reduce_motion"
 	// KeyLocale 界面语言
 	KeyLocale = "ui.locale"
+	// KeyBashConfirm 危险命令确认闸门（"0" 为关，默认开）
+	KeyBashConfirm = "agent.bash_confirm"
 
 	// CloseActionTray 收进托盘
 	CloseActionTray = "tray"
@@ -72,6 +74,7 @@ var defaultSettings = map[string]string{
 	KeyFontScale:       "1",
 	KeyReduceMotion:    "0",
 	KeyLocale:          "zh-CN",
+	KeyBashConfirm:     "1",
 }
 
 // EnsureDefaults 把缺失的界面设置补成默认值，返回是否有写入。
@@ -91,6 +94,12 @@ func (s *Settings) EnsureDefaults() bool {
 		return false
 	}
 	return true
+}
+
+// BashConfirmEnabled 危险命令确认闸门是否开启；只有显式 "0" 才关。
+// 缺键/坏值一律按开处理：安全开关的兜底方向必须是更严的那边。
+func (s *Settings) BashConfirmEnabled() bool {
+	return strings.TrimSpace(s.Get(KeyBashConfirm)) != "0"
 }
 
 // DefaultThinkingLevel 是新会话起步的思考档：读 `model.default_thinking_level`，
