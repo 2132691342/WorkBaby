@@ -180,7 +180,11 @@ WorkBaby 是 Windows 单机 AI 工作台：一个 Go 进程里同时装桌面壳
 - `sessions.Active` 必须排在 `NewChat` 之后：改名要避让引擎正在写的那份会话文件（`backend/service/sessions.go:132-136`）。
 - 两处重物在后台：`go a.svc.Chat.Warm()`（`backend/shell/app.go:223`，绑定或新建会话，`backend/service/chat_session.go:147-154`）
   与 `go mcpRuntime.Rebuild()`（`backend/service/app.go:98`，MCP 子进程握手以秒计）；
-  工作区索引更晚——第一次搜索时才建（`EnsureIndexed`，`backend/service/searcher.go:125-135`）。
+  工作区索引更晚——第一次搜索时才建（`EnsureIndexed`，`backend/service/searcher.go`），
+  界面点「重建」走 `RebuildAsync`：立即受理返回当前状态，重建在后台协程跑，`building` 期间幂等受理。
+- 上游失败有有限重试：只重发「还没产出任何内容」的失败，三次退避（2s/4s/8s），
+  可重试特征（429/5xx/限流/连接类）与一票否决特征（401/403/额度/密钥类）各自成表
+  （`backend/agent/loop_retry.go`）；退避可被用户中止打断，每次重试经 `chat:retry/chat:retry_end` 广播到界面。
 
 前端段（`frontend/src/stores/app.ts:76-98`）：`getEndpoint()` → `GET /bootstrap` → 应用主题/动效/字号/语言 →
 `ready=true` → `connect()` 建 SSE → 拉会话与引擎读数 → 恢复上次会话。首屏渲染完才 `notifyReady()`（`frontend/src/App.vue:81`）；
@@ -226,7 +230,7 @@ WorkBaby 是 Windows 单机 AI 工作台：一个 Go 进程里同时装桌面壳
 | `Chat.mu` | `backend/service/chat_service.go:37-52` | `session`、`runner`、`cancel`、`queued` 镜像、`level`、`waiters` | 单次读或单次赋值（几纳秒级） | 这几个字段必须一起变才自洽：绑定会话与登记运行不能交叉，取 runner 插话不能拿到半新半旧的队 |
 | `Runner.mu` | `backend/agent/loop.go:58` | `queue`、`followUp`、`steps` | 一次入队 / 一次取走 | 写来自 HTTP 协程（`Steer`/`FollowUp`），读来自 runner 协程；`FollowUpQueued` 取走即清，派发与清空必须原子 |
 | `Git.writeMu` | `backend/service/git.go:24` | git **写**命令通道 | 一条命令（超时 120 秒） | git 用 `index.lock` 保护索引，并发写会撞锁失败且报错看不出是并发造成；`fetch` 也走这把锁，因为它改远端引用（`backend/service/git_sync.go:63-68`） |
-| `Mcp.mu` | `backend/service/mcp.go:28` | `mcp.json` 与项目级 `.pi\mcp.json` 的读-改-写 | 一次读-改-写 | 两份文件共用一把锁：并发时后写会拿回改前旧表，前一次改动凭空消失 |
+| `Mcp.mu` | `backend/service/mcp.go:28` | `mcp.json` 与项目级 `.workbaby\mcp.json` 的读-改-写 | 一次读-改-写 | 两份文件共用一把锁：并发时后写会拿回改前旧表，前一次改动凭空消失 |
 | `rebuildMu`（容量 1 的 channel） | `backend/service/mcp_runtime.go:29,41,47-48` | `Rebuild` 全程 | 一轮装载（含子进程握手） | 并发重建会留下半新半旧：旧 clients 已 `Close`、新工具还没装上；后到者等前者完成即可 |
 | `Registry.mu` | `backend/agent/tool.go:49` | `tools`、`order`、`mcpTools` | 一次注册 / 一次整段替换 / 一次查名 | 内置段装配期一次装完，MCP 段运行中整段换（`ReplaceMcpTools`，`backend/agent/tool.go:152-180`），而轮次循环随时在按名查 |
 | `Store.mu` | `backend/repo/store.go:19` | 台账内存态 + 落盘 | 一次 `Save`/`Delete`/`SetSkillEnabled` | 整写走临时文件换名（`pkg.WriteFileAtomic`，`backend/pkg/fsutil.go:58-80`），持锁到换名完成才能保证读到的永远是完整文件 |
@@ -269,13 +273,14 @@ runner 在 `ctx.Err()` 处把已经吐出的半截回复落盘并标 `stop_reaso
 | 会话 | `data\sessions\<工作区编码>\SES_<ULID>.jsonl`，逐行追加，`parentId` 串分支 | `backend/agent/session.go` 的 `append`（`AppendMessage`/`Rename`/`AppendUsage`/`AppendCompaction`/`AppendCustom` 全走它） | `agent`（组上下文 `history`）、`service/parser`（历史/待办/计划模式/摘要/统计）、`service/sessions.go`、`service/session_html.go` | 会话就是历史本身，不可重建 |
 | 设置台账 | `data\workbaby.json`：`settings` 键值 + `skill_toggles` 记账 + `chat.hide:<会话文件>` 隐藏轮台账 | `backend/repo/store.go`（`Save`/`Delete`/`SetSkillEnabled` → `persist` → `WriteFileAtomic`） | `service/settings.go`、`service/sessions.go`（隐藏轮）、`shell`（关窗偏好） | 文件损坏时挪成 `workbaby.json.bad-<毫秒>` 从空白开始；除技能开关外都可重设 |
 | 服务商目录 | `data\workbaby.db` 的 `provider` / `provider_model` | `backend/repo/provider_repo.go`，只由 `service/models.go` 调 | 模型页、对话页下拉、`Chat.resolveModel` | 密钥丢了要用户重填，其余可重新录入 |
-| 能力配置 | `data\mcp.json`（用户级）与 `<工作区>\.pi\mcp.json`（项目级）；技能目录 `data\skills`、`data\skills_disabled`、`<工作区>\.pi\skills`，随包原件 `assets\skills`；模板 `data\templates\*.md` | `service/mcp.go`（两份 mcp 文件）、`service/skills.go`（目录搬移/新建/导入/删除）、`service/templates.go` | `service/mcp_runtime.go`（按 `enabled` 装工具）、`service/skills_scan.go`（三区扫描出清单）、`service/chat_state.go commands()`（模板命令） | `assets\skills` 里的原件可 `Reset` 恢复内置技能；其余随仓库或用户数据走 |
+| 能力配置 | `data\mcp.json`（用户级）与 `<工作区>\.workbaby\mcp.json`（项目级）；技能目录 `data\skills`、`data\skills_disabled`、`<工作区>\.workbaby\skills`，随包原件 `assets\skills`；模板 `data\templates\*.md` | `service/mcp.go`（两份 mcp 文件）、`service/skills.go`（目录搬移/新建/导入/删除）、`service/templates.go` | `service/mcp_runtime.go`（按 `enabled` 装工具）、`service/skills_scan.go`（三区扫描出清单）、`service/chat_state.go commands()`（模板命令） | `assets\skills` 里的原件可 `Reset` 恢复内置技能；其余随仓库或用户数据走 |
 | 派生数据 | `data\workbaby.db` 的 `search_doc`；进程内索引 `docs` 与 `frecency` | `service/searcher.go`（`ReplaceWorkspace`、`BumpHit`） | 索引页状态读 `Count`，检索读内存 `docs` | 由扫盘重建；重启后 `frecency` 从空开始 |
 
 - **会话目录的分片**：`<工作区编码>` 由 `pkg.EncodedWorkspace` 把绝对路径里的 `:`/`\`/` `/`/` 折成 `-` 并前后加 `--`
   （`backend/pkg/sessionfile.go:58-67`），一个工作区一个目录，切工作区不会看到别处的会话。
-- **项目级配置的目录名**：`.pi` 是本项目约定的项目级配置目录，跟着仓库走，与用户级的 `data\` 分开；
-  同名条目项目级优先（`backend/service/mcp_runtime.go:116`、`backend/service/skills.go:38-41`）。
+- **项目级配置的目录名**：`.workbaby` 是本项目约定的项目级配置目录，跟着仓库走，与用户级的 `data\` 分开；
+  同名条目项目级优先（`backend/service/mcp_runtime.go`、`backend/service/skills.go`，目录统一由 `workspace_config.go`
+  的 `workspaceConfigDir` 收口）。旧 `.pi` 目录存在且 `.workbaby` 不存在时一次性整体搬迁，失败沿用旧目录并记日志。
 - **标题派生而非重写**：会话头只在 `Store.Create` 时写一次，之后永不整写；标题取活动分支上最后一条改名条目，没有就用首条用户消息
   （`backend/agent/session.go:94-118`、`titleFromEntries`）。
 - **用量没有独立账本**：用量本来就在每条消息的 `usage` 上。当前会话的读数由 `usageSnapshot` 扫条目得出
@@ -306,7 +311,7 @@ runner 在 `ctx.Err()` 处把已经吐出的半截回复落盘并标 `stop_reaso
 - 随包 `assets\skills` 只被 `Install` 与 `Reset` 读（`backend/service/skills.go:33-34,59,148`），运行时没有任何读取方；
   它缺失只影响内置技能能否装/重置，不影响启动（`backend/shell/app.go:150`）。
 - 进程内引擎不扫技能目录：`commands()` 只给内置命令与模板命令，`data\skills` 又在工作区之外，
-  工具的路径解析把它挡在 `resolve` 之外（`backend/agent/tool.go:218-233`）。技能对模型生效的通路是工作区内的 `<工作区>\.pi\skills`，
+  工具的路径解析把它挡在 `resolve` 之外（`backend/agent/tool.go:218-233`）。技能对模型生效的通路是工作区内的 `<工作区>\.workbaby\skills`，
   技能页负责的是装、开关、改、恢复。
 
 ---
@@ -319,7 +324,7 @@ runner 在 `ctx.Err()` 处把已经吐出的半截回复落盘并标 `stop_reaso
 |---|---|---|---|
 | 工具路径 | `agent.Registry.resolve`（`backend/agent/tool.go:218-233`） | 相对路径按当前工作区拼，`filepath.Clean` 后 `pkg.Inside(workspace, ...)`，不过就 `1002` | 模型给的路径是对话内容；漏一个入口就漏一个任意文件读写 |
 | 文件接口路径 | `Files.guard`（`backend/service/files.go:45-61`） | 先归一再判越界；空路径按工作区根；`filepath.Join` 自带 `Clean`，`src/../../etc` 折成可被拒的形状 | 相对路径绝不拿进程 CWD 解析——安装态 CWD 是 exe 目录 |
-| 技能路径 | `Skills.guardPath`（`backend/service/skills.go:66-77`） | 必须在 `data\skills`、`data\skills_disabled`、`<工作区>\.pi\skills` 三个根之内，且必须指向 `SKILL.md`；项目技能拒开关与删除 | 删除与搬移不可逆，边界要比读更紧 |
+| 技能路径 | `Skills.guardPath`（`backend/service/skills.go:66-77`） | 必须在 `data\skills`、`data\skills_disabled`、`<工作区>\.workbaby\skills` 三个根之内，且必须指向 `SKILL.md`；项目技能拒开关与删除 | 删除与搬移不可逆，边界要比读更紧 |
 | 会话路径 | `parser.GuardSession`（`backend/service/parser/history.go:271-280`）与 `agent.Guard`（`backend/agent/session.go:393-402`） | 必须在 `data\sessions` 下 | 会话名可以被传进来，不能让它指到别处 |
 | git | `Git.runIn` 的 `dir`（`backend/service/git.go:40-52`） | 命令的 cwd 是当前工作区，未选工作区直接拒；环境追加 `GIT_TERMINAL_PROMPT=0` | 不给一个能在任意目录跑的 git 入口；凭证问询立刻失败而不是卡满 120 秒 |
 | 出网地址 | `web.ValidateURL` + `safeDial`（`backend/web/client.go:223-247,281-320`） | 只允许 http/https；`localhost` 与 `*.localhost` 直接判私；环回、私有段、链路本地、未指定地址、CGNAT `100.64.0.0/10` 全拒 | 只看字面地址会被「域名解析到 `127.0.0.1`」绕过，所以最终闸门在拨号时复核解析结果 |
@@ -333,9 +338,11 @@ runner 在 `ctx.Err()` 处把已经吐出的半截回复落盘并标 `stop_reaso
 | MCP 定义 | `mcpServerDefOf` → `agent.McpServerDef`（`backend/service/mcp_runtime.go:123-140`、`backend/agent/mcp_client.go:12-20`） | 配置文件形状（`mcpServers` 的 map）由 service 解，引擎只认 `command`/`args`/`cwd`/`env` | 协议解析与准入策略留在上层，引擎只管起进程、按行收发、按名调用 |
 
 **工具输出折叠不是安全边界，是上下文预算**：单条超过 4000 字符折成头 3000 + 尾 1000，折叠事实随 `details.tidied` 落盘
-（`backend/agent/tidy.go:21-26`、`backend/agent/loop.go:276-281`），界面仍能翻全文，模型不为几万字日志付上下文代价。
+（`backend/agent/tidy.go:21-26`、`backend/agent/loop.go` 的 `appendCallResult`），**落盘的是完整原文**，折叠只在组装上下文时发生，
+界面仍能翻全文，模型不为几万字日志付上下文代价。
 同样，超窗时 `trimToWindow` 丢最早的消息但始终留着最后一条——那是用户刚说的那句话，丢了模型就没法回答
-（`backend/agent/loop.go:382-405`）。
+（`backend/agent/loop_context.go:57-82`）。裁剪后 `repairToolPairs` 补齐工具配对：悬空的 tool 结果丢弃、
+缺结果的 tool_call 补占位，严格端点才不会整条请求拒掉（`backend/agent/loop_context.go:84-113`）。
 
 ### 取舍
 
