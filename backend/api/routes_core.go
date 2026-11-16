@@ -12,7 +12,7 @@ import (
 
 // bootstrap 首屏总包。
 func (s *Server) bootstrap(c *gin.Context) {
-	pkg.OK(c, s.svc.Bootstrap())
+	pkg.OK(c, s.svc.Bootstrap(c.Request.Context()))
 }
 
 // settingsGet 读全部设置。
@@ -40,7 +40,7 @@ func (s *Server) settingsWorkspace(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	if err := s.svc.SetWorkspace(req.Workspace); err != nil {
+	if err := s.svc.SetWorkspace(c.Request.Context(), req.Workspace); err != nil {
 		pkg.Fail(c, err)
 		return
 	}
@@ -53,7 +53,7 @@ func (s *Server) workspaceForget(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	rows, err := s.svc.Settings.ForgetWorkspace(req.WorkspacePath)
+	rows, err := s.svc.Settings.ForgetWorkspace(c.Request.Context(), req.WorkspacePath)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -67,12 +67,12 @@ func (s *Server) workspaceForget(c *gin.Context) {
 
 // workspacesGet 工作区清单：当前工作区 + 历史（带仓库与会话概况）。
 func (s *Server) workspacesGet(c *gin.Context) {
-	pkg.OK(c, s.svc.Settings.WorkspaceList())
+	pkg.OK(c, s.svc.Settings.WorkspaceList(c.Request.Context()))
 }
 
 // prefsGet 应用偏好。
 func (s *Server) prefsGet(c *gin.Context) {
-	pkg.OK(c, s.svc.Settings.Prefs())
+	pkg.OK(c, s.svc.Settings.Prefs(c.Request.Context()))
 }
 
 // prefsAutoStart 开关开机自启。
@@ -86,11 +86,11 @@ func (s *Server) prefsAutoStart(c *gin.Context) {
 		pkg.Fail(c, err)
 		return
 	}
-	if err := service.SetAutoStart(req.PrefEnabled, exePath); err != nil {
+	if err := service.SetAutoStart(c.Request.Context(), req.PrefEnabled, exePath); err != nil {
 		pkg.Fail(c, err)
 		return
 	}
-	pkg.OK(c, s.svc.Settings.Prefs())
+	pkg.OK(c, s.svc.Settings.Prefs(c.Request.Context()))
 }
 
 // prefsRestore 「启动时恢复上次会话」开关。
@@ -99,7 +99,7 @@ func (s *Server) prefsRestore(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	prefs, err := s.svc.Settings.SetRestoreSession(req.PrefEnabled)
+	prefs, err := s.svc.Settings.SetRestoreSession(c.Request.Context(), req.PrefEnabled)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -113,7 +113,7 @@ func (s *Server) prefsCloseAction(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	prefs, err := s.svc.Settings.SetCloseAction(req.CloseAction)
+	prefs, err := s.svc.Settings.SetCloseAction(c.Request.Context(), req.CloseAction)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -140,7 +140,7 @@ func (s *Server) enginesGet(c *gin.Context) {
 	pkg.OK(c, map[string]any{
 		"engines":     []domain.EngineIdentity{s.svc.EngineIdentity()},
 		"layouts":     []domain.EngineLayoutVO{service.EngineLayout(s.svc.Layout)},
-		"runtime":     s.svc.RuntimeStatus(),
+		"runtime":     s.svc.RuntimeStatus(c.Request.Context()),
 		"instance":    s.svc.EngineInstance(),
 		"detected_at": pkg.NowMs(),
 	})
@@ -148,8 +148,8 @@ func (s *Server) enginesGet(c *gin.Context) {
 
 // enginesDetect 重新探测运行时（内置引擎恒就绪，这里只是刷新工具链状态）。
 func (s *Server) enginesDetect(c *gin.Context) {
-	s.svc.Redetect()
-	pkg.OK(c, map[string]any{"runtime": s.svc.RuntimeStatus(), "apps": s.svc.Apps()})
+	s.svc.Redetect(c.Request.Context())
+	pkg.OK(c, map[string]any{"runtime": s.svc.RuntimeStatus(c.Request.Context()), "apps": s.svc.Apps(c.Request.Context())})
 }
 
 // enginesRestart 中止当前运行：内置引擎没有需要重启的进程。
@@ -161,18 +161,18 @@ func (s *Server) enginesRestart(c *gin.Context) {
 
 // enginesRepair 重新探测全部外部依赖（等价于一次全面刷新）。
 func (s *Server) enginesRepair(c *gin.Context) {
-	s.svc.Redetect()
-	pkg.OK(c, map[string]any{"runtime": s.svc.RuntimeStatus(), "apps": s.svc.Apps()})
+	s.svc.Redetect(c.Request.Context())
+	pkg.OK(c, map[string]any{"runtime": s.svc.RuntimeStatus(c.Request.Context()), "apps": s.svc.Apps(c.Request.Context())})
 }
 
 // healthGet 概览页的健康快照。
 func (s *Server) healthGet(c *gin.Context) {
-	pkg.OK(c, s.svc.Health())
+	pkg.OK(c, s.svc.Health(c.Request.Context()))
 }
 
 // appsGet 应用页的行。
 func (s *Server) appsGet(c *gin.Context) {
-	pkg.OK(c, map[string]any{"apps": s.svc.Apps()})
+	pkg.OK(c, map[string]any{"apps": s.svc.Apps(c.Request.Context())})
 }
 
 // configFiles 可查看的配置文件清单。

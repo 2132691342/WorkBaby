@@ -95,7 +95,7 @@ type ProviderVO struct {
 type ProvidersRESP struct {
 	// Providers 服务商行
 	Providers []ProviderVO `json:"providers"`
-	// ConfigPath models.json 路径
+	// ConfigPath 服务商与模型所在数据库的路径
 	ConfigPath string `json:"config_path"`
 	// ReadError 读取失败原因
 	ReadError string `json:"read_error,omitempty"`

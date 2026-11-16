@@ -193,6 +193,11 @@ type App struct {
 	tray *application.SystemTray
 	app  *application.App
 
+	// appCtx 是 Wails 的应用上下文：应用退出时它被取消。
+	// 壳侧发起的业务动作（切工作区、改关窗偏好）用它当下界——
+	// 应用已经在退了，就不该再拉起 git 子进程。
+	appCtx context.Context
+
 	startDone   chan struct{}
 	startOK     atomic.Bool
 	startErr    string
@@ -204,8 +209,18 @@ type App struct {
 
 // ServiceStartup 是 Wails 的服务生命周期钩子：装配业务、启动后端。
 func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	// Wails 给的 ctx 就是应用上下文：退出时它被取消。留着当壳侧动作的取消信号。
+	a.appCtx = ctx
 	a.startup(ctx)
 	return nil
+}
+
+// appContext 取应用上下文；装配前还没有，给一个空上下文（此时还没有子进程可杀）。
+func (a *App) appContext() context.Context {
+	if a.appCtx == nil {
+		return context.Background()
+	}
+	return a.appCtx
 }
 
 // startup 装配业务并起 HTTP；任何一步失败都把原因留给前端显示。

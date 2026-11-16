@@ -3,6 +3,7 @@
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -206,7 +207,7 @@ func (s *Settings) Workspace() string {
 const maxWorkspaces = 24
 
 // SetWorkspace 切工作区：校验目录、写设置、记历史、广播。
-func (s *Settings) SetWorkspace(dir string) (string, error) {
+func (s *Settings) SetWorkspace(ctx context.Context, dir string) (string, error) {
 	target := strings.TrimSpace(dir)
 	if target == "" {
 		return "", pkg.Err(pkg.CodeBadRequest, "工作区路径不能为空")
@@ -217,7 +218,7 @@ func (s *Settings) SetWorkspace(dir string) (string, error) {
 	if abs, err := filepath.Abs(target); err == nil {
 		target = abs
 	}
-	rows := s.Workspaces()
+	rows := s.Workspaces(ctx)
 	next := []domain.WorkspaceRowVO{{
 		WorkspacePath:   target,
 		WorkspaceExists: true,
@@ -244,8 +245,8 @@ func (s *Settings) SetWorkspace(dir string) (string, error) {
 }
 
 // ForgetWorkspace 从历史里去掉一个目录（不删磁盘）。
-func (s *Settings) ForgetWorkspace(dir string) ([]domain.WorkspaceRowVO, error) {
-	rows := s.Workspaces()
+func (s *Settings) ForgetWorkspace(ctx context.Context, dir string) ([]domain.WorkspaceRowVO, error) {
+	rows := s.Workspaces(ctx)
 	kept := make([]domain.WorkspaceRowVO, 0, len(rows))
 	for _, row := range rows {
 		if strings.EqualFold(row.WorkspacePath, dir) {
@@ -261,7 +262,7 @@ func (s *Settings) ForgetWorkspace(dir string) ([]domain.WorkspaceRowVO, error) 
 
 // Workspaces 工作区历史；每条都带上「目录还在不在」以及仓库与会话概况。
 // 一次扫描把界面要的全部事实算齐：分开拉会让每一行各发一次 git 请求。
-func (s *Settings) Workspaces() []domain.WorkspaceRowVO {
+func (s *Settings) Workspaces(ctx context.Context) []domain.WorkspaceRowVO {
 	rows := unmarshalRows(s.Get(KeyWorkspaces))
 	for i := range rows {
 		rows[i].WorkspaceExists = pkg.IsDir(rows[i].WorkspacePath)
@@ -272,7 +273,7 @@ func (s *Settings) Workspaces() []domain.WorkspaceRowVO {
 		if s.Git == nil {
 			continue
 		}
-		rows[i].WorkspaceIsRepo, rows[i].WorkspaceBranch, rows[i].WorkspaceDirty = s.Git.ProbeOf(rows[i].WorkspacePath)
+		rows[i].WorkspaceIsRepo, rows[i].WorkspaceBranch, rows[i].WorkspaceDirty = s.Git.ProbeOf(ctx, rows[i].WorkspacePath)
 	}
 	return rows
 }
@@ -295,22 +296,22 @@ func (s *Settings) sessionCountOf(workspace string) int {
 }
 
 // WorkspaceList 工作区清单（含当前工作区），供工作区页默认打开的那一屏。
-func (s *Settings) WorkspaceList() domain.WorkspaceListRESP {
+func (s *Settings) WorkspaceList(ctx context.Context) domain.WorkspaceListRESP {
 	return domain.WorkspaceListRESP{
 		Workspace:     s.Workspace(),
-		WorkspaceRows: s.Workspaces(),
+		WorkspaceRows: s.Workspaces(ctx),
 		ActiveEngine:  domain.EngineNative,
 	}
 }
 
 // Prefs 组装设置页要的全部开关状态。
-func (s *Settings) Prefs() domain.AppPrefsVO {
+func (s *Settings) Prefs(ctx context.Context) domain.AppPrefsVO {
 	restore, _ := s.Store.Get(KeyRestoreSession)
 	hint, _ := s.Store.Get(KeyTrayHintShown)
 	_ = hint
 	return domain.AppPrefsVO{
 		PrefValues:      s.All(),
-		AutoStart:       autoStartEnabled(),
+		AutoStart:       autoStartEnabled(ctx),
 		RestoreSession:  restore == "1" || restore == "true",
 		LastSessionFile: s.Get(KeyLastSession),
 		CloseAction:     s.closeAction(),
@@ -320,22 +321,22 @@ func (s *Settings) Prefs() domain.AppPrefsVO {
 }
 
 // SetRestoreSession 写「启动时恢复上次会话」。
-func (s *Settings) SetRestoreSession(enabled bool) (domain.AppPrefsVO, error) {
+func (s *Settings) SetRestoreSession(ctx context.Context, enabled bool) (domain.AppPrefsVO, error) {
 	if err := s.Store.Save(map[string]string{KeyRestoreSession: boolString(enabled)}); err != nil {
 		return domain.AppPrefsVO{}, err
 	}
-	return s.Prefs(), nil
+	return s.Prefs(ctx), nil
 }
 
 // SetCloseAction 写关窗行为。
-func (s *Settings) SetCloseAction(action string) (domain.AppPrefsVO, error) {
+func (s *Settings) SetCloseAction(ctx context.Context, action string) (domain.AppPrefsVO, error) {
 	if action != CloseActionQuit {
 		action = CloseActionTray
 	}
 	if err := s.Store.Save(map[string]string{KeyCloseAction: action}); err != nil {
 		return domain.AppPrefsVO{}, err
 	}
-	return s.Prefs(), nil
+	return s.Prefs(ctx), nil
 }
 
 // CloseAction 读关窗行为；没有记录时默认收托盘（正在跑的对话不该被一键弄死）。

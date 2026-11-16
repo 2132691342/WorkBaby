@@ -257,7 +257,7 @@ func TestSession(t *testing.T) {
 			t.Fatalf("建会话目录失败：%v", err)
 		}
 		// 分叉要落在当前工作区上：没有工作区就没有会话目录。
-		if _, err := h.app.Settings.SetWorkspace(workspace); err != nil {
+		if _, err := h.app.Settings.SetWorkspace(t.Context(), workspace); err != nil {
 			t.Fatalf("设工作区失败：%v", err)
 		}
 		store := agent.NewStore(workspace, func() string { return workspace })

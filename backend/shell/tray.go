@@ -70,7 +70,7 @@ func (a *App) fillRecentWorkspaces(sub *application.Menu) {
 			if a.svc == nil {
 				return
 			}
-			if err := a.svc.SetWorkspace(dir); err != nil {
+			if err := a.svc.SetWorkspace(a.appContext(), dir); err != nil {
 				pkg.Warn("托盘切工作目录失败：%v", err)
 				return
 			}
@@ -93,7 +93,7 @@ func (a *App) recentWorkspaces() []domain.WorkspaceRowVO {
 	if a.svc == nil {
 		return nil
 	}
-	return a.svc.WorkspaceRows()
+	return a.svc.WorkspaceRows(a.appContext())
 }
 
 // shortPath 取最后两级路径，够看清是哪个项目。

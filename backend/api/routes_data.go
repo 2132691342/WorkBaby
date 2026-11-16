@@ -292,7 +292,7 @@ func (s *Server) mcpProbe(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Mcp.Probe(req.ServerName)
+	out, err := s.svc.Mcp.Probe(c.Request.Context(), req.ServerName)
 	if err != nil {
 		pkg.Fail(c, err)
 		return

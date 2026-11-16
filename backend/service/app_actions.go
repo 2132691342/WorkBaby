@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"runtime"
 
 	"WorkBaby/backend/domain"
@@ -8,7 +9,7 @@ import (
 )
 
 // Bootstrap 组装首屏总包：界面一次请求拿到画首屏要用的全部事实。
-func (a *App) Bootstrap() domain.BootBootstrapRESP {
+func (a *App) Bootstrap(ctx context.Context) domain.BootBootstrapRESP {
 	return domain.BootBootstrapRESP{
 		AppVersion:   a.Version,
 		AppContract:  ContractVersion,
@@ -17,9 +18,9 @@ func (a *App) Bootstrap() domain.BootBootstrapRESP {
 		Workspace:    a.Settings.Workspace(),
 		Settings:     a.Settings.All(),
 		Layouts:      []domain.EngineLayoutVO{EngineLayout(a.Layout)},
-		Workspaces:   a.Settings.Workspaces(),
-		Runtime:      a.RuntimeStatus(),
-		Prefs:        a.Settings.Prefs(),
+		Workspaces:   a.Settings.Workspaces(ctx),
+		Runtime:      a.RuntimeStatus(ctx),
+		Prefs:        a.Settings.Prefs(ctx),
 	}
 }
 
@@ -39,14 +40,14 @@ func (a *App) EngineIdentity() domain.EngineIdentity {
 }
 
 // RuntimeStatus 外部依赖的检测状态。
-func (a *App) RuntimeStatus() domain.RuntimeStatusVO {
-	status := RuntimeStatus()
+func (a *App) RuntimeStatus(ctx context.Context) domain.RuntimeStatusVO {
+	status := RuntimeStatus(ctx)
 	status.Detecting = a.Provisioning()
 	return status
 }
 
 // Health 概览页首屏要用的全部事实。
-func (a *App) Health() domain.HealthRESP {
+func (a *App) Health(ctx context.Context) domain.HealthRESP {
 	identity := a.EngineIdentity()
 	health := domain.EngineHealthVO{
 		EngineKind:    identity.EngineKind,
@@ -65,7 +66,7 @@ func (a *App) Health() domain.HealthRESP {
 		HealthEngines: []domain.EngineHealthVO{health},
 		ActiveEngine:  domain.EngineNative,
 		Workspace:     a.Settings.Workspace(),
-		Runtime:       a.RuntimeStatus(),
+		Runtime:       a.RuntimeStatus(ctx),
 		TotalSessions: health.SessionCount,
 		TotalSkills:   health.SkillCount,
 		TotalMcp:      health.McpCount,
@@ -76,12 +77,12 @@ func (a *App) Health() domain.HealthRESP {
 
 // Apps 应用页的行：只有用户环境里的工具链。
 // 引擎不再是一行外部依赖——它在进程里跑，没有「装没装」这件事。
-func (a *App) Apps() []domain.AppRowVO {
+func (a *App) Apps(ctx context.Context) []domain.AppRowVO {
 	return []domain.AppRowVO{
 		{
 			AppKey:      "git",
 			AppName:     "Git",
-			AppVersion:  gitVersion(),
+			AppVersion:  gitVersion(ctx),
 			AppPath:     pkg.LookPath("git"),
 			Installed:   pkg.LookPath("git") != "",
 			AppSource:   "path",
@@ -90,7 +91,7 @@ func (a *App) Apps() []domain.AppRowVO {
 		{
 			AppKey:      "node",
 			AppName:     "Node.js",
-			AppVersion:  progVersion("node", "--version"),
+			AppVersion:  progVersion(ctx, "node", "--version"),
 			AppPath:     pkg.LookPath("node"),
 			Installed:   pkg.LookPath("node") != "",
 			AppSource:   "path",
@@ -99,7 +100,7 @@ func (a *App) Apps() []domain.AppRowVO {
 		{
 			AppKey:      "python",
 			AppName:     "Python",
-			AppVersion:  progVersion("python", "--version"),
+			AppVersion:  progVersion(ctx, "python", "--version"),
 			AppPath:     pkg.LookPath("python"),
 			Installed:   pkg.LookPath("python") != "",
 			AppSource:   "path",
@@ -109,7 +110,7 @@ func (a *App) Apps() []domain.AppRowVO {
 }
 
 // progVersion 读一个外部程序的版本号；拿不到给空串。
-func progVersion(name string, flag string) string {
+func progVersion(ctx context.Context, name string, flag string) string {
 	exe := pkg.LookPath(name)
 	if exe == "" {
 		return ""

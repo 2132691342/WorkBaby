@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -16,8 +17,8 @@ const (
 )
 
 // AutoStartEnabled 读注册表判断是否已设为开机自启。
-func AutoStartEnabled() bool {
-	out, err := regQuery()
+func AutoStartEnabled(ctx context.Context) bool {
+	out, err := regQuery(ctx)
 	if err != nil {
 		return false
 	}
@@ -25,21 +26,21 @@ func AutoStartEnabled() bool {
 }
 
 // SetAutoStart 打开或关闭开机自启；exePath 是可执行文件绝对路径。
-func SetAutoStart(enabled bool, exePath string) error {
+func SetAutoStart(ctx context.Context, enabled bool, exePath string) error {
 	if !enabled {
-		return runReg([]string{"delete", autoStartRunKey, "/v", autoStartValue, "/f"})
+		return runReg(ctx, []string{"delete", autoStartRunKey, "/v", autoStartValue, "/f"})
 	}
 	// --hidden：开机自启只拉起托盘，不往屏幕上弹一个空窗口。
 	value := fmt.Sprintf(`"%s" --hidden`, exePath)
-	if err := runReg([]string{"add", autoStartRunKey, "/v", autoStartValue, "/t", "REG_SZ", "/d", value, "/f"}); err != nil {
+	if err := runReg(ctx, []string{"add", autoStartRunKey, "/v", autoStartValue, "/t", "REG_SZ", "/d", value, "/f"}); err != nil {
 		return pkg.WrapErr(pkg.CodeInternal, "开机自启设置失败", err)
 	}
 	return nil
 }
 
 // regQuery 读自启项原文。
-func regQuery() (string, error) {
-	res, err := pkg.RunProc("reg", []string{"query", autoStartRunKey, "/v", autoStartValue}, pkg.ProcOptions{TimeoutMs: 10_000})
+func regQuery(ctx context.Context) (string, error) {
+	res, err := pkg.RunProc("reg", []string{"query", autoStartRunKey, "/v", autoStartValue}, pkg.ProcOptions{TimeoutMs: 10_000, Ctx: ctx})
 	if err != nil {
 		return "", err
 	}
@@ -49,8 +50,8 @@ func regQuery() (string, error) {
 // runReg 跑一条 reg 命令。
 // 与 regQuery 走同一条 RunProc：注册表被锁或被杀软拦截时，
 // 裸 CombinedOutput 会一直挂着，而「超时必杀」是子进程纪律里最要紧的一条。
-func runReg(args []string) error {
-	res, err := pkg.RunProc("reg", args, pkg.ProcOptions{TimeoutMs: 10_000})
+func runReg(ctx context.Context, args []string) error {
+	res, err := pkg.RunProc("reg", args, pkg.ProcOptions{TimeoutMs: 10_000, Ctx: ctx})
 	if err != nil {
 		return err
 	}

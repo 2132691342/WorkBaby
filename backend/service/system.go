@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"os"
 
 	"WorkBaby/backend/domain"
@@ -89,11 +90,11 @@ func ConfigText(layout pkg.Layout, name string) (domain.ConfigTextRESP, error) {
 
 // RuntimeStatus 汇总外部依赖的检测状态：全部来自用户自己的环境。
 // 引擎本身在进程内，不需要探测；这里只报工作区工具链。
-func RuntimeStatus() domain.RuntimeStatusVO {
+func RuntimeStatus(ctx context.Context) domain.RuntimeStatusVO {
 	status := domain.RuntimeStatusVO{
 		NodeReady:   pkg.LookPath("node") != "",
 		GitReady:    pkg.LookPath("git") != "",
-		GitVersion:  gitVersion(),
+		GitVersion:  gitVersion(ctx),
 		PythonReady: pkg.LookPath("python") != "" || pkg.LookPath("python3") != "",
 		EngineReady: true,
 	}

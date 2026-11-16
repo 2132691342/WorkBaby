@@ -4,6 +4,7 @@ package service
 // 改动到一半不能提交又必须切分支时，它是唯一无损出口。
 
 import (
+	"context"
 	"strings"
 
 	"WorkBaby/backend/domain"
@@ -11,33 +12,33 @@ import (
 )
 
 // StashPush 把全部改动（含未跟踪文件）收进 stash。
-func (g *Git) StashPush(req domain.GitStashREQ) (domain.GitStatusRESP, error) {
+func (g *Git) StashPush(ctx context.Context, req domain.GitStashREQ) (domain.GitStatusRESP, error) {
 	args := []string{"stash", "push", "--include-untracked"}
 	if msg := strings.TrimSpace(req.StashMessage); msg != "" {
 		args = append(args, "-m", msg)
 	}
-	if _, err := g.runWriteOrFail(args...); err != nil {
+	if _, err := g.runWriteOrFail(ctx, args...); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
-	return g.Status(), nil
+	return g.Status(ctx), nil
 }
 
 // StashPop 恢复最新一条并从栈里删掉；冲突是正常结果，交给界面走解决流程。
-func (g *Git) StashPop() (domain.GitStatusRESP, error) {
-	if _, err := g.runWriteOrFail("stash", "pop"); err != nil {
-		status := g.Status()
+func (g *Git) StashPop(ctx context.Context) (domain.GitStatusRESP, error) {
+	if _, err := g.runWriteOrFail(ctx, "stash", "pop"); err != nil {
+		status := g.Status(ctx)
 		if status.HasConflict {
 			return status, nil
 		}
 		return domain.GitStatusRESP{}, err
 	}
-	return g.Status(), nil
+	return g.Status(ctx), nil
 }
 
 // StashList 列出 stash，最新在前。
-func (g *Git) StashList() domain.GitStashListRESP {
+func (g *Git) StashList(ctx context.Context) domain.GitStashListRESP {
 	out := domain.GitStashListRESP{Stashes: []domain.GitStashVO{}}
-	text, err := g.runOrFail("stash", "list", "--format=%gd%x1f%gs")
+	text, err := g.runOrFail(ctx, "stash", "list", "--format=%gd%x1f%gs")
 	if err != nil {
 		return out
 	}
@@ -55,7 +56,7 @@ func (g *Git) StashList() domain.GitStashListRESP {
 }
 
 // StashDrop 丢掉指定 stash：不可逆，确认词必须等于引用名。
-func (g *Git) StashDrop(req domain.GitStashREQ) (domain.GitStatusRESP, error) {
+func (g *Git) StashDrop(ctx context.Context, req domain.GitStashREQ) (domain.GitStatusRESP, error) {
 	ref := strings.TrimSpace(req.StashRef)
 	if ref == "" {
 		return domain.GitStatusRESP{}, pkg.Err(pkg.CodeBadRequest, "缺少 stash 引用名")
@@ -63,8 +64,8 @@ func (g *Git) StashDrop(req domain.GitStashREQ) (domain.GitStatusRESP, error) {
 	if req.Confirm != ref {
 		return domain.GitStatusRESP{}, pkg.Err(pkg.CodeBadRequest, "丢弃 stash 需要确认引用名："+ref)
 	}
-	if _, err := g.runWriteOrFail("stash", "drop", ref); err != nil {
+	if _, err := g.runWriteOrFail(ctx, "stash", "drop", ref); err != nil {
 		return domain.GitStatusRESP{}, err
 	}
-	return g.Status(), nil
+	return g.Status(ctx), nil
 }

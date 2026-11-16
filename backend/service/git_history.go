@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"strconv"
 	"strings"
 
@@ -15,7 +16,7 @@ func parseDiffShared(text string) []domain.DiffLineVO {
 }
 
 // History 提交历史。
-func (g *Git) History(limit int) ([]domain.GitCommitVO, error) {
+func (g *Git) History(ctx context.Context, limit int) ([]domain.GitCommitVO, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
@@ -24,7 +25,7 @@ func (g *Git) History(limit int) ([]domain.GitCommitVO, error) {
 	format := strings.Join([]string{
 		"%H", "%h", "%s", "%an", "%at", "%D",
 	}, sep)
-	text, err := g.runOrFail("log", "-n", strconv.Itoa(limit),
+	text, err := g.runOrFail(ctx, "log", "-n", strconv.Itoa(limit),
 		"--numstat", "--pretty=format:"+format+sep+"%b"+sep+"%P")
 	if err != nil {
 		return nil, err
@@ -78,13 +79,13 @@ func isNumStat(line string) bool {
 }
 
 // CommitDetail 单个提交的完整内容。
-func (g *Git) CommitDetail(hash string) (domain.GitCommitDetailRESP, error) {
+func (g *Git) CommitDetail(ctx context.Context, hash string) (domain.GitCommitDetailRESP, error) {
 	if hash == "" {
 		return domain.GitCommitDetailRESP{}, pkg.Err(pkg.CodeBadRequest, "提交哈希不能为空")
 	}
 	const sep = "\x1f"
 	format := strings.Join([]string{"%H", "%h", "%s", "%an", "%at", "%P"}, sep)
-	meta, err := g.runOrFail("show", "-s", "--pretty=format:"+format+sep+"%b", hash)
+	meta, err := g.runOrFail(ctx, "show", "-s", "--pretty=format:"+format+sep+"%b", hash)
 	if err != nil {
 		return domain.GitCommitDetailRESP{}, err
 	}
@@ -107,7 +108,7 @@ func (g *Git) CommitDetail(hash string) (domain.GitCommitDetailRESP, error) {
 	if len(fields) > 6 {
 		detail.ParentHashes = strings.Fields(fields[6])
 	}
-	files, err := g.runOrFail("show", "--numstat", "--pretty=format:", hash)
+	files, err := g.runOrFail(ctx, "show", "--numstat", "--pretty=format:", hash)
 	if err == nil {
 		detail.ChangedFiles = parseNumStatFiles(files)
 		detail.Commit.FileCount = len(detail.ChangedFiles)
@@ -116,7 +117,7 @@ func (g *Git) CommitDetail(hash string) (domain.GitCommitDetailRESP, error) {
 			detail.Commit.Deletions += file.Deletions
 		}
 	}
-	diffText, err := g.runOrFail("show", "--no-color", "--format=", hash)
+	diffText, err := g.runOrFail(ctx, "show", "--no-color", "--format=", hash)
 	if err == nil {
 		detail.Diff = cutDiff("", diffText)
 	}
@@ -142,14 +143,14 @@ func parseNumStatFiles(text string) []domain.GitFileVO {
 }
 
 // FileHistory 单个文件的提交历史。
-func (g *Git) FileHistory(path string, limit int) ([]domain.GitCommitVO, error) {
+func (g *Git) FileHistory(ctx context.Context, path string, limit int) ([]domain.GitCommitVO, error) {
 	if path == "" {
 		return nil, pkg.Err(pkg.CodeBadRequest, "文件路径不能为空")
 	}
 	if limit <= 0 || limit > 200 {
 		limit = 40
 	}
-	text, err := g.runOrFail("log", "-n", strconv.Itoa(limit), "--pretty=format:%H\x1f%h\x1f%s\x1f%an\x1f%at", "--", path)
+	text, err := g.runOrFail(ctx, "log", "-n", strconv.Itoa(limit), "--pretty=format:%H\x1f%h\x1f%s\x1f%an\x1f%at", "--", path)
 	if err != nil {
 		return nil, err
 	}
@@ -171,11 +172,11 @@ func (g *Git) FileHistory(path string, limit int) ([]domain.GitCommitVO, error) 
 }
 
 // FileDiff 某个文件在某个提交里的差异。
-func (g *Git) FileDiff(hash, path string) (domain.GitDiffRESP, error) {
+func (g *Git) FileDiff(ctx context.Context, hash, path string) (domain.GitDiffRESP, error) {
 	if hash == "" || path == "" {
 		return domain.GitDiffRESP{}, pkg.Err(pkg.CodeBadRequest, "提交与文件路径都不能为空")
 	}
-	text, err := g.runOrFail("show", hash, "--no-color", "--format=", "--", path)
+	text, err := g.runOrFail(ctx, "show", hash, "--no-color", "--format=", "--", path)
 	if err != nil {
 		return domain.GitDiffRESP{}, err
 	}
@@ -183,8 +184,8 @@ func (g *Git) FileDiff(hash, path string) (domain.GitDiffRESP, error) {
 }
 
 // Branches 分支清单。
-func (g *Git) Branches() ([]domain.GitBranchVO, error) {
-	text, err := g.runOrFail("branch", "-vv", "--no-color")
+func (g *Git) Branches(ctx context.Context) ([]domain.GitBranchVO, error) {
+	text, err := g.runOrFail(ctx, "branch", "-vv", "--no-color")
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +198,7 @@ func (g *Git) Branches() ([]domain.GitBranchVO, error) {
 	}
 	// 远端分支单列一遍：界面要能把本地分支推到某个远端。
 	// 远端名从分支名里拆出来，不能写死 origin：用户可以有多个远端。
-	if remote, err := g.runOrFail("branch", "-r", "--no-color"); err == nil {
+	if remote, err := g.runOrFail(ctx, "branch", "-r", "--no-color"); err == nil {
 		for _, line := range pkg.SplitLines(remote) {
 			name := strings.TrimSpace(line)
 			if name == "" || strings.Contains(name, "->") {

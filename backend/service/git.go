@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -37,7 +38,7 @@ func gitEnv() []string {
 // runIn 跑一条 git 命令；dir 为空时用当前工作区。
 // GIT_TERMINAL_PROMPT=0：凭证问询立即失败而不是卡满 120 秒超时——
 // 登录走 GCM（自带界面、落 Windows 凭据管理器），不走 stdin。
-func (g *Git) runIn(dir string, args ...string) (*pkg.ProcResult, error) {
+func (g *Git) runIn(ctx context.Context, dir string, args ...string) (*pkg.ProcResult, error) {
 	// 系统 git：找不到就直接报错，不给一个跑不通的路径。
 	exe := pkg.LookPath("git")
 	if exe == "" {
@@ -54,13 +55,14 @@ func (g *Git) runIn(dir string, args ...string) (*pkg.ProcResult, error) {
 		Dir:       dir,
 		Env:       env,
 		TimeoutMs: 120_000,
+		Ctx:       ctx,
 	})
 }
 
 // ProbeOf 探测一个目录的仓库、分支与未提交改动数。
 // 只读且不报错：探不出来应该是空字段，不是一屏标红；
 // 超时 8 秒——清单里可能挂着网络盘，默认超时会让整张清单一起卡死。
-func (g *Git) ProbeOf(dir string) (isRepo bool, branch string, dirty int) {
+func (g *Git) ProbeOf(ctx context.Context, dir string) (isRepo bool, branch string, dirty int) {
 	if !pkg.IsDir(dir) {
 		return false, "", 0
 	}
@@ -70,7 +72,7 @@ func (g *Git) ProbeOf(dir string) (isRepo bool, branch string, dirty int) {
 	}
 	env := gitEnv()
 	run := func(args ...string) (string, bool) {
-		res, err := pkg.RunProc(exe, args, pkg.ProcOptions{Dir: dir, Env: env, TimeoutMs: 8_000})
+		res, err := pkg.RunProc(exe, args, pkg.ProcOptions{Dir: dir, Env: env, TimeoutMs: 8_000, Ctx: ctx})
 		if err != nil || res.Code != 0 {
 			return "", false
 		}
@@ -90,13 +92,13 @@ func (g *Git) ProbeOf(dir string) (isRepo bool, branch string, dirty int) {
 }
 
 // run 跑一条 git 命令，cwd 为当前工作区。
-func (g *Git) run(args ...string) (*pkg.ProcResult, error) {
-	return g.runIn("", args...)
+func (g *Git) run(ctx context.Context, args ...string) (*pkg.ProcResult, error) {
+	return g.runIn(ctx, "", args...)
 }
 
 // runOrFail 跑 git 并要求退出码为 0；失败时把 stderr 原话带出来。
-func (g *Git) runOrFail(args ...string) (string, error) {
-	res, err := g.run(args...)
+func (g *Git) runOrFail(ctx context.Context, args ...string) (string, error) {
+	res, err := g.run(ctx, args...)
 	if err != nil {
 		return "", err
 	}
@@ -109,10 +111,10 @@ func (g *Git) runOrFail(args ...string) (string, error) {
 // runWriteOrFail 跑一条会改索引或工作树的 git 命令，并独占写通道。
 // 写命令之间必须互斥：git 用 index.lock 保护索引，抢不到就直接失败，
 // 而那个报错在界面上看不出是并发造成的。
-func (g *Git) runWriteOrFail(args ...string) (string, error) {
+func (g *Git) runWriteOrFail(ctx context.Context, args ...string) (string, error) {
 	g.writeMu.Lock()
 	defer g.writeMu.Unlock()
-	return g.runOrFail(args...)
+	return g.runOrFail(ctx, args...)
 }
 
 // gitFail 把非零退出翻成 AppError：凭证类失败给下一步指引。
@@ -136,7 +138,7 @@ func gitAuthHint(stderr string) string {
 }
 
 // Status 仓库状态快照。
-func (g *Git) Status() domain.GitStatusRESP {
+func (g *Git) Status(ctx context.Context) domain.GitStatusRESP {
 	out := domain.GitStatusRESP{
 		Workspace: g.Settings.Workspace(),
 		RepoState: "normal",
@@ -146,30 +148,30 @@ func (g *Git) Status() domain.GitStatusRESP {
 		return out
 	}
 	out.GitAvailable = true
-	out.GitVersion = gitVersion()
-	root, err := g.runOrFail("rev-parse", "--show-toplevel")
+	out.GitVersion = gitVersion(ctx)
+	root, err := g.runOrFail(ctx, "rev-parse", "--show-toplevel")
 	if err != nil {
 		// 不是仓库是正常状态，不是错误：界面会显示「初始化仓库」入口。
 		return out
 	}
 	out.IsRepo = true
 	out.RepoRoot = strings.TrimSpace(root)
-	g.fillBranch(&out)
-	g.fillRemotes(&out)
-	g.fillChangedFiles(&out)
-	g.fillRepoState(&out)
+	g.fillBranch(ctx, &out)
+	g.fillRemotes(ctx, &out)
+	g.fillChangedFiles(ctx, &out)
+	g.fillRepoState(ctx, &out)
 	return out
 }
 
 // fillBranch 填当前分支与上下游差距。
-func (g *Git) fillBranch(out *domain.GitStatusRESP) {
-	if head, err := g.runOrFail("rev-parse", "--abbrev-ref", "HEAD"); err == nil {
+func (g *Git) fillBranch(ctx context.Context, out *domain.GitStatusRESP) {
+	if head, err := g.runOrFail(ctx, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
 		out.BranchName = strings.TrimSpace(head)
 	}
-	if upstream, err := g.runOrFail("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err == nil {
+	if upstream, err := g.runOrFail(ctx, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err == nil {
 		out.UpstreamRef = strings.TrimSpace(upstream)
 	}
-	if counts, err := g.runOrFail("rev-list", "--left-right", "--count", "@{u}...HEAD"); err == nil {
+	if counts, err := g.runOrFail(ctx, "rev-list", "--left-right", "--count", "@{u}...HEAD"); err == nil {
 		fields := strings.Fields(counts)
 		if len(fields) == 2 {
 			// 左是上游独有（behind），右是本地独有（ahead）。
@@ -180,8 +182,8 @@ func (g *Git) fillBranch(out *domain.GitStatusRESP) {
 }
 
 // fillRemotes 填远端清单。
-func (g *Git) fillRemotes(out *domain.GitStatusRESP) {
-	text, err := g.runOrFail("remote", "-v")
+func (g *Git) fillRemotes(ctx context.Context, out *domain.GitStatusRESP) {
+	text, err := g.runOrFail(ctx, "remote", "-v")
 	if err != nil {
 		return
 	}
@@ -202,8 +204,8 @@ func (g *Git) fillRemotes(out *domain.GitStatusRESP) {
 // fillChangedFiles 解析 `git status --porcelain=v1 -z`。
 // 用 -z 而不是按行：默认格式会把非 ASCII 路径转义成带引号的八进制串，
 // 界面上中文文件名会变成 "346~226~207" 这种乱码。
-func (g *Git) fillChangedFiles(out *domain.GitStatusRESP) {
-	text, err := g.runOrFail("status", "--porcelain=v1", "-z", "--untracked-files=all")
+func (g *Git) fillChangedFiles(ctx context.Context, out *domain.GitStatusRESP) {
+	text, err := g.runOrFail(ctx, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
 		return
 	}
@@ -232,17 +234,17 @@ func (g *Git) fillChangedFiles(out *domain.GitStatusRESP) {
 		files = append(files, file)
 	}
 	out.ChangedFiles = files
-	g.fillLineCounts(out)
+	g.fillLineCounts(ctx, out)
 }
 
 // fillLineCounts 用 `git diff --numstat -z HEAD` 补每个文件的增删行数。
 // numstat 不含未跟踪文件（它们的行数要读文件才知道，不值得）；没有 HEAD 时不补。
 // 用 -z 是为了路径不被 quotepath 加引号：中文路径在 v1 porcelain 里会变转义串。
-func (g *Git) fillLineCounts(out *domain.GitStatusRESP) {
+func (g *Git) fillLineCounts(ctx context.Context, out *domain.GitStatusRESP) {
 	if len(out.ChangedFiles) == 0 {
 		return
 	}
-	text, err := g.runOrFail("diff", "--numstat", "-z", "HEAD")
+	text, err := g.runOrFail(ctx, "diff", "--numstat", "-z", "HEAD")
 	if err != nil {
 		return
 	}
@@ -300,8 +302,8 @@ func changeCode(staged, worktree byte) string {
 }
 
 // fillRepoState 判断是否处在合并 / rebase / cherry-pick 中间态。
-func (g *Git) fillRepoState(out *domain.GitStatusRESP) {
-	dir, err := g.runOrFail("rev-parse", "--git-dir")
+func (g *Git) fillRepoState(ctx context.Context, out *domain.GitStatusRESP) {
+	dir, err := g.runOrFail(ctx, "rev-parse", "--git-dir")
 	if err != nil {
 		return
 	}
@@ -323,15 +325,15 @@ func (g *Git) fillRepoState(out *domain.GitStatusRESP) {
 }
 
 // Diff 未暂存 + 已暂存的差异。
-func (g *Git) Diff(path string) (domain.GitDiffRESP, error) {
+func (g *Git) Diff(ctx context.Context, path string) (domain.GitDiffRESP, error) {
 	args := []string{"diff", "--no-color", "HEAD"}
 	if path != "" {
 		args = append(args, "--", path)
 	}
-	text, err := g.runOrFail(args...)
+	text, err := g.runOrFail(ctx, args...)
 	if err != nil {
 		// 没有 HEAD（还没首次提交）时退回工作区差异，别让界面一片空白。
-		text, err = g.runOrFail("diff", "--no-color")
+		text, err = g.runOrFail(ctx, "diff", "--no-color")
 		if err != nil {
 			return domain.GitDiffRESP{}, err
 		}
@@ -366,12 +368,12 @@ func atoiSafe(text string) int {
 }
 
 // gitVersion 读系统 git 的版本号；没有就给空串。
-func gitVersion() string {
+func gitVersion(ctx context.Context) string {
 	exe := pkg.LookPath("git")
 	if exe == "" {
 		return ""
 	}
-	res, err := pkg.RunProc(exe, []string{"--version"}, pkg.ProcOptions{TimeoutMs: 8_000})
+	res, err := pkg.RunProc(exe, []string{"--version"}, pkg.ProcOptions{TimeoutMs: 8_000, Ctx: ctx})
 	if err != nil || res.Code != 0 {
 		return ""
 	}

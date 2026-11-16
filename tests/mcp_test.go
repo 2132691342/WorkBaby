@@ -271,7 +271,7 @@ func TestMcp(t *testing.T) {
 
 		// ---- 作用域遮蔽 ----
 		ws := t.TempDir()
-		if _, err := app.Settings.SetWorkspace(ws); err != nil {
+		if _, err := app.Settings.SetWorkspace(t.Context(), ws); err != nil {
 			t.Fatalf("切工作区失败：%v", err)
 		}
 		if _, err := app.Mcp.Save(domain.McpSaveREQ{

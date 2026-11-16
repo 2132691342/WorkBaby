@@ -5,6 +5,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,7 +23,7 @@ import (
 const mcpProbeTimeout = 10 * time.Second
 
 // Probe 测一个 MCP 服务能不能连通。
-func (m *Mcp) Probe(serverName string) (domain.McpProbeRESP, error) {
+func (m *Mcp) Probe(ctx context.Context, serverName string) (domain.McpProbeRESP, error) {
 	name := strings.TrimSpace(serverName)
 	if name == "" {
 		return domain.McpProbeRESP{}, pkg.Err(pkg.CodeMcpWrite, "服务名不能为空")
@@ -35,9 +36,9 @@ func (m *Mcp) Probe(serverName string) (domain.McpProbeRESP, error) {
 		return domain.McpProbeRESP{ProbeOk: false, ProbeMessage: "服务已停用，先启用再测"}, nil
 	}
 	if url := stringField(entry, "url"); url != "" {
-		return probeHttp(entry, url)
+		return probeHttp(ctx, entry, url)
 	}
-	return m.probeStdio(entry)
+	return m.probeStdio(ctx, entry)
 }
 
 // mcpCall 组一条 JSON-RPC 请求。
@@ -78,9 +79,9 @@ func mcpServerLabel(result map[string]any) string {
 }
 
 // probeHttp 对 streamable http 服务发 initialize 与 tools/list。
-func probeHttp(entry map[string]any, url string) (domain.McpProbeRESP, error) {
+func probeHttp(ctx context.Context, entry map[string]any, url string) (domain.McpProbeRESP, error) {
 	client := &http.Client{Timeout: mcpTimeoutOf(entry, mcpProbeTimeout)}
-	res, body, err := mcpHttpPost(client, url, mcpCall(1, "initialize", mcpInitializeParams()), "")
+	res, body, err := mcpHttpPost(ctx, client, url, mcpCall(1, "initialize", mcpInitializeParams()), "")
 	if err != nil {
 		return domain.McpProbeRESP{ProbeOk: false, ProbeMessage: "连不上：" + mcpShort(err.Error())}, nil
 	}
@@ -95,8 +96,8 @@ func probeHttp(entry map[string]any, url string) (domain.McpProbeRESP, error) {
 	}
 	// streamable http 用会话头串后续请求；先补规范要求的 initialized 通知。
 	session := res.Header.Get("Mcp-Session-Id")
-	_, _, _ = mcpHttpPost(client, url, map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}, session)
-	_, listBody, err := mcpHttpPost(client, url, mcpCall(2, "tools/list", map[string]any{}), session)
+	_, _, _ = mcpHttpPost(ctx, client, url, map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}, session)
+	_, listBody, err := mcpHttpPost(ctx, client, url, mcpCall(2, "tools/list", map[string]any{}), session)
 	if err != nil {
 		return domain.McpProbeRESP{ProbeOk: true, ProbeMessage: mcpServerLabel(result)}, nil
 	}
@@ -108,12 +109,12 @@ func probeHttp(entry map[string]any, url string) (domain.McpProbeRESP, error) {
 }
 
 // mcpHttpPost 发一条 JSON-RPC 并取回正文；应答可能是 JSON 也可能是 SSE 帧。
-func mcpHttpPost(client *http.Client, url string, call map[string]any, session string) (*http.Response, []byte, error) {
+func mcpHttpPost(ctx context.Context, client *http.Client, url string, call map[string]any, session string) (*http.Response, []byte, error) {
 	payload, err := json.Marshal(call)
 	if err != nil {
 		return nil, nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -208,13 +209,15 @@ func mcpShort(text string) string {
 }
 
 // probeStdio 拉起服务进程，走 stdin/stdout 完成 initialize 与 tools/list。
-func (m *Mcp) probeStdio(entry map[string]any) (domain.McpProbeRESP, error) {
+func (m *Mcp) probeStdio(ctx context.Context, entry map[string]any) (domain.McpProbeRESP, error) {
 	command := stringField(entry, "command")
 	if command == "" {
 		return domain.McpProbeRESP{ProbeOk: false, ProbeMessage: "没有配置命令"}, nil
 	}
 	args := asStringSlice(entry["args"])
-	cmd := exec.Command(command, args...)
+	// 取消要能穿透到子进程：ctx 提前取消时立刻杀进程，
+	// 否则用户关掉应用后探测进程还要活到自己的超时。
+	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.SysProcAttr = pkg.HiddenProcAttr()
 	if dir := stringField(entry, "cwd"); pkg.Exists(dir) {
 		cmd.Dir = dir
@@ -269,7 +272,7 @@ func (m *Mcp) probeStdio(entry map[string]any) (domain.McpProbeRESP, error) {
 	if !write(mcpCall(1, "initialize", mcpInitializeParams())) {
 		return failed("握手请求发不进去"), nil
 	}
-	rec := mcpWaitFor(lines, 1, time.Until(deadline))
+	rec := mcpWaitFor(ctx, lines, 1, time.Until(deadline))
 	if rec == nil {
 		return failed("握手没应答：进程起来了，但在超时内没说出一句合法 JSON-RPC"), nil
 	}
@@ -281,7 +284,7 @@ func (m *Mcp) probeStdio(entry map[string]any) (domain.McpProbeRESP, error) {
 	if !write(mcpCall(2, "tools/list", map[string]any{})) {
 		return domain.McpProbeRESP{ProbeOk: true, ProbeMessage: mcpServerLabel(result)}, nil
 	}
-	listRec := mcpWaitFor(lines, 2, time.Until(deadline))
+	listRec := mcpWaitFor(ctx, lines, 2, time.Until(deadline))
 	return domain.McpProbeRESP{
 		ProbeOk:      true,
 		ProbeMessage: mcpServerLabel(result),
@@ -290,7 +293,8 @@ func (m *Mcp) probeStdio(entry map[string]any) (domain.McpProbeRESP, error) {
 }
 
 // mcpWaitFor 在预算内等指定 id 的应答；等不到给 nil。
-func mcpWaitFor(lines <-chan string, id int, budget time.Duration) map[string]any {
+// ctx 一并盯着：调用方取消时立刻收手，不把预算耗完。
+func mcpWaitFor(ctx context.Context, lines <-chan string, id int, budget time.Duration) map[string]any {
 	if budget <= 0 {
 		return nil
 	}
@@ -308,6 +312,8 @@ func mcpWaitFor(lines <-chan string, id int, budget time.Duration) map[string]an
 			if got, _ := rec["id"].(float64); int(got) == id {
 				return rec
 			}
+		case <-ctx.Done():
+			return nil
 		case <-deadline:
 			return nil
 		}

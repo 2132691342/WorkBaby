@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -44,12 +45,12 @@ func mountGit(g *gin.RouterGroup, s *Server) {
 
 // gitStatus 仓库状态。
 func (s *Server) gitStatus(c *gin.Context) {
-	pkg.OK(c, s.svc.Git.Status())
+	pkg.OK(c, s.svc.Git.Status(c.Request.Context()))
 }
 
 // gitDiff 工作区差异。
 func (s *Server) gitDiff(c *gin.Context) {
-	out, err := s.svc.Git.Diff(strings.TrimSpace(c.Query("path")))
+	out, err := s.svc.Git.Diff(c.Request.Context(), strings.TrimSpace(c.Query("path")))
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -59,7 +60,7 @@ func (s *Server) gitDiff(c *gin.Context) {
 
 // gitHistory 提交历史。
 func (s *Server) gitHistory(c *gin.Context) {
-	out, err := s.svc.Git.History(queryInt(c, "limit", 50))
+	out, err := s.svc.Git.History(c.Request.Context(), queryInt(c, "limit", 50))
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -69,7 +70,7 @@ func (s *Server) gitHistory(c *gin.Context) {
 
 // gitCommitDetail 单个提交详情。
 func (s *Server) gitCommitDetail(c *gin.Context) {
-	out, err := s.svc.Git.CommitDetail(strings.TrimSpace(c.Query("hash")))
+	out, err := s.svc.Git.CommitDetail(c.Request.Context(), strings.TrimSpace(c.Query("hash")))
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -79,7 +80,7 @@ func (s *Server) gitCommitDetail(c *gin.Context) {
 
 // gitFileHistory 单文件提交历史。
 func (s *Server) gitFileHistory(c *gin.Context) {
-	out, err := s.svc.Git.FileHistory(strings.TrimSpace(c.Query("path")), queryInt(c, "limit", 40))
+	out, err := s.svc.Git.FileHistory(c.Request.Context(), strings.TrimSpace(c.Query("path")), queryInt(c, "limit", 40))
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -89,7 +90,7 @@ func (s *Server) gitFileHistory(c *gin.Context) {
 
 // gitFileDiff 某个提交里某文件的差异。
 func (s *Server) gitFileDiff(c *gin.Context) {
-	out, err := s.svc.Git.FileDiff(c.Query("hash"), c.Query("path"))
+	out, err := s.svc.Git.FileDiff(c.Request.Context(), c.Query("hash"), c.Query("path"))
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -99,7 +100,7 @@ func (s *Server) gitFileDiff(c *gin.Context) {
 
 // gitBranches 分支清单。
 func (s *Server) gitBranches(c *gin.Context) {
-	out, err := s.svc.Git.Branches()
+	out, err := s.svc.Git.Branches(c.Request.Context())
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -133,7 +134,7 @@ func (s *Server) gitResolveConflict(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.ResolveConflict(req.FilePath, req.ResolveSide)
+	out, err := s.svc.Git.ResolveConflict(c.Request.Context(), req.FilePath, req.ResolveSide)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -142,12 +143,12 @@ func (s *Server) gitResolveConflict(c *gin.Context) {
 }
 
 // withPaths 把「一批路径 → 最新状态」的写接口收成一处。
-func (s *Server) withPaths(c *gin.Context, action func([]string) (domain.GitStatusRESP, error)) {
+func (s *Server) withPaths(c *gin.Context, action func(context.Context, []string) (domain.GitStatusRESP, error)) {
 	var req domain.GitPathsREQ
 	if !bind(c, &req) {
 		return
 	}
-	out, err := action(req.FilePaths)
+	out, err := action(c.Request.Context(), req.FilePaths)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -161,7 +162,7 @@ func (s *Server) gitCommit(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.Commit(req.CommitMessage, req.IsAmend)
+	out, err := s.svc.Git.Commit(c.Request.Context(), req.CommitMessage, req.IsAmend)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -175,7 +176,7 @@ func (s *Server) gitCreateBranch(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.CreateBranch(req.BranchName)
+	out, err := s.svc.Git.CreateBranch(c.Request.Context(), req.BranchName)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -189,7 +190,7 @@ func (s *Server) gitSwitchBranch(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.SwitchBranch(req.BranchName)
+	out, err := s.svc.Git.SwitchBranch(c.Request.Context(), req.BranchName)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -203,7 +204,7 @@ func (s *Server) gitDeleteBranch(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.DeleteBranch(req.BranchName)
+	out, err := s.svc.Git.DeleteBranch(c.Request.Context(), req.BranchName)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -217,7 +218,7 @@ func (s *Server) gitMerge(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.Merge(req.BranchName, req.IsRebase)
+	out, err := s.svc.Git.Merge(c.Request.Context(), req.BranchName, req.IsRebase)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -231,7 +232,7 @@ func (s *Server) gitState(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.State(req.StateAction)
+	out, err := s.svc.Git.State(c.Request.Context(), req.StateAction)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -245,7 +246,7 @@ func (s *Server) gitInit(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.Init(req.BranchName)
+	out, err := s.svc.Git.Init(c.Request.Context(), req.BranchName)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -259,7 +260,7 @@ func (s *Server) gitAddRemote(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.AddRemote(req.RemoteName, req.RemoteUrl)
+	out, err := s.svc.Git.AddRemote(c.Request.Context(), req.RemoteName, req.RemoteUrl)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -269,7 +270,7 @@ func (s *Server) gitAddRemote(c *gin.Context) {
 
 // gitStashList stash 清单。
 func (s *Server) gitStashList(c *gin.Context) {
-	pkg.OK(c, s.svc.Git.StashList())
+	pkg.OK(c, s.svc.Git.StashList(c.Request.Context()))
 }
 
 // gitStashPush 收藏改动进 stash。
@@ -278,7 +279,7 @@ func (s *Server) gitStashPush(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.StashPush(req)
+	out, err := s.svc.Git.StashPush(c.Request.Context(), req)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -288,7 +289,7 @@ func (s *Server) gitStashPush(c *gin.Context) {
 
 // gitStashPop 恢复最新一条 stash。
 func (s *Server) gitStashPop(c *gin.Context) {
-	out, err := s.svc.Git.StashPop()
+	out, err := s.svc.Git.StashPop(c.Request.Context())
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -302,7 +303,7 @@ func (s *Server) gitStashDrop(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.StashDrop(req)
+	out, err := s.svc.Git.StashDrop(c.Request.Context(), req)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -316,7 +317,7 @@ func (s *Server) gitPush(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.Push(req)
+	out, err := s.svc.Git.Push(c.Request.Context(), req)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -330,7 +331,7 @@ func (s *Server) gitPull(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.Pull(req)
+	out, err := s.svc.Git.Pull(c.Request.Context(), req)
 	if err != nil {
 		pkg.Fail(c, err)
 		return
@@ -344,7 +345,7 @@ func (s *Server) gitFetch(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	out, err := s.svc.Git.Fetch(req.RemoteName)
+	out, err := s.svc.Git.Fetch(c.Request.Context(), req.RemoteName)
 	if err != nil {
 		pkg.Fail(c, err)
 		return

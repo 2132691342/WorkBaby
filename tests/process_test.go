@@ -184,7 +184,7 @@ func TestProcess(t *testing.T) {
 					t.Fatalf("写工作区设置失败：%v", err)
 				}
 
-				out, err := h.app.Git.ResolveConflict("conflict.txt", tc.side)
+				out, err := h.app.Git.ResolveConflict(t.Context(), "conflict.txt", tc.side)
 				if err != nil {
 					t.Fatalf("按 %q 解决冲突失败：%v", tc.side, err)
 				}
@@ -219,7 +219,7 @@ func TestProcess(t *testing.T) {
 		// ---- 路径空串：不猜，直接拒 ----
 		t.Run("空路径拒绝", func(t *testing.T) {
 			h := newHarness(t)
-			_, err := h.app.Git.ResolveConflict("  ", "ours")
+			_, err := h.app.Git.ResolveConflict(t.Context(), "  ", "ours")
 			if err == nil {
 				t.Fatal("空路径应被拒绝")
 			}
@@ -231,7 +231,7 @@ func TestProcess(t *testing.T) {
 		// ---- 不认识的口径：不猜，直接拒 ----
 		t.Run("未知口径拒绝", func(t *testing.T) {
 			h := newHarness(t)
-			_, err := h.app.Git.ResolveConflict("conflict.txt", "theirs-typo")
+			_, err := h.app.Git.ResolveConflict(t.Context(), "conflict.txt", "theirs-typo")
 			if err == nil {
 				t.Fatal("不认识的口径应被拒绝")
 			}

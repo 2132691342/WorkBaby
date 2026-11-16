@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"path/filepath"
 	"sync"
 
@@ -129,8 +130,8 @@ func (a *App) Workspace() string { return a.Settings.Workspace() }
 func (a *App) CloseAction() string { return a.Settings.CloseAction() }
 
 // SetCloseAction 写关窗行为。
-func (a *App) SetCloseAction(action string) error {
-	_, err := a.Settings.SetCloseAction(action)
+func (a *App) SetCloseAction(ctx context.Context, action string) error {
+	_, err := a.Settings.SetCloseAction(ctx, action)
 	return err
 }
 
@@ -141,11 +142,13 @@ func (a *App) MarkTrayHintShown() { a.Settings.MarkTrayHintShown() }
 func (a *App) TrayHintPending() bool { return a.Settings.TrayHintPending() }
 
 // WorkspaceRows 工作区历史（托盘菜单要用）。
-func (a *App) WorkspaceRows() []domain.WorkspaceRowVO { return a.Settings.Workspaces() }
+func (a *App) WorkspaceRows(ctx context.Context) []domain.WorkspaceRowVO {
+	return a.Settings.Workspaces(ctx)
+}
 
 // SetWorkspace 切工作区，并让会话绑定失效。
-func (a *App) SetWorkspace(dir string) error {
-	if _, err := a.Settings.SetWorkspace(dir); err != nil {
+func (a *App) SetWorkspace(ctx context.Context, dir string) error {
+	if _, err := a.Settings.SetWorkspace(ctx, dir); err != nil {
 		return err
 	}
 	a.Chat.OnWorkspaceChanged()
@@ -170,9 +173,9 @@ func (a *App) EngineInstance() map[string]any {
 }
 
 // Redetect 重新探测外部工具链。内置引擎无需探测，这里只刷新缓存的版本号。
-func (a *App) Redetect() {
+func (a *App) Redetect(ctx context.Context) {
 	a.Hub.Broadcast("engine:detected", sse.EngineTag(map[string]any{
-		"runtime": a.RuntimeStatus(),
+		"runtime": a.RuntimeStatus(ctx),
 	}))
 }
 

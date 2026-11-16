@@ -82,7 +82,7 @@ func (a *App) ApplyCloseDecision(action string, remember bool) error {
 	}
 	if a.svc != nil {
 		if remember {
-			if err := a.svc.SetCloseAction(action); err != nil {
+			if err := a.svc.SetCloseAction(a.appContext(), action); err != nil {
 				return err
 			}
 		}
