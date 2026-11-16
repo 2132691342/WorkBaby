@@ -4,6 +4,9 @@
 排障时先问「这份数据属于哪一类」，再去看那一类的写入路径——
 把不同类的数据互相抄写，必然出现两份互相漂移的事实。
 
+「某一类文件坏了会怎样、丢了能不能找回」集中在 `docs/TROUBLESHOOTING.md` 的「数据丢失」一节；
+本文只写落盘形态与写入纪律。
+
 | # | 真相 | 载体 | 写入方 | 消费者 |
 |---|---|---|---|---|
 | 1 | 会话 | `data\sessions\<工作区编码>\SES_<ULID>.jsonl` | `backend/agent/session.go` | `agent`（上下文组装）、`service/parser`、`service/sessions.go`、`session_html.go` |
@@ -200,8 +203,8 @@
 
 | 键 | 值类型 | 缺省 | 写方 | 读方 |
 |---|---|---|---|---|
-| `workspace.current` | 绝对路径 | 无 | `Settings.SetWorkspace` | `Settings.Workspace`；files/git/searcher/chat 的守卫；`agent.NewStore` 的 cwd 取值 |
-| `workspace.history` | JSON 数组（`WorkspaceRowVO`，最新在前，≤24 条） | 未写时读方拿到空表 | `SetWorkspace` / `ForgetWorkspace` | `Settings.Workspaces`（工作区页、托盘菜单） |
+| `workspace.current` | 绝对路径 | 无 | `Settings.SetWorkspace`（**唯一写入方**） | `Settings.Workspace`；files/git/searcher/chat 的守卫；`agent.NewStore` 的 cwd 取值 |
+| `workspace.history` | JSON 数组（`WorkspaceRowVO`，最新在前，≤24 条） | 未写时读方拿到空表 | `SetWorkspace` / `ForgetWorkspace`（**唯一写入方**） | `Settings.Workspaces`（工作区页、托盘菜单） |
 | `prefs.last_session_file` | 会话文件路径 | 无 | Chat 绑定、新建、复制、分叉、切换会话时（`Settings.RememberSession`） | `Prefs` 回显；前端 `restoreLastSession` |
 | `prefs.restore_session` | `'1'` / `'0'` | 未写视为关 | `Settings.SetRestoreSession` | `Settings.Prefs` → 前端决定是否恢复 |
 | `prefs.close_action` | `tray` / `quit` | `tray` | `Settings.SetCloseAction` | `shell/window.go` 的关窗决策、`Prefs` |
@@ -220,12 +223,21 @@
 | `ui.font_scale` | 数值字符串 | `1`（`EnsureDefaults`） | 同上 | 前端 `applyFontScale`（夹在 0.8~1.35） |
 | `ui.reduce_motion` | `'0'` / `'1'` | `0`（`EnsureDefaults`） | 同上 | 前端 `applyMotion` |
 | `ui.mention_sessions` | 整数 `1`~`20` | `5`（`EnsureDefaults`） | 同上（`Settings.normalize` 在 `/settings/save` 入口收敛） | 前端 `MentionBrowser`、`AppearancePanel`；读取侧同样夹在 1~20 |
+| `ui.theme` | `light` / `dark` | 未写按 `light`（`frontend/index.html` 预置 `data-theme="light"`） | 前端 `/settings/save`（没有后端常量，当普通字符串存） | 前端 `applyTheme` → `documentElement.dataset.theme`；`AppearancePanel` 与命令面板 |
 
 关于默认值与收敛：
 
-- `EnsureDefaults` 只在缺键时写 `ui.*` 四项；用户改过的值一个字不动。
+- `EnsureDefaults` 只在缺键时写 `ui.*` 里的四项（`mention_sessions` / `font_scale` / `reduce_motion` / `locale`）；用户改过的值一个字不动。
+  `ui.theme` 不在这份默认值里 —— 它由前端读写，缺省由页面上的 `data-theme` 承担。
 - `SaveSettings`（各模块内部调用）直接落库，不走 `normalize`；只有 `/settings/save` 收敛 `ui.mention_sessions`。
-- `ui.theme`（`light`/`dark`）由前端直接读写，后端没有对应常量——`/settings/save` 把它当普通不透明字符串原样存下。
+- **两个工作区键是保留键**：`/settings/save` 收到 `workspace.current` 或 `workspace.history` 回 `1000`
+  （`reservedSettings`，`backend/service/settings.go`）。工作区变更要校验目录并同步历史，
+  绕过去就能把 files/git/searcher 的根指到任意位置。这两个键因此各自只有一个写入方（见上表）。
+- **`web.search_key` 在出口换掩码**：`Settings.All()` 与 `Prefs()` 都经 `maskSettings`，读到的恒是 `••••`。
+  写入路径不经过掩码，空串语义仍是「保留原值」。
+- `ui.font_scale` 的 0.8~1.35 夹取只在前端做（`stores/app.ts` 的 `applyFontScale`），后端不校验。
+- 台账之外还有两处前端本地状态，不属于设置台账：`wb.composer.drafts`（未发送的草稿）与
+  `wb.workpanel.width`（右侧工作台宽度），都存在 localStorage，删数据目录不会清掉它们。
 
 ---
 
@@ -281,6 +293,16 @@
 - 计划模式在会话文件的 `custom` 条目里。
 
 往 SQLite 抄一份副本，只会制造第二份会漂移的事实。
+
+### 3.6 损坏、版本与删除的后果
+
+| 情形 | 实际行为 |
+|---|---|
+| 文件损坏 / 打不开 | 没有台账那样的 `.bad` 隔离：`repo.OpenDB` 直接回 `2002`，装配失败。数据目录里会同时看到 `workbaby.db` 与 `workbaby.db-wal` / `-shm` |
+| 只删 `workbaby.db`、留下 `-wal` | WAL 里的已提交事务失去落点，不要单独挪走 `.db`；备份/排障时三个文件一起处理 |
+| 删掉整个 `.db` | 应用能启动（空库自动建表），但**服务商、模型与 API 密钥全部消失**，要重新填；检索索引会自动重建，无损失 |
+| 表结构升级 | 没有版本号表：`migrate` 只跑 `AutoMigrate`（增表、增列，不改列）。删列/改类型的破坏性变更必须手写迁移，否则旧库会留着多余的列而新代码不读它们 |
+| 新旧版本交叉 | 旧版本打开新库不会报错（多出来的列不管），但也不会用到新列；降级前先备份 |
 
 ---
 
@@ -347,7 +369,7 @@
 
 | 路径 | 语义 | 壳内可写 |
 |---|---|---|
-| `data\skills\<dir>\SKILL.md` | 启用态：引擎扫描得到 | 是（安装/导入/新建/编辑/搬移） |
+| `data\skills\<dir>\SKILL.md` | 启用态：进系统提示的技能索引（正文由模型按需 `read`） | 是（安装/导入/新建/编辑/搬移） |
 | `data\skills_disabled\<dir>\SKILL.md` | 停用态：搬进来即关闭 | 是（搬移/删除） |
 | `<工作区>\.pi\skills\<dir>\SKILL.md` | 项目技能：属于那个仓库 | 否（开关与删除都拒绝） |
 | `<AssetsDir>\skills\<dir>` | 随包原件：10 条推荐技能的来源 | 只读 |
@@ -361,6 +383,10 @@
 - 来源四分（`skill_source`）：`builtin`（推荐清单登记的，可重置）、`bundled`（在 `assets\skills` 里但清单没登记）、
   `managed`（界面新建）、`project`（工作区 `.pi\skills`）。
 - 目录名清洗（`sanitizeSkillName`）保留字母数字（含中文）与短横线，其余换成 `-`；新建、导入共用这套规则。
+- 引擎拿到的是一份索引而不是正文：`Skills.PromptSkills` 只扫启用区，每轮开跑前装进注册表
+  （`agent.SkillSet`，`Registry.SetSkills`），`SystemPrompt` 把它列成 `名字 — 说明 — 路径`。
+  正文由模型按需 `read`——一个 `SKILL.md` 动辄几千字，全塞进提示等于每轮都在烧无关上下文。
+  技能正文对工具只读：读得到，`write` / `edit` 会被拒，改动只走技能页。
 
 ### 5.2 搬移规则
 
@@ -387,7 +413,7 @@
 
 - 一份模板一个文件：`data\templates\<name>.md`，YAML 头字段 `name` / `description` / `args`，
   头用两行 `---` 包住，闭合行之后的全部内容都是正文。
-- 模板名清洗后只能是**小写字母、数字、连字符**（`sanitizeTemplateName`），且不能是纯点；文件名 = 模板名 + `.md`。
+- 模板名清洗后只能是**小写字母、数字、连字符**（`sanitizeTemplateName`：转小写、其余字符丢掉、去掉首尾 `-`），清洗后为空回 `1000`；文件名 = 模板名 + `.md`。
 - 列表扫描目录里的 `.md`：`name` 缺失时退回文件名主干；**坏文件跳过**，一份手改坏的模板不该拖垮全部。
 - 保存原子整写；删除幂等（不存在不算错）。
 - 模板同时是斜杠命令来源：`Commands` 把每份模板列成 `source=prompt` 的命令。

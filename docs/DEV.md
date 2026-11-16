@@ -93,7 +93,7 @@ scripts/{backend.ps1,dev.ps1,smoke.ps1}   开发态起停与冒烟
 tests/                     Go 场景测试，一文件一主题
 ```
 
-`tests/` 现状：12 个文件、10 个入口函数，全量数秒跑完。一文件一个主题，主题内的子契约用 `t.Run` 分层：
+`tests/` 现状：12 个文件、11 个入口函数（另有一个 `TestMain` 在 `mcp_fake_server_test.go`），全量数秒跑完。一文件一个主题，主题内的子契约用 `t.Run` 分层：
 
 | 文件 | 入口 | 子契约 |
 |---|---|---|
@@ -105,7 +105,7 @@ tests/                     Go 场景测试，一文件一主题
 | `session_test.go` | TestSession | 回放 / 写入纪律 / 格式契约 / 分叉 |
 | `models_test.go` | TestModel | 清单对账 / 默认模型写入口 / 密钥掩码 |
 | `mcp_test.go` | TestMcp | 客户端 / 运行时装配 / 配置治理 |
-| `skills_test.go` | TestSkills | 清单咬合 / 生命周期 |
+| `skills_test.go` | TestSkills | 清单咬合 / 提示里的技能索引 / 生命周期 |
 | `workspace_test.go` | TestWorkspace | 索引收录边界 / 索引排序 / 联网地址拦截 / 正文抽取 / 联网接口链路 |
 | `process_test.go` | TestProcess | 长驻进程收尾 / 子进程环境 / 冲突解决 |
 | `http_test.go` | TestHTTPContract | 鉴权门 / CORS 预检 / 信封同构 / 写入落盘 / SSE 通道 |
@@ -152,6 +152,9 @@ go test ./tests -count=1                   # 全量
 
 ## 5. 排错表
 
+按症状的完整排查路径见 `docs/TROUBLESHOOTING.md`（业务码逐个给下一步动作，含 `8003` 这类只存在于前端的码）；
+本节只留开发期最常用的几条。
+
 日志按天滚动：安装态 `%LOCALAPPDATA%\WorkBaby\logs\wb-YYYY-MM-DD.log`，开发态 `WorkBaby-dev`；
 也可用 `GET /logs?lines=` 在界面里看尾部。发布版没有控制台，`pkg.Warn` / `pkg.Error` 是唯一留痕。
 
@@ -193,13 +196,14 @@ go test ./tests -count=1                   # 全量
 | 内容 | 说明 |
 |---|---|
 | `workbaby.json` | 设置台账（原子整写 + 互斥锁） |
-| `workbaby.db` | SQLite 派生数据（索引 / 统计）；会话正文不在这里 |
+| `workbaby.db` | SQLite：服务商与模型目录（**含 API 密钥原文**），以及派生检索索引 `search_doc`。会话正文不在这里；删掉这个文件等于连带删掉全部服务商密钥，必须重新填写 |
+| `workbaby.db-wal` / `workbaby.db-shm` | 同一条 SQLite 连接的 WAL 与共享内存文件；备份与排障时与 `.db` 一起看待，单独挪走 `.db` 会留下无法回放的 WAL |
 | `mcp.json` | MCP 服务清单 |
 | `logs/` | 按天日志 |
 | `sessions/` | 会话 JSONL（唯一持久真相） |
 | `skills/` `skills_disabled/` | 启用态与停用态技能区 |
 | `templates/` | 提示词模板 |
-| `cache/` `webview/` | 缓存与 WebView2 用户数据 |
+| `webview/` | WebView2 用户数据（`WebviewUserDataPath`，`shell/app.go`） |
 
 ## 7. 发布流程
 

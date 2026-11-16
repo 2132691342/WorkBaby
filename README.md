@@ -15,7 +15,7 @@ Windows 单机 AI 工作台：一个把智能体引擎装进 GUI 的桌面应用
 | 提问卡 | 模型用 `ask` 工具发 confirm / select / input / editor 四种卡，等用户答完再继续 | `agent/tool_ask.go` · `POST /chat/answer` |
 | 待办 | `todo` 工具维护任务清单，对话页的待办面板实时显示，内容由活动分支上最近一次调用派生 | `agent/tool_todo.go` · `service/parser/todos.go` · `components/chat/TodoPanel.vue` |
 | 会话 | 列表与全文检索、改名、删除、隐藏单轮、复制、从某轮分叉、导出 Markdown / HTML | `service/sessions.go` · `session_html.go` · `views/SessionsView.vue` |
-| 技能 | 10 个推荐技能一键装齐；启用 / 停用靠目录搬移，可编辑、新建、导入、重置、删除 | `service/skills*.go` · `views/SkillsView.vue` |
+| 技能 | 10 个推荐技能一键装齐；启用 / 停用靠目录搬移；已启用技能的索引（名字 + 说明 + 路径）进系统提示，正文由模型按需 `read` | `service/skills*.go` · `agent/skills.go` · `views/SkillsView.vue` |
 | MCP | 登记 stdio / HTTP 服务与开关，「测试连接」走真握手；引擎装载的工具只来自 stdio | `service/mcp*.go` · `agent/mcp_client.go` · `views/McpView.vue` |
 | 工作区文件 | 文件树与搜索、读写 / 新建 / 重命名 / 删除，Markdown、代码、PDF、Word、Excel 预览 | `service/files.go` · `views/WorkspaceView.vue` |
 | Git | 状态 / 差异 / 提交历史 / 暂存 / 提交 / 分支 / 合并 / 冲突处理 / stash / 初始化 / 远程推拉 | `service/git*.go` |
@@ -40,8 +40,10 @@ Windows 单机 AI 工作台：一个把智能体引擎装进 GUI 的桌面应用
 文件头只在创建时写一次、之后永不重写：改名也是追加一条 `session_info` 条目。
 标题、待办、计划模式与活动分支都由条目回放派生；唯一例外是隐藏轮的台账，它记在 `workbaby.json`。
 
-**工具注册表决定能力边界。** 现役内置工具是 `read` `write` `edit` `ls` `grep` `find`
-`bash` `todo` `ask`，索引与联网工具按配置条件装载，MCP 工具整体替换注册。
+**工具注册表决定能力边界。** 现役内置工具十二个：`read` `write` `edit` `ls` `grep` `find`
+`bash` `todo` `ask` `index_search` `web_search` `web_fetch`，其中索引与联网工具在装配时无条件装上
+（`service/app.go` 的 `AddWebTools` / `AddIndexTool`，可用性取决于运行时上游配置而不是装配条件）；
+MCP 工具整体替换注册。工具清单与硬上限见 `docs/TOOL-REFERENCE.md`。
 系统提示里的工具清单从注册表现读，两者不会不一致。
 
 **计划模式是注册表上的一个闸门。** 只读态挂在 `ToolPolicy` 上，一次实现管住全部写工具；
@@ -84,14 +86,29 @@ WorkBaby/
 ├── scripts/             # 开发期 PowerShell 助手
 ├── tests/               # Go 场景测试，一文件一个主题
 ├── .github/workflows/   # CI 门禁与 tag 发布流水线
-└── docs/                # ARCHITECTURE / MODULES / API / DATA-MODEL / DEV
+└── docs/                # ARCHITECTURE / MODULES / API / DATA-MODEL / DEV / 使用与排障
 ```
+
+## 文档
+
+| 文件 | 讲什么 | 给谁看 |
+|---|---|---|
+| `docs/USER-GUIDE.md` | 从配服务商到发出第一句话，再到计划模式 / 会话 / 技能 / MCP / 模板 / `@` / `/` / 快捷键 / 数据在哪 / 卸载 | 第一次用的人 |
+| `docs/TROUBLESHOOTING.md` | 业务码 → 下一步；症状（白屏、连不上、卡在运行中、MCP 有配置没工具、索引空、探测通过但聊天失败）→ 原因 → 动作 | 遇到问题的人 |
+| `docs/TOOL-REFERENCE.md` | 模型能调的 12 个内置工具 + MCP 工具：入参、硬上限、只读与否、计划模式下的行为 | 想弄清模型能力边界的人 |
+| `docs/PROVIDERS.md` | `api_protocol` 三种取值在「列模型」与「聊天」两条路上各支持什么，以及端到端可用的判定 | 配服务商的人 |
+| `docs/ARCHITECTURE.md` | 进程拓扑、分层、装配顺序、锁模型、五类真相、优势与代价总表 | 接手代码的人 |
+| `docs/MODULES.md` | 按功能域的链路、接口、事件、错误码与排障入口 | 改功能的人 |
+| `docs/API.md` | 全路由契约、信封、SSE 事件全表、错误码双索引 | 对接接口的人 |
+| `docs/DATA-MODEL.md` | 会话 JSONL、设置台账、SQLite、MCP 清单、技能与模板目录的落盘形状 | 修数据 / 排障的人 |
+| `docs/DEV.md` | 环境、命令、测试策略、发布流程 | 贡献代码的人 |
+| `DESIGN.md` | 视觉语言与交互原则（布局、令牌、主题） | 改界面的人 |
 
 运行数据只在 `%LOCALAPPDATA%\WorkBaby\`（开发态带 `-dev` 后缀）：
 
 ```
 ├── workbaby.json        # 设置、技能开关与隐藏轮台账
-├── workbaby.db          # SQLite：服务商 / 模型 / 检索文档
+├── workbaby.db          # SQLite：服务商与模型（含 API 密钥原文）/ 检索文档；删了要重填密钥
 ├── mcp.json             # MCP 服务清单（工作区级另有同名文件）
 ├── logs/                # 按天滚动：wb-YYYY-MM-DD.log
 ├── webview/             # WebView2 用户数据

@@ -3,6 +3,9 @@
 字段名全部取自 `backend/domain/*.go` 的 json tag 原文。行为约束（空串语义、上限、落盘副作用、排障顺序）
 只写在 `docs/MODULES.md` 对应章节，本文不复述。
 
+错误码逐条「下一步该做什么」见 `docs/TROUBLESHOOTING.md`（本文 §5 只给触发条件）；
+工具侧的入参与硬上限见 `docs/TOOL-REFERENCE.md`；`api_protocol` 的行为差异见 `docs/PROVIDERS.md`。
+
 ## 1. 信封与鉴权
 
 这一节讲什么：HTTP 出口的统一形状、鉴权方式与中间件顺序，全部请求都要过这一道。
@@ -29,6 +32,10 @@
   前端拿它和业务错误走同一条显示路径。
 - **只允许 GET / POST**；动词靠路径段表达（`POST /sessions/delete`）。`GET` 不写盘；
   唯一例外：`/chat/state` 会隐式建会话并写 `prefs.last_session_file`（见 `docs/ARCHITECTURE.md` §3）。
+- **有专门接口的键不能走通用保存入口**：`POST /settings/save` 收到 `workspace.current` 或 `workspace.history`
+  时直接回 `1000`，`message` 指路「工作区请走 `/settings/workspace`（要校验目录并同步历史）」。
+  这样绕不过目录校验，也不会把文件接口的根指到任意位置。这两个键因此各自只有一个写入方
+  （`Settings.SetWorkspace` / `ForgetWorkspace`）。
 
 ## 2. 参数与出参约定
 
@@ -36,11 +43,21 @@
 
 - 没有路径段变量，一律查询参数：`?path=` `?session=` `?workspace=` `?q=` `?query=` `?hash=`
   `?limit=` `?lines=` `?name=` `?since=` `?token=`。
-- `limit` 类缺省值由 handler 兜底：`/git/file-history` 缺省 40 上限 200、`/git/history` 缺省 50 上限 500、
-  `/logs` 缺省 500、`/files/search` 缺省 50 上限 200。
+- `limit` 类缺省值由 handler 兜底，**超上限不是截到上限，而是回到缺省值**（三者口径不完全一致，逐个写清）：
+  `/git/history` 缺省 50、`> 500` 时**回到 50**（`service/git.go` `History`）；`/git/file-history` 缺省 40、
+  `> 200` 时**回到 40**（`service/git_history.go` `FileHistory`）；`/files/search` 缺省 50、`> 200` 时**截到 200**
+  （`service/files.go` `Search` 把非法值直接赋成上限）；`/logs` 缺省 500，不设上限。
+  要「尽可能多地拿」就传上限本身，传更大的数只会得到缺省那一页。
 - 整数查询参数为空或解析失败按缺省值走，不报错（`queryInt`）；`/events` 的 `?since=` 非数字当 0。
 - POST body 一律 JSON；解析失败回 `1000`，`detail` 是解析器原话（`bind`）。
+  body **上限 16 MB**（`maxRequestBodyBytes`，`backend/api/server.go`）：绑定前先包一层 `MaxBytesReader`，
+  不会先把整个 body 读进内存再判；超限按解析失败处理，回 `1000`。这是每个请求单独的上限，
+  与文件写入的 5 MB 不是一回事。
+- 只收 `GET` / `POST`；`OPTIONS` 预检由 CORS 中间件直接回 204，不进鉴权。
 - 出参字段名一律 snake_case + 业务前缀；时间戳毫秒 int64（会话文件内的 ISO 串是落盘格式，不进 DTO）。
+- **密钥只在入口收、在出口换掩码**：服务商密钥读出恒为 `api_key_masked`（前端从拿不到原文）；
+  设置里的 `web.search_key` 在 `GET /settings` 与 `GET /prefs` 的 `pref_values` 里都被换成 `••••`（`maskSettings`）。
+  掩码只用于读回显，写入路径不经过它，所以「空串 = 保留原值」的语义仍然成立。
 - 只有成功标志的接口回 `{"ok": true}`（`OkRESP`）。
 
 ## 3. 路由表
@@ -53,12 +70,12 @@
 | 方法 | 路径 | 入参 | 出参 | 语义 |
 |---|---|---|---|---|
 | GET | `/bootstrap` | — | `app_version,app_contract,engines[],active_engine,workspace,settings{},layouts[],workspaces[],runtime,prefs` | 首屏总包，`app_contract` 当前为 3；`engines[]` 单行 `EngineIdentity`，`workspaces[]` 行见 3.1 `/workspaces` |
-| GET | `/settings` | — | 键值 `{}` | 全部设置键值 |
-| POST | `/settings/save` | 键值 `{}`（`SaveSettingsREQ`） | 键值 `{}` | 落盘后回全量；`ui.mention_sessions` 收敛到 1~20 |
+| GET | `/settings` | — | 键值 `{}` | 全部设置键值；`web.search_key` 恒为掩码 |
+| POST | `/settings/save` | 键值 `{}`（`SaveSettingsREQ`） | 键值 `{}` | 落盘后回全量；`ui.mention_sessions` 收敛到 1~20；`workspace.current` / `workspace.history` 回 `1000`（只能走 `/settings/workspace`） |
 | POST | `/settings/workspace` | `workspace` | `workspace` | 切工作区；会话绑定随之失效 |
 | GET | `/workspaces` | — | `workspace,workspace_rows[],active_engine` | 行：`workspace_path,workspace_exists,workspace_is_repo,workspace_branch?,workspace_dirty,session_count,updated_at` |
 | POST | `/settings/workspace/forget` | `workspace_path` | `workspace,workspace_rows[],active_engine` | 只去历史，不删磁盘 |
-| GET | `/prefs` | — | `pref_values{},auto_start,restore_session,last_session_file,close_action,data_dir,log_dir` | `auto_start` 以注册表为准 |
+| GET | `/prefs` | — | `pref_values{},auto_start,restore_session,last_session_file,close_action,data_dir,log_dir` | `auto_start` 以注册表为准；`pref_values` 里的密钥同样掩码 |
 | POST | `/prefs/autostart` | `pref_enabled` | `AppPrefsVO` | 写 HKCU Run 项 |
 | POST | `/prefs/restore` | `pref_enabled` | `AppPrefsVO` | 只记设置，执行者是前端 |
 | POST | `/prefs/close-action` | `close_action`（`tray`\|`quit`） | `AppPrefsVO` | 非 `quit` 一律按 `tray` |
@@ -86,7 +103,7 @@
 |---|---|---|---|---|
 | GET | `/sessions?workspace=&q=` | `workspace`（空则扫全部工作区）、`q` | `sessions[]` | 行：`session_id,session_path,session_title,session_cwd,session_model,updated_at,size_bytes,message_count,total_tokens,cost_usd`；`message_count` 是消息条数（用户 + 助手 + 工具结果各算一条），不是对话轮数；`q` 命中标题或正文 |
 | GET | `/sessions/detail?path=` | `path` | `session,items[]` | 行：`item_kind,item_role,item_text?,item_model?,tool_name?,tool_call_id?,tool_is_error,created_at,item_tokens?,cost_usd?` |
-| POST | `/sessions/delete` | `session_path` | `{ok}` | 一并清 `chat.hide:<路径>` 台账键 |
+| POST | `/sessions/delete` | `session_path` | `{ok}` | 引擎正打开这份会话时回 `5002`；一并清 `chat.hide:<路径>` 台账键 |
 | POST | `/sessions/rename` | `session_path,session_title` | `{ok}` | 追加 `session_info` 条目；被引擎打开时 `5002` |
 
 ### 3.4 对话（MODULES §1）
@@ -95,7 +112,7 @@
 |---|---|---|---|---|
 | GET | `/chat/state?session=` | `session` | `ChatStateRESP`（见下） | 无会话时隐式建会话并写 `prefs.last_session_file` |
 | POST | `/chat/send` | `session_file,message,attachments[]?` | `run_id,disposition` | `disposition`：`started`（起跑）/`queued`（Busy 转插话队列）/`handled`（斜杠命令已消费，不登记运行） |
-| POST | `/chat/stop` | — | `{ok}` | 只 cancel，不等待 |
+| POST | `/chat/stop` | — | `steering[],follow_up[]` | cancel 当前运行**并作废两条排队**：先把队里的文本取出来、`ClearQueued` 清引擎侧，再 `cancel()`；被作废的话术原样回给界面，前端据此放回输入框。没有运行中时不报错（`cancel == nil` 直接返回空队列）。作废了非空队列还会补一帧空 `chat:queue` |
 | POST | `/chat/steer` | `message,attachments[]?`（复用 `ChatSendREQ`，`session_file` 不读） | `{ok}` | 进 steering 队，本轮收尾后注入；无运行中回 `5003` |
 | POST | `/chat/followup` | `message,attachments[]?`（同上） | `{ok}` | 进 follow_up 队，本轮结束后另起一轮；无运行中回 `5003` |
 | POST | `/chat/clear-queue` | — | `steering[],follow_up[]` | 返回被清掉的文本；引擎侧队列一并清 |
@@ -115,11 +132,23 @@
 
 `ChatStateRESP`：`engine_kind,session_file,work_dir,engine_running,streaming,model?,thinking_level,thinking_levels[],context_usage?,auto_compaction,queued,stats?,history[],todos[],plan_mode,plan_state?,commands[],caps,bind_err?,context_warn?`。
 - `thinking_levels[]` 是 `off/low/medium/high` 四档（`/chat/thinking` 接受的档位多一个 `minimal`）。
-- `context_usage`：`usage_tokens,context_window,usage_percent`；`stats`：`session_id,user_messages,assistant_messages,tool_calls,total_messages,total_tokens,context_usage`；`input_tokens/output_tokens/cache_read_tokens/cache_write_tokens/cost_usd` 恒为零值——聚合只累加总 token 数，明细读数要看会话里的每条消息。
+- `context_usage`：`usage_tokens,context_window,usage_percent`；`stats`：`session_id,user_messages,assistant_messages,tool_calls,total_messages,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,total_tokens,context_usage`。
+  token 四个分项是真聚合：扫会话条目里每条消息的 `usage`，把 `input`/`output`/`cacheRead`/`cacheWrite` 各自累加（`Chat.usageSnapshot`）。
+  `cost_usd` 仍恒为零值——聚合路径不累加花费，要算钱得逐条读会话里的 `usage.cost.total`。
 - `context_warn`：自动压缩开着且占用过八成时给一句话提示，否则为空。
 - `queued`：`steering[],follow_up[]`；`plan_state`：`plan_enabled,blocked_tools[]`；`model?`：`model_id,model_name,provider_name,api_protocol,supports_reasoning,context_window,max_tokens,input_kinds?`。
 - `commands[]`：`command_name,command_source,command_desc?,command_body?`；`history[]`：`turn_role,turn_blocks[],turn_model?,turn_usage?,turn_id?`。
 - `ChatAttachmentVO`：`attachment_kind`（`file`\|`image`\|`session`）、`file_path?,file_name?,image_base64?,image_mime?,attachment_body?`；文件附件以路径引用折进消息，图片走内容块，会话引用整段正文折进消息。
+
+导出有两种，只有一种走后端：
+
+| 格式 | 谁生成 | 触发方式 | 内容口径 |
+|---|---|---|---|
+| HTML | 后端 `Sessions.Export`（`service/session_html.go`） | `POST /chat/export-html`，或斜杠命令 `exporthtml` | 自包含单文件，样式内联，文件名由后端按会话名给 |
+| Markdown | **纯前端** `useBuiltinCommands.ts` 的 `exportMarkdown`，没有对应 HTTP 接口 | 只有斜杠命令 `export` | 遍历 `/chat/state` 给出的 `chat.history`，每轮打 `## 我` / `## 助手` 后贴 `block_kind="text"` 的正文，Blob 下载 `session-<时间戳>.md` |
+
+Markdown 覆盖 `/chat/state` 返回的全部历史轮次，但只取 `block_kind="text"` 的正文：
+思考块、工具卡片、差异与用量都不导出。要完整存档（含样式与工具块）用 HTML。两者都不改会话文件。
 
 ### 3.5 模型服务商（MODULES §4）
 
@@ -137,6 +166,10 @@
 | POST | `/models/defaults` | `default_provider,default_model,default_thinking_level` | 同上 | 服务商与模型必须成对填写或成对留空，否则 `3000` |
 
 模型条目 `ProviderModelEntryVO`：`model_id,model_name?,api_protocol?,supports_reasoning?,context_window,max_tokens,input_kinds?`。
+
+`config_path` 是 `data\workbaby.db` 的绝对路径，**不是**某个 `models.json` 文件：服务商与模型存在 SQLite 里
+（`service/models.go` 的 `Providers()` 回填 `Layout.DatabasePath()`），磁盘上没有同名 JSON 可看可改。
+`domain/provider.go` 里该字段的注释写的是 `models.json 路径`，与本字段的实际取值不符，以本节为准。
 
 ### 3.6 技能（MODULES §5）
 
@@ -160,8 +193,8 @@
 | 方法 | 路径 | 入参 | 出参 | 语义 |
 |---|---|---|---|---|
 | GET | `/templates` | — | `rows[]` | 行：`template_name,template_desc,template_body,template_args` |
-| POST | `/templates/save` | `template_name,template_desc,template_body,template_args` | `{ok}` | 名字清洗后为空即拒 |
-| POST | `/templates/delete` | `template_name`（复用 `PromptTemplateREQ`，其余字段不读） | `{ok}` | 幂等 |
+| POST | `/templates/save` | `template_name,template_desc,template_body,template_args` | `{ok,template_name}`（`PromptTemplateSaveRESP`） | 先 `sanitizeTemplateName`（小写、只留 `a-z0-9-`、去首尾 `-`）；清洗结果为空回 `1000`「模板名不能为空（只允许小写字母、数字与连字符）」。`template_name` 回的是**实际落盘的**名字，删除要用它——拿原文去删会找不到刚存下的那一份 |
+| POST | `/templates/delete` | `template_name`（复用 `PromptTemplateREQ`，其余字段不读） | `{ok}` | 同名清洗后删除；幂等（不存在不算错），清洗后为空回 `1000` |
 
 ### 3.8 MCP（MODULES §6）
 
@@ -202,8 +235,11 @@
 | GET | `/git/file-diff?hash=&path=` | `hash,path` | `GitDiffRESP` | 单提交里某文件的差异 |
 | GET | `/git/branches` | — | 裸数组 `[]GitBranchVO`（不套对象） | 行：`branch_name,is_current,remote_name?,ahead,behind`；本地与远端分支同列 |
 | GET | `/git/stash/list` | — | `stashes[]` | 行：`stash_ref,stash_subject`，最新在前 |
-| POST | `/git/stage` `/git/unstage` `/git/discard` `/git/resolve` | `file_paths[]`（`GitPathsREQ`） | `GitStatusRESP` | 四者共用一个入参形状 |
-| POST | `/git/conflict/resolve` | `file_path,resolve_side`（`ours`\|`theirs`\|`""` = 我改完了） | `GitStatusRESP` | 按口径解决一个冲突文件 |
+| POST | `/git/stage` | `file_paths[]`（`GitPathsREQ`） | `GitStatusRESP` | 加入暂存 |
+| POST | `/git/unstage` | `file_paths[]`（`GitPathsREQ`） | `GitStatusRESP` | 移出暂存 |
+| POST | `/git/discard` | `file_paths[]`（`GitPathsREQ`） | `GitStatusRESP` | 丢弃工作区改动（未跟踪文件直接删） |
+| POST | `/git/resolve` | `file_paths[]`（`GitPathsREQ`） | `GitStatusRESP` | 把冲突文件标记为已解决；与下一条不是同一个接口 |
+| POST | `/git/conflict/resolve` | `file_path,resolve_side`（`GitConflictREQ`；`ours`\|`theirs`\|`""` = 我改完了） | `GitStatusRESP` | 按口径解决**一个**冲突文件；入参是单文件，不是 `file_paths[]` |
 | POST | `/git/commit` | `commit_message,is_amend` | `status,commit_hash` | — |
 | POST | `/git/branch` | `branch_name`（复用 `GitBranchREQ`，`is_rebase` 不读） | `GitStatusRESP` | 新建分支 |
 | POST | `/git/branch/delete` | `branch_name`（同上） | `GitStatusRESP` | — |
@@ -270,7 +306,7 @@
 | `chat:settled` | `aborted` | 运行收尾（含中止） | 与 `chat:done` 背靠背各发一帧 |
 | `chat:done` | `aborted` | 同上 | 界面据此收尾并重拉 state 与列表 |
 | `chat:compaction` | `state`（`start`\|`done`）、`engine_kind` | 手动/自动压缩开始与结束 | 不带 `run_id` |
-| `chat:queue` | `steering[],follow_up[]` | 插话/追加入队、单条移除、清空之后 | 界面整体替换队列镜像 |
+| `chat:queue` | `steering[],follow_up[]` | 插话/追加入队、单条移除、清空之后；`/chat/stop` 作废了非空排队时也补一帧空队列 | 界面整体替换队列镜像 |
 | `chat:model` | `provider_name,model_id` | 切模型成功后 | 界面未接管（落 default 分支） |
 | `chat:plan` | `plan_enabled,session_id` | 计划模式开关落盘后 | 界面未接管 |
 | `session:info` | `engine_kind`（斜杠命令路径的一处广播为空载荷） | 新建/克隆/分叉会话成功后 | 界面重拉会话列表 |

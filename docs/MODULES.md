@@ -2,7 +2,10 @@
 
 按功能域组织，排障与接手都从这份文件进。每节七段固定骨架：**① 定位**（给谁用、在哪儿用）→ **② 设计与理由**（怎么搭的、为什么）→ **③ 实现链路**（后端 `service`→`agent`/`repo` 与前端的真实符号）→ **④ 接口与事件** → **⑤ 错误码** → **⑥ 不变量与坑** → **⑦ 取舍**（换来什么、代价是什么）。
 
-字段级入参出参与错误码总表只有一份，在 `docs/API.md`（本文件每节的 ④ 指向它对应的 §3.x）；存储形态见 `docs/DATA-MODEL.md`，分层与依赖方向见 `docs/ARCHITECTURE.md`，工程规范见 `AGENTS.md`。全局约定：前缀 `/api/v1`，只用 GET / POST，动词靠路径段；信封恒 HTTP 200、体为 `{code,message,detail?,data}`，`code != "0"` 即业务失败；HTTP 鉴权走 `X-Desktop-Token`，SSE 走 `?token=`，鉴权失败是唯一不带信封的出口（裸 401）。业务码定义在 `backend/pkg/codes.go`，界面直接显示后端 `message`。
+字段级入参出参与错误码总表只有一份，在 `docs/API.md`（本文件每节的 ④ 指向它对应的 §3.x）；存储形态见 `docs/DATA-MODEL.md`，分层与依赖方向见 `docs/ARCHITECTURE.md`，工程规范见 `AGENTS.md`。
+面向使用者的任务向导在 `docs/USER-GUIDE.md`；按症状与按码的排查在 `docs/TROUBLESHOOTING.md`（本文件各节的 ⑤ 是它的素材来源）；
+工具清单与硬上限在 `docs/TOOL-REFERENCE.md`；`api_protocol` 在探测与聊天两条路上的差异在 `docs/PROVIDERS.md`。
+全局约定：前缀 `/api/v1`，只用 GET / POST，动词靠路径段；信封恒 HTTP 200、体为 `{code,message,detail?,data}`，`code != "0"` 即业务失败；HTTP 鉴权走 `X-Desktop-Token`，SSE 走 `?token=`，鉴权失败是唯一不带信封的出口（裸 401）。业务码定义在 `backend/pkg/codes.go`，界面直接显示后端 `message`。
 
 ## 1. 对话（计划模式 · 附件 · 斜杠命令 · 队列 · 提问卡）
 
@@ -31,7 +34,10 @@
 - 发送判定顺序（`Send`）：`compose` 后正文空白 → 1000 → 无附件时先 `HandleCommand`，被消费回 `handled` → `Busy()` 转 `Steer` 回 `queued` → `BindSession` → `resolveModel` → `Stream.Begin` 回 `started` + `run_id` → goroutine 里判自动压缩、`runner.Run`、逐条派发 `FollowUpQueued()`（`ctx` 已取消就不再派发）。
 - 自动压缩三个条件缺一不可：`model.auto_compaction != "0"`、`context_window > 0`、`ContextUsage()/window > 0.8`；失败只 `pkg.Warn` 不挡本轮。水位口径见 `Session.ContextUsage()`：以最后一条 `compaction` 重新起算，取其后最后一条带 usage 的助手消息的 `input+output+cache_read`，一条都没有就按字符数 / 4 估。
 - 压缩本体 `compactNow`：`resolveModel` → `compactionPrompt`（无正文 → 1000）→ 广播 `start` → `summarize`（120s 同步、不带工具、不发思考档）→ `AppendCompaction` → 广播 `done`。三条出口都补 `done`，界面不会卡在「压缩中」。
+- 中止（`POST /chat/stop`）把被作废的两条排队话术原样回家：`Stop` 先取队再 cancel，返回 `QueuedMessagesVO`。用户刚打的字不会无声消失。
 - 思考档存 `model.thinking_level`，后端接受 `off/minimal/low/medium/high`，`thinking_levels` 只列 `off/low/medium/high`（`minimal` 不在界面出现）。
+- 生效档的取法在 `resolveThinkingLevel`（`service/chat_service.go`）：当前档优先，用户没选过就用 `model.default_thinking_level`，两处都缺省才落到常量 `fallbackThinkingLevel`（`medium`）。新会话建立时（`BindSession` / `NewSession`）重取一次，所以设置里改默认档对新会话真的生效。
+- 模型定义里的 `max_tokens` 随 `Runner.MaxTokens` 进上游请求体：不传的话上游按自己的默认值给，用户在模型页设的上限就永远对不上。
 - 斜杠命令双轨：后端 `nativeCommands` 声明 `new`/`compact`/`export`/`plan`，`HandleCommand` 只处理 `/new` `/compact` `/plan`（`/plan off` 退出，不带参数按当前状态取反），`/export` 由前端本地执行；前端 `useBuiltinCommands.ts` 的 `BuiltinKey` 另列 `model` `thinking` `copy` `exporthtml` `reload` `clone`，按 `caps` 过滤（`exporthtml`→`export_html`、`clone`→`session_clone`，不满足就不进菜单）；模板命令以 `command_source="prompt"` 并进同一菜单。带附件时不认斜杠命令。
 - 前端：`views/ChatView.vue` → `stores/chat.ts`（`send` / `retrySend` / `steer` / `followUp` / `answer` / `compact` / `stop` / `clearQueue` / `removeQueued` / `newChat` / `cloneChat` / `forkChat` / `setModel` / `setThinking` / `setAutoCompaction` / `setPlanMode` / `hideTurn` / `unhideTurn` / `refresh` / `applyState` / `finishTurn` / `reset`）+ `stores/events.ts routeFrame` → composables `useMessageFlow`（`applyPatch` / `beginTurn` / `applyHistory` / `setUsage` / `turnPresence`）、`useRunStatus`、`useComposerDraft` / `useComposerMenu` / `useComposerActions`、`useAttachments`、`useBuiltinCommands`、`useEngineModels`、`useTurnClock`、`useWorkPanel`。
 - 组件：`components/chat/` 下 `HistoryList` `MessageTurn` `TurnBlocks` `ToolCallCard` `ThinkingBlock` `AskCard` `TodoPanel` `ChatComposer` `ComposerBar` `ComposerStatus` `ComposerMenu` `MentionBrowser` `ModelPicker` `ContextMeter` `ActivityBar` `ChatNotices` `TurnChanges` `WorkPanel`；左栏复用 `components/sessions/SessionList.vue`。
@@ -86,7 +92,7 @@
 - 贴底由 `ChatView.vue` 的 `schedulePin` 用 rAF 合帧：同帧只滚一次，距底 < 2px 不再推。
 - 工具块的 `file_path` 必须随结果落盘并在回放时投影：`parser/history.go fillToolResult` 读 `MessageDetails["file_path"]` 与 `["diff"]` → `block.file_path` / `block.diff_lines`。只投 diff 不投路径，工具卡的「看改动」与轮尾 `TurnChanges` 芯片会一起消失。
 - `useWorkPanel` 是模块单例（`tabs` / `activeId` / `width` 在模块作用域）：切页再回来标签还在；`openWorkFile` 按路径去重并激活，`closeWorkTab` 把激活位回退到相邻标签，关到空自动收起。宽度键 `wb.workpanel.width`，`clampWidth` 夹 300~720、默认 420。
-- `Chat.AskPending()` 没有调用方，`/chat/state` 也不带待答清单字段：提问期间刷新界面，卡片回不来。`ask_timeout_ms` 随载荷带出但 `ask` 只等回答与 `ctx`，不会自动超时作废。
+- `Chat.AskPending()` 没有调用方，`/chat/state` 也不带待答清单字段：提问期间刷新界面，卡片回不来。`chat:ask` 载荷里没有超时字段（`AskRequestVO.AskTimeoutMs` 不下发），`ask` 只等回答与 `ctx`，不会自动超时作废。
 - `context_warn` 后端会填（> 0.8 且自动压缩开着），前端不消费，也不影响其它字段。
 - `/chat/remove-queued` 的 `queue_kind` 只校验取值，`Runner.RemoveQueued(index)` 摘的是插话队那一条。
 - 回答一条已经不在等的提问不会被丢：`Answer` 走 `appendAnswer` 当普通用户消息追加进会话，取消则追加「（用户取消了那次提问）」。
@@ -181,7 +187,7 @@
 
 字段级入参出参见 `docs/API.md` §3.3（隐藏轮的两条在 §3.4）。事件：`session:info` 触发列表重拉；`chat:done` 也走 `refreshSessions` + `bumpSessions`；隐藏 / 取消隐藏 / 改名 / 删除都不发事件。
 
-**⑤ 错误码**：5000 未选工作区；5001 路径越界或非法、会话删除失败（`parser.GuardSession` 要求落在 `data\sessions` 下）；5003 会话文件不存在；5002 改名被拒（这份会话正被引擎打开，先切走）；1000 标题为空、隐藏缺 `session_file` 或 `turn_id`。
+**⑤ 错误码**：5000 未选工作区；5001 路径越界或非法、会话删除失败（`parser.GuardSession` 要求落在 `data\sessions` 下）；5003 会话文件不存在；5002 改名或删除被拒（这份会话正被引擎打开，先切走）；1000 标题为空、隐藏缺 `session_file` 或 `turn_id`。
 
 **⑥ 不变量与坑**
 
@@ -191,6 +197,7 @@
 - `Summarize` 扫全部条目而非活动分支：`session_model` 取文件里更靠后的那条事实——`model_change` 条目写 `provider/model_id`，助手消息写 `message_model`，谁后谁生效；标题同理，最后一条带 `name` 的改名条目赢过首条用户消息。
 - `Count` 只数文件名、不解析内容：健康面板每次引擎事件都会刷新它，走 `List` 会把每份会话全文读两遍。
 - 删会话会顺带清它的 `chat.hide:<会话文件>` 键，写失败只 `pkg.Warn`。
+- 删除避让引擎正在打开的那份会话（`Active` 判定，回 5002）：删掉之后它还在追加，界面会继续显示一份读不回来的会话。
 
 **⑦ 取舍**：换来文件即真相——可备份、可手改、重启零状态，分支与隐藏都不需要额外表；代价是清单要扫盘（于是有分页、`Count` 不解析、搜索先比标题），派生字段散在解析层，改口径必须同时改回放。
 
@@ -246,9 +253,12 @@
 - 开关 = 搬目录，不是改配置：目录搬移对所有情况成立，且不需要任何配合。搬完再写 `skill_toggles` 台账（`repo/store.go SetSkillEnabled`）记一次意图；写失败只 Warn、不回滚——真相在目录里，台账只是备注。
 - 动作对象一律是 `SKILL.md` 所在的目录，入参必须是 `SKILL.md` 路径：`Toggle` 传别的回 1000、`Delete` 传目录路径回 8002。深层任意文件算出的目录会把别的技能搬走，而传技能目录正好能清空整个内置技能区。
 - 三区扫描 `skills_scan.go`：`dedupeByDirName` 同名只留启用区那份（启用区没有才留禁用区那份），按 `skill_group` 字母序稳定排序；`skill_modified` 由 `isModified` 与随包原件比对得出；项目技能 `skill_editable=false`。
+- 启用技能的索引进系统提示：`SKILL.md` 的正文动辄几千字，整段塞进每轮提示等于拿无关长文挤掉上下文，所以只作索引——`PromptSkills` 扫启用区交出 `名字 / 一句话说明 / SKILL.md 绝对路径`，`SystemPrompt` 列成「## 可用技能」并写明「相关才用 read 读正文，不相关不要读」。清单空时整节不出现；超过 40 条按清单顺序截断（`maxPromptSkills`），省下的上下文比多列 3 条更值钱。
+- 索引每轮开跑前整段重取（`Chat.refreshSkills` → `Registry.SetSkills`），不在六个写接口里各推一次：漏推一个就长期不一致，而重扫一次启用区只是读几个小文件。开关因此不需要重启。
+- 技能正文对工具是只读的：`read` 能读到（`Registry.resolve` 的越界守卫对「当前启用的技能文件」放行），`write` / `edit` 会被 `Run` 拒掉，改内容只走技能页——技能有原件、副本、台账三份状态，工具写哪一份都说不清。
 - 四个入口的约束：`Install` 只认推荐清单（`skill_catalog.go` 固定 10 条）的目录名，目标已存在直接拒；`Import` 是复制不是引用（`copyTreeAtomic`），源目录之后删改都不影响副本；`Create` 的名字过 `sanitizeSkillName`（字母 / 数字保留，其它字符换成 `-`，首尾 `-` 去掉）；`Reset` 先复制到 `<目录>.resetting` 再换名，并回写原来的分区（`wasEnabled`）。
 
-**③ 实现链路**：`api/routes_data.go`（`/skills*`）→ `service/skills.go`（`Install` / `Toggle` / `Reset` / `Import` / `Create` / `Delete` / `guardPath` / `builtinSource` / `projectDir` / `Count` / `sanitizeSkillName`）→ `skills_scan.go`（`List` / `scanDir` / `dedupeByDirName` / `sourceOf` / `isModified` / `skillDescOf`）、`skills_edit.go`（`Content` / `Save`）、`skill_catalog.go`（`RecommendedSkillOf`）、`skill_fs.go`（`copyTree` / `copyTreeAtomic`）→ `pkg/frontmatter.go` 解析 YAML 头。前端 `views/SkillsView.vue`（`AbortController` + `loadSeq`、重置 / 删除二次确认）→ `components/skills/{SkillRow,SkillDrawer,SkillCreateDialog}.vue` → `stores/refresh.ts bumpSkills`。
+**③ 实现链路**：`api/routes_data.go`（`/skills*`）→ `service/skills.go`（`Install` / `Toggle` / `Reset` / `Import` / `Create` / `Delete` / `guardPath` / `builtinSource` / `projectDir` / `Count` / `sanitizeSkillName`）→ `skills_scan.go`（`List` / `scanDir` / `dedupeByDirName` / `sourceOf` / `isModified` / `skillDescOf` / `PromptSkills`）、`skills_edit.go`（`Content` / `Save`）、`skill_catalog.go`（`RecommendedSkillOf`）、`skill_fs.go`（`copyTree` / `copyTreeAtomic`）→ `pkg/frontmatter.go` 解析 YAML 头。进提示这一段：`app.go` 把 `skills.PromptSkills` 接给 `Chat.SkillSource` → 每轮 `Chat.refreshSkills` → `agent.Registry.SetSkills` → `agent.SystemPrompt` 的「## 可用技能」。前端 `views/SkillsView.vue`（`AbortController` + `loadSeq`、重置 / 删除二次确认）→ `components/skills/{SkillRow,SkillDrawer,SkillCreateDialog}.vue` → `stores/refresh.ts bumpSkills`。
 
 **④ 接口与事件**
 
@@ -274,6 +284,8 @@
 - `skill_modified` 为真表示内容与随包原件不同，是 `Reset` 唯一的提示信号。
 - 项目技能属于那个仓库：壳里既不能开关也不能删除，只能读。
 - `Reset` 中途失败宁可保内容不回保状态：换名失败时把暂存目录留在原地并 `pkg.Warn`。
+- 提示里的技能索引是「本轮开跑那一刻」的快照：运行中途开关技能只影响下一轮。这不是懒，是刻意——同一轮里提示与工具列表必须是同一份现实，中途换会让模型按新清单做事而工具侧还没跟上。
+- 项目技能（`<工作区>\.pi\skills`）不进提示：引擎只认托管启用区，那条链路只服务技能页展示。要让它生效得先导入成托管技能。
 
 **⑦ 取舍**：换来启用 / 停用语义与引擎无关、技能可整体拷走备份、损坏可重置回原件；代价是开关是文件系统动作（被占用时会失败并报 8001），且台账与目录可能不一致，判定必须以目录为准。
 
@@ -323,6 +335,7 @@
 **② 设计与理由**
 
 - 路径先过 `Files.guard` 归一：相对路径一律按**工作区根**拼（绝不拿进程 CWD 解析），`Join` 自带 `Clean` 把 `src/../../etc` 折成能被 `Inside` 拒掉的形状，越界直接 1002。所有接受外部路径的接口都必须先过它。
+- 守卫判两次：字符串形状（`Inside`）与真实位置（`InsideResolved` → `pkg.RealPath`，经 `GetFinalPathNameByHandleW` 解开符号链接与 junction）。工作区里放一个指向系统目录的链接不能成为第二条出口；尚未存在的新文件也按最长存在祖先的真实路径判定。
 - 上限按用途分开：列目录 500 条、搜索 200 条命中、读 1MB（超限 `truncated`）、写 5MB、可预览二进制 32MB（再大不回 base64）。
 - `Search` 只按**文件名**包含匹配，命中到量就 `SkipAll`，并跳过 `node_modules` / `.git` / `dist` / `build` / `.next` / `target` / `__pycache__` / `.venv`（`isNoiseDir`）；权限不足的目录 `SkipDir` 而不是整体失败。
 - `Read` 用 NUL 字节或非 UTF-8 判二进制，再按扩展名分渲染类（`previewKind`：`pdf` / `sheet`(`.xlsx|.xls|.xlsm`) / `doc`(`.docx`) / `image`(`.png .jpg .jpeg .gif .webp .bmp .svg`)），命中且体积 ≤ 32MB 才回 base64。
@@ -518,6 +531,8 @@
 - 设置台账是一份 JSON（`data\workbaby.json`），`repo/store.go` 原子整写 + 互斥：单机十来个键，不值得为它开一张表。键名集中在 `service/settings.go` 的常量里——散在调用处迟早会出现「设置页写了 A，聊天读的是 B」。
 - 界面类设置首启补默认（`EnsureDefaults` 只补缺键，用户改过的一个字不动），界面读到的是明确的值，不必各自兜底。
 - 入口收敛而不报错：`normalize` 把 `ui.mention_sessions` 夹到 1~20，读侧 `MentionSessions()` 再兜一次（空 / 非法 / < 1 → 5，> 20 → 20）。手改出来的坏值按边界收敛比抛错好用。
+- `Save` 拒收保留键（`reservedSettings`）：`workspace.current` / `workspace.history` 只能经 `/settings/workspace` 写。工作区是文件接口的根，绕过它就等于把 1002 路径守卫连根拔掉——拒而不静默丢弃，界面才会显示「没改上」而不是以为改上了。
+- `All()` 在出口把密钥类键换成掩码（`web.search_key`）：读接口是界面唯一的设置来源，原样回显等于把密钥交给渲染进程；存储里仍是原文，掩码只发生在出口。
 - 工作区历史有容量（`maxWorkspaces = 24`，同路径去重、最新在前）：工作区不是标签页，留太多就变成一份需要搜索的长名单。`Workspaces()` 一次扫描把「在不在、是不是仓库、分支、脏文件数、会话数」全算齐，避免每行各发一次 git。
 - 关窗行为以设置为准（`prefs.close_action`），且第一次收托盘必须问一次（`prefs.tray_hint_shown` + `MarkTrayHintShown` / `TrayHintPending`）。
 
@@ -528,8 +543,8 @@
 | 方法 | 路径 | 这一条做什么 |
 |---|---|---|
 | GET | `/bootstrap` | 首屏一次性装配：版本、契约、引擎、目录布局、工作区、设置、偏好 |
-| GET | `/settings` | 读全量设置键值 |
-| POST | `/settings/save` | 写设置，界面键在入口夹成合法范围 |
+| GET | `/settings` | 读全量设置键值（密钥类键为掩码） |
+| POST | `/settings/save` | 写设置，界面键在入口夹成合法范围；工作区键直接拒（1000） |
 | POST | `/settings/workspace` | 切换工作区并记进历史 |
 | GET | `/workspaces` | 工作区历史，每行带仓库与会话概况 |
 | POST | `/settings/workspace/forget` | 从历史里去掉一个目录（不删磁盘） |
@@ -542,11 +557,12 @@
 
 字段级入参出参见 `docs/API.md` §3.1。事件：`workspace:changed`（前端没有分支，发起方自己更新）；`models:changed`（保存默认模型后）。
 
-**⑤ 错误码**：1000 工作区路径为空；1001 工作区不存在或不是目录；1003 数据目录不可写；2002 台账 / SQLite 读写失败。现象：「切了工作区会话还在旧目录」→ 看 `Chat.OnWorkspaceChanged` 与前端 `chat.refresh('')`；「关窗直接退出」→ `prefs.close_action=quit`；「关窗没提示」→ `prefs.tray_hint_shown` 已置位（只问一次）。
+**⑤ 错误码**：1000 工作区路径为空、往 `/settings/save` 写了工作区保留键；1001 工作区不存在或不是目录；1003 数据目录不可写；2002 台账 / SQLite 读写失败。现象：「切了工作区会话还在旧目录」→ 看 `Chat.OnWorkspaceChanged` 与前端 `chat.refresh('')`；「关窗直接退出」→ `prefs.close_action=quit`；「关窗没提示」→ `prefs.tray_hint_shown` 已置位（只问一次）。
 
 **⑥ 不变量与坑**
 
-- `Settings.SaveSettings` 是内部通道，不过 `normalize`；只有 `/settings/save` 走 `Save`。业务代码写自己的键不会被入口夹值。
+- `Settings.SaveSettings` 是内部通道，不过 `normalize` 也不查保留键；只有 `/settings/save` 走 `Save`。业务代码写自己的键不会被入口夹值。
+- 工作区变更只有一条路（`SetWorkspace`）：校验目录、写历史、广播 `workspace:changed`。绕过它写键，界面两页会各说一套。
 - 开机自启的真实状态来自注册表（`autoStartEnabled()`），台账里的记录只用于展示：手删注册表项，界面回读会说没开。
 - `ForgetWorkspace` 只从历史里去掉，不碰磁盘；`Workspaces()` 对已不存在的目录给「存在性为假」而不是删条目。
 
