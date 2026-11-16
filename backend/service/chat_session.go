@@ -140,7 +140,7 @@ func (c *Chat) SetThinking(_ string, level string) error {
 
 // Shutdown 退出收尾：中止还在跑的运行。
 func (c *Chat) Shutdown() {
-	_ = c.Stop()
+	c.Stop()
 }
 
 // Warm 预热：原生引擎没有冷启动，这里只保证会话可用。
@@ -156,7 +156,7 @@ func (c *Chat) Warm() {
 // OnWorkspaceChanged 工作区切换：丢掉旧会话绑定。
 func (c *Chat) OnWorkspaceChanged() {
 	if c.Busy() {
-		_ = c.Stop()
+		c.Stop()
 	}
 	c.mu.Lock()
 	c.session = nil

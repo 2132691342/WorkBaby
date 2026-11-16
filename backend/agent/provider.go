@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 // Role 是消息角色。
@@ -225,10 +226,27 @@ type assistantBuilder struct {
 	errMsg    string
 }
 
+// maxErrorMessageChars 是上游失败原话进界面的长度上限。
+// 上游可能回一整页 HTML 错误页，原样塞进 toast 与日志等于把屏幕刷满。
+const maxErrorMessageChars = 800
+
 // fail 记下上游的失败原话：结束时它同时充当结束原因与错误文案。
 func (b *assistantBuilder) fail(message string) {
-	b.errMsg = message
+	b.errMsg = truncateError(message)
 	b.stop = "error"
+}
+
+// truncateError 把失败原话压到可显示的长度；空串保持空串（调用方另有兜底话术）。
+func truncateError(message string) string {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" {
+		return ""
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= maxErrorMessageChars {
+		return trimmed
+	}
+	return string(runes[:maxErrorMessageChars]) + "…"
 }
 
 // errorMessage 取失败原话。
@@ -251,6 +269,11 @@ func (b *assistantBuilder) apply(ev StreamEvent) {
 		}
 	case EventStop:
 		b.stop = ev.StopReason
+		// 结束事件上的 Text 是上游的失败原话：丢掉它，界面就只看到
+		// 一句「失败了」而没有原因，日志里也是空的。
+		if strings.TrimSpace(ev.Text) != "" {
+			b.fail(ev.Text)
+		}
 	}
 }
 

@@ -46,7 +46,8 @@ func (t *bashTool) Run(ctx context.Context, reg *Registry, args map[string]any) 
 	if shell == "" {
 		return errorf("系统里找不到 powershell，无法执行命令")
 	}
-	// 取消要能穿透到子进程：RunProc 自带超时，ctx 提前取消时用更短的超时兜住。
+	// 取消要能穿透到子进程：ctx 提前取消时 RunProc 立刻杀树，
+	// 否则用户点了停止还得等满这一条命令的超时。
 	effective := timeout
 	if deadline, ok := ctx.Deadline(); ok {
 		if left := int(time.Until(deadline).Milliseconds()); left > 0 && left < effective {
@@ -56,6 +57,7 @@ func (t *bashTool) Run(ctx context.Context, reg *Registry, args map[string]any) 
 	result, err := pkg.RunProc(shell, []string{"-NoProfile", "-NonInteractive", "-Command", command}, pkg.ProcOptions{
 		Dir:       workspace,
 		TimeoutMs: effective,
+		Ctx:       ctx,
 	})
 	if err != nil {
 		return errorf("%s", pkg.As(err).Message)
@@ -67,7 +69,12 @@ func (t *bashTool) Run(ctx context.Context, reg *Registry, args map[string]any) 
 	if out == "" {
 		out = "（没有输出）"
 	}
-	text := "退出码 " + itoa(result.Code) + "\n" + pkg.Truncate(out, maxShellOutput)
+	header := "退出码 " + itoa(result.Code)
+	if result.Truncated {
+		// 输出被上限截断是事实，得让模型知道——否则它会以为命令只吐了这些。
+		header += "（输出超过保留上限，已截断）"
+	}
+	text := header + "\n" + pkg.Truncate(out, maxShellOutput)
 	return Result{
 		Text:    text,
 		IsError: result.Code != 0,

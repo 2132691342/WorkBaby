@@ -42,6 +42,7 @@ func NewFiles(settings *Settings) *Files {
 // guard 归一路径并保证落在工作区内；越界直接拒。
 // 相对路径（前端的斜杠约定）按工作区根拼，绝不拿进程 CWD 解析——那会偏到工作区外。
 // 所有接受外部路径的接口都必须先过它，否则一个 ../../ 就能摸到任意文件。
+// 校验按真实路径做：工作区里放一个指向系统目录的链接不能成为第二条出口。
 func (f *Files) guard(path string) (string, error) {
 	root := f.Settings.Workspace()
 	if root == "" {
@@ -54,7 +55,7 @@ func (f *Files) guard(path string) (string, error) {
 		// Join 自带 Clean：「src/../../etc」会被折成能被 Inside 拒掉的形状。
 		target = filepath.Join(root, filepath.FromSlash(target))
 	}
-	if !pkg.Inside(root, target) {
+	if !pkg.Inside(root, target) || !pkg.InsideResolved(root, target) {
 		return "", pkg.Err(pkg.CodePathOutside, "路径不在工作区内", target)
 	}
 	return target, nil

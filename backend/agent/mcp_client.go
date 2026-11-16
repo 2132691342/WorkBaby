@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"WorkBaby/backend/pkg"
@@ -57,6 +58,9 @@ type McpClient struct {
 	lines <-chan string
 	// nextId 请求号，单调递增
 	nextId int
+	// mu 串行化一次请求：应答只有一条读循环，两个并发请求会互相偷走对方的应答，
+	// 而读到不匹配 id 的行只能丢弃——那一次调用就只能等到超时。
+	mu sync.Mutex
 }
 
 // DialMcp 拉起服务进程并完成 initialize 握手。
@@ -180,6 +184,8 @@ func (c *McpClient) requestBudget() time.Duration {
 
 // request 发一条请求并等回包。请求号单调递增：并发调用各等各的 id，串号也不至于张冠李戴。
 func (c *McpClient) request(method string, params map[string]any, budget time.Duration) (map[string]any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.nextId++
 	id := c.nextId
 	payload, err := pkg.MarshalJSONLine(map[string]any{

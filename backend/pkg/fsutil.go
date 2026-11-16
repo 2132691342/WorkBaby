@@ -95,6 +95,13 @@ func Inside(parent, child string) bool {
 	return rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
 }
 
+// InsideResolved 判断 child 的真实位置是否落在 parent 的真实位置内。
+// 纯字符串比较挡不住符号链接与 junction：工作区里放一个指向 C:\Windows 的链接，
+// ../ 守卫照样放行，读写却落在工作区外。所以这里先把两边解开真实路径再比。
+func InsideResolved(parent, child string) bool {
+	return Inside(RealPath(parent), RealPath(child))
+}
+
 // Truncate 按字符数截断，给标题和日志行用。
 func Truncate(text string, max int) string {
 	runes := []rune(text)

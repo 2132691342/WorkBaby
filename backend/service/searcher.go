@@ -83,6 +83,8 @@ func (s *Searcher) Status() domain.IndexStatusVO {
 
 // Rebuild 为当前工作区重建索引。
 // 索引是派生数据：重建失败只影响检索速度，不影响任何功能。
+// 回的是「收尾之后」的状态：先清 building 再取样，否则这一次应答里
+// index_building 恒为 true——界面会一直显示正在建索引。
 func (s *Searcher) Rebuild(ctx context.Context) (domain.IndexStatusVO, error) {
 	workspace := s.settings.Workspace()
 	if strings.TrimSpace(workspace) == "" {
@@ -96,14 +98,17 @@ func (s *Searcher) Rebuild(ctx context.Context) (domain.IndexStatusVO, error) {
 	s.building = true
 	s.mu.Unlock()
 
-	defer func() {
+	// 失败与成功两条路都要清掉 building：清在这里而不是 defer 里，
+	// 是为了让返回值取到「已收尾」的状态。
+	finish := func() {
 		s.mu.Lock()
 		s.building = false
 		s.mu.Unlock()
-	}()
+	}
 
 	docs, err := index.Build(workspace)
 	if err != nil {
+		finish()
 		return s.Status(), pkg.WrapErr(pkg.CodeFileIO, "索引工作区失败", err)
 	}
 	rows := make([]domain.SearchDocDO, 0, len(docs))
@@ -111,12 +116,14 @@ func (s *Searcher) Rebuild(ctx context.Context) (domain.IndexStatusVO, error) {
 		rows = append(rows, docToDO(doc, workspace))
 	}
 	if err := s.repo.ReplaceWorkspace(workspace, rows); err != nil {
+		finish()
 		return s.Status(), err
 	}
 	s.mu.Lock()
 	s.docs = docs
 	s.workspace = workspace
 	s.indexedAt = pkg.NowMs()
+	s.building = false
 	s.mu.Unlock()
 	pkg.Info("索引完成：工作区=%s 文档=%d", workspace, len(docs))
 	return s.Status(), nil

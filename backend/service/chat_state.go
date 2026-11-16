@@ -64,7 +64,8 @@ func (c *Chat) usageSnapshot(session *agent.Session, model *domain.ModelInfoVO) 
 	entries := session.Entries()
 	used := session.ContextUsage()
 
-	userMessages, assistantMessages, toolCalls, totalTokens := 0, 0, 0, 0
+	userMessages, assistantMessages, toolCalls := 0, 0, 0
+	var inputTokens, outputTokens, cacheRead, cacheWrite, totalTokens int
 	for _, entry := range entries {
 		msg := entry.EntryMessage
 		if msg == nil {
@@ -79,6 +80,12 @@ func (c *Chat) usageSnapshot(session *agent.Session, model *domain.ModelInfoVO) 
 			toolCalls++
 		}
 		if msg.MessageUsage != nil {
+			// 分项也要加起来：界面的读数按「输入 / 输出 / 缓存」分开显示，
+			// 只给合计等于把三个数都报成 0，那是假数据而不是缺数据。
+			inputTokens += msg.MessageUsage.UsageInput
+			outputTokens += msg.MessageUsage.UsageOutput
+			cacheRead += msg.MessageUsage.UsageCacheRead
+			cacheWrite += msg.MessageUsage.UsageCacheWrite
 			totalTokens += msg.MessageUsage.UsageTotalTokens
 		}
 	}
@@ -98,6 +105,10 @@ func (c *Chat) usageSnapshot(session *agent.Session, model *domain.ModelInfoVO) 
 		AssistantMessages: assistantMessages,
 		ToolCalls:         toolCalls,
 		TotalMessages:     userMessages + assistantMessages + toolCalls,
+		InputTokens:       inputTokens,
+		OutputTokens:      outputTokens,
+		CacheReadTokens:   cacheRead,
+		CacheWriteTokens:  cacheWrite,
 		TotalTokens:       totalTokens,
 		ContextUsage:      usage,
 	}

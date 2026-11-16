@@ -177,6 +177,107 @@ func TestChatFlow(t *testing.T) {
 		}
 	})
 
+	// 输出上限与新会话默认思考档：两个设置都必须真的到达上游请求体，
+	// 只写进台账不回读的设置在界面上看起来生效了，实际没有。
+	t.Run("模型参数接线", func(t *testing.T) {
+		t.Run("max_tokens 进请求体", func(t *testing.T) {
+			h := newHarness(t)
+			script := newScriptServer(t, replyChunks("好"))
+			env, code := h.call("POST", "/settings/workspace", map[string]string{"workspace": t.TempDir()})
+			h.mustOK(env, code, "workspace", nil)
+			env, code = h.call("POST", "/providers/upsert", domain.ProviderUpsertREQ{
+				ProviderName: "up", BaseUrl: script.server.URL, ApiKey: "k",
+				Models: []domain.ProviderModelEntryVO{{ModelId: "m", ContextWindow: 100000, MaxTokens: 4096}},
+			})
+			h.mustOK(env, code, "upsert", nil)
+			if err := h.app.Chat.SetModel("", "up", "m"); err != nil {
+				t.Fatalf("选模型失败：%v", err)
+			}
+
+			env, code = h.call("POST", "/chat/send", domain.ChatSendREQ{Message: "你好"})
+			h.mustOK(env, code, "send", nil)
+			waitIdle(t, h)
+
+			bodies := script.requestBodies()
+			if len(bodies) != 1 {
+				t.Fatalf("上游应收到 1 次请求，实际 %d", len(bodies))
+			}
+			var wire map[string]any
+			if err := json.Unmarshal([]byte(bodies[0]), &wire); err != nil {
+				t.Fatalf("解析请求体失败：%v", err)
+			}
+			got, ok := wire["max_tokens"].(float64)
+			if !ok || int(got) != 4096 {
+				t.Fatalf("模型定义的 max_tokens 应进请求体（4096），实际 %v", wire["max_tokens"])
+			}
+		})
+
+		t.Run("新会话默认思考档生效", func(t *testing.T) {
+			h := newHarness(t)
+			script := newScriptServer(t, replyChunks("好"))
+			bindWorkspaceAndModel(t, h, script.server.URL)
+
+			// 写默认档：这条键以前只写不读，新会话仍按 medium 发。
+			env, code := h.call("POST", "/models/defaults", domain.ModelDefaultSaveREQ{
+				DefaultProvider: "up", DefaultModel: "m", DefaultThinkingLevel: "off",
+			})
+			h.mustOK(env, code, "写默认档", nil)
+			if got, _ := h.store.Get(service.KeyThinkingLevel); got != "" {
+				t.Fatalf("当前档不该被默认档写坏，实际 %q", got)
+			}
+
+			// 新建会话：没有当前档时落到默认档。
+			env, code = h.call("POST", "/chat/new", nil)
+			h.mustOK(env, code, "新建会话", nil)
+			env, code = h.call("GET", "/chat/state", nil)
+			var st domain.ChatStateRESP
+			h.mustOK(env, code, "state", &st)
+			if st.ThinkingLevel != "off" {
+				t.Fatalf("新会话应从默认档起步（off），实际 %q", st.ThinkingLevel)
+			}
+
+			env, code = h.call("POST", "/chat/send", domain.ChatSendREQ{Message: "你好"})
+			h.mustOK(env, code, "send", nil)
+			waitIdle(t, h)
+			bodies := script.requestBodies()
+			if len(bodies) != 1 {
+				t.Fatalf("上游应收到 1 次请求，实际 %d", len(bodies))
+			}
+			var wire map[string]any
+			if err := json.Unmarshal([]byte(bodies[0]), &wire); err != nil {
+				t.Fatalf("解析请求体失败：%v", err)
+			}
+			if _, exists := wire["reasoning_effort"]; exists {
+				t.Fatalf("默认档 off 不该发 reasoning_effort，实际 %v", wire["reasoning_effort"])
+			}
+		})
+	})
+
+	// 中止要把被作废的排队话术还回来：用户刚打的字不能无声消失。
+	t.Run("中止交回排队话术", func(t *testing.T) {
+		h := newHarness(t)
+		script := newScriptServer(t, replyChunks("慢一点"))
+		bindWorkspaceAndModel(t, h, script.server.URL)
+
+		env, code := h.call("POST", "/chat/send", domain.ChatSendREQ{Message: "开场"})
+		h.mustOK(env, code, "send", nil)
+		env, code = h.call("POST", "/chat/steer", domain.ChatSendREQ{Message: "插一句话"})
+		h.mustOK(env, code, "steer", nil)
+		env, code = h.call("POST", "/chat/followup", domain.ChatSendREQ{Message: "追加一句"})
+		h.mustOK(env, code, "followup", nil)
+
+		env, code = h.call("POST", "/chat/stop", nil)
+		var discarded domain.QueuedMessagesVO
+		h.mustOK(env, code, "stop", &discarded)
+		if len(discarded.Steering) != 1 || discarded.Steering[0] != "插一句话" {
+			t.Fatalf("中止应回被作废的插话，实际 %+v", discarded)
+		}
+		if len(discarded.FollowUp) != 1 || discarded.FollowUp[0] != "追加一句" {
+			t.Fatalf("中止应回被作废的追加话，实际 %+v", discarded)
+		}
+		waitIdle(t, h)
+	})
+
 	// 发送失败面：没配模型与坏指针都回可行动的 3001（并自愈清指针），
 	// 真上游连不通时发送照常受理、运行期出 chat:error 且收尾不悬挂。
 	t.Run("发送失败面", func(t *testing.T) {

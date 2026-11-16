@@ -65,6 +65,37 @@ func TestChatContext(t *testing.T) {
 			}
 		})
 
+		t.Run("用量分项有真值", func(t *testing.T) {
+			h := newHarness(t)
+			script := newScriptServer(t, []string{
+				`{"choices":[{"delta":{"content":"回答"}}]}`,
+				`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+				`{"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":40}}}`,
+			})
+			bindWorkspaceAndModel(t, h, script.server.URL)
+
+			env, code := h.call("POST", "/chat/send", domain.ChatSendREQ{Message: "你好"})
+			h.mustOK(env, code, "send", nil)
+			waitIdle(t, h)
+
+			env, code = h.call("GET", "/chat/state", nil)
+			var st domain.ChatStateRESP
+			h.mustOK(env, code, "state", &st)
+			if st.Stats == nil {
+				t.Fatal("stats 不该为空")
+			}
+			// 分项为零是假数据：界面按输入 / 输出 / 缓存分开显示，只给合计等于三项全报 0。
+			if st.Stats.InputTokens != 120 {
+				t.Fatalf("input_tokens 应为 120，实际 %d", st.Stats.InputTokens)
+			}
+			if st.Stats.OutputTokens != 30 {
+				t.Fatalf("output_tokens 应为 30，实际 %d", st.Stats.OutputTokens)
+			}
+			if st.Stats.CacheReadTokens != 40 {
+				t.Fatalf("cache_read_tokens 应为 40，实际 %d", st.Stats.CacheReadTokens)
+			}
+		})
+
 		t.Run("水位提示", func(t *testing.T) {
 			h := newHarness(t)
 			script := newScriptServer(t, []string{

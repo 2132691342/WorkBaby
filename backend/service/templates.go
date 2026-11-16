@@ -81,13 +81,14 @@ func (t *Templates) Commands() []domain.SlashCommandVO {
 }
 
 // Save 写一份模板（新建或覆盖）。父目录不存在就建。
-func (t *Templates) Save(req domain.PromptTemplateREQ) error {
+// 返回实际落盘的模板名：名字会被清洗，调用方拿不到它就删不掉刚存的这一份。
+func (t *Templates) Save(req domain.PromptTemplateREQ) (string, error) {
 	name := sanitizeTemplateName(req.TemplateName)
 	if name == "" {
-		return pkg.Err(pkg.CodeBadRequest, "模板名不能为空", req.TemplateName)
+		return "", pkg.Err(pkg.CodeBadRequest, "模板名不能为空（只允许小写字母、数字与连字符）", req.TemplateName)
 	}
 	if err := os.MkdirAll(t.Layout.TemplatesDir, 0o755); err != nil {
-		return pkg.WrapErr(pkg.CodeFileIO, "模板目录创建失败", err)
+		return "", pkg.WrapErr(pkg.CodeFileIO, "模板目录创建失败", err)
 	}
 	var b strings.Builder
 	b.WriteString("---\n")
@@ -105,9 +106,9 @@ func (t *Templates) Save(req domain.PromptTemplateREQ) error {
 	}
 	file := filepath.Join(t.Layout.TemplatesDir, name+".md")
 	if err := pkg.WriteFileAtomic(file, []byte(b.String())); err != nil {
-		return pkg.WrapErr(pkg.CodeFileIO, "模板写入失败", err)
+		return "", pkg.WrapErr(pkg.CodeFileIO, "模板写入失败", err)
 	}
-	return nil
+	return name, nil
 }
 
 // Delete 删一份模板；不存在不算错（幂等）。

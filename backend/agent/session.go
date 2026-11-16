@@ -395,7 +395,7 @@ func Guard(root, file string) (string, error) {
 	if !pkg.Exists(clean) {
 		return "", pkg.Err(pkg.CodeNotFound, "会话文件不存在", clean)
 	}
-	if !pkg.Inside(root, clean) {
+	if !pkg.Inside(root, clean) || !pkg.InsideResolved(root, clean) {
 		return "", pkg.Err(pkg.CodeSessionIO, "会话路径越界", clean)
 	}
 	return clean, nil

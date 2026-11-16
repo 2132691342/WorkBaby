@@ -15,16 +15,18 @@ func (s *Server) templatesList(c *gin.Context) {
 }
 
 // templateSave 新建或覆盖一份模板。
+// 回清洗后的名字：界面拿原文再删会找不到刚存下的那份。
 func (s *Server) templateSave(c *gin.Context) {
 	var req domain.PromptTemplateREQ
 	if !bind(c, &req) {
 		return
 	}
-	if err := s.svc.Templates.Save(req); err != nil {
+	name, err := s.svc.Templates.Save(req)
+	if err != nil {
 		pkg.Fail(c, err)
 		return
 	}
-	ok(c)
+	pkg.OK(c, domain.PromptTemplateSaveRESP{Ok: true, TemplateName: name})
 }
 
 // templateDelete 删一份模板。

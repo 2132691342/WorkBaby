@@ -29,3 +29,13 @@ type TemplateListRESP struct {
 	// Rows 模板行
 	Rows []PromptTemplateVO `json:"rows"`
 }
+
+// PromptTemplateSaveRESP 是保存模板的出参。
+// 名字会被清洗（小写、只留字母数字与连字符），清洗结果必须回给调用方：
+// 界面拿原文再调删除就会找不到刚存下的那一份。
+type PromptTemplateSaveRESP struct {
+	// Ok 是否成功
+	Ok bool `json:"ok"`
+	// TemplateName 实际落盘的模板名（清洗后的）
+	TemplateName string `json:"template_name"`
+}

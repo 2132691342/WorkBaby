@@ -22,12 +22,15 @@ type openaiStreamer struct {
 
 // NewOpenAIStreamer 造一个 OpenAI 兼容适配器。
 // 超时不设整体值：一轮回复可能长达几分钟，只能靠 ctx 中止。
+// 但响应头有等待上限：上游接受连接却永不回包时，没有它这一轮就永远挂着。
 func NewOpenAIStreamer() Streamer {
 	return &openaiStreamer{http: &http.Client{
 		Transport: &http.Transport{
-			Proxy:               http.ProxyFromEnvironment,
-			MaxIdleConnsPerHost: 4,
-			IdleConnTimeout:     90 * time.Second,
+			Proxy:                 http.ProxyFromEnvironment,
+			MaxIdleConnsPerHost:   4,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 90 * time.Second,
 		},
 	}}
 }
@@ -279,6 +282,11 @@ func userContent(msg Message) any {
 	return parts
 }
 
+// maxStreamLineBytes 是单条 SSE 行的保留上限。
+// 上游可能吐出一条没有换行的超长行（错误页、压缩异常的流），
+// 读没有上限就会把整条流攒进内存。
+const maxStreamLineBytes = 8 << 20
+
 // pump 读 SSE 分片并翻译成归一事件；结束时关闭通道。
 func (s *openaiStreamer) pump(ctx context.Context, body io.ReadCloser, out chan<- StreamEvent) {
 	defer close(out)
@@ -292,6 +300,10 @@ func (s *openaiStreamer) pump(ctx context.Context, body io.ReadCloser, out chan<
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
+			if len(line) > maxStreamLineBytes {
+				builder.fail("上游返回了超长的一帧，已中断这条流")
+				break
+			}
 			payload := bytes.TrimSpace(line)
 			// 只认 data: 行；event/id/注释（心跳）一律跳过。
 			if after, ok := bytes.CutPrefix(payload, []byte("data:")); ok {
@@ -304,7 +316,7 @@ func (s *openaiStreamer) pump(ctx context.Context, body io.ReadCloser, out chan<
 						builder.fail(chunk.Error.Message)
 						break
 					}
-					emitChunk(out, chunk)
+					emitChunk(ctx, out, chunk)
 					if reason := chunkFinishReason(chunk); reason != "" {
 						finish = reason
 					}
@@ -353,7 +365,16 @@ func chunkFinishReason(chunk wireChunk) string {
 // emitChunk 把一个分片翻成若干归一事件。
 // index 一律透传上游的分片下标：并行工具调用的分片可能交错到达，
 // 按到达顺序拼入参会把两个函数的参数串成一段非法 JSON。
-func emitChunk(out chan<- StreamEvent, chunk wireChunk) {
+// 发送一律受 ctx 约束：消费端停了之后，这里不该把读循环卡死在入队上。
+func emitChunk(ctx context.Context, out chan<- StreamEvent, chunk wireChunk) {
+	send := func(ev StreamEvent) bool {
+		select {
+		case out <- ev:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
 	if chunk.Usage != nil {
 		usage := &Usage{
 			InputTokens:  chunk.Usage.PromptTokens,
@@ -362,7 +383,9 @@ func emitChunk(out chan<- StreamEvent, chunk wireChunk) {
 		if detail := chunk.Usage.PromptTokensDetails; detail != nil {
 			usage.CacheReadTokens = detail.CachedTokens
 		}
-		out <- StreamEvent{Kind: EventUsage, Usage: usage}
+		if !send(StreamEvent{Kind: EventUsage, Usage: usage}) {
+			return
+		}
 	}
 	if len(chunk.Choices) == 0 {
 		return
@@ -370,17 +393,25 @@ func emitChunk(out chan<- StreamEvent, chunk wireChunk) {
 	delta := chunk.Choices[0].Delta
 	// 正文与思考用 -1 作下标：它们不分片交错，由 builder 按顺序自己切开。
 	if text := delta.ReasoningContent + delta.Reasoning; text != "" {
-		out <- StreamEvent{Kind: EventThinking, Index: -1, Text: text}
+		if !send(StreamEvent{Kind: EventThinking, Index: -1, Text: text}) {
+			return
+		}
 	}
 	if text := delta.Content; text != "" {
-		out <- StreamEvent{Kind: EventText, Index: -1, Text: text}
+		if !send(StreamEvent{Kind: EventText, Index: -1, Text: text}) {
+			return
+		}
 	}
 	for _, call := range delta.ToolCalls {
 		if call.Id != "" || call.Function.Name != "" {
-			out <- StreamEvent{Kind: EventToolStart, Index: call.Index, CallId: call.Id, ToolName: call.Function.Name}
+			if !send(StreamEvent{Kind: EventToolStart, Index: call.Index, CallId: call.Id, ToolName: call.Function.Name}) {
+				return
+			}
 		}
 		if args := call.Function.Arguments; args != "" {
-			out <- StreamEvent{Kind: EventToolDelta, Index: call.Index, Text: args}
+			if !send(StreamEvent{Kind: EventToolDelta, Index: call.Index, Text: args}) {
+				return
+			}
 		}
 	}
 	// 分片里带 finish_reason 时不在这里发：循环末尾统一发一次结束事件。

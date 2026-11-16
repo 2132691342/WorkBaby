@@ -92,6 +92,15 @@ func (s *Settings) EnsureDefaults() bool {
 	return true
 }
 
+// DefaultThinkingLevel 是新会话起步的思考档：读 `model.default_thinking_level`，
+// 非法或缺失时给兜底档。当前档与会话档分开存，所以这条只在「用户没选过」时生效。
+func (s *Settings) DefaultThinkingLevel() string {
+	if level := strings.TrimSpace(s.Get(KeyDefaultThinkingLevel)); thinkingLevels[level] {
+		return level
+	}
+	return fallbackThinkingLevel
+}
+
 // MentionSessions 是 @ 引用里列出的最近会话条数。
 // 取值夹在 1~20：超出范围的值来自手改配置文件，按边界收敛比报错好用。
 func (s *Settings) MentionSessions() int {
@@ -118,9 +127,30 @@ type Settings struct {
 	Git *Git
 }
 
-// All 读全部设置键值。
+// All 读全部设置键值；密钥类键在出口处换成掩码。
+// 读接口是界面唯一的设置来源，原样回显等于把联网密钥交给渲染进程。
 func (s *Settings) All() map[string]string {
-	return s.Store.All()
+	return maskSettings(s.Store.All())
+}
+
+// maskSettings 把密钥类键的值换成掩码；其余键原样返回。
+// 掩码只用于读回显：写入路径不经过它，空串语义仍是「保留原值」。
+func maskSettings(values map[string]string) map[string]string {
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	if value := out[KeyWebSearchKey]; value != "" {
+		out[KeyWebSearchKey] = "••••"
+	}
+	return out
+}
+
+// reservedSettings 是由专门接口写入的设置键：普通保存入口不接受它们。
+// 工作区变更要校验目录并同步历史，绕过它就能把文件接口的根指到任意位置。
+var reservedSettings = map[string]string{
+	KeyWorkspace:  "工作区请走 /settings/workspace（要校验目录并同步历史）",
+	KeyWorkspaces: "工作区历史由 /settings/workspace 维护，不能直接写",
 }
 
 // Get 读一个设置项。
@@ -130,14 +160,21 @@ func (s *Settings) Get(key string) string {
 }
 
 // Save 批量保存设置。
+// 保留键在这里就拒：工作区是文件接口的根，绕过 SetWorkspace 的目录校验与历史同步
+// 等于把 1002 路径守卫连根拔掉。拒而不是静默丢弃，否则界面以为改上了。
 func (s *Settings) Save(kv map[string]string) (map[string]string, error) {
+	for key := range kv {
+		if message, reserved := reservedSettings[key]; reserved {
+			return nil, pkg.Err(pkg.CodeBadRequest, message)
+		}
+	}
 	// 界面类键在入口收敛：手改过的坏值不该一路带进界面，
 	// 也不该让 @ 引用因为一个 0 而一条会话都不列。
 	s.normalize(kv)
 	if err := s.Store.Save(kv); err != nil {
 		return nil, err
 	}
-	return s.Store.All(), nil
+	return s.All(), nil
 }
 
 // normalize 把界面类设置收敛到合法范围；就地改写入映射。
@@ -272,7 +309,7 @@ func (s *Settings) Prefs() domain.AppPrefsVO {
 	hint, _ := s.Store.Get(KeyTrayHintShown)
 	_ = hint
 	return domain.AppPrefsVO{
-		PrefValues:      s.Store.All(),
+		PrefValues:      s.All(),
 		AutoStart:       autoStartEnabled(),
 		RestoreSession:  restore == "1" || restore == "true",
 		LastSessionFile: s.Get(KeyLastSession),

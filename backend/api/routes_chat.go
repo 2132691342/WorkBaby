@@ -28,13 +28,10 @@ func (s *Server) chatSend(c *gin.Context) {
 	pkg.OK(c, out)
 }
 
-// chatStop 中止当前运行。
+// chatStop 中止当前运行；被作废的两条排队话术一并回给界面。
+// 用户刚打的字不能在没有任何提示的情况下消失，前端据此放回输入框。
 func (s *Server) chatStop(c *gin.Context) {
-	if err := s.svc.Chat.Stop(); err != nil {
-		pkg.Fail(c, err)
-		return
-	}
-	ok(c)
+	pkg.OK(c, s.svc.Chat.Stop())
 }
 
 // chatSteer 插话。

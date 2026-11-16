@@ -1,5 +1,7 @@
 package domain
 
+import "encoding/json"
+
 // BlockKind 是对话内容块的种类。
 type BlockKind string
 
@@ -122,6 +124,23 @@ type QueuedMessagesVO struct {
 	Steering []string `json:"steering"`
 	// FollowUp 追加队
 	FollowUp []string `json:"follow_up"`
+}
+
+// MarshalJSON 保证两条队出参恒为数组：空队是 [] 而不是 null。
+// 界面侧把两队直接摊平进输入框，null 会在那里炸掉，所以契约钉在类型上。
+func (q QueuedMessagesVO) MarshalJSON() ([]byte, error) {
+	steering := q.Steering
+	if steering == nil {
+		steering = []string{}
+	}
+	followUp := q.FollowUp
+	if followUp == nil {
+		followUp = []string{}
+	}
+	return json.Marshal(struct {
+		Steering []string `json:"steering"`
+		FollowUp []string `json:"follow_up"`
+	}{Steering: steering, FollowUp: followUp})
 }
 
 // TodoVO 是待办面板上的一条任务。

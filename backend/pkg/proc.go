@@ -16,12 +16,16 @@ import (
 type ProcResult struct {
 	// Code 退出码；被超时杀掉时是 -1
 	Code int
-	// Stdout 标准输出全文
+	// Stdout 标准输出全文（可能被输出上限截断）
 	Stdout string
-	// Stderr 标准错误全文
+	// Stderr 标准错误全文（可能被输出上限截断）
 	Stderr string
 	// TimedOut 是否因超时被终止
 	TimedOut bool
+	// Cancelled 是否被调用方取消（用户点停止）
+	Cancelled bool
+	// Truncated 输出是否触到了保留上限
+	Truncated bool
 }
 
 // ProcOptions 是一次子进程执行的配置。
@@ -34,16 +38,37 @@ type ProcOptions struct {
 	TimeoutMs int
 	// OnLine 逐行回调（stdout + stderr 合并），用于把 npm 输出推给界面
 	OnLine func(line string)
+	// Ctx 取消信号；非 nil 时取消与超时一样杀树收尾。
+	// 不给的话「用户点停止」只能等满超时——这是超时保证之外的另一个出口。
+	Ctx context.Context
 }
+
+// maxCapturedBytes 是 RunProc 为单个输出流保留的字节上限。
+// 子进程的输出量不受我们控制（一个死循环的构建能吐几百 MB），
+// 全量缓冲迟早把应用打爆；超限就截断并标记，调用方自己决定怎么呈现。
+const maxCapturedBytes = 8 << 20
+
+// maxCapturedLineBytes 是逐行回调时单行积累的上限。
+// 没有换行的输出（进度条、二进制）不该无限增长。
+const maxCapturedLineBytes = 1 << 20
+
+// killWaitBudget 是被杀之后等 Wait 收尾的上限：杀不掉的进程不该把调用方挂死。
+const killWaitBudget = 5 * time.Second
 
 // RunProc 跑一个子进程：argv 数组直传、不进 shell、窗口隐藏、超时杀进程树。
 // 本函数的输出始终被缓冲，即使给了 OnLine——两条路径共用一份读循环，避免半行错位。
+// 输出有字节上限，超限标记 Truncated：子进程吐多少我们管不了，缓冲不能跟着无限长。
 func RunProc(exe string, args []string, opt ProcOptions) (*ProcResult, error) {
 	timeout := opt.TimeoutMs
 	if timeout <= 0 {
 		timeout = 60_000
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
+	// 取消信号与超时走同一个出口：用户点停止不该等到超时才生效。
+	parent := opt.Ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 
 	cmd := exec.Command(exe, args...)
@@ -55,8 +80,8 @@ func RunProc(exe string, args []string, opt ProcOptions) (*ProcResult, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 	var stdout, stderr bytes.Buffer
 	var mu sync.Mutex
-	outWriter := &lineWriter{buf: &stdout, mu: &mu, onLine: opt.OnLine}
-	errWriter := &lineWriter{buf: &stderr, mu: &mu, onLine: opt.OnLine}
+	outWriter := &lineWriter{buf: &stdout, mu: &mu, onLine: opt.OnLine, capBytes: maxCapturedBytes}
+	errWriter := &lineWriter{buf: &stderr, mu: &mu, onLine: opt.OnLine, capBytes: maxCapturedBytes}
 	cmd.Stdout = outWriter
 	cmd.Stderr = errWriter
 
@@ -71,9 +96,15 @@ func RunProc(exe string, args []string, opt ProcOptions) (*ProcResult, error) {
 	case err := <-done:
 		result.Code = exitCode(cmd, err)
 	case <-ctx.Done():
-		result.TimedOut = true
+		// 取消与超时走同一个收尾，但要分开记：给用户看的原话不同。
+		result.Cancelled = parent.Err() != nil
+		result.TimedOut = !result.Cancelled
 		KillTree(cmd.Process.Pid)
-		<-done
+		// 等 Wait 收尾也要有上限：杀不掉的子进程不该把调用方挂死。
+		select {
+		case <-done:
+		case <-time.After(killWaitBudget):
+		}
 		result.Code = -1
 	}
 	outWriter.Flush()
@@ -81,7 +112,11 @@ func RunProc(exe string, args []string, opt ProcOptions) (*ProcResult, error) {
 	mu.Lock()
 	result.Stdout = stdout.String()
 	result.Stderr = stderr.String()
+	result.Truncated = outWriter.truncated || errWriter.truncated
 	mu.Unlock()
+	if result.Cancelled {
+		return result, Err(CodeProvision, "子进程被取消终止", strings.Join(append([]string{exe}, args...), " "))
+	}
 	if result.TimedOut {
 		return result, Err(CodeProvision, "子进程超时被终止", strings.Join(append([]string{exe}, args...), " "))
 	}
@@ -244,9 +279,15 @@ func (p *PersistentProc) Kill() {
 	})
 }
 
+// maxLineBytes 是 LineChan 单行的保留上限。
+// 对面是个子进程，一行可以是任意长：没有换行的输出能一直攒下去，
+// 攒到几个 GB 就是一次可被外部程序触发的内存耗尽。
+const maxLineBytes = 1 << 20
+
 // LineChan 把一个字节流按 LF 切成行推进通道；读尽或出错即关闭。
 // 不用 bufio.Scanner 默认行为：它会把 U+2028/2029 也当分隔符，而它们在 JSON 里是合法字符。
 // 长驻 RPC 子进程与一次性探测共用这一套切帧。
+// 超长行按上限截断而不是丢弃：截断的行仍是坏 JSON，解析方会跳过它，行为可预期。
 func LineChan(reader io.Reader) <-chan string {
 	lines := make(chan string, 32)
 	go func() {
@@ -264,6 +305,9 @@ func LineChan(reader io.Reader) <-chan string {
 					}
 					lines <- strings.TrimSuffix(rest[:idx], "\r")
 					rest = rest[idx+1:]
+				}
+				if len(rest) > maxLineBytes {
+					rest = rest[:maxLineBytes]
 				}
 			}
 			if err != nil {
@@ -316,13 +360,32 @@ type lineWriter struct {
 	mu     *sync.Mutex
 	onLine func(string)
 	rest   strings.Builder
+	// capBytes 是缓冲的字节上限；0 表示不设上限
+	capBytes int
+	// truncated 是否已经触到上限（缓冲不再增长）
+	truncated bool
 }
 
 // Write 实现 io.Writer。
 func (w *lineWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.buf.Write(p)
+	// 超限后照常回 len(p)：调用方（os/exec 的读循环）不该因为截断而报错，
+	// 我们要的只是「缓冲不再增长」。逐行回调不受上限影响——界面看的是实时行情。
+	if w.capBytes > 0 {
+		room := w.capBytes - w.buf.Len()
+		switch {
+		case room <= 0:
+			w.truncated = true
+		case len(p) > room:
+			w.buf.Write(p[:room])
+			w.truncated = true
+		default:
+			w.buf.Write(p)
+		}
+	} else {
+		w.buf.Write(p)
+	}
 	if w.onLine == nil {
 		return len(p), nil
 	}
@@ -334,6 +397,10 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 	for {
 		idx := strings.IndexByte(text, '\n')
 		if idx < 0 {
+			// 没有换行的残段也要有上限：进度条这类输出能一直吐下去。
+			if len(text) > maxCapturedLineBytes {
+				text = text[len(text)-maxCapturedLineBytes:]
+			}
 			w.rest.WriteString(text)
 			break
 		}

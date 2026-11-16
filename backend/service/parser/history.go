@@ -274,7 +274,7 @@ func GuardSession(sessionsRoot, file string) (string, error) {
 	if !pkg.Exists(file) {
 		return "", pkg.Err(pkg.CodeNotFound, "会话文件不存在", file)
 	}
-	if !pkg.Inside(sessionsRoot, file) {
+	if !pkg.Inside(sessionsRoot, file) || !pkg.InsideResolved(sessionsRoot, file) {
 		return "", pkg.Err(pkg.CodeSessionIO, "会话路径越界", file)
 	}
 	abs, err := absPath(file)

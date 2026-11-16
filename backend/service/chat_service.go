@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +38,9 @@ type Chat struct {
 	// SkillSource 已启用技能索引的来源；每轮开跑前重取一次
 	SkillSource func() []agent.Skill
 
+	// streamer 上游适配器；一次装配共用一份，连接池才有意义
+	streamer agent.Streamer
+
 	// mu 保护会话绑定与运行状态
 	mu sync.Mutex
 	// session 当前打开的会话；nil 表示还没开会话
@@ -54,6 +59,18 @@ type Chat struct {
 	waiters map[string]chan agent.AskResponse
 }
 
+// fallbackThinkingLevel 是两个思考档来源都缺省时的兜底：中等档是最不易踩坑的选择。
+const fallbackThinkingLevel = "medium"
+
+// resolveThinkingLevel 定生效思考档：当前档优先，用户没选过就用新会话默认档。
+// 兜底常量只在两处都没有时登场——不设它的话「设了默认档」这回事会静默失效。
+func resolveThinkingLevel(settings *Settings) string {
+	if level := strings.TrimSpace(settings.Get(KeyThinkingLevel)); thinkingLevels[level] {
+		return level
+	}
+	return settings.DefaultThinkingLevel()
+}
+
 // thinkingLevels 是可用的思考档集合。
 var thinkingLevels = map[string]bool{
 	"off": true, "minimal": true, "low": true, "medium": true, "high": true,
@@ -61,10 +78,7 @@ var thinkingLevels = map[string]bool{
 
 // NewChat 造一个对话门面。
 func NewChat(settings *Settings, sessions *Sessions, models *Models, hub *sse.Hub, store *agent.Store) *Chat {
-	level := strings.TrimSpace(settings.Get(KeyThinkingLevel))
-	if !thinkingLevels[level] {
-		level = "medium"
-	}
+	level := resolveThinkingLevel(settings)
 	chat := &Chat{
 		Settings: settings,
 		Sessions: sessions,
@@ -76,6 +90,7 @@ func NewChat(settings *Settings, sessions *Sessions, models *Models, hub *sse.Hu
 		level:    level,
 		queued:   domain.QueuedMessagesVO{},
 		waiters:  map[string]chan agent.AskResponse{},
+		streamer: agent.NewOpenAIStreamer(),
 	}
 	chat.Tools = agent.NewRegistry(settings.Workspace)
 	chat.Tools.Asker = agent.AskerFunc(chat.ask)
@@ -118,6 +133,7 @@ func (c *Chat) BindSession(file string) (*agent.Session, error) {
 	}
 	c.mu.Lock()
 	c.session = created
+	c.level = resolveThinkingLevel(c.Settings)
 	c.mu.Unlock()
 	c.Settings.RememberSession(created.File())
 	// 新会话是干净的：计划模式不该从上一份会话漏过来。
@@ -140,6 +156,9 @@ func (c *Chat) NewSession() (string, error) {
 	}
 	c.mu.Lock()
 	c.session = created
+	// 新会话从「新会话默认档」起步：用户没显式选过当前档时，
+	// 设置里那个默认档必须在每份新会话上真的生效。
+	c.level = resolveThinkingLevel(c.Settings)
 	c.mu.Unlock()
 	c.Settings.RememberSession(created.File())
 	c.Hub.Broadcast("session:info", sse.EngineTag(nil))
@@ -197,33 +216,41 @@ func (c *Chat) Send(sessionFile, message string, attachments []domain.ChatAttach
 		pkg.Warn("聊天发送取模型失败 code=%s：%s %s", ae.Code, ae.Message, ae.Detail)
 		return domain.ChatSendRESP{}, err
 	}
-	runId := c.Stream.Begin(composed.text)
+	ctx, cancel := context.WithCancel(context.Background())
 	runner := &agent.Runner{
-		Streamer: agent.NewOpenAIStreamer(),
+		Streamer: c.streamer,
 		Registry: c.Tools,
 		Session:  session,
 		Model:    model,
 		Thinking: c.level,
+		// 模型定义里的输出上限要传给上游：不传的话上游按自己的默认值给，
+		// 用户按「这个模型的 max_tokens」预期的长度就永远对不上。
+		MaxTokens: model.MaxTokens,
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	c.mu.Lock()
-	c.runner = runner
-	c.cancel = cancel
-	c.queued = domain.QueuedMessagesVO{}
-	c.mu.Unlock()
-	c.running.Store(true)
+	// 占运行位与登记 runner 必须是同一步：分两步做时两个并发请求会各自
+	// 起一轮，同一份会话被两路追加。抢不到就按插话处理，不报错。
+	if !c.tryBegin(runner, cancel) {
+		cancel()
+		if err := c.Steer(message, attachments); err != nil {
+			return domain.ChatSendRESP{}, err
+		}
+		return domain.ChatSendRESP{Disposition: domain.DispositionQueued}, nil
+	}
 	// 每轮开跑前重取技能索引：开关就是搬目录，重扫一遍就能立即生效。
 	// 比在每个技能写接口里各推一次便宜——那些接口有六个，漏一个就长期不一致。
 	c.refreshSkills()
+	runId := c.Stream.Begin(composed.text)
 
 	go func() {
 		defer func() {
-			c.running.Store(false)
-			c.mu.Lock()
-			c.runner = nil
-			c.cancel = nil
-			c.queued = domain.QueuedMessagesVO{}
-			c.mu.Unlock()
+			// 引擎的 panic 不能终止整个应用：HTTP 协程有 gin.Recovery 兜着，
+			// 运行协程没有。这里把它翻成一条可见的失败，再照常收尾。
+			if recovered := recover(); recovered != nil {
+				pkg.Error("聊天运行崩溃：%v\n%s", recovered, debug.Stack())
+				c.Stream.Fail("运行时内部错误，已中止这一轮：" + fmt.Sprint(recovered))
+				c.Stream.Finish(false)
+			}
+			c.finish()
 			cancel()
 		}()
 		// 水位过线先压缩再开跑：带着爆掉的上下文问模型，
@@ -256,6 +283,31 @@ func (c *Chat) refreshSkills() {
 	c.Tools.SetSkills(c.SkillSource())
 }
 
+// tryBegin 尝试占用运行位并登记 runner；已有运行在跑返回 false。
+// 判定与置位在同一把锁里：分成两步的话并发发话会起两轮。
+func (c *Chat) tryBegin(runner *agent.Runner, cancel context.CancelFunc) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.running.Load() {
+		return false
+	}
+	c.runner = runner
+	c.cancel = cancel
+	c.queued = domain.QueuedMessagesVO{}
+	c.running.Store(true)
+	return true
+}
+
+// finish 收回运行位与登记状态。
+func (c *Chat) finish() {
+	c.mu.Lock()
+	c.runner = nil
+	c.cancel = nil
+	c.queued = domain.QueuedMessagesVO{}
+	c.running.Store(false)
+	c.mu.Unlock()
+}
+
 // autoCompactionDue 判断这一轮开跑前要不要先压缩：
 // 开关开着、窗口已知、占用过八成三者缺一不可。
 func (c *Chat) autoCompactionDue(session *agent.Session, contextWindow int) bool {
@@ -266,94 +318,6 @@ func (c *Chat) autoCompactionDue(session *agent.Session, contextWindow int) bool
 		return false
 	}
 	return float64(session.ContextUsage())/float64(contextWindow) > 0.8
-}
-
-// Steer 在当前运行里插一条话，等本次工具调用做完再投递。
-func (c *Chat) Steer(message string, attachments []domain.ChatAttachmentVO) error {
-	composed := compose(message, attachments)
-	if strings.TrimSpace(composed.text) == "" {
-		return pkg.Err(pkg.CodeBadRequest, "插话内容不能为空")
-	}
-	c.mu.Lock()
-	runner := c.runner
-	c.mu.Unlock()
-	if runner == nil {
-		return pkg.Err(pkg.CodeNotFound, "当前没有正在进行的运行")
-	}
-	runner.Enqueue(composed.message())
-	c.refreshQueue()
-	return nil
-}
-
-// FollowUp 追加一条话：本轮收尾后它作为新的用户消息自动再起一轮，
-// 与插话（Steering，折进本轮上下文）是两条不同的队。
-func (c *Chat) FollowUp(message string, attachments []domain.ChatAttachmentVO) error {
-	composed := compose(message, attachments)
-	if strings.TrimSpace(composed.text) == "" {
-		return pkg.Err(pkg.CodeBadRequest, "追加内容不能为空")
-	}
-	c.mu.Lock()
-	runner := c.runner
-	c.mu.Unlock()
-	if runner == nil {
-		return pkg.Err(pkg.CodeNotFound, "当前没有正在进行的运行")
-	}
-	runner.EnqueueFollowUp(composed.message())
-	c.refreshQueue()
-	return nil
-}
-
-// Stop 中止当前运行。
-func (c *Chat) Stop() error {
-	c.mu.Lock()
-	cancel := c.cancel
-	c.mu.Unlock()
-	if cancel == nil {
-		return nil
-	}
-	cancel()
-	return nil
-}
-
-// ClearQueue 清空两条排队并返回被清掉的文本。
-// 引擎侧的队一并清：只清镜像的话，被「清掉」的插话下一轮仍会注入会话。
-func (c *Chat) ClearQueue() domain.QueuedMessagesVO {
-	c.mu.Lock()
-	runner := c.runner
-	c.mu.Unlock()
-	if runner != nil {
-		runner.ClearQueued()
-	}
-	c.mu.Lock()
-	out := c.queued
-	c.queued = domain.QueuedMessagesVO{}
-	c.mu.Unlock()
-	c.Hub.Broadcast("chat:queue", sse.EngineTag(map[string]any{
-		"steering":  []string{},
-		"follow_up": []string{},
-	}))
-	return out
-}
-
-// refreshQueue 把排队镜像刷成引擎侧的真实排队。
-func (c *Chat) refreshQueue() {
-	c.mu.Lock()
-	runner := c.runner
-	c.mu.Unlock()
-	if runner == nil {
-		return
-	}
-	c.mu.Lock()
-	c.queued = domain.QueuedMessagesVO{
-		Steering: runner.Queued(),
-		FollowUp: runner.FollowUpTexts(),
-	}
-	out := c.queued
-	c.mu.Unlock()
-	c.Hub.Broadcast("chat:queue", sse.EngineTag(map[string]any{
-		"steering":  out.Steering,
-		"follow_up": out.FollowUp,
-	}))
 }
 
 // ask 发起一次提问并等回答。

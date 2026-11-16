@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"net"
 	"net/http"
 	"net/url"
@@ -141,7 +142,8 @@ func (s *Server) authMiddleWare() gin.HandlerFunc {
 		if given == "" {
 			given = c.Query("token")
 		}
-		if given != s.token {
+		// 常量时间比较：逐字节短路相等会把「前缀对了多少」暴露成响应时间差。
+		if subtle.ConstantTimeCompare([]byte(given), []byte(s.token)) != 1 {
 			// 鉴权失败回 401 而不是信封：这不是业务失败，是根本没进门。
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
@@ -272,8 +274,17 @@ func (s *Server) unknown(c *gin.Context) {
 	pkg.Fail(c, pkg.Err(pkg.CodeUnknownRoute, "未知接口", c.Request.Method+" "+c.Request.URL.Path))
 }
 
+// maxRequestBodyBytes 是单个请求体的上限。
+// 请求体全进内存（JSON 绑定），没有上限时一个请求就能把进程撑爆；
+// 5MB 写入上限 + base64 膨胀留出余量，够用。
+const maxRequestBodyBytes = 16 << 20
+
 // bind 解析 JSON body；失败直接回 1000 并返回 false。
+// body 先按上限包一层：绑定阶段的分配量不该由客户端说了算。
 func bind[T any](c *gin.Context, out *T) bool {
+	if c.Request.Body != nil {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
+	}
 	if err := c.ShouldBindJSON(out); err != nil {
 		pkg.Fail(c, pkg.Err(pkg.CodeBadRequest, "请求体不合法", err.Error()))
 		return false

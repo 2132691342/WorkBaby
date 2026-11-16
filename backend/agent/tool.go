@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -222,6 +223,7 @@ func (r *Registry) Run(ctx context.Context, name, rawArgs string) Result {
 
 // resolve 把工具入参里的路径解析成工作区内的绝对路径。
 // 越界一律拒：模型给的路径来自对话内容，不能成为逃出工作区的通道。
+// 真实路径也要校验：工作区里的符号链接 / junction 能把 ../ 守卫绕过去。
 func (r *Registry) resolve(raw string) (string, error) {
 	workspace := strings.TrimSpace(r.Workspace())
 	if workspace == "" {
@@ -235,7 +237,7 @@ func (r *Registry) resolve(raw string) (string, error) {
 		target = filepath.Join(workspace, target)
 	}
 	clean := filepath.Clean(target)
-	if !pkg.Inside(workspace, clean) {
+	if !pkg.Inside(workspace, clean) || !pkg.InsideResolved(workspace, clean) {
 		// 技能正文在数据目录里，没有这条豁免模型就永远读不到它要遵循的说明。
 		if !r.Skills().IsFile(clean) {
 			return "", pkg.Err(pkg.CodePathOutside, "路径不在工作区内", clean)
@@ -265,16 +267,42 @@ func stringArg(args map[string]any, key string) string {
 	return ""
 }
 
-// intArg 取整数入参；缺失给 fallback。
+// intArg 取整数入参；缺失或认不出给 fallback。
+// 三种形态都收：JSON 数字、数字字符串、布尔。
+// 声明里参数一律是 string（`schemaOf`），照声明办事的模型会发 "20"——
+// 只认 float64 的话它拿到的永远是缺省值，而且没有任何提示。
 func intArg(args map[string]any, key string, fallback int) int {
-	if value, ok := args[key].(float64); ok {
+	switch value := args[key].(type) {
+	case float64:
 		return int(value)
+	case int:
+		return value
+	case string:
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return fallback
+		}
+		n, err := strconv.Atoi(trimmed)
+		if err != nil {
+			return fallback
+		}
+		return n
 	}
 	return fallback
 }
 
-// boolArg 取布尔入参。
+// boolArg 取布尔入参：同样收字符串形态（"true" / "1" / "yes" 为真）。
 func boolArg(args map[string]any, key string) bool {
-	value, _ := args[key].(bool)
-	return value
+	switch value := args[key].(type) {
+	case bool:
+		return value
+	case float64:
+		return value != 0
+	case string:
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "true", "1", "yes", "on":
+			return true
+		}
+	}
+	return false
 }

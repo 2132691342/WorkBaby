@@ -197,6 +197,58 @@ func TestEngine(t *testing.T) {
 		}
 	})
 
+	// 上游 SSE 的 error 帧必须把原话带到失败面：丢掉它，用户只看到「失败了」，
+	// 日志里也是空的，排查从零开始。
+	t.Run("上游错误原话透传", func(t *testing.T) {
+		server := newScriptServer(t, []string{
+			`{"error":{"message":"账户余额不足，请先充值再试"}}`,
+		})
+		runner, _, _ := newRunner(t, server.server.URL)
+		recorder := &collect{}
+		runner.Run(context.Background(), agent.Message{
+			Role:   agent.RoleUser,
+			Blocks: []agent.Block{{Kind: agent.KindText, Text: "你好"}},
+		}, recorder.handler())
+
+		if !recorder.done {
+			t.Fatal("上游报错后运行也必须收尾")
+		}
+		if len(recorder.errors) == 0 {
+			t.Fatal("上游报错应触发 OnError")
+		}
+		joined := strings.Join(recorder.errors, " | ")
+		if !strings.Contains(joined, "账户余额不足") {
+			t.Fatalf("错误原话该透传到失败面，实际 %q", joined)
+		}
+	})
+
+	// 工具入参容错：schema 声明的一切参数都是 string，模型照办发 "20"，
+	// 只认 float64 的话它拿到的永远是缺省值且没有任何提示。
+	t.Run("工具入参容错", func(t *testing.T) {
+		workspace := t.TempDir()
+		writeFile(t, filepath.Join(workspace, "a.txt"), "第一行\n")
+		registry := agent.NewRegistry(func() string { return workspace })
+		ctx := context.Background()
+
+		// 数字字符串按数字用：limit 传 "1" 不该回缺省 8 条。
+		if out := registry.Run(ctx, "read", `{"path":"a.txt","start":"1","end":"1"}`); out.IsError {
+			t.Fatalf("数字字符串形态的行号应被接受：%s", out.Text)
+		}
+		// 布尔字符串同理：ignore_case="true" 要真的开。
+		writeFile(t, filepath.Join(workspace, "b.txt"), "Needle\n")
+		upper := registry.Run(ctx, "grep", `{"pattern":"needle","ignore_case":"true"}`)
+		if upper.IsError || !strings.Contains(upper.Text, "b.txt") {
+			t.Fatalf("布尔字符串应被当成 true：%s", upper.Text)
+		}
+		lower := registry.Run(ctx, "grep", `{"pattern":"NEEDLE","ignore_case":"false"}`)
+		if lower.IsError {
+			t.Fatalf("布尔字符串 false 不该让工具失败：%s", lower.Text)
+		}
+		if strings.Contains(lower.Text, "b.txt") {
+			t.Fatalf("ignore_case=false 时不该命中大小写不同的内容：%s", lower.Text)
+		}
+	})
+
 	// 工具轮次闭环：工具跑过一次后引擎要再调一次模型，工具结果进了下一轮上下文，
 	// 模型据此给出最终回复并收尾；超长输出折叠后才进上下文，折叠事实随结果落盘。
 	t.Run("工具轮次闭环", func(t *testing.T) {

@@ -29,6 +29,8 @@ type Sink func(frame Frame) error
 // subscriber 是一个订阅者的私有队列：补帧先入队、实时帧后入队，
 // 发送泵按同一顺序往外写——补帧与并发广播乱序在这里被结构性排除。
 type subscriber struct {
+	// id 订户号：溢出摘除时要按它销号
+	id     int
 	frames chan Frame
 	done   chan struct{}
 	stop   sync.Once
@@ -59,10 +61,10 @@ func New(keep int) *Hub {
 // Subscribe 登记一个订阅者，并把 since 之后缺的帧先入队补上。
 // 补不上的缺口由前端拿 chat/state 全量对账——这里不假装补齐。
 func (h *Hub) Subscribe(since int64, sink Sink) (cancel func()) {
-	sub := &subscriber{frames: make(chan Frame, 64), done: make(chan struct{})}
 	h.mu.Lock()
 	id := h.nextID
 	h.nextID++
+	sub := &subscriber{id: id, frames: make(chan Frame, 64), done: make(chan struct{})}
 	h.sinks[id] = sub
 	missed := make([]Frame, 0, len(h.buffer))
 	for _, frame := range h.buffer {
@@ -80,6 +82,8 @@ func (h *Hub) Subscribe(since int64, sink Sink) (cancel func()) {
 			}
 		}
 		for {
+			// 销号信号与队列同时等：已经入队的帧按序发出，之后才收摊。
+			// 先判 done 会把队列里那几帧丢掉，前端补帧的 seq 就会留一个缺口。
 			select {
 			case frame := <-sub.frames:
 				if !h.deliver(id, sink, frame) {
@@ -130,13 +134,25 @@ func (h *Hub) Broadcast(event string, data map[string]any) {
 	h.mu.Unlock()
 
 	// 入队不阻塞：一个卡住的窗口不能拖住其他客户端，也绝不能拖住广播本身。
+	// 队列满说明这个客户端已经跟不上，摘掉它：只 close 不销号的话，
+	// 订户会一直留在 sinks 里，每帧都重走一遍失败的入队。
 	for _, sub := range targets {
 		select {
 		case sub.frames <- frame:
 		default:
 			sub.close()
+			h.unsubscribe(sub.id)
 		}
 	}
+}
+
+// Subscribers 当前挂着的订户数。
+// 队列溢出的订户必须从表里摘掉，否则每帧都要为它白跑一次入队；
+// 这个读数就是那条不变量在外面唯一能观察到的形状。
+func (h *Hub) Subscribers() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.sinks)
 }
 
 // Seq 返回当前帧号：日志与调试用。

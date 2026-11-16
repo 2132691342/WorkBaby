@@ -236,7 +236,9 @@ func (m *Mcp) probeStdio(entry map[string]any) (domain.McpProbeRESP, error) {
 	}
 	// 收住 stderr：握手失败时服务端几乎总在 stderr 里说了真实原因，
 	// 丢掉它用户只能看到「没应答」，查错要从零开始。
-	var stderrBuf strings.Builder
+	// 只留尾部一段：探测的对端不受我们控制，输出量不该无上限地进内存。
+	var stderrBuf cappedBuffer
+	stderrBuf.limit = 64 << 10
 	cmd.Stderr = &stderrBuf
 	if err := cmd.Start(); err != nil {
 		return domain.McpProbeRESP{ProbeOk: false, ProbeMessage: "进程起不来：" + mcpShort(err.Error())}, nil
@@ -261,7 +263,8 @@ func (m *Mcp) probeStdio(entry map[string]any) (domain.McpProbeRESP, error) {
 		_, err = io.WriteString(stdin, string(payload)+"\n")
 		return err == nil
 	}
-	lines := mcpLineChan(stdout)
+	// 切帧规则与长驻 RPC 子进程共用一份：U+2028/2029 不是分隔符，超长行有上限。
+	lines := pkg.LineChan(stdout)
 
 	if !write(mcpCall(1, "initialize", mcpInitializeParams())) {
 		return failed("握手请求发不进去"), nil
@@ -284,34 +287,6 @@ func (m *Mcp) probeStdio(entry map[string]any) (domain.McpProbeRESP, error) {
 		ProbeMessage: mcpServerLabel(result),
 		ProbeTools:   mcpToolCountOfRecord(listRec),
 	}, nil
-}
-
-// mcpLineChan 把 stdout 按 LF 切成行推进通道；读尽或出错即关闭。
-func mcpLineChan(reader io.Reader) <-chan string {
-	lines := make(chan string, 32)
-	go func() {
-		defer close(lines)
-		buf := make([]byte, 32*1024)
-		rest := ""
-		for {
-			n, err := reader.Read(buf)
-			if n > 0 {
-				rest += string(buf[:n])
-				for {
-					idx := strings.IndexByte(rest, '\n')
-					if idx < 0 {
-						break
-					}
-					lines <- strings.TrimSuffix(rest[:idx], "\r")
-					rest = rest[idx+1:]
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return lines
 }
 
 // mcpWaitFor 在预算内等指定 id 的应答；等不到给 nil。
@@ -363,3 +338,26 @@ func mcpToolCountOfRecord(rec map[string]any) int {
 	tools, _ := result["tools"].([]any)
 	return len(tools)
 }
+
+// cappedBuffer 是只留尾部 limit 字节的 io.Writer。
+// 探测时对端是用户配的外部程序：它往 stderr 吐多少不由我们决定。
+type cappedBuffer struct {
+	// buf 已收下的尾部内容
+	buf strings.Builder
+	// limit 保留上限
+	limit int
+}
+
+// Write 追加到尾部，超出上限时只留最后一段。
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	b.buf.Write(p)
+	if b.limit > 0 && b.buf.Len() > b.limit {
+		text := b.buf.String()
+		b.buf.Reset()
+		b.buf.WriteString(text[len(text)-b.limit:])
+	}
+	return len(p), nil
+}
+
+// String 取已收下的内容。
+func (b *cappedBuffer) String() string { return b.buf.String() }

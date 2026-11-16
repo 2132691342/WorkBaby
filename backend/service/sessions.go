@@ -108,10 +108,17 @@ func (s *Sessions) Detail(file string) (domain.SessionDetailRESP, error) {
 
 // Delete 删除会话文件，并清掉它的隐藏台账键：台账跟着会话生，会话没了
 // 留着只会让 workbaby.json 缓慢膨胀。
+// 引擎正打开这份会话时拒掉：删掉的是它还在追加的文件，
+// 后续写入会落到一个已消失的路径上，界面则继续显示一份读不回来的会话。
 func (s *Sessions) Delete(file string) error {
 	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return err
+	}
+	if s.Active != nil {
+		if active := s.Active(); active != "" && strings.EqualFold(filepath.Clean(active), filepath.Clean(resolved)) {
+			return pkg.Err(pkg.CodeEngineBusy, "这份会话正被引擎打开，切到其他会话后再删除")
+		}
 	}
 	if err := os.Remove(resolved); err != nil {
 		return pkg.WrapErr(pkg.CodeSessionIO, "会话删除失败", err)
