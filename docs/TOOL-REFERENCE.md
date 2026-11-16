@@ -22,8 +22,8 @@
    `bash` 会把它写进结果首行（「输出超过保留上限，已截断」），模型据此知道自己看到的不是全部。
    这一层在工具自己的 40000 字上限之前发生。
 5. **计划模式按白名单拦执行**（`backend/agent/policy.go`）：只读白名单是
-   `read` `grep` `find` `ls` `todo` `ask` `web_search` `web_fetch`；其余一律按「会改」处理 ——
-   **包括未登记的 `index_search` 与全部 MCP 工具**。被拦时回一句「现在是计划模式…退出后（/plan off）再执行」，
+   `read` `grep` `find` `ls` `todo` `ask` `web_search` `web_fetch` `index_search`；其余一律按「会改」处理 ——
+   **包括全部 MCP 工具**。被拦时回一句「现在是计划模式…退出后（/plan off）再执行」，
    带 `details.blocked_by="plan_mode"`。
 
 ---
@@ -41,13 +41,10 @@
 | `bash` | 跑一条 PowerShell 命令 | 否 | 拦下 | `tool_shell.go` |
 | `todo` | 整份替换待办清单 | 是 | 放行 | `tool_todo.go` |
 | `ask` | 向用户提问并等回答 | 是 | 放行 | `tool_ask.go` |
-| `index_search` | 在工作区预索引里检索 | 是（**未登记**） | **拦下** | `tool_index.go` |
+| `index_search` | 在工作区预索引里检索 | 是 | 放行 | `tool_index.go` |
 | `web_search` | 联网搜索 | 是 | 放行 | `tool_web.go` |
 | `web_fetch` | 抓网页正文 | 是 | 放行 | `tool_web.go` |
 | `mcp_<服务>_<工具>` | 调用 MCP 服务上的工具 | 未知（按写处理） | 拦下 | `tool_mcp.go` |
-
-`index_search` 被拦是登记表保守的后果，不是缺陷：漏登记写工具会让计划模式名存实亡，
-漏登记读工具只让模型多问一句。
 
 ---
 
@@ -143,6 +140,7 @@
 | 约束 | 值 |
 |---|---|
 | 命中上限 | **200**（`maxGrepHits`，`tool_search.go`）；到顶就停，头一行标注「已截断到上限」 |
+| 单文件体积 | 超过 **1 MB**（`maxGrepFileBytes`）直接跳过，不参与内容搜索 |
 | 单行长度 | 截到 **300** 字 |
 | 跳过的目录 | `node_modules` `.git` `dist` `build` `.next` `target` `vendor` `__pycache__` `.venv`（`skipDirs`） |
 | 非文本文件 | 跳过：按扩展名排除图片/压缩包/可执行文件/PDF/Office/字体/音视频（`isTextPath`，`tool_fs.go`）；内容含 NUL 的也跳过 |
@@ -200,6 +198,7 @@
 | 采集上限 | stdout 与 stderr **各 8 MB**（`maxCapturedBytes`，`backend/pkg/proc.go`）：触顶后缓冲不再增长并置 `Truncated` |
 | 截断如何呈现 | 结果首行变成「退出码 N（输出超过保留上限，已截断）」，模型据此知道自己看到的不是全部 |
 | 工作目录 | 当前工作区根 |
+| 危险命令闸门 | 命令命中不可逆特征（递归删除 / 格式化 / 注册表写入 / 停机重启 / 磁盘擦除，`destructivePatterns`）时先经 ask 通道要确认；拒绝或无确认通道一律不执行。设置键 `agent.bash_confirm` 设为 `"0"` 可关（默认开，fail-closed） |
 | 找不到 PowerShell | 拒绝并说明 |
 | 非零退出码 | 结果标 `isError`，正文带「退出码 N」与 stderr 段 |
 | 取消 | 引擎的 `ctx` 直接杀进程树（`RunProc` 收到取消即 `KillTree`），不等超时；`ctx` 先于超时到期时按剩余时间缩短超时 |
