@@ -33,6 +33,8 @@ type Chat struct {
 	Asks *agent.PendingAsks
 	// Templates 提示词模板（斜杠命令清单要它）
 	Templates *Templates
+	// SkillSource 已启用技能索引的来源；每轮开跑前重取一次
+	SkillSource func() []agent.Skill
 
 	// mu 保护会话绑定与运行状态
 	mu sync.Mutex
@@ -210,6 +212,9 @@ func (c *Chat) Send(sessionFile, message string, attachments []domain.ChatAttach
 	c.queued = domain.QueuedMessagesVO{}
 	c.mu.Unlock()
 	c.running.Store(true)
+	// 每轮开跑前重取技能索引：开关就是搬目录，重扫一遍就能立即生效。
+	// 比在每个技能写接口里各推一次便宜——那些接口有六个，漏一个就长期不一致。
+	c.refreshSkills()
 
 	go func() {
 		defer func() {
@@ -239,6 +244,16 @@ func (c *Chat) Send(sessionFile, message string, attachments []domain.ChatAttach
 		}
 	}()
 	return domain.ChatSendRESP{RunId: runId, Disposition: domain.DispositionStarted}, nil
+}
+
+// refreshSkills 把当前已启用技能重扫一遍装进注册表。
+// 索引在开跑前一次性换成快照：一轮运行中途不会因为用户点了开关而改变提示，
+// 下一轮才变——同一轮里提示与工具列表就该是同一份现实。
+func (c *Chat) refreshSkills() {
+	if c.SkillSource == nil {
+		return
+	}
+	c.Tools.SetSkills(c.SkillSource())
 }
 
 // autoCompactionDue 判断这一轮开跑前要不要先压缩：

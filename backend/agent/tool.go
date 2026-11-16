@@ -61,6 +61,8 @@ type Registry struct {
 	Index Indexer
 	// TidyPolicy 工具输出折叠策略
 	TidyPolicy *tidyPolicy
+	// SkillIndex 已启用技能索引；每轮开跑前由上层整段换上
+	SkillIndex *SkillSet
 }
 
 // Indexer 是工作区预索引的出口。
@@ -101,6 +103,7 @@ func NewRegistry(workspace func() string) *Registry {
 		Todos:      NewTodoStore(),
 		Policy:     NewToolPolicy(),
 		TidyPolicy: newTidyPolicy(),
+		SkillIndex: NewSkillSet(),
 	}
 	r.Add(&readTool{}, &writeTool{}, &editTool{}, &lsTool{},
 		&grepTool{}, &findTool{}, &bashTool{}, &todoTool{store: r.Todos},
@@ -209,6 +212,11 @@ func (r *Registry) Run(ctx context.Context, name, rawArgs string) Result {
 		}
 		args = parsed
 	}
+	// 技能正文只读：读写都走 resolve，而技能要能被 read 才用得上。
+	// 改技能只有一个入口（技能页那套服务），工具改的是副本还是原件都说不清。
+	if IsMutatingTool(name) && r.Skills().IsFile(stringArg(args, "path")) {
+		return errorf("技能正文只读，请在技能页里修改：%s", stringArg(args, "path"))
+	}
 	return tool.Run(ctx, r, args)
 }
 
@@ -228,7 +236,10 @@ func (r *Registry) resolve(raw string) (string, error) {
 	}
 	clean := filepath.Clean(target)
 	if !pkg.Inside(workspace, clean) {
-		return "", pkg.Err(pkg.CodePathOutside, "路径不在工作区内", clean)
+		// 技能正文在数据目录里，没有这条豁免模型就永远读不到它要遵循的说明。
+		if !r.Skills().IsFile(clean) {
+			return "", pkg.Err(pkg.CodePathOutside, "路径不在工作区内", clean)
+		}
 	}
 	return clean, nil
 }

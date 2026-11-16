@@ -82,9 +82,12 @@ func New(opts Options) *App {
 	searcher := NewSearcher(settings, opts.DB)
 	sessionStore := agent.NewStore(filepath.Join(opts.Layout.DataDir, "sessions"), settings.Workspace)
 	templates := NewTemplates(opts.Layout)
+	skills := NewSkills(settings, opts.Store, opts.Layout, opts.Hub)
 	chat := NewChat(settings, sessions, models, opts.Hub, sessionStore)
 	// 提示词模板进斜杠命令清单：内置命令 + 模板命令一起给前端。
 	chat.Templates = templates
+	// 技能索引的来源在技能门面上：数据目录只有一个读者，引擎不开第二条扫描路径。
+	chat.SkillSource = skills.PromptSkills
 	// 联网工具装在注册表上：模型能搜网与读网页的能力从这里来。
 	chat.Tools.AddWebTools(webKit.Kit())
 	// 预索引检索工具：模型能快速定位文件与符号。
@@ -110,7 +113,7 @@ func New(opts Options) *App {
 		Files:     NewFiles(settings),
 		Git:       git,
 		Models:    models,
-		Skills:    NewSkills(settings, opts.Store, opts.Layout, opts.Hub),
+		Skills:    skills,
 		Templates: templates,
 		Mcp:       mcp,
 		Web:       webKit,

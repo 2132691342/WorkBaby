@@ -1,11 +1,14 @@
-// 技能：推荐清单与磁盘资产互相咬合，技能生命周期整条可跑。
+// 技能：推荐清单与磁盘资产互相咬合，技能生命周期与提示里的索引整条可跑。
 package tests
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 	"WorkBaby/backend/service"
 )
@@ -53,7 +56,117 @@ func TestSkills(t *testing.T) {
 		}
 	})
 
-	// 生命周期：壳不自动落位、点一次才落一份、重复安装拒绝且不覆盖用户改动、
+	// 渐进披露：启用技能的索引进系统提示（名字 + 说明 + 路径），停用的不进，
+	// 空清单连标题都不出现——空标题会让模型以为「有技能但看不见」。
+	t.Run("提示里的技能索引", func(t *testing.T) {
+		h := newHarness(t)
+		script := newScriptServer(t, replyChunks("收到"))
+		bindWorkspaceAndModel(t, h, script.server.URL)
+
+		// 空技能目录：没有「可用技能」这一节。
+		env, code := h.call("POST", "/chat/send", domain.ChatSendREQ{Message: "空目录这一轮"})
+		h.mustOK(env, code, "send-empty", nil)
+		waitIdle(t, h)
+		bodies := script.requestBodies()
+		if len(bodies) != 1 {
+			t.Fatalf("上游应收到 1 次请求，实际 %d", len(bodies))
+		}
+		if strings.Contains(bodies[0], "## 可用技能") {
+			t.Fatalf("没有技能时不该出现「## 可用技能」标题：%s", bodies[0])
+		}
+
+		// 建一条启用的技能，它必须带着名字、说明与绝对路径进提示。
+		env, code = h.call("POST", "/skills/create", domain.SkillCreateREQ{
+			SkillName: "prompt-probe", SkillDesc: "验证索引进提示", SkillBody: "正文很长，不该整段进提示",
+		})
+		h.mustOK(env, code, "create", nil)
+		script.resetBodies()
+		env, code = h.call("POST", "/chat/send", domain.ChatSendREQ{Message: "有技能这一轮"})
+		h.mustOK(env, code, "send-enabled", nil)
+		waitIdle(t, h)
+		bodies = script.requestBodies()
+		if len(bodies) != 1 {
+			t.Fatalf("上游应收到 1 次请求，实际 %d", len(bodies))
+		}
+		prompt := bodies[0]
+		if !strings.Contains(prompt, "## 可用技能") {
+			t.Fatalf("启用技能后应出现「## 可用技能」标题：%s", prompt)
+		}
+		active := filepath.Join(h.layout.SkillsDir, "prompt-probe", "SKILL.md")
+		// 上游请求体是 JSON：路径里的反斜杠会被转义，比对前先按同样规则折一遍。
+		escapedActive := strings.ReplaceAll(active, `\`, `\\`)
+		for _, want := range []string{"prompt-probe", "验证索引进提示", escapedActive} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("提示里应含 %q：%s", want, prompt)
+			}
+		}
+		// 正文不整段进提示：那是渐进披露的全部意义。
+		if strings.Contains(prompt, "正文很长，不该整段进提示") {
+			t.Fatalf("技能正文不该整段进系统提示：%s", prompt)
+		}
+
+		// 停用 = 搬目录，下一轮（不重启）就不该再出现。
+		if err := h.app.Skills.Toggle(active, false); err != nil {
+			t.Fatalf("停用技能失败：%v", err)
+		}
+		script.resetBodies()
+		env, code = h.call("POST", "/chat/send", domain.ChatSendREQ{Message: "停用后这一轮"})
+		h.mustOK(env, code, "send-disabled", nil)
+		waitIdle(t, h)
+		bodies = script.requestBodies()
+		if len(bodies) != 1 {
+			t.Fatalf("上游应收到 1 次请求，实际 %d", len(bodies))
+		}
+		if strings.Contains(bodies[0], "prompt-probe") {
+			t.Fatalf("停用的技能不该出现在提示里：%s", bodies[0])
+		}
+		if strings.Contains(bodies[0], "## 可用技能") {
+			t.Fatalf("唯一一条技能停用后不该留空标题：%s", bodies[0])
+		}
+		// 停用区的正文也不该读得到：豁免只认当前启用的那几条路径。
+		hidden := filepath.Join(h.layout.SkillsOffDir, "prompt-probe", "SKILL.md")
+		hiddenBlocked := h.app.Chat.Tools.Run(context.Background(), "read",
+			`{"path":"`+strings.ReplaceAll(hidden, `\`, `\\`)+`"}`)
+		if !hiddenBlocked.IsError {
+			t.Fatalf("停用技能的正文应读不到，实际：%s", hiddenBlocked.Text)
+		}
+
+		// 正文可读：模型按索引上的路径 read 得到内容；越界的非技能路径照旧被拒。
+		env, code = h.call("POST", "/skills/toggle", domain.SkillToggleREQ{
+			SkillPath: filepath.Join(h.layout.SkillsOffDir, "prompt-probe", "SKILL.md"), SkillEnabled: true,
+		})
+		h.mustOK(env, code, "toggle-on", nil)
+		if _, err := h.app.Chat.Send("", "让索引刷新", nil); err != nil {
+			t.Fatalf("重新开跑失败：%v", err)
+		}
+		waitIdle(t, h)
+		read := h.app.Chat.Tools.Run(context.Background(), "read", `{"path":"`+escapedActive+`"}`)
+		if read.IsError {
+			t.Fatalf("启用技能的 SKILL.md 应可读：%s", read.Text)
+		}
+		if !strings.Contains(read.Text, "验证索引进提示") {
+			t.Fatalf("读到的应是技能正文，实际：%s", read.Text)
+		}
+		outside := filepath.Join(t.TempDir(), "outside.txt")
+		writeFile(t, outside, "越界")
+		escapedOutside := strings.ReplaceAll(outside, `\`, `\\`)
+		denied := h.app.Chat.Tools.Run(context.Background(), "read", `{"path":"`+escapedOutside+`"}`)
+		if !denied.IsError {
+			t.Fatalf("工作区外的非技能路径应被拒，实际读到：%s", denied.Text)
+		}
+		if !strings.Contains(denied.Text, "路径不在工作区内") {
+			t.Fatalf("拒绝文案应说清是路径越界，实际：%s", denied.Text)
+		}
+		// 只读是真的只读：write 不能借这条豁免覆盖技能正文。
+		overwrite := h.app.Chat.Tools.Run(context.Background(), "write",
+			`{"path":"`+escapedActive+`","content":"改掉"}`)
+		if !overwrite.IsError {
+			t.Fatalf("技能正文不该被 write 覆盖：%s", overwrite.Text)
+		}
+		if raw, err := os.ReadFile(active); err != nil || strings.Contains(string(raw), "改掉") {
+			t.Fatalf("技能正文应保持原样：%v %q", err, string(raw))
+		}
+	})
 	// 开关=搬目录+记账、重置后 SKILL.md 仍是可读文件、删除清整目录、两区重复只出一行。
 	t.Run("生命周期", func(t *testing.T) {
 		assets := repoAssetsDir(t)

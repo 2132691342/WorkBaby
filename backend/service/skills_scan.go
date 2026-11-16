@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"WorkBaby/backend/agent"
 	"WorkBaby/backend/domain"
 	"WorkBaby/backend/pkg"
 )
@@ -55,6 +56,22 @@ func (s *Skills) List() domain.SkillListRESP {
 		RecommendedInstalled: len(RecommendedSkills) - len(available),
 		Available:            available,
 	}
+}
+
+// PromptSkills 交出交给引擎的技能索引：只扫启用区，正文留给模型按需读。
+// 复用 scanDir 而不是再写一遍目录遍历：缺 SKILL.md、读不出 frontmatter、
+// 显示名缺省取目录名这三条口径必须与技能页完全一致，第二套实现迟早会分叉。
+func (s *Skills) PromptSkills() []agent.Skill {
+	rows := s.scanDir(s.Layout.SkillsDir, true)
+	out := make([]agent.Skill, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, agent.Skill{
+			Name:        row.SkillName,
+			Description: row.SkillDesc,
+			Path:        row.SkillPath,
+		})
+	}
+	return out
 }
 
 // skillDescOf 从随包原件里读一句话说明；读不到给空串（界面退化成只显示目录名）。

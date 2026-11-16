@@ -5,8 +5,8 @@ import (
 )
 
 // SystemPrompt 组装系统提示。
-// 三段：身份与纪律、工具清单、工作区事实。工具从注册表现读，
-// 提示里写的工具集绝不会与实际可调用的工具不一致。
+// 四段：身份与纪律、工具清单、已启用技能索引、工作区事实。
+// 工具与技能都从注册表现读，提示里写的清单绝不会与实际可用的东西不一致。
 func SystemPrompt(reg *Registry, workspace string) string {
 	var out strings.Builder
 	out.WriteString(identity)
@@ -19,6 +19,7 @@ func SystemPrompt(reg *Registry, workspace string) string {
 		out.WriteString(spec.Description)
 		out.WriteString("\n")
 	}
+	writeSkills(&out, reg)
 	if blocked := blockedTools(reg); len(blocked) > 0 {
 		out.WriteString("\n## 计划模式\n\n")
 		out.WriteString("现在是计划模式：只能读，不能改。以下工具会被拦下：")
@@ -33,6 +34,37 @@ func SystemPrompt(reg *Registry, workspace string) string {
 		out.WriteString("`\n工具里的相对路径都相对这个目录解析，路径不能越出它。\n")
 	}
 	return out.String()
+}
+
+// maxPromptSkills 是技能索引的上限。
+// 索引每轮都进提示，条目越多越挤占上下文；超出部分按清单顺序截断，
+// 用户仍能从技能页看见它们——宁可少列，不要为一份清单烧掉正文空间。
+const maxPromptSkills = 40
+
+// writeSkills 写「可用技能」段：只列索引，正文让模型按需自己读。
+// 为什么不整段塞正文：一个技能的 SKILL.md 动辄几千字，全塞进去等于每轮
+// 都带一份与当前任务无关的长文，token 与判断力两头都亏。渐进披露是唯一可行的形状。
+func writeSkills(out *strings.Builder, reg *Registry) {
+	items := reg.Skills().All()
+	if len(items) == 0 {
+		return
+	}
+	if len(items) > maxPromptSkills {
+		items = items[:maxPromptSkills]
+	}
+	out.WriteString("\n## 可用技能\n\n")
+	out.WriteString("下面是已启用的技能索引，只有名字、一句话说明与文件路径。")
+	out.WriteString("任务与某条说明相符时，先用 read 读那个路径上的 SKILL.md，")
+	out.WriteString("再按里面的步骤做事；不相符的不要读，读了只会浪费上下文。\n\n")
+	for _, item := range items {
+		out.WriteString("- ")
+		out.WriteString(item.Name)
+		out.WriteString(" — ")
+		out.WriteString(item.Description)
+		out.WriteString(" — `")
+		out.WriteString(item.Path)
+		out.WriteString("`\n")
+	}
 }
 
 // blockedTools 列出当前会被拦下的工具名；不在计划模式时给空。
