@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,6 +22,8 @@ type Hit struct {
 // 常用的、且最近用过的文件排在前面——
 // 只按名字排序会让一堆从没用过的文件压过正在改的那个。
 type Frecency struct {
+	// mu 保护两份账：界面检索与模型工具会并发读写，裸 map 并发是进程级 fatal
+	mu sync.Mutex
 	// hits 文档 ID → 命中次数
 	hits map[string]int
 	// lastSeen 文档 ID → 最近命中时刻（毫秒）
@@ -37,29 +40,37 @@ func NewFrecency() *Frecency {
 
 // Record 记一次命中。
 func (f *Frecency) Record(docID string, at int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.hits[docID]++
 	f.lastSeen[docID] = at
 }
 
 // Score 给一个文档算分。
 // 频次取对数：被搜过 100 次的文件不该是搜过 2 次的 50 倍好，
-// 对数压平之后差距才合理。时近用指数衰减：今天用过比上周用过值钱得多。
+// 对数压平之后差距才合理。时近按天衰减：今天用过比上周用过值钱得多。
 func (f *Frecency) Score(docID string, now int64) float64 {
+	f.mu.Lock()
 	count := f.hits[docID]
+	last := f.lastSeen[docID]
+	f.mu.Unlock()
 	if count == 0 {
 		return 0
 	}
 	frequency := 1.0 + math.Log(float64(count))
-	age := max(now-f.lastSeen[docID], 0)
-	// 半衰期 7 天：七天前用过的东西，权重只剩一半。
-	decay := 0.5
+	age := max(now-last, 0)
+	// 时近按双曲衰减：七天前用过的东西，时近分只剩一半。
 	days := float64(age) / float64(24*60*60*1000)
 	recency := 1.0 / (1.0 + days/7.0)
-	return frequency * (1.0 + recency) * decay
+	return frequency * (1.0 + recency) * 0.5
 }
 
 // Hits 取命中次数。
-func (f *Frecency) Hits(docID string) int { return f.hits[docID] }
+func (f *Frecency) Hits(docID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.hits[docID]
+}
 
 // Search 检索索引。
 // 匹配分三档：符号名精确命中最高、路径包含次之、正文包含最低。
