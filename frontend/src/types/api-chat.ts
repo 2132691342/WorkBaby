@@ -118,6 +118,9 @@ export interface QueuedMessages {
   follow_up: string[]
 }
 
+/** 停止一轮的返回：被丢弃的排队文本，界面要把它们放回输入框。 */
+export type ChatStopRESP = QueuedMessages
+
 // 一个附件：file 只把路径拼进 prompt（引擎自己用读工具看）；
 // image 走 prompt 的 images 字段（唯一的二进制通道）。
 export interface ChatAttachment {

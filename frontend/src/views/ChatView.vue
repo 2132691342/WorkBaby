@@ -13,6 +13,7 @@ import AskCard from '@/components/chat/AskCard.vue'
 import WorkPanel from '@/components/chat/WorkPanel.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
 import SessionList from '@/components/sessions/SessionList.vue'
+import ChatLanding from '@/components/chat/ChatLanding.vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useComposerActions } from '@/composables/useComposerActions'
@@ -38,6 +39,13 @@ const suggestions = computed(() => [t('chat.suggest1'), t('chat.suggest2'), t('c
 function useSuggestion(text: string): void {
   chat.draftOverride = text
 }
+
+// 切会话的加载态：refresh 要走一次后端投影，长会话要几百毫秒。
+// 没有它，点一条会话之后消息区会先空一下——那一下看起来就是「这条会话没了」。
+const loadingSession = ref(false)
+const sessionError = ref('')
+// 首屏那一次 refresh 是否已经落定：落定前说「这条会话是空的」是错的断言。
+const loaded = ref(false)
 
 const scroller = ref<HTMLElement | null>(null)
 const composer = ref<{ focus: () => void } | null>(null)
@@ -132,11 +140,17 @@ watch(
   },
 )
 
+const answering = ref(false)
+
 async function answer(response: UIResponse) {
+  if (answering.value) return
+  answering.value = true
   try {
     await chat.answer(response)
   } catch (err) {
     chat.pushNotice('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    answering.value = false
   }
 }
 
@@ -144,7 +158,18 @@ async function openSession(path: string) {
   chat.reset()
   // 切会话就回到贴底：用户点一条历史，看的是它最后那一句。
   pinned.value = true
-  await chat.refresh(path)
+  loadingSession.value = true
+  sessionError.value = ''
+  try {
+    await chat.refresh(path)
+  } catch (err) {
+    // 打不开要说清是哪一条、为什么：静默留一个空消息区，
+    // 用户会以为会话被清空了。
+    sessionError.value = err instanceof Error ? err.message : String(err)
+    return
+  } finally {
+    loadingSession.value = false
+  }
   // 会话页点「继续」会带 query.session 跳过来：把地址同步成当前会话，
   // 刷新窗口时才不会又回到默认会话。
   await router.replace({ name: 'chat', query: path ? { session: path } : {} })
@@ -183,6 +208,7 @@ onMounted(async () => {
     await nextTick()
     pinned.value = true
     await pinBottom()
+    loaded.value = true
   } catch {
     // query 里的会话可能刚被删掉：退回默认会话，地址也一并清掉。
     await router.replace({ name: 'chat', query: {} })
@@ -190,6 +216,8 @@ onMounted(async () => {
       await chat.refresh()
     } catch {
       /* 引擎没起来时对话页仍是可用的空态 */
+    } finally {
+      loaded.value = true
     }
   }
   // 模型与思考档清单不阻塞首屏：它要问引擎，而引擎冷启动可能要十几秒。
@@ -240,10 +268,17 @@ watch(
       <ChatHeader />
 
       <div ref="scroller" class="chat-scroll" @scroll="onScroll">
-        <div v-if="!app.hasEngine" class="chat-gate">
-          <p class="gate-title">{{ t('chat.noEngine') }}</p>
-          <router-link class="wb-btn primary" :to="{ name: 'settings' }">{{ t('nav.settings') }}</router-link>
-        </div>
+        <!-- 缺引擎 / 切会话中 / 打不开：三块落地区在 ChatLanding 里 -->
+        <ChatLanding
+          v-if="!loaded || !app.workspace || !app.hasEngine || loadingSession || Boolean(sessionError)"
+          :no-engine="!app.hasEngine"
+          :no-workspace="!app.workspace"
+          :loading="loadingSession || !loaded"
+          :error="sessionError"
+          @open-latest="openSession('')"
+          @open-settings="router.push({ name: 'settings' })"
+          @pick-workspace="app.chooseWorkspace()"
+        />
 
         <div v-else-if="!hasTurn && !chat.history.length" class="chat-empty">
           <div class="empty-mark">
@@ -265,7 +300,7 @@ watch(
 
         <div v-else class="msg-col-wrap">
           <HistoryList :turns="chat.history" :live="liveTurn" />
-          <AskCard v-if="chat.activeAsk" :ask="chat.activeAsk" @answer="answer" />
+          <AskCard v-if="chat.activeAsk" :ask="chat.activeAsk" :answering="answering" @answer="answer" />
         </div>
       </div>
 
@@ -329,8 +364,7 @@ watch(
   scrollbar-gutter: stable;
 }
 
-.chat-empty,
-.chat-gate {
+.chat-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -344,8 +378,8 @@ watch(
 .empty-mark {
   display: grid;
   place-items: center;
-  width: 52px;
-  height: 52px;
+  width: var(--wb-tile-lg);
+  height: var(--wb-tile-lg);
   border-radius: var(--wb-r-lg);
   background: var(--wb-brand-soft);
   color: var(--wb-brand);
@@ -360,8 +394,7 @@ watch(
   color: var(--wb-ink);
 }
 
-.empty-hint,
-.gate-title {
+.empty-hint {
   margin: 0;
   font-size: var(--wb-fs-sm);
   color: var(--wb-mute);
@@ -445,8 +478,8 @@ watch(
   transform: translateX(-50%) rotate(90deg);
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: var(--wb-tile-sm);
+  height: var(--wb-tile-sm);
   border: 1px solid var(--wb-line-strong);
   border-radius: 50%;
   background: var(--wb-raised);

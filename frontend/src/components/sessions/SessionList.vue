@@ -4,6 +4,7 @@
 // 按时间分组（今天 / 7 天 / 更早）：找会话几乎总是「刚才那个」，分组一次命中。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { confirmDanger } from '@/utils/confirm'
 import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
 import SessionCardRow from '@/components/sessions/SessionCardRow.vue'
@@ -140,15 +141,14 @@ async function load() {
 }
 
 async function remove(row: SessionRow) {
-  try {
-    await ElMessageBox.confirm(t('sessions.deleteConfirm', { title: row.session_title }), t('sessions.deleteTitle'), {
-      confirmButtonText: t('common.delete'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
+  // 确认框里复述会话标题：列表里一行行长得像，不带标题的「确定删除？」等于让人盲点。
+  const ok = await confirmDanger(
+    t('sessions.deleteConfirm', { title: row.session_title }),
+    t('sessions.deleteTitle'),
+    t('common.delete'),
+    t('common.cancel'),
+  )
+  if (!ok) return
   try {
     await api.deleteSession(row.session_path)
     toasts.push('ok', t('sessions.deleted'))
@@ -161,6 +161,7 @@ async function remove(row: SessionRow) {
 }
 
 async function rename(row: SessionRow) {
+  let value = ''
   try {
     const result = await ElMessageBox.prompt(t('sessions.renamePlaceholder'), t('sessions.renameTitle'), {
       inputValue: row.session_title,
@@ -169,12 +170,19 @@ async function rename(row: SessionRow) {
       inputPattern: /\S+/,
       inputErrorMessage: t('sessions.renamePlaceholder'),
     })
-    await api.renameSession(row.session_path, result.value)
+    value = result.value
+  } catch {
+    return // 取消：不该弹错
+  }
+  // 改名失败必须出声：catch 到外面会把真实的失败也当成「用户取消」吞掉，
+  // 表现是「点了改名，列表还是旧名字」。
+  try {
+    await api.renameSession(row.session_path, value)
     toasts.push('ok', t('common.saved'))
     await load()
     emit('changed', row.session_path)
-  } catch {
-    /* 取消或失败：取消不该弹错 */
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -395,7 +403,7 @@ defineExpose({ load })
 }
 
 .empty-title {
-  margin: 0 0 4px;
+  margin: 0 0 var(--wb-sp-1);
   font-size: var(--wb-fs-sm);
   font-weight: 600;
   color: var(--wb-ink);

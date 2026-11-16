@@ -42,6 +42,9 @@ mcp: {
     emptyHint: '新增一个本地命令或远程地址，它带来的工具就能用了。',
     removeTitle: '删除服务器？',
     removeConfirm: '删掉「{name}」？只移除这条配置，它带来的工具立即不可用；数据目录里的其他配置都不动。',
+    removed: '已删除「{name}」',
+    enabledDone: '已启用「{name}」',
+    disabledDone: '已停用「{name}」',
     commandRequired: '本地命令必须填命令行',
     urlInvalid: '远程地址必须以 http:// 或 https:// 开头',
     timeoutInvalid: '超时必须是正整数（秒）；留空表示沿用默认'
@@ -59,7 +62,6 @@ apps: {
     detecting: '正在检测…',
     detect: '重新检测',
     detected: '已重新检测',
-    detectFailed: '还是没检测到，看看下面的安装说明',
     phaseRunning: '进行中',
     phaseDone: '完成',
     phaseFailed: '失败',
@@ -101,6 +103,7 @@ models: {
     collapseModels: '收起模型',
     emptyTitle: '还没有配置服务商',
     emptyHint: '新增一个服务商，填上地址和密钥，就能开始对话了。',
+    loadFailedHint: '服务商清单没读到。可能是数据目录不可写，或后端刚重启——重试一次通常就好。',
     keyHidden: '密钥已隐藏',
     apiKeyMissing: '还没配密钥',
     testHint: '保存后到「对话」里切一次模型即可验证',
@@ -113,7 +116,7 @@ models: {
     testOk: '这条配置通了，上游有 {n} 个模型',
     testFail: '这条配置不通',
     defaultsTitle: '新会话的默认模型',
-    defaultsHint: '开新会话时从哪个服务商、哪个模型起步。与「当前会话的模型」是两件事——当前会话的模型由引擎按会话记住。',
+    defaultsHint: '开新会话时从哪个服务商、哪个模型、哪个思考档起步。改完对新会话立即生效；与「当前会话的模型」是两件事——那个由引擎按会话记住。',
     defaultProvider: '默认服务商',
     defaultModel: '默认模型',
     defaultThinking: '默认思考档',
@@ -154,7 +157,6 @@ skills: {
     builtinProgress: '推荐 {done}/{total}',
     installRecommended: '装齐推荐 {n}',
     installRecommendedDone: '推荐技能安装完成：{ok} 个成功，{fail} 个失败',
-    available: '还没装',
     sources: {
         project: '工作区',
         builtin: '推荐',
@@ -166,6 +168,6 @@ skills: {
     noMatch: '没有匹配的技能',
     saved: '技能已保存',
     closeDirtyTitle: '放弃未保存的修改？',
-    closeDirtyBody: '抽屉里的正文改动还没有保存，关掉就丢了。'
+    closeDirtyBody: '「{name}」的正文改动还没有保存，关掉就丢了。'
   },
 }

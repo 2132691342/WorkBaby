@@ -132,7 +132,7 @@ const toggleable = computed(() => props.row.skill_source !== 'project')
   flex: none;
   display: flex;
   align-items: center;
-  min-width: 44px;
+  min-width: var(--wb-switch-w);
   justify-content: center;
 }
 

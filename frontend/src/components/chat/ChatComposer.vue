@@ -210,12 +210,22 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
+/** 能不能发：缺工作区就没有可读写的目录，缺引擎就没有模型。
+ *  这条判断必须与 submit() 的闸同源——只把按钮画灰而放行提交，
+ *  用户会看到「点了发送，消息没了」。 */
+const blockedReason = computed(() => {
+  if (!app.hasEngine) return t('chat.noEngine')
+  if (!app.workspace) return t('chat.noWorkspace')
+  return ''
+})
+
 const canSend = computed(
-  () => (draft.value.trim().length > 0 || !attachments.isEmpty.value) && !sending.value,
+  () => !blockedReason.value && (draft.value.trim().length > 0 || !attachments.isEmpty.value) && !sending.value,
 )
 
 async function submit(): Promise<void> {
-  if (!canSend.value || !app.hasEngine) return
+  // 闸门在可发判断里，不只靠按钮的 disabled：回车走的是这条路径。
+  if (!canSend.value) return
   const text = draft.value.trim()
   // 只有 `/xxx` 这种完整命令时，回车应当是「执行它」而不是把它当成一句话发出去。
   if (!attachments.isEmpty.value && text.startsWith('/') && !text.includes(' ')) {
@@ -266,7 +276,8 @@ async function queue(): Promise<void> {
 async function stopTurn(): Promise<void> {
   stopping.value = true
   try {
-    await chat.stop()
+    const discarded = await chat.stop()
+    restoreDiscarded(discarded.steering, discarded.follow_up)
   } catch (err) {
     chat.promptError = err instanceof Error ? err.message : String(err)
   } finally {
@@ -274,10 +285,38 @@ async function stopTurn(): Promise<void> {
   }
 }
 
+// 停止会丢掉还排在队列里的那几句：后端把它们还回来，这里放回输入框。
+// 用户按停是为了「别再跑了」，不是为了「把刚才打的字吃掉」。
+function restoreDiscarded(steering: string[], followUp: string[]): void {
+  const restored = [...steering, ...followUp].map((m) => m.trim()).filter(Boolean)
+  if (!restored.length) return
+  // 不覆盖已有草稿：用户停下之后可能已经在打下一句了。
+  draft.value = draft.value.trim() ? `${draft.value.trimEnd()}\n\n${restored.join('\n\n')}` : restored.join('\n\n')
+  draftStore.flush()
+  void nextTick(() => {
+    autosize()
+    textarea.value?.focus()
+  })
+  chat.pushNotice('info', t('chat.stopRestored', { n: restored.length }))
+}
+
+/** 从输入区直接去选工作目录：走 dialog，选完工作区这一屏会跟着重载。 */
+const choosingWorkspace = ref(false)
+async function pickWorkspace(): Promise<void> {
+  choosingWorkspace.value = true
+  try {
+    await app.chooseWorkspace()
+  } catch (err) {
+    chat.promptError = err instanceof Error ? err.message : String(err)
+  } finally {
+    choosingWorkspace.value = false
+  }
+}
+
 const actions = useComposerActions()
 
 const hint = computed(() => {
-  if (!app.hasEngine) return t('chat.noEngine')
+  if (blockedReason.value) return blockedReason.value
   if (chat.streaming) return t('chat.placeholderBusy')
   return t('chat.placeholder')
 })
@@ -300,6 +339,26 @@ defineExpose({ focus })
 
 <template>
   <div class="composer">
+    <!-- 缺前提时在输入区正上方说清原因 + 给出口：
+         光把发送键画灰，用户会以为是界面坏了 -->
+    <div v-if="blockedReason" class="blocked-strip">
+      <span class="dot warn" />
+      <span class="blocked-text">{{ blockedReason }}</span>
+      <button
+        v-if="!app.workspace"
+        class="wb-btn text sm"
+        type="button"
+        :class="{ 'is-loading': choosingWorkspace }"
+        :disabled="choosingWorkspace"
+        @click="pickWorkspace"
+      >
+        {{ t('chat.pickWorkspace') }}
+      </button>
+      <button v-else class="wb-btn text sm" type="button" @click="app.openSettings()">
+        {{ t('nav.settings') }}
+      </button>
+    </div>
+
     <ComposerStatus :attach-error="attachError" @clear-attach-error="attachError = ''" />
     <ActivityBar :stopping="stopping" @stop="stopTurn" />
 
@@ -316,7 +375,6 @@ defineExpose({ focus })
             v-model="draft"
             class="ta"
             :placeholder="hint"
-            :disabled="!app.hasEngine"
             rows="2"
             @input="autosize"
             @keydown="onKeydown"
@@ -368,6 +426,28 @@ defineExpose({ focus })
 <style scoped>
 /* 输入区根：它自己在页面底部，菜单要从它内部往上弹。
    页脚的分隔线与底色在这里声明，不再依赖全局样式。 */
+.blocked-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: var(--wb-col);
+  margin: 0 auto var(--wb-sp-2);
+  padding: var(--wb-sp-2) var(--wb-sp-3);
+  border: 1px solid var(--wb-warn);
+  border-radius: var(--wb-r);
+  background: var(--wb-warn-soft);
+  font-size: var(--wb-fs-2xs);
+  color: var(--wb-warn);
+}
+
+/* 原因可伸可缩：出口按钮不能被一句长话挤到看不见的地方 */
+.blocked-text {
+  flex: 1;
+  min-width: 0;
+}
+
 .composer {
   flex: none;
   border-top: 1px solid var(--wb-line);

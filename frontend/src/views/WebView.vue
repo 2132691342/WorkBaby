@@ -5,6 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
+import { openExternal } from '@/api/wails'
 import type { WebFetchView, WebSearchItem, WebStatusView } from '@/types/api'
 
 const { t } = useI18n()
@@ -103,6 +104,15 @@ async function fetchPage(): Promise<void> {
 function useUrl(url: string): void {
   fetchUrl.value = url
 }
+
+/** 交给系统浏览器打开：失败要出声，否则看起来就是「这个链接是死的」。 */
+async function openInBrowser(url: string): Promise<void> {
+  try {
+    await openExternal(url)
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  }
+}
 </script>
 
 <template>
@@ -173,12 +183,11 @@ function useUrl(url: string): void {
         </div>
         <ul v-if="results.length" class="result-list">
           <li v-for="(item, index) in results" :key="index" class="result-item">
-            <a
-              class="result-title"
-              :href="item.result_url"
-              target="_blank"
-              rel="noreferrer noopener"
-            >{{ item.result_title || item.result_url }}</a>
+            <!-- 不开新窗口：WebView2 里 target=_blank 什么都不发生（点了没反应）。
+                 走系统浏览器，用户才能真读到这一页。 -->
+            <button class="result-title" type="button" :title="item.result_url" @click="openInBrowser(item.result_url)">
+              {{ item.result_title || item.result_url }}
+            </button>
             <span class="result-url">{{ item.result_url }}</span>
             <p v-if="item.result_snippet" class="result-snippet">{{ item.result_snippet }}</p>
             <button class="wb-btn text sm" @click="useUrl(item.result_url)">
@@ -318,14 +327,27 @@ function useUrl(url: string): void {
 
 .result-title {
   display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
   font-size: var(--wb-fs-sm);
   font-weight: 600;
   color: var(--wb-brand);
-  text-decoration: none;
+  text-align: left;
+  transition:
+    color var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
 .result-title:hover {
   text-decoration: underline;
+  color: var(--wb-brand-strong);
+}
+
+.result-title:active {
+  transform: scale(var(--wb-press-active));
 }
 
 .result-url {

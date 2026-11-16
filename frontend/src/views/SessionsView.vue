@@ -11,6 +11,7 @@ import WbSeg from '@/components/common/WbSeg.vue'
 import type { SegItem } from '@/types/ui'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
+import { fmtCost, fmtCount } from '@/utils/format'
 
 const { t } = useI18n()
 const app = useAppStore()
@@ -46,12 +47,6 @@ const counts = computed(() => {
   return { sessions: app.sessions.length, messages, tokens, cost }
 })
 
-function formatTokens(n: number): string {
-  if (!n) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`
-  return String(n)
-}
 
 async function refresh() {
   const mine = ++refreshSeq
@@ -123,11 +118,11 @@ function onChanged() {
           </div>
           <div class="wb-card card-pad stat">
             <span class="wb-metric-label">{{ t('sessions.tokens') }}</span>
-            <span class="wb-metric">{{ formatTokens(counts.tokens) }}</span>
+            <span class="wb-metric">{{ fmtCount(counts.tokens) }}</span>
           </div>
           <div class="wb-card card-pad stat">
             <span class="wb-metric-label">{{ t('sessions.cost') }}</span>
-            <span class="wb-metric">${{ counts.cost.toFixed(2) }}</span>
+            <span class="wb-metric">{{ fmtCost(counts.cost) }}</span>
           </div>
         </div>
       </section>
@@ -171,7 +166,7 @@ function onChanged() {
 }
 
 .page-sub {
-  margin: 4px 0 0;
+  margin: var(--wb-sp-1) 0 0;
   max-width: var(--wb-w-desc, 620px);
   font-size: var(--wb-fs-sm);
   line-height: 1.65;
@@ -218,7 +213,7 @@ function onChanged() {
 .stat {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--wb-sp-1);
 }
 
 .list-panel {

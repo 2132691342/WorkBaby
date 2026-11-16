@@ -263,7 +263,7 @@ function kindLabel(hit: IndexHitView): string {
 
 .hit-kind {
   flex: none;
-  width: 40px;
+  width: var(--wb-tile);
   font-size: var(--wb-fs-2xs);
   color: var(--wb-mute);
 }

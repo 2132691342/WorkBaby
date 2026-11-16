@@ -66,6 +66,12 @@ const timeoutInvalid = computed(() => {
   return !Number.isFinite(value) || value <= 0
 })
 
+/** 保存：按钮与回车共用这一道闸，避免两条路径校验不一致。 */
+function submit(): void {
+  if (props.saving || !canSave.value) return
+  emit('save')
+}
+
 const canSave = computed(
   () =>
     Boolean(props.form.server_name.trim()) &&
@@ -82,12 +88,14 @@ const canSave = computed(
     width="520"
     :close-on-click-modal="false"
   >
-    <el-form label-position="top" size="small">
+    <!-- 表单内回车 = 保存：这是这类弹窗最自然的提交手势 -->
+    <el-form label-position="top" size="small" @submit.prevent="submit">
       <el-form-item :label="t('mcp.name')">
         <el-input
           v-model="props.form.server_name"
           :disabled="nameLocked"
           :placeholder="t('mcp.namePlaceholder')"
+          @keyup.enter="submit"
         />
       </el-form-item>
 
@@ -149,7 +157,7 @@ const canSave = computed(
         class="wb-btn primary"
         :class="{ 'is-loading': props.saving }"
         :disabled="props.saving || !canSave"
-        @click="emit('save')"
+        @click="submit"
       >
         {{ t('common.save') }}
       </button>
@@ -159,7 +167,7 @@ const canSave = computed(
 
 <style scoped>
 .scope-hint {
-  margin: 4px 0 0;
+  margin: var(--wb-sp-1) 0 0;
   font-size: var(--wb-fs-2xs);
   color: var(--wb-faint);
   line-height: 1.4;

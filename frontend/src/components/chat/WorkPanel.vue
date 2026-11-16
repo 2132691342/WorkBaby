@@ -123,7 +123,7 @@ function closeAll(): void {
   top: 50%;
   transform: translateY(-50%);
   width: 2px;
-  height: 32px;
+  height: var(--wb-ctl-icon);
   border-radius: var(--wb-r-full);
   background: var(--wb-line-strong);
   opacity: 0;

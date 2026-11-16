@@ -3,7 +3,7 @@
 // 选中后经斜杠菜单 / 命令面板填进输入框。这里是「怎么存」的入口，不是「怎么用」的。
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
+import { confirmDanger } from '@/utils/confirm'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
 import type { PromptTemplate } from '@/types/api'
@@ -56,9 +56,12 @@ async function save() {
   }
   saving.value = true
   try {
-    await api.saveTemplate(f.template_name.trim(), f.template_desc.trim(), f.template_body, f.template_args.trim())
+    const result = await api.saveTemplate(f.template_name.trim(), f.template_desc.trim(), f.template_body, f.template_args.trim())
     dialogOpen.value = false
-    toasts.push('ok', t('common.saved'))
+    // 报落盘后的名字（后端会规范化：空格 / 标点 / 大小写）。
+    // 报输入值等于骗人——用户下次在斜杠菜单里按那个名字找不到它。
+    const stored = result.template_name || f.template_name.trim()
+    toasts.push('ok', t('common.savedAs', { name: stored }))
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -68,18 +71,17 @@ async function save() {
 }
 
 async function remove(row: PromptTemplate) {
-  try {
-    await ElMessageBox.confirm(t('templates.deleteConfirm', { name: row.template_name }), t('common.delete'), {
-      type: 'warning',
-      confirmButtonText: t('common.delete'),
-      cancelButtonText: t('common.cancel'),
-    })
-  } catch {
-    return
-  }
+  const ok = await confirmDanger(
+    t('templates.deleteConfirm', { name: row.template_name }),
+    t('common.delete'),
+    t('common.delete'),
+    t('common.cancel'),
+  )
+  if (!ok) return
+  // 与改名同理：确认之后的失败不能落进同一个 catch，否则删失败了界面一声不吭。
   try {
     await api.deleteTemplate(row.template_name)
-    toasts.push('ok', t('common.saved'))
+    toasts.push('ok', t('templates.deleted', { name: row.template_name }))
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -175,7 +177,7 @@ onMounted(load)
   gap: var(--wb-sp-3);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border: 1px solid var(--wb-line);
-  border-radius: var(--wb-md);
+  border-radius: var(--wb-r-md);
 }
 .tpl-main {
   flex: 1;

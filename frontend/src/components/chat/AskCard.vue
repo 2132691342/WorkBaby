@@ -5,14 +5,21 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AskRequest, UIResponse } from '@/types/api'
 
-const props = defineProps<{ ask: AskRequest }>()
+const props = defineProps<{
+  ask: AskRequest
+  /** 回答正在提交：由父组件在 await 期间持有——emit 不等异步，
+      在卡片内部 finally 复位等于「转圈 0ms」，用户能连点两次发两份答案。 */
+  answering?: boolean
+}>()
 const emit = defineEmits<{ answer: [response: UIResponse] }>()
 
 const { t } = useI18n()
 
 const text = ref(props.ask.ask_prefill ?? '')
 const picked = ref<number[]>([])
-const submitting = ref(false)
+/** 本卡片是否已经按下过一次：连点守卫，避免同一条答案发两遍。 */
+const sent = ref(false)
+const submitting = computed(() => Boolean(props.answering) || sent.value)
 
 // 引擎给提问带超时（ask_timeout_ms）时显示剩余时间。后端不强制：
 // 归零后仍可提交，引擎收不收是它的事，所以只提示不锁按钮。
@@ -35,7 +42,7 @@ watch(
   () => {
     text.value = props.ask.ask_prefill ?? ''
     picked.value = []
-    submitting.value = false
+    sent.value = false
   },
 )
 
@@ -65,39 +72,38 @@ const multiSelect = computed(() =>
 )
 
 async function submit() {
-  submitting.value = true
-  try {
-    if (props.ask.ask_method === 'confirm') {
-      emit('answer', { ask_id: props.ask.ask_id, confirmed: true })
-      return
-    }
-    if (props.ask.ask_method === 'select') {
-      // 多选时把选中的几条按原顺序拼回去；单选取那一条。
-      // 走 answers 通道：后端按 SelectedOptions 还原成一句话。
-      const options = props.ask.ask_options ?? []
-      const chosen = picked.value
-        .slice()
-        .sort((a, b) => a - b)
-        .map((i) => options[i])
-        .filter((label): label is string => Boolean(label))
-      if (chosen.length) {
-        emit('answer', {
-          ask_id: props.ask.ask_id,
-          value: chosen.join('、'),
-          answers: [{ question_id: props.ask.ask_id, selected_options: chosen }],
-        })
-        return
-      }
-      emit('answer', { ask_id: props.ask.ask_id, value: text.value })
+  if (submitting.value) return
+  sent.value = true
+  if (props.ask.ask_method === 'confirm') {
+    emit('answer', { ask_id: props.ask.ask_id, confirmed: true })
+    return
+  }
+  if (props.ask.ask_method === 'select') {
+    // 多选时把选中的几条按原顺序拼回去；单选取那一条。
+    // 走 answers 通道：后端按 SelectedOptions 还原成一句话。
+    const options = props.ask.ask_options ?? []
+    const chosen = picked.value
+      .slice()
+      .sort((a, b) => a - b)
+      .map((i) => options[i])
+      .filter((label): label is string => Boolean(label))
+    if (chosen.length) {
+      emit('answer', {
+        ask_id: props.ask.ask_id,
+        value: chosen.join('、'),
+        answers: [{ question_id: props.ask.ask_id, selected_options: chosen }],
+      })
       return
     }
     emit('answer', { ask_id: props.ask.ask_id, value: text.value })
-  } finally {
-    submitting.value = false
+    return
   }
+  emit('answer', { ask_id: props.ask.ask_id, value: text.value })
 }
 
 function decline() {
+  if (submitting.value) return
+  sent.value = true
   emit('answer', { ask_id: props.ask.ask_id, cancelled: true })
 }
 

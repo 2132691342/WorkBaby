@@ -117,6 +117,8 @@ files: {
     renameTitle: '改名 / 移动',
     renamePlaceholder: '新名字或新路径（相对当前目录）',
     deleteTitle: '删除？',
+    closeDirtyTitle: '放弃未保存的修改？',
+    closeDirtyBody: '「{name}」的改动还没保存，关掉就丢了。',
     deleteConfirm: '删掉「{name}」？文件或目录（连同里面的全部内容）一起删除，不进回收站，不能恢复。',
     editFile: '编辑',
     editedHint: '改动未保存',

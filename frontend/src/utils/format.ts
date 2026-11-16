@@ -15,3 +15,13 @@ export function fmtMs(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`
   return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
 }
+
+/** 花费：小额给足小数位，否则四舍五入到 0.000 就都成了 $0。
+ *  三处（概览 / 用量 / 轮尾）同一份口径，不各写一遍。 */
+export function fmtCost(usd: number): string {
+  const v = Number.isFinite(usd) ? usd : 0
+  if (!v) return '$0'
+  if (v < 0.01) return `$${v.toFixed(5)}`
+  if (v < 1) return `$${v.toFixed(4)}`
+  return `$${v.toFixed(3)}`
+}

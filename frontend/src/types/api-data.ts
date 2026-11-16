@@ -123,6 +123,12 @@ export interface TemplateListData {
   rows: PromptTemplate[]
 }
 
+/** 保存模板的回执：template_name 是落盘时规范化过的名字，可能与输入不同。 */
+export interface TemplateSaveRESP {
+  ok: boolean
+  template_name: string
+}
+
 /** 推荐清单里还没装的一条技能。 */
 export interface SkillAvailable {
   skill_dir_name: string

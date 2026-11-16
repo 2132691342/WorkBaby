@@ -306,7 +306,7 @@ function setInput(index: number, kind: string, on: boolean): void {
 }
 
 .key-hint {
-  margin: 4px 0 0;
+  margin: var(--wb-sp-1) 0 0;
   font-size: var(--wb-fs-2xs);
   color: var(--wb-faint);
   line-height: 1.5;
@@ -373,13 +373,13 @@ function setInput(index: number, kind: string, on: boolean): void {
 .fetched-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--wb-sp-1);
 }
 
 .fetched-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--wb-sp-1);
   max-width: 100%;
   padding: 2px 8px;
   border: 1px solid var(--wb-line);

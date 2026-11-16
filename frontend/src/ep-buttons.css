@@ -89,3 +89,18 @@
 .el-button.is-circle {
   border-radius: var(--wb-r-full);
 }
+
+/* 破坏性确认钮（MessageBox 的确认按钮）：沿用 .wb-btn.danger 的语言——
+   中性描边 + 危险色文字，悬停给淡底。删会话与「保存」不该长得一样凶。 */
+.el-button.is-danger-confirm {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: var(--wb-line-strong);
+  --el-button-text-color: var(--wb-bad);
+  --el-button-hover-bg-color: var(--wb-bad-soft);
+  --el-button-hover-border-color: var(--wb-bad);
+  --el-button-hover-text-color: var(--wb-bad);
+  --el-button-active-bg-color: var(--wb-bad-soft);
+  --el-button-active-border-color: var(--wb-bad);
+  --el-button-active-text-color: var(--wb-bad);
+  box-shadow: none;
+}

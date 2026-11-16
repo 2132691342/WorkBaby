@@ -50,8 +50,8 @@ const { t } = useI18n()
 }
 
 .attach-thumb {
-  width: 30px;
-  height: 30px;
+  width: var(--wb-tile-sm);
+  height: var(--wb-tile-sm);
   object-fit: cover;
   border-radius: var(--wb-r-xs);
 }

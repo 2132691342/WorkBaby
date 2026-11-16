@@ -162,6 +162,8 @@ export interface EngineHealth {
   installed: boolean
   running: boolean
   busy: boolean
+  /** 最近一次失败原因（后端 omitempty：没有失败时字段不存在） */
+  last_error?: string
   session_count: number
   skill_count: number
   mcp_count: number

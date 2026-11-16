@@ -59,14 +59,19 @@ const { t } = useI18n()
           <AppIcon name="file" :size="14" />
         </button>
 
+        <!-- 自动压缩是个开关：图标不能与刷新共用，否则「压缩开着」和
+             「刷新一下」两个完全不同的动作长得一样。开着时走 .wb-btn.on 底色，
+             文字也换成「自动压缩」——纯图标开关的状态只能靠悬停猜。 -->
         <button
-          class="wb-btn icon ghost"
+          class="wb-btn sm ghost compact-btn"
           :class="{ on: chat.autoCompaction, 'is-loading': chat.switching === 'compaction' }"
           :disabled="chat.busy || chat.switching === 'compaction' || !app.hasEngine"
           :title="chat.autoCompaction ? t('chat.autoCompactOn') : t('chat.autoCompactOff')"
+          :aria-pressed="chat.autoCompaction"
           @click="emit('toggleCompact', !chat.autoCompaction)"
         >
-          <AppIcon name="refresh" :size="13" />
+          <AppIcon name="dice" :size="13" />
+          <span class="compact-label">{{ t('chat.autoCompact') }}</span>
         </button>
 
         <span v-if="props.count && !chat.streaming" class="composer-hint">{{ props.count }}</span>
@@ -101,10 +106,12 @@ const { t } = useI18n()
 
         <!-- 发送键在 sending 期间也保持可点，点它等于「喊停」。
              等首字的那几秒里，停止是用户唯一的出路；禁用它等于
-             让人盯着一个按不动的按钮，直到引擎自己出错。 -->
+             让人盯着一个按不动的按钮，直到引擎自己出错。
+             注意：这一态**不能**挂 .is-loading——那个类带 pointer-events: none，
+             转圈的同时也把「停下」这一下吃掉了。忙碌的内置命令才转圈。 -->
         <button
           class="wb-btn primary sm"
-          :class="{ 'is-loading': props.sending || props.busyCmd !== '' }"
+          :class="{ 'is-loading': !props.sending && props.busyCmd !== '' }"
           :disabled="(!props.canSend && !props.sending) || !app.hasEngine"
           :title="props.sending ? t('chat.stop') : undefined"
           @click="props.sending ? emit('stop') : emit('submit')"
@@ -166,10 +173,14 @@ const { t } = useI18n()
   font-variant-numeric: tabular-nums;
 }
 
-/* 自动压缩是个开关：开着的时候给它一点强调，否则「开着」和「关着」看起来一样 */
-.wb-btn.on {
-  color: var(--wb-brand);
-  border-color: var(--wb-brand-line);
-  background: var(--wb-brand-soft);
+/* 窄档下这一排参数先被压缩：标签收掉，图标还在（悬停有 title） */
+.compact-btn {
+  flex: none;
+}
+
+@container app (max-width: 1180px) {
+  .compact-label {
+    display: none;
+  }
 }
 </style>

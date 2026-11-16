@@ -3,7 +3,7 @@
 // 定义落在数据目录的 mcp.json（用户级）与工作区 .pi/mcp.json（项目级），那份文件是唯一事实。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
+import { confirmDanger } from '@/utils/confirm'
 import AppIcon from '@/components/common/AppIcon.vue'
 import McpDialog from '@/components/mcp/McpDialog.vue'
 import McpTable from '@/components/mcp/McpTable.vue'
@@ -24,6 +24,8 @@ const busyName = ref('')
 const probingName = ref('')
 const dialog = ref(false)
 const editingName = ref('')
+// 首屏取数是否成功：失败时不能显示「还没有 MCP 服务器」——那是假断言。
+const loadFailed = ref(false)
 // 竞态守卫：开关 / 探测后的重拉与手动刷新并发时，晚到的旧响应直接丢弃。
 let loadSeq = 0
 let aborter: AbortController | null = null
@@ -65,8 +67,10 @@ async function load() {
     const next = await abortable.mcpList(aborter.signal)
     if (mine !== loadSeq) return
     data.value = next
+    loadFailed.value = false
   } catch (err) {
     if (mine !== loadSeq || (err as { name?: string })?.name === 'CanceledError') return
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     if (mine === loadSeq) loading.value = false
@@ -170,6 +174,9 @@ async function toggle(row: McpServer, enabled: boolean) {
   busyName.value = row.server_name
   try {
     await api.mcpToggle(row.server_name, enabled)
+    // 开关是「写配置 + 重载服务」，转圈结束不等于用户知道结果：
+    // 一句提示把「现在它开着 / 关着」确认下来。
+    toasts.push('ok', enabled ? t('mcp.enabledDone', { name: row.server_name }) : t('mcp.disabledDone', { name: row.server_name }))
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -179,18 +186,17 @@ async function toggle(row: McpServer, enabled: boolean) {
 }
 
 async function remove(row: McpServer) {
-  try {
-    await ElMessageBox.confirm(t('mcp.removeConfirm', { name: row.server_name }), t('mcp.removeTitle'), {
-      confirmButtonText: t('common.delete'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
+  const ok = await confirmDanger(
+    t('mcp.removeConfirm', { name: row.server_name }),
+    t('mcp.removeTitle'),
+    t('common.delete'),
+    t('common.cancel'),
+  )
+  if (!ok) return
   busyName.value = row.server_name
   try {
     await api.mcpRemove(row.server_name)
+    toasts.push('ok', t('mcp.removed', { name: row.server_name }))
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -248,6 +254,8 @@ onMounted(() => void load())
       <McpTable
         :rows="servers"
         :loading="loading"
+        :load-failed="loadFailed"
+        @retry="load"
         :busy-name="busyName"
         :probing-name="probingName"
         @create="openCreate"
@@ -297,7 +305,7 @@ onMounted(() => void load())
 }
 
 .page-sub {
-  margin: 4px 0 0;
+  margin: var(--wb-sp-1) 0 0;
   max-width: var(--wb-w-desc);
   font-size: var(--wb-fs-sm);
   line-height: 1.65;

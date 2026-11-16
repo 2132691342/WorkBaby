@@ -11,6 +11,7 @@ import type {
   AskRequest,
   Bootstrap,
   ChatAttachment,
+  ChatStopRESP,
   ChatState,
   ConfigFile,
   ConfigText,
@@ -42,6 +43,7 @@ import type {
   SessionDetail,
   SkillListData,
   TemplateListData,
+  TemplateSaveRESP,
   UIResponse,
   IndexSearchView,
   IndexStatusView,
@@ -150,8 +152,12 @@ export const api = {
   saveSettings: (kv: Record<string, string>) => post<Record<string, string>>('/settings/save', kv),
   setWorkspace: (workspace: string) => post<{ workspace: string }>('/settings/workspace', { workspace }),
   workspaces: () => get<WorkspaceList>('/workspaces'),
+  // 后端回的是 WorkspaceList（行在 workspace_rows），这里把它整形成界面要的
+  // 「最近工作区行」数组：调用方不必知道后端这一层的字段名。
   forgetWorkspace: (workspace: string) =>
-    post<{ workspaces: Bootstrap['workspaces'] }>('/settings/workspace/forget', { workspace_path: workspace }),
+    post<WorkspaceList>('/settings/workspace/forget', { workspace_path: workspace }).then((res) => ({
+      workspaces: res.workspace_rows ?? [],
+    })),
   logs: (lines = 500) => get<{ lines: string[] }>('/logs', { lines: String(lines) }),
 
   prefs: () => get<AppPrefs>('/prefs'),
@@ -186,7 +192,7 @@ export const api = {
       message,
       attachments,
     }),
-  stop: (sessionFile: string) => post<{ ok: boolean }>('/chat/stop', s(sessionFile)),
+  stop: (sessionFile: string) => post<ChatStopRESP>('/chat/stop', s(sessionFile)),
   steer: (sessionFile: string, message: string, attachments: ChatAttachment[] = []) =>
     post<{ ok: boolean }>('/chat/steer', { session_file: sessionFile, message, attachments }),
   followUp: (sessionFile: string, message: string, attachments: ChatAttachment[] = []) =>
@@ -268,7 +274,7 @@ export const api = {
   // ---- 提示词模板 ----
   templates: () => get<TemplateListData>('/templates'),
   saveTemplate: (templateName: string, templateDesc: string, templateBody: string, templateArgs: string) =>
-    post<{ ok: boolean }>('/templates/save', {
+    post<TemplateSaveRESP>('/templates/save', {
       template_name: templateName,
       template_desc: templateDesc,
       template_body: templateBody,

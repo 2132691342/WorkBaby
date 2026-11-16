@@ -215,7 +215,7 @@ async function copyText(text: string): Promise<void> {
 }
 
 .layout-label {
-  width: 96px;
+  width: var(--wb-w-input-sm);
   flex: none;
   font-size: var(--wb-fs-3xs);
   color: var(--wb-faint);

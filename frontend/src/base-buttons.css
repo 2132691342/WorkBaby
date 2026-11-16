@@ -148,6 +148,20 @@
   color: var(--wb-brand);
 }
 
+/* 切到「开」的按钮（文件树、自动压缩这类二元开关）：
+   这是状态，不是主次——底色 + 主色文字，不改尺寸、不加描边。
+   组件各自写一份的结果是有一处忘了写，那个开关看起来永远是关着的。 */
+.wb-btn.on {
+  color: var(--wb-brand);
+  border-color: var(--wb-brand-line);
+  background: var(--wb-brand-soft);
+}
+.wb-btn.on:hover:not(:disabled):not(.is-loading) {
+  color: var(--wb-brand-strong);
+  border-color: var(--wb-brand);
+  background: var(--wb-brand-tint);
+}
+
 /* 尺寸档 */
 .wb-btn.sm {
   height: var(--wb-ctl-sm);

@@ -13,6 +13,8 @@ const props = defineProps<{
   busyName: string
   /** 正在探测连接的那一条的服务器名 */
   probingName: string
+  /** 首屏取数失败：此时「还没有服务器」是假断言 */
+  loadFailed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -21,6 +23,7 @@ const emit = defineEmits<{
   remove: [row: McpServer]
   toggle: [row: McpServer, enabled: boolean]
   probe: [row: McpServer]
+  retry: []
 }>()
 
 const { t } = useI18n()
@@ -51,7 +54,12 @@ function statusTag(row: McpServer): { cls: string; text: string } {
       </button>
     </div>
 
-    <div v-if="!props.rows.length && !props.loading" class="mcp-empty">
+    <div v-if="!props.rows.length && !props.loading && props.loadFailed" class="mcp-empty">
+      <p class="mcp-failed">{{ t('common.loadFailed') }}</p>
+      <button class="wb-btn sm" type="button" @click="emit('retry')">{{ t('common.retry') }}</button>
+    </div>
+
+    <div v-else-if="!props.rows.length && !props.loading" class="mcp-empty">
       <WbEmpty icon="plug" :title="t('mcp.emptyTitle')" :hint="t('mcp.emptyHint')">
         <template #action>
           <button class="wb-btn sm primary" @click="emit('create')">{{ t('mcp.add') }}</button>
@@ -151,6 +159,12 @@ function statusTag(row: McpServer): { cls: string; text: string } {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mcp-failed {
+  margin: 0 0 var(--wb-sp-2);
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink-2);
 }
 
 .row-actions {

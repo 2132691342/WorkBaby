@@ -55,9 +55,8 @@ common: {
     refresh: '刷新',
     retry: '重试',
     create: '新建',
-    install: '安装',
-    uninstall: '卸载',
     loading: '加载中…',
+    loadFailed: '没取到数据',
     empty: '这里还没有内容',
     dismiss: '关闭这条提示',
     clear: '清空',
@@ -66,6 +65,7 @@ common: {
     disabled: '已停用',
     copy: '复制',
     copied: '已复制',
+    copyFailed: '复制失败：浏览器剪贴板不可用，请手动选中后复制。',
     undo: '撤销',
     searchPlaceholder: '搜索',
     name: '名称',
@@ -73,8 +73,10 @@ common: {
     unknown: '未知',
     untitled: '未命名',
     saved: '已保存',
-    update: '升级',
-    yes: '是'
+    yes: '是',
+    keepEditing: '继续编辑',
+    discardChanges: '放弃改动',
+    cancelYes: '是，关闭'
   },
 
 palette: {
@@ -107,9 +109,8 @@ templates: {
     body: '提示词正文',
     bodyHint: '选中后整段填进输入框的内容',
     needNameBody: '模板名与正文不能为空',
-    deleteConfirm: '确定删除模板 {name} 吗？'
+    deleteConfirm: '确定删除模板 {name} 吗？',
+    deleted: '已删除「{name}」',
+    savedAs: '已保存为「{name}」'
   },
-
-keepEditing: '继续编辑',
-  cancelYes: '是，关闭',
 }

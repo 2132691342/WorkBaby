@@ -80,8 +80,8 @@
   --el-disabled-text-color: var(--wb-faint);
   --el-disabled-border-color: var(--wb-line);
 
-  --el-mask-color: rgba(15, 23, 42, 0.42);
-  --el-overlay-color-lighter: rgba(15, 23, 42, 0.42);
+  --el-mask-color: var(--wb-mask);
+  --el-overlay-color-lighter: var(--wb-mask);
 
   --el-component-size: var(--wb-ctl);
   --el-component-size-small: var(--wb-ctl-sm);
@@ -89,9 +89,4 @@
 
   --el-transition-duration: var(--wb-dur);
   --el-transition-duration-fast: var(--wb-dur-fast);
-}
-
-:root[data-theme='dark'] {
-  --el-mask-color: rgba(0, 0, 0, 0.66);
-  --el-overlay-color-lighter: rgba(0, 0, 0, 0.66);
 }

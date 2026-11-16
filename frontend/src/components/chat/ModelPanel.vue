@@ -416,12 +416,12 @@ watch(
 .mp-meta {
   display: flex;
   flex: none;
-  gap: 4px;
+  gap: var(--wb-sp-1);
 }
 
 /* 能力标记：两个字母的窄条，比图标省位置且不需要额外解释 */
 .mp-tag {
-  padding: 0 4px;
+  padding: 0 var(--wb-sp-1);
   border: 1px solid var(--wb-line);
   border-radius: var(--wb-r-xs);
   color: var(--wb-mute);
@@ -467,7 +467,7 @@ watch(
 .mp-skeleton {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--wb-sp-1);
   padding: var(--wb-sp-2);
 }
 

@@ -16,6 +16,7 @@ import type {
   ModelInfo,
   ModelRow,
   PlanState,
+  QueuedMessages,
   SessionStats,
   SlashCommand,
   TodoItem,
@@ -327,9 +328,17 @@ export const useChatStore = defineStore('chat', () => {
     await send(failed.message, failed.attachments)
   }
 
-  async function stop() {
-    await api.stop(sessionFile.value)
+  // 停一轮：后端把被丢弃的排队文本还回来，界面负责放回输入框。
+  // 队列镜像在这里清掉（后端同时广播空 chat:queue，事件到了也只是把空再写一遍，
+  // 不会把放回输入框的文本又当成还在排队）。
+  async function stop(): Promise<QueuedMessages> {
+    const discarded = await api.stop(sessionFile.value)
     streaming.value = false
+    queue.value = { steering: [], follow_up: [] }
+    return {
+      steering: discarded.steering ?? [],
+      follow_up: discarded.follow_up ?? [],
+    }
   }
 
   async function steer(message: string, attachments: ChatAttachment[] = []) {

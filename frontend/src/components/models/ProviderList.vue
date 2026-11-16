@@ -17,6 +17,8 @@ const props = defineProps<{
   pending: string
   /** 正在移除的模型（'服务商:模型ID'）；空表示空闲 */
   removing: string
+  /** 首屏取数失败：此时「还没有配置服务商」是假断言 */
+  loadFailed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,6 +27,7 @@ const emit = defineEmits<{
   remove: [view: ProviderView]
   test: [view: ProviderView]
   removeModel: [view: ProviderView, modelId: string]
+  retry: []
 }>()
 
 const { t } = useI18n()
@@ -77,7 +80,15 @@ function host(url: string): string {
       <span v-if="props.configPath" class="wb-mono registry">{{ props.configPath }}</span>
     </div>
 
-    <div v-if="!props.providers.length && !props.loading" class="provider-empty">
+    <div v-if="!props.providers.length && !props.loading && props.loadFailed" class="provider-empty">
+      <WbEmpty icon="alert" :title="t('common.loadFailed')" :hint="t('models.loadFailedHint')">
+        <template #action>
+          <button class="wb-btn sm" type="button" @click="emit('retry')">{{ t('common.retry') }}</button>
+        </template>
+      </WbEmpty>
+    </div>
+
+    <div v-else-if="!props.providers.length && !props.loading" class="provider-empty">
       <WbEmpty icon="cpu" :title="t('models.emptyTitle')" :hint="t('models.emptyHint')">
         <template #action>
           <button class="wb-btn sm primary" @click="emit('create')">{{ t('models.addProvider') }}</button>
@@ -289,13 +300,13 @@ function host(url: string): string {
 .model-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--wb-sp-1);
 }
 
 .model-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--wb-sp-1);
   font-family: var(--wb-font-mono);
   max-width: 100%;
   overflow: hidden;

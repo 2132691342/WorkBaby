@@ -20,6 +20,8 @@ const router = useRouter()
 
 const loading = ref(false)
 const detecting = ref(false)
+// 首屏取数是否成功：失败时不能显示「没有环境」——那是一句假的断言。
+const loadFailed = ref(false)
 const copied = ref('')
 // 竞态守卫：连点刷新时，晚到的旧清单不能盖掉新的。
 let loadSeq = 0
@@ -32,8 +34,10 @@ async function load() {
   loading.value = true
   try {
     await app.loadApps()
+    if (mine === loadSeq) loadFailed.value = false
   } catch (err) {
     if (mine !== loadSeq) return
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     if (mine === loadSeq) loading.value = false
@@ -125,6 +129,13 @@ onMounted(() => {
         </div>
       </section>
 
+      <!-- 取数失败：给重试，不说「没有环境」 -->
+      <section v-else-if="loadFailed" class="load-failed">
+        <AppIcon name="alert" :size="20" class="failed-ic" />
+        <p class="failed-title">{{ t('common.loadFailed') }}</p>
+        <button class="wb-btn sm" type="button" @click="load">{{ t('common.retry') }}</button>
+      </section>
+
       <WbEmpty
         v-else-if="!loading"
         icon="terminal"
@@ -170,7 +181,7 @@ onMounted(() => {
 }
 
 .page-sub {
-  margin: 4px 0 0;
+  margin: var(--wb-sp-1) 0 0;
   max-width: 620px;
   font-size: var(--wb-fs-sm);
   line-height: 1.65;
@@ -210,6 +221,25 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-3);
+}
+
+.load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-8) var(--wb-sp-5);
+  text-align: center;
+}
+
+.failed-ic {
+  color: var(--wb-warn);
+}
+
+.failed-title {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink-2);
 }
 
 .note {

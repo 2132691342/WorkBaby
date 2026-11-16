@@ -8,6 +8,7 @@ import { useRouter } from 'vue-router'
 import AppIcon from '@/components/common/AppIcon.vue'
 import EngineHealthCard from '@/components/overview/EngineHealthCard.vue'
 import EngineProcesses from '@/components/overview/EngineProcesses.vue'
+import NextStepBar from '@/components/overview/NextStepBar.vue'
 import RecentSessions from '@/components/overview/RecentSessions.vue'
 import UsageCharts from '@/components/overview/UsageCharts.vue'
 import WbSeg from '@/components/common/WbSeg.vue'
@@ -16,6 +17,7 @@ import type { SegItem } from '@/types/ui'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
+import { fmtCost, fmtCount } from '@/utils/format'
 import type { HealthData, SessionRow } from '@/types/api'
 
 const { t } = useI18n()
@@ -35,6 +37,37 @@ const rows = ref<SessionRow[]>([])
 // 正在停的那个实例（用 pid 做键：一个引擎一个进程）。
 const stoppingRun = ref(0)
 
+// 首屏要判断「下一步该干什么」：服务商与模型清单各拉一次。
+// 这两件事不随 health 推送，只在进页面时拿到；失败按「没配」处理——
+// 那正是用户该去修的东西，界面不该因为查不到就假装配好了。
+const providerCount = ref(0)
+const modelCount = ref(0)
+const choosingWorkspace = ref(false)
+
+async function loadSetupState(): Promise<void> {
+  try {
+    const view = await api.providers()
+    providerCount.value = view.providers?.length ?? 0
+    modelCount.value = (view.providers ?? []).reduce((n, p) => n + (p.models?.length ?? 0), 0)
+  } catch {
+    providerCount.value = 0
+    modelCount.value = 0
+  }
+}
+
+async function pickWorkspace(): Promise<void> {
+  choosingWorkspace.value = true
+  try {
+    await app.chooseWorkspace()
+    // 换完工作区这一屏的会话与引擎计数都变了，重新拉一遍。
+    await load()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    choosingWorkspace.value = false
+  }
+}
+
 const engines = computed(() => health.value?.health_engines ?? [])
 const recent = computed(() => rows.value.slice(0, 6))
 // 「能不能把数字当结论看」：后台装配跑完才算就绪。
@@ -42,6 +75,9 @@ const recent = computed(() => rows.value.slice(0, 6))
 // 而 0 是断言，那时它只是「还没数完」。
 const ready = computed(() => Boolean(health.value) && !app.runtime?.detecting)
 const detecting = computed(() => Boolean(app.runtime?.detecting))
+
+/** 有前提可数：选了工作区、配了服务商与模型。否则这一屏的读数必然是 0 / —。 */
+const setupReady = computed(() => Boolean(app.workspace) && providerCount.value > 0 && modelCount.value > 0)
 
 /** 还不可信时就话「—」：零值不等于「有 0 个」。 */
 const pendingMark = '—'
@@ -77,17 +113,7 @@ const usage = computed(() => {
   return { tokens, cost, sessions }
 })
 
-function formatCost(v: number): string {
-  if (!v) return '$0'
-  return v < 0.01 ? `$${v.toFixed(5)}` : `$${v.toFixed(3)}`
-}
 
-function formatTokens(n: number): string {
-  if (!n) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
-  return String(n)
-}
 
 // 竞态守卫：detecting / engine_ready 两个 watch 叠加手动刷新时，晚到的旧快照直接丢弃。
 let loadSeq = 0
@@ -96,7 +122,11 @@ async function load() {
   const mine = ++loadSeq
   loading.value = true
   try {
-    const [data, sessions] = await Promise.all([api.health(), api.sessions(app.workspace || undefined)])
+    const [data, sessions] = await Promise.all([
+      api.health(),
+      api.sessions(app.workspace || undefined),
+      loadSetupState(),
+    ])
     if (mine !== loadSeq) return
     health.value = data
     rows.value = sessions.sessions ?? []
@@ -144,6 +174,11 @@ watch(
   () => void load(),
 )
 
+watch(
+  () => app.workspace,
+  () => void load(),
+)
+
 onMounted(() => void load())
 
 // 离开页面后到货的响应没有意义：直接作废，不需要网络层中止。
@@ -170,6 +205,19 @@ onUnmounted(() => {
     <div class="page-body">
       <WbSkeleton v-if="!health && loading" block />
       <template v-else>
+      <!-- 先答「我现在该干什么」：这一条在引擎卡与读数之上，
+           没工作区 / 没服务商时它取代一屏没有结论的数字。 -->
+      <NextStepBar
+        :workspace="app.workspace"
+        :provider-count="providerCount"
+        :has-model="modelCount > 0"
+        :engine-ready="app.hasEngine"
+        :choosing="choosingWorkspace"
+        @pick-workspace="pickWorkspace"
+        @open-models="app.openModels()"
+        @start-chat="router.push({ name: 'chat' })"
+      />
+
       <!-- 未就绪的横幅：说清「屏幕上这些东西还在数」。
            缺了它，用户看到一屏「—」只能以为界面坏了。 -->
       <div v-if="!ready" class="notice-row">
@@ -190,19 +238,39 @@ onUnmounted(() => {
         />
       </section>
 
-      <!-- 六个读数：三个是「花了多少」，三个是「装了什么」。
+      <!-- 引擎此刻在不在干活、上次为什么失败：紧贴引擎卡，属于「现在能不能用」 -->
+      <EngineProcesses
+        :instance="health?.health_engines[0]"
+        :stopping="Boolean(stoppingRun)"
+        :ready="ready"
+        @restart="restartEngine"
+        @refresh="load"
+      />
+
+      <!-- 「有东西可数」：没工作区或没服务商时，这一屏的读数必然全是 0 / —，
+           那不是结论而是还没有前提——所以整块换成一句说明，先让人去补前提。 -->
+      <section v-if="!setupReady" class="need-setup wb-card card-pad">
+        <AppIcon name="gauge" :size="18" class="need-ic" />
+        <div>
+          <p class="need-title">{{ t('overview.noDataYetTitle') }}</p>
+          <p class="need-hint">{{ t('overview.noDataYetHint') }}</p>
+        </div>
+      </section>
+
+      <template v-else>
+      <!-- 读数：三个是「花了多少」，两个是「装了什么」。
            全部读数在就绪前显示「—」：那一串 0 会被当成结论。 -->
       <section class="stat-row" :class="{ 'is-pending': !ready }">
         <div class="wb-card card-pad">
           <span class="wb-metric-label">{{ t('overview.spend') }}</span>
-          <span class="wb-metric">{{ readout(formatCost(usage.cost)) }}</span>
+          <span class="wb-metric">{{ readout(fmtCost(usage.cost)) }}</span>
         </div>
         <div class="wb-card card-pad">
           <span class="wb-metric-label">{{ t('overview.tokens') }}</span>
-          <span class="wb-metric">{{ readout(formatTokens(usage.tokens)) }}</span>
+          <span class="wb-metric">{{ readout(fmtCount(usage.tokens)) }}</span>
         </div>
         <div class="wb-card card-pad">
-          <span class="wb-metric-label">{{ t('overview.turns') }}</span>
+          <span class="wb-metric-label">{{ t('overview.sessions') }}</span>
           <span class="wb-metric">{{ readout(String(usage.sessions)) }}</span>
         </div>
         <div class="wb-card card-pad">
@@ -217,15 +285,9 @@ onUnmounted(() => {
 
       <UsageCharts :span="span" :rows="rows" />
 
-      <!-- 引擎进程：不解释的话用户只看到「机器变卡」 -->
-      <EngineProcesses
-        :instance="health?.health_engines[0]"
-        :stopping="Boolean(stoppingRun)"
-        :ready="ready"
-        @restart="restartEngine"
-        @refresh="load"
-      />
+      </template>
 
+      <!-- 最近会话与读数无关：没有工作区时也照样能从这里接着上次的聊 -->
       <RecentSessions
         :rows="recent"
         :ready="ready"
@@ -265,7 +327,7 @@ onUnmounted(() => {
 }
 
 .page-sub {
-  margin: 4px 0 0;
+  margin: var(--wb-sp-1) 0 0;
   max-width: var(--wb-w-desc);
   font-size: var(--wb-fs-sm);
   line-height: 1.65;
@@ -291,6 +353,34 @@ onUnmounted(() => {
   color: var(--wb-mute);
 }
 
+.need-setup {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--wb-sp-3);
+  border-style: dashed;
+}
+
+.need-ic {
+  flex: none;
+  margin-top: 1px;
+  color: var(--wb-faint);
+}
+
+.need-title {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  font-weight: 650;
+  color: var(--wb-ink-2);
+}
+
+.need-hint {
+  margin: 2px 0 0;
+  max-width: var(--wb-w-desc);
+  font-size: var(--wb-fs-2xs);
+  line-height: 1.6;
+  color: var(--wb-mute);
+}
+
 .page-body {
   flex: 1;
   min-height: 0;
@@ -307,8 +397,8 @@ onUnmounted(() => {
   gap: var(--wb-sp-3);
 }
 
-/* 六个读数排成 3 × 2：用固定三列而不是 auto-fit，
-   否则宽屏会排成一行六个（每个只剩 130px，数字换了行）。 */
+/* 五个读数：三列两行，最后一行右格留空也照样对齐（auto-fit 会把 5 个
+   摊成一行，每个只剩 130px，数字跟着换行）。 */
 .stat-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -325,7 +415,7 @@ onUnmounted(() => {
 .stat-row > .wb-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--wb-sp-1);
 }
 
 /* 未就绪时读数走弱色：一眼能看出「这些还不是结论」 */

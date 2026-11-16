@@ -117,6 +117,8 @@ export default {
     "renameTitle": "Rename / move",
     "renamePlaceholder": "New name or path (relative to this folder)",
     "deleteTitle": "Delete?",
+    "closeDirtyTitle": "Discard unsaved changes?",
+    "closeDirtyBody": "The edits to “{name}” have not been saved. Closing now loses them.",
     "deleteConfirm": "Delete “{name}”? Files and folders are removed with everything inside — not moved to the Recycle Bin.",
     "editFile": "Edit",
     "editedHint": "Unsaved changes",

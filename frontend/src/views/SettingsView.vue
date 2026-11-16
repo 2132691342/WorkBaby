@@ -238,7 +238,7 @@ onMounted(() => {
 }
 
 .page-sub {
-  margin: 4px 0 0;
+  margin: var(--wb-sp-1) 0 0;
   max-width: 720px;
   font-size: var(--wb-fs-sm);
   color: var(--wb-mute);

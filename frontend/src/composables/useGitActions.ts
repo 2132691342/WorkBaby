@@ -4,29 +4,10 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
+import { confirmDanger } from '@/utils/confirm'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
 import type { GitFile, GitStatus, GitStash } from '@/types/api'
-
-// 丢弃改动 / 强推 / 中止这类动作的确认：话术与按钮文字由调用方给——
-// 确认框要复述「将发生什么」，而那句话只有调用方知道。
-async function confirmDanger(
-  body: string,
-  title: string,
-  okText: string,
-  cancelText: string,
-): Promise<boolean> {
-  try {
-    await ElMessageBox.confirm(body, title, {
-      confirmButtonText: okText,
-      cancelButtonText: cancelText,
-      type: 'warning',
-    })
-    return true
-  } catch {
-    return false
-  }
-}
 
 // 绑定一个「当前状态 + 刷新动作」：pending 暴露给界面挂 loading，
 // 刷新回调由调用方给（它还要同时刷新分支与历史，不在本文件里）。

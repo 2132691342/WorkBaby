@@ -4,7 +4,7 @@
 // 改了会在下次升级时被覆盖，用户自己都说不清「我明明改过」。
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
+import { confirmDanger } from '@/utils/confirm'
 import AppIcon from '@/components/common/AppIcon.vue'
 // 编辑器（codemirror）是重物：抽屉打开才加载，技能列表页不陪绑半兆脚本。
 const CodeEditor = defineAsyncComponent(() => import('@/components/common/CodeEditor.vue'))
@@ -58,16 +58,17 @@ function requestClose(v: boolean): void {
   }
   if (dirty.value && !closeGuard.value) {
     closeGuard.value = true
-    ElMessageBox.confirm(t('skills.closeDirtyBody'), t('skills.closeDirtyTitle'), {
-      confirmButtonText: t('common.cancelYes'),
-      cancelButtonText: t('common.keepEditing'),
-      type: 'warning',
-    })
-      .then(() => {
+    void confirmDanger(
+      t('skills.closeDirtyBody', { name: props.row?.skill_name ?? '' }),
+      t('skills.closeDirtyTitle'),
+      t('common.cancelYes'),
+      t('common.keepEditing'),
+    )
+      .then((ok) => {
+        if (!ok) return
         editing.value = false
         emit('update:open', false)
       })
-      .catch(() => undefined)
       .finally(() => {
         closeGuard.value = false
       })

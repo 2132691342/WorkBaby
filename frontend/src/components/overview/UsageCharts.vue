@@ -13,8 +13,8 @@ import type { SessionRow } from '@/types/api'
 echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 const props = defineProps<{
-  /** 时间窗：决定分桶粒度（今天按小时，其余按天） */
-  span: 'today' | 'week' | 'month'
+  /** 时间窗：决定分桶粒度（今天按小时，其余按天；total 取全部会话） */
+  span: 'today' | 'week' | 'month' | 'total'
   /** 全部会话（本组件按 span 自己过滤） */
   rows: SessionRow[]
 }>()
@@ -27,7 +27,7 @@ let trendChart: echarts.ECharts | null = null
 let modelChart: echarts.ECharts | null = null
 
 const windowDays = computed(() =>
-  props.span === 'today' ? 1 : props.span === 'week' ? 7 : 30,
+  props.span === 'today' ? 1 : props.span === 'week' ? 7 : props.span === 'month' ? 30 : 3650,
 )
 
 /** 落在时间窗内的会话。 */
@@ -36,7 +36,7 @@ const scoped = computed(() => {
   return props.rows.filter((row) => (row.updated_at ? row.updated_at >= since : true))
 })
 
-/** 按天（或按小时）的花费分桶。 */
+/** 按天（或按小时、按全部）的花费分桶。 */
 const byDay = computed(() => {
   const buckets: { label: string; cost: number }[] = []
   const now = new Date()
@@ -46,6 +46,28 @@ const byDay = computed(() => {
       hour.setHours(now.getHours() - i, 0, 0, 0)
       buckets.push({ label: `${hour.getHours()}`, cost: 0 })
     }
+  } else if (props.span === 'total') {
+    // 「全部」按自然月分桶：按天铺十年会画出三千根柱子，什么也读不出来。
+    const first = props.rows.reduce((min, row) => {
+      const at = new Date(row.updated_at).getTime()
+      return Number.isNaN(at) ? min : Math.min(min, at)
+    }, now.getTime())
+    const start = new Date(first)
+    start.setDate(1)
+    start.setHours(0, 0, 0, 0)
+    const cursor = new Date(start)
+    while (cursor <= now) {
+      buckets.push({ label: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`, cost: 0 })
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
+    for (const row of scoped.value) {
+      const time = new Date(row.updated_at)
+      if (Number.isNaN(time.getTime())) continue
+      const key = `${time.getFullYear()}-${String(time.getMonth() + 1).padStart(2, '0')}`
+      const index = buckets.findIndex((b) => b.label === key)
+      if (index >= 0) buckets[index].cost += row.cost_usd ?? 0
+    }
+    return buckets
   } else {
     for (let i = windowDays.value - 1; i >= 0; i--) {
       const day = new Date(now)

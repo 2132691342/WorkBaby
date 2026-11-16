@@ -191,6 +191,10 @@
   /* 中性叠加：hover 底色用它，避免「一屏几十个彩色块」 */
   --wb-tint: rgba(15, 23, 42, 0.04);
   --wb-tint-lg: rgba(15, 23, 42, 0.07);
+  /* 全屏遮罩（命令面板 / 模态壳）：压在内容之上，不参与表面阶梯 */
+  --wb-scrim: rgba(15, 23, 42, 0.34);
+  /* EP 模态遮罩：比 scrim 更浓，弹窗要求底层文字只剩轮廓 */
+  --wb-mask: rgba(15, 23, 42, 0.42);
 
   --wb-line: #e2e8f0;
   --wb-line-strong: #cbd5e1;
@@ -328,6 +332,10 @@
 
   --wb-tint: rgba(226, 232, 240, 0.055);
   --wb-tint-lg: rgba(226, 232, 240, 0.09);
+  /* 暗色遮罩要更浓：浅灰底在深底上几乎看不出「被压住」 */
+  --wb-scrim: rgba(2, 6, 16, 0.62);
+  /* 暗底上模态遮罩再加一档，让弹窗边界压得住 */
+  --wb-mask: rgba(0, 0, 0, 0.66);
 
   --wb-line: rgba(148, 163, 184, 0.14);
   --wb-line-strong: rgba(148, 163, 184, 0.24);
@@ -436,24 +444,6 @@ html {
 
 body {
   font-family: var(--wb-font-ui);
-}
-
-/* 语义别名（组件层只认这些名字） */
-:root {
-  --wb-c-bg: var(--wb-bg, var(--wb-window));
-  --wb-c-panel: var(--wb-raised);
-  --wb-c-card: var(--wb-raised);
-  --wb-c-raise: var(--wb-raised);
-  --wb-c-line: var(--wb-line);
-  --wb-c-line-2: var(--wb-line-strong);
-  --wb-c-ink: var(--wb-ink);
-  --wb-c-ink-2: var(--wb-ink-5);
-  --wb-c-ink-3: var(--wb-mute);
-  --wb-c-accent: var(--wb-brand);
-  --wb-c-accent-ink: var(--wb-brand-ink);
-  --wb-c-ok: var(--wb-ok);
-  --wb-c-bad: var(--wb-bad);
-  --wb-c-warn: var(--wb-warn);
 }
 
 /* 用户选择「减少动效」时不解释过渡，直接到位 */

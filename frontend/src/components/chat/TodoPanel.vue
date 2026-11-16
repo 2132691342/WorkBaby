@@ -31,7 +31,13 @@ function iconOf(row: TodoItem): IconName {
 
 <template>
   <section v-if="todos.length" class="todo-panel">
-    <button class="todo-head" @click="open = !open">
+    <button
+      class="todo-head wb-row-click"
+      type="button"
+      :aria-expanded="open"
+      :aria-label="t('chat.todoTitle')"
+      @click="open = !open"
+    >
       <AppIcon name="chevron" :size="10" class="todo-ic" :class="{ collapsed: !open }" />
       <span class="todo-title">{{ t('chat.todoTitle') }}</span>
       <span class="todo-progress wb-mono">{{ done }}/{{ todos.length }}</span>
@@ -76,6 +82,10 @@ function iconOf(row: TodoItem): IconName {
 
 .todo-head:hover {
   background: var(--wb-hover);
+}
+
+.todo-head:active {
+  background: var(--wb-selected);
 }
 
 .todo-ic {

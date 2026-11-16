@@ -109,7 +109,7 @@ function openPeek(change: FileChange): void {
 .change-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--wb-sp-1);
   max-width: 220px;
   padding: 1px 8px;
   border: 1px solid var(--wb-line);

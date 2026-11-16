@@ -254,7 +254,7 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   padding-top: 12vh;
-  background: rgb(15 23 42 / 0.32);
+  background: var(--wb-scrim);
 }
 .palette {
   width: min(620px, 92vw);
@@ -264,8 +264,8 @@ onMounted(() => {
   overflow: hidden;
   background: var(--wb-raised);
   border: 1px solid var(--wb-line-strong);
-  border-radius: var(--wb-xl);
-  box-shadow: var(--wb-shadow-lg);
+  border-radius: var(--wb-r-xl);
+  box-shadow: var(--wb-shadow-lift);
 }
 .palette-search {
   display: flex;
@@ -293,7 +293,7 @@ onMounted(() => {
   font-size: var(--wb-fs-3xs);
   color: var(--wb-faint);
   border: 1px solid var(--wb-line);
-  border-radius: var(--wb-sm);
+  border-radius: var(--wb-r-sm);
 }
 .palette-list {
   overflow-y: auto;
@@ -313,7 +313,7 @@ onMounted(() => {
   gap: var(--wb-sp-3);
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border: none;
-  border-radius: var(--wb-md);
+  border-radius: var(--wb-r-md);
   background: transparent;
   cursor: pointer;
   text-align: left;

@@ -42,6 +42,9 @@ export default {
     "emptyHint": "Add a local command or remote URL; its tools become available right away.",
     "removeTitle": "Remove server?",
     "removeConfirm": "Remove ‘{name}’? Only this configuration entry is removed and its tools stop working; nothing else in the data directory is touched.",
+    "removed": "Removed {name}",
+    "enabledDone": "Enabled {name}",
+    "disabledDone": "Disabled {name}",
     "commandRequired": "A local command needs its command line",
     "urlInvalid": "The remote URL must start with http:// or https://",
     "timeoutInvalid": "Timeout must be a positive number of seconds; leave empty for the default"
@@ -59,7 +62,6 @@ export default {
 "detecting": "Detecting…",
 "detect": "Re-detect",
 "detected": "Detection refreshed",
-"detectFailed": "Still not detected — see the install note below",
 "phaseRunning": "In progress",
 "phaseDone": "Done",
 "phaseFailed": "Failed",
@@ -101,6 +103,7 @@ export default {
     "collapseModels": "Hide models",
     "emptyTitle": "No provider configured",
     "emptyHint": "Add a provider with a URL and a key to start chatting.",
+    "loadFailedHint": "The provider list could not be read. The data directory may be unwritable, or the backend just restarted — retrying usually fixes it.",
     "keyHidden": "Key hidden",
     "apiKeyMissing": "No key set",
     "testHint": "Save, then switch models once in Chat to verify",
@@ -113,7 +116,7 @@ export default {
     "testOk": "This config works — the upstream has {n} models",
      "testFail": "This config does not work",
      "defaultsTitle": "Default model for new sessions",
-     "defaultsHint": "Which provider and model a new session starts with. This is separate from the current session's model, which the engine remembers per session.",
+     "defaultsHint": "Where a new session starts: provider, model and thinking level. Changes apply to new sessions right away. This is separate from the current session's model, which the engine remembers per session.",
      "defaultProvider": "Default provider",
      "defaultModel": "Default model",
      "defaultThinking": "Default thinking level",
@@ -154,7 +157,6 @@ export default {
     "builtinProgress": "Recommended {done}/{total}",
     "installRecommended": "Install recommended {n}",
     "installRecommendedDone": "Recommended skills: {ok} installed, {fail} failed",
-    "available": "Not installed yet",
     "sources": {
         "project": "Workspace",
         "builtin": "Recommended",
@@ -166,6 +168,6 @@ export default {
     "noMatch": "No matching skills",
     "saved": "Skill saved",
     "closeDirtyTitle": "Discard unsaved changes?",
-    "closeDirtyBody": "The edits in this drawer have not been saved. Closing it now loses them."
+    "closeDirtyBody": "The edits to “{name}” have not been saved. Closing it now loses them."
   },
 }

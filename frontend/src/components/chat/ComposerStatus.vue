@@ -85,11 +85,11 @@ async function retryLast(): Promise<void> {
     <!-- 每条都能单独摘掉：壳侧用「取出全队 → 摘一条 → 重投」实现，不依赖引擎能力位。 -->
     <span v-for="(m, i) in chat.queue.steering" :key="'s' + i" class="queue-chip">
       {{ m }}
-      <button class="chip-x" :title="t('chat.removeQueued')" @click="removeOne('steering', i)">×</button>
+      <button class="chip-x" type="button" :title="t('chat.removeQueued')" :aria-label="t('chat.removeQueued')" @click="removeOne('steering', i)">×</button>
     </span>
     <span v-for="(m, i) in chat.queue.follow_up" :key="'f' + i" class="queue-chip">
       {{ m }}
-      <button class="chip-x" :title="t('chat.removeQueued')" @click="removeOne('followup', i)">×</button>
+      <button class="chip-x" type="button" :title="t('chat.removeQueued')" :aria-label="t('chat.removeQueued')" @click="removeOne('followup', i)">×</button>
     </span>
     <button v-if="chat.caps?.queue_clear" class="wb-btn text sm" :title="t('chat.clearQueue')" @click="clearQueued">
       {{ t('chat.clearQueue') }}
@@ -122,12 +122,12 @@ async function retryLast(): Promise<void> {
     >
       {{ t('chat.goModels') }}
     </button>
-    <button class="wb-btn text sm" :title="t('common.dismiss')" @click="chat.promptError = ''">×</button>
+    <button class="wb-btn text sm" :title="t('common.dismiss')" :aria-label="t('common.dismiss')" @click="chat.promptError = ''">×</button>
   </div>
 
   <div v-if="attachError" class="error-strip">
     {{ attachError }}
-    <button class="wb-btn text sm" @click="$emit('clearAttachError')">×</button>
+    <button class="wb-btn text sm" :title="t('common.dismiss')" :aria-label="t('common.dismiss')" @click="$emit('clearAttachError')">×</button>
   </div>
 
   <div v-if="chat.bindErr" class="warn-strip">

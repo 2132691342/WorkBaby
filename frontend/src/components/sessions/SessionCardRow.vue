@@ -121,7 +121,7 @@ const { t } = useI18n()
 .row-meta {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--wb-sp-1);
   font-family: var(--wb-font-mono);
   font-size: var(--wb-fs-3xs);
   color: var(--wb-mute);

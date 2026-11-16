@@ -2,18 +2,17 @@
 // 一轮消息：角色头 + 若干块（正文 / 思考 / 工具卡）+ 轮尾读数。
 // 同一角色连续几轮只出一次头——一次回答被切成几块，读的人得自己拼。
 // 轮尾给读数（输入 / 输出 / 缓存 / 耗时）与复制、删除，答案不藏进菜单。
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
-import { fmtCount, fmtMs } from '@/utils/format'
+import { fmtCount } from '@/utils/format'
 import TurnBlocks from '@/components/chat/TurnBlocks.vue'
 import MarkdownBlock from '@/components/chat/MarkdownBlock.vue'
 import TurnChanges from '@/components/chat/TurnChanges.vue'
+import TurnFooter from '@/components/chat/TurnFooter.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
 import type { TurnReading } from '@/composables/useMessageFlow'
 import { useTurnClock } from '@/composables/useTurnClock'
 import { useChatStore } from '@/stores/chat'
-import { useToasts } from '@/composables/useToasts'
 import type { ChatBlock, EngineKind, HistoryTurn } from '@/types/api'
 
 const props = defineProps<{
@@ -47,7 +46,6 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const chat = useChatStore()
-const toasts = useToasts()
 
 const isUser = computed(() => props.role === 'user')
 
@@ -92,52 +90,6 @@ const plainText = computed(() =>
     .join('\n\n'),
 )
 
-const copied = ref(false)
-
-// 复制这一轮的回答：放轮尾而不是每段上（用户要的是全文），按钮只在悬停时出现。
-async function copyTurn(): Promise<void> {
-  if (!plainText.value.trim()) return
-  try {
-    await navigator.clipboard.writeText(plainText.value)
-    copied.value = true
-    window.setTimeout(() => {
-      copied.value = false
-    }, 1400)
-  } catch {
-    /* 剪贴板不可用时不打扰：用户可以手动选中 */
-  }
-}
-
-// 隐藏这一轮（界面上的「删除」）：会话文件与上下文一个字不动，详情页仍查得到；
-// 确认框说清语义，撤销入口在删完的提示上。
-async function removeTurn(): Promise<void> {
-  const hid = props.hid
-  if (!hid) return
-  try {
-    await ElMessageBox.confirm(t('chat.hideTurnHint'), t('chat.hideTurnTitle'), {
-      confirmButtonText: t('chat.hideTurnConfirm'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
-  try {
-    await chat.hideTurn(hid)
-    toasts.push('ok', t('chat.turnHidden'), undefined, {
-      label: t('common.undo'),
-      run: () => {
-        chat.unhideTurn(hid).catch((err) => toasts.push('error', err instanceof Error ? err.message : String(err)))
-      },
-    })
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  }
-}
-
-// 这一轮是不是只有工具调用没有文字：只有工具时「复制」无物可复制，不渲染它。
-const hasText = computed(() => plainText.value.trim().length > 0)
-
 // 出头行的时刻脚标：直播轮从秒表起点取「什么时候开始问的」，
 // 历史轮后端投影没带时间戳，留空不编造——悬停里的删除/分叉不依赖它。
 const turnStamp = computed(() => {
@@ -149,78 +101,6 @@ const turnStamp = computed(() => {
   return ''
 })
 
-// 从这一条用户消息分叉出新会话：原会话不动，新会话只带到这里。
-// 确认走弹窗：这是要新开一条会话的动作，误触的代价是「界面突然换了个地方」。
-const forkBusy = ref(false)
-async function forkTurn(): Promise<void> {
-  const hid = props.hid
-  if (!hid || forkBusy.value) return
-  try {
-    await ElMessageBox.confirm(t('chat.forkTurnHint'), t('chat.forkTurnTitle'), {
-      confirmButtonText: t('chat.forkTurnConfirm'),
-      cancelButtonText: t('common.cancel'),
-      type: 'info',
-    })
-  } catch {
-    return
-  }
-  forkBusy.value = true
-  try {
-    await chat.forkChat(hid)
-    toasts.push('ok', t('chat.forkDone'))
-  } catch (err) {
-    toasts.push('error', err instanceof Error ? err.message : String(err))
-  } finally {
-    forkBusy.value = false
-  }
-}
-
-// 用量读数：提示词总量 / 输出 / 缓存命中率 / 耗时；命中率单独标绿——那是「这轮几乎没花钱」的信号。
-const metrics = computed(() => {
-  if (props.showMetrics === false) return []
-  // 直播中的轮次不摆静态读数：轮尾的脚标在替它计时，
-  // 两份时间戳并存必然有一份是停着的——停着的那份就是「是不是卡了」的误报来源。
-  if (liveActive.value) return []
-  const u = props.usage ?? props.historyTurn?.turn_usage
-  if (!u) return []
-  const prompt = u.input_tokens + u.cache_read_tokens + u.cache_write_tokens
-  const out: { key: string; value: string; hit?: boolean }[] = []
-  if (prompt > 0) out.push({ key: '↓', value: fmtCount(prompt) })
-  if (u.output_tokens > 0) out.push({ key: '↑', value: fmtCount(u.output_tokens) })
-  if (prompt > 0) {
-    const rate = Math.round((u.cache_read_tokens / prompt) * 100)
-    out.push({ key: 'cache', value: `${rate}%`, hit: rate > 0 })
-  }
-  if (u.cost_usd > 0) out.push({ key: '$', value: u.cost_usd.toFixed(u.cost_usd < 0.01 ? 4 : 3) })
-  if (props.usage && props.usage.elapsed_ms > 0) {
-    out.push({ key: '⏱', value: fmtMs(props.usage.elapsed_ms) })
-  }
-  return out
-})
-
-// token 组成条：缓存 / 输入 / 输出按占比分段，一眼看出「这轮的钱花在哪」。
-// 与右侧读数同源同一份用量，不另算一套。
-const usageSegments = computed(() => {
-  if (props.showMetrics === false || liveActive.value) return []
-  const u = props.usage ?? props.historyTurn?.turn_usage
-  if (!u) return []
-  const total = u.cache_read_tokens + u.input_tokens + u.output_tokens
-  if (total <= 0) return []
-  return [
-    { key: 'cache', cls: 'seg-cache', pct: (u.cache_read_tokens / total) * 100 },
-    { key: 'input', cls: 'seg-input', pct: (u.input_tokens / total) * 100 },
-    { key: 'output', cls: 'seg-output', pct: (u.output_tokens / total) * 100 },
-  ].filter((s) => s.pct > 0)
-})
-
-// 悬停给精确数：组成条看比例，精确值靠这行 title。
-const usageTitle = computed(() => {
-  const u = props.usage ?? props.historyTurn?.turn_usage
-  if (!u) return ''
-  return `cache ${u.cache_read_tokens} · in ${u.input_tokens} · out ${u.output_tokens}`
-})
-
-/** token 数按量级压缩：界面上要能一眼比较，不是要精确到个位。 */
 </script>
 
 <template>
@@ -244,7 +124,7 @@ const usageTitle = computed(() => {
       <span class="msg-avatar" :class="{ user: isUser }" aria-hidden="true">
         <AppIcon :name="isUser ? 'chat' : 'spark'" :size="14" />
       </span>
-      <span class="msg-badge" :class="{ user: isUser }">{{ isUser ? 'you' : 'assistant' }}</span>
+      <span class="msg-badge" :class="{ user: isUser }">{{ isUser ? t('chat.roleYou') : t('chat.roleAssistant') }}</span>
       <span v-if="props.model" class="msg-meta">{{ props.model }}</span>
       <span v-if="turnStamp" class="msg-time">{{ turnStamp }}</span>
     </div>
@@ -277,35 +157,14 @@ const usageTitle = computed(() => {
            用户侧也有复制：用户要拿自己刚发的那句去别处贴，
            不该先去输入框里选中再复制。删除只对历史轮开放（有 hid 才删得掉），
            直播中的轮次先让它把话说完。 -->
-      <div class="msg-acts">
-        <span v-if="usageSegments.length" class="msg-usage-bar" :title="usageTitle" aria-hidden="true">
-          <span v-for="s in usageSegments" :key="s.key" class="seg" :class="s.cls" :style="{ width: s.pct + '%' }" />
-        </span>
-        <span v-if="metrics.length" class="msg-metrics">
-          <span v-for="m in metrics" :key="m.key" class="msg-metric" :class="{ 'is-hit': m.hit }">
-            <b>{{ m.key }}</b>{{ m.value }}
-          </span>
-        </span>
-        <button v-if="hasText" class="msg-act" type="button" :disabled="copied" @click="copyTurn">
-          <AppIcon :name="copied ? 'check' : 'file'" :size="11" />
-          {{ copied ? t('common.copied') : t('common.copy') }}
-        </button>
-        <button
-          v-if="props.hid && isUser"
-          class="msg-act"
-          type="button"
-          :disabled="forkBusy"
-          :title="t('chat.forkTurnTitle')"
-          @click="forkTurn"
-        >
-          <AppIcon name="branch" :size="11" />
-          {{ t('chat.forkTurnConfirm') }}
-        </button>
-        <button v-if="props.hid" class="msg-act danger" type="button" @click="removeTurn">
-          <AppIcon name="trash" :size="11" />
-          {{ t('common.delete') }}
-        </button>
-      </div>
+      <!-- 轮尾：读数 + 复制 / 分叉 / 隐藏，全在 TurnFooter 里（含它自己的瞬时态） -->
+      <TurnFooter
+        :text="plainText"
+        :usage="props.usage ?? props.historyTurn?.turn_usage"
+        :show-metrics="props.showMetrics !== false && !liveActive"
+        :hid="props.hid ?? ''"
+        :is-user="isUser"
+      />
     </div>
   </article>
 </template>
@@ -398,112 +257,7 @@ const usageTitle = computed(() => {
   font-weight: 600;
 }
 
-/* 轮尾动作：默认透明，悬停整个回合才浮现 */
-.msg-acts {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--wb-sp-3);
-  min-height: 18px;
-  opacity: 0;
-  transition: opacity var(--wb-dur-fast) var(--wb-ease);
-}
-
-.msg:hover .msg-acts,
-.msg-acts:has(.msg-metrics) {
-  opacity: 1;
-}
-
-/* 用量读数：等宽数字 + 极淡的分隔线。
-   它是读数不是控件——不套描边胶囊、不做悬停缩放。 */
-.msg-metrics {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  padding-right: var(--wb-sp-2);
-  border-right: 1px solid var(--wb-line);
-}
-
-/* token 组成条：4px 高的占比段，缓存绿 / 输入灰 / 输出靛。
-   读数是精确值，这条给比例直觉，两者并排不重复。 */
-.msg-usage-bar {
-  display: inline-flex;
-  width: 40px;
-  height: 4px;
-  flex: none;
-  border-radius: var(--wb-r-full);
-  overflow: hidden;
-  background: var(--wb-sunken);
-}
-
-.msg-usage-bar .seg {
-  height: 100%;
-}
-
-.msg-usage-bar .seg-cache {
-  background: var(--wb-ok);
-}
-
-.msg-usage-bar .seg-input {
-  background: var(--wb-faint);
-}
-
-.msg-usage-bar .seg-output {
-  background: var(--wb-brand);
-}
-
-.msg-metric {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 2px;
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-faint);
-  font-variant-numeric: tabular-nums;
-  font-family: var(--wb-font-mono);
-}
-
-.msg-metric b {
-  font-weight: 600;
-  opacity: 0.7;
-}
-
-/* 缓存命中率：命中就标绿——它是「这次几乎没花钱」的那件事 */
-.msg-metric.is-hit {
-  color: var(--wb-ok);
-}
-
-.msg-act {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
-  border: none;
-  background: transparent;
-  color: var(--wb-faint);
-  font-size: var(--wb-fs-3xs);
-  font-weight: 600;
-  transition:
-    color var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-
-.msg-act:hover:not(:disabled) {
-  color: var(--wb-brand);
-  transform: scale(var(--wb-press-hover));
-}
-
-.msg-act:active:not(:disabled) {
-  transform: scale(var(--wb-press-active));
-}
-
-/* 删除是破坏性动作：常规态就要与复制分开一点颜色，悬停转危险色 */
-.msg-act.danger {
-  color: var(--wb-mute);
-}
-
-.msg-act.danger:hover:not(:disabled) {
-  color: var(--wb-bad);
-}
+/* 轮尾的读数与动作搬进 TurnFooter：样式与它的瞬时态同住一个文件 */
 
 .mark-line {
   display: flex;

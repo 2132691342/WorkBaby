@@ -2,7 +2,7 @@
 // 对话页的页头与授权链接条：页头回答「在跟谁说话」，链接条回答
 // 「引擎要我去浏览器点一下，地址在这儿」。两者都只读状态不持有状态。
 // 消息参数（工作区 / 模型 / 水位）在输入框底栏，页头只留引擎与摘要。
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
@@ -25,6 +25,8 @@ const modelLine = computed(() => {
 async function compact(): Promise<void> {
   try {
     await chat.compact()
+    // 压缩是「重写上下文」这种看不见结果的动作：不说一句，用户只知道转了个圈。
+    toasts.push('ok', t('chat.compactDone'))
   } catch (err) {
     toasts.push('error', err instanceof Error && err.message ? err.message : t('chat.compactFailed'))
   }
@@ -35,7 +37,10 @@ const planAvailable = computed(() => chat.commands.some((c) => c.command_name ==
 
 // 切换计划模式走专用接口：拦截发生在工具注册表上，本地说反了会出现
 // 「界面说只读、实际上还能写」。回执带被拦下的工具名，横幅据此说明后果。
+const planBusy = ref(false)
 async function togglePlan(): Promise<void> {
+  if (planBusy.value) return
+  planBusy.value = true
   try {
     const state = await chat.setPlanMode(!chat.planMode)
     if (state.plan_enabled) {
@@ -46,6 +51,8 @@ async function togglePlan(): Promise<void> {
     }
   } catch (err) {
     toasts.push('error', err instanceof Error && err.message ? err.message : t('chat.planFailed'))
+  } finally {
+    planBusy.value = false
   }
 }
 
@@ -61,21 +68,23 @@ async function togglePlan(): Promise<void> {
       <button
         v-if="planAvailable"
         class="wb-btn sm"
-        :class="chat.planMode ? 'primary' : 'ghost'"
+        :class="[{ 'is-loading': planBusy }, chat.planMode ? 'primary' : 'ghost']"
         :title="chat.planMode ? t('chat.planOff') : t('chat.planOn')"
-        :disabled="chat.busy || !app.hasEngine"
+        :aria-pressed="chat.planMode"
+        :disabled="chat.busy || planBusy || !app.hasEngine"
         @click="togglePlan"
       >
         {{ chat.planMode ? t('chat.planActive') : t('chat.planMode') }}
       </button>
       <button
-        class="wb-btn icon ghost"
+        class="wb-btn sm ghost"
         :class="{ 'is-loading': chat.compacting }"
-        :title="t('chat.compact')"
+        :title="t('chat.compactHint')"
         :disabled="chat.busy || !app.hasEngine"
         @click="compact"
       >
-        <AppIcon name="refresh" :size="15" />
+        <AppIcon name="refresh" :size="14" />
+        {{ t('chat.compact') }}
       </button>
     </div>
 

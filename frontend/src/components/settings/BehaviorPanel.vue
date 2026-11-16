@@ -26,7 +26,8 @@ const prefs = usePrefsStore()
 const lastSessionLabel = computed(() => {
   const p = prefs.prefs
   if (!p?.last_session_file) return t('settings.lastSessionNone')
-  return p.last_session_file.split('\\\\').pop() || p.last_session_file
+  // Windows 路径分隔符是单个反斜杠：写两个就永远切不开，界面上会露出一整条绝对路径。
+  return p.last_session_file.split(/[\\/]/).filter(Boolean).pop() || p.last_session_file
 })
 </script>
 

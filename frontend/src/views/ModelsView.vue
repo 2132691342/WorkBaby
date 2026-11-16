@@ -4,7 +4,7 @@
 // 编辑草稿与上游探测在 useProviderForm，这一页只管读哪些数据、各块摆哪。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
+import { confirmDanger } from '@/utils/confirm'
 import AppIcon from '@/components/common/AppIcon.vue'
 import ProviderDialog from '@/components/models/ProviderDialog.vue'
 import ModelTable from '@/components/models/ModelTable.vue'
@@ -26,6 +26,8 @@ const chat = useChatStore()
 const providers = ref<ProviderView[]>([])
 const configPath = ref('')
 const readError = ref('')
+// 首屏取数是否失败：失败时不能显示「还没有配置服务商」——那是假断言。
+const loadFailed = ref(false)
 const loadingProviders = ref(false)
 // 正在跑的上游探测：'test:<服务商>'。拉模型在编辑弹窗里做，不占这个标志。
 const probing = ref('')
@@ -62,8 +64,10 @@ async function loadProviders() {
     providers.value = view.providers ?? []
     configPath.value = view.config_path
     readError.value = view.read_error ?? ''
+    loadFailed.value = false
   } catch (err) {
     if (mine !== loadSeq || (err as { name?: string })?.name === 'CanceledError') return
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     if (mine === loadSeq) loadingProviders.value = false
@@ -100,15 +104,13 @@ async function testProvider(view: ProviderView): Promise<void> {
 }
 
 async function remove(view: ProviderView): Promise<void> {
-  try {
-    await ElMessageBox.confirm(t('models.deleteConfirm', { name: view.provider_name }), t('models.deleteTitle'), {
-      confirmButtonText: t('common.delete'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
+  const ok = await confirmDanger(
+    t('models.deleteConfirm', { name: view.provider_name }),
+    t('models.deleteTitle'),
+    t('common.delete'),
+    t('common.cancel'),
+  )
+  if (!ok) return
   try {
     await api.deleteProvider(view.provider_name)
     toasts.push('ok', t('common.saved'))
@@ -121,19 +123,13 @@ async function remove(view: ProviderView): Promise<void> {
 /** 行内删模型：摘一条就是一条，不用打开编辑弹窗整表回传。 */
 async function removeModel(view: ProviderView, modelId: string): Promise<void> {
   if (removingModel.value) return
-  try {
-    await ElMessageBox.confirm(
-      t('models.removeModelConfirm', { name: view.provider_name, id: modelId }),
-      t('models.removeModelTitle'),
-      {
-        confirmButtonText: t('common.delete'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning',
-      },
-    )
-  } catch {
-    return
-  }
+  const ok = await confirmDanger(
+    t('models.removeModelConfirm', { name: view.provider_name, id: modelId }),
+    t('models.removeModelTitle'),
+    t('common.delete'),
+    t('common.cancel'),
+  )
+  if (!ok) return
   removingModel.value = `${view.provider_name}:${modelId}`
   try {
     await api.deleteProviderModel(view.provider_name, modelId)
@@ -200,6 +196,8 @@ onMounted(() => {
       <ProviderList
         :providers="providers"
         :loading="loadingProviders"
+        :load-failed="loadFailed"
+        @retry="loadProviders"
         :config-path="configPath"
         :pending="probing"
         :removing="removingModel"

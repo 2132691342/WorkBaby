@@ -55,9 +55,8 @@ export default {
     "refresh": "Refresh",
     "retry": "Retry",
     "create": "Create",
-    "install": "Install",
-    "uninstall": "Uninstall",
     "loading": "Loading…",
+    "loadFailed": "Could not load the data",
     "clear": "Clear",
     "open": "Show",
     "empty": "Nothing here yet",
@@ -66,15 +65,18 @@ export default {
     "disabled": "Disabled",
     "copy": "Copy",
     "copied": "Copied",
+    "copyFailed": "Copy failed: the clipboard is unavailable. Select the text and copy it manually.",
     "undo": "Undo",
     "searchPlaceholder": "Search",
     "name": "Name",
     "actions": "Actions",
     "unknown": "Unknown",
     "untitled": "Untitled",
-    "update": "Update",
     "yes": "Yes",
-    "saved": "Saved"
+    "saved": "Saved",
+    "keepEditing": "Keep editing",
+    "discardChanges": "Discard changes",
+    "cancelYes": "Yes, close it"
   },
 
   "palette": {
@@ -107,9 +109,8 @@ export default {
     "body": "Prompt body",
     "bodyHint": "The full text inserted into the composer when selected",
     "needNameBody": "Template name and body are required",
-    "deleteConfirm": "Delete template {name}?"
-  },
-
-keepEditing: 'Keep editing',
-  cancelYes: 'Yes, close it',
+    "deleteConfirm": "Delete template {name}?",
+    "deleted": "Deleted {name}",
+    "savedAs": "Saved as {name}"
+  }
 }

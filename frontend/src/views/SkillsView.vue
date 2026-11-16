@@ -3,7 +3,7 @@
 // 只有一个引擎，所以不再做「矩阵」：一份技能对应一个目录，开关就是把目录搬进/搬出禁用区。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
+import { confirmDanger } from '@/utils/confirm'
 import AppIcon from '@/components/common/AppIcon.vue'
 import SkillRowItem from '@/components/skills/SkillRow.vue'
 import SkillDrawer from '@/components/skills/SkillDrawer.vue'
@@ -42,6 +42,9 @@ const createOpen = ref(false)
 const creating = ref(false)
 const importing = ref(false)
 
+// 首屏取数是否成功：失败时不能显示「还没有技能」——那是假断言。
+const loadFailed = ref(false)
+
 // 竞态守卫：事件 bump 触发的重拉与手动刷新并发时，晚到的旧响应直接丢弃。
 let loadSeq = 0
 let aborter: AbortController | null = null
@@ -78,8 +81,10 @@ async function load() {
     rows.value = data.skills ?? []
     recommendedTotal.value = data.recommended_total
     recommendedInstalled.value = data.recommended_installed
+    loadFailed.value = false
   } catch (err) {
     if (mine !== loadSeq || (err as { name?: string })?.name === 'CanceledError') return
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     if (mine === loadSeq) loading.value = false
@@ -105,15 +110,13 @@ async function toggle(row: SkillRow, enabled: boolean) {
 
 async function reset(row: SkillRow) {
   // 重置会覆盖用户改过的内容：不问一句就动手，等于悄悄丢人的工作。
-  try {
-    await ElMessageBox.confirm(t('skills.resetConfirm', { name: row.skill_name }), t('skills.resetTitle'), {
-      confirmButtonText: t('skills.reset'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
+  const ok = await confirmDanger(
+    t('skills.resetConfirm', { name: row.skill_name }),
+    t('skills.resetTitle'),
+    t('skills.reset'),
+    t('common.cancel'),
+  )
+  if (!ok) return
   resetting.value = row.skill_dir_name
   try {
     await api.resetSkill(row.skill_path)
@@ -161,15 +164,13 @@ async function saveContent(text: string) {
 }
 
 async function remove(row: SkillRow) {
-  try {
-    await ElMessageBox.confirm(t('skills.deleteConfirm', { name: row.skill_name }), t('skills.deleteTitle'), {
-      confirmButtonText: t('common.delete'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
+  const ok = await confirmDanger(
+    t('skills.deleteConfirm', { name: row.skill_name }),
+    t('skills.deleteTitle'),
+    t('common.delete'),
+    t('common.cancel'),
+  )
+  if (!ok) return
   deleting.value = row.skill_dir_name
   try {
     await api.deleteSkill(row.skill_path)
@@ -261,7 +262,8 @@ onMounted(load)
         <p class="page-sub">{{ t('skills.subtitle') }}</p>
       </div>
       <div class="head-actions">
-        <span class="count">
+        <!-- 只在真有一份推荐清单时才显示进度：0/0 是个没有意义的读数 -->
+        <span v-if="recommendedTotal > 0" class="count">
           {{ t('skills.builtinProgress', { done: recommendedInstalled, total: recommendedTotal }) }}
         </span>
         <button
@@ -306,6 +308,12 @@ onMounted(load)
       </div>
 
       <WbSkeleton v-if="loading && !rows.length" :rows="6" />
+
+      <section v-else-if="loadFailed && !rows.length" class="load-failed">
+        <AppIcon name="alert" :size="20" class="failed-ic" />
+        <p class="failed-title">{{ t('common.loadFailed') }}</p>
+        <button class="wb-btn sm" type="button" @click="load">{{ t('common.retry') }}</button>
+      </section>
 
       <WbEmpty
         v-else-if="!rows.length && !loading"
@@ -386,7 +394,7 @@ onMounted(load)
 }
 
 .page-sub {
-  margin: 4px 0 0;
+  margin: var(--wb-sp-1) 0 0;
   max-width: var(--wb-w-desc, 620px);
   font-size: var(--wb-fs-sm);
   line-height: 1.65;
@@ -409,6 +417,25 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-5);
+}
+
+.load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-8) var(--wb-sp-5);
+  text-align: center;
+}
+
+.failed-ic {
+  color: var(--wb-warn);
+}
+
+.failed-title {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink-2);
 }
 
 .filter-row {

@@ -367,7 +367,7 @@ onMounted(refresh)
   color: var(--wb-ink);
 }
 .page-sub {
-  margin: 4px 0 0;
+  margin: var(--wb-sp-1) 0 0;
   font-size: var(--wb-fs-2xs);
   color: var(--wb-faint);
 }
