@@ -37,7 +37,7 @@ onMounted(() => {
     <p class="set-hint">{{ t('settings.configHint') }}</p>
 
     <div class="config-files">
-      <button
+      <button type="button"
         v-for="file in prefs.configFiles"
         :key="file.config_name"
         class="config-tab wb-pressable"

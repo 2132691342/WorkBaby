@@ -51,6 +51,7 @@ overview: {
     nextReadyAct: '开始对话',
     noDataYetTitle: '还没有可统计的东西',
     noDataYetHint: '选好工作目录、配上模型之后，这里会显示花费、用量与能力清单。',
+    loadFailedHint: '引擎状态与会话清单没读到。可能是后端刚重启，或数据目录不可写——重试一次通常就好。',
     noSessionsHint: '开始一轮对话，它会记在这里。',
     startChat: '开始对话',
     justNow: '刚刚',
@@ -85,6 +86,7 @@ usage: {
     totalTokens: 'tokens 合计',
     emptyTitle: '还没有用量',
     emptyHint: '聊几轮之后这里会出现数字。',
+    loadFailedHint: '会话清单没读到，所以算不出用量。可能是后端刚重启——重试一次通常就好。',
     model: '模型',
     sessionCount: '会话数'
   },

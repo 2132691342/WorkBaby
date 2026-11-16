@@ -113,8 +113,11 @@ export function useGitActions(
 
   async function stateAction(action: 'continue' | 'abort'): Promise<void> {
     if (action === 'abort') {
+      // 中止丢的是「当前分支上那次合并 / 变基」的进度：确认框里要写出分支名，
+      // 否则用户面对的是一句没有主语的「进度会丢失」。
+      const branch = status()?.branch_name ?? ''
       const ok = await confirmDanger(
-        t('workspace.abortConfirm'),
+        t('workspace.abortConfirm', { branch: branch || t('workspace.currentBranchName') }),
         t('workspace.abortTitle'),
         t('workspace.abort'),
         t('common.cancel'),

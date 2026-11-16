@@ -72,12 +72,12 @@ function submitForce() {
     <span class="git-sp" />
 
     <!-- 没有远端时唯一的出口：先能加一个远端，相步类按钮才有意义 -->
-    <button v-if="!hasRemote" class="wb-btn sm primary" @click="emit('addRemote')">
+    <button type="button" v-if="!hasRemote" class="wb-btn sm primary" @click="emit('addRemote')">
       <AppIcon name="plus" :size="13" />
       {{ t('workspace.addRemote') }}
     </button>
 
-    <button
+    <button type="button"
       v-if="hasRemote"
       class="wb-btn sm ghost"
       :class="{ 'is-loading': busy('fetch') }"
@@ -91,7 +91,7 @@ function submitForce() {
 
     <!-- 拉取是拆分按钮：单击普通拉取；变基这种换历史的变体收进菜单。 -->
     <span v-if="hasRemote" class="pull-split">
-      <button
+      <button type="button"
         class="wb-btn sm ghost"
         :class="{ 'is-loading': busy('pull') }"
         :disabled="syncing()"
@@ -101,7 +101,7 @@ function submitForce() {
         <AppIcon name="download" :size="13" />
         {{ t('workspace.pull') }}
       </button>
-      <button
+      <button type="button"
         class="wb-btn sm ghost pull-caret"
         :disabled="syncing()"
         :title="t('workspace.pullRebase')"
@@ -109,7 +109,7 @@ function submitForce() {
       >
         <AppIcon name="chevron" :size="10" />
       </button>
-      <button
+      <button type="button"
         v-if="pullOpen"
         class="wb-btn sm ghost"
         :disabled="syncing()"
@@ -120,7 +120,7 @@ function submitForce() {
       </button>
     </span>
 
-    <button
+    <button type="button"
       v-if="hasRemote"
       class="wb-btn sm primary"
       :class="{ 'is-loading': busy('push:none') }"
@@ -135,7 +135,7 @@ function submitForce() {
     <!-- 强推：单独一个入口，且要二次确认。
          强推会覆盖别人的提交，所以它不能是普通推送的「高级选项」，
          得让人显式点出来。 -->
-    <button
+    <button type="button"
       v-if="hasRemote"
       class="wb-btn sm ghost"
       :disabled="syncing()"
@@ -163,8 +163,8 @@ function submitForce() {
         <span class="force-confirm-hint">{{ t('workspace.forceConfirmHint') }}</span>
       </div>
       <div class="force-actions">
-        <button class="wb-btn sm ghost" @click="forceOpen = false">{{ t('common.cancel') }}</button>
-        <button class="wb-btn sm danger" :disabled="!canForce" @click="submitForce">
+        <button type="button" class="wb-btn sm ghost" @click="forceOpen = false">{{ t('common.cancel') }}</button>
+        <button type="button" class="wb-btn sm danger" :disabled="!canForce" @click="submitForce">
           {{ t('workspace.forcePush') }}
         </button>
       </div>

@@ -58,7 +58,7 @@ function closeAll(): void {
       <AppIcon name="workspace" :size="14" />
       <span class="wp-title">{{ t('chat.wpTitle') }}</span>
       <span class="wp-count">{{ panel.tabs.value.length }}</span>
-      <button class="wb-btn icon ghost wp-closeall" :title="t('chat.wpCloseAll')" @click="closeAll">
+      <button type="button" class="wb-btn icon ghost wp-closeall" :title="t('chat.wpCloseAll')" :aria-label="t('chat.wpCloseAll')" @click="closeAll">
         <AppIcon name="trash" :size="13" />
       </button>
     </div>
@@ -76,7 +76,7 @@ function closeAll(): void {
       >
         <AppIcon :name="tab.mode === 'diff' ? 'git' : 'file'" :size="12" />
         <span class="wp-tab-name">{{ tab.title }}</span>
-        <button
+        <button type="button"
           class="wp-tab-x"
           :title="t('chat.wpCloseTab')"
           @click.stop="panel.closeTab(tab.id)"

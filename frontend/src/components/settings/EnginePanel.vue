@@ -68,7 +68,7 @@ async function copyText(text: string): Promise<void> {
     <div class="wb-section-title">
       {{ t('settings.groups.engine') }}
       <span class="tag" :class="readyCount === 4 ? 'ok' : 'warn'">{{ readyCount }}/4</span>
-      <button
+      <button type="button"
         class="wb-btn text sm push"
         :class="{ 'is-loading': props.detecting }"
         :disabled="props.detecting"
@@ -90,13 +90,13 @@ async function copyText(text: string): Promise<void> {
       <!-- 缺运行时：只给「去应用页」，不在设置页里代跑安装 -->
       <div v-if="!item.installed" class="cmd-row">
         <span class="cmd-text">{{ t('settings.runtimeMissing') }}</span>
-        <button class="wb-btn sm" @click="app.openApps()">{{ t('settings.goApps') }}</button>
+        <button type="button" class="wb-btn sm" @click="app.openApps()">{{ t('settings.goApps') }}</button>
       </div>
 
       <div v-else class="engine-facts">
         <div class="fact wide">
           <span class="fact-label">PATH</span>
-          <button class="fact-value mono selectable" @click="copyText(item.app_path)">
+          <button type="button" class="fact-value mono selectable" @click="copyText(item.app_path)">
             {{ item.app_path }}
           </button>
         </div>
@@ -106,7 +106,7 @@ async function copyText(text: string): Promise<void> {
     <div v-if="props.layout" class="layout-grid">
       <div v-for="field in pathFields" :key="field.key" class="layout-row">
         <span class="layout-label">{{ field.label }}</span>
-        <button
+        <button type="button"
           class="layout-path mono selectable"
           :title="t('settings.reveal')"
           @click="emit('reveal', props.layout[field.key])"

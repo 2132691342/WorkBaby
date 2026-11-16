@@ -62,18 +62,18 @@ function clockOf(at: number): string {
     <div class="wb-section-title">
       {{ t('settings.groups.diag') }}
       <span class="seg diag-tabs">
-        <button
+        <button type="button"
           class="seg-btn"
           :class="{ active: tab === 'failures' }"
           @click="tab = 'failures'"
         >
           {{ t('settings.diagFailures', { n: diag.entries.value.length }) }}
         </button>
-        <button class="seg-btn" :class="{ active: tab === 'logs' }" @click="tab = 'logs'">
+        <button type="button" class="seg-btn" :class="{ active: tab === 'logs' }" @click="tab = 'logs'">
           {{ t('settings.diagLogs') }}
         </button>
       </span>
-      <button
+      <button type="button"
         v-if="tab === 'failures'"
         class="wb-btn text sm push"
         :disabled="!diag.entries.value.length"
@@ -82,10 +82,10 @@ function clockOf(at: number): string {
         {{ t('common.copy') }}
       </button>
       <template v-else>
-        <button class="wb-btn text sm push" @click="emit('refreshLogs')">
+        <button type="button" class="wb-btn text sm push" @click="emit('refreshLogs')">
           {{ t('common.refresh') }}
         </button>
-        <button class="wb-btn text sm" :disabled="!props.logs.length" @click="copyLogs">
+        <button type="button" class="wb-btn text sm" :disabled="!props.logs.length" @click="copyLogs">
           {{ t('common.copy') }}
         </button>
       </template>
@@ -97,7 +97,7 @@ function clockOf(at: number): string {
     <template v-if="tab === 'failures'">
       <p v-if="!diag.entries.value.length" class="diag-empty">{{ t('settings.diagNoFailures') }}</p>
       <div v-else class="diag-list">
-        <button
+        <button type="button"
           v-for="(item, index) in diag.entries.value"
           :key="`${item.at}-${index}`"
           class="diag-row wb-row-click"
@@ -108,7 +108,7 @@ function clockOf(at: number): string {
           <span class="diag-where mono">{{ item.where }}</span>
           <span class="diag-msg">{{ item.message }}</span>
         </button>
-        <button class="wb-btn text sm danger diag-clear" @click="diag.clear()">
+        <button type="button" class="wb-btn text sm danger diag-clear" @click="diag.clear()">
           <AppIcon name="trash" :size="12" />
           {{ t('settings.diagClear') }}
         </button>

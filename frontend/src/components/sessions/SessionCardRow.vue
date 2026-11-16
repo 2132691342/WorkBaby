@@ -18,6 +18,8 @@ const props = defineProps<{
   relative: string
   /** 悬停里的完整时刻 */
   stamp: string
+  /** 正在删这一条：删除按钮要转圈，别让用户重复点 */
+  removing?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -51,7 +53,7 @@ const { t } = useI18n()
       <!-- 动作收在元信息行尾：常驻占位、悬停淡入。放独立行会撑高行高，
            鼠标一扫一排会话全在抖。窄栏用图标，主栏用文字。 -->
       <div class="row-actions">
-        <button
+        <button type="button"
           class="wb-btn text sm"
           :title="t('sessions.rename')"
           :aria-label="`${t('sessions.rename')} ${props.row.session_title}`"
@@ -60,8 +62,10 @@ const { t } = useI18n()
           <AppIcon v-if="props.compact" name="edit" :size="13" />
           <template v-else>{{ t('sessions.rename') }}</template>
         </button>
-        <button
+        <button type="button"
           class="wb-btn text sm danger"
+          :class="{ 'is-loading': props.removing }"
+          :disabled="props.removing"
           :title="t('common.delete')"
           :aria-label="`${t('common.delete')} ${props.row.session_title}`"
           @click.stop="emit('remove', props.row)"

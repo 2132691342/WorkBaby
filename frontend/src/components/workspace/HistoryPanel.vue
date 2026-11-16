@@ -146,7 +146,7 @@ onUnmounted(() => window.clearTimeout(unmountTimer))
       <AppIcon name="file" :size="12" />
       <span class="file-filter-path mono">{{ file }}</span>
       <span class="readout">{{ rows.length }}</span>
-      <button class="wb-btn text sm" @click="emit('clearFile')">{{ t('history.showAll') }}</button>
+      <button type="button" class="wb-btn text sm" @click="emit('clearFile')">{{ t('history.showAll') }}</button>
     </div>
 
     <div v-if="loading" class="empty-mini">{{ t('common.loading') }}</div>
@@ -156,7 +156,7 @@ onUnmounted(() => window.clearTimeout(unmountTimer))
 
     <template v-else>
       <div v-for="item in list" :key="item.commit_hash" class="commit-block">
-        <button
+        <button type="button"
           class="commit-line"
           :class="{ open: openHash === item.commit_hash }"
           @click="open(item)"
@@ -191,7 +191,7 @@ onUnmounted(() => window.clearTimeout(unmountTimer))
             </div>
 
             <div class="detail-files">
-              <button
+              <button type="button"
                 v-for="changed in detail.changed_files"
                 :key="changed.file_path"
                 class="detail-file"

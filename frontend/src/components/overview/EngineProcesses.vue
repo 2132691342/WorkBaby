@@ -45,7 +45,7 @@ const stateTone = computed(() => {
     <div class="wb-section-title">
       {{ t('overview.processes') }}
       <span class="tag" :class="stateTone">{{ stateLabel }}</span>
-      <button class="wb-btn text sm push" type="button" :title="t('common.refresh')" @click="emit('refresh')">
+      <button class="wb-btn text sm push" type="button" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="emit('refresh')">
         <AppIcon name="refresh" :size="12" />
       </button>
     </div>

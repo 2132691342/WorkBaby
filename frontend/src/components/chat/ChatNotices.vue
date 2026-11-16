@@ -61,7 +61,7 @@ onBeforeUnmount(() => {
 
 <template>
   <transition-group name="notice" tag="div" class="notice-stack">
-    <button
+    <button type="button"
       v-for="notice in chat.notices"
       :key="notice.id"
       class="notice-chip wb-pressable"

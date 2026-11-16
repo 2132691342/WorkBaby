@@ -11,6 +11,8 @@ const props = defineProps<{
   recent: WorkspaceRow[]
   /** 正在「忘记」的目录路径（空表示没有） */
   forgetting: string
+  /** 正在切到的目录路径（空表示没有）：切换要重建引擎，行上要有转圈 */
+  switching?: string
 }>()
 
 const emit = defineEmits<{
@@ -30,7 +32,7 @@ const app = useAppStore()
         <div class="set-label">{{ t('settings.workspace') }}</div>
         <div class="set-hint mono selectable">{{ app.workspace }}</div>
       </div>
-      <button class="wb-btn" @click="app.chooseWorkspace()">
+      <button type="button" class="wb-btn" @click="app.chooseWorkspace()">
         <AppIcon name="folder" :size="14" />
         {{ t('chat.pickWorkspace') }}
       </button>
@@ -41,10 +43,10 @@ const app = useAppStore()
       <div class="set-label">{{ t('settings.recentWorkspaces') }}</div>
       <ul class="recent-list">
         <li v-for="row in props.recent" :key="row.workspace_path" class="recent-row">
-          <button
+          <button type="button"
             class="recent-open wb-row-click"
             :class="{ 'is-current': row.workspace_path === app.workspace }"
-            :disabled="row.workspace_path === app.workspace || !row.workspace_exists"
+            :disabled="row.workspace_path === app.workspace || !row.workspace_exists || Boolean(props.switching)"
             :title="row.workspace_exists ? row.workspace_path : t('settings.recentMissing')"
             @click="emit('use', row.workspace_path)"
           >
@@ -52,11 +54,13 @@ const app = useAppStore()
             <span class="mono recent-path" :class="{ 'is-gone': !row.workspace_exists }">
               {{ row.workspace_path }}
             </span>
+            <span v-if="props.switching === row.workspace_path" class="dot busy" />
           </button>
-          <button
+          <button type="button"
             class="wb-btn text sm recent-forget"
             :class="{ 'is-loading': props.forgetting === row.workspace_path }"
             :title="t('settings.forgetWorkspace')"
+            :aria-label="`${t('settings.forgetWorkspace')} ${row.workspace_path}`"
             @click="emit('forget', row.workspace_path)"
           >
             <AppIcon name="close" :size="13" />

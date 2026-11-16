@@ -17,6 +17,8 @@ const props = defineProps<{
   pending: string
   /** 正在移除的模型（'服务商:模型ID'）；空表示空闲 */
   removing: string
+  /** 正在删除的服务商名；空表示空闲 */
+  removingProvider?: string
   /** 首屏取数失败：此时「还没有配置服务商」是假断言 */
   loadFailed?: boolean
 }>()
@@ -91,7 +93,7 @@ function host(url: string): string {
     <div v-else-if="!props.providers.length && !props.loading" class="provider-empty">
       <WbEmpty icon="cpu" :title="t('models.emptyTitle')" :hint="t('models.emptyHint')">
         <template #action>
-          <button class="wb-btn sm primary" @click="emit('create')">{{ t('models.addProvider') }}</button>
+          <button type="button" class="wb-btn sm primary" @click="emit('create')">{{ t('models.addProvider') }}</button>
         </template>
       </WbEmpty>
     </div>
@@ -142,7 +144,7 @@ function host(url: string): string {
             <button
               class="chip-x"
               type="button"
-              :title="t('models.removeModel')"
+              :title="t('models.removeModel')" :aria-label="t('models.removeModel')"
               :disabled="props.removing === `${view.provider_name}:${model.model_id}`"
               @click="emit('removeModel', view, model.model_id)"
             >
@@ -152,10 +154,9 @@ function host(url: string): string {
           <button v-if="restCount(view)" class="tag more-chip" type="button" @click="toggleMore(view)">
             +{{ restCount(view) }}
           </button>
-          <button
+          <button type="button"
             v-else-if="view.models.length > SHOWN"
             class="tag more-chip"
-            type="button"
             @click="toggleMore(view)"
           >
             {{ t('models.collapseModels') }}
@@ -164,7 +165,7 @@ function host(url: string): string {
         </div>
 
         <footer class="provider-actions">
-          <button
+          <button type="button"
             class="wb-btn sm ghost"
             :class="{ 'is-loading': props.pending === `test:${view.provider_name}` }"
             :disabled="Boolean(props.pending)"
@@ -175,8 +176,13 @@ function host(url: string): string {
             {{ t('models.testProvider') }}
           </button>
           <span class="sp" />
-          <button class="wb-btn text sm" @click="emit('edit', view)">{{ t('common.edit') }}</button>
-          <button class="wb-btn text sm danger" @click="emit('remove', view)">
+          <button type="button" class="wb-btn text sm" @click="emit('edit', view)">{{ t('common.edit') }}</button>
+          <button type="button"
+            class="wb-btn text sm danger"
+            :class="{ 'is-loading': props.removingProvider === view.provider_name }"
+            :disabled="props.removingProvider === view.provider_name"
+            @click="emit('remove', view)"
+          >
             {{ t('common.delete') }}
           </button>
         </footer>

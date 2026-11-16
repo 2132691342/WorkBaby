@@ -133,14 +133,14 @@ async function requestClose(open: boolean): Promise<void> {
     <template #footer>
       <div v-if="props.file && !props.file.is_binary && !props.loading" class="preview-actions">
         <template v-if="editing">
-          <button class="wb-btn sm" :disabled="saving" @click="editing = false">
+          <button type="button" class="wb-btn sm" :disabled="saving" @click="editing = false">
             {{ t('common.cancel') }}
           </button>
-          <button class="wb-btn sm primary" :class="{ 'is-loading': saving }" :disabled="saving" @click="save">
+          <button type="button" class="wb-btn sm primary" :class="{ 'is-loading': saving }" :disabled="saving" @click="save">
             {{ t('common.save') }}
           </button>
         </template>
-        <button v-else class="wb-btn sm primary" @click="startEdit">
+        <button type="button" v-else class="wb-btn sm primary" @click="startEdit">
           {{ t('files.editFile') }}
         </button>
       </div>

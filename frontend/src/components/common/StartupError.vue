@@ -16,7 +16,7 @@ const { t } = useI18n()
       {{ t('app.failHint') }}
     </p>
     <div class="fail-actions">
-      <button class="wb-btn primary" @click="app.load()">{{ t('common.retry') }}</button>
+      <button type="button" class="wb-btn primary" @click="app.load()">{{ t('common.retry') }}</button>
     </div>
   </div>
 </template>

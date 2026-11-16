@@ -10,6 +10,8 @@ import { usePrefsStore } from '@/stores/prefs'
 const props = defineProps<{
   autoStartBusy: boolean
   restoreBusy: boolean
+  /** 关窗动作正在写入（写注册表，要等一下） */
+  closeActionBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -55,7 +57,7 @@ const lastSessionLabel = computed(() => {
       </div>
       <el-radio-group
         :model-value="prefs.prefs?.close_action ?? 'tray'"
-        :disabled="!prefs.prefs"
+        :disabled="!prefs.prefs || Boolean(props.closeActionBusy)"
         @change="(v: string | number | boolean | undefined) => emit('setCloseAction', String(v))"
       >
         <el-radio-button value="tray">{{ t('settings.closeToTray') }}</el-radio-button>
@@ -89,7 +91,7 @@ const lastSessionLabel = computed(() => {
         <div class="set-hint mono selectable">{{ prefs.prefs?.data_dir || '—' }}</div>
         <div class="set-hint">{{ t('settings.dataDirHint') }}</div>
       </div>
-      <button class="wb-btn sm" @click="emit('openDataDir')">
+      <button type="button" class="wb-btn sm" @click="emit('openDataDir')">
         <AppIcon name="folder" :size="13" />
         {{ t('settings.openDataDir') }}
       </button>

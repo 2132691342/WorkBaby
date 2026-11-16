@@ -50,9 +50,9 @@ const { t } = useI18n()
         <ModelPicker />
         <ThinkingChip />
 
-        <button
+        <button type="button"
           class="wb-btn icon ghost"
-          :title="props.imagesAllowed ? t('chat.attachPick') : t('chat.attachNoImageModel')"
+          :title="props.imagesAllowed ? t('chat.attachPick') : t('chat.attachNoImageModel')" :aria-label="props.imagesAllowed ? t('chat.attachPick') : t('chat.attachNoImageModel')"
           :disabled="!app.hasEngine || !props.imagesAllowed"
           @click="emit('browseFiles')"
         >
@@ -62,7 +62,7 @@ const { t } = useI18n()
         <!-- 自动压缩是个开关：图标不能与刷新共用，否则「压缩开着」和
              「刷新一下」两个完全不同的动作长得一样。开着时走 .wb-btn.on 底色，
              文字也换成「自动压缩」——纯图标开关的状态只能靠悬停猜。 -->
-        <button
+        <button type="button"
           class="wb-btn sm ghost compact-btn"
           :class="{ on: chat.autoCompaction, 'is-loading': chat.switching === 'compaction' }"
           :disabled="chat.busy || chat.switching === 'compaction' || !app.hasEngine"
@@ -80,7 +80,7 @@ const { t } = useI18n()
       <div class="bar-acts">
         <ContextMeter />
 
-        <button
+        <button type="button"
           v-if="chat.streaming"
           class="wb-btn sm ghost"
           :class="{ 'is-loading': props.queueing }"
@@ -92,7 +92,7 @@ const { t } = useI18n()
           {{ t('chat.queue') }}
         </button>
 
-        <button
+        <button type="button"
           v-if="chat.streaming"
           class="wb-btn sm"
           :class="{ 'is-loading': props.stopping }"
@@ -109,7 +109,7 @@ const { t } = useI18n()
              让人盯着一个按不动的按钮，直到引擎自己出错。
              注意：这一态**不能**挂 .is-loading——那个类带 pointer-events: none，
              转圈的同时也把「停下」这一下吃掉了。忙碌的内置命令才转圈。 -->
-        <button
+        <button type="button"
           class="wb-btn primary sm"
           :class="{ 'is-loading': !props.sending && props.busyCmd !== '' }"
           :disabled="(!props.canSend && !props.sending) || !app.hasEngine"

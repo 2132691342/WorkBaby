@@ -16,6 +16,7 @@ export default {
     readIt: '读这个',
     noResults: '没有找到结果',
     saved: '联网设置已保存',
+    loadFailedHint: '联网服务清单没读到，所以不知道当前配的是哪个服务。重试一次通常就好。',
   },
 
   index: {
@@ -32,6 +33,7 @@ export default {
     searchPlaceholder: '输入文件名或符号名',
     searchAction: '检索',
     noResults: '索引里没有匹配的东西',
+    loadFailedHint: '索引状态没读到，所以这一页不知道该不该建索引。重试一次通常就好。',
     hitKindFile: '文件',
     hitKindSymbol: '符号',
   },

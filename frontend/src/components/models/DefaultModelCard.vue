@@ -166,11 +166,11 @@ onMounted(() => {
       </label>
 
       <div class="field actions">
-        <button class="wb-btn primary" :class="{ 'is-loading': saving }" :disabled="saving || !dirty" @click="save">
+        <button type="button" class="wb-btn primary" :class="{ 'is-loading': saving }" :disabled="saving || !dirty" @click="save">
           <AppIcon name="check" :size="13" />
           {{ t('common.save') }}
         </button>
-        <button class="wb-btn ghost" :disabled="saving || !dirty" @click="clear">
+        <button type="button" class="wb-btn ghost" :disabled="saving || !dirty" @click="clear">
           {{ t('models.defaultClear') }}
         </button>
       </div>

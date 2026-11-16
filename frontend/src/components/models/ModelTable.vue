@@ -47,6 +47,12 @@ const { t } = useI18n()
           <span class="wb-mono">{{ (row.input ?? []).join(',') || 'text' }}</span>
         </template>
       </el-table-column>
+      <!-- 空表要说明是「还没有模型」：EP 默认只写「暂无数据」，
+           那句话不告诉用户下一步该做什么。 -->
+      <template #empty>
+        <span class="wb-empty-title">{{ t('models.noModelsTitle') }}</span>
+        <p class="empty-hint">{{ t('models.noModelsHint') }}</p>
+      </template>
     </el-table>
     <p class="hint">{{ t('models.testHint') }}</p>
   </section>
@@ -62,6 +68,12 @@ const { t } = useI18n()
 
 .hint {
   margin: var(--wb-sp-2) 0 0;
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+}
+
+.empty-hint {
+  margin: var(--wb-sp-1) 0 0;
   font-size: var(--wb-fs-3xs);
   color: var(--wb-faint);
 }

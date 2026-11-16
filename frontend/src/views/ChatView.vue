@@ -304,7 +304,7 @@ watch(
         </div>
       </div>
 
-      <button v-if="!pinned" class="jump-bottom" :title="t('chat.jumpBottom')" :aria-label="t('chat.jumpBottom')" @click="scrollToBottom(true)">
+      <button type="button" v-if="!pinned" class="jump-bottom" :title="t('chat.jumpBottom')" :aria-label="t('chat.jumpBottom')" @click="scrollToBottom(true)">
         <AppIcon name="chevron" :size="13" />
       </button>
 

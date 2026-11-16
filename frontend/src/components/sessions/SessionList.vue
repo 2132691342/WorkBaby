@@ -44,6 +44,10 @@ const { t } = useI18n()
 const filter = ref('')
 const rows = ref<SessionRow[]>([])
 const loading = ref(false)
+// 首屏取数是否失败：失败时不能显示「还没有会话」——那是一句假断言。
+const loadFailed = ref(false)
+// 正在删的那一条：删除要转圈，别让用户重复点。
+const removing = ref('')
 // 服务端全文搜索：正文在会话文件里，得让后端扫；标题/模型/目录过滤留在客户端即时做。
 // 两个字起步才打后端：单字命中太多，扫全部文件得不偿失。
 const serverQuery = ref('')
@@ -132,8 +136,10 @@ async function load() {
     const data = await api.sessions(scope.value || undefined, serverQuery.value || undefined)
     if (mine !== loadSeq) return
     rows.value = data.sessions ?? []
+    loadFailed.value = false
   } catch (err) {
     if (mine !== loadSeq) return
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     if (mine === loadSeq) loading.value = false
@@ -149,6 +155,7 @@ async function remove(row: SessionRow) {
     t('common.cancel'),
   )
   if (!ok) return
+  removing.value = row.session_path
   try {
     await api.deleteSession(row.session_path)
     toasts.push('ok', t('sessions.deleted'))
@@ -157,6 +164,8 @@ async function remove(row: SessionRow) {
     emit('changed', row.session_path)
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    removing.value = ''
   }
 }
 
@@ -267,7 +276,7 @@ defineExpose({ load })
   <div class="session-list" :class="{ compact }">
     <!-- 新对话在这里而不是输入框底栏：它是会话级的动作，属于会话列表 -->
     <div v-if="props.showNew" class="list-new">
-      <button
+      <button type="button"
         class="wb-btn primary sm new-btn"
         :class="{ 'is-loading': chat.switching === 'new' }"
         :disabled="chat.switching === 'new'"
@@ -280,13 +289,21 @@ defineExpose({ load })
 
     <div class="list-head">
       <input v-model="filter" class="wb-input sm" :placeholder="t('sessions.filterPlaceholder')" />
-      <button class="wb-btn icon ghost" :title="t('common.refresh')" :class="{ 'is-loading': loading }" @click="load">
+      <button class="wb-btn icon ghost" type="button" :title="t('common.refresh')" :aria-label="t('common.refresh')" :class="{ 'is-loading': loading }" @click="load">
         <AppIcon name="refresh" :size="14" />
       </button>
     </div>
 
     <div ref="listBody" class="list-body">
-      <div v-if="!filtered.length && !loading" class="list-empty">
+      <!-- 取数失败：说清「没取到」并给重试，不说「还没有会话」 -->
+      <div v-if="loadFailed && !rows.length && !loading" class="list-empty">
+        <AppIcon name="alert" :size="28" class="empty-ic" />
+        <p class="empty-title">{{ t('common.loadFailed') }}</p>
+        <p class="empty-hint">{{ t('sessions.loadFailedHint') }}</p>
+        <button class="wb-btn sm primary list-empty-act" type="button" @click="load">{{ t('common.retry') }}</button>
+      </div>
+
+      <div v-else-if="!filtered.length && !loading" class="list-empty">
         <AppIcon name="clock" :size="28" class="empty-ic" />
         <p class="empty-title">{{ serverQuery ? t('sessions.noMatchTitle') : t('sessions.emptyTitle') }}</p>
         <p class="empty-hint">{{ serverQuery ? t('sessions.noMatchHint') : t('sessions.emptyHint') }}</p>
@@ -295,6 +312,7 @@ defineExpose({ load })
         <button
           v-if="!serverQuery"
           class="wb-btn sm primary list-empty-act"
+          type="button"
           :disabled="props.showNew && chat.switching === 'new'"
           @click="props.showNew ? emit('newChat') : emit('open', '')"
         >
@@ -316,6 +334,7 @@ defineExpose({ load })
           :segments="highlight(row.session_title)"
           :relative="relative(row.updated_at)"
           :stamp="stamp(row.updated_at)"
+          :removing="removing === row.session_path"
           @open="emit('open', $event)"
           @rename="rename"
           @remove="remove"
@@ -323,7 +342,7 @@ defineExpose({ load })
       </template>
 
       <!-- 还有没放开的：一行「显示更多」，点了再补两页 -->
-      <button v-if="hiddenCount > 0" class="wb-btn sm show-more" @click="showMore">
+      <button type="button" v-if="hiddenCount > 0" class="wb-btn sm show-more" @click="showMore">
         {{ t('sessions.showMore', { n: hiddenCount }) }}
       </button>
     </div>

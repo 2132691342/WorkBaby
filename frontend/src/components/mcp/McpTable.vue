@@ -13,6 +13,8 @@ const props = defineProps<{
   busyName: string
   /** 正在探测连接的那一条的服务器名 */
   probingName: string
+  /** 正在删除的那一条的服务器名（空表示空闲） */
+  removingName?: string
   /** 首屏取数失败：此时「还没有服务器」是假断言 */
   loadFailed?: boolean
 }>()
@@ -48,7 +50,7 @@ function statusTag(row: McpServer): { cls: string; text: string } {
         {{ t('mcp.servers') }} <span class="count">{{ props.rows.length }}</span>
         <span class="count">· {{ enabledCount() }} {{ t('common.enabled') }}</span>
       </span>
-      <button class="wb-btn primary sm" :disabled="props.loading" @click="emit('create')">
+      <button type="button" class="wb-btn primary sm" :disabled="props.loading" @click="emit('create')">
         <AppIcon name="plus" :size="13" />
         {{ t('mcp.add') }}
       </button>
@@ -62,7 +64,7 @@ function statusTag(row: McpServer): { cls: string; text: string } {
     <div v-else-if="!props.rows.length && !props.loading" class="mcp-empty">
       <WbEmpty icon="plug" :title="t('mcp.emptyTitle')" :hint="t('mcp.emptyHint')">
         <template #action>
-          <button class="wb-btn sm primary" @click="emit('create')">{{ t('mcp.add') }}</button>
+          <button type="button" class="wb-btn sm primary" @click="emit('create')">{{ t('mcp.add') }}</button>
         </template>
       </WbEmpty>
     </div>
@@ -104,7 +106,7 @@ function statusTag(row: McpServer): { cls: string; text: string } {
       <el-table-column :label="t('common.actions')" width="190" align="right">
         <template #default="{ row }">
           <div class="row-actions">
-            <button
+            <button type="button"
               class="wb-btn text sm"
               :class="{ 'is-loading': props.probingName === row.server_name }"
               :disabled="Boolean(props.busyName) || Boolean(props.probingName)"
@@ -113,10 +115,15 @@ function statusTag(row: McpServer): { cls: string; text: string } {
             >
               {{ t('mcp.probe') }}
             </button>
-            <button class="wb-btn text sm" :disabled="Boolean(props.busyName)" @click="emit('edit', row)">
+            <button type="button" class="wb-btn text sm" :disabled="Boolean(props.busyName)" @click="emit('edit', row)">
               {{ t('common.edit') }}
             </button>
-            <button class="wb-btn text sm danger" :disabled="Boolean(props.busyName)" @click="emit('remove', row)">
+            <button type="button"
+              class="wb-btn text sm danger"
+              :class="{ 'is-loading': props.removingName === row.server_name }"
+              :disabled="Boolean(props.busyName)"
+              @click="emit('remove', row)"
+            >
               {{ t('common.delete') }}
             </button>
           </div>

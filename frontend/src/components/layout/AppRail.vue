@@ -43,12 +43,13 @@ function go(name: string) {
 <template>
   <nav class="rail">
     <div class="rail-group">
-      <button
+      <button type="button"
         v-for="item in primary"
         :key="item.name"
         class="rail-item wb-pressable-row"
         :class="{ active: route.name === item.name }"
         :title="t(item.key)"
+        :aria-label="t(item.key)"
         @click="go(item.name)"
       >
         <AppIcon :name="item.icon" :size="19" />
@@ -56,12 +57,13 @@ function go(name: string) {
       </button>
     </div>
     <div class="rail-group bottom">
-      <button
+      <button type="button"
         v-for="item in bottom"
         :key="item.name"
         class="rail-item wb-pressable-row"
         :class="{ active: route.name === item.name }"
         :title="t(item.key)"
+        :aria-label="t(item.key)"
         @click="go(item.name)"
       >
         <AppIcon :name="item.icon" :size="19" />

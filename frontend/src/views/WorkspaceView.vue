@@ -1,16 +1,17 @@
 <script setup lang="ts">
-// 工作区页：文件树 + 改动清单 + 差异 + 提交/分支。
+// 工作区页：文件树 + 文件预览（一直可用）+ git 的改动 / 提交 / 差异（仅仓库）。
 // 回答「助手到底改了什么，能不能收成一次提交」：读全开放，写只做白名单动作；
-// 没有 git 或不是仓库时显示原因与「初始化」，不显示空表格。
+// 文件浏览与预览不依赖 git——不是仓库的目录照样能看文件；
+// 没有 git 或不是仓库时，那一栏说清原因并给唯一相关的动作，不留空白页。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DiffView from '@/components/workspace/DiffView.vue'
 import FilePanel from '@/components/workspace/FilePanel.vue'
+import FileViewPane from '@/components/workspace/FileViewPane.vue'
 import GitBar from '@/components/workspace/GitBar.vue'
-import GitChangesPane from '@/components/workspace/GitChangesPane.vue'
-import GitCommitPanel from '@/components/workspace/GitCommitPanel.vue'
-import HistoryPanel from '@/components/workspace/HistoryPanel.vue'
+import GitMiddlePane from '@/components/workspace/GitMiddlePane.vue'
 import WorkspaceHead from '@/components/workspace/WorkspaceHead.vue'
+import WbEmpty from '@/components/common/WbEmpty.vue'
 import WbSkeleton from '@/components/common/WbSkeleton.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
@@ -31,18 +32,22 @@ const stashes = ref<GitStash[]>([])
 
 const loadingStatus = ref(false)
 const loadingDiff = ref(false)
+// 差异侧选中的文件（git 改动清单里点的那一个）。
 const selected = ref('')
+// 文件树里选中的文件（右侧「文件」标签显示的就是它）。与 selected 分开：
+// 一个是 git 的改动，一个是磁盘上的文件——普通目录里没有 git 改动也有文件要看。
+const previewPath = ref('')
+// 右侧那栏看什么：git 差异还是文件内容。
+const rightTab = ref<'diff' | 'file'>('diff')
 const committing = ref(false)
 // 竞态守卫：事件 bump 的自动重拉、切工作区与手动刷新并发时，晚到的旧状态直接丢弃。
 let statusSeq = 0
 let diffSeq = 0
 // 提交框自己持有正在写的说明，这里只需要在提交成功后叫它清空。
-const commitPanel = ref<{ reset: () => void } | null>(null)
-const tab = ref<'changes' | 'history'>('changes')
-// 文件时间线：选中一个文件就看它的历史，空串表示看整个仓库。
-// 它与「差异选中」是同一份 selected——用户点的就是一个文件，不该分两处。
-const historyFile = ref('')
-// 文件树默认展开：它是“我要看哪个文件”最快的入口。但窗口窄时三栏挤不下，
+const gitPane = ref<{ resetCommit: () => void } | null>(null)
+// 文件树那一份抽屉：编辑抽屉只在文件树里有一份，右侧「编辑」按钮叫它打开。
+const filePanel = ref<{ openFile: (path: string) => Promise<void> } | null>(null)
+// 文件树默认展开：它是"我要看哪个文件"最快的入口。但窗口窄时三栏挤不下，
 // 容器查询会把它整个收起来，需要时再用页头的按钮叫回来。
 const filesOpen = ref(true)
 
@@ -50,9 +55,16 @@ const unstaged = computed(() => (status.value?.changed_files ?? []).filter((f) =
 const staged = computed(() => (status.value?.changed_files ?? []).filter((f) => f.is_staged))
 const conflicts = computed(() => (status.value?.changed_files ?? []).filter((f) => f.has_conflict))
 
+/** 是不是一个 git 仓库：决定改动 / 提交 / 历史那一栏在不在。 */
+const isRepo = computed(() => Boolean(status.value?.is_repo))
+/** git 本身在不在：不在时要说后端给的原因，不能自己编一句。 */
+const gitMissing = computed(() => Boolean(status.value && !status.value.git_available))
+/** 没有工作目录时这一页无事可做：先让人选目录。 */
+const noWorkspace = computed(() => !app.workspace)
+
 // 工作区清单：每条带仓库分支、未提交改动与会话数。
 // 取同名字段拼成一行，而不是再发一次 git 请求：切换工作区时这些数字
-// 会跟着变，多一次往返就多一个“看到的是上一个库”的窗口。
+// 会跟着变，多一次往返就多一个"看到的是上一个库"的窗口。
 const rows = ref<WorkspaceRow[]>([])
 const switching = ref(false)
 const currentRow = computed(() => rows.value.find((r) => r.workspace_path === app.workspace) ?? null)
@@ -89,9 +101,11 @@ async function loadDiff(path = selected.value) {
     const next = await api.gitDiff(path)
     if (mine !== diffSeq) return
     diff.value = next
-  } catch {
+  } catch (err) {
     if (mine !== diffSeq) return
     diff.value = null
+    // 差异拉不到要说出来：右栏空着却什么都不说，用户以为「没有改动」。
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     if (mine === diffSeq) loadingDiff.value = false
   }
@@ -104,20 +118,25 @@ async function loadExtras() {
     stashes.value = []
     return
   }
+  // 分支 / 历史 / 暂存架三样各自报一次失败：静默清空会让「提交历史为空」
+  // 看起来像真话，而它其实只是这一次没拉到。
   try {
     branches.value = await api.gitBranches()
-  } catch {
+  } catch (err) {
     branches.value = []
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   }
   try {
-    history.value = await (await api.gitHistory(40)).commits
-  } catch {
+    history.value = (await (await api.gitHistory(40)).commits)
+  } catch (err) {
     history.value = []
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   }
   try {
     stashes.value = (await api.gitStashList()).stashes
-  } catch {
+  } catch (err) {
     stashes.value = []
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -126,16 +145,28 @@ async function refresh() {
   await Promise.all([loadDiff(), loadExtras(), loadRows()])
 }
 
+/** git 改动清单里点了一个文件：右侧切到差异，看这一处的改了什么。 */
 function pick(file: GitFile) {
   selected.value = file.file_path
+  rightTab.value = 'diff'
   void loadDiff(file.file_path)
 }
 
-/** 切到历史标签并只看这个文件。 */
-function showFileHistory(filePath: string) {
-  selected.value = filePath
-  historyFile.value = filePath
-  tab.value = 'history'
+/** 文件树里点了一个文件：右侧切到文件内容。普通目录里没有 git 改动，这是唯一出路。 */
+function pickFile(path: string) {
+  previewPath.value = path
+  rightTab.value = 'file'
+}
+
+/** 文件被保存：右侧那一栏重读一次，正文才是最新的。 */
+const fileReloadKey = ref(0)
+function onFileSaved(): void {
+  fileReloadKey.value += 1
+}
+
+/** 右侧那一栏点「编辑」：叫文件树那份抽屉打开——抽屉只有一份，不另造。 */
+function openEditor(path: string): void {
+  void filePanel.value?.openFile(path)
 }
 
 // 写动作全部收口在 useGitActions 里：它们共享同一套后果处理
@@ -177,7 +208,7 @@ async function commit(text: string, isAmend = false) {
   try {
     const result = await api.gitCommit(text, isAmend)
     status.value = result.status
-    commitPanel.value?.reset()
+    gitPane.value?.resetCommit()
     toasts.push('ok', t('workspace.committed', { hash: result.commit_hash.slice(0, 7) }))
     await Promise.all([loadDiff(), loadExtras()])
   } catch (err) {
@@ -207,6 +238,7 @@ watch(
     if (!prev || next === prev) return
     switching.value = true
     selected.value = ''
+    previewPath.value = ''
     diff.value = null
     try {
       await refresh()
@@ -221,53 +253,61 @@ onMounted(refresh)
 
 <template>
   <div class="page">
-    <header class="page-head">
-      <WorkspaceHead
-        :workspace="app.workspace"
-        :current-row="currentRow"
-        :status="status"
-        :switching="switching"
-        :loading-status="loadingStatus"
-        :files-open="filesOpen"
-        @pick="app.chooseWorkspace()"
-        @toggle-files="filesOpen = !filesOpen"
-        @refresh="refresh"
-      />
-    </header>
+    <!-- 页头由 WorkspaceHead 自己渲染：它已经带 .page-head 那一层，
+         这里再套一层只会多一次重排。 -->
+    <WorkspaceHead
+      :workspace="app.workspace"
+      :current-row="currentRow"
+      :status="status"
+      :switching="switching"
+      :loading-status="loadingStatus"
+      :files-open="filesOpen"
+      @pick="app.chooseWorkspace()"
+      @toggle-files="filesOpen = !filesOpen"
+      @refresh="refresh"
+    />
 
-    <!-- 不可用：说清原因与下一步 -->
-    <div v-if="status && !status.git_available" class="notice">
-      <span class="dot warn" />
-      <span>{{ status.unavailable_reason }}</span>
-    </div>
+    <!-- 没选目录：这一页无事可做，先给一个出口 -->
+    <WbEmpty
+      v-if="noWorkspace"
+      class="ws-empty"
+      icon="folder"
+      :title="t('workspace.noWorkspaceTitle')"
+      :hint="t('workspace.noWorkspaceHint')"
+    >
+      <template #action>
+        <button class="wb-btn primary" type="button" @click="app.chooseWorkspace()">
+          {{ t('workspace.pickWorkspace') }}
+        </button>
+      </template>
+    </WbEmpty>
 
-    <div v-else-if="status && !status.is_repo" class="notice">
-      <span class="dot warn" />
-      <span>{{ t('workspace.notRepo') }}</span>
-      <button class="wb-btn sm" :class="{ 'is-loading': git.pending.value === 'init' }" :disabled="Boolean(git.pending.value)" @click="git.initRepo">
-        {{ t('workspace.init') }}
-      </button>
-    </div>
+    <!-- 引擎状态还没到货：骨架块留出与内容一致的呼吸空间 -->
+    <WbSkeleton v-else-if="!status" block class="ws-boot" />
 
-    <template v-else-if="status">
-      <!-- 中间态横幅：冲突时的处置入口 -->
-      <div v-if="status.repo_state !== 'none' || status.has_conflict" class="notice warn">
+    <template v-else>
+      <!-- 中间态横幅：冲突时的处置入口。
+           repo_state 的正常值是 "normal"（后端契约），中间态是
+           merging / rebasing / cherry-picking——拿 "none" 去比会永远成立，
+           于是在干净的仓库上也挂出一条「未完成的合并 / 变基」。 -->
+      <div v-if="isRepo && (status.repo_state !== 'normal' || status.has_conflict)" class="notice warn">
         <span class="dot warn" />
         <span>{{ status.repo_state_detail || t('workspace.inProgress') }}</span>
-        <button class="wb-btn sm" :class="{ 'is-loading': git.pending.value === 'resolve' }" :disabled="!conflicts.length || Boolean(git.pending.value)" @click="resolveConflicts">
+        <button type="button" class="wb-btn sm" :class="{ 'is-loading': git.pending.value === 'resolve' }" :disabled="!conflicts.length || Boolean(git.pending.value)" @click="resolveConflicts">
           {{ t('workspace.markResolved') }}
         </button>
-        <button class="wb-btn sm" :class="{ 'is-loading': git.pending.value === 'state:continue' }" :disabled="Boolean(git.pending.value)" @click="git.stateAction('continue')">
+        <button type="button" class="wb-btn sm" :class="{ 'is-loading': git.pending.value === 'state:continue' }" :disabled="Boolean(git.pending.value)" @click="git.stateAction('continue')">
           {{ t('workspace.continue') }}
         </button>
-        <button class="wb-btn sm danger" :class="{ 'is-loading': git.pending.value === 'state:abort' }" :disabled="Boolean(git.pending.value)" @click="git.stateAction('abort')">
+        <button type="button" class="wb-btn sm danger" :class="{ 'is-loading': git.pending.value === 'state:abort' }" :disabled="Boolean(git.pending.value)" @click="git.stateAction('abort')">
           {{ t('workspace.abort') }}
         </button>
       </div>
 
       <!-- 版本栏：分支 / 上游 / 领先落后 / 同步动作。
-           它放在三栏之上，因为「在哪个分支」决定了下面每一栏的语境。 -->
-      <div class="bar-wrap">
+           它放在三栏之上，因为「在哪个分支」决定了下面每一栏的语境。
+           不是仓库时没有版本栏——那一栏会自己说清原因。 -->
+      <div v-if="isRepo" class="bar-wrap">
         <GitBar
           :status="status"
           :pending="git.pending.value"
@@ -279,67 +319,71 @@ onMounted(refresh)
       </div>
 
       <div class="split" :class="{ 'no-files': !filesOpen }">
-        <!-- 左：文件树。默认展开，但只是一个“找文件”的入口：
-             真正看改动的地方是右边两栏。 -->
-        <FilePanel v-if="filesOpen" class="pane-files" />
+        <!-- 左：文件树。浏览文件与预览不依赖 git，普通目录里照样能用。 -->
+        <FilePanel v-if="filesOpen" ref="filePanel" class="pane-files" :selected="previewPath" @pick="pickFile" @saved="onFileSaved" />
 
-        <!-- 中：改动 + 提交 -->
+        <!-- 中：改动 + 提交（仅仓库）。不是仓库时这一栏说清原因与出路。 -->
         <div class="pane-mid">
-          <div class="tabs seg">
-            <button class="seg-btn" :class="{ active: tab === 'changes' }" @click="tab = 'changes'">
-              {{ t('workspace.changes') }}
-              <span v-if="status.changed_files.length" class="count">{{ status.changed_files.length }}</span>
-            </button>
-            <button class="seg-btn" :class="{ active: tab === 'history' }" @click="tab = 'history'">
-              {{ t('workspace.history') }}
-              <span v-if="history.length" class="count">{{ history.length }}</span>
-            </button>          </div>
-
-          <div v-if="tab === 'changes'" class="mid-body">
-            <GitChangesPane
-              :staged="staged"
-              :unstaged="unstaged"
-              :selected="selected"
-              :pending="git.pending.value"
-              :stashes="stashes"
-              @pick="pick"
-              @stage="stage"
-              @unstage="unstage"
-              @discard="discard"
-              @resolve="resolveOne"
-              @resolveAs="resolveAs"
-              @stage-all="stageAll"
-              @history="(file) => showFileHistory(file.file_path)"
-              @stash-push="git.stashPush"
-              @stash-pop="git.stashPop"
-              @stash-drop="git.stashDrop"
-            />
-
-            <GitCommitPanel
-              ref="commitPanel"
-              :branches="branches"
-              :staged-count="staged.length"
-              :committing="committing"
-              :pending="git.pending.value"
-              @commit="commit"
-              @create-branch="git.createBranch"
-              @switch-branch="git.switchBranch"
-              @delete-branch="git.deleteBranch"
-              @merge-branch="git.mergeBranch"
-            />
-          </div>
-
-          <div v-else class="mid-body history-body">
-            <HistoryPanel :commits="history" :file="historyFile" @clear-file="historyFile = ''" />
-          </div>
+          <GitMiddlePane
+            ref="gitPane"
+            :is-repo="isRepo"
+            :git-missing="gitMissing"
+            :unavailable-reason="status.unavailable_reason"
+            :staged="staged"
+            :unstaged="unstaged"
+            :selected="selected"
+            :branches="branches"
+            :history="history"
+            :stashes="stashes"
+            :pending="git.pending.value"
+            :committing="committing"
+            @pick="pick"
+            @stage="stage"
+            @unstage="unstage"
+            @discard="discard"
+            @resolve="resolveOne"
+            @resolveAs="resolveAs"
+            @stage-all="stageAll"
+            @history="(file) => { selected = file.file_path }"
+            @commit="commit"
+            @create-branch="git.createBranch"
+            @switch-branch="git.switchBranch"
+            @delete-branch="git.deleteBranch"
+            @merge-branch="git.mergeBranch"
+            @stash-push="git.stashPush"
+            @stash-pop="git.stashPop"
+            @stash-drop="git.stashDrop"
+            @init-repo="git.initRepo"
+          />
         </div>
 
-        <!-- 右：差异 -->
-        <DiffView class="pane-diff" :diff="diff" :path="selected" :loading="loadingDiff" />
+        <!-- 右：差异（仓库）或文件内容（一直可用） -->
+        <div class="pane-right">
+          <div class="tabs seg right-tabs">
+            <button
+              v-if="isRepo"
+              class="seg-btn"
+              type="button"
+              :class="{ active: rightTab === 'diff' }"
+              @click="rightTab = 'diff'"
+            >
+              {{ t('workspace.diffTab') }}
+            </button>
+            <button class="seg-btn" type="button" :class="{ active: rightTab === 'file' }" @click="rightTab = 'file'">
+              {{ t('workspace.fileTab') }}
+            </button>
+          </div>
+          <DiffView
+            v-if="isRepo && rightTab === 'diff'"
+            class="pane-diff"
+            :diff="diff"
+            :path="selected"
+            :loading="loadingDiff"
+          />
+          <FileViewPane v-else class="pane-diff" :path="previewPath" :reload-key="fileReloadKey" @edit="openEditor" />
+        </div>
       </div>
     </template>
-
-    <WbSkeleton v-else block class="ws-boot" />
   </div>
 </template>
 
@@ -350,51 +394,9 @@ onMounted(refresh)
   flex: 1;
   min-height: 0;
 }
-.page-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--wb-sp-4);
-  padding: var(--wb-sp-5) var(--wb-sp-6) var(--wb-sp-4);
-  border-bottom: 1px solid var(--wb-line);
-  flex: none;
-}
-.page-title {
-  margin: 0;
-  font-family: var(--wb-font-display);
-  font-size: var(--wb-fs-xl);
-  font-weight: 650;
-  color: var(--wb-ink);
-}
-.page-sub {
-  margin: var(--wb-sp-1) 0 0;
-  font-size: var(--wb-fs-2xs);
-  color: var(--wb-faint);
-}
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  flex: none;
-  flex-wrap: wrap;
-}
+/* 页头（.page-head / .page-title / .page-sub / .head-actions / .ws-name / .dirty）
+   全部在 WorkspaceHead 里：那一层自己渲染页头，样式也跟它住在一起。 */
 
-/* 工作区名是一段路径：限宽 + 省略号，否则长路径会把右边的动作全挤出头部 */
-.ws-name {
-  display: inline-block;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-}
-
-/* 未提交改动数：数字比字色更靠前，一眼扫得到 */
-.dirty {
-  margin-left: var(--wb-sp-1);
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-}
 .notice {
   display: flex;
   align-items: center;
@@ -455,17 +457,15 @@ onMounted(refresh)
   min-height: 0;
   gap: var(--wb-sp-2);
 }
-.mid-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+.pane-right {
   display: flex;
   flex-direction: column;
-  gap: var(--wb-sp-3);
+  min-height: 0;
+  gap: var(--wb-sp-2);
 }
-/* 历史面板自己管滚动：提交详情展开后高度会变，外层再套一个滚动条会双重跳动 */
-.mid-body.history-body {
-  overflow: hidden;
+/* 右栏的标签只占一行：它决定这一栏看差异还是看文件内容 */
+.right-tabs {
+  flex: none;
 }
 /* 改动清单与提交 / 分支各自的样式都搬进 GitChangesPane 与 GitCommitPanel 了：
    这一页只管三栏的排布与刷新。 */
@@ -473,5 +473,10 @@ onMounted(refresh)
 .ws-boot {
   flex: 1;
   padding: var(--wb-sp-5) var(--wb-sp-6);
+}
+/* 没选工作目录：整页给一句说明与一个出口，不再是半空的一页 */
+.ws-empty {
+  flex: 1;
+  justify-content: center;
 }
 </style>

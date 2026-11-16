@@ -152,8 +152,8 @@ const canSave = computed(
     </el-form>
 
     <template #footer>
-      <button class="wb-btn" @click="dialog = false">{{ t('common.cancel') }}</button>
-      <button
+      <button type="button" class="wb-btn" @click="dialog = false">{{ t('common.cancel') }}</button>
+      <button type="button"
         class="wb-btn primary"
         :class="{ 'is-loading': props.saving }"
         :disabled="props.saving || !canSave"

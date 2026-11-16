@@ -42,7 +42,7 @@ const shortPath = computed(() => {
       </div>
 
       <div class="app-channel">
-        <button v-if="row.app_path" class="path-btn mono" :title="row.app_path" @click="emit('copy', row.app_path)">
+        <button type="button" v-if="row.app_path" class="path-btn mono" :title="row.app_path" @click="emit('copy', row.app_path)">
           {{ shortPath }}
           <AppIcon :name="copied === row.app_path ? 'check' : 'copy'" :size="12" />
         </button>

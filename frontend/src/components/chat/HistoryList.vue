@@ -111,7 +111,7 @@ function isVisibleRoundEnd(index: number): boolean {
   <div class="msg-col">
     <!-- 更早的轮次没画出来时给一个入口：
          一次画全几百轮会把主线程压死，用户看到的是「打开会话就卡住」。 -->
-    <button v-if="hasMore" class="more-btn wb-btn text sm" @click="loadMore">
+    <button type="button" v-if="hasMore" class="more-btn wb-btn text sm" @click="loadMore">
       {{ t('chat.loadEarlier', { n: Math.min(PAGE, props.turns.length - shownCount) }) }}
     </button>
 

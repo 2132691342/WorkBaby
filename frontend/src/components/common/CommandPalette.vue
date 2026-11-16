@@ -226,7 +226,7 @@ onMounted(() => {
           <template v-if="flat.length">
             <section v-for="g in grouped" :key="g.key">
               <p class="palette-group">{{ g.title }}</p>
-              <button
+              <button type="button"
                 v-for="cmd in g.items"
                 :key="cmd.id"
                 class="palette-row"

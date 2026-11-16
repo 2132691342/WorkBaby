@@ -103,6 +103,8 @@ export default {
     "collapseModels": "Hide models",
     "emptyTitle": "No provider configured",
     "emptyHint": "Add a provider with a URL and a key to start chatting.",
+    "noModelsTitle": "No models available yet",
+    "noModelsHint": "A provider only becomes usable once it carries models: edit the card above and tick the ones to keep.",
     "loadFailedHint": "The provider list could not be read. The data directory may be unwritable, or the backend just restarted — retrying usually fixes it.",
     "keyHidden": "Key hidden",
     "apiKeyMissing": "No key set",

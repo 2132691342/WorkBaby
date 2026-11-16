@@ -103,6 +103,8 @@ models: {
     collapseModels: '收起模型',
     emptyTitle: '还没有配置服务商',
     emptyHint: '新增一个服务商，填上地址和密钥，就能开始对话了。',
+    noModelsTitle: '还没有可用模型',
+    noModelsHint: '服务商要挂上模型才用得上：在上面的卡片里编辑它，勾选要保留的模型。',
     loadFailedHint: '服务商清单没读到。可能是数据目录不可写，或后端刚重启——重试一次通常就好。',
     keyHidden: '密钥已隐藏',
     apiKeyMissing: '还没配密钥',

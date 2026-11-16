@@ -89,9 +89,9 @@ onMounted(() => {
         <p class="page-sub">{{ t('apps.subtitle') }}</p>
       </div>
       <div class="head-actions">
-        <button
+        <button type="button"
           class="wb-btn icon ghost"
-          :title="t('apps.recheck')"
+          :title="t('apps.recheck')" :aria-label="t('apps.recheck')"
           :class="{ 'is-loading': loading }"
           :disabled="loading"
           @click="load"
@@ -110,7 +110,7 @@ onMounted(() => {
             {{ t('apps.group.runtime') }} <span class="count">{{ envRows.length }}</span>
           </span>
           <div class="sec-actions">
-            <button class="wb-btn sm" :class="{ 'is-loading': detecting }" :disabled="detecting" @click="detect">
+            <button type="button" class="wb-btn sm" :class="{ 'is-loading': detecting }" :disabled="detecting" @click="detect">
               <AppIcon name="refresh" :size="14" />
               {{ t('apps.detect') }}
             </button>
@@ -143,7 +143,7 @@ onMounted(() => {
         :hint="t('apps.emptyHint')"
       >
         <template #action>
-          <button class="wb-btn sm primary" @click="router.push({ name: 'chat' })">
+          <button type="button" class="wb-btn sm primary" @click="router.push({ name: 'chat' })">
             {{ t('apps.startChat') }}
           </button>
         </template>

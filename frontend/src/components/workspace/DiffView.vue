@@ -220,7 +220,7 @@ async function openInEditor(): Promise<void> {
         <b class="is-add">+{{ adds }}</b>
         <b class="is-del">−{{ dels }}</b>
       </span>
-      <button
+      <button type="button"
         v-if="!sideBySide && folds.length"
         class="wb-btn text sm"
         :title="allOpen ? t('workspace.foldAll') : t('workspace.unfoldAll')"
@@ -230,25 +230,25 @@ async function openInEditor(): Promise<void> {
       </button>
       <!-- 改动段跳转：多个 hunk 时才出现。一个文件一处改动时它是噪声。 -->
       <span v-if="hunkKeys.length > 1" class="dc-nav">
-        <button class="wb-btn icon ghost sm" :title="t('workspace.prevChange')" @click="gotoHunk(hunkAt - 1)">
+        <button type="button" class="wb-btn icon ghost sm" :title="t('workspace.prevChange')" :aria-label="t('workspace.prevChange')" @click="gotoHunk(hunkAt - 1)">
           <AppIcon name="chevron" :size="11" class="nav-up" />
         </button>
         <span class="dc-nav-count">{{ hunkAt < 0 ? hunkKeys.length : hunkAt + 1 }}/{{ hunkKeys.length }}</span>
-        <button class="wb-btn icon ghost sm" :title="t('workspace.nextChange')" @click="gotoHunk(hunkAt + 1)">
+        <button type="button" class="wb-btn icon ghost sm" :title="t('workspace.nextChange')" :aria-label="t('workspace.nextChange')" @click="gotoHunk(hunkAt + 1)">
           <AppIcon name="chevron" :size="11" class="nav-down" />
         </button>
       </span>
-      <button class="wb-btn text sm" :title="t('workspace.diffMode')" @click="sideBySide = !sideBySide">
+      <button type="button" class="wb-btn text sm" :title="t('workspace.diffMode')" @click="sideBySide = !sideBySide">
         {{ sideBySide ? t('workspace.diffInline') : t('workspace.diffSide') }}
       </button>
       <!-- 路径操作：复制给人、打开给编辑器。
            没有它们，用户想「拿这个路径去别处搜」得自己选中那一小段。 -->
       <span v-if="path" class="dc-ops">
-        <button class="wb-btn text sm" :title="t('workspace.copyPath')" @click="copyPath">
+        <button type="button" class="wb-btn text sm" :title="t('workspace.copyPath')" @click="copyPath">
           <AppIcon :name="copiedPath ? 'check' : 'copy'" :size="12" />
           {{ copiedPath ? t('common.copied') : t('workspace.copyPath') }}
         </button>
-        <button class="wb-btn text sm" :title="t('workspace.openFile')" @click="openInEditor">
+        <button type="button" class="wb-btn text sm" :title="t('workspace.openFile')" @click="openInEditor">
           <AppIcon name="edit" :size="12" />
           {{ t('workspace.openFile') }}
         </button>
@@ -267,7 +267,7 @@ async function openInEditor(): Promise<void> {
       <template v-else>
         <DiffRows :lines="visibleLines" />
         <!-- 折叠段：一条可点的横条，点一下把中间那段展回来 -->
-        <button
+        <button type="button"
           v-for="fold in folds.filter((f) => !isOpen(f.at))"
           :key="fold.at"
           class="fold-row"

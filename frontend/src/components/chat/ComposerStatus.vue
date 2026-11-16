@@ -61,7 +61,7 @@ async function retryLast(): Promise<void> {
   <div v-if="!app.hasEngine" class="no-engine">
     <span class="dot warn" />
     <span>{{ t('chat.noEngine') }}</span>
-    <button
+    <button type="button"
       class="wb-btn text sm"
       :class="{ 'is-loading': app.reDetecting }"
       :disabled="app.reDetecting"
@@ -69,7 +69,7 @@ async function retryLast(): Promise<void> {
     >
       {{ t('chat.redetect') }}
     </button>
-    <button class="wb-btn text sm" @click="app.openApps()">{{ t('chat.openApps') }}</button>
+    <button type="button" class="wb-btn text sm" @click="app.openApps()">{{ t('chat.openApps') }}</button>
   </div>
 
   <div v-if="chat.widgets.length || chat.statusText" class="status-strip">
@@ -91,7 +91,7 @@ async function retryLast(): Promise<void> {
       {{ m }}
       <button class="chip-x" type="button" :title="t('chat.removeQueued')" :aria-label="t('chat.removeQueued')" @click="removeOne('followup', i)">×</button>
     </span>
-    <button v-if="chat.caps?.queue_clear" class="wb-btn text sm" :title="t('chat.clearQueue')" @click="clearQueued">
+    <button type="button" v-if="chat.caps?.queue_clear" class="wb-btn text sm" :title="t('chat.clearQueue')" @click="clearQueued">
       {{ t('chat.clearQueue') }}
     </button>
   </div>
@@ -105,7 +105,7 @@ async function retryLast(): Promise<void> {
   <div v-if="chat.promptError" class="error-strip">
     <span class="err-text">{{ chat.promptError }}</span>
     <!-- 发失败的那句还在：给一个原样重发的出口，不用把话重新打一遍 -->
-    <button
+    <button type="button"
       v-if="chat.lastFailedSend && !chat.streaming"
       class="wb-btn text sm"
       :title="t('chat.retrySend')"
@@ -114,7 +114,7 @@ async function retryLast(): Promise<void> {
       {{ t('chat.retrySend') }}
     </button>
     <!-- 错误只说「不行」等于把人卡在死胡同：能直接去修的那一处就给入口 -->
-    <button
+    <button type="button"
       v-if="needsProvider"
       class="wb-btn text sm"
       :title="t('chat.goModels')"
@@ -122,12 +122,12 @@ async function retryLast(): Promise<void> {
     >
       {{ t('chat.goModels') }}
     </button>
-    <button class="wb-btn text sm" :title="t('common.dismiss')" :aria-label="t('common.dismiss')" @click="chat.promptError = ''">×</button>
+    <button type="button" class="wb-btn text sm" :title="t('common.dismiss')" :aria-label="t('common.dismiss')" @click="chat.promptError = ''">×</button>
   </div>
 
   <div v-if="attachError" class="error-strip">
     {{ attachError }}
-    <button class="wb-btn text sm" :title="t('common.dismiss')" :aria-label="t('common.dismiss')" @click="$emit('clearAttachError')">×</button>
+    <button type="button" class="wb-btn text sm" :title="t('common.dismiss')" :aria-label="t('common.dismiss')" @click="$emit('clearAttachError')">×</button>
   </div>
 
   <div v-if="chat.bindErr" class="warn-strip">

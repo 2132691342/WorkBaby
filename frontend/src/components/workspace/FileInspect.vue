@@ -100,7 +100,7 @@ function openWorkspace(): void {
   <div class="inspect">
     <div class="inspect-head">
       <WbSeg :model-value="mode" :items="segItems" size="sm" @update:model-value="(v: string) => emit('update:mode', v as 'diff' | 'file')" />
-      <button class="wb-btn text sm inspect-ws" :title="t('chat.peekOpenWorkspace')" @click="openWorkspace">
+      <button type="button" class="wb-btn text sm inspect-ws" :title="t('chat.peekOpenWorkspace')" @click="openWorkspace">
         <AppIcon name="folder" :size="13" />
         {{ t('chat.peekOpenWorkspace') }}
       </button>

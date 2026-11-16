@@ -61,10 +61,10 @@ function submit(): void {
 
     <template #footer>
       <div class="dialog-foot">
-        <button class="wb-btn" :disabled="props.creating" @click="emit('update:open', false)">
+        <button type="button" class="wb-btn" :disabled="props.creating" @click="emit('update:open', false)">
           {{ t('common.cancel') }}
         </button>
-        <button
+        <button type="button"
           class="wb-btn primary"
           :class="{ 'is-loading': props.creating }"
           :disabled="props.creating || nameInvalid"

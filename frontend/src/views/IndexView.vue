@@ -14,6 +14,9 @@ const toasts = useToasts()
 // 索引状态。
 const status = ref<IndexStatusView | null>(null)
 const rebuilding = ref(false)
+// 首屏取数是否失败：失败时不能显示「还没建索引」——那是一句假断言。
+const loadFailed = ref(false)
+const loading = ref(false)
 
 // 检索。
 const query = ref('')
@@ -27,12 +30,22 @@ let searchSeq = 0
 const ready = computed(() => Boolean(status.value?.index_built))
 const canSearch = computed(() => query.value.trim().length > 0 && !searching.value)
 
-onMounted(async () => {
+/** 读一次索引状态：首屏与「重试」共用一份，避免两条路各写一遍。 */
+async function reload(): Promise<void> {
+  loading.value = true
   try {
     status.value = await api.indexStatus()
+    loadFailed.value = false
   } catch (err) {
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    loading.value = false
   }
+}
+
+onMounted(() => {
+  void reload()
 })
 
 /** 重建索引。 */
@@ -83,7 +96,7 @@ function kindLabel(hit: IndexHitView): string {
         <h1 class="page-title">{{ t('index.title') }}</h1>
         <p class="page-sub">{{ t('index.desc') }}</p>
       </div>
-      <button
+      <button type="button"
         class="wb-btn"
         :class="{ 'is-loading': rebuilding }"
         :disabled="rebuilding"
@@ -95,12 +108,21 @@ function kindLabel(hit: IndexHitView): string {
     </header>
 
     <div class="page-body">
+    <!-- 首屏取数失败：说清「没取到」并给重试，不摆「0 条 / 还没建索引」 -->
+    <section v-if="loadFailed && !status" class="load-failed">
+      <AppIcon name="alert" :size="20" class="failed-ic" />
+      <p class="failed-title">{{ t('common.loadFailed') }}</p>
+      <p class="failed-hint">{{ t('index.loadFailedHint') }}</p>
+      <button class="wb-btn sm primary" type="button" @click="reload">{{ t('common.retry') }}</button>
+    </section>
+
+    <template v-else>
     <section class="wb-card card-pad">
       <h2 class="wb-section-title">{{ t('index.statusTitle') }}</h2>
       <div class="stat-row">
         <div class="stat">
           <span class="stat-label">{{ t('index.docCount') }}</span>
-          <span class="stat-value">{{ status?.index_doc_count ?? 0 }}</span>
+          <span class="stat-value">{{ status ? status.index_doc_count : '—' }}</span>
         </div>
         <div class="stat">
           <span class="stat-label">{{ t('index.builtAt') }}</span>
@@ -128,6 +150,7 @@ function kindLabel(hit: IndexHitView): string {
         />
         <button
           class="wb-btn primary"
+          type="button"
           :class="{ 'is-loading': searching }"
           :disabled="!canSearch"
           @click="search"
@@ -147,6 +170,7 @@ function kindLabel(hit: IndexHitView): string {
       </ul>
       <p v-else-if="searched" class="empty-hint">{{ t('index.noResults') }}</p>
     </section>
+    </template>
     </div>
   </div>
 </template>
@@ -230,6 +254,32 @@ function kindLabel(hit: IndexHitView): string {
 .empty-hint {
   margin: var(--wb-sp-2) 0;
   font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+}
+
+/* 首屏取数失败：一块说明 + 一个重试，不是一排 0 */
+.load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-10) var(--wb-sp-5);
+  text-align: center;
+}
+.failed-ic {
+  color: var(--wb-warn);
+}
+.failed-title {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  font-weight: 650;
+  color: var(--wb-ink-2);
+}
+.failed-hint {
+  margin: 0;
+  max-width: var(--wb-w-desc);
+  font-size: var(--wb-fs-2xs);
+  line-height: 1.6;
   color: var(--wb-mute);
 }
 

@@ -27,6 +27,8 @@ const toasts = useToasts()
 
 const health = ref<HealthData | null>(null)
 const loading = ref(false)
+// 首屏取数是否失败：失败时不能显示「正在核对…」——那是永远不会结束的假进度。
+const loadFailed = ref(false)
 const span = ref<'today' | 'week' | 'month'>('week')
 
 /** 时间窗分段：文案走 i18n，值就是 span 本身。 */
@@ -130,8 +132,10 @@ async function load() {
     if (mine !== loadSeq) return
     health.value = data
     rows.value = sessions.sessions ?? []
+    loadFailed.value = false
   } catch (err) {
     if (mine !== loadSeq) return
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     if (mine === loadSeq) loading.value = false
@@ -196,14 +200,25 @@ onUnmounted(() => {
       </div>
       <div class="head-actions">
         <WbSeg v-model="span" :items="spanItems" />
-        <button class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load">
+        <button type="button" class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="load">
           <AppIcon name="refresh" :size="15" />
         </button>
       </div>
     </header>
 
     <div class="page-body">
+      <!-- 骨架只在真取数时出现：失败之后它必须换成失败态，
+           否则那一屏永远停在转圈上，用户以为界面坏了。 -->
       <WbSkeleton v-if="!health && loading" block />
+
+      <!-- 首屏取数失败：说清「没取到」并给一条重试的路 -->
+      <section v-else-if="loadFailed && !health" class="load-failed">
+        <AppIcon name="alert" :size="20" class="failed-ic" />
+        <p class="failed-title">{{ t('common.loadFailed') }}</p>
+        <p class="failed-hint">{{ t('overview.loadFailedHint') }}</p>
+        <button class="wb-btn sm primary" type="button" @click="load">{{ t('common.retry') }}</button>
+      </section>
+
       <template v-else>
       <!-- 先答「我现在该干什么」：这一条在引擎卡与读数之上，
            没工作区 / 没服务商时它取代一屏没有结论的数字。 -->
@@ -219,11 +234,12 @@ onUnmounted(() => {
       />
 
       <!-- 未就绪的横幅：说清「屏幕上这些东西还在数」。
-           缺了它，用户看到一屏「—」只能以为界面坏了。 -->
-      <div v-if="!ready" class="notice-row">
+           缺了它，用户看到一屏「—」只能以为界面坏了。
+           取数失败时这条横幅要换掉——它说的「还在数」与事实不符。 -->
+      <div v-if="!ready && !loadFailed" class="notice-row">
         <span class="dot busy" />
         <span>{{ t('overview.collecting') }}</span>
-        <button class="wb-btn text sm" :class="{ 'is-loading': app.reDetecting }" :disabled="loading || app.reDetecting" @click="redetect">
+        <button type="button" class="wb-btn text sm" :class="{ 'is-loading': app.reDetecting }" :disabled="loading || app.reDetecting" @click="redetect">
           {{ t('overview.redetect') }}
         </button>
       </div>
@@ -358,6 +374,32 @@ onUnmounted(() => {
   align-items: flex-start;
   gap: var(--wb-sp-3);
   border-style: dashed;
+}
+
+/* 首屏取数失败：一块说明 + 一个重试，不是一屏「—」 */
+.load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-10) var(--wb-sp-5);
+  text-align: center;
+}
+.failed-ic {
+  color: var(--wb-warn);
+}
+.failed-title {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  font-weight: 650;
+  color: var(--wb-ink-2);
+}
+.failed-hint {
+  margin: 0;
+  max-width: var(--wb-w-desc);
+  font-size: var(--wb-fs-2xs);
+  line-height: 1.6;
+  color: var(--wb-mute);
 }
 
 .need-ic {

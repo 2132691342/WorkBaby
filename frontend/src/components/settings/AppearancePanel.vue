@@ -30,14 +30,14 @@ function onMentionCount(v: number | undefined): void {
     <div class="set-row">
       <div class="set-label">{{ t('settings.theme') }}</div>
       <div class="seg">
-        <button
+        <button type="button"
           class="seg-btn"
           :class="{ active: app.theme === 'light' }"
           @click="emit('save', { 'ui.theme': 'light' })"
         >
           {{ t('settings.themeLight') }}
         </button>
-        <button
+        <button type="button"
           class="seg-btn"
           :class="{ active: app.theme === 'dark' }"
           @click="emit('save', { 'ui.theme': 'dark' })"
@@ -92,14 +92,14 @@ function onMentionCount(v: number | undefined): void {
         <div class="set-hint">{{ t('settings.langHint') }}</div>
       </div>
       <div class="seg">
-        <button
+        <button type="button"
           class="seg-btn"
           :class="{ active: (app.settings['ui.locale'] ?? 'zh-CN') !== 'en' }"
           @click="emit('save', { 'ui.locale': 'zh-CN' })"
         >
           中文
         </button>
-        <button
+        <button type="button"
           class="seg-btn"
           :class="{ active: app.settings['ui.locale'] === 'en' }"
           @click="emit('save', { 'ui.locale': 'en' })"

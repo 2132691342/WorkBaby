@@ -16,6 +16,7 @@ export default {
     readIt: 'Read this',
     noResults: 'No results found',
     saved: 'Web settings saved',
+    loadFailedHint: 'The web service list did not load, so the page cannot tell which service is configured. Retrying usually works.',
   },
 
   index: {
@@ -32,6 +33,7 @@ export default {
     searchPlaceholder: 'Enter a file or symbol name',
     searchAction: 'Search',
     noResults: 'Nothing in the index matches',
+    loadFailedHint: 'The index status did not load, so this page cannot tell whether an index is needed. Retrying usually works.',
     hitKindFile: 'File',
     hitKindSymbol: 'Symbol',
   },

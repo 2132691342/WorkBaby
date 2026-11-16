@@ -103,7 +103,7 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
           <span class="count">{{ props.staged.length }}</span>
         </div>
         <div v-for="g in stagedGroups" :key="`s-${g.dir}`" class="dir">
-          <button class="dir-head" @click="toggle(`s-${g.dir}`)">
+          <button type="button" class="dir-head" @click="toggle(`s-${g.dir}`)">
             <AppIcon name="chevron" :size="10" class="dir-ic" :class="{ collapsed: isCollapsed(`s-${g.dir}`) }" />
             <span class="dir-name">{{ g.dir }}</span>
             <span class="dir-stat">
@@ -128,10 +128,10 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
         <div class="group-head">
           <span>{{ t('workspace.unstaged') }}</span>
           <span class="count">{{ props.unstaged.length }}</span>
-          <button class="act push" :disabled="Boolean(props.pending)" @click="emit('stageAll')">
+          <button type="button" class="act push" :disabled="Boolean(props.pending)" @click="emit('stageAll')">
             {{ t('workspace.stageAll') }}
           </button>
-          <button
+          <button type="button"
             class="act"
             :class="{ 'is-loading': props.pending === 'stash-push' }"
             :disabled="Boolean(props.pending)"
@@ -142,7 +142,7 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
           </button>
         </div>
         <div v-for="g in unstagedGroups" :key="`u-${g.dir}`" class="dir">
-          <button class="dir-head" @click="toggle(`u-${g.dir}`)">
+          <button type="button" class="dir-head" @click="toggle(`u-${g.dir}`)">
             <AppIcon name="chevron" :size="10" class="dir-ic" :class="{ collapsed: isCollapsed(`u-${g.dir}`) }" />
             <span class="dir-name">{{ g.dir }}</span>
             <span class="dir-stat">
@@ -174,7 +174,7 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
         <div v-for="row in props.stashes" :key="row.stash_ref" class="stash-row">
           <span class="stash-subject" :title="row.stash_subject">{{ row.stash_subject }}</span>
           <span class="row-actions">
-            <button
+            <button type="button"
               class="act"
               :class="{ 'is-loading': props.pending === 'stash-pop' }"
               :disabled="Boolean(props.pending)"
@@ -182,7 +182,7 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
             >
               {{ t('workspace.stashPop') }}
             </button>
-            <button
+            <button type="button"
               class="act is-danger"
               :class="{ 'is-loading': props.pending === `stash-drop:${row.stash_ref}` }"
               :disabled="Boolean(props.pending)"

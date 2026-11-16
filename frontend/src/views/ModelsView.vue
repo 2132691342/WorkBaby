@@ -33,6 +33,8 @@ const loadingProviders = ref(false)
 const probing = ref('')
 // 正在行内删除的模型：'服务商:模型ID'
 const removingModel = ref('')
+// 正在删除的服务商（空表示空闲）：删除要转圈，别让用户重复点。
+const removingProvider = ref('')
 // 竞态守卫：重拉或离开页面后，晚到的旧响应直接丢弃。
 let loadSeq = 0
 let aborter: AbortController | null = null
@@ -111,12 +113,15 @@ async function remove(view: ProviderView): Promise<void> {
     t('common.cancel'),
   )
   if (!ok) return
+  removingProvider.value = view.provider_name
   try {
     await api.deleteProvider(view.provider_name)
     toasts.push('ok', t('common.saved'))
     await reloadAll()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    removingProvider.value = ''
   }
 }
 
@@ -171,15 +176,15 @@ onMounted(() => {
         <p class="page-sub">{{ t('models.subtitle') }}</p>
       </div>
       <div class="head-actions">
-        <button
+        <button type="button"
           class="wb-btn icon ghost"
           :class="{ 'is-loading': loadingProviders }"
-          :title="t('common.refresh')"
+          :title="t('common.refresh')" :aria-label="t('common.refresh')"
           @click="loadProviders"
         >
           <AppIcon name="refresh" :size="15" />
         </button>
-        <button class="wb-btn primary" :disabled="!engineReady" @click="form.openCreate()">
+        <button type="button" class="wb-btn primary" :disabled="!engineReady" @click="form.openCreate()">
           <AppIcon name="plus" :size="14" />
           {{ t('models.addProvider') }}
         </button>
@@ -201,6 +206,7 @@ onMounted(() => {
         :config-path="configPath"
         :pending="probing"
         :removing="removingModel"
+        :removing-provider="removingProvider"
         @create="form.openCreate()"
         @edit="form.openEdit"
         @remove="remove"

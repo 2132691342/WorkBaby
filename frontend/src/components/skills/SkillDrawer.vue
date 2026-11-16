@@ -104,10 +104,10 @@ function save(): void {
         <span class="push" />
         <template v-if="props.row?.skill_editable">
           <template v-if="editing">
-            <button class="wb-btn sm" :disabled="props.saving" @click="cancel">
+            <button type="button" class="wb-btn sm" :disabled="props.saving" @click="cancel">
               {{ t('common.cancel') }}
             </button>
-            <button
+            <button type="button"
               class="wb-btn primary sm"
               :class="{ 'is-loading': props.saving }"
               :disabled="props.saving || !dirty"
@@ -116,7 +116,7 @@ function save(): void {
               {{ t('common.save') }}
             </button>
           </template>
-          <button v-else class="wb-btn sm" @click="editing = true">
+          <button type="button" v-else class="wb-btn sm" @click="editing = true">
             <AppIcon name="edit" :size="13" />
             {{ t('common.edit') }}
           </button>

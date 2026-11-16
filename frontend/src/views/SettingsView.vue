@@ -30,6 +30,8 @@ const detecting = ref(false)
 // 启动行为：开关状态以注册表为准，所以每次进来都真读一次。
 const autoStartBusy = ref(false)
 const restoreBusy = ref(false)
+// 关窗动作那一组正在写入：写的是注册表，比开关慢一点，得有反馈。
+const closeActionBusy = ref(false)
 // 配置原文只能看不能改：写引擎配置有节点级接口，原文编辑会打乱它的假设。
 // 清单与原文由 ConfigPanel 自己拉取，这里不持有它的状态。
 
@@ -48,11 +50,14 @@ async function toggleAutoStart(enabled: boolean) {
 
 // 关窗行为一旦选定就记住：下次按关闭不会再问。
 async function toggleCloseAction(action: string) {
+  closeActionBusy.value = true
   try {
     await prefs.setCloseAction(action === 'quit' ? 'quit' : 'tray')
     toasts.push('ok', t('common.saved'))
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    closeActionBusy.value = false
   }
 }
 
@@ -79,6 +84,8 @@ async function openDataDir() {
 // 最近工作目录：后端合并了「记住的」与「会话里推出来的」，这里只负责点选与移除。
 const recentRows = computed(() => app.workspaces.filter((r) => r.workspace_exists))
 const forgetting = ref('')
+// 正在切换到的工作目录（空表示没有）：切换要重建引擎，得有转圈与失败提示。
+const switchingWorkspace = ref('')
 
 // 每个引擎一张卡：探测结果、版本、显式路径、落盘位置、重启。
 // 「装」不在这里做——它统一在「应用」页，两处各放一个安装按钮必然会出现
@@ -130,8 +137,16 @@ async function revealPath(path: string) {
 
 async function useWorkspace(path: string) {
   if (path === app.workspace) return
-  await app.setWorkspace(path)
-  toasts.push('ok', t('settings.workspaceSwitched'))
+  switchingWorkspace.value = path
+  try {
+    await app.setWorkspace(path)
+    toasts.push('ok', t('settings.workspaceSwitched'))
+  } catch (err) {
+    // 切换失败必须出声：静默失败会让人以为已经切过去了。
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    switchingWorkspace.value = ''
+  }
 }
 
 // 移除只影响「最近」这份记忆，不动目录本身。
@@ -173,6 +188,7 @@ onMounted(() => {
       <BehaviorPanel
         :auto-start-busy="autoStartBusy"
         :restore-busy="restoreBusy"
+        :close-action-busy="closeActionBusy"
         @toggle-auto-start="toggleAutoStart"
         @set-close-action="toggleCloseAction"
         @toggle-restore="toggleRestore"
@@ -192,6 +208,7 @@ onMounted(() => {
       <WorkspacePanel
         :recent="recentRows"
         :forgetting="forgetting"
+        :switching="switchingWorkspace"
         @use="useWorkspace"
         @forget="forgetWorkspace"
       />

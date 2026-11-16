@@ -224,16 +224,22 @@ async function installRecommended() {
   installingRecommended.value = true
   let done = 0
   let failed = 0
+  // 失败的那几条要说出是哪一条：只给一个数字，用户不知道该重试谁。
+  const failedNames: string[] = []
   try {
     for (const row of missingRecommended.value) {
       try {
         await api.installSkill(row.skill_dir_name)
         done += 1
-      } catch {
+      } catch (err) {
         failed += 1
+        failedNames.push(`${row.skill_name}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
     toasts.push(failed ? 'warn' : 'ok', t('skills.installRecommendedDone', { ok: done, fail: failed }))
+    // 失败的那几条再单独报一次：汇总数字之后紧跟着原话，
+    // 用户不用再去日志里找是哪一条没装上。
+    for (const line of failedNames) toasts.push('error', line)
     await load()
   } finally {
     installingRecommended.value = false
@@ -266,16 +272,16 @@ onMounted(load)
         <span v-if="recommendedTotal > 0" class="count">
           {{ t('skills.builtinProgress', { done: recommendedInstalled, total: recommendedTotal }) }}
         </span>
-        <button
+        <button type="button"
           class="wb-btn icon ghost"
-          :title="t('common.refresh')"
+          :title="t('common.refresh')" :aria-label="t('common.refresh')"
           :class="{ 'is-loading': loading }"
           :disabled="loading"
           @click="load"
         >
           <AppIcon name="refresh" :size="15" />
         </button>
-        <button
+        <button type="button"
           v-if="missingRecommended.length > 0"
           class="wb-btn"
           :class="{ 'is-loading': installingRecommended }"
@@ -285,7 +291,7 @@ onMounted(load)
           <AppIcon name="download" :size="14" />
           {{ t('skills.installRecommended', { n: missingRecommended.length }) }}
         </button>
-        <button
+        <button type="button"
           class="wb-btn ghost"
           :class="{ 'is-loading': importing }"
           :disabled="importing"
@@ -295,7 +301,7 @@ onMounted(load)
           <AppIcon name="download" :size="14" />
           {{ t('skills.import') }}
         </button>
-        <button class="wb-btn primary" @click="createOpen = true">
+        <button type="button" class="wb-btn primary" @click="createOpen = true">
           <AppIcon name="plus" :size="14" />
           {{ t('skills.create') }}
         </button>
@@ -322,7 +328,7 @@ onMounted(load)
         :hint="t('skills.emptyHint')"
       >
         <template #action>
-          <button class="wb-btn sm primary" @click="createOpen = true">{{ t('skills.create') }}</button>
+          <button type="button" class="wb-btn sm primary" @click="createOpen = true">{{ t('skills.create') }}</button>
         </template>
       </WbEmpty>
 

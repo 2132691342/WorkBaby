@@ -78,8 +78,8 @@ function uptime(): string {
     <div v-else-if="!props.engine.installed" class="engine-missing">
       <p class="engine-hint">{{ t('overview.installHint') }}</p>
       <div class="engine-actions">
-        <button class="wb-btn sm primary" @click="emit('install')">{{ t('overview.goInstall') }}</button>
-        <button class="wb-btn sm" @click="app.openSettings()">{{ t('nav.settings') }}</button>
+        <button type="button" class="wb-btn sm primary" @click="emit('install')">{{ t('overview.goInstall') }}</button>
+        <button type="button" class="wb-btn sm" @click="app.openSettings()">{{ t('nav.settings') }}</button>
       </div>
     </div>
 

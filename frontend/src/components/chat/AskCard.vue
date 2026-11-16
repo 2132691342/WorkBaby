@@ -178,10 +178,10 @@ onUnmounted(() => {
       <!-- confirm -->
       <template v-if="ask.ask_method === 'confirm'">
         <div class="ask-actions">
-          <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting" @click="submit">
+          <button type="button" class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting" @click="submit">
             {{ t('chat.yes') }}
           </button>
-          <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.no') }}</button>
+          <button type="button" class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.no') }}</button>
         </div>
       </template>
 
@@ -208,10 +208,10 @@ onUnmounted(() => {
         <input v-model="text" class="wb-input" :placeholder="ask.ask_placeholder || t('chat.typeAnswer')" @keydown.enter="submit" />
       </div>
       <div class="ask-actions">
-        <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting || !canSubmit" @click="submit">
+        <button type="button" class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting || !canSubmit" @click="submit">
           {{ t('chat.submit') }}
         </button>
-        <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.cancel') }}</button>
+        <button type="button" class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.cancel') }}</button>
       </div>
     </template>
 
@@ -234,10 +234,10 @@ onUnmounted(() => {
         />
       </div>
       <div class="ask-actions">
-        <button class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting || !canSubmit" @click="submit">
+        <button type="button" class="wb-btn primary" :class="{ 'is-loading': submitting }" :disabled="submitting || !canSubmit" @click="submit">
           {{ t('chat.submit') }}
         </button>
-        <button class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.cancel') }}</button>
+        <button type="button" class="wb-btn" :disabled="submitting" @click="decline">{{ t('chat.cancel') }}</button>
       </div>
     </template>
     </div>

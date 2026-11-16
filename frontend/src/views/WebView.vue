@@ -3,6 +3,7 @@
 // 这一页是「模型之外的第二张嘴」：模型能搜网读网页，用户也能自己搜。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AppIcon from '@/components/common/AppIcon.vue'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
 import { openExternal } from '@/api/wails'
@@ -16,6 +17,9 @@ const status = ref<WebStatusView | null>(null)
 const kind = ref('')
 const apiKey = ref('')
 const saving = ref(false)
+// 首屏取数是否失败：失败时不能显示「服务清单是空的」——那是一句假断言。
+const loadFailed = ref(false)
+const loading = ref(false)
 
 // 搜索。
 const query = ref('')
@@ -36,13 +40,23 @@ let fetchSeq = 0
 const needsKey = computed(() => kind.value !== 'duckduckgo')
 const canSearch = computed(() => query.value.trim().length > 0 && !searching.value)
 
-onMounted(async () => {
+/** 读一次联网状态：首屏与「重试」共用一份。 */
+async function reload(): Promise<void> {
+  loading.value = true
   try {
     status.value = await api.webStatus()
     kind.value = status.value.web_kind
+    loadFailed.value = false
   } catch (err) {
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    loading.value = false
   }
+}
+
+onMounted(() => {
+  void reload()
 })
 
 /** 保存联网设置。 */
@@ -126,7 +140,15 @@ async function openInBrowser(url: string): Promise<void> {
 
     <div class="page-body">
 
-    <div class="web-cols">
+    <!-- 首屏取数失败：说清「没取到」并给重试，不摆一个空的服务下拉 -->
+    <section v-if="loadFailed && !status" class="load-failed">
+      <AppIcon name="alert" :size="20" class="failed-ic" />
+      <p class="failed-title">{{ t('common.loadFailed') }}</p>
+      <p class="failed-hint">{{ t('web.loadFailedHint') }}</p>
+      <button class="wb-btn sm primary" type="button" @click="reload">{{ t('common.retry') }}</button>
+    </section>
+
+    <div v-else class="web-cols">
       <!-- 搜索服务配置 -->
       <section class="wb-card card-pad">
         <h2 class="wb-section-title">{{ t('web.providerTitle') }}</h2>
@@ -152,7 +174,7 @@ async function openInBrowser(url: string): Promise<void> {
           />
         </div>
         <p class="set-hint">{{ status?.web_message }}</p>
-        <button
+        <button type="button"
           class="wb-btn primary"
           :class="{ 'is-loading': saving }"
           :disabled="saving"
@@ -172,7 +194,7 @@ async function openInBrowser(url: string): Promise<void> {
             clearable
             @keyup.enter="search"
           />
-          <button
+          <button type="button"
             class="wb-btn primary"
             :class="{ 'is-loading': searching }"
             :disabled="!canSearch"
@@ -190,7 +212,7 @@ async function openInBrowser(url: string): Promise<void> {
             </button>
             <span class="result-url">{{ item.result_url }}</span>
             <p v-if="item.result_snippet" class="result-snippet">{{ item.result_snippet }}</p>
-            <button class="wb-btn text sm" @click="useUrl(item.result_url)">
+            <button type="button" class="wb-btn text sm" @click="useUrl(item.result_url)">
               {{ t('web.readIt') }}
             </button>
           </li>
@@ -208,7 +230,7 @@ async function openInBrowser(url: string): Promise<void> {
             clearable
             @keyup.enter="fetchPage"
           />
-          <button
+          <button type="button"
             class="wb-btn"
             :class="{ 'is-loading': fetching }"
             :disabled="!fetchUrl.trim() || fetching"
@@ -370,6 +392,32 @@ async function openInBrowser(url: string): Promise<void> {
 .set-hint {
   margin: var(--wb-sp-2) 0;
   font-size: var(--wb-fs-xs);
+  color: var(--wb-mute);
+}
+
+/* 首屏取数失败：一块说明 + 一个重试，不是一个空的服务下拉 */
+.load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-10) var(--wb-sp-5);
+  text-align: center;
+}
+.failed-ic {
+  color: var(--wb-warn);
+}
+.failed-title {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  font-weight: 650;
+  color: var(--wb-ink-2);
+}
+.failed-hint {
+  margin: 0;
+  max-width: var(--wb-w-desc);
+  font-size: var(--wb-fs-2xs);
+  line-height: 1.6;
   color: var(--wb-mute);
 }
 

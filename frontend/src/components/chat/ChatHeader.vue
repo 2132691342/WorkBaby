@@ -65,7 +65,7 @@ async function togglePlan(): Promise<void> {
       <span v-if="modelLine" class="chat-sub">{{ modelLine }}</span>
     </div>
     <div class="chat-head-right">
-      <button
+      <button type="button"
         v-if="planAvailable"
         class="wb-btn sm"
         :class="[{ 'is-loading': planBusy }, chat.planMode ? 'primary' : 'ghost']"
@@ -76,7 +76,7 @@ async function togglePlan(): Promise<void> {
       >
         {{ chat.planMode ? t('chat.planActive') : t('chat.planMode') }}
       </button>
-      <button
+      <button type="button"
         class="wb-btn sm ghost"
         :class="{ 'is-loading': chat.compacting }"
         :title="t('chat.compactHint')"

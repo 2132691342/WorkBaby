@@ -211,10 +211,10 @@ onMounted(() => {
 <template>
   <div class="mention">
     <header class="mention-head">
-      <button
+      <button type="button"
         class="wb-btn icon ghost"
         :disabled="!dirPath"
-        :title="t('chat.mentionUp')"
+        :title="t('chat.mentionUp')" :aria-label="t('chat.mentionUp')"
         @click="up"
       >
         <AppIcon name="arrow-left" :size="13" />
@@ -222,7 +222,7 @@ onMounted(() => {
       <nav class="crumbs">
         <template v-for="(crumb, i) in crumbs" :key="crumb.path">
           <span v-if="i > 0" class="sep">/</span>
-          <button class="crumb" @click="load(crumb.path)">{{ crumb.name }}</button>
+          <button type="button" class="crumb" @click="load(crumb.path)">{{ crumb.name }}</button>
         </template>
       </nav>
     </header>
@@ -247,7 +247,7 @@ onMounted(() => {
             <button class="mc-btn" type="button" :disabled="mentionCount >= 20" :aria-label="'+'" @click="stepMention(1)">+</button>
           </span>
         </p>
-        <button
+        <button type="button"
           v-for="row in sessions.slice(0, mentionCount)"
           :key="row.session_id"
           class="mention-row"
@@ -261,7 +261,7 @@ onMounted(() => {
       <p v-else-if="failed" class="mention-note bad">{{ failed }}</p>
       <p v-else-if="!shown.length" class="mention-note">{{ t('chat.mentionEmpty') }}</p>
       <p v-else-if="searching && truncated" class="mention-note">{{ t('chat.mentionTruncated') }}</p>
-      <button
+      <button type="button"
         v-for="(row, i) in shown"
         :key="row.path"
         :data-idx="i"

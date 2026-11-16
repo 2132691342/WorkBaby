@@ -87,7 +87,7 @@ function fmtTokens(n: number): string {
       </span>
 
       <!-- 压缩没有 abort 入口：那是引擎自己的动作，中途停下只会留下半个会话。 -->
-      <button
+      <button type="button"
         v-if="chat.streaming"
         class="wb-btn sm ghost act-stop"
         :class="{ 'is-loading': props.stopping }"

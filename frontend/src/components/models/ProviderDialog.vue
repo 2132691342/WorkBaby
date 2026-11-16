@@ -169,7 +169,7 @@ function setInput(index: number, kind: string, on: boolean): void {
       <span class="sp" />
       <!-- 拉上游清单：填了地址与密钥就能问出有哪些模型，
            不用一个个手打 id。拉回来的清单在下方以 chip 呈现，点选要哪些。 -->
-      <button
+      <button type="button"
         class="wb-btn sm ghost"
         :class="{ 'is-loading': props.fetching }"
         :disabled="props.fetching || props.saving"
@@ -179,7 +179,7 @@ function setInput(index: number, kind: string, on: boolean): void {
         <AppIcon name="download" :size="12" />
         {{ t('models.fetchModels') }}
       </button>
-      <button class="wb-btn text sm" :disabled="props.fetching" @click="addModel">
+      <button type="button" class="wb-btn text sm" :disabled="props.fetching" @click="addModel">
         {{ t('models.addModel') }}
       </button>
     </div>
@@ -256,9 +256,9 @@ function setInput(index: number, kind: string, on: boolean): void {
           <span>IMG</span>
         </label>
       </div>
-      <button
+      <button type="button"
         class="wb-btn icon ghost danger"
-        :title="t('common.delete')"
+        :title="t('common.delete')" :aria-label="t('common.delete')"
         @click="removeModel(index)"
       >
         <AppIcon name="close" :size="13" />
@@ -266,8 +266,8 @@ function setInput(index: number, kind: string, on: boolean): void {
     </div>
 
     <template #footer>
-      <button class="wb-btn" @click="open = false">{{ t('common.cancel') }}</button>
-      <button
+      <button type="button" class="wb-btn" @click="open = false">{{ t('common.cancel') }}</button>
+      <button type="button"
         class="wb-btn primary"
         :class="{ 'is-loading': props.saving }"
         :disabled="props.saving || !canSave"

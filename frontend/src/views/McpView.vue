@@ -21,6 +21,8 @@ const data = ref<McpListData | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const busyName = ref('')
+// 正在删除的那一条：删除按钮要单独转圈——它与「开关 / 探测」不是一回事。
+const removingName = ref('')
 const probingName = ref('')
 const dialog = ref(false)
 const editingName = ref('')
@@ -193,7 +195,7 @@ async function remove(row: McpServer) {
     t('common.cancel'),
   )
   if (!ok) return
-  busyName.value = row.server_name
+  removingName.value = row.server_name
   try {
     await api.mcpRemove(row.server_name)
     toasts.push('ok', t('mcp.removed', { name: row.server_name }))
@@ -201,7 +203,7 @@ async function remove(row: McpServer) {
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
-    busyName.value = ''
+    removingName.value = ''
   }
 }
 
@@ -216,10 +218,10 @@ onMounted(() => void load())
         <p class="page-sub">{{ t('mcp.subtitle') }}</p>
       </div>
       <div class="head-actions">
-        <button class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load">
+        <button type="button" class="wb-btn icon ghost" :class="{ 'is-loading': loading }" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="load">
           <AppIcon name="refresh" :size="15" />
         </button>
-        <button class="wb-btn primary" @click="openCreate">
+        <button type="button" class="wb-btn primary" @click="openCreate">
           <AppIcon name="plus" :size="14" />
           {{ t('mcp.add') }}
         </button>
@@ -257,6 +259,7 @@ onMounted(() => void load())
         :load-failed="loadFailed"
         @retry="load"
         :busy-name="busyName"
+        :removing-name="removingName"
         :probing-name="probingName"
         @create="openCreate"
         @edit="openEdit"

@@ -47,7 +47,7 @@ const workspaceName = computed(() => {
     <div class="head-actions">
       <!-- 工作区切换：这里是「我在哪个目录」的唯一入口，
            并列显示该目录的仓库态，不必跳到设置页去查。 -->
-      <button
+      <button type="button"
         class="wb-btn sm"
         :class="{ 'is-loading': props.switching }"
         :title="props.workspace || t('workspace.pickWorkspace')"
@@ -69,18 +69,18 @@ const workspaceName = computed(() => {
       <span v-if="props.status?.is_repo && props.status.upstream_ref" class="readout">
         ↑{{ props.status.ahead }} ↓{{ props.status.behind }}
       </span>
-      <button
+      <button type="button"
         class="wb-btn icon ghost"
         :class="{ on: props.filesOpen }"
-        :title="t('workspace.fileTree')"
+        :title="t('workspace.fileTree')" :aria-label="t('workspace.fileTree')"
         @click="emit('toggleFiles')"
       >
         <AppIcon name="folder" :size="15" />
       </button>
-      <button
+      <button type="button"
         class="wb-btn icon ghost"
         :class="{ 'is-loading': props.loadingStatus }"
-        :title="t('common.refresh')"
+        :title="t('common.refresh')" :aria-label="t('common.refresh')"
         @click="emit('refresh')"
       >
         <AppIcon name="refresh" :size="15" />

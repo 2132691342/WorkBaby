@@ -22,6 +22,8 @@ const rows = ref<SessionRow[]>([])
 const loading = ref(false)
 // 首次取数是否已经落定：为假时不说「还没有用量」——那是一句断言。
 const loaded = ref(false)
+// 取数是否失败：失败时那三张图与那张表都不该摆成「0」。
+const loadFailed = ref(false)
 const span = ref<'today' | 'week' | 'month' | 'total'>('week')
 
 /** 时间窗分段：文案走 i18n，值就是 span 本身。 */
@@ -80,8 +82,10 @@ async function load(): Promise<void> {
     const data = await api.sessions()
     if (mine !== loadSeq) return
     rows.value = data.sessions ?? []
+    loadFailed.value = false
   } catch (err) {
     if (mine !== loadSeq) return
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     if (mine === loadSeq) {
@@ -114,10 +118,10 @@ onUnmounted(() => {
       </div>
       <div class="head-actions">
         <WbSeg v-model="span" :items="spanItems" />
-        <button
+        <button type="button"
           class="wb-btn icon ghost"
           :class="{ 'is-loading': loading }"
-          :title="t('common.refresh')"
+          :title="t('common.refresh')" :aria-label="t('common.refresh')"
           :disabled="loading"
           @click="refresh"
         >
@@ -128,6 +132,14 @@ onUnmounted(() => {
 
     <div class="page-body">
       <WbSkeleton v-if="loading && !loaded" block />
+
+      <!-- 取数失败：不能摆一屏 0，那会被当成「没花过钱」的结论 -->
+      <section v-else-if="loadFailed" class="load-failed">
+        <AppIcon name="alert" :size="20" class="failed-ic" />
+        <p class="failed-title">{{ t('common.loadFailed') }}</p>
+        <p class="failed-hint">{{ t('usage.loadFailedHint') }}</p>
+        <button class="wb-btn sm primary" type="button" @click="refresh">{{ t('common.retry') }}</button>
+      </section>
 
       <template v-else-if="empty">
         <WbEmpty icon="chart" :title="t('usage.emptyTitle')" :hint="t('usage.emptyHint')" />
@@ -239,6 +251,32 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--wb-sp-1);
+}
+
+/* 取数失败：一块说明 + 一个重试，不是一屏 0 */
+.load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wb-sp-2);
+  padding: var(--wb-sp-10) var(--wb-sp-5);
+  text-align: center;
+}
+.failed-ic {
+  color: var(--wb-warn);
+}
+.failed-title {
+  margin: 0;
+  font-size: var(--wb-fs-sm);
+  font-weight: 650;
+  color: var(--wb-ink-2);
+}
+.failed-hint {
+  margin: 0;
+  max-width: var(--wb-w-desc);
+  font-size: var(--wb-fs-2xs);
+  line-height: 1.6;
+  color: var(--wb-mute);
 }
 
 .table-card {

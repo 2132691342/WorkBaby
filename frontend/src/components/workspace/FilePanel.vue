@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// 文件面板：工作区目录树 + 单文件预览/编辑。
+// 文件面板：工作区目录树 + 单文件编辑。
 // 浏览与轻量编辑（新建 / 改名 / 删除 / 保存文本）在这里；批量改文件是助手的事，
 // 界面动手之前都先落在「看得见的单个目标」上，改动范围一眼可见。
+// 点文件只往上抛一个「选中」，正文由右侧那一栏显示——同一份内容不在两处画。
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { confirmDanger } from '@/utils/confirm'
@@ -16,6 +17,18 @@ import type { FileEntry, FileRead } from '@/types/api'
 const { t } = useI18n()
 const app = useAppStore()
 const toasts = useToasts()
+
+const props = defineProps<{
+  /** 当前选中的文件路径（相对工作目录）：这一行给个选中标记 */
+  selected?: string
+}>()
+
+const emit = defineEmits<{
+  /** 选中了一个文件（相对工作目录的路径）：右侧那一栏据此显示正文 */
+  pick: [path: string]
+  /** 文件被保存过：右侧那一栏据此重读一次 */
+  saved: []
+}>()
 
 // 逐级路径栈：栈里每一项都是相对工作目录的目录路径（'' 是根）。
 const stack = ref<string[]>([''])
@@ -64,7 +77,8 @@ async function enter(entry: FileEntry) {
     await load(join(entry.entry_name))
     return
   }
-  await openFile(join(entry.entry_name))
+  // 只往上抛选中：正文在右侧那一栏画，树上不重复画一份。
+  emit('pick', join(entry.entry_name))
 }
 
 async function up() {
@@ -73,6 +87,7 @@ async function up() {
   await load(parts.join('/'))
 }
 
+/** 打开编辑抽屉：正文已经在右侧那一栏看过了，这里只为「改」。 */
 async function openFile(path: string) {
   previewOpen.value = true
   previewLoading.value = true
@@ -118,6 +133,8 @@ async function newFile() {
     await api.fileSave(join(name), '')
     toasts.push('ok', t('common.saved'))
     await load()
+    // 建完就选中它：用户下一步多半是往里写。
+    emit('pick', join(name))
     await openFile(join(name))
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -174,7 +191,7 @@ async function removeEntry(entry: FileEntry) {
 }
 
 // 抽屉保存成功：重拉目录（大小与修改时间变了）并重读这份文件，
-// 让抽屉里的正文是后端规范化之后的那一份。
+// 让抽屉里的正文是后端规范化之后的那一份；右侧那一栏也重读一次。
 async function onPreviewSaved(): Promise<void> {
   if (preview.value) {
     try {
@@ -184,6 +201,7 @@ async function onPreviewSaved(): Promise<void> {
     }
   }
   await load()
+  emit('saved')
 }
 
 onMounted(() => {
@@ -196,13 +214,14 @@ defineExpose({ load, openFile })
 <template>
   <section class="files card">
     <header class="files-head">
-      <button class="wb-btn icon ghost sm" :disabled="!current" :title="t('files.up')" @click="up">
+      <button class="wb-btn icon ghost sm" type="button" :disabled="!current" :title="t('files.up')" :aria-label="t('files.up')" @click="up">
         <AppIcon name="arrow-left" :size="13" />
       </button>
       <div class="crumbs">
         <button
           v-for="(crumb, index) in crumbs"
           :key="crumb.path"
+          type="button"
           class="crumb"
           :class="{ last: index === crumbs.length - 1 }"
           @click="load(crumb.path)"
@@ -210,26 +229,34 @@ defineExpose({ load, openFile })
           {{ crumb.label }}
         </button>
       </div>
-      <button class="wb-btn icon ghost sm" :title="t('files.newFileTitle')" @click="newFile">
+      <button class="wb-btn icon ghost sm" type="button" :title="t('files.newFileTitle')" :aria-label="t('files.newFileTitle')" @click="newFile">
         <AppIcon name="plus" :size="13" />
       </button>
-      <button class="wb-btn icon ghost sm" :title="t('files.newDirTitle')" @click="newDir">
+      <button class="wb-btn icon ghost sm" type="button" :title="t('files.newDirTitle')" :aria-label="t('files.newDirTitle')" @click="newDir">
         <AppIcon name="folder" :size="13" />
       </button>
-      <button class="wb-btn icon ghost sm" :class="{ 'is-loading': loading }" :title="t('common.refresh')" @click="load()">
+      <button class="wb-btn icon ghost sm" type="button" :class="{ 'is-loading': loading }" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="load()">
         <AppIcon name="refresh" :size="13" />
       </button>
     </header>
 
     <div class="files-body">
       <div v-if="!entries.length && !loading" class="files-empty">{{ t('files.empty') }}</div>
-      <div v-for="entry in entries" :key="entry.entry_name" class="file-row wb-row-click" @click="enter(entry)">
+      <div
+        v-for="entry in entries"
+        :key="entry.entry_name"
+        class="file-row wb-row-click"
+        :class="{ 'is-active': !entry.entry_is_dir && props.selected === join(entry.entry_name) }"
+        @click="enter(entry)"
+      >
         <AppIcon :name="entry.entry_is_dir ? 'folder' : 'file'" :size="13" />
         <span class="file-name">{{ entry.entry_name }}</span>
         <span class="row-actions" @click.stop>
           <button
             class="row-btn"
+            type="button"
             :title="t('files.renameTitle')"
+            :aria-label="`${t('files.renameTitle')} ${entry.entry_name}`"
             :disabled="busyEntry === entry.entry_name"
             @click="renameEntry(entry)"
           >
@@ -237,7 +264,9 @@ defineExpose({ load, openFile })
           </button>
           <button
             class="row-btn"
+            type="button"
             :title="t('common.delete')"
+            :aria-label="`${t('common.delete')} ${entry.entry_name}`"
             :disabled="busyEntry === entry.entry_name"
             @click="removeEntry(entry)"
           >
@@ -339,14 +368,21 @@ defineExpose({ load, openFile })
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 行内动作平时藏着，悬停那行才亮：满屏按钮比没有按钮更吵 */
+/* 选中的文件：淡底 + 左缘竖条。与 git 改动清单的选中语言一致。 */
+.file-row.is-active {
+  background: var(--wb-selected);
+  box-shadow: inset 2px 0 0 var(--wb-brand);
+}
+/* 行内动作平时藏着，悬停那行才亮：满屏按钮比没有按钮更吵。
+   键盘用户靠 :focus-within 也能看到——只给鼠标的入口等于没有入口。 */
 .row-actions {
   display: none;
   align-items: center;
   gap: 2px;
   flex: none;
 }
-.file-row:hover .row-actions {
+.file-row:hover .row-actions,
+.file-row:focus-within .row-actions {
   display: inline-flex;
 }
 .row-btn {

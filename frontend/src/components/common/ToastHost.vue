@@ -24,10 +24,10 @@ const { items, dismiss, hold, runAction } = useToasts()
           <p class="toast-msg">{{ item.message }}</p>
           <p v-if="item.detail" class="toast-detail">{{ item.detail }}</p>
         </div>
-        <button v-if="item.action" class="toast-action" @click="runAction(item)">
+        <button type="button" v-if="item.action" class="toast-action" @click="runAction(item)">
           {{ item.action.label }}
         </button>
-        <button class="toast-close" :title="t('common.close')" @click="dismiss(item.id)">
+        <button type="button" class="toast-close" :title="t('common.close')" :aria-label="t('common.close')" @click="dismiss(item.id)">
           <svg viewBox="0 0 12 12" width="10" height="10" stroke="currentColor" stroke-width="1.4"><path d="M3 3l6 6M9 3 3 9" /></svg>
         </button>
       </div>

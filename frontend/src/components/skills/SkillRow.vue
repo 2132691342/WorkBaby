@@ -62,8 +62,8 @@ const toggleable = computed(() => props.row.skill_source !== 'project')
     </div>
 
     <div class="skill-actions">
-      <button class="wb-btn text sm" @click="emit('view', row)">{{ t('skills.view') }}</button>
-      <button
+      <button type="button" class="wb-btn text sm" @click="emit('view', row)">{{ t('skills.view') }}</button>
+      <button type="button"
         v-if="resettable"
         class="wb-btn text sm"
         :class="{ 'is-loading': isResetting }"
@@ -73,7 +73,7 @@ const toggleable = computed(() => props.row.skill_source !== 'project')
       >
         {{ t('skills.reset') }}
       </button>
-      <button
+      <button type="button"
         v-if="removable"
         class="wb-btn text sm danger"
         :class="{ 'is-loading': isDeleting }"

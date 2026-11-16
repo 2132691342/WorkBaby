@@ -60,7 +60,7 @@ defineExpose({ reset })
       :placeholder="t('workspace.commitPlaceholder')"
     />
     <div class="commit-actions">
-      <button
+      <button type="button"
         class="wb-btn primary"
         :class="{ 'is-loading': props.committing }"
         :disabled="!canCommit"
@@ -77,12 +77,12 @@ defineExpose({ reset })
 
   <div class="branch-row">
     <span class="plate">{{ t('workspace.branches') }}</span>
-    <button class="wb-btn text sm" :disabled="Boolean(props.pending)" @click="emit('createBranch')">
+    <button type="button" class="wb-btn text sm" :disabled="Boolean(props.pending)" @click="emit('createBranch')">
       {{ t('workspace.newBranch') }}
     </button>
   </div>
   <div class="branch-list">
-    <button
+    <button type="button"
       v-for="branch in props.branches"
       :key="`${branch.remote_name}:${branch.branch_name}`"
       class="branch-line wb-row-click"
@@ -99,10 +99,10 @@ defineExpose({ reset })
       </span>
       <!-- 行内动作：悬停才出现。一列分支每行都挂两个按钮就是一片按钮墙。 -->
       <span v-if="!branch.is_current" class="branch-acts">
-        <button class="act" :disabled="Boolean(props.pending)" @click.stop="emit('mergeBranch', branch.branch_name)">
+        <button type="button" class="act" :disabled="Boolean(props.pending)" @click.stop="emit('mergeBranch', branch.branch_name)">
           {{ t('workspace.merge') }}
         </button>
-        <button class="act danger" :disabled="Boolean(props.pending)" @click.stop="emit('deleteBranch', branch.branch_name)">
+        <button type="button" class="act danger" :disabled="Boolean(props.pending)" @click.stop="emit('deleteBranch', branch.branch_name)">
           {{ t('common.delete') }}
         </button>
       </span>

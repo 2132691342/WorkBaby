@@ -33,7 +33,7 @@ function stamp(ms: number): string {
   <section class="wb-card card-pad">
     <div class="wb-sec-head">
       <span class="wb-sec-title">{{ t('overview.recent') }}</span>
-      <button class="wb-btn text sm" @click="emit('all')">
+      <button type="button" class="wb-btn text sm" @click="emit('all')">
         {{ t('overview.all') }}
         <AppIcon name="chevron" :size="12" />
       </button>
@@ -46,7 +46,7 @@ function stamp(ms: number): string {
     </div>
 
     <div v-else-if="rows.length" class="recent-list">
-      <button v-for="row in rows" :key="row.session_id" class="recent-row wb-row-click" @click="emit('open', row.session_path)">
+      <button type="button" v-for="row in rows" :key="row.session_id" class="recent-row wb-row-click" @click="emit('open', row.session_path)">
         <span class="wb-tile wb-tile--sm wb-tile--neutral">
           <AppIcon name="chat" :size="14" />
         </span>
@@ -59,7 +59,7 @@ function stamp(ms: number): string {
     <div v-else class="wb-empty">
       <p class="wb-empty-title">{{ t('overview.noSessions') }}</p>
       <p class="wb-empty-hint">{{ t('overview.noSessionsHint') }}</p>
-      <button class="wb-btn sm primary" @click="emit('start')">{{ t('overview.startChat') }}</button>
+      <button type="button" class="wb-btn sm primary" @click="emit('start')">{{ t('overview.startChat') }}</button>
     </div>
   </section>
 </template>

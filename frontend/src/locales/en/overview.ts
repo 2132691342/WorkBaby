@@ -51,6 +51,7 @@ export default {
     "nextReadyAct": "Start a conversation",
     "noDataYetTitle": "Nothing to count yet",
     "noDataYetHint": "Once a working directory and a model are set, spend, usage and capabilities show up here.",
+    "loadFailedHint": "The engine status and session list did not load. The backend may have just restarted, or the data directory is not writable — retrying usually works.",
     "noSessionsHint": "Start a conversation and it will show up here.",
     "startChat": "Start chatting",
     "justNow": "just now",
@@ -85,6 +86,7 @@ export default {
     "totalTokens": "Total tokens",
     "emptyTitle": "No usage yet",
     "emptyHint": "Numbers appear after a few turns.",
+    "loadFailedHint": "The session list did not load, so usage cannot be computed. The backend may have just restarted — retrying usually works.",
     "model": "Model",
     "sessionCount": "Sessions"
   },

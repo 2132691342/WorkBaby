@@ -57,7 +57,7 @@ function baseName(file: GitFile): string {
     <span class="acts">
       <!-- 冲突的三种真实结局都要给到：只给「标记已解决」等于让用户去外部编辑器手改 -->
       <template v-if="file.has_conflict && !staged">
-        <button
+        <button type="button"
           class="act warn"
           :title="t('workspace.keepOursHint')"
           :disabled="Boolean(pending)"
@@ -65,7 +65,7 @@ function baseName(file: GitFile): string {
         >
           {{ t('workspace.keepOurs') }}
         </button>
-        <button
+        <button type="button"
           class="act warn"
           :title="t('workspace.keepTheirsHint')"
           :disabled="Boolean(pending)"
@@ -73,7 +73,7 @@ function baseName(file: GitFile): string {
         >
           {{ t('workspace.keepTheirs') }}
         </button>
-        <button
+        <button type="button"
           class="act"
           :title="t('workspace.markResolvedHint')"
           :disabled="Boolean(pending)"
@@ -82,17 +82,17 @@ function baseName(file: GitFile): string {
           {{ t('workspace.markResolved') }}
         </button>
       </template>
-      <button class="act" :title="t('workspace.history')" @click.stop="emit('history', file)">
+      <button type="button" class="act" :title="t('workspace.history')" @click.stop="emit('history', file)">
         {{ t('workspace.history') }}
       </button>
-      <button v-if="staged" class="act" :disabled="Boolean(pending)" @click.stop="emit('unstage', file)">
+      <button type="button" v-if="staged" class="act" :disabled="Boolean(pending)" @click.stop="emit('unstage', file)">
         {{ t('workspace.unstage') }}
       </button>
       <template v-else>
-        <button class="act" :disabled="Boolean(pending)" @click.stop="emit('stage', file)">
+        <button type="button" class="act" :disabled="Boolean(pending)" @click.stop="emit('stage', file)">
           {{ t('workspace.stage') }}
         </button>
-        <button class="act danger" :disabled="Boolean(pending)" @click.stop="emit('discard', file)">
+        <button type="button" class="act danger" :disabled="Boolean(pending)" @click.stop="emit('discard', file)">
           {{ t('workspace.discard') }}
         </button>
       </template>

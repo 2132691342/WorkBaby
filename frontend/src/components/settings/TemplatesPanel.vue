@@ -13,9 +13,13 @@ const toasts = useToasts()
 
 const rows = ref<PromptTemplate[]>([])
 const loading = ref(false)
+// 首屏取数是否失败：失败时不能显示「还没有模板」——那是一句假断言。
+const loadFailed = ref(false)
 const dialogOpen = ref(false)
 const saving = ref(false)
 const editing = ref(false)
+// 正在删除的那一条：删除要转圈，别让用户重复点。
+const removing = ref('')
 
 // 表单草稿：名字是键，编辑时禁改（改名 = 另存一份）。
 const form = ref({ template_name: '', template_desc: '', template_args: '', template_body: '' })
@@ -24,7 +28,9 @@ async function load() {
   loading.value = true
   try {
     rows.value = (await api.templates()).rows ?? []
+    loadFailed.value = false
   } catch (err) {
+    loadFailed.value = true
     toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     loading.value = false
@@ -78,6 +84,7 @@ async function remove(row: PromptTemplate) {
     t('common.cancel'),
   )
   if (!ok) return
+  removing.value = row.template_name
   // 与改名同理：确认之后的失败不能落进同一个 catch，否则删失败了界面一声不吭。
   try {
     await api.deleteTemplate(row.template_name)
@@ -85,6 +92,8 @@ async function remove(row: PromptTemplate) {
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    removing.value = ''
   }
 }
 
@@ -98,10 +107,15 @@ onMounted(load)
         <span class="wb-sec-title">{{ t('templates.title') }}</span>
         <p class="tpl-sub">{{ t('templates.subtitle') }}</p>
       </div>
-      <button class="wb-btn sm primary" @click="openCreate">{{ t('common.create') }}</button>
+      <button type="button" class="wb-btn sm primary" @click="openCreate">{{ t('common.create') }}</button>
     </div>
 
     <div v-if="loading" class="tpl-state"><span class="dot busy" /> {{ t('common.loading') }}</div>
+    <!-- 取数失败：说清「没取到」并给重试，不说「还没有模板」 -->
+    <div v-else-if="loadFailed" class="tpl-state">
+      <p class="tpl-failed">{{ t('common.loadFailed') }}</p>
+      <button type="button" class="wb-btn sm primary" @click="load">{{ t('common.retry') }}</button>
+    </div>
     <div v-else-if="!rows.length" class="tpl-state">{{ t('templates.empty') }}</div>
     <ul v-else class="tpl-list">
       <li v-for="row in rows" :key="row.template_name" class="tpl-row">
@@ -111,8 +125,15 @@ onMounted(load)
           <span v-if="row.template_args" class="tpl-args">{{ row.template_args }}</span>
         </div>
         <div class="tpl-actions">
-          <button class="wb-btn sm" @click="openEdit(row)">{{ t('common.edit') }}</button>
-          <button class="wb-btn sm danger" @click="remove(row)">{{ t('common.delete') }}</button>
+          <button type="button" class="wb-btn sm" @click="openEdit(row)">{{ t('common.edit') }}</button>
+          <button type="button"
+            class="wb-btn sm danger"
+            :class="{ 'is-loading': removing === row.template_name }"
+            :disabled="removing === row.template_name"
+            @click="remove(row)"
+          >
+            {{ t('common.delete') }}
+          </button>
         </div>
       </li>
     </ul>
@@ -144,8 +165,8 @@ onMounted(load)
       </el-form-item>
     </el-form>
     <template #footer>
-      <button class="wb-btn sm" :disabled="saving" @click="dialogOpen = false">{{ t('common.cancel') }}</button>
-      <button class="wb-btn sm primary" :class="{ 'is-loading': saving }" :disabled="saving" @click="save">
+      <button type="button" class="wb-btn sm" :disabled="saving" @click="dialogOpen = false">{{ t('common.cancel') }}</button>
+      <button type="button" class="wb-btn sm primary" :class="{ 'is-loading': saving }" :disabled="saving" @click="save">
         {{ t('common.save') }}
       </button>
     </template>
@@ -162,6 +183,10 @@ onMounted(load)
   padding: var(--wb-sp-4);
   font-size: var(--wb-fs-sm);
   color: var(--wb-faint);
+}
+.tpl-failed {
+  margin: 0 0 var(--wb-sp-2);
+  color: var(--wb-warn);
 }
 .tpl-list {
   list-style: none;

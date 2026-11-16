@@ -23,7 +23,7 @@ const { t } = useI18n()
       <img v-if="item.preview" :src="item.preview" class="attach-thumb" :alt="item.name" />
       <AppIcon v-else name="file" :size="12" />
       <span class="attach-name">{{ item.name }}</span>
-      <button class="attach-x" :title="t('common.remove')" @click="emit('remove', item.id)">×</button>
+      <button type="button" class="attach-x" :title="t('common.remove')" :aria-label="t('common.remove')" @click="emit('remove', item.id)">×</button>
     </div>
   </div>
 </template>

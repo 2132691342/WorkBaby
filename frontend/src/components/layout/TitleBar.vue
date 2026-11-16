@@ -41,14 +41,14 @@ const connection = computed(() => {
         <span class="conn-text">{{ connection.text }}</span>
       </span>
       <div class="win-ctl" style="--wails-draggable: no-drag">
-        <button class="win-btn" :title="t('titlebar.minimize')" @click="windowCtl.minimize()">
+        <button type="button" class="win-btn" :title="t('titlebar.minimize')" :aria-label="t('titlebar.minimize')" @click="windowCtl.minimize()">
           <svg viewBox="0 0 12 12" width="11" height="11" stroke="currentColor" stroke-width="1.2"><path d="M2 6h8" /></svg>
         </button>
-        <button class="win-btn" :title="t('titlebar.maximize')" @click="windowCtl.toggleMaximize()">
+        <button type="button" class="win-btn" :title="t('titlebar.maximize')" :aria-label="t('titlebar.maximize')" @click="windowCtl.toggleMaximize()">
           <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="7" height="7" rx="1" /></svg>
         </button>
         <!-- 唯一的关闭钮：按设置走（收托盘 / 退出），后端在 WindowClosing 里分流 -->
-        <button class="win-btn close" :title="t('common.close')" @click="windowCtl.close()">
+        <button type="button" class="win-btn close" :title="t('common.close')" :aria-label="t('common.close')" @click="windowCtl.close()">
           <svg viewBox="0 0 12 12" width="11" height="11" stroke="currentColor" stroke-width="1.2"><path d="M3 3l6 6M9 3l-6 6" /></svg>
         </button>
       </div>

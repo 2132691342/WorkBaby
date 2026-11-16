@@ -8,6 +8,7 @@ import { useRouter } from 'vue-router'
 import AppIcon from '@/components/common/AppIcon.vue'
 import SessionList from '@/components/sessions/SessionList.vue'
 import WbSeg from '@/components/common/WbSeg.vue'
+import WbEmpty from '@/components/common/WbEmpty.vue'
 import type { SegItem } from '@/types/ui'
 import { useAppStore } from '@/stores/app'
 import { useToasts } from '@/composables/useToasts'
@@ -19,6 +20,9 @@ const router = useRouter()
 const toasts = useToasts()
 
 const scope = ref<'workspace' | 'all'>('workspace')
+
+/** 没选工作目录时这一页没有「当前目录」可言：汇总读数全是 0，那是假结论。 */
+const noWorkspace = computed(() => !app.workspace)
 
 /** 范围分段：只看当前目录 / 看全部目录。 */
 const scopeItems = computed<SegItem[]>(() => [
@@ -89,10 +93,10 @@ function onChanged() {
       </div>
       <div class="head-actions">
         <WbSeg v-model="scope" :items="scopeItems" />
-        <button
+        <button type="button"
           class="wb-btn icon ghost"
           :class="{ 'is-loading': refreshing }"
-          :title="t('common.refresh')"
+          :title="t('common.refresh')" :aria-label="t('common.refresh')"
           :disabled="refreshing"
           @click="refresh"
         >
@@ -102,7 +106,25 @@ function onChanged() {
     </header>
 
     <div class="page-body">
-      <section class="summary">
+      <!-- 没选目录：这一页没有「当前目录」可讲，给一句说明与一个出口 -->
+      <WbEmpty
+        v-if="noWorkspace"
+        class="ws-empty"
+        icon="folder"
+        :title="t('sessions.noWorkspaceTitle')"
+        :hint="t('sessions.noWorkspaceHint')"
+      >
+        <template #action>
+          <button class="wb-btn primary" type="button" @click="app.chooseWorkspace()">
+            {{ t('workspace.pickWorkspace') }}
+          </button>
+        </template>
+      </WbEmpty>
+
+      <template v-else>
+      <!-- 汇总读数：目录里一条会话都没有时，那四个 0 会被当成「这个目录没花过钱」的结论。
+           没有会话就没有合计，这一块换成一句说明。 -->
+      <section v-if="counts.sessions" class="summary">
         <div class="wb-sec-head">
           <span class="wb-sec-title">{{ t('sessions.thisWorkspace') }}</span>
           <span class="wb-mono summary-scope selectable" :title="app.workspace">{{ app.workspace }}</span>
@@ -127,6 +149,14 @@ function onChanged() {
         </div>
       </section>
 
+      <section v-else class="summary summary-empty">
+        <div class="wb-sec-head">
+          <span class="wb-sec-title">{{ t('sessions.thisWorkspace') }}</span>
+          <span class="wb-mono summary-scope selectable" :title="app.workspace">{{ app.workspace }}</span>
+        </div>
+        <p class="summary-hint">{{ t('sessions.noSummaryHint') }}</p>
+      </section>
+
       <section class="list-panel">
         <SessionList
           ref="listRef"
@@ -135,6 +165,7 @@ function onChanged() {
           @changed="onChanged"
         />
       </section>
+      </template>
     </div>
   </div>
 </template>
@@ -195,6 +226,20 @@ function onChanged() {
   flex: none;
 }
 
+/* 一个会话都没有：合计栏换成一句说明，不摆四个 0 */
+.summary-empty {
+  border: 1px dashed var(--wb-line);
+  border-radius: var(--wb-r-lg);
+  padding: var(--wb-sp-3);
+}
+
+.summary-hint {
+  margin: 0;
+  font-size: var(--wb-fs-2xs);
+  line-height: 1.6;
+  color: var(--wb-mute);
+}
+
 .summary-scope {
   flex: 1;
   min-width: 0;
@@ -223,5 +268,11 @@ function onChanged() {
   border-radius: var(--wb-r-lg);
   background: var(--wb-surface);
   overflow: hidden;
+}
+
+/* 没选目录：整页给一句说明与一个出口，不再摆一屏 0 */
+.ws-empty {
+  flex: 1;
+  justify-content: center;
 }
 </style>
