@@ -124,8 +124,12 @@ func (s *Session) Id() string { return s.id }
 // Cwd 会话绑定的工作目录。
 func (s *Session) Cwd() string { return s.cwd }
 
-// Title 当前标题。
-func (s *Session) Title() string { return s.title }
+// Title 当前标题。与 append/Rename 的持锁写配对，读也要持锁。
+func (s *Session) Title() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.title
+}
 
 // Entries 已落盘条目的副本。
 func (s *Session) Entries() []domain.SessionEntryDO {

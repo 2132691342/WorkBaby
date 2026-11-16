@@ -230,6 +230,8 @@ type ChatStateRESP struct {
 	// ContextWarn 上下文水位提示；占用超过八成且自动压缩开着时给出，
 	// 让用户在压缩前有个心理预期——界面暂不消费它也不影响别的字段
 	ContextWarn string `json:"context_warn,omitempty"`
+	// AskPending 在等的提问清单：刷新界面时据此补回提问卡
+	AskPending []AskRequestVO `json:"ask_pending,omitempty"`
 }
 
 // PlanStateVO 是计划模式在界面上的状态。

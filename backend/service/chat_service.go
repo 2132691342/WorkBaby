@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"WorkBaby/backend/agent"
 	"WorkBaby/backend/domain"
@@ -161,8 +162,46 @@ func (c *Chat) NewSession() (string, error) {
 	c.level = resolveThinkingLevel(c.Settings)
 	c.mu.Unlock()
 	c.Settings.RememberSession(created.File())
+	// 新会话是干净的：计划模式不该从上一份会话漏过来。
+	c.Tools.Policy.SetReadOnly(created.Id(), false)
 	c.Hub.Broadcast("session:info", sse.EngineTag(nil))
 	return created.File(), nil
+}
+
+// RenameAny 给任意会话改名：正打开的走引擎句柄（与运行共用写锁），其余开临时句柄追加。
+func (c *Chat) RenameAny(file, title string) error {
+	c.mu.Lock()
+	current := c.session
+	c.mu.Unlock()
+	if current != nil && strings.EqualFold(current.File(), file) {
+		return c.Rename(file, title)
+	}
+	opened, err := c.Store.Open(file)
+	if err != nil {
+		return err
+	}
+	if _, err := opened.Rename(title); err != nil {
+		return err
+	}
+	c.Hub.Broadcast("session:title", sse.EngineTag(map[string]any{"title": opened.Title()}))
+	return nil
+}
+
+// PrepareDelete 删除正打开的会话前解绑：中止运行、等收尾、切到新会话。
+// 不是当前会话时什么都不做；返回值是给界面的新绑定（空串表示无需切换）。
+func (c *Chat) PrepareDelete(file string) (string, error) {
+	if !strings.EqualFold(c.CurrentFile(), file) {
+		return "", nil
+	}
+	c.Stop()
+	deadline := time.Now().Add(3 * time.Second)
+	for c.Busy() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if c.Busy() {
+		return "", pkg.Err(pkg.CodeEngineBusy, "这一轮还没停下来，稍后再删")
+	}
+	return c.NewSession()
 }
 
 // Busy 是否有运行在跑。
@@ -217,12 +256,15 @@ func (c *Chat) Send(sessionFile, message string, attachments []domain.ChatAttach
 		return domain.ChatSendRESP{}, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	c.mu.Lock()
+	level := c.level
+	c.mu.Unlock()
 	runner := &agent.Runner{
 		Streamer: c.streamer,
 		Registry: c.Tools,
 		Session:  session,
 		Model:    model,
-		Thinking: c.level,
+		Thinking: level,
 		// 模型定义里的输出上限要传给上游：不传的话上游按自己的默认值给，
 		// 用户按「这个模型的 max_tokens」预期的长度就永远对不上。
 		MaxTokens: model.MaxTokens,
@@ -353,7 +395,7 @@ func (c *Chat) ask(ctx context.Context, req agent.AskRequest) agent.AskResponse 
 	}
 }
 
-// AskPending 当前在等的提问清单。刷新界面后卡片回不来：路由还没把它导出到 /chat/state。
+// AskPending 当前在等的提问清单：随 /chat/state 出口，刷新界面据此补回卡片。
 func (c *Chat) AskPending() []domain.AskRequestVO {
 	items := c.Asks.Items()
 	out := make([]domain.AskRequestVO, 0, len(items))
@@ -388,6 +430,12 @@ func (c *Chat) handler() agent.Handler {
 		},
 		OnUsage: func(usage agent.Usage) {
 			c.Stream.Usage(usage)
+		},
+		OnRetry: func(attempt, max int, delayMs int64) {
+			c.Stream.Retry(attempt, max, delayMs)
+		},
+		OnRetryEnd: func() {
+			c.Stream.RetryEnd()
 		},
 		OnError: func(message string) {
 			// 运行失败只走 SSE 的话，日志里什么都查不到——

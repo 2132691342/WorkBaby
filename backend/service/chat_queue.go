@@ -17,13 +17,17 @@ func (c *Chat) Steer(message string, attachments []domain.ChatAttachmentVO) erro
 	if strings.TrimSpace(composed.text) == "" {
 		return pkg.Err(pkg.CodeBadRequest, "插话内容不能为空")
 	}
+	// 取 runner 与入队在同一段临界区里：运行恰在此刻收尾时，
+	// 锁外入队会把话排进一个再也没人消费的队列，静默丢失。
 	c.mu.Lock()
 	runner := c.runner
+	if runner != nil {
+		runner.Enqueue(composed.message())
+	}
 	c.mu.Unlock()
 	if runner == nil {
 		return pkg.Err(pkg.CodeNotFound, "当前没有正在进行的运行")
 	}
-	runner.Enqueue(composed.message())
 	c.refreshQueue()
 	return nil
 }
@@ -37,11 +41,13 @@ func (c *Chat) FollowUp(message string, attachments []domain.ChatAttachmentVO) e
 	}
 	c.mu.Lock()
 	runner := c.runner
+	if runner != nil {
+		runner.EnqueueFollowUp(composed.message())
+	}
 	c.mu.Unlock()
 	if runner == nil {
 		return pkg.Err(pkg.CodeNotFound, "当前没有正在进行的运行")
 	}
-	runner.EnqueueFollowUp(composed.message())
 	c.refreshQueue()
 	return nil
 }

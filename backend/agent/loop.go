@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +30,10 @@ type Handler struct {
 	OnAssistant func(msg Message)
 	// OnUsage 累计用量
 	OnUsage func(usage Usage)
+	// OnRetry 一次可重试失败后的退避等待：第几次、上限、等待毫秒
+	OnRetry func(attempt, max int, delayMs int64)
+	// OnRetryEnd 重试等待结束（重发或放弃）
+	OnRetryEnd func()
 	// OnError 失败原话（已经是可以直接显示给用户的中文）
 	OnError func(message string)
 	// OnDone 运行收尾；aborted 表示被用户中止
@@ -62,6 +65,8 @@ type Runner struct {
 	followUp []Message
 	// steps 本次运行实际走的步数
 	steps int
+	// retries 流内失败已重试次数
+	retries int
 }
 
 // Enqueue 排一条消息，等当前这一轮结束时注入。
@@ -165,9 +170,12 @@ func (r *Runner) loop(ctx context.Context, h Handler) {
 			h.OnStepStart(step)
 		}
 
-		message, err := r.streamOnce(ctx, h)
+		message, err := r.streamWithRetry(ctx, h)
 		if err != nil {
-			notify(h.OnError, err.Error())
+			// 用户中止不是失败：静默走 aborted 收尾，别弹一句「context canceled」。
+			if ctx.Err() == nil {
+				notify(h.OnError, err.Error())
+			}
 			return
 		}
 		if ctx.Err() != nil {
@@ -177,8 +185,11 @@ func (r *Runner) loop(ctx context.Context, h Handler) {
 			return
 		}
 		if message.StopReason == "error" {
-			notify(h.OnError, message.ErrorMessage)
-			return
+			if !r.retryUpstreamError(ctx, h, message.ErrorMessage) {
+				notify(h.OnError, message.ErrorMessage)
+				return
+			}
+			continue
 		}
 		if len(message.Blocks) > 0 {
 			if _, appendErr := r.Session.AppendMessage(message); appendErr != nil {
@@ -199,6 +210,11 @@ func (r *Runner) loop(ctx context.Context, h Handler) {
 			if !r.drainQueue(ctx, h) {
 				return
 			}
+			continue
+		}
+		if message.StopReason == "length" {
+			// 输出被截断时入参是半截 JSON：执行它可能拿残缺参数写坏文件。
+			r.failTruncatedCalls(calls, h)
 			continue
 		}
 		r.runTools(ctx, calls, h)
@@ -253,46 +269,67 @@ func (r *Runner) streamOnce(ctx context.Context, h Handler) (Message, error) {
 
 // runTools 顺序执行一条助手消息里的全部工具调用。
 // 顺序而不是并发：工具会改同一批文件，并发写同一份文件的结果不可预测。
+// 每个调用之间捞一次插话：用户说「别改那个文件」要能在下一个工具前生效。
 func (r *Runner) runTools(ctx context.Context, calls []Block, h Handler) {
 	for _, call := range calls {
 		if ctx.Err() != nil {
-			return
+			// 未执行的调用也要有结果：悬空的 tool_call 会让下一轮被上游整条拒掉。
+			r.appendCallResult(call, Result{Text: "操作已中止，这个工具没有执行。", IsError: true}, h)
+			continue
 		}
+		r.drainQueue(ctx, h)
 		if h.OnToolStart != nil {
 			h.OnToolStart(call.CallId, call.ToolName, call.ToolArgs)
 		}
 		started := time.Now()
 		result := r.Registry.Run(ctx, call.ToolName, call.ToolArgs)
 		elapsed := time.Since(started).Milliseconds()
-		// 界面看到的是完整输出，模型看到的是折叠后的。
-		// 两个都要：界面要能翻全文，模型不该为几万字日志付出上下文代价。
-		contextText, truncated, originalChars := r.Registry.Tidy(result.Text)
 		if h.OnToolEnd != nil {
 			h.OnToolEnd(call.CallId, call.ToolName, result, elapsed)
 		}
-		details := result.Details
-		if details == nil {
-			details = map[string]any{}
+		if _, err := r.appendCallResult(call, result, h); err != nil {
+			notify(h.OnError, pkg.As(err).Message)
+			return
 		}
-		if truncated {
-			// 折叠的事实要跟着落盘：回放时能知道这段被折过，
-			// 界面也能提示「已折叠，展开看全文」。
-			details["tidied"] = true
-			details["original_chars"] = originalChars
+	}
+}
+
+// appendCallResult 把一次工具结果落盘。全文进会话文件，折叠只发生在组装上下文时：
+// 落盘就折的话，「展开看全文」在回放后只剩折叠文本，全文永久丢失。
+func (r *Runner) appendCallResult(call Block, result Result, h Handler) (domain.SessionEntryDO, error) {
+	details := result.Details
+	if details == nil {
+		details = map[string]any{}
+	}
+	if _, folded, originalChars := r.Registry.Tidy(result.Text); folded {
+		details["tidied"] = true
+		details["original_chars"] = originalChars
+	}
+	reply := Message{
+		Role:       RoleTool,
+		ToolCallId: call.CallId,
+		ToolName:   call.ToolName,
+		IsError:    result.IsError,
+		Blocks:     []Block{{Kind: KindText, Text: result.Text}},
+		// details 跟着结果落盘：待办清单就在里面，回放层靠它复原清单。
+		Details:   details,
+		CreatedAt: pkg.NowMs(),
+	}
+	return r.Session.AppendMessage(reply)
+}
+
+// failTruncatedCalls 输出被 max_tokens 截断时整批拒绝执行：
+// 半截入参喂给写工具，代价可能是写坏一份文件。
+func (r *Runner) failTruncatedCalls(calls []Block, h Handler) {
+	for _, call := range calls {
+		result := Result{Text: "上一条回复被输出上限截断，工具入参不完整，没有执行。请把这次调用重新发一遍。", IsError: true}
+		if h.OnToolStart != nil {
+			h.OnToolStart(call.CallId, call.ToolName, call.ToolArgs)
 		}
-		reply := Message{
-			Role:       RoleTool,
-			ToolCallId: call.CallId,
-			ToolName:   call.ToolName,
-			IsError:    result.IsError,
-			// 进上下文的是折叠后的正文。
-			Blocks: []Block{{Kind: KindText, Text: contextText}},
-			// details 跟着结果落盘：待办清单就在里面，
-			// 回放层靠它把清单复原出来——只记正文的话界面还原不出清单。
-			Details:   details,
-			CreatedAt: pkg.NowMs(),
+		if h.OnToolEnd != nil {
+			h.OnToolEnd(call.CallId, call.ToolName, result, 0)
 		}
-		if _, err := r.Session.AppendMessage(reply); err != nil {
+		if _, err := r.appendCallResult(call, result, h); err != nil {
 			notify(h.OnError, pkg.As(err).Message)
 			return
 		}
@@ -322,7 +359,7 @@ func (r *Runner) drainQueue(ctx context.Context, h Handler) bool {
 	return true
 }
 
-// persistPartial 把中止时的半截回复落盘。
+// persistPartial 把中止时的半截回复落盘；带工具调用的半截消息一并补齐取消结果。
 func (r *Runner) persistPartial(message Message, h Handler) {
 	if len(message.Blocks) == 0 && message.Text() == "" {
 		return
@@ -335,86 +372,13 @@ func (r *Runner) persistPartial(message Message, h Handler) {
 	if h.OnAssistant != nil {
 		h.OnAssistant(message)
 	}
-}
-
-// history 把会话条目里的消息按顺序取出来，组成模型上下文。
-// 活动分支上最后一条带摘要的压缩条目是分界点：之前的折成一条摘要引导消息，
-// 之后的消息原样带上；没有摘要的旧压缩标记没有可用结果，只能跳过。
-func (r *Runner) history() []Message {
-	entries := r.Session.Entries()
-	// 先找分界点：最后一条带摘要的压缩条目。
-	cut := -1
-	summary := ""
-	for i, entry := range entries {
-		if entry.EntryType == domain.SessionEntryCompaction && entry.EntrySummary != "" {
-			cut = i
-			summary = entry.EntrySummary
+	for _, call := range message.ToolCalls() {
+		result := Result{Text: "操作已中止，这个工具没有执行。", IsError: true}
+		if _, err := r.appendCallResult(call, result, h); err != nil {
+			notify(h.OnError, pkg.As(err).Message)
+			return
 		}
 	}
-	out := make([]Message, 0, len(entries)+1)
-	if cut >= 0 {
-		out = append(out, Message{
-			Role:   RoleUser,
-			Blocks: []Block{{Kind: KindText, Text: summaryMessage(summary)}},
-		})
-	}
-	for i, entry := range entries {
-		if cut >= 0 && i <= cut {
-			// 压缩点之前（含压缩条目本身）不进上下文，真相仍在文件里。
-			continue
-		}
-		if entry.EntryType != domain.SessionEntryMessage || entry.EntryMessage == nil {
-			continue
-		}
-		if entry.EntryMessage.MessageRole == string(RoleSystem) {
-			continue
-		}
-		out = append(out, MessageFromDO(entry.EntryMessage))
-	}
-	return out
-}
-
-// summaryMessage 组装摘要引导消息的正文。
-func summaryMessage(summary string) string {
-	return "以下是此前对话的摘要，之后的对话以它为背景继续：\n\n" + summary
-}
-
-// trimToWindow 在上下文超出模型窗口时丢掉最早的消息。
-// 始终留着最后一条：那是用户刚说的那句话，丢了模型就没法回答。
-func trimToWindow(messages []Message, contextWindow int, systemChars int) []Message {
-	if contextWindow <= 0 || len(messages) == 0 {
-		return messages
-	}
-	budget := contextWindow - systemChars/3 - 1024
-	if budget <= 0 {
-		budget = contextWindow / 2
-	}
-	total := 0
-	for _, msg := range messages {
-		total += estimateTokens(msg)
-	}
-	if total <= budget {
-		return messages
-	}
-	// 从最早的消息开始丢，但始终留着最后一条（刚刚说的那句话）。
-	cut := 0
-	for cut < len(messages)-1 && total > budget {
-		total -= estimateTokens(messages[cut])
-		cut++
-	}
-	return messages[cut:]
-}
-
-// estimateTokens 粗估一条消息的 token 数。
-// 精确计数要按模型分词器来，这里只需要一个「是否超窗」的判断：
-// 中文约 1.5 字符/token，英文约 4 字符/token，取中间偏保守的 3。
-func estimateTokens(msg Message) int {
-	chars := 0
-	for _, block := range msg.Blocks {
-		chars += len([]rune(block.Text))
-		chars += len(block.ToolArgs)
-	}
-	return chars/3 + 8
 }
 
 // notify 安全调用回调：回调为 nil 时什么都不做。
@@ -424,9 +388,9 @@ func notify(fn func(string), message string) {
 	}
 }
 
-// notifyText 安全调用增量回调。
+// notifyText 安全调用增量回调。空白也是正文：换行与缩进丢了，直播就缺行缺格。
 func notifyText(fn func(string), text string) {
-	if fn != nil && strings.TrimSpace(text) != "" {
+	if fn != nil && text != "" {
 		fn(text)
 	}
 }

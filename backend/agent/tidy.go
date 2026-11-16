@@ -2,14 +2,15 @@ package agent
 
 import (
 	"fmt"
+	"sync/atomic"
 )
 
 // tidyPolicy 是工具输出折叠的策略。
 // 大工具输出（几百行的文件内容、几万字的日志）是上下文的主要消耗：
 // 模型读到的往往只需要头尾各一部分，中间对它没用。
 type tidyPolicy struct {
-	// enabled 是否开启折叠
-	enabled bool
+	// enabled 是否开启折叠；原子读写：开关与运行中的折叠会并发
+	enabled atomic.Bool
 	// maxChars 单条输出进上下文的字符上限
 	maxChars int
 	// headChars 保留的开头字符数
@@ -28,12 +29,13 @@ const (
 
 // newTidyPolicy 造一份默认策略。
 func newTidyPolicy() *tidyPolicy {
-	return &tidyPolicy{
-		enabled:   true,
+	p := &tidyPolicy{
 		maxChars:  defaultTidyMaxChars,
 		headChars: defaultTidyHeadChars,
 		tailChars: defaultTidyTailChars,
 	}
+	p.enabled.Store(true)
+	return p
 }
 
 // tidyResult 是折叠后的结果。
@@ -50,7 +52,7 @@ type tidyResult struct {
 // 折叠只在「超出上限」时发生：短输出原样保留，
 // 折叠过的输出对模型来说会少掉细节，短内容不该被切。
 func (p *tidyPolicy) Fold(text string) tidyResult {
-	if p == nil || !p.enabled {
+	if p == nil || !p.enabled.Load() {
 		return tidyResult{Text: text, OriginalChars: len([]rune(text))}
 	}
 	runes := []rune(text)
@@ -74,7 +76,7 @@ func (r *Registry) SetTidyEnabled(enabled bool) {
 	if r.TidyPolicy == nil {
 		r.TidyPolicy = newTidyPolicy()
 	}
-	r.TidyPolicy.enabled = enabled
+	r.TidyPolicy.enabled.Store(enabled)
 }
 
 // Tidy 折叠一段工具输出的正文。

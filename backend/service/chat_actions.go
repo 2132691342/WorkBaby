@@ -91,7 +91,7 @@ func (c *Chat) compactNow(session *agent.Session, instructions string) error {
 	}
 
 	c.Hub.Broadcast("chat:compaction", map[string]any{"state": "start", "engine_kind": string(domain.EngineNative)})
-	summary, err := summarize(c.Tools, model, prompt)
+	summary, err := c.summarize(model, prompt)
 	if err != nil {
 		pkg.Warn("压缩总结失败 code=%s：%s", pkg.As(err).Code, err.Error())
 		c.Hub.Broadcast("chat:compaction", map[string]any{"state": "done", "engine_kind": string(domain.EngineNative)})
@@ -108,12 +108,11 @@ func (c *Chat) compactNow(session *agent.Session, instructions string) error {
 }
 
 // summarize 发一次同步总结调用：不经过 runner、不带工具、不发思考档——
-// 压缩是一次后台整理，模型只管读历史吐摘要。
-func summarize(reg *agent.Registry, model agent.ModelRef, prompt string) (string, error) {
-	streamer := agent.NewOpenAIStreamer()
+// 压缩是一次后台整理，模型只管读历史吐摘要。复用共享连接池。
+func (c *Chat) summarize(model agent.ModelRef, prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	stream, err := streamer.Stream(ctx, agent.Request{
+	stream, err := c.streamer.Stream(ctx, agent.Request{
 		Model:    model,
 		System:   compactionSystem,
 		Messages: []agent.Message{userMessageOf(prompt)},
@@ -147,6 +146,7 @@ func summarize(reg *agent.Registry, model agent.ModelRef, prompt string) (string
 const compactionSystem = "你是对话整理助手。把给出的对话历史压缩成一段摘要，保留用户的意图、已做的决定、未完成的事项与关键上下文。直接输出摘要正文，不要寒暄，不要评论。"
 
 // compactionPrompt 把历史折成总结调用的正文；压缩指示有就带上。
+// 总结输入自身也要限长：带着同样超窗的历史去请求摘要，恰在需要压缩时被上游拒掉。
 func compactionPrompt(messages []domain.SessionEntryDO, instructions string) string {
 	var out strings.Builder
 	for _, entry := range messages {
@@ -162,9 +162,14 @@ func compactionPrompt(messages []domain.SessionEntryDO, instructions string) str
 		if text == "" {
 			continue
 		}
-		out.WriteString(role + ": " + text + "\n\n")
+		out.WriteString(role + ": " + pkg.Truncate(text, 2000) + "\n\n")
 	}
 	body := strings.TrimSpace(out.String())
+	// 保尾裁头：最近的对话对「接着干」最值钱，超长时丢最早的部分。
+	const maxPromptChars = 120_000
+	if runes := []rune(body); len(runes) > maxPromptChars {
+		body = "（更早的对话已省略）\n" + string(runes[len(runes)-maxPromptChars:])
+	}
 	if instructions != "" {
 		body += "\n\n用户对摘要的额外要求：" + instructions
 	}

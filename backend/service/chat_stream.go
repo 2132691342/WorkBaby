@@ -341,3 +341,13 @@ func decodeAny(raw string) any {
 	}
 	return value
 }
+
+// Retry 广播一次重试等待：界面据此显示「第 n/N 次重试，等待 x 秒」。
+func (s *Stream) Retry(attempt, max int, delayMs int64) {
+	s.emit("chat:retry", map[string]any{"attempt": attempt, "max": max, "delay_ms": delayMs})
+}
+
+// RetryEnd 重试等待结束（重发或放弃）。
+func (s *Stream) RetryEnd() {
+	s.emit("chat:retry_end", nil)
+}

@@ -52,6 +52,7 @@ func (c *Chat) State(sessionFile string) domain.ChatStateRESP {
 	resp.PlanState = &planState
 	resp.ContextUsage, resp.Stats = c.usageSnapshot(session, model)
 	resp.ContextWarn = c.contextWarnText(resp.ContextUsage, resp.AutoCompaction)
+	resp.AskPending = c.AskPending()
 	if provider == "" || modelId == "" {
 		resp.BindErr = "还没有选择模型，先去模型页选一个"
 	}
@@ -208,6 +209,10 @@ func (c *Chat) HandleCommand(text string) (bool, error) {
 		return true, c.Compact("", instructions)
 	case "/plan":
 		return true, c.togglePlan(trimmed)
+	case "/export":
+		// 与前端内置 export（Markdown）语义区分：后端这条导出自包含 HTML。
+		_, err := c.Export("")
+		return true, err
 	}
 	return false, nil
 }
