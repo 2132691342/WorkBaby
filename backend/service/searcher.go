@@ -106,7 +106,7 @@ func (s *Searcher) Rebuild(ctx context.Context) (domain.IndexStatusVO, error) {
 		s.mu.Unlock()
 	}
 
-	docs, err := index.Build(workspace)
+	docs, err := index.Build(ctx, workspace)
 	if err != nil {
 		finish()
 		return s.Status(), pkg.WrapErr(pkg.CodeFileIO, "索引工作区失败", err)
@@ -141,17 +141,19 @@ func (s *Searcher) EnsureIndexed(ctx context.Context) {
 	_, _ = s.Rebuild(ctx)
 }
 
-// Search 检索工作区。
+// Search 检索工作区。检索与记账在同一把锁里：
+// 「读 docs → 打分 → 记账」整体与重建互斥，才不会读到半新半旧的索引。
 func (s *Searcher) Search(ctx context.Context, query string, limit int) ([]domain.SearchHitVO, error) {
 	s.EnsureIndexed(ctx)
-	s.mu.RLock()
-	docs := s.docs
-	frecency := s.frecency
-	s.mu.RUnlock()
-	if len(docs) == 0 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.docs) == 0 {
+		if s.building {
+			return nil, pkg.Err(pkg.CodeEngineBusy, "索引正在构建，稍后再搜")
+		}
 		return []domain.SearchHitVO{}, nil
 	}
-	hits := index.Search(docs, query, frecency, limit)
+	hits := index.Search(s.docs, query, s.frecency, limit)
 	out := make([]domain.SearchHitVO, 0, len(hits))
 	docIDs := make([]string, 0, len(hits))
 	for _, hit := range hits {
@@ -166,12 +168,11 @@ func (s *Searcher) Search(ctx context.Context, query string, limit int) ([]domai
 		})
 		docIDs = append(docIDs, hit.HitDoc.DocID)
 	}
-	// 一个都没命中时不要碰 docIDs：空的切片取下标会直接崩。
 	if len(docIDs) > 0 {
 		// 命中的文件下次排得更前：常用且近用的先出现。
 		now := pkg.NowMs()
 		for _, docID := range docIDs {
-			frecency.Record(docID, now)
+			s.frecency.Record(docID, now)
 		}
 		_ = s.repo.BumpHit(docIDs)
 	}

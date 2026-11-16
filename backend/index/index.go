@@ -4,6 +4,7 @@
 package index
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -71,9 +72,13 @@ var binaryExts = map[string]struct{}{
 
 // Build 遍历一个工作区，产出可检索的文档集。
 // 它一次遍历同时收文件与符号：分开遍历等于把目录读两遍。
-func Build(root string) ([]Doc, error) {
+// ctx 取消即刻停扫：大仓库全量走一遍以分钟计，不能让它成为停不下来的长任务。
+func Build(ctx context.Context, root string) ([]Doc, error) {
 	docs := make([]Doc, 0, 512)
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			// 读不了的目录跳过：权限问题不该让整次索引失败。
 			if entry != nil && entry.IsDir() {
