@@ -2,6 +2,7 @@
 // 靠它守住。按块切分：全量重解析是 O(字数²)，只有最后一块在长，
 // 已稳定的块复用 HTML，成本降到 O(字数)。
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import i18n from '@/i18n'
 
 marked.setOptions({ gfm: true, breaks: true })
@@ -43,13 +44,25 @@ export function renderMarkdown(markdown: string): string {
 }
 
 function renderBlocks(blocks: string[]): string {
-  return blocks
+  const html = blocks
     .map((block) => {
       if (!block.trim()) return ''
       if (block.startsWith('```')) return renderCode(block)
       return marked.parse(block, { async: false }) as string
     })
     .join('')
+  return sanitize(html)
+}
+
+// 消毒是唯一出口的最后一道闸：模型输出与抓回的网页都可能带脚本，
+// WebView2 里执行一段 JS 就能拿到本地 API 令牌。禁脚本/事件属性/危险协议。
+function sanitize(html: string): string {
+  return DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ['style', 'form', 'iframe', 'object', 'embed'],
+    FORBID_ATTR: ['style'],
+    ADD_ATTR: ['data-copy', 'target'],
+  })
 }
 
 // 代码块：包一层带语言标签与复制按钮的容器。行数一并报出来，
@@ -92,10 +105,14 @@ function escapeHTML(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
-// 清掉某个渲染缓存的位（一轮结束后调用）：不清的话长会话里每轮都留一份
-// 全文 HTML，只增不减。
+// 清掉一轮的渲染缓存（一轮结束后调用）：缓存键是 `${runId}:${块下标}`，
+// 按前缀删才能把这一轮的所有块清干净——精确删一个键等于什么都没清。
 export function dropCache(cacheKey: string): void {
   caches.delete(cacheKey)
+  const prefix = cacheKey + ':'
+  for (const key of caches.keys()) {
+    if (key.startsWith(prefix)) caches.delete(key)
+  }
 }
 
 /** 清掉所有渲染缓存（切换会话时调用）。 */
