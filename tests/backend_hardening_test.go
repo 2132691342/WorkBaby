@@ -156,8 +156,9 @@ func TestBackendHardening(t *testing.T) {
 		}
 	})
 
-	// 索引重建的应答必须报「已收尾」：building 还没清就读状态，
-	// 界面会一直显示正在建索引。
+	// 索引重建是后台化的：应答只代表「已受理」，最终状态靠 /index/status 轮询
+	// （后台契约钉在 index_lifecycle_test.go）。这里钉的是收尾后的取样：
+	// building 已清、索引已建——界面不会永远停在「正在建索引」。
 	t.Run("索引重建回收尾后的状态", func(t *testing.T) {
 		h := newHarness(t)
 		workspace := t.TempDir()
@@ -165,10 +166,10 @@ func TestBackendHardening(t *testing.T) {
 		mustSetWorkspace(t, h, workspace)
 
 		env, code := h.call("POST", "/index/rebuild", nil)
-		var status domain.IndexStatusVO
-		h.mustOK(env, code, "重建索引", &status)
+		h.mustOK(env, code, "重建索引", nil)
+		status := waitIndexBuilt(t, h)
 		if status.IndexBuilding {
-			t.Fatal("重建应答里 index_building 应为 false：building 必须在取状态之前清掉")
+			t.Fatal("收尾后 index_building 应为 false：building 必须在取状态之前清掉")
 		}
 		if !status.IndexBuilt || status.IndexDocCount == 0 {
 			t.Fatalf("重建后应报已建索引且文档数大于 0：%+v", status)
