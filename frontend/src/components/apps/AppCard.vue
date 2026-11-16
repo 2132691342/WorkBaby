@@ -6,12 +6,9 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import type { AppRow } from '@/types/api'
-import type { AppProgressLog } from '@/stores/app'
 
 const props = defineProps<{
   row: AppRow
-  /** 这个应用当前的长任务现场；没有就是 null */
-  progress: AppProgressLog | null
   /** 正在检测 */
   busy: boolean
   copied: string
@@ -65,9 +62,9 @@ const shortPath = computed(() => {
       <p class="app-note">{{ row.install_note }}</p>
     </details>
 
-    <div v-if="progress || busy" class="app-progress">
-      <span class="spin" v-if="busy || progress?.phase === 'start' || progress?.phase === 'line'" />
-      <span class="mono">{{ progress?.message || progress?.lines?.[progress.lines.length - 1] || t('apps.detecting') }}</span>
+    <div v-if="busy" class="app-progress">
+      <span class="spin" />
+      <span class="mono">{{ t('apps.detecting') }}</span>
     </div>
   </article>
 </template>
