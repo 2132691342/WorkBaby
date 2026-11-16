@@ -12,7 +12,7 @@
 | 1 | 会话 | `data\sessions\<工作区编码>\SES_<ULID>.jsonl` | `backend/agent/session.go` | `agent`（上下文组装）、`service/parser`、`service/sessions.go`、`session_html.go` |
 | 2 | 设置台账 | `data\workbaby.json` | `backend/repo/store.go` | `service/settings.go`、`service/*` 各模块、`shell`（关窗偏好）、前端 `/bootstrap` |
 | 3 | 服务商目录 | `data\workbaby.db` 的 `provider` / `provider_model` | `backend/repo/provider_repo.go`（经 `service/models.go`） | 模型页、对话页下拉、`Chat.resolveModel` |
-| 4 | 能力配置 | `data\mcp.json`、`<工作区>\.pi\mcp.json`、`data\skills`、`data\skills_disabled`、`<工作区>\.pi\skills`、`data\templates\*.md` | `service/mcp.go`、`service/skills.go`、`service/templates.go` | `service/mcp_runtime.go`（装载工具）、技能页与斜杠命令、`chat_state.commands()` |
+| 4 | 能力配置 | `data\mcp.json`、`<工作区>\.workbaby\mcp.json`、`data\skills`、`data\skills_disabled`、`<工作区>\.workbaby\skills`、`data\templates\*.md` | `service/mcp.go`、`service/skills.go`、`service/templates.go` | `service/mcp_runtime.go`（装载工具）、技能页与斜杠命令、`chat_state.commands()` |
 | 5 | 派生数据 | `data\workbaby.db` 的 `search_doc` + 进程内索引与 frecency | `service/searcher.go` | 索引页、`index_search` 工具 |
 
 ## 0.1 目录布局（`pkg.Layout`，`backend/pkg/paths.go`）
@@ -125,7 +125,7 @@
 | 键 | 谁写 | 谁读 |
 |---|---|---|
 | `tasks` | `todo` 工具每次返回全量清单 | `parser.TodosFromEntries`：活动分支上最近一次调用的全量表就是当前待办（`status="deleted"` 的行剔除） |
-| `tidied`、`original_chars` | 输出折叠发生时（`Runner.runTools`） | 回放层据此提示「已折叠，展开看全文」；折叠前的原文不进上下文 |
+| `tidied`、`original_chars` | 输出折叠发生时（`Runner.appendCallResult`） | 回放层据此提示「已折叠，展开看全文」；**落盘的是完整原文**（`appendCallResult` 存 `result.Text`），折叠只发生在组装上下文时——落盘就折的话，回放后「展开看全文」只剩折叠文本 |
 | `diff`、`file_path` | 文件编辑类工具（`agent/tool_fs.go`） | 回放层取 `diff` 交 `parser.ParseDiff` 渲染成逐行差异 |
 
 ### 1.5 内容块（`domain.SessionBlockDO`）
@@ -234,7 +234,10 @@
   （`reservedSettings`，`backend/service/settings.go`）。工作区变更要校验目录并同步历史，
   绕过去就能把 files/git/searcher 的根指到任意位置。这两个键因此各自只有一个写入方（见上表）。
 - **`web.search_key` 在出口换掩码**：`Settings.All()` 与 `Prefs()` 都经 `maskSettings`，读到的恒是 `••••`。
-  写入路径不经过掩码，空串语义仍是「保留原值」。
+  写入路径不经过掩码，空串语义仍是「保留原值」。`/config/text?name=settings` 回台账原文，同样先过 `maskSettingsJSON`
+  （`backend/service/system.go`），解不开的 JSON 整份不给——密钥不因「回的是配置文件」这条旁路漏出去。
+- **密钥的落盘形态与威胁模型**：服务商密钥明文存 SQLite、搜索密钥明文存 JSON 台账。单机桌面应用里
+  数据目录本就在登录用户名下，威胁模型、已落地防线与已知限制统一见 `docs/SECURITY.md`。
 - `ui.font_scale` 的 0.8~1.35 夹取只在前端做（`stores/app.ts` 的 `applyFontScale`），后端不校验。
 - 台账之外还有两处前端本地状态，不属于设置台账：`wb.composer.drafts`（未发送的草稿）与
   `wb.workpanel.width`（右侧工作台宽度），都存在 localStorage，删数据目录不会清掉它们。
@@ -315,7 +318,7 @@
 | 层 | 路径 | 写方 |
 |---|---|---|
 | 用户级 | `data\mcp.json`（`Layout.McpFile()`） | `Mcp.Save`/`Toggle`/`Remove`（默认目标） |
-| 项目级 | `<工作区>\.pi\mcp.json` | 同一组方法，`scope="project"` 时；未选工作区则报错 |
+| 项目级 | `<工作区>\.workbaby\mcp.json` | 同一组方法，`scope="project"` 时；未选工作区则报错 |
 
 形状：顶层 `mcpServers`，值是「服务名 → 条目对象」的映射。
 
@@ -371,7 +374,7 @@
 |---|---|---|
 | `data\skills\<dir>\SKILL.md` | 启用态：进系统提示的技能索引（正文由模型按需 `read`） | 是（安装/导入/新建/编辑/搬移） |
 | `data\skills_disabled\<dir>\SKILL.md` | 停用态：搬进来即关闭 | 是（搬移/删除） |
-| `<工作区>\.pi\skills\<dir>\SKILL.md` | 项目技能：属于那个仓库 | 否（开关与删除都拒绝） |
+| `<工作区>\.workbaby\skills\<dir>\SKILL.md` | 项目技能：属于那个仓库 | 否（开关与删除都拒绝） |
 | `<AssetsDir>\skills\<dir>` | 随包原件：10 条推荐技能的来源 | 只读 |
 | `data\templates\<name>.md` | 提示词模板 | 是 |
 
@@ -381,7 +384,7 @@
 - 扫描三个区（`skills_scan.scanDir`）后按 `skill_group` 再按 `skill_name` 排序；
   同名技能只留启用区那份（引擎真正看到的是它）。
 - 来源四分（`skill_source`）：`builtin`（推荐清单登记的，可重置）、`bundled`（在 `assets\skills` 里但清单没登记）、
-  `managed`（界面新建）、`project`（工作区 `.pi\skills`）。
+  `managed`（界面新建）、`project`（工作区 `.workbaby\skills`）。
 - 目录名清洗（`sanitizeSkillName`）保留字母数字（含中文）与短横线，其余换成 `-`；新建、导入共用这套规则。
 - 引擎拿到的是一份索引而不是正文：`Skills.PromptSkills` 只扫启用区，每轮开跑前装进注册表
   （`agent.SkillSet`，`Registry.SetSkills`），`SystemPrompt` 把它列成 `名字 — 说明 — 路径`。
