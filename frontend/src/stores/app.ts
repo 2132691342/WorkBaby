@@ -12,9 +12,6 @@ import { useRefreshStore } from './refresh'
 import { useToasts } from '@/composables/useToasts'
 import { routeFrame } from './events'
 import { readFrame } from '@/utils/sse'
-import type { AppProgressLog } from '@/utils/sse'
-
-export type { AppProgressLog }
 
 export const useAppStore = defineStore('app', () => {
   const ready = ref(false)
@@ -32,10 +29,9 @@ export const useAppStore = defineStore('app', () => {
   // detecting 是「后台装配正在跑」的事实态。两者不是一回事：
   // 前者只持续用户点击的那几秒，后者可能持续整个首屏（解压 115MB）。
   const reDetecting = ref(false)
-  // 应用页的数据与安装进度。两者都放全局：概览的横幅、设置页、
+  // 应用页的数据。放全局：概览的横幅、设置页、
   // 应用页三处都看同一份，各拉一份就会出现「这里说装了、那里说没装」。
   const apps = ref<AppRow[]>([])
-  const appProgress = ref<AppProgressLog | null>(null)
   // 首次按关闭时的确认框：选「收进托盘」还是「退出」。
   const closePrompt = ref(false)
   const boot = ref<Bootstrap | null>(null)
@@ -202,6 +198,30 @@ export const useAppStore = defineStore('app', () => {
     await chat.refresh('')
   }
 
+  // 工作区被换了（SSE 事实通知）。事件不是动作，不能回手再调 setWorkspace
+  // 的写接口——那会把一次通知变成第二次写盘与第二圈广播。
+  // 同工作区是本机切换的回声：只做轻量对账；异处变更走与 setWorkspace
+  // 同等的刷新链路（重拉 bootstrap/workspaces、会话清单，对话落回空会话）。
+  async function onWorkspaceChanged(dir: string) {
+    try {
+      if (dir === workspace.value) {
+        refresh.bumpWorkspace()
+        await refreshSessions()
+        return
+      }
+      workspace.value = dir
+      const next = await api.bootstrap()
+      workspaces.value = next.workspaces ?? []
+      boot.value = next
+      await refreshSessions()
+      chat.reset()
+      await chat.refresh('')
+      refresh.bumpWorkspace()
+    } catch {
+      /* 后端还没就绪时对账会失败，等下一次快照/重连补齐 */
+    }
+  }
+
   function connect() {
     if (source) source.close()
     const url = streamURL(lastSeq)
@@ -246,13 +266,10 @@ export const useAppStore = defineStore('app', () => {
       chat,
       refreshEngines,
       refreshSessions,
-      loadApps,
       bumpSkills: () => refresh.bumpSkills(),
+      bumpMcp: () => refresh.bumpMcp(),
       bumpWorkspace: () => refresh.bumpWorkspace(),
-      appProgress: appProgress.value,
-      setAppProgress: (next) => {
-        appProgress.value = next
-      },
+      onWorkspaceChanged,
       setClosePrompt: (open) => {
         closePrompt.value = open
       },
@@ -296,7 +313,6 @@ export const useAppStore = defineStore('app', () => {
     sessions,
     closePrompt,
     apps,
-    appProgress,
     theme,
     runtimeReady,
     hasEngine,

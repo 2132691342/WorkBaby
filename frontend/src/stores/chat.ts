@@ -6,6 +6,7 @@ import { api } from '@/api/http'
 import { useEngineModels } from '@/composables/useEngineModels'
 import { useRunStatus } from '@/composables/useRunStatus'
 import { useMessageFlow } from '@/composables/useMessageFlow'
+import { readAsks } from '@/utils/sse'
 import type {
   AskRequest,
   ChatAttachment,
@@ -125,6 +126,9 @@ export const useChatStore = defineStore('chat', () => {
     autoCompaction.value = state.auto_compaction
     stats.value = state.stats ?? null
     todos.value = state.todos ?? []
+    // 挂起的提问卡片整表回填：直播中刷新时后端的 ask_pending 是真相——
+    // 不回填的话，刷新一次就把等着人答的卡片弄丢了。
+    asks.value = readAsks(state.ask_pending ?? [])
     planMode.value = state.plan_mode ?? false
     // 被拦下的工具名跟着计划模式状态一起回：横幅据此说明后果，
     // 退出计划模式时这份名单清空。

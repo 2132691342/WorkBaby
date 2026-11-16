@@ -118,7 +118,6 @@ chat: {
     attachNotImagePlain: '这个文件不是图片',
     pastedImage: '粘贴的图片-{n}',
     clipboardNoImage: '剪贴板里没有图片；其他文件请用回形针选择',
-    engineGone: '引擎进程已退出，这一轮已中断',
     engineRestarted: '引擎已重启',
     compactFailed: '压缩失败',
     compactDone: '上下文已压缩，窗口已腾出',

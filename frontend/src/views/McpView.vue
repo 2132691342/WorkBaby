@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // MCP 页：一份清单，增删改查 + 开关。
 // 定义落在数据目录的 mcp.json（用户级）与工作区 .pi/mcp.json（项目级），那份文件是唯一事实。
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { confirmDanger } from '@/utils/confirm'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -10,6 +10,7 @@ import McpTable from '@/components/mcp/McpTable.vue'
 import WbSkeleton from '@/components/common/WbSkeleton.vue'
 import { api, abortable } from '@/api/http'
 import { useAppStore } from '@/stores/app'
+import { useRefreshStore } from '@/stores/refresh'
 import { useToasts } from '@/composables/useToasts'
 import type { McpListData, McpServer } from '@/types/api'
 
@@ -206,6 +207,18 @@ async function remove(row: McpServer) {
     removingName.value = ''
   }
 }
+
+// 后台改动（别的入口保存、引擎侧重建）落地时页面可能开着没动：
+// 事件路由 bump 一下，这里防抖重拉——与技能页同一套写法。
+const refreshStore = useRefreshStore()
+let reloadTimer = 0
+watch(
+  () => refreshStore.mcp,
+  () => {
+    window.clearTimeout(reloadTimer)
+    reloadTimer = window.setTimeout(() => void load(), 400)
+  },
+)
 
 onMounted(() => void load())
 </script>

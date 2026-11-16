@@ -164,7 +164,7 @@ async function restartEngine(): Promise<void> {
   }
 }
 
-// 装配完成时后端推 engine:status，runtime.detecting 翻转的这一刻重拉本屏。
+// 装配完成时 runtime.detecting 翻转（引擎事件触发的状态重拉），这一刻重拉本屏。
 watch(
   () => app.runtime?.detecting,
   (value, prev) => {

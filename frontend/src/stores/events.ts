@@ -4,15 +4,13 @@
 import {
   asNumber,
   asString,
-  readAppProgress,
   readAsk,
   readBlocks,
-  readCommands,
   readPatch,
   readStrings,
   readTodos,
 } from '@/utils/sse'
-import type { AppProgressLog, TurnUsagePayload } from '@/utils/sse'
+import type { TurnUsagePayload } from '@/utils/sse'
 import i18n from '@/i18n'
 import { useChatStore } from './chat'
 
@@ -27,16 +25,14 @@ export interface RouteDeps {
   refreshEngines: () => Promise<unknown>
   /** 重拉会话列表 */
   refreshSessions: () => Promise<unknown>
-  /** 重拉应用清单（安装跑完之后） */
-  loadApps: () => Promise<unknown>
   /** 技能清单有后台变化 */
   bumpSkills: () => void
+  /** MCP 目录有后台变化 */
+  bumpMcp: () => void
   /** 引擎改了工作区文件（一轮结束），工作区页该重看一眼 */
   bumpWorkspace: () => void
-  /** 安装进度（同一个时刻只有一条长任务，所以只留一份） */
-  appProgress: AppProgressLog | null
-  /** 写回安装进度 */
-  setAppProgress: (next: AppProgressLog | null) => void
+  /** 工作区被换了（事实通知）：app 侧按当前工作区判断走全量刷新还是回声对账 */
+  onWorkspaceChanged: (workspace: string) => Promise<void>
   /** 用户按了窗口关闭按钮 */
   setClosePrompt: (open: boolean) => void
   /** 弹一条全局提示 */
@@ -73,10 +69,6 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
   switch (event) {
     case 'stream:open':
       return
-    case 'engine:status':
-      // SSE 连接建立时后端补的一张当前状态，也用于安装完成后的刷新。
-      void deps.refreshEngines()
-      return
     case 'engine:ready':
       void deps.refreshEngines()
       // 引擎是后台预热的：就绪那一刻对话页要从回放态落到实况，
@@ -86,51 +78,6 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
     case 'engine:detected':
       void deps.refreshEngines()
       return
-    case 'engine:exit':
-      // 引擎进程没了，正在跑的那一轮也结束了。不复位 streaming 的话，
-      // 活动条会一直停在「运行中」，而下面再没有东西会来收尾——
-      // 用户看到的是界面卡死，连发消息都被自己拦住。
-      void deps.refreshEngines()
-      if (chat.streaming) {
-        chat.streaming = false
-        chat.runError = i18n.global.t('chat.engineGone')
-        deps.toast('error', chat.runError)
-      }
-      return
-    case 'engine:commands': {
-      const list = readCommands(data.commands)
-      if (list.length) chat.commands = list
-      return
-    }
-    case 'app:progress': {
-      const frame = readAppProgress(data)
-      if (!frame) return
-      const prev = deps.appProgress
-      // start 开一份新日志，line 追加，done / fail 收尾。
-      if (frame.progress_phase === 'start') {
-        deps.setAppProgress({ action: frame.progress_action, phase: 'start', lines: [], message: '' })
-        return
-      }
-      const next: AppProgressLog = {
-        action: frame.progress_action,
-        phase: frame.progress_phase,
-        lines: [...(prev?.lines ?? [])],
-        message: frame.progress_message ?? '',
-      }
-      if (frame.progress_phase === 'line' && frame.progress_line) {
-        next.lines.push(frame.progress_line)
-        // 面板只留最后 400 行：装 pi 与插件的日志能到几百行，
-        // 全留会让长任务把内存吃掉，而用户看的是尾部。
-        if (next.lines.length > 400) next.lines = next.lines.slice(-400)
-      }
-      deps.setAppProgress(next)
-      if (frame.progress_phase === 'done' || frame.progress_phase === 'fail') {
-        // 结束后重拉清单与状态：装在后台跑完时界面也要跟上。
-        void deps.loadApps().catch(() => undefined)
-        void deps.refreshEngines().catch(() => undefined)
-      }
-      return
-    }
     case 'app:close_requested': {
       // 首次按关闭：不静默躲进托盘，而是问一次。
       // 静默隐藏是「关不掉」这种抱怨的唯一来源。
@@ -140,11 +87,42 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
     case 'skill:status':
       deps.bumpSkills()
       return
+    case 'mcp:changed':
+      deps.bumpMcp()
+      return
+    case 'workspace:changed': {
+      // 事实通知不是动作：不再调写接口。是否本机切换的回声由 app 侧
+      // 对照当前工作区判断（回声轻量对账，异处变更走全量刷新链路）。
+      const ws = asString(data.workspace)
+      if (ws) void deps.onWorkspaceChanged(ws)
+      return
+    }
     case 'models:changed':
       // 服务商或模型增删改：对话页的模型下拉要重拉，否则用户在模型页加完
       // 服务商，输入区里还是加之前那一份——选中的模型可能刚被删掉。
       void chat.refreshModels()
       return
+    case 'chat:model': {
+      // 模型被切换（可能由别的入口发起）：只换身份字段，其余读数保留；
+      // 清单强制重拉一次，选中项若已被删掉 refreshModels 会纠正。
+      const provider = asString(data.provider_name)
+      const modelId = asString(data.model_id)
+      if (!provider || !modelId) return
+      const prev = chat.model
+      chat.model = prev
+        ? { ...prev, provider_name: provider, model_id: modelId }
+        : {
+            provider_name: provider,
+            model_id: modelId,
+            model_name: modelId,
+            api_protocol: '',
+            supports_reasoning: false,
+            context_window: 0,
+            max_tokens: 0,
+          }
+      void chat.refreshModels()
+      return
+    }
     case 'chat:start':
       chat.streaming = true
       chat.promptError = ''
@@ -192,13 +170,6 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       chat.lastActivityAt = Date.now()
       return
     }
-    case 'chat:blocks': {
-      if (chat.turn && asString(data.run_id) === chat.turn.run_id) {
-        chat.turn.blocks = readBlocks(data.turn_blocks)
-        chat.lastActivityAt = Date.now()
-      }
-      return
-    }
     case 'chat:queue':
       chat.queue = { steering: readStrings(data.steering), follow_up: readStrings(data.follow_up) }
       return
@@ -208,22 +179,16 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       chat.todos = readTodos(data.todos)
       return
     }
+    case 'chat:plan':
+      // 计划模式开关（可能由 /plan 命令切换）：退出时被拦清单随之清空。
+      chat.planMode = data.plan_enabled === true
+      if (!chat.planMode) chat.blockedTools = []
+      return
     case 'chat:ask': {
       const ask = readAsk(data)
       if (ask) chat.asks = [...chat.asks.filter((a) => a.ask_id !== ask.ask_id), ask]
       return
     }
-    case 'chat:notify': {
-      const level = asString(data.level, 'info')
-      chat.pushNotice(level, asString(data.message))
-      return
-    }
-    case 'chat:status':
-      chat.setStatus(asString(data.key), asString(data.text))
-      return
-    case 'chat:widget':
-      chat.setWidget(asString(data.key), readStrings(data.lines))
-      return
     case 'chat:retry':
       chat.retry = {
         attempt: asNumber(data.attempt),
@@ -265,12 +230,6 @@ export function routeFrame(event: string, data: Record<string, unknown>, deps: R
       chat.promptError = message
       chat.streaming = false
       deps.toast('error', message)
-      return
-    }
-    case 'chat:editor_text': {
-      // 引擎反向预填输入框：值可能很长，只在非空时覆盖草稿。
-      const text = asString(data.text)
-      if (text) chat.draftOverride = text
       return
     }
     case 'session:info':

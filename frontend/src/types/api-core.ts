@@ -73,16 +73,6 @@ export interface AppRow {
   install_note?: string
 }
 
-/** 安装进度帧（SSE `app:progress`）。逐行推，前端 append 到日志面板。 */
-export interface AppProgress {
-  progress_kind: string
-  progress_action: string
-  progress_phase: 'start' | 'line' | 'done' | 'fail'
-  progress_line?: string
-  progress_message?: string
-  plugin_name?: string
-}
-
 /** 一个存活的引擎实例。引擎在进程内，所以没有 PID。 */
 export interface EngineRun {
   engine_kind: EngineKind

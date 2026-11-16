@@ -121,7 +121,6 @@ onMounted(() => {
             v-for="row in envRows"
             :key="row.app_key"
             :row="row"
-            :progress="app.appProgress"
             :busy="false"
             :copied="copied"
             @copy="copy"

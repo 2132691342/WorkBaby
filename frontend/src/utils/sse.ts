@@ -1,15 +1,7 @@
 // SSE 载荷的类型边界：把 JSON 解析出来的 unknown 树窄化成界面用的类型。
 // 全是纯函数、不碰 store；纪律是先校验再取字段，绝不 `as` 一个形状直接读成员——
 // 后端加删字段都会在这里被挡住，否则界面读到 undefined 还不知道发生了什么。
-import type { AppProgress, AskRequest, ChatBlock, ChatPatch, DiffLine, SlashCommand, TodoItem } from '@/types/api'
-
-/** 一个长任务的一次现场：动作、逐行输出、当前阶段。 */
-export interface AppProgressLog {
-  action: string
-  phase: string
-  lines: string[]
-  message: string
-}
+import type { AskRequest, ChatBlock, ChatPatch, DiffLine, TodoItem } from '@/types/api'
 
 /** 一帧 SSE：信封 + 载荷。 */
 export interface StreamFrame {
@@ -40,43 +32,6 @@ export const asBool = (v: unknown, fallback = false): boolean => (typeof v === '
 /** 取一个字符串数组；不是数组就给空数组。 */
 export const readStrings = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
-
-// 窄化一帧安装进度：阶段必须是已知值，其余丢弃而不是兜底——不认识的值
-// 会让进度面板显示成一堆看不懂的日志。
-export function readAppProgress(v: Record<string, unknown>): AppProgress | null {
-  const kind = asString(v.progress_kind)
-  if (!kind) return null
-  const action = asString(v.progress_action)
-  if (!action) return null
-  const phase = asString(v.progress_phase)
-  if (phase !== 'start' && phase !== 'line' && phase !== 'done' && phase !== 'fail') return null
-  return {
-    progress_kind: kind,
-    progress_action: action,
-    progress_phase: phase,
-    progress_line: asString(v.progress_line) || undefined,
-    progress_message: asString(v.progress_message) || undefined,
-    plugin_name: asString(v.plugin_name) || undefined,
-  }
-}
-
-/** 命令清单只关心界面要显示的三段：名字 / 来源 / 说明。 */
-export function readCommands(v: unknown): SlashCommand[] {
-  if (!Array.isArray(v)) return []
-  const out: SlashCommand[] = []
-  for (const item of v) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const name = asString(record.command_name)
-    if (!name) continue
-    out.push({
-      command_name: name,
-      command_source: asString(record.command_source),
-      command_desc: asString(record.command_desc) || undefined,
-    })
-  }
-  return out
-}
 
 /** 窄化一行差异。 */
 function readDiffLine(v: unknown): DiffLine | null {
@@ -168,6 +123,18 @@ export function readAsk(v: Record<string, unknown>): AskRequest | null {
     ask_options: readStrings(v.ask_options),
     ask_timeout_ms: asNumber(v.ask_timeout_ms) || undefined,
   }
+}
+
+/** 窄化一组提问卡片（快照里的 ask_pending）：逐条走 readAsk，坏条丢弃。 */
+export function readAsks(v: unknown): AskRequest[] {
+  if (!Array.isArray(v)) return []
+  const out: AskRequest[] = []
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue
+    const ask = readAsk(item as Record<string, unknown>)
+    if (ask) out.push(ask)
+  }
+  return out
 }
 
 // 窄化一组待办任务：状态必须是三种之一——模型偶尔给别的词，交到面板会

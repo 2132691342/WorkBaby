@@ -154,6 +154,8 @@ export interface ChatState {
   stats?: SessionStats
   history: HistoryTurn[]
   todos?: TodoItem[]
+  /** 直播中还挂着的提问卡片：刷新时后端是真相，前端整表回填 */
+  ask_pending?: AskRequest[]
   /** 是否处于计划模式：由会话文件里的 plan-mode 开关条目回放而来 */
   plan_mode: boolean
   /** 计划模式的细节：被拦下的工具清单 */

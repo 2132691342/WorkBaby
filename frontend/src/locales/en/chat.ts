@@ -118,7 +118,6 @@ export default {
     "attachNotImagePlain": "This file is not an image",
     "pastedImage": "Pasted image-{n}",
     "clipboardNoImage": "No image in the clipboard; pick other files with the paperclip",
-    "engineGone": "The engine process exited and this turn was interrupted",
     "engineRestarted": "Engine restarted",
     "compactFailed": "Compact failed",
     "compactDone": "Context compacted; the window is free again",
