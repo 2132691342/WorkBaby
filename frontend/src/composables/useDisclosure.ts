@@ -1,7 +1,7 @@
 // 折叠披露：显式选择的会话级记忆 + 阅读保护。
 // 只记用户显式动过的开合，没动过的走派生默认；显式选择跨驱逐（活动段重排、
 // 收尾换历史渲染造成的重挂）保留——用户展开过的卡再见面时还开着。
-import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { computed, onScopeDispose, ref, watch, type Ref, type WritableComputedRef } from 'vue'
 import { useChatStore } from '@/stores/chat'
 
 // 显式选择表：identity → 用户选的开合。键带会话前缀，不落盘、不跨会话串味。
@@ -17,7 +17,7 @@ const CLOSED = ref(false)
 export function useDisclosure(
   identity: Ref<string>,
   autoOpen: Ref<boolean> = CLOSED,
-): { open: ComputedRef<boolean> } {
+): { open: WritableComputedRef<boolean> } {
   const chat = useChatStore()
   const chosen = ref<boolean | undefined>(undefined)
 

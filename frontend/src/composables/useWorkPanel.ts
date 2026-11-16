@@ -18,6 +18,8 @@ const MAX_WIDTH = 720
 const tabs = ref<WorkTab[]>([])
 const activeId = ref('')
 const width = ref(clampWidth(Number(localStorage.getItem(WIDTH_KEY)) || 420))
+// 三栏预算（由布局测宽喂进来）：面板展示宽不得超过它，预算不足一个最小宽就整体折叠。
+const budget = ref(Number.POSITIVE_INFINITY)
 
 let seq = 0
 
@@ -61,14 +63,21 @@ export function setWorkMode(id: string, mode: 'diff' | 'file'): void {
   tabs.value = tabs.value.map((t) => (t.id === id ? { ...t, mode } : t))
 }
 
-/** 拖宽：夹在上下限内并记住，下次打开还是这个宽度。 */
+/** 拖宽：夹在上下限内并记住，下次打开还是这个宽度。上限是实时预算，窄窗拖不穿主区硬底。 */
 export function setWorkWidth(px: number): void {
-  width.value = clampWidth(px)
+  width.value = Math.min(clampWidth(px), Math.max(MIN_WIDTH, Math.round(budget.value)))
   localStorage.setItem(WIDTH_KEY, String(width.value))
 }
 
-/** 工作台是否展开：有标签才占地方，全关了就收起。 */
-const open = computed(() => tabs.value.length > 0)
+/** 布局预算：页面宽减去侧栏与主区硬底后，面板最多能占多少。 */
+export function setBudget(px: number): void {
+  budget.value = px
+}
+
+/** 工作台是否展开：有标签才占地方，预算不足一个最小宽时自动折叠（标签不清）。 */
+const open = computed(() => tabs.value.length > 0 && budget.value >= MIN_WIDTH)
+/** 展示宽：偏好的宽度与预算取小——收窄自动发生，不用用户动手。 */
+const displayWidth = computed(() => Math.min(width.value, budget.value))
 const active = computed(() => tabs.value.find((t) => t.id === activeId.value) ?? null)
 
 /** 工作台状态与动作。 */
@@ -79,9 +88,11 @@ export function useWorkPanel() {
     active,
     open,
     width,
+    displayWidth,
     openFile: openWorkFile,
     closeTab: closeWorkTab,
     setMode: setWorkMode,
     setWidth: setWorkWidth,
+    setBudget,
   }
 }

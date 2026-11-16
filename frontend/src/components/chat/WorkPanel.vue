@@ -43,7 +43,7 @@ function closeAll(): void {
 <template>
   <!-- 开合过渡走 wb-fade（淡入淡出 + 6px 轻浮）：面板不是抽屉，不做滑入滑出。 -->
   <Transition name="wb-fade">
-    <aside v-if="panel.open.value" class="work-panel" :style="{ width: panel.width.value + 'px' }">
+    <aside v-if="panel.open.value" class="work-panel" :style="{ width: panel.displayWidth.value + 'px' }">
     <div
       class="wp-resize"
       :class="{ 'is-drag': dragging }"

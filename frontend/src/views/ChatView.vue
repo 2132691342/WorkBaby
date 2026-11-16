@@ -19,6 +19,9 @@ import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useToasts } from '@/composables/useToasts'
 import { useComposerActions } from '@/composables/useComposerActions'
+import { useCommandPalette } from '@/composables/useCommandPalette'
+import { useStickToBottom } from '@/composables/useStickToBottom'
+import { useColumnBudget } from '@/composables/useColumnBudget'
 import type { UIResponse } from '@/types/api'
 
 const app = useAppStore()
@@ -59,20 +62,43 @@ const sessionError = ref('')
 const loaded = ref(false)
 
 const scroller = ref<HTMLElement | null>(null)
+const scrollContent = ref<HTMLElement | null>(null)
 const composer = ref<{ focus: () => void } | null>(null)
-const pinned = ref(true)
 // 底部栈（待办 + 输入区 + 提示条）的实际高度写进 CSS 变量：
 // 悬浮元素（回到底部、过程提示）贴着它算偏移，textarea 撑高也不会叠进输入区。
 const mainEl = ref<HTMLElement | null>(null)
 const bottomStack = ref<HTMLElement | null>(null)
+const pageEl = ref<HTMLElement | null>(null)
+const sideEl = ref<HTMLElement | null>(null)
 let bottomRo: ResizeObserver | null = null
 
-// 全局快捷键只留 Ctrl+J（回输入框）与 Esc（收起授权提示）：
+// 贴底跟随：流式长高时钉住最新消息；用户上滚即放行，回底重获跟随。
+// 点内容（工具卡阅读）不算逃逸，只有滚轮 / 触摸 / 拖滚动条这些手势才放行。
+const follow = useStickToBottom(scroller, scrollContent)
+const { atBottom, scrollToEdge, scheduleSync, stick } = follow
+// 三栏预算：窄窗下右工作台自动收窄 / 折叠，主区不跌破硬底。
+useColumnBudget(pageEl, sideEl)
+
+const palette = useCommandPalette()
+
+// 全局快捷键只留 Ctrl+J（回输入框）与 Ctrl+N（新对话）：
 // Ctrl+K 归命令面板，其余交给控件自己的按键，不在全局抢。
 function onKeydown(event: KeyboardEvent) {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
     event.preventDefault()
     composer.value?.focus()
+    return
+  }
+  // 命令面板开着时按键归面板，不抢它的输入。
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === 'n' &&
+    !palette.open.value
+  ) {
+    event.preventDefault()
+    void onNewChat()
   }
 }
 
@@ -98,56 +124,11 @@ const liveTurn = computed(() => {
   }
 })
 
-function nearBottom(): boolean {
-  const el = scroller.value
-  if (!el) return true
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 120
-}
-
-function scrollToBottom(smooth = false) {
-  const el = scroller.value
-  if (!el) return
-  el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
-}
-
-// 连续钉底几次：流式时正文一阵一阵长高，只钉一次会被后续高度变化抛在后面
-// （打开就在中间）；只在真的贴底时才钉。
-async function pinBottom(rounds = 3): Promise<void> {
-  for (let i = 0; i < rounds; i++) {
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-    if (!pinned.value) return
-    scrollToBottom()
-  }
-}
-
-function onScroll() {
-  pinned.value = nearBottom()
-  // 滚动事件本身也当一次排程信号：贴底状态下滚动条抖动（内容长高把
-  // 位置顶上去）没有伴随 store 变化，靠 watch 抓不到。
-  schedulePin()
-}
-
-// 流式高频补丁下的贴底：同一帧只滚一次。watch 每帧触发几次时
-// scrollTo 连发会让滚动条抖动、掉帧；rAF 合帧是唯一的解。
-let pinQueued = false
-function schedulePin(): void {
-  if (!pinned.value || pinQueued) return
-  pinQueued = true
-  requestAnimationFrame(() => {
-    pinQueued = false
-    if (!pinned.value) return
-    const el = scroller.value
-    if (!el) return
-    // 距底不到 2px 就不再推：连发 scrollTo 反而让滚动条抖。
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 2) return
-    el.scrollTop = el.scrollHeight
-  })
-}
-
+// 流式长高时按跟随标记补一次钉底；用户已滚开时 composable 内部不推。
 watch(
   () => [chat.turn?.blocks.length, chat.turn?.blocks.at(-1)?.block_text?.length, chat.history.length],
   () => {
-    schedulePin()
+    scheduleSync()
   },
 )
 
@@ -168,7 +149,7 @@ async function answer(response: UIResponse) {
 async function openSession(path: string) {
   chat.reset()
   // 切会话就回到贴底：用户点一条历史，看的是它最后那一句。
-  pinned.value = true
+  stick()
   loadingSession.value = true
   sessionError.value = ''
   try {
@@ -185,7 +166,7 @@ async function openSession(path: string) {
   // 刷新窗口时才不会又回到默认会话。
   await router.replace({ name: 'chat', query: path ? { session: path } : {} })
   await nextTick()
-  await pinBottom()
+  scheduleSync()
 }
 
 // 侧栏里的会话被删 / 改名了：删的是正看着的这个时，后端已把引擎切到新会话，
@@ -205,6 +186,7 @@ function sessionFromQuery(): string {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
+  follow.bind()
   // 输入区 autosize、待办面板展开收起都会改底部高度：跟着量，悬浮元素不叠压。
   bottomRo = new ResizeObserver(() => {
     const stack = bottomStack.value
@@ -217,8 +199,7 @@ onMounted(async () => {
     const path = sessionFromQuery()
     await chat.refresh(path)
     await nextTick()
-    pinned.value = true
-    await pinBottom()
+    scheduleSync()
     loaded.value = true
   } catch {
     // query 里的会话可能刚被删掉：退回默认会话，地址也一并清掉。
@@ -238,6 +219,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  follow.unbind()
   bottomRo?.disconnect()
   bottomRo = null
 })
@@ -278,7 +260,7 @@ watch(
     <section ref="mainEl" class="chat-main">
       <ChatHeader />
 
-      <div ref="scroller" class="chat-scroll" @scroll="onScroll">
+      <div ref="scroller" class="chat-scroll">
         <!-- 缺引擎 / 切会话中 / 打不开：三块落地区在 ChatLanding 里 -->
         <ChatLanding
           v-if="!loaded || !app.workspace || !app.hasEngine || loadingSession || Boolean(sessionError)"
@@ -294,13 +276,13 @@ watch(
 
         <ChatEmpty v-else-if="!hasTurn && !chat.history.length" />
 
-        <div v-else class="msg-col-wrap">
+        <div v-else ref="scrollContent" class="msg-col-wrap">
           <HistoryList :turns="chat.history" :live="liveTurn" />
           <AskCard v-if="chat.activeAsk" :ask="chat.activeAsk" :answering="answering" @answer="answer" />
         </div>
       </div>
 
-      <button type="button" v-if="!pinned" class="jump-bottom" :title="t('chat.jumpBottom')" :aria-label="t('chat.jumpBottom')" @click="scrollToBottom(true)">
+      <button type="button" v-if="!atBottom" class="jump-bottom" :title="t('chat.jumpBottom')" :aria-label="t('chat.jumpBottom')" @click="scrollToEdge('bottom', 'smooth')">
         <AppIcon name="chevron" :size="13" />
       </button>
 

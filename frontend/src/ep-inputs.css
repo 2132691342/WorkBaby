@@ -1,11 +1,4 @@
 /* EP 输入 / 选择 / 数值：与按钮同一高度刻度。
-/* 代码编辑等宽变体：调用方给 el-input type=textarea 传 mono 类（类落在包裹层 el-textarea 上）。
-   这里改的是代码 / 配置文件，比例字体对不齐缩进。 */
-.el-textarea.mono .el-textarea__inner {
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-xs);
-  line-height: 1.6;
-}
 
 /* ============================================================
    输入 / 选择 / 数值
@@ -43,6 +36,13 @@
 .el-textarea__inner {
   padding: var(--wb-sp-2) var(--wb-sp-3);
   line-height: var(--wb-lh-base);
+}
+/* 代码编辑等宽变体：调用方给 el-input type=textarea 传 mono 类（类落在包裹层 el-textarea 上）。
+   这里改的是代码 / 配置文件，比例字体对不齐缩进。 */
+.el-textarea.mono .el-textarea__inner {
+  font-family: var(--wb-font-mono);
+  font-size: var(--wb-fs-xs);
+  line-height: 1.6;
 }
 .el-input__inner::placeholder,
 .el-textarea__inner::placeholder {

@@ -1,5 +1,4 @@
 /* 思考块：一张描边卡片，一行摘要，展开才长内容。
-/* 整行可点：过渡与按下缩放收编 wb-pressable-row，这里只管字色语言。 */
 
 /* ============================================================
    思考块：一张描边卡片，一行摘要，展开才长内容。
@@ -20,6 +19,7 @@
 .think.live {
   border-color: var(--wb-live-line);
 }
+/* 整行可点：过渡与按下缩放收编 wb-pressable-row，这里只管字色语言。 */
 .think-head {
   display: flex;
   align-items: center;
@@ -33,7 +33,6 @@
   font-weight: 600;
   text-align: left;
   cursor: pointer;
-  transition: color var(--wb-dur-fast) var(--wb-ease);
 }
 .think-head:hover {
   color: var(--wb-ink-2);
