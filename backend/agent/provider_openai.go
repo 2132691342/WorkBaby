@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"WorkBaby/backend/pkg"
 )
 
 // openaiStreamer 走 /chat/completions 的 SSE 流。
@@ -164,7 +166,7 @@ func (s *openaiStreamer) Stream(ctx context.Context, req Request) (<-chan Stream
 	if err != nil {
 		return nil, fmt.Errorf("请求编码失败: %w", err)
 	}
-	url := strings.TrimSuffix(strings.TrimSpace(req.Model.BaseUrl), "/") + "/chat/completions"
+	url := pkg.OpenAIEndpoint(req.Model.BaseUrl, "chat/completions")
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("请求构造失败: %w", err)
@@ -288,22 +290,26 @@ func userContent(msg Message) any {
 const maxStreamLineBytes = 8 << 20
 
 // pump 读 SSE 分片并翻译成归一事件；结束时关闭通道。
+// 行长按块累计：ReadBytes 会把整条无换行的行先攒进内存，上限检查必须在攒的过程中发生。
 func (s *openaiStreamer) pump(ctx context.Context, body io.ReadCloser, out chan<- StreamEvent) {
 	defer close(out)
 	defer body.Close()
 
-	// 不指定 buffer：SSE 单帧可能有一整段长文本，默认 64KB 上限会截断。
-	reader := bufio.NewReaderSize(body, 1<<20)
+	reader := bufio.NewReaderSize(body, 64<<10)
 	builder := &assistantBuilder{}
 	finish := ""
+	// 空闲看门狗：上游 TCP 活着却永不吐字节时，靠关 Body 打断阻塞中的读。
+	idle := time.AfterFunc(streamIdleTimeout, func() { _ = body.Close() })
+	defer idle.Stop()
 
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, tooLong, err := readCappedLine(reader, maxStreamLineBytes)
+		idle.Reset(streamIdleTimeout)
+		if tooLong {
+			builder.fail("上游返回了超长的一帧，已中断这条流")
+			break
+		}
 		if len(line) > 0 {
-			if len(line) > maxStreamLineBytes {
-				builder.fail("上游返回了超长的一帧，已中断这条流")
-				break
-			}
 			payload := bytes.TrimSpace(line)
 			// 只认 data: 行；event/id/注释（心跳）一律跳过。
 			if after, ok := bytes.CutPrefix(payload, []byte("data:")); ok {
@@ -324,11 +330,15 @@ func (s *openaiStreamer) pump(ctx context.Context, body io.ReadCloser, out chan<
 			}
 		}
 		if err != nil {
-			if err != io.EOF && err != context.Canceled {
+			if err != io.EOF && ctx.Err() == nil {
 				builder.fail("流中断：" + err.Error())
 			}
 			break
 		}
+	}
+	if builder.errMsg == "" && finish == "" && len(builder.blocks) == 0 && len(builder.callOrder) == 0 {
+		// 200 + 一条什么都没解析出的流：静默空收尾会让用户以为「模型没说话」。
+		builder.fail("上游返回了无法解析的流，没有任何内容")
 	}
 	if finish == "" {
 		finish = builder.stop
@@ -340,6 +350,28 @@ func (s *openaiStreamer) pump(ctx context.Context, body io.ReadCloser, out chan<
 	select {
 	case out <- StreamEvent{Kind: EventStop, StopReason: finish, Text: builder.errorMessage()}:
 	case <-ctx.Done():
+	}
+}
+
+// streamIdleTimeout 是帧间空闲上限：超过它就认定上游挂死，关流报错。
+const streamIdleTimeout = 90 * time.Second
+
+// readCappedLine 读一行（不含换行符），累计超过 limit 立即停下并标记 tooLong。
+// 超限部分的剩余字节不再读：这条流已经被判死，调用方会关闭 Body。
+func readCappedLine(reader *bufio.Reader, limit int) ([]byte, bool, error) {
+	var line []byte
+	for {
+		part, isPrefix, err := reader.ReadLine()
+		line = append(line, part...)
+		if len(line) > limit {
+			return line, true, nil
+		}
+		if err != nil {
+			return line, false, err
+		}
+		if !isPrefix {
+			return line, false, nil
+		}
 	}
 }
 
