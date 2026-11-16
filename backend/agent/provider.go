@@ -293,14 +293,23 @@ func (b *assistantBuilder) appendText(kind BlockKind, text string) {
 
 // startCall 登记一个工具调用。按上游的 index 归并而不是按到达顺序：
 // 并行工具调用的分片理论上可以交错，靠「最后一个块」拼入参会串到一起。
+// 同 index 再次带头字段时只补空缺：重建块会把已拼进去的入参前缀整段清掉。
 func (b *assistantBuilder) startCall(index int, callId, name string) {
 	if b.calls == nil {
 		b.calls = map[int]*Block{}
 	}
-	if _, seen := b.calls[index]; !seen {
+	call, seen := b.calls[index]
+	if !seen {
 		b.callOrder = append(b.callOrder, index)
+		call = &Block{Kind: KindToolCall}
+		b.calls[index] = call
 	}
-	b.calls[index] = &Block{Kind: KindToolCall, CallId: callId, ToolName: name}
+	if callId != "" {
+		call.CallId = callId
+	}
+	if name != "" {
+		call.ToolName = name
+	}
 }
 
 // appendCallArgs 把入参增量拼到对应调用上。
