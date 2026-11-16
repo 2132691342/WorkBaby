@@ -163,7 +163,9 @@ defineExpose({ reset })
   width: 100%;
   padding: 3px var(--wb-sp-2);
   border: none;
-  background: transparent;
+  /* button 的 UA 底色用 appearance 收，不能写 background: transparent——
+     scoped 基础规则（0,2,0）晚于全局加载，会盖掉 .wb-row-click 的状态底色。 */
+  appearance: none;
   color: var(--wb-mute);
   font-size: var(--wb-fs-xs);
   font-family: var(--wb-font-mono);

@@ -87,7 +87,9 @@ function stamp(ms: number): string {
   width: 100%;
   padding: var(--wb-sp-2);
   border: none;
-  background: transparent;
+  /* button 的 UA 底色用 appearance 收，不能写 background: transparent——
+     scoped 基础规则（0,2,0）晚于全局加载，会盖掉 .wb-row-click 的状态底色。 */
+  appearance: none;
   text-align: left;
   border-radius: var(--wb-r-sm);
 }

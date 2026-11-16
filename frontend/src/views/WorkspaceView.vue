@@ -249,6 +249,22 @@ watch(
 )
 
 onMounted(refresh)
+
+/** 直接叫起「选目录」：dialog 与随后的引擎重建都在这一段里，按钮挂 loading，失败出声。 */
+const choosingWorkspace = ref(false)
+async function pickWorkspace(): Promise<void> {
+  if (choosingWorkspace.value) return
+  choosingWorkspace.value = true
+  try {
+    const prev = app.workspace
+    await app.chooseWorkspace()
+    if (app.workspace !== prev) toasts.push('ok', t('workspace.switched', { path: app.workspace }))
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    choosingWorkspace.value = false
+  }
+}
 </script>
 
 <template>
@@ -259,10 +275,10 @@ onMounted(refresh)
       :workspace="app.workspace"
       :current-row="currentRow"
       :status="status"
-      :switching="switching"
+      :switching="switching || choosingWorkspace"
       :loading-status="loadingStatus"
       :files-open="filesOpen"
-      @pick="app.chooseWorkspace()"
+      @pick="pickWorkspace()"
       @toggle-files="filesOpen = !filesOpen"
       @refresh="refresh"
     />
@@ -276,7 +292,7 @@ onMounted(refresh)
       :hint="t('workspace.noWorkspaceHint')"
     >
       <template #action>
-        <button class="wb-btn primary" type="button" @click="app.chooseWorkspace()">
+        <button class="wb-btn primary" type="button" :class="{ 'is-loading': choosingWorkspace }" :disabled="choosingWorkspace" @click="pickWorkspace()">
           {{ t('workspace.pickWorkspace') }}
         </button>
       </template>

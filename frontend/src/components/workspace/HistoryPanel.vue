@@ -106,8 +106,9 @@ async function pickFile(filePath: string) {
   diffLoading.value = true
   try {
     fileDiff.value = await api.gitFileDiff(detail.value.commit.commit_hash, filePath)
-  } catch {
+  } catch (err) {
     fileDiff.value = null
+    toasts.push('error', err instanceof Error ? err.message : String(err))
   } finally {
     diffLoading.value = false
   }
@@ -157,8 +158,8 @@ onUnmounted(() => window.clearTimeout(unmountTimer))
     <template v-else>
       <div v-for="item in list" :key="item.commit_hash" class="commit-block">
         <button type="button"
-          class="commit-line"
-          :class="{ open: openHash === item.commit_hash }"
+          class="commit-line wb-row-click"
+          :class="{ 'is-active': openHash === item.commit_hash }"
           @click="open(item)"
         >
           <span class="hash mono">{{ item.short_hash }}</span>
@@ -194,7 +195,7 @@ onUnmounted(() => window.clearTimeout(unmountTimer))
               <button type="button"
                 v-for="changed in detail.changed_files"
                 :key="changed.file_path"
-                class="detail-file"
+                class="detail-file wb-pressable-row"
                 :class="{ active: pickedFile === changed.file_path }"
                 @click="pickFile(changed.file_path)"
               >
@@ -252,7 +253,7 @@ onUnmounted(() => window.clearTimeout(unmountTimer))
 }
 
 /* 一条提交：hash · 标题 · 作者时间 · 增删。整行是一个可点的对象，
-   所以给整行的悬停底色与按下缩放，但不给描边。 */
+   悬停底色 / 按下缩放 / 选中淡底加左缘竖条都由 .wb-row-click 提供，不给描边。 */
 .commit-line {
   display: flex;
   align-items: center;
@@ -261,36 +262,20 @@ onUnmounted(() => window.clearTimeout(unmountTimer))
   padding: 5px var(--wb-sp-2);
   border: 0;
   border-radius: var(--wb-r-sm);
-  background: transparent;
+  /* 按钮的 UA 底色用 appearance:none 收，不用 background:transparent——
+     后者与 .wb-row-click 的悬停/按下/选中底色同特异度且排在其后，会把状态底色盖掉。 */
+  appearance: none;
   color: var(--wb-ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
 }
 
-/* 相邻两条之间一条极淡的分隔：比每块套框安静，又不至于糊成一片 */
+/* 相邻两条之间一条极淡的分隔：比每块套框安静，又不至于糊成一片。
+   （原先还有一条 .commit-line:hover{box-shadow:none} 想在悬停时清掉分隔线，
+   但它特异度低于本条、从未生效过，随收编一并删除。） */
 .commit-block + .commit-block .commit-line {
   box-shadow: inset 0 1px 0 var(--wb-line);
-}
-
-.commit-line:hover {
-  background: var(--wb-hover);
-  box-shadow: none;
-}
-
-.commit-line:active {
-  transform: scale(var(--wb-press-row-active));
-  transition-duration: 60ms;
-}
-
-/* 展开的那一条：淡强调底 + 左缘主色竖条。
-   竖条而不是整圈描边：描边会把这一行框成一个盒子，列表就散了。 */
-.commit-line.open {
-  background: var(--wb-selected);
-  box-shadow: inset 2px 0 0 var(--wb-brand);
 }
 
 .hash {
@@ -391,6 +376,8 @@ onUnmounted(() => window.clearTimeout(unmountTimer))
   overflow-y: auto;
 }
 
+/* 详情里的文件行：按下缩放与过渡由 .wb-pressable-row 提供，
+   这里只管排版与自己的悬停/选中底色（与 wb-row-click 的语义不同，不收编）。 */
 .detail-file {
   display: flex;
   align-items: center;
@@ -405,9 +392,6 @@ onUnmounted(() => window.clearTimeout(unmountTimer))
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
 }
 
 .detail-file:hover {

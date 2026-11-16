@@ -97,7 +97,8 @@ export default {
   "templates": {
     "title": "Prompt templates",
     "subtitle": "Save a reusable prompt, insert it from the composer with /name",
-    "empty": "No templates yet. Create one from the top-right button.",
+    "emptyTitle": "No templates yet",
+    "emptyHint": "Create one, then insert it from the composer with /name.",
     "create": "New template",
     "edit": "Edit template",
     "name": "Template name (slash command)",

@@ -2,7 +2,7 @@
 // 引擎状态芯片：一句话说清「引擎在不在、忙不忙」。
 // 引擎在进程内，所以没有「装没装」与「重启」这两件事：
 // 该看的是它此刻有没有在干活、有没有出错。
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -38,13 +38,20 @@ const label = computed(() => {
 /** 引擎出错了：最近一次失败原因还在，点一下重新拉一次会话状态。 */
 const crashed = computed(() => Boolean(chat.bindErr))
 
+// 重拉期间锁住芯片：不锁的话用户会连点，两次重拉比一次更慢。
+const restartBusy = ref(false)
+
 async function restart() {
+  if (restartBusy.value) return
+  restartBusy.value = true
   try {
     await app.refreshEngines()
     await chat.refresh(chat.sessionFile)
     toasts.push('ok', t('chat.engineRestarted'))
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    restartBusy.value = false
   }
 }
 
@@ -56,8 +63,9 @@ function goApps() {
 <template>
   <button
     class="chip"
-    :class="[state, { crashed }]"
+    :class="[state, { crashed, 'is-loading': restartBusy }]"
     type="button"
+    :disabled="restartBusy"
     :title="crashed ? chat.bindErr : label"
     @click="state === 'missing' ? goApps() : crashed ? restart() : undefined"
   >
@@ -69,6 +77,7 @@ function goApps() {
 
 <style scoped>
 .chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -97,12 +106,45 @@ function goApps() {
 .chip.missing:hover,
 .chip.crashed:hover {
   background: var(--wb-warn-soft);
-  transform: scale(1.04);
+  transform: scale(var(--wb-press-hover));
 }
 
 .chip.missing:active,
 .chip.crashed:active {
-  transform: scale(0.96);
+  transform: scale(var(--wb-press-active));
+  transition-duration: 60ms;
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 重拉中：转圈 + 锁交互 + 锁尺寸。转圈照抄 base-buttons .wb-btn.is-loading
+   的伪元素实现，led 与图标让位（visibility 占位不塌，文字保留）。 */
+.chip.is-loading {
+  cursor: progress;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.chip.is-loading .wb-led,
+.chip.is-loading .ic {
+  visibility: hidden;
+}
+
+.chip.is-loading::before {
+  content: '';
+  position: absolute;
+  left: var(--wb-sp-2);
+  top: 50%;
+  margin-top: -6px;
+  width: 12px;
+  height: 12px;
+  border: 1.6px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wb-spin 640ms linear infinite;
 }
 
 .ic {

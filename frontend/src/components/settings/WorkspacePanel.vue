@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 工作区：当前目录 + 最近用过的目录。
 // 点 × 只是从记忆里去掉，不动目录本身——删目录不该由设置页的按钮做。
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
+import { useToasts } from '@/composables/useToasts'
 import type { WorkspaceRow } from '@/types/api'
 
 const props = defineProps<{
@@ -22,6 +24,20 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const app = useAppStore()
+const toasts = useToasts()
+
+// 选目录要重建引擎：按钮在途要转圈、失败要出声（与 OverviewView 的包装同构）。
+const choosingWorkspace = ref(false)
+async function pickWorkspace(): Promise<void> {
+  choosingWorkspace.value = true
+  try {
+    await app.chooseWorkspace()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    choosingWorkspace.value = false
+  }
+}
 </script>
 
 <template>
@@ -32,7 +48,12 @@ const app = useAppStore()
         <div class="set-label">{{ t('settings.workspace') }}</div>
         <div class="set-hint mono selectable">{{ app.workspace }}</div>
       </div>
-      <button type="button" class="wb-btn" @click="app.chooseWorkspace()">
+      <button type="button"
+        class="wb-btn"
+        :class="{ 'is-loading': choosingWorkspace }"
+        :disabled="choosingWorkspace"
+        @click="pickWorkspace"
+      >
         <AppIcon name="folder" :size="14" />
         {{ t('chat.pickWorkspace') }}
       </button>
@@ -119,7 +140,9 @@ const app = useAppStore()
   min-width: 0;
   padding: 3px var(--wb-sp-2);
   border: 0;
-  background: transparent;
+  /* button 的 UA 底色用 appearance 收，不能写 background: transparent——
+     scoped 基础规则（0,2,0）晚于全局加载，会盖掉 .wb-row-click 的状态底色。 */
+  appearance: none;
   color: var(--wb-ink-2);
   font-size: var(--wb-fs-xs);
   text-align: left;

@@ -7,6 +7,8 @@
 工具清单与硬上限在 `docs/TOOL-REFERENCE.md`；`api_protocol` 在探测与聊天两条路上的差异在 `docs/PROVIDERS.md`。
 全局约定：前缀 `/api/v1`，只用 GET / POST，动词靠路径段；信封恒 HTTP 200、体为 `{code,message,detail?,data}`，`code != "0"` 即业务失败；HTTP 鉴权走 `X-Desktop-Token`，SSE 走 `?token=`，鉴权失败是唯一不带信封的出口（裸 401）。业务码定义在 `backend/pkg/codes.go`，界面直接显示后端 `message`。
 
+依赖取舍（开发期）：`@types/dompurify`——dompurify 3.1.6 不自带类型声明，无它则 `utils/md.ts` 的消毒出口 TS7016 报隐式 any。替代方案是自己写一份 `declare module` 垫片；代价是多一个 devDependency，不进运行时产物。消毒本身是安全出口，宁可要类型检查也别绕过它。
+
 ## 1. 对话（计划模式 · 附件 · 斜杠命令 · 队列 · 提问卡）
 
 **① 定位**：`/chat`（`views/ChatView.vue`）——左栏会话列表、主区轮次流、底部输入区、右侧工作台，承载一轮问答的全部编排。

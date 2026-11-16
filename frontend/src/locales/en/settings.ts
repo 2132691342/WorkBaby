@@ -24,6 +24,8 @@ export default {
     "dataDir": "Data directory",
     "dataDirHint": "Settings and logs live here; open it when something looks wrong",
     "openDataDir": "Open folder",
+    "bashConfirm": "Confirm dangerous commands",
+    "bashConfirmHint": "Ask for approval before the assistant runs risky terminal commands",
     "configTitle": "Engine config, as written",
     "configHint": "Read-only. To add a provider use the Models page — it writes in the engine's own format.",
     "configMissing": "This file has not been created yet",

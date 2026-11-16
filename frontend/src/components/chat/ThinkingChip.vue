@@ -92,7 +92,7 @@ watch(
         <button
           v-for="level in levels"
           :key="level"
-          class="tc-row"
+          class="tc-row wb-pressable-row"
           :class="{ 'is-on': level === chat.thinkingLevel }"
           type="button"
           :disabled="Boolean(applying)"
@@ -189,6 +189,7 @@ watch(
   color: var(--wb-faint);
 }
 
+/* 整行可点：过渡与按下缩放收编 wb-pressable-row，这里只管底色语言。 */
 .tc-row {
   display: flex;
   align-items: center;
@@ -204,9 +205,6 @@ watch(
   font-size: var(--wb-fs-2xs);
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
 }
 
 .tc-row:hover:not(:disabled) {

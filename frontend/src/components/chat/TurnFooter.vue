@@ -251,6 +251,7 @@ async function fork(): Promise<void> {
 }
 
 .msg-act {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--wb-sp-1);
@@ -272,6 +273,37 @@ async function fork(): Promise<void> {
 
 .msg-act:active:not(:disabled) {
   transform: scale(var(--wb-press-active));
+}
+
+.msg-act:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 加载：转圈 + 锁交互 + 锁尺寸。转圈照抄 base-buttons .wb-btn.is-loading
+   的伪元素实现，图标让位给它（visibility 占位不塌，文字保留）。 */
+.msg-act.is-loading {
+  cursor: progress;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.msg-act.is-loading > * {
+  visibility: hidden;
+}
+
+.msg-act.is-loading::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  margin-top: -6px;
+  width: 12px;
+  height: 12px;
+  border: 1.6px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wb-spin 640ms linear infinite;
 }
 
 /* 删除是破坏性动作：常规态就要与复制分开一点颜色，悬停转危险色 */

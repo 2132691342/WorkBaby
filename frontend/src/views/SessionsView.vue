@@ -82,6 +82,22 @@ function onChanged() {
     toasts.push('error', err instanceof Error ? err.message : String(err))
   })
 }
+
+/** 没选工作目录时的出口：直接去选目录，选完 store 自己刷新会话清单与汇总。 */
+const choosingWorkspace = ref(false)
+async function pickWorkspace(): Promise<void> {
+  const before = app.workspace
+  choosingWorkspace.value = true
+  try {
+    await app.chooseWorkspace()
+    // 取消选目录时工作区没变，不能报「已切到」。
+    if (app.workspace !== before) toasts.push('ok', t('workspace.switched', { path: app.workspace }))
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    choosingWorkspace.value = false
+  }
+}
 </script>
 
 <template>
@@ -115,7 +131,13 @@ function onChanged() {
         :hint="t('sessions.noWorkspaceHint')"
       >
         <template #action>
-          <button class="wb-btn primary" type="button" @click="app.chooseWorkspace()">
+          <button
+            class="wb-btn primary"
+            type="button"
+            :class="{ 'is-loading': choosingWorkspace }"
+            :disabled="choosingWorkspace"
+            @click="pickWorkspace"
+          >
             {{ t('workspace.pickWorkspace') }}
           </button>
         </template>
@@ -198,7 +220,7 @@ function onChanged() {
 
 .page-sub {
   margin: var(--wb-sp-1) 0 0;
-  max-width: var(--wb-w-desc, 620px);
+  max-width: var(--wb-w-desc);
   font-size: var(--wb-fs-sm);
   line-height: 1.65;
   color: var(--wb-mute);

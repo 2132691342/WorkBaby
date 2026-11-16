@@ -8,10 +8,12 @@ import { useI18n } from 'vue-i18n'
 const CodeEditor = defineAsyncComponent(() => import('@/components/common/CodeEditor.vue'))
 import { usePrefsStore } from '@/stores/prefs'
 import { useAppStore } from '@/stores/app'
+import { useToasts } from '@/composables/useToasts'
 
 const { t } = useI18n()
 const prefs = usePrefsStore()
 const app = useAppStore()
+const toasts = useToasts()
 
 /** 配置原文的语法高亮按扩展名选：.yml / .yaml 走 yaml，.json 走 json。 */
 const lang = computed<'json' | 'yaml' | 'text'>(() => {
@@ -27,8 +29,20 @@ const installed = computed(() => Boolean(app.runtime?.engine_ready))
 // 进面板就铺第一份配置原文：清单里第一个是 settings.json，最常对照的就是它。
 onMounted(() => {
   if (!installed.value) return
-  prefs.openConfig().catch(() => undefined)
+  // 拉不到原文要出声：静默失败留下一片空白，像「没有配置」。
+  prefs.openConfig().catch((err: unknown) => {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  })
 })
+
+/** 切配置原文：失败要出声，旧正文留在屏上不能像「切成功了」。 */
+async function pickFile(name: string): Promise<void> {
+  try {
+    await prefs.pickConfig(name)
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  }
+}
 </script>
 
 <template>
@@ -43,7 +57,7 @@ onMounted(() => {
         class="config-tab wb-pressable"
         :class="{ active: prefs.configText?.file_path === file.file_path }"
         :title="file.file_path"
-        @click="prefs.pickConfig(file.config_name)"
+        @click="pickFile(file.config_name)"
       >
         {{ file.config_label }}
         <span v-if="file.file_exists" class="tab-dot" />

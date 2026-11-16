@@ -101,7 +101,7 @@ onBeforeUnmount(() => {
           <span class="ws-label">{{ t('workspace.workspace') }}</span>
           <span class="ws-full mono selectable">{{ current || '—' }}</span>
         </div>
-        <button class="ws-row ws-browse" type="button" @click="browse">
+        <button class="ws-row ws-browse wb-pressable-row" type="button" @click="browse">
           <AppIcon name="folder" :size="13" />
           <span class="ws-grow">{{ t('workspace.pickWorkspace') }}</span>
         </button>
@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
           <button
             v-for="row in recents"
             :key="row.workspace_path"
-            class="ws-row"
+            class="ws-row wb-pressable-row"
             type="button"
             :disabled="busy"
             :title="row.workspace_path"
@@ -176,6 +176,12 @@ onBeforeUnmount(() => {
 .ws-chip:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* 切目录重建引擎期间：锁住芯片本体（图标转圈之外再降一档亮度说「还在忙」）。 */
+.ws-chip.is-busy {
+  pointer-events: none;
+  opacity: 0.6;
 }
 
 .ws-t {
@@ -246,6 +252,7 @@ onBeforeUnmount(() => {
   user-select: text;
 }
 
+/* 整行可点：过渡与按下缩放收编 wb-pressable-row，这里只管底色语言。 */
 .ws-row {
   display: flex;
   align-items: center;
@@ -260,9 +267,6 @@ onBeforeUnmount(() => {
   font-size: var(--wb-fs-2xs);
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
 }
 
 .ws-row:hover:not(:disabled) {

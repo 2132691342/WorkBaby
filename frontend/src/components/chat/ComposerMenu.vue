@@ -153,11 +153,27 @@ function tagClass(source: MenuItem['source']): string {
   }
 }
 
-/* 滚动在列表层而不是弹层上：上面 ensureVisible 要靠它自己的 scrollTop 算可视区 */
+/* 离场：淡出 + 收到 0.96，与 pop-in / 列表进出场同一套语言；
+   离场用 transition 类而非 animation（animation 只负责「弹出来」那一向）。
+   类名来自 ChatComposer 挂载点的 <Transition name="menu-out">。 */
+.menu-out-leave-active {
+  transition:
+    opacity var(--wb-dur-fast) var(--wb-ease),
+    transform var(--wb-dur-fast) var(--wb-ease);
+}
+.menu-out-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+/* 滚动在列表层而不是弹层上：上面 ensureVisible 要靠它自己的 scrollTop 算可视区。
+   进场与 @ 菜单的 .mention 同一套 pop-in（本文件的 keyframes）：
+   slash↔mention 切换是内容整块换新，两个孪生菜单不能一个弹一个闪。 */
 .pop-list {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  animation: pop-in var(--wb-dur-fast) var(--wb-ease);
 }
 
 .pop-row {

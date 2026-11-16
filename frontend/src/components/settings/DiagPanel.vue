@@ -151,7 +151,9 @@ function clockOf(at: number): string {
   padding: 3px var(--wb-sp-2);
   border: 0;
   border-radius: var(--wb-r-sm);
-  background: transparent;
+  /* button 的 UA 底色用 appearance 收，不能写 background: transparent——
+     scoped 基础规则（0,2,0）晚于全局加载，会盖掉 .wb-row-click 的状态底色。 */
+  appearance: none;
   color: var(--wb-ink-2);
   font-family: inherit;
   font-size: var(--wb-fs-2xs);

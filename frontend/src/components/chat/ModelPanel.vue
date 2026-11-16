@@ -110,7 +110,7 @@ watch(
     <div class="mp-filter-row">
       <AppIcon name="search" :size="12" class="mp-filter-ic" />
       <input ref="filterEl" v-model="filter" class="mp-filter" :placeholder="t('chat.modelFilter')" spellcheck="false" />
-      <button v-if="filter" class="mp-filter-clear" type="button" :title="t('common.clear')" @click="filter = ''">
+      <button v-if="filter" class="mp-filter-clear wb-pressable" type="button" :title="t('common.clear')" @click="filter = ''">
         <AppIcon name="close" :size="11" />
       </button>
     </div>

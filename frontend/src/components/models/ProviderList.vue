@@ -98,7 +98,8 @@ function host(url: string): string {
       </WbEmpty>
     </div>
 
-    <div v-else class="grid">
+    <!-- 列表增删接统一淡出（.wb-list-*）：删除动作有 undo toast，配淡出才完整 -->
+    <TransitionGroup v-else name="wb-list" tag="div" class="grid">
       <article
         v-for="view in props.providers"
         :key="`${view.provider_name}`"
@@ -151,12 +152,12 @@ function host(url: string): string {
               ×
             </button>
           </span>
-          <button v-if="restCount(view)" class="tag more-chip" type="button" @click="toggleMore(view)">
+          <button v-if="restCount(view)" class="tag more-chip wb-pressable" type="button" @click="toggleMore(view)">
             +{{ restCount(view) }}
           </button>
           <button type="button"
             v-else-if="view.models.length > SHOWN"
-            class="tag more-chip"
+            class="tag more-chip wb-pressable"
             @click="toggleMore(view)"
           >
             {{ t('models.collapseModels') }}
@@ -187,7 +188,7 @@ function host(url: string): string {
           </button>
         </footer>
       </article>
-    </div>
+    </TransitionGroup>
   </section>
 </template>
 
@@ -319,12 +320,10 @@ function host(url: string): string {
   text-overflow: ellipsis;
 }
 
+/* 小按钮收编 .wb-pressable：缩放刻度与过渡由基类统一给，这里只留外观 */
 .more-chip {
   font-family: var(--wb-font-mono);
   cursor: pointer;
-  transition:
-    background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
 }
 
 .more-chip:hover {

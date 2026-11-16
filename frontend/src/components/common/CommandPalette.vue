@@ -11,6 +11,7 @@ import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
 import { useBuiltinCommands } from '@/composables/useBuiltinCommands'
 import { useCommandPalette } from '@/composables/useCommandPalette'
+import { useToasts } from '@/composables/useToasts'
 import type { SessionRow, SlashCommand } from '@/types/api'
 
 const router = useRouter()
@@ -19,6 +20,7 @@ const app = useAppStore()
 const chat = useChatStore()
 const builtins = useBuiltinCommands()
 const palette = useCommandPalette()
+const toasts = useToasts()
 
 /** 面板里的一条命令。run 在选中时执行。 */
 interface Cmd {
@@ -65,14 +67,15 @@ const actionCmds = computed<Cmd[]>(() => {
       group: 'action',
       label: t('palette.toggleTheme'),
       hint: t(nextTheme === 'dark' ? 'palette.toDark' : 'palette.toLight'),
-      run: () => void app.saveSettings({ 'ui.theme': nextTheme }),
+      // 返回 Promise 不用 void 吞掉：失败要经 choose() 统一出声（saveSettings 乐观值不回滚）。
+      run: () => app.saveSettings({ 'ui.theme': nextTheme }),
     },
     {
       id: 'action:locale',
       group: 'action',
       label: t('palette.toggleLocale'),
       hint: nextLocale === 'en' ? 'English' : '中文',
-      run: () => void app.saveSettings({ 'ui.locale': nextLocale }),
+      run: () => app.saveSettings({ 'ui.locale': nextLocale }),
     },
   ]
 })
@@ -166,7 +169,12 @@ async function choose(cmd: Cmd | undefined): Promise<void> {
   if (!cmd) return
   palette.hide()
   query.value = ''
-  await cmd.run()
+  try {
+    await cmd.run()
+  } catch (err) {
+    // 面板已经关上，失败不在这出声用户就再也看不到任何反馈。
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  }
 }
 
 function onKeydown(event: KeyboardEvent): void {

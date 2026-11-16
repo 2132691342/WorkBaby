@@ -24,6 +24,8 @@ settings: {
     dataDir: '数据目录',
     dataDirHint: '设置文件与日志都在这里，出问题时可以直接打开看',
     openDataDir: '打开目录',
+    bashConfirm: '危险命令确认',
+    bashConfirmHint: '助手要执行危险的终端命令时先弹确认，你同意了才跑',
     configTitle: '引擎配置原文',
     configHint: '只看不改。要加服务商去「模型」页，那里会按引擎自己的格式写。',
     configMissing: '这份文件还没生成过',

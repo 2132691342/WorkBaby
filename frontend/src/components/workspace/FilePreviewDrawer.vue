@@ -125,7 +125,7 @@ async function requestClose(open: boolean): Promise<void> {
         v-model="editText"
         type="textarea"
         :rows="22"
-        class="edit-area"
+        class="mono"
         :autosize="{ minRows: 22 }"
       />
       <pre v-else class="preview selectable">{{ props.file.file_text }}</pre>
@@ -168,13 +168,6 @@ async function requestClose(open: boolean): Promise<void> {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
-}
-
-/* 编辑用等宽字体：这里改的是代码 / 配置文件，比例字体对不齐缩进 */
-.edit-area :deep(.el-textarea__inner) {
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-xs);
-  line-height: 1.6;
 }
 
 /* 二进制预览（图片）：居中摆放，窄图不贴左缘 */

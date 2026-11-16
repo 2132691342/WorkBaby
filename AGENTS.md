@@ -24,7 +24,7 @@ WorkBaby 是 **Windows 单机 AI 工作台**：Wails3 壳 + **进程内原生引
 | 模型协议 | OpenAI 兼容 `/chat/completions` 流式 | — |
 | 外部环境 | git / node / python 一律探测系统已装，不随包分发 | — |
 | 前端 | Vue 3.4.34 + Vite 5.2.12 + Element Plus 2.9.0 + Pinia 2.1.7 + Vue Router 4.3.2 + Axios 1.6.8 | — |
-| 前端辅件 | UnoCSS 0.58.6 · ECharts 5.5.0 · CodeMirror 6 · Vue I18n 9.10.2 · Markdown 渲染 marked 12.0.2 + DOMPurify 3.1.6 · 附件预览 xlsx 0.18.5 / docx-preview 0.3.3 / vue-pdf-embed 1.2.1 · @vueuse/core 10.9.0 | — |
+| 前端辅件 | UnoCSS 0.58.6 · ECharts 5.5.0 · CodeMirror 6 · Vue I18n 9.10.2 · Markdown 渲染 marked 12.0.2 + DOMPurify 3.1.6（类型垫片 @types/dompurify，取舍见 `docs/MODULES.md`）· 附件预览 xlsx 0.18.5 / docx-preview 0.3.3 / vue-pdf-embed 1.2.1 · @vueuse/core 10.9.0 | — |
 | 测试 | Go 原生 `testing`（仓库根 `tests/`） | — |
 
 **平台**：只考虑 Windows；子进程一律隐藏窗口（走 `pkg/proc`，不裸用 os/exec）。

@@ -41,68 +41,71 @@ function baseName(file: GitFile): string {
 </script>
 
 <template>
-  <div
-    v-for="file in files"
-    :key="file.file_path"
-    class="file-line"
-    :class="{ 'is-active': selected === file.file_path, conflict: file.has_conflict }"
-    :title="file.file_path"
-    @click="emit('pick', file)"
-  >
-    <span class="chg" :class="`chg-${changeTag(file)}`">{{ changeTag(file) }}</span>
-    <span class="path">{{ baseName(file) }}</span>
-    <span class="num">
-      <b class="add">+{{ file.insertions }}</b><b class="del">−{{ file.deletions }}</b>
-    </span>
-    <span class="acts">
-      <!-- 冲突的三种真实结局都要给到：只给「标记已解决」等于让用户去外部编辑器手改 -->
-      <template v-if="file.has_conflict && !staged">
-        <button type="button"
-          class="act warn"
-          :title="t('workspace.keepOursHint')"
-          :disabled="Boolean(pending)"
-          @click.stop="emit('resolveAs', file, 'ours')"
-        >
-          {{ t('workspace.keepOurs') }}
+  <!-- 增删走 wb-list 过渡：stage / discard 后行淡出缩放离场，不是瞬移。 -->
+  <TransitionGroup name="wb-list" tag="div">
+    <div
+      v-for="file in files"
+      :key="file.file_path"
+      class="file-line wb-row-click"
+      :class="{ 'is-active': selected === file.file_path, conflict: file.has_conflict }"
+      :title="file.file_path"
+      @click="emit('pick', file)"
+    >
+      <span class="chg" :class="`chg-${changeTag(file)}`">{{ changeTag(file) }}</span>
+      <span class="path">{{ baseName(file) }}</span>
+      <span class="num">
+        <b class="add">+{{ file.insertions }}</b><b class="del">−{{ file.deletions }}</b>
+      </span>
+      <span class="acts">
+        <!-- 冲突的三种真实结局都要给到：只给「标记已解决」等于让用户去外部编辑器手改 -->
+        <template v-if="file.has_conflict && !staged">
+          <button type="button"
+            class="act warn"
+            :title="t('workspace.keepOursHint')"
+            :disabled="Boolean(pending)"
+            @click.stop="emit('resolveAs', file, 'ours')"
+          >
+            {{ t('workspace.keepOurs') }}
+          </button>
+          <button type="button"
+            class="act warn"
+            :title="t('workspace.keepTheirsHint')"
+            :disabled="Boolean(pending)"
+            @click.stop="emit('resolveAs', file, 'theirs')"
+          >
+            {{ t('workspace.keepTheirs') }}
+          </button>
+          <button type="button"
+            class="act"
+            :title="t('workspace.markResolvedHint')"
+            :disabled="Boolean(pending)"
+            @click.stop="emit('resolveAs', file, '')"
+          >
+            {{ t('workspace.markResolved') }}
+          </button>
+        </template>
+        <button type="button" class="act" :title="t('workspace.history')" @click.stop="emit('history', file)">
+          {{ t('workspace.history') }}
         </button>
-        <button type="button"
-          class="act warn"
-          :title="t('workspace.keepTheirsHint')"
-          :disabled="Boolean(pending)"
-          @click.stop="emit('resolveAs', file, 'theirs')"
-        >
-          {{ t('workspace.keepTheirs') }}
+        <button type="button" v-if="staged" class="act" :disabled="Boolean(pending)" @click.stop="emit('unstage', file)">
+          {{ t('workspace.unstage') }}
         </button>
-        <button type="button"
-          class="act"
-          :title="t('workspace.markResolvedHint')"
-          :disabled="Boolean(pending)"
-          @click.stop="emit('resolveAs', file, '')"
-        >
-          {{ t('workspace.markResolved') }}
-        </button>
-      </template>
-      <button type="button" class="act" :title="t('workspace.history')" @click.stop="emit('history', file)">
-        {{ t('workspace.history') }}
-      </button>
-      <button type="button" v-if="staged" class="act" :disabled="Boolean(pending)" @click.stop="emit('unstage', file)">
-        {{ t('workspace.unstage') }}
-      </button>
-      <template v-else>
-        <button type="button" class="act" :disabled="Boolean(pending)" @click.stop="emit('stage', file)">
-          {{ t('workspace.stage') }}
-        </button>
-        <button type="button" class="act danger" :disabled="Boolean(pending)" @click.stop="emit('discard', file)">
-          {{ t('workspace.discard') }}
-        </button>
-      </template>
-    </span>
-  </div>
+        <template v-else>
+          <button type="button" class="act" :disabled="Boolean(pending)" @click.stop="emit('stage', file)">
+            {{ t('workspace.stage') }}
+          </button>
+          <button type="button" class="act danger" :disabled="Boolean(pending)" @click.stop="emit('discard', file)">
+            {{ t('workspace.discard') }}
+          </button>
+        </template>
+      </span>
+    </div>
+  </TransitionGroup>
 </template>
 
 <style scoped>
 /* 一行文件：状态码 / 文件名 / 增删 / 悬停才出现的动作。
-   整行可点，所以有悬停底色与按下缩放；选中项给淡底 + 左缘竖条。 */
+   整行可点：悬停底色 / 按下缩放 / 选中淡底加左缘竖条都由 .wb-row-click 提供。 */
 .file-line {
   display: flex;
   align-items: center;
@@ -111,31 +114,11 @@ function baseName(file: GitFile): string {
   height: calc(26px * var(--wb-vw-scale));
   padding: 0 var(--wb-sp-2) 0 var(--wb-sp-3);
   border: 0;
-  background: transparent;
   color: var(--wb-ink);
   font-size: var(--wb-fs-xs);
   text-align: left;
   border-radius: var(--wb-r-sm);
   cursor: pointer;
-  transition:
-    background-color var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-
-.file-line:hover {
-  background: var(--wb-hover);
-}
-
-.file-line:active {
-  transform: scale(var(--wb-press-row-active));
-  transition-duration: 60ms;
-}
-
-/* 选中态：淡底 + 左缘竖条。竖条而不是描边——
-   描边会把这一行框成一个盒子，一列文件就变成一列盒子。 */
-.file-line.is-active {
-  background: var(--wb-selected);
-  box-shadow: inset 2px 0 0 var(--wb-brand);
 }
 
 /* 冲突：左缘换警告色，并给一条淡警告底——

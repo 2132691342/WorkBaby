@@ -3,11 +3,14 @@
 // 只吃后端给的 base64，不解包、不落临时文件；表格用模板迭代渲染而非 sheet_to_html——
 // 后者吐 HTML 字符串要靠 v-html 注入，自己文件里的内容不开这个口子。
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { FileRead } from '@/types/api-workspace'
 
 // 三个预览库都不轻（pdf/xlsx 各几百 KB），静态引会把首屏包拽大。
 // 按需异步拆包：只有真预览到对应类型才去拉，首屏不替用不到的东西买单。
 const VuePdfEmbed = defineAsyncComponent(() => import('vue-pdf-embed'))
+
+const { t } = useI18n()
 
 const props = defineProps<{ file: FileRead }>()
 
@@ -51,7 +54,7 @@ async function buildSheet() {
       return { name, rows: aoa.slice(0, sheetCap) as string[][] }
     })
   } catch (err) {
-    fail.value = '表格解析失败：' + (err instanceof Error ? err.message : String(err))
+    fail.value = t('files.previewTableFail', { msg: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -62,7 +65,7 @@ async function buildDoc() {
     const blob = new Blob([b64ToBytes(props.file.file_base64 || '')], { type: mime.value })
     await renderAsync(blob, docHost.value)
   } catch (err) {
-    fail.value = '文档渲染失败：' + (err instanceof Error ? err.message : String(err))
+    fail.value = t('files.previewDocFail', { msg: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -80,7 +83,7 @@ watch(() => [props.file.file_kind, props.file.file_base64], render)
 
 <template>
   <!-- 图片：原生 <img> 足够，交给 CSS 自适应宽度 -->
-  <img v-if="file.file_kind === 'image'" :src="dataUri" class="img-preview" alt="图片预览" />
+  <img v-if="file.file_kind === 'image'" :src="dataUri" class="img-preview" :alt="t('files.previewImage')" />
 
   <!-- PDF：vue-pdf-embed 自己分页渲染 -->
   <div v-else-if="file.file_kind === 'pdf'" class="pdf-preview">
@@ -111,7 +114,7 @@ watch(() => [props.file.file_kind, props.file.file_base64], render)
   </div>
 
   <!-- 认不出的二进制：只给占位 -->
-  <p v-else class="preview-fail">这类文件暂不支持预览</p>
+  <p v-else class="preview-fail">{{ t('files.previewUnsupported') }}</p>
 </template>
 
 <style scoped>

@@ -24,28 +24,30 @@
   color: var(--wb-ink-5);
   white-space: pre-wrap;
 }
+/* 选项行：整行可点——悬停不放大，按下只缩不放（刻度由模板上的
+   .wb-pressable-row 给）。这是 .ask-option 唯一的一份样式，AskCard 的
+   scoped 不再抄；悬停/选中的换色值即原 scoped 实际生效的值。 */
 .ask-option {
   display: flex;
-  gap: var(--wb-sp-2);
+  align-items: center;
+  gap: var(--wb-sp-3);
   width: 100%;
   padding: var(--wb-sp-2) var(--wb-sp-3);
   border: 1px solid var(--wb-line);
-  border-radius: var(--wb-r);
+  border-radius: var(--wb-r-md);
   background: var(--wb-surface);
+  color: var(--wb-ink);
+  font-size: var(--wb-fs-sm);
   text-align: left;
-  transition:
-    transform var(--wb-dur-fast) var(--wb-ease),
-    border-color var(--wb-dur-fast) var(--wb-ease),
-    background-color var(--wb-dur-fast) var(--wb-ease);
+  cursor: pointer;
 }
 .ask-option:hover {
-  transform: scale(1.01);
-  border-color: var(--wb-brand-2);
-  background: var(--wb-brand-soft);
+  background: var(--wb-hover);
+  border-color: var(--wb-brand-soft);
 }
 .ask-option.selected {
   border-color: var(--wb-brand);
-  background: var(--wb-brand-soft);
+  background: var(--wb-brand-tint);
 }
 .ask-num {
   display: inline-flex;

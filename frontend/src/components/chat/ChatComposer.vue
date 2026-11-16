@@ -335,25 +335,29 @@ defineExpose({ focus })
         />
       </div>
 
-      <ComposerMenu
-        v-if="slashOpen"
-        kind="slash"
-        :items="slashItems"
-        :index="menuIndex"
-        @hover="menuIndex = $event"
-        @pick="onPickItem"
-        @close="composerMenu.close()"
-      />
-      <ComposerMenu
-        v-else-if="mentionOpen"
-        kind="mention"
-        :items="[]"
-        :index="0"
-        ref="mentionRef"
-        @pick-file="onPickFile"
-        @pick-session="onPickSession"
-        @close="composerMenu.close()"
-      />
+      <!-- 离场交给 Transition（淡出 + 收到 0.96，类在 ComposerMenu scoped）；
+           进场仍由菜单自身的 pop-in 动画负责。 -->
+      <Transition name="menu-out">
+        <ComposerMenu
+          v-if="slashOpen"
+          kind="slash"
+          :items="slashItems"
+          :index="menuIndex"
+          @hover="menuIndex = $event"
+          @pick="onPickItem"
+          @close="composerMenu.close()"
+        />
+        <ComposerMenu
+          v-else-if="mentionOpen"
+          kind="mention"
+          :items="[]"
+          :index="0"
+          ref="mentionRef"
+          @pick-file="onPickFile"
+          @pick-session="onPickSession"
+          @close="composerMenu.close()"
+        />
+      </Transition>
     </div>
   </div>
 </template>

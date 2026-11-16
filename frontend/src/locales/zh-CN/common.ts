@@ -97,7 +97,8 @@ palette: {
 templates: {
     title: '提示词模板',
     subtitle: '存一段可复用的提示词，在输入框里用 /名字 调出后填入',
-    empty: '还没有模板，点右上角新建一个',
+    emptyTitle: '还没有模板',
+    emptyHint: '新建一个，之后在输入框里用 /名字 调出后填入。',
     create: '新建模板',
     edit: '编辑模板',
     name: '模板名（斜杠命令名）',

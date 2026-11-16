@@ -73,11 +73,16 @@ async function toggleRestore(enabled: boolean) {
   }
 }
 
+// 打开数据目录：shell 动作也要防连点，按钮在途要转圈。
+const openDataDirBusy = ref(false)
 async function openDataDir() {
+  openDataDirBusy.value = true
   try {
     await api.openDataDir()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    openDataDirBusy.value = false
   }
 }
 
@@ -107,13 +112,35 @@ async function detectEngines() {
 // save 只负责保存与报错；成功与否用返回值告知调用处——
 // 失败必须可见，静默成功会让用户以为改上了。
 // 不设跨面板互斥：外观滑杆与启动开关是两个不相干的写入，一个在途不该锁另一个。
+// 正在写入的设置键（空串表示没有）：外观面板按它锁自己那一组控件，防连点叠发。
+const savingKey = ref('')
 async function save(kv: Record<string, string>): Promise<boolean> {
+  savingKey.value = Object.keys(kv)[0] ?? ''
   try {
     await app.saveSettings(kv)
     return true
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
     return false
+  } finally {
+    savingKey.value = ''
+  }
+}
+
+// 危险命令确认：写设置键 agent.bash_confirm（后端只认显式 "0" 为关，其余都算开）。
+const bashConfirmBusy = ref(false)
+async function toggleBashConfirm(enabled: boolean) {
+  const prev = app.settings['agent.bash_confirm']
+  bashConfirmBusy.value = true
+  try {
+    await app.saveSettings({ 'agent.bash_confirm': enabled ? '1' : '0' })
+    toasts.push('ok', t('common.saved'))
+  } catch (err) {
+    // 乐观值拨回去：界面停在与台账不一致的开关上，用户就对不上账了。
+    app.settings['agent.bash_confirm'] = prev || '1'
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    bashConfirmBusy.value = false
   }
 }
 
@@ -127,11 +154,16 @@ async function loadLogs() {
   }
 }
 
+// 正在揭示的路径（空表示没有）：路径行按钮要转圈、防连点。
+const revealingPath = ref('')
 async function revealPath(path: string) {
+  revealingPath.value = path
   try {
     await api.reveal(path)
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    revealingPath.value = ''
   }
 }
 
@@ -165,8 +197,14 @@ async function forgetWorkspace(path: string) {
 
 onMounted(() => {
   void loadLogs()
-  void app.refreshEngines()
-  void prefs.load()
+  // 引擎刷新与偏好拉取失败要出声：prefs 拉不到时行为面板的开关会永远禁用，
+  // 不说话用户只会以为「点不动」是界面坏了。
+  app.refreshEngines().catch((err: unknown) => {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  })
+  prefs.load().catch((err: unknown) => {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  })
 })
 
 </script>
@@ -182,13 +220,14 @@ onMounted(() => {
 
     <div class="page-body">
       <!-- 外观 -->
-      <AppearancePanel @save="save" />
+      <AppearancePanel :saving-key="savingKey" @save="save" />
 
       <!-- 启动行为 -->
       <BehaviorPanel
         :auto-start-busy="autoStartBusy"
         :restore-busy="restoreBusy"
         :close-action-busy="closeActionBusy"
+        :open-data-dir-busy="openDataDirBusy"
         @toggle-auto-start="toggleAutoStart"
         @set-close-action="toggleCloseAction"
         @toggle-restore="toggleRestore"
@@ -200,8 +239,11 @@ onMounted(() => {
         :apps="app.apps"
         :detecting="detecting"
         :runtime="app.runtime"
+        :revealing="revealingPath"
+        :bash-confirm-busy="bashConfirmBusy"
         @redetect="detectEngines"
         @reveal="revealPath"
+        @toggle-bash-confirm="toggleBashConfirm"
       />
 
       <!-- 工作区 -->

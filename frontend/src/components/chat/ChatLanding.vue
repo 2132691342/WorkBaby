@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 对话页在没有消息可画时的三块落地区：缺引擎 / 正在切会话 / 打不开这一条。
 // 它们共用同一副居中骨架（图标 + 一句话 + 一条出去的路），所以收在一个组件里；
-// 空态（新对话的开场建议）留在 ChatView，那是「可以开始」而不是「出了问题」。
+// 空态（新对话的开场建议）在 ChatEmpty，那是「可以开始」而不是「出了问题」。
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import WbSkeleton from '@/components/common/WbSkeleton.vue'
@@ -15,6 +15,8 @@ defineProps<{
   error: string
   /** 还没选工作目录：此时能聊，但助手没法读写文件——先说清这件事 */
   noWorkspace: boolean
+  /** 「选工作目录」进行中：锁住按钮（重建引擎要十几秒，防连点） */
+  busy?: boolean
 }>()
 
 const emit = defineEmits<{ openLatest: []; openSettings: []; pickWorkspace: [] }>()
@@ -32,7 +34,7 @@ const { t } = useI18n()
     <AppIcon name="folder" :size="22" class="gate-ic gate-ic--brand" />
     <p class="gate-title">{{ t('chat.noWorkspaceTitle') }}</p>
     <p class="gate-hint">{{ t('chat.noWorkspace') }}</p>
-    <button class="wb-btn primary" type="button" @click="emit('pickWorkspace')">{{ t('chat.pickWorkspace') }}</button>
+    <button class="wb-btn primary" type="button" :class="{ 'is-loading': busy }" :disabled="busy" @click="emit('pickWorkspace')">{{ t('chat.pickWorkspace') }}</button>
   </div>
 
   <div v-else-if="noEngine" class="gate">

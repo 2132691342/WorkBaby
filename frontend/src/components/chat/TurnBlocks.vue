@@ -2,7 +2,7 @@
 // 一轮回答：把思考 / 正文 / 工具卡按引擎吐出的**原始顺序**摆在一起。
 // 顺序永不重排——重排会把所有工具卡顶到正文前面，顺序一丢就读不出先干了什么。
 // 改的只是「怎么收」：连续的活动段折成一行摘要，正文回到视线主干上。
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownBlock from './MarkdownBlock.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
@@ -10,6 +10,7 @@ import ToolCallCard from './ToolCallCard.vue'
 import ActivityGroup from './ActivityGroup.vue'
 import { groupBlocks } from '@/utils/activity'
 import { useTurnClock } from '@/composables/useTurnClock'
+import { useReadingHold } from '@/composables/useDisclosure'
 import type { ChatBlock } from '@/types/api'
 
 const props = defineProps<{
@@ -25,8 +26,28 @@ const { t } = useI18n()
 /** 等待态已经等了多久：冷启动时首字能差十几秒，不给读数就像卡住了。 */
 const { label: elapsed } = useTurnClock(() => Boolean(props.streaming), () => props.startedAt ?? 0)
 
-/** 渲染单元：流式中不折叠（groupBlocks 的 fold 参数）。 */
-const groups = computed(() => groupBlocks(props.blocks, !props.streaming))
+const rootEl = ref<HTMLElement | null>(null)
+// 阅读保护：焦点 / 选区在卡内时推迟自动折叠——把正在读的内容收走是最糟的自动行为。
+const reading = useReadingHold(rootEl)
+
+// 折叠是单向闩：流式中永不折叠（折叠后用户判断不出它是否卡住），
+// 流停且没人正在读才折这一次；换一轮（runId 变）重新开闩。
+const folded = ref(false)
+let foldRun = ''
+watch(
+  [() => props.runId, () => props.streaming, reading],
+  () => {
+    if (foldRun !== props.runId) {
+      foldRun = props.runId
+      folded.value = false
+    }
+    if (!props.streaming && !reading.value) folded.value = true
+  },
+  { immediate: true },
+)
+
+/** 渲染单元：折叠闩放行时才把连续活动段收成一行摘要。 */
+const groups = computed(() => groupBlocks(props.blocks, folded.value))
 
 /** 流式只对「最后一块且是正文」走得动增量渲染，别的一律静态渲染。 */
 function isLiveTail(index: number, block: ChatBlock): boolean {
@@ -35,7 +56,7 @@ function isLiveTail(index: number, block: ChatBlock): boolean {
 </script>
 
 <template>
-  <div class="turn-blocks">
+  <div ref="rootEl" class="turn-blocks">
     <template v-for="(group, gi) in groups" :key="`${runId}-g${gi}-${group.kind === 'activity' ? group.key : group.index}`">
       <!-- 活动段：一段连续的思考与工具，收成一行摘要 -->
       <ActivityGroup

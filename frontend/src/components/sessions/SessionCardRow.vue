@@ -20,6 +20,8 @@ const props = defineProps<{
   stamp: string
   /** 正在删这一条：删除按钮要转圈，别让用户重复点 */
   removing?: boolean
+  /** 正在改名这一条：改名按钮要转圈并锁住，别让用户重复点 */
+  renaming?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -55,6 +57,8 @@ const { t } = useI18n()
       <div class="row-actions">
         <button type="button"
           class="wb-btn text sm"
+          :class="{ 'is-loading': props.renaming }"
+          :disabled="props.renaming"
           :title="t('sessions.rename')"
           :aria-label="`${t('sessions.rename')} ${props.row.session_title}`"
           @click.stop="emit('rename', props.row)"

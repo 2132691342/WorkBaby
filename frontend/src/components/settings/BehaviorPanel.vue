@@ -12,6 +12,8 @@ const props = defineProps<{
   restoreBusy: boolean
   /** 关窗动作正在写入（写注册表，要等一下） */
   closeActionBusy?: boolean
+  /** 打开数据目录在途：shell 动作也要防连点 */
+  openDataDirBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -91,7 +93,12 @@ const lastSessionLabel = computed(() => {
         <div class="set-hint mono selectable">{{ prefs.prefs?.data_dir || '—' }}</div>
         <div class="set-hint">{{ t('settings.dataDirHint') }}</div>
       </div>
-      <button type="button" class="wb-btn sm" @click="emit('openDataDir')">
+      <button type="button"
+        class="wb-btn sm"
+        :class="{ 'is-loading': props.openDataDirBusy }"
+        :disabled="props.openDataDirBusy"
+        @click="emit('openDataDir')"
+      >
         <AppIcon name="folder" :size="13" />
         {{ t('settings.openDataDir') }}
       </button>

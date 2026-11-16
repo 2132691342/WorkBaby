@@ -191,7 +191,7 @@ onUnmounted(() => {
         <button
           v-for="(option, index) in ask.ask_options ?? []"
           :key="option"
-          class="ask-option"
+          class="ask-option wb-pressable-row"
           :class="{ selected: picked.includes(index) }"
           type="button"
           @click="pick(index)"
@@ -296,38 +296,8 @@ onUnmounted(() => {
   gap: var(--wb-sp-2);
 }
 
-.ask-option {
-  display: flex;
-  align-items: center;
-  gap: var(--wb-sp-3);
-  padding: var(--wb-sp-2) var(--wb-sp-3);
-  border: 1px solid var(--wb-line);
-  border-radius: var(--wb-r-md);
-  background: var(--wb-surface);
-  color: var(--wb-ink);
-  font-size: var(--wb-fs-sm);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background var(--wb-dur-fast) var(--wb-ease),
-    border-color var(--wb-dur-fast) var(--wb-ease),
-    transform var(--wb-dur-fast) var(--wb-ease);
-}
-
-.ask-option:hover {
-  background: var(--wb-hover);
-  border-color: var(--wb-brand-soft);
-  transform: scale(1.01);
-}
-
-.ask-option:active {
-  transform: scale(0.99);
-}
-
-.ask-option.selected {
-  border-color: var(--wb-brand);
-  background: var(--wb-brand-tint);
-}
+/* .ask-option 只留一份样式：在 content-ask.css（含悬停/选中态）。
+   缩放刻度由模板上的 .wb-pressable-row 给，这里不要再抄。 */
 
 .ask-num {
   display: inline-flex;

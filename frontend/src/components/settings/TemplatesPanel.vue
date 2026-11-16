@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { confirmDanger } from '@/utils/confirm'
 import { api } from '@/api/http'
 import { useToasts } from '@/composables/useToasts'
+import WbEmpty from '@/components/common/WbEmpty.vue'
 import type { PromptTemplate } from '@/types/api'
 
 const { t } = useI18n()
@@ -67,7 +68,7 @@ async function save() {
     // 报落盘后的名字（后端会规范化：空格 / 标点 / 大小写）。
     // 报输入值等于骗人——用户下次在斜杠菜单里按那个名字找不到它。
     const stored = result.template_name || f.template_name.trim()
-    toasts.push('ok', t('common.savedAs', { name: stored }))
+    toasts.push('ok', t('templates.savedAs', { name: stored }))
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
@@ -116,7 +117,15 @@ onMounted(load)
       <p class="tpl-failed">{{ t('common.loadFailed') }}</p>
       <button type="button" class="wb-btn sm primary" @click="load">{{ t('common.retry') }}</button>
     </div>
-    <div v-else-if="!rows.length" class="tpl-state">{{ t('templates.empty') }}</div>
+    <WbEmpty
+      v-else-if="!rows.length"
+      :title="t('templates.emptyTitle')"
+      :hint="t('templates.emptyHint')"
+    >
+      <template #action>
+        <button type="button" class="wb-btn sm primary" @click="openCreate">{{ t('templates.create') }}</button>
+      </template>
+    </WbEmpty>
     <ul v-else class="tpl-list">
       <li v-for="row in rows" :key="row.template_name" class="tpl-row">
         <div class="tpl-main">

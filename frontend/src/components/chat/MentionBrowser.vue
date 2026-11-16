@@ -290,6 +290,15 @@ onMounted(() => {
   min-height: 0;
   flex: 1;
   padding: 0 var(--wb-sp-1) var(--wb-sp-1);
+  animation: pop-in var(--wb-dur-fast) var(--wb-ease);
+}
+
+/* 进场与斜杠菜单同参数的 pop-in（原型在 ComposerMenu 的 .pop）：两个孪生菜单一致。 */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 .mention-head {

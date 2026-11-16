@@ -41,7 +41,9 @@ function closeAll(): void {
 </script>
 
 <template>
-  <aside v-if="panel.open.value" class="work-panel" :style="{ width: panel.width.value + 'px' }">
+  <!-- 开合过渡走 wb-fade（淡入淡出 + 6px 轻浮）：面板不是抽屉，不做滑入滑出。 -->
+  <Transition name="wb-fade">
+    <aside v-if="panel.open.value" class="work-panel" :style="{ width: panel.width.value + 'px' }">
     <div
       class="wp-resize"
       :class="{ 'is-drag': dragging }"
@@ -77,7 +79,7 @@ function closeAll(): void {
         <AppIcon :name="tab.mode === 'diff' ? 'git' : 'file'" :size="12" />
         <span class="wp-tab-name">{{ tab.title }}</span>
         <button type="button"
-          class="wp-tab-x"
+          class="wp-tab-x wb-pressable"
           :title="t('chat.wpCloseTab')"
           @click.stop="panel.closeTab(tab.id)"
         >
@@ -93,6 +95,7 @@ function closeAll(): void {
       @update:mode="onMode"
     />
   </aside>
+  </Transition>
 </template>
 
 <style scoped>
@@ -201,6 +204,7 @@ function closeAll(): void {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 缩放交给 .wb-pressable（小按钮基类）；这里只管换色 */
 .wp-tab-x {
   display: inline-flex;
   border: none;

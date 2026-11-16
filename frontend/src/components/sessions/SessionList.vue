@@ -48,6 +48,8 @@ const loading = ref(false)
 const loadFailed = ref(false)
 // 正在删的那一条：删除要转圈，别让用户重复点。
 const removing = ref('')
+// 正在改名的那一条：落盘那一下要转圈，行内按钮同时锁住防连点。
+const renaming = ref('')
 // 服务端全文搜索：正文在会话文件里，得让后端扫；标题/模型/目录过滤留在客户端即时做。
 // 两个字起步才打后端：单字命中太多，扫全部文件得不偿失。
 const serverQuery = ref('')
@@ -185,6 +187,7 @@ async function rename(row: SessionRow) {
   }
   // 改名失败必须出声：catch 到外面会把真实的失败也当成「用户取消」吞掉，
   // 表现是「点了改名，列表还是旧名字」。
+  renaming.value = row.session_path
   try {
     await api.renameSession(row.session_path, value)
     toasts.push('ok', t('common.saved'))
@@ -192,6 +195,8 @@ async function rename(row: SessionRow) {
     emit('changed', row.session_path)
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    renaming.value = ''
   }
 }
 
@@ -325,20 +330,24 @@ defineExpose({ load })
 
       <template v-for="group in groups" :key="group.key">
         <div class="group-head">{{ group.label }}</div>
-        <SessionCardRow
-          v-for="row in group.rows"
-          :key="row.session_path"
-          :row="row"
-          :active="active"
-          :compact="compact"
-          :segments="highlight(row.session_title)"
-          :relative="relative(row.updated_at)"
-          :stamp="stamp(row.updated_at)"
-          :removing="removing === row.session_path"
-          @open="emit('open', $event)"
-          @rename="rename"
-          @remove="remove"
-        />
+        <!-- 列表增删接统一淡出（.wb-list-*）：删除动作有 undo toast，配淡出才完整 -->
+        <TransitionGroup name="wb-list" tag="div" class="group-rows">
+          <SessionCardRow
+            v-for="row in group.rows"
+            :key="row.session_path"
+            :row="row"
+            :active="active"
+            :compact="compact"
+            :segments="highlight(row.session_title)"
+            :relative="relative(row.updated_at)"
+            :stamp="stamp(row.updated_at)"
+            :removing="removing === row.session_path"
+            :renaming="renaming === row.session_path"
+            @open="emit('open', $event)"
+            @rename="rename"
+            @remove="remove"
+          />
+        </TransitionGroup>
       </template>
 
       <!-- 还有没放开的：一行「显示更多」，点了再补两页 -->
@@ -402,6 +411,13 @@ defineExpose({ load })
 }
 
 /* 行本体（.session-row 起）搬进了 SessionCardRow：行卡片与它的样式同住一个文件 */
+
+/* TransitionGroup 的包装元素：沿用列表纵向 2px 行距，视觉与直排时一致 */
+.group-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 
 .list-empty {
   padding: var(--wb-sp-6) var(--wb-sp-3);

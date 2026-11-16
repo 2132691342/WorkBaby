@@ -202,12 +202,17 @@ async function copyPath(): Promise<void> {
 
 // 用系统默认程序打开：走 system/open，由后端交给 ShellExecute。
 // 不用 window.open：WebView 里点本地文件路径只会导航走。
+// 系统打开可能很慢，按钮挂 loading 防连点，失败出声。
+const opening = ref(false)
 async function openInEditor(): Promise<void> {
-  if (!props.path) return
+  if (!props.path || opening.value) return
+  opening.value = true
   try {
     await api.systemOpen(props.path)
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    opening.value = false
   }
 }
 </script>
@@ -248,7 +253,7 @@ async function openInEditor(): Promise<void> {
           <AppIcon :name="copiedPath ? 'check' : 'copy'" :size="12" />
           {{ copiedPath ? t('common.copied') : t('workspace.copyPath') }}
         </button>
-        <button type="button" class="wb-btn text sm" :title="t('workspace.openFile')" @click="openInEditor">
+        <button type="button" class="wb-btn text sm" :class="{ 'is-loading': opening }" :disabled="opening" :title="t('workspace.openFile')" @click="openInEditor">
           <AppIcon name="edit" :size="12" />
           {{ t('workspace.openFile') }}
         </button>
@@ -270,7 +275,7 @@ async function openInEditor(): Promise<void> {
         <button type="button"
           v-for="fold in folds.filter((f) => !isOpen(f.at))"
           :key="fold.at"
-          class="fold-row"
+          class="fold-row wb-pressable-row"
           @click="toggle(fold.at)"
         >
           <AppIcon name="chevron" :size="11" class="fold-ic" />
@@ -384,6 +389,7 @@ async function openInEditor(): Promise<void> {
   overflow: auto;
 }
 
+/* 折叠段：一条可点的横条。按下缩放与过渡由 .wb-pressable-row 提供。 */
 .fold-row {
   display: flex;
   align-items: center;
@@ -399,7 +405,6 @@ async function openInEditor(): Promise<void> {
   font-size: var(--wb-fs-3xs);
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--wb-dur-fast) var(--wb-ease);
 }
 
 .fold-row:hover {

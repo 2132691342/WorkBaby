@@ -57,7 +57,7 @@ const chars = computed(() => props.text.length)
 
 <template>
   <div class="think" :class="{ live: streaming }">
-    <button class="think-head" type="button" :aria-expanded="open" @click="toggle">
+    <button class="think-head wb-pressable-row" type="button" :aria-expanded="open" @click="toggle">
       <span class="dot" :class="streaming ? 'busy' : ''" />
       <span>{{ streaming ? t('chat.thinkingLive') : t('chat.thinking') }}</span>
       <span class="caret-toggle">

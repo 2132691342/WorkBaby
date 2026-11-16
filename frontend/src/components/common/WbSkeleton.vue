@@ -45,8 +45,8 @@ withDefaults(
 
 .sk-tile {
   flex: none;
-  width: var(--wb-tile-sm, 36px);
-  height: var(--wb-tile-sm, 36px);
+  width: var(--wb-tile-sm);
+  height: var(--wb-tile-sm);
   border-radius: var(--wb-r);
 }
 

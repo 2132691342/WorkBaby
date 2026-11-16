@@ -14,13 +14,16 @@ import WorkPanel from '@/components/chat/WorkPanel.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
 import SessionList from '@/components/sessions/SessionList.vue'
 import ChatLanding from '@/components/chat/ChatLanding.vue'
+import ChatEmpty from '@/components/chat/ChatEmpty.vue'
 import { useAppStore } from '@/stores/app'
 import { useChatStore } from '@/stores/chat'
+import { useToasts } from '@/composables/useToasts'
 import { useComposerActions } from '@/composables/useComposerActions'
 import type { UIResponse } from '@/types/api'
 
 const app = useAppStore()
 const chat = useChatStore()
+const toasts = useToasts()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
@@ -34,10 +37,18 @@ async function onNewChat(): Promise<void> {
   await router.replace({ name: 'chat', query: {} })
 }
 
-// 空态引导：点一下把话填进输入框（不直接发），用户还能改两句再发送。
-const suggestions = computed(() => [t('chat.suggest1'), t('chat.suggest2'), t('chat.suggest3')])
-function useSuggestion(text: string): void {
-  chat.draftOverride = text
+/** 落地区的「选工作目录」：重建引擎要十几秒，等待期锁按钮，失败出声。 */
+const choosingWorkspace = ref(false)
+async function pickWorkspace(): Promise<void> {
+  if (choosingWorkspace.value) return
+  choosingWorkspace.value = true
+  try {
+    await app.chooseWorkspace()
+  } catch (err) {
+    toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    choosingWorkspace.value = false
+  }
 }
 
 // 切会话的加载态：refresh 要走一次后端投影，长会话要几百毫秒。
@@ -275,28 +286,13 @@ watch(
           :no-workspace="!app.workspace"
           :loading="loadingSession || !loaded"
           :error="sessionError"
+          :busy="choosingWorkspace"
           @open-latest="openSession('')"
           @open-settings="router.push({ name: 'settings' })"
-          @pick-workspace="app.chooseWorkspace()"
+          @pick-workspace="pickWorkspace"
         />
 
-        <div v-else-if="!hasTurn && !chat.history.length" class="chat-empty">
-          <div class="empty-mark">
-            <AppIcon name="spark" :size="26" />
-          </div>
-          <h2 class="empty-title">{{ t('chat.emptyTitle') }}</h2>
-          <p class="empty-hint">{{ t('chat.emptyHint') }}</p>
-          <p class="empty-path selectable">{{ app.workspace }}</p>
-          <div class="empty-suggest">
-            <p class="suggest-title">{{ t('chat.suggestTitle') }}</p>
-            <div class="suggest-chips">
-              <button v-for="s in suggestions" :key="s" class="suggest-chip" type="button" @click="useSuggestion(s)">
-                <AppIcon name="spark" :size="12" />
-                {{ s }}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ChatEmpty v-else-if="!hasTurn && !chat.history.length" />
 
         <div v-else class="msg-col-wrap">
           <HistoryList :turns="chat.history" :live="liveTurn" />
@@ -364,101 +360,6 @@ watch(
   scrollbar-gutter: stable;
 }
 
-.chat-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--wb-sp-3);
-  min-height: 100%;
-  padding: var(--wb-sp-10);
-  text-align: center;
-}
-
-.empty-mark {
-  display: grid;
-  place-items: center;
-  width: var(--wb-tile-lg);
-  height: var(--wb-tile-lg);
-  border-radius: var(--wb-r-lg);
-  background: var(--wb-brand-soft);
-  color: var(--wb-brand);
-  margin-bottom: var(--wb-sp-1);
-}
-
-.empty-title {
-  margin: 0;
-  font-family: var(--wb-font-display);
-  font-size: var(--wb-fs-xl);
-  font-weight: 650;
-  color: var(--wb-ink);
-}
-
-.empty-hint {
-  margin: 0;
-  font-size: var(--wb-fs-sm);
-  color: var(--wb-mute);
-}
-
-.empty-path {
-  margin: var(--wb-sp-2) 0 0;
-  font-family: var(--wb-font-mono);
-  font-size: var(--wb-fs-3xs);
-  color: var(--wb-faint);
-}
-
-.empty-suggest {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--wb-sp-2);
-  margin-top: var(--wb-sp-5);
-}
-
-.suggest-title {
-  margin: 0;
-  font-size: var(--wb-fs-3xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--wb-faint);
-}
-
-.suggest-chips {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--wb-sp-2);
-  max-width: 560px;
-}
-
-.suggest-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 1px solid var(--wb-line);
-  border-radius: var(--wb-r-full);
-  background: var(--wb-raised);
-  color: var(--wb-ink-5);
-  font-size: var(--wb-fs-sm);
-  transition:
-    transform var(--wb-dur-fast) var(--wb-ease),
-    border-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease),
-    background var(--wb-dur-fast) var(--wb-ease);
-}
-
-.suggest-chip:hover {
-  transform: scale(var(--wb-press-hover));
-  border-color: var(--wb-brand-line);
-  color: var(--wb-brand);
-  background: var(--wb-brand-tint);
-}
-
-.suggest-chip:active {
-  transform: scale(var(--wb-press-active));
-}
-
 /* 消息列：HistoryList 自己管列宽与间距，这里只给它一个居中的包裹层 */
 .msg-col-wrap {
   display: flex;
@@ -495,6 +396,6 @@ watch(
 }
 
 .jump-bottom:active {
-  transform: translateX(-50%) rotate(90deg) scale(0.92);
+  transform: translateX(-50%) rotate(90deg) scale(var(--wb-press-active));
 }
 </style>

@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n'
 import { confirmDanger } from '@/utils/confirm'
 import { ElMessageBox } from 'element-plus'
 import AppIcon from '@/components/common/AppIcon.vue'
+import WbEmpty from '@/components/common/WbEmpty.vue'
 import FilePreviewDrawer from '@/components/workspace/FilePreviewDrawer.vue'
 import { api } from '@/api/http'
 import { useAppStore } from '@/stores/app'
@@ -37,6 +38,8 @@ const loading = ref(false)
 const truncated = ref(false)
 // 行内动作进行中的条目名：按钮转圈、行不可重复点
 const busyEntry = ref('')
+// 新建（文件 / 目录）进行中的种类：页头按钮转圈、防连点
+const busyCreate = ref('')
 
 const preview = ref<FileRead | null>(null)
 const previewOpen = ref(false)
@@ -128,6 +131,7 @@ async function promptText(titleKey: string, placeholderKey: string, initial = ''
 async function newFile() {
   const name = await promptText('files.newFileTitle', 'files.newFilePlaceholder')
   if (!name) return
+  busyCreate.value = 'file'
   try {
     // 空正文建空文件：父目录不存在由后端一并建出。
     await api.fileSave(join(name), '')
@@ -138,18 +142,23 @@ async function newFile() {
     await openFile(join(name))
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    busyCreate.value = ''
   }
 }
 
 async function newDir() {
   const name = await promptText('files.newDirTitle', 'files.newDirPlaceholder')
   if (!name) return
+  busyCreate.value = 'dir'
   try {
     await api.fileMkdir(join(name))
     toasts.push('ok', t('common.saved'))
     await load()
   } catch (err) {
     toasts.push('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    busyCreate.value = ''
   }
 }
 
@@ -229,10 +238,10 @@ defineExpose({ load, openFile })
           {{ crumb.label }}
         </button>
       </div>
-      <button class="wb-btn icon ghost sm" type="button" :title="t('files.newFileTitle')" :aria-label="t('files.newFileTitle')" @click="newFile">
+      <button class="wb-btn icon ghost sm" type="button" :class="{ 'is-loading': busyCreate === 'file' }" :disabled="busyCreate !== ''" :title="t('files.newFileTitle')" :aria-label="t('files.newFileTitle')" @click="newFile">
         <AppIcon name="plus" :size="13" />
       </button>
-      <button class="wb-btn icon ghost sm" type="button" :title="t('files.newDirTitle')" :aria-label="t('files.newDirTitle')" @click="newDir">
+      <button class="wb-btn icon ghost sm" type="button" :class="{ 'is-loading': busyCreate === 'dir' }" :disabled="busyCreate !== ''" :title="t('files.newDirTitle')" :aria-label="t('files.newDirTitle')" @click="newDir">
         <AppIcon name="folder" :size="13" />
       </button>
       <button class="wb-btn icon ghost sm" type="button" :class="{ 'is-loading': loading }" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="load()">
@@ -241,7 +250,19 @@ defineExpose({ load, openFile })
     </header>
 
     <div class="files-body">
-      <div v-if="!entries.length && !loading" class="files-empty">{{ t('files.empty') }}</div>
+      <WbEmpty v-if="!entries.length && !loading" :title="t('files.empty')" :hint="t('files.emptyHint')">
+        <template #action>
+          <button
+            class="wb-btn primary sm"
+            type="button"
+            :class="{ 'is-loading': busyCreate === 'file' }"
+            :disabled="busyCreate !== ''"
+            @click="newFile()"
+          >
+            {{ t('files.newFileTitle') }}
+          </button>
+        </template>
+      </WbEmpty>
       <div
         v-for="entry in entries"
         :key="entry.entry_name"

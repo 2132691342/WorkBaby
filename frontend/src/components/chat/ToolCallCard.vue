@@ -6,20 +6,25 @@ import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import DiffRows from '@/components/common/DiffRows.vue'
 import { openWorkFile } from '@/composables/useWorkPanel'
+import { useDisclosure } from '@/composables/useDisclosure'
 import type { ChatBlock, DiffLine } from '@/types/api'
 
 const props = defineProps<{ block: ChatBlock }>()
 const { t } = useI18n()
 
-const open = ref(false)
+// 派生默认：只有出错的跃迁才自动展开（差异到货就展开会让流式中的版面不停跳动，
+// 「它改了什么」由头一行的「看改动」负责，那是抽屉的入口）。
+const autoOpen = ref(false)
 watch(
   () => props.block.tool_status,
   (status, prev) => {
-    // 只有出错才自动展开：差异到货就展开会让流式中的版面不停跳动，
-    // 「它改了什么」由头一行的「看改动」负责，那是抽屉的入口。
-    if (prev === 'running' && status === 'error') open.value = true
+    if (prev === 'running' && status === 'error') autoOpen.value = true
   },
 )
+
+// 折叠记忆：显式开合跨驱逐保留——活动段重排与收尾换历史渲染都会重挂卡片，
+// 重挂不冲掉用户展开过的卡（显式选择压过自动逻辑）。
+const { open } = useDisclosure(computed(() => props.block.tool_call_id ?? ''), autoOpen)
 
 const status = computed(() => props.block.tool_status ?? 'pending')
 const label = computed(() => {
@@ -126,7 +131,7 @@ async function copyDiff(): Promise<void> {
 <template>
   <div class="tool" :class="[status, { 'is-open': open }]">
     <div class="tool-head">
-      <button class="tool-toggle" type="button" :aria-expanded="open" @click="open = !open">
+      <button class="tool-toggle wb-pressable-row" type="button" :aria-expanded="open" @click="open = !open">
         <span class="tool-dot" :class="status" :title="label">
           <AppIcon v-if="status === 'running'" name="refresh" :size="11" class="spin" />
           <AppIcon v-else-if="status === 'error'" name="close" :size="11" />
@@ -208,12 +213,23 @@ async function copyDiff(): Promise<void> {
   min-width: 0;
   padding: 6px var(--wb-sp-2) 6px var(--wb-sp-3);
   border: none;
+  border-radius: var(--wb-r-sm);
   background: transparent;
   text-align: left;
   color: var(--wb-ink);
   font-size: var(--wb-fs-xs);
   font-family: inherit;
   cursor: pointer;
+}
+
+/* 消息流里点击频率最高的按钮：悬停给底色，按下给底色 + 缩放
+   （缩放刻度收编 wb-pressable-row，这里不复制）。 */
+.tool-toggle:hover {
+  background: var(--wb-hover);
+}
+
+.tool-toggle:active {
+  background: var(--wb-brand-soft);
 }
 
 /* 状态点：16px 的圈。运行中转，结束变绿，出错变红；未开始是一个灰点。 */

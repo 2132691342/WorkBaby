@@ -342,7 +342,8 @@ onMounted(load)
             </span>
           </div>
 
-          <div class="skill-list">
+          <!-- 列表增删接统一淡出（.wb-list-*）：删除动作有 undo toast，配淡出才完整 -->
+          <TransitionGroup name="wb-list" tag="div" class="skill-list">
             <SkillRowItem
               v-for="row in group.rows"
               :key="row.skill_path"
@@ -355,7 +356,7 @@ onMounted(load)
               @remove="remove"
               @reset="reset"
             />
-          </div>
+          </TransitionGroup>
         </section>
       </template>
     </div>
@@ -401,7 +402,7 @@ onMounted(load)
 
 .page-sub {
   margin: var(--wb-sp-1) 0 0;
-  max-width: var(--wb-w-desc, 620px);
+  max-width: var(--wb-w-desc);
   font-size: var(--wb-fs-sm);
   line-height: 1.65;
   color: var(--wb-mute);

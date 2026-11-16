@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/common/AppIcon.vue'
 import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
 import ToolCallCard from '@/components/chat/ToolCallCard.vue'
+import { useDisclosure } from '@/composables/useDisclosure'
 import { hasError, isRunning, summarise, totalMs } from '@/utils/activity'
 import type { ChatBlock } from '@/types/api'
 
@@ -17,7 +18,14 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-const open = ref(false)
+// 折叠记忆的身份：第一个工具的 call id（直播位与历史位同一份数据里都稳定）；
+// 没有 call id 才退回段键（段键带 run id，跨投影不稳，属于兜底）。
+const identity = computed(() => {
+  for (const block of props.blocks) if (block.tool_call_id) return block.tool_call_id
+  return props.groupKey
+})
+// 显式开合跨驱逐保留：收尾换历史渲染会重挂整段，重挂不冲掉用户展开过的段。
+const { open } = useDisclosure(identity)
 /** 是否已经展开过。true 之后子卡常驻，收起只藏不销毁。 */
 const revealed = ref(false)
 
@@ -42,7 +50,7 @@ const msLabel = computed(() => {
 
 <template>
   <div class="activity" :class="{ 'is-open': open, 'is-failed': failed, 'is-running': running }">
-    <button class="activity-head" type="button" :aria-expanded="open" @click="toggle">
+    <button class="activity-head wb-pressable-row" type="button" :aria-expanded="open" @click="toggle">
       <AppIcon name="chevron" :size="12" class="activity-chevron" />
       <span v-if="running" class="activity-dot" />
       <span class="activity-summary">
@@ -71,6 +79,7 @@ const msLabel = computed(() => {
   flex-direction: column;
 }
 
+/* 摘要行整行可点：过渡与按下缩放收编 wb-pressable-row，这里只管底色语言。 */
 .activity-head {
   display: flex;
   align-items: center;
@@ -86,9 +95,6 @@ const msLabel = computed(() => {
   font-family: inherit;
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
 }
 
 .activity-head:hover {

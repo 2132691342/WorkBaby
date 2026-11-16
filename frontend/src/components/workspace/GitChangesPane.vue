@@ -103,7 +103,7 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
           <span class="count">{{ props.staged.length }}</span>
         </div>
         <div v-for="g in stagedGroups" :key="`s-${g.dir}`" class="dir">
-          <button type="button" class="dir-head" @click="toggle(`s-${g.dir}`)">
+          <button type="button" class="dir-head wb-pressable-row" @click="toggle(`s-${g.dir}`)">
             <AppIcon name="chevron" :size="10" class="dir-ic" :class="{ collapsed: isCollapsed(`s-${g.dir}`) }" />
             <span class="dir-name">{{ g.dir }}</span>
             <span class="dir-stat">
@@ -142,7 +142,7 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
           </button>
         </div>
         <div v-for="g in unstagedGroups" :key="`u-${g.dir}`" class="dir">
-          <button type="button" class="dir-head" @click="toggle(`u-${g.dir}`)">
+          <button type="button" class="dir-head wb-pressable-row" @click="toggle(`u-${g.dir}`)">
             <AppIcon name="chevron" :size="10" class="dir-ic" :class="{ collapsed: isCollapsed(`u-${g.dir}`) }" />
             <span class="dir-name">{{ g.dir }}</span>
             <span class="dir-stat">
@@ -259,6 +259,35 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
   color: var(--wb-bad);
 }
 
+.act:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 加载中：转圈盖在原文上——文字透明占位，尺寸不动；
+   spinner 与 .wb-btn.is-loading 同一实现（伪元素 + wb-spin），尺寸按小按钮自定。 */
+.act.is-loading {
+  position: relative;
+  opacity: 0.85;
+  cursor: progress;
+  transform: none;
+  pointer-events: none;
+  color: transparent;
+}
+
+.act.is-loading::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 9px;
+  border: 1.6px solid var(--wb-mute);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wb-spin 640ms linear infinite;
+}
+
 /* stash 行：一句话说明加两个动作，与目录行同一套密度。 */
 .stash-row {
   display: flex;
@@ -288,7 +317,8 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
 }
 
 /* 目录头：可点的横条，带这一组的增删合计。
-   它是分组标题，不是条目：平时不加底色，只在悬停时给一点提示。 */
+   它是分组标题，不是条目：平时不加底色，只在悬停时给一点提示。
+   按下缩放与过渡交给 .wb-pressable-row，这里只管自己的底色与排版。 */
 .dir-head {
   display: flex;
   align-items: center;
@@ -304,9 +334,6 @@ function groupStat(files: GitFile[]): { adds: number; dels: number } {
   text-align: left;
   border-radius: var(--wb-r-sm);
   cursor: pointer;
-  transition:
-    background-color var(--wb-dur-fast) var(--wb-ease),
-    color var(--wb-dur-fast) var(--wb-ease);
 }
 
 .dir-head:hover {

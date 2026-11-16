@@ -4,6 +4,11 @@
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 
+const props = defineProps<{
+  /** 正在写入的设置键（空串表示没有）：同组控件在途要锁住并转圈，防连点叠发 */
+  savingKey: string
+}>()
+
 const emit = defineEmits<{
   save: [kv: Record<string, string>]
 }>()
@@ -32,14 +37,16 @@ function onMentionCount(v: number | undefined): void {
       <div class="seg">
         <button type="button"
           class="seg-btn"
-          :class="{ active: app.theme === 'light' }"
+          :class="{ active: app.theme === 'light', 'is-loading': props.savingKey === 'ui.theme' && app.theme === 'light' }"
+          :disabled="props.savingKey === 'ui.theme'"
           @click="emit('save', { 'ui.theme': 'light' })"
         >
           {{ t('settings.themeLight') }}
         </button>
         <button type="button"
           class="seg-btn"
-          :class="{ active: app.theme === 'dark' }"
+          :class="{ active: app.theme === 'dark', 'is-loading': props.savingKey === 'ui.theme' && app.theme === 'dark' }"
+          :disabled="props.savingKey === 'ui.theme'"
           @click="emit('save', { 'ui.theme': 'dark' })"
         >
           {{ t('settings.themeDark') }}
@@ -82,6 +89,8 @@ function onMentionCount(v: number | undefined): void {
       </div>
       <el-switch
         :model-value="app.settings['ui.reduce_motion'] === '1'"
+        :loading="props.savingKey === 'ui.reduce_motion'"
+        :disabled="props.savingKey === 'ui.reduce_motion'"
         @change="(v: string | number | boolean) => emit('save', { 'ui.reduce_motion': v ? '1' : '0' })"
       />
     </div>
@@ -94,14 +103,16 @@ function onMentionCount(v: number | undefined): void {
       <div class="seg">
         <button type="button"
           class="seg-btn"
-          :class="{ active: (app.settings['ui.locale'] ?? 'zh-CN') !== 'en' }"
+          :class="{ active: (app.settings['ui.locale'] ?? 'zh-CN') !== 'en', 'is-loading': props.savingKey === 'ui.locale' && (app.settings['ui.locale'] ?? 'zh-CN') !== 'en' }"
+          :disabled="props.savingKey === 'ui.locale'"
           @click="emit('save', { 'ui.locale': 'zh-CN' })"
         >
           中文
         </button>
         <button type="button"
           class="seg-btn"
-          :class="{ active: app.settings['ui.locale'] === 'en' }"
+          :class="{ active: app.settings['ui.locale'] === 'en', 'is-loading': props.savingKey === 'ui.locale' && app.settings['ui.locale'] === 'en' }"
+          :disabled="props.savingKey === 'ui.locale'"
           @click="emit('save', { 'ui.locale': 'en' })"
         >
           English
@@ -130,5 +141,26 @@ function onMentionCount(v: number | undefined): void {
   font-size: var(--wb-fs-3xs);
   color: var(--wb-faint);
   max-width: var(--wb-w-desc);
+}
+
+/* 转圈照抄 base-buttons.css .wb-btn.is-loading 的伪元素方案，尺寸收小一号。
+   base-press.css 的 .seg-btn 已给 :disabled（opacity .45 + not-allowed），这里只补转圈。 */
+.seg-btn.is-loading {
+  position: relative;
+  padding-left: var(--wb-sp-6);
+  pointer-events: none;
+  cursor: progress;
+}
+
+.seg-btn.is-loading::before {
+  content: '';
+  position: absolute;
+  left: var(--wb-sp-2);
+  width: 10px;
+  height: 10px;
+  border: 1.6px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wb-spin 640ms linear infinite;
 }
 </style>
