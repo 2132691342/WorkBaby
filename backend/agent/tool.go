@@ -27,9 +27,8 @@ func errorf(format string, args ...any) Result {
 	return Result{Text: fmt.Sprintf(format, args...), IsError: true}
 }
 
-// Tool 是一个可被模型调用的工具。
-// Registery 显式传入而不是注入：工具需要工作区上下文，隐式字段会让
-// 「哪个工具拿到了哪个工作区」变成一件靠运气的事。
+// Tool 是一个可被模型调用的工具。Run 显式拿到 Registry：工具需要工作区上下文，
+// 隐式字段会让「哪个工具拿到了哪个工作区」变成靠运气的事。
 type Tool interface {
 	// Spec 工具声明
 	Spec() ToolSpec
@@ -287,9 +286,8 @@ func stringArg(args map[string]any, key string) string {
 }
 
 // intArg 取整数入参；缺失或认不出给 fallback。
-// 三种形态都收：JSON 数字、数字字符串、布尔。
-// 声明里参数一律是 string（`schemaOf`），照声明办事的模型会发 "20"——
-// 只认 float64 的话它拿到的永远是缺省值，而且没有任何提示。
+// 三种形态都收：JSON 数字、数字字符串、布尔。声明里参数一律是 string，
+// 照声明办事的模型会发 "20"，只认 float64 的话它永远拿到缺省值。
 func intArg(args map[string]any, key string, fallback int) int {
 	switch value := args[key].(type) {
 	case float64:

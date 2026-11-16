@@ -104,24 +104,22 @@ scripts/{backend.ps1,dev.ps1,smoke.ps1}   开发态起停与冒烟
 tests/                     Go 场景测试，一文件一主题
 ```
 
-`tests/` 现状：15 个文件、13 个入口函数（另有一个 `TestMain` 在 `mcp_fake_server_test.go`），全量数秒跑完。一文件一个主题，主题内的子契约用 `t.Run` 分层：
+`tests/` 现状：13 个文件、12 个入口函数（另有一个 `TestMain` 在 `mcp_fake_server_test.go`），全量数秒跑完。一文件一个主题，主题内的子契约用 `t.Run` 分层：
 
 | 文件 | 入口 | 子契约 |
 |---|---|---|
-| `harness_test.go` | —（装具） | 真 JSON 台账 + 真临时布局 + 真 gin 中间件栈的隔离后端；按脚本吐分片的假上游；SSE 帧捕获；`catalogHarness`；`bindWorkspaceAndModel` / `waitIdle` / `writeFile` |
+| `harness_test.go` | —（装具） | 真 JSON 台账 + 真临时布局 + 真 gin 中间件栈的隔离后端；按脚本吐分片的假上游；SSE 帧捕获；`catalogHarness`；`mustSetWorkspace` / `waitIndexBuilt` / `writeSession` 等跨主题助手 |
 | `mcp_fake_server_test.go` | TestMain | 测试二进制带 `--wb-mcp-server` 时切入假 MCP 服务器模式（stdin 收 JSON-RPC、stdout 一行一帧），自起自己当上游 |
-| `engine_test.go` | TestEngine | 分片拼装 / 上游错误原话透传 / 工具入参容错 / 工具轮次闭环 / 工具作用域 / 待办往返 / 计划模式闸门 |
-| `engine_guard_test.go` | TestEngineGuard | `S1_分片重复头字段不清入参` / `S1_name迟到最后一片参数不丢` / `S5_length截断整批拒绝执行` / `S2_落盘全文与上下文折叠分离` / `S2_裁窗后孤儿配对修复` / `S6_瞬时失败退避后成功` / `S6_鉴权失败一票否决不重试` / `S6_流内error帧限流重试` |
-| `chat_flow_test.go` | TestChatFlow | 队列语义 / 思考档接线 / 模型参数接线 / 中止交回排队话术 / 发送失败面 / 提问卡链路 |
-| `chat_context_test.go` | TestChatContext | 上下文读数 / 上下文压缩 / 流式块表 |
+| `engine_test.go` | TestEngine / TestEngineGuard | TestEngine：分片拼装 / 上游错误原话透传 / 工具入参容错 / 工具轮次闭环 / 工具作用域 / 待办往返 / 计划模式闸门。TestEngineGuard（回归防线，同一文件）：分片重复头字段不清入参 / name 迟到最后一片参数不丢 / length 截断整批拒绝执行 / 落盘全文与上下文折叠分离 / 裁窗后孤儿配对修复 / 瞬时失败退避后成功 / 鉴权失败一票否决不重试 / 流内 error 帧限流重试 |
+| `chat_test.go` | TestChatFlow / TestChatContext | TestChatFlow：队列语义 / 思考档接线 / 模型参数接线 / 中止交回排队话术 / 发送失败面 / 提问卡链路。TestChatContext（同一文件）：上下文读数 / 上下文压缩 / 流式块表 |
 | `session_test.go` | TestSession | 回放 / 写入纪律 / 格式契约 / 分叉 |
 | `models_test.go` | TestModel | 清单对账 / 默认模型写入口 / 密钥掩码 |
 | `mcp_test.go` | TestMcp | 客户端 / 运行时装配 / 配置治理 |
 | `skills_test.go` | TestSkills | 清单咬合 / 提示里的技能索引 / 生命周期 |
 | `workspace_test.go` | TestWorkspace | 索引收录边界 / 索引排序 / 联网地址拦截 / 正文抽取 / 联网接口链路 |
-| `index_lifecycle_test.go` | TestIndexLifecycle | Frecency 并发记账不丢不炸 / 检索出口并发命中 / 构建中检索回引擎忙 / 先取消再构建回 ctx 错误 / 扫描中途取消及时返回 / HTTP 重建后台化且立即受理 |
+| `index_lifecycle_test.go` | TestIndexLifecycle | Frecency 并发记账不丢不炸 / 检索出口并发命中 / 构建中检索回引擎忙 / 构建可取消（预取消透传 + 中途取消及时返回） / HTTP 重建后台化且立即受理 |
 | `process_test.go` | TestProcess | 长驻进程收尾 / 子进程环境 / 冲突解决 |
-| `backend_hardening_test.go` | TestBackendHardening | 设置写入口不接受工作区键 / 密钥不回显 / 当前会话删除先解绑再删 / 索引重建回收尾后的状态 / 模板保存回清洗后的名字 / 模板名全非法即拒 / 路径守卫挡符号链接 / 请求体超限即拒 / SSE 慢订户被摘掉 / 排队出参恒为数组 / 模板出参形状 |
+| `backend_hardening_test.go` | TestBackendHardening | 设置写入口不接受工作区键 / 密钥不回显 / 当前会话删除先解绑再删 / 模板保存回清洗后的名字（含非法名拒绝与出参形状） / 路径守卫挡符号链接 / 请求体超限即拒 / SSE 慢订户被摘掉 / 排队出参恒为数组 |
 | `http_test.go` | TestHTTPContract | 鉴权门 / CORS 预检 / 信封同构 / 写入落盘 / SSE 通道 |
 
 定位方法：

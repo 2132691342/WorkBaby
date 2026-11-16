@@ -86,7 +86,7 @@ const (
 	SkillSourceBundled SkillSourceKind = "bundled"
 	// SkillSourceManaged 用户在界面里新建的
 	SkillSourceManaged SkillSourceKind = "managed"
-	// SkillSourceProject 工作区 .pi\skills 下的
+	// SkillSourceProject 工作区 .workbaby\skills 下的
 	SkillSourceProject SkillSourceKind = "project"
 )
 
@@ -254,7 +254,7 @@ type McpSaveREQ struct {
 	EnvList []string `json:"env_list"`
 	// McpTimeout 连接超时（秒）；0 表示清掉该字段
 	McpTimeout int `json:"mcp_timeout"`
-	// McpScope user / project；project 落工作区 .pi\mcp.json，需要已选工作区
+	// McpScope user / project；project 落工作区 .workbaby\mcp.json，需要已选工作区
 	McpScope string `json:"mcp_scope"`
 }
 

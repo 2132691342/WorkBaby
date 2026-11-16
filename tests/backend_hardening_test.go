@@ -33,22 +33,6 @@ func makeDirLink(link, target string) error {
 	return os.Symlink(target, link)
 }
 
-// mustSetWorkspace 走正式入口设工作区。
-func mustSetWorkspace(t *testing.T, h *harness, dir string) {
-	t.Helper()
-	env, code := h.call("POST", "/settings/workspace", map[string]string{"workspace": dir})
-	h.mustOK(env, code, "设置工作区", nil)
-}
-
-// readSettings 读 GET /settings 的结果。
-func readSettings(t *testing.T, h *harness) map[string]string {
-	t.Helper()
-	env, code := h.call("GET", "/settings", nil)
-	var out map[string]string
-	h.mustOK(env, code, "读设置", &out)
-	return out
-}
-
 func TestBackendHardening(t *testing.T) {
 	// 设置写入口是「界面能改的键」的边界：工作区只能走专用接口，
 	// 否则文件接口的根会被指到任意目录，1002 路径守卫形同虚设。
@@ -156,29 +140,18 @@ func TestBackendHardening(t *testing.T) {
 		}
 	})
 
-	// 索引重建是后台化的：应答只代表「已受理」，最终状态靠 /index/status 轮询
-	// （后台契约钉在 index_lifecycle_test.go）。这里钉的是收尾后的取样：
-	// building 已清、索引已建——界面不会永远停在「正在建索引」。
-	t.Run("索引重建回收尾后的状态", func(t *testing.T) {
-		h := newHarness(t)
-		workspace := t.TempDir()
-		writeFile(t, filepath.Join(workspace, "main.go"), "package main\n\nfunc Hello() {}\n")
-		mustSetWorkspace(t, h, workspace)
-
-		env, code := h.call("POST", "/index/rebuild", nil)
-		h.mustOK(env, code, "重建索引", nil)
-		status := waitIndexBuilt(t, h)
-		if status.IndexBuilding {
-			t.Fatal("收尾后 index_building 应为 false：building 必须在取状态之前清掉")
-		}
-		if !status.IndexBuilt || status.IndexDocCount == 0 {
-			t.Fatalf("重建后应报已建索引且文档数大于 0：%+v", status)
-		}
-	})
-
-	// 模板名会被清洗：清洗结果必须回给调用方，否则拿原文再删就删不掉。
+	// 名字全非法时直接拒，不落一个空名文件；清洗结果必须回给调用方，否则拿原文再删就删不掉。
 	t.Run("模板保存回清洗后的名字", func(t *testing.T) {
 		h := newHarness(t)
+
+		env, _ := h.call("POST", "/templates/save", domain.PromptTemplateREQ{
+			TemplateName: "!!!",
+			TemplateBody: "正文",
+		})
+		if env.Code != pkg.CodeBadRequest {
+			t.Fatalf("非法模板名应回 %q，实际 %q（%s）", pkg.CodeBadRequest, env.Code, env.Message)
+		}
+
 		env, code := h.call("POST", "/templates/save", domain.PromptTemplateREQ{
 			TemplateName: "Bad Name!",
 			TemplateBody: "正文",
@@ -207,18 +180,6 @@ func TestBackendHardening(t *testing.T) {
 		h.mustOK(env, code, "按返回名删除", nil)
 		if pkg.Exists(filepath.Join(h.layout.TemplatesDir, "badname.md")) {
 			t.Fatal("删除后文件不该还在")
-		}
-	})
-
-	// 名字全非法时直接拒，不落一个空名文件。
-	t.Run("模板名全非法即拒", func(t *testing.T) {
-		h := newHarness(t)
-		env, _ := h.call("POST", "/templates/save", domain.PromptTemplateREQ{
-			TemplateName: "!!!",
-			TemplateBody: "正文",
-		})
-		if env.Code != pkg.CodeBadRequest {
-			t.Fatalf("非法模板名应回 %q，实际 %q（%s）", pkg.CodeBadRequest, env.Code, env.Message)
 		}
 	})
 
@@ -357,28 +318,6 @@ func TestBackendHardening(t *testing.T) {
 			if _, isArray := value.([]any); !isArray {
 				t.Fatalf("%s 出参应是数组，实际 %T（%v）", key, value, value)
 			}
-		}
-	})
-
-	// 模板保存的出参形状：前端按信封解，新增的 template_name 必须是平铺字段。
-	t.Run("模板出参形状", func(t *testing.T) {
-		h := newHarness(t)
-		env, code := h.call("POST", "/templates/save", domain.PromptTemplateREQ{
-			TemplateName: "keep-me",
-			TemplateBody: "正文",
-		})
-		if code != http.StatusOK || env.Code != pkg.CodeOK {
-			t.Fatalf("保存模板应成功，实际 http=%d code=%q", code, env.Code)
-		}
-		var raw map[string]any
-		if err := json.Unmarshal(env.Data, &raw); err != nil {
-			t.Fatalf("出参应为对象：%v", err)
-		}
-		if _, ok := raw["ok"]; !ok {
-			t.Fatalf("出参应仍带 ok 字段：%v", raw)
-		}
-		if name, _ := raw["template_name"].(string); name != "keep-me" {
-			t.Fatalf("出参应带 template_name，实际 %v", raw)
 		}
 	})
 }

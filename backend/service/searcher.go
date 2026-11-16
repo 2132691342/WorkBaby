@@ -82,9 +82,8 @@ func (s *Searcher) Status() domain.IndexStatusVO {
 }
 
 // RebuildAsync 触发一次后台重建并立即返回当前状态。
-// 大仓库全量扫描以分钟计：HTTP 请求与模型工具都不该被它拖住，
-// 更不能随请求取消而中断。最终状态由 /index/status 轮询。
-// 后台协程用独立的 context：不挂在任何一个调用方的生命周期上。
+// 大仓库全量扫描以分钟计，HTTP 请求与模型工具都不该被它拖住；
+// 后台协程用独立的 context，不随任何调用方取消。最终状态靠 /index/status 轮询。
 func (s *Searcher) RebuildAsync() (domain.IndexStatusVO, error) {
 	if strings.TrimSpace(s.settings.Workspace()) == "" {
 		return s.Status(), pkg.Err(pkg.CodeSessionBind, "请先选择工作区")
@@ -106,9 +105,7 @@ func (s *Searcher) RebuildAsync() (domain.IndexStatusVO, error) {
 }
 
 // Rebuild 为当前工作区同步重建索引（测试与显式等待的场景用）。
-// 索引是派生数据：重建失败只影响检索速度，不影响任何功能。
-// 回的是「收尾之后」的状态：先清 building 再取样，否则这一次应答里
-// index_building 恒为 true——界面会一直显示正在建索引。
+// 回的是「收尾之后」的状态：先清 building 再取样，否则应答里 index_building 恒为 true。
 func (s *Searcher) Rebuild(ctx context.Context) (domain.IndexStatusVO, error) {
 	workspace := s.settings.Workspace()
 	if strings.TrimSpace(workspace) == "" {

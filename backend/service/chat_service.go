@@ -15,8 +15,7 @@ import (
 	"WorkBaby/backend/sse"
 )
 
-// Chat 是对话编排：进程内的原生引擎，一次运行一个 Runner。
-// 「引擎」不再是子进程——它就是本进程里的 agent 包，所以没有拉起、握手、崩溃重启。
+// Chat 是对话编排：进程内的原生引擎（agent 包），一次运行一个 Runner。
 type Chat struct {
 	// Settings 设置（工作区、上次会话）
 	Settings *Settings

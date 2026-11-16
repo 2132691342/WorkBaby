@@ -60,7 +60,7 @@ func TestSkills(t *testing.T) {
 	// 空清单连标题都不出现——空标题会让模型以为「有技能但看不见」。
 	t.Run("提示里的技能索引", func(t *testing.T) {
 		h := newHarness(t)
-		script := newScriptServer(t, replyChunks("收到"))
+		script := newScriptServer(t, textReplyChunks("收到"))
 		bindWorkspaceAndModel(t, h, script.server.URL)
 
 		// 空技能目录：没有「可用技能」这一节。

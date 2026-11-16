@@ -19,38 +19,8 @@ import (
 	"WorkBaby/backend/pkg"
 )
 
-// waitIndexBuilt 等后台重建收尾：重建已后台化，应答只代表「已受理」，
-// 最终状态要轮询 /index/status。building=false 且 built=true 才算收尾。
-func waitIndexBuilt(t *testing.T, h *harness) domain.IndexStatusVO {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	var last domain.IndexStatusVO
-	for time.Now().Before(deadline) {
-		env, code := h.call("GET", "/index/status", nil)
-		h.mustOK(env, code, "读索引状态", &last)
-		if !last.IndexBuilding && last.IndexBuilt {
-			return last
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("5 秒后索引仍未收尾：%+v", last)
-	return last
-}
-
-// makeBigTree 造一棵几百文件的目录树：取消测试需要扫描耗时可感知，
-// 每个文件带点正文让读文件与抽符号都有真实工作量。
-func makeBigTree(t *testing.T, root string, count int) {
-	t.Helper()
-	body := "package part\n\n" + strings.Repeat("// 索引扫描要有真实工作量：这一行只是让文件大一点。\n", 200)
-	for i := range count {
-		name := fmt.Sprintf("file_%04d.go", i)
-		text := body + fmt.Sprintf("func Symbol%04d() {}\n", i)
-		writeFile(t, filepath.Join(root, fmt.Sprintf("dir_%02d", i%20), name), text)
-	}
-}
-
 func TestIndexLifecycle(t *testing.T) {
-	// S3：Frecency 的三份操作（Record/Score/Hits）并发打同一份账。
+	// Frecency 的三份操作（Record/Score/Hits）并发打同一份账。
 	// 裸 map 并发写是进程级 fatal，不带 -race 也会当场崩掉整个测试进程；
 	// 「活下来 + 计数分毫不差」就是锁在位的证据。
 	t.Run("Frecency 并发记账不丢不炸", func(t *testing.T) {
@@ -102,7 +72,7 @@ func TestIndexLifecycle(t *testing.T) {
 		}
 	})
 
-	// S3：检索出口并发。HTTP /index/search 与引擎 Kit().Search 同时打，
+	// 检索出口并发：HTTP /index/search 与引擎 Kit().Search 同时打，
 	// 检索里的「读 docs → 打分 → 记账」与重建的整份替换必须互斥。
 	// 先建好索引再放并发：所有请求都该命中且 code=0，不出现半新半旧的崩溃。
 	t.Run("检索出口并发命中", func(t *testing.T) {
@@ -168,7 +138,7 @@ func TestIndexLifecycle(t *testing.T) {
 		}
 	})
 
-	// S3：building 且无索引时 Search 回 5002（引擎忙），而不是空结果装没事。
+	// building 且无索引时 Search 回 5002（引擎忙），而不是空结果装没事。
 	// 用一个大工作区把「第一次 EnsureIndexed 触发的后台构建」窗口拉长，
 	// 窗口内的检索只允许 5002 或（构建恰好收尾后的）成功；收尾后必须成功。
 	t.Run("构建中检索回引擎忙", func(t *testing.T) {
@@ -236,9 +206,9 @@ func TestIndexLifecycle(t *testing.T) {
 		}
 	})
 
-	// S4：先 cancel 再 Build。WalkDir 回调第一句就查 ctx.Err() 并原样返回，
-	// Build 对 err 不做包装直接透传——errors.Is 必须能认出 context.Canceled。
-	t.Run("先取消再构建回 ctx 错误", func(t *testing.T) {
+	// ctx 取消必须真的停下扫描：预取消透传 context.Canceled；
+	// 大目录树中途 cancel 要在 2 秒内带回错误且产出小于全量，而不是扫完全程。
+	t.Run("构建可取消", func(t *testing.T) {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "main.go"), "package main\n\nfunc Hello() {}\n")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -272,37 +242,31 @@ func TestIndexLifecycle(t *testing.T) {
 		if st := h.app.Searcher.Status(); st.IndexBuilding {
 			t.Fatalf("失败的 Rebuild 应清掉 building：%+v", st)
 		}
-	})
 
-	// S4：大目录树扫描中途 cancel，必须及时返回而不是扫完全程。
-	// 对照组是同一棵树的完整扫描：取消组产出必须小于全量，
-	// 且 2 秒内必须带着 ctx 错误回来。
-	t.Run("扫描中途取消及时返回", func(t *testing.T) {
-		root := t.TempDir()
+		// 大目录树中途 cancel：2 秒内带 ctx 错误回来，产出小于全量——扫描没有硬扛到底。
+		big := t.TempDir()
 		const files = 600
-		makeBigTree(t, root, files)
-
-		full, err := index.Build(context.Background(), root)
+		makeBigTree(t, big, files)
+		full, err := index.Build(context.Background(), big)
 		if err != nil {
 			t.Fatalf("全量构建失败：%v", err)
 		}
 		if len(full) < files {
 			t.Fatalf("全量构建应至少产出 %d 条文档，实际 %d", files, len(full))
 		}
-
-		ctx, cancel := context.WithCancel(context.Background())
+		scanCtx, scanCancel := context.WithCancel(context.Background())
 		type result struct {
 			docs []index.Doc
 			err  error
 		}
 		done := make(chan result, 1)
 		go func() {
-			docs, err := index.Build(ctx, root)
-			done <- result{docs: docs, err: err}
+			scanDocs, scanErr := index.Build(scanCtx, big)
+			done <- result{docs: scanDocs, err: scanErr}
 		}()
 		// 让它真扫起来一点再取消：既不是预取消，也不给扫完的机会。
 		time.Sleep(10 * time.Millisecond)
-		cancel()
+		scanCancel()
 
 		select {
 		case got := <-done:
@@ -317,10 +281,9 @@ func TestIndexLifecycle(t *testing.T) {
 		}
 	})
 
-	// S4 的 HTTP 侧：重建已后台化——POST /index/rebuild 立即受理（building=true），
+	// HTTP 侧：重建已后台化——POST /index/rebuild 立即受理（building=true），
 	// 最终状态靠 /index/status 轮询；HTTP 请求结束不牵连后台构建
-	// （RebuildAsync 内部用 context.Background()，不随请求 ctx 取消）。
-	// 「收尾后取样」的老角度在 backend_hardening_test.go，这里钉的是后台契约。
+	//（RebuildAsync 内部用 context.Background()，不随请求 ctx 取消）。
 	t.Run("HTTP 重建后台化且立即受理", func(t *testing.T) {
 		h := newHarness(t)
 

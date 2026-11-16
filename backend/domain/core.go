@@ -103,20 +103,6 @@ type AppRowVO struct {
 	InstallNote string `json:"install_note,omitempty"`
 }
 
-// AppProgressVO 是一条安装进度帧（SSE app:progress）。
-type AppProgressVO struct {
-	// ProgressKind 进度所属的应用键（node / git / python）
-	ProgressKind string `json:"progress_kind"`
-	// ProgressAction 动作（install / update / uninstall）
-	ProgressAction string `json:"progress_action"`
-	// ProgressPhase 阶段：start / line / done / fail
-	ProgressPhase string `json:"progress_phase"`
-	// ProgressLine 命令输出的一行
-	ProgressLine string `json:"progress_line,omitempty"`
-	// ProgressMessage 给人看的一句话
-	ProgressMessage string `json:"progress_message,omitempty"`
-}
-
 // BootBootstrapRESP 是首屏总包：界面一次请求拿到画首屏要用的全部事实。
 type BootBootstrapRESP struct {
 	// AppVersion 壳版本

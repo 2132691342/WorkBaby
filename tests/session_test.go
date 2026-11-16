@@ -361,31 +361,3 @@ func TestSession(t *testing.T) {
 		}
 	})
 }
-
-// writeSession 在会话根下写一份会话 JSONL（首行是会话头），返回文件路径。
-// 必须落在会话根内：路径越界本身会先被拦掉，那就测不到后续的写入纪律了。
-func writeSession(t *testing.T, root string, lines ...string) string {
-	t.Helper()
-	dir := filepath.Join(root, "--C--ws--")
-	if err := pkg.EnsureDir(dir); err != nil {
-		t.Fatalf("建会话目录失败：%v", err)
-	}
-	file := filepath.Join(dir, "sess.jsonl")
-	header := `{"type":"session","version":3,"id":"sess","cwd":"C:\\ws","timestamp":"2026-01-01T00:00:00.000Z"}`
-	body := header + "\n" + strings.Join(lines, "\n") + "\n"
-	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
-		t.Fatalf("写会话文件失败：%v", err)
-	}
-	return file
-}
-
-// turnsText 把回放结果拼成一段文本，便于断言分支内容。
-func turnsText(turns []domain.HistoryTurnVO) string {
-	var parts []string
-	for _, turn := range turns {
-		for _, block := range turn.TurnBlocks {
-			parts = append(parts, block.BlockText)
-		}
-	}
-	return strings.Join(parts, "|")
-}

@@ -27,8 +27,7 @@ func (a *App) Bootstrap(ctx context.Context) domain.BootBootstrapRESP {
 // ContractVersion 是响应契约版本：字段形状一变就要 +1，界面据此识别过期。
 const ContractVersion = 3
 
-// EngineIdentity 当前引擎的身份事实。
-// 引擎就是本进程：没有可执行入口、没有版本探测，装没装这件事不再存在。
+// EngineIdentity 当前引擎的身份事实：引擎在本进程里，没有可执行入口与版本探测。
 func (a *App) EngineIdentity() domain.EngineIdentity {
 	return domain.EngineIdentity{
 		EngineKind:    domain.EngineNative,
@@ -75,8 +74,7 @@ func (a *App) Health(ctx context.Context) domain.HealthRESP {
 	}
 }
 
-// Apps 应用页的行：只有用户环境里的工具链。
-// 引擎不再是一行外部依赖——它在进程里跑，没有「装没装」这件事。
+// Apps 应用页的行：只有用户环境里的工具链；引擎在进程内跑，不占其中一行。
 func (a *App) Apps(ctx context.Context) []domain.AppRowVO {
 	return []domain.AppRowVO{
 		{

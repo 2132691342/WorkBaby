@@ -324,7 +324,7 @@ Markdown 覆盖 `/chat/state` 返回的全部历史轮次，但只取 `block_kin
 
 后端从不广播、前端也已无分支的事件：`engine:status` `engine:exit` `engine:commands`
 `app:progress` `chat:blocks` `chat:notify` `chat:status` `chat:widget` `chat:editor_text`。
-排障时不要据此判断后端故障。`AppProgressVO` 类型仍在 `domain/core.go`，没有发射点，属待清理死类型。
+排障时不要据此判断后端故障。
 
 ## 5. 错误码
 

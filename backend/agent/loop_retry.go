@@ -78,7 +78,11 @@ func (r *Runner) retryUpstreamError(ctx context.Context, h Handler, message stri
 
 // waitRetry 退避等待并广播进度；用户中止立刻返回 false。
 func (r *Runner) waitRetry(ctx context.Context, h Handler, attempt int) bool {
-	delay := retryBaseDelay << (attempt - 1)
+	base := retryBaseDelay
+	if r.RetryBaseDelay > 0 {
+		base = r.RetryBaseDelay
+	}
+	delay := base << (attempt - 1)
 	if h.OnRetry != nil {
 		h.OnRetry(attempt, maxUpstreamRetries, delay.Milliseconds())
 	}

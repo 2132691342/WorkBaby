@@ -306,8 +306,8 @@ func readFull(r *http.Request, buf []byte) (int, error) {
 	return total, nil
 }
 
-// replyChunks 是一轮「纯文本回复、不要工具」的脚本。
-func replyChunks(text string) []string {
+// textReplyChunks 是一轮「纯文本回复、不要工具」的脚本。
+func textReplyChunks(text string) []string {
 	return []string{
 		fmt.Sprintf(`{"choices":[{"delta":{"content":%q}}]}`, text),
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
@@ -351,4 +351,78 @@ func writeFile(t *testing.T, path, body string) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("写文件失败：%v", err)
 	}
+}
+
+// mustSetWorkspace 走正式入口设工作区。
+func mustSetWorkspace(t *testing.T, h *harness, dir string) {
+	t.Helper()
+	env, code := h.call("POST", "/settings/workspace", map[string]string{"workspace": dir})
+	h.mustOK(env, code, "设置工作区", nil)
+}
+
+// readSettings 读 GET /settings 的结果。
+func readSettings(t *testing.T, h *harness) map[string]string {
+	t.Helper()
+	env, code := h.call("GET", "/settings", nil)
+	var out map[string]string
+	h.mustOK(env, code, "读设置", &out)
+	return out
+}
+
+// waitIndexBuilt 等后台重建收尾：重建已后台化，应答只代表「已受理」，
+// 最终状态要轮询 /index/status。building=false 且 built=true 才算收尾。
+func waitIndexBuilt(t *testing.T, h *harness) domain.IndexStatusVO {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var last domain.IndexStatusVO
+	for time.Now().Before(deadline) {
+		env, code := h.call("GET", "/index/status", nil)
+		h.mustOK(env, code, "读索引状态", &last)
+		if !last.IndexBuilding && last.IndexBuilt {
+			return last
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("5 秒后索引仍未收尾：%+v", last)
+	return last
+}
+
+// makeBigTree 造一棵几百文件的目录树：取消测试需要扫描耗时可感知，
+// 每个文件带点正文让读文件与抽符号都有真实工作量。
+func makeBigTree(t *testing.T, root string, count int) {
+	t.Helper()
+	body := "package part\n\n" + strings.Repeat("// 索引扫描要有真实工作量：这一行只是让文件大一点。\n", 200)
+	for i := range count {
+		name := fmt.Sprintf("file_%04d.go", i)
+		text := body + fmt.Sprintf("func Symbol%04d() {}\n", i)
+		writeFile(t, filepath.Join(root, fmt.Sprintf("dir_%02d", i%20), name), text)
+	}
+}
+
+// writeSession 在会话根下写一份会话 JSONL（首行是会话头），返回文件路径。
+// 必须落在会话根内：路径越界本身会先被拦掉，那就测不到后续的写入纪律了。
+func writeSession(t *testing.T, root string, lines ...string) string {
+	t.Helper()
+	dir := filepath.Join(root, "--C--ws--")
+	if err := pkg.EnsureDir(dir); err != nil {
+		t.Fatalf("建会话目录失败：%v", err)
+	}
+	file := filepath.Join(dir, "sess.jsonl")
+	header := `{"type":"session","version":3,"id":"sess","cwd":"C:\\ws","timestamp":"2026-01-01T00:00:00.000Z"}`
+	body := header + "\n" + strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+		t.Fatalf("写会话文件失败：%v", err)
+	}
+	return file
+}
+
+// turnsText 把回放结果拼成一段文本，便于断言分支内容。
+func turnsText(turns []domain.HistoryTurnVO) string {
+	var parts []string
+	for _, turn := range turns {
+		for _, block := range turn.TurnBlocks {
+			parts = append(parts, block.BlockText)
+		}
+	}
+	return strings.Join(parts, "|")
 }

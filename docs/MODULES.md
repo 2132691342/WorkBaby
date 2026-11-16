@@ -251,7 +251,7 @@
 
 **② 设计与理由**
 
-- 四个目录：启用区 `data\skills`、停用区 `data\skills_disabled`、项目区 `<工作区>\.pi\skills`（只读）、随包原件 `<assets>\skills`（`builtinSource()`）。
+- 四个目录：启用区 `data\skills`、停用区 `data\skills_disabled`、项目区 `<工作区>\.workbaby\skills`（只读）、随包原件 `<assets>\skills`（`builtinSource()`）。
 - 开关 = 搬目录，不是改配置：目录搬移对所有情况成立，且不需要任何配合。搬完再写 `skill_toggles` 台账（`repo/store.go SetSkillEnabled`）记一次意图；写失败只 Warn、不回滚——真相在目录里，台账只是备注。
 - 动作对象一律是 `SKILL.md` 所在的目录，入参必须是 `SKILL.md` 路径：`Toggle` 传别的回 1000、`Delete` 传目录路径回 8002。深层任意文件算出的目录会把别的技能搬走，而传技能目录正好能清空整个内置技能区。
 - 三区扫描 `skills_scan.go`：`dedupeByDirName` 同名只留启用区那份（启用区没有才留禁用区那份），按 `skill_group` 字母序稳定排序；`skill_modified` 由 `isModified` 与随包原件比对得出；项目技能 `skill_editable=false`。
@@ -287,7 +287,7 @@
 - 项目技能属于那个仓库：壳里既不能开关也不能删除，只能读。
 - `Reset` 中途失败宁可保内容不回保状态：换名失败时把暂存目录留在原地并 `pkg.Warn`。
 - 提示里的技能索引是「本轮开跑那一刻」的快照：运行中途开关技能只影响下一轮。这不是懒，是刻意——同一轮里提示与工具列表必须是同一份现实，中途换会让模型按新清单做事而工具侧还没跟上。
-- 项目技能（`<工作区>\.pi\skills`）不进提示：引擎只认托管启用区，那条链路只服务技能页展示。要让它生效得先导入成托管技能。
+- 项目技能（`<工作区>\.workbaby\skills`）不进提示：引擎只认托管启用区，那条链路只服务技能页展示。要让它生效得先导入成托管技能。
 
 **⑦ 取舍**：换来启用 / 停用语义与引擎无关、技能可整体拷走备份、损坏可重置回原件；代价是开关是文件系统动作（被占用时会失败并报 8001），且台账与目录可能不一致，判定必须以目录为准。
 
@@ -297,7 +297,7 @@
 
 **② 设计与理由**
 
-- 真相是两份 JSON：用户级 `data\mcp.json`、项目级 `<工作区>\.pi\mcp.json`；同名时项目级覆盖用户级；`enabled` 缺省视为启用（判据 `entry["enabled"] != false`）。
+- 真相是两份 JSON：用户级 `data\mcp.json`、项目级 `<工作区>\.workbaby\mcp.json`；同名时项目级覆盖用户级；`enabled` 缺省视为启用（判据 `entry["enabled"] != false`）。
 - 引擎侧装载只认条目里的 `command`（stdio）：`mcpServerDefOf` 没有 `command` 就直接跳过。只配 `url` 的条目能保存、能被 `Probe` 探到工具数，但不会变成模型可调的工具。
 - 行协议在 `agent/mcp_client.go`：`initialize` → `notifications/initialized` → `tools/list` → `tools/call`，按 LF 切帧；单请求预算 30s（`mcpRequestBudget`）、握手 60s（`mcpHandshakeBudget`），条目 `timeout`（秒）覆盖请求预算。工具名 `McpToolName` = `mcp_{server}_{tool}`，入参 schema 原样透传（`agent/tool_mcp.go`）。
 - `Save` 先整份继承旧条目、再覆盖表单字段：手配的 `headers` 一类字段不该因为界面上没这栏就丢。服务名只允许字母、数字、`_`、`-`——它是拼工具名的原料。

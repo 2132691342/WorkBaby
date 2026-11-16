@@ -67,6 +67,8 @@ type Runner struct {
 	steps int
 	// retries 流内失败已重试次数
 	retries int
+	// RetryBaseDelay 覆盖退避基数；0 用默认 2s。测试注入毫秒级基数，不必真等 2 秒。
+	RetryBaseDelay time.Duration
 }
 
 // Enqueue 排一条消息，等当前这一轮结束时注入。

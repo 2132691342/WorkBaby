@@ -285,9 +285,8 @@ func (p *PersistentProc) Kill() {
 const maxLineBytes = 1 << 20
 
 // LineChan 把一个字节流按 LF 切成行推进通道；读尽或出错即关闭。
-// 不用 bufio.Scanner 默认行为：它会把 U+2028/2029 也当分隔符，而它们在 JSON 里是合法字符。
-// 长驻 RPC 子进程与一次性探测共用这一套切帧。
-// 超长行按上限截断而不是丢弃：截断的行仍是坏 JSON，解析方会跳过它，行为可预期。
+// 不用 bufio.Scanner 默认行为：它会把 U+2028/2029 也当分隔符，而它们在 JSON 里是合法字符；
+// 长驻 RPC 子进程与一次性探测共用这一套切帧。超长行按上限截断，截断的坏 JSON 由解析方跳过。
 func LineChan(reader io.Reader) <-chan string {
 	lines := make(chan string, 32)
 	go func() {

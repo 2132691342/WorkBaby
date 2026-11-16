@@ -396,8 +396,7 @@ func chunkFinishReason(chunk wireChunk) string {
 
 // emitChunk 把一个分片翻成若干归一事件。
 // index 一律透传上游的分片下标：并行工具调用的分片可能交错到达，
-// 按到达顺序拼入参会把两个函数的参数串成一段非法 JSON。
-// 发送一律受 ctx 约束：消费端停了之后，这里不该把读循环卡死在入队上。
+// 按到达顺序拼入参会把两个函数的参数串成一段非法 JSON；发送一律受 ctx 约束。
 func emitChunk(ctx context.Context, out chan<- StreamEvent, chunk wireChunk) {
 	send := func(ev StreamEvent) bool {
 		select {
