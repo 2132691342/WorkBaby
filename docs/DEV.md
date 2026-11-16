@@ -80,6 +80,17 @@ localStorage.setItem('wb.dev.token', '<脚本打印的令牌>')
 重启前端后 `api/wails.ts` 的 `devOverride()` 读这两个键直连 HTTP，不依赖 Wails 绑定。
 后端装配失败时绑定调用同样抛错，所以这条覆盖必须显式写 localStorage，不靠「调用失败」去猜。
 
+**令牌与 `WB_DEV_TOKEN`**：`scripts/backend.ps1` 起后端时把脚本的 `-Token`（`dev.ps1` 默认 `devtoken123`）
+写进环境变量 `WB_DEV_TOKEN`，令牌在调试期间是固定值，不用每次贴随机串。它**只在开发态布局生效**
+（`backend/shell/app.go` 的 `newToken`）：发布版一律每次启动随机 24 字节令牌，环境变量读都不读；
+熵源不可用时直接拒启（panic），不会退化成可预测的令牌。接口鉴权头是 `X-Desktop-Token`，
+只有 `/events` 一条路由收 `?token=` 查询参数（`backend/api/server.go` 的 `authMiddleWare`）。
+
+安全注意：固定令牌等于把「每次启动随机」这道门换成常量——**任何知道值的本机进程都能打 API**。
+只在自己的开发机上用，别把 `devtoken123` 这类值带进共享环境；调试完随手收掉这个环境变量。
+开发态的会话、设置、密钥都落在 `WorkBaby-dev` 数据目录（`%LOCALAPPDATA%\WorkBaby-dev`，见 §6），
+与安装态完全隔离——在开发态调试不会碰到真实用户数据，反之亦然。
+
 ## 3. 目录与测试清单
 
 ```
@@ -93,21 +104,24 @@ scripts/{backend.ps1,dev.ps1,smoke.ps1}   开发态起停与冒烟
 tests/                     Go 场景测试，一文件一主题
 ```
 
-`tests/` 现状：12 个文件、11 个入口函数（另有一个 `TestMain` 在 `mcp_fake_server_test.go`），全量数秒跑完。一文件一个主题，主题内的子契约用 `t.Run` 分层：
+`tests/` 现状：15 个文件、13 个入口函数（另有一个 `TestMain` 在 `mcp_fake_server_test.go`），全量数秒跑完。一文件一个主题，主题内的子契约用 `t.Run` 分层：
 
 | 文件 | 入口 | 子契约 |
 |---|---|---|
 | `harness_test.go` | —（装具） | 真 JSON 台账 + 真临时布局 + 真 gin 中间件栈的隔离后端；按脚本吐分片的假上游；SSE 帧捕获；`catalogHarness`；`bindWorkspaceAndModel` / `waitIdle` / `writeFile` |
 | `mcp_fake_server_test.go` | TestMain | 测试二进制带 `--wb-mcp-server` 时切入假 MCP 服务器模式（stdin 收 JSON-RPC、stdout 一行一帧），自起自己当上游 |
-| `engine_test.go` | TestEngine | 分片拼装 / 工具轮次闭环 / 工具作用域 / 待办往返 / 计划模式闸门 |
-| `chat_flow_test.go` | TestChatFlow | 队列语义 / 思考档接线 / 发送失败面 / 提问卡链路 |
+| `engine_test.go` | TestEngine | 分片拼装 / 上游错误原话透传 / 工具入参容错 / 工具轮次闭环 / 工具作用域 / 待办往返 / 计划模式闸门 |
+| `engine_guard_test.go` | TestEngineGuard | `S1_分片重复头字段不清入参` / `S1_name迟到最后一片参数不丢` / `S5_length截断整批拒绝执行` / `S2_落盘全文与上下文折叠分离` / `S2_裁窗后孤儿配对修复` / `S6_瞬时失败退避后成功` / `S6_鉴权失败一票否决不重试` / `S6_流内error帧限流重试` |
+| `chat_flow_test.go` | TestChatFlow | 队列语义 / 思考档接线 / 模型参数接线 / 中止交回排队话术 / 发送失败面 / 提问卡链路 |
 | `chat_context_test.go` | TestChatContext | 上下文读数 / 上下文压缩 / 流式块表 |
 | `session_test.go` | TestSession | 回放 / 写入纪律 / 格式契约 / 分叉 |
 | `models_test.go` | TestModel | 清单对账 / 默认模型写入口 / 密钥掩码 |
 | `mcp_test.go` | TestMcp | 客户端 / 运行时装配 / 配置治理 |
 | `skills_test.go` | TestSkills | 清单咬合 / 提示里的技能索引 / 生命周期 |
 | `workspace_test.go` | TestWorkspace | 索引收录边界 / 索引排序 / 联网地址拦截 / 正文抽取 / 联网接口链路 |
+| `index_lifecycle_test.go` | TestIndexLifecycle | Frecency 并发记账不丢不炸 / 检索出口并发命中 / 构建中检索回引擎忙 / 先取消再构建回 ctx 错误 / 扫描中途取消及时返回 / HTTP 重建后台化且立即受理 |
 | `process_test.go` | TestProcess | 长驻进程收尾 / 子进程环境 / 冲突解决 |
+| `backend_hardening_test.go` | TestBackendHardening | 设置写入口不接受工作区键 / 密钥不回显 / 当前会话删除先解绑再删 / 索引重建回收尾后的状态 / 模板保存回清洗后的名字 / 模板名全非法即拒 / 路径守卫挡符号链接 / 请求体超限即拒 / SSE 慢订户被摘掉 / 排队出参恒为数组 / 模板出参形状 |
 | `http_test.go` | TestHTTPContract | 鉴权门 / CORS 预检 / 信封同构 / 写入落盘 / SSE 通道 |
 
 定位方法：
