@@ -93,7 +93,7 @@ func mcpEnvOf(def McpServerDef, base []string) []string {
 
 // handshake 走一遍 initialize → notifications/initialized。
 func (c *McpClient) handshake() error {
-	result, err := c.request("initialize", map[string]any{
+	result, err := c.request(context.Background(), "initialize", map[string]any{
 		"protocolVersion": "2025-03-26",
 		"capabilities":    map[string]any{},
 		"clientInfo":      map[string]any{"name": "WorkBaby", "version": "1.0"},
@@ -110,7 +110,7 @@ func (c *McpClient) handshake() error {
 
 // ListTools 拉工具清单。
 func (c *McpClient) ListTools() ([]McpToolSpec, error) {
-	result, err := c.request("tools/list", map[string]any{}, c.requestBudget())
+	result, err := c.request(context.Background(), "tools/list", map[string]any{}, c.requestBudget())
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (c *McpClient) Call(ctx context.Context, tool string, args map[string]any) 
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return "", pkg.Err(pkg.CodeMcpCall, "调用已取消："+ctxErr.Error())
 	}
-	result, err := c.request("tools/call", params, c.requestBudget())
+	result, err := c.request(ctx, "tools/call", params, c.requestBudget())
 	if err != nil {
 		return "", err
 	}
@@ -183,7 +183,7 @@ func (c *McpClient) requestBudget() time.Duration {
 }
 
 // request 发一条请求并等回包。请求号单调递增：并发调用各等各的 id，串号也不至于张冠李戴。
-func (c *McpClient) request(method string, params map[string]any, budget time.Duration) (map[string]any, error) {
+func (c *McpClient) request(ctx context.Context, method string, params map[string]any, budget time.Duration) (map[string]any, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nextId++
@@ -200,7 +200,7 @@ func (c *McpClient) request(method string, params map[string]any, budget time.Du
 	if err := c.proc.WriteLine(payload); err != nil {
 		return nil, err
 	}
-	rec := mcpWaitFor(c.lines, id, budget)
+	rec := mcpWaitFor(ctx, c.lines, id, budget)
 	if rec == nil {
 		if c.proc.Exited() {
 			msg := "MCP 服务进程在等待应答时退出：" + c.def.ServerName
@@ -226,8 +226,8 @@ func (c *McpClient) request(method string, params map[string]any, budget time.Du
 	return result, nil
 }
 
-// mcpWaitFor 在预算内等指定 id 的应答；超时或流断开给 nil。
-func mcpWaitFor(lines <-chan string, id int, budget time.Duration) map[string]any {
+// mcpWaitFor 在预算内等指定 id 的应答；超时、取消或流断开给 nil。
+func mcpWaitFor(ctx context.Context, lines <-chan string, id int, budget time.Duration) map[string]any {
 	if budget <= 0 {
 		budget = mcpRequestBudget
 	}
@@ -246,6 +246,8 @@ func mcpWaitFor(lines <-chan string, id int, budget time.Duration) map[string]an
 				return rec
 			}
 		case <-deadline:
+			return nil
+		case <-ctx.Done():
 			return nil
 		}
 	}

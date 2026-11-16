@@ -37,7 +37,7 @@ func (s *Skills) builtinSource() string {
 // projectDir 工作区的项目技能目录；未选工作区给一个永远不命中的占位路径。
 func (s *Skills) projectDir() string {
 	if ws := s.Settings.Workspace(); ws != "" {
-		return filepath.Join(ws, ".pi", "skills")
+		return filepath.Join(workspaceConfigDir(ws), "skills")
 	}
 	return filepath.Join(s.Layout.DataDir, ".no-project")
 }

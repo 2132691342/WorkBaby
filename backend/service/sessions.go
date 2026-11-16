@@ -22,8 +22,10 @@ type Sessions struct {
 	Store *repo.Store
 	// Layout 目录布局
 	Layout pkg.Layout
-	// Active 当前绑定到引擎的会话文件（空表示未绑定）；改名要用它避让写入冲突
-	Active func() string
+	// RenameActive 改名引擎正打开的会话：走它的追加入口，与运行共用同一把写锁
+	RenameActive func(file, title string) error
+	// PrepareDelete 删除引擎正打开的会话前的解绑：中止运行并切到新会话，返回新会话文件
+	PrepareDelete func(file string) (string, error)
 }
 
 // NewSessions 造一个会话门面。
@@ -106,18 +108,17 @@ func (s *Sessions) Detail(file string) (domain.SessionDetailRESP, error) {
 	}, nil
 }
 
-// Delete 删除会话文件，并清掉它的隐藏台账键：台账跟着会话生，会话没了
-// 留着只会让 workbaby.json 缓慢膨胀。
-// 引擎正打开这份会话时拒掉：删掉的是它还在追加的文件，
-// 后续写入会落到一个已消失的路径上，界面则继续显示一份读不回来的会话。
+// Delete 删除会话文件并清掉隐藏台账键。引擎正打开这份会话时先安全解绑
+// （中止运行、切到新会话）再删：直接删它还在追加的文件，
+// 后续写入会落到一个已消失的路径上。
 func (s *Sessions) Delete(file string) error {
 	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return err
 	}
-	if s.Active != nil {
-		if active := s.Active(); active != "" && strings.EqualFold(filepath.Clean(active), filepath.Clean(resolved)) {
-			return pkg.Err(pkg.CodeEngineBusy, "这份会话正被引擎打开，切到其他会话后再删除")
+	if s.PrepareDelete != nil {
+		if _, err := s.PrepareDelete(resolved); err != nil {
+			return err
 		}
 	}
 	if err := os.Remove(resolved); err != nil {
@@ -130,20 +131,18 @@ func (s *Sessions) Delete(file string) error {
 }
 
 // Rename 改名：走引擎的写入口追加一条 session_info 条目，不手拼 JSON——落盘形态只有一处定义。
-// 引擎正打开这份会话时拒掉：两路同时追加会写出交错行，整份会话回放不出来。
+// 引擎正打开这份会话时经它的句柄改名：与运行共用同一把写锁，不会写出交错行。
 func (s *Sessions) Rename(file, title string) error {
 	resolved, err := parser.GuardSession(s.Layout.SessionsDir, file)
 	if err != nil {
 		return err
 	}
-	if s.Active != nil {
-		if active := s.Active(); active != "" && strings.EqualFold(filepath.Clean(active), filepath.Clean(resolved)) {
-			return pkg.Err(pkg.CodeEngineBusy, "这份会话正被引擎打开，切到其他会话后再改名")
-		}
-	}
 	name := strings.TrimSpace(title)
 	if name == "" {
 		return pkg.Err(pkg.CodeBadRequest, "会话标题不能为空")
+	}
+	if s.RenameActive != nil {
+		return s.RenameActive(resolved, name)
 	}
 	// Open 只用会话根做越界校验，不用工作区：这里传空工作区即可。
 	store := agent.NewStore(s.Layout.SessionsDir, func() string { return "" })

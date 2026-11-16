@@ -100,8 +100,9 @@ func New(opts Options) *App {
 	mcp.Hub = opts.Hub
 	mcp.Runtime = mcpRuntime
 	go mcpRuntime.Rebuild()
-	// 改名要避让引擎正在写的会话文件：绑定状态只有 Chat 知道。
-	sessions.Active = chat.CurrentFile
+	// 当前会话的改名/删除要经引擎的写锁与安全解绑：绑定状态只有 Chat 知道。
+	sessions.RenameActive = chat.RenameAny
+	sessions.PrepareDelete = chat.PrepareDelete
 	app := &App{
 		Version:   opts.Version,
 		Layout:    opts.Layout,

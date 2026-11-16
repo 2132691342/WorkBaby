@@ -102,20 +102,6 @@ func (s *Settings) DefaultThinkingLevel() string {
 	return fallbackThinkingLevel
 }
 
-// MentionSessions 是 @ 引用里列出的最近会话条数。
-// 取值夹在 1~20：超出范围的值来自手改配置文件，按边界收敛比报错好用。
-func (s *Settings) MentionSessions() int {
-	raw := strings.TrimSpace(s.Get(KeyMentionSessions))
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 {
-		return 5
-	}
-	if n > 20 {
-		return 20
-	}
-	return n
-}
-
 // Settings 是设置与工作区编排。
 type Settings struct {
 	// Store 设置库

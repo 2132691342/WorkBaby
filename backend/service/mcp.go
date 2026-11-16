@@ -13,7 +13,7 @@ import (
 	"WorkBaby/backend/sse"
 )
 
-// Mcp 是 MCP 编排：用户级 mcp.json 与工作区 .pi\mcp.json 的增删改查与开关。
+// Mcp 是 MCP 编排：用户级 mcp.json 与工作区 .workbaby\mcp.json 的增删改查与开关。
 type Mcp struct {
 	// Settings 设置（项目级 mcp.json 要跟着工作区走）
 	Settings *Settings
@@ -51,7 +51,7 @@ func (m *Mcp) notifyChanged() {
 // projectPath 项目级 mcp.json；未选工作区给空串。
 func (m *Mcp) projectPath() string {
 	if ws := m.Settings.Workspace(); ws != "" {
-		return filepath.Join(ws, ".pi", "mcp.json")
+		return filepath.Join(workspaceConfigDir(ws), "mcp.json")
 	}
 	return ""
 }
@@ -173,7 +173,7 @@ func stringField(entry map[string]any, key string) string {
 	return value
 }
 
-// Save 保存：默认写用户级文件，McpScope 为 project 时写工作区 .pi\mcp.json。
+// Save 保存：默认写用户级文件，McpScope 为 project 时写工作区 .workbaby\mcp.json。
 // 有 ServerUrl 即 HTTP，否则拆 CommandText。编辑时先整份继承旧条目再覆盖表单
 // 管得到的字段：用户手配的 headers、oauth、type 不在表单里，从零重建会静默丢掉它们。
 func (m *Mcp) Save(req domain.McpSaveREQ) (domain.McpListRESP, error) {
@@ -196,7 +196,7 @@ func (m *Mcp) Save(req domain.McpSaveREQ) (domain.McpListRESP, error) {
 			return domain.McpListRESP{}, pkg.Err(pkg.CodeMcpWrite, "项目级 MCP 需要先选择工作区")
 		}
 		if err := pkg.EnsureDir(filepath.Dir(targetPath)); err != nil {
-			return domain.McpListRESP{}, pkg.WrapErr(pkg.CodeMcpWrite, "项目 .pi 目录创建失败", err)
+			return domain.McpListRESP{}, pkg.WrapErr(pkg.CodeMcpWrite, "项目配置目录创建失败", err)
 		}
 	}
 	value, err := readMcpFile(targetPath)

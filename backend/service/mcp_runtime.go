@@ -46,14 +46,10 @@ func newMcpRuntime(settings *Settings, layout pkg.Layout, registry *agent.Regist
 func (r *mcpRuntime) Rebuild() {
 	r.rebuildMu <- struct{}{}
 	defer func() { <-r.rebuildMu }()
-	r.reset()
-	r.registry.ReplaceMcpTools(nil)
 
 	entries := r.enabledEntries()
-	if len(entries) == 0 {
-		return
-	}
 	envBase := mcpEnvBase(r.layout)
+	fresh := map[string]*agent.McpClient{}
 	var tools []agent.Tool
 	for _, def := range entries {
 		loaded, client, err := agent.LoadMcpTools(def, envBase)
@@ -66,11 +62,14 @@ func (r *mcpRuntime) Rebuild() {
 			client.Close()
 			continue
 		}
-		r.clients[def.ServerName] = client
+		fresh[def.ServerName] = client
 		tools = append(tools, loaded...)
 		pkg.Info("MCP 服务 %s 已装载 %d 个工具", def.ServerName, len(loaded))
 	}
+	// 先换段再收旧进程：先清后装会让全部 MCP 工具在装载窗口里凭空消失。
 	r.registry.ReplaceMcpTools(tools)
+	r.reset()
+	r.clients = fresh
 }
 
 // enabledEntries 收集所有 enabled 的 stdio 服务定义。
@@ -113,7 +112,7 @@ func (r *mcpRuntime) enabledEntries() []agent.McpServerDef {
 func (r *mcpRuntime) projectPath() string {
 	if r.settings != nil {
 		if ws := r.settings.Workspace(); ws != "" {
-			return filepath.Join(ws, ".pi", "mcp.json")
+			return filepath.Join(workspaceConfigDir(ws), "mcp.json")
 		}
 	}
 	return ""
