@@ -71,7 +71,7 @@
 |---|---|---|---|---|
 | GET | `/bootstrap` | — | `app_version,app_contract,engines[],active_engine,workspace,settings{},layouts[],workspaces[],runtime,prefs` | 首屏总包，`app_contract` 当前为 3；`engines[]` 单行 `EngineIdentity`，`workspaces[]` 行见 3.1 `/workspaces` |
 | GET | `/settings` | — | 键值 `{}` | 全部设置键值；`web.search_key` 恒为掩码 |
-| POST | `/settings/save` | 键值 `{}`（`SaveSettingsREQ`） | 键值 `{}` | 落盘后回全量；`ui.mention_sessions` 收敛到 1~20；`workspace.current` / `workspace.history` 回 `1000`（只能走 `/settings/workspace`） |
+| POST | `/settings/save` | 键值 `{}`（`SaveSettingsREQ`） | 键值 `{}` | 落盘后回全量；`ui.mention_sessions` 收敛到 1~20；`workspace.current` / `workspace.history` 回 `1000`（只能走 `/settings/workspace`）；`agent.bash_confirm` 控制危险命令确认闸门（`"0"` 关，其余开） |
 | POST | `/settings/workspace` | `workspace` | `workspace` | 切工作区；会话绑定随之失效 |
 | GET | `/workspaces` | — | `workspace,workspace_rows[],active_engine` | 行：`workspace_path,workspace_exists,workspace_is_repo,workspace_branch?,workspace_dirty,session_count,updated_at` |
 | POST | `/settings/workspace/forget` | `workspace_path` | `workspace,workspace_rows[],active_engine` | 只去历史，不删磁盘 |
@@ -103,8 +103,8 @@
 |---|---|---|---|---|
 | GET | `/sessions?workspace=&q=` | `workspace`（空则扫全部工作区）、`q` | `sessions[]` | 行：`session_id,session_path,session_title,session_cwd,session_model,updated_at,size_bytes,message_count,total_tokens,cost_usd`；`message_count` 是消息条数（用户 + 助手 + 工具结果各算一条），不是对话轮数；`q` 命中标题或正文 |
 | GET | `/sessions/detail?path=` | `path` | `session,items[]` | 行：`item_kind,item_role,item_text?,item_model?,tool_name?,tool_call_id?,tool_is_error,created_at,item_tokens?,cost_usd?` |
-| POST | `/sessions/delete` | `session_path` | `{ok}` | 引擎正打开这份会话时回 `5002`；一并清 `chat.hide:<路径>` 台账键 |
-| POST | `/sessions/rename` | `session_path,session_title` | `{ok}` | 追加 `session_info` 条目；被引擎打开时 `5002` |
+| POST | `/sessions/delete` | `session_path` | `{ok}` | 引擎正打开这份会话时先中止运行并切到新会话再删（`PrepareDelete`）；一并清 `chat.hide:<路径>` 台账键 |
+| POST | `/sessions/rename` | `session_path,session_title` | `{ok}` | 追加 `session_info` 条目；被引擎打开时走引擎句柄改名（`RenameActive`，与运行共用写锁）并广播 `session:title` |
 
 ### 3.4 对话（MODULES §1）
 
@@ -130,12 +130,13 @@
 | POST | `/messages/hide` | `session_file,turn_id` | `{ok}` | 台账在设置文件（`chat.hide:<路径>`），会话文件不动 |
 | POST | `/messages/unhide` | `session_file,turn_id` | `{ok}` | 同上 |
 
-`ChatStateRESP`：`engine_kind,session_file,work_dir,engine_running,streaming,model?,thinking_level,thinking_levels[],context_usage?,auto_compaction,queued,stats?,history[],todos[],plan_mode,plan_state?,commands[],caps,bind_err?,context_warn?`。
+`ChatStateRESP`：`engine_kind,session_file,work_dir,engine_running,streaming,model?,thinking_level,thinking_levels[],context_usage?,auto_compaction,queued,stats?,history[],todos[],plan_mode,plan_state?,commands[],caps,bind_err?,context_warn?,ask_pending?`。
 - `thinking_levels[]` 是 `off/low/medium/high` 四档（`/chat/thinking` 接受的档位多一个 `minimal`）。
 - `context_usage`：`usage_tokens,context_window,usage_percent`；`stats`：`session_id,user_messages,assistant_messages,tool_calls,total_messages,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,total_tokens,context_usage`。
   token 四个分项是真聚合：扫会话条目里每条消息的 `usage`，把 `input`/`output`/`cacheRead`/`cacheWrite` 各自累加（`Chat.usageSnapshot`）。
   `cost_usd` 仍恒为零值——聚合路径不累加花费，要算钱得逐条读会话里的 `usage.cost.total`。
 - `context_warn`：自动压缩开着且占用过八成时给一句话提示，否则为空。
+- `ask_pending`：引擎在等的提问清单。提问是阻塞式工具调用（`chat_service.ask` 挂进 waiters 等 `/chat/answer`），刷新界面后 `AskCard` 据此补回提问卡，模型不用被弃置在等待里。
 - `queued`：`steering[],follow_up[]`；`plan_state`：`plan_enabled,blocked_tools[]`；`model?`：`model_id,model_name,provider_name,api_protocol,supports_reasoning,context_window,max_tokens,input_kinds?`。
 - `commands[]`：`command_name,command_source,command_desc?,command_body?`；`history[]`：`turn_role,turn_blocks[],turn_model?,turn_usage?,turn_id?`。
 - `ChatAttachmentVO`：`attachment_kind`（`file`\|`image`\|`session`）、`file_path?,file_name?,image_base64?,image_mime?,attachment_body?`；文件附件以路径引用折进消息，图片走内容块，会话引用整段正文折进消息。
@@ -160,7 +161,7 @@ Markdown 覆盖 `/chat/state` 返回的全部历史轮次，但只取 `block_kin
 | POST | `/providers/delete` | `provider_name` | `ProvidersRESP` | 连带模型并清活跃/默认指针 |
 | POST | `/providers/model/save` | `provider_name,model`（条目形状同 `ProviderModelEntryVO`） | `ProvidersRESP` | 按 `model_id` 定位，存在即改 |
 | POST | `/providers/model/delete` | `provider_name,model_id` | `ProvidersRESP` | 指针被指向时一并清 |
-| POST | `/providers/models` | `provider_name,base_url,api_protocol,api_key` | `probe_ok,model_count,models[]?,probe_message` | 列模型即连通性测试；失败不报错，用 `probe_ok:false` + `probe_message` 表达 |
+| POST | `/providers/models` | `provider_name,base_url,api_protocol,api_key` | `probe_ok,model_count,models[]?,probe_message` | 列模型即连通性测试；失败不报错，用 `probe_ok:false` + `probe_message` 表达（错误原话里的密钥已掩码） |
 | POST | `/providers/test` | 同上 | 同上 | 同一 handler |
 | GET | `/models/defaults` | — | `default_provider,default_model,default_thinking_level,settings_file` | 新会话的起步设置 |
 | POST | `/models/defaults` | `default_provider,default_model,default_thinking_level` | 同上 | 服务商与模型必须成对填写或成对留空，否则 `3000` |
@@ -261,7 +262,7 @@ Markdown 覆盖 `/chat/state` 返回的全部历史轮次，但只取 `block_kin
 |---|---|---|---|---|
 | GET | `/index/status` | — | `index_workspace,index_doc_count,index_built,index_building,index_built_at` | 状态卡数据源 |
 | POST | `/index/search` | `search_query,search_limit` | `search_hits[],index_status` | 命中行：`doc_path,doc_kind,doc_symbol?,doc_symbol_kind?,doc_line?,hit_score,hit_reason?` |
-| POST | `/index/rebuild` | — | `IndexStatusVO` | 同步重建，`building` 期间幂等返回 |
+| POST | `/index/rebuild` | — | `IndexStatusVO` | 立即受理（`index_building` 置位）即返回；重建在后台协程跑，`GET /index/status` 轮询到 `index_built` 为止；`building` 期间幂等受理 |
 
 ### 3.12 联网（MODULES §10）
 
@@ -297,7 +298,7 @@ Markdown 覆盖 `/chat/state` 返回的全部历史轮次，但只取 `block_kin
 | `stream:open` | （空载荷） | 连接建立后首帧 | 报当前 seq，供下次 `since` 用 |
 | `chat:start` | `started_at,run_id` | 一轮起跑（绑定会话与模型成功后） | — |
 | `chat:live` | `phase`（`text`\|`thinking`\|`tool`）、`output_tokens`；`phase:tool` 时另有 `tool_name,tool_call_id` | 每次正文/思考增量、工具开始执行 | `output_tokens` 是当轮累计 |
-| `chat:patch` | `mode`（`delta`\|`block`）、`index,kind`；`delta` 或 `block` 二选一 | 流式块增量或整块替换；工具结束时整块重发 | `block` 是 `ChatBlockVO` |
+| `chat:patch` | `mode`（`delta`\|`block`）、`index,kind`（块类型：`text`\|`thinking`\|`tool`）；`delta` 或 `block` 二选一 | 流式块增量或整块替换；工具结束时整块重发 | `block` 是 `ChatBlockVO`；前端 `readPatch` 读 `kind` |
 | `chat:turn` | `user_message,turn_blocks[]` | 一条助手消息落盘，整表覆盖块表 | — |
 | `chat:turn_end` | `turn_usage` | 紧随 `chat:turn` | 本轮 token 读数 |
 | `chat:todos` | `todos[]`（`todo_id,todo_subject,todo_status,todo_active_form?`） | todo 工具执行结束且结果带任务清单 | — |
@@ -307,21 +308,23 @@ Markdown 覆盖 `/chat/state` 返回的全部历史轮次，但只取 `block_kin
 | `chat:done` | `aborted` | 同上 | 界面据此收尾并重拉 state 与列表 |
 | `chat:compaction` | `state`（`start`\|`done`）、`engine_kind` | 手动/自动压缩开始与结束 | 不带 `run_id` |
 | `chat:queue` | `steering[],follow_up[]` | 插话/追加入队、单条移除、清空之后；`/chat/stop` 作废了非空排队时也补一帧空队列 | 界面整体替换队列镜像 |
-| `chat:model` | `provider_name,model_id` | 切模型成功后 | 界面未接管（落 default 分支） |
-| `chat:plan` | `plan_enabled,session_id` | 计划模式开关落盘后 | 界面未接管 |
+| `chat:model` | `provider_name,model_id` | 切模型成功后 | 界面就地更新模型身份并重拉清单（stores/events.ts） |
+| `chat:plan` | `plan_enabled,session_id` | 计划模式开关落盘后 | 界面更新计划态镜像 |
+| `chat:retry` | `attempt,max,delay_ms` | 上游调用失败且可重试，进入退避等待 | — |
+| `chat:retry_end` | （空载荷） | 重试结束后（成功或放弃） | — |
 | `session:info` | `engine_kind`（斜杠命令路径的一处广播为空载荷） | 新建/克隆/分叉会话成功后 | 界面重拉会话列表 |
-| `session:title` | `title` | 后端不发：唯一发射点是 `Chat.Rename`，而它没有调用方（`/sessions/rename` 走 `Sessions.Rename`，只落条目不广播） | — |
-| `workspace:changed` | `workspace` | 切工作区成功后 | 界面未接管 |
-| `mcp:changed` | `engine_kind` | MCP 保存/开关/删除后；随后后台重建引擎工具段 | 界面未接管 |
+| `session:title` | `title` | 会话改名成功后（`Chat.RenameAny` 广播，`/sessions/rename` 经引擎写锁追加条目后发出） | 界面刷新会话列表 |
+| `workspace:changed` | `workspace` | 切工作区成功后 | 界面重载工作区态与文件面 |
+| `mcp:changed` | `engine_kind` | MCP 保存/开关/删除后；随后后台重建引擎工具段 | 界面重拉 MCP 清单 |
 | `models:changed` | `engine_kind` | 服务商/模型任何写操作成功后 | 界面重拉模型下拉 |
 | `skill:status` | `skill_dir_name`（必有）+ 动作标志之一：`skill_enabled`/`skill_reset`/`skill_imported`/`skill_deleted` | 六个技能写动作（安装/开关/重置/导入/新建/删除）成功后各发一帧 | — |
 | `engine:detected` | `runtime` | `/engines/detect`、`/engines/repair` 重新探测后 | — |
 | `engine:ready` | （空载荷） | `/engines/restart` 中止当前运行后 | 不带 `engine_kind` |
 | `app:close_requested` | `close_action` | 用户关窗且未记住关窗行为时 | 不带 `engine_kind` |
 
-后端从不广播、前端 `stores/events.ts` 里留有空分支的事件：`engine:status` `engine:exit` `engine:commands`
-`app:progress` `chat:blocks` `chat:notify` `chat:status` `chat:widget` `chat:retry` `chat:retry_end` `chat:editor_text`。
-命中即无反应，排障时不要据此判断后端故障。`AppProgressVO` 类型仍在 `domain/core.go`，没有发射点。
+后端从不广播、前端也已无分支的事件：`engine:status` `engine:exit` `engine:commands`
+`app:progress` `chat:blocks` `chat:notify` `chat:status` `chat:widget` `chat:editor_text`。
+排障时不要据此判断后端故障。`AppProgressVO` 类型仍在 `domain/core.go`，没有发射点，属待清理死类型。
 
 ## 5. 错误码
 
@@ -347,7 +350,7 @@ Markdown 覆盖 `/chat/state` 返回的全部历史轮次，但只取 `block_kin
 | `3001` | CodeNoProvider | 没有可用服务商 / 模型 | chat 的 `resolveModel`：没选模型，或活跃指针指向已删对象（指针会被顺手清掉） |
 | `5000` | CodeSessionBind | 未绑定会话或工作区 | chat、files、git、searcher 的「请先选择工作区」 |
 | `5001` | CodeSessionIO | 会话文件读写失败 | agent 的 `Session.append` 与 parser 两处都用；会话删除/改名时的路径越界 |
-| `5002` | CodeEngineBusy | 有任务占用引擎 | chat 的切会话/新建/克隆/分叉/压缩、sessions 的改名 |
+| `5002` | CodeEngineBusy | 有任务占用引擎 / 构建中 | chat 的切会话/新建/克隆/分叉/压缩；运行未收尾时删会话（`PrepareDelete` 先停轮再删）；索引重建期间的搜索（`searcher`） |
 | `5003` | CodeNotFound | 目标不存在 | 分叉点不在会话里、无运行中的插话/追加/移除、无会话可导出、模型不存在、PDF 无文字、会话文件不存在 |
 | `7000` | CodeProvision | 外部进程 / 上游调用失败 | web 抓取、压缩总结调上游、子进程启动失败 |
 | `8000` | CodeSkillBad | 技能路径或内容不合法 | 目录不存在、无 SKILL.md、重名、名字清洗后为空 |
