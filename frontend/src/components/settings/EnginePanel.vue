@@ -16,11 +16,16 @@ const props = defineProps<{
   /** 引擎落盘布局；解不出来时为 undefined */
   layout?: EngineLayout
   detecting: boolean
+  /** 正在揭示的路径（空表示没有）：路径行按钮要转圈、防连点 */
+  revealing?: string
+  /** 危险命令确认开关写入在途 */
+  bashConfirmBusy?: boolean
 }>()
 
 const emit = defineEmits<{
   redetect: []
   reveal: [path: string]
+  toggleBashConfirm: [enabled: boolean]
 }>()
 
 const { t } = useI18n()
@@ -96,7 +101,7 @@ async function copyText(text: string): Promise<void> {
       <div v-else class="engine-facts">
         <div class="fact wide">
           <span class="fact-label">PATH</span>
-          <button type="button" class="fact-value mono selectable" @click="copyText(item.app_path)">
+          <button type="button" class="fact-value mono selectable wb-pressable-text" @click="copyText(item.app_path)">
             {{ item.app_path }}
           </button>
         </div>
@@ -107,13 +112,29 @@ async function copyText(text: string): Promise<void> {
       <div v-for="field in pathFields" :key="field.key" class="layout-row">
         <span class="layout-label">{{ field.label }}</span>
         <button type="button"
-          class="layout-path mono selectable"
+          class="layout-path mono selectable wb-pressable-text"
+          :class="{ 'is-loading': Boolean(props.revealing) && props.revealing === props.layout[field.key] }"
           :title="t('settings.reveal')"
+          :disabled="Boolean(props.revealing)"
           @click="emit('reveal', props.layout[field.key])"
         >
           {{ props.layout[field.key] || '—' }}
         </button>
       </div>
+    </div>
+
+    <!-- 危险命令确认：执行 bash/危险命令前先问一声 -->
+    <div class="set-row">
+      <div>
+        <div class="set-label">{{ t('settings.bashConfirm') }}</div>
+        <div class="set-hint">{{ t('settings.bashConfirmHint') }}</div>
+      </div>
+      <el-switch
+        :model-value="app.settings['agent.bash_confirm'] !== '0'"
+        :loading="props.bashConfirmBusy"
+        :disabled="props.bashConfirmBusy"
+        @change="(v: string | number | boolean) => emit('toggleBashConfirm', Boolean(v))"
+      />
     </div>
   </section>
 </template>
@@ -237,5 +258,52 @@ async function copyText(text: string): Promise<void> {
 
 .layout-path:hover {
   color: var(--wb-brand);
+}
+
+/* 揭示路径在途：文字级控件的转圈照抄 base-buttons.css .wb-btn.is-loading 的伪元素方案，
+   尺寸收小一号；其余行 :disabled 走通用约定（opacity .45 + not-allowed）。 */
+.layout-path.is-loading {
+  position: relative;
+  padding-left: var(--wb-sp-6);
+  pointer-events: none;
+  cursor: progress;
+}
+
+.layout-path.is-loading::before {
+  content: '';
+  position: absolute;
+  left: var(--wb-sp-2);
+  width: 10px;
+  height: 10px;
+  border: 1.6px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wb-spin 640ms linear infinite;
+}
+
+.layout-path:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 危险命令确认那一行：与各面板的 .set-row 三小段同构（全局无此定义，各面板 scoped 自带）。 */
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wb-sp-3);
+  padding: var(--wb-sp-2) 0;
+}
+
+.set-label {
+  font-size: var(--wb-fs-sm);
+  color: var(--wb-ink);
+}
+
+.set-hint {
+  margin: 2px 0 0;
+  font-size: var(--wb-fs-3xs);
+  color: var(--wb-faint);
+  max-width: var(--wb-w-desc);
 }
 </style>
