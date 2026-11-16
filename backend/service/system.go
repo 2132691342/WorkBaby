@@ -76,13 +76,18 @@ func ConfigText(layout pkg.Layout, name string) (domain.ConfigTextRESP, error) {
 			return out, nil
 		}
 		out.Found = true
+		text := string(raw)
+		if name == "settings" {
+			// 台账里有明文密钥键：原文预览必须走与 /settings 同一套掩码。
+			text = maskSettingsJSON(text)
+		}
 		const limit = 512 * 1024
-		if len(raw) > limit {
-			out.FileText = string(raw[:limit])
+		if len(text) > limit {
+			out.FileText = text[:limit]
 			out.Truncated = true
 			return out, nil
 		}
-		out.FileText = string(raw)
+		out.FileText = text
 		return out, nil
 	}
 	return domain.ConfigTextRESP{}, pkg.Err(pkg.CodeBadRequest, "未知的配置文件名", name)
@@ -114,4 +119,23 @@ func EngineLayout(layout pkg.Layout) domain.EngineLayoutVO {
 		SettingsFile: layout.StorePath,
 		DirExists:    pkg.IsDir(layout.DataDir),
 	}
+}
+
+// maskSettingsJSON 把台账原文里的密钥键换成掩码；解不开就整份不给——
+// 宁可显示不出预览，也不能把明文密钥交给渲染进程。
+func maskSettingsJSON(raw string) string {
+	var doc map[string]any
+	if err := pkg.UnmarshalJSON([]byte(raw), &doc); err != nil {
+		return "（这份文件暂时无法解析，为避免泄漏密钥不展示原文）"
+	}
+	if settings, ok := doc["settings"].(map[string]any); ok {
+		if value, ok := settings[KeyWebSearchKey].(string); ok && value != "" {
+			settings[KeyWebSearchKey] = "••••"
+		}
+	}
+	encoded, err := pkg.MarshalJSONLine(doc)
+	if err != nil {
+		return "（这份文件暂时无法解析，为避免泄漏密钥不展示原文）"
+	}
+	return encoded
 }

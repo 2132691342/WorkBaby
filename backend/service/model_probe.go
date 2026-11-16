@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -19,13 +20,15 @@ var httpClient = &http.Client{Timeout: probeTimeout}
 
 // Probe 向上游问一次模型清单：三种协议各有自己的端点与鉴权头，这里只做「列出模型」。
 // 界面点「测试连接」要的是「通不通、能看到几个模型」，不是完整代理。
-func (m *Models) Probe(req domain.ProviderProbeREQ) domain.ProviderProbeRESP {
+func (m *Models) Probe(ctx context.Context, req domain.ProviderProbeREQ) domain.ProviderProbeRESP {
 	baseUrl, apiProtocol, apiKey := m.resolveProbe(req)
 	if baseUrl == "" {
 		return domain.ProviderProbeRESP{ProbeMessage: "没有可用的接口地址：请先填写或保存服务商配置"}
 	}
 	url, headers := probeRequest(baseUrl, apiProtocol, apiKey)
-	request, err := http.NewRequest(http.MethodGet, url, nil)
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return domain.ProviderProbeRESP{ProbeMessage: "接口地址不合法：" + err.Error()}
 	}
@@ -34,13 +37,14 @@ func (m *Models) Probe(req domain.ProviderProbeREQ) domain.ProviderProbeRESP {
 	}
 	response, err := httpClient.Do(request)
 	if err != nil {
-		return domain.ProviderProbeRESP{ProbeMessage: "连不上：" + err.Error()}
+		// url.Error 的原话带完整地址：任何拼进 URL 的凭据都不能跟着进界面。
+		return domain.ProviderProbeRESP{ProbeMessage: "连不上：" + redactSecret(err.Error(), apiKey)}
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return domain.ProviderProbeRESP{
-			ProbeMessage: "上游返回 " + response.Status + "：" + pkg.Truncate(strings.TrimSpace(string(body)), 300),
+			ProbeMessage: "上游返回 " + response.Status + "：" + redactSecret(pkg.Truncate(strings.TrimSpace(string(body)), 300), apiKey),
 		}
 	}
 	models := parseModelList(body)
@@ -52,13 +56,25 @@ func (m *Models) Probe(req domain.ProviderProbeREQ) domain.ProviderProbeRESP {
 	}
 }
 
+// redactSecret 把错误原话里的密钥换成掩码：失败信息要可读，但不能带凭据。
+func redactSecret(text, apiKey string) string {
+	if apiKey == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, apiKey, "••••")
+}
+
 // probeRequest 按协议给模型清单的地址与鉴权头。
+// openai 走与聊天同一套拼接：带不带 /v1 的填写都收敛到同一个真实端点。
 func probeRequest(baseUrl, apiProtocol, apiKey string) (string, map[string]string) {
-	trimmed := strings.TrimSuffix(baseUrl, "/")
+	trimmed := pkg.NormalizeApiBase(baseUrl)
 	headers := map[string]string{"Accept": "application/json"}
 	switch apiProtocol {
 	case "anthropic":
 		url := trimmed + "/v1/models"
+		if strings.HasSuffix(trimmed, "/v1") {
+			url = trimmed + "/models"
+		}
 		if apiKey != "" {
 			headers["x-api-key"] = apiKey
 			headers["anthropic-version"] = "2023-06-01"
@@ -66,12 +82,16 @@ func probeRequest(baseUrl, apiProtocol, apiKey string) (string, map[string]strin
 		return url, headers
 	case "google":
 		url := trimmed + "/v1beta/models"
+		if strings.HasSuffix(trimmed, "/v1beta") {
+			url = trimmed + "/models"
+		}
 		if apiKey != "" {
-			url += "?key=" + apiKey
+			// 密钥走头而不是查询参数：URL 会进错误原话与任何中间日志。
+			headers["x-goog-api-key"] = apiKey
 		}
 		return url, headers
 	default:
-		url := trimmed + "/v1/models"
+		url := pkg.OpenAIEndpoint(trimmed, "models")
 		if apiKey != "" {
 			headers["Authorization"] = "Bearer " + apiKey
 		}

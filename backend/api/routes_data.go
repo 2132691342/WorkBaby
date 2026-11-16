@@ -94,7 +94,7 @@ func (s *Server) providerProbe(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	pkg.OK(c, s.svc.Models.Probe(req))
+	pkg.OK(c, s.svc.Models.Probe(c.Request.Context(), req))
 }
 
 // providerModelSave 单条模型增改：按 ModelId 定位，存在即改。
